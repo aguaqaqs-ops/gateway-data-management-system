@@ -448,9 +448,9 @@ def worker_ready(env: dict[str, str], *, timeout_seconds: float = 120.0) -> None
     raise RuntimeError("worker did not emit worker_ready")
 
 
-def _git_head_tree_sha() -> str:
+def _git_head_tree_sha(repo_root: Path = REPO_ROOT) -> str:
     tree = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD^{tree}"],
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD^{tree}"],
         check=False,
         capture_output=True,
         text=True,
@@ -461,13 +461,13 @@ def _git_head_tree_sha() -> str:
     return tree.stdout.strip()
 
 
-def _git_dirty_worktree_tree_sha() -> str:
+def _git_dirty_worktree_tree_sha(repo_root: Path = REPO_ROOT) -> str:
     index_fd, index_path = tempfile.mkstemp(prefix="gateway-provenance-index-")
     os.close(index_fd)
     git_env = {**os.environ, "GIT_INDEX_FILE": index_path}
     try:
         read_tree = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "read-tree", "HEAD"],
+            ["git", "-C", str(repo_root), "read-tree", "HEAD"],
             check=False,
             capture_output=True,
             text=True,
@@ -477,7 +477,7 @@ def _git_dirty_worktree_tree_sha() -> str:
         if read_tree.returncode != 0:
             pytest.fail(f"git read-tree HEAD failed: {read_tree.stderr}")
         add_all = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "add", "-A"],
+            ["git", "-C", str(repo_root), "add", "-A"],
             check=False,
             capture_output=True,
             text=True,
@@ -487,7 +487,7 @@ def _git_dirty_worktree_tree_sha() -> str:
         if add_all.returncode != 0:
             pytest.fail(f"git add -A failed: {add_all.stderr}")
         write_tree = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "write-tree"],
+            ["git", "-C", str(repo_root), "write-tree"],
             check=False,
             capture_output=True,
             text=True,
@@ -497,7 +497,7 @@ def _git_dirty_worktree_tree_sha() -> str:
         if write_tree.returncode != 0:
             pytest.fail(f"git write-tree failed: {write_tree.stderr}")
         tree_sha = write_tree.stdout.strip()
-        head_tree = _git_head_tree_sha()
+        head_tree = _git_head_tree_sha(repo_root)
         if tree_sha == head_tree:
             pytest.fail(
                 "dirty worktree tree digest matches HEAD^{tree}; "
@@ -511,9 +511,9 @@ def _git_dirty_worktree_tree_sha() -> str:
             pass
 
 
-def source_tree_sha_for_provenance() -> tuple[str, bool, str]:
+def source_tree_sha_for_provenance(repo_root: Path = REPO_ROOT) -> tuple[str, bool, str]:
     status = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
+        ["git", "-C", str(repo_root), "status", "--porcelain"],
         check=False,
         capture_output=True,
         text=True,
@@ -523,9 +523,9 @@ def source_tree_sha_for_provenance() -> tuple[str, bool, str]:
         pytest.fail(f"git status failed: {status.stderr}")
     worktree_clean = not status.stdout.strip()
     if worktree_clean:
-        command = f"git -C {REPO_ROOT} rev-parse 'HEAD^{{tree}}'"
-        return _git_head_tree_sha(), True, command
-    return _git_dirty_worktree_tree_sha(), False, SOURCE_TREE_SHA_DIRTY_COMMAND
+        command = f"git -C {repo_root} rev-parse 'HEAD^{{tree}}'"
+        return _git_head_tree_sha(repo_root), True, command
+    return _git_dirty_worktree_tree_sha(repo_root), False, SOURCE_TREE_SHA_DIRTY_COMMAND
 
 
 def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
@@ -649,6 +649,186 @@ print(json.dumps(envelope.job_state))
             f"{result.stderr}\n{result.stdout}"
         )
     return cast(dict[str, object], json.loads(result.stdout.strip()))
+
+
+def oracle_history_compare_digest_from_materialize_checkpoint(
+    env: dict[str, str],
+    operation_id: str,
+    *,
+    before_commit: str,
+    current_commit: str,
+) -> str:
+    materialize_step_id = f"{operation_id}-step-1"
+    script = f"""
+import json, sqlite3
+from pathlib import Path
+from gateway_shared_kernel import DigestRef
+from gateway_backend.application.checkpoints import load_checkpoint_envelope
+from gateway_backend.application.history.compare_jobs import (
+    _run_pair_pipeline,
+    _sides_from_materialize_checkpoint,
+    _table_policies_from_checkpoint,
+)
+from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.capabilities.comparison import PairViewKind, TrustedFlowApplicabilityBinding
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_backend.operations.worker import ExecutionControl
+
+step_id = "{materialize_step_id}"
+before_commit = "{before_commit}"
+current_commit = "{current_commit}"
+conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
+row = conn.execute(
+    "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
+    (step_id,),
+).fetchone()
+if row is None or row[0] is None:
+    raise RuntimeError(f"missing checkpoint for {{step_id}}")
+checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
+store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+ref = artifact_ref_from_dict(checkpoint)
+envelope = load_checkpoint_envelope(store, ref)
+job_state = envelope.job_state
+sides = _sides_from_materialize_checkpoint(job_state, store)
+table_policies = _table_policies_from_checkpoint(job_state["table_policies"])
+compare_binding_digest = job_state["compare_binding_digest"]
+trusted = TrustedFlowApplicabilityBinding(
+    view_kind=PairViewKind.HISTORY,
+    binding_digest=DigestRef(str(compare_binding_digest)),
+)
+result = _run_pair_pipeline(
+    pair_id="pair-0",
+    before=sides[before_commit],
+    current=sides[current_commit],
+    table_policies=table_policies,
+    trusted_flow_binding=trusted,
+    store=store,
+    control=ExecutionControl(),
+)
+print(result.comparison_digest)
+"""
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(
+            f"failed to compute history compare oracle digest: "
+            f"{result.stderr}\n{result.stdout}"
+        )
+    return result.stdout.strip()
+
+
+def ordered_compare_facts_from_materialize_checkpoint(
+    env: dict[str, str],
+    operation_id: str,
+    *,
+    before_commit: str,
+    current_commit: str,
+) -> dict[str, object]:
+    materialize_step_id = f"{operation_id}-step-1"
+    script = f"""
+import json, sqlite3
+from pathlib import Path
+from gateway_shared_kernel import DigestRef
+from gateway_backend.application.checkpoints import load_checkpoint_envelope
+from gateway_backend.application.history.compare_jobs import (
+    _sides_from_materialize_checkpoint,
+    _table_policies_from_checkpoint,
+)
+from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.capabilities.comparison import (
+    DetailedFactsResult,
+    PairViewKind,
+    TrustedFlowApplicabilityBinding,
+    bind_pair_input,
+    compare_plan,
+    plan_pair,
+)
+from gateway_backend.capabilities.comparison.contracts import (
+    ArtifactScope,
+    InputCompleteness,
+    PairRole,
+)
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_backend.operations.worker import ExecutionControl
+
+step_id = "{materialize_step_id}"
+before_commit = "{before_commit}"
+current_commit = "{current_commit}"
+conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
+row = conn.execute(
+    "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
+    (step_id,),
+).fetchone()
+if row is None or row[0] is None:
+    raise RuntimeError(f"missing checkpoint for {{step_id}}")
+checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
+store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+ref = artifact_ref_from_dict(checkpoint)
+envelope = load_checkpoint_envelope(store, ref)
+job_state = envelope.job_state
+sides = _sides_from_materialize_checkpoint(job_state, store)
+table_policies = _table_policies_from_checkpoint(job_state["table_policies"])
+compare_binding_digest = job_state["compare_binding_digest"]
+trusted = TrustedFlowApplicabilityBinding(
+    view_kind=PairViewKind.HISTORY,
+    binding_digest=DigestRef(str(compare_binding_digest)),
+)
+bound = bind_pair_input(
+    pair_id="pair-0",
+    view_kind=PairViewKind.HISTORY,
+    pair_role=PairRole.HISTORY,
+    before=sides[before_commit],
+    current=sides[current_commit],
+    input_completeness=InputCompleteness.FULL,
+    artifact_scope=ArtifactScope.ALL_CHANGES,
+    trusted_flow_binding=trusted,
+    table_policies=table_policies,
+)
+if not hasattr(bound, "pair_id"):
+    raise RuntimeError("pair binding failed")
+plan = plan_pair(bound)
+if not hasattr(plan, "pair_id"):
+    raise RuntimeError("pair planning failed")
+compared = compare_plan(plan)
+if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
+    raise RuntimeError("pair comparison did not produce facts")
+facts = compared.facts
+
+def _gid_from_record(record):
+    for label, value in record.before_values + record.current_values:
+        if label == "gid":
+            return value
+    return None
+
+tables = []
+for table in facts.tables:
+    ordered_records = []
+    if table.ordered_extension is not None:
+        for record in table.ordered_extension.records:
+            ordered_records.append(
+                {{
+                    "record_kind": record.record_kind.value,
+                    "gid": _gid_from_record(record),
+                    "row_identity": (
+                        record.row_identity.value if record.row_identity is not None else None
+                    ),
+                }}
+            )
+    tables.append(
+        {{
+            "table_name": table.table_name,
+            "status": table.status.value,
+            "ordered_records": ordered_records,
+        }}
+    )
+    print(json.dumps({{"tables": tables}}))
+"""
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(
+            f"failed to compute ordered compare facts: {result.stderr}\n{result.stdout}"
+        )
+    payload_line = result.stdout.strip().splitlines()[-1]
+    return cast(dict[str, object], json.loads(payload_line))
 
 
 def read_repository_table_rows(

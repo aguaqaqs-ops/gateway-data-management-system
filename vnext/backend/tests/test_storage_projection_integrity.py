@@ -197,8 +197,8 @@ _SCALAR_TYPE_VOCABULARY_CASES: tuple[tuple[str, Callable[[], TableInput], Projec
                 as_row(int_cell(2), int_cell(2), varchar_cell("b")),
             ),
         ),
-        ProjectionStatus.FAILED,
-        "b1_n1_iec104_syx_list",
+        ProjectionStatus.COMPLETE,
+        None,
     ),
     (
         "plain_sized_varchar",
@@ -211,8 +211,8 @@ _SCALAR_TYPE_VOCABULARY_CASES: tuple[tuple[str, Callable[[], TableInput], Projec
             primary_key_columns=("id",),
             rows=(as_row(int_cell(1), varchar_cell("x")),),
         ),
-        ProjectionStatus.FAILED,
-        "t3",
+        ProjectionStatus.COMPLETE,
+        None,
     ),
     (
         "plain_bigint",
@@ -225,8 +225,64 @@ _SCALAR_TYPE_VOCABULARY_CASES: tuple[tuple[str, Callable[[], TableInput], Projec
             primary_key_columns=("id",),
             rows=(as_row(int_cell(1), int_cell(99)),),
         ),
+        ProjectionStatus.COMPLETE,
+        None,
+    ),
+    (
+        "bigint_above_int32_max",
+        lambda: table_input(
+            "t4",
+            columns=(
+                int_column("id"),
+                typed_column("big", "BIGINT"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), int_cell(2_147_483_648)),),
+        ),
+        ProjectionStatus.COMPLETE,
+        None,
+    ),
+    (
+        "bigint_large_positive",
+        lambda: table_input(
+            "t4",
+            columns=(
+                int_column("id"),
+                typed_column("big", "BIGINT"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), int_cell(5_000_000_000)),),
+        ),
+        ProjectionStatus.COMPLETE,
+        None,
+    ),
+    (
+        "bigint_below_int32_min",
+        lambda: table_input(
+            "t4",
+            columns=(
+                int_column("id"),
+                typed_column("big", "BIGINT"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), int_cell(-2_147_483_649)),),
+        ),
+        ProjectionStatus.COMPLETE,
+        None,
+    ),
+    (
+        "unsupported_decimal",
+        lambda: table_input(
+            "t5",
+            columns=(
+                int_column("id"),
+                typed_column("amount", "DECIMAL(10,2)"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), varchar_cell("1.00")),),
+        ),
         ProjectionStatus.FAILED,
-        "t4",
+        "t5",
     ),
 )
 

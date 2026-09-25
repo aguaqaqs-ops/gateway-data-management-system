@@ -667,6 +667,36 @@ def test_compose_history_compare_journey_zero_write_restart(
             restarted_operation = history_reader.get(f"/v1/operations/{compare_three_operation_id}")
             assert restarted_operation.status_code == 200, restarted_operation.text
 
+            replay = history_reader.post(
+                "/v1/history-compares",
+                headers=compose_auth_headers(
+                    token=HISTORY_READER_TOKEN,
+                    idempotency_key="history-compare-iac",
+                ),
+                json={
+                    "nodes": [
+                        {"ref_kind": "baseline_node", "ref_id": BASELINE_NODE_ID},
+                        {"ref_kind": "submission", "ref_id": str(journey_a["submission_id"])},
+                        {"ref_kind": "submission", "ref_id": str(journey_c["submission_id"])},
+                    ],
+                },
+            )
+            assert replay.status_code == 200, replay.text
+            replay_body = cast(dict[str, Any], replay.json())
+            assert replay_body["replayed"] is True
+            assert replay_body["operation_id"] == compare_three_operation_id
+
+            business_after_replay = capture_business_table_state_in_compose(env)
+            commits_after_replay = list_repository_commit_ids(
+                env,
+                repository_id,
+                bearer_token=BEARER_TOKEN,
+            )
+            manifests_after_replay = capture_r4_manifest_artifact_ids(env)
+            assert business_before == business_after_replay
+            assert commits_before == commits_after_replay
+            assert manifests_before == manifests_after_replay
+
         print(
             "zero_table_pair_digest="
             f"{zero_table_comparison_digest} bundle_digest={zero_table_bundle_digest}"

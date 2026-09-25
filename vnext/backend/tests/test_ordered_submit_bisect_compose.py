@@ -105,13 +105,13 @@ def _compose_env(tmp_path: Path, *, prefix: str) -> dict[str, str]:
     }
 
 
-def _t3_varchar8_upload_files(expected_version: int = 0) -> dict[str, tuple[str, bytes, str]]:
+def _t3_decimal_upload_files(expected_version: int = 0) -> dict[str, tuple[str, bytes, str]]:
     initial_sql = b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\nINSERT INTO t VALUES (1);\n"
     modified_sql = (
         b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
         b"INSERT INTO t VALUES (1);\n"
-        b"CREATE TABLE t3 (id INT NOT NULL PRIMARY KEY, label VARCHAR(8) NOT NULL);\n"
-        b"INSERT INTO t3 VALUES (1, 'x');\n"
+        b"CREATE TABLE t3 (id INT NOT NULL PRIMARY KEY, amount DECIMAL(10,2) NOT NULL);\n"
+        b"INSERT INTO t3 VALUES (1, 1.00);\n"
     )
     return upload_files(
         expected_version=expected_version,
@@ -132,10 +132,13 @@ def _worker_log_tail(env: dict[str, str]) -> str:
     return (completed.stdout or "") + (completed.stderr or "")
 
 
-def _assert_projection_failure(tail: str, *, table_name: str) -> None:
-    assert "UNSUPPORTED_TABLE" in tail
-    assert "column scalar_type is not supported" in tail
-    assert table_name in tail
+def _baseline_only_upload_files(expected_version: int = 0) -> dict[str, tuple[str, bytes, str]]:
+    initial_sql = b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\nINSERT INTO t VALUES (1);\n"
+    return upload_files(
+        expected_version=expected_version,
+        initial_bytes=pack_tar_gz({"sql/dbcfg.sql": initial_sql}),
+        modified_bytes=pack_tar_gz({"sql/dbcfg.sql": initial_sql}),
+    )
 
 
 def _run_preview_and_submit(
@@ -144,6 +147,7 @@ def _run_preview_and_submit(
     journey_key_prefix: str,
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]],
     token: str = ACTOR2_TOKEN,
+    retry_upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
         base_url=BACKEND_URL,
@@ -213,13 +217,109 @@ def _run_preview_and_submit(
                 break
             time.sleep(2.0)
         worker_tail = _worker_log_tail(env)
-        return {
+        diagnostic = submit_terminal.get("diagnostic") if submit_terminal is not None else None
+        result: dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "submission_id": accepted.json().get("submission_id"),
             "preview_status": preview_terminal["status"],
             "preview_operation_id": preview_operation_id,
             "submit_operation_id": submit_operation_id,
             "submit_status": submit_terminal["status"] if submit_terminal is not None else "TIMEOUT",
+            "submit_diagnostic_code": (
+                str(diagnostic["code"]) if isinstance(diagnostic, dict) else None
+            ),
+            "submit_diagnostic_message": (
+                str(diagnostic["message"]) if isinstance(diagnostic, dict) else None
+            ),
             "worker_tail": worker_tail,
         }
+        if retry_upload_files_factory is not None:
+            workspace_row = read_workspace_row(env, workspace_id)
+            reaccept = client.post(
+                f"/v1/workspaces/{workspace_id}/submit-attempts",
+                headers=compose_auth_headers(
+                    token=token,
+                    idempotency_key=f"{journey_key_prefix}-resubmit-check",
+                ),
+                json={
+                    "expected_workspace_version": workspace_row["optimistic_version"],
+                    "upload_revision_id": upload_body["upload_revision_id"],
+                    "preview_result_id": workspace_row["current_preview_result_id"],
+                    "generation": workspace_row["generation"],
+                    "expected_baseline_node_id": BASELINE_NODE_ID,
+                    "expected_baseline_head_version": 0,
+                    "options": {},
+                },
+            )
+            result["resubmit_accept_status"] = reaccept.status_code
+            retry_upload_payload = retry_upload_files_factory(workspace_row["optimistic_version"])
+            retry_upload = client.post(
+                f"/v1/workspaces/{workspace_id}/upload-revisions",
+                headers=compose_auth_headers(
+                    token=token,
+                    idempotency_key=f"{journey_key_prefix}-retry-upload",
+                ),
+                files=retry_upload_payload,
+            )
+            assert retry_upload.status_code == 201, retry_upload.text
+            retry_upload_body = retry_upload.json()
+            retry_preview = client.post(
+                f"/v1/workspaces/{workspace_id}/preview-operations",
+                headers=compose_auth_headers(
+                    token=token,
+                    idempotency_key=f"{journey_key_prefix}-retry-preview",
+                ),
+                json={
+                    "expected_workspace_version": retry_upload_body["optimistic_version"],
+                    "upload_revision_id": retry_upload_body["upload_revision_id"],
+                    "generation": retry_upload_body["generation"],
+                    "expected_baseline_node_id": BASELINE_NODE_ID,
+                    "expected_baseline_head_version": 0,
+                    "options": {},
+                },
+            )
+            assert retry_preview.status_code == 202, retry_preview.text
+            retry_preview_operation_id = retry_preview.json()["operation_id"]
+            retry_preview_terminal = poll_operation(
+                client,
+                retry_preview_operation_id,
+                timeout_seconds=_SUBMIT_STEP_TIMEOUT_SECONDS,
+            )
+            workspace_row = read_workspace_row(env, workspace_id)
+            retry_accepted = client.post(
+                f"/v1/workspaces/{workspace_id}/submit-attempts",
+                headers=compose_auth_headers(
+                    token=token,
+                    idempotency_key=f"{journey_key_prefix}-retry-submit",
+                ),
+                json={
+                    "expected_workspace_version": workspace_row["optimistic_version"],
+                    "upload_revision_id": retry_upload_body["upload_revision_id"],
+                    "preview_result_id": workspace_row["current_preview_result_id"],
+                    "generation": workspace_row["generation"],
+                    "expected_baseline_node_id": BASELINE_NODE_ID,
+                    "expected_baseline_head_version": 0,
+                    "options": {},
+                },
+            )
+            assert retry_accepted.status_code == 202, retry_accepted.text
+            retry_submit_operation_id = retry_accepted.json()["operation_id"]
+            deadline = time.monotonic() + _SUBMIT_STEP_TIMEOUT_SECONDS
+            retry_submit_terminal: dict[str, Any] | None = None
+            while time.monotonic() < deadline:
+                response = client.get(f"/v1/operations/{retry_submit_operation_id}")
+                body = cast(dict[str, Any], response.json())
+                if body["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                    retry_submit_terminal = body
+                    break
+                time.sleep(2.0)
+            result["retry_preview_status"] = retry_preview_terminal["status"]
+            result["retry_submit_operation_id"] = retry_submit_operation_id
+            result["retry_submit_status"] = (
+                retry_submit_terminal["status"] if retry_submit_terminal is not None else "TIMEOUT"
+            )
+            result["retry_submission_id"] = retry_accepted.json().get("submission_id")
+        return result
 
 
 def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
@@ -260,17 +360,24 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         )
         case_b = _run_preview_and_submit(
             baseline_env,
-            journey_key_prefix="bisect-t3-varchar8",
+            journey_key_prefix="bisect-t3-decimal",
             token=SESSION_TOKEN,
-            upload_files_factory=_t3_varchar8_upload_files,
+            upload_files_factory=_t3_decimal_upload_files,
+            retry_upload_files_factory=_baseline_only_upload_files,
         )
         print(
-            "case_b_prime_t3_varchar8",
+            "case_b_prime_t3_decimal",
             json.dumps({k: v for k, v in case_b.items() if k != "worker_tail"}, indent=2),
         )
         assert case_b["preview_status"] == "SUCCEEDED"
-        assert case_b["submit_status"] != "SUCCEEDED"
-        _assert_projection_failure(case_b["worker_tail"], table_name="t3")
+        assert case_b["submit_status"] == "FAILED"
+        assert case_b["submit_diagnostic_code"] == "UNSUPPORTED_TABLE"
+        assert case_b["submit_diagnostic_message"] is not None
+        assert "column scalar_type is not supported" in case_b["submit_diagnostic_message"]
+        assert "t3" in case_b["submit_diagnostic_message"]
+        assert case_b["retry_preview_status"] == "SUCCEEDED"
+        assert case_b["retry_submit_status"] == "SUCCEEDED"
+        assert case_b["retry_submit_operation_id"] != case_b["submit_operation_id"]
     finally:
         cleanup_compose_project_artifacts(baseline_env)
 

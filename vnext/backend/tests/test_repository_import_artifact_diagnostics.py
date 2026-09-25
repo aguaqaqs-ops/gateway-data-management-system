@@ -9,10 +9,8 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionDiagnosticCode,
     ProjectionDiagnosticSeverity,
 )
-from gateway_backend.repository_import_artifact import (
-    SubmitImportPublicationError,
-    _format_projection_diagnostics,
-)
+from gateway_backend.application.submission.errors import SubmitImportPublicationError
+from gateway_backend.repository_import_artifact import _format_projection_diagnostics
 
 pytestmark = pytest.mark.unit
 

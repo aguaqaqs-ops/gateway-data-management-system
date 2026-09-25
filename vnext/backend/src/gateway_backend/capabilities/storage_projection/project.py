@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import replace
 
@@ -16,6 +17,9 @@ from gateway_shared_kernel import (
     UnsignedIntegerScalar,
 )
 
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    try_declared_type_for_sql_spelling,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationStage,
     SnapshotColumnDescriptor,
@@ -80,6 +84,7 @@ _DECLARED_TYPES: dict[str, DeclaredType] = {
     "INT UNSIGNED": _UINT_DECLARED_TYPE,
     "VARCHAR": _VARCHAR_DECLARED_TYPE,
 }
+_SIZED_VARCHAR = re.compile(r"^VARCHAR\(\d+\)$")
 
 
 class _ProjectionFailed(Exception):
@@ -500,6 +505,19 @@ def _retained_schema(
     return schema_columns, codecs, tuple(retained_indexes)
 
 
+def _resolve_declared_scalar_type(sql_type: str) -> DeclaredType | None:
+    declared = try_declared_type_for_sql_spelling(sql_type)
+    if declared is None:
+        return None
+    if declared.kind is DeclaredTypeKind.STRING:
+        return _VARCHAR_DECLARED_TYPE
+    if declared.kind is DeclaredTypeKind.SIGNED_INTEGER and declared.bits in {32, 64}:
+        return declared
+    if declared.kind is DeclaredTypeKind.UNSIGNED_INTEGER and declared.bits == 32:
+        return declared
+    return None
+
+
 def _codec_for(column: SnapshotColumnDescriptor, view: StorageRuleView) -> CanonicalColumnCodec:
     name = canonicalize_rule_identifier(column.name)
     if view.ordered_policy is OrderedPolicy.GID_NO_V1 and name == ORDERED_IDENTITY_COLUMN:
@@ -534,7 +552,7 @@ def _codec_for(column: SnapshotColumnDescriptor, view: StorageRuleView) -> Canon
             declared_type=_VARCHAR_DECLARED_TYPE if kind == "ENUM" else None,
             labels=labels,
         )
-    declared = _DECLARED_TYPES.get(sql_type.upper())
+    declared = _resolve_declared_scalar_type(sql_type)
     if declared is None:
         raise _ProjectionFailed(
             _error(

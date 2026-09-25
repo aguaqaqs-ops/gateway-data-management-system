@@ -29,7 +29,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     SnapshotMaterializationStatus,
 )
-from gateway_backend.domain.submission.models import RepositoryArtifactRef
+from gateway_backend.application.submit_jobs import _submit_attempt_id_from_operation
+from gateway_backend.domain.submission.models import RepositoryArtifactRef, SubmitAttemptState
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import StepStatus
 from gateway_backend.operations.contracts import OperationStatus
@@ -41,6 +42,7 @@ from gateway_backend.operations.worker import (
     ExecutorAcknowledgment,
     WriteUnitOfWorkFactory,
 )
+from gateway_backend.application.submission.errors import SubmitImportPublicationError
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
@@ -266,6 +268,49 @@ def test_prepare_handler_publishes_checkpoint_and_successor(
     assert prepare_step.checkpoint_ref is not None
     assert submit_step.status is StepStatus.PENDING
     assert operation.status is OperationStatus.RUNNING
+
+
+def test_prepare_handler_publication_failure_marks_operation_failed(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = InMemoryArtifactStore()
+    operation_id = _accept_prepared_operation(db_path, store)
+
+    def fail_publish(**_kwargs: object) -> object:
+        raise SubmitImportPublicationError(
+            "storage projection failed: UNSUPPORTED_TABLE: "
+            "column scalar_type is not supported (table=t5)"
+        )
+
+    monkeypatch.setattr(
+        "gateway_backend.application.submit_jobs.publish_prepare_import_package",
+        fail_publish,
+    )
+
+    acknowledgment = _run_prepare_handler(db_path, store, operation_id)
+
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        prepare_step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
+    assert operation.status is OperationStatus.FAILED
+    assert prepare_step.status is StepStatus.FAILED
+    assert operation.diagnostic is not None
+    assert operation.diagnostic.code == "UNSUPPORTED_TABLE"
+    assert "column scalar_type is not supported" in operation.diagnostic.message
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submit_attempt_id = _submit_attempt_id_from_operation(operation)
+        attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+        assert attempt is not None
+        workspace_occupancy = unit_of_work.submission.get_workspace_occupancy(attempt.workspace_id)
+        repository_occupancy = unit_of_work.submission.get_repository_occupancy(
+            attempt.repository_id
+        )
+    assert attempt.state is SubmitAttemptState.ABORTED
+    assert attempt.abort_code == "UNSUPPORTED_TABLE"
+    assert workspace_occupancy is None
+    assert repository_occupancy is None
 
 
 def test_prepare_handler_reuses_checkpoint_on_replay(

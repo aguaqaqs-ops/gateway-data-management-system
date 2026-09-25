@@ -9,7 +9,6 @@ parser-private type maps.
 from __future__ import annotations
 
 import math
-import re
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -26,6 +25,10 @@ from gateway_shared_kernel import (
     normalize_logical_literal,
 )
 
+from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
+    SqlDeclaredTypeMappingError,
+    declared_type_for_sql_spelling,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     DiagnosticSeverity,
     MaterializationDiagnostic,
@@ -39,31 +42,6 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlLogicalType,
 )
 
-_INTEGER_BITS = {
-    "TINYINT": 8,
-    "SMALLINT": 16,
-    "MEDIUMINT": 24,
-    "INT": 32,
-    "INTEGER": 32,
-    "BIGINT": 64,
-}
-_TEXT_BASES = frozenset(
-    {
-        "CHAR",
-        "VARCHAR",
-        "TINYTEXT",
-        "TEXT",
-        "MEDIUMTEXT",
-        "LONGTEXT",
-        "JSON",
-        "ENUM",
-        "SET",
-    }
-)
-_BLOB_BASES = frozenset(
-    {"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB"}
-)
-_LEADING_TOKEN = re.compile(r"^([A-Z]+)(?:\((.*)\))?$")
 _STRING_TYPE = DeclaredType(kind=DeclaredTypeKind.STRING)
 
 
@@ -178,61 +156,10 @@ def encode_repository_value(
 def _declared_type_for(spelling: str | None) -> tuple[DeclaredType, bool]:
     if spelling is None or spelling == "":
         return _STRING_TYPE, True
-    token = spelling.strip().upper()
-    token = re.sub(r"\s+UNSIGNED$", "", token)
-    token = re.sub(r"\s+ZEROFILL$", "", token)
-    match = _LEADING_TOKEN.match(token.split()[0] if " " in token and "(" not in token else token)
-    if match is None:
-        base = token.split("(", 1)[0].split()[0]
-        args = None
-    else:
-        base = match.group(1)
-        args = match.group(2)
-    if base in {"BOOLEAN", "BOOL"}:
-        return DeclaredType(kind=DeclaredTypeKind.BOOLEAN), False
-    if base in _INTEGER_BITS:
-        return (
-            DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=_INTEGER_BITS[base]),
-            False,
-        )
-    if base in {"FLOAT"}:
-        return DeclaredType(kind=DeclaredTypeKind.FLOAT32), False
-    if base in {"DOUBLE", "REAL"}:
-        return DeclaredType(kind=DeclaredTypeKind.FLOAT64), False
-    if base == "DECIMAL":
-        precision, scale = _decimal_args(args)
-        return DeclaredType(kind=DeclaredTypeKind.DECIMAL, precision=precision, scale=scale), False
-    if base == "BIT":
-        width = _positive_arg(args, default=1)
-        return DeclaredType(kind=DeclaredTypeKind.BIT, bit_width=width), False
-    if base == "DATE":
-        return DeclaredType(kind=DeclaredTypeKind.DATE), False
-    if base == "DATETIME":
-        return DeclaredType(kind=DeclaredTypeKind.DATETIME), False
-    if base == "TIMESTAMP":
-        return DeclaredType(kind=DeclaredTypeKind.TIMESTAMP), False
-    if base == "TIME":
-        return DeclaredType(kind=DeclaredTypeKind.TIME_DURATION), False
-    if base in _TEXT_BASES:
-        return _STRING_TYPE, False
-    if base in _BLOB_BASES:
-        return DeclaredType(kind=DeclaredTypeKind.BINARY), False
-    return _STRING_TYPE, True
-
-
-def _decimal_args(args: str | None) -> tuple[int, int]:
-    if args is None or args == "":
-        return 10, 0
-    parts = [item.strip() for item in args.split(",")]
-    precision = int(parts[0]) if parts and parts[0] else 10
-    scale = int(parts[1]) if len(parts) > 1 and parts[1] else 0
-    return precision, scale
-
-
-def _positive_arg(args: str | None, *, default: int) -> int:
-    if args is None or args == "":
-        return default
-    return int(args.split(",", 1)[0].strip())
+    try:
+        return declared_type_for_sql_spelling(spelling), False
+    except SqlDeclaredTypeMappingError:
+        return _STRING_TYPE, True
 
 
 def _as_text(value: object) -> str:

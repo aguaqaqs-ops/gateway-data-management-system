@@ -186,3 +186,7 @@ class ArchiveClosed(SubmitApplicationError):
 
     def __init__(self) -> None:
         super().__init__("submission is closed by archive")
+
+
+class SubmitImportPublicationError(ValueError):
+    """Raised when submit import publication fails closed."""

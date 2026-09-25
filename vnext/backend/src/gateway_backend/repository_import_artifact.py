@@ -15,6 +15,7 @@ from gateway_backend.application.submission.contracts import (
     PrepareImportPublicationResult,
     SnapshotTableBinding,
 )
+from gateway_backend.application.submission.errors import SubmitImportPublicationError
 from gateway_backend.artifacts import (
     ArtifactStorePort,
     ManifestVerificationError,
@@ -65,7 +66,6 @@ __all__ = [
     "REPLAY_SQL_ENTRY_NAME",
     "RepositoryImportArtifactError",
     "SubmitImportPublicationAdapter",
-    "SubmitImportPublicationError",
     "WrittenImportPackage",
     "build_repository_import_package",
     "write_repository_import_package",
@@ -74,10 +74,6 @@ __all__ = [
 
 class RepositoryImportArtifactError(ValueError):
     """Raised when a v1 import package cannot be written."""
-
-
-class SubmitImportPublicationError(ValueError):
-    """Raised when submit import publication fails closed."""
 
 
 def _format_projection_diagnostics(prefix: str, diagnostics: tuple[ProjectionDiagnostic, ...]) -> str:

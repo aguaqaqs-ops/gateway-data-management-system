@@ -12,7 +12,10 @@ from gateway_backend.application.submission.ports import (
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
 )
-from gateway_backend.domain.submission.models import SubmitAttempt, SubmitAttemptState
+from gateway_backend.domain.submission.models import (
+    SubmitAttempt,
+    SubmitAttemptState,
+)
 from gateway_backend.domain.submission.policies import transition_attempt_state
 from gateway_backend.operations import (
     OperationDiagnostic,
@@ -34,6 +37,13 @@ _ACTIVE_STEP_STATUSES = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
+class AbortPreparedSubmitRequest:
+    submit_attempt_id: str
+    abort_code: str
+    aborted_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class AbortSubmitTransactionRequest:
     submit_attempt_id: str
     proof: MatchingAbortProof
@@ -50,6 +60,64 @@ class AbortSubmitTransactionRequest:
 class AbortSubmitTransactionResult:
     attempt: SubmitAttempt
     replay: bool
+
+
+def abort_prepared_submit_in_control_transaction(
+    *,
+    request: AbortPreparedSubmitRequest,
+    unit_of_work: SubmitControlTransaction,
+) -> SubmitAttempt:
+    attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
+    if attempt is None:
+        raise ValueError("submit attempt is missing")
+    if attempt.state is SubmitAttemptState.ABORTED:
+        return attempt
+    if attempt.state is not SubmitAttemptState.PREPARED:
+        raise ValueError("abort_prepared requires PREPARED attempt")
+
+    workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
+    if workspace is None:
+        raise ValueError("workspace is missing")
+
+    aborted_attempt = transition_attempt_state(
+        attempt,
+        target=SubmitAttemptState.ABORTED,
+        optimistic_version=attempt.optimistic_version + 1,
+        aborted_at=request.aborted_at,
+        abort_code=request.abort_code,
+    )
+    unit_of_work.submission.cas_update_attempt(
+        aborted_attempt,
+        expected_version=attempt.optimistic_version,
+    )
+    updated_workspace = replace(
+        workspace,
+        optimistic_version=workspace.optimistic_version + 1,
+        updated_at=request.aborted_at,
+    )
+    unit_of_work.workspace.save_workspace(
+        updated_workspace,
+        expected_version=workspace.optimistic_version,
+    )
+    unit_of_work.submission.delete_workspace_occupancy(
+        attempt.workspace_id,
+        expected_submit_attempt_id=attempt.submit_attempt_id,
+    )
+    unit_of_work.submission.delete_repository_occupancy(
+        repository_id=attempt.repository_id,
+        workspace_id=attempt.workspace_id,
+        submit_attempt_id=attempt.submit_attempt_id,
+        business_baseline_node_id=attempt.business_baseline_node_id,
+        baseline_head_version=attempt.baseline_head_version,
+    )
+    unit_of_work.clear_artifact_protection(
+        owner_kind="submit-attempt",
+        owner_id=attempt.submit_attempt_id,
+    )
+    from gateway_backend.application.submit_jobs import release_submit_checkpoint_protection
+
+    release_submit_checkpoint_protection(unit_of_work, operation_id=attempt.operation_id)
+    return aborted_attempt
 
 
 def abort_submit_transaction(

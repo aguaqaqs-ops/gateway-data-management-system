@@ -7,7 +7,6 @@ in-memory semantic values until the S5 artifact writer owns their durable closur
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Any, Iterable
@@ -42,6 +41,10 @@ from gateway_shared_kernel import (
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_shared_kernel.uleb128 import encode_uleb128
 
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    SqlDeclaredTypeMappingError,
+    declared_type_for_sql_spelling,
+)
 from gateway_backend.capabilities.comparison.contracts import (
     ArtifactScope,
     ComparisonFacts,
@@ -72,21 +75,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 COMPARISON_DIRECTION = "BEFORE_TO_CURRENT"
 STANDARD_COMPARISON_ALGORITHM_VERSION = "standard-reference/v1"
 
-_TYPE_TOKEN = re.compile(r"^([A-Z]+)(?:\(([^)]*)\))?(?:\s+(UNSIGNED))?.*$")
-_INTEGER_BITS = {
-    "TINYINT": 8,
-    "SMALLINT": 16,
-    "MEDIUMINT": 24,
-    "INT": 32,
-    "INTEGER": 32,
-    "BIGINT": 64,
-}
-_TEXT_TYPES = frozenset(
-    {"CHAR", "VARCHAR", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT", "JSON", "ENUM"}
-)
-_BINARY_TYPES = frozenset(
-    {"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB"}
-)
 _TYPED_SCALAR_TYPES = (
     NullScalar,
     BooleanScalar,
@@ -909,40 +897,10 @@ def _encode_cell(column: SnapshotColumnDescriptor, cell: object) -> bytes:
 def _declared_type(spelling: str | None, cell: TypedScalar) -> DeclaredType:
     if spelling is None or spelling == "":
         return _infer_declared_type(cell)
-    token = spelling.strip().upper()
-    match = _TYPE_TOKEN.match(token)
-    if match is None:
-        raise StandardComparisonError("SCALAR_TYPE_UNKNOWN")
-    base, args, unsigned = match.groups()
-    if base in {"BOOLEAN", "BOOL"}:
-        return DeclaredType(kind=DeclaredTypeKind.BOOLEAN)
-    if base in _INTEGER_BITS:
-        return DeclaredType(
-            kind=DeclaredTypeKind.UNSIGNED_INTEGER if unsigned else DeclaredTypeKind.SIGNED_INTEGER,
-            bits=_INTEGER_BITS[base],
-        )
-    if base == "FLOAT":
-        return DeclaredType(kind=DeclaredTypeKind.FLOAT32)
-    if base in {"DOUBLE", "REAL"}:
-        return DeclaredType(kind=DeclaredTypeKind.FLOAT64)
-    if base == "DECIMAL":
-        parts = tuple(int(item.strip()) for item in (args or "10,0").split(","))
-        return DeclaredType(kind=DeclaredTypeKind.DECIMAL, precision=parts[0], scale=parts[1])
-    if base == "BIT":
-        return DeclaredType(kind=DeclaredTypeKind.BIT, bit_width=int(args or "1"))
-    if base == "DATE":
-        return DeclaredType(kind=DeclaredTypeKind.DATE)
-    if base == "DATETIME":
-        return DeclaredType(kind=DeclaredTypeKind.DATETIME)
-    if base == "TIMESTAMP":
-        return DeclaredType(kind=DeclaredTypeKind.TIMESTAMP)
-    if base == "TIME":
-        return DeclaredType(kind=DeclaredTypeKind.TIME_DURATION)
-    if base in _TEXT_TYPES:
-        return DeclaredType(kind=DeclaredTypeKind.STRING)
-    if base in _BINARY_TYPES:
-        return DeclaredType(kind=DeclaredTypeKind.BINARY)
-    raise StandardComparisonError("SCALAR_TYPE_UNKNOWN")
+    try:
+        return declared_type_for_sql_spelling(spelling)
+    except SqlDeclaredTypeMappingError:
+        raise StandardComparisonError("SCALAR_TYPE_UNKNOWN") from None
 
 
 def _infer_declared_type(cell: TypedScalar) -> DeclaredType:

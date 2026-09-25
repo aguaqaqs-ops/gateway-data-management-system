@@ -65,7 +65,9 @@ from gateway_backend.application.submit_registry import (
 )
 from gateway_backend.application.submission.abort import ALLOWED_ABORT_CODES, validate_abort_proof
 from gateway_backend.application.submission.abort_transaction import (
+    AbortPreparedSubmitRequest,
     AbortSubmitTransactionRequest,
+    abort_prepared_submit_in_control_transaction,
     abort_submit_in_control_transaction,
     abort_submit_transaction,
 )
@@ -155,10 +157,12 @@ from gateway_backend.operations.worker import (
     WriteUnitOfWorkFactory,
 )
 from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
+from gateway_backend.application.submission.errors import SubmitImportPublicationError
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 
 SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v1"
 AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA = "backend-vnext/submit/await-import-result-checkpoint/v1"
+_MAX_PREPARE_PROJECTION_MESSAGE_BYTES = 4 * 1024
 
 _JCS_MEDIA_TYPE = "application/jcs"
 
@@ -442,65 +446,69 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
         if attempt.state is not SubmitAttemptState.PREPARED:
             raise SubmitJobError("prepare_import requires PREPARED attempt")
 
-        if step.checkpoint_ref is not None:
-            envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
-            if not definition_matches_checkpoint(prepare_definition, envelope):
-                raise CheckpointDecodeError(
-                    "checkpoint envelope does not match the prepare_import JobDefinition",
-                    code="CHECKPOINT_IDENTITY_MISMATCH",
+        try:
+            if step.checkpoint_ref is not None:
+                envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
+                if not definition_matches_checkpoint(prepare_definition, envelope):
+                    raise CheckpointDecodeError(
+                        "checkpoint envelope does not match the prepare_import JobDefinition",
+                        code="CHECKPOINT_IDENTITY_MISMATCH",
+                    )
+                prepare_checkpoint = _prepare_checkpoint_from_job_state(
+                    envelope.job_state,
+                    expected_attempt_id=payload.submit_attempt_id,
                 )
-            prepare_checkpoint = _prepare_checkpoint_from_job_state(
-                envelope.job_state,
-                expected_attempt_id=payload.submit_attempt_id,
-            )
-            build_input = _build_prepare_import_build_input(
-                payload=payload,
-                attempt=attempt,
-                operation=operation,
-                store=deps.artifact_store,
-            )
-            reuse_prepare_import_checkpoint(
-                build_input=build_input,
-                checkpoint=prepare_checkpoint,
-                publication=deps.publication,
-                store=deps.artifact_store,
-            )
-            _pin_prepare_refs(
-                deps=deps,
-                attempt=attempt,
-                operation=operation,
-                checkpoint=prepare_checkpoint,
-            )
-            with deps.control_transaction_factory() as unit_of_work:
-                _pin_submit_checkpoint_refs(
-                    unit_of_work,
-                    step_id=step.step_id,
-                    checkpoint_ref=step.checkpoint_ref,
-                    extra_refs=_prepare_checkpoint_extra_refs(prepare_checkpoint),
-                    intent="prepare-import-checkpoint",
+                build_input = _build_prepare_import_build_input(
+                    payload=payload,
+                    attempt=attempt,
+                    operation=operation,
+                    store=deps.artifact_store,
                 )
-        else:
-            build_input = _build_prepare_import_build_input(
-                payload=payload,
-                attempt=attempt,
-                operation=operation,
-                store=deps.artifact_store,
-            )
-            publication = publish_prepare_import_package(
-                build_input=build_input,
-                publication=deps.publication,
-                store=deps.artifact_store,
-            )
-            _prepare_step_checkpoint(
-                deps=deps,
-                definition=prepare_definition,
-                operation=operation,
-                step=step,
-                checkpoint=publication.checkpoint,
-                lease_session=lease_session,
-                attempt=attempt,
-                operation_record=operation,
-            )
+                reuse_prepare_import_checkpoint(
+                    build_input=build_input,
+                    checkpoint=prepare_checkpoint,
+                    publication=deps.publication,
+                    store=deps.artifact_store,
+                )
+                _pin_prepare_refs(
+                    deps=deps,
+                    attempt=attempt,
+                    operation=operation,
+                    checkpoint=prepare_checkpoint,
+                )
+                with deps.control_transaction_factory() as unit_of_work:
+                    _pin_submit_checkpoint_refs(
+                        unit_of_work,
+                        step_id=step.step_id,
+                        checkpoint_ref=step.checkpoint_ref,
+                        extra_refs=_prepare_checkpoint_extra_refs(prepare_checkpoint),
+                        intent="prepare-import-checkpoint",
+                    )
+            else:
+                build_input = _build_prepare_import_build_input(
+                    payload=payload,
+                    attempt=attempt,
+                    operation=operation,
+                    store=deps.artifact_store,
+                )
+                publication = publish_prepare_import_package(
+                    build_input=build_input,
+                    publication=deps.publication,
+                    store=deps.artifact_store,
+                )
+                _prepare_step_checkpoint(
+                    deps=deps,
+                    definition=prepare_definition,
+                    operation=operation,
+                    step=step,
+                    checkpoint=publication.checkpoint,
+                    lease_session=lease_session,
+                    attempt=attempt,
+                    operation_record=operation,
+                )
+        except SubmitImportPublicationError as exc:
+            _publish_prepare_projection_failure(lease_session, exc)
+            return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.refresh_control()
         if control.cancel_requested:
@@ -2415,6 +2423,68 @@ def _make_finalize_success_builder(
         return terminal_step, terminal_operation
 
     return builder
+
+
+def _prepare_projection_failure_diagnostic(exc: SubmitImportPublicationError) -> OperationDiagnostic:
+    message = str(exc)
+    encoded = message.encode("utf-8")
+    if len(encoded) > _MAX_PREPARE_PROJECTION_MESSAGE_BYTES:
+        message = encoded[:_MAX_PREPARE_PROJECTION_MESSAGE_BYTES].decode("utf-8", errors="ignore")
+    code = "UNSUPPORTED_TABLE" if "UNSUPPORTED_TABLE" in message else "STORAGE_PROJECTION_FAILED"
+    return OperationDiagnostic(code=code, message=message)
+
+
+def _make_prepare_projection_failure_builder(
+    diagnostic: OperationDiagnostic,
+) -> Callable[[OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]]:
+    def builder(
+        operation: OperationRecord,
+        step: StepRecord,
+        transaction_now: datetime,
+    ) -> tuple[StepRecord, OperationRecord]:
+        transaction = _active_submit_transaction.get()
+        if transaction is None:
+            raise SubmitJobError("submit prepare failure transaction is not bound")
+        submit_attempt_id = _submit_attempt_id_from_operation(operation)
+        abort_prepared_submit_in_control_transaction(
+            request=AbortPreparedSubmitRequest(
+                submit_attempt_id=submit_attempt_id,
+                abort_code=diagnostic.code,
+                aborted_at=transaction_now,
+            ),
+            unit_of_work=transaction,
+        )
+        terminal_step = dataclasses.replace(
+            step,
+            status=StepStatus.FAILED,
+            diagnostic=diagnostic,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=step.optimistic_version + 1,
+        )
+        terminal_operation = dataclasses.replace(
+            operation,
+            status=OperationStatus.FAILED,
+            diagnostic=diagnostic,
+            completed_at=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=operation.optimistic_version + 1,
+        )
+        return terminal_step, terminal_operation
+
+    return builder
+
+
+def _publish_prepare_projection_failure(
+    lease_session: LeaseSession,
+    exc: SubmitImportPublicationError,
+) -> None:
+    lease_session.publish_operation(
+        _make_prepare_projection_failure_builder(_prepare_projection_failure_diagnostic(exc))
+    )
 
 
 def _make_cancelled_terminal_builder() -> Callable[

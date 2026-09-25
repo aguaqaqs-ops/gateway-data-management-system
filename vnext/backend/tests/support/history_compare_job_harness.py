@@ -96,7 +96,7 @@ def ordered_syx_catalog_table() -> RepositoryCatalogTable:
     return catalog_table(
         ORDERED_SYX_TABLE,
         (
-            RepositoryColumn(name="gid", ordinal=0, scalar_type="BIGINT", nullable=True),
+            RepositoryColumn(name="gid", ordinal=0, scalar_type="INT UNSIGNED", nullable=False),
             RepositoryColumn(name="no", ordinal=1, scalar_type="INT", nullable=False),
             RepositoryColumn(name="value", ordinal=2, scalar_type="VARCHAR(8)", nullable=True),
         ),

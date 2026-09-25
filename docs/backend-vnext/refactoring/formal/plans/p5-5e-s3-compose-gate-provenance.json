@@ -1,7 +1,7 @@
 {
   "compose_project_name": "gateway-history-5e-test_compose_history_compare_j0",
-  "gate_tested_head": "387174fc85e42d4e30c18ae9c3e3886be254dc3b",
-  "source_tree_sha": "9a49190180a111fa6b969062b3443c6cf6c01811",
+  "gate_tested_head": "25f2c916249403430095b1f47a1dc8911a06542d",
+  "source_tree_sha": "9f87491b8a803150832b102e73956cda714657c1",
   "source_tree_sha_command": "GIT_INDEX_FILE=$(mktemp) && git -C \"$REPO_ROOT\" read-tree HEAD && git -C \"$REPO_ROOT\" add -A && git -C \"$REPO_ROOT\" write-tree",
   "source_tree_sha_excludes": "full repo tree via temporary index (includes unstaged and untracked); not a HEAD^{tree} snapshot",
   "worktree_clean": false,
@@ -9,7 +9,7 @@
   "recorded_at": "2026-09-25",
   "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-handoff.md §6.3",
   "fresh_build": true,
-  "fresh_build_reason": "R1-R3 provenance remediation; compose build backend/worker at T-6 gate",
+  "fresh_build_reason": "S3 review-gap remediation: type normalization, submit FAILED, ordered compare compose, restart replay; compose build backend/worker at gate",
   "vnext_deploy_compose_yaml_sha256": "f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0",
   "vnext_deploy_config_session_json_sha256": "cd7036b5136fd4184a80281530611a859ae07ce03ad93be51458e45cecc1deac",
   "lock_sha256": {
@@ -20,15 +20,15 @@
     "backend": "21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea"
   },
   "running_image": {
-    "backend": "sha256:f029860f95002d824e7399fb148723c7971f9d975de2f85d10b3c36d955d884d",
-    "worker": "sha256:60d3e7bed6370f7ed9b3c4cc861a0436a1e6da859cf88f0dcb74b929ba4f1778",
+    "backend": "sha256:06517c9b9066d860d80894eafc5ea04810d5885219198614234ce89c89f5951d",
+    "worker": "sha256:bb4b87cad41fe16db5bb9fd31825b88bbfb573cedb19cf2e461047ce08268e84",
     "repository_service": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
   },
   "repository_service_image_reused": true,
   "gate_tests": [
     "tests/test_history_compose_e2e.py::test_compose_history_compare_journey_zero_write_restart",
     "tests/test_ordered_submit_bisect_compose.py::test_ordered_submit_bisect_control_cases",
-    "tests/test_ordered_real_ddl_compose.py::test_ordered_real_ddl_pair_blocked_pending_type_normalization",
+    "tests/test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey",
     "tests/test_history_http.py",
     "tests/test_history_projection.py",
     "tests/test_history_compare_transactions.py",
@@ -37,35 +37,35 @@
     "tests/test_architecture.py",
     "tests/test_compose_gate_provenance.py",
     "tests/test_storage_projection_integrity.py::test_storage_projection_scalar_type_vocabulary_cases",
-    "tests/test_repository_import_artifact_diagnostics.py"
+    "tests/test_repository_import_artifact_diagnostics.py",
+    "tests/test_submit_job_prepare.py::test_prepare_handler_publication_failure_marks_operation_failed"
   ],
-  "gate_result": "150 passed, 1 xfailed, 0 skipped (S3 focused @ source_tree_sha 9a491901 dirty tree, temp-index canonical)",
+  "gate_result": "153 passed, 0 skipped (S3 focused @ source_tree_sha 9f87491b dirty tree, temp-index canonical; compose serial one-file)",
   "zero_table_pair_digest": "sha256:42861bfeaa2dd1033f761a0781308aae4f49798346c376afeb9f5bd9618e8cc1",
   "zero_table_pair_digest_note": "content-stable across runs (4 independent runs same value); cross-check veto evidence",
   "zero_table_bundle_digest": "sha256:f5a7e2fc21800a036bd31b723f51606e715d0693b62cff94a0fee8d8d8670c21",
   "zero_table_bundle_digest_note": "run-scoped (3 observed distinct values); journey IDs/commit IDs vary per compose run",
   "defect_evidence": {
-    "f2_qualification": "storage projection declared type vocabulary (INT/INT UNSIGNED/VARCHAR) vs repository as-reported scalar types (e.g. VARCHAR(8), BIGINT); not ordered-table-specific",
+    "f2_qualification": "storage projection declared type vocabulary extended via normalization (VARCHAR(n)→VARCHAR, BIGINT→INT); ordered sized DDL compose compare closed",
     "code_anchors": [
-      "vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py:78-82",
-      "vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py:505-511",
-      "vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py:537-545",
-      "vnext/repository_service/src/gateway_repository_service/arrow_mapping.py:297-354"
+      "vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py:_resolve_declared_scalar_type",
+      "vnext/backend/src/gateway_backend/application/submit_jobs.py:_publish_prepare_projection_failure",
+      "vnext/backend/tests/test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey"
     ],
     "unit_tests": [
-      "tests/test_storage_projection_integrity.py::test_storage_projection_scalar_type_vocabulary_cases[ordered_vocab]",
       "tests/test_storage_projection_integrity.py::test_storage_projection_scalar_type_vocabulary_cases[ordered_sized_varchar]",
       "tests/test_storage_projection_integrity.py::test_storage_projection_scalar_type_vocabulary_cases[plain_sized_varchar]",
-      "tests/test_storage_projection_integrity.py::test_storage_projection_scalar_type_vocabulary_cases[plain_bigint]"
+      "tests/test_storage_projection_integrity.py::test_storage_projection_scalar_type_vocabulary_cases[plain_bigint]",
+      "tests/test_storage_projection_integrity.py::test_storage_projection_scalar_type_vocabulary_cases[unsupported_decimal]"
     ],
-    "compose_blocked_test": "tests/test_ordered_real_ddl_compose.py::test_ordered_real_ddl_pair_blocked_pending_type_normalization",
+    "compose_ordered_compare": "tests/test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey",
     "bisect_cases": {
       "C": "empty baseline + modified_table_upload_files → submit SUCCEEDED",
-      "B_prime": "t3(label VARCHAR(8)) → submit FAILED; worker UNSUPPORTED_TABLE + column scalar_type is not supported + table=t3",
-      "A_prime": "ordered INT-only vocabulary DDL → submit SUCCEEDED (Dolt requires VARCHAR(n); bare VARCHAR not representable in DDL)"
+      "B_prime": "t3(amount DECIMAL(10,2)) → submit FAILED; operation diagnostic UNSUPPORTED_TABLE + column scalar_type is not supported + table=t3",
+      "A_prime": "ordered sized DDL vocabulary → submit SUCCEEDED"
     },
-    "f2_close_path": "storage projection type normalization (VARCHAR(n)→VARCHAR, BIGINT policy) → compose real DDL ordered pair"
+    "f3_runtime": "prepare_import catches SubmitImportPublicationError → operation FAILED (not worker crash)"
   },
-  "ordered_policy_note": "F2 blocked: real-world sized DDL fails at storage projection vocabulary; policy binding owner remains test_history_compare_jobs.py::test_f1_policy_binding_integration_cases until type normalization slice closes",
+  "ordered_policy_note": "ordered compare compose: materialize checkpoint table_policies[0]==ORDERED_SYX_TABLE_EXPECTED_POLICY; oracle via materialize checkpoint sides (_run_pair_pipeline)",
   "integrity_note": "class (c) integrity closed in S2; compose references test_history_compare_integrity.py parameter table"
 }

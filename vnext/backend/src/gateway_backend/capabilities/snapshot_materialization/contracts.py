@@ -29,6 +29,11 @@ from gateway_backend.capabilities.table_access.contracts import (
     XmlParseResult,
 )
 from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
+from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (  # noqa: F401
+    SqlDeclaredTypeMappingError,
+    declared_type_for_sql_spelling,
+    try_declared_type_for_sql_spelling,
+)
 
 if TYPE_CHECKING:
     import pyarrow as pa

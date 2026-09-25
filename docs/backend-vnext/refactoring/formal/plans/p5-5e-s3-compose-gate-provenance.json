@@ -1,7 +1,7 @@
 {
   "compose_project_name": "ordered-compare / ordered-bisect / gateway-history compose serial",
-  "gate_tested_head": "eb05b9b1c90556dc1dd2da96bf14f5f8b1bd8029",
-  "source_tree_sha": "5ac33740744924a0a50ea4d5e80343784822a10d",
+  "gate_tested_head": "205e43da8504f72ca77f0255040c1b70dc7745f8",
+  "source_tree_sha": "edac1ad7a191af3954cedc3df810817b1de9b9cd",
   "source_tree_sha_command": "git -C \"$REPO_ROOT\" rev-parse 'HEAD^{tree}'",
   "source_tree_sha_excludes": "clean worktree at gate commit: HEAD^{tree} only; dirty worktree falls back to temporary index (see compose_gate_harness.source_tree_sha_for_provenance)",
   "worktree_clean": true,

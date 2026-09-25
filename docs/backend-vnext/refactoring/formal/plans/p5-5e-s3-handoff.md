@@ -23,7 +23,7 @@ next_step: P5-5E-S4
 stage: P5-5E-S3-production-wiring-compose-journey
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
 parent_head_at_handoff: a8c955171cc909a4bddf1bb74978daba50cedda6
-s3_candidate: eb05b9b1c90556dc1dd2da96bf14f5f8b1bd8029
+s3_candidate: 205e43da8504f72ca77f0255040c1b70dc7745f8
 compose_gate_provenance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-compose-gate-provenance.json
 ```
 
@@ -127,9 +127,9 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 
 | 项 | 值 |
 | --- | --- |
-| gate_tested_head | `eb05b9b1c90556dc1dd2da96bf14f5f8b1bd8029`（S3 remediation round 3） |
+| gate_tested_head | `205e43da8504f72ca77f0255040c1b70dc7745f8`（S3 remediation round 3） |
 | worktree_clean | true（gate 后 provenance 写入） |
-| source_tree_sha | `5ac33740744924a0a50ea4d5e80343784822a10d`（clean tree = `HEAD^{tree}`） |
+| source_tree_sha | `edac1ad7a191af3954cedc3df810817b1de9b9cd`（clean tree = `HEAD^{tree}` at gate commit） |
 | source_tree_sha_command | `git -C "$REPO_ROOT" rev-parse 'HEAD^{tree}'` |
 | source_tree_sha_excludes | clean worktree at gate commit only；dirty tree 回退临时索引（见 `compose_gate_harness.source_tree_sha_for_provenance`） |
 | S1 对照规则 | 各门禁 `assert_running_backend_worker_images_match_build`：gate running image **==** gate fresh build（backend/worker）；逐门禁见 provenance `running_images_by_gate` |

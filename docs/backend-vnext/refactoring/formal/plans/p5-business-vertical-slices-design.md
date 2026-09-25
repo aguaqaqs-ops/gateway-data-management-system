@@ -195,6 +195,41 @@ Repository/Artifact I/O、事务和 Operation 生命周期；Rust 承接经测�
 不必要依赖；常量的来源按实际 wire/content owner 决定，不能据此推断该 adapter 执行了 canonical
 组装。以上不宣称 nominal-ref 倒挂是全仓唯一基础层违例，也不以某次文件计数作为验收依据。
 
+<a id="p5-architecture-review-20260925"></a>
+
+#### 2A.4.1 2026-09-25 架构复核补充
+
+复核基线：HEAD `499468f362`（P5-5E-S3 进行中）。复核结论：上表各项在该 HEAD 均未关闭，其中
+basename 豁免与编排集中两项在 5E 扩大；另确认下表新增问题。以下仍是源码观察，不是修复声明。
+
+Repository owner 决定（2026-09-25）：
+
+- 集中修复安排在 **P5-5E-S3 完成后、P5 整体 exit 前**，作为 P5 exit 的前置步骤；5E-S3/S4
+  期间新增代码不得扩大下述门禁基线。
+- 本项目为新项目，**无历史数据兼容或迁移需求**。集中修复可以直接改变 capability contract、
+  checkpoint/payload 形状、canonical/manifest bytes 与 digest，优先保证架构干净；不得为此建设
+  兼容层或双读路径。上表与 §2A.5 第 1 项中的“bytes/digest 兼容”据此解释为：语义测试与 golden
+  随改动一致更新，不要求与旧产物字节兼容。
+
+| 新增问题 | Owner | P5 整体退出前的处置 |
+| --- | --- | --- |
+| Comparison 表策略投影无 capability owner：History 在 `application/history/compare_jobs.py` 自行由 table rules 投影 `ComparisonTablePolicy` 并手写其 codec；Preview/Submit 不传 `table_policies`，ordered 表按普通 keyed 比较、`no` 参与内容判定，违反 [Canonical Storage §3](../contracts/canonical-storage-and-repository-boundary.md)；同一对 commit 的 Preview 与 History 结果可不一致 | Comparison/Table Rules owner + Preview/History Application | 确定投影 owner（实现 `comparison_projection`，或并入既有 owner 并删除占位与 DAG 白名单边），Preview 与 History 共用同一投影；Preview 补齐 ordered/忽略列语义并更新 golden |
+| 编排代码复制：`preview_jobs.py`、`history/compare_jobs.py`、`submit_jobs.py` 重复 step plumbing（如 `_make_successor_builder` 三处逐字相同）与 Snapshot/Summary checkpoint codec；两份 `_summary_payload` 已分叉 | Application owners | step plumbing 与 pair pipeline 收敛为 Application owner 内共享模块；capability 契约类型的 codec 归对应 capability contracts |
+| hidden FINAL summary 在 `infrastructure/repository_read/http_arrow.py` 由 rows 重建，违反 P3-R3“不从 catalog/rows 重建”；summary 交叉校验退化为同一数据读两次，每次 repository-ref 物化全表读两遍并逐行 `to_pylist()` | Snapshot Materialization + Submit + History | 二选一：Submit 时写入 hidden summary（设计原意），或修订 P3-R3 并相应简化 5E integrity 机制；消除重复全表读取 |
+| Preview 以 `_PreviewIdentityAssessment` 固定产出 `SAME_PROJECT` 并标注未执行的 rule_version；P3-R5 要求的独立 project identity capability 不存在，comparison/risk/surface/bundle 的 identity gate、DATASET_REPLACEMENT、continuation 分支无生产者 | Preview Application + Comparison | 实现身份评估，或正式记录“V1 固定 SAME_PROJECT”并删除无生产者分支与词汇（含无消费者的 `ARCHIVE_REPLAY`） |
+| Preview/History 受理用例位于 `http/orchestration/`（直接构造 Operation/Step、开事务、幂等回放），与 Submit/Review/Archive 在 Application 的放置不一致；`http.runtime` 兼任组合根，worker bootstrap 反向从 `http.runtime` 取 job registry；`http/history_reader.py` 是放在 HTTP 包内的持久化适配器 | Workspace/History Application + Bootstrap | 受理用例移回 Application；组合（含 job registry）移至 bootstrap；适配器归 infrastructure |
+| `application/submission/ports.py` 成为跨域 UoW 枢纽（archive/history/workspace/HTTP 均依赖），计入 TYPE_CHECKING 时 history 与 submission 成环 | Application owners | 按 owner 拆分 UoW port，组合在 bootstrap/infrastructure 完成 |
+| Operation 契约校验器以私有符号被 Application/HTTP/bootstrap 使用（`_validate_json_structure` 等） | Operations | 提供公开校验入口或下沉到 shared kernel |
+| 生产入口不可达代码约 4,000 行（`cache/`、整条 Rust canonical-row-hash 路径、`comparison/provider`、`external_target_sync`、composite_signal 业务物化与 XML parser、`synthetic_w2`），另 synthetic job 桩仅经 worker 桩恢复分支可达；上传包中的 `logics.xml` 当前被静默忽略 | 各 capability owner + Architecture | 接入真实消费者、在 owning design 记录延期，或删除；composite_signal 是否进入 P5 业务物化须明确决定 |
+| 5E-S2（`74324b5f6d`）在 §2A.2 生效后新增 `compare_jobs.py` 与 control_db 的 basename 豁免，handoff 未披露 | Backend Architecture | 已由下述门禁取代 |
+
+门禁：`tests/test_architecture.py` 已改为统一 import 规则（`tests/support/import_rules.py`：层依赖、
+capability 公共面、私有模块/符号、contracts 叶子、包根归属、含函数内 import 的运行时环、生产入口
+可达性），删除全部 basename 豁免；上表与 §2A.4 的存量违例冻结在 `tests/architecture_baseline.py`
+（按 `A<n>`/`N-*` 分组）。新增违例即失败，已修复条目不删除即判 stale，基线只减不增；新增条目只允许
+在同一 diff 中给出明确理由并经评审。Preview/History 策略差异、编排复制与用例放置等无法由 import
+规则判定的问题，以本表跟踪。
+
 ### 2A.5 收口验收
 
 在既有 P5 exit review 中检查本节，不新增独立审批链或持久治理状态机：
@@ -208,6 +243,8 @@ Repository/Artifact I/O、事务和 Operation 生命周期；Rust 承接经测�
    Phase 6 候选；使用已有 handoff 的简短文字或表格，不重复复制本节问题清单。
 4. 按改动范围完成语义回归、五包静态检查及既有阶段退出的权威 runner/容器要求；模块移动
    不自动增加全故障点矩阵。P5 整体 exit 不能先通过再无限期延期这次收口。
+5. `tests/architecture_baseline.py` 清空；如有剩余条目，逐条具备明确 owner、理由和后续阶段，
+   且 §2A.4.1 各项已修复或有 owning 文档处置。
 
 ## 3. Deployment and trust boundary
 

@@ -1,17 +1,84 @@
 {
   "compose_project_name": "ordered-compare / ordered-bisect / gateway-history compose serial",
-  "gate_tested_head": "13068babaeeccaf9e71d7c1d0bc6ddd893fc5514",
-  "source_tree_sha": "abd5d807b5ac574e54efe1816eb22056589c7326",
-  "source_tree_sha_command": "GIT_INDEX_FILE=$(mktemp) && git -C \"$REPO_ROOT\" read-tree HEAD && git -C \"$REPO_ROOT\" add -A && git -C \"$REPO_ROOT\" write-tree",
-  "source_tree_sha_excludes": "full repo tree via temporary index on clean commit checkout; not HEAD^{tree}",
+  "gate_tested_head": "eb05b9b1c90556dc1dd2da96bf14f5f8b1bd8029",
+  "source_tree_sha": "5ac33740744924a0a50ea4d5e80343784822a10d",
+  "source_tree_sha_command": "git -C \"$REPO_ROOT\" rev-parse 'HEAD^{tree}'",
+  "source_tree_sha_excludes": "clean worktree at gate commit: HEAD^{tree} only; dirty worktree falls back to temporary index (see compose_gate_harness.source_tree_sha_for_provenance)",
   "worktree_clean": true,
   "stage": "P5-5E-S3",
   "recorded_at": "2026-09-25",
-  "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-handoff.md §6.3; ADR 0017",
+  "authority": "docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-handoff.md §6.3; ADR 0017 remediation round 3",
   "fresh_build": true,
-  "fresh_build_reason": "S3 remediation round 2: sql_declared_types unification, BIGINT 64-bit, prepare occupancy release, ordered compare semantic gates",
-  "vnext_deploy_compose_yaml_sha256": "f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0",
-  "vnext_deploy_config_session_json_sha256": "cd7036b5136fd4184a80281530611a859ae07ce03ad93be51458e45cecc1deac",
+  "fresh_build_reason": "S3 remediation round 3: mypy explicit reexport, DECIMAL/BIT fail-closed mapper, per-gate running image provenance",
+  "reference_deploy_build": {
+    "note": "非门禁运行镜像（deploy compose build 产物；RepoTags 含 deploy-backend:latest）",
+    "backend": "sha256:c1c513f4a35a6f69841e535fa33b930559ecfe2488b54c8da7a20ec3508c3dc5",
+    "worker": "sha256:dd3029ca4fcda035322890150671beb5ab6cbe862dd9c28cd53dd7fc984c2db1",
+    "repository_service": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+  },
+  "running_images_by_gate": {
+    "ordered_compare": {
+      "backend": {
+        "container_id": "702218e4c55b",
+        "image": "sha256:a041d9beda0280af05978684859aaa07b1594813551201753b73ae69417e7c22"
+      },
+      "worker": {
+        "container_id": "92ae4e0f1383",
+        "image": "sha256:ac1c93f97982137780b52cd1d33fe0b81fce0b815f7784b6dbe196377945d653"
+      },
+      "repository_service": {
+        "container_id": "cd736da8079a",
+        "image": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+      }
+    },
+    "ordered_bisect": {
+      "backend": {
+        "container_id": "e35403443b16",
+        "image": "sha256:e3b1a5533e3007fde73e988c8e62ee91ca809bd11448ca641eb85bff1bb1b929"
+      },
+      "worker": {
+        "container_id": "38e14b93618d",
+        "image": "sha256:a1afa211cebc558262ead14c7840d336c894b9b140d8286cf10ba2334d0c0ea6"
+      },
+      "repository_service": {
+        "container_id": "a11a9556437d",
+        "image": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+      }
+    },
+    "gateway_history_5e": {
+      "backend": {
+        "container_id": "1377878dc0c7",
+        "image": "sha256:0fcd868307d90276722fed7ccfa191c45f848a9581ddb9d91324b03bdd5d7e44"
+      },
+      "worker": {
+        "container_id": "bca38fec7936",
+        "image": "sha256:c193a558325d4eed5d653c501949d2fd0bd534123f683af15a92cb4c0ceb522e"
+      },
+      "repository_service": {
+        "container_id": "ba581c0cb2d3",
+        "image": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+      }
+    }
+  },
+  "inspect_evidence": {
+    "note": "images captured via compose_gate_harness._inspect_container_image_id (docker inspect --format '{{.Image}}') at gate assert time; containers torn down before handoff",
+    "ordered_compare": [
+      "sha256:a041d9beda0280af05978684859aaa07b1594813551201753b73ae69417e7c22",
+      "sha256:ac1c93f97982137780b52cd1d33fe0b81fce0b815f7784b6dbe196377945d653",
+      "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+    ],
+    "ordered_bisect": [
+      "sha256:e3b1a5533e3007fde73e988c8e62ee91ca809bd11448ca641eb85bff1bb1b929",
+      "sha256:a1afa211cebc558262ead14c7840d336c894b9b140d8286cf10ba2334d0c0ea6",
+      "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+    ],
+    "gateway_history_5e": [
+      "sha256:0fcd868307d90276722fed7ccfa191c45f848a9581ddb9d91324b03bdd5d7e44",
+      "sha256:c193a558325d4eed5d653c501949d2fd0bd534123f683af15a92cb4c0ceb522e",
+      "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+    ]
+  },
+  "s1_gate_running_image_equals_gate_build": "assert_running_backend_worker_images_match_build per gate; backend/worker running image must match fresh compose build at stack start",
   "lock_sha256": {
     "shared_kernel": "7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898",
     "repository_contracts": "b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3",
@@ -19,37 +86,26 @@
     "repository_service": "6dc9659f0aeea1b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11",
     "backend": "21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea"
   },
-  "running_image": {
-    "backend": "sha256:c1c513f4a35a6f69841e535fa33b930559ecfe2488b54c8da7a20ec3508c3dc5",
-    "worker": "sha256:dd3029ca4fcda035322890150671beb5ab6cbe862dd9c28cd53dd7fc984c2db1",
-    "repository_service": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
-  },
   "repository_service_image_reused": true,
   "gate_tests": [
-    "tests/test_history_compose_e2e.py::test_compose_history_compare_journey_zero_write_restart",
-    "tests/test_ordered_submit_bisect_compose.py::test_ordered_submit_bisect_control_cases",
     "tests/test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey",
+    "tests/test_ordered_submit_bisect_compose.py::test_ordered_submit_bisect_control_cases",
+    "tests/test_history_compose_e2e.py::test_compose_history_compare_journey_zero_write_restart",
     "tests/test_sql_declared_type_mapping.py",
-    "tests/test_submit_job_prepare.py::test_prepare_handler_publication_failure_marks_operation_failed",
-    "pytest -m unit (backend, 2493 passed)"
+    "pytest -m unit (backend, 2508 passed)"
   ],
-  "gate_result": "2493 passed, 0 skipped, 0 failed (backend -m unit); compose serial 3/3 passed",
+  "gate_result": "2508 passed, 0 skipped, 0 failed (backend -m unit); compose serial 3/3 passed",
   "zero_table_pair_digest": "sha256:42861bfeaa2dd1033f761a0781308aae4f49798346c376afeb9f5bd9618e8cc1",
   "zero_table_pair_digest_note": "content-stable across runs; prior gate evidence retained",
-  "zero_table_bundle_digest": "sha256:f5a7e2fc21800a036bd31b723f51606e715d0693b62cff94a0fee8d8d8670c21",
-  "zero_table_bundle_digest_note": "run-scoped; journey IDs/commit IDs vary per compose run",
   "defect_evidence": {
-    "f1_unsigned_mapping": "sql_declared_types via snapshot_materialization.contracts; F1 move_only/keyed_ignored_column pass",
-    "f2_bigint": "BIGINT 64-bit in project.py; vocabulary boundary cases",
-    "f3_prepare_occupancy": "abort_prepared_submit_in_control_transaction; B′ retry submit SUCCEEDED same workspace",
-    "compose_ordered_semantics": "ordered_compare_facts_from_materialize_checkpoint: non-DEGRADED + ORDERED_ROW_ADDED/DELETED/MODIFIED|MOVED",
+    "f8_mypy": "round 3: contracts explicit reexport + __all__; five-package mypy --no-incremental green",
+    "decimal_10_indexerror": "pre-fix: declared_type_for_sql_spelling('DECIMAL(10)') IndexError; post-fix: DeclaredType(DECIMAL,precision=10,scale=0); projection DECIMAL(10) FAILED UNSUPPORTED_TABLE fail-closed",
+    "running_image_provenance": "reference_deploy_build was deploy-backend:latest; running_images_by_gate from capture_running_container_provenance per compose gate",
     "code_anchors": [
       "vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/sql_declared_types.py",
-      "vnext/backend/src/gateway_backend/application/submission/abort_transaction.py:abort_prepared_submit_in_control_transaction",
-      "vnext/backend/tests/test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey"
+      "vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/contracts.py",
+      "vnext/backend/tests/support/compose_gate_harness.py:normalize_running_images"
     ]
   },
-  "ordered_policy_note": "oracle = container replay bind→plan→compare digest; semantic facts via ordered_compare_facts_from_materialize_checkpoint",
-  "integrity_note": "class (c) integrity closed in S2; compose references test_history_compare_integrity.py parameter table",
-  "provenance_note": "gate_tested_head and source_tree_sha recorded after commit 13068bab on clean tree post-gate"
+  "provenance_note": "gate_tested_head and source_tree_sha updated on clean tree post-commit"
 }

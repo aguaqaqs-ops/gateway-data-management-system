@@ -22,8 +22,8 @@ next_step: P5-5E-S4
 ```yaml
 stage: P5-5E-S3-production-wiring-compose-journey
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
-parent_head_at_handoff: 25f2c916249403430095b1f47a1dc8911a06542d
-s3_candidate: working tree (compose harness + e2e + deploy surface + worker diagnostic)
+parent_head_at_handoff: a8c955171cc909a4bddf1bb74978daba50cedda6
+s3_candidate: eb05b9b1c90556dc1dd2da96bf14f5f8b1bd8029
 compose_gate_provenance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-compose-gate-provenance.json
 ```
 
@@ -84,6 +84,11 @@ compose_gate_provenance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-co
 | `plain_bigint` | `t4(big BIGINT)` | `COMPLETE`（64-bit `SIGNED_INTEGER`） |
 | `bigint_above_int32_max` / `bigint_large_positive` / `bigint_below_int32_min` | `BIGINT` 边界值 | `COMPLETE` |
 | `unsupported_decimal` | `t5(amount DECIMAL(10,2))` | `FAILED` |
+| `unsupported_decimal_single_precision` | `t5(amount DECIMAL(10))` | `FAILED`（mapper 可解析；投影词表仍拒绝 DECIMAL 族） |
+| `bigint_unsigned` | `t6(big BIGINT UNSIGNED)` | `FAILED` |
+
+**词表边界（round 3）**：投影 `_resolve_declared_scalar_type` 仅放行 signed `{32,64}` + unsigned `32`。
+`TINYINT`/`SMALLINT`/`MEDIUMINT`、`BIGINT UNSIGNED` 等仍 `UNSUPPORTED_TABLE`；`SET` 拼写经共享 mapper 映射为 `STRING`（守卫见 `test_sql_declared_type_mapping.py`）。
 
 ordered `gid` 保持 catalog `INT UNSIGNED`（32-bit，值域 `0..4294967295`）。现场 gid 在该范围内；越界由 cell/codec 失败处理，区别于词表 `UNSUPPORTED_TABLE`。
 
@@ -102,7 +107,7 @@ cd vnext/repository_service && ../scripts/uv-consume.sh -C . run python -c \
 | Case | 内容 | 预期 |
 | --- | --- | --- |
 | C | 空 baseline + 标准 `modified_table_upload_files` | submit **SUCCEEDED** |
-| B′ | 普通新表 `t3(amount DECIMAL(10,2))` | submit **FAILED**；operation diagnostic `UNSUPPORTED_TABLE` + `column scalar_type is not supported` + `table=t3` |
+| B′ | 普通新表 `t3(amount DECIMAL(10,2))` | submit **FAILED**；operation diagnostic `UNSUPPORTED_TABLE` + `column scalar_type is not supported` + `table=t3`；同 workspace 重 accept **409**；retry accept **202** + 终态 **SUCCEEDED** |
 | A′ | ordered sized DDL（`VARCHAR(8)`/`BIGINT` 经归一化） | submit **SUCCEEDED** |
 
 submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: column scalar_type is not supported (table=…)`
@@ -115,25 +120,37 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 
 ## Ordered policy / integrity
 
-- **Ordered（gid/no）**：**closed**（F2，ADR 0017）。`test_ordered_compare_compose.py` 双 submit + history compare；materialize checkpoint `table_policies[0]==ORDERED_SYX_TABLE_EXPECTED_POLICY`；oracle = 容器内重跑 bind→plan→compare digest 一致性（`oracle_history_compare_digest_from_materialize_checkpoint`）；语义断言经 `ordered_compare_facts_from_materialize_checkpoint`（非 DEGRADED + `ORDERED_ROW_*` by gid）。policy 绑定 owner：S2 `test_history_compare_jobs.py::test_f1_policy_binding_integration_cases` + compose ordered 旅程。
+- **Ordered（gid/no）**：**closed**（F2，ADR 0017）。`test_ordered_compare_compose.py` 双 submit + history compare；materialize checkpoint `table_policies[0]==ORDERED_SYX_TABLE_EXPECTED_POLICY`；oracle = 容器内重跑 bind→plan→compare digest 一致性（`oracle_history_compare_digest_from_materialize_checkpoint`）；语义断言经 `ordered_compare_facts_from_materialize_checkpoint`（非 DEGRADED + `ORDERED_ROW_ADDED`/`DELETED`/`MODIFIED`）。policy 绑定 owner：S2 `test_history_compare_jobs.py::test_f1_policy_binding_integration_cases` + compose ordered 旅程。
 - **Integrity 类 (c)**：compose 不复现 incident；引用 S2 `test_history_compare_integrity.py` 三场景参数表。
 
 ## §6.3 运行镜像证据
 
 | 项 | 值 |
 | --- | --- |
-| gate_tested_head | `13068babaeeccaf9e71d7c1d0bc6ddd893fc5514`（ADR 0017 remediation round 2） |
+| gate_tested_head | `eb05b9b1c90556dc1dd2da96bf14f5f8b1bd8029`（S3 remediation round 3） |
 | worktree_clean | true（gate 后 provenance 写入） |
-| source_tree_sha | `abd5d807b5ac574e54efe1816eb22056589c7326`（clean commit 临时索引） |
-| source_tree_sha_command | `GIT_INDEX_FILE=$(mktemp) && git -C "$REPO_ROOT" read-tree HEAD && git -C "$REPO_ROOT" add -A && git -C "$REPO_ROOT" write-tree`（clean tree：`git -C "$REPO_ROOT" rev-parse 'HEAD^{tree}'`） |
-| source_tree_sha_excludes | full repo tree via temporary index（含 unstaged + untracked）；非 `HEAD^{tree}` 快照 |
-| docker 残留清理 | `compose down -v --remove-orphans` + `docker volume rm`（`label=com.docker.compose.project=<project>`）+ `docker network rm`（同 label）；`ordered-debug*` / `gateway-submit-debug*` 容器已清理 |
-| fresh_build | yes（backend/worker）；见 provenance JSON |
-| S3 focused | `2493 passed, 0 skipped`（`-m unit`）+ compose 串行 3/3 |
-| backend image | `sha256:c1c513f4a35a6f69841e535fa33b930559ecfe2488b54c8da7a20ec3508c3dc5` |
-| worker image | `sha256:dd3029ca4fcda035322890150671beb5ab6cbe862dd9c28cd53dd7fc984c2db1` |
-| 零表 pair digest | `sha256:42861bfe…`（**content-stable across runs**；4 次独立运行同值；可交叉核对 veto 证据） |
-| 零表 bundle digest | run-scoped（观测 3 次三值；journey IDs/commit IDs 每轮 compose 不同） |
+| source_tree_sha | `5ac33740744924a0a50ea4d5e80343784822a10d`（clean tree = `HEAD^{tree}`） |
+| source_tree_sha_command | `git -C "$REPO_ROOT" rev-parse 'HEAD^{tree}'` |
+| source_tree_sha_excludes | clean worktree at gate commit only；dirty tree 回退临时索引（见 `compose_gate_harness.source_tree_sha_for_provenance`） |
+| S1 对照规则 | 各门禁 `assert_running_backend_worker_images_match_build`：gate running image **==** gate fresh build（backend/worker）；逐门禁见 provenance `running_images_by_gate` |
+| reference_deploy_build | **非门禁运行镜像**（`deploy-backend:latest` 等）；见 provenance JSON `reference_deploy_build` |
+| running_images_by_gate | `ordered_compare` / `ordered_bisect` / `gateway_history_5e` 三组 `{backend,worker,repository_service}` container_id + immutable image |
+| docker 残留清理 | `compose down -v --remove-orphans` + volume/network label 清理 |
+| fresh_build | yes（backend/worker per gate）；见 provenance JSON |
+| S3 focused | `2508 passed, 0 skipped`（`-m unit`）+ compose 串行 3/3 |
+| 零表 pair digest | `sha256:42861bfe…`（content-stable across runs） |
+
+### DECIMAL(10) 回归（round 3）
+
+| 阶段 | 现象 |
+| --- | --- |
+| 复现前 | `declared_type_for_sql_spelling('DECIMAL(10)')` → `IndexError` |
+| 复现后 | `DeclaredType(DECIMAL, precision=10, scale=0)`；`project_storage` 对 `DECIMAL(10)` → `FAILED` + `UNSUPPORTED_TABLE`（无未处理异常） |
+| 静态门禁 | mypy 先红（4 errors / 3 files，`no_implicit_reexport`）→ 显式重导出后 `mypy --no-incremental` 五包绿 |
+
+### 已知边界
+
+非 `SubmitImportPublicationError` 的确定性 prepare 失败仍可能不释放 occupancy（仅 `SubmitImportPublicationError` 路径经 `abort_prepared_submit_in_control_transaction` 释放）；B′ 覆盖 publication 失败 + retry 路径。
 
 权威 provenance: `docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-compose-gate-provenance.json`
 
@@ -148,7 +165,7 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 | F5 | README + session 断言 | **closed** |
 | F6 | oracle ≥1 pair（A↔B）；restart history head 不变；restart 后 idempotent replay | **closed** |
 | F7 | T7 清理项 | **closed** |
-| F8 | focused + ruff/mypy + 0 skipped | **closed** |
+| F8 | focused + ruff/mypy（`--no-incremental` 判定）+ 0 skipped + per-gate running image provenance | **closed**（round 3） |
 
 ## 范围声明
 

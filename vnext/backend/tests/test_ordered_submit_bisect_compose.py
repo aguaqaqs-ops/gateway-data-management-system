@@ -19,11 +19,15 @@ from tests.support.compose_gate_harness import (
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,
+    assert_running_backend_worker_images_match_build,
+    capture_running_container_provenance,
     compose_auth_headers,
     cleanup_compose_project_artifacts,
     compose_project_name,
     modified_table_upload_files,
+    normalize_running_images,
     ordered_syx_vocabulary_upload_files,
+    persist_compose_gate_provenance,
     poll_operation,
     read_workspace_row,
     require_docker,
@@ -251,6 +255,7 @@ def _run_preview_and_submit(
                     "options": {},
                 },
             )
+            assert reaccept.status_code == 409, reaccept.text
             result["resubmit_accept_status"] = reaccept.status_code
             retry_upload_payload = retry_upload_files_factory(workspace_row["optimistic_version"])
             retry_upload = client.post(
@@ -323,6 +328,7 @@ def _run_preview_and_submit(
 
 
 def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
+    provenance: dict[str, dict[str, str]] = {}
     empty_root = tmp_path / "empty-baseline"
     empty_root.mkdir(parents=True, exist_ok=True)
     empty_env = _compose_env(empty_root, prefix="ordered-bisect-c")
@@ -358,6 +364,8 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
             baseline_root,
             import_baseline=True,
         )
+        assert_running_backend_worker_images_match_build(baseline_env)
+        provenance = capture_running_container_provenance(baseline_env)
         case_b = _run_preview_and_submit(
             baseline_env,
             journey_key_prefix="bisect-t3-decimal",
@@ -378,7 +386,16 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         assert case_b["retry_preview_status"] == "SUCCEEDED"
         assert case_b["retry_submit_status"] == "SUCCEEDED"
         assert case_b["retry_submit_operation_id"] != case_b["submit_operation_id"]
+        assert case_b["resubmit_accept_status"] == 409
     finally:
+        if provenance:
+            normalized = normalize_running_images(provenance, baseline_env["COMPOSE_PROJECT_NAME"])
+            provenance_path = persist_compose_gate_provenance(baseline_env, provenance)
+            print(
+                "ordered_bisect_gate_running_images="
+                f"{json.dumps(normalized, indent=2)}"
+            )
+            print(f"compose gate provenance written to {provenance_path}")
         cleanup_compose_project_artifacts(baseline_env)
 
     ordered_root = tmp_path / "ordered-vocabulary"

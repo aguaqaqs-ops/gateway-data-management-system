@@ -168,7 +168,7 @@ B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`（与设计 §
 | S3 | — | `test_history_compose_e2e.py` | `vnext/deploy/config/session.json`、`T/test_http_auth_matrix.py`（如参数表扩展）、`T/support/compose_gate_harness.py`（仅共享 helper 必要时）、`deploy/compose.yaml`（仅真实缺口时，预期无） |
 | S4 | 无业务能力新增 | findings 回修 S1–S3 | 仅 findings 涉及文件 |
 
-预算外禁止（任一触碰 = 停止并回设计）：`B/capabilities/**` **除** `snapshot_materialization/{contracts.py,repository_ref.py}` 的 F5 窄例外（§6.6 content/结构公开面，S2 阶段内 materialization owner 同交付）、`B/operations/**`、`vnext/repository_service/**`、shared kernel、Rust、五包 `pyproject`/`uv.lock`、Dockerfile/构建机制/entrypoint、legacy；不新增 capability owner；不使用 `history-`/`history:` artifact 前缀（§设计 2.1 第 5 行）；不新增通用 context bag（窄依赖原则）。
+预算外禁止（任一触碰 = 停止并回设计）：`B/capabilities/**` **除** `snapshot_materialization/{contracts.py,repository_ref.py}` 的 F5 窄例外（§6.6 content/结构公开面，S2 阶段内 materialization owner 同交付）及 S3 remediation 已签署扩展（见 [ADR 0017](../adr/0017-sql-spelling-declared-type-unification.md) §4：`sql_declared_types.py`、`scalar_encoding.py`、`comparison/standard.py`、`storage_projection/project.py` 等）、`B/operations/**`、`vnext/repository_service/**`、shared kernel、Rust、五包 `pyproject`/`uv.lock`、Dockerfile/构建机制/entrypoint、legacy；不新增 capability owner；不使用 `history-`/`history:` artifact 前缀（§设计 2.1 第 5 行）；不新增通用 context bag（窄依赖原则）。
 
 ## 4. 测试归属与比例化范围
 

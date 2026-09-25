@@ -18,15 +18,19 @@ from tests.support.compose_gate_harness import (
     PROJECT_ID,
     SESSION_TOKEN,
     accept_history_compare,
+    assert_running_backend_worker_images_match_build,
     capture_business_table_state_in_compose,
     capture_r4_manifest_artifact_ids,
+    capture_running_container_provenance,
     cleanup_compose_project_artifacts,
     compose_auth_headers,
     compose_project_name,
     list_repository_commit_ids,
+    normalize_running_images,
     oracle_history_compare_digest_from_materialize_checkpoint,
     ordered_compare_facts_from_materialize_checkpoint,
     ordered_syx_sized_upload_files,
+    persist_compose_gate_provenance,
     read_history_compare_materialize_job_state,
     require_docker,
     resolve_main_commit_id,
@@ -163,12 +167,15 @@ def _assert_remote_matches_oracle(
 def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
     env = _compose_env(tmp_path)
     require_docker(compose_project_name=env["COMPOSE_PROJECT_NAME"])
+    provenance: dict[str, dict[str, str]] = {}
     try:
         repository_id, initial_commit_id = start_three_container_stack(
             env,
             tmp_path,
             import_baseline=True,
         )
+        assert_running_backend_worker_images_match_build(env)
+        provenance = capture_running_container_provenance(env)
 
         journey_a = run_accept_to_submission_read_journey(
             env,
@@ -277,7 +284,7 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             kinds = Counter(str(record["record_kind"]) for record in ordered_records)
             assert kinds["ORDERED_ROW_ADDED"] >= 1
             assert kinds["ORDERED_ROW_DELETED"] >= 1
-            assert kinds["ORDERED_ROW_MODIFIED"] + kinds["ORDERED_ROW_MOVED"] >= 1
+            assert kinds["ORDERED_ROW_MODIFIED"] >= 1
 
         business_after = capture_business_table_state_in_compose(env)
         commits_after = list_repository_commit_ids(
@@ -290,4 +297,12 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
         assert commits_before == commits_after
         assert manifests_before == manifests_after
     finally:
+        if provenance:
+            normalized = normalize_running_images(provenance, env["COMPOSE_PROJECT_NAME"])
+            provenance_path = persist_compose_gate_provenance(env, provenance)
+            print(
+                "ordered_compare_gate_running_images="
+                f"{json.dumps(normalized, indent=2)}"
+            )
+            print(f"compose gate provenance written to {provenance_path}")
         cleanup_compose_project_artifacts(env)

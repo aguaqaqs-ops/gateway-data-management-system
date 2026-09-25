@@ -284,6 +284,34 @@ _SCALAR_TYPE_VOCABULARY_CASES: tuple[tuple[str, Callable[[], TableInput], Projec
         ProjectionStatus.FAILED,
         "t5",
     ),
+    (
+        "unsupported_decimal_single_precision",
+        lambda: table_input(
+            "t5",
+            columns=(
+                int_column("id"),
+                typed_column("amount", "DECIMAL(10)"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), varchar_cell("1.00")),),
+        ),
+        ProjectionStatus.FAILED,
+        "t5",
+    ),
+    (
+        "bigint_unsigned",
+        lambda: table_input(
+            "t6",
+            columns=(
+                int_column("id"),
+                typed_column("big", "BIGINT UNSIGNED"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), int_cell(1)),),
+        ),
+        ProjectionStatus.FAILED,
+        "t6",
+    ),
 )
 
 

@@ -39,6 +39,13 @@ Canonical 决策（与 `table_access/_sql_types.py`、`canonicalization_cells.py
 不变量：同一 SQL spelling 在 materialize 与 compare 路径必须产生相同 `DeclaredType`。ordered
 `gid` 保持 catalog `INT UNSIGNED`；digest/oracle 一致性检查性质不变（管线重跑，非独立参考实现）。
 
+**参数解析 fail-closed（remediation round 3）**：mapper 对 `DECIMAL`/`BIT` 等带参族不得泄漏
+`IndexError`/`ValueError`。畸形或不可解析参数统一抛 `SqlDeclaredTypeMappingError`；compare 路径
+捕获后转为 `StandardComparisonError("SCALAR_TYPE_UNKNOWN")`；storage projection 对 mapper 可解析但
+词表未支持的族（如 `DECIMAL(10)`、`BIGINT UNSIGNED`）返回 `UNSUPPORTED_TABLE` 诊断，不得未处理异常。
+`DECIMAL` 单 precision 参数（如 `DECIMAL(10)`）语义为 `precision=10, scale=0`（与 materialize 历史
+语义及 repository `normalize_sql_type` 一致）。
+
 ### 2. Storage projection BIGINT 修正
 
 `storage_projection/project.py` 将 `BIGINT` 映射为 64-bit `SIGNED_INTEGER`，不得降为 32-bit `INT`。
@@ -49,16 +56,18 @@ prepare 投影公布失败时，在同一 control 事务内将 attempt `PREPARED
 workspace/repository occupancy 与 checkpoint protection，再标记 operation/step `FAILED`。不复用
 要求 `EFFECT_PENDING` 的 operator `abort_submit_in_control_transaction` 路径。
 
-### 4. S3 预算扩展（引用 p5-5e-history-compare-execution-plan.md:171 原禁止项）
+### 4. S3 预算扩展（引用 [p5-5e-history-compare-execution-plan.md:171](../plans/p5-5e-history-compare-execution-plan.md) 原禁止项；执行计划互指本 ADR）
 
 本轮授权改动：
 
+- `capabilities/snapshot_materialization/contracts.py`（显式重导出 mapper 公开面）
 - `capabilities/snapshot_materialization/scalar_encoding.py`（映射对齐）
 - `capabilities/comparison/standard.py`（映射对齐，无行为扩展）
 - `capabilities/snapshot_materialization/sql_declared_types.py`（新增共享 mapper）
 - `capabilities/storage_projection/project.py`（BIGINT bits 修正）
 - `application/submit_jobs.py` + `application/submission/abort_transaction.py`（PREPARED 释放）
 - `application/submission/errors.py`（`SubmitImportPublicationError` 清洁切出，T5）
+- `repository_import_artifact.py`（projection 失败 diagnostic 格式化）
 
 ## Test owners
 

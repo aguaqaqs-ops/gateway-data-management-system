@@ -346,6 +346,29 @@ def _inspect_container_image_id(container_id: str) -> str:
     return image_id
 
 
+def normalize_running_images(
+    captured: dict[str, dict[str, str]],
+    compose_project_name: str,
+) -> dict[str, dict[str, str]]:
+    """Map compose ps container names to canonical service keys."""
+
+    service_suffixes = {
+        "backend": f"{compose_project_name}-backend-1",
+        "worker": f"{compose_project_name}-worker-1",
+        "repository_service": f"{compose_project_name}-repository-service-1",
+    }
+    normalized: dict[str, dict[str, str]] = {}
+    for service, container_name in service_suffixes.items():
+        entry = captured.get(container_name)
+        if entry is None:
+            pytest.fail(f"missing running container for {service}: {container_name}")
+        normalized[service] = {
+            "container_id": entry["container_id"],
+            "image": entry["image"],
+        }
+    return normalized
+
+
 def capture_running_container_provenance(env: dict[str, str]) -> dict[str, dict[str, str]]:
     result = run_compose(
         env,

@@ -120,7 +120,7 @@ P4 Active Context Index 不覆盖 P5 semantic default entry。
 - [Ruleset Activation and Migration Contract](contracts/ruleset-activation-and-migration.md)
 - [Repository Service Contract](contracts/repository-service.md)
 - [Performance Measurement Guidance](contracts/performance-measurement-and-baseline.md)
-- [ADR 0001](adr/0001-python-rust-hybrid-compute-strategy.md)–[ADR 0016](adr/0016-graceful-lifecycle-and-integrity-recovery.md)
+- [ADR 0001](adr/0001-python-rust-hybrid-compute-strategy.md)–[ADR 0017](adr/0017-sql-spelling-declared-type-unification.md)
 
 历史 P3 过程文档（S0、review、round execution plan）已离开默认树；恢复见
 [P3→P4 Cleanup Manifest](plans/p3-p4-cleanup-manifest.yaml) `paths.archive_from_default` 与

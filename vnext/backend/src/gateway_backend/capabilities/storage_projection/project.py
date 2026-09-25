@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import replace
 
@@ -76,15 +75,8 @@ from gateway_backend.capabilities.table_rules.contracts import (
     resolve_table_rule,
 )
 
-_INT_DECLARED_TYPE = DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=32)
 _UINT_DECLARED_TYPE = DeclaredType(kind=DeclaredTypeKind.UNSIGNED_INTEGER, bits=32)
 _VARCHAR_DECLARED_TYPE = DeclaredType(kind=DeclaredTypeKind.STRING)
-_DECLARED_TYPES: dict[str, DeclaredType] = {
-    "INT": _INT_DECLARED_TYPE,
-    "INT UNSIGNED": _UINT_DECLARED_TYPE,
-    "VARCHAR": _VARCHAR_DECLARED_TYPE,
-}
-_SIZED_VARCHAR = re.compile(r"^VARCHAR\(\d+\)$")
 
 
 class _ProjectionFailed(Exception):

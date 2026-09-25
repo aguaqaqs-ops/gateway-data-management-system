@@ -68,6 +68,13 @@ ORDERED_SYX_SIZED_DDL = (
 def require_docker(*, compose_project_name: str | None = None) -> None:
     if shutil.which("docker") is None:
         pytest.skip("docker is required for compose e2e gate")
+    if compose_project_name is not None:
+        # Port 8000 is checked after compose gate flock in start_three_container_stack.
+        return
+    _assert_port_8000_available_for_gate(None)
+
+
+def _assert_port_8000_available_for_gate(compose_project_name: str | None) -> None:
     port_users = subprocess.run(
         [
             "docker",
@@ -1246,6 +1253,7 @@ def start_three_container_stack(
     import_baseline: bool = True,
 ) -> tuple[str, str]:
     acquire_compose_gate_lock()
+    _assert_port_8000_available_for_gate(env["COMPOSE_PROJECT_NAME"])
     build_compose_stack_images(env)
     _teardown_compose_project_resources(env)
     up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")

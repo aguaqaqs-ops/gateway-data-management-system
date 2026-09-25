@@ -1,6 +1,6 @@
 # P5-5E-S3 Production Wiring & Compose Journey Handoff
 
-状态：**S3 remediation in progress — author handoff（未签署 slice exit）**
+状态：**S3 stage exit signed — author handoff（slice exit 未签署）**
 
 日期：2026-09-25
 
@@ -11,8 +11,8 @@ Owner：History Application / Deployment
 ```yaml
 p5_5e_s2_stage_exit: pass
 p5_5e_s3_implementation_authorized: yes
-p5_5e_s3_stage_exit: not_evaluated
-compose_journey: remediation_in_progress
+p5_5e_s3_stage_exit: pass
+compose_journey: closed
 production_deployment_authorized: no
 next_step: P5-5E-S4
 ```
@@ -22,9 +22,11 @@ next_step: P5-5E-S4
 ```yaml
 stage: P5-5E-S3-production-wiring-compose-journey
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
-parent_head_at_handoff: a8c955171cc909a4bddf1bb74978daba50cedda6
-s3_candidate: 205e43da8504f72ca77f0255040c1b70dc7745f8
+parent_head_at_handoff: 499468f362
+s3_candidate: db9ac0a808c6494ed081fd00bf60fb6962867a46
+s3_stage_exit_acceptance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-stage-exit-acceptance.md
 compose_gate_provenance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-compose-gate-provenance.json
+rereview_evidence: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-rereview-db9ac0a808.json
 ```
 
 ## 交付物
@@ -127,19 +129,20 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 
 | 项 | 值 |
 | --- | --- |
-| gate_tested_head | `205e43da8504f72ca77f0255040c1b70dc7745f8`（S3 remediation round 3） |
+| gate_tested_head | `db9ac0a808c6494ed081fd00bf60fb6962867a46`（S3 exit rereview @ N1–N6 harness） |
 | worktree_clean | true（gate 后 provenance 写入） |
-| source_tree_sha | `edac1ad7a191af3954cedc3df810817b1de9b9cd`（clean tree = `HEAD^{tree}` at gate commit） |
+| source_tree_sha | `7a0315d252dec0d136440ec360ce1b74cc7909ea`（clean tree = `HEAD^{tree}` at gate commit） |
 | source_tree_sha_command | `git -C "$REPO_ROOT" rev-parse 'HEAD^{tree}'` |
 | source_tree_sha_excludes | clean worktree at gate commit only；dirty tree 回退临时索引（见 `compose_gate_harness.source_tree_sha_for_provenance`） |
 | S1 对照规则 | 各门禁 `assert_running_backend_worker_images_match_build`：gate running image **==** gate fresh build（backend/worker）；逐门禁见 provenance `running_images_by_gate` |
 | reference_deploy_build | **非门禁运行镜像**（`deploy-backend:latest` 等）；见 provenance JSON `reference_deploy_build` |
 | running_images_by_gate | `ordered_compare` / `ordered_bisect`（**仅 B′ baseline 子栈**）/ `gateway_history_5e` 三组 `{backend,worker,repository_service}` container_id + immutable image |
-| compose 串行 | port **8000** 硬串行点；harness `flock` `/tmp/gateway-compose-gate.lock`；S4 权威 runner 必须单飞（见 `testing-conventions.md`） |
-| provenance commits | gated `205e43da`；provenance SHA 对齐 `499468f362`（docs-only）；N1–N6 harness/test 变更不刷新 S3 stage exit 证据 |
+| compose 串行 | port **8000** 硬串行点；harness 先 `flock` 再 port 检查；S4 权威 runner 必须单飞（见 `testing-conventions.md`） |
+| provenance lineage | src `205e43da` → provenance align `499468f362` → exit gate `db9ac0a`（N1–N6 harness） |
 | docker 残留清理 | `compose down -v --remove-orphans` + volume/network label 清理 |
-| fresh_build | yes（backend/worker per gate）；见 provenance JSON |
-| S3 focused | `2508 passed, 0 skipped`（`-m unit`）+ compose 串行 3/3 |
+| fresh_build | yes（backend/worker per gate @ rereview）；repository-service 复用 |
+| S3 focused | `209 passed, 0 skipped` + unit `2508 passed, 0 skipped` + compose **3/3**（735.38s） |
+| lock_sha256.repository_service | `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11` |
 | 零表 pair digest | `sha256:42861bfe…`（content-stable across runs） |
 
 ### DECIMAL(10) 回归（round 3）
@@ -161,6 +164,8 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 `DECIMAL(10,)` / `DECIMAL(10, )` → `(precision=10, scale=0)`（mapper 空 scale 段默认 0）。MySQL 会拒绝该 DDL；属测试拼写宽容，非 catalog 语义。
 
 权威 provenance: `docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-compose-gate-provenance.json`
+
+Stage exit: `docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-stage-exit-acceptance.md`
 
 ## Unmet → Closed 映射表
 

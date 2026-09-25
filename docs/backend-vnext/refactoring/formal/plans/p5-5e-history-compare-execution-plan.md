@@ -156,6 +156,16 @@ worktree_for_docs_round: /home/dev/gdds-5e-history-compare-docs（分支 p5-5e-h
   - 五包 `ruff check` + `mypy`；
   - `./vnext/scripts/run-tests.sh`（权威全量；`GATEWAY_TEST_WORKERS` 按环境）。
 - 交付声明：只交付 `pass_recommended` + 证据包；`p5_5e_slice_exit: pass` 只能由独立验收记录接受在权威位置声明。**5E slice exit ≠ P5 整体架构/性能收口**，不合并签署。
+- **预算例外：架构门禁基线（2026-09-25，repository owner 授权）。** 提交 `9a20db93bc`、`2194e9e541`，
+  经 `34cd3afccf` 合入。它不属于 5E findings，但作为非行为变更随 S4 候选一起冻结，范围仅限：
+  - 修改 `T/test_architecture.py`；
+  - 新增 `T/architecture_baseline.py`、`T/support/import_rules.py`；
+  - P5 设计 [§2A.4.1](p5-business-vertical-slices-design.md#p5-architecture-review-20260925) 与 §2A.5。
+
+  不改生产代码、依赖锁、镜像、Compose 或运行时边界，因此本身不触发容器重建；S4 最终候选仍按上条
+  无条件 fresh 构建。合入时相对 S3 exit（`9022ce26d7`）零增量，backend unit 2535 passed。S4 回修不得
+  扩大 `T/architecture_baseline.py`：确需新增条目时，须在同一 diff 写明理由并经独立审核接受。
+  P5 架构集中修复不在 S4 范围内，在 5E slice exit 之后、P5 整体 exit 之前进行。
 
 ## 3. 具体路径预算
 
@@ -166,7 +176,7 @@ B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`（与设计 §
 | S1 | `application/history/__init__.py`、`application/history/contracts.py`、`application/history/projection.py`、`infrastructure/control_db/sqlite_history.py`（读查询）、`http/routes/history.py`（list 路由）、`http/schemas/history.py`、`http/orchestration/history_read.py` | `test_history_projection.py`、`test_history_http.py`（list 路由部分） | `http/dependencies.py`、`http/runtime.py`、`http/wiring.py`、`T/test_http_openapi.py`、`T/test_http_auth_matrix.py`、`T/test_production_wiring.py`、`T/test_backend_readiness.py`、`T/test_architecture.py` |
 | S2 | `application/history/compare.py`、`application/history/compare_bindings.py`、`application/history/compare_jobs.py`、`application/history/compare_registry.py`、`http/orchestration/history_compare.py`、`http/orchestration/history_integrity.py` | `test_history_compare_transactions.py`、`test_history_compare_jobs.py`、`test_history_compare_integrity.py` | `B/capabilities/snapshot_materialization/{contracts.py,repository_ref.py}`（**窄例外**：content digest pair + 结构 mismatch 最小公开事实；mismatch halt 填充）、`application/history/contracts.py`（`HistoryCompareDiagnosticCode`）、`application/submission/ports.py`、`infrastructure/control_db/migrations.py`（v6）、`infrastructure/control_db/database.py`、`infrastructure/control_db/sqlite_history_compare.py`、`infrastructure/control_db/sqlite_history.py`、`http/routes/history.py`（+4 路由，integrity-ack 挂 `require_internal_bearer`）、`http/routes/operations.py`、`http/schemas/history.py`、`http/schemas/constraints.py`、`http/errors.py`（仅 3 HTTP 码）、`http/dependencies.py`、`http/runtime.py`、`http/wiring.py`、`http/orchestration/operation_scope.py`、`bootstrap/operation_worker.py`、`T/support/history_compare_job_harness.py`、`T/support/http_shutdown_harness.py`、`T/support/repository_ref_materialization.py`、`T/support/history_zero_write_tables.py`、`T/test_history_http.py`、`T/test_operation_http.py`、`T/test_http_admission_shutdown.py`、`T/test_http_admission_shutdown_process.py`、`T/test_preview_read_http.py`、`T/test_review_persistence.py`、`T/test_submit_control_db_migrations.py`、`T/test_workspace_control_db_migrations.py`、`T/test_architecture.py` |
 | S3 | — | `test_history_compose_e2e.py` | `vnext/deploy/config/session.json`、`T/test_http_auth_matrix.py`（如参数表扩展）、`T/support/compose_gate_harness.py`（仅共享 helper 必要时）、`deploy/compose.yaml`（仅真实缺口时，预期无） |
-| S4 | 无业务能力新增 | findings 回修 S1–S3 | 仅 findings 涉及文件 |
+| S4 | 无业务能力新增 | findings 回修 S1–S3 | 仅 findings 涉及文件（另见 §S4 架构门禁预算例外） |
 
 预算外禁止（任一触碰 = 停止并回设计）：`B/capabilities/**` **除** `snapshot_materialization/{contracts.py,repository_ref.py}` 的 F5 窄例外（§6.6 content/结构公开面，S2 阶段内 materialization owner 同交付）及 S3 remediation 已签署扩展（见 [ADR 0017](../adr/0017-sql-spelling-declared-type-unification.md) §4：`sql_declared_types.py`、`scalar_encoding.py`、`comparison/standard.py`、`storage_projection/project.py` 等）、`B/operations/**`、`vnext/repository_service/**`、shared kernel、Rust、五包 `pyproject`/`uv.lock`、Dockerfile/构建机制/entrypoint、legacy；不新增 capability owner；不使用 `history-`/`history:` artifact 前缀（§设计 2.1 第 5 行）；不新增通用 context bag（窄依赖原则）。
 

@@ -119,6 +119,17 @@ S7 PASS nodeid，同样按精确 path ignore，不用宽泛 marker。
 Compose/container wiring或container harness变更都会提前终止延期，并要求在所属round执行
 相应容器门禁。
 
+### P5-5E S3 compose 门禁串行（port 8000 + flock）
+
+`test_ordered_compare_compose.py`、`test_ordered_submit_bisect_compose.py`、
+`test_history_compose_e2e.py` 共享 host `127.0.0.1:8000`，**必须串行**执行。
+
+- harness 在 `start_three_container_stack` 入口对 `/tmp/gateway-compose-gate.lock` 加 `flock`；
+  `cleanup_compose_project_artifacts` 释放锁。并发会话会阻塞等待（默认 30 分钟上限）。
+- compose project 名默认含会话成分（`GATEWAY_COMPOSE_GATE_SESSION` 或 pid），避免跨会话
+  project/卷/网络碰撞；可用 `GATEWAY_COMPOSE_GATE_PROJECT_NAME` 显式覆盖。
+- **S4 权威 runner 必须单飞**：不得并行跑上述三门禁或与其它占用 8000 的 compose 栈混跑。
+
 ### Docker / Compose触发式重建
 
 镜像构建验证的是某个精确source tree的image/deployment/container runtime行为，不是所有

@@ -134,7 +134,9 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 | source_tree_sha_excludes | clean worktree at gate commit only；dirty tree 回退临时索引（见 `compose_gate_harness.source_tree_sha_for_provenance`） |
 | S1 对照规则 | 各门禁 `assert_running_backend_worker_images_match_build`：gate running image **==** gate fresh build（backend/worker）；逐门禁见 provenance `running_images_by_gate` |
 | reference_deploy_build | **非门禁运行镜像**（`deploy-backend:latest` 等）；见 provenance JSON `reference_deploy_build` |
-| running_images_by_gate | `ordered_compare` / `ordered_bisect` / `gateway_history_5e` 三组 `{backend,worker,repository_service}` container_id + immutable image |
+| running_images_by_gate | `ordered_compare` / `ordered_bisect`（**仅 B′ baseline 子栈**）/ `gateway_history_5e` 三组 `{backend,worker,repository_service}` container_id + immutable image |
+| compose 串行 | port **8000** 硬串行点；harness `flock` `/tmp/gateway-compose-gate.lock`；S4 权威 runner 必须单飞（见 `testing-conventions.md`） |
+| provenance commits | gated `205e43da`；provenance SHA 对齐 `499468f362`（docs-only）；N1–N6 harness/test 变更不刷新 S3 stage exit 证据 |
 | docker 残留清理 | `compose down -v --remove-orphans` + volume/network label 清理 |
 | fresh_build | yes（backend/worker per gate）；见 provenance JSON |
 | S3 focused | `2508 passed, 0 skipped`（`-m unit`）+ compose 串行 3/3 |
@@ -150,7 +152,13 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 
 ### 已知边界
 
-非 `SubmitImportPublicationError` 的确定性 prepare 失败仍可能不释放 occupancy（仅 `SubmitImportPublicationError` 路径经 `abort_prepared_submit_in_control_transaction` 释放）；B′ 覆盖 publication 失败 + retry 路径。
+非 `SubmitImportPublicationError` 的确定性 prepare 失败仍可能不释放 occupancy（仅 `SubmitImportPublicationError` 路径经 `abort_prepared_submit_in_control_transaction` 释放）；B′ compose 在 FAILED 后直接读 control DB 断言 occupancy 已清（非 409 代理），retry accept 202 + `SUCCEEDED` 为可再次提交证明。
+
+**S4 评估（未实施）**：prepare handler 全部确定性异常统一 FAILED + attempt 释放 + compose 断言。
+
+### Mapper 宽容解析（有意）
+
+`DECIMAL(10,)` / `DECIMAL(10, )` → `(precision=10, scale=0)`（mapper 空 scale 段默认 0）。MySQL 会拒绝该 DDL；属测试拼写宽容，非 catalog 语义。
 
 权威 provenance: `docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-compose-gate-provenance.json`
 

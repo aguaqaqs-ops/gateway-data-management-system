@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, TextIO, cast
 
 import httpx
 import pytest
@@ -27,7 +28,12 @@ COMPOSE_FILE = DEPLOY_ROOT / "compose.yaml"
 BUILD_REPOSITORY_SCRIPT = VNEXT_ROOT / "scripts" / "build-repository-service-image.sh"
 BACKEND_URL = "http://127.0.0.1:8000"
 GATE_PROJECT_ENV = "GATEWAY_COMPOSE_GATE_PROJECT_NAME"
+GATE_SESSION_ENV = "GATEWAY_COMPOSE_GATE_SESSION"
 PREBUILT_ENV = "GATEWAY_COMPOSE_GATE_PREBUILT"
+COMPOSE_GATE_LOCK_PATH = Path("/tmp/gateway-compose-gate.lock")
+COMPOSE_GATE_LOCK_TIMEOUT_SECONDS = 1800.0
+COMPOSE_GATE_LOCK_POLL_SECONDS = 2.0
+_gate_lock_file: TextIO | None = None
 COMPOSE_GATE_PROVENANCE_PATH = (
     Path(__file__).resolve().parent / ".last_compose_gate_provenance.json"
 )
@@ -105,7 +111,43 @@ def compose_project_name(tmp_path: Path, *, default_prefix: str) -> str:
     fixed = os.environ.get(GATE_PROJECT_ENV, "").strip()
     if fixed:
         return fixed
-    return f"{default_prefix}-{tmp_path.name}"
+    session = os.environ.get(GATE_SESSION_ENV, "").strip() or str(os.getpid())
+    return f"{default_prefix}-{session}-{tmp_path.name}"
+
+
+def acquire_compose_gate_lock() -> None:
+    global _gate_lock_file
+    if _gate_lock_file is not None:
+        return
+    COMPOSE_GATE_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = COMPOSE_GATE_LOCK_PATH.open("a+", encoding="utf-8")
+    deadline = time.monotonic() + COMPOSE_GATE_LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _gate_lock_file = lock_file
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                lock_file.close()
+                pytest.fail(
+                    "timed out waiting for compose gate lock "
+                    f"at {COMPOSE_GATE_LOCK_PATH} after "
+                    f"{COMPOSE_GATE_LOCK_TIMEOUT_SECONDS:.0f}s; "
+                    "another session may be running compose gates on port 8000"
+                )
+            time.sleep(COMPOSE_GATE_LOCK_POLL_SECONDS)
+
+
+def release_compose_gate_lock() -> None:
+    global _gate_lock_file
+    if _gate_lock_file is None:
+        return
+    try:
+        fcntl.flock(_gate_lock_file.fileno(), fcntl.LOCK_UN)
+    finally:
+        _gate_lock_file.close()
+        _gate_lock_file = None
 
 
 def repository_service_image() -> str:
@@ -313,6 +355,108 @@ print(json.dumps(sorted(commits)))
         pytest.fail(f"failed to list repository commits: {result.stderr}\n{result.stdout}")
     payload = json.loads(result.stdout.strip() or "[]")
     return set(str(item) for item in payload)
+
+
+def _worker_container_name(env: dict[str, str]) -> str:
+    return f"{env['COMPOSE_PROJECT_NAME']}-worker-1"
+
+
+def capture_worker_container_state(env: dict[str, str]) -> dict[str, str]:
+    container = _worker_container_name(env)
+    restart = subprocess.run(
+        ["docker", "inspect", "--format", "{{.RestartCount}}", container],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+    if restart.returncode != 0:
+        pytest.fail(
+            f"docker inspect RestartCount failed for {container}: "
+            f"{restart.stderr}\n{restart.stdout}"
+        )
+    started = subprocess.run(
+        ["docker", "inspect", "--format", "{{.State.StartedAt}}", container],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+    if started.returncode != 0:
+        pytest.fail(
+            f"docker inspect StartedAt failed for {container}: "
+            f"{started.stderr}\n{started.stdout}"
+        )
+    return {
+        "restart_count": restart.stdout.strip(),
+        "started_at": started.stdout.strip(),
+    }
+
+
+def assert_worker_container_unchanged(
+    env: dict[str, str],
+    baseline: dict[str, str],
+) -> None:
+    current = capture_worker_container_state(env)
+    if current["restart_count"] != baseline["restart_count"]:
+        pytest.fail(
+            "worker container restart count changed after submit failure: "
+            f"baseline={baseline['restart_count']} current={current['restart_count']} "
+            f"(container={_worker_container_name(env)})"
+        )
+    if current["started_at"] != baseline["started_at"]:
+        pytest.fail(
+            "worker container StartedAt changed after submit failure: "
+            f"baseline={baseline['started_at']} current={current['started_at']} "
+            f"(container={_worker_container_name(env)})"
+        )
+
+
+def assert_submit_occupancy_cleared_in_compose(
+    env: dict[str, str],
+    *,
+    workspace_id: str,
+    submit_attempt_id: str,
+) -> None:
+    workspace_literal = json.dumps(workspace_id)
+    attempt_literal = json.dumps(submit_attempt_id)
+    script = f"""
+import sqlite3
+conn = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
+workspace_id = {workspace_literal}
+submit_attempt_id = {attempt_literal}
+workspace_count = conn.execute(
+    "SELECT COUNT(*) FROM workspace_submit_occupancy_records WHERE workspace_id = ?",
+    (workspace_id,),
+).fetchone()[0]
+repository_count = conn.execute(
+    "SELECT COUNT(*) FROM repository_submit_occupancy_records "
+    "WHERE workspace_id = ? AND submit_attempt_id = ?",
+    (workspace_id, submit_attempt_id),
+).fetchone()[0]
+print(f"{{workspace_count}},{{repository_count}}")
+"""
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(
+            "failed to read submit occupancy from control DB: "
+            f"{result.stderr}\n{result.stdout}"
+        )
+    parts = result.stdout.strip().split(",")
+    if len(parts) != 2:
+        pytest.fail(f"unexpected occupancy probe output: {result.stdout!r}")
+    workspace_count, repository_count = int(parts[0]), int(parts[1])
+    if workspace_count != 0:
+        pytest.fail(
+            "workspace submit occupancy was not cleared after prepare failure: "
+            f"workspace_id={workspace_id} count={workspace_count}"
+        )
+    if repository_count != 0:
+        pytest.fail(
+            "repository submit occupancy was not cleared after prepare failure: "
+            f"workspace_id={workspace_id} submit_attempt_id={submit_attempt_id} "
+            f"count={repository_count}"
+        )
 
 
 def count_backend_operations(env: dict[str, str]) -> int:
@@ -551,7 +695,7 @@ def source_tree_sha_for_provenance(repo_root: Path = REPO_ROOT) -> tuple[str, bo
     return _git_dirty_worktree_tree_sha(repo_root), False, SOURCE_TREE_SHA_DIRTY_COMMAND
 
 
-def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
+def _teardown_compose_project_resources(env: dict[str, str]) -> None:
     project = env["COMPOSE_PROJECT_NAME"]
     down = run_compose(env, "down", "-v", "--remove-orphans")
     if down.returncode != 0:
@@ -614,6 +758,11 @@ def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
         )
         if pruned.returncode != 0:
             pytest.fail(f"docker network rm failed: {pruned.stderr}\n{pruned.stdout}")
+
+
+def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
+    _teardown_compose_project_resources(env)
+    release_compose_gate_lock()
 
 
 def capture_r4_manifest_artifact_ids(env: dict[str, str]) -> frozenset[str]:
@@ -1096,8 +1245,9 @@ def start_three_container_stack(
     *,
     import_baseline: bool = True,
 ) -> tuple[str, str]:
+    acquire_compose_gate_lock()
     build_compose_stack_images(env)
-    cleanup_compose_project_artifacts(env)
+    _teardown_compose_project_resources(env)
     up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")
     if up_repo.returncode != 0:
         pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")

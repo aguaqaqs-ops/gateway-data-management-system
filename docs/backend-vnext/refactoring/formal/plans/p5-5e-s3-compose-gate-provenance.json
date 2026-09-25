@@ -32,6 +32,7 @@
       }
     },
     "ordered_bisect": {
+      "note": "仅 B′ baseline 子栈（compose project prefix ordered-bisect-b-*）；不含 C / A′ 子栈",
       "backend": {
         "container_id": "e35403443b16",
         "image": "sha256:e3b1a5533e3007fde73e988c8e62ee91ca809bd11448ca641eb85bff1bb1b929"
@@ -78,6 +79,7 @@
       "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
     ]
   },
+  "provenance_commit_note": "gated_commit=205e43da8504f72ca77f0255040c1b70dc7745f8; provenance_alignment_commit=499468f362 (docs-only SHA delta); S4 重算 gate_tested_head/running_images 若触碰 image 边界",
   "s1_gate_running_image_equals_gate_build": "assert_running_backend_worker_images_match_build per gate; backend/worker running image must match fresh compose build at stack start",
   "lock_sha256": {
     "shared_kernel": "7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898",

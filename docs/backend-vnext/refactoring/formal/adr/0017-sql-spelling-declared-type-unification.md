@@ -46,6 +46,16 @@ Canonical 决策（与 `table_access/_sql_types.py`、`canonicalization_cells.py
 `DECIMAL` 单 precision 参数（如 `DECIMAL(10)`）语义为 `precision=10, scale=0`（与 materialize 历史
 语义及 repository `normalize_sql_type` 一致）。
 
+**`try_declared_type_for_sql_spelling` 返回 None 的三路径语义（有意差异）**：
+
+| 消费路径 | None / 映射失败后的行为 |
+| --- | --- |
+| storage projection | mapper 可解析但词表外 → `UNSUPPORTED_TABLE`（fail-closed） |
+| materialize (`_declared_type_for`) | 畸形拼写 → unknown `STRING`（`unknown=True` 软降级） |
+| compare (`_declared_type`) | `SqlDeclaredTypeMappingError` → `StandardComparisonError` → 表 `DEGRADED` |
+
+守卫 owner：`tests/test_sql_declared_type_mapping.py`、`tests/test_storage_projection_integrity.py`。
+
 ### 2. Storage projection BIGINT 修正
 
 `storage_projection/project.py` 将 `BIGINT` 映射为 64-bit `SIGNED_INTEGER`，不得降为 32-bit `INT`。

@@ -122,16 +122,16 @@ submit 诊断格式（T-2）：`storage projection failed: UNSUPPORTED_TABLE: co
 
 | 项 | 值 |
 | --- | --- |
-| gate_tested_head | `25f2c916249403430095b1f47a1dc8911a06542d` |
-| worktree_clean | false |
-| source_tree_sha | `9f87491b8a803150832b102e73956cda714657c1`（≠ `HEAD^{tree}` `a6a7e8f3…`） |
+| gate_tested_head | `13068babaeeccaf9e71d7c1d0bc6ddd893fc5514`（ADR 0017 remediation round 2） |
+| worktree_clean | true（gate 后 provenance 写入） |
+| source_tree_sha | `abd5d807b5ac574e54efe1816eb22056589c7326`（clean commit 临时索引） |
 | source_tree_sha_command | `GIT_INDEX_FILE=$(mktemp) && git -C "$REPO_ROOT" read-tree HEAD && git -C "$REPO_ROOT" add -A && git -C "$REPO_ROOT" write-tree`（clean tree：`git -C "$REPO_ROOT" rev-parse 'HEAD^{tree}'`） |
 | source_tree_sha_excludes | full repo tree via temporary index（含 unstaged + untracked）；非 `HEAD^{tree}` 快照 |
 | docker 残留清理 | `compose down -v --remove-orphans` + `docker volume rm`（`label=com.docker.compose.project=<project>`）+ `docker network rm`（同 label）；`ordered-debug*` / `gateway-submit-debug*` 容器已清理 |
 | fresh_build | yes（backend/worker）；见 provenance JSON |
-| S3 focused | `153 passed, 0 skipped` |
-| backend image | `sha256:06517c9b9066d860d80894eafc5ea04810d5885219198614234ce89c89f5951d` |
-| worker image | `sha256:bb4b87cad41fe16db5bb9fd31825b88bbfb573cedb19cf2e461047ce08268e84` |
+| S3 focused | `2493 passed, 0 skipped`（`-m unit`）+ compose 串行 3/3 |
+| backend image | `sha256:c1c513f4a35a6f69841e535fa33b930559ecfe2488b54c8da7a20ec3508c3dc5` |
+| worker image | `sha256:dd3029ca4fcda035322890150671beb5ab6cbe862dd9c28cd53dd7fc984c2db1` |
 | 零表 pair digest | `sha256:42861bfe…`（**content-stable across runs**；4 次独立运行同值；可交叉核对 veto 证据） |
 | 零表 bundle digest | run-scoped（观测 3 次三值；journey IDs/commit IDs 每轮 compose 不同） |
 

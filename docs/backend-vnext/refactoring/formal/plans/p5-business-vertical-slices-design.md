@@ -230,6 +230,22 @@ capability 公共面、私有模块/符号、contracts 叶子、包根归属、�
 在同一 diff 中给出明确理由并经评审。Preview/History 策略差异、编排复制与用例放置等无法由 import
 规则判定的问题，以本表跟踪。
 
+第二轮复核（2026-09-25，代码基线 `2172369803`）确认的补充问题如下。它们与本节既有问题一并由
+[P5 架构收口设计](p5-arch-closure-design.md) 处置（草案，待独立审核）：
+
+| 补充问题 | 处置入口 |
+| --- | --- |
+| 比较两侧不在同一域：Preview 上传侧为原始 SQL 快照，基线侧为 Repository 规范形态。实验中同内容表被判为 `DEGRADED`；基线非空后，带显式键、忽略列或 SKIP 规则的表系统性降级 | 设计 §4，ADR 0018 |
+| 表规则的比较语义（SKIP、SNAPSHOT_ONLY、BROWSE_ONLY、UPDATE_ONLY）在任何链路都未生效；上表“策略投影无 owner”一项是其中一部分 | 设计 §4.3 |
+| `NO_CANONICAL_CHANGE` 使用 bundle digest，并由 AcceptSubmit T1 物化基线后跑整条比较流水线 | 设计 §5.3，ADR 0019 |
+| hidden summary 的版本字段取运行时常量，Repository 读取时的规则版本校验恒为通过 | 设计 §5，ADR 0019 |
+| `logics.xml` 被暂存但从不解析，其修改不会进入规范业务状态（与上表不可达代码一项相关） | 设计 §8 |
+
+Repository owner 在同日作出的决定：规范域比较、以 manifest 作为 commit 规范元数据权威、项目身份沿用
+旧设计三段式语义（继续确认在 Submit 受理时收集）、composite 接入 P5、撤销 §2A.2 对 R5 流程词汇的
+保留约定。后一项以 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 接受为准，接受前 §2A.2
+原文仍然有效。
+
 ### 2A.5 收口验收
 
 在既有 P5 exit review 中检查本节，不新增独立审批链或持久治理状态机：

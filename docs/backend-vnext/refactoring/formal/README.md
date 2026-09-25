@@ -23,6 +23,10 @@
 - [P5-5E History Compare Detailed Design](plans/p5-5e-history-compare-design.md)（accepted；S1 实现已授权）
 - [P5-5E History Compare Execution Plan](plans/p5-5e-history-compare-execution-plan.md)（accepted；**S1–S4 权威执行入口**）
 - [P5-5E-S1 Kickoff Gate](plans/p5-5e-s1-kickoff.md)（pass）
+- [P5 架构收口 S0 Entry Brief](plans/p5-arch-closure-s0-entry-brief.md)、
+  [详细设计](plans/p5-arch-closure-design.md)、[执行计划](plans/p5-arch-closure-execution-plan.md)、
+  ADR [0018](adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](adr/0021-flow-neutral-comparison-entry.md)
+  （draft/proposed；待独立文档审核；实现未授权，最早在 5E slice exit 之后）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
 - [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（accepted；slice completed）

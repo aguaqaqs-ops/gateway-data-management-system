@@ -43,6 +43,9 @@ Repository owner 决定（2026-09-25，本文据此设计，不再重开）：
 | DC4 | composite_signal / `logics.xml` 接入 P5 业务物化；`composite_signal_point` 保留 `formula_ast_json`、`point_name` 但只以 `formula_digest` 比较 | 0018（列处置） |
 | DC5 | 撤销 §2A.2 对 R5 流程词汇的保留约定；comparison 只接收两侧规范快照、规则集、执行模式和选项 | 0021 |
 | DC6 | 新项目无历史数据：可以直接改变 contract、checkpoint/payload、canonical bytes 与 digest；不建设兼容层或双读路径 | — |
+| DC7 | before 侧为供给时初始空基线的 pair，身份评估为 `NOT_APPLICABLE`，首次提交不需要身份确认（§7.2） | 0020 |
+| DC8 | `logics.xml` 存在但解析失败或违反 composite 业务不变量时 Preview FAILED；修订 P5 §6.1 “XML 增强可降级”对该文件的适用（§8） | — |
+| DC9 | 删除以 hidden summary 为生产者的 5E History compare integrity incident 机制（记录、受理阻断、ack 路由、control DB 表）；读取不一致作为普通失败；ADR 0016 不受影响（§5.5） | 0019 |
 
 非目标：Phase 6 Rust 实现；新的 Repository effect、API 或 wire 变化；HA、外部 DB；legacy 数据迁移；
 性能通过阈值；在线 ruleset 迁移；5E slice 范围内的任何改动（5E slice exit 之前不改动其候选树）。
@@ -241,7 +244,7 @@ E 的稳定失败码 `HISTORY_RULESET_VERSION_MISMATCH`，但判据改为真实�
 ### 5.5 收缩 5E integrity incident
 
 hidden summary 删除后，5E-S2 以 `HIDDEN_SUMMARY_*` 与“catalog 对 summary”结构不一致为生产者的
-class (c) integrity incident 不再有生产者（P，取代 [5E 设计 §6.6](p5-5e-history-compare-design.md)
+class (c) integrity incident 不再有生产者（DC9，取代 [5E 设计 §6.6](p5-5e-history-compare-design.md)
 的相应部分）：
 
 - 删除 History compare integrity 记录与受理阻断（`has_pending_integrity_for_commit`）；
@@ -302,7 +305,7 @@ publish_records_closure / open / restore / rewrite       # 记录闭包 API 保�
 | MODIFIED_ONLY | baseline → modified | before 为初始空基线时 `NOT_APPLICABLE`，否则评估 |
 
 对初始空基线评估必然得到 `UNVERIFIABLE`，这会使每个项目的首次提交都成为异常节点，因此显式规定为
-`NOT_APPLICABLE`（P）。History compare 不做身份评估（沿用 D）。
+`NOT_APPLICABLE`（DC7）。History compare 不做身份评估（沿用 D）。
 
 ### 7.3 模式选择与 Preview 结果
 
@@ -357,7 +360,7 @@ publish_records_closure / open / restore / rewrite       # 记录闭包 API 保�
 
 - Preview 上传侧改用 `materialize_business_snapshot`（E，P3-R3 已实现并测试）：SQL 加可选 `logics.xml`；
   缺失 `logics.xml` 时按 D 使用稳定 EMPTY 来源；XML 摘要或 EMPTY 标记进入快照身份。
-- `logics.xml` 存在但解析失败或违反 composite 业务不变量时，Preview FAILED 并附明确诊断（P，沿用 P3-R3）。
+- `logics.xml` 存在但解析失败或违反 composite 业务不变量时，Preview FAILED 并附明确诊断（DC8，沿用 P3-R3）。
   这修订 P5 §6.1 中“XML 增强可降级”对 `logics.xml` 的适用：该文件的内容属于规范业务状态，降级会造成
   静默丢失。
 - `composite_signal_point` 经规范投影进入存储、比较和风险，规则按 §4.3 变更。

@@ -78,9 +78,8 @@ def test_sql_spelling_maps_consistently_across_materialize_and_compare(
     ids=_SQL_DECLARED_TYPE_NEGATIVE_CASES,
 )
 def test_sql_spelling_mapper_rejects_malformed_arguments(spelling: str) -> None:
-    with pytest.raises(SqlDeclaredTypeMappingError) as exc_info:
+    with pytest.raises(SqlDeclaredTypeMappingError):
         declared_type_for_sql_spelling(spelling)
-    assert not isinstance(exc_info.value, IndexError)
 
 
 @pytest.mark.parametrize(

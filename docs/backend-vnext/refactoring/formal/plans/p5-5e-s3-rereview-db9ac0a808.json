@@ -1,0 +1,71 @@
+{
+  "head": "db9ac0a808c6494ed081fd00bf60fb6962867a46",
+  "source_tree_sha": "7a0315d252dec0d136440ec360ce1b74cc7909ea",
+  "recorded_at": "2026-09-25",
+  "acceptance_context": "independent rereview pass_recommended; S3 stage exit evidence archive",
+  "observed_gates": {
+    "ordered_compare": {
+      "compose_project": "ordered-compare-202878-test_ordered_history_compare_c0",
+      "backend": {
+        "container_id": "14e1f4bb5028",
+        "image": "sha256:d02db6880fad4b8275aa3269d532ce5cd03a16d64baaa2fb2a247c768d1fa0e7"
+      },
+      "worker": {
+        "container_id": "ee7b353fe7c1",
+        "image": "sha256:0e455993d7dd3be36942523ed4c56f083c035f424268210e8ac730e44d2f75c6"
+      },
+      "repository_service": {
+        "container_id": "ea8bee306458",
+        "image": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+      }
+    },
+    "ordered_bisect_b_prime": {
+      "compose_project": "ordered-bisect-b-202878-baseline",
+      "note": "B′ baseline substack only",
+      "backend": {
+        "container_id": "4e469cb3f8a0",
+        "image": "sha256:0734c1ebc951ac53b59649a65459814c5a911a9220118388aa8080b921f1217c"
+      },
+      "worker": {
+        "container_id": "4fa42082f420",
+        "image": "sha256:5847fbc9577460344a3d5cea96d8d645881460f8311f48b8474eafd55b18e4fc"
+      },
+      "repository_service": {
+        "container_id": "3686c434a24c",
+        "image": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+      }
+    },
+    "gateway_history_5e": {
+      "compose_project": "gateway-history-5e-202878-test_compose_history_compare_j0",
+      "backend": {
+        "container_id": "f4092b1e412b",
+        "image": "sha256:bdc7489ea2e41b09adc688800836a6d0bea7d35d5c390246e928cca9cafb7d2e"
+      },
+      "worker": {
+        "container_id": "3f53ec2a8993",
+        "image": "sha256:8dd278282012228bc7eecca56e73a08351e447a9b0888c14b4cc5c39fc7b537d"
+      },
+      "repository_service": {
+        "container_id": "a35b71042f8f",
+        "image": "sha256:b47643c2e5ddff3d50611d8b6700e25451ccc86e98fae44892fc4b90c0290a10"
+      }
+    }
+  },
+  "lock_sha256": {
+    "shared_kernel": "7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898",
+    "repository_contracts": "b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3",
+    "repository_client": "6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954",
+    "repository_service": "6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11",
+    "backend": "21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea"
+  },
+  "validation": {
+    "focused": "209 passed, 0 skipped (129 + 80)",
+    "unit": "2508 passed, 0 skipped (backend -m unit)",
+    "static": "five packages ruff + mypy --no-incremental passed",
+    "compose": "3 passed, 0 skipped, 0 xfailed; 735.38 seconds",
+    "fresh_build": "backend/worker rebuilt per stack start; repository_service image reused",
+    "compose_command": "./vnext/scripts/uv-consume.sh -C vnext/backend run pytest -q tests/test_ordered_compare_compose.py tests/test_ordered_submit_bisect_compose.py tests/test_history_compose_e2e.py",
+    "full_runner": "not run; deferred to S4"
+  },
+  "vnext_deploy_compose_yaml_sha256": "f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0"
+}

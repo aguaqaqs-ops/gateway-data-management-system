@@ -20,7 +20,10 @@ from tests.support.compose_gate_harness import (
     PROJECT_ID,
     SESSION_TOKEN,
     assert_running_backend_worker_images_match_build,
+    assert_submit_occupancy_cleared_in_compose,
+    assert_worker_container_unchanged,
     capture_running_container_provenance,
+    capture_worker_container_state,
     compose_auth_headers,
     cleanup_compose_project_artifacts,
     compose_project_name,
@@ -152,6 +155,7 @@ def _run_preview_and_submit(
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]],
     token: str = ACTOR2_TOKEN,
     retry_upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
+    worker_baseline: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
         base_url=BACKEND_URL,
@@ -210,7 +214,9 @@ def _run_preview_and_submit(
             },
         )
         assert accepted.status_code == 202, accepted.text
-        submit_operation_id = accepted.json()["operation_id"]
+        accepted_body = accepted.json()
+        submit_operation_id = accepted_body["operation_id"]
+        submit_attempt_id = accepted_body["submit_attempt_id"]
         deadline = time.monotonic() + _SUBMIT_STEP_TIMEOUT_SECONDS
         submit_terminal: dict[str, Any] | None = None
         while time.monotonic() < deadline:
@@ -224,7 +230,8 @@ def _run_preview_and_submit(
         diagnostic = submit_terminal.get("diagnostic") if submit_terminal is not None else None
         result: dict[str, Any] = {
             "workspace_id": workspace_id,
-            "submission_id": accepted.json().get("submission_id"),
+            "submission_id": accepted_body.get("submission_id"),
+            "submit_attempt_id": submit_attempt_id,
             "preview_status": preview_terminal["status"],
             "preview_operation_id": preview_operation_id,
             "submit_operation_id": submit_operation_id,
@@ -238,7 +245,16 @@ def _run_preview_and_submit(
             "worker_tail": worker_tail,
         }
         if retry_upload_files_factory is not None:
+            if result["submit_status"] == "FAILED":
+                assert_submit_occupancy_cleared_in_compose(
+                    env,
+                    workspace_id=workspace_id,
+                    submit_attempt_id=submit_attempt_id,
+                )
+                if worker_baseline is not None:
+                    assert_worker_container_unchanged(env, worker_baseline)
             workspace_row = read_workspace_row(env, workspace_id)
+            # Re-accept with stale preview/upload is expected to 409; this is not occupancy proof.
             reaccept = client.post(
                 f"/v1/workspaces/{workspace_id}/submit-attempts",
                 headers=compose_auth_headers(
@@ -256,7 +272,9 @@ def _run_preview_and_submit(
                 },
             )
             assert reaccept.status_code == 409, reaccept.text
+            reaccept_body = reaccept.json()
             result["resubmit_accept_status"] = reaccept.status_code
+            result["resubmit_accept_code"] = reaccept_body.get("code")
             retry_upload_payload = retry_upload_files_factory(workspace_row["optimistic_version"])
             retry_upload = client.post(
                 f"/v1/workspaces/{workspace_id}/upload-revisions",
@@ -366,12 +384,14 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         )
         assert_running_backend_worker_images_match_build(baseline_env)
         provenance = capture_running_container_provenance(baseline_env)
+        worker_baseline = capture_worker_container_state(baseline_env)
         case_b = _run_preview_and_submit(
             baseline_env,
             journey_key_prefix="bisect-t3-decimal",
             token=SESSION_TOKEN,
             upload_files_factory=_t3_decimal_upload_files,
             retry_upload_files_factory=_baseline_only_upload_files,
+            worker_baseline=worker_baseline,
         )
         print(
             "case_b_prime_t3_decimal",

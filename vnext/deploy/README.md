@@ -17,9 +17,14 @@ array. Permission checks are exact string matches with no inheritance.
 | `preview_workspace` | Start preview operations |
 | `review_submission` | Apply review events |
 | `archive_submission` | List candidates, preview plans, append audit facts, and start archives |
+| `read_project_history` | Read project history nodes and start history compares |
 
 `archive_submission` is independent from upload, preview, and review. Grant it
 only to actors that should perform Archive commands for a device/project scope.
+
+`read_project_history` is independent from workspace, upload, preview, review,
+and archive permissions. Permission checks are exact string matches with no
+inheritance; granting `archive_submission` does not imply history read access.
 
 ## Provisioned mapping and initial seed
 

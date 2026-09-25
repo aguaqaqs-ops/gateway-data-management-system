@@ -1,6 +1,6 @@
 # P5-5E History Compare 执行计划
 
-- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S2 实现已授权**
+- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S3 remediation evidence refresh in progress**
 - 日期：2026-09-21
 **修订记录**：v3.6.1（2026-09-23）接受同步；S1 kickoff pass（见 [p5-5e-s1-kickoff.md](p5-5e-s1-kickoff.md)）。v3.6（2026-09-21）v3.5 独立复审 **F5 分类**：确认/映射分离；B→C；结构轨。v3.5 digest pair 语义。v3.4 P3。v3.3 F1a–F1c。v3.1 R1–R4。v3 F1 + F5 骨架。v2 纳入 F1–F6。
 - 对应设计：[P5-5E History Compare 详细设计](p5-5e-history-compare-design.md)
@@ -10,12 +10,16 @@
 
 ```yaml
 entry_kind: p5_5e_execution_plan
-stage: p5_5e_s2
-status: docs accepted; S2 implementation authorized
-implementation_authorized: S2 only
+stage: p5_5e_s3
+status: docs accepted; s3_stage_exit: not_evaluated; S3 remediation evidence refresh in progress
+compose_journey: remediation_in_progress
+implementation_authorized: S3
 s1_stage_exit: pass
 s2_kickoff: pass
 s2_stage_exit: pass
+s3_kickoff: pass
+s3_stage_exit: not_evaluated
+s3_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-handoff.md
 docs_review_baseline_head: 6f6a780415b3e85ec2d1e9074b1f34c4093a9c7c
 implementation_baseline_head: 6707a1ca01c7325220ec47261b4b69a6232313ab
 p5_5d_gate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c
@@ -244,7 +248,7 @@ focused 测试摘要 + 容器门禁结果（pass/skip 清单）
 
 1. 设计 §10 停止条件**均未触发**的逐条声明；
 2. 5D 对齐 gate 记录（表形/port/版本号实际值 vs accepted 设计）+ **5D exit 证据复核（含 initial-empty 门禁与零表 compose 旅程，F6）**；
-3. 零写证据：e2e 前后业务表 checksum + Repository commit 集合不变断言的输出；
+3. 零写证据：e2e 前后业务表 checksum + Repository commit 集合不变 + `r4-manifest-` artifact_id 前缀集合不变断言的输出；
 4. 容器并合证据：实际运行 image ID/revision + source-tree sha + 全部门禁 pass/0 skipped；
 5. 唯一 owner 覆盖表（设计 §8 ↔ 实际测试文件映射）；
 6. deferred 项清单（预期为空：零表腿为 S3 必跑项、integrity 闭环为 S2 必交付项、5D 证据 kickoff 重核；任何新增 deferral 必须写明最终关闭节点）；

@@ -400,12 +400,24 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             _LOGGER.error("operation_worker_failed category=settings_invalid")
             return 1
         except Exception as exc:
-            _LOGGER.error("operation_worker_failed category=%s", _failure_category(exc))
+            _LOGGER.error(
+                "operation_worker_failed category=%s type=%s message=%s",
+                _failure_category(exc),
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             return 1
         try:
             runtime.run(stop_requested.is_set, stop_requested.wait)
         except Exception as exc:
-            _LOGGER.error("operation_worker_failed category=%s", _failure_category(exc))
+            _LOGGER.error(
+                "operation_worker_failed category=%s type=%s message=%s",
+                _failure_category(exc),
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             return 1
         return 0
     finally:

@@ -20,15 +20,12 @@ from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
-    _bound_from_materialization,
     _table_policies_from_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.capabilities.comparison import (
     ArtifactScope,
-    BoundSnapshotInput,
     ComparisonPlan,
-    ComparisonTablePolicy,
     ComparisonTableStatus,
     DetailedFactsResult,
     InputCompleteness,
@@ -40,15 +37,6 @@ from gateway_backend.capabilities.comparison import (
     compare_plan,
     plan_pair,
 )
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    MaterializationPolicy,
-    MaterializationStage,
-    RepositoryRef,
-    RepositoryRefMaterializationRequest,
-)
-from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
-from gateway_backend.capabilities.snapshot_materialization.repository_ref import materialize_repository_ref
-from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.history_compare import get_compare_result
@@ -57,6 +45,7 @@ from gateway_backend.operations import OperationStatus, StepStatus
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.history_compare_job_harness import (
     ORDERED_SYX_TABLE,
+    ORDERED_SYX_TABLE_EXPECTED_POLICY,
     REPOSITORY_ID,
     build_history_compare_harness,
     claim_next_step,
@@ -82,28 +71,8 @@ from tests.support.repository_ref_materialization import (
 )
 from gateway_backend.operations.contracts import BusinessReference
 
+from tests.support.history_compare_oracle import materialize_bound_snapshot, oracle_comparison_digest
 from tests.support.history_zero_write_tables import capture_business_table_state
-
-ORDERED_SYX_TABLE_EXPECTED_POLICY: dict[str, object] = {
-    "table_name": ORDERED_SYX_TABLE,
-    "ignored_columns": ["no"],
-    "keyless_policy": "DEGRADE_NO_COMPARE_KEY",
-    "policy_version": "comparison-table-policy/v1",
-    "ordered_policy": {
-        "policy_id": "ordered-gid-no-v1",
-        "policy_version": "backend-vnext/ordered-diff/v2",
-        "order_key": ["no"],
-        "row_identity_key": ["gid"],
-        "stable_key_candidates": ["gid"],
-        "value_columns": [],
-        "ignored_columns": ["no"],
-        "blank_row_policy": "PSEUDO_BLANK_BY_MISSING_STABLE_KEY",
-        "move_policy": "STABLE_KEY_RELATIVE_ORDER_V1",
-        "ambiguity_policy": "DEGRADE_ON_AMBIGUITY",
-        "tail_change_policy": "INTERVAL_OR_ROW_V1",
-        "table_processing_mode_policy": "ORDERED_MODE_V1",
-    },
-}
 
 NET_CFG_STANDARD_DIFF_EXPECTED_POLICY: dict[str, object] = {
     "table_name": "net_cfg",
@@ -259,12 +228,12 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
         pair_id="pair-0",
         view_kind=PairViewKind.HISTORY,
         pair_role=PairRole.HISTORY,
-        before=_materialize_bound(
+        before=materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
             artifact_store=harness.artifact_store,
         ),
-        current=_materialize_bound(
+        current=materialize_bound_snapshot(
             providers[current_commit],
             commit_id=current_commit,
             artifact_store=harness.artifact_store,
@@ -444,60 +413,6 @@ def test_publish_pins_assemble_checkpoint_and_clears_step_checkpoints(tmp_path: 
     assert exc_info.value.code == "ARTIFACT_UNAVAILABLE"
 
 
-def _materialize_bound(
-    provider: FakeRepositoryTableAccessProvider,
-    *,
-    commit_id: str,
-    artifact_store: object,
-) -> BoundSnapshotInput:
-    request = RepositoryRefMaterializationRequest(
-        repository_ref=RepositoryRef(repository_id=REPOSITORY_ID, ref=commit_id),
-        provider=provider,
-        ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
-        table_ruleset_version=TABLE_RULESET_VERSION,
-        materialization_stage=MaterializationStage.FINAL,
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-        context=ParserInvocationContext(NeverCancel()),
-        artifact_store=artifact_store,
-    )
-    result = materialize_repository_ref(request)
-    assert result.status.value == "COMPLETE"
-    return _bound_from_materialization(result)
-
-
-def _oracle_comparison_digest(
-    *,
-    before_provider: FakeRepositoryTableAccessProvider,
-    current_provider: FakeRepositoryTableAccessProvider,
-    before_commit: str,
-    current_commit: str,
-    table_policies: tuple[ComparisonTablePolicy, ...],
-    compare_binding_digest: str,
-    artifact_store: object,
-) -> str:
-    before = _materialize_bound(before_provider, commit_id=before_commit, artifact_store=artifact_store)
-    current = _materialize_bound(current_provider, commit_id=current_commit, artifact_store=artifact_store)
-    bound = bind_pair_input(
-        pair_id="pair-0",
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
-        before=before,
-        current=current,
-        input_completeness=InputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=TrustedFlowApplicabilityBinding(
-            view_kind=PairViewKind.HISTORY,
-            binding_digest=DigestRef(compare_binding_digest),
-        ),
-        table_policies=table_policies,
-    )
-    planned = plan_pair(bound)
-    assert isinstance(planned, ComparisonPlan)
-    compared = compare_plan(planned)
-    assert isinstance(compared, DetailedFactsResult) and compared.facts is not None
-    return compared.facts.comparison_digest.value
-
-
 @pytest.mark.parametrize(
     ("case_id", "before_rows", "current_rows", "expected_kinds", "expected_modified"),
     F1_POLICY_BINDING_CASES,
@@ -542,7 +457,7 @@ def test_f1_policy_binding_integration_cases(
     run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
 
     table_policies = _table_policies_from_checkpoint(policies_raw)
-    oracle_digest = _oracle_comparison_digest(
+    oracle_digest = oracle_comparison_digest(
         before_provider=providers[before_commit],
         current_provider=providers[current_commit],
         before_commit=before_commit,
@@ -555,12 +470,12 @@ def test_f1_policy_binding_integration_cases(
         pair_id="pair-0",
         view_kind=PairViewKind.HISTORY,
         pair_role=PairRole.HISTORY,
-        before=_materialize_bound(
+        before=materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
             artifact_store=harness.artifact_store,
         ),
-        current=_materialize_bound(
+        current=materialize_bound_snapshot(
             providers[current_commit],
             commit_id=current_commit,
             artifact_store=harness.artifact_store,
@@ -640,12 +555,12 @@ def test_f1_standard_diff_keyed_ignored_column_net_cfg(tmp_path: Path) -> None:
         pair_id="pair-0",
         view_kind=PairViewKind.HISTORY,
         pair_role=PairRole.HISTORY,
-        before=_materialize_bound(
+        before=materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
             artifact_store=harness.artifact_store,
         ),
-        current=_materialize_bound(
+        current=materialize_bound_snapshot(
             providers[current_commit],
             commit_id=current_commit,
             artifact_store=harness.artifact_store,

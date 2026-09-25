@@ -66,6 +66,7 @@ from tests.support.storage_projection import (
     set_cell,
     set_column,
     table_input,
+    typed_column,
     varchar_cell,
     varchar_column,
 )
@@ -167,6 +168,89 @@ def test_keyless_does_not_invent_a_surrogate_key() -> None:
     assert result.status is ProjectionStatus.COMPLETE
     assert result.tables[0].row_count == 2
     assert result.tables[0].storage_view.canonical_key_columns == ()
+
+
+_SCALAR_TYPE_VOCABULARY_CASES: tuple[tuple[str, Callable[[], TableInput], ProjectionStatus, str | None], ...] = (
+    (
+        "ordered_vocab",
+        lambda: _ordered_input(
+            (
+                as_row(int_cell(1), int_cell(1), varchar_cell("a")),
+                as_row(int_cell(2), int_cell(2), varchar_cell("b")),
+            )
+        ),
+        ProjectionStatus.COMPLETE,
+        None,
+    ),
+    (
+        "ordered_sized_varchar",
+        lambda: table_input(
+            "b1_n1_iec104_syx_list",
+            columns=(
+                int_column("gid", nullable=True),
+                int_column("no"),
+                typed_column("value", "VARCHAR(8)", nullable=True),
+            ),
+            primary_key_columns=("gid",),
+            rows=(
+                as_row(int_cell(1), int_cell(1), varchar_cell("a")),
+                as_row(int_cell(2), int_cell(2), varchar_cell("b")),
+            ),
+        ),
+        ProjectionStatus.FAILED,
+        "b1_n1_iec104_syx_list",
+    ),
+    (
+        "plain_sized_varchar",
+        lambda: table_input(
+            "t3",
+            columns=(
+                int_column("id"),
+                typed_column("label", "VARCHAR(8)"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), varchar_cell("x")),),
+        ),
+        ProjectionStatus.FAILED,
+        "t3",
+    ),
+    (
+        "plain_bigint",
+        lambda: table_input(
+            "t4",
+            columns=(
+                int_column("id"),
+                typed_column("big", "BIGINT"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), int_cell(99)),),
+        ),
+        ProjectionStatus.FAILED,
+        "t4",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("label", "table_input_factory", "expected_status", "expected_table_name"),
+    _SCALAR_TYPE_VOCABULARY_CASES,
+    ids=tuple(case[0] for case in _SCALAR_TYPE_VOCABULARY_CASES),
+)
+def test_storage_projection_scalar_type_vocabulary_cases(
+    label: str,
+    table_input_factory: Callable[[], TableInput],
+    expected_status: ProjectionStatus,
+    expected_table_name: str | None,
+) -> None:
+    del label
+    result = project_storage(_request(table_input_factory()))
+    assert result.status is expected_status
+    if expected_status is ProjectionStatus.FAILED:
+        assert result.diagnostics
+        diagnostic = result.diagnostics[0]
+        assert diagnostic.code is ProjectionDiagnosticCode.UNSUPPORTED_TABLE
+        assert diagnostic.message == "column scalar_type is not supported"
+        assert diagnostic.table_name == expected_table_name
 
 
 def test_ordered_real_gid_and_blank_pseudo_allocation() -> None:

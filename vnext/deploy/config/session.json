@@ -1,4 +1,12 @@
 {
+  "documented_permissions": [
+    "workspace_read",
+    "upload_submit_workspace",
+    "preview_workspace",
+    "review_submission",
+    "archive_submission",
+    "read_project_history"
+  ],
   "sessions": [
     {
       "token": "local-dev-session-token",

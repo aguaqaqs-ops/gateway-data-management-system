@@ -30,6 +30,7 @@ from gateway_backend.capabilities.snapshot_materialization import open_snapshot_
 from gateway_backend.capabilities.snapshot_materialization.contracts import ArtifactSourceBinding
 from gateway_backend.capabilities.storage_projection import (
     ProjectionInvocationContext,
+    ProjectionDiagnostic,
     ProjectionRequest,
     ProjectionStatus,
     ProjectionTableInput,
@@ -79,6 +80,24 @@ class SubmitImportPublicationError(ValueError):
     """Raised when submit import publication fails closed."""
 
 
+def _format_projection_diagnostics(prefix: str, diagnostics: tuple[ProjectionDiagnostic, ...]) -> str:
+    if not diagnostics:
+        return f"{prefix}: FAILED"
+    first = diagnostics[0]
+    table_suffix = f" (table={first.table_name})" if first.table_name else ""
+    message = f"{prefix}: {first.code.value}: {first.message}{table_suffix}"
+    if len(diagnostics) > 1:
+        also = "; ".join(
+            f"{item.code.value}:{item.message}"
+            + (f"@{item.table_name}" if item.table_name else "")
+            for item in diagnostics[1:3]
+        )
+        message += f"; also={also}"
+        if len(diagnostics) > 3:
+            message += f"; diagnostics={len(diagnostics)}"
+    return message
+
+
 class SubmitImportPublicationAdapter:
     """REBUILD_ALWAYS adapter over Storage Projection and Mutation Planning."""
 
@@ -112,8 +131,12 @@ class SubmitImportPublicationAdapter:
         )
         projection = project_storage(projection_request)
         if projection.status is not ProjectionStatus.COMPLETE:
-            code = projection.diagnostics[0].code.value if projection.diagnostics else "FAILED"
-            raise SubmitImportPublicationError(f"storage projection failed: {code}")
+            raise SubmitImportPublicationError(
+                _format_projection_diagnostics(
+                    "storage projection failed",
+                    projection.diagnostics,
+                )
+            )
         if projection.manifest is None or projection.import_input is None:
             raise SubmitImportPublicationError("COMPLETE projection is missing manifest or import input")
         _assert_projection_identity(build_input, projection)
@@ -151,8 +174,12 @@ class SubmitImportPublicationAdapter:
             context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
         )
         if published.status is not ProjectionStatus.COMPLETE or published.publication is None:
-            code = published.diagnostics[0].code.value if published.diagnostics else "FAILED"
-            raise SubmitImportPublicationError(f"canonical publication failed: {code}")
+            raise SubmitImportPublicationError(
+                _format_projection_diagnostics(
+                    "canonical publication failed",
+                    published.diagnostics,
+                )
+            )
         publication = published.publication
         package_ref = backend_artifact_ref_from_store_ref(publication.package_ref)
         manifest_ref = backend_artifact_ref_from_store_ref(publication.manifest_ref)

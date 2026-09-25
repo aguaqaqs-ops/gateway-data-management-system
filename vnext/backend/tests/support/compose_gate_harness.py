@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, cast
 
 import httpx
 import pytest
 
+from tests.support.history_zero_write_tables import HISTORY_ZERO_WRITE_TABLES
+from tests.support.source_package_fixtures import pack_tar_gz
 from tests.support.submit_job_harness import _repository_service_build_package_bytes
-from tests.support.upload_http_packages import upload_files
+from tests.support.upload_http_packages import _SQL, upload_files
 
 VNEXT_ROOT = Path(__file__).resolve().parents[3]
 DEPLOY_ROOT = VNEXT_ROOT / "deploy"
@@ -26,11 +31,74 @@ PREBUILT_ENV = "GATEWAY_COMPOSE_GATE_PREBUILT"
 COMPOSE_GATE_PROVENANCE_PATH = (
     Path(__file__).resolve().parent / ".last_compose_gate_provenance.json"
 )
+REPO_ROOT = Path(__file__).resolve().parents[4]
+SOURCE_TREE_SHA_DIRTY_COMMAND = (
+    'GIT_INDEX_FILE=$(mktemp) && git -C "$REPO_ROOT" read-tree HEAD && '
+    'git -C "$REPO_ROOT" add -A && git -C "$REPO_ROOT" write-tree'
+)
+SOURCE_TREE_SHA_EXCLUDES = (
+    "full repo tree via temporary index (includes unstaged and untracked); "
+    "not a HEAD^{tree} snapshot"
+)
+_LOGGER = logging.getLogger(__name__)
+ORDERED_SYX_TABLE = "b1_n1_iec104_syx_list"
+ORDERED_SYX_VOCABULARY_DDL = (
+    "CREATE TABLE `b1_n1_iec104_syx_list` ("
+    "`gid` INT NOT NULL, "
+    "`no` INT NOT NULL, "
+    "PRIMARY KEY (`gid`)"
+    ");\n"
+)
+ORDERED_SYX_SIZED_DDL = (
+    "CREATE TABLE `b1_n1_iec104_syx_list` ("
+    "`gid` BIGINT NOT NULL, "
+    "`no` INT NOT NULL, "
+    "`value` VARCHAR(8) NULL, "
+    "PRIMARY KEY (`gid`)"
+    ");\n"
+)
 
 
-def require_docker() -> None:
+def require_docker(*, compose_project_name: str | None = None) -> None:
     if shutil.which("docker") is None:
         pytest.skip("docker is required for compose e2e gate")
+    port_users = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "--filter",
+            "publish=8000",
+            "--format",
+            "{{.ID}}\t{{.Names}}\t{{.Label \"com.docker.compose.project\"}}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30.0,
+    )
+    if port_users.returncode != 0:
+        pytest.fail(f"failed to inspect port 8000 usage: {port_users.stderr}\n{port_users.stdout}")
+    conflicts: list[str] = []
+    for line in port_users.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        container_id = parts[0]
+        name = parts[1] if len(parts) > 1 else container_id
+        project = parts[2] if len(parts) > 2 else ""
+        if compose_project_name and project == compose_project_name:
+            _LOGGER.info(
+                "compose gate reusing project container on port 8000: %s (%s)",
+                name,
+                container_id,
+            )
+            continue
+        conflicts.append(f"{name} ({container_id}, project={project or 'unknown'})")
+    if conflicts:
+        pytest.fail(
+            "port 8000 is already published by non-gate containers: "
+            + "; ".join(conflicts)
+        )
 
 
 def compose_project_name(tmp_path: Path, *, default_prefix: str) -> str:
@@ -380,6 +448,243 @@ def worker_ready(env: dict[str, str], *, timeout_seconds: float = 120.0) -> None
     raise RuntimeError("worker did not emit worker_ready")
 
 
+def _git_head_tree_sha() -> str:
+    tree = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD^{tree}"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30.0,
+    )
+    if tree.returncode != 0:
+        pytest.fail(f"git rev-parse HEAD^{{tree}} failed: {tree.stderr}")
+    return tree.stdout.strip()
+
+
+def _git_dirty_worktree_tree_sha() -> str:
+    index_fd, index_path = tempfile.mkstemp(prefix="gateway-provenance-index-")
+    os.close(index_fd)
+    git_env = {**os.environ, "GIT_INDEX_FILE": index_path}
+    try:
+        read_tree = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "read-tree", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30.0,
+            env=git_env,
+        )
+        if read_tree.returncode != 0:
+            pytest.fail(f"git read-tree HEAD failed: {read_tree.stderr}")
+        add_all = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "add", "-A"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30.0,
+            env=git_env,
+        )
+        if add_all.returncode != 0:
+            pytest.fail(f"git add -A failed: {add_all.stderr}")
+        write_tree = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "write-tree"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30.0,
+            env=git_env,
+        )
+        if write_tree.returncode != 0:
+            pytest.fail(f"git write-tree failed: {write_tree.stderr}")
+        tree_sha = write_tree.stdout.strip()
+        head_tree = _git_head_tree_sha()
+        if tree_sha == head_tree:
+            pytest.fail(
+                "dirty worktree tree digest matches HEAD^{tree}; "
+                "temporary index did not capture worktree changes"
+            )
+        return tree_sha
+    finally:
+        try:
+            os.remove(index_path)
+        except OSError:
+            pass
+
+
+def source_tree_sha_for_provenance() -> tuple[str, bool, str]:
+    status = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30.0,
+    )
+    if status.returncode != 0:
+        pytest.fail(f"git status failed: {status.stderr}")
+    worktree_clean = not status.stdout.strip()
+    if worktree_clean:
+        command = f"git -C {REPO_ROOT} rev-parse 'HEAD^{{tree}}'"
+        return _git_head_tree_sha(), True, command
+    return _git_dirty_worktree_tree_sha(), False, SOURCE_TREE_SHA_DIRTY_COMMAND
+
+
+def cleanup_compose_project_artifacts(env: dict[str, str]) -> None:
+    project = env["COMPOSE_PROJECT_NAME"]
+    down = run_compose(env, "down", "-v", "--remove-orphans")
+    if down.returncode != 0:
+        _LOGGER.warning(
+            "compose down returned %s: %s",
+            down.returncode,
+            down.stderr or down.stdout,
+        )
+    volumes = subprocess.run(
+        [
+            "docker",
+            "volume",
+            "ls",
+            "-q",
+            "--filter",
+            f"label=com.docker.compose.project={project}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+    if volumes.returncode != 0:
+        pytest.fail(f"docker volume ls failed: {volumes.stderr}\n{volumes.stdout}")
+    volume_ids = [item for item in volumes.stdout.splitlines() if item.strip()]
+    if volume_ids:
+        removed = subprocess.run(
+            ["docker", "volume", "rm", *volume_ids],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60.0,
+        )
+        if removed.returncode != 0:
+            pytest.fail(f"docker volume rm failed: {removed.stderr}\n{removed.stdout}")
+    networks = subprocess.run(
+        [
+            "docker",
+            "network",
+            "ls",
+            "-q",
+            "--filter",
+            f"label=com.docker.compose.project={project}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+    if networks.returncode != 0:
+        pytest.fail(f"docker network ls failed: {networks.stderr}\n{networks.stdout}")
+    network_ids = [item for item in networks.stdout.splitlines() if item.strip()]
+    if network_ids:
+        pruned = subprocess.run(
+            ["docker", "network", "rm", *network_ids],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60.0,
+        )
+        if pruned.returncode != 0:
+            pytest.fail(f"docker network rm failed: {pruned.stderr}\n{pruned.stdout}")
+
+
+def capture_r4_manifest_artifact_ids(env: dict[str, str]) -> frozenset[str]:
+    script = """
+import json
+from pathlib import Path
+root = Path("/var/lib/gateway/artifacts")
+manifest_ids = set()
+for sidecar in root.rglob("*.ref.jcs"):
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        continue
+    artifact_id = payload.get("artifact_id")
+    if isinstance(artifact_id, str) and artifact_id.startswith("r4-manifest-"):
+        manifest_ids.add(artifact_id)
+print(json.dumps(sorted(manifest_ids)))
+"""
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(f"failed to list r4-manifest artifacts: {result.stderr}\n{result.stdout}")
+    payload = json.loads(result.stdout.strip() or "[]")
+    return frozenset(str(item) for item in payload)
+
+
+def read_history_compare_materialize_job_state(
+    env: dict[str, str],
+    operation_id: str,
+) -> dict[str, object]:
+    materialize_step_id = f"{operation_id}-step-1"
+    script = f"""
+import json, sqlite3, sys
+from pathlib import Path
+from gateway_backend.application.checkpoints import load_checkpoint_envelope
+from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+
+step_id = "{materialize_step_id}"
+conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
+row = conn.execute(
+    "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
+    (step_id,),
+).fetchone()
+if row is None or row[0] is None:
+    raise RuntimeError(f"missing checkpoint for {{step_id}}")
+checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
+store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+ref = artifact_ref_from_dict(checkpoint)
+envelope = load_checkpoint_envelope(store, ref)
+print(json.dumps(envelope.job_state))
+"""
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(
+            f"failed to read history compare materialize checkpoint: "
+            f"{result.stderr}\n{result.stdout}"
+        )
+    return cast(dict[str, object], json.loads(result.stdout.strip()))
+
+
+def read_repository_table_rows(
+    env: dict[str, str],
+    repository_id: str,
+    commit_id: str,
+    table_name: str,
+) -> tuple[tuple[object, ...], ...]:
+    script = f"""
+import json, os, subprocess, uuid
+repo_hex = uuid.UUID("{repository_id}").hex
+repo_path = f"/var/lib/gateway/repository/versioned/{{repo_hex}}"
+commit = "{commit_id}"
+table = "{table_name}"
+query = subprocess.run(
+    ["dolt", "sql", "-q", f"SELECT * FROM `{{table}}` AS OF '{{commit}}'", "-r", "json"],
+    cwd=repo_path,
+    check=False,
+    capture_output=True,
+    text=True,
+    env={{**os.environ, "PAGER": "", "GIT_PAGER": "", "NO_COLOR": "1", "DOLT_CLI_NO_COLOR": "1"}},
+)
+if query.returncode != 0:
+    print("[]")
+else:
+    payload = json.loads(query.stdout or "{{}}")
+    rows = payload.get("rows", [])
+    print(json.dumps([tuple(row.values()) for row in rows]))
+"""
+    result = run_repository_service_exec(env, "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(f"failed to read repository rows: {result.stderr}\n{result.stdout}")
+    payload = json.loads(result.stdout.strip() or "[]")
+    return tuple(tuple(row) for row in payload)
+
+
 def build_baseline_import_package() -> bytes:
     manifest: dict[str, object] = {
         "package_version": 1,
@@ -398,15 +703,19 @@ def build_baseline_import_package() -> bytes:
     return _repository_service_build_package_bytes(manifest=manifest, replay_sql=BASELINE_REPLAY_SQL)
 
 
-def import_baseline_into_repository(
+def _import_package_into_repository(
     env: dict[str, str],
     tmp_path: Path,
     *,
     repository_id: str,
     expected_commit_id: str,
+    package_bytes: bytes,
+    artifact_idempotency_key: str,
+    import_idempotency_key: str,
+    package_filename: str,
 ) -> str:
-    package_path = tmp_path / "baseline-import.tar.zst"
-    package_path.write_bytes(build_baseline_import_package())
+    package_path = tmp_path / package_filename
+    package_path.write_bytes(package_bytes)
     container_id = run_compose(
         env,
         "ps",
@@ -416,8 +725,9 @@ def import_baseline_into_repository(
     ).stdout.strip()
     if not container_id:
         pytest.fail("repository-service container is not running for baseline import")
+    container_package_path = f"/tmp/{package_filename}"
     copy = subprocess.run(
-        ["docker", "cp", str(package_path), f"{container_id}:/tmp/baseline-import.tar.zst"],
+        ["docker", "cp", str(package_path), f"{container_id}:{container_package_path}"],
         check=False,
         capture_output=True,
         text=True,
@@ -431,7 +741,7 @@ base = "http://127.0.0.1:8000"
 repo_id = "{repository_id}"
 expected_commit = "{expected_commit_id}"
 token = "{BEARER_TOKEN}"
-payload = open("/tmp/baseline-import.tar.zst", "rb").read()
+payload = open("{container_package_path}", "rb").read()
 digest = hashlib.sha256(payload).hexdigest()
 upload_req = urllib.request.Request(
     f"{{base}}/v1/repositories/{{repo_id}}/artifacts",
@@ -439,7 +749,7 @@ upload_req = urllib.request.Request(
     method="POST",
     headers={{
         "Authorization": f"Bearer {{token}}",
-        "Idempotency-Key": "compose-baseline-artifact",
+        "Idempotency-Key": "{artifact_idempotency_key}",
         "Content-Type": "application/vnd.gateway.repository-import.v1+tar+zstd",
         "Content-Length": str(len(payload)),
         "X-Artifact-SHA256": digest,
@@ -467,7 +777,7 @@ import_req = urllib.request.Request(
     method="POST",
     headers={{
         "Authorization": f"Bearer {{token}}",
-        "Idempotency-Key": "compose-baseline-import",
+        "Idempotency-Key": "{import_idempotency_key}",
         "Content-Type": "application/json",
     }},
 )
@@ -503,11 +813,35 @@ print(resolved["commit_id"])
         pytest.fail(f"baseline import failed: {result.stderr}\n{result.stdout}")
     commit_id = result.stdout.strip()
     if not commit_id:
-        pytest.fail("baseline import did not return commit_id")
+        pytest.fail("repository import did not return commit_id")
     return commit_id
 
 
-def seed_repository_and_mapping(env: dict[str, str], tmp_path: Path) -> tuple[str, str]:
+def import_baseline_into_repository(
+    env: dict[str, str],
+    tmp_path: Path,
+    *,
+    repository_id: str,
+    expected_commit_id: str,
+) -> str:
+    return _import_package_into_repository(
+        env,
+        tmp_path,
+        repository_id=repository_id,
+        expected_commit_id=expected_commit_id,
+        package_bytes=build_baseline_import_package(),
+        artifact_idempotency_key="compose-baseline-artifact",
+        import_idempotency_key="compose-baseline-import",
+        package_filename="baseline-import.tar.zst",
+    )
+
+
+def seed_repository_and_mapping(
+    env: dict[str, str],
+    tmp_path: Path,
+    *,
+    import_baseline: bool = True,
+) -> tuple[str, str]:
     script = (
         "import json, urllib.request; "
         "req = urllib.request.Request("
@@ -522,12 +856,15 @@ def seed_repository_and_mapping(env: dict[str, str], tmp_path: Path) -> tuple[st
     payload = json.loads(result.stdout.strip())
     repository_id = str(payload["repository_id"])
     initial_commit_id = str(payload["initial_commit_id"])
-    baseline_commit_id = import_baseline_into_repository(
-        env,
-        tmp_path,
-        repository_id=repository_id,
-        expected_commit_id=initial_commit_id,
-    )
+    if import_baseline:
+        baseline_commit_id = import_baseline_into_repository(
+            env,
+            tmp_path,
+            repository_id=repository_id,
+            expected_commit_id=initial_commit_id,
+        )
+    else:
+        baseline_commit_id = initial_commit_id
     mapping_path = Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"])
     mapping_path.write_text(
         json.dumps(
@@ -550,13 +887,23 @@ def seed_repository_and_mapping(env: dict[str, str], tmp_path: Path) -> tuple[st
     return repository_id, baseline_commit_id
 
 
-def start_three_container_stack(env: dict[str, str], tmp_path: Path) -> tuple[str, str]:
+def start_three_container_stack(
+    env: dict[str, str],
+    tmp_path: Path,
+    *,
+    import_baseline: bool = True,
+) -> tuple[str, str]:
     build_compose_stack_images(env)
+    cleanup_compose_project_artifacts(env)
     up_repo = run_compose(env, "up", "-d", "--no-build", "repository-service")
     if up_repo.returncode != 0:
         pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
     wait_repository_service_ready(env)
-    repository_id, initial_commit_id = seed_repository_and_mapping(env, tmp_path)
+    repository_id, initial_commit_id = seed_repository_and_mapping(
+        env,
+        tmp_path,
+        import_baseline=import_baseline,
+    )
     up_stack = run_compose(env, "up", "-d", "--no-build", "backend", "worker")
     if up_stack.returncode != 0:
         pytest.fail(f"compose up backend/worker failed: {up_stack.stderr}\n{up_stack.stdout}")
@@ -607,6 +954,182 @@ def read_workspace_row(env: dict[str, str], workspace_id: str) -> dict[str, Any]
     return cast(dict[str, Any], payload)
 
 
+def capture_business_table_state_in_compose(env: dict[str, str]) -> dict[str, tuple[int, str]]:
+    tables_repr = repr(tuple(HISTORY_ZERO_WRITE_TABLES))
+    script = f"""
+import hashlib, json, sqlite3
+tables = {tables_repr}
+conn = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
+state = {{}}
+for table in tables:
+    count = conn.execute(f'SELECT COUNT(*) FROM {{table}}').fetchone()[0]
+    rows = conn.execute(f'SELECT * FROM {{table}} ORDER BY rowid').fetchall()
+    payload = tuple(tuple(row) for row in rows)
+    digest = hashlib.sha256(repr(payload).encode('utf-8')).hexdigest()
+    state[table] = [count, digest]
+print(json.dumps(state))
+"""
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(f"failed to capture business table state: {result.stderr}\n{result.stdout}")
+    payload = json.loads(result.stdout.strip() or "{}")
+    return {
+        table: (int(values[0]), str(values[1]))
+        for table, values in payload.items()
+    }
+
+
+def poll_history_compare_result(
+    client: httpx.Client,
+    operation_id: str,
+    *,
+    timeout_seconds: float = 300.0,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        response = client.get(f"/v1/history-compares/{operation_id}")
+        if response.status_code != 200:
+            time.sleep(2.0)
+            continue
+        body = response.json()
+        if body["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+            return cast(dict[str, Any], body)
+        time.sleep(2.0)
+    raise RuntimeError(f"history compare did not reach terminal status: {operation_id}")
+
+
+def accept_history_compare(
+    client: httpx.Client,
+    *,
+    nodes: list[dict[str, str]],
+    idempotency_key: str,
+    token: str,
+    timeout_seconds: float = 300.0,
+) -> dict[str, Any]:
+    response = client.post(
+        "/v1/history-compares",
+        headers=compose_auth_headers(token=token, idempotency_key=idempotency_key),
+        json={"nodes": nodes},
+    )
+    assert response.status_code in {200, 202}, response.text
+    body = cast(dict[str, Any], response.json())
+    operation_id = str(body["operation_id"])
+    terminal = poll_history_compare_result(
+        client,
+        operation_id,
+        timeout_seconds=timeout_seconds,
+    )
+    assert terminal["status"] == "SUCCEEDED", terminal
+    return terminal
+
+
+def _dbcfg_sql(
+    *,
+    t_rows: tuple[int, ...],
+    ordered_rows: tuple[tuple[int | None, int], ...] = (),
+    include_ordered_table: bool = False,
+    include_ordered_ddl: bool = True,
+    ordered_ddl: str = ORDERED_SYX_VOCABULARY_DDL,
+) -> bytes:
+    lines = ["CREATE TABLE t (id INT NOT NULL PRIMARY KEY);"]
+    for value in t_rows:
+        lines.append(f"INSERT INTO t VALUES ({value});")
+    if include_ordered_table:
+        if include_ordered_ddl:
+            lines.append(ordered_ddl.rstrip())
+        for gid, number in ordered_rows:
+            gid_sql = "NULL" if gid is None else str(gid)
+            lines.append(f"INSERT INTO `{ORDERED_SYX_TABLE}` VALUES ({gid_sql}, {number});")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def modified_table_upload_files(
+    *,
+    insert_value: int,
+    expected_version: int = 0,
+) -> dict[str, tuple[str, bytes, str]]:
+    modified_sql = _SQL.decode().replace("VALUES (1)", f"VALUES ({insert_value})").encode("utf-8")
+    return upload_files(
+        expected_version=expected_version,
+        modified_bytes=pack_tar_gz({"sql/dbcfg.sql": modified_sql}),
+    )
+
+
+def _dbcfg_sql_sized_ordered(
+    *,
+    t_rows: tuple[int, ...],
+    ordered_rows: tuple[tuple[int | None, int, str], ...] = (),
+    include_ordered_table: bool = False,
+    include_ordered_ddl: bool = True,
+) -> bytes:
+    lines = ["CREATE TABLE t (id INT NOT NULL PRIMARY KEY);"]
+    for value in t_rows:
+        lines.append(f"INSERT INTO t VALUES ({value});")
+    if include_ordered_table:
+        if include_ordered_ddl:
+            lines.append(ORDERED_SYX_SIZED_DDL.rstrip())
+        for gid, number, row_value in ordered_rows:
+            gid_sql = "NULL" if gid is None else str(gid)
+            lines.append(
+                f"INSERT INTO `{ORDERED_SYX_TABLE}` VALUES ({gid_sql}, {number}, '{row_value}');"
+            )
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def ordered_syx_sized_upload_files(
+    *,
+    t_rows: tuple[int, ...],
+    before_ordered_rows: tuple[tuple[int | None, int, str], ...],
+    after_ordered_rows: tuple[tuple[int | None, int, str], ...],
+    expected_version: int = 0,
+) -> dict[str, tuple[str, bytes, str]]:
+    initial_sql = _dbcfg_sql_sized_ordered(
+        t_rows=t_rows,
+        ordered_rows=before_ordered_rows,
+        include_ordered_table=True,
+        include_ordered_ddl=True,
+    )
+    modified_sql = _dbcfg_sql_sized_ordered(
+        t_rows=t_rows,
+        ordered_rows=after_ordered_rows,
+        include_ordered_table=True,
+        include_ordered_ddl=True,
+    )
+    return upload_files(
+        expected_version=expected_version,
+        initial_bytes=pack_tar_gz({"sql/dbcfg.sql": initial_sql}),
+        modified_bytes=pack_tar_gz({"sql/dbcfg.sql": modified_sql}),
+    )
+
+
+def ordered_syx_vocabulary_upload_files(
+    *,
+    t_rows: tuple[int, ...],
+    before_ordered_rows: tuple[tuple[int | None, int], ...],
+    after_ordered_rows: tuple[tuple[int | None, int], ...],
+    expected_version: int = 0,
+) -> dict[str, tuple[str, bytes, str]]:
+    initial_sql = _dbcfg_sql(
+        t_rows=t_rows,
+        ordered_rows=before_ordered_rows,
+        include_ordered_table=True,
+        include_ordered_ddl=True,
+        ordered_ddl=ORDERED_SYX_VOCABULARY_DDL,
+    )
+    modified_sql = _dbcfg_sql(
+        t_rows=t_rows,
+        ordered_rows=after_ordered_rows,
+        include_ordered_table=True,
+        include_ordered_ddl=True,
+        ordered_ddl=ORDERED_SYX_VOCABULARY_DDL,
+    )
+    return upload_files(
+        expected_version=expected_version,
+        initial_bytes=pack_tar_gz({"sql/dbcfg.sql": initial_sql}),
+        modified_bytes=pack_tar_gz({"sql/dbcfg.sql": modified_sql}),
+    )
+
+
 def poll_submit_attempt(
     client: httpx.Client,
     workspace_id: str,
@@ -635,6 +1158,9 @@ def run_accept_to_submission_read_journey(
     initial_commit_id: str,
     journey_key_prefix: str = "compose",
     token: str = SESSION_TOKEN,
+    expected_baseline_node_id: str = BASELINE_NODE_ID,
+    expected_baseline_head_version: int = 0,
+    upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
         base_url=BACKEND_URL,
@@ -652,10 +1178,14 @@ def run_accept_to_submission_read_journey(
         workspace_body = workspace.json()
         workspace_id = workspace_body["workspace_id"]
 
+        upload_builder = upload_files_factory or (
+            lambda expected_version: upload_files(expected_version=expected_version)
+        )
+        upload_payload = upload_builder(workspace_body["optimistic_version"])
         upload = client.post(
             f"/v1/workspaces/{workspace_id}/upload-revisions",
             headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-upload"),
-            files=upload_files(expected_version=workspace_body["optimistic_version"]),
+            files=upload_payload,
         )
         assert upload.status_code == 201, upload.text
         upload_body = upload.json()
@@ -667,8 +1197,8 @@ def run_accept_to_submission_read_journey(
                 "expected_workspace_version": upload_body["optimistic_version"],
                 "upload_revision_id": upload_body["upload_revision_id"],
                 "generation": upload_body["generation"],
-                "expected_baseline_node_id": BASELINE_NODE_ID,
-                "expected_baseline_head_version": 0,
+                "expected_baseline_node_id": expected_baseline_node_id,
+                "expected_baseline_head_version": expected_baseline_head_version,
                 "options": {},
             },
         )
@@ -693,8 +1223,8 @@ def run_accept_to_submission_read_journey(
                 "upload_revision_id": upload_body["upload_revision_id"],
                 "preview_result_id": preview_result_id,
                 "generation": workspace_row["generation"],
-                "expected_baseline_node_id": BASELINE_NODE_ID,
-                "expected_baseline_head_version": 0,
+                "expected_baseline_node_id": expected_baseline_node_id,
+                "expected_baseline_head_version": expected_baseline_head_version,
                 "options": {},
             },
         )

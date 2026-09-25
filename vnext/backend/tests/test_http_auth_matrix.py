@@ -142,3 +142,27 @@ def test_history_permission_matrix(env: WorkspaceHttpTestEnvironment, tmp_path: 
     )
     response = allowed.client.get("/v1/history", headers=allowed.auth_headers())
     assert response.status_code == 200
+
+
+def test_history_compare_requires_read_project_history_permission(
+    env: WorkspaceHttpTestEnvironment,
+    tmp_path: Path,
+) -> None:
+    read_only_root = tmp_path / "history-compare-read-only"
+    read_only_root.mkdir()
+    read_only = create_workspace_http_environment(
+        read_only_root,
+        identity=make_identity(permissions=frozenset({"workspace_read"})),
+    )
+    response = read_only.client.post(
+        "/v1/history-compares",
+        headers=read_only.auth_headers(idempotency_key="matrix-history-compare"),
+        json={
+            "nodes": [
+                {"ref_kind": "baseline_node", "ref_id": BASELINE_HEAD.business_baseline_node_id},
+                {"ref_kind": "baseline_node", "ref_id": BASELINE_HEAD.business_baseline_node_id},
+            ]
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "SCOPE_FORBIDDEN"

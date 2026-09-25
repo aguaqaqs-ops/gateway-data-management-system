@@ -70,6 +70,26 @@ DEVICE_KEY = "device-1"
 PROJECT_ID = "project-1"
 IDEMPOTENCY_KEY = "history-compare-idem-1"
 ORDERED_SYX_TABLE = "b1_n1_iec104_syx_list"
+ORDERED_SYX_TABLE_EXPECTED_POLICY: dict[str, object] = {
+    "table_name": ORDERED_SYX_TABLE,
+    "ignored_columns": ["no"],
+    "keyless_policy": "DEGRADE_NO_COMPARE_KEY",
+    "policy_version": "comparison-table-policy/v1",
+    "ordered_policy": {
+        "policy_id": "ordered-gid-no-v1",
+        "policy_version": "backend-vnext/ordered-diff/v2",
+        "order_key": ["no"],
+        "row_identity_key": ["gid"],
+        "stable_key_candidates": ["gid"],
+        "value_columns": [],
+        "ignored_columns": ["no"],
+        "blank_row_policy": "PSEUDO_BLANK_BY_MISSING_STABLE_KEY",
+        "move_policy": "STABLE_KEY_RELATIVE_ORDER_V1",
+        "ambiguity_policy": "DEGRADE_ON_AMBIGUITY",
+        "tail_change_policy": "INTERVAL_OR_ROW_V1",
+        "table_processing_mode_policy": "ORDERED_MODE_V1",
+    },
+}
 
 
 def ordered_syx_catalog_table() -> RepositoryCatalogTable:

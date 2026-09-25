@@ -81,6 +81,20 @@ def varchar_column(name: str, *, nullable: bool = False) -> SnapshotColumnDescri
     )
 
 
+def typed_column(
+    name: str,
+    scalar_type: str,
+    *,
+    nullable: bool = False,
+) -> SnapshotColumnDescriptor:
+    return SnapshotColumnDescriptor(
+        name=name,
+        display_name=name,
+        nullable=nullable,
+        scalar_type=scalar_type,
+    )
+
+
 def uint_column(name: str, *, nullable: bool = False) -> SnapshotColumnDescriptor:
     return SnapshotColumnDescriptor(
         name=name,

@@ -1009,6 +1009,22 @@ def test_deploy_session_example_lists_archive_permission_explicitly() -> None:
     assert granted, "deploy example must show explicit archive_submission grant"
 
 
+def test_deploy_session_example_lists_read_project_history_explicitly() -> None:
+    session_path = Path(__file__).resolve().parents[2] / "deploy" / "config" / "session.json"
+    payload = json.loads(session_path.read_text(encoding="utf-8"))
+    documented = payload.get("documented_permissions")
+    assert isinstance(documented, list)
+    assert "read_project_history" in documented
+    for entry in payload["sessions"]:
+        permissions = entry["permissions"]
+        assert isinstance(permissions, list)
+        assert "*" not in permissions
+    local_dev = next(
+        entry for entry in payload["sessions"] if entry["token"] == "local-dev-session-token"
+    )
+    assert "read_project_history" not in local_dev["permissions"]
+
+
 @pytest.mark.parametrize("path", ("/v1/archive-candidates", "/v1/archive-plan-preview"))
 def test_archive_read_routes_unaffected_by_body_limit_middleware(
     archive_env: WorkspaceHttpTestEnvironment,

@@ -22,7 +22,7 @@ next_step: P5-5E-S4
 ```yaml
 stage: P5-5E-S3-production-wiring-compose-journey
 parent_plan: docs/backend-vnext/refactoring/formal/plans/p5-5e-history-compare-execution-plan.md
-parent_head_at_handoff: 499468f362
+parent_head_at_handoff: 499468f3627a1d057c49297da6323fba1b650ad0
 s3_candidate: db9ac0a808c6494ed081fd00bf60fb6962867a46
 s3_stage_exit_acceptance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-stage-exit-acceptance.md
 compose_gate_provenance: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-compose-gate-provenance.json

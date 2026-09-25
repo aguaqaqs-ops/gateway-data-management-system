@@ -6,6 +6,28 @@ import ast
 import importlib
 from pathlib import Path
 
+import pytest
+
+from tests.architecture_baseline import (
+    IMPORT_RULE_BASELINE,
+    RUNTIME_CYCLE_BASELINE,
+    UNREACHABLE_MODULE_BASELINE,
+)
+from tests.support.import_rules import (
+    RULE_CAPABILITY_SURFACE,
+    RULE_CONTRACTS_LEAF,
+    RULE_LAYER,
+    RULE_PRIVATE,
+    ImportEdge,
+    backend_modules,
+    classify_edge,
+    collect_edges,
+    find_violations,
+    package_names,
+    runtime_cycles,
+    unreachable_modules,
+)
+
 BACKEND_SRC = Path(__file__).parents[1] / "src"
 CAPABILITIES_ROOT = BACKEND_SRC / "gateway_backend" / "capabilities"
 CAPABILITIES_PREFIX = "gateway_backend.capabilities."
@@ -13,64 +35,6 @@ OPERATIONS_ROOT = BACKEND_SRC / "gateway_backend" / "operations"
 CONTROL_DB_ROOT = BACKEND_SRC / "gateway_backend" / "infrastructure" / "control_db"
 BOOTSTRAP_ROOT = BACKEND_SRC / "gateway_backend" / "bootstrap"
 APPLICATION_ROOT = BACKEND_SRC / "gateway_backend" / "application"
-APPLICATION_PREFIX = "gateway_backend.application."
-DOMAIN_ROOT = BACKEND_SRC / "gateway_backend" / "domain"
-DOMAIN_PREFIX = "gateway_backend.domain."
-
-DOMAIN_FORBIDDEN_IMPORT_PREFIXES = (
-    "sqlite3",
-    "fastapi",
-    "uvicorn",
-    "httpx",
-    "gateway_backend.app",
-    "gateway_backend.application",
-    "gateway_backend.artifacts",
-    "gateway_backend.bootstrap",
-    "gateway_backend.capabilities",
-    "gateway_backend.compute",
-    "gateway_backend.infrastructure",
-    "gateway_backend.operations",
-    "gateway_backend.settings",
-    "gateway_repository",
-    "gateway_repository_client",
-    "gateway_repository_contracts",
-    "gateway_repository_service",
-    "gateway_shared_kernel.testing",
-)
-
-APPLICATION_FORBIDDEN_IMPORT_PREFIXES = (
-    "sqlite3",
-    "fastapi",
-    "uvicorn",
-    "httpx",
-    "gateway_backend.app",
-    "gateway_backend.bootstrap",
-    "gateway_backend.capabilities",
-    "gateway_backend.compute",
-    "gateway_backend.infrastructure",
-    "gateway_backend.settings",
-    "gateway_repository",
-    "gateway_repository_client",
-    "gateway_repository_contracts",
-    "gateway_repository_service",
-    "gateway_shared_kernel.testing",
-)
-
-OPERATIONS_FORBIDDEN_IMPORT_PREFIXES = (
-    "sqlite3",
-    "fastapi",
-    "uvicorn",
-    "httpx",
-    "gateway_backend.app",
-    "gateway_backend.settings",
-    "gateway_backend.infrastructure",
-    "gateway_backend.capabilities",
-    "gateway_repository",
-    "gateway_repository_client",
-    "gateway_repository_contracts",
-    "gateway_repository_service",
-    "gateway_shared_kernel.testing",
-)
 
 CAPABILITY_OWNERS = frozenset(
     {
@@ -268,15 +232,13 @@ def test_canonical_row_hash_metadata_lives_in_owner_package() -> None:
 
 def test_capability_modules_respect_import_dag() -> None:
     for source in sorted(CAPABILITIES_ROOT.rglob("*.py")):
-        current_module, is_init = _python_module_name(source)
-        current_owner = _owner_from_module(current_module)
-        imported_modules = _imported_modules(source, current_module, is_init)
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for class_node in ast.walk(tree):
             if isinstance(class_node, ast.ClassDef):
                 assert class_node.name not in FORBIDDEN_PROVIDER_BASE_NAMES, source
-        for imported in imported_modules:
-            _assert_capability_import_allowed(source, current_owner, imported)
+    for edge in _backend_edges():
+        if edge.source == "gateway_backend.capabilities" or edge.source.startswith(CAPABILITIES_PREFIX):
+            _assert_capability_import_allowed(edge.path, _owner_from_module(edge.source), edge.target)
 
 
 def test_capability_contracts_are_importable() -> None:
@@ -430,13 +392,6 @@ def test_operations_package_is_sole_runtime_owner() -> None:
     assert operations_packages == [OPERATIONS_ROOT]
 
 
-def test_operations_module_respects_import_boundary() -> None:
-    for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
-        current_module, is_init = _python_module_name(source)
-        for imported in _imported_modules(source, current_module, is_init):
-            _assert_operations_import_allowed(source, imported)
-
-
 def test_operations_source_has_no_operation_kind() -> None:
     for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
         assert "operation_kind" not in source.read_text(encoding="utf-8"), source
@@ -445,18 +400,6 @@ def test_operations_source_has_no_operation_kind() -> None:
 def test_operations_source_has_no_deferred_stub() -> None:
     for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
         assert "NotImplementedError" not in source.read_text(encoding="utf-8"), source
-
-
-def test_operations_does_not_import_application() -> None:
-    for source in sorted(OPERATIONS_ROOT.rglob("*.py")):
-        current_module, is_init = _python_module_name(source)
-        for imported in _imported_modules(source, current_module, is_init):
-            assert not imported.startswith(APPLICATION_PREFIX), (
-                f"{source} imports disallowed module {imported}"
-            )
-            assert imported != "gateway_backend.application", (
-                f"{source} imports disallowed module {imported}"
-            )
 
 
 def test_application_package_exists_and_exports_job_definition_contract() -> None:
@@ -479,21 +422,6 @@ def test_application_package_exists_and_exports_job_definition_contract() -> Non
             "build_worker_registry",
         }
     )
-
-
-def test_application_module_respects_import_boundary() -> None:
-    for source in sorted(APPLICATION_ROOT.rglob("*.py")):
-        current_module, is_init = _python_module_name(source)
-        for imported in _imported_modules(source, current_module, is_init):
-            _assert_application_import_allowed(source, imported)
-
-
-def test_domain_module_respects_import_boundary() -> None:
-    assert DOMAIN_ROOT.is_dir()
-    for source in sorted(DOMAIN_ROOT.rglob("*.py")):
-        current_module, is_init = _python_module_name(source)
-        for imported in _imported_modules(source, current_module, is_init):
-            _assert_domain_import_allowed(source, imported)
 
 
 def test_job_definitions_stays_memory_only() -> None:
@@ -718,9 +646,9 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
     assert "build_production_preview_dependencies" in text
     assert "build_production_submit_dependencies" in text
 
-    for source in sorted(BOOTSTRAP_ROOT.rglob("*.py")):
-        current_module, is_init = _python_module_name(source)
-        for imported in _imported_modules(source, current_module, is_init):
+    for edge in _backend_edges():
+        if edge.source.startswith("gateway_backend.bootstrap"):
+            imported = edge.target
             if imported.startswith("gateway_backend."):
                 assert imported.startswith(
                     (
@@ -736,27 +664,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.repository_import_artifact",
                         "gateway_backend.settings",
                     )
-                ), f"{source} imports disallowed module {imported}"
-
-
-def test_repository_client_is_confined_to_repository_read_and_write() -> None:
-    src = BACKEND_SRC / "gateway_backend"
-    allowed_dirs = (
-        src / "infrastructure" / "repository_read",
-        src / "infrastructure" / "repository_write",
-    )
-    allowed_files = (
-        src / "http" / "runtime.py",
-    )
-    for source in sorted(src.rglob("*.py")):
-        text = source.read_text(encoding="utf-8")
-        if "gateway_repository_client" not in text:
-            continue
-        if source in allowed_files:
-            continue
-        assert any(
-            allowed_dir == source.parent or allowed_dir in source.parents for allowed_dir in allowed_dirs
-        ), source
+                ), f"{edge.path} imports disallowed module {imported}"
 
 
 def test_operation_worker_settings_have_an_independent_environment_prefix() -> None:
@@ -768,55 +676,12 @@ def test_operation_worker_settings_have_an_independent_environment_prefix() -> N
     assert 'env_prefix="GATEWAY_BACKEND_"' in text
 
 
-def test_control_db_boundary_exists_and_has_no_application_wiring() -> None:
+def test_control_db_boundary_exists() -> None:
     assert CONTROL_DB_ROOT.is_dir()
     assert (CONTROL_DB_ROOT / "__init__.py").is_file()
     assert (CONTROL_DB_ROOT / "database.py").is_file()
     assert (CONTROL_DB_ROOT / "migrations.py").is_file()
     assert (CONTROL_DB_ROOT / "sqlite_operations.py").is_file()
-    forbidden = (
-        "gateway_backend.app",
-        "gateway_backend.settings",
-        "gateway_backend.capabilities",
-        "gateway_backend.compute",
-        "gateway_backend.repository_import_artifact",
-        "gateway_repository",
-        "uvicorn",
-        "fastapi",
-        "sqlalchemy",
-        "alembic",
-    )
-    for source in sorted(CONTROL_DB_ROOT.rglob("*.py")):
-        current_module, is_init = _python_module_name(source)
-        for imported in _imported_modules(source, current_module, is_init):
-            assert not any(
-                imported == prefix or imported.startswith(f"{prefix}.")
-                for prefix in forbidden
-            ), f"{source} imports forbidden module {imported}"
-            if imported.startswith("gateway_backend."):
-                assert (
-                    imported.startswith("gateway_backend.operations")
-                    or imported.startswith("gateway_backend.artifacts")
-                    or imported.startswith("gateway_backend.domain.workspace")
-                    or imported.startswith("gateway_backend.domain.archive")
-                    or imported.startswith("gateway_backend.domain.baseline")
-                    or imported.startswith("gateway_backend.domain.submission")
-                    or imported.startswith("gateway_backend.infrastructure.control_db")
-                    or (
-                        source.name in {"database.py", "sqlite_history_compare.py"}
-                        and any(
-                            imported == prefix or imported.startswith(f"{prefix}.")
-                            for prefix in (
-                                "gateway_backend.application.history.ports",
-                                "gateway_backend.application.history.contracts",
-                                # compare_bindings also exports digest helpers; control_db
-                                # adapters only use parse_nodes_json/nodes_json_from_bindings.
-                                "gateway_backend.application.history.compare_bindings",
-                                "gateway_backend.application.history.errors",
-                            )
-                        )
-                    )
-                ), f"{source} imports disallowed backend module {imported}"
 
 
 def test_control_db_uow_binds_operations_without_expanding_operations_owner() -> None:
@@ -845,14 +710,6 @@ def _capability_owner_dirs() -> set[str]:
     return owners
 
 
-def _python_module_name(source: Path) -> tuple[str, bool]:
-    parts = list(source.relative_to(BACKEND_SRC).with_suffix("").parts)
-    is_init = parts[-1] == "__init__"
-    if is_init:
-        parts = parts[:-1]
-    return ".".join(parts), is_init
-
-
 def _owner_from_module(module_name: str) -> str | None:
     if module_name == "gateway_backend.capabilities":
         return None
@@ -860,39 +717,6 @@ def _owner_from_module(module_name: str) -> str | None:
         return None
     rest = module_name.removeprefix(CAPABILITIES_PREFIX)
     return rest.split(".", 1)[0]
-
-
-def _imported_modules(source: Path, current_module: str, is_init: bool) -> list[str]:
-    tree = ast.parse(source.read_text(encoding="utf-8"))
-    imported: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.extend(alias.name for alias in node.names)
-            continue
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        if node.level == 0:
-            if node.module is not None:
-                imported.append(node.module)
-            continue
-        imported.extend(_resolve_relative_import(current_module, is_init, node))
-    return imported
-
-
-def _resolve_relative_import(
-    current_module: str, is_init: bool, node: ast.ImportFrom
-) -> list[str]:
-    parts = current_module.split(".")
-    if not is_init:
-        parts = parts[:-1]
-    drop = node.level - 1
-    if drop > len(parts):
-        raise AssertionError(f"relative import escapes package in {current_module}")
-    if drop:
-        parts = parts[:-drop]
-    if node.module is None:
-        return [".".join([*parts, alias.name]) for alias in node.names]
-    return [".".join([*parts, *node.module.split(".")])]
 
 
 def _assert_capability_import_allowed(
@@ -955,79 +779,123 @@ def _split_capability_import(imported: str) -> tuple[str, str]:
     return owner, remainder
 
 
-def _assert_operations_import_allowed(source: Path, imported: str) -> None:
-    if imported == "__future__":
-        return
-    for prefix in OPERATIONS_FORBIDDEN_IMPORT_PREFIXES:
-        assert imported != prefix and not imported.startswith(f"{prefix}."), (
-            f"{source} imports forbidden module {imported}"
-        )
-    for part in imported.split("."):
-        assert part != "_internal", f"{source} imports {imported}"
-    if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):
-        return
-    if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):
-        assert not imported.startswith("gateway_shared_kernel.testing"), (
-            f"{source} imports forbidden module {imported}"
-        )
-        return
-    if imported.startswith("gateway_backend."):
-        assert imported.startswith("gateway_backend.operations"), (
-            f"{source} imports disallowed backend module {imported}"
-        )
+# ---------------------------------------------------------------------------
+# Unified import-boundary gate (P5 §2A.2). Rules live in tests/support/import_rules.py; known
+# violations are frozen in tests/architecture_baseline.py and may only shrink.
+# ---------------------------------------------------------------------------
+
+_BACKEND_EDGES: list[ImportEdge] = []
 
 
-def _assert_application_import_allowed(source: Path, imported: str) -> None:
-    if imported == "__future__":
-        return
-    if source.name == "preview_jobs.py" and imported.startswith("gateway_backend.capabilities."):
-        return
-    if source.name == "compare_jobs.py" and imported.startswith("gateway_backend.capabilities."):
-        return
-    if source.name == "submit_jobs.py" and imported.startswith("gateway_repository_contracts"):
-        return
-    if source.name == "submit_jobs.py" and imported.startswith("gateway_backend.capabilities."):
-        return
-    if source.name == "ports.py" and imported.startswith("gateway_repository_contracts"):
-        return
-    for prefix in APPLICATION_FORBIDDEN_IMPORT_PREFIXES:
-        assert imported != prefix and not imported.startswith(f"{prefix}."), (
-            f"{source} imports forbidden module {imported}"
-        )
-    for part in imported.split("."):
-        assert part != "_internal", f"{source} imports {imported}"
-    if imported == "gateway_backend.operations" or imported.startswith("gateway_backend.operations."):
-        return
-    if imported == APPLICATION_PREFIX or imported.startswith(APPLICATION_PREFIX):
-        return
-    if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):
-        assert not imported.startswith("gateway_shared_kernel.testing"), (
-            f"{source} imports forbidden module {imported}"
-        )
-        return
-    if imported == "gateway_backend.artifacts" or imported.startswith("gateway_backend.artifacts."):
-        return
-    if imported == DOMAIN_PREFIX or imported.startswith(DOMAIN_PREFIX):
-        return
-    if imported.startswith("gateway_backend."):
-        assert False, f"{source} imports disallowed backend module {imported}"
+def _backend_edges() -> list[ImportEdge]:
+    if not _BACKEND_EDGES:
+        _BACKEND_EDGES.extend(collect_edges(backend_modules()))
+    return _BACKEND_EDGES
 
 
-def _assert_domain_import_allowed(source: Path, imported: str) -> None:
-    if imported == "__future__":
-        return
-    for prefix in DOMAIN_FORBIDDEN_IMPORT_PREFIXES:
-        assert imported != prefix and not imported.startswith(f"{prefix}."), (
-            f"{source} imports forbidden module {imported}"
-        )
-    for part in imported.split("."):
-        assert part != "_internal", f"{source} imports {imported}"
-    if imported == DOMAIN_PREFIX or imported.startswith(DOMAIN_PREFIX):
-        return
-    if imported == "gateway_shared_kernel" or imported.startswith("gateway_shared_kernel."):
-        assert not imported.startswith("gateway_shared_kernel.testing"), (
-            f"{source} imports forbidden module {imported}"
-        )
-        return
-    if imported.startswith("gateway_backend."):
-        assert False, f"{source} imports disallowed backend module {imported}"
+_BASELINE_HINT = (
+    "Fix the import instead of extending tests/architecture_baseline.py; an entry may be added only "
+    "with an explicit, reviewed justification. Stale entries must be deleted once fixed. Run "
+    "`python -m tests.support.import_rules` from vnext/backend to print the current state."
+)
+
+
+def test_import_rules_match_frozen_baseline() -> None:
+    violations = find_violations(_backend_edges(), backend_modules())
+    new = sorted(
+        {violation.describe() for violation in violations if violation.key not in IMPORT_RULE_BASELINE}
+    )
+    current_keys = {violation.key for violation in violations}
+    stale = sorted(str(key) for key in IMPORT_RULE_BASELINE - current_keys)
+    assert not new and not stale, (
+        "Import boundary drift.\nNew violations:\n  "
+        + "\n  ".join(new or ["(none)"])
+        + "\nStale baseline entries:\n  "
+        + "\n  ".join(stale or ["(none)"])
+        + f"\n{_BASELINE_HINT}"
+    )
+
+
+def test_runtime_import_cycles_match_frozen_baseline() -> None:
+    current = set(runtime_cycles(_backend_edges(), backend_modules()))
+    frozen = set(RUNTIME_CYCLE_BASELINE)
+    new = sorted(sorted(component) for component in current - frozen)
+    stale = sorted(sorted(component) for component in frozen - current)
+    assert not new and not stale, (
+        "Runtime import cycles (module and function-local imports) changed.\n"
+        f"New or grown cycles: {new}\nStale baseline cycles: {stale}\n{_BASELINE_HINT}"
+    )
+
+
+def test_production_reachability_matches_frozen_baseline() -> None:
+    current = unreachable_modules(_backend_edges(), backend_modules())
+    new = sorted(current - UNREACHABLE_MODULE_BASELINE)
+    stale = sorted(UNREACHABLE_MODULE_BASELINE - current)
+    assert not new and not stale, (
+        "Production code without a production consumer changed.\n"
+        f"Newly unreachable from app/http_server/operation_worker: {new}\n"
+        f"Stale baseline entries (now reachable or deleted): {stale}\n{_BASELINE_HINT}"
+    )
+
+
+# Each row: source module, imported module, imported names, expected rule (None = allowed).
+IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
+    ("gateway_backend.domain.workspace.models", "gateway_backend.application.workspace.contracts", (), RULE_LAYER),
+    ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.types", (), RULE_LAYER),
+    ("gateway_backend.artifacts.types", "gateway_backend.domain.submission.models", (), RULE_LAYER),
+    ("gateway_backend.operations.contracts", "gateway_backend.capabilities.comparison", (), RULE_LAYER),
+    ("gateway_backend.operations.contracts", "gateway_backend.artifacts.types", (), None),
+    ("gateway_backend.capabilities.comparison.standard", "gateway_backend.application.payloads", (), RULE_LAYER),
+    ("gateway_backend.capabilities.comparison.standard", "gateway_backend.settings", (), RULE_LAYER),
+    ("gateway_backend.application.preview_jobs", "gateway_backend.capabilities.comparison", (), None),
+    ("gateway_backend.application.preview_jobs", "gateway_backend.capabilities.comparison.contracts", (), None),
+    (
+        "gateway_backend.application.preview_jobs",
+        "gateway_backend.capabilities.comparison.standard",
+        (),
+        RULE_CAPABILITY_SURFACE,
+    ),
+    ("gateway_backend.application.preview_jobs", "gateway_backend.infrastructure.control_db.database", (), RULE_LAYER),
+    ("gateway_backend.application.preview_jobs", "gateway_repository_contracts", (), RULE_LAYER),
+    ("gateway_backend.application.preview_jobs", "gateway_backend.settings", (), RULE_LAYER),
+    ("gateway_backend.application.preview_jobs", "gateway_backend.operations.contracts", ("_validate_opaque_id",), RULE_PRIVATE),
+    ("gateway_backend.http.routes.history", "gateway_backend.infrastructure.control_db.sqlite_history", (), RULE_LAYER),
+    ("gateway_backend.http.routes.history", "gateway_backend.capabilities.comparison.contracts", (), RULE_LAYER),
+    ("gateway_backend.http.routes.history", "gateway_backend.application.history.queries", (), None),
+    ("gateway_backend.http.routes.history", "fastapi", (), None),
+    (
+        "gateway_backend.infrastructure.repository_read.http_arrow",
+        "gateway_backend.capabilities.snapshot_materialization._digest",
+        (),
+        RULE_PRIVATE,
+    ),
+    ("gateway_backend.infrastructure.repository_read.http_arrow", "gateway_repository_client", (), None),
+    ("gateway_backend.infrastructure.control_db.database", "gateway_repository_client", (), RULE_LAYER),
+    ("gateway_backend.infrastructure.control_db.database", "gateway_backend.application.history.ports", (), None),
+    (
+        "gateway_backend.infrastructure.control_db.database",
+        "gateway_backend.application.history.compare_bindings",
+        (),
+        RULE_LAYER,
+    ),
+    ("gateway_backend.infrastructure.control_db.database", "sqlalchemy", (), RULE_LAYER),
+    (
+        "gateway_backend.capabilities.table_rules.contracts",
+        "gateway_backend.capabilities.table_rules.resolver",
+        (),
+        RULE_CONTRACTS_LEAF,
+    ),
+    ("gateway_backend.capabilities.comparison.ordered", "gateway_backend.capabilities.comparison.standard", ("_row_digest",), None),
+    ("gateway_backend.bootstrap.operation_worker", "gateway_backend.infrastructure.control_db", (), None),
+    ("gateway_backend.bootstrap.operation_worker", "gateway_shared_kernel.testing", (), RULE_LAYER),
+    ("gateway_backend.cache.comparison_core", "gateway_backend.capabilities.comparison.artifacts", (), RULE_CAPABILITY_SURFACE),
+)
+
+
+@pytest.mark.parametrize(("source", "target", "names", "expected"), IMPORT_RULE_SHAPES)
+def test_import_rule_engine_classifies_edge_shapes(
+    source: str, target: str, names: tuple[str, ...], expected: str | None
+) -> None:
+    edge = ImportEdge(source, target, names, "module", BACKEND_SRC / "gateway_backend", 1)
+    found = classify_edge(edge, package_names(backend_modules()))
+    assert (None if found is None else found[0]) == expected

@@ -26,7 +26,10 @@
 - [P5 架构收口 S0 Entry Brief](plans/p5-arch-closure-s0-entry-brief.md)、
   [详细设计](plans/p5-arch-closure-design.md)、[执行计划](plans/p5-arch-closure-execution-plan.md)、
   ADR [0018](adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](adr/0021-flow-neutral-comparison-entry.md)
-  （draft/proposed；待独立文档审核；实现未授权，最早在 5E slice exit 之后）
+  （draft r2/proposed；已按 S0 审核与 owner 决议修订，待独立复审；实现未授权，最早在 5E slice exit 之后）
+  - [S0 独立文档审核报告](plans/p5-arch-closure-s0-independent-docs-review.md)（r1 @ `3e5d5807e5`：定向修订；含 2026-09-26 复核补充）
+  - [S0 Owner 决议记录](plans/p5-arch-closure-s0-owner-decisions.md)（DC10–DC22 已决议；含真实数据存放约定）
+  - [S0 r2 修订处置表](plans/p5-arch-closure-s0-revision-disposition.md)（F1–F11、N1–N6、DC10–DC22 逐条处置；复审入口）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
 - [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（accepted；slice completed）

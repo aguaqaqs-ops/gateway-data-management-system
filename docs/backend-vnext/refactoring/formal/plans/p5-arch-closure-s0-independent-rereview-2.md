@@ -657,6 +657,9 @@ Review 可见（DC16）。现有规则中只有 composite 表的两列会成为 
 
 以下事项影响上游 Contract 文本或 owner 决议的适用范围，本复审只给出建议，不作决定。
 
+决议状态：repository owner 已于 2026-09-26 按下表建议对 O1–O5 作出决议，记录为 DC23–DC27，见
+[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) §7。下表保留为复审时的建议与依据。
+
 | # | 事项 | 建议 | 关联 | 确认时点 |
 | --- | --- | --- | --- | --- |
 | O1 | 修订 Ruleset Activation §5 末句。决议记录 DC10 称 §5 无需修订，但 DC11 需要它修订 | 随 B.2 一并修订：带外部 effect 的 operation 按冻结产物继续，纯计算 operation 按 §1 稳定失败 | RR-F2 | S0 再修订前 |

@@ -7,6 +7,8 @@
 - 依据：
   - [S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)（含 2026-09-26 复核补充）；
   - [详细设计](p5-arch-closure-design.md) §1 的 DC1–DC9。本记录的决议编号接续为 DC10–DC22，修订时并入设计 §1 的决定表。
+- 补充：2026-09-26 复审后，owner 按[第二份独立复审报告](p5-arch-closure-s0-independent-rereview-2.md) §8 的建议对 O1–O5
+  作出决议，记录为 DC23–DC27，见 §7。
 
 ```yaml
 record_kind: p5_arch_closure_s0_owner_decisions
@@ -225,3 +227,83 @@ next_step: 作者按本记录与审核 findings 修订 S0 文档并逐条写明�
    - 把本分支合入 5E exit 后的主线，并复核漂移；
    - 按 DC22 完成真实数据普查；
    - 按 DC12、DC15 的触发条件落定类型处置。
+
+## 7. 复审后补充决议（DC23–DC27）
+
+- 状态：**已决议**（repository owner，2026-09-26）。owner 对[第二份独立复审报告](p5-arch-closure-s0-independent-rereview-2.md)
+  §8 的 O1–O5 一律采纳复审建议。
+- 记录人：第二份复审报告的复审者。
+- 本节不改变 ADR 状态与 Contract 版本，不构成实现授权。设计、执行计划、ADR 与附录的对应修改在 r3 中完成。
+
+```yaml
+record_kind: p5_arch_closure_s0_owner_decisions_supplement
+decided_by: repository_owner
+decided_at: 2026-09-26
+source: p5-arch-closure-s0-independent-rereview-2.md §8 @ ca6502d8a4
+decisions: DC23-DC27          # 对应复审报告的 O1–O5
+conditional_decisions: [DC27] # 触发条件由 S1 kickoff 普查判定
+adr_status_changed: no
+contract_version_changed: no
+implementation_authorized: no
+```
+
+### 7.1 决议总览
+
+| ID | 复审事项 | 决议 | 细化的现有决定 | 关联 finding |
+| --- | --- | --- | --- | --- |
+| DC23 | O1 | Ruleset Activation §5 末句随附录 B.2 一并修订 | DC10、DC11 | 复审 RR-F2 |
+| DC24 | O2 | Preview 在受理时冻结运行期规则集 digest | DC11 | 复审 RR-F2 |
+| DC25 | O3 | manifest digest 不符按稳定失败处理，不属于 incident 范围 | DC19 | 复审 RR-F3 |
+| DC26 | O4 | canonical row hash 的 Rust 绑定放在哪里，由 Backend Architecture 在 r3 中从三个选项中择一 | — | 复审 RR-F4 |
+| DC27 | O5 | DC12 触发时，在 B.1 或 S2a handoff 中写明版本轴的处理（条件决议） | DC12 | 复审 RR-F6 第 5 点 |
+
+### 7.2 决议详情
+
+#### DC23 Ruleset Activation §5 随 B.2 修订
+
+- **决议**：附录 B.2 同时给出 Ruleset Activation §5 末句的修订候选，例如：“已捕获旧 snapshot 的带外部 effect operation
+  按冻结产物继续；纯计算 operation（Preview、History compare）按 §1 稳定失败，由用户重跑。”
+- **取代**：DC10 约束中“与 Ruleset Activation §5 原文一致，该节无需修订”一句。DC10 的比较语义不变。
+- **r3 落点**：附录 B.2；设计 §4.9 末句；ADR 0019 Consequences 列出 Ruleset §5。复审 RR-F2 的其余修正一并完成：B.2 中
+  Submit 的边界改为“T1 冻结规范产物之后（含 PREPARED）”，并写明 B.2 收窄的是 §1 首句在恢复场景下的含义。
+
+#### DC24 Preview 在受理时捕获规则集
+
+- **决议**：Preview 受理时把运行期规则集 digest 冻结进 job payload。这与 History 受理的做法一致，也符合 P5 §6.1
+  “Preview 接受后冻结 ruleset/contract versions”与 DC11 的字面要求。每一步执行前比较运行期 digest 与冻结值，不同即稳定
+  失败，尚未开始 materialize 的 Preview 也不例外。materialize checkpoint 与 PreviewResult 记录的“投影所用规则集 digest”
+  就是这个冻结值。
+- **r3 落点**：设计 §4.6、§4.9；ADR 0019 Decision 6；稳定错误码由设计确定；恢复用例（`test_preview_job_worker.py`）覆盖
+  “受理后、materialize 前发生激活”的情形。
+
+#### DC25 manifest digest 不符的处置
+
+- **决议**：`CommitCanonicalMetadataPort` 读取 manifest artifact 时，若 digest 与 Submission 的记录不符，按稳定失败处理，
+  附诊断、结构化日志与指标，不创建持久 incident。附录 B.3 中“与 Backend 持有的期望值相矛盾的读回”限定为两类：Repository
+  返回值与 Backend 期望值的矛盾（例如 T3 回显的 manifest digest、expected parent），以及 CAS 或结果歧义。Backend artifact
+  store 的读回不属于 `RepositoryIntegrityIncident` 的范围。
+- **r3 落点**：设计 §5.1（错误码）；附录 B.3 的文字；ADR 0019 Decision 1、7；复审 RR-F3 要求新增的测试 owner 覆盖 digest
+  不符的情形。
+
+#### DC26 canonical row hash Rust 绑定的放置
+
+- **决议**：由 Backend Architecture 在 r3 中从复审 RR-F4 的三个选项中选定一个，写入设计 §9 的 A6 行与执行计划 S1：
+  1. import 规则显式放行 `capability:canonical_row_hash → ext:compute`；
+  2. Rust 绑定作为由 composition 选择的 provider 放在 infrastructure，只把契约与 IPC 编解码移入 capability；
+  3. 保留该违例，在 S1 验收中登记为 Phase 6 延期项。
+- **约束**：若修改 import 规则，这属于对 P5 §2A.2 门禁的精确放行，须在同一 diff 中说明，并把 `tests/support/import_rules.py`
+  列入 S1 预算。无论选哪一项，S1 验收列出的条目都须与迁移后 `import_rules` 的输出一致。
+
+#### DC27 DC12 触发时的版本轴（条件决议）
+
+- **决议**：DC6 下不做兼容。S1 kickoff 普查若触发 DC12（存储表中有 JSON 列，改以 LONGTEXT 存储），在附录 B.1 或 S2a handoff
+  中按 Canonical Storage §8 写明是否提升 storage projection version 及理由。未触发时，B.1 中“storage projection version 不变”
+  保持有效。
+- **触发时点**：S1 kickoff 普查后。
+
+### 7.3 后续步骤
+
+1. r3 修订同时处置两份复审报告的 findings（[第一份](p5-arch-closure-s0-independent-rereview.md) @ `34ff1827cf`，
+   [第二份](p5-arch-closure-s0-independent-rereview-2.md) @ `ca6502d8a4`）与 DC23–DC27，并更新修订处置表。
+2. 由未参与 r3 修订的 reviewer 核对差异。
+3. 复审通过后，按 Entry Brief §5 接受 ADR 与 Contract 候选。实现授权另行给出，最早在 P5-5E slice exit 之后。

@@ -7,6 +7,7 @@
   [testing-conventions](../../../testing-conventions.md)、
   [比例化政策](../policies/proportional-assurance-and-risk-based-verification-policy.md)
 - 结论：**定向修订**
+- 修订：2026-09-26 复核补充，内容包括 repository owner 对 F1 的新决定、真实数据安排，以及对另一份独立评审意见的核实与采纳，见 §7
 
 ## 1. 结论与判定理由
 
@@ -19,12 +20,12 @@
 
 R1–R6 的事实与 Entry Brief 的 readiness 表均回到源码核实成立。R1 已独立复现。导入基线的 54/8/16 条目都能映射到设计 §9 的某一行。
 
-需要修订的问题集中在少数章节和接口：设计 §4.1–§4.4、§4.7、§5.1–§5.5、§8、§9 部分行，执行计划 S1 验收与路径预算，附录 A 及 ADR 0018/0019/0021 的对应条款。修订这些不需要重建核心模型和主执行路径，所以不判整体返工。但其中 8 项是接受前必须关闭的阻塞项（F1–F6、F9、F10），因此不能判通过。
+需要修订的问题集中在少数章节和接口：设计 §4.1–§4.4、§4.7、§5.1–§5.5、§8、§9 部分行，执行计划 S1 验收与路径预算，附录 A 及 ADR 0018/0019/0021 的对应条款。修订这些不需要重建核心模型和主执行路径，所以不判整体返工。但其中 8 项是接受前必须关闭的阻塞项（F1–F6、F9、F10），因此不能判通过。2026-09-26 复核新增阻塞项 F11，并补强 F1、F3、F4，阻塞项共 9 项，见 §7。
 
 最关键的四项：
 
 - **F1**：规则集绑定判据与 accepted 的 Ruleset Activation Contract 冲突。任何非破坏性规则激活后，所有已有业务基线都无法 Preview，Submit 因此死锁。
-- **F2**：§4.1 的“规范快照同一性”只约束三类摘要，没有规定规范 descriptor 如何派生。实验已确认至少 SET、JSON、主键可空、列序、伪 gid 五类分歧。其中 JSON 的分歧来自 Dolt 存储规范化，无法由编码 owner 修正。
+- **F2**：§4.1 的“规范快照同一性”只约束三类摘要，没有规定规范 descriptor 如何派生。实验已确认至少 SET、JSON、主键可空、列序、伪 gid 五类分歧。其中 JSON 的分歧来自 Dolt 存储规范化，仅修 Repository 解码不足以修正（2026-09-26 措辞修正，见 §7.6）。
 - **F3**：Submit 复用 Preview 规范投影所需的 import 包渲染入口，与 capability DAG 冲突。T1 绑定仍依赖按 id 前缀和摘要的启发式。
 - **F4**：Canonical Storage §2、Business Lifecycle §2 的 XML 条款、ADR 0016 / Operation Lifecycle §4 需要随本轮修订，但文档没有给出候选文本，或把修订排在实现之后。
 
@@ -123,11 +124,12 @@ Required execution point: 不适用
 | F4 | 已证实缺陷 | 是 | 上游 Contract 修订缺少候选文本或排在实现之后 |
 | F5 | 已证实缺陷 | 是 | 列处置规则与现有 ordered 规则、Canonical Storage §2 不一致 |
 | F6 | 已证实缺陷 | 是（S3 前） | composite `TEXT` 主键停止条件已确定触发，规定的处置方向不当 |
-| F7 | 待验证假设 | 否（实施前置） | Preview 提前失败的范围未量化，真实数据覆盖未验证 |
+| F7 | 待验证假设 | 否（S2 语义验收前必须关闭，见 §7.7） | Preview 提前失败的范围未量化，真实数据覆盖未验证 |
 | F8 | 待验证假设 | 否（S2 冻结前关闭） | SNAPSHOT_ONLY/BROWSE_ONLY 的存储变化在 Preview 中不可见 |
 | F9 | 已证实缺陷 | 是 | 初始基线语义不闭合 |
 | F10 | 已证实缺陷 | 是 | 执行计划：S1 验收不可兑现，S1“行为不变”有隐含变化，S2 预算与 DC9 清单有遗漏 |
-| N1–N6 | 非阻塞建议 | 否 | 见 §4.11 |
+| F11 | 已证实缺陷 | 是 | 规范状态身份与提前退出存在 schema 盲区（2026-09-26 新增，见 §7.3） |
+| N1–N6 | 非阻塞建议 | 否 | 见 §4.11；N1 的输入边界部分与 N3 于 2026-09-26 升为实施必达条件，见 §7.7 |
 
 ### F1 规则集绑定与 Ruleset Activation Contract 冲突
 
@@ -167,7 +169,7 @@ Required execution point: 不适用
   1. **SET。** Repository Service 把 SET 映射为 Arrow `list<string>`（`vnext/repository_service/src/gateway_repository_service/arrow_mapping.py:356-367`）。Backend 按批对每列调用 `to_pylist()`（`vnext/backend/src/gateway_backend/infrastructure/repository_read/http_arrow.py:297-305`）。`map_repository_column` 把 SET 拼写映射为 STRING/STANDARD（`vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/scalar_encoding.py:60-75`、`156-162`），值再经 `_as_text` 变成 `str(list)`（同文件 `165-178`）。E2 中三个摘要都不等。当前 History 两侧都走 Repository，分歧对称所以不报差异，但记录里展示的是 `"['x', 'y']"`。
   2. **伪 gid / unsigned。** 投影把 gid 改写为 `UnsignedIntegerScalar`（`vnext/backend/src/gateway_backend/capabilities/storage_projection/_ordered.py:86-88`），codec 固定为 `INT UNSIGNED`（`vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py:513-521`）。规范 descriptor 若沿用原始 DDL 的 `INT`，摘要计算直接失败。
   3. **列序。** `fast_row_hash` 按 descriptor 顺序拼接（`vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/_digest.py:98-102`），`raw_state_digest` 包含 `fast_row_digest`（同文件 `156-170`）。因此 §5.3 的“规范状态摘要”对列序敏感。设计没有规定规范快照的列序，也没有说明列序变化是否算规范变化。
-  4. **JSON。** 投影接受 JSON 列：codec 映射为 STRING，DDL 仍写 JSON。Dolt 会规范化 JSON 文本（E3）。信息在存储时已经改变，编码 owner 无法修正，§14 第 1 项必然触发。
+  4. **JSON。** 投影接受 JSON 列：codec 映射为 STRING，DDL 仍写 JSON。Dolt 会规范化 JSON 文本（E3）。信息在存储时已经改变，仅修 Repository 解码不足以修正，§14 第 1 项必然触发（2026-09-26 措辞修正，见 §7.6）。
   5. **主键可空。** Dolt 拒绝显式 NULL 的主键列（E3），而 import DDL 按原始 nullable 输出 `NULL`/`NOT NULL`（`vnext/backend/src/gateway_backend/capabilities/storage_projection/import_replay.py:83-93`）。结果是 Preview 通过、Submit 在 Repository 失败。
   6. **比较不只看摘要。** 不走提前退出时，comparison 用 `(scalar_type.upper(), nullable)` 判定列兼容（`vnext/backend/src/gateway_backend/capabilities/comparison/standard.py:946-947`），键列不兼容即 DEGRADED。只要求三个摘要相等，无法保证“有行变化”时比较正确。
   7. **测试 owner。** §12 的唯一 owner 用 fake provider，发现不了 4、5，也发现不了 1 中由 Arrow 形态引起的部分。
@@ -182,7 +184,7 @@ Required execution point: 不适用
   2. 同一性不变量扩展到 descriptor 级（列名、列序、scalar_type、nullable、compare key）加三个摘要。
   3. 列出存储类型词表，并逐类给出处置：
      - SET：Repository 读取解码为 `SqlSetValue`；
-     - JSON：以 LONGTEXT 存储，或列为不支持；
+     - JSON：以 LONGTEXT 存储、列为不支持，或两侧统一 JSON 规范表示（后者有损，见 §7.6）；
      - CHAR 尾随空格：E3 已确认保留，无需处置。
   4. 执行计划把 `scalar_encoding.py` 从“条件”改为“必改”。
   5. 新增真实 Dolt integration owner：导入规范快照，经 Repository 读取路径读回，断言 descriptor 与摘要都相等；覆盖 NULL、ENUM、SET、JSON、CHAR、伪 gid、unsigned。
@@ -211,12 +213,12 @@ Required execution point: 不适用
   1. 确定 import 包渲染的 owner：由 Application 组合（storage_projection 出 schema/manifest，mutation_planning 出 DML，再打包），或由 mutation_planning 提供公开入口。签名包含 repository base 与 mutation policy。
   2. 新增只发布 manifest 的入口。
   3. PreviewResult 显式绑定 MODIFIED 侧规范表集合与 manifest（ref + digest）。T1 把它冻结到 Attempt 的新字段并纳入 fingerprint；prepare 只消费这个集合；删除按前缀和摘要的启发式。
-  4. 对“parent 中有、规范快照中无”的表给出处置：渲染 DROP，或在 Preview 就形成明确 blocker。
+  4. 对“parent 中有、规范快照中无”的表给出处置：prepare 依据冻结的 expected parent 渲染 DROP。原“在 Preview 阶段形成 blocker”的备选已于 2026-09-26 撤回，见 §7.4。
   5. 说明与 §2A.2 的关系。
 - **关闭标准**：
   - §4.2/§4.7 给出入口 owner、签名、Attempt 字段与 fingerprint 组成；
   - 路径预算和测试 owner 与之对应（`test_submit_transactions.py`、`test_submit_job_prepare.py`、`test_submit_artifact_protection.py`）；
-  - 删表场景有明确预期。
+  - 删表场景有明确预期，并覆盖“业务基线 ≠ main”的场景（见 §7.4）。
 
 ### F4 上游 Contract 修订缺失或排在实现之后
 
@@ -276,7 +278,7 @@ Required execution point: 不适用
 
 ### F7 Preview 提前失败的范围未量化（与 DC1 相关）
 
-- **类别**：待验证假设。影响可能是全部真实上传的 Preview 失败。实施前置。
+- **类别**：待验证假设。影响可能是全部真实上传的 Preview 失败。不阻塞纯结构的 S1，但必须在 S2 语义验收前关闭（2026-09-26 调整，见 §7.7）。
 - **位置**：设计 §4.2 第 119 行、§4.5；ADR 0018 Consequences。
 - **依据**：
   - storage_projection 只接受 STRING 族（含 JSON/ENUM/SET）、INT、BIGINT 与 INT UNSIGNED（`vnext/backend/src/gateway_backend/capabilities/storage_projection/project.py:500-511`；[ADR 0017](../adr/0017-sql-spelling-declared-type-unification.md) 规定词表外返回 `UNSUPPORTED_TABLE`）。任何降级描述符（没有 PK 的 KEYLESS、重复键）都被直接拒绝（同文件 `414-458`）。
@@ -364,7 +366,7 @@ Required execution point: 不适用
 
 ### 4.11 非阻塞建议
 
-- **N1（W4 细节）**：
+- **N1（W4 细节）**（2026-09-26：前两项输入边界升为实施必达条件，见 §7.7）：
   - `identity_confirmations` 应规定列表上限与重复 action 的处理。
   - 理由超长、确认多余这两种情况用什么错误码需要明确；目前“多余”复用 `…_REQUIRED` 语义不清。
   - 需规定与 `NO_CANONICAL_CHANGE` / `PREVIEW_DERIVED_STALE` 的判定先后。
@@ -375,7 +377,7 @@ Required execution point: 不适用
 - **N2（W3 输入闭合）**：
   - surface 当前从 comparison 导入 `IdentityStatus`（`vnext/backend/src/gateway_backend/capabilities/surface_assembly/contracts.py:20`、`684`），而目标 DAG 没有 surface → project_identity 边。需确定身份标注类型的 owner，或由 surface 自持中性枚举。
   - “同名表导出两侧快照”需要 Application 向 surface 传入 `table_artifacts`，目前没有任何调用方传入（同文件 `790`）。这不只是“补测试”。
-- **N3（W2 端口）**：
+- **N3（W2 端口）**（2026-09-26 升为实施必达条件，见 §7.7）：
   - `CommitCanonicalMetadataPort` 应以 `(repository_id, commit_id)` 为键。
   - 需写明规则集身份的来源：取自 finalize 时由 `canonicalization-manifest` owner 长期保护的 manifest artifact（`vnext/backend/src/gateway_backend/application/submission/finalize_transaction.py:226-265`，读取时需校验 digest），还是持久化为列。
 - **N4（compare-excluded 语义）**：E 中只有排除列变化时，结果是 `SCHEMA_ONLY_CHANGED` 加 `IGNORED_COLUMNS_CHANGED`（`vnext/backend/src/gateway_backend/capabilities/comparison/standard.py:732-742`）。设计要求排除列在记录中携带前后值用于展示，应一并定义表状态与记录形态。
@@ -405,7 +407,7 @@ Required execution point: 不适用
 3. **W2**：
    - 各类 commit 的规范元数据都可得：Submission 必有 manifest ref/digest（`vnext/backend/src/gateway_backend/domain/submission/models.py:210`），与 Review 状态、closed-not-archived 无关；finalize 时 manifest 被长期保护。
    - INITIAL 节点见 F9，端口键见 N3。
-   - `NO_CANONICAL_CHANGE`：baseline 漂移这一侧由现有检查闭合；规则集漂移这一侧未闭合（F1）。
+   - `NO_CANONICAL_CHANGE`：baseline 漂移这一侧由现有检查闭合；规则集漂移这一侧未闭合（F1）；判据本身还有 schema 盲区（F11，2026-09-26 新增）。
    - DC9 的范围见 F4、F10。ADR 0016 的 Operation integrity 代码不受影响。
 4. **W3**：
    - Application 能表达全部现有拓扑：FULL 两个 pair；MODIFIED_ONLY 基线→modified；History 2–3 个节点对应 DETAILED pair；初始基线作为零表 before。
@@ -443,12 +445,181 @@ Required execution point: 不适用
 
 1. P5-5E slice exit 为 pass 后才能开始 S1。S1 kickoff 按执行计划 §2 复核 E 级事实与基线漂移。
 2. S0 接受时一并接受上游修订的候选文本（F4、附录 A）。实现授权由 repository owner 另行给出。
-3. S1 kickoff 记录代表性真实数据的类型覆盖核查结果（F7），并据此确定 S2 范围。
-4. S2 阶段门槛之前，真实 Dolt 同一性 integration owner 通过（F2）。
+3. S1 kickoff 用 owner 提供的 4 份真实 dump（小、中小、中等、大）完成只读类型普查并记录，满足 §7.7 的条件，并据此确定 S2 范围（F7）。
+4. S2 阶段门槛之前，真实 Dolt 同一性 integration owner 通过（F2）；F11 的 schema 身份与 F3 的 expected parent 删表处置有真实 Dolt 证据。
 5. S3 验收之前，composite 键列类型的决定已实施，并经 Dolt 导入验证（F6）。
 6. 每个阶段按 testing-conventions 记录镜像决策；最终候选按执行计划 §6 fresh 重建。
+7. §7.10 所列 owner 确认事项中，标注“S0 修订前”的在 S0 修订中逐项落定，其余按表中标注的时点落定。
 
-## 7. 链接与路径检查
+## 7. 复核补充（2026-09-26）
 
-提交前用脚本检查了本报告的全部相对链接与锚点（0 个问题），以及文中全部反引号源码路径：以 vnext 开头的路径在 worktree 中存在，
-带行号引用的行号不超出文件长度；以 legacy 开头的路径在主工作区存在。
+本节补充三方面内容：repository owner 对 F1 的新决定、owner 提供的真实数据安排、另一份独立评审意见的核实与采纳。复核时确认 HEAD `8d89ca3c86` 下 `vnext/` 与代码基线仍无差异。补充实验同样在审核者临时目录执行，未修改仓库中本报告以外的文件。
+
+### 7.1 补充实验
+
+| # | 实验 | 结果 |
+| --- | --- | --- |
+| E8 | schema-only 变化探针：用 SQL 路径物化变化前后的两个快照，比较 `raw_state_digest` 与 `compare_schema_digest`，并按 Preview 方式运行 comparison | 见下表 |
+| E9 | Dolt 2.1.11 JSON 往返（沿用 E3 的临时库） | `{"a": 1.0, "b": 1e2, "c": 12345678901234567890, "d": 0.10, "f": -0}` 读回为 `{"a": 1, "b": 100, "c": 12345678901234567000, "d": 0.1, "f": 0}`；`{"k": 1, "k": 2}` 读回为 `{"k": 2}` |
+
+E8 结果：
+
+| 变化 | `raw_state_digest` | `compare_schema_digest` | Preview 比较结果 |
+| --- | --- | --- | --- |
+| 空表新增列 | 不变 | 改变 | SCHEMA_CHANGED |
+| INT→BIGINT（空表或有数据） | 不变 | 不变 | UNCHANGED |
+| VARCHAR(8)→VARCHAR(32)（有数据） | 不变 | 不变 | UNCHANGED |
+| NULL→NOT NULL（有数据） | 不变 | 不变 | UNCHANGED |
+| 主键 (a,b)→(b,a)（有数据） | 不变 | 不变 | UNCHANGED |
+| 列序变化（空表） | 不变 | 不变 | UNCHANGED |
+| 列序变化（有数据） | 改变 | 不变 | UNCHANGED |
+
+### 7.2 F1：owner 新决定与仍需定义的内容
+
+Owner 决定（2026-09-26）：比较统一使用两侧中较新的规则集，取代设计 §4.4、§5.4 中“两侧规则集 digest 必须相等”的判据。
+
+评估：这个决定解除了 F1 的死锁，也与 Canonical Storage §7、§9 一致（版本不同时做 schema-change alignment，按兼容列和有效键 fallback，不安全时表级 degraded）。修订时还需补齐五条定义：
+
+1. **全序。** “较新”需要可比较的版本。现有 `RULESET_VERSION` 在规则集快照与 manifest 两处都被校验写死为 `"v2"`（`vnext/backend/src/gateway_backend/capabilities/table_rules/contracts.py:432-433`、`vnext/backend/src/gateway_backend/capabilities/storage_projection/contracts.py:297-298`），digest 本身没有先后。需要规定每次规则变更单调升版，并放开读取历史 manifest 时的版本校验。
+2. **可取回性。** History 比较两个旧 commit 时（规则分别为 R1、R2，运行期已是 R3），字面的“两侧较新”是 R2，但程序中只有 R3。要么按 digest 永久保存规则集文档（新增持久事实），要么取“两侧与运行期中最新”。后者在没有回滚时恒等于运行期规则，不需要新增持久化，并与 Ruleset §5 一致。
+3. **回滚。** Ruleset §5 规定回滚只影响之后的操作。基线规则比运行期新时，字面规则会选中基线规则，但上传侧按运行期投影、Submit 也按运行期写入，比较与写入不一致。需要规定此时的处理。
+4. **三节点 History。** 需说明规则按每个 pair 各取，还是整份结果统一取所有节点中最新的一个；后者能保证同一份结果内语义一致。
+5. **存储身份不同。** 两侧存储投影不同（STORAGE_BREAKING）时，按 Canonical Storage §7 做 alignment 并产出表级事实，不再失败。
+
+F1 的其余部分按三个场景分别定义，见 §7.5。
+
+更新后的关闭标准：
+
+- 设计写明规则取法、全序与取回方式，并给出“激活类别 × 三个场景 → Preview / History / AcceptSubmit / prepare / 恢复行为”对照表；
+- 与 Ruleset §1、§5 及 Canonical Storage §7、§9 一致，或附上对应的 Contract 修订候选文本；
+- 测试 owner 覆盖三点：ADDITIVE 激活后旧基线仍可 Preview；激活前完成的 Preview 在激活后受理被拒；两侧存储身份不同时按 alignment 产出表级事实。
+
+### 7.3 新增 F11：规范状态身份与提前退出存在 schema 盲区
+
+- **类别**：已证实缺陷；阻塞。该问题由另一份独立评审首先提出，本审核用 E8 复测并扩大了范围。
+- **位置**：设计 §5.3（规范状态摘要取 `raw_state_digest`）、§4.4（提前退出沿用现有 `raw_content_digest` 判定）、§12 第 7 行；附录 A 第 2 项。
+- **依据**：
+  - `raw_state_digest` 每表只包含表名、行数、`raw_content_digest` 与 `fast_row_digest`，不含 schema（`vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/_digest.py:156-170`）。
+  - 行摘要按列名排序编码（同文件 `74-95`）。E8 显示整数位宽、字符串长度和可空性的变化都不改变行摘要。
+  - comparison 提前退出只要求 `compare_schema_digest`、行数与 `raw_content_digest` 相等（`vnext/backend/src/gateway_backend/capabilities/comparison/standard.py:950-961`）。而 `compare_schema_digest` 只含表名、排序后的列名和排序后的键名（`vnext/backend/src/gateway_backend/capabilities/snapshot_materialization/_digest.py:114-127`），不含类型、可空性、列序和键序。
+  - Canonical Storage §9 以 “R4 canonical schema/content/storage-business digest 不变” 作为 `NO_CANONICAL_CHANGE` 的判据。storage projection 的 canonical schema digest 覆盖列名、类型、可空性与主键（`vnext/backend/src/gateway_backend/capabilities/storage_projection/_digest.py:80-89`）。
+- **触发场景**：
+  - 只放宽列长度、调整类型或可空性、调整主键列顺序，或给空表新增列：拟议的 `NO_CANONICAL_CHANGE` 会误拒，合法的 schema 更新无法提交。
+  - 类型、长度、可空性、键序变化：Preview 显示 UNCHANGED，审核看不到。
+  - 有数据表的列序变化：Preview 显示 UNCHANGED，却允许提交。
+  - 现行 History 比较有同样的盲区，属于现有缺陷。
+- **影响**：Submit 判定与 Preview 展示对同一变化给出不一致的结论。软件升级带来的 schema 变更要么无法入库，要么审核看不到。
+- **与 F2 的关系**：F2 要求两条生产路径结果一致，但两条路径完全可能一致地遗漏 schema，所以单列。F11 的修复依赖 F2 的 descriptor 级定义。
+- **最小修正方向**：
+  1. 规范状态身份由表集合与每表的三部分组成：完整规范 schema digest（有序列名、规范化类型、可空性、有序主键）、内容 digest、行数。是否纳入列序取决于 §7.10 D6 的决定。
+  2. comparison 提前退出要求完整规范 schema 相等。两侧内容相同但 schema 不同时，产出明确的 schema 事实（类型、可空性、键序、列序）。
+  3. 按上述定义修订附录 A 第 2 项的 “canonical business digest”。
+  4. 只把现有 `compare_schema_digest` 并入状态摘要不够，它不含类型、可空性与键序。
+- **关闭标准**：设计给出上述定义。唯一测试 owner 同时证明两点：规范状态相同则摘要相同；E8 中各类 schema 变化都不会被判为无变化，且在 Preview 中可见。同构用例按 AGENTS 收敛为共享参数表。
+
+### 7.4 F3 补强：删表以冻结的 expected parent 为依据
+
+- **依据**：SubmitAttempt 分别冻结业务基线 `business_baseline_commit_id` 与 T1 时的 Repository main `repository_expected_commit_id`（`vnext/backend/src/gateway_backend/application/submission/accept_transaction.py:396-434`）。前一个 Submission 已提交但尚未归档时，main 已经前进而业务基线不变，这正是 Business Lifecycle §5 的 sibling 情形。import 在 expected parent 上重放，STRUCTURAL 校验要求表集合完全一致（见 F3 依据 4）。
+- **扩大的触发场景**：未归档的 sibling Submission 在 main 上新增一张表后，下一个 Submit 即使没有删除任何表，也会因 “user table set mismatch” 失败。
+- **撤回**：撤回原 F3 修正方向第 4 条中“在 Preview 阶段形成 blocker”的备选。Preview 以业务基线为准，处理不了 Preview 之后 main 的变化。
+- **修正方向**：
+  - prepare 在 T1 之后、effect 之前读取冻结 expected parent 的表目录（只读 Repository 访问），确定待删除的表，生成确定性的 replay；
+  - 结果写入 prepare 包 checkpoint，重试复用同一个包，并沿用 expected commit 的 CAS；
+  - 新 commit 的内容等于上传的完整规范状态。
+- **补充关闭标准**：验收覆盖三种情形：业务基线等于 main 时用户删表；业务基线不等于 main 时 sibling 新增表；业务基线不等于 main 时 sibling 删除表。
+
+### 7.5 F1/F4 扩充：Canonical Storage §7/§9 与 Ruleset §1
+
+- [Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md) §7（第 218–221 行）规定版本不同时必须做 schema-change alignment、fallback 与表级 degraded；§9 验收要求 “Projection version change 使用 alignment/fallback”。原设计的“不等即失败”与之矛盾。按 §7.2 的新决定改为 alignment 后二者一致，F4 对这两节只需确认一致；若修订时仍保留失败语义，就必须一并修订 §7、§9。
+- [Ruleset Activation](../contracts/ruleset-activation-and-migration.md) §1（第 20 行）规定已启动的 operation 继续使用启动时捕获的规则；设计 §4.6 则规定恢复时按运行期规则重新派生，digest 不同即失败。5E 已有同类“稳定失败”的先例，但收口设计需要写明契约立场。
+- 三个场景分别定义，不再统称“规则陈旧”：
+  1. **旧 commit 的 provenance**：按 §7.2 的规则取法比较；存储身份不同时按 Canonical Storage §7 做 alignment。
+  2. **尚未受理的旧 Preview**：若 PreviewResult 的上传侧投影规则集与运行期不一致，AcceptSubmit 按 derived-stale 拒绝。
+  3. **已受理 operation 的恢复**：
+     - Submit 在 T1 之后只使用冻结的规范产物，不依赖运行期规则，天然满足 §1；
+     - Preview/History 二选一：按 digest 取回捕获的规则集继续执行；或在 Ruleset §1 中明确纯计算 operation 可以稳定失败、由用户重跑（激活前有 graceful drain，只有超时或崩溃才会遇到这种情况）。
+- 以上都是对契约立场的澄清，不要求新增在线迁移框架。
+
+### 7.6 F2 修正：JSON 的措辞与选项
+
+- **措辞**：“编码 owner 无法修正”改为“仅修 Repository 解码不足以修正”。
+- **新增选项**：两侧统一 JSON 规范表示，即规范投影与 Repository 读取两侧都先把 JSON 列转换为同一规范形式，再做编码。
+- **限制**：E9 表明 Dolt 的 JSON 规范化是有损的（大整数丢失精度、重复键只保留最后一个、数值写法被改写）。统一表示要么同样有损，要么对无法无损往返的值 fail-closed，两者都需要显式决定。LONGTEXT 仍是无损的默认选项。若真实 dump 中没有 JSON 列，可以先 fail-closed，并登记重开条件，见 §7.10 D5。
+
+### 7.7 分类调整与真实数据安排
+
+- **F7**：不阻塞纯结构的 S1，但必须在 S2 语义验收前关闭。Owner 将在本轮修复中提供 4 份真实 dump（小、中小、中等、大）。作为 F7 类型覆盖和设计 §13 测量规模梯度的主要证据，这些数据足够，但需满足以下条件：
+  1. 覆盖在用的软件版本与协议族（IEC104 ordered 表、协议配置表、装置点表）；至少一份带 `logics.xml`、一份不带；并确认 `version_manager.saved_time` 的真实类型。
+  2. 至少一个项目提供前后两个版本。身份规则的 SAME_PROJECT、FULL 上传、History 与 §13 链路都需要这种成对数据；不同项目之间则构成 DIFFERENT_PROJECT。大数据档最好也有成对版本。
+  3. 真实数据覆盖不到的边界继续使用合成夹具：SET/JSON、可空显式键、删表、纯 schema 变化、sibling 在 main 上新增表、UNVERIFIABLE、ordered 空白 gid。
+  4. dump 保存在 Git 外（[testing-fixtures](../../../testing-fixtures.md) 第 24、29 行；[Fixture Oracle](../contracts/fixture-oracle-and-conformance.md) 第 131–133 行）。S1 kickoff handoff 记录 dataset ID、SHA-256 与列类型普查结果；普查发现的问题提炼为最小的合成 golden。
+- **升为实施必达条件**：以下两项属于比例化政策 §3 的基础边界，须写入修订后设计的验收：
+  - N1 中 `identity_confirmations` 的数量上限、重复 action 的处理与理由长度的错误处置；
+  - N3 中 `CommitCanonicalMetadataPort` 以 `(repository_id, commit_id)` 为键，且只在已授权 scope 内解析。
+
+  N1 的其余部分以及 N2、N4、N5、N6 仍为非阻塞建议。
+
+### 7.8 推进顺序与验收证据
+
+采纳如下顺序：
+
+1. 补齐 S0 设计与上游候选文本；
+2. P5-5E slice exit pass；
+3. 对 exit 后的代码复核漂移；
+4. S1–S5 修复与验收；
+5. 最终候选的全量测试、五包静态检查、fresh 镜像与容器门禁；
+6. P5 整体 exit review。
+
+既有的 5E exit 保留为历史验收证据；收口改动后的代码须以新候选的证据验收。F1、F3、F4、F11 不得作为普通延期项带入 P5 exit。
+
+### 7.9 更新后的 findings 状态
+
+| ID | 类别 | 阻塞 | 2026-09-26 变化 |
+| --- | --- | --- | --- |
+| F1 | 已证实缺陷 | 是 | owner 已决定规则取法（§7.2），待补定义与三个场景（§7.5） |
+| F2 | 已证实缺陷 | 是 | JSON 措辞与选项修正（§7.6） |
+| F3 | 已证实缺陷 | 是 | 以 expected parent 为依据，撤回 Preview blocker 备选（§7.4） |
+| F4 | 已证实缺陷 | 是 | 扩充 Ruleset §1；Canonical Storage §7/§9 随 F1 新决定确认一致（§7.5） |
+| F5、F6、F9、F10 | 已证实缺陷 | 是 | 无变化 |
+| F11 | 已证实缺陷 | 是 | 新增（§7.3） |
+| F7 | 待验证假设 | 否（S2 语义验收前必须关闭） | 真实数据安排见 §7.7 |
+| F8 | 待验证假设 | 否（S2 冻结事实形态前关闭） | 待 owner 决定（§7.10 D9） |
+| N1（输入边界部分）、N3 | 基础边界 | 实施必达 | 由建议升级（§7.7） |
+| N1 其余部分、N2、N4、N5、N6 | 非阻塞建议 | 否 | 无变化 |
+
+结论仍为定向修订。接受前须关闭的阻塞项为 F1–F6、F9、F10、F11。
+
+### 7.10 需要 repository owner 确认的事项
+
+以下事项影响业务语义或契约立场，不宜由作者自行决定。每项附审核建议与确认时点。
+
+| # | 事项 | 审核建议 | 关联 | 确认时点 |
+| --- | --- | --- | --- | --- |
+| D1 | “较新规则”的精确取法：字面的“两侧中较新”，还是“两侧与运行期中最新” | 取后者。没有回滚时它恒等于运行期规则，不需要持久化历史规则集，也与 Ruleset §5 一致。若坚持前者，需接受按 digest 永久保存规则集文档（新增持久事实），并修订 Ruleset §5 | F1 | S0 修订前 |
+| D2 | 规则回滚后、基线规则比运行期新时，Preview 如何处理 | 一律按运行期规则投影与比较，存储差异按 Canonical Storage §7 做 alignment | F1 | S0 修订前 |
+| D3 | 激活前完成、激活后才受理的 Preview | AcceptSubmit 按 derived-stale 拒绝，由用户重跑 Preview | F1 | S0 修订前 |
+| D4 | 已受理的 Preview/History 在规则激活后恢复 | 稳定失败、由用户重跑，并在 Ruleset §1 注明纯计算 operation 的这一例外。若 D1 选择持久化规则集，可改为取回捕获的规则继续 | F1、F4 | S0 修订前 |
+| D5 | JSON 列的存储方式 | 默认以 LONGTEXT 无损存储；若真实数据中没有 JSON 列，先 fail-closed 并登记重开条件。不建议采用有损的统一表示 | F2 | S1 kickoff 普查后 |
+| D6 | 列序是否属于规范业务状态 | 取决于设备或工具是否按位置读取列。若都按列名读取，建议排除列序（状态身份按列名计算）；若存在按位置读取，则纳入身份，并在 Preview 中作为 schema 变化展示 | F11 | S0 修订前 |
+| D7 | 规范投影失败时 Preview 的结果形态 | 整体 FAILED，但一次列出全部失败的表与列（现有投影遇到第一个失败即停止，需要调整），与 Business Lifecycle §2 一致。若普查显示不支持的类型很普遍，优先扩充类型词表，而不是做部分 Preview | F7 | S0 修订前 |
+| D8 | 本轮是否扩充存储类型词表 | 若普查发现 DATETIME、DECIMAL、FLOAT、TINYINT 等出现在存储表中，建议在 S2 内扩充（含同一性、renderer 与 Dolt 验证），否则真实数据无法使用 | F7 | S1 kickoff 普查后 |
+| D9 | SNAPSHOT_ONLY/BROWSE_ONLY 表的内容变化是否在 Preview/Review 中可见 | 产出表级“内容已变化”事实，不含记录，不参与行级风险 | F8 | S2 冻结事实形态前 |
+| D10 | INITIAL 基线是否必须为空 | 必须为空（读取时断言零表），种子数据一律经 Submit 进入；compose harness 改为不预导入。若运维确有“预置数据的初始库”需求，需另定其身份语义 | F9 | S0 修订前 |
+| D11 | 上传是否代表完整规范状态 | 是。上传中没有的表（包括用户删除的表，以及 sibling 在 main 上新增的表）在新 commit 中删除；Preview 标为 DELETED_TABLE，并按表删除风险提示 | F3 | S0 修订前 |
+| D12 | DC9 之后 Repository 读取不一致如何处置 | ADR 0019 写明：不再与 Backend 期望值比较后，读取不一致（如 `REPOSITORY_ROW_COUNT_MISMATCH`）按依赖异常处理，即普通 FAILED 加诊断、日志与指标，不建持久 incident；ADR 0016 与 Operation Lifecycle §4 的 incident 范围限定为“与 Backend 期望值矛盾”或 CAS 歧义 | F4 | S0 修订前 |
+| D13 | composite `source_table` 的列类型 | `VARCHAR(64)`（MySQL 标识符长度上限，与 legacy 一致），由派生表 schema owner 修复，并撤销设计中“不得在 composite 侧绕开”的限制 | F6 | S0 修订前 |
+| D14 | 4 份 dump 的组成与存放 | 确认：是否有同一项目的前后版本；覆盖哪些软件版本与协议族；是否带 `logics.xml`；Git 外的存放路径；handoff 中可记录的信息粒度（表名、列类型普查） | F7 | S1 kickoff 前 |
+| D15 | S2 是否拆分 | 拆为 S2a（W3 入口、ComparisonRuleView、编码修复与 integration owner）和 S2b（切换到规范域、W2、DC9），分别独立审核 | N6 | S0 修订前 |
+
+以下事项由作者按 finding 自行处置，无需 owner 另行决定：
+
+- F5 中 ordered `no` 的建模方式；
+- F10 中 A2 受理逻辑移入 Application；
+- F3 中 import 包渲染入口的 owner 与签名；
+- N1 的错误码与判定先后；
+- N2 中 surface 身份类型的 owner；
+- N4 中排除列的展示方式。
+
+## 8. 链接与路径检查
+
+提交前用脚本检查了本报告（含 2026-09-26 补充）的全部相对链接与锚点，结果为 0 个问题；同时检查了文中全部反引号源码路径：以 vnext 开头的路径在 worktree 中存在，带行号引用的行号不超出文件长度；以 legacy 开头的路径在主工作区存在。

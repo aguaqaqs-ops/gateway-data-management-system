@@ -157,7 +157,10 @@ from gateway_backend.operations.worker import (
     WriteUnitOfWorkFactory,
 )
 from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
-from gateway_backend.application.submission.errors import SubmitImportPublicationError
+from gateway_backend.application.submission.errors import (
+    PrepareCheckpointPayloadBindingError,
+    SubmitImportPublicationError,
+)
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 
 SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v1"
@@ -508,6 +511,9 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                 )
         except SubmitImportPublicationError as exc:
             _publish_prepare_projection_failure(lease_session, exc)
+            return ExecutorAcknowledgment.PUBLISHED
+        except PrepareCheckpointPayloadBindingError:
+            _publish_prepare_binding_failure(lease_session)
             return ExecutorAcknowledgment.PUBLISHED
 
         lease_session.refresh_control()
@@ -1759,10 +1765,7 @@ def _prepare_checkpoint_from_job_state(
     _require_exact_job_state_keys(job_state, allowed_keys=_ALLOWED_PREPARE_CHECKPOINT_KEYS)
     attempt_id = job_state.get(_JOB_STATE_ATTEMPT_ID)
     if type(attempt_id) is not str or attempt_id != expected_attempt_id:
-        raise CheckpointDecodeError(
-            "prepare checkpoint attempt_id does not match payload",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
+        raise PrepareCheckpointPayloadBindingError()
     return PrepareImportCheckpoint(
         schema_version=PREPARE_IMPORT_CHECKPOINT_SCHEMA,
         attempt_id=attempt_id,
@@ -2478,13 +2481,31 @@ def _make_prepare_projection_failure_builder(
     return builder
 
 
+def _publish_prepare_terminal_abort(
+    lease_session: LeaseSession,
+    diagnostic: OperationDiagnostic,
+) -> None:
+    lease_session.publish_operation(_make_prepare_projection_failure_builder(diagnostic))
+
+
 def _publish_prepare_projection_failure(
     lease_session: LeaseSession,
     exc: SubmitImportPublicationError,
 ) -> None:
-    lease_session.publish_operation(
-        _make_prepare_projection_failure_builder(_prepare_projection_failure_diagnostic(exc))
+    _publish_prepare_terminal_abort(
+        lease_session,
+        _prepare_projection_failure_diagnostic(exc),
     )
+
+
+_PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC = OperationDiagnostic(
+    code="CHECKPOINT_ATTEMPT_BINDING_MISMATCH",
+    message="prepare checkpoint attempt_id does not match submit payload",
+)
+
+
+def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
+    _publish_prepare_terminal_abort(lease_session, _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC)
 
 
 def _make_cancelled_terminal_builder() -> Callable[

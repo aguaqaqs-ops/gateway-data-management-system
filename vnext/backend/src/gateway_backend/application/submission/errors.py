@@ -14,6 +14,7 @@ from gateway_backend.domain.submission.errors import (
 from gateway_backend.domain.submission.errors import (
     SubmitOccupancyConflict as SubmitOccupancyConflict,
 )
+from gateway_backend.application.payloads import CheckpointDecodeError
 
 
 class SubmitApplicationError(Exception):
@@ -190,3 +191,15 @@ class ArchiveClosed(SubmitApplicationError):
 
 class SubmitImportPublicationError(ValueError):
     """Raised when submit import publication fails closed."""
+
+
+class PrepareCheckpointPayloadBindingError(CheckpointDecodeError):
+    """Checkpoint job_state disagrees with trusted submit payload binding."""
+
+    _CODE = "CHECKPOINT_PAYLOAD_BINDING_MISMATCH"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "prepare checkpoint attempt_id does not match submit payload",
+            code=self._CODE,
+        )

@@ -257,6 +257,8 @@ def build_worker_runtime(
     preview_recovery: RecoveryPort | None = None,
     submit_recovery: RecoveryPort | None = None,
     write_uow_factory: WriteUnitOfWorkFactory | None = None,
+    read_uow_factory: WriteUnitOfWorkFactory | None = None,
+    now_factory: Callable[[], datetime] | None = None,
 ) -> WorkerRuntime:
     """Compose the SQLite-backed worker with the immutable R4 registry adapter."""
 
@@ -276,17 +278,18 @@ def build_worker_runtime(
         payload_decoders=payload_decoders,
     )
 
-    def read_uow_factory() -> OperationUnitOfWork:
+    def default_read_uow_factory() -> OperationUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path, read_only=True)
 
     def default_write_uow_factory() -> OperationUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path)
 
+    resolved_read_uow_factory = read_uow_factory or default_read_uow_factory
     resolved_write_uow_factory = write_uow_factory or default_write_uow_factory
 
     startup_observer = _StartupObserver(observer)
     jitter = _deterministic_jitter
-    now_factory = _utc_now_factory
+    resolved_now_factory = now_factory or _utc_now_factory
 
     def capability_lookup(job_kind: str, step_name: str) -> RecoveryCapabilityValue:
         definition = composition.definition_registry.get(
@@ -298,18 +301,18 @@ def build_worker_runtime(
         write_uow_factory=resolved_write_uow_factory,
         capability_lookup=capability_lookup,
         jitter=jitter,
-        now_factory=now_factory,
+        now_factory=resolved_now_factory,
     )
     recovery_registry = _build_recovery_aware_registry(
         composition,
         jitter=jitter,
-        now_factory=now_factory,
+        now_factory=resolved_now_factory,
         external_effect_stub=external_effect_stub,
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
     )
     startup = _R4WorkerStartup(
-        read_uow_factory=read_uow_factory,
+        read_uow_factory=resolved_read_uow_factory,
         write_uow_factory=resolved_write_uow_factory,
         registry=recovery_registry,
         definition_registry=composition.definition_registry,

@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 import httpx
@@ -510,6 +511,7 @@ def build_submit_worker_harness(
     repository_base_url: str,
     observer: WorkerObserver | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    control_clock: dict[str, datetime] | None = None,
 ) -> SubmitWorkerHarness:
     tmp_path.mkdir(parents=True, exist_ok=True)
     token_file = tmp_path / "repository-bearer-token"
@@ -520,10 +522,27 @@ def build_submit_worker_harness(
         repository_base_url=repository_base_url,
         repository_bearer_token_file=token_file,
     )
-    bootstrap_control_database(settings)
+    def control_now() -> datetime:
+        if control_clock is not None:
+            return control_clock["value"]
+        return datetime.now(UTC)
+
+    if control_clock is not None:
+        settings.control_db_path.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+        from gateway_backend.infrastructure.control_db.database import initialize_and_verify_control_db
+
+        initialize_and_verify_control_db(settings.control_db_path, now=control_now)
+    else:
+        bootstrap_control_database(settings)
     artifact_store = InMemoryArtifactStore()
+
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path)
+        return ControlDbUnitOfWork(settings.control_db_path, now=control_now)
+
+    def read_uow_factory() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(settings.control_db_path, read_only=True, now=control_now)
+
+    bound_worker_write_uow = build_worker_write_uow_factory(control_transaction_factory)
     submit_deps = SubmitRuntimeDependencies(
         artifact_store=artifact_store,
         publication=SubmitImportPublicationAdapter(),
@@ -548,7 +567,9 @@ def build_submit_worker_harness(
         handlers=dict(submit_handlers),
         payload_decoders=dict(submit_decoders),
         submit_recovery=build_submit_recovery_port(bound_submit_deps),
-        write_uow_factory=build_worker_write_uow_factory(control_transaction_factory),
+        write_uow_factory=bound_worker_write_uow,
+        read_uow_factory=read_uow_factory if control_clock is not None else None,
+        now_factory=control_now if control_clock is not None else None,
     )
     return SubmitWorkerHarness(
         settings=settings,

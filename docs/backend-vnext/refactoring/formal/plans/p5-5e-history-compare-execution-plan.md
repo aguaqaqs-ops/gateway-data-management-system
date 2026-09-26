@@ -1,6 +1,6 @@
 # P5-5E History Compare 执行计划
 
-- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S3 remediation evidence refresh in progress**
+- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S4 final candidate gate passed（见 p5-5e-s4-handoff.md）**
 - 日期：2026-09-21
 **修订记录**：v3.6.1（2026-09-23）接受同步；S1 kickoff pass（见 [p5-5e-s1-kickoff.md](p5-5e-s1-kickoff.md)）。v3.6（2026-09-21）v3.5 独立复审 **F5 分类**：确认/映射分离；B→C；结构轨。v3.5 digest pair 语义。v3.4 P3。v3.3 F1a–F1c。v3.1 R1–R4。v3 F1 + F5 骨架。v2 纳入 F1–F6。
 - 对应设计：[P5-5E History Compare 详细设计](p5-5e-history-compare-design.md)
@@ -10,16 +10,19 @@
 
 ```yaml
 entry_kind: p5_5e_execution_plan
-stage: p5_5e_s3
-status: docs accepted; s3_stage_exit: not_evaluated; S3 remediation evidence refresh in progress
-compose_journey: remediation_in_progress
-implementation_authorized: S3
+stage: p5_5e_s4
+status: docs accepted; s4_candidate_gate: pass_recommended; s3_stage_exit: pass
+compose_journey: closed
+implementation_authorized: S4 complete
 s1_stage_exit: pass
 s2_kickoff: pass
 s2_stage_exit: pass
 s3_kickoff: pass
-s3_stage_exit: not_evaluated
+s3_stage_exit: pass
 s3_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5e-s3-handoff.md
+s4_handoff: docs/backend-vnext/refactoring/formal/plans/p5-5e-s4-handoff.md
+s4_gate_tested_head: 217236980350d523101936af5464fbbd9ad66f88
+p5_5e_slice_exit: pass
 docs_review_baseline_head: 6f6a780415b3e85ec2d1e9074b1f34c4093a9c7c
 implementation_baseline_head: 6707a1ca01c7325220ec47261b4b69a6232313ab
 p5_5d_gate_head: af833695ef1c16b1ea0744d1b6eff6b5ada9924c

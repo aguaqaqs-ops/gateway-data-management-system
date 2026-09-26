@@ -21,7 +21,9 @@
 - [P5-5E Independent Docs Acceptance](plans/p5-5e-s0-independent-docs-acceptance.md)（docs review pass v3.6；S1 实现已授权）
 - [P5-5E-S0 Entry Brief](plans/p5-5e-s0-entry-brief.md)（accepted；S1 kickoff pass）
 - [P5-5E History Compare Detailed Design](plans/p5-5e-history-compare-design.md)（accepted；S1 实现已授权）
-- [P5-5E History Compare Execution Plan](plans/p5-5e-history-compare-execution-plan.md)（accepted；**S1–S4 权威执行入口**）
+- [P5-5E History Compare Execution Plan](plans/p5-5e-history-compare-execution-plan.md)（completed；slice exit pass）
+- [P5-5E Slice Exit — Final](plans/p5-5e-slice-exit-final.md)（`p5_5e_slice_exit: pass`）
+- [P5-5E-S4 Independent Slice Exit Acceptance](plans/p5-5e-s4-independent-acceptance.md)（gate @ `21723698`）
 - [P5-5E-S1 Kickoff Gate](plans/p5-5e-s1-kickoff.md)（pass）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
@@ -49,7 +51,7 @@ P5-5A historical input（slice exit pass；container gate pass）：
 - [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；**P4-R6 exit pass**。
-P5-5B/5C/5D slice exit pass；5E docs accepted（v3.6），S1 实现已授权（kickoff pass）；5E S2+、production deployment 与新的 Repository effect 未授权。
+P5-5B/5C/5D/5E slice exit pass；5E History Compare 完成 @ `21723698`；production deployment 与新的 Repository effect 未授权。
 P4 Active Context Index 不覆盖 P5 semantic default entry。
 以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 

@@ -1,6 +1,6 @@
 # P5-5E-S0 History Compare Entry Brief
 
-- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S1 实现已授权**
+- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；5E slice exit pass @ `21723698`**
 - Date: 2026-09-21
 **修订记录**：v3.6.1（2026-09-23）接受同步：纳入主工作区 @ `6707a1ca01`；S1 kickoff pass。v3.6（2026-09-21）v3.5 独立复审 **F5 分类**：确认/映射分离；B→C 不降级；结构轨。v3.5 digest pair 语义。v3.4 P3。v3.1 R1–R4。v3 F1 + F5 骨架。v2 落实 F1–F6。
 - Owner：Backend vNext Business Applications and Interfaces（History 读模型 + compare 编排提案方）；独立审核由 Backend Architecture 承担
@@ -10,8 +10,8 @@
 
 ```yaml
 entry_kind: p5_5e_s0_docs_only
-stage: p5_5e_s1_ready
-status: docs accepted; S1 implementation authorized
+stage: p5_5e_slice_exit_pass
+status: slice exit pass; see p5-5e-slice-exit-final.md
 fixed_start_commit: 6f6a780415b3e85ec2d1e9074b1f34c4093a9c7c
 docs_review_baseline_commit: 6f6a780415b3e85ec2d1e9074b1f34c4093a9c7c
 implementation_baseline_head: 6707a1ca01c7325220ec47261b4b69a6232313ab
@@ -30,11 +30,12 @@ p5_5e_execution_plan: accepted
 p5_5e_docs_review: pass（见 p5-5e-s0-independent-docs-review.md §10）
 p5_5e_docs_acceptance: pass（见 p5-5e-s0-independent-docs-acceptance.md）
 p5_5e_s1_kickoff: pass（见 p5-5e-s1-kickoff.md）
-p5_5e_implementation_authorized: S1 only
-source_tests_dependency_deployment_change_authorized: S1 scoped only
+p5_5e_implementation_authorized: complete
+source_tests_dependency_deployment_change_authorized: 5E slice scope complete
 new_repository_effect_authorized: no
 production_deployment_authorized: no
-p5_5e_slice_exit: not_evaluated
+p5_5e_slice_exit: pass
+p5_5e_slice_exit_record: docs/backend-vnext/refactoring/formal/plans/p5-5e-slice-exit-final.md
 ```
 
 基线说明：入场时主 checkout 恰在固定起点且干净。按任务规则“优先使用上述提交的独立 worktree”，本轮新建独立 worktree/分支（`p5-5e-history-compare-docs`）承载全部文档写入，且**所有源码/测试只读核查均在钉住 fixed_start_commit 的 worktree 内执行**；主 checkout 零改动、零未提交文件。

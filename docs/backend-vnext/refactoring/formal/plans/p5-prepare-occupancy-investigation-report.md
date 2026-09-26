@@ -1,9 +1,10 @@
 # P5 Prepare 确定性失败与 Occupancy 调查报告
 
-> **性质**：阶段性调查决策报告；**最小修复已实施**（与生产代码、正式测试同批提交）。  
-> **调查 HEAD**：`dd2f51adb1ccae784169fbc14a4dbe098dddbc88`  
-> **门禁候选（gate）**：`217236980350d523101936af5464fbbd9ad66f88`  
-> **相对 gate 的代码 diff**：无（`dd2f51adb1` 相对 `21723698` 仅为 S4 文档与 provenance 等 9 文件）。
+> **性质**：阶段性调查决策报告；**最小修复已实施**（`0d9d0d9dc5` 及本报告收尾修订）。  
+> **修复 HEAD**：`0d9d0d9dc5`  
+> **5E 门禁候选（gate）**：`217236980350d523101936af5464fbbd9ad66f88`（S4 slice exit 基线；本修复不重开 5E exit）。
+
+**当前状态（评审用语）**：checkpoint attempt 绑定失败 **已证子类** 已修复；prepare focused 与五包 ruff/mypy **已通过**（`0d9d0d9dc5` 复跑：prepare 7 passed ~1.8s）。**容器验证处置待补齐**（见 §九）。其他 decode/异常路径仍为未评估项，不扩大本轮范围。
 
 **5E slice exit**：无需因本调查或最小修复重开。
 
@@ -36,7 +37,7 @@ cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest -q -m unit \
 | 用例 | nodeid |
 | --- | --- |
 | Handler：binding mismatch → abort | `tests/test_submit_job_prepare.py::test_prepare_checkpoint_payload_binding_mismatch_aborts_prepared_attempt` |
-| Worker：binding mismatch → abort + 再 accept | `tests/test_submit_job_prepare.py::test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_reaccept` |
+| Worker：binding mismatch → abort；occupancy 释放后 **在恢复 preview protection 前提下** 再 accept | `tests/test_submit_job_prepare.py::test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_reaccept` |
 | 反例：其它 decode → 保留 occupancy | `tests/test_submit_job_prepare.py::test_prepare_checkpoint_schema_mismatch_retains_occupancy` |
 | Publication 失败对照 | `tests/test_submit_job_prepare.py::test_prepare_handler_publication_failure_marks_operation_failed` |
 
@@ -63,7 +64,7 @@ Handler **仅**窄 catch：
 | **1** | **handler_direct** | 合成 `RuntimeError` | occupancy **保留** | 不变 | **handler 层仅** |
 | **1b** | **handler_direct** | 内存 patch `attempt.state` | occupancy **保留** | 调查模块已删；结论保留 | 合成对照 |
 | **2** | **handler_direct + synthetic** | mock decode | occupancy **保留** | 不变 | **无效**用于 worker 结论 |
-| **3** | **worker_runtime** | 持久化 checkpoint 篡改 `job_state.attempt_id` 与 payload 不一致 | worker-fatal；occupancy **保留**；再 accept → **`SubmitOccupancyConflict`** | **FAILED / ABORTED / occupancy 释放**；新 idempotency key **accept 成功** | **测试复现确认（worker）** |
+| **3** | **worker_runtime** | 持久化 checkpoint 篡改 `job_state.attempt_id` 与 payload 不一致 | worker-fatal；occupancy **保留**；再 accept → **`SubmitOccupancyConflict`** | **FAILED / ABORTED / occupancy 释放**；在测试中 **手动恢复 `current-preview` protection**（与首次 accept 同型）后，新 idempotency key **`accept_submit_transaction` 成功**（**非**「失败后零准备即可重试」） | **测试复现确认（worker）** |
 
 **阶段二触发说明（ID 3）**：「持久化 checkpoint 与 control payload 的 attempt 绑定不一致」（存储或元数据损坏的可解释类），**无 Repository effect**。
 
@@ -119,12 +120,41 @@ Handler **仅**窄 catch：
 | Operation diagnostic | `CHECKPOINT_ATTEMPT_BINDING_MISMATCH` |
 | Attempt abort_code | `CHECKPOINT_ATTEMPT_BINDING_MISMATCH` |
 | Worker 正式测试 | `test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_reaccept`（可控时钟，无 `sleep(31)`） |
-| 5E slice exit | **不重开**；未跑 compose 全量门禁 |
+| 再 accept 证据边界 | 证明 **occupancy 已释放** 且 **满足 accept 的 preview 前置条件**（`current-preview` protection 与 preflight 一致）后可重新 accept；abort 会清除首次 accept 建立的 protection，生产路径须由 preview/accept 流程重新建立 |
+| 5E slice exit | **不重开** |
 
 **剩余不确定项**：
 
 - Publication 成功后 `publish_checkpoint` / pin 失败与 occupancy 的端到端组合。
 - `SubmitImportBuilderError`（如 package SHA）在 **worker** 路径是否与修复前 ID 3 同结论。
+
+---
+
+## 九、容器验证处置（`testing-conventions.md` 评审记录）
+
+本修复除 handler/abort 逻辑外，还修改了生产 **`bootstrap/operation_worker.py`** 中 `build_worker_runtime` 的 **`read_uow_factory` / `now_factory` 可选注入**（默认路径与改前等价，但属 worker runtime 组合接线变更）。**不得**将祖先镜像的 Compose 结果表述为 `0d9d0d9dc5` 已通过容器门禁。
+
+```text
+Current HEAD: 0d9d0d9dc5（本报告收尾修订以同线 HEAD 为准）
+Container rebuild required: yes
+Reason: 生产 bootstrap `operation_worker.py` worker runtime factory 接线变更（可选 read/now 注入触及组合边界）；非「仅 harness」改动
+Last verified image revision: 217236980350d523101936af5464fbbd9ad66f88（5E S4 gate 基线；非本修复 HEAD）
+Last verified source-tree/image id: none（本修复 HEAD 未 fresh 构建）
+Container gate for current HEAD: deferred
+Deferred gates/nodeids: 受影响 backend/worker 镜像 fresh build + 权威 Compose/production gate（具体 nodeid 按阶段最终候选与 `p5-5e-history-compare-execution-plan.md` / handoff 登记）；本修复未重跑 compose
+Required execution point: 阶段最终候选或宣称「当前 HEAD 已通过容器门禁」之前
+```
+
+**已完成的非容器验证**（`0d9d0d9dc5`）：
+
+```bash
+cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest -q -m unit \
+  tests/test_submit_job_prepare.py -k 'prepare'
+# 7 passed, ~1.8s
+
+cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy
+# 五包全部通过
+```
 
 ---
 

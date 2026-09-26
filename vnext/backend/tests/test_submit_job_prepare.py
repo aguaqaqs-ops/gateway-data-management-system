@@ -655,6 +655,12 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Worker path: binding mismatch terminal-aborts and releases occupancy.
+
+    Re-accept uses a new idempotency key only after restoring ``current-preview``
+    artifact protection (same as ``_accept_prepared_with_seed``); abort clears
+    protection from the first accept, so this does not claim zero-setup retry.
+    """
     clock: dict[str, datetime] = {"value": datetime(2026, 8, 24, 12, 0, tzinfo=UTC)}
     transport = RecordingTransport()
     harness = build_submit_worker_harness(
@@ -667,6 +673,7 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
         "gateway_backend.operations.lease_session.LeaseSession.publish_successor",
         _skip_prepare_successor,
     )
+
     def control_now() -> datetime:
         return clock["value"]
 
@@ -725,6 +732,7 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
         snapshot_ref,
     )
     baseline_head = read_authoritative_baseline_head(harness.db_path, attempt.repository_id)
+    # Accept preflight requires current-preview protection; abort cleared it on first accept.
     with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
         unit_of_work.clear_artifact_protection(
             owner_kind="current-preview",

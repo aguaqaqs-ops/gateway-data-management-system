@@ -1,31 +1,34 @@
 # P5 架构收口 S0 Entry Brief
 
-- 状态：**DRAFT r2 — 已按 S0 独立审核（F1–F11）与 owner 决议（DC10–DC22）修订，待独立复审；实现未授权**
-- 日期：2026-09-26（r2）；r1 为 2026-09-25
+- 状态：**DRAFT r3 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与两份 r2 独立复审修订，待独立复审（可只核对 r3 差异）；实现未授权**
+- 日期：2026-09-26（r2、r3）；r1 为 2026-09-25
 - Owner：Backend vNext Architecture（收口牵头）
-- 修订与复审：r2 由 S0 审核者应 repository owner 要求执行修订。因此复审须由既未参与起草、也未参与修订的 reviewer
-  承担；修订者的自查不构成独立复审。
-- 复审顺序：[r2 修订处置表](p5-arch-closure-s0-revision-disposition.md) → 本文件 → [详细设计](p5-arch-closure-design.md)
+- 修订与复审：r2、r3 由 S0 审核者应 repository owner 要求执行修订。r2 经两份独立复审，结论均为定向修订；r3 按两份复审的
+  findings 与 DC23–DC27 修订。r3 的复审须由未参与 r3 修订的 reviewer 承担，可只核对 r3 差异；修订者的自查不构成独立复审。
+- 复审顺序：[修订处置表](p5-arch-closure-s0-revision-disposition.md)（§8 为 r3 部分）→ 本文件 → [详细设计](p5-arch-closure-design.md)
   → [执行计划](p5-arch-closure-execution-plan.md)
   → ADR [0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)、
   [0019](../adr/0019-commit-canonical-metadata-authority.md)、
   [0020](../adr/0020-project-identity-and-dataset-replacement-in-p5.md)、
   [0021](../adr/0021-flow-neutral-comparison-entry.md)
-- 审核与决议依据：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、
+- 审核与决议依据：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、r2 独立复审
+  （[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、
   [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)
 
 ## 1. 权威与基线
 
 ```yaml
 entry_kind: p5_arch_closure_s0_docs_only
-status: draft r2; independent re-review pending
+status: draft r3; independent re-review of r3 pending
 docs_branch: p5-arch-closure-docs
 docs_worktree: /home/dev/gdds-p5-arch-closure-docs
 code_inspection_base: 2172369803          # 5E-S3 exit + 架构门禁基线 + S4 预算例外记录
 main_line_at_start: phase1/gate-ownership-repair @ 2172369803
 r1_reviewed_commit: 3e5d5807e5
 s0_review_verdict: targeted_revision      # 审核报告 @ 89668aaf56（含 2026-09-26 补充）
-owner_decisions: DC1-DC22                 # DC10–DC22 见决议记录 @ 3f3b1de192
+r2_reviewed_commit: 5858eaaa08
+r2_rereview_verdicts: [targeted_revision, targeted_revision]   # @ 34ff1827cf、ca6502d8a4
+owner_decisions: DC1-DC27                 # DC10–DC22 @ 3f3b1de192；DC23–DC27 @ f984381ab3
 p5_5e_status_source: main_line_5e_records # 本文不判定 5E 状态
 p5_5e_slice_exit_required_before_s1: yes  # 本分支在 5E slice exit 前不合入主线
 closure_docs_authorized: yes              # repository owner，2026-09-25
@@ -36,7 +39,7 @@ adr_status_changed: no                    # 0018–0021 保持 Proposed
 contract_version_changed: no              # 上游修订只以候选文本形式给出（设计附录 A、B）
 ```
 
-全部源码核查与实验都在 `2172369803` 上进行；主工作区未改动。r2 修订期间确认 `vnext/` 与该基线无差异。
+全部源码核查与实验都在 `2172369803` 上进行；主工作区未改动。r2、r3 修订期间确认 `vnext/` 与该基线无差异。
 5E 期间主线的回修提交不属于本文基线，由 S1 kickoff 复核（执行计划 §2）。
 
 权威输入：
@@ -87,7 +90,7 @@ contract_version_changed: no              # 上游修订只以候选文本形式
 
 ## 4. 交付物与复审边界
 
-r2 交付（全部为文档）：
+r3 交付（全部为文档）：
 
 1. 本 Entry Brief；
 2. [详细设计](p5-arch-closure-design.md)（附录 A：Business Lifecycle 3.1.0 候选；附录 B：Canonical Storage、Ruleset Activation、
@@ -95,15 +98,26 @@ r2 交付（全部为文档）：
 3. [执行计划](p5-arch-closure-execution-plan.md)（S2 拆分为 S2a、S2b）；
 4. ADR 0018–0021（状态保持 Proposed）；
 5. [P5 §2A.4.1](p5-business-vertical-slices-design.md#p5-architecture-review-20260925) 第二轮复核补充；
-6. [S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)
-   与 [r2 修订处置表](p5-arch-closure-s0-revision-disposition.md)；
+6. [S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、两份 r2 独立复审报告
+   （[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、
+   [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)与[修订处置表](p5-arch-closure-s0-revision-disposition.md)；
 7. [formal README](../README.md) 的索引更新。
 
 复审结论按纵切指南 §6 给出（通过 / 定向修订 / 整体返工）。
 
-DC1–DC22 是 repository owner 的决定（DC1–DC9 于 2026-09-25，DC10–DC22 于 2026-09-26）。复审不以偏好重新裁决这些
+DC1–DC27 是 repository owner 的决定（DC1–DC9 于 2026-09-25，DC10–DC27 于 2026-09-26）。复审不以偏好重新裁决这些
 决定；如发现某项决定与上游 Contract 或不变量冲突、无法实施或会造成未被认识的业务损失，应作为 finding 提出并说明依据。
-复审应重点确认：
+
+r3 复审可只核对 r3 差异，重点确认：
+
+- 两份 r2 复审的 findings 是否按处置表 §8 关闭（处置表以 RV1-、RV2- 前缀区分两份报告的 RR 编号），DC23–DC27 是否落到所列位置；
+- 受理判定顺序（设计 §7.6、ADR 0020）是否与现行实现一致：授权与 exact scope 先于 same-key 重放；
+- business schema digest 与 manifest `canonical_schema_digest` 的区分（设计 §4.1、附录 B.1）是否无歧义；存储身份改用存储规则事实后，
+  §4.5 的对齐与来源标记是否自洽；
+- 附录 B.2（Ruleset §1、§5）、B.3（incident 范围，DC25）、B.4–B.6 的替换文本能否按字面并入；
+- 执行计划 S1 验收（含 DC26 的精确放行）与 S2a/S2b 路径预算是否与被删符号的使用方一致。
+
+r2 复审时提出的重点仍然适用：
 
 - 处置表中每条 finding 与决议是否关闭，改动是否传播到设计、计划、ADR 与附录中的所有相关位置；
 - 规则激活语义（设计 §4.9、附录 B.2）与 Ruleset Activation §1、§5 及 Canonical Storage §7、§9 是否一致；
@@ -119,8 +133,9 @@ DC1–DC22 是 repository owner 的决定（DC1–DC9 于 2026-09-25，DC10–DC
 - 文档复审通过：
   - ADR 0018–0021 状态改为 Accepted；
   - Business Lifecycle 按附录 A 升至 3.1.0；
-  - 附录 B 的候选并入对应文档：Canonical Storage 升至 3.1.0（§2）、Ruleset Activation §1、ADR 0016 与
-    Operation Lifecycle §4 的 incident 范围、Contract Taxonomy §5、P5 §2A.2/§6.1/§2A.4、Architecture §7.1/§7.2/§10/§13；
+  - 附录 B 的候选并入对应文档：Canonical Storage 升至 3.1.0（§2、§4）、Ruleset Activation §1 与 §5、ADR 0016 与
+    Operation Lifecycle §4 的 incident 范围、Contract Taxonomy §4.4/§4.6/§5/§13、P5 §2A.2/§6.1/§2A.4、
+    Architecture §7.1/§7.2/§9.1/§10/§13；
   - P3-R3/R4/R5 设计与 5E §6.6 加“由 ADR 00xx 取代”的标注，不改写历史正文；
   - 以上由 owner 以单独的 docs 提交完成。
 - 实现授权：由 repository owner 另行给出，最早在 P5-5E slice exit 之后。

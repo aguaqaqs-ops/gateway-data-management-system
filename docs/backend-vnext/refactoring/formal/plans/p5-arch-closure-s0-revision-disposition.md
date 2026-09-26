@@ -1,9 +1,9 @@
-# P5 架构收口 S0 r2 修订处置表
+# P5 架构收口 S0 修订处置表
 
-- 状态：**修订者自查完成；待独立复审**。本表不是复审结论。
-- 日期：2026-09-26
-- 修订者：S0 独立审核者，应 repository owner 要求执行本次修订。修订者与审核者为同一人，因此复审须由既未参与起草、
-  也未参与修订的 reviewer 承担。
+- 状态：r2 已经两份独立复审（结论均为定向修订）；**r3 修订者自查完成，待独立复审**（r3 部分见 §8）。本表不是复审结论。
+- 日期：2026-09-26（r2、r3）
+- 修订者：S0 独立审核者，应 repository owner 要求执行 r2 与 r3 修订。修订者与审核者为同一人，因此复审须由既未参与起草、
+  也未参与相应修订的 reviewer 承担。
 - 输入：
   - [S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)（F1–F11、N1–N6；含 2026-09-26 复核补充）；
   - [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)（DC10–DC22）；
@@ -16,17 +16,19 @@
 
 ```yaml
 record_kind: p5_arch_closure_s0_revision_disposition
-revision: r2
+revision: r3                              # §1–§7 为 r2 的历史记录，§8 为 r3
 revised_at: 2026-09-26
 r1_commit: 3e5d5807e5
+r2_commit: 5858eaaa08
+r2_rereview_commits: [34ff1827cf, ca6502d8a4]
 review_report_commit: 89668aaf56
-owner_decisions_commit: 3f3b1de192
+owner_decisions_commits: [3f3b1de192, f984381ab3]
 code_inspection_base: 2172369803
 vnext_changed: no
 accepted_contract_bodies_changed: no      # 上游修订只以候选文本给出（设计附录 A、B）
 adr_status_changed: no                    # 0018–0021 保持 Proposed
 implementation_authorized: no
-independent_rereview: pending
+independent_rereview_of_r3: pending
 ```
 
 ## 1. 修订边界
@@ -131,3 +133,83 @@ S1 kickoff 第 4、5 项；第 4 项 → 执行计划 S2a、S2b 验收；第 5 �
   - 执行计划 §3 中的新增文件名是建议名，复审可判断 owner 与边界是否合适；
   - S2a 结束时 R1 仍存在的中间状态是否可接受；
   - 附录 B 的候选文本是否准确引用上游原文、能否直接并入。
+
+## 8. r3 处置（两份 r2 复审与 DC23–DC27）
+
+本节记录 r3 的处置。§1–§7 是 r2 的历史记录，保持原样。
+
+### 8.1 输入与修订边界
+
+- 输入：
+  - [r2 独立复审（第一份）](p5-arch-closure-s0-independent-rereview.md) @ `34ff1827cf`，以下编号前缀 RV1；
+  - [r2 独立复审（第二份）](p5-arch-closure-s0-independent-rereview-2.md) @ `ca6502d8a4`，以下编号前缀 RV2；
+  - [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) §7 的 DC23–DC27 @ `f984381ab3`：由第二份复审者记录，owner 确认后单独提交。
+- 两份复审的结论均为定向修订。阻塞项的判定有差异（RV1 列 2 项，RV2 列 6 项），r3 对两份报告的全部阻塞项与非阻塞建议一并处置，
+  不因另一份报告判为非阻塞而跳过。
+- 只改文档：源码、测试、配置与已接受的 Contract 正文未改动；ADR 保持 Proposed。复审报告与决议记录不改写。
+- r3 修订者与 r2 修订者是同一人。r3 的复审须由未参与 r3 修订的 reviewer 承担，可只核对 r3 差异（`f984381ab3` 之后）。
+
+### 8.2 阻塞项处置
+
+| 编号 | 问题 | 处置 | 改动位置 |
+| --- | --- | --- | --- |
+| RV1-F1、RV2-F1 | 受理判定顺序把 same-key 重放放在权限与 scope 之前，与现行实现相反 | 改为：认证、当前权限与 exact scope（含 workspace 的精确 scope 与 Repository 映射）→ same-key 重放 → 其余受理校验；重放只越过其后可漂移的校验，不越过授权；确认的请求内容进入指纹，actor 与时间不进入。测试 owner：`test_submit_transactions.py` 的既有 T1 重放用例，S4 补撤权后重放被拒 | 设计 §7.6、§12；ADR 0020 Context、Decision 5、Required Verification；执行计划 S4 |
+| RV1-F2（RV2-N2 同源） | 新的列序无关 schema 摘要与 manifest 中保持 DDL 列序的同名摘要关系未定义；以 schema 摘要表示存储身份不可行 | 新摘要改名 business schema digest，由 Snapshot Materialization 拥有；manifest `canonical_schema_digest` 语义不变，两者不可互换，设计给出对照表，两者都不进入 `canonical_binding`。存储身份改用 manifest 每表已记录的存储规则事实。比较始终按列名与有效键对齐，schema 差异来源按规则事实标记 `SOURCE_SCHEMA`/`STORAGE_PROJECTION_POLICY`/`BOTH`。附录 B.1 为 Canonical Storage §4 增加区分说明 | 设计 §4.1、§4.5、§4.9、§5.1、§5.3、§5.4、§12、附录 A 第 3、6 项、附录 B.1；ADR 0018 Context、Decision 1、3、Alternatives、Required Verification；ADR 0019 Decision 1、5、6；执行计划 S2a |
+| RV2-F2（RV1-F3 前半同源） | 附录 B.2 未覆盖 Ruleset §5 末句；Submit 的边界用词不一致；Preview 捕获规则集的时点未定义 | DC23：B.2 同时修订 Ruleset §1 与 §5 末句，写明 §1 首句在恢复场景下的含义，澄清 §5“不增加 mismatch 分支”的范围。Submit 边界统一为“T1 冻结规范产物之后（含 PREPARED）”。DC24：Preview 受理时把规则集 digest 冻结进 job payload，每步执行前比较，不同即 `PREVIEW_RULESET_VERSION_MISMATCH` | 设计 §1、§4.6、§4.8、§4.9、§12、附录 B.2；ADR 0019 Decision 6、Consequences、Required Verification；执行计划 S2a 第 6 项与验收 |
+| RV2-F3（RV1-F5 同源） | N3 的键与 scope 没有唯一测试 owner 与阶段验收；manifest digest 不符的处置未定义 | 新增唯一 owner `test_commit_canonical_metadata.py`（unit，共享参数表），列入 S2b 验收与测试预算。DC25：digest 不符按 `COMMIT_CANONICAL_METADATA_DIGEST_MISMATCH` 稳定失败，附诊断、日志与指标，不建 incident；附录 B.3 按 DC25 写明 incident 范围 | 设计 §5.1、§5.5、§10、§12、附录 B.3；ADR 0019 Decision 1、7、Alternatives、Required Verification；执行计划 S2b |
+| RV2-F4 | `compute.py` 迁入 capability 后新增 layer 违例，S1 验收无法机械兑现 | DC26 由 Backend Architecture 选定选项 1：import 规则精确放行 `capability:canonical_row_hash → ext:compute`。依据是 ADR 0001 与 Contract Taxonomy §4.4：capability facade 可直接调用 PyO3 production provider；该 capability 只有一个 production provider，不存在需由 composition 选择的 provider，不按 P5 §2A.3 预建 provider 端口。放行只针对该 owner。`import_rules.py`、`IMPORT_RULE_SHAPES` 与 `test_architecture.py` 的旧路径列入 S1 | 设计 §1、§9 A6 行；执行计划 S1 验收与 §3 S1 |
+| RV2-F5（RV1-F4 同源） | S2a/S2b 路径预算遗漏被删机制的使用方 | S2a 增补：两个 compose 模块、`compose_gate_harness.py`（History oracle）、`test_architecture.py`（comparison 上游）、`http_workspace_harness.py`、`http_shutdown_harness.py`、`application/workspace/preview.py`、`http/orchestration/history_compare.py`（或 S1 后的承接模块）、`test_preview_job_worker.py`、`test_preview_application.py`。S2b 增补：`application/history/compare.py`、`http/orchestration/history_compare.py`（或 S1 后的承接模块）、两个新测试文件与 4 个条件测试文件。设计写明保留 `HistoryIntegrityFailure` | 执行计划 S2a、S2b 内容与 §3；设计 §5.5 |
+| RV2-F6 第 1–4 点（RV1-F3 后半同源） | 附录 A、B 不能按字面并入 | B.4 增补 Contract Taxonomy §4.4 依赖图替换、§4.6 删行、§13 第 9 项取代标注。附录 A 第 1 项与 B.3 改为整句、整段后的插入点。B.5、B.6 给出替换文本：P5 §2A.2 的替换句与保留的后半句；Architecture §7.1 新依赖图、§7.2 第 2 项、§9.1。设计 §11、ADR 0018 与附录 B 对 P3-R4 §4.2 统一为只加取代标注。附录 A 开头说明引文是编辑指令 | 设计附录 A、附录 B、§11；ADR 0018 Consequences；Entry Brief §5；执行计划 S0 |
+
+### 8.3 非阻塞项与附带意见
+
+| 编号 | 问题 | 处置 | 改动位置 |
+| --- | --- | --- | --- |
+| RV2-F6 第 5 点、DC27 | B.1 未说明 manifest `contract_version`；DC12 触发时的版本轴 | B.1 写明：S2a 起新写入的 manifest 记录 `3.1.0`，读取接受历史版本，载荷与 digest 算法不变；DC12 触发时在 S2a handoff 中按 Canonical Storage §8 写明 storage projection version 的处理 | 设计 §4.2、附录 B.1；ADR 0018 Decision 6；执行计划 S2a 第 3 项 |
+| RV2-N1 | 只存不比的表与 schema 事实的交叉 | 角色表的触发条件加入 business schema digest；schema 事实适用于所有存储角色；内容事实计入 pair 摘要与 surface 变化计数；owner：`test_comparison_rule_roles.py`（含只改 schema）、`test_surface_assembly.py`（可见） | 设计 §4.4、§12；ADR 0018 Decision 5、Required Verification；执行计划 S2a |
+| RV2-N3 | 历史 manifest 的解码被当前版本常量锁定 | 读取与写入分开校验：历史版本只作 provenance；`test_commit_canonical_metadata.py` 覆盖 | 设计 §5.1、附录 B.1；ADR 0019 Decision 1；执行计划 S2a 第 3 项 |
+| RV2-N4 | 删表 integration owner 位于模块级 unit 文件 | 新增 integration 模块 `test_submit_prepare_removed_tables.py`；`test_submit_job_prepare.py` 保留 unit 的包 checkpoint 复用 | 设计 §12；执行计划 S2b |
+| RV2-N5 | 表述精度与小缺口 | ADR 0019 Decision 5 改为“取代 E 中由 Preview bundle digest 派生的值”；ordered `no` 定为 `INT NOT NULL`（现行投影需修正）；身份确认理由与 Archive 同一校验（1–4096 UTF-8 字节，按原文持久化）；激活的用户影响面写入 §4.9，并要求 runbook 说明 | 设计 §4.1、§4.9、§5.3、§7.6；ADR 0019 Decision 5；ADR 0020 Decision 5；执行计划 S2a、S4 |
+| RV1 §4 | 设计 E-e 概括过宽；P5 §2A.4.1 的 R1 表述过宽 | E-e 区分空表增列（比较显示 SCHEMA_CHANGED）；P5 §2A.4.1 的 R1 行改为与设计 R1 一致 | 设计 §2.2；P5 §2A.4.1 |
+| RV1 §6 | `HistoryIntegrityFailure` 不在删除范围；DROP 表名须经标识符引用 | 设计 §5.5 写明保留并要求按调用方扫描区分；§4.3 写明 renderer 的标识符引用规则 | 设计 §4.3、§5.5 |
+| RV2 §6 | 保护转移范围变窄；History 同 key 重放返回 409；INITIAL 误供给的恢复；S2a compose 预期；worker 集成测试注入；catalog 行数开销；Architecture §9.1 | 依次写入设计 §4.8、§4.7、§5.1；执行计划 S2a 验收、S1 验收；设计 §13；附录 B.6 | 同左 |
+
+### 8.4 DC23–DC27 落点
+
+| 决议 | 落点 |
+| --- | --- |
+| DC23 Ruleset §5 随 B.2 修订 | 附录 B.2（§1、§5）；设计 §4.9 末段；ADR 0019 Consequences |
+| DC24 Preview 受理时冻结规则集 digest | 设计 §4.6、§4.9、§12；ADR 0019 Decision 6；执行计划 S2a 第 6 项与验收；失败码 `PREVIEW_RULESET_VERSION_MISMATCH`（设计 §10） |
+| DC25 manifest digest 不符按稳定失败处理 | 设计 §5.1、§5.5、§10；附录 B.3；ADR 0019 Decision 1、7；`test_commit_canonical_metadata.py` |
+| DC26 canonical row hash 的 Rust 绑定放置 | 设计 §9 A6 行（选项 1）；执行计划 S1 验收与 §3 S1 |
+| DC27 DC12 触发时的版本轴 | 设计 §4.2 JSON 行、附录 B.1；ADR 0018 Decision 6；执行计划 S2a 第 3 项 |
+
+### 8.5 修订者新发现并处理的问题
+
+- P5 §2A.4“包根 … Submit adapter”一行要求“保持 canonical bytes、manifest/package 版本和 digest 兼容”，与 DC6 冲突。附录 B.5 给出
+  替换后的处置列：这些值如因 ADR 0018、0019 改变，一次性更新，不保留兼容。
+- Ruleset Activation §1 允许把 ruleset snapshot 作为 hidden metadata table 随 commit 保存，与 DC2 的方向不一致（原文是“可以”，不构成
+  冲突）。附录 B.2 为该句加“当前不采用”的说明。
+- 执行计划 S2a 预算补上 `http/orchestration/history_compare.py`（或 S1 后的承接模块）：复核被删符号的使用方时发现它仍向 History 受理
+  传入 `table_ruleset_version`。
+
+### 8.6 修订者自查
+
+- `git diff --stat 2172369803 HEAD -- vnext` 为空。
+- 被修订文档与本表的全部相对链接与锚点可解析。
+- 对 S2a、S2b 删除的符号逐个 grep 使用方：均落在对应阶段的预算内（`cache/` 及其测试在 S1 删除）。按文件名匹配命中的
+  `table_ruleset_version` 其余用途属于快照物化请求字段，不在删除范围。
+- 反引号中的源码路径：现存路径在 worktree 中存在；不存在的只有标注为“新增”或“迁移后”的文件，以及提案中的新名称。
+- 设计 §12 与执行计划引用的测试文件：除标注为新增的文件外均存在。
+
+以上是修订者自查，不替代独立复审。
+
+### 8.7 r3 复审输入与关注点
+
+- 复审对象：本分支包含 r3 的固定 commit（由复审者记录）；可只核对 `f984381ab3` 之后的差异；代码事实基线 `2172369803`。
+- 重点关注：
+  - 8.2、8.3 中每一项是否真正关闭，改动是否传播到所有相关位置；
+  - business schema digest 与 manifest `canonical_schema_digest` 的区分，以及存储身份改用存储规则事实后 §4.5 的自洽性；
+  - DC26 选定的精确放行是否符合 P5 §2A.2、§2A.3 与 ADR 0001；
+  - 附录 B.2–B.6 的替换文本能否按字面并入，并入后上游文档中不再有与 ADR 0018–0021 冲突的现行表述；
+  - 身份确认理由改为与 Archive 同一校验后，是否与 Archive 身份异常处置的理由规则一致。

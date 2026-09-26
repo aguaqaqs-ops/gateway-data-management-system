@@ -231,11 +231,11 @@ capability 公共面、私有模块/符号、contracts 叶子、包根归属、�
 规则判定的问题，以本表跟踪。
 
 第二轮复核（2026-09-25，代码基线 `2172369803`）确认的补充问题如下。它们与本节既有问题一并由
-[P5 架构收口设计](p5-arch-closure-design.md) 处置（草案 r2：已经 S0 独立审核并按 owner 决议修订，待独立复审）：
+[P5 架构收口设计](p5-arch-closure-design.md) 处置（草案 r3：已经 S0 独立审核与两份 r2 独立复审，并按 owner 决议修订，待独立复审）：
 
 | 补充问题 | 处置入口 |
 | --- | --- |
-| 比较两侧不在同一域：Preview 上传侧为原始 SQL 快照，基线侧为 Repository 规范形态。实验中同内容表被判为 `DEGRADED`；基线非空后，带显式键、忽略列或 SKIP 规则的表系统性降级 | 设计 §4，ADR 0018 |
+| 比较两侧不在同一域：Preview 上传侧为原始 SQL 快照，基线侧为 Repository 规范形态。实验中同内容表被判为 `DEGRADED`；基线非空后，显式键与 DDL 主键不同的表、存储丢弃列的表、SKIP 表与 ordered 表在 Preview 中降级或误报 | 设计 §4，ADR 0018 |
 | 表规则的比较语义（SKIP、SNAPSHOT_ONLY、BROWSE_ONLY、UPDATE_ONLY）在任何链路都未生效；上表“策略投影无 owner”一项是其中一部分 | 设计 §4.4、§4.5 |
 | `NO_CANONICAL_CHANGE` 使用 bundle digest，并在 AcceptSubmit 预检中物化基线、跑整条比较流水线 | 设计 §5.3，ADR 0019 |
 | hidden summary 的版本字段取运行时常量，Repository 读取时的规则版本校验恒为通过 | 设计 §5，ADR 0019 |
@@ -248,7 +248,7 @@ S0 独立审核（2026-09-26）另确认了若干既有缺陷：SET 列的读取
 Repository owner 在同日作出的决定：规范域比较、以 manifest 作为 commit 规范元数据权威、项目身份沿用
 旧设计三段式语义（继续确认在 Submit 受理时收集）、composite 接入 P5、撤销 §2A.2 对 R5 流程词汇的
 保留约定。后一项以 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 接受为准，接受前 §2A.2
-原文仍然有效。2026-09-26 的补充决定（DC10–DC22）见
+原文仍然有效。2026-09-26 的补充决定（DC10–DC27）见
 [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)。
 
 ### 2A.5 收口验收

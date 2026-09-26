@@ -1,15 +1,16 @@
 # P5 架构收口执行计划
 
-状态：**DRAFT r2 — 已按 S0 独立审核（F1–F11）与 owner 决议（DC10–DC22）修订，待独立复审；实现未授权**
+状态：**DRAFT r3 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与两份 r2 独立复审修订，待独立复审（可只核对 r3 差异）；实现未授权**
 
-日期：2026-09-26（r2）；r1 为 2026-09-25
+日期：2026-09-26（r2、r3）；r1 为 2026-09-25
 
 Owner：Backend vNext Architecture
 
 入口：[Entry Brief](p5-arch-closure-s0-entry-brief.md) → [详细设计](p5-arch-closure-design.md) → 本文
 
 审核与决议：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、
-[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[r2 修订处置表](p5-arch-closure-s0-revision-disposition.md)
+r2 独立复审（[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、
+[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[修订处置表](p5-arch-closure-s0-revision-disposition.md)
 
 B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`。本文写未来命令与期望证据；实际结果写入
 各阶段 handoff。
@@ -45,14 +46,16 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 ### S0 — 文档入口、独立审核与复审
 
 - 交付：Entry Brief、详细设计（附录 A：Business Lifecycle 3.1.0 候选；附录 B：其他上游修订候选）、本计划、
-  ADR 0018–0021（Proposed）、P5 §2A.4.1 第二轮补充；审核报告、owner 决议记录与 r2 修订处置表。
-- 审核对象：r1 在 `3e5d5807e5` 接受独立审核（结论：定向修订）；r2 在本分支 `p5-arch-closure-docs` 的固定 commit
-  接受独立复审，由未参与起草与修订的 reviewer 承担。代码事实基线 `2172369803`。
+  ADR 0018–0021（Proposed）、P5 §2A.4.1 第二轮补充；审核报告、两份 r2 复审报告、owner 决议记录与修订处置表。
+- 审核对象：r1 在 `3e5d5807e5` 接受独立审核（结论：定向修订）；r2 在 `5858eaaa08` 接受两份独立复审（结论均为定向修订）；
+  r3 在本分支 `p5-arch-closure-docs` 的固定 commit 接受复审，由未参与 r3 修订的 reviewer 承担，可只核对 r3 差异。
+  代码事实基线 `2172369803`。
 - 通过后（Entry Brief §5）：
   - ADR 0018–0021 状态改为 Accepted；
   - 附录 A 并入 Business Lifecycle 并升至 3.1.0；附录 B 各候选并入对应文档（Canonical Storage 升至 3.1.0、
-    Ruleset Activation §1、ADR 0016 与 Operation Lifecycle §4、Contract Taxonomy §5、P5 §2A.2/§6.1/§2A.4、
-    Architecture §7.1/§7.2/§10/§13）；P3-R3/R4/R5 设计与 5E §6.6 加“由 ADR 00xx 取代”标注；
+    Canonical Storage §4 的摘要说明、Ruleset Activation §1 与 §5、ADR 0016 与 Operation Lifecycle §4、
+    Contract Taxonomy §4.4/§4.6/§5/§13、P5 §2A.2/§6.1/§2A.4、Architecture §7.1/§7.2/§9.1/§10/§13）；
+    P3-R3/R4/R5 设计与 5E §6.6 加“由 ADR 00xx 取代”标注；
   - 以上由 owner 以单独的 docs 提交完成，本轮修订不改动已接受的 Contract 正文；
   - 实现授权另行给出。
 
@@ -89,9 +92,14 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     - `external_target_sync` 三个模块，在 owning 设计中登记延期；
     - canonical row hash 模块：`capabilities.canonical_row_hash.contracts` 与 `compute`、`canonical_row_hash_ipc`
       移入后的新模块名。改名导致的基线条目替换在同一 diff 中给出理由，并登记 Phase 6 延期。
+  - `compute` 移入 capability 后依赖 Rust 扩展 `gateway_compute`（`ext:compute`）。import 规则精确放行
+    `capability:canonical_row_hash → ext:compute`（DC26），因此迁移不新增 layer 违例；放行在同一 diff 中说明。
+    S1 按预算完成迁移与放行后运行 `import_rules`，输出须与上列条目一致（第二份复审以临时副本模拟过只迁移、不放行的情形）。
   - backend unit、integration、serial 全绿；五包 ruff、mypy 通过。
   - bootstrap 组合改动涉及进程装配，因此在阶段末重建 current HEAD 镜像并运行既有 compose 旅程，
     结果与 5E exit 一致。
+  - synthetic job 与 external effect 桩移出生产包后，worker 集成测试改为由测试侧注入。这是装配变化，不改断言，在
+    handoff 中说明。
 
 ### S2a — 规范快照与比较规则的能力层
 
@@ -100,28 +108,33 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 - 内容：
   1. table_rules：`compare_excluded_columns` 与列处置校验；9 条 ordered 规则去掉 `ignored_columns` 中的 `no`；
      `ComparisonRuleView` 与 `ComparisonRuleSet`；
-  2. snapshot_materialization：canonical schema digest 与 canonical state digest；SET 解码；规范 descriptor 的类型规范化；
+  2. snapshot_materialization：business schema digest 与 canonical state digest；SET 解码；规范 descriptor 的类型规范化（含 ordered `no` NOT NULL）；
      Snapshot/Summary 编解码并入 contracts（Preview 与 History 两份 `_summary_payload` 合并，checkpoint 载荷随之变化，
      在 handoff 记录）；
   3. storage_projection：`project_canonical_table_set`、`publish_canonicalization_manifest`；存储约束（不可作键的类型、
-     键列 NOT NULL）；失败诊断一次收集全部（DC14）；按普查结果实施 DC12、DC15；
+     键列 NOT NULL）；失败诊断一次收集全部（DC14）；按普查结果实施 DC12、DC15（触发 DC12 时按 DC27 在 handoff 中写明
+     storage projection version 的处理）；CanonicalizationManifest 的 `contract_version` 升至 `3.1.0`，解码接受历史版本
+     （读取与写入分开校验）；
   4. comparison：新的 `ComparisonRequest`（运行期 `rule_set`、`mode`）；角色语义，含 DC16 的表级“内容已变化”事实与
-     compare-excluded；存储身份不同时按 Canonical Storage §7 对齐；提前退出要求 canonical schema digest 相等；schema 事实；
-     删除流程词汇；`ComparisonTablePolicy` 降为内部类型；
-  5. surface_assembly：自有的中性身份标注类型，不再从 comparison 导入 `IdentityStatus`；
-  6. Application：Preview 与 History 传入运行期规则集；History 受理冻结运行期规则集 digest（control DB migration），
-     删除 `_project_table_policy`、`_policy_to_checkpoint_dict`、`_table_policies_from_checkpoint`；恢复时 digest 不同则稳定失败。
+     compare-excluded；按列名与有效键对齐，并按两侧存储规则事实标记 schema 差异来源（Canonical Storage §7）；提前退出要求
+     business schema digest 相等；schema 事实适用于所有存储角色；删除流程词汇；`ComparisonTablePolicy` 降为内部类型；
+  5. surface_assembly：自有的中性身份标注类型，不再从 comparison 导入 `IdentityStatus`；表级内容事实计入变化计数；
+  6. Application：Preview 与 History 传入运行期规则集；两者都在受理时冻结运行期规则集 digest（Preview 写入 job payload，
+     DC24；History 写入受理记录，需 control DB migration），每步执行前比较，不同即稳定失败
+     （`PREVIEW_RULESET_VERSION_MISMATCH`、`HISTORY_RULESET_VERSION_MISMATCH`）；删除 `_project_table_policy`、
+     `_policy_to_checkpoint_dict`、`_table_policies_from_checkpoint`，compose harness 中的 History oracle 随入口改写一起更新。
 - 中间状态：S2a 结束时 Preview 上传侧仍是原始快照，R1 在 S2b 才修复；handoff 记录这一点。阶段之间不对外发布。
 - 验收：
   - 设计 §12 的以下 owner 通过：`test_canonical_snapshot_identity.py`（integration，真实 Dolt，S2b 的门槛）、
     `test_canonical_state_identity.py`、`test_snapshot_materialization_contracts.py`、`test_table_rules_comparison_view.py`、
-    `test_comparison_rule_roles.py`、`test_comparison_planning.py`（对齐）、`test_storage_projection_core.py`，以及
-    `test_history_compare_jobs.py` 中的恢复用例；
+    `test_comparison_rule_roles.py`、`test_surface_assembly.py`（内容事实可见）、`test_comparison_planning.py`（对齐）、
+    `test_storage_projection_core.py`，以及 `test_preview_job_worker.py`、`test_history_compare_jobs.py` 中的恢复用例
+    （Preview 含受理后、materialize 前发生激活的情形）；
   - `BROWSE_ONLY`/`SNAPSHOT_ONLY` 的事实形态先与 legacy oracle 核对后再冻结测试（F8、DC16）；
   - golden 与 digest 按新语义一次性更新，更新理由写入 handoff；
   - 导入基线不新增条目；
-  - 阶段末重建 current HEAD 镜像并运行既有 compose 旅程。旅程数据不含受角色语义影响的表，预期结果不变；如有变化，在
-    handoff 说明原因。
+  - 阶段末重建 current HEAD 镜像并运行既有 compose 旅程。History 旅程与空基线旅程的预期结果不变；非空基线上的 Preview
+    可能因角色语义与 schema 事实而变化（R1 仍存在），有变化时在 handoff 说明原因，不作为验收失败。
 
 ### S2b — 切换到规范域、commit 规范元数据与 DC9
 
@@ -134,16 +147,18 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
      基线自比流水线及其端口与适配器；T1 冻结闭包与 manifest、按闭包转移保护；删除 T1 与 prepare 的启发式；
   3. prepare：读取冻结闭包与 manifest；经 `RepositoryParentCatalogPort` 读取冻结 expected parent 的表目录并得出
      `removed_tables`；publication adapter 迁入 infrastructure；包进入 prepare checkpoint，重试复用；
-  4. Repository 读取：`canonical_binding` 由 `CommitCanonicalMetadataPort` 提供；单遍读取；删除 hidden summary；
-     `REPOSITORY_ROW_COUNT_MISMATCH` 为普通失败；HTTP Arrow adapter 只负责传输；
-  5. DC9 删除清单（设计 §5.5）；DC19 的读取不一致处置；
+  4. Repository 读取：`canonical_binding` 由 `CommitCanonicalMetadataPort` 提供（manifest digest 不符时稳定失败，DC25）；
+     单遍读取；删除 hidden summary；`REPOSITORY_ROW_COUNT_MISMATCH` 为普通失败；HTTP Arrow adapter 只负责传输；
+  5. DC9 删除清单（设计 §5.5，含 History 受理阻断与 HTTP 中的 integrity DTO 映射；保留 `HistoryIntegrityFailure`）；
+     DC19 的读取不一致处置；
   6. control DB migration 与 HTTP 变更（设计 §10）；
   7. compose harness 改为不预导入基线数据（DC17）。
 - 验收：
   - 设计 §12 的以下 owner 通过：`test_comparison_canonical_domain.py`（阶段门槛）、
     `test_repository_ref_materialization_protocol.py`、`test_preview_job_materialize.py`（ADDITIVE 激活、INITIAL 断言）、
-    `test_submit_transactions.py`（陈旧拒绝、`NO_CANONICAL_CHANGE`）、`test_preview_job_worker.py`（恢复）、
-    `test_submit_artifact_protection.py`、`test_submit_job_prepare.py`（integration，删表三种情形）、control DB migration 测试；
+    `test_submit_transactions.py`（陈旧拒绝、`NO_CANONICAL_CHANGE`）、`test_commit_canonical_metadata.py`（键与 scope、
+    manifest digest、历史版本）、`test_submit_artifact_protection.py`、`test_submit_prepare_removed_tables.py`（integration，
+    删表三种情形）、`test_submit_job_prepare.py`（unit，包 checkpoint 复用）、control DB migration 测试；
   - `NO_CANONICAL_CHANGE` 的不变量只由 `test_submit_transactions.py` 证明：`test_submit_http.py` 只保留 HTTP 错误映射，
     `test_production_wiring.py` 只保留接线断言，`test_preview_job_assemble.py` 与 `test_submit_application.py` 中的重复断言删除；
   - DC9 相关代码、路由、表、测试与测试支撑钩子已删除，OpenAPI 测试同步更新；ADR 0016 的 Operation integrity 测试不变且通过；
@@ -179,8 +194,9 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     投影侧与 Repository 侧对同一内容得出相同 assessment；
   - 初始空基线的 pair 为 `NOT_APPLICABLE`，首次提交不需要确认；
   - 替换事实、比较级风险；Application 向 surface 传入两侧 `table_artifacts`，bundle 导出两侧快照；
-  - 受理：输入边界（数量、重复 action、action 枚举、digest 格式、理由长度 → 422）用共享参数表覆盖；缺失 → 409 REQUIRED；
-    多余或摘要不符 → 409 MISMATCH；判定顺序；指纹与重放；
+  - 受理：输入边界（数量、重复 action、action 枚举、digest 格式、理由按 Archive 同一校验 → 422）用共享参数表覆盖；
+    缺失 → 409 REQUIRED；多余或摘要不符 → 409 MISMATCH；判定顺序；指纹与重放；授权与 exact scope 先于重放，撤权或
+    scope 不符的重放被拒（`test_submit_transactions.py` 补用例）；
   - Archive 身份异常处置与 StartArchive 校验；
   - Business Lifecycle 3.1.0 的身份相关条款实现完毕；
   - compose 旅程：跨项目上传 → 替换 Preview → 带确认提交 → 审核 → 带理由处置 → 归档；另加 `UNVERIFIABLE` 分支与
@@ -215,8 +231,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - A5：`domain/submission/models.py`、`artifacts/nominal_refs.py`，新增 `application/submission/artifact_refs.py`；
   - A6：删除 `canonicalization_manifest.py`、`canonicalization_cells.py`；删除 `repository_import_artifact.py` 中只被测试使用的
     `build_repository_import_package`、`write_repository_import_package`；`compute.py`、`canonical_row_hash_ipc.py` 移入
-    `capabilities/canonical_row_hash/`；`synthetic_w2.py` 移至 T/support；`infrastructure/repository_write/http.py` 改从
-    storage_projection contracts 取媒体类型；
+    `capabilities/canonical_row_hash/`（import 规则的精确放行见 S1 必改（T），DC26）；`synthetic_w2.py` 移至 T/support；
+    `infrastructure/repository_write/http.py` 改从 storage_projection contracts 取媒体类型；
   - A7：`capabilities/{composite_signal,table_rules,snapshot_materialization}/contracts.py` 及各自 `__init__.py`；
   - A8：`application/{preview_jobs,submit_jobs}.py`、`application/history/compare_jobs.py`；
   - A9 / N-dead：删除 `cache/`、`capabilities/comparison/provider.py`（`capabilities/comparison/__init__.py` 去掉 provider 导出）、
@@ -240,7 +256,10 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     `domain/submission/{models,policies}.py`；`http/{auth,dependencies}.py`；
     `infrastructure/control_db/{database,sqlite_baseline,sqlite_mapping}.py`。
 - 必改（T）：
-  - `test_architecture.py`（删除两个占位 owner 与对应 DAG 边；facade 规则）、`architecture_baseline.py`；
+  - `test_architecture.py`（删除两个占位 owner 与对应 DAG 边；facade 规则；`IMPORT_RULE_SHAPES` 增加
+    `capability:canonical_row_hash → ext:compute` 的放行；按新路径读取 compute 与 IPC 文件，更新禁止前缀表）、
+    `architecture_baseline.py`；
+  - `tests/support/import_rules.py`：精确放行 `capability:canonical_row_hash → ext:compute`（DC26），只对该 owner 生效；
   - 删除：`test_canonicalization_manifest.py`、`test_comparison_cache.py`、`test_snapshot_artifact_cache.py`；
   - `test_comparison_batch_boundary.py` 删除两个 provider 用例，保留批读取用例；`test_repository_import_artifact_package.py`
     删除与 identity package 的等价断言，可复现性与 ustar 断言保留；
@@ -258,10 +277,10 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - `capabilities/storage_projection/{contracts,project,view,_digest,publish,__init__}.py`；
   - `capabilities/comparison/{contracts,pair_planning,standard,ordered,artifacts,__init__}.py`；
   - `capabilities/surface_assembly/{contracts,_assembly}.py`；
-  - `application/preview_jobs.py`、`application/pair_pipeline.py`（S1 新增）、
-    `application/history/{compare_jobs,compare,compare_bindings,contracts,errors}.py`；
+  - `application/preview_jobs.py`、`application/pair_pipeline.py`（S1 新增）、`application/workspace/preview.py`
+    （Preview 受理冻结规则集 digest）、`application/history/{compare_jobs,compare,compare_bindings,contracts,errors}.py`；
   - `infrastructure/control_db/{migrations,sqlite_history_compare}.py`（History 受理冻结规则集 digest）；
-  - `bootstrap/composition.py`、`http/dependencies.py`、`http/routes/history.py`（注入运行期规则集 digest，替代 `table_ruleset_version`）。
+  - `bootstrap/composition.py`、`http/dependencies.py`、`http/routes/history.py`，以及 `http/orchestration/history_compare.py`（或 S1 后承接其 DTO 映射的 HTTP 模块）：注入运行期规则集 digest，替代 History 受理使用的 `table_ruleset_version`。快照物化请求中的同名字段不在本项范围内。
 - 必改（T）：
   - 新增：`test_canonical_snapshot_identity.py`（integration）、`test_canonical_state_identity.py`、
     `test_table_rules_comparison_view.py`、`test_comparison_rule_roles.py`；
@@ -271,11 +290,16 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     `test_storage_projection_publication.py`、`test_comparison_planning.py`、`test_comparison_standard.py`、
     `test_comparison_ordered.py`、`test_comparison_blank.py`、`test_comparison_records.py`、`test_comparison_artifacts.py`、
     `test_surface_assembly.py`、`test_surface_contracts.py`、`test_risk_contracts.py`、`test_risk_evaluation.py`、
-    `test_preview_job_assemble.py`、`test_preview_job_payload.py`、`test_history_compare_jobs.py`、
-    `test_history_compare_transactions.py`、`test_workspace_control_db_migrations.py`；
+    `test_preview_job_assemble.py`、`test_preview_job_payload.py`、`test_preview_job_worker.py`、`test_preview_application.py`、
+    `test_history_compare_jobs.py`、`test_history_compare_transactions.py`、`test_workspace_control_db_migrations.py`、
+    `test_architecture.py`（comparison 的上游改为 table_rules 与 snapshot_materialization）；
+  - compose：`test_history_compose_e2e.py`、`test_ordered_compare_compose.py`（不再导入 `_table_policies_from_checkpoint`，
+    也不再读取 checkpoint 中的 `table_policies`）；
   - T/support：`table_rules.py`、`table_rules_legacy_oracle.py`、`snapshot_materialization.py`、`storage_projection.py`、
     `history_compare_job_harness.py`、`history_compare_oracle.py`、`history_compare_checkpoint_tamper.py`、`preview_job_harness.py`、
-    `submit_job_harness.py`（integration owner 复用其 Repository Service 启动）。
+    `submit_job_harness.py`（integration owner 复用其 Repository Service 启动）、`compose_gate_harness.py`（History oracle
+    脚本改用新入口）、`http_workspace_harness.py` 与 `http_shutdown_harness.py`（注入运行期规则集 digest，替代
+    `table_ruleset_version`）。
 - 条件：`infrastructure/repository_read/http_arrow.py`（仅当 SET 解码修复需要同步 hidden summary 重建路径；该路径在 S2b 删除）；
   `capabilities/table_access/sql.py`（仅当普查发现的类型需要 SQL 解析支持）。
 
@@ -293,15 +317,17 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - 新增 `infrastructure/control_db/sqlite_commit_metadata.py`（`CommitCanonicalMetadataPort` 实现）；
   - `application/preview_jobs.py`、`application/pair_pipeline.py`；`application/workspace/contracts.py`；
   - `application/submission/{accept,accept_transaction,contracts,ports,errors,import_builder,__init__}.py`、`application/submit_jobs.py`；
-  - `application/history/{compare_jobs,contracts,errors,ports}.py`；
+  - `application/history/{compare_jobs,compare,contracts,errors,ports}.py`（`application/history/compare.py` 删除受理阻断）；
   - `domain/workspace/models.py`、`domain/submission/{models,policies}.py`；
   - `infrastructure/control_db/{migrations,sqlite_workspace,sqlite_submission,sqlite_history_compare,database}.py`；
   - `bootstrap/{composition,operation_worker}.py`（新 port 接线；删除 `HttpBaselineCanonicalDigestPort`）；
   - `http/orchestration/submit_acceptance.py`、`http/dependencies.py`（删除 `FailClosedBaselineCanonicalDigestPort`）、
     `http/routes/{history,operations}.py`、`http/schemas/{operation,history,preview}.py`、`http/wiring.py`（`PRODUCTION_OPENAPI_PATHS`）、
-    `http/errors.py`；删除 `http/orchestration/history_integrity.py`。
+    `http/errors.py`；`http/orchestration/history_compare.py`（或 S1 后承接其 DTO 映射的 HTTP 模块，删除 integrity DTO 读取与
+    错误映射）；删除 `http/orchestration/history_integrity.py`。
 - 必改（T）：
-  - 新增：`test_comparison_canonical_domain.py`；
+  - 新增：`test_comparison_canonical_domain.py`、`test_commit_canonical_metadata.py`（unit）、
+    `test_submit_prepare_removed_tables.py`（integration）；
   - 删除：`test_history_compare_integrity.py`、`test_repository_ref_materialization_hidden_summary.py`；
   - 迁移：`test_repository_import_artifact_diagnostics.py` 随 adapter 迁移改名为 `test_submit_import_publication.py`；
   - 更新：`test_repository_ref_materialization_protocol.py`、`test_repository_ref_materialization_digest.py`、
@@ -317,7 +343,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - compose：`test_submit_compose_e2e.py`、`test_archive_compose_e2e.py`、`test_history_compose_e2e.py`、
     `test_ordered_compare_compose.py`、`test_ordered_submit_bisect_compose.py`、`test_review_compose_e2e.py`（INITIAL 改为空提交后的种子方式）。
 - 条件：`capabilities/snapshot_materialization/scalar_encoding.py`（仅当单遍读取暴露出 S2a 未覆盖的解码差异）；
-  `infrastructure/repository_read/__init__.py`。
+  `infrastructure/repository_read/__init__.py`；`test_sqlite_submit_repository.py`、`test_submit_domain.py`、
+  `test_workspace_domain.py`、`test_preview_read_http.py`（仅当新增的 PreviewResult/SubmitAttempt 字段在领域模型中为必填）。
 
 ### S3
 

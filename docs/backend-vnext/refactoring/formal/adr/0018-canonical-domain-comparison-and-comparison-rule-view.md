@@ -1,8 +1,8 @@
 # ADR 0018: Canonical-Domain Comparison and Comparison Rule View
 
-状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；待独立复审）
+状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；2026-09-27 按 r3 复审修正；待核对 r4 差异）
 
-日期：2026-09-25；修订 2026-09-26
+日期：2026-09-25；修订 2026-09-26、2026-09-27
 
 决策 owner：Backend vNext Architecture / Table Rules / Storage Projection / Comparison
 
@@ -10,7 +10,8 @@
 
 详细设计：[P5 架构收口详细设计](../plans/p5-arch-closure-design.md) §4、§8；依据
 [S0 独立审核报告](../plans/p5-arch-closure-s0-independent-docs-review.md)、r2 独立复审
-（[第一份](../plans/p5-arch-closure-s0-independent-rereview.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-2.md)）与
+（[第一份](../plans/p5-arch-closure-s0-independent-rereview.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-2.md)）、r3 独立复审
+（[第一份](../plans/p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-r3-2.md)）与
 [S0 Owner 决议记录](../plans/p5-arch-closure-s0-owner-decisions.md)
 
 ## Context
@@ -28,6 +29,7 @@
   - storage_projection 只支持有限的类型词表，真实数据覆盖未知；
   - import 包由 schema SQL 与 mutation_planning 的 DML 组成，T1 与 prepare 以启发式挑选导入表；replay 只 DROP/CREATE 包内表，删表不成立。
 - r2 复审补充：新的规范 schema 摘要与 manifest 中保持 DDL 列序的同名摘要，关系没有定义；以 schema 摘要判断存储身份不可行，因为规范 schema 还取决于源 schema；只存不比的表只改 schema 时，Preview 中不可见。
+- r3 复审补充：r3 的存储规则事实混入了随源 schema 变化的 retained 列与 DDL 主键，会把同一规则下的源表变化标成规则变化；manifest 摘要的消费方写错，Repository STRUCTURAL 并不使用它。
 
 ## Decision
 
@@ -45,7 +47,7 @@
    - 上传代表完整规范状态：冻结 expected parent 中有、规范状态中没有的表在新 commit 中删除（DC18）。
 3. **table_rules 提供 `ComparisonRuleView`**，与 `StorageRuleView` 对称，逐表给出比较角色、产物范围、不参与比较的列与 ordered 参数。
    - comparison 以运行期（当前激活）规则集派生的 `ComparisonRuleSet` 为必填输入（DC10），不校验两侧的规则集 digest；
-   - 比较不使用 native diff，始终按列名与有效键对齐，满足 Canonical Storage §7；schema 差异来源按两侧的存储规则事实（manifest 每表的键、ordered policy 与列处置）标记为 `STORAGE_PROJECTION_POLICY`、`SOURCE_SCHEMA` 或 `BOTH`；无法安全对齐时该表为 DEGRADED；
+   - 比较不使用 native diff，始终按列名与有效键对齐，满足 Canonical Storage §7；schema 差异来源只依据两侧规则侧的存储事实逐项归因（key policy、`EXPLICIT` 策略下的显式键、ordered policy、structural 与 dropped 列；不含随源 schema 变化的 retained 列与 DDL 主键），标记为 `STORAGE_PROJECTION_POLICY`、`SOURCE_SCHEMA` 或 `BOTH`；无法安全对齐时该表为 DEGRADED；
    - `ComparisonTablePolicy` 降为 comparison 内部类型。
 4. **列处置拆分。**
    - `TableRuleRecord` 新增 `compare_excluded_columns`，表示保留在存储中但不参与值比较；`ignored_columns` 维持 `DROP_FROM_STORAGE`；
@@ -69,8 +71,8 @@
 - **使用两侧中较新的规则集**：由运行期规则集取代。没有回滚时二者等价；运行期规则不需要规则集全序，也不需要持久化历史规则集，并与 Ruleset Activation §5 一致。
 - **两侧统一 JSON 规范表示**：放弃。Dolt 的 JSON 规范化有损（大整数精度、重复键、数值写法）。
 - **在比较侧特判编码差异**：放弃。会让同一性依赖比较实现，Submit 与 History 仍会看到分歧。
-- **沿用 manifest 的 `canonical_schema_digest` 作为规范身份**：放弃。它保持 DDL 列序，与 DC13 冲突；改变它的语义又会影响 manifest/package 与 STRUCTURAL 的物理结构核对。
-- **以 schema 摘要判断存储身份**：放弃。规范 schema 还取决于源 schema，无法据此区分规则变化与源变化；改用 manifest 已记录的每表存储规则事实。
+- **沿用 manifest 的 `canonical_schema_digest` 作为规范身份**：放弃。它保持 DDL 列序，与 DC13 冲突；改变它的语义会影响 mutation planning 的 schema 变化判断与已接受的 Canonical Storage §4 定义。
+- **以 schema 摘要判断存储身份**：放弃。规范 schema 还取决于源 schema，无法据此区分规则变化与源变化；改用 manifest 已记录的规则侧字段。retained 列与 DDL 主键同样随源 schema 变化，也不计入。
 
 ## Consequences
 
@@ -86,7 +88,7 @@
 - 规范状态身份（共享参数表）：空表增列、类型、长度、可空性、键序的变化都不被判为无变化，并在 Preview 中可见；只有列序不同时判为无变化。
 - 内容相同的原始上传与规范基线比较结果为全表 UNCHANGED。
 - 各规则角色的比较语义与 legacy oracle 一致；DC16 的表级事实。
-- 按列名与有效键对齐，并按两侧存储规则事实标记 schema 差异来源（Canonical Storage §7）。
+- 按列名与有效键对齐，并按两侧规则侧存储事实标记 schema 差异来源（Canonical Storage §7）：同一规则下源表增列或改 DDL 主键为 `SOURCE_SCHEMA`；规则改变 dropped 列或显式键为 `STORAGE_PROJECTION_POLICY`；两者同时发生为 `BOTH`。
 - SNAPSHOT_ONLY/BROWSE_ONLY 表只改 schema 时产出 schema 事实与表级内容事实，并在 Preview/Review 的变化计数中可见。
 - 投影失败形态与存储约束。
 - prepare 删表的三种情形（integration）。

@@ -1,8 +1,8 @@
 # P5 架构收口 S0 修订处置表
 
-- 状态：r2 已经两份独立复审（结论均为定向修订）；**r3 修订者自查完成，待独立复审**（r3 部分见 §8）。本表不是复审结论。
-- 日期：2026-09-26（r2、r3）
-- 修订者：S0 独立审核者，应 repository owner 要求执行 r2 与 r3 修订。修订者与审核者为同一人，因此复审须由既未参与起草、
+- 状态：r2、r3 各经两份独立复审（r2：均为定向修订；r3：通过与定向修订）；**r4 修订者自查完成，待核对 r4 差异**（r3 见 §8，r4 见 §9）。本表不是复审结论。
+- 日期：2026-09-26（r2、r3）；2026-09-27（r4）
+- 修订者：S0 独立审核者，应 repository owner 要求执行 r2–r4 修订。修订者与审核者为同一人，因此复审须由既未参与起草、
   也未参与相应修订的 reviewer 承担。
 - 输入：
   - [S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)（F1–F11、N1–N6；含 2026-09-26 复核补充）；
@@ -16,11 +16,13 @@
 
 ```yaml
 record_kind: p5_arch_closure_s0_revision_disposition
-revision: r3                              # §1–§7 为 r2 的历史记录，§8 为 r3
+revision: r4                              # §1–§7 为 r2 的历史记录，§8 为 r3，§9 为 r4
 revised_at: 2026-09-26
 r1_commit: 3e5d5807e5
 r2_commit: 5858eaaa08
 r2_rereview_commits: [34ff1827cf, ca6502d8a4]
+r3_commit: ffba1138ef
+r3_rereview_commits: [783acefe94, 46a4e03ae5]
 review_report_commit: 89668aaf56
 owner_decisions_commits: [3f3b1de192, f984381ab3]
 code_inspection_base: 2172369803
@@ -28,7 +30,7 @@ vnext_changed: no
 accepted_contract_bodies_changed: no      # 上游修订只以候选文本给出（设计附录 A、B）
 adr_status_changed: no                    # 0018–0021 保持 Proposed
 implementation_authorized: no
-independent_rereview_of_r3: pending
+diff_check_of_r4: pending
 ```
 
 ## 1. 修订边界
@@ -213,3 +215,50 @@ S1 kickoff 第 4、5 项；第 4 项 → 执行计划 S2a、S2b 验收；第 5 �
   - DC26 选定的精确放行是否符合 P5 §2A.2、§2A.3 与 ADR 0001；
   - 附录 B.2–B.6 的替换文本能否按字面并入，并入后上游文档中不再有与 ADR 0018–0021 冲突的现行表述；
   - 身份确认理由改为与 Archive 同一校验后，是否与 Archive 身份异常处置的理由规则一致。
+
+## 9. r4 处置（两份 r3 复审）
+
+本节记录 r4 的处置。§8 是 r3 的历史记录，保持原样。
+
+### 9.1 输入与修订边界
+
+- 输入：
+  - [r3 独立复审（第一份）](p5-arch-closure-s0-independent-rereview-r3.md) @ `783acefe94`，结论为通过，含一项非阻塞 finding，以下编号前缀 RW1；
+  - [r3 独立复审（第二份）](p5-arch-closure-s0-independent-rereview-r3-2.md) @ `46a4e03ae5`，结论为定向修订，两项阻塞、三项非阻塞，以下编号前缀 RW2。
+- 两份报告结论不一致，但指向同一组问题：RW1-F1 与 RW2-F1 相同，RW1 判为非阻塞，RW2 判为阻塞。按 owner 指示，r4 修复两份报告的
+  全部 findings，不再区分阻塞与否。
+- 两份报告都认为不需要新的 owner 决议。r4 只修正定义与措辞，不改变 DC1–DC27。
+- 只改文档：源码、测试、配置与已接受的 Contract 正文未改动；ADR 保持 Proposed；复审报告与决议记录不改写。
+- r4 修订者与 r2、r3 修订者是同一人。r4 的核对须由未参与 r4 修订的 reviewer 承担，可只核对 `46a4e03ae5` 之后的差异。
+
+### 9.2 处置
+
+| 编号 | 问题 | 处置 | 改动位置 |
+| --- | --- | --- | --- |
+| RW2-F1、RW1-F1 | 用于标记 schema 差异来源的“存储规则事实”混入了随源 schema 变化的 retained 列与 `DDL_PRIMARY_KEY` 键，同一规则下源表增列或改主键会被标成规则变更 | 存储规则事实限定为规则侧字段：key policy、`EXPLICIT` 显式键、ordered policy、structural 列与 dropped 列（含理由），均已在 manifest 中；retained 列与 DDL 主键不计入。§4.5 改为逐项归因：规则事实差异可解释的归 `STORAGE_PROJECTION_POLICY`，其余归 `SOURCE_SCHEMA`，两类都有为 `BOTH`；写明两侧规则事实总是可得。`test_comparison_planning.py` 增加参数表：同规则下源表增列、改 DDL 主键 → `SOURCE_SCHEMA`；规则改变 dropped 列或显式键 → `STORAGE_PROJECTION_POLICY`；同时发生 → `BOTH`；只有列序不同 → 无 schema 事实 | 设计 §4.1、§4.5、§12、附录 A 第 6 项；ADR 0018 Context、Decision 3、Alternatives、Required Verification；ADR 0019 Decision 1；执行计划 S2a 第 4 项与验收 |
+| RW2-F2 | manifest `canonical_schema_digest` 被写成服务 Repository STRUCTURAL；Repository 从不读取它 | 改为：用于 manifest 发布时的自洽核对与 mutation planning 的 schema 变化判断，并计入 manifest digest；Repository STRUCTURAL 比较包内 `manifest.json` 的列、主键与行数，不使用它。附录 B.1 的 §4 增补按同一表述改写，并入后与 Canonical Storage §4 原文一致 | 设计 §4.1 对照表、§12、附录 B.1；ADR 0018 Alternatives |
+| RW2-N1 | §4.8 写“其余 Preview artifact 继续由 PreviewResult 持有”，与 Canonical Storage §5 冲突 | 改为：其余 Preview artifact 在 T1 随 `current-preview` 与 `preview-operation` 的保护一并解除，此后按 P5 §9 的固定 TTL 做 best-effort 清理；与现行 T1 的做法一致 | 设计 §4.8、§10 |
+| RW2-N2 | 附录 B.4 的 Taxonomy §4.4 替换图与 B.6 的依赖方向不一致 | 替换图改为 `table_access/table_rules -> snapshot`；`snapshot + table_rules（StorageRuleView） -> storage_projection -> RepositoryImportArtifact`；`storage_projection -> mutation_planning`；`snapshot + table_rules（ComparisonRuleView） -> comparison -> risk -> surface -> bundle`；`snapshot -> project_identity` | 设计附录 B.4 |
+| RW2-N3 | 身份确认理由复用 Archive Application 的校验函数，未写明共享校验的 owner | HTTP DTO 沿用 `BoundedDiagnosticReason`（1–4096 UTF-8 字节）；Submission 领域按 Review 理由的同一规则再校验（不含控制字符、代理码点与非字符码点，至少一个非空白字符）；S4 把该规则从 `domain/submission/review.py` 提取为 Submission 领域的共享校验，Review 行为不变；不从 Archive 导入 | 设计 §7.6；ADR 0020 Context、Decision 5；执行计划 S4 验收与 §3 S4 |
+| RW1 §4 附带意见 | 附录 B.2 §5 候选中的“纯计算 operation 在恢复时稳定失败”须连同 §1 的“冻结值不同”条件理解 | 候选句写明条件：运行期 ruleset 与冻结值不同则稳定失败，相同则照常继续 | 设计附录 B.2 |
+| RW2 §6 附带意见 | DC26 放行后，`canonical_row_hash` 的 `contracts.py` 仍须保持叶子 | 设计 §9 A6 行写明 `contracts.py` 不导入 compute，只 import contract 不加载 Rust 扩展 | 设计 §9 |
+
+身份确认理由的规则比 r3 收紧：r3 与 Archive 一致，只限字节数；r4 与同属 Submission 领域的 Review 一致，另外拒绝控制字符与纯空白。
+字节上限不变，违反时同样返回 `422 REQUEST_VALIDATION_FAILED`。
+
+### 9.3 修订者自查
+
+- `git diff --stat 2172369803 HEAD -- vnext` 为空。
+- 被修订文档与本表的全部相对链接与锚点可解析。
+- 新写入的源码事实已核对：`view.py` 中 retained 列与 `DDL_PRIMARY_KEY` 键取自源 descriptor，dropped/structural/key policy/ordered
+  policy 来自规则；`canonical_schema_digest` 的消费方只有 `mutation_planning/_planner.py`、`storage_projection/publish.py`、manifest
+  digest 与 durable manifest 编解码，Repository Service 中没有引用；现行 T1 在转移后清除 `current-preview` 与 `preview-operation`
+  的保护；`BoundedDiagnosticReason` 与 `validate_review_reason` 的规则如 9.2 所述。
+
+以上是修订者自查，不替代独立复审。
+
+### 9.4 r4 核对的输入
+
+- 核对对象：本分支包含 r4 的固定 commit（由核对者记录）；可只核对 `46a4e03ae5` 之后的差异；代码事实基线 `2172369803`。
+- 关注点：9.2 各项是否关闭且传播到所有相关位置；§4.5 的来源归因能否直接写成 `test_comparison_planning.py` 的参数表；附录 B.1 的
+  §4 增补并入后是否与 Canonical Storage §4 原文一致。

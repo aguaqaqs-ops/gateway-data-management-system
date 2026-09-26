@@ -1,8 +1,8 @@
 # ADR 0020: Project Identity and Dataset Replacement in P5
 
-状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；待独立复审）
+状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；2026-09-27 按 r3 复审修正；待核对 r4 差异）
 
-日期：2026-09-25；修订 2026-09-26
+日期：2026-09-25；修订 2026-09-26、2026-09-27
 
 决策 owner：Backend vNext Project Identity / Workspace, Submission and Archive Applications
 
@@ -10,7 +10,8 @@
 
 详细设计：[P5 架构收口详细设计](../plans/p5-arch-closure-design.md) §7；依据
 [S0 独立审核报告](../plans/p5-arch-closure-s0-independent-docs-review.md)、r2 独立复审
-（[第一份](../plans/p5-arch-closure-s0-independent-rereview.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-2.md)）与
+（[第一份](../plans/p5-arch-closure-s0-independent-rereview.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-2.md)）、r3 独立复审
+（[第一份](../plans/p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-r3-2.md)）与
 [S0 Owner 决议记录](../plans/p5-arch-closure-s0-owner-decisions.md)
 
 ## Context
@@ -24,6 +25,7 @@
 - 旧设计要求 Preview 在“无法判定”时先暂停等待确认，这需要改变 P5 固定的三步 Preview JobDefinition。
 - S0 独立审核补充：确认的输入边界、错误码与判定顺序需要写明；surface 当前从 comparison 导入 `IdentityStatus`；没有调用方向 surface 传入两侧 `table_artifacts`。
 - r2 复审补充：r2 把 same-key 重放排在权限与 scope 之前，与现行实现相反（现行实现先校验权限与 exact scope，再查幂等记录），会绕过授权；理由的计量单位与 Archive 不一致。
+- r3 复审补充：理由校验直接复用 Archive Application 的函数，会让 Submission 依赖 Archive，并在 Submit 路径抛出 Archive 的错误类型。
 
 ## Decision
 
@@ -37,7 +39,7 @@
    - Application 向 surface 传入两侧 `table_artifacts`，bundle 据此导出同名表的两侧快照。
 4. **Preview 始终完成**，不设暂停门；无法判定时附诊断。
 5. **AcceptSubmit 按 Preview 结论要求确认**：`ACCEPT_DATASET_REPLACEMENT` 与 `ACCEPT_UNVERIFIABLE_DETAILED_RESULT` 两个独立动作，绑定评估集摘要，理由必填。
-   - 输入边界：最多 2 项，每个 action 至多一次，action 须为上述枚举，摘要格式合法，理由与 Archive 理由使用同一校验（1–4096 UTF-8 字节，按原文持久化）；违反时返回 `422 REQUEST_VALIDATION_FAILED`；
+   - 输入边界：最多 2 项，每个 action 至多一次，action 须为上述枚举，摘要格式合法，理由由 HTTP DTO 限制为 1–4096 UTF-8 字节，Submission 领域再按 Review 理由的同一规则校验（不含控制字符、代理码点与非字符码点，至少一个非空白字符），按原文持久化，不从 Archive Application 导入校验函数；违反时返回 `422 REQUEST_VALIDATION_FAILED`；
    - 缺少所需确认返回 `409 PROJECT_IDENTITY_CONFIRMATION_REQUIRED`；提供了不需要的确认，或摘要与 current PreviewResult 不符，返回 `409 PROJECT_IDENTITY_CONFIRMATION_MISMATCH`；
    - 判定顺序：认证、当前权限与 exact scope（含 workspace 的精确 scope 与 Repository 映射）→ same-key 重放 → workspace、revision、preview 绑定与 CAS → baseline 绑定 → 陈旧判定 → `NO_CANONICAL_CHANGE` → 身份确认 → 占用与 ready closure。same-key 重放只越过其后可漂移的受理校验，不越过授权与 scope 校验；
    - 评估集摘要 = JCS{schema `project-identity-assessment-set/v1`；按 pair 顺序的 (pair_id, applicability, status, assessment_digest 或 null)}，包含 `NOT_APPLICABLE` 的 pair；

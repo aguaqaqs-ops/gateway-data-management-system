@@ -1,8 +1,8 @@
 # P5 架构收口执行计划
 
-状态：**DRAFT r3 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与两份 r2 独立复审修订，待独立复审（可只核对 r3 差异）；实现未授权**
+状态：**DRAFT r4 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与 r2、r3 的独立复审修订，待核对 r4 差异；实现未授权**
 
-日期：2026-09-26（r2、r3）；r1 为 2026-09-25
+日期：2026-09-27（r4）；r2、r3 为 2026-09-26；r1 为 2026-09-25
 
 Owner：Backend vNext Architecture
 
@@ -10,6 +10,7 @@ Owner：Backend vNext Architecture
 
 审核与决议：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、
 r2 独立复审（[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、
+r3 独立复审（[第一份](p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](p5-arch-closure-s0-independent-rereview-r3-2.md)）、
 [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[修订处置表](p5-arch-closure-s0-revision-disposition.md)
 
 B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`。本文写未来命令与期望证据；实际结果写入
@@ -48,7 +49,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 - 交付：Entry Brief、详细设计（附录 A：Business Lifecycle 3.1.0 候选；附录 B：其他上游修订候选）、本计划、
   ADR 0018–0021（Proposed）、P5 §2A.4.1 第二轮补充；审核报告、两份 r2 复审报告、owner 决议记录与修订处置表。
 - 审核对象：r1 在 `3e5d5807e5` 接受独立审核（结论：定向修订）；r2 在 `5858eaaa08` 接受两份独立复审（结论均为定向修订）；
-  r3 在本分支 `p5-arch-closure-docs` 的固定 commit 接受复审，由未参与 r3 修订的 reviewer 承担，可只核对 r3 差异。
+  r3 在 `ffba1138ef` 接受两份独立复审（结论分别为通过与定向修订）；r4 按两份报告的全部 findings 修订，在本分支
+  `p5-arch-closure-docs` 的固定 commit 接受核对，由未参与 r4 修订的 reviewer 承担，可只核对 r4 差异。
   代码事实基线 `2172369803`。
 - 通过后（Entry Brief §5）：
   - ADR 0018–0021 状态改为 Accepted；
@@ -116,7 +118,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
      storage projection version 的处理）；CanonicalizationManifest 的 `contract_version` 升至 `3.1.0`，解码接受历史版本
      （读取与写入分开校验）；
   4. comparison：新的 `ComparisonRequest`（运行期 `rule_set`、`mode`）；角色语义，含 DC16 的表级“内容已变化”事实与
-     compare-excluded；按列名与有效键对齐，并按两侧存储规则事实标记 schema 差异来源（Canonical Storage §7）；提前退出要求
+     compare-excluded；按列名与有效键对齐，并只依据两侧规则侧存储事实标记 schema 差异来源（Canonical Storage §7，设计 §4.5）；提前退出要求
      business schema digest 相等；schema 事实适用于所有存储角色；删除流程词汇；`ComparisonTablePolicy` 降为内部类型；
   5. surface_assembly：自有的中性身份标注类型，不再从 comparison 导入 `IdentityStatus`；表级内容事实计入变化计数；
   6. Application：Preview 与 History 传入运行期规则集；两者都在受理时冻结运行期规则集 digest（Preview 写入 job payload，
@@ -127,7 +129,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 - 验收：
   - 设计 §12 的以下 owner 通过：`test_canonical_snapshot_identity.py`（integration，真实 Dolt，S2b 的门槛）、
     `test_canonical_state_identity.py`、`test_snapshot_materialization_contracts.py`、`test_table_rules_comparison_view.py`、
-    `test_comparison_rule_roles.py`、`test_surface_assembly.py`（内容事实可见）、`test_comparison_planning.py`（对齐）、
+    `test_comparison_rule_roles.py`、`test_surface_assembly.py`（内容事实可见）、`test_comparison_planning.py`（对齐与来源标记参数表）、
     `test_storage_projection_core.py`，以及 `test_preview_job_worker.py`、`test_history_compare_jobs.py` 中的恢复用例
     （Preview 含受理后、materialize 前发生激活的情形）；
   - `BROWSE_ONLY`/`SNAPSHOT_ONLY` 的事实形态先与 legacy oracle 核对后再冻结测试（F8、DC16）；
@@ -194,7 +196,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     投影侧与 Repository 侧对同一内容得出相同 assessment；
   - 初始空基线的 pair 为 `NOT_APPLICABLE`，首次提交不需要确认；
   - 替换事实、比较级风险；Application 向 surface 传入两侧 `table_artifacts`，bundle 导出两侧快照；
-  - 受理：输入边界（数量、重复 action、action 枚举、digest 格式、理由按 Archive 同一校验 → 422）用共享参数表覆盖；
+  - 受理：输入边界（数量、重复 action、action 枚举、digest 格式、理由按 Submission 领域与 Review 相同的规则 → 422）用共享参数表覆盖；
     缺失 → 409 REQUIRED；多余或摘要不符 → 409 MISMATCH；判定顺序；指纹与重放；授权与 exact scope 先于重放，撤权或
     scope 不符的重放被拒（`test_submit_transactions.py` 补用例）；
   - Archive 身份异常处置与 StartArchive 校验；
@@ -364,7 +366,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     `capabilities/bundle_assembly/_assembly.py`（双侧导出，如需）；
   - `application/preview_jobs.py`、`application/pair_pipeline.py`、`application/workspace/contracts.py`；
   - `application/submission/{accept,accept_transaction,contracts,errors,review,review_contracts}.py`；
-  - `domain/workspace/models.py`、`domain/submission/{models,policies}.py`、`domain/archive/models.py`；
+  - `domain/workspace/models.py`、`domain/submission/{models,policies,review}.py`（`domain/submission/review.py` 的理由规则提取为 Submission 领域共享校验，Review 行为不变）、`domain/archive/models.py`；
   - `application/archive/{queries,start,contracts,audit}.py`、`application/history/projection.py`；
   - `infrastructure/control_db/{migrations,sqlite_workspace,sqlite_submission,sqlite_archive,sqlite_review}.py`；
   - `http/schemas/{submit,preview,archive,review,history}.py`、`http/errors.py`、`http/orchestration/{submit_acceptance,archive,review}.py`、

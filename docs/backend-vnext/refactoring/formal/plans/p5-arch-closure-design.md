@@ -1,8 +1,8 @@
 # P5 架构收口详细设计
 
-状态：**DRAFT r3 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与两份 r2 独立复审修订，待独立复审（可只核对 r3 差异）；实现未授权**
+状态：**DRAFT r4 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与 r2、r3 的独立复审修订，待核对 r4 差异；实现未授权**
 
-日期：2026-09-26（r2、r3）；r1 为 2026-09-25
+日期：2026-09-27（r4）；r2、r3 为 2026-09-26；r1 为 2026-09-25
 
 Owner：Backend vNext Architecture（收口牵头）；各项语义归属见 §11
 
@@ -10,6 +10,7 @@ Owner：Backend vNext Architecture（收口牵头）；各项语义归属见 §1
 
 审核与决议：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、
 r2 独立复审（[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、
+r3 独立复审（[第一份](p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](p5-arch-closure-s0-independent-rereview-r3-2.md)）、
 [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[修订处置表](p5-arch-closure-s0-revision-disposition.md)
 
 上游：[P5 §2A / §2A.4.1](p5-business-vertical-slices-design.md#p5-architecture-guardrails)、
@@ -153,7 +154,9 @@ comparison ─> risk_evaluation ─> surface_assembly ─> bundle_assembly
 
 `canonical_binding`（P）分为两部分：
 
-- 存储身份：`storage_projection_version` 与逐表存储规则事实，即 manifest 每表已记录的 canonical key policy、canonical key、ordered policy 与 retained/structural/dropped 列（E：`CanonicalizationManifestTable`）。比较据此标记 schema 差异的来源（§4.5）。存储身份不用 schema 摘要表示，因为规范 schema 还取决于源 schema。
+- 存储身份：`storage_projection_version` 与逐表存储规则事实。存储规则事实只含完全来自规则的字段：canonical key policy、`EXPLICIT` 策略下的显式键、ordered policy、structural 列与 dropped 列（含理由），均已记录在 manifest 的每表条目中（E：`CanonicalizationManifestTable`）。比较据此标记 schema 差异的来源（§4.5）。
+  - 不计入：retained 列（源表的列减去 dropped 列）与 `DDL_PRIMARY_KEY` 策略下取自源表主键的 canonical key。二者虽也写入 manifest，但随源 schema 变化，属于 schema 而不是规则。
+  - 存储身份也不用 schema 摘要表示，因为规范 schema 还取决于源 schema。
 - 规则集 provenance：`ruleset_id`、`ruleset_version`、`ruleset_digest`。只用于记录，以及 AcceptSubmit 的陈旧判定（§5.3），不决定比较语义（DC10）。
 
 规范快照有两个生产者：storage_projection 从原始快照投影（Preview 上传侧）；snapshot_materialization.repository_ref
@@ -171,7 +174,7 @@ manifest 中的 `CanonicalizationManifestTable.canonical_schema_digest`（E，Ca
 | --- | --- | --- |
 | owner | Storage Projection | Snapshot Materialization |
 | 列序 | 保持 DDL 列序，列序变化即改变 | 按列名排序，列序变化不改变 |
-| 用途 | manifest/package 与 Repository STRUCTURAL 的物理结构核对，语义不变 | 规范状态摘要、比较提前退出、schema 事实 |
+| 用途 | manifest 发布时的自洽核对、mutation planning 判断表 schema 是否变化，并计入 manifest digest；语义不变。Repository STRUCTURAL 不使用它：STRUCTURAL 比较的是包内 `manifest.json` 的列、主键与行数 | 规范状态摘要、比较提前退出、schema 事实 |
 | commit 侧来源 | 长期保护的 manifest | 由 Repository 读取得到的 descriptor 计算，不从 manifest 取 |
 
 两者都不进入 `canonical_binding`；manifest 字段也不进入规范状态摘要。
@@ -275,7 +278,11 @@ compare-excluded 列：值比较与 `MODIFIED` 判定都不使用这些列；新
 - 公共输入见 §6。comparison 按运行期 `ComparisonRuleView` 逐表决定角色、产物范围、排除列与 ordered 参数；`ComparisonTablePolicy` 降为 comparison 内部的派生类型，不再是调用方输入，也不再由 Application 编解码。
 - 不再校验两侧的规则集 digest（删除 r1 的 `RULESET_BINDING_MISMATCH`，DC10）。
 - vNext 比较不使用 native diff，始终按列名与有效键对齐，有效键取自运行期 `ComparisonRuleView`。因此无论两侧的 storage projection version 或 ruleset digest 是否相同，都满足 Canonical Storage §7 的 alignment 要求。
-- schema 差异的来源按 Canonical Storage §7 标记：两侧逐表存储规则事实（§4.1）不同为 `STORAGE_PROJECTION_POLICY`；存储规则事实相同而 business schema 不同为 `SOURCE_SCHEMA`；两者兼有为 `BOTH`。
+- schema 差异的来源按 Canonical Storage §7 标记，只依据两侧逐表存储规则事实（§4.1，规则侧字段）逐项归因：
+  - 由规则事实的差异可以解释的差异，归 `STORAGE_PROJECTION_POLICY`：dropped 集合变化导致的列增删、key policy 或显式键变化导致的键变化、ordered policy 与 structural 列变化导致的 gid/no 变化；
+  - 其余差异归 `SOURCE_SCHEMA`：源表增删列、类型、长度、可空性，以及 `DDL_PRIMARY_KEY` 策略下主键的变化；
+  - 两类都有时为 `BOTH`；只有列序不同不产生 schema 差异（DC13）。
+  - 两侧的规则事实总是可得：commit 侧取自 manifest，上传侧取自本次投影，INITIAL 没有表；无 manifest 的 commit 按 §5.1 不得进入比较。
 - 无法安全对齐时（例如有效键变化且无法 fallback），该表为 DEGRADED，并给出原因诊断；pair 不因此失败。
 - 提前退出条件改为：business schema digest、行数与 `raw_content_digest` 都相等。
 - 两侧内容相同但 schema 不同时，产出明确的 schema 事实（类型、可空性、主键顺序的变化，或空表的列增删），不得显示为 UNCHANGED。列序不产生事实（DC13）。
@@ -316,7 +323,7 @@ T1（AcceptSubmit）：
 
 - Attempt 冻结 PreviewResult 中 MODIFIED 侧的规范表集合闭包与 manifest（ref 与 digest）。`canonicalization_manifest_ref/digest` 在 T1 即确定（E 中在 prepare 才生成）；这些字段进入请求 fingerprint。
 - 保护责任按闭包精确转移：闭包中的规范表 artifact、manifest、source package 与 ready closure。删除 E 中按 artifact id 前缀过滤（`is_submit_snapshot_table_binding_candidate`）和按摘要挑选（`_snapshot_bindings_from_operation`）的启发式。
-- 转移范围比 E 窄：E 在 T1 把 Preview 持有的全部 artifact 转给 Attempt；本设计只转移上述 Attempt 需要的 artifact，其余继续由 PreviewResult 按 P5 §9 的规则持有。T1 之后 submit job 只把 ready closure ref 作为绑定值核对，不读取其余 artifact。
+- 转移范围比 E 窄：E 在 T1 把 Preview 持有的全部 artifact 转给 Attempt；本设计只转移上述 Attempt 需要的 artifact。其余 Preview artifact 在 T1 随 `current-preview` 与 `preview-operation` 的保护一并解除（Canonical Storage §5：历史 Preview 引用不再 pin），此后按 P5 §9 的固定 TTL 做 best-effort 清理。T1 之后 submit job 只把 ready closure ref 作为绑定值核对，不读取其余 artifact。
 - 受理的校验顺序与错误见 §5.3 与 §7.6。
 
 prepare（P）：
@@ -488,7 +495,7 @@ DC17 保证初始基线恒为空，所以该规则不会漏检已有数据。His
 
 - 最多 2 项，每个 action 至多出现一次；action 只能是 `ACCEPT_DATASET_REPLACEMENT` 或 `ACCEPT_UNVERIFIABLE_DETAILED_RESULT`；
 - `assessment_set_digest` 必须是合法的 digest 格式；
-- `reason` 与 Archive 理由使用同一校验（E：`validate_utf8_reason`），长度为 1–4096 UTF-8 字节，按原文持久化。
+- `reason`：HTTP DTO 沿用 `BoundedDiagnosticReason`（1–4096 UTF-8 字节）；Submission 领域再按 Review 理由的同一规则校验，即不含控制字符、代理码点与非字符码点，并至少含一个非空白字符（E：`domain/submission/review.py` 的 `validate_review_reason`）。S4 把这组规则提取为 Submission 领域的共享理由校验，Review 行为不变；不从 Archive Application 导入校验函数。理由按原文持久化。
 
 业务校验在 T1 写事务内，与 preview、baseline、占用校验一起执行，不产生额外的外部调用：
 
@@ -536,7 +543,7 @@ same key 且 same fingerprint 的重放返回原结果；same key 但 fingerprin
 | A2 私有模块导入 | HTTP 上传受理移入 Application（例如 `application/workspace/upload_admission.py`），经 `source_package_staging` 公开的受限成员枚举入口实现；HTTP 只保留 DTO 映射与流式读取（HTTP 区不得导入 capability）。`http_arrow` 两条随 §5.2 关闭 | S1 / S2b |
 | A3 事务→job 反向调用 | checkpoint 保护释放下沉到 submission 用例内的下层模块 | S1 |
 | A5 nominal ref 倒挂 | Submission 领域持有自身的包引用值对象；`artifacts` 不导入 domain；转换函数移至 `application/submission` | S1 |
-| A6 包根模块 | 删除重复的 `canonicalization_manifest.py`/`canonicalization_cells.py`；import 包媒体类型只由 storage_projection 契约定义，adapter 测试断言与 wire 常量一致；`repository_import_artifact.py` 的 adapter 按 §4.8 迁入 infrastructure；`compute.py`、`canonical_row_hash_ipc.py` 移入 `capabilities/canonical_row_hash`；import 规则精确放行 `capability:canonical_row_hash → ext:compute`（DC26 选定：ADR 0001 与 Contract Taxonomy §4.4 允许 capability facade 直接调用 PyO3 production provider；该 capability 只有 Rust 一个 production provider，不存在需要由 composition 选择的 provider，也就不按 P5 §2A.3 预建 provider 端口；放行只针对该 owner，不是整层或按文件名的豁免），放行在同一 diff 中说明，`tests/support/import_rules.py` 与 `test_architecture.py` 的规则形态参数表同步修改；三个模块仍不可达，登记 Phase 6 延期（改名后的不可达条目在同一 diff 中给出理由）；`synthetic_w2.py` 移至 `tests/support` | S1 / S2b |
+| A6 包根模块 | 删除重复的 `canonicalization_manifest.py`/`canonicalization_cells.py`；import 包媒体类型只由 storage_projection 契约定义，adapter 测试断言与 wire 常量一致；`repository_import_artifact.py` 的 adapter 按 §4.8 迁入 infrastructure；`compute.py`、`canonical_row_hash_ipc.py` 移入 `capabilities/canonical_row_hash`；import 规则精确放行 `capability:canonical_row_hash → ext:compute`（DC26 选定：ADR 0001 与 Contract Taxonomy §4.4 允许 capability facade 直接调用 PyO3 production provider；该 capability 只有 Rust 一个 production provider，不存在需要由 composition 选择的 provider，也就不按 P5 §2A.3 预建 provider 端口；放行只针对该 owner，不是整层或按文件名的豁免；`capabilities/canonical_row_hash/contracts.py` 仍保持叶子，不导入 compute，只 import contract 不加载 Rust 扩展），放行在同一 diff 中说明，`tests/support/import_rules.py` 与 `test_architecture.py` 的规则形态参数表同步修改；三个模块仍不可达，登记 Phase 6 延期（改名后的不可达条目在同一 diff 中给出理由）；`synthetic_w2.py` 移至 `tests/support` | S1 / S2b |
 | A7 contracts 跳板 | 公共面改为 facade + contracts，contracts 为叶子；DAG 测试放行上游 facade | S1 |
 | A8 绕过 facade | Application 只从 facade 或 contracts 导入 | S1 |
 | A9 / N-dead 不可达代码 | 删除 `cache/comparison_core.py`、`capabilities/comparison/provider.py`、`capabilities/snapshot_materialization/cache.py`、两个占位 capability；`external_target_sync` 登记延期（真实外部目标出现时重开）；composite 与 XML 模块（含 `snapshot_materialization._catalog`）在 S3 变为可达；synthetic job 与 external effect 桩移出生产包和 worker 装配 | S1 / S3 / S5 |
@@ -568,7 +575,7 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
   - OpenAPI 测试随之更新；
   - 新增 operation 失败码：`PREVIEW_RULESET_VERSION_MISMATCH`、`INITIAL_BASELINE_NOT_EMPTY`、`COMMIT_CANONICAL_METADATA_MISSING`、`COMMIT_CANONICAL_METADATA_DIGEST_MISMATCH`、`REPOSITORY_ROW_COUNT_MISMATCH`。
 - Repository 访问：prepare 新增一次对冻结 expected parent 的只读 catalog 读取（既有接口，无 wire 变化）。
-- artifact 保留：规范表 artifact、规范表集合闭包与 manifest，与原始 `SnapshotTableArtifact` 同等 pin，并在 T1 按闭包转移给 Attempt（P5 §9 规则不变）；其余 Preview artifact 不转给 Attempt（§4.8）；finalize 后 manifest 由 `canonicalization-manifest` owner 长期保护（E）。
+- artifact 保留：规范表 artifact、规范表集合闭包与 manifest，与原始 `SnapshotTableArtifact` 同等 pin，并在 T1 按闭包转移给 Attempt（P5 §9 规则不变）；其余 Preview artifact 不转给 Attempt，在 T1 解除保护，按 P5 §9 的固定 TTL 做 best-effort 清理（§4.8，Canonical Storage §5）；finalize 后 manifest 由 `canonicalization-manifest` owner 长期保护（E）。
 - 镜像与 Compose：
   - Dockerfile、依赖、entrypoint 与 Compose 均不变；
   - compose harness 在 S2b 改为不预导入基线数据（DC17）；
@@ -600,12 +607,12 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 | --- | --- |
 | 规范快照同一性（descriptor 级与 schema/内容摘要；两条生产路径；真实 Dolt 往返） | `test_canonical_snapshot_identity.py`（integration：经 `tests/support/submit_job_harness.py` 启动的真实 Repository Service 导入规范快照，再经 HTTP Arrow 读回；覆盖 NULL、ENUM、SET、CHAR、JSON（按 DC12）、INT/BIGINT/INT UNSIGNED、伪 gid；S3 起加入 `composite_signal_point`） |
 | 标量编码与 SET 解码规则 | `test_snapshot_materialization_contracts.py`（unit，共享参数表） |
-| 规范状态身份覆盖业务 schema、排除列序；提前退出与 schema 事实 | `test_canonical_state_identity.py`（unit，共享参数表：空表增列、类型、长度、可空性、键序、列序；列序互换时 business schema digest 不变。manifest `canonical_schema_digest` 保持 DDL 列序的物理核对仍由既有 storage_projection 测试证明） |
+| 规范状态身份覆盖业务 schema、排除列序；提前退出与 schema 事实 | `test_canonical_state_identity.py`（unit，共享参数表：空表增列、类型、长度、可空性、键序、列序；列序互换时 business schema digest 不变。manifest `canonical_schema_digest` 保持 DDL 列序、发布自洽核对与 mutation planning 用法仍由既有 storage_projection 与 mutation_planning 测试证明） |
 | 同内容的原始上传与规范基线 → 全表 UNCHANGED | `test_comparison_canonical_domain.py` |
 | `ComparisonRuleView` 派生与列处置校验（含 ordered `no`） | `test_table_rules_comparison_view.py`（共享参数表） |
 | 角色语义（BROWSE_ONLY/SNAPSHOT_ONLY/UPDATE_ONLY/ordered；表级内容变化事实，含各存储角色只改 schema 的情形；compare-excluded） | `test_comparison_rule_roles.py` |
 | 表级内容已变化事实在 Preview/Review 的变化计数中可见 | `test_surface_assembly.py` |
-| 按列名与有效键对齐，并按两侧存储规则事实标记 schema 差异来源（Canonical Storage §7） | `test_comparison_planning.py` |
+| 按列名与有效键对齐，并按两侧规则侧存储事实标记 schema 差异来源（Canonical Storage §7） | `test_comparison_planning.py`（共享参数表：同一规则下源表增列、改 DDL 主键 → `SOURCE_SCHEMA`；规则改变 dropped 列或显式键 → `STORAGE_PROJECTION_POLICY`；两者同时发生 → `BOTH`；只有列序不同 → 无 schema 事实） |
 | 投影失败形态与存储约束（一次列出全部失败；不可作键的类型；键列 NOT NULL） | `test_storage_projection_core.py` |
 | Repository 单遍物化与行数不一致失败 | `test_repository_ref_materialization_protocol.py` |
 | ADDITIVE 激活后旧基线仍可 Preview | `test_preview_job_materialize.py` |
@@ -672,7 +679,7 @@ r1 的停止条件“Dolt 拒绝 `TEXT` 主键”已由 DC20 决定，不再是�
    - Attempt 在 T1 冻结 PreviewResult 的规范表集合与 CanonicalizationManifest。Submit 写入的内容就是上传的完整规范状态，expected parent 中多出的表在新 commit 中删除。
 4. §4：Review 只读展示身份确认记录。
 5. §5：AnomalyResolution 增加身份异常 subject；带身份确认记录的 Submission 被选为归档对象时，必须有带理由的肯定处置。
-6. §6：History 比较使用运行期规则集；节点的 commit 规范元数据提供存储身份与 provenance。比较始终按列名与有效键对齐（Canonical Storage §7），schema 差异的来源按两侧存储规则事实标记。
+6. §6：History 比较使用运行期规则集；节点的 commit 规范元数据提供存储身份与 provenance。比较始终按列名与有效键对齐（Canonical Storage §7），schema 差异的来源只依据两侧规则侧的存储事实标记。
 
 ## 附录 B：其他上游修订候选
 
@@ -690,7 +697,7 @@ r1 的停止条件“Dolt 拒绝 `TEXT` 主键”已由 DC20 决定，不再是�
 
 - §4 在 “每表 schema digest 的 canonical payload 必须包含…Arrow 物理类型不进入 schema digest。” 一段之后增加：
 
-  > 该每表 schema digest 服务 manifest/package 与 Repository STRUCTURAL 的物理结构核对，保持 DDL 列序。比较、规范状态摘要与 `NO_CANONICAL_CHANGE` 使用 Snapshot Materialization 拥有、与列序无关的 business schema digest（ADR 0018），二者不可互换。
+  > 该每表 schema digest 保持 DDL 列序，用于 manifest 发布时的自洽核对与 mutation planning 的 schema 变化判断，并计入 manifest digest；Repository STRUCTURAL 比较的是包内 `manifest.json` 的列、主键与行数，不使用它。比较、规范状态摘要与 `NO_CANONICAL_CHANGE` 使用 Snapshot Materialization 拥有、与列序无关的 business schema digest（ADR 0018），二者不可互换。
 
 - 版本：
   - Semantic version 由 `3.0.0` 升至 `3.1.0`；
@@ -708,7 +715,7 @@ r1 的停止条件“Dolt 拒绝 `TEXT` 主键”已由 DC20 决定，不再是�
 
 - §5 末句 “已捕获旧 snapshot 的 operation 继续使用原规则。” 改为：
 
-  > 已捕获旧 snapshot 的 operation 按 §1 处理：带外部 effect 的 operation 按冻结产物继续；纯计算 operation 在恢复时稳定失败，由用户重跑。本节“不增加 mismatch 分支”指 commit 记录的历史 ruleset 与运行期不同，不构成失败理由；operation 冻结值与运行期不同时的恢复失败按 §1 处理，不属于此类。
+  > 已捕获旧 snapshot 的 operation 按 §1 处理：带外部 effect 的 operation 按冻结产物继续；纯计算 operation 在恢复时，若运行期 ruleset 与冻结值不同则稳定失败，由用户重跑，相同则照常继续。本节“不增加 mismatch 分支”指 commit 记录的历史 ruleset 与运行期不同，不构成失败理由；operation 冻结值与运行期不同时的恢复失败按 §1 处理，不属于此类。
 
 ### B.3 ADR 0016 与 Operation Lifecycle and Repository Integrity §3、§4
 
@@ -724,13 +731,10 @@ r1 的停止条件“Dolt 拒绝 `TEXT` 主键”已由 DC20 决定，不再是�
 - §4.4 “允许的主依赖方向” 代码块替换为：
 
   ```text
-  table_access/table_rules
-    -> storage_projection -> RepositoryImportArtifact
-    -> snapshot
-    -> comparison（经 table_rules 的 ComparisonRuleView）
-    -> risk
-    -> surface
-    -> bundle
+  table_access/table_rules -> snapshot
+  snapshot + table_rules（StorageRuleView） -> storage_projection -> RepositoryImportArtifact
+  storage_projection -> mutation_planning（import DML）
+  snapshot + table_rules（ComparisonRuleView） -> comparison -> risk -> surface -> bundle
   snapshot -> project_identity
   ```
 

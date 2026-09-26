@@ -26,12 +26,14 @@
 - [P5 架构收口 S0 Entry Brief](plans/p5-arch-closure-s0-entry-brief.md)、
   [详细设计](plans/p5-arch-closure-design.md)、[执行计划](plans/p5-arch-closure-execution-plan.md)、
   ADR [0018](adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](adr/0021-flow-neutral-comparison-entry.md)
-  （draft r3/proposed；已按 S0 审核、两份 r2 独立复审与 owner 决议修订，待独立复审；实现未授权，最早在 5E slice exit 之后）
+  （draft r4/proposed；已按 S0 审核、r2 与 r3 的独立复审和 owner 决议修订，待核对 r4 差异；实现未授权，最早在 5E slice exit 之后）
   - [S0 独立文档审核报告](plans/p5-arch-closure-s0-independent-docs-review.md)（r1 @ `3e5d5807e5`：定向修订；含 2026-09-26 复核补充）
   - [r2 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview.md)（@ `5858eaaa08`：定向修订）
   - [r2 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-2.md)（@ `5858eaaa08`：定向修订；O1–O5 已决议为 DC23–DC27）
+  - [r3 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview-r3.md)（@ `ffba1138ef`：通过，含一项非阻塞）
+  - [r3 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-r3-2.md)（@ `ffba1138ef`：定向修订，两项阻塞）
   - [S0 Owner 决议记录](plans/p5-arch-closure-s0-owner-decisions.md)（DC10–DC27 已决议；含真实数据存放约定）
-  - [S0 修订处置表](plans/p5-arch-closure-s0-revision-disposition.md)（r2：F1–F11、N1–N6、DC10–DC22；r3：两份复审的 findings 与 DC23–DC27；复审入口）
+  - [S0 修订处置表](plans/p5-arch-closure-s0-revision-disposition.md)（r2：F1–F11、N1–N6、DC10–DC22；r3：两份 r2 复审的 findings 与 DC23–DC27；r4：两份 r3 复审的 findings；复审入口）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
 - [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（accepted；slice completed）

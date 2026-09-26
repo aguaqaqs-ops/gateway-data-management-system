@@ -1,8 +1,8 @@
 # ADR 0019: Commit Canonical Metadata Authority
 
-状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；待独立复审）
+状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；2026-09-27 按 r3 复审修正；待核对 r4 差异）
 
-日期：2026-09-25；修订 2026-09-26
+日期：2026-09-25；修订 2026-09-26、2026-09-27
 
 决策 owner：Backend vNext Snapshot Materialization / Submission Application / History Application
 
@@ -11,7 +11,8 @@
 
 详细设计：[P5 架构收口详细设计](../plans/p5-arch-closure-design.md) §4.9、§5；依据
 [S0 独立审核报告](../plans/p5-arch-closure-s0-independent-docs-review.md)、r2 独立复审
-（[第一份](../plans/p5-arch-closure-s0-independent-rereview.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-2.md)）与
+（[第一份](../plans/p5-arch-closure-s0-independent-rereview.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-2.md)）、r3 独立复审
+（[第一份](../plans/p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](../plans/p5-arch-closure-s0-independent-rereview-r3-2.md)）与
 [S0 Owner 决议记录](../plans/p5-arch-closure-s0-owner-decisions.md)
 
 ## Context
@@ -34,7 +35,7 @@
 ## Decision
 
 1. **commit 规范元数据的权威是 Backend 持有的 `CanonicalizationManifest`**，经 Submission 取得。
-   - `CommitCanonicalMetadataPort` 以 `(repository_id, commit_id)` 为键，只经该 Repository 的 Submission 与 BaselineNode 记录解析，并限定在 operation 冻结的 scope 内；返回取自 manifest 的存储身份（`storage_projection_version` 与每表存储规则事实）和规则集 provenance；无法解析时稳定失败（`COMMIT_CANONICAL_METADATA_MISSING`）；
+   - `CommitCanonicalMetadataPort` 以 `(repository_id, commit_id)` 为键，只经该 Repository 的 Submission 与 BaselineNode 记录解析，并限定在 operation 冻结的 scope 内；返回取自 manifest 的存储身份（`storage_projection_version` 与每表规则侧存储事实，见详细设计 §4.1）和规则集 provenance；无法解析时稳定失败（`COMMIT_CANONICAL_METADATA_MISSING`）；
    - 读取 manifest artifact 时 digest 与 Submission 记录不符：稳定失败（`COMMIT_CANONICAL_METADATA_DIGEST_MISMATCH`），附诊断、结构化日志与指标，不创建持久 incident（DC25）；
    - 解码历史 manifest 时，contract、storage projection 与 ruleset 的版本只作 provenance，接受任何已发布的值；新写入的 manifest 仍按当前常量校验；
    - Repository 中不写隐藏表，Repository wire 不变。

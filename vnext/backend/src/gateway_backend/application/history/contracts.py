@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+
+from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
@@ -299,3 +302,35 @@ class HistoryCompareAcceptCommand:
     context: IdentityContext
     idempotency_key: str
     node_refs: tuple[HistoryNodeRef, ...]
+
+def parse_nodes_json(raw: str) -> tuple[HistoryCompareNodeBinding, ...]:
+    import json
+
+    decoded = json.loads(raw)
+    if type(decoded) is not list:
+        raise ValueError("nodes_json must decode to a list")
+    nodes: list[HistoryCompareNodeBinding] = []
+    for item in decoded:
+        if type(item) is not dict:
+            raise ValueError("nodes_json entry must be an object")
+        nodes.append(
+            HistoryCompareNodeBinding(
+                ref_kind=HistoryNodeRefKind(str(item["ref_kind"])),
+                ref_id=str(item["ref_id"]),
+                commit_id=str(item["commit_id"]),
+            )
+        )
+    return tuple(nodes)
+
+
+def nodes_json_from_bindings(nodes: Sequence[HistoryCompareNodeBinding]) -> str:
+    payload = [
+        {
+            "ref_kind": node.ref_kind.value,
+            "ref_id": node.ref_id,
+            "commit_id": node.commit_id,
+        }
+        for node in nodes
+    ]
+    return canonicalize_jcs(canonicalize_json_value(payload)).decode("utf-8")
+

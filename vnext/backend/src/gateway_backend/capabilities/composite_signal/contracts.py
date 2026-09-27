@@ -351,4 +351,3 @@ class CompositeSignalResult:
         if self.diagnostics:
             raise ValueError("COMPLETE forbids diagnostics")
 
-

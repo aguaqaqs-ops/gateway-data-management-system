@@ -66,7 +66,7 @@ from gateway_backend.infrastructure.repository_read import (
     load_repository_bearer_token,
 )
 from gateway_backend.infrastructure.repository_write import HttpRepositoryWriteClient
-from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+from gateway_backend.bootstrap.composition import build_submit_import_publication_port
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
 from gateway_backend.operations.contracts import JobStepKey
 from gateway_backend.operations.recovery import (
@@ -78,7 +78,7 @@ from gateway_backend.operations.recovery import (
     build_recovery_routed_executor,
     build_startup_recovery,
 )
-from gateway_backend.operations.contracts import _validate_opaque_id
+from gateway_backend.operations.contracts import validate_opaque_id
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
@@ -216,7 +216,7 @@ def build_production_submit_dependencies(
 
     return SubmitRuntimeDependencies(
         artifact_store=preview_deps.artifact_store,
-        publication=SubmitImportPublicationAdapter(),
+        publication=build_submit_import_publication_port(),
         repository_write=HttpRepositoryWriteClient(
             base_url=settings.repository_base_url,
             bearer_token=token,
@@ -622,7 +622,7 @@ class _R4WorkerStartup(WorkerStartup):
             )
             executor = self._resolve_executor(candidate.job_step_key)
             lease_token = self._lease_token_factory()
-            _validate_opaque_id(lease_token, "lease_token")
+            validate_opaque_id(lease_token, "lease_token")
             claimed = OperationLifecycleActions(
                 store,
                 transaction_now=transaction_now,

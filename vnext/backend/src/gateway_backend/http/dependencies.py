@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Lock
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fastapi import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -22,14 +22,32 @@ from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
-from gateway_backend.domain.workspace.ports import (
+from gateway_backend.application.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
     WorkspaceRepository,
 )
+from gateway_backend.application.control_transactions import ControlDbUnitOfWorkFactory
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
-from gateway_backend.http.auth import FailClosedInternalBearerPort, InternalBearerPort, SessionPort
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.domain.workspace.models import IdentityContext
+from gateway_backend.http.errors import ApiError
+
+if TYPE_CHECKING:
+    from gateway_backend.http.auth import InternalBearerPort, SessionPort
+
+
+class _FailClosedInternalBearerPort:
+    def verify(self, request: Request) -> None:
+        del request
+        raise ApiError(
+            code="AUTHENTICATION_REQUIRED",
+            message="authentication required",
+            status_code=401,
+        )
+
+
+def _default_internal_bearer_port() -> InternalBearerPort:
+    return _FailClosedInternalBearerPort()
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
 from gateway_backend.operations.recovery import OperatorRecoveryRequest
 from gateway_backend.operations.state import TransitionDisposition
@@ -225,7 +243,7 @@ class WorkspaceHttpDependencies:
     submission_reader: SubmissionReaderPort = field(default_factory=FailClosedSubmissionReader)
     artifact_ref_lookup: ArtifactRefLookupPort = field(default_factory=FailClosedArtifactRefLookup)
     internal_bearer_port: InternalBearerPort = field(
-        default_factory=FailClosedInternalBearerPort
+        default_factory=_default_internal_bearer_port
     )
     baseline_canonical_digest: BaselineCanonicalDigestPort = field(
         default_factory=FailClosedBaselineCanonicalDigestPort
@@ -289,7 +307,7 @@ def get_workspace_http(request: Request) -> WorkspaceHttpDependencies:
 class ReadOnlyOperationStore:
     """Read-only operation access for HTTP GET without opening a write transaction."""
 
-    def __init__(self, unit_of_work_factory: Callable[[], ControlDbUnitOfWork]) -> None:
+    def __init__(self, unit_of_work_factory: ControlDbUnitOfWorkFactory) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
     def get_operation(self, operation_id: str) -> OperationRecord:
@@ -322,7 +340,7 @@ class ReadOnlyOperationStore:
 class ReadOnlySubmissionStore:
     """Read-only submission access for HTTP GET without opening a write transaction."""
 
-    def __init__(self, unit_of_work_factory: Callable[[], ControlDbUnitOfWork]) -> None:
+    def __init__(self, unit_of_work_factory: ControlDbUnitOfWorkFactory) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
     def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
@@ -419,3 +437,11 @@ class ArchiveRequestBodyLimitMiddleware:
             return await receive()
 
         await self.app(scope, replay_receive, send)
+
+
+def require_identity(request: Request) -> IdentityContext:
+    return get_workspace_http(request).session_port.resolve(request)
+
+
+def require_internal_bearer(request: Request) -> None:
+    get_workspace_http(request).internal_bearer_port.verify(request)

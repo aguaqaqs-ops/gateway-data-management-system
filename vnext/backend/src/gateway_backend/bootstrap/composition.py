@@ -41,6 +41,7 @@ from gateway_backend.application.submit_registry import (
     submit_job_definitions,
 )
 from gateway_backend.application.submission.accept_transaction import assert_submit_job_registered
+from gateway_backend.application.submission.contracts import SubmitImportPublicationPort
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryProviderError,
@@ -460,6 +461,15 @@ def prepare_backend_runtime(
     )
 
 
+def build_submit_import_publication_port() -> SubmitImportPublicationPort:
+    """Production Submit import publication adapter wired at the composition root."""
+
+    from gateway_backend.application.submission.contracts import SubmitImportPublicationPort
+    from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+
+    return SubmitImportPublicationAdapter()
+
+
 __all__ = [
     "BackendRuntime",
     "ClosableAdmissionGate",
@@ -470,6 +480,7 @@ __all__ = [
     "TransactionWorkspaceRepository",
     "assert_repository_service_ready",
     "assert_workspace_registry_ready",
+    "build_submit_import_publication_port",
     "build_workspace_job_registry",
     "prepare_backend_runtime",
 ]

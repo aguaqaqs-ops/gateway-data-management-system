@@ -26,7 +26,10 @@ if TYPE_CHECKING:
     from gateway_backend.infrastructure.control_db.sqlite_review import SQLiteReviewRepository
     from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
 
-BUSY_TIMEOUT_MS = 5_000
+from gateway_backend.infrastructure.control_db.control_db_connect import (
+    BUSY_TIMEOUT_MS,
+    connect_control_db,
+)
 
 
 class ControlDbIntegrityError(RuntimeError):
@@ -35,29 +38,6 @@ class ControlDbIntegrityError(RuntimeError):
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def connect_control_db(db_path: Path) -> sqlite3.Connection:
-    """Open one configured SQLite connection for a caller-owned database path."""
-
-    _validate_db_path(db_path)
-    try:
-        connection = sqlite3.connect(
-            db_path,
-            timeout=BUSY_TIMEOUT_MS / 1_000,
-            isolation_level=None,
-            check_same_thread=True,
-        )
-    except sqlite3.OperationalError as exc:
-        _raise_if_busy(exc)
-        raise
-    connection.row_factory = sqlite3.Row
-    try:
-        _configure_connection(connection)
-    except BaseException:
-        connection.close()
-        raise
-    return connection
 
 
 def assert_control_db_integrity(connection: sqlite3.Connection) -> None:
@@ -265,7 +245,7 @@ class ControlDbUnitOfWork:
     ) -> ResolvedScope:
         """Return transaction-fresh provisioned scope for one device/project key."""
 
-        from gateway_backend.infrastructure.control_db.sqlite_mapping import (
+        from gateway_backend.infrastructure.control_db.sqlite_provisioned_scope import (
             resolve_provisioned_scope_from_connection,
         )
 

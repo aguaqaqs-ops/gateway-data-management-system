@@ -15,7 +15,7 @@ from gateway_repository_contracts import (
 )
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.application.submission.repository_operation import (
+from gateway_backend.application.submission.contracts import (
     RepositoryImportOperation,
     RepositoryImportOperationError,
     RepositoryImportOperationResult,

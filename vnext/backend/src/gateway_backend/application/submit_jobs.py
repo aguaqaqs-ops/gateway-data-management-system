@@ -13,7 +13,7 @@ from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 from uuid import UUID
 
-from gateway_backend.application.submission.repository_operation import (
+from gateway_backend.application.submission.contracts import (
     RepositoryImportOperation,
     RepositoryImportOperationStatus as RepositoryOperationStatus,
 )
@@ -119,7 +119,7 @@ from gateway_backend.application.submission.artifact_refs import store_ref_from_
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.capabilities.snapshot_materialization.artifact import manifest_from_bytes
+from gateway_backend.capabilities.snapshot_materialization import manifest_from_bytes
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -157,7 +157,7 @@ from gateway_backend.application.submission.errors import (
     PrepareCheckpointPayloadBindingError,
     SubmitImportPublicationError,
 )
-from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 
 SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v1"
 AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA = "backend-vnext/submit/await-import-result-checkpoint/v1"
@@ -1975,19 +1975,19 @@ def _submit_state_from_job_state(
     )
 
 
-def _verification_policy_from_repository(value: VerificationPolicy) -> SubmitVerificationPolicy:
-    if value is VerificationPolicy.STRUCTURAL:
+def _verification_policy_from_repository(value: str) -> SubmitVerificationPolicy:
+    if value == SubmitVerificationPolicy.STRUCTURAL.value:
         return SubmitVerificationPolicy.STRUCTURAL
     raise FinalizeBindingMismatch(
-        f"completed verification policy {value.value!r} is not supported"
+        f"completed verification policy {value!r} is not supported"
     )
 
 
-def _unknown_type_policy_from_repository(value: UnknownTypePolicy) -> SubmitUnknownTypePolicy:
-    if value is UnknownTypePolicy.REJECT:
+def _unknown_type_policy_from_repository(value: str) -> SubmitUnknownTypePolicy:
+    if value == SubmitUnknownTypePolicy.REJECT.value:
         return SubmitUnknownTypePolicy.REJECT
     raise FinalizeBindingMismatch(
-        f"completed unknown type policy {value.value!r} is not supported"
+        f"completed unknown type policy {value!r} is not supported"
     )
 
 

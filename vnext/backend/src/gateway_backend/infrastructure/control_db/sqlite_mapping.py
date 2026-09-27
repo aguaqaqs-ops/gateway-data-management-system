@@ -13,14 +13,11 @@ from gateway_backend.domain.baseline.models import (
     BaselineNode,
     BaselineNodeKind,
 )
-from gateway_backend.domain.workspace.errors import ScopeResolutionError
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext, ResolvedScope
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.infrastructure.control_db.sqlite_baseline import (
-    assert_initial_scope_matches,
-    get_current_head_from_connection,
+from gateway_backend.infrastructure.control_db.sqlite_provisioned_scope import (
+    ProvisionedScopeTransactionRead,
+    resolve_provisioned_scope_from_connection,
 )
-
 
 class ProvisionedScopeResolution:
     """Resolve session identity against seeded provisioned mappings."""
@@ -29,6 +26,8 @@ class ProvisionedScopeResolution:
         self._db_path = db_path
 
     def resolve(self, context: IdentityContext) -> ResolvedScope:
+        from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+
         with ControlDbUnitOfWork(self._db_path, read_only=True) as unit_of_work:
             return resolve_provisioned_scope_from_connection(
                 unit_of_work.connection,
@@ -51,6 +50,8 @@ class ProvisionedBaselineHeadRead:
 
 def seed_provisioned_mappings(db_path: Path, mapping_file: Path) -> None:
     """Idempotently upsert provisioned mappings from a server-owned JSON file."""
+
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
     records = load_provisioned_mapping_file(mapping_file)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
@@ -113,74 +114,6 @@ def _validate_mapping_record(item: object) -> dict[str, object]:
         if type(value) is not str or not value:
             raise ValueError(f"{key} must be a non-empty string")
     return record
-
-
-def _load_active_mapping(
-    connection: sqlite3.Connection,
-    *,
-    gateway_device_external_key: str,
-    business_project_id: str,
-) -> sqlite3.Row | None:
-    return cast(
-        sqlite3.Row | None,
-        connection.execute(
-            """
-            SELECT repository_id, enabled
-            FROM provisioned_scope_mappings
-            WHERE gateway_device_external_key = ? AND business_project_id = ?
-            """,
-            (gateway_device_external_key, business_project_id),
-        ).fetchone(),
-    )
-
-
-def resolve_provisioned_scope_from_connection(
-    connection: sqlite3.Connection,
-    *,
-    gateway_device_external_key: str,
-    business_project_id: str,
-) -> ResolvedScope:
-    """Read one provisioned scope from the current SQLite connection."""
-
-    mapping = _load_active_mapping(
-        connection,
-        gateway_device_external_key=gateway_device_external_key,
-        business_project_id=business_project_id,
-    )
-    if mapping is None:
-        raise ScopeResolutionError("provisioned mapping is missing")
-    if mapping["enabled"] != 1:
-        raise ScopeResolutionError("provisioned mapping is disabled")
-    repository_id = mapping["repository_id"]
-    assert_initial_scope_matches(
-        connection,
-        repository_id=repository_id,
-        gateway_device_external_key=gateway_device_external_key,
-        business_project_id=business_project_id,
-    )
-    return ResolvedScope(
-        repository_id=repository_id,
-        baseline_head=get_current_head_from_connection(connection, repository_id),
-    )
-
-
-class ProvisionedScopeTransactionRead:
-    """Same-transaction provisioned scope reader for Submit T1."""
-
-    def __init__(self, connection: sqlite3.Connection) -> None:
-        self._connection = connection
-
-    def resolve_provisioned_scope(
-        self,
-        *,
-        gateway_device_external_key: str,
-        business_project_id: str,
-    ) -> ResolvedScope:
-        return resolve_provisioned_scope_from_connection(
-            self._connection,
-            gateway_device_external_key=gateway_device_external_key,
-            business_project_id=business_project_id,
-        )
 
 
 def _seed_provisioned_mappings_in_transaction(

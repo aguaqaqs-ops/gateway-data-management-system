@@ -1,10 +1,10 @@
 """Concrete local SQLite control DB boundary for the backend runtime."""
 
+from gateway_backend.infrastructure.control_db.control_db_connect import connect_control_db
 from gateway_backend.infrastructure.control_db.database import (
     ControlDbIntegrityError,
     ControlDbUnitOfWork,
     assert_control_db_integrity,
-    connect_control_db,
     initialize_and_verify_control_db,
     initialize_control_db,
 )

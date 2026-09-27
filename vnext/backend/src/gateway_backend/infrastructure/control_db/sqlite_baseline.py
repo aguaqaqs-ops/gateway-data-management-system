@@ -184,10 +184,14 @@ class SQLiteBaselineHeadRead:
         self._db_path = db_path
 
     def get_current_head(self, repository_id: str) -> BaselineHead:
-        from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+        from gateway_backend.infrastructure.control_db.control_db_connect import connect_control_db
 
-        with ControlDbUnitOfWork(self._db_path, read_only=True) as unit_of_work:
-            return get_current_head_from_connection(unit_of_work.connection, repository_id)
+        connection = connect_control_db(self._db_path)
+        try:
+            connection.execute("BEGIN")
+            return get_current_head_from_connection(connection, repository_id)
+        finally:
+            connection.close()
 
 
 def get_current_head_from_connection(

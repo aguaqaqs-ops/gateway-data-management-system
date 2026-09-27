@@ -17,7 +17,6 @@ from gateway_backend.http.schemas.constraints import (
     NonNegativeIJsonInt,
     Sha256Digest,
 )
-from gateway_repository_contracts.types import CommitIdString
 
 HistoryNodeRefKindLiteral = Literal["baseline_node", "submission"]
 HistoryNodeKindLiteral = Literal["BASELINE_NODE", "SUBMISSION", "SYSTEM_MIGRATION"]
@@ -44,7 +43,7 @@ class HistoryHeadResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     node_id: BoundedOpaqueId
-    commit_id: CommitIdString
+    commit_id: str
     version: NonNegativeIJsonInt
 
 
@@ -54,7 +53,7 @@ class HistoryNodeResponse(BaseModel):
     ref_kind: HistoryNodeRefKindLiteral
     ref_id: BoundedOpaqueId
     node_kind: HistoryNodeKindLiteral
-    commit_id: CommitIdString
+    commit_id: str
     created_at: datetime
     parent: HistoryNodeRefResponse | None = None
     baseline_kind: HistoryBaselineKindLiteral | None = None
@@ -147,9 +146,9 @@ class HistoryComparePairResultResponse(BaseModel):
 
     pair_id: str
     before_ref: HistoryNodeRefResponse
-    before_commit: CommitIdString
+    before_commit: str
     current_ref: HistoryNodeRefResponse
-    current_commit: CommitIdString
+    current_commit: str
     comparison_digest: Sha256Digest
     risk_digest: Sha256Digest
     surface_digest: Sha256Digest

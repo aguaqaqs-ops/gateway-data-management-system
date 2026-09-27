@@ -27,9 +27,8 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_contracts.types import MediaTypeString, Sha256String
 
-from gateway_backend.application.submission.artifact_refs import repository_artifact_ref_from_upload_response
 from gateway_backend.application.submission.ports import RepositoryWritePort
-from gateway_backend.application.submission.repository_operation import RepositoryImportOperation
+from gateway_backend.application.submission.contracts import RepositoryImportOperation
 from gateway_backend.capabilities.storage_projection import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.infrastructure.repository_write import wire_codec

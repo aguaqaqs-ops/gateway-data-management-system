@@ -6,17 +6,16 @@ import dataclasses
 import json
 import re
 import types
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import Protocol, TypeAlias
 
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.application.job_definitions import JobDefinition, JobDefinitionRegistry
-from gateway_backend.operations.contracts import OperationRecord
+from gateway_backend.operations.contracts import JobStepKey, OperationRecord
 from gateway_backend.operations.contracts import (
-    _validate_canonical_job_payload_bytes,
-    _validate_json_structure,
+    validate_canonical_job_payload_bytes,
+    validate_json_structure,
 )
 
 JOB_PAYLOAD_DOCUMENT_TYPE = "job-payload"
@@ -25,6 +24,21 @@ CHECKPOINT_DOCUMENT_TYPE = "step-checkpoint"
 _DIAGNOSTIC_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_.:-]{0,127}$")
 _MAX_DECODER_REGISTRY_ENTRIES = 256
 _MAX_DECODER_MESSAGE_BYTES = 4 * 1024
+
+class _PayloadJobDefinition(Protocol):
+    @property
+    def key(self) -> JobStepKey: ...
+
+    @property
+    def supported_payload_versions(self) -> frozenset[str]: ...
+
+    @property
+    def decoder_identity(self) -> str: ...
+
+
+class _JobDefinitionRegistry(Protocol):
+    def definitions(self) -> Iterable[object]: ...
+
 
 PayloadDecoder: TypeAlias = Callable[[dict[str, object]], object]
 
@@ -102,14 +116,16 @@ class PayloadDecoderRegistry:
 
 
 def build_payload_decoder_registry(
-    registry: JobDefinitionRegistry,
+    registry: _JobDefinitionRegistry,
     decoders: Mapping[str, PayloadDecoder],
 ) -> PayloadDecoderRegistry:
     """Bind decoders to every JobDefinition.decoder_identity without surplus keys."""
 
-    if type(registry) is not JobDefinitionRegistry:
-        raise ValueError("registry must be JobDefinitionRegistry")
-    expected = frozenset(definition.decoder_identity for definition in registry.definitions())
+    definitions = registry.definitions()
+    expected = frozenset(
+        getattr(definition, "decoder_identity")
+        for definition in definitions
+    )
     decoder_keys = frozenset(decoders.keys())
     if decoder_keys != expected:
         raise ValueError("decoders must bind exactly one callable per decoder_identity")
@@ -139,7 +155,7 @@ def load_job_payload_bytes(
                 code="PAYLOAD_SHAPE_INVALID",
             )
         try:
-            _validate_canonical_job_payload_bytes(payload_bytes)
+            validate_canonical_job_payload_bytes(payload_bytes)
         except ValueError as exc:
             raise PayloadDecodeError(str(exc), code="PAYLOAD_SHAPE_INVALID") from exc
         return payload_bytes
@@ -154,14 +170,14 @@ def load_job_payload_bytes(
     except ManifestVerificationError as exc:
         raise PayloadDecodeError(str(exc), code="PAYLOAD_REF_UNREADABLE") from exc
     try:
-        _validate_canonical_job_payload_bytes(raw_bytes)
+        validate_canonical_job_payload_bytes(raw_bytes)
     except ValueError as exc:
         raise PayloadDecodeError(str(exc), code="PAYLOAD_SHAPE_INVALID") from exc
     return raw_bytes
 
 
 def decode_job_payload(
-    definition: JobDefinition,
+    definition: _PayloadJobDefinition,
     operation: OperationRecord,
     store: ArtifactStorePort,
     decoder_registry: PayloadDecoderRegistry,
@@ -169,7 +185,7 @@ def decode_job_payload(
     """Decode one operation payload through identity axes and a registered typed decoder."""
 
     _assert_document_kind_axis(JOB_PAYLOAD_DOCUMENT_TYPE)
-    if type(definition) is not JobDefinition:
+    if not hasattr(definition, 'key'):
         raise PayloadDecodeError("definition must be JobDefinition", code="PAYLOAD_DEFINITION_INVALID")
     if type(decoder_registry) is not PayloadDecoderRegistry:
         raise PayloadDecodeError(
@@ -182,7 +198,7 @@ def decode_job_payload(
     return decoder_registry.decode(definition.decoder_identity, payload_object)
 
 
-def _validate_payload_identity_axes(definition: JobDefinition, operation: OperationRecord) -> None:
+def _validate_payload_identity_axes(definition: _PayloadJobDefinition, operation: OperationRecord) -> None:
     if operation.job_kind != definition.key.job_kind:
         raise PayloadDecodeError(
             "operation job_kind does not match JobDefinition key",
@@ -209,7 +225,7 @@ def _parse_bounded_payload_object(payload_bytes: bytes) -> dict[str, object]:
             code="PAYLOAD_SHAPE_INVALID",
         )
     try:
-        _validate_json_structure(payload)
+        validate_json_structure(payload)
     except ValueError as exc:
         raise PayloadDecodeError(str(exc), code="PAYLOAD_SHAPE_INVALID") from exc
     return payload
@@ -228,7 +244,7 @@ def _assert_reencodable_decoder_output(value: object) -> None:
         return
     if type(value) is dict:
         try:
-            _validate_json_structure(value)
+            validate_json_structure(value)
         except ValueError as exc:
             raise PayloadDecodeError(str(exc), code="PAYLOAD_TYPED_OUTPUT_INVALID") from exc
         return

@@ -14,7 +14,8 @@ from gateway_shared_kernel import (
     StringScalar,
 )
 
-from gateway_backend.capabilities.composite_signal import (
+from gateway_backend.capabilities.composite_signal.materialize import materialize_composite_signal
+from gateway_backend.capabilities.composite_signal.contracts import (
     COMPOSITE_SIGNAL_CONTRACT_VERSION,
     COMPOSITE_SIGNAL_POINT_KEY,
     COMPOSITE_SIGNAL_POINT_TABLE,
@@ -23,7 +24,6 @@ from gateway_backend.capabilities.composite_signal import (
     CompositeSignalRequest,
     CompositeSignalResult,
     CompositeSignalStatus,
-    materialize_composite_signal,
 )
 from gateway_backend.capabilities.snapshot_materialization._catalog import (
     CatalogError,

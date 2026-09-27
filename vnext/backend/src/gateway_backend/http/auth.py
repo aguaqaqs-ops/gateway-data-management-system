@@ -199,12 +199,6 @@ def load_internal_bearer_token(token_file: Path) -> str:
     return token
 
 
-def require_identity(request: Request) -> IdentityContext:
-    from gateway_backend.http.dependencies import get_workspace_http
-
-    return get_workspace_http(request).session_port.resolve(request)
-
-
 @runtime_checkable
 class InternalBearerPort(Protocol):
     def verify(self, request: Request) -> None:
@@ -239,7 +233,19 @@ class FailClosedInternalBearerPort:
         )
 
 
-def require_internal_bearer(request: Request) -> None:
-    from gateway_backend.http.dependencies import get_workspace_http
+from gateway_backend.http.dependencies import require_identity, require_internal_bearer
 
-    get_workspace_http(request).internal_bearer_port.verify(request)
+__all__ = [
+    "BearerSessionPort",
+    "FailClosedInternalBearerPort",
+    "InternalBearerPort",
+    "LiveFileSessionPort",
+    "LoadedSession",
+    "SessionPort",
+    "StaticInternalBearerPort",
+    "load_internal_bearer_token",
+    "load_session_entries",
+    "load_session_file",
+    "require_identity",
+    "require_internal_bearer",
+]

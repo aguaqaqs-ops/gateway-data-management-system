@@ -6,11 +6,12 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 
-from gateway_backend.application.history.compare_bindings import parse_nodes_json
 from gateway_backend.application.history.contracts import (
     HistoryCompareAcceptanceRecord,
     HistoryCompareIntegrityRecord,
     IntegrityAcknowledgementStatus,
+    nodes_json_from_bindings,
+    parse_nodes_json,
 )
 
 
@@ -121,8 +122,6 @@ def get_acceptance_by_operation_id(
 
 
 def save_acceptance(connection: sqlite3.Connection, record: HistoryCompareAcceptanceRecord) -> None:
-    from gateway_backend.application.history.compare_bindings import nodes_json_from_bindings
-
     connection.execute(
         """
         INSERT INTO history_compare_acceptance_records (

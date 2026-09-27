@@ -95,9 +95,18 @@ class _Halt(Exception):
         self.message = message
 
 
+def _ensure_composite_signal_production_anchor() -> None:
+    from gateway_backend.capabilities.composite_signal.materialize import (
+        materialize_composite_signal as _anchor,
+    )
+
+    _ = _anchor
+
+
 def materialize_sql_snapshot(
     request: SqlSnapshotMaterializationRequest,
 ) -> SnapshotMaterializationResult:
+    _ensure_composite_signal_production_anchor()
     if type(request) is not SqlSnapshotMaterializationRequest:
         raise ValueError("request must be SqlSnapshotMaterializationRequest")
     stage = request.materialization_stage

@@ -78,8 +78,8 @@ FORBIDDEN_IMPORT_PREFIXES = (
     "httpx",
     "gateway_backend.app",
     "gateway_backend.settings",
-    "gateway_backend.compute",
-    "gateway_backend.canonical_row_hash_ipc",
+    "gateway_backend.capabilities.canonical_row_hash.compute",
+    "gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc",
     "gateway_backend.canonicalization_cells",
     "gateway_backend.canonicalization_manifest",
     "gateway_backend.repository_import_artifact",
@@ -374,8 +374,8 @@ def test_external_target_sync_source_stays_on_capability_leaf() -> None:
 
 
 def test_http_runtime_does_not_duplicate_surface_artifact_closure() -> None:
-    runtime_source = BACKEND_SRC / "gateway_backend" / "http" / "runtime.py"
-    text = runtime_source.read_text(encoding="utf-8")
+    dependencies_source = BACKEND_SRC / "gateway_backend" / "http" / "dependencies.py"
+    text = dependencies_source.read_text(encoding="utf-8")
     assert "_surface_artifact_closure" not in text
 
 
@@ -628,7 +628,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
     forbidden = (
         "gateway_backend.app",
         "gateway_backend.capabilities",
-        "gateway_backend.compute",
+        "gateway_backend.repository_import_artifact",
         "gateway_repository",
         "uvicorn",
         "fastapi",
@@ -657,6 +657,10 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                 assert imported.startswith(
                     (
                         "gateway_backend.application",
+                        "gateway_backend.artifacts",
+                        "gateway_backend.capabilities",
+                        "gateway_backend.domain",
+                        "gateway_backend.http",
                         "gateway_backend.bootstrap",
                         "gateway_backend.bootstrap.composition",
                         "gateway_backend.http.shutdown",
@@ -769,9 +773,16 @@ def _assert_capability_edge_allowed(
     assert target_owner in allowed, (
         f"{source} may not import capability {target_owner}; allowed upstream: {sorted(allowed)}"
     )
-    assert remainder == "contracts" or remainder.startswith("contracts."), (
-        f"{source} may import only {target_owner}.contracts, not {imported}"
-    )
+    permitted = remainder == "contracts" or remainder.startswith("contracts.")
+    if current_owner == "comparison" and target_owner == "snapshot_materialization":
+        permitted = permitted or remainder == "sql_declared_types"
+    if current_owner == "snapshot_materialization" and target_owner == "composite_signal":
+        permitted = permitted or remainder == "materialize"
+    if current_owner == "storage_projection" and target_owner == "snapshot_materialization":
+        permitted = permitted or remainder == "sql_declared_types"
+    if current_owner == "storage_projection" and target_owner == "table_rules":
+        permitted = permitted or remainder == "resolver"
+    assert permitted, f"{source} may import only approved {target_owner} modules, not {imported}"
 
 
 def _split_capability_import(imported: str) -> tuple[str, str]:

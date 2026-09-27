@@ -36,6 +36,12 @@ from gateway_backend.application.history.contracts import (
     IntegrityAcknowledgementStatus,
 )
 from gateway_backend.application.history.ports import HistoryComparePort
+from gateway_backend.application.job_steps import unique_artifact_refs
+from gateway_backend.application.pair_pipeline import (
+    HistoryPairPipelineResult as _PairPipelineResult,
+    PairPipelineError,
+    run_history_pair_pipeline,
+)
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     NormalPublicationCapability,
@@ -90,7 +96,7 @@ from gateway_backend.capabilities.risk_evaluation import (
     RiskRulesetSnapshot,
     evaluate_risk,
 )
-from gateway_backend.capabilities.snapshot_materialization.artifact import open_snapshot_table_artifact
+from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnostic,
     MaterializationDiagnosticCode,
@@ -111,7 +117,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SourceKind,
     SUMMARY_CONTRACT_VERSION,
 )
-from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
+from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
 )
 from gateway_backend.capabilities.surface_assembly import (
@@ -128,8 +134,8 @@ from gateway_backend.capabilities.table_rules.contracts import (
     TableRulesetSnapshot,
     TableStaticRole,
 )
-from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
+from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.operations.contracts import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -239,16 +245,6 @@ class HistoryCompareRuntimeDependencies:
     artifact_store: ArtifactStorePort
     repository_provider_factory: RepositoryProviderFactory
     control_transaction_factory: HistoryCompareControlTransactionFactory
-
-
-@dataclass(frozen=True, slots=True)
-class _PairPipelineResult:
-    pair_id: str
-    comparison_digest: str
-    risk_digest: str
-    surface_digest: str
-    record_count: int
-    surface_result: SurfaceAssemblyResult
 
 
 def history_compare_job_definitions() -> tuple[JobDefinition, ...]:
@@ -1109,78 +1105,18 @@ def _run_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
 ) -> _PairPipelineResult:
-    bound = bind_pair_input(
-        pair_id=pair_id,
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
-        before=before,
-        current=current,
-        input_completeness=ComparisonInputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=trusted_flow_binding,
-        table_policies=table_policies,
-    )
-    if isinstance(bound, FailedResult):
-        raise HistoryCompareJobError(f"pair binding failed: {bound.diagnostics}")
-    plan = plan_pair(bound)
-    if isinstance(plan, FailedResult):
-        raise HistoryCompareJobError(f"pair planning failed: {plan.diagnostics}")
-    if not isinstance(plan, ComparisonPlan):
-        raise HistoryCompareJobError("pair planning did not produce a comparison plan")
-    compared = compare_plan(plan)
-    if isinstance(compared, FailedResult):
-        raise HistoryCompareJobError(f"pair comparison failed: {compared.diagnostics}")
-    if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
-        raise HistoryCompareJobError("pair comparison did not produce facts")
-    published = publish_records_closure(compared, store)
-    if isinstance(published, FailedResult):
-        raise HistoryCompareJobError(f"records closure failed: {published.diagnostics}")
-    if not isinstance(published, DetailedFactsResult) or published.facts is None:
-        raise HistoryCompareJobError("records publication did not produce facts")
-    if control.cancel_requested:
-        raise HistoryCompareJobError("history compare pair pipeline cancelled")
-    risk = evaluate_risk(
-        RiskEvaluationInput(
-            comparison_facts=published.facts,
-            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
-            risk_options=RiskOptions(),
-        ),
-        artifact_store=store,
-    )
-    if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
-        raise HistoryCompareJobError("risk evaluation failed")
-    surface = assemble_surface(
-        SurfaceAssemblyInput(
-            comparison_facts=published.facts,
-            surface_id=f"surface-{pair_id}",
-            view_id=pair_id,
-            before_role="before",
-            current_role="current",
-            records_closure=published.records_closure,
-            risk_report=risk.risk_report,
-            risk_annotation_closure=risk.risk_closure,
-            ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
-        ),
-        context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
-    )
-    if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
-        raise HistoryCompareJobError("surface assembly failed")
-    records_closure = published.records_closure
-    if records_closure is None:
-        raise HistoryCompareJobError("records closure is missing")
-    record_count = sum(entry.record_count for entry in records_closure.records)
-    if record_count < 0:
-        raise HistoryCompareJobError("records closure record_count is invalid")
-    if risk.risk_evaluation is None:
-        raise HistoryCompareJobError("risk evaluation digest is missing")
-    return _PairPipelineResult(
-        pair_id=pair_id,
-        comparison_digest=published.facts.comparison_digest.value,
-        risk_digest=risk.risk_evaluation.risk_evaluation_digest.value,
-        surface_digest=surface.surface.surface_digest.value,
-        record_count=int(record_count),
-        surface_result=surface,
-    )
+    try:
+        return run_history_pair_pipeline(
+            pair_id=pair_id,
+            before=before,
+            current=current,
+            table_policies=table_policies,
+            trusted_flow_binding=trusted_flow_binding,
+            store=store,
+            control=control,
+        )
+    except PairPipelineError as exc:
+        raise HistoryCompareJobError(str(exc)) from exc
 
 
 def _publish_integrity_failure(
@@ -1600,14 +1536,7 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
 
 
 def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
-    seen: set[str] = set()
-    unique: list[ArtifactRef] = []
-    for ref in refs:
-        if ref.artifact_id in seen:
-            continue
-        seen.add(ref.artifact_id)
-        unique.append(ref)
-    return tuple(unique)
+    return unique_artifact_refs(refs)
 
 
 def _pinned_checkpoint_builder(

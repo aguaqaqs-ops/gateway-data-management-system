@@ -24,6 +24,12 @@ from gateway_backend.application.checkpoints import (
     prepare_ready_closure,
     prepare_step_checkpoint,
 )
+from gateway_backend.application.job_steps import unique_artifact_refs
+from gateway_backend.application.pair_pipeline import (
+    PairPipelineError,
+    PreviewPairPipelineResult as _PairPipelineResult,
+    run_preview_pair_pipeline,
+)
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     NormalPublicationCapability,
@@ -87,7 +93,7 @@ from gateway_backend.capabilities.risk_evaluation import (
     RiskRulesetSnapshot,
     evaluate_risk,
 )
-from gateway_backend.capabilities.snapshot_materialization.artifact import (
+from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     open_snapshot_table_artifact,
 )
@@ -113,10 +119,10 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlSnapshotMaterializationRequest,
 )
-from gateway_backend.capabilities.snapshot_materialization.materialize import (
+from gateway_backend.capabilities.snapshot_materialization import (
     materialize_sql_snapshot,
 )
-from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
+from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
 )
 from gateway_backend.capabilities.source_package_staging import (
@@ -144,7 +150,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlParseRequest,
     SqlSourceInput,
 )
-from gateway_backend.capabilities.table_access.sql import parse_sql
+from gateway_backend.capabilities.table_access import parse_sql
 from gateway_backend.capabilities.table_rules.contracts import (
     RULESET_VERSION,
     TABLE_RULESET_VERSION,
@@ -968,15 +974,6 @@ def _materialize_uploaded_side(binding: SourceArtifactBinding, store: ArtifactSt
     return _bound_from_materialization(result, label="uploaded")
 
 
-@dataclass(frozen=True, slots=True)
-class _PairPipelineResult:
-    pair_id: str
-    comparison_digest: str
-    risk_digest: str
-    surface_digest: str
-    surface_result: SurfaceAssemblyResult
-
-
 def surface_artifact_closure(surface: ComparisonSurface | None, pair_id: str) -> BundleArtifactClosure:
     if surface is None:
         raise PreviewJobError("surface assembly did not produce a surface for bundle closure")
@@ -1329,90 +1326,20 @@ def _run_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
 ) -> _PairPipelineResult:
-    assessment_digest = raw_blob_digest(
-        f"{before.snapshot.snapshot_digest.value}:{current.snapshot.snapshot_digest.value}".encode()
-    )
-    assessment = _PreviewIdentityAssessment(
-        schema_version="project-identity-assessment/v1",
-        rule_version="version-manager-overlap/v1",
-        before_snapshot_digest=before.snapshot.snapshot_digest,
-        current_snapshot_digest=current.snapshot.snapshot_digest,
-        status=IdentityStatus.SAME_PROJECT,
-        assessment_digest=assessment_digest,
-    )
-    baseline_reconstruction = None
-    if input_completeness is InputCompleteness.MODIFIED_ONLY and baseline is not None:
-        baseline_reconstruction = BaselineReconstructionResult(
-            status=BaselineReconstructionStatus.AVAILABLE,
+    try:
+        return run_preview_pair_pipeline(
+            pair_id=pair_id,
+            before=before,
+            current=current,
+            pair_role=pair_role,
+            input_completeness=input_completeness,
             baseline=baseline,
-        )
-    bound = bind_pair_input(
-        pair_id=pair_id,
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=pair_role,
-        before=before if input_completeness is InputCompleteness.FULL else None,
-        current=current,
-        input_completeness=(
-            ComparisonInputCompleteness.FULL
-            if input_completeness is InputCompleteness.FULL
-            else ComparisonInputCompleteness.MODIFIED_ONLY
-        ),
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        identity_assessment=assessment,
-        baseline_reconstruction=baseline_reconstruction,
-    )
-    if isinstance(bound, FailedResult):
-        raise PreviewJobError(f"pair binding failed: {bound.diagnostics}")
-    plan = plan_pair(bound)
-    if isinstance(plan, FailedResult):
-        raise PreviewJobError(f"pair planning failed: {plan.diagnostics}")
-    if not isinstance(plan, ComparisonPlan):
-        raise PreviewJobError("pair planning did not produce a comparison plan")
-    compared = compare_plan(plan)
-    if isinstance(compared, FailedResult):
-        raise PreviewJobError(f"pair comparison failed: {compared.diagnostics}")
-    if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
-        raise PreviewJobError("pair comparison did not produce facts")
-    published = publish_records_closure(compared, store)
-    if isinstance(published, FailedResult):
-        raise PreviewJobError(f"records closure failed: {published.diagnostics}")
-    if not isinstance(published, DetailedFactsResult) or published.facts is None:
-        raise PreviewJobError("records publication did not produce facts")
-    if control.cancel_requested:
-        raise PreviewJobError("preview pair pipeline cancelled")
-    risk = evaluate_risk(
-        RiskEvaluationInput(
-            comparison_facts=published.facts,
-            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
-            risk_options=RiskOptions(),
-        ),
-        artifact_store=store,
-    )
-    if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
-        raise PreviewJobError("risk evaluation failed")
-    surface = assemble_surface(
-        SurfaceAssemblyInput(
-            comparison_facts=published.facts,
-            surface_id=f"surface-{pair_id}",
+            store=store,
+            control=control,
             view_id=_PAIR_INITIAL_TO_MODIFIED,
-            before_role="before",
-            current_role="current",
-            records_closure=published.records_closure,
-            risk_report=risk.risk_report,
-            risk_annotation_closure=risk.risk_closure,
-            ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
-        ),
-        context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
-    )
-    if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
-        raise PreviewJobError("surface assembly failed")
-    return _PairPipelineResult(
-        pair_id=pair_id,
-        comparison_digest=published.facts.comparison_digest.value,
-        risk_digest=risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else "",
-        surface_digest=surface.surface.surface_digest.value,
-        surface_result=surface,
-    )
+        )
+    except PairPipelineError as exc:
+        raise PreviewJobError(str(exc)) from exc
 
 
 def _build_preview_result(
@@ -1508,14 +1435,7 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
 
 
 def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
-    seen: set[str] = set()
-    unique: list[ArtifactRef] = []
-    for ref in refs:
-        if ref.artifact_id in seen:
-            continue
-        seen.add(ref.artifact_id)
-        unique.append(ref)
-    return tuple(unique)
+    return unique_artifact_refs(refs)
 
 
 def _pinned_checkpoint_builder(

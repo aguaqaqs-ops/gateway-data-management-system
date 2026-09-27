@@ -14,7 +14,7 @@ Worktree：`/home/dev/gdds-p5-closure-s1`
 ```yaml
 stage: P5-arch-closure-S1-structure
 parent_head: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b
-candidate_head: 7de23ed3498ac4914ec2a15684a648f2d90aa4fd
+candidate_head: 450e15e5486454eb0335636477a0c304b8c5546d
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity；禁止再次用 ambient index 改写 lock
 implementation_authority: execution-plan §8.4 S1.1–S1.7
 ```
@@ -152,16 +152,19 @@ cd vnext/repository_service && ../scripts/uv-consume.sh -C . run pytest -q -m se
 必须核查：import 3/0/10；§4 路径偏差；kickoff DC12/DC15；synthetic 注入；全量测试与 compose 镜像 provenance（handoff §6）。
 ```
 
-## 9. 更新块（阶段门禁收尾 — 由实现者填写）
+## 9. 更新块（阶段门禁收尾 @ `450e15e548`）
 
 | 项 | 值 |
 | --- | --- |
-| `run-tests.sh` | _pending_ |
-| compose 8/8 | _pending_ |
-| `gateway-repository-service:local` image | _pending_ |
-| backend/worker compose build image IDs | _pending_ |
-| worktree clean at gate | _pending_ |
+| 五包 ruff + mypy | pass @ `7de23ed349` |
+| `run-tests.sh` @ `450e15e548`（含 legacy symlink 时） | shared_kernel 242、repository_contracts 152、repository_client 154、backend **2665 passed**（9 个 backend compose 因 **handoff 未提交导致 worktree dirty** 失败，非代码回归）、repository_service 并行 1678（1 skipped）、串行 **197 passed**（8 compose 同样 dirty 失败） |
+| legacy oracle | 未跟踪 `legacy/` symlink 指向主工作区 `legacy/backend_vnext`；无 symlink 时 `test_table_rules_resolver` 58 项失败为已知缺口 |
+| repository_service compose 8/8 | pass @ `450e15e548`，`-n 0`，164s；镜像 `gateway-repository-service:local` **`sha256:37df612e38c700cf6c0d1acfb54854dc1acb89024900e004e8f95d3a842cc14d`** |
+| backend compose 9/9 | pass @ `450e15e548`，1069s；`deploy-backend:latest` **`6610f2c6b7f0`**、`deploy-worker:latest` **`9e1672eca5e4`**（compose build @ 同 HEAD） |
+| worktree clean at compose gate | yes（handoff 已提交；compose 前无未跟踪 `legacy/`） |
+
+**说明**：权威 `run-tests.sh` 与 compose provenance 对 worktree 洁净性要求冲突（table_rules 需要 legacy 目录）。阶段验收采用：**全量 runner 覆盖非 compose 批次 + clean worktree 上单独重跑 RS 8 + backend 9 compose**（与执行计划 §8.6 基线做法一致）。
 
 ---
 
-_next_step: 独立审核 `p5-arch-closure-s1`；结论 pass 后 `--no-ff` 合入 main，再进入 S2a。_
+_next_step: 独立审核 `p5-arch-closure-s1` @ `450e15e548`；结论 pass 后 `--no-ff` 合入 main，再进入 S2a。_

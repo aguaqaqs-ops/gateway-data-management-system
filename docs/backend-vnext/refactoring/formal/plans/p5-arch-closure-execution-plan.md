@@ -1,8 +1,8 @@
 # P5 架构收口执行计划
 
-状态：**DRAFT r4 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与 r2、r3 的独立复审修订，待核对 r4 差异；实现未授权**
+状态：**ACCEPTED — S0 文档（r4）由 repository owner 于 2026-09-27 接受；实现未授权**
 
-日期：2026-09-27（r4）；r2、r3 为 2026-09-26；r1 为 2026-09-25
+日期：2026-09-27（r4 与接受）；r2、r3 为 2026-09-26；r1 为 2026-09-25
 
 Owner：Backend vNext Architecture
 
@@ -47,18 +47,18 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 ### S0 — 文档入口、独立审核与复审
 
 - 交付：Entry Brief、详细设计（附录 A：Business Lifecycle 3.1.0 候选；附录 B：其他上游修订候选）、本计划、
-  ADR 0018–0021（Proposed）、P5 §2A.4.1 第二轮补充；审核报告、两份 r2 复审报告、owner 决议记录与修订处置表。
+  ADR 0018–0021（2026-09-27 起 Accepted）、P5 §2A.4.1 第二轮补充；审核报告、两份 r2 与两份 r3 复审报告、owner 决议记录与修订处置表。
 - 审核对象：r1 在 `3e5d5807e5` 接受独立审核（结论：定向修订）；r2 在 `5858eaaa08` 接受两份独立复审（结论均为定向修订）；
-  r3 在 `ffba1138ef` 接受两份独立复审（结论分别为通过与定向修订）；r4 按两份报告的全部 findings 修订，在本分支
-  `p5-arch-closure-docs` 的固定 commit 接受核对，由未参与 r4 修订的 reviewer 承担，可只核对 r4 差异。
+  r3 在 `ffba1138ef` 接受两份独立复审（结论分别为通过与定向修订）；r4（`2f38b301a6`）按两份报告的全部 findings 修订，
+  其差异未经独立核对，由 repository owner 决定直接接受。
   代码事实基线 `2172369803`。
-- 通过后（Entry Brief §5）：
+- 接受（已完成，2026-09-27，repository owner 决定；r4 差异未经独立核对），按 Entry Brief §5：
   - ADR 0018–0021 状态改为 Accepted；
   - 附录 A 并入 Business Lifecycle 并升至 3.1.0；附录 B 各候选并入对应文档（Canonical Storage 升至 3.1.0、
     Canonical Storage §4 的摘要说明、Ruleset Activation §1 与 §5、ADR 0016 与 Operation Lifecycle §4、
     Contract Taxonomy §4.4/§4.6/§5/§13、P5 §2A.2/§6.1/§2A.4、Architecture §7.1/§7.2/§9.1/§10/§13）；
     P3-R3/R4/R5 设计与 5E §6.6 加“由 ADR 00xx 取代”标注；
-  - 以上由 owner 以单独的 docs 提交完成，本轮修订不改动已接受的 Contract 正文；
+  - 以上以单独的 docs 提交完成；上游文档加注“实现随收口 S1–S5 交付，交付前现行源码仍按原版本行为运行”；
   - 实现授权另行给出。
 
 ### S1 kickoff（5E slice exit 之后）

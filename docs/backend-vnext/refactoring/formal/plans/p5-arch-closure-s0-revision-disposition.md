@@ -1,6 +1,6 @@
 # P5 架构收口 S0 修订处置表
 
-- 状态：r2、r3 各经两份独立复审（r2：均为定向修订；r3：通过与定向修订）；**r4 修订者自查完成，待核对 r4 差异**（r3 见 §8，r4 见 §9）。本表不是复审结论。
+- 状态：r2、r3 各经两份独立复审（r2：均为定向修订；r3：通过与定向修订）；r4 修订者自查完成（§9），**owner 于 2026-09-27 决定直接接受，r4 差异未经独立核对**（§10）。本表不是复审结论。
 - 日期：2026-09-26（r2、r3）；2026-09-27（r4）
 - 修订者：S0 独立审核者，应 repository owner 要求执行 r2–r4 修订。修订者与审核者为同一人，因此复审须由既未参与起草、
   也未参与相应修订的 reviewer 承担。
@@ -30,7 +30,8 @@ vnext_changed: no
 accepted_contract_bodies_changed: no      # 上游修订只以候选文本给出（设计附录 A、B）
 adr_status_changed: no                    # 0018–0021 保持 Proposed
 implementation_authorized: no
-diff_check_of_r4: pending
+diff_check_of_r4: not_performed          # owner 决定直接接受
+accepted_at: 2026-09-27
 ```
 
 ## 1. 修订边界
@@ -262,3 +263,28 @@ S1 kickoff 第 4、5 项；第 4 项 → 执行计划 S2a、S2b 验收；第 5 �
 - 核对对象：本分支包含 r4 的固定 commit（由核对者记录）；可只核对 `46a4e03ae5` 之后的差异；代码事实基线 `2172369803`。
 - 关注点：9.2 各项是否关闭且传播到所有相关位置；§4.5 的来源归因能否直接写成 `test_comparison_planning.py` 的参数表；附录 B.1 的
   §4 增补并入后是否与 Canonical Storage §4 原文一致。
+
+## 10. 接受记录（2026-09-27）
+
+- 决定：repository owner 指示按 [Entry Brief](p5-arch-closure-s0-entry-brief.md) §5 接受 r4（`2f38b301a6`）。r4 差异没有经过独立核对，
+  由 owner 决定直接接受；接受提交由修订者执行。
+- 接受提交的内容：
+  - ADR 0018–0021 状态改为 Accepted；
+  - 附录 A 并入 [Business Lifecycle](../contracts/business-lifecycle-and-state.md)，版本 `3.0.0` → `3.1.0`（§1A.2、§2、§3、§4、§5、§6、§8、§10）；
+  - 附录 B 并入：[Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md) `3.0.0` → `3.1.0`（§2、§4、§8、§10）、
+    [Ruleset Activation](../contracts/ruleset-activation-and-migration.md) §1 与 §5、[ADR 0016](../adr/0016-graceful-lifecycle-and-integrity-recovery.md)
+    的范围说明与 [Operation Lifecycle](../contracts/operation-lifecycle-and-integrity.md) §4、
+    [Contract Taxonomy](../contracts/contract-taxonomy-and-ownership.md) §4.4/§4.6/§5/§13、
+    [P5 设计](p5-business-vertical-slices-design.md) §2A.2/§6.1/§2A.4、
+    [Architecture](../architecture/architecture-and-refactoring-plan.md) §7.1/§7.2/§9.1/§10/§13；
+  - 取代标注：[P3 能力设计](p3-capability-foundation-design.md)的 RepositoryRef 条款（ADR 0019）、
+    [P3-R4](p3-r4-storage-projection-design.md) §4.2（ADR 0018）、[P3-R5](p3-r5-comparison-design.md) §4、§5、§6.1、§6.3
+    （ADR 0020、0021）、[5E 设计](p5-5e-history-compare-design.md) §6.6（ADR 0019）；历史正文不改写。
+- 为使并入后的文本成为一条有效规则而做的配套调整（候选文本中没有逐字给出）：
+  - Canonical Storage §2 标题改为“Storage projection 与比较规则视图”（该标题锚点没有外部引用）；
+  - Contract Taxonomy §4.4 的示例清单把 `ProjectionSchema/Result` 换成 `CanonicalProjectionResult`、`ComparisonRuleView`；
+  - P5 §2A.4.1 第一张表中已由 ADR 决定的四项处置加注“已决”；
+  - Business Lifecycle 与 Canonical Storage 的 `3.1.0` 说明，以及 Ruleset、Operation Lifecycle、Contract Taxonomy、Architecture 的新增
+    内容，都注明实现随 P5 架构收口相应阶段交付、交付前现行源码仍按原行为运行。
+- 不在本次接受范围：P5-5E 自有文档中滞后的状态字样（P5 设计基线的状态行、yaml 与 §13，5E 设计的状态行等），由 5E owner
+  另行同步。

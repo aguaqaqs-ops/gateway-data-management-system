@@ -1,8 +1,8 @@
 # ADR 0021: Flow-Neutral Comparison Entry
 
-状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核与 DC10–DC22 修订；待独立复审）
+状态：Accepted（repository owner 于 2026-09-27 按 P5 架构收口 Entry Brief §5 接受；此前为 Proposed：2026-09-25 决定，2026-09-26 按 S0 独立审核与 DC10–DC22 修订）
 
-日期：2026-09-25；修订 2026-09-26
+日期：2026-09-25；修订 2026-09-26；接受 2026-09-27
 
 决策 owner：Backend vNext Comparison / Backend Architecture
 
@@ -35,7 +35,7 @@
    - 初始基线恒为空（DC17），以零表 `before` 传入，不需要单侧视图；
    - surface 的身份标注由 Application 以 surface 自有的中性类型提供。
 4. **公共面按真实消费者收窄**，只保留请求、结果、facts、记录闭包 API 与入口函数。
-5. 接受后同步修订 P5 §2A.2 与 P3-R5 设计的相关条款（详细设计附录 B.5，以及 P3-R5 的“由本 ADR 取代”标注）。
+5. P5 §2A.2 与 P3-R5 设计的相关条款已于 2026-09-27 随本 ADR 接受同步修订（详细设计附录 B.5；P3-R5 加“由本 ADR 取代”标注）。
 
 ## Alternatives
 

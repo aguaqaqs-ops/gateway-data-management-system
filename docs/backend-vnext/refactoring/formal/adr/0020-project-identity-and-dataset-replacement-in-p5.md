@@ -1,8 +1,8 @@
 # ADR 0020: Project Identity and Dataset Replacement in P5
 
-状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；2026-09-27 按 r3 复审修正；待核对 r4 差异）
+状态：Accepted（repository owner 于 2026-09-27 按 P5 架构收口 Entry Brief §5 接受；此前为 Proposed：2026-09-25 决定，2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订，2026-09-27 按 r3 复审修正）
 
-日期：2026-09-25；修订 2026-09-26、2026-09-27
+日期：2026-09-25；修订 2026-09-26、2026-09-27；接受 2026-09-27
 
 决策 owner：Backend vNext Project Identity / Workspace, Submission and Archive Applications
 

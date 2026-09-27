@@ -1,8 +1,8 @@
 # ADR 0018: Canonical-Domain Comparison and Comparison Rule View
 
-状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；2026-09-27 按 r3 复审修正；待核对 r4 差异）
+状态：Accepted（repository owner 于 2026-09-27 按 P5 架构收口 Entry Brief §5 接受；此前为 Proposed：2026-09-25 决定，2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订，2026-09-27 按 r3 复审修正）
 
-日期：2026-09-25；修订 2026-09-26、2026-09-27
+日期：2026-09-25；修订 2026-09-26、2026-09-27；接受 2026-09-27
 
 决策 owner：Backend vNext Architecture / Table Rules / Storage Projection / Comparison
 
@@ -79,7 +79,7 @@
 - Preview 所见即 Submit 所写；存储不支持的类型在 Preview 即失败，并一次列出全部失败项。
 - Preview 每个上传侧多一次规范投影，Submit 相应少一次；prepare 多一次对 expected parent 的只读 catalog 读取。
 - 规则调整使 ruleset digest 变化；DC6 下无兼容负担，所有比较相关 golden 一次性更新。
-- 上游文档修订以候选文本随 S0 接受（详细设计附录 B）：Canonical Storage §2、§4 并升至 3.1.0；Contract Taxonomy §4.4、§4.6、§5、§13；Architecture §7.1/§7.2/§9.1/§10/§13。P3-R4 设计 §4.2 只加“由本 ADR 取代”的标注，不改写正文。
+- 上游文档修订已于 2026-09-27 随 S0 接受并入（详细设计附录 B）：Canonical Storage §2、§4 并升至 3.1.0；Contract Taxonomy §4.4、§4.6、§5、§13；Architecture §7.1/§7.2/§9.1/§10/§13。P3-R4 设计 §4.2 只加“由本 ADR 取代”的标注，不改写正文。
 - `tests/test_architecture.py` 的 owner 集合与 DAG 需要同步。
 
 ## Required Verification

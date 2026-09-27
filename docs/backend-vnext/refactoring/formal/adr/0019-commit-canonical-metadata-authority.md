@@ -1,8 +1,8 @@
 # ADR 0019: Commit Canonical Metadata Authority
 
-状态：Proposed（repository owner 决定 2026-09-25；2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订；2026-09-27 按 r3 复审修正；待核对 r4 差异）
+状态：Accepted（repository owner 于 2026-09-27 按 P5 架构收口 Entry Brief §5 接受；此前为 Proposed：2026-09-25 决定，2026-09-26 按 S0 独立审核、两份 r2 独立复审与 DC10–DC27 修订，2026-09-27 按 r3 复审修正）
 
-日期：2026-09-25；修订 2026-09-26、2026-09-27
+日期：2026-09-25；修订 2026-09-26、2026-09-27；接受 2026-09-27
 
 决策 owner：Backend vNext Snapshot Materialization / Submission Application / History Application
 
@@ -74,7 +74,7 @@
 - 5E-S2 的 integrity 机制与 v6 表被移除（在 5E slice exit 之后执行）。
 - 未来的 `SYSTEM_MIGRATION` commit 必须同时登记 manifest。
 - control DB 新增前向 migration；compose harness 的初始基线改为空提交。
-- Business Lifecycle 升至 3.1.0；Ruleset Activation §1 与 §5（DC23）、Operation Lifecycle §4 与 ADR 0016 的候选文本随 S0 接受（详细设计附录 A、B）。
+- Business Lifecycle 升至 3.1.0；Ruleset Activation §1 与 §5（DC23）、Operation Lifecycle §4 与 ADR 0016 的候选文本已于 2026-09-27 随 S0 接受并入（详细设计附录 A、B）。
 
 ## Required Verification
 

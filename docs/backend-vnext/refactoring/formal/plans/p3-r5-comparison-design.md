@@ -2,6 +2,10 @@
 
 状态：Accepted design baseline；accepted detail plan；S0-S1 complete；implementation authorization pending
 
+取代说明（2026-09-27）：§4 的流程词汇、§5 的 identity gate 与 continuation、§6.1 的单侧 `INITIAL_SNAPSHOT`
+与 §6.3 的受信 flow context 由 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md)（comparison 入口去流程化）与 [ADR 0020](../adr/0020-project-identity-and-dataset-replacement-in-p5.md)（项目身份与数据替换）取代；
+比较在规范域进行（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）。历史正文不改写。
+
 日期：2026-08-20
 
 Owner：Backend vNext Comparison Capability
@@ -72,6 +76,8 @@ private modules，不从 canonical storage 反推 comparison columns，也不把
 
 ## 4. Input and execution vocabulary
 
+> 由 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 取代（见文首取代说明）。
+
 这些字段属于不同维度，不能互相替代：
 
 | 维度 | 值 | 含义 |
@@ -90,6 +96,9 @@ pair；恢复失败时不能猜测缺失行是删除。
 差异或任意 caller 参数伪造。
 
 ## 5. Identity gate and continuation
+
+> 由 [ADR 0020](../adr/0020-project-identity-and-dataset-replacement-in-p5.md) 与 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 取代：身份评估由独立 `project_identity` capability 产出，不设 continuation 门，
+> 身份确认在 AcceptSubmit 收集（见文首取代说明）。
 
 `ProjectIdentityAssessment` 由独立 capability 拥有，R5 只消费 immutable assessment。
 `version-manager-overlap/v1` 的分类为：
@@ -131,6 +140,8 @@ rules。输出 before/current dataset facts、replacement reason、assessment di
 
 ### 6.1 INITIAL_SNAPSHOT
 
+> 由 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 取代：初始基线恒为空，以零表 `before` 传入，不再有单侧视图。
+
 单侧初始展示使用独立 applicability，而不是伪装成 `UNCHANGED` 或
 `BUSINESS_EQUIVALENT`：
 
@@ -169,6 +180,8 @@ FULL 多 pair 使用一个 assessment-set digest；任一适用 pair 为 `UNVERI
 确认。`NOT_APPLICABLE` pair 不触发 identity assessment，也不产生 replacement。
 
 ### 6.3 History compare and archive replay
+
+> 由 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 取代：History 视图与身份适用性由 Application 决定，comparison 不再接收受信 flow context。
 
 history compare 与 archive replay 由受信 flow context 设置 `identity_applicability =
 NOT_APPLICABLE`。普通客户端不能自由声明该值。此类比较不自动执行 project identity

@@ -1,8 +1,8 @@
 # P5 架构收口详细设计
 
-状态：**DRAFT r4 — 已按 S0 独立审核（F1–F11）、owner 决议（DC10–DC27）与 r2、r3 的独立复审修订，待核对 r4 差异；实现未授权**
+状态：**ACCEPTED — S0 文档（r4）由 repository owner 于 2026-09-27 接受；ADR 0018–0021 为 Accepted；实现未授权**
 
-日期：2026-09-27（r4）；r2、r3 为 2026-09-26；r1 为 2026-09-25
+日期：2026-09-27（r4 与接受）；r2、r3 为 2026-09-26；r1 为 2026-09-25
 
 Owner：Backend vNext Architecture（收口牵头）；各项语义归属见 §11
 
@@ -598,7 +598,7 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 | History integrity 收缩、读取不一致处置 | History Application | 5E 设计 §6.6 标注取代；ADR 0016 / Operation Lifecycle §4（附录 B.3） |
 | 目标 DAG | Backend Architecture | Architecture §7.1/§7.2/§9.1/§10/§13（附录 B.6）；`tests/test_architecture.py` owner 集合与 DAG |
 
-接受时点：附录 A、附录 B 的候选文本随 S0 文档审核通过一并接受（Entry Brief §5）；P3 与 5E 的设计文档在同一时点加
+接受时点：附录 A、附录 B 的候选文本已于 2026-09-27 随 S0 文档接受并入（Entry Brief §5）；P3 与 5E 的设计文档同时加了
 “由 ADR 00xx 取代”的标注，不改写历史正文。
 
 ## 12. 测试归属
@@ -661,7 +661,7 @@ r1 的停止条件“Dolt 拒绝 `TEXT` 主键”已由 DC20 决定，不再是�
 
 ## 附录 A：Business Lifecycle 3.1.0 补充候选
 
-以下为候选文本。独立审核通过后由 owner 并入 [Business Lifecycle](../contracts/business-lifecycle-and-state.md)，并将版本升至 3.1.0；接受前不改变 3.0.0。
+以下候选文本已于 2026-09-27 并入 [Business Lifecycle](../contracts/business-lifecycle-and-state.md)，版本升至 3.1.0；保留于此作为并入依据，现行规则以 Contract 正文为准。
 
 附录 A、B 都是编辑指令：引文用于定位，原文跨行或含 code span 处以原词为准；并入时把被修订的旧断言与新增限定合并为一条有效规则，不保留互相矛盾的两句。
 
@@ -683,7 +683,7 @@ r1 的停止条件“Dolt 拒绝 `TEXT` 主键”已由 DC20 决定，不再是�
 
 ## 附录 B：其他上游修订候选
 
-以下候选随 S0 文档审核通过一并接受；接受前原文有效。
+以下候选已于 2026-09-27 并入对应文档；保留于此作为并入依据，现行规则以各文档正文为准。
 
 ### B.1 Canonical Storage and Repository Boundary §2、§4（3.0.0 → 3.1.0）
 

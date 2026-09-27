@@ -1,6 +1,7 @@
 # Backend vNext Architecture and Refactoring Plan
 
-状态：正式设计基线（Accepted Baseline）
+状态：正式设计基线（Accepted Baseline）；2026-09-27 按 [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)
+更新 §7.1、§7.2、§9.1、§10 与 §13（删除 `comparison_projection`）；代码中的占位在 P5 架构收口 S1 删除
 
 本文定义 backend vNext 整体重构的目标架构、模块边界和依赖规则。本文是重构总纲；详细实施阶段见 [Implementation Stages](../plans/implementation-stages.md)，精确语义由本目录的 owner-oriented contracts 和 ADR 规定。旧架构区的 `flows.md`、`operations.md`、`contracts/`、`capabilities/` 与 ADR 仅作为 legacy 证据；发生冲突时以本目录正式文档为准。
 
@@ -347,18 +348,20 @@ ArchivePlan/Result、BaselineNode并CAS推进BaselineHead，不调用Repository�
 
 ```text
 table_access + parser
-    -> snapshot_materialization -> SnapshotTableArtifact
+    -> snapshot_materialization -> SnapshotTableArtifact（原始快照与 Repository 规范快照）
                                       |
-table_rules --------------------------+-> storage_projection
+table_rules --------------------------+-> storage_projection（规范投影、manifest、import schema）
+                                      |      -> mutation_planning（import DML）
                                       |      -> RepositoryImportArtifact
                                       |      -> Repository Client
                                       |
-                                      +-> comparison_projection
-                                             -> comparison
-                                             -> risk_evaluation
-                                             -> surface_assembly
-                                             -> bundle_assembly
-                                             -> upload_preview_bundle
+                                      +-> comparison（ComparisonRuleView + 规范快照）
+                                      |      -> risk_evaluation
+                                      |      -> surface_assembly
+                                      |      -> bundle_assembly
+                                      |      -> upload_preview_bundle
+                                      |
+                                      +-> project_identity（只依赖 snapshot_materialization）
 ```
 
 该流水线中的正向依赖属于业务数据流，不要求所有 capability 相互零依赖。要求的是只依赖公开 contract、禁止反向依赖和禁止环。
@@ -371,10 +374,10 @@ table_rules --------------------------+-> storage_projection
    - Dolt canonical column policy、physical key、ordered identity。
    - CanonicalizationManifest 与 RepositoryImportArtifact content schema。
    - 保证 retained rows 完整，失败时 fail closed。
-2. `comparison_projection`
-   - 跨版本 schema alignment、selected value columns、effective compare key。
-   - comparison projection schema/logical/row identity digest。
-   - 与 storage projection 复用 table-rules 语义源，但不共享未区分职责的 DTO/cache。
+2. `table_rules` 的 `ComparisonRuleView`
+   - 逐表给出比较角色、产物范围、compare-excluded 列与 ordered 参数；
+   - 与 storage projection 的 `StorageRuleView` 来自同一 table-rules 语义源，各有独立 digest，不共享未区分职责的 DTO；
+   - 跨版本 schema alignment 与有效比较键由 comparison 按运行期规则执行（ADR 0018）。
 3. `contracts.table_access`
    - column/descriptor 的最小稳定结构。
    - TableReader、TableSet、row stream protocol。
@@ -488,7 +491,7 @@ CurrentTableStore或generic dual-store framework。
 
 - 哪个 Workspace/Submission 可以写入。
 - 哪个SubmitAttempt可以发起Repository import；ArchivePlan只推进业务BaselineHead，不产生import。
-- ruleset、storage/comparison projection、CanonicalizationManifest、SnapshotSummary、Comparison 和 Risk 语义。
+- ruleset、storage projection 与比较规则视图、CanonicalizationManifest、SnapshotSummary、Comparison 和 Risk 语义。
 - 原始package向外部系统的备份。
 - 业务content digest、no-change判断与选择Repository verification policy。
 - 业务 retention、审批、权限和状态机。
@@ -588,11 +591,10 @@ backend_vnext/
   capabilities/
     table_rules/
     storage_projection/
-    comparison_projection/
     snapshot_materialization/
     comparison/
+    project_identity/
     risk_evaluation/
-    business_projection/
     surface_assembly/
     bundle_assembly/
   operations/
@@ -706,7 +708,7 @@ bytes、Python/Rust核心和业务golden在清理中保持不变。联合清理�
   marker，矛盾结果显式进入人工修复。
 - Repository使用单一内网bearer token；不包含per-repository ACL或通用治理surface；
   verification由caller显式选择且默认STRUCTURAL。
-- Raw SourcePackageArtifact 与 canonical Dolt state 权威分离，storage/comparison projection 分离。
+- Raw SourcePackageArtifact 与 canonical Dolt state 权威分离，storage 与 comparison 规则视图分离。
 - Python/Rust canonical核心golden保持一致；普通fixture和CI不自建closure/evidence
   digest。
 - 正式业务旅程、必要artifact hash、业务digest和前端contract通过验收。

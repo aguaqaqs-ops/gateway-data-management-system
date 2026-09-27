@@ -143,9 +143,10 @@ Architecture 负责。依据 repository owner 本轮明确授权，补充 P5 后
   证明持久证据与实际发送内容一致，不得把恢复依据替换成可能漂移的重新构造请求。
 - **流程编排归 Application：**业务身份、权限、场景选择、跨聚合协调、事务与恢复策略留在
   Application。Capability 接受中性的输入和显式计算策略，不新增对 Review/Archive/History
-  实体或 application model 的依赖。R5 已接受的 pair/view/applicability 词汇保留；5D/5E 若
-  需要增加流程分支，先判断是否可在 Application 映射为已有模式，不能只因新增流程就扩大
-  comparison 的业务分支。确需改变语义时由原 contract owner 决定。
+  实体或 application model 的依赖。comparison 公共面按 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md)
+  只接收两侧规范快照、规则集、执行模式与选项，不含 pair/view/applicability 等流程词汇；新增流程分支
+  先在 Application 映射为已有执行模式，不能只因新增流程就扩大 comparison 的业务分支。确需改变语义时
+  由原 contract owner 决定（2026-09-27 按 ADR 0021 修订）。
 - **按职责控制编排复杂度：**payload/checkpoint codec、artifact protection、事务协调与
   capability pipeline 可以分为同一用例 owner 内的模块；job handler 保留步骤选择和恢复协调。
   只有真实重复消费者才提炼共享入口，不为减少单文件行数新增架构层。
@@ -185,7 +186,7 @@ Repository/Artifact I/O、事务和 Operation 生命周期；Rust 承接经测�
 | finalize/abort transaction 反向调用 `submit_jobs` 的 checkpoint protection helper | Submission Application | 将 helper 放回用例 owner 内的下层模块，消除运行时依赖环 |
 | 架构测试存在 basename 整体豁免，未覆盖上述消费者与运行时环 | Backend Architecture | 收窄例外并在现有测试 owner 补齐边界，避免同包合法内部导入或纯类型引用误报 |
 | `artifacts/nominal_refs.py` 导入 `domain.submission.models` | Artifacts + Submission Application/adapter | 优先将跨层转换上移至 Application/adapter；若迁移类型须同时满足 Domain 依赖规则，保持 Backend/Repository nominal ref 与 scope 隔离 |
-| 包根 `canonicalization_cells.py` / `canonicalization_manifest.py` 与 `repository_import_artifact.py` 混放 owner 逻辑和 Submit adapter | Storage Projection + Submit publication adapter + Architecture | 按职责拆分归位；保持 canonical bytes、manifest/package 版本和 digest 兼容；删除无消费者入口，避免只搬目录或让 capability 反向依赖 Application |
+| 包根 `canonicalization_cells.py` / `canonicalization_manifest.py` 与 `repository_import_artifact.py` 混放 owner 逻辑和 Submit adapter | Storage Projection + Submit publication adapter + Architecture | 按职责拆分归位：adapter 迁入 infrastructure，实现 `SubmitImportPublicationPort`；import 包媒体类型只由 storage_projection 契约定义；canonical bytes、manifest/package 版本与 digest 如因 ADR 0018、0019 改变，一次性更新，不保留兼容（DC6）；删除无消费者入口，避免只搬目录或让 capability 反向依赖 Application（2026-09-27 修订） |
 | 契约公共面与执行实现的区分缺少明确约束 | Capability owners + Architecture | 按 §2A.2 核对 codec/validator/规范摘要与执行算法的边界；仅修复确认的反向依赖、加载副作用或执行混入，不把所有契约函数或 lazy import 判为缺陷 |
 | Preview/Submit 编排职责集中；Comparison 公共面及流程词汇扩大 | 对应 Application + Comparison | 按实际调用方收窄入口和拆分职责；保留已有正式语义，记录必要设计折中，不按文件大小强拆 |
 | `comparison_projection` / `business_projection` 仍为占位契约 | 对应 capability owner + Architecture | 根据 5D/5E 真实消费者明确实现、合并或延期，并同步总纲/ownership 与架构测试 owner 集合、DAG 白名单；无真实消费者时不强行实现，延期不保留虚假的已落地依赖边 |
@@ -213,14 +214,14 @@ Repository owner 决定（2026-09-25）：
 
 | 新增问题 | Owner | P5 整体退出前的处置 |
 | --- | --- | --- |
-| Comparison 表策略投影无 capability owner：History 在 `application/history/compare_jobs.py` 自行由 table rules 投影 `ComparisonTablePolicy` 并手写其 codec；Preview/Submit 不传 `table_policies`，ordered 表按普通 keyed 比较、`no` 参与内容判定，违反 [Canonical Storage §3](../contracts/canonical-storage-and-repository-boundary.md)；同一对 commit 的 Preview 与 History 结果可不一致 | Comparison/Table Rules owner + Preview/History Application | 确定投影 owner（实现 `comparison_projection`，或并入既有 owner 并删除占位与 DAG 白名单边），Preview 与 History 共用同一投影；Preview 补齐 ordered/忽略列语义并更新 golden |
+| Comparison 表策略投影无 capability owner：History 在 `application/history/compare_jobs.py` 自行由 table rules 投影 `ComparisonTablePolicy` 并手写其 codec；Preview/Submit 不传 `table_policies`，ordered 表按普通 keyed 比较、`no` 参与内容判定，违反 [Canonical Storage §3](../contracts/canonical-storage-and-repository-boundary.md)；同一对 commit 的 Preview 与 History 结果可不一致 | Comparison/Table Rules owner + Preview/History Application | 确定投影 owner（实现 `comparison_projection`，或并入既有 owner 并删除占位与 DAG 白名单边），Preview 与 History 共用同一投影；Preview 补齐 ordered/忽略列语义并更新 golden。已决（2026-09-27）：[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)，由 table_rules 的 `ComparisonRuleView` 提供，删除占位 |
 | 编排代码复制：`preview_jobs.py`、`history/compare_jobs.py`、`submit_jobs.py` 重复 step plumbing（如 `_make_successor_builder` 三处逐字相同）与 Snapshot/Summary checkpoint codec；两份 `_summary_payload` 已分叉 | Application owners | step plumbing 与 pair pipeline 收敛为 Application owner 内共享模块；capability 契约类型的 codec 归对应 capability contracts |
-| hidden FINAL summary 在 `infrastructure/repository_read/http_arrow.py` 由 rows 重建，违反 P3-R3“不从 catalog/rows 重建”；summary 交叉校验退化为同一数据读两次，每次 repository-ref 物化全表读两遍并逐行 `to_pylist()` | Snapshot Materialization + Submit + History | 二选一：Submit 时写入 hidden summary（设计原意），或修订 P3-R3 并相应简化 5E integrity 机制；消除重复全表读取 |
-| Preview 以 `_PreviewIdentityAssessment` 固定产出 `SAME_PROJECT` 并标注未执行的 rule_version；P3-R5 要求的独立 project identity capability 不存在，comparison/risk/surface/bundle 的 identity gate、DATASET_REPLACEMENT、continuation 分支无生产者 | Preview Application + Comparison | 实现身份评估，或正式记录“V1 固定 SAME_PROJECT”并删除无生产者分支与词汇（含无消费者的 `ARCHIVE_REPLAY`） |
+| hidden FINAL summary 在 `infrastructure/repository_read/http_arrow.py` 由 rows 重建，违反 P3-R3“不从 catalog/rows 重建”；summary 交叉校验退化为同一数据读两次，每次 repository-ref 物化全表读两遍并逐行 `to_pylist()` | Snapshot Materialization + Submit + History | 二选一：Submit 时写入 hidden summary（设计原意），或修订 P3-R3 并相应简化 5E integrity 机制；消除重复全表读取。已决（2026-09-27）：[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)，修订 P3-R3 并收缩 5E integrity 机制 |
+| Preview 以 `_PreviewIdentityAssessment` 固定产出 `SAME_PROJECT` 并标注未执行的 rule_version；P3-R5 要求的独立 project identity capability 不存在，comparison/risk/surface/bundle 的 identity gate、DATASET_REPLACEMENT、continuation 分支无生产者 | Preview Application + Comparison | 实现身份评估，或正式记录“V1 固定 SAME_PROJECT”并删除无生产者分支与词汇（含无消费者的 `ARCHIVE_REPLAY`）。已决（2026-09-27）：[ADR 0020](../adr/0020-project-identity-and-dataset-replacement-in-p5.md) 实现身份评估，[ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 删除流程词汇 |
 | Preview/History 受理用例位于 `http/orchestration/`（直接构造 Operation/Step、开事务、幂等回放），与 Submit/Review/Archive 在 Application 的放置不一致；`http.runtime` 兼任组合根，worker bootstrap 反向从 `http.runtime` 取 job registry；`http/history_reader.py` 是放在 HTTP 包内的持久化适配器 | Workspace/History Application + Bootstrap | 受理用例移回 Application；组合（含 job registry）移至 bootstrap；适配器归 infrastructure |
 | `application/submission/ports.py` 成为跨域 UoW 枢纽（archive/history/workspace/HTTP 均依赖），计入 TYPE_CHECKING 时 history 与 submission 成环 | Application owners | 按 owner 拆分 UoW port，组合在 bootstrap/infrastructure 完成 |
 | Operation 契约校验器以私有符号被 Application/HTTP/bootstrap 使用（`_validate_json_structure` 等） | Operations | 提供公开校验入口或下沉到 shared kernel |
-| 生产入口不可达代码约 4,000 行（`cache/`、整条 Rust canonical-row-hash 路径、`comparison/provider`、`external_target_sync`、composite_signal 业务物化与 XML parser、`synthetic_w2`），另 synthetic job 桩仅经 worker 桩恢复分支可达；上传包中的 `logics.xml` 当前被静默忽略 | 各 capability owner + Architecture | 接入真实消费者、在 owning design 记录延期，或删除；composite_signal 是否进入 P5 业务物化须明确决定 |
+| 生产入口不可达代码约 4,000 行（`cache/`、整条 Rust canonical-row-hash 路径、`comparison/provider`、`external_target_sync`、composite_signal 业务物化与 XML parser、`synthetic_w2`），另 synthetic job 桩仅经 worker 桩恢复分支可达；上传包中的 `logics.xml` 当前被静默忽略 | 各 capability owner + Architecture | 接入真实消费者、在 owning design 记录延期，或删除；composite_signal 是否进入 P5 业务物化须明确决定。已决（2026-09-26，DC4）：composite_signal 接入 P5 业务物化，见收口设计 §8 |
 | 5E-S2（`74324b5f6d`）在 §2A.2 生效后新增 `compare_jobs.py` 与 control_db 的 basename 豁免，handoff 未披露 | Backend Architecture | 已由下述门禁取代 |
 
 门禁：`tests/test_architecture.py` 已改为统一 import 规则（`tests/support/import_rules.py`：层依赖、
@@ -231,7 +232,7 @@ capability 公共面、私有模块/符号、contracts 叶子、包根归属、�
 规则判定的问题，以本表跟踪。
 
 第二轮复核（2026-09-25，代码基线 `2172369803`）确认的补充问题如下。它们与本节既有问题一并由
-[P5 架构收口设计](p5-arch-closure-design.md) 处置（草案 r4：已经 S0 独立审核与 r2、r3 的独立复审，并按 owner 决议修订，待核对 r4 差异）：
+[P5 架构收口设计](p5-arch-closure-design.md) 处置（S0 文档已于 2026-09-27 接受，ADR 0018–0021 为 Accepted；实现未授权）：
 
 | 补充问题 | 处置入口 |
 | --- | --- |
@@ -247,8 +248,8 @@ S0 独立审核（2026-09-26）另确认了若干既有缺陷：SET 列的读取
 
 Repository owner 在同日作出的决定：规范域比较、以 manifest 作为 commit 规范元数据权威、项目身份沿用
 旧设计三段式语义（继续确认在 Submit 受理时收集）、composite 接入 P5、撤销 §2A.2 对 R5 流程词汇的
-保留约定。后一项以 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 接受为准，接受前 §2A.2
-原文仍然有效。2026-09-26 的补充决定（DC10–DC27）见
+保留约定。后一项随 [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 于 2026-09-27 接受，§2A.2 已按其
+修订。2026-09-26 的补充决定（DC10–DC27）见
 [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)。
 
 ### 2A.5 收口验收
@@ -372,8 +373,9 @@ materialize_inputs
 ```
 
 table/capability内部工作不升级为持久workflow step。必需source/table/default pair/bundle closure
-失败使整个Preview失败；可选table/XML/ordered/risk增强可以以bounded diagnostics降级，但成功
-结果仍只有READY，不增加`READY_WITH_WARNINGS`。
+失败使整个Preview失败。`/comps/logic/logics.xml`存在时是必需输入，解析失败或违反composite业务
+不变量使Preview失败（DC8）；其余可选table/XML/ordered/risk增强可以以bounded diagnostics降级，
+但成功结果仍只有READY，不增加`READY_WITH_WARNINGS`。
 
 新Upload采用latest-generation-wins。旧QUEUED Preview进入`SUPERSEDED`；旧RUNNING Preview
 收到cooperative cancellation，且无论迟到结果如何都不能发布current preview。发布事务同时

@@ -1,6 +1,6 @@
 # Business Lifecycle and State Contract
 
-状态：正式设计（Accepted）；`3.0.0` 固定业务 scope 归属补充已复审接受
+状态：正式设计（Accepted）；`3.0.0` 固定业务 scope 归属补充已复审接受；`3.1.0` P5 架构收口补充于 2026-09-27 接受
 
 阶段：Phase 0 结论；Phase 5 实现
 
@@ -8,11 +8,17 @@ Contract ID：`gateway-vnext.business-lifecycle-and-state`
 
 Owner：各子领域 owner（见下表；本文不建立共同 aggregate）
 
-Semantic version：`3.0.0`（Accepted；前版 `2.0.0`）
+Semantic version：`3.1.0`（Accepted 2026-09-27；前版 `3.0.0`）
 
 2026-09-06 amendment：P5 设计收口后，Repository `main` 与业务 `BaselineHead` 明确分离；
 Archive 直接把既有合格 Submission commit 提升为业务 Baseline，不移动 Repository ref、
 不重新导入，也不再使用 external-effect execution 四态。Review 不创建或清理临时 ref。
+
+2026-09-27 amendment（`3.1.0`）：随 [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–
+[ADR 0021](../adr/0021-flow-neutral-comparison-entry.md) 接受，比较在规范域进行并使用运行期规则集；PreviewResult
+绑定规范表集合与规范状态摘要；初始 BaselineNode 恒为空；Submit 写入上传的完整规范状态；项目身份异常以确认与
+Archive 处置记录（§1A.2、§2–§6）。实现由 [P5 架构收口](../plans/p5-arch-closure-design.md) S1–S5 交付；交付前现行
+源码仍按 `3.0.0` 行为运行，不将本补充表述为已实现。
 
 ## 1. 目的与所有权
 
@@ -89,6 +95,9 @@ Baseline 登记与首次 mapping 建立在同一个 control DB 事务中完成�
 initial BaselineNode。Repository provisioning/initial commit 的真实性仍由既有 owner 负责，
 不得靠 Archive 创建 commit 或猜测 main 来补归属。
 
+初始 BaselineNode 引用的 commit 必须是没有用户表的空提交，即零表规范状态；物化时断言，不满足即
+稳定失败。不支持预置数据的初始库，种子数据一律经 Submit 进入。
+
 migration、首次 seed、批量 seed 和 mapping update 必须遵循同一业务验收规则：
 
 1. 以 Repository 聚合输入、现存 mapping（包含 disabled）及已有初始归属；同时核对历史
@@ -135,16 +144,24 @@ safety、required-file和role closure admission；不得解析SQL、materialize 
 格式校验在接受前失败不得创建revision。
 
 `PreviewResult` 是对 exact Workspace、UploadRevision、source/input digest、业务Baseline、
-ruleset/contract version、Snapshot/Comparison digest 和 artifact closure 的不可变绑定。
+ruleset/contract version、Snapshot/Comparison digest、artifact closure，以及 MODIFIED 侧规范表集合
+闭包与 CanonicalizationManifest 引用、上传 MODIFIED 侧与基线侧的规范状态摘要、投影所用规则集
+digest、身份评估集摘要与逐 pair 的身份结论和执行模式的不可变绑定。
 Preview接受时冻结这些身份，并创建固定三步Operation：
 `materialize_inputs -> assemble_preview -> publish_preview`。Preview失败不使已接受revision
 失败；旧generation不得覆盖current preview。新Upload采用latest-generation-wins：旧QUEUED
 Preview进入`SUPERSEDED`，旧RUNNING Preview收到cooperative cancellation。
 
-必需source/table/default pair/bundle closure缺失使整个Preview失败；可选table/XML/ordered/risk
-增强失败可发布READY及bounded diagnostics，不增加`READY_WITH_WARNINGS`。发布前Workspace
-generation或BaselineHead CAS漂移时进入`SUPERSEDED`，不创建PreviewResult或current pointer；
-发布后的Baseline漂移保留immutable结果，但使其derived-stale，后续Submit必须拒绝。
+比较在规范域进行，比较语义使用运行期规则集：被规则丢弃的列与 SKIP 表不属于比较对象；只存不比的
+表以表级事实呈现内容变化；列序不属于规范业务状态。规范投影失败（不支持的类型、键或表）使整个
+Preview 失败，并一次列出全部失败项。
+
+必需source/table/default pair/bundle closure缺失使整个Preview失败。`/comps/logic/logics.xml`
+存在时是必需输入，解析失败或违反composite业务不变量使整个Preview失败；缺失时使用稳定的EMPTY来源。
+其余可选table/XML/ordered/risk增强失败可发布READY及bounded diagnostics，不增加
+`READY_WITH_WARNINGS`。发布前Workspace generation或BaselineHead CAS漂移时进入`SUPERSEDED`，
+不创建PreviewResult或current pointer；发布后的Baseline漂移保留immutable结果，但使其
+derived-stale，后续Submit必须拒绝；投影所用规则集与运行期不同亦然（§3）。
 
 Upload与Preview是两个用例；接口可以组合调用，但identity、失败和重试语义不能合并。Upload
 同步完成且不创建Operation；只有Preview执行状态属于Operation，不进入Workspace。
@@ -156,6 +173,17 @@ Upload与Preview是两个用例；接口可以组合调用，但identity、失�
 `repository_expected_commit_id`；二者不得混用。若Preview的canonical business digest与当前
 业务base相同，以`NO_CANONICAL_CHANGE`在创建Attempt前拒绝；不得创建Operation、Repository
 request、Submission或BaselineNode。
+
+canonical business digest 指规范状态摘要，由列序无关的业务 schema、行数与内容组成；业务 schema 不是
+CanonicalizationManifest 中按 DDL 列序计算的每表 schema digest。`NO_CANONICAL_CHANGE` 指 PreviewResult
+中上传 MODIFIED 侧与基线侧的规范状态摘要相等。Preview 的基线漂移，或其投影所用规则集与运行期不同，
+都使 PreviewResult derived-stale，AcceptSubmit 拒绝。
+
+Preview 含 `DIFFERENT_PROJECT` 或 `UNVERIFIABLE` pair 时，AcceptSubmit 必须携带对应的、彼此独立的
+身份确认；确认记录随 Attempt 冻结，并复制到 Submission，不可变。
+
+Attempt 在 T1 冻结 PreviewResult 的规范表集合与 CanonicalizationManifest。Submit 写入的内容就是上传的
+完整规范状态，expected parent 中多出的表在新 commit 中删除。
 
 验收成功只创建 `SubmitAttempt` 与 Operation。Attempt 固化 source/baseline/preview、artifact、request/idempotency、Repository operation/evidence、终局和 Submission 引用。状态仅为：
 
@@ -193,6 +221,7 @@ PENDING | APPROVED | REJECTED | RETURNED_FOR_REVISION | WITHDRAWN
 Review 使用不可变审核事件和当前 projection；不建设单独的“开始审核”命令或中间审核状态。Approve、reject、withdraw、return 是直接的短事务。Reject/withdraw/return 重新开放 Workspace 并清除当前输入、预览和占用；approved Submission 保持占用，直到对应 ArchiveResult 推进 BaselineHead。归档开始后不得 return。
 
 Review状态与Archive disposition正交。Review不创建、移动、回退或清理Repository ref。
+Review 只读展示 Submission 的身份确认记录。
 `REJECTED | RETURNED_FOR_REVISION | WITHDRAWN`对应的成功Submission commit永久保留并进入
 HistoryTreeProjection；知道CommitId不绕过当前scope与permission检查。
 
@@ -213,7 +242,8 @@ expected BaselineHead version，并在短本地事务中重新校验Head、无ac
 candidate-set digest、confirmation、anomaly resolution与唯一selection。AcceptSubmit和
 StartArchive在同一Repository/BaselineHead scope内通过control DB事务串行验收。
 Confirmation和AnomalyResolution是append-only审计事实；有效性由当前subject digest和
-sequence派生。
+sequence派生。AnomalyResolution 包括身份异常 subject：带身份确认记录的 Submission 被选为归档
+对象时，必须有带理由的肯定处置。
 
 StartArchive成功时在同一业务事务中冻结immutable `ArchivePlan`，直接把所选Submission的既有
 CommitId绑定到新`BaselineNode`，并创建`ArchiveResult`、CAS推进`BaselineHead`、分类未选
@@ -232,6 +262,10 @@ notification若出现真实consumer，只能作为归档成功后的独立可重
 `HistoryTreeProjection`由Backend从initial Baseline、Submission、ReviewEvent/Projection、
 BaselineNode/Head、ArchivePlan/Result和校验问题按请求组合，不是Dolt内部log的镜像。业务父边为
 `based_on_baseline_node_id`；Repository parent commit只可作为技术诊断字段，不能替代业务边。
+
+History 比较使用运行期规则集；节点的 commit 规范元数据提供存储身份与 provenance。比较始终按列名与
+有效键对齐（[Canonical Storage](canonical-storage-and-repository-boundary.md) §7），schema 差异的来源
+只依据两侧规则侧的存储事实标记。
 
 History包含所有成功Submission commit及其PENDING/APPROVED/REJECTED/
 RETURNED_FOR_REVISION/WITHDRAWN review事实、ARCHIVED_BASELINE/CLOSED_NOT_ARCHIVED archive
@@ -262,6 +296,11 @@ permission；完整项目历史需要device/project audit权限。
 §1A 的 `3.0.0` 收窄此前未禁止的跨 scope 共享/转交，可能拒绝既有配置，按不兼容
 业务映射约束处理；不将其标成 `2.0.0` 已有规则。正式版本推进见
 [独立复审接受记录](../plans/p5-5d-s0-independent-docs-acceptance.md)；不自动升级 SQLite schema、Repository wire、其他 Contract 或授权 production migration。
+
+`3.1.0`（2026-09-27）按 [P5 架构收口 Entry Brief](../plans/p5-arch-closure-s0-entry-brief.md) §5 接受。新增的
+持久事实（PreviewResult 的规范绑定与身份结论、Attempt 冻结的规范表集合与 manifest、身份确认记录、Archive
+身份异常事件）都有明确 consumer；control DB 以前向 migration 增加，不做兼容回填。实现随收口 S1–S5 交付，
+验收 owner 见[收口设计](../plans/p5-arch-closure-design.md) §12；交付前现行源码仍按 `3.0.0` 行为运行。
 
 ## 9. 验收标准
 
@@ -304,6 +343,8 @@ permission；完整项目历史需要device/project audit权限。
 - [External Effect and Recovery](external-effect-and-recovery.md)
 - [Canonical Storage and Repository Boundary](canonical-storage-and-repository-boundary.md)
 - [ADR 0002](../adr/0002-minimal-persisted-business-state.md)
+- [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[ADR 0021](../adr/0021-flow-neutral-comparison-entry.md)
+  与 [P5 架构收口设计](../plans/p5-arch-closure-design.md)（`3.1.0`）
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
 - [Repository Service](repository-service.md)

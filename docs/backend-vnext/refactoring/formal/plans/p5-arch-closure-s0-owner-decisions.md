@@ -320,3 +320,12 @@ implementation_authorized: no
   不做换行规范化。是否放行由调用方显式选择：身份确认理由放行，Review 理由保持现行规则，行为不变。
 - **落点**：设计 §7.6 与 §12，ADR 0020 Decision 5，执行计划 S4 的验收与路径预算（`test_review_domain.py` 为共享校验的 owner）。
   Business Lifecycle 3.1.0 未规定理由字符集，不需要修订。
+
+## 9. S1 修订登记延期（2026-09-27）
+
+- **DC26 / canonical row hash**：S1 采用 DC26 选项 3。`compute.py` 与 `canonical_row_hash_ipc.py` 已迁入
+  `capabilities/canonical_row_hash/`，但尚无生产 journey 消费者；`import_rules` 不可达基线保留
+  `canonical_row_hash.{compute,canonical_row_hash_ipc,contracts}` 三条，关闭阶段 **Phase 6**（Rust 覆盖与性能输入），
+  理由见设计 §9 A6 与 `vnext/backend/tests/architecture_baseline.py`。
+- **external_target_sync（设计 §9 A9）**：三模块（`contracts`、`_ledger_digest`、`_reference_executor`）保持生产不可达，
+  登记为**外部目标延期**；真实外部目标 journey 出现时由 mutation_planning owner 重开，不在 S1–S2b 强行接入。

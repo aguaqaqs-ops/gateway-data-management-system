@@ -65,9 +65,10 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 
 1. 把本分支合入 5E exit 后的主线。（已完成，2026-09-27：合并提交 `d116843188`；此后主线为 `main`。）
 2. 运行 `python -m tests.support.import_rules`，记录 S4 期间基线的变化。
-3. 按设计 §2（R1–R6、E-a…E-i）复核 E 级事实；若有偏离，先修订设计对应章节再开工。
+3. 按设计 §2（R1–R6、E-a…E-i）复核 E 级事实，并对照新 HEAD 复核 §3 路径预算（已知漂移见 §8.6）；若有偏离，先修订设计对应
+   章节再开工。
 4. 真实数据普查（DC22）：
-   - 数据按[决议记录 §4](p5-arch-closure-s0-owner-decisions.md#4-真实数据存放建议)存放，脚本经
+   - 数据的实际布局见 §8.3；其余按[决议记录 §4](p5-arch-closure-s0-owner-decisions.md#4-真实数据存放建议)执行，脚本经
      `GATEWAY_REAL_DUMP_ROOT` 定位，脚本放在 `vnext/backend/benchmarks/`（不进入生产包）；
    - 对 4 份 dump 只读执行 staging、业务物化（SQL 与 `logics.xml`）与规则解析，输出只含结构统计，写入
      `$GATEWAY_REAL_DUMP_ROOT/census/`；
@@ -191,6 +192,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 ### S4 — 项目身份与数据替换
 
 - 目标：设计 §7（W4）。
+- 内容：按设计 §7.1–§7.7 实施；本节只列验收，路径见 §3。
 - 验收：
   - 身份规则 v1 用合成夹具覆盖旧验收矩阵的判定类别：同项目、不同项目、排除 `no`、缺表、空表、没有非 `no` 列、列集合不一致；
     投影侧与 Repository 侧对同一内容得出相同 assessment；
@@ -438,3 +440,106 @@ Dockerfile、依赖锁与 Compose 预期不变；真实数据不挂载进容器�
 
 设计 §14 任一停止条件出现时，暂停当前阶段，在 handoff 记录触发事实并交 owner 处理；不得以兼容代码、
 Application 特判或新增基线条目绕过。
+
+## 8. 阶段推进约定
+
+2026-09-27 由 repository owner 同意。目的是让每个阶段只凭一段简短提示词即可推进；本节不改变 §2 的验收与 §3 的预算。
+
+### 8.1 授权、分支与提交
+
+- 实现授权由 owner 按阶段给出，一次授权可以覆盖多个阶段；无论授权范围多大，阶段审核未通过都不进入下一阶段。
+  S1 kickoff 随 S1 的授权一起执行。
+- 主线为 `main`。每个阶段从当时的 `main` 切出工作分支 `p5-closure/s1`、`p5-closure/s2a`……，在独立 worktree
+  `/home/dev/gdds-p5-closure-s<N>` 中实施；主工作区保持在 `main`，不在其中实施。
+- 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s1): ...`）。每个子步结束运行
+  `import_rules` 与受影响的 focused 测试；`import_rules` 的输出只减不增，改名导致的条目替换在同一提交中说明。
+- 审核对象为工作分支的 HEAD 与 handoff。定向修订在同一分支追加提交，复审只核对差异。审核通过后以 `--no-ff` 合入
+  `main`（保留审核引用的提交），再删除工作分支与 worktree。
+- 审核按阶段进行（§1），只审本阶段差异与 handoff；S5 另按 P5 §2A.5 做整体验收。
+
+### 8.2 handoff
+
+- 路径：`plans/p5-arch-closure-s<N>-handoff.md`；S1 kickoff 的记录写在 S1 handoff 的第一节。
+- 最小内容：base 与 HEAD；子步与提交的对照；路径预算偏差（启用的条件路径及理由、文件改名）；`import_rules` 前后对照；
+  验收 owner 及实际命令与结果；镜像重建记录（按 [testing-conventions](../../../testing-conventions.md) 的模板记录 image
+  revision 与 source tree，延期时写明延期到哪个节点）；阶段之间的中间状态与延期项；停止条件（设计 §14）是否触发；
+  请 reviewer 重点核对的内容。
+- 真实数据只记录 dataset ID、SHA-256、规模与结构统计（决议记录 §4）。
+
+### 8.3 真实数据的实际布局
+
+owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为 `/home/dev/gateway-real-dumps`），与决议记录 §4 的建议
+布局不同：
+
+```text
+<tier>/<tier>-<n>/        # 原始工程目录；tier 为 small_cut、small、medium、large，每档 n = 1、2
+  sql/dbcfg.sql
+  comps/logic/logics.xml  # 其余文件不属于上传包
+```
+
+- 普查脚本按生产上传包的布局（`sql/dbcfg.sql`、`comps/logic/logics.xml`）确定性地打包为 TAR_GZ，写入 `$GATEWAY_REAL_DUMP_ROOT/packages/`，
+  并生成 `$GATEWAY_REAL_DUMP_ROOT/datasets.json`（字段按决议记录 §4）。原始目录只读，不改名、不移动。
+- dataset ID 映射：`small_cut` → t1、`small` → t2、`medium` → t3、`large` → t4；`-1`、`-2` 映射为 v1、v2。
+- 同一规模档的 `-1`、`-2` 是否为同一项目的前后版本、不同规模档之间是否为不同项目，由 owner 在 S1 kickoff 时确认并写入
+  `datasets.json` 的 `pair_of` 与 handoff；S2b 的同项目链路与 S4 的 `SAME_PROJECT`/`DIFFERENT_PROJECT` 预期以此为准。
+- 目录权限按决议记录 §4 收紧为 700/600（2026-09-27 为 775/664），由 owner 执行。
+
+### 8.4 S1 子步
+
+每个子步都不改变行为，测试只改导入路径、不改断言（§2 S1）。
+
+1. **S1.1 死代码**：A9 / N-dead，连同 §3 列出的测试删除。
+2. **S1.2 包根模块**：A6。删除重复的 manifest 与 cells 模块；`compute`、`canonical_row_hash_ipc` 移入
+   `capabilities/canonical_row_hash/`，同时加入 DC26 的精确放行；`synthetic_w2.py` 移至 T/support。
+3. **S1.3 私有导入与 facade**：A1、A2、A3、A5、A7。
+4. **S1.4 装配与越层**：N-http-composition、N-http-bypass、N-infra-usecase、N-operations-private，以及 Preview/History 受理用例。
+   `bootstrap/operation_worker.py` 中 `build_worker_runtime` 的 `read_uow_factory`、`now_factory` 注入参数保留（`0d9d0d9dc5`
+   新增，`test_submit_job_prepare.py` 使用）。
+5. **S1.5 UoW 枢纽与环**：UoW 枢纽、N-cycles；结束时运行时环基线为空。
+6. **S1.6 job 模块复制**：A8，新增 `application/job_steps.py`、`application/pair_pipeline.py`；checkpoint 载荷不变。
+7. **S1.7 阶段门禁**：`import_rules` 输出与 §2 S1 验收一致；`./vnext/scripts/run-tests.sh` 全量；五包静态检查；重建镜像并
+   运行既有 compose 旅程。
+
+### 8.5 S2b 子步
+
+1. **S2b.1 commit 规范元数据**：`CommitCanonicalMetadataPort`、`sqlite_commit_metadata.py` 与 control DB migration。
+2. **S2b.2 Repository 读取**：`canonical_binding`、单遍读取、删除 hidden summary、`REPOSITORY_ROW_COUNT_MISMATCH`；
+   `http_arrow.py` 只负责传输（关闭 A2 的两条）。
+3. **S2b.3 Preview**：上传侧规范投影；PreviewResult 持久化规范绑定；INITIAL 恒空断言。
+4. **S2b.4 AcceptSubmit**：陈旧判定与 `NO_CANONICAL_CHANGE`；T1 冻结闭包与 manifest、按闭包转移保护；删除基线自比流水线与
+   T1 启发式。
+5. **S2b.5 prepare**：读取冻结闭包与 manifest；`RepositoryParentCatalogPort` 与 `removed_tables`；adapter 迁入 infrastructure
+   （关闭 A6 的 adapter 条目）；包进入 prepare checkpoint。扩展 checkpoint 时同步更新允许的键集合，并保留 `0d9d0d9dc5` 的
+   语义：checkpoint 的 attempt 绑定与 payload 不符时终止为 FAILED。
+6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB migration 与 HTTP/OpenAPI 变更（设计 §10）。
+7. **S2b.7 旅程与门禁**：compose harness 不预导入（DC17）与 §2 S2b 的旅程；真实数据链路；全量与镜像。
+
+S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
+
+### 8.6 开工前复核（2026-09-27）
+
+- 代码相对文档基线 `2172369803` 的漂移只有 `0d9d0d9dc5`（prepare checkpoint 绑定修复）与 `4339a4c6ad` 的测试补充，共 5 个文件：
+  `application/submission/errors.py`、`application/submit_jobs.py`、`bootstrap/operation_worker.py`、T/support 的
+  `submit_job_harness.py`、`test_submit_job_prepare.py`。设计没有引用其中改动的符号；对实施的影响已写入 §8.4 第 4 项与
+  §8.5 第 5 项。
+- `import_rules` 在 `main` 上的输出与 `architecture_baseline.py` 一致（违例 54、运行时环 8、不可达 16），S4 与 prepare 修复
+  期间没有新增条目。
+- 真实数据已就位（§8.3），普查可以执行。
+- S1 kickoff 在 S1 的 base 上重新确认以上结果，并写入 S1 handoff。
+
+### 8.7 提示词模板
+
+实施：
+
+```text
+按 docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-execution-plan.md 执行 S<N>（实现授权范围：S<N>）。
+基线 main @ <sha>；工作分支 p5-closure/s<N>，worktree /home/dev/gdds-p5-closure-s<N>。
+按 §8 推进，完成后写 handoff 并交独立审核；未通过不进入下一阶段。
+```
+
+审核：
+
+```text
+独立审核 P5 架构收口 S<N>：对象为 p5-closure/s<N> @ <sha>（base main @ <sha>）与 plans/p5-arch-closure-s<N>-handoff.md。
+按执行计划 §2 S<N> 的验收、§3 预算与纵切指南 §6 给出结论。
+```

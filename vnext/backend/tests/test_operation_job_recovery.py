@@ -41,7 +41,7 @@ from gateway_backend.application.checkpoints import (
     prepare_step_checkpoint,
 )
 from gateway_backend.application.payloads import CheckpointDecodeError
-from gateway_backend.application.external_effect_stub import (
+from tests.support.external_effect_stub import (
     DeterministicExternalEffectStub,
     RecordingExternalEffectStub,
     StubOutcome,
@@ -58,7 +58,7 @@ from gateway_backend.application.recovery import (
     RecoveryOutcomeDisposition,
     compute_request_fingerprint,
 )
-from gateway_backend.application.synthetic_jobs import (
+from tests.support.synthetic_jobs import (
     EXTERNAL_EFFECT_STUB_JOB_KIND,
     EXTERNAL_EFFECT_STUB_PAYLOAD_VERSION,
     EXTERNAL_EFFECT_STUB_STEP_NAME,

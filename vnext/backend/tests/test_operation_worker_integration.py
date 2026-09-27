@@ -780,16 +780,17 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
 ) -> None:
     """P4-R5-S5: recovery-routed worker executor polls the original identity after takeover."""
 
-    from gateway_backend.application.external_effect_stub import (
+    from tests.support.external_effect_stub import (
         DeterministicExternalEffectStub,
         RecordingExternalEffectStub,
         StubOutcome,
         build_request_bytes,
         compute_operation_identity,
     )
-    from gateway_backend.application.synthetic_jobs import (
+    from tests.support.synthetic_jobs import (
         EXTERNAL_EFFECT_STUB_PAYLOAD_VERSION,
         PollingExternalEffectStub,
+        build_external_effect_stub_recovery_port,
         external_effect_stub_composition_bundle,
     )
 
@@ -878,7 +879,10 @@ def test_worker_runtime_external_effect_accepted_takeover_polls_original_identit
         job_definitions=definitions,
         handlers=handlers,
         payload_decoders=decoders,
-        external_effect_stub=polling_stub,
+        external_effect_recovery=build_external_effect_stub_recovery_port(
+            artifact_store,
+            external_stub=recording_stub,
+        ),
     )
     startup = runtime._startup
     assert startup.startup() is StartupDisposition.READY

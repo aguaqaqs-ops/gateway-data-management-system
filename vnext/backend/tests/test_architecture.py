@@ -45,10 +45,8 @@ CAPABILITY_OWNERS = frozenset(
         "composite_signal",
         "snapshot_materialization",
         "storage_projection",
-        "comparison_projection",
         "comparison",
         "risk_evaluation",
-        "business_projection",
         "surface_assembly",
         "bundle_assembly",
         "mutation_planning",
@@ -66,11 +64,9 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
         {"table_access", "table_rules", "source_package_staging", "composite_signal"}
     ),
     "storage_projection": frozenset({"table_rules", "snapshot_materialization"}),
-    "comparison_projection": frozenset({"table_rules", "snapshot_materialization"}),
-    "comparison": frozenset({"comparison_projection", "snapshot_materialization"}),
+    "comparison": frozenset({"snapshot_materialization"}),
     "risk_evaluation": frozenset({"comparison"}),
-    "business_projection": frozenset({"comparison"}),
-    "surface_assembly": frozenset({"comparison", "risk_evaluation", "business_projection"}),
+    "surface_assembly": frozenset({"comparison", "risk_evaluation"}),
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),
     "external_target_sync": frozenset({"mutation_planning"}),
@@ -499,8 +495,11 @@ def test_checkpoints_module_io_boundary() -> None:
     assert "gateway_backend.infrastructure" not in text
 
 
+TESTS_SUPPORT_ROOT = Path(__file__).parents[1] / "tests" / "support"
+
+
 def test_synthetic_jobs_module_io_boundary() -> None:
-    source = APPLICATION_ROOT / "synthetic_jobs.py"
+    source = TESTS_SUPPORT_ROOT / "synthetic_jobs.py"
     assert source.is_file()
     text = source.read_text(encoding="utf-8")
     forbidden = (
@@ -520,7 +519,7 @@ def test_synthetic_jobs_module_io_boundary() -> None:
 
 
 def test_external_effect_stub_module_io_boundary() -> None:
-    source = APPLICATION_ROOT / "external_effect_stub.py"
+    source = TESTS_SUPPORT_ROOT / "external_effect_stub.py"
     assert source.is_file()
     text = source.read_text(encoding="utf-8")
     forbidden = (
@@ -888,7 +887,6 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("gateway_backend.capabilities.comparison.ordered", "gateway_backend.capabilities.comparison.standard", ("_row_digest",), None),
     ("gateway_backend.bootstrap.operation_worker", "gateway_backend.infrastructure.control_db", (), None),
     ("gateway_backend.bootstrap.operation_worker", "gateway_shared_kernel.testing", (), RULE_LAYER),
-    ("gateway_backend.cache.comparison_core", "gateway_backend.capabilities.comparison.artifacts", (), RULE_CAPABILITY_SURFACE),
 )
 
 

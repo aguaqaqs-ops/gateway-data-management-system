@@ -11,7 +11,6 @@ from gateway_backend.capabilities.snapshot_materialization import (
     open_snapshot_table_artifact,
     publish_snapshot_table_artifact,
     validate_snapshot_table_artifact,
-    SnapshotTableArtifactCache,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     DIGEST_CONTRACT_VERSION,
@@ -76,7 +75,6 @@ def test_public_entry_exists_without_parser_or_host_path() -> None:
     assert callable(publish_snapshot_table_artifact)
     assert callable(open_snapshot_table_artifact)
     assert callable(validate_snapshot_table_artifact)
-    assert callable(SnapshotTableArtifactCache)
     for source in _OWNER.rglob("*.py"):
         text = source.read_text(encoding="utf-8")
         for token in _FORBIDDEN:

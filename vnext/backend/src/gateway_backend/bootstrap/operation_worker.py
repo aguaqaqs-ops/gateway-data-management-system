@@ -47,7 +47,6 @@ from gateway_backend.application.submit_jobs import (
 )
 from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
-from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
     LocalArtifactStore,
@@ -253,7 +252,7 @@ def build_worker_runtime(
     job_definitions: tuple[JobDefinition, ...] = (),
     handlers: Mapping[str, ClaimedExecutor] | None = None,
     payload_decoders: Mapping[str, PayloadDecoder] | None = None,
-    external_effect_stub: object | None = None,
+    external_effect_recovery: RecoveryPort | None = None,
     preview_recovery: RecoveryPort | None = None,
     submit_recovery: RecoveryPort | None = None,
     write_uow_factory: WriteUnitOfWorkFactory | None = None,
@@ -307,7 +306,7 @@ def build_worker_runtime(
         composition,
         jitter=jitter,
         now_factory=resolved_now_factory,
-        external_effect_stub=external_effect_stub,
+        external_effect_recovery=external_effect_recovery,
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
     )
@@ -476,7 +475,7 @@ def _adapt_recovery_port(port: RecoveryPort) -> HandlerRecoveryCallback:
 def _build_recovery_callbacks(
     composition: JobWorkerComposition,
     *,
-    external_effect_stub: object | None,
+    external_effect_recovery: RecoveryPort | None,
     now_factory: Callable[[], datetime],
     preview_recovery: RecoveryPort | None,
     submit_recovery: RecoveryPort | None,
@@ -489,13 +488,12 @@ def _build_recovery_callbacks(
             and definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT
         ):
             callbacks[definition.key] = _adapt_recovery_port(submit_recovery)
-        elif definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT:
-            port = build_external_effect_stub_recovery_port(
-                composition.artifact_store,
-                external_stub=cast(Any, external_effect_stub),
-                now_factory=now_factory,
-            )
-            callbacks[definition.key] = _adapt_recovery_port(port)
+        elif (
+            external_effect_recovery is not None
+            and definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT
+            and definition.key.job_kind != SUBMIT_JOB_KIND
+        ):
+            callbacks[definition.key] = _adapt_recovery_port(external_effect_recovery)
         elif preview_recovery is not None and definition.key.job_kind == PREVIEW_JOB_KIND:
             callbacks[definition.key] = _adapt_recovery_port(preview_recovery)
         else:
@@ -534,13 +532,13 @@ def _build_recovery_aware_registry(
     *,
     jitter: Callable[[float, float], float],
     now_factory: Callable[[], datetime],
-    external_effect_stub: object | None,
+    external_effect_recovery: RecoveryPort | None = None,
     preview_recovery: RecoveryPort | None = None,
     submit_recovery: RecoveryPort | None = None,
 ) -> WorkerRegistry:
     recovery_by_key = _build_recovery_callbacks(
         composition,
-        external_effect_stub=external_effect_stub,
+        external_effect_recovery=external_effect_recovery,
         now_factory=now_factory,
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,

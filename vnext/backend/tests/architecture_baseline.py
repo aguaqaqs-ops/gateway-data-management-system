@@ -225,12 +225,6 @@ IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
             "gateway_backend.operations.contracts:_IJSON_MAX_SAFE_INTEGER,"
             "_MAX_DIAGNOSTIC_MESSAGE_BYTES,_MAX_OPAQUE_ID_BYTES",
         ),
-        # N-dead-cache: unreachable cache module reaches into comparison internals.
-        (
-            "capability-surface",
-            "gateway_backend.cache.comparison_core",
-            "gateway_backend.capabilities.comparison.artifacts",
-        ),
     }
 )
 
@@ -287,17 +281,12 @@ RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = (
 # record an explicit deferral in the owning design, or delete them.
 UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
     {
-        "gateway_backend.cache.comparison_core",
         "gateway_backend.canonical_row_hash_ipc",
-        "gateway_backend.capabilities.business_projection.contracts",
         "gateway_backend.capabilities.canonical_row_hash.contracts",
-        "gateway_backend.capabilities.comparison.provider",
-        "gateway_backend.capabilities.comparison_projection.contracts",
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",
         "gateway_backend.capabilities.external_target_sync.contracts",
         "gateway_backend.capabilities.snapshot_materialization._catalog",
-        "gateway_backend.capabilities.snapshot_materialization.cache",
         "gateway_backend.capabilities.snapshot_materialization.compose",
         "gateway_backend.capabilities.table_access._xml_parser",
         "gateway_backend.capabilities.table_access.xml",

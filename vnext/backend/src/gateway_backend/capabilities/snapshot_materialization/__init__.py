@@ -5,7 +5,6 @@ from gateway_backend.capabilities.snapshot_materialization.artifact import (
     publish_snapshot_table_artifact,
     validate_snapshot_table_artifact,
 )
-from gateway_backend.capabilities.snapshot_materialization.cache import SnapshotTableArtifactCache
 from gateway_backend.capabilities.snapshot_materialization.batch import (
     BatchBoundaryError,
     InMemorySnapshotTableBatchReader,
@@ -141,9 +140,6 @@ __all__ = [
     "SnapshotTableBatchMetadata",
     "SnapshotTableBatchReader",
     "SnapshotTableArtifact",
-    "SnapshotTableArtifactCache",
-    "SnapshotTableArtifactCacheKey",
-    "SnapshotTableArtifactCacheResult",
     "SnapshotTableArtifactManifest",
     "SnapshotTableDescriptor",
     "SnapshotTableOrderedMetadata",

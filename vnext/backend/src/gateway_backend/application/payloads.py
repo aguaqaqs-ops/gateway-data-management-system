@@ -185,9 +185,10 @@ def decode_job_payload(
     """Decode one operation payload through identity axes and a registered typed decoder."""
 
     _assert_document_kind_axis(JOB_PAYLOAD_DOCUMENT_TYPE)
-    from gateway_backend.application.job_definitions import JobDefinition
-
-    if type(definition) is not JobDefinition:
+    if (
+        definition.__class__.__qualname__ != "JobDefinition"
+        or definition.__class__.__module__ != "gateway_backend.application.job_definitions"
+    ):
         raise PayloadDecodeError("definition must be JobDefinition", code="PAYLOAD_DEFINITION_INVALID")
     if type(decoder_registry) is not PayloadDecoderRegistry:
         raise PayloadDecodeError(

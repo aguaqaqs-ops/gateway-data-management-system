@@ -18,6 +18,10 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
 )
 from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
+from gateway_backend.settings import (
+    FIXED_UPLOAD_MAX_COMPRESSED_BYTES,
+    FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
+)
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 

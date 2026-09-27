@@ -28,6 +28,8 @@ IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
         ),
         # A6 (close S2b): package-root import artifact adapter pending infrastructure migration.
         ("unowned-root-module", "gateway_backend.repository_import_artifact", ""),
+        # F7: workspace contracts re-export upload limits from settings (single source).
+        ("layer", "gateway_backend.application.workspace.contracts", "gateway_backend.settings"),
     }
 )
 

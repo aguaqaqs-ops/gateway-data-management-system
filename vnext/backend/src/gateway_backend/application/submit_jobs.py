@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
-from uuid import UUID
 
 from gateway_backend.application.submission.contracts import (
     RepositoryImportOperation,
     RepositoryImportOperationStatus as RepositoryOperationStatus,
+)
+from gateway_backend.application.submission.repository_operation import (
+    repository_import_operation_from_evidence_payload,
 )
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -1735,10 +1737,6 @@ def _load_terminal_repository_evidence(
         "result": evidence_object.get("result"),
         "error": evidence_object.get("error"),
     }
-    from gateway_backend.application.submission.repository_operation import (
-        repository_import_operation_from_evidence_payload,
-    )
-
     operation = repository_import_operation_from_evidence_payload(operation_payload)
     if expected_operation_id is not None and operation.operation_id != expected_operation_id:
         raise CheckpointDecodeError(

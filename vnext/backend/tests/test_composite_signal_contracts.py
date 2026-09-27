@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 from gateway_backend.capabilities.composite_signal import materialize_composite_signal
-from gateway_backend.capabilities.composite_signal import materialize_composite_signal
 from gateway_backend.capabilities.composite_signal.contracts import (
     COMPOSITE_SIGNAL_CONTRACT_VERSION,
     COMPOSITE_SIGNAL_POINT_TABLE,

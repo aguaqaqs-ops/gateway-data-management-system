@@ -464,7 +464,6 @@ def prepare_backend_runtime(
 def build_submit_import_publication_port() -> SubmitImportPublicationPort:
     """Production Submit import publication adapter wired at the composition root."""
 
-    from gateway_backend.application.submission.contracts import SubmitImportPublicationPort
     from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 
     return SubmitImportPublicationAdapter()

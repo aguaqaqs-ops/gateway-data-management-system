@@ -19,8 +19,6 @@ from typing import Any
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
-_ZERO_DIGEST = DigestRef("sha256:" + "00" * 32)
-
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.composite_signal.contracts import present_composite_logic_source
 from gateway_backend.capabilities.snapshot_materialization.compose import materialize_business_snapshot
@@ -53,6 +51,8 @@ from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_backend.capabilities.table_access.xml import parse_xml
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
+
+_ZERO_DIGEST = DigestRef("sha256:" + "00" * 32)
 
 _TIER_MAP = {
     "small_cut": ("t1", "a"),

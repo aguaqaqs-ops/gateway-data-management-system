@@ -69,32 +69,14 @@ from gateway_backend.capabilities.bundle_assembly import (
     assemble_bundle,
 )
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
     BoundSnapshotInput,
-    ComparisonPlan,
-    DetailedFactsResult,
-    FailedResult,
-    PairRole,
     PairViewKind,
     TrustedFlowApplicabilityBinding,
-    bind_pair_input,
-    compare_plan,
-    plan_pair,
-    publish_records_closure,
 )
 from gateway_backend.capabilities.comparison.contracts import (
     BlankRowPolicy,
     ComparisonTablePolicy,
-    InputCompleteness as ComparisonInputCompleteness,
     OrderedTablePolicy,
-)
-from gateway_backend.capabilities.risk_evaluation import (
-    RiskEvaluationInput,
-    RiskEvaluationStatus,
-    RiskOptions,
-    V1_RISK_RULE_SPECS,
-    RiskRulesetSnapshot,
-    evaluate_risk,
 )
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -119,14 +101,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
-)
-from gateway_backend.capabilities.surface_assembly import (
-    SurfaceAssemblyContext,
-    SurfaceAssemblyInput,
-    SurfaceAssemblyResult,
-    SurfaceAssemblyStatus,
-    SurfaceRefScope,
-    assemble_surface,
 )
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules.contracts import (

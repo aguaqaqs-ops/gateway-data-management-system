@@ -151,6 +151,8 @@ __all__ = [
     "SnapshotTableBatchMetadata",
     "SnapshotTableBatchReader",
     "SnapshotTableArtifact",
+    "SnapshotTableArtifactCacheKey",
+    "SnapshotTableArtifactCacheResult",
     "SnapshotTableArtifactManifest",
     "SnapshotTableDescriptor",
     "SnapshotTableOrderedMetadata",

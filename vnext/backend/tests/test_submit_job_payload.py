@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+from typing import cast
+
 import pytest
 
 from gateway_backend.application.payloads import PayloadDecodeError
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
+from gateway_backend.application.submission.ports import RepositoryWritePort
 from gateway_backend.application.submit_jobs import (
     _await_checkpoint_from_job_state,
     _load_terminal_repository_evidence,
@@ -340,7 +343,7 @@ def test_submit_checkpoint_rejects_inexact_job_state(
         _submit_state_from_job_state(
             store,
             job_state,
-            repository_write=_StubRepositoryWrite(),
+            repository_write=cast(RepositoryWritePort, _StubRepositoryWrite()),
             expected_payload=payload,
             prepare_checkpoint_ref=prepare_ref,
             checkpoint_ref=checkpoint_ref,

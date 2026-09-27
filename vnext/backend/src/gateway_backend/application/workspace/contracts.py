@@ -129,4 +129,3 @@ def compute_preview_request_fingerprint(
 _MIB = 1024 * 1024
 FIXED_UPLOAD_MAX_COMPRESSED_BYTES = 256 * _MIB
 FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS = 60.0
-from gateway_backend.capabilities.table_rules import RULESET_VERSION as PREVIEW_TABLE_RULESET_VERSION

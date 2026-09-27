@@ -54,3 +54,13 @@ def assert_backend_ref_not_repository_ref(ref: object) -> None:
 def assert_repository_ref_not_backend_ref(ref: object) -> None:
     if type(ref) is BackendArtifactRef:
         raise NominalArtifactRefError("BackendArtifactRef cannot substitute RepositoryArtifactRef")
+
+
+__all__ = [
+    "NominalArtifactRefError",
+    "assert_backend_ref_not_repository_ref",
+    "assert_repository_ref_not_backend_ref",
+    "backend_artifact_ref_from_store_ref",
+    "repository_artifact_ref_from_upload_response",
+    "store_ref_from_backend_artifact_ref",
+]

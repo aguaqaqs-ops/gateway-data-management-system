@@ -425,3 +425,13 @@ def _is_busy_error(exc: sqlite3.OperationalError) -> bool:
 def _validate_utc_datetime(value: object, label: str) -> None:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
         raise ValueError(f"{label} must be an aware UTC datetime")
+
+
+__all__ = [
+    "ControlDbIntegrityError",
+    "ControlDbUnitOfWork",
+    "assert_control_db_integrity",
+    "connect_control_db",
+    "initialize_and_verify_control_db",
+    "initialize_control_db",
+]

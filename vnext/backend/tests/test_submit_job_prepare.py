@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from gateway_backend.application.submission.repository_operation import RepositoryImportOperation
+from gateway_backend.application.submission.contracts import RepositoryImportOperation
 
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.checkpoints import (

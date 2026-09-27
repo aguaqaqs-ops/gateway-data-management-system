@@ -233,7 +233,7 @@ class FailClosedInternalBearerPort:
         )
 
 
-from gateway_backend.http.dependencies import require_identity, require_internal_bearer
+from gateway_backend.http.dependencies import require_identity, require_internal_bearer  # noqa: E402
 
 __all__ = [
     "BearerSessionPort",

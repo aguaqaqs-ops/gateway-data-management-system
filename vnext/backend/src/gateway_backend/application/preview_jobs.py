@@ -67,31 +67,11 @@ from gateway_backend.capabilities.bundle_assembly import (
 )
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
-    BaselineReconstructionResult,
-    BaselineReconstructionStatus,
     BoundSnapshotInput,
-    ComparisonPlan,
-    DetailedFactsResult,
-    FailedResult,
     PairRole,
-    PairViewKind,
-    bind_pair_input,
-    compare_plan,
-    plan_pair,
-    publish_records_closure,
 )
 from gateway_backend.capabilities.comparison.contracts import (
     IdentityStatus,
-    InputCompleteness as ComparisonInputCompleteness,
-)
-from gateway_backend.capabilities.risk_evaluation import (
-    RiskEvaluationInput,
-    RiskEvaluationStatus,
-    RiskOptions,
-    V1_RISK_RULE_SPECS,
-    RiskRulesetSnapshot,
-    evaluate_risk,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
@@ -135,14 +115,6 @@ from gateway_backend.capabilities.source_package_staging import (
     stage_source_package,
 )
 from gateway_backend.capabilities.source_package_staging.contracts import NeverCancel
-from gateway_backend.capabilities.surface_assembly import (
-    SurfaceAssemblyContext,
-    SurfaceAssemblyInput,
-    SurfaceAssemblyResult,
-    SurfaceAssemblyStatus,
-    SurfaceRefScope,
-    assemble_surface,
-)
 from gateway_backend.capabilities.table_access.contracts import (
     PARSER_INPUT_CONTRACT_VERSION,
     ParseResult,

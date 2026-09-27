@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Mapping
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -46,8 +43,6 @@ from gateway_backend.capabilities.storage_projection.contracts import WrittenImp
 from gateway_backend.capabilities.storage_projection.package import (
     MANIFEST_ENTRY_NAME,
     REPLAY_SQL_ENTRY_NAME,
-    PackageError,
-    pack_repository_import_entries,
     validate_repository_import_package,
 )
 from gateway_backend.capabilities.storage_projection.publish import (

@@ -31,6 +31,10 @@ from gateway_backend.application.control_transactions import ControlDbUnitOfWork
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.errors import ApiError
+from gateway_backend.operations.contracts import OperationRecord, StepRecord
+from gateway_backend.operations.recovery import OperatorRecoveryRequest
+from gateway_backend.operations.state import TransitionDisposition
+from gateway_backend.operations.store import RecordNotFound
 
 if TYPE_CHECKING:
     from gateway_backend.http.auth import InternalBearerPort, SessionPort
@@ -48,10 +52,6 @@ class _FailClosedInternalBearerPort:
 
 def _default_internal_bearer_port() -> InternalBearerPort:
     return _FailClosedInternalBearerPort()
-from gateway_backend.operations.contracts import OperationRecord, StepRecord
-from gateway_backend.operations.recovery import OperatorRecoveryRequest
-from gateway_backend.operations.state import TransitionDisposition
-from gateway_backend.operations.store import RecordNotFound
 
 
 @runtime_checkable

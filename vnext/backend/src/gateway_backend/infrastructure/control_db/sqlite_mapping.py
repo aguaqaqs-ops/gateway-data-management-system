@@ -6,7 +6,6 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
 
 from gateway_backend.domain.baseline.models import (
     BaselineHeadRecord,

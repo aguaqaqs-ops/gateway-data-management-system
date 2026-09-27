@@ -8,7 +8,6 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
-from typing import TYPE_CHECKING
 
 from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.application.recovery import RecoveryCapability

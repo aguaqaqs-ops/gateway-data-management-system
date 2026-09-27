@@ -8,7 +8,6 @@ from typing import Any
 from gateway_backend.domain.submission.errors import (
     InvalidSubmitAttemptTransition,
     SubmissionBindingConflict,
-    SubmitAttemptInvariantViolation,
 )
 from gateway_backend.domain.submission.models import (
     SubmitAttempt,
@@ -28,7 +27,6 @@ _ALLOWED_TRANSITIONS: dict[SubmitAttemptState, frozenset[SubmitAttemptState]] = 
 }
 
 
-from gateway_backend.domain.submission.models import assert_submit_attempt_invariants
 
 
 def transition_attempt_state(

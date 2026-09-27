@@ -11,7 +11,6 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
     HistoryCompareNodeBinding,
-    HistoryNodeRefKind,
 )
 
 HISTORY_COMPARE_DIGEST_PREFIX = "gateway-vnext:history:"

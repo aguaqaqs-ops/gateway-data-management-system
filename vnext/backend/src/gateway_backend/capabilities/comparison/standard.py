@@ -652,3 +652,11 @@ from gateway_backend.capabilities.comparison.row_encoding import (  # noqa: E402
     _declared_type as _declared_type,
 )
 
+__all__ = [
+    "COMPARISON_DIRECTION",
+    "STANDARD_COMPARISON_ALGORITHM_VERSION",
+    "StandardComparisonError",
+    "compare_plan",
+    "_declared_type",
+]
+

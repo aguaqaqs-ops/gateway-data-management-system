@@ -39,7 +39,7 @@
    - Application 向 surface 传入两侧 `table_artifacts`，bundle 据此导出同名表的两侧快照。
 4. **Preview 始终完成**，不设暂停门；无法判定时附诊断。
 5. **AcceptSubmit 按 Preview 结论要求确认**：`ACCEPT_DATASET_REPLACEMENT` 与 `ACCEPT_UNVERIFIABLE_DETAILED_RESULT` 两个独立动作，绑定评估集摘要，理由必填。
-   - 输入边界：最多 2 项，每个 action 至多一次，action 须为上述枚举，摘要格式合法，理由由 HTTP DTO 限制为 1–4096 UTF-8 字节，Submission 领域再按 Review 理由的同一规则校验（不含控制字符、代理码点与非字符码点，至少一个非空白字符），按原文持久化，不从 Archive Application 导入校验函数；违反时返回 `422 REQUEST_VALIDATION_FAILED`；
+   - 输入边界：最多 2 项，每个 action 至多一次，action 须为上述枚举，摘要格式合法，理由由 HTTP DTO 限制为 1–4096 UTF-8 字节，Submission 领域再按 Review 理由的标量规则校验，但允许多行（放行 LF、CR、TAB；其余控制字符、代理码点与非字符码点仍拒绝，至少一个非空白字符；2026-09-27 owner 决议 DC28），按原文持久化，不从 Archive Application 导入校验函数；违反时返回 `422 REQUEST_VALIDATION_FAILED`；
    - 缺少所需确认返回 `409 PROJECT_IDENTITY_CONFIRMATION_REQUIRED`；提供了不需要的确认，或摘要与 current PreviewResult 不符，返回 `409 PROJECT_IDENTITY_CONFIRMATION_MISMATCH`；
    - 判定顺序：认证、当前权限与 exact scope（含 workspace 的精确 scope 与 Repository 映射）→ same-key 重放 → workspace、revision、preview 绑定与 CAS → baseline 绑定 → 陈旧判定 → `NO_CANONICAL_CHANGE` → 身份确认 → 占用与 ready closure。same-key 重放只越过其后可漂移的受理校验，不越过授权与 scope 校验；
    - 评估集摘要 = JCS{schema `project-identity-assessment-set/v1`；按 pair 顺序的 (pair_id, applicability, status, assessment_digest 或 null)}，包含 `NOT_APPLICABLE` 的 pair；

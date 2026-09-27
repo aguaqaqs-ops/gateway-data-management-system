@@ -495,7 +495,7 @@ DC17 保证初始基线恒为空，所以该规则不会漏检已有数据。His
 
 - 最多 2 项，每个 action 至多出现一次；action 只能是 `ACCEPT_DATASET_REPLACEMENT` 或 `ACCEPT_UNVERIFIABLE_DETAILED_RESULT`；
 - `assessment_set_digest` 必须是合法的 digest 格式；
-- `reason`：HTTP DTO 沿用 `BoundedDiagnosticReason`（1–4096 UTF-8 字节）；Submission 领域再按 Review 理由的同一规则校验，即不含控制字符、代理码点与非字符码点，并至少含一个非空白字符（E：`domain/submission/review.py` 的 `validate_review_reason`）。S4 把这组规则提取为 Submission 领域的共享理由校验，Review 行为不变；不从 Archive Application 导入校验函数。理由按原文持久化。
+- `reason`：HTTP DTO 沿用 `BoundedDiagnosticReason`（1–4096 UTF-8 字节）；Submission 领域再按 Review 理由的标量规则校验，但允许多行（DC28）：放行 LF（U+000A）、CR（U+000D）与 TAB（U+0009），其余 C0/C1 控制字符、代理码点与非字符码点仍拒绝，并至少含一个非空白字符（E：`domain/submission/review.py` 的 `validate_review_reason` 现行拒绝全部控制字符）。S4 把这组规则提取为 Submission 领域的共享理由校验，由调用方显式选择是否放行上述三个字符：身份确认理由放行，Review 理由不放行，Review 行为不变；不从 Archive Application 导入校验函数。理由按原文持久化，不做换行规范化。
 
 业务校验在 T1 写事务内，与 preview、baseline、占用校验一起执行，不产生额外的外部调用：
 
@@ -627,6 +627,7 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 | 身份规则 v1 | `test_project_identity.py` |
 | 替换事实、比较级风险 | `test_comparison_replacement.py`、`test_risk_contracts.py` |
 | 身份确认的输入边界与业务校验 | `test_submit_transactions.py`（业务校验与判定顺序）、`test_submit_http.py`（422 输入边界与 409 错误码映射的参数表） |
+| Submission 共享理由校验（多行放行与 Review 单行两种模式） | `test_review_domain.py`（共享参数表：LF/CR/TAB 在身份确认模式下通过、在 Review 模式下拒绝；其他控制字符、代理码点、非字符码点、纯空白与超长在两种模式下都拒绝） |
 | 授权与 exact scope 先于 same-key 重放；重放越过可漂移的业务前置 | `test_submit_transactions.py`（既有 T1 重放用例：scope 映射失效时拒绝、只有 head 漂移时返回原结果；S4 补充撤权后重放被拒） |
 | Archive 身份异常处置 | `test_archive_transactions.py` |
 | composite 业务物化、键列类型与规则 | `test_snapshot_materialization_business.py`（capability）、`test_preview_job_materialize.py`（Preview 接入）、`test_storage_projection_core.py`（规则） |

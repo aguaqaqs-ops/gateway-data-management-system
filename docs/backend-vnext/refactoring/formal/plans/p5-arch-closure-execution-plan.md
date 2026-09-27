@@ -196,7 +196,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     投影侧与 Repository 侧对同一内容得出相同 assessment；
   - 初始空基线的 pair 为 `NOT_APPLICABLE`，首次提交不需要确认；
   - 替换事实、比较级风险；Application 向 surface 传入两侧 `table_artifacts`，bundle 导出两侧快照；
-  - 受理：输入边界（数量、重复 action、action 枚举、digest 格式、理由按 Submission 领域与 Review 相同的规则 → 422）用共享参数表覆盖；
+  - 受理：输入边界（数量、重复 action、action 枚举、digest 格式、理由按 Submission 领域共享校验的多行模式 → 422，DC28）用共享参数表覆盖；
     缺失 → 409 REQUIRED；多余或摘要不符 → 409 MISMATCH；判定顺序；指纹与重放；授权与 exact scope 先于重放，撤权或
     scope 不符的重放被拒（`test_submit_transactions.py` 补用例）；
   - Archive 身份异常处置与 StartArchive 校验；
@@ -366,14 +366,14 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     `capabilities/bundle_assembly/_assembly.py`（双侧导出，如需）；
   - `application/preview_jobs.py`、`application/pair_pipeline.py`、`application/workspace/contracts.py`；
   - `application/submission/{accept,accept_transaction,contracts,errors,review,review_contracts}.py`；
-  - `domain/workspace/models.py`、`domain/submission/{models,policies,review}.py`（`domain/submission/review.py` 的理由规则提取为 Submission 领域共享校验，Review 行为不变）、`domain/archive/models.py`；
+  - `domain/workspace/models.py`、`domain/submission/{models,policies,review}.py`（`domain/submission/review.py` 的理由规则提取为 Submission 领域共享校验，身份确认理由使用多行模式，Review 行为不变，DC28）、`domain/archive/models.py`；
   - `application/archive/{queries,start,contracts,audit}.py`、`application/history/projection.py`；
   - `infrastructure/control_db/{migrations,sqlite_workspace,sqlite_submission,sqlite_archive,sqlite_review}.py`；
   - `http/schemas/{submit,preview,archive,review,history}.py`、`http/errors.py`、`http/orchestration/{submit_acceptance,archive,review}.py`、
     `http/routes/{submit_attempts,preview_results}.py`。
 - 必改（T）：
   - 新增：`test_project_identity.py`、`test_comparison_replacement.py`；
-  - 更新：`test_architecture.py`（project_identity owner 与 DAG 边）、`test_risk_contracts.py`、`test_surface_assembly.py`、
+  - 更新：`test_review_domain.py`（共享理由校验的两种模式，DC28）、`test_architecture.py`（project_identity owner 与 DAG 边）、`test_risk_contracts.py`、`test_surface_assembly.py`、
     `test_bundle_assembly.py`、`test_preview_job_assemble.py`、`test_preview_job_materialize.py`、`test_submit_transactions.py`、
     `test_submit_http.py`、`test_http_openapi.py`、`test_archive_transactions.py`、`test_history_projection.py`、
     `test_workspace_control_db_migrations.py`、`test_submit_control_db_migrations.py`、`test_archive_control_db_migrations.py`；

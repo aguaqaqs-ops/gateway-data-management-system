@@ -307,3 +307,16 @@ implementation_authorized: no
    [第二份](p5-arch-closure-s0-independent-rereview-2.md) @ `ca6502d8a4`）与 DC23–DC27，并更新修订处置表。
 2. 由未参与 r3 修订的 reviewer 核对差异。
 3. 复审通过后，按 Entry Brief §5 接受 ADR 与 Contract 候选。实现授权另行给出，最早在 P5-5E slice exit 之后。
+
+## 8. 接受后补充决议（DC28）
+
+#### DC28 身份确认理由允许多行
+
+- **来源**：[r4 独立核对](p5-arch-closure-s0-independent-rereview-r4.md)的 owner 事项 O6。r4 让身份确认理由沿用 Review 理由规则，
+  该规则拒绝全部控制字符，因此理由只能单行；Archive 理由只限字节数，允许多行。
+- **决议**（repository owner，2026-09-27）：身份确认理由允许多行。
+- **规则**：HTTP DTO 仍为 `BoundedDiagnosticReason`（1–4096 UTF-8 字节）。Submission 领域的共享理由校验放行 LF（U+000A）、
+  CR（U+000D）与 TAB（U+0009）；其余 C0/C1 控制字符、代理码点与非字符码点仍拒绝；至少含一个非空白字符；按原文持久化，
+  不做换行规范化。是否放行由调用方显式选择：身份确认理由放行，Review 理由保持现行规则，行为不变。
+- **落点**：设计 §7.6 与 §12，ADR 0020 Decision 5，执行计划 S4 的验收与路径预算（`test_review_domain.py` 为共享校验的 owner）。
+  Business Lifecycle 3.1.0 未规定理由字符集，不需要修订。

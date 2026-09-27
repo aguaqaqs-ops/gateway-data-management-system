@@ -17,7 +17,7 @@ authorized_base: 218c211240b33e01eee1eb8965fdcca0ec4b8099  # main @ 授权基线
 implementation_fork: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b  # S1 实现切点
 merge_base_with_main: 218c211240b33e01eee1eb8965fdcca0ec4b8099
 implementation_head: 1caf2ffc26f690188f8311904bce24693fb61d43  # 最后代码提交（merge 授权 main §8 模板，无实现冲突）
-candidate_head: 3ab530c20d3ec60d8f4a5903bf5cfd249374b592
+candidate_head: 7b0db60b441d9a4f9922aecbf6b4219f4274e154
 source_tree_sha: 6ac8db947335661d182e9f8d37ed0e9df0c9735f  # implementation_head^{tree}
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity
 implementation_authority: execution-plan §8.4 S1.1–S1.7

@@ -140,7 +140,14 @@ def test_local_artifact_store_lives_in_infrastructure_only() -> None:
 
 
 def test_compute_facade_does_not_reference_artifact_identity() -> None:
-    compute_source = Path(__file__).parents[1] / "src" / "gateway_backend" / "compute.py"
+    compute_source = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gateway_backend"
+        / "capabilities"
+        / "canonical_row_hash"
+        / "compute.py"
+    )
     text = compute_source.read_text()
     forbidden = ("ArtifactRef", "artifact_ref", "logical_ref", "ArtifactStore", "artifact_root")
     assert not any(marker in text for marker in forbidden), compute_source

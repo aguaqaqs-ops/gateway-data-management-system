@@ -7,7 +7,6 @@ from gateway_backend.application.submission.contracts import (
     RepositoryImportOperationError,
     RepositoryImportOperationResult,
     RepositoryImportOperationStatus,
-    repository_import_operation_from_evidence_payload,
 )
 
 __all__ = [
@@ -15,5 +14,4 @@ __all__ = [
     "RepositoryImportOperationError",
     "RepositoryImportOperationResult",
     "RepositoryImportOperationStatus",
-    "repository_import_operation_from_evidence_payload",
 ]

@@ -5,7 +5,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from gateway_repository_contracts import (
-    OperationStatus,
     RepositoryArtifactRef as WireRepositoryArtifactRef,
     SubmitVersionedImportRequest,
     UnknownTypePolicy,
@@ -52,12 +51,7 @@ def build_import_request_bytes(
 ) -> bytes:
     request = SubmitVersionedImportRequest(
         repository_id=UUID(repository_id),
-        artifact_ref=WireRepositoryArtifactRef(
-            artifact_id=UUID(repository_artifact_ref.artifact_id),
-            media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
-            size_bytes=repository_artifact_ref.size_bytes,
-            raw_sha256=_wire_repository_raw_sha256(repository_artifact_ref.raw_sha256),
-        ),
+        artifact_ref=repository_artifact_ref_to_wire(repository_artifact_ref),
         target_ref="main",
         expected_commit_id=expected_commit_id,
         verification_policy=VerificationPolicy.STRUCTURAL,
@@ -99,38 +93,5 @@ def import_operation_from_evidence_payload(operation_payload: dict[str, object])
     return import_operation_from_wire(operation)
 
 
-def terminal_evidence_payload_from_operation(
-    operation: RepositoryImportOperation,
-) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "operation_id": operation.operation_id,
-        "status": operation.status.value,
-    }
-    if operation.result is not None:
-        payload["result"] = {
-            "commit_id": operation.result.commit_id,
-            "target_ref": operation.result.target_ref,
-            "artifact_id": operation.result.artifact_id,
-            "canonicalization_manifest_digest": operation.result.canonicalization_manifest_digest,
-            "expected_commit_id": operation.result.expected_commit_id,
-            "completed_verification_policy": operation.result.completed_verification_policy,
-            "unknown_type_policy": operation.result.unknown_type_policy,
-        }
-    if operation.error is not None:
-        payload["error"] = {
-            "code": operation.error.code,
-            "message": operation.error.message,
-        }
-    return payload
-
-
 def _wire_repository_raw_sha256(value: str) -> str:
     return value.removeprefix("sha256:")
-
-
-def wire_terminal_status_value(status: RepositoryImportOperationStatus) -> str:
-    if status is RepositoryImportOperationStatus.SUCCEEDED:
-        return OperationStatus.SUCCEEDED.value
-    if status is RepositoryImportOperationStatus.FAILED:
-        return OperationStatus.FAILED.value
-    raise ValueError("terminal evidence requires SUCCEEDED or FAILED repository status")

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import json
 from typing import cast
+from uuid import UUID
 
 import pytest
+from gateway_repository_contracts import OperationStatus, SimpleError, VersionedOperation
+from gateway_shared_kernel.jcs import canonicalize_json_value
+from pydantic import ValidationError
 
 from gateway_backend.application.payloads import PayloadDecodeError
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
@@ -14,6 +18,7 @@ from gateway_backend.application.submit_jobs import (
     _await_checkpoint_from_job_state,
     _load_terminal_repository_evidence,
     _prepare_checkpoint_from_job_state,
+    _serialize_terminal_repository_evidence,
     _submit_state_from_job_state,
     decode_submit_payload,
     submit_payload_decoders,
@@ -385,6 +390,104 @@ def test_terminal_evidence_rejects_unknown_fields() -> None:
         media_type="application/jcs",
     )
     with pytest.raises(CheckpointDecodeError, match="unknown keys"):
+        _load_terminal_repository_evidence(store, evidence_ref)
+
+
+_FAILED_TERMINAL_EVIDENCE_GOLDEN = (
+    b'{"contract_version":"backend-vnext/submit/repository-terminal-evidence/v1",'
+    b'"document_type":"submit_repository_terminal_evidence",'
+    b'"error":{"code":"IMPORT_REJECTED","details":{"table":"t1"},"message":"rejected","request_id":null},'
+    b'"operation_id":"018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",'
+    b'"status":"FAILED"}'
+)
+
+
+def test_failed_terminal_evidence_bytes_match_base_golden() -> None:
+    operation = VersionedOperation(
+        operation_id=UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"),
+        status=OperationStatus.FAILED,
+        error=SimpleError(
+            code="IMPORT_REJECTED",
+            message="rejected",
+            details={"table": "t1"},
+            request_id=None,
+        ),
+    )
+    evidence_bytes = canonicalize_json_value(_serialize_terminal_repository_evidence(operation))
+    assert evidence_bytes == _FAILED_TERMINAL_EVIDENCE_GOLDEN
+
+
+def _failed_terminal_evidence_document(**overrides: object) -> dict[str, object]:
+    document: dict[str, object] = {
+        "document_type": "submit_repository_terminal_evidence",
+        "contract_version": "backend-vnext/submit/repository-terminal-evidence/v1",
+        "operation_id": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        "status": "FAILED",
+        "error": {
+            "code": "IMPORT_REJECTED",
+            "message": "rejected",
+            "request_id": None,
+        },
+    }
+    document.update(overrides)
+    return document
+
+
+MALFORMED_TERMINAL_EVIDENCE_SHAPES: tuple[tuple[dict[str, object], type[Exception]], ...] = (
+    (
+        _failed_terminal_evidence_document(
+            error={"code": "SOMETHING_ELSE", "message": "nope", "request_id": None}
+        ),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(operation_id="not-a-uuid"),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(error={"code": "IMPORT_REJECTED"}),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(
+            error={
+                "code": "IMPORT_REJECTED",
+                "message": "rejected",
+                "request_id": None,
+                "extra": "x",
+            }
+        ),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(
+            error={
+                "code": "IMPORT_REJECTED",
+                "message": "rejected",
+                "request_id": "req-1",
+            }
+        ),
+        ValidationError,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("evidence", "expected_error"),
+    MALFORMED_TERMINAL_EVIDENCE_SHAPES,
+)
+def test_terminal_evidence_rejects_malformed_operation_payload(
+    evidence: dict[str, object],
+    expected_error: type[Exception],
+) -> None:
+    store = InMemoryArtifactStore()
+    evidence_ref = put_with_built_ref(
+        store,
+        json.dumps(evidence).encode(),
+        artifact_id="evidence-1",
+        media_type="application/jcs",
+    )
+    with pytest.raises(expected_error):
         _load_terminal_repository_evidence(store, evidence_ref)
 
 

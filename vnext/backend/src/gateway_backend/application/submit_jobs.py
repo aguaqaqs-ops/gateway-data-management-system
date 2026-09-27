@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from dataclasses import asdict
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -12,12 +11,9 @@ from datetime import UTC, datetime
 from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 
-from gateway_backend.application.submission.contracts import (
-    RepositoryImportOperation,
-    RepositoryImportOperationStatus as RepositoryOperationStatus,
-)
-from gateway_backend.application.submission.repository_operation import (
-    repository_import_operation_from_evidence_payload,
+from gateway_repository_contracts import (
+    OperationStatus as RepositoryOperationStatus,
+    VersionedOperation,
 )
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -787,7 +783,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 terminal_result_evidence_ref=None,
             )
 
-        repository_operation: RepositoryImportOperation | None = None
+        repository_operation: VersionedOperation | None = None
         if (
             await_checkpoint_state is not None
             and await_checkpoint_state.terminal_result_evidence_ref is not None
@@ -1255,7 +1251,7 @@ def _map_handler_failure_to_recovery_outcome(
 
 @dataclass(frozen=True, slots=True)
 class _StaticAbortEvidence:
-    operation: RepositoryImportOperation
+    operation: VersionedOperation
 
     def resolve_stable_failure_code(
         self,
@@ -1669,23 +1665,23 @@ def _await_checkpoint_from_job_state(
     )
 
 
-def _serialize_terminal_repository_evidence(operation: RepositoryImportOperation) -> dict[str, object]:
+def _serialize_terminal_repository_evidence(operation: VersionedOperation) -> dict[str, object]:
     payload: dict[str, object] = {
         "document_type": _TERMINAL_REPOSITORY_EVIDENCE_DOCUMENT_TYPE,
         "contract_version": _TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION,
-        "operation_id": operation.operation_id,
+        "operation_id": str(operation.operation_id),
         "status": operation.status.value,
     }
     if operation.result is not None:
-        payload["result"] = asdict(operation.result)
+        payload["result"] = operation.result.model_dump(mode="json")
     if operation.error is not None:
-        payload["error"] = asdict(operation.error)
+        payload["error"] = operation.error.model_dump(mode="json")
     return payload
 
 
 def _persist_terminal_repository_evidence(
     store: ArtifactStorePort,
-    operation: RepositoryImportOperation,
+    operation: VersionedOperation,
 ) -> ArtifactRef:
     evidence_bytes = canonicalize_json_value(_serialize_terminal_repository_evidence(operation))
     return put_with_built_ref(
@@ -1702,7 +1698,7 @@ def _load_terminal_repository_evidence(
     *,
     expected_operation_id: str | None = None,
     expected_status: str | None = None,
-) -> RepositoryImportOperation:
+) -> VersionedOperation:
     evidence_object = json.loads(store.locate(evidence_ref))
     if type(evidence_object) is not dict:
         raise CheckpointDecodeError(
@@ -1737,8 +1733,8 @@ def _load_terminal_repository_evidence(
         "result": evidence_object.get("result"),
         "error": evidence_object.get("error"),
     }
-    operation = repository_import_operation_from_evidence_payload(operation_payload)
-    if expected_operation_id is not None and operation.operation_id != expected_operation_id:
+    operation = VersionedOperation.model_validate(operation_payload)
+    if expected_operation_id is not None and str(operation.operation_id) != expected_operation_id:
         raise CheckpointDecodeError(
             "terminal repository evidence operation_id does not match checkpoint",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
@@ -1999,10 +1995,10 @@ def _matching_finalize_facts(
     *,
     payload: SubmitJobPayload,
     prepare_checkpoint: PrepareImportCheckpoint,
-    repository_operation: RepositoryImportOperation,
+    repository_operation: VersionedOperation,
     repository_operation_id: str,
 ) -> MatchingFinalizeFacts:
-    if repository_operation.operation_id != repository_operation_id:
+    if str(repository_operation.operation_id) != repository_operation_id:
         raise FinalizeBindingMismatch("repository operation identity does not match checkpoint")
     if repository_operation.result is None:
         raise SubmitJobError("repository SUCCEEDED operation is missing result")

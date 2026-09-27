@@ -171,3 +171,4 @@ Application 新增临时分析用例：
 - [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)、[ADR 0020](../adr/0020-project-identity-and-dataset-replacement-in-p5.md)、
   [ADR 0021](../adr/0021-flow-neutral-comparison-entry.md)、[ADR 0012](../adr/0012-cooperative-artifact-cleanup-and-proportional-assurance.md)
 - [Contract Taxonomy](../contracts/contract-taxonomy-and-ownership.md) §4.4
+- 相关方向：[自然语言业务数据查询](future-business-data-query.md)

@@ -108,6 +108,7 @@ P4 Active Context Index 不覆盖 P5 semantic default entry。
 - [P3→P4 Cleanup C7 Independent Acceptance](plans/p3-p4-cleanup-c7-independent-acceptance.md)
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
   - [未来扩展方向：分析能力工具化与 AI 编排](architecture/future-ai-tool-exposure.md)（方向记录，不授权实现；总纲 §16）
+  - [未来扩展方向：自然语言业务数据查询](architecture/future-business-data-query.md)（方向记录，待单独讨论；总纲 §16）
 - [Implementation Stages](plans/implementation-stages.md)
 - [DX Cross-Phase Interface Reconciliation](plans/dx-cross-phase-interface-reconciliation.md)
 - [P2-R1 Runtime and Provider Feasibility Contract](plans/p2-r1-runtime-provider-feasibility.md)（pytest methodology 指针；不是设计入口）

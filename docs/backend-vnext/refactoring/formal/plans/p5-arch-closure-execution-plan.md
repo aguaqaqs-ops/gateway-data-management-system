@@ -23,6 +23,7 @@ S0 文档、独立审核与复审
   -> [前置：P5-5E slice exit pass]
   -> S1 kickoff（合入主线、漂移复核、真实数据普查）
   -> S1  结构修复（行为不变）
+  -> [前置：parser 修复（`@saved_cs_client`、XML 深度；S1 合入 main 后、S2a kickoff 前单独授权，见 §8.5 与 S1 审核 §5）]
   -> S2a 规范快照与比较规则的能力层（W3 入口、ComparisonRuleView、编码与摘要、规范投影入口、真实 Dolt 同一性）
   -> S2b 切换到规范域（Preview/Submit/History 接入、commit 规范元数据、DC9）
   -> S3  composite_signal 接入
@@ -156,6 +157,9 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
      DC19 的读取不一致处置；
   6. control DB migration 与 HTTP 变更（设计 §10）；
   7. compose harness 改为不预导入基线数据（DC17）。
+  8. **自 S1 延期（owner 2026-09-27）**：Preview/History 受理用例下沉至 Application，HTTP 仅 DTO 映射与准入（设计 §9 S1、§3 预算）。
+  9. **自 S1 延期（owner 2026-09-27）**：workspace/archive/history 各自声明控制事务 port，组合在 bootstrap/infrastructure（UoW 枢纽拆分）。
+  10. **自 S1 延期（owner 2026-09-27）**：Preview/Submit/History 三 job 共享 step plumbing（`pinned_checkpoint_builder` 等），checkpoint 载荷不变。
 - 验收：
   - 设计 §12 的以下 owner 通过：`test_comparison_canonical_domain.py`（阶段门槛）、
     `test_repository_ref_materialization_protocol.py`、`test_preview_job_materialize.py`（ADDITIVE 激活、INITIAL 断言）、
@@ -514,6 +518,7 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 
 ### 8.5 S2b 子步
 
+0. **S2b.0 自 S1 延期项（owner 2026-09-27）**：关闭设计 §9 中未在 S1 完成的 Preview/History 受理下沉、UoW 枢纽拆分、三 job 共享 step plumbing；关闭标准与 S1 审核报告 S1-F3 一致（Application 受理、各域 port、共享 step helper 或等效结构）。
 1. **S2b.1 commit 规范元数据**：`CommitCanonicalMetadataPort`、`sqlite_commit_metadata.py` 与 control DB migration。
 2. **S2b.2 Repository 读取**：`canonical_binding`、单遍读取、删除 hidden summary、`REPOSITORY_ROW_COUNT_MISMATCH`；
    `http_arrow.py` 只负责传输（关闭 A2 的两条）。
@@ -525,6 +530,8 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
    语义：checkpoint 的 attempt 绑定与 payload 不符时终止为 FAILED。
 6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB migration 与 HTTP/OpenAPI 变更（设计 §10）。
 7. **S2b.7 旅程与门禁**：compose harness 不预导入（DC17）与 §2 S2b 的旅程；真实数据链路；全量与镜像。
+
+**S1 与 S2a 之间的 parser 修复（owner 2026-09-27，不纳入 S1 修订）**：自 `main` 切分支（例如 `p5-closure/s1-parser`），在 `table_access` 放行 mysqldump `@saved_cs_client`、按 owner 调整 `max_xml_depth`；独立审核后合入，再启动 S2a kickoff。纯 Python 解析逻辑的镜像重建可延期到 S2a 阶段末，须在修复 handoff 中写明。
 
 S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
 

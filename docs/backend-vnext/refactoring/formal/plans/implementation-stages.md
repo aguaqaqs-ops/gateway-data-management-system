@@ -10,10 +10,13 @@
 [P5-5B-S8 Independent Slice Exit Acceptance](p5-5b-s8-independent-acceptance.md)标记
 `p5_5b_slice_exit: pass`。P5-5C 已由
 [S5 Independent Acceptance](p5-5c-s5-independent-acceptance.md) 声明 `p5_5c_slice_exit: pass`。
-5D docs-only 文档及 Business Lifecycle 3.0.0 已独立审核通过；5D implementation 与 production deployment 未授权。
+P5-5D 与 P5-5E 已分别由 [5D Slice Exit — Final](p5-5d-slice-exit-final.md)、
+[5E Slice Exit — Final](p5-5e-slice-exit-final.md) 声明 `p5_5d_slice_exit: pass`、`p5_5e_slice_exit: pass`。
+P5 架构收口 S0 文档已于 2026-09-27 接受（ADR 0018–0021 Accepted），收口实现、production deployment 与新的
+Repository effect 未授权。
 P4 默认上下文从 [P4 Active Context Index](p4-active-context-index.md) 开始；P5 当前入口为
-[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md)、
-[5D accepted docs entry](p5-5d-s0-entry-brief.md) 与 5C exit。
+[P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md) 与
+[P5 架构收口 S0 Entry Brief](p5-arch-closure-s0-entry-brief.md)。
 
 P3 capability 模块边界与 sealed evidence 见各 module handoff 与
 [P3 Capability Foundation Design](p3-capability-foundation-design.md)。

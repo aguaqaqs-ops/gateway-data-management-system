@@ -153,7 +153,8 @@ r2 复审时提出的重点仍然适用：
   - P3-R3/R4/R5 设计与 5E §6.6 加“由 ADR 00xx 取代”的标注，不改写历史正文；
   - 以上以单独的 docs 提交完成；上游文档并入时加注“实现随收口 S1–S5 交付，交付前现行源码仍按原版本行为运行”。
 - 实现授权：由 repository owner 另行给出。前提 P5-5E slice exit 已满足（主线 `dd2f51adb1`）。
-- 本分支合入主线：前提 5E slice exit 已满足；合入 `phase1/gate-ownership-repair` 后，按执行计划 §2 进行 S1 kickoff。
+- 本分支合入主线（已完成，2026-09-27）：以合并提交 `d116843188` 合入 `phase1/gate-ownership-repair`，随后该分支整体并入 `main`，
+  此后主线为 `main`。S1 kickoff 的其余步骤按执行计划 §2 在实现授权后进行。
 
 ## 6. 验证与镜像决策
 

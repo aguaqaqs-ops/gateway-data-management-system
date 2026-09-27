@@ -1,10 +1,10 @@
 # P5 Business Vertical Slices Design Baseline
 
-状态：**ACCEPTED DESIGN BASELINE — 5A/5B/5C/5D EXIT PASS; 5E S1 AUTHORIZED**
+状态：**ACCEPTED DESIGN BASELINE — 5A–5E SLICE EXIT PASS; ARCHITECTURE CLOSURE DOCS ACCEPTED, IMPLEMENTATION NOT AUTHORIZED**
 
 日期：2026-09-06
 
-状态更新：2026-09-23（P5-5D slice exit pass；P5-5E docs accepted v3.6，S1 kickoff pass）
+状态更新：2026-09-27（P5-5E slice exit pass @ `21723698`；P5 架构收口 S0 文档接受，ADR 0018–0021 Accepted；收口实现未授权）
 
 Owner：Backend vNext Business Applications and Interfaces
 
@@ -25,9 +25,14 @@ Owner：Backend vNext Business Applications and Interfaces
 
 5D exit：[Slice Exit — Final](p5-5d-slice-exit-final.md)（`p5_5d_slice_exit: pass`）。
 
-5E accepted design：[Entry Brief](p5-5e-s0-entry-brief.md)、
+5E design：[Entry Brief](p5-5e-s0-entry-brief.md)、
 [History Compare Design](p5-5e-history-compare-design.md)、
-[Execution Plan](p5-5e-history-compare-execution-plan.md)（S1 实现已授权）。
+[Execution Plan](p5-5e-history-compare-execution-plan.md)（completed）。
+
+5E exit：[Slice Exit — Final](p5-5e-slice-exit-final.md)（`p5_5e_slice_exit: pass`）。
+
+架构收口：[S0 Entry Brief](p5-arch-closure-s0-entry-brief.md)、[详细设计](p5-arch-closure-design.md)、
+[执行计划](p5-arch-closure-execution-plan.md)（S0 文档于 2026-09-27 接受；实现未授权）。
 
 5A historical input：[P5-5A S6 Handoff](p5-5a-s6-handoff.md)
 
@@ -72,7 +77,11 @@ p5_5e_docs_authorized: yes
 p5_5e_design: accepted
 p5_5e_execution_plan: accepted
 p5_5e_independent_docs_review: pass
-p5_5e_implementation_authorized: S2 only
+p5_5e_implementation_status: completed
+p5_5e_slice_exit: pass
+p5_5e_implementation_authorized: no
+p5_arch_closure_s0_docs: accepted
+p5_arch_closure_implementation_authorized: no
 p5_implementation_authorized: no
 ```
 
@@ -81,15 +90,16 @@ P5-5B 的历史 implementation 与 real Repository effect authority 已在 S1–
 （证据见 [P5-5A S6 Handoff](p5-5a-s6-handoff.md)）。P5-5C 已由
 [S5 Independent Acceptance](p5-5c-s5-independent-acceptance.md) 声明 slice exit pass，历史
 implementation authority 已消费并关闭。5D slice exit pass（`p5_5d_slice_exit: pass`）。
-5E docs accepted（v3.6），S1 实现已授权（kickoff pass）；5E S2+、production deployment
-与新的 Repository effect 未授权。
+5E slice exit pass（`p5_5e_slice_exit: pass` @ `21723698`），历史 implementation authority 已消费并关闭。
+P5 架构收口 S0 文档已于 2026-09-27 接受，收口实现未授权；production deployment 与新的
+Repository effect 未授权。
 
 ## 2. Objective and staged depth
 
 P5按`5A Upload/Preview -> 5B Submit -> 5C Review -> 5D Archive -> 5E History Compare`
 交付正式业务纵切。总体基线只冻结跨Slice identity、owner、事务、权限和Repository边界。
 **5A** slice exit pass，作为 historical input / slice evidence，不再作为默认详细设计入口。
-**5B/5C/5D** slice exit pass；详细设计与执行记录作为已验收输入。**5E** docs accepted（v3.6），S1 实现已授权；5E S2+ 与 production deployment 未授权。
+**5B/5C/5D/5E** slice exit pass；详细设计与执行记录作为已验收输入。P5 整体 exit 前须完成 §2A 架构收口（S0 文档已接受，实现未授权）；production deployment 未授权。
 
 P5第一屏交付的是可用业务API和前端loader所需bundle，不建设营销或兼容适配层。新vNext HTTP
 DTO独立版本化，不承诺旧`/api/*` wire兼容；legacy只用于发现需要保留的业务语义和fixture。
@@ -515,11 +525,10 @@ online ruleset migration、external event consumer、HA和外部DB保持独立�
 
 ## 13. Current next action
 
-[P5-5D Slice Exit — Final](p5-5d-slice-exit-final.md) 已签署 `p5_5d_slice_exit: pass`
-（gate HEAD `af833695ef`）。
-[P5-5E Independent Docs Acceptance](p5-5e-s0-independent-docs-acceptance.md) 已接受 v3.6 三份文档；
-[S1 kickoff](p5-5e-s1-kickoff.md) pass @ 实现基线 `6707a1ca01`。
-**下一步：按 [P5-5E Execution Plan](p5-5e-history-compare-execution-plan.md) 实施 S1**
-（History 读投影 + `GET /v1/history` + production wiring + focused 验证）。
-S2 公开诊断接口、integrity v6 迁移与 materialization 窄例外仍留在 S2；production deployment
-与新的 Repository effect 未授权。
+[P5-5E Slice Exit — Final](p5-5e-slice-exit-final.md) 已签署 `p5_5e_slice_exit: pass`
+（gate HEAD `21723698`），5A–5E 业务纵切均已 slice exit。
+[P5 架构收口 S0 文档](p5-arch-closure-s0-entry-brief.md)已于 2026-09-27 接受（ADR 0018–0021 Accepted），并已合入主线。
+**下一步：repository owner 给出收口实现授权后，按 [收口执行计划](p5-arch-closure-execution-plan.md) 进行 S1 kickoff**
+（漂移复核、import 基线记录、真实数据普查），再依次执行 S1–S5；§2A.5 收口验收通过后才能进入 P5 整体 exit。
+5E exit 之后的 [prepare checkpoint 修复](p5-prepare-occupancy-investigation-report.md)（`0d9d0d9dc5`）容器门禁仍为延期。
+production deployment 与新的 Repository effect 未授权。

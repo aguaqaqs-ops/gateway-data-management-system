@@ -1,6 +1,6 @@
 # P5-5E History Compare 详细设计
 
-- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；S1 实现已授权**
+- 状态：**ACCEPTED — 独立文档审核通过（v3.6）；5E slice exit pass @ `21723698`**
 - Stage：`p5_5e_s0`（docs-only 设计交付，见 [S0 Entry Brief](p5-5e-s0-entry-brief.md)）
 - 日期：2026-09-21
 **修订记录**：v3.6.1（2026-09-23）接受同步；S1 kickoff pass。v3.6（2026-09-21）v3.5 独立复审 **F5 分类**：确认条件与字段映射分离；B→C 不降级；结构 mismatch 轨。v3.5 公开 digest pair 语义。v3.4 P3。v3.3 F1a–F1c。v3.1 R1–R4。v3 F1 + F5 骨架。v2 纳入 F1–F6。

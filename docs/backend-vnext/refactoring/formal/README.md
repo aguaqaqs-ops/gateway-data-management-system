@@ -12,19 +12,6 @@
 当前内容（仓库 P5 默认入口）：
 
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
-- [P5-5D Slice Exit — Final](plans/p5-5d-slice-exit-final.md)（`p5_5d_slice_exit: pass`）
-- [P5-5D Independent Docs Acceptance](plans/p5-5d-s0-independent-docs-acceptance.md)（docs review pass；四项 finding closed）
-- [P5-5D-S0 Entry Brief](plans/p5-5d-s0-entry-brief.md)（accepted；独立文档审核通过，implementation 未授权）
-- [Business Lifecycle 固定 scope 归属补充](contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)（3.0.0 accepted；S1 Contract 前置已满足）
-- [P5-5D Archive Detailed Design](plans/p5-5d-archive-design.md)（accepted；独立文档审核通过，implementation 未授权）
-- [P5-5D Archive Execution Plan](plans/p5-5d-archive-execution-plan.md)（completed；slice exit pass）
-- [P5-5E Independent Docs Acceptance](plans/p5-5e-s0-independent-docs-acceptance.md)（docs review pass v3.6；S1 实现已授权）
-- [P5-5E-S0 Entry Brief](plans/p5-5e-s0-entry-brief.md)（accepted；S1 kickoff pass）
-- [P5-5E History Compare Detailed Design](plans/p5-5e-history-compare-design.md)（accepted；S1 实现已授权）
-- [P5-5E History Compare Execution Plan](plans/p5-5e-history-compare-execution-plan.md)（completed；slice exit pass）
-- [P5-5E Slice Exit — Final](plans/p5-5e-slice-exit-final.md)（`p5_5e_slice_exit: pass`）
-- [P5-5E-S4 Independent Slice Exit Acceptance](plans/p5-5e-s4-independent-acceptance.md)（gate @ `21723698`）
-- [P5-5E-S1 Kickoff Gate](plans/p5-5e-s1-kickoff.md)（pass）
 - [P5 架构收口 S0 Entry Brief](plans/p5-arch-closure-s0-entry-brief.md)、
   [详细设计](plans/p5-arch-closure-design.md)、[执行计划](plans/p5-arch-closure-execution-plan.md)、
   ADR [0018](adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](adr/0021-flow-neutral-comparison-entry.md)
@@ -37,6 +24,19 @@
   - [r4 独立核对](plans/p5-arch-closure-s0-independent-rereview-r4.md)（@ `2f38b301a6`：通过，两项非阻塞已吸收）
   - [S0 Owner 决议记录](plans/p5-arch-closure-s0-owner-decisions.md)（DC10–DC27 已决议；含真实数据存放约定）
   - [S0 修订处置表](plans/p5-arch-closure-s0-revision-disposition.md)（r2：F1–F11、N1–N6、DC10–DC22；r3：两份 r2 复审的 findings 与 DC23–DC27；r4：两份 r3 复审的 findings；§10 接受记录）
+- [P5-5D Slice Exit — Final](plans/p5-5d-slice-exit-final.md)（`p5_5d_slice_exit: pass`）
+- [P5-5D Independent Docs Acceptance](plans/p5-5d-s0-independent-docs-acceptance.md)（docs review pass；四项 finding closed）
+- [P5-5D-S0 Entry Brief](plans/p5-5d-s0-entry-brief.md)（historical entry input）
+- [Business Lifecycle 固定 scope 归属补充](contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)（3.0.0 引入；现行 3.1.0）
+- [P5-5D Archive Detailed Design](plans/p5-5d-archive-design.md)（accepted；slice completed）
+- [P5-5D Archive Execution Plan](plans/p5-5d-archive-execution-plan.md)（completed；slice exit pass）
+- [P5-5E Independent Docs Acceptance](plans/p5-5e-s0-independent-docs-acceptance.md)（docs review pass v3.6）
+- [P5-5E-S0 Entry Brief](plans/p5-5e-s0-entry-brief.md)（historical entry input）
+- [P5-5E History Compare Detailed Design](plans/p5-5e-history-compare-design.md)（accepted；slice completed）
+- [P5-5E History Compare Execution Plan](plans/p5-5e-history-compare-execution-plan.md)（completed；slice exit pass）
+- [P5-5E Slice Exit — Final](plans/p5-5e-slice-exit-final.md)（`p5_5e_slice_exit: pass`）
+- [P5-5E-S4 Independent Slice Exit Acceptance](plans/p5-5e-s4-independent-acceptance.md)（gate @ `21723698`）
+- [P5-5E-S1 Kickoff Gate](plans/p5-5e-s1-kickoff.md)（pass）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
 - [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（accepted；slice completed）
@@ -63,7 +63,7 @@ P5-5A historical input（slice exit pass；container gate pass）：
 - [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；**P4-R6 exit pass**。
-P5-5B/5C/5D/5E slice exit pass；5E History Compare 完成 @ `21723698`；production deployment 与新的 Repository effect 未授权。
+P5-5B/5C/5D/5E slice exit pass；5E History Compare 完成 @ `21723698`；P5 架构收口 S0 文档已接受，收口实现、production deployment 与新的 Repository effect 未授权。
 P4 Active Context Index 不覆盖 P5 semantic default entry。
 以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 

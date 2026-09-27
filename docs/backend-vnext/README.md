@@ -6,20 +6,24 @@ vNext 设计不以兼容旧后端、迁移旧数据或保留现有内部契约�
 
 ## 当前默认入口
 
-Phase 3 已 exit，P4-R1 至 P4-R6 均已 exit/pass；P5-5A、P5-5B、P5-5C、P5-5D、P5-5E slice exit 均为 `pass`。
+Phase 3 已 exit，P4-R1 至 P4-R6 均已 exit/pass；P5-5A、P5-5B、P5-5C、P5-5D、P5-5E slice exit 均为 `pass`；P5 架构收口 S0 文档已接受，收口实现未授权。
 当前 P5 检索从以下材料开始，不要从历史 P4 handoff 或
 下文旧 contract/capability 清单推导 P5 语义：
 
 - [P5 Business Vertical Slices Design Baseline](refactoring/formal/plans/p5-business-vertical-slices-design.md)
+- [P5 架构收口 S0 Entry Brief](refactoring/formal/plans/p5-arch-closure-s0-entry-brief.md)、
+  [详细设计](refactoring/formal/plans/p5-arch-closure-design.md)、[执行计划](refactoring/formal/plans/p5-arch-closure-execution-plan.md)、
+  ADR [0018](refactoring/formal/adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](refactoring/formal/adr/0021-flow-neutral-comparison-entry.md)
+  （S0 文档于 2026-09-27 接受，ADR Accepted；实现未授权；评审与决议记录见 [formal 索引](refactoring/formal/README.md)）
 - [P5-5D Independent Docs Acceptance](refactoring/formal/plans/p5-5d-s0-independent-docs-acceptance.md)（docs review pass；四项 finding closed）
-- [P5-5D-S0 Entry Brief](refactoring/formal/plans/p5-5d-s0-entry-brief.md)（accepted；独立文档审核通过，implementation 未授权）
-- [Business Lifecycle 固定 scope 归属补充](refactoring/formal/contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)（3.0.0 accepted；S1 Contract 前置已满足）
-- [P5-5D Archive Detailed Design](refactoring/formal/plans/p5-5d-archive-design.md)（accepted；独立文档审核通过，implementation 未授权）
+- [P5-5D-S0 Entry Brief](refactoring/formal/plans/p5-5d-s0-entry-brief.md)（historical entry input）
+- [Business Lifecycle 固定 scope 归属补充](refactoring/formal/contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)（3.0.0 引入；现行 3.1.0）
+- [P5-5D Archive Detailed Design](refactoring/formal/plans/p5-5d-archive-design.md)（accepted；slice completed）
 - [P5-5D Archive Execution Plan](refactoring/formal/plans/p5-5d-archive-execution-plan.md)（completed；slice exit pass）
 - [P5-5D Slice Exit — Final](refactoring/formal/plans/p5-5d-slice-exit-final.md)（`p5_5d_slice_exit: pass`）
-- [P5-5E Independent Docs Acceptance](refactoring/formal/plans/p5-5e-s0-independent-docs-acceptance.md)（docs review pass v3.6；S1 实现已授权）
-- [P5-5E-S0 Entry Brief](refactoring/formal/plans/p5-5e-s0-entry-brief.md)（accepted；S1 kickoff pass）
-- [P5-5E History Compare Detailed Design](refactoring/formal/plans/p5-5e-history-compare-design.md)（accepted）
+- [P5-5E Independent Docs Acceptance](refactoring/formal/plans/p5-5e-s0-independent-docs-acceptance.md)（docs review pass v3.6）
+- [P5-5E-S0 Entry Brief](refactoring/formal/plans/p5-5e-s0-entry-brief.md)（historical entry input）
+- [P5-5E History Compare Detailed Design](refactoring/formal/plans/p5-5e-history-compare-design.md)（accepted；slice completed）
 - [P5-5E History Compare Execution Plan](refactoring/formal/plans/p5-5e-history-compare-execution-plan.md)（completed；slice exit pass）
 - [P5-5E Slice Exit — Final](refactoring/formal/plans/p5-5e-slice-exit-final.md)（`p5_5e_slice_exit: pass`）
 - [P5-5E-S4 Independent Slice Exit Acceptance](refactoring/formal/plans/p5-5e-s4-independent-acceptance.md)（gate @ `21723698`）

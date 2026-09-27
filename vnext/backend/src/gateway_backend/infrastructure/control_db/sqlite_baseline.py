@@ -186,7 +186,7 @@ class SQLiteBaselineHeadRead:
     def get_current_head(self, repository_id: str) -> BaselineHead:
         from gateway_backend.infrastructure.control_db.control_db_connect import connect_control_db
         from gateway_backend.infrastructure.control_db.sqlite_operations import _raise_if_busy
-        from gateway_backend.operations.contracts import StoreBusy
+        from gateway_backend.operations.store import StoreBusy
 
         connection = connect_control_db(self._db_path)
         try:

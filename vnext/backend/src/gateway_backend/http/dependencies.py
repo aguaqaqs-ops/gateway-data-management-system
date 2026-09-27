@@ -176,7 +176,6 @@ class FailClosedBaselineCanonicalDigestPort:
         ruleset_version: str,
     ) -> str:
         del repository_id, baseline_head, input_completeness, ruleset_version
-        from gateway_backend.http.errors import ApiError
 
         raise ApiError(
             code="SERVICE_NOT_READY",
@@ -188,7 +187,6 @@ class FailClosedBaselineCanonicalDigestPort:
 class FailClosedRepositoryMainResolvePort:
     def resolve_main_expected_commit(self, *, repository_id: str) -> str:
         del repository_id
-        from gateway_backend.http.errors import ApiError
 
         raise ApiError(
             code="DEPENDENCY_UNAVAILABLE",
@@ -200,7 +198,6 @@ class FailClosedRepositoryMainResolvePort:
 class FailClosedOperatorRecoveryPort:
     def execute_recovery(self, request: OperatorRecoveryRequest) -> TransitionDisposition:
         del request
-        from gateway_backend.http.errors import ApiError
 
         raise ApiError(
             code="SERVICE_NOT_READY",

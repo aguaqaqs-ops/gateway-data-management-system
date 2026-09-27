@@ -20,7 +20,6 @@ from gateway_backend.application.submission.contracts import (
     RepositoryImportOperationResult,
     RepositoryImportOperationStatus,
 )
-from gateway_backend.capabilities.storage_projection import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 
 

@@ -5,6 +5,7 @@ Not imported by production code. Host-side only.
 
 from __future__ import annotations
 
+import argparse
 import gzip
 import hashlib
 import io
@@ -13,9 +14,10 @@ import os
 import re
 import tarfile
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -62,6 +64,28 @@ _TIER_MAP = {
 }
 _VERSION_SUFFIX = re.compile(r"^(?P<tier>[^-]+)-(?P<idx>[12])$")
 _CONTEXT = StagingInvocationContext(StagingNeverCancel())
+_LOGICS_XML_REL = Path("comps") / "logic" / "logics.xml"
+
+
+@contextmanager
+def _diagnostic_sql_parser_context() -> Iterator[None]:
+    """Census-only: allow @saved_cs_client (not production parser behaviour)."""
+
+    import gateway_backend.capabilities.table_access._sql_statements as sql_statements
+
+    original = sql_statements._allowed_set_name
+
+    def _patched(name: str) -> bool:
+        lowered = name.lower().lstrip("@")
+        if lowered == "saved_cs_client":
+            return True
+        return original(name)
+
+    sql_statements._allowed_set_name = _patched
+    try:
+        yield
+    finally:
+        sql_statements._allowed_set_name = original
 
 
 def _dump_root() -> Path:
@@ -137,6 +161,42 @@ class DatasetCensus:
     logics_xml_status: str
     logics_xml_event_count: int | None
     materialization_diagnostics: list[str]
+    role_table_counts: dict[str, int]
+    has_logics_xml: bool
+
+
+def _load_pairing_map(root: Path) -> dict[str, str]:
+    path = root / "dataset_pairing.json"
+    if not path.is_file():
+        return {}
+    document = json.loads(path.read_text(encoding="utf-8"))
+    pairings = document.get("pairings", document)
+    if not isinstance(pairings, dict):
+        raise SystemExit("dataset_pairing.json must be a JSON object or contain a pairings object")
+    return {str(key): str(value) for key, value in pairings.items()}
+
+
+def _production_sql_parse_report(sql_bytes: bytes) -> dict[str, Any]:
+    context = ParserInvocationContext(NeverCancel())
+    parse_result = parse_sql(
+        SqlParseRequest(
+            source=SqlSourceInput(
+                document_content_digest=_ZERO_DIGEST,
+                sql_source_digest=raw_blob_digest(sql_bytes),
+                parser_input_contract_version=1,
+                encoding="utf-8",
+                source_size_bytes=len(sql_bytes),
+            ),
+            sql_utf8=sql_bytes,
+            context=context,
+        )
+    )
+    report: dict[str, Any] = {"status": parse_result.status.value}
+    if parse_result.diagnostics:
+        first = parse_result.diagnostics[0]
+        report["code"] = first.code.value
+        report["message"] = first.message
+    return report
 
 
 def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
@@ -161,6 +221,7 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
     nullable_keys: list[str] = []
     no_key: list[str] = []
     vm_type: str | None = None
+    role_counts: Counter[str] = Counter()
 
     for parsed in parse_result.tables:
         descriptor = parsed.descriptor
@@ -169,6 +230,7 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
             descriptor.canonical_name,
             primary_key_columns=descriptor.primary_key_canonical_names,
         )
+        role_counts[resolved.decision.static_role.value] += 1
         if resolved.decision.static_role.value == "SKIP":
             continue
         for column in descriptor.columns:
@@ -198,12 +260,19 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
         "nullable_keys": sorted(nullable_keys),
         "no_key": sorted(no_key),
         "vm_type": vm_type,
+        "role_counts": dict(role_counts),
         "parse_result": parse_result,
         "context": context,
     }
 
 
-def census_one(*, tier_name: str, engine_dir: Path, pair_of: str | None) -> DatasetCensus:
+def census_one(
+    *,
+    tier_name: str,
+    engine_dir: Path,
+    pair_of: str | None,
+    diagnostic_mode: bool,
+) -> DatasetCensus:
     idx_match = _VERSION_SUFFIX.match(engine_dir.name)
     assert idx_match is not None
     idx = idx_match.group("idx")
@@ -212,8 +281,9 @@ def census_one(*, tier_name: str, engine_dir: Path, pair_of: str | None) -> Data
     dataset_id = _dataset_id(tier_name, idx)
 
     sql_bytes = (engine_dir / "sql" / "dbcfg.sql").read_bytes()
-    xml_path = engine_dir / "comps" / "logic" / "logics.xml"
-    xml_bytes = xml_path.read_bytes() if xml_path.is_file() else None
+    xml_path = engine_dir / _LOGICS_XML_REL
+    has_logics_xml = xml_path.is_file()
+    xml_bytes = xml_path.read_bytes() if has_logics_xml else None
     members: dict[str, bytes] = {REQUIRED_SQL_PATH: sql_bytes}
     if xml_bytes is not None:
         members[OPTIONAL_XML_PATH] = xml_bytes
@@ -231,7 +301,11 @@ def census_one(*, tier_name: str, engine_dir: Path, pair_of: str | None) -> Data
         store,
     )
 
-    analysis = _analyze_parse(sql_bytes)
+    if diagnostic_mode:
+        with _diagnostic_sql_parser_context():
+            analysis = _analyze_parse(sql_bytes)
+    else:
+        analysis = _analyze_parse(sql_bytes)
     parse_result = analysis["parse_result"]
     context = analysis["context"]
     ruleset = migrated_table_ruleset_snapshot()
@@ -264,7 +338,11 @@ def census_one(*, tier_name: str, engine_dir: Path, pair_of: str | None) -> Data
         ruleset=ruleset,
         table_ruleset_version=ruleset.table_ruleset_version,
         materialization_stage=MaterializationStage.FINAL,
-        policy=MaterializationPolicy.DESCRIPTOR_ONLY,
+        policy=(
+            MaterializationPolicy.READERS_REQUIRED
+            if diagnostic_mode
+            else MaterializationPolicy.DESCRIPTOR_ONLY
+        ),
         context=context,
         requested_tables=None,
         artifact_store=store,
@@ -305,6 +383,8 @@ def census_one(*, tier_name: str, engine_dir: Path, pair_of: str | None) -> Data
         logics_xml_status=logics_status,
         logics_xml_event_count=logics_events,
         materialization_diagnostics=[item.code.value for item in business.diagnostics[:32]],
+        role_table_counts=analysis["role_counts"],
+        has_logics_xml=has_logics_xml,
     )
 
 
@@ -318,7 +398,7 @@ def build_datasets_json(censuses: list[DatasetCensus]) -> list[dict[str, Any]]:
                 "project_alias": item.project_alias,
                 "version": item.version,
                 "pair_of": item.pair_of,
-                "has_logics_xml": True,
+                "has_logics_xml": item.has_logics_xml,
                 "files": [
                     {
                         "path": "package.tar.gz",
@@ -326,13 +406,21 @@ def build_datasets_json(censuses: list[DatasetCensus]) -> list[dict[str, Any]]:
                         "sha256": item.package_sha256,
                     }
                 ],
-                "note": f"source={item.source_dir}",
             }
         )
     return records
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Real dump structural census (host-side only).")
+    parser.add_argument(
+        "--diagnostic",
+        action="store_true",
+        help="Enable census-only SQL parser relaxations; not production behaviour.",
+    )
+    args = parser.parse_args()
+    diagnostic_mode = bool(args.diagnostic)
+
     root = _dump_root()
     packages_dir = root / "packages"
     census_dir = root / "census"
@@ -340,15 +428,30 @@ def main() -> None:
     census_dir.mkdir(parents=True, exist_ok=True)
 
     engines = _discover_engine_dirs(root)
+    pairing_map = _load_pairing_map(root)
+    production_reports: list[dict[str, Any]] = []
     censuses: list[DatasetCensus] = []
     for tier_name, engine_dir in engines:
         idx_match = _VERSION_SUFFIX.match(engine_dir.name)
         assert idx_match is not None
         idx = idx_match.group("idx")
-        pair_of: str | None = None
-        if idx == "2":
+        dataset_id = _dataset_id(tier_name, idx)
+        pair_of = pairing_map.get(dataset_id)
+        if pair_of is None and idx == "2":
             pair_of = _dataset_id(tier_name, "1")
-        item = census_one(tier_name=tier_name, engine_dir=engine_dir, pair_of=pair_of)
+        sql_bytes = (engine_dir / "sql" / "dbcfg.sql").read_bytes()
+        production_reports.append(
+            {
+                "dataset_id": dataset_id,
+                "sql_parse": _production_sql_parse_report(sql_bytes),
+            }
+        )
+        item = census_one(
+            tier_name=tier_name,
+            engine_dir=engine_dir,
+            pair_of=pair_of,
+            diagnostic_mode=diagnostic_mode,
+        )
         censuses.append(item)
         (packages_dir / f"{item.dataset_id}.tar.gz").write_bytes(pack_tar_gz({
             REQUIRED_SQL_PATH: (engine_dir / "sql" / "dbcfg.sql").read_bytes(),
@@ -360,6 +463,8 @@ def main() -> None:
         }))
 
     summary = {
+        "diagnostic_mode": diagnostic_mode,
+        "parser_production_path": production_reports,
         "datasets": [asdict(item) for item in censuses],
         "dc12_json_columns_present": any(item.json_columns for item in censuses),
         "dc15_unknown_sql_types": sorted({t for item in censuses for t in item.unknown_sql_types}),

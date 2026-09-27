@@ -17,11 +17,12 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     Workspace,
 )
+from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
-# Frozen into preview job payload at accept time; bootstrap must match runtime table rules.
-PREVIEW_FROZEN_RULESET_VERSION = "v2"
+# Frozen into preview job payload at accept time; must match table_rules RULESET_VERSION.
+PREVIEW_FROZEN_RULESET_VERSION = RULESET_VERSION
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +126,3 @@ def compute_preview_request_fingerprint(
         "request_fingerprint_seed": dict(sorted(request_fingerprint_seed.items())),
     }
     return raw_blob_digest(canonicalize_json_value(payload)).value
-
-_MIB = 1024 * 1024
-FIXED_UPLOAD_MAX_COMPRESSED_BYTES = 256 * _MIB
-FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS = 60.0

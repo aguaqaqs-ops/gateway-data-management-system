@@ -20,7 +20,11 @@ from gateway_backend.operations.worker import (
     WorkerRegistry,
 )
 
-from gateway_backend.application.payloads import PayloadDecoder, PayloadDecoderRegistry
+from gateway_backend.application.payloads import (
+    PayloadDecoder,
+    PayloadDecoderRegistry,
+    build_payload_decoder_registry,
+)
 
 _CONTRACT_VERSION_RE = re.compile(r"^[\x20-\x7e]{1,128}$")
 _MAX_DEFINITIONS = 256
@@ -165,22 +169,6 @@ class JobWorkerComposition:
     decoder_registry: PayloadDecoderRegistry
     worker_registry: WorkerRegistry
     artifact_store: ArtifactStorePort
-
-
-def build_payload_decoder_registry(
-    registry: JobDefinitionRegistry,
-    decoders: Mapping[str, PayloadDecoder],
-) -> PayloadDecoderRegistry:
-    """Bind decoders to every JobDefinition.decoder_identity without surplus keys."""
-
-    if type(registry) is not JobDefinitionRegistry:
-        raise ValueError("registry must be JobDefinitionRegistry")
-    expected = frozenset(definition.decoder_identity for definition in registry.definitions())
-    decoder_keys = frozenset(decoders.keys())
-    if decoder_keys != expected:
-        raise ValueError("decoders must bind exactly one callable per decoder_identity")
-    return PayloadDecoderRegistry.build(decoders)
-
 
 
 def build_job_worker_composition(

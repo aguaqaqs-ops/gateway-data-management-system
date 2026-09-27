@@ -40,18 +40,10 @@ if TYPE_CHECKING:
     from gateway_backend.http.auth import InternalBearerPort, SessionPort
 
 
-class _FailClosedInternalBearerPort:
-    def verify(self, request: Request) -> None:
-        del request
-        raise ApiError(
-            code="AUTHENTICATION_REQUIRED",
-            message="authentication required",
-            status_code=401,
-        )
-
-
 def _default_internal_bearer_port() -> InternalBearerPort:
-    return _FailClosedInternalBearerPort()
+    from gateway_backend.http.auth import FailClosedInternalBearerPort
+
+    return FailClosedInternalBearerPort()
 
 
 @runtime_checkable

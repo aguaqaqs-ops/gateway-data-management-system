@@ -18,7 +18,7 @@ from starlette.datastructures import Headers
 
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.source_package_admission import UploadLimitExceededError
-from gateway_backend.application.workspace.contracts import (
+from gateway_backend.settings import (
     FIXED_UPLOAD_MAX_COMPRESSED_BYTES,
     FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
 )

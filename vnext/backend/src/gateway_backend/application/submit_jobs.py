@@ -100,6 +100,7 @@ from gateway_backend.application.submission.job_payload import (
     SUBMIT_STEP_AWAIT,
     SUBMIT_STEP_PREPARE,
     SUBMIT_STEP_SUBMIT,
+    submit_successor_step_id as _successor_step_id,
 )
 from gateway_backend.application.submission.errors import (
     AbortProofNotSatisfied,
@@ -2618,15 +2619,6 @@ def _repository_ref_from_dict(raw: dict[str, object]) -> RepositoryArtifactRef:
 def _expected_operation_identity_placeholder(request_bytes: bytes) -> str:
     del request_bytes
     return "pending"
-
-
-def _successor_step_id(operation_id: str, step_name: str) -> str:
-    suffix = {
-        SUBMIT_STEP_PREPARE: "1",
-        SUBMIT_STEP_SUBMIT: "2",
-        SUBMIT_STEP_AWAIT: "3",
-    }[step_name]
-    return f"{operation_id}-step-{suffix}"
 
 
 def _checkpoint_generation(step: StepRecord) -> int:

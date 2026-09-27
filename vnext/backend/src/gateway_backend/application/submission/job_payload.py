@@ -15,6 +15,15 @@ SUBMIT_STEP_SUBMIT = "submit_import"
 SUBMIT_STEP_AWAIT = "await_import_result"
 
 
+def submit_successor_step_id(operation_id: str, step_name: str) -> str:
+    suffix = {
+        SUBMIT_STEP_PREPARE: "1",
+        SUBMIT_STEP_SUBMIT: "2",
+        SUBMIT_STEP_AWAIT: "3",
+    }[step_name]
+    return f"{operation_id}-step-{suffix}"
+
+
 def build_submit_job_payload(
     *,
     attempt: SubmitAttempt,

@@ -34,7 +34,7 @@ from gateway_backend.http.orchestration.source_package_admission import (
     validate_source_package_archive,
 )
 from gateway_backend.http.schemas.upload import ArtifactManifestPart, UploadManifestPart, UploadRevisionResponse
-from gateway_backend.application.workspace.contracts import FIXED_UPLOAD_MAX_COMPRESSED_BYTES
+from gateway_backend.settings import FIXED_UPLOAD_MAX_COMPRESSED_BYTES
 
 
 async def accept_multipart_upload(

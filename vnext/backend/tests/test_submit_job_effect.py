@@ -964,6 +964,21 @@ def test_await_import_replays_t3_from_persisted_evidence_without_poll(
         def get_operation(self, *, repository_id: str, operation_id: str) -> object:
             raise AssertionError("get_operation must not run during evidence replay")
 
+        def canonical_import_request_bytes(
+            self,
+            *,
+            repository_id: str,
+            artifact_ref: RepositoryArtifactRef,
+            expected_commit_id: str,
+        ) -> bytes:
+            from gateway_backend.infrastructure.repository_write import wire_codec
+
+            return wire_codec.build_import_request_bytes(
+                repository_id=repository_id,
+                repository_artifact_ref=artifact_ref,
+                expected_commit_id=expected_commit_id,
+            )
+
     replay_deps = replace(
         await_deps,
         repository_write=cast(HttpRepositoryWriteClient, _PollForbiddenClient()),

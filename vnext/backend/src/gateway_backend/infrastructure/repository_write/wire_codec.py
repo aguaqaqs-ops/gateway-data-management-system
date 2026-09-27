@@ -40,7 +40,7 @@ def repository_artifact_ref_from_upload_response(response: UploadArtifactRespons
         artifact_id=str(wire_ref.artifact_id),
         media_type=str(wire_ref.media_type),
         size_bytes=int(wire_ref.size_bytes),
-        raw_sha256=_normalize_response_sha256(str(wire_ref.raw_sha256)),
+        raw_sha256=str(wire_ref.raw_sha256),
     )
 
 
@@ -126,12 +126,6 @@ def terminal_evidence_payload_from_operation(
 
 def _wire_repository_raw_sha256(value: str) -> str:
     return value.removeprefix("sha256:")
-
-
-def _normalize_response_sha256(value: str) -> str:
-    if value.startswith("sha256:"):
-        return value
-    return f"sha256:{value}"
 
 
 def wire_terminal_status_value(status: RepositoryImportOperationStatus) -> str:

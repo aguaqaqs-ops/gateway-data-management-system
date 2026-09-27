@@ -20,7 +20,7 @@ from gateway_backend.infrastructure.control_db import (
     connect_control_db,
     initialize_control_db,
 )
-from gateway_backend.infrastructure.control_db import database as control_db_database
+from gateway_backend.infrastructure.control_db import control_db_connect
 from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
 from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
 from gateway_backend.operations import (
@@ -248,7 +248,7 @@ def test_file_backed_writer_contention_maps_to_store_busy(
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
-    monkeypatch.setattr(control_db_database, "BUSY_TIMEOUT_MS", 0)
+    monkeypatch.setattr(control_db_connect, "BUSY_TIMEOUT_MS", 0)
     holder = connect_control_db(db_path)
     holder.execute("BEGIN IMMEDIATE")
     started = Event()

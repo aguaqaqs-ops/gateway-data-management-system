@@ -161,6 +161,10 @@ validation; the resolver must not use insertion order as a hidden tie-breaker.
 
 ### 4.2 StorageRuleView
 
+> 取代说明（2026-09-27）：列处置由 [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md) 补充与取代：新增 `compare_excluded_columns`（保留在存储中、
+> 不参与值比较）；ordered 表的 `no` 是 `RETAIN_FOR_STRUCTURE` 列，不得列入 `ignored_columns`；比较语义由
+> table_rules 的 `ComparisonRuleView` 提供。本节历史正文不改写。
+
 Storage projection consumes an explicit derived view:
 
 ~~~text

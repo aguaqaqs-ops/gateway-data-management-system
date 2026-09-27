@@ -151,6 +151,9 @@ projection。
   SnapshotSummary 缺失、版本不匹配或 digest 不一致直接失败，不从 catalog/rows 重建
   summary。R3 module gate 使用 protocol-conformant fake provider；真实 Repository
   Service/Dolt readback 属于独立 integration gate。
+  （取代说明，2026-09-27：hidden FINAL SnapshotSummary 的要求由 [ADR 0019](../adr/0019-commit-canonical-metadata-authority.md) 取代。commit 规范元数据以
+  Backend 持有的 CanonicalizationManifest 为权威，不在 Dolt 写 hidden summary；Repository-ref 物化单遍
+  读取，读取不一致按普通失败处理。本条其余要求不变。）
 
 ### Artifact and cache boundary
 

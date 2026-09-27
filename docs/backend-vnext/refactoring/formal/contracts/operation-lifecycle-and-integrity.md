@@ -72,6 +72,13 @@ acknowledgement_status
 resolution_reference
 ```
 
+权威事实问题指：Repository 返回值与 Backend 持有的期望值相矛盾（例如 T3 回显的 manifest digest、expected
+parent 或 commit），或 CAS/结果歧义。以下情形不创建 incident，按普通稳定失败处理，附诊断、结构化日志与
+指标：未与 Backend 期望值比较的 Repository 读取不一致（如 catalog 行数与读取行数不一致）；Backend artifact
+store 的读回校验失败（如 manifest artifact 的 digest 与 Submission 记录不符）（2026-09-27，
+[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)；5E 的 History compare integrity incident 在
+P5 架构收口 S2b 删除前仍按原实现运行）。
+
 incident 通过 stable operation/user code、结构化持久日志、metrics/alert 和 admin readback
 暴露。integrity incident 不进入普通 artifact cleanup，至少保留到显式 acknowledge、
 resolution 记录和 operator archive。只保存身份、digest、状态和诊断引用，不保存大量

@@ -322,6 +322,10 @@ history_compare_integrity_records  -- 类 (c) 才创建；1 operation : 0..1 inc
 
 ### 6.6 integrity 边界（比例化决定，三分法）
 
+> 取代说明（2026-09-27）：类 (c) 中以 hidden summary 交叉校验为生产者的 integrity incident（记录、受理阻断、
+> ack 路由、v6 表）由 [ADR 0019](../adr/0019-commit-canonical-metadata-authority.md) 取代，在 P5 架构收口 S2b 删除；Repository 读取不一致按依赖异常处理。类 (a)、
+> (b) 的处置不受影响。本节历史正文不改写。
+
 materialize 读回失败先分类再处置。原版本 “V1 无 delete/rewrite 能力故无 incident 触发源” 的论据**撤回**（审核 F5：I/O 失败、corruption、恢复不一致不需要删除 API；“既有 Repository-side owner” 在基线 vnext/** 无 production 实现，穷举核查确认）：
 
 | 类 | 定义 | 处置 |

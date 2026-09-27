@@ -19,10 +19,18 @@ candidate -> validate -> activate -> immutable snapshot
 
 已运行 operation 在启动时捕获 ruleset snapshot，运行期间不受后续 activation 影响。
 
+激活须经 §2 的 drain 与重启，同一进程生命周期内的运行期 ruleset 就是启动时捕获的 ruleset。跨越激活的
+只有恢复的 operation，上一句在恢复场景下按以下规则理解：纯计算 operation（Preview、History compare）在
+受理时冻结 ruleset digest，恢复时运行期 ruleset 与冻结值不同则稳定失败，由用户重跑，不得静默改用新规则；
+Submit 在 T1 冻结规范产物之后（含 PREPARED）只使用冻结产物，不依赖运行期 ruleset
+（2026-09-27，[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)；实现随 P5 架构收口 S2a、S2b 交付，此前
+现行源码仍按原行为运行）。
+
 Table ruleset snapshot 可以作为 protected hidden metadata table 随正式 canonical commit
 原子保存，例如保留 `__gateway_meta_*` namespace；它不进入 ordinary listing、comparison、
 risk、bundle、`StorageMutationPlan` 或 external sync。普通上传不得创建、覆盖或删除该
-namespace。
+namespace。当前不采用：commit 的 ruleset provenance 由 Backend 持有的 CanonicalizationManifest 记录
+（[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)）。
 
 Risk ruleset 首版保存在 RiskEvaluation、risk annotation artifacts 和 operation/audit
 metadata，不强制写入业务 commit。
@@ -66,4 +74,7 @@ state 读取数据，按新 ruleset 对受影响表完整 rebuild，创建新的
 
 History compare 统一使用程序当前默认 ruleset；历史 snapshot 仅作 provenance，不增加
 mismatch 分支。ruleset rollback 只影响未来 operation，不回滚已有 repository commit；
-已捕获旧 snapshot 的 operation 继续使用原规则。
+已捕获旧 snapshot 的 operation 按 §1 处理：带外部 effect 的 operation 按冻结产物继续；纯计算
+operation 在恢复时，若运行期 ruleset 与冻结值不同则稳定失败，由用户重跑，相同则照常继续。本节
+“不增加 mismatch 分支”指 commit 记录的历史 ruleset 与运行期不同，不构成失败理由；operation 冻结值与
+运行期不同时的恢复失败按 §1 处理，不属于此类（2026-09-27）。

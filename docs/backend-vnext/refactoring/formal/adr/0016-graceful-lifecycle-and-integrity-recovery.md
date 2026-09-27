@@ -2,6 +2,10 @@
 
 状态：Accepted
 
+范围说明（2026-09-27）：incident 适用范围由 [ADR 0019](0019-commit-canonical-metadata-authority.md) 澄清：限于 Repository
+返回值与 Backend 持有的期望值相矛盾，以及 CAS/结果歧义；见 [Operation Lifecycle](../contracts/operation-lifecycle-and-integrity.md) §4。
+本 ADR 正文不改写。
+
 日期：2026-08-18
 
 决策 owner：Backend vNext Operation Runtime and Repository Integrity

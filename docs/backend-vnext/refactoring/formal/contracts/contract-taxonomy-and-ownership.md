@@ -1,6 +1,7 @@
 # Contract Taxonomy and Ownership
 
-状态：正式设计（Accepted）
+状态：正式设计（Accepted）；2026-09-27 按 [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[ADR 0021](../adr/0021-flow-neutral-comparison-entry.md)
+更新 §4.4、§4.6、§5 与 §13 第 9 项；代码中的对应改动随 P5 架构收口 S1–S4 交付
 
 阶段：Phase 0–2收口；后续持续治理
 
@@ -163,7 +164,7 @@ Owner：对应 capability。
 
 ```text
 SnapshotMaterializationInput/Result
-ProjectionSchema/Result
+CanonicalProjectionResult、ComparisonRuleView
 ComparisonInput/Facts/Result
 RiskEvaluationInput/Report
 SurfaceAssemblyInput/Result
@@ -188,14 +189,11 @@ RepositoryIntegrityIncident
 允许的主依赖方向：
 
 ```text
-table_access/table_rules
-  -> storage_projection -> RepositoryImportArtifact
-  -> comparison_projection
-  -> snapshot
-  -> comparison
-  -> risk
-  -> surface
-  -> bundle
+table_access/table_rules -> snapshot
+snapshot + table_rules（StorageRuleView） -> storage_projection -> RepositoryImportArtifact
+storage_projection -> mutation_planning（import DML）
+snapshot + table_rules（ComparisonRuleView） -> comparison -> risk -> surface -> bundle
+snapshot -> project_identity
 ```
 
 ### 4.5 Operation Contract
@@ -263,7 +261,6 @@ retention和locator由business/ArtifactStore policy拥有。不建立把owner co
 | `SourcePackageArtifact` content | Workspace Input/Application |
 | `SnapshotTableArtifact` full-row facts | Snapshot Materialization capability |
 | `CanonicalizationManifest`、`RepositoryImportArtifact` | Table Rules/Storage Projection capability |
-| Comparison projection table | Comparison Projection capability |
 | Comparison records | Comparison capability |
 | Ordered records | Ordered Comparison capability |
 | Risk annotations/report | Risk capability |
@@ -394,17 +391,18 @@ Owner：对应 infrastructure adapter。
 | Minimal `BackendArtifactRef`（ID/media type/size/raw SHA） | Backend Artifacts | Capabilities、Operations、Interfaces |
 | Minimal `RepositoryArtifactRef`（Repository-scoped ID/media type/size/raw SHA） | Repository Service | Repository client、Backend adapter |
 | `SourcePackageArtifact` content/provenance/retention intent | Workspace Input/Application | Workspace、Submission、ArtifactStore |
-| `SnapshotTableArtifact` full-row facts/schema | Snapshot Materialization capability | Preview、Storage/Comparison Projection |
+| `SnapshotTableArtifact` full-row facts/schema | Snapshot Materialization capability | Preview、Storage Projection、Comparison |
 | `Snapshot`、`SnapshotSummary` | Snapshot capability | Comparison、Application |
 | `TableReader`、`TableSet` | Table Access contract | Snapshot、Comparison、Repository adapter |
-| Storage column policy/key/ordered identity、`CanonicalizationManifest` | Table Rules/Storage Projection capability | Submit、Repository adapter、Fixtures |
-| Comparison `ProjectionSchema`、projection digest | Comparison Projection capability | Snapshot、Comparison、Cache |
+| Storage column policy/key/ordered identity、`CanonicalizationManifest` | Table Rules/Storage Projection capability | Submit、Repository adapter、Fixtures、Preview、History（commit 规范元数据） |
+| `ComparisonRuleView`、比较列处置 | Table Rules capability | Comparison |
 | `RepositoryImportArtifact` content schema | Storage Projection capability | Submit Attempt、Repository Service |
 | `ComparisonFacts`、standard records | Comparison capability | Risk、Surface、Bundle |
 | Ordered facts/records | Ordered Comparison capability | Risk、Surface、Bundle |
 | `RiskFacts`、`RiskReport` | Risk capability | Surface、Bundle、Application |
 | `ComparisonSurface` | Surface capability | Bundle、Interface |
 | `ComparisonBundle` | Bundle capability | Application、Interface |
+| `ProjectIdentityAssessment` | Project Identity capability | Workspace Application、Surface（经 Application 映射） |
 | `Workspace`、`UploadRevision` | Workspace Domain | Workspace Application、Interface |
 | `PreviewResult` | Workspace Application | Submission Application、Interface |
 | `SubmitAttempt` | Submission Application | Operations、Workspace、Interface |
@@ -419,8 +417,6 @@ Owner：对应 infrastructure adapter。
 | Repository identity/store/read/write/recovery wire semantics | Repository Service | Remote Repository adapter |
 | Business Repository Port | Consuming Application | Repository adapter/fake |
 | Archive业务Baseline promotion decision | Archive Application | Baseline、Submission、Workspace |
-| Hidden SnapshotSummary table schema/content | Snapshot capability | Snapshot read/write adapter |
-| Hidden table 的普通版本化存储 | Repository Service | Repository adapter |
 | HTTP preview/submit/review/archive/history DTO | HTTP Interface | External clients、Application mapping |
 | Cache registry/envelope | Cache module | Capability provider、Operations |
 | Cache payload schema | Payload-producing capability | Cache module、consumer capability |
@@ -652,6 +648,8 @@ Persistence record 反向成为 domain model
 8. Shared Kernel不拥有generic FailureDescriptor；stable
    `code/message/details?`由对应Application/Capability owner管理。
 9. Raw Source、full-row Snapshot、canonical import/readback 和 comparison projection 是不同 artifact/contract owner，不建立泛化 `Projection` authority。
+   （取代说明，2026-09-27：comparison projection 部分由 [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)
+   取代，比较使用 table_rules 的 `ComparisonRuleView`，不再有 comparison projection artifact 或 owner；本条其余内容不变。）
 10. Canonical encoding、storage projection、Repository wire和owner benchmark
     使用独立版本轴；普通golden没有第二套self-identity轴。
 

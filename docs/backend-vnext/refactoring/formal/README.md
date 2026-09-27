@@ -25,6 +25,18 @@
 - [P5-5E Slice Exit — Final](plans/p5-5e-slice-exit-final.md)（`p5_5e_slice_exit: pass`）
 - [P5-5E-S4 Independent Slice Exit Acceptance](plans/p5-5e-s4-independent-acceptance.md)（gate @ `21723698`）
 - [P5-5E-S1 Kickoff Gate](plans/p5-5e-s1-kickoff.md)（pass）
+- [P5 架构收口 S0 Entry Brief](plans/p5-arch-closure-s0-entry-brief.md)、
+  [详细设计](plans/p5-arch-closure-design.md)、[执行计划](plans/p5-arch-closure-execution-plan.md)、
+  ADR [0018](adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](adr/0021-flow-neutral-comparison-entry.md)
+  （S0 文档 r4 于 2026-09-27 由 owner 接受，ADR Accepted；Business Lifecycle 与 Canonical Storage 升至 3.1.0；实现未授权）
+  - [S0 独立文档审核报告](plans/p5-arch-closure-s0-independent-docs-review.md)（r1 @ `3e5d5807e5`：定向修订；含 2026-09-26 复核补充）
+  - [r2 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview.md)（@ `5858eaaa08`：定向修订）
+  - [r2 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-2.md)（@ `5858eaaa08`：定向修订；O1–O5 已决议为 DC23–DC27）
+  - [r3 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview-r3.md)（@ `ffba1138ef`：通过，含一项非阻塞）
+  - [r3 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-r3-2.md)（@ `ffba1138ef`：定向修订，两项阻塞）
+  - [r4 独立核对](plans/p5-arch-closure-s0-independent-rereview-r4.md)（@ `2f38b301a6`：通过，两项非阻塞已吸收）
+  - [S0 Owner 决议记录](plans/p5-arch-closure-s0-owner-decisions.md)（DC10–DC27 已决议；含真实数据存放约定）
+  - [S0 修订处置表](plans/p5-arch-closure-s0-revision-disposition.md)（r2：F1–F11、N1–N6、DC10–DC22；r3：两份 r2 复审的 findings 与 DC23–DC27；r4：两份 r3 复审的 findings；§10 接受记录）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）
 - [P5-5C-S0 Entry Brief](plans/p5-5c-s0-entry-brief.md)（historical entry input）
 - [P5-5C Review Detailed Design](plans/p5-5c-review-design.md)（accepted；slice completed）

@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.0.0`
+Semantic version：`3.1.0`（Accepted 2026-09-27；前版 `3.0.0`）
 
 Storage projection version：`1`
 
@@ -32,9 +32,9 @@ canonical storage snapshot 之间的 `REBUILD_TABLE | PATCH_DML | NOOP` 计划�
 唯一拥有；本 contract 只拥有 canonical storage、projection、manifest 和 Repository
 generic effect 的边界。
 
-## 2. Storage 与 comparison projection
+## 2. Storage projection 与比较规则视图
 
-Storage projection 在 import 前决定 Dolt 长期保存的 canonical schema、physical key 与 structural fact。Comparison projection 在比较时负责跨版本 alignment、selected value columns、ordered semantics 和 records。二者来自相同 table-rules source，但具有不同 contract、DTO、version 和 cache identity。R4 已确认：legacy `ignored_columns` 是 canonical storage policy，不再只是 comparison-time filter；这些列从 canonical schema/Dolt business state 中删除，但仍保留在 SourcePackageArtifact、Snapshot facts 和 LegacyRuleDecision 中供 parity、provenance 与原始数据读取使用。
+Storage projection 在 import 前决定 Dolt 长期保存的 canonical schema、physical key 与 structural fact。比较在规范域进行：两侧都是规范快照（storage projection 输出或 Repository commit 读取）。比较语义由 table_rules 的 `ComparisonRuleView` 提供、由 comparison 消费，使用运行期规则集。`StorageRuleView` 与 `ComparisonRuleView` 来自同一 table-rules source，各有独立的 digest。比较不使用 native diff，始终按列名与有效键对齐（§7）。R4 已确认：legacy `ignored_columns` 是 canonical storage policy，不再只是 comparison-time filter；这些列从 canonical schema/Dolt business state 中删除，但仍保留在 SourcePackageArtifact、Snapshot facts 和 LegacyRuleDecision 中供 parity、provenance 与原始数据读取使用。
 
 列策略只允许：
 
@@ -50,6 +50,10 @@ R4 对每个 legacy `ignored_columns` 生成 `DROP_FROM_STORAGE`，manifest reas
 `legacy_ignored_column` 和 owning selector。被标记为 ignored 的列不得同时作为 effective key、
 ordered identity 或其他 required structural column；出现冲突时 ruleset validation 失败，不能
 通过保留该列或退回 comparison-only 语义来继续。
+
+`compare_excluded_columns` 表示保留在存储中（`PERSIST_BUSINESS`）、但不参与值比较的列，不得与
+`ignored_columns`、有效键、ordered identity 或结构列重叠。ordered 表的位置列（如 `no`）是
+`RETAIN_FOR_STRUCTURE` 列，由 ordered 语义处理，不得列入 `ignored_columns`。
 
 Canonical effective key、canonical column set 和 dropped-column set 是持久 structural facts：
 R4 将它们写入 `CanonicalizationManifest` 与 `RepositoryImportArtifactInput`，Repository
@@ -106,6 +110,11 @@ opaque`canonicalization_manifest_digest`；它不是完整业务manifest，也�
 ENUM label / SET member 的声明顺序）、`nullable`、primary-key order。表按 canonical
 name bytes 排序，列保持 DDL order，与 Repository package manifest 一致。charset /
 collation 列修饰符不属于 v1 schema identity。Arrow 物理类型不进入 schema digest。
+
+该每表 schema digest 保持 DDL 列序，用于 manifest 发布时的自洽核对与 mutation planning 的 schema
+变化判断，并计入 manifest digest；Repository STRUCTURAL 比较的是包内 `manifest.json` 的列、主键与
+行数，不使用它。比较、规范状态摘要与 `NO_CANONICAL_CHANGE` 使用 Snapshot Materialization 拥有、与
+列序无关的 business schema digest（ADR 0018），二者不可互换。
 
 每表 content digest 的单元格 bytes 由 [Shared Canonical Encoding](shared-canonical-encoding.md)
 §3.2 唯一拥有：
@@ -233,6 +242,13 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 
 改变列 policy/key/ordered identity/canonical bytes 必须升级相应 storage projection、ruleset 或 canonical encoding version，并建立新 digest/cache identity。纯 Repository implementation 优化不得改变 canonical content。
 
+`3.1.0`（2026-09-27）：§2 改为规范域比较与 `ComparisonRuleView`，增加 `compare_excluded_columns` 约束；§4
+说明 manifest 每表 schema digest 与 business schema digest 的区分。manifest 载荷结构与
+`canonicalization_manifest_digest` 算法不变；CanonicalizationManifest 的 `contract_version` 自
+[P5 架构收口](../plans/p5-arch-closure-design.md) S2a 起记录 `3.1.0`，读取接受历史版本。storage projection
+version 不变；若 S1 kickoff 普查触发 JSON 以 LONGTEXT 存储，在 S2a handoff 中按本节写明是否提升。实现随收口
+S1–S5 交付，交付前现行源码仍按 `3.0.0` 行为运行。
+
 ## 9. 验收标准
 
 - Raw source 可从 SourcePackageArtifact 完整读取；Dolt export 明确是 canonical schema。
@@ -264,6 +280,8 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 - [ADR 0004](../adr/0004-raw-source-artifact-and-canonical-dolt-storage.md)
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
 - [ADR 0013](../adr/0013-enum-set-v1-import-semantics.md)
+- [ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)、[ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)
+  与 [P5 架构收口设计](../plans/p5-arch-closure-design.md)（`3.1.0`）
 - [DX Cross-Phase Interface Reconciliation](../plans/dx-cross-phase-interface-reconciliation.md)
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)

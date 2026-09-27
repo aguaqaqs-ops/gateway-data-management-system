@@ -525,6 +525,11 @@ S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
 - `import_rules` 在 `main` 上的输出与 `architecture_baseline.py` 一致（违例 54、运行时环 8、不可达 16），S4 与 prepare 修复
   期间没有新增条目。
 - 真实数据已就位（§8.3），普查可以执行。
+- 基线验证（代码与 `465b53746a` 相同）：`GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh` 中 shared_kernel 242、
+  repository_contracts 152、repository_client 154、backend 2705、repository_service 并行 1678（1 skipped）全部通过；
+  repository_service 串行批次 197 通过、8 个 compose 用例因运行期间工作区有未提交的文档改动报 `worktree is dirty`
+  （provenance 要求干净工作区），在 `028b957c26` 的干净工作区单独重跑 8 个全部通过。五包 ruff、mypy 通过。
+  `0d9d0d9dc5` 的镜像重建仍延期到 S1 阶段末（S1 本身要求重建）。
 - S1 kickoff 在 S1 的 base 上重新确认以上结果，并写入 S1 handoff。
 
 ### 8.7 提示词模板

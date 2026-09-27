@@ -11,7 +11,7 @@ Owner：Backend vNext Architecture
 审核与决议：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、
 r2 独立复审（[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、
 r3 独立复审（[第一份](p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](p5-arch-closure-s0-independent-rereview-r3-2.md)）、
-[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[修订处置表](p5-arch-closure-s0-revision-disposition.md)
+[r4 独立核对](p5-arch-closure-s0-independent-rereview-r4.md)、[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[修订处置表](p5-arch-closure-s0-revision-disposition.md)
 
 B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`。本文写未来命令与期望证据；实际结果写入
 各阶段 handoff。
@@ -50,9 +50,9 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   ADR 0018–0021（2026-09-27 起 Accepted）、P5 §2A.4.1 第二轮补充；审核报告、两份 r2 与两份 r3 复审报告、owner 决议记录与修订处置表。
 - 审核对象：r1 在 `3e5d5807e5` 接受独立审核（结论：定向修订）；r2 在 `5858eaaa08` 接受两份独立复审（结论均为定向修订）；
   r3 在 `ffba1138ef` 接受两份独立复审（结论分别为通过与定向修订）；r4（`2f38b301a6`）按两份报告的全部 findings 修订，
-  其差异未经独立核对，由 repository owner 决定直接接受。
+  其差异经独立核对（`b4e50ce4a0`）判为通过；repository owner 于 2026-09-27 接受。
   代码事实基线 `2172369803`。
-- 接受（已完成，2026-09-27，repository owner 决定；r4 差异未经独立核对），按 Entry Brief §5：
+- 接受（已完成，2026-09-27，repository owner 决定；r4 差异核对通过），按 Entry Brief §5：
   - ADR 0018–0021 状态改为 Accepted；
   - 附录 A 并入 Business Lifecycle 并升至 3.1.0；附录 B 各候选并入对应文档（Canonical Storage 升至 3.1.0、
     Canonical Storage §4 的摘要说明、Ruleset Activation §1 与 §5、ADR 0016 与 Operation Lifecycle §4、

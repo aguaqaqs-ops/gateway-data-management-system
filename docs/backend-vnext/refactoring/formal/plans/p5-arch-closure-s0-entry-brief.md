@@ -4,8 +4,8 @@
 - 日期：2026-09-27（r4 与接受）；r2、r3 为 2026-09-26；r1 为 2026-09-25
 - Owner：Backend vNext Architecture（收口牵头）
 - 修订与复审：r2–r4 由 S0 审核者应 repository owner 要求执行修订。r2 经两份独立复审，结论均为定向修订；r3 按其 findings 与
-  DC23–DC27 修订，经两份独立复审，结论分别为通过与定向修订；r4 按两份 r3 复审的全部 findings 修订。r4 差异没有经过独立
-  核对，repository owner 决定直接接受；接受提交同样由修订者执行，修订者的自查不构成独立复审。
+  DC23–DC27 修订，经两份独立复审，结论分别为通过与定向修订；r4 按两份 r3 复审的全部 findings 修订，其差异经[r4 独立核对](p5-arch-closure-s0-independent-rereview-r4.md)
+  （`b4e50ce4a0`）判为通过。repository owner 于 2026-09-27 决定接受，接受提交由修订者执行；修订者的自查不构成独立复审。
 - 复审顺序：[修订处置表](p5-arch-closure-s0-revision-disposition.md)（§8 为 r3、§9 为 r4）→ 本文件 → [详细设计](p5-arch-closure-design.md)
   → [执行计划](p5-arch-closure-execution-plan.md)
   → ADR [0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)、
@@ -15,13 +15,13 @@
 - 审核与决议依据：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、r2 独立复审
   （[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、r3 独立复审
   （[第一份](p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](p5-arch-closure-s0-independent-rereview-r3-2.md)）、
-  [S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)
+  [r4 独立核对](p5-arch-closure-s0-independent-rereview-r4.md)、[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)
 
 ## 1. 权威与基线
 
 ```yaml
 entry_kind: p5_arch_closure_s0_docs_only
-status: accepted 2026-09-27 (owner decision; r4 diff not independently checked)
+status: accepted 2026-09-27 (owner decision; r4 diff check passed @ b4e50ce4a0)
 docs_branch: p5-arch-closure-docs
 docs_worktree: /home/dev/gdds-p5-arch-closure-docs
 code_inspection_base: 2172369803          # 5E-S3 exit + 架构门禁基线 + S4 预算例外记录
@@ -33,7 +33,7 @@ r2_rereview_verdicts: [targeted_revision, targeted_revision]   # @ 34ff1827cf、
 r3_reviewed_commit: ffba1138ef
 r3_rereview_verdicts: [pass, targeted_revision]                 # @ 783acefe94、46a4e03ae5
 r4_commit: 2f38b301a6
-r4_diff_check: not_performed              # owner 决定直接接受
+r4_diff_check: pass                       # @ b4e50ce4a0；两项非阻塞建议已在接受时吸收
 owner_decisions: DC1-DC27                 # DC10–DC22 @ 3f3b1de192；DC23–DC27 @ f984381ab3
 p5_5e_status_source: main_line_5e_records # 本文不判定 5E 状态
 p5_5e_slice_exit_required_before_s1: yes  # 本分支在 5E slice exit 前不合入主线
@@ -144,7 +144,7 @@ r2 复审时提出的重点仍然适用：
 
 ## 5. 通过后的事件（互相独立，不自动推导）
 
-- 文档接受（已完成，2026-09-27，repository owner 决定；r4 差异未经独立核对）：
+- 文档接受（已完成，2026-09-27，repository owner 决定；r4 差异核对通过，`b4e50ce4a0`）：
   - ADR 0018–0021 状态改为 Accepted；
   - Business Lifecycle 按附录 A 升至 3.1.0；
   - 附录 B 的候选并入对应文档：Canonical Storage 升至 3.1.0（§2、§4）、Ruleset Activation §1 与 §5、ADR 0016 与

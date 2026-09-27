@@ -11,7 +11,7 @@ Owner：Backend vNext Architecture（收口牵头）；各项语义归属见 §1
 审核与决议：[S0 独立审核报告](p5-arch-closure-s0-independent-docs-review.md)、
 r2 独立复审（[第一份](p5-arch-closure-s0-independent-rereview.md)、[第二份](p5-arch-closure-s0-independent-rereview-2.md)）、
 r3 独立复审（[第一份](p5-arch-closure-s0-independent-rereview-r3.md)、[第二份](p5-arch-closure-s0-independent-rereview-r3-2.md)）、
-[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[修订处置表](p5-arch-closure-s0-revision-disposition.md)
+[r4 独立核对](p5-arch-closure-s0-independent-rereview-r4.md)、[S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md)、[修订处置表](p5-arch-closure-s0-revision-disposition.md)
 
 上游：[P5 §2A / §2A.4.1](p5-business-vertical-slices-design.md#p5-architecture-guardrails)、
 [Architecture](../architecture/architecture-and-refactoring-plan.md)、
@@ -279,7 +279,7 @@ compare-excluded 列：值比较与 `MODIFIED` 判定都不使用这些列；新
 - 不再校验两侧的规则集 digest（删除 r1 的 `RULESET_BINDING_MISMATCH`，DC10）。
 - vNext 比较不使用 native diff，始终按列名与有效键对齐，有效键取自运行期 `ComparisonRuleView`。因此无论两侧的 storage projection version 或 ruleset digest 是否相同，都满足 Canonical Storage §7 的 alignment 要求。
 - schema 差异的来源按 Canonical Storage §7 标记，只依据两侧逐表存储规则事实（§4.1，规则侧字段）逐项归因：
-  - 由规则事实的差异可以解释的差异，归 `STORAGE_PROJECTION_POLICY`：dropped 集合变化导致的列增删、key policy 或显式键变化导致的键变化、ordered policy 与 structural 列变化导致的 gid/no 变化；
+  - 由规则事实的差异可以解释的差异，归 `STORAGE_PROJECTION_POLICY`：dropped 集合变化导致的列增删、key policy 或显式键变化导致的键变化、ordered policy 与 structural 列变化导致的 gid/no 变化，以及这些变化派生的差异（例如显式键变化使新旧键列的可空性随之改变，§4.2）；
   - 其余差异归 `SOURCE_SCHEMA`：源表增删列、类型、长度、可空性，以及 `DDL_PRIMARY_KEY` 策略下主键的变化；
   - 两类都有时为 `BOTH`；只有列序不同不产生 schema 差异（DC13）。
   - 两侧的规则事实总是可得：commit 侧取自 manifest，上传侧取自本次投影，INITIAL 没有表；无 manifest 的 commit 按 §5.1 不得进入比较。
@@ -607,12 +607,12 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 | --- | --- |
 | 规范快照同一性（descriptor 级与 schema/内容摘要；两条生产路径；真实 Dolt 往返） | `test_canonical_snapshot_identity.py`（integration：经 `tests/support/submit_job_harness.py` 启动的真实 Repository Service 导入规范快照，再经 HTTP Arrow 读回；覆盖 NULL、ENUM、SET、CHAR、JSON（按 DC12）、INT/BIGINT/INT UNSIGNED、伪 gid；S3 起加入 `composite_signal_point`） |
 | 标量编码与 SET 解码规则 | `test_snapshot_materialization_contracts.py`（unit，共享参数表） |
-| 规范状态身份覆盖业务 schema、排除列序；提前退出与 schema 事实 | `test_canonical_state_identity.py`（unit，共享参数表：空表增列、类型、长度、可空性、键序、列序；列序互换时 business schema digest 不变。manifest `canonical_schema_digest` 保持 DDL 列序、发布自洽核对与 mutation planning 用法仍由既有 storage_projection 与 mutation_planning 测试证明） |
+| 规范状态身份覆盖业务 schema、排除列序；提前退出与 schema 事实 | `test_canonical_state_identity.py`（unit，共享参数表：空表增列、类型、长度、可空性、键序、列序；列序互换时同一行断言 business schema digest 不变、manifest `canonical_schema_digest` 改变；manifest 摘要的发布自洽核对与 mutation planning 用法仍由既有 storage_projection 与 mutation_planning 测试证明） |
 | 同内容的原始上传与规范基线 → 全表 UNCHANGED | `test_comparison_canonical_domain.py` |
 | `ComparisonRuleView` 派生与列处置校验（含 ordered `no`） | `test_table_rules_comparison_view.py`（共享参数表） |
 | 角色语义（BROWSE_ONLY/SNAPSHOT_ONLY/UPDATE_ONLY/ordered；表级内容变化事实，含各存储角色只改 schema 的情形；compare-excluded） | `test_comparison_rule_roles.py` |
 | 表级内容已变化事实在 Preview/Review 的变化计数中可见 | `test_surface_assembly.py` |
-| 按列名与有效键对齐，并按两侧规则侧存储事实标记 schema 差异来源（Canonical Storage §7） | `test_comparison_planning.py`（共享参数表：同一规则下源表增列、改 DDL 主键 → `SOURCE_SCHEMA`；规则改变 dropped 列或显式键 → `STORAGE_PROJECTION_POLICY`；两者同时发生 → `BOTH`；只有列序不同 → 无 schema 事实） |
+| 按列名与有效键对齐，并按两侧规则侧存储事实标记 schema 差异来源（Canonical Storage §7） | `test_comparison_planning.py`（共享参数表：同一规则下源表增列、改 DDL 主键 → `SOURCE_SCHEMA`；规则改变 dropped 列或显式键 → `STORAGE_PROJECTION_POLICY`，含显式键变化派生的键列可空性变化；两者同时发生 → `BOTH`；只有列序不同 → 无 schema 事实） |
 | 投影失败形态与存储约束（一次列出全部失败；不可作键的类型；键列 NOT NULL） | `test_storage_projection_core.py` |
 | Repository 单遍物化与行数不一致失败 | `test_repository_ref_materialization_protocol.py` |
 | ADDITIVE 激活后旧基线仍可 Preview | `test_preview_job_materialize.py` |

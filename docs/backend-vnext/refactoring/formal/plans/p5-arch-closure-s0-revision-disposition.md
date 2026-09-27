@@ -1,6 +1,6 @@
 # P5 架构收口 S0 修订处置表
 
-- 状态：r2、r3 各经两份独立复审（r2：均为定向修订；r3：通过与定向修订）；r4 修订者自查完成（§9），**owner 于 2026-09-27 决定直接接受，r4 差异未经独立核对**（§10）。本表不是复审结论。
+- 状态：r2、r3 各经两份独立复审（r2：均为定向修订；r3：通过与定向修订）；r4 修订者自查完成（§9），r4 差异经独立核对通过（`b4e50ce4a0`），**owner 于 2026-09-27 接受**（§10）。本表不是复审结论。
 - 日期：2026-09-26（r2、r3）；2026-09-27（r4）
 - 修订者：S0 独立审核者，应 repository owner 要求执行 r2–r4 修订。修订者与审核者为同一人，因此复审须由既未参与起草、
   也未参与相应修订的 reviewer 承担。
@@ -30,7 +30,7 @@ vnext_changed: no
 accepted_contract_bodies_changed: no      # 上游修订只以候选文本给出（设计附录 A、B）
 adr_status_changed: no                    # 0018–0021 保持 Proposed
 implementation_authorized: no
-diff_check_of_r4: not_performed          # owner 决定直接接受
+diff_check_of_r4: pass                   # @ b4e50ce4a0
 accepted_at: 2026-09-27
 ```
 
@@ -266,8 +266,12 @@ S1 kickoff 第 4、5 项；第 4 项 → 执行计划 S2a、S2b 验收；第 5 �
 
 ## 10. 接受记录（2026-09-27）
 
-- 决定：repository owner 指示按 [Entry Brief](p5-arch-closure-s0-entry-brief.md) §5 接受 r4（`2f38b301a6`）。r4 差异没有经过独立核对，
-  由 owner 决定直接接受；接受提交由修订者执行。
+- 决定：repository owner 指示按 [Entry Brief](p5-arch-closure-s0-entry-brief.md) §5 接受 r4（`2f38b301a6`），接受提交由修订者执行。
+- 更正：接受提交（`2d37923a51`）写明“r4 差异未经独立核对”。实际上[r4 独立核对](p5-arch-closure-s0-independent-rereview-r4.md)已在接受提交之前以 `b4e50ce4a0` 提交，结论为
+  通过，只是修订者提交时才看到。本节与 Entry Brief、执行计划据此更正。核对报告另有：
+  - 两项非阻塞建议 RR4-N1（显式键变化派生的键列可空性差异归规则变更）、RR4-N2（§12 的列序断言）：已按报告给出的文字写入
+    设计 §4.5 与 §12；
+  - 一项需 owner 知悉的事项 O6：身份确认理由沿用 Review 规则后不能包含换行与制表符；是否需要多行，在 S4 开工前确认。
 - 接受提交的内容：
   - ADR 0018–0021 状态改为 Accepted；
   - 附录 A 并入 [Business Lifecycle](../contracts/business-lifecycle-and-state.md)，版本 `3.0.0` → `3.1.0`（§1A.2、§2、§3、§4、§5、§6、§8、§10）；

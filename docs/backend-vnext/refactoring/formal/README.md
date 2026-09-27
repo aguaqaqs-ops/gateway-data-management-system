@@ -32,6 +32,7 @@
   - [r2 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-2.md)（@ `5858eaaa08`：定向修订；O1–O5 已决议为 DC23–DC27）
   - [r3 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview-r3.md)（@ `ffba1138ef`：通过，含一项非阻塞）
   - [r3 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-r3-2.md)（@ `ffba1138ef`：定向修订，两项阻塞）
+  - [r4 独立核对](plans/p5-arch-closure-s0-independent-rereview-r4.md)（@ `2f38b301a6`：通过，两项非阻塞已吸收）
   - [S0 Owner 决议记录](plans/p5-arch-closure-s0-owner-decisions.md)（DC10–DC27 已决议；含真实数据存放约定）
   - [S0 修订处置表](plans/p5-arch-closure-s0-revision-disposition.md)（r2：F1–F11、N1–N6、DC10–DC22；r3：两份 r2 复审的 findings 与 DC23–DC27；r4：两份 r3 复审的 findings；§10 接受记录）
 - [P5-5C-S5 Independent Slice Exit Acceptance](plans/p5-5c-s5-independent-acceptance.md)（`p5_5c_slice_exit: pass`）

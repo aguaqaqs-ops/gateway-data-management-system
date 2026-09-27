@@ -453,8 +453,17 @@ Application 特判或新增基线条目绕过。
   `/home/dev/gdds-p5-closure-s<N>` 中实施；主工作区保持在 `main`，不在其中实施。
 - 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s1): ...`）。每个子步结束运行
   `import_rules` 与受影响的 focused 测试；`import_rules` 的输出只减不增，改名导致的条目替换在同一提交中说明。
-- 审核对象为工作分支的 HEAD 与 handoff。定向修订在同一分支追加提交，复审只核对差异。审核通过后以 `--no-ff` 合入
-  `main`（保留审核引用的提交），再删除工作分支与 worktree。
+- 运行 `./vnext/scripts/run-tests.sh` 或 compose 测试期间，不在该 worktree 中写入任何文件：compose provenance 要求工作区干净，
+  否则报 `worktree is dirty`。handoff 与审核报告都在测试结束后写入。实现者与审核者同样适用。
+- 实现者完成全部代码提交后，最后一个提交只加 handoff（只改文档，不改变镜像构建上下文）。审核对象是分支末端，即 handoff
+  所在的提交；实现者在最终回复中给出按 §8.7 填好的审核提示词，其中写明分支末端的 SHA。
+- 审核在新对话中进行，审核者不参与该阶段的实现。报告按 §8.8 的模板写入 `plans/p5-arch-closure-s<N>-independent-review.md`
+  （复审为 `plans/p5-arch-closure-s<N>-independent-rereview-<k>.md`），作为单独的提交加到工作分支。审核者不修改代码、测试
+  与 handoff，不合并，不推送。
+- 结论为定向修订时，实现侧在同一分支追加修订提交，并在 handoff 末尾增加修订一节（逐项对应 finding）；最终回复给出按 §8.7
+  填好的复审提示词。复审在新对话中进行，只核对修订差异与原 finding 的关闭情况。
+- 审核通过后是否合入由 owner 决定。合入时以 `--no-ff` 合入 `main`（保留审核引用的提交），再删除工作分支与 worktree；
+  可由 owner 执行，也可另开对话执行。
 - 审核按阶段进行（§1），只审本阶段差异与 handoff；S5 另按 P5 §2A.5 做整体验收。
 
 ### 8.2 handoff
@@ -464,6 +473,9 @@ Application 特判或新增基线条目绕过。
   验收 owner 及实际命令与结果；镜像重建记录（按 [testing-conventions](../../../testing-conventions.md) 的模板记录 image
   revision 与 source tree，延期时写明延期到哪个节点）；阶段之间的中间状态与延期项；停止条件（设计 §14）是否触发；
   请 reviewer 重点核对的内容。
+- 实现 HEAD 与分支末端：handoff 记录实现 HEAD（最后一个代码提交），镜像在实现 HEAD 上构建；分支末端只比实现 HEAD 多 handoff。
+- 最后一节为“审核提示词”：按 §8.7 的审核模板填好除分支末端 SHA 之外的全部字段；“必须核查”取自 §2 本阶段的验收、§3 的
+  本阶段预算、§8.4/§8.5 的保留项，以及上面列出的请 reviewer 重点核对的内容。
 - 真实数据只记录 dataset ID、SHA-256、规模与结构统计（决议记录 §4）。
 
 ### 8.3 真实数据的实际布局
@@ -534,17 +546,91 @@ S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
 
 ### 8.7 提示词模板
 
+尖括号内为占位符。实施者在最终回复中填好审核或复审提示词。
+
 实施：
 
 ```text
 按 docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-execution-plan.md 执行 S<N>（实现授权范围：S<N>）。
-基线 main @ <sha>；工作分支 p5-closure/s<N>，worktree /home/dev/gdds-p5-closure-s<N>。
-按 §8 推进，完成后写 handoff 并交独立审核；未通过不进入下一阶段。
+基线 main @ <BASE>；工作分支 p5-closure/s<N>，worktree /home/dev/gdds-p5-closure-s<N>。
+按 §8 推进；完成后写 handoff，并在最终回复中按 §8.7 给出填好的审核提示词。
 ```
 
 审核：
 
 ```text
-独立审核 P5 架构收口 S<N>：对象为 p5-closure/s<N> @ <sha>（base main @ <sha>）与 plans/p5-arch-closure-s<N>-handoff.md。
-按执行计划 §2 S<N> 的验收、§3 预算与纵切指南 §6 给出结论。
+任务：独立审核 P5 架构收口 S<N>。你没有参与 S<N> 的实现；按
+docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-guide.md §5–§6 审核，不预设结论。
+
+审核对象：p5-closure/s<N> @ <分支末端 SHA>（实现 HEAD <实现 HEAD>），base main @ <BASE>；worktree /home/dev/gdds-p5-closure-s<N>。
+  只审 <BASE>..<分支末端 SHA> 的差异；主工作区 /home/dev/gateway-data-management-system（main）只读。
+权威依据：plans/p5-arch-closure-execution-plan.md（§2 S<N>、§3 S<N>、§8）、plans/p5-arch-closure-design.md（<本阶段章节>、§12、§14）、
+  ADR 0018–0021、AGENTS.md；实现方记录 plans/p5-arch-closure-s<N>-handoff.md。
+必须核查：
+  <逐条列出：§2 本阶段验收、§3 本阶段预算、§8.4/§8.5 的保留项、handoff 请 reviewer 重点核对的内容>
+验证：在审核对象上自己运行五包 ruff/mypy、`import_rules` 与 `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；核对 handoff 的镜像
+  记录绑定实现 HEAD。不接受旧镜像或其他工作区的结果。测试运行期间不在该 worktree 写入任何文件。
+交付：测试结束后，按执行计划 §8.8 写 plans/p5-arch-closure-s<N>-independent-review.md，作为单独提交加到 p5-closure/s<N>；
+  除该报告外不修改任何文件；不合并、不推送、不操作 main 与主工作区。
+审核允许结论：通过 / 定向修订 / 整体返工。
+```
+
+复审：
+
+```text
+任务：独立复审 P5 架构收口 S<N> 的修订。你没有参与 S<N> 的实现与修订；按纵切指南 §7 复审。
+审核对象：p5-closure/s<N> @ <新分支末端 SHA>；上次审核对象 @ <上次分支末端 SHA>，报告 plans/p5-arch-closure-s<N>-independent-review.md
+  （或上一份复审报告）。只核对 <上次分支末端 SHA>..<新分支末端 SHA> 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的
+  问题不重开。
+验证：修订涉及的 focused 测试；修订触碰 §6 的镜像边界时，核对新的镜像记录。测试运行期间不在该 worktree 写入任何文件。
+交付：按执行计划 §8.8 写 plans/p5-arch-closure-s<N>-independent-rereview-<k>.md，作为单独提交加到 p5-closure/s<N>；
+  除该报告外不修改任何文件；不合并、不推送。
+审核允许结论：通过 / 定向修订 / 整体返工。
+```
+
+### 8.8 审核报告模板
+
+```markdown
+# P5 架构收口 S<N> 独立审核（复审时写“第 <k> 次复审”）
+
+- 结论：**通过 / 定向修订 / 整体返工**
+- 日期：<YYYY-MM-DD>
+- 审核对象：p5-closure/s<N> @ `<分支末端 SHA>`（实现 HEAD `<SHA>`），base main @ `<SHA>`
+- 依据：执行计划 §2 S<N>、§3 S<N>、§8；设计 <章节>；handoff
+
+## 1. 结论摘要
+
+<两到五句：阶段目标是否达成，阻塞项数量，是否可以合入 main 并进入下一阶段>
+
+## 2. Findings
+
+每项一个小节；没有 finding 时写“无”。
+
+### <编号，例如 S1-F1>：<一句话标题>
+
+- 类型：已证实缺陷 / 待验证假设 / 非阻塞建议；是否阻塞：是 / 否
+- 位置：<文件:行 或 提交>
+- 依据：<计划、设计、Contract 条款或源码事实>
+- 触发场景与影响：<具体输入或状态 → 错误结果>
+- 最小修正方向：
+- 关闭标准：<复审时如何判定已关闭>
+
+## 3. 验收核对
+
+| 验收项（执行计划 §2 S<N>） | 结果 | 证据 |
+| --- | --- | --- |
+
+## 4. 实际执行的检查
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+
+## 5. 验证限制与剩余前置
+
+<未能验证的内容及原因；进入下一阶段前须满足的条件；延期项及其节点>
+
+## 6. 复审记录（仅复审）
+
+| 原 finding | 关闭情况 | 依据 |
+| --- | --- | --- |
 ```

@@ -16,9 +16,7 @@ from gateway_shared_kernel import (
     UnsignedIntegerScalar,
 )
 
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    try_declared_type_for_sql_spelling,
-)
+from gateway_backend.capabilities.snapshot_materialization import try_declared_type_for_sql_spelling
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationStage,
     SnapshotColumnDescriptor,
@@ -63,6 +61,7 @@ from gateway_backend.capabilities.storage_projection.view import (
     StorageViewError,
     derive_storage_rule_view,
 )
+from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ORDERED_IDENTITY_COLUMN,
@@ -72,7 +71,6 @@ from gateway_backend.capabilities.table_rules.contracts import (
     TableRuleRecord,
     TableStaticRole,
     canonicalize_rule_identifier,
-    resolve_table_rule,
 )
 
 _UINT_DECLARED_TYPE = DeclaredType(kind=DeclaredTypeKind.UNSIGNED_INTEGER, bits=32)

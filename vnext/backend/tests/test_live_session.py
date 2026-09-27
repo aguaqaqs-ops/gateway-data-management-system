@@ -27,7 +27,7 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture(autouse=True)
 def _skip_repository_ready_probe() -> Iterator[None]:
-    with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
+    with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
         yield
 
 

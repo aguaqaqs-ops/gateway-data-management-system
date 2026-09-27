@@ -15,12 +15,9 @@ from gateway_backend.application.submission.contracts import (
     PrepareImportPublicationResult,
     SnapshotTableBinding,
 )
+from gateway_backend.application.submission.artifact_refs import backend_artifact_ref_from_store_ref
 from gateway_backend.application.submission.errors import SubmitImportPublicationError
-from gateway_backend.artifacts import (
-    ArtifactStorePort,
-    ManifestVerificationError,
-    backend_artifact_ref_from_store_ref,
-)
+from gateway_backend.artifacts import ArtifactStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.mutation_planning import (
     ImportReplayError as MutationImportReplayError,

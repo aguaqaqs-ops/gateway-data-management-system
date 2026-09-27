@@ -22,7 +22,7 @@ from gateway_backend.infrastructure.control_db import (
 from gateway_backend.infrastructure.control_db.database import assert_control_db_integrity
 from gateway_backend.http.auth import StaticInternalBearerPort
 from gateway_backend.http.dependencies import ReadOnlySubmissionStore
-from gateway_backend.http.runtime import (
+from gateway_backend.bootstrap.composition import (
     HttpBaselineCanonicalDigestPort,
     HttpRepositoryMainResolvePort,
     assert_repository_service_ready,
@@ -116,7 +116,7 @@ def test_production_readyz_is_ok_after_startup_and_omits_secrets(tmp_path: Path)
         artifact_root=tmp_path / "artifacts",
         repository_bearer_token_file=tmp_path / "repository-bearer-token",
     )
-    with patch("gateway_backend.http.runtime.assert_repository_service_ready"):
+    with patch("gateway_backend.bootstrap.composition.assert_repository_service_ready"):
         with TestClient(create_app(settings)) as client:
             ready = client.get("/readyz")
             health = client.get("/healthz")

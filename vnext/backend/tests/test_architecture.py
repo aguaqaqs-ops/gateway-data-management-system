@@ -658,7 +658,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                     (
                         "gateway_backend.application",
                         "gateway_backend.bootstrap",
-                        "gateway_backend.http.runtime",
+                        "gateway_backend.bootstrap.composition",
                         "gateway_backend.http.shutdown",
                         "gateway_backend.infrastructure.artifact_store",
                         "gateway_backend.infrastructure.control_db",

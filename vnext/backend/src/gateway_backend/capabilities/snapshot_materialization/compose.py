@@ -14,7 +14,7 @@ from gateway_shared_kernel import (
     StringScalar,
 )
 
-from gateway_backend.capabilities.composite_signal.contracts import (
+from gateway_backend.capabilities.composite_signal import (
     COMPOSITE_SIGNAL_CONTRACT_VERSION,
     COMPOSITE_SIGNAL_POINT_KEY,
     COMPOSITE_SIGNAL_POINT_TABLE,

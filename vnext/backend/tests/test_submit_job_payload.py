@@ -331,10 +331,16 @@ def test_submit_checkpoint_rejects_inexact_job_state(
     prepare_ref = artifact_ref_from_dict(_artifact_ref_dict("prepare-cp-1"))
     checkpoint_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
     payload = decode_submit_payload(_canonical_payload_object())
+
+    class _StubRepositoryWrite:
+        def canonical_import_request_bytes(self, **kwargs: object) -> bytes:
+            return b"{}"
+
     with pytest.raises(CheckpointDecodeError, match=message):
         _submit_state_from_job_state(
             store,
             job_state,
+            repository_write=_StubRepositoryWrite(),
             expected_payload=payload,
             prepare_checkpoint_ref=prepare_ref,
             checkpoint_ref=checkpoint_ref,

@@ -125,7 +125,9 @@ def finalize_submit_transaction(
     )
 
     _transfer_finalize_protection(unit_of_work, attempt=finalized_attempt)
-    from gateway_backend.application.submit_jobs import release_submit_checkpoint_protection
+    from gateway_backend.application.submission.artifact_release import (
+        release_submit_checkpoint_protection,
+    )
 
     release_submit_checkpoint_protection(unit_of_work, operation_id=attempt.operation_id)
 

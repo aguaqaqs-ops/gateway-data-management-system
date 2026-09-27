@@ -33,7 +33,7 @@ from gateway_backend.application.submit_jobs import (
     SubmitRuntimeDependencies,
     bind_submit_control_transaction_factory,
     build_submit_operator_recovery_port,
-    _read_write_factory,
+    read_write_factory,
 )
 from gateway_backend.application.submit_registry import (
     assert_submit_registry_decoders,
@@ -86,7 +86,7 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
     ProvisionedScopeResolution,
     seed_provisioned_mappings,
 )
-from gateway_backend.http.history_reader import HttpHistoryReader
+from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
     load_repository_bearer_token,
@@ -406,7 +406,7 @@ def prepare_backend_runtime(
     operator_recovery_port = build_submit_operator_recovery_port(
         write_uow_factory=control_transaction_factory,
         capability_lookup=build_submit_recovery_capability_lookup(registry),
-        submit_control_uow_factory=_read_write_factory(submit_control_uow_factory),
+        submit_control_uow_factory=read_write_factory(submit_control_uow_factory),
         abort_evidence=HttpRepositoryAbortEvidencePort(client=write_client),
         submit_deps=submit_deps,
     )

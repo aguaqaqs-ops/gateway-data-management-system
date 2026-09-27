@@ -599,7 +599,7 @@ def test_operator_abort_import_rejected_via_recovery_port(
     from gateway_backend.application.submit_jobs import (
         bind_submit_control_transaction_factory,
         build_submit_operator_recovery_port,
-        _read_write_factory,
+        read_write_factory,
     )
     from gateway_backend.application.submit_registry import submit_job_registry
     from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
@@ -683,7 +683,7 @@ def test_operator_abort_import_rejected_via_recovery_port(
         port = build_submit_operator_recovery_port(
             write_uow_factory=control_transaction_factory,
             capability_lookup=_submit_recovery_capability_lookup(submit_job_registry()),
-            submit_control_uow_factory=_read_write_factory(
+            submit_control_uow_factory=read_write_factory(
                 bind_submit_control_transaction_factory(control_transaction_factory)
             ),
             abort_evidence=evidence,

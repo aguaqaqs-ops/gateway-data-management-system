@@ -9,7 +9,7 @@ from gateway_backend.capabilities.comparison.standard import (
     StandardComparisonError,
     _declared_type,
 )
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
+from gateway_backend.capabilities.snapshot_materialization import (
     SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
 )

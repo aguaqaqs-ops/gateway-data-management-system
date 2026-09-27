@@ -33,7 +33,7 @@ from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_re
 from gateway_backend.capabilities.storage_projection.contracts import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
 )
-from gateway_backend.artifacts.nominal_refs import backend_artifact_ref_from_store_ref
+from gateway_backend.application.submission.artifact_refs import backend_artifact_ref_from_store_ref
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.application.submission.job_payload import (

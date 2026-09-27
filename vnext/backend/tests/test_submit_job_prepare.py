@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from gateway_repository_contracts import VersionedOperation
+from gateway_backend.application.submission.repository_operation import RepositoryImportOperation
 
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.checkpoints import (
@@ -111,8 +111,17 @@ class _UnusedRepositoryWrite:
     ) -> str:
         raise AssertionError("prepare handler must not submit imports")
 
-    def get_operation(self, *, repository_id: str, operation_id: str) -> VersionedOperation:
+    def get_operation(self, *, repository_id: str, operation_id: str    ) -> RepositoryImportOperation:
         raise AssertionError("prepare handler must not poll repository operations")
+
+    def canonical_import_request_bytes(
+        self,
+        *,
+        repository_id: str,
+        artifact_ref: RepositoryArtifactRef,
+        expected_commit_id: str,
+    ) -> bytes:
+        raise AssertionError("prepare handler must not build import request bytes")
 
     def wait_operation(
         self,
@@ -120,7 +129,7 @@ class _UnusedRepositoryWrite:
         repository_id: str,
         operation_id: str,
         deadline_seconds: float | None = None,
-    ) -> VersionedOperation:
+    ) -> RepositoryImportOperation:
         raise AssertionError("prepare handler must not wait on repository operations")
 
 

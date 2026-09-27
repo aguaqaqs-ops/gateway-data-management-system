@@ -25,9 +25,19 @@ from gateway_backend.capabilities.source_package_staging.contracts import (
     StagingTransport,
     resolve_sql_dump_source,
 )
+from gateway_backend.capabilities.source_package_staging._archive import (
+    ArchiveMember,
+    ExpansionCounter,
+    StagingFault,
+    iter_members,
+)
 from gateway_backend.capabilities.source_package_staging.staging import stage_source_package
 
 __all__ = [
+    "ArchiveMember",
+    "ExpansionCounter",
+    "StagingFault",
+    "iter_members",
     "OPTIONAL_XML_PATH",
     "REQUIRED_SQL_PATH",
     "RESOURCE_BUDGETS",

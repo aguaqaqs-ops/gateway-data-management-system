@@ -1,5 +1,10 @@
 """Public surface of the Snapshot Materialization capability."""
 
+from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
+    SqlDeclaredTypeMappingError,
+    declared_type_for_sql_spelling,
+    try_declared_type_for_sql_spelling,
+)
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     open_snapshot_table_artifact,
     publish_snapshot_table_artifact,
@@ -88,6 +93,9 @@ from gateway_backend.capabilities.snapshot_materialization.repository_ref import
 )
 
 __all__ = [
+    "SqlDeclaredTypeMappingError",
+    "declared_type_for_sql_spelling",
+    "try_declared_type_for_sql_spelling",
     "ARTIFACT_COMPRESSION_ZSTD",
     "BATCH_READER_CONTRACT_VERSION",
     "BATCH_SCHEMA_METADATA_VERSION",

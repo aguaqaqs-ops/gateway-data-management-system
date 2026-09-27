@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from dataclasses import asdict
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -12,14 +13,9 @@ from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 from uuid import UUID
 
-from gateway_repository_contracts import (
-    OperationStatus as RepositoryOperationStatus,
-    REPOSITORY_IMPORT_MEDIA_TYPE,
-    RepositoryArtifactRef as WireRepositoryArtifactRef,
-    SubmitVersionedImportRequest,
-    UnknownTypePolicy,
-    VerificationPolicy,
-    VersionedOperation,
+from gateway_backend.application.submission.repository_operation import (
+    RepositoryImportOperation,
+    RepositoryImportOperationStatus as RepositoryOperationStatus,
 )
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -119,7 +115,7 @@ from gateway_backend.application.submission.ports import (
     SubmitControlUnitOfWorkFactory,
     WorkspaceControlTransaction,
 )
-from gateway_backend.artifacts.nominal_refs import store_ref_from_backend_artifact_ref
+from gateway_backend.application.submission.artifact_refs import store_ref_from_backend_artifact_ref
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
@@ -583,6 +579,7 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
             request_state = _submit_state_from_job_state(
                 deps.artifact_store,
                 envelope.job_state,
+                repository_write=deps.repository_write,
                 expected_payload=payload,
                 prepare_checkpoint_ref=prepare_step.checkpoint_ref,
                 checkpoint_ref=step.checkpoint_ref,
@@ -719,6 +716,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
         submit_state = _submit_state_from_job_state(
             deps.artifact_store,
             submit_envelope.job_state,
+            repository_write=deps.repository_write,
             expected_payload=payload,
             prepare_checkpoint_ref=artifact_ref_from_dict(
                 _require_artifact_ref_dict(
@@ -787,7 +785,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 terminal_result_evidence_ref=None,
             )
 
-        repository_operation: VersionedOperation | None = None
+        repository_operation: RepositoryImportOperation | None = None
         if (
             await_checkpoint_state is not None
             and await_checkpoint_state.terminal_result_evidence_ref is not None
@@ -1046,7 +1044,7 @@ def _materialize_submit_checkpoint_state(
         and attempt.repository_artifact_ref is not None
     ):
         repository_artifact_ref = attempt.repository_artifact_ref
-        request_bytes = _build_import_request_bytes(payload, repository_artifact_ref)
+        request_bytes = deps.repository_write.canonical_import_request_bytes(repository_id=payload.repository_id, artifact_ref=repository_artifact_ref, expected_commit_id=payload.repository_expected_commit_id)
         request_ref = put_with_built_ref(
             deps.artifact_store,
             request_bytes,
@@ -1122,7 +1120,7 @@ def _materialize_submit_checkpoint_state(
         raw_sha256=prepare_checkpoint.package_raw_sha256,
         body=package_bytes,
     )
-    request_bytes = _build_import_request_bytes(payload, repository_artifact_ref)
+    request_bytes = deps.repository_write.canonical_import_request_bytes(repository_id=payload.repository_id, artifact_ref=repository_artifact_ref, expected_commit_id=payload.repository_expected_commit_id)
     request_ref = put_with_built_ref(
         deps.artifact_store,
         request_bytes,
@@ -1255,7 +1253,7 @@ def _map_handler_failure_to_recovery_outcome(
 
 @dataclass(frozen=True, slots=True)
 class _StaticAbortEvidence:
-    operation: VersionedOperation
+    operation: RepositoryImportOperation
 
     def resolve_stable_failure_code(
         self,
@@ -1669,23 +1667,23 @@ def _await_checkpoint_from_job_state(
     )
 
 
-def _serialize_terminal_repository_evidence(operation: VersionedOperation) -> dict[str, object]:
+def _serialize_terminal_repository_evidence(operation: RepositoryImportOperation) -> dict[str, object]:
     payload: dict[str, object] = {
         "document_type": _TERMINAL_REPOSITORY_EVIDENCE_DOCUMENT_TYPE,
         "contract_version": _TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION,
-        "operation_id": str(operation.operation_id),
+        "operation_id": operation.operation_id,
         "status": operation.status.value,
     }
     if operation.result is not None:
-        payload["result"] = operation.result.model_dump(mode="json")
+        payload["result"] = asdict(operation.result)
     if operation.error is not None:
-        payload["error"] = operation.error.model_dump(mode="json")
+        payload["error"] = asdict(operation.error)
     return payload
 
 
 def _persist_terminal_repository_evidence(
     store: ArtifactStorePort,
-    operation: VersionedOperation,
+    operation: RepositoryImportOperation,
 ) -> ArtifactRef:
     evidence_bytes = canonicalize_json_value(_serialize_terminal_repository_evidence(operation))
     return put_with_built_ref(
@@ -1702,7 +1700,7 @@ def _load_terminal_repository_evidence(
     *,
     expected_operation_id: str | None = None,
     expected_status: str | None = None,
-) -> VersionedOperation:
+) -> RepositoryImportOperation:
     evidence_object = json.loads(store.locate(evidence_ref))
     if type(evidence_object) is not dict:
         raise CheckpointDecodeError(
@@ -1737,8 +1735,12 @@ def _load_terminal_repository_evidence(
         "result": evidence_object.get("result"),
         "error": evidence_object.get("error"),
     }
-    operation = VersionedOperation.model_validate(operation_payload)
-    if expected_operation_id is not None and str(operation.operation_id) != expected_operation_id:
+    from gateway_backend.application.submission.repository_operation import (
+        repository_import_operation_from_evidence_payload,
+    )
+
+    operation = repository_import_operation_from_evidence_payload(operation_payload)
+    if expected_operation_id is not None and operation.operation_id != expected_operation_id:
         raise CheckpointDecodeError(
             "terminal repository evidence operation_id does not match checkpoint",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
@@ -1848,6 +1850,7 @@ def _submit_state_from_job_state(
     store: ArtifactStorePort,
     job_state: Mapping[str, object],
     *,
+    repository_write: RepositoryWritePort,
     expected_payload: SubmitJobPayload,
     prepare_checkpoint_ref: ArtifactRef,
     checkpoint_ref: ArtifactRef,
@@ -1913,9 +1916,10 @@ def _submit_state_from_job_state(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     request_bytes = store.locate(request_artifact_ref)
-    expected_request_bytes = _build_import_request_bytes(
-        expected_payload,
-        repository_artifact_ref,
+    expected_request_bytes = repository_write.canonical_import_request_bytes(
+        repository_id=expected_payload.repository_id,
+        artifact_ref=repository_artifact_ref,
+        expected_commit_id=expected_payload.repository_expected_commit_id,
     )
     if request_bytes != expected_request_bytes:
         raise CheckpointDecodeError(
@@ -1997,10 +2001,10 @@ def _matching_finalize_facts(
     *,
     payload: SubmitJobPayload,
     prepare_checkpoint: PrepareImportCheckpoint,
-    repository_operation: VersionedOperation,
+    repository_operation: RepositoryImportOperation,
     repository_operation_id: str,
 ) -> MatchingFinalizeFacts:
-    if str(repository_operation.operation_id) != repository_operation_id:
+    if repository_operation.operation_id != repository_operation_id:
         raise FinalizeBindingMismatch("repository operation identity does not match checkpoint")
     if repository_operation.result is None:
         raise SubmitJobError("repository SUCCEEDED operation is missing result")
@@ -2042,29 +2046,6 @@ def _matching_finalize_facts(
 def _wire_repository_raw_sha256(value: str) -> str:
     return value.removeprefix("sha256:")
 
-
-def _build_import_request_bytes(
-    payload: SubmitJobPayload,
-    repository_artifact_ref: RepositoryArtifactRef,
-) -> bytes:
-    request = SubmitVersionedImportRequest(
-        repository_id=UUID(payload.repository_id),
-        artifact_ref=WireRepositoryArtifactRef(
-            artifact_id=UUID(repository_artifact_ref.artifact_id),
-            media_type=REPOSITORY_IMPORT_MEDIA_TYPE,
-            size_bytes=repository_artifact_ref.size_bytes,
-            raw_sha256=_wire_repository_raw_sha256(repository_artifact_ref.raw_sha256),
-        ),
-        target_ref="main",
-        expected_commit_id=payload.repository_expected_commit_id,
-        verification_policy=VerificationPolicy.STRUCTURAL,
-        unknown_type_policy=UnknownTypePolicy.REJECT,
-    )
-    if str(request.repository_id) != payload.repository_id:
-        raise SubmitJobError("import request repository_id must match payload repository_id")
-    if str(request.artifact_ref.media_type) != REPOSITORY_IMPORT_MEDIA_TYPE:
-        raise SubmitJobError("import request artifact media type is invalid")
-    return canonicalize_json_value(request.model_dump(mode="json"))
 
 
 def _load_submit_payload(operation: OperationRecord, store: ArtifactStorePort) -> SubmitJobPayload:
@@ -2220,7 +2201,7 @@ def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
     raise ValueError("submit operation is missing submit_attempt business ref")
 
 
-def _read_write_factory(
+def read_write_factory(
     factory: SubmitControlTransactionFactory,
 ) -> SubmitControlUnitOfWorkFactory:
     def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[WorkspaceControlTransaction]:
@@ -2638,18 +2619,6 @@ def _successor_step_id(operation_id: str, step_name: str) -> str:
     return f"{operation_id}-step-{suffix}"
 
 
-def release_submit_checkpoint_protection(
-    unit_of_work: SubmitControlTransaction,
-    *,
-    operation_id: str,
-) -> None:
-    for step_name in (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT):
-        unit_of_work.clear_artifact_protection(
-            owner_kind="submit-checkpoint",
-            owner_id=_successor_step_id(operation_id, step_name),
-        )
-
-
 def _checkpoint_generation(step: StepRecord) -> int:
     attempt_count = step.attempt_count
     if type(attempt_count) is not int or isinstance(attempt_count, bool) or attempt_count < 1:
@@ -2856,7 +2825,6 @@ __all__ = [
     "build_submit_operator_recovery_port",
     "build_submit_recovery_port",
     "decode_submit_payload",
-    "release_submit_checkpoint_protection",
     "submit_composition_bundle",
     "submit_payload_decoders",
 ]

@@ -259,23 +259,6 @@ class ResolvedTableRule:
             raise ValueError("record must be TableRuleRecord")
 
 
-def resolve_table_rule(
-    snapshot: TableRulesetSnapshot,
-    table_name: str,
-    *,
-    primary_key_columns: tuple[str, ...] = (),
-) -> ResolvedTableRule:
-    from gateway_backend.capabilities.table_rules.resolver import (
-        resolve_table_rule as resolve_against_snapshot,
-    )
-
-    return resolve_against_snapshot(
-        snapshot,
-        table_name,
-        primary_key_columns=primary_key_columns,
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class StorageRuleView:
     canonical_table: str

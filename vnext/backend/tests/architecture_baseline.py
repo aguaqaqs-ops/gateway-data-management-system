@@ -113,36 +113,36 @@ IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
         # N-http-composition: http.runtime acts as a second composition root.
         (
             "layer",
-            "gateway_backend.http.runtime",
+            "gateway_backend.bootstrap.composition",
             "gateway_backend.capabilities.snapshot_materialization.contracts",
         ),
         (
             "layer",
-            "gateway_backend.http.runtime",
+            "gateway_backend.bootstrap.composition",
             "gateway_backend.capabilities.table_rules.contracts",
         ),
-        ("layer", "gateway_backend.http.runtime", "gateway_backend.infrastructure.artifact_store"),
-        ("layer", "gateway_backend.http.runtime", "gateway_backend.infrastructure.control_db"),
+        ("layer", "gateway_backend.bootstrap.composition", "gateway_backend.infrastructure.artifact_store"),
+        ("layer", "gateway_backend.bootstrap.composition", "gateway_backend.infrastructure.control_db"),
         (
             "layer",
-            "gateway_backend.http.runtime",
+            "gateway_backend.bootstrap.composition",
             "gateway_backend.infrastructure.control_db.sqlite_mapping",
         ),
-        ("layer", "gateway_backend.http.runtime", "gateway_backend.infrastructure.repository_read"),
+        ("layer", "gateway_backend.bootstrap.composition", "gateway_backend.infrastructure.repository_read"),
         (
             "layer",
-            "gateway_backend.http.runtime",
+            "gateway_backend.bootstrap.composition",
             "gateway_backend.infrastructure.repository_write",
         ),
-        ("layer", "gateway_backend.http.runtime", "gateway_backend.repository_import_artifact"),
-        ("layer", "gateway_backend.http.runtime", "gateway_backend.settings"),
-        ("layer", "gateway_backend.http.runtime", "gateway_repository_client"),
-        ("layer", "gateway_backend.http.runtime", "gateway_repository_client.errors"),
-        ("layer", "gateway_backend.http.runtime", "httpx"),
+        ("layer", "gateway_backend.bootstrap.composition", "gateway_backend.repository_import_artifact"),
+        ("layer", "gateway_backend.bootstrap.composition", "gateway_backend.settings"),
+        ("layer", "gateway_backend.bootstrap.composition", "gateway_repository_client"),
+        ("layer", "gateway_backend.bootstrap.composition", "gateway_repository_client.errors"),
+        ("layer", "gateway_backend.bootstrap.composition", "httpx"),
         (
             "private",
-            "gateway_backend.http.runtime",
-            "gateway_backend.application.submit_jobs:_read_write_factory",
+            "gateway_backend.bootstrap.composition",
+            "gateway_backend.application.submit_jobs:read_write_factory",
         ),
         # N-http-bypass: HTTP reaches infrastructure, settings, capabilities or wire DTOs directly.
         (
@@ -152,12 +152,12 @@ IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
         ),
         (
             "layer",
-            "gateway_backend.http.history_reader",
+            "gateway_backend.infrastructure.control_db.history_reader",
             "gateway_backend.infrastructure.control_db.database",
         ),
         (
             "layer",
-            "gateway_backend.http.history_reader",
+            "gateway_backend.infrastructure.control_db.history_reader",
             "gateway_backend.infrastructure.control_db.sqlite_history",
         ),
         (

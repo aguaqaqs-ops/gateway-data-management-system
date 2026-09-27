@@ -17,7 +17,7 @@ from gateway_backend.artifacts import (
     build_artifact_id,
     put_with_built_ref,
 )
-from gateway_backend.artifacts.nominal_refs import (
+from gateway_backend.application.submission.artifact_refs import (
     NominalArtifactRefError,
     assert_backend_ref_not_repository_ref,
     assert_repository_ref_not_backend_ref,

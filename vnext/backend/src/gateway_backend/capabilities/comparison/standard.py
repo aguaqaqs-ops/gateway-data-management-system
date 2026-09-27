@@ -41,7 +41,7 @@ from gateway_shared_kernel import (
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_shared_kernel.uleb128 import encode_uleb128
 
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
+from gateway_backend.capabilities.snapshot_materialization import (
     SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
 )

@@ -354,7 +354,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
             previous_handlers = _install_signal_handlers(stop_requested)
-            from gateway_backend.http.runtime import (
+            from gateway_backend.bootstrap.composition import (
                 assert_workspace_registry_ready,
                 build_workspace_job_registry,
             )

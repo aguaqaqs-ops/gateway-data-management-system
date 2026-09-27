@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from gateway_backend.capabilities.composite_signal import materialize_composite_signal
 from gateway_backend.capabilities.composite_signal.contracts import (
     SPECIAL_DEV_ADDR,
     SPECIAL_DEVICE_DESCRIPTION,
@@ -15,7 +16,6 @@ from gateway_backend.capabilities.composite_signal.contracts import (
     SpecialPointFact,
     empty_composite_logic_source,
     empty_special_device_catalog,
-    materialize_composite_signal,
     present_composite_logic_source,
 )
 from gateway_backend.capabilities.table_access.contracts import (

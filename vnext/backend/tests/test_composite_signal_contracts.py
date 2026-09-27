@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from gateway_backend.capabilities.composite_signal import materialize_composite_signal
 from gateway_backend.capabilities.composite_signal.contracts import (
     COMPOSITE_SIGNAL_CONTRACT_VERSION,
     COMPOSITE_SIGNAL_POINT_TABLE,
@@ -14,7 +15,6 @@ from gateway_backend.capabilities.composite_signal.contracts import (
     CompositeLogicSource,
     CompositeSignalStatus,
     empty_composite_logic_source,
-    materialize_composite_signal,
     present_composite_logic_source,
 )
 from gateway_shared_kernel import raw_blob_digest

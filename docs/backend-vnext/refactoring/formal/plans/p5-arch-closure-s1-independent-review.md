@@ -1,7 +1,7 @@
 # P5 架构收口 S1 独立审核
 
 - 结论：**定向修订**
-- 日期：2026-09-27
+- 日期：2026-09-27（同日补充：普查独立核对与 owner 决定，见 S1-F3、S1-F6 与 §5）
 - 审核对象：p5-closure/s1 @ `fa9dd6392c6023c48a12440a31cfe67d62baff89`（实现 HEAD `1caf2ffc26f690188f8311904bce24693fb61d43`），base main @ `218c211240b33e01eee1eb8965fdcca0ec4b8099`
 - 依据：执行计划 §2 S1 kickoff 与 S1、§3 S1、§7、§8.1–§8.4、§8.8；设计 §9（S1 项）、§12、§14；ADR 0018–0021；AGENTS.md；
   `plans/p5-arch-closure-s1-handoff.md`
@@ -20,9 +20,13 @@ S1 的主体方向成立。`import_rules` 输出 3/0/10，DC26 只放行 `capabi
    “已闭合，无 §3 定向偏差”。
 4. 不可达基线停在 10，靠的是生产代码里的 reachability shim；A7 的 facade 规则被换成放行上游私有模块的白名单。
 5. 基线条目改名没有给出理由，Phase 6 延期与 `external_target_sync` 延期都没有登记。
-6. kickoff 普查没有产出 §2 要求的事实，却给出了 DC12/DC15“未触发”的决议。
+6. kickoff 普查没有产出 §2 要求的事实，却给出了 DC12/DC15“未触发”的决议。审核者的独立核对显示：SQL 解析全部卡在 mysqldump
+   标准语句 `@saved_cs_client` 上，这是既有的 parser allowlist 缺口；放行后 DC12 确实未触发，但 DC15 **已触发**。
 
 这些都能在现有结构上局部修正，不需要重建核心方案，所以结论是定向修订。修订并复审通过之前，不合入 `main`，也不进入 S2a。
+
+审核后 owner 作出两项决定（2026-09-27）：S1-F3 的三项延期到 S2b，按 S1-F3 末尾的条件判定关闭；SQL allowlist 与 XML 深度预算
+由 S1 与 S2a 之间单独授权的 parser 修复处理（§5）。
 
 ## 2. Findings
 
@@ -84,6 +88,11 @@ S1 的主体方向成立。`import_rules` 输出 3/0/10，DC26 只放行 `capabi
   不能以“已闭合”报告。没有使用者的 `pinned_checkpoint_builder` 要么被三个 job 共用，要么删除。
 - 关闭标准：受理用例位于 Application，HTTP 只做 DTO 映射与准入；workspace/archive/history 各自声明所需的事务 port，
   组合在 bootstrap/infrastructure 完成；三个 job 共用一个 step helper。或者 owner 书面接受的延期记录。
+- owner 决定（2026-09-27，审核后）：三项都延期到 S2b。复审按以下条件判定本项关闭：
+  1. 没有调用方的 `pinned_checkpoint_builder` 已删除；
+  2. handoff 修订一节逐项写明现状、延期理由与 S2b 的目标（沿用上述关闭标准）；
+  3. 执行计划 §3 S2b 与 §8.5 已登记“由 S1 延期”；
+  4. handoff 中“已闭合”“无 §3 定向偏差”的表述已更正。
 
 ### S1-F4：不可达基线靠生产 shim 维持；A7 的 facade 规则被换成私有模块白名单
 
@@ -135,10 +144,43 @@ S1 的主体方向成立。`import_rules` 输出 3/0/10，DC26 只放行 `capabi
     “不得当作 S2a 强证据”；但同一节又把 DC12 写成“未触发 → S2a 仍 fail-closed JSON”，DC15 写成“未触发词表扩充”。
   - 在解析基本失败的情况下，JSON 列与词表外类型清单为空，只说明没能观测到，不说明数据中没有，不能据此落定决议。
   - `pair_of` 写成了事实，但没有 owner 确认的记录。
-- 最小修正方向：先查明 SQL 被判为 `UNSUPPORTED_STATEMENT` 的原因（普查脚本的解析入口，或 dump 中超出 parser 范围的语句），
-  修正后重跑普查，并按 §2 第 4 项补齐 handoff 记录。若确实超出 parser 范围，按设计 §14 与计划 §7 交 owner 处理。
-  重跑之前，DC12/DC15 标为“未判定”。补上 owner 对 `pair_of` 的确认。
-- 关闭标准：handoff 中有 8 份数据集的结构统计；DC12/DC15 的决议基于实际观测，或者由 owner 显式处置。
+- 审核者独立核对（补充，2026-09-27，owner 授权读取普查产出；方法见 §5）：
+  - **SQL 失败根因**：8 份 dump 都是标准 mysqldump 输出，都在第一条 `/*!40101 SET @saved_cs_client = @@character_set_client */`
+    处以 `UNSUPPORTED_STATEMENT` 失败（消息：`SET @saved_cs_client is not in the source dump allowlist`）。table_access 的 SET allowlist
+    （`capabilities/table_access/_sql_statements.py:35` 与 `_allowed_set_name`）放行 `@old_*`、`character_set_*`、`collation_*`，
+    但不放行 `@saved_cs_client`。这个缺口自 P3-R2（`2a799cf305`）起就存在，不是 S1 引入的；但它意味着在现行生产代码下，
+    这 8 份真实 dump 上传后，Preview 也会在 SQL 解析阶段整体失败。
+  - **放行后的结构事实**：在 scratch 进程内存中只额外放行这一个变量名后，8 份全部 COMPLETE。
+
+    | | t1 | t2 | t3 | t4 |
+    | --- | --- | --- | --- | --- |
+    | 表数（v1） | 132 | 216 | 199 | 319 |
+    | JSON 列 | 0 | 0 | 0 | 0 |
+    | 可空键列 | 0 | 0 | 0 | 0 |
+    | DDL 无主键的非 SKIP 表 | 28 | 40 | 37 | 59 |
+
+    `version_manager.saved_time` 为 `VARCHAR(128)`。非 SKIP 存储表的列类型（t4-v1）：INT UNSIGNED 1196、INT 87、
+    TINYINT UNSIGNED 510、TINYINT 12、SMALLINT UNSIGNED 28、FLOAT 61、DATETIME 8，另有 VARCHAR、TEXT、ENUM、SET；
+    其余规模档的类型种类相同。
+  - **DC 判定**：对照设计 §4.2 的词表，**DC12 未触发**（8 份均无 JSON 列，这次是实际观测）；**DC15 已触发**：
+    TINYINT（含 UNSIGNED）、SMALLINT UNSIGNED、FLOAT、DATETIME 都在词表外，并出现在 STANDARD_DIFF 等存储表中。
+    handoff 写的“DC15 未触发”与事实相反。FLOAT 能否与 Dolt 无损往返，关系到设计 §14 第 2 项停止条件。
+    DDL 无主键的表是否由规则提供有效键，审核者没有得出可靠结论，留给修订核对。
+  - **XML**：t3/t4 的 `logics.xml` 以 `RESOURCE_LIMIT_EXCEEDED`（`max_xml_depth` 预算 64）失败；实际最大深度 t2=56、t3=66、
+    t4=97。这同样是既有的生产路径缺口。
+  - **普查脚本**：`pair_of` 硬编码（`-2` 对应 `-1`）；`has_logics_xml` 恒为 True；`datasets.json` 的 `note` 写入主机绝对路径；
+    没有重复键检测；以 `DESCRIPTOR_ONLY` 物化，行数恒为 0；没有记录 parser 诊断，失败原因因此被掩盖。
+- owner 决定（2026-09-27）：SQL allowlist 是否放行 `@saved_cs_client`、`max_xml_depth` 是否调整，都会改变接受哪些上传，属于行为变更，
+  不放进 S1 修订，由 S1 合入 `main` 之后、S2a kickoff 之前单独授权的 parser 修复处理（见 §5）。
+- 最小修正方向：
+  1. handoff 如实记录生产路径的结果：诊断码、消息、首个失败位置，并说明这是既有缺口。
+  2. 普查脚本增加明确标注为“诊断模式、不代表生产路径”的选项，只在普查进程内放行 `@saved_cs_client`，不修改 table_access
+     源码；按 §2 kickoff 第 4 项补齐 8 份数据集的记录，其中类型区分 UNSIGNED，无键表按规则解析有效键后核对，行数与重复键
+     改用能计数的方式统计。
+  3. DC12 记为未触发；DC15 记为已触发，列出类型，作为 S2a 的输入，并标明 FLOAT 的 Dolt 往返需要优先验证。
+  4. 修正上述脚本问题；补 owner 对 `pair_of` 的确认。
+  5. parser 修复只在 handoff 中登记为决策项，不在 S1 修订中实施。
+- 关闭标准：handoff 中有 8 份数据集的完整结构记录；生产路径的失败如实记录；DC12/DC15 与上述观测一致；parser 修复已登记。
 
 ### S1-F7：常量复制代替组合根注入
 
@@ -189,7 +231,7 @@ S1 的主体方向成立。`import_rules` 输出 3/0/10，DC26 只放行 `capabi
 
 | 验收项（执行计划 §2 S1 / kickoff / §8.4） | 结果 | 证据 |
 | --- | --- | --- |
-| kickoff：普查记录与 DC12/DC15 决议 | 不满足 | S1-F6 |
+| kickoff：普查记录与 DC12/DC15 决议 | 不满足 | S1-F6。审核者核对：SQL 全部卡在 `@saved_cs_client`；DC12 未触发；DC15 已触发（TINYINT/SMALLINT/FLOAT/DATETIME） |
 | 违例基线只剩 http_arrow×2 与 `repository_import_artifact` | 满足 | 审核者运行 `import_rules`，输出与 handoff §4 一致 |
 | 运行时环基线为空 | 满足 | 同上（`RUNTIME_CYCLE_BASELINE = ()`） |
 | 不可达基线只剩列出的 10 项 | 形式满足，实质不满足 | 依赖生产 shim；去掉后为 14（S1-F4） |
@@ -207,7 +249,7 @@ S1 的主体方向成立。`import_rules` 输出 3/0/10，DC26 只放行 `capabi
 | 分支末端只比实现 HEAD 多 handoff | 满足 | `git diff 1caf2ffc26 fa9dd6392c` 只改 handoff；handoff 中的 `candidate_head` 是 `7b0db60b44`（文件无法记录包含自己的提交） |
 | `uv.lock` 未改 | 满足 | diff 不含 lock；运行后 `git diff --exit-code HEAD -- 'vnext/*/uv.lock'` 干净 |
 | 普查脚本不进入生产包 | 满足 | `vnext/backend/benchmarks/` 不在 Dockerfile 的 COPY 中 |
-| 设计 §14 停止条件 | 未触发，但无法确认 | 第 2 项取决于普查结果；普查没有产出有效的类型事实（S1-F6） |
+| 设计 §14 停止条件 | S1 未触发；第 2 项转为 S2a 的待验证风险 | DC15 已触发，FLOAT 等词表外类型能否与 Dolt 无损往返，由 S2a 的真实 Dolt 同一性测试判定（S1-F6） |
 
 ## 4. 实际执行的检查
 
@@ -233,15 +275,29 @@ compose 项目 `gateway-p5-closure-s1-gate`，来自 Cursor 会话，cwd 为本 
 
 ## 5. 验证限制与剩余前置
 
-- 真实数据：按执行环境的权限限制，审核者没有读取 `$GATEWAY_REAL_DUMP_ROOT` 下的普查产出，也没有读取普查脚本的内部实现，
-  因此没有独立复核 S1-F6 所述解析失败的原因。S1-F6 的判断只依据 handoff 本身的记录与执行计划 §2 的要求。修订时由实现侧
-  重跑普查并补齐记录，复审者核对 handoff。
+- 真实数据：普查产出最初受执行环境的权限限制无法读取；owner 授权后（2026-09-27）完成独立核对。方法如下：
+  - 读取普查脚本源码与 `census/summary.json`；
+  - 在 scratch 进程中调用生产 parser 重新解析 8 份 dump，只统计语句类型、诊断码、表、列类型与 XML 深度，不读取、不输出行数据；
+  - 另跑一次在进程内存中只额外放行 `@saved_cs_client` 的解析，得到 S1-F6 的结构事实。
+
+  没有修改 worktree、源码或主机上的数据文件。行数与重复键没有统计（parser 的解析结果不直接给出行数），DDL 无主键的表是否由
+  规则提供有效键也没有得出可靠结论，这两项留给修订核对。
+- **S2a 开工前置：parser 修复（owner 于 2026-09-27 决定）**。在 S1 合入 `main` 之后、S2a kickoff 之前，单独授权一个修复，
+  从 `main` 切分支（例如 `p5-closure/s1-parser`），按 §8.7 独立审核：
+  - `table_access` 的 SQL SET allowlist 放行 mysqldump 标准的 `@saved_cs_client`（与已放行的 `@old_*` 同类，属于会话字符集的
+    保存与恢复）；
+  - `max_xml_depth` 由 owner 确定新值并说明理由（实测最大 97），保留超限时 fail-closed 的边界测试；
+  - 同步 P3-R2 Contract 与 handoff 中对 allowlist 与预算的说明；测试放进 table_access 现有 owner 测试的模块级参数表，不引入 Dolt；
+  - 在生产 parser 上重跑普查，不再使用诊断模式，结果作为 S2a 的输入（DC15 类型清单，FLOAT 往返优先验证）；
+  - 纯 Python 解析逻辑的镜像重建可以延期到 S2a 阶段末，但须在该修复的 handoff 中写明。
+  - 执行计划 §1 与 §8 须登记这个前置。
+
 - backend 的 9 个 compose 用例（handoff §6.4 的文件集，`--collect-only` 确认为 9 个）都在 backend 默认批次中：6 个在全量运行中通过，
   另 3 个在全量运行中因外部端口冲突失败、隔离重跑后通过。这些用例由 harness 以 current HEAD 构建的镜像运行；RS compose 8 个在
   串行批次中通过。审核者没有另外执行 `build-repository-service-image.sh` 与 `docker compose build`。backend 镜像与实现 HEAD 内容
   等价的判断，依据的是创建时间与 `vnext/` 无差异（S1-F8）。
 - 5E exit 的 compose 结果只按“同一组旅程全部通过”对照，没有逐项比对业务 digest。S1 声称“结果与 5E exit 一致”的证据，同样是
   旅程通过加 golden 测试通过。
-- 进入复审的前置：关闭 S1-F1 至 S1-F6，并随修订更正 S1-F8。S1-F7 可以随本轮处理，最迟在 S2a 修改规则集版本之前。
+- 进入复审的前置：关闭 S1-F1 至 S1-F6（S1-F3 按延期条件判定），并随修订更正 S1-F8。S1-F7 可以随本轮处理，最迟在 S2a 修改规则集版本之前。
   修订若改动 bootstrap/composition 或受理路径，须按 §6 在新的实现 HEAD 上重建镜像并运行 compose 旅程，记录旅程实际使用的镜像 ID。
 - 本报告只审 `218c211240..fa9dd6392c` 的差异，没有复审 base 已有的内容。

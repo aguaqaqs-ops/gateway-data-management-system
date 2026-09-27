@@ -147,7 +147,7 @@ cd vnext/repository_service && ../scripts/uv-consume.sh -C . run pytest -q -m se
 ## 8. 审核提示词（§8.7）
 
 ```text
-独立审核 P5 架构收口 S1：对象为 p5-closure/s1 @ 7de23ed3498ac4914ec2a15684a648f2d90aa4fd（base main @ e04c1bcca7d17d1f7e1feda9b8329a4503942d6b）与 plans/p5-arch-closure-s1-handoff.md。
+独立审核 P5 架构收口 S1：对象为 p5-closure/s1 @ 450e15e5486454eb0335636477a0c304b8c5546d（base main @ e04c1bcca7d17d1f7e1feda9b8329a4503942d6b）与 plans/p5-arch-closure-s1-handoff.md。
 按执行计划 §2 S1 的验收、§3 S1 预算与纵切指南 §6 给出结论。
 必须核查：import 3/0/10；§4 路径偏差；kickoff DC12/DC15；synthetic 注入；全量测试与 compose 镜像 provenance（handoff §6）。
 ```

@@ -81,6 +81,7 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
     "operations": frozenset({"operations", "artifacts"}),
     "capabilities": frozenset(),
     "capability": frozenset({ANY_CAPABILITY, "artifacts"}),
+    "capability:canonical_row_hash": frozenset({ANY_CAPABILITY, "artifacts", "ext:compute"}),
     "cache": frozenset({"cache", "artifacts", ANY_CAPABILITY}),
     "application": frozenset({"application", "domain", "operations", "artifacts", ANY_CAPABILITY}),
     "http": frozenset({"http", "application", "domain", "operations", "artifacts", "ext:web"}),
@@ -312,7 +313,9 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         and target_zone != source_zone
         and source_zone not in COMPOSITION_ZONES
     ):
-        allowed_key = "capability" if source_zone.startswith("capability:") else source_zone
+        allowed_key = source_zone if source_zone in ALLOWED_ZONE_EDGES else (
+            "capability" if source_zone.startswith("capability:") else source_zone
+        )
         allowed = ALLOWED_ZONE_EDGES.get(allowed_key, frozenset())
         if not _target_category_allowed(allowed, target_zone, edge.target):
             return (RULE_LAYER, edge.target)

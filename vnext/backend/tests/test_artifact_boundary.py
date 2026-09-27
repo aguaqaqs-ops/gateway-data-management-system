@@ -27,7 +27,7 @@ from gateway_backend.artifacts.nominal_refs import (
 )
 from gateway_backend.domain.submission.models import BackendArtifactRef, RepositoryArtifactRef
 from gateway_backend.capabilities.canonical_row_hash import CanonicalRowHashesArtifactMetadata
-from gateway_backend.canonical_row_hash_ipc import (
+from gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc import (
     CANONICAL_ROW_HASH_OUTPUT_SCHEMA,
     CanonicalRowHashIpcError,
     content_manifest_from_compute_result,
@@ -35,7 +35,7 @@ from gateway_backend.canonical_row_hash_ipc import (
     reopen_and_verify_canonical_row_hash_artifact,
     write_row_hash_ipc_stream,
 )
-from gateway_backend.compute import canonical_row_hashes_v1
+from gateway_backend.capabilities.canonical_row_hash.compute import canonical_row_hashes_v1
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
 

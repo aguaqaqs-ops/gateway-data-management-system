@@ -174,7 +174,14 @@ def test_rust_core_has_no_artifact_or_infrastructure_boundary() -> None:
 
 
 def test_r2_ipc_module_avoids_bulk_python_materialization() -> None:
-    ipc_source = Path(__file__).parents[1] / "src" / "gateway_backend" / "canonical_row_hash_ipc.py"
+    ipc_source = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gateway_backend"
+        / "capabilities"
+        / "canonical_row_hash"
+        / "canonical_row_hash_ipc.py"
+    )
     text = ipc_source.read_text()
     forbidden = (
         "to_pylist(",
@@ -194,15 +201,6 @@ def test_r2_production_modules_have_no_deferred_stub() -> None:
     for source in source_root.rglob("*.py"):
         text = source.read_text()
         assert "NotImplementedError" not in text, source
-
-
-def test_canonicalization_cells_do_not_call_encode_row() -> None:
-    source = Path(__file__).parents[1] / "src" / "gateway_backend" / "canonicalization_cells.py"
-    text = source.read_text()
-    assert text.count("encode_row") == text.count("encode_row_cells")
-    assert "from gateway_shared_kernel import" in text
-    assert "encode_typed_scalar" in text
-    assert "encode_collection" in text
 
 
 def test_capability_packages_match_owner_set() -> None:
@@ -886,6 +884,12 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ),
     ("gateway_backend.capabilities.comparison.ordered", "gateway_backend.capabilities.comparison.standard", ("_row_digest",), None),
     ("gateway_backend.bootstrap.operation_worker", "gateway_backend.infrastructure.control_db", (), None),
+    (
+        "gateway_backend.capabilities.canonical_row_hash.compute",
+        "gateway_compute",
+        (),
+        None,
+    ),
     ("gateway_backend.bootstrap.operation_worker", "gateway_shared_kernel.testing", (), RULE_LAYER),
 )
 

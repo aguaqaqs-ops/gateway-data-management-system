@@ -42,17 +42,7 @@ IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
             "gateway_backend.domain.submission.models",
         ),
         # A6: unowned package-root modules and their consumers.
-        ("unowned-root-module", "gateway_backend.canonical_row_hash_ipc", ""),
-        ("unowned-root-module", "gateway_backend.canonicalization_cells", ""),
-        ("unowned-root-module", "gateway_backend.canonicalization_manifest", ""),
-        ("unowned-root-module", "gateway_backend.compute", ""),
         ("unowned-root-module", "gateway_backend.repository_import_artifact", ""),
-        ("unowned-root-module", "gateway_backend.synthetic_w2", ""),
-        (
-            "layer",
-            "gateway_backend.infrastructure.repository_write.http",
-            "gateway_backend.canonicalization_manifest",
-        ),
         # A7: contracts.py trampolines into its own execution modules.
         (
             "contracts-leaf",
@@ -281,7 +271,8 @@ RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = (
 # record an explicit deferral in the owning design, or delete them.
 UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
     {
-        "gateway_backend.canonical_row_hash_ipc",
+        "gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc",
+        "gateway_backend.capabilities.canonical_row_hash.compute",
         "gateway_backend.capabilities.canonical_row_hash.contracts",
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",
@@ -290,7 +281,5 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         "gateway_backend.capabilities.snapshot_materialization.compose",
         "gateway_backend.capabilities.table_access._xml_parser",
         "gateway_backend.capabilities.table_access.xml",
-        "gateway_backend.compute",
-        "gateway_backend.synthetic_w2",
     }
 )

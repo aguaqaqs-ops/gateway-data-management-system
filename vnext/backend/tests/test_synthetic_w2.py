@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gateway_backend.synthetic_w2 import (
+from tests.support.synthetic_w2 import (
     SCHEMA_VERSION,
     SyntheticW2Error,
     build_scaled_replay_sql,

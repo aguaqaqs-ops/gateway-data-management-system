@@ -49,3 +49,5 @@ def _coerce_sha256_digest(value: object) -> str:
 
 
 Sha256Digest = Annotated[str, BeforeValidator(_coerce_sha256_digest)]
+
+CommitIdString = Annotated[str, Field(min_length=1, max_length=1024)]

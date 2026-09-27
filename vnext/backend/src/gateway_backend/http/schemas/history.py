@@ -14,6 +14,7 @@ from gateway_backend.application.history.contracts import (
 )
 from gateway_backend.http.schemas.constraints import (
     BoundedOpaqueId,
+    CommitIdString,
     NonNegativeIJsonInt,
     Sha256Digest,
 )
@@ -43,7 +44,7 @@ class HistoryHeadResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     node_id: BoundedOpaqueId
-    commit_id: str
+    commit_id: CommitIdString
     version: NonNegativeIJsonInt
 
 
@@ -53,7 +54,7 @@ class HistoryNodeResponse(BaseModel):
     ref_kind: HistoryNodeRefKindLiteral
     ref_id: BoundedOpaqueId
     node_kind: HistoryNodeKindLiteral
-    commit_id: str
+    commit_id: CommitIdString
     created_at: datetime
     parent: HistoryNodeRefResponse | None = None
     baseline_kind: HistoryBaselineKindLiteral | None = None
@@ -146,9 +147,9 @@ class HistoryComparePairResultResponse(BaseModel):
 
     pair_id: str
     before_ref: HistoryNodeRefResponse
-    before_commit: str
+    before_commit: CommitIdString
     current_ref: HistoryNodeRefResponse
-    current_commit: str
+    current_commit: CommitIdString
     comparison_digest: Sha256Digest
     risk_digest: Sha256Digest
     surface_digest: Sha256Digest

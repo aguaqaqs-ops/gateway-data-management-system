@@ -7,7 +7,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.domain.submission.models import (
@@ -418,10 +421,68 @@ class RepositoryImportOperationResult:
     unknown_type_policy: str
 
 
+_PERSISTED_TERMINAL_ERROR_CODES = frozenset({
+    "IMPORT_REJECTED",
+    "EXPECTED_COMMIT_MISMATCH",
+    "VERIFICATION_FAILED_NOT_PUBLISHED",
+    "MANUAL_RECOVERY_REQUIRED",
+})
+
+
+class _EvidenceSimpleError(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+    details: dict[str, Any] | None = None
+    request_id: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_persisted_error(self) -> _EvidenceSimpleError:
+        if self.request_id is not None:
+            raise ValueError("persisted operation error request_id must be empty")
+        return self
+
+
+class _EvidenceImportResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commit_id: str
+    target_ref: str
+    artifact_id: str
+    canonicalization_manifest_digest: str
+    expected_commit_id: str
+    completed_verification_policy: str
+    unknown_type_policy: str
+
+
+class _EvidenceVersionedOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: UUID
+    status: RepositoryImportOperationStatus
+    result: _EvidenceImportResult | None = None
+    error: _EvidenceSimpleError | None = None
+
+    @model_validator(mode="after")
+    def _validate_result_error_invariant(self) -> _EvidenceVersionedOperation:
+        if self.status is RepositoryImportOperationStatus.SUCCEEDED:
+            if self.result is None or self.error is not None:
+                raise ValueError("SUCCEEDED operations require result and must not include error")
+        elif self.status is RepositoryImportOperationStatus.FAILED:
+            if self.result is not None or self.error is None:
+                raise ValueError("FAILED operations require error and must not include result")
+            if self.error.code not in _PERSISTED_TERMINAL_ERROR_CODES:
+                raise ValueError("FAILED operation error code must be a stable terminal code")
+        return self
+
+
 @dataclass(frozen=True, slots=True)
 class RepositoryImportOperationError:
     code: str
     message: str
+    details: dict[str, object] | None = None
+    request_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -430,4 +491,37 @@ class RepositoryImportOperation:
     status: RepositoryImportOperationStatus
     result: RepositoryImportOperationResult | None = None
     error: RepositoryImportOperationError | None = None
+
+
+def repository_import_operation_from_evidence_payload(
+    operation_payload: dict[str, object],
+) -> RepositoryImportOperation:
+    validated = _EvidenceVersionedOperation.model_validate(operation_payload)
+    result: RepositoryImportOperationResult | None = None
+    if validated.result is not None:
+        wire_result = validated.result
+        result = RepositoryImportOperationResult(
+            commit_id=wire_result.commit_id,
+            target_ref=wire_result.target_ref,
+            artifact_id=wire_result.artifact_id,
+            canonicalization_manifest_digest=wire_result.canonicalization_manifest_digest,
+            expected_commit_id=wire_result.expected_commit_id,
+            completed_verification_policy=wire_result.completed_verification_policy,
+            unknown_type_policy=wire_result.unknown_type_policy,
+        )
+    error: RepositoryImportOperationError | None = None
+    if validated.error is not None:
+        wire_error = validated.error
+        error = RepositoryImportOperationError(
+            code=wire_error.code,
+            message=wire_error.message,
+            details=wire_error.details,
+            request_id=wire_error.request_id,
+        )
+    return RepositoryImportOperation(
+        operation_id=str(validated.operation_id),
+        status=validated.status,
+        result=result,
+        error=error,
+    )
 

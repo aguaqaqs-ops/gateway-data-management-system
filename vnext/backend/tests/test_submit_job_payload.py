@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import json
 from typing import cast
-from uuid import UUID
-
 import pytest
-from gateway_repository_contracts import OperationStatus, SimpleError, VersionedOperation
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from pydantic import ValidationError
 
 from gateway_backend.application.payloads import PayloadDecodeError
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
 from gateway_backend.application.submission.ports import RepositoryWritePort
+from gateway_backend.application.submission.contracts import (
+    RepositoryImportOperation,
+    RepositoryImportOperationError,
+    RepositoryImportOperationStatus,
+)
 from gateway_backend.application.submit_jobs import (
     _await_checkpoint_from_job_state,
     _load_terminal_repository_evidence,
@@ -403,10 +405,10 @@ _FAILED_TERMINAL_EVIDENCE_GOLDEN = (
 
 
 def test_failed_terminal_evidence_bytes_match_base_golden() -> None:
-    operation = VersionedOperation(
-        operation_id=UUID("018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"),
-        status=OperationStatus.FAILED,
-        error=SimpleError(
+    operation = RepositoryImportOperation(
+        operation_id="018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        status=RepositoryImportOperationStatus.FAILED,
+        error=RepositoryImportOperationError(
             code="IMPORT_REJECTED",
             message="rejected",
             details={"table": "t1"},

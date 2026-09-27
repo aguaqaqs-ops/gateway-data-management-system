@@ -27,6 +27,7 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_contracts.types import MediaTypeString, Sha256String
 
+from gateway_backend.application.submission.contracts import RepositoryImportOperation
 from gateway_backend.application.submission.ports import RepositoryWritePort
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.infrastructure.repository_write import wire_codec
@@ -128,7 +129,7 @@ class HttpRepositoryWriteClient:
         *,
         repository_id: str,
         operation_id: str,
-    ) -> VersionedOperation:
+    ) -> RepositoryImportOperation:
         response = cast(
             GetOperationResponse,
             _run(
@@ -138,7 +139,7 @@ class HttpRepositoryWriteClient:
                 )
             ),
         )
-        return response.operation
+        return wire_codec.import_operation_from_wire(response.operation)
 
     def wait_operation(
         self,
@@ -146,9 +147,9 @@ class HttpRepositoryWriteClient:
         repository_id: str,
         operation_id: str,
         deadline_seconds: float | None = None,
-    ) -> VersionedOperation:
+    ) -> RepositoryImportOperation:
         try:
-            return cast(
+            operation = cast(
                 VersionedOperation,
                 _run(
                     self._client().wait_operation(
@@ -158,6 +159,7 @@ class HttpRepositoryWriteClient:
                     )
                 ),
             )
+            return wire_codec.import_operation_from_wire(operation)
         except RepositoryClientTimeoutError as exc:
             raise RepositoryWriteTimeoutError(str(exc)) from exc
 

@@ -9,9 +9,10 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from gateway_backend.application.history.ports import HistoryComparePort
 
-from gateway_repository_contracts import VersionedOperation
-
-from gateway_backend.application.submission.contracts import MatchingAbortProof
+from gateway_backend.application.submission.contracts import (
+    MatchingAbortProof,
+    RepositoryImportOperation,
+)
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
@@ -331,7 +332,7 @@ class RepositoryWritePort(Protocol):
         *,
         repository_id: str,
         operation_id: str,
-    ) -> VersionedOperation: ...
+    ) -> RepositoryImportOperation: ...
 
     def wait_operation(
         self,
@@ -339,4 +340,4 @@ class RepositoryWritePort(Protocol):
         repository_id: str,
         operation_id: str,
         deadline_seconds: float | None = None,
-    ) -> VersionedOperation: ...
+    ) -> RepositoryImportOperation: ...

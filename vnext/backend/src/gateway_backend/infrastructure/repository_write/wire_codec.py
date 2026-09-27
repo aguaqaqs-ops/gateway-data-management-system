@@ -75,9 +75,20 @@ def import_operation_from_wire(operation: VersionedOperation) -> RepositoryImpor
         )
     error: RepositoryImportOperationError | None = None
     if operation.error is not None:
+        wire_error = operation.error
         error = RepositoryImportOperationError(
-            code=str(operation.error.code),
-            message=str(operation.error.message),
+            code=str(wire_error.code),
+            message=str(wire_error.message),
+            details=(
+                None
+                if wire_error.details is None
+                else dict(wire_error.details)
+            ),
+            request_id=(
+                None
+                if wire_error.request_id is None
+                else str(wire_error.request_id)
+            ),
         )
     status = RepositoryImportOperationStatus(operation.status.value)
     return RepositoryImportOperation(

@@ -773,15 +773,7 @@ def _assert_capability_edge_allowed(
     assert target_owner in allowed, (
         f"{source} may not import capability {target_owner}; allowed upstream: {sorted(allowed)}"
     )
-    permitted = remainder == "contracts" or remainder.startswith("contracts.")
-    if current_owner == "comparison" and target_owner == "snapshot_materialization":
-        permitted = permitted or remainder == "sql_declared_types"
-    if current_owner == "snapshot_materialization" and target_owner == "composite_signal":
-        permitted = permitted or remainder == "materialize"
-    if current_owner == "storage_projection" and target_owner == "snapshot_materialization":
-        permitted = permitted or remainder == "sql_declared_types"
-    if current_owner == "storage_projection" and target_owner == "table_rules":
-        permitted = permitted or remainder == "resolver"
+    permitted = remainder == "" or remainder == "contracts" or remainder.startswith("contracts.")
     assert permitted, f"{source} may import only approved {target_owner} modules, not {imported}"
 
 

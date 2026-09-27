@@ -45,14 +45,14 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableStatus,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
+from gateway_backend.capabilities.snapshot_materialization import (
+    SqlDeclaredTypeMappingError,
+    declared_type_for_sql_spelling,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotColumnDescriptor,
     SnapshotTable,
     SnapshotTableDescriptor,
-)
-from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
-    SqlDeclaredTypeMappingError,
-    declared_type_for_sql_spelling,
 )
 
 _TYPED_SCALAR_TYPES = (

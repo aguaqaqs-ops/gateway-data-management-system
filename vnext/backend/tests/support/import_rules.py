@@ -433,28 +433,61 @@ def unreachable_modules(edges: Iterable[ImportEdge], modules: dict[str, Path]) -
             current = reexports[current][name]
         return current
 
+    def _add_edge(source: str, target: str) -> None:
+        if target in modules:
+            graph[source].add(target)
+
     graph: dict[str, set[str]] = defaultdict(set)
     for edge in edge_list:
-        if (
-            edge.context == "type_checking"
-            or modules.get(edge.source, Path()).name == "__init__.py"
-        ):
+        if edge.context == "type_checking":
+            continue
+        source_is_init = modules.get(edge.source, Path()).name == "__init__.py"
+        if source_is_init and edge.context != "function":
+            continue
+        if source_is_init and edge.context == "function":
+            if edge.target not in modules:
+                continue
+            if edge.names and edge.target in reexports:
+                for name in edge.names:
+                    _add_edge(edge.source, resolve(edge.target, name))
+            else:
+                _add_edge(edge.source, edge.target)
             continue
         if edge.target not in modules:
             continue
         if edge.names and edge.target in reexports:
-            graph[edge.source].update(resolve(edge.target, name) for name in edge.names)
+            for name in edge.names:
+                _add_edge(edge.source, resolve(edge.target, name))
         else:
-            graph[edge.source].add(edge.target)
+            _add_edge(edge.source, edge.target)
+
+    def _mark_package_facades(seed: set[str], roots: Iterable[str]) -> list[str]:
+        added: list[str] = []
+        pending_mark = list(roots)
+        while pending_mark:
+            current = pending_mark.pop()
+            parts = current.split(".")
+            for index in range(len(parts) - 1, 1, -1):
+                package = ".".join(parts[:index])
+                init_path = modules.get(package)
+                if init_path is None or init_path.name != "__init__.py":
+                    continue
+                if package not in seed:
+                    seed.add(package)
+                    added.append(package)
+                    pending_mark.append(package)
+        return added
 
     reached = set(PRODUCTION_ENTRYPOINTS)
-    pending = list(PRODUCTION_ENTRYPOINTS)
+    pending = list(reached)
+    pending.extend(_mark_package_facades(reached, PRODUCTION_ENTRYPOINTS))
     while pending:
         current = pending.pop()
         for target in graph.get(current, ()):
             if target not in reached:
                 reached.add(target)
                 pending.append(target)
+        pending.extend(_mark_package_facades(reached, [current]))
     return frozenset(
         name
         for name, path in modules.items()

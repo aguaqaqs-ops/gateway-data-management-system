@@ -18,7 +18,7 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
 )
 from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
-from gateway_backend.settings import (
+from gateway_backend.application.workspace.upload_limits import (
     FIXED_UPLOAD_MAX_COMPRESSED_BYTES,  # noqa: F401
     FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,  # noqa: F401
 )

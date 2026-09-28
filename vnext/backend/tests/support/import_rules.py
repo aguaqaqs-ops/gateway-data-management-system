@@ -461,33 +461,27 @@ def unreachable_modules(edges: Iterable[ImportEdge], modules: dict[str, Path]) -
         else:
             _add_edge(edge.source, edge.target)
 
-    def _mark_package_facades(seed: set[str], roots: Iterable[str]) -> list[str]:
-        added: list[str] = []
-        pending_mark = list(roots)
-        while pending_mark:
-            current = pending_mark.pop()
-            parts = current.split(".")
-            for index in range(len(parts) - 1, 1, -1):
-                package = ".".join(parts[:index])
-                init_path = modules.get(package)
-                if init_path is None or init_path.name != "__init__.py":
-                    continue
-                if package not in seed:
-                    seed.add(package)
-                    added.append(package)
-                    pending_mark.append(package)
-        return added
-
     reached = set(PRODUCTION_ENTRYPOINTS)
     pending = list(reached)
-    pending.extend(_mark_package_facades(reached, PRODUCTION_ENTRYPOINTS))
+
+    def _enqueue_parent_package_inits(module: str) -> None:
+        parts = module.split(".")
+        for index in range(len(parts) - 1, 1, -1):
+            package = ".".join(parts[:index])
+            init_path = modules.get(package)
+            if init_path is None or init_path.name != "__init__.py":
+                continue
+            if package not in reached:
+                reached.add(package)
+                pending.append(package)
+
     while pending:
         current = pending.pop()
+        _enqueue_parent_package_inits(current)
         for target in graph.get(current, ()):
             if target not in reached:
                 reached.add(target)
                 pending.append(target)
-        pending.extend(_mark_package_facades(reached, [current]))
     return frozenset(
         name
         for name, path in modules.items()

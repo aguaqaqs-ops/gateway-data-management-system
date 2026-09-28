@@ -28,27 +28,10 @@ IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
         ),
         # A6 (close S2b): package-root import artifact adapter pending infrastructure migration.
         ("unowned-root-module", "gateway_backend.repository_import_artifact", ""),
-        # F7: workspace contracts re-export upload limits from settings (single source).
-        ("layer", "gateway_backend.application.workspace.contracts", "gateway_backend.settings"),
     }
 )
 
-RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = (
-    # F9: strict payload decode (`type(...) is JobDefinition`) with lazy job_definitions import.
-    frozenset(
-        {"gateway_backend.application.job_definitions", "gateway_backend.application.payloads"}
-    ),
-    # F9: default internal bearer uses auth.FailClosedInternalBearerPort via lazy factory.
-    frozenset({"gateway_backend.http.auth", "gateway_backend.http.dependencies"}),
-    # F9: baseline head read uses read_only ControlDbUnitOfWork (busy mapping aligned with UoW).
-    frozenset(
-        {
-            "gateway_backend.infrastructure.control_db.database",
-            "gateway_backend.infrastructure.control_db.sqlite_baseline",
-            "gateway_backend.infrastructure.control_db.sqlite_provisioned_scope",
-        }
-    ),
-)
+RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = ()
 
 UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
     {

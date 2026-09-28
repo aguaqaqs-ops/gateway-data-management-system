@@ -7,7 +7,7 @@ from typing import cast
 
 from gateway_backend.domain.workspace.errors import ScopeResolutionError
 from gateway_backend.domain.workspace.models import ResolvedScope
-from gateway_backend.infrastructure.control_db.sqlite_baseline import (
+from gateway_backend.infrastructure.control_db.baseline_head_sql import (
     assert_initial_scope_matches,
     get_current_head_from_connection,
 )

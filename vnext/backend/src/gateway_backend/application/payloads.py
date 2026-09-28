@@ -8,8 +8,9 @@ import re
 import types
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TypeAlias
 
+from gateway_backend.application.job_definition_model import JobDefinition
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.operations.contracts import OperationRecord
@@ -24,9 +25,6 @@ CHECKPOINT_DOCUMENT_TYPE = "step-checkpoint"
 _DIAGNOSTIC_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_.:-]{0,127}$")
 _MAX_DECODER_REGISTRY_ENTRIES = 256
 _MAX_DECODER_MESSAGE_BYTES = 4 * 1024
-
-if TYPE_CHECKING:
-    from gateway_backend.application.job_definitions import JobDefinition, JobDefinitionRegistry
 
 PayloadDecoder: TypeAlias = Callable[[dict[str, object]], object]
 
@@ -103,23 +101,6 @@ class PayloadDecoderRegistry:
         return decoded
 
 
-def build_payload_decoder_registry(
-    registry: JobDefinitionRegistry,
-    decoders: Mapping[str, PayloadDecoder],
-) -> PayloadDecoderRegistry:
-    """Bind decoders to every JobDefinition.decoder_identity without surplus keys."""
-
-    from gateway_backend.application.job_definitions import JobDefinitionRegistry
-
-    if type(registry) is not JobDefinitionRegistry:
-        raise ValueError("registry must be JobDefinitionRegistry")
-    expected = frozenset(definition.decoder_identity for definition in registry.definitions())
-    decoder_keys = frozenset(decoders.keys())
-    if decoder_keys != expected:
-        raise ValueError("decoders must bind exactly one callable per decoder_identity")
-    return PayloadDecoderRegistry.build(decoders)
-
-
 def load_job_payload_bytes(
     operation: OperationRecord,
     store: ArtifactStorePort,
@@ -171,8 +152,6 @@ def decode_job_payload(
     decoder_registry: PayloadDecoderRegistry,
 ) -> object:
     """Decode one operation payload through identity axes and a registered typed decoder."""
-
-    from gateway_backend.application.job_definitions import JobDefinition
 
     _assert_document_kind_axis(JOB_PAYLOAD_DOCUMENT_TYPE)
     if type(definition) is not JobDefinition:
@@ -271,7 +250,6 @@ __all__ = [
     "PayloadDecodeError",
     "PayloadDecoder",
     "PayloadDecoderRegistry",
-    "build_payload_decoder_registry",
     "decode_job_payload",
     "load_job_payload_bytes",
 ]

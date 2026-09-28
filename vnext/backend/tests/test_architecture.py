@@ -845,6 +845,23 @@ def test_production_reachability_matches_frozen_baseline() -> None:
     )
 
 
+REACHABILITY_MODULE_SHAPES: tuple[tuple[str, bool], ...] = (
+    ("gateway_backend.capabilities.snapshot_materialization.compose", True),
+    ("gateway_backend.capabilities.table_access._xml_parser", True),
+    ("gateway_backend.bootstrap.operation_worker", False),
+    ("gateway_backend.application.submit_jobs", False),
+)
+
+
+@pytest.mark.parametrize(("module_name", "expect_unreachable"), REACHABILITY_MODULE_SHAPES)
+def test_production_reachability_classifies_module_shapes(
+    module_name: str,
+    expect_unreachable: bool,
+) -> None:
+    current = unreachable_modules(_backend_edges(), backend_modules())
+    assert (module_name in current) is expect_unreachable
+
+
 # Each row: source module, imported module, imported names, expected rule (None = allowed).
 IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("gateway_backend.domain.workspace.models", "gateway_backend.application.workspace.contracts", (), RULE_LAYER),

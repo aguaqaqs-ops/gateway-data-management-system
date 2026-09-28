@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 
 def _default_internal_bearer_port() -> InternalBearerPort:
-    from gateway_backend.http.auth import FailClosedInternalBearerPort
+    from gateway_backend.http.internal_bearer import FailClosedInternalBearerPort
 
     return FailClosedInternalBearerPort()
 

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import re
 import types
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from gateway_backend.application.job_definition_model import (
+    JobDefinition,
+    NormalPublicationCapability,
+    validate_contract_version_string as _validate_contract_version_string,
+)
 from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.operations.contracts import JobStepKey, OperationRecord, StepRecord
@@ -23,15 +26,7 @@ from gateway_backend.operations.worker import (
 if TYPE_CHECKING:
     from gateway_backend.application.payloads import PayloadDecoder, PayloadDecoderRegistry
 
-_CONTRACT_VERSION_RE = re.compile(r"^[\x20-\x7e]{1,128}$")
 _MAX_DEFINITIONS = 256
-
-
-class NormalPublicationCapability(StrEnum):
-    """Static normal completion path for one JobDefinition step."""
-
-    SINGLE_SUCCESSOR = "SINGLE_SUCCESSOR"
-    TERMINAL = "TERMINAL"
 
 
 class JobDefinitionLookupError(ValueError):
@@ -47,34 +42,6 @@ class JobDefinitionLookupError(ValueError):
         super().__init__(message)
         self.key = key
         self.job_contract_version = job_contract_version
-
-
-@dataclass(frozen=True, slots=True)
-class JobDefinition:
-    """Immutable JobDefinition descriptor without business entities or callables."""
-
-    key: JobStepKey
-    supported_payload_versions: frozenset[str]
-    decoder_identity: str
-    handler_identity: str
-    publication_capability: NormalPublicationCapability
-    recovery_capability: RecoveryCapability
-
-    def __post_init__(self) -> None:
-        if type(self.key) is not JobStepKey:
-            raise ValueError("key must be JobStepKey")
-        if type(self.supported_payload_versions) is not frozenset:
-            raise ValueError("supported_payload_versions must be frozenset")
-        if not self.supported_payload_versions:
-            raise ValueError("supported_payload_versions must not be empty")
-        for version in self.supported_payload_versions:
-            _validate_contract_version_string(version, "supported_payload_versions")
-        _validate_contract_version_string(self.decoder_identity, "decoder_identity")
-        _validate_contract_version_string(self.handler_identity, "handler_identity")
-        if type(self.publication_capability) is not NormalPublicationCapability:
-            raise ValueError("publication_capability must be NormalPublicationCapability")
-        if type(self.recovery_capability) is not RecoveryCapability:
-            raise ValueError("recovery_capability must be RecoveryCapability")
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +135,23 @@ class JobWorkerComposition:
     artifact_store: ArtifactStorePort
 
 
+def build_payload_decoder_registry(
+    registry: JobDefinitionRegistry,
+    decoders: Mapping[str, PayloadDecoder],
+) -> PayloadDecoderRegistry:
+    """Bind decoders to every JobDefinition.decoder_identity without surplus keys."""
+
+    from gateway_backend.application.payloads import PayloadDecoderRegistry
+
+    if type(registry) is not JobDefinitionRegistry:
+        raise ValueError("registry must be JobDefinitionRegistry")
+    expected = frozenset(definition.decoder_identity for definition in registry.definitions())
+    decoder_keys = frozenset(decoders.keys())
+    if decoder_keys != expected:
+        raise ValueError("decoders must bind exactly one callable per decoder_identity")
+    return PayloadDecoderRegistry.build(decoders)
+
+
 def build_job_worker_composition(
     definitions: tuple[JobDefinition, ...],
     handlers: Mapping[str, ClaimedExecutor],
@@ -176,8 +160,6 @@ def build_job_worker_composition(
     decoders: Mapping[str, PayloadDecoder],
 ) -> JobWorkerComposition:
     """Compose immutable definitions, decoders, and R3-compatible worker registry."""
-
-    from gateway_backend.application.payloads import build_payload_decoder_registry
 
     if type(definitions) is not tuple:
         raise ValueError("definitions must be a tuple")
@@ -287,13 +269,6 @@ def _wrap_executor_with_payload_decode(
     return execute
 
 
-def _validate_contract_version_string(value: object, label: str) -> None:
-    if type(value) is not str:
-        raise ValueError(f"{label} must be a string")
-    if not _CONTRACT_VERSION_RE.fullmatch(value):
-        raise ValueError(f"{label} must be bounded ASCII printable")
-
-
 __all__ = [
     "JobDefinition",
     "JobDefinitionLookupError",
@@ -302,6 +277,7 @@ __all__ = [
     "NormalPublicationCapability",
     "RecoveryCapability",
     "build_job_worker_composition",
+    "build_payload_decoder_registry",
     "build_worker_registry",
     "validate_active_pairs_job_contract_versions",
 ]

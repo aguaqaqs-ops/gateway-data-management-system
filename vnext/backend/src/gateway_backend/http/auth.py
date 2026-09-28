@@ -14,6 +14,7 @@ from fastapi import Request
 
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.errors import ApiError
+from gateway_backend.http.internal_bearer import FailClosedInternalBearerPort
 
 
 @runtime_checkable
@@ -227,16 +228,6 @@ class StaticInternalBearerPort:
                 message="authentication required",
                 status_code=401,
             )
-
-
-class FailClosedInternalBearerPort:
-    def verify(self, request: Request) -> None:
-        del request
-        raise ApiError(
-            code="AUTHENTICATION_REQUIRED",
-            message="authentication required",
-            status_code=401,
-        )
 
 
 def require_internal_bearer(request: Request) -> None:

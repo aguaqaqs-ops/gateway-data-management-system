@@ -17,7 +17,7 @@ authorized_base: 218c211240b33e01eee1eb8965fdcca0ec4b8099  # main @ 授权基线
 implementation_fork: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b  # S1 实现切点
 merge_base_with_main: 218c211240b33e01eee1eb8965fdcca0ec4b8099
 implementation_head: 2a54214df94321f97ee936062b5539836f6ea0f5  # 定向修订最后代码提交（S1-F9 严格闭合）
-candidate_head: 926fac48695c78847772b6788edb10a8040349d8
+candidate_head: 0b56172024995a6e2889960a7c0e9e5b2324b59a
 source_tree_sha: 1ed595cc014a633c2ff2458efae36b9493d9a37f  # implementation_head^{tree}
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity
 implementation_authority: execution-plan §8.4 S1.1–S1.7
@@ -232,8 +232,8 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 
 ```text
 任务：独立复审 P5 架构收口 S1 的修订。你没有参与 S1 的实现与修订；按纵切指南 §7 复审。
-审核对象：p5-closure/s1 @ 926fac48695c78847772b6788edb10a8040349d8；上次审核对象 @ a35b2ad8dd，报告 plans/p5-arch-closure-s1-independent-review.md。
-  只核对 a35b2ad8dd..926fac48695c78847772b6788edb10a8040349d8 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的问题不重开。
+审核对象：p5-closure/s1 @ 0b56172024995a6e2889960a7c0e9e5b2324b59a；上次审核对象 @ a35b2ad8dd，报告 plans/p5-arch-closure-s1-independent-review.md。
+  只核对 a35b2ad8dd..0b56172024995a6e2889960a7c0e9e5b2324b59a 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的问题不重开。
   实现 HEAD（镜像构建点）：2a54214df94321f97ee936062b5539836f6ea0f5。
 验证：修订涉及的 focused 测试；修订触碰 §6 的镜像边界时，核对新的镜像记录。测试运行期间不在该 worktree 写入任何文件。
 交付：按执行计划 §8.8 写 plans/p5-arch-closure-s1-independent-rereview-1.md，作为单独提交加到 p5-closure/s1；

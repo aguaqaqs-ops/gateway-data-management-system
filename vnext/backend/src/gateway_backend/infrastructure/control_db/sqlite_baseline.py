@@ -184,26 +184,10 @@ class SQLiteBaselineHeadRead:
         self._db_path = db_path
 
     def get_current_head(self, repository_id: str) -> BaselineHead:
-        from gateway_backend.infrastructure.control_db.control_db_connect import connect_control_db
-        from gateway_backend.infrastructure.control_db.sqlite_operations import _raise_if_busy
-        from gateway_backend.operations.store import StoreBusy
+        from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
-        connection = connect_control_db(self._db_path)
-        try:
-            try:
-                connection.execute("BEGIN")
-            except sqlite3.OperationalError as exc:
-                _raise_if_busy(exc)
-                raise
-            try:
-                return get_current_head_from_connection(connection, repository_id)
-            except sqlite3.OperationalError as exc:
-                _raise_if_busy(exc)
-                raise
-        except StoreBusy:
-            raise
-        finally:
-            connection.close()
+        with ControlDbUnitOfWork(self._db_path, read_only=True) as unit_of_work:
+            return get_current_head_from_connection(unit_of_work.connection, repository_id)
 
 
 def get_current_head_from_connection(

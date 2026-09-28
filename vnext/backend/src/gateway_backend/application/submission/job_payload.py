@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.application.job_steps import successor_step_id
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
 from gateway_backend.domain.submission.models import BuilderMutationPolicy, SubmitAttempt
 
@@ -14,14 +15,15 @@ SUBMIT_STEP_PREPARE = "prepare_import"
 SUBMIT_STEP_SUBMIT = "submit_import"
 SUBMIT_STEP_AWAIT = "await_import_result"
 
+_SUBMIT_STEP_SUFFIX: dict[str, str] = {
+    SUBMIT_STEP_PREPARE: "1",
+    SUBMIT_STEP_SUBMIT: "2",
+    SUBMIT_STEP_AWAIT: "3",
+}
+
 
 def submit_successor_step_id(operation_id: str, step_name: str) -> str:
-    suffix = {
-        SUBMIT_STEP_PREPARE: "1",
-        SUBMIT_STEP_SUBMIT: "2",
-        SUBMIT_STEP_AWAIT: "3",
-    }[step_name]
-    return f"{operation_id}-step-{suffix}"
+    return successor_step_id(operation_id, step_name, _SUBMIT_STEP_SUFFIX)
 
 
 def build_submit_job_payload(

@@ -2037,13 +2037,17 @@ def _checkpoint_generation(step: StepRecord) -> int:
     return attempt_count
 
 
+_PREVIEW_STEP_SUFFIX: dict[str, str] = {
+    PREVIEW_STEP_MATERIALIZE: "1",
+    PREVIEW_STEP_ASSEMBLE: "2",
+    PREVIEW_STEP_PUBLISH: "3",
+}
+
+
 def _successor_step_id(operation_id: str, step_name: str) -> str:
-    suffix = {
-        PREVIEW_STEP_MATERIALIZE: "1",
-        PREVIEW_STEP_ASSEMBLE: "2",
-        PREVIEW_STEP_PUBLISH: "3",
-    }[step_name]
-    return f"{operation_id}-step-{suffix}"
+    from gateway_backend.application.job_steps import successor_step_id
+
+    return successor_step_id(operation_id, step_name, _PREVIEW_STEP_SUFFIX)
 
 
 _ALLOWED_PAYLOAD_KEYS = frozenset(

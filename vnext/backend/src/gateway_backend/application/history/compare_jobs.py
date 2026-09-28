@@ -1712,13 +1712,17 @@ def _checkpoint_generation(step: StepRecord) -> int:
     return attempt_count
 
 
+_HISTORY_COMPARE_STEP_SUFFIX: dict[str, str] = {
+    HISTORY_COMPARE_STEP_MATERIALIZE: "1",
+    HISTORY_COMPARE_STEP_ASSEMBLE: "2",
+    HISTORY_COMPARE_STEP_PUBLISH: "3",
+}
+
+
 def history_compare_step_id(operation_id: str, step_name: str) -> str:
-    suffix = {
-        HISTORY_COMPARE_STEP_MATERIALIZE: "1",
-        HISTORY_COMPARE_STEP_ASSEMBLE: "2",
-        HISTORY_COMPARE_STEP_PUBLISH: "3",
-    }[step_name]
-    return f"{operation_id}-step-{suffix}"
+    from gateway_backend.application.job_steps import successor_step_id
+
+    return successor_step_id(operation_id, step_name, _HISTORY_COMPARE_STEP_SUFFIX)
 
 
 def _require_non_empty_str(payload_object: dict[str, object], key: str) -> str:

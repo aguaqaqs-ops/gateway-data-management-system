@@ -7,7 +7,7 @@ import types
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-
+from typing import TYPE_CHECKING
 
 from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.application.recovery import RecoveryCapability
@@ -20,11 +20,8 @@ from gateway_backend.operations.worker import (
     WorkerRegistry,
 )
 
-from gateway_backend.application.payloads import (
-    PayloadDecoder,
-    PayloadDecoderRegistry,
-    build_payload_decoder_registry,
-)
+if TYPE_CHECKING:
+    from gateway_backend.application.payloads import PayloadDecoder, PayloadDecoderRegistry
 
 _CONTRACT_VERSION_RE = re.compile(r"^[\x20-\x7e]{1,128}$")
 _MAX_DEFINITIONS = 256
@@ -179,6 +176,8 @@ def build_job_worker_composition(
     decoders: Mapping[str, PayloadDecoder],
 ) -> JobWorkerComposition:
     """Compose immutable definitions, decoders, and R3-compatible worker registry."""
+
+    from gateway_backend.application.payloads import build_payload_decoder_registry
 
     if type(definitions) is not tuple:
         raise ValueError("definitions must be a tuple")

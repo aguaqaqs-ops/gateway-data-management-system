@@ -21,7 +21,7 @@ from gateway_backend.application.submission.ports import (
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
-from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
+from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness  # noqa: TC001
 from gateway_backend.application.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
@@ -29,7 +29,6 @@ from gateway_backend.application.workspace.ports import (
 )
 from gateway_backend.application.control_transactions import ControlDbUnitOfWorkFactory
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
-from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.errors import ApiError
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
 from gateway_backend.operations.recovery import OperatorRecoveryRequest
@@ -40,18 +39,10 @@ if TYPE_CHECKING:
     from gateway_backend.http.auth import InternalBearerPort, SessionPort
 
 
-class _FailClosedInternalBearerPort:
-    def verify(self, request: Request) -> None:
-        del request
-        raise ApiError(
-            code="AUTHENTICATION_REQUIRED",
-            message="authentication required",
-            status_code=401,
-        )
-
-
 def _default_internal_bearer_port() -> InternalBearerPort:
-    return _FailClosedInternalBearerPort()
+    from gateway_backend.http.auth import FailClosedInternalBearerPort
+
+    return FailClosedInternalBearerPort()
 
 
 @runtime_checkable
@@ -434,11 +425,3 @@ class ArchiveRequestBodyLimitMiddleware:
             return await receive()
 
         await self.app(scope, replay_receive, send)
-
-
-def require_identity(request: Request) -> IdentityContext:
-    return get_workspace_http(request).session_port.resolve(request)
-
-
-def require_internal_bearer(request: Request) -> None:
-    get_workspace_http(request).internal_bearer_port.verify(request)

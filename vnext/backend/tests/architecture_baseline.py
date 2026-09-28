@@ -33,7 +33,22 @@ IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
     }
 )
 
-RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = ()
+RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = (
+    # F9: strict payload decode (`type(...) is JobDefinition`) with lazy job_definitions import.
+    frozenset(
+        {"gateway_backend.application.job_definitions", "gateway_backend.application.payloads"}
+    ),
+    # F9: default internal bearer uses auth.FailClosedInternalBearerPort via lazy factory.
+    frozenset({"gateway_backend.http.auth", "gateway_backend.http.dependencies"}),
+    # F9: baseline head read uses read_only ControlDbUnitOfWork (busy mapping aligned with UoW).
+    frozenset(
+        {
+            "gateway_backend.infrastructure.control_db.database",
+            "gateway_backend.infrastructure.control_db.sqlite_baseline",
+            "gateway_backend.infrastructure.control_db.sqlite_provisioned_scope",
+        }
+    ),
+)
 
 UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
     {

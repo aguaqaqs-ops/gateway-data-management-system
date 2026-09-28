@@ -25,6 +25,9 @@ from gateway_backend.application.submit_jobs import (
     bind_submit_control_transaction_factory,
     build_prepare_import_handler,
 )
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
+)
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
     accept_submit_transaction,
@@ -239,6 +242,7 @@ def _submit_runtime_dependencies(
         artifact_store=store,
         publication=SubmitImportPublicationAdapter(),
         repository_write=_UnusedRepositoryWrite(),
+        terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=_bound_control_transaction_factory(db_path, control_now),
         submission_id_factory=lambda: "sub-test-1",
     )

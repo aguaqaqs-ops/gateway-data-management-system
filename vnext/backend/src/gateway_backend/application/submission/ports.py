@@ -299,6 +299,14 @@ class RepositoryAbortEvidencePort(Protocol):
         """Verify repository-scoped FAILED evidence matches the bound Attempt."""
 
 
+class RepositoryTerminalEvidenceDecodePort(Protocol):
+    def decode_from_evidence_payload(
+        self,
+        operation_payload: dict[str, object],
+    ) -> RepositoryImportOperation:
+        """Decode one persisted terminal repository operation payload."""
+
+
 class RepositoryWritePort(Protocol):
     def upload_artifact(
         self,

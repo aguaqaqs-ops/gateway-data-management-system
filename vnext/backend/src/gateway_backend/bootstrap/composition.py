@@ -96,6 +96,9 @@ from gateway_backend.infrastructure.repository_write import (
     HttpRepositoryAbortEvidencePort,
     HttpRepositoryWriteClient,
 )
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
+)
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from gateway_backend.settings import BackendSettings
 
@@ -400,6 +403,7 @@ def prepare_backend_runtime(
         artifact_store=artifact_store,
         publication=SubmitImportPublicationAdapter(),
         repository_write=write_client,
+        terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=lambda: f"sub-{uuid4()}",
     )

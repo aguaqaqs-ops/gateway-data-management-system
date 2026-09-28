@@ -46,6 +46,9 @@ from gateway_backend.bootstrap.operation_worker import bootstrap_control_databas
 from gateway_backend.operations.worker import WorkerEvent, WorkerObserver
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
+)
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from gateway_backend.settings import OperationWorkerSettings
 from tests.support.runtime_settings import make_operation_worker_settings
@@ -551,6 +554,7 @@ def build_submit_worker_harness(
             bearer_token=DEFAULT_BEARER_TOKEN,
             transport=transport,
         ),
+        terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=lambda: "sub-test-1",
     )

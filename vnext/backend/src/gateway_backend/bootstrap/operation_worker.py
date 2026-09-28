@@ -66,6 +66,9 @@ from gateway_backend.infrastructure.repository_read import (
     load_repository_bearer_token,
 )
 from gateway_backend.infrastructure.repository_write import HttpRepositoryWriteClient
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
+)
 from gateway_backend.bootstrap.composition import build_submit_import_publication_port
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
 from gateway_backend.operations.contracts import JobStepKey
@@ -222,6 +225,7 @@ def build_production_submit_dependencies(
             bearer_token=token,
             timeout_seconds=settings.repository_timeout_seconds,
         ),
+        terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=submission_id_factory,
     )

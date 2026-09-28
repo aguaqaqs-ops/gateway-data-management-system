@@ -15,9 +15,7 @@ from gateway_backend.application.submission.contracts import (
     RepositoryImportOperation,
     RepositoryImportOperationStatus as RepositoryOperationStatus,
 )
-from gateway_backend.application.submission.repository_operation import (
-    repository_import_operation_from_evidence_payload,
-)
+from gateway_backend.application.submission.ports import RepositoryTerminalEvidenceDecodePort
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
@@ -251,6 +249,7 @@ class SubmitRuntimeDependencies:
     artifact_store: ArtifactStorePort
     publication: SubmitImportPublicationPort
     repository_write: RepositoryWritePort
+    terminal_evidence_decode: RepositoryTerminalEvidenceDecodePort
     control_transaction_factory: SubmitControlTransactionFactory
     submission_id_factory: Callable[[], str]
 
@@ -410,6 +409,7 @@ def submit_composition_bundle(
         artifact_store=deps.artifact_store,
         publication=deps.publication,
         repository_write=deps.repository_write,
+        terminal_evidence_decode=deps.terminal_evidence_decode,
         control_transaction_factory=bind_submit_control_transaction_factory(
             deps.control_transaction_factory
         ),
@@ -795,6 +795,7 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             repository_operation = _load_terminal_repository_evidence(
                 deps.artifact_store,
                 await_checkpoint_state.terminal_result_evidence_ref,
+                terminal_evidence_decode=deps.terminal_evidence_decode,
                 expected_operation_id=submit_state.repository_operation_id,
                 expected_status=await_checkpoint_state.last_observed_repository_status,
             )
@@ -1713,6 +1714,7 @@ def _load_terminal_repository_evidence(
     store: ArtifactStorePort,
     evidence_ref: ArtifactRef,
     *,
+    terminal_evidence_decode: RepositoryTerminalEvidenceDecodePort,
     expected_operation_id: str | None = None,
     expected_status: str | None = None,
 ) -> RepositoryImportOperation:
@@ -1750,7 +1752,7 @@ def _load_terminal_repository_evidence(
         "result": evidence_object.get("result"),
         "error": evidence_object.get("error"),
     }
-    operation = repository_import_operation_from_evidence_payload(operation_payload)
+    operation = terminal_evidence_decode.decode_from_evidence_payload(operation_payload)
     if expected_operation_id is not None and operation.operation_id != expected_operation_id:
         raise CheckpointDecodeError(
             "terminal repository evidence operation_id does not match checkpoint",

@@ -277,6 +277,17 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - 其余只改导入路径的测试按上文规则确定。
 - 条件：Rust 架构检查中的 Python 路径断言。
 
+### S2b — S1 复审延期路径（owner 2026-09-27；与 §8.5 S2b.0 对齐）
+
+S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 handoff §3 登记延期，**必在 S2b 关闭或按条件启用**：
+
+- `http/orchestration/preview_acceptance.py` — Preview 受理从 HTTP 下沉至 Application/workspace 用例。
+- `application/workspace/{preview,ports}.py` — 受理编排与 workspace 端口拆分（UoW 枢纽按 owner 细化）。
+- `application/archive/ports.py` — archive 侧 control 事务协议与 workspace/submission 对齐。
+- `application/control_transactions.py` — 共享 control 事务面按 Preview/Submit/History owner 拆分。
+- `application/job_steps.py` — 三 job 共享 step plumbing（`pinned_checkpoint_builder` 已在 S1 删除，仅保留 helper）。
+- Preview/History 受理下沉、UoW 按 owner 拆分、三 job 共享 step plumbing — 与 §8.5 S2b.0 同一收口批次。
+
 ### S2a
 
 - 必改（B）：

@@ -1,8 +1,8 @@
 # P5 架构收口 S1 Handoff
 
-状态：**S1 定向修订完成，待独立复审（§修订）**
+状态：**S1 复审定向修订完成，待独立复审（rereview-1 关闭项）**
 
-日期：2026-09-27
+日期：2026-09-28
 
 Owner：P5 Architecture Closure
 
@@ -16,9 +16,9 @@ stage: P5-arch-closure-S1-structure
 authorized_base: 218c211240b33e01eee1eb8965fdcca0ec4b8099  # main @ 授权基线（merge-base 一致）
 implementation_fork: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b  # S1 实现切点
 merge_base_with_main: 218c211240b33e01eee1eb8965fdcca0ec4b8099
-implementation_head: 2a54214df94321f97ee936062b5539836f6ea0f5  # 定向修订最后代码提交（S1-F9 严格闭合）
-candidate_head: 0b56172024995a6e2889960a7c0e9e5b2324b59a
-source_tree_sha: 1ed595cc014a633c2ff2458efae36b9493d9a37f  # implementation_head^{tree}
+implementation_head: 72092dd27af85dc235e1d08c2650297508b5e49e  # 定向修订代码 tip；镜像/build 绑定此 SHA
+candidate_head: 340bda7d17  # handoff + 执行计划 §3 增补（amend 后见 git log -1）
+source_tree_sha: 7a017a4cbb97c8fce3cbc2bcae0f105bdc8d5db7  # implementation_head^{tree}
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity
 implementation_authority: execution-plan §8.4 S1.1–S1.7
 design_§14_stop: not_triggered
@@ -47,7 +47,36 @@ GATEWAY_REAL_DUMP_ROOT=/home/dev/gateway-real-dumps \
 
 - **DC12**：`dc12_json_columns_present: false` → **未触发** LONGTEXT。
 - **DC15**：存储表列类型含 `TINYINT`/`SMALLINT`/`FLOAT`/`DATETIME` 及 UNSIGNED 拼写（见各 dataset `storage_column_type_counts`）；`unknown_sql_types` 仍为空（mapper 已识别拼写）→ **已触发**词表扩充需求，S2a 验收扩充并与 Dolt 往返对齐；FLOAT 无损往返优先在 S2a 验证（设计 §14 第 2 项）。
-- **结构统计**（诊断模式）：八样本均可物化；含按角色表数、行数、DDL 无主键表列表等（见 `summary.json`）。
+- **重复键（诊断 READERS_REQUIRED）**：`summary.json` 汇总 `duplicate_key_extra_rows_total: 6`；`rd-t1-a-v1`/`v2` 中 `b1_n2_iec104_syx_list` 各 3 条额外行；其余档位见 `duplicate_key_by_table`（空则未检出）。
+- **有效键（DDL 无主键表）**：`effective_key_unresolved_tables` 列出 rules/view 无法解析 canonical key 的表（t1 共 23 张）；有 PK 或 EXPLICIT compare key 的表参与重复键扫描。
+- **结构统计**（诊断模式）：见下「八数据集结构记录」；`summary.json` 另含 `duplicate_key_*` 与 `effective_key_unresolved_tables`（脚本修订后 diagnostic 重跑写入）。
+
+### 八数据集结构记录（诊断模式，无行数据）
+
+`pair_of` 默认规则见 `$GATEWAY_REAL_DUMP_ROOT/dataset_pairing.json`（tier 内 v1→v2）。**Owner 确认（2026-09-28）**：沿用默认 pairing，与执行计划 §8.3、`p5-arch-closure-s0-owner-decisions.md` §4 一致，S2b/S4 同项目链路验收以此为准。
+
+#### rd-t1-a-v1
+- package SHA-256: `42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2`
+- tier / alias / version: t1 / a / v1；pair_of: null
+- 表数 133，总行数 6097；无主键表 28；可空键列 0
+- 非 SKIP 列类型（节选）: VARCHAR 538, INT 458, ENUM 263, TINYINT 151, FLOAT 46, TEXT 38, SMALLINT 28, DATETIME 8（含 UNSIGNED 拼写归一化前统计）
+- `version_manager.saved_time`: `VARCHAR(128)`；logics.xml: complete，events=2
+
+#### rd-t1-a-v2
+- package SHA-256: `4019737fc8fe35e90792dcef722537bf09338110ace8cc09f35e004cc7095bd0`
+- pair_of: `rd-t1-a-v1`；表数 133，行数 6095；其余同 v1 量级
+
+#### rd-t2-b-v1 / rd-t2-b-v2
+- SHA-256: `acd1b5e6f92083c3a6d53e9996be0bf46f520ae7fdea94d8449069748a3817c0` / `c66e3921c7774a38bfeb2f407c24a39209225e962f593ec88d17db0d85fcba98`
+- 诊断物化 `table_count=0`（`READERS_REQUIRED` 下大档耗时/资源边界；DDL 统计与 logics.xml complete events=3158 仍记录）；无主键表 40
+
+#### rd-t3-c-v1 / rd-t3-c-v2
+- SHA-256: `c34e266c458d9b2cfb630fec56fa7c893113e11b56f768710aecebb0715eec7e` / `658422efd2583963cc04bdff6e88e2b733d33396bdd92ff5b3635dc00cffc28d`
+- **t3/t4 XML 诊断摘要**：生产路径 `max_xml_depth=64` 下 logics.xml **failed**（深度超限，非 S1 引入）；诊断模式仍记录 DDL 列类型与无主键表列表（v1: 37 表，v2: 38 表）
+
+#### rd-t4-d-v1 / rd-t4-d-v2
+- SHA-256: `95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675` / `5a7cd54d9b996be55c34b7bb766eb01ad5c1b7c4fa9bd1e72f5c4741baee3611`
+- logics.xml failed（同 t3）；无主键表 59
 
 ## 2. 子步 ↔ 提交
 
@@ -72,30 +101,48 @@ GATEWAY_REAL_DUMP_ROOT=/home/dev/gateway-real-dumps \
 | `application/submission/artifact_release.py` | 已创建 |
 | `application/workspace/ports.py` | 已创建 |
 | `application/control_transactions.py` | 已创建 |
-| Preview/History 受理下沉、UoW 枢纽拆分、三 job 共享 step plumbing | **延期 S2b**（执行计划 §3/§8.5，owner 2026-09-27） |
+| Preview/History 受理下沉、UoW 枢纽拆分、三 job 共享 step plumbing | **延期 S2b**（执行计划 §3「S2b — S1 复审延期路径」、§8.5 S2b.0；owner 2026-09-27） |
+
+**S1-F3 三项延期（逐项）**
+
+| 延期项 | 现状（@ 复审定向修订） | 理由 | S2b 目标 |
+| --- | --- | --- | --- |
+| Preview/History 受理下沉 | HTTP `preview_acceptance` / `history_compare` 仍承担 DTO 映射与编排 | S1 行为不变；避免与 N-http 迁移交叉 | Application/workspace + history 用例拥有受理；HTTP 薄路由 |
+| UoW 枢纽拆分 | `control_transactions.py` + 各 `*/ports.py` 已引入共享协议，SQLite 仍集中 | 需与 S2b control DB migration 同批 | 按 owner 拆分写模型；Submit/Preview/History 各端口稳定 |
+| 三 job 共享 step plumbing | `job_steps.py` 已建；`pinned_checkpoint_builder` 已删 | checkpoint 载荷冻结 | §8.5 S2b.0 统一 step 辅助与 recovery 接线 |
 | `table_access` parser（`@saved_cs_client`、`max_xml_depth`） | **S1–S2a 前置**分支 `p5-closure/s1-parser`（执行计划 §1/§8；不改 `table_access` 生产源码于本修订） |
 
 checkpoint 载荷与 golden 断言策略未改（F1 证据字节已与 base 对齐）。
 
 ## 4. import_rules（§2 S1 机械验收）
 
-| 指标 | fork @ `e04c1bcca7` | @ `implementation_head` |
+| 指标 | fork @ `e04c1bcca7` | @ 复审定向修订 `implementation_head` |
 | --- | --- | --- |
-| 违例 | 54 | **4**（http_arrow×2 + `repository_import_artifact` + F7 `workspace.contracts→settings` 单源上传上限，S2b/登记见 baseline 注释） |
-| 运行时环 | 8 | **3**（F9 登记：`job_definitions`↔`payloads`、`auth`↔`dependencies`、baseline `ControlDbUnitOfWork` 读路径；见 `architecture_baseline.py`） |
+| 违例 | 54 | **3**（http_arrow×2 + `repository_import_artifact`；上传上限在 `application/workspace/upload_limits.py`） |
+| 运行时环 | 8 | **0** |
 | 不可达 | 16 | **10** |
 
 ```bash
 cd vnext/backend && ../scripts/uv-consume.sh -C . run python -m tests.support.import_rules
 cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_architecture.py -m unit -q
-# 2026-09-27：71 passed
+# 2026-09-28：import_rules 3/0/10；test_architecture -m unit 见 gate-logs
 ```
 
 ## 5. synthetic / worker 装配
 
 - Synthetic 与 external effect stub 在 `tests/support/`；worker 测试侧注入 recovery（断言不变）。
 
+### 5.1 只改导入路径的测试（S1 预算）
+
+下列测试仅随模块迁移更新 import，**不断言行为变更**（见执行计划 §3 S1 必改 T）：
+
+- `test_synthetic_w2.py`、`test_operation_job_synthetic.py`、`test_operation_job_recovery.py`、`test_operation_effect_reconcile.py`、`test_operation_worker_integration.py`
+- `test_canonical_row_hash.py`
+- 其余由被迁移模块 import 方决定的同型用例（handoff 不逐文件重复列举时，以 execution-plan §3 S1 必改 T 为准）
+
 ## 6. 门禁命令与结果（@ `implementation_head`，compose/backend 在 clean worktree）
+
+日志目录：**`/home/dev/gdds-p5-closure-s1/gate-logs/`**（持久路径；禁止引用不存在的 `/tmp/...` 占位）。
 
 ### 6.1 五包静态
 
@@ -105,7 +152,7 @@ for p in shared_kernel repository_contracts repository_client repository_service
 done
 ```
 
-结果：**五包均 pass**（2026-09-27）。
+结果：**五包均 pass**（见 `gate-logs/static-check.log`，2026-09-28 复审定向修订）。
 
 ### 6.2 权威全量测试
 
@@ -113,21 +160,14 @@ done
 
 ```bash
 cd /home/dev/gdds-p5-closure-s1
-GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
+GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh 2>&1 | tee gate-logs/run-tests.log
 ```
 
 | 批次 | 结果 |
 | --- | --- |
-| shared_kernel | 242 passed |
-| repository_contracts | 152 passed |
-| repository_client | 154 passed |
-| backend | **2674 passed**, 1 warning |
-| repository_service (parallel) | 1678 passed, 1 skipped |
-| repository_service (serial, 含 RS compose 8) | **205 passed** |
-| 五锁 SHA 漂移 | 无（runner 末尾 lock assert pass） |
-| runner exit | **0** |
+| （填 run-tests.log 摘要） | **PENDING** |
 
-日志：`/tmp/s1-run-tests-final.log`。**勿**用 `| tail` 包裹 runner。
+runner exit：**PENDING**（完整日志：`gate-logs/run-tests.log`）。
 
 ### 6.3 镜像 fresh build（§6 S1 @ `implementation_head`）
 
@@ -232,8 +272,8 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 
 ```text
 任务：独立复审 P5 架构收口 S1 的修订。你没有参与 S1 的实现与修订；按纵切指南 §7 复审。
-审核对象：p5-closure/s1 @ 0b56172024995a6e2889960a7c0e9e5b2324b59a；上次审核对象 @ a35b2ad8dd，报告 plans/p5-arch-closure-s1-independent-review.md。
-  只核对 a35b2ad8dd..0b56172024995a6e2889960a7c0e9e5b2324b59a 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的问题不重开。
+审核对象：p5-closure/s1 @ 1897d5df46f543b645058d7e3ac0f8909426725a；上次审核对象 @ a35b2ad8dd，报告 plans/p5-arch-closure-s1-independent-review.md。
+  只核对 a35b2ad8dd..1897d5df46f543b645058d7e3ac0f8909426725a 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的问题不重开。
   实现 HEAD（镜像构建点）：2a54214df94321f97ee936062b5539836f6ea0f5。
 验证：修订涉及的 focused 测试；修订触碰 §6 的镜像边界时，核对新的镜像记录。测试运行期间不在该 worktree 写入任何文件。
 交付：按执行计划 §8.8 写 plans/p5-arch-closure-s1-independent-rereview-1.md，作为单独提交加到 p5-closure/s1；
@@ -243,4 +283,16 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 
 ---
 
-_next_step：独立复审通过后 `--no-ff` 合入 `main`，进入 S2a（含 parser 前置与 S2b 延期项）。_
+## 复审定向修订（rereview-1 关闭项，2026-09-28）
+
+| Finding | 处理 |
+| --- | --- |
+| S1-F10 | `upload_limits` 叶子模块；三处运行时环拆解；`RUNTIME_CYCLE_BASELINE=()`；**3/0/10** |
+| S1-F4 | 删除 `_mark_package_facades`；父 package `__init__` 随子模块可达；`REACHABILITY_MODULE_SHAPES` |
+| S1-F1 | `RepositoryTerminalEvidenceDecodePort` + `WireRepositoryTerminalEvidenceDecodePort`；删 application 宽 schema；`MALFORMED_TERMINAL_EVIDENCE_SHAPES` 扩展 |
+| S1-F6 | `real_dump_census.py` 重复键 / 有效键诊断字段；§1 八数据集内嵌记录 |
+| S1-F3 | 执行计划 §3「S2b — S1 复审延期路径」；handoff §3 逐项延期表 |
+| S1-F8 | §4 **3/0/10**；§5.1 只改 import 测试清单；§6 `gate-logs/`；traceability 绑定 `implementation_head` |
+| S1-F11 | 见 §6（`gate-logs/run-tests.log`、镜像 rebuild、compose 9 旅程） |
+
+_next_step：独立复审 rereview-1 通过后 `--no-ff` 合入 `main`，进入 S2a（含 parser 前置与 S2b 延期项）。_

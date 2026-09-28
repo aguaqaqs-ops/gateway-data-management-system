@@ -16,9 +16,9 @@ stage: P5-arch-closure-S1-structure
 authorized_base: 218c211240b33e01eee1eb8965fdcca0ec4b8099  # main @ 授权基线（merge-base 一致）
 implementation_fork: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b  # S1 实现切点
 merge_base_with_main: 218c211240b33e01eee1eb8965fdcca0ec4b8099
-implementation_head: c434064c7de6e0c2345138d39fe851c67db1c982  # 定向修订最后代码提交
-candidate_head: 8754241809d3c5a09676e05b4c788bc6bc74717f
-source_tree_sha: 4f9f4ff02a536dc3f99a4b91196a97fcf6278bea  # implementation_head^{tree}
+implementation_head: 2a54214df94321f97ee936062b5539836f6ea0f5  # 定向修订最后代码提交（S1-F9 严格闭合）
+candidate_head: 926fac48695c78847772b6788edb10a8040349d8
+source_tree_sha: 1ed595cc014a633c2ff2458efae36b9493d9a37f  # implementation_head^{tree}
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity
 implementation_authority: execution-plan §8.4 S1.1–S1.7
 design_§14_stop: not_triggered
@@ -82,7 +82,7 @@ checkpoint 载荷与 golden 断言策略未改（F1 证据字节已与 base 对�
 | 指标 | fork @ `e04c1bcca7` | @ `implementation_head` |
 | --- | --- | --- |
 | 违例 | 54 | **4**（http_arrow×2 + `repository_import_artifact` + F7 `workspace.contracts→settings` 单源上传上限，S2b/登记见 baseline 注释） |
-| 运行时环 | 8 | **0** |
+| 运行时环 | 8 | **3**（F9 登记：`job_definitions`↔`payloads`、`auth`↔`dependencies`、baseline `ControlDbUnitOfWork` 读路径；见 `architecture_baseline.py`） |
 | 不可达 | 16 | **10** |
 
 ```bash
@@ -200,9 +200,27 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 | S1-F6 普查 | 已关闭（脚本+重跑） | `662cc0979e`；`summary.json` @ `/home/dev/gateway-real-dumps/census/`；生产路径失败见 §1 |
 | S1-F7 常量单源 | 已关闭 | `e507bc5c43`、`c434064c7d`：`RULESET_VERSION`；上传上限经 `settings`→`workspace.contracts` |
 | S1-F8 事实更正 | 本 handoff | §2/§3/§6 更新；子步合并 S1.3–S1.4、S1.5–S1.6 |
-| S1-F9 去重 | 已关闭 | `e507bc5c43`：decoder registry 单处；`submit_successor_step_id`；baseline `StoreBusy` |
+| S1-F9 去重（严格） | 已关闭 | `2a54214df9`：见下 |
 
-### §6 定向修订门禁（@ `c434064c7d`）
+**S1-F9 严格闭合（`2a54214df9`）**
+
+| 子项 | 处理 | 证据 |
+| --- | --- | --- |
+| `build_payload_decoder_registry` 单处 | 仅 `application/payloads.py`；`job_definitions` 改为 `TYPE_CHECKING` + 惰性 import | `test_job_payload_decoding.py` registry 用例 |
+| `decode_job_payload` 严格类型 | `type(definition) is JobDefinition`（函数内惰性 import）；拒绝非 `JobDefinition` | `test_decode_rejects_non_job_definition_even_with_matching_qualname` |
+| `_FailClosedInternalBearerPort` | 删除 `dependencies` 副本；`default_factory` 惰性构造 `auth.FailClosedInternalBearerPort`；`require_*` 归 `auth.py` | 五包 mypy；无模块级 auth↔deps 互引 |
+| `_successor_step_id` | `job_steps.successor_step_id` + 各 flow suffix 表；保留 `unique_artifact_refs` | step id 字符串不变；`test_submit_job_payload` / `test_production_wiring` |
+| `SQLiteBaselineHeadRead` | `ControlDbUnitOfWork(..., read_only=True)` 读 head | `test_production_wiring` baseline 读 |
+
+### §6 定向修订门禁（@ `2a54214df9`）
+
+**S1-F9 增量（2026-09-28）**
+
+- 五包 ruff/mypy：**pass**
+- `import_rules`：**4 / 3 / 10**（违例不变；运行时环 baseline 登记 3 组 F9 惰性互引）
+- focused pytest：**148 passed**（`test_job_payload_decoding.py`、`test_architecture.py`、`test_submit_job_payload.py`、`test_production_wiring.py`）
+
+### §6 定向修订门禁（历史 @ `c434064c7d`）
 
 - 五包 ruff/mypy：**pass**（2026-09-28）。
 - `import_rules` + `tests/test_architecture.py -m unit`：**71 passed**；违例 **4 / 0 / 10**。
@@ -214,8 +232,9 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 
 ```text
 任务：独立复审 P5 架构收口 S1 的修订。你没有参与 S1 的实现与修订；按纵切指南 §7 复审。
-审核对象：p5-closure/s1 @ <candidate_head>；上次审核对象 @ a35b2ad8dd，报告 plans/p5-arch-closure-s1-independent-review.md。
-  只核对 a35b2ad8dd..<candidate_head> 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的问题不重开。
+审核对象：p5-closure/s1 @ 926fac48695c78847772b6788edb10a8040349d8；上次审核对象 @ a35b2ad8dd，报告 plans/p5-arch-closure-s1-independent-review.md。
+  只核对 a35b2ad8dd..926fac48695c78847772b6788edb10a8040349d8 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的问题不重开。
+  实现 HEAD（镜像构建点）：2a54214df94321f97ee936062b5539836f6ea0f5。
 验证：修订涉及的 focused 测试；修订触碰 §6 的镜像边界时，核对新的镜像记录。测试运行期间不在该 worktree 写入任何文件。
 交付：按执行计划 §8.8 写 plans/p5-arch-closure-s1-independent-rereview-1.md，作为单独提交加到 p5-closure/s1；
   除该报告外不修改任何文件；不合并、不推送。

@@ -12,6 +12,7 @@ target/
 runtime-data/
 dolt-data/
 logs/
+gate-logs/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

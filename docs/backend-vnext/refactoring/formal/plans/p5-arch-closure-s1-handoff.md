@@ -165,9 +165,16 @@ GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh 2>&1 | tee gate-logs/run-te
 
 | 批次 | 结果 |
 | --- | --- |
-| （填 run-tests.log 摘要） | **PENDING** |
+| shared_kernel | 242 passed |
+| repository_contracts | 152 passed |
+| repository_client | 154 passed |
+| backend | **2691 passed**, 1 warning |
+| repository_service (parallel) | 1678 passed, 1 skipped |
+| repository_service (serial) | **205 passed** |
+| 五锁 SHA 漂移 | 无 |
+| runner exit | **0** |
 
-runner exit：**PENDING**（完整日志：`gate-logs/run-tests.log`）。
+完整日志：`gate-logs/run-tests-rereview.log`（2026-09-28；`GATEWAY_TEST_WORKERS=48`，porcelain 干净后重跑）。
 
 ### 6.3 镜像 fresh build（§6 S1 @ `implementation_head`）
 
@@ -179,9 +186,11 @@ docker compose -f vnext/deploy/compose.yaml build backend worker
 
 | 镜像 | ID / digest |
 | --- | --- |
-| `gateway-repository-service:local` | `sha256:f4957f1a61159af0dc29cd8e21b2b3f3b568b9754d56141a51e59714ef81f520` |
-| `deploy-backend:latest` | `6610f2c6b7f0` |
-| `deploy-worker:latest` | `9e1672eca5e4` |
+| `gateway-repository-service:local` | `sha256:2fe98a0f97ce3ee425f2ac5386f87011e33f91841ef1863e5f6be75b6fbcd2df` |
+| `deploy-backend:latest` | `sha256:b8def66665452d093f6df2965b1957b8a11c08464c52fedb2360a88efd4e3938` |
+| `deploy-worker:latest` | `sha256:833a8ee064b043da930a29b2173b44aa4a9eebcbb6d8aa45b8ab1fd1cf843776` |
+
+构建日志：`gate-logs/build-rs-image.log`；compose build @ `41c43909be`（含 `gate-logs/` gitignore，保证 provenance 干净 worktree）。
 
 `vnext/deploy/compose.yaml` SHA-256：`f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0`
 

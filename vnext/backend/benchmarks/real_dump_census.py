@@ -53,6 +53,11 @@ from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_backend.capabilities.table_access.xml import parse_xml
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
+from gateway_backend.capabilities.table_rules.contracts import TableStaticRole
+from gateway_backend.capabilities.storage_projection.view import StorageViewError, derive_storage_rule_view
+from gateway_backend.capabilities.table_rules.contracts import canonicalize_rule_identifier
+from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor, SnapshotTableSet
+from gateway_backend.capabilities.table_access.contracts import SourceRow
 
 _ZERO_DIGEST = DigestRef("sha256:" + "00" * 32)
 
@@ -163,6 +168,9 @@ class DatasetCensus:
     materialization_diagnostics: list[str]
     role_table_counts: dict[str, int]
     has_logics_xml: bool
+    duplicate_key_extra_rows: int
+    duplicate_key_by_table: dict[str, int]
+    effective_key_unresolved_tables: list[str]
 
 
 def _load_pairing_map(root: Path) -> dict[str, str]:
@@ -266,6 +274,67 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
     }
 
 
+def _column_index_by_name(descriptor: SnapshotTableDescriptor) -> dict[str, int]:
+    return {
+        canonicalize_rule_identifier(column.name): index
+        for index, column in enumerate(descriptor.columns)
+    }
+
+
+def _row_key_fingerprint(row: SourceRow, key_indexes: tuple[int, ...]) -> tuple[str, ...]:
+    return tuple(repr(row[index]) for index in key_indexes)
+
+
+def _duplicate_and_effective_key_stats(
+    *,
+    table_set: SnapshotTableSet | None,
+    ruleset: Any,
+    diagnostic_mode: bool,
+) -> tuple[dict[str, int], int, list[str]]:
+    if not diagnostic_mode or table_set is None:
+        return {}, 0, []
+    duplicate_by_table: dict[str, int] = {}
+    extra_rows = 0
+    unresolved: list[str] = []
+    for table in table_set.tables:
+        descriptor = table.descriptor
+        if table.reader is None:
+            continue
+        try:
+            resolved = resolve_table_rule(
+                ruleset,
+                descriptor.table_name,
+                primary_key_columns=descriptor.primary_key_columns,
+            )
+        except ValueError:
+            unresolved.append(descriptor.table_name)
+            continue
+        if resolved.record.static_role is TableStaticRole.SKIP:
+            continue
+        try:
+            view = derive_storage_rule_view(resolved.record, descriptor)
+        except StorageViewError:
+            if not descriptor.primary_key_columns:
+                unresolved.append(descriptor.table_name)
+            continue
+        if view is None or not view.canonical_key_columns:
+            continue
+        by_name = _column_index_by_name(descriptor)
+        try:
+            key_indexes = tuple(by_name[name] for name in view.canonical_key_columns)
+        except KeyError:
+            unresolved.append(descriptor.table_name)
+            continue
+        seen: Counter[tuple[str, ...]] = Counter()
+        for row in table.reader.iter_rows():
+            seen[_row_key_fingerprint(row, key_indexes)] += 1
+        duplicate_rows = sum(count - 1 for count in seen.values() if count > 1)
+        if duplicate_rows:
+            duplicate_by_table[descriptor.table_name] = duplicate_rows
+            extra_rows += duplicate_rows
+    return duplicate_by_table, extra_rows, sorted(set(unresolved))
+
+
 def census_one(
     *,
     tier_name: str,
@@ -361,6 +430,12 @@ def census_one(
         table_count = business.summary.table_count
         row_total = business.summary.row_count_total
 
+    dup_by_table, dup_extra, key_unresolved = _duplicate_and_effective_key_stats(
+        table_set=business.table_set,
+        ruleset=ruleset,
+        diagnostic_mode=diagnostic_mode,
+    )
+
     return DatasetCensus(
         dataset_id=dataset_id,
         tier=tier_code,
@@ -385,6 +460,9 @@ def census_one(
         materialization_diagnostics=[item.code.value for item in business.diagnostics[:32]],
         role_table_counts=analysis["role_counts"],
         has_logics_xml=has_logics_xml,
+        duplicate_key_extra_rows=dup_extra,
+        duplicate_key_by_table=dup_by_table,
+        effective_key_unresolved_tables=key_unresolved,
     )
 
 
@@ -468,6 +546,10 @@ def main() -> None:
         "datasets": [asdict(item) for item in censuses],
         "dc12_json_columns_present": any(item.json_columns for item in censuses),
         "dc15_unknown_sql_types": sorted({t for item in censuses for t in item.unknown_sql_types}),
+        "duplicate_key_extra_rows_total": sum(item.duplicate_key_extra_rows for item in censuses),
+        "datasets_with_duplicate_keys": sorted(
+            item.dataset_id for item in censuses if item.duplicate_key_by_table
+        ),
     }
     (census_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",

@@ -28,6 +28,25 @@ SECURITY_CASES = (
     "xml/security/s3-xinclude/input.xml",
 )
 
+DIGITAL_ATTRIBUTE_CASES = (
+    (
+        '<Logic_Set><Express Name="top" Operator_Type="+"><Digital value="1"/></Express></Logic_Set>',
+        None,
+    ),
+    (
+        '<Logic_Set><Express Name="top" Operator_Type="+"><Digital/></Express></Logic_Set>',
+        CompositeDiagnosticCode.MISSING_ATTRIBUTE,
+    ),
+    (
+        '<Logic_Set><Express Name="top" Operator_Type="+"><Digital Value="1"/></Express></Logic_Set>',
+        CompositeDiagnosticCode.UNKNOWN_ATTRIBUTE,
+    ),
+    (
+        '<Logic_Set><Express Name="top" Operator_Type="+"><Digital value="1" Extra="x"/></Express></Logic_Set>',
+        CompositeDiagnosticCode.UNKNOWN_ATTRIBUTE,
+    ),
+)
+
 
 class CountCancel:
     def __init__(self, trip_after: int) -> None:
@@ -52,6 +71,26 @@ def test_minimal_logic_builds_ordered_ast() -> None:
             {"kind": "POINT", "name": "top"},
             {"kind": "DIGITAL", "value": "1"},
         ],
+    }
+
+
+@pytest.mark.parametrize(("xml", "expected_code"), DIGITAL_ATTRIBUTE_CASES)
+def test_digital_value_attribute_matches_source_contract(
+    xml: str, expected_code: CompositeDiagnosticCode | None
+) -> None:
+    result = materialize_logic(xml, catalog=special_catalog())
+    if expected_code is not None:
+        assert result.status is CompositeSignalStatus.FAILED
+        assert result.diagnostics[0].code is expected_code
+        if expected_code is CompositeDiagnosticCode.MISSING_ATTRIBUTE:
+            assert result.diagnostics[0].message == "Digital requires value"
+        return
+    assert result.status is CompositeSignalStatus.COMPLETE
+    assert ast_to_json(result.formulas[0].ast) == {
+        "kind": "EXPRESS",
+        "operator": "+",
+        "name": "top",
+        "children": [{"kind": "DIGITAL", "value": "1"}],
     }
 
 

@@ -23,7 +23,7 @@ _DIGITAL = "Digital"
 _ATTR_TIME = "Time"
 _ATTR_NAME = "Name"
 _ATTR_OPERATOR = "Operator_Type"
-_ATTR_VALUE = "Value"
+_ATTR_VALUE = "value"
 _ALLOWED_ROOT_ATTRS = frozenset({_ATTR_TIME})
 _ALLOWED_EXPRESS_ATTRS = frozenset({_ATTR_NAME, _ATTR_OPERATOR})
 _ALLOWED_POINT_ATTRS = frozenset({_ATTR_NAME})
@@ -151,7 +151,7 @@ def _handle_end(frames: list[_Frame], formulas: list[ExpressNode], expanded: str
         node = PointNode(name=frame.attributes[_ATTR_NAME])
     elif frame.name == _DIGITAL:
         if _ATTR_VALUE not in frame.attributes:
-            raise AstHalt(CompositeDiagnosticCode.MISSING_ATTRIBUTE, "Digital requires Value")
+            raise AstHalt(CompositeDiagnosticCode.MISSING_ATTRIBUTE, "Digital requires value")
         node = DigitalNode(value=frame.attributes[_ATTR_VALUE])
     else:
         raise AstHalt(CompositeDiagnosticCode.UNKNOWN_ELEMENT, f"unknown element {expanded!r}")

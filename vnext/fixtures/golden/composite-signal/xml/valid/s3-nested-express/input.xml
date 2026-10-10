@@ -2,7 +2,7 @@
   <Express Name="top" Operator_Type="+">
     <Express Name="inner" Operator_Type="*">
       <Point Name="top"/>
-      <Digital Value="2"/>
+      <Digital value="2"/>
     </Express>
   </Express>
 </Logic_Set>

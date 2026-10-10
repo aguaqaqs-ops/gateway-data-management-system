@@ -1,4 +1,4 @@
-"""Read-only census over GATEWAY_REAL_DUMP_ROOT datasets (DC22, S1 kickoff).
+"""Read-only census over GATEWAY_REAL_DUMP_ROOT datasets (DC22, G2 update).
 
 Not imported by production code. Host-side only.
 """
@@ -14,10 +14,9 @@ import os
 import re
 import tarfile
 from collections import Counter
-from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -51,6 +50,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlLogicalType,
     SqlParseRequest,
     SqlSourceInput,
+    XmlEventKind,
     XmlParseRequest,
     XmlSourceInput,
 )
@@ -58,7 +58,7 @@ from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_backend.capabilities.table_access.xml import parse_xml
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
-from gateway_backend.capabilities.table_rules.contracts import TableStaticRole
+from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy, TableStaticRole
 from gateway_backend.capabilities.storage_projection.view import StorageViewError, derive_storage_rule_view
 from gateway_backend.capabilities.table_rules.contracts import canonicalize_rule_identifier
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor
@@ -75,27 +75,6 @@ _TIER_MAP = {
 _VERSION_SUFFIX = re.compile(r"^(?P<tier>[^-]+)-(?P<idx>[12])$")
 _CONTEXT = StagingInvocationContext(StagingNeverCancel())
 _LOGICS_XML_REL = Path("comps") / "logic" / "logics.xml"
-
-
-@contextmanager
-def _diagnostic_sql_parser_context() -> Iterator[None]:
-    """Census-only: allow @saved_cs_client (not production parser behaviour)."""
-
-    import gateway_backend.capabilities.table_access._sql_statements as sql_statements
-
-    original = sql_statements._allowed_set_name
-
-    def _patched(name: str) -> bool:
-        lowered = name.lower().lstrip("@")
-        if lowered == "saved_cs_client":
-            return True
-        return original(name)
-
-    sql_statements._allowed_set_name = _patched
-    try:
-        yield
-    finally:
-        sql_statements._allowed_set_name = original
 
 
 def _dump_root() -> Path:
@@ -167,7 +146,6 @@ class DatasetCensus:
     project_alias: str
     version: str
     pair_of: str | None
-    source_dir: str
     package_sha256: str
     package_bytes: int
     staging_status: str
@@ -183,6 +161,8 @@ class DatasetCensus:
     version_manager_saved_time_type: str | None
     logics_xml_status: str
     logics_xml_event_count: int | None
+    logics_xml_max_depth: int | None
+    composite_stage_status: str
     materialization_diagnostics: list[str]
     materialization_diagnostic_details: list[dict[str, str]]
     role_table_counts: dict[str, int]
@@ -190,7 +170,10 @@ class DatasetCensus:
     key_scan_source: str
     duplicate_key_scan_status: str
     duplicate_key_extra_rows: int
+    duplicate_key_exact_extra_rows: int
+    duplicate_key_conflicting_extra_rows: int
     duplicate_key_by_table: dict[str, int]
+    duplicate_key_details_by_table: dict[str, dict[str, Any]]
     duplicate_key_scanned_table_count: int
     duplicate_key_rule_skipped_table_count: int
     duplicate_key_scan_unresolved_tables: list[str]
@@ -338,10 +321,45 @@ def _row_key_fingerprint(row: SourceRow, key_indexes: tuple[int, ...]) -> tuple[
     return tuple(repr(row[index]) for index in key_indexes)
 
 
+def _row_fingerprint(row: SourceRow) -> bytes:
+    return hashlib.sha256(repr(row).encode("utf-8")).digest()
+
+
+def _xml_max_depth(events: tuple[Any, ...]) -> int:
+    depth = 0
+    maximum = 0
+    for event in events:
+        if event.kind is XmlEventKind.START_ELEMENT:
+            depth += 1
+            maximum = max(maximum, depth)
+        elif event.kind is XmlEventKind.END_ELEMENT:
+            depth -= 1
+    return maximum
+
+
+def _composite_stage_status(
+    business: SnapshotMaterializationResult,
+    xml_parse: Any,
+) -> str:
+    if business.status is SnapshotMaterializationStatus.COMPLETE:
+        return "COMPLETE"
+    if xml_parse is not None and xml_parse.status.value == "FAILED":
+        return "FAILED"
+    if any(
+        item.code is MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED
+        for item in business.diagnostics
+    ):
+        return "FAILED"
+    return "NOT_REACHED"
+
+
 @dataclass(frozen=True)
 class KeyScanStats:
     duplicate_by_table: dict[str, int]
     duplicate_extra_rows: int
+    exact_duplicate_extra_rows: int
+    conflicting_extra_rows: int
+    duplicate_details_by_table: dict[str, dict[str, Any]]
     unresolved_tables: list[str]
     effective_key_tables: list[str]
     effective_keyless_tables: list[str]
@@ -360,17 +378,22 @@ def _duplicate_and_effective_key_stats(
     materialization_complete: bool,
 ) -> KeyScanStats:
     if not diagnostic_mode:
-        return KeyScanStats({}, 0, [], [], [], 0, 0, [], "not_run", "not_run")
+        return KeyScanStats({}, 0, 0, 0, {}, [], [], [], 0, 0, [], "not_run", "not_run")
     if table_set is None:
         return KeyScanStats(
-            {}, 0, [], [], [], 0, 0, [], "materialization_unavailable", "materialization_unavailable"
+            {}, 0, 0, 0, {}, [], [], [], 0, 0, [],
+            "materialization_unavailable", "materialization_unavailable"
         )
     if not materialization_complete:
         return KeyScanStats(
-            {}, 0, [], [], [], 0, 0, [], "materialization_incomplete", "materialization_incomplete"
+            {}, 0, 0, 0, {}, [], [], [], 0, 0, [],
+            "materialization_incomplete", "materialization_incomplete"
         )
     duplicate_by_table: dict[str, int] = {}
     extra_rows = 0
+    exact_duplicate_extra_rows = 0
+    conflicting_extra_rows = 0
+    duplicate_details_by_table: dict[str, dict[str, Any]] = {}
     unresolved: list[str] = []
     effective_key_tables: list[str] = []
     effective_keyless_tables: list[str] = []
@@ -412,14 +435,37 @@ def _duplicate_and_effective_key_stats(
         if table.reader is None:
             reader_unavailable.append(descriptor.table_name)
             continue
-        seen: Counter[tuple[str, ...]] = Counter()
+        seen: dict[tuple[str, ...], Counter[bytes]] = {}
         for row in table.reader.iter_rows():
-            seen[_row_key_fingerprint(row, key_indexes)] += 1
+            key = _row_key_fingerprint(row, key_indexes)
+            seen.setdefault(key, Counter())[_row_fingerprint(row)] += 1
         scanned_table_count += 1
-        duplicate_rows = sum(count - 1 for count in seen.values() if count > 1)
+        duplicate_rows = 0
+        table_exact_extra_rows = 0
+        table_conflicting_extra_rows = 0
+        for variants in seen.values():
+            row_count = sum(variants.values())
+            if row_count <= 1:
+                continue
+            duplicate_rows += row_count - 1
+            table_exact_extra_rows += sum(count - 1 for count in variants.values())
+            table_conflicting_extra_rows += len(variants) - 1
         if duplicate_rows:
             duplicate_by_table[descriptor.table_name] = duplicate_rows
             extra_rows += duplicate_rows
+            exact_duplicate_extra_rows += table_exact_extra_rows
+            conflicting_extra_rows += table_conflicting_extra_rows
+            key_source = (
+                "EXPLICIT_RULE"
+                if view.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
+                else "DDL_PRIMARY_KEY"
+            )
+            duplicate_details_by_table[descriptor.table_name] = {
+                "key_columns": list(view.canonical_key_columns),
+                "key_source": key_source,
+                "exact_duplicate_extra_rows": table_exact_extra_rows,
+                "conflicting_extra_rows": table_conflicting_extra_rows,
+            }
     key_scan_status = "complete" if not unresolved else "partial"
     duplicate_scan_status = (
         "complete" if not unresolved and not reader_unavailable else "partial"
@@ -427,6 +473,9 @@ def _duplicate_and_effective_key_stats(
     return KeyScanStats(
         duplicate_by_table,
         extra_rows,
+        exact_duplicate_extra_rows,
+        conflicting_extra_rows,
+        duplicate_details_by_table,
         sorted(set(unresolved)),
         sorted(effective_key_tables),
         sorted(effective_keyless_tables),
@@ -502,11 +551,7 @@ def census_one(
         store,
     )
 
-    if diagnostic_mode:
-        with _diagnostic_sql_parser_context():
-            analysis = _analyze_parse(sql_bytes)
-    else:
-        analysis = _analyze_parse(sql_bytes)
+    analysis = _analyze_parse(sql_bytes)
     ruleset = migrated_table_ruleset_snapshot()
 
     logics_status = "absent"
@@ -561,8 +606,7 @@ def census_one(
             for item in business.diagnostics
         )
     ):
-        with _diagnostic_sql_parser_context():
-            fallback_analysis = _analyze_parse(sql_bytes)
+        fallback_analysis = _analyze_parse(sql_bytes)
         scan_sql_request = _sql_snapshot_request(
             fallback_analysis,
             sql_bytes=sql_bytes,
@@ -588,7 +632,6 @@ def census_one(
         project_alias=project_alias,
         version=version,
         pair_of=pair_of,
-        source_dir=str(engine_dir),
         package_sha256=package_sha256,
         package_bytes=len(package_bytes),
         staging_status=staging.status.value,
@@ -604,7 +647,13 @@ def census_one(
         version_manager_saved_time_type=analysis["vm_type"],
         logics_xml_status=logics_status,
         logics_xml_event_count=logics_events,
-        materialization_diagnostics=[item.code.value for item in business.diagnostics[:32]],
+        logics_xml_max_depth=(
+            _xml_max_depth(xml_parse.events)
+            if xml_parse is not None and xml_parse.status.value == "COMPLETE"
+            else None
+        ),
+        composite_stage_status=_composite_stage_status(business, xml_parse),
+        materialization_diagnostics=[item.code.value for item in business.diagnostics],
         materialization_diagnostic_details=[
             {
                 key: value
@@ -615,14 +664,17 @@ def census_one(
                 }.items()
                 if value
             }
-            for item in business.diagnostics[:32]
+            for item in business.diagnostics
         ],
         role_table_counts=analysis["role_counts"],
         has_logics_xml=has_logics_xml,
         key_scan_source=key_scan_source,
         duplicate_key_scan_status=key_scan.duplicate_scan_status,
         duplicate_key_extra_rows=key_scan.duplicate_extra_rows,
+        duplicate_key_exact_extra_rows=key_scan.exact_duplicate_extra_rows,
+        duplicate_key_conflicting_extra_rows=key_scan.conflicting_extra_rows,
         duplicate_key_by_table=key_scan.duplicate_by_table,
+        duplicate_key_details_by_table=key_scan.duplicate_details_by_table,
         duplicate_key_scanned_table_count=key_scan.scanned_table_count,
         duplicate_key_rule_skipped_table_count=key_scan.rule_skipped_table_count,
         duplicate_key_scan_unresolved_tables=key_scan.unresolved_tables,
@@ -634,43 +686,18 @@ def census_one(
     )
 
 
-def build_datasets_json(censuses: list[DatasetCensus]) -> list[dict[str, Any]]:
-    records: list[dict[str, Any]] = []
-    for item in censuses:
-        records.append(
-            {
-                "dataset_id": item.dataset_id,
-                "tier": item.tier,
-                "project_alias": item.project_alias,
-                "version": item.version,
-                "pair_of": item.pair_of,
-                "has_logics_xml": item.has_logics_xml,
-                "files": [
-                    {
-                        "path": "package.tar.gz",
-                        "bytes": item.package_bytes,
-                        "sha256": item.package_sha256,
-                    }
-                ],
-            }
-        )
-    return records
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Real dump structural census (host-side only).")
     parser.add_argument(
         "--diagnostic",
         action="store_true",
-        help="Enable census-only SQL parser relaxations; not production behaviour.",
+        help="Use READERS_REQUIRED materialization to compute read-only key statistics.",
     )
     args = parser.parse_args()
     diagnostic_mode = bool(args.diagnostic)
 
     root = _dump_root()
-    packages_dir = root / "packages"
     census_dir = root / "census"
-    packages_dir.mkdir(parents=True, exist_ok=True)
     census_dir.mkdir(parents=True, exist_ok=True)
 
     engines = _discover_engine_dirs(root)
@@ -699,14 +726,6 @@ def main() -> None:
             diagnostic_mode=diagnostic_mode,
         )
         censuses.append(item)
-        (packages_dir / f"{item.dataset_id}.tar.gz").write_bytes(pack_tar_gz({
-            REQUIRED_SQL_PATH: (engine_dir / "sql" / "dbcfg.sql").read_bytes(),
-            **(
-                {OPTIONAL_XML_PATH: (engine_dir / "comps" / "logic" / "logics.xml").read_bytes()}
-                if (engine_dir / "comps" / "logic" / "logics.xml").is_file()
-                else {}
-            ),
-        }))
 
     summary = {
         "diagnostic_mode": diagnostic_mode,
@@ -715,20 +734,24 @@ def main() -> None:
         "dc12_json_columns_present": any(item.json_columns for item in censuses),
         "dc15_unknown_sql_types": sorted({t for item in censuses for t in item.unknown_sql_types}),
         "duplicate_key_extra_rows_total": sum(item.duplicate_key_extra_rows for item in censuses),
+        "duplicate_key_exact_extra_rows_total": sum(
+            item.duplicate_key_exact_extra_rows for item in censuses
+        ),
+        "duplicate_key_conflicting_extra_rows_total": sum(
+            item.duplicate_key_conflicting_extra_rows for item in censuses
+        ),
         "datasets_with_duplicate_keys": sorted(
             item.dataset_id for item in censuses if item.duplicate_key_by_table
         ),
     }
-    (census_dir / "summary.json").write_text(
+    summary_path = census_dir / (
+        "summary-diagnostic.json" if diagnostic_mode else "summary-production.json"
+    )
+    summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    datasets_doc = {"datasets": build_datasets_json(censuses)}
-    (root / "datasets.json").write_text(
-        json.dumps(datasets_doc, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    print(json.dumps({"dataset_count": len(censuses), "census_dir": str(census_dir)}, indent=2))
+    print(json.dumps({"dataset_count": len(censuses), "summary_file": summary_path.name}, indent=2))
 
 
 if __name__ == "__main__":

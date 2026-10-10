@@ -11,7 +11,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnosticCode,
     SnapshotMaterializationStatus,
 )
-from gateway_backend.capabilities.table_rules.contracts import TableStaticRole
+from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy, TableStaticRole
 
 from benchmarks import real_dump_census
 from benchmarks.real_dump_census import _storage_column_type_key
@@ -40,7 +40,7 @@ def test_census_storage_column_type_key_preserves_unsigned(
 
 class KeyScanCoverageShape(NamedTuple):
     # (table name, rows); rows=None means the table has no reader.
-    tables: tuple[tuple[str, tuple[tuple[int], ...] | None], ...]
+    tables: tuple[tuple[str, tuple[tuple[int, ...], ...] | None], ...]
     duplicate_scan_status: str
     effective_key_scan_status: str
     scanned_table_count: int
@@ -48,9 +48,12 @@ class KeyScanCoverageShape(NamedTuple):
     unresolved_tables: list[str]
     reader_unavailable_tables: list[str]
     duplicate_by_table: dict[str, int]
+    exact_duplicate_extra_rows: int
+    conflicting_extra_rows: int
+    duplicate_details_by_table: dict[str, dict[str, object]]
 
 
-_KEYED_ROWS_WITH_ONE_DUPLICATE = ((1,), (1,), (2,))
+_KEYED_ROWS_WITH_ONE_DUPLICATE = ((1, 10), (1, 10), (2, 20))
 
 KEY_SCAN_COVERAGE_SHAPES = (
     pytest.param(
@@ -63,6 +66,16 @@ KEY_SCAN_COVERAGE_SHAPES = (
             unresolved_tables=[],
             reader_unavailable_tables=[],
             duplicate_by_table={"keyed": 1},
+            exact_duplicate_extra_rows=1,
+            conflicting_extra_rows=0,
+            duplicate_details_by_table={
+                "keyed": {
+                    "key_columns": ["id"],
+                    "key_source": "DDL_PRIMARY_KEY",
+                    "exact_duplicate_extra_rows": 1,
+                    "conflicting_extra_rows": 0,
+                }
+            },
         ),
         id="all-tables-scanned",
     ),
@@ -80,6 +93,16 @@ KEY_SCAN_COVERAGE_SHAPES = (
             unresolved_tables=["unresolved"],
             reader_unavailable_tables=[],
             duplicate_by_table={"keyed": 1},
+            exact_duplicate_extra_rows=1,
+            conflicting_extra_rows=0,
+            duplicate_details_by_table={
+                "keyed": {
+                    "key_columns": ["id"],
+                    "key_source": "DDL_PRIMARY_KEY",
+                    "exact_duplicate_extra_rows": 1,
+                    "conflicting_extra_rows": 0,
+                }
+            },
         ),
         id="unresolved-and-rule-skipped-tables",
     ),
@@ -96,8 +119,61 @@ KEY_SCAN_COVERAGE_SHAPES = (
             unresolved_tables=[],
             reader_unavailable_tables=["no_reader"],
             duplicate_by_table={"keyed": 1},
+            exact_duplicate_extra_rows=1,
+            conflicting_extra_rows=0,
+            duplicate_details_by_table={
+                "keyed": {
+                    "key_columns": ["id"],
+                    "key_source": "DDL_PRIMARY_KEY",
+                    "exact_duplicate_extra_rows": 1,
+                    "conflicting_extra_rows": 0,
+                }
+            },
         ),
         id="reader-unavailable",
+    ),
+    pytest.param(
+        KeyScanCoverageShape(
+            tables=(
+                ("all-identical", ((1, 10), (1, 10))),
+                ("same-key-conflict", ((2, 20), (2, 21))),
+                ("mixed-key-repeats", ((3, 30), (3, 30), (3, 31))),
+            ),
+            duplicate_scan_status="complete",
+            effective_key_scan_status="complete",
+            scanned_table_count=3,
+            rule_skipped_table_count=0,
+            unresolved_tables=[],
+            reader_unavailable_tables=[],
+            duplicate_by_table={
+                "all-identical": 1,
+                "same-key-conflict": 1,
+                "mixed-key-repeats": 2,
+            },
+            exact_duplicate_extra_rows=2,
+            conflicting_extra_rows=2,
+            duplicate_details_by_table={
+                "all-identical": {
+                    "key_columns": ["id"],
+                    "key_source": "DDL_PRIMARY_KEY",
+                    "exact_duplicate_extra_rows": 1,
+                    "conflicting_extra_rows": 0,
+                },
+                "same-key-conflict": {
+                    "key_columns": ["id"],
+                    "key_source": "DDL_PRIMARY_KEY",
+                    "exact_duplicate_extra_rows": 0,
+                    "conflicting_extra_rows": 1,
+                },
+                "mixed-key-repeats": {
+                    "key_columns": ["id"],
+                    "key_source": "EXPLICIT_RULE",
+                    "exact_duplicate_extra_rows": 1,
+                    "conflicting_extra_rows": 1,
+                },
+            },
+        ),
+        id="duplicate-classification-and-effective-key-source",
     ),
 )
 
@@ -113,14 +189,19 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
         if table_name == "unresolved":
             raise ValueError("no rule")
         role = TableStaticRole.SKIP if table_name == "skipped" else TableStaticRole.STANDARD_DIFF
-        return SimpleNamespace(record=SimpleNamespace(static_role=role))
+        policy = (
+            CanonicalKeyPolicy.EXPLICIT
+            if table_name == "mixed-key-repeats"
+            else CanonicalKeyPolicy.DDL_PRIMARY_KEY
+        )
+        return SimpleNamespace(record=SimpleNamespace(static_role=role, canonical_key_policy=policy))
 
-    def census_table(name: str, rows: tuple[tuple[int], ...] | None) -> SimpleNamespace:
+    def census_table(name: str, rows: tuple[tuple[int, ...], ...] | None) -> SimpleNamespace:
         return SimpleNamespace(
             descriptor=SimpleNamespace(
                 table_name=name,
                 primary_key_columns=("id",),
-                columns=(SimpleNamespace(name="id"),),
+                columns=(SimpleNamespace(name="id"), SimpleNamespace(name="value")),
             ),
             reader=None if rows is None else SimpleNamespace(iter_rows=lambda: iter(rows)),
         )
@@ -129,7 +210,10 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
     monkeypatch.setattr(
         real_dump_census,
         "derive_storage_rule_view",
-        lambda _record, _descriptor: SimpleNamespace(canonical_key_columns=("id",)),
+        lambda record, _descriptor: SimpleNamespace(
+            canonical_key_policy=record.canonical_key_policy,
+            canonical_key_columns=("id",),
+        ),
     )
 
     result = real_dump_census._duplicate_and_effective_key_stats(
@@ -149,6 +233,9 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
     assert result.reader_unavailable_tables == shape.reader_unavailable_tables
     assert result.duplicate_by_table == shape.duplicate_by_table
     assert result.duplicate_extra_rows == sum(shape.duplicate_by_table.values())
+    assert result.exact_duplicate_extra_rows == shape.exact_duplicate_extra_rows
+    assert result.conflicting_extra_rows == shape.conflicting_extra_rows
+    assert result.duplicate_details_by_table == shape.duplicate_details_by_table
 
 
 @pytest.mark.unit

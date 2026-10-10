@@ -1,98 +1,112 @@
 {
-  "schema_version": 1,
-  "generated_on": "2026-10-10",
   "contains_row_data": false,
-  "provenance": {
-    "diagnostic_mode": true,
-    "original_structural_census": "2026-09-28",
-    "storage_type_counts_reparsed_on": "2026-10-10",
-    "t1_duplicate_and_effective_key_recheck_on": "2026-10-10",
-    "source_ddl_table_count_basis": "count of parsed DDL tables; corroborated by role_table_counts",
-    "pairing_owner_confirmation": "Owner confirmed 2026-10-10: v1/v2 within one tier are the same project; different tiers are different projects and are not paired.",
-    "t2_sql_key_scan_rerun_on": "2026-10-10",
-    "t2_sql_key_scan_scope": "SQL snapshot only after COMPOSITE_LOGIC_FAILED; source dump read-only; no row data stored."
-  },
-  "parser_production_path": [
-    {
-      "dataset_id": "rd-t1-a-v1",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    },
-    {
-      "dataset_id": "rd-t1-a-v2",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    },
-    {
-      "dataset_id": "rd-t2-b-v1",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    },
-    {
-      "dataset_id": "rd-t2-b-v2",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    },
-    {
-      "dataset_id": "rd-t3-c-v1",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    },
-    {
-      "dataset_id": "rd-t3-c-v2",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    },
-    {
-      "dataset_id": "rd-t4-d-v1",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    },
-    {
-      "dataset_id": "rd-t4-d-v2",
-      "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @saved_cs_client is not in the source dump allowlist",
-        "status": "FAILED"
-      }
-    }
-  ],
   "datasets": [
     {
+      "composite_stage_status": "COMPLETE",
       "dataset_id": "rd-t1-a-v1",
-      "tier": "t1",
-      "project_alias": "a",
-      "version": "v1",
-      "pair_of": null,
+      "duplicate_key_scan": {
+        "by_table": {
+          "b1_n2_iec104_syx_list": 3
+        },
+        "conflicting_extra_rows": 3,
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 102,
+          "unresolved_key_table_count": 23,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "forwardtable_yx1",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
+        },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 3,
+        "status": "partial",
+        "table_details": {
+          "b1_n2_iec104_syx_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          }
+        }
+      },
+      "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n2_iec104_syx_list"
+        ],
+        "effective_key_tables_count": 102,
+        "effective_keyless_tables": [],
+        "status": "partial",
+        "unresolved_table_count": 23,
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "forwardtable_yx1",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ]
+      },
+      "has_logics_xml": true,
+      "json_columns": [],
+      "key_scan_source": "business_snapshot",
+      "logics_xml_event_count": 2,
+      "logics_xml_max_depth": 1,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_diagnostics": [],
+      "materialization_status": "COMPLETE",
+      "nullable_key_columns": [],
       "package": {
         "bytes": 107115,
         "sha256": "42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2"
       },
-      "staging_status": "COMPLETE",
-      "materialization_status": "COMPLETE",
-      "table_count": 133,
-      "row_count_total": 6097,
+      "pair_of": null,
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
+      "project_alias": "a",
       "role_table_counts": {
         "BROWSE_ONLY": 13,
         "ORDERED_DIFF": 9,
@@ -100,6 +114,9 @@
         "SNAPSHOT_ONLY": 1,
         "STANDARD_DIFF": 101
       },
+      "row_count_total": 6097,
+      "source_ddl_table_count": 132,
+      "staging_status": "COMPLETE",
       "storage_column_type_counts": {
         "DATETIME": 8,
         "ENUM": 263,
@@ -113,9 +130,7 @@
         "TINYINT UNSIGNED": 139,
         "VARCHAR": 538
       },
-      "unknown_sql_types": [],
-      "json_columns": [],
-      "nullable_key_columns": [],
+      "table_count": 133,
       "tables_without_ddl_primary_key": [
         "app_cfg",
         "b1_n1_iec61850c_cfg",
@@ -146,17 +161,19 @@
         "wave_cfg",
         "wf_cfg"
       ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
-      "has_logics_xml": true,
-      "logics_xml_status": "complete",
-      "logics_xml_event_count": 2,
-      "materialization_diagnostics": [],
+      "tier": "t1",
+      "unknown_sql_types": [],
+      "version": "v1",
+      "version_manager_saved_time_type": "VARCHAR(128)"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t1-a-v2",
       "duplicate_key_scan": {
-        "status": "partial",
-        "extra_rows": 3,
         "by_table": {
           "b1_n2_iec104_syx_list": 3
         },
+        "conflicting_extra_rows": 3,
         "coverage": {
           "reader_unavailable_table_count": 0,
           "reader_unavailable_tables": [],
@@ -188,39 +205,29 @@
             "wave_cfg",
             "wf_cfg"
           ]
+        },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 3,
+        "status": "partial",
+        "table_details": {
+          "b1_n2_iec104_syx_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          }
         }
       },
       "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n2_iec104_syx_list"
+        ],
+        "effective_key_tables_count": 102,
+        "effective_keyless_tables": [],
         "status": "partial",
-        "no_ddl_pk_tables_with_explicit_effective_key": {
-          "count": 5,
-          "tables": [
-            "app_cfg",
-            "b1_n1_iec61850c_cfg",
-            "b1_n2_iec104_cfg",
-            "pointref_forwardtbl",
-            "rdb_cfg"
-          ],
-          "key_columns": {
-            "app_cfg": [
-              "app_name"
-            ],
-            "b1_n1_iec61850c_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n2_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "pointref_forwardtbl": [
-              "refname"
-            ],
-            "rdb_cfg": [
-              "no"
-            ]
-          }
-        },
+        "unresolved_table_count": 23,
         "unresolved_tables": [
           "cnt_manage_cfg",
           "comm_user_data",
@@ -245,29 +252,26 @@
           "vqc_cfg",
           "wave_cfg",
           "wf_cfg"
-        ],
-        "effective_key_tables_count": 102,
-        "effective_keyless_tables": [],
-        "unresolved_table_count": 23
+        ]
       },
-      "source_ddl_table_count": 132,
+      "has_logics_xml": true,
+      "json_columns": [],
       "key_scan_source": "business_snapshot",
-      "materialization_diagnostic_details": []
-    },
-    {
-      "dataset_id": "rd-t1-a-v2",
-      "tier": "t1",
-      "project_alias": "a",
-      "version": "v2",
-      "pair_of": "rd-t1-a-v1",
+      "logics_xml_event_count": 2,
+      "logics_xml_max_depth": 1,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_diagnostics": [],
+      "materialization_status": "COMPLETE",
+      "nullable_key_columns": [],
       "package": {
         "bytes": 107066,
         "sha256": "4019737fc8fe35e90792dcef722537bf09338110ace8cc09f35e004cc7095bd0"
       },
-      "staging_status": "COMPLETE",
-      "materialization_status": "COMPLETE",
-      "table_count": 133,
-      "row_count_total": 6095,
+      "pair_of": "rd-t1-a-v1",
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
+      "project_alias": "a",
       "role_table_counts": {
         "BROWSE_ONLY": 13,
         "ORDERED_DIFF": 9,
@@ -275,6 +279,9 @@
         "SNAPSHOT_ONLY": 1,
         "STANDARD_DIFF": 101
       },
+      "row_count_total": 6095,
+      "source_ddl_table_count": 132,
+      "staging_status": "COMPLETE",
       "storage_column_type_counts": {
         "DATETIME": 8,
         "ENUM": 263,
@@ -288,9 +295,7 @@
         "TINYINT UNSIGNED": 139,
         "VARCHAR": 538
       },
-      "unknown_sql_types": [],
-      "json_columns": [],
-      "nullable_key_columns": [],
+      "table_count": 133,
       "tables_without_ddl_primary_key": [
         "app_cfg",
         "b1_n1_iec61850c_cfg",
@@ -321,203 +326,15 @@
         "wave_cfg",
         "wf_cfg"
       ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
-      "has_logics_xml": true,
-      "logics_xml_status": "complete",
-      "logics_xml_event_count": 2,
-      "materialization_diagnostics": [],
-      "duplicate_key_scan": {
-        "status": "partial",
-        "extra_rows": 3,
-        "by_table": {
-          "b1_n2_iec104_syx_list": 3
-        },
-        "coverage": {
-          "reader_unavailable_table_count": 0,
-          "reader_unavailable_tables": [],
-          "rule_skipped_table_count": 8,
-          "scanned_table_count": 102,
-          "unresolved_key_table_count": 23,
-          "unresolved_key_tables": [
-            "cnt_manage_cfg",
-            "comm_user_data",
-            "forwardtable_yx1",
-            "forwardtbl_lst_cs",
-            "forwardtbl_lst_dz",
-            "forwardtbl_lst_qt",
-            "forwardtbl_lst_yc",
-            "forwardtbl_lst_yk",
-            "forwardtbl_lst_ym",
-            "forwardtbl_lst_yt",
-            "forwardtbl_lst_yx",
-            "iec104_cfg",
-            "iec61850c_cfg",
-            "jdxx_cfg",
-            "mms_rp_cdc_index",
-            "out_time_cfg",
-            "project",
-            "sc_cfg",
-            "scada_cfg",
-            "sg_manage_cfg",
-            "vqc_cfg",
-            "wave_cfg",
-            "wf_cfg"
-          ]
-        }
-      },
-      "effective_key_scan": {
-        "status": "partial",
-        "no_ddl_pk_tables_with_explicit_effective_key": {
-          "count": 5,
-          "tables": [
-            "app_cfg",
-            "b1_n1_iec61850c_cfg",
-            "b1_n2_iec104_cfg",
-            "pointref_forwardtbl",
-            "rdb_cfg"
-          ],
-          "key_columns": {
-            "app_cfg": [
-              "app_name"
-            ],
-            "b1_n1_iec61850c_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n2_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "pointref_forwardtbl": [
-              "refname"
-            ],
-            "rdb_cfg": [
-              "no"
-            ]
-          }
-        },
-        "unresolved_tables": [
-          "cnt_manage_cfg",
-          "comm_user_data",
-          "forwardtable_yx1",
-          "forwardtbl_lst_cs",
-          "forwardtbl_lst_dz",
-          "forwardtbl_lst_qt",
-          "forwardtbl_lst_yc",
-          "forwardtbl_lst_yk",
-          "forwardtbl_lst_ym",
-          "forwardtbl_lst_yt",
-          "forwardtbl_lst_yx",
-          "iec104_cfg",
-          "iec61850c_cfg",
-          "jdxx_cfg",
-          "mms_rp_cdc_index",
-          "out_time_cfg",
-          "project",
-          "sc_cfg",
-          "scada_cfg",
-          "sg_manage_cfg",
-          "vqc_cfg",
-          "wave_cfg",
-          "wf_cfg"
-        ],
-        "effective_key_tables_count": 102,
-        "effective_keyless_tables": [],
-        "unresolved_table_count": 23
-      },
-      "source_ddl_table_count": 132,
-      "key_scan_source": "business_snapshot",
-      "materialization_diagnostic_details": []
+      "tier": "t1",
+      "unknown_sql_types": [],
+      "version": "v2",
+      "version_manager_saved_time_type": "VARCHAR(128)"
     },
     {
+      "composite_stage_status": "COMPLETE",
       "dataset_id": "rd-t2-b-v1",
-      "tier": "t2",
-      "project_alias": "b",
-      "version": "v1",
-      "pair_of": null,
-      "package": {
-        "bytes": 1247459,
-        "sha256": "acd1b5e6f92083c3a6d53e9996be0bf46f520ae7fdea94d8449069748a3817c0"
-      },
-      "staging_status": "COMPLETE",
-      "materialization_status": "FAILED",
-      "table_count": null,
-      "row_count_total": null,
-      "role_table_counts": {
-        "BROWSE_ONLY": 13,
-        "ORDERED_DIFF": 72,
-        "SKIP": 8,
-        "SNAPSHOT_ONLY": 4,
-        "STANDARD_DIFF": 119
-      },
-      "storage_column_type_counts": {
-        "DATETIME": 8,
-        "ENUM": 394,
-        "FLOAT": 53,
-        "INT": 87,
-        "INT UNSIGNED": 794,
-        "SET": 1,
-        "SMALLINT UNSIGNED": 28,
-        "TEXT": 48,
-        "TINYINT": 12,
-        "TINYINT UNSIGNED": 309,
-        "VARCHAR": 834
-      },
-      "unknown_sql_types": [],
-      "json_columns": [],
-      "nullable_key_columns": [],
-      "tables_without_ddl_primary_key": [
-        "app_cfg",
-        "b1_n10_iec61850c_cfg",
-        "b1_n1_nr103d_cfg",
-        "b1_n2_iec104_cfg",
-        "b1_n3_iec104_cfg",
-        "b1_n4_iec104_cfg",
-        "b1_n5_iec104_cfg",
-        "b1_n6_iec104_cfg",
-        "b1_n7_iec104_cfg",
-        "b1_n8_iec104_cfg",
-        "b1_n9_iec104_cfg",
-        "cnt_manage_cfg",
-        "comm_user_data",
-        "forwardtable_yc1",
-        "forwardtable_yk1",
-        "forwardtable_yt1",
-        "forwardtable_yx1",
-        "forwardtbl_lst_cs",
-        "forwardtbl_lst_dz",
-        "forwardtbl_lst_qt",
-        "forwardtbl_lst_yc",
-        "forwardtbl_lst_yk",
-        "forwardtbl_lst_ym",
-        "forwardtbl_lst_yt",
-        "forwardtbl_lst_yx",
-        "iec104_cfg",
-        "iec61850c_cfg",
-        "jdxx_cfg",
-        "mms_rp_cdc_index",
-        "nr103d_cfg",
-        "out_time_cfg",
-        "pointref_forwardtbl",
-        "project",
-        "rdb_cfg",
-        "sc_cfg",
-        "scada_cfg",
-        "sg_manage_cfg",
-        "vqc_cfg",
-        "wave_cfg",
-        "wf_cfg"
-      ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
-      "has_logics_xml": true,
-      "logics_xml_status": "complete",
-      "logics_xml_event_count": 3158,
-      "materialization_diagnostics": [
-        "COMPOSITE_LOGIC_FAILED"
-      ],
       "duplicate_key_scan": {
-        "status": "partial",
-        "extra_rows": 3032,
         "by_table": {
           "b1_n2_iec104_syx_list": 362,
           "b1_n2_iec104_yc_list": 17,
@@ -536,11 +353,12 @@
           "b1_n9_iec104_syx_list": 362,
           "b1_n9_iec104_yc_list": 17
         },
+        "conflicting_extra_rows": 3032,
         "coverage": {
           "reader_unavailable_table_count": 0,
           "reader_unavailable_tables": [],
           "rule_skipped_table_count": 8,
-          "scanned_table_count": 181,
+          "scanned_table_count": 182,
           "unresolved_key_table_count": 27,
           "unresolved_key_tables": [
             "cnt_manage_cfg",
@@ -571,79 +389,164 @@
             "wave_cfg",
             "wf_cfg"
           ]
+        },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 3032,
+        "status": "partial",
+        "table_details": {
+          "b1_n2_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n2_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n9_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n9_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          }
         }
       },
       "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n2_iec104_syx_list",
+          "b1_n2_iec104_yc_list",
+          "b1_n3_iec104_syx_list",
+          "b1_n3_iec104_yc_list",
+          "b1_n4_iec104_syx_list",
+          "b1_n4_iec104_yc_list",
+          "b1_n5_iec104_syx_list",
+          "b1_n5_iec104_yc_list",
+          "b1_n6_iec104_syx_list",
+          "b1_n6_iec104_yc_list",
+          "b1_n7_iec104_syx_list",
+          "b1_n7_iec104_yc_list",
+          "b1_n8_iec104_syx_list",
+          "b1_n8_iec104_yc_list",
+          "b1_n9_iec104_syx_list",
+          "b1_n9_iec104_yc_list"
+        ],
+        "effective_key_tables_count": 182,
+        "effective_keyless_tables": [],
         "status": "partial",
-        "no_ddl_pk_tables_with_explicit_effective_key": {
-          "count": 13,
-          "tables": [
-            "app_cfg",
-            "b1_n10_iec61850c_cfg",
-            "b1_n1_nr103d_cfg",
-            "b1_n2_iec104_cfg",
-            "b1_n3_iec104_cfg",
-            "b1_n4_iec104_cfg",
-            "b1_n5_iec104_cfg",
-            "b1_n6_iec104_cfg",
-            "b1_n7_iec104_cfg",
-            "b1_n8_iec104_cfg",
-            "b1_n9_iec104_cfg",
-            "pointref_forwardtbl",
-            "rdb_cfg"
-          ],
-          "key_columns": {
-            "app_cfg": [
-              "app_name"
-            ],
-            "b1_n10_iec61850c_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n1_nr103d_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n2_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n3_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n4_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n5_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n6_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n7_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n8_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n9_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "pointref_forwardtbl": [
-              "refname"
-            ],
-            "rdb_cfg": [
-              "no"
-            ]
-          }
-        },
+        "unresolved_table_count": 27,
         "unresolved_tables": [
           "cnt_manage_cfg",
           "comm_user_data",
@@ -672,34 +575,26 @@
           "vqc_cfg",
           "wave_cfg",
           "wf_cfg"
-        ],
-        "effective_key_tables_count": 181,
-        "effective_keyless_tables": [],
-        "unresolved_table_count": 27
+        ]
       },
-      "source_ddl_table_count": 216,
-      "key_scan_source": "sql_snapshot_after_composite_failure",
-      "materialization_diagnostic_details": [
-        {
-          "code": "COMPOSITE_LOGIC_FAILED",
-          "message": "Digital forbids attribute 'value'"
-        }
-      ]
-    },
-    {
-      "dataset_id": "rd-t2-b-v2",
-      "tier": "t2",
-      "project_alias": "b",
-      "version": "v2",
-      "pair_of": "rd-t2-b-v1",
+      "has_logics_xml": true,
+      "json_columns": [],
+      "key_scan_source": "business_snapshot",
+      "logics_xml_event_count": 3158,
+      "logics_xml_max_depth": 56,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_diagnostics": [],
+      "materialization_status": "COMPLETE",
+      "nullable_key_columns": [],
       "package": {
-        "bytes": 1197404,
-        "sha256": "c66e3921c7774a38bfeb2f407c24a39209225e962f593ec88d17db0d85fcba98"
+        "bytes": 1247459,
+        "sha256": "acd1b5e6f92083c3a6d53e9996be0bf46f520ae7fdea94d8449069748a3817c0"
       },
-      "staging_status": "COMPLETE",
-      "materialization_status": "FAILED",
-      "table_count": null,
-      "row_count_total": null,
+      "pair_of": null,
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
+      "project_alias": "b",
       "role_table_counts": {
         "BROWSE_ONLY": 13,
         "ORDERED_DIFF": 72,
@@ -707,6 +602,9 @@
         "SNAPSHOT_ONLY": 4,
         "STANDARD_DIFF": 119
       },
+      "row_count_total": 97140,
+      "source_ddl_table_count": 216,
+      "staging_status": "COMPLETE",
       "storage_column_type_counts": {
         "DATETIME": 8,
         "ENUM": 394,
@@ -720,9 +618,322 @@
         "TINYINT UNSIGNED": 309,
         "VARCHAR": 834
       },
+      "table_count": 217,
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n10_iec61850c_cfg",
+        "b1_n1_nr103d_cfg",
+        "b1_n2_iec104_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n5_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "b1_n8_iec104_cfg",
+        "b1_n9_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "forwardtable_yc1",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec104_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "nr103d_cfg",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "tier": "t2",
       "unknown_sql_types": [],
+      "version": "v1",
+      "version_manager_saved_time_type": "VARCHAR(128)"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t2-b-v2",
+      "duplicate_key_scan": {
+        "by_table": {
+          "b1_n2_iec104_syx_list": 362,
+          "b1_n2_iec104_yc_list": 17,
+          "b1_n3_iec104_syx_list": 362,
+          "b1_n3_iec104_yc_list": 17,
+          "b1_n4_iec104_syx_list": 362,
+          "b1_n4_iec104_yc_list": 17,
+          "b1_n6_iec104_syx_list": 362,
+          "b1_n6_iec104_yc_list": 17,
+          "b1_n7_iec104_syx_list": 362,
+          "b1_n7_iec104_yc_list": 17,
+          "b1_n8_iec104_syx_list": 362,
+          "b1_n8_iec104_yc_list": 17,
+          "b1_n9_iec104_syx_list": 362,
+          "b1_n9_iec104_yc_list": 17
+        },
+        "conflicting_extra_rows": 2653,
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 182,
+          "unresolved_key_table_count": 27,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "forwardtable_yc1",
+            "forwardtable_yk1",
+            "forwardtable_yt1",
+            "forwardtable_yx1",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "nr103d_cfg",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
+        },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 2653,
+        "status": "partial",
+        "table_details": {
+          "b1_n2_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n2_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n9_iec104_syx_list": {
+            "conflicting_extra_rows": 362,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n9_iec104_yc_list": {
+            "conflicting_extra_rows": 17,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          }
+        }
+      },
+      "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n2_iec104_syx_list",
+          "b1_n2_iec104_yc_list",
+          "b1_n3_iec104_syx_list",
+          "b1_n3_iec104_yc_list",
+          "b1_n4_iec104_syx_list",
+          "b1_n4_iec104_yc_list",
+          "b1_n6_iec104_syx_list",
+          "b1_n6_iec104_yc_list",
+          "b1_n7_iec104_syx_list",
+          "b1_n7_iec104_yc_list",
+          "b1_n8_iec104_syx_list",
+          "b1_n8_iec104_yc_list",
+          "b1_n9_iec104_syx_list",
+          "b1_n9_iec104_yc_list"
+        ],
+        "effective_key_tables_count": 182,
+        "effective_keyless_tables": [],
+        "status": "partial",
+        "unresolved_table_count": 27,
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "forwardtable_yc1",
+          "forwardtable_yk1",
+          "forwardtable_yt1",
+          "forwardtable_yx1",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "nr103d_cfg",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ]
+      },
+      "has_logics_xml": true,
       "json_columns": [],
+      "key_scan_source": "business_snapshot",
+      "logics_xml_event_count": 3158,
+      "logics_xml_max_depth": 56,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_diagnostics": [],
+      "materialization_status": "COMPLETE",
       "nullable_key_columns": [],
+      "package": {
+        "bytes": 1197404,
+        "sha256": "c66e3921c7774a38bfeb2f407c24a39209225e962f593ec88d17db0d85fcba98"
+      },
+      "pair_of": "rd-t2-b-v1",
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
+      "project_alias": "b",
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 72,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 4,
+        "STANDARD_DIFF": 119
+      },
+      "row_count_total": 93154,
+      "source_ddl_table_count": 216,
+      "staging_status": "COMPLETE",
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 394,
+        "FLOAT": 53,
+        "INT": 87,
+        "INT UNSIGNED": 794,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 48,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 309,
+        "VARCHAR": 834
+      },
+      "table_count": 217,
       "tables_without_ddl_primary_key": [
         "app_cfg",
         "b1_n10_iec61850c_cfg",
@@ -765,38 +976,112 @@
         "wave_cfg",
         "wf_cfg"
       ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
-      "has_logics_xml": true,
-      "logics_xml_status": "complete",
-      "logics_xml_event_count": 3158,
-      "materialization_diagnostics": [
-        "COMPOSITE_LOGIC_FAILED"
-      ],
+      "tier": "t2",
+      "unknown_sql_types": [],
+      "version": "v2",
+      "version_manager_saved_time_type": "VARCHAR(128)"
+    },
+    {
+      "composite_stage_status": "NOT_REACHED",
+      "dataset_id": "rd-t3-c-v1",
       "duplicate_key_scan": {
-        "status": "partial",
-        "extra_rows": 2653,
-        "by_table": {
-          "b1_n2_iec104_syx_list": 362,
-          "b1_n2_iec104_yc_list": 17,
-          "b1_n3_iec104_syx_list": 362,
-          "b1_n3_iec104_yc_list": 17,
-          "b1_n4_iec104_syx_list": 362,
-          "b1_n4_iec104_yc_list": 17,
-          "b1_n6_iec104_syx_list": 362,
-          "b1_n6_iec104_yc_list": 17,
-          "b1_n7_iec104_syx_list": 362,
-          "b1_n7_iec104_yc_list": 17,
-          "b1_n8_iec104_syx_list": 362,
-          "b1_n8_iec104_yc_list": 17,
-          "b1_n9_iec104_syx_list": 362,
-          "b1_n9_iec104_yc_list": 17
+        "by_table": {},
+        "conflicting_extra_rows": 0,
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 0,
+          "scanned_table_count": 0,
+          "unresolved_key_table_count": 0,
+          "unresolved_key_tables": []
         },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 0,
+        "status": "materialization_unavailable",
+        "table_details": {}
+      },
+      "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [],
+        "effective_key_tables_count": 0,
+        "effective_keyless_tables": [],
+        "status": "materialization_unavailable",
+        "unresolved_table_count": 0,
+        "unresolved_tables": []
+      },
+      "has_logics_xml": true,
+      "json_columns": [],
+      "key_scan_source": "business_snapshot_unavailable",
+      "logics_xml_event_count": 8946,
+      "logics_xml_max_depth": 66,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [
+        {
+          "code": "TABLE_READER_UNAVAILABLE",
+          "message": "SET @OLD_CHARACTER_SET_CLIENT is not in the source dump allowlist"
+        }
+      ],
+      "materialization_diagnostics": [
+        "TABLE_READER_UNAVAILABLE"
+      ],
+      "materialization_status": "FAILED",
+      "nullable_key_columns": [],
+      "package": {
+        "bytes": 3356815,
+        "sha256": "c34e266c458d9b2cfb630fec56fa7c893113e11b56f768710aecebb0715eec7e"
+      },
+      "pair_of": null,
+      "production_composite_stage_status": "NOT_REACHED",
+      "production_materialization_status": "FAILED",
+      "project_alias": "c",
+      "role_table_counts": {},
+      "row_count_total": null,
+      "source_ddl_table_count": 0,
+      "staging_status": "COMPLETE",
+      "storage_column_type_counts": {},
+      "table_count": null,
+      "tables_without_ddl_primary_key": [],
+      "tier": "t3",
+      "unknown_sql_types": [],
+      "version": "v1",
+      "version_manager_saved_time_type": null
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t3-c-v2",
+      "duplicate_key_scan": {
+        "by_table": {
+          "b1_n2_iec104_syk_list": 2,
+          "b1_n2_iec104_syx_list": 1628,
+          "b1_n2_iec104_yc_list": 4,
+          "b1_n2_iec104_yt_list": 3,
+          "b1_n3_iec104_syk_list": 1,
+          "b1_n3_iec104_syx_list": 1628,
+          "b1_n3_iec104_yc_list": 4,
+          "b1_n3_iec104_yt_list": 3,
+          "b1_n4_iec104_syk_list": 1,
+          "b1_n4_iec104_syx_list": 1628,
+          "b1_n4_iec104_yc_list": 4,
+          "b1_n4_iec104_yt_list": 3,
+          "b1_n5_iec104_syk_list": 1,
+          "b1_n5_iec104_syx_list": 1628,
+          "b1_n5_iec104_yc_list": 4,
+          "b1_n5_iec104_yt_list": 3,
+          "b1_n6_iec104_syk_list": 1,
+          "b1_n6_iec104_syx_list": 1628,
+          "b1_n6_iec104_yc_list": 4,
+          "b1_n6_iec104_yt_list": 3,
+          "b1_n7_iec104_syk_list": 1,
+          "b1_n7_iec104_syx_list": 1628,
+          "b1_n7_iec104_yc_list": 4,
+          "b1_n7_iec104_yt_list": 3
+        },
+        "conflicting_extra_rows": 9817,
         "coverage": {
           "reader_unavailable_table_count": 0,
           "reader_unavailable_tables": [],
           "rule_skipped_table_count": 8,
-          "scanned_table_count": 181,
-          "unresolved_key_table_count": 27,
+          "scanned_table_count": 165,
+          "unresolved_key_table_count": 28,
           "unresolved_key_tables": [
             "cnt_manage_cfg",
             "comm_user_data",
@@ -812,11 +1097,12 @@
             "forwardtbl_lst_ym",
             "forwardtbl_lst_yt",
             "forwardtbl_lst_yx",
+            "iec101_cfg",
             "iec104_cfg",
+            "iec104gw_cfg",
             "iec61850c_cfg",
             "jdxx_cfg",
             "mms_rp_cdc_index",
-            "nr103d_cfg",
             "out_time_cfg",
             "project",
             "sc_cfg",
@@ -826,79 +1112,236 @@
             "wave_cfg",
             "wf_cfg"
           ]
+        },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 9817,
+        "status": "partial",
+        "table_details": {
+          "b1_n2_iec104_syk_list": {
+            "conflicting_extra_rows": 2,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n2_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n2_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n2_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          }
         }
       },
       "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n2_iec104_syk_list",
+          "b1_n2_iec104_syx_list",
+          "b1_n2_iec104_yc_list",
+          "b1_n2_iec104_yt_list",
+          "b1_n3_iec104_syk_list",
+          "b1_n3_iec104_syx_list",
+          "b1_n3_iec104_yc_list",
+          "b1_n3_iec104_yt_list",
+          "b1_n4_iec104_syk_list",
+          "b1_n4_iec104_syx_list",
+          "b1_n4_iec104_yc_list",
+          "b1_n4_iec104_yt_list",
+          "b1_n5_iec104_syk_list",
+          "b1_n5_iec104_syx_list",
+          "b1_n5_iec104_yc_list",
+          "b1_n5_iec104_yt_list",
+          "b1_n6_iec104_syk_list",
+          "b1_n6_iec104_syx_list",
+          "b1_n6_iec104_yc_list",
+          "b1_n6_iec104_yt_list",
+          "b1_n7_iec104_syk_list",
+          "b1_n7_iec104_syx_list",
+          "b1_n7_iec104_yc_list",
+          "b1_n7_iec104_yt_list"
+        ],
+        "effective_key_tables_count": 165,
+        "effective_keyless_tables": [],
         "status": "partial",
-        "no_ddl_pk_tables_with_explicit_effective_key": {
-          "count": 13,
-          "tables": [
-            "app_cfg",
-            "b1_n10_iec61850c_cfg",
-            "b1_n11_iec104_cfg",
-            "b1_n1_nr103d_cfg",
-            "b1_n2_iec104_cfg",
-            "b1_n3_iec104_cfg",
-            "b1_n4_iec104_cfg",
-            "b1_n6_iec104_cfg",
-            "b1_n7_iec104_cfg",
-            "b1_n8_iec104_cfg",
-            "b1_n9_iec104_cfg",
-            "pointref_forwardtbl",
-            "rdb_cfg"
-          ],
-          "key_columns": {
-            "app_cfg": [
-              "app_name"
-            ],
-            "b1_n10_iec61850c_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n11_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n1_nr103d_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n2_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n3_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n4_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n6_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n7_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n8_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "b1_n9_iec104_cfg": [
-              "page_no",
-              "no"
-            ],
-            "pointref_forwardtbl": [
-              "refname"
-            ],
-            "rdb_cfg": [
-              "no"
-            ]
-          }
-        },
+        "unresolved_table_count": 28,
         "unresolved_tables": [
           "cnt_manage_cfg",
           "comm_user_data",
@@ -914,11 +1357,12 @@
           "forwardtbl_lst_ym",
           "forwardtbl_lst_yt",
           "forwardtbl_lst_yx",
+          "iec101_cfg",
           "iec104_cfg",
+          "iec104gw_cfg",
           "iec61850c_cfg",
           "jdxx_cfg",
           "mms_rp_cdc_index",
-          "nr103d_cfg",
           "out_time_cfg",
           "project",
           "sc_cfg",
@@ -927,131 +1371,26 @@
           "vqc_cfg",
           "wave_cfg",
           "wf_cfg"
-        ],
-        "effective_key_tables_count": 181,
-        "effective_keyless_tables": [],
-        "unresolved_table_count": 27
+        ]
       },
-      "source_ddl_table_count": 216,
-      "key_scan_source": "sql_snapshot_after_composite_failure",
-      "materialization_diagnostic_details": [
-        {
-          "code": "COMPOSITE_LOGIC_FAILED",
-          "message": "Digital forbids attribute 'value'"
-        }
-      ]
-    },
-    {
-      "dataset_id": "rd-t3-c-v1",
-      "tier": "t3",
-      "project_alias": "c",
-      "version": "v1",
-      "pair_of": null,
-      "package": {
-        "bytes": 3356815,
-        "sha256": "c34e266c458d9b2cfb630fec56fa7c893113e11b56f768710aecebb0715eec7e"
-      },
-      "staging_status": "COMPLETE",
-      "materialization_status": "FAILED",
-      "table_count": null,
-      "row_count_total": null,
-      "role_table_counts": {
-        "BROWSE_ONLY": 13,
-        "ORDERED_DIFF": 54,
-        "SKIP": 8,
-        "SNAPSHOT_ONLY": 4,
-        "STANDARD_DIFF": 120
-      },
-      "storage_column_type_counts": {
-        "DATETIME": 8,
-        "ENUM": 318,
-        "FLOAT": 51,
-        "INT": 82,
-        "INT UNSIGNED": 648,
-        "SET": 1,
-        "SMALLINT UNSIGNED": 28,
-        "TEXT": 53,
-        "TINYINT": 12,
-        "TINYINT UNSIGNED": 261,
-        "VARCHAR": 747
-      },
-      "unknown_sql_types": [],
-      "json_columns": [],
-      "nullable_key_columns": [],
-      "tables_without_ddl_primary_key": [
-        "app_cfg",
-        "b1_n1_iec61850c_cfg",
-        "b1_n2_iec104_cfg",
-        "b1_n3_iec104_cfg",
-        "b1_n4_iec104_cfg",
-        "b1_n5_iec104_cfg",
-        "b1_n6_iec104_cfg",
-        "b1_n7_iec104_cfg",
-        "cnt_manage_cfg",
-        "forwardtable_yc1",
-        "forwardtable_yk1",
-        "forwardtable_yt1",
-        "forwardtable_yx1",
-        "forwardtbl_lst_cs",
-        "forwardtbl_lst_dz",
-        "forwardtbl_lst_qt",
-        "forwardtbl_lst_yc",
-        "forwardtbl_lst_yk",
-        "forwardtbl_lst_ym",
-        "forwardtbl_lst_yt",
-        "forwardtbl_lst_yx",
-        "iec101_cfg",
-        "iec104_cfg",
-        "iec104gw_cfg",
-        "iec61850c_cfg",
-        "jdxx_cfg",
-        "mms_rp_cdc_index",
-        "out_time_cfg",
-        "pointref_forwardtbl",
-        "project",
-        "rdb_cfg",
-        "sc_cfg",
-        "scada_cfg",
-        "sg_manage_cfg",
-        "vqc_cfg",
-        "wave_cfg",
-        "wf_cfg"
-      ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
       "has_logics_xml": true,
-      "logics_xml_status": "failed",
-      "logics_xml_event_count": null,
-      "materialization_diagnostics": [
-        "XML_DOCUMENT_FAILED"
-      ],
-      "duplicate_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "extra_rows": null,
-        "by_table": null
-      },
-      "effective_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "no_ddl_pk_tables_with_explicit_effective_key": null,
-        "unresolved_tables": null
-      },
-      "source_ddl_table_count": 199,
-      "key_scan_source": "not_evaluated",
-      "materialization_diagnostic_details": []
-    },
-    {
-      "dataset_id": "rd-t3-c-v2",
-      "tier": "t3",
-      "project_alias": "c",
-      "version": "v2",
-      "pair_of": "rd-t3-c-v1",
+      "json_columns": [],
+      "key_scan_source": "business_snapshot",
+      "logics_xml_event_count": 8946,
+      "logics_xml_max_depth": 66,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_diagnostics": [],
+      "materialization_status": "COMPLETE",
+      "nullable_key_columns": [],
       "package": {
         "bytes": 3370171,
         "sha256": "658422efd2583963cc04bdff6e88e2b733d33396bdd92ff5b3635dc00cffc28d"
       },
-      "staging_status": "COMPLETE",
-      "materialization_status": "FAILED",
-      "table_count": null,
-      "row_count_total": null,
+      "pair_of": "rd-t3-c-v1",
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
+      "project_alias": "c",
       "role_table_counts": {
         "BROWSE_ONLY": 13,
         "ORDERED_DIFF": 54,
@@ -1059,6 +1398,9 @@
         "SNAPSHOT_ONLY": 4,
         "STANDARD_DIFF": 121
       },
+      "row_count_total": 268667,
+      "source_ddl_table_count": 200,
+      "staging_status": "COMPLETE",
       "storage_column_type_counts": {
         "DATETIME": 8,
         "ENUM": 349,
@@ -1072,9 +1414,7 @@
         "TINYINT UNSIGNED": 261,
         "VARCHAR": 770
       },
-      "unknown_sql_types": [],
-      "json_columns": [],
-      "nullable_key_columns": [],
+      "table_count": 201,
       "tables_without_ddl_primary_key": [
         "app_cfg",
         "b1_n1_iec61850c_cfg",
@@ -1115,41 +1455,527 @@
         "wave_cfg",
         "wf_cfg"
       ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
-      "has_logics_xml": true,
-      "logics_xml_status": "failed",
-      "logics_xml_event_count": null,
-      "materialization_diagnostics": [
-        "XML_DOCUMENT_FAILED"
-      ],
-      "duplicate_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "extra_rows": null,
-        "by_table": null
-      },
-      "effective_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "no_ddl_pk_tables_with_explicit_effective_key": null,
-        "unresolved_tables": null
-      },
-      "source_ddl_table_count": 200,
-      "key_scan_source": "not_evaluated",
-      "materialization_diagnostic_details": []
+      "tier": "t3",
+      "unknown_sql_types": [],
+      "version": "v2",
+      "version_manager_saved_time_type": "VARCHAR(128)"
     },
     {
+      "composite_stage_status": "COMPLETE",
       "dataset_id": "rd-t4-d-v1",
-      "tier": "t4",
-      "project_alias": "d",
-      "version": "v1",
-      "pair_of": null,
+      "duplicate_key_scan": {
+        "by_table": {
+          "b1_n11_iec104_syk_list": 11,
+          "b1_n11_iec104_syx_list": 992,
+          "b1_n11_iec104_yc_list": 47,
+          "b1_n12_iec104_syk_list": 11,
+          "b1_n12_iec104_syx_list": 992,
+          "b1_n12_iec104_yc_list": 47,
+          "b1_n13_iec104_syk_list": 11,
+          "b1_n13_iec104_syx_list": 992,
+          "b1_n13_iec104_yc_list": 47,
+          "b1_n14_iec104_syk_list": 11,
+          "b1_n14_iec104_syx_list": 992,
+          "b1_n14_iec104_yc_list": 47,
+          "b1_n15_iec104_syk_list": 11,
+          "b1_n15_iec104_syx_list": 992,
+          "b1_n15_iec104_yc_list": 47,
+          "b1_n16_iec104_syk_list": 11,
+          "b1_n16_iec104_syx_list": 992,
+          "b1_n16_iec104_yc_list": 47,
+          "b1_n17_iec104_syk_list": 11,
+          "b1_n17_iec104_syx_list": 992,
+          "b1_n17_iec104_yc_list": 47,
+          "b1_n18_iec104_syk_list": 11,
+          "b1_n18_iec104_syx_list": 992,
+          "b1_n18_iec104_yc_list": 47,
+          "b1_n20_iec104_yc_list": 3,
+          "b1_n3_iec104_syk_list": 11,
+          "b1_n3_iec104_syx_list": 993,
+          "b1_n3_iec104_yc_list": 47,
+          "b1_n4_iec104_syk_list": 11,
+          "b1_n4_iec104_syx_list": 993,
+          "b1_n4_iec104_yc_list": 47,
+          "b1_n5_iec104_yc_list": 3,
+          "b1_n6_iec104_yc_list": 3,
+          "b1_n7_iec104_syk_list": 11,
+          "b1_n7_iec104_syx_list": 993,
+          "b1_n7_iec104_yc_list": 47,
+          "b1_n8_iec104_syk_list": 11,
+          "b1_n8_iec104_syx_list": 993,
+          "b1_n8_iec104_yc_list": 47,
+          "b1_n9_iec104_yc_list": 3
+        },
+        "conflicting_extra_rows": 12616,
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 279,
+          "unresolved_key_table_count": 33,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "dev104_cfg",
+            "forwardtable_yc1",
+            "forwardtable_yc2",
+            "forwardtable_yk1",
+            "forwardtable_yt1",
+            "forwardtable_yx1",
+            "forwardtable_yx2",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "nbridge_cfg",
+            "nr103d_cfg",
+            "nr103ht_cfg",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "sntp_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
+        },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 12616,
+        "status": "partial",
+        "table_details": {
+          "b1_n11_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n11_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n11_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n12_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n12_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n12_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n13_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n13_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n13_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n14_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n14_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n14_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n15_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n15_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n15_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n16_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n16_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n16_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n17_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n17_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n17_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n18_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n18_iec104_syx_list": {
+            "conflicting_extra_rows": 992,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n18_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n20_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n9_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          }
+        }
+      },
+      "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n11_iec104_syk_list",
+          "b1_n11_iec104_syx_list",
+          "b1_n11_iec104_yc_list",
+          "b1_n12_iec104_syk_list",
+          "b1_n12_iec104_syx_list",
+          "b1_n12_iec104_yc_list",
+          "b1_n13_iec104_syk_list",
+          "b1_n13_iec104_syx_list",
+          "b1_n13_iec104_yc_list",
+          "b1_n14_iec104_syk_list",
+          "b1_n14_iec104_syx_list",
+          "b1_n14_iec104_yc_list",
+          "b1_n15_iec104_syk_list",
+          "b1_n15_iec104_syx_list",
+          "b1_n15_iec104_yc_list",
+          "b1_n16_iec104_syk_list",
+          "b1_n16_iec104_syx_list",
+          "b1_n16_iec104_yc_list",
+          "b1_n17_iec104_syk_list",
+          "b1_n17_iec104_syx_list",
+          "b1_n17_iec104_yc_list",
+          "b1_n18_iec104_syk_list",
+          "b1_n18_iec104_syx_list",
+          "b1_n18_iec104_yc_list",
+          "b1_n20_iec104_yc_list",
+          "b1_n3_iec104_syk_list",
+          "b1_n3_iec104_syx_list",
+          "b1_n3_iec104_yc_list",
+          "b1_n4_iec104_syk_list",
+          "b1_n4_iec104_syx_list",
+          "b1_n4_iec104_yc_list",
+          "b1_n5_iec104_yc_list",
+          "b1_n6_iec104_yc_list",
+          "b1_n7_iec104_syk_list",
+          "b1_n7_iec104_syx_list",
+          "b1_n7_iec104_yc_list",
+          "b1_n8_iec104_syk_list",
+          "b1_n8_iec104_syx_list",
+          "b1_n8_iec104_yc_list",
+          "b1_n9_iec104_yc_list"
+        ],
+        "effective_key_tables_count": 279,
+        "effective_keyless_tables": [],
+        "status": "partial",
+        "unresolved_table_count": 33,
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "dev104_cfg",
+          "forwardtable_yc1",
+          "forwardtable_yc2",
+          "forwardtable_yk1",
+          "forwardtable_yt1",
+          "forwardtable_yx1",
+          "forwardtable_yx2",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "nbridge_cfg",
+          "nr103d_cfg",
+          "nr103ht_cfg",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "sntp_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ]
+      },
+      "has_logics_xml": true,
+      "json_columns": [],
+      "key_scan_source": "business_snapshot",
+      "logics_xml_event_count": 22286,
+      "logics_xml_max_depth": 97,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_diagnostics": [],
+      "materialization_status": "COMPLETE",
+      "nullable_key_columns": [],
       "package": {
         "bytes": 5597503,
         "sha256": "95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675"
       },
-      "staging_status": "COMPLETE",
-      "materialization_status": "FAILED",
-      "table_count": null,
-      "row_count_total": null,
+      "pair_of": null,
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
+      "project_alias": "d",
       "role_table_counts": {
         "BROWSE_ONLY": 13,
         "ORDERED_DIFF": 144,
@@ -1157,6 +1983,9 @@
         "SNAPSHOT_ONLY": 6,
         "STANDARD_DIFF": 148
       },
+      "row_count_total": 437149,
+      "source_ddl_table_count": 319,
+      "staging_status": "COMPLETE",
       "storage_column_type_counts": {
         "DATETIME": 8,
         "ENUM": 534,
@@ -1170,9 +1999,7 @@
         "TINYINT UNSIGNED": 510,
         "VARCHAR": 1224
       },
-      "unknown_sql_types": [],
-      "json_columns": [],
-      "nullable_key_columns": [],
+      "table_count": 320,
       "tables_without_ddl_primary_key": [
         "app_cfg",
         "b1_n10_dev104_cfg",
@@ -1234,41 +2061,527 @@
         "wave_cfg",
         "wf_cfg"
       ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
-      "has_logics_xml": true,
-      "logics_xml_status": "failed",
-      "logics_xml_event_count": null,
-      "materialization_diagnostics": [
-        "XML_DOCUMENT_FAILED"
-      ],
-      "duplicate_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "extra_rows": null,
-        "by_table": null
-      },
-      "effective_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "no_ddl_pk_tables_with_explicit_effective_key": null,
-        "unresolved_tables": null
-      },
-      "source_ddl_table_count": 319,
-      "key_scan_source": "not_evaluated",
-      "materialization_diagnostic_details": []
+      "tier": "t4",
+      "unknown_sql_types": [],
+      "version": "v1",
+      "version_manager_saved_time_type": "VARCHAR(128)"
     },
     {
+      "composite_stage_status": "COMPLETE",
       "dataset_id": "rd-t4-d-v2",
-      "tier": "t4",
-      "project_alias": "d",
-      "version": "v2",
-      "pair_of": "rd-t4-d-v1",
+      "duplicate_key_scan": {
+        "by_table": {
+          "b1_n11_iec104_syk_list": 11,
+          "b1_n11_iec104_syx_list": 993,
+          "b1_n11_iec104_yc_list": 47,
+          "b1_n12_iec104_syk_list": 11,
+          "b1_n12_iec104_syx_list": 993,
+          "b1_n12_iec104_yc_list": 47,
+          "b1_n13_iec104_syk_list": 11,
+          "b1_n13_iec104_syx_list": 993,
+          "b1_n13_iec104_yc_list": 47,
+          "b1_n14_iec104_syk_list": 11,
+          "b1_n14_iec104_syx_list": 993,
+          "b1_n14_iec104_yc_list": 47,
+          "b1_n15_iec104_syk_list": 11,
+          "b1_n15_iec104_syx_list": 993,
+          "b1_n15_iec104_yc_list": 47,
+          "b1_n16_iec104_syk_list": 11,
+          "b1_n16_iec104_syx_list": 993,
+          "b1_n16_iec104_yc_list": 47,
+          "b1_n17_iec104_syk_list": 11,
+          "b1_n17_iec104_syx_list": 993,
+          "b1_n17_iec104_yc_list": 47,
+          "b1_n18_iec104_syk_list": 11,
+          "b1_n18_iec104_syx_list": 993,
+          "b1_n18_iec104_yc_list": 47,
+          "b1_n20_iec104_yc_list": 3,
+          "b1_n3_iec104_syk_list": 11,
+          "b1_n3_iec104_syx_list": 993,
+          "b1_n3_iec104_yc_list": 47,
+          "b1_n4_iec104_syk_list": 11,
+          "b1_n4_iec104_syx_list": 993,
+          "b1_n4_iec104_yc_list": 47,
+          "b1_n5_iec104_yc_list": 3,
+          "b1_n6_iec104_yc_list": 3,
+          "b1_n7_iec104_syk_list": 11,
+          "b1_n7_iec104_syx_list": 993,
+          "b1_n7_iec104_yc_list": 47,
+          "b1_n8_iec104_syk_list": 11,
+          "b1_n8_iec104_syx_list": 993,
+          "b1_n8_iec104_yc_list": 47,
+          "b1_n9_iec104_yc_list": 3
+        },
+        "conflicting_extra_rows": 12624,
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 279,
+          "unresolved_key_table_count": 33,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "dev104_cfg",
+            "forwardtable_yc1",
+            "forwardtable_yc2",
+            "forwardtable_yk1",
+            "forwardtable_yt1",
+            "forwardtable_yx1",
+            "forwardtable_yx2",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "nbridge_cfg",
+            "nr103d_cfg",
+            "nr103ht_cfg",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "sntp_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
+        },
+        "exact_duplicate_extra_rows": 0,
+        "extra_rows": 12624,
+        "status": "partial",
+        "table_details": {
+          "b1_n11_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n11_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n11_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n12_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n12_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n12_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n13_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n13_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n13_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n14_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n14_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n14_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n15_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n15_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n15_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n16_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n16_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n16_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n17_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n17_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n17_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n18_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n18_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n18_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n20_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n3_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n4_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n5_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n6_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n7_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_syk_list": {
+            "conflicting_extra_rows": 11,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_syx_list": {
+            "conflicting_extra_rows": 993,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n8_iec104_yc_list": {
+            "conflicting_extra_rows": 47,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          },
+          "b1_n9_iec104_yc_list": {
+            "conflicting_extra_rows": 3,
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE"
+          }
+        }
+      },
+      "effective_key_scan": {
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n11_iec104_syk_list",
+          "b1_n11_iec104_syx_list",
+          "b1_n11_iec104_yc_list",
+          "b1_n12_iec104_syk_list",
+          "b1_n12_iec104_syx_list",
+          "b1_n12_iec104_yc_list",
+          "b1_n13_iec104_syk_list",
+          "b1_n13_iec104_syx_list",
+          "b1_n13_iec104_yc_list",
+          "b1_n14_iec104_syk_list",
+          "b1_n14_iec104_syx_list",
+          "b1_n14_iec104_yc_list",
+          "b1_n15_iec104_syk_list",
+          "b1_n15_iec104_syx_list",
+          "b1_n15_iec104_yc_list",
+          "b1_n16_iec104_syk_list",
+          "b1_n16_iec104_syx_list",
+          "b1_n16_iec104_yc_list",
+          "b1_n17_iec104_syk_list",
+          "b1_n17_iec104_syx_list",
+          "b1_n17_iec104_yc_list",
+          "b1_n18_iec104_syk_list",
+          "b1_n18_iec104_syx_list",
+          "b1_n18_iec104_yc_list",
+          "b1_n20_iec104_yc_list",
+          "b1_n3_iec104_syk_list",
+          "b1_n3_iec104_syx_list",
+          "b1_n3_iec104_yc_list",
+          "b1_n4_iec104_syk_list",
+          "b1_n4_iec104_syx_list",
+          "b1_n4_iec104_yc_list",
+          "b1_n5_iec104_yc_list",
+          "b1_n6_iec104_yc_list",
+          "b1_n7_iec104_syk_list",
+          "b1_n7_iec104_syx_list",
+          "b1_n7_iec104_yc_list",
+          "b1_n8_iec104_syk_list",
+          "b1_n8_iec104_syx_list",
+          "b1_n8_iec104_yc_list",
+          "b1_n9_iec104_yc_list"
+        ],
+        "effective_key_tables_count": 279,
+        "effective_keyless_tables": [],
+        "status": "partial",
+        "unresolved_table_count": 33,
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "dev104_cfg",
+          "forwardtable_yc1",
+          "forwardtable_yc2",
+          "forwardtable_yk1",
+          "forwardtable_yt1",
+          "forwardtable_yx1",
+          "forwardtable_yx2",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "nbridge_cfg",
+          "nr103d_cfg",
+          "nr103ht_cfg",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "sntp_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ]
+      },
+      "has_logics_xml": true,
+      "json_columns": [],
+      "key_scan_source": "business_snapshot",
+      "logics_xml_event_count": 22286,
+      "logics_xml_max_depth": 97,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_diagnostics": [],
+      "materialization_status": "COMPLETE",
+      "nullable_key_columns": [],
       "package": {
         "bytes": 5596595,
         "sha256": "5a7cd54d9b996be55c34b7bb766eb01ad5c1b7c4fa9bd1e72f5c4741baee3611"
       },
-      "staging_status": "COMPLETE",
-      "materialization_status": "FAILED",
-      "table_count": null,
-      "row_count_total": null,
+      "pair_of": "rd-t4-d-v1",
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
+      "project_alias": "d",
       "role_table_counts": {
         "BROWSE_ONLY": 13,
         "ORDERED_DIFF": 144,
@@ -1276,6 +2589,9 @@
         "SNAPSHOT_ONLY": 6,
         "STANDARD_DIFF": 148
       },
+      "row_count_total": 437229,
+      "source_ddl_table_count": 319,
+      "staging_status": "COMPLETE",
       "storage_column_type_counts": {
         "DATETIME": 8,
         "ENUM": 534,
@@ -1289,9 +2605,7 @@
         "TINYINT UNSIGNED": 510,
         "VARCHAR": 1224
       },
-      "unknown_sql_types": [],
-      "json_columns": [],
-      "nullable_key_columns": [],
+      "table_count": 320,
       "tables_without_ddl_primary_key": [
         "app_cfg",
         "b1_n10_dev104_cfg",
@@ -1353,26 +2667,160 @@
         "wave_cfg",
         "wf_cfg"
       ],
-      "version_manager_saved_time_type": "VARCHAR(128)",
-      "has_logics_xml": true,
-      "logics_xml_status": "failed",
-      "logics_xml_event_count": null,
-      "materialization_diagnostics": [
-        "XML_DOCUMENT_FAILED"
-      ],
-      "duplicate_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "extra_rows": null,
-        "by_table": null
-      },
-      "effective_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "no_ddl_pk_tables_with_explicit_effective_key": null,
-        "unresolved_tables": null
-      },
-      "source_ddl_table_count": 319,
-      "key_scan_source": "not_evaluated",
-      "materialization_diagnostic_details": []
+      "tier": "t4",
+      "unknown_sql_types": [],
+      "version": "v2",
+      "version_manager_saved_time_type": "VARCHAR(128)"
     }
-  ]
+  ],
+  "datasets_with_duplicate_keys": [
+    "rd-t1-a-v1",
+    "rd-t1-a-v2",
+    "rd-t2-b-v1",
+    "rd-t2-b-v2",
+    "rd-t3-c-v2",
+    "rd-t4-d-v1",
+    "rd-t4-d-v2"
+  ],
+  "dc12_json_columns_present": false,
+  "dc15_unknown_sql_types": [],
+  "duplicate_key_conflicting_extra_rows_total": 40748,
+  "duplicate_key_exact_extra_rows_total": 0,
+  "duplicate_key_extra_rows_total": 40748,
+  "generated_on": "2026-10-10",
+  "parser_production_path": [
+    {
+      "dataset_id": "rd-t1-a-v1",
+      "sql_parse": {
+        "status": "COMPLETE"
+      }
+    },
+    {
+      "dataset_id": "rd-t1-a-v2",
+      "sql_parse": {
+        "status": "COMPLETE"
+      }
+    },
+    {
+      "dataset_id": "rd-t2-b-v1",
+      "sql_parse": {
+        "status": "COMPLETE"
+      }
+    },
+    {
+      "dataset_id": "rd-t2-b-v2",
+      "sql_parse": {
+        "status": "COMPLETE"
+      }
+    },
+    {
+      "dataset_id": "rd-t3-c-v1",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @OLD_CHARACTER_SET_CLIENT is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t3-c-v2",
+      "sql_parse": {
+        "status": "COMPLETE"
+      }
+    },
+    {
+      "dataset_id": "rd-t4-d-v1",
+      "sql_parse": {
+        "status": "COMPLETE"
+      }
+    },
+    {
+      "dataset_id": "rd-t4-d-v2",
+      "sql_parse": {
+        "status": "COMPLETE"
+      }
+    }
+  ],
+  "production_materialization_path": [
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t1-a-v1",
+      "logics_xml_max_depth": 1,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t1-a-v2",
+      "logics_xml_max_depth": 1,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t2-b-v1",
+      "logics_xml_max_depth": 56,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t2-b-v2",
+      "logics_xml_max_depth": 56,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
+    },
+    {
+      "composite_stage_status": "NOT_REACHED",
+      "dataset_id": "rd-t3-c-v1",
+      "logics_xml_max_depth": 66,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [
+        {
+          "code": "TABLE_READER_UNAVAILABLE",
+          "message": "SET @OLD_CHARACTER_SET_CLIENT is not in the source dump allowlist"
+        }
+      ],
+      "materialization_status": "FAILED"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t3-c-v2",
+      "logics_xml_max_depth": 66,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t4-d-v1",
+      "logics_xml_max_depth": 97,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
+    },
+    {
+      "composite_stage_status": "COMPLETE",
+      "dataset_id": "rd-t4-d-v2",
+      "logics_xml_max_depth": 97,
+      "logics_xml_status": "complete",
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
+    }
+  ],
+  "provenance": {
+    "census_output_contains_host_paths": false,
+    "duplicate_row_classification": "Exact duplicate extra rows are repeated full-row fingerprints within a duplicate effective-key group; conflicting extra rows are distinct full-row variants beyond one representative per duplicate key. Counts are disjoint and sum to duplicate extra rows.",
+    "g2_production_and_diagnostic_rerun_on": "2026-10-10",
+    "max_xml_depth_budget": 128,
+    "max_xml_depth_safety_margin_over_measured": 31,
+    "original_structural_census": "2026-09-28",
+    "pairing_owner_confirmation": "Owner confirmed 2026-10-10: v1/v2 within one tier are the same project; different tiers are different projects and are not paired.",
+    "row_fingerprints_are_in_memory_only": true,
+    "storage_type_counts_reparsed_on": "2026-10-10"
+  },
+  "schema_version": 2
 }

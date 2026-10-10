@@ -14,6 +14,13 @@ SQL_GOLDEN_CASES = (
     "sql/malformed/s2-incomplete-insert",
 )
 
+MYSQLDUMP_SET_SHAPES = (
+    "/*!40101 SET @saved_cs_client = @@character_set_client */;",
+    "/*!50503 SET character_set_client = utf8mb4 */;",
+    "/*!40101 SET character_set_client = @saved_cs_client */;",
+    "SET @SAVED_CS_CLIENT = 1;",
+)
+
 
 @pytest.mark.parametrize("case_dir", SQL_GOLDEN_CASES)
 def test_sql_golden_parser_matches_expected(case_dir: str) -> None:
@@ -45,3 +52,10 @@ def test_s1_minimal_preserves_insert_order() -> None:
     rows = consumed_rows(result)
     assert len(rows) == 1
     assert len(rows[0]) == 1
+
+
+@pytest.mark.parametrize("sql", MYSQLDUMP_SET_SHAPES)
+def test_mysqldump_session_setup_statements_are_accepted(sql: str) -> None:
+    result = parse_text(sql)
+    assert result.status is ParseStatus.COMPLETE
+    assert result.diagnostics == ()

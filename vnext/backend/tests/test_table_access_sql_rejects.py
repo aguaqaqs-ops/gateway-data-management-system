@@ -22,6 +22,17 @@ SQL_STATEMENT_REJECTS = (
     ),
     ("UPDATE `t` SET `id`=1;", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "UPDATE"),
     ('CREATE TABLE "t" (id INT);', ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "ANSI_QUOTES"),
+    (
+        "SET @@saved_cs_client = 1;",
+        ParserDiagnosticCode.UNSUPPORTED_STATEMENT,
+        "@@saved_cs_client",
+    ),
+    ("SET @other_client = 1;", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "@other_client"),
+    (
+        "SET @character_set_client = utf8mb4;",
+        ParserDiagnosticCode.UNSUPPORTED_STATEMENT,
+        "@character_set_client",
+    ),
 )
 
 SQL_TYPE_MALFORMED_SHAPES = (

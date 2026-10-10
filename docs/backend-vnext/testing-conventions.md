@@ -56,10 +56,10 @@ CPU 争用导致时序敏感测试 flaky。少量从 serial 来源逐项审查�
 
 ```bash
 cd vnext/repository_service
-uv run pytest -m unit          # 约 910 项，无外部依赖，约 12 秒
-uv run pytest -m integration   # 需要真实 dolt
-uv run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
-uv run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次的 serial 来源测试
+../scripts/uv-consume.sh -C . run pytest -m unit          # 约 1490 项，无外部依赖，约 12 秒
+../scripts/uv-consume.sh -C . run pytest -m integration   # 需要真实 dolt
+../scripts/uv-consume.sh -C . run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
+../scripts/uv-consume.sh -C . run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次的 serial 来源测试
 ```
 
 `parallel_safe` 不是“运行较快”的别名，而是严格的隔离审查结论：测试不得依赖真实线程
@@ -78,8 +78,12 @@ uv run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次�
 e2e 文件回到真实磁盘临时目录，以避开 unprivileged LXC 下 Docker secret bind mount 的
 remount 限制；其余测试仍使用 tmpfs。
 
-裸跑 `uv run pytest` 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他测试
-争用 CPU，判定 flaky 时以脚本为准。
+不带 marker 直接运行 pytest 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他
+测试争用 CPU，判定 flaky 时以脚本为准。
+
+权威脚本的运行前提（已提交的 clean worktree、运行期间不写 worktree、整机单飞、日志记录
+HEAD 与 exit code）见 [AGENTS.md](../../AGENTS.md)“跑测试”一节；不满足时结果不能作为门禁
+证据。
 
 ### P2后半段的功能门禁与最终container门禁
 
@@ -144,8 +148,9 @@ Compose/container wiring或container harness变更都会提前终止延期，并
 - startup/shutdown、signal、子进程监督或filesystem行为的正确性依赖容器用户、PID namespace、
   mount namespace或双UID隔离；
 - 修改实际Docker/Compose e2e、container harness，或评审结论要声称当前HEAD已经通过容器门禁；
-- 阶段退出、S3 ready、发布或最终production gate。最终候选HEAD必须重新构建并核对provenance，
-  不能用祖先提交的镜像替代。
+- 阶段退出、S3 ready、发布或最终production gate。发布与最终production gate必须在最终候选
+  HEAD重新构建并核对provenance，不能用祖先提交的镜像替代；阶段退出与S3 ready可按下文
+  “镜像身份等价与结果沿用”沿用已验证提交的结果。
 
 通常可以延期到必要节点：
 
@@ -153,10 +158,39 @@ Compose/container wiring或container harness变更都会提前终止延期，并
 - 不改变production artifact的测试、注释和普通文档修改；
 - 只读审核，以及没有修改image/deployment/container-only runtime boundary的修复轮。
 
-“可以延期”不等于旧镜像仍代表当前HEAD。只要image label中的revision/source-tree与当前HEAD
-不一致，旧Compose结果就只能作为祖先提交的回归证据；报告必须把当前HEAD的container gate
-标为`deferred`或`stale`，不得写成“当前HEAD PASSED”。若后续任一改动触发上面的强制条件，
-应在相关改动收敛后重建，不必为中间提交重复构建。
+“可以延期”不等于旧镜像仍代表当前HEAD。除非满足下文的镜像身份等价，旧Compose结果只能
+作为祖先提交的回归证据；报告必须把当前HEAD的container gate标为`deferred`或`stale`，
+不得写成“当前HEAD PASSED”。若后续任一改动触发上面的强制条件，应在相关改动收敛后重建，
+不必为中间提交重复构建。
+
+### 镜像身份等价与结果沿用
+
+适用范围：阶段退出与S3 ready；发布与最终production gate不适用。目的是让门禁之后只改
+handoff、评审报告或普通文档的提交不必重跑Compose，而不是放宽容器门禁本身。
+
+已验证提交`V`与最终HEAD同时满足以下条件时，`V`的容器门禁结果视为最终HEAD的结果，
+记为`carried`：
+
+1. **门禁运行合格**：`V`是已提交的clean worktree；全量或容器门禁由权威入口执行；日志记录
+   开始与结束时的`git rev-parse HEAD`和明确的exit code；运行期间未写worktree，也未提交或
+   重建镜像。在dirty worktree或临时index tree上的运行不能作为`V`。
+2. **diff不触及容器边界**：`git diff --name-only V HEAD`中没有上文“必须重建”前五项所列的
+   内容，也没有Docker/Compose e2e测试、container harness或其support模块。
+3. **镜像身份相等**，逐个镜像核对：
+   - 带`gateway.p2r1.build-input-revision`与`gateway.p2r1.source-tree-sha256` label的镜像
+     （repository-service）：在最终HEAD用`build_context_digest.py identity`重算，两项都等于`V`
+     门禁所用镜像的label。`org.opencontainers.image.revision`随提交变化，不参与比较。
+   - 没有source identity label的镜像（backend、worker）：在最终HEAD用与`V`相同的命令重建
+     （正常情况下全部命中缓存，耗时秒级），image ID必须等于`V`的Compose provenance中实际运行
+     容器的image ID。缓存被清理导致ID变化时，按不等价处理。
+
+任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
+评审逐项复核；复核不通过时不得以`carried`关闭finding。
+
+避免重复执行：权威runner的backend批次已包含backend Compose旅程。同一提交上runner已运行
+并通过的Compose旅程不再单独重跑，provenance从该次运行的
+`vnext/backend/tests/support/.last_compose_gate_provenance.json`复制到worktree外的日志目录。
+只有需要单独复现失败或runner未覆盖的nodeid时，才单独运行Compose旅程。
 
 ### 每轮评审记录
 
@@ -168,14 +202,16 @@ Container rebuild required: yes | no
 Reason: <命中的触发项，或未触碰container boundary的依据>
 Last verified image revision: <sha | none>
 Last verified source-tree/image id: <digest | none>
-Container gate for current HEAD: passed | deferred | stale | not-applicable
+Container gate for current HEAD: passed | carried | deferred | stale | not-applicable
+Carried from: <V sha、门禁日志、逐镜像身份比较结果 | none>
 Deferred gates/nodeids: <精确命令、path或nodeid>
 Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发布前>
 ```
 
 若`Container rebuild required: yes`，评审不得用旧镜像结果关闭相关finding；若为`no`，评审应
-检查理由是否确实不依赖容器边界。无论中间轮次如何决定，阶段最终候选都必须让image revision、
-source-tree provenance与最终HEAD一致，并执行权威Compose/production gate。
+检查理由是否确实不依赖容器边界。无论中间轮次如何决定，阶段最终候选都必须让容器门禁结果
+绑定到最终HEAD：要么在最终HEAD执行权威Compose/production gate，要么在阶段退出、S3 ready
+节点满足上文镜像身份等价并记为`carried`。
 
 ## Marker 分层
 

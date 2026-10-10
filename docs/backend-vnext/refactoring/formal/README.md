@@ -15,7 +15,9 @@
 - [P5 架构收口 S0 Entry Brief](plans/p5-arch-closure-s0-entry-brief.md)、
   [详细设计](plans/p5-arch-closure-design.md)、[执行计划](plans/p5-arch-closure-execution-plan.md)、
   ADR [0018](adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)–[0021](adr/0021-flow-neutral-comparison-entry.md)
-  （S0 文档 r4 于 2026-09-27 由 owner 接受，ADR Accepted；Business Lifecycle 与 Canonical Storage 升至 3.1.0；实现未授权）
+  （S0 文档 r4 于 2026-09-27 由 owner 接受，ADR Accepted；Business Lifecycle 与 Canonical Storage 升至 3.1.0；
+  S1 在 `p5-closure/s1` 实施中，2026-10-10 进入收尾）
+  - [S1 合入后的治理修订计划](plans/p5-arch-closure-post-s1-governance-plan.md)（主线开发、真实数据格式保真前置、无兼容/迁移复核）
   - [S0 独立文档审核报告](plans/p5-arch-closure-s0-independent-docs-review.md)（r1 @ `3e5d5807e5`：定向修订；含 2026-09-26 复核补充）
   - [r2 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview.md)（@ `5858eaaa08`：定向修订）
   - [r2 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-2.md)（@ `5858eaaa08`：定向修订；O1–O5 已决议为 DC23–DC27）
@@ -107,6 +109,8 @@ P4 Active Context Index 不覆盖 P5 semantic default entry。
 - [P3→P4 Cleanup Implementer Evidence Report](plans/p3-p4-cleanup-implementer-evidence-report.md)
 - [P3→P4 Cleanup C7 Independent Acceptance](plans/p3-p4-cleanup-c7-independent-acceptance.md)
 - [Architecture and Refactoring Plan](architecture/architecture-and-refactoring-plan.md)
+  - [未来扩展方向：分析能力工具化与 AI 编排](architecture/future-ai-tool-exposure.md)（方向记录，不授权实现；总纲 §16）
+  - [未来扩展方向：自然语言业务数据查询](architecture/future-business-data-query.md)（方向记录，待单独讨论；总纲 §16）
 - [Implementation Stages](plans/implementation-stages.md)
 - [DX Cross-Phase Interface Reconciliation](plans/dx-cross-phase-interface-reconciliation.md)
 - [P2-R1 Runtime and Provider Feasibility Contract](plans/p2-r1-runtime-provider-feasibility.md)（pytest methodology 指针；不是设计入口）

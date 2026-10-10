@@ -2,6 +2,19 @@
 
 本仓库的 agent 硬约束。完整背景见 [docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
 
+## 项目前提
+
+这是全新项目：没有已部署的使用方、没有需要保留的历史数据，也没有兼容或迁移要求。
+
+- 改 Contract、checkpoint 载荷、digest 或 HTTP DTO 时，直接改到目标形态，不建设兼容层、
+  双读/双写、旧字段别名或数据回填；同步更新 golden 与测试。control DB schema 的演进方式以
+  owning 设计为准（当前为 P5 收口设计 DC6 的前向 migration）。
+- 删除被替代的实现，不保留“以防万一”的旧路径。
+- `legacy/` 只作行为与数据格式的参考来源，不是兼容目标；vnext 与真实数据不一致时，以真实
+  数据和 owning Contract 为准。
+- 这不放宽阶段内的冻结约定：某阶段声明“不改行为”时，golden 与 digest 仍作为该阶段的回归
+  基准。
+
 ## 跑测试
 
 权威入口：
@@ -10,13 +23,23 @@
 ./vnext/scripts/run-tests.sh
 ```
 
+权威入口的运行前提（不满足时结果不能作为门禁证据）：
+
+- 在已提交的 clean worktree 上运行。`repository_service` 的 Compose 用例经
+  `require_clean_worktree()` 计算 image identity，worktree 有未提交改动时这些用例必然失败。
+- 运行期间不写 worktree、不提交、不重建或重新 tag 镜像。
+- 同一主机上不并行运行其他 Dolt 进程或 Compose 栈：残留检查扫描整机 `/proc` 中的 dolt
+  进程，backend Compose 旅程共享 host 端口 8000。
+- 日志写到 worktree 外，并记录开始与结束时的 `git rev-parse HEAD` 和 runner 自身的 exit code
+  （经 `tee` 时用 `set -o pipefail` 或 `${PIPESTATUS[0]}`）。
+
 阶段性验证不要跑全量。按范围收敛：
 
 ```bash
 cd vnext/repository_service
-uv run pytest -m unit          # 约 910 项，无外部依赖，约 12 秒
-uv run pytest -m integration   # 需要真实 dolt
-uv run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
+../scripts/uv-consume.sh -C . run pytest -m unit          # 约 1490 项，无外部依赖，约 12 秒
+../scripts/uv-consume.sh -C . run pytest -m integration   # 需要真实 dolt
+../scripts/uv-consume.sh -C . run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
 ```
 
 `repository_service` 默认并行（`-n auto`）；其余包单进程，不要给它们加 xdist。
@@ -121,13 +144,29 @@ sha256sum vnext/repository_service/uv.lock
 - UID/GID、目录权限、volume/mount、socket、pidfile、broker/helper；
 - 依赖容器用户、PID、signal、mount 或 filesystem 隔离才能证明的 startup/shutdown 行为；
 - 修改实际 Docker/Compose e2e 或 container harness，或本轮要宣称当前 HEAD 已通过容器门禁；
-- 阶段退出、S3 ready、发布或最终 production gate。最终候选 HEAD 无论此前是否延期，
-  都必须重建。
+- 阶段退出、S3 ready、发布或最终 production gate。最终候选 HEAD 必须有绑定到它的容器
+  门禁结果：发布与最终 production gate 必须在最终 HEAD 重建并完整运行；阶段退出与 S3 ready
+  可按下文“镜像身份等价”沿用已验证提交的结果。
 
 纯 Python 内部逻辑、SQL/状态机、测试或普通文档改动，在 focused/unit/integration 已覆盖
 且未触碰上述边界时，可以把镜像构建延期到必要节点。旧镜像结果只能作为回归证据，不得
-表述为当前 HEAD 已验证。每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的
-image revision/source-tree，以及延期到哪个节点。完整规则与记录模板见
+表述为当前 HEAD 已验证；唯一例外是满足下面的镜像身份等价。
+
+镜像身份等价（仅阶段退出、S3 ready）：已验证提交 `V` 与最终 HEAD 同时满足以下条件时，`V`
+的容器门禁结果视为最终 HEAD 的结果，记为 `carried`，不重跑 Compose：
+
+1. `V` 的门禁在已提交的 clean worktree 上由权威入口执行，日志记录 HEAD 与 exit code，运行期间
+   未写 worktree；
+2. `V..HEAD` 未改动上面前五项列出的任何内容，也未改动 Docker/Compose e2e 测试或 harness；
+3. 每个门禁镜像身份相等：带 build-input/source-tree label 的镜像（repository-service）在最终
+   HEAD 重算的身份与 label 一致；没有此类 label 的镜像（backend/worker）在最终 HEAD 重建后，
+   image ID 与 `V` 的 provenance 中实际运行的 ID 相同。
+
+任一条件不满足，就在最终 HEAD 重建并重跑。同一提交上权威 runner 已运行过的 Compose 旅程
+（含 backend 批次中的 Compose 测试）不再单独重跑，provenance 取自该次运行。
+
+每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的 image revision/source-tree，
+以及延期到哪个节点或从哪个提交沿用。完整规则与记录模板见
 [docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
 
 ## 全局比例化保障

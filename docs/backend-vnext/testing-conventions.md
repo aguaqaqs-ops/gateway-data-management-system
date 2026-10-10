@@ -180,14 +180,9 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
    - 带`gateway.p2r1.build-input-revision`与`gateway.p2r1.source-tree-sha256` label的镜像
      （repository-service）：在最终HEAD用`build_context_digest.py identity`重算，两项都等于`V`
      门禁所用镜像的label。`org.opencontainers.image.revision`随提交变化，不参与比较。
-   - 没有source identity label的镜像（backend、worker）：在`V`的同一worktree中、两次构建之间
-     不运行任何测试的前提下，用与`V`相同的命令重建（project名取自provenance；正常情况下大部分
-     步骤命中缓存），image ID必须等于`V`的Compose provenance中实际运行容器的image ID。
-     构建上下文包含worktree内被git忽略的缓存目录（例如`vnext/shared_kernel/.hypothesis`会被
-     `COPY shared_kernel`打进镜像），所以换一个worktree重建、或两次构建之间跑过shared_kernel/backend
-     测试，ID都可能变化；这种变化不代表源码不等价，也不能反过来证明等价。`.dockerignore`排除这些
-     缓存目录、或为backend/worker增加source identity label之前（治理修订计划G6），只接受同一
-     worktree内的比较。缓存层被清理导致ID变化时，按不等价处理并重跑。
+   - 没有source identity label的镜像（backend、worker）：可在任一clean worktree中用与`V`相同的
+     构建命令重建（project名取自provenance），image ID必须等于`V`的Compose provenance中实际运行
+     容器的image ID。缓存层被清理导致ID变化时，按不等价处理并重跑。
 
 任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
 评审逐项复核；复核不通过时不得以`carried`关闭finding。

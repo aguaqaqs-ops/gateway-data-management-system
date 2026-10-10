@@ -168,11 +168,9 @@ sha256sum vnext/repository_service/uv.lock
    未写 worktree；
 2. `V..HEAD` 未改动上面前五项列出的任何内容，也未改动 Docker/Compose e2e 测试或 harness；
 3. 每个门禁镜像身份相等：带 build-input/source-tree label 的镜像（repository-service）在最终
-   HEAD 重算的身份与 label 一致；没有此类 label 的镜像（backend/worker）在 `V` 的同一 worktree 中、
-   两次构建之间不运行任何测试的前提下，用与 `V` 相同的命令（含 provenance 中的 project 名）重建，
-   image ID 与 `V` 的 provenance 中实际运行的 ID 相同。构建上下文包含 worktree 内被 git 忽略的缓存
-   目录（如 `.hypothesis`），换 worktree 或中间跑过测试都会改变 ID；`.dockerignore` 排除它们之前
-   （治理修订计划 G6），不得用另一个 worktree 的重建结果判定“不等价”或“等价”。
+   HEAD 重算的身份与 label 一致；没有此类 label 的镜像（backend/worker）可在任一 clean worktree
+   中使用与 `V` 相同的构建命令（含 provenance 中的 project 名）重建，image ID 必须与 `V` 的
+   provenance 中实际运行的 ID 相同。
 
 任一条件不满足，就在最终 HEAD 重建并重跑。同一提交上权威 runner 已运行过的 Compose 旅程
 （含 backend 批次中的 Compose 测试）不再单独重跑，provenance 取自该次运行。

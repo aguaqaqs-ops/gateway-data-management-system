@@ -26,10 +26,15 @@ from gateway_backend.capabilities.composite_signal.contracts import present_comp
 from gateway_backend.capabilities.snapshot_materialization.compose import materialize_business_snapshot
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BusinessSnapshotMaterializationRequest,
+    MaterializationDiagnosticCode,
     MaterializationPolicy,
     MaterializationStage,
+    SnapshotMaterializationResult,
+    SnapshotMaterializationStatus,
     SqlSnapshotMaterializationRequest,
+    SnapshotTableSet,
 )
+from gateway_backend.capabilities.snapshot_materialization.materialize import materialize_sql_snapshot
 from gateway_backend.capabilities.source_package_staging.contracts import (
     OPTIONAL_XML_PATH,
     NeverCancel as StagingNeverCancel,
@@ -56,7 +61,7 @@ from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
 from gateway_backend.capabilities.table_rules.contracts import TableStaticRole
 from gateway_backend.capabilities.storage_projection.view import StorageViewError, derive_storage_rule_view
 from gateway_backend.capabilities.table_rules.contracts import canonicalize_rule_identifier
-from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor, SnapshotTableSet
+from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor
 from gateway_backend.capabilities.table_access.contracts import SourceRow
 
 _ZERO_DIGEST = DigestRef("sha256:" + "00" * 32)
@@ -179,11 +184,17 @@ class DatasetCensus:
     logics_xml_status: str
     logics_xml_event_count: int | None
     materialization_diagnostics: list[str]
+    materialization_diagnostic_details: list[dict[str, str]]
     role_table_counts: dict[str, int]
     has_logics_xml: bool
+    key_scan_source: str
     duplicate_key_scan_status: str
     duplicate_key_extra_rows: int
     duplicate_key_by_table: dict[str, int]
+    duplicate_key_scanned_table_count: int
+    duplicate_key_rule_skipped_table_count: int
+    duplicate_key_scan_unresolved_tables: list[str]
+    duplicate_key_reader_unavailable_tables: list[str]
     effective_key_scan_status: str
     effective_key_tables: list[str]
     effective_keyless_tables: list[str]
@@ -291,6 +302,31 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
     }
 
 
+def _sql_snapshot_request(
+    analysis: dict[str, Any],
+    *,
+    sql_bytes: bytes,
+    ruleset: Any,
+    artifact_store: InMemoryArtifactStore,
+    diagnostic_mode: bool,
+) -> SqlSnapshotMaterializationRequest:
+    return SqlSnapshotMaterializationRequest(
+        parse_result=analysis["parse_result"],
+        sql_source_digest=raw_blob_digest(sql_bytes),
+        ruleset=ruleset,
+        table_ruleset_version=ruleset.table_ruleset_version,
+        materialization_stage=MaterializationStage.FINAL,
+        policy=(
+            MaterializationPolicy.READERS_REQUIRED
+            if diagnostic_mode
+            else MaterializationPolicy.DESCRIPTOR_ONLY
+        ),
+        context=analysis["context"],
+        requested_tables=None,
+        artifact_store=artifact_store,
+    )
+
+
 def _column_index_by_name(descriptor: SnapshotTableDescriptor) -> dict[str, int]:
     return {
         canonicalize_rule_identifier(column.name): index
@@ -302,25 +338,45 @@ def _row_key_fingerprint(row: SourceRow, key_indexes: tuple[int, ...]) -> tuple[
     return tuple(repr(row[index]) for index in key_indexes)
 
 
+@dataclass(frozen=True)
+class KeyScanStats:
+    duplicate_by_table: dict[str, int]
+    duplicate_extra_rows: int
+    unresolved_tables: list[str]
+    effective_key_tables: list[str]
+    effective_keyless_tables: list[str]
+    scanned_table_count: int
+    rule_skipped_table_count: int
+    reader_unavailable_tables: list[str]
+    duplicate_scan_status: str
+    effective_key_scan_status: str
+
+
 def _duplicate_and_effective_key_stats(
     *,
     table_set: SnapshotTableSet | None,
     ruleset: Any,
     diagnostic_mode: bool,
     materialization_complete: bool,
-) -> tuple[dict[str, int], int, list[str], list[str], list[str], str, str]:
+) -> KeyScanStats:
     if not diagnostic_mode:
-        return {}, 0, [], [], [], "not_run", "not_run"
+        return KeyScanStats({}, 0, [], [], [], 0, 0, [], "not_run", "not_run")
     if table_set is None:
-        return {}, 0, [], [], [], "materialization_unavailable", "materialization_unavailable"
+        return KeyScanStats(
+            {}, 0, [], [], [], 0, 0, [], "materialization_unavailable", "materialization_unavailable"
+        )
     if not materialization_complete:
-        return {}, 0, [], [], [], "materialization_incomplete", "materialization_incomplete"
+        return KeyScanStats(
+            {}, 0, [], [], [], 0, 0, [], "materialization_incomplete", "materialization_incomplete"
+        )
     duplicate_by_table: dict[str, int] = {}
     extra_rows = 0
     unresolved: list[str] = []
     effective_key_tables: list[str] = []
     effective_keyless_tables: list[str] = []
-    missing_reader = False
+    rule_skipped_table_count = 0
+    reader_unavailable: list[str] = []
+    scanned_table_count = 0
     for table in table_set.tables:
         descriptor = table.descriptor
         try:
@@ -333,6 +389,7 @@ def _duplicate_and_effective_key_stats(
             unresolved.append(descriptor.table_name)
             continue
         if resolved.record.static_role is TableStaticRole.SKIP:
+            rule_skipped_table_count += 1
             continue
         try:
             view = derive_storage_rule_view(resolved.record, descriptor)
@@ -353,29 +410,61 @@ def _duplicate_and_effective_key_stats(
             continue
         effective_key_tables.append(descriptor.table_name)
         if table.reader is None:
-            missing_reader = True
+            reader_unavailable.append(descriptor.table_name)
             continue
         seen: Counter[tuple[str, ...]] = Counter()
         for row in table.reader.iter_rows():
             seen[_row_key_fingerprint(row, key_indexes)] += 1
+        scanned_table_count += 1
         duplicate_rows = sum(count - 1 for count in seen.values() if count > 1)
         if duplicate_rows:
             duplicate_by_table[descriptor.table_name] = duplicate_rows
             extra_rows += duplicate_rows
     key_scan_status = "complete" if not unresolved else "partial"
-    if missing_reader:
-        duplicate_scan_status = "reader_unavailable"
-    else:
-        duplicate_scan_status = "complete"
-    return (
+    duplicate_scan_status = (
+        "complete" if not unresolved and not reader_unavailable else "partial"
+    )
+    return KeyScanStats(
         duplicate_by_table,
         extra_rows,
         sorted(set(unresolved)),
         sorted(effective_key_tables),
         sorted(effective_keyless_tables),
+        scanned_table_count,
+        rule_skipped_table_count,
+        sorted(reader_unavailable),
         duplicate_scan_status,
         key_scan_status,
     )
+
+
+def _sql_scan_source_after_composite_failure(
+    business: SnapshotMaterializationResult,
+    sql_request: SqlSnapshotMaterializationRequest,
+    *,
+    diagnostic_mode: bool,
+) -> tuple[SnapshotTableSet | None, bool, str]:
+    """Keep SQL census available when only the derived composite stage fails."""
+
+    if not diagnostic_mode or business.status is not SnapshotMaterializationStatus.FAILED:
+        return (
+            business.table_set,
+            business.status is SnapshotMaterializationStatus.COMPLETE,
+            "business_snapshot",
+        )
+    if not any(
+        item.code is MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED
+        for item in business.diagnostics
+    ):
+        return None, False, "business_snapshot_unavailable"
+
+    sql_result = materialize_sql_snapshot(sql_request)
+    if (
+        sql_result.status is SnapshotMaterializationStatus.COMPLETE
+        and sql_result.table_set is not None
+    ):
+        return sql_result.table_set, True, "sql_snapshot_after_composite_failure"
+    return None, False, "sql_snapshot_after_composite_failure_unavailable"
 
 
 def census_one(
@@ -418,8 +507,6 @@ def census_one(
             analysis = _analyze_parse(sql_bytes)
     else:
         analysis = _analyze_parse(sql_bytes)
-    parse_result = analysis["parse_result"]
-    context = analysis["context"]
     ruleset = migrated_table_ruleset_snapshot()
 
     logics_status = "absent"
@@ -444,20 +531,12 @@ def census_one(
         if xml_parse.status.value == "COMPLETE":
             logics_events = len(xml_parse.events)
 
-    sql_request_obj = SqlSnapshotMaterializationRequest(
-        parse_result=parse_result,
-        sql_source_digest=raw_blob_digest(sql_bytes),
+    sql_request_obj = _sql_snapshot_request(
+        analysis,
+        sql_bytes=sql_bytes,
         ruleset=ruleset,
-        table_ruleset_version=ruleset.table_ruleset_version,
-        materialization_stage=MaterializationStage.FINAL,
-        policy=(
-            MaterializationPolicy.READERS_REQUIRED
-            if diagnostic_mode
-            else MaterializationPolicy.DESCRIPTOR_ONLY
-        ),
-        context=context,
-        requested_tables=None,
         artifact_store=store,
+        diagnostic_mode=diagnostic_mode,
     )
     business = materialize_business_snapshot(
         BusinessSnapshotMaterializationRequest(
@@ -473,19 +552,34 @@ def census_one(
         table_count = business.summary.table_count
         row_total = business.summary.row_count_total
 
-    (
-        dup_by_table,
-        dup_extra,
-        key_unresolved,
-        effective_key_tables,
-        effective_keyless_tables,
-        duplicate_key_scan_status,
-        effective_key_scan_status,
-    ) = _duplicate_and_effective_key_stats(
-        table_set=business.table_set,
+    scan_sql_request = sql_request_obj
+    if (
+        diagnostic_mode
+        and business.status is SnapshotMaterializationStatus.FAILED
+        and any(
+            item.code is MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED
+            for item in business.diagnostics
+        )
+    ):
+        with _diagnostic_sql_parser_context():
+            fallback_analysis = _analyze_parse(sql_bytes)
+        scan_sql_request = _sql_snapshot_request(
+            fallback_analysis,
+            sql_bytes=sql_bytes,
+            ruleset=ruleset,
+            artifact_store=InMemoryArtifactStore(),
+            diagnostic_mode=True,
+        )
+    scan_table_set, scan_complete, key_scan_source = _sql_scan_source_after_composite_failure(
+        business,
+        scan_sql_request,
+        diagnostic_mode=diagnostic_mode,
+    )
+    key_scan = _duplicate_and_effective_key_stats(
+        table_set=scan_table_set,
         ruleset=ruleset,
         diagnostic_mode=diagnostic_mode,
-        materialization_complete=business.status.value == "COMPLETE",
+        materialization_complete=scan_complete,
     )
 
     return DatasetCensus(
@@ -511,15 +605,32 @@ def census_one(
         logics_xml_status=logics_status,
         logics_xml_event_count=logics_events,
         materialization_diagnostics=[item.code.value for item in business.diagnostics[:32]],
+        materialization_diagnostic_details=[
+            {
+                key: value
+                for key, value in {
+                    "code": item.code.value,
+                    "message": item.message,
+                    "table": item.table or "",
+                }.items()
+                if value
+            }
+            for item in business.diagnostics[:32]
+        ],
         role_table_counts=analysis["role_counts"],
         has_logics_xml=has_logics_xml,
-        duplicate_key_scan_status=duplicate_key_scan_status,
-        duplicate_key_extra_rows=dup_extra,
-        duplicate_key_by_table=dup_by_table,
-        effective_key_scan_status=effective_key_scan_status,
-        effective_key_tables=effective_key_tables,
-        effective_keyless_tables=effective_keyless_tables,
-        effective_key_unresolved_tables=key_unresolved,
+        key_scan_source=key_scan_source,
+        duplicate_key_scan_status=key_scan.duplicate_scan_status,
+        duplicate_key_extra_rows=key_scan.duplicate_extra_rows,
+        duplicate_key_by_table=key_scan.duplicate_by_table,
+        duplicate_key_scanned_table_count=key_scan.scanned_table_count,
+        duplicate_key_rule_skipped_table_count=key_scan.rule_skipped_table_count,
+        duplicate_key_scan_unresolved_tables=key_scan.unresolved_tables,
+        duplicate_key_reader_unavailable_tables=key_scan.reader_unavailable_tables,
+        effective_key_scan_status=key_scan.effective_key_scan_status,
+        effective_key_tables=key_scan.effective_key_tables,
+        effective_keyless_tables=key_scan.effective_keyless_tables,
+        effective_key_unresolved_tables=key_scan.unresolved_tables,
     )
 
 

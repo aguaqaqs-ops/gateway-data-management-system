@@ -21,7 +21,8 @@ RUN test "$(sha256sum uv.lock | cut -d ' ' -f1)" = "${UV_LOCK_SHA256}"
 COPY repository_client/src ./src
 COPY repository_client/tests/support ./tests/support
 RUN if [ "${USE_PRELOADED_DEPENDENCIES}" = "1" ]; then \
-      test -d /src/repository_client/.venv/lib/python3.14/site-packages; \
+      test -d /src/repository_client/.venv/lib/python3.14/site-packages \
+      && uv sync --frozen --group dev --offline; \
     else \
       uv sync --frozen --group dev; \
     fi \

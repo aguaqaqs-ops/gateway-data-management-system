@@ -43,8 +43,10 @@ CLIENT_UV_LOCK_PATH = CLIENT_PROJECT / "uv.lock"
 CONSUMER_SCRIPT = CLIENT_PROJECT / "tests" / "support" / "versioned_fixture_consumer.py"
 FIXTURE_ROOT = CLIENT_PROJECT / "tests" / "fixtures" / "versioned_v1"
 DEFAULT_CLIENT_IMAGE = "gateway-repository-client-e2e:local"
+DEFAULT_CLIENT_DEPENDENCY_BASE_IMAGE = "gateway-repository-client-e2e-base:local"
 CLIENT_DEPENDENCY_BASE_IMAGE_ENV = "GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE"
 CLIENT_UV_LOCK_LABEL = "gateway.p2r6.client-uv-lock-sha256"
+CLIENT_DEPENDENCY_BASE_DOCKERFILE = CLIENT_PROJECT / "tests" / "Dockerfile.dependency-base"
 COMPOSE_PROFILE = "p2-r2"
 SERVICE_NAME = "repository-service"
 INSIDE_SERVICE_ENDPOINT = "http://repository-service:8000"
@@ -770,7 +772,12 @@ def client_image_matches(
 
 
 def client_dependency_base_image(*, image: str, client_uv_lock_sha256: str) -> str | None:
-    candidate = os.environ.get(CLIENT_DEPENDENCY_BASE_IMAGE_ENV, image)
+    candidate = os.environ.get(
+        CLIENT_DEPENDENCY_BASE_IMAGE_ENV,
+        DEFAULT_CLIENT_DEPENDENCY_BASE_IMAGE,
+    )
+    if candidate == image:
+        raise RuntimeError("client dependency base image must not match final image tag")
     digest, labels = inspect_image(candidate)
     if not _IMAGE_ID.fullmatch(digest):
         return None
@@ -779,14 +786,117 @@ def client_dependency_base_image(*, image: str, client_uv_lock_sha256: str) -> s
     return candidate
 
 
+def _run_client_dependency_base_build(
+    image: str,
+    *,
+    client_uv_lock_sha256: str,
+) -> None:
+    if not CLIENT_DEPENDENCY_BASE_DOCKERFILE.is_file():
+        raise RuntimeError(f"missing client dependency Dockerfile: {CLIENT_DEPENDENCY_BASE_DOCKERFILE}")
+    command = [
+        "docker",
+        "build",
+        "--network",
+        docker_build_network(),
+        "-f",
+        str(CLIENT_DEPENDENCY_BASE_DOCKERFILE),
+        "--build-arg",
+        f"UV_LOCK_SHA256={client_uv_lock_sha256}",
+        "-t",
+        image,
+        str(VNEXT_ROOT),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+            cwd=VNEXT_ROOT,
+            timeout=CLIENT_BUILD_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            "repository-client dependency image build "
+            f"timed out after {CLIENT_BUILD_TIMEOUT_SECONDS}s"
+        ) from exc
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "repository-client dependency image build failed\n"
+            f"stdout:\n{redact_evidence_text(completed.stdout, secrets=(client_uv_lock_sha256,))}\n"
+            f"stderr:\n{redact_evidence_text(completed.stderr, secrets=(client_uv_lock_sha256,))}"
+        )
+
+
+def ensure_client_dependency_base_image(
+    *,
+    image: str,
+    client_uv_lock_sha256: str,
+) -> str:
+    dependency_base = os.environ.get(
+        CLIENT_DEPENDENCY_BASE_IMAGE_ENV,
+        DEFAULT_CLIENT_DEPENDENCY_BASE_IMAGE,
+    )
+    if dependency_base == image:
+        raise RuntimeError("client dependency base image must not match final image tag")
+    matched_base = client_dependency_base_image(
+        image=image,
+        client_uv_lock_sha256=client_uv_lock_sha256,
+    )
+    if matched_base is not None:
+        return matched_base
+
+    image_id, labels = inspect_image(image)
+    if (
+        _IMAGE_ID.fullmatch(image_id)
+        and labels.get(CLIENT_UV_LOCK_LABEL) == client_uv_lock_sha256
+    ):
+        completed = subprocess.run(
+            ["docker", "tag", image, dependency_base],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+            cwd=VNEXT_ROOT,
+            timeout=60.0,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                "repository-client dependency image seed failed\n"
+                f"{redact_evidence_text(completed.stderr, secrets=(client_uv_lock_sha256,))}"
+            )
+        return dependency_base
+
+    _run_client_dependency_base_build(
+        dependency_base,
+        client_uv_lock_sha256=client_uv_lock_sha256,
+    )
+    digest, labels = inspect_image(dependency_base)
+    if (
+        not _IMAGE_ID.fullmatch(digest)
+        or labels.get(CLIENT_UV_LOCK_LABEL) != client_uv_lock_sha256
+    ):
+        raise RuntimeError(
+            "repository-client dependency image provenance does not match current lock\n"
+            f"image_id={digest}\n"
+            f"expected client_uv_lock_sha256={client_uv_lock_sha256}\n"
+            f"actual client_uv_lock_sha256={labels.get(CLIENT_UV_LOCK_LABEL)}"
+        )
+    return dependency_base
+
+
 def _run_client_build(
     image: str,
     *,
     candidate_sha: str,
     client_uv_lock_sha256: str,
+    dependency_base_image: str,
 ) -> None:
     if not CLIENT_DOCKERFILE.is_file():
         raise RuntimeError(f"missing client Dockerfile: {CLIENT_DOCKERFILE}")
+    if dependency_base_image == image:
+        raise RuntimeError("client dependency base image must not match final image tag")
     env = os.environ.copy()
     command = [
         "docker",
@@ -799,20 +909,11 @@ def _run_client_build(
         f"CANDIDATE_SHA={candidate_sha}",
         "--build-arg",
         f"UV_LOCK_SHA256={client_uv_lock_sha256}",
+        "--build-arg",
+        f"BASE_IMAGE={dependency_base_image}",
+        "--build-arg",
+        "USE_PRELOADED_DEPENDENCIES=1",
     ]
-    dependency_base = client_dependency_base_image(
-        image=image,
-        client_uv_lock_sha256=client_uv_lock_sha256,
-    )
-    if dependency_base is not None:
-        command.extend(
-            [
-                "--build-arg",
-                f"BASE_IMAGE={dependency_base}",
-                "--build-arg",
-                "USE_PRELOADED_DEPENDENCIES=1",
-            ]
-        )
     command.extend(["-t", image, str(VNEXT_ROOT)])
     try:
         completed = subprocess.run(
@@ -843,13 +944,22 @@ def ensure_client_image(
     force_rebuild: bool = False,
 ) -> str:
     lock_sha = current_client_uv_lock_sha256()
+    dependency_base = ensure_client_dependency_base_image(
+        image=image,
+        client_uv_lock_sha256=lock_sha,
+    )
     if not force_rebuild and client_image_matches(
         image,
         candidate_sha=candidate_sha,
         client_uv_lock_sha256=lock_sha,
     ):
         return image
-    _run_client_build(image, candidate_sha=candidate_sha, client_uv_lock_sha256=lock_sha)
+    _run_client_build(
+        image,
+        candidate_sha=candidate_sha,
+        client_uv_lock_sha256=lock_sha,
+        dependency_base_image=dependency_base,
+    )
     if not client_image_matches(
         image,
         candidate_sha=candidate_sha,

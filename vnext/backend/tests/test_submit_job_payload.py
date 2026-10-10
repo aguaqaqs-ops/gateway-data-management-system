@@ -517,6 +517,7 @@ MALFORMED_TERMINAL_EVIDENCE_SHAPES: tuple[tuple[dict[str, object], type[Exceptio
         _succeeded_terminal_evidence_document(result={"completed_verification_policy": "INVALID"}),
         ValidationError,
     ),
+    (_succeeded_terminal_evidence_document(result={"unknown_type_policy": "INVALID"}), ValidationError),
     (
         _failed_terminal_evidence_document(
             error={"code": "IMPORT_REJECTED", "message": "", "request_id": None}

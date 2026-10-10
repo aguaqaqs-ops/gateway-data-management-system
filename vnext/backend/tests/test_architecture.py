@@ -862,6 +862,52 @@ def test_production_reachability_classifies_module_shapes(
     assert (module_name in current) is expect_unreachable
 
 
+COMPOSITE_FACADE_MODULES = (
+    "gateway_backend.capabilities.composite_signal._ast",
+    "gateway_backend.capabilities.composite_signal._bind",
+    "gateway_backend.capabilities.composite_signal._digest",
+    "gateway_backend.capabilities.composite_signal.materialize",
+)
+FACADE_REACHABILITY_SHAPES: tuple[tuple[bool, bool], ...] = (
+    (False, True),
+    (True, False),
+)
+
+
+@pytest.mark.parametrize(
+    ("production_imports_facade_symbol", "expect_composite_unreachable"),
+    FACADE_REACHABILITY_SHAPES,
+)
+def test_facade_lazy_import_reachability_depends_on_imported_symbol(
+    production_imports_facade_symbol: bool,
+    expect_composite_unreachable: bool,
+) -> None:
+    modules = backend_modules()
+    edges = _backend_edges()
+    assert any(
+        edge.source == "gateway_backend.capabilities.composite_signal"
+        and edge.context == "function"
+        and edge.function == "materialize_composite_signal"
+        and edge.target == "gateway_backend.capabilities.composite_signal.materialize"
+        for edge in edges
+    )
+    if production_imports_facade_symbol:
+        edges = [
+            *edges,
+            ImportEdge(
+                source="gateway_backend.app",
+                target="gateway_backend.capabilities.composite_signal",
+                names=("materialize_composite_signal",),
+                context="module",
+                path=BACKEND_SRC / "gateway_backend" / "app.py",
+                line=1,
+            ),
+        ]
+
+    current = unreachable_modules(edges, modules)
+    assert all((name in current) is expect_composite_unreachable for name in COMPOSITE_FACADE_MODULES)
+
+
 # Each row: source module, imported module, imported names, expected rule (None = allowed).
 IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("gateway_backend.domain.workspace.models", "gateway_backend.application.workspace.contracts", (), RULE_LAYER),

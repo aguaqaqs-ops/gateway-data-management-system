@@ -118,6 +118,18 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _storage_column_type_key(sql_type: str) -> str:
+    """Keep UNSIGNED distinct while dropping type widths and enum values."""
+
+    words = re.sub(r"\([^)]*\)", "", sql_type.strip().upper()).split()
+    if not words:
+        return "UNKNOWN"
+    base = words[0]
+    if "UNSIGNED" in words[1:]:
+        return f"{base} UNSIGNED"
+    return base
+
+
 def _discover_engine_dirs(root: Path) -> list[tuple[str, Path]]:
     found: list[tuple[str, Path]] = []
     for tier_name in _TIER_MAP:
@@ -155,8 +167,9 @@ class DatasetCensus:
     package_bytes: int
     staging_status: str
     materialization_status: str
-    table_count: int
-    row_count_total: int
+    source_ddl_table_count: int
+    table_count: int | None
+    row_count_total: int | None
     storage_column_type_counts: dict[str, int]
     unknown_sql_types: list[str]
     json_columns: list[str]
@@ -168,8 +181,12 @@ class DatasetCensus:
     materialization_diagnostics: list[str]
     role_table_counts: dict[str, int]
     has_logics_xml: bool
+    duplicate_key_scan_status: str
     duplicate_key_extra_rows: int
     duplicate_key_by_table: dict[str, int]
+    effective_key_scan_status: str
+    effective_key_tables: list[str]
+    effective_keyless_tables: list[str]
     effective_key_unresolved_tables: list[str]
 
 
@@ -242,8 +259,7 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
         if resolved.decision.static_role.value == "SKIP":
             continue
         for column in descriptor.columns:
-            spelling = column.sql_type.strip().upper()
-            base = spelling.split("(")[0].split()[0]
+            base = _storage_column_type_key(column.sql_type)
             storage_types[base] += 1
             if column.logical_type is SqlLogicalType.UNKNOWN:
                 unknown.add(column.sql_type)
@@ -262,6 +278,7 @@ def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
                     nullable_keys.append(f"{descriptor.canonical_name}.{column.canonical_name}")
 
     return {
+        "ddl_table_count": len(parse_result.tables),
         "storage_types": dict(storage_types),
         "unknown": sorted(unknown),
         "json_cols": sorted(json_cols),
@@ -290,16 +307,22 @@ def _duplicate_and_effective_key_stats(
     table_set: SnapshotTableSet | None,
     ruleset: Any,
     diagnostic_mode: bool,
-) -> tuple[dict[str, int], int, list[str]]:
-    if not diagnostic_mode or table_set is None:
-        return {}, 0, []
+    materialization_complete: bool,
+) -> tuple[dict[str, int], int, list[str], list[str], list[str], str, str]:
+    if not diagnostic_mode:
+        return {}, 0, [], [], [], "not_run", "not_run"
+    if table_set is None:
+        return {}, 0, [], [], [], "materialization_unavailable", "materialization_unavailable"
+    if not materialization_complete:
+        return {}, 0, [], [], [], "materialization_incomplete", "materialization_incomplete"
     duplicate_by_table: dict[str, int] = {}
     extra_rows = 0
     unresolved: list[str] = []
+    effective_key_tables: list[str] = []
+    effective_keyless_tables: list[str] = []
+    missing_reader = False
     for table in table_set.tables:
         descriptor = table.descriptor
-        if table.reader is None:
-            continue
         try:
             resolved = resolve_table_rule(
                 ruleset,
@@ -314,16 +337,23 @@ def _duplicate_and_effective_key_stats(
         try:
             view = derive_storage_rule_view(resolved.record, descriptor)
         except StorageViewError:
-            if not descriptor.primary_key_columns:
-                unresolved.append(descriptor.table_name)
+            unresolved.append(descriptor.table_name)
             continue
-        if view is None or not view.canonical_key_columns:
+        if view is None:
+            effective_keyless_tables.append(descriptor.table_name)
+            continue
+        if not view.canonical_key_columns:
+            effective_keyless_tables.append(descriptor.table_name)
             continue
         by_name = _column_index_by_name(descriptor)
         try:
             key_indexes = tuple(by_name[name] for name in view.canonical_key_columns)
         except KeyError:
             unresolved.append(descriptor.table_name)
+            continue
+        effective_key_tables.append(descriptor.table_name)
+        if table.reader is None:
+            missing_reader = True
             continue
         seen: Counter[tuple[str, ...]] = Counter()
         for row in table.reader.iter_rows():
@@ -332,7 +362,20 @@ def _duplicate_and_effective_key_stats(
         if duplicate_rows:
             duplicate_by_table[descriptor.table_name] = duplicate_rows
             extra_rows += duplicate_rows
-    return duplicate_by_table, extra_rows, sorted(set(unresolved))
+    key_scan_status = "complete" if not unresolved else "partial"
+    if missing_reader:
+        duplicate_scan_status = "reader_unavailable"
+    else:
+        duplicate_scan_status = "complete"
+    return (
+        duplicate_by_table,
+        extra_rows,
+        sorted(set(unresolved)),
+        sorted(effective_key_tables),
+        sorted(effective_keyless_tables),
+        duplicate_scan_status,
+        key_scan_status,
+    )
 
 
 def census_one(
@@ -424,16 +467,25 @@ def census_one(
         )
     )
 
-    table_count = 0
-    row_total = 0
+    table_count: int | None = None
+    row_total: int | None = None
     if business.summary is not None:
         table_count = business.summary.table_count
         row_total = business.summary.row_count_total
 
-    dup_by_table, dup_extra, key_unresolved = _duplicate_and_effective_key_stats(
+    (
+        dup_by_table,
+        dup_extra,
+        key_unresolved,
+        effective_key_tables,
+        effective_keyless_tables,
+        duplicate_key_scan_status,
+        effective_key_scan_status,
+    ) = _duplicate_and_effective_key_stats(
         table_set=business.table_set,
         ruleset=ruleset,
         diagnostic_mode=diagnostic_mode,
+        materialization_complete=business.status.value == "COMPLETE",
     )
 
     return DatasetCensus(
@@ -447,6 +499,7 @@ def census_one(
         package_bytes=len(package_bytes),
         staging_status=staging.status.value,
         materialization_status=business.status.value,
+        source_ddl_table_count=analysis["ddl_table_count"],
         table_count=table_count,
         row_count_total=row_total,
         storage_column_type_counts=analysis["storage_types"],
@@ -460,8 +513,12 @@ def census_one(
         materialization_diagnostics=[item.code.value for item in business.diagnostics[:32]],
         role_table_counts=analysis["role_counts"],
         has_logics_xml=has_logics_xml,
+        duplicate_key_scan_status=duplicate_key_scan_status,
         duplicate_key_extra_rows=dup_extra,
         duplicate_key_by_table=dup_by_table,
+        effective_key_scan_status=effective_key_scan_status,
+        effective_key_tables=effective_key_tables,
+        effective_keyless_tables=effective_keyless_tables,
         effective_key_unresolved_tables=key_unresolved,
     )
 

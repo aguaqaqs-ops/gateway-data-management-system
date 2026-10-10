@@ -17,7 +17,7 @@ authorized_base: 218c211240b33e01eee1eb8965fdcca0ec4b8099  # main @ 授权基线
 implementation_fork: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b  # S1 实现切点
 merge_base_with_main: 218c211240b33e01eee1eb8965fdcca0ec4b8099
 implementation_head: 72092dd27af85dc235e1d08c2650297508b5e49e  # 定向修订代码 tip；镜像/build 绑定此 SHA
-candidate_head: 340bda7d17  # handoff + 执行计划 §3 增补（amend 后见 git log -1）
+candidate_ref: p5-closure/s1  # reviewer 开始时解析分支 tip；不引用被 amend 移除的 commit object
 source_tree_sha: 7a017a4cbb97c8fce3cbc2bcae0f105bdc8d5db7  # implementation_head^{tree}
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity
 implementation_authority: execution-plan §8.4 S1.1–S1.7
@@ -43,40 +43,29 @@ GATEWAY_REAL_DUMP_ROOT=/home/dev/gateway-real-dumps \
   vnext/scripts/uv-consume.sh -C vnext/backend run python benchmarks/real_dump_census.py --diagnostic
 ```
 
-2026-09-28 重跑产出：`$GATEWAY_REAL_DUMP_ROOT/census/summary.json`（`diagnostic_mode: true`）、`datasets.json`（无主机绝对路径）、`packages/`。`pair_of` 可由 `$GATEWAY_REAL_DUMP_ROOT/dataset_pairing.json` 覆盖；默认 tier 内 v1→v2。
+2026-09-28 的物化与重复键普查产出 `$GATEWAY_REAL_DUMP_ROOT/census/summary.json`（`diagnostic_mode: true`）。2026-10-10 用修正后的类型规范化函数重新解析 8 份 SQL DDL，确认并拆分 `UNSIGNED` 类型计数；同日又对 t1 两个版本重跑 `census_one`，确认重复键与有效键统计一致。逐 dataset 的结构记录现保存在仓库内的 [S1 census JSON](p5-arch-closure-s1-census.json)：含 package bytes/SHA、pairing、DDL 与物化表数、行数、角色分布、完整非 SKIP 列类型计数、词表外/JSON/可空键列/无键表清单、`saved_time`、XML 结果、重复键与有效键扫描状态；不含行数据和主机路径。
 
 - **DC12**：`dc12_json_columns_present: false` → **未触发** LONGTEXT。
-- **DC15**：存储表列类型含 `TINYINT`/`SMALLINT`/`FLOAT`/`DATETIME` 及 UNSIGNED 拼写（见各 dataset `storage_column_type_counts`）；`unknown_sql_types` 仍为空（mapper 已识别拼写）→ **已触发**词表扩充需求，S2a 验收扩充并与 Dolt 往返对齐；FLOAT 无损往返优先在 S2a 验证（设计 §14 第 2 项）。
-- **重复键（诊断 READERS_REQUIRED）**：`summary.json` 汇总 `duplicate_key_extra_rows_total: 6`；`rd-t1-a-v1`/`v2` 中 `b1_n2_iec104_syx_list` 各 3 条额外行；其余档位见 `duplicate_key_by_table`（空则未检出）。
-- **有效键（DDL 无主键表）**：`effective_key_unresolved_tables` 列出 rules/view 无法解析 canonical key 的表（t1 共 23 张）；有 PK 或 EXPLICIT compare key 的表参与重复键扫描。
-- **结构统计**（诊断模式）：见下「八数据集结构记录」；`summary.json` 另含 `duplicate_key_*` 与 `effective_key_unresolved_tables`（脚本修订后 diagnostic 重跑写入）。
+- **DC15**：存储表列类型含 `INT UNSIGNED`、`TINYINT UNSIGNED`、`SMALLINT UNSIGNED`、`FLOAT`、`DATETIME` 等（各数据集的完整计数见 census JSON）；`unknown_sql_types` 为空（mapper 已识别拼写）→ **已触发**词表扩充需求，S2a 验收扩充并与 Dolt 往返对齐；FLOAT 无损往返优先在 S2a 验证（设计 §14 第 2 项）。
+- **重复键（诊断 READERS_REQUIRED）**：t1 两份数据各有 `b1_n2_iec104_syx_list` 3 条额外行。t2/t3/t4 物化失败，重复键扫描状态是未评估，不能把空 map/0 解释成未检出。
+- **有效键（DDL 无主键表）**：t1 每份均有 28 张无 DDL 主键表；5 张由 EXPLICIT 规则给出有效键（`app_cfg.app_name`、`b1_n1_iec61850c_cfg(page_no,no)`、`b1_n2_iec104_cfg(page_no,no)`、`pointref_forwardtbl.refname`、`rdb_cfg.no`），其余 23 张无法解析有效键。t2/t3/t4 物化失败，重复键与物化表有效键扫描状态均标为未评估；不把空 map/0 解释为没有重复或全部有效。parser 修复后，在 S2a kickoff 完成这 6 份的有效键与重复键复查，再进入 DC22 真实数据旅程。
 
 ### 八数据集结构记录（诊断模式，无行数据）
 
 `pair_of` 默认规则见 `$GATEWAY_REAL_DUMP_ROOT/dataset_pairing.json`（tier 内 v1→v2）。**Owner 确认（2026-09-28）**：沿用默认 pairing，与执行计划 §8.3、`p5-arch-closure-s0-owner-decisions.md` §4 一致，S2b/S4 同项目链路验收以此为准。
 
-#### rd-t1-a-v1
-- package SHA-256: `42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2`
-- tier / alias / version: t1 / a / v1；pair_of: null
-- 表数 133，总行数 6097；无主键表 28；可空键列 0
-- 非 SKIP 列类型（节选）: VARCHAR 538, INT 458, ENUM 263, TINYINT 151, FLOAT 46, TEXT 38, SMALLINT 28, DATETIME 8（含 UNSIGNED 拼写归一化前统计）
-- `version_manager.saved_time`: `VARCHAR(128)`；logics.xml: complete，events=2
+| Dataset | Pair | Package bytes / SHA-256 | Staging / materialization | DDL tables | Materialized tables / rows | No DDL PK | Duplicate scan | Effective-key scan |
+| --- | --- | --- | --- | ---: | --- | ---: | --- | --- |
+| `rd-t1-a-v1` | — | 107115 / `42794011…95ea8b2` | COMPLETE / COMPLETE | 132 | 133 / 6097 | 28 | complete; 3 extra rows in `b1_n2_iec104_syx_list` | partial; 102 keyed, 23 unresolved, 0 keyless |
+| `rd-t1-a-v2` | `rd-t1-a-v1` | 107066 / `4019737…095bd0` | COMPLETE / COMPLETE | 132 | 133 / 6095 | 28 | complete; 3 extra rows in `b1_n2_iec104_syx_list` | partial; 102 keyed, 23 unresolved, 0 keyless |
+| `rd-t2-b-v1` | — | 1247459 / `acd1b5e…3817c0` | COMPLETE / FAILED `COMPOSITE_LOGIC_FAILED` | 216 | unavailable / unavailable | 40 | not evaluated | not evaluated; S2a after parser repair |
+| `rd-t2-b-v2` | `rd-t2-b-v1` | 1197404 / `c66e3921…5fcba98` | COMPLETE / FAILED `COMPOSITE_LOGIC_FAILED` | 216 | unavailable / unavailable | 40 | not evaluated | not evaluated; S2a after parser repair |
+| `rd-t3-c-v1` | — | 3356815 / `c34e266c…15eec7e` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 199 | unavailable / unavailable | 37 | not evaluated | not evaluated; S2a after parser repair |
+| `rd-t3-c-v2` | `rd-t3-c-v1` | 3370171 / `658422ef…cffc28d` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 200 | unavailable / unavailable | 38 | not evaluated | not evaluated; S2a after parser repair |
+| `rd-t4-d-v1` | — | 5597503 / `95408cc3…5da1675` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 319 | unavailable / unavailable | 59 | not evaluated | not evaluated; S2a after parser repair |
+| `rd-t4-d-v2` | `rd-t4-d-v1` | 5596595 / `5a7cd54d…ee3611` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 319 | unavailable / unavailable | 59 | not evaluated | not evaluated; S2a after parser repair |
 
-#### rd-t1-a-v2
-- package SHA-256: `4019737fc8fe35e90792dcef722537bf09338110ace8cc09f35e004cc7095bd0`
-- pair_of: `rd-t1-a-v1`；表数 133，行数 6095；其余同 v1 量级
-
-#### rd-t2-b-v1 / rd-t2-b-v2
-- SHA-256: `acd1b5e6f92083c3a6d53e9996be0bf46f520ae7fdea94d8449069748a3817c0` / `c66e3921c7774a38bfeb2f407c24a39209225e962f593ec88d17db0d85fcba98`
-- 诊断物化 `table_count=0`（`READERS_REQUIRED` 下大档耗时/资源边界；DDL 统计与 logics.xml complete events=3158 仍记录）；无主键表 40
-
-#### rd-t3-c-v1 / rd-t3-c-v2
-- SHA-256: `c34e266c458d9b2cfb630fec56fa7c893113e11b56f768710aecebb0715eec7e` / `658422efd2583963cc04bdff6e88e2b733d33396bdd92ff5b3635dc00cffc28d`
-- **t3/t4 XML 诊断摘要**：生产路径 `max_xml_depth=64` 下 logics.xml **failed**（深度超限，非 S1 引入）；诊断模式仍记录 DDL 列类型与无主键表列表（v1: 37 表，v2: 38 表）
-
-#### rd-t4-d-v1 / rd-t4-d-v2
-- SHA-256: `95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675` / `5a7cd54d9b996be55c34b7bb766eb01ad5c1b7c4fa9bd1e72f5c4741baee3611`
-- logics.xml failed（同 t3）；无主键表 59
+t1 的 133 个物化表包含 132 个源 DDL 表和 1 个 XML composite 表。t2 `logics.xml` complete，events=3158；t3/t4 `logics.xml` failed（`XML_DOCUMENT_FAILED`，`max_xml_depth=64`），非 S1 引入。8 份 `version_manager.saved_time` 均为 `VARCHAR(128)`；unknown types、JSON 列、可空键列均为空。每份完整的 UNSIGNED 类型计数、SHA 与无键表清单见上方 JSON。
 
 ## 2. 子步 ↔ 提交
 
@@ -120,12 +109,14 @@ checkpoint 载荷与 golden 断言策略未改（F1 证据字节已与 base 对�
 | --- | --- | --- |
 | 违例 | 54 | **3**（http_arrow×2 + `repository_import_artifact`；上传上限在 `application/workspace/upload_limits.py`） |
 | 运行时环 | 8 | **0** |
-| 不可达 | 16 | **10** |
+| 不可达 | 16 | **14** |
 
 ```bash
 cd vnext/backend && ../scripts/uv-consume.sh -C . run python -m tests.support.import_rules
 cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_architecture.py -m unit -q
-# 2026-09-28：import_rules 3/0/10；test_architecture -m unit 见 gate-logs
+# 2026-10-10：import_rules 3/0/14；facade 符号导入形态用例与架构 unit 结果见本次验证记录
+
+**Owner 确认（2026-10-10）**：按真实符号级可达性采用 14 项不可达基线；`composite_signal._ast`、`_bind`、`_digest`、`materialize` 四项保留为 S3 延期，S3 接入其生产调用方后关闭。执行计划 §2 S1 验收、S2a 预期和 `architecture_baseline.py` 已同步。
 ```
 
 ## 5. synthetic / worker 装配
@@ -138,6 +129,7 @@ cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_architec
 
 - `test_synthetic_w2.py`、`test_operation_job_synthetic.py`、`test_operation_job_recovery.py`、`test_operation_effect_reconcile.py`、`test_operation_worker_integration.py`
 - `test_canonical_row_hash.py`
+- `test_submit_job_payload.py`、`test_submit_job_effect.py`、`test_submit_job_prepare.py` 中的 `canonical_import_request_bytes` 测试桩（共 3 处；复审意见所称 4 处在当前测试树中未找到）
 - 其余由被迁移模块 import 方决定的同型用例（handoff 不逐文件重复列举时，以 execution-plan §3 S1 必改 T 为准）
 
 ## 6. 门禁命令与结果（@ `implementation_head`，compose/backend 在 clean worktree）
@@ -152,7 +144,7 @@ for p in shared_kernel repository_contracts repository_client repository_service
 done
 ```
 
-结果：**五包均 pass**（见 `gate-logs/static-check.log`，2026-09-28 复审定向修订）。
+结果：**五包 ruff 与 mypy 全部 pass**（2026-10-10，本轮复跑；见 `gate-logs/static-check.log`）。
 
 ### 6.2 权威全量测试
 
@@ -192,6 +184,8 @@ docker compose -f vnext/deploy/compose.yaml build backend worker
 
 构建日志：`gate-logs/build-rs-image.log`；compose build @ `41c43909be`（含 `gate-logs/` gitignore，保证 provenance 干净 worktree）。
 
+镜像构建身份：compose build 的 Git commit/tree 为 `41c43909be5dd0a6b7bebeb8fef9c77e8a2ee6cb` / `814b082c88acd2128efcafbda1989d813476b1b5`。RS image labels 记录 `org.opencontainers.image.revision=41c43909be5dd0a6b7bebeb8fef9c77e8a2ee6cb`、`gateway.p2r1.build-input-revision=4d1dc010deff17249bb2aa54b7563e7a86959096`、`gateway.p2r1.source-tree-sha256=sha256:62a38a0881926ba0afd15fb22db292c15be19318649562033f4b9c3f91d642cf`。
+
 `vnext/deploy/compose.yaml` SHA-256：`f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0`
 
 五锁 SHA-256（与 runner 一致）：
@@ -219,11 +213,23 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
   tests/test_ordered_submit_bisect_compose.py
 ```
 
-结果：**9 passed**, 1 warning, ~1074s。日志：`/tmp/s1-backend-compose.log`。
+结果：**9 passed**, 1 warning, ~1145s（2026-09-28）。日志：`gate-logs/backend-compose-9-r2.log`。
+
+**注意**：跑 9 旅程前须 `docker compose … down -v`，确保 8000 无残留 gate 容器；否则前序 `require_docker()` 用例会误报 port 冲突。
+
+Compose provenance：`vnext/backend/tests/support/.last_compose_gate_provenance.json`（末次 archive 旅程写入）。旅程实际使用 backend image `sha256:b6795948fb268f6b0b6ab4f7b822d839881ac495678a2adb3be65f2a0c34e39f`、worker image `sha256:a6234eee385029afad6f2ebd130055f0ba834df6479b38e225f014581a6ce5c6`、RS image `sha256:2fe98a0f97ce3ee425f2ac5386f87011e33f91841ef1863e5f6be75b6fbcd2df`；compose build 引用 `deploy-backend`/`deploy-worker`，gate harness 为隔离项目构造同源项目镜像。
+
+### 6.5 本轮复审修订定向验证（2026-10-10）
+
+- `python -m tests.support.import_rules`：**3 / 0 / 14**。
+- `pytest -m unit -q tests/test_architecture.py tests/test_real_dump_census.py tests/test_submit_job_payload.py tests/test_submit_job_prepare.py tests/test_submit_job_effect.py`：**126 passed, 16 deselected**。
+- 五包 ruff/mypy：全部通过，见 `gate-logs/static-check.log`。
+- focused 输出：`gate-logs/focused-rereview-repairs.log`。
+- 本轮只修改架构审计工具、主机侧普查脚本、测试与 handoff/执行计划；未改 HTTP/worker、Dockerfile、Compose 或容器运行时边界。`implementation_head..41c43909be` 的 backend/repository_service 源码与测试无差异；S1-F11 所需的镜像与全量测试证据在 §6.2–§6.4。此轮不声明 S1 阶段退出；owner 批准退出前仍须按 AGENTS.md 在最终 candidate HEAD 重建镜像并运行阶段 compose 门禁。
 
 ## 7. 请 reviewer 重点核对
 
-1. import 3/0/10 与 DC26 单条 `capability:canonical_row_hash → ext:compute` 放行。
+1. import 3/0/14；4 个 composite facade 实现模块按符号级可达性登记为 S3 延期；DC26 仅对 `capability:canonical_row_hash → ext:compute` 放行。
 2. §3 模块已落地；job 模块仅薄包装、checkpoint 载荷未变。
 3. kickoff 普查负结果未 overstated 为 S2a 类型决策。
 4. merge `218c211240` 仅文档模板，无实现冲突。
@@ -231,7 +237,7 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 
 ## 8. 审核提示词（§8.7）
 
-见 §修订 末尾 `candidate_head` 填入后复制执行计划 §8.8 模板。
+reviewer 开始时解析 `candidate_ref` 的分支 tip，再依执行计划 §8.8 模板生成本轮审核提示词。
 
 ---
 
@@ -241,12 +247,12 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 
 | Finding | 状态 | 提交 / 说明 |
 | --- | --- | --- |
-| S1-F1 FAILED 证据 | 已关闭 | `d5d5a7542d`、`f6386588e4`：域类型 `details`/`request_id`；`test_submit_job_payload` golden + 拒绝表 |
+| S1-F1 FAILED 证据 | 已关闭 | `d5d5a7542d`、`f6386588e4` 恢复 golden；`61f6d03216` 接入 wire codec 严格解码 port；拒绝表覆盖 7 类 wire 约束 |
 | S1-F2 History OpenAPI | 已关闭 | `6f61a05266`：本地 `CommitIdString` 约束 |
 | S1-F3 三项延期 | 已登记 | `6279226393`：删 `job_steps.pinned_checkpoint_builder`；执行计划 S2b/§8.5/§1 parser 前置 |
 | S1-F4 shim + DAG | 已关闭 | `022e84fbd5`：`import_rules` 函数内 `__init__` import；compose facade；`import_rules` **4/0/10**（含 F7 层） |
 | S1-F5 baseline 治理 | 已关闭 | `de05056950`：baseline 头与条目标注；设计 §9 / owner §9 延期登记 |
-| S1-F6 普查 | 已关闭（脚本+重跑） | `662cc0979e`；`summary.json` @ `/home/dev/gateway-real-dumps/census/`；生产路径失败见 §1 |
+| S1-F6 普查 | 已关闭（完整记录；失败物化的键扫描明确延期） | §1 与 `p5-arch-closure-s1-census.json`；t1 duplicate/effective-key 明细，t2–t4 未评估状态及 S2a 承接节点；pair_of owner 确认 |
 | S1-F7 常量单源 | 已关闭 | `e507bc5c43`、`c434064c7d`：`RULESET_VERSION`；上传上限经 `settings`→`workspace.contracts` |
 | S1-F8 事实更正 | 本 handoff | §2/§3/§6 更新；子步合并 S1.3–S1.4、S1.5–S1.6 |
 | S1-F9 去重（严格） | 已关闭 | `2a54214df9`：见下 |
@@ -277,7 +283,7 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 - 全量 `run-tests.sh`：修订期间日志 `/home/dev/gdds-p5-closure-s1-gate-logs/run-tests-r2.log`（backend 曾 3 项 compose 失败，需 **当前 HEAD 镜像** 后重跑 §6.4）；RS parallel 曾 1 项 `test_upload_artifact_visibility` 失败，与 S1 修订无直接关联，serial 批次以日志为准。
 - 镜像：`gateway-repository-service:local` digest `sha256:bffceac8e02245bebb67dfd4ab82fb73d2d017e09da4dbe605a113e78ff9c96e`（`c434064c7d` 标记）；`deploy-backend`/`deploy-worker` compose build @ 修订日（层多为 cache，compose 旅程须串行重证）。
 
-### §8.7 复审提示词（`candidate_head` = 本提交 SHA）
+### §8.7 原复审提示词（审核对象 `1897d5df46`）
 
 ```text
 任务：独立复审 P5 架构收口 S1 的修订。你没有参与 S1 的实现与修订；按纵切指南 §7 复审。
@@ -296,12 +302,12 @@ GATEWAY_COMPOSE_GATE_PREBUILT=0 \
 
 | Finding | 处理 |
 | --- | --- |
-| S1-F10 | `upload_limits` 叶子模块；三处运行时环拆解；`RUNTIME_CYCLE_BASELINE=()`；**3/0/10** |
-| S1-F4 | 删除 `_mark_package_facades`；父 package `__init__` 随子模块可达；`REACHABILITY_MODULE_SHAPES` |
+| S1-F10 | `upload_limits` 叶子模块；三处运行时环拆解；`RUNTIME_CYCLE_BASELINE=()`；**3/0/14** |
+| S1-F4 | 删除包级 facade 扩展；只在可达模块导入 wrapper symbol 时展开其惰性导入；4 个 composite 实现模块按 owner 确认登记为 S3 延期；添加导入/未导入双向形态用例 |
 | S1-F1 | `RepositoryTerminalEvidenceDecodePort` + `WireRepositoryTerminalEvidenceDecodePort`；删 application 宽 schema；`MALFORMED_TERMINAL_EVIDENCE_SHAPES` 扩展 |
-| S1-F6 | `real_dump_census.py` 重复键 / 有效键诊断字段；§1 八数据集内嵌记录 |
+| S1-F6 | 修正 UNSIGNED 分布；§1 八数据集结构记录与 JSON companion；t1 duplicate/effective-key 统计；t2–t4 明示未评估并登记 S2a；pair_of owner 确认 |
 | S1-F3 | 执行计划 §3「S2b — S1 复审延期路径」；handoff §3 逐项延期表 |
-| S1-F8 | §4 **3/0/10**；§5.1 只改 import 测试清单；§6 `gate-logs/`；traceability 绑定 `implementation_head` |
-| S1-F11 | 见 §6（`gate-logs/run-tests.log`、镜像 rebuild、compose 9 旅程） |
+| S1-F8 | §4 **3/0/14**；§5.1 列出真实存在的 3 个 `canonical_import_request_bytes` 测试桩；§6 `gate-logs/` 与实际容器镜像 provenance；candidate 改用 branch ref |
+| S1-F11 | 见 §6.2–§6.4（`gate-logs/run-tests-rereview.log`、fresh image build 与实际 compose provenance/9 旅程） |
 
 _next_step：独立复审 rereview-1 通过后 `--no-ff` 合入 `main`，进入 S2a（含 parser 前置与 S2b 延期项）。_

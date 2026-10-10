@@ -90,9 +90,10 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     `capability-surface` → `snapshot_materialization.scalar_encoding`），以及 A6 的
     `unowned-root-module gateway_backend.repository_import_artifact`；三条都在 S2b 关闭。
   - 运行时环基线为空。
-  - 不可达基线只剩：
-    - composite 与 XML 模块（`snapshot_materialization._catalog`、`snapshot_materialization.compose`、
-      `table_access._xml_parser`、`table_access.xml`），S3 关闭；
+  - 不可达基线共 **14 项**，按真实符号级可达性记录：
+    - S3 composite 业务入口尚无可达调用方的 4 个模块（`composite_signal._ast`、`_bind`、`_digest`、`materialize`），
+      以及 snapshot compose/catalog 与 XML parser 的 4 个模块（`snapshot_materialization._catalog`、
+      `snapshot_materialization.compose`、`table_access._xml_parser`、`table_access.xml`）；这 8 项均由 S3 关闭；
     - `external_target_sync` 三个模块，在 owning 设计中登记延期；
     - canonical row hash 模块：`capabilities.canonical_row_hash.contracts` 与 `compute`、`canonical_row_hash_ipc`
       移入后的新模块名。改名导致的基线条目替换在同一 diff 中给出理由，并登记 Phase 6 延期。
@@ -169,7 +170,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - `NO_CANONICAL_CHANGE` 的不变量只由 `test_submit_transactions.py` 证明：`test_submit_http.py` 只保留 HTTP 错误映射，
     `test_production_wiring.py` 只保留接线断言，`test_preview_job_assemble.py` 与 `test_submit_application.py` 中的重复断言删除；
   - DC9 相关代码、路由、表、测试与测试支撑钩子已删除，OpenAPI 测试同步更新；ADR 0016 的 Operation integrity 测试不变且通过；
-  - 导入基线：违例与运行时环基线为空；不可达基线只剩 S3 的 composite 与 XML 模块和已登记延期项；
+  - 导入基线：违例与运行时环基线为空；不可达基线为 14 项，包含 S3 的 8 个模块与已登记延期项；
   - compose：
     - 扩展旅程“提交 X → 审核 → 归档 → 再次上传 X”，Preview 全表 UNCHANGED，受理返回 `NO_CANONICAL_CHANGE`；
     - 规则表（显式键、存储丢弃列、ordered）在非空基线上的 Preview 不降级；
@@ -454,7 +455,8 @@ Dockerfile、依赖锁与 Compose 预期不变；真实数据不挂载进容器�
 ## 7. 停止规则
 
 设计 §14 任一停止条件出现时，暂停当前阶段，在 handoff 记录触发事实并交 owner 处理；不得以兼容代码、
-Application 特判或新增基线条目绕过。
+Application 特判或新增基线条目绕过。经 owner 明确批准的测量语义纠错可以更正起始基线；必须记录旧值、新值、工具语义变化与延期归属，
+且不能掩盖新增的真实违例或运行时环。
 
 ## 8. 阶段推进约定
 
@@ -468,6 +470,8 @@ Application 特判或新增基线条目绕过。
   `/home/dev/gdds-p5-closure-s<N>` 中实施；主工作区保持在 `main`，不在其中实施。
 - 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s1): ...`）。每个子步结束运行
   `import_rules` 与受影响的 focused 测试；`import_rules` 的输出只减不增，改名导致的条目替换在同一提交中说明。
+  若 owner 批准修正错误的可达性测量，handoff 必须同时记录原计数、修正后的计数、语义依据与延期阶段；这只更正起始测量基线，
+  更正后的后续实现仍遵守只减不增。本 S1-F4 的 10→14 是该类修正，且 4 项均明确归属 S3。
 - 运行 `./vnext/scripts/run-tests.sh` 或 compose 测试期间，不在该 worktree 中写入任何文件：compose provenance 要求工作区干净，
   否则报 `worktree is dirty`。handoff 与审核报告都在测试结束后写入。实现者与审核者同样适用。
 - 实现者完成全部代码提交后，最后一个提交只加 handoff（只改文档，不改变镜像构建上下文）。审核对象是分支末端，即 handoff

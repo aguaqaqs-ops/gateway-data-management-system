@@ -1,0 +1,984 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-10-10",
+  "contains_row_data": false,
+  "provenance": {
+    "diagnostic_mode": true,
+    "original_structural_census": "2026-09-28",
+    "storage_type_counts_reparsed_on": "2026-10-10",
+    "t1_duplicate_and_effective_key_recheck_on": "2026-10-10",
+    "source_ddl_table_count_basis": "count of parsed DDL tables; corroborated by role_table_counts",
+    "pairing_owner_confirmation": "Owner confirmed 2026-09-28: within each tier, v2 pairs with v1."
+  },
+  "parser_production_path": [
+    {
+      "dataset_id": "rd-t1-a-v1",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t1-a-v2",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t2-b-v1",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t2-b-v2",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t3-c-v1",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t3-c-v2",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t4-d-v1",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    },
+    {
+      "dataset_id": "rd-t4-d-v2",
+      "sql_parse": {
+        "code": "UNSUPPORTED_STATEMENT",
+        "message": "SET @saved_cs_client is not in the source dump allowlist",
+        "status": "FAILED"
+      }
+    }
+  ],
+  "datasets": [
+    {
+      "dataset_id": "rd-t1-a-v1",
+      "tier": "t1",
+      "project_alias": "a",
+      "version": "v1",
+      "pair_of": null,
+      "package": {
+        "bytes": 107115,
+        "sha256": "42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "COMPLETE",
+      "table_count": 133,
+      "row_count_total": 6097,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 9,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 1,
+        "STANDARD_DIFF": 101
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 263,
+        "FLOAT": 46,
+        "INT": 87,
+        "INT UNSIGNED": 371,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 38,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 139,
+        "VARCHAR": 538
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n1_iec61850c_cfg",
+        "b1_n2_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec104_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "complete",
+      "logics_xml_event_count": 2,
+      "materialization_diagnostics": [],
+      "duplicate_key_scan": {
+        "status": "complete",
+        "extra_rows": 3,
+        "by_table": {
+          "b1_n2_iec104_syx_list": 3
+        }
+      },
+      "effective_key_scan": {
+        "status": "partial",
+        "no_ddl_pk_tables_with_explicit_effective_key": {
+          "count": 5,
+          "tables": [
+            "app_cfg",
+            "b1_n1_iec61850c_cfg",
+            "b1_n2_iec104_cfg",
+            "pointref_forwardtbl",
+            "rdb_cfg"
+          ],
+          "key_columns": {
+            "app_cfg": [
+              "app_name"
+            ],
+            "b1_n1_iec61850c_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n2_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "pointref_forwardtbl": [
+              "refname"
+            ],
+            "rdb_cfg": [
+              "no"
+            ]
+          }
+        },
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "forwardtable_yx1",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ],
+        "effective_key_tables_count": 102,
+        "effective_keyless_tables": [],
+        "unresolved_table_count": 23
+      },
+      "source_ddl_table_count": 132
+    },
+    {
+      "dataset_id": "rd-t1-a-v2",
+      "tier": "t1",
+      "project_alias": "a",
+      "version": "v2",
+      "pair_of": "rd-t1-a-v1",
+      "package": {
+        "bytes": 107066,
+        "sha256": "4019737fc8fe35e90792dcef722537bf09338110ace8cc09f35e004cc7095bd0"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "COMPLETE",
+      "table_count": 133,
+      "row_count_total": 6095,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 9,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 1,
+        "STANDARD_DIFF": 101
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 263,
+        "FLOAT": 46,
+        "INT": 87,
+        "INT UNSIGNED": 371,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 38,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 139,
+        "VARCHAR": 538
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n1_iec61850c_cfg",
+        "b1_n2_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec104_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "complete",
+      "logics_xml_event_count": 2,
+      "materialization_diagnostics": [],
+      "duplicate_key_scan": {
+        "status": "complete",
+        "extra_rows": 3,
+        "by_table": {
+          "b1_n2_iec104_syx_list": 3
+        }
+      },
+      "effective_key_scan": {
+        "status": "partial",
+        "no_ddl_pk_tables_with_explicit_effective_key": {
+          "count": 5,
+          "tables": [
+            "app_cfg",
+            "b1_n1_iec61850c_cfg",
+            "b1_n2_iec104_cfg",
+            "pointref_forwardtbl",
+            "rdb_cfg"
+          ],
+          "key_columns": {
+            "app_cfg": [
+              "app_name"
+            ],
+            "b1_n1_iec61850c_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n2_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "pointref_forwardtbl": [
+              "refname"
+            ],
+            "rdb_cfg": [
+              "no"
+            ]
+          }
+        },
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "forwardtable_yx1",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ],
+        "effective_key_tables_count": 102,
+        "effective_keyless_tables": [],
+        "unresolved_table_count": 23
+      },
+      "source_ddl_table_count": 132
+    },
+    {
+      "dataset_id": "rd-t2-b-v1",
+      "tier": "t2",
+      "project_alias": "b",
+      "version": "v1",
+      "pair_of": null,
+      "package": {
+        "bytes": 1247459,
+        "sha256": "acd1b5e6f92083c3a6d53e9996be0bf46f520ae7fdea94d8449069748a3817c0"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "FAILED",
+      "table_count": null,
+      "row_count_total": null,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 72,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 4,
+        "STANDARD_DIFF": 119
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 394,
+        "FLOAT": 53,
+        "INT": 87,
+        "INT UNSIGNED": 794,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 48,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 309,
+        "VARCHAR": 834
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n10_iec61850c_cfg",
+        "b1_n1_nr103d_cfg",
+        "b1_n2_iec104_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n5_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "b1_n8_iec104_cfg",
+        "b1_n9_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "forwardtable_yc1",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec104_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "nr103d_cfg",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "complete",
+      "logics_xml_event_count": 3158,
+      "materialization_diagnostics": [
+        "COMPOSITE_LOGIC_FAILED"
+      ],
+      "duplicate_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "extra_rows": null,
+        "by_table": null
+      },
+      "effective_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "no_ddl_pk_tables_with_explicit_effective_key": null,
+        "unresolved_tables": null
+      },
+      "source_ddl_table_count": 216
+    },
+    {
+      "dataset_id": "rd-t2-b-v2",
+      "tier": "t2",
+      "project_alias": "b",
+      "version": "v2",
+      "pair_of": "rd-t2-b-v1",
+      "package": {
+        "bytes": 1197404,
+        "sha256": "c66e3921c7774a38bfeb2f407c24a39209225e962f593ec88d17db0d85fcba98"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "FAILED",
+      "table_count": null,
+      "row_count_total": null,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 72,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 4,
+        "STANDARD_DIFF": 119
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 394,
+        "FLOAT": 53,
+        "INT": 87,
+        "INT UNSIGNED": 794,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 48,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 309,
+        "VARCHAR": 834
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n10_iec61850c_cfg",
+        "b1_n11_iec104_cfg",
+        "b1_n1_nr103d_cfg",
+        "b1_n2_iec104_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "b1_n8_iec104_cfg",
+        "b1_n9_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "forwardtable_yc1",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec104_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "nr103d_cfg",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "complete",
+      "logics_xml_event_count": 3158,
+      "materialization_diagnostics": [
+        "COMPOSITE_LOGIC_FAILED"
+      ],
+      "duplicate_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "extra_rows": null,
+        "by_table": null
+      },
+      "effective_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "no_ddl_pk_tables_with_explicit_effective_key": null,
+        "unresolved_tables": null
+      },
+      "source_ddl_table_count": 216
+    },
+    {
+      "dataset_id": "rd-t3-c-v1",
+      "tier": "t3",
+      "project_alias": "c",
+      "version": "v1",
+      "pair_of": null,
+      "package": {
+        "bytes": 3356815,
+        "sha256": "c34e266c458d9b2cfb630fec56fa7c893113e11b56f768710aecebb0715eec7e"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "FAILED",
+      "table_count": null,
+      "row_count_total": null,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 54,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 4,
+        "STANDARD_DIFF": 120
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 318,
+        "FLOAT": 51,
+        "INT": 82,
+        "INT UNSIGNED": 648,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 53,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 261,
+        "VARCHAR": 747
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n1_iec61850c_cfg",
+        "b1_n2_iec104_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n5_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "cnt_manage_cfg",
+        "forwardtable_yc1",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec101_cfg",
+        "iec104_cfg",
+        "iec104gw_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "failed",
+      "logics_xml_event_count": null,
+      "materialization_diagnostics": [
+        "XML_DOCUMENT_FAILED"
+      ],
+      "duplicate_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "extra_rows": null,
+        "by_table": null
+      },
+      "effective_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "no_ddl_pk_tables_with_explicit_effective_key": null,
+        "unresolved_tables": null
+      },
+      "source_ddl_table_count": 199
+    },
+    {
+      "dataset_id": "rd-t3-c-v2",
+      "tier": "t3",
+      "project_alias": "c",
+      "version": "v2",
+      "pair_of": "rd-t3-c-v1",
+      "package": {
+        "bytes": 3370171,
+        "sha256": "658422efd2583963cc04bdff6e88e2b733d33396bdd92ff5b3635dc00cffc28d"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "FAILED",
+      "table_count": null,
+      "row_count_total": null,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 54,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 4,
+        "STANDARD_DIFF": 121
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 349,
+        "FLOAT": 51,
+        "INT": 82,
+        "INT UNSIGNED": 648,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 53,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 261,
+        "VARCHAR": 770
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n1_iec61850c_cfg",
+        "b1_n2_iec104_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n5_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "forwardtable_yc1",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec101_cfg",
+        "iec104_cfg",
+        "iec104gw_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "failed",
+      "logics_xml_event_count": null,
+      "materialization_diagnostics": [
+        "XML_DOCUMENT_FAILED"
+      ],
+      "duplicate_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "extra_rows": null,
+        "by_table": null
+      },
+      "effective_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "no_ddl_pk_tables_with_explicit_effective_key": null,
+        "unresolved_tables": null
+      },
+      "source_ddl_table_count": 200
+    },
+    {
+      "dataset_id": "rd-t4-d-v1",
+      "tier": "t4",
+      "project_alias": "d",
+      "version": "v1",
+      "pair_of": null,
+      "package": {
+        "bytes": 5597503,
+        "sha256": "95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "FAILED",
+      "table_count": null,
+      "row_count_total": null,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 144,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 6,
+        "STANDARD_DIFF": 148
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 534,
+        "FLOAT": 61,
+        "INT": 87,
+        "INT UNSIGNED": 1196,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 68,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 510,
+        "VARCHAR": 1224
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n10_dev104_cfg",
+        "b1_n11_iec104_cfg",
+        "b1_n12_iec104_cfg",
+        "b1_n13_iec104_cfg",
+        "b1_n14_iec104_cfg",
+        "b1_n15_iec104_cfg",
+        "b1_n16_iec104_cfg",
+        "b1_n17_iec104_cfg",
+        "b1_n18_iec104_cfg",
+        "b1_n1_iec61850c_cfg",
+        "b1_n20_iec104_cfg",
+        "b1_n21_nbridge_cfg",
+        "b1_n22_nbridge_cfg",
+        "b1_n23_nbridge_cfg",
+        "b1_n24_nbridge_cfg",
+        "b1_n2_nr103d_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n5_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "b1_n8_iec104_cfg",
+        "b1_n9_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "dev104_cfg",
+        "forwardtable_yc1",
+        "forwardtable_yc2",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtable_yx2",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec104_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "nbridge_cfg",
+        "nr103d_cfg",
+        "nr103ht_cfg",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "sntp_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "failed",
+      "logics_xml_event_count": null,
+      "materialization_diagnostics": [
+        "XML_DOCUMENT_FAILED"
+      ],
+      "duplicate_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "extra_rows": null,
+        "by_table": null
+      },
+      "effective_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "no_ddl_pk_tables_with_explicit_effective_key": null,
+        "unresolved_tables": null
+      },
+      "source_ddl_table_count": 319
+    },
+    {
+      "dataset_id": "rd-t4-d-v2",
+      "tier": "t4",
+      "project_alias": "d",
+      "version": "v2",
+      "pair_of": "rd-t4-d-v1",
+      "package": {
+        "bytes": 5596595,
+        "sha256": "5a7cd54d9b996be55c34b7bb766eb01ad5c1b7c4fa9bd1e72f5c4741baee3611"
+      },
+      "staging_status": "COMPLETE",
+      "materialization_status": "FAILED",
+      "table_count": null,
+      "row_count_total": null,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 144,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 6,
+        "STANDARD_DIFF": 148
+      },
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 534,
+        "FLOAT": 61,
+        "INT": 87,
+        "INT UNSIGNED": 1196,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 68,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 510,
+        "VARCHAR": 1224
+      },
+      "unknown_sql_types": [],
+      "json_columns": [],
+      "nullable_key_columns": [],
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n10_dev104_cfg",
+        "b1_n11_iec104_cfg",
+        "b1_n12_iec104_cfg",
+        "b1_n13_iec104_cfg",
+        "b1_n14_iec104_cfg",
+        "b1_n15_iec104_cfg",
+        "b1_n16_iec104_cfg",
+        "b1_n17_iec104_cfg",
+        "b1_n18_iec104_cfg",
+        "b1_n1_iec61850c_cfg",
+        "b1_n20_iec104_cfg",
+        "b1_n21_nbridge_cfg",
+        "b1_n22_nbridge_cfg",
+        "b1_n23_nbridge_cfg",
+        "b1_n24_nbridge_cfg",
+        "b1_n2_nr103d_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n5_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "b1_n8_iec104_cfg",
+        "b1_n9_iec104_cfg",
+        "cnt_manage_cfg",
+        "comm_user_data",
+        "dev104_cfg",
+        "forwardtable_yc1",
+        "forwardtable_yc2",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtable_yx2",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec104_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "nbridge_cfg",
+        "nr103d_cfg",
+        "nr103ht_cfg",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "sntp_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
+      "version_manager_saved_time_type": "VARCHAR(128)",
+      "has_logics_xml": true,
+      "logics_xml_status": "failed",
+      "logics_xml_event_count": null,
+      "materialization_diagnostics": [
+        "XML_DOCUMENT_FAILED"
+      ],
+      "duplicate_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "extra_rows": null,
+        "by_table": null
+      },
+      "effective_key_scan": {
+        "status": "not_evaluated_materialization_failed",
+        "no_ddl_pk_tables_with_explicit_effective_key": null,
+        "unresolved_tables": null
+      },
+      "source_ddl_table_count": 319
+    }
+  ]
+}

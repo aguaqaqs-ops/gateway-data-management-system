@@ -341,4 +341,4 @@ implementation_authorized: no
   - t2 的 `COMPOSITE_LOGIC_FAILED`（`Digital forbids attribute 'value'`）：vnext `composite_signal/_ast.py` 把 legacy 与真实数据中小写的 `value` 误写为 `Value`；
   - t3/t4 `logics.xml` 超出 `max_xml_depth=64`。
 
-  S1 不修改 `table_access` 与 `composite_signal` 的生产代码；普查结果如实记录这些失败。生产上传当前只走 SQL 物化，composite 与 XML 解析器处于不可达基线（执行计划 §2 S1 的 14 项不可达中即有 `composite_signal._ast`、`table_access._xml_parser`、`table_access.xml` 等，均由 S3 关闭），因此 t2 的 composite 失败**不阻塞** S2b 的 DC22；第 2 次独立复审 N4 中“阻塞 S2b”的说法不成立，予以更正。t3/t4 的重复键与有效键扫描待 G2 修复后，随 G2 验收中的普查重跑补齐（治理修订计划 G2 验收）。
+  S1 未改动 G2 涉及的解析逻辑（`table_access` 的 SQL 语句白名单与 XML 预算、`composite_signal/_ast.py`）；S1 整体只在 `composite_signal` 的 facade 中搬迁了一个惰性包装，不改变行为。普查结果如实记录这些失败。生产上传当前只走 SQL 物化，composite 与 XML 解析器处于不可达基线（执行计划 §2 S1 的 14 项不可达中即有 `composite_signal._ast`、`table_access._xml_parser`、`table_access.xml` 等，均由 S3 关闭），因此 t2 的 composite 失败**不阻塞** S2b 的 DC22；第 2 次独立复审 N4 中“阻塞 S2b”的说法不成立，予以更正。t3/t4 的重复键与有效键扫描待 G2 修复后，随 G2 验收中的普查重跑补齐（治理修订计划 G2 验收）。

@@ -17,7 +17,7 @@ Worktree：`/home/dev/gdds-p5-closure-s1`
 stage: P5-arch-closure-S1-structure
 authorized_base: 218c211240b33e01eee1eb8965fdcca0ec4b8099  # main @ 授权基线（merge-base 一致）
 implementation_fork: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b  # S1 实现切点
-merge_base_with_main: 218c211240b33e01eee1eb8965fdcca0ec4b8099
+merge_base_with_main: 5fe02db3a719eb064e3a8fce44b39056afc3321f  # V 合入 main 后的实际 merge-base；授权基线仍为 218c2112
 previous_reviewed_head: 96071affd490b728aa62fe4a6f0ee9e784e42466  # 第 2 次复审的 Git HEAD；该次审核对象另含未提交的 census 补丁
 previous_reviewed_patch_sha256: 492cce95f9b63849533fbd7be8a0b87d36df546249c8c4ce3e4fbe87ba654b74  # 第 2 次复审时未提交的 census 实现与测试 diff
 fix_commit: ce12e245286e367d1e7e86d65a8b3a428cfb813e  # census 脚本与测试（含 reader 不可用 → partial 用例）
@@ -87,7 +87,7 @@ S1 普查暴露的三处缺口，Owner 于 2026-10-10 决定统一由[治理修�
 | 2 | t2 `COMPOSITE_LOGIC_FAILED`：`Digital forbids attribute 'value'` | `capabilities/composite_signal/_ast.py` `_ATTR_VALUE` |
 | 3 | t3/t4 `logics.xml` 超出 `max_xml_depth=64` | `capabilities/table_access/contracts.py` |
 
-S1 不修改 `table_access` 与 `composite_signal` 的生产代码。
+S1 未改动 G2 涉及的解析逻辑（`table_access` 的 SQL 语句白名单与 XML 预算、`composite_signal/_ast.py`）；S1 整体只在 `composite_signal` 的 facade 中搬迁了一个惰性包装，不改变行为。
 
 **t2 不阻塞 S2b 的 DC22**：生产上传当前只走 SQL 物化，composite 与 XML 解析器处于不可达基线——§4 的 14 项不可达模块包含 `composite_signal._ast`、`_bind`、`_digest`、`materialize` 与 `table_access._xml_parser`、`table_access.xml`，由 S3 接入后关闭。第 2 次独立复审 N4 中“阻塞 S2b”的说法不成立，据此更正。
 
@@ -220,7 +220,7 @@ V = `d9c2097612036c05741c98b702d518d54571ece2`（tree `4ea3ce28543537375e9c9f7c5
 **环境成因与处置**（日志 `final-client-image-depth.log`、`final-cleanup.log`、`final-rerun2-client-image.log`）：
 
 1. RS 测试 harness 构建该镜像时，只要现有镜像的 uv-lock label 匹配，就把它自己的 tag 当作 `BASE_IMAGE`（`compose_lifecycle_harness.py` `client_dependency_base_image`，默认值为镜像自身）。每换一个候选 SHA 都会在上一版之上再叠层。运行 1 之前该镜像已有 124 个 rootfs 层（`docker history` 293 条），再叠加就超过 overlay2 的深度上限。
-2. 运行 1 之后删除了这个镜像（`docker rmi`）。该镜像同时是环境保留的预装依赖基础镜像；删除后构建要从 `python:3.14.6-slim-bookworm` 起步并联网安装依赖，而该主机到 PyPI 只有约 60 KB/s（实测 20 秒下载 1.16 MB），因此运行 2 中第一次构建因下载 `pyarrow` 超时而失败，第二次构建成功（Created 16:10:33，12 层，`revision` label 为 V）。
+2. 运行 1 之后删除了这个镜像（`docker rmi`）。该镜像同时是环境保留的预装依赖基础镜像；删除后构建要从 `python:3.14.6-slim-bookworm` 起步并联网安装依赖，而该主机到 PyPI 的下载很慢（运行 2 日志中 `pyarrow==25.0.0`（47.8 MiB）在 4 次重试、129.3 秒后仍超时），因此运行 2 中第一次构建因下载 `pyarrow` 超时而失败，第二次构建成功（Created 16:10:33，12 层，`revision` label 为 V）。
 3. 运行 3 开始时该镜像已存在且 label 与 V 匹配，harness 复用而不重建（运行 3 结束后该镜像的 Created 仍为 16:10:33，层数仍为 12），runner 通过。
 
 这不是规程中的“清理后重跑一次”：为恢复被删除的预装依赖基础镜像共执行了 3 次完整运行，三次都已记录。**未修复的遗留问题**：client 镜像以自身为基础会随候选更换持续叠层，建议由 owner 另行决定修复方式（例如改为以单层依赖基础镜像为基础，或在构建前检查层数）。S1 不改动该 harness。

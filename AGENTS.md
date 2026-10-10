@@ -131,6 +131,15 @@ uv run pytest -m unit; mv /usr/local/bin/dolt.parked /usr/local/bin/dolt
 sha256sum vnext/repository_service/uv.lock
 ```
 
+## 主线开发与阶段边界
+
+- 直接在 `main` 上提交，不为每个阶段开分支；只有确需并行的工作才开短期分支，并尽快合回。
+- 阶段边界用附注 tag（例如 `p5-s1-exit`）标记；审核对象是 `<上一阶段 tag>..<候选提交>` 的提交区间。
+- 审核与复审在只读 detached worktree 中进行（`git worktree add --detach`），不在主工作区运行测试；
+  测试运行期间任何人都不得在被测 worktree 中写入。
+- 未经 owner 授权不推送，不改写已被审核引用的提交。流程细节见
+  [P5 收口执行计划 §8](docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-execution-plan.md)。
+
 ## Docker / Compose 验证
 
 阶段性修改不要求每轮、每个提交都重建镜像。是否重建按改动是否触碰 image、deployment
@@ -159,8 +168,11 @@ sha256sum vnext/repository_service/uv.lock
    未写 worktree；
 2. `V..HEAD` 未改动上面前五项列出的任何内容，也未改动 Docker/Compose e2e 测试或 harness；
 3. 每个门禁镜像身份相等：带 build-input/source-tree label 的镜像（repository-service）在最终
-   HEAD 重算的身份与 label 一致；没有此类 label 的镜像（backend/worker）在最终 HEAD 重建后，
-   image ID 与 `V` 的 provenance 中实际运行的 ID 相同。
+   HEAD 重算的身份与 label 一致；没有此类 label 的镜像（backend/worker）在 `V` 的同一 worktree 中、
+   两次构建之间不运行任何测试的前提下，用与 `V` 相同的命令（含 provenance 中的 project 名）重建，
+   image ID 与 `V` 的 provenance 中实际运行的 ID 相同。构建上下文包含 worktree 内被 git 忽略的缓存
+   目录（如 `.hypothesis`），换 worktree 或中间跑过测试都会改变 ID；`.dockerignore` 排除它们之前
+   （治理修订计划 G6），不得用另一个 worktree 的重建结果判定“不等价”或“等价”。
 
 任一条件不满足，就在最终 HEAD 重建并重跑。同一提交上权威 runner 已运行过的 Compose 旅程
 （含 backend 批次中的 Compose 测试）不再单独重跑，provenance 取自该次运行。

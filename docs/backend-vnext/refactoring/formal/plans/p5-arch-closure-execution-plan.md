@@ -23,7 +23,7 @@ S0 文档、独立审核与复审
   -> [前置：P5-5E slice exit pass]
   -> S1 kickoff（合入主线、漂移复核、真实数据普查）
   -> S1  结构修复（行为不变）
-  -> [前置：parser 修复（`@saved_cs_client`、XML 深度；S1 合入 main 后、S2a kickoff 前单独授权，见 §8.5 与 S1 审核 §5）]
+  -> [前置：真实数据格式保真（`@saved_cs_client`、`Digital value`、XML 深度；S1 合入后、S2a kickoff 前，治理修订计划 G2，见 §8.5）]
   -> S2a 规范快照与比较规则的能力层（W3 入口、ComparisonRuleView、编码与摘要、规范投影入口、真实 Dolt 同一性）
   -> S2b 切换到规范域（Preview/Submit/History 接入、commit 规范元数据、DC9）
   -> S3  composite_signal 接入
@@ -463,27 +463,29 @@ Application 特判或新增基线条目绕过。经 owner 明确批准的测量�
 
 2026-09-27 由 repository owner 同意。目的是让每个阶段只凭一段简短提示词即可推进；本节不改变 §2 的验收与 §3 的预算。
 
-### 8.1 授权、分支与提交
+### 8.1 授权、提交与阶段边界
+
+2026-10-10 owner 同意改为主线开发（[治理修订计划](p5-arch-closure-post-s1-governance-plan.md) G1）：项目是全新项目，没有并行的使用方，阶段分支的主要成本是与 `main` 的同步和提交身份。S1 按原流程在 `p5-closure/s1` 实施并 `--no-ff` 合入（tag `p5-s1-exit`）；S2a 及之后的阶段按本节执行。
 
 - 实现授权由 owner 按阶段给出，一次授权可以覆盖多个阶段；无论授权范围多大，阶段审核未通过都不进入下一阶段。
-  S1 kickoff 随 S1 的授权一起执行。
-- 主线为 `main`。每个阶段从当时的 `main` 切出工作分支 `p5-closure/s1`、`p5-closure/s2a`……，在独立 worktree
-  `/home/dev/gdds-p5-closure-s<N>` 中实施；主工作区保持在 `main`，不在其中实施。
-- 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s1): ...`）。每个子步结束运行
+- 阶段实施直接提交到 `main`，在主工作区进行。只有确需并行的工作才开短期分支，完成后尽快合回 `main`。
+- 阶段边界用附注 tag `p5-s<N>-exit` 标记，指向记录了通过结论的审核报告提交。审核对象是提交区间 `<上一阶段 tag>..<候选 SHA>`（S2a 的起点为 `p5-s1-exit`；G2 前置在 S1 与 S2a 之间提交，计入 S2a 的区间或另设 tag，由 G2 的 handoff 注明）；复审对象是 `<上次候选 SHA>..<新候选 SHA>`。
+- 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s2a): ...`）。每个子步结束运行
   `import_rules` 与受影响的 focused 测试；`import_rules` 的输出只减不增，改名导致的条目替换在同一提交中说明。
   若 owner 批准修正错误的可达性测量，handoff 必须同时记录原计数、修正后的计数、语义依据与延期阶段；这只更正起始测量基线，
-  更正后的后续实现仍遵守只减不增。本 S1-F4 的 10→14 是该类修正，且 4 项均明确归属 S3。
-- 运行 `./vnext/scripts/run-tests.sh` 或 compose 测试期间，不在该 worktree 中写入任何文件：compose provenance 要求工作区干净，
-  否则报 `worktree is dirty`。handoff 与审核报告都在测试结束后写入。实现者与审核者同样适用。
-- 实现者完成全部代码提交后，最后一个提交只加 handoff（只改文档，不改变镜像构建上下文）。审核对象是分支末端，即 handoff
-  所在的提交；实现者在最终回复中给出按 §8.7 填好的审核提示词，其中写明分支末端的 SHA。
-- 审核在新对话中进行，审核者不参与该阶段的实现。报告按 §8.8 的模板写入 `plans/p5-arch-closure-s<N>-independent-review.md`
-  （复审为 `plans/p5-arch-closure-s<N>-independent-rereview-<k>.md`），作为单独的提交加到工作分支。审核者不修改代码、测试
-  与 handoff，不合并，不推送。
-- 结论为定向修订时，实现侧在同一分支追加修订提交，并在 handoff 末尾增加修订一节（逐项对应 finding）；最终回复给出按 §8.7
+  更正后的后续实现仍遵守只减不增。S1-F4 的 10→14 是该类修正，且 4 项均明确归属 S3。
+- 权威 runner 与容器门禁遵守 [AGENTS.md](../../../../../AGENTS.md)“跑测试”的运行前提和“镜像身份等价”：门禁提交 `V` 必须是已提交的 clean worktree；
+  运行期间不在该 worktree 中写入任何文件，也不提交、不重建镜像；同一主机上整机单飞。handoff 与审核报告都在测试结束后写入。
+- 实现者完成全部代码提交并在 `V` 上通过门禁后，最后一个提交只加 handoff（只改文档，不改变镜像构建上下文），即候选 `H`。
+  审核对象是 `H`；实现者在最终回复中给出按 §8.7 填好的审核提示词，其中写明 `H`、`V` 与区间起点。
+  `V → H` 的容器门禁结果按 AGENTS.md 沿用（`carried`），判定日志写在 worktree 外。
+- 审核在新对话中进行，审核者不参与该阶段的实现。审核者在只读 detached worktree 中工作（`git worktree add --detach /home/dev/gdds-review-s<N>[-r<k>] <H>`），
+  结束后删除；不在主工作区运行测试，避免与实施互相写入。报告按 §8.8 的模板写入 `plans/p5-arch-closure-s<N>-independent-review.md`
+  （复审为 `plans/p5-arch-closure-s<N>-independent-rereview-<k>.md`），作为单独的纯文档提交，在审核 worktree 中提交后以
+  `git merge --ff-only` 快进到 `main`（`main` 已前进时改为 cherry-pick 该提交）。审核者不修改代码、测试与 handoff，不推送。
+- 结论为定向修订时，实现侧在 `main` 上追加修订提交，并在 handoff 末尾增加修订一节（逐项对应 finding）；最终回复给出按 §8.7
   填好的复审提示词。复审在新对话中进行，只核对修订差异与原 finding 的关闭情况。
-- 审核通过后是否合入由 owner 决定。合入时以 `--no-ff` 合入 `main`（保留审核引用的提交），再删除工作分支与 worktree；
-  可由 owner 执行，也可另开对话执行。
+- 审核通过后，由 owner（或 owner 授权的审核对话）在报告提交上打 `p5-s<N>-exit` tag；不推送，除非 owner 另行授权。
 - 审核按阶段进行（§1），只审本阶段差异与 handoff；S5 另按 P5 §2A.5 做整体验收。
 
 ### 8.2 handoff
@@ -493,8 +495,8 @@ Application 特判或新增基线条目绕过。经 owner 明确批准的测量�
   验收 owner 及实际命令与结果；镜像重建记录（按 [testing-conventions](../../../testing-conventions.md) 的模板记录 image
   revision 与 source tree，延期时写明延期到哪个节点）；阶段之间的中间状态与延期项；停止条件（设计 §14）是否触发；
   请 reviewer 重点核对的内容。
-- 实现 HEAD 与分支末端：handoff 记录实现 HEAD（最后一个代码提交），镜像在实现 HEAD 上构建；分支末端只比实现 HEAD 多 handoff。
-- 最后一节为“审核提示词”：按 §8.7 的审核模板填好除分支末端 SHA 之外的全部字段；“必须核查”取自 §2 本阶段的验收、§3 的
+- 区间与候选：handoff 记录 `range_start`（上一阶段 tag）、实现 HEAD（最后一个代码提交）、门禁提交 `V` 与候选 `H`；门禁在 `V` 上执行，`H` 只比 `V` 多 handoff 等文档。镜像记录按 testing-conventions 的模板填写，沿用时写 `carried` 及判定依据。
+- 最后一节为“审核提示词”：按 §8.7 的审核模板填好除 `H` 之外的全部字段；“必须核查”取自 §2 本阶段的验收、§3 的
   本阶段预算、§8.4/§8.5 的保留项，以及上面列出的请 reviewer 重点核对的内容。
 - 真实数据只记录 dataset ID、SHA-256、规模与结构统计（决议记录 §4）。
 
@@ -547,7 +549,7 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB migration 与 HTTP/OpenAPI 变更（设计 §10）。
 7. **S2b.7 旅程与门禁**：compose harness 不预导入（DC17）与 §2 S2b 的旅程；真实数据链路；全量与镜像。
 
-**S1 与 S2a 之间的 parser 修复（owner 2026-09-27，不纳入 S1 修订）**：自 `main` 切分支（例如 `p5-closure/s1-parser`），在 `table_access` 放行 mysqldump `@saved_cs_client`、按 owner 调整 `max_xml_depth`；独立审核后合入，再启动 S2a kickoff。纯 Python 解析逻辑的镜像重建可延期到 S2a 阶段末，须在修复 handoff 中写明。
+**S1 与 S2a 之间的真实数据格式保真前置（owner 2026-10-10，治理修订计划 G2）**：在 `main` 上依次修复 `table_access` 放行 mysqldump `@saved_cs_client`、composite AST 的 `Digital` 属性改为小写 `value`、按 8 份 `logics.xml` 的实测深度确定 `max_xml_depth`，并以诊断模式重跑普查更新 census JSON；独立审核后再启动 S2a kickoff。原 2026-09-27 的 parser 修复分支方案（`p5-closure/s1-parser`）由此取代。
 
 S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
 
@@ -569,14 +571,14 @@ S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
 
 ### 8.7 提示词模板
 
-尖括号内为占位符。实施者在最终回复中填好审核或复审提示词。
+尖括号内为占位符。实施者在最终回复中填好审核或复审提示词。`<R0>` 为区间起点（上一阶段 tag，S2a 为 `p5-s1-exit`）。
 
 实施：
 
 ```text
 按 docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-execution-plan.md 执行 S<N>（实现授权范围：S<N>）。
-基线 main @ <BASE>；工作分支 p5-closure/s<N>，worktree /home/dev/gdds-p5-closure-s<N>。
-按 §8 推进；完成后写 handoff，并在最终回复中按 §8.7 给出填好的审核提示词。
+区间起点 <R0>；直接在 main 上实施（主工作区），按 §8 推进。门禁提交 V 与候选 H 按 §8.1、AGENTS.md 处理；
+完成后写 handoff，并在最终回复中按 §8.7 给出填好的审核提示词。
 ```
 
 审核：
@@ -585,16 +587,17 @@ S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
 任务：独立审核 P5 架构收口 S<N>。你没有参与 S<N> 的实现；按
 docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-guide.md §5–§6 审核，不预设结论。
 
-审核对象：p5-closure/s<N> @ <分支末端 SHA>（实现 HEAD <实现 HEAD>），base main @ <BASE>；worktree /home/dev/gdds-p5-closure-s<N>。
-  只审 <BASE>..<分支末端 SHA> 的差异；主工作区 /home/dev/gateway-data-management-system（main）只读。
+审核对象：main @ <H>（门禁提交 V = <V>，实现 HEAD <实现 HEAD>），区间 <R0>..<H>。只审该区间的差异。
+  在只读 detached worktree 中工作：git worktree add --detach /home/dev/gdds-review-s<N> <H>；不在主工作区运行测试或写入。
 权威依据：plans/p5-arch-closure-execution-plan.md（§2 S<N>、§3 S<N>、§8）、plans/p5-arch-closure-design.md（<本阶段章节>、§12、§14）、
   ADR 0018–0021、AGENTS.md；实现方记录 plans/p5-arch-closure-s<N>-handoff.md。
 必须核查：
   <逐条列出：§2 本阶段验收、§3 本阶段预算、§8.4/§8.5 的保留项、handoff 请 reviewer 重点核对的内容>
-验证：在审核对象上自己运行五包 ruff/mypy、`import_rules` 与 `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；核对 handoff 的镜像
-  记录绑定实现 HEAD。不接受旧镜像或其他工作区的结果。测试运行期间不在该 worktree 写入任何文件。
-交付：测试结束后，按执行计划 §8.8 写 plans/p5-arch-closure-s<N>-independent-review.md，作为单独提交加到 p5-closure/s<N>；
-  除该报告外不修改任何文件；不合并、不推送、不操作 main 与主工作区。
+验证：在审核 worktree 中自己运行五包 ruff/mypy 与 `import_rules`；核对 V 的门禁日志（起止 HEAD、clean status、runner exit code、
+  镜像 provenance），并按 AGENTS.md“镜像身份等价”复核 V → H 的 `carried` 判定。不接受旧镜像或其他工作区的结果。
+  不要求重跑全量 runner；若需要重跑，按 AGENTS.md 的运行前提在已提交的 clean worktree 上整机单飞执行。
+交付：按执行计划 §8.8 写 plans/p5-arch-closure-s<N>-independent-review.md，作为单独的纯文档提交，快进合入 main；
+  除该报告外不修改任何文件；不推送，不打 tag。
 审核允许结论：通过 / 定向修订 / 整体返工。
 ```
 
@@ -602,12 +605,12 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
 
 ```text
 任务：独立复审 P5 架构收口 S<N> 的修订。你没有参与 S<N> 的实现与修订；按纵切指南 §7 复审。
-审核对象：p5-closure/s<N> @ <新分支末端 SHA>；上次审核对象 @ <上次分支末端 SHA>，报告 plans/p5-arch-closure-s<N>-independent-review.md
-  （或上一份复审报告）。只核对 <上次分支末端 SHA>..<新分支末端 SHA> 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的
-  问题不重开。
-验证：修订涉及的 focused 测试；修订触碰 §6 的镜像边界时，核对新的镜像记录。测试运行期间不在该 worktree 写入任何文件。
-交付：按执行计划 §8.8 写 plans/p5-arch-closure-s<N>-independent-rereview-<k>.md，作为单独提交加到 p5-closure/s<N>；
-  除该报告外不修改任何文件；不合并、不推送。
+审核对象：main @ <新 H>（门禁提交 V = <V>）；上次审核对象 @ <上次 H>，报告 plans/p5-arch-closure-s<N>-independent-review.md
+  （或上一份复审报告）。只核对 <上次 H>..<新 H> 的修订差异、原 finding 的关闭情况与改动传播；已关闭且未受影响的问题不重开。
+验证：修订涉及的 focused 测试；修订触碰 §6 的镜像边界时，核对新的门禁与镜像记录，沿用结果时复核 `carried` 判定。
+  在只读 detached worktree 中工作，不在主工作区写入。
+交付：按执行计划 §8.8 写 plans/p5-arch-closure-s<N>-independent-rereview-<k>.md，作为单独的纯文档提交，快进合入 main；
+  除该报告外不修改任何文件；不推送，不打 tag。
 审核允许结论：通过 / 定向修订 / 整体返工。
 ```
 
@@ -618,12 +621,12 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
 
 - 结论：**通过 / 定向修订 / 整体返工**
 - 日期：<YYYY-MM-DD>
-- 审核对象：p5-closure/s<N> @ `<分支末端 SHA>`（实现 HEAD `<SHA>`），base main @ `<SHA>`
+- 审核对象：main @ `<H>`（门禁提交 V `<SHA>`，实现 HEAD `<SHA>`），区间 `<R0>..<H>`
 - 依据：执行计划 §2 S<N>、§3 S<N>、§8；设计 <章节>；handoff
 
 ## 1. 结论摘要
 
-<两到五句：阶段目标是否达成，阻塞项数量，是否可以合入 main 并进入下一阶段>
+<两到五句：阶段目标是否达成，阻塞项数量，是否可以打阶段 tag 并进入下一阶段>
 
 ## 2. Findings
 

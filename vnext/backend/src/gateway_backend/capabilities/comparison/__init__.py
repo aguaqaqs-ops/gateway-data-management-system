@@ -93,10 +93,6 @@ from gateway_backend.capabilities.comparison.standard import (
     compare_plan,
 )
 from gateway_backend.capabilities.comparison.ordered import compare_ordered_task
-from gateway_backend.capabilities.comparison.provider import (
-    PythonReferenceBatchProvider,
-    RustArrowBatchProvider,
-)
 from gateway_backend.capabilities.comparison.artifacts import (
     RecordsCancelled,
     RecordsPublicationError,
@@ -189,8 +185,6 @@ __all__ = [
     "TableComparisonTask",
     "TrustedFlowApplicabilityBinding",
     "UnverifiableContinuationBinding",
-    "PythonReferenceBatchProvider",
-    "RustArrowBatchProvider",
     "PairBindingOutcome",
     "PairPlanningOutcome",
     "bind_pair_input",

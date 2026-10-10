@@ -34,7 +34,6 @@ from gateway_backend.capabilities.storage_projection.package import (
 )
 from gateway_backend.capabilities.storage_projection import package as package_mod
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
-from gateway_backend.repository_import_artifact import build_repository_import_package as build_identity_package
 from tests.support.storage_projection import as_row, int_cell, int_column, table_input, varchar_cell, varchar_column
 
 pytestmark = pytest.mark.unit
@@ -135,11 +134,6 @@ def test_package_writer_is_reproducible_and_ustar_only() -> None:
     assert first.payload == second.payload
     assert first.sha256 == second.sha256
     assert first.size_bytes == len(first.payload)
-    identity = build_identity_package(
-        manifest=json.loads(repository_import_manifest_bytes(import_input).decode("utf-8")),
-        replay_sql=b"",
-    )
-    assert identity.payload == first.payload
     tar_bytes = compression.zstd.decompress(first.payload)
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:") as archive:
         members = archive.getmembers()

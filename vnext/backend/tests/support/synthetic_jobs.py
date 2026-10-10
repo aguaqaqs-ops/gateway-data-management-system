@@ -22,7 +22,7 @@ from gateway_backend.application.checkpoints import (
     prepare_ready_closure,
     prepare_step_checkpoint,
 )
-from gateway_backend.application.external_effect_stub import (
+from tests.support.external_effect_stub import (
     DeterministicExternalEffectStub,
     ExternalEffectStub,
     StubOutcome,

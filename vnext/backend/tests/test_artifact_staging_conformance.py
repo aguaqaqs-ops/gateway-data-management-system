@@ -13,12 +13,12 @@ import pytest
 from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.artifacts import ArtifactRef, ManifestVerificationError, artifact_ref_to_dict
-from gateway_backend.canonical_row_hash_ipc import (
+from gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc import (
     content_manifest_from_compute_result,
     persist_canonical_row_hash_stream,
     reopen_and_verify_canonical_row_hash_artifact,
 )
-from gateway_backend.compute import canonical_row_hashes_v1
+from gateway_backend.capabilities.canonical_row_hash.compute import canonical_row_hashes_v1
 from tests.support.artifact_staging import (
     assert_minimal_ref_has_no_host_path,
     durable_root,

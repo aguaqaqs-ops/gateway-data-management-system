@@ -351,10 +351,3 @@ class CompositeSignalResult:
         if self.diagnostics:
             raise ValueError("COMPLETE forbids diagnostics")
 
-
-def materialize_composite_signal(request: CompositeSignalRequest) -> CompositeSignalResult:
-    from gateway_backend.capabilities.composite_signal.materialize import (
-        materialize_composite_signal as _impl,
-    )
-
-    return _impl(request)

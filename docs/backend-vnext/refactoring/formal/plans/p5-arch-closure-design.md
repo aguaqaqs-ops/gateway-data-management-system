@@ -559,6 +559,10 @@ same key 且 same fingerprint 的重放返回原结果；same key 但 fingerprin
 S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载荷、HTTP DTO 与 compose 旅程结果保持不变，作为后续语义变更的回归基准。
 模块改名导致的基线条目替换，须在同一 diff 中给出理由。
 
+**S1 修订登记（2026-10-10）**：`tests/architecture_baseline.py` 的起始基线为 3 条 import 违例、0 个运行时环、14 个不可达模块，条内注释标明关闭阶段。此前 10 项来自包级 facade 可达性扩展；按实际导入的 wrapper 符号展开后，4 个仅由不可达 `compose.py` 调用的 composite 模块应计入不可达项。Owner 批准将测量基线由 10 更正为 14，理由、工具语义与 S3 归属见 [S0 owner decisions](p5-arch-closure-s0-owner-decisions.md) §10；这只更正测量，不放宽后续只减不增要求。
+`external_target_sync` 三模块按上表 A9 登记外部目标延期（决议见 [S0 owner decisions](p5-arch-closure-s0-owner-decisions.md) §9）。
+迁入 `capabilities/canonical_row_hash/` 后的 `compute` / IPC / `contracts` 无生产消费者，登记 **Phase 6** 延期（DC26 选项 3）。
+
 ## 10. 持久化、HTTP 与部署影响
 
 - control DB 新增前向 migration，不做数据回填；新增列允许旧行为空（DC6）：

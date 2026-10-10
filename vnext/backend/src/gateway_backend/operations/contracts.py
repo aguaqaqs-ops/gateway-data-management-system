@@ -1044,3 +1044,12 @@ def _parse_step_status(value: object) -> StepStatus:
         return StepStatus(value)
     except ValueError as exc:
         raise ValueError("status must be a known StepStatus") from exc
+
+
+# Public cross-package validators (P5 S1 N-operations-private).
+IJSON_MAX_SAFE_INTEGER = _IJSON_MAX_SAFE_INTEGER
+MAX_OPAQUE_ID_BYTES = _MAX_OPAQUE_ID_BYTES
+MAX_DIAGNOSTIC_MESSAGE_BYTES = _MAX_DIAGNOSTIC_MESSAGE_BYTES
+validate_json_structure = _validate_json_structure
+validate_canonical_job_payload_bytes = _validate_canonical_job_payload_bytes
+validate_opaque_id = _validate_opaque_id

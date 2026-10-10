@@ -23,6 +23,7 @@ S0 文档、独立审核与复审
   -> [前置：P5-5E slice exit pass]
   -> S1 kickoff（合入主线、漂移复核、真实数据普查）
   -> S1  结构修复（行为不变）
+  -> [前置：parser 修复（`@saved_cs_client`、XML 深度；S1 合入 main 后、S2a kickoff 前单独授权，见 §8.5 与 S1 审核 §5）]
   -> S2a 规范快照与比较规则的能力层（W3 入口、ComparisonRuleView、编码与摘要、规范投影入口、真实 Dolt 同一性）
   -> S2b 切换到规范域（Preview/Submit/History 接入、commit 规范元数据、DC9）
   -> S3  composite_signal 接入
@@ -89,9 +90,10 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     `capability-surface` → `snapshot_materialization.scalar_encoding`），以及 A6 的
     `unowned-root-module gateway_backend.repository_import_artifact`；三条都在 S2b 关闭。
   - 运行时环基线为空。
-  - 不可达基线只剩：
-    - composite 与 XML 模块（`snapshot_materialization._catalog`、`snapshot_materialization.compose`、
-      `table_access._xml_parser`、`table_access.xml`），S3 关闭；
+  - 不可达基线共 **14 项**，按真实符号级可达性记录：
+    - S3 composite 业务入口尚无可达调用方的 4 个模块（`composite_signal._ast`、`_bind`、`_digest`、`materialize`），
+      以及 snapshot compose/catalog 与 XML parser 的 4 个模块（`snapshot_materialization._catalog`、
+      `snapshot_materialization.compose`、`table_access._xml_parser`、`table_access.xml`）；这 8 项均由 S3 关闭；
     - `external_target_sync` 三个模块，在 owning 设计中登记延期；
     - canonical row hash 模块：`capabilities.canonical_row_hash.contracts` 与 `compute`、`canonical_row_hash_ipc`
       移入后的新模块名。改名导致的基线条目替换在同一 diff 中给出理由，并登记 Phase 6 延期。
@@ -156,6 +158,9 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
      DC19 的读取不一致处置；
   6. control DB migration 与 HTTP 变更（设计 §10）；
   7. compose harness 改为不预导入基线数据（DC17）。
+  8. **自 S1 延期（owner 2026-09-27）**：Preview/History 受理用例下沉至 Application，HTTP 仅 DTO 映射与准入（设计 §9 S1、§3 预算）。
+  9. **自 S1 延期（owner 2026-09-27）**：workspace/archive/history 各自声明控制事务 port，组合在 bootstrap/infrastructure（UoW 枢纽拆分）。
+  10. **自 S1 延期（owner 2026-09-27）**：Preview/Submit/History 三 job 共享 step plumbing（`pinned_checkpoint_builder` 等），checkpoint 载荷不变。
 - 验收：
   - 设计 §12 的以下 owner 通过：`test_comparison_canonical_domain.py`（阶段门槛）、
     `test_repository_ref_materialization_protocol.py`、`test_preview_job_materialize.py`（ADDITIVE 激活、INITIAL 断言）、
@@ -165,7 +170,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - `NO_CANONICAL_CHANGE` 的不变量只由 `test_submit_transactions.py` 证明：`test_submit_http.py` 只保留 HTTP 错误映射，
     `test_production_wiring.py` 只保留接线断言，`test_preview_job_assemble.py` 与 `test_submit_application.py` 中的重复断言删除；
   - DC9 相关代码、路由、表、测试与测试支撑钩子已删除，OpenAPI 测试同步更新；ADR 0016 的 Operation integrity 测试不变且通过；
-  - 导入基线：违例与运行时环基线为空；不可达基线只剩 S3 的 composite 与 XML 模块和已登记延期项；
+  - 导入基线：违例与运行时环基线为空；不可达基线为 14 项，包含 S3 的 8 个模块与已登记延期项；
   - compose：
     - 扩展旅程“提交 X → 审核 → 归档 → 再次上传 X”，Preview 全表 UNCHANGED，受理返回 `NO_CANONICAL_CHANGE`；
     - 规则表（显式键、存储丢弃列、ordered）在非空基线上的 Preview 不降级；
@@ -272,6 +277,17 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - `test_canonical_row_hash.py` 随模块迁移更新导入；
   - 其余只改导入路径的测试按上文规则确定。
 - 条件：Rust 架构检查中的 Python 路径断言。
+
+### S2b — S1 复审延期路径（owner 2026-09-27；与 §8.5 S2b.0 对齐）
+
+S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 handoff §3 登记延期，**必在 S2b 关闭或按条件启用**：
+
+- `http/orchestration/preview_acceptance.py` — Preview 受理从 HTTP 下沉至 Application/workspace 用例。
+- `application/workspace/{preview,ports}.py` — 受理编排与 workspace 端口拆分（UoW 枢纽按 owner 细化）。
+- `application/archive/ports.py` — archive 侧 control 事务协议与 workspace/submission 对齐。
+- `application/control_transactions.py` — 共享 control 事务面按 Preview/Submit/History owner 拆分。
+- `application/job_steps.py` — 三 job 共享 step plumbing（`pinned_checkpoint_builder` 已在 S1 删除，仅保留 helper）。
+- Preview/History 受理下沉、UoW 按 owner 拆分、三 job 共享 step plumbing — 与 §8.5 S2b.0 同一收口批次。
 
 ### S2a
 
@@ -439,7 +455,9 @@ Dockerfile、依赖锁与 Compose 预期不变；真实数据不挂载进容器�
 ## 7. 停止规则
 
 设计 §14 任一停止条件出现时，暂停当前阶段，在 handoff 记录触发事实并交 owner 处理；不得以兼容代码、
-Application 特判或新增基线条目绕过。
+Application 特判或新增基线条目绕过。经 owner 明确批准的测量语义纠错可以更正起始基线；必须记录旧值、新值、工具语义变化与延期归属，
+且不能掩盖新增的真实违例或运行时环。S1-F4 的 10→14 更正由 [S0 owner decisions](p5-arch-closure-s0-owner-decisions.md) §10 明确批准：
+包级 facade 扩展改为按实际导入的 wrapper 符号展开，4 个 composite 模块归属 S3。该批准只修正测量口径；后续实现仍遵守只减不增。
 
 ## 8. 阶段推进约定
 
@@ -453,6 +471,8 @@ Application 特判或新增基线条目绕过。
   `/home/dev/gdds-p5-closure-s<N>` 中实施；主工作区保持在 `main`，不在其中实施。
 - 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s1): ...`）。每个子步结束运行
   `import_rules` 与受影响的 focused 测试；`import_rules` 的输出只减不增，改名导致的条目替换在同一提交中说明。
+  若 owner 批准修正错误的可达性测量，handoff 必须同时记录原计数、修正后的计数、语义依据与延期阶段；这只更正起始测量基线，
+  更正后的后续实现仍遵守只减不增。本 S1-F4 的 10→14 是该类修正，且 4 项均明确归属 S3。
 - 运行 `./vnext/scripts/run-tests.sh` 或 compose 测试期间，不在该 worktree 中写入任何文件：compose provenance 要求工作区干净，
   否则报 `worktree is dirty`。handoff 与审核报告都在测试结束后写入。实现者与审核者同样适用。
 - 实现者完成全部代码提交后，最后一个提交只加 handoff（只改文档，不改变镜像构建上下文）。审核对象是分支末端，即 handoff
@@ -492,8 +512,8 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 - 普查脚本按生产上传包的布局（`sql/dbcfg.sql`、`comps/logic/logics.xml`）确定性地打包为 TAR_GZ，写入 `$GATEWAY_REAL_DUMP_ROOT/packages/`，
   并生成 `$GATEWAY_REAL_DUMP_ROOT/datasets.json`（字段按决议记录 §4）。原始目录只读，不改名、不移动。
 - dataset ID 映射：`small_cut` → t1、`small` → t2、`medium` → t3、`large` → t4；`-1`、`-2` 映射为 v1、v2。
-- 同一规模档的 `-1`、`-2` 是否为同一项目的前后版本、不同规模档之间是否为不同项目，由 owner 在 S1 kickoff 时确认并写入
-  `datasets.json` 的 `pair_of` 与 handoff；S2b 的同项目链路与 S4 的 `SAME_PROJECT`/`DIFFERENT_PROJECT` 预期以此为准。
+- **Owner 确认（2026-10-10，决议 §10）**：同一规模档的 `-1`、`-2` 是同一项目的 v1、v2；不同规模档代表不同项目，不跨档配对。
+  `datasets.json` 中每档 v2 的 `pair_of` 指向同档 v1；S2b 的同项目链路与 S4 的 `SAME_PROJECT`/`DIFFERENT_PROJECT` 预期以此为准。
 - 目录权限按决议记录 §4 收紧为 700/600（2026-09-27 为 775/664），由 owner 执行。
 
 ### 8.4 S1 子步
@@ -514,6 +534,7 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 
 ### 8.5 S2b 子步
 
+0. **S2b.0 自 S1 延期项（owner 2026-09-27）**：关闭设计 §9 中未在 S1 完成的 Preview/History 受理下沉、UoW 枢纽拆分、三 job 共享 step plumbing；关闭标准与 S1 审核报告 S1-F3 一致（Application 受理、各域 port、共享 step helper 或等效结构）。
 1. **S2b.1 commit 规范元数据**：`CommitCanonicalMetadataPort`、`sqlite_commit_metadata.py` 与 control DB migration。
 2. **S2b.2 Repository 读取**：`canonical_binding`、单遍读取、删除 hidden summary、`REPOSITORY_ROW_COUNT_MISMATCH`；
    `http_arrow.py` 只负责传输（关闭 A2 的两条）。
@@ -525,6 +546,8 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
    语义：checkpoint 的 attempt 绑定与 payload 不符时终止为 FAILED。
 6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB migration 与 HTTP/OpenAPI 变更（设计 §10）。
 7. **S2b.7 旅程与门禁**：compose harness 不预导入（DC17）与 §2 S2b 的旅程；真实数据链路；全量与镜像。
+
+**S1 与 S2a 之间的 parser 修复（owner 2026-09-27，不纳入 S1 修订）**：自 `main` 切分支（例如 `p5-closure/s1-parser`），在 `table_access` 放行 mysqldump `@saved_cs_client`、按 owner 调整 `max_xml_depth`；独立审核后合入，再启动 S2a kickoff。纯 Python 解析逻辑的镜像重建可延期到 S2a 阶段末，须在修复 handoff 中写明。
 
 S2a、S3、S4 按 §2 的内容顺序推进，不再细分。
 

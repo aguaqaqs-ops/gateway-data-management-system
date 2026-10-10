@@ -32,7 +32,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        from gateway_backend.http.runtime import prepare_backend_runtime
+        from gateway_backend.bootstrap.composition import prepare_backend_runtime
         from gateway_backend.http.wiring import register_workspace_http
 
         runtime = prepare_backend_runtime(configured)

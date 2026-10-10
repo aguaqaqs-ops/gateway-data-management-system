@@ -1,11 +1,17 @@
 """Public surface of the Snapshot Materialization capability."""
 
+from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
+    SqlDeclaredTypeMappingError,
+    declared_type_for_sql_spelling,
+    try_declared_type_for_sql_spelling,
+)
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
+    ArtifactPublishError,
+    manifest_from_bytes,
     open_snapshot_table_artifact,
     publish_snapshot_table_artifact,
     validate_snapshot_table_artifact,
 )
-from gateway_backend.capabilities.snapshot_materialization.cache import SnapshotTableArtifactCache
 from gateway_backend.capabilities.snapshot_materialization.batch import (
     BatchBoundaryError,
     InMemorySnapshotTableBatchReader,
@@ -89,6 +95,9 @@ from gateway_backend.capabilities.snapshot_materialization.repository_ref import
 )
 
 __all__ = [
+    "SqlDeclaredTypeMappingError",
+    "declared_type_for_sql_spelling",
+    "try_declared_type_for_sql_spelling",
     "ARTIFACT_COMPRESSION_ZSTD",
     "BATCH_READER_CONTRACT_VERSION",
     "BATCH_SCHEMA_METADATA_VERSION",
@@ -109,6 +118,7 @@ __all__ = [
     "SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION",
     "SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION",
     "SUMMARY_CONTRACT_VERSION",
+    "ArtifactPublishError",
     "ArtifactSourceBinding",
     "BlankRowProvenance",
     "CacheAuthorityInput",
@@ -141,7 +151,6 @@ __all__ = [
     "SnapshotTableBatchMetadata",
     "SnapshotTableBatchReader",
     "SnapshotTableArtifact",
-    "SnapshotTableArtifactCache",
     "SnapshotTableArtifactCacheKey",
     "SnapshotTableArtifactCacheResult",
     "SnapshotTableArtifactManifest",
@@ -155,6 +164,7 @@ __all__ = [
     "materialize_sql_snapshot",
     "materialize_business_snapshot",
     "materialize_repository_ref",
+    "manifest_from_bytes",
     "open_snapshot_table_artifact",
     "publish_snapshot_table_artifact",
     "validate_snapshot_table_artifact",

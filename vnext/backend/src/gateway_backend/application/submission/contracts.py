@@ -392,3 +392,44 @@ def compute_replay_accept_fingerprint(
         repository_expected_commit_id=attempt.repository_expected_commit_id,
         options=command.options,
     )
+
+ALLOWED_ABORT_CODES = frozenset({
+    "IMPORT_REJECTED",
+    "EXPECTED_COMMIT_MISMATCH",
+    "VERIFICATION_FAILED_NOT_PUBLISHED",
+})
+
+
+class RepositoryImportOperationStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryImportOperationResult:
+    commit_id: str
+    target_ref: str
+    artifact_id: str
+    canonicalization_manifest_digest: str
+    expected_commit_id: str
+    completed_verification_policy: str
+    unknown_type_policy: str
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryImportOperationError:
+    code: str
+    message: str
+    details: dict[str, object] | None = None
+    request_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RepositoryImportOperation:
+    operation_id: str
+    status: RepositoryImportOperationStatus
+    result: RepositoryImportOperationResult | None = None
+    error: RepositoryImportOperationError | None = None
+

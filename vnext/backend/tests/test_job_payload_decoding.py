@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -21,6 +22,7 @@ from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
     NormalPublicationCapability,
+    build_payload_decoder_registry,
 )
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.payloads import (
@@ -29,7 +31,6 @@ from gateway_backend.application.payloads import (
     JOB_PAYLOAD_DOCUMENT_TYPE,
     PayloadDecodeError,
     PayloadDecoderRegistry,
-    build_payload_decoder_registry,
     decode_job_payload,
     load_job_payload_bytes,
 )
@@ -200,6 +201,24 @@ def test_decode_job_payload_returns_frozen_typed_value() -> None:
         _decoder_registry(definition),
     )
     assert decoded == PureComputePayload(seed="alpha")
+
+
+def test_decode_rejects_non_job_definition_even_with_matching_qualname() -> None:
+    definition = _sample_definition()
+    fake_definition = SimpleNamespace(
+        key=definition.key,
+        supported_payload_versions=definition.supported_payload_versions,
+        decoder_identity=definition.decoder_identity,
+    )
+    operation = _operation_record()
+    with pytest.raises(PayloadDecodeError, match="definition must be JobDefinition") as exc_info:
+        decode_job_payload(
+            fake_definition,  # type: ignore[arg-type]
+            operation,
+            InMemoryArtifactStore(),
+            _decoder_registry(definition),
+        )
+    assert exc_info.value.code == "PAYLOAD_DEFINITION_INVALID"
 
 
 def test_inline_payload_decode_does_not_call_store_locate() -> None:

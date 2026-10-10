@@ -4,11 +4,6 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from gateway_backend.capabilities.comparison import (
-    ComparisonBatchRequest,
-    PythonReferenceBatchProvider,
-    RustArrowBatchProvider,
-)
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     open_snapshot_table_artifact,
     publish_snapshot_table_artifact,
@@ -71,46 +66,3 @@ def test_missing_batch_metadata_fails_closed() -> None:
         assert "batch metadata" in str(exc)
     else:
         raise AssertionError("schema without S1 metadata must fail closed")
-
-
-def test_python_reference_provider_preserves_arrow_batches() -> None:
-    table = _opened_table()
-    reader = table.batch_reader
-    assert reader is not None
-    request = ComparisonBatchRequest(
-        table_name=table.descriptor.table_name,
-        descriptor=table.descriptor,
-        reader=reader,
-    )
-    result = PythonReferenceBatchProvider().execute(request)
-    assert result.provider_id == "python-reference-batch-v1"
-    assert result.input_metadata == reader.metadata()
-    output = tuple(result.output_stream)
-    assert sum(batch.num_rows for batch in output) == table.descriptor.row_count
-
-
-def test_rust_provider_port_is_coarse_grained_and_injected() -> None:
-    table = _opened_table()
-    reader = table.batch_reader
-    assert reader is not None
-    observed: list[int] = []
-
-    def fake_native(
-        request_jcs: bytes, stream: pa.RecordBatchReader
-    ) -> tuple[pa.RecordBatchReader, bytes]:
-        assert request_jcs == b"request"
-        batches = tuple(stream)
-        observed.append(sum(batch.num_rows for batch in batches))
-        return pa.RecordBatchReader.from_batches(stream.schema, batches), b"native-result"
-
-    request = ComparisonBatchRequest(
-        table_name=table.descriptor.table_name,
-        descriptor=table.descriptor,
-        reader=reader,
-        request_jcs=b"request",
-    )
-    result = RustArrowBatchProvider(fake_native).execute(request)
-    assert result.provider_id == "rust-arrow-batch-v1"
-    assert result.result_jcs == b"native-result"
-    assert observed == [table.descriptor.row_count]
-    assert sum(batch.num_rows for batch in result.output_stream) == table.descriptor.row_count

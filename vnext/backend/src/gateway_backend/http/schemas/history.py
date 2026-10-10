@@ -14,10 +14,10 @@ from gateway_backend.application.history.contracts import (
 )
 from gateway_backend.http.schemas.constraints import (
     BoundedOpaqueId,
+    CommitIdString,
     NonNegativeIJsonInt,
     Sha256Digest,
 )
-from gateway_repository_contracts.types import CommitIdString
 
 HistoryNodeRefKindLiteral = Literal["baseline_node", "submission"]
 HistoryNodeKindLiteral = Literal["BASELINE_NODE", "SUBMISSION", "SYSTEM_MIGRATION"]

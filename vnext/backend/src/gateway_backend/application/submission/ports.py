@@ -7,11 +7,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from gateway_repository_contracts import VersionedOperation
-
     from gateway_backend.application.history.ports import HistoryComparePort
 
-from gateway_backend.application.submission.contracts import MatchingAbortProof
+from gateway_backend.application.submission.contracts import (
+    MatchingAbortProof,
+    RepositoryImportOperation,
+)
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
@@ -298,6 +299,14 @@ class RepositoryAbortEvidencePort(Protocol):
         """Verify repository-scoped FAILED evidence matches the bound Attempt."""
 
 
+class RepositoryTerminalEvidenceDecodePort(Protocol):
+    def decode_from_evidence_payload(
+        self,
+        operation_payload: dict[str, object],
+    ) -> RepositoryImportOperation:
+        """Decode one persisted terminal repository operation payload."""
+
+
 class RepositoryWritePort(Protocol):
     def upload_artifact(
         self,
@@ -318,12 +327,20 @@ class RepositoryWritePort(Protocol):
         expected_commit_id: str,
     ) -> str: ...
 
+    def canonical_import_request_bytes(
+        self,
+        *,
+        repository_id: str,
+        artifact_ref: RepositoryArtifactRef,
+        expected_commit_id: str,
+    ) -> bytes: ...
+
     def get_operation(
         self,
         *,
         repository_id: str,
         operation_id: str,
-    ) -> VersionedOperation: ...
+    ) -> RepositoryImportOperation: ...
 
     def wait_operation(
         self,
@@ -331,4 +348,4 @@ class RepositoryWritePort(Protocol):
         repository_id: str,
         operation_id: str,
         deadline_seconds: float | None = None,
-    ) -> VersionedOperation: ...
+    ) -> RepositoryImportOperation: ...

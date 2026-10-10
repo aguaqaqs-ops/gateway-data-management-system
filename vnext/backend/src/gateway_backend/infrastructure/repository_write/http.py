@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
@@ -19,20 +20,17 @@ from gateway_backend.application.submission.errors import (
 from gateway_repository_contracts import (
     GetOperationResponse,
     IdempotencyKeyString,
-    RepositoryArtifactRef as WireRepositoryArtifactRef,
     SubmitVersionedImportRequest,
     SubmitVersionedImportResponse,
-    UnknownTypePolicy,
     UploadArtifactResponse,
-    VerificationPolicy,
     VersionedOperation,
 )
 from gateway_repository_contracts.types import MediaTypeString, Sha256String
 
+from gateway_backend.application.submission.contracts import RepositoryImportOperation
 from gateway_backend.application.submission.ports import RepositoryWritePort
-from gateway_backend.canonicalization_manifest import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
-from gateway_backend.artifacts.nominal_refs import repository_artifact_ref_from_upload_response
+from gateway_backend.infrastructure.repository_write import wire_codec
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,19 +89,14 @@ class HttpRepositoryWriteClient:
         expected_commit_id: str,
     ) -> str:
         repo_uuid = _as_uuid(repository_id)
-        wire_ref = WireRepositoryArtifactRef(
-            artifact_id=_as_uuid(artifact_ref.artifact_id),
-            media_type=_as_media_type(REPOSITORY_IMPORT_MEDIA_TYPE),
-            size_bytes=artifact_ref.size_bytes,
-            raw_sha256=_wire_sha256(artifact_ref.raw_sha256),
-        )
-        request = SubmitVersionedImportRequest(
-            repository_id=repo_uuid,
-            artifact_ref=wire_ref,
-            target_ref="main",
-            expected_commit_id=expected_commit_id,
-            verification_policy=VerificationPolicy.STRUCTURAL,
-            unknown_type_policy=UnknownTypePolicy.REJECT,
+        request = SubmitVersionedImportRequest.model_validate(
+            json.loads(
+                wire_codec.build_import_request_bytes(
+                    repository_id=repository_id,
+                    repository_artifact_ref=artifact_ref,
+                    expected_commit_id=expected_commit_id,
+                )
+            )
         )
         if str(request.repository_id) != str(repo_uuid):
             raise ValueError("import request repository_id must match path repository_id")
@@ -118,12 +111,25 @@ class HttpRepositoryWriteClient:
         )
         return str(response.operation_id)
 
+    def canonical_import_request_bytes(
+        self,
+        *,
+        repository_id: str,
+        artifact_ref: RepositoryArtifactRef,
+        expected_commit_id: str,
+    ) -> bytes:
+        return wire_codec.build_import_request_bytes(
+            repository_id=repository_id,
+            repository_artifact_ref=artifact_ref,
+            expected_commit_id=expected_commit_id,
+        )
+
     def get_operation(
         self,
         *,
         repository_id: str,
         operation_id: str,
-    ) -> VersionedOperation:
+    ) -> RepositoryImportOperation:
         response = cast(
             GetOperationResponse,
             _run(
@@ -133,7 +139,7 @@ class HttpRepositoryWriteClient:
                 )
             ),
         )
-        return response.operation
+        return wire_codec.import_operation_from_wire(response.operation)
 
     def wait_operation(
         self,
@@ -141,9 +147,9 @@ class HttpRepositoryWriteClient:
         repository_id: str,
         operation_id: str,
         deadline_seconds: float | None = None,
-    ) -> VersionedOperation:
+    ) -> RepositoryImportOperation:
         try:
-            return cast(
+            operation = cast(
                 VersionedOperation,
                 _run(
                     self._client().wait_operation(
@@ -153,6 +159,7 @@ class HttpRepositoryWriteClient:
                     )
                 ),
             )
+            return wire_codec.import_operation_from_wire(operation)
         except RepositoryClientTimeoutError as exc:
             raise RepositoryWriteTimeoutError(str(exc)) from exc
 
@@ -198,13 +205,7 @@ def _normalize_request_sha256(value: str) -> str:
 
 
 def _artifact_ref_from_response(response: UploadArtifactResponse) -> RepositoryArtifactRef:
-    ref = response.artifact_ref
-    return repository_artifact_ref_from_upload_response(
-        artifact_id=str(ref.artifact_id),
-        media_type=str(ref.media_type),
-        size_bytes=int(ref.size_bytes),
-        raw_sha256=str(ref.raw_sha256),
-    )
+    return wire_codec.repository_artifact_ref_from_upload_response(response)
 
 
 __all__ = ["HttpRepositoryWriteClient", "RepositoryWritePort"]

@@ -45,10 +45,8 @@ CAPABILITY_OWNERS = frozenset(
         "composite_signal",
         "snapshot_materialization",
         "storage_projection",
-        "comparison_projection",
         "comparison",
         "risk_evaluation",
-        "business_projection",
         "surface_assembly",
         "bundle_assembly",
         "mutation_planning",
@@ -66,11 +64,9 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
         {"table_access", "table_rules", "source_package_staging", "composite_signal"}
     ),
     "storage_projection": frozenset({"table_rules", "snapshot_materialization"}),
-    "comparison_projection": frozenset({"table_rules", "snapshot_materialization"}),
-    "comparison": frozenset({"comparison_projection", "snapshot_materialization"}),
+    "comparison": frozenset({"snapshot_materialization"}),
     "risk_evaluation": frozenset({"comparison"}),
-    "business_projection": frozenset({"comparison"}),
-    "surface_assembly": frozenset({"comparison", "risk_evaluation", "business_projection"}),
+    "surface_assembly": frozenset({"comparison", "risk_evaluation"}),
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),
     "external_target_sync": frozenset({"mutation_planning"}),
@@ -82,8 +78,8 @@ FORBIDDEN_IMPORT_PREFIXES = (
     "httpx",
     "gateway_backend.app",
     "gateway_backend.settings",
-    "gateway_backend.compute",
-    "gateway_backend.canonical_row_hash_ipc",
+    "gateway_backend.capabilities.canonical_row_hash.compute",
+    "gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc",
     "gateway_backend.canonicalization_cells",
     "gateway_backend.canonicalization_manifest",
     "gateway_backend.repository_import_artifact",
@@ -144,7 +140,14 @@ def test_local_artifact_store_lives_in_infrastructure_only() -> None:
 
 
 def test_compute_facade_does_not_reference_artifact_identity() -> None:
-    compute_source = Path(__file__).parents[1] / "src" / "gateway_backend" / "compute.py"
+    compute_source = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gateway_backend"
+        / "capabilities"
+        / "canonical_row_hash"
+        / "compute.py"
+    )
     text = compute_source.read_text()
     forbidden = ("ArtifactRef", "artifact_ref", "logical_ref", "ArtifactStore", "artifact_root")
     assert not any(marker in text for marker in forbidden), compute_source
@@ -178,7 +181,14 @@ def test_rust_core_has_no_artifact_or_infrastructure_boundary() -> None:
 
 
 def test_r2_ipc_module_avoids_bulk_python_materialization() -> None:
-    ipc_source = Path(__file__).parents[1] / "src" / "gateway_backend" / "canonical_row_hash_ipc.py"
+    ipc_source = (
+        Path(__file__).parents[1]
+        / "src"
+        / "gateway_backend"
+        / "capabilities"
+        / "canonical_row_hash"
+        / "canonical_row_hash_ipc.py"
+    )
     text = ipc_source.read_text()
     forbidden = (
         "to_pylist(",
@@ -198,15 +208,6 @@ def test_r2_production_modules_have_no_deferred_stub() -> None:
     for source in source_root.rglob("*.py"):
         text = source.read_text()
         assert "NotImplementedError" not in text, source
-
-
-def test_canonicalization_cells_do_not_call_encode_row() -> None:
-    source = Path(__file__).parents[1] / "src" / "gateway_backend" / "canonicalization_cells.py"
-    text = source.read_text()
-    assert text.count("encode_row") == text.count("encode_row_cells")
-    assert "from gateway_shared_kernel import" in text
-    assert "encode_typed_scalar" in text
-    assert "encode_collection" in text
 
 
 def test_capability_packages_match_owner_set() -> None:
@@ -373,8 +374,8 @@ def test_external_target_sync_source_stays_on_capability_leaf() -> None:
 
 
 def test_http_runtime_does_not_duplicate_surface_artifact_closure() -> None:
-    runtime_source = BACKEND_SRC / "gateway_backend" / "http" / "runtime.py"
-    text = runtime_source.read_text(encoding="utf-8")
+    dependencies_source = BACKEND_SRC / "gateway_backend" / "http" / "dependencies.py"
+    text = dependencies_source.read_text(encoding="utf-8")
     assert "_surface_artifact_closure" not in text
 
 
@@ -499,8 +500,11 @@ def test_checkpoints_module_io_boundary() -> None:
     assert "gateway_backend.infrastructure" not in text
 
 
+TESTS_SUPPORT_ROOT = Path(__file__).parents[1] / "tests" / "support"
+
+
 def test_synthetic_jobs_module_io_boundary() -> None:
-    source = APPLICATION_ROOT / "synthetic_jobs.py"
+    source = TESTS_SUPPORT_ROOT / "synthetic_jobs.py"
     assert source.is_file()
     text = source.read_text(encoding="utf-8")
     forbidden = (
@@ -520,7 +524,7 @@ def test_synthetic_jobs_module_io_boundary() -> None:
 
 
 def test_external_effect_stub_module_io_boundary() -> None:
-    source = APPLICATION_ROOT / "external_effect_stub.py"
+    source = TESTS_SUPPORT_ROOT / "external_effect_stub.py"
     assert source.is_file()
     text = source.read_text(encoding="utf-8")
     forbidden = (
@@ -624,7 +628,7 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
     forbidden = (
         "gateway_backend.app",
         "gateway_backend.capabilities",
-        "gateway_backend.compute",
+        "gateway_backend.repository_import_artifact",
         "gateway_repository",
         "uvicorn",
         "fastapi",
@@ -653,8 +657,12 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                 assert imported.startswith(
                     (
                         "gateway_backend.application",
+                        "gateway_backend.artifacts",
+                        "gateway_backend.capabilities",
+                        "gateway_backend.domain",
+                        "gateway_backend.http",
                         "gateway_backend.bootstrap",
-                        "gateway_backend.http.runtime",
+                        "gateway_backend.bootstrap.composition",
                         "gateway_backend.http.shutdown",
                         "gateway_backend.infrastructure.artifact_store",
                         "gateway_backend.infrastructure.control_db",
@@ -765,9 +773,8 @@ def _assert_capability_edge_allowed(
     assert target_owner in allowed, (
         f"{source} may not import capability {target_owner}; allowed upstream: {sorted(allowed)}"
     )
-    assert remainder == "contracts" or remainder.startswith("contracts."), (
-        f"{source} may import only {target_owner}.contracts, not {imported}"
-    )
+    permitted = remainder == "" or remainder == "contracts" or remainder.startswith("contracts.")
+    assert permitted, f"{source} may import only approved {target_owner} modules, not {imported}"
 
 
 def _split_capability_import(imported: str) -> tuple[str, str]:
@@ -838,6 +845,69 @@ def test_production_reachability_matches_frozen_baseline() -> None:
     )
 
 
+REACHABILITY_MODULE_SHAPES: tuple[tuple[str, bool], ...] = (
+    ("gateway_backend.capabilities.snapshot_materialization.compose", True),
+    ("gateway_backend.capabilities.table_access._xml_parser", True),
+    ("gateway_backend.bootstrap.operation_worker", False),
+    ("gateway_backend.application.submit_jobs", False),
+)
+
+
+@pytest.mark.parametrize(("module_name", "expect_unreachable"), REACHABILITY_MODULE_SHAPES)
+def test_production_reachability_classifies_module_shapes(
+    module_name: str,
+    expect_unreachable: bool,
+) -> None:
+    current = unreachable_modules(_backend_edges(), backend_modules())
+    assert (module_name in current) is expect_unreachable
+
+
+COMPOSITE_FACADE_MODULES = (
+    "gateway_backend.capabilities.composite_signal._ast",
+    "gateway_backend.capabilities.composite_signal._bind",
+    "gateway_backend.capabilities.composite_signal._digest",
+    "gateway_backend.capabilities.composite_signal.materialize",
+)
+FACADE_REACHABILITY_SHAPES: tuple[tuple[bool, bool], ...] = (
+    (False, True),
+    (True, False),
+)
+
+
+@pytest.mark.parametrize(
+    ("production_imports_facade_symbol", "expect_composite_unreachable"),
+    FACADE_REACHABILITY_SHAPES,
+)
+def test_facade_lazy_import_reachability_depends_on_imported_symbol(
+    production_imports_facade_symbol: bool,
+    expect_composite_unreachable: bool,
+) -> None:
+    modules = backend_modules()
+    edges = _backend_edges()
+    assert any(
+        edge.source == "gateway_backend.capabilities.composite_signal"
+        and edge.context == "function"
+        and edge.function == "materialize_composite_signal"
+        and edge.target == "gateway_backend.capabilities.composite_signal.materialize"
+        for edge in edges
+    )
+    if production_imports_facade_symbol:
+        edges = [
+            *edges,
+            ImportEdge(
+                source="gateway_backend.app",
+                target="gateway_backend.capabilities.composite_signal",
+                names=("materialize_composite_signal",),
+                context="module",
+                path=BACKEND_SRC / "gateway_backend" / "app.py",
+                line=1,
+            ),
+        ]
+
+    current = unreachable_modules(edges, modules)
+    assert all((name in current) is expect_composite_unreachable for name in COMPOSITE_FACADE_MODULES)
+
+
 # Each row: source module, imported module, imported names, expected rule (None = allowed).
 IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ("gateway_backend.domain.workspace.models", "gateway_backend.application.workspace.contracts", (), RULE_LAYER),
@@ -887,8 +957,13 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ),
     ("gateway_backend.capabilities.comparison.ordered", "gateway_backend.capabilities.comparison.standard", ("_row_digest",), None),
     ("gateway_backend.bootstrap.operation_worker", "gateway_backend.infrastructure.control_db", (), None),
+    (
+        "gateway_backend.capabilities.canonical_row_hash.compute",
+        "gateway_compute",
+        (),
+        None,
+    ),
     ("gateway_backend.bootstrap.operation_worker", "gateway_shared_kernel.testing", (), RULE_LAYER),
-    ("gateway_backend.cache.comparison_core", "gateway_backend.capabilities.comparison.artifacts", (), RULE_CAPABILITY_SURFACE),
 )
 
 

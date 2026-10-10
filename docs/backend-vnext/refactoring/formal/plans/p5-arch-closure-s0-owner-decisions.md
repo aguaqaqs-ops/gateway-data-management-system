@@ -320,3 +320,25 @@ implementation_authorized: no
   不做换行规范化。是否放行由调用方显式选择：身份确认理由放行，Review 理由保持现行规则，行为不变。
 - **落点**：设计 §7.6 与 §12，ADR 0020 Decision 5，执行计划 S4 的验收与路径预算（`test_review_domain.py` 为共享校验的 owner）。
   Business Lifecycle 3.1.0 未规定理由字符集，不需要修订。
+
+## 9. S1 修订登记延期（2026-09-27）
+
+- **DC26 / canonical row hash**：S1 采用 DC26 选项 3。`compute.py` 与 `canonical_row_hash_ipc.py` 已迁入
+  `capabilities/canonical_row_hash/`，但尚无生产 journey 消费者；`import_rules` 不可达基线保留
+  `canonical_row_hash.{compute,canonical_row_hash_ipc,contracts}` 三条，关闭阶段 **Phase 6**（Rust 覆盖与性能输入），
+  理由见设计 §9 A6 与 `vnext/backend/tests/architecture_baseline.py`。
+- **external_target_sync（设计 §9 A9）**：三模块（`contracts`、`_ledger_digest`、`_reference_executor`）保持生产不可达，
+  登记为**外部目标延期**；真实外部目标 journey 出现时由 mutation_planning owner 重开，不在 S1–S2b 强行接入。
+
+## 10. S1 复审测量、数据配对与真实数据格式缺口承接（2026-10-10）
+
+以下三项按 repository owner 于 2026-10-10 在独立评审对话中作出的决定登记：
+
+- **S1-F4 可达性基线**：批准将原包级 facade 规则测得的 10 个不可达模块更正为按导入符号展开后的 14 个。旧规则在包内任一模块可达时扩展整个 facade；修正后的规则只在可达模块实际导入对应 wrapper 符号时展开惰性导入，因此 `composite_signal._ast`、`_bind`、`_digest`、`materialize` 四项正确归入不可达基线，并延期至 S3 接入可达调用方后关闭。更正只适用于测量语义，不准新增真实 import 违例或运行时环；后续输出仍只减不增。执行计划 §7 与设计 §9 同步记录该边界。
+- **DC22 数据集配对**：同一规模档的 `-1` 与 `-2` 是同一项目的 v1、v2；不同规模档代表不同项目，不跨档配对。`datasets.json` 中仅各档 v2 的 `pair_of` 指向同档 v1；S2b 同项目链路与 S4 项目身份预期据此执行。
+- **真实数据格式缺口的承接**：S1 普查暴露的三处解析器与真实数据不一致，统一由[S1 合入后的治理修订计划](p5-arch-closure-post-s1-governance-plan.md) G2“真实数据格式保真前置”承接，时点为 S1 合入后、S2a kickoff 前：
+  - 8 份数据在生产解析路径上的 `SET @saved_cs_client`（`table_access` 未放行 mysqldump 标准语句）；
+  - t2 的 `COMPOSITE_LOGIC_FAILED`（`Digital forbids attribute 'value'`）：vnext `composite_signal/_ast.py` 把 legacy 与真实数据中小写的 `value` 误写为 `Value`；
+  - t3/t4 `logics.xml` 超出 `max_xml_depth=64`。
+
+  S1 不修改 `table_access` 与 `composite_signal` 的生产代码；普查结果如实记录这些失败。生产上传当前只走 SQL 物化，composite 与 XML 解析器处于不可达基线（执行计划 §2 S1 的 14 项不可达中即有 `composite_signal._ast`、`table_access._xml_parser`、`table_access.xml` 等，均由 S3 关闭），因此 t2 的 composite 失败**不阻塞** S2b 的 DC22；第 2 次独立复审 N4 中“阻塞 S2b”的说法不成立，予以更正。t3/t4 的重复键与有效键扫描待 G2 修复后，随 G2 验收中的普查重跑补齐（治理修订计划 G2 验收）。

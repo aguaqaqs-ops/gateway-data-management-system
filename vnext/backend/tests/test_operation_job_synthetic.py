@@ -14,14 +14,14 @@ from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
     load_ready_closure,
 )
-from gateway_backend.application.external_effect_stub import (
+from tests.support.external_effect_stub import (
     ExternalEffectStub,
     StubOutcome,
     build_request_bytes,
     compute_operation_identity,
 )
 from gateway_backend.application.job_definitions import build_job_worker_composition
-from gateway_backend.application.synthetic_jobs import (
+from tests.support.synthetic_jobs import (
     EXTERNAL_EFFECT_STUB_JOB_KIND,
     EXTERNAL_EFFECT_STUB_PAYLOAD_VERSION,
     EXTERNAL_EFFECT_STUB_STEP_NAME,

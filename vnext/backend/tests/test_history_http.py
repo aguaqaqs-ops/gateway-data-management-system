@@ -10,7 +10,7 @@ import pytest
 
 from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
-from gateway_backend.http.runtime import LocalArtifactBundleReader
+from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
 from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from tests.support.http_workspace_harness import (
@@ -1272,7 +1272,7 @@ def test_get_history_compare_bundle_uses_local_artifact_bundle_reader(
         HISTORY_COMPARE_MATERIALIZE_HANDLER,
         HISTORY_COMPARE_PUBLISH_HANDLER,
     )
-    from gateway_backend.http.runtime import LocalArtifactBundleReader
+    from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
     from gateway_backend.infrastructure.artifact_store.bounded_store import BoundedArtifactStore
     from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
     from tests.support.history_compare_job_harness import build_history_compare_harness, run_through_step

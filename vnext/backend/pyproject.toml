@@ -58,6 +58,9 @@ markers = [
 line-length = 100
 target-version = "py314"
 
+[tool.ruff.lint.per-file-ignores]
+"benchmarks/real_dump_census.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.14"
 strict = true

@@ -14,6 +14,7 @@ from fastapi import Request
 
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.errors import ApiError
+from gateway_backend.http.internal_bearer import FailClosedInternalBearerPort
 
 
 @runtime_checkable
@@ -229,17 +230,23 @@ class StaticInternalBearerPort:
             )
 
 
-class FailClosedInternalBearerPort:
-    def verify(self, request: Request) -> None:
-        del request
-        raise ApiError(
-            code="AUTHENTICATION_REQUIRED",
-            message="authentication required",
-            status_code=401,
-        )
-
-
 def require_internal_bearer(request: Request) -> None:
     from gateway_backend.http.dependencies import get_workspace_http
 
     get_workspace_http(request).internal_bearer_port.verify(request)
+
+
+__all__ = [
+    "BearerSessionPort",
+    "FailClosedInternalBearerPort",
+    "InternalBearerPort",
+    "LiveFileSessionPort",
+    "LoadedSession",
+    "SessionPort",
+    "StaticInternalBearerPort",
+    "load_internal_bearer_token",
+    "load_session_entries",
+    "load_session_file",
+    "require_identity",
+    "require_internal_bearer",
+]

@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 import pytest
+from gateway_shared_kernel.jcs import canonicalize_json_value
+from pydantic import ValidationError
 
 from gateway_backend.application.payloads import PayloadDecodeError
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
+)
+from gateway_backend.application.submission.ports import RepositoryWritePort
+from gateway_backend.application.submission.contracts import (
+    RepositoryImportOperation,
+    RepositoryImportOperationError,
+    RepositoryImportOperationStatus,
+)
 from gateway_backend.application.submit_jobs import (
     _await_checkpoint_from_job_state,
     _load_terminal_repository_evidence,
     _prepare_checkpoint_from_job_state,
+    _serialize_terminal_repository_evidence,
     _submit_state_from_job_state,
     decode_submit_payload,
     submit_payload_decoders,
@@ -48,6 +61,7 @@ pytestmark = pytest.mark.unit
 
 _TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 _SNAPSHOT_TABLE_SET_DIGEST = "sha256:snapshot-set"
+_TERMINAL_EVIDENCE_DECODE = WireRepositoryTerminalEvidenceDecodePort()
 
 
 def _prepared_attempt() -> SubmitAttempt:
@@ -252,7 +266,6 @@ def _canonical_terminal_evidence_object() -> dict[str, object]:
         "operation_id": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
         "status": "SUCCEEDED",
         "result": {
-            "operation_id": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
             "commit_id": "commit-main",
             "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
             "expected_commit_id": "commit-main",
@@ -331,10 +344,16 @@ def test_submit_checkpoint_rejects_inexact_job_state(
     prepare_ref = artifact_ref_from_dict(_artifact_ref_dict("prepare-cp-1"))
     checkpoint_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
     payload = decode_submit_payload(_canonical_payload_object())
+
+    class _StubRepositoryWrite:
+        def canonical_import_request_bytes(self, **kwargs: object) -> bytes:
+            return b"{}"
+
     with pytest.raises(CheckpointDecodeError, match=message):
         _submit_state_from_job_state(
             store,
             job_state,
+            repository_write=cast(RepositoryWritePort, _StubRepositoryWrite()),
             expected_payload=payload,
             prepare_checkpoint_ref=prepare_ref,
             checkpoint_ref=checkpoint_ref,
@@ -376,7 +395,159 @@ def test_terminal_evidence_rejects_unknown_fields() -> None:
         media_type="application/jcs",
     )
     with pytest.raises(CheckpointDecodeError, match="unknown keys"):
-        _load_terminal_repository_evidence(store, evidence_ref)
+        _load_terminal_repository_evidence(
+            store,
+            evidence_ref,
+            terminal_evidence_decode=_TERMINAL_EVIDENCE_DECODE,
+        )
+
+
+_FAILED_TERMINAL_EVIDENCE_GOLDEN = (
+    b'{"contract_version":"backend-vnext/submit/repository-terminal-evidence/v1",'
+    b'"document_type":"submit_repository_terminal_evidence",'
+    b'"error":{"code":"IMPORT_REJECTED","details":{"table":"t1"},"message":"rejected","request_id":null},'
+    b'"operation_id":"018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",'
+    b'"status":"FAILED"}'
+)
+
+
+def test_failed_terminal_evidence_bytes_match_base_golden() -> None:
+    operation = RepositoryImportOperation(
+        operation_id="018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        status=RepositoryImportOperationStatus.FAILED,
+        error=RepositoryImportOperationError(
+            code="IMPORT_REJECTED",
+            message="rejected",
+            details={"table": "t1"},
+            request_id=None,
+        ),
+    )
+    evidence_bytes = canonicalize_json_value(_serialize_terminal_repository_evidence(operation))
+    assert evidence_bytes == _FAILED_TERMINAL_EVIDENCE_GOLDEN
+
+
+def _failed_terminal_evidence_document(**overrides: object) -> dict[str, object]:
+    document: dict[str, object] = {
+        "document_type": "submit_repository_terminal_evidence",
+        "contract_version": "backend-vnext/submit/repository-terminal-evidence/v1",
+        "operation_id": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        "status": "FAILED",
+        "error": {
+            "code": "IMPORT_REJECTED",
+            "message": "rejected",
+            "request_id": None,
+        },
+    }
+    document.update(overrides)
+    return document
+
+
+def _succeeded_terminal_evidence_document(**overrides: object) -> dict[str, object]:
+    document: dict[str, object] = {
+        "document_type": "submit_repository_terminal_evidence",
+        "contract_version": "backend-vnext/submit/repository-terminal-evidence/v1",
+        "operation_id": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
+        "status": "SUCCEEDED",
+        "result": {
+            "commit_id": "commit-main",
+            "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
+            "expected_commit_id": "commit-main",
+            "canonicalization_manifest_digest": "sha256:" + "b" * 64,
+            "completed_verification_policy": "STRUCTURAL",
+            "unknown_type_policy": "REJECT",
+            "target_ref": "main",
+        },
+    }
+    for key, value in overrides.items():
+        if key == "result" and isinstance(value, dict):
+            result_base = document["result"]
+            assert isinstance(result_base, dict)
+            merged = dict(result_base)
+            merged.update(value)
+            document["result"] = merged
+        else:
+            document[key] = value
+    return document
+
+
+_OVERSIZED_COMMIT_ID = "c" * 1025
+
+
+MALFORMED_TERMINAL_EVIDENCE_SHAPES: tuple[tuple[dict[str, object], type[Exception]], ...] = (
+    (
+        _failed_terminal_evidence_document(
+            error={"code": "SOMETHING_ELSE", "message": "nope", "request_id": None}
+        ),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(operation_id="not-a-uuid"),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(error={"code": "IMPORT_REJECTED"}),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(
+            error={
+                "code": "IMPORT_REJECTED",
+                "message": "rejected",
+                "request_id": None,
+                "extra": "x",
+            }
+        ),
+        ValidationError,
+    ),
+    (
+        _failed_terminal_evidence_document(
+            error={
+                "code": "IMPORT_REJECTED",
+                "message": "rejected",
+                "request_id": "req-1",
+            }
+        ),
+        ValidationError,
+    ),
+    (_succeeded_terminal_evidence_document(result={"target_ref": "feature"}), ValidationError),
+    (_succeeded_terminal_evidence_document(result={"artifact_id": "not-a-uuid"}), ValidationError),
+    (_succeeded_terminal_evidence_document(result={"commit_id": ""}), ValidationError),
+    (_succeeded_terminal_evidence_document(result={"commit_id": _OVERSIZED_COMMIT_ID}), ValidationError),
+    (
+        _succeeded_terminal_evidence_document(result={"completed_verification_policy": "INVALID"}),
+        ValidationError,
+    ),
+    (_succeeded_terminal_evidence_document(result={"unknown_type_policy": "INVALID"}), ValidationError),
+    (
+        _failed_terminal_evidence_document(
+            error={"code": "IMPORT_REJECTED", "message": "", "request_id": None}
+        ),
+        ValidationError,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("evidence", "expected_error"),
+    MALFORMED_TERMINAL_EVIDENCE_SHAPES,
+)
+def test_terminal_evidence_rejects_malformed_operation_payload(
+    evidence: dict[str, object],
+    expected_error: type[Exception],
+) -> None:
+    store = InMemoryArtifactStore()
+    evidence_ref = put_with_built_ref(
+        store,
+        json.dumps(evidence).encode(),
+        artifact_id="evidence-1",
+        media_type="application/jcs",
+    )
+    with pytest.raises(expected_error):
+        _load_terminal_repository_evidence(
+            store,
+            evidence_ref,
+            terminal_evidence_decode=_TERMINAL_EVIDENCE_DECODE,
+        )
 
 
 def test_terminal_evidence_rejects_checkpoint_status_mismatch() -> None:
@@ -398,6 +569,7 @@ def test_terminal_evidence_rejects_checkpoint_status_mismatch() -> None:
         _load_terminal_repository_evidence(
             store,
             evidence_ref,
+            terminal_evidence_decode=_TERMINAL_EVIDENCE_DECODE,
             expected_operation_id="018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
             expected_status="SUCCEEDED",
         )

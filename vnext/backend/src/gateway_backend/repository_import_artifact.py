@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Mapping
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -15,12 +12,9 @@ from gateway_backend.application.submission.contracts import (
     PrepareImportPublicationResult,
     SnapshotTableBinding,
 )
+from gateway_backend.application.submission.artifact_refs import backend_artifact_ref_from_store_ref
 from gateway_backend.application.submission.errors import SubmitImportPublicationError
-from gateway_backend.artifacts import (
-    ArtifactStorePort,
-    ManifestVerificationError,
-    backend_artifact_ref_from_store_ref,
-)
+from gateway_backend.artifacts import ArtifactStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.mutation_planning import (
     ImportReplayError as MutationImportReplayError,
@@ -49,8 +43,6 @@ from gateway_backend.capabilities.storage_projection.contracts import WrittenImp
 from gateway_backend.capabilities.storage_projection.package import (
     MANIFEST_ENTRY_NAME,
     REPLAY_SQL_ENTRY_NAME,
-    PackageError,
-    pack_repository_import_entries,
     validate_repository_import_package,
 )
 from gateway_backend.capabilities.storage_projection.publish import (
@@ -67,8 +59,6 @@ __all__ = [
     "RepositoryImportArtifactError",
     "SubmitImportPublicationAdapter",
     "WrittenImportPackage",
-    "build_repository_import_package",
-    "write_repository_import_package",
 ]
 
 
@@ -252,36 +242,6 @@ class SubmitImportPublicationAdapter:
             raise SubmitImportPublicationError(
                 "package manifest digest does not match checkpoint semantic digest"
             )
-
-
-def build_repository_import_package(
-    *,
-    manifest: Mapping[str, object],
-    replay_sql: bytes,
-) -> WrittenImportPackage:
-    if type(replay_sql) is not bytes:
-        raise RepositoryImportArtifactError("replay.sql must be bytes")
-    try:
-        manifest_bytes = json.dumps(dict(manifest), separators=(",", ":"), ensure_ascii=False).encode(
-            "utf-8"
-        )
-    except (TypeError, ValueError) as exc:
-        raise RepositoryImportArtifactError(str(exc) or "manifest.json is not serializable") from exc
-    try:
-        return pack_repository_import_entries(manifest_bytes, replay_sql)
-    except PackageError as exc:
-        raise RepositoryImportArtifactError(str(exc)) from exc
-
-
-def write_repository_import_package(
-    path: Path,
-    *,
-    manifest: Mapping[str, object],
-    replay_sql: bytes,
-) -> WrittenImportPackage:
-    written = build_repository_import_package(manifest=manifest, replay_sql=replay_sql)
-    path.write_bytes(written.payload)
-    return written
 
 
 def _assert_rebuild_policy(build_input: PrepareImportBuildInput) -> None:

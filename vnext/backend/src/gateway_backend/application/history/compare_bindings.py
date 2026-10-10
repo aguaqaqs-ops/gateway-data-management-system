@@ -11,7 +11,6 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
     HistoryCompareNodeBinding,
-    HistoryNodeRefKind,
 )
 
 HISTORY_COMPARE_DIGEST_PREFIX = "gateway-vnext:history:"
@@ -135,28 +134,15 @@ def deterministic_history_compare_ids(
 
 
 def nodes_json_from_bindings(nodes: Sequence[HistoryCompareNodeBinding]) -> str:
-    payload = [_node_binding_payload(node) for node in nodes]
-    return canonicalize_jcs(canonicalize_json_value(payload)).decode("utf-8")
+    from gateway_backend.application.history.contracts import nodes_json_from_bindings as _from_contracts
+
+    return _from_contracts(nodes)
 
 
 def parse_nodes_json(raw: str) -> tuple[HistoryCompareNodeBinding, ...]:
-    import json
+    from gateway_backend.application.history.contracts import parse_nodes_json as _from_contracts
 
-    decoded = json.loads(raw)
-    if type(decoded) is not list:
-        raise ValueError("nodes_json must decode to a list")
-    nodes: list[HistoryCompareNodeBinding] = []
-    for item in decoded:
-        if type(item) is not dict:
-            raise ValueError("nodes_json entry must be an object")
-        nodes.append(
-            HistoryCompareNodeBinding(
-                ref_kind=HistoryNodeRefKind(str(item["ref_kind"])),
-                ref_id=str(item["ref_id"]),
-                commit_id=str(item["commit_id"]),
-            )
-        )
-    return tuple(nodes)
+    return _from_contracts(raw)
 
 
 __all__ = [

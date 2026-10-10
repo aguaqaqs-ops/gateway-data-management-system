@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from gateway_repository_contracts import VersionedOperation
+from gateway_backend.application.submission.contracts import RepositoryImportOperation
 
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.checkpoints import (
@@ -24,6 +24,9 @@ from gateway_backend.application.submit_jobs import (
     _capability_storage_projection_version,
     bind_submit_control_transaction_factory,
     build_prepare_import_handler,
+)
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
 )
 from gateway_backend.application.submission.accept_transaction import (
     AcceptSubmitPreflight,
@@ -111,8 +114,17 @@ class _UnusedRepositoryWrite:
     ) -> str:
         raise AssertionError("prepare handler must not submit imports")
 
-    def get_operation(self, *, repository_id: str, operation_id: str) -> VersionedOperation:
+    def get_operation(self, *, repository_id: str, operation_id: str) -> RepositoryImportOperation:
         raise AssertionError("prepare handler must not poll repository operations")
+
+    def canonical_import_request_bytes(
+        self,
+        *,
+        repository_id: str,
+        artifact_ref: RepositoryArtifactRef,
+        expected_commit_id: str,
+    ) -> bytes:
+        raise AssertionError("prepare handler must not build import request bytes")
 
     def wait_operation(
         self,
@@ -120,7 +132,7 @@ class _UnusedRepositoryWrite:
         repository_id: str,
         operation_id: str,
         deadline_seconds: float | None = None,
-    ) -> VersionedOperation:
+    ) -> RepositoryImportOperation:
         raise AssertionError("prepare handler must not wait on repository operations")
 
 
@@ -230,6 +242,7 @@ def _submit_runtime_dependencies(
         artifact_store=store,
         publication=SubmitImportPublicationAdapter(),
         repository_write=_UnusedRepositoryWrite(),
+        terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=_bound_control_transaction_factory(db_path, control_now),
         submission_id_factory=lambda: "sub-test-1",
     )

@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.app import create_app
-from gateway_backend.http.runtime import LocalArtifactBundleReader
+from gateway_backend.bootstrap.composition import LocalArtifactBundleReader
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
@@ -71,7 +71,7 @@ from gateway_backend.http.dependencies import (
 )
 from gateway_backend.http.wiring import register_workspace_http
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
-from gateway_backend.http.history_reader import HttpHistoryReader
+from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,

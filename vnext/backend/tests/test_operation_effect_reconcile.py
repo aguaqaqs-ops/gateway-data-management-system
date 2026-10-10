@@ -13,7 +13,7 @@ from gateway_backend.application.checkpoints import (
     make_checkpoint_step_builder,
     prepare_step_checkpoint,
 )
-from gateway_backend.application.external_effect_stub import (
+from tests.support.external_effect_stub import (
     DeterministicExternalEffectStub,
     ExternalEffectStub,
     RecordingExternalEffectStub,
@@ -43,7 +43,7 @@ from gateway_backend.application.recovery import (
     reconcile_session_budget_exhausted,
     validate_external_effect_identity,
 )
-from gateway_backend.application.synthetic_jobs import (
+from tests.support.synthetic_jobs import (
     PollingExternalEffectStub,
     build_external_effect_stub_handler,
     build_external_effect_stub_recovery_port,

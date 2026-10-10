@@ -33,7 +33,7 @@ from gateway_backend.domain.workspace.errors import PermissionDenied
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_history import HistorySubmissionRow, SQLiteHistoryReader
-from gateway_backend.http.history_reader import HttpHistoryReader
+from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.http_workspace_harness import BASELINE_HEAD

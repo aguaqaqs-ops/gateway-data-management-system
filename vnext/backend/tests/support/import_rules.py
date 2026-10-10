@@ -81,6 +81,7 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
     "operations": frozenset({"operations", "artifacts"}),
     "capabilities": frozenset(),
     "capability": frozenset({ANY_CAPABILITY, "artifacts"}),
+    "capability:canonical_row_hash": frozenset({ANY_CAPABILITY, "artifacts", "ext:compute"}),
     "cache": frozenset({"cache", "artifacts", ANY_CAPABILITY}),
     "application": frozenset({"application", "domain", "operations", "artifacts", ANY_CAPABILITY}),
     "http": frozenset({"http", "application", "domain", "operations", "artifacts", "ext:web"}),
@@ -102,6 +103,7 @@ class ImportEdge:
     context: str  # "module" | "function" | "type_checking"
     path: Path
     line: int
+    function: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +150,7 @@ class _ImportVisitor(ast.NodeVisitor):
         self._path = path
         self._modules = modules
         self._function_depth = 0
+        self._function_scope: str | None = None
         self._type_checking_depth = 0
         self.edges: list[ImportEdge] = []
 
@@ -174,14 +177,22 @@ class _ImportVisitor(ast.NodeVisitor):
             self.visit(child)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        previous_scope = self._function_scope
+        if self._function_depth == 0:
+            self._function_scope = node.name
         self._function_depth += 1
         self.generic_visit(node)
         self._function_depth -= 1
+        self._function_scope = previous_scope
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        previous_scope = self._function_scope
+        if self._function_depth == 0:
+            self._function_scope = node.name
         self._function_depth += 1
         self.generic_visit(node)
         self._function_depth -= 1
+        self._function_scope = previous_scope
 
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
@@ -217,7 +228,15 @@ class _ImportVisitor(ast.NodeVisitor):
         if target == "__future__":
             return
         self.edges.append(
-            ImportEdge(self._source, target, names, self._context(), self._path, line)
+            ImportEdge(
+                self._source,
+                target,
+                names,
+                self._context(),
+                self._path,
+                line,
+                self._function_scope if self._function_depth else None,
+            )
         )
 
 
@@ -312,7 +331,9 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
         and target_zone != source_zone
         and source_zone not in COMPOSITION_ZONES
     ):
-        allowed_key = "capability" if source_zone.startswith("capability:") else source_zone
+        allowed_key = source_zone if source_zone in ALLOWED_ZONE_EDGES else (
+            "capability" if source_zone.startswith("capability:") else source_zone
+        )
         allowed = ALLOWED_ZONE_EDGES.get(allowed_key, frozenset())
         if not _target_category_allowed(allowed, target_zone, edge.target):
             return (RULE_LAYER, edge.target)
@@ -408,14 +429,20 @@ def runtime_cycles(edges: Iterable[ImportEdge], modules: dict[str, Path]) -> lis
 def unreachable_modules(edges: Iterable[ImportEdge], modules: dict[str, Path]) -> frozenset[str]:
     """Non-package modules that no production entrypoint reaches.
 
-    Facade (``__init__``) re-exports do not count as use: an import of a facade symbol is resolved
-    to the module that defines it.
+    Facade re-exports resolve to their defining module. Lazy imports inside a facade wrapper count
+    only when a reachable module imports that wrapper symbol.
     """
 
     edge_list = list(edges)
     reexports: dict[str, dict[str, str]] = defaultdict(dict)
+    facade_function_imports: dict[tuple[str, str], list[ImportEdge]] = defaultdict(list)
     for edge in edge_list:
-        if modules.get(edge.source, Path()).name != "__init__.py" or edge.target not in modules:
+        if modules.get(edge.source, Path()).name != "__init__.py":
+            continue
+        if edge.context == "function" and edge.function is not None:
+            facade_function_imports[(edge.source, edge.function)].append(edge)
+            continue
+        if edge.context != "module" or edge.target not in modules:
             continue
         for name in edge.names:
             reexports[edge.source][name] = edge.target
@@ -430,22 +457,52 @@ def unreachable_modules(edges: Iterable[ImportEdge], modules: dict[str, Path]) -
             current = reexports[current][name]
         return current
 
+    def _add_edge(source: str, target: str) -> None:
+        if target in modules:
+            graph[source].add(target)
+
+    def _add_import_dependencies(
+        source: str,
+        target: str,
+        names: tuple[str, ...],
+        active_wrappers: frozenset[tuple[str, str]] = frozenset(),
+    ) -> None:
+        if target not in modules:
+            return
+        if not names:
+            _add_edge(source, target)
+            return
+        for name in names:
+            wrapper = (target, name)
+            wrapper_imports = facade_function_imports.get(wrapper)
+            if wrapper_imports is not None:
+                if wrapper in active_wrappers:
+                    continue
+                next_active = active_wrappers | {wrapper}
+                for wrapper_edge in wrapper_imports:
+                    if wrapper_edge.context == "type_checking":
+                        continue
+                    _add_import_dependencies(
+                        source,
+                        wrapper_edge.target,
+                        wrapper_edge.names,
+                        next_active,
+                    )
+                continue
+            resolved = resolve(target, name) if name in reexports.get(target, {}) else target
+            _add_edge(source, resolved)
+
     graph: dict[str, set[str]] = defaultdict(set)
     for edge in edge_list:
-        if (
-            edge.context == "type_checking"
-            or modules.get(edge.source, Path()).name == "__init__.py"
-        ):
+        if edge.context == "type_checking":
             continue
-        if edge.target not in modules:
+        source_is_init = modules.get(edge.source, Path()).name == "__init__.py"
+        if source_is_init:
             continue
-        if edge.names and edge.target in reexports:
-            graph[edge.source].update(resolve(edge.target, name) for name in edge.names)
-        else:
-            graph[edge.source].add(edge.target)
+        _add_import_dependencies(edge.source, edge.target, edge.names)
 
     reached = set(PRODUCTION_ENTRYPOINTS)
-    pending = list(PRODUCTION_ENTRYPOINTS)
+    pending = list(reached)
     while pending:
         current = pending.pop()
         for target in graph.get(current, ()):

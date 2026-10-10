@@ -47,7 +47,6 @@ from gateway_backend.application.submit_jobs import (
 )
 from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
-from gateway_backend.application.synthetic_jobs import build_external_effect_stub_recovery_port
 from gateway_backend.infrastructure.artifact_store import (
     BoundedArtifactStore,
     LocalArtifactStore,
@@ -67,7 +66,10 @@ from gateway_backend.infrastructure.repository_read import (
     load_repository_bearer_token,
 )
 from gateway_backend.infrastructure.repository_write import HttpRepositoryWriteClient
-from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
+)
+from gateway_backend.bootstrap.composition import build_submit_import_publication_port
 from gateway_backend.operations import OperationRecord, OperationUnitOfWork, StepRecord
 from gateway_backend.operations.contracts import JobStepKey
 from gateway_backend.operations.recovery import (
@@ -79,7 +81,7 @@ from gateway_backend.operations.recovery import (
     build_recovery_routed_executor,
     build_startup_recovery,
 )
-from gateway_backend.operations.contracts import _validate_opaque_id
+from gateway_backend.operations.contracts import validate_opaque_id
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
@@ -217,12 +219,13 @@ def build_production_submit_dependencies(
 
     return SubmitRuntimeDependencies(
         artifact_store=preview_deps.artifact_store,
-        publication=SubmitImportPublicationAdapter(),
+        publication=build_submit_import_publication_port(),
         repository_write=HttpRepositoryWriteClient(
             base_url=settings.repository_base_url,
             bearer_token=token,
             timeout_seconds=settings.repository_timeout_seconds,
         ),
+        terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=submission_id_factory,
     )
@@ -253,7 +256,7 @@ def build_worker_runtime(
     job_definitions: tuple[JobDefinition, ...] = (),
     handlers: Mapping[str, ClaimedExecutor] | None = None,
     payload_decoders: Mapping[str, PayloadDecoder] | None = None,
-    external_effect_stub: object | None = None,
+    external_effect_recovery: RecoveryPort | None = None,
     preview_recovery: RecoveryPort | None = None,
     submit_recovery: RecoveryPort | None = None,
     write_uow_factory: WriteUnitOfWorkFactory | None = None,
@@ -307,7 +310,7 @@ def build_worker_runtime(
         composition,
         jitter=jitter,
         now_factory=resolved_now_factory,
-        external_effect_stub=external_effect_stub,
+        external_effect_recovery=external_effect_recovery,
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
     )
@@ -355,7 +358,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
             previous_handlers = _install_signal_handlers(stop_requested)
-            from gateway_backend.http.runtime import (
+            from gateway_backend.bootstrap.composition import (
                 assert_workspace_registry_ready,
                 build_workspace_job_registry,
             )
@@ -476,7 +479,7 @@ def _adapt_recovery_port(port: RecoveryPort) -> HandlerRecoveryCallback:
 def _build_recovery_callbacks(
     composition: JobWorkerComposition,
     *,
-    external_effect_stub: object | None,
+    external_effect_recovery: RecoveryPort | None,
     now_factory: Callable[[], datetime],
     preview_recovery: RecoveryPort | None,
     submit_recovery: RecoveryPort | None,
@@ -489,13 +492,12 @@ def _build_recovery_callbacks(
             and definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT
         ):
             callbacks[definition.key] = _adapt_recovery_port(submit_recovery)
-        elif definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT:
-            port = build_external_effect_stub_recovery_port(
-                composition.artifact_store,
-                external_stub=cast(Any, external_effect_stub),
-                now_factory=now_factory,
-            )
-            callbacks[definition.key] = _adapt_recovery_port(port)
+        elif (
+            external_effect_recovery is not None
+            and definition.recovery_capability is RecoveryCapability.EXTERNAL_EFFECT
+            and definition.key.job_kind != SUBMIT_JOB_KIND
+        ):
+            callbacks[definition.key] = _adapt_recovery_port(external_effect_recovery)
         elif preview_recovery is not None and definition.key.job_kind == PREVIEW_JOB_KIND:
             callbacks[definition.key] = _adapt_recovery_port(preview_recovery)
         else:
@@ -534,13 +536,13 @@ def _build_recovery_aware_registry(
     *,
     jitter: Callable[[float, float], float],
     now_factory: Callable[[], datetime],
-    external_effect_stub: object | None,
+    external_effect_recovery: RecoveryPort | None = None,
     preview_recovery: RecoveryPort | None = None,
     submit_recovery: RecoveryPort | None = None,
 ) -> WorkerRegistry:
     recovery_by_key = _build_recovery_callbacks(
         composition,
-        external_effect_stub=external_effect_stub,
+        external_effect_recovery=external_effect_recovery,
         now_factory=now_factory,
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
@@ -624,7 +626,7 @@ class _R4WorkerStartup(WorkerStartup):
             )
             executor = self._resolve_executor(candidate.job_step_key)
             lease_token = self._lease_token_factory()
-            _validate_opaque_id(lease_token, "lease_token")
+            validate_opaque_id(lease_token, "lease_token")
             claimed = OperationLifecycleActions(
                 store,
                 transaction_now=transaction_now,

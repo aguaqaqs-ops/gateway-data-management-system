@@ -33,7 +33,7 @@ from gateway_backend.application.submit_jobs import (
     SubmitRuntimeDependencies,
     bind_submit_control_transaction_factory,
     build_submit_operator_recovery_port,
-    _read_write_factory,
+    read_write_factory,
 )
 from gateway_backend.application.submit_registry import (
     assert_submit_registry_decoders,
@@ -41,6 +41,7 @@ from gateway_backend.application.submit_registry import (
     submit_job_definitions,
 )
 from gateway_backend.application.submission.accept_transaction import assert_submit_job_registered
+from gateway_backend.application.submission.contracts import SubmitImportPublicationPort
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryProviderError,
@@ -86,7 +87,7 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
     ProvisionedScopeResolution,
     seed_provisioned_mappings,
 )
-from gateway_backend.http.history_reader import HttpHistoryReader
+from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
     load_repository_bearer_token,
@@ -94,6 +95,9 @@ from gateway_backend.infrastructure.repository_read import (
 from gateway_backend.infrastructure.repository_write import (
     HttpRepositoryAbortEvidencePort,
     HttpRepositoryWriteClient,
+)
+from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
+    WireRepositoryTerminalEvidenceDecodePort,
 )
 from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
 from gateway_backend.settings import BackendSettings
@@ -399,6 +403,7 @@ def prepare_backend_runtime(
         artifact_store=artifact_store,
         publication=SubmitImportPublicationAdapter(),
         repository_write=write_client,
+        terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=lambda: f"sub-{uuid4()}",
     )
@@ -406,7 +411,7 @@ def prepare_backend_runtime(
     operator_recovery_port = build_submit_operator_recovery_port(
         write_uow_factory=control_transaction_factory,
         capability_lookup=build_submit_recovery_capability_lookup(registry),
-        submit_control_uow_factory=_read_write_factory(submit_control_uow_factory),
+        submit_control_uow_factory=read_write_factory(submit_control_uow_factory),
         abort_evidence=HttpRepositoryAbortEvidencePort(client=write_client),
         submit_deps=submit_deps,
     )
@@ -460,6 +465,14 @@ def prepare_backend_runtime(
     )
 
 
+def build_submit_import_publication_port() -> SubmitImportPublicationPort:
+    """Production Submit import publication adapter wired at the composition root."""
+
+    from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+
+    return SubmitImportPublicationAdapter()
+
+
 __all__ = [
     "BackendRuntime",
     "ClosableAdmissionGate",
@@ -470,6 +483,7 @@ __all__ = [
     "TransactionWorkspaceRepository",
     "assert_repository_service_ready",
     "assert_workspace_registry_ready",
+    "build_submit_import_publication_port",
     "build_workspace_job_registry",
     "prepare_backend_runtime",
 ]

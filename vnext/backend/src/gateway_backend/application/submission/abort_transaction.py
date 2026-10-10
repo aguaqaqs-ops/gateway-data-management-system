@@ -114,7 +114,9 @@ def abort_prepared_submit_in_control_transaction(
         owner_kind="submit-attempt",
         owner_id=attempt.submit_attempt_id,
     )
-    from gateway_backend.application.submit_jobs import release_submit_checkpoint_protection
+    from gateway_backend.application.submission.artifact_release import (
+        release_submit_checkpoint_protection,
+    )
 
     release_submit_checkpoint_protection(unit_of_work, operation_id=attempt.operation_id)
     return aborted_attempt
@@ -198,7 +200,9 @@ def abort_submit_in_control_transaction(
         owner_kind="submit-attempt",
         owner_id=attempt.submit_attempt_id,
     )
-    from gateway_backend.application.submit_jobs import release_submit_checkpoint_protection
+    from gateway_backend.application.submission.artifact_release import (
+        release_submit_checkpoint_protection,
+    )
 
     release_submit_checkpoint_protection(unit_of_work, operation_id=attempt.operation_id)
 

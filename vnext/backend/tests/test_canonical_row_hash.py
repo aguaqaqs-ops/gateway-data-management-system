@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from gateway_backend.canonical_row_hash_ipc import collect_row_hashes_from_ipc, write_row_hash_ipc_stream
-from gateway_backend.compute import canonical_row_hashes_v1
+from gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc import collect_row_hashes_from_ipc, write_row_hash_ipc_stream
+from gateway_backend.capabilities.canonical_row_hash.compute import canonical_row_hashes_v1
 
 MIXED_SCALAR_GOLDEN = (
     Path(__file__).resolve().parents[2]

@@ -19,7 +19,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import Repo
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
 from gateway_backend.http.auth import LiveFileSessionPort
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.runtime import (
+from gateway_backend.bootstrap.composition import (
     HttpBaselineCanonicalDigestPort,
     HttpRepositoryMainResolvePort,
     build_workspace_job_registry,

@@ -59,8 +59,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTable,
     SnapshotTableDescriptor,
 )
-from gateway_backend.capabilities.comparison.standard import (
-    StandardComparisonError,
+from gateway_backend.capabilities.comparison.errors import StandardComparisonError
+from gateway_backend.capabilities.comparison.row_encoding import (
     _EncodedRow,
     _encode_cell,
     _row_digest,

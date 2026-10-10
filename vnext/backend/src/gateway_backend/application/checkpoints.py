@@ -29,7 +29,7 @@ from gateway_backend.operations.contracts import (
     OperationStatus,
     StepRecord,
     StepStatus,
-    _validate_json_structure,
+    validate_json_structure,
 )
 
 STEP_CHECKPOINT_CONTRACT_VERSION = "backend-vnext/operation-step-checkpoint/v1"
@@ -113,7 +113,7 @@ class StepCheckpointEnvelope:
         if not isinstance(self.job_state, Mapping):
             raise ValueError("job_state must be a mapping")
         job_state_dict = dict(self.job_state)
-        _validate_json_structure(job_state_dict)
+        validate_json_structure(job_state_dict)
 
     def to_document(self) -> dict[str, object]:
         return {
@@ -153,7 +153,7 @@ class StepCheckpointEnvelope:
             raise CheckpointDecodeError("job_state must be a JSON object", code="CHECKPOINT_SHAPE_INVALID")
         job_state = cast(dict[str, object], job_state_raw)
         try:
-            _validate_json_structure(job_state)
+            validate_json_structure(job_state)
         except ValueError as exc:
             raise CheckpointDecodeError(str(exc), code="CHECKPOINT_SHAPE_INVALID") from exc
         return cls(

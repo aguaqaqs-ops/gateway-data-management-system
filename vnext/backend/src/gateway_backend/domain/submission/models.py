@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from gateway_backend.domain.submission.errors import SubmitAttemptInvariantViolation
+
 
 class SubmitAttemptState(StrEnum):
     PREPARED = "PREPARED"
@@ -112,7 +114,6 @@ class SubmitAttempt:
     abort_code: str | None = None
 
     def __post_init__(self) -> None:
-        from gateway_backend.domain.submission.policies import assert_submit_attempt_invariants
 
         _validate_non_empty_str(self.submit_attempt_id, "submit_attempt_id")
         _validate_non_empty_str(self.workspace_id, "workspace_id")
@@ -260,6 +261,53 @@ class RepositorySubmitOccupancy:
     baseline_head_version: int
     acquired_at: datetime
 
+
+
+def assert_submit_attempt_invariants(attempt: SubmitAttempt) -> None:
+    has_manifest_ref = attempt.canonicalization_manifest_ref is not None
+    has_manifest_digest = attempt.canonicalization_manifest_digest is not None
+    if has_manifest_ref != has_manifest_digest:
+        raise SubmitAttemptInvariantViolation(
+            "canonicalization manifest ref and digest must appear together"
+        )
+
+    if attempt.repository_import_artifact_ref is not None and not has_manifest_ref:
+        raise SubmitAttemptInvariantViolation(
+            "repository import artifact requires canonicalization manifest ref/digest"
+        )
+
+    if attempt.repository_artifact_ref is not None and attempt.repository_import_artifact_ref is None:
+        raise SubmitAttemptInvariantViolation(
+            "repository artifact ref requires backend import artifact ref"
+        )
+
+    if attempt.repository_operation_id is not None and attempt.repository_artifact_ref is None:
+        raise SubmitAttemptInvariantViolation(
+            "repository operation identity requires repository artifact ref"
+        )
+
+    if attempt.state is SubmitAttemptState.FINALIZED:
+        if attempt.submission_id is None:
+            raise SubmitAttemptInvariantViolation("FINALIZED attempt requires submission_id")
+        if attempt.finalized_at is None:
+            raise SubmitAttemptInvariantViolation("FINALIZED attempt requires finalized_at")
+        if attempt.abort_code is not None or attempt.aborted_at is not None:
+            raise SubmitAttemptInvariantViolation("FINALIZED attempt must not carry abort fields")
+    elif attempt.submission_id is not None:
+        raise SubmitAttemptInvariantViolation("submission_id is only allowed in FINALIZED state")
+
+    if attempt.state is SubmitAttemptState.ABORTED:
+        if attempt.abort_code is None:
+            raise SubmitAttemptInvariantViolation("ABORTED attempt requires abort_code")
+        if attempt.aborted_at is None:
+            raise SubmitAttemptInvariantViolation("ABORTED attempt requires aborted_at")
+        if attempt.submission_id is not None or attempt.finalized_at is not None:
+            raise SubmitAttemptInvariantViolation("ABORTED attempt must not carry finalize fields")
+    elif attempt.abort_code is not None or attempt.aborted_at is not None:
+        raise SubmitAttemptInvariantViolation("abort fields are only allowed in ABORTED state")
+
+    if attempt.state is SubmitAttemptState.EFFECT_PENDING and attempt.effect_pending_at is None:
+        raise SubmitAttemptInvariantViolation("EFFECT_PENDING attempt requires effect_pending_at")
 
 def derive_preview_canonical_business_digest(*, bundle_digest: str) -> str:
     _validate_non_empty_str(bundle_digest, "bundle_digest")

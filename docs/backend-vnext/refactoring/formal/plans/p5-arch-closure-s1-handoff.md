@@ -116,7 +116,7 @@ cd vnext/backend && ../scripts/uv-consume.sh -C . run python -m tests.support.im
 cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_architecture.py -m unit -q
 # 2026-10-10：import_rules 3/0/14；facade 符号导入形态用例与架构 unit 结果见本次验证记录
 
-**Owner 确认（2026-10-10）**：按真实符号级可达性采用 14 项不可达基线；`composite_signal._ast`、`_bind`、`_digest`、`materialize` 四项保留为 S3 延期，S3 接入其生产调用方后关闭。执行计划 §2 S1 验收、S2a 预期和 `architecture_baseline.py` 已同步。
+**Owner 确认（2026-10-10）**：原包级 facade 规则给出 10 项不可达；移除该规则并按可达模块导入的 wrapper 符号重算后为 14 项。新增的 4 项是 `composite_signal._ast`、`_bind`、`_digest`、`materialize`，它们当前没有可达生产调用方，保留为 S3 延期并在 S3 接入调用方后关闭。执行计划 §2 S1 验收、S2a 预期和 `architecture_baseline.py` 已同步；后续实现继续遵守只减不增。
 ```
 
 ## 5. synthetic / worker 装配

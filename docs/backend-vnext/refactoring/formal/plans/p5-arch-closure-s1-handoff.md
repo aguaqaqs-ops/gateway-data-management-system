@@ -1,6 +1,6 @@
 # P5 架构收口 S1 Handoff
 
-状态：**S1 第 3 次复审候选。第 2 次复审的修订已提交并合并 `main`；最终门禁在合并提交 V 上执行，门禁结果与镜像身份等价（`carried`）判定见 §6.3、§6.4（门禁完成后回填）。**
+状态：**S1 第 3 次复审候选（H）。最终门禁在合并提交 V `d9c2097612` 上执行：第 3 次完整运行 runner exit 0；前两次运行因 client e2e 测试镜像的构建环境失败，三次运行均已记录（§6.3）。V → H 的镜像身份等价（`carried`）判定见 §6.4，结果在复审提示词与 `final-carried-check.log` 中，不入库。**
 
 修复与复审证据汇总：[S1 第 2 次复审修复报告](p5-arch-closure-s1-rereview-2-repair-report.md)。
 
@@ -24,9 +24,9 @@ fix_commit: ce12e245286e367d1e7e86d65a8b3a428cfb813e  # census 脚本与测试�
 implementation_patch_sha256: b5542b162dde170307a464d4fe62028731c2d91db544136714a6c2aebf19875e  # git diff 96071affd4 ce12e24528 -- vnext/
 last_committed_implementation_head: ce12e245286e367d1e7e86d65a8b3a428cfb813e  # 最后一个改实现代码的提交；其后的提交（含合入 main）只带入文档
 last_committed_source_tree_sha: 6bde540589c1e92bd5093920bfecf52026dd33f5  # ce12e24528^{tree}
-docs_commit: pending  # 门禁后回填
-main_merged: pending  # 合入的 main SHA，门禁后回填
-candidate_gate: pending  # V：合并 main 的提交，门禁在此提交上执行；门禁后回填
+docs_commit: a371d55bbe9fdf6f3def570945759b2072c2103b  # 文档修订（决议 §10、handoff、修复报告、census JSON、design/execution plan）
+main_merged: 5fe02db3a719eb064e3a8fce44b39056afc3321f  # 合入的 main；只带入文档与 AGENTS.md
+candidate_gate: d9c2097612036c05741c98b702d518d54571ece2  # V：合并 main 的提交（tree 4ea3ce28543537375e9c9f7c5fa611362887e052），最终门禁在此提交上执行
 candidate: p5-closure/s1  # H：分支 tip（handoff 所在提交，相对 V 只改文档）
 candidate_tree_is_committed: true  # owner 于 2026-10-10 撤销“本轮不提交”指令
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity
@@ -102,7 +102,7 @@ S1 不修改 `table_access` 与 `composite_signal` 的生产代码。
 | S1.5–S1.6 | `d42a740e7d` | control_transactions、pair_pipeline、job_steps、upload_admission、artifact_release、workspace/ports |
 | S1.7 | `d97428ed22`, `7de23ed349` | import 终态；lock/wire 修复 |
 | merge 授权基线 | `1caf2ffc26` | merge `main @ 218c211240`（§8 审核/复审模板） |
-| 第 3 次复审（2026-10-10） | fix `ce12e24528`；docs 提交、合并 `main` 的 V 与分支 tip H 见 §6.3 | census 脚本与测试；文档（决议 §10 第三项、handoff、修复报告）；合并 `main`；V 上的最终门禁；H 回填 handoff |
+| 第 3 次复审（2026-10-10） | fix `ce12e24528`；docs `a371d55bbe`；合并 `main` 的 V `d9c2097612`；H = 分支 tip | census 脚本与测试；文档（决议 §10 第三项、handoff、修复报告）；合并 `main` `5fe02db3a7`；V 上的最终门禁；H 回填 handoff |
 | handoff（历史） | `84fd4f3447`、`00ae9ccad1`、`96071affd4` | 第 2 次复审之前的历史门禁证据与 traceability |
 
 ## 3. §3 S1 路径预算
@@ -202,7 +202,40 @@ docker image inspect <provenance 中的 3 个 image ID>      # final-image-inspe
 
 ### 6.3 V 上的最终结果
 
-待回填（门禁完成后在 H 中填写）。
+V = `d9c2097612036c05741c98b702d518d54571ece2`（tree `4ea3ce28543537375e9c9f7c5fa611362887e052`；父提交为 docs `a371d55bbe` 与 `main` `5fe02db3a7`）。以下三次运行都是完整的权威 runner，均在 V 的已提交 clean worktree 上、`GATEWAY_TEST_WORKERS=48`、不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`；每次运行开始与结束时 `git rev-parse HEAD` 都是 V、`git status --porcelain` 都为空，前置检查均通过。backend 批次含 9 项 Compose 旅程（`pytest --collect-only -m 'integration and serial'` 在这 7 个文件上收集 9 项），无 skip。
+
+| 运行 | 日志前缀 | 时间（+0100） | runner exit code | shared_kernel / contracts / client | backend | RS parallel | RS serial |
+| ---: | --- | --- | ---: | --- | --- | --- | --- |
+| 1 | `final-*` | 14:42:42–15:08:17 | **1** | 242 / 152 / 154 passed | 2704 passed，1 warning | 1678 passed，1 skipped | 203 passed，**2 failed** |
+| 2 | `final-rerun-*` | 15:10:10–16:12:35 | **1** | 242 / 152 / 154 passed | 2704 passed，1 warning | 1678 passed，1 skipped | 204 passed，**1 failed** |
+| 3 | `final-rerun2-*` | 16:13:16–16:39:19 | **0** | 242 / 152 / 154 passed | 2704 passed，1 warning | 1678 passed，1 skipped | **205 passed** |
+
+**V 的最终门禁结果以第 3 次运行为准：runner exit 0。** 前两次运行的失败不被忽略，也不用定向补跑替代：
+
+- 运行 1：`test_compose_wrong_network_cleans_up` 与 `test_compose_remote_client_commit_pinned_read_inside_network` 失败，都是 `repository-client image build failed`，buildkit 报 `failed to prepare … max depth exceeded`。
+- 运行 2：只有 `test_compose_wrong_network_cleans_up` 失败，同样是 client 镜像构建失败：`uv sync --frozen --group dev` 下载 `pyarrow==25.0.0` 时 `Request failed after 4 retries in 129.3s`（`operation timed out`）。
+
+三次运行里，失败只出现在 client e2e 测试镜像（`gateway-repository-client-e2e:local`）的构建这一步，没有任何用例断言失败；其余批次的数量与第 3 次一致。
+
+**环境成因与处置**（日志 `final-client-image-depth.log`、`final-cleanup.log`、`final-rerun2-client-image.log`）：
+
+1. RS 测试 harness 构建该镜像时，只要现有镜像的 uv-lock label 匹配，就把它自己的 tag 当作 `BASE_IMAGE`（`compose_lifecycle_harness.py` `client_dependency_base_image`，默认值为镜像自身）。每换一个候选 SHA 都会在上一版之上再叠层。运行 1 之前该镜像已有 124 个 rootfs 层（`docker history` 293 条），再叠加就超过 overlay2 的深度上限。
+2. 运行 1 之后删除了这个镜像（`docker rmi`）。该镜像同时是环境保留的预装依赖基础镜像；删除后构建要从 `python:3.14.6-slim-bookworm` 起步并联网安装依赖，而该主机到 PyPI 只有约 60 KB/s（实测 20 秒下载 1.16 MB），因此运行 2 中第一次构建因下载 `pyarrow` 超时而失败，第二次构建成功（Created 16:10:33，12 层，`revision` label 为 V）。
+3. 运行 3 开始时该镜像已存在且 label 与 V 匹配，harness 复用而不重建（运行 3 结束后该镜像的 Created 仍为 16:10:33，层数仍为 12），runner 通过。
+
+这不是规程中的“清理后重跑一次”：为恢复被删除的预装依赖基础镜像共执行了 3 次完整运行，三次都已记录。**未修复的遗留问题**：client 镜像以自身为基础会随候选更换持续叠层，建议由 owner 另行决定修复方式（例如改为以单层依赖基础镜像为基础，或在构建前检查层数）。S1 不改动该 harness。
+
+运行 3 的镜像（`final-rerun2-compose-provenance.json`、`final-rerun2-image-inspect.log`；project `ordered-bisect-b-2622496-baseline`）：
+
+| 镜像 | image ID | 说明 |
+| --- | --- | --- |
+| repository-service | `sha256:c1b3a54111b1babf0d0fae856514f2dfd0a89db13a05840e84b674ffec10a78d` | Created 2026-10-10 14:42:41 +0100（运行 1 在 V 上构建）；运行 2、3 的构建步骤全部命中缓存，image ID 不变。labels：`org.opencontainers.image.revision`=V，`build-input-revision`=`4d1dc010deff17249bb2aa54b7563e7a86959096`，`source-tree-sha256`=`sha256:62a38a0881926ba0afd15fb22db292c15be19318649562033f4b9c3f91d642cf`，`uv-lock-sha256`=`6dc9659f…`，dolt 2.1.11，uv 0.11.28 |
+| backend | `sha256:020c387c63eb37ebad4a815264a249637a725b19ecffae7c386f87bfce6992fb` | gate harness 构建；Created 2026-10-10 11:33:04Z（复用 BuildKit 层）；labels 只有 compose project/service/version，没有 revision label |
+| worker | `sha256:a1a8185ca8957147048df1c53db46c7134267fd694efc7c9cfc4a5fd6308c4e8` | 同上 |
+
+运行 1、2 的 provenance（同一 RS image ID `c1b3a541…`）：运行 1 project `ordered-bisect-b-1678334-baseline`，backend `6986db9d…`、worker `8a8d14d8…`；运行 2 project `ordered-bisect-b-2136129-baseline`，backend `30eddfda…`、worker `435a442f…`。compose 把 project 名写入镜像 label，所以同一源码在不同 project 下 image ID 不同；§6.4 因此必须用 provenance 中的 project 名重建。
+
+日志（均在 `/home/dev/gdds-p5-closure-s1-gate-logs/`）：运行 1 `final-preflight.log`、`final-image-build.log`、`final-run-tests.log`、`final-compose-provenance.json`、`final-image-inspect.log`、`final-summary.log`；运行 2 与运行 3 同名但前缀分别为 `final-rerun-`、`final-rerun2-`；另有 `final-precommit-static.log`、`final-client-image-depth.log`、`final-cleanup.log`、`final-rerun2-client-image.log`。
 
 ### 6.4 镜像身份等价判定（V → H）
 
@@ -216,7 +249,14 @@ c. 用 harness 构建 backend/worker 的同一命令（`compose_gate_harness.py`
 
 ### 6.5 五锁 SHA 与 compose.yaml SHA
 
-待回填（取自 `final-image-inspect.log`）。
+取自三次运行的 `*-image-inspect.log`（三次相同，且与第 2 次复审时的记录一致）：
+
+- shared_kernel `7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898`
+- repository_contracts `b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3`
+- repository_client `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954`
+- repository_service `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11`
+- backend `21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea`
+- `vnext/deploy/compose.yaml` `f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0`
 
 ### 6.6 历史（不作为最终证据）
 
@@ -288,7 +328,7 @@ e. 为核实 8 个 RS serial 用例，在 clean worktree 上共补跑 7 次，�
 2. §3 模块已落地；job 模块仅薄包装、checkpoint 载荷未变。
 3. kickoff 普查负结果未 overstated 为 S2a 类型决策；census 脚本 `96071affd4..ce12e24528` 的差异与新增用例。
 4. 合并的 `main`（授权基线 `218c211240` 之后的新增提交）只带入文档与 AGENTS.md，无实现冲突。
-5. 门禁绑定 V：已提交 clean worktree、runner 自身的 exit code、前后 HEAD/status、provenance 中的 3 个 image ID；V → H 的 `carried` 判定逐项复核（§6.4）。
+5. 门禁绑定 V：已提交 clean worktree、runner 自身的 exit code、前后 HEAD/status、provenance 中的 3 个 image ID；三次运行（两次因 client e2e 镜像构建环境失败，§6.3）如实记录；V → H 的 `carried` 判定逐项复核（§6.4）。
 6. 真实数据格式缺口的承接（§1 末、决议 §10 第三项）：t2 不阻塞 S2b DC22 的依据与 N4 更正。
 7. §6.6.2 的实测更正 a–e 与 7 次补跑记录，包括 `dolt children remain` 的说明。
 

@@ -456,7 +456,8 @@ Dockerfile、依赖锁与 Compose 预期不变；真实数据不挂载进容器�
 
 设计 §14 任一停止条件出现时，暂停当前阶段，在 handoff 记录触发事实并交 owner 处理；不得以兼容代码、
 Application 特判或新增基线条目绕过。经 owner 明确批准的测量语义纠错可以更正起始基线；必须记录旧值、新值、工具语义变化与延期归属，
-且不能掩盖新增的真实违例或运行时环。
+且不能掩盖新增的真实违例或运行时环。S1-F4 的 10→14 更正由 [S0 owner decisions](p5-arch-closure-s0-owner-decisions.md) §10 明确批准：
+包级 facade 扩展改为按实际导入的 wrapper 符号展开，4 个 composite 模块归属 S3。该批准只修正测量口径；后续实现仍遵守只减不增。
 
 ## 8. 阶段推进约定
 
@@ -511,8 +512,8 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 - 普查脚本按生产上传包的布局（`sql/dbcfg.sql`、`comps/logic/logics.xml`）确定性地打包为 TAR_GZ，写入 `$GATEWAY_REAL_DUMP_ROOT/packages/`，
   并生成 `$GATEWAY_REAL_DUMP_ROOT/datasets.json`（字段按决议记录 §4）。原始目录只读，不改名、不移动。
 - dataset ID 映射：`small_cut` → t1、`small` → t2、`medium` → t3、`large` → t4；`-1`、`-2` 映射为 v1、v2。
-- 同一规模档的 `-1`、`-2` 是否为同一项目的前后版本、不同规模档之间是否为不同项目，由 owner 在 S1 kickoff 时确认并写入
-  `datasets.json` 的 `pair_of` 与 handoff；S2b 的同项目链路与 S4 的 `SAME_PROJECT`/`DIFFERENT_PROJECT` 预期以此为准。
+- **Owner 确认（2026-10-10，决议 §10）**：同一规模档的 `-1`、`-2` 是同一项目的 v1、v2；不同规模档代表不同项目，不跨档配对。
+  `datasets.json` 中每档 v2 的 `pair_of` 指向同档 v1；S2b 的同项目链路与 S4 的 `SAME_PROJECT`/`DIFFERENT_PROJECT` 预期以此为准。
 - 目录权限按决议记录 §4 收紧为 700/600（2026-09-27 为 775/664），由 owner 执行。
 
 ### 8.4 S1 子步

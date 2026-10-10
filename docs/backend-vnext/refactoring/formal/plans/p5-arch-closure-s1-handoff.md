@@ -1,8 +1,10 @@
 # P5 架构收口 S1 Handoff
 
-状态：**S1 复审定向修订完成，待独立复审（rereview-1 关闭项）**
+状态：**S1 第 3 次复审候选。第 2 次复审的修订已提交并合并 `main`；最终门禁在合并提交 V 上执行，门禁结果与镜像身份等价（`carried`）判定见 §6.3、§6.4（门禁完成后回填）。**
 
-日期：2026-09-28
+修复与复审证据汇总：[S1 第 2 次复审修复报告](p5-arch-closure-s1-rereview-2-repair-report.md)。
+
+日期：2026-10-10
 
 Owner：P5 Architecture Closure
 
@@ -16,9 +18,17 @@ stage: P5-arch-closure-S1-structure
 authorized_base: 218c211240b33e01eee1eb8965fdcca0ec4b8099  # main @ 授权基线（merge-base 一致）
 implementation_fork: e04c1bcca7d17d1f7e1feda9b8329a4503942d6b  # S1 实现切点
 merge_base_with_main: 218c211240b33e01eee1eb8965fdcca0ec4b8099
-implementation_head: 72092dd27af85dc235e1d08c2650297508b5e49e  # 定向修订代码 tip；镜像/build 绑定此 SHA
-candidate_ref: p5-closure/s1  # reviewer 开始时解析分支 tip；不引用被 amend 移除的 commit object
-source_tree_sha: 7a017a4cbb97c8fce3cbc2bcae0f105bdc8d5db7  # implementation_head^{tree}
+previous_reviewed_head: 96071affd490b728aa62fe4a6f0ee9e784e42466  # 第 2 次复审的 Git HEAD；该次审核对象另含未提交的 census 补丁
+previous_reviewed_patch_sha256: 492cce95f9b63849533fbd7be8a0b87d36df546249c8c4ce3e4fbe87ba654b74  # 第 2 次复审时未提交的 census 实现与测试 diff
+fix_commit: ce12e245286e367d1e7e86d65a8b3a428cfb813e  # census 脚本与测试（含 reader 不可用 → partial 用例）
+implementation_patch_sha256: b5542b162dde170307a464d4fe62028731c2d91db544136714a6c2aebf19875e  # git diff 96071affd4 ce12e24528 -- vnext/
+last_committed_implementation_head: ce12e245286e367d1e7e86d65a8b3a428cfb813e  # 最后一个改实现代码的提交；其后的提交（含合入 main）只带入文档
+last_committed_source_tree_sha: 6bde540589c1e92bd5093920bfecf52026dd33f5  # ce12e24528^{tree}
+docs_commit: pending  # 门禁后回填
+main_merged: pending  # 合入的 main SHA，门禁后回填
+candidate_gate: pending  # V：合并 main 的提交，门禁在此提交上执行；门禁后回填
+candidate: p5-closure/s1  # H：分支 tip（handoff 所在提交，相对 V 只改文档）
+candidate_tree_is_committed: true  # owner 于 2026-10-10 撤销“本轮不提交”指令
 uv_lock_in_diff: no  # 7de23ed349 恢复 canonical PyPI identity
 implementation_authority: execution-plan §8.4 S1.1–S1.7
 design_§14_stop: not_triggered
@@ -34,7 +44,7 @@ GATEWAY_REAL_DUMP_ROOT=/home/dev/gateway-real-dumps \
   vnext/scripts/uv-consume.sh -C vnext/backend run python benchmarks/real_dump_census.py
 ```
 
-八份 dump 均在 `SET @saved_cs_client` → `UNSUPPORTED_STATEMENT`（P3-R2 既有缺口，**非 S1 引入**）。t3/t4 的 `logics.xml` 在生产路径下仍受 `max_xml_depth=64` 约束（诊断摘要见下）。
+八份 dump 均在 `SET @saved_cs_client` → `UNSUPPORTED_STATEMENT`（P3-R2 既有缺口，**非 S1 引入**）。t3/t4 的 `logics.xml` 在生产路径下仍受 `max_xml_depth=64` 约束（诊断摘要见下）。这两项连同 t2 的 composite 失败，统一由治理修订计划 G2 承接（见本节末“真实数据格式缺口的承接”）。
 
 - **诊断模式**（仅普查进程；**不代表生产路径**）：
 
@@ -43,29 +53,43 @@ GATEWAY_REAL_DUMP_ROOT=/home/dev/gateway-real-dumps \
   vnext/scripts/uv-consume.sh -C vnext/backend run python benchmarks/real_dump_census.py --diagnostic
 ```
 
-2026-09-28 的物化与重复键普查产出 `$GATEWAY_REAL_DUMP_ROOT/census/summary.json`（`diagnostic_mode: true`）。2026-10-10 用修正后的类型规范化函数重新解析 8 份 SQL DDL，确认并拆分 `UNSIGNED` 类型计数；同日又对 t1 两个版本重跑 `census_one`，确认重复键与有效键统计一致。逐 dataset 的结构记录现保存在仓库内的 [S1 census JSON](p5-arch-closure-s1-census.json)：含 package bytes/SHA、pairing、DDL 与物化表数、行数、角色分布、完整非 SKIP 列类型计数、词表外/JSON/可空键列/无键表清单、`saved_time`、XML 结果、重复键与有效键扫描状态；不含行数据和主机路径。
+2026-09-28 的物化与重复键普查产出 `$GATEWAY_REAL_DUMP_ROOT/census/summary.json`（`diagnostic_mode: true`）。2026-10-10 用修正后的类型规范化函数重新解析 8 份 SQL DDL，确认并拆分 `UNSIGNED` 类型计数；同日重跑 t1 两个版本并只读重跑 t2 两个版本。普查器现会把“已扫描、规则跳过、键未解析、reader 不可用”分别记录；t2 的 `COMPOSITE_LOGIC_FAILED` 不再被误作 SQL 解析失败，诊断模式会单独扫描已成功物化的 SQL 表集合。逐 dataset 的结构记录现保存在仓库内的 [S1 census JSON](p5-arch-closure-s1-census.json)：含 package bytes/SHA、pairing、DDL 与物化表数、行数、角色分布、完整非 SKIP 列类型计数、词表外/JSON/可空键列/无键表清单、`saved_time`、XML 结果、完整物化诊断、重复键与有效键扫描覆盖范围；不含行数据和主机路径。
 
 - **DC12**：`dc12_json_columns_present: false` → **未触发** LONGTEXT。
 - **DC15**：存储表列类型含 `INT UNSIGNED`、`TINYINT UNSIGNED`、`SMALLINT UNSIGNED`、`FLOAT`、`DATETIME` 等（各数据集的完整计数见 census JSON）；`unknown_sql_types` 为空（mapper 已识别拼写）→ **已触发**词表扩充需求，S2a 验收扩充并与 Dolt 往返对齐；FLOAT 无损往返优先在 S2a 验证（设计 §14 第 2 项）。
-- **重复键（诊断 READERS_REQUIRED）**：t1 两份数据各有 `b1_n2_iec104_syx_list` 3 条额外行。t2/t3/t4 物化失败，重复键扫描状态是未评估，不能把空 map/0 解释成未检出。
-- **有效键（DDL 无主键表）**：t1 每份均有 28 张无 DDL 主键表；5 张由 EXPLICIT 规则给出有效键（`app_cfg.app_name`、`b1_n1_iec61850c_cfg(page_no,no)`、`b1_n2_iec104_cfg(page_no,no)`、`pointref_forwardtbl.refname`、`rdb_cfg.no`），其余 23 张无法解析有效键。t2/t3/t4 物化失败，重复键与物化表有效键扫描状态均标为未评估；不把空 map/0 解释为没有重复或全部有效。parser 修复后，在 S2a kickoff 完成这 6 份的有效键与重复键复查，再进入 DC22 真实数据旅程。
+- **重复键（诊断 READERS_REQUIRED）**：t1 两份数据各发现 `b1_n2_iec104_syx_list` 3 条额外行；每份仅扫描 102 张有效键表，23 张有效键未解析表未扫描，另有 8 张按规则跳过，因此状态为 **partial**。t2 的业务物化在 composite 阶段失败，但 SQL 表扫描仍运行；实际结果见下表。t3/t4 的 XML 物化失败，键扫描未评估，不能把空 map/0 解释成未检出。
+- **有效键（DDL 无主键表）**：t1 每份均有 28 张无 DDL 主键表；5 张由 EXPLICIT 规则给出有效键（`app_cfg.app_name`、`b1_n1_iec61850c_cfg(page_no,no)`、`b1_n2_iec104_cfg(page_no,no)`、`pointref_forwardtbl.refname`、`rdb_cfg.no`），其余 23 张无法解析有效键。t2 的 SQL 表集合也会独立扫描；t3/t4 的 XML 失败待治理修订计划 G2 修复后，在 G2 验收的普查重跑中补齐；DC22 真实数据旅程属 S2b 验收。t2 composite 失败的完整诊断保存在 census JSON，同样由 G2 承接，不再另交 composite_signal owner。
 
 ### 八数据集结构记录（诊断模式，无行数据）
 
-`pair_of` 默认规则见 `$GATEWAY_REAL_DUMP_ROOT/dataset_pairing.json`（tier 内 v1→v2）。**Owner 确认（2026-09-28）**：沿用默认 pairing，与执行计划 §8.3、`p5-arch-closure-s0-owner-decisions.md` §4 一致，S2b/S4 同项目链路验收以此为准。
+`pair_of` 规则见 `$GATEWAY_REAL_DUMP_ROOT/dataset_pairing.json`。**Owner 确认（2026-10-10）**：同规模档 v1→v2 是同一项目；不同规模档是不同项目，不跨档配对。决定已写入 `p5-arch-closure-s0-owner-decisions.md` §10；S2b/S4 同项目链路验收以此为准。
 
 | Dataset | Pair | Package bytes / SHA-256 | Staging / materialization | DDL tables | Materialized tables / rows | No DDL PK | Duplicate scan | Effective-key scan |
 | --- | --- | --- | --- | ---: | --- | ---: | --- | --- |
-| `rd-t1-a-v1` | — | 107115 / `42794011…95ea8b2` | COMPLETE / COMPLETE | 132 | 133 / 6097 | 28 | complete; 3 extra rows in `b1_n2_iec104_syx_list` | partial; 102 keyed, 23 unresolved, 0 keyless |
-| `rd-t1-a-v2` | `rd-t1-a-v1` | 107066 / `4019737…095bd0` | COMPLETE / COMPLETE | 132 | 133 / 6095 | 28 | complete; 3 extra rows in `b1_n2_iec104_syx_list` | partial; 102 keyed, 23 unresolved, 0 keyless |
-| `rd-t2-b-v1` | — | 1247459 / `acd1b5e…3817c0` | COMPLETE / FAILED `COMPOSITE_LOGIC_FAILED` | 216 | unavailable / unavailable | 40 | not evaluated | not evaluated; S2a after parser repair |
-| `rd-t2-b-v2` | `rd-t2-b-v1` | 1197404 / `c66e3921…5fcba98` | COMPLETE / FAILED `COMPOSITE_LOGIC_FAILED` | 216 | unavailable / unavailable | 40 | not evaluated | not evaluated; S2a after parser repair |
-| `rd-t3-c-v1` | — | 3356815 / `c34e266c…15eec7e` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 199 | unavailable / unavailable | 37 | not evaluated | not evaluated; S2a after parser repair |
-| `rd-t3-c-v2` | `rd-t3-c-v1` | 3370171 / `658422ef…cffc28d` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 200 | unavailable / unavailable | 38 | not evaluated | not evaluated; S2a after parser repair |
-| `rd-t4-d-v1` | — | 5597503 / `95408cc3…5da1675` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 319 | unavailable / unavailable | 59 | not evaluated | not evaluated; S2a after parser repair |
-| `rd-t4-d-v2` | `rd-t4-d-v1` | 5596595 / `5a7cd54d…ee3611` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 319 | unavailable / unavailable | 59 | not evaluated | not evaluated; S2a after parser repair |
+| `rd-t1-a-v1` | — | 107115 / `42794011…95ea8b2` | COMPLETE / COMPLETE | 132 | 133 / 6097 | 28 | **partial**; scanned 102, 23 unresolved, 8 SKIP; 3 extra rows in `b1_n2_iec104_syx_list` | partial; 102 keyed, 23 unresolved, 0 keyless |
+| `rd-t1-a-v2` | `rd-t1-a-v1` | 107066 / `4019737…095bd0` | COMPLETE / COMPLETE | 132 | 133 / 6095 | 28 | **partial**; scanned 102, 23 unresolved, 8 SKIP; 3 extra rows in `b1_n2_iec104_syx_list` | partial; 102 keyed, 23 unresolved, 0 keyless |
+| `rd-t2-b-v1` | — | 1247459 / `acd1b5e…3817c0` | COMPLETE / FAILED `COMPOSITE_LOGIC_FAILED` | 216 | business snapshot unavailable; SQL scan source has 216 tables | 40 | **partial**; 181 scanned, 27 unresolved, 8 SKIP; 3,032 extra rows across 16 tables | partial; 181 keyed, 27 unresolved, 0 keyless; 13/40 no-DDL-PK tables have explicit effective keys |
+| `rd-t2-b-v2` | `rd-t2-b-v1` | 1197404 / `c66e3921…5fcba98` | COMPLETE / FAILED `COMPOSITE_LOGIC_FAILED` | 216 | business snapshot unavailable; SQL scan source has 216 tables | 40 | **partial**; 181 scanned, 27 unresolved, 8 SKIP; 2,653 extra rows across 14 tables | partial; 181 keyed, 27 unresolved, 0 keyless; 13/40 no-DDL-PK tables have explicit effective keys |
+| `rd-t3-c-v1` | — | 3356815 / `c34e266c…15eec7e` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 199 | unavailable / unavailable | 37 | not evaluated | not evaluated; G2 验收普查重跑 |
+| `rd-t3-c-v2` | `rd-t3-c-v1` | 3370171 / `658422ef…cffc28d` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 200 | unavailable / unavailable | 38 | not evaluated | not evaluated; G2 验收普查重跑 |
+| `rd-t4-d-v1` | — | 5597503 / `95408cc3…5da1675` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 319 | unavailable / unavailable | 59 | not evaluated | not evaluated; G2 验收普查重跑 |
+| `rd-t4-d-v2` | `rd-t4-d-v1` | 5596595 / `5a7cd54d…ee3611` | COMPLETE / FAILED `XML_DOCUMENT_FAILED` | 319 | unavailable / unavailable | 59 | not evaluated | not evaluated; G2 验收普查重跑 |
 
-t1 的 133 个物化表包含 132 个源 DDL 表和 1 个 XML composite 表。t2 `logics.xml` complete，events=3158；t3/t4 `logics.xml` failed（`XML_DOCUMENT_FAILED`，`max_xml_depth=64`），非 S1 引入。8 份 `version_manager.saved_time` 均为 `VARCHAR(128)`；unknown types、JSON 列、可空键列均为空。每份完整的 UNSIGNED 类型计数、SHA 与无键表清单见上方 JSON。
+t1 的 133 个物化表包含 132 个源 DDL 表和 1 个 XML composite 表。t2 `logics.xml` complete，events=3158；composite 诊断完整消息为 **`Digital forbids attribute 'value'`**（vnext `composite_signal/_ast.py` 把 legacy 与真实数据中小写的 `value` 误写为 `Value`，G2 第 2 项）。t2 SQL-only fallback 物化为 216 张表；两版本各扫描 181 张有效键表、27 张键未解析表、8 张 SKIP 表，未遇到 reader 不可用；40 张无 DDL 主键表中 13 张有显式有效键，其名称与键列见 census JSON。t3/t4 `logics.xml` failed（`XML_DOCUMENT_FAILED`，`max_xml_depth=64`），非 S1 引入（G2 第 3 项）。8 份 `version_manager.saved_time` 均为 `VARCHAR(128)`；unknown types、JSON 列、可空键列均为空。每份完整的 UNSIGNED 类型计数、SHA 与无键表清单见上方 JSON。
+
+### 真实数据格式缺口的承接（治理修订计划 G2）
+
+S1 普查暴露的三处缺口，Owner 于 2026-10-10 决定统一由[治理修订计划](p5-arch-closure-post-s1-governance-plan.md) G2“真实数据格式保真前置”承接，时点为 S1 合入后、S2a kickoff 前（[决议记录](p5-arch-closure-s0-owner-decisions.md) §10 第三项）：
+
+| G2 项 | 现象 | 位置 |
+| ---: | --- | --- |
+| 1 | 8 份数据在生产解析路径上 `SET @saved_cs_client` → `UNSUPPORTED_STATEMENT` | `capabilities/table_access/_sql_statements.py` `_allowed_set_name` |
+| 2 | t2 `COMPOSITE_LOGIC_FAILED`：`Digital forbids attribute 'value'` | `capabilities/composite_signal/_ast.py` `_ATTR_VALUE` |
+| 3 | t3/t4 `logics.xml` 超出 `max_xml_depth=64` | `capabilities/table_access/contracts.py` |
+
+S1 不修改 `table_access` 与 `composite_signal` 的生产代码。
+
+**t2 不阻塞 S2b 的 DC22**：生产上传当前只走 SQL 物化，composite 与 XML 解析器处于不可达基线——§4 的 14 项不可达模块包含 `composite_signal._ast`、`_bind`、`_digest`、`materialize` 与 `table_access._xml_parser`、`table_access.xml`，由 S3 接入后关闭。第 2 次独立复审 N4 中“阻塞 S2b”的说法不成立，据此更正。
 
 ## 2. 子步 ↔ 提交
 
@@ -78,7 +102,8 @@ t1 的 133 个物化表包含 132 个源 DDL 表和 1 个 XML composite 表。t2
 | S1.5–S1.6 | `d42a740e7d` | control_transactions、pair_pipeline、job_steps、upload_admission、artifact_release、workspace/ports |
 | S1.7 | `d97428ed22`, `7de23ed349` | import 终态；lock/wire 修复 |
 | merge 授权基线 | `1caf2ffc26` | merge `main @ 218c211240`（§8 审核/复审模板） |
-| handoff | （本提交） | 门禁证据与 traceability |
+| 第 3 次复审（2026-10-10） | fix `ce12e24528`；docs 提交、合并 `main` 的 V 与分支 tip H 见 §6.3 | census 脚本与测试；文档（决议 §10 第三项、handoff、修复报告）；合并 `main`；V 上的最终门禁；H 回填 handoff |
+| handoff（历史） | `84fd4f3447`、`00ae9ccad1`、`96071affd4` | 第 2 次复审之前的历史门禁证据与 traceability |
 
 ## 3. §3 S1 路径预算
 
@@ -99,7 +124,8 @@ t1 的 133 个物化表包含 132 个源 DDL 表和 1 个 XML composite 表。t2
 | Preview/History 受理下沉 | HTTP `preview_acceptance` / `history_compare` 仍承担 DTO 映射与编排 | S1 行为不变；避免与 N-http 迁移交叉 | Application/workspace + history 用例拥有受理；HTTP 薄路由 |
 | UoW 枢纽拆分 | `control_transactions.py` + 各 `*/ports.py` 已引入共享协议，SQLite 仍集中 | 需与 S2b control DB migration 同批 | 按 owner 拆分写模型；Submit/Preview/History 各端口稳定 |
 | 三 job 共享 step plumbing | `job_steps.py` 已建；`pinned_checkpoint_builder` 已删 | checkpoint 载荷冻结 | §8.5 S2b.0 统一 step 辅助与 recovery 接线 |
-| `table_access` parser（`@saved_cs_client`、`max_xml_depth`） | **S1–S2a 前置**分支 `p5-closure/s1-parser`（执行计划 §1/§8；不改 `table_access` 生产源码于本修订） |
+
+真实数据格式缺口（`@saved_cs_client`、`max_xml_depth`、`Digital` 属性大小写）由治理修订计划 G2 承接，在 S1 合入后、S2a kickoff 前于 `main` 上实施；执行计划 §1/§8 中 `p5-closure/s1-parser` 分支与“parser 修复”的表述由治理修订计划 G1 在 S1 合入后修订。S1 不修改 `table_access` 与 `composite_signal` 的生产源码；这些缺口不属于 §3 的 S2b 路径预算。
 
 checkpoint 载荷与 golden 断言策略未改（F1 证据字节已与 base 对齐）。
 
@@ -115,9 +141,9 @@ checkpoint 载荷与 golden 断言策略未改（F1 证据字节已与 base 对�
 cd vnext/backend && ../scripts/uv-consume.sh -C . run python -m tests.support.import_rules
 cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_architecture.py -m unit -q
 # 2026-10-10：import_rules 3/0/14；facade 符号导入形态用例与架构 unit 结果见本次验证记录
-
-**Owner 确认（2026-10-10）**：原包级 facade 规则给出 10 项不可达；移除该规则并按可达模块导入的 wrapper 符号重算后为 14 项。新增的 4 项是 `composite_signal._ast`、`_bind`、`_digest`、`materialize`，它们当前没有可达生产调用方，保留为 S3 延期并在 S3 接入调用方后关闭。执行计划 §2 S1 验收、S2a 预期和 `architecture_baseline.py` 已同步；后续实现继续遵守只减不增。
 ```
+
+**Owner 确认（2026-10-10）**：原包级 facade 规则给出 10 项不可达；按实际导入的 wrapper 符号重算后为 14 项。新增的 4 项是 `composite_signal._ast`、`_bind`、`_digest`、`materialize`，当前没有可达生产调用方，已按决议 §10 登记为 S3 延期。执行计划 §2 的 S1/S2b 验收（S1 第 93 行附近、S2b 第 173 行附近）与 `architecture_baseline.py` 现均记录 14；后续实现继续遵守只减不增。
 
 ## 5. synthetic / worker 装配
 
@@ -132,108 +158,139 @@ cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_architec
 - `test_submit_job_payload.py`、`test_submit_job_effect.py`、`test_submit_job_prepare.py` 中的 `canonical_import_request_bytes` 测试桩（共 3 处；复审意见所称 4 处在当前测试树中未找到）
 - 其余由被迁移模块 import 方决定的同型用例（handoff 不逐文件重复列举时，以 execution-plan §3 S1 必改 T 为准）
 
-## 6. 门禁命令与结果（@ `implementation_head`，compose/backend 在 clean worktree）
+## 6. 门禁命令与结果
 
-日志目录：**`/home/dev/gdds-p5-closure-s1/gate-logs/`**（持久路径；禁止引用不存在的 `/tmp/...` 占位）。
+最终候选 V 是合并 `main` 后的已提交提交。门禁在 V 的 clean worktree 上由权威入口执行，并遵守 AGENTS.md“权威入口的运行前提”。V 之后只提交 handoff 等文档（H），再按 testing-conventions“镜像身份等价与结果沿用”判定 `carried`。第 2 次复审修复期间的门禁记录已移入 §6.6，不作为最终证据。
 
-### 6.1 五包静态
+日志目录：**`/home/dev/gdds-p5-closure-s1-gate-logs/`**（worktree 外）。门禁期间不在 worktree 内写文件、不提交、不重建或重新 tag 镜像；最终门禁的日志均为 `final-*.log`。
+
+### 6.1 提交前静态检查与 focused 测试
 
 ```bash
 for p in shared_kernel repository_contracts repository_client repository_service backend; do
   (cd vnext/$p && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy)
 done
+cd vnext/backend
+../scripts/uv-consume.sh -C . run python -m tests.support.import_rules
+../scripts/uv-consume.sh -C . run pytest tests/test_real_dump_census.py tests/test_architecture.py -m unit -q
 ```
 
-结果：**五包 ruff 与 mypy 全部 pass**（2026-10-10，本轮复跑；见 `gate-logs/static-check.log`）。
+结果（2026-10-10，日志 `final-precommit-static.log`）：
 
-### 6.2 权威全量测试
+- 五包 ruff 与 mypy 全部通过（mypy 检查文件数：shared_kernel 34、repository_contracts 15、repository_client 26、repository_service 198、backend 464）。
+- `import_rules`：**3 条违例 / 0 个运行时环 / 14 个不可达模块**。
+- census 与 architecture unit focused：**87 passed**（census 含新增的“reader 不可用 → partial”形态；此前为 85）。
+- 运行时的 HEAD 为 `96071affd4`，工作区含随后提交为 `ce12e24528` 的 census 脚本与测试，运行后未再修改。
 
-前置：detached worktree 需 `legacy` → 主工作区 `legacy/`（gitignore `/legacy/`；symlink 在 worktree 用 `.git/info/exclude` 追加 `legacy` 以保持 porcelain 空，见 `internal-build-environment-handoff.md`）。
+### 6.2 最终门禁流程（在 V 上）
+
+前置检查，任一项不满足则先清理，不得带着残留开跑（`final-preflight.log`）：`git status --porcelain` 为空；`pgrep -x dolt` 为空；`docker ps` 中没有带 compose project 标签的容器、`docker compose ls -a` 为空；8000 端口无监听。
 
 ```bash
-cd /home/dev/gdds-p5-closure-s1
-GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh 2>&1 | tee gate-logs/run-tests.log
+cd /home/dev/gdds-p5-closure-s1   # detached worktree 需 legacy → 主工作区 legacy/，见 internal-build-environment-handoff.md
+./vnext/scripts/build-repository-service-image.sh        # final-image-build.log：image ID 与全部 label
+set -o pipefail
+GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh 2>&1 | tee -a final-run-tests.log
+runner_exit_code=${PIPESTATUS[0]}                         # runner 自身的 exit code
+cp vnext/backend/tests/support/.last_compose_gate_provenance.json final-compose-provenance.json
+docker image inspect <provenance 中的 3 个 image ID>      # final-image-inspect.log：Id、Created、Labels
 ```
 
-| 批次 | 结果 |
-| --- | --- |
-| shared_kernel | 242 passed |
-| repository_contracts | 152 passed |
-| repository_client | 154 passed |
-| backend | **2691 passed**, 1 warning |
-| repository_service (parallel) | 1678 passed, 1 skipped |
-| repository_service (serial) | **205 passed** |
-| 五锁 SHA 漂移 | 无 |
-| runner exit | **0** |
+不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`，由 harness 在 V 上构建 backend/worker；backend 批次已包含 9 项 Compose 旅程，不再单独运行。每一步前后各记录 `git rev-parse HEAD` 与 `git status --porcelain`；五锁 SHA 与 `compose.yaml` SHA 一并记入 `final-image-inspect.log`。
 
-完整日志：`gate-logs/run-tests-rereview.log`（2026-09-28；`GATEWAY_TEST_WORKERS=48`，porcelain 干净后重跑）。
+失败处理：不得用定向补跑替代 runner 的 exit code。可复现的失败先修复，形成新的 V 并完整重跑；疑似环境污染时，清理后完整重跑一次，两次运行都写入记录，不挑选结果。
 
-### 6.3 镜像 fresh build（§6 S1 @ `implementation_head`）
+### 6.3 V 上的最终结果
+
+待回填（门禁完成后在 H 中填写）。
+
+### 6.4 镜像身份等价判定（V → H）
+
+判定在 H 提交之后、于 H 的 clean worktree 上执行；结果写入 `final-carried-check.log`，不再提交（H 不能引用自身之后产生的结果），并在复审提示词中给出。判定方法：
+
+a. `git diff --name-only V H` 只含文档；
+b. 用 `python3 vnext/repository_service/tests/support/build_context_digest.py identity` 在 H 上重算，`build-input-revision` 与 `source-tree-sha256` 都等于 V 所用 RS 镜像的 label；
+c. 用 harness 构建 backend/worker 的同一命令（`compose_gate_harness.py` `build_compose_stack_images`：`docker compose -f vnext/deploy/compose.yaml build backend worker`，`cwd=vnext/deploy`，`COMPOSE_PROJECT_NAME` 取 provenance 中记录的 project 名）重建，image ID 须等于 `final-compose-provenance.json` 中的 ID。compose 把 project 名写入镜像 label，project 名不同则 image ID 不同，所以必须使用 provenance 中的 project 名。
+
+任一项不等，回到 §6.2，在 H 上重跑。
+
+### 6.5 五锁 SHA 与 compose.yaml SHA
+
+待回填（取自 `final-image-inspect.log`）。
+
+### 6.6 历史（不作为最终证据）
+
+#### 6.6.1 2026-09-27/28 的记录
+
+**历史记录，不是最终候选门禁**：`gate-logs/run-tests-rereview.log` 的各批次曾报告 shared_kernel 242、repository_contracts 152、repository_client 154、backend 2691、repository_service parallel 1678（1 skipped）、serial 205。日志没有记录 HEAD/tree 或 runner exit code；运行时间跨过 `41c43909be`，并与镜像重建重叠。backend 当前实现树收集 2700 项，故 2691 项的旧日志不是当前实现树的全量结果，不能据此声称 runner exit 0。
+
+另一份历史日志 `/home/dev/gdds-p5-closure-s1-gate-logs/run-tests-r2.log` **存在**，是 2026-09-27 的失败运行：backend、repository_service parallel、serial 分别报告 3、1、3 项失败；不作为验收证据。此日志此前被误写为不存在。
+
+镜像 fresh build（历史命令）：
 
 ```bash
-cd /home/dev/gdds-p5-closure-s1  # git status --porcelain 为空
 ./vnext/scripts/build-repository-service-image.sh
 docker compose -f vnext/deploy/compose.yaml build backend worker
 ```
 
-| 镜像 | ID / digest |
-| --- | --- |
-| `gateway-repository-service:local` | `sha256:2fe98a0f97ce3ee425f2ac5386f87011e33f91841ef1863e5f6be75b6fbcd2df` |
-| `deploy-backend:latest` | `sha256:b8def66665452d093f6df2965b1957b8a11c08464c52fedb2360a88efd4e3938` |
-| `deploy-worker:latest` | `sha256:833a8ee064b043da930a29b2173b44aa4a9eebcbb6d8aa45b8ab1fd1cf843776` |
+**历史构建身份未证实**：`build-compose-backend-worker.log` 的 mtime 为 2026-09-28 13:50 +0100，早于 `41c43909be` 的提交时间 14:12 +0100，不能证明该 compose build 来自 `41c43909be`。backend/worker 镜像没有 revision label；其源码身份此前只是推断。以上旧镜像只作为回归材料，不表示任何当前候选已验证。
 
-构建日志：`gate-logs/build-rs-image.log`；compose build @ `41c43909be`（含 `gate-logs/` gitignore，保证 provenance 干净 worktree）。
+Backend Compose 旅程（历史）：9 passed，1 warning，约 1145 s（2026-09-28），日志 `gate-logs/backend-compose-9-r2.log`；没有绑定任何当前候选 HEAD。旅程实际使用的镜像：backend `sha256:b6795948…`、worker `sha256:a6234eee…`、RS `sha256:2fe98a0f…`。backend/worker 没有 revision label，源码身份未记录。
 
-镜像构建身份：compose build 的 Git commit/tree 为 `41c43909be5dd0a6b7bebeb8fef9c77e8a2ee6cb` / `814b082c88acd2128efcafbda1989d813476b1b5`。RS image labels 记录 `org.opencontainers.image.revision=41c43909be5dd0a6b7bebeb8fef9c77e8a2ee6cb`、`gateway.p2r1.build-input-revision=4d1dc010deff17249bb2aa54b7563e7a86959096`、`gateway.p2r1.source-tree-sha256=sha256:62a38a0881926ba0afd15fb22db292c15be19318649562033f4b9c3f91d642cf`。
+#### 6.6.2 第 2 次复审修复期间的门禁（候选 `96071affd4` + 未提交补丁 `492cce95…`）
 
-`vnext/deploy/compose.yaml` SHA-256：`f1b8ca6fec0ec9c0108ea7f722c97a744956aff26b625c048fa038e572e3b8b0`
+owner 当时要求不提交，因此以下运行都不是已提交 clean worktree 上的权威运行。2026-10-10 独立评审按实测更正了此前的若干表述，以本小节为准。
 
-五锁 SHA-256（与 runner 一致）：
+| 门禁 | 结果 | 日志 |
+| --- | --- | --- |
+| 五包 ruff + mypy | pass | `rereview2-focused.log` |
+| `import_rules` | 3 / 0 / 14 | `rereview2-focused.log` |
+| census + architecture focused | 85 passed | `rereview2-focused.log` |
+| `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`（dirty worktree） | **runner exit 1**；shared_kernel 242、contracts 152、client 154、backend 2702、RS parallel 1678 passed + 1 skipped；RS serial 197 passed / 8 failed | `rereview2-full-tests.log`（12:32:41 开始） |
+| RS 镜像 | `sha256:4895ff38…`，见 d | `rereview2-image-build.log` |
+| 手动 `docker compose … build backend worker` | 见 a、b | `rereview2-image-build.log` |
+| backend Compose 旅程 | 9 passed，1 warning，1072.26 s，exit 0；见 a、c | `rereview2-backend-compose-9.log`、`rereview2-backend-compose-provenance.json` |
 
-- shared_kernel `7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898`
-- repository_contracts `b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3`
-- repository_client `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954`
-- repository_service `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11`
-- backend `21c8da4f438d9ab58c4fa61de13d1dbc24d19d5795c62d405d89568a3520acea`
+全量 runner 的 8 个 RS serial 失败都在 `compute_image_identity()` 的 `require_clean_worktree()` 抛出 `ProvenanceError: worktree is dirty`，没有到达各用例的服务断言。该前置与当时“不提交”的约束冲突；该约束已撤销，最终门禁见 §6.2。
 
-### 6.4 Backend compose 旅程（9/9，clean worktree）
+**实测更正**
 
-```bash
-cd vnext/backend
-GATEWAY_COMPOSE_GATE_PROJECT_NAME=gateway-p5-closure-s1-gate \
-GATEWAY_REPOSITORY_SERVICE_IMAGE=gateway-repository-service:local \
-GATEWAY_COMPOSE_GATE_PREBUILT=0 \
-../scripts/uv-consume.sh -C . run pytest -q -m 'integration and serial' \
-  tests/test_archive_compose_e2e.py \
-  tests/test_review_compose_e2e.py \
-  tests/test_submit_compose_e2e.py \
-  tests/test_backend_http_container_gate.py \
-  tests/test_history_compose_e2e.py \
-  tests/test_ordered_compare_compose.py \
-  tests/test_ordered_submit_bisect_compose.py
-```
+a. `rereview2-image-build.log` 与 `rereview2-backend-compose-9.log` 开头记录的 backend/worker 是 `b6795948…` 与 `a6234eee…`。`docker image inspect` 显示二者 Created 为 2026-09-28T12:18:11Z、现已无 tag（compose project label 为 `gateway-p5-closure-s1-gate`），是 2026-09-28 的旧镜像，不是本轮镜像，不能据此证明候选的 backend/worker 身份。
 
-结果：**9 passed**, 1 warning, ~1145s（2026-09-28）。日志：`gate-logs/backend-compose-9-r2.log`。
+b. 本轮手动 `docker compose -f vnext/deploy/compose.yaml build backend worker` 产出 `deploy-backend` `4068fcc8…` 与 `deploy-worker` `956b052d…`（project label 为 `deploy`）；Compose 旅程没有使用这两个镜像。
 
-**注意**：跑 9 旅程前须 `docker compose … down -v`，确保 8000 无残留 gate 容器；否则前序 `require_docker()` 用例会误报 port 冲突。
+c. 旅程实际使用的 backend `e6bb3b38…`、worker `44f4ce88…`（tag `gateway-p5-closure-s1-gate-{backend,worker}`）由 gate harness 构建（`build_compose_stack_images`，`GATEWAY_COMPOSE_GATE_PREBUILT=0`）。其 Created 为 2026-10-10 12:33:04 +0100，落在全量 runner 的 backend 批次内（runner 12:32:41 开始）；该时间取自复用的 BuildKit 层，同一时刻的 backend/worker 镜像 Created 均相同，仅 compose project label 与 image ID 不同。
 
-Compose provenance：`vnext/backend/tests/support/.last_compose_gate_provenance.json`（末次 archive 旅程写入）。旅程实际使用 backend image `sha256:b6795948fb268f6b0b6ab4f7b822d839881ac495678a2adb3be65f2a0c34e39f`、worker image `sha256:a6234eee385029afad6f2ebd130055f0ba834df6479b38e225f014581a6ce5c6`、RS image `sha256:2fe98a0f97ce3ee425f2ac5386f87011e33f91841ef1863e5f6be75b6fbcd2df`；compose build 引用 `deploy-backend`/`deploy-worker`，gate harness 为隔离项目构造同源项目镜像。
+d. RS `4895ff38…` 的 Created 为 12:06:34 +0100，早于补丁冻结（`real_dump_census.py` mtime 12:23:30、`test_real_dump_census.py` 12:13:07）；12:57 的构建各步骤全部 CACHED，没有重新构建。该镜像与补丁后候选的等价依据是镜像 label（build-input-revision `4d1dc010…`、source-tree `sha256:62a38a08…`），不是构建时间；`org.opencontainers.image.revision`（`96071…`）随提交变化，不参与比较。
 
-### 6.5 本轮复审修订定向验证（2026-10-10）
+e. 为核实 8 个 RS serial 用例，在 clean worktree 上共补跑 7 次，逐次如下。日志均未记录完整命令行，“方式”一列依据日志内容判断；`-n 0` 来自 owner 的说明。
 
-- `python -m tests.support.import_rules`：**3 / 0 / 14**。
-- `pytest -m unit -q tests/test_architecture.py tests/test_real_dump_census.py tests/test_submit_job_payload.py tests/test_submit_job_prepare.py tests/test_submit_job_effect.py`：**126 passed, 16 deselected**。
-- 五包 ruff/mypy：全部通过，见 `gate-logs/static-check.log`。
-- focused 输出：`gate-logs/focused-rereview-repairs.log`。
-- 本轮只修改架构审计工具、主机侧普查脚本、测试与 handoff/执行计划；未改 HTTP/worker、Dockerfile、Compose 或容器运行时边界。`implementation_head..41c43909be` 的 backend/repository_service 源码与测试无差异；S1-F11 所需的镜像与全量测试证据在 §6.2–§6.4。此轮不声明 S1 阶段退出；owner 批准退出前仍须按 AGENTS.md 在最终 candidate HEAD 重建镜像并运行阶段 compose 门禁。
+| # | 日志 | 方式 | 结果 | 日志中的失败/错误 |
+| ---: | --- | --- | --- | --- |
+| 1 | `rereview2-rs-compose-clean-retry.log` | 8 项，xdist 并行（日志有 `bringing up nodes…` 与 gw 标记） | 6 failed / 2 passed，29.36 s | wrong-token 得到 `failed`；gate-host consumer `ModuleNotFoundError: gateway_repository_client`；多项 `dolt children remain`（列出 60 余个 PID，并行 worker 互相可见） |
+| 2 | `rereview2-rs-compose-serial-retry.log` | 8 项，无 xdist 标记（`-n 0`） | 3 failed / 5 passed，100.07 s（12:59:08–13:00:49） | 见下“dolt children remain 的说明” |
+| 3 | `rereview2-rs-compose-clean-retry-2.log` | 3 项，`-n 0` | 3 failed，33.49 s（13:02:18 结束） | 同上；缺的模块为 `httpx` |
+| 4 | `rereview2-rs-compose-clean-retry-3.log` | 3 项 | collection error，exit 4（13:02:49） | `ModuleNotFoundError: gateway_repository_service`（配置错误） |
+| 5 | `rereview2-rs-compose-clean-retry-4.log` | 3 项 | collection error，exit 4（13:03:02） | `ModuleNotFoundError: pydantic_settings`（配置错误） |
+| 6 | `rereview2-rs-compose-clean-retry-5.log` | 3 项 | 3 passed，86.98 s，exit 0（13:04:52） | 日志未记录用例 id |
+| 7 | `rereview2-rs-compose-clean-final.log` | 8 项单批串行，日志记录 `prepared_test_environment=repository_service_venv_plus_locked_repository_client_and_httpx_0.28.1` | 8 passed，154.14 s，exit 0（13:33:33） | — |
+
+**`dolt children remain` 的说明**：#2、#3 各有 3 项失败。日志中这 3 项的主异常是测试环境缺包：`wrong_token` 经 gate-host consumer 运行，因此得到 `failed` 而不是 `unauthorized`；`gate_host` 与 `fresh_restart` 两项是 consumer 导入失败（#2 缺 `gateway_repository_client`，#3 缺 `httpx`）。`dolt children remain` 只出现在 `fresh_restart` 一项的清理链（链式异常）中：#2 为 `[1395623, 1395703]`，#3 为 `[1400324, 1400408]`。这些 PID 都大于 #1 日志中出现的最大 PID（1370130），倾向于是失败运行自己产生的进程，而不是前一次 xdist 尝试残留的进程，但未做进一步检查，根因未查实。`list_dolt_pids()`（`tests/support/snapshot_admin_harness.py`）扫描整机 `/proc`，所以同一主机上并行的其他 dolt 进程会被计入。
+
+其余历史验证记录（2026-10-10）：
+
+- 修复相关 focused tests 85 passed（`test_real_dump_census.py` 与 architecture unit tests）。
+- 当时只修改主机侧普查脚本、其 unit 覆盖及治理/交接文档；未改 HTTP/worker、Dockerfile、Compose 或容器运行时边界。
 
 ## 7. 请 reviewer 重点核对
 
 1. import 3/0/14；4 个 composite facade 实现模块按符号级可达性登记为 S3 延期；DC26 仅对 `capability:canonical_row_hash → ext:compute` 放行。
 2. §3 模块已落地；job 模块仅薄包装、checkpoint 载荷未变。
-3. kickoff 普查负结果未 overstated 为 S2a 类型决策。
-4. merge `218c211240` 仅文档模板，无实现冲突。
-5. 门禁绑定 **`implementation_head`** 镜像 rebuild；handoff 为 docs-only 提交。
+3. kickoff 普查负结果未 overstated 为 S2a 类型决策；census 脚本 `96071affd4..ce12e24528` 的差异与新增用例。
+4. 合并的 `main`（授权基线 `218c211240` 之后的新增提交）只带入文档与 AGENTS.md，无实现冲突。
+5. 门禁绑定 V：已提交 clean worktree、runner 自身的 exit code、前后 HEAD/status、provenance 中的 3 个 image ID；V → H 的 `carried` 判定逐项复核（§6.4）。
+6. 真实数据格式缺口的承接（§1 末、决议 §10 第三项）：t2 不阻塞 S2b DC22 的依据与 N4 更正。
+7. §6.6.2 的实测更正 a–e 与 7 次补跑记录，包括 `dolt children remain` 的说明。
 
 ## 8. 审核提示词（§8.7）
 
@@ -242,6 +299,8 @@ reviewer 开始时解析 `candidate_ref` 的分支 tip，再依执行计划 §8.
 ---
 
 ## 修订（2026-09-28，审核 `a35b2ad8dd` → `implementation_head`）
+
+> 以下两个“修订”小节是历史记录。其中“parser 前置”“S2a 承接”的表述已被[决议记录](p5-arch-closure-s0-owner-decisions.md) §10 第三项取代：真实数据格式缺口改由治理修订计划 G2 承接（见 §1 末）。
 
 独立审核报告：`p5-arch-closure-s1-independent-review.md`（**未改**）。
 
@@ -280,7 +339,7 @@ reviewer 开始时解析 `candidate_ref` 的分支 tip，再依执行计划 §8.
 - 五包 ruff/mypy：**pass**（2026-09-28）。
 - `import_rules` + `tests/test_architecture.py -m unit`：**71 passed**；违例 **4 / 0 / 10**。
 - `backend -m unit`：原记录为 **2513 passed**，但当时引用的 `/home/dev/gdds-p5-closure-s1-gate-logs/backend-unit.log` 当前不存在；该数字不作为本轮可验证证据。
-- 全量 `run-tests.sh`：原记录引用的 `/home/dev/gdds-p5-closure-s1-gate-logs/run-tests-r2.log` 当前不存在，且记录曾提示 backend compose 失败、需要当前镜像重跑；该轮结果不作为验收证据。有效的全量运行记录见 §6.2 `gate-logs/run-tests-rereview.log`，compose 结果见 §6.4。
+- 全量 `run-tests.sh`：原记录引用的 `/home/dev/gdds-p5-closure-s1-gate-logs/run-tests-r2.log` 实际存在；该轮 backend、repository_service parallel、serial 分别有 3、1、3 项失败，因此不作为验收证据。§6.2 所列 2026-09-28 日志也不是最终候选的完整门禁。
 - 镜像：`gateway-repository-service:local` digest `sha256:bffceac8e02245bebb67dfd4ab82fb73d2d017e09da4dbe605a113e78ff9c96e`（`c434064c7d` 标记）；`deploy-backend`/`deploy-worker` compose build @ 修订日（层多为 cache，compose 旅程须串行重证）。
 
 ### §8.7 原复审提示词（审核对象 `1897d5df46`）
@@ -310,4 +369,4 @@ reviewer 开始时解析 `candidate_ref` 的分支 tip，再依执行计划 §8.
 | S1-F8 | §4 **3/0/14**；§5.1 列出真实存在的 3 个 `canonical_import_request_bytes` 测试桩；§6 `gate-logs/` 与实际容器镜像 provenance；candidate 改用 branch ref |
 | S1-F11 | 见 §6.2–§6.4（`gate-logs/run-tests-rereview.log`、fresh image build 与实际 compose provenance/9 旅程） |
 
-_next_step：独立复审 rereview-1 通过后 `--no-ff` 合入 `main`，进入 S2a（含 parser 前置与 S2b 延期项）。_
+_next_step：独立复审 rereview-3 通过后，由 owner 将 S1 合入 `main` 并在合入提交上打 `p5-s1-exit`；随后按治理修订计划 §3 依次执行 G1+G5、G3、G2，再进入 S2a kickoff。_

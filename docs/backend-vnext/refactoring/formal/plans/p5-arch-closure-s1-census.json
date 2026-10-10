@@ -8,7 +8,9 @@
     "storage_type_counts_reparsed_on": "2026-10-10",
     "t1_duplicate_and_effective_key_recheck_on": "2026-10-10",
     "source_ddl_table_count_basis": "count of parsed DDL tables; corroborated by role_table_counts",
-    "pairing_owner_confirmation": "Owner confirmed 2026-09-28: within each tier, v2 pairs with v1."
+    "pairing_owner_confirmation": "Owner confirmed 2026-10-10: v1/v2 within one tier are the same project; different tiers are different projects and are not paired.",
+    "t2_sql_key_scan_rerun_on": "2026-10-10",
+    "t2_sql_key_scan_scope": "SQL snapshot only after COMPOSITE_LOGIC_FAILED; source dump read-only; no row data stored."
   },
   "parser_production_path": [
     {
@@ -150,10 +152,42 @@
       "logics_xml_event_count": 2,
       "materialization_diagnostics": [],
       "duplicate_key_scan": {
-        "status": "complete",
+        "status": "partial",
         "extra_rows": 3,
         "by_table": {
           "b1_n2_iec104_syx_list": 3
+        },
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 102,
+          "unresolved_key_table_count": 23,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "forwardtable_yx1",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
         }
       },
       "effective_key_scan": {
@@ -216,7 +250,9 @@
         "effective_keyless_tables": [],
         "unresolved_table_count": 23
       },
-      "source_ddl_table_count": 132
+      "source_ddl_table_count": 132,
+      "key_scan_source": "business_snapshot",
+      "materialization_diagnostic_details": []
     },
     {
       "dataset_id": "rd-t1-a-v2",
@@ -291,10 +327,42 @@
       "logics_xml_event_count": 2,
       "materialization_diagnostics": [],
       "duplicate_key_scan": {
-        "status": "complete",
+        "status": "partial",
         "extra_rows": 3,
         "by_table": {
           "b1_n2_iec104_syx_list": 3
+        },
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 102,
+          "unresolved_key_table_count": 23,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "forwardtable_yx1",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
         }
       },
       "effective_key_scan": {
@@ -357,7 +425,9 @@
         "effective_keyless_tables": [],
         "unresolved_table_count": 23
       },
-      "source_ddl_table_count": 132
+      "source_ddl_table_count": 132,
+      "key_scan_source": "business_snapshot",
+      "materialization_diagnostic_details": []
     },
     {
       "dataset_id": "rd-t2-b-v1",
@@ -446,16 +516,175 @@
         "COMPOSITE_LOGIC_FAILED"
       ],
       "duplicate_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "extra_rows": null,
-        "by_table": null
+        "status": "partial",
+        "extra_rows": 3032,
+        "by_table": {
+          "b1_n2_iec104_syx_list": 362,
+          "b1_n2_iec104_yc_list": 17,
+          "b1_n3_iec104_syx_list": 362,
+          "b1_n3_iec104_yc_list": 17,
+          "b1_n4_iec104_syx_list": 362,
+          "b1_n4_iec104_yc_list": 17,
+          "b1_n5_iec104_syx_list": 362,
+          "b1_n5_iec104_yc_list": 17,
+          "b1_n6_iec104_syx_list": 362,
+          "b1_n6_iec104_yc_list": 17,
+          "b1_n7_iec104_syx_list": 362,
+          "b1_n7_iec104_yc_list": 17,
+          "b1_n8_iec104_syx_list": 362,
+          "b1_n8_iec104_yc_list": 17,
+          "b1_n9_iec104_syx_list": 362,
+          "b1_n9_iec104_yc_list": 17
+        },
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 181,
+          "unresolved_key_table_count": 27,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "forwardtable_yc1",
+            "forwardtable_yk1",
+            "forwardtable_yt1",
+            "forwardtable_yx1",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "nr103d_cfg",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
+        }
       },
       "effective_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "no_ddl_pk_tables_with_explicit_effective_key": null,
-        "unresolved_tables": null
+        "status": "partial",
+        "no_ddl_pk_tables_with_explicit_effective_key": {
+          "count": 13,
+          "tables": [
+            "app_cfg",
+            "b1_n10_iec61850c_cfg",
+            "b1_n1_nr103d_cfg",
+            "b1_n2_iec104_cfg",
+            "b1_n3_iec104_cfg",
+            "b1_n4_iec104_cfg",
+            "b1_n5_iec104_cfg",
+            "b1_n6_iec104_cfg",
+            "b1_n7_iec104_cfg",
+            "b1_n8_iec104_cfg",
+            "b1_n9_iec104_cfg",
+            "pointref_forwardtbl",
+            "rdb_cfg"
+          ],
+          "key_columns": {
+            "app_cfg": [
+              "app_name"
+            ],
+            "b1_n10_iec61850c_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n1_nr103d_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n2_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n3_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n4_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n5_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n6_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n7_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n8_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n9_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "pointref_forwardtbl": [
+              "refname"
+            ],
+            "rdb_cfg": [
+              "no"
+            ]
+          }
+        },
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "forwardtable_yc1",
+          "forwardtable_yk1",
+          "forwardtable_yt1",
+          "forwardtable_yx1",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "nr103d_cfg",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ],
+        "effective_key_tables_count": 181,
+        "effective_keyless_tables": [],
+        "unresolved_table_count": 27
       },
-      "source_ddl_table_count": 216
+      "source_ddl_table_count": 216,
+      "key_scan_source": "sql_snapshot_after_composite_failure",
+      "materialization_diagnostic_details": [
+        {
+          "code": "COMPOSITE_LOGIC_FAILED",
+          "message": "Digital forbids attribute 'value'"
+        }
+      ]
     },
     {
       "dataset_id": "rd-t2-b-v2",
@@ -544,16 +773,173 @@
         "COMPOSITE_LOGIC_FAILED"
       ],
       "duplicate_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "extra_rows": null,
-        "by_table": null
+        "status": "partial",
+        "extra_rows": 2653,
+        "by_table": {
+          "b1_n2_iec104_syx_list": 362,
+          "b1_n2_iec104_yc_list": 17,
+          "b1_n3_iec104_syx_list": 362,
+          "b1_n3_iec104_yc_list": 17,
+          "b1_n4_iec104_syx_list": 362,
+          "b1_n4_iec104_yc_list": 17,
+          "b1_n6_iec104_syx_list": 362,
+          "b1_n6_iec104_yc_list": 17,
+          "b1_n7_iec104_syx_list": 362,
+          "b1_n7_iec104_yc_list": 17,
+          "b1_n8_iec104_syx_list": 362,
+          "b1_n8_iec104_yc_list": 17,
+          "b1_n9_iec104_syx_list": 362,
+          "b1_n9_iec104_yc_list": 17
+        },
+        "coverage": {
+          "reader_unavailable_table_count": 0,
+          "reader_unavailable_tables": [],
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 181,
+          "unresolved_key_table_count": 27,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "comm_user_data",
+            "forwardtable_yc1",
+            "forwardtable_yk1",
+            "forwardtable_yt1",
+            "forwardtable_yx1",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec104_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "nr103d_cfg",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
+        }
       },
       "effective_key_scan": {
-        "status": "not_evaluated_materialization_failed",
-        "no_ddl_pk_tables_with_explicit_effective_key": null,
-        "unresolved_tables": null
+        "status": "partial",
+        "no_ddl_pk_tables_with_explicit_effective_key": {
+          "count": 13,
+          "tables": [
+            "app_cfg",
+            "b1_n10_iec61850c_cfg",
+            "b1_n11_iec104_cfg",
+            "b1_n1_nr103d_cfg",
+            "b1_n2_iec104_cfg",
+            "b1_n3_iec104_cfg",
+            "b1_n4_iec104_cfg",
+            "b1_n6_iec104_cfg",
+            "b1_n7_iec104_cfg",
+            "b1_n8_iec104_cfg",
+            "b1_n9_iec104_cfg",
+            "pointref_forwardtbl",
+            "rdb_cfg"
+          ],
+          "key_columns": {
+            "app_cfg": [
+              "app_name"
+            ],
+            "b1_n10_iec61850c_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n11_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n1_nr103d_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n2_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n3_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n4_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n6_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n7_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n8_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "b1_n9_iec104_cfg": [
+              "page_no",
+              "no"
+            ],
+            "pointref_forwardtbl": [
+              "refname"
+            ],
+            "rdb_cfg": [
+              "no"
+            ]
+          }
+        },
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "comm_user_data",
+          "forwardtable_yc1",
+          "forwardtable_yk1",
+          "forwardtable_yt1",
+          "forwardtable_yx1",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec104_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "nr103d_cfg",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ],
+        "effective_key_tables_count": 181,
+        "effective_keyless_tables": [],
+        "unresolved_table_count": 27
       },
-      "source_ddl_table_count": 216
+      "source_ddl_table_count": 216,
+      "key_scan_source": "sql_snapshot_after_composite_failure",
+      "materialization_diagnostic_details": [
+        {
+          "code": "COMPOSITE_LOGIC_FAILED",
+          "message": "Digital forbids attribute 'value'"
+        }
+      ]
     },
     {
       "dataset_id": "rd-t3-c-v1",
@@ -648,7 +1034,9 @@
         "no_ddl_pk_tables_with_explicit_effective_key": null,
         "unresolved_tables": null
       },
-      "source_ddl_table_count": 199
+      "source_ddl_table_count": 199,
+      "key_scan_source": "not_evaluated",
+      "materialization_diagnostic_details": []
     },
     {
       "dataset_id": "rd-t3-c-v2",
@@ -744,7 +1132,9 @@
         "no_ddl_pk_tables_with_explicit_effective_key": null,
         "unresolved_tables": null
       },
-      "source_ddl_table_count": 200
+      "source_ddl_table_count": 200,
+      "key_scan_source": "not_evaluated",
+      "materialization_diagnostic_details": []
     },
     {
       "dataset_id": "rd-t4-d-v1",
@@ -861,7 +1251,9 @@
         "no_ddl_pk_tables_with_explicit_effective_key": null,
         "unresolved_tables": null
       },
-      "source_ddl_table_count": 319
+      "source_ddl_table_count": 319,
+      "key_scan_source": "not_evaluated",
+      "materialization_diagnostic_details": []
     },
     {
       "dataset_id": "rd-t4-d-v2",
@@ -978,7 +1370,9 @@
         "no_ddl_pk_tables_with_explicit_effective_key": null,
         "unresolved_tables": null
       },
-      "source_ddl_table_count": 319
+      "source_ddl_table_count": 319,
+      "key_scan_source": "not_evaluated",
+      "materialization_diagnostic_details": []
     }
   ]
 }

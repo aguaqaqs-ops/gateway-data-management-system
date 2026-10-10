@@ -279,8 +279,8 @@ reviewer 开始时解析 `candidate_ref` 的分支 tip，再依执行计划 §8.
 
 - 五包 ruff/mypy：**pass**（2026-09-28）。
 - `import_rules` + `tests/test_architecture.py -m unit`：**71 passed**；违例 **4 / 0 / 10**。
-- `backend -m unit`：**2513 passed**（`/home/dev/gdds-p5-closure-s1-gate-logs/backend-unit.log`）。
-- 全量 `run-tests.sh`：修订期间日志 `/home/dev/gdds-p5-closure-s1-gate-logs/run-tests-r2.log`（backend 曾 3 项 compose 失败，需 **当前 HEAD 镜像** 后重跑 §6.4）；RS parallel 曾 1 项 `test_upload_artifact_visibility` 失败，与 S1 修订无直接关联，serial 批次以日志为准。
+- `backend -m unit`：原记录为 **2513 passed**，但当时引用的 `/home/dev/gdds-p5-closure-s1-gate-logs/backend-unit.log` 当前不存在；该数字不作为本轮可验证证据。
+- 全量 `run-tests.sh`：原记录引用的 `/home/dev/gdds-p5-closure-s1-gate-logs/run-tests-r2.log` 当前不存在，且记录曾提示 backend compose 失败、需要当前镜像重跑；该轮结果不作为验收证据。有效的全量运行记录见 §6.2 `gate-logs/run-tests-rereview.log`，compose 结果见 §6.4。
 - 镜像：`gateway-repository-service:local` digest `sha256:bffceac8e02245bebb67dfd4ab82fb73d2d017e09da4dbe605a113e78ff9c96e`（`c434064c7d` 标记）；`deploy-backend`/`deploy-worker` compose build @ 修订日（层多为 cache，compose 旅程须串行重证）。
 
 ### §8.7 原复审提示词（审核对象 `1897d5df46`）

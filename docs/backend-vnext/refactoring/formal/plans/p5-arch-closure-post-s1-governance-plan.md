@@ -36,6 +36,8 @@ S1 的三轮复审暴露了三类流程成本：阶段分支与 `main` 的同步
 
 ### G2. 真实数据格式保真前置（代码，S1 合入后、S2a kickoff 前）
 
+状态：已完成，详见 `plans/p5-arch-closure-g2-handoff.md`。
+
 S1 普查发现 vnext 解析器有三处与真实数据或 legacy 实现不一致。生产上传当前只走 SQL 物化，composite 与 XML 解析器在不可达基线中，因此只有第 1 项影响现行生产路径；第 2、3 项在 S3 接入 composite 后才会生效，但普查和 S2a 重跑都依赖它们。
 
 | # | 问题 | 位置 | 修复 |
@@ -92,6 +94,8 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
 
 ### G6. backend/worker 镜像的构建上下文卫生与身份（构建，随 G2 的门禁；源自 S1 第 3 次复审 R3-F1）
 
+状态：已完成，详见 `plans/p5-arch-closure-g2-handoff.md`。
+
 - 现象：`vnext/.dockerignore` 没有排除 `**/.hypothesis`，`COPY shared_kernel` 把 worktree 里被 git 忽略的 Hypothesis 缓存（门禁用的 backend 镜像中实测 `/app/shared_kernel/.hypothesis`，108 KB）打进镜像。
   backend/worker 的 image ID 因此依赖构建它的 worktree 的本地状态：换 worktree 或两次构建之间运行过测试，ID 都会变化；开发缓存也进入了 production 镜像。
 - 修复：把 `**/.hypothesis` 加入 `vnext/.dockerignore`（同时检查其他测试缓存与 `tests/` 是否需要进入 production 镜像）；可选地为 backend/worker 增加与 RS 同类的 source identity label，使 `carried` 判定不再依赖 image ID。
@@ -99,6 +103,8 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
 - 这属于 AGENTS.md 的强制重建项（构建上下文变化），按 G2 的门禁在最终 HEAD 重建并运行。
 
 ### G7. client e2e 测试镜像的叠层缺陷（harness，随 G2 的门禁；源自 R3-F2）
+
+状态：已完成，详见 `plans/p5-arch-closure-g2-handoff.md`。
 
 - 现象：`compose_lifecycle_harness.py` 在 `gateway-repository-client-e2e:local` 带有相同 uv-lock label 时，把它自己当作 `BASE_IMAGE` 并以同一 tag 输出，
   每换一个候选 SHA 重建一次就叠一批层；S1 门禁前该镜像已有 124 层，超出 overlay2 深度上限后所有依赖它的 Compose 用例报 `max depth exceeded`。

@@ -121,13 +121,29 @@ sha256sum vnext/repository_service/uv.lock
 - UID/GID、目录权限、volume/mount、socket、pidfile、broker/helper；
 - 依赖容器用户、PID、signal、mount 或 filesystem 隔离才能证明的 startup/shutdown 行为；
 - 修改实际 Docker/Compose e2e 或 container harness，或本轮要宣称当前 HEAD 已通过容器门禁；
-- 阶段退出、S3 ready、发布或最终 production gate。最终候选 HEAD 无论此前是否延期，
-  都必须重建。
+- 阶段退出、S3 ready、发布或最终 production gate。最终候选 HEAD 必须有绑定到它的容器
+  门禁结果：发布与最终 production gate 必须在最终 HEAD 重建并完整运行；阶段退出与 S3 ready
+  可按下文“镜像身份等价”沿用已验证提交的结果。
 
 纯 Python 内部逻辑、SQL/状态机、测试或普通文档改动，在 focused/unit/integration 已覆盖
 且未触碰上述边界时，可以把镜像构建延期到必要节点。旧镜像结果只能作为回归证据，不得
-表述为当前 HEAD 已验证。每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的
-image revision/source-tree，以及延期到哪个节点。完整规则与记录模板见
+表述为当前 HEAD 已验证；唯一例外是满足下面的镜像身份等价。
+
+镜像身份等价（仅阶段退出、S3 ready）：已验证提交 `V` 与最终 HEAD 同时满足以下条件时，`V`
+的容器门禁结果视为最终 HEAD 的结果，记为 `carried`，不重跑 Compose：
+
+1. `V` 的门禁在已提交的 clean worktree 上由权威入口执行，日志记录 HEAD 与 exit code，运行期间
+   未写 worktree；
+2. `V..HEAD` 未改动上面前五项列出的任何内容，也未改动 Docker/Compose e2e 测试或 harness；
+3. 每个门禁镜像身份相等：带 build-input/source-tree label 的镜像（repository-service）在最终
+   HEAD 重算的身份与 label 一致；没有此类 label 的镜像（backend/worker）在最终 HEAD 重建后，
+   image ID 与 `V` 的 provenance 中实际运行的 ID 相同。
+
+任一条件不满足，就在最终 HEAD 重建并重跑。同一提交上权威 runner 已运行过的 Compose 旅程
+（含 backend 批次中的 Compose 测试）不再单独重跑，provenance 取自该次运行。
+
+每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的 image revision/source-tree，
+以及延期到哪个节点或从哪个提交沿用。完整规则与记录模板见
 [docs/backend-vnext/testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
 
 ## 全局比例化保障

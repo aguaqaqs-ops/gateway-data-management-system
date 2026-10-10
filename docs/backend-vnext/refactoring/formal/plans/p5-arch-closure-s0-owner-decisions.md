@@ -342,3 +342,14 @@ implementation_authorized: no
   - t3/t4 `logics.xml` 超出 `max_xml_depth=64`。
 
   S1 未改动 G2 涉及的解析逻辑（`table_access` 的 SQL 语句白名单与 XML 预算、`composite_signal/_ast.py`）；S1 整体只在 `composite_signal` 的 facade 中搬迁了一个惰性包装，不改变行为。普查结果如实记录这些失败。生产上传当前只走 SQL 物化，composite 与 XML 解析器处于不可达基线（执行计划 §2 S1 的 14 项不可达中即有 `composite_signal._ast`、`table_access._xml_parser`、`table_access.xml` 等，均由 S3 关闭），因此 t2 的 composite 失败**不阻塞** S2b 的 DC22；第 2 次独立复审 N4 中“阻塞 S2b”的说法不成立，予以更正。t3/t4 的重复键与有效键扫描待 G2 修复后，随 G2 验收中的普查重跑补齐（治理修订计划 G2 验收）。
+
+## 11. S1 合入后的治理决定（2026-10-10）
+
+以下四项按 repository owner 在 S1 合入后的评审对话中作出的决定登记；细节见[治理修订计划](p5-arch-closure-post-s1-governance-plan.md)。
+
+- **主线开发**：S2a 起直接在 `main` 上实施，阶段边界用附注 tag，审核对象为提交区间（执行计划 §8.1，AGENTS.md「主线开发与阶段边界」）。
+- **G3 control DB**：采用基线 schema 方案 A，不再新增前向 migration；实施为独立一步，在 G2 之后、S2a 之前，先写规格并经 owner 确认（治理修订计划 G3）。
+  在规格确认之前，设计 DC6 与 §10 的 migration 表述保持原状。
+- **G8 重复有效键**：先由 G2 的普查重跑补齐统计（含整行完全相同与同键冲突的分类），再由 owner 决议处置方向；契约禁止去重与 last-write-wins，实现侧不得自行处理。
+- **G2 阶段边界**：G2（含 G6、G7）独立审核通过后打 tag `p5-g2-exit`，S2a 的区间起点以其后的 tag 为准。
+- **S1 旧 worktree 与分支**：留到 P5 exit 一并清理，清单见治理修订计划 G10。

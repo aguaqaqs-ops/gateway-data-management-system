@@ -3,7 +3,8 @@
 日期：2026-10-10
 
 状态：owner 授权（2026-10-10）。S1 已于同日以 `139ee5fffd` 合入 `main`（tag `p5-s1-exit`，第 3 次复审通过）。
-G1、G5 已完成（执行计划 §1、§8 与 AGENTS.md「主线开发与阶段边界」）；G6、G7 为代码或构建修订，随 G2 的门禁一并验证；G2 按阶段流程独立审核；G3、G8 需 owner 决议；G4 可选。
+G1、G5、G9 已完成（执行计划 §1、§8 与 AGENTS.md「主线开发与阶段边界」）。owner 于同日决定：G3 选方案 A（实施为独立一步）；G8 先由 G2 的普查重跑补齐统计，再决议；
+S1 旧 worktree 与分支留到 P5 exit 清理（G10）。G6、G7 为构建与 harness 修订，随 G2 的门禁一并验证；G2 按阶段流程独立审核；G4 可选。
 
 关联：[执行计划](p5-arch-closure-execution-plan.md) §1、§8；[S0 owner 决议](p5-arch-closure-s0-owner-decisions.md)；[AGENTS.md](../../../../../AGENTS.md)；[testing-conventions](../../../testing-conventions.md)。
 
@@ -43,6 +44,18 @@ S1 普查发现 vnext 解析器有三处与真实数据或 legacy 实现不一�
 | 2 | composite AST 要求 `Digital` 的属性写作 `Value`；legacy 与真实数据（t2）都用小写 `value`，backend 测试中没有任何 `Digital` 用例 | `capabilities/composite_signal/_ast.py` `_ATTR_VALUE`（P3-R3 `7989e47d08` 引入） | `Digital` 属性改为 `value`；补真实形态的 AST 用例；digest 输出键本就是 `"value"`，不受影响 |
 | 3 | `max_xml_depth=64`，t3/t4 的 `logics.xml` 超限；legacy 默认 512 | `capabilities/table_access/contracts.py` | 普查先记录 8 份 XML 的实际最大深度，按实测值加余量确定上限并写明依据；保持 fail-closed（资源上限属于 AGENTS.md 规定不得跳过的基础边界） |
 
+执行形态（owner 2026-10-10）：G2 连同 G6、G7 作为一个阶段性任务在 `main` 上实施，区间起点 `p5-s1-exit`，独立审核通过后在审核报告提交上打 tag `p5-g2-exit`；S2a 的区间起点为 `p5-g2-exit`。
+handoff 为 `plans/p5-arch-closure-g2-handoff.md`，审核报告为 `plans/p5-arch-closure-g2-independent-review.md`。G2 改变生产 SQL 解析、构建上下文与 harness，容器门禁必须在门禁提交上真实重建并运行，不得沿用 S1 的结果。
+
+补充要求：
+
+- 修复 `Digital` 属性后，t2 可能暴露后续的格式不一致（composite 阶段在第一个错误处停止）。每个新增差异都按 legacy 解析器与真实数据核对，只修大小写、命名这类格式保真问题；
+  涉及 AST 结构或业务语义的差异，停止并在 handoff 中交 owner，不自行改语义。
+- `max_xml_depth` 取值必须验证整条 composite 链路：XML 解析、AST 构建、`ast_to_json` 与 JCS 序列化都有按层递归，取值接近 Python 递归上限时会在更深的文档上以 `RecursionError` 失败而不是 fail-closed。
+  用恰好等于上限深度的合成文档走完整条链路，并写明上限的依据。
+- 普查记录增加每份 `logics.xml` 的最大深度，以及重复键的分类统计（只记数量与表名、键列名，不含行内容）：整行完全相同的额外行数，与同键但取值不同的冲突行数；这两项是 G8 owner 决议的依据。
+  普查 JSON 仍不含行数据与主机路径。
+
 验收：
 
 - 三项各有一个按业务行为命名的权威用例；
@@ -50,14 +63,24 @@ S1 普查发现 vnext 解析器有三处与真实数据或 legacy 实现不一�
 - 五包 ruff/mypy、`import_rules` 不增；
 - 按阶段流程独立审核；第 2、3 项不改变现行生产路径行为，第 1 项改变生产 SQL 解析，审核须核对 golden 与 digest 不变。
 
-### G3. “无兼容、无迁移”对现有计划的复核（owner 决议，S2a kickoff 前）
+### G3. control DB 基线 schema（owner 决议 2026-10-10：选方案 A；实施为独立一步，G2 之后、S2a 之前）
 
-设计 DC6 规定 control DB 通过新增前向 migration 修改 schema、不做数据回填；S2a、S2b 的路径预算和验收包含 `test_*_control_db_migrations.py` 与“control DB migration 在启动时执行”。在没有已部署数据的前提下，可以考虑：
+设计 DC6 规定 control DB 通过新增前向 migration 修改 schema、不做数据回填；S2a、S2b 的路径预算和验收包含 `test_*_control_db_migrations.py` 与“control DB migration 在启动时执行”。
+项目没有已部署数据，owner 决定采用方案 A：
 
-- **选项 A（建议）**：S2a 前把现有 migration 合并为单一基线 schema；之后的 schema 变更直接修改基线，启动时 schema 版本不符即拒绝启动（fail-closed），由开发者删除重建本地 control DB。删除各 migration 测试，只保留一个基线 schema 的权威测试。首次出现需要保留数据的部署时，再从当时的基线重新引入前向 migration。
-- **选项 B**：维持 DC6 现状。
+- 把现有 migration（`infrastructure/control_db/migrations.py`，Operations v1、Workspace v1–v6，约 1,760 行，含按版本的完整性断言）合并为单一基线 schema；
+  之后的 schema 变更直接修改基线；启动时 schema 版本与代码不符即拒绝启动（fail-closed），由开发者删除重建本地 control DB。
+- 删除各 migration 测试，保留一个基线 schema 的权威测试。首次出现需要保留数据的部署时，再从当时的基线重新引入前向 migration。
+- 其余兼容性条目（STORAGE_BREAKING migration operation、在线 ruleset 迁移）属于未来工作，不受影响。
 
-选择 A 时同步修订：设计 DC6 与 §10、执行计划 §2 S2a/S2b 验收、§3 S2a/S2b 路径预算、§6 镜像重建判定表中的 migration 条目，并在决议记录中登记。其余兼容性条目（STORAGE_BREAKING migration operation、在线 ruleset 迁移）本就属于未来工作，不受影响。
+这不是纯文档修订，所以不与 G2 合并，也不在本次提交中改写设计：它需要自己的实施规格与独立审核。规格须先核对两处契约约束，再决定哪些保留：
+
+1. Business Lifecycle（固定 scope 归属）与 5D 设计 §6 对“migration、首次 seed、批量 seed、mapping update 必须遵循同一业务验收规则、失败不改 schema migration 版本”的要求。
+   合并为基线后，历史数据的 migration 验证路径不再存在，但 seed 与 mapping update 路径必须保留这些规则；需要判断是否要修订契约文字。
+2. 设计 DC6 的“新增前向 migration”表述，及 §10 中 PreviewResult、SubmitAttempt、History acceptance、archive 事件字段、`history_compare_integrity_records` 删除的描述（改为直接修改基线）；
+   执行计划 §2 S2a/S2b 验收、§3 S2a/S2b 路径预算与 §6 镜像重建判定表中的 migration 条目随之改写。
+
+实施规格完成并获 owner 确认之前，设计与执行计划中的 migration 表述保持原状，仅在 DC6 与 §10 处加了指向本节的注记。
 
 ### G4. 普查工具（随 G2，可选）
 
@@ -89,6 +112,7 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
   t1 只覆盖 102/133 张表，t2 只覆盖 181/216 张表，t3/t4 未评估，未覆盖表中也可能有重复。
 - 契约后果：Canonical Storage §3 要求规范键整表唯一，禁止 dedup、last-write-wins；设计 §4.2 规定无键、重复键、缺键 fail closed。t1、t2 经公开 HTTP 的 Preview 因此不能成功，S2b 的 DC22 验收无法通过，除非先决定这些重复的处置。
 - 需要 owner 决议的方向（不允许实现侧悄悄去重）：这些表在规则中的有效键定义是否有误（改规则键，使其唯一）；该表是否不应作为 canonical keyed table（改表角色）；或者数据本身需要清理（由 owner 处理源数据）。
+- owner 于 2026-10-10 同意：先由 G2 的普查重跑补齐统计（含整行重复与冲突行的分类），再作决议；在此之前不改规则键，也不改任何去重行为。
 - 时点与落点：在 S2a kickoff 前决议并写入决议记录；S2a、S2b 的验收文字写明 DC22 对这些表的预期结果；G2 之后的普查重跑补齐 t3/t4 与未覆盖表的统计，作为决议依据。
 
 ### G9. 文档小偏差（文档；源自 R3-F4；已完成）
@@ -96,9 +120,30 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
 决议记录 §10 与 handoff §1 的“S1 不修改 `table_access` 与 `composite_signal` 的生产代码”改为“未改动 G2 涉及的解析逻辑”（S1 整体只在 `composite_signal` 的 facade 中搬迁了一个惰性包装）；
 handoff traceability 的 `merge_base_with_main` 更正；handoff 中缺日志支撑的网速表述改为引用运行 2 日志。
 
+### G10. P5 exit 清理清单（登记；owner 2026-10-10 同意留到 P5 exit 一并清理）
+
+S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 312 MB 等），主机可用空间 243 GB，保留的成本可以忽略；
+分支 `p5-closure/s1` 已由 `139ee5fffd` 完整合入，tag `p5-s1-exit` 是阶段边界，保留分支只是被旧 worktree 占住的引用。留到 P5 exit 清理是合理的，条件是下面三点：
+
+- worktree 里仅有的有价值内容是 `gate-logs/` 下 8 个第一轮历史日志（handoff 以 `gate-logs/...` 引用）。已于 2026-10-10 复制到
+  `/home/dev/gdds-p5-closure-s1-gate-logs/s1-worktree-gate-logs/` 并核对一致；清理后 handoff 中的 `gate-logs/...` 路径对应该目录。
+- 不要在旧 worktree 中运行任何测试或构建，也不要把它当作 `main` 的副本；它的 `.venv` 只用于只读核对历史。
+- 清理动作在 P5 exit 之后、没有任何门禁运行期间执行。
+
+清理清单：
+
+1. `git worktree remove --force /home/dev/gdds-p5-closure-s1`（需要 `--force`，因为含被忽略的 `.venv` 与 `target`），再 `git branch -d p5-closure/s1`。
+2. `/home/dev/gdds-p5-closure-s1-gate-logs/`：按 owner 意愿归档或删除；S1 的 `final-*` 日志是 `p5-s1-exit` 门禁证据，handoff 与第 3 次复审报告引用了它们。
+3. Docker 残留：每次权威 runner 都会留下以 project 命名的 backend/worker 镜像与卷（2026-10-10 实测 892 个镜像、76 个卷）。只在没有门禁运行时清理，
+   **不得删除或重新 tag `gateway-repository-client-e2e:local`**（它同时是预装依赖基础镜像；删除会让下一次构建在慢网络上超时，S1 因此多跑了两次完整门禁）；该镜像层数过多时用 `docker export | docker import` 压平，而不是删除。
+4. 本计划各项（G2、G3、G6、G7、G8）完成后，复核 AGENTS.md 与 testing-conventions 中 carried 规则的临时限制是否已删除。
+
 ## 3. 顺序
 
 1. 已完成：S1 第 3 次复审通过 → `--no-ff` 合入 `main`（`139ee5fffd`）→ tag `p5-s1-exit`；G1、G5、G9。
-2. G3、G8：owner 决议；G3 按所选选项修订文档。
-3. G2（含可选 G4，以及 G6、G7）：在 `main` 上实施，独立审核通过后打 tag。G6、G7 改变构建上下文与 harness，须在最终 HEAD 重建并运行完整门禁，不得用 `carried` 沿用旧结果。
-4. S2a kickoff。
+2. G2（含 G6、G7，可选 G4）：在 `main` 上实施，独立审核通过后打 tag `p5-g2-exit`。G6、G7 改变构建上下文与 harness，须在门禁提交上重建并运行完整门禁，不得用 `carried` 沿用旧结果。
+   实施期间只有实施者写入主工作区；其他对话不向 `main` 提交。
+3. G3 实施规格 → owner 确认 → 实施并独立审核（control DB 基线 schema）。
+4. G8：G2 的普查重跑完成后，owner 决议重复有效键的处置。
+5. S2a kickoff（区间起点 `p5-g2-exit` 或 G3 的 tag，以后者为准）。
+6. P5 exit：按 G10 清理。

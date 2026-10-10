@@ -10,7 +10,12 @@ from gateway_backend.capabilities.composite_signal.contracts import (
     CompositeDiagnosticCode,
     CompositeSignalStatus,
 )
-from gateway_backend.capabilities.table_access.contracts import ParseStatus, ParserInvocationContext
+from gateway_backend.capabilities.table_access.contracts import (
+    ParseStatus,
+    ParserDiagnosticCode,
+    ParserInvocationContext,
+    RESOURCE_BUDGETS,
+)
 from tests.support.composite_signal import load_text, materialize_logic, special_catalog
 from tests.support.table_access_fixtures import load_text as load_table_access_text
 from tests.support.table_access_xml import parse_xml_text
@@ -92,6 +97,30 @@ def test_digital_value_attribute_matches_source_contract(
         "name": "top",
         "children": [{"kind": "DIGITAL", "value": "1"}],
     }
+
+
+def test_xml_depth_budget_covers_composite_ast_digest_serialization() -> None:
+    def nested_logic(depth: int) -> str:
+        expression_count = depth - 2
+        opening = '<Logic_Set><Express Name="top" Operator_Type="+">'
+        opening += '<Express Operator_Type="+">' * (expression_count - 1)
+        closing = "</Express>" * expression_count
+        return f'{opening}<Digital value="1"/>{closing}</Logic_Set>'
+
+    depth_limit = RESOURCE_BUDGETS.max_xml_depth
+    at_limit = parse_xml_text(nested_logic(depth_limit))
+    assert at_limit.status is ParseStatus.COMPLETE
+    result = materialize_logic(at_limit, catalog=special_catalog())
+    assert result.status is CompositeSignalStatus.COMPLETE
+    assert result.formulas[0].formula_digest.value
+    assert '"value":"1"' in result.formulas[0].formula_ast_json
+    assert ast_to_json(result.formulas[0].ast)["kind"] == "EXPRESS"
+
+    over_limit = parse_xml_text(nested_logic(depth_limit + 1))
+    assert over_limit.status is ParseStatus.FAILED
+    assert over_limit.events == ()
+    assert over_limit.diagnostics[0].code is ParserDiagnosticCode.RESOURCE_LIMIT_EXCEEDED
+    assert "max_xml_depth" in over_limit.diagnostics[0].message
 
 
 def test_empty_logic_set_is_complete_with_no_formulas() -> None:

@@ -56,7 +56,7 @@ EXPECTED_RESOURCE_BUDGETS = (
     ("max_reader_batch_rows", 1024),
     ("max_reader_batch_bytes", 8 * _MIB),
     ("max_xml_document_bytes", 64 * _MIB),
-    ("max_xml_depth", 64),
+    ("max_xml_depth", 128),
     ("max_xml_nodes", 1_000_000),
     ("max_xml_attributes_per_element", 256),
     ("max_xml_attribute_bytes", 64 * _KIB),
@@ -123,7 +123,7 @@ FORBIDDEN_FIELD_NAMES = frozenset(
 )
 
 
-def test_versions_and_budgets_match_s0() -> None:
+def test_parser_versions_and_resource_budgets_match_contract() -> None:
     assert PARSER_INPUT_CONTRACT_VERSION == 1
     assert PARSER_VERSION == 1
     for name, expected in EXPECTED_RESOURCE_BUDGETS:

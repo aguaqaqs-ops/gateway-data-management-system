@@ -56,10 +56,10 @@ CPU 争用导致时序敏感测试 flaky。少量从 serial 来源逐项审查�
 
 ```bash
 cd vnext/repository_service
-uv run pytest -m unit          # 约 910 项，无外部依赖，约 12 秒
-uv run pytest -m integration   # 需要真实 dolt
-uv run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
-uv run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次的 serial 来源测试
+../scripts/uv-consume.sh -C . run pytest -m unit          # 约 1490 项，无外部依赖，约 12 秒
+../scripts/uv-consume.sh -C . run pytest -m integration   # 需要真实 dolt
+../scripts/uv-consume.sh -C . run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
+../scripts/uv-consume.sh -C . run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次的 serial 来源测试
 ```
 
 `parallel_safe` 不是“运行较快”的别名，而是严格的隔离审查结论：测试不得依赖真实线程
@@ -78,8 +78,12 @@ uv run pytest -m parallel_safe -n 4  # 已逐项审查、可进入并行批次�
 e2e 文件回到真实磁盘临时目录，以避开 unprivileged LXC 下 Docker secret bind mount 的
 remount 限制；其余测试仍使用 tmpfs。
 
-裸跑 `uv run pytest` 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他测试
-争用 CPU，判定 flaky 时以脚本为准。
+不带 marker 直接运行 pytest 会执行全部测试并自动并行；结果正确，但 `serial` 组会与其他
+测试争用 CPU，判定 flaky 时以脚本为准。
+
+权威脚本的运行前提（已提交的 clean worktree、运行期间不写 worktree、整机单飞、日志记录
+HEAD 与 exit code）见 [AGENTS.md](../../AGENTS.md)“跑测试”一节；不满足时结果不能作为门禁
+证据。
 
 ### P2后半段的功能门禁与最终container门禁
 

@@ -830,9 +830,9 @@ def _parse_set_lhs(cursor: ByteCursor, runtime: ParserRuntime) -> str:
 
 
 def _allowed_set_name(name: str) -> bool:
-    lowered = name.lower()
-    if lowered.startswith("@"):
-        return lowered == "@saved_cs_client"
+    if name.lower() == "@saved_cs_client":
+        return True
+    lowered = name.lower().lstrip("@")
     if lowered.startswith("old_"):
         return True
     if lowered.startswith("character_set_"):

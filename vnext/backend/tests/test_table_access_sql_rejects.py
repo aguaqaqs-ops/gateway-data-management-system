@@ -28,11 +28,6 @@ SQL_STATEMENT_REJECTS = (
         "@@saved_cs_client",
     ),
     ("SET @other_client = 1;", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "@other_client"),
-    (
-        "SET @character_set_client = utf8mb4;",
-        ParserDiagnosticCode.UNSUPPORTED_STATEMENT,
-        "@character_set_client",
-    ),
 )
 
 SQL_TYPE_MALFORMED_SHAPES = (

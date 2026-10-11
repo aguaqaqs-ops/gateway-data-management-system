@@ -12,7 +12,6 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonSummary,
     ComparisonTableFact,
     ComparisonTableStatus,
-    IdentityStatus,
     PairResultStatus,
 )
 from gateway_backend.capabilities.surface_assembly import (
@@ -76,8 +75,6 @@ def _facts() -> ComparisonFacts:
         before_snapshot_digest=_digest("before"),
         current_snapshot_digest=_digest("current"),
         comparison_mode=ComparisonMode.DETAILED,
-        project_identity_status=IdentityStatus.NOT_APPLICABLE,
-        assessment_digest=None,
         direction="BEFORE_TO_CURRENT",
         summary=summary,
         tables=(table,),

@@ -16,7 +16,6 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableFact,
     ComparisonTableStatus,
     ComparisonMode,
-    IdentityStatus,
     OrderedRecord,
     PairResultStatus,
 )
@@ -90,8 +89,6 @@ def _facts() -> ComparisonFacts:
         before_snapshot_digest=raw_blob_digest(b"before"),
         current_snapshot_digest=raw_blob_digest(b"current"),
         comparison_mode=ComparisonMode.DETAILED,
-        project_identity_status=IdentityStatus.NOT_APPLICABLE,
-        assessment_digest=None,
         direction="BEFORE_TO_CURRENT",
         summary=summary,
         tables=(table,),

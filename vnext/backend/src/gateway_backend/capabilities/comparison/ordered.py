@@ -35,8 +35,9 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordKind,
     ComparisonSchemaChanges,
     ComparisonTableFact,
-    ComparisonTablePolicy,
+    _ComparisonTablePolicy,
     ComparisonTableStatus,
+    SchemaChangeSource,
     FieldChange,
     GID_PSEUDO_MAX,
     GID_PSEUDO_MIN,
@@ -64,7 +65,9 @@ from gateway_backend.capabilities.comparison.errors import StandardComparisonErr
 from gateway_backend.capabilities.comparison.row_encoding import (
     _EncodedRow,
     _encode_cell,
+    _ignored_values_changed,
     _row_digest,
+    _schema_changes_from_view,
     _schema_view,
 )
 
@@ -92,7 +95,7 @@ class _BlankGap:
 def compare_ordered_task(task: TableComparisonTask) -> ComparisonTableFact:
     """Compare one ordered table while preserving standard facts for real stable rows."""
 
-    if type(task.policy) is not ComparisonTablePolicy or task.policy.ordered_policy is None:
+    if type(task.policy) is not _ComparisonTablePolicy or task.policy.ordered_policy is None:
         raise OrderedComparisonError("ORDERED_POLICY_MISSING")
     policy = task.policy
     ordered_policy = policy.ordered_policy
@@ -127,15 +130,7 @@ def compare_ordered_task(task: TableComparisonTask) -> ComparisonTableFact:
             )
 
     schema = _schema_view(before, current, policy)
-    schema_changes = ComparisonSchemaChanges(
-        before_only_columns=schema.before_only,
-        current_only_columns=schema.current_only,
-        selected_columns=schema.selected,
-        effective_compare_key_before=schema.before_key,
-        effective_compare_key_current=schema.current_key,
-        effective_compare_key_changed=schema.key_changed,
-        incompatible_columns=schema.incompatible,
-    )
+    schema_changes = _schema_changes_from_view(schema, policy)
     diagnostics = _ordered_schema_diagnostics(before, current, ordered_policy, schema)
     if diagnostics:
         return _degraded_fact(task, before, current, schema_changes, diagnostics)
@@ -167,7 +162,7 @@ def _compare_single_side(
     table: SnapshotTable | None,
     *,
     added: bool,
-    policy: ComparisonTablePolicy,
+    policy: _ComparisonTablePolicy,
 ) -> ComparisonTableFact:
     if descriptor is None:
         raise OrderedComparisonError("TABLE_DESCRIPTOR_MISSING")
@@ -259,19 +254,16 @@ def _single_side_schema_changes(
     descriptor: SnapshotTableDescriptor,
     *,
     added: bool,
-    policy: ComparisonTablePolicy,
+    policy: _ComparisonTablePolicy,
 ) -> ComparisonSchemaChanges:
-    selected = tuple(
-        column.name
-        for column in descriptor.columns
-        if column.name not in set(policy.ignored_columns)
-    )
+    selected = tuple(sorted(column.name for column in descriptor.columns))
     return ComparisonSchemaChanges(
         current_only_columns=selected if added else (),
         before_only_columns=() if added else selected,
         selected_columns=selected,
-        effective_compare_key_current=tuple(descriptor.compare_key_columns) if added else (),
-        effective_compare_key_before=() if added else tuple(descriptor.compare_key_columns),
+        effective_compare_key_current=policy.effective_key_current if added else (),
+        effective_compare_key_before=() if added else policy.effective_key_before,
+        change_source=SchemaChangeSource.SOURCE_SCHEMA,
     )
 
 
@@ -406,7 +398,7 @@ def _build_fact(
     before_rows: tuple[_OrderedRow, ...],
     current_rows: tuple[_OrderedRow, ...],
     selected: tuple[str, ...],
-    policy: ComparisonTablePolicy,
+    policy: _ComparisonTablePolicy,
     ordered_policy: OrderedTablePolicy,
     artifact_scope: ArtifactScope,
     schema_changes: ComparisonSchemaChanges,
@@ -417,14 +409,16 @@ def _build_fact(
     added_keys = sorted(current_real.keys() - before_real.keys())
     deleted_keys = sorted(before_real.keys() - current_real.keys())
     common_keys = sorted(before_real.keys() & current_real.keys())
-    ignored_columns = set(policy.ignored_columns) | set(ordered_policy.ignored_columns)
+    compare_excluded_columns = set(policy.compare_excluded_columns)
     candidate_value_columns = ordered_policy.value_columns or tuple(
         column
         for column in selected
         if column not in set(ordered_policy.order_key)
         and column not in set(ordered_policy.row_identity_key or ())
     )
-    value_columns = tuple(column for column in candidate_value_columns if column not in ignored_columns)
+    value_columns = tuple(
+        column for column in candidate_value_columns if column not in compare_excluded_columns
+    )
     standard_records: list[ComparisonRecord] = []
     ordered_records: list[OrderedRecord] = []
     modified_keys: list[bytes] = []
@@ -546,28 +540,46 @@ def _build_fact(
     )
     ordered_changed = bool(ordered_records) or bool(added_keys or deleted_keys or position_changed_keys)
     blank_changed = blank_extension.status is OrderedStatus.CHANGED
-    status = ComparisonTableStatus.MODIFIED if ordered_changed or blank_changed else ComparisonTableStatus.UNCHANGED
+    schema_changed = (
+        before_descriptor is not None
+        and current_descriptor is not None
+        and before_descriptor.business_schema_digest != current_descriptor.business_schema_digest
+    )
+    status = ComparisonTableStatus.MODIFIED if ordered_changed or blank_changed else (
+        ComparisonTableStatus.SCHEMA_ONLY_CHANGED if schema_changed else ComparisonTableStatus.UNCHANGED
+    )
     if before_descriptor is None:
         status = ComparisonTableStatus.ADDED_TABLE
     elif current_descriptor is None:
         status = ComparisonTableStatus.DELETED_TABLE
+    table_processing_mode = _processing_mode(
+        moved=bool(moved_keys),
+        shifted=bool(position_changed_keys),
+        segment=bool(added_keys or deleted_keys) or blank_changed,
+        modified=bool(modified_keys),
+    )
     ordered_extension = OrderedExtension(
-        status=OrderedStatus.CHANGED if ordered_changed else OrderedStatus.UNCHANGED,
+        status=(
+            OrderedStatus.CHANGED
+            if table_processing_mode is not None
+            else OrderedStatus.UNCHANGED
+        ),
         ordered_summary=ordered_summary,
         records=tuple(sorted(ordered_records, key=_ordered_sort_key)),
         before_ordered_digest=_ordered_digest(before_rows, ordered_policy, table_name),
         current_ordered_digest=_ordered_digest(current_rows, ordered_policy, table_name),
         replay_guarantee=ReplayGuarantee.EXACT,
-        table_processing_mode=_processing_mode(
-            moved=bool(moved_keys),
-            shifted=bool(position_changed_keys),
-            segment=bool(added_keys or deleted_keys) or blank_changed,
-            modified=bool(modified_keys),
-        ),
+        table_processing_mode=table_processing_mode,
         diagnostics=schema_diagnostics,
         policy_digest=ordered_policy.policy_digest,
     )
     diagnostics = tuple(schema_diagnostics)
+    content_changed = (
+        status is ComparisonTableStatus.UNCHANGED
+        and before_descriptor is not None
+        and current_descriptor is not None
+        and _ignored_values_changed(before_descriptor, current_descriptor, policy)
+    )
     return ComparisonTableFact(
         table_name=table_name,
         status=status,
@@ -583,6 +595,7 @@ def _build_fact(
         suppressed_deleted_count=len(deleted_keys) if artifact_scope is ArtifactScope.UPDATE_ONLY else 0,
         records=tuple(sorted(standard_records, key=_standard_sort_key)),
         diagnostics=diagnostics,
+        content_changed=content_changed,
         ordered_extension=ordered_extension,
         blank_extension=blank_extension,
     )
@@ -594,7 +607,7 @@ def _standard_row_record(
     row: _OrderedRow,
     selected: tuple[str, ...],
     current: bool,
-    policy: ComparisonTablePolicy,
+    policy: _ComparisonTablePolicy,
 ) -> ComparisonRecord:
     values = _values(row, selected)
     return ComparisonRecord(

@@ -18,7 +18,6 @@ from gateway_shared_kernel import (
 
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
     ComparisonRecord,
     ComparisonRecordKind,
     DetailedFactsResult,
@@ -31,6 +30,7 @@ from gateway_backend.capabilities.comparison import (
 )
 from tests.test_comparison_artifacts import _standard_result
 from tests.test_comparison_standard import _plan as standard_plan
+from gateway_backend.capabilities.table_rules.contracts import TableArtifactScope
 
 pytestmark = pytest.mark.unit
 
@@ -146,7 +146,7 @@ def test_update_only_publishes_only_update_records() -> None:
         CREATE TABLE t (id INT NOT NULL PRIMARY KEY, note VARCHAR(8) NULL);
         INSERT INTO t VALUES (1, 'current'), (3, 'added');
     """
-    result = compare_plan(standard_plan(before, current, scope=ArtifactScope.UPDATE_ONLY))
+    result = compare_plan(standard_plan(before, current, scope=TableArtifactScope.UPDATE_ONLY))
     assert isinstance(result, DetailedFactsResult)
     published = publish_records_closure(result, InMemoryArtifactStore())
     assert isinstance(published, DetailedFactsResult)

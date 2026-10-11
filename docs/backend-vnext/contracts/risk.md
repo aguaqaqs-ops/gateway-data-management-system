@@ -186,6 +186,8 @@ semantic_facts:
   ordered_diagnostics
 ```
 
+`position_changed_count` follows [R5 §8](../refactoring/formal/plans/p3-r5-comparison-design.md#8-schema-key-and-ordered-semantics): it counts skeleton rows only and excludes moved rows.
+
 ## RiskLevel
 
 第一版沿用旧实现的等级形状：

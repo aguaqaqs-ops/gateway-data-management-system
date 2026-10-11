@@ -26,6 +26,11 @@ from gateway_backend.capabilities.snapshot_materialization import (
     raw_content_digest_of,
     row_content_hash,
     try_declared_type_for_sql_spelling,
+    SourceCell,
+    SourceColumnDescriptor,
+    SourceRow,
+    SqlLogicalType,
+    SqlSetValue,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ROW_MATERIALIZATION_PROFILE,
@@ -41,13 +46,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableOrderedMetadata,
     SnapshotTableReader,
     SnapshotTableSet,
-)
-from gateway_backend.capabilities.table_access.contracts import (
-    SourceCell,
-    SourceColumnDescriptor,
-    SourceRow,
-    SqlLogicalType,
-    SqlSetValue,
 )
 from gateway_backend.capabilities.storage_projection._digest import (
     CanonicalCellError,

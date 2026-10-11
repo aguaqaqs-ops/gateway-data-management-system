@@ -109,9 +109,21 @@ from gateway_backend.capabilities.snapshot_materialization.materialize import (
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
     materialize_repository_ref,
 )
+from gateway_backend.capabilities.table_access.contracts import (
+    SourceCell,
+    SourceColumnDescriptor,
+    SourceRow,
+    SqlLogicalType,
+    SqlSetValue,
+)
 
 __all__ = [
     "SqlDeclaredTypeMappingError",
+    "SourceCell",
+    "SourceColumnDescriptor",
+    "SourceRow",
+    "SqlLogicalType",
+    "SqlSetValue",
     "declared_type_for_sql_spelling",
     "enum_set_labels_for_sql_spelling",
     "normalize_sql_type_spelling",

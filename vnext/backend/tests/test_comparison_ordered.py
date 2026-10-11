@@ -6,27 +6,22 @@ from dataclasses import dataclass, replace
 from itertools import combinations, permutations
 
 import pytest
-from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
     BlankRecordKind,
     BoundSnapshotInput,
+    ComparisonRequest,
     ComparisonFacts,
     ComparisonTableFact,
     ComparisonPlan,
-    ComparisonTablePolicy,
     DetailedFactsResult,
-    IdentityStatus,
     OrderedRecordKind,
-    OrderedTablePolicy,
+    OrderedStatus,
     OrderedTableProcessingMode,
-    PairRole,
-    PairViewKind,
-    bind_pair_input,
     compare_plan,
-    plan_pair,
+    plan_comparison,
 )
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.comparison.ordered import _backbone_indices
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance,
@@ -36,29 +31,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.storage_projection import FakeSnapshotTableReader, int_cell, varchar_cell
+from tests.support.table_rules import comparison_ruleset_for, ordered_record
 
 pytestmark = pytest.mark.unit
-
-
-@dataclass(frozen=True, slots=True)
-class _Assessment:
-    before_snapshot_digest: DigestRef
-    current_snapshot_digest: DigestRef
-    status: IdentityStatus = IdentityStatus.SAME_PROJECT
-    schema_version: str = "project-identity-assessment/v1"
-    rule_version: str = "version-manager-overlap/v1"
-    comparable_columns: tuple[str, ...] = ()
-    before_row_count: int = 0
-    current_row_count: int = 0
-    before_distinct_entry_count: int = 0
-    current_distinct_entry_count: int = 0
-    matched_entry_count: int = 0
-    before_entry_set_digest: DigestRef | None = None
-    current_entry_set_digest: DigestRef | None = None
-    assessment_digest: DigestRef = raw_blob_digest(b"ordered-assessment")
-    diagnostics: tuple[object, ...] = ()
-    requires_continuation_confirmation: bool = False
-    requires_submit_confirmation: bool = False
 
 
 def _bound(sql: str) -> BoundSnapshotInput:
@@ -73,31 +48,21 @@ def _plan(
     before_sql: str,
     current_sql: str,
     *,
-    policy: OrderedTablePolicy | None = None,
-    scope: ArtifactScope = ArtifactScope.ALL_CHANGES,
+    compare_excluded_columns: tuple[str, ...] = (),
+    rule_set: ComparisonRuleSet | None = None,
 ) -> ComparisonPlan:
     before = _bound(before_sql)
     current = _bound(current_sql)
-    bound = bind_pair_input(
+    selected_rules = rule_set or comparison_ruleset_for(
+        ordered_record(r"^t$", compare_excluded_columns=compare_excluded_columns)
+    )
+    request = ComparisonRequest(
         pair_id="ordered-pair",
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=PairRole.INITIAL_TO_MODIFIED,
         before=before,
         current=current,
-        artifact_scope=scope,
-        identity_assessment=_Assessment(
-            before.snapshot.snapshot_digest,
-            current.snapshot.snapshot_digest,
-        ),
-        table_policies=(
-            ComparisonTablePolicy(
-                table_name="t",
-                ignored_columns=("no",),
-                ordered_policy=policy or OrderedTablePolicy(),
-            ),
-        ),
+        rule_set=selected_rules,
     )
-    planned = plan_pair(bound)
+    planned = plan_comparison(request)
     assert isinstance(planned, ComparisonPlan)
     return planned
 
@@ -172,32 +137,15 @@ def test_ordered_does_not_use_positional_fallback() -> None:
     assert table.row_modified_count == 0
 
 
-def test_ordered_ignored_columns_do_not_trigger_content_change() -> None:
+def test_ordered_compare_excluded_change_is_visible_without_row_change() -> None:
     before = _sql("(1, 1, 'a'), (2, 2, 'b')")
     current = _sql("(1, 1, 'z'), (2, 2, 'b')")
-    policy = OrderedTablePolicy(value_columns=(), ignored_columns=("no", "value"))
-
-    table = _table(_facts(_plan(before, current, policy=policy)))
+    table = _table(_facts(_plan(before, current, compare_excluded_columns=("value",))))
     assert table.row_modified_count == 0
+    assert table.content_changed is True
+    assert table.status.value == "UNCHANGED"
     assert table.ordered_extension is not None
     assert table.ordered_extension.records == ()
-
-
-def test_update_only_suppresses_ordered_and_blank_insert_records() -> None:
-    before = _sql("(1, 1, 'a')")
-    current = _sql("(1, 1, 'a'), (NULL, 2, 'blank'), (2, 3, 'b')")
-
-    table = _table(_facts(_plan(before, current, scope=ArtifactScope.UPDATE_ONLY)))
-    assert table.records == ()
-    assert table.suppressed_added_count == 1
-    assert table.ordered_extension is not None
-    assert table.ordered_extension.records == ()
-    assert table.ordered_extension.ordered_summary.row_added_count == 1
-    assert table.ordered_extension.status.value == "ORDERED_CHANGED"
-    assert table.blank_extension is not None
-    assert table.blank_extension.records == ()
-    assert table.blank_extension.blank_summary.interval_inserted_count == 1
-    assert table.blank_extension.status.value == "ORDERED_CHANGED"
 
 
 @pytest.mark.parametrize(
@@ -227,16 +175,6 @@ def test_sql_reserved_pseudo_gid_is_rejected_at_materialization_boundary() -> No
     assert any(item.code.value == "RESERVED_PSEUDO_GID" for item in result.diagnostics)
 
 
-def test_ordered_without_stable_key_never_infers_move() -> None:
-    before = _sql("(1, 1, 'a'), (2, 2, 'b')")
-    current = _sql("(2, 1, 'b'), (1, 2, 'a')")
-
-    table = _table(_facts(_plan(before, current, policy=OrderedTablePolicy(row_identity_key=None))))
-    assert table.status.value == "DEGRADED"
-    assert table.ordered_extension is not None
-    assert table.ordered_extension.records == ()
-
-
 def test_ordered_missing_provenance_degrades_before_row_interpretation() -> None:
     before = _bound(_sql("(1, 1, 'a')"))
     current = _bound(_sql("(1, 1, 'a')"))
@@ -245,20 +183,13 @@ def test_ordered_missing_provenance_degrades_before_row_interpretation() -> None
     before_table = replace(before.table_set.tables[0], ordered_metadata=None)
     before = replace(before, table_set=replace(before.table_set, tables=(before_table,)))
 
-    bound = bind_pair_input(
+    request = ComparisonRequest(
         pair_id="missing-provenance",
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=PairRole.INITIAL_TO_MODIFIED,
         before=before,
         current=current,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        identity_assessment=_Assessment(
-            before.snapshot.snapshot_digest,
-            current.snapshot.snapshot_digest,
-        ),
-        table_policies=(ComparisonTablePolicy("t", ignored_columns=("no",), ordered_policy=OrderedTablePolicy()),),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
     )
-    planned = plan_pair(bound)
+    planned = plan_comparison(request)
     assert isinstance(planned, ComparisonPlan)
     table = _table(_facts(planned))
     assert table.status.value == "DEGRADED"
@@ -281,21 +212,13 @@ def test_canonical_pseudo_gid_requires_explicit_provenance() -> None:
     canonical = SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID)
     before = _canonical_bound("old", canonical)
     current = _canonical_bound("new", canonical)
-    bound = bind_pair_input(
+    request = ComparisonRequest(
         pair_id="canonical-pseudo",
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=PairRole.INITIAL_TO_MODIFIED,
         before=before,
         current=current,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        identity_assessment=_Assessment(before.snapshot.snapshot_digest, current.snapshot.snapshot_digest),
-        table_policies=(
-            ComparisonTablePolicy(
-                "t", ignored_columns=("no",), ordered_policy=OrderedTablePolicy()
-            ),
-        ),
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
     )
-    planned = plan_pair(bound)
+    planned = plan_comparison(request)
     assert isinstance(planned, ComparisonPlan)
     table = _table(_facts(planned))
     assert table.row_modified_count == 0
@@ -410,6 +333,12 @@ BACKBONE_OUTCOMES = (
         id="blank-row-appended-at-tail",
     ),
     pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x')"),
+        _sql("(1, 1, 'a')"),
+        _Outcome(blank=((BlankRecordKind.DELETE_INTERVAL, 1),), mode=OrderedTableProcessingMode.TAIL_SEGMENT),
+        id="blank-row-deleted-at-tail",
+    ),
+    pytest.param(
         _sql("(1, 1, 'a'), (NULL, 2, 'x'), (0, 3, 'y'), (2, 4, 'b')"),
         _sql("(1, 1, 'a'), (0, 2, 'p'), (NULL, 3, 'q'), (2, 4, 'b')"),
         _Outcome(),
@@ -503,6 +432,9 @@ def test_backbone_reports_moves_blank_intervals_and_summarised_shifts(
     assert blank_facts == sorted((kind.value, count) for kind, count in outcome.blank)
     assert extension.ordered_summary.position_changed_count == outcome.position_changed
     assert extension.table_processing_mode is outcome.mode
+    assert extension.status is (
+        OrderedStatus.CHANGED if outcome.mode is not None else OrderedStatus.UNCHANGED
+    )
 
 
 def _earliest_longest_run(positions: tuple[int, ...]) -> tuple[int, ...]:

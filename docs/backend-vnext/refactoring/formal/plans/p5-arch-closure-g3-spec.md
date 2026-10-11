@@ -98,7 +98,7 @@ G8a（census 口径修订，不改生产代码）已审核通过（`cd41349f0b`�
 2. `feat(p5-g3)`：终态对照导出（外部）→ `schema.py`、新 bootstrap、调用方切换、测试迁移与删除；每个提交后五包 ruff/mypy、`import_rules`、相关 focused 测试通过。
 3. `refactor(p5-g3)`：删除 `migrations.py` 与迁移专属测试（与上一提交分开，便于审核时看清“只删不改”）。
 4. 门禁提交 V 是最后一个非 handoff 提交；G3 改动 `backend/src`，backend/worker 镜像内容变化，**必须在 V 上真实重建并完整运行权威 runner**，遵守 AGENTS.md「权威入口的运行前提」；handoff 提交 H 只改 handoff，按 carried 第 3 条在 V 的 worktree 内判定。
-5. 区间起点 R0 是 G3 kickoff 时 main 的提交（G8a 审核与本规格更新之后的 HEAD，kickoff 时写入实施提示词）；独立审核通过后在审核报告提交上打 `p5-g3-exit`；S2a 的区间起点改为 `p5-g3-exit`。
+5. 区间起点 R0 是 G3 kickoff 时 main 的提交（G8a 审核与本规格更新之后的 HEAD，kickoff 时写入实施提示词）；独立审核通过后在审核报告提交上打 `p5-g3-exit`；S2a 的区间起点原定为 `p5-g3-exit`；G8 决议后 G8b 排在 G3 之后，S2a 的区间起点改为 `p5-g8b-exit`。
 6. 实施形态：`git worktree add -b p5-g3 /home/dev/gdds-p5-g3 <R0>`。原因是 main 同时接收其他对话的文档提交（G8a 实施期间已发生），主工作区会在门禁运行期间被写入、HEAD 前进，
    破坏“运行期间不写 worktree、起止 HEAD 不变”。分支只含实施方的提交，不 merge/rebase main；V 的门禁与 carried 判定都在该 worktree 内完成，审核方也在这个 worktree 复核 carried。
    新 worktree 需要先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`），否则 `test_table_rules_resolver.py` 的 58 个用例失败（G8a 审核 §5）。

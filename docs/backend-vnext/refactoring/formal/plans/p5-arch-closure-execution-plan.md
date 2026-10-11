@@ -24,6 +24,7 @@ S0 文档、独立审核与复审
   -> S1 kickoff（合入主线、漂移复核、真实数据普查）
   -> S1  结构修复（行为不变）
   -> [前置：真实数据格式保真（`@saved_cs_client`、`Digital value`、XML 深度；S1 合入后、S2a kickoff 前，治理修订计划 G2，见 §8.5）]
+  -> [前置：control DB 基线 schema（治理修订计划 G3）；有序比较的骨架、移动与位置变化（G8b）]
   -> S2a 规范快照与比较规则的能力层（W3 入口、ComparisonRuleView、编码与摘要、规范投影入口、真实 Dolt 同一性）
   -> S2b 切换到规范域（Preview/Submit/History 接入、commit 规范元数据、DC9）
   -> S3  composite_signal 接入
@@ -178,7 +179,11 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     - 全部旅程的 INITIAL 为空提交；History ordered 旅程结果不变，或在 handoff 说明变化原因；
     - 阶段末重建镜像；
   - 真实数据（DC22，关闭 F7）：4 份 dump 经主机侧脚本与公开 HTTP 接口完成 Preview → Submit → History；同一项目前后版本
-    完成完整链路；结果按决议记录 §4 写入 handoff。
+    完成完整链路；结果按决议记录 §4 写入 handoff。IEC104 有序表（含空白 gid 的表，治理修订计划 G8 决议）另须满足：
+    1. Submit 后规范存储中 pseudo 段的行数与 census 一致（t1 各 4，t2 3,056 / 2,674，t3 各 9,858，t4 12,676 / 12,688）；
+    2. 同一份 dump Submit 后再上传：这些表 Preview 无变化，Submit 返回 `NO_CANONICAL_CHANGE`；
+    3. 同项目 v1→v2：这些表不降级；空白记录只反映各骨架区间空白行数的净变化，真实行的增删与移动不产生空白记录，一次移动不把其他行标为移动（依赖 G8b）；各类记录数量写入 handoff；
+    4. 空白行字段的变化不显示，是接受的行为。
 
 ### S3 — composite_signal 接入
 
@@ -471,7 +476,7 @@ Application 特判或新增基线条目绕过。经 owner 明确批准的测量�
 - 阶段实施直接提交到 `main`，在主工作区进行。只有确需并行的工作才开短期分支，完成后尽快合回 `main`。
   例外：main 同时接收其他对话的文档提交时，门禁运行期间主工作区会被写入，因此 G3 在独立 worktree `/home/dev/gdds-p5-g3` 与分支 `p5-g3` 上实施，
   门禁、carried 判定与审核复核都在该 worktree 内，通过后由审核方并入 `main`（见 G3 规格 §6）。新建的 linked worktree 需要先建 `legacy` 符号链接（AGENTS.md）。
-- 阶段边界用附注 tag `p5-s<N>-exit` 标记，指向记录了通过结论的审核报告提交。审核对象是提交区间 `<上一阶段 tag>..<候选 SHA>`（S2a 的起点为 G2（以及随后的 G3）审核通过后的 tag，即 `p5-g2-exit`；G2 自己的区间起点为 `p5-s1-exit`）；复审对象是 `<上次候选 SHA>..<新候选 SHA>`。
+- 阶段边界用附注 tag `p5-s<N>-exit` 标记，指向记录了通过结论的审核报告提交。审核对象是提交区间 `<上一阶段 tag>..<候选 SHA>`（S2a 的起点为 G2、G3、G8b 依次审核通过后的最后一个 tag，即 `p5-g8b-exit`；G2 自己的区间起点为 `p5-s1-exit`）；复审对象是 `<上次候选 SHA>..<新候选 SHA>`。
 - 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s2a): ...`）。每个子步结束运行
   `import_rules` 与受影响的 focused 测试；`import_rules` 的输出只减不增，改名导致的条目替换在同一提交中说明。
   若 owner 批准修正错误的可达性测量，handoff 必须同时记录原计数、修正后的计数、语义依据与延期阶段；这只更正起始测量基线，

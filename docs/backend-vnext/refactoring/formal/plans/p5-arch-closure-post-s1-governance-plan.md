@@ -155,6 +155,13 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
   空白 gid 行 50,818（占有序表行 12.1%，160 个数据集-表条目），旧口径的“重复”可由空白 gid 完整解释；558 张有序表的 `project_ordered_rows` 全部 COMPLETE、0 FAILED。
   这满足上面“全部为 pseudo 空白”的条件。投影范围仅是有序身份与位置检查，不是完整 `project()`。**G8 决议仍待 owner**：规则键不需要加 `no`；DC22 对这些表的预期结果如何改写；
   以及空白 gid 行（pseudo gid 按 `no` 顺序分配）在 v1 → v2 比较中的配对行为是否需要另做一次基于真实配对的检查（未验证，审核报告 §6）。
+- **owner 决议（2026-10-11）**：
+  - 空白行（`gid` 为 NULL、0 或空串）没有业务意义：字段变化不比较，三种写法等价，物理存储可以归一化（现已统一为 pseudo gid，按空白行在 `no` 顺序中的先后编号）；
+    空白行的新增、删除必须体现，但不要求精确位置。这与 R5 §9 一致，规则键不加 `no`，表角色与去重行为不变。G8 的“重复有效键”问题不成立。
+  - 只改了空白行字段的上传：Preview 无变化，规范内容摘要变化使 Submit 照常生成新版本——接受，不改契约。
+  - 审核方用合成数据运行现有比较，发现空白区间未按骨架划分、移动判定逐位置比较、位置后移逐行记录（G8b 规格 §1）。owner 决定：G8b 作为独立一步修正，`ORDERED_POSITION_CHANGED` 聚合为表级汇总。
+    规格 `plans/p5-arch-closure-g8b-spec.md`；顺序在 G3 之后、S2a 之前，审核通过后打 `p5-g8b-exit`。
+  - DC22 对这些表的预期采用方案 B，写入执行计划 §2 S2b。
 
 ### G9. 文档小偏差（文档；源自 R3-F4；已完成）
 
@@ -189,6 +196,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
    2026-10-11 第一次审核结论为定向修订（G2-F1）：修订 → 新门禁提交 V′ 的完整门禁 → handoff H′ → 复审（区间 `c9a09ddb35..H′`）→ 通过后打 `p5-g2-exit`。
    已完成：复审通过，tag `p5-g2-exit` 在 `1e0da258e8`（V′ = `0889fa953d`，H′ = `eece236590`，carried）。
 3. G3 实施规格 → owner 确认（已完成）→ 在独立 worktree `p5-g3` 上实施并独立审核（control DB 基线 schema）。
-4. G8：G8a 已完成并审核通过（`cd41349f0b`，真实 gid 重复为 0）；待 owner 决议重复有效键的处置（见 G8“G8a 结果”）。
-5. S2a kickoff（区间起点 `p5-g2-exit` 或 G3 的 tag，以后者为准）。
-6. P5 exit：按 G10 清理。
+4. G8：G8a 已完成并审核通过（`cd41349f0b`，真实 gid 重复为 0）；owner 已决议（2026-10-11，见 G8“owner 决议”）。
+5. G8b：有序比较的骨架、移动与位置变化（规格 `plans/p5-arch-closure-g8b-spec.md`），G3 之后在独立 worktree `p5-g8b` 上实施并独立审核，打 `p5-g8b-exit`。
+6. S2a kickoff（区间起点 `p5-g8b-exit`）。
+7. P5 exit：按 G10 清理。

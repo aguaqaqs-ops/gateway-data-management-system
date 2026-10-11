@@ -115,6 +115,8 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
   - B. 让构建上下文只取已跟踪文件（导出目录作为 context），并用 `COPY --chmod` 等消除权限位依赖；
   - C. 不做；接受“同一 worktree + 缓存仍在”的规则，阶段退出的 carried 判定由实施方在门禁 worktree 内完成，独立审核在同一 worktree 复现。
 - 审核方建议：C 足够当前使用；若独立审核需要在门禁 worktree 之外复核 carried，或再次因此多跑门禁，改做 A。A 改动 Dockerfile 与 Compose，属强制重建项，应并入下一个本来就要重建镜像的提交。
+- **owner 决议（2026-10-11）：选 C**，不实施。carried 判定继续按 AGENTS.md 第 3 条在门禁 worktree 内完成，G2 复审已按此复现成立。
+  重新评估条件：独立审核需要在门禁 worktree 之外复核 carried，或再次因此多跑一次完整门禁，则改做 A。G2-F3 的空目录问题随之不处理，除非 A 被启用。
 
 ### G7. client e2e 测试镜像的叠层缺陷（harness，随 G2 的门禁；源自 R3-F2）
 
@@ -136,7 +138,17 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
 - 时点与落点：在 S2a kickoff 前决议并写入决议记录；S2a、S2b 的验收文字写明 DC22 对这些表的预期结果；G2 之后的普查重跑补齐 t3/t4 与未覆盖表的统计，作为决议依据。
 - 统计已补齐（G2 普查重跑，`p5-s1-exit..p5-g2-exit`，census JSON 与 handoff §8）：八份数据共 50,565 条重复有效键额外行（完全相同 0、冲突 50,565），160 个 dataset-table 重复记录，键来源均为 `EXPLICIT_RULE`；
   t3 两份各 9,817 条、24 张表，t4 两份各约 1.26 万条、40 张表。每个重复表有 `differing_columns` 与 `max_group_size`：160 条记录中 130 条只有 `no` 不同（占 44,880 条额外行），重复表的键列为 `gid`，最大重复组 1,625 行。
-  决议前置：更正复审 G2R-F1（census JSON 中 `rd-t3-c-v1` 过期的 `materialization_diagnostics`，由实施方对照诊断输出确认后以纯文档提交更正）。
+  决议前置 G2R-F1 已更正（`3c42f64140`，owner 授权审核方直接改为 `[]`）。
+- **进展（2026-10-11）：owner 提出“规则键加上 `no`”；审核方核对后建议先不实施，先做 G8a。** 依据：
+  - 160 条重复记录全部在 IEC104 有序表（`iec104_{syx,yc,syk,yt}_list`），这些表的规则是 `ORDERED_DIFF`、`ordered_policy=GID_NO_V1`、`compare_key_columns=(gid)`，
+    `no` 是 `ORDERED_POSITION_COLUMN`（`ignored_columns`、`structural_columns`、`position_column`）。把 `no` 加入规则键会使位置变化被判为删除加新增，破坏 `ORDERED_STABLE_KEY` 语义，
+    也与 Canonical Storage 的有序身份相冲突（真实 gid 必须唯一，`no` 必须正、唯一、连续，二者是不同概念）。
+  - Canonical Storage 规定：source `gid` 为 `0 | NULL | empty` 才生成 pseudo gid（`4_000_000_000` 起、按 `no` 排序连续分配），不是重复键；`storage_projection/_ordered.py` 的 `project_ordered_rows` 也是这样实现的。
+    census 的重复键扫描按 `repr(cell)` 分组，不区分 NULL、`0`、空串与真实 gid，会把空白 gid 行合并成一个“重复组”。
+  - 与统计吻合（观察，不是结论）：160 条中 130 条只有 `no` 不同；93 条的额外行数恰为最大组大小减 1（只有一个大组）；`rd-t3-c-v2` 的 `b1_n2_iec104_syx_list` 最大组 1,625 行。
+- **G8a（census 工具修订，不改生产代码与规则）**：对 `GID_NO_V1` 的表，重复键扫描只统计真实 gid（排除 `0 | NULL | empty`）；
+  另对每张有序表调用 `project_ordered_rows`，记录成功/失败诊断码、`real_count`、`pseudo_count`（需要 `no` 正、唯一、连续）。重跑 8 份数据，更新 census JSON 与 G8 统计后再决议。
+  若真实 gid 仍有重复，或投影失败，再讨论规则键与表角色；若全部为 pseudo 空白，则 G8 的“重复有效键”问题不成立，S2b 的 DC22 对这些表的预期结果随之改写。
 
 ### G9. 文档小偏差（文档；源自 R3-F4；已完成）
 

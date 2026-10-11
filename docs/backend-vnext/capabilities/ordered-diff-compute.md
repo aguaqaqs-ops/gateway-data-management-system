@@ -61,7 +61,7 @@ ordered_table_compare
 | Module | 职责 |
 | --- | --- |
 | `ordered.policy` | IEC104 family selector、`gid/no/ignored no/pseudo blank` 默认策略、policy digest 输入。 |
-| `ordered.preparation` | ordered row preparation、position 校验、`gid=0/NULL/空` 转 pseudo blank、blank signature。 |
+| `ordered.preparation` | ordered row preparation、position 校验、`gid=0/NULL/空` 转 pseudo blank；空白区间的边界与计数见 R5 §9。 |
 | `ordered.classifier` | sequence compare、tail/middle/move、`table_processing_mode` 分类和 degraded reason。 |
 | `ordered.replay` | semantic replay validation，决定 `EXACT` / `PARTIAL` / `UNSUPPORTED`。 |
 | `ordered.records` | ordered records canonical order、manifest payload、JSONL artifact 写入。 |
@@ -192,7 +192,7 @@ Classification：
 | --- | --- |
 | identity 只在 current | `ORDERED_ROW_ADDED` |
 | identity 只在 before | `ORDERED_ROW_DELETED` |
-| identity 两侧存在，position 变化 | `ORDERED_ROW_MOVED` 或 `ORDERED_POSITION_CHANGED` |
+| identity 两侧存在且不在骨架中 | `ORDERED_ROW_MOVED`；骨架行的 position 变化只计入 `position_changed_count`，见 R5 §8 |
 | identity 两侧存在，value digest 变化 | `ORDERED_ROW_MODIFIED` |
 | 连续新增 position 区间 | `ORDERED_INTERVAL_INSERTED` |
 | 连续删除 position 区间 | `ORDERED_INTERVAL_DELETED` |

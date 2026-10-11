@@ -220,11 +220,16 @@ matching 成功时才生成 field changes。
   不使用备用 key；
 - key 未变且仍有兼容 selected columns 时，可继续有限 row diff，并单独输出 `SCHEMA_CHANGE`。
 
-ordered comparison 可以分别输出内容和位置语义：
+ordered comparison 分别输出内容语义与移动语义，位置后移只进入表级汇总：
 
 - `CONTENT_UPDATE` / `ORDERED_ROW_MODIFIED`；
-- `MOVE` / `ORDERED_ROW_MOVED`；
-- `ORDERED_POSITION_CHANGED` 只表示绝对 `no` 改变但相对顺序未变。
+- `MOVE` / `ORDERED_ROW_MOVED`：两侧共有、但不在骨架中的真实行；一次移动只标出被移动的行；
+- 骨架行的绝对 `no` 改变不产生记录，只计入 `OrderedSummary.position_changed_count`（不含移动行）；
+  无移动时，存在此类行的表 `table_processing_mode` 为 `ORDERED_SHIFT_REPAIRED`。
+
+骨架（backbone）：两侧共有的真实行按 before 侧 `no` 顺序排列，取其 current 侧位置序列的最长递增子序列，
+子序列中的行即骨架。最长子序列并列时取确定的一个：按 before 顺序逐个比较，优先保留 before 侧位置较前的行，
+即取所有最长子序列中 before 侧下标序列字典序最小者。骨架只依赖两侧内容，计算不高于 O(n log n)，不做候选枚举。
 
 没有 stable key 时不推断 move，不退回 positional comparison。重放保证为 `EXACT`、`PARTIAL` 或
 `UNSUPPORTED`，由 ordered facts 明确发布。
@@ -241,7 +246,10 @@ blank 由 source blank marker 或 `PSEUDO_BLANK` provenance 识别：
 
 - 除 `gid/no` 外的属性允许变化，但 comparison 完全忽略；不判非法、不进 blank signature、
   digest 或 `ROW_MODIFIED`；
-- blank 只比较 real-row backbone interval 内的 occupancy/count；
+- blank 只比较以骨架行为边界的区间内的 occupancy/count：两侧各自以“最近的骨架行”为锚点，不在骨架中的真实行
+  （新增、删除、移动）对空白分段透明；每个锚点对内比较两侧空白行数，净增记 `BLANK_INSERT_INTERVAL`，净减记
+  `BLANK_DELETE_INTERVAL`，`row_count` 为差值，区间位置取该锚点对内首末空白行的位置；各侧 occupancy digest
+  仍只描述该侧自身的空白分布，不随配对变化；
 - blank 不产生 move，不建立普通 row identity；
 - 同 interval 仅 `no` 重编号且 occupancy 不变时不产生 blank record；
 - occupancy/interval 变化可独立产生 `BLANK_DELETE_INTERVAL` 和

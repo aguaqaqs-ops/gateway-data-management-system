@@ -165,7 +165,6 @@ OrderedRecord:
     ORDERED_ROW_DELETED
     ORDERED_ROW_MODIFIED
     ORDERED_ROW_MOVED
-    ORDERED_POSITION_CHANGED
     ORDERED_INTERVAL_INSERTED
     ORDERED_INTERVAL_DELETED
     ORDERED_BLANK_CHANGED
@@ -210,6 +209,7 @@ OrderedInterval:
 - `entity_key_kind=PSEUDO_BLANK` 表示由缺失/空 stable key 派生的 blank row。
 - 如果同一事件可表达为 move 或 delete+add，由 `move_policy` 决定；不能在同一 policy 下不稳定输出。
 - row values 只包含 projection selected/value columns，不包含 ignored columns。
+- 骨架行的绝对 `no` 改变不产生 record，只计入 `OrderedSummary.position_changed_count`；骨架、移动与空白区间的定义见 R5 §8–§9。
 
 ## Table Processing Mode
 

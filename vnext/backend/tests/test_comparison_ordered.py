@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from itertools import combinations, permutations
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.capabilities.comparison import (
     ArtifactScope,
+    BlankRecordKind,
     BoundSnapshotInput,
     ComparisonFacts,
     ComparisonTableFact,
@@ -18,12 +20,14 @@ from gateway_backend.capabilities.comparison import (
     IdentityStatus,
     OrderedRecordKind,
     OrderedTablePolicy,
+    OrderedTableProcessingMode,
     PairRole,
     PairViewKind,
     bind_pair_input,
     compare_plan,
     plan_pair,
 )
+from gateway_backend.capabilities.comparison.ordered import _backbone_indices
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance,
     MaterializationPolicy,
@@ -126,9 +130,9 @@ def test_ordered_content_and_move_are_separate_records() -> None:
     assert table.ordered_extension is not None
     kinds = [record.record_kind for record in table.ordered_extension.records]
     assert kinds.count(OrderedRecordKind.ROW_MODIFIED) == 1
-    assert kinds.count(OrderedRecordKind.ROW_MOVED) == 2
-    assert OrderedRecordKind.POSITION_CHANGED not in kinds
-    assert table.ordered_extension.ordered_summary.position_changed_count == 2
+    assert kinds.count(OrderedRecordKind.ROW_MOVED) == 1
+    assert table.ordered_extension.ordered_summary.row_moved_count == 1
+    assert table.ordered_extension.ordered_summary.position_changed_count == 1
 
 
 def test_ordered_move_only_has_no_content_update() -> None:
@@ -140,7 +144,6 @@ def test_ordered_move_only_has_no_content_update() -> None:
     assert table.ordered_extension is not None
     assert [record.record_kind for record in table.ordered_extension.records] == [
         OrderedRecordKind.ROW_MOVED,
-        OrderedRecordKind.ROW_MOVED,
     ]
 
 
@@ -150,12 +153,10 @@ def test_ordered_absolute_renumber_is_position_change_not_move() -> None:
 
     extension = _table(_facts(_plan(before, current))).ordered_extension
     assert extension is not None
-    assert [record.record_kind for record in extension.records] == [
-        OrderedRecordKind.POSITION_CHANGED,
-        OrderedRecordKind.POSITION_CHANGED,
-    ]
+    assert extension.records == ()
     assert extension.ordered_summary.row_moved_count == 0
     assert extension.ordered_summary.position_changed_count == 2
+    assert extension.table_processing_mode is OrderedTableProcessingMode.SHIFT_REPAIRED
 
 
 def test_ordered_does_not_use_positional_fallback() -> None:
@@ -300,6 +301,231 @@ def test_canonical_pseudo_gid_requires_explicit_provenance() -> None:
     assert table.row_modified_count == 0
     assert table.blank_extension is not None
     assert table.blank_extension.records == ()
+
+
+@dataclass(frozen=True, slots=True)
+class _Outcome:
+    """Expected ordered and blank facts of one table comparison; kinds are listed with multiplicity."""
+
+    ordered: tuple[OrderedRecordKind, ...] = ()
+    blank: tuple[tuple[BlankRecordKind, int], ...] = ()
+    position_changed: int = 0
+    mode: OrderedTableProcessingMode | None = None
+
+
+# The first six rows are the scenarios of the G8b specification §1; the rest pin the tie rule and the
+# table processing modes.  Blank rows are compared only per backbone-bounded interval, moves are the common
+# rows outside the backbone, and absolute position shifts of backbone rows are summarised per table.
+BACKBONE_OUTCOMES = (
+    pytest.param(
+        _sql("(NULL, 1, 'x'), (NULL, 2, 'y'), (5, 3, 'r'), (NULL, 4, 'z'), (NULL, 5, 'w'), (1, 6, 'a')"),
+        _sql("(NULL, 1, 'x'), (NULL, 2, 'y'), (NULL, 3, 'z'), (NULL, 4, 'w'), (1, 5, 'a')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_DELETED,),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.SHIFT_REPAIRED,
+        ),
+        id="real-row-removed-between-blank-segments",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (NULL, 4, 'z'), (2, 5, 'b')"),
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (7, 3, 'n'), (NULL, 4, 'y'), (NULL, 5, 'z'), (2, 6, 'b')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_ADDED,),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.SHIFT_REPAIRED,
+        ),
+        id="real-row-inserted-inside-blank-segment",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (2, 4, 'b'), (3, 5, 'c')"),
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (3, 4, 'c'), (2, 5, 'b')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_MOVED,),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.REORDER_COMPLEX,
+        ),
+        id="real-row-moved-with-blank-rows-untouched",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y')"),
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (2, 4, 'b')"),
+        _Outcome(ordered=(OrderedRecordKind.ROW_ADDED,), mode=OrderedTableProcessingMode.TAIL_SEGMENT),
+        id="real-row-appended-after-blank-segment",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c'), (4, 4, 'd'), (5, 5, 'e'), (6, 6, 'f')"),
+        _sql("(2, 1, 'b'), (3, 2, 'c'), (4, 3, 'd'), (5, 4, 'e'), (6, 5, 'f'), (1, 6, 'a')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_MOVED,),
+            position_changed=5,
+            mode=OrderedTableProcessingMode.REORDER_COMPLEX,
+        ),
+        id="first-of-six-real-rows-moved-to-end",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c'), (4, 4, 'd'), (5, 5, 'e')"),
+        _sql("(NULL, 1, 'x'), (1, 2, 'a'), (2, 3, 'b'), (3, 4, 'c'), (4, 5, 'd'), (5, 6, 'e')"),
+        _Outcome(
+            blank=((BlankRecordKind.INSERT_INTERVAL, 1),),
+            position_changed=5,
+            mode=OrderedTableProcessingMode.SHIFT_REPAIRED,
+        ),
+        id="blank-row-inserted-above-five-real-rows",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (2, 4, 'b')"),
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (NULL, 4, 'z'), (2, 5, 'b')"),
+        _Outcome(
+            blank=((BlankRecordKind.INSERT_INTERVAL, 1),),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.SHIFT_REPAIRED,
+        ),
+        id="blank-row-inserted-inside-segment",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (NULL, 4, 'z'), (2, 5, 'b')"),
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (2, 4, 'b')"),
+        _Outcome(
+            blank=((BlankRecordKind.DELETE_INTERVAL, 1),),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.SHIFT_REPAIRED,
+        ),
+        id="blank-row-deleted-inside-segment",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (9, 3, 'r'), (NULL, 4, 'y'), (2, 5, 'b')"),
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y'), (NULL, 4, 'z'), (2, 5, 'b'), (7, 6, 'n')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_ADDED, OrderedRecordKind.ROW_DELETED),
+            blank=((BlankRecordKind.INSERT_INTERVAL, 1),),
+            mode=OrderedTableProcessingMode.TAIL_SEGMENT,
+        ),
+        id="blank-and-real-rows-changed-in-the-same-table",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x')"),
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (NULL, 3, 'y')"),
+        _Outcome(blank=((BlankRecordKind.INSERT_INTERVAL, 1),), mode=OrderedTableProcessingMode.TAIL_SEGMENT),
+        id="blank-row-appended-at-tail",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (NULL, 2, 'x'), (0, 3, 'y'), (2, 4, 'b')"),
+        _sql("(1, 1, 'a'), (0, 2, 'p'), (NULL, 3, 'q'), (2, 4, 'b')"),
+        _Outcome(),
+        id="blank-notation-and-payload-changes-are-ignored",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c')"),
+        _sql("(1, 1, 'a'), (3, 2, 'c'), (2, 3, 'b')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_MOVED,),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.REORDER_COMPLEX,
+        ),
+        id="tie-keeps-the-earlier-before-row-in-the-backbone",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c'), (4, 4, 'd')"),
+        _sql("(1, 1, 'a'), (2, 3, 'b'), (3, 2, 'c'), (4, 4, 'd')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_MOVED,),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.REORDER_COMPLEX,
+        ),
+        id="tie-among-three-longest-runs-keeps-earliest-rows",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b')"),
+        _sql("(1, 1, 'z'), (2, 2, 'b')"),
+        _Outcome(ordered=(OrderedRecordKind.ROW_MODIFIED,), mode=OrderedTableProcessingMode.LOCAL_PATCH),
+        id="content-only-update-is-a-local-patch",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b')"),
+        _sql("(1, 1, 'z'), (2, 2, 'b'), (3, 3, 'c')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_ADDED, OrderedRecordKind.ROW_MODIFIED),
+            mode=OrderedTableProcessingMode.LOCAL_PATCH,
+        ),
+        id="content-update-with-tail-insert-is-a-local-patch",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b')"),
+        _sql("(1, 1, 'a'), (3, 2, 'c')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_ADDED, OrderedRecordKind.ROW_DELETED),
+            mode=OrderedTableProcessingMode.TAIL_SEGMENT,
+        ),
+        id="tail-replacement-without-position-shift",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b')"),
+        _sql("(1, 10, 'a'), (2, 20, 'b')"),
+        _Outcome(position_changed=2, mode=OrderedTableProcessingMode.SHIFT_REPAIRED),
+        id="absolute-renumber-only-is-summarised",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b')"),
+        _sql("(2, 1, 'b'), (1, 2, 'a')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_MOVED,),
+            position_changed=1,
+            mode=OrderedTableProcessingMode.REORDER_COMPLEX,
+        ),
+        id="two-row-swap-moves-one-row",
+    ),
+    pytest.param(
+        _sql("(1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c')"),
+        _sql("(1, 1, 'a'), (9, 2, 'n'), (3, 3, 'c')"),
+        _Outcome(
+            ordered=(OrderedRecordKind.ROW_ADDED, OrderedRecordKind.ROW_DELETED),
+            mode=OrderedTableProcessingMode.TAIL_SEGMENT,
+        ),
+        id="in-place-replacement-without-position-shift",
+    ),
+)
+
+
+@pytest.mark.parametrize(("before", "current", "outcome"), BACKBONE_OUTCOMES)
+def test_backbone_reports_moves_blank_intervals_and_summarised_shifts(
+    before: str, current: str, outcome: _Outcome
+) -> None:
+    table = _table(_facts(_plan(before, current)))
+    extension = table.ordered_extension
+    blank = table.blank_extension
+    assert extension is not None
+    assert blank is not None
+    assert sorted(record.record_kind.value for record in extension.records) == sorted(
+        kind.value for kind in outcome.ordered
+    )
+    blank_facts = sorted((record.record_kind.value, record.interval.row_count) for record in blank.records)
+    assert blank_facts == sorted((kind.value, count) for kind, count in outcome.blank)
+    assert extension.ordered_summary.position_changed_count == outcome.position_changed
+    assert extension.table_processing_mode is outcome.mode
+
+
+def _earliest_longest_run(positions: tuple[int, ...]) -> tuple[int, ...]:
+    """Exhaustive reference: the first longest increasing index tuple in lexicographic order."""
+
+    for size in range(len(positions), 0, -1):
+        for indices in combinations(range(len(positions)), size):
+            values = [positions[index] for index in indices]
+            if all(left < right for left, right in zip(values, values[1:], strict=False)):
+                return indices
+    return ()
+
+
+def test_backbone_is_the_earliest_longest_increasing_run_in_before_order() -> None:
+    for size in range(7):
+        for positions in permutations(range(size)):
+            assert _backbone_indices(positions) == _earliest_longest_run(positions)
+
+
+def test_backbone_of_a_long_table_skips_only_the_moved_row() -> None:
+    positions = (5000, *range(1, 5000))
+
+    assert _backbone_indices(positions) == tuple(range(1, 5000))
 
 
 def _canonical_bound(value: str, metadata: SnapshotTableOrderedMetadata) -> BoundSnapshotInput:

@@ -198,6 +198,6 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
    已完成：复审通过，tag `p5-g2-exit` 在 `1e0da258e8`（V′ = `0889fa953d`，H′ = `eece236590`，carried）。
 3. G3 实施规格 → owner 确认 → 在独立 worktree `p5-g3` 上实施并独立审核（control DB 基线 schema）。已完成：tag `p5-g3-exit`（`cc551fc3ad`），合并提交 `b27b1b5bd7`。
 4. G8：G8a 已完成并审核通过（`cd41349f0b`，真实 gid 重复为 0）；owner 已决议（2026-10-11，见 G8“owner 决议”）。
-5. G8b：有序比较的骨架、移动与位置变化（规格 `plans/p5-arch-closure-g8b-spec.md`），G3 之后在独立 worktree `p5-g8b` 上实施并独立审核，打 `p5-g8b-exit`。
-6. S2a kickoff（区间起点 `p5-g8b-exit`）。
+5. G8b：有序比较的骨架、移动与位置变化（规格 `plans/p5-arch-closure-g8b-spec.md`），G3 之后在独立 worktree `p5-g8b` 上实施并独立审核，打 `p5-g8b-exit`。 已完成（2026-10-11）：独立审核通过（`plans/p5-arch-closure-g8b-independent-review.md`），tag `p5-g8b-exit` 在 `3c3d71fed1`，合并提交 `e04a6eb041`。
+6. S2a kickoff（区间起点 `p5-g8b-exit`）。S2a 携带的非阻塞项：G8b-F1（尾部空白增删时有序状态与 mode 不一致，规定状态随 mode）、G8b-F3（`contracts/risk.md` 的 `position_changed_count` 语义）、G3-F2（seed 参数表注释）、G3-F3（设计 §10“新增列允许旧行为空”）；G8b-F2（并列规则）由 owner 决定是否调整。
 7. P5 exit：按 G10 清理。

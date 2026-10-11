@@ -2,7 +2,7 @@
 
 日期：2026-10-11
 
-状态：owner 已决议（2026-10-11）：G8b 作为独立一步；`ORDERED_POSITION_CHANGED` 聚合；只改空白行字段的上传接受现状。§3 的 D1–D4 细节由审核方按决议补出，owner 已确认（2026-10-11）。
+状态：**已实施并通过独立审核（2026-10-11，tag `p5-g8b-exit`）**。owner 已决议（2026-10-11）：G8b 作为独立一步；`ORDERED_POSITION_CHANGED` 聚合；只改空白行字段的上传接受现状。§3 的 D1–D4 细节由审核方按决议补出，owner 已确认（2026-10-11）。
 顺序：G3 审核通过并并入 `main` 之后、S2a 之前。
 
 关联：[治理修订计划](p5-arch-closure-post-s1-governance-plan.md) G8（决议）；[R5 比较设计](p3-r5-comparison-design.md) §8–§9；

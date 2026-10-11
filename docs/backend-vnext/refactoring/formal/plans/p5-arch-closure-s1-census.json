@@ -1808,9 +1808,7 @@
       "logics_xml_max_depth": 66,
       "logics_xml_status": "complete",
       "materialization_diagnostic_details": [],
-      "materialization_diagnostics": [
-        "TABLE_READER_UNAVAILABLE"
-      ],
+      "materialization_diagnostics": [],
       "materialization_status": "COMPLETE",
       "nullable_key_columns": [],
       "package": {

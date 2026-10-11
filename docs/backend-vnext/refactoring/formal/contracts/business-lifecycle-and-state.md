@@ -98,15 +98,14 @@ initial BaselineNode。Repository provisioning/initial commit 的真实性仍由
 初始 BaselineNode 引用的 commit 必须是没有用户表的空提交，即零表规范状态；物化时断言，不满足即
 稳定失败。不支持预置数据的初始库，种子数据一律经 Submit 进入。
 
-migration、首次 seed、批量 seed 和 mapping update 必须遵循同一业务验收规则：
+首次 seed、批量 seed 和 mapping update 必须遵循同一业务验收规则：
 
 1. 以 Repository 聚合输入、现存 mapping（包含 disabled）及已有初始归属；同时核对历史
    Workspace/Submission 等冻结 scope。一个 Repository 只能得到一个 exact scope。
-2. 已有固定归属时只接受同 scope；没有归属事实但历史已存在时，只有在 migration 明确验证
-   全部既有事实一致后，才能按其原身份接入初始 Baseline。不能选任一 mapping、采用最新记录、
-   自动拆分 Repository，或把两个 scope 静默合并。
-3. 任一跨 scope、无法解释的历史或初始归属冲突使整个 migration / seed 批次 / mapping update
-   事务拒绝，无部分写入；失败不改既有 mapping、Head、历史或 schema migration 版本。
+2. 已有固定归属时只接受同 scope。不能选任一 mapping、采用最新记录、自动拆分 Repository，
+   或把两个 scope 静默合并。
+3. 任一跨 scope、无法解释的历史或初始归属冲突使整个 seed 批次 / mapping update
+   事务拒绝，无部分写入；失败不改既有 mapping、Head 或历史。
 4. 同 scope 的重复 seed、禁用/启用、重启沿用合法身份，不覆盖已推进的业务 Head。读取当前
    scope 和验收 Archive 时仍核对固定归属；遗留矛盾明确失败，不能只在 candidate 查询中过滤。
 

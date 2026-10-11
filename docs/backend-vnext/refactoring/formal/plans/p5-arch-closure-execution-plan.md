@@ -125,7 +125,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
      business schema digest 相等；schema 事实适用于所有存储角色；删除流程词汇；`ComparisonTablePolicy` 降为内部类型；
   5. surface_assembly：自有的中性身份标注类型，不再从 comparison 导入 `IdentityStatus`；表级内容事实计入变化计数；
   6. Application：Preview 与 History 传入运行期规则集；两者都在受理时冻结运行期规则集 digest（Preview 写入 job payload，
-     DC24；History 写入受理记录，需 control DB migration），每步执行前比较，不同即稳定失败
+     DC24；History 写入受理记录，需修改 control DB 基线 schema），每步执行前比较，不同即稳定失败
      （`PREVIEW_RULESET_VERSION_MISMATCH`、`HISTORY_RULESET_VERSION_MISMATCH`）；删除 `_project_table_policy`、
      `_policy_to_checkpoint_dict`、`_table_policies_from_checkpoint`，compose harness 中的 History oracle 随入口改写一起更新。
 - 中间状态：S2a 结束时 Preview 上传侧仍是原始快照，R1 在 S2b 才修复；handoff 记录这一点。阶段之间不对外发布。
@@ -156,7 +156,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
      单遍读取；删除 hidden summary；`REPOSITORY_ROW_COUNT_MISMATCH` 为普通失败；HTTP Arrow adapter 只负责传输；
   5. DC9 删除清单（设计 §5.5，含 History 受理阻断与 HTTP 中的 integrity DTO 映射；保留 `HistoryIntegrityFailure`）；
      DC19 的读取不一致处置；
-  6. control DB migration 与 HTTP 变更（设计 §10）；
+  6. control DB 基线 schema 修改与 HTTP 变更（设计 §10）；
   7. compose harness 改为不预导入基线数据（DC17）。
   8. **自 S1 延期（owner 2026-09-27）**：Preview/History 受理用例下沉至 Application，HTTP 仅 DTO 映射与准入（设计 §9 S1、§3 预算）。
   9. **自 S1 延期（owner 2026-09-27）**：workspace/archive/history 各自声明控制事务 port，组合在 bootstrap/infrastructure（UoW 枢纽拆分）。
@@ -166,7 +166,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     `test_repository_ref_materialization_protocol.py`、`test_preview_job_materialize.py`（ADDITIVE 激活、INITIAL 断言）、
     `test_submit_transactions.py`（陈旧拒绝、`NO_CANONICAL_CHANGE`）、`test_commit_canonical_metadata.py`（键与 scope、
     manifest digest、历史版本）、`test_submit_artifact_protection.py`、`test_submit_prepare_removed_tables.py`（integration，
-    删表三种情形）、`test_submit_job_prepare.py`（unit，包 checkpoint 复用）、control DB migration 测试；
+    删表三种情形）、`test_submit_job_prepare.py`（unit，包 checkpoint 复用）、control DB schema 测试（按表归属）；
   - `NO_CANONICAL_CHANGE` 的不变量只由 `test_submit_transactions.py` 证明：`test_submit_http.py` 只保留 HTTP 错误映射，
     `test_production_wiring.py` 只保留接线断言，`test_preview_job_assemble.py` 与 `test_submit_application.py` 中的重复断言删除；
   - DC9 相关代码、路由、表、测试与测试支撑钩子已删除，OpenAPI 测试同步更新；ADR 0016 的 Operation integrity 测试不变且通过；
@@ -299,7 +299,7 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
   - `capabilities/surface_assembly/{contracts,_assembly}.py`；
   - `application/preview_jobs.py`、`application/pair_pipeline.py`（S1 新增）、`application/workspace/preview.py`
     （Preview 受理冻结规则集 digest）、`application/history/{compare_jobs,compare,compare_bindings,contracts,errors}.py`；
-  - `infrastructure/control_db/{migrations,sqlite_history_compare}.py`（History 受理冻结规则集 digest）；
+  - `infrastructure/control_db/{schema,sqlite_history_compare}.py`（History 受理冻结规则集 digest）；
   - `bootstrap/composition.py`、`http/dependencies.py`、`http/routes/history.py`，以及 `http/orchestration/history_compare.py`（或 S1 后承接其 DTO 映射的 HTTP 模块）：注入运行期规则集 digest，替代 History 受理使用的 `table_ruleset_version`。快照物化请求中的同名字段不在本项范围内。
 - 必改（T）：
   - 新增：`test_canonical_snapshot_identity.py`（integration）、`test_canonical_state_identity.py`、
@@ -311,7 +311,7 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
     `test_comparison_ordered.py`、`test_comparison_blank.py`、`test_comparison_records.py`、`test_comparison_artifacts.py`、
     `test_surface_assembly.py`、`test_surface_contracts.py`、`test_risk_contracts.py`、`test_risk_evaluation.py`、
     `test_preview_job_assemble.py`、`test_preview_job_payload.py`、`test_preview_job_worker.py`、`test_preview_application.py`、
-    `test_history_compare_jobs.py`、`test_history_compare_transactions.py`、`test_workspace_control_db_migrations.py`、
+    `test_history_compare_jobs.py`、`test_history_compare_transactions.py`、`test_control_db_schema.py`（按表归属）、
     `test_architecture.py`（comparison 的上游改为 table_rules 与 snapshot_materialization）；
   - compose：`test_history_compose_e2e.py`、`test_ordered_compare_compose.py`（不再导入 `_table_policies_from_checkpoint`，
     也不再读取 checkpoint 中的 `table_policies`）；
@@ -339,7 +339,7 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
   - `application/submission/{accept,accept_transaction,contracts,ports,errors,import_builder,__init__}.py`、`application/submit_jobs.py`；
   - `application/history/{compare_jobs,compare,contracts,errors,ports}.py`（`application/history/compare.py` 删除受理阻断）；
   - `domain/workspace/models.py`、`domain/submission/{models,policies}.py`；
-  - `infrastructure/control_db/{migrations,sqlite_workspace,sqlite_submission,sqlite_history_compare,database}.py`；
+  - `infrastructure/control_db/{schema,sqlite_workspace,sqlite_submission,sqlite_history_compare,database}.py`；
   - `bootstrap/{composition,operation_worker}.py`（新 port 接线；删除 `HttpBaselineCanonicalDigestPort`）；
   - `http/orchestration/submit_acceptance.py`、`http/dependencies.py`（删除 `FailClosedBaselineCanonicalDigestPort`）、
     `http/routes/{history,operations}.py`、`http/schemas/{operation,history,preview}.py`、`http/wiring.py`（`PRODUCTION_OPENAPI_PATHS`）、
@@ -357,7 +357,7 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
     `test_submit_job_prepare.py`、`test_submit_job_payload.py`、`test_submit_import_builder.py`、`test_submit_recovery.py`、
     `test_archive_concurrency.py`、`test_backend_readiness.py`、`test_production_wiring.py`、`test_history_compare_jobs.py`、
     `test_history_compare_transactions.py`、`test_history_http.py`、`test_operation_http.py`、`test_artifact_staging_conformance.py`、
-    `test_http_openapi.py`、`test_workspace_control_db_migrations.py`、`test_submit_control_db_migrations.py`；
+    `test_http_openapi.py`、`test_control_db_schema.py`（按表归属）；
   - T/support：`repository_ref_materialization.py`、`history_compare_job_harness.py`、`preview_job_harness.py`、
     `submit_job_harness.py`、`http_workspace_harness.py`、`compose_gate_harness.py`（默认不预导入）、`upload_http_packages.py`；
   - compose：`test_submit_compose_e2e.py`、`test_archive_compose_e2e.py`、`test_history_compose_e2e.py`、
@@ -444,8 +444,8 @@ compose 旅程的运行方式、镜像重建与 provenance 记录沿用
 | --- | --- | --- |
 | S1 kickoff | 否 | 只做合入、复核与主机侧只读普查；普查脚本不进入生产包与镜像 |
 | S1 | 是 | 进程组合（bootstrap、worker、HTTP 装配）改动，需要证明启动、装配与旅程不变 |
-| S2a | 是 | 阶段退出；control DB migration 在启动时执行；需证明既有旅程结果不变 |
-| S2b | 是 | compose harness、旅程与 HTTP DTO 改变；control DB migration；阶段退出 |
+| S2a | 是 | 阶段退出；control DB 基线 schema 变更（启动时结构不符即拒绝）；需证明既有旅程结果不变 |
+| S2b | 是 | compose harness、旅程与 HTTP DTO 改变；control DB 基线 schema 变更；阶段退出 |
 | S3 | 是 | 新增 compose 旅程 |
 | S4 | 是 | 新增 compose 旅程与 HTTP DTO |
 | S5 | 是（fresh） | 最终候选不得用旧镜像证明 |

@@ -37,12 +37,15 @@ inheritance; granting `archive_submission` does not imply history read access.
   later restarts from mapping alone.
 - After Archive advances Head, re-reading mapping must not move Head backward.
 
-Do not run mixed v4/v5 control DB writers. Upgrade flow:
-
-1. Stop admission and drain HTTP/worker processes sharing the control DB.
-2. Take a consistent SQLite backup.
-3. Start upgraded processes against the migrated database.
-4. Verify `/readyz` and scope-specific smoke journeys before reopening traffic.
+The control DB has one baseline schema (`infrastructure/control_db/schema.py`) and
+no in-place upgrade. Backend and worker check the schema when they start: a database
+whose schema differs from the running build is refused before any write, and the
+error names only the mismatched objects. To move a local development environment to
+a new baseline, stop backend and worker, delete the local control DB file together
+with its `-wal` and `-shm` sidecar files, and start again; the control DB is then
+recreated from the baseline. Backend and worker that share one control DB must run
+the same build. After a restart, confirm `/readyz` and the scope-specific smoke
+journeys before reopening traffic.
 
 ## Required secret file paths
 

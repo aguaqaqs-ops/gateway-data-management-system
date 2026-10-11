@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S1 正式工作台 · 1920 · 历史比较结果在底部抽屉</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F5F7}
+a{color:#1F5FBF}a:hover{color:#174A96}
+</style>
+</head>
+<body>
+<!-- 设计草图快照，导出自 S1 画布；仅作视觉与交互参考，不是实现代码。数据为示例。见 docs/frontend-vnext/ui-optimization-direction.md 第 7 节。 -->
+<div style="width: 1920px; height: 1080px; box-sizing: border-box; display: flex; flex-direction: column; background: #F3F5F7; color: #1B2229; font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; overflow: hidden">
+
+  <header style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #FFFFFF; border-bottom: 1px solid #DDE2E7">
+    <div style="display: flex; align-items: center; gap: 14px">
+      <span style="font-size: 15px; font-weight: 600">网关数据工作台</span>
+      <span style="width: 1px; height: 18px; background: #DDE2E7"></span>
+      <span style="color: #4A5563">[网关名称]</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #1E7A46; font-weight: 500">
+        <span style="width: 8px; height: 8px; border-radius: 4px; background: #1E7A46"></span>
+        已连接
+      </span>
+    </div>
+  </header>
+
+  <div style="flex: 1 1 auto; min-height: 0; display: flex; gap: 16px; padding: 16px">
+
+    <section aria-label="组态树" style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DDE2E7; border-radius: 8px; overflow: hidden">
+
+      <div style="height: 56px; flex: 0 0 56px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">组态树</h2>
+        <label style="margin-left: 12px; display: flex; align-items: center; gap: 8px; width: 300px; height: 34px; padding: 0 10px; box-sizing: border-box; border: 1px solid #C9D0D8; border-radius: 6px; color: #5F6B78">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+          <input type="search" placeholder="搜索节点" aria-label="搜索节点" style="border: 0; outline: none; flex: 1; font: inherit; color: #1B2229; background: transparent">
+        </label>
+        <span style="flex: 1"></span>
+        <label style="display: flex; align-items: center; gap: 6px; color: #4A5563">
+          <input type="checkbox" style="width: 16px; height: 16px; margin: 0">
+          仅显示当前基线
+        </label>
+        <button type="button" style="height: 34px; padding: 0 12px; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit">展开全部</button>
+      </div>
+
+      <div style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: #F7F9FB; border-bottom: 1px solid #EEF1F4">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1F5FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><line x1="3" x2="9" y1="12" y2="12"></line><line x1="15" x2="21" y1="12" y2="12"></line></svg>
+        <span style="font-weight: 600">提交 3</span>
+        <span style="color: #5F6B78">基线 3 › 工作区 [用户A]</span>
+        <span style="flex: 1"></span>
+        <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M9 10h6"></path><path d="M12 13V7"></path><path d="M9 17h6"></path></svg>
+          查看差异
+        </button>
+        <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"></path></svg>
+          移出比较
+        </button>
+        <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border: 1px solid #1F5FBF; border-radius: 6px; background: #1F5FBF; color: #FFFFFF; font: inherit; font-weight: 500">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M6 21V9a9 9 0 0 0 9 9"></path></svg>
+          归档主线
+        </button>
+      </div>
+
+      <div aria-hidden="true" style="height: 36px; flex: 0 0 36px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4; color: #5F6B78; font-size: 12px; font-weight: 500">
+        <div>节点 / 描述</div>
+        <div>组态生成时间</div>
+        <div>提交时间</div>
+        <div>审核时间</div>
+      </div>
+
+      <div role="tree" style="flex: 1 1 auto; min-height: 0; overflow: auto">
+
+        <button type="button" role="treeitem" aria-level="1" aria-expanded="true" style="width: 100%; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border: 0; border-bottom: 1px solid #EEF1F4; background: #FFFFFF; color: #1B2229; font: inherit; text-align: left">
+          <span style="display: flex; align-items: center; gap: 8px; min-width: 0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1B2229" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.660 0l8.58-3.9a1 1 0 0 0 0-1.83Z"></path><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"></path><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"></path></svg>
+            <span style="font-weight: 600">基线 3</span>
+            <span style="height: 20px; padding: 0 8px; border-radius: 4px; background: #E9F0FB; color: #1F5FBF; font-size: 12px; line-height: 20px; font-weight: 500">当前基线</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #1F5FBF"></span>进行中</span>
+          </span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+        </button>
+
+        <button type="button" role="treeitem" aria-level="2" style="width: 100%; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border: 0; border-bottom: 1px solid #EEF1F4; background: #FFFFFF; color: #1B2229; font: inherit; text-align: left">
+          <span style="display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 28px">
+            <span style="width: 16px"></span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"></rect><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"></path><path d="M10 12h4"></path></svg>
+            <span>历史初始备份 1</span>
+            <span style="height: 20px; padding: 0 8px; border-radius: 4px; border: 1px solid #1F5FBF; box-sizing: border-box; color: #1F5FBF; font-size: 12px; line-height: 18px; font-weight: 500">比较 1</span>
+            <span style="height: 20px; padding: 0 8px; border-radius: 4px; background: #FDF1E3; color: #8F5600; font-size: 12px; line-height: 20px; font-weight: 500">异常初始</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #5F6B78"></span>已固化</span>
+          </span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-21 09:12</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-21 10:05</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-21 16:40</span>
+        </button>
+
+        <button type="button" role="treeitem" aria-level="2" aria-expanded="true" style="width: 100%; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border: 0; border-bottom: 1px solid #EEF1F4; background: #FFFFFF; color: #1B2229; font: inherit; text-align: left">
+          <span style="display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 28px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
+            <span style="font-weight: 500">工作区 [用户A]</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #1F5FBF"></span>编辑中</span>
+          </span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+        </button>
+
+        <button type="button" role="treeitem" aria-level="3" aria-selected="true" style="width: 100%; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border: 0; border-bottom: 1px solid #DCE6F5; background: #E6EEFA; color: #1B2229; font: inherit; text-align: left">
+          <span style="display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 56px">
+            <span style="width: 16px"></span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1F5FBF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><line x1="3" x2="9" y1="12" y2="12"></line><line x1="15" x2="21" y1="12" y2="12"></line></svg>
+            <span style="font-weight: 600">提交 3</span>
+            <span style="height: 20px; padding: 0 8px; border-radius: 4px; border: 1px solid #1F5FBF; box-sizing: border-box; color: #1F5FBF; font-size: 12px; line-height: 18px; font-weight: 500">比较 3</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #1E7A46"></span>已审核</span>
+          </span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1B2229">09-28 14:20</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1B2229">09-28 15:02</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1B2229">09-29 10:31</span>
+        </button>
+
+        <button type="button" role="treeitem" aria-level="3" style="width: 100%; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border: 0; border-bottom: 1px solid #EEF1F4; background: #FFFFFF; color: #1B2229; font: inherit; text-align: left">
+          <span style="display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 56px">
+            <span style="width: 16px"></span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><line x1="3" x2="9" y1="12" y2="12"></line><line x1="15" x2="21" y1="12" y2="12"></line></svg>
+            <span>提交 2</span>
+            <span style="height: 20px; padding: 0 8px; border-radius: 4px; border: 1px solid #1F5FBF; box-sizing: border-box; color: #1F5FBF; font-size: 12px; line-height: 18px; font-weight: 500">比较 2</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #B42318"></span>已退回</span>
+          </span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-26 11:47</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-26 13:10</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-27 09:05</span>
+        </button>
+
+        <button type="button" role="treeitem" aria-level="2" aria-expanded="false" style="width: 100%; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border: 0; border-bottom: 1px solid #EEF1F4; background: #FFFFFF; color: #1B2229; font: inherit; text-align: left">
+          <span style="display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 28px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
+            <span style="font-weight: 500">工作区 [用户B]</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #1F5FBF"></span>已提交</span>
+          </span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+        </button>
+
+        <button type="button" role="treeitem" aria-level="1" aria-expanded="false" style="width: 100%; height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 160px 160px 160px; align-items: center; padding: 0 16px; border: 0; border-bottom: 1px solid #EEF1F4; background: #FFFFFF; color: #1B2229; font: inherit; text-align: left">
+          <span style="display: flex; align-items: center; gap: 8px; min-width: 0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B78" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1B2229" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"></path><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"></path><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"></path></svg>
+            <span style="font-weight: 600">基线 2</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #5F6B78"></span>已归档</span>
+          </span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+          <span style="color: #5F6B78">—</span>
+        </button>
+
+      </div>
+
+      <div aria-label="历史比较结果" style="height: 476px; flex: 0 0 476px; display: flex; flex-direction: column; border-top: 1px solid #C9D0D8; background: #FFFFFF; box-shadow: 0 -6px 16px rgba(27, 34, 41, 0.06)">
+        <div style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid #EEF1F4; background: #F7F9FB">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4A5563" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><path d="M11 18H8a2 2 0 0 1-2-2V9"></path></svg>
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600">历史比较</h3>
+          <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; background: #E7F4EC; color: #1E7A46; font-size: 12px; font-weight: 500">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+            已完成
+          </span>
+          <span style="color: #5F6B78; font-size: 12px">生成时间 2026-10-11 09:42</span>
+          <span style="flex: 1"></span>
+          <button type="button" style="display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border: 1px solid #1F5FBF; border-radius: 6px; background: #1F5FBF; color: #FFFFFF; font: inherit; font-weight: 500">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+            打开差异工作台
+          </button>
+          <button type="button" aria-label="收起历史比较" style="width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #4A5563">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+          </button>
+          <button type="button" aria-label="关闭历史比较" style="width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #4A5563">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          </button>
+        </div>
+
+        <div style="flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr)">
+          <div style="display: flex; flex-direction: column; gap: 10px; padding: 16px; border-right: 1px solid #EEF1F4">
+            <span style="font-size: 12px; color: #5F6B78; font-weight: 500">比较节点</span>
+            <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px">
+              <li style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #EEF1F4; border-radius: 6px">
+                <span style="width: 22px; height: 22px; flex: 0 0 22px; border-radius: 11px; background: #E9F0FB; color: #1F5FBF; font-weight: 600; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">1</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-weight: 500">历史初始备份 1</span>
+                  <span style="font-size: 12px; color: #5F6B78">历史初始备份 · 基线 3</span>
+                </span>
+                <span style="font-size: 12px; color: #1E7A46">可比较</span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #EEF1F4; border-radius: 6px">
+                <span style="width: 22px; height: 22px; flex: 0 0 22px; border-radius: 11px; background: #E9F0FB; color: #1F5FBF; font-weight: 600; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">2</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-weight: 500">提交 2</span>
+                  <span style="font-size: 12px; color: #5F6B78">提交 · 工作区 [用户A]</span>
+                </span>
+                <span style="font-size: 12px; color: #1E7A46">可比较</span>
+              </li>
+              <li style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid #EEF1F4; border-radius: 6px">
+                <span style="width: 22px; height: 22px; flex: 0 0 22px; border-radius: 11px; background: #E9F0FB; color: #1F5FBF; font-weight: 600; font-size: 12px; display: inline-flex; align-items: center; justify-content: center">3</span>
+                <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-weight: 500">提交 3</span>
+                  <span style="font-size: 12px; color: #5F6B78">提交 · 工作区 [用户A]</span>
+                </span>
+                <span style="font-size: 12px; color: #1E7A46">可比较</span>
+              </li>
+            </ol>
+            <span style="margin-top: 6px; font-size: 12px; color: #5F6B78; font-weight: 500">诊断信息</span>
+            <span style="color: #5F6B78">无</span>
+          </div>
+
+          <div style="min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px">
+            <div role="tablist" aria-label="比较对" style="display: inline-flex; align-self: flex-start; padding: 3px; gap: 2px; border-radius: 8px; background: #F1F3F5">
+              <button type="button" role="tab" aria-selected="false" style="height: 30px; padding: 0 14px; border: 0; border-radius: 6px; background: transparent; color: #4A5563; font: inherit">历史初始备份 1 → 提交 2</button>
+              <button type="button" role="tab" aria-selected="true" style="height: 30px; padding: 0 14px; border: 0; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit; font-weight: 600; box-shadow: 0 1px 2px rgba(27, 34, 41, 0.12)">提交 2 → 提交 3</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #EEF1F4; border-radius: 6px">
+                <span style="font-size: 12px; color: #5F6B78">比较对</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1B2229">[pair_id]</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #EEF1F4; border-radius: 6px">
+                <span style="font-size: 12px; color: #5F6B78">表</span>
+                <span style="font-size: 20px; font-weight: 600">24</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #EEF1F4; border-radius: 6px">
+                <span style="font-size: 12px; color: #5F6B78">变更表</span>
+                <span style="font-size: 20px; font-weight: 600">5</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #EEF1F4; border-radius: 6px">
+                <span style="font-size: 12px; color: #5F6B78">降级表</span>
+                <span style="font-size: 20px; font-weight: 600">0</span>
+              </div>
+            </div>
+
+            <div style="flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid #EEF1F4; border-radius: 6px">
+              <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 72px 72px 72px; align-items: center; padding: 0 12px; border-bottom: 1px solid #EEF1F4">
+                <span>转发通道</span>
+                <span style="font-size: 12px; color: #4A5563">已修改</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1E7A46">+12</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8F5600">*31</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B42318">-4</span>
+              </div>
+              <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 72px 72px 72px; align-items: center; padding: 0 12px; border-bottom: 1px solid #EEF1F4">
+                <span>二次装置列表</span>
+                <span style="font-size: 12px; color: #4A5563">已修改</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1E7A46">+2</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8F5600">*6</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B42318">-0</span>
+              </div>
+              <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 72px 72px 72px; align-items: center; padding: 0 12px; border-bottom: 1px solid #EEF1F4">
+                <span>通讯规约列表</span>
+                <span style="font-size: 12px; color: #4A5563">已修改</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1E7A46">+0</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8F5600">*3</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B42318">-0</span>
+              </div>
+              <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 72px 72px 72px; align-items: center; padding: 0 12px; border-bottom: 1px solid #EEF1F4">
+                <span>全局参数</span>
+                <span style="font-size: 12px; color: #4A5563">已修改</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1E7A46">+0</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8F5600">*1</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B42318">-0</span>
+              </div>
+              <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 72px 72px 72px; align-items: center; padding: 0 12px">
+                <span>转发通道分组信息</span>
+                <span style="font-size: 12px; color: #4A5563">已修改</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1E7A46">+1</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #8F5600">*0</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #B42318">-1</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside aria-label="节点详情" style="width: 400px; flex: 0 0 400px; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DDE2E7; border-radius: 8px; overflow: hidden">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 16px 14px; border-bottom: 1px solid #EEF1F4">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <span style="font-size: 12px; color: #5F6B78; font-weight: 500">提交信息</span>
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span style="font-size: 18px; font-weight: 600">提交 3</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #1E7A46"></span>已审核</span>
+          </span>
+          <span style="color: #5F6B78">基线 3 › 工作区 [用户A]</span>
+        </div>
+        <button type="button" aria-label="折叠详情面板" style="width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #DDE2E7; border-radius: 6px; background: #FFFFFF; color: #4A5563">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M15 3v18"></path><path d="m8 9 3 3-3 3"></path></svg>
+        </button>
+      </div>
+
+      <dl style="margin: 0; padding: 8px 16px; display: grid; grid-template-columns: 112px minmax(0, 1fr); row-gap: 0">
+        <dt style="padding: 12px 0; color: #5F6B78; border-bottom: 1px solid #EEF1F4">网关</dt>
+        <dd style="margin: 0; padding: 12px 0; border-bottom: 1px solid #EEF1F4">[网关名称]</dd>
+        <dt style="padding: 12px 0; color: #5F6B78; border-bottom: 1px solid #EEF1F4">主线</dt>
+        <dd style="margin: 0; padding: 12px 0; border-bottom: 1px solid #EEF1F4">已加载</dd>
+        <dt style="padding: 12px 0; color: #5F6B78; border-bottom: 1px solid #EEF1F4">归档</dt>
+        <dd style="margin: 0; padding: 10px 0; border-bottom: 1px solid #EEF1F4; display: flex; flex-direction: column; gap: 6px">
+          <span style="align-self: flex-start; height: 22px; padding: 0 8px; border-radius: 4px; background: #E7F4EC; color: #1E7A46; font-size: 12px; line-height: 22px; font-weight: 500">可作为主线候选</span>
+          <button type="button" style="align-self: flex-start; padding: 0; border: 0; background: transparent; color: #1F5FBF; font: inherit; font-size: 12px">展开说明</button>
+        </dd>
+        <dt style="padding: 12px 0; color: #5F6B78; border-bottom: 1px solid #EEF1F4">组态生成时间</dt>
+        <dd style="margin: 0; padding: 12px 0; border-bottom: 1px solid #EEF1F4; font-family: 'IBM Plex Mono', monospace; font-size: 12px">2026-09-28 14:20:07</dd>
+      </dl>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

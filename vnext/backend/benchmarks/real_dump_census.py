@@ -14,6 +14,7 @@ import os
 import re
 import tarfile
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -59,8 +60,19 @@ from gateway_backend.capabilities.table_access.xml import parse_xml
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy, TableStaticRole
+from gateway_backend.capabilities.storage_projection._ordered import (
+    OrderedProjectionError,
+    _parse_gid_source,
+    project_ordered_rows,
+)
+from gateway_backend.capabilities.storage_projection.contracts import ProjectionDiagnosticCode
 from gateway_backend.capabilities.storage_projection.view import StorageViewError, derive_storage_rule_view
-from gateway_backend.capabilities.table_rules.contracts import canonicalize_rule_identifier
+from gateway_backend.capabilities.table_rules.contracts import (
+    ORDERED_IDENTITY_COLUMN,
+    ORDERED_POSITION_COLUMN,
+    OrderedPolicy,
+    canonicalize_rule_identifier,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor
 from gateway_backend.capabilities.table_access.contracts import SourceRow
 
@@ -182,6 +194,7 @@ class DatasetCensus:
     effective_key_tables: list[str]
     effective_keyless_tables: list[str]
     effective_key_unresolved_tables: list[str]
+    ordered_projection: dict[str, Any]
 
 
 def _load_pairing_map(root: Path) -> dict[str, str]:
@@ -325,6 +338,40 @@ def _row_fingerprint(row: SourceRow) -> bytes:
     return hashlib.sha256(repr(row).encode("utf-8")).digest()
 
 
+def _ordered_projection_report(
+    table_details: dict[str, dict[str, Any]],
+    *,
+    diagnostic_mode: bool,
+) -> dict[str, Any]:
+    complete_count = sum(item["status"] == "COMPLETE" for item in table_details.values())
+    failed_count = sum(item["status"] == "FAILED" for item in table_details.values())
+    failures_by_code = dict(
+        sorted(
+            Counter(
+                str(item["diagnostic_code"])
+                for item in table_details.values()
+                if item["status"] == "FAILED" and item["diagnostic_code"] is not None
+            ).items()
+        )
+    )
+    return {
+        "status": (
+            "NOT_RUN"
+            if not diagnostic_mode
+            else "FAILED"
+            if failed_count
+            else "COMPLETE"
+        ),
+        "ordered_table_count": len(table_details),
+        "complete_count": complete_count,
+        "failed_count": failed_count,
+        "failures_by_code": failures_by_code,
+        "real_rows_total": sum(item["real_gid_count"] for item in table_details.values()),
+        "pseudo_rows_total": sum(item["pseudo_gid_count"] for item in table_details.values()),
+        "tables": dict(sorted(table_details.items())),
+    }
+
+
 def _xml_max_depth(events: tuple[Any, ...]) -> int:
     depth = 0
     maximum = 0
@@ -368,6 +415,7 @@ class KeyScanStats:
     reader_unavailable_tables: list[str]
     duplicate_scan_status: str
     effective_key_scan_status: str
+    ordered_projection_by_table: dict[str, dict[str, Any]]
 
 
 def _duplicate_and_effective_key_stats(
@@ -378,16 +426,16 @@ def _duplicate_and_effective_key_stats(
     materialization_complete: bool,
 ) -> KeyScanStats:
     if not diagnostic_mode:
-        return KeyScanStats({}, 0, 0, 0, {}, [], [], [], 0, 0, [], "not_run", "not_run")
+        return KeyScanStats({}, 0, 0, 0, {}, [], [], [], 0, 0, [], "not_run", "not_run", {})
     if table_set is None:
         return KeyScanStats(
             {}, 0, 0, 0, {}, [], [], [], 0, 0, [],
-            "materialization_unavailable", "materialization_unavailable"
+            "materialization_unavailable", "materialization_unavailable", {}
         )
     if not materialization_complete:
         return KeyScanStats(
             {}, 0, 0, 0, {}, [], [], [], 0, 0, [],
-            "materialization_incomplete", "materialization_incomplete"
+            "materialization_incomplete", "materialization_incomplete", {}
         )
     duplicate_by_table: dict[str, int] = {}
     extra_rows = 0
@@ -400,6 +448,7 @@ def _duplicate_and_effective_key_stats(
     rule_skipped_table_count = 0
     reader_unavailable: list[str] = []
     scanned_table_count = 0
+    ordered_projection_by_table: dict[str, dict[str, Any]] = {}
     for table in table_set.tables:
         descriptor = table.descriptor
         try:
@@ -432,14 +481,60 @@ def _duplicate_and_effective_key_stats(
             unresolved.append(descriptor.table_name)
             continue
         effective_key_tables.append(descriptor.table_name)
+        ordered = view.ordered_policy is OrderedPolicy.GID_NO_V1
         if table.reader is None:
             reader_unavailable.append(descriptor.table_name)
+            if ordered:
+                ordered_projection_by_table[descriptor.table_name] = {
+                    "status": "FAILED",
+                    "diagnostic_code": "READER_UNAVAILABLE",
+                    "diagnostic_message": "ordered table reader is unavailable",
+                    "row_count": 0,
+                    "real_gid_count": 0,
+                    "pseudo_gid_count": 0,
+                    "blank_gid_rows": 0,
+                    "unparseable_gid_rows": 0,
+                }
             continue
         seen: dict[tuple[str, ...], Counter[bytes]] = {}
         first_rows: dict[tuple[str, ...], SourceRow] = {}
         differing_column_indexes: set[int] = set()
-        for row in table.reader.iter_rows():
-            key = _row_key_fingerprint(row, key_indexes)
+        gid_index: int | None = None
+        no_index: int | None = None
+        ordered_rows: list[SourceRow] | None = None
+        if ordered:
+            ordered_by_name = _column_index_by_name(descriptor)
+            try:
+                gid_index = ordered_by_name[ORDERED_IDENTITY_COLUMN]
+                no_index = ordered_by_name[ORDERED_POSITION_COLUMN]
+            except KeyError:
+                gid_index = None
+                no_index = None
+            ordered_rows = list(table.reader.iter_rows())
+            rows_to_scan: Iterable[SourceRow] = ordered_rows
+        else:
+            rows_to_scan = table.reader.iter_rows()
+        real_gid_count = 0
+        pseudo_gid_count = 0
+        blank_gid_rows = 0
+        unparseable_gid_rows = 0
+        for row in rows_to_scan:
+            key: tuple[str, ...]
+            if ordered:
+                if gid_index is None:
+                    continue
+                try:
+                    gid_value = _parse_gid_source(row[gid_index])
+                except OrderedProjectionError:
+                    unparseable_gid_rows += 1
+                    continue
+                if gid_value is None:
+                    blank_gid_rows += 1
+                    continue
+                real_gid_count += 1
+                key = (str(gid_value),)
+            else:
+                key = _row_key_fingerprint(row, key_indexes)
             seen.setdefault(key, Counter())[_row_fingerprint(row)] += 1
             first = first_rows.get(key)
             if first is None:
@@ -451,6 +546,44 @@ def _duplicate_and_effective_key_stats(
                 if index not in key_indexes and current_cell != first_cell
             )
         scanned_table_count += 1
+        if ordered:
+            if ordered_rows is None:
+                raise AssertionError("ordered rows must be materialized for projection")
+            if gid_index is None or no_index is None:
+                projection_error = OrderedProjectionError(
+                    ProjectionDiagnosticCode.ROW_INTEGRITY,
+                    "ordered table requires gid and no columns",
+                )
+                projection_code = projection_error.code.value
+                projection_message = projection_error.message
+                projection_status = "FAILED"
+            else:
+                try:
+                    projected = project_ordered_rows(
+                        ordered_rows,
+                        gid_index=gid_index,
+                        no_index=no_index,
+                    )
+                except OrderedProjectionError as exc:
+                    projection_code = exc.code.value
+                    projection_message = exc.message
+                    projection_status = "FAILED"
+                else:
+                    projection_code = None
+                    projection_message = None
+                    projection_status = "COMPLETE"
+                    real_gid_count = projected.real_count
+                    pseudo_gid_count = projected.pseudo_count
+            ordered_projection_by_table[descriptor.table_name] = {
+                "status": projection_status,
+                "diagnostic_code": projection_code,
+                "diagnostic_message": projection_message,
+                "row_count": len(ordered_rows),
+                "real_gid_count": real_gid_count,
+                "pseudo_gid_count": pseudo_gid_count,
+                "blank_gid_rows": blank_gid_rows,
+                "unparseable_gid_rows": unparseable_gid_rows,
+            }
         duplicate_rows = 0
         table_exact_extra_rows = 0
         table_conflicting_extra_rows = 0
@@ -501,6 +634,7 @@ def _duplicate_and_effective_key_stats(
         sorted(reader_unavailable),
         duplicate_scan_status,
         key_scan_status,
+        ordered_projection_by_table,
     )
 
 
@@ -700,6 +834,10 @@ def census_one(
         effective_key_tables=key_scan.effective_key_tables,
         effective_keyless_tables=key_scan.effective_keyless_tables,
         effective_key_unresolved_tables=key_scan.unresolved_tables,
+        ordered_projection=_ordered_projection_report(
+            key_scan.ordered_projection_by_table,
+            diagnostic_mode=diagnostic_mode,
+        ),
     )
 
 

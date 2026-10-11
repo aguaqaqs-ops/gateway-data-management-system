@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S4 表格中的差异与风险 · 语义色规范</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F5F7}
+a{color:#1F5FBF}a:hover{color:#174A96}
+</style>
+</head>
+<body>
+<!-- 设计草图快照，导出自“前端优化草图”画布；仅作视觉与交互参考，不是实现代码。数据为示例。见 docs/frontend-vnext/ui-optimization-direction.md 第 7 节。 -->
+<div style="width: 1000px; height: 800px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; padding: 24px; background: #FFFFFF; border: 1px solid #DDE2E7; border-radius: 8px; color: #1B2229; font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px">
+  <h2 style="margin: 0; font-size: 18px; font-weight: 600">语义色规范</h2>
+
+  <section style="display: flex; flex-direction: column; gap: 10px">
+    <h3 style="margin: 0; font-size: 14px; font-weight: 600">风险 <span style="color: #5F6B78; font-weight: 400; font-size: 12px">整行底色 + 行左侧 4px 色条；变更文字与改动格取同色系加深；数据行内不写等级文字</span></h3>
+    <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: stretch; border-radius: 4px; overflow: hidden; background: #FAD4CF; box-shadow: inset 4px 0 0 #B42318, inset 0 -1px 0 #F0B3AB"><span style="display: flex; align-items: center; gap: 4px; padding-left: 14px; color: #A11F12; font-size: 12px; font-weight: 600">高风险</span><span style="flex: 1"></span><span style="display: flex; align-items: center; padding: 0 10px; background: #F3B4AC; font-weight: 600">0.8</span></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">底 #FAD4CF · 条 #B42318<br>字 #A11F12 · 格 #F3B4AC</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: stretch; border-radius: 4px; overflow: hidden; background: #FFE4C7; box-shadow: inset 4px 0 0 #EA580C, inset 0 -1px 0 #F5C796"><span style="display: flex; align-items: center; gap: 4px; padding-left: 14px; color: #9A3412; font-size: 12px; font-weight: 600">中高风险</span><span style="flex: 1"></span><span style="display: flex; align-items: center; padding: 0 10px; background: #FCCB97; font-weight: 600">0.8</span></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">底 #FFE4C7 · 条 #EA580C<br>字 #9A3412 · 格 #FCCB97</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: stretch; border-radius: 4px; overflow: hidden; background: #E0F2FE; box-shadow: inset 4px 0 0 #0EA5E9, inset 0 -1px 0 #B5DDF6"><span style="display: flex; align-items: center; gap: 4px; padding-left: 14px; color: #075985; font-size: 12px; font-weight: 600">中低风险</span><span style="flex: 1"></span><span style="display: flex; align-items: center; padding: 0 10px; background: #BAE3FB; font-weight: 600">0.8</span></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">底 #E0F2FE · 条 #0EA5E9<br>字 #075985 · 格 #BAE3FB</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: stretch; border-radius: 4px; overflow: hidden; background: #E2F3E7; box-shadow: inset 4px 0 0 #2F9E5B, inset 0 -1px 0 #BFE0C9"><span style="display: flex; align-items: center; gap: 4px; padding-left: 14px; color: #1F6B3D; font-size: 12px; font-weight: 600">低风险</span><span style="flex: 1"></span><span style="display: flex; align-items: center; padding: 0 10px; background: #C4E6CF; font-weight: 600">0.8</span></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">底 #E2F3E7 · 条 #2F9E5B<br>字 #1F6B3D · 格 #C4E6CF</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: stretch; border-radius: 4px; overflow: hidden; background: #EEE9F8; box-shadow: inset 4px 0 0 #7C6BB0, inset 0 -1px 0 #D3CAEA"><span style="display: flex; align-items: center; gap: 4px; padding-left: 14px; color: #5B4B91; font-size: 12px; font-weight: 600">未知风险</span><span style="flex: 1"></span><span style="display: flex; align-items: center; padding: 0 10px; background: #DCD2F1; font-weight: 600">0.8</span></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">底 #EEE9F8 · 条 #7C6BB0<br>字 #5B4B91 · 格 #DCD2F1</span>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: #4A5563">
+      <span>同色徽章（信息行图例、导航条目、悬停提示）：</span><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; background: #FAD4CF; box-shadow: inset 0 0 0 1px #F0B3AB; color: #A11F12; font-size: 12px; font-weight: 600; white-space: nowrap">高风险</span><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; background: #FFE4C7; box-shadow: inset 0 0 0 1px #F5C796; color: #9A3412; font-size: 12px; font-weight: 500; white-space: nowrap">中高风险</span><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; background: #E0F2FE; box-shadow: inset 0 0 0 1px #B5DDF6; color: #075985; font-size: 12px; font-weight: 500; white-space: nowrap">中低风险</span><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; background: #E2F3E7; box-shadow: inset 0 0 0 1px #BFE0C9; color: #1F6B3D; font-size: 12px; font-weight: 500; white-space: nowrap">低风险</span><span style="display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: 4px; background: #EEE9F8; box-shadow: inset 0 0 0 1px #D3CAEA; color: #5B4B91; font-size: 12px; font-weight: 500; white-space: nowrap">未知风险</span>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 10px">
+    <h3 style="margin: 0; font-size: 14px; font-weight: 600">差异 <span style="color: #5F6B78; font-weight: 400; font-size: 12px">中性：符号位（+ − 或更新连线）+ 文字、加粗、删除线；颜色跟随所在行的风险等级</span></h3>
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: stretch; border-radius: 4px; border: 1px solid #EEF1F4; overflow: hidden"><span style="display: flex; align-items: center; padding: 0 8px; align-self: stretch; gap: 4px; width: 84px; color: #3F4752; font-size: 12px; font-weight: 600"><span aria-hidden="true" style="position: relative; align-self: stretch; flex: 0 0 10px; width: 10px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace">+</span><span>新增</span></span></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">无风险行 字 #3F4752</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: stretch; border-radius: 4px; border: 1px solid #EEF1F4; overflow: hidden"><span style="display: flex; align-items: center; padding: 0 8px; align-self: stretch; gap: 4px; width: 84px; color: #3F4752; font-size: 12px; font-weight: 600"><span aria-hidden="true" style="position: relative; align-self: stretch; flex: 0 0 10px; width: 10px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace">−</span><span>删除</span></span><span style="display: flex; align-items: center; padding: 0 8px; align-self: stretch; color: #535D69; text-decoration: line-through">原值</span></div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">整行弱化 #535D69 + 删除线</span>
+      </div>
+      <div style="grid-column: span 2; display: flex; flex-direction: column; gap: 6px">
+        <div style="display: flex; flex-direction: column; border-radius: 4px; overflow: hidden; border: 1px solid #EEF1F4">
+          <div style="height: 30px; display: flex; align-items: stretch; color: #535D69"><span style="display: flex; align-items: center; padding: 0 8px; align-self: stretch; gap: 4px; width: 84px; color: #535D69; font-size: 12px; font-weight: 400"><span aria-hidden="true" style="position: relative; align-self: stretch; flex: 0 0 10px; width: 10px"><span style="position: absolute; left: 2px; top: 50%; bottom: 0; width: 1.5px; background: #3F4752"></span><span style="position: absolute; left: 2px; right: 0; top: calc(50% - 0.75px); height: 1.5px; background: #3F4752"></span></span><span>更新前</span></span><span style="flex: 1"></span><span style="display: flex; align-items: center; padding: 0 8px; align-self: stretch; background: #E6E9ED; color: #3F4752">1.0</span></div>
+          <div style="height: 30px; display: flex; align-items: stretch"><span style="display: flex; align-items: center; padding: 0 8px; align-self: stretch; gap: 4px; width: 84px; color: #3F4752; font-size: 12px; font-weight: 600"><span aria-hidden="true" style="position: relative; align-self: stretch; flex: 0 0 10px; width: 10px"><span style="position: absolute; left: 2px; top: 0; bottom: 50%; width: 1.5px; background: #3F4752"></span><span style="position: absolute; left: 2px; right: 0; top: calc(50% - 0.75px); height: 1.5px; background: #3F4752"></span></span><span>更新后</span></span><span style="flex: 1"></span><span style="display: flex; align-items: center; padding: 0 8px; align-self: stretch; background: #E6E9ED; font-weight: 600">0.8</span></div>
+        </div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">连线占符号位、止于文字中线，颜色同标签 · 改动格 #E6E9ED（有风险时取该等级改动格色）· 新值加粗</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; gap: 32px">
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 10px">
+      <h3 style="margin: 0; font-size: 14px; font-weight: 600">焦点</h3>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: center; padding: 0 10px; border-radius: 4px; box-shadow: inset 0 0 0 2px #1F5FBF">当前变更</div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">2px 框 #1F5FBF</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+        <div style="height: 32px; display: flex; align-items: center; padding: 0 10px; border-radius: 4px; border: 1px solid #EEF1F4; outline: 2px solid #1B2229; outline-offset: -2px">选中单元格</div>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">2px 框 #1B2229</span>
+      </div>
+      </div>
+    </div>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 10px">
+      <h3 style="margin: 0; font-size: 14px; font-weight: 600">变更分布条</h3>
+      <div style="display: flex; gap: 12px; align-items: flex-start">
+        <div style="position: relative; width: 14px; height: 68px; flex: 0 0 14px; background: #F7F9FB; border: 1px solid #EEF1F4"><span style="position: absolute; left: 4px; top: 6px; width: 6px; height: 3px; background: #A3ACB6"></span><span style="position: absolute; left: 1px; top: 14px; width: 12px; height: 3px; background: #B42318"></span><span style="position: absolute; left: 4px; top: 24px; width: 6px; height: 3px; background: #A3ACB6"></span><span style="position: absolute; left: 4px; top: 31px; width: 6px; height: 3px; background: #A3ACB6"></span><span style="position: absolute; left: 1px; top: 42px; width: 12px; height: 3px; background: #EA580C"></span><span style="position: absolute; left: 4px; top: 52px; width: 6px; height: 3px; background: #A3ACB6"></span><span style="position: absolute; left: 1px; top: 60px; width: 12px; height: 3px; background: #0EA5E9"></span><span style="position: absolute; left: -1px; top: 2px; width: 14px; height: 26px; box-sizing: border-box; border: 1px solid #9AA3AD"></span><span style="position: absolute; left: -1px; top: 11px; width: 2px; height: 9px; background: #1F5FBF"></span></div>
+        <span style="font-size: 12px; line-height: 20px; color: #4A5563">灰色短线 = 变更位置；有风险的位置用风险色、加长显示（含未变更但有风险的行）；蓝色标记 = 当前变更；灰框 = 当前可见范围</span>
+      </div>
+    </div>
+  </section>
+
+  <section style="display: flex; flex-direction: column; gap: 10px">
+    <h3 style="margin: 0; font-size: 14px; font-weight: 600">流程状态</h3>
+    <div style="height: 32px; display: flex; align-items: center; gap: 16px; padding: 0 10px; border-radius: 4px; border: 1px solid #EEF1F4; font-size: 12px; color: #4A5563">
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #1E7A46"></span>完成</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #1F5FBF"></span>进行中</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #8F5600"></span>待处理</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #B42318"></span>失败</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 8px; height: 8px; border-radius: 4px; background: #5F6B78"></span>中性</span>
+      <span style="color: #5F6B78">圆点 + 文字，不只靠颜色</span>
+    </div>
+  </section>
+
+  <section style="margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 8px; background: #F7F9FB">
+    <h3 style="margin: 0; font-size: 13px; font-weight: 600">规则</h3>
+    <ol style="margin: 0; padding-left: 20px; line-height: 22px; color: #1B2229">
+      <li>数据行里颜色只表示风险：行底色 + 左侧色条；高 / 中高用红、橙暖色，中低用天蓝、低用绿，未知用淡紫；无风险保持白底。</li>
+      <li>变更类型是中性的：+ − 符号或更新前后连线占同一符号位，配文字、删除线和加粗，文字颜色跟随该行风险等级（无风险行为深灰）。</li>
+      <li>改动单元格用同色系加深底色标出，两行同列对齐；新值加粗。</li>
+      <li>风险等级文字不进数据行，在信息行图例（兼计数）与悬停提示中给出；导航徽章与变更分布条同样“有风险显示风险色，否则中性”。</li>
+      <li>文字与底色对比度不低于 4.5:1，包括改动格里的旧值（#3F4752）。</li>
+    </ol>
+  </section>
+</div>
+</body>
+</html>

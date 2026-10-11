@@ -45,11 +45,11 @@ def _standard_result(*, same: bool = False) -> DetailedFactsResult:
 def _ordered_result_with_standard_and_moves() -> DetailedFactsResult:
     before = """
         CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
-        INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c');
+        INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b'), (3, 3, 'c'), (4, 4, 'd');
     """
     current = """
         CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
-        INSERT INTO t VALUES (2, 1, 'b'), (3, 2, 'z'), (1, 3, 'a');
+        INSERT INTO t VALUES (4, 1, 'd'), (3, 2, 'c'), (2, 3, 'b'), (1, 4, 'z');
     """
     result = compare_plan(ordered_plan(before, current))
     assert isinstance(result, DetailedFactsResult)
@@ -93,11 +93,11 @@ def test_publish_and_reopen_standard_records_preserves_typed_null() -> None:
 def test_publish_uses_independent_ordered_and_blank_artifacts() -> None:
     before = """
         CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
-        INSERT INTO t VALUES (1, 1, 'a'), (NULL, 2, 'x'), (2, 3, 'b');
+        INSERT INTO t VALUES (1, 1, 'a'), (NULL, 2, 'x'), (2, 3, 'b'), (3, 4, 'c');
     """
     current = """
         CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
-        INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b'), (NULL, 3, 'x');
+        INSERT INTO t VALUES (1, 1, 'a'), (3, 2, 'c'), (2, 3, 'b'), (NULL, 4, 'x');
     """
     result = compare_plan(ordered_plan(before, current))
     assert isinstance(result, DetailedFactsResult)

@@ -86,7 +86,7 @@ F1_POLICY_BINDING_CASES = (
         "move_only",
         {ORDERED_SYX_TABLE: ((1, 1, "a"), (2, 2, "b"))},
         {ORDERED_SYX_TABLE: ((2, 1, "b"), (1, 2, "a"))},
-        (OrderedRecordKind.ROW_MOVED, OrderedRecordKind.ROW_MOVED),
+        (OrderedRecordKind.ROW_MOVED,),
         0,
     ),
     (
@@ -100,7 +100,7 @@ F1_POLICY_BINDING_CASES = (
         "keyed_ignored_column",
         {ORDERED_SYX_TABLE: ((1, 1, "a"), (2, 2, "b"))},
         {ORDERED_SYX_TABLE: ((1, 99, "a"), (2, 2, "b"))},
-        (OrderedRecordKind.ROW_MOVED, OrderedRecordKind.ROW_MOVED),
+        (OrderedRecordKind.ROW_MOVED,),
         0,
     ),
 )

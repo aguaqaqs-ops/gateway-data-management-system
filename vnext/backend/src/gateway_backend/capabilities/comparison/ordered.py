@@ -7,7 +7,8 @@ as a cross-snapshot business identity.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import bisect
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -82,13 +83,10 @@ class _OrderedRow:
 
 
 @dataclass(frozen=True, slots=True)
-class _BlankRun:
-    before_anchor: str | None
-    after_anchor: str | None
+class _BlankGap:
+    count: int
     start: int
     end: int
-    count: int
-    digest: DigestRef
 
 
 def compare_ordered_task(task: TableComparisonTask) -> ComparisonTableFact:
@@ -505,18 +503,16 @@ def _build_fact(
             )
         )
 
-    before_sequence = [key for key in (row.stable_key for row in before_rows) if key in current_real]
-    current_sequence = [key for key in (row.stable_key for row in current_rows) if key in before_real]
-    moved_keys = {
-        key
-        for index, key in enumerate(before_sequence)
-        if index < len(current_sequence) and current_sequence[index] != key
-    }
-    moved_keys.update(
-        key
-        for index, key in enumerate(current_sequence)
-        if index < len(before_sequence) and before_sequence[index] != key
+    common_keys_in_before_order = [
+        row.stable_key
+        for row in before_rows
+        if row.stable_key is not None and row.stable_key in current_real
+    ]
+    backbone = frozenset(
+        common_keys_in_before_order[index]
+        for index in _backbone_indices([current_real[key].position for key in common_keys_in_before_order])
     )
+    moved_keys = {key for key in common_keys if key not in backbone}
     for key in sorted(moved_keys):
         before_row = before_real[key]
         current_row = current_real[key]
@@ -531,26 +527,14 @@ def _build_fact(
             )
         )
     position_changed_keys = {
-        key for key in common_keys if before_real[key].position != current_real[key].position
+        key for key in backbone if before_real[key].position != current_real[key].position
     }
-    for key in sorted(position_changed_keys - moved_keys):
-        before_row = before_real[key]
-        current_row = current_real[key]
-        ordered_records.append(
-            OrderedRecord(
-                table_name=table_name,
-                record_kind=OrderedRecordKind.POSITION_CHANGED,
-                semantic_kind=OrderedSemanticKind.MOVE,
-                row_identity=before_row.stable_identity,
-                before_position=before_row.position,
-                current_position=current_row.position,
-            )
-        )
 
     blank_extension = _blank_extension(
         table_name,
         before_rows,
         current_rows,
+        backbone=backbone,
         include_records=artifact_scope is ArtifactScope.ALL_CHANGES,
     )
     ordered_summary = OrderedSummary(
@@ -560,7 +544,7 @@ def _build_fact(
         row_moved_count=len(moved_keys),
         position_changed_count=len(position_changed_keys),
     )
-    ordered_changed = bool(ordered_records) or bool(added_keys or deleted_keys)
+    ordered_changed = bool(ordered_records) or bool(added_keys or deleted_keys or position_changed_keys)
     blank_changed = blank_extension.status is OrderedStatus.CHANGED
     status = ComparisonTableStatus.MODIFIED if ordered_changed or blank_changed else ComparisonTableStatus.UNCHANGED
     if before_descriptor is None:
@@ -574,7 +558,12 @@ def _build_fact(
         before_ordered_digest=_ordered_digest(before_rows, ordered_policy, table_name),
         current_ordered_digest=_ordered_digest(current_rows, ordered_policy, table_name),
         replay_guarantee=ReplayGuarantee.EXACT,
-        table_processing_mode=_processing_mode(ordered_records, added_keys, deleted_keys),
+        table_processing_mode=_processing_mode(
+            moved=bool(moved_keys),
+            shifted=bool(position_changed_keys),
+            segment=bool(added_keys or deleted_keys) or blank_changed,
+            modified=bool(modified_keys),
+        ),
         diagnostics=schema_diagnostics,
         policy_digest=ordered_policy.policy_digest,
     )
@@ -623,34 +612,39 @@ def _values(row: _OrderedRow, columns: tuple[str, ...]) -> tuple[tuple[str, obje
     return tuple((column, value_map[column]) for column in columns if column in value_map)
 
 
-def _blank_runs(rows: tuple[_OrderedRow, ...]) -> dict[tuple[str | None, str | None], _BlankRun]:
-    runs: dict[tuple[str | None, str | None], _BlankRun] = {}
-    index = 0
-    while index < len(rows):
-        row = rows[index]
-        if not row.blank:
-            index += 1
+def _blank_gaps(
+    rows: tuple[_OrderedRow, ...], anchors: frozenset[bytes] | None
+) -> dict[tuple[str | None, str | None], _BlankGap]:
+    """Blank rows grouped by the anchor pair that bounds them.
+
+    ``anchors`` holds the stable keys of the rows that bound intervals.  ``None`` makes every real row an
+    anchor, which describes one side's own blank distribution.  Real rows outside ``anchors`` do not split
+    blank segments.
+    """
+
+    gaps: dict[tuple[str | None, str | None], _BlankGap] = {}
+    before_anchor: str | None = None
+    count = 0
+    start = 0
+    end = 0
+    for row in rows:
+        if row.blank:
+            if count == 0:
+                start = row.position
+            count += 1
+            end = row.position
             continue
-        start = index
-        end = index
-        while end + 1 < len(rows) and rows[end + 1].blank:
-            end += 1
-        before_anchor = _blank_anchor(reversed(rows[:start]))
-        after_anchor = _blank_anchor(iter(rows[end + 1 :]))
-        count = end - start + 1
-        digest = raw_blob_digest(
-            canonicalize_json_value({"before": before_anchor, "after": after_anchor, "count": count})
-        )
-        runs[(before_anchor, after_anchor)] = _BlankRun(
-            before_anchor=before_anchor,
-            after_anchor=after_anchor,
-            start=rows[start].position,
-            end=rows[end].position,
-            count=count,
-            digest=digest,
-        )
-        index = end + 1
-    return runs
+        if anchors is not None and row.stable_key not in anchors:
+            continue
+        assert row.stable_identity is not None
+        after_anchor = row.stable_identity.value
+        if count:
+            gaps[(before_anchor, after_anchor)] = _BlankGap(count=count, start=start, end=end)
+        before_anchor = after_anchor
+        count = 0
+    if count:
+        gaps[(before_anchor, None)] = _BlankGap(count=count, start=start, end=end)
+    return gaps
 
 
 def _blank_extension(
@@ -658,30 +652,30 @@ def _blank_extension(
     before_rows: tuple[_OrderedRow, ...],
     current_rows: tuple[_OrderedRow, ...],
     *,
+    backbone: frozenset[bytes],
     include_records: bool,
 ) -> BlankExtension:
-    before_runs = _blank_runs(before_rows)
-    current_runs = _blank_runs(current_rows)
-    keys = sorted(set(before_runs) | set(current_runs), key=lambda item: (item[0] or "", item[1] or ""))
+    before_gaps = _blank_gaps(before_rows, backbone)
+    current_gaps = _blank_gaps(current_rows, backbone)
+    keys = sorted(set(before_gaps) | set(current_gaps), key=lambda item: (item[0] or "", item[1] or ""))
     records: list[BlankRecord] = []
     inserted_count = 0
     deleted_count = 0
     for key in keys:
-        before = before_runs.get(key)
-        current = current_runs.get(key)
+        before = before_gaps.get(key)
+        current = current_gaps.get(key)
         before_count = 0 if before is None else before.count
         current_count = 0 if current is None else current.count
         if before_count == current_count:
             continue
-        selected_run = current if current is not None else before
-        assert selected_run is not None
+        selected_count = current_count if current is not None else before_count
         interval = OrderedInterval(
             before_start=None if before is None else before.start,
             before_end=None if before is None else before.end,
             current_start=None if current is None else current.start,
             current_end=None if current is None else current.end,
             row_count=abs(current_count - before_count),
-            interval_digest=selected_run.digest,
+            interval_digest=_blank_interval_digest(key, selected_count),
         )
         if before_count > current_count:
             deleted_count += 1
@@ -707,8 +701,6 @@ def _blank_extension(
                     current_occupancy=current_count,
                 )
             )
-    before_digest = _occupancy_digest(before_runs)
-    current_digest = _occupancy_digest(current_runs)
     return BlankExtension(
         status=(
             OrderedStatus.CHANGED
@@ -721,24 +713,19 @@ def _blank_extension(
             blank_changed_count=inserted_count + deleted_count,
         ),
         records=tuple(records) if include_records else (),
-        before_occupancy_digest=before_digest,
-        current_occupancy_digest=current_digest,
+        before_occupancy_digest=_occupancy_digest(_blank_gaps(before_rows, None)),
+        current_occupancy_digest=_occupancy_digest(_blank_gaps(current_rows, None)),
     )
 
 
-def _blank_anchor(rows: Iterator[_OrderedRow]) -> str | None:
-    for row in rows:
-        if row.blank:
-            continue
-        assert row.stable_identity is not None
-        return row.stable_identity.value
-    return None
+def _blank_interval_digest(key: tuple[str | None, str | None], count: int) -> DigestRef:
+    return raw_blob_digest(canonicalize_json_value({"before": key[0], "after": key[1], "count": count}))
 
 
-def _occupancy_digest(runs: dict[tuple[str | None, str | None], _BlankRun]) -> DigestRef:
+def _occupancy_digest(gaps: dict[tuple[str | None, str | None], _BlankGap]) -> DigestRef:
     payload = [
-        {"before": key[0], "after": key[1], "count": run.count}
-        for key, run in sorted(runs.items(), key=lambda item: (item[0][0] or "", item[0][1] or ""))
+        {"before": key[0], "after": key[1], "count": gap.count}
+        for key, gap in sorted(gaps.items(), key=lambda item: (item[0][0] or "", item[0][1] or ""))
     ]
     return raw_blob_digest(canonicalize_json_value(payload))
 
@@ -777,16 +764,56 @@ def _row_content_frame(row: _OrderedRow, policy: OrderedTablePolicy) -> bytes:
     return b"".join(values[name] for name in columns if name in values)
 
 
+def _backbone_indices(positions: Sequence[int]) -> tuple[int, ...]:
+    """Indices of a longest increasing subsequence; among equal-length choices the earliest indices win.
+
+    ``positions`` are the current-side positions of the common rows in before order, all distinct.
+    ``reach[i]`` is the length of the longest increasing run that starts at ``i``; patience sorting over the
+    reversed, negated sequence computes it in O(n log n).  Walking the lengths from the longest down, each pick
+    is the first index after the previous pick whose reach equals the remaining length.  That is the
+    lexicographically smallest index sequence among all longest subsequences.
+    """
+
+    if not positions:
+        return ()
+    reach = [0] * len(positions)
+    tails: list[int] = []
+    for index in range(len(positions) - 1, -1, -1):
+        value = -positions[index]
+        slot = bisect.bisect_left(tails, value)
+        if slot == len(tails):
+            tails.append(value)
+        else:
+            tails[slot] = value
+        reach[index] = slot + 1
+    longest = max(reach)
+    levels: list[list[int]] = [[] for _ in range(longest + 1)]
+    for index, length in enumerate(reach):
+        levels[length].append(index)
+    chosen: list[int] = []
+    previous = -1
+    for length in range(longest, 0, -1):
+        candidates = levels[length]
+        pick = candidates[bisect.bisect_right(candidates, previous)]
+        chosen.append(pick)
+        previous = pick
+    return tuple(chosen)
+
+
 def _processing_mode(
-    records: list[OrderedRecord], added: list[bytes], deleted: list[bytes]
+    *, moved: bool, shifted: bool, segment: bool, modified: bool
 ) -> OrderedTableProcessingMode | None:
-    if any(item.record_kind is OrderedRecordKind.ROW_MOVED for item in records):
+    """Table mode from the first matching rule: moves, shifts, tail segments, then local patches."""
+
+    if moved:
         return OrderedTableProcessingMode.REORDER_COMPLEX
-    if added or deleted:
+    if shifted:
+        return OrderedTableProcessingMode.SHIFT_REPAIRED
+    if segment and not modified:
         return OrderedTableProcessingMode.TAIL_SEGMENT
-    if not records:
-        return None
-    return OrderedTableProcessingMode.LOCAL_PATCH
+    if modified:
+        return OrderedTableProcessingMode.LOCAL_PATCH
+    return None
 
 
 def _ordered_sort_key(record: OrderedRecord) -> tuple[str, int, str]:

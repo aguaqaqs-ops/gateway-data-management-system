@@ -2,7 +2,8 @@
 
 日期：2026-10-11
 
-状态：**草案，待 owner 确认**（§9 列出需要确认的决定）。确认前设计 DC6、§10 与执行计划中的 migration 表述保持原状。
+状态：**owner 已确认（2026-10-11）**：D1–D6 与“G3 作为独立阶段”全部同意（§9）。实施前设计 DC6、§10 与执行计划中的 migration 表述保持原状，改写由实施提交 1 完成。
+实施在 G8a（census 口径修订，不改生产代码）审核完成之后开始；二者都写主工作区，不并行。
 
 关联：[治理修订计划](p5-arch-closure-post-s1-governance-plan.md) G3（owner 2026-10-10 选方案 A）；[设计](p5-arch-closure-design.md) DC6、§10；
 [执行计划](p5-arch-closure-execution-plan.md) §2、§3 S2a/S2b、§6；[Business Lifecycle](../contracts/business-lifecycle-and-state.md)；AGENTS.md「项目前提」。
@@ -92,7 +93,7 @@
 2. `feat(p5-g3)`：终态对照导出（外部）→ `schema.py`、新 bootstrap、调用方切换、测试迁移与删除；每个提交后五包 ruff/mypy、`import_rules`、相关 focused 测试通过。
 3. `refactor(p5-g3)`：删除 `migrations.py` 与迁移专属测试（与上一提交分开，便于审核时看清“只删不改”）。
 4. 门禁提交 V 是最后一个非 handoff 提交；G3 改动 `backend/src`，backend/worker 镜像内容变化，**必须在 V 上真实重建并完整运行权威 runner**，遵守 AGENTS.md「权威入口的运行前提」；handoff 提交 H 只改 handoff，按 carried 第 3 条在 V 的 worktree 内判定。
-5. 区间起点 R0 是 G3 kickoff 时 main 的提交（G8a 完成后确定，写入实施提示词）；独立审核通过后在审核报告提交上打 `p5-g3-exit`；S2a 的区间起点改为 `p5-g3-exit`。
+5. 区间起点 R0 是 G3 kickoff 时 main 的提交（G8a 审核完成后的 HEAD，kickoff 时写入实施提示词）；独立审核通过后在审核报告提交上打 `p5-g3-exit`；S2a 的区间起点改为 `p5-g3-exit`。
 
 ## 7. 停止条件（停止并在 handoff 记录，交 owner，不用兼容代码绕过）
 
@@ -112,13 +113,16 @@
 - 文档改写完成，设计与执行计划中不再有“control DB 新增前向 migration”的现行描述（STORAGE_BREAKING 与在线 ruleset 迁移除外）；
 - 独立审核通过。
 
-## 9. 需要 owner 确认
+## 9. owner 决议（2026-10-11）
 
-| # | 决定 | 建议 |
+D1–D6 均获同意：
+
+| # | 决定 | owner 决议 |
 | --- | --- | --- |
-| D1 | 校验方式：结构比较（推荐）或 `PRAGMA user_version` | 结构比较 |
+| D1 | 校验方式：结构比较（不用 `PRAGMA user_version`） | 同意 |
 | D2 | 单一入口、删除台账与四个版本常量，保留 `UnsupportedSchemaVersion` | 同意 |
 | D3 | 删除迁移时钟 `now` 参数（实施者核对无其他用途） | 同意 |
+| D4 | 历史数据完整性检查随迁移删除，`assert_control_db_integrity` 保留 | 同意 |
 | D5 | 终态对照一次性、不入库；永久保留的是行为测试 | 同意 |
-| D6 | Business Lifecycle 的措辞改写（§3 D6，删 migration 一项，实质规则不变） | 同意，需 owner 明确，因为这是正式契约 |
+| D6 | Business Lifecycle 的措辞改写（§3 D6，删 migration 一项，实质规则不变） | 同意（正式契约措辞已获 owner 明确） |
 | 阶段 | G3 作为独立阶段，打 `p5-g3-exit`，经完整门禁与独立审核 | 同意 |

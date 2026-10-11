@@ -71,7 +71,7 @@ handoff 为 `plans/p5-arch-closure-g2-handoff.md`，审核报告为 `plans/p5-ar
 ### G3. control DB 基线 schema（owner 决议 2026-10-10：选方案 A；实施为独立一步，G2 之后、S2a 之前）
 
 设计 DC6 规定 control DB 通过新增前向 migration 修改 schema、不做数据回填；S2a、S2b 的路径预算和验收包含 `test_*_control_db_migrations.py` 与“control DB migration 在启动时执行”。
-状态：实施规格草案 `plans/p5-arch-closure-g3-spec.md`（2026-10-11），待 owner 确认；顺序在 G8a 之后、S2a 之前，作为独立阶段，门禁通过并审核后打 `p5-g3-exit`。
+状态：实施规格 `plans/p5-arch-closure-g3-spec.md` 已获 owner 确认（2026-10-11，D1–D6 与独立阶段）；顺序在 G8a 审核完成之后、S2a 之前，门禁通过并审核后打 `p5-g3-exit`。
 
 项目没有已部署数据，owner 决定采用方案 A：
 

@@ -47,11 +47,15 @@
         "table_details": {
           "b1_n2_iec104_syx_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           }
         }
       },
@@ -212,11 +216,15 @@
         "table_details": {
           "b1_n2_iec104_syx_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           }
         }
       },
@@ -396,131 +404,339 @@
         "table_details": {
           "b1_n2_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n2_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n3_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n3_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n4_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n4_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n5_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n5_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n6_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n6_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n7_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n7_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n8_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n8_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n9_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n9_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           }
         }
       },
@@ -729,115 +945,297 @@
         "table_details": {
           "b1_n2_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n2_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n3_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n3_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n4_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n4_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n6_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n6_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n7_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n7_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n8_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n8_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           },
           "b1_n9_iec104_syx_list": {
             "conflicting_extra_rows": 362,
+            "differing_columns": [
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "name",
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 363
           },
           "b1_n9_iec104_yc_list": {
             "conflicting_extra_rows": 17,
+            "differing_columns": [
+              "asdu_type",
+              "balance_group",
+              "balance_level",
+              "coef_k",
+              "dev_addr",
+              "entry",
+              "fcda",
+              "grp",
+              "limitvalue_flag",
+              "lower_val",
+              "name",
+              "no",
+              "supres_val",
+              "upper_val"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 17
           }
         }
       },
@@ -982,68 +1380,514 @@
       "version_manager_saved_time_type": "VARCHAR(128)"
     },
     {
-      "composite_stage_status": "NOT_REACHED",
+      "composite_stage_status": "COMPLETE",
       "dataset_id": "rd-t3-c-v1",
       "duplicate_key_scan": {
-        "by_table": {},
-        "conflicting_extra_rows": 0,
+        "by_table": {
+          "b1_n2_iec104_syk_list": 2,
+          "b1_n2_iec104_syx_list": 1628,
+          "b1_n2_iec104_yc_list": 4,
+          "b1_n2_iec104_yt_list": 3,
+          "b1_n3_iec104_syk_list": 1,
+          "b1_n3_iec104_syx_list": 1628,
+          "b1_n3_iec104_yc_list": 4,
+          "b1_n3_iec104_yt_list": 3,
+          "b1_n4_iec104_syk_list": 1,
+          "b1_n4_iec104_syx_list": 1628,
+          "b1_n4_iec104_yc_list": 4,
+          "b1_n4_iec104_yt_list": 3,
+          "b1_n5_iec104_syk_list": 1,
+          "b1_n5_iec104_syx_list": 1628,
+          "b1_n5_iec104_yc_list": 4,
+          "b1_n5_iec104_yt_list": 3,
+          "b1_n6_iec104_syk_list": 1,
+          "b1_n6_iec104_syx_list": 1628,
+          "b1_n6_iec104_yc_list": 4,
+          "b1_n6_iec104_yt_list": 3,
+          "b1_n7_iec104_syk_list": 1,
+          "b1_n7_iec104_syx_list": 1628,
+          "b1_n7_iec104_yc_list": 4,
+          "b1_n7_iec104_yt_list": 3
+        },
+        "conflicting_extra_rows": 9817,
         "coverage": {
           "reader_unavailable_table_count": 0,
           "reader_unavailable_tables": [],
-          "rule_skipped_table_count": 0,
-          "scanned_table_count": 0,
-          "unresolved_key_table_count": 0,
-          "unresolved_key_tables": []
+          "rule_skipped_table_count": 8,
+          "scanned_table_count": 165,
+          "unresolved_key_table_count": 27,
+          "unresolved_key_tables": [
+            "cnt_manage_cfg",
+            "forwardtable_yc1",
+            "forwardtable_yk1",
+            "forwardtable_yt1",
+            "forwardtable_yx1",
+            "forwardtbl_lst_cs",
+            "forwardtbl_lst_dz",
+            "forwardtbl_lst_qt",
+            "forwardtbl_lst_yc",
+            "forwardtbl_lst_yk",
+            "forwardtbl_lst_ym",
+            "forwardtbl_lst_yt",
+            "forwardtbl_lst_yx",
+            "iec101_cfg",
+            "iec104_cfg",
+            "iec104gw_cfg",
+            "iec61850c_cfg",
+            "jdxx_cfg",
+            "mms_rp_cdc_index",
+            "out_time_cfg",
+            "project",
+            "sc_cfg",
+            "scada_cfg",
+            "sg_manage_cfg",
+            "vqc_cfg",
+            "wave_cfg",
+            "wf_cfg"
+          ]
         },
         "exact_duplicate_extra_rows": 0,
-        "extra_rows": 0,
-        "status": "materialization_unavailable",
-        "table_details": {}
+        "extra_rows": 9817,
+        "status": "partial",
+        "table_details": {
+          "b1_n2_iec104_syk_list": {
+            "conflicting_extra_rows": 2,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 3
+          },
+          "b1_n2_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1625
+          },
+          "b1_n2_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
+          },
+          "b1_n2_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
+          },
+          "b1_n3_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
+          },
+          "b1_n3_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
+          },
+          "b1_n3_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
+          },
+          "b1_n3_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
+          },
+          "b1_n4_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
+          },
+          "b1_n4_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
+          },
+          "b1_n4_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
+          },
+          "b1_n4_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
+          },
+          "b1_n5_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
+          },
+          "b1_n5_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
+          },
+          "b1_n5_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
+          },
+          "b1_n5_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
+          },
+          "b1_n6_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
+          },
+          "b1_n6_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
+          },
+          "b1_n6_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
+          },
+          "b1_n6_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
+          },
+          "b1_n7_iec104_syk_list": {
+            "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
+          },
+          "b1_n7_iec104_syx_list": {
+            "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
+          },
+          "b1_n7_iec104_yc_list": {
+            "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
+          },
+          "b1_n7_iec104_yt_list": {
+            "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
+            "exact_duplicate_extra_rows": 0,
+            "key_columns": [
+              "gid"
+            ],
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
+          }
+        }
       },
       "effective_key_scan": {
-        "duplicate_tables_with_explicit_effective_key": [],
-        "effective_key_tables_count": 0,
+        "duplicate_tables_with_explicit_effective_key": [
+          "b1_n2_iec104_syk_list",
+          "b1_n2_iec104_syx_list",
+          "b1_n2_iec104_yc_list",
+          "b1_n2_iec104_yt_list",
+          "b1_n3_iec104_syk_list",
+          "b1_n3_iec104_syx_list",
+          "b1_n3_iec104_yc_list",
+          "b1_n3_iec104_yt_list",
+          "b1_n4_iec104_syk_list",
+          "b1_n4_iec104_syx_list",
+          "b1_n4_iec104_yc_list",
+          "b1_n4_iec104_yt_list",
+          "b1_n5_iec104_syk_list",
+          "b1_n5_iec104_syx_list",
+          "b1_n5_iec104_yc_list",
+          "b1_n5_iec104_yt_list",
+          "b1_n6_iec104_syk_list",
+          "b1_n6_iec104_syx_list",
+          "b1_n6_iec104_yc_list",
+          "b1_n6_iec104_yt_list",
+          "b1_n7_iec104_syk_list",
+          "b1_n7_iec104_syx_list",
+          "b1_n7_iec104_yc_list",
+          "b1_n7_iec104_yt_list"
+        ],
+        "effective_key_tables_count": 165,
         "effective_keyless_tables": [],
-        "status": "materialization_unavailable",
-        "unresolved_table_count": 0,
-        "unresolved_tables": []
+        "status": "partial",
+        "unresolved_table_count": 27,
+        "unresolved_tables": [
+          "cnt_manage_cfg",
+          "forwardtable_yc1",
+          "forwardtable_yk1",
+          "forwardtable_yt1",
+          "forwardtable_yx1",
+          "forwardtbl_lst_cs",
+          "forwardtbl_lst_dz",
+          "forwardtbl_lst_qt",
+          "forwardtbl_lst_yc",
+          "forwardtbl_lst_yk",
+          "forwardtbl_lst_ym",
+          "forwardtbl_lst_yt",
+          "forwardtbl_lst_yx",
+          "iec101_cfg",
+          "iec104_cfg",
+          "iec104gw_cfg",
+          "iec61850c_cfg",
+          "jdxx_cfg",
+          "mms_rp_cdc_index",
+          "out_time_cfg",
+          "project",
+          "sc_cfg",
+          "scada_cfg",
+          "sg_manage_cfg",
+          "vqc_cfg",
+          "wave_cfg",
+          "wf_cfg"
+        ]
       },
       "has_logics_xml": true,
       "json_columns": [],
-      "key_scan_source": "business_snapshot_unavailable",
+      "key_scan_source": "business_snapshot",
       "logics_xml_event_count": 8946,
       "logics_xml_max_depth": 66,
       "logics_xml_status": "complete",
-      "materialization_diagnostic_details": [
-        {
-          "code": "TABLE_READER_UNAVAILABLE",
-          "message": "SET @OLD_CHARACTER_SET_CLIENT is not in the source dump allowlist"
-        }
-      ],
+      "materialization_diagnostic_details": [],
       "materialization_diagnostics": [
         "TABLE_READER_UNAVAILABLE"
       ],
-      "materialization_status": "FAILED",
+      "materialization_status": "COMPLETE",
       "nullable_key_columns": [],
       "package": {
         "bytes": 3356815,
         "sha256": "c34e266c458d9b2cfb630fec56fa7c893113e11b56f768710aecebb0715eec7e"
       },
       "pair_of": null,
-      "production_composite_stage_status": "NOT_REACHED",
-      "production_materialization_status": "FAILED",
+      "production_composite_stage_status": "COMPLETE",
+      "production_materialization_status": "COMPLETE",
       "project_alias": "c",
-      "role_table_counts": {},
-      "row_count_total": null,
-      "source_ddl_table_count": 0,
+      "role_table_counts": {
+        "BROWSE_ONLY": 13,
+        "ORDERED_DIFF": 54,
+        "SKIP": 8,
+        "SNAPSHOT_ONLY": 4,
+        "STANDARD_DIFF": 120
+      },
+      "row_count_total": 268661,
+      "source_ddl_table_count": 199,
       "staging_status": "COMPLETE",
-      "storage_column_type_counts": {},
-      "table_count": null,
-      "tables_without_ddl_primary_key": [],
+      "storage_column_type_counts": {
+        "DATETIME": 8,
+        "ENUM": 318,
+        "FLOAT": 51,
+        "INT": 82,
+        "INT UNSIGNED": 648,
+        "SET": 1,
+        "SMALLINT UNSIGNED": 28,
+        "TEXT": 53,
+        "TINYINT": 12,
+        "TINYINT UNSIGNED": 261,
+        "VARCHAR": 747
+      },
+      "table_count": 200,
+      "tables_without_ddl_primary_key": [
+        "app_cfg",
+        "b1_n1_iec61850c_cfg",
+        "b1_n2_iec104_cfg",
+        "b1_n3_iec104_cfg",
+        "b1_n4_iec104_cfg",
+        "b1_n5_iec104_cfg",
+        "b1_n6_iec104_cfg",
+        "b1_n7_iec104_cfg",
+        "cnt_manage_cfg",
+        "forwardtable_yc1",
+        "forwardtable_yk1",
+        "forwardtable_yt1",
+        "forwardtable_yx1",
+        "forwardtbl_lst_cs",
+        "forwardtbl_lst_dz",
+        "forwardtbl_lst_qt",
+        "forwardtbl_lst_yc",
+        "forwardtbl_lst_yk",
+        "forwardtbl_lst_ym",
+        "forwardtbl_lst_yt",
+        "forwardtbl_lst_yx",
+        "iec101_cfg",
+        "iec104_cfg",
+        "iec104gw_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "mms_rp_cdc_index",
+        "out_time_cfg",
+        "pointref_forwardtbl",
+        "project",
+        "rdb_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg"
+      ],
       "tier": "t3",
       "unknown_sql_types": [],
       "version": "v1",
-      "version_manager_saved_time_type": null
+      "version_manager_saved_time_type": "VARCHAR(128)"
     },
     {
       "composite_stage_status": "COMPLETE",
@@ -1119,195 +1963,291 @@
         "table_details": {
           "b1_n2_iec104_syk_list": {
             "conflicting_extra_rows": 2,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 3
           },
           "b1_n2_iec104_syx_list": {
             "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1625
           },
           "b1_n2_iec104_yc_list": {
             "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
           },
           "b1_n2_iec104_yt_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n3_iec104_syk_list": {
             "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
           },
           "b1_n3_iec104_syx_list": {
             "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
           },
           "b1_n3_iec104_yc_list": {
             "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
           },
           "b1_n3_iec104_yt_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n4_iec104_syk_list": {
             "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
           },
           "b1_n4_iec104_syx_list": {
             "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
           },
           "b1_n4_iec104_yc_list": {
             "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
           },
           "b1_n4_iec104_yt_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n5_iec104_syk_list": {
             "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
           },
           "b1_n5_iec104_syx_list": {
             "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
           },
           "b1_n5_iec104_yc_list": {
             "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
           },
           "b1_n5_iec104_yt_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n6_iec104_syk_list": {
             "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
           },
           "b1_n6_iec104_syx_list": {
             "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
           },
           "b1_n6_iec104_yc_list": {
             "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
           },
           "b1_n6_iec104_yt_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n7_iec104_syk_list": {
             "conflicting_extra_rows": 1,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 2
           },
           "b1_n7_iec104_syx_list": {
             "conflicting_extra_rows": 1628,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 1039
           },
           "b1_n7_iec104_yc_list": {
             "conflicting_extra_rows": 4,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 5
           },
           "b1_n7_iec104_yt_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           }
         }
       },
@@ -1555,323 +2495,483 @@
         "table_details": {
           "b1_n11_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n11_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n11_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n12_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n12_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n12_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n13_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n13_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n13_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n14_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n14_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n14_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n15_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n15_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n15_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n16_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n16_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n16_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n17_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n17_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n17_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n18_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n18_iec104_syx_list": {
             "conflicting_extra_rows": 992,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n18_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n20_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n3_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n3_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n3_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 25
           },
           "b1_n4_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n4_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n4_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n5_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n6_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n7_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n7_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n7_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n8_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n8_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n8_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n9_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           }
         }
       },
@@ -2161,323 +3261,483 @@
         "table_details": {
           "b1_n11_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n11_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n11_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n12_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n12_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n12_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n13_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n13_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n13_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n14_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n14_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n14_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n15_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n15_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n15_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n16_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n16_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n16_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n17_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n17_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n17_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n18_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n18_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 880
           },
           "b1_n18_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n20_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n3_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n3_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n3_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 25
           },
           "b1_n4_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n4_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n4_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n5_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n6_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           },
           "b1_n7_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n7_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n7_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n8_iec104_syk_list": {
             "conflicting_extra_rows": 11,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 12
           },
           "b1_n8_iec104_syx_list": {
             "conflicting_extra_rows": 993,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 994
           },
           "b1_n8_iec104_yc_list": {
             "conflicting_extra_rows": 47,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 29
           },
           "b1_n9_iec104_yc_list": {
             "conflicting_extra_rows": 3,
+            "differing_columns": [
+              "no"
+            ],
             "exact_duplicate_extra_rows": 0,
             "key_columns": [
               "gid"
             ],
-            "key_source": "EXPLICIT_RULE"
+            "key_source": "EXPLICIT_RULE",
+            "max_group_size": 4
           }
         }
       },
@@ -2678,16 +3938,17 @@
     "rd-t1-a-v2",
     "rd-t2-b-v1",
     "rd-t2-b-v2",
+    "rd-t3-c-v1",
     "rd-t3-c-v2",
     "rd-t4-d-v1",
     "rd-t4-d-v2"
   ],
   "dc12_json_columns_present": false,
   "dc15_unknown_sql_types": [],
-  "duplicate_key_conflicting_extra_rows_total": 40748,
+  "duplicate_key_conflicting_extra_rows_total": 50565,
   "duplicate_key_exact_extra_rows_total": 0,
-  "duplicate_key_extra_rows_total": 40748,
-  "generated_on": "2026-10-10",
+  "duplicate_key_extra_rows_total": 50565,
+  "generated_on": "2026-10-11",
   "parser_production_path": [
     {
       "dataset_id": "rd-t1-a-v1",
@@ -2716,9 +3977,7 @@
     {
       "dataset_id": "rd-t3-c-v1",
       "sql_parse": {
-        "code": "UNSUPPORTED_STATEMENT",
-        "message": "SET @OLD_CHARACTER_SET_CLIENT is not in the source dump allowlist",
-        "status": "FAILED"
+        "status": "COMPLETE"
       }
     },
     {
@@ -2774,17 +4033,12 @@
       "materialization_status": "COMPLETE"
     },
     {
-      "composite_stage_status": "NOT_REACHED",
+      "composite_stage_status": "COMPLETE",
       "dataset_id": "rd-t3-c-v1",
       "logics_xml_max_depth": 66,
       "logics_xml_status": "complete",
-      "materialization_diagnostic_details": [
-        {
-          "code": "TABLE_READER_UNAVAILABLE",
-          "message": "SET @OLD_CHARACTER_SET_CLIENT is not in the source dump allowlist"
-        }
-      ],
-      "materialization_status": "FAILED"
+      "materialization_diagnostic_details": [],
+      "materialization_status": "COMPLETE"
     },
     {
       "composite_stage_status": "COMPLETE",
@@ -2814,7 +4068,7 @@
   "provenance": {
     "census_output_contains_host_paths": false,
     "duplicate_row_classification": "Exact duplicate extra rows are repeated full-row fingerprints within a duplicate effective-key group; conflicting extra rows are distinct full-row variants beyond one representative per duplicate key. Counts are disjoint and sum to duplicate extra rows.",
-    "g2_production_and_diagnostic_rerun_on": "2026-10-10",
+    "g2_production_and_diagnostic_rerun_on": "2026-10-11",
     "max_xml_depth_budget": 128,
     "max_xml_depth_safety_margin_over_measured": 31,
     "original_structural_census": "2026-09-28",

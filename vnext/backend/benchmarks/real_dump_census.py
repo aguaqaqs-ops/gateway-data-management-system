@@ -436,13 +436,26 @@ def _duplicate_and_effective_key_stats(
             reader_unavailable.append(descriptor.table_name)
             continue
         seen: dict[tuple[str, ...], Counter[bytes]] = {}
+        first_rows: dict[tuple[str, ...], SourceRow] = {}
+        differing_column_indexes: set[int] = set()
         for row in table.reader.iter_rows():
             key = _row_key_fingerprint(row, key_indexes)
             seen.setdefault(key, Counter())[_row_fingerprint(row)] += 1
+            first = first_rows.get(key)
+            if first is None:
+                first_rows[key] = row
+                continue
+            differing_column_indexes.update(
+                index
+                for index, (current_cell, first_cell) in enumerate(zip(row, first, strict=True))
+                if index not in key_indexes and current_cell != first_cell
+            )
         scanned_table_count += 1
         duplicate_rows = 0
         table_exact_extra_rows = 0
         table_conflicting_extra_rows = 0
+        group_sizes = {key: sum(variants.values()) for key, variants in seen.items()}
+        max_group_size = max(group_sizes.values(), default=0)
         for variants in seen.values():
             row_count = sum(variants.values())
             if row_count <= 1:
@@ -465,6 +478,10 @@ def _duplicate_and_effective_key_stats(
                 "key_source": key_source,
                 "exact_duplicate_extra_rows": table_exact_extra_rows,
                 "conflicting_extra_rows": table_conflicting_extra_rows,
+                "differing_columns": sorted(
+                    descriptor.columns[index].name for index in differing_column_indexes
+                ),
+                "max_group_size": max_group_size,
             }
     key_scan_status = "complete" if not unresolved else "partial"
     duplicate_scan_status = (

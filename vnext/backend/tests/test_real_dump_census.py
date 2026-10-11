@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import NamedTuple
 
@@ -74,6 +75,8 @@ KEY_SCAN_COVERAGE_SHAPES = (
                     "key_source": "DDL_PRIMARY_KEY",
                     "exact_duplicate_extra_rows": 1,
                     "conflicting_extra_rows": 0,
+                    "differing_columns": [],
+                    "max_group_size": 2,
                 }
             },
         ),
@@ -101,6 +104,8 @@ KEY_SCAN_COVERAGE_SHAPES = (
                     "key_source": "DDL_PRIMARY_KEY",
                     "exact_duplicate_extra_rows": 1,
                     "conflicting_extra_rows": 0,
+                    "differing_columns": [],
+                    "max_group_size": 2,
                 }
             },
         ),
@@ -127,6 +132,8 @@ KEY_SCAN_COVERAGE_SHAPES = (
                     "key_source": "DDL_PRIMARY_KEY",
                     "exact_duplicate_extra_rows": 1,
                     "conflicting_extra_rows": 0,
+                    "differing_columns": [],
+                    "max_group_size": 2,
                 }
             },
         ),
@@ -137,39 +144,55 @@ KEY_SCAN_COVERAGE_SHAPES = (
             tables=(
                 ("all-identical", ((1, 10), (1, 10))),
                 ("same-key-conflict", ((2, 20), (2, 21))),
-                ("mixed-key-repeats", ((3, 30), (3, 30), (3, 31))),
+                ("mixed-key-repeats", ((3, 30), (3, 30), (3, 31), (4, 40), (4, 41))),
+                ("multi-column-conflict", ((6, 60, 600), (6, 61, 601))),
             ),
             duplicate_scan_status="complete",
             effective_key_scan_status="complete",
-            scanned_table_count=3,
+            scanned_table_count=4,
             rule_skipped_table_count=0,
             unresolved_tables=[],
             reader_unavailable_tables=[],
             duplicate_by_table={
                 "all-identical": 1,
                 "same-key-conflict": 1,
-                "mixed-key-repeats": 2,
+                "mixed-key-repeats": 3,
+                "multi-column-conflict": 1,
             },
             exact_duplicate_extra_rows=2,
-            conflicting_extra_rows=2,
+            conflicting_extra_rows=4,
             duplicate_details_by_table={
                 "all-identical": {
                     "key_columns": ["id"],
                     "key_source": "DDL_PRIMARY_KEY",
                     "exact_duplicate_extra_rows": 1,
                     "conflicting_extra_rows": 0,
+                    "differing_columns": [],
+                    "max_group_size": 2,
                 },
                 "same-key-conflict": {
                     "key_columns": ["id"],
                     "key_source": "DDL_PRIMARY_KEY",
                     "exact_duplicate_extra_rows": 0,
                     "conflicting_extra_rows": 1,
+                    "differing_columns": ["value"],
+                    "max_group_size": 2,
                 },
                 "mixed-key-repeats": {
                     "key_columns": ["id"],
                     "key_source": "EXPLICIT_RULE",
                     "exact_duplicate_extra_rows": 1,
+                    "conflicting_extra_rows": 2,
+                    "differing_columns": ["value"],
+                    "max_group_size": 3,
+                },
+                "multi-column-conflict": {
+                    "key_columns": ["id"],
+                    "key_source": "DDL_PRIMARY_KEY",
+                    "exact_duplicate_extra_rows": 0,
                     "conflicting_extra_rows": 1,
+                    "differing_columns": ["state", "value"],
+                    "max_group_size": 2,
                 },
             },
         ),
@@ -197,13 +220,28 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
         return SimpleNamespace(record=SimpleNamespace(static_role=role, canonical_key_policy=policy))
 
     def census_table(name: str, rows: tuple[tuple[int, ...], ...] | None) -> SimpleNamespace:
+        reader = None
+        column_names = ("id", "value", "state")
+        column_count = 2
+        if rows is not None:
+            consumed = False
+            column_count = len(rows[0]) if rows else 2
+
+            def iter_rows() -> Iterator[tuple[int, ...]]:
+                nonlocal consumed
+                if consumed:
+                    raise AssertionError("census must consume each table reader once")
+                consumed = True
+                return iter(rows)
+
+            reader = SimpleNamespace(iter_rows=iter_rows)
         return SimpleNamespace(
             descriptor=SimpleNamespace(
                 table_name=name,
                 primary_key_columns=("id",),
-                columns=(SimpleNamespace(name="id"), SimpleNamespace(name="value")),
+                columns=tuple(SimpleNamespace(name=column) for column in column_names[:column_count]),
             ),
-            reader=None if rows is None else SimpleNamespace(iter_rows=lambda: iter(rows)),
+            reader=reader,
         )
 
     monkeypatch.setattr(real_dump_census, "resolve_table_rule", resolve_rule)

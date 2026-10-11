@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 差异浏览页顶栏与导航 · 顶栏 · 历史比较模式（只读）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F5F7}
+a{color:#1F5FBF}a:hover{color:#174A96}
+</style>
+</head>
+<body>
+<!-- 设计草图快照，导出自“前端优化草图”画布；仅作视觉与交互参考，不是实现代码。数据为示例。见 docs/frontend-vnext/ui-optimization-direction.md 第 7 节。 -->
+<div style="width: 1920px; height: 100px; box-sizing: border-box; display: flex; flex-direction: column; background: #FFFFFF; color: #1B2229; font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; overflow: hidden">
+
+  <header style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 14px; padding: 0 20px; border-bottom: 1px solid #EEF1F4">
+    <a href="#" style="display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 6px; border-radius: 6px; color: #1B2229; text-decoration: none; font-weight: 500">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+      返回工作台
+    </a>
+    <span style="width: 1px; height: 18px; background: #DDE2E7"></span>
+    <nav aria-label="位置" style="display: flex; align-items: center; gap: 6px; color: #5F6B78">
+      <span>提交 2 → 提交 3</span><span aria-hidden="true">›</span>
+      <span>转发通道</span><span aria-hidden="true">›</span>
+      <span>调度主站通道 1</span><span aria-hidden="true">›</span>
+      <span style="color: #1B2229; font-weight: 600">遥测</span>
+    </nav>
+    <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; background: #F1F3F5; color: #4A5563; font-size: 12px; font-weight: 500">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      历史比较 · 只读
+    </span>
+    <span style="flex: 1"></span>
+    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #1E7A46; font-weight: 500">
+      <span style="width: 8px; height: 8px; border-radius: 4px; background: #1E7A46"></span>
+      已连接
+    </span>
+  </header>
+
+  <div style="height: 48px; flex: 0 0 48px; display: flex; align-items: center; gap: 16px; padding: 0 20px; border-bottom: 1px solid #DDE2E7">
+    <div role="tablist" aria-label="比较对" style="display: inline-flex; padding: 3px; gap: 2px; border-radius: 8px; background: #F1F3F5">
+      <button type="button" role="tab" aria-selected="false" style="display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #4A5563; font: inherit">
+        历史初始备份 1 → 提交 2
+        <span style="height: 18px; padding: 0 6px; border-radius: 4px; background: #E3E8EE; color: #4A5563; font-size: 12px; line-height: 18px">更新</span>
+      </button>
+      <button type="button" role="tab" aria-selected="true" style="display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit; font-weight: 600; box-shadow: 0 1px 2px rgba(27, 34, 41, 0.12)">
+        提交 2 → 提交 3
+        <span style="height: 18px; padding: 0 6px; border-radius: 4px; background: #FDECEA; color: #B42318; font-size: 12px; line-height: 18px; font-weight: 500">高风险</span>
+      </button>
+    </div>
+    <span style="width: 1px; height: 20px; background: #DDE2E7"></span>
+    <div role="radiogroup" aria-label="显示范围" style="display: inline-flex; padding: 3px; gap: 2px; border-radius: 8px; background: #F1F3F5">
+      <button type="button" role="radio" aria-checked="false" style="height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #4A5563; font: inherit">全部</button>
+      <button type="button" role="radio" aria-checked="true" style="height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit; font-weight: 600; box-shadow: 0 1px 2px rgba(27, 34, 41, 0.12)">仅看差异</button>
+    </div>
+    <span style="flex: 1"></span>
+    <span style="color: #5F6B78; font-size: 12px">开发环境</span>
+    <div role="radiogroup" aria-label="显示模式" style="display: inline-flex; padding: 3px; gap: 2px; border-radius: 8px; background: #F1F3F5">
+      <button type="button" role="radio" aria-checked="true" style="height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit; font-size: 12px; font-weight: 600; box-shadow: 0 1px 2px rgba(27, 34, 41, 0.12)">User</button>
+      <button type="button" role="radio" aria-checked="false" style="height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: #4A5563; font: inherit; font-size: 12px">Debug</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

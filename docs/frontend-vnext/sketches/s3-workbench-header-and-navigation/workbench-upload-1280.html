@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 差异浏览页顶栏与导航 · 1280 · 上传模式，侧栏折叠，tab 溢出</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F5F7}
+a{color:#1F5FBF}a:hover{color:#174A96}
+</style>
+</head>
+<body>
+<!-- 设计草图快照，导出自“前端优化草图”画布；仅作视觉与交互参考，不是实现代码。数据为示例。见 docs/frontend-vnext/ui-optimization-direction.md 第 7 节。 -->
+<div style="position: relative; width: 1280px; height: 800px; box-sizing: border-box; display: flex; flex-direction: column; background: #F3F5F7; color: #1B2229; font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; overflow: hidden">
+
+  <header style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: #FFFFFF; border-bottom: 1px solid #EEF1F4">
+    <a href="#" style="display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px 0 4px; border-radius: 6px; color: #1B2229; text-decoration: none; font-weight: 500">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+      返回工作台
+    </a>
+    <span style="width: 1px; height: 18px; background: #DDE2E7"></span>
+    <nav aria-label="位置" style="min-width: 0; display: flex; align-items: center; gap: 6px; color: #5F6B78; white-space: nowrap; overflow: hidden">
+      <span>本次组态视图</span><span aria-hidden="true">›</span>
+      <span>转发通道</span><span aria-hidden="true">›</span>
+      <span>调度主站通道 1</span><span aria-hidden="true">›</span>
+      <span style="color: #1B2229; font-weight: 600">遥测</span>
+    </nav>
+    <span style="flex: 0 0 auto; height: 22px; padding: 0 8px; border-radius: 4px; background: #E9F0FB; color: #1F5FBF; font-size: 12px; line-height: 22px; font-weight: 500">上传</span>
+    <span style="flex: 1"></span>
+    <span style="flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #1E7A46; font-weight: 500">
+      <span style="width: 8px; height: 8px; border-radius: 4px; background: #1E7A46"></span>
+      已连接
+    </span>
+    <button type="button" style="flex: 0 0 auto; height: 34px; padding: 0 10px; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit">原始组态备份</button>
+    <button type="button" style="flex: 0 0 auto; height: 34px; padding: 0 10px; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit">本次归档组态</button>
+    <button type="button" disabled title="需先选择本次归档组态目录" style="flex: 0 0 auto; height: 34px; padding: 0 10px; border: 1px solid #E1E5EA; border-radius: 6px; background: #F1F3F5; color: #6B7682; font: inherit">上传</button>
+    <button type="button" disabled title="当前没有可撤回的提交" style="flex: 0 0 auto; height: 34px; padding: 0 10px; border: 1px solid #E1E5EA; border-radius: 6px; background: #F1F3F5; color: #6B7682; font: inherit">撤回</button>
+    <button type="button" style="flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border: 1px solid #1F5FBF; border-radius: 6px; background: #1F5FBF; color: #FFFFFF; font: inherit; font-weight: 500">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"></path><path d="M22 2 11 13"></path></svg>
+      提交
+    </button>
+  </header>
+
+  <div style="height: 48px; flex: 0 0 48px; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: #FFFFFF; border-bottom: 1px solid #DDE2E7">
+    <div role="tablist" aria-label="视图" style="display: inline-flex; padding: 3px; gap: 2px; border-radius: 8px; background: #F1F3F5">
+      <button type="button" role="tab" aria-selected="false" style="display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #4A5563; font: inherit">
+        原始组态视图
+        <span style="height: 18px; padding: 0 6px; border-radius: 4px; background: #E7F4EC; color: #1E7A46; font-size: 12px; line-height: 18px">一致</span>
+      </button>
+      <button type="button" role="tab" aria-selected="true" style="display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit; font-weight: 600; box-shadow: 0 1px 2px rgba(27, 34, 41, 0.12)">
+        本次组态视图
+        <span style="height: 18px; padding: 0 6px; border-radius: 4px; background: #FDECEA; color: #B42318; font-size: 12px; line-height: 18px; font-weight: 500">高风险</span>
+      </button>
+    </div>
+    <div role="radiogroup" aria-label="显示范围" style="display: inline-flex; padding: 3px; gap: 2px; border-radius: 8px; background: #F1F3F5">
+      <button type="button" role="radio" aria-checked="false" style="height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: #4A5563; font: inherit">全部</button>
+      <button type="button" role="radio" aria-checked="true" style="height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: #FFFFFF; color: #1B2229; font: inherit; font-weight: 600; box-shadow: 0 1px 2px rgba(27, 34, 41, 0.12)">仅看差异</button>
+    </div>
+  </div>
+
+  <div style="flex: 1 1 auto; min-height: 0; display: flex">
+
+    <aside aria-label="分组导航（已折叠）" style="width: 48px; flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 12px; background: #FFFFFF; border-right: 1px solid #DDE2E7">
+      <button type="button" aria-label="展开侧栏" style="width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #DDE2E7; border-radius: 6px; background: #FFFFFF; color: #4A5563">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+      </button>
+      <button type="button" aria-label="搜索通道、装置或表" style="width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #4A5563">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+      </button>
+      <span style="writing-mode: vertical-rl; color: #4A5563; font-size: 12px; letter-spacing: 2px">转发通道 · 调度主站通道 1</span>
+    </aside>
+
+    <section aria-label="表内容" style="position: relative; flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #FFFFFF">
+
+      <div role="tablist" aria-label="表" style="height: 44px; flex: 0 0 44px; display: flex; align-items: flex-end; gap: 2px; padding: 0 12px 0 16px; border-bottom: 1px solid #DDE2E7; background: #F7F9FB">
+        <button type="button" role="tab" aria-selected="false" style="height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: #4A5563; font: inherit">
+          单点遥信 <span style="color: #5F6B78; font-size: 12px">2,048 行</span>
+          <span style="height: 18px; padding: 0 6px; border-radius: 4px; background: #F1F3F5; color: #4A5563; font-size: 12px; line-height: 18px">更新</span>
+        </button>
+        <button type="button" role="tab" aria-selected="false" style="height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: #4A5563; font: inherit">
+          双点遥信 <span style="color: #5F6B78; font-size: 12px">186 行</span>
+        </button>
+        <button type="button" role="tab" aria-selected="true" style="height: 37px; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid #DDE2E7; border-bottom: 0; border-radius: 6px 6px 0 0; background: #FFFFFF; color: #1B2229; font: inherit; font-weight: 600">
+          遥测 <span style="color: #5F6B78; font-size: 12px; font-weight: 400">312 → 316 行</span>
+          <span style="height: 18px; padding: 0 6px; border-radius: 4px; background: #FDECEA; color: #B42318; font-size: 12px; line-height: 18px; font-weight: 500">高风险</span>
+        </button>
+        <button type="button" role="tab" aria-selected="false" style="height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: #4A5563; font: inherit">
+          单点遥控 <span style="color: #5F6B78; font-size: 12px">64 行</span>
+        </button>
+        <button type="button" role="tab" aria-selected="false" style="height: 36px; display: inline-flex; align-items: center; gap: 8px; padding: 0 12px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; color: #4A5563; font: inherit">
+          双点遥控 <span style="color: #5F6B78; font-size: 12px">32 行</span>
+        </button>
+        <span style="flex: 1"></span>
+        <button type="button" aria-haspopup="menu" aria-expanded="true" style="margin-bottom: 4px; height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid #1F5FBF; border-radius: 6px; background: #E9F0FB; color: #1F5FBF; font: inherit; font-weight: 500">
+          更多 4
+          <span style="width: 6px; height: 6px; border-radius: 3px; background: #1F5FBF" title="含有变更的表"></span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+      </div>
+
+      <div role="menu" aria-label="更多表" style="position: absolute; right: 12px; top: 42px; z-index: 2; width: 240px; padding: 6px; border: 1px solid #DDE2E7; border-radius: 8px; background: #FFFFFF; box-shadow: 0 8px 24px rgba(27, 34, 41, 0.16)">
+        <button type="button" role="menuitem" style="width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: #1B2229; font: inherit; text-align: left">
+          遥调 <span style="color: #5F6B78; font-size: 12px">16 行</span><span style="flex: 1"></span>
+          <span style="height: 18px; padding: 0 6px; border-radius: 4px; background: #F1F3F5; color: #4A5563; font-size: 12px; line-height: 18px">更新</span>
+        </button>
+        <button type="button" role="menuitem" style="width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: #1B2229; font: inherit; text-align: left">
+          遥脉 <span style="color: #5F6B78; font-size: 12px">24 行</span>
+        </button>
+        <button type="button" role="menuitem" style="width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: #1B2229; font: inherit; text-align: left">
+          顺控 <span style="color: #5F6B78; font-size: 12px">8 行</span>
+        </button>
+        <button type="button" role="menuitem" style="width: 100%; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: #1B2229; font: inherit; text-align: left">
+          遥步 <span style="color: #5F6B78; font-size: 12px">4 行</span>
+        </button>
+      </div>
+
+      <div style="height: 44px; flex: 0 0 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px 0 16px; border-bottom: 1px solid #EEF1F4">
+        <span style="font-weight: 600">遥测</span>
+        <span style="height: 20px; padding: 0 6px; border-radius: 4px; background: #F1F3F5; color: #4A5563; font-size: 12px; line-height: 20px">更新</span>
+        <span style="height: 20px; padding: 0 6px; border-radius: 4px; background: #FDECEA; color: #B42318; font-size: 12px; line-height: 20px; font-weight: 500">高风险</span>
+        <span style="display: inline-flex; gap: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+          <span style="color: #1E7A46">+6</span><span style="color: #8F5600">*14</span><span style="color: #B42318">-2</span>
+        </span>
+        <span title="规则：仅比较更新（UPDATE_ONLY）" style="display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 4px; background: #FDF1E3; color: #6E4200; font-size: 12px">按规则忽略 +1 -1</span>
+        <span style="flex: 1"></span>
+        <span style="color: #4A5563">变更 <strong style="font-family: 'IBM Plex Mono', monospace; color: #1B2229">3</strong> / 17</span>
+        <button type="button" aria-label="上一处变更" style="width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #1B2229">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"></path></svg>
+        </button>
+        <button type="button" aria-label="下一处变更" style="width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 1px solid #C9D0D8; border-radius: 6px; background: #FFFFFF; color: #1B2229">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
+        </button>
+      </div>
+
+      <div role="note" style="height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; background: #FDF4F3; border-bottom: 1px solid #F3D3CF; color: #8A1C12; font-size: 12px">
+        <strong>高风险</strong>
+        <span>2 条规则命中：[风险规则说明 1]；[风险规则说明 2]</span>
+        <button type="button" style="padding: 0; border: 0; background: transparent; color: #8A1C12; font: inherit; text-decoration: underline">查看规则</button>
+      </div>
+
+      <div style="flex: 1 1 auto; min-height: 0; display: flex">
+        <div role="grid" aria-label="遥测差异" style="flex: 1 1 auto; min-width: 0; overflow: hidden">
+          <div role="row" style="height: 36px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #DDE2E7; background: #F7F9FB; color: #4A5563; font-weight: 600">
+            <span></span><span>序号</span><span>描述</span><span>装置</span><span>点号</span><span>信息体地址</span><span>系数</span><span>死区</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">1</span><span>1#主变高压侧 A 相电流</span><span>1#主变保护</span><span>1</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16385</span><span>1.0</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">2</span><span>1#主变高压侧 B 相电流</span><span>1#主变保护</span><span>2</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16386</span><span>1.0</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #F6E2BC; background: #FDF8EE">
+            <span style="color: #8F5600; font-weight: 600; font-family: 'IBM Plex Mono', monospace">*</span><span style="color: #5F6B78">3</span><span>1#主变高压侧 C 相电流</span><span>1#主变保护</span><span>3</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16387</span><span style="align-self: stretch; display: flex; align-items: center; margin-left: -8px; padding-left: 8px; background: #FBE3B5; font-weight: 600">0.8</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">4</span><span>1#主变高压侧有功功率</span><span>1#主变保护</span><span>4</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16388</span><span>1.0</span><span>1.0</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">5</span><span>1#主变高压侧无功功率</span><span>1#主变保护</span><span>5</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16389</span><span>1.0</span><span>1.0</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">6</span><span>1#主变低压侧 A 相电流</span><span>1#主变测控</span><span>6</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16390</span><span>1.0</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #CFE7D8; background: #EEF8F2">
+            <span style="color: #1E7A46; font-weight: 600; font-family: 'IBM Plex Mono', monospace">+</span><span style="color: #5F6B78">7</span><span>1#主变低压侧 B 相电流</span><span>1#主变测控</span><span>7</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16391</span><span>1.0</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #CFE7D8; background: #EEF8F2">
+            <span style="color: #1E7A46; font-weight: 600; font-family: 'IBM Plex Mono', monospace">+</span><span style="color: #5F6B78">8</span><span>1#主变低压侧 C 相电流</span><span>1#主变测控</span><span>8</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16392</span><span>1.0</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">9</span><span>2#主变高压侧 A 相电流</span><span>2#主变保护</span><span>9</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16393</span><span>1.0</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">10</span><span>2#主变高压侧 B 相电流</span><span>2#主变保护</span><span>10</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16394</span><span>1.0</span><span>0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #F3D3CF; background: #FDF1F0; color: #8A1C12">
+            <span style="color: #B42318; font-weight: 600; font-family: 'IBM Plex Mono', monospace">-</span><span>11</span><span style="text-decoration: line-through">2#主变高压侧 C 相电流（旧）</span><span style="text-decoration: line-through">2#主变保护</span><span style="text-decoration: line-through">11</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; text-decoration: line-through">16395</span><span style="text-decoration: line-through">1.0</span><span style="text-decoration: line-through">0.5</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">12</span><span>2#主变高压侧有功功率</span><span>2#主变保护</span><span>12</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16396</span><span>1.0</span><span>1.0</span>
+          </div>
+          <div role="row" aria-current="true" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #F6E2BC; background: #FDF8EE; box-shadow: inset 0 0 0 2px #1F5FBF">
+            <span style="color: #8F5600; font-weight: 600; font-family: 'IBM Plex Mono', monospace">*</span><span style="color: #5F6B78">13</span><span>2#主变高压侧无功功率</span><span>2#主变保护</span><span>13</span><span style="align-self: stretch; display: flex; align-items: center; margin-left: -8px; padding-left: 8px; background: #FBE3B5; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600">16412</span><span>1.0</span><span>1.0</span>
+          </div>
+          <div role="row" style="height: 32px; display: grid; grid-template-columns: 28px 48px minmax(0, 1fr) 160px 72px 110px 72px 72px; align-items: center; padding-left: 8px; border-bottom: 1px solid #EEF1F4">
+            <span></span><span style="color: #5F6B78">14</span><span>2#主变低压侧 A 相电流</span><span>2#主变测控</span><span>14</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">16398</span><span>1.0</span><span>0.5</span>
+          </div>
+        </div>
+
+        <div aria-label="变更分布" style="position: relative; width: 14px; flex: 0 0 14px; background: #F7F9FB; border-left: 1px solid #EEF1F4">
+          <span style="position: absolute; left: 0; top: 0; width: 13px; height: 5%; box-sizing: border-box; border: 1px solid #9AA3AD; background: rgba(31, 95, 191, 0.06)"></span>
+          <span style="position: absolute; left: 3px; top: 0.8%; width: 8px; height: 2px; background: #C98A1B"></span>
+          <span style="position: absolute; left: 3px; top: 2%; width: 8px; height: 4px; background: #3D9A62"></span>
+          <span style="position: absolute; left: 3px; top: 3.2%; width: 8px; height: 2px; background: #D0524A"></span>
+          <span style="position: absolute; left: 1px; top: 3.9%; width: 12px; height: 3px; background: #1F5FBF"></span>
+          <span style="position: absolute; left: 3px; top: 16%; width: 8px; height: 3px; background: #C98A1B"></span>
+          <span style="position: absolute; left: 3px; top: 29%; width: 8px; height: 3px; background: #3D9A62"></span>
+          <span style="position: absolute; left: 3px; top: 44%; width: 8px; height: 3px; background: #C98A1B"></span>
+          <span style="position: absolute; left: 3px; top: 57%; width: 8px; height: 3px; background: #C98A1B"></span>
+          <span style="position: absolute; left: 3px; top: 71%; width: 8px; height: 3px; background: #3D9A62"></span>
+          <span style="position: absolute; left: 3px; top: 86%; width: 8px; height: 3px; background: #C98A1B"></span>
+          <span style="position: absolute; left: 3px; top: 92%; width: 8px; height: 3px; background: #D0524A"></span>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

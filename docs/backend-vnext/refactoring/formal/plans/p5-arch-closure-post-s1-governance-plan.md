@@ -72,6 +72,7 @@ handoff 为 `plans/p5-arch-closure-g2-handoff.md`，审核报告为 `plans/p5-ar
 
 设计 DC6 规定 control DB 通过新增前向 migration 修改 schema、不做数据回填；S2a、S2b 的路径预算和验收包含 `test_*_control_db_migrations.py` 与“control DB migration 在启动时执行”。
 状态：实施规格 `plans/p5-arch-closure-g3-spec.md` 已获 owner 确认（2026-10-11，D1–D6 与独立阶段）；G8a 已审核通过（`cd41349f0b`）；实施在独立 worktree `/home/dev/gdds-p5-g3` 与短期分支 `p5-g3` 上进行（owner 2026-10-11 同意；规格 §6），在 S2a 之前，门禁通过并审核后打 `p5-g3-exit`。
+**已完成（2026-10-11）**：独立审核通过（`plans/p5-arch-closure-g3-independent-review.md`），tag `p5-g3-exit` 在 `cc551fc3ad`（V = `dad131350b`，H = `6dfb5bd6c9`，carried），`p5-g3` 以合并提交 `b27b1b5bd7` 并入 `main`；AGENTS.md「项目前提」已改为单一基线规则。
 
 项目没有已部署数据，owner 决定采用方案 A：
 
@@ -195,7 +196,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
    实施期间只有实施者写入主工作区；其他对话不向 `main` 提交。
    2026-10-11 第一次审核结论为定向修订（G2-F1）：修订 → 新门禁提交 V′ 的完整门禁 → handoff H′ → 复审（区间 `c9a09ddb35..H′`）→ 通过后打 `p5-g2-exit`。
    已完成：复审通过，tag `p5-g2-exit` 在 `1e0da258e8`（V′ = `0889fa953d`，H′ = `eece236590`，carried）。
-3. G3 实施规格 → owner 确认（已完成）→ 在独立 worktree `p5-g3` 上实施并独立审核（control DB 基线 schema）。
+3. G3 实施规格 → owner 确认 → 在独立 worktree `p5-g3` 上实施并独立审核（control DB 基线 schema）。已完成：tag `p5-g3-exit`（`cc551fc3ad`），合并提交 `b27b1b5bd7`。
 4. G8：G8a 已完成并审核通过（`cd41349f0b`，真实 gid 重复为 0）；owner 已决议（2026-10-11，见 G8“owner 决议”）。
 5. G8b：有序比较的骨架、移动与位置变化（规格 `plans/p5-arch-closure-g8b-spec.md`），G3 之后在独立 worktree `p5-g8b` 上实施并独立审核，打 `p5-g8b-exit`。
 6. S2a kickoff（区间起点 `p5-g8b-exit`）。

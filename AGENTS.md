@@ -7,8 +7,9 @@
 这是全新项目：没有已部署的使用方、没有需要保留的历史数据，也没有兼容或迁移要求。
 
 - 改 Contract、checkpoint 载荷、digest 或 HTTP DTO 时，直接改到目标形态，不建设兼容层、
-  双读/双写、旧字段别名或数据回填；同步更新 golden 与测试。control DB schema 的演进方式以
-  owning 设计为准（当前为 P5 收口设计 DC6 的前向 migration）。
+  双读/双写、旧字段别名或数据回填；同步更新 golden 与测试。control DB 以单一基线 schema
+  创建（P5 收口设计 DC6）：改 schema 时直接修改基线，schema 与代码不符即拒绝启动，开发者删除本地
+  control DB（含 `-wal`、`-shm`）后重建；首次出现需要保留数据的部署时，再引入前向 migration。
 - 删除被替代的实现，不保留“以防万一”的旧路径。
 - `legacy/` 只作行为与数据格式的参考来源，不是兼容目标；vnext 与真实数据不一致时，以真实
   数据和 owning Contract 为准。

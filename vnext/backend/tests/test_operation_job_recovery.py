@@ -1272,7 +1272,7 @@ def _make_pure_compute_harness(tmp_path: Path) -> PureComputeRecoveryHarness:
     db_path = tmp_path / "pure-compute-r5.sqlite3"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     clock = _MutableClock(BASE_TIME)
-    initialize_control_db(db_path, now=clock)
+    initialize_control_db(db_path)
     return PureComputeRecoveryHarness(db_path=db_path, clock=clock)
 
 

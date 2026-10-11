@@ -8,25 +8,13 @@ from gateway_backend.infrastructure.control_db.database import (
     initialize_and_verify_control_db,
     initialize_control_db,
 )
-from gateway_backend.infrastructure.control_db.migrations import (
-    OPERATIONS_SCHEMA_COMPONENT,
-    OPERATIONS_SCHEMA_VERSION,
-    WORKSPACE_SCHEMA_COMPONENT,
-    WORKSPACE_SCHEMA_VERSION,
-    bootstrap_control_schema,
-    bootstrap_workspace_schema,
-)
+from gateway_backend.infrastructure.control_db.schema import bootstrap_control_db_schema
 
 __all__ = [
     "ControlDbIntegrityError",
     "ControlDbUnitOfWork",
-    "OPERATIONS_SCHEMA_COMPONENT",
-    "OPERATIONS_SCHEMA_VERSION",
-    "WORKSPACE_SCHEMA_COMPONENT",
-    "WORKSPACE_SCHEMA_VERSION",
     "assert_control_db_integrity",
-    "bootstrap_control_schema",
-    "bootstrap_workspace_schema",
+    "bootstrap_control_db_schema",
     "connect_control_db",
     "initialize_and_verify_control_db",
     "initialize_control_db",

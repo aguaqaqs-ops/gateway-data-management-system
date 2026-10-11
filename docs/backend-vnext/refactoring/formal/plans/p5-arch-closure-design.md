@@ -47,7 +47,7 @@ Repository owner 决定（DC1–DC9 为 2026-09-25，DC10–DC27 为 2026-09-26�
 | DC3 | 项目身份沿用旧设计三段式语义；“无法判定”的继续确认在 Submit 受理时收集，不设 Preview 暂停门；两个确认动作分开校验；“不同项目”不可改判 | 0020 |
 | DC4 | composite_signal / `logics.xml` 接入 P5 业务物化；`composite_signal_point` 保留 `formula_ast_json`、`point_name` 但只以 `formula_digest` 比较（细化：DC20） | 0018 |
 | DC5 | 撤销 §2A.2 对 R5 流程词汇的保留约定；comparison 只接收两侧规范快照、规则集、执行模式和选项 | 0021 |
-| DC6 | 新项目无历史数据：可以直接改变 contract、checkpoint/payload、canonical bytes 与 digest；不建设兼容层或双读路径（control DB 改为基线 schema，见治理修订计划 G3，实施前下文仍按前向 migration 描述） | — |
+| DC6 | 新项目无历史数据：可以直接改变 contract、checkpoint/payload、canonical bytes 与 digest；不建设兼容层或双读路径。control DB 以单一基线 schema 创建：schema 与代码不符即拒绝启动，开发者删除本地 control DB 重建；首次出现需要保留数据的部署时，再从当时的基线重新引入前向 migration（重开 DC6；见治理修订计划 G3） | — |
 | DC7 | before 侧为初始基线的 pair，身份评估为 `NOT_APPLICABLE`，首次提交不需要身份确认（DC17 后恒成立） | 0020 |
 | DC8 | `logics.xml` 存在但解析失败或违反 composite 业务不变量时 Preview FAILED | — |
 | DC9 | 删除以 hidden summary 为生产者的 5E History compare integrity incident 机制；ADR 0016 的 Operation integrity 不受影响（细化：DC19） | 0019 |
@@ -78,8 +78,7 @@ Repository owner 决定（DC1–DC9 为 2026-09-25，DC10–DC27 为 2026-09-26�
 - 生产环境其他协议族与软件版本的覆盖（DC22，列为重开条件）；
 - 5E slice 范围内的任何改动（5E slice exit 之前不改动其候选树）。
 
-兼容性（DC6）：control DB 通过新增前向 migration 修改 schema，不做数据回填（owner 2026-10-10 决定改为基线 schema，见治理修订计划 G3；规格确认前此处不改）。新增列允许旧行为空，旧行在新判定中按
-“不可用”处理，例如缺少规范状态摘要的 PreviewResult 在受理时按 derived-stale 拒绝。开发与测试环境的 control DB
+兼容性（DC6）：control DB 以单一基线 schema 创建，schema 与代码不符即拒绝启动，开发者删除本地 control DB 重建，不做数据回填（见治理修订计划 G3）。开发与测试环境的 control DB
 与 Repository 数据在 S2b 前重建。所有 golden 与 digest 随语义变化一次性更新。
 
 ## 2. 当前事实与问题映射
@@ -404,7 +403,7 @@ hidden summary 删除后，5E-S2 以 `HIDDEN_SUMMARY_*` 为生产者的 class (c
 - `application/history/compare.py` 中的受理阻断（`has_pending_integrity_for_commit` → `HistoryIntegrityUnresolved`）；
 - `http/orchestration/history_compare.py`（或 S1 后承接其 DTO 映射的 HTTP 模块）中的 integrity DTO 读取与错误映射；
 - 只为 incident 映射存在的 `MaterializationDiagnostic.expected_digest_ref/observed_digest_ref`；
-- 以新 migration 删除 `history_compare_integrity_records` 表及其索引；
+- 从 control DB 基线 schema 删除 `history_compare_integrity_records` 表及其索引；
 - 对应测试与测试支撑：
   - `test_history_compare_integrity.py`；
   - `test_history_compare_jobs.py`、`test_history_compare_transactions.py`、`test_history_http.py`、`test_operation_http.py`、`test_artifact_staging_conformance.py` 中的 integrity 用例；
@@ -565,7 +564,7 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 
 ## 10. 持久化、HTTP 与部署影响
 
-- control DB 新增前向 migration，不做数据回填；新增列允许旧行为空（DC6；G3 实施后改为直接修改基线 schema）：
+- control DB 直接修改基线 schema，不做数据回填；新增列允许旧行为空（DC6）：
   - PreviewResult：MODIFIED 侧规范表集合闭包 ref/digest、manifest ref/digest、两侧规范状态摘要、投影规则集 digest、身份结论；
   - SubmitAttempt：规范表集合闭包与 manifest 在 T1 冻结；身份确认记录。Submission：身份确认记录（finalize 时复制）；
   - History compare acceptance：冻结运行期规则集 digest（替代 `table_ruleset_version`）；
@@ -635,7 +634,7 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 | 授权与 exact scope 先于 same-key 重放；重放越过可漂移的业务前置 | `test_submit_transactions.py`（既有 T1 重放用例：scope 映射失效时拒绝、只有 head 漂移时返回原结果；S4 补充撤权后重放被拒） |
 | Archive 身份异常处置 | `test_archive_transactions.py` |
 | composite 业务物化、键列类型与规则 | `test_snapshot_materialization_business.py`（capability）、`test_preview_job_materialize.py`（Preview 接入）、`test_storage_projection_core.py`（规则） |
-| control DB migration | `test_workspace_control_db_migrations.py`、`test_submit_control_db_migrations.py`、`test_archive_control_db_migrations.py`（按表归属） |
+| control DB schema | `test_control_db_schema.py`（按表归属） |
 | import 边界 | `test_architecture.py` + `tests/architecture_baseline.py` |
 | 端到端 | 既有 compose 旅程扩展：重复提交同内容得到 `NO_CANONICAL_CHANGE`；规则表在非空基线上的 Preview；用户删表与 sibling 新增表后提交；仅改 `logics.xml`；跨项目上传→确认→审核→处置→归档，另加 `UNVERIFIABLE` 与 FULL 混合模式 |
 | 真实数据 | 4 份代表性 dump 的 Preview → Submit → History 链路（主机侧脚本，结果写入 handoff，不进入普通 CI；DC22） |

@@ -534,7 +534,7 @@ def build_submit_worker_harness(
         settings.control_db_path.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
         from gateway_backend.infrastructure.control_db.database import initialize_and_verify_control_db
 
-        initialize_and_verify_control_db(settings.control_db_path, now=control_now)
+        initialize_and_verify_control_db(settings.control_db_path)
     else:
         bootstrap_control_database(settings)
     artifact_store = InMemoryArtifactStore()

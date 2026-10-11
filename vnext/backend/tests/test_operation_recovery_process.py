@@ -69,7 +69,7 @@ clock = {"value": datetime(2026, 8, 24, 12, 0, tzinfo=UTC)}
 def now():
     return clock["value"]
 
-initialize_control_db(db_path, now=now)
+initialize_control_db(db_path)
 operation = operation_record_from_document({
     "artifact_refs": [], "business_refs": [], "cancel_requested": False,
     "checkpoint_ref": None, "completed_at": None,

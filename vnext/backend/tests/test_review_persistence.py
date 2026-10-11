@@ -1,7 +1,8 @@
-"""Review workspace schema v4 migration and SQLite persistence tests."""
+"""Review SQLite persistence tests."""
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,19 +20,10 @@ from gateway_backend.domain.submission.review import (
     build_seed_projection,
     resolve_review_transition,
 )
-from gateway_backend.infrastructure.control_db import migrations
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
-from gateway_backend.infrastructure.control_db.migrations import (
-    OPERATIONS_SCHEMA_COMPONENT,
-    WORKSPACE_SCHEMA_COMPONENT,
-    WORKSPACE_SCHEMA_VERSION,
-    _apply_workspace_v2,
-    _apply_workspace_v3,
-    bootstrap_control_schema,
-    bootstrap_workspace_schema,
-)
+from gateway_backend.infrastructure.control_db.schema import CONTROL_DB_SCHEMA_STATEMENTS
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
-from gateway_backend.operations import OPERATION_RUNTIME_CONTRACT_VERSION, UnsupportedSchemaVersion
+from gateway_backend.operations import OPERATION_RUNTIME_CONTRACT_VERSION
 
 pytestmark = pytest.mark.unit
 
@@ -39,273 +31,23 @@ TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 
 
-def _connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(":memory:", isolation_level=None)
-    connection.row_factory = sqlite3.Row
-    return connection
+def _table_sql(table: str) -> str:
+    matches = [statement for statement in CONTROL_DB_SCHEMA_STATEMENTS if f"CREATE TABLE {table} (" in statement]
+    assert len(matches) == 1, table
+    return " ".join(matches[0].split())
 
 
-def _migration_time() -> datetime:
-    return datetime(2024, 1, 2, 3, 4, 5, 678901, tzinfo=UTC)
+def _in_list_literals(table_sql: str, column: str) -> set[str]:
+    match = re.search(rf"\b{column} IN \(([^)]*)\)", table_sql)
+    assert match is not None, column
+    return {item.strip().strip("'") for item in match.group(1).split(",")}
 
 
-def _seed_workspace_v3(connection: sqlite3.Connection) -> None:
-    migration_time = _migration_time()
-    bootstrap_control_schema(connection, now=lambda: migration_time)
-    connection.execute("BEGIN IMMEDIATE")
-    migrations._apply_workspace_v1(connection)
-    connection.execute(
-        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-        (WORKSPACE_SCHEMA_COMPONENT, 1, 1_704_164_645_678_901),
-    )
-    connection.execute("COMMIT")
-    _apply_workspace_v2(connection)
-    connection.execute(
-        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-        (WORKSPACE_SCHEMA_COMPONENT, 2, 1_704_164_645_678_901),
-    )
-    _apply_workspace_v3(connection)
-    connection.execute(
-        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-        (WORKSPACE_SCHEMA_COMPONENT, 3, 1_704_164_645_678_901),
-    )
-
-
-def _insert_minimal_submission(
-    connection: sqlite3.Connection,
-    *,
-    submission_id: str,
-    submit_attempt_id: str,
-    created_by: str = "actor-1",
-    created_at_us: int = 1_718_000_000_000_000,
-) -> None:
-    connection.execute(
-        """
-        INSERT INTO workspace_records (
-            workspace_id, owner_actor_id, gateway_device_external_key, business_project_id,
-            repository_id, state, generation, optimistic_version, current_upload_revision_id,
-            current_preview_result_id, created_at_us, updated_at_us, closed_at_us
-        ) VALUES (?, ?, ?, ?, ?, 'OPEN', 1, 0, NULL, NULL, ?, ?, NULL)
-        """,
-        (f"ws-{submission_id}", created_by, "device-1", "project-1", "repo-1", 1, 1),
-    )
-    _insert_operation_record(connection, operation_id=f"op-{submit_attempt_id}", created_at_us=created_at_us)
-    connection.execute(
-        """
-        INSERT INTO submit_attempt_records (
-            submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
-            preview_result_id, repository_id, business_baseline_node_id,
-            business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
-            canonical_business_digest, source_digest, snapshot_digest, source_artifact_refs,
-            snapshot_table_artifact_refs, preview_ready_closure_ref, preview_ready_closure_digest,
-            canonicalization_manifest_ref, canonicalization_manifest_digest,
-            repository_import_artifact_ref, repository_artifact_ref, repository_operation_id,
-            repository_operation_evidence, requested_target_ref, requested_verification_policy,
-            requested_unknown_type_policy, builder_mutation_policy, accept_idempotency_key,
-            accept_request_fingerprint, repository_upload_idempotency_key,
-            repository_import_idempotency_key, operation_id, state, submission_id,
-            optimistic_version, created_by, created_at_us, effect_pending_at_us,
-            finalized_at_us, aborted_at_us, abort_code
-        ) VALUES (
-            ?, ?, 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 1, 'commit-main',
-            'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, 'closure-1', 'd-closure',
-            'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
-            'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
-            ?, 'FINALIZED', ?, 1, ?, ?, ?, ?, NULL, NULL
-        )
-        """,
-        (
-            submit_attempt_id,
-            f"ws-{submission_id}",
-            b"[]",
-            b"[]",
-            f"op-{submit_attempt_id}",
-            submission_id,
-            created_by,
-            created_at_us,
-            created_at_us,
-            created_at_us,
-        ),
-    )
-    connection.execute(
-        """
-        INSERT INTO submission_records (
-            submission_id, submit_attempt_id, workspace_id, workspace_generation,
-            upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
-            business_baseline_commit_id, repository_commit_id, canonical_business_digest,
-            source_artifact_refs, canonicalization_manifest_ref,
-            canonicalization_manifest_digest, repository_import_artifact_raw_sha256,
-            repository_artifact_id, requested_verification_policy,
-            completed_verification_policy, requested_unknown_type_policy, target_ref,
-            created_by, created_at_us
-        ) VALUES (
-            ?, ?, ?, 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 'commit-new',
-            'sha256:canonical', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
-            'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', ?, ?
-        )
-        """,
-        (submission_id, submit_attempt_id, f"ws-{submission_id}", b"[]", created_by, created_at_us),
-    )
-
-
-def test_workspace_v4_bootstrap_creates_review_tables() -> None:
-    connection = _connection()
-    bootstrap_control_schema(connection, now=_migration_time)
-    bootstrap_workspace_schema(connection, now=_migration_time)
-
-    tables = {
-        row[0]
-        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
-    assert {
-        "review_event_records",
-        "review_projection_records",
-        "review_idempotency_records",
-    } <= tables
-    ledger_rows = [
-        (row[0], row[1])
-        for row in connection.execute(
-            "SELECT component, version FROM control_schema_migrations ORDER BY component, version"
-        ).fetchall()
-    ]
-    assert ledger_rows == [
-        (OPERATIONS_SCHEMA_COMPONENT, 1),
-        *[(WORKSPACE_SCHEMA_COMPONENT, version) for version in range(1, WORKSPACE_SCHEMA_VERSION + 1)],
-    ]
-
-
-def test_repeat_workspace_v4_bootstrap_is_noop() -> None:
-    connection = _connection()
-    bootstrap_control_schema(connection, now=_migration_time)
-    bootstrap_workspace_schema(connection, now=_migration_time)
-    bootstrap_workspace_schema(connection, now=_migration_time)
-    assert connection.execute(
-        "SELECT COUNT(*) FROM control_schema_migrations WHERE component = ?",
-        (WORKSPACE_SCHEMA_COMPONENT,),
-    ).fetchone()[0] == WORKSPACE_SCHEMA_VERSION
-
-
-def test_failed_workspace_v4_migration_rolls_back(monkeypatch: pytest.MonkeyPatch) -> None:
-    connection = _connection()
-    _seed_workspace_v3(connection)
-
-    def fail(_connection: sqlite3.Connection) -> None:
-        _connection.execute("CREATE TABLE review_probe(value INTEGER NOT NULL)")
-        raise RuntimeError("synthetic review migration failure")
-
-    monkeypatch.setattr(migrations, "_apply_workspace_v4", fail)
-    with pytest.raises(RuntimeError, match="synthetic review migration failure"):
-        bootstrap_workspace_schema(connection, now=_migration_time)
-
-    tables = {
-        row[0]
-        for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-    }
-    assert "review_probe" not in tables
-    assert "review_event_records" not in tables
-    assert connection.execute(
-        "SELECT COUNT(*) FROM control_schema_migrations WHERE component = ?",
-        (WORKSPACE_SCHEMA_COMPONENT,),
-    ).fetchone()[0] == 3
-
-
-def test_newer_workspace_v4_schema_version_is_rejected() -> None:
-    connection = _connection()
-    bootstrap_control_schema(connection, now=_migration_time)
-    bootstrap_workspace_schema(connection, now=_migration_time)
-    connection.execute(
-        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-        (WORKSPACE_SCHEMA_COMPONENT, WORKSPACE_SCHEMA_VERSION + 1, 1_704_164_645_678_901),
-    )
-    with pytest.raises(UnsupportedSchemaVersion):
-        bootstrap_workspace_schema(connection, now=_migration_time)
-
-
-def test_historical_workspace_v3_reopens_to_v4() -> None:
-    connection = _connection()
-    _seed_workspace_v3(connection)
-    bootstrap_workspace_schema(connection, now=_migration_time)
-    assert connection.execute(
-        "SELECT COUNT(*) FROM control_schema_migrations WHERE component = ?",
-        (WORKSPACE_SCHEMA_COMPONENT,),
-    ).fetchone()[0] == WORKSPACE_SCHEMA_VERSION
-    assert connection.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'review_event_records'"
-    ).fetchone() is not None
-
-
-def test_workspace_v4_backfill_creates_seed_per_submission() -> None:
-    connection = _connection()
-    _seed_workspace_v3(connection)
-    _insert_minimal_submission(connection, submission_id="sub-1", submit_attempt_id="sa-1")
-    _insert_minimal_submission(
-        connection,
-        submission_id="sub-2",
-        submit_attempt_id="sa-2",
-        created_by="actor-2",
-        created_at_us=1_718_000_000_000_001,
-    )
-    submission_rows = connection.execute("SELECT * FROM submission_records ORDER BY submission_id").fetchall()
-    connection.execute(
-        """
-        INSERT INTO workspace_submit_occupancy_records (
-            workspace_id, active_submit_attempt_id, active_submission_id
-        ) VALUES ('ws-sub-1', NULL, 'sub-1')
-        """
-    )
-    connection.execute(
-        """
-        INSERT INTO workspace_submit_occupancy_records (
-            workspace_id, active_submit_attempt_id, active_submission_id
-        ) VALUES ('ws-sub-2', NULL, 'sub-2')
-        """
-    )
-    occupancy_rows = connection.execute(
-        "SELECT * FROM workspace_submit_occupancy_records ORDER BY workspace_id"
-    ).fetchall()
-    connection.execute("BEGIN IMMEDIATE")
-    migrations._apply_workspace_v4(connection)
-    connection.execute(
-        "INSERT INTO control_schema_migrations(component, version, applied_at_us) VALUES (?, ?, ?)",
-        (WORKSPACE_SCHEMA_COMPONENT, 4, 1_704_164_645_678_901),
-    )
-    connection.execute("COMMIT")
-
-    assert connection.execute("SELECT COUNT(*) FROM review_event_records").fetchone()[0] == 2
-    assert connection.execute("SELECT COUNT(*) FROM review_projection_records").fetchone()[0] == 2
-    assert connection.execute("SELECT COUNT(*) FROM review_idempotency_records").fetchone()[0] == 0
-    event = connection.execute(
-        """
-        SELECT sequence, event_kind, from_status, to_status, actor_id, occurred_at_us
-        FROM review_event_records WHERE submission_id = 'sub-1'
-        """
-    ).fetchone()
-    assert tuple(event) == (
-        0,
-        "SUBMISSION_FINALIZED",
-        None,
-        "PENDING",
-        "actor-1",
-        1_718_000_000_000_000,
-    )
-    projection = connection.execute(
-        """
-        SELECT status, optimistic_version, latest_sequence, updated_by, updated_at_us
-        FROM review_projection_records WHERE submission_id = 'sub-2'
-        """
-    ).fetchone()
-    assert tuple(projection) == ("PENDING", 0, 0, "actor-2", 1_718_000_000_000_001)
-    assert connection.execute("SELECT * FROM submission_records ORDER BY submission_id").fetchall() == submission_rows
-    assert connection.execute(
-        "SELECT * FROM workspace_submit_occupancy_records ORDER BY workspace_id"
-    ).fetchall() == occupancy_rows
-
-
-def test_review_migration_enums_match_domain_literals() -> None:
-    migration_statuses = {item.strip("'") for item in migrations._REVIEW_STATUSES}
-    migration_kinds = {item.strip("'") for item in migrations._REVIEW_EVENT_KINDS}
-    assert migration_statuses == {status.value for status in ReviewStatus}
-    assert migration_kinds == {kind.value for kind in ReviewEventKind}
+def test_review_schema_enums_match_domain_literals() -> None:
+    projection_sql = _table_sql("review_projection_records")
+    event_sql = _table_sql("review_event_records")
+    assert _in_list_literals(projection_sql, "status") == {status.value for status in ReviewStatus}
+    assert _in_list_literals(event_sql, "event_kind") == {kind.value for kind in ReviewEventKind}
 
 
 @pytest.fixture

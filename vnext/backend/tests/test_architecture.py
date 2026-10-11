@@ -688,7 +688,7 @@ def test_control_db_boundary_exists() -> None:
     assert CONTROL_DB_ROOT.is_dir()
     assert (CONTROL_DB_ROOT / "__init__.py").is_file()
     assert (CONTROL_DB_ROOT / "database.py").is_file()
-    assert (CONTROL_DB_ROOT / "migrations.py").is_file()
+    assert (CONTROL_DB_ROOT / "schema.py").is_file()
     assert (CONTROL_DB_ROOT / "sqlite_operations.py").is_file()
 
 

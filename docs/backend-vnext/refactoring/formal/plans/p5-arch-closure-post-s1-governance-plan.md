@@ -36,7 +36,9 @@ S1 的三轮复审暴露了三类流程成本：阶段分支与 `main` 的同步
 
 ### G2. 真实数据格式保真前置（代码，S1 合入后、S2a kickoff 前）
 
-状态：已完成，详见 `plans/p5-arch-closure-g2-handoff.md`。
+状态：实施完成（`plans/p5-arch-closure-g2-handoff.md`）；独立审核结论为**定向修订**（`plans/p5-arch-closure-g2-independent-review.md`，2026-10-11）。
+阻塞项 G2-F1：G2.1 把 `SET` 白名单收紧得比 `p5-s1-exit` 更严，标准 mysqldump 头的 `@OLD_*` 语句被拒绝，`rd-t3-c-v1` 因此失败；须改为只在原白名单上增加 `@saved_cs_client`，
+在新的门禁提交上重跑完整门禁与 census，复审通过后再打 `p5-g2-exit`。G2.2、G2.3 已通过审核。
 
 S1 普查发现 vnext 解析器有三处与真实数据或 legacy 实现不一致。生产上传当前只走 SQL 物化，composite 与 XML 解析器在不可达基线中，因此只有第 1 项影响现行生产路径；第 2、3 项在 S3 接入 composite 后才会生效，但普查和 S2a 重跑都依赖它们。
 
@@ -94,13 +96,24 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
 
 ### G6. backend/worker 镜像的构建上下文卫生与身份（构建，随 G2 的门禁；源自 S1 第 3 次复审 R3-F1）
 
-状态：已完成，详见 `plans/p5-arch-closure-g2-handoff.md`。
+状态：部分完成。`**/.hypothesis` 已排除且镜像内为空（G2 审核通过）；“在干净 worktree 重建的 image ID 与门禁一致”**未达成**（G2-F2、G2-F3），carried 第 3 条的“同一 worktree”限制已于 2026-10-11 恢复并写明原因；可复现性转入 G6b。
 
 - 现象：`vnext/.dockerignore` 没有排除 `**/.hypothesis`，`COPY shared_kernel` 把 worktree 里被 git 忽略的 Hypothesis 缓存（门禁用的 backend 镜像中实测 `/app/shared_kernel/.hypothesis`，108 KB）打进镜像。
   backend/worker 的 image ID 因此依赖构建它的 worktree 的本地状态：换 worktree 或两次构建之间运行过测试，ID 都会变化；开发缓存也进入了 production 镜像。
 - 修复：把 `**/.hypothesis` 加入 `vnext/.dockerignore`（同时检查其他测试缓存与 `tests/` 是否需要进入 production 镜像）；可选地为 backend/worker 增加与 RS 同类的 source identity label，使 `carried` 判定不再依赖 image ID。
-- 验收：下一次阶段门禁中 backend/worker 镜像内没有 `.hypothesis`；在干净 worktree 重建的 image ID 与门禁一致；AGENTS.md 与 testing-conventions 中 carried 第 3 条的“只接受同一 worktree 内比较”限制随之删除。
+- 验收：下一次阶段门禁中 backend/worker 镜像内没有 `.hypothesis`（已满足）；在干净 worktree 重建的 image ID 与门禁一致（未满足，见 G6b）；满足后才删除 carried 第 3 条的“只接受同一 worktree 内比较”限制。
 - 这属于 AGENTS.md 的强制重建项（构建上下文变化），按 G2 的门禁在最终 HEAD 重建并运行。
+
+### G6b. backend/worker 镜像身份的可复现性（构建；owner 决定是否实施；源自 G2 审核 G2-F2、G2-F3）
+
+- 事实（G2 审核实测）：backend/worker 的 image ID 取决于构建上下文里 git 不记录的本地状态。同一提交在两个 worktree 中，只要 `repository_client` 文件的权限位不同（644/755 对 664/775，由创建文件的 umask 决定），
+  `COPY repository_client` 及其后的全部层就不命中缓存，重新执行 `uv sync` 并得到不同的 ID；mtime 不是缓存键。被忽略的残留目录（V 的镜像里有 git 中不存在的空目录 `gateway_backend/cache`）也会进入镜像。
+  G2 实施方在新 worktree 里核对 carried 得到假的“不等价”，多跑了一次完整门禁；在 V 的门禁 worktree 里同样的重建与 V 的 provenance ID 完全一致。
+- 选项：
+  - A. 给 backend/worker 增加与 RS 同类的 source identity label（由已跟踪文件内容计算），carried 判定改为重算 label，不再比较 image ID；
+  - B. 让构建上下文只取已跟踪文件（导出目录作为 context），并用 `COPY --chmod` 等消除权限位依赖；
+  - C. 不做；接受“同一 worktree + 缓存仍在”的规则，阶段退出的 carried 判定由实施方在门禁 worktree 内完成，独立审核在同一 worktree 复现。
+- 审核方建议：C 足够当前使用；若独立审核需要在门禁 worktree 之外复核 carried，或再次因此多跑门禁，改做 A。A 改动 Dockerfile 与 Compose，属强制重建项，应并入下一个本来就要重建镜像的提交。
 
 ### G7. client e2e 测试镜像的叠层缺陷（harness，随 G2 的门禁；源自 R3-F2）
 
@@ -140,15 +153,18 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 
 1. `git worktree remove --force /home/dev/gdds-p5-closure-s1`（需要 `--force`，因为含被忽略的 `.venv` 与 `target`），再 `git branch -d p5-closure/s1`。
 2. `/home/dev/gdds-p5-closure-s1-gate-logs/`：按 owner 意愿归档或删除；S1 的 `final-*` 日志是 `p5-s1-exit` 门禁证据，handoff 与第 3 次复审报告引用了它们。
-3. Docker 残留：每次权威 runner 都会留下以 project 命名的 backend/worker 镜像与卷（2026-10-10 实测 892 个镜像、76 个卷）。只在没有门禁运行时清理，
+3. Docker 残留：每次权威 runner 都会留下以 project 命名的 backend/worker 镜像与卷（2026-10-10 实测 892 个镜像、76 个卷；2026-10-11 为 985 个镜像、76 个卷）。只在没有门禁运行时清理，
    **不得删除或重新 tag `gateway-repository-client-e2e:local`**（它同时是预装依赖基础镜像；删除会让下一次构建在慢网络上超时，S1 因此多跑了两次完整门禁）；该镜像层数过多时用 `docker export | docker import` 压平，而不是删除。
-4. 本计划各项（G2、G3、G6、G7、G8）完成后，复核 AGENTS.md 与 testing-conventions 中 carried 规则的临时限制是否已删除。
+4. 本计划各项（G2、G3、G6b、G7、G8）完成后，复核 AGENTS.md 与 testing-conventions 中 carried 规则的“同一 worktree”限制是否仍然需要。
+5. G2 实施方留在 `/tmp` 的 6 个已注册临时 worktree（`gdds-g2-h-check`、`gdds-g6-final-a`、`gdds-g6-final-b`、`gdds-g6-identity-old`、`gdds-g6-verify-a`、`gdds-g6-verify-b`）：
+   由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。
 
 ## 3. 顺序
 
 1. 已完成：S1 第 3 次复审通过 → `--no-ff` 合入 `main`（`139ee5fffd`）→ tag `p5-s1-exit`；G1、G5、G9。
 2. G2（含 G6、G7，可选 G4）：在 `main` 上实施，独立审核通过后打 tag `p5-g2-exit`。G6、G7 改变构建上下文与 harness，须在门禁提交上重建并运行完整门禁，不得用 `carried` 沿用旧结果。
    实施期间只有实施者写入主工作区；其他对话不向 `main` 提交。
+   2026-10-11 第一次审核结论为定向修订（G2-F1）：修订 → 新门禁提交 V′ 的完整门禁 → handoff H′ → 复审（区间 `c9a09ddb35..H′`）→ 通过后打 `p5-g2-exit`。
 3. G3 实施规格 → owner 确认 → 实施并独立审核（control DB 基线 schema）。
 4. G8：G2 的普查重跑完成后，owner 决议重复有效键的处置。
 5. S2a kickoff（区间起点 `p5-g2-exit` 或 G3 的 tag，以后者为准）。

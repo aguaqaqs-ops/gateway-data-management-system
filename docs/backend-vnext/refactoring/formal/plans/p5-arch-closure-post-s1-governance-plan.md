@@ -36,9 +36,10 @@ S1 的三轮复审暴露了三类流程成本：阶段分支与 `main` 的同步
 
 ### G2. 真实数据格式保真前置（代码，S1 合入后、S2a kickoff 前）
 
-状态：实施完成（`plans/p5-arch-closure-g2-handoff.md`）；独立审核结论为**定向修订**（`plans/p5-arch-closure-g2-independent-review.md`，2026-10-11）。
-阻塞项 G2-F1：G2.1 把 `SET` 白名单收紧得比 `p5-s1-exit` 更严，标准 mysqldump 头的 `@OLD_*` 语句被拒绝，`rd-t3-c-v1` 因此失败；须改为只在原白名单上增加 `@saved_cs_client`，
-在新的门禁提交上重跑完整门禁与 census，复审通过后再打 `p5-g2-exit`。G2.2、G2.3 已通过审核。
+状态：已完成。第 1 次审核（2026-10-11）为**定向修订**（`plans/p5-arch-closure-g2-independent-review.md`）：阻塞项 G2-F1 是 G2.1 把 `SET` 白名单收紧得比 `p5-s1-exit` 更严，
+标准 mysqldump 头的 `@OLD_*` 语句被拒绝，`rd-t3-c-v1` 因此失败。修订后只在原白名单上增加精确名 `@saved_cs_client`，新的门禁提交 V′ `0889fa953d` 完整门禁 exit 0，census 重跑。
+第 1 次复审（同日，`plans/p5-arch-closure-g2-independent-rereview-1.md`）**通过**，tag `p5-g2-exit` 在复审报告提交 `1e0da258e8` 上；遗留一项非阻塞问题 G2R-F1（census JSON 中 `rd-t3-c-v1` 的
+`materialization_diagnostics` 是过期值，须在 G8 决议前更正）。G2.2、G2.3 已通过审核。
 
 S1 普查发现 vnext 解析器有三处与真实数据或 legacy 实现不一致。生产上传当前只走 SQL 物化，composite 与 XML 解析器在不可达基线中，因此只有第 1 项影响现行生产路径；第 2、3 项在 S3 接入 composite 后才会生效，但普查和 S2a 重跑都依赖它们。
 
@@ -133,6 +134,9 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
 - 需要 owner 决议的方向（不允许实现侧悄悄去重）：这些表在规则中的有效键定义是否有误（改规则键，使其唯一）；该表是否不应作为 canonical keyed table（改表角色）；或者数据本身需要清理（由 owner 处理源数据）。
 - owner 于 2026-10-10 同意：先由 G2 的普查重跑补齐统计（含整行重复与冲突行的分类），再作决议；在此之前不改规则键，也不改任何去重行为。
 - 时点与落点：在 S2a kickoff 前决议并写入决议记录；S2a、S2b 的验收文字写明 DC22 对这些表的预期结果；G2 之后的普查重跑补齐 t3/t4 与未覆盖表的统计，作为决议依据。
+- 统计已补齐（G2 普查重跑，`p5-s1-exit..p5-g2-exit`，census JSON 与 handoff §8）：八份数据共 50,565 条重复有效键额外行（完全相同 0、冲突 50,565），160 个 dataset-table 重复记录，键来源均为 `EXPLICIT_RULE`；
+  t3 两份各 9,817 条、24 张表，t4 两份各约 1.26 万条、40 张表。每个重复表有 `differing_columns` 与 `max_group_size`：160 条记录中 130 条只有 `no` 不同（占 44,880 条额外行），重复表的键列为 `gid`，最大重复组 1,625 行。
+  决议前置：更正复审 G2R-F1（census JSON 中 `rd-t3-c-v1` 过期的 `materialization_diagnostics`，由实施方对照诊断输出确认后以纯文档提交更正）。
 
 ### G9. 文档小偏差（文档；源自 R3-F4；已完成）
 
@@ -157,7 +161,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
    **不得删除或重新 tag `gateway-repository-client-e2e:local`**（它同时是预装依赖基础镜像；删除会让下一次构建在慢网络上超时，S1 因此多跑了两次完整门禁）；该镜像层数过多时用 `docker export | docker import` 压平，而不是删除。
 4. 本计划各项（G2、G3、G6b、G7、G8）完成后，复核 AGENTS.md 与 testing-conventions 中 carried 规则的“同一 worktree”限制是否仍然需要。
 5. G2 实施方留在 `/tmp` 的 6 个已注册临时 worktree（`gdds-g2-h-check`、`gdds-g6-final-a`、`gdds-g6-final-b`、`gdds-g6-identity-old`、`gdds-g6-verify-a`、`gdds-g6-verify-b`）：
-   由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。
+   由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。已完成：复审时 `git worktree list` 只剩主工作区与 `/home/dev/gdds-p5-closure-s1`。
 
 ## 3. 顺序
 
@@ -165,6 +169,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 2. G2（含 G6、G7，可选 G4）：在 `main` 上实施，独立审核通过后打 tag `p5-g2-exit`。G6、G7 改变构建上下文与 harness，须在门禁提交上重建并运行完整门禁，不得用 `carried` 沿用旧结果。
    实施期间只有实施者写入主工作区；其他对话不向 `main` 提交。
    2026-10-11 第一次审核结论为定向修订（G2-F1）：修订 → 新门禁提交 V′ 的完整门禁 → handoff H′ → 复审（区间 `c9a09ddb35..H′`）→ 通过后打 `p5-g2-exit`。
+   已完成：复审通过，tag `p5-g2-exit` 在 `1e0da258e8`（V′ = `0889fa953d`，H′ = `eece236590`，carried）。
 3. G3 实施规格 → owner 确认 → 实施并独立审核（control DB 基线 schema）。
 4. G8：G2 的普查重跑完成后，owner 决议重复有效键的处置。
 5. S2a kickoff（区间起点 `p5-g2-exit` 或 G3 的 tag，以后者为准）。

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from gateway_shared_kernel import DateTimeScalar
 
 from gateway_backend.capabilities.snapshot_materialization import (
     normalize_sql_type_spelling,
@@ -72,6 +73,14 @@ SET_DECODE_CASES = (
     ((), SqlSetValue(())),
 )
 
+REPOSITORY_DATETIME_CASES = (
+    ("2026-10-11 12:34:56", DateTimeScalar(text="2026-10-11T12:34:56")),
+    (
+        "2026-10-11 12:34:56.123456",
+        DateTimeScalar(text="2026-10-11T12:34:56.123456"),
+    ),
+)
+
 
 def test_versions_and_orthogonal_labels_match_s0() -> None:
     assert SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION == 1
@@ -134,5 +143,23 @@ def test_repository_set_decoding_uses_declared_label_order(
 
     assert mapped.source.logical_type is SqlLogicalType.SET
     assert mapped.source.enum_or_set_labels == ("read", "write", "admin")
+    assert encoded.cells == (expected,)
+    assert encoded.diagnostics == ()
+
+
+@pytest.mark.parametrize(("wire_value", "expected"), REPOSITORY_DATETIME_CASES)
+def test_repository_datetime_decoding_normalizes_dolt_wire_spelling(
+    wire_value: str,
+    expected: DateTimeScalar,
+) -> None:
+    column = RepositoryColumn(
+        name="sampled_at",
+        ordinal=0,
+        scalar_type="DATETIME",
+        nullable=False,
+    )
+
+    encoded = encode_repository_row((column,), (wire_value,), table="items")
+
     assert encoded.cells == (expected,)
     assert encoded.diagnostics == ()

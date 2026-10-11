@@ -7,13 +7,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import pytest
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DateTimeScalar, DigestRef, Float32Scalar
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ArtifactSourceBinding,
     DegradedReason,
     MaterializationStage,
     SnapshotColumnDescriptor,
+    SnapshotTable,
+    SnapshotTableSet,
 )
 from gateway_backend.capabilities.storage_projection import (
     STORAGE_PROJECTION_VERSION,
@@ -24,6 +26,7 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionResult,
     ProjectionStatus,
     ProjectionTableInput,
+    project_canonical_table_set,
     project_storage,
 )
 from gateway_backend.capabilities.table_access.contracts import SourceRow
@@ -53,6 +56,8 @@ from tests.support.storage_projection import (
     int_column,
     null_cell,
     table_input,
+    typed_column,
+    uint_cell,
     varchar_cell,
     varchar_column,
 )
@@ -184,6 +189,130 @@ def test_ddl_fallback_unknown_table_uses_descriptor_primary_key() -> None:
     assert view.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY
     assert view.canonical_key_columns == ("id",)
     assert view.retained_columns == ("id", "name")
+
+
+def test_canonical_table_projection_emits_canonical_descriptor_and_reader() -> None:
+    reader, binding = _net_cfg_input()
+    raw = SnapshotTableSet(
+        snapshot_id="raw-snapshot-1",
+        snapshot_digest=binding.snapshot_digest,
+        table_ruleset_version=1,
+        tables=(SnapshotTable(descriptor=binding.descriptor, reader=reader),),
+    )
+
+    projected = project_canonical_table_set(raw, migrated_table_ruleset_snapshot())
+
+    assert projected.status is ProjectionStatus.COMPLETE
+    assert projected.manifest is not None
+    assert projected.manifest.contract_version == "3.1.0"
+    assert len(projected.tables) == 1
+    canonical = projected.tables[0]
+    assert canonical.descriptor.primary_key_columns == ("board", "link_no")
+    assert tuple(column.name for column in canonical.descriptor.columns) == ("board", "link_no")
+    assert all(not column.nullable for column in canonical.descriptor.columns)
+    assert canonical.descriptor.raw_content_digest is not None
+    assert canonical.reader is not None
+    assert tuple(canonical.reader.iter_rows()) == tuple(row[:2] for row in _NET_CFG_ROWS)
+    canonical.reader.close()
+
+
+def test_storage_vocabulary_accepts_observed_unsigned_float_and_datetime_types() -> None:
+    columns = (
+        int_column("id"),
+        typed_column("tiny_unsigned", "TINYINT UNSIGNED"),
+        typed_column("small_unsigned", "SMALLINT UNSIGNED"),
+        typed_column("temperature", "FLOAT"),
+        typed_column("updated_at", "DATETIME"),
+    )
+    rows = (
+        as_row(
+            int_cell(1),
+            uint_cell(2),
+            uint_cell(300),
+            Float32Scalar(bits_hex="3f800000"),
+            DateTimeScalar(text="2026-10-11T12:34:56"),
+        ),
+    )
+
+    result = project_storage(
+        _request(
+            table_input(
+                "observed_types",
+                columns=columns,
+                primary_key_columns=("id",),
+                rows=rows,
+            )
+        )
+    )
+
+    assert result.status is ProjectionStatus.COMPLETE
+    assert result.import_input is not None
+    assert tuple(column.sql_type for column in result.import_input.tables[0].columns) == (
+        "INT",
+        "TINYINT UNSIGNED",
+        "SMALLINT UNSIGNED",
+        "FLOAT",
+        "DATETIME",
+    )
+
+
+def test_key_columns_reject_storage_types_that_repository_cannot_index() -> None:
+    result = project_storage(
+        _request(
+            table_input(
+                "text_key_table",
+                columns=(typed_column("id", "TEXT"), varchar_column("payload")),
+                primary_key_columns=("id",),
+                rows=(as_row(varchar_cell("key"), varchar_cell("value")),),
+            )
+        )
+    )
+
+    assert result.status is ProjectionStatus.FAILED
+    assert result.diagnostics[0].table_name == "text_key_table"
+    assert result.diagnostics[0].column_name == "id"
+
+
+def test_json_remains_fail_closed_without_dc12_evidence() -> None:
+    result = project_storage(
+        _request(
+            table_input(
+                "json_value_table",
+                columns=(int_column("id"), typed_column("payload", "JSON")),
+                primary_key_columns=("id",),
+                rows=(as_row(int_cell(1), varchar_cell("{}")),),
+            )
+        )
+    )
+
+    assert result.status is ProjectionStatus.FAILED
+    assert any(item.column_name == "payload" for item in result.diagnostics)
+
+
+def test_projection_collects_schema_failures_for_every_table_and_column() -> None:
+    def broken(name: str) -> TableInput:
+        return table_input(
+            name,
+            columns=(
+                int_column("id"),
+                typed_column("bad_a", "DECIMAL(9,2)"),
+                typed_column("bad_b", "BLOB"),
+            ),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), int_cell(2), int_cell(3)),),
+        )
+
+    result = project_storage(_request(broken("broken_a"), broken("broken_b")))
+
+    assert result.status is ProjectionStatus.FAILED
+    assert {
+        (item.table_name, item.column_name) for item in result.diagnostics
+    } == {
+        ("broken_a", "bad_a"),
+        ("broken_a", "bad_b"),
+        ("broken_b", "bad_a"),
+        ("broken_b", "bad_b"),
+    }
 
 
 def test_explicit_canonical_key_ignores_source_ddl_primary_key_change() -> None:

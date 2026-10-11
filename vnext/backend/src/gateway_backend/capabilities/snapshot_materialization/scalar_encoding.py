@@ -195,6 +195,8 @@ def encode_repository_value(
                     "non-finite float values are forbidden",
                 )
         text = _as_text(value)
+        if declared.kind is DeclaredTypeKind.DATETIME and "T" not in text:
+            text = text.replace(" ", "T", 1)
         typed = normalize_logical_literal(declared, Utf8LogicalLiteral(text=text)).typed_value
         return typed, None
     except (CanonicalEncodingError, TypeError, ValueError):

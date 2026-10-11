@@ -15,6 +15,7 @@ from gateway_backend.artifacts import (
 from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest
 from gateway_backend.capabilities.storage_projection._runtime import runtime_failure
 from gateway_backend.capabilities.storage_projection.contracts import (
+    CANONICALIZATION_MANIFEST_CONTRACT,
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     REPOSITORY_IMPORT_MEDIA_TYPE,
     CanonicalPublication,
@@ -68,6 +69,69 @@ def publish_canonicalization(
         status=ProjectionStatus.COMPLETE,
         publication=publication,
     )
+
+
+def publish_canonicalization_manifest(
+    manifest: CanonicalizationManifest,
+    store: ArtifactStorePort,
+) -> ArtifactRef:
+    """Persist the canonicalization manifest without building an import package."""
+    if type(manifest) is not CanonicalizationManifest:
+        raise PublicationError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            "manifest must be CanonicalizationManifest",
+        )
+    if manifest.contract_version != CANONICALIZATION_MANIFEST_CONTRACT:
+        raise PublicationError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            f"new manifest writes require contract_version {CANONICALIZATION_MANIFEST_CONTRACT}",
+        )
+    if manifest.manifest_digest is None:
+        raise PublicationError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            "manifest write requires manifest_digest",
+        )
+    if compute_manifest_digest(replace(manifest, manifest_digest=None)) != manifest.manifest_digest:
+        raise PublicationError(
+            ProjectionDiagnosticCode.DIGEST_MISMATCH,
+            "manifest digest mismatch",
+        )
+    try:
+        payload = durable_manifest_bytes(manifest)
+        ref = put_with_built_ref(
+            store,
+            payload,
+            artifact_id=_opaque_id("canonicalization-manifest"),
+            media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
+        )
+        stored = store.locate(ref)
+    except PackageError as exc:
+        raise PublicationError(exc.code, exc.message) from exc
+    except ManifestVerificationError as exc:
+        raise PublicationError(
+            ProjectionDiagnosticCode.PUBLICATION_FAILED,
+            str(exc) or "manifest artifact write or read failed",
+        ) from exc
+    except OSError as exc:
+        raise PublicationError(
+            ProjectionDiagnosticCode.PUBLICATION_FAILED,
+            str(exc) or "manifest artifact write or read failed",
+        ) from exc
+    if stored != payload:
+        raise PublicationError(
+            ProjectionDiagnosticCode.PUBLICATION_FAILED,
+            "stored manifest bytes do not match",
+        )
+    try:
+        opened = canonicalization_manifest_from_bytes(stored)
+    except PackageError as exc:
+        raise PublicationError(exc.code, exc.message) from exc
+    if opened != manifest:
+        raise PublicationError(
+            ProjectionDiagnosticCode.DIGEST_MISMATCH,
+            "durable manifest round-trip mismatch",
+        )
+    return ref
 
 
 def open_canonicalization_manifest(store: ArtifactStorePort, ref: ArtifactRef) -> CanonicalizationManifest:

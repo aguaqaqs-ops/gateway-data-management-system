@@ -18,6 +18,7 @@ from gateway_backend.capabilities.storage_projection._digest import (
     manifest_document,
 )
 from gateway_backend.capabilities.storage_projection.contracts import (
+    CANONICALIZATION_MANIFEST_CONTRACT,
     MAX_MANIFEST_JSON_BYTES,
     MAX_REPLAY_SQL_BYTES,
     CanonicalizationManifest,
@@ -87,6 +88,11 @@ def durable_manifest_bytes(manifest: CanonicalizationManifest) -> bytes:
         raise PackageError(
             ProjectionDiagnosticCode.BINDING_INVALID,
             "manifest must be CanonicalizationManifest",
+        )
+    if manifest.contract_version != CANONICALIZATION_MANIFEST_CONTRACT:
+        raise PackageError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            "new manifest writes require the current contract_version",
         )
     if manifest.manifest_digest is None:
         raise PackageError(

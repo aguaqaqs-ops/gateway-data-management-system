@@ -4,6 +4,14 @@ from gateway_backend.capabilities.snapshot_materialization.sql_declared_types im
     declared_type_for_sql_spelling,
     try_declared_type_for_sql_spelling,
 )
+from gateway_backend.capabilities.snapshot_materialization._digest import (
+    cell_count_key,
+    compare_schema_digest,
+    fast_row_digest_of,
+    fast_row_hash,
+    raw_content_digest_of,
+    row_content_hash,
+)
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     ArtifactPublishError,
     manifest_from_bytes,
@@ -108,6 +116,12 @@ __all__ = [
     "enum_set_labels_for_sql_spelling",
     "normalize_sql_type_spelling",
     "try_declared_type_for_sql_spelling",
+    "cell_count_key",
+    "compare_schema_digest",
+    "fast_row_digest_of",
+    "fast_row_hash",
+    "raw_content_digest_of",
+    "row_content_hash",
     "ARTIFACT_COMPRESSION_ZSTD",
     "BATCH_READER_CONTRACT_VERSION",
     "BATCH_SCHEMA_METADATA_VERSION",

@@ -113,7 +113,7 @@ def _ordered_input(
 ) -> TableInput:
     return table_input(
         table_name,
-        columns=(int_column("gid", nullable=True), int_column("no"), varchar_column("value")),
+        columns=(int_column("gid", nullable=True), int_column("no", nullable=True), varchar_column("value")),
         primary_key_columns=("gid",),
         rows=rows,
     )
@@ -363,6 +363,8 @@ def test_ordered_real_gid_and_blank_pseudo_allocation() -> None:
     assert import_table.primary_key == ("gid",)
     assert import_table.columns[0].sql_type == "INT UNSIGNED"
     assert import_table.columns[0].nullable is False
+    position = next(column for column in import_table.columns if column.name == "no")
+    assert position.nullable is False
     zero = project_storage(
         _request(
             _ordered_input(

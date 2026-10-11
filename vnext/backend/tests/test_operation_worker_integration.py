@@ -158,8 +158,8 @@ def test_empty_file_backed_worker_reaches_ready_drains_and_reopens_wal(
     with connect_control_db(settings.control_db_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert connection.execute(
-            "SELECT version FROM control_schema_migrations WHERE component = 'operations'"
-        ).fetchone()[0] == 1
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
+        ).fetchone()[0] == "step_records"
 
 
 def test_missing_runnable_handler_fails_closed_before_claim(tmp_path: Path) -> None:

@@ -55,14 +55,10 @@ def assert_control_db_integrity(connection: sqlite3.Connection) -> None:
         raise ControlDbIntegrityError("control DB foreign key check failed")
 
 
-def initialize_and_verify_control_db(
-    db_path: Path,
-    *,
-    now: Callable[[], datetime] = _utc_now,
-) -> None:
-    """Initialize schema, then fail closed on integrity errors."""
+def initialize_and_verify_control_db(db_path: Path) -> None:
+    """Create or verify the control DB schema, then fail closed on integrity errors."""
 
-    initialize_control_db(db_path, now=now)
+    initialize_control_db(db_path)
     connection = connect_control_db(db_path)
     try:
         assert_control_db_integrity(connection)
@@ -70,22 +66,21 @@ def initialize_and_verify_control_db(
         connection.close()
 
 
-def initialize_control_db(
-    db_path: Path,
-    *,
-    now: Callable[[], datetime] = _utc_now,
-) -> None:
-    """Bootstrap the component schema using a short-lived configured connection."""
+def initialize_control_db(db_path: Path) -> None:
+    """Create or verify the control DB schema using a short-lived configured connection.
 
-    from gateway_backend.infrastructure.control_db.migrations import (
-        bootstrap_control_schema,
-        bootstrap_workspace_schema,
+    An existing file is checked read-only first, so a rejected file is not modified.
+    """
+
+    from gateway_backend.infrastructure.control_db.schema import (
+        bootstrap_control_db_schema,
+        verify_control_db_file,
     )
 
+    verify_control_db_file(db_path)
     connection = connect_control_db(db_path)
     try:
-        bootstrap_control_schema(connection, now=now)
-        bootstrap_workspace_schema(connection, now=now)
+        bootstrap_control_db_schema(connection)
     finally:
         connection.close()
 

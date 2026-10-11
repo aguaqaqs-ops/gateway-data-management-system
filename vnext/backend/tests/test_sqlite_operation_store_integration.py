@@ -21,7 +21,7 @@ from gateway_backend.infrastructure.control_db import (
     initialize_control_db,
 )
 from gateway_backend.infrastructure.control_db import control_db_connect
-from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
+from gateway_backend.infrastructure.control_db.schema import bootstrap_control_db_schema
 from gateway_backend.infrastructure.control_db.sqlite_operations import SQLiteOperationStore
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -42,7 +42,7 @@ from gateway_backend.operations.persistence import OperationLifecycleActions
 
 pytestmark = pytest.mark.integration
 
-MIGRATION_TIME = datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
+FIXED_TRANSACTION_TIME = datetime(2024, 1, 2, 3, 4, 5, tzinfo=UTC)
 LATER_TIME = datetime(2024, 1, 2, 3, 5, 5, tzinfo=UTC)
 
 CLAIM_LOCAL_VALIDATION_FAILURES = (
@@ -112,7 +112,7 @@ def _step_document(
 
 def test_file_backed_profile_and_schema_survive_reopen(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
 
     connection = connect_control_db(db_path)
     assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
@@ -128,9 +128,6 @@ def test_file_backed_profile_and_schema_survive_reopen(tmp_path: Path) -> None:
         assert reopened.execute("PRAGMA synchronous").fetchone()[0] == 2
         assert reopened.execute("PRAGMA busy_timeout").fetchone()[0] == 5_000
         assert reopened.execute(
-            "SELECT version FROM control_schema_migrations WHERE component = 'operations'"
-        ).fetchone()[0] == 1
-        assert reopened.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
         ).fetchone()[0] == "step_records"
     finally:
@@ -141,7 +138,7 @@ def test_file_backed_transaction_visibility_is_atomic_across_connections(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-wal-0001"))
     step = step_record_from_document(_step_document("op-wal-0001", "step-wal-0001"))
 
@@ -181,7 +178,7 @@ def test_file_backed_transaction_visibility_is_atomic_across_connections(
 
 def test_file_backed_stale_cas_preserves_the_newer_connection_result(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-wal-cas-0001"))
     step = step_record_from_document(_step_document("op-wal-cas-0001", "step-wal-cas-0001"))
 
@@ -247,7 +244,7 @@ def test_file_backed_writer_contention_maps_to_store_busy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     monkeypatch.setattr(control_db_connect, "BUSY_TIMEOUT_MS", 0)
     holder = connect_control_db(db_path)
     holder.execute("BEGIN IMMEDIATE")
@@ -276,7 +273,7 @@ def test_file_backed_writer_contention_maps_to_store_busy(
 
 def test_unit_of_work_commits_and_rolls_back_on_same_connection(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
 
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute("CREATE TABLE uow_probe(value INTEGER NOT NULL)")
@@ -310,7 +307,7 @@ def test_two_connections_can_bootstrap_the_same_file_once(tmp_path: Path) -> Non
         barrier.wait()
         connection = connect_control_db(db_path)
         try:
-            bootstrap_control_schema(connection, now=lambda: MIGRATION_TIME)
+            bootstrap_control_db_schema(connection)
         finally:
             connection.close()
 
@@ -324,12 +321,6 @@ def test_two_connections_can_bootstrap_the_same_file_once(tmp_path: Path) -> Non
         assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert connection.execute("PRAGMA synchronous").fetchone()[0] == 2
         assert connection.execute(
-            "SELECT COUNT(*) FROM control_schema_migrations WHERE component = 'operations'"
-        ).fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT version FROM control_schema_migrations WHERE component = 'operations'"
-        ).fetchone()[0] == 1
-        assert connection.execute(
             "SELECT name FROM sqlite_master "
             "WHERE type = 'index' AND name = 'step_records_one_active_per_operation'"
         ).fetchone()[0] == "step_records_one_active_per_operation"
@@ -342,8 +333,8 @@ def test_file_backed_process_termination_rolls_back_uncommitted_probe(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
-    with ControlDbUnitOfWork(db_path, now=lambda: MIGRATION_TIME) as unit_of_work:
+    initialize_control_db(db_path)
+    with ControlDbUnitOfWork(db_path, now=lambda: FIXED_TRANSACTION_TIME) as unit_of_work:
         unit_of_work.connection.execute(
             "CREATE TABLE crash_probe(value TEXT NOT NULL UNIQUE)"
         )
@@ -420,7 +411,7 @@ sys.stdin.buffer.read(1)
 
 def test_operation_store_commits_and_reads_back_after_reopen(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-file-0001"))
     step = step_record_from_document(_step_document("op-file-0001", "step-file-0001"))
 
@@ -441,7 +432,7 @@ def test_file_backed_active_integrity_scan_rejects_orphan_step_after_reopen(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-orphan-0001"))
     step = step_record_from_document(_step_document("op-orphan-0001", "step-orphan-0001"))
 
@@ -466,7 +457,7 @@ def test_file_backed_active_integrity_scan_rejects_orphan_step_after_reopen(
 
 def test_lifecycle_claim_commits_and_reads_back_after_reopen(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-claim-0001"))
     step = step_record_from_document(_step_document("op-claim-0001", "step-claim-0001"))
 
@@ -505,7 +496,7 @@ def test_caught_claim_local_validation_rolls_back_without_a_prefix(
 ) -> None:
     del case_name
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-claim-validation-0001"))
     step = step_record_from_document(
         _step_document("op-claim-validation-0001", "step-claim-validation-0001")
@@ -540,7 +531,7 @@ def test_file_backed_active_integrity_scan_fails_closed_on_unknown_status(
     identity: str,
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-unknown-status-0001"))
     step = step_record_from_document(
         _step_document("op-unknown-status-0001", "step-unknown-status-0001")
@@ -572,7 +563,7 @@ def test_file_backed_active_integrity_scan_fails_closed_on_unknown_status(
 
 def test_lifecycle_and_owner_share_commit_and_rollback_boundary(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-action-0001"))
     step = step_record_from_document(_step_document("op-action-0001", "step-action-0001"))
 
@@ -620,7 +611,7 @@ def test_lifecycle_and_owner_share_commit_and_rollback_boundary(tmp_path: Path) 
 
 def test_caught_cancel_second_leg_failure_rolls_back_the_whole_uow(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-caught-cancel-0001"))
     step = step_record_from_document(_step_document("op-caught-cancel-0001", "step-caught-cancel-0001"))
 
@@ -676,7 +667,7 @@ def test_caught_successor_second_leg_failure_rolls_back_the_whole_uow(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-caught-successor-0001"))
     step = step_record_from_document(
         _step_document("op-caught-successor-0001", "step-caught-successor-0001")
@@ -726,7 +717,7 @@ def test_caught_successor_second_leg_failure_rolls_back_the_whole_uow(
 
 def test_rollback_only_rejects_a_later_valid_create(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-poison-create-0001"))
     step = step_record_from_document(_step_document("op-poison-create-0001", "step-poison-create-0001"))
     later_operation = operation_record_from_document(
@@ -787,7 +778,7 @@ def test_rollback_only_rejects_a_later_valid_create(tmp_path: Path) -> None:
 
 def test_rollback_only_rejects_a_later_valid_cas(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-poison-cas-0001"))
     step = step_record_from_document(_step_document("op-poison-cas-0001", "step-poison-cas-0001"))
 
@@ -852,7 +843,7 @@ def test_terminal_successor_branches_cannot_create_active_step_under_terminal_op
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-terminal-branch-0001"))
     step = step_record_from_document(_step_document("op-terminal-branch-0001", "step-terminal-branch-0001"))
     successor = step_record_from_document(
@@ -925,7 +916,7 @@ def test_terminal_successor_branches_cannot_create_active_step_under_terminal_op
 
 def test_successor_conflict_rolls_back_prior_step_completion(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-action-0003"))
     step = step_record_from_document(_step_document("op-action-0003", "step-action-0003"))
     successor = step_record_from_document(
@@ -976,7 +967,7 @@ def test_successor_conflict_rolls_back_prior_step_completion(tmp_path: Path) -> 
 
 def test_uow_samples_transaction_clock_once(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     calls = 0
 
     def now() -> datetime:
@@ -991,11 +982,11 @@ def test_uow_samples_transaction_clock_once(tmp_path: Path) -> None:
 
 def test_owner_and_operation_share_commit_and_rollback_boundary(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
-    initialize_control_db(db_path, now=lambda: MIGRATION_TIME)
+    initialize_control_db(db_path)
     operation = operation_record_from_document(_operation_document("op-owner-0001"))
     step = step_record_from_document(_step_document("op-owner-0001", "step-owner-0001"))
 
-    with ControlDbUnitOfWork(db_path, now=lambda: MIGRATION_TIME) as unit_of_work:
+    with ControlDbUnitOfWork(db_path, now=lambda: FIXED_TRANSACTION_TIME) as unit_of_work:
         unit_of_work.connection.execute(
             "CREATE TABLE synthetic_owner(value TEXT NOT NULL)"
         )
@@ -1017,7 +1008,7 @@ def test_owner_and_operation_share_commit_and_rollback_boundary(tmp_path: Path) 
     rollback_operation = operation_record_from_document(_operation_document("op-owner-0002"))
     rollback_step = step_record_from_document(_step_document("op-owner-0002", "step-owner-0002"))
     with pytest.raises(RuntimeError, match="synthetic rollback"):
-        with ControlDbUnitOfWork(db_path, now=lambda: MIGRATION_TIME) as unit_of_work:
+        with ControlDbUnitOfWork(db_path, now=lambda: FIXED_TRANSACTION_TIME) as unit_of_work:
             assert (
                 unit_of_work.operations.insert_operation_with_initial_step(
                     rollback_operation,

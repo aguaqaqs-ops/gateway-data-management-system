@@ -334,7 +334,7 @@ def _make_harness(
     db_path.parent.mkdir(parents=True, exist_ok=True)
     clock_value = clock if clock is not None else BASE_TIME
     mutable_clock = _MutableClock(clock_value)
-    initialize_control_db(db_path, now=mutable_clock)
+    initialize_control_db(db_path)
     return TakeoverHarness(db_path=db_path, clock=mutable_clock, capability=capability)
 
 

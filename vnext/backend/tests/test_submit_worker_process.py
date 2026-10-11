@@ -222,7 +222,7 @@ from gateway_backend.operations.worker import ExecutionControl
 db_path = Path(sys.argv[1])
 clock_value = datetime.now(UTC) - timedelta(seconds=60)
 clock = lambda: clock_value
-initialize_control_db(db_path, now=clock)
+initialize_control_db(db_path)
 operation = operation_record_from_document({
     "artifact_refs": [], "business_refs": [], "cancel_requested": False,
     "checkpoint_ref": None, "completed_at": None,

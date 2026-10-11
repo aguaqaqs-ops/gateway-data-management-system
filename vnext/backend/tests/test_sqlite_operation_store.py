@@ -15,7 +15,7 @@ from gateway_backend.infrastructure.control_db.sqlite_operations import (
     step_record_from_row,
     step_record_to_row,
 )
-from gateway_backend.infrastructure.control_db.migrations import bootstrap_control_schema
+from gateway_backend.infrastructure.control_db.schema import bootstrap_control_db_schema
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     ConflictingDuplicate,
@@ -145,7 +145,7 @@ def _memory_store(
 ) -> tuple[sqlite3.Connection, SQLiteOperationStore]:
     connection = sqlite3.connect(":memory:", isolation_level=None)
     connection.row_factory = sqlite3.Row
-    bootstrap_control_schema(connection, now=lambda: datetime_from_text(TIMESTAMP))
+    bootstrap_control_db_schema(connection)
     connection.execute("BEGIN IMMEDIATE")
     return connection, SQLiteOperationStore(
         connection,

@@ -29,6 +29,7 @@ from gateway_backend.bootstrap.composition import (
     prepare_backend_runtime,
 )
 from gateway_backend.infrastructure.artifact_store import validate_artifact_root
+from gateway_backend.operations import UnsupportedSchemaVersion
 from gateway_backend.infrastructure.repository_read import load_repository_bearer_token
 from tests.support.runtime_settings import (
     TEST_REPOSITORY_TOKEN,
@@ -72,6 +73,24 @@ def test_prepare_backend_runtime_fails_closed_without_token_file(tmp_path: Path)
     )
     with pytest.raises(ValueError, match="unreadable"):
         prepare_backend_runtime(settings, skip_repository_ready_probe=True)
+
+
+def test_prepare_backend_runtime_rejects_control_db_with_a_different_schema(tmp_path: Path) -> None:
+    prepare_backend_runtime_paths(tmp_path)
+    control_db_path = tmp_path / "control" / "control.sqlite3"
+    connection = connect_control_db(control_db_path)
+    try:
+        connection.execute("CREATE TABLE unexpected_probe (value INTEGER NOT NULL)")
+    finally:
+        connection.close()
+    before = control_db_path.read_bytes()
+    settings = make_backend_settings(tmp_path, control_db_path=control_db_path)
+
+    with pytest.raises(UnsupportedSchemaVersion, match="unexpected_probe") as exc_info:
+        prepare_backend_runtime(settings, skip_repository_ready_probe=True)
+
+    assert str(tmp_path) not in str(exc_info.value)
+    assert control_db_path.read_bytes() == before
 
 
 def test_token_loader_does_not_embed_secret_in_errors(tmp_path: Path) -> None:

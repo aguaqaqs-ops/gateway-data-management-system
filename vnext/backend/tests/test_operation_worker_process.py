@@ -114,11 +114,11 @@ def test_module_worker_bootstraps_empty_db_and_drains_on_sigterm(tmp_path: Path)
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         assert connection.execute(
-            "SELECT version FROM control_schema_migrations WHERE component = 'operations'"
-        ).fetchone()[0] == 1
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'step_records'"
+        ).fetchone()[0] == "step_records"
 
 
-@pytest.mark.parametrize("failure_kind", ("corrupt", "higher_schema"))
+@pytest.mark.parametrize("failure_kind", ("corrupt", "structure_mismatch"))
 def test_module_worker_failure_is_nonzero_and_redacted(
     tmp_path: Path,
     failure_kind: str,
@@ -130,9 +130,7 @@ def test_module_worker_failure_is_nonzero_and_redacted(
     else:
         initialize_control_db(db_path)
         with sqlite3.connect(db_path) as connection:
-            connection.execute(
-                "UPDATE control_schema_migrations SET version = 2 WHERE component = 'operations'"
-            )
+            connection.execute("CREATE TABLE unexpected_probe (value INTEGER NOT NULL)")
             connection.commit()
 
     process = _spawn_worker(db_path)
@@ -267,7 +265,7 @@ from gateway_backend.operations.worker import ExecutionControl
 db_path = Path(sys.argv[1])
 clock_value = datetime.now(UTC) - timedelta(seconds=60)
 clock = lambda: clock_value
-initialize_control_db(db_path, now=clock)
+initialize_control_db(db_path)
 operation = operation_record_from_document({
     "artifact_refs": [], "business_refs": [], "cancel_requested": False,
     "checkpoint_ref": None, "completed_at": None,

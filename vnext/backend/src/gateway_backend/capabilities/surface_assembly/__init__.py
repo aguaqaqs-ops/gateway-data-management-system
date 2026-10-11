@@ -48,6 +48,7 @@ from gateway_backend.capabilities.surface_assembly.contracts import (
     SurfaceTableProcessingMode,
     SurfaceTableRefs,
     SurfaceView,
+    SurfaceIdentityAnnotation,
 )
 
 __all__ = [
@@ -84,6 +85,7 @@ __all__ = [
     "SurfaceTableProcessingMode",
     "SurfaceTableRefs",
     "SurfaceView",
+    "SurfaceIdentityAnnotation",
     "assemble_surface",
     "compute_surface_digest",
     "rewrite_surface_refs",

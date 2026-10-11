@@ -15,7 +15,6 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonSummary,
     ComparisonTableFact,
     ComparisonTableStatus,
-    IdentityStatus,
     PairResultStatus,
     RecordsArtifactFamily,
     RecordsClosureEntry,
@@ -41,6 +40,7 @@ from gateway_backend.capabilities.surface_assembly import (
     SurfaceAssemblyStatus,
     SurfaceChangeKind,
     SurfaceDisplayStrategy,
+    SurfaceIdentityAnnotation,
     SurfaceRecordsFormat,
     SurfaceRefScope,
     SurfaceTableProcessingMode,
@@ -90,11 +90,9 @@ def _facts(
     table: ComparisonTableFact,
     *,
     mode: ComparisonMode = ComparisonMode.DETAILED,
-    identity_status: IdentityStatus = IdentityStatus.NOT_APPLICABLE,
-    assessment_digest: DigestRef | None = None,
     records_ref: ArtifactRef | None = None,
 ) -> ComparisonFacts:
-    changed = table.status not in {
+    changed = table.content_changed or table.status not in {
         ComparisonTableStatus.UNCHANGED,
         ComparisonTableStatus.BUSINESS_EQUIVALENT,
     }
@@ -117,8 +115,6 @@ def _facts(
         suppressed_deleted_count=table.suppressed_deleted_count,
         diagnostics_count=len(table.diagnostics),
     )
-    if identity_status is IdentityStatus.NOT_APPLICABLE:
-        assessment_digest = None
     return ComparisonFacts(
         comparison_digest=_digest("comparison"),
         facts_core_digest=_digest("facts-core"),
@@ -128,8 +124,6 @@ def _facts(
         before_snapshot_digest=_digest("before"),
         current_snapshot_digest=_digest("current"),
         comparison_mode=mode,
-        project_identity_status=identity_status,
-        assessment_digest=assessment_digest,
         direction="BEFORE_TO_CURRENT",
         summary=summary,
         tables=(table,),
@@ -143,6 +137,7 @@ def _request(
     table_refs: SurfaceTableRefs = SurfaceTableRefs(),
     records_closure: ComparisonRecordsClosure | None = None,
     surface_id: str = "surface-1",
+    identity_annotation: SurfaceIdentityAnnotation = SurfaceIdentityAnnotation(),
 ) -> SurfaceAssemblyInput:
     return SurfaceAssemblyInput(
         comparison_facts=facts,
@@ -153,6 +148,7 @@ def _request(
         records_closure=records_closure,
         table_artifacts=(SurfaceArtifactIndexEntry("orders", table_refs),),
         ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
+        identity_annotation=identity_annotation,
     )
 
 
@@ -192,6 +188,24 @@ def test_unchanged_table_is_summary_only_without_row_reads() -> None:
     assert table.display.table_processing_mode is SurfaceTableProcessingMode.STANDARD
     assert "before_values" not in str(result.surface.to_document())
     validate_surface(result.surface)
+
+
+def test_table_content_fact_is_visible_and_counts_as_changed() -> None:
+    facts = _facts(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.UNCHANGED,
+            content_changed=True,
+        )
+    )
+    result = assemble_surface(_request(facts))
+
+    assert result.status is SurfaceAssemblyStatus.READY
+    assert result.surface is not None
+    assert result.surface.summary.changed_table_count == 1
+    assert result.surface.tables[0].change_kind is SurfaceChangeKind.UPDATED
+    assert result.surface.tables[0].content_changed is True
+    assert result.surface.tables[0].to_document()["content_changed"] is True
 
 
 @pytest.mark.parametrize(
@@ -338,8 +352,6 @@ def test_replacement_uses_independent_side_browse_and_no_records() -> None:
     facts = _facts(
         table,
         mode=ComparisonMode.DATASET_REPLACEMENT,
-        identity_status=IdentityStatus.DIFFERENT_PROJECT,
-        assessment_digest=_digest("assessment"),
     )
     result = assemble_surface(
         _request(
@@ -347,6 +359,10 @@ def test_replacement_uses_independent_side_browse_and_no_records() -> None:
             table_refs=SurfaceTableRefs(
                 before_table_ref=_ref("before-orders", "application/vnd.apache.parquet"),
                 current_table_ref=_ref("current-orders", "application/vnd.apache.parquet"),
+            ),
+            identity_annotation=SurfaceIdentityAnnotation(
+                status="DIFFERENT_PROJECT",
+                assessment_digest=_digest("assessment"),
             ),
         )
     )

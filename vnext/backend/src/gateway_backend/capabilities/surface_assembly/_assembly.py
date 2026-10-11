@@ -117,6 +117,7 @@ def assemble_surface(
         changed_count = sum(
             item.change_kind
             not in {SurfaceChangeKind.UNCHANGED, SurfaceChangeKind.BUSINESS_EQUIVALENT}
+            or item.content_changed
             for item in table_tuple
         )
         degraded_count = sum(item.change_kind is SurfaceChangeKind.DEGRADED for item in table_tuple)
@@ -150,8 +151,8 @@ def assemble_surface(
             direction=facts.direction,
             comparison_digest=facts.comparison_digest,
             comparison_mode=facts.comparison_mode,
-            project_identity_status=facts.project_identity_status,
-            project_identity_assessment_digest=facts.assessment_digest,
+            project_identity_status=request.identity_annotation.status,
+            project_identity_assessment_digest=request.identity_annotation.assessment_digest,
             requires_submit_confirmation=request.requires_submit_confirmation,
             risk_evaluation_digest=(
                 None if request.risk_report is None else request.risk_report.risk_evaluation_digest
@@ -164,7 +165,7 @@ def assemble_surface(
                 records_closure_ref=facts.records_ref,
                 risk_report_ref=request.risk_report_ref,
                 risk_annotation_closure_ref=request.risk_annotation_closure_ref,
-                project_identity_assessment_ref=request.project_identity_assessment_ref,
+                project_identity_assessment_ref=request.identity_annotation.assessment_ref,
                 diagnostics_ref=request.diagnostics_ref,
             ),
             diagnostics=SurfaceDiagnostics(
@@ -341,6 +342,8 @@ def _project_table(
     change_kind, strategy, processing, replay = _display_projection(
         table, table_refs, records, replacement, ordered_unsupported
     )
+    if table.content_changed and change_kind is SurfaceChangeKind.UNCHANGED:
+        change_kind = SurfaceChangeKind.UPDATED
     if ordered_unsupported:
         change_kind = SurfaceChangeKind.DEGRADED
     display_name = _display_name(table)
@@ -402,6 +405,7 @@ def _project_table(
         display=SurfaceDisplay(strategy, processing, replay),
         compare=compare,
         diagnostics=diagnostics,
+        content_changed=table.content_changed,
         replacement_summary=replacement_summary,
         ordered_extension=ordered,
     )

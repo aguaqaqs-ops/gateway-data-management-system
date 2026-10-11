@@ -12,7 +12,6 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from gateway_backend.application.history.compare_jobs import _table_policies_from_checkpoint
 from gateway_backend.artifacts import InMemoryArtifactStore
 from tests.support.compose_gate_harness import (
     BACKEND_URL,
@@ -251,10 +250,7 @@ def _assert_remote_matches_oracle(
     artifact_store: InMemoryArtifactStore,
 ) -> None:
     job_state = read_history_compare_materialize_job_state(env, operation_id)
-    policies_raw = job_state["table_policies"]
-    assert isinstance(policies_raw, list)
-    table_policies = _table_policies_from_checkpoint(policies_raw)
-    compare_binding_digest = str(job_state["compare_binding_digest"])
+    assert "table_policies" not in job_state
     before_provider = _standard_provider_from_repository(env, repository_id, before_commit)
     current_provider = _standard_provider_from_repository(env, repository_id, current_commit)
     oracle_digest = oracle_comparison_digest(
@@ -262,8 +258,6 @@ def _assert_remote_matches_oracle(
         current_provider=current_provider,
         before_commit=before_commit,
         current_commit=current_commit,
-        table_policies=table_policies,
-        compare_binding_digest=compare_binding_digest,
         artifact_store=artifact_store,
     )
     assert remote_digest == oracle_digest

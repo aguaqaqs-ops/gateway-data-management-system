@@ -30,6 +30,7 @@ from tests.support.preview_job_harness import (
     step_id_for,
     store_source_package,
 )
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 
 pytestmark = pytest.mark.integration
 
@@ -102,6 +103,7 @@ def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> Non
         business_baseline_commit_id="commit-base",
         baseline_head_version=3,
         idempotency_key=IDEMPOTENCY_KEY,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
     payload = decode_preview_payload(decode_payload_object(harness))
     from gateway_backend.application.preview_jobs import _materialize_all_sides

@@ -71,6 +71,7 @@ def build_preview_job_payload(
     business_baseline_commit_id: str,
     baseline_head_version: int,
     idempotency_key: str,
+    comparison_ruleset_digest: str,
     options: Mapping[str, object] | None = None,
 ) -> bytes:
     source_artifacts: dict[str, dict[str, object]] = {}
@@ -96,6 +97,7 @@ def build_preview_job_payload(
         "source_digests": source_digests,
         "input_digest": upload_revision.request_fingerprint,
         "ruleset_version": PREVIEW_FROZEN_RULESET_VERSION,
+        "comparison_ruleset_digest": comparison_ruleset_digest,
         "capability_contract_versions": {},
         "provider_versions": {},
         "ready_closure_contract_version": "v1",
@@ -121,6 +123,7 @@ def accept_preview_operation(
     unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     job_registry: JobDefinitionRegistry,
     artifact_store: BoundedArtifactStorePort,
+    comparison_ruleset_digest: str,
     now: datetime,
     options: Mapping[str, object] | None = None,
 ) -> PreviewAcceptanceResult:
@@ -198,6 +201,7 @@ def accept_preview_operation(
             business_baseline_commit_id=validation.baseline_head.business_baseline_commit_id,
             baseline_head_version=validation.baseline_head.baseline_head_version,
             idempotency_key=command.idempotency_key,
+            comparison_ruleset_digest=comparison_ruleset_digest,
             options=resolved_options,
         )
         source_refs = _source_artifact_refs(validation.upload_revision)

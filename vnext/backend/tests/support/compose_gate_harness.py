@@ -841,15 +841,13 @@ def oracle_history_compare_digest_from_materialize_checkpoint(
     script = f"""
 import json, sqlite3
 from pathlib import Path
-from gateway_shared_kernel import DigestRef
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.compare_jobs import (
     _run_pair_pipeline,
     _sides_from_materialize_checkpoint,
-    _table_policies_from_checkpoint,
 )
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
-from gateway_backend.capabilities.comparison import PairViewKind, TrustedFlowApplicabilityBinding
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.operations.worker import ExecutionControl
 
@@ -869,18 +867,11 @@ ref = artifact_ref_from_dict(checkpoint)
 envelope = load_checkpoint_envelope(store, ref)
 job_state = envelope.job_state
 sides = _sides_from_materialize_checkpoint(job_state, store)
-table_policies = _table_policies_from_checkpoint(job_state["table_policies"])
-compare_binding_digest = job_state["compare_binding_digest"]
-trusted = TrustedFlowApplicabilityBinding(
-    view_kind=PairViewKind.HISTORY,
-    binding_digest=DigestRef(str(compare_binding_digest)),
-)
 result = _run_pair_pipeline(
     pair_id="pair-0",
     before=sides[before_commit],
     current=sides[current_commit],
-    table_policies=table_policies,
-    trusted_flow_binding=trusted,
+    rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
     store=store,
     control=ExecutionControl(),
 )
@@ -906,28 +897,20 @@ def ordered_compare_facts_from_materialize_checkpoint(
     script = f"""
 import json, sqlite3
 from pathlib import Path
-from gateway_shared_kernel import DigestRef
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.compare_jobs import (
     _sides_from_materialize_checkpoint,
-    _table_policies_from_checkpoint,
 )
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.capabilities.comparison import (
+    ComparisonPlan,
+    ComparisonRequest,
     DetailedFactsResult,
-    PairViewKind,
-    TrustedFlowApplicabilityBinding,
-    bind_pair_input,
     compare_plan,
-    plan_pair,
 )
-from gateway_backend.capabilities.comparison.contracts import (
-    ArtifactScope,
-    InputCompleteness,
-    PairRole,
-)
+from gateway_backend.capabilities.comparison import plan_comparison
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_backend.operations.worker import ExecutionControl
 
 step_id = "{materialize_step_id}"
 before_commit = "{before_commit}"
@@ -945,27 +928,14 @@ ref = artifact_ref_from_dict(checkpoint)
 envelope = load_checkpoint_envelope(store, ref)
 job_state = envelope.job_state
 sides = _sides_from_materialize_checkpoint(job_state, store)
-table_policies = _table_policies_from_checkpoint(job_state["table_policies"])
-compare_binding_digest = job_state["compare_binding_digest"]
-trusted = TrustedFlowApplicabilityBinding(
-    view_kind=PairViewKind.HISTORY,
-    binding_digest=DigestRef(str(compare_binding_digest)),
-)
-bound = bind_pair_input(
+request = ComparisonRequest(
     pair_id="pair-0",
-    view_kind=PairViewKind.HISTORY,
-    pair_role=PairRole.HISTORY,
     before=sides[before_commit],
     current=sides[current_commit],
-    input_completeness=InputCompleteness.FULL,
-    artifact_scope=ArtifactScope.ALL_CHANGES,
-    trusted_flow_binding=trusted,
-    table_policies=table_policies,
+    rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
 )
-if not hasattr(bound, "pair_id"):
-    raise RuntimeError("pair binding failed")
-plan = plan_pair(bound)
-if not hasattr(plan, "pair_id"):
+plan = plan_comparison(request)
+if not isinstance(plan, ComparisonPlan):
     raise RuntimeError("pair planning failed")
 compared = compare_plan(plan)
 if not isinstance(compared, DetailedFactsResult) or compared.facts is None:

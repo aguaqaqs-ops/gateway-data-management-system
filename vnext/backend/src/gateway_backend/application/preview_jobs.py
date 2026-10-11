@@ -27,6 +27,7 @@ from gateway_backend.application.checkpoints import (
 from gateway_backend.application.job_steps import unique_artifact_refs
 from gateway_backend.application.pair_pipeline import (
     PairPipelineError,
+    PreviewIdentityStatus,
     PreviewPairPipelineResult as _PairPipelineResult,
     run_preview_pair_pipeline,
 )
@@ -66,13 +67,7 @@ from gateway_backend.capabilities.bundle_assembly import (
     collect_surface_refs,
 )
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
-from gateway_backend.capabilities.comparison import (
-    BoundSnapshotInput,
-    PairRole,
-)
-from gateway_backend.capabilities.comparison.contracts import (
-    IdentityStatus,
-)
+from gateway_backend.capabilities.comparison import BoundSnapshotInput
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     open_snapshot_table_artifact,
@@ -124,6 +119,8 @@ from gateway_backend.capabilities.table_rules.contracts import (
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
 )
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
     InputCompleteness,
@@ -137,6 +134,7 @@ from gateway_backend.domain.workspace.ports import BaselineHeadReadPort, Workspa
 from gateway_backend.operations.contracts import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
+    OperationDiagnostic,
     OperationRecord,
     OperationStatus,
     StepRecord,
@@ -213,6 +211,7 @@ class PreviewJobPayload:
     source_digests: Mapping[str, str]
     input_digest: str
     ruleset_version: str
+    comparison_ruleset_digest: str
     capability_contract_versions: Mapping[str, object]
     provider_versions: Mapping[str, str]
     ready_closure_contract_version: str
@@ -261,7 +260,7 @@ class _PreviewIdentityAssessment:
     rule_version: str
     before_snapshot_digest: DigestRef
     current_snapshot_digest: DigestRef
-    status: IdentityStatus
+    status: PreviewIdentityStatus
     assessment_digest: DigestRef
     comparable_columns: tuple[str, ...] = ()
     before_row_count: int = 0
@@ -331,6 +330,7 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
     source_digests = _decode_string_map(payload_object.get("source_digests"), label="source_digests")
     input_digest = _require_non_empty_str(payload_object, "input_digest")
     ruleset_version = _require_non_empty_str(payload_object, "ruleset_version")
+    comparison_ruleset_digest = _require_non_empty_str(payload_object, "comparison_ruleset_digest")
     capability_contract_versions = _decode_object_map(
         payload_object.get("capability_contract_versions"),
         label="capability_contract_versions",
@@ -356,6 +356,7 @@ def decode_preview_payload(payload_object: dict[str, object]) -> PreviewJobPaylo
         source_digests=source_digests,
         input_digest=input_digest,
         ruleset_version=ruleset_version,
+        comparison_ruleset_digest=comparison_ruleset_digest,
         capability_contract_versions=capability_contract_versions,
         provider_versions=dict(provider_versions),
         ready_closure_contract_version=ready_closure_contract_version,
@@ -483,6 +484,14 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
+        if _publish_preview_ruleset_mismatch_if_needed(
+            payload=payload,
+            operation=operation,
+            step=step,
+            lease_session=lease_session,
+            control=control,
+        ):
+            return ExecutorAcknowledgment.PUBLISHED
         key = definition.key
 
         if step.checkpoint_ref is not None:
@@ -555,6 +564,16 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
+        active_rules = _active_preview_ruleset()
+        if active_rules.ruleset_digest is None or active_rules.ruleset_digest.value != payload.comparison_ruleset_digest:
+            _publish_preview_ruleset_mismatch_failure(
+                payload=payload,
+                operation=operation,
+                step=step,
+                lease_session=lease_session,
+                control=control,
+            )
+            return ExecutorAcknowledgment.PUBLISHED
         materialize_step = _load_step(
             deps,
             operation_id=operation.operation_id,
@@ -610,6 +629,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 deps.artifact_store,
                 lease_session,
                 control,
+                active_rules,
             )
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
             closure_ref = prepare_ready_closure(
@@ -671,6 +691,14 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_preview_payload(operation, deps.artifact_store)
+        if _publish_preview_ruleset_mismatch_if_needed(
+            payload=payload,
+            operation=operation,
+            step=step,
+            lease_session=lease_session,
+            control=control,
+        ):
+            return ExecutorAcknowledgment.PUBLISHED
         assemble_step = _load_step(
             deps,
             operation_id=operation.operation_id,
@@ -1078,13 +1106,14 @@ def _assemble_preview(
     store: ArtifactStorePort,
     lease_session: LeaseSession,
     control: ExecutionControl,
+    rule_set: ComparisonRuleSet,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
     if payload.input_completeness is InputCompleteness.FULL:
-        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput, PairRole], ...] = (
-            (_PAIR_BASELINE_TO_INITIAL, sides[_SIDE_BASELINE], sides[_SIDE_INITIAL], PairRole.BASELINE_TO_INITIAL),
-            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED], PairRole.INITIAL_TO_MODIFIED),
+        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput], ...] = (
+            (_PAIR_BASELINE_TO_INITIAL, sides[_SIDE_BASELINE], sides[_SIDE_INITIAL]),
+            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED]),
         )
         bundle_profile = BundleProfile.MULTI_PAIR
         bundle_inputs: tuple[BundleInput, ...] = (
@@ -1102,7 +1131,6 @@ def _assemble_preview(
                 _PAIR_INITIAL_TO_MODIFIED,
                 sides[_SIDE_BASELINE],
                 sides[_SIDE_MODIFIED],
-                PairRole.INITIAL_TO_MODIFIED,
             ),
         )
         bundle_profile = BundleProfile.SINGLE_PAIR
@@ -1112,7 +1140,7 @@ def _assemble_preview(
         )
         bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
 
-    for pair_id, before, current, pair_role in pair_specs:
+    for pair_id, before, current in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
             raise PreviewJobError("preview assembly cancelled")
@@ -1120,11 +1148,9 @@ def _assemble_preview(
             pair_id=pair_id,
             before=before,
             current=current,
-            pair_role=pair_role,
-            input_completeness=payload.input_completeness,
-            baseline=sides[_SIDE_BASELINE] if payload.input_completeness is InputCompleteness.MODIFIED_ONLY else None,
             store=store,
             control=control,
+            rule_set=rule_set,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -1210,9 +1236,9 @@ def compute_baseline_canonical_bundle_digest(
     control = ExecutionControl()
     bundle_pairs: list[BundlePairInput] = []
     if input_completeness is InputCompleteness.FULL:
-        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput, PairRole], ...] = (
-            (_PAIR_BASELINE_TO_INITIAL, sides[_SIDE_BASELINE], sides[_SIDE_INITIAL], PairRole.BASELINE_TO_INITIAL),
-            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED], PairRole.INITIAL_TO_MODIFIED),
+        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput], ...] = (
+            (_PAIR_BASELINE_TO_INITIAL, sides[_SIDE_BASELINE], sides[_SIDE_INITIAL]),
+            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED]),
         )
         bundle_profile = BundleProfile.MULTI_PAIR
         bundle_inputs: tuple[BundleInput, ...] = (
@@ -1230,7 +1256,6 @@ def compute_baseline_canonical_bundle_digest(
                 _PAIR_INITIAL_TO_MODIFIED,
                 sides[_SIDE_BASELINE],
                 sides[_SIDE_MODIFIED],
-                PairRole.INITIAL_TO_MODIFIED,
             ),
         )
         bundle_profile = BundleProfile.SINGLE_PAIR
@@ -1240,18 +1265,16 @@ def compute_baseline_canonical_bundle_digest(
         )
         bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
 
-    for pair_id, before, current, pair_role in pair_specs:
+    for pair_id, before, current in pair_specs:
         if control.cancel_requested:
             raise PreviewJobError("baseline canonical digest assembly cancelled")
         pair_state = _run_pair_pipeline(
             pair_id=pair_id,
             before=before,
             current=current,
-            pair_role=pair_role,
-            input_completeness=input_completeness,
-            baseline=sides[_SIDE_BASELINE] if input_completeness is InputCompleteness.MODIFIED_ONLY else None,
             store=store,
             control=control,
+            rule_set=_active_preview_ruleset(),
         )
         before_index, current_index = bundle_indexes[pair_id]
         bundle_pairs.append(
@@ -1288,23 +1311,19 @@ def _run_pair_pipeline(
     pair_id: str,
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
-    pair_role: PairRole,
-    input_completeness: InputCompleteness,
-    baseline: BoundSnapshotInput | None,
     store: ArtifactStorePort,
     control: ExecutionControl,
+    rule_set: ComparisonRuleSet,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
             pair_id=pair_id,
             before=before,
             current=current,
-            pair_role=pair_role,
-            input_completeness=input_completeness,
-            baseline=baseline,
             store=store,
             control=control,
             view_id=_PAIR_INITIAL_TO_MODIFIED,
+            rule_set=rule_set,
         )
     except PairPipelineError as exc:
         raise PreviewJobError(str(exc)) from exc
@@ -1464,6 +1483,81 @@ def _release_preview_step_protection(
             owner_kind="preview-operation",
             owner_id=operation_id,
         )
+
+
+def _active_preview_ruleset() -> ComparisonRuleSet:
+    return comparison_rule_set(migrated_table_ruleset_snapshot())
+
+
+def _publish_preview_ruleset_mismatch_if_needed(
+    *,
+    payload: PreviewJobPayload,
+    operation: OperationRecord,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    control: ExecutionControl,
+) -> bool:
+    active_rules = _active_preview_ruleset()
+    if active_rules.ruleset_digest is not None and active_rules.ruleset_digest.value == payload.comparison_ruleset_digest:
+        return False
+    _publish_preview_ruleset_mismatch_failure(
+        payload=payload,
+        operation=operation,
+        step=step,
+        lease_session=lease_session,
+        control=control,
+    )
+    return True
+
+
+def _publish_preview_ruleset_mismatch_failure(
+    *,
+    payload: PreviewJobPayload,
+    operation: OperationRecord,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    control: ExecutionControl,
+) -> None:
+    del payload
+
+    def builder(
+        current_operation: OperationRecord,
+        current_step: StepRecord,
+        transaction_now: datetime,
+    ) -> tuple[StepRecord, OperationRecord]:
+        transaction = _active_preview_transaction.get()
+        if transaction is None:
+            raise PreviewJobError("preview ruleset transaction is not bound")
+        _release_preview_step_protection(
+            transaction,
+            operation_id=current_operation.operation_id,
+            clear_operation_owner=True,
+        )
+        diagnostic = OperationDiagnostic(
+            code="PREVIEW_RULESET_VERSION_MISMATCH",
+            message="frozen comparison ruleset digest does not match runtime ruleset",
+        )
+        terminal_step = _terminal_step(
+            current_step,
+            transaction_now,
+            status=StepStatus.FAILED,
+            diagnostic=diagnostic,
+        )
+        terminal_operation = dataclasses.replace(
+            current_operation,
+            status=OperationStatus.FAILED,
+            diagnostic=diagnostic,
+            updated_at=transaction_now,
+            completed_at=transaction_now,
+            optimistic_version=current_operation.optimistic_version + 1,
+        )
+        return terminal_step, terminal_operation
+
+    lease_session.refresh_control()
+    if control.cancel_requested:
+        lease_session.publish_operation(_make_cancelled_terminal_builder())
+        return
+    lease_session.publish_operation(builder)
 
 
 def _pin_preview_refs(
@@ -1757,10 +1851,17 @@ def _make_successor_builder(
     return builder
 
 
-def _terminal_step(step: StepRecord, transaction_now: datetime, *, status: StepStatus) -> StepRecord:
+def _terminal_step(
+    step: StepRecord,
+    transaction_now: datetime,
+    *,
+    status: StepStatus,
+    diagnostic: OperationDiagnostic | None = None,
+) -> StepRecord:
     return dataclasses.replace(
         step,
         status=status,
+        diagnostic=diagnostic,
         worker_id=None,
         lease_token=None,
         lease_expires_at=None,
@@ -1847,6 +1948,7 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
         "source_digests",
         "input_digest",
         "ruleset_version",
+        "comparison_ruleset_digest",
         "capability_contract_versions",
         "provider_versions",
         "ready_closure_contract_version",

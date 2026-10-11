@@ -564,7 +564,7 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 
 ## 10. 持久化、HTTP 与部署影响
 
-- control DB 直接修改基线 schema，不做数据回填；新增列允许旧行为空（DC6）：
+- control DB 直接修改基线 schema，不做数据回填（DC6）：
   - PreviewResult：MODIFIED 侧规范表集合闭包 ref/digest、manifest ref/digest、两侧规范状态摘要、投影规则集 digest、身份结论；
   - SubmitAttempt：规范表集合闭包与 manifest 在 T1 冻结；身份确认记录。Submission：身份确认记录（finalize 时复制）；
   - History compare acceptance：冻结运行期规则集 digest（替代 `table_ruleset_version`）；

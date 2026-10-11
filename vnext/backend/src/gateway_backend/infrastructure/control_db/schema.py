@@ -843,9 +843,9 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         request_fingerprint TEXT NOT NULL
             CHECK
                 (typeof(request_fingerprint) = 'text' AND length(CAST(request_fingerprint AS BLOB)) BETWEEN 1 AND 512),
-        table_ruleset_version TEXT NOT NULL
+        comparison_ruleset_digest TEXT NOT NULL
             CHECK
-                (typeof(table_ruleset_version) = 'text' AND length(CAST(table_ruleset_version AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(comparison_ruleset_digest) = 'text' AND length(CAST(comparison_ruleset_digest AS BLOB)) BETWEEN 1 AND 255),
         nodes_json TEXT NOT NULL
             CHECK (typeof(nodes_json) = 'text'),
         operation_id TEXT NOT NULL UNIQUE

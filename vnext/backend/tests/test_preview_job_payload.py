@@ -13,6 +13,7 @@ from tests.support.preview_job_harness import (
     build_upload_revision,
     store_source_package,
 )
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from gateway_backend.artifacts import InMemoryArtifactStore
 
 pytestmark = pytest.mark.unit
@@ -45,6 +46,7 @@ def _base_payload(**overrides: object) -> dict[str, object]:
         },
         "input_digest": "fp-preview",
         "ruleset_version": "v2",
+        "comparison_ruleset_digest": _runtime_comparison_ruleset_digest(),
         "capability_contract_versions": {},
         "provider_versions": {},
         "ready_closure_contract_version": "v1",
@@ -135,6 +137,7 @@ def test_build_preview_job_payload_round_trips_through_decoder() -> None:
         business_baseline_commit_id="commit-base",
         baseline_head_version=3,
         idempotency_key=IDEMPOTENCY_KEY,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
     import json
 

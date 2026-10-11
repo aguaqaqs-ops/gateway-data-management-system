@@ -211,7 +211,7 @@ class HistoryCompareAcceptanceRecord:
     repository_id: str
     idempotency_key: str
     request_fingerprint: str
-    table_ruleset_version: str
+    comparison_ruleset_digest: str
     nodes: tuple[HistoryCompareNodeBinding, ...]
     operation_id: str
     created_at: datetime
@@ -224,7 +224,7 @@ class HistoryCompareAcceptanceRecord:
             "repository_id",
             "idempotency_key",
             "request_fingerprint",
-            "table_ruleset_version",
+            "comparison_ruleset_digest",
             "operation_id",
         ):
             value = getattr(self, label)
@@ -290,7 +290,7 @@ class HistoryCompareValidationResult:
     business_project_id: str
     nodes: tuple[HistoryCompareNodeBinding, ...]
     request_fingerprint: str
-    table_ruleset_version: str
+    comparison_ruleset_digest: str
     replay: bool
     prior_acceptance: HistoryCompareAcceptanceRecord | None
     operation_id: str | None = None

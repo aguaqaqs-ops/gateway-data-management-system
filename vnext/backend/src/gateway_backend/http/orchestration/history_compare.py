@@ -84,7 +84,7 @@ def build_history_compare_job_payload(
         "acceptance_id": acceptance_id,
         "idempotency_key": idempotency_key,
         "request_fingerprint": validation.request_fingerprint,
-        "table_ruleset_version": validation.table_ruleset_version,
+        "comparison_ruleset_digest": validation.comparison_ruleset_digest,
         "comparison_contract_version": HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
         "view_kind": HISTORY_COMPARE_VIEW_KIND,
         "pair_count": max(len(validation.nodes) - 1, 1),
@@ -106,7 +106,7 @@ def accept_compare_operation(
     unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
     job_registry: JobDefinitionRegistry,
     admission_gate: AdmissionGatePort,
-    table_ruleset_version: str,
+    comparison_ruleset_digest: str,
     now: datetime,
 ) -> HistoryCompareAcceptanceResult:
     try:
@@ -136,7 +136,7 @@ def accept_compare_operation(
             validation = _validate_accept(
                 command,
                 unit_of_work,
-                table_ruleset_version=table_ruleset_version,
+                comparison_ruleset_digest=comparison_ruleset_digest,
             )
             if validation.replay and validation.prior_acceptance is not None:
                 operation = unit_of_work.operations.get_operation(validation.prior_acceptance.operation_id)
@@ -211,7 +211,7 @@ def accept_compare_operation(
                         repository_id=validation.repository_id,
                         idempotency_key=command.idempotency_key,
                         request_fingerprint=validation.request_fingerprint,
-                        table_ruleset_version=validation.table_ruleset_version,
+                        comparison_ruleset_digest=validation.comparison_ruleset_digest,
                         nodes=validation.nodes,
                         operation_id=operation_id,
                         created_at=now,
@@ -305,13 +305,13 @@ def _validate_accept(
     command: HistoryCompareAcceptCommand,
     unit_of_work: WorkspaceControlTransaction,
     *,
-    table_ruleset_version: str,
+    comparison_ruleset_digest: str,
 ) -> HistoryCompareValidationResult:
     try:
         return validate_history_compare_binding(
             command=command,
             unit_of_work=unit_of_work,
-            table_ruleset_version=table_ruleset_version,
+            comparison_ruleset_digest=comparison_ruleset_digest,
         )
     except HistoryRequestValidation as exc:
         raise ApiError(

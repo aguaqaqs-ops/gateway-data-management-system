@@ -117,7 +117,7 @@ def accept_history_compare_route(
         unit_of_work_factory=deps.unit_of_work_factory,
         job_registry=deps.job_registry,
         admission_gate=deps.admission_gate,
-        table_ruleset_version=deps.table_ruleset_version,
+        comparison_ruleset_digest=deps.comparison_ruleset_digest,
         now=deps.now(),
     )
     response.status_code = 200 if result.replay else 202

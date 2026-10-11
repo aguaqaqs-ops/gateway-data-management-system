@@ -66,7 +66,7 @@ def validate_history_compare_binding(
     *,
     command: HistoryCompareAcceptCommand,
     unit_of_work: WorkspaceControlTransaction,
-    table_ruleset_version: str,
+    comparison_ruleset_digest: str,
 ) -> HistoryCompareValidationResult:
     assert_permission(command.context, PERMISSION_READ_PROJECT_HISTORY)
     if (
@@ -108,7 +108,7 @@ def validate_history_compare_binding(
         business_project_id=command.context.business_project_id,
         repository_id=fresh_scope.repository_id,
         nodes=resolved_nodes,
-        table_ruleset_version=table_ruleset_version,
+        comparison_ruleset_digest=comparison_ruleset_digest,
         comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
         view_kind=HISTORY_COMPARE_VIEW_KIND,
     )
@@ -116,7 +116,7 @@ def validate_history_compare_binding(
     if prior is not None:
         if prior.request_fingerprint != request_fingerprint:
             raise HistoryCompareIdempotencyConflict(idempotency_key=command.idempotency_key)
-        if prior.table_ruleset_version != table_ruleset_version:
+        if prior.comparison_ruleset_digest != comparison_ruleset_digest:
             raise HistoryCompareIdempotencyConflict(idempotency_key=command.idempotency_key)
         if prior.nodes != resolved_nodes:
             raise HistoryCompareIdempotencyConflict(idempotency_key=command.idempotency_key)
@@ -126,7 +126,7 @@ def validate_history_compare_binding(
             business_project_id=command.context.business_project_id,
             nodes=resolved_nodes,
             request_fingerprint=request_fingerprint,
-            table_ruleset_version=table_ruleset_version,
+            comparison_ruleset_digest=comparison_ruleset_digest,
             replay=True,
             prior_acceptance=prior,
             operation_id=prior.operation_id,
@@ -151,7 +151,7 @@ def validate_history_compare_binding(
         business_project_id=command.context.business_project_id,
         nodes=resolved_nodes,
         request_fingerprint=request_fingerprint,
-        table_ruleset_version=table_ruleset_version,
+        comparison_ruleset_digest=comparison_ruleset_digest,
         replay=False,
         prior_acceptance=None,
         operation_id=operation_id,

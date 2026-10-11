@@ -52,9 +52,8 @@ _NEW_SCOPE = _mapping_record(
     commit_id="commit-2",
 )
 
-# The first two rows fail in batch validation, before any row is written. The last two fail
-# while records are applied, after _NEW_SCOPE was written in the same transaction, so they
-# exercise the rollback.
+# The first three rows fail during batch validation. The last two fail during writes and
+# depend on rollback.
 REJECTED_SEED_BATCHES = (
     pytest.param(
         (

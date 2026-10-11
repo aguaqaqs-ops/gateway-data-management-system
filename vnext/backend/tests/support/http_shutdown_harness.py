@@ -124,7 +124,6 @@ def seed_production_history_compare_ready(tmp_path: Path) -> dict[str, Any]:
         FinalizeSubmitTransactionRequest,
         finalize_submit_transaction,
     )
-    from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
     from gateway_backend.domain.submission.review import ReviewAction
     from gateway_backend.http.dependencies import OpenAdmissionGate
     from gateway_backend.http.orchestration.history_compare import accept_compare_operation
@@ -139,6 +138,7 @@ def seed_production_history_compare_ready(tmp_path: Path) -> dict[str, Any]:
         write_session_file,
     )
     from tests.support.workspace_fixtures import make_identity
+    from tests.support.table_rules import _runtime_comparison_ruleset_digest
     from tests.test_review_transactions import (
         ReviewSeed,
         _apply_command,
@@ -227,7 +227,7 @@ def seed_production_history_compare_ready(tmp_path: Path) -> dict[str, Any]:
         unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
-        table_ruleset_version=str(TABLE_RULESET_VERSION),
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
         now=datetime(2026, 9, 24, tzinfo=UTC),
     )
 

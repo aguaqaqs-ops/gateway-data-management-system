@@ -227,6 +227,7 @@ class WorkspaceHttpDependencies:
     bundle_reader: BundleReaderPort
     admission_gate: AdmissionGatePort
     operation_reader: OperationReaderPort
+    comparison_ruleset_digest: str
     now: Callable[[], datetime]
     submission_reader: SubmissionReaderPort = field(default_factory=FailClosedSubmissionReader)
     artifact_ref_lookup: ArtifactRefLookupPort = field(default_factory=FailClosedArtifactRefLookup)
@@ -258,7 +259,7 @@ class HistoryHttpDependencies:
     operation_reader: OperationReaderPort
     artifact_store: BoundedArtifactStorePort
     bundle_reader: BundleReaderPort
-    table_ruleset_version: str
+    comparison_ruleset_digest: str
     now: Callable[[], datetime]
 
 

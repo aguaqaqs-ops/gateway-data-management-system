@@ -11,11 +11,9 @@ import pytest
 
 from gateway_backend.application.history.compare_bindings import (
     compute_accept_binding_fingerprint,
-    compute_compare_binding_digest,
     deterministic_history_compare_ids,
 )
 from gateway_backend.application.history.compare import validate_history_compare_binding
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
     HistoryCompareAcceptCommand,
@@ -43,6 +41,7 @@ from gateway_backend.infrastructure.control_db.sqlite_history_compare import sav
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.history_compare_job_harness import seed_archived_baseline_node
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from tests.support.workspace_fixtures import make_identity
 
 pytestmark = pytest.mark.unit
@@ -50,7 +49,7 @@ pytestmark = pytest.mark.unit
 TS = datetime(2026, 9, 24, tzinfo=UTC)
 HEAD_NODE = BASELINE_HEAD.business_baseline_node_id
 HEAD_COMMIT = BASELINE_HEAD.business_baseline_commit_id
-RUNTIME_RULESET_VERSION = str(TABLE_RULESET_VERSION)
+RUNTIME_RULESET_DIGEST = _runtime_comparison_ruleset_digest()
 
 
 def _seed_scope(db_path: Path) -> None:
@@ -106,7 +105,7 @@ def test_deterministic_ids_use_named_key_preimage() -> None:
     assert first[1].startswith("hca-")
 
 
-def test_accept_binding_fingerprint_ignores_table_policies() -> None:
+def test_accept_binding_fingerprint_freezes_comparison_ruleset_digest() -> None:
     from gateway_backend.application.history.compare_bindings import _accept_binding_payload
 
     nodes = (
@@ -118,7 +117,7 @@ def test_accept_binding_fingerprint_ignores_table_policies() -> None:
         business_project_id="project-1",
         repository_id="repo-1",
         nodes=nodes,
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
         view_kind="HISTORY",
     )
@@ -127,7 +126,7 @@ def test_accept_binding_fingerprint_ignores_table_policies() -> None:
         business_project_id="project-1",
         repository_id="repo-1",
         nodes=nodes,
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
         view_kind="HISTORY",
         pair_count=1,
@@ -137,42 +136,41 @@ def test_accept_binding_fingerprint_ignores_table_policies() -> None:
         "business_project_id",
         "repository_id",
         "nodes",
-        "table_ruleset_version",
+        "comparison_ruleset_digest",
         "comparison_contract_version",
         "view_kind",
         "pair_count",
     }
-    with_policies_a = compute_compare_binding_digest(
+    with_ruleset_a = compute_accept_binding_fingerprint(
         gateway_device_external_key="device-1",
         business_project_id="project-1",
         repository_id="repo-1",
         nodes=nodes,
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
-        table_policies=[{"table_name": "t", "policy_kind": "ordered", "policy_id": "a"}],
+        comparison_ruleset_digest="sha256:ruleset-a",
         comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
         view_kind="HISTORY",
         pair_count=1,
     )
-    with_policies_b = compute_compare_binding_digest(
+    with_ruleset_b = compute_accept_binding_fingerprint(
         gateway_device_external_key="device-1",
         business_project_id="project-1",
         repository_id="repo-1",
         nodes=nodes,
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
-        table_policies=[{"table_name": "t", "policy_kind": "ordered", "policy_id": "b"}],
+        comparison_ruleset_digest="sha256:ruleset-b",
         comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
         view_kind="HISTORY",
         pair_count=1,
     )
     assert fingerprint.startswith("sha256:")
-    assert with_policies_a != fingerprint
-    assert with_policies_b != fingerprint
+    assert with_ruleset_a != fingerprint
+    assert with_ruleset_b != fingerprint
+    assert with_ruleset_a != with_ruleset_b
     assert fingerprint == compute_accept_binding_fingerprint(
         gateway_device_external_key="device-1",
         business_project_id="project-1",
         repository_id="repo-1",
         nodes=nodes,
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
         view_kind="HISTORY",
     )
@@ -203,9 +201,9 @@ def test_replay_happens_before_integrity_gate(db_path: Path) -> None:
                     business_project_id="project-1",
                     repository_id="repo-1",
                     nodes=nodes,
-                    table_ruleset_version=str(TABLE_RULESET_VERSION),
+                    comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
                 ),
-                table_ruleset_version=str(TABLE_RULESET_VERSION),
+                comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
                 nodes=nodes,
                 operation_id=operation_id,
                 created_at=TS,
@@ -233,7 +231,7 @@ def test_replay_happens_before_integrity_gate(db_path: Path) -> None:
         result = validate_history_compare_binding(
             command=_accept_command(idempotency_key="idem-replay"),
             unit_of_work=unit_of_work,
-            table_ruleset_version=RUNTIME_RULESET_VERSION,
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         )
     assert result.replay is True
     assert result.operation_id == operation_id
@@ -265,7 +263,7 @@ def test_new_accept_blocked_by_pending_integrity(db_path: Path) -> None:
             validate_history_compare_binding(
                 command=_accept_command(idempotency_key="idem-new"),
                 unit_of_work=unit_of_work,
-                table_ruleset_version=RUNTIME_RULESET_VERSION,
+                comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             )
 
 
@@ -294,11 +292,11 @@ def test_ruleset_drift_replay_raises_idempotency_conflict(db_path: Path) -> None
                     business_project_id="project-1",
                     repository_id="repo-1",
                     nodes=nodes,
-                    table_ruleset_version="0",
+                    comparison_ruleset_digest="sha256:old-ruleset",
                     comparison_contract_version=HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
                     view_kind="HISTORY",
                 ),
-                table_ruleset_version="0",
+                comparison_ruleset_digest="sha256:old-ruleset",
                 nodes=nodes,
                 operation_id=operation_id,
                 created_at=TS,
@@ -308,7 +306,7 @@ def test_ruleset_drift_replay_raises_idempotency_conflict(db_path: Path) -> None
             validate_history_compare_binding(
                 command=_accept_command(idempotency_key="idem-ruleset"),
                 unit_of_work=unit_of_work,
-                table_ruleset_version=RUNTIME_RULESET_VERSION,
+                comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             )
 
 
@@ -343,9 +341,9 @@ def test_idempotency_conflict_on_changed_nodes(db_path: Path) -> None:
                     business_project_id="project-1",
                     repository_id="repo-1",
                     nodes=nodes,
-                    table_ruleset_version=str(TABLE_RULESET_VERSION),
+                    comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
                 ),
-                table_ruleset_version=str(TABLE_RULESET_VERSION),
+                comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
                 nodes=nodes,
                 operation_id=operation_id,
                 created_at=TS,
@@ -361,7 +359,7 @@ def test_idempotency_conflict_on_changed_nodes(db_path: Path) -> None:
                     ),
                 ),
                 unit_of_work=unit_of_work,
-                table_ruleset_version=RUNTIME_RULESET_VERSION,
+                comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             )
 
 
@@ -417,7 +415,7 @@ def test_integrity_gate_rejects_accept_without_persisting_rows(db_path: Path) ->
             unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
-            table_ruleset_version=RUNTIME_RULESET_VERSION,
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             now=TS,
         )
     assert exc_info.value.code == "HISTORY_INTEGRITY_UNRESOLVED"
@@ -445,7 +443,7 @@ def test_integrity_gate_rejects_accept_without_persisting_rows(db_path: Path) ->
         unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         now=TS,
     )
     assert result.replay is False
@@ -479,7 +477,7 @@ def test_concurrent_accept_with_same_idempotency_key_has_single_winner(db_path: 
             unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
-            table_ruleset_version=RUNTIME_RULESET_VERSION,
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             now=TS,
         )
 
@@ -534,7 +532,7 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
         unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         now=TS,
     )
     denied = make_identity(permissions=frozenset({"workspace_read"}))
@@ -548,7 +546,7 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
             unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
-            table_ruleset_version=RUNTIME_RULESET_VERSION,
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             now=TS,
         )
     assert exc_info.value.code == "SCOPE_FORBIDDEN"
@@ -560,7 +558,7 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
             unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
-            table_ruleset_version=RUNTIME_RULESET_VERSION,
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             now=TS,
         )
     with pytest.raises(ApiError) as second_rebind_exc:
@@ -569,7 +567,7 @@ def test_replay_requires_current_permission(db_path: Path) -> None:
             unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
             job_registry=job_registry,
             admission_gate=OpenAdmissionGate(),
-            table_ruleset_version=RUNTIME_RULESET_VERSION,
+            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
             now=TS,
         )
     assert first_rebind_exc.value.status_code == 409
@@ -598,7 +596,7 @@ def test_distinct_idempotency_keys_create_independent_accept_chains(db_path: Pat
         unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         now=TS,
     )
     second = accept_compare_operation(
@@ -606,7 +604,7 @@ def test_distinct_idempotency_keys_create_independent_accept_chains(db_path: Pat
         unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
-        table_ruleset_version=RUNTIME_RULESET_VERSION,
+        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
         now=TS,
     )
     assert first.replay is False
@@ -623,6 +621,8 @@ def test_distinct_idempotency_keys_create_independent_accept_chains(db_path: Pat
         assert acceptance_a is not None
         assert acceptance_b is not None
         assert acceptance_a.acceptance_id != acceptance_b.acceptance_id
+        assert acceptance_a.comparison_ruleset_digest == RUNTIME_RULESET_DIGEST
+        assert acceptance_b.comparison_ruleset_digest == RUNTIME_RULESET_DIGEST
         for operation_id in (first.response.operation_id, second.response.operation_id):
             step = unit_of_work.operations.get_step(
                 history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)

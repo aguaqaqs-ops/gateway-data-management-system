@@ -76,6 +76,7 @@ def start_preview_route(
             unit_of_work_factory=deps.unit_of_work_factory,
             job_registry=deps.job_registry,
             artifact_store=deps.artifact_store,
+            comparison_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
             options=options,
         )

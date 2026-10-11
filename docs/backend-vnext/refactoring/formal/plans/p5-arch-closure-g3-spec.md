@@ -136,3 +136,12 @@ D1–D6 均获同意：
 | D6 | Business Lifecycle 的措辞改写（§3 D6，删 migration 一项，实质规则不变） | 同意（正式契约措辞已获 owner 明确） |
 | 阶段 | G3 作为独立阶段，打 `p5-g3-exit`，经完整门禁与独立审核 | 同意 |
 | 形态 | 在独立 worktree 与短期分支 `p5-g3` 上实施（§6 第 6 项），不在主工作区实施 | 同意（2026-10-11） |
+
+实施中的停止点（契约对照表：Business Lifecycle §1A.2 第 3 条只被迁移测试覆盖）由 owner 于 2026-10-11 决定：
+
+| # | 决定 | owner 决议 |
+| --- | --- | --- |
+| S1 | 补运行时测试：`test_provisioned_scope_seed.py` 的参数表覆盖 seed 批次整批拒绝、无部分写入（含同批一个 Repository 多个 scope、一个 scope 多个 Repository）；“禁用后重新启用”记为已知缺口；只补测试，不改 seed 实现 | 同意 |
+| S2 | seed 规则的 owner 测试文件为新建的 `test_provisioned_scope_seed.py`（§5 原写的文件不存在） | 同意 |
+| S3 | 规格 §6 的提交 2、3 合并（可达性基线要求停止引用即同一提交删除） | 同意 |
+| S4 | 实施方在 `p5-g3` 上补纯文档提交：Business Lifecycle §8、§9A、§1A.2 的 migration 措辞改为基线 schema 与运行时 seed 保障（实质规则不变）；ADR 0019 加注；设计第 81 行后半段删除；执行计划 §8.5 与 S4 路径预算的 migration 条目改写；AGENTS.md 由审核方在通过后更新 | 同意 |

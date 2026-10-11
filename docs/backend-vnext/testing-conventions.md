@@ -15,6 +15,9 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 ./vnext/scripts/run-tests.sh
 ```
 
+linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；该目录不在提交里，缺它时 backend 的
+`test_table_rules_resolver.py` 有 58 个用例失败），再执行上面的两步。
+
 `prepare-dev-dependencies.sh` 只同步五包 venv，不跑 pytest。`run-tests.sh` 按正确顺序跑
 完全部 Python 包：
 

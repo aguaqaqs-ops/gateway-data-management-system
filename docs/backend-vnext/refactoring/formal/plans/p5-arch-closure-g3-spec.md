@@ -3,7 +3,8 @@
 日期：2026-10-11
 
 状态：**owner 已确认（2026-10-11）**：D1–D6 与“G3 作为独立阶段”全部同意（§9）。实施前设计 DC6、§10 与执行计划中的 migration 表述保持原状，改写由实施提交 1 完成。
-实施在 G8a（census 口径修订，不改生产代码）审核完成之后开始；二者都写主工作区，不并行。
+G8a（census 口径修订，不改生产代码）已审核通过（`cd41349f0b`，plans/p5-arch-closure-g8a-independent-review.md）。
+实施形态（owner 2026-10-11 同意）：独立 worktree `/home/dev/gdds-p5-g3` 与短期分支 `p5-g3`，从 R0 切出，不在主工作区实施（见 §6）。
 
 关联：[治理修订计划](p5-arch-closure-post-s1-governance-plan.md) G3（owner 2026-10-10 选方案 A）；[设计](p5-arch-closure-design.md) DC6、§10；
 [执行计划](p5-arch-closure-execution-plan.md) §2、§3 S2a/S2b、§6；[Business Lifecycle](../contracts/business-lifecycle-and-state.md)；AGENTS.md「项目前提」。
@@ -51,8 +52,12 @@
 **D4 数据完整性检查随历史数据删除。** `_assert_workspace_bootstrap_integrity`（同一 scope 多个 OPEN）与 `_assert_workspace_migration_integrity` 只在对已有数据升级时需要；
 前提是基线 DDL 已含对应的唯一索引或约束，由 D5 的终态对照证明。`database.py` 的 `assert_control_db_integrity`（`PRAGMA integrity_check`、`foreign_key_check`）保留。
 
-**D5 终态对照是一次性的等价证明，不入库。** 在 `p5-g2-exit` 上，对空库依次执行现有 `bootstrap_control_schema` 与 `bootstrap_workspace_schema`，导出规范化的 `sqlite_master`（排除台账表），
-写到 worktree 外（`/home/dev/gdds-p5-closure-s1-gate-logs/g3-*`），handoff 记录其 sha256。新基线在空库上建出的结构必须与之逐项相同（排除台账表）。
+**D5 终态对照是一次性的等价证明，不入库。** 在 R0 上（control DB 代码与 `p5-g2-exit` 相同），对空库依次执行现有 `bootstrap_control_schema` 与 `bootstrap_workspace_schema`，导出规范化的 `sqlite_master`（排除台账表）
+与每张表的 `PRAGMA table_xinfo`、`foreign_key_list`、`index_list`/`index_xinfo`，写到 worktree 外（`/home/dev/gdds-p5-closure-s1-gate-logs/g3-*`），handoff 记录其 sha256。
+新基线在空库上建出的结构必须与之等价（排除台账表）。旧链靠 `ALTER TABLE` 逐步改出终态，SQLite 会改写存储的 `sql` 文本，所以可读基线的 `sql` 不可能与旧链逐字相同；“等价”分两层判定：
+第一层（机械）对象集合、列序与 `table_xinfo`（类型、notnull、默认值、pk、hidden）、外键、索引（unique、partial、列与排序）必须完全相同；
+第二层只出现在 SQL 文本里的语义（CHECK、DEFAULT、触发器）对 `sql` 规范化后比较：去注释、折叠空白、去掉标点周围空白、关键字大小写不敏感（引号内保持原样），
+表定义按深度 0 的逗号拆成子句后作为多重集合比较（子句顺序不算差异，列顺序由第一层检查）。任何残留差异逐条写进 handoff 说明为何只是格式差异；无法说明即按停止条件处理。
 永久保留的是行为测试（§5 的“合并保留”项：表、约束、索引、触发器与枚举断言），不是 DDL 的 golden 副本，避免 S2a/S2b 每次改基线都要同步两处。
 
 **D6 契约措辞（须 owner 确认）。** Business Lifecycle「固定 scope 归属」中，“migration、首次 seed、批量 seed 和 mapping update 必须遵循同一业务验收规则”的 migration 一项消失：
@@ -93,7 +98,11 @@
 2. `feat(p5-g3)`：终态对照导出（外部）→ `schema.py`、新 bootstrap、调用方切换、测试迁移与删除；每个提交后五包 ruff/mypy、`import_rules`、相关 focused 测试通过。
 3. `refactor(p5-g3)`：删除 `migrations.py` 与迁移专属测试（与上一提交分开，便于审核时看清“只删不改”）。
 4. 门禁提交 V 是最后一个非 handoff 提交；G3 改动 `backend/src`，backend/worker 镜像内容变化，**必须在 V 上真实重建并完整运行权威 runner**，遵守 AGENTS.md「权威入口的运行前提」；handoff 提交 H 只改 handoff，按 carried 第 3 条在 V 的 worktree 内判定。
-5. 区间起点 R0 是 G3 kickoff 时 main 的提交（G8a 审核完成后的 HEAD，kickoff 时写入实施提示词）；独立审核通过后在审核报告提交上打 `p5-g3-exit`；S2a 的区间起点改为 `p5-g3-exit`。
+5. 区间起点 R0 是 G3 kickoff 时 main 的提交（G8a 审核与本规格更新之后的 HEAD，kickoff 时写入实施提示词）；独立审核通过后在审核报告提交上打 `p5-g3-exit`；S2a 的区间起点改为 `p5-g3-exit`。
+6. 实施形态：`git worktree add -b p5-g3 /home/dev/gdds-p5-g3 <R0>`。原因是 main 同时接收其他对话的文档提交（G8a 实施期间已发生），主工作区会在门禁运行期间被写入、HEAD 前进，
+   破坏“运行期间不写 worktree、起止 HEAD 不变”。分支只含实施方的提交，不 merge/rebase main；V 的门禁与 carried 判定都在该 worktree 内完成，审核方也在这个 worktree 复核 carried。
+   新 worktree 需要先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`），否则 `test_table_rules_resolver.py` 的 58 个用例失败（G8a 审核 §5）。
+   审核通过后：审核方把报告提交快进到 `p5-g3`，在其上打 `p5-g3-exit`，再把 `p5-g3` 并入 main（main 已前进时用 `--no-ff` 合并提交），之后清理 worktree 与分支。
 
 ## 7. 停止条件（停止并在 handoff 记录，交 owner，不用兼容代码绕过）
 
@@ -126,3 +135,4 @@ D1–D6 均获同意：
 | D5 | 终态对照一次性、不入库；永久保留的是行为测试 | 同意 |
 | D6 | Business Lifecycle 的措辞改写（§3 D6，删 migration 一项，实质规则不变） | 同意（正式契约措辞已获 owner 明确） |
 | 阶段 | G3 作为独立阶段，打 `p5-g3-exit`，经完整门禁与独立审核 | 同意 |
+| 形态 | 在独立 worktree 与短期分支 `p5-g3` 上实施（§6 第 6 项），不在主工作区实施 | 同意（2026-10-11） |

@@ -18,7 +18,7 @@
   （S0 文档 r4 于 2026-09-27 由 owner 接受，ADR Accepted；Business Lifecycle 与 Canonical Storage 升至 3.1.0；
   S1 于 2026-10-10 合入 `main`，tag `p5-s1-exit`，第 3 次独立复审通过；S2a 前须完成治理修订计划 G2、G3、G8）
   - [S1 合入后的治理修订计划](plans/p5-arch-closure-post-s1-governance-plan.md)（主线开发、真实数据格式保真前置、无兼容/迁移复核、重复有效键决议）
-  - [G2 独立审核](plans/p5-arch-closure-g2-independent-review.md)（@ `c9a09ddb35`：定向修订，G2-F1 阻塞）；[G2 第 1 次复审](plans/p5-arch-closure-g2-independent-rereview-1.md)（@ `eece236590`：通过）；[G2 handoff](plans/p5-arch-closure-g2-handoff.md)；[G3 实施规格](plans/p5-arch-closure-g3-spec.md)（owner 已确认）
+  - [G2 独立审核](plans/p5-arch-closure-g2-independent-review.md)（@ `c9a09ddb35`：定向修订，G2-F1 阻塞）；[G2 第 1 次复审](plans/p5-arch-closure-g2-independent-rereview-1.md)（@ `eece236590`：通过）；[G2 handoff](plans/p5-arch-closure-g2-handoff.md)；[G8a handoff](plans/p5-arch-closure-g8a-handoff.md) 与 [G8a 独立审核](plans/p5-arch-closure-g8a-independent-review.md)（@ `4ff6c44e60`：通过，无阶段 tag）；[G3 实施规格](plans/p5-arch-closure-g3-spec.md)（owner 已确认，独立 worktree 实施）
   - [S1 独立审核与复审](plans/p5-arch-closure-s1-independent-review.md)、[第 1 次复审](plans/p5-arch-closure-s1-independent-rereview-1.md)、[第 3 次复审](plans/p5-arch-closure-s1-independent-rereview-3.md)（通过）；[handoff](plans/p5-arch-closure-s1-handoff.md)、[census](plans/p5-arch-closure-s1-census.json)
   - [S0 独立文档审核报告](plans/p5-arch-closure-s0-independent-docs-review.md)（r1 @ `3e5d5807e5`：定向修订；含 2026-09-26 复核补充）
   - [r2 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview.md)（@ `5858eaaa08`：定向修订）

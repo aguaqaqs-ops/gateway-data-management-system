@@ -71,7 +71,7 @@ handoff 为 `plans/p5-arch-closure-g2-handoff.md`，审核报告为 `plans/p5-ar
 ### G3. control DB 基线 schema（owner 决议 2026-10-10：选方案 A；实施为独立一步，G2 之后、S2a 之前）
 
 设计 DC6 规定 control DB 通过新增前向 migration 修改 schema、不做数据回填；S2a、S2b 的路径预算和验收包含 `test_*_control_db_migrations.py` 与“control DB migration 在启动时执行”。
-状态：实施规格 `plans/p5-arch-closure-g3-spec.md` 已获 owner 确认（2026-10-11，D1–D6 与独立阶段）；顺序在 G8a 审核完成之后、S2a 之前，门禁通过并审核后打 `p5-g3-exit`。
+状态：实施规格 `plans/p5-arch-closure-g3-spec.md` 已获 owner 确认（2026-10-11，D1–D6 与独立阶段）；G8a 已审核通过（`cd41349f0b`）；实施在独立 worktree `/home/dev/gdds-p5-g3` 与短期分支 `p5-g3` 上进行（owner 2026-10-11 同意；规格 §6），在 S2a 之前，门禁通过并审核后打 `p5-g3-exit`。
 
 项目没有已部署数据，owner 决定采用方案 A：
 
@@ -151,6 +151,10 @@ G2 完成后，SQL 回退扫描只用于定位残余失败。若 G2 之后仍有
 - **G8a（census 工具修订，不改生产代码与规则）**：对 `GID_NO_V1` 的表，重复键扫描只统计真实 gid（排除 `0 | NULL | empty`）；
   另对每张有序表调用 `project_ordered_rows`，记录成功/失败诊断码、`real_count`、`pseudo_count`（需要 `no` 正、唯一、连续）。重跑 8 份数据，更新 census JSON 与 G8 统计后再决议。
   若真实 gid 仍有重复，或投影失败，再讨论规则键与表角色；若全部为 pseudo 空白，则 G8 的“重复有效键”问题不成立，S2b 的 DC22 对这些表的预期结果随之改写。
+- **G8a 结果（2026-10-11，实施 `15fdda8607`…`4ff6c44e60`，独立审核通过：`plans/p5-arch-closure-g8a-independent-review.md`）**：8 份数据的真实 gid 重复额外行 50,565 → 0；
+  空白 gid 行 50,818（占有序表行 12.1%，160 个数据集-表条目），旧口径的“重复”可由空白 gid 完整解释；558 张有序表的 `project_ordered_rows` 全部 COMPLETE、0 FAILED。
+  这满足上面“全部为 pseudo 空白”的条件。投影范围仅是有序身份与位置检查，不是完整 `project()`。**G8 决议仍待 owner**：规则键不需要加 `no`；DC22 对这些表的预期结果如何改写；
+  以及空白 gid 行（pseudo gid 按 `no` 顺序分配）在 v1 → v2 比较中的配对行为是否需要另做一次基于真实配对的检查（未验证，审核报告 §6）。
 
 ### G9. 文档小偏差（文档；源自 R3-F4；已完成）
 
@@ -184,7 +188,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
    实施期间只有实施者写入主工作区；其他对话不向 `main` 提交。
    2026-10-11 第一次审核结论为定向修订（G2-F1）：修订 → 新门禁提交 V′ 的完整门禁 → handoff H′ → 复审（区间 `c9a09ddb35..H′`）→ 通过后打 `p5-g2-exit`。
    已完成：复审通过，tag `p5-g2-exit` 在 `1e0da258e8`（V′ = `0889fa953d`，H′ = `eece236590`，carried）。
-3. G3 实施规格 → owner 确认 → 实施并独立审核（control DB 基线 schema）。
-4. G8：G2 的普查重跑完成后，owner 决议重复有效键的处置。
+3. G3 实施规格 → owner 确认（已完成）→ 在独立 worktree `p5-g3` 上实施并独立审核（control DB 基线 schema）。
+4. G8：G8a 已完成并审核通过（`cd41349f0b`，真实 gid 重复为 0）；待 owner 决议重复有效键的处置（见 G8“G8a 结果”）。
 5. S2a kickoff（区间起点 `p5-g2-exit` 或 G3 的 tag，以后者为准）。
 6. P5 exit：按 G10 清理。

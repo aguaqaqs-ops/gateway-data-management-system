@@ -28,6 +28,8 @@
 - 在已提交的 clean worktree 上运行。`repository_service` 的 Compose 用例经
   `require_clean_worktree()` 计算 image identity，worktree 有未提交改动时这些用例必然失败。
 - 运行期间不写 worktree、不提交、不重建或重新 tag 镜像。
+- linked worktree（含审核用的 detached worktree）要先建本地参考目录的符号链接：`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`
+  （`legacy/` 不在任何提交里，由 `.git/info/exclude` 忽略）。缺它时 `test_table_rules_resolver.py` 的 58 个用例失败，权威 runner 随之失败。
 - 同一主机上不并行运行其他 Dolt 进程或 Compose 栈：残留检查扫描整机 `/proc` 中的 dolt
   进程，backend Compose 旅程共享 host 端口 8000。
 - 日志写到 worktree 外，并记录开始与结束时的 `git rev-parse HEAD` 和 runner 自身的 exit code

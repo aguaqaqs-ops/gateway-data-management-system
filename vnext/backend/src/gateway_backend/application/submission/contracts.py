@@ -64,6 +64,8 @@ _SUBMIT_NON_TABLE_ARTIFACT_PREFIXES = (
     "comparison-closure-",
     "comparison-standard-",
     "comparison-standard-manifest-",
+    "comparison-ordered-",
+    "comparison-blank-",
     "risk-annotation-",
     "sta-rows-",
 )

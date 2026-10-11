@@ -37,6 +37,7 @@ from gateway_backend.application.submission.contracts import (
     RepositoryOperationTerminalStatus,
     SubmitAcceptanceRecord,
     compute_new_accept_fingerprint,
+    is_submit_snapshot_table_binding_candidate,
 )
 from gateway_backend.application.submission.errors import (
     BaselineVersionConflict,
@@ -113,6 +114,25 @@ _SHA_SNAP = "sha256:" + "d" * 64
 _SHA_PACKAGE = "sha256:" + "e" * 64
 _SHA_MANIFEST = "sha256:" + "f" * 64
 _SHA_REPO = "sha256:" + "9" * 64
+
+
+@pytest.mark.parametrize(
+    ("artifact_id", "expected"),
+    (
+        ("comparison-ordered-abc", False),
+        ("comparison-ordered-manifest-abc", False),
+        ("comparison-blank-abc", False),
+        ("comparison-blank-manifest-abc", False),
+        ("comparison-standard-abc", False),
+        ("comparison-closure-abc", False),
+        ("sta-manifest-abc", True),
+    ),
+)
+def test_submit_snapshot_binding_filter_excludes_comparison_artifacts(
+    artifact_id: str,
+    expected: bool,
+) -> None:
+    assert is_submit_snapshot_table_binding_candidate(artifact_id) is expected
 
 
 @dataclass

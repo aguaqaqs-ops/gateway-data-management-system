@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S2 上传步骤卡与比较托盘 · 1280 · 上传执行中，页面锁定</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F5F7}
+a{color:#1F5FBF}a:hover{color:#174A96}
+</style>
+</head>
+<body>
+<!-- 设计草图快照，导出自“前端优化草图”画布；仅作视觉与交互参考，不是实现代码。数据为示例。见 docs/frontend-vnext/ui-optimization-direction.md 第 7 节。 -->
+<div style="position: relative; width: 1280px; height: 800px; box-sizing: border-box; display: flex; flex-direction: column; background: #F3F5F7; color: #1B2229; font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px; overflow: hidden">
+
+  <header style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; background: #FFFFFF; border-bottom: 1px solid #DDE2E7">
+    <div style="display: flex; align-items: center; gap: 14px">
+      <span style="font-size: 15px; font-weight: 600">网关数据工作台</span>
+      <span style="width: 1px; height: 18px; background: #DDE2E7"></span>
+      <span style="color: #4A5563">[网关名称]</span>
+    </div>
+    <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #1E7A46; font-weight: 500">
+      <span style="width: 8px; height: 8px; border-radius: 4px; background: #1E7A46"></span>
+      已连接
+    </span>
+  </header>
+
+  <div style="flex: 1 1 auto; min-height: 0; display: flex; gap: 16px; padding: 16px">
+
+    <section aria-label="组态树" aria-hidden="true" style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DDE2E7; border-radius: 8px; overflow: hidden">
+      <div style="height: 56px; flex: 0 0 56px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+        <h2 style="margin: 0; font-size: 15px; font-weight: 600">组态树</h2>
+        <span style="margin-left: 12px; display: flex; align-items: center; width: 220px; height: 34px; padding: 0 10px; box-sizing: border-box; border: 1px solid #C9D0D8; border-radius: 6px; color: #5F6B78">搜索节点</span>
+      </div>
+      <div style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: #F7F9FB; border-bottom: 1px solid #EEF1F4">
+        <span style="font-weight: 600">工作区 [用户A]</span>
+        <span style="color: #5F6B78">基线 3</span>
+        <span style="flex: 1"></span>
+        <span style="height: 34px; padding: 0 12px; display: inline-flex; align-items: center; border: 1px solid #E1E5EA; border-radius: 6px; background: #F1F3F5; color: #6B7682">原始组态备份</span>
+        <span style="height: 34px; padding: 0 12px; display: inline-flex; align-items: center; border: 1px solid #E1E5EA; border-radius: 6px; background: #F1F3F5; color: #6B7682">本次归档组态</span>
+        <span style="height: 34px; padding: 0 12px; display: inline-flex; align-items: center; border: 1px solid #E1E5EA; border-radius: 6px; background: #F1F3F5; color: #6B7682">上传</span>
+      </div>
+      <div style="height: 36px; flex: 0 0 36px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4; color: #5F6B78; font-size: 12px; font-weight: 500">
+        <div>节点 / 描述</div>
+        <div>组态生成时间</div>
+        <div>提交时间</div>
+        <div>审核时间</div>
+      </div>
+      <div style="flex: 1 1 auto; min-height: 0">
+        <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+          <span style="padding-left: 24px; font-weight: 600">基线 3</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span>
+        </div>
+        <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+          <span style="padding-left: 52px">历史初始备份 1</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-21 09:12</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-21 10:05</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-21 16:40</span>
+        </div>
+        <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #DCE6F5; background: #E6EEFA">
+          <span style="padding-left: 52px; font-weight: 600">工作区 [用户A]</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span>
+        </div>
+        <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+          <span style="padding-left: 80px">提交 3</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-28 14:20</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-28 15:02</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-29 10:31</span>
+        </div>
+        <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+          <span style="padding-left: 80px">提交 2</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-26 11:47</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-26 13:10</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">09-27 09:05</span>
+        </div>
+        <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+          <span style="padding-left: 52px">工作区 [用户B]</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span>
+        </div>
+        <div style="height: 40px; display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 120px; align-items: center; padding: 0 16px; border-bottom: 1px solid #EEF1F4">
+          <span style="padding-left: 24px; font-weight: 600">基线 2</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span><span style="color: #5F6B78">—</span>
+        </div>
+      </div>
+      <div style="height: 52px; flex: 0 0 52px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-top: 1px solid #DDE2E7; background: #F7F9FB">
+        <span style="font-weight: 600">比较托盘</span>
+        <span style="color: #5F6B78">未选择节点</span>
+      </div>
+    </section>
+
+    <aside aria-label="工作区详情" style="position: relative; z-index: 2; width: 400px; flex: 0 0 400px; box-sizing: border-box; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DDE2E7; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 28px rgba(27, 34, 41, 0.22)">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 16px 14px; border-bottom: 1px solid #EEF1F4">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <span style="font-size: 12px; color: #5F6B78; font-weight: 500">工作区信息</span>
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span style="font-size: 18px; font-weight: 600">工作区 [用户A]</span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; color: #4A5563; font-size: 12px"><span style="width: 6px; height: 6px; border-radius: 3px; background: #1F5FBF"></span>编辑中</span>
+          </span>
+          <span style="color: #5F6B78">基线 3</span>
+        </div>
+      </div>
+
+      <section aria-label="上传组态" aria-busy="true" style="flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 16px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600">上传组态</h3>
+          <span style="display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; background: #E9F0FB; color: #1F5FBF; font-size: 12px; font-weight: 500">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+            上传中
+          </span>
+          <span style="flex: 1"></span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #4A5563">已用时 42 秒</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; background: #F7F9FB">
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+            <span style="color: #5F6B78; width: 84px">原始组态备份</span>
+            <span style="font-family: 'IBM Plex Mono', monospace">station_cfg_0921/</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px">
+            <span style="color: #5F6B78; width: 84px">本次归档组态</span>
+            <span style="font-family: 'IBM Plex Mono', monospace">station_cfg_0928/</span>
+          </div>
+        </div>
+
+        <ol aria-label="上传进度" style="margin: 0; padding: 4px 0 0; list-style: none; display: flex; flex-direction: column">
+          <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; min-height: 44px">
+            <span style="display: flex; flex-direction: column; align-items: center; height: 100%">
+              <span style="width: 22px; height: 22px; border-radius: 11px; background: #E7F4EC; color: #1E7A46; display: inline-flex; align-items: center; justify-content: center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+              </span>
+              <span style="flex: 1; width: 2px; background: #BFE0CC"></span>
+            </span>
+            <span style="padding-top: 2px">上传原始组态备份</span>
+            <span style="padding-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5F6B78">8 秒</span>
+          </li>
+          <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; min-height: 44px">
+            <span style="display: flex; flex-direction: column; align-items: center; height: 100%">
+              <span style="width: 22px; height: 22px; border-radius: 11px; background: #E7F4EC; color: #1E7A46; display: inline-flex; align-items: center; justify-content: center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+              </span>
+              <span style="flex: 1; width: 2px; background: #BFE0CC"></span>
+            </span>
+            <span style="padding-top: 2px">上传本次归档组态</span>
+            <span style="padding-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5F6B78">21 秒</span>
+          </li>
+          <li aria-current="step" style="display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; min-height: 44px">
+            <span style="display: flex; flex-direction: column; align-items: center; height: 100%">
+              <span style="width: 22px; height: 22px; border-radius: 11px; background: #1F5FBF; color: #FFFFFF; display: inline-flex; align-items: center; justify-content: center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+              </span>
+              <span style="flex: 1; width: 2px; background: #DDE2E7"></span>
+            </span>
+            <span style="padding-top: 2px; font-weight: 600; color: #1F5FBF">下载预览结果</span>
+            <span style="padding-top: 2px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #1F5FBF">13 秒</span>
+          </li>
+          <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; min-height: 44px">
+            <span style="display: flex; flex-direction: column; align-items: center; height: 100%">
+              <span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 11px; border: 2px solid #C9D0D8; background: #FFFFFF"></span>
+              <span style="flex: 1; width: 2px; background: #DDE2E7"></span>
+            </span>
+            <span style="padding-top: 2px; color: #5F6B78">写入本地</span>
+            <span></span>
+          </li>
+          <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; min-height: 32px">
+            <span style="display: flex; flex-direction: column; align-items: center">
+              <span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 11px; border: 2px solid #C9D0D8; background: #FFFFFF"></span>
+            </span>
+            <span style="padding-top: 2px; color: #5F6B78">完成，进入差异浏览</span>
+            <span></span>
+          </li>
+        </ol>
+
+        <span style="flex: 1"></span>
+
+        <div style="display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 6px; background: #FDF1E3; color: #6E4200; font-size: 12px; line-height: 18px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 14px; margin-top: 2px"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          <span>处理中不可关闭，页面其余操作已锁定。完成后自动进入差异浏览；失败时在此显示失败步骤，可直接重试。</span>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <div aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 1280px; height: 800px; z-index: 1; background: rgba(27, 34, 41, 0.38)"></div>
+</div>
+</body>
+</html>

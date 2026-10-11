@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S2 上传步骤卡与比较托盘 · 托盘 · 空</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F3F5F7}
+a{color:#1F5FBF}a:hover{color:#174A96}
+</style>
+</head>
+<body>
+<!-- 设计草图快照，导出自“前端优化草图”画布；仅作视觉与交互参考，不是实现代码。数据为示例。见 docs/frontend-vnext/ui-optimization-direction.md 第 7 节。 -->
+<div style="width: 1464px; height: 100px; box-sizing: border-box; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #DDE2E7; border-radius: 0 0 8px 8px; overflow: hidden; color: #1B2229; font-family: 'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; font-size: 13px">
+  <div aria-hidden="true" style="height: 38px; flex: 0 0 38px; display: flex; align-items: center; padding: 0 16px 0 40px; color: #9AA3AD">基线 1 · 已归档</div>
+  <div aria-label="比较托盘" style="flex: 1 1 auto; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-top: 1px solid #DDE2E7; background: #F7F9FB">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4A5563" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="6" r="3"></circle><path d="M13 6h3a2 2 0 0 1 2 2v7"></path><path d="M11 18H8a2 2 0 0 1-2-2V9"></path></svg>
+    <span style="font-weight: 600">比较托盘</span>
+    <span style="color: #5F6B78">0 / 3</span>
+    <span style="color: #5F6B78; font-size: 12px">在组态树中选中基线、历史初始备份或提交，点击“加入比较”；按加入顺序比较</span>
+    <span style="flex: 1"></span>
+    <button type="button" disabled style="height: 34px; padding: 0 12px; border: 1px solid #E1E5EA; border-radius: 6px; background: #F1F3F5; color: #6B7682; font: inherit">清空比较</button>
+    <span id="tray-empty-reason" style="color: #5F6B78; font-size: 12px">至少选择 2 个节点</span>
+    <button type="button" disabled aria-describedby="tray-empty-reason" style="height: 34px; padding: 0 14px; border: 1px solid #E1E5EA; border-radius: 6px; background: #F1F3F5; color: #6B7682; font: inherit; font-weight: 500">历史比较</button>
+  </div>
+</div>
+</body>
+</html>

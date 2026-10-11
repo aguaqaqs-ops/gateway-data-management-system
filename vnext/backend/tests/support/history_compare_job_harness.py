@@ -72,7 +72,7 @@ IDEMPOTENCY_KEY = "history-compare-idem-1"
 ORDERED_SYX_TABLE = "b1_n1_iec104_syx_list"
 ORDERED_SYX_TABLE_EXPECTED_POLICY: dict[str, object] = {
     "table_name": ORDERED_SYX_TABLE,
-    "ignored_columns": ["no"],
+    "ignored_columns": [],
     "keyless_policy": "DEGRADE_NO_COMPARE_KEY",
     "policy_version": "comparison-table-policy/v1",
     "ordered_policy": {

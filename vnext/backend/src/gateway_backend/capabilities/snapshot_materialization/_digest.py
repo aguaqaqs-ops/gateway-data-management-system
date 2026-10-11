@@ -183,7 +183,7 @@ def _table_digest_payload(table: SnapshotTableDescriptor) -> dict[str, Any]:
         "row_count": table.row_count,
         "raw_content_digest": _digest_value(table.raw_content_digest),
         "fast_row_digest": _digest_value(table.fast_row_digest),
-        "business_content_digest": None,
+        "business_schema_digest": table.business_schema_digest.value,
         "compare_key_columns": list(table.compare_key_columns),
     }
     return payload

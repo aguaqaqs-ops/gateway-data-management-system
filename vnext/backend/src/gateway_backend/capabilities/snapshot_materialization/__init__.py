@@ -3,6 +3,8 @@
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
     SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
+    enum_set_labels_for_sql_spelling,
+    normalize_sql_type_spelling,
     try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
@@ -86,6 +88,12 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlSnapshotMaterializationRequest,
     BusinessSnapshotMaterializationRequest,
     ValidationStatusPolicy,
+    business_schema_digest_of,
+    canonical_state_digest_of,
+    snapshot_from_document,
+    snapshot_summary_from_document,
+    snapshot_summary_to_document,
+    snapshot_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization.materialize import (
     materialize_sql_snapshot,
@@ -97,6 +105,8 @@ from gateway_backend.capabilities.snapshot_materialization.repository_ref import
 __all__ = [
     "SqlDeclaredTypeMappingError",
     "declared_type_for_sql_spelling",
+    "enum_set_labels_for_sql_spelling",
+    "normalize_sql_type_spelling",
     "try_declared_type_for_sql_spelling",
     "ARTIFACT_COMPRESSION_ZSTD",
     "BATCH_READER_CONTRACT_VERSION",
@@ -161,6 +171,12 @@ __all__ = [
     "SqlSnapshotMaterializationRequest",
     "BusinessSnapshotMaterializationRequest",
     "ValidationStatusPolicy",
+    "business_schema_digest_of",
+    "canonical_state_digest_of",
+    "snapshot_from_document",
+    "snapshot_summary_from_document",
+    "snapshot_summary_to_document",
+    "snapshot_to_document",
     "materialize_sql_snapshot",
     "materialize_business_snapshot",
     "materialize_repository_ref",

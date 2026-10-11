@@ -4,8 +4,9 @@
   "cache_trust_level": "CONTENT_VERIFIED",
   "table_count": 1,
   "row_count_total": 2,
-  "snapshot_digest": "sha256:93610a23e3e37ac841fa359ff0a28136ddc1b33ac2dd2a0e782b9fb46f83af10",
+  "snapshot_digest": "sha256:29962c6a096134853d222dfc4e2bad2e3adf97bf5f64cd9643d46d30ac02a9de",
   "raw_state_digest": "sha256:a07603503b01d1b301740c4825797757690268c6b9c5138ec1178eaafe6b40f7",
+  "canonical_state_digest": "sha256:13d62981e08136de951b401e2052fb6c1546125560bed54a2151cc52f3cedd65",
   "tables": [
     {
       "table_name": "t",
@@ -19,6 +20,7 @@
       ],
       "degraded_reason": null,
       "compare_schema_digest": "sha256:bc06860a387a01c91b96857bb77e33644d7dfaa0874cc1abd0194c50a900f4f2",
+      "business_schema_digest": "sha256:33dc3702a9c00fd3129cfbd47ad00534504adcf539ebc70b93b80577b4467edf",
       "raw_content_digest": "sha256:7c80837ca8e6adbaeae87f809a85f24c2f8d206cc0c252c54de68870388c2d09",
       "fast_row_digest": "sha256:14f73fb93d7db914f46a83adc8686aefef6081178b5a353dbd0dd78a0b26ad57"
     }

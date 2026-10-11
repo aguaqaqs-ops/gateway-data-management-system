@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -83,18 +83,14 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRef,
     RepositoryRefMaterializationRequest,
     RepositoryTableAccessProvider,
-    ROW_MATERIALIZATION_PROFILE,
-    SCALAR_ENCODING_VERSION,
-    SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
     SourceKind,
-    Snapshot,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
-    SnapshotSourceContext,
-    SnapshotSummary,
-    SnapshotTable,
     SnapshotTableSet,
-    SUMMARY_CONTRACT_VERSION,
+    snapshot_from_document,
+    snapshot_summary_from_document,
+    snapshot_summary_to_document,
+    snapshot_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlSnapshotMaterializationRequest,
@@ -167,7 +163,7 @@ PREVIEW_MATERIALIZE_HANDLER = "backend-vnext/preview/materialize/handler/v1"
 PREVIEW_ASSEMBLE_HANDLER = "backend-vnext/preview/assemble/handler/v1"
 PREVIEW_PUBLISH_HANDLER = "backend-vnext/preview/publish/handler/v1"
 
-PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v1"
+PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v2"
 PREVIEW_ASSEMBLE_CHECKPOINT_CONTRACT_VERSION = "backend-vnext/preview/assemble-checkpoint/v1"
 _JCS_MEDIA_TYPE = "application/jcs"
 
@@ -1561,42 +1557,13 @@ def _side_binding_document(
         )
     return {
         "contract_version": PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
-        "snapshot": _snapshot_payload(bound.snapshot),
+        "snapshot": snapshot_to_document(bound.snapshot),
         "source_ref": source_ref,
         "repository_identity": repository_identity,
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "raw_state_digest": bound.snapshot.raw_state_digest.value,
-        "summary": _summary_payload(bound.summary),
+        "summary": snapshot_summary_to_document(bound.summary),
         "tables": tables,
-    }
-
-
-def _snapshot_payload(snapshot: Snapshot) -> dict[str, object]:
-    context = snapshot.source_context
-    return {
-        "snapshot_id": snapshot.snapshot_id,
-        "source_kind": snapshot.source_kind.value,
-        "parser_version": snapshot.parser_version,
-        "table_ruleset_version": snapshot.table_ruleset_version,
-        "scalar_encoding_version": snapshot.scalar_encoding_version,
-        "snapshot_materialization_contract_version": snapshot.snapshot_materialization_contract_version,
-        "row_materialization_profile": snapshot.row_materialization_profile,
-        "materialization_stage": snapshot.materialization_stage.value,
-        "snapshot_digest": snapshot.snapshot_digest.value,
-        "raw_state_digest": snapshot.raw_state_digest.value,
-        "created_at": snapshot.created_at,
-        "source_context": {
-            "source_kind": context.source_kind.value,
-            "sql_source_digest": None if context.sql_source_digest is None else context.sql_source_digest.value,
-            "composite_logic_source_digest": (
-                None
-                if context.composite_logic_source_digest is None
-                else context.composite_logic_source_digest.value
-            ),
-            "repository_id": context.repository_id,
-            "repository_ref": context.repository_ref,
-            "resolved_commit_hash": context.resolved_commit_hash,
-        },
     }
 
 
@@ -1633,11 +1600,6 @@ def _sides_from_materialize_checkpoint(
 
 def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
     tables_raw = entry.get("tables")
-    if tables_raw is None:
-        raise CheckpointDecodeError(
-            "materialize checkpoint is missing closed table refs",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
     if type(tables_raw) is not list:
         raise CheckpointDecodeError(
             "materialize checkpoint table refs must be a list",
@@ -1661,43 +1623,29 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             opened.append(open_snapshot_table_artifact(store, manifest_ref))
         except (TypeError, ValueError, KeyError, ManifestVerificationError, ArtifactPublishError) as exc:
             raise PreviewJobError("materialize checkpoint table artifact is unreadable") from exc
-    snapshot = _snapshot_from_payload(entry.get("snapshot"))
+    try:
+        snapshot = snapshot_from_document(entry.get("snapshot"))
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint snapshot is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
     if snapshot.snapshot_digest.value != str(entry.get("snapshot_digest")):
         raise CheckpointDecodeError(
             "materialize checkpoint digest mismatch",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    summary_payload = entry.get("summary")
-    if type(summary_payload) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+    try:
+        summary = snapshot_summary_from_document(
+            entry.get("summary"),
+            snapshot=snapshot,
+            tables=tuple(table.descriptor for table in opened),
         )
-    _validate_checkpoint_summary_consistency(
-        summary_payload,
-        snapshot=snapshot,
-        tables_raw=tables_raw,
-        opened=opened,
-    )
-    row_count_total = summary_payload.get("row_count_total")
-    summary = SnapshotSummary(
-        snapshot_id=snapshot.snapshot_id,
-        snapshot_digest=snapshot.snapshot_digest,
-        raw_state_digest=snapshot.raw_state_digest,
-        materialization_stage=snapshot.materialization_stage,
-        parser_version=snapshot.parser_version,
-        table_ruleset_version=snapshot.table_ruleset_version,
-        summary_contract_version=SUMMARY_CONTRACT_VERSION,
-        table_count=len(opened),
-        tables=tuple(table.descriptor for table in opened),
-        source_context=snapshot.source_context,
-        diagnostics=(),
-        row_count_total=(
-            int(row_count_total)
-            if type(row_count_total) is int
-            else sum(table.descriptor.row_count for table in opened)
-        ),
-    )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary does not match its snapshot and tables",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
     table_set = SnapshotTableSet(
         snapshot_id=snapshot.snapshot_id,
         snapshot_digest=snapshot.snapshot_digest,
@@ -1705,171 +1653,6 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
         tables=tuple(opened),
     )
     return BoundSnapshotInput(snapshot, summary, table_set)
-
-
-def _snapshot_from_payload(raw: object) -> Snapshot:
-    if type(raw) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint snapshot is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    context_raw = raw.get("source_context")
-    if type(context_raw) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint source_context is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    source_kind = SourceKind(str(raw["source_kind"]))
-    context_kind = SourceKind(str(context_raw["source_kind"]))
-    sql_digest = context_raw.get("sql_source_digest")
-    composite_digest = context_raw.get("composite_logic_source_digest")
-    source_context = SnapshotSourceContext(
-        source_kind=context_kind,
-        sql_source_digest=None if sql_digest is None else DigestRef(str(sql_digest)),
-        composite_logic_source_digest=(
-            None if composite_digest is None else DigestRef(str(composite_digest))
-        ),
-        repository_id=None if context_raw.get("repository_id") is None else str(context_raw["repository_id"]),
-        repository_ref=None if context_raw.get("repository_ref") is None else str(context_raw["repository_ref"]),
-        resolved_commit_hash=(
-            None
-            if context_raw.get("resolved_commit_hash") is None
-            else str(context_raw["resolved_commit_hash"])
-        ),
-    )
-    del source_kind
-    return Snapshot(
-        snapshot_id=str(raw["snapshot_id"]),
-        source_kind=context_kind,
-        parser_version=int(raw["parser_version"]),
-        table_ruleset_version=int(raw["table_ruleset_version"]),
-        scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        snapshot_materialization_contract_version=SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
-        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-        materialization_stage=MaterializationStage(str(raw["materialization_stage"])),
-        snapshot_digest=DigestRef(str(raw["snapshot_digest"])),
-        raw_state_digest=DigestRef(str(raw["raw_state_digest"])),
-        created_at=str(raw["created_at"]),
-        source_context=source_context,
-    )
-
-
-def _validate_checkpoint_summary_consistency(
-    summary_payload: dict[str, object],
-    *,
-    snapshot: Snapshot,
-    tables_raw: list[object],
-    opened: Sequence[SnapshotTable],
-) -> None:
-    table_count = summary_payload.get("table_count")
-    summary_tables = summary_payload.get("tables")
-    summary_snapshot_digest = summary_payload.get("snapshot_digest")
-    row_count_total = summary_payload.get("row_count_total")
-    if type(table_count) is not int or table_count < 0:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary table_count is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    if type(summary_tables) is not list:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary tables are invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    if type(summary_snapshot_digest) is not str or not summary_snapshot_digest:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary snapshot_digest is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    if summary_snapshot_digest != snapshot.snapshot_digest.value:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary digest mismatch",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    if table_count != len(tables_raw) or table_count != len(opened):
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary table_count mismatch",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    if not tables_raw:
-        if summary_tables or table_count != 0:
-            raise CheckpointDecodeError(
-                "materialize checkpoint empty summary mismatch",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        if type(row_count_total) is int and row_count_total != 0:
-            raise CheckpointDecodeError(
-                "materialize checkpoint empty summary row_count_total mismatch",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        return
-    if len(summary_tables) != len(opened):
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary tables length mismatch",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    summary_by_name: dict[str, dict[str, object]] = {}
-    for item in summary_tables:
-        if type(item) is not dict:
-            raise CheckpointDecodeError(
-                "materialize checkpoint summary table entry is invalid",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        table_name = item.get("table_name")
-        if type(table_name) is not str or not table_name:
-            raise CheckpointDecodeError(
-                "materialize checkpoint summary table_name is invalid",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        summary_by_name[table_name] = item
-    computed_row_count_total = 0
-    for table in opened:
-        descriptor = table.descriptor
-        summary_table = summary_by_name.get(descriptor.table_name)
-        if summary_table is None:
-            raise CheckpointDecodeError(
-                "materialize checkpoint summary table entry is missing",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        summary_row_count = summary_table.get("row_count")
-        if type(summary_row_count) is not int or summary_row_count != descriptor.row_count:
-            raise CheckpointDecodeError(
-                "materialize checkpoint summary row_count mismatch",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        computed_row_count_total += descriptor.row_count
-    if type(row_count_total) is int and row_count_total != computed_row_count_total:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary row_count_total mismatch",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-
-
-def _summary_payload(summary: object) -> dict[str, object]:
-    if type(summary) is not SnapshotSummary:
-        raise PreviewJobError("summary payload type is invalid")
-    tables = []
-    for table in summary.tables:
-        tables.append(
-            {
-                "table_name": table.table_name,
-                "display_table_name": table.display_table_name,
-                "row_count": table.row_count,
-                "primary_key_columns": list(table.primary_key_columns),
-                "compare_key_columns": list(table.compare_key_columns),
-                "compare_schema_digest": table.compare_schema_digest.value,
-                "raw_content_digest": (
-                    None if table.raw_content_digest is None else table.raw_content_digest.value
-                ),
-                "fast_row_digest": None if table.fast_row_digest is None else table.fast_row_digest.value,
-            }
-        )
-    return {
-        "snapshot_id": summary.snapshot_id,
-        "snapshot_digest": summary.snapshot_digest.value,
-        "table_count": summary.table_count,
-        "row_count_total": summary.row_count_total,
-        "tables": tables,
-    }
 
 
 def _bound_from_materialization(result: SnapshotMaterializationResult, *, label: str) -> BoundSnapshotInput:

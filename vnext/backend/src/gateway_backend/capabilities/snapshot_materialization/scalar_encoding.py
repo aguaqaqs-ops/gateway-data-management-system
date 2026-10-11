@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import cast
 
 from gateway_shared_kernel import (
     CanonicalEncodingError,
@@ -28,6 +29,7 @@ from gateway_shared_kernel import (
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
     SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
+    enum_set_labels_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     DiagnosticSeverity,
@@ -40,6 +42,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SourceColumnDescriptor,
     SourceRow,
     SqlLogicalType,
+    SqlSetValue,
 )
 
 _STRING_TYPE = DeclaredType(kind=DeclaredTypeKind.STRING)
@@ -62,7 +65,37 @@ def map_repository_column(column: RepositoryColumn) -> MappedRepositoryColumn:
     display = column.display_name if column.display_name is not None else column.name
     nullable = True if column.nullable is None else column.nullable
     spelling = column.scalar_type if column.scalar_type is not None else column.raw_type
+    enum_set = None
+    if spelling:
+        try:
+            enum_set = enum_set_labels_for_sql_spelling(spelling)
+        except SqlDeclaredTypeMappingError:
+            enum_set = None
+    if enum_set is not None and enum_set[0] == "SET":
+        source = SourceColumnDescriptor(
+            display_name=display,
+            canonical_name=canonical,
+            ordinal=column.ordinal,
+            sql_type=spelling if spelling else "UNKNOWN",
+            logical_type=SqlLogicalType.SET,
+            declared_type=None,
+            nullable=nullable,
+            enum_or_set_labels=enum_set[1],
+        )
+        return MappedRepositoryColumn(source=source, unknown_family=False)
     declared, unknown = _declared_type_for(spelling)
+    if enum_set is not None and enum_set[0] == "ENUM":
+        source = SourceColumnDescriptor(
+            display_name=display,
+            canonical_name=canonical,
+            ordinal=column.ordinal,
+            sql_type=spelling if spelling else "UNKNOWN",
+            logical_type=SqlLogicalType.ENUM,
+            declared_type=declared,
+            nullable=nullable,
+            enum_or_set_labels=enum_set[1],
+        )
+        return MappedRepositoryColumn(source=source, unknown_family=unknown)
     source = SourceColumnDescriptor(
         display_name=display,
         canonical_name=canonical,
@@ -115,6 +148,25 @@ def encode_repository_value(
 ) -> tuple[SourceCell, MaterializationDiagnostic | None]:
     if value is None:
         return NullScalar(), None
+    if mapped.source.logical_type is SqlLogicalType.SET:
+        labels = mapped.source.enum_or_set_labels or ()
+        if not isinstance(value, (list, tuple)) or any(
+            type(item) is not str for item in value
+        ):
+            return StringScalar(text=_as_text(value)), _encoding_warning(
+                table,
+                mapped.source.canonical_name,
+                "SET value is not a list of declared labels; original value preserved as text",
+            )
+        selected: tuple[str, ...] = tuple(cast(str, item) for item in value)
+        selected_set = set(selected)
+        if len(selected_set) != len(selected) or not selected_set.issubset(labels):
+            return StringScalar(text=_as_text(value)), _encoding_warning(
+                table,
+                mapped.source.canonical_name,
+                "SET value contains duplicate or undeclared labels; original value preserved as text",
+            )
+        return SqlSetValue(tuple(label for label in labels if label in selected_set)), None
     if mapped.unknown_family:
         return StringScalar(text=_as_text(value)), _encoding_warning(
             table,

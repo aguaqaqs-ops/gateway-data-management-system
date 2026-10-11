@@ -87,17 +87,13 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRef,
     RepositoryRefMaterializationRequest,
     RepositoryTableAccessProvider,
-    ROW_MATERIALIZATION_PROFILE,
-    SCALAR_ENCODING_VERSION,
-    SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
-    Snapshot,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
-    SnapshotSourceContext,
-    SnapshotSummary,
     SnapshotTableSet,
-    SourceKind,
-    SUMMARY_CONTRACT_VERSION,
+    snapshot_from_document,
+    snapshot_summary_from_document,
+    snapshot_summary_to_document,
+    snapshot_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
@@ -138,7 +134,7 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v1"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v2"
 HISTORY_COMPARE_COMPARE_BINDING_CONTRACT_VERSION = "backend-vnext/history-compare/compare-binding/v1"
 
 _JOB_STATE_SIDES = "sides"
@@ -1295,9 +1291,9 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
     return {
         "contract_version": HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION,
         "commit_id": commit_id,
-        "snapshot": _snapshot_payload(bound.snapshot),
+        "snapshot": snapshot_to_document(bound.snapshot),
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
-        "summary": _summary_payload(bound.summary),
+        "summary": snapshot_summary_to_document(bound.summary),
         "tables": tables,
     }
 
@@ -1348,33 +1344,30 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             opened.append(open_snapshot_table_artifact(store, manifest_ref))
         except (TypeError, ValueError, KeyError, ManifestVerificationError) as exc:
             raise HistoryCompareJobError("materialize checkpoint table artifact is unreadable") from exc
-    snapshot = _snapshot_from_payload(entry.get("snapshot"))
+    try:
+        snapshot = snapshot_from_document(entry.get("snapshot"))
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint snapshot is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
     snapshot_digest_raw = entry.get("snapshot_digest")
     if type(snapshot_digest_raw) is not str or snapshot.snapshot_digest.value != snapshot_digest_raw:
         raise CheckpointDecodeError(
             "materialize checkpoint digest mismatch",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    summary_payload = entry.get("summary")
-    if type(summary_payload) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+    try:
+        summary = snapshot_summary_from_document(
+            entry.get("summary"),
+            snapshot=snapshot,
+            tables=tuple(table.descriptor for table in opened),
         )
-    summary = SnapshotSummary(
-        snapshot_id=snapshot.snapshot_id,
-        snapshot_digest=snapshot.snapshot_digest,
-        raw_state_digest=snapshot.raw_state_digest,
-        materialization_stage=snapshot.materialization_stage,
-        parser_version=snapshot.parser_version,
-        table_ruleset_version=snapshot.table_ruleset_version,
-        summary_contract_version=SUMMARY_CONTRACT_VERSION,
-        table_count=len(opened),
-        tables=tuple(table.descriptor for table in opened),
-        source_context=snapshot.source_context,
-        diagnostics=(),
-        row_count_total=sum(table.descriptor.row_count for table in opened),
-    )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary does not match its snapshot and tables",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
     table_set = SnapshotTableSet(
         snapshot_id=snapshot.snapshot_id,
         snapshot_digest=snapshot.snapshot_digest,
@@ -1390,104 +1383,6 @@ def _bound_from_materialization(result: SnapshotMaterializationResult) -> BoundS
     if result.snapshot is None or result.summary is None:
         raise HistoryCompareJobError("materialization is incomplete")
     return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
-
-
-def _snapshot_payload(snapshot: Snapshot) -> dict[str, object]:
-    context = snapshot.source_context
-    return {
-        "snapshot_id": snapshot.snapshot_id,
-        "source_kind": snapshot.source_kind.value,
-        "parser_version": snapshot.parser_version,
-        "table_ruleset_version": snapshot.table_ruleset_version,
-        "scalar_encoding_version": snapshot.scalar_encoding_version,
-        "snapshot_materialization_contract_version": snapshot.snapshot_materialization_contract_version,
-        "row_materialization_profile": snapshot.row_materialization_profile,
-        "materialization_stage": snapshot.materialization_stage.value,
-        "snapshot_digest": snapshot.snapshot_digest.value,
-        "raw_state_digest": snapshot.raw_state_digest.value,
-        "created_at": snapshot.created_at,
-        "source_context": {
-            "source_kind": context.source_kind.value,
-            "sql_source_digest": None if context.sql_source_digest is None else context.sql_source_digest.value,
-            "composite_logic_source_digest": (
-                None
-                if context.composite_logic_source_digest is None
-                else context.composite_logic_source_digest.value
-            ),
-            "repository_id": context.repository_id,
-            "repository_ref": context.repository_ref,
-            "resolved_commit_hash": context.resolved_commit_hash,
-        },
-    }
-
-
-def _snapshot_from_payload(raw: object) -> Snapshot:
-    if type(raw) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint snapshot is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    context_raw = raw.get("source_context")
-    if type(context_raw) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint source_context is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    context_kind = SourceKind(str(context_raw["source_kind"]))
-    sql_digest = context_raw.get("sql_source_digest")
-    composite_digest = context_raw.get("composite_logic_source_digest")
-    source_context = SnapshotSourceContext(
-        source_kind=context_kind,
-        sql_source_digest=None if sql_digest is None else DigestRef(str(sql_digest)),
-        composite_logic_source_digest=(
-            None if composite_digest is None else DigestRef(str(composite_digest))
-        ),
-        repository_id=None if context_raw.get("repository_id") is None else str(context_raw["repository_id"]),
-        repository_ref=None if context_raw.get("repository_ref") is None else str(context_raw["repository_ref"]),
-        resolved_commit_hash=(
-            None
-            if context_raw.get("resolved_commit_hash") is None
-            else str(context_raw["resolved_commit_hash"])
-        ),
-    )
-    return Snapshot(
-        snapshot_id=str(raw["snapshot_id"]),
-        source_kind=context_kind,
-        parser_version=int(raw["parser_version"]),
-        table_ruleset_version=int(raw["table_ruleset_version"]),
-        scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        snapshot_materialization_contract_version=SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
-        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-        materialization_stage=MaterializationStage(str(raw["materialization_stage"])),
-        snapshot_digest=DigestRef(str(raw["snapshot_digest"])),
-        raw_state_digest=DigestRef(str(raw["raw_state_digest"])),
-        created_at=str(raw["created_at"]),
-        source_context=source_context,
-    )
-
-
-def _summary_payload(summary: object) -> dict[str, object]:
-    if type(summary) is not SnapshotSummary:
-        raise HistoryCompareJobError("summary payload type is invalid")
-    tables = []
-    for table in summary.tables:
-        tables.append(
-            {
-                "table_name": table.table_name,
-                "display_table_name": table.display_table_name,
-                "row_count": table.row_count,
-                "primary_key_columns": list(table.primary_key_columns),
-                "compare_key_columns": list(table.compare_key_columns),
-                "compare_schema_digest": table.compare_schema_digest.value,
-            }
-        )
-    return {
-        "snapshot_id": summary.snapshot_id,
-        "snapshot_digest": summary.snapshot_digest.value,
-        "table_count": summary.table_count,
-        "row_count_total": summary.row_count_total,
-        "tables": tables,
-    }
 
 
 def _closed_refs_from_sides(sides: dict[str, BoundSnapshotInput]) -> tuple[ArtifactRef, ...]:

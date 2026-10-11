@@ -663,7 +663,6 @@ def _with_diagnostic(
         source_context=result.summary.source_context,
         diagnostics=combined,
         row_count_total=result.summary.row_count_total,
-        business_state_digest=result.summary.business_state_digest,
     )
     table_set = result.table_set
     if table_set is not None:

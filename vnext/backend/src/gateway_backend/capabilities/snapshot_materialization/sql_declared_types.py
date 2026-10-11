@@ -8,7 +8,6 @@ from gateway_shared_kernel import DeclaredType, DeclaredTypeKind
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlDeclaredTypeMappingError,
-    enum_set_labels_for_sql_spelling as _enum_set_labels_for_sql_spelling,
     normalize_sql_type_spelling,
 )
 
@@ -101,10 +100,6 @@ def declared_type_for_sql_spelling(spelling: str) -> DeclaredType:
             f"unsupported SQL type spelling: {spelling}"
         ) from exc
     raise SqlDeclaredTypeMappingError(f"unsupported SQL type spelling: {spelling}")
-
-
-def enum_set_labels_for_sql_spelling(spelling: str) -> tuple[str, tuple[str, ...]] | None:
-    return _enum_set_labels_for_sql_spelling(spelling)
 
 
 def try_declared_type_for_sql_spelling(spelling: str) -> DeclaredType | None:

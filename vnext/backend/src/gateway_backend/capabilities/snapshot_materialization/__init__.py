@@ -1,10 +1,7 @@
 """Public surface of the Snapshot Materialization capability."""
 
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
-    SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
-    enum_set_labels_for_sql_spelling,
-    normalize_sql_type_spelling,
     try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
@@ -88,8 +85,11 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlSnapshotMaterializationRequest,
     BusinessSnapshotMaterializationRequest,
     ValidationStatusPolicy,
+    SqlDeclaredTypeMappingError,
     business_schema_digest_of,
     canonical_state_digest_of,
+    enum_set_labels_for_sql_spelling,
+    normalize_sql_type_spelling,
     snapshot_from_document,
     snapshot_summary_from_document,
     snapshot_summary_to_document,

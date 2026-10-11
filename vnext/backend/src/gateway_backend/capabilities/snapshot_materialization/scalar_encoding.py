@@ -27,15 +27,15 @@ from gateway_shared_kernel import (
 )
 
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
-    SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
-    enum_set_labels_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     DiagnosticSeverity,
     MaterializationDiagnostic,
     MaterializationDiagnosticCode,
     RepositoryColumn,
+    SqlDeclaredTypeMappingError,
+    enum_set_labels_for_sql_spelling,
 )
 from gateway_backend.capabilities.table_access.contracts import (
     SourceCell,

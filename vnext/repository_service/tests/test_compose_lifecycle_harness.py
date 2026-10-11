@@ -524,6 +524,47 @@ def test_client_dependency_base_reuses_matching_lock_without_rebuild() -> None:
     build.assert_not_called()
 
 
+def test_client_dependency_base_rebuilds_when_lock_and_final_image_are_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(harness.CLIENT_DEPENDENCY_BASE_IMAGE_ENV, raising=False)
+    stale_labels = {harness.CLIENT_UV_LOCK_LABEL: "0" * 64}
+    matching_labels = {harness.CLIENT_UV_LOCK_LABEL: _LOCK}
+    with (
+        patch(
+            "support.compose_lifecycle_harness.inspect_image",
+            side_effect=[
+                (_IMAGE_ID, stale_labels),
+                (_IMAGE_ID, stale_labels),
+                (_IMAGE_ID, matching_labels),
+            ],
+        ),
+        patch.object(harness, "docker_build_network", return_value="host"),
+        patch(
+            "support.compose_lifecycle_harness.subprocess.run",
+            return_value=subprocess.CompletedProcess(["docker"], 0, stdout="", stderr=""),
+        ) as run,
+    ):
+        assert harness.ensure_client_dependency_base_image(
+            image=harness.DEFAULT_CLIENT_IMAGE,
+            client_uv_lock_sha256=_LOCK,
+        ) == harness.DEFAULT_CLIENT_DEPENDENCY_BASE_IMAGE
+
+    assert run.call_args.args[0] == [
+        "docker",
+        "build",
+        "--network",
+        "host",
+        "-f",
+        str(harness.CLIENT_DEPENDENCY_BASE_DOCKERFILE),
+        "--build-arg",
+        f"UV_LOCK_SHA256={_LOCK}",
+        "-t",
+        harness.DEFAULT_CLIENT_DEPENDENCY_BASE_IMAGE,
+        str(harness.VNEXT_ROOT),
+    ]
+
+
 def test_run_client_build_reuses_matching_dependency_base() -> None:
     with (
         patch.object(harness, "docker_build_network", return_value="host"),

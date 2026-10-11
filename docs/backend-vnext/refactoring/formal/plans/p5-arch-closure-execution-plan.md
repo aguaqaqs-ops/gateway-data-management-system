@@ -474,8 +474,10 @@ Application 特判或新增基线条目绕过。经 owner 明确批准的测量�
 
 - 实现授权由 owner 按阶段给出，一次授权可以覆盖多个阶段；无论授权范围多大，阶段审核未通过都不进入下一阶段。
 - 阶段实施直接提交到 `main`，在主工作区进行。只有确需并行的工作才开短期分支，完成后尽快合回 `main`。
-  例外：main 同时接收其他对话的文档提交时，门禁运行期间主工作区会被写入，因此 G3 在独立 worktree `/home/dev/gdds-p5-g3` 与分支 `p5-g3` 上实施，
-  门禁、carried 判定与审核复核都在该 worktree 内，通过后由审核方并入 `main`（见 G3 规格 §6）。新建的 linked worktree 需要先建 `legacy` 符号链接（AGENTS.md）。
+  例外：main 同时接收其他对话的文档提交时，门禁运行期间主工作区会被写入。因此 G3、G8b 与 S2a 起的各阶段在独立 worktree `/home/dev/gdds-p5-<阶段>`
+  与短期分支 `p5-<阶段>` 上实施，分支从 kickoff 时的 `main` 切出，不 merge/rebase `main`；门禁、carried 判定与审核复核都在该 worktree 内；
+  审核通过后由审核方把报告提交快进到分支、在其上打 tag，再以 `--no-ff` 并入 `main`（见 G3 规格 §6）。新建的 linked worktree 需要先建 `legacy` 符号链接（AGENTS.md）。
+  区间仍以上一阶段 tag 为起点；tag 与分支起点之间只有审核方的文档提交，审核时按提交区分。
 - 阶段边界用附注 tag `p5-s<N>-exit` 标记，指向记录了通过结论的审核报告提交。审核对象是提交区间 `<上一阶段 tag>..<候选 SHA>`（S2a 的起点为 G2、G3、G8b 依次审核通过后的最后一个 tag，即 `p5-g8b-exit`；G2 自己的区间起点为 `p5-s1-exit`）；复审对象是 `<上次候选 SHA>..<新候选 SHA>`。
 - 按 §8.4、§8.5 的子步推进，每个子步至少一个提交（提交信息形如 `refactor(p5-closure-s2a): ...`）。每个子步结束运行
   `import_rules` 与受影响的 focused 测试；`import_rules` 的输出只减不增，改名导致的条目替换在同一提交中说明。

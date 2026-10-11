@@ -139,3 +139,121 @@ V provenance project 为 `ordered-bisect-b-3655597-baseline`：
 交付：按执行计划 §8.8 写 plans/p5-arch-closure-g2-independent-review.md，作为单独纯文档提交并快进合入 main；除审核报告外不修改文件；不推送、不打 tag。
 审核允许结论：通过 / 定向修订 / 整体返工。
 ```
+
+## 8. 修订轮（G2 定向修订，2026-10-11）
+
+### 8.1 区间与提交
+
+修订后说明：本节为本轮复审后的结果汇总；原 handoff 的历史记录保持不动，与本节覆盖同一验收项时，以本节的修订后状态和新旧对照为准。
+
+- `range_start`: `p5-s1-exit` = `139ee5fffd5b8d3bc229d9a6a5db1a4e06cbfc57`。
+- 上次审核对象 H = `c9a09ddb35e4c8c5aaef0a4cba8175ac3488536a`；当前修订基线 main = `ab4db5791d8cbb3344543f1b46d7f2e648c90002`。
+- R1 `fix(p5-g2): restore mysqldump set allowlist behavior`：`6a6eb546ec`。
+- R3a `fix(p5-g2): cover client dependency base rebuild`：`29f7dfd3c3`。
+- R2（含获 owner 同意保留的 F5）`fix(p5-g2): complete real dump census after set repair`：`0889fa953da9116d2fc0722bf1031ecaa7352cf6`，也是门禁提交 V′。
+- H′ 是本节追加后的 handoff 提交；精确 SHA 由该提交对象确定。
+- 本轮只修 G2-F1、补 G2-F4 测试、重跑并更新 census；G2.2、G2.3、G7 不改。G3、G6b、G8 不实施。`c9a09ddb35..H′` 区间内审核方报告与治理文档按文件路径排除，不作为实现修订范围。
+
+### 8.2 G2-F1：恢复 S1 白名单并关闭四项标准
+
+R1 的 `_allowed_set_name` 在原 `name.lower().lstrip("@")` 与 `old_` / `character_set_` / `collation_` 前缀和 `_ALLOWED_SET_NAMES` 判断之前，只增加精确且大小写不敏感的 `name.lower() == "@saved_cs_client"` 判断。原接受语义全部保留；`@@saved_cs_client` 与其他 `@` 名称仍由原逻辑拒绝。
+
+`MYSQLDUMP_SET_SHAPES` 现有参数表覆盖 10 条标准头部 SET、8 条恢复 SET，以及三种带 `/*!NNNNN ... */` 的 saved-client 形态和大小写变体，共 22 个形态；22/22 均为 `COMPLETE`。拒绝参数表保留 `@@saved_cs_client`、`@other_client`，删除此前错误拒绝、而 S1 本来接受的 `@character_set_client`。
+
+按 G2-F1 关闭标准 2，把 `p5-s1-exit` 的 `_sql_statements.py` 通过 `git show` 复制到 worktree 外临时目录，以真实 owner 解析入口比较相同语句。下表列出 30 个输入；状态为 `FAILED` 的诊断码均为 `UNSUPPORTED_STATEMENT`。只有精确变量名 `@saved_cs_client` 的大小写形式从拒绝变为接受，`@@saved_cs_client` 与其他用户变量的拒绝不变。
+
+| SQL 输入 | `p5-s1-exit` | V′ 实现 |
+| --- | --- | --- |
+| `/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;` | COMPLETE | COMPLETE |
+| `/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;` | COMPLETE | COMPLETE |
+| `/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;` | COMPLETE | COMPLETE |
+| `/*!50503 SET NAMES utf8mb4 */;` | COMPLETE | COMPLETE |
+| `/*!40103 SET @OLD_TIME_ZONE=@@TIME_ZONE */;` | COMPLETE | COMPLETE |
+| `/*!40103 SET TIME_ZONE='+00:00' */;` | COMPLETE | COMPLETE |
+| `/*!40014 SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0 */;` | COMPLETE | COMPLETE |
+| `/*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;` | COMPLETE | COMPLETE |
+| `/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;` | COMPLETE | COMPLETE |
+| `/*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;` | COMPLETE | COMPLETE |
+| `SET TIME_ZONE=@OLD_TIME_ZONE;` | COMPLETE | COMPLETE |
+| `SET SQL_MODE=@OLD_SQL_MODE;` | COMPLETE | COMPLETE |
+| `SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;` | COMPLETE | COMPLETE |
+| `SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;` | COMPLETE | COMPLETE |
+| `SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT;` | COMPLETE | COMPLETE |
+| `SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS;` | COMPLETE | COMPLETE |
+| `SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION;` | COMPLETE | COMPLETE |
+| `SET SQL_NOTES=@OLD_SQL_NOTES;` | COMPLETE | COMPLETE |
+| `/*!40101 SET @saved_cs_client = @@character_set_client */;` | FAILED | COMPLETE |
+| `/*!50503 SET character_set_client = utf8mb4 */;` | COMPLETE | COMPLETE |
+| `/*!40101 SET character_set_client = @saved_cs_client */;` | COMPLETE | COMPLETE |
+| `SET @SAVED_CS_CLIENT = 1;` | FAILED | COMPLETE |
+| `SET @@unique_checks = 0;` | COMPLETE | COMPLETE |
+| `SET @@character_set_client = utf8mb4;` | COMPLETE | COMPLETE |
+| `SET @character_set_client = utf8mb4;` | COMPLETE | COMPLETE |
+| `SET @other_client = 1;` | FAILED | FAILED |
+| `SET @OtHeR_Client = 1;` | FAILED | FAILED |
+| `SET @@saved_cs_client = 1;` | FAILED | FAILED |
+| `SET @saved_cs_client = 1;` | FAILED | COMPLETE |
+| `SET @SaVeD_Cs_CliEnT = 1;` | FAILED | COMPLETE |
+
+以上满足关闭标准 1（完整 mysqldump 头尾参数表）、2（接受集合只增加精确 saved-client 名）、3（census 中 t3-c-v1 SQL、物化、composite 与键统计完整）、4（V′ 权威 runner exit 0）。30 条新旧对照明细另存于外部 `g2r-set-allowlist-comparison.log`；未提交对照脚本和临时 S1 文件。
+
+### 8.3 G2-F2 与 G2-F3
+
+本轮依照已恢复的 AGENTS.md carried 第 3 条，在 V′ 的门禁所在主工作区 `/home/dev/gateway-data-management-system` 上做 V′→H′ 检查，不使用新 worktree。V′ 的 repository-service 镜像标签为 `build-input-revision=29f7dfd3c349f9943590765c2b90ca49e47f8eb3`、`source-tree-sha256=sha256:2c92331c021958fc4ea425973e59695195f88397e1a39e42572cb3e874f5ff5f`；提交后同 worktree 的重算值、backend/worker 同项目重建 ID 与 carried 最终结论见外部 `g2r-carried-check.log`。V′..H′ 只修改本 handoff。
+
+G2-F3 的 `.hypothesis` 与残留目录身份问题关联 owner 决议 G6b；G6b 不在本轮授权范围，本轮未新增 `.dockerignore` 规则、未改变 backend/worker 构建上下文，也不声称关闭 G2-F3。
+
+### 8.4 G2-F4：client dependency base 重建分支
+
+R3a 增加业务行为测试 `test_client_dependency_base_rebuilds_when_lock_and_final_image_are_stale`。测试模拟基础镜像 lock label 与当前 uv-lock 不匹配、最终镜像也不匹配的状态，拦截 `subprocess.run`，断言 `ensure_client_dependency_base_image` 走 `_run_client_dependency_base_build` 的 `docker build` 命令构造；不实际构建镜像。repository_service harness 与 build-context focused 测试合计 147 项通过。
+
+候选 `815ef56a30b3796cb379887d601b4d8a53e91334` 当时没有记录最终镜像层数，不据此补造数值。旧 H 与 V′ 的 final 镜像均为 20 层、独立 base 均为 12 层；V′ runner 后 final ID 为 `sha256:ca24dce188da6548531bb5ea87f1f6c59aaac1ef3d782878d8719c3c19788760`（20 层），base ID 为 `sha256:dafde407833e087cc619da34b3e352e7fa85e63d6138ed8d516cdccfa3e46764`（12 层），两者 uv-lock label 均为 `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954`。V′ 前的 H final 也为 20 层；运行后 base 未变，final 层数未增长。
+
+### 8.5 G2-F5：重复键统计补充
+
+owner 同意保留 F5。`duplicate_key_scan.table_details` 对每张重复表新增排序后的 `differing_columns` 和 `max_group_size`；只序列化列名与计数，不序列化任何行值。参数表覆盖相同行、单列冲突、多列冲突（并验证列名排序）、混合重复组及最大组大小；reader 单次消费也由测试强制验证。
+
+修订后重复键汇总相对原 handoff 为：额外行 `40,748 → 50,565`，完全相同额外行 `0 → 0`，冲突额外行 `40,748 → 50,565`，重复 dataset-table 记录 `136 → 160`；键来源仍全部为 `EXPLICIT_RULE`（原 136、新 160；`DDL_PRIMARY_KEY` 均为 0）。更新后共有 50,565 条重复有效键额外行：完全相同行额外行 0、冲突行 50,565；共有 160 个 dataset-table 重复记录，键来源均为 `EXPLICIT_RULE`（`DDL_PRIMARY_KEY` 来源 0）。160 张重复表均有至少一个 differing column；`differing_columns` 合计 430 个表-列名记录；最大重复组为 1,625 行。所有细分、有效键列、键来源及列名只在 census JSON 中记录；扫描仍为 partial，未解析有效键表不计为无重复。
+
+### 8.6 G2-F6：临时 worktree
+
+完成最后的 carried 检查后，已按要求用 `git worktree remove --force` 清理 `/tmp/gdds-g2-h-check`、`/tmp/gdds-g6-final-a`、`/tmp/gdds-g6-final-b`、`/tmp/gdds-g6-identity-old`、`/tmp/gdds-g6-verify-a`、`/tmp/gdds-g6-verify-b`；保留 `/home/dev/gdds-p5-closure-s1`。没有执行 Docker image/container/volume 清理，也没有移除或重打 `gateway-repository-client-e2e:local` 和 `gateway-repository-client-e2e-base:local`。
+
+### 8.7 census 重跑与新旧对照
+
+真实输入根目录 `/home/dev/gateway-real-dumps` 全程只读；生产与诊断输出仅写到授权的 `census/` 目录。生产路径 8 个 SQL parse 全部 COMPLETE，生产 materialization 与 composite 也全部 COMPLETE。诊断初次尝试因 F5 实现二次消费单次 reader 而得到 `ValueError: table reader is single-consumer and non-rewind`，记录在 `g2r-census-diagnostic.log`；改为单遍 reader 聚合并加单消费测试后，诊断重跑 exit 0，记录在 `g2r-census-diagnostic-retry1.log`。这不是业务数据失败。
+
+| 数据集 | SQL / composite（旧→新） | XML 最大深度 | 重复额外行 / 完全相同 / 冲突 | 重复表 / 已扫描有效键表 |
+| --- | --- | ---: | ---: | ---: |
+| `rd-t1-a-v1` | COMPLETE / COMPLETE → COMPLETE / COMPLETE | 1 | 3 / 0 / 3 | 1 / 102 |
+| `rd-t1-a-v2` | COMPLETE / COMPLETE → COMPLETE / COMPLETE | 1 | 3 / 0 / 3 | 1 / 102 |
+| `rd-t2-b-v1` | COMPLETE / COMPLETE → COMPLETE / COMPLETE | 56 | 3,032 / 0 / 3,032 | 16 / 182 |
+| `rd-t2-b-v2` | COMPLETE / COMPLETE → COMPLETE / COMPLETE | 56 | 2,653 / 0 / 2,653 | 14 / 182 |
+| `rd-t3-c-v1` | FAILED `UNSUPPORTED_STATEMENT` / NOT_REACHED → COMPLETE / COMPLETE | 66 | 未评估 → 9,817 / 0 / 9,817 | 未评估 → 24 / 165 |
+| `rd-t3-c-v2` | COMPLETE / COMPLETE → COMPLETE / COMPLETE | 66 | 9,817 / 0 / 9,817 | 24 / 165 |
+| `rd-t4-d-v1` | COMPLETE / COMPLETE → COMPLETE / COMPLETE | 97 | 12,616 / 0 / 12,616 | 40 / 279 |
+| `rd-t4-d-v2` | COMPLETE / COMPLETE → COMPLETE / COMPLETE | 97 | 12,624 / 0 / 12,624 | 40 / 279 |
+
+除 t3-c-v1 的预期恢复和 F5 两个新增字段外，其他 7 份数据的 census 既有字段与上一版完全一致。t3-c-v1 更新为 199 张源 DDL 表、200 张 materialized 表、268,661 行；角色计数为 `BROWSE_ONLY=13`、`ORDERED_DIFF=54`、`SKIP=8`、`SNAPSHOT_ONLY=4`、`STANDARD_DIFF=120`。其重复键扫描为 partial：165 张有效键表已扫描、27 张键未解析、8 张规则跳过、0 张 reader 不可用。没有暴露后续 AST 结构或业务语义差异，因此没有改 composite AST；八份数据的 max depth 仍为 `1,1,56,56,66,66,97,97`。G4 不适用，现有 SQL 回退扫描触发范围未改。G8 只提供统计，未改规则键或去重行为。
+
+提交 census JSON 的 `contains_row_data=false`，不含行值和主机路径；`differing_columns` 为排序列名。生产输出、诊断输出、字段对照记录见外部 `g2r-census-production.log`、`g2r-census-diagnostic-retry1.log`、`g2r-census-compare.log`。
+
+### 8.8 V′ 门禁与镜像 provenance
+
+V′ = `0889fa953da9116d2fc0722bf1031ecaa7352cf6`。preflight clean，`pgrep -x dolt` 无进程、无 Compose project 标签容器、8000 端口空闲。按顺序重建 repository-service 镜像并运行 `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；runner 起止 HEAD 相同、status clean、自身 exit code 0。批次：shared_kernel 242 passed；repository_contracts 152 passed；repository_client 154 passed；backend 2,734 passed / 1 warning；repository_service parallel 1,681 passed / 1 skipped；serial 205 passed / 1,682 deselected。
+
+Compose provenance project=`ordered-bisect-b-1055182-baseline`，三个实际运行镜像如下：
+
+| 镜像 | Image ID | labels 摘要 | 层数 |
+| --- | --- | --- | ---: |
+| backend | `sha256:668e532f9771d2bda53247e2236cb5d26a1ba67fd925c57c2f61f199dfe3ede2` | project=`ordered-bisect-b-1055182-baseline`, service=`backend` | 15 |
+| repository-service | `sha256:e184e610e4066ecfbcf87e72bcbf6d12d994d8993ece7b0621eae6916e76191e` | revision=`0889fa953da9116d2fc0722bf1031ecaa7352cf6`; build-input-revision=`29f7dfd3c349f9943590765c2b90ca49e47f8eb3`; source-tree=`sha256:2c92331c021958fc4ea425973e59695195f88397e1a39e42572cb3e874f5ff5f`; uv-lock=`6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11` | 28 |
+| worker | `sha256:55dd7a9f88306f86d870190328a5e5596ccd4cea8a0bfbf285067ebe7512cd41` | project=`ordered-bisect-b-1055182-baseline`, service=`worker` | 15 |
+
+构建日志、runner 日志、provenance 原件副本和三个 image inspect 记录分别为外部 `g2r-repository-service-build.log`、`g2r-runner.log`、`g2r-compose-provenance.json`、`g2r-images-inspect.log`；preflight 为 `g2r-preflight.log`。提交后静态与 focused 检查汇总见 `g2r-focused-checks.log`。
+
+停止条件核查：golden、digest、checkpoint payload、HTTP DTO 均未变化；`import_rules` 仍为 3 violations / 0 runtime cycles / 14 unreachable；G2.2/3 与 AST 语义未改；t3-c-v1 composite COMPLETE；设计 §14 停止条件未触发。门禁期间没有写 worktree、提交、外部重建/重打镜像或 Docker 清理。
+
+### 8.9 V′ → H′ carried
+
+按 AGENTS.md 镜像身份等价第 3 条，在 V′ 门禁运行的同一主工作区完成 post-commit identity 重算和 backend/worker 同 project 重建。V′..H′ 只修改本 handoff；RS 的 build-input/source-tree identity 与 V′ provenance labels 一致；backend/worker rebuilt IDs 与 V′ provenance 中实际运行 IDs 一致，因此 carried 判定为 **true**。完整身份值、重建命令与同一性比较记录在外部 `g2r-carried-check.log`。

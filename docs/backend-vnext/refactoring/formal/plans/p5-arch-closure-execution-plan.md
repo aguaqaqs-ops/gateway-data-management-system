@@ -386,7 +386,7 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
   - `application/submission/{accept,accept_transaction,contracts,errors,review,review_contracts}.py`；
   - `domain/workspace/models.py`、`domain/submission/{models,policies,review}.py`（`domain/submission/review.py` 的理由规则提取为 Submission 领域共享校验，身份确认理由使用多行模式，Review 行为不变，DC28）、`domain/archive/models.py`；
   - `application/archive/{queries,start,contracts,audit}.py`、`application/history/projection.py`；
-  - `infrastructure/control_db/{migrations,sqlite_workspace,sqlite_submission,sqlite_archive,sqlite_review}.py`；
+  - `infrastructure/control_db/{schema,sqlite_workspace,sqlite_submission,sqlite_archive,sqlite_review}.py`；
   - `http/schemas/{submit,preview,archive,review,history}.py`、`http/errors.py`、`http/orchestration/{submit_acceptance,archive,review}.py`、
     `http/routes/{submit_attempts,preview_results}.py`。
 - 必改（T）：
@@ -394,7 +394,7 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
   - 更新：`test_review_domain.py`（共享理由校验的两种模式，DC28）、`test_architecture.py`（project_identity owner 与 DAG 边）、`test_risk_contracts.py`、`test_surface_assembly.py`、
     `test_bundle_assembly.py`、`test_preview_job_assemble.py`、`test_preview_job_materialize.py`、`test_submit_transactions.py`、
     `test_submit_http.py`、`test_http_openapi.py`、`test_archive_transactions.py`、`test_history_projection.py`、
-    `test_workspace_control_db_migrations.py`、`test_submit_control_db_migrations.py`、`test_archive_control_db_migrations.py`；
+    `test_control_db_schema.py`（按表归属）；
   - compose：`test_archive_compose_e2e.py`（跨项目、`UNVERIFIABLE`、FULL 混合模式）。
 - 条件：`test_review_transactions.py`（仅当 Review 读取面的身份展示需要事务层配合）。
 
@@ -539,7 +539,7 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 ### 8.5 S2b 子步
 
 0. **S2b.0 自 S1 延期项（owner 2026-09-27）**：关闭设计 §9 中未在 S1 完成的 Preview/History 受理下沉、UoW 枢纽拆分、三 job 共享 step plumbing；关闭标准与 S1 审核报告 S1-F3 一致（Application 受理、各域 port、共享 step helper 或等效结构）。
-1. **S2b.1 commit 规范元数据**：`CommitCanonicalMetadataPort`、`sqlite_commit_metadata.py` 与 control DB migration。
+1. **S2b.1 commit 规范元数据**：`CommitCanonicalMetadataPort`、`sqlite_commit_metadata.py` 与 control DB 基线 schema 直接修改；测试按表归属。
 2. **S2b.2 Repository 读取**：`canonical_binding`、单遍读取、删除 hidden summary、`REPOSITORY_ROW_COUNT_MISMATCH`；
    `http_arrow.py` 只负责传输（关闭 A2 的两条）。
 3. **S2b.3 Preview**：上传侧规范投影；PreviewResult 持久化规范绑定；INITIAL 恒空断言。
@@ -548,7 +548,7 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 5. **S2b.5 prepare**：读取冻结闭包与 manifest；`RepositoryParentCatalogPort` 与 `removed_tables`；adapter 迁入 infrastructure
    （关闭 A6 的 adapter 条目）；包进入 prepare checkpoint。扩展 checkpoint 时同步更新允许的键集合，并保留 `0d9d0d9dc5` 的
    语义：checkpoint 的 attempt 绑定与 payload 不符时终止为 FAILED。
-6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB migration 与 HTTP/OpenAPI 变更（设计 §10）。
+6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB 基线 schema 直接修改（测试按表归属）与 HTTP/OpenAPI 变更（设计 §10）。
 7. **S2b.7 旅程与门禁**：compose harness 不预导入（DC17）与 §2 S2b 的旅程；真实数据链路；全量与镜像。
 
 **S1 与 S2a 之间的真实数据格式保真前置（owner 2026-10-10，治理修订计划 G2）**：在 `main` 上依次修复 `table_access` 放行 mysqldump `@saved_cs_client`、composite AST 的 `Digital` 属性改为小写 `value`、按 8 份 `logics.xml` 的实测深度确定 `max_xml_depth`，并以诊断模式重跑普查更新 census JSON；独立审核后再启动 S2a kickoff。原 2026-09-27 的 parser 修复分支方案（`p5-closure/s1-parser`）由此取代。

@@ -78,8 +78,7 @@ Repository owner 决定（DC1–DC9 为 2026-09-25，DC10–DC27 为 2026-09-26�
 - 生产环境其他协议族与软件版本的覆盖（DC22，列为重开条件）；
 - 5E slice 范围内的任何改动（5E slice exit 之前不改动其候选树）。
 
-兼容性（DC6）：control DB 以单一基线 schema 创建，schema 与代码不符即拒绝启动，开发者删除本地 control DB 重建，不做数据回填（见治理修订计划 G3）。新增列允许旧行为空，旧行在新判定中按
-“不可用”处理，例如缺少规范状态摘要的 PreviewResult 在受理时按 derived-stale 拒绝。开发与测试环境的 control DB
+兼容性（DC6）：control DB 以单一基线 schema 创建，schema 与代码不符即拒绝启动，开发者删除本地 control DB 重建，不做数据回填（见治理修订计划 G3）。开发与测试环境的 control DB
 与 Repository 数据在 S2b 前重建。所有 golden 与 digest 随语义变化一次性更新。
 
 ## 2. 当前事实与问题映射

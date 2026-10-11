@@ -111,8 +111,7 @@ initial BaselineNode。Repository provisioning/initial commit 的真实性仍由
 
 具体 DDL、唯一索引和 INITIAL Node 接入由
 [5D Design §6](../plans/p5-5d-archive-design.md#6-persistence-migration-and-initial-baseline) 细化；
-本 Contract 只规定身份、原子拒绝和历史不变的语义。现有源码尚未实现此补充，不将文档确认
-表述为已存在的 migration/seed 保障。
+本 Contract 只规定身份、原子拒绝和历史不变的语义。migration 部分已随 G3 取消（control DB 以单一基线 schema 创建，见设计 DC6）；seed 与 mapping update 路径的上述规则由实现承担，并由 `tests/test_provisioned_scope_seed.py` 验证；“禁用后重新启用并沿用合法身份”尚无专门测试。
 
 ### 1A.3 Archive, authorization and reopen
 
@@ -298,7 +297,7 @@ permission；完整项目历史需要device/project audit权限。
 
 `3.1.0`（2026-09-27）按 [P5 架构收口 Entry Brief](../plans/p5-arch-closure-s0-entry-brief.md) §5 接受。新增的
 持久事实（PreviewResult 的规范绑定与身份结论、Attempt 冻结的规范表集合与 manifest、身份确认记录、Archive
-身份异常事件）都有明确 consumer；control DB 以前向 migration 增加，不做兼容回填。实现随收口 S1–S5 交付，
+身份异常事件）都有明确 consumer；control DB 以单一基线 schema 创建：schema 与代码不符即拒绝启动，删除本地 control DB 后重建，不做兼容回填。实现随收口 S1–S5 交付，
 验收 owner 见[收口设计](../plans/p5-arch-closure-design.md) §12；交付前现行源码仍按 `3.0.0` 行为运行。
 
 ## 9. 验收标准
@@ -319,8 +318,8 @@ permission；完整项目历史需要device/project audit权限。
 
 以下是 §1A 的实施验收要求，当前未执行或宣称通过：
 
-- migration 拒绝两个不同 scope 指向同 Repository，包括 identical Head 与 disabled mapping；
-  既有历史 scope 冲突也必须拒绝，失败后原数据和 migration version 完整保留。
+- seed 拒绝两个不同 scope 指向同 Repository，包括 identical Head 与 disabled mapping；
+  既有历史 scope 冲突也必须拒绝，失败时整批回滚，既有 mapping、Head 与历史完整保留。
 - 首次/批量 seed、mapping update 拒绝共享和跨 scope 转交，批次不能部分写入；原 mapping
   移走后仍通过 immutable initial identity 拒绝另一个 scope 接管。
 - 同 scope 多 actor、合法重复 seed、禁用/启用、改绑新 Repository 正常；旧归属/历史不改写，
@@ -329,7 +328,7 @@ permission；完整项目历史需要device/project audit权限。
   无 Repository 写入、第二个 commit 或新增归属工作流。
 
 唯一测试 owner 沿用 [5D Design §9](../plans/p5-5d-archive-design.md#9-verification-ownership)：
-`test_archive_control_db_migrations.py` 拥有 migration/seed/update 归属矩阵，
+`test_provisioned_scope_seed.py` 拥有 seed/update 归属矩阵（G3 取代 5D §9 中对应的迁移测试文件），
 `test_archive_queries.py` 拥有候选完整性拒绝，`test_archive_transactions.py` 拥有原子归档效果，
 `test_archive_http.py` 拥有外部权限边界；不建立另一套 Contract 验证框架或重复矩阵。
 

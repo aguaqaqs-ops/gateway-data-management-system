@@ -73,7 +73,7 @@
 - Preview 基线物化与 History 节点物化各减少一次全表读取；AcceptSubmit 不再执行比较流水线。
 - 5E-S2 的 integrity 机制与 v6 表被移除（在 5E slice exit 之后执行）。
 - 未来的 `SYSTEM_MIGRATION` commit 必须同时登记 manifest。
-- control DB 新增前向 migration；compose harness 的初始基线改为空提交。
+- control DB 新增前向 migration；compose harness 的初始基线改为空提交。（注：control DB schema 规则由 G3 取代，见设计 DC6。）
 - Business Lifecycle 升至 3.1.0；Ruleset Activation §1 与 §5（DC23）、Operation Lifecycle §4 与 ADR 0016 的候选文本已于 2026-09-27 随 S0 接受并入（详细设计附录 A、B）。
 
 ## Required Verification

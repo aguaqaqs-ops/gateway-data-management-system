@@ -1250,16 +1250,26 @@ def poll_operation(
     timeout_seconds: float = 300.0,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + timeout_seconds
+    last_status = "unavailable"
+    last_diagnostic_code: str | None = None
     while time.monotonic() < deadline:
         response = client.get(f"/v1/operations/{operation_id}")
         if response.status_code != 200:
             time.sleep(2.0)
             continue
         body = response.json()
+        status = body.get("status")
+        last_status = status if type(status) is str else "invalid"
+        diagnostic = body.get("diagnostic")
+        diagnostic_code = diagnostic.get("code") if isinstance(diagnostic, dict) else None
+        last_diagnostic_code = diagnostic_code if type(diagnostic_code) is str else None
         if body["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
             return cast(dict[str, Any], body)
         time.sleep(2.0)
-    raise RuntimeError(f"operation did not reach terminal status: {operation_id}")
+    raise RuntimeError(
+        "operation did not reach terminal status: "
+        f"{operation_id} (last_status={last_status}, diagnostic_code={last_diagnostic_code})"
+    )
 
 
 def read_workspace_row(env: dict[str, str], workspace_id: str) -> dict[str, Any]:

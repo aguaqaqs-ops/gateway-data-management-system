@@ -71,9 +71,11 @@ COMPOSITE_SIGNAL_POINT_KEY_COLUMNS: tuple[str, ...] = ("source_table", "point_gi
 COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS: tuple[str, ...] = (
     "dev_addr",
     "device_gid",
-    "point_name",
     "point_payload_json",
+)
+COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS: tuple[str, ...] = (
     "formula_ast_json",
+    "point_name",
 )
 IEC104_ORDERED_FAMILIES: tuple[str, ...] = (
     "iec104_syx_list",
@@ -205,7 +207,6 @@ def _ordered_record(pattern: str) -> TableRuleRecord:
         ordered_policy=OrderedPolicy.GID_NO_V1,
         compare_key_mode=TableCompareKeyMode.ORDERED_STABLE_KEY,
         compare_key_columns=(ORDERED_IDENTITY_COLUMN,),
-        ignored_columns=(ORDERED_POSITION_COLUMN,),
         artifact_scope=TableArtifactScope.ORDERED_SEMANTIC,
         position_column=ORDERED_POSITION_COLUMN,
         stable_key_candidates=(ORDERED_IDENTITY_COLUMN,),
@@ -219,6 +220,7 @@ def _standard_exact_records() -> tuple[TableRuleRecord, ...]:
             COMPOSITE_SIGNAL_POINT_TABLE_NAME,
             key_columns=COMPOSITE_SIGNAL_POINT_KEY_COLUMNS,
             ignored_columns=COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS,
+            compare_excluded_columns=COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS,
         ),
         _explicit_standard_record("net_cfg", key_columns=("board", "link_no"), ignored_columns=("no",)),
         *_device_point_records(),
@@ -246,6 +248,7 @@ def _explicit_standard_record(
     *,
     key_columns: tuple[str, ...],
     ignored_columns: tuple[str, ...] = (),
+    compare_excluded_columns: tuple[str, ...] = (),
     artifact_scope: TableArtifactScope = TableArtifactScope.ALL_CHANGES,
 ) -> TableRuleRecord:
     selector = TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value=name)
@@ -259,6 +262,7 @@ def _explicit_standard_record(
         compare_key_mode=TableCompareKeyMode.EXPLICIT_KEY,
         compare_key_columns=key_columns,
         ignored_columns=ignored_columns,
+        compare_excluded_columns=compare_excluded_columns,
         artifact_scope=artifact_scope,
         dropped_columns=_ignored_drops(selector, ignored_columns),
     )

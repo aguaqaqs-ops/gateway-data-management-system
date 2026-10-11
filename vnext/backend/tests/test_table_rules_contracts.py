@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -220,6 +221,31 @@ def test_malformed_rule_records_fail_closed(
     del label
     with pytest.raises(ValueError, match=match):
         factory()
+
+
+@pytest.mark.parametrize(
+    "case,excluded,match",
+    (
+        ("storage-drop", ("no",), "must not overlap"),
+        ("effective-key", ("board",), "must not include keys"),
+        ("dropped-column", ("aux",), "must be retained in storage"),
+    ),
+    ids=("overlap-with-storage-drop", "overlap-with-effective-key", "dropped-column"),
+)
+def test_compare_excluded_columns_cannot_conflict_with_storage_or_keys(
+    case: str,
+    excluded: tuple[str, ...],
+    match: str,
+) -> None:
+    record = net_cfg_record()
+    if case == "dropped-column":
+        record = replace(
+            record,
+            ignored_columns=(),
+            dropped_columns=(DroppedColumn(name="aux", reason="manual_rule"),),
+        )
+    with pytest.raises(ValueError, match=match):
+        replace(record, compare_excluded_columns=excluded)
 
 
 def test_digest_mismatch_fails_closed() -> None:

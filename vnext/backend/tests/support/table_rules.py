@@ -64,7 +64,6 @@ def ordered_record(pattern: str) -> TableRuleRecord:
         ordered_policy=OrderedPolicy.GID_NO_V1,
         compare_key_mode=TableCompareKeyMode.ORDERED_STABLE_KEY,
         compare_key_columns=("gid",),
-        ignored_columns=("no",),
         artifact_scope=TableArtifactScope.ORDERED_SEMANTIC,
         position_column="no",
         stable_key_candidates=("gid",),

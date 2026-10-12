@@ -257,7 +257,13 @@ def _require(response: httpx.Response, expected: int, label: str) -> dict[str, A
     return cast(dict[str, Any], payload)
 
 
-def _poll_operation(client: httpx.Client, operation_id: str, *, timeout_seconds: int = 7_200) -> dict[str, Any]:
+def _poll_operation(
+    client: httpx.Client,
+    operation_id: str,
+    *,
+    stage: str,
+    timeout_seconds: int = 7_200,
+) -> dict[str, Any]:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         payload = _require(client.get(f"/v1/operations/{operation_id}"), 200, "operation status")
@@ -266,7 +272,7 @@ def _poll_operation(client: httpx.Client, operation_id: str, *, timeout_seconds:
             if status != "SUCCEEDED":
                 diagnostic = payload.get("diagnostic")
                 code = diagnostic.get("code") if isinstance(diagnostic, dict) else "unknown"
-                raise JourneyFailure(f"operation ended {status}, diagnostic={code}")
+                raise JourneyFailure(f"{stage} operation ended {status}, diagnostic={code}")
             return payload
         time.sleep(2.0)
     raise JourneyFailure("operation did not reach a terminal state before timeout")
@@ -342,7 +348,7 @@ def _preview(
         202,
         "preview acceptance",
     )
-    _poll_operation(client, str(accepted["operation_id"]))
+    _poll_operation(client, str(accepted["operation_id"]), stage="Preview")
     refreshed = _workspace(client)
     result_id = refreshed.get("current_preview_result_id")
     if type(result_id) is not str or not result_id:
@@ -428,7 +434,7 @@ def _submit(
             raise JourneyFailure("repeat submit did not return NO_CANONICAL_CHANGE")
         return {"result": "NO_CANONICAL_CHANGE"}
     accepted = _require(response, 202, "submit acceptance")
-    _poll_operation(client, str(accepted["operation_id"]))
+    _poll_operation(client, str(accepted["operation_id"]), stage="Submit")
     deadline = time.monotonic() + 7_200
     attempt: dict[str, Any] | None = None
     while time.monotonic() < deadline:

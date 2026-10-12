@@ -216,6 +216,31 @@ def test_canonical_table_projection_emits_canonical_descriptor_and_reader() -> N
     canonical.reader.close()
 
 
+def test_canonical_projection_uses_storage_key_for_compare_keyless_table() -> None:
+    reader, binding = _net_cfg_input(
+        primary_key_columns=(),
+        raw_content_digest=dummy_digest(),
+        degraded_reason=DegradedReason.KEYLESS,
+    )
+    raw = SnapshotTableSet(
+        snapshot_id="keyless-raw-snapshot",
+        snapshot_digest=binding.snapshot_digest,
+        table_ruleset_version=1,
+        tables=(SnapshotTable(descriptor=binding.descriptor, reader=reader),),
+    )
+
+    projected = project_canonical_table_set(raw, migrated_table_ruleset_snapshot())
+
+    assert projected.status is ProjectionStatus.COMPLETE
+    assert len(projected.tables) == 1
+    canonical = projected.tables[0]
+    assert canonical.descriptor.degraded_reason is None
+    assert canonical.descriptor.primary_key_columns == ("board", "link_no")
+    assert canonical.reader is not None
+    assert tuple(canonical.reader.iter_rows()) == tuple(row[:2] for row in _NET_CFG_ROWS)
+    canonical.reader.close()
+
+
 def test_storage_vocabulary_accepts_observed_unsigned_float_and_datetime_types() -> None:
     columns = (
         int_column("id"),
@@ -694,14 +719,17 @@ BINDING_FAULTS = (
         lambda: _net_cfg_input(materialization_stage=MaterializationStage.PROVISIONAL),
     ),
     (
-        "degraded",
-        lambda: _net_cfg_input(degraded_reason=DegradedReason.TABLE_FAILED),
+        "table_failed",
+        lambda: _net_cfg_input(
+            raw_content_digest=dummy_digest(),
+            degraded_reason=DegradedReason.TABLE_FAILED,
+        ),
     ),
 )
 
 
 @pytest.mark.parametrize(("label", "factory"), BINDING_FAULTS, ids=[item[0] for item in BINDING_FAULTS])
-def test_binding_rejects_provisional_and_degraded_tables(
+def test_binding_rejects_provisional_and_failed_tables(
     label: str, factory: Callable[[], TableInput]
 ) -> None:
     result = project_storage(_request(factory()))

@@ -39,6 +39,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SCALAR_ENCODING_VERSION,
     ArtifactSourceBinding,
     BlankRowProvenance,
+    DegradedReason,
     MaterializationStage,
     SnapshotColumnDescriptor,
     SnapshotColumnValueCounts,
@@ -1148,11 +1149,14 @@ def _bound_descriptor(item: ProjectionTableInput, snapshot_digest: DigestRef) ->
                 item.canonical_table,
             )
         )
-    if descriptor.degraded_reason is not None or descriptor.raw_content_digest is None:
+    if (
+        descriptor.degraded_reason is DegradedReason.TABLE_FAILED
+        or descriptor.raw_content_digest is None
+    ):
         raise _ProjectionFailed(
             _error(
                 ProjectionDiagnosticCode.BINDING_INVALID,
-                "projected tables must not be degraded",
+                "projected tables require complete source row content",
                 item.canonical_table,
             )
         )

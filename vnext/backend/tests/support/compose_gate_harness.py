@@ -1202,8 +1202,6 @@ ready_ref = store.get_ref(binding["ready_closure_artifact_id"])
 closure = load_ready_closure(store, ready_ref)
 states = []
 for ref in closure.artifact_refs():
-    if ref.media_type != "application/json":
-        continue
     try:
         document = json.loads(store.locate(ref).decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):

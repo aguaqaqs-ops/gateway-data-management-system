@@ -18,6 +18,7 @@ from tests.support.compose_gate_harness import (
     SESSION_TOKEN,
     accept_history_compare,
     assert_running_backend_worker_images_match_build,
+    canonical_rules_ordered_upload_files,
     capture_business_table_state_in_compose,
     capture_r4_manifest_artifact_ids,
     capture_running_container_provenance,
@@ -28,9 +29,9 @@ from tests.support.compose_gate_harness import (
     normalize_running_images,
     oracle_history_compare_digest_from_materialize_checkpoint,
     ordered_compare_facts_from_materialize_checkpoint,
-    ordered_syx_sized_upload_files,
     persist_compose_gate_provenance,
     read_history_compare_materialize_job_state,
+    read_repository_catalog,
     require_docker,
     resolve_main_commit_id,
     run_accept_to_submission_read_journey,
@@ -72,6 +73,7 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                         "permissions": [
                             "workspace_read",
                             "review_submission",
+                            "archive_submission",
                         ],
                     },
                     {
@@ -140,6 +142,54 @@ def _approve_submission(client: httpx.Client, submission_id: str, *, idempotency
     assert response.status_code == 201, response.text
 
 
+def _archive_submission(client: httpx.Client, submission_id: str) -> dict[str, Any]:
+    candidates = client.get("/v1/archive-candidates")
+    assert candidates.status_code == 200, candidates.text
+    selected = next(
+        item
+        for item in candidates.json()["candidates"]
+        if item["submission_id"] == submission_id
+    )
+    preview = client.post("/v1/archive-plan-preview", json={"selected": selected})
+    assert preview.status_code == 200, preview.text
+    preview_body = cast(dict[str, Any], preview.json())
+    assert preview_body["can_start"] is True
+    head = cast(dict[str, Any], preview_body["head"])
+    confirmation = client.post(
+        "/v1/archive-confirmations",
+        headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key="ordered-archive-confirm"),
+        json={
+            "expected_baseline_node_id": head["business_baseline_node_id"],
+            "expected_baseline_head_version": head["baseline_head_version"],
+            "selected": selected,
+            "candidate_set_digest": preview_body["candidate_set_digest"],
+            "subject_digest": preview_body["selection_subject_digest"],
+            "expected_sequence": 0,
+            "action": "CONFIRM",
+            "reason": "archive ordered baseline",
+        },
+    )
+    assert confirmation.status_code == 201, confirmation.text
+    started = client.post(
+        "/v1/archives",
+        headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key="ordered-archive-start"),
+        json={
+            "expected_baseline_node_id": head["business_baseline_node_id"],
+            "expected_baseline_head_version": head["baseline_head_version"],
+            "candidate_set_digest": preview_body["candidate_set_digest"],
+            "selected": selected,
+            "confirmation_refs": [
+                {
+                    "subject_digest": preview_body["selection_subject_digest"],
+                    "sequence": confirmation.json()["sequence"],
+                }
+            ],
+        },
+    )
+    assert started.status_code == 201, started.text
+    return cast(dict[str, Any], started.json())
+
+
 def _assert_remote_matches_oracle(
     env: dict[str, str],
     *,
@@ -167,7 +217,6 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
         repository_id, initial_commit_id = start_three_container_stack(
             env,
             tmp_path,
-            import_baseline=True,
         )
         assert_running_backend_worker_images_match_build(env)
         provenance = capture_running_container_provenance(env)
@@ -177,10 +226,11 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             initial_commit_id=initial_commit_id,
             journey_key_prefix="ordered-a",
             token=SESSION_TOKEN,
-            upload_files_factory=lambda version: ordered_syx_sized_upload_files(
-                t_rows=(1,),
-                before_ordered_rows=(),
-                after_ordered_rows=((5, 1, "a"), (7, 2, "b")),
+            upload_files_factory=lambda version: canonical_rules_ordered_upload_files(
+                com_cfg_no_before=10,
+                com_cfg_no_after=10,
+                ordered_rows_before=((5, 1, "a"), (7, 2, "b")),
+                ordered_rows_after=((5, 1, "a"), (7, 2, "b")),
                 expected_version=version,
             ),
         )
@@ -194,20 +244,45 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
                 str(journey_a["submission_id"]),
                 idempotency_key="ordered-review-a",
             )
+        with httpx.Client(
+            base_url=BACKEND_URL,
+            headers=compose_auth_headers(token=ARCHIVER_TOKEN),
+            timeout=120.0,
+        ) as archiver:
+            archive_a = _archive_submission(archiver, str(journey_a["submission_id"]))
         main_after_a = resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN)
+        assert main_after_a == archive_a["baseline_commit_id"]
+        baseline_catalog = read_repository_catalog(
+            env,
+            repository_id=repository_id,
+            commit_id=main_after_a,
+        )
+        assert baseline_catalog["tables"]
+        baseline_com_cfg = next(
+            table for table in baseline_catalog["tables"] if table["name"] == "com_cfg"
+        )
+        assert "no" not in {column["name"] for column in baseline_com_cfg["columns"]}
 
         journey_b = run_accept_to_submission_read_journey(
             env,
-            initial_commit_id=initial_commit_id,
+            initial_commit_id=main_after_a,
             journey_key_prefix="ordered-b",
             token=ACTOR2_TOKEN,
-            upload_files_factory=lambda version: ordered_syx_sized_upload_files(
-                t_rows=(1,),
-                before_ordered_rows=((5, 1, "a"), (7, 2, "b")),
-                after_ordered_rows=((2, 1, "c"), (5, 2, "d")),
+            expected_baseline_node_id=str(archive_a["baseline_node_id"]),
+            expected_baseline_head_version=int(archive_a["baseline_head_version"]),
+            upload_files_factory=lambda version: canonical_rules_ordered_upload_files(
+                com_cfg_no_before=10,
+                com_cfg_no_after=99,
+                ordered_rows_before=((5, 1, "a"), (7, 2, "b")),
+                ordered_rows_after=((2, 1, "c"), (5, 2, "d")),
                 expected_version=version,
             ),
         )
+        preview_summaries = cast(list[dict[str, Any]], journey_b["preview_summaries"])
+        assert preview_summaries
+        for summary in preview_summaries:
+            assert int(summary["table_count"]) > 0
+            assert int(summary["degraded_table_count"]) == 0
         with httpx.Client(
             base_url=BACKEND_URL,
             headers=compose_auth_headers(token=ARCHIVER_TOKEN),

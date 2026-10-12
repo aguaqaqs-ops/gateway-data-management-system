@@ -389,6 +389,24 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                 },
             )
             assert restarted_audit.status_code == 200, restarted_audit.text
+
+        repeated = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=main_after_a,
+            journey_key_prefix="compose-post-archive-same-upload",
+            token=SESSION_TOKEN,
+            expected_baseline_node_id=str(started["baseline_node_id"]),
+            expected_baseline_head_version=int(started["baseline_head_version"]),
+            expected_submit_code="NO_CANONICAL_CHANGE",
+        )
+        assert repeated["submit_error_code"] == "NO_CANONICAL_CHANGE"
+        summaries = cast(list[dict[str, Any]], repeated["preview_summaries"])
+        assert summaries
+        for summary in summaries:
+            assert int(summary["table_count"]) > 0
+            assert int(summary["changed_table_count"]) == 0
+            assert int(summary["degraded_table_count"]) == 0
+            assert int(summary["failed_table_count"]) == 0
     finally:
         provenance_path = persist_compose_gate_provenance(env, provenance)
         print(f"compose gate provenance written to {provenance_path}")

@@ -10,10 +10,8 @@ import pytest
 
 from gateway_shared_kernel import DigestRef
 
-from gateway_backend.application.submission.errors import NoCanonicalChange
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.http.dependencies import ClosableAdmissionGate
-from gateway_backend.http.errors import map_domain_exception
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
     FailingMainResolvePort,
@@ -51,14 +49,6 @@ def _seeded_workspace_dict(seed: dict[str, Any]) -> dict[str, Any]:
         "preview_result_id": preview.preview_result_id,
         "generation": upload.generation,
     }
-
-
-def test_no_canonical_change_maps_to_http_conflict() -> None:
-    mapped = map_domain_exception(NoCanonicalChange())
-
-    assert mapped is not None
-    assert mapped.status_code == 409
-    assert mapped.code == "NO_CANONICAL_CHANGE"
 
 
 @pytest.fixture

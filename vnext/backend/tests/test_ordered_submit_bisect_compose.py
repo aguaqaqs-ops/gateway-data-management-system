@@ -355,7 +355,6 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         _, empty_initial_commit_id = start_three_container_stack(
             empty_env,
             empty_root,
-            import_baseline=False,
         )
         case_c = run_accept_to_submission_read_journey(
             empty_env,
@@ -380,7 +379,6 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         start_three_container_stack(
             baseline_env,
             baseline_root,
-            import_baseline=True,
         )
         assert_running_backend_worker_images_match_build(baseline_env)
         provenance = capture_running_container_provenance(baseline_env)
@@ -426,7 +424,6 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         start_three_container_stack(
             ordered_env,
             ordered_root,
-            import_baseline=True,
         )
         case_a = _run_preview_and_submit(
             ordered_env,

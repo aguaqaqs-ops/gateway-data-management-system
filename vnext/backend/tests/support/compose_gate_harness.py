@@ -19,7 +19,6 @@ import pytest
 
 from tests.support.history_zero_write_tables import HISTORY_ZERO_WRITE_TABLES
 from tests.support.source_package_fixtures import pack_tar_gz
-from tests.support.submit_job_harness import _repository_service_build_package_bytes
 from tests.support.upload_http_packages import _SQL, upload_files
 
 VNEXT_ROOT = Path(__file__).resolve().parents[3]
@@ -573,8 +572,6 @@ def assert_running_backend_worker_images_match_build(env: dict[str, str]) -> Non
 SESSION_TOKEN = "compose-session-token"
 BEARER_TOKEN = "compose-submit-bearer"
 BASELINE_NODE_ID = "compose-node"
-BASELINE_MANIFEST_DIGEST = "sha256:" + "a" * 64
-BASELINE_REPLAY_SQL = b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
 DEVICE_KEY = "compose-device"
 PROJECT_ID = "compose-project"
 
@@ -1014,163 +1011,55 @@ else:
     return tuple(tuple(row) for row in payload)
 
 
-def build_baseline_import_package() -> bytes:
-    manifest: dict[str, object] = {
-        "package_version": 1,
-        "canonicalization_manifest_digest": BASELINE_MANIFEST_DIGEST,
-        "tables": [
-            {
-                "name": "t",
-                "schema": {
-                    "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
-                    "primary_key": ["id"],
-                },
-                "row_count": 0,
-            }
-        ],
-    }
-    return _repository_service_build_package_bytes(manifest=manifest, replay_sql=BASELINE_REPLAY_SQL)
-
-
-def _import_package_into_repository(
+def assert_repository_commit_is_empty(
     env: dict[str, str],
-    tmp_path: Path,
     *,
     repository_id: str,
-    expected_commit_id: str,
-    package_bytes: bytes,
-    artifact_idempotency_key: str,
-    import_idempotency_key: str,
-    package_filename: str,
-) -> str:
-    package_path = tmp_path / package_filename
-    package_path.write_bytes(package_bytes)
-    container_id = run_compose(
-        env,
-        "ps",
-        "repository-service",
-        "--format",
-        "{{.ID}}",
-    ).stdout.strip()
-    if not container_id:
-        pytest.fail("repository-service container is not running for baseline import")
-    container_package_path = f"/tmp/{package_filename}"
-    copy = subprocess.run(
-        ["docker", "cp", str(package_path), f"{container_id}:{container_package_path}"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60.0,
-    )
-    if copy.returncode != 0:
-        pytest.fail(f"failed to copy baseline import package: {copy.stderr}\n{copy.stdout}")
+    commit_id: str,
+) -> None:
     script = f"""
-import json, time, urllib.request, hashlib
-base = "http://127.0.0.1:8000"
-repo_id = "{repository_id}"
-expected_commit = "{expected_commit_id}"
-token = "{BEARER_TOKEN}"
-payload = open("{container_package_path}", "rb").read()
-digest = hashlib.sha256(payload).hexdigest()
-upload_req = urllib.request.Request(
-    f"{{base}}/v1/repositories/{{repo_id}}/artifacts",
-    data=payload,
-    method="POST",
-    headers={{
-        "Authorization": f"Bearer {{token}}",
-        "Idempotency-Key": "{artifact_idempotency_key}",
-        "Content-Type": "application/vnd.gateway.repository-import.v1+tar+zstd",
-        "Content-Length": str(len(payload)),
-        "X-Artifact-SHA256": digest,
-    }},
+import base64, json, urllib.request
+encoded = base64.urlsafe_b64encode({commit_id!r}.encode()).decode().rstrip("=")
+request = urllib.request.Request(
+    f"http://127.0.0.1:8000/v1/repositories/{repository_id}/versioned/commits/{{encoded}}/catalog",
+    headers={{"Authorization": "Bearer {BEARER_TOKEN}"}},
 )
-with urllib.request.urlopen(upload_req, timeout=60) as response:
-    uploaded = json.loads(response.read().decode())
-artifact = uploaded["artifact_ref"]
-import_body = json.dumps({{
-    "repository_id": repo_id,
-    "artifact_ref": {{
-        "artifact_id": artifact["artifact_id"],
-        "media_type": artifact["media_type"],
-        "size_bytes": artifact["size_bytes"],
-        "raw_sha256": artifact["raw_sha256"],
-    }},
-    "target_ref": "main",
-    "expected_commit_id": expected_commit,
-    "verification_policy": "STRUCTURAL",
-    "unknown_type_policy": "REJECT",
-}}).encode()
-import_req = urllib.request.Request(
-    f"{{base}}/v1/repositories/{{repo_id}}/versioned/imports",
-    data=import_body,
-    method="POST",
-    headers={{
-        "Authorization": f"Bearer {{token}}",
-        "Idempotency-Key": "{import_idempotency_key}",
-        "Content-Type": "application/json",
-    }},
-)
-with urllib.request.urlopen(import_req, timeout=60) as response:
-    operation = json.loads(response.read().decode())
-operation_id = operation["operation_id"]
-deadline = time.monotonic() + 120.0
-while time.monotonic() < deadline:
-    poll_req = urllib.request.Request(
-        f"{{base}}/v1/repositories/{{repo_id}}/operations/{{operation_id}}",
-        headers={{"Authorization": f"Bearer {{token}}"}},
-    )
-    with urllib.request.urlopen(poll_req, timeout=30) as response:
-        body = json.loads(response.read().decode())
-    operation = body["operation"]
-    if operation["status"] in {{"SUCCEEDED", "FAILED", "CANCELLED"}}:
-        if operation["status"] != "SUCCEEDED":
-            raise RuntimeError(operation)
-        break
-    time.sleep(1.0)
-else:
-    raise RuntimeError("baseline import timed out")
-resolve_req = urllib.request.Request(
-    f"{{base}}/v1/repositories/{{repo_id}}/versioned/refs/main",
-    headers={{"Authorization": f"Bearer {{token}}"}},
-)
-with urllib.request.urlopen(resolve_req, timeout=30) as response:
-    resolved = json.loads(response.read().decode())
-print(resolved["commit_id"])
+with urllib.request.urlopen(request, timeout=30.0) as response:
+    catalog = json.loads(response.read().decode())["catalog"]
+if catalog["tables"]:
+    raise RuntimeError("new repository INITIAL commit must contain no tables")
 """
     result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
     if result.returncode != 0:
-        pytest.fail(f"baseline import failed: {result.stderr}\n{result.stdout}")
-    commit_id = result.stdout.strip()
-    if not commit_id:
-        pytest.fail("repository import did not return commit_id")
-    return commit_id
+        pytest.fail(f"new repository INITIAL commit was not empty: {result.stderr}\n{result.stdout}")
 
 
-def import_baseline_into_repository(
+def read_repository_catalog(
     env: dict[str, str],
-    tmp_path: Path,
     *,
     repository_id: str,
-    expected_commit_id: str,
-) -> str:
-    return _import_package_into_repository(
-        env,
-        tmp_path,
-        repository_id=repository_id,
-        expected_commit_id=expected_commit_id,
-        package_bytes=build_baseline_import_package(),
-        artifact_idempotency_key="compose-baseline-artifact",
-        import_idempotency_key="compose-baseline-import",
-        package_filename="baseline-import.tar.zst",
-    )
+    commit_id: str,
+) -> dict[str, Any]:
+    script = f"""
+import base64, json, urllib.request
+encoded = base64.urlsafe_b64encode({commit_id!r}.encode()).decode().rstrip("=")
+request = urllib.request.Request(
+    f"http://127.0.0.1:8000/v1/repositories/{repository_id}/versioned/commits/{{encoded}}/catalog",
+    headers={{"Authorization": "Bearer {BEARER_TOKEN}"}},
+)
+with urllib.request.urlopen(request, timeout=30.0) as response:
+    print(json.dumps(json.loads(response.read().decode())["catalog"]))
+"""
+    result = run_compose(env, "exec", "-T", "repository-service", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(f"repository catalog read failed: {result.stderr}\n{result.stdout}")
+    payload = json.loads(result.stdout.strip())
+    if type(payload) is not dict:
+        pytest.fail("repository catalog response was not an object")
+    return cast(dict[str, Any], payload)
 
 
-def seed_repository_and_mapping(
-    env: dict[str, str],
-    tmp_path: Path,
-    *,
-    import_baseline: bool = True,
-) -> tuple[str, str]:
+def seed_repository_and_mapping(env: dict[str, str]) -> tuple[str, str]:
     script = (
         "import json, urllib.request; "
         "req = urllib.request.Request("
@@ -1184,16 +1073,12 @@ def seed_repository_and_mapping(
         pytest.fail(f"repository seed failed: {result.stderr}\n{result.stdout}")
     payload = json.loads(result.stdout.strip())
     repository_id = str(payload["repository_id"])
-    initial_commit_id = str(payload["initial_commit_id"])
-    if import_baseline:
-        baseline_commit_id = import_baseline_into_repository(
-            env,
-            tmp_path,
-            repository_id=repository_id,
-            expected_commit_id=initial_commit_id,
-        )
-    else:
-        baseline_commit_id = initial_commit_id
+    baseline_commit_id = str(payload["initial_commit_id"])
+    assert_repository_commit_is_empty(
+        env,
+        repository_id=repository_id,
+        commit_id=baseline_commit_id,
+    )
     mapping_path = Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"])
     mapping_path.write_text(
         json.dumps(
@@ -1219,8 +1104,6 @@ def seed_repository_and_mapping(
 def start_three_container_stack(
     env: dict[str, str],
     tmp_path: Path,
-    *,
-    import_baseline: bool = True,
 ) -> tuple[str, str]:
     acquire_compose_gate_lock()
     _assert_port_8000_available_for_gate(env["COMPOSE_PROJECT_NAME"])
@@ -1230,11 +1113,7 @@ def start_three_container_stack(
     if up_repo.returncode != 0:
         pytest.fail(f"compose up repository-service failed: {up_repo.stderr}\n{up_repo.stdout}")
     wait_repository_service_ready(env)
-    repository_id, initial_commit_id = seed_repository_and_mapping(
-        env,
-        tmp_path,
-        import_baseline=import_baseline,
-    )
+    repository_id, initial_commit_id = seed_repository_and_mapping(env)
     up_stack = run_compose(env, "up", "-d", "--no-build", "backend", "worker")
     if up_stack.returncode != 0:
         pytest.fail(f"compose up backend/worker failed: {up_stack.stderr}\n{up_stack.stdout}")
@@ -1443,6 +1322,47 @@ def ordered_syx_sized_upload_files(
     )
 
 
+def canonical_rules_ordered_upload_files(
+    *,
+    com_cfg_no_before: int,
+    com_cfg_no_after: int,
+    ordered_rows_before: tuple[tuple[int, int, str], ...],
+    ordered_rows_after: tuple[tuple[int, int, str], ...],
+    expected_version: int = 0,
+) -> dict[str, tuple[str, bytes, str]]:
+    def source_sql(
+        *,
+        com_cfg_no: int,
+        ordered_rows: tuple[tuple[int, int, str], ...],
+    ) -> bytes:
+        lines = [
+            "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);",
+            "INSERT INTO t VALUES (1);",
+            "CREATE TABLE com_cfg (`index` INT NOT NULL, `no` INT NOT NULL, `value` VARCHAR(8), PRIMARY KEY (`index`));",
+            f"INSERT INTO com_cfg VALUES (1, {com_cfg_no}, 'a');",
+            ORDERED_SYX_SIZED_DDL.rstrip(),
+        ]
+        for gid, number, value in ordered_rows:
+            lines.append(
+                f"INSERT INTO `{ORDERED_SYX_TABLE}` VALUES ({gid}, {number}, '{value}');"
+            )
+        return ("\n".join(lines) + "\n").encode()
+
+    initial_sql = source_sql(
+        com_cfg_no=com_cfg_no_before,
+        ordered_rows=ordered_rows_before,
+    )
+    modified_sql = source_sql(
+        com_cfg_no=com_cfg_no_after,
+        ordered_rows=ordered_rows_after,
+    )
+    return upload_files(
+        expected_version=expected_version,
+        initial_bytes=pack_tar_gz({"sql/dbcfg.sql": initial_sql}),
+        modified_bytes=pack_tar_gz({"sql/dbcfg.sql": modified_sql}),
+    )
+
+
 def ordered_syx_vocabulary_upload_files(
     *,
     t_rows: tuple[int, ...],
@@ -1501,6 +1421,7 @@ def run_accept_to_submission_read_journey(
     token: str = SESSION_TOKEN,
     expected_baseline_node_id: str = BASELINE_NODE_ID,
     expected_baseline_head_version: int = 0,
+    expected_submit_code: str | None = None,
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
@@ -1555,6 +1476,15 @@ def run_accept_to_submission_read_journey(
         )
         assert preview_read.status_code == 200, preview_read.text
         assert preview_read.json()["business_baseline_commit_id"] == initial_commit_id
+        preview_bundle_response = client.get(
+            f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+        )
+        assert preview_bundle_response.status_code == 200, preview_bundle_response.text
+        preview_bundle = cast(dict[str, Any], preview_bundle_response.json())
+        preview_summaries = [
+            cast(dict[str, Any], pair["summary"])
+            for pair in cast(list[dict[str, Any]], preview_bundle["pairs"])
+        ]
 
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
@@ -1569,6 +1499,15 @@ def run_accept_to_submission_read_journey(
                 "options": {},
             },
         )
+        if expected_submit_code is not None:
+            assert accepted.status_code == 409, accepted.text
+            assert accepted.json()["code"] == expected_submit_code
+            return {
+                "workspace_id": workspace_id,
+                "preview_result_id": preview_result_id,
+                "preview_summaries": preview_summaries,
+                "submit_error_code": expected_submit_code,
+            }
         assert accepted.status_code == 202, accepted.text
         accepted_body = accepted.json()
         submit_operation = poll_operation(client, accepted_body["operation_id"])
@@ -1595,4 +1534,5 @@ def run_accept_to_submission_read_journey(
             "submit_attempt_id": accepted_body["submit_attempt_id"],
             "submission_id": attempt["submission_id"],
             "preview_result_id": preview_result_id,
+            "preview_summaries": preview_summaries,
         }

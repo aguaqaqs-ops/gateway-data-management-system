@@ -277,7 +277,6 @@ def test_compose_history_compare_journey_zero_write_restart(
         repository_id, initial_commit_id = start_three_container_stack(
             env,
             tmp_path,
-            import_baseline=False,
         )
         assert_running_backend_worker_images_match_build(env)
         provenance = capture_running_container_provenance(env)

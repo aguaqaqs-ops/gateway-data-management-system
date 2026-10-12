@@ -41,6 +41,7 @@ from tests.support.compose_gate_harness import (
     cleanup_compose_project_artifacts,
     compose_auth_headers,
     compose_image_ids,
+    read_preview_surface_table_states,
     run_compose,
     start_three_container_stack,
 )
@@ -370,14 +371,14 @@ def _preview(
     summaries = manifest.get("pairs")
     if not isinstance(summaries, list) or not summaries:
         raise JourneyFailure("preview bundle did not include a pair summary")
-    return {"workspace": refreshed, "result": result}, cast(dict[str, Any], {"pairs": summaries})
+    return {"workspace": refreshed, "result": result}, manifest
 
 
 def _assert_preview_summaries(manifest: Mapping[str, Any], *, unchanged: bool) -> dict[str, int]:
     pairs = manifest.get("pairs")
     if not isinstance(pairs, list) or not pairs:
         raise JourneyFailure("preview manifest has no pairs")
-    totals = Counter()
+    totals: Counter[str] = Counter()
     for pair in pairs:
         if not isinstance(pair, dict) or not isinstance(pair.get("summary"), dict):
             raise JourneyFailure("preview pair summary is invalid")
@@ -400,6 +401,54 @@ def _assert_preview_summaries(manifest: Mapping[str, Any], *, unchanged: bool) -
             }
         )
     return dict(totals)
+
+
+def _diagnostic_strings(value: object) -> Iterable[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            yield from _diagnostic_strings(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _diagnostic_strings(item)
+
+
+def _keyless_fallback_table_names(
+    surfaces: list[dict[str, Any]],
+    *,
+    label: str,
+    expected_names: Iterable[str] | None = None,
+    require_unchanged: bool = False,
+) -> tuple[str, ...]:
+    names: set[str] = set()
+    keyless_states: dict[str, list[str]] = {}
+    for surface in surfaces:
+        tables = surface.get("tables")
+        if not isinstance(tables, list):
+            raise JourneyFailure(f"{label}: preview surface has no table list")
+        for raw_table in tables:
+            if not isinstance(raw_table, dict) or type(raw_table.get("table_name")) is not str:
+                raise JourneyFailure(f"{label}: preview surface table entry is invalid")
+            table = cast(dict[str, Any], raw_table)
+            table_name = str(table["table_name"])
+            diagnostics = tuple(_diagnostic_strings(table.get("diagnostics")))
+            if any("KEY_MISSING" in item for item in diagnostics):
+                raise JourneyFailure(f"{label}: KEY_MISSING was reported for a preview table")
+            if not any("KEYLESS_FALLBACK" in item for item in diagnostics):
+                continue
+            names.add(table_name)
+            keyless_states.setdefault(table_name, []).append(str(table.get("change_kind", "")))
+
+    if expected_names is not None and names != set(expected_names):
+        raise JourneyFailure(f"{label}: keyless fallback table set differs from its expected set")
+    if require_unchanged and any(
+        change_kind != "UNCHANGED"
+        for table_states in keyless_states.values()
+        for change_kind in table_states
+    ):
+        raise JourneyFailure(f"{label}: a keyless fallback table was not UNCHANGED")
+    return tuple(sorted(names))
 
 
 def _submit(
@@ -999,6 +1048,10 @@ def _run_tier(
             idempotency_key=f"{project_name}-{tier}-v1-preview",
         )
         v1_summary = _assert_preview_summaries(v1_manifest, unchanged=False)
+        v1_keyless_names = _keyless_fallback_table_names(
+            read_preview_surface_table_states(env, v1_manifest),
+            label=f"{v1_id} Preview",
+        )
         v1_submission = _submit(
             client,
             workspace=v1_workspace,
@@ -1043,6 +1096,12 @@ def _run_tier(
             idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
         )
         repeat_summary = _assert_preview_summaries(repeat_manifest, unchanged=True)
+        repeat_keyless_names = _keyless_fallback_table_names(
+            read_preview_surface_table_states(env, repeat_manifest),
+            label=f"{v1_id} repeat Preview",
+            expected_names=v1_keyless_names,
+            require_unchanged=True,
+        )
         repeat_submit = _submit(
             client,
             workspace=repeat_workspace,
@@ -1070,6 +1129,10 @@ def _run_tier(
             idempotency_key=f"{project_name}-{tier}-v2-preview",
         )
         v2_summary = _assert_preview_summaries(v2_manifest, unchanged=False)
+        v2_keyless_names = _keyless_fallback_table_names(
+            read_preview_surface_table_states(env, v2_manifest),
+            label=f"{v2_id} Preview",
+        )
         v2_submission = _submit(
             client,
             workspace=v2_workspace,
@@ -1123,6 +1186,10 @@ def _run_tier(
                 "storage_column_type_counts": census[v1_id]["storage_column_type_counts"],
                 "repository": v1_repository,
                 "preview": v1_summary,
+                "keyless_fallback_tables": {
+                    "count": len(v1_keyless_names),
+                    "names": list(v1_keyless_names),
+                },
             },
             {
                 "dataset_id": v2_id,
@@ -1133,9 +1200,20 @@ def _run_tier(
                 "storage_column_type_counts": census[v2_id]["storage_column_type_counts"],
                 "repository": v2_repository,
                 "preview": v2_summary,
+                "keyless_fallback_tables": {
+                    "count": len(v2_keyless_names),
+                    "names": list(v2_keyless_names),
+                },
             },
         ],
-        "repeat_v1": {"preview": repeat_summary, "submit": repeat_submit},
+        "repeat_v1": {
+            "preview": repeat_summary,
+            "submit": repeat_submit,
+            "keyless_fallback_tables_unchanged": {
+                "count": len(repeat_keyless_names),
+                "names": list(repeat_keyless_names),
+            },
+        },
         "history": {
             "record_count": api_record_count,
             "record_kind_counts": facts["record_kind_counts"],

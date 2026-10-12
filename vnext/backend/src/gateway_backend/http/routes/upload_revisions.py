@@ -70,7 +70,7 @@ async def accept_upload_route(
                 parsed=parsed,
                 scope_resolution=deps.scope_resolution,
                 workspace_repository=deps.workspace_repository,
-                unit_of_work_factory=deps.unit_of_work_factory,
+                unit_of_work_factory=deps.submit_unit_of_work_factory,
                 artifact_store=deps.artifact_store,
                 now=deps.now(),
             )

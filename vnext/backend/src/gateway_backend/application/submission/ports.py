@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from contextlib import AbstractContextManager
 from datetime import datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from gateway_backend.application.history.ports import HistoryComparePort
-
+from gateway_backend.application.archive.ports import ArchiveClosureReadPort
+from gateway_backend.application.control_transactions import ControlTransaction
 from gateway_backend.application.submission.contracts import (
     MatchingAbortProof,
     RepositoryImportOperation,
@@ -22,8 +21,6 @@ from gateway_backend.domain.submission.models import (
     Submission,
     WorkspaceSubmitOccupancy,
 )
-from gateway_backend.domain.archive.ports import ArchiveRepository
-from gateway_backend.domain.baseline.ports import BaselineRepository
 from gateway_backend.domain.submission.ports import (
     ArchiveCandidateReadPort,
     ReviewReadPort,
@@ -34,7 +31,7 @@ from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
 
 
-class SubmitControlTransaction(Protocol):
+class SubmitControlTransaction(ControlTransaction, Protocol):
     @property
     def submission(self) -> SubmitTransactionRepository: ...
 
@@ -86,7 +83,7 @@ class ReviewTransactionRepository(ReviewReadPort, ReviewWritePort, Protocol):
     """Review persistence participant for one Control DB transaction."""
 
 
-class ReviewControlTransaction(Protocol):
+class ReviewControlTransaction(ControlTransaction, Protocol):
     @property
     def review(self) -> ReviewTransactionRepository: ...
 
@@ -107,11 +104,6 @@ class ReviewApplySubmissionRepository(Protocol):
         """Delete workspace submit occupancy row when it still points at this Submission."""
 
 
-class ArchiveClosureReadPort(Protocol):
-    def is_submission_closed(self, submission_id: str) -> bool:
-        """Return whether one submission appears in any ArchiveResult disposition."""
-
-
 class ReviewApplyTransaction(ReviewControlTransaction, ArchiveClosureReadPort, Protocol):
     """Minimal control transaction surface required by Review apply/release."""
 
@@ -130,41 +122,20 @@ class ReviewApplyTransaction(ReviewControlTransaction, ArchiveClosureReadPort, P
         """Read transaction-fresh provisioned mapping/BaselineHead for one scope key."""
 
 
-class ReviewControlUnitOfWorkFactory(Protocol):
+class ReviewApplyControlUnitOfWorkFactory(Protocol):
     def __call__(
         self,
         *,
         read_only: bool = False,
-    ) -> AbstractContextManager[ReviewControlTransaction]: ...
+    ) -> AbstractContextManager[ReviewApplyTransaction]: ...
 
 
-class WorkspaceControlTransaction(
+class SubmitFinalizeControlTransaction(
     SubmitControlTransaction,
     ReviewControlTransaction,
-    ArchiveClosureReadPort,
     Protocol,
 ):
-    """Combined Submit, Review and Archive control transaction for one workspace schema."""
-
-    @property
-    def baseline(self) -> BaselineRepository:
-        """Return the baseline participant bound to this transaction."""
-
-    @property
-    def archive(self) -> ArchiveRepository:
-        """Return the archive participant bound to this transaction."""
-
-    @property
-    def history_compare(self) -> HistoryComparePort:
-        """Return the history compare participant bound to this transaction."""
-
-
-class WorkspaceControlUnitOfWorkFactory(Protocol):
-    def __call__(
-        self,
-        *,
-        read_only: bool = False,
-    ) -> AbstractContextManager[WorkspaceControlTransaction]: ...
+    """Submit transaction surface required to atomically seed Review at finalize."""
 
 
 class SubmissionRepository(Protocol):

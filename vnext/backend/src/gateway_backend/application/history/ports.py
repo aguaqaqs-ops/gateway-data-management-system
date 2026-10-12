@@ -1,22 +1,62 @@
-"""History read ports consumed by application queries."""
+"""Control transaction and read ports owned by History use cases."""
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
+from gateway_backend.application.control_transactions import ControlTransaction
 from gateway_backend.application.history.contracts import (
     HistoryCompareAcceptanceRecord,
     HistoryCompareIntegrityRecord,
     HistoryFacts,
     HistoryPageSnapshot,
 )
-from gateway_backend.application.submission.ports import (
-    WorkspaceControlTransaction,
-    WorkspaceControlUnitOfWorkFactory,
-)
+from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.domain.workspace.models import ResolvedScope
+from gateway_backend.operations import OperationStore
 
-HistoryControlUnitOfWorkFactory = WorkspaceControlUnitOfWorkFactory
+
+class HistoryControlTransaction(ControlTransaction, Protocol):
+    @property
+    def operations(self) -> OperationStore: ...
+
+    @property
+    def history_compare(self) -> HistoryComparePort: ...
+
+    def resolve_provisioned_scope(
+        self,
+        *,
+        gateway_device_external_key: str,
+        business_project_id: str,
+    ) -> ResolvedScope: ...
+
+    def set_artifact_protection(
+        self,
+        refs: tuple[ArtifactRef, ...],
+        *,
+        owner_kind: str,
+        owner_id: str,
+        intent: str,
+    ) -> bool: ...
+
+    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int: ...
+
+    def list_artifact_protection_for_owner(
+        self,
+        *,
+        owner_kind: str,
+        owner_id: str,
+    ) -> frozenset[str]: ...
+
+
+class HistoryControlUnitOfWorkFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        read_only: bool = False,
+    ) -> AbstractContextManager[HistoryControlTransaction]: ...
 
 
 @runtime_checkable
@@ -82,7 +122,7 @@ class HistoryComparePort(Protocol):
 class HistorySnapshotLoaderPort(Protocol):
     def load_page_in_transaction(
         self,
-        unit_of_work: WorkspaceControlTransaction,
+        unit_of_work: HistoryControlTransaction,
         *,
         repository_id: str,
         gateway_device_external_key: str,

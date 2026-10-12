@@ -10,7 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import TracebackType
-from typing import ContextManager, Protocol, cast, runtime_checkable
+from typing import ContextManager, cast
 
 from gateway_shared_kernel import raw_blob_digest
 
@@ -20,7 +20,6 @@ from gateway_backend.application.checkpoints import (
     envelope_for_step,
     load_checkpoint_envelope,
     load_ready_closure,
-    make_checkpoint_step_builder,
     prepare_ready_closure,
     prepare_step_checkpoint,
 )
@@ -34,8 +33,10 @@ from gateway_backend.application.history.contracts import (
     HistoryCompareNodeBinding,
     IntegrityAcknowledgementStatus,
 )
-from gateway_backend.application.history.ports import HistoryComparePort
-from gateway_backend.application.job_steps import unique_artifact_refs
+from gateway_backend.application.history.ports import (
+    HistoryControlTransaction as HistoryCompareControlTransaction,
+)
+from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.application.pair_pipeline import (
     HistoryPairPipelineResult as _PairPipelineResult,
     PairPipelineError,
@@ -105,7 +106,6 @@ from gateway_backend.operations.contracts import (
     StepStatus,
 )
 from gateway_backend.operations.lease_session import LeaseSession
-from gateway_backend.operations.store import OperationStore
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
     ExecutionControl,
@@ -166,29 +166,6 @@ class HistoryCompareJobPayload:
     view_kind: str
     pair_count: int
     nodes: tuple[HistoryCompareNodeBinding, ...]
-
-
-@runtime_checkable
-class HistoryCompareControlTransaction(Protocol):
-    @property
-    def operations(self) -> OperationStore: ...
-
-    @property
-    def history_compare(self) -> HistoryComparePort: ...
-
-    @property
-    def transaction_now(self) -> datetime: ...
-
-    def set_artifact_protection(
-        self,
-        refs: tuple[ArtifactRef, ...],
-        *,
-        owner_kind: str,
-        owner_id: str,
-        intent: str,
-    ) -> bool: ...
-
-    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int: ...
 
 
 HistoryCompareControlTransactionFactory = Callable[[], ContextManager[HistoryCompareControlTransaction]]
@@ -417,10 +394,15 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
                     extra_refs=_closed_refs_from_sides(sides),
+                    owner_kind="history-compare-checkpoint",
                     intent="materialize-checkpoint",
+                    active_transaction=_active_history_compare_transaction.get,
+                    transaction_missing=lambda: HistoryCompareJobError(
+                        "history compare checkpoint transaction is not bound"
+                    ),
                 )
             )
 
@@ -531,10 +513,15 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
                     extra_refs=(closure_ref, bundle_manifest_ref, *ready_refs),
+                    owner_kind="history-compare-checkpoint",
                     intent="assemble-checkpoint",
+                    active_transaction=_active_history_compare_transaction.get,
+                    transaction_missing=lambda: HistoryCompareJobError(
+                        "history compare checkpoint transaction is not bound"
+                    ),
                 )
             )
 
@@ -1257,34 +1244,6 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
 
 def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
     return unique_artifact_refs(refs)
-
-
-def _pinned_checkpoint_builder(
-    *,
-    checkpoint_ref: ArtifactRef,
-    extra_refs: tuple[ArtifactRef, ...],
-    intent: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], StepRecord]:
-    inner = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
-
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> StepRecord:
-        candidate = inner(operation, step, transaction_now)
-        transaction = _active_history_compare_transaction.get()
-        if transaction is None:
-            raise HistoryCompareJobError("history compare checkpoint transaction is not bound")
-        transaction.set_artifact_protection(
-            _unique_refs((checkpoint_ref, *extra_refs)),
-            owner_kind="history-compare-checkpoint",
-            owner_id=step.step_id,
-            intent=intent,
-        )
-        return candidate
-
-    return builder
 
 
 def _pin_history_compare_refs(

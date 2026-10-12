@@ -31,8 +31,10 @@ from gateway_backend.application.submission.errors import (
 )
 from gateway_backend.application.history.errors import (
     HistoryApplicationError,
+    HistoryCompareAcceptanceUnavailable,
     HistoryCompareBindingConflict,
     HistoryCompareIdempotencyConflict,
+    HistoryCompareJobNotRegistered,
     HistoryCompareNodeNotFound,
     HistoryIntegrityFailure,
     HistoryIntegrityUnresolved,
@@ -40,7 +42,9 @@ from gateway_backend.application.history.errors import (
 )
 from gateway_backend.application.workspace.errors import (
     IdempotencyConflict,
+    PreviewArtifactUnavailable,
     PreviewBindingConflict,
+    PreviewJobNotRegistered,
     WorkspaceApplicationError,
 )
 from gateway_backend.domain.submission.errors import (
@@ -172,6 +176,18 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             message=str(exc),
             status_code=409,
         )
+    if isinstance(exc, PreviewJobNotRegistered):
+        return ApiError(
+            code="SERVICE_NOT_READY",
+            message="preview job definition is not registered",
+            status_code=503,
+        )
+    if isinstance(exc, PreviewArtifactUnavailable):
+        return ApiError(
+            code="DEPENDENCY_UNAVAILABLE",
+            message="source artifact is not readable",
+            status_code=503,
+        )
     if isinstance(exc, SubmitIdempotencyConflict):
         return ApiError(
             code="IDEMPOTENCY_CONFLICT",
@@ -269,6 +285,12 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             code="IDEMPOTENCY_CONFLICT",
             message=str(exc),
             status_code=409,
+        )
+    if isinstance(exc, HistoryCompareJobNotRegistered | HistoryCompareAcceptanceUnavailable):
+        return ApiError(
+            code="SERVICE_NOT_READY",
+            message="history compare service is not ready",
+            status_code=503,
         )
     if isinstance(exc, HistoryIntegrityUnresolved):
         return ApiError(
@@ -440,6 +462,25 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def submission_domain_error_handler(
         _request: Request,
         exc: SubmissionDomainError,
+    ) -> JSONResponse:
+        mapped = map_domain_exception(exc)
+        if mapped is None:
+            return error_response(
+                code=INTERNAL_ERROR_CODE,
+                message=INTERNAL_ERROR_MESSAGE,
+                status_code=500,
+            )
+        return error_response(
+            code=mapped.code,
+            message=mapped.message,
+            status_code=mapped.status_code,
+            details=mapped.details,
+        )
+
+    @app.exception_handler(HistoryApplicationError)
+    async def history_application_error_handler(
+        _request: Request,
+        exc: HistoryApplicationError,
     ) -> JSONResponse:
         mapped = map_domain_exception(exc)
         if mapped is None:

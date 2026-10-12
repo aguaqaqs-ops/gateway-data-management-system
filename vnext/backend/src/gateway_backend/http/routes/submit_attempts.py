@@ -81,7 +81,7 @@ def accept_submit_route(
             command=command,
             scope_resolution=deps.scope_resolution,
             workspace_repository=deps.workspace_repository,
-            unit_of_work_factory=deps.unit_of_work_factory,
+            unit_of_work_factory=deps.submit_unit_of_work_factory,
             job_registry=deps.job_registry,
             artifact_store=deps.artifact_store,
             artifact_ref_lookup=deps.artifact_ref_lookup,

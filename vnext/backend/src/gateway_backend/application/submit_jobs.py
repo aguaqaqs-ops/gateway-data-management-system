@@ -24,10 +24,10 @@ from gateway_backend.application.checkpoints import (
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
-    make_checkpoint_step_builder,
     prepare_step_checkpoint,
 )
 from gateway_backend.application.job_definitions import JobDefinition
+from gateway_backend.application.job_steps import pinned_checkpoint_builder
 from gateway_backend.application.payloads import (
     CheckpointDecodeError,
     PayloadDecodeError,
@@ -113,7 +113,7 @@ from gateway_backend.application.submission.ports import (
     RepositoryWritePort,
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
-    WorkspaceControlTransaction,
+    SubmitFinalizeControlTransaction,
 )
 from gateway_backend.application.submission.artifact_refs import store_ref_from_backend_artifact_ref
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
@@ -188,7 +188,7 @@ _JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF = "terminal_result_evidence_ref"
 _TERMINAL_REPOSITORY_EVIDENCE_DOCUMENT_TYPE = "submit_repository_terminal_evidence"
 _TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION = "backend-vnext/submit/repository-terminal-evidence/v1"
 
-_active_submit_transaction: ContextVar[WorkspaceControlTransaction | None] = ContextVar(
+_active_submit_transaction: ContextVar[SubmitFinalizeControlTransaction | None] = ContextVar(
     "_active_submit_transaction",
     default=None,
 )
@@ -235,7 +235,7 @@ class SubmitJobPayload:
     options: Mapping[str, object]
 
 
-SubmitControlTransactionFactory = Callable[[], ContextManager[WorkspaceControlTransaction]]
+SubmitControlTransactionFactory = Callable[[], ContextManager[SubmitFinalizeControlTransaction]]
 
 
 @runtime_checkable
@@ -374,10 +374,10 @@ def bind_submit_control_transaction_factory(
     """Bind the active submit transaction for checkpoint and crossing writes."""
 
     class _BoundUnitOfWork:
-        def __init__(self, wrapped: ContextManager[WorkspaceControlTransaction]) -> None:
+        def __init__(self, wrapped: ContextManager[SubmitFinalizeControlTransaction]) -> None:
             self._wrapped = wrapped
 
-        def __enter__(self) -> WorkspaceControlTransaction:
+        def __enter__(self) -> SubmitFinalizeControlTransaction:
             transaction = self._wrapped.__enter__()
             _active_submit_transaction.set(transaction)
             return transaction
@@ -391,7 +391,7 @@ def bind_submit_control_transaction_factory(
             _active_submit_transaction.set(None)
             return self._wrapped.__exit__(exc_type, exc, tb)
 
-    def factory() -> ContextManager[WorkspaceControlTransaction]:
+    def factory() -> ContextManager[SubmitFinalizeControlTransaction]:
         return _BoundUnitOfWork(inner())
 
     return factory
@@ -640,12 +640,16 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
             )
             sent_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, sent_envelope)
             last_checkpoint_generation = lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=sent_checkpoint_ref,
                     extra_refs=(
                         request_state.prepare_checkpoint_ref,
                         request_state.request_artifact_ref,
                     ),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="submit-import-checkpoint",
                 )
             )
@@ -773,9 +777,13 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             )
             await_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="await-import-reconcile-checkpoint",
                 )
             )
@@ -824,9 +832,13 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             if await_checkpoint_ref is None:
                 raise SubmitJobError("await_import_result checkpoint is missing for reconcile handoff")
             checkpoint_generation = lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="await-import-reconcile-checkpoint",
                 )
             )
@@ -856,9 +868,13 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             )
             await_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, terminal_envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(evidence_ref,),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="await-import-terminal-checkpoint",
                 )
             )
@@ -1093,9 +1109,13 @@ def _materialize_submit_checkpoint_state(
             repository_operation_id = None
         checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
         checkpoint_generation = lease_session.publish_checkpoint(
-            _pinned_checkpoint_builder(
+            pinned_checkpoint_builder(
                 checkpoint_ref=checkpoint_ref,
                 extra_refs=(prepare_checkpoint_ref, request_ref),
+                owner_kind="submit-checkpoint",
+                active_transaction=_active_submit_transaction.get,
+                transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                deduplicate_refs=False,
                 intent="submit-import-checkpoint",
             )
         )
@@ -1162,9 +1182,13 @@ def _materialize_submit_checkpoint_state(
     )
     checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
     checkpoint_generation = lease_session.publish_checkpoint(
-        _pinned_checkpoint_builder(
+        pinned_checkpoint_builder(
             checkpoint_ref=checkpoint_ref,
             extra_refs=(prepare_checkpoint_ref, request_ref),
+            owner_kind="submit-checkpoint",
+            active_transaction=_active_submit_transaction.get,
+            transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+            deduplicate_refs=False,
             intent="submit-import-checkpoint",
         )
     )
@@ -1407,9 +1431,13 @@ def _prepare_step_checkpoint(
         checkpoint=checkpoint,
     )
     lease_session.publish_checkpoint(
-        _pinned_checkpoint_builder(
+        pinned_checkpoint_builder(
             checkpoint_ref=checkpoint_ref,
             extra_refs=_prepare_checkpoint_extra_refs(checkpoint),
+            owner_kind="submit-checkpoint",
+            active_transaction=_active_submit_transaction.get,
+            transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+            deduplicate_refs=False,
             intent="prepare-import-checkpoint",
         )
     )
@@ -2217,7 +2245,7 @@ def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
 def read_write_factory(
     factory: SubmitControlTransactionFactory,
 ) -> SubmitControlUnitOfWorkFactory:
-    def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[WorkspaceControlTransaction]:
+    def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[SubmitControlTransaction]:
         del read_only
         return factory()
 
@@ -2229,35 +2257,6 @@ def _definition_for_step(step_name: str) -> JobDefinition:
         if definition.key.step_name == step_name:
             return definition
     raise SubmitJobError(f"submit step definition is missing: {step_name}")
-
-
-def _pinned_checkpoint_builder(
-    *,
-    checkpoint_ref: ArtifactRef,
-    extra_refs: tuple[ArtifactRef, ...],
-    intent: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], StepRecord]:
-    inner = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
-
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> StepRecord:
-        candidate = inner(operation, step, transaction_now)
-        transaction = _active_submit_transaction.get()
-        if transaction is None:
-            raise SubmitJobError("submit checkpoint transaction is not bound")
-        _pin_submit_checkpoint_refs(
-            transaction,
-            step_id=step.step_id,
-            checkpoint_ref=checkpoint_ref,
-            extra_refs=extra_refs,
-            intent=intent,
-        )
-        return candidate
-
-    return builder
 
 
 def _make_successor_builder(

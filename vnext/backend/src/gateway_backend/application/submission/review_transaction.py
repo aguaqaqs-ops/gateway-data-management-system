@@ -26,8 +26,8 @@ from gateway_backend.application.submission.review_contracts import (
     validate_apply_review_command,
 )
 from gateway_backend.application.submission.ports import (
+    ReviewApplyControlUnitOfWorkFactory,
     ReviewApplyTransaction,
-    WorkspaceControlUnitOfWorkFactory,
 )
 from gateway_backend.domain.submission.errors import (
     ReviewClosureViolation,
@@ -50,7 +50,7 @@ def apply_review_transaction(
     *,
     command: ApplyReviewCommand,
     scope_resolution: ScopeResolutionPort,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory,
     now: datetime,
 ) -> ApplyReviewResult:
     validate_apply_review_command(command)

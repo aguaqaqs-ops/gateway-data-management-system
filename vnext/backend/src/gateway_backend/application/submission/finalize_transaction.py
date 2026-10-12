@@ -16,7 +16,7 @@ from gateway_backend.application.submission.errors import (
 )
 from gateway_backend.application.submission.finalize import finalize_submit
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
-from gateway_backend.application.submission.ports import WorkspaceControlTransaction
+from gateway_backend.application.submission.ports import SubmitFinalizeControlTransaction
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.types import ArtifactRef
@@ -47,7 +47,7 @@ class FinalizeSubmitTransactionRequest:
 def finalize_submit_transaction(
     *,
     request: FinalizeSubmitTransactionRequest,
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
 ) -> FinalizeSubmitResult:
     attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
     if attempt is None:
@@ -176,7 +176,7 @@ def finalize_submit_transaction(
 
 
 def _insert_finalize_review_seed(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     submission: Submission,
 ) -> None:
     event, projection = build_seed_projection(
@@ -191,7 +191,7 @@ def _insert_finalize_review_seed(
 
 
 def _assert_finalize_review_closure(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     submission_id: str,
 ) -> None:
     try:
@@ -203,7 +203,7 @@ def _assert_finalize_review_closure(
 
 
 def _assert_finalized_closure(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     *,
     attempt: SubmitAttempt,
     submission: Submission,
@@ -226,7 +226,7 @@ def _assert_finalized_closure(
 
 
 def _transfer_finalize_protection(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     *,
     attempt: SubmitAttempt,
 ) -> None:

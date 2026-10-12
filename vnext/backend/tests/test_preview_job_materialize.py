@@ -15,7 +15,7 @@ from gateway_backend.application.preview_jobs import (
     decode_preview_payload,
 )
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
-from gateway_backend.http.orchestration.preview_acceptance import build_preview_job_payload
+from gateway_backend.application.workspace.preview import build_preview_job_payload
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import StepStatus
 from tests.support.preview_job_harness import (

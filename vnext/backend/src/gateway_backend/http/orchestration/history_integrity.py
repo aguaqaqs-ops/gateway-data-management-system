@@ -6,7 +6,7 @@ from datetime import datetime
 
 from gateway_backend.application.history.contracts import IntegrityAcknowledgementStatus
 from gateway_backend.application.history.errors import HistoryCompareIntegrityAckConflict
-from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
+from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.schemas.history import (
     IntegrityAcknowledgementResponse,
@@ -19,7 +19,7 @@ def acknowledge_integrity_incident(
     operation_id: str,
     acknowledgement_status: str,
     resolution_reference: str,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     now: datetime,
 ) -> IntegrityAcknowledgementResponse:
     if acknowledgement_status != IntegrityAcknowledgementStatus.ACKNOWLEDGED.value:

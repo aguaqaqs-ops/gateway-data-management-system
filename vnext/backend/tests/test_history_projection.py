@@ -24,7 +24,7 @@ from gateway_backend.application.history.projection import (
     project_history_tree,
 )
 from gateway_backend.application.history.queries import get_project_history
-from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
+from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.submission.models import Submission, SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
@@ -134,7 +134,7 @@ def _history_read_identity() -> IdentityContext:
     return make_identity(permissions=DIFF_FIXTURE_PERMISSIONS)
 
 
-def _uow_factory(db_path: Path) -> WorkspaceControlUnitOfWorkFactory:
+def _uow_factory(db_path: Path) -> HistoryControlUnitOfWorkFactory:
     def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(db_path, read_only=read_only)
 

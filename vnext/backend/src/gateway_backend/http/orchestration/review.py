@@ -8,7 +8,7 @@ from datetime import datetime
 from gateway_backend.application.submission.review import get_review_facts
 from gateway_backend.application.submission.review_contracts import ApplyReviewCommand
 from gateway_backend.application.submission.review_transaction import apply_review_transaction
-from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
+from gateway_backend.application.submission.ports import ReviewApplyControlUnitOfWorkFactory
 from gateway_backend.domain.submission.errors import InvalidReviewIdempotencyKey
 from gateway_backend.domain.submission.review import ReviewAction, validate_review_idempotency_key
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -67,7 +67,7 @@ def apply_review_operation(
     *,
     command: ApplyReviewCommand,
     scope_resolution: ScopeResolutionPort,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory,
     now: datetime,
 ) -> ApplyReviewOperationResult:
     result = apply_review_transaction(
@@ -87,7 +87,7 @@ def get_review_facts_operation(
     context: IdentityContext,
     submission_id: str,
     scope_resolution: ScopeResolutionPort,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory,
 ) -> ReviewFactsResponse:
     facts = get_review_facts(
         context=context,

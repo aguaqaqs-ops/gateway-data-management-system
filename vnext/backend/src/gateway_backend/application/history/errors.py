@@ -31,5 +31,13 @@ class HistoryIntegrityUnresolved(HistoryApplicationError):
     """Raised when a pending integrity incident blocks a new compare accept."""
 
 
+class HistoryCompareJobNotRegistered(HistoryApplicationError):
+    """History compare processing is not available in the active job registry."""
+
+
+class HistoryCompareAcceptanceUnavailable(HistoryApplicationError):
+    """History compare acceptance could not be formed from validated bindings."""
+
+
 class HistoryCompareIntegrityAckConflict(HistoryApplicationError):
     """Raised when integrity acknowledgement resolution_reference conflicts."""

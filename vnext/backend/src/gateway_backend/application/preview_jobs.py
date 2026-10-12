@@ -10,7 +10,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import TracebackType
-from typing import ContextManager, Protocol, cast, runtime_checkable
+from typing import ContextManager, cast
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -20,11 +20,11 @@ from gateway_backend.application.checkpoints import (
     envelope_for_step,
     load_checkpoint_envelope,
     load_ready_closure,
-    make_checkpoint_step_builder,
     prepare_ready_closure,
     prepare_step_checkpoint,
 )
-from gateway_backend.application.job_steps import unique_artifact_refs
+from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
 from gateway_backend.application.pair_pipeline import (
     PairPipelineError,
     PreviewIdentityStatus,
@@ -130,7 +130,7 @@ from gateway_backend.domain.workspace.models import (
     SourceArtifactRole,
     Workspace,
 )
-from gateway_backend.domain.workspace.ports import BaselineHeadReadPort, WorkspaceRepository
+from gateway_backend.domain.workspace.ports import BaselineHeadReadPort
 from gateway_backend.operations.contracts import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -141,7 +141,6 @@ from gateway_backend.operations.contracts import (
     StepStatus,
 )
 from gateway_backend.operations.lease_session import LeaseSession
-from gateway_backend.operations.store import OperationStore
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
     ExecutionControl,
@@ -217,29 +216,6 @@ class PreviewJobPayload:
     ready_closure_contract_version: str
     idempotency_identity: PreviewIdempotencyIdentity
     options: Mapping[str, object]
-
-
-@runtime_checkable
-class PreviewControlTransaction(Protocol):
-    @property
-    def operations(self) -> OperationStore: ...
-
-    @property
-    def workspace(self) -> WorkspaceRepository: ...
-
-    @property
-    def transaction_now(self) -> datetime: ...
-
-    def set_artifact_protection(
-        self,
-        refs: tuple[ArtifactRef, ...],
-        *,
-        owner_kind: str,
-        owner_id: str,
-        intent: str,
-    ) -> bool: ...
-
-    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int: ...
 
 
 PreviewControlTransactionFactory = Callable[[], ContextManager[PreviewControlTransaction]]
@@ -524,10 +500,15 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
                     extra_refs=_closed_refs_from_sides(sides),
+                    owner_kind="preview-checkpoint",
                     intent="materialize-checkpoint",
+                    active_transaction=_active_preview_transaction.get,
+                    transaction_missing=lambda: PreviewJobError(
+                        "preview checkpoint transaction is not bound"
+                    ),
                 )
             )
 
@@ -652,10 +633,15 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
                     extra_refs=(closure_ref, bundle_manifest_ref, *ready_refs),
+                    owner_kind="preview-checkpoint",
                     intent="assemble-checkpoint",
+                    active_transaction=_active_preview_transaction.get,
+                    transaction_missing=lambda: PreviewJobError(
+                        "preview checkpoint transaction is not bound"
+                    ),
                 )
             )
 
@@ -1423,34 +1409,6 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
 
 def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
     return unique_artifact_refs(refs)
-
-
-def _pinned_checkpoint_builder(
-    *,
-    checkpoint_ref: ArtifactRef,
-    extra_refs: tuple[ArtifactRef, ...],
-    intent: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], StepRecord]:
-    inner = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
-
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> StepRecord:
-        candidate = inner(operation, step, transaction_now)
-        transaction = _active_preview_transaction.get()
-        if transaction is None:
-            raise PreviewJobError("preview checkpoint transaction is not bound")
-        transaction.set_artifact_protection(
-            _unique_refs((checkpoint_ref, *extra_refs)),
-            owner_kind="preview-checkpoint",
-            owner_id=step.step_id,
-            intent=intent,
-        )
-        return candidate
-
-    return builder
 
 
 def _payload_source_refs(payload: PreviewJobPayload) -> tuple[ArtifactRef, ...]:

@@ -18,7 +18,7 @@ from gateway_backend.application.submission.review_contracts import (
 )
 from gateway_backend.application.submission.ports import (
     ReviewApplyTransaction,
-    WorkspaceControlUnitOfWorkFactory,
+    ReviewApplyControlUnitOfWorkFactory,
 )
 from gateway_backend.domain.submission.errors import ReviewClosureViolation
 from gateway_backend.domain.submission.models import Submission, WorkspaceSubmitOccupancy
@@ -231,7 +231,7 @@ def get_review_facts(
     context: IdentityContext,
     submission_id: str,
     scope_resolution: ScopeResolutionPort,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory,
 ) -> ReviewFacts:
     assert_permission(context, PERMISSION_REVIEW_SUBMISSION)
     resolved = scope_resolution.resolve(context)

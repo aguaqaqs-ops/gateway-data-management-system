@@ -127,7 +127,7 @@ def test_build_preview_job_payload_round_trips_through_decoder() -> None:
         initial_binding=initial,
         modified_binding=modified,
     )
-    from gateway_backend.http.orchestration.preview_acceptance import build_preview_job_payload
+    from gateway_backend.application.workspace.preview import build_preview_job_payload
 
     payload_bytes = build_preview_job_payload(
         workspace_id=WORKSPACE_ID,

@@ -33,7 +33,7 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.application.job_definitions import build_job_worker_composition
 from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
-from gateway_backend.http.orchestration.history_compare import build_history_compare_job_payload
+from gateway_backend.application.history.compare import build_history_compare_job_payload
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,

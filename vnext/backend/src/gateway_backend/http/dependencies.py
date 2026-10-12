@@ -13,10 +13,12 @@ from fastapi import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.submission.ports import (
     BaselineCanonicalDigestPort,
+    ReviewApplyControlUnitOfWorkFactory,
     RepositoryMainResolvePort,
-    WorkspaceControlUnitOfWorkFactory,
+    SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
@@ -25,6 +27,7 @@ from gateway_backend.domain.workspace.models import BaselineHead, InputCompleten
 from gateway_backend.application.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
+    WorkspaceControlUnitOfWorkFactory,
     WorkspaceRepository,
 )
 from gateway_backend.application.control_transactions import ControlDbUnitOfWorkFactory
@@ -143,7 +146,12 @@ class ClosableAdmissionGate:
 
 
 @contextmanager
-def acquire_new_work(gate: AdmissionGatePort) -> Iterator[None]:
+def acquire_new_work(
+    gate: AdmissionGatePort,
+    *,
+    closed_code: str = "ADMISSION_LIMIT_REACHED",
+    closed_status: int = 429,
+) -> Iterator[None]:
     """Admit one creation request or raise 429 without leaking the slot."""
 
     if not gate.try_acquire():
@@ -151,13 +159,13 @@ def acquire_new_work(gate: AdmissionGatePort) -> Iterator[None]:
 
         closed = not gate.allows_new_work()
         raise ApiError(
-            code="ADMISSION_LIMIT_REACHED",
+            code=closed_code if closed else "ADMISSION_LIMIT_REACHED",
             message=(
                 "gateway admission is closed for new work"
                 if closed
                 else "gateway admission limit reached"
             ),
-            status_code=429,
+            status_code=closed_status if closed else 429,
         )
     try:
         yield
@@ -221,7 +229,10 @@ class WorkspaceHttpDependencies:
     scope_resolution: ScopeResolutionPort
     baseline_head_read: BaselineHeadReadPort
     workspace_repository: WorkspaceRepository
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory
+    workspace_unit_of_work_factory: WorkspaceControlUnitOfWorkFactory
+    submit_unit_of_work_factory: SubmitControlUnitOfWorkFactory
+    review_unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory
+    archive_unit_of_work_factory: ArchiveControlUnitOfWorkFactory
     artifact_store: BoundedArtifactStorePort
     job_registry: JobDefinitionRegistry
     bundle_reader: BundleReaderPort

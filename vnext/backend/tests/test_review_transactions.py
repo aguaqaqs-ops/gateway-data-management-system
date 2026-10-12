@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -21,7 +22,6 @@ from gateway_backend.application.submission.review import (
     get_review_facts,
     verify_idempotency_replay,
 )
-from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
 from gateway_backend.application.submission.review_contracts import ApplyReviewCommand, ApplyReviewResult
 from gateway_backend.application.submission.review_transaction import apply_review_transaction
 from gateway_backend.domain.submission.errors import (
@@ -288,7 +288,7 @@ def _apply_command(
     )
 
 
-def _uow_factory(db_path: Path) -> WorkspaceControlUnitOfWorkFactory:
+def _uow_factory(db_path: Path) -> Callable[..., ControlDbUnitOfWork]:
     def factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(db_path, read_only=read_only)
 

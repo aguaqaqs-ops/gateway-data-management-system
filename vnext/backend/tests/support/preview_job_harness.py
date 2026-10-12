@@ -23,6 +23,7 @@ from gateway_backend.application.preview_jobs import (
     bind_control_transaction_factory,
     preview_composition_bundle,
 )
+from gateway_backend.application.workspace.preview import build_preview_job_payload
 from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from gateway_backend.domain.workspace.models import (
@@ -33,7 +34,6 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
     WorkspaceState,
 )
-from gateway_backend.http.orchestration.preview_acceptance import build_preview_job_payload
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,

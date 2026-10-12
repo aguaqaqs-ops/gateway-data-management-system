@@ -1,4 +1,4 @@
-"""History compare accept and result orchestration."""
+"""History compare DTO mapping and result orchestration."""
 
 from __future__ import annotations
 
@@ -7,44 +7,28 @@ from datetime import datetime
 from typing import Literal, cast
 
 from pydantic import ValidationError
-from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.checkpoints import StepCheckpointEnvelope
+from gateway_backend.application.history.compare import (
+    HistoryCompareAcceptanceResult as ApplicationHistoryCompareAcceptanceResult,
+    accept_history_compare,
+)
+from gateway_backend.application.history.compare_jobs import (
+    HISTORY_COMPARE_STEP_ASSEMBLE,
+    history_compare_step_id,
+)
+from gateway_backend.application.history.contracts import (
+    HistoryCompareAcceptCommand,
+    HistoryCompareAcceptanceRecord,
+    HistoryNodeRef,
+)
+from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
+from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.application.history.compare import validate_history_compare_binding
-from gateway_backend.application.history.compare_jobs import (
-    HISTORY_COMPARE_JOB_CONTRACT_VERSION,
-    HISTORY_COMPARE_JOB_KIND,
-    HISTORY_COMPARE_STEP_ASSEMBLE,
-    HISTORY_COMPARE_STEP_MATERIALIZE,
-    history_compare_step_id,
-)
-from gateway_backend.application.history.compare_registry import assert_compare_registry_ready
-from gateway_backend.application.history.contracts import (
-    HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
-    HISTORY_COMPARE_VIEW_KIND,
-    HistoryCompareAcceptCommand,
-    HistoryCompareAcceptanceRecord,
-    HistoryCompareValidationResult,
-    HistoryNodeRef,
-)
-from gateway_backend.application.history.errors import (
-    HistoryCompareBindingConflict,
-    HistoryCompareIdempotencyConflict,
-    HistoryCompareNodeNotFound,
-    HistoryIntegrityUnresolved,
-    HistoryRequestValidation,
-)
-from gateway_backend.application.job_definitions import JobDefinitionRegistry
-from gateway_backend.application.submission.ports import (
-    WorkspaceControlTransaction,
-    WorkspaceControlUnitOfWorkFactory,
-)
-from gateway_backend.domain.workspace.errors import PermissionDenied
-from gateway_backend.http.dependencies import AdmissionGatePort, BundleReaderPort
-from gateway_backend.http.errors import ApiError
+from gateway_backend.http.dependencies import AdmissionGatePort, BundleReaderPort, acquire_new_work
+from gateway_backend.http.errors import ApiError, map_domain_exception
 from gateway_backend.http.schemas.history import (
     HistoryCompareAcceptResponse,
     HistoryCompareDiagnosticResponse,
@@ -55,14 +39,7 @@ from gateway_backend.http.schemas.history import (
     HistoryNodeRefResponse,
     IntegrityIncidentResponse,
 )
-from gateway_backend.operations.contracts import (
-    OPERATION_RUNTIME_CONTRACT_VERSION,
-    BusinessReference,
-    OperationRecord,
-    OperationStatus,
-    StepRecord,
-    StepStatus,
-)
+from gateway_backend.operations.contracts import OperationRecord, OperationStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,170 +48,48 @@ class HistoryCompareAcceptanceResult:
     replay: bool
 
 
-def build_history_compare_job_payload(
-    *,
-    validation: HistoryCompareValidationResult,
-    acceptance_id: str,
-    idempotency_key: str,
-) -> bytes:
-    payload = {
-        "gateway_device_external_key": validation.gateway_device_external_key,
-        "business_project_id": validation.business_project_id,
-        "repository_id": validation.repository_id,
-        "acceptance_id": acceptance_id,
-        "idempotency_key": idempotency_key,
-        "request_fingerprint": validation.request_fingerprint,
-        "comparison_ruleset_digest": validation.comparison_ruleset_digest,
-        "comparison_contract_version": HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
-        "view_kind": HISTORY_COMPARE_VIEW_KIND,
-        "pair_count": max(len(validation.nodes) - 1, 1),
-        "nodes": [
-            {
-                "ref_kind": node.ref_kind.value,
-                "ref_id": node.ref_id,
-                "commit_id": node.commit_id,
-            }
-            for node in validation.nodes
-        ],
-    }
-    return canonicalize_json_value(payload)
-
-
 def accept_compare_operation(
     *,
     command: HistoryCompareAcceptCommand,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     job_registry: JobDefinitionRegistry,
     admission_gate: AdmissionGatePort,
     comparison_ruleset_digest: str,
     now: datetime,
 ) -> HistoryCompareAcceptanceResult:
     try:
-        assert_compare_registry_ready(job_registry)
-    except ValueError as exc:
-        raise ApiError(
-            code="SERVICE_NOT_READY",
-            message="history compare job definition is not registered",
-            status_code=503,
-        ) from exc
-    if not admission_gate.try_acquire():
-        if not admission_gate.allows_new_work():
-            raise ApiError(
-                code="ADMISSION_CONFLICT",
-                message="gateway admission is closed",
-                status_code=409,
-            )
-        raise ApiError(
-            code="ADMISSION_LIMIT_REACHED",
-            message="gateway admission limit reached",
-            status_code=429,
-        )
-    replay_result: HistoryCompareAcceptanceResult | None = None
-    operation_id: str | None = None
-    try:
-        with unit_of_work_factory() as unit_of_work:
-            validation = _validate_accept(
-                command,
-                unit_of_work,
+        with acquire_new_work(
+            admission_gate,
+            closed_code="ADMISSION_CONFLICT",
+            closed_status=409,
+        ):
+            result = accept_history_compare(
+                command=command,
+                unit_of_work_factory=unit_of_work_factory,
+                job_registry=job_registry,
                 comparison_ruleset_digest=comparison_ruleset_digest,
+                now=now,
             )
-            if validation.replay and validation.prior_acceptance is not None:
-                operation = unit_of_work.operations.get_operation(validation.prior_acceptance.operation_id)
-                replay_result = HistoryCompareAcceptanceResult(
-                    response=HistoryCompareAcceptResponse(
-                        operation_id=operation.operation_id,
-                        status=_public_operation_status(operation.status),
-                        replayed=True,
-                    ),
-                    replay=True,
-                )
-            else:
-                operation_id = validation.operation_id
-                acceptance_id = validation.acceptance_id
-                if operation_id is None or acceptance_id is None:
-                    raise ApiError(
-                        code="SERVICE_NOT_READY",
-                        message="history compare acceptance is incomplete",
-                        status_code=503,
-                    )
-                job_payload = build_history_compare_job_payload(
-                    validation=validation,
-                    acceptance_id=acceptance_id,
-                    idempotency_key=command.idempotency_key,
-                )
-                operation = OperationRecord(
-                    contract_version=OPERATION_RUNTIME_CONTRACT_VERSION,
-                    operation_id=operation_id,
-                    job_kind=HISTORY_COMPARE_JOB_KIND,
-                    job_contract_version=HISTORY_COMPARE_JOB_CONTRACT_VERSION,
-                    job_payload=job_payload,
-                    job_payload_ref=None,
-                    business_refs=(BusinessReference(kind="history_compare", value=acceptance_id),),
-                    artifact_refs=(),
-                    repository_operation_id=None,
-                    checkpoint_ref=None,
-                    ready_closure_ref=None,
-                    status=OperationStatus.QUEUED,
-                    diagnostic=None,
-                    cancel_requested=False,
-                    created_at=now,
-                    updated_at=now,
-                    completed_at=None,
-                    optimistic_version=0,
-                )
-                step = StepRecord(
-                    contract_version=OPERATION_RUNTIME_CONTRACT_VERSION,
-                    step_id=history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_MATERIALIZE),
-                    operation_id=operation_id,
-                    step_name=HISTORY_COMPARE_STEP_MATERIALIZE,
-                    status=StepStatus.PENDING,
-                    attempt_count=0,
-                    diagnostic=None,
-                    cancel_requested=False,
-                    retry_not_before=None,
-                    worker_id=None,
-                    lease_token=None,
-                    lease_expires_at=None,
-                    checkpoint_ref=None,
-                    prior_output_refs=(),
-                    created_at=now,
-                    updated_at=now,
-                    started_at=None,
-                    completed_at=None,
-                    optimistic_version=0,
-                )
-                unit_of_work.history_compare.save_acceptance(
-                    HistoryCompareAcceptanceRecord(
-                        acceptance_id=acceptance_id,
-                        gateway_device_external_key=validation.gateway_device_external_key,
-                        business_project_id=validation.business_project_id,
-                        repository_id=validation.repository_id,
-                        idempotency_key=command.idempotency_key,
-                        request_fingerprint=validation.request_fingerprint,
-                        comparison_ruleset_digest=validation.comparison_ruleset_digest,
-                        nodes=validation.nodes,
-                        operation_id=operation_id,
-                        created_at=now,
-                    )
-                )
-                unit_of_work.operations.insert_operation_with_initial_step(operation, step)
-    finally:
-        admission_gate.release()
-    if replay_result is not None:
-        return replay_result
-    if operation_id is None:
-        raise ApiError(
-            code="SERVICE_NOT_READY",
-            message="history compare acceptance is incomplete",
-            status_code=503,
-        )
+    except ApiError:
+        raise
+    except Exception as exc:
+        mapped = map_domain_exception(exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
     return HistoryCompareAcceptanceResult(
-        response=HistoryCompareAcceptResponse(
-            operation_id=operation_id,
-            status="QUEUED",
-            replayed=False,
-        ),
-        replay=False,
+        response=history_compare_acceptance_to_response(result),
+        replay=result.replay,
+    )
+
+
+def history_compare_acceptance_to_response(
+    result: ApplicationHistoryCompareAcceptanceResult,
+) -> HistoryCompareAcceptResponse:
+    return HistoryCompareAcceptResponse(
+        operation_id=result.operation_id,
+        status=_public_operation_status(result.status),
+        replayed=result.replay,
     )
 
 
@@ -242,7 +97,7 @@ def get_compare_result(
     *,
     operation: OperationRecord,
     acceptance: HistoryCompareAcceptanceRecord,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     artifact_store: object,
 ) -> HistoryCompareResultResponse:
     integrity = None
@@ -277,7 +132,7 @@ def read_compare_bundle(
     *,
     operation: OperationRecord,
     bundle_reader: BundleReaderPort,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     artifact_store: object,
 ) -> tuple[str, object]:
     if operation.status is not OperationStatus.SUCCEEDED:
@@ -298,57 +153,6 @@ def read_compare_bundle(
             code="ARTIFACT_UNAVAILABLE",
             message="bundle is not available",
             status_code=404,
-        ) from None
-
-
-def _validate_accept(
-    command: HistoryCompareAcceptCommand,
-    unit_of_work: WorkspaceControlTransaction,
-    *,
-    comparison_ruleset_digest: str,
-) -> HistoryCompareValidationResult:
-    try:
-        return validate_history_compare_binding(
-            command=command,
-            unit_of_work=unit_of_work,
-            comparison_ruleset_digest=comparison_ruleset_digest,
-        )
-    except HistoryRequestValidation as exc:
-        raise ApiError(
-            code="REQUEST_VALIDATION_FAILED",
-            message=str(exc),
-            status_code=422,
-        ) from exc
-    except PermissionDenied:
-        raise ApiError(
-            code="SCOPE_FORBIDDEN",
-            message="scope forbidden",
-            status_code=403,
-        ) from None
-    except HistoryCompareNodeNotFound:
-        raise ApiError(
-            code="RESOURCE_NOT_FOUND",
-            message="resource not found",
-            status_code=404,
-        ) from None
-    except HistoryCompareIdempotencyConflict as exc:
-        raise ApiError(
-            code="IDEMPOTENCY_CONFLICT",
-            message="idempotency conflict",
-            status_code=409,
-            details={"idempotency_key": exc.idempotency_key},
-        ) from exc
-    except HistoryCompareBindingConflict as exc:
-        raise ApiError(
-            code="IDEMPOTENCY_CONFLICT",
-            message=str(exc),
-            status_code=409,
-        ) from exc
-    except HistoryIntegrityUnresolved:
-        raise ApiError(
-            code="HISTORY_INTEGRITY_UNRESOLVED",
-            message="history integrity incident is unresolved",
-            status_code=409,
         ) from None
 
 
@@ -413,7 +217,7 @@ def _load_success_result(
     *,
     operation: OperationRecord,
     acceptance: HistoryCompareAcceptanceRecord,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     artifact_store: object,
 ) -> HistoryCompareResultInputResponse:
     with unit_of_work_factory(read_only=True) as unit_of_work:
@@ -497,7 +301,7 @@ def _load_success_result(
 def _bundle_artifact_id(
     *,
     operation: OperationRecord,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     artifact_store: object,
 ) -> str:
     with unit_of_work_factory(read_only=True) as unit_of_work:

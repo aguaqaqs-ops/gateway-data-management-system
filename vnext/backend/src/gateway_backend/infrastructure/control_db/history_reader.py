@@ -17,8 +17,11 @@ from gateway_backend.application.history.contracts import (
     HistoryPageSnapshot,
     HistorySubmissionFact,
 )
-from gateway_backend.application.history.ports import HistoryReadPort, HistorySnapshotLoaderPort
-from gateway_backend.application.submission.ports import WorkspaceControlTransaction
+from gateway_backend.application.history.ports import (
+    HistoryControlTransaction,
+    HistoryReadPort,
+    HistorySnapshotLoaderPort,
+)
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNodeKind
 from gateway_backend.domain.submission.review import ReviewStatus
@@ -65,7 +68,7 @@ class HttpHistoryReader(HistoryReadPort, HistorySnapshotLoaderPort):
 
     def load_page_in_transaction(
         self,
-        unit_of_work: WorkspaceControlTransaction,
+        unit_of_work: HistoryControlTransaction,
         *,
         repository_id: str,
         gateway_device_external_key: str,

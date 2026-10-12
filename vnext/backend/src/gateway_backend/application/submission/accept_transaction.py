@@ -305,7 +305,7 @@ def _accept_submit_in_transaction(
     )
     if artifact_refs:
         unit_of_work.set_artifact_protection(
-            artifact_refs,
+            preflight.protected_artifact_refs,
             owner_kind="submit-attempt",
             owner_id=submit_attempt_id,
             intent="submit-attempt",
@@ -350,18 +350,21 @@ def _artifact_refs_for_attempt(
     attempt: SubmitAttempt,
     protected_refs: tuple[ArtifactRef, ...],
 ) -> tuple[ArtifactRef, ...]:
-    required_ids = frozenset(
-        (
-            *attempt.source_artifact_refs,
-            attempt.preview_ready_closure_ref,
-            attempt.canonical_table_set_closure_ref,
-            attempt.canonicalization_manifest_ref,
+    required_ids = tuple(
+        dict.fromkeys(
+            (
+                *attempt.source_artifact_refs,
+                attempt.preview_ready_closure_ref,
+                attempt.canonical_table_set_closure_ref,
+                attempt.canonicalization_manifest_ref,
+            )
         )
     )
-    selected_ids = frozenset(ref.artifact_id for ref in protected_refs)
-    if not required_ids.issubset(selected_ids):
+    selected_ids = {ref.artifact_id for ref in protected_refs}
+    if not set(required_ids).issubset(selected_ids):
         raise PreviewBindingConflict("protected artifact refs do not cover attempt bindings")
-    return protected_refs
+    refs_by_id = {ref.artifact_id: ref for ref in protected_refs}
+    return tuple(refs_by_id[artifact_id] for artifact_id in required_ids)
 
 
 def _build_prepared_attempt(

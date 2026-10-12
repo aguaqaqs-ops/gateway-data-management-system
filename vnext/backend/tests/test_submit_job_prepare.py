@@ -11,11 +11,14 @@ from typing import cast
 
 import pytest
 from gateway_backend.application.submission.contracts import RepositoryImportOperation
+from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.checkpoints import (
+    ReadyClosureDocument,
     load_checkpoint_envelope,
     put_checkpoint_envelope,
+    put_ready_closure,
 )
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.submit_jobs import (
@@ -145,6 +148,55 @@ def _materialize_snapshot(store: InMemoryArtifactStore) -> tuple[ArtifactRef, st
     return fixture.snapshot_table_ref, fixture.snapshot_digest
 
 
+def _materialize_ready_preview(
+    seed: SubmitSeed,
+    store: InMemoryArtifactStore,
+) -> tuple[SubmitSeed, ArtifactRef, str]:
+    from tests.support.preview_fixtures import make_canonical_artifact_fixture
+
+    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
+    fixture = make_canonical_artifact_fixture()
+    additional_refs: list[ArtifactRef] = []
+    for index in range(70):
+        payload = f"preview-output-{index}".encode("ascii")
+        ref = ArtifactRef(
+            artifact_id=f"preview-derived-{index:03d}",
+            media_type="application/octet-stream",
+            size_bytes=len(payload),
+            raw_sha256=raw_blob_digest(payload),
+        )
+        store.put(payload, ref)
+        additional_refs.append(ref)
+    ready_closure_ref = put_ready_closure(
+        store,
+        ReadyClosureDocument.build((*fixture.refs, *additional_refs), "backend-vnext/preview/v1"),
+    )
+    protected_refs = tuple(
+        ready_closure_ref if ref.artifact_id == seed.preview_result.ready_closure_artifact_id else ref
+        for ref in seed.protected_refs
+    )
+    preview = replace(seed.preview_result, ready_closure_artifact_id=ready_closure_ref.artifact_id)
+    from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+
+    preview_row = preview_result_to_row(preview)
+    with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE preview_result_records SET binding = ? WHERE preview_result_id = ?",
+            (preview_row[5], preview.preview_result_id),
+        )
+        unit_of_work.clear_artifact_protection(
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+        )
+        unit_of_work.set_artifact_protection(
+            protected_refs,
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+            intent="current-preview",
+        )
+    return replace(seed, preview_result=preview, protected_refs=protected_refs), snapshot_ref, snapshot_digest
+
+
 def _accept_prepared_operation(
     db_path: Path,
     store: InMemoryArtifactStore,
@@ -152,7 +204,7 @@ def _accept_prepared_operation(
     repository_id: str = "repo-1",
 ) -> str:
     seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
-    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
+    seed, snapshot_ref, snapshot_digest = _materialize_ready_preview(seed, store)
     baseline_head = read_authoritative_baseline_head(db_path, repository_id)
     assert snapshot_ref.artifact_id in {ref.artifact_id for ref in seed.protected_refs}
     preflight = _preflight(seed)
@@ -404,20 +456,9 @@ def _accept_prepared_with_seed(
     accept_now: datetime | None = None,
 ) -> tuple[str, SubmitSeed]:
     seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
-    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
+    seed, snapshot_ref, snapshot_digest = _materialize_ready_preview(seed, store)
     protected_refs = seed.protected_refs
     baseline_head = read_authoritative_baseline_head(db_path, repository_id)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.clear_artifact_protection(
-            owner_kind="current-preview",
-            owner_id=seed.workspace.workspace_id,
-        )
-        unit_of_work.set_artifact_protection(
-            protected_refs,
-            owner_kind="current-preview",
-            owner_id=seed.workspace.workspace_id,
-            intent="current-preview",
-        )
     preflight = AcceptSubmitPreflight(
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         preview_operation_id=seed.preview_operation_id,
@@ -708,8 +749,11 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
         fresh_workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
     assert fresh_workspace is not None
     seed_for_reaccept = replace(seed, workspace=fresh_workspace)
-    snapshot_ref, _ = _materialize_snapshot(harness.artifact_store)
-    protected_refs = seed.protected_refs
+    seed_for_reaccept, snapshot_ref, _ = _materialize_ready_preview(
+        seed_for_reaccept,
+        harness.artifact_store,
+    )
+    protected_refs = seed_for_reaccept.protected_refs
     baseline_head = read_authoritative_baseline_head(harness.db_path, attempt.repository_id)
     # Accept preflight requires current-preview protection; abort cleared it on first accept.
     with ControlDbUnitOfWork(harness.db_path) as unit_of_work:

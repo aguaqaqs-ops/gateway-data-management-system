@@ -508,6 +508,27 @@ def _set_preview_canonical_states_equal(seed: SubmitSeed) -> SubmitSeed:
 
 def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
+    additional_refs = tuple(
+        ArtifactRef(
+            artifact_id=f"additional-protected-{index:03d}",
+            media_type="application/octet-stream",
+            size_bytes=1,
+            raw_sha256=DigestRef("sha256:" + f"{index:064x}"),
+        )
+        for index in range(70)
+    )
+    protected_refs = (*seed.protected_refs, *additional_refs)
+    with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
+        unit_of_work.clear_artifact_protection(
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+        )
+        unit_of_work.set_artifact_protection(
+            protected_refs,
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+            intent="current-preview",
+        )
     result = accept_submit_transaction(
         command=_accept_command(seed, idempotency_key="accept-key-1"),
         scope_resolution=FixedScopeResolutionPort(
@@ -517,7 +538,7 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
         main_resolve=RecordingMainResolvePort(),
-        preflight=_preflight(seed),
+        preflight=replace(_preflight(seed), protected_artifact_refs=protected_refs),
         now=TS1,
     )
     assert result.replay is False
@@ -555,9 +576,18 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
     assert attempt.canonicalization_manifest_digest == (
         seed.preview_result.canonical.canonicalization_manifest_digest.value
     )
-    expected_artifact_ids = frozenset(ref.artifact_id for ref in seed.protected_refs)
-    assert frozenset(ref.artifact_id for ref in operation.artifact_refs) == expected_artifact_ids
-    assert submit_artifact_ids == expected_artifact_ids
+    expected_protected_ids = frozenset(ref.artifact_id for ref in protected_refs)
+    expected_operation_ids = frozenset(
+        (
+            *attempt.source_artifact_refs,
+            attempt.preview_ready_closure_ref,
+            attempt.canonical_table_set_closure_ref,
+            attempt.canonicalization_manifest_ref,
+        )
+    )
+    assert frozenset(ref.artifact_id for ref in operation.artifact_refs) == expected_operation_ids
+    assert len(operation.artifact_refs) <= 64
+    assert submit_artifact_ids == expected_protected_ids
     assert current_preview_artifact_ids == frozenset()
     assert preview_operation_artifact_ids == frozenset()
     assert workspace_occupancy is not None

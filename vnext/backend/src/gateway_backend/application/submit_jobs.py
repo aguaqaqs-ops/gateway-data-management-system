@@ -24,10 +24,11 @@ from gateway_backend.application.checkpoints import (
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
+    load_ready_closure,
     prepare_step_checkpoint,
 )
 from gateway_backend.application.job_definitions import JobDefinition
-from gateway_backend.application.job_steps import pinned_checkpoint_builder
+from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.application.payloads import (
     CheckpointDecodeError,
     PayloadDecodeError,
@@ -1420,8 +1421,21 @@ def _build_prepare_import_build_input(
     if ruleset.ruleset_digest is None:
         raise SubmitImportBuilderError("ruleset digest is required")
     try:
+        ready_closure_ref = next(
+            (
+                ref
+                for ref in operation.artifact_refs
+                if ref.artifact_id == attempt.preview_ready_closure_ref
+            ),
+            None,
+        )
+        if ready_closure_ref is None:
+            raise SubmitImportBuilderError("operation is missing the preview ready closure ref")
+        ready_closure_refs = load_ready_closure(store, ready_closure_ref).artifact_refs()
         snapshot_tables, canonical_refs = resolve_canonical_snapshot_bindings(
-            operation_artifact_refs=operation.artifact_refs,
+            operation_artifact_refs=unique_artifact_refs(
+                (*operation.artifact_refs, *ready_closure_refs)
+            ),
             canonical_table_set_closure_ref=attempt.canonical_table_set_closure_ref,
             canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
             canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,

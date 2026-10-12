@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
@@ -28,6 +29,7 @@ from gateway_backend.capabilities.storage_projection import (
     ImportReplayError as ProjectionImportReplayError,
     ProjectionInvocationContext,
     ProjectionDiagnostic,
+    CanonicalizationManifest,
     ProjectionRequest,
     ProjectionStatus,
     ProjectionTableInput,
@@ -123,7 +125,14 @@ class SubmitImportPublicationAdapter:
             )
         if projection.manifest is None or projection.import_input is None:
             raise SubmitImportPublicationError("COMPLETE projection is missing manifest or import input")
-        _assert_projection_identity(build_input, projection)
+        frozen_manifest = _open_frozen_manifest(build_input, store=store)
+        projection = _assert_projection_identity(
+            build_input,
+            projection,
+            frozen_manifest=frozen_manifest,
+        )
+        if projection.import_input is None:
+            raise SubmitImportPublicationError("frozen projection import input is missing")
         reopened_inputs = _reopen_projection_inputs(projection_inputs)
         reopened_readers = tuple(item.reader for item in reopened_inputs)
         try:
@@ -292,22 +301,109 @@ def _resolve_ruleset(build_input: PrepareImportBuildInput) -> TableRulesetSnapsh
 
 def _assert_projection_identity(
     build_input: PrepareImportBuildInput,
-    projection: object,
-) -> None:
-    from gateway_backend.capabilities.storage_projection.contracts import ProjectionResult
-
+    projection: ProjectionResult,
+    *,
+    frozen_manifest: CanonicalizationManifest,
+) -> ProjectionResult:
     if type(projection) is not ProjectionResult or projection.manifest is None:
         raise SubmitImportPublicationError("projection manifest is required")
-    manifest = projection.manifest
-    if build_input.source_artifact_digest != manifest.source_artifact_digest.value:
-        raise SubmitImportPublicationError("source_artifact_digest does not match projection manifest")
+    import_input = projection.import_input
+    if import_input is None:
+        raise SubmitImportPublicationError("projection import input is required")
+    current_manifest = projection.manifest
+    expected_ruleset = (
+        build_input.ruleset_id,
+        build_input.ruleset_version,
+        build_input.ruleset_digest,
+        build_input.storage_projection_version,
+    )
+    frozen_ruleset = (
+        frozen_manifest.ruleset_id,
+        frozen_manifest.ruleset_version,
+        frozen_manifest.ruleset_digest.value,
+        frozen_manifest.storage_projection_version,
+    )
+    if expected_ruleset != frozen_ruleset:
+        raise SubmitImportPublicationError("frozen canonicalization manifest ruleset identity mismatch")
     if (
-        manifest.manifest_digest is None
-        or manifest.manifest_digest.value != build_input.canonicalization_manifest_digest
+        frozen_manifest.manifest_digest is None
+        or frozen_manifest.manifest_digest.value != build_input.canonicalization_manifest_digest
     ):
-        raise SubmitImportPublicationError(
-            "frozen canonicalization manifest does not match rebuilt projection"
-        )
+        raise SubmitImportPublicationError("frozen canonicalization manifest digest mismatch")
+    if current_manifest.source_artifact_digest.value != build_input.source_artifact_digest:
+        raise SubmitImportPublicationError("rebuilt canonical tables do not match the frozen source binding")
+    if (
+        current_manifest.ruleset_id != frozen_manifest.ruleset_id
+        or current_manifest.ruleset_version != frozen_manifest.ruleset_version
+        or current_manifest.ruleset_digest != frozen_manifest.ruleset_digest
+        or current_manifest.storage_projection_version != frozen_manifest.storage_projection_version
+    ):
+        raise SubmitImportPublicationError("rebuilt canonical tables use a different ruleset identity")
+
+    frozen_tables = {item.name: item for item in frozen_manifest.tables}
+    current_tables = {item.name: item for item in current_manifest.tables}
+    projected_tables = {item.canonical_table: item for item in projection.tables}
+    import_tables = {item.name: item for item in import_input.tables}
+    expected_names = set(frozen_tables)
+    if (
+        set(current_tables) != expected_names
+        or set(projected_tables) != expected_names
+        or set(import_tables) != expected_names
+    ):
+        raise SubmitImportPublicationError("rebuilt canonical table set does not match frozen closure")
+
+    for name, frozen_table in frozen_tables.items():
+        current_table = current_tables[name]
+        projected_table = projected_tables[name]
+        import_table = import_tables[name]
+        view = projected_table.storage_view
+        if (
+            current_table.canonical_row_count != frozen_table.canonical_row_count
+            or projected_table.row_count != frozen_table.canonical_row_count
+            or current_table.canonical_schema_digest != frozen_table.canonical_schema_digest
+            or projected_table.schema_digest != frozen_table.canonical_schema_digest
+            or current_table.content_digest != frozen_table.content_digest
+            or projected_table.content_digest != frozen_table.content_digest
+            or current_table.ordering_digest != frozen_table.ordering_digest
+            or projected_table.ordering_digest != frozen_table.ordering_digest
+            or current_table.canonical_key_policy is not frozen_table.canonical_key_policy
+            or view.canonical_key_policy is not frozen_table.canonical_key_policy
+            or current_table.ordered_policy is not frozen_table.ordered_policy
+            or view.ordered_policy is not frozen_table.ordered_policy
+            or current_table.retained_columns != frozen_table.retained_columns
+            or view.retained_columns != frozen_table.retained_columns
+            or current_table.structural_columns != frozen_table.structural_columns
+            or view.structural_columns != frozen_table.structural_columns
+            or current_table.canonical_key_columns != frozen_table.canonical_key_columns
+            or view.canonical_key_columns != frozen_table.canonical_key_columns
+            or tuple(column.name for column in import_table.columns) != frozen_table.retained_columns
+            or import_table.primary_key != frozen_table.canonical_key_columns
+            or import_table.row_count != frozen_table.canonical_row_count
+        ):
+            raise SubmitImportPublicationError(
+                f"rebuilt canonical table {name} does not match frozen manifest"
+            )
+
+    assert frozen_manifest.manifest_digest is not None
+    return replace(
+        projection,
+        manifest=frozen_manifest,
+        import_input=replace(
+            import_input,
+            canonicalization_manifest_digest=frozen_manifest.manifest_digest,
+        ),
+    )
+
+
+def _open_frozen_manifest(
+    build_input: PrepareImportBuildInput,
+    *,
+    store: ArtifactStorePort,
+) -> CanonicalizationManifest:
+    try:
+        return open_canonicalization_manifest(store, build_input.canonicalization_manifest_ref)
+    except PublicationError as exc:
+        raise SubmitImportPublicationError(str(exc)) from exc
 
 
 def _empty_projection_from_frozen_manifest(

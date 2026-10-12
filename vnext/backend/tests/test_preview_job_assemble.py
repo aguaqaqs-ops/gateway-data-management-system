@@ -9,6 +9,13 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import gateway_backend.application.preview_jobs as preview_jobs
+
+from gateway_backend.application.preview_jobs import PreviewJobError
+from gateway_backend.capabilities.bundle_assembly import (
+    BundleAssemblyResult,
+    BundleAssemblyStatus,
+)
 
 from gateway_backend.application.checkpoints import (
     load_checkpoint_envelope,
@@ -176,6 +183,37 @@ def test_modified_only_assemble_checkpoint_contains_single_pair(tmp_path: Path) 
     required_refs = assemble_state["required_refs"]
     assert isinstance(required_refs, list)
     assert required_refs
+
+
+def test_assemble_failure_retains_bounded_bundle_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    operation_id = "op-assemble-bundle-failure"
+    _run_materialize(harness, operation_id)
+
+    def fail_bundle(*_args: object, **_kwargs: object) -> BundleAssemblyResult:
+        return BundleAssemblyResult(
+            status=BundleAssemblyStatus.FAILED,
+            diagnostics=("BUNDLE_CLOSURE_JSON_BUDGET_EXCEEDED",),
+        )
+
+    monkeypatch.setattr(preview_jobs, "assemble_bundle", fail_bundle)
+    session, control, operation, step = claim_next_step(harness)
+
+    with pytest.raises(
+        PreviewJobError,
+        match="bundle assembly failed: BUNDLE_CLOSURE_JSON_BUDGET_EXCEEDED",
+    ):
+        run_claimed_handler(
+            harness,
+            PREVIEW_ASSEMBLE_HANDLER,
+            session,
+            control,
+            operation,
+            step,
+        )
 
 
 def test_full_preview_checkpoint_persists_canonical_state_bindings(tmp_path: Path) -> None:

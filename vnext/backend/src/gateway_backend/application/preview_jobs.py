@@ -1438,7 +1438,8 @@ def _assemble_preview(
         ),
     )
     if bundle_result.status is not BundleAssemblyStatus.READY or bundle_result.bundle is None:
-        raise PreviewJobError("bundle assembly failed")
+        diagnostic = bundle_result.diagnostics[0] if bundle_result.diagnostics else "unknown"
+        raise PreviewJobError(f"bundle assembly failed: {diagnostic}")
     required_refs = _required_ready_refs(
         payload=payload,
         sides=sides,

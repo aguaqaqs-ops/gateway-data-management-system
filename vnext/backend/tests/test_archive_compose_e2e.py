@@ -433,7 +433,7 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
         changed_rows = (*KEYLESS_FALLBACK_BASE_ROWS[:-1], "changed")
         changed_preview = run_accept_to_submission_read_journey(
             env,
-            initial_commit_id=main_after_archive,
+            initial_commit_id=str(started["baseline_commit_id"]),
             journey_key_prefix="compose-post-archive-keyless-change",
             token=ACTOR2_TOKEN,
             expected_baseline_node_id=str(started["baseline_node_id"]),

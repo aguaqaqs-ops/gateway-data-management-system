@@ -66,6 +66,7 @@ EXPECTED_INDEXES = frozenset(
         "step_records_claim_order",
         "step_records_one_active_per_operation",
         "submission_records_archive_candidate_lookup",
+        "submission_records_repository_commit",
         "submit_attempt_records_repository_state",
         "workspace_records_open_exact_scope",
     }

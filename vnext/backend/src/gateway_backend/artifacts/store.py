@@ -18,6 +18,11 @@ class ArtifactStorePort(Protocol):
         """Load bytes only when the supplied exact ref matches stored identity."""
 
 
+class ArtifactRefLookupPort(Protocol):
+    def get_ref(self, artifact_id: str) -> ArtifactRef:
+        """Resolve the stored minimal ref for one opaque artifact id."""
+
+
 class ManifestVerificationError(ValueError):
     """Artifact ref or raw bytes failed verification."""
 
@@ -45,6 +50,12 @@ class InMemoryArtifactStore:
             raise ManifestVerificationError("stored artifact identity mismatch")
         self._verify_raw(raw_bytes, ref)
         return raw_bytes
+
+    def get_ref(self, artifact_id: str) -> ArtifactRef:
+        try:
+            return self._artifacts[artifact_id][0]
+        except KeyError as exc:
+            raise ManifestVerificationError(f"unknown artifact_id: {artifact_id}") from exc
 
     def _verify_put(self, raw_bytes: bytes, ref: ArtifactRef) -> None:
         validate_artifact_ref_model(ref)

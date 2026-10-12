@@ -11,7 +11,7 @@ from gateway_shared_kernel import CanonicalEncodingError, raw_blob_digest
 
 from gateway_backend.artifacts.serialize import artifact_ref_from_json, artifact_ref_to_json
 from gateway_backend.artifacts.store import ManifestVerificationError
-from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.types import ArtifactRef, validate_artifact_id
 from gateway_backend.artifacts.validate import validate_artifact_ref_model
 
 
@@ -127,6 +127,15 @@ class LocalArtifactStore:
             raise
         except (OSError, ValueError, CanonicalEncodingError):
             raise ManifestVerificationError("artifact read failed") from None
+
+    def get_ref(self, artifact_id: str) -> ArtifactRef:
+        try:
+            validate_artifact_id(artifact_id)
+            return self._load_stored_ref(artifact_id)
+        except ManifestVerificationError:
+            raise
+        except (OSError, ValueError, CanonicalEncodingError):
+            raise ManifestVerificationError("artifact ref lookup failed") from None
 
     def _locate(self, ref: ArtifactRef) -> bytes:
         validate_artifact_ref_model(ref)

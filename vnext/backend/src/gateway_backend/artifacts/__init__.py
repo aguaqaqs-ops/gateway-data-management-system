@@ -15,6 +15,7 @@ from gateway_backend.artifacts.serialize import (
     artifact_ref_to_json,
 )
 from gateway_backend.artifacts.store import (
+    ArtifactRefLookupPort,
     ArtifactStorePort,
     InMemoryArtifactStore,
     ManifestVerificationError,
@@ -30,6 +31,7 @@ from gateway_backend.artifacts.validate import validate_artifact_ref
 
 __all__ = [
     "ArtifactRef",
+    "ArtifactRefLookupPort",
     "ArtifactStorePort",
     "BoundedArtifactStorePort",
     "CleanupClassification",

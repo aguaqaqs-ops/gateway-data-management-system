@@ -172,10 +172,31 @@ def test_durable_manifest_jcs_round_trip_and_preimage_omits_digest() -> None:
     assert canonicalize_json_value(golden) == payload
 
 
-def test_previous_manifest_version_decodes_but_cannot_be_written() -> None:
+HISTORICAL_MANIFEST_VERSION_FIELDS = (
+    ("contract_version", "3.0.0", "current contract_version"),
+    ("storage_projection_version", "1", "current storage_projection_version"),
+    ("ruleset_version", "v1", "current ruleset_version"),
+)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "write_error"),
+    HISTORICAL_MANIFEST_VERSION_FIELDS,
+    ids=[field for field, _value, _error in HISTORICAL_MANIFEST_VERSION_FIELDS],
+)
+def test_historical_manifest_versions_decode_as_provenance_but_cannot_be_written(
+    field: str,
+    value: str,
+    write_error: str,
+) -> None:
     result = _project()
     assert result.manifest is not None
-    historical = replace(result.manifest, contract_version="3.0.0", manifest_digest=None)
+    if field == "contract_version":
+        historical = replace(result.manifest, contract_version=value, manifest_digest=None)
+    elif field == "storage_projection_version":
+        historical = replace(result.manifest, storage_projection_version=value, manifest_digest=None)
+    else:
+        historical = replace(result.manifest, ruleset_version=value, manifest_digest=None)
     historical = replace(historical, manifest_digest=compute_manifest_digest(historical))
     assert historical.manifest_digest is not None
     document = dict(manifest_document(historical))
@@ -183,22 +204,7 @@ def test_previous_manifest_version_decodes_but_cannot_be_written() -> None:
     payload = canonicalize_json_value(document)
 
     assert canonicalization_manifest_from_bytes(payload) == historical
-    with pytest.raises(PackageError, match="current contract_version"):
-        durable_manifest_bytes(historical)
-
-
-def test_previous_storage_projection_version_decodes_but_cannot_be_written() -> None:
-    result = _project()
-    assert result.manifest is not None
-    historical = replace(result.manifest, storage_projection_version="1", manifest_digest=None)
-    historical = replace(historical, manifest_digest=compute_manifest_digest(historical))
-    assert historical.manifest_digest is not None
-    document = dict(manifest_document(historical))
-    document["manifest_digest"] = historical.manifest_digest.value
-    payload = canonicalize_json_value(document)
-
-    assert canonicalization_manifest_from_bytes(payload) == historical
-    with pytest.raises(PackageError, match="current storage_projection_version"):
+    with pytest.raises(PackageError, match=write_error):
         durable_manifest_bytes(historical)
 
 

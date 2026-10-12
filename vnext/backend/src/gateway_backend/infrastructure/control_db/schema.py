@@ -453,6 +453,11 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
 
     """
+    CREATE INDEX submission_records_repository_commit ON
+        submission_records(repository_id, repository_commit_id)
+    """,
+
+    """
     CREATE TABLE workspace_submit_occupancy_records (
         workspace_id TEXT NOT NULL PRIMARY KEY
             CHECK (typeof(workspace_id) = 'text' AND length(workspace_id) BETWEEN 1 AND 255),

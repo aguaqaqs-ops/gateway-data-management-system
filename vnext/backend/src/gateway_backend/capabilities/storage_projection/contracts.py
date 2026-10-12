@@ -38,9 +38,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 STORAGE_PROJECTION_VERSION = TABLE_RULES_STORAGE_PROJECTION_VERSION
-_READABLE_STORAGE_PROJECTION_VERSIONS = frozenset({"1", STORAGE_PROJECTION_VERSION})
 CANONICALIZATION_MANIFEST_CONTRACT = "3.1.0"
-_READABLE_CANONICALIZATION_MANIFEST_CONTRACTS = frozenset({"3.0.0", "3.1.0"})
 CANONICALIZATION_MANIFEST_MEDIA_TYPE = "application/json"
 REPOSITORY_IMPORT_MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 PACKAGE_VERSION = 1
@@ -294,14 +292,15 @@ class CanonicalizationManifest:
     manifest_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
-        if self.contract_version not in _READABLE_CANONICALIZATION_MANIFEST_CONTRACTS:
-            raise ValueError("contract_version must be a supported CanonicalizationManifest version")
-        if self.storage_projection_version not in _READABLE_STORAGE_PROJECTION_VERSIONS:
-            raise ValueError("storage_projection_version must be a supported historical version")
+        for value, label in (
+            (self.contract_version, "contract_version"),
+            (self.storage_projection_version, "storage_projection_version"),
+            (self.ruleset_version, "ruleset_version"),
+        ):
+            if type(value) is not str or value == "":
+                raise ValueError(f"{label} must be a non-empty string")
         if self.ruleset_id != RULESET_ID:
             raise ValueError("ruleset_id must be backend-vnext/table-ruleset")
-        if self.ruleset_version != RULESET_VERSION:
-            raise ValueError("ruleset_version must be v2")
         if type(self.ruleset_digest) is not DigestRef:
             raise ValueError("ruleset_digest must be DigestRef")
         if type(self.source_artifact_digest) is not DigestRef:

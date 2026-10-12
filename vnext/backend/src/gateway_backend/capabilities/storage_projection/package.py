@@ -31,6 +31,7 @@ from gateway_backend.capabilities.storage_projection.contracts import (
     WrittenImportPackage,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
+    RULESET_VERSION,
     CanonicalKeyPolicy,
     DroppedColumn,
     OrderedPolicy,
@@ -99,6 +100,11 @@ def durable_manifest_bytes(manifest: CanonicalizationManifest) -> bytes:
         raise PackageError(
             ProjectionDiagnosticCode.BINDING_INVALID,
             "new manifest writes require the current storage_projection_version",
+        )
+    if manifest.ruleset_version != RULESET_VERSION:
+        raise PackageError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            "new manifest writes require the current ruleset_version",
         )
     if manifest.manifest_digest is None:
         raise PackageError(

@@ -54,6 +54,9 @@ class BoundedArtifactStore:
     def locate(self, ref: ArtifactRef) -> bytes:
         return self._local_store.locate(ref)
 
+    def get_ref(self, artifact_id: str) -> ArtifactRef:
+        return self._local_store.get_ref(artifact_id)
+
     def put_stream(
         self,
         kind: str,

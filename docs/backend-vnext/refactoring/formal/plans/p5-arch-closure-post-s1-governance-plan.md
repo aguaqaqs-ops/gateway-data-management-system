@@ -199,5 +199,10 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 3. G3 实施规格 → owner 确认 → 在独立 worktree `p5-g3` 上实施并独立审核（control DB 基线 schema）。已完成：tag `p5-g3-exit`（`cc551fc3ad`），合并提交 `b27b1b5bd7`。
 4. G8：G8a 已完成并审核通过（`cd41349f0b`，真实 gid 重复为 0）；owner 已决议（2026-10-11，见 G8“owner 决议”）。
 5. G8b：有序比较的骨架、移动与位置变化（规格 `plans/p5-arch-closure-g8b-spec.md`），G3 之后在独立 worktree `p5-g8b` 上实施并独立审核，打 `p5-g8b-exit`。 已完成（2026-10-11）：独立审核通过（`plans/p5-arch-closure-g8b-independent-review.md`），tag `p5-g8b-exit` 在 `3c3d71fed1`，合并提交 `e04a6eb041`。
-6. S2a kickoff（区间起点 `p5-g8b-exit`）。S2a 携带的非阻塞项：G8b-F1（尾部空白增删时有序状态与 mode 不一致，规定状态随 mode）、G8b-F3（`contracts/risk.md` 的 `position_changed_count` 语义）、G3-F2（seed 参数表注释）、G3-F3（设计 §10“新增列允许旧行为空”）；G8b-F2（并列规则）owner 2026-10-11 决定保留现规则。
-7. P5 exit：按 G10 清理。
+6. S2a kickoff（区间起点 `p5-g8b-exit`）。S2a 携带的非阻塞项：G8b-F1（尾部空白增删时有序状态与 mode 不一致，规定状态随 mode）、G8b-F3（`contracts/risk.md` 的 `position_changed_count` 语义）、G3-F2（seed 参数表注释）、G3-F3（设计 §10“新增列允许旧行为空”）；G8b-F2（并列规则）owner 2026-10-11 决定保留现规则。 已完成（2026-10-12）：四个携带项均已关闭；独立审核通过（`plans/p5-arch-closure-s2a-independent-review.md`），tag `p5-s2a-exit` 在 `6f3e2ed67a`，合并提交 `0ce71cac27`。
+7. S2b kickoff（区间起点 `p5-s2a-exit`）。S2b 携带项：
+   - S2a-F1：FLOAT/DOUBLE 的 `-0.0` 经 Dolt 读回为 `+0.0`，须在规范化环节归一，在 R1 切换之前完成；
+   - S2a-F2：真实 Dolt 同一性 owner 补 `INT UNSIGNED` 上限、BIGINT 两端、非二进制精确的 FLOAT 与 `-0.0`，与 S2a-F1 同一提交；
+   - S2a-F3：实施设计 §4.8 时删除 Submit 的按前缀过滤启发式，包括 S2a 新增的 `comparison-ordered-`、`comparison-blank-`；
+   - G8a-F1：若 S2b 重跑普查，先修普查 `ordered_projection.status`。
+8. P5 exit：按 G10 清理。

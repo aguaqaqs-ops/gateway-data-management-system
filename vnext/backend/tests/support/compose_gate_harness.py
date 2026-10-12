@@ -1182,8 +1182,9 @@ def read_preview_surface_table_states(
     preview_bundle: dict[str, Any],
 ) -> list[dict[str, Any]]:
     surface_refs = [
-        cast(dict[str, object], pair["surface_ref"])
-        for pair in cast(list[dict[str, Any]], preview_bundle["pairs"])
+        cast(dict[str, object], entry["artifact_ref"])
+        for entry in cast(list[dict[str, Any]], preview_bundle["entries"])
+        if entry["kind"] == "SURFACE"
     ]
     refs_literal = repr(surface_refs)
     script = f"""

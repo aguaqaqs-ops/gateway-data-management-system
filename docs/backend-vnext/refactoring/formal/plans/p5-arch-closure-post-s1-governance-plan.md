@@ -205,4 +205,5 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
    - S2a-F2：真实 Dolt 同一性 owner 补 `INT UNSIGNED` 上限、BIGINT 两端、非二进制精确的 FLOAT 与 `-0.0`，与 S2a-F1 同一提交；
    - S2a-F3：实施设计 §4.8 时删除 Submit 的按前缀过滤启发式，包括 S2a 新增的 `comparison-ordered-`、`comparison-blank-`；
    - G8a-F1：若 S2b 重跑普查，先修普查 `ordered_projection.status`。
+   2026-10-12：S2b 在真实数据旅程中停止（t1-v1 投影 23 项 `KEY_MISSING`，源 DDL 无主键）；owner 决议 DC29（无主键表兜底规则，决议记录 §12），S2b 按执行计划 §8.5 S2b.8 恢复。
 8. P5 exit：按 G10 清理。

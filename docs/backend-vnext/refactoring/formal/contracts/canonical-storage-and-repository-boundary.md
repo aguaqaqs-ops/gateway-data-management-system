@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订（[决议记录](../plans/p5-arch-closure-s0-owner-decisions.md) §12）
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.1.0`（Accepted 2026-09-27；前版 `3.0.0`）
+Semantic version：`3.2.0`（2026-10-12，DC29；前版 `3.1.0`、`3.0.0`）
 
 Storage projection version：`1`
 
@@ -62,7 +62,7 @@ source DDL 仅作为 provenance；当前 canonical commit 的 schema/key 才是�
 
 ## 3. Key、行完整性与 ordered table
 
-普通 canonical keyed table 必须验证 effective key 存在且 retained、tuple 非空、整表唯一，且 projection 前后 row count 相同。不得用 dedup、last-write-wins、覆盖或丢行满足主键。失败在 Preview 形成 typed blocker，在 Submit 的 Repository effect 前拒绝。Keyless/multiset 必须由 ruleset 显式分类，不能作为 fallback。
+普通 canonical keyed table 必须验证 effective key 存在且 retained、tuple 非空、整表唯一，且 projection 前后 row count 相同。不得用 dedup、last-write-wins、覆盖或丢行满足主键。失败在 Preview 形成 typed blocker，在 Submit 的 Repository effect 前拒绝。Keyless/multiset 只能由 ruleset 规定：显式规则使用 `EXPLICIT_KEYLESS`；SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则使用 `DDL_PRIMARY_KEY_OR_KEYLESS`，源 DDL 有主键时以其为有效键，没有主键时该表按 keyless 存储（DC29）。keyless 表保留全部行（含完全相同的重复行），不去重，投影前后 row count 相同；内容摘要与行顺序无关；内容变化时整表重写，不做按行补丁。其余规则的有效键缺失仍是 typed blocker。
 
 Ordered table 第一版保持单表：
 
@@ -249,12 +249,18 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 version 不变；若 S1 kickoff 普查触发 JSON 以 LONGTEXT 存储，在 S2a handoff 中按本节写明是否提升。实现随收口
 S1–S5 交付，交付前现行源码仍按 `3.0.0` 行为运行。
 
+`3.2.0`（2026-10-12，DC29）：§3 增加 `DDL_PRIMARY_KEY_OR_KEYLESS`，SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则在源 DDL 无主键时按 keyless
+存储，取代“keyless 不能作为 fallback”；manifest 每表条目的 canonical key policy 增加该取值。CanonicalizationManifest 的
+`contract_version` 自 P5 收口 S2b 起记录 `3.2.0`，读取接受 `3.0.0`、`3.1.0`、`3.2.0`。storage projection version 不变：此前能投影
+成功的表规范字节与内容摘要不变，新路径只用于此前被拒绝的表；规则集版本随规则变化提升。
+
 ## 9. 验收标准
 
 - Raw source 可从 SourcePackageArtifact 完整读取；Dolt export 明确是 canonical schema。
 - source 仅改变已 `DROP_FROM_STORAGE` 列的值时，R4 canonical schema/content/storage-business digest 保持不变，且 `NO_CANONICAL_CHANGE` 无 Repository effect；R3 `business_content_digest` 若反映原始快照差异仍作为 provenance 保留，不能与 R4 canonical digest 混用。
 - 新增/移除 ignored-column drop policy 改变 canonical 字段集合时进入 `STORAGE_BREAKING`/`MIGRATION_REQUIRED`，不得伪装成 comparison-only change。
 - Missing/duplicate key、row loss、reserved gid、非法 no 全部 fail closed。
+- `DDL_PRIMARY_KEY_OR_KEYLESS` 规则下源 DDL 无主键的表按 keyless 投影、写入并读回，重复行保留，读回后的行数与规范状态摘要与投影一致（DC29）。
 - Pseudo gid 在重算、retry、Rust/Python 和 readback 后确定一致。
 - 每次write成功都匹配operation commit、mandatory target CAS与requested/completed
   Repository verification；STRUCTURAL/FULL_SCAN时匹配相应manifest facts。

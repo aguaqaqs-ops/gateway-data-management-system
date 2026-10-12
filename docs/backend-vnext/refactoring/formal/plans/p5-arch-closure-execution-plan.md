@@ -162,6 +162,9 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   8. **自 S1 延期（owner 2026-09-27）**：Preview/History 受理用例下沉至 Application，HTTP 仅 DTO 映射与准入（设计 §9 S1、§3 预算）。
   9. **自 S1 延期（owner 2026-09-27）**：workspace/archive/history 各自声明控制事务 port，组合在 bootstrap/infrastructure（UoW 枢纽拆分）。
   10. **自 S1 延期（owner 2026-09-27）**：Preview/Submit/History 三 job 共享 step plumbing（`pinned_checkpoint_builder` 等），checkpoint 载荷不变。
+  11. **DC29（owner 2026-10-12，真实数据停止后）**：无主键表的兜底规则——SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则使用
+      `DDL_PRIMARY_KEY_OR_KEYLESS`；keyless 存储保留重复行、整表重写；比较用 `FULL_ROW_DIGEST_SET_DIFF`；Preview 表级只读提示
+      `KEYLESS_FALLBACK`；Canonical Storage 升 `3.2.0`（决议记录 §12）。
 - 验收：
   - 设计 §12 的以下 owner 通过：`test_comparison_canonical_domain.py`（阶段门槛）、
     `test_repository_ref_materialization_protocol.py`、`test_preview_job_materialize.py`（ADDITIVE 激活、INITIAL 断言）、
@@ -184,6 +187,13 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     2. 同一份 dump Submit 后再上传：这些表 Preview 无变化，Submit 返回 `NO_CANONICAL_CHANGE`；
     3. 同项目 v1→v2：这些表不降级；空白记录只反映各骨架区间空白行数的净变化，真实行的增删与移动不产生空白记录，一次移动不把其他行标为移动（依赖 G8b）；各类记录数量写入 handoff；
     4. 空白行字段的变化不显示，是接受的行为。
+  - DC29（无主键表）：
+    - unit：规则合法性（三类规则使用新策略，`device_cfg` 与显式键规则不变）、投影（源 DDL 有/无主键两种情形，重复行保留，内容摘要与行序无关）、
+      比较（内容相同为 UNCHANGED、改一行为一删一增、表状态不为 DEGRADED 且无 `KEY_DEGRADED` 风险、主键出现或消失归 `SOURCE_SCHEMA`）各有参数表；
+    - 真实 Dolt：同一性 owner `test_canonical_snapshot_identity.py` 增加一张含完全相同重复行的 keyless 表，写入并读回后行数与规范状态摘要一致；
+    - compose：“提交 X → 审核 → 归档 → 再次上传 X”旅程的输入含一张 keyless 兜底表（含重复行），再次上传时该表 UNCHANGED；另有一次改动使该表显示一删一增；
+    - 真实数据：t1–t4 不再因 `KEY_MISSING` 失败；各档 keyless 兜底表的数量与表名写入 handoff，重传时这些表 UNCHANGED；
+    - 此前能投影成功的表，规范字节与内容摘要不变（golden 只因规则集与 manifest 的规则事实变化而更新，逐项说明）。
 
 ### S3 — composite_signal 接入
 
@@ -371,6 +381,13 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
   或 `capabilities/snapshot_materialization/scalar_encoding.py`，二者择一）；测试 `test_canonical_snapshot_identity.py`、`test_canonical_state_identity.py`。
 - 真实数据链路（DC22）：新增主机侧脚本 `vnext/backend/benchmarks/real_dump_journey.py`（与 `real_dump_census.py` 同目录，不进入生产包与镜像），
   经公开 HTTP 接口驱动 Preview → Submit → History；可复用 `tests/support/compose_gate_harness.py` 的栈启动与认证。
+- DC29（2026-10-12，决议记录 §12）：`capabilities/table_rules/{contracts,registry}.py`（新策略、三类规则、合法性校验、规则集版本）；
+  `capabilities/storage_projection/{contracts,view,project}.py`（键解析、keyless 路径、manifest `3.2.0`）；
+  `capabilities/comparison/{pair_planning,standard}.py`（keyless 兜底表的比较策略）；Preview 表级提示所需的 surface 或 DTO 路径
+  （与 `http/schemas/preview.py` 合计最小集合，handoff 记录）；测试 `test_table_rules_contracts.py`、`test_table_rules_resolver.py`、
+  `test_storage_projection_core.py`、`test_comparison_standard.py`、`test_canonical_snapshot_identity.py`、`test_http_openapi.py`；
+  `vnext/fixtures/golden/storage-projection/` 中随规则事实变化的文件；compose 输入 `tests/support/upload_http_packages.py` 与承载
+  再次上传旅程的 compose 测试文件。
 - 条件：`capabilities/snapshot_materialization/scalar_encoding.py`（仅当单遍读取暴露出 S2a 未覆盖的解码差异）；
   `infrastructure/repository_read/__init__.py`；`test_sqlite_submit_repository.py`、`test_submit_domain.py`、
   `test_workspace_domain.py`、`test_preview_read_http.py`（仅当新增的 PreviewResult/SubmitAttempt 字段在领域模型中为必填）。
@@ -561,6 +578,7 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
    语义：checkpoint 的 attempt 绑定与 payload 不符时终止为 FAILED。
 6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB 基线 schema 直接修改（测试按表归属）与 HTTP/OpenAPI 变更（设计 §10）。
 7. **S2b.7 旅程与门禁**：compose harness 不预导入（DC17）与 §2 S2b 的旅程；真实数据链路；全量与镜像。
+8. **S2b.8 无主键表兜底（DC29，owner 2026-10-12）**：在真实数据停止后追加，先于新的门禁提交 V 完成；内容见 §2 S2b 内容 11 与验收。
 
 **S1 与 S2a 之间的真实数据格式保真前置（owner 2026-10-10，治理修订计划 G2）**：在 `main` 上依次修复 `table_access` 放行 mysqldump `@saved_cs_client`、composite AST 的 `Digital` 属性改为小写 `value`、按 8 份 `logics.xml` 的实测深度确定 `max_xml_depth`，并以诊断模式重跑普查更新 census JSON；独立审核后再启动 S2a kickoff。原 2026-09-27 的 parser 修复分支方案（`p5-closure/s1-parser`）由此取代。
 

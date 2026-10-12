@@ -9,6 +9,7 @@
   - [详细设计](p5-arch-closure-design.md) §1 的 DC1–DC9。本记录的决议编号接续为 DC10–DC22，修订时并入设计 §1 的决定表。
 - 补充：2026-09-26 复审后，owner 按[第二份独立复审报告](p5-arch-closure-s0-independent-rereview-2.md) §8 的建议对 O1–O5
   作出决议，记录为 DC23–DC27，见 §7。
+- 补充：2026-10-12 S2b 真实数据旅程停止后，owner 决议无主键表的兜底规则，记录为 DC29，见 §12。
 
 ```yaml
 record_kind: p5_arch_closure_s0_owner_decisions
@@ -353,3 +354,50 @@ implementation_authorized: no
 - **G8 重复有效键**：先由 G2 的普查重跑补齐统计（含整行完全相同与同键冲突的分类），再由 owner 决议处置方向；契约禁止去重与 last-write-wins，实现侧不得自行处理。
 - **G2 阶段边界**：G2（含 G6、G7）独立审核通过后打 tag `p5-g2-exit`，S2a 的区间起点以其后的 tag 为准。
 - **S1 旧 worktree 与分支**：留到 P5 exit 一并清理，清单见治理修订计划 G10。
+
+## 12. S2b 真实数据补充决议（DC29，2026-10-12）
+
+#### DC29 无主键表的兜底规则
+
+- **来源**：S2b 真实数据旅程停止（`p5-s2b` handoff @ `3b85bc22cb` §5）：t1-v1 的 Preview 规范投影报 23 项 `KEY_MISSING`。
+  这些表的源 DDL 没有 `PRIMARY KEY`，而命中的规则要求 `DDL_PRIMARY_KEY`。S1 普查 JSON 的 `effective_key_scan`（`status: partial`）
+  早已列出这些表，此前没有提交 owner，属于审核方疏漏。
+- **owner 判断**：真实业务数据中存在无主键表，业务上没有主键也能正常运行；这类表通常不是核心数据，重要表已由显式规则规定键。
+  业务数据积累过程中还会出现新的无主键表，需要兜底规则，不能每次都靠紧急补规则。
+- **决议**（repository owner，2026-10-12）：
+  1. **适用范围**：SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底（`STANDARD_RAW_PK_FALLBACK`）三类规则改为“源 DDL 有主键用主键，没有主键按
+     keyless 处理”。其余规则不变：显式键规则、ordered 规则、protocol 规则、`device_cfg`（严格 DDL 主键）与 SKIP。
+  2. **规则表示**：三类规则使用新的 canonical key policy `DDL_PRIMARY_KEY_OR_KEYLESS`；现有 `DDL_PRIMARY_KEY` 保持严格语义，
+     现有 `EXPLICIT_KEYLESS` 保留给显式规则。新策略是规则侧事实，写入 manifest 每表条目；有效键（源主键，或为空）取自源 schema，
+     `canonical_key_columns` 为空即该表按 keyless 存储。规则集版本提升，规则集 digest 随之变化。
+  3. **存储**：keyless 表按多重集合保存。完全相同的重复行全部保留，不去重；投影前后行数相等；内容摘要与行顺序无关
+     （沿用现有 keyless 内容摘要）。写入不做按行补丁：内容变化时整表重写，内容不变为 NOOP。
+  4. **比较**：keyless 兜底表按整行多重集合比较（`KeylessPolicy.FULL_ROW_DIGEST_SET_DIFF`）。内容相同为 UNCHANGED；
+     变化记为整行新增或删除，不产生字段级变化；表状态不为 DEGRADED，不触发 `KEY_DEGRADED` 风险。
+     `DEGRADE_NO_COMPARE_KEY` 保留给其他无法确定比较键的情形。SNAPSHOT_ONLY/BROWSE_ONLY 仍只产出表级事实（DC16）。
+  5. **主键出现或消失**：源 DDL 中某表新增或去掉主键，归 `SOURCE_SCHEMA`（设计 §4.5），该表整表重写。比较侧有效键变化仍按现有规则
+     标记键降级、需要审核；这只在切换的那一次出现。
+  6. **记录与可见性**：manifest 每表条目（策略与键列）是持久记录，随 commit 规范元数据保存，可据此查出某次提交中走兜底的表。
+     Preview 对这类表给出表级只读提示 `KEYLESS_FALLBACK`（HTTP DTO 与 OpenAPI 同步），不进入风险规则、不阻断、不改变表状态。
+     不新增登记表或持久状态机。
+  7. **已知清单**：S1 普查的 8 份 dump 中每份 23–33 张，合计 35 个表名（取自 `p5-arch-closure-s1-census.json`）：
+     `cnt_manage_cfg`、`comm_user_data`、`dev104_cfg`、`forwardtable_yc1`、`forwardtable_yc2`、`forwardtable_yk1`、`forwardtable_yt1`、
+     `forwardtable_yx1`、`forwardtable_yx2`、`forwardtbl_lst_cs`、`forwardtbl_lst_dz`、`forwardtbl_lst_qt`、`forwardtbl_lst_yc`、
+     `forwardtbl_lst_yk`、`forwardtbl_lst_ym`、`forwardtbl_lst_yt`、`forwardtbl_lst_yx`、`iec101_cfg`、`iec104_cfg`、`iec104gw_cfg`、
+     `iec61850c_cfg`、`jdxx_cfg`、`mms_rp_cdc_index`、`nbridge_cfg`、`nr103d_cfg`、`nr103ht_cfg`、`out_time_cfg`、`project`、`sc_cfg`、
+     `scada_cfg`、`sg_manage_cfg`、`sntp_cfg`、`vqc_cfg`、`wave_cfg`、`wf_cfg`。
+     其中 `forwardtable_*` 命中 SNAPSHOT_ONLY，`project` 命中 BROWSE_ONLY，其余命中 raw-PK 兜底。S2b 全部按本决议处理，不猜测业务键。
+  8. **升级为有键**：上线前由业务方筛查清单，把重要且有自然键的表补为显式键规则；上线前没有历史数据，不需要迁移。
+     上线后，把 keyless 表改为有键会改变 canonical key，属于 `STORAGE_BREAKING`，按
+     [Ruleset Activation and Migration](../contracts/ruleset-activation-and-migration.md) 走迁移（迁移操作尚未实现）。
+  9. **不采用定期重建**：Dolt 按内容寻址，内容不变的重建不产生变化；内容变化是真实变化，应经 Preview 与 Submit。
+     Submit 之外的定时写入违反 ADR 0015“不自动创建空 commit”，也破坏 commit 规范元数据与 `NO_CANONICAL_CHANGE` 的前提。
+     Dolt 存储空间维护（如 `dolt gc`）与本决议无关，需要时另行立项。
+- **落点**：
+  - [Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md) §3 末句与 §9，版本升至 `3.2.0`（§8）：
+    manifest 的 `contract_version` 写 `3.2.0`，读取接受 `3.0.0`、`3.1.0`、`3.2.0`。storage projection version 不变：
+    此前能投影成功的表，规范字节与内容摘要不变（由 golden 证明）；新路径只用于此前被拒绝的表。
+  - [P3-R4 存储投影设计](p3-r4-storage-projection-design.md) §5.2 与[详细设计](p5-arch-closure-design.md) §4.1、§4.5 加注；
+  - 执行计划 §2 S2b（内容 11 与验收）、§3 S2b（DC29 路径）、§8.5（S2b.8）。
+- **停止条件**：Repository Service 无法无损写入或读回 keyless 表（含完全相同的重复行），或需要修改 Repository public contract 才能做到时，
+  停止并交 owner。

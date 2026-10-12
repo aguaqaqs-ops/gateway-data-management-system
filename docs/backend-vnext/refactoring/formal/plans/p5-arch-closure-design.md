@@ -155,6 +155,7 @@ comparison ─> risk_evaluation ─> surface_assembly ─> bundle_assembly
 
 - 存储身份：`storage_projection_version` 与逐表存储规则事实。存储规则事实只含完全来自规则的字段：canonical key policy、`EXPLICIT` 策略下的显式键、ordered policy、structural 列与 dropped 列（含理由），均已记录在 manifest 的每表条目中（E：`CanonicalizationManifestTable`）。比较据此标记 schema 差异的来源（§4.5）。
   - 不计入：retained 列（源表的列减去 dropped 列）与 `DDL_PRIMARY_KEY` 策略下取自源表主键的 canonical key。二者虽也写入 manifest，但随源 schema 变化，属于 schema 而不是规则。
+  - `DDL_PRIMARY_KEY_OR_KEYLESS` 策略（DC29，2026-10-12）同理：策略本身是规则事实；有效键取自源表主键或为空（keyless），属于 schema。
   - 存储身份也不用 schema 摘要表示，因为规范 schema 还取决于源 schema。
 - 规则集 provenance：`ruleset_id`、`ruleset_version`、`ruleset_digest`。只用于记录，以及 AcceptSubmit 的陈旧判定（§5.3），不决定比较语义（DC10）。
 
@@ -279,7 +280,7 @@ compare-excluded 列：值比较与 `MODIFIED` 判定都不使用这些列；新
 - vNext 比较不使用 native diff，始终按列名与有效键对齐，有效键取自运行期 `ComparisonRuleView`。因此无论两侧的 storage projection version 或 ruleset digest 是否相同，都满足 Canonical Storage §7 的 alignment 要求。
 - schema 差异的来源按 Canonical Storage §7 标记，只依据两侧逐表存储规则事实（§4.1，规则侧字段）逐项归因：
   - 由规则事实的差异可以解释的差异，归 `STORAGE_PROJECTION_POLICY`：dropped 集合变化导致的列增删、key policy 或显式键变化导致的键变化、ordered policy 与 structural 列变化导致的 gid/no 变化，以及这些变化派生的差异（例如显式键变化使新旧键列的可空性随之改变，§4.2）；
-  - 其余差异归 `SOURCE_SCHEMA`：源表增删列、类型、长度、可空性，以及 `DDL_PRIMARY_KEY` 策略下主键的变化；
+  - 其余差异归 `SOURCE_SCHEMA`：源表增删列、类型、长度、可空性，以及 `DDL_PRIMARY_KEY` 策略下主键的变化、`DDL_PRIMARY_KEY_OR_KEYLESS` 策略下主键的出现或消失（DC29）；
   - 两类都有时为 `BOTH`；只有列序不同不产生 schema 差异（DC13）。
   - 两侧的规则事实总是可得：commit 侧取自 manifest，上传侧取自本次投影，INITIAL 没有表；无 manifest 的 commit 按 §5.1 不得进入比较。
 - 无法安全对齐时（例如有效键变化且无法 fallback），该表为 DEGRADED，并给出原因诊断；pair 不因此失败。

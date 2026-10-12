@@ -233,6 +233,8 @@ frozen snapshot.
   primary-key change is provenance/schema input; changing the persisted canonical key requires a
   new ruleset/storage projection identity and `STORAGE_BREAKING` migration.
 - Keyless/multiset is accepted only through an explicit ruleset classification.
+  > 取代说明（2026-10-12）：SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则改用 `DDL_PRIMARY_KEY_OR_KEYLESS`，源 DDL 无主键时按 keyless
+  > 存储（[owner 决议](p5-arch-closure-s0-owner-decisions.md) DC29；Canonical Storage `3.2.0` §3）。本节历史正文不改写。
 - Missing key, duplicate key, null/empty key, key column removal or row loss is a typed blocker.
 - Projection row count equals source row count for every successfully projected table.
 

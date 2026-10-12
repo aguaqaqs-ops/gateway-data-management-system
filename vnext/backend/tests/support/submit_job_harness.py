@@ -49,7 +49,9 @@ from gateway_backend.infrastructure.repository_write.http import HttpRepositoryW
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
 )
-from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+from gateway_backend.infrastructure.repository_write.import_publication import (
+    SubmitImportPublicationAdapter,
+)
 from gateway_backend.settings import OperationWorkerSettings
 from tests.support.runtime_settings import make_operation_worker_settings
 
@@ -59,6 +61,15 @@ DEFAULT_BEARER_TOKEN = "test-bearer-token"
 LIVE_RESTART_OWNER_MANIFEST_DIGEST = (
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class FixedRepositoryParentCatalogPort:
+    table_names: tuple[str, ...] = ()
+
+    def get_table_names(self, *, repository_id: str, commit_id: str) -> tuple[str, ...]:
+        del repository_id, commit_id
+        return self.table_names
 
 
 def _repository_service_build_package_bytes(
@@ -120,12 +131,17 @@ def build_dolt_compatible_prepare_publication(
     checkpoint = PrepareImportCheckpoint(
         schema_version=PREPARE_IMPORT_CHECKPOINT_SCHEMA,
         attempt_id=build_input.submit_attempt_id,
+        canonical_table_set_closure_ref=build_input.canonical_table_set_closure_ref.artifact_id,
+        canonical_table_set_closure_digest=build_input.canonical_table_set_closure_digest,
+        input_canonicalization_manifest_ref=build_input.canonicalization_manifest_ref.artifact_id,
+        input_canonicalization_manifest_digest=build_input.canonicalization_manifest_digest,
+        expected_parent_commit_id=build_input.expected_parent_commit_id,
+        removed_tables=build_input.removed_tables,
         canonicalization_manifest_ref=backend_artifact_ref_from_store_ref(manifest_ref),
         canonicalization_manifest_digest=LIVE_RESTART_OWNER_MANIFEST_DIGEST,
         backend_import_artifact_ref=backend_artifact_ref_from_store_ref(package_ref),
         package_raw_size=package_ref.size_bytes,
         package_raw_sha256=package_ref.raw_sha256.value,
-        input_closure_digest=build_input.input_closure_digest,
         builder_mutation_policy=build_input.builder_mutation_policy,
     )
     return PrepareImportPublicationResult(checkpoint=checkpoint, replay=False)
@@ -549,6 +565,7 @@ def build_submit_worker_harness(
     submit_deps = SubmitRuntimeDependencies(
         artifact_store=artifact_store,
         publication=SubmitImportPublicationAdapter(),
+        parent_catalog=FixedRepositoryParentCatalogPort(),
         repository_write=HttpRepositoryWriteClient(
             base_url=repository_base_url,
             bearer_token=DEFAULT_BEARER_TOKEN,

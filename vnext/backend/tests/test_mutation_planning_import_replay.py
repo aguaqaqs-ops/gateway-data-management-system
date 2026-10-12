@@ -78,11 +78,12 @@ def test_import_replay_sql_includes_drop_create_and_inserts() -> None:
     )
     snapshots = build_import_mutation_snapshots(projection_snapshots)
     replay_sql = (
-        render_repository_import_schema_replay_sql(result.import_input)
+        render_repository_import_schema_replay_sql(result.import_input, removed_tables=())
         + render_import_mutation_dml(
             result,
             snapshots,
             repository_base_digest=digest_ref("aa"),
+            removed_tables=(),
         )
     ).decode("utf-8")
     assert "DROP TABLE IF EXISTS `net_cfg`" in replay_sql
@@ -127,6 +128,7 @@ def test_import_replay_allocates_ordered_blank_gid() -> None:
         result,
         snapshots,
         repository_base_digest=digest_ref("aa"),
+        removed_tables=(),
     ).decode("utf-8")
     assert f"VALUES ({GID_PSEUDO_MIN}, 1, 'x')" in replay_sql
 
@@ -165,5 +167,6 @@ def test_import_replay_supports_set_columns() -> None:
         result,
         snapshots,
         repository_base_digest=digest_ref("aa"),
+        removed_tables=(),
     ).decode("utf-8")
     assert "INSERT INTO `unknown_widget`" in replay_sql

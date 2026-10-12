@@ -12,7 +12,6 @@ from gateway_backend.application.submission.contracts import (
     PrepareImportPublicationResult,
     SnapshotTableBinding,
 )
-from gateway_backend.application.submission.artifact_refs import backend_artifact_ref_from_store_ref
 from gateway_backend.application.submission.errors import SubmitImportPublicationError
 from gateway_backend.artifacts import ArtifactStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
@@ -24,34 +23,30 @@ from gateway_backend.capabilities.mutation_planning import (
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import ArtifactSourceBinding
 from gateway_backend.capabilities.storage_projection import (
+    MANIFEST_ENTRY_NAME,
+    PACKAGE_VERSION,
+    ImportReplayError as ProjectionImportReplayError,
     ProjectionInvocationContext,
     ProjectionDiagnostic,
     ProjectionRequest,
     ProjectionStatus,
     ProjectionTableInput,
+    ProjectionResult,
+    PublicationError,
     STORAGE_PROJECTION_VERSION,
+    RepositoryImportArtifactInput,
+    REPLAY_SQL_ENTRY_NAME,
+    WrittenImportPackage,
     NeverCancel,
     build_import_projection_snapshots,
+    open_canonicalization_manifest,
     publish_canonicalization,
     project_storage,
     render_repository_import_schema_replay_sql,
-)
-from gateway_backend.capabilities.storage_projection.import_replay import (
-    ImportReplayError as ProjectionImportReplayError,
-)
-from gateway_backend.capabilities.storage_projection.contracts import WrittenImportPackage
-from gateway_backend.capabilities.storage_projection.package import (
-    MANIFEST_ENTRY_NAME,
-    REPLAY_SQL_ENTRY_NAME,
     validate_repository_import_package,
 )
-from gateway_backend.capabilities.storage_projection.publish import (
-    PublicationError,
-    open_canonicalization_manifest,
-)
-from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
-from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
-from gateway_backend.domain.submission.models import BuilderMutationPolicy
+from gateway_backend.capabilities.table_rules import TableRulesetSnapshot, migrated_table_ruleset_snapshot
+from gateway_backend.domain.submission.models import BackendArtifactRef, BuilderMutationPolicy
 
 __all__ = [
     "MANIFEST_ENTRY_NAME",
@@ -109,13 +104,16 @@ class SubmitImportPublicationAdapter:
     ) -> PrepareImportPublicationResult:
         _assert_rebuild_policy(build_input)
         ruleset = _resolve_ruleset(build_input)
-        projection_request = ProjectionRequest(
-            ruleset=ruleset,
-            storage_projection_version=STORAGE_PROJECTION_VERSION,
-            tables=projection_inputs,
-            context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
-        )
-        projection = project_storage(projection_request)
+        if projection_inputs:
+            projection_request = ProjectionRequest(
+                ruleset=ruleset,
+                storage_projection_version=STORAGE_PROJECTION_VERSION,
+                tables=projection_inputs,
+                context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
+            )
+            projection = project_storage(projection_request)
+        else:
+            projection = _empty_projection_from_frozen_manifest(build_input, store=store)
         if projection.status is not ProjectionStatus.COMPLETE:
             raise SubmitImportPublicationError(
                 _format_projection_diagnostics(
@@ -127,22 +125,32 @@ class SubmitImportPublicationAdapter:
             raise SubmitImportPublicationError("COMPLETE projection is missing manifest or import input")
         _assert_projection_identity(build_input, projection)
         reopened_inputs = _reopen_projection_inputs(projection_inputs)
-        reopened_request = ProjectionRequest(
-            ruleset=ruleset,
-            storage_projection_version=STORAGE_PROJECTION_VERSION,
-            tables=reopened_inputs,
-            context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
-        )
         reopened_readers = tuple(item.reader for item in reopened_inputs)
         try:
             try:
-                projection_snapshots = build_import_projection_snapshots(reopened_request, projection)
-                after_tables = build_import_mutation_snapshots(projection_snapshots)
-                schema_sql = render_repository_import_schema_replay_sql(projection.import_input)
+                if reopened_inputs:
+                    reopened_request = ProjectionRequest(
+                        ruleset=ruleset,
+                        storage_projection_version=STORAGE_PROJECTION_VERSION,
+                        tables=reopened_inputs,
+                        context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
+                    )
+                    projection_snapshots = build_import_projection_snapshots(
+                        reopened_request,
+                        projection,
+                    )
+                    after_tables = build_import_mutation_snapshots(projection_snapshots)
+                else:
+                    after_tables = ()
+                schema_sql = render_repository_import_schema_replay_sql(
+                    projection.import_input,
+                    removed_tables=build_input.removed_tables,
+                )
                 mutation_dml = render_import_mutation_dml(
                     projection,
                     after_tables,
                     repository_base_digest=DigestRef(build_input.repository_base_digest),
+                    removed_tables=build_input.removed_tables,
                 )
                 replay_sql = schema_sql + mutation_dml
             except (ProjectionImportReplayError, MutationImportReplayError) as exc:
@@ -167,17 +175,24 @@ class SubmitImportPublicationAdapter:
                 )
             )
         publication = published.publication
-        package_ref = backend_artifact_ref_from_store_ref(publication.package_ref)
-        manifest_ref = backend_artifact_ref_from_store_ref(publication.manifest_ref)
+        package_ref = _backend_ref_from_store_ref(publication.package_ref)
+        manifest_ref = _backend_ref_from_store_ref(publication.manifest_ref)
         checkpoint = PrepareImportCheckpoint(
             schema_version=PREPARE_IMPORT_CHECKPOINT_SCHEMA,
             attempt_id=build_input.submit_attempt_id,
+            canonical_table_set_closure_ref=build_input.canonical_table_set_closure_ref.artifact_id,
+            canonical_table_set_closure_digest=build_input.canonical_table_set_closure_digest,
+            input_canonicalization_manifest_ref=(
+                build_input.canonicalization_manifest_ref.artifact_id
+            ),
+            input_canonicalization_manifest_digest=build_input.canonicalization_manifest_digest,
+            expected_parent_commit_id=build_input.expected_parent_commit_id,
+            removed_tables=build_input.removed_tables,
             canonicalization_manifest_ref=manifest_ref,
             canonicalization_manifest_digest=publication.manifest_digest.value,
             backend_import_artifact_ref=package_ref,
             package_raw_size=package_ref.size_bytes,
             package_raw_sha256=package_ref.raw_sha256,
-            input_closure_digest=build_input.input_closure_digest,
             builder_mutation_policy=build_input.builder_mutation_policy,
         )
         return PrepareImportPublicationResult(checkpoint=checkpoint, replay=False)
@@ -249,6 +264,17 @@ def _assert_rebuild_policy(build_input: PrepareImportBuildInput) -> None:
         raise SubmitImportPublicationError("builder_mutation_policy must be REBUILD_ALWAYS")
 
 
+def _backend_ref_from_store_ref(ref: ArtifactRef) -> BackendArtifactRef:
+    if type(ref) is not ArtifactRef:
+        raise SubmitImportPublicationError("published artifact ref is invalid")
+    return BackendArtifactRef(
+        artifact_id=ref.artifact_id,
+        media_type=ref.media_type,
+        size_bytes=ref.size_bytes,
+        raw_sha256=ref.raw_sha256.value,
+    )
+
+
 def _resolve_ruleset(build_input: PrepareImportBuildInput) -> TableRulesetSnapshot:
     ruleset = migrated_table_ruleset_snapshot()
     if ruleset.ruleset_digest is None:
@@ -275,6 +301,45 @@ def _assert_projection_identity(
     manifest = projection.manifest
     if build_input.source_artifact_digest != manifest.source_artifact_digest.value:
         raise SubmitImportPublicationError("source_artifact_digest does not match projection manifest")
+    if (
+        manifest.manifest_digest is None
+        or manifest.manifest_digest.value != build_input.canonicalization_manifest_digest
+    ):
+        raise SubmitImportPublicationError(
+            "frozen canonicalization manifest does not match rebuilt projection"
+        )
+
+
+def _empty_projection_from_frozen_manifest(
+    build_input: PrepareImportBuildInput,
+    *,
+    store: ArtifactStorePort,
+) -> ProjectionResult:
+    try:
+        manifest = open_canonicalization_manifest(
+            store,
+            build_input.canonicalization_manifest_ref,
+        )
+    except PublicationError as exc:
+        raise SubmitImportPublicationError(str(exc)) from exc
+    if manifest.manifest_digest is None:
+        raise SubmitImportPublicationError("frozen canonicalization manifest is missing its digest")
+    if manifest.manifest_digest.value != build_input.canonicalization_manifest_digest:
+        raise SubmitImportPublicationError("frozen canonicalization manifest digest mismatch")
+    if manifest.source_artifact_digest.value != build_input.source_artifact_digest:
+        raise SubmitImportPublicationError("source_artifact_digest does not match frozen manifest")
+    if manifest.tables:
+        raise SubmitImportPublicationError("empty canonical closure has a non-empty manifest")
+    return ProjectionResult(
+        status=ProjectionStatus.COMPLETE,
+        tables=(),
+        manifest=manifest,
+        import_input=RepositoryImportArtifactInput(
+            package_version=PACKAGE_VERSION,
+            canonicalization_manifest_digest=manifest.manifest_digest,
+            tables=(),
+        ),
+    )
 
 
 def _reopen_projection_inputs(
@@ -313,6 +378,8 @@ def _open_projection_inputs(
             raise SubmitImportPublicationError(f"snapshot table {binding.artifact_id} has no reader")
         if table.artifact is None:
             raise SubmitImportPublicationError(f"snapshot table {binding.artifact_id} has no artifact")
+        if table.descriptor.table_name != binding.table_name:
+            raise SubmitImportPublicationError("snapshot table name does not match frozen closure")
         source_binding = ArtifactSourceBinding(
             snapshot_digest=table.artifact.manifest.snapshot_digest,
             descriptor=table.descriptor,

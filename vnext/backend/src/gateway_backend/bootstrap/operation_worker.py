@@ -66,6 +66,7 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
 )
 from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
+    HttpRepositoryParentCatalogPort,
     load_repository_bearer_token,
 )
 from gateway_backend.infrastructure.repository_write import HttpRepositoryWriteClient
@@ -230,6 +231,11 @@ def build_production_submit_dependencies(
     return SubmitRuntimeDependencies(
         artifact_store=preview_deps.artifact_store,
         publication=build_submit_import_publication_port(),
+        parent_catalog=HttpRepositoryParentCatalogPort(
+            base_url=settings.repository_base_url,
+            bearer_token=token,
+            timeout_seconds=settings.repository_timeout_seconds,
+        ),
         repository_write=HttpRepositoryWriteClient(
             base_url=settings.repository_base_url,
             bearer_token=token,

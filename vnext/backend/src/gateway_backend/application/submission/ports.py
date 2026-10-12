@@ -240,6 +240,11 @@ class RepositoryMainResolvePort(Protocol):
         """Resolve current Repository main head commit id for a new AcceptSubmit."""
 
 
+class RepositoryParentCatalogPort(Protocol):
+    def get_table_names(self, *, repository_id: str, commit_id: str) -> tuple[str, ...]:
+        """Read the table names at one exact, frozen Repository parent commit."""
+
+
 class RepositoryAbortEvidencePort(Protocol):
     def resolve_stable_failure_code(
         self,

@@ -15,6 +15,7 @@ from gateway_backend.application.submission.contracts import (
     SnapshotTableBinding,
     SubmitImportPublicationPort,
 )
+from gateway_backend.application.submission.errors import PrepareCheckpointPayloadBindingError
 from gateway_backend.application.submission.ports import SubmitControlTransaction
 from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.artifacts.store import ManifestVerificationError
@@ -34,6 +35,24 @@ from gateway_backend.domain.submission.models import (
 
 class SubmitImportBuilderError(ValueError):
     """Raised when submit import builder input or reuse is invalid."""
+
+
+def derive_removed_tables(
+    *,
+    parent_table_names: tuple[str, ...],
+    snapshot_tables: tuple[SnapshotTableBinding, ...],
+) -> tuple[str, ...]:
+    """Return parent tables omitted from the complete frozen canonical state."""
+    if type(parent_table_names) is not tuple:
+        raise SubmitImportBuilderError("parent catalog table names must be a tuple")
+    if any(type(name) is not str or not name for name in parent_table_names):
+        raise SubmitImportBuilderError("parent catalog contains an invalid table name")
+    if len(parent_table_names) != len(set(parent_table_names)):
+        raise SubmitImportBuilderError("parent catalog contains duplicate table names")
+    snapshot_names = {item.table_name for item in snapshot_tables}
+    return tuple(
+        sorted(set(parent_table_names) - snapshot_names, key=lambda name: name.encode("utf-8"))
+    )
 
 
 def resolve_canonical_snapshot_bindings(
@@ -82,6 +101,7 @@ def resolve_canonical_snapshot_bindings(
             raise SubmitImportBuilderError("canonical table manifest name does not match closure")
         bindings.append(
             SnapshotTableBinding(
+                table_name=table_name,
                 artifact_id=table_manifest_ref.artifact_id,
                 media_type=table_manifest_ref.media_type,
                 size_bytes=table_manifest_ref.size_bytes,
@@ -249,9 +269,18 @@ def _assert_checkpoint_matches_build_input(
     checkpoint: PrepareImportCheckpoint,
     build_input: PrepareImportBuildInput,
 ) -> None:
-    if checkpoint.attempt_id != build_input.submit_attempt_id:
-        raise SubmitImportBuilderError("checkpoint attempt_id does not match build input")
-    if checkpoint.input_closure_digest != build_input.input_closure_digest:
-        raise SubmitImportBuilderError("checkpoint input closure digest does not match build input")
-    if checkpoint.builder_mutation_policy is not build_input.builder_mutation_policy:
-        raise SubmitImportBuilderError("checkpoint builder policy does not match build input")
+    if (
+        checkpoint.attempt_id != build_input.submit_attempt_id
+        or checkpoint.canonical_table_set_closure_ref
+        != build_input.canonical_table_set_closure_ref.artifact_id
+        or checkpoint.canonical_table_set_closure_digest
+        != build_input.canonical_table_set_closure_digest
+        or checkpoint.input_canonicalization_manifest_ref
+        != build_input.canonicalization_manifest_ref.artifact_id
+        or checkpoint.input_canonicalization_manifest_digest
+        != build_input.canonicalization_manifest_digest
+        or checkpoint.expected_parent_commit_id != build_input.expected_parent_commit_id
+        or checkpoint.removed_tables != build_input.removed_tables
+        or checkpoint.builder_mutation_policy is not build_input.builder_mutation_policy
+    ):
+        raise PrepareCheckpointPayloadBindingError()

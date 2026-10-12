@@ -88,6 +88,7 @@ from gateway_backend.application.submission.finalize_transaction import (
 )
 from gateway_backend.application.submission.import_builder import (
     SubmitImportBuilderError,
+    derive_removed_tables,
     pin_prepare_import_artifacts,
     publish_prepare_import_package,
     resolve_canonical_snapshot_bindings,
@@ -109,6 +110,7 @@ from gateway_backend.application.submission.errors import (
 )
 from gateway_backend.application.submission.ports import (
     RepositoryAbortEvidencePort,
+    RepositoryParentCatalogPort,
     RepositoryWritePort,
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
@@ -170,7 +172,12 @@ _JOB_STATE_MANIFEST_DIGEST = "canonicalization_manifest_digest"
 _JOB_STATE_BACKEND_IMPORT_REF = "backend_import_artifact_ref"
 _JOB_STATE_PACKAGE_RAW_SIZE = "package_raw_size"
 _JOB_STATE_PACKAGE_RAW_SHA256 = "package_raw_sha256"
-_JOB_STATE_INPUT_CLOSURE_DIGEST = "input_closure_digest"
+_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF = "canonical_table_set_closure_ref"
+_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST = "canonical_table_set_closure_digest"
+_JOB_STATE_INPUT_MANIFEST_REF = "input_canonicalization_manifest_ref"
+_JOB_STATE_INPUT_MANIFEST_DIGEST = "input_canonicalization_manifest_digest"
+_JOB_STATE_EXPECTED_PARENT_COMMIT_ID = "expected_parent_commit_id"
+_JOB_STATE_REMOVED_TABLES = "removed_tables"
 _JOB_STATE_BUILDER_POLICY = "builder_mutation_policy"
 
 _JOB_STATE_PREPARE_CHECKPOINT_REF = "prepare_checkpoint_ref"
@@ -249,6 +256,7 @@ class OperatorRecoveryApplicationPort(Protocol):
 class SubmitRuntimeDependencies:
     artifact_store: ArtifactStorePort
     publication: SubmitImportPublicationPort
+    parent_catalog: RepositoryParentCatalogPort
     repository_write: RepositoryWritePort
     terminal_evidence_decode: RepositoryTerminalEvidenceDecodePort
     control_transaction_factory: SubmitControlTransactionFactory
@@ -427,6 +435,7 @@ def submit_composition_bundle(
     bound_deps = SubmitRuntimeDependencies(
         artifact_store=deps.artifact_store,
         publication=deps.publication,
+        parent_catalog=deps.parent_catalog,
         repository_write=deps.repository_write,
         terminal_evidence_decode=deps.terminal_evidence_decode,
         control_transaction_factory=bind_submit_control_transaction_factory(
@@ -483,6 +492,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     attempt=attempt,
                     operation=operation,
                     store=deps.artifact_store,
+                    parent_catalog=deps.parent_catalog,
                 )
                 reuse_prepare_import_checkpoint(
                     build_input=build_input,
@@ -510,6 +520,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     attempt=attempt,
                     operation=operation,
                     store=deps.artifact_store,
+                    parent_catalog=deps.parent_catalog,
                 )
                 publication = publish_prepare_import_package(
                     build_input=build_input,
@@ -1403,26 +1414,42 @@ def _build_prepare_import_build_input(
     attempt: SubmitAttempt,
     operation: OperationRecord,
     store: ArtifactStorePort,
+    parent_catalog: RepositoryParentCatalogPort,
 ) -> PrepareImportBuildInput:
     ruleset = migrated_table_ruleset_snapshot()
     if ruleset.ruleset_digest is None:
         raise SubmitImportBuilderError("ruleset digest is required")
-    snapshot_tables, _canonical_refs = resolve_canonical_snapshot_bindings(
-        operation_artifact_refs=operation.artifact_refs,
-        canonical_table_set_closure_ref=attempt.canonical_table_set_closure_ref,
-        canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
-        canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
-        canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
-        read_artifact=store.locate,
-    )
+    try:
+        snapshot_tables, canonical_refs = resolve_canonical_snapshot_bindings(
+            operation_artifact_refs=operation.artifact_refs,
+            canonical_table_set_closure_ref=attempt.canonical_table_set_closure_ref,
+            canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
+            canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
+            canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
+            read_artifact=store.locate,
+        )
+        canonical_refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
+        closure_ref = canonical_refs_by_id[attempt.canonical_table_set_closure_ref]
+        manifest_ref = canonical_refs_by_id[attempt.canonicalization_manifest_ref]
+        parent_table_names = parent_catalog.get_table_names(
+            repository_id=attempt.repository_id,
+            commit_id=attempt.repository_expected_commit_id,
+        )
+        removed_tables = derive_removed_tables(
+            parent_table_names=parent_table_names,
+            snapshot_tables=snapshot_tables,
+        )
+    except SubmitImportBuilderError as exc:
+        raise SubmitImportPublicationError(str(exc)) from exc
     return PrepareImportBuildInput(
         submit_attempt_id=payload.submit_attempt_id,
         builder_mutation_policy=payload.builder_mutation_policy,
-        input_closure_digest=payload.canonical_table_set_closure_digest,
-        canonical_table_set_closure_ref=payload.canonical_table_set_closure_ref,
+        canonical_table_set_closure_ref=closure_ref,
         canonical_table_set_closure_digest=payload.canonical_table_set_closure_digest,
-        canonicalization_manifest_ref=payload.canonicalization_manifest_ref,
+        canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=payload.canonicalization_manifest_digest,
+        expected_parent_commit_id=payload.repository_expected_commit_id,
+        removed_tables=removed_tables,
         source_artifact_digest=attempt.snapshot_digest,
         repository_base_digest=attempt.source_digest,
         storage_projection_version=_capability_storage_projection_version(
@@ -1523,7 +1550,12 @@ def _job_state_for_prepare(checkpoint: PrepareImportCheckpoint) -> dict[str, obj
         _JOB_STATE_BACKEND_IMPORT_REF: _backend_ref_to_dict(checkpoint.backend_import_artifact_ref),
         _JOB_STATE_PACKAGE_RAW_SIZE: checkpoint.package_raw_size,
         _JOB_STATE_PACKAGE_RAW_SHA256: checkpoint.package_raw_sha256,
-        _JOB_STATE_INPUT_CLOSURE_DIGEST: checkpoint.input_closure_digest,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF: checkpoint.canonical_table_set_closure_ref,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST: checkpoint.canonical_table_set_closure_digest,
+        _JOB_STATE_INPUT_MANIFEST_REF: checkpoint.input_canonicalization_manifest_ref,
+        _JOB_STATE_INPUT_MANIFEST_DIGEST: checkpoint.input_canonicalization_manifest_digest,
+        _JOB_STATE_EXPECTED_PARENT_COMMIT_ID: checkpoint.expected_parent_commit_id,
+        _JOB_STATE_REMOVED_TABLES: list(checkpoint.removed_tables),
         _JOB_STATE_BUILDER_POLICY: checkpoint.builder_mutation_policy.value,
     }
 
@@ -1537,7 +1569,12 @@ _ALLOWED_PREPARE_CHECKPOINT_KEYS = frozenset(
         _JOB_STATE_BACKEND_IMPORT_REF,
         _JOB_STATE_PACKAGE_RAW_SIZE,
         _JOB_STATE_PACKAGE_RAW_SHA256,
-        _JOB_STATE_INPUT_CLOSURE_DIGEST,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST,
+        _JOB_STATE_INPUT_MANIFEST_REF,
+        _JOB_STATE_INPUT_MANIFEST_DIGEST,
+        _JOB_STATE_EXPECTED_PARENT_COMMIT_ID,
+        _JOB_STATE_REMOVED_TABLES,
         _JOB_STATE_BUILDER_POLICY,
     }
 )
@@ -1852,9 +1889,29 @@ def _prepare_checkpoint_from_job_state(
             job_state.get(_JOB_STATE_PACKAGE_RAW_SHA256),
             label="package_raw_sha256",
         ),
-        input_closure_digest=_require_non_empty_str_value(
-            job_state.get(_JOB_STATE_INPUT_CLOSURE_DIGEST),
-            label="input_closure_digest",
+        canonical_table_set_closure_ref=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF),
+            label="canonical_table_set_closure_ref",
+        ),
+        canonical_table_set_closure_digest=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST),
+            label="canonical_table_set_closure_digest",
+        ),
+        input_canonicalization_manifest_ref=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_INPUT_MANIFEST_REF),
+            label="input_canonicalization_manifest_ref",
+        ),
+        input_canonicalization_manifest_digest=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_INPUT_MANIFEST_DIGEST),
+            label="input_canonicalization_manifest_digest",
+        ),
+        expected_parent_commit_id=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_EXPECTED_PARENT_COMMIT_ID),
+            label="expected_parent_commit_id",
+        ),
+        removed_tables=_decode_checkpoint_string_tuple(
+            job_state.get(_JOB_STATE_REMOVED_TABLES),
+            label="removed_tables",
         ),
         builder_mutation_policy=BuilderMutationPolicy(
             _require_non_empty_str_value(job_state.get(_JOB_STATE_BUILDER_POLICY), label="builder_mutation_policy")
@@ -2743,6 +2800,26 @@ def _decode_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
             raise PayloadDecodeError(f"{label} must contain non-empty strings", code="PAYLOAD_SHAPE_INVALID")
         decoded.append(item)
     return tuple(decoded)
+
+
+def _decode_checkpoint_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
+    if type(value) is not list:
+        raise CheckpointDecodeError(f"{label} must be an array", code="CHECKPOINT_JOB_STATE_MISMATCH")
+    decoded: list[str] = []
+    for item in value:
+        if type(item) is not str or not item:
+            raise CheckpointDecodeError(
+                f"{label} must contain non-empty strings",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        decoded.append(item)
+    result = tuple(decoded)
+    if result != tuple(sorted(set(result), key=lambda name: name.encode("utf-8"))):
+        raise CheckpointDecodeError(
+            f"{label} must contain sorted unique strings",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return result
 
 
 def _decode_object_map(value: object, *, label: str) -> dict[str, object]:

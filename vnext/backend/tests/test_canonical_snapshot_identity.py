@@ -227,7 +227,10 @@ def test_canonical_snapshot_identity(
         for table in canonical.tables
         if table.reader is not None
     }
-    replay_sql = render_repository_import_schema_replay_sql(projection.import_input)
+    replay_sql = render_repository_import_schema_replay_sql(
+        projection.import_input,
+        removed_tables=(),
+    )
     replay_sql += _render_canonical_inserts(canonical.tables, canonical_rows)
     package = build_repository_import_package(
         import_input=projection.import_input,

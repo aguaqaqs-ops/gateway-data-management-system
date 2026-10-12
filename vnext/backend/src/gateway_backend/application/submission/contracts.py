@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from gateway_backend.artifacts.store import ArtifactStorePort
+from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -34,7 +35,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.application.submission.errors import PreviewBindingConflict
 
 SUBMIT_JOB_CONTRACT_VERSION = "backend-vnext/submit/v1"
-PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v1"
+PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v2"
 ACCEPT_SUBMIT_REQUEST_PREFIX = b"gateway-vnext:accept-submit-request:v1\0"
 REPOSITORY_UPLOAD_KEY_PREFIX = "p5b-upload-v1:"
 REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
@@ -42,12 +43,15 @@ REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
 
 @dataclass(frozen=True, slots=True)
 class SnapshotTableBinding:
+    table_name: str
     artifact_id: str
     media_type: str
     size_bytes: int
     raw_sha256: str
 
     def __post_init__(self) -> None:
+        if type(self.table_name) is not str or not self.table_name:
+            raise ValueError("table_name must be a non-empty string")
         if type(self.artifact_id) is not str or not self.artifact_id:
             raise ValueError("artifact_id must be a non-empty string")
         if type(self.media_type) is not str or not self.media_type:
@@ -62,11 +66,12 @@ class SnapshotTableBinding:
 class PrepareImportBuildInput:
     submit_attempt_id: str
     builder_mutation_policy: BuilderMutationPolicy
-    input_closure_digest: str
-    canonical_table_set_closure_ref: str
+    canonical_table_set_closure_ref: ArtifactRef
     canonical_table_set_closure_digest: str
-    canonicalization_manifest_ref: str
+    canonicalization_manifest_ref: ArtifactRef
     canonicalization_manifest_digest: str
+    expected_parent_commit_id: str
+    removed_tables: tuple[str, ...]
     source_artifact_digest: str
     repository_base_digest: str
     storage_projection_version: str
@@ -80,35 +85,59 @@ class PrepareImportBuildInput:
             raise ValueError("submit_attempt_id must be a non-empty string")
         if type(self.builder_mutation_policy) is not BuilderMutationPolicy:
             raise ValueError("builder_mutation_policy must be BuilderMutationPolicy")
-        if type(self.input_closure_digest) is not str or not self.input_closure_digest:
-            raise ValueError("input_closure_digest must be a non-empty string")
         for field_name in (
-            "canonical_table_set_closure_ref",
-            "canonical_table_set_closure_digest",
-            "canonicalization_manifest_ref",
             "canonicalization_manifest_digest",
+            "expected_parent_commit_id",
+            "source_artifact_digest",
+            "repository_base_digest",
+            "storage_projection_version",
+            "ruleset_id",
+            "ruleset_version",
+            "ruleset_digest",
         ):
             if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
                 raise ValueError(f"{field_name} must be a non-empty string")
-        if self.input_closure_digest != self.canonical_table_set_closure_digest:
-            raise ValueError("input_closure_digest must match canonical table closure digest")
+        if type(self.canonical_table_set_closure_ref) is not ArtifactRef:
+            raise ValueError("canonical_table_set_closure_ref must be ArtifactRef")
+        if type(self.canonicalization_manifest_ref) is not ArtifactRef:
+            raise ValueError("canonicalization_manifest_ref must be ArtifactRef")
+        if self.canonical_table_set_closure_ref.raw_sha256.value != self.canonical_table_set_closure_digest:
+            raise ValueError("canonical table closure artifact ref raw SHA must match digest")
+        if type(self.removed_tables) is not tuple:
+            raise ValueError("removed_tables must be a tuple")
+        if any(type(name) is not str or not name for name in self.removed_tables):
+            raise ValueError("removed_tables must contain non-empty table names")
+        if self.removed_tables != tuple(
+            sorted(set(self.removed_tables), key=lambda name: name.encode("utf-8"))
+        ):
+            raise ValueError("removed_tables must contain sorted unique table names")
         if type(self.snapshot_tables) is not tuple:
             raise ValueError("snapshot_tables must be a tuple")
         for item in self.snapshot_tables:
             if type(item) is not SnapshotTableBinding:
                 raise ValueError("snapshot_tables must contain SnapshotTableBinding")
+        table_names = tuple(item.table_name for item in self.snapshot_tables)
+        if table_names != tuple(sorted(set(table_names), key=lambda name: name.encode("utf-8"))):
+            raise ValueError("snapshot_tables must contain sorted unique table names")
+        if set(table_names) & set(self.removed_tables):
+            raise ValueError("removed_tables must be disjoint from snapshot_tables")
 
 
 @dataclass(frozen=True, slots=True)
 class PrepareImportCheckpoint:
     schema_version: str
     attempt_id: str
+    canonical_table_set_closure_ref: str
+    canonical_table_set_closure_digest: str
+    input_canonicalization_manifest_ref: str
+    input_canonicalization_manifest_digest: str
+    expected_parent_commit_id: str
+    removed_tables: tuple[str, ...]
     canonicalization_manifest_ref: BackendArtifactRef
     canonicalization_manifest_digest: str
     backend_import_artifact_ref: BackendArtifactRef
     package_raw_size: int
     package_raw_sha256: str
-    input_closure_digest: str
     builder_mutation_policy: BuilderMutationPolicy
 
     def __post_init__(self) -> None:
@@ -116,6 +145,23 @@ class PrepareImportCheckpoint:
             raise ValueError("unsupported prepare import checkpoint schema")
         if type(self.attempt_id) is not str or not self.attempt_id:
             raise ValueError("attempt_id must be a non-empty string")
+        for field_name in (
+            "canonical_table_set_closure_ref",
+            "canonical_table_set_closure_digest",
+            "input_canonicalization_manifest_ref",
+            "input_canonicalization_manifest_digest",
+            "expected_parent_commit_id",
+        ):
+            if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
+                raise ValueError(f"{field_name} must be a non-empty string")
+        if type(self.removed_tables) is not tuple:
+            raise ValueError("removed_tables must be a tuple")
+        if any(type(name) is not str or not name for name in self.removed_tables):
+            raise ValueError("removed_tables must contain non-empty table names")
+        if self.removed_tables != tuple(
+            sorted(set(self.removed_tables), key=lambda name: name.encode("utf-8"))
+        ):
+            raise ValueError("removed_tables must contain sorted unique table names")
         if type(self.canonicalization_manifest_ref) is not BackendArtifactRef:
             raise ValueError("canonicalization_manifest_ref must be BackendArtifactRef")
         if type(self.canonicalization_manifest_digest) is not str or not self.canonicalization_manifest_digest:

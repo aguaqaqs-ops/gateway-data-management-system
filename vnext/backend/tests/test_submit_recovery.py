@@ -853,7 +853,9 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
     restart.
     """
     from gateway_backend.application.submission.contracts import PrepareImportPublicationResult
-    from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+    from gateway_backend.infrastructure.repository_write.import_publication import (
+        SubmitImportPublicationAdapter,
+    )
 
     def _dolt_compatible_prepare_publication(
         self: SubmitImportPublicationAdapter,

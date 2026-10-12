@@ -71,6 +71,7 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
 )
 from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.infrastructure.repository_read import (
+    HttpRepositoryParentCatalogPort,
     load_repository_bearer_token,
 )
 from gateway_backend.infrastructure.repository_write import (
@@ -80,7 +81,9 @@ from gateway_backend.infrastructure.repository_write import (
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
 )
-from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+from gateway_backend.infrastructure.repository_write.import_publication import (
+    SubmitImportPublicationAdapter,
+)
 from gateway_backend.settings import BackendSettings
 
 class TransactionWorkspaceRepository:
@@ -309,6 +312,12 @@ def prepare_backend_runtime(
     submit_deps = SubmitRuntimeDependencies(
         artifact_store=artifact_store,
         publication=SubmitImportPublicationAdapter(),
+        parent_catalog=HttpRepositoryParentCatalogPort(
+            base_url=settings.repository_base_url,
+            bearer_token=repository_token,
+            timeout_seconds=settings.repository_timeout_seconds,
+            transport=repository_transport,
+        ),
         repository_write=write_client,
         terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=control_transaction_factory,
@@ -380,7 +389,9 @@ def prepare_backend_runtime(
 def build_submit_import_publication_port() -> SubmitImportPublicationPort:
     """Production Submit import publication adapter wired at the composition root."""
 
-    from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+    from gateway_backend.infrastructure.repository_write.import_publication import (
+        SubmitImportPublicationAdapter,
+    )
 
     return SubmitImportPublicationAdapter()
 

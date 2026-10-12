@@ -36,6 +36,7 @@ from gateway_backend.operations.persistence import LEASE_DURATION
 from gateway_backend.operations.state import WritePrecondition
 from gateway_backend.operations.worker import StartupDisposition
 from tests.support.submit_job_harness import (
+    FixedRepositoryParentCatalogPort,
     RecordingTransport,
     SubmitWorkerHarness,
     assert_occupancy_released,
@@ -59,7 +60,9 @@ from gateway_backend.operations.worker import (
     WriteUnitOfWorkFactory,
 )
 from gateway_backend.application.submission.errors import SubmitImportPublicationError
-from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+from gateway_backend.infrastructure.repository_write.import_publication import (
+    SubmitImportPublicationAdapter,
+)
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_transactions import (
@@ -207,6 +210,7 @@ def _submit_runtime_dependencies(
     return SubmitRuntimeDependencies(
         artifact_store=store,
         publication=SubmitImportPublicationAdapter(),
+        parent_catalog=FixedRepositoryParentCatalogPort(),
         repository_write=_UnusedRepositoryWrite(),
         terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=_bound_control_transaction_factory(db_path, control_now),

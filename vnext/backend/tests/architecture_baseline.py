@@ -14,10 +14,7 @@ Group tags: ``A<n>`` = design §9 W6 row; unreachable comments name the closing 
 from __future__ import annotations
 
 IMPORT_RULE_BASELINE: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        # A6 (close S2b): package-root import artifact adapter pending infrastructure migration.
-        ("unowned-root-module", "gateway_backend.repository_import_artifact", ""),
-    }
+    {}
 )
 
 RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = ()

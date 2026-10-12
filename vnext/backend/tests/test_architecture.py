@@ -82,7 +82,6 @@ FORBIDDEN_IMPORT_PREFIXES = (
     "gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc",
     "gateway_backend.canonicalization_cells",
     "gateway_backend.canonicalization_manifest",
-    "gateway_backend.repository_import_artifact",
     "gateway_backend.infrastructure",
     "gateway_backend.synthetic_w2",
     "gateway_repository",
@@ -628,7 +627,6 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
     forbidden = (
         "gateway_backend.app",
         "gateway_backend.capabilities",
-        "gateway_backend.repository_import_artifact",
         "gateway_repository",
         "uvicorn",
         "fastapi",
@@ -669,7 +667,6 @@ def test_worker_bootstrap_owns_concrete_process_composition() -> None:
                         "gateway_backend.infrastructure.repository_read",
                         "gateway_backend.infrastructure.repository_write",
                         "gateway_backend.operations",
-                        "gateway_backend.repository_import_artifact",
                         "gateway_backend.settings",
                     )
                 ), f"{edge.path} imports disallowed module {imported}"

@@ -10,6 +10,7 @@ from gateway_backend.infrastructure.repository_read.http_arrow import (
     HttpArrowRepositoryTableAccessProvider,
     build_http_repository_provider_factory,
 )
+from gateway_backend.infrastructure.repository_read.parent_catalog import HttpRepositoryParentCatalogPort
 
 
 def load_repository_bearer_token(token_file: Path) -> str:
@@ -65,6 +66,7 @@ def build_unwired_repository_provider_factory(
 __all__ = [
     "FailClosedBaselineHeadRead",
     "HttpArrowRepositoryTableAccessProvider",
+    "HttpRepositoryParentCatalogPort",
     "UnwiredRepositoryTableAccessProvider",
     "build_http_repository_provider_factory",
     "build_unwired_repository_provider_factory",

@@ -1179,28 +1179,39 @@ def read_workspace_row(env: dict[str, str], workspace_id: str) -> dict[str, Any]
 
 def read_preview_surface_table_states(
     env: dict[str, str],
-    preview_bundle: dict[str, Any],
+    preview_result_id: str,
 ) -> list[dict[str, Any]]:
-    surface_refs = [
-        cast(dict[str, object], entry["artifact_ref"])
-        for entry in cast(list[dict[str, Any]], preview_bundle["entries"])
-        if entry["kind"] == "SURFACE"
-    ]
-    refs_literal = repr(surface_refs)
+    result_id_literal = repr(preview_result_id)
     script = f"""
 import json
+import sqlite3
 from pathlib import Path
-from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.application.checkpoints import load_ready_closure
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
+conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
+row = conn.execute(
+    "SELECT binding FROM preview_result_records WHERE preview_result_id = ?",
+    ({result_id_literal},),
+).fetchone()
+if row is None:
+    raise RuntimeError("preview result row is missing")
+binding = json.loads(row[0].decode("utf-8"))
 store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
-refs = {refs_literal}
+ready_ref = store.get_ref(binding["ready_closure_artifact_id"])
+closure = load_ready_closure(store, ready_ref)
 states = []
-for ref_document in refs:
-    document = json.loads(
-        store.locate(artifact_ref_from_dict(ref_document)).decode("utf-8")
-    )
+for ref in closure.artifact_refs():
+    if ref.media_type != "application/json":
+        continue
+    try:
+        document = json.loads(store.locate(ref).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        continue
+    if "surface_contract_version" not in document:
+        continue
     states.append({{
+        "surface_id": document["surface_id"],
         "summary": document["summary"],
         "tables": [
             {{
@@ -1540,7 +1551,7 @@ def run_accept_to_submission_read_journey(
                 "workspace_id": workspace_id,
                 "preview_result_id": preview_result_id,
                 "preview_summaries": preview_summaries,
-                "preview_surfaces": read_preview_surface_table_states(env, preview_bundle),
+                "preview_surfaces": read_preview_surface_table_states(env, preview_result_id),
             }
 
         accepted = client.post(

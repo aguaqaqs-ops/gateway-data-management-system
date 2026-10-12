@@ -369,6 +369,33 @@ def test_missing_records_closure_fails_when_row_targets_are_requested() -> None:
     assert result.risk_evaluation is None
 
 
+def test_intentionally_suppressed_rows_keep_count_risk_without_record_closure() -> None:
+    store = InMemoryArtifactStore()
+    result = _evaluate(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.ADDED_TABLE,
+            row_added_count=3,
+            suppressed_added_count=3,
+        ),
+        store=store,
+    )
+
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].annotation_count == 2
+    assert len(result.annotation_artifacts) == 1
+    annotation_payload = json.loads(
+        store.locate(result.annotation_artifacts[0].content_ref)
+    )
+    row_annotation = next(
+        item
+        for item in annotation_payload["annotations"]
+        if item["target"]["coverage"] == "ROW_RECORDS_SUPPRESSED"
+    )
+    assert row_annotation["reasons"][0]["evidence"] == [["count", 3]]
+
+
 class _TamperedClosureStore(InMemoryArtifactStore):
     def __init__(self) -> None:
         super().__init__()

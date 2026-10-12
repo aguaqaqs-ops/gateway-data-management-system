@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from gateway_backend.application.checkpoints import load_checkpoint_envelope
+from gateway_backend.application.checkpoints import (
+    load_checkpoint_envelope,
+    load_checkpoint_state_artifact,
+    put_checkpoint_state_artifact,
+)
 from gateway_backend.application.preview_jobs import (
     PREVIEW_ASSEMBLE_HANDLER,
+    PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION,
+    PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE,
     PREVIEW_MATERIALIZE_HANDLER,
     PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
+    PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
+    PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
     PREVIEW_PUBLISH_HANDLER,
     PREVIEW_STEP_PUBLISH,
 )
@@ -24,6 +32,7 @@ from gateway_backend.application.submission.accept_transaction import (
 from gateway_backend.application.submission.contracts import AcceptSubmitCommand
 from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import InputCompleteness
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
@@ -53,6 +62,50 @@ def _run_materialize(harness: PreviewJobHarness, operation_id: str) -> None:
     insert_preview_operation(harness, operation_id)
     session, control, operation, step = claim_next_step(harness)
     run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+
+
+def _read_materialized_sides_document(
+    job_state: Mapping[str, object],
+    harness: PreviewJobHarness,
+) -> dict[str, object]:
+    raw_ref = job_state.get("materialized_sides_ref")
+    assert isinstance(raw_ref, dict)
+    return load_checkpoint_state_artifact(
+        harness.artifact_store,
+        artifact_ref_from_dict(raw_ref),
+        document_type=PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+        contract_version=PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
+    )
+
+
+def _replace_materialized_sides_document(
+    job_state: dict[str, object],
+    document: dict[str, object],
+    harness: PreviewJobHarness,
+) -> None:
+    ref = put_checkpoint_state_artifact(
+        harness.artifact_store,
+        document,
+        artifact_id_prefix="preview-materialized-sides-test",
+    )
+    job_state["materialized_sides_ref"] = artifact_ref_to_dict(ref)
+
+
+def _preview_assemble_state(
+    harness: PreviewJobHarness,
+    job_state: Mapping[str, object],
+) -> dict[str, object]:
+    raw_ref = job_state.get("assemble_state_ref")
+    assert isinstance(raw_ref, dict)
+    document = load_checkpoint_state_artifact(
+        harness.artifact_store,
+        artifact_ref_from_dict(raw_ref),
+        document_type=PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE,
+        contract_version=PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION,
+    )
+    assemble_state = document.get("assemble_state")
+    assert isinstance(assemble_state, dict)
+    return assemble_state
 
 
 def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, full: bool) -> None:
@@ -97,8 +150,7 @@ def test_full_assemble_checkpoint_contains_dual_pair_closure(tmp_path: Path) -> 
     assert assemble_step.checkpoint_ref is not None
     assert publish_step.status is StepStatus.PENDING
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _preview_assemble_state(harness, envelope.job_state)
     assert assemble_state["pair_ids"] == ["baseline_to_initial", "initial_to_modified"]
     assert envelope.job_state["ready_closure_artifact_id"]
     required_refs = assemble_state["required_refs"]
@@ -118,8 +170,7 @@ def test_modified_only_assemble_checkpoint_contains_single_pair(tmp_path: Path) 
     checkpoint_ref = assemble_step.checkpoint_ref
     assert checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _preview_assemble_state(harness, envelope.job_state)
     assert assemble_state["pair_ids"] == ["initial_to_modified"]
     assert assemble_state["input_completeness"] == InputCompleteness.MODIFIED_ONLY.value
     required_refs = assemble_state["required_refs"]
@@ -142,8 +193,7 @@ def test_full_preview_checkpoint_persists_canonical_state_bindings(tmp_path: Pat
         assemble_step = unit_of_work.operations.get_step(step_id_for(operation_id, "assemble_preview"))
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _preview_assemble_state(harness, envelope.job_state)
     _assert_persisted_canonical_preview(assemble_state, full=True)
 
 
@@ -206,18 +256,29 @@ def test_materialize_checkpoint_rejects_invalid_empty_shapes(
     del case_id
     from gateway_backend.application.payloads import CheckpointDecodeError
     from gateway_backend.application.preview_jobs import _materialized_preview_inputs_from_checkpoint
-    from gateway_backend.artifacts import InMemoryArtifactStore
+    store = InMemoryArtifactStore()
+    sides_ref = put_checkpoint_state_artifact(
+        store,
+        {
+            "document_type": PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+            "contract_version": PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
+            "sides": {
+                "BASELINE": side_document,
+                "INITIAL": side_document,
+                "MODIFIED": side_document,
+                "initial_reuses_baseline": False,
+            },
+        },
+        artifact_id_prefix="preview-materialized-sides-test",
+    )
 
     with pytest.raises(CheckpointDecodeError, match=match):
         _materialized_preview_inputs_from_checkpoint(
             {
-                "sides": {
-                    "BASELINE": side_document,
-                    "INITIAL": side_document,
-                    "MODIFIED": side_document,
-                }
+                "materialized_sides_ref": artifact_ref_to_dict(sides_ref),
+                "canonical_preview": {},
             },
-            InMemoryArtifactStore(),
+            store,
         )
 
 
@@ -232,12 +293,14 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
         materialize_step = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    job_state = copy.deepcopy(envelope.job_state)
-    sides = job_state["sides"]
+    job_state = dict(copy.deepcopy(envelope.job_state))
+    sides_document = _read_materialized_sides_document(job_state, harness)
+    sides = sides_document["sides"]
     assert isinstance(sides, dict)
     baseline_side = sides["BASELINE"]
     assert isinstance(baseline_side, dict)
     baseline_side["tables"] = []
+    _replace_materialized_sides_document(job_state, sides_document, harness)
 
     with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
         _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store)
@@ -254,12 +317,14 @@ def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
         materialize_step = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    job_state = copy.deepcopy(envelope.job_state)
-    sides = job_state["sides"]
+    job_state = dict(copy.deepcopy(envelope.job_state))
+    sides_document = _read_materialized_sides_document(job_state, harness)
+    sides = sides_document["sides"]
     assert isinstance(sides, dict)
     baseline_side = sides["BASELINE"]
     assert isinstance(baseline_side, dict)
     baseline_side.pop("summary", None)
+    _replace_materialized_sides_document(job_state, sides_document, harness)
 
     with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
         _materialized_preview_inputs_from_checkpoint(job_state, harness.artifact_store)
@@ -318,14 +383,15 @@ def test_empty_baseline_assemble_produces_ready_closure_and_canonical_bindings(
     assert assemble_step.status is StepStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _preview_assemble_state(harness, envelope.job_state)
     assert assemble_state["required_refs"]
     if input_completeness is InputCompleteness.FULL:
         assert assemble_state["pair_ids"] == ["baseline_to_initial", "initial_to_modified"]
     else:
         assert assemble_state["pair_ids"] == ["initial_to_modified"]
-    preview_bundle_digest = assemble_state["digests"]["bundle_digest"]
+    digests = assemble_state["digests"]
+    assert isinstance(digests, dict)
+    preview_bundle_digest = digests["bundle_digest"]
     assert isinstance(preview_bundle_digest, str)
     _assert_persisted_canonical_preview(
         assemble_state,
@@ -357,14 +423,15 @@ def test_empty_baseline_assemble_produces_ready_closure_for_table_addition(
     assert assemble_step.status is StepStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _preview_assemble_state(harness, envelope.job_state)
     assert assemble_state["required_refs"]
     if input_completeness is InputCompleteness.FULL:
         assert assemble_state["pair_ids"] == ["baseline_to_initial", "initial_to_modified"]
     else:
         assert assemble_state["pair_ids"] == ["initial_to_modified"]
-    preview_bundle_digest = assemble_state["digests"]["bundle_digest"]
+    digests = assemble_state["digests"]
+    assert isinstance(digests, dict)
+    preview_bundle_digest = digests["bundle_digest"]
     assert isinstance(preview_bundle_digest, str)
     _assert_persisted_canonical_preview(
         assemble_state,

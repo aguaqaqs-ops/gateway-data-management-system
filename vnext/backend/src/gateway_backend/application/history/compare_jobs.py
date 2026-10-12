@@ -21,9 +21,11 @@ from gateway_backend.application.checkpoints import (
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
+    load_checkpoint_state_artifact,
     load_ready_closure,
     prepare_ready_closure,
     prepare_step_checkpoint,
+    put_checkpoint_state_artifact,
 )
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_JOB_CONTRACT_VERSION,
@@ -35,6 +37,7 @@ from gateway_backend.application.history.ports import (
     HistoryControlTransaction as HistoryCompareControlTransaction,
 )
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.application.pair_pipeline import (
     HistoryPairPipelineResult as _PairPipelineResult,
     PairPipelineError,
@@ -127,11 +130,21 @@ HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler
 HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v3"
 
 _JOB_STATE_SIDES = "sides"
+_JOB_STATE_MATERIALIZED_SIDES_REF = "materialized_sides_ref"
 _JOB_STATE_ASSEMBLE = "assemble_state"
+_JOB_STATE_ASSEMBLE_REF = "assemble_state_ref"
 _JOB_STATE_READY_CLOSURE = "ready_closure_artifact_id"
 _JOB_STATE_READY_CLOSURE_REF = "ready_closure_ref"
 _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
+HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE = "history-compare-materialized-sides"
+HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
+    "backend-vnext/history-compare/materialized-sides/v1"
+)
+HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
+HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
+    "backend-vnext/history-compare/assemble-state/v1"
+)
 
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(
     "_active_history_compare_transaction",
@@ -343,9 +356,14 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                     "checkpoint envelope does not match the history compare materialize JobDefinition",
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
+            sides = _sides_from_materialize_checkpoint(
+                envelope.job_state,
+                deps.artifact_store,
+            )
+            sides_ref = _materialized_sides_ref_from_checkpoint(envelope.job_state)
             _pin_history_compare_refs(
                 deps,
-                (step.checkpoint_ref,),
+                (step.checkpoint_ref, sides_ref, *_closed_refs_from_sides(sides)),
                 owner_kind="history-compare-checkpoint",
                 owner_id=step.step_id,
                 intent="materialize-checkpoint",
@@ -373,20 +391,29 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 )
                 return ExecutorAcknowledgment.PUBLISHED
 
+            sides_ref = put_checkpoint_state_artifact(
+                deps.artifact_store,
+                {
+                    "document_type": HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+                    "contract_version": HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION,
+                    _JOB_STATE_SIDES: _serialize_sides(sides),
+                },
+                artifact_id_prefix="history-compare-materialized-sides",
+            )
             envelope = envelope_for_step(
                 key=key,
                 operation=operation,
                 step=step,
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
-                    _JOB_STATE_SIDES: _serialize_sides(sides),
+                    _JOB_STATE_MATERIALIZED_SIDES_REF: artifact_ref_to_dict(sides_ref),
                 },
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
                 pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
-                    extra_refs=_closed_refs_from_sides(sides),
+                    extra_refs=(sides_ref, *_closed_refs_from_sides(sides)),
                     owner_kind="history-compare-checkpoint",
                     intent="materialize-checkpoint",
                     active_transaction=_active_history_compare_transaction.get,
@@ -465,9 +492,26 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                     "checkpoint envelope does not match the history compare assemble JobDefinition",
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
+            assemble_state_ref, _assemble_state = history_compare_assemble_state_from_checkpoint(
+                envelope.job_state,
+                deps.artifact_store,
+            )
+            ready_closure_ref_raw = envelope.job_state.get(_JOB_STATE_READY_CLOSURE_REF)
+            if type(ready_closure_ref_raw) is not dict:
+                raise CheckpointDecodeError(
+                    "history compare assemble checkpoint is missing ready_closure_ref",
+                    code="CHECKPOINT_JOB_STATE_MISMATCH",
+                )
+            ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
+            closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _pin_history_compare_refs(
                 deps,
-                (step.checkpoint_ref,),
+                (
+                    step.checkpoint_ref,
+                    assemble_state_ref,
+                    ready_closure_ref,
+                    *closure.artifact_refs(),
+                ),
                 owner_kind="history-compare-checkpoint",
                 owner_id=step.step_id,
                 intent="assemble-checkpoint",
@@ -488,13 +532,22 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 ready_refs,
                 operation.job_contract_version,
             )
+            assemble_state_ref = put_checkpoint_state_artifact(
+                deps.artifact_store,
+                {
+                    "document_type": HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+                    "contract_version": HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+                    _JOB_STATE_ASSEMBLE: assemble_state,
+                },
+                artifact_id_prefix="history-compare-assemble-state",
+            )
             envelope = envelope_for_step(
                 key=assemble_definition.key,
                 operation=operation,
                 step=step,
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
-                    _JOB_STATE_ASSEMBLE: assemble_state,
+                    _JOB_STATE_ASSEMBLE_REF: artifact_ref_to_dict(assemble_state_ref),
                     _JOB_STATE_READY_CLOSURE: closure_ref.artifact_id,
                     _JOB_STATE_READY_CLOSURE_REF: artifact_ref_to_dict(closure_ref),
                     _JOB_STATE_BUNDLE_ARTIFACT: bundle_manifest_ref.artifact_id,
@@ -505,7 +558,12 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             lease_session.publish_checkpoint(
                 pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
-                    extra_refs=(closure_ref, bundle_manifest_ref, *ready_refs),
+                    extra_refs=(
+                        assemble_state_ref,
+                        closure_ref,
+                        bundle_manifest_ref,
+                        *ready_refs,
+                    ),
                     owner_kind="history-compare-checkpoint",
                     intent="assemble-checkpoint",
                     active_transaction=_active_history_compare_transaction.get,
@@ -1005,7 +1063,19 @@ def _sides_from_materialize_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
 ) -> dict[str, BoundSnapshotInput]:
-    raw_sides = job_state.get(_JOB_STATE_SIDES)
+    sides_ref = _materialized_sides_ref_from_checkpoint(job_state)
+    document = load_checkpoint_state_artifact(
+        store,
+        sides_ref,
+        document_type=HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+        contract_version=HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION,
+    )
+    if set(document) != {"document_type", "contract_version", _JOB_STATE_SIDES}:
+        raise CheckpointDecodeError(
+            "history compare materialized sides artifact fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_sides = document.get(_JOB_STATE_SIDES)
     if type(raw_sides) is not dict:
         raise CheckpointDecodeError(
             "materialize checkpoint sides are invalid",
@@ -1020,6 +1090,76 @@ def _sides_from_materialize_checkpoint(
             )
         sides[commit_id] = _bound_from_side_document(entry, store)
     return sides
+
+
+def history_compare_assemble_state_from_checkpoint(
+    job_state: Mapping[str, object],
+    store: ArtifactStorePort | BoundedArtifactStorePort,
+) -> tuple[ArtifactRef, dict[str, object]]:
+    expected_fields = {
+        _JOB_STATE_ASSEMBLE_REF,
+        _JOB_STATE_READY_CLOSURE,
+        _JOB_STATE_READY_CLOSURE_REF,
+        _JOB_STATE_BUNDLE_ARTIFACT,
+        _JOB_STATE_BUNDLE_DIGEST,
+    }
+    if set(job_state) != expected_fields:
+        raise CheckpointDecodeError(
+            "history compare assemble checkpoint fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_ref = job_state.get(_JOB_STATE_ASSEMBLE_REF)
+    if type(raw_ref) is not dict:
+        raise CheckpointDecodeError(
+            "history compare assemble state ref is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    try:
+        assemble_state_ref = artifact_ref_from_dict(raw_ref)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "history compare assemble state ref is invalid",
+            code="CHECKPOINT_REF_INVALID",
+        ) from exc
+    document = load_checkpoint_state_artifact(
+        store,
+        assemble_state_ref,
+        document_type=HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+        contract_version=HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+    )
+    if set(document) != {"document_type", "contract_version", _JOB_STATE_ASSEMBLE}:
+        raise CheckpointDecodeError(
+            "history compare assemble state artifact fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    assemble_state = document.get(_JOB_STATE_ASSEMBLE)
+    if type(assemble_state) is not dict:
+        raise CheckpointDecodeError(
+            "history compare assemble state artifact is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return assemble_state_ref, cast(dict[str, object], assemble_state)
+
+
+def _materialized_sides_ref_from_checkpoint(job_state: Mapping[str, object]) -> ArtifactRef:
+    if set(job_state) != {_JOB_STATE_MATERIALIZED_SIDES_REF}:
+        raise CheckpointDecodeError(
+            "history compare materialize checkpoint fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_ref = job_state.get(_JOB_STATE_MATERIALIZED_SIDES_REF)
+    if type(raw_ref) is not dict:
+        raise CheckpointDecodeError(
+            "history compare materialized sides ref is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    try:
+        return artifact_ref_from_dict(raw_ref)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "history compare materialized sides ref is invalid",
+            code="CHECKPOINT_REF_INVALID",
+        ) from exc
 
 
 def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:

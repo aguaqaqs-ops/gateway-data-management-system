@@ -291,13 +291,28 @@ def _tamper_checkpoint_semantically_same_length(
     *,
     local_store: object | None = None,
 ) -> None:
-    from gateway_backend.application.checkpoints import StepCheckpointEnvelope, load_checkpoint_envelope
-    from gateway_backend.artifacts import ArtifactRef
+    from gateway_backend.application.checkpoints import (
+        load_checkpoint_envelope,
+        load_checkpoint_state_artifact,
+    )
+    from gateway_backend.application.history.compare_jobs import (
+        HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+        HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+    )
+    from gateway_backend.artifacts import ArtifactRef, artifact_ref_from_dict
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+
     assert isinstance(ref, ArtifactRef)
     envelope = load_checkpoint_envelope(artifact_store, ref)
-    original_bytes = envelope.to_canonical_bytes()
-    job_state = dict(envelope.job_state)
-    assemble_state = dict(cast(dict[str, object], job_state["assemble_state"]))
+    state_ref = artifact_ref_from_dict(cast(dict[str, object], envelope.job_state["assemble_state_ref"]))
+    original_bytes = artifact_store.locate(state_ref)
+    state_document = load_checkpoint_state_artifact(
+        artifact_store,
+        state_ref,
+        document_type=HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+        contract_version=HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+    )
+    assemble_state = dict(cast(dict[str, object], state_document["assemble_state"]))
     pairs = list(cast(list[object], assemble_state["pairs"]))
     pair0 = dict(cast(dict[str, object], pairs[0]))
     digest = str(pair0["comparison_digest"])
@@ -305,27 +320,18 @@ def _tamper_checkpoint_semantically_same_length(
     pair0["comparison_digest"] = digest[:-1] + replacement
     pairs[0] = pair0
     assemble_state["pairs"] = pairs
-    job_state["assemble_state"] = assemble_state
-    tampered = StepCheckpointEnvelope(
-        job_kind=envelope.job_kind,
-        step_name=envelope.step_name,
-        operation_id=envelope.operation_id,
-        job_contract_version=envelope.job_contract_version,
-        checkpoint_generation=envelope.checkpoint_generation,
-        prior_output_refs=envelope.prior_output_refs,
-        job_state=job_state,
-    )
-    tampered_bytes = tampered.to_canonical_bytes()
+    state_document["assemble_state"] = assemble_state
+    tampered_bytes = canonicalize_json_value(state_document)
     assert len(tampered_bytes) == len(original_bytes)
     if local_store is not None:
         from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
         assert isinstance(local_store, LocalArtifactStore)
-        target, _sidecar = local_store._validated_paths(ref.artifact_id)  # noqa: SLF001
+        target, _sidecar = local_store._validated_paths(state_ref.artifact_id)  # noqa: SLF001
         target.write_bytes(tampered_bytes)
         return
     memory_store = cast(InMemoryArtifactStore, artifact_store)
-    memory_store._artifacts[ref.artifact_id] = (ref, tampered_bytes)  # noqa: SLF001
+    memory_store._artifacts[state_ref.artifact_id] = (state_ref, tampered_bytes)  # noqa: SLF001
 
 
 def _history_env(
@@ -676,8 +682,14 @@ def test_get_history_compare_result_succeeded_matches_assemble_checkpoint(
         history_env.artifact_store._store,
         assemble_step.checkpoint_ref,
     )
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    from gateway_backend.application.history.compare_jobs import (
+        history_compare_assemble_state_from_checkpoint,
+    )
+
+    _state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(
+        envelope.job_state,
+        history_env.artifact_store._store,
+    )
 
     response = history_env.client.get(
         f"/v1/history-compares/{operation_id}",

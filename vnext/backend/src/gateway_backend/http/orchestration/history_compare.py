@@ -15,6 +15,7 @@ from gateway_backend.application.history.compare import (
 )
 from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
+    history_compare_assemble_state_from_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.application.history.contracts import (
@@ -25,6 +26,7 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.payloads import CheckpointDecodeError
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.http.dependencies import AdmissionGatePort, BundleReaderPort, acquire_new_work
@@ -224,13 +226,17 @@ def _load_success_result(
             status_code=404,
         )
     envelope = _load_checkpoint_envelope_from_store(artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state.get("assemble_state")
-    if type(assemble_state) is not dict:
+    try:
+        _assemble_state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(
+            envelope.job_state,
+            cast(BoundedArtifactStorePort, artifact_store),
+        )
+    except CheckpointDecodeError as exc:
         raise ApiError(
             code="ARTIFACT_UNAVAILABLE",
             message="compare result is not available",
             status_code=404,
-        )
+        ) from exc
     pairs_raw = assemble_state.get("pairs")
     if type(pairs_raw) is not list:
         raise ApiError(

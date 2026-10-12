@@ -21,11 +21,13 @@ from gateway_backend.application.checkpoints import (
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
+    load_checkpoint_state_artifact,
     load_ready_closure,
     make_checkpoint_step_builder,
     make_terminal_ready_closure_builder,
     prepare_ready_closure,
     prepare_step_checkpoint,
+    put_checkpoint_state_artifact,
     put_ready_closure,
     verify_artifact_refs,
 )
@@ -343,6 +345,51 @@ def test_ready_closure_document_sorts_outputs_by_artifact_id() -> None:
     raw = document.to_canonical_bytes()
     restored = ReadyClosureDocument.from_canonical_bytes(raw)
     assert restored == document
+
+
+@pytest.mark.unit
+def test_ready_closure_retains_bounded_large_snapshot_artifact_sets() -> None:
+    refs = tuple(_artifact_ref(f"artifact-{index:04d}") for index in range(4_096))
+    document = ReadyClosureDocument.build(refs, VERSION_V1)
+    assert len(document.outputs) == 4_096
+    restored = ReadyClosureDocument.from_canonical_bytes(document.to_canonical_bytes())
+    assert restored == document
+    with pytest.raises(ValueError, match="output_refs exceeds bounded document size"):
+        ReadyClosureDocument.build((*refs, _artifact_ref("artifact-over-limit")), VERSION_V1)
+
+
+@pytest.mark.unit
+def test_checkpoint_state_artifact_keeps_materialized_refs_out_of_inline_payload() -> None:
+    store = InMemoryArtifactStore()
+    state_ref = put_checkpoint_state_artifact(
+        store,
+        {
+            "document_type": "snapshot-sides",
+            "contract_version": "snapshot-sides/v1",
+            "refs": [f"table-{index:04d}" for index in range(5_000)],
+        },
+        artifact_id_prefix="test-snapshot-sides",
+    )
+    pointer = StepCheckpointEnvelope(
+        job_kind=JOB_KIND,
+        step_name=STEP_NAME,
+        operation_id="op-large-state",
+        job_contract_version=VERSION_V1,
+        checkpoint_generation=0,
+        prior_output_refs=(),
+        job_state={"materialized_sides_ref": artifact_ref_to_dict(state_ref)},
+    )
+
+    restored_pointer = StepCheckpointEnvelope.from_canonical_bytes(pointer.to_canonical_bytes())
+    restored_state = load_checkpoint_state_artifact(
+        store,
+        state_ref,
+        document_type="snapshot-sides",
+        contract_version="snapshot-sides/v1",
+    )
+    refs = restored_state["refs"]
+    assert len(restored_pointer.job_state) == 1
+    assert isinstance(refs, list) and len(refs) == 5_000
 
 
 def test_definition_matches_checkpoint_identity_axes() -> None:

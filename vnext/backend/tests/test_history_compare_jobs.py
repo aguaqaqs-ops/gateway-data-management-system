@@ -21,6 +21,8 @@ from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
+    history_compare_assemble_state_from_checkpoint,
+    _sides_from_materialize_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.capabilities.comparison import (
@@ -35,6 +37,7 @@ from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.history_compare_job_harness import (
     ORDERED_SYX_TABLE,
     REPOSITORY_ID,
+    HistoryCompareJobHarness,
     build_history_compare_harness,
     claim_next_step,
     history_compare_net_cfg_provider,
@@ -108,6 +111,18 @@ RULESET_MISMATCH_STEPS = (
 pytestmark = pytest.mark.unit
 
 
+def _history_assemble_state(
+    harness: HistoryCompareJobHarness,
+    job_state: object,
+) -> dict[str, object]:
+    assert isinstance(job_state, dict)
+    _state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(
+        job_state,
+        harness.deps.artifact_store,
+    )
+    return assemble_state
+
+
 def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     harness = build_history_compare_harness(
         tmp_path,
@@ -132,10 +147,9 @@ def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     assert materialize_step.checkpoint_ref is not None
     assert assemble_step.status is StepStatus.PENDING
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    sides = envelope.job_state["sides"]
-    assert isinstance(sides, dict)
+    sides = _sides_from_materialize_checkpoint(envelope.job_state, harness.artifact_store)
     assert set(sides) == {BASELINE_HEAD.business_baseline_commit_id}
-    assert "compare_binding_digest" not in envelope.job_state
+    assert set(envelope.job_state) == {"materialized_sides_ref"}
 
 
 def test_assemble_resumes_from_materialized_sides_with_runtime_ruleset(tmp_path: Path) -> None:
@@ -159,8 +173,7 @@ def test_assemble_resumes_from_materialized_sides_with_runtime_ruleset(tmp_path:
     assert operation.status is OperationStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _history_assemble_state(harness, envelope.job_state)
     assert assemble_state["bundle_digest"]
 
 
@@ -280,13 +293,15 @@ def test_materialize_checkpoint_preserves_keyless_storage_facts_for_history_comp
         harness.artifact_store,
         materialize_step.checkpoint_ref,
     )
-    sides = materialize_envelope.job_state["sides"]
-    assert isinstance(sides, dict)
+    sides = _sides_from_materialize_checkpoint(
+        materialize_envelope.job_state,
+        harness.artifact_store,
+    )
     current_side = sides[current_commit]
-    assert isinstance(current_side, dict)
-    storage_facts = current_side["storage_facts"]
-    assert isinstance(storage_facts, list)
-    assert storage_facts[0]["canonical_key_policy"] == "DDL_PRIMARY_KEY_OR_KEYLESS"
+    assert (
+        current_side.storage_facts[0].storage_rule_view.canonical_key_policy.value
+        == "DDL_PRIMARY_KEY_OR_KEYLESS"
+    )
 
     run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
@@ -298,8 +313,7 @@ def test_materialize_checkpoint_preserves_keyless_storage_facts_for_history_comp
         harness.artifact_store,
         assemble_step.checkpoint_ref,
     )
-    assemble_state = assemble_envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _history_assemble_state(harness, assemble_envelope.job_state)
     pairs = assemble_state["pairs"]
     assert isinstance(pairs, list)
     pair = pairs[0]
@@ -358,8 +372,7 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     assert operation.status is OperationStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _history_assemble_state(harness, envelope.job_state)
     pairs = assemble_state["pairs"]
     assert isinstance(pairs, list)
     assert len(pairs) == 2
@@ -590,9 +603,10 @@ def test_f1_policy_binding_integration_cases(
         )
     assert assemble_step.checkpoint_ref is not None
     assemble_envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = assemble_envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
-    pair = assemble_state["pairs"][0]
+    assemble_state = _history_assemble_state(harness, assemble_envelope.job_state)
+    pairs = assemble_state["pairs"]
+    assert isinstance(pairs, list)
+    pair = pairs[0]
     assert isinstance(pair, dict)
     assert pair["comparison_digest"] == oracle_digest
 

@@ -25,9 +25,11 @@ from gateway_backend.application.checkpoints import (
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
+    load_checkpoint_state_artifact,
     load_ready_closure,
     prepare_ready_closure,
     prepare_step_checkpoint,
+    put_checkpoint_state_artifact,
 )
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
@@ -201,15 +203,19 @@ _PAIR_BASELINE_TO_INITIAL = "baseline_to_initial"
 _PAIR_INITIAL_TO_MODIFIED = "initial_to_modified"
 
 _JOB_STATE_SIDES = "sides"
-_JOB_STATE_INPUT_COMPLETENESS = "input_completeness"
-_JOB_STATE_BASELINE_COMMIT = "baseline_commit_id"
+_JOB_STATE_MATERIALIZED_SIDES_REF = "materialized_sides_ref"
 _JOB_STATE_CANONICAL = "canonical_preview"
 _JOB_STATE_ASSEMBLE = "assemble_state"
+_JOB_STATE_ASSEMBLE_REF = "assemble_state_ref"
 _JOB_STATE_READY_CLOSURE = "ready_closure_artifact_id"
 _JOB_STATE_READY_CLOSURE_REF = "ready_closure_ref"
 _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
 _CANONICAL_TABLE_CLOSURE_CONTRACT = "backend-vnext/preview/canonical-table-set-closure/v1"
+PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE = "preview-materialized-sides"
+PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v1"
+PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE = "preview-assemble-state"
+PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v1"
 
 _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = ContextVar(
     "_active_preview_transaction",
@@ -560,9 +566,16 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 envelope.job_state,
                 deps.artifact_store,
             )
+            materialized_sides_ref = artifact_ref_from_dict(
+                cast(dict[str, object], envelope.job_state[_JOB_STATE_MATERIALIZED_SIDES_REF])
+            )
             _pin_preview_refs(
                 deps,
-                (step.checkpoint_ref, *_closed_refs_from_preview_inputs(inputs)),
+                (
+                    step.checkpoint_ref,
+                    materialized_sides_ref,
+                    *_closed_refs_from_preview_inputs(inputs),
+                ),
                 owner_kind="preview-checkpoint",
                 owner_id=step.step_id,
                 intent="materialize-checkpoint",
@@ -582,15 +595,24 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                     control=control,
                 )
                 return ExecutorAcknowledgment.PUBLISHED
+            materialized_sides_ref = put_checkpoint_state_artifact(
+                deps.artifact_store,
+                {
+                    "document_type": PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+                    "contract_version": PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
+                    _JOB_STATE_SIDES: _serialize_sides(inputs.sides, payload),
+                },
+                artifact_id_prefix="preview-materialized-sides",
+            )
             envelope = envelope_for_step(
                 key=key,
                 operation=operation,
                 step=step,
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
-                    _JOB_STATE_INPUT_COMPLETENESS: payload.input_completeness.value,
-                    _JOB_STATE_BASELINE_COMMIT: payload.business_baseline_commit_id,
-                    _JOB_STATE_SIDES: _serialize_sides(inputs.sides, payload),
+                    _JOB_STATE_MATERIALIZED_SIDES_REF: artifact_ref_to_dict(
+                        materialized_sides_ref
+                    ),
                     _JOB_STATE_CANONICAL: _canonical_preview_metadata_to_document(inputs.canonical),
                 },
             )
@@ -598,7 +620,10 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             lease_session.publish_checkpoint(
                 pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
-                    extra_refs=_closed_refs_from_preview_inputs(inputs),
+                    extra_refs=(
+                        materialized_sides_ref,
+                        *_closed_refs_from_preview_inputs(inputs),
+                    ),
                     owner_kind="preview-checkpoint",
                     intent="materialize-checkpoint",
                     active_transaction=_active_preview_transaction.get,
@@ -679,25 +704,32 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     "checkpoint envelope does not match the preview assemble JobDefinition",
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
-            assemble_state = envelope.job_state.get(_JOB_STATE_ASSEMBLE)
-            if type(assemble_state) is not dict:
-                raise CheckpointDecodeError(
-                    "assemble checkpoint is missing assemble_state",
-                    code="CHECKPOINT_JOB_STATE_MISMATCH",
-                )
+            assemble_state_ref, _assemble_state = _assemble_state_from_checkpoint(
+                envelope.job_state,
+                deps.artifact_store,
+            )
             ready_closure_id = envelope.job_state.get(_JOB_STATE_READY_CLOSURE)
             if type(ready_closure_id) is not str or not ready_closure_id:
                 raise CheckpointDecodeError(
                     "assemble checkpoint is missing ready_closure_artifact_id",
                     code="CHECKPOINT_JOB_STATE_MISMATCH",
                 )
-            resume_refs: list[ArtifactRef] = [step.checkpoint_ref]
             ready_closure_ref_raw = envelope.job_state.get(_JOB_STATE_READY_CLOSURE_REF)
-            if type(ready_closure_ref_raw) is dict:
-                resume_refs.append(artifact_ref_from_dict(ready_closure_ref_raw))
+            if type(ready_closure_ref_raw) is not dict:
+                raise CheckpointDecodeError(
+                    "assemble checkpoint is missing ready_closure_ref",
+                    code="CHECKPOINT_JOB_STATE_MISMATCH",
+                )
+            ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
+            closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _pin_preview_refs(
                 deps,
-                tuple(resume_refs),
+                (
+                    step.checkpoint_ref,
+                    assemble_state_ref,
+                    ready_closure_ref,
+                    *closure.artifact_refs(),
+                ),
                 owner_kind="preview-checkpoint",
                 owner_id=step.step_id,
                 intent="assemble-checkpoint",
@@ -718,13 +750,22 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 ready_refs,
                 operation.job_contract_version,
             )
+            assemble_state_ref = put_checkpoint_state_artifact(
+                deps.artifact_store,
+                {
+                    "document_type": PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE,
+                    "contract_version": PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION,
+                    _JOB_STATE_ASSEMBLE: assemble_state,
+                },
+                artifact_id_prefix="preview-assemble-state",
+            )
             envelope = envelope_for_step(
                 key=assemble_definition.key,
                 operation=operation,
                 step=step,
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
-                    _JOB_STATE_ASSEMBLE: assemble_state,
+                    _JOB_STATE_ASSEMBLE_REF: artifact_ref_to_dict(assemble_state_ref),
                     _JOB_STATE_READY_CLOSURE: closure_ref.artifact_id,
                     _JOB_STATE_READY_CLOSURE_REF: artifact_ref_to_dict(closure_ref),
                     _JOB_STATE_BUNDLE_ARTIFACT: bundle_manifest_ref.artifact_id,
@@ -735,7 +776,12 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             lease_session.publish_checkpoint(
                 pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
-                    extra_refs=(closure_ref, bundle_manifest_ref, *ready_refs),
+                    extra_refs=(
+                        assemble_state_ref,
+                        closure_ref,
+                        bundle_manifest_ref,
+                        *ready_refs,
+                    ),
                     owner_kind="preview-checkpoint",
                     intent="assemble-checkpoint",
                     active_transaction=_active_preview_transaction.get,
@@ -801,14 +847,16 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
                 "assemble checkpoint does not match the preview JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        assemble_state = assemble_envelope.job_state.get(_JOB_STATE_ASSEMBLE)
+        _assemble_state_ref, assemble_state = _assemble_state_from_checkpoint(
+            assemble_envelope.job_state,
+            deps.artifact_store,
+        )
         ready_closure_id = assemble_envelope.job_state.get(_JOB_STATE_READY_CLOSURE)
         ready_closure_ref_raw = assemble_envelope.job_state.get(_JOB_STATE_READY_CLOSURE_REF)
         bundle_artifact_id = assemble_envelope.job_state.get(_JOB_STATE_BUNDLE_ARTIFACT)
         bundle_digest = assemble_envelope.job_state.get(_JOB_STATE_BUNDLE_DIGEST)
         if (
-            type(assemble_state) is not dict
-            or type(ready_closure_id) is not str
+            type(ready_closure_id) is not str
             or not ready_closure_id
             or type(ready_closure_ref_raw) is not dict
             or type(bundle_artifact_id) is not str
@@ -822,15 +870,12 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
             )
 
         ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
-        try:
-            deps.artifact_store.locate(ready_closure_ref)
-        except ManifestVerificationError as exc:
-            raise CheckpointDecodeError(str(exc), code="CHECKPOINT_REF_UNREADABLE") from exc
+        load_ready_closure(deps.artifact_store, ready_closure_ref)
 
         preview_result = _build_preview_result(
             payload=payload,
             operation=operation,
-            assemble_state=cast(dict[str, object], assemble_state),
+            assemble_state=assemble_state,
             bundle_artifact_id=bundle_artifact_id,
             bundle_digest=bundle_digest,
             ready_closure_artifact_id=ready_closure_id,
@@ -1837,7 +1882,38 @@ def _materialized_preview_inputs_from_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
 ) -> _MaterializedPreviewInputs:
-    raw_sides = job_state.get(_JOB_STATE_SIDES)
+    if set(job_state) != {_JOB_STATE_MATERIALIZED_SIDES_REF, _JOB_STATE_CANONICAL}:
+        raise CheckpointDecodeError(
+            "materialize checkpoint fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    sides_ref_raw = job_state.get(_JOB_STATE_MATERIALIZED_SIDES_REF)
+    if type(sides_ref_raw) is not dict:
+        raise CheckpointDecodeError(
+            "materialize checkpoint sides ref is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    try:
+        sides_ref = artifact_ref_from_dict(sides_ref_raw)
+        sides_document = load_checkpoint_state_artifact(
+            store,
+            sides_ref,
+            document_type=PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+            contract_version=PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION,
+        )
+    except (TypeError, ValueError, KeyError) as exc:
+        if isinstance(exc, CheckpointDecodeError):
+            raise
+        raise CheckpointDecodeError(
+            "materialize checkpoint sides artifact ref is invalid",
+            code="CHECKPOINT_REF_INVALID",
+        ) from exc
+    if set(sides_document) != {"document_type", "contract_version", _JOB_STATE_SIDES}:
+        raise CheckpointDecodeError(
+            "materialized sides artifact fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_sides = sides_document.get(_JOB_STATE_SIDES)
     if type(raw_sides) is not dict:
         raise CheckpointDecodeError(
             "materialize checkpoint sides are invalid",
@@ -1940,6 +2016,55 @@ def _materialized_preview_inputs_from_checkpoint(
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     return _MaterializedPreviewInputs(sides=sides, canonical=canonical)
+
+
+def _assemble_state_from_checkpoint(
+    job_state: Mapping[str, object],
+    store: ArtifactStorePort,
+) -> tuple[ArtifactRef, dict[str, object]]:
+    expected_fields = {
+        _JOB_STATE_ASSEMBLE_REF,
+        _JOB_STATE_READY_CLOSURE,
+        _JOB_STATE_READY_CLOSURE_REF,
+        _JOB_STATE_BUNDLE_ARTIFACT,
+        _JOB_STATE_BUNDLE_DIGEST,
+    }
+    if set(job_state) != expected_fields:
+        raise CheckpointDecodeError(
+            "preview assemble checkpoint fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_ref = job_state.get(_JOB_STATE_ASSEMBLE_REF)
+    if type(raw_ref) is not dict:
+        raise CheckpointDecodeError(
+            "preview assemble state ref is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    try:
+        assemble_state_ref = artifact_ref_from_dict(raw_ref)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "preview assemble state ref is invalid",
+            code="CHECKPOINT_REF_INVALID",
+        ) from exc
+    document = load_checkpoint_state_artifact(
+        store,
+        assemble_state_ref,
+        document_type=PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE,
+        contract_version=PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION,
+    )
+    if set(document) != {"document_type", "contract_version", _JOB_STATE_ASSEMBLE}:
+        raise CheckpointDecodeError(
+            "preview assemble state artifact fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    assemble_state = document.get(_JOB_STATE_ASSEMBLE)
+    if type(assemble_state) is not dict:
+        raise CheckpointDecodeError(
+            "preview assemble state artifact is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return assemble_state_ref, cast(dict[str, object], assemble_state)
 
 
 def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:

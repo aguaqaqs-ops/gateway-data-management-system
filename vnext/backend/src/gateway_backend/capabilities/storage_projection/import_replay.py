@@ -135,7 +135,10 @@ def _keyed_rows_from_canonical(
             retained_indexes=retained_indexes,
         )
         image_by_name = {name: cell for name, cell in image_columns}
-        key_pairs = tuple((column, dict(image_by_name[column])) for column in key_columns)
+        key_pairs = tuple(
+            (column, dict(image_by_name[column]))
+            for column in sorted(key_columns, key=lambda name: name.encode("utf-8"))
+        )
         keyed_rows.append(
             ImportReplayKeyedRow(
                 key_columns=key_pairs,

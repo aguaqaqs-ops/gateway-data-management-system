@@ -224,3 +224,40 @@ def test_import_replay_preserves_supported_canonical_scalar_cells() -> None:
         "ratio32": {"kind": "float32", "bits_hex": "3f800000"},
         "ratio64": {"kind": "float64", "bits_hex": "4000000000000000"},
     }
+
+
+def test_import_replay_canonicalizes_composite_key_column_order() -> None:
+    reader, binding = table_input(
+        "unknown_widget",
+        columns=(
+            int_column("z_id"),
+            int_column("a_id"),
+            varchar_column("value"),
+        ),
+        primary_key_columns=("z_id", "a_id"),
+        rows=(as_row(int_cell(2), int_cell(1), varchar_cell("x")),),
+    )
+    request = _request(
+        ProjectionTableInput(
+            canonical_table="unknown_widget",
+            reader=reader,
+            source_binding=binding,
+        )
+    )
+    result = project_storage(request)
+    assert result.status is ProjectionStatus.COMPLETE
+    projection_snapshots = build_import_projection_snapshots(
+        _request(
+            ProjectionTableInput(
+                canonical_table="unknown_widget",
+                reader=reader.reopen(),
+                source_binding=binding,
+            )
+        ),
+        result,
+    )
+    snapshots = build_import_mutation_snapshots(projection_snapshots)
+    assert snapshots[0].rows[0].key.columns == (
+        ("a_id", {"kind": "signed-integer", "decimal": "1"}),
+        ("z_id", {"kind": "signed-integer", "decimal": "2"}),
+    )

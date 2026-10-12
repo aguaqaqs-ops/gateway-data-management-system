@@ -33,8 +33,11 @@ COMPOSE_GATE_LOCK_PATH = Path("/tmp/gateway-compose-gate.lock")
 COMPOSE_GATE_LOCK_TIMEOUT_SECONDS = 1800.0
 COMPOSE_GATE_LOCK_POLL_SECONDS = 2.0
 _gate_lock_file: TextIO | None = None
-COMPOSE_GATE_PROVENANCE_PATH = (
-    Path(__file__).resolve().parent / ".last_compose_gate_provenance.json"
+COMPOSE_GATE_PROVENANCE_PATH = Path(
+    os.environ.get(
+        "GATEWAY_COMPOSE_GATE_PROVENANCE_PATH",
+        str(Path(tempfile.gettempdir()) / "gateway-compose-gate-provenance.json"),
+    )
 )
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SOURCE_TREE_SHA_DIRTY_COMMAND = (

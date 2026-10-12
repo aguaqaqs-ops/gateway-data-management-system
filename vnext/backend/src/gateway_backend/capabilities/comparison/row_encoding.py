@@ -298,6 +298,21 @@ def _row_digest(row: _EncodedRow, columns: tuple[str, ...]) -> DigestRef:
     return semantic_digest(DigestKind.ROW, _row_frame(row.frame_map(), columns)).digest_ref
 
 
+def _row_occurrence_digest(row_digest: DigestRef, occurrence: int) -> DigestRef:
+    if type(row_digest) is not DigestRef:
+        raise TypeError("row_digest must be DigestRef")
+    if type(occurrence) is not int or occurrence < 0:
+        raise ValueError("occurrence must be a non-negative int")
+    if occurrence == 0:
+        return row_digest
+    payload = (
+        b"keyless-row-occurrence:v1\0"
+        + row_digest.value.encode("ascii")
+        + encode_uleb128(occurrence)
+    )
+    return semantic_digest(DigestKind.ROW, payload).digest_ref
+
+
 def _row_frame(frames: dict[str, bytes], columns: tuple[str, ...]) -> bytes:
     encoded = bytearray(encode_uleb128(len(columns)))
     for name in sorted(columns, key=lambda item: item.encode("utf-8")):

@@ -327,6 +327,25 @@ def test_raw_primary_key_fallback_compares_keyless_rows_as_a_multiset() -> None:
     assert RiskReasonCode.KEY_DEGRADED not in risk.risk_report.tables[0].reason_codes
 
 
+def test_keyless_fallback_table_addition_keeps_duplicate_row_occurrences() -> None:
+    current = _bound_with_fallback_facts(
+        "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('same'), ('same');",
+        b"source-without-key",
+    )
+
+    table = _one_table(_facts(_plan_from_bounds(_bound(""), current)))
+    added_records = tuple(
+        record
+        for record in table.records
+        if record.record_kind is ComparisonRecordKind.ROW_ADDED
+    )
+
+    assert table.status is ComparisonTableStatus.ADDED_TABLE
+    assert table.row_added_count == 2
+    assert len(added_records) == 2
+    assert len({record.row_identity for record in added_records}) == 2
+
+
 @pytest.mark.parametrize("primary_key_appears", (True, False), ids=("appears", "disappears"))
 def test_raw_primary_key_appearance_or_disappearance_is_a_source_schema_change(
     primary_key_appears: bool,

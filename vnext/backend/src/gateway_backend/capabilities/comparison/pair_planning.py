@@ -107,14 +107,11 @@ def _comparison_policy(
     storage_facts_before: ComparisonStorageFacts | None,
     storage_facts_current: ComparisonStorageFacts | None,
 ) -> _ComparisonTablePolicy:
-    keyless_fallback = (
-        view.comparison_role is ComparisonRole.STANDARD
-        and storage_facts_before is not None
-        and storage_facts_current is not None
-        and storage_facts_before.storage_rule_view.canonical_key_policy
+    keyless_fallback = view.comparison_role is ComparisonRole.STANDARD and any(
+        facts is not None
+        and facts.storage_rule_view.canonical_key_policy
         is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
-        and storage_facts_current.storage_rule_view.canonical_key_policy
-        is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+        for facts in (storage_facts_before, storage_facts_current)
     )
     ordered_policy = None
     if view.comparison_role is ComparisonRole.ORDERED:

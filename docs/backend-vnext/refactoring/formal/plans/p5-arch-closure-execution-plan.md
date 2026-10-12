@@ -367,6 +367,10 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
     `submit_job_harness.py`、`http_workspace_harness.py`、`compose_gate_harness.py`（默认不预导入）、`upload_http_packages.py`；
   - compose：`test_submit_compose_e2e.py`、`test_archive_compose_e2e.py`、`test_history_compose_e2e.py`、
     `test_ordered_compare_compose.py`、`test_ordered_submit_bisect_compose.py`、`test_review_compose_e2e.py`（INITIAL 改为空提交后的种子方式）。
+- S2a 携带（2026-10-12，S2a 独立审核 S2a-F1、S2a-F2）：浮点负零归一所需的规范化路径（`capabilities/storage_projection/project.py`
+  或 `capabilities/snapshot_materialization/scalar_encoding.py`，二者择一）；测试 `test_canonical_snapshot_identity.py`、`test_canonical_state_identity.py`。
+- 真实数据链路（DC22）：新增主机侧脚本 `vnext/backend/benchmarks/real_dump_journey.py`（与 `real_dump_census.py` 同目录，不进入生产包与镜像），
+  经公开 HTTP 接口驱动 Preview → Submit → History；可复用 `tests/support/compose_gate_harness.py` 的栈启动与认证。
 - 条件：`capabilities/snapshot_materialization/scalar_encoding.py`（仅当单遍读取暴露出 S2a 未覆盖的解码差异）；
   `infrastructure/repository_read/__init__.py`；`test_sqlite_submit_repository.py`、`test_submit_domain.py`、
   `test_workspace_domain.py`、`test_preview_read_http.py`（仅当新增的 PreviewResult/SubmitAttempt 字段在领域模型中为必填）。

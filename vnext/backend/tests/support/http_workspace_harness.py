@@ -57,6 +57,7 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
     WorkspaceScope,
 )
+from tests.support.preview_fixtures import make_preview_canonical_bindings
 from gateway_backend.http.auth import BearerSessionPort, StaticInternalBearerPort
 from gateway_backend.http.dependencies import (
     AdmissionGatePort,
@@ -517,6 +518,7 @@ def seed_submit_ready_workspace(
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
+            canonical=make_preview_canonical_bindings(),
             bundle_artifact_id="bundle-1",
             ready_closure_artifact_id="closure-1",
             operation_id="op-preview-1",

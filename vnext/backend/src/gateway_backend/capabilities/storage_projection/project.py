@@ -688,6 +688,10 @@ class _CanonicalProjectionReader:
         self._ensure_open()
         return self._descriptor
 
+    def source_columns(self) -> tuple[SourceColumnDescriptor, ...]:
+        self._ensure_open()
+        return self._source_columns
+
     def iter_rows(self) -> Iterator[SourceRow]:
         self._ensure_open()
         if self._iterated:

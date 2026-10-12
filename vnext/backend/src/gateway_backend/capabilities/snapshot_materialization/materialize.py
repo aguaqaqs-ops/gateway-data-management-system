@@ -17,6 +17,7 @@ from gateway_shared_kernel import (
     canonicalize_identifier,
 )
 
+from gateway_backend.capabilities.composite_signal.contracts import COMPOSITE_SIGNAL_CONTRACT_VERSION
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     encode_cell_frame,
@@ -129,6 +130,118 @@ def materialize_sql_snapshot(
             trust,
             (_error(halt.code, halt.message),),
         )
+
+
+def materialize_projected_snapshot(
+    source_snapshot: Snapshot,
+    tables: tuple[SnapshotTable, ...],
+    *,
+    artifact_store: object,
+    context: ParserInvocationContext,
+) -> SnapshotMaterializationResult:
+    """Build and publish a Snapshot from tables produced by a canonical projection."""
+    if type(source_snapshot) is not Snapshot:
+        raise ValueError("source_snapshot must be Snapshot")
+    if type(tables) is not tuple or any(type(table) is not SnapshotTable for table in tables):
+        raise ValueError("tables must be a tuple of SnapshotTable")
+    if type(context) is not ParserInvocationContext:
+        raise ValueError("context must be ParserInvocationContext")
+    stage = source_snapshot.materialization_stage
+    trust = _trust_for(stage)
+    if stage is not MaterializationStage.FINAL:
+        return _failed(
+            stage,
+            trust,
+            (
+                _error(
+                    MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
+                    "canonical projection requires a FINAL source snapshot",
+                ),
+            ),
+        )
+    descriptors = tuple(table.descriptor for table in tables)
+    if any(table.raw_content_digest is None for table in descriptors):
+        return _failed(
+            stage,
+            trust,
+            (
+                _error(
+                    MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
+                    "canonical projection requires complete table content digests",
+                ),
+            ),
+        )
+    if any(table.reader is None for table in tables):
+        return _failed(
+            stage,
+            trust,
+            (
+                _error(
+                    MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
+                    "canonical projection requires a reader for every table",
+                ),
+            ),
+        )
+    try:
+        store = require_artifact_store(artifact_store)
+        snapshot_digest = snapshot_digest_of(
+            stage=stage,
+            parser_version=source_snapshot.parser_version,
+            table_ruleset_version=source_snapshot.table_ruleset_version,
+            tables=descriptors,
+            composite_logic_source_digest=source_snapshot.source_context.composite_logic_source_digest,
+            composite_signal_contract_version=(
+                COMPOSITE_SIGNAL_CONTRACT_VERSION
+                if source_snapshot.source_context.composite_logic_source_digest is not None
+                else None
+            ),
+        )
+        raw_state = raw_state_digest_of(descriptors)
+        snapshot_id = secrets.token_hex(16)
+        snapshot = dataclasses.replace(
+            source_snapshot,
+            snapshot_id=snapshot_id,
+            snapshot_digest=snapshot_digest,
+            raw_state_digest=raw_state,
+            created_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        )
+        summary = SnapshotSummary(
+            snapshot_id=snapshot_id,
+            snapshot_digest=snapshot_digest,
+            raw_state_digest=raw_state,
+            materialization_stage=stage,
+            parser_version=snapshot.parser_version,
+            table_ruleset_version=snapshot.table_ruleset_version,
+            summary_contract_version=SUMMARY_CONTRACT_VERSION,
+            table_count=len(descriptors),
+            tables=descriptors,
+            source_context=snapshot.source_context,
+            diagnostics=(),
+            row_count_total=sum(table.row_count for table in descriptors),
+        )
+        published = publish_ready_tables(
+            tables,
+            snapshot_digest=snapshot_digest,
+            store=store,
+            context=context,
+        )
+        table_set = SnapshotTableSet(
+            snapshot_id=snapshot_id,
+            snapshot_digest=snapshot_digest,
+            table_ruleset_version=snapshot.table_ruleset_version,
+            tables=published,
+        )
+    except ArtifactPublishError as exc:
+        return _failed(stage, trust, (artifact_error_diagnostic(exc),))
+    return SnapshotMaterializationResult(
+        status=SnapshotMaterializationStatus.COMPLETE,
+        materialization_stage=stage,
+        cache_trust_level=trust,
+        diagnostics=(),
+        snapshot=snapshot,
+        summary=summary,
+        table_set=table_set,
+    )
 
 
 def _materialize_selected(

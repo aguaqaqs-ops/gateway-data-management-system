@@ -81,6 +81,7 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     Workspace,
 )
+from tests.support.preview_fixtures import make_preview_canonical_bindings
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -361,6 +362,7 @@ def _preview_result(workspace_id: str) -> PreviewResult:
             surface_digest="d-surface",
             bundle_digest="sha256:preview-canonical",
         ),
+        canonical=make_preview_canonical_bindings(),
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-preview-1",

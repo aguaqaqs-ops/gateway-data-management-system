@@ -31,6 +31,7 @@ from gateway_backend.infrastructure.artifact_store.local_store import LocalArtif
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from tests.support.http_workspace_harness import BASELINE_HEAD
+from tests.support.preview_fixtures import make_preview_canonical_bindings
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedBaselineHeadRead
 from gateway_backend.infrastructure.repository_read.http_arrow import (
@@ -659,6 +660,7 @@ def test_accept_submit_rejects_no_canonical_change_with_production_port(tmp_path
                 surface_digest="d-surface",
                 bundle_digest=baseline_digest,
             ),
+            canonical=make_preview_canonical_bindings(),
             bundle_artifact_id="bundle-1",
             ready_closure_artifact_id="closure-1",
             operation_id="op-preview-1",
@@ -809,6 +811,7 @@ def test_accept_submit_rejects_no_canonical_change_for_full_with_production_port
                 surface_digest="d-surface",
                 bundle_digest=baseline_digest,
             ),
+            canonical=make_preview_canonical_bindings(),
             bundle_artifact_id="bundle-1",
             ready_closure_artifact_id="closure-1",
             operation_id="op-preview-full-1",
@@ -1014,6 +1017,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
+            canonical=make_preview_canonical_bindings(),
             bundle_artifact_id="bundle-1",
             ready_closure_artifact_id="closure-1",
             operation_id="op-preview-accept-1",

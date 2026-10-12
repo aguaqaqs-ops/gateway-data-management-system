@@ -61,6 +61,7 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
     WorkspaceState,
 )
+from tests.support.preview_fixtures import make_preview_canonical_bindings
 from tests.support.workspace_fixtures import (
     FixedScopeResolutionPort,
     InMemoryWorkspaceRepository,
@@ -235,6 +236,7 @@ def _preview_result(*, workspace_id: str, bundle_digest: str = "sha256:preview-c
             surface_digest="d-surface",
             bundle_digest=bundle_digest,
         ),
+        canonical=make_preview_canonical_bindings(),
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-preview-1",

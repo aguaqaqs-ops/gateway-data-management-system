@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from gateway_shared_kernel import DigestRef
 
 class WorkspaceState(StrEnum):
     OPEN = "OPEN"
@@ -253,6 +254,59 @@ class PreviewResultDigests:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviewArtifactRef:
+    artifact_id: str
+    media_type: str
+    size_bytes: int
+    raw_sha256: DigestRef
+
+    def __post_init__(self) -> None:
+        if type(self.artifact_id) is not str or not self.artifact_id:
+            raise ValueError("artifact_id must be a non-empty string")
+        if type(self.media_type) is not str or not self.media_type:
+            raise ValueError("media_type must be a non-empty string")
+        if (
+            type(self.size_bytes) is not int
+            or isinstance(self.size_bytes, bool)
+            or self.size_bytes < 0
+            or self.size_bytes > (2**53) - 1
+        ):
+            raise ValueError("size_bytes must be a non-negative I-JSON safe integer")
+        if type(self.raw_sha256) is not DigestRef:
+            raise ValueError("raw_sha256 must be DigestRef")
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewCanonicalBindings:
+    canonical_table_set_closure_ref: PreviewArtifactRef
+    canonical_table_set_closure_digest: DigestRef
+    canonicalization_manifest_ref: PreviewArtifactRef
+    canonicalization_manifest_digest: DigestRef
+    baseline_canonical_state_digest: DigestRef
+    modified_canonical_state_digest: DigestRef
+    storage_projection_ruleset_digest: DigestRef
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "canonical_table_set_closure_ref",
+            "canonicalization_manifest_ref",
+        ):
+            if type(getattr(self, field_name)) is not PreviewArtifactRef:
+                raise ValueError(f"{field_name} must be PreviewArtifactRef")
+        for field_name in (
+            "canonical_table_set_closure_digest",
+            "canonicalization_manifest_digest",
+            "baseline_canonical_state_digest",
+            "modified_canonical_state_digest",
+            "storage_projection_ruleset_digest",
+        ):
+            if type(getattr(self, field_name)) is not DigestRef:
+                raise ValueError(f"{field_name} must be DigestRef")
+        if self.canonical_table_set_closure_ref.raw_sha256 != self.canonical_table_set_closure_digest:
+            raise ValueError("canonical table set closure digest must match its artifact ref")
+
+
+@dataclass(frozen=True, slots=True)
 class PreviewResult:
     preview_result_id: str
     workspace_id: str
@@ -266,6 +320,7 @@ class PreviewResult:
     contract_version: str
     provider_versions: Mapping[str, str]
     digests: PreviewResultDigests
+    canonical: PreviewCanonicalBindings
     bundle_artifact_id: str
     ready_closure_artifact_id: str
     operation_id: str
@@ -296,6 +351,8 @@ class PreviewResult:
             raise ValueError("provider_versions must be a mapping")
         if type(self.digests) is not PreviewResultDigests:
             raise ValueError("digests must be PreviewResultDigests")
+        if type(self.canonical) is not PreviewCanonicalBindings:
+            raise ValueError("canonical must be PreviewCanonicalBindings")
         if type(self.bundle_artifact_id) is not str or not self.bundle_artifact_id:
             raise ValueError("bundle_artifact_id must be a non-empty string")
         if type(self.ready_closure_artifact_id) is not str or not self.ready_closure_artifact_id:

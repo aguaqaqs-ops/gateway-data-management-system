@@ -299,10 +299,7 @@ def _compare_single_side(
 ) -> ComparisonTableFact:
     if descriptor is None:
         raise StandardComparisonError("TABLE_DESCRIPTOR_MISSING")
-    selected = tuple(
-        canonicalize_identifier(column.name)
-        for column in descriptor.columns
-    )
+    selected = tuple(sorted(canonicalize_identifier(column.name) for column in descriptor.columns))
     schema_changes = ComparisonSchemaChanges(
         current_only_columns=selected if added else (),
         before_only_columns=() if added else selected,

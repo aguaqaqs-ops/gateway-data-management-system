@@ -9,6 +9,7 @@ from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.capabilities.comparison.contracts import (
     ComparisonMode,
     ComparisonFacts,
+    ComparisonSchemaChanges,
     ComparisonSummary,
     ComparisonTableFact,
     ComparisonTableStatus,
@@ -32,6 +33,7 @@ from gateway_backend.capabilities.surface_assembly import (
     SurfaceTableProcessingMode,
     SurfaceTableRefs,
 )
+from gateway_backend.capabilities.surface_assembly.contracts import SurfaceSchemaSummary
 
 
 def _digest(seed: str) -> DigestRef:
@@ -123,3 +125,13 @@ def test_surface_input_rejects_host_path_identity() -> None:
 def test_surface_table_rejects_mismatched_record_refs() -> None:
     with pytest.raises(ValueError, match="provided together"):
         SurfaceRecordsRefs(records_ref=_ref("records"))
+
+
+def test_surface_schema_summary_preserves_composite_compare_key_order() -> None:
+    schema = SurfaceSchemaSummary.from_comparison(
+        ComparisonSchemaChanges(
+            effective_compare_key_current=("source_table", "point_gid"),
+        )
+    )
+
+    assert schema.effective_compare_key_current == ("source_table", "point_gid")

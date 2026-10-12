@@ -105,6 +105,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.snapshot_materialization.materialize import (
     materialize_sql_snapshot,
+    materialize_projected_snapshot,
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
     materialize_repository_ref,
@@ -204,6 +205,7 @@ __all__ = [
     "snapshot_summary_to_document",
     "snapshot_to_document",
     "materialize_sql_snapshot",
+    "materialize_projected_snapshot",
     "materialize_business_snapshot",
     "materialize_repository_ref",
     "manifest_from_bytes",

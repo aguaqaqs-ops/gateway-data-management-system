@@ -520,6 +520,13 @@ def _source_columns(table: SnapshotTable) -> tuple[SourceColumnDescriptor, ...]:
     reader = table.reader
     if isinstance(reader, BoundSnapshotTableReader):
         return reader.source_descriptor().columns
+    source_columns = None if reader is None else getattr(reader, "source_columns", None)
+    if callable(source_columns):
+        columns = source_columns()
+        if type(columns) is tuple and all(
+            isinstance(column, SourceColumnDescriptor) for column in columns
+        ):
+            return columns
     raise ArtifactPublishError(
         MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
         "artifact publish requires a bound snapshot table reader",

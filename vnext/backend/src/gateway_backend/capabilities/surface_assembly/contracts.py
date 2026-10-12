@@ -140,6 +140,13 @@ def _require_sorted_unique_strings(value: object, label: str) -> tuple[str, ...]
     return result
 
 
+def _require_unique_identifiers_in_order(value: object, label: str) -> tuple[str, ...]:
+    result = _require_string_tuple(value, label)
+    if any(_require_identifier(item, label) != item for item in result) or len(set(result)) != len(result):
+        raise ValueError(f"{label} must contain canonical unique identifiers")
+    return result
+
+
 def _optional_digest(value: DigestRef | None) -> str | None:
     return None if value is None else value.value
 
@@ -223,11 +230,11 @@ class SurfaceSchemaSummary:
             "before_only_columns",
             "current_only_columns",
             "selected_columns",
-            "effective_compare_key_before",
-            "effective_compare_key_current",
             "incompatible_columns",
         ):
             object.__setattr__(self, label, _require_sorted_unique_strings(getattr(self, label), label))
+        for label in ("effective_compare_key_before", "effective_compare_key_current"):
+            object.__setattr__(self, label, _require_unique_identifiers_in_order(getattr(self, label), label))
         if type(self.effective_compare_key_changed) is not bool:
             raise ValueError("effective_compare_key_changed must be bool")
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,12 +11,15 @@ import pytest
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.preview_jobs import (
     PREVIEW_MATERIALIZE_HANDLER,
+    PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
     PREVIEW_STEP_ASSEMBLE,
     PreviewJobError,
     decode_preview_payload,
 )
-from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from gateway_backend.application.workspace.preview import build_preview_job_payload
+from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.capabilities.storage_projection import open_canonicalization_manifest
+from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import StepStatus
 from tests.support.preview_job_harness import (
@@ -29,6 +33,11 @@ from tests.support.preview_job_harness import (
     run_claimed_handler,
     step_id_for,
     store_source_package,
+)
+from tests.support.canonical_metadata import (
+    CatalogCommitCanonicalMetadataPort,
+    MetadataControlDbUnitOfWork,
+    metadata_for_catalog,
 )
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
 
@@ -44,6 +53,33 @@ def test_materialize_uses_frozen_baseline_exact_commit(tmp_path: Path) -> None:
     _materialize_all_sides(payload, harness.deps)
     assert harness.baseline_provider.last_session is not None
     assert harness.baseline_provider.last_session.pinned_commit_hash() == "commit-base"
+
+
+def test_initial_baseline_rejects_repository_user_tables(tmp_path: Path) -> None:
+    harness = build_preview_harness(tmp_path)
+    harness.seed_workspace()
+    metadata_port = CatalogCommitCanonicalMetadataPort(
+        {
+            (REPOSITORY_ID, "commit-base"): metadata_for_catalog(
+                harness.baseline_provider.catalog,
+                initial=True,
+            )
+        }
+    )
+
+    def control_uow_factory() -> MetadataControlDbUnitOfWork:
+        return MetadataControlDbUnitOfWork(harness.db_path, metadata_port)
+
+    deps = replace(
+        harness.deps,
+        control_transaction_factory=control_uow_factory,
+    )
+    payload = decode_preview_payload(decode_payload_object(harness))
+    from gateway_backend.application.preview_jobs import _materialize_all_sides
+
+    with pytest.raises(PreviewJobError) as error:
+        _materialize_all_sides(payload, deps)
+    assert error.value.diagnostic_code == "INITIAL_BASELINE_NOT_EMPTY"
 
 
 def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: Path) -> None:
@@ -63,6 +99,23 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
     sides = envelope.job_state["sides"]
     assert isinstance(sides, dict)
     assert {"BASELINE", "INITIAL", "MODIFIED"}.issubset(sides)
+    assert all(
+        sides[role]["contract_version"] == PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION
+        for role in ("BASELINE", "INITIAL", "MODIFIED")
+    )
+    canonical = envelope.job_state["canonical_preview"]
+    assert isinstance(canonical, dict)
+    assert canonical["baseline_canonical_state_digest"].startswith("sha256:")
+    assert canonical["modified_canonical_state_digest"].startswith("sha256:")
+    assert canonical["storage_projection_ruleset_digest"].startswith("sha256:")
+    closure_ref = artifact_ref_from_dict(canonical["canonical_table_set_closure_ref"])
+    closure = json.loads(harness.artifact_store.locate(closure_ref).decode("utf-8"))
+    assert [item["table_name"] for item in closure["tables"]] == ["t"]
+    manifest_ref = artifact_ref_from_dict(canonical["canonicalization_manifest_ref"])
+    manifest = open_canonicalization_manifest(harness.artifact_store, manifest_ref)
+    assert manifest.manifest_digest is not None
+    assert manifest.manifest_digest.value == canonical["canonicalization_manifest_digest"]
+    assert tuple(table.name for table in manifest.tables) == ("t",)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.protection.is_protected(materialize_step.checkpoint_ref.artifact_id)
 

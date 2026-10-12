@@ -26,6 +26,7 @@ from gateway_backend.domain.workspace.models import (
     WorkspaceState,
     derive_read_model_label,
 )
+from tests.support.preview_fixtures import make_preview_canonical_bindings
 from gateway_backend.domain.workspace.policies import (
     assert_exact_scope,
     assert_open_uniqueness,
@@ -240,6 +241,7 @@ def _preview_result(*, head_version: int = 1, commit_id: str = "commit-1") -> Pr
             surface_digest="d-surface",
             bundle_digest="d-bundle",
         ),
+        canonical=make_preview_canonical_bindings(),
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-1",

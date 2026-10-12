@@ -31,7 +31,7 @@ def test_identical_uploaded_initial_and_repository_baseline_compare_unchanged(
     payload = decode_preview_payload(decode_payload_object(harness))
 
     sides = _materialize_all_sides(payload, harness.deps)
-    facts = compare_bound_snapshots(sides["BASELINE"], sides["INITIAL"])
+    facts = compare_bound_snapshots(sides.sides["BASELINE"], sides.sides["INITIAL"])
 
     assert tuple(table.table_name for table in facts.tables) == ("t",)
     assert facts.tables[0].status is ComparisonTableStatus.UNCHANGED

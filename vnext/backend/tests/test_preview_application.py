@@ -24,6 +24,7 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     Workspace,
 )
+from tests.support.preview_fixtures import make_preview_canonical_bindings
 from tests.support.workspace_fixtures import (
     FixedScopeResolutionPort,
     InMemoryWorkspaceRepository,
@@ -97,6 +98,7 @@ def _preview_result(*, generation: int = 1) -> PreviewResult:
             surface_digest="d-surface",
             bundle_digest="d-bundle",
         ),
+        canonical=make_preview_canonical_bindings(),
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-1",

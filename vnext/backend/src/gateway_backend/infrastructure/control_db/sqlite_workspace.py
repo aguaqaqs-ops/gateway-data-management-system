@@ -8,12 +8,15 @@ from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
+from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
 from gateway_backend.domain.workspace.errors import OpenWorkspaceConflict, WorkspaceVersionConflict
 from gateway_backend.domain.workspace.models import (
     InputCompleteness,
+    PreviewArtifactRef,
     PreviewAcceptanceRecord,
+    PreviewCanonicalBindings,
     PreviewResult,
     PreviewResultDigests,
     SourceArtifactBinding,
@@ -390,6 +393,19 @@ def preview_result_to_row(result: PreviewResult) -> tuple[object, ...]:
             "surface_digest": result.digests.surface_digest,
             "bundle_digest": result.digests.bundle_digest,
         },
+        "canonical": {
+            "canonical_table_set_closure_ref": _preview_artifact_ref_to_document(
+                result.canonical.canonical_table_set_closure_ref
+            ),
+            "canonical_table_set_closure_digest": result.canonical.canonical_table_set_closure_digest.value,
+            "canonicalization_manifest_ref": _preview_artifact_ref_to_document(
+                result.canonical.canonicalization_manifest_ref
+            ),
+            "canonicalization_manifest_digest": result.canonical.canonicalization_manifest_digest.value,
+            "baseline_canonical_state_digest": result.canonical.baseline_canonical_state_digest.value,
+            "modified_canonical_state_digest": result.canonical.modified_canonical_state_digest.value,
+            "storage_projection_ruleset_digest": result.canonical.storage_projection_ruleset_digest.value,
+        },
         "bundle_artifact_id": result.bundle_artifact_id,
         "ready_closure_artifact_id": result.ready_closure_artifact_id,
     }
@@ -415,6 +431,9 @@ def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
     provider_versions = binding.get("provider_versions")
     if type(provider_versions) is not dict:
         raise ValueError("preview binding provider_versions must be an object")
+    canonical_payload = binding.get("canonical")
+    if type(canonical_payload) is not dict:
+        raise ValueError("preview binding canonical must be an object")
     return PreviewResult(
         preview_result_id=_required_text(row, "preview_result_id"),
         workspace_id=_required_text(row, "workspace_id"),
@@ -436,10 +455,53 @@ def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
             surface_digest=str(digests_payload["surface_digest"]),
             bundle_digest=str(digests_payload["bundle_digest"]),
         ),
+        canonical=PreviewCanonicalBindings(
+            canonical_table_set_closure_ref=_preview_artifact_ref_from_document(
+                canonical_payload.get("canonical_table_set_closure_ref")
+            ),
+            canonical_table_set_closure_digest=DigestRef(
+                str(canonical_payload["canonical_table_set_closure_digest"])
+            ),
+            canonicalization_manifest_ref=_preview_artifact_ref_from_document(
+                canonical_payload.get("canonicalization_manifest_ref")
+            ),
+            canonicalization_manifest_digest=DigestRef(
+                str(canonical_payload["canonicalization_manifest_digest"])
+            ),
+            baseline_canonical_state_digest=DigestRef(
+                str(canonical_payload["baseline_canonical_state_digest"])
+            ),
+            modified_canonical_state_digest=DigestRef(
+                str(canonical_payload["modified_canonical_state_digest"])
+            ),
+            storage_projection_ruleset_digest=DigestRef(
+                str(canonical_payload["storage_projection_ruleset_digest"])
+            ),
+        ),
         bundle_artifact_id=str(binding["bundle_artifact_id"]),
         ready_closure_artifact_id=str(binding["ready_closure_artifact_id"]),
         operation_id=_required_text(row, "operation_id"),
         created_at=_epoch_us_to_datetime(_required_int(row, "created_at_us")),
+    )
+
+
+def _preview_artifact_ref_to_document(ref: PreviewArtifactRef) -> dict[str, object]:
+    return {
+        "artifact_id": ref.artifact_id,
+        "media_type": ref.media_type,
+        "size_bytes": ref.size_bytes,
+        "raw_sha256": ref.raw_sha256.value,
+    }
+
+
+def _preview_artifact_ref_from_document(raw: object) -> PreviewArtifactRef:
+    if type(raw) is not dict:
+        raise ValueError("preview artifact ref must be an object")
+    return PreviewArtifactRef(
+        artifact_id=str(raw["artifact_id"]),
+        media_type=str(raw["media_type"]),
+        size_bytes=int(raw["size_bytes"]),
+        raw_sha256=DigestRef(str(raw["raw_sha256"])),
     )
 
 

@@ -81,7 +81,8 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
                 canonical_business_digest, source_digest, snapshot_digest, source_artifact_refs,
-                snapshot_table_artifact_refs, preview_ready_closure_ref, preview_ready_closure_digest,
+                canonical_table_set_closure_ref, canonical_table_set_closure_digest,
+                preview_ready_closure_ref, preview_ready_closure_digest,
                 canonicalization_manifest_ref, canonicalization_manifest_digest,
                 repository_import_artifact_ref, repository_artifact_ref, repository_operation_id,
                 repository_operation_evidence, requested_target_ref, requested_verification_policy,
@@ -92,13 +93,13 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
                 'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 1, 'commit-main',
-                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, 'closure-1', 'd-closure',
+                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
             )
             """,
-            (b"[]", b"[]"),
+            (b"[]", "canonical-closure-1", "sha256:canonical-closure"),
         )
         unit_of_work.connection.execute(
             """
@@ -543,7 +544,8 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
             preview_result_id, repository_id, business_baseline_node_id,
             business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
             canonical_business_digest, source_digest, snapshot_digest, source_artifact_refs,
-            snapshot_table_artifact_refs, preview_ready_closure_ref, preview_ready_closure_digest,
+            canonical_table_set_closure_ref, canonical_table_set_closure_digest,
+            preview_ready_closure_ref, preview_ready_closure_digest,
             canonicalization_manifest_ref, canonicalization_manifest_digest,
             repository_import_artifact_ref, repository_artifact_ref, repository_operation_id,
             repository_operation_evidence, requested_target_ref, requested_verification_policy,
@@ -554,13 +556,13 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
             finalized_at_us, aborted_at_us, abort_code
         ) VALUES (
             'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 1, 'commit-main',
-            'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, 'closure-1', 'd-closure',
+            'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
             'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
             'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
             'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
         )
         """,
-        (b"[]", b"[]"),
+        (b"[]", "canonical-closure-1", "sha256:canonical-closure"),
     )
     connection.execute(
         """

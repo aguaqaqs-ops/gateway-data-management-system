@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,19 +13,8 @@ from uuid import UUID, uuid4
 
 import httpx
 from gateway_repository_client import RepositoryClient
-from gateway_repository_client.errors import (
-    RepositoryClientError,
-    RepositoryClientTimeoutError,
-    RepositoryProtocolError,
-    RepositoryStreamError,
-)
-
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
-from gateway_backend.application.preview_jobs import (
-    PreviewJobError,
-    compute_baseline_canonical_bundle_digest,
-    preview_job_definitions,
-)
+from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
 from gateway_backend.application.history.compare_registry import assert_compare_registry_ready
 from gateway_backend.application.preview_registry import assert_preview_registry_ready
@@ -42,17 +31,10 @@ from gateway_backend.application.submit_registry import (
 )
 from gateway_backend.application.submission.accept_transaction import assert_submit_job_registered
 from gateway_backend.application.submission.contracts import SubmitImportPublicationPort
-from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    RepositoryProviderError,
-    RepositoryTableAccessProvider,
-)
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import (
-    BaselineHead,
-    InputCompleteness,
     PreviewAcceptanceRecord,
     PreviewResult,
     UploadRevision,
@@ -89,7 +71,6 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
 )
 from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.infrastructure.repository_read import (
-    build_http_repository_provider_factory,
     load_repository_bearer_token,
 )
 from gateway_backend.infrastructure.repository_write import (
@@ -236,74 +217,6 @@ def assert_repository_service_ready(
         raise ValueError("repository service is not ready") from None
 
 
-_BASELINE_DIGEST_UNSUPPORTED_RULESET_MESSAGE = (
-    "ruleset_version is not supported by this implementation"
-)
-
-
-def _api_error_for_baseline_digest_failure(exc: BaseException) -> ApiError:
-    if isinstance(exc, PreviewJobError):
-        if str(exc) == _BASELINE_DIGEST_UNSUPPORTED_RULESET_MESSAGE:
-            return ApiError(
-                code="SERVICE_NOT_READY",
-                message="preview ruleset version is not supported by this deployment",
-                status_code=503,
-            )
-        return ApiError(
-            code="DEPENDENCY_UNAVAILABLE",
-            message="baseline canonical digest is unavailable",
-            status_code=503,
-        )
-    if isinstance(
-        exc,
-        (
-            ValueError,
-            RepositoryProviderError,
-            httpx.HTTPError,
-            RepositoryClientError,
-            RepositoryProtocolError,
-            RepositoryStreamError,
-            RepositoryClientTimeoutError,
-        ),
-    ):
-        return ApiError(
-            code="DEPENDENCY_UNAVAILABLE",
-            message="baseline canonical digest is unavailable",
-            status_code=503,
-        )
-    raise exc
-
-
-class HttpBaselineCanonicalDigestPort:
-    def __init__(
-        self,
-        *,
-        provider_factory: Callable[[str, str], RepositoryTableAccessProvider],
-    ) -> None:
-        self._provider_factory = provider_factory
-
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: BaselineHead,
-        input_completeness: InputCompleteness,
-        ruleset_version: str,
-    ) -> str:
-        store = InMemoryArtifactStore()
-        try:
-            return compute_baseline_canonical_bundle_digest(
-                repository_id=repository_id,
-                baseline_head=baseline_head,
-                input_completeness=input_completeness,
-                ruleset_version=ruleset_version,
-                provider_factory=self._provider_factory,
-                store=store,
-            )
-        except BaseException as exc:
-            raise _api_error_for_baseline_digest_failure(exc) from exc
-
-
 class HttpRepositoryMainResolvePort:
     def __init__(
         self,
@@ -383,12 +296,6 @@ def prepare_backend_runtime(
     def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path, read_only=read_only)
 
-    provider_factory = build_http_repository_provider_factory(
-        base_url=settings.repository_base_url,
-        bearer_token=repository_token,
-        timeout_seconds=settings.repository_timeout_seconds,
-        transport=repository_transport,
-    )
     write_client = HttpRepositoryWriteClient(
         base_url=settings.repository_base_url,
         bearer_token=repository_token,
@@ -441,9 +348,6 @@ def prepare_backend_runtime(
         internal_bearer_port=StaticInternalBearerPort(
             load_internal_bearer_token(settings.internal_bearer_token_file)
         ),
-        baseline_canonical_digest=HttpBaselineCanonicalDigestPort(
-            provider_factory=provider_factory,
-        ),
         main_resolve=HttpRepositoryMainResolvePort(
             base_url=settings.repository_base_url,
             bearer_token=repository_token,
@@ -484,7 +388,6 @@ def build_submit_import_publication_port() -> SubmitImportPublicationPort:
 __all__ = [
     "BackendRuntime",
     "ClosableAdmissionGate",
-    "HttpBaselineCanonicalDigestPort",
     "HttpRepositoryMainResolvePort",
     "LocalArtifactBundleReader",
     "LocalArtifactRefLookup",

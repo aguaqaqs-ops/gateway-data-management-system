@@ -91,9 +91,18 @@ def validate_upload_role_closure(
     raise UploadClosureInvalid("input_completeness must be FULL or MODIFIED_ONLY")
 
 
-def derive_preview_staleness(result: PreviewResult, current_head: BaselineHead) -> bool:
+def derive_preview_staleness(
+    result: PreviewResult,
+    current_head: BaselineHead,
+    current_storage_projection_ruleset_digest: str | None = None,
+) -> bool:
     return (
         result.business_baseline_node_id != current_head.business_baseline_node_id
         or result.business_baseline_commit_id != current_head.business_baseline_commit_id
         or result.baseline_head_version != current_head.baseline_head_version
+        or (
+            current_storage_projection_ruleset_digest is not None
+            and result.canonical.storage_projection_ruleset_digest.value
+            != current_storage_projection_ruleset_digest
+        )
     )

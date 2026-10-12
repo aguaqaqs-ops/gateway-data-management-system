@@ -23,10 +23,7 @@ from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.application.submit_registry import submit_job_definitions
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.application.submission.contracts import SUBMIT_JOB_CONTRACT_VERSION
-from gateway_backend.application.submission.ports import (
-    BaselineCanonicalDigestPort,
-    SubmitControlUnitOfWorkFactory,
-)
+from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
 from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_backend.application.submission.errors import AbortProofNotSatisfied
 from gateway_backend.application.submission.job_payload import (
@@ -57,7 +54,10 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
     WorkspaceScope,
 )
-from tests.support.preview_fixtures import make_preview_canonical_bindings
+from tests.support.preview_fixtures import (
+    make_canonical_artifact_fixture,
+    make_preview_canonical_bindings,
+)
 from gateway_backend.http.auth import BearerSessionPort, StaticInternalBearerPort
 from gateway_backend.http.dependencies import (
     AdmissionGatePort,
@@ -100,18 +100,15 @@ TEST_BEARER = "test-session-token"
 TEST_BEARER_LIMITED = "limited-session-token"
 TEST_INTERNAL_BEARER = "test-internal-bearer"
 BASELINE_HEAD = make_baseline_head(version=3, commit_id="commit-base")
-BASELINE_CANONICAL_DIGEST = "sha256:baseline-canonical"
 FIXED_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 _PAYLOAD_INITIAL = b"a"
 _PAYLOAD_MODIFIED = b"ab"
 _PAYLOAD_CLOSURE = b"c"
-_PAYLOAD_SNAP = b"d"
 _SHA_INITIAL = raw_blob_digest(_PAYLOAD_INITIAL).value
 _SHA_MODIFIED = raw_blob_digest(_PAYLOAD_MODIFIED).value
 _SHA_CLOSURE = raw_blob_digest(_PAYLOAD_CLOSURE).value
-_SHA_SNAP = raw_blob_digest(_PAYLOAD_SNAP).value
 _PREVIEW_CANONICAL_DIGEST = "sha256:" + "p" * 62 + "ca"
 
 
@@ -302,40 +299,6 @@ def workspace_job_registry(
 
 
 @dataclass
-class FakeBaselineCanonicalDigestPort:
-    digest: str = BASELINE_CANONICAL_DIGEST
-
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: object,
-        input_completeness: object,
-        ruleset_version: str,
-    ) -> str:
-        del repository_id, baseline_head, input_completeness, ruleset_version
-        return self.digest
-
-
-@dataclass
-class RecordingBaselineCanonicalDigestPort:
-    digest: str = BASELINE_CANONICAL_DIGEST
-    digest_calls: int = 0
-
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: object,
-        input_completeness: object,
-        ruleset_version: str,
-    ) -> str:
-        del repository_id, baseline_head, input_completeness, ruleset_version
-        self.digest_calls += 1
-        return self.digest
-
-
-@dataclass
 class RecordingMainResolvePort:
     commit_id: str = "commit-main"
     resolve_calls: int = 0
@@ -441,12 +404,7 @@ def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        ArtifactRef(
-            artifact_id="snap-1",
-            media_type="application/octet-stream",
-            size_bytes=len(_PAYLOAD_SNAP),
-            raw_sha256=DigestRef(_SHA_SNAP),
-        ),
+        *make_canonical_artifact_fixture().refs,
     )
 
 
@@ -558,7 +516,7 @@ def seed_submit_ready_workspace(
         "initial-1": _PAYLOAD_INITIAL,
         "modified-1": _PAYLOAD_MODIFIED,
         "closure-1": _PAYLOAD_CLOSURE,
-        "snap-1": _PAYLOAD_SNAP,
+        **make_canonical_artifact_fixture().payloads,
     }
     for ref in protected_refs:
         artifact_store.register_bytes(ref, payload_by_id[ref.artifact_id])
@@ -876,7 +834,6 @@ def create_workspace_http_environment(
     include_submit_registry: bool = True,
     extra_sessions: dict[str, IdentityContext] | None = None,
     now: Callable[[], datetime] | None = None,
-    baseline_canonical_digest: BaselineCanonicalDigestPort | None = None,
     main_resolve_port: RecordingMainResolvePort | FailingMainResolvePort | None = None,
     db_path: Path | None = None,
     artifact_store: InMemoryBoundedArtifactStore | BoundedArtifactStore | None = None,
@@ -908,7 +865,6 @@ def create_workspace_http_environment(
 
     operation_reader = ReadOnlyOperationStore(unit_of_work_factory)
     submission_reader = ReadOnlySubmissionStore(unit_of_work_factory)
-    baseline_digest = baseline_canonical_digest or FakeBaselineCanonicalDigestPort()
     main_resolve = main_resolve_port or RecordingMainResolvePort()
     job_registry = workspace_job_registry(
         include_preview=include_preview_registry,
@@ -964,7 +920,6 @@ def create_workspace_http_environment(
         comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
         submission_reader=submission_reader,
         internal_bearer_port=StaticInternalBearerPort(TEST_INTERNAL_BEARER),
-        baseline_canonical_digest=baseline_digest,
         main_resolve=main_resolve,
         operator_recovery_port=operator_recovery_port,
         now=clock,

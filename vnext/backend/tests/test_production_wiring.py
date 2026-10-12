@@ -18,9 +18,7 @@ from gateway_backend.bootstrap.operation_worker import build_production_preview_
 from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryRef
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
 from gateway_backend.http.auth import LiveFileSessionPort
-from gateway_backend.http.errors import ApiError
 from gateway_backend.bootstrap.composition import (
-    HttpBaselineCanonicalDigestPort,
     HttpRepositoryMainResolvePort,
     build_workspace_job_registry,
     prepare_backend_runtime,
@@ -30,8 +28,10 @@ from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_shared_kernel import DigestRef, raw_blob_digest
-from tests.support.http_workspace_harness import BASELINE_HEAD
-from tests.support.preview_fixtures import make_preview_canonical_bindings
+from tests.support.preview_fixtures import (
+    make_canonical_artifact_fixture,
+    make_preview_canonical_bindings,
+)
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
 from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedBaselineHeadRead
 from gateway_backend.infrastructure.repository_read.http_arrow import (
@@ -273,161 +273,6 @@ def _repository_catalog_transport(
     return httpx.MockTransport(handler)
 
 
-def test_http_baseline_canonical_digest_port_returns_digest() -> None:
-    factory = build_http_repository_provider_factory(
-        base_url="http://repository.test",
-        bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0,
-        transport=_repository_catalog_transport(),
-    )
-    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
-    digest = port.get_baseline_canonical_digest(
-        repository_id=str(REPO_ID),
-        baseline_head=BaselineHead(
-            business_baseline_node_id="node-1",
-            business_baseline_commit_id=COMMIT_ID,
-            baseline_head_version=3,
-        ),
-        input_completeness=InputCompleteness.MODIFIED_ONLY,
-        ruleset_version=RULESET_VERSION,
-    )
-    assert digest.startswith("sha256:")
-
-
-def test_http_baseline_canonical_digest_port_returns_digest_for_full() -> None:
-    factory = build_http_repository_provider_factory(
-        base_url="http://repository.test",
-        bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0,
-        transport=_repository_catalog_transport(),
-    )
-    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
-    digest = port.get_baseline_canonical_digest(
-        repository_id=str(REPO_ID),
-        baseline_head=BaselineHead(
-            business_baseline_node_id="node-1",
-            business_baseline_commit_id=COMMIT_ID,
-            baseline_head_version=3,
-        ),
-        input_completeness=InputCompleteness.FULL,
-        ruleset_version=RULESET_VERSION,
-    )
-    assert digest.startswith("sha256:")
-
-
-def test_http_baseline_canonical_digest_port_maps_unsupported_ruleset_to_service_not_ready() -> None:
-    factory = build_http_repository_provider_factory(
-        base_url="http://repository.test",
-        bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0,
-        transport=_repository_catalog_transport(),
-    )
-    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
-    with pytest.raises(ApiError) as exc_info:
-        port.get_baseline_canonical_digest(
-            repository_id=str(REPO_ID),
-            baseline_head=BASELINE_HEAD,
-            input_completeness=InputCompleteness.MODIFIED_ONLY,
-            ruleset_version="unsupported-ruleset",
-        )
-    assert exc_info.value.code == "SERVICE_NOT_READY"
-    assert exc_info.value.status_code == 503
-
-
-def test_http_baseline_canonical_digest_port_maps_repository_connect_failure_to_503() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("refused")
-
-    factory = build_http_repository_provider_factory(
-        base_url="http://repository.test",
-        bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0,
-        transport=httpx.MockTransport(handler),
-    )
-    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
-    with pytest.raises(ApiError) as exc_info:
-        port.get_baseline_canonical_digest(
-            repository_id=str(REPO_ID),
-            baseline_head=BASELINE_HEAD,
-            input_completeness=InputCompleteness.MODIFIED_ONLY,
-            ruleset_version=RULESET_VERSION,
-        )
-    assert exc_info.value.code == "DEPENDENCY_UNAVAILABLE"
-    assert exc_info.value.status_code == 503
-
-
-def test_http_baseline_canonical_digest_port_maps_repository_timeout_to_503() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        raise httpx.ReadTimeout("slow")
-
-    factory = build_http_repository_provider_factory(
-        base_url="http://repository.test",
-        bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0,
-        transport=httpx.MockTransport(handler),
-    )
-    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
-    with pytest.raises(ApiError) as exc_info:
-        port.get_baseline_canonical_digest(
-            repository_id=str(REPO_ID),
-            baseline_head=BASELINE_HEAD,
-            input_completeness=InputCompleteness.MODIFIED_ONLY,
-            ruleset_version=RULESET_VERSION,
-        )
-    assert exc_info.value.code == "DEPENDENCY_UNAVAILABLE"
-    assert exc_info.value.status_code == 503
-
-
-def test_http_baseline_canonical_digest_port_maps_repository_wire_error_to_503() -> None:
-    encoded = encode_commit_id_path(COMMIT_ID)
-    catalog_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/catalog"
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == catalog_path:
-            return httpx.Response(
-                503,
-                json={
-                    "code": "SERVICE_NOT_READY",
-                    "message": "repository is not ready",
-                    "request_id": "req-catalog",
-                },
-                headers={"X-Request-ID": "req-catalog"},
-            )
-        return httpx.Response(404, json={"code": "NOT_FOUND"}, headers={"X-Request-ID": "req-miss"})
-
-    factory = build_http_repository_provider_factory(
-        base_url="http://repository.test",
-        bearer_token=TEST_REPOSITORY_TOKEN,
-        timeout_seconds=30.0,
-        transport=httpx.MockTransport(handler),
-    )
-    port = HttpBaselineCanonicalDigestPort(provider_factory=factory)
-    with pytest.raises(ApiError) as exc_info:
-        port.get_baseline_canonical_digest(
-            repository_id=str(REPO_ID),
-            baseline_head=BASELINE_HEAD,
-            input_completeness=InputCompleteness.MODIFIED_ONLY,
-            ruleset_version=RULESET_VERSION,
-        )
-    assert exc_info.value.code == "DEPENDENCY_UNAVAILABLE"
-    assert exc_info.value.status_code == 503
-
-
-def test_http_baseline_canonical_digest_port_does_not_mask_programming_errors() -> None:
-    def broken_factory(repository_id: str, commit_id: str) -> object:
-        del repository_id, commit_id
-        raise TypeError("programming error")
-
-    port = HttpBaselineCanonicalDigestPort(provider_factory=broken_factory)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="programming error"):
-        port.get_baseline_canonical_digest(
-            repository_id=str(REPO_ID),
-            baseline_head=BASELINE_HEAD,
-            input_completeness=InputCompleteness.MODIFIED_ONLY,
-            ruleset_version=RULESET_VERSION,
-        )
-
-
 def test_http_repository_main_resolve_uses_exact_wire() -> None:
     path = f"/v1/repositories/{REPO_ID}/versioned/refs/main"
 
@@ -568,310 +413,12 @@ def _seed_protected_artifacts(artifact_root: Path, refs: tuple[ArtifactRef, ...]
         store.put(payloads[ref.artifact_id], ref)
 
 
-def test_accept_submit_rejects_no_canonical_change_with_production_port(tmp_path: Path) -> None:
-    from dataclasses import replace
-    from datetime import UTC, datetime
-    from fastapi.testclient import TestClient
-
-    from gateway_backend.app import create_app
-    from gateway_backend.application.workspace import create_or_get_workspace
-    from gateway_backend.domain.workspace.models import (
-        PreviewResult,
-        PreviewResultDigests,
-        SourceArtifactBinding,
-        SourceArtifactRole,
-        UploadRevision,
-    )
-    from gateway_backend.http.dependencies import ClosableAdmissionGate
-    from tests.support.http_workspace_harness import _protected_preview_refs
-    from tests.support.runtime_settings import TEST_SESSION_TOKEN
-
-    fixed_now = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-    transport = _repository_catalog_transport(TEST_MAPPING_COMMIT_ID)
-    prepare_backend_runtime_paths(tmp_path)
-    settings = make_backend_settings(
-        tmp_path,
-        control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
-        repository_bearer_token_file=tmp_path / "repository-bearer-token",
-    )
-    runtime = prepare_backend_runtime(
-        settings,
-        skip_repository_ready_probe=True,
-        repository_transport=transport,
-    )
-    db_path = tmp_path / "control" / "control.sqlite3"
-    baseline_head = _authoritative_baseline_head(db_path)
-    baseline_digest = runtime.workspace_http.baseline_canonical_digest.get_baseline_canonical_digest(
-        repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=baseline_head,
-        input_completeness=InputCompleteness.MODIFIED_ONLY,
-        ruleset_version=RULESET_VERSION,
-    )
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=baseline_head,
-    )
-    context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        created = create_or_get_workspace(
-            context=context,
-            scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
-            created_at=fixed_now,
-        )
-        workspace = created.workspace
-        upload_revision = UploadRevision(
-            upload_revision_id="ur-1",
-            workspace_id=workspace.workspace_id,
-            generation=1,
-            input_completeness=InputCompleteness.MODIFIED_ONLY,
-            source_artifacts={
-                SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="modified-1",
-                    media_type="application/gzip",
-                    size_bytes=2,
-                    raw_sha256="sha256:" + "a" * 64,
-                ),
-            },
-            idempotency_key="upload-key",
-            request_fingerprint="fp-upload",
-            created_by="actor-1",
-            created_at=fixed_now,
-        )
-        preview = PreviewResult(
-            preview_result_id="pr-1",
-            workspace_id=workspace.workspace_id,
-            upload_revision_id=upload_revision.upload_revision_id,
-            generation=1,
-            repository_id=TEST_MAPPING_REPOSITORY_ID,
-            business_baseline_node_id=baseline_head.business_baseline_node_id,
-            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
-            baseline_head_version=baseline_head.baseline_head_version,
-            ruleset_version=RULESET_VERSION,
-            contract_version="contract-1",
-            provider_versions={"comparison": "v1"},
-            digests=PreviewResultDigests(
-                source_digest="d-source",
-                input_digest="d-input",
-                snapshot_digest="d-snapshot",
-                comparison_digest="d-comparison",
-                risk_digest="d-risk",
-                surface_digest="d-surface",
-                bundle_digest=baseline_digest,
-            ),
-            canonical=make_preview_canonical_bindings(),
-            bundle_artifact_id="bundle-1",
-            ready_closure_artifact_id="closure-1",
-            operation_id="op-preview-1",
-            created_at=fixed_now,
-        )
-        unit_of_work.workspace.save_upload_revision(upload_revision)
-        unit_of_work.workspace.save_preview_result(preview)
-        updated_workspace = replace(
-            workspace,
-            repository_id=TEST_MAPPING_REPOSITORY_ID,
-            generation=1,
-            optimistic_version=workspace.optimistic_version + 1,
-            current_upload_revision_id=upload_revision.upload_revision_id,
-            current_preview_result_id=preview.preview_result_id,
-            updated_at=fixed_now,
-        )
-        unit_of_work.workspace.save_workspace(
-            updated_workspace,
-            expected_version=workspace.optimistic_version,
-        )
-        unit_of_work.set_artifact_protection(
-            _protected_preview_refs(),
-            owner_kind="current-preview",
-            owner_id=updated_workspace.workspace_id,
-            intent="current-preview",
-        )
-    workspace_http = replace(
-        runtime.workspace_http,
-        admission_gate=ClosableAdmissionGate(limit=8),
-    )
-    client = TestClient(create_app(workspace_http=workspace_http))
-    response = client.post(
-        f"/v1/workspaces/{updated_workspace.workspace_id}/submit-attempts",
-        headers={
-            "Authorization": f"Bearer {TEST_SESSION_TOKEN}",
-            "Idempotency-Key": "submit-no-canonical-change",
-            "Content-Type": "application/json",
-        },
-        json={
-            "expected_workspace_version": updated_workspace.optimistic_version,
-            "upload_revision_id": upload_revision.upload_revision_id,
-            "preview_result_id": preview.preview_result_id,
-            "generation": upload_revision.generation,
-            "expected_baseline_node_id": baseline_head.business_baseline_node_id,
-            "expected_baseline_head_version": baseline_head.baseline_head_version,
-            "options": {},
-        },
-    )
-    assert response.status_code == 409
-    assert response.json()["code"] == "NO_CANONICAL_CHANGE"
-
-
-def test_accept_submit_rejects_no_canonical_change_for_full_with_production_port(tmp_path: Path) -> None:
-    from dataclasses import replace
-    from datetime import UTC, datetime
-    from fastapi.testclient import TestClient
-
-    from gateway_backend.app import create_app
-    from gateway_backend.application.workspace import create_or_get_workspace
-    from gateway_backend.domain.workspace.models import (
-        PreviewResult,
-        PreviewResultDigests,
-        SourceArtifactBinding,
-        SourceArtifactRole,
-        UploadRevision,
-    )
-    from gateway_backend.http.dependencies import ClosableAdmissionGate
-    from tests.support.http_workspace_harness import _protected_preview_refs
-    from tests.support.runtime_settings import TEST_SESSION_TOKEN
-
-    fixed_now = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-    transport = _repository_catalog_transport(TEST_MAPPING_COMMIT_ID)
-    prepare_backend_runtime_paths(tmp_path)
-    settings = make_backend_settings(
-        tmp_path,
-        control_db_path=tmp_path / "control" / "control.sqlite3",
-        artifact_root=tmp_path / "artifacts",
-        repository_bearer_token_file=tmp_path / "repository-bearer-token",
-    )
-    runtime = prepare_backend_runtime(
-        settings,
-        skip_repository_ready_probe=True,
-        repository_transport=transport,
-    )
-    db_path = tmp_path / "control" / "control.sqlite3"
-    baseline_head = _authoritative_baseline_head(db_path)
-    baseline_digest = runtime.workspace_http.baseline_canonical_digest.get_baseline_canonical_digest(
-        repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=baseline_head,
-        input_completeness=InputCompleteness.FULL,
-        ruleset_version=RULESET_VERSION,
-    )
-    scope_resolution = FixedScopeResolutionPort(
-        repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=baseline_head,
-    )
-    context = make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"}))
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        created = create_or_get_workspace(
-            context=context,
-            scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
-            created_at=fixed_now,
-        )
-        workspace = created.workspace
-        upload_revision = UploadRevision(
-            upload_revision_id="ur-full-1",
-            workspace_id=workspace.workspace_id,
-            generation=1,
-            input_completeness=InputCompleteness.FULL,
-            source_artifacts={
-                SourceArtifactRole.INITIAL: SourceArtifactBinding(
-                    artifact_id="initial-1",
-                    media_type="application/gzip",
-                    size_bytes=2,
-                    raw_sha256="sha256:" + "b" * 64,
-                ),
-                SourceArtifactRole.MODIFIED: SourceArtifactBinding(
-                    artifact_id="modified-1",
-                    media_type="application/gzip",
-                    size_bytes=2,
-                    raw_sha256="sha256:" + "c" * 64,
-                ),
-            },
-            idempotency_key="upload-key-full",
-            request_fingerprint="fp-upload-full",
-            created_by="actor-1",
-            created_at=fixed_now,
-        )
-        preview = PreviewResult(
-            preview_result_id="pr-full-1",
-            workspace_id=workspace.workspace_id,
-            upload_revision_id=upload_revision.upload_revision_id,
-            generation=1,
-            repository_id=TEST_MAPPING_REPOSITORY_ID,
-            business_baseline_node_id=baseline_head.business_baseline_node_id,
-            business_baseline_commit_id=baseline_head.business_baseline_commit_id,
-            baseline_head_version=baseline_head.baseline_head_version,
-            ruleset_version=RULESET_VERSION,
-            contract_version="contract-1",
-            provider_versions={"comparison": "v1"},
-            digests=PreviewResultDigests(
-                source_digest="d-source",
-                input_digest="d-input",
-                snapshot_digest="d-snapshot",
-                comparison_digest="d-comparison",
-                risk_digest="d-risk",
-                surface_digest="d-surface",
-                bundle_digest=baseline_digest,
-            ),
-            canonical=make_preview_canonical_bindings(),
-            bundle_artifact_id="bundle-1",
-            ready_closure_artifact_id="closure-1",
-            operation_id="op-preview-full-1",
-            created_at=fixed_now,
-        )
-        unit_of_work.workspace.save_upload_revision(upload_revision)
-        unit_of_work.workspace.save_preview_result(preview)
-        updated_workspace = replace(
-            workspace,
-            repository_id=TEST_MAPPING_REPOSITORY_ID,
-            generation=1,
-            optimistic_version=workspace.optimistic_version + 1,
-            current_upload_revision_id=upload_revision.upload_revision_id,
-            current_preview_result_id=preview.preview_result_id,
-            updated_at=fixed_now,
-        )
-        unit_of_work.workspace.save_workspace(
-            updated_workspace,
-            expected_version=workspace.optimistic_version,
-        )
-        unit_of_work.set_artifact_protection(
-            _protected_preview_refs(),
-            owner_kind="current-preview",
-            owner_id=updated_workspace.workspace_id,
-            intent="current-preview",
-        )
-    workspace_http = replace(
-        runtime.workspace_http,
-        admission_gate=ClosableAdmissionGate(limit=8),
-    )
-    client = TestClient(create_app(workspace_http=workspace_http))
-    response = client.post(
-        f"/v1/workspaces/{updated_workspace.workspace_id}/submit-attempts",
-        headers={
-            "Authorization": f"Bearer {TEST_SESSION_TOKEN}",
-            "Idempotency-Key": "submit-no-canonical-change-full",
-            "Content-Type": "application/json",
-        },
-        json={
-            "expected_workspace_version": updated_workspace.optimistic_version,
-            "upload_revision_id": upload_revision.upload_revision_id,
-            "preview_result_id": preview.preview_result_id,
-            "generation": upload_revision.generation,
-            "expected_baseline_node_id": baseline_head.business_baseline_node_id,
-            "expected_baseline_head_version": baseline_head.baseline_head_version,
-            "options": {},
-        },
-    )
-    assert response.status_code == 409
-    assert response.json()["code"] == "NO_CANONICAL_CHANGE"
-
-
 _PAYLOAD_INITIAL = b"a"
 _PAYLOAD_MODIFIED = b"ab"
 _PAYLOAD_CLOSURE = b"c"
-_PAYLOAD_SNAP = b"d"
 _SHA_INITIAL = raw_blob_digest(_PAYLOAD_INITIAL).value
 _SHA_MODIFIED = raw_blob_digest(_PAYLOAD_MODIFIED).value
 _SHA_CLOSURE = raw_blob_digest(_PAYLOAD_CLOSURE).value
-_SHA_SNAP = raw_blob_digest(_PAYLOAD_SNAP).value
 _PREVIEW_CANONICAL_DIGEST = "sha256:" + "p" * 62 + "ca"
 
 
@@ -895,12 +442,7 @@ def _production_submit_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        ArtifactRef(
-            artifact_id="snap-1",
-            media_type="application/octet-stream",
-            size_bytes=len(_PAYLOAD_SNAP),
-            raw_sha256=DigestRef(_SHA_SNAP),
-        ),
+        *make_canonical_artifact_fixture().refs,
     )
 
 
@@ -941,23 +483,18 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     )
     db_path = tmp_path / "control" / "control.sqlite3"
     baseline_head = _authoritative_baseline_head(db_path)
-    baseline_digest = runtime.workspace_http.baseline_canonical_digest.get_baseline_canonical_digest(
-        repository_id=TEST_MAPPING_REPOSITORY_ID,
-        baseline_head=baseline_head,
-        input_completeness=InputCompleteness.FULL,
-        ruleset_version=RULESET_VERSION,
-    )
-    assert baseline_digest != _PREVIEW_CANONICAL_DIGEST
     protected_refs = _production_submit_preview_refs()
+    canonical_fixture = make_canonical_artifact_fixture()
+    payloads = {
+        "initial-1": _PAYLOAD_INITIAL,
+        "modified-1": _PAYLOAD_MODIFIED,
+        "closure-1": _PAYLOAD_CLOSURE,
+        **canonical_fixture.payloads,
+    }
     _seed_protected_artifacts(
         artifact_root,
         protected_refs,
-        {
-            "initial-1": _PAYLOAD_INITIAL,
-            "modified-1": _PAYLOAD_MODIFIED,
-            "closure-1": _PAYLOAD_CLOSURE,
-            "snap-1": _PAYLOAD_SNAP,
-        },
+        payloads,
     )
     scope_resolution = FixedScopeResolutionPort(
         repository_id=TEST_MAPPING_REPOSITORY_ID,

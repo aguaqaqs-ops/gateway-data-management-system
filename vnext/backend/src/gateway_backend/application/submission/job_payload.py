@@ -29,7 +29,6 @@ def submit_successor_step_id(operation_id: str, step_name: str) -> str:
 def build_submit_job_payload(
     *,
     attempt: SubmitAttempt,
-    snapshot_table_set_digest: str,
     options: Mapping[str, object] | None = None,
 ) -> bytes:
     payload = {
@@ -48,7 +47,10 @@ def build_submit_job_payload(
         "canonical_business_digest": attempt.canonical_business_digest,
         "source_artifact_refs": list(attempt.source_artifact_refs),
         "preview_ready_closure_ref": attempt.preview_ready_closure_ref,
-        "snapshot_table_set_digest": snapshot_table_set_digest,
+        "canonical_table_set_closure_ref": attempt.canonical_table_set_closure_ref,
+        "canonical_table_set_closure_digest": attempt.canonical_table_set_closure_digest,
+        "canonicalization_manifest_ref": attempt.canonicalization_manifest_ref,
+        "canonicalization_manifest_digest": attempt.canonicalization_manifest_digest,
         "ruleset_version": "v1",
         "storage_projection_version": "v1",
         "canonicalization_manifest_contract_version": "v1",

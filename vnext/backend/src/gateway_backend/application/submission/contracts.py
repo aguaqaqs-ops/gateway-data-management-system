@@ -21,7 +21,6 @@ from gateway_backend.domain.submission.models import (
     SubmitVerificationPolicy,
     Submission,
     WorkspaceSubmitOccupancy as WorkspaceSubmitOccupancy,
-    derive_preview_canonical_business_digest,
 )
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
@@ -59,29 +58,15 @@ class SnapshotTableBinding:
             raise ValueError("raw_sha256 must be a non-empty string")
 
 
-_SUBMIT_NON_TABLE_ARTIFACT_PREFIXES = (
-    "bundle-manifest-",
-    "comparison-closure-",
-    "comparison-standard-",
-    "comparison-standard-manifest-",
-    "comparison-ordered-",
-    "comparison-blank-",
-    "risk-annotation-",
-    "sta-rows-",
-)
-
-
-def is_submit_snapshot_table_binding_candidate(artifact_id: str) -> bool:
-    """Return whether a protected preview artifact may be opened as a snapshot table manifest."""
-
-    return not any(artifact_id.startswith(prefix) for prefix in _SUBMIT_NON_TABLE_ARTIFACT_PREFIXES)
-
-
 @dataclass(frozen=True, slots=True)
 class PrepareImportBuildInput:
     submit_attempt_id: str
     builder_mutation_policy: BuilderMutationPolicy
     input_closure_digest: str
+    canonical_table_set_closure_ref: str
+    canonical_table_set_closure_digest: str
+    canonicalization_manifest_ref: str
+    canonicalization_manifest_digest: str
     source_artifact_digest: str
     repository_base_digest: str
     storage_projection_version: str
@@ -97,8 +82,18 @@ class PrepareImportBuildInput:
             raise ValueError("builder_mutation_policy must be BuilderMutationPolicy")
         if type(self.input_closure_digest) is not str or not self.input_closure_digest:
             raise ValueError("input_closure_digest must be a non-empty string")
-        if type(self.snapshot_tables) is not tuple or not self.snapshot_tables:
-            raise ValueError("snapshot_tables must be a non-empty tuple")
+        for field_name in (
+            "canonical_table_set_closure_ref",
+            "canonical_table_set_closure_digest",
+            "canonicalization_manifest_ref",
+            "canonicalization_manifest_digest",
+        ):
+            if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
+                raise ValueError(f"{field_name} must be a non-empty string")
+        if self.input_closure_digest != self.canonical_table_set_closure_digest:
+            raise ValueError("input_closure_digest must match canonical table closure digest")
+        if type(self.snapshot_tables) is not tuple:
+            raise ValueError("snapshot_tables must be a tuple")
         for item in self.snapshot_tables:
             if type(item) is not SnapshotTableBinding:
                 raise ValueError("snapshot_tables must contain SnapshotTableBinding")
@@ -272,7 +267,10 @@ def compute_accept_request_fingerprint(
     source_digest: str,
     snapshot_digest: str,
     source_artifact_refs: tuple[str, ...],
-    snapshot_table_artifact_refs: tuple[str, ...],
+    canonical_table_set_closure_ref: str,
+    canonical_table_set_closure_digest: str,
+    canonicalization_manifest_ref: str,
+    canonicalization_manifest_digest: str,
     preview_ready_closure_ref: str,
     preview_ready_closure_digest: str,
     repository_expected_commit_id: str,
@@ -295,7 +293,10 @@ def compute_accept_request_fingerprint(
         "source_digest": source_digest,
         "snapshot_digest": snapshot_digest,
         "source_artifact_refs": list(source_artifact_refs),
-        "snapshot_table_artifact_refs": list(snapshot_table_artifact_refs),
+        "canonical_table_set_closure_ref": canonical_table_set_closure_ref,
+        "canonical_table_set_closure_digest": canonical_table_set_closure_digest,
+        "canonicalization_manifest_ref": canonicalization_manifest_ref,
+        "canonicalization_manifest_digest": canonicalization_manifest_digest,
         "preview_ready_closure_ref": preview_ready_closure_ref,
         "preview_ready_closure_digest": preview_ready_closure_digest,
         "repository_expected_commit_id": repository_expected_commit_id,
@@ -313,9 +314,7 @@ def compute_accept_request_fingerprint(
 
 
 def preview_canonical_business_digest(preview_result: PreviewResult) -> str:
-    return derive_preview_canonical_business_digest(
-        bundle_digest=preview_result.digests.bundle_digest
-    )
+    return preview_result.canonical.modified_canonical_state_digest.value
 
 
 def _source_artifact_refs(upload_revision: UploadRevision) -> tuple[str, ...]:
@@ -336,7 +335,6 @@ def compute_new_accept_fingerprint(
     upload_revision: UploadRevision,
     baseline_head: BaselineHead,
     repository_expected_commit_id: str,
-    snapshot_table_artifact_refs: tuple[str, ...],
     preview_ready_closure_digest: str,
 ) -> str:
     assert_preview_ready_closure_digest(preview_ready_closure_digest)
@@ -357,7 +355,18 @@ def compute_new_accept_fingerprint(
         source_digest=preview_result.digests.source_digest,
         snapshot_digest=preview_result.digests.snapshot_digest,
         source_artifact_refs=_source_artifact_refs(upload_revision),
-        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
+        canonical_table_set_closure_ref=(
+            preview_result.canonical.canonical_table_set_closure_ref.artifact_id
+        ),
+        canonical_table_set_closure_digest=(
+            preview_result.canonical.canonical_table_set_closure_digest.value
+        ),
+        canonicalization_manifest_ref=(
+            preview_result.canonical.canonicalization_manifest_ref.artifact_id
+        ),
+        canonicalization_manifest_digest=(
+            preview_result.canonical.canonicalization_manifest_digest.value
+        ),
         preview_ready_closure_ref=preview_result.ready_closure_artifact_id,
         preview_ready_closure_digest=preview_ready_closure_digest,
         repository_expected_commit_id=repository_expected_commit_id,
@@ -388,7 +397,10 @@ def compute_replay_accept_fingerprint(
         source_digest=attempt.source_digest,
         snapshot_digest=attempt.snapshot_digest,
         source_artifact_refs=tuple(attempt.source_artifact_refs),
-        snapshot_table_artifact_refs=tuple(attempt.snapshot_table_artifact_refs),
+        canonical_table_set_closure_ref=attempt.canonical_table_set_closure_ref,
+        canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
+        canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
+        canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
         preview_ready_closure_ref=attempt.preview_ready_closure_ref,
         preview_ready_closure_digest=attempt.preview_ready_closure_digest,
         repository_expected_commit_id=attempt.repository_expected_commit_id,

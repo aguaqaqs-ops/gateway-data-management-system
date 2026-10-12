@@ -26,7 +26,7 @@ from gateway_backend.domain.submission.ports import (
     ReviewReadPort,
     ReviewWritePort,
 )
-from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness, ResolvedScope
+from gateway_backend.domain.workspace.models import ResolvedScope
 from gateway_backend.domain.workspace.ports import WorkspaceRepository
 from gateway_backend.operations import OperationStore
 
@@ -233,18 +233,6 @@ class SubmitTransactionRepository(
         baseline_head_version: int,
     ) -> None:
         """Delete repository submit occupancy row when owner facts still match."""
-
-
-class BaselineCanonicalDigestPort(Protocol):
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: BaselineHead,
-        input_completeness: InputCompleteness,
-        ruleset_version: str,
-    ) -> str:
-        """Return current business-base canonical digest for NO_CANONICAL_CHANGE guard."""
 
 
 class RepositoryMainResolvePort(Protocol):

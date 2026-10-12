@@ -85,11 +85,12 @@ class SubmitAttempt:
     source_digest: str
     snapshot_digest: str
     source_artifact_refs: Sequence[str]
-    snapshot_table_artifact_refs: Sequence[str]
+    canonical_table_set_closure_ref: str
+    canonical_table_set_closure_digest: str
     preview_ready_closure_ref: str
     preview_ready_closure_digest: str
-    canonicalization_manifest_ref: str | None
-    canonicalization_manifest_digest: str | None
+    canonicalization_manifest_ref: str
+    canonicalization_manifest_digest: str
     repository_import_artifact_ref: BackendArtifactRef | None
     repository_artifact_ref: RepositoryArtifactRef | None
     repository_operation_id: str | None
@@ -108,6 +109,8 @@ class SubmitAttempt:
     optimistic_version: int
     created_by: str
     created_at: datetime
+    prepared_canonicalization_manifest_ref: str | None = None
+    prepared_canonicalization_manifest_digest: str | None = None
     effect_pending_at: datetime | None = None
     finalized_at: datetime | None = None
     aborted_at: datetime | None = None
@@ -132,8 +135,14 @@ class SubmitAttempt:
         _validate_non_empty_str(self.snapshot_digest, "snapshot_digest")
         if type(self.source_artifact_refs) is not tuple:
             raise ValueError("source_artifact_refs must be a tuple")
-        if type(self.snapshot_table_artifact_refs) is not tuple:
-            raise ValueError("snapshot_table_artifact_refs must be a tuple")
+        _validate_non_empty_str(
+            self.canonical_table_set_closure_ref,
+            "canonical_table_set_closure_ref",
+        )
+        _validate_non_empty_str(
+            self.canonical_table_set_closure_digest,
+            "canonical_table_set_closure_digest",
+        )
         _validate_non_empty_str(self.preview_ready_closure_ref, "preview_ready_closure_ref")
         _validate_non_empty_str(
             self.preview_ready_closure_digest,
@@ -165,6 +174,19 @@ class SubmitAttempt:
             type(self.repository_artifact_ref) is not RepositoryArtifactRef
         ):
             raise ValueError("repository_artifact_ref must be RepositoryArtifactRef or None")
+        if (self.prepared_canonicalization_manifest_ref is None) != (
+            self.prepared_canonicalization_manifest_digest is None
+        ):
+            raise ValueError("prepared canonicalization manifest ref and digest must appear together")
+        if self.prepared_canonicalization_manifest_ref is not None:
+            _validate_non_empty_str(
+                self.prepared_canonicalization_manifest_ref,
+                "prepared_canonicalization_manifest_ref",
+            )
+            _validate_non_empty_str(
+                self.prepared_canonicalization_manifest_digest,
+                "prepared_canonicalization_manifest_digest",
+            )
         assert_submit_attempt_invariants(self)
 
 
@@ -264,21 +286,22 @@ class RepositorySubmitOccupancy:
 
 
 def assert_submit_attempt_invariants(attempt: SubmitAttempt) -> None:
-    has_manifest_ref = attempt.canonicalization_manifest_ref is not None
-    has_manifest_digest = attempt.canonicalization_manifest_digest is not None
-    if has_manifest_ref != has_manifest_digest:
-        raise SubmitAttemptInvariantViolation(
-            "canonicalization manifest ref and digest must appear together"
-        )
-
-    if attempt.repository_import_artifact_ref is not None and not has_manifest_ref:
-        raise SubmitAttemptInvariantViolation(
-            "repository import artifact requires canonicalization manifest ref/digest"
-        )
+    _validate_non_empty_str(attempt.canonicalization_manifest_ref, "canonicalization_manifest_ref")
+    _validate_non_empty_str(
+        attempt.canonicalization_manifest_digest,
+        "canonicalization_manifest_digest",
+    )
 
     if attempt.repository_artifact_ref is not None and attempt.repository_import_artifact_ref is None:
         raise SubmitAttemptInvariantViolation(
             "repository artifact ref requires backend import artifact ref"
+        )
+    if attempt.repository_import_artifact_ref is not None and (
+        attempt.prepared_canonicalization_manifest_ref is None
+        or attempt.prepared_canonicalization_manifest_digest is None
+    ):
+        raise SubmitAttemptInvariantViolation(
+            "backend import artifact ref requires prepared canonicalization manifest"
         )
 
     if attempt.repository_operation_id is not None and attempt.repository_artifact_ref is None:
@@ -308,11 +331,6 @@ def assert_submit_attempt_invariants(attempt: SubmitAttempt) -> None:
 
     if attempt.state is SubmitAttemptState.EFFECT_PENDING and attempt.effect_pending_at is None:
         raise SubmitAttemptInvariantViolation("EFFECT_PENDING attempt requires effect_pending_at")
-
-def derive_preview_canonical_business_digest(*, bundle_digest: str) -> str:
-    _validate_non_empty_str(bundle_digest, "bundle_digest")
-    return bundle_digest
-
 
 def _validate_non_empty_str(value: object, field_name: str) -> None:
     if type(value) is not str or not value:

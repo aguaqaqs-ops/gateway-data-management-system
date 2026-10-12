@@ -21,14 +21,12 @@ from gateway_backend.application.submission.contracts import (
     RepositorySubmitOccupancy,
     SubmitAcceptanceRecord,
     WorkspaceSubmitOccupancy,
-    compute_accept_request_fingerprint,
     compute_new_accept_fingerprint,
 )
 from gateway_backend.application.submission.errors import (
     AbortProofNotSatisfied,
     FinalizeBindingMismatch,
     IdempotencyConflict,
-    NoCanonicalChange,
     PreviewBindingConflict,
     PreviewDerivedStale,
     SubmitOccupancyConflict,
@@ -51,7 +49,6 @@ from gateway_backend.domain.submission.models import (
     SubmitVerificationPolicy,
 )
 from gateway_backend.domain.workspace.models import (
-    BaselineHead,
     InputCompleteness,
     PreviewResult,
     PreviewResultDigests,
@@ -76,8 +73,6 @@ TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 
 BASELINE_HEAD = make_baseline_head(version=3, commit_id="commit-base")
-BASELINE_CANONICAL_DIGEST = "sha256:baseline-canonical"
-SNAPSHOT_TABLE_ARTIFACT_REFS = ("snap-1",)
 PREVIEW_READY_CLOSURE_DIGEST = "d-closure"
 
 
@@ -117,22 +112,6 @@ class RecordingMainResolvePort:
         del repository_id
         self.resolve_calls += 1
         return self.commit_id
-
-
-@dataclass
-class FakeBaselineCanonicalDigestPort:
-    digest: str = BASELINE_CANONICAL_DIGEST
-
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: BaselineHead,
-        input_completeness: object,
-        ruleset_version: str,
-    ) -> str:
-        del repository_id, baseline_head, input_completeness, ruleset_version
-        return self.digest
 
 
 @dataclass
@@ -197,19 +176,22 @@ class SubmitApplicationHarness:
     submission_repository: InMemorySubmissionRepository
     scope_resolution: FixedScopeResolutionPort
     occupancy: FakeSubmitOccupancyPort
-    baseline_digest: FakeBaselineCanonicalDigestPort
     main_resolve: RecordingMainResolvePort
 
     def validate(self, command: AcceptSubmitCommand) -> AcceptSubmitValidationResult:
+        preview = self.workspace_repository.get_preview_result(command.preview_result_id)
+        if preview is None:
+            raise PreviewBindingConflict("preview result is missing")
         return validate_accept_submit(
             command=command,
             scope_resolution=self.scope_resolution,
             workspace_repository=self.workspace_repository,
             submission_repository=self.submission_repository,
             occupancy=self.occupancy,
-            baseline_digest=self.baseline_digest,
             main_resolve=self.main_resolve,
-            snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+            current_storage_projection_ruleset_digest=(
+                preview.canonical.storage_projection_ruleset_digest.value
+            ),
             preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         )
 
@@ -286,34 +268,6 @@ def _seed_ready_workspace(
     return updated, revision, preview
 
 
-def build_accept_fingerprint(*, repository_expected_commit_id: str) -> str:
-    workspace = WORKSPACE
-    preview = PREVIEW_RESULT
-    return compute_accept_request_fingerprint(
-        workspace_id=workspace.workspace_id,
-        owner_actor_id=workspace.owner_actor_id,
-        gateway_device_external_key=workspace.gateway_device_external_key,
-        business_project_id=workspace.business_project_id,
-        repository_id=workspace.repository_id,
-        expected_workspace_version=workspace.optimistic_version,
-        upload_revision_id=preview.upload_revision_id,
-        preview_result_id=preview.preview_result_id,
-        generation=preview.generation,
-        expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
-        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-        canonical_business_digest=preview.digests.bundle_digest,
-        source_digest=preview.digests.source_digest,
-        snapshot_digest=preview.digests.snapshot_digest,
-        source_artifact_refs=("initial-1", "modified-1"),
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
-        preview_ready_closure_ref=preview.ready_closure_artifact_id,
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
-        repository_expected_commit_id=repository_expected_commit_id,
-        options={},
-    )
-
-
 def make_accept_command(*, idempotency_key: str) -> AcceptSubmitCommand:
     return AcceptSubmitCommand(
         context=make_identity(permissions=frozenset({"upload_submit_workspace", "workspace_read"})),
@@ -352,15 +306,20 @@ def make_submit_application_harness() -> SubmitApplicationHarness:
         business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
         baseline_head_version=BASELINE_HEAD.baseline_head_version,
         repository_expected_commit_id="commit-main",
-        canonical_business_digest=preview.digests.bundle_digest,
+        canonical_business_digest=preview.canonical.modified_canonical_state_digest.value,
         source_digest=preview.digests.source_digest,
         snapshot_digest=preview.digests.snapshot_digest,
         source_artifact_refs=("initial-1", "modified-1"),
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+        canonical_table_set_closure_ref=(
+            preview.canonical.canonical_table_set_closure_ref.artifact_id
+        ),
+        canonical_table_set_closure_digest=(
+            preview.canonical.canonical_table_set_closure_digest.value
+        ),
+        canonicalization_manifest_ref=preview.canonical.canonicalization_manifest_ref.artifact_id,
+        canonicalization_manifest_digest=preview.canonical.canonicalization_manifest_digest.value,
         preview_ready_closure_ref=preview.ready_closure_artifact_id,
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
-        canonicalization_manifest_ref=None,
-        canonicalization_manifest_digest=None,
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
         repository_operation_id=None,
@@ -388,7 +347,6 @@ def make_submit_application_harness() -> SubmitApplicationHarness:
         upload_revision=_revision,
         baseline_head=BASELINE_HEAD,
         repository_expected_commit_id="commit-main",
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
     )
     attempt = replace(attempt, accept_request_fingerprint=seeded_fingerprint)
@@ -409,7 +367,6 @@ def make_submit_application_harness() -> SubmitApplicationHarness:
             baseline_head=BASELINE_HEAD,
         ),
         occupancy=FakeSubmitOccupancyPort(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
     )
 
@@ -427,21 +384,8 @@ def test_validate_accept_submit_accepts_current_preview_binding(
 
     assert result.replay is False
     assert result.repository_expected_commit_id == "commit-main"
-    assert result.canonical_business_digest == PREVIEW_RESULT.digests.bundle_digest
+    assert result.canonical_business_digest == PREVIEW_RESULT.canonical.modified_canonical_state_digest.value
     assert result.accept_request_fingerprint.startswith("sha256:")
-
-
-def test_validate_accept_submit_rejects_no_canonical_change_before_main_resolve(
-    submit_application_harness: SubmitApplicationHarness,
-) -> None:
-    harness = submit_application_harness
-    harness.baseline_digest.digest = PREVIEW_RESULT.digests.bundle_digest
-    harness.main_resolve.resolve_calls = 0
-
-    with pytest.raises(NoCanonicalChange):
-        harness.validate(make_accept_command(idempotency_key="accept-key-new"))
-
-    assert harness.main_resolve.resolve_calls == 0
 
 
 def test_validate_accept_submit_checks_idempotency_before_occupancy(
@@ -645,7 +589,8 @@ def _effect_pending_attempt_for_finalize() -> SubmitAttempt:
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("source-1",),
-        snapshot_table_artifact_refs=("snap-1",),
+        canonical_table_set_closure_ref="canonical-table-closure-1",
+        canonical_table_set_closure_digest="sha256:canonical-table-closure",
         preview_ready_closure_ref="closure-1",
         preview_ready_closure_digest="d-closure",
         canonicalization_manifest_ref="manifest-1",
@@ -668,6 +613,8 @@ def _effect_pending_attempt_for_finalize() -> SubmitAttempt:
         optimistic_version=1,
         created_by="actor-1",
         created_at=TS0,
+        prepared_canonicalization_manifest_ref="manifest-1",
+        prepared_canonicalization_manifest_digest="sha256:manifest",
         effect_pending_at=TS0,
     )
 

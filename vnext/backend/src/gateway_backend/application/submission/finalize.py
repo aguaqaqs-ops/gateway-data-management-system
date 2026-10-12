@@ -47,13 +47,9 @@ def validate_matching_result_for_finalize(
         raise FinalizeBindingMismatch(
             "completed unknown type policy must equal requested unknown type policy"
         )
-    if attempt.canonicalization_manifest_ref is None:
-        raise FinalizeBindingMismatch("attempt canonicalization manifest ref is missing")
-    if attempt.canonicalization_manifest_digest is None:
-        raise FinalizeBindingMismatch("attempt canonicalization manifest digest is missing")
-    if facts.canonicalization_manifest_ref != attempt.canonicalization_manifest_ref:
+    if facts.canonicalization_manifest_ref != attempt.prepared_canonicalization_manifest_ref:
         raise FinalizeBindingMismatch("manifest ref does not match attempt checkpoint")
-    if facts.canonicalization_manifest_digest != attempt.canonicalization_manifest_digest:
+    if facts.canonicalization_manifest_digest != attempt.prepared_canonicalization_manifest_digest:
         raise FinalizeBindingMismatch("manifest digest does not match attempt checkpoint")
     if attempt.repository_import_artifact_ref is None:
         raise FinalizeBindingMismatch("attempt backend import artifact ref is missing")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -16,7 +17,6 @@ from gateway_backend.application.preview_jobs import (
     PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION,
     PREVIEW_PUBLISH_HANDLER,
     PREVIEW_STEP_PUBLISH,
-    compute_baseline_canonical_bundle_digest,
 )
 from gateway_backend.application.submission.accept_transaction import (
     accept_submit_transaction,
@@ -25,7 +25,8 @@ from gateway_backend.application.submission.contracts import AcceptSubmitCommand
 from gateway_backend.application.submit_registry import submit_job_registry
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
+from gateway_backend.domain.workspace.models import InputCompleteness
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -42,6 +43,7 @@ from tests.support.preview_job_harness import (
     step_id_for,
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from tests.test_submit_transactions import RecordingMainResolvePort
 
 pytestmark = [pytest.mark.unit, pytest.mark.integration]
@@ -284,27 +286,11 @@ class _HarnessArtifactRefLookup:
 
 
 @dataclass
-class _HarnessBaselineCanonicalDigestPort:
-    harness: PreviewJobHarness
+class _HarnessBoundedArtifactStore:
+    store: InMemoryArtifactStore
 
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: object,
-        input_completeness: object,
-        ruleset_version: str,
-    ) -> str:
-        assert isinstance(baseline_head, BaselineHead)
-        assert isinstance(input_completeness, InputCompleteness)
-        return compute_baseline_canonical_bundle_digest(
-            repository_id=repository_id,
-            baseline_head=baseline_head,
-            input_completeness=input_completeness,
-            ruleset_version=ruleset_version,
-            provider_factory=self.harness.deps.repository_provider_factory,
-            store=self.harness.artifact_store,
-        )
+    def read_exact(self, ref: ArtifactRef) -> Iterator[bytes]:
+        yield self.store.locate(ref)
 
 
 @pytest.mark.parametrize(
@@ -441,6 +427,11 @@ def test_empty_baseline_submit_accepts_table_addition(
         preview_result=preview_result,
         upload_revision=harness.upload_revision,
         artifact_ref_lookup=cast(ArtifactRefLookupPort, _HarnessArtifactRefLookup(harness.artifact_store)),
+        artifact_store=cast(
+            BoundedArtifactStorePort,
+            _HarnessBoundedArtifactStore(harness.artifact_store),
+        ),
+        current_storage_projection_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
     result = accept_submit_transaction(
         command=command,
@@ -450,7 +441,6 @@ def test_empty_baseline_submit_accepts_table_addition(
         ),
         unit_of_work_factory=uow_factory,
         job_registry=submit_job_registry(),
-        baseline_digest=_HarnessBaselineCanonicalDigestPort(harness),
         main_resolve=RecordingMainResolvePort(),
         preflight=preflight,
         now=harness.upload_revision.created_at,

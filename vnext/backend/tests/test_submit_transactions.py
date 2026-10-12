@@ -37,13 +37,13 @@ from gateway_backend.application.submission.contracts import (
     RepositoryOperationTerminalStatus,
     SubmitAcceptanceRecord,
     compute_new_accept_fingerprint,
-    is_submit_snapshot_table_binding_candidate,
 )
 from gateway_backend.application.submission.errors import (
     BaselineVersionConflict,
     FinalizeRecoveryRequired,
     IdempotencyConflict,
     NoCanonicalChange,
+    PreviewDerivedStale,
     ReviewIntegrityFailure,
     SubmitJobNotRegistered,
     SubmitOccupancyConflict,
@@ -81,7 +81,10 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     Workspace,
 )
-from tests.support.preview_fixtures import make_preview_canonical_bindings
+from tests.support.preview_fixtures import (
+    make_canonical_artifact_fixture,
+    make_preview_canonical_bindings,
+)
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -104,36 +107,13 @@ pytestmark = pytest.mark.unit
 TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 BASELINE_HEAD = make_baseline_head(version=3, commit_id="commit-base")
-BASELINE_CANONICAL_DIGEST = "sha256:baseline-canonical"
-SNAPSHOT_TABLE_ARTIFACT_REFS = ("snap-1",)
 PREVIEW_READY_CLOSURE_DIGEST = "d-closure"
-SNAPSHOT_TABLE_SET_DIGEST = "sha256:snapshot-set"
 _SHA_INITIAL = "sha256:" + "a" * 64
 _SHA_MODIFIED = "sha256:" + "b" * 64
 _SHA_CLOSURE = "sha256:" + "c" * 64
-_SHA_SNAP = "sha256:" + "d" * 64
 _SHA_PACKAGE = "sha256:" + "e" * 64
 _SHA_MANIFEST = "sha256:" + "f" * 64
 _SHA_REPO = "sha256:" + "9" * 64
-
-
-@pytest.mark.parametrize(
-    ("artifact_id", "expected"),
-    (
-        ("comparison-ordered-abc", False),
-        ("comparison-ordered-manifest-abc", False),
-        ("comparison-blank-abc", False),
-        ("comparison-blank-manifest-abc", False),
-        ("comparison-standard-abc", False),
-        ("comparison-closure-abc", False),
-        ("sta-manifest-abc", True),
-    ),
-)
-def test_submit_snapshot_binding_filter_excludes_comparison_artifacts(
-    artifact_id: str,
-    expected: bool,
-) -> None:
-    assert is_submit_snapshot_table_binding_candidate(artifact_id) is expected
 
 
 @dataclass
@@ -193,34 +173,6 @@ def _tracking_uow_factory(db_path: Path, tracker: WriterLockTracker) -> SubmitCo
         )
 
     return factory
-
-
-@dataclass
-class FakeBaselineCanonicalDigestPort:
-    digest: str = BASELINE_CANONICAL_DIGEST
-    tracker: WriterLockTracker | None = None
-    calls: int = 0
-    writer_open_during_calls: tuple[bool, ...] = ()
-    uow_active_during_calls: tuple[bool, ...] = ()
-    fail_with: BaseException | None = None
-
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: object,
-        input_completeness: object,
-        ruleset_version: str,
-    ) -> str:
-        del repository_id, baseline_head, input_completeness, ruleset_version
-        self.calls += 1
-        writer_open = False if self.tracker is None else self.tracker.writer_open
-        uow_active = False if self.tracker is None else self.tracker.active_uow_entries > 0
-        self.writer_open_during_calls = (*self.writer_open_during_calls, writer_open)
-        self.uow_active_during_calls = (*self.uow_active_during_calls, uow_active)
-        if self.fail_with is not None:
-            raise self.fail_with
-        return self.digest
 
 
 @dataclass
@@ -390,12 +342,7 @@ def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        ArtifactRef(
-            artifact_id="snap-1",
-            media_type="application/octet-stream",
-            size_bytes=1,
-            raw_sha256=DigestRef(_SHA_SNAP),
-        ),
+        *make_canonical_artifact_fixture().refs,
     )
 
 
@@ -531,12 +478,32 @@ def _accept_command(
 
 def _preflight(seed: SubmitSeed) -> AcceptSubmitPreflight:
     return AcceptSubmitPreflight(
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         preview_operation_id=seed.preview_operation_id,
         protected_artifact_refs=seed.protected_refs,
-        snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
+        current_storage_projection_ruleset_digest=(
+            seed.preview_result.canonical.storage_projection_ruleset_digest.value
+        ),
     )
+
+
+def _set_preview_canonical_states_equal(seed: SubmitSeed) -> SubmitSeed:
+    canonical = replace(
+        seed.preview_result.canonical,
+        baseline_canonical_state_digest=(
+            seed.preview_result.canonical.modified_canonical_state_digest
+        ),
+    )
+    preview = replace(seed.preview_result, canonical=canonical)
+    from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+
+    preview_row = preview_result_to_row(preview)
+    with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE preview_result_records SET binding = ? WHERE preview_result_id = ?",
+            (preview_row[5], preview.preview_result_id),
+        )
+    return replace(seed, preview_result=preview)
 
 
 def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> None:
@@ -549,7 +516,6 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
@@ -562,9 +528,38 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
         repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
         operation = unit_of_work.operations.get_operation(result.operation_id)
         workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
+        submit_artifact_ids = unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="submit-attempt",
+            owner_id=result.submit_attempt_id,
+        )
+        current_preview_artifact_ids = unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="current-preview",
+            owner_id=seed.workspace.workspace_id,
+        )
+        preview_operation_artifact_ids = unit_of_work.list_artifact_protection_for_owner(
+            owner_kind="preview-operation",
+            owner_id=seed.preview_operation_id,
+        )
 
     assert attempt is not None
     assert attempt.state is SubmitAttemptState.PREPARED
+    assert attempt.canonical_table_set_closure_ref == (
+        seed.preview_result.canonical.canonical_table_set_closure_ref.artifact_id
+    )
+    assert attempt.canonical_table_set_closure_digest == (
+        seed.preview_result.canonical.canonical_table_set_closure_digest.value
+    )
+    assert attempt.canonicalization_manifest_ref == (
+        seed.preview_result.canonical.canonicalization_manifest_ref.artifact_id
+    )
+    assert attempt.canonicalization_manifest_digest == (
+        seed.preview_result.canonical.canonicalization_manifest_digest.value
+    )
+    expected_artifact_ids = frozenset(ref.artifact_id for ref in seed.protected_refs)
+    assert frozenset(ref.artifact_id for ref in operation.artifact_refs) == expected_artifact_ids
+    assert submit_artifact_ids == expected_artifact_ids
+    assert current_preview_artifact_ids == frozenset()
+    assert preview_operation_artifact_ids == frozenset()
     assert workspace_occupancy is not None
     assert workspace_occupancy.active_submit_attempt_id == result.submit_attempt_id
     assert repository_occupancy is not None
@@ -585,7 +580,6 @@ def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
@@ -598,7 +592,6 @@ def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
@@ -628,7 +621,6 @@ def test_t1_accept_rolls_back_when_late_write_fails(db_path: Path, monkeypatch: 
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(seed),
             now=TS1,
@@ -678,7 +670,6 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
         upload_revision=seed.upload_revision,
         baseline_head=BASELINE_HEAD,
         repository_expected_commit_id="commit-main",
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
     )
     with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
@@ -693,15 +684,26 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
             business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
             baseline_head_version=BASELINE_HEAD.baseline_head_version,
             repository_expected_commit_id="commit-main",
-            canonical_business_digest=seed.preview_result.digests.bundle_digest,
+            canonical_business_digest=(
+                seed.preview_result.canonical.modified_canonical_state_digest.value
+            ),
             source_digest=seed.preview_result.digests.source_digest,
             snapshot_digest=seed.preview_result.digests.snapshot_digest,
             source_artifact_refs=("initial-1", "modified-1"),
-            snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+            canonical_table_set_closure_ref=(
+                seed.preview_result.canonical.canonical_table_set_closure_ref.artifact_id
+            ),
+            canonical_table_set_closure_digest=(
+                seed.preview_result.canonical.canonical_table_set_closure_digest.value
+            ),
             preview_ready_closure_ref=seed.preview_result.ready_closure_artifact_id,
             preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
-            canonicalization_manifest_ref=None,
-            canonicalization_manifest_digest=None,
+            canonicalization_manifest_ref=(
+                seed.preview_result.canonical.canonicalization_manifest_ref.artifact_id
+            ),
+            canonicalization_manifest_digest=(
+                seed.preview_result.canonical.canonicalization_manifest_digest.value
+            ),
             repository_import_artifact_ref=None,
             repository_artifact_ref=None,
             repository_operation_id=None,
@@ -760,7 +762,6 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(seed),
             now=TS1,
@@ -777,7 +778,6 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
         ),
         unit_of_work_factory=_uow_factory(first_seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(first_seed),
         now=TS1,
@@ -841,7 +841,6 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
             ),
             unit_of_work_factory=_uow_factory(db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(second_seed),
             now=TS1,
@@ -866,7 +865,6 @@ def _seed_effect_pending_attempt(
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
@@ -891,8 +889,8 @@ def _seed_effect_pending_attempt(
             state=SubmitAttemptState.EFFECT_PENDING,
             effect_pending_at=TS1,
             optimistic_version=1,
-            canonicalization_manifest_ref="manifest-1",
-            canonicalization_manifest_digest=_SHA_MANIFEST,
+            prepared_canonicalization_manifest_ref="manifest-1",
+            prepared_canonicalization_manifest_digest=_SHA_MANIFEST,
             repository_import_artifact_ref=backend_ref,
             repository_artifact_ref=repository_ref,
             repository_operation_id="repo-op-1",
@@ -1062,6 +1060,14 @@ def _seed_effect_pending_attempt(
 def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
+    assert attempt.canonicalization_manifest_ref == (
+        seed.preview_result.canonical.canonicalization_manifest_ref.artifact_id
+    )
+    assert attempt.canonicalization_manifest_digest == (
+        seed.preview_result.canonical.canonicalization_manifest_digest.value
+    )
+    assert attempt.prepared_canonicalization_manifest_ref == "manifest-1"
+    assert attempt.prepared_canonicalization_manifest_digest == _SHA_MANIFEST
     attempt_version, await_version, operation_version = _read_finalize_versions(db_path, attempt)
     facts = MatchingFinalizeFacts(
         repository_id=seed.workspace.repository_id,
@@ -1406,10 +1412,9 @@ def _prepare_only_registry() -> JobDefinitionRegistry:
     )
 
 
-def test_t1_accept_ports_run_outside_writer_transaction(db_path: Path) -> None:
+def test_t1_main_resolve_runs_outside_writer_transaction(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     tracker = WriterLockTracker()
-    digest = FakeBaselineCanonicalDigestPort(tracker=tracker)
     resolve = RecordingMainResolvePort(tracker=tracker)
     accept_submit_transaction(
         command=_accept_command(seed, idempotency_key="accept-key-1"),
@@ -1419,16 +1424,12 @@ def test_t1_accept_ports_run_outside_writer_transaction(db_path: Path) -> None:
         ),
         unit_of_work_factory=_tracking_uow_factory(seed.db_path, tracker),
         job_registry=_submit_job_registry(),
-        baseline_digest=digest,
         main_resolve=resolve,
         preflight=_preflight(seed),
         now=TS1,
     )
-    assert digest.calls == 1
     assert resolve.calls == 1
-    assert digest.writer_open_during_calls == (False,)
     assert resolve.writer_open_during_calls == (False,)
-    assert digest.uow_active_during_calls == (False,)
     assert resolve.uow_active_during_calls == (False,)
 
 
@@ -1443,12 +1444,10 @@ def test_t1_accept_replay_does_not_call_repository_ports(db_path: Path) -> None:
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
     )
-    digest = FakeBaselineCanonicalDigestPort()
     resolve = RecordingMainResolvePort()
     replay = accept_submit_transaction(
         command=command,
@@ -1458,13 +1457,11 @@ def test_t1_accept_replay_does_not_call_repository_ports(db_path: Path) -> None:
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=digest,
         main_resolve=resolve,
         preflight=_preflight(seed),
         now=TS1,
     )
     assert replay.replay is True
-    assert digest.calls == 0
     assert resolve.calls == 0
 
 
@@ -1479,7 +1476,6 @@ def test_t1_rejects_incomplete_submit_job_registry_without_writes(db_path: Path)
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_prepare_only_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(seed),
             now=TS1,
@@ -1499,9 +1495,6 @@ def test_t1_rejects_stale_workspace_version_without_writes(db_path: Path) -> Non
             replace(workspace, optimistic_version=workspace.optimistic_version + 1, updated_at=TS1),
             expected_version=workspace.optimistic_version,
         )
-    baseline_digest = FakeBaselineCanonicalDigestPort(
-        fail_with=RuntimeError("baseline provider unavailable"),
-    )
     with pytest.raises(WorkspaceVersionConflict):
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="accept-key-1"),
@@ -1511,15 +1504,45 @@ def test_t1_rejects_stale_workspace_version_without_writes(db_path: Path) -> Non
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=baseline_digest,
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(seed),
             now=TS1,
         )
-    assert baseline_digest.calls == 0
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.submission.find_submit_idempotency(seed.workspace.workspace_id, "accept-key-1") is None
         assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+
+
+def test_t1_rejects_preview_built_with_another_projection_ruleset(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    resolve = RecordingMainResolvePort()
+    preflight = replace(
+        _preflight(seed),
+        current_storage_projection_ruleset_digest="sha256:" + "0" * 64,
+    )
+
+    with pytest.raises(PreviewDerivedStale):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="accept-key-1"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=resolve,
+            preflight=preflight,
+            now=TS1,
+        )
+
+    assert resolve.calls == 0
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.submission.find_submit_idempotency(
+            seed.workspace.workspace_id,
+            "accept-key-1",
+        ) is None
+        assert unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id) is None
+        assert unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id) is None
 
 
 def _take_over_await_lease(db_path: Path, operation_id: str) -> None:
@@ -1680,13 +1703,9 @@ def test_abort_rejects_stale_step_version_when_expected_set(db_path: Path) -> No
 
 
 def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: Path) -> None:
-    seed = seed_submit_ready_workspace(db_path)
+    seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path))
     tracker = WriterLockTracker()
     resolve = RecordingMainResolvePort(tracker=tracker)
-    digest = FakeBaselineCanonicalDigestPort(
-        digest="sha256:preview-canonical",
-        tracker=tracker,
-    )
     with pytest.raises(NoCanonicalChange):
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="accept-key-1"),
@@ -1696,18 +1715,14 @@ def test_t1_rejects_no_canonical_change_without_main_resolve_or_writes(db_path: 
             ),
             unit_of_work_factory=_tracking_uow_factory(seed.db_path, tracker),
             job_registry=_submit_job_registry(),
-            baseline_digest=digest,
             main_resolve=resolve,
             preflight=_preflight(seed),
             now=TS1,
         )
     assert resolve.calls == 0
-    assert digest.calls == 1
     assert tracker.writer_entries == 0
     assert tracker.active_uow_entries == 0
     assert tracker.factory_calls == (True,)
-    assert digest.writer_open_during_calls == (False,)
-    assert digest.uow_active_during_calls == (False,)
     assert resolve.writer_open_during_calls == ()
     assert resolve.uow_active_during_calls == ()
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
@@ -1732,7 +1747,6 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
         ),
         unit_of_work_factory=_uow_factory(first_seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(first_seed),
         now=TS1,
@@ -1761,6 +1775,12 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
             workspace_id="ws-2",
             upload_revision_id="ur-2",
             operation_id="op-preview-2",
+            canonical=replace(
+                first_seed.preview_result.canonical,
+                baseline_canonical_state_digest=(
+                    first_seed.preview_result.canonical.modified_canonical_state_digest
+                ),
+            ),
         )
         unit_of_work.workspace.save_upload_revision(upload_revision)
         unit_of_work.workspace.save_preview_result(preview)
@@ -1787,7 +1807,6 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
         preview_operation_id="op-preview-2",
         protected_refs=first_seed.protected_refs,
     )
-    digest = FakeBaselineCanonicalDigestPort(digest="sha256:preview-canonical")
     with pytest.raises(NoCanonicalChange):
         accept_submit_transaction(
             command=_accept_command(second_seed, idempotency_key="accept-key-2"),
@@ -1797,17 +1816,14 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
             ),
             unit_of_work_factory=_uow_factory(db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=digest,
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(second_seed),
             now=TS1,
         )
-    assert digest.calls == 1
 
 
 def test_t1_no_canonical_change_precedes_closure_digest_conflict(db_path: Path) -> None:
-    seed = seed_submit_ready_workspace(db_path)
-    digest = FakeBaselineCanonicalDigestPort(digest="sha256:preview-canonical")
+    seed = _set_preview_canonical_states_equal(seed_submit_ready_workspace(db_path))
     with pytest.raises(NoCanonicalChange):
         accept_submit_transaction(
             command=_accept_command(seed, idempotency_key="accept-key-1"),
@@ -1817,18 +1833,17 @@ def test_t1_no_canonical_change_precedes_closure_digest_conflict(db_path: Path) 
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=digest,
             main_resolve=RecordingMainResolvePort(),
             preflight=AcceptSubmitPreflight(
-                snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
                 preview_ready_closure_digest="",
                 preview_operation_id=seed.preview_operation_id,
                 protected_artifact_refs=seed.protected_refs,
-                snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
+                current_storage_projection_ruleset_digest=(
+                    seed.preview_result.canonical.storage_projection_ruleset_digest.value
+                ),
             ),
             now=TS1,
         )
-    assert digest.calls == 1
 
 
 def _terminalize_await_step(db_path: Path, operation_id: str, *, fail_operation: bool) -> None:
@@ -1934,8 +1949,6 @@ def test_abort_rejects_mismatched_occupancy_owner(db_path: Path) -> None:
                 state=SubmitAttemptState.PREPARED,
                 optimistic_version=0,
                 effect_pending_at=None,
-                canonicalization_manifest_ref=None,
-                canonicalization_manifest_digest=None,
                 repository_import_artifact_ref=None,
                 repository_artifact_ref=None,
                 repository_operation_id=None,
@@ -2018,7 +2031,6 @@ def test_prepared_attempt_rejects_business_abort(db_path: Path) -> None:
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
@@ -2123,7 +2135,6 @@ def test_t1_new_key_rejects_projection_drift_without_writes(
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=resolve,
             preflight=_preflight(seed),
             now=TS1,
@@ -2162,7 +2173,6 @@ def test_t1_replay_rejects_when_mapping_disabled_after_concurrent_winner(db_path
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(seed),
             now=TS1,
@@ -2179,7 +2189,6 @@ def test_t1_replay_rejects_when_mapping_disabled_after_concurrent_winner(db_path
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=DriftOnResolveMainResolvePort(on_resolve=on_resolve),
             preflight=_preflight(seed),
             now=TS1,
@@ -2217,7 +2226,6 @@ def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
             ),
             unit_of_work_factory=_uow_factory(seed.db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(seed),
             now=TS1,
@@ -2227,7 +2235,6 @@ def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
         _drift_head_commit_only(seed.db_path)
         winner_submitted = True
 
-    digest = FakeBaselineCanonicalDigestPort()
     drift_resolve = DriftOnResolveMainResolvePort(on_resolve=on_resolve)
     result = accept_submit_transaction(
         command=command,
@@ -2237,14 +2244,12 @@ def test_t1_replay_returns_winner_when_only_head_drifts_after_concurrent_winner(
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=digest,
         main_resolve=drift_resolve,
         preflight=_preflight(seed),
         now=TS1,
     )
     assert result.replay is True
     assert result.submit_attempt_id == winner_attempt_id
-    assert digest.calls == 1
     assert drift_resolve.calls == 1
 
     with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:

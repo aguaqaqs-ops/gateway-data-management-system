@@ -311,20 +311,24 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(snapshot_digest) = 'text' AND length(snapshot_digest) BETWEEN 1 AND 512),
         source_artifact_refs BLOB NOT NULL
             CHECK (typeof(source_artifact_refs) = 'blob'),
-        snapshot_table_artifact_refs BLOB NOT NULL
-            CHECK (typeof(snapshot_table_artifact_refs) = 'blob'),
+        canonical_table_set_closure_ref TEXT NOT NULL
+            CHECK (typeof(canonical_table_set_closure_ref) = 'text' AND length(canonical_table_set_closure_ref) BETWEEN 1 AND 255),
+        canonical_table_set_closure_digest TEXT NOT NULL
+            CHECK (typeof(canonical_table_set_closure_digest) = 'text' AND length(canonical_table_set_closure_digest) BETWEEN 1 AND 512),
         preview_ready_closure_ref TEXT NOT NULL
             CHECK
                 (typeof(preview_ready_closure_ref) = 'text' AND length(preview_ready_closure_ref) BETWEEN 1 AND 255),
         preview_ready_closure_digest TEXT NOT NULL
             CHECK
                 (typeof(preview_ready_closure_digest) = 'text' AND length(preview_ready_closure_digest) BETWEEN 1 AND 512),
-        canonicalization_manifest_ref TEXT
-            CHECK
-                (canonicalization_manifest_ref IS NULL OR (typeof(canonicalization_manifest_ref) = 'text' AND length(canonicalization_manifest_ref) BETWEEN 1 AND 255)),
-        canonicalization_manifest_digest TEXT
-            CHECK
-                (canonicalization_manifest_digest IS NULL OR (typeof(canonicalization_manifest_digest) = 'text' AND length(canonicalization_manifest_digest) BETWEEN 1 AND 512)),
+        canonicalization_manifest_ref TEXT NOT NULL
+            CHECK (typeof(canonicalization_manifest_ref) = 'text' AND length(canonicalization_manifest_ref) BETWEEN 1 AND 255),
+        canonicalization_manifest_digest TEXT NOT NULL
+            CHECK (typeof(canonicalization_manifest_digest) = 'text' AND length(canonicalization_manifest_digest) BETWEEN 1 AND 512),
+        prepared_canonicalization_manifest_ref TEXT
+            CHECK (prepared_canonicalization_manifest_ref IS NULL OR (typeof(prepared_canonicalization_manifest_ref) = 'text' AND length(prepared_canonicalization_manifest_ref) BETWEEN 1 AND 255)),
+        prepared_canonicalization_manifest_digest TEXT
+            CHECK (prepared_canonicalization_manifest_digest IS NULL OR (typeof(prepared_canonicalization_manifest_digest) = 'text' AND length(prepared_canonicalization_manifest_digest) BETWEEN 1 AND 512)),
         repository_import_artifact_ref BLOB
             CHECK (repository_import_artifact_ref IS NULL OR typeof(repository_import_artifact_ref) = 'blob'),
         repository_artifact_ref BLOB

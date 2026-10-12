@@ -85,8 +85,8 @@ def accept_submit_route(
             job_registry=deps.job_registry,
             artifact_store=deps.artifact_store,
             artifact_ref_lookup=deps.artifact_ref_lookup,
-            baseline_digest=deps.baseline_canonical_digest,
             main_resolve=deps.main_resolve,
+            current_storage_projection_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
         )
     return result.response

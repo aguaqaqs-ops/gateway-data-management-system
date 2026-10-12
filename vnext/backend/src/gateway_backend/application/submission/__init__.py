@@ -85,7 +85,6 @@ from gateway_backend.application.submission.job_payload import (
     build_submit_job_payload,
 )
 from gateway_backend.application.submission.ports import (
-    BaselineCanonicalDigestPort,
     RepositoryAbortEvidencePort,
     RepositoryMainResolvePort,
     ReviewApplyControlUnitOfWorkFactory,
@@ -110,7 +109,6 @@ __all__ = [
     "AcceptSubmitPreflight",
     "AcceptSubmitTransactionResult",
     "AcceptSubmitValidationResult",
-    "BaselineCanonicalDigestPort",
     "BaselineVersionConflict",
     "FinalizeBindingMismatch",
     "FinalizeRecoveryRequired",

@@ -26,11 +26,6 @@ def db_path(tmp_path: Path) -> Path:
 
 def test_pin_prepare_import_artifacts_extends_attempt_protection(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
-    attempt_refs = tuple(
-        ref
-        for ref in seed.protected_refs
-        if ref.artifact_id in {"initial-1", "modified-1", "closure-1", "snap-1"}
-    )
     manifest_ref = BackendArtifactRef(
         artifact_id="manifest-1",
         media_type="application/vnd.gateway.canonicalization-manifest+json",
@@ -49,19 +44,12 @@ def test_pin_prepare_import_artifacts_extends_attempt_protection(db_path: Path) 
             submit_attempt_id="sa-1",
             manifest_ref=manifest_ref,
             package_ref=package_ref,
-            existing_snapshot_refs=attempt_refs,
+            existing_snapshot_refs=seed.protected_refs,
         )
         held = unit_of_work.list_artifact_protection_for_owner(
             owner_kind="submit-attempt",
             owner_id="sa-1",
         )
         assert held == frozenset(
-            {
-                "initial-1",
-                "modified-1",
-                "closure-1",
-                "snap-1",
-                "manifest-1",
-                "backend-pkg-1",
-            }
+            {ref.artifact_id for ref in seed.protected_refs} | {"manifest-1", "backend-pkg-1"}
         )

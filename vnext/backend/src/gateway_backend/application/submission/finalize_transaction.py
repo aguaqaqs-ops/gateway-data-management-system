@@ -250,12 +250,12 @@ def _transfer_finalize_protection(
             owner_id=attempt.submit_attempt_id,
             intent="source-package",
         )
-    manifest_digest = attempt.canonicalization_manifest_digest
-    if attempt.canonicalization_manifest_ref is not None and manifest_digest is not None:
+    manifest_digest = attempt.prepared_canonicalization_manifest_digest
+    if attempt.prepared_canonicalization_manifest_ref is not None and manifest_digest is not None:
         unit_of_work.set_artifact_protection(
             (
                 ArtifactRef(
-                    artifact_id=attempt.canonicalization_manifest_ref,
+                    artifact_id=attempt.prepared_canonicalization_manifest_ref,
                     media_type="application/json",
                     size_bytes=0,
                     raw_sha256=DigestRef(manifest_digest),

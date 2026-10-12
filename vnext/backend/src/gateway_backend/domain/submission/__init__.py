@@ -26,7 +26,6 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
     WorkspaceSubmitOccupancy,
-    derive_preview_canonical_business_digest,
 )
 from gateway_backend.domain.submission.review import (
     ReviewAction,
@@ -76,7 +75,6 @@ __all__ = [
     "SubmitVerificationPolicy",
     "WorkspaceSubmitOccupancy",
     "build_seed_projection",
-    "derive_preview_canonical_business_digest",
     "is_terminal_review_status",
     "resolve_review_transition",
     "review_action_for_event_kind",

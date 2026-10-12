@@ -15,7 +15,6 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.submission.ports import (
-    BaselineCanonicalDigestPort,
     ReviewApplyControlUnitOfWorkFactory,
     RepositoryMainResolvePort,
     SubmitControlUnitOfWorkFactory,
@@ -23,7 +22,6 @@ from gateway_backend.application.submission.ports import (
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
-from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness  # noqa: TC001
 from gateway_backend.application.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
@@ -173,24 +171,6 @@ def acquire_new_work(
         gate.release()
 
 
-class FailClosedBaselineCanonicalDigestPort:
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: BaselineHead,
-        input_completeness: InputCompleteness,
-        ruleset_version: str,
-    ) -> str:
-        del repository_id, baseline_head, input_completeness, ruleset_version
-
-        raise ApiError(
-            code="SERVICE_NOT_READY",
-            message="baseline canonical digest port is unavailable",
-            status_code=503,
-        )
-
-
 class FailClosedRepositoryMainResolvePort:
     def resolve_main_expected_commit(self, *, repository_id: str) -> str:
         del repository_id
@@ -244,9 +224,6 @@ class WorkspaceHttpDependencies:
     artifact_ref_lookup: ArtifactRefLookupPort = field(default_factory=FailClosedArtifactRefLookup)
     internal_bearer_port: InternalBearerPort = field(
         default_factory=_default_internal_bearer_port
-    )
-    baseline_canonical_digest: BaselineCanonicalDigestPort = field(
-        default_factory=FailClosedBaselineCanonicalDigestPort
     )
     main_resolve: RepositoryMainResolvePort = field(
         default_factory=FailClosedRepositoryMainResolvePort

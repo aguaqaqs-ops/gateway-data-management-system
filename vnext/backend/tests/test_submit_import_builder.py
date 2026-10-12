@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
+from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
 from gateway_backend.application.submission.contracts import (
     PrepareImportBuildInput,
     SnapshotTableBinding,
@@ -15,12 +18,15 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.application.submission.import_builder import (
     SubmitImportBuilderError,
+    resolve_canonical_snapshot_bindings,
     reuse_prepare_import_checkpoint,
 )
-from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.storage_projection import (
+    CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     ProjectionTableInput,
     STORAGE_PROJECTION_VERSION,
+    durable_manifest_bytes,
+    project_canonical_table_set,
 )
 from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_MIN
 from gateway_backend.capabilities.storage_projection.package import unpack_repository_import_entries
@@ -63,22 +69,81 @@ def _build_input(*, snapshot_tables: tuple[SnapshotTableBinding, ...] | None = N
         submit_attempt_id="sa-import-1",
         builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
         input_closure_digest="sha256:closure",
+        canonical_table_set_closure_ref="canonical-table-closure",
+        canonical_table_set_closure_digest="sha256:closure",
+        canonicalization_manifest_ref="canonicalization-manifest",
+        canonicalization_manifest_digest="sha256:manifest",
         source_artifact_digest=_SNAPSHOT_DIGEST,
         repository_base_digest=_SNAPSHOT_DIGEST,
         storage_projection_version=STORAGE_PROJECTION_VERSION,
         ruleset_id=ruleset.ruleset_id,
         ruleset_version=ruleset.ruleset_version,
         ruleset_digest=ruleset.ruleset_digest.value,
-        snapshot_tables=snapshot_tables
-        or (
-            SnapshotTableBinding(
-                artifact_id="snap-net-cfg",
-                media_type="application/json",
-                size_bytes=1,
-                raw_sha256=_SNAPSHOT_DIGEST,
-            ),
+        snapshot_tables=(
+            snapshot_tables
+            if snapshot_tables is not None
+            else (
+                SnapshotTableBinding(
+                    artifact_id="snap-net-cfg",
+                    media_type="application/json",
+                    size_bytes=1,
+                    raw_sha256=_SNAPSHOT_DIGEST,
+                ),
+            )
         ),
     )
+
+
+def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
+    store = InMemoryArtifactStore()
+    materialized = materialize_sql(
+        "SET FOREIGN_KEY_CHECKS=0;",
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        artifact_store=store,
+    )
+    assert materialized.status is SnapshotMaterializationStatus.COMPLETE
+    assert materialized.table_set is not None
+    assert materialized.table_set.tables == ()
+    projection = project_canonical_table_set(
+        materialized.table_set,
+        migrated_table_ruleset_snapshot(),
+    )
+    assert projection.manifest is not None
+    assert projection.manifest.manifest_digest is not None
+    manifest_bytes = durable_manifest_bytes(projection.manifest)
+    manifest_ref = ArtifactRef(
+        artifact_id="empty-canonical-manifest",
+        media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
+        size_bytes=len(manifest_bytes),
+        raw_sha256=raw_blob_digest(manifest_bytes),
+    )
+    closure_bytes = canonicalize_json_value(
+        {
+            "contract_version": "backend-vnext/preview/canonical-table-set-closure/v1",
+            "tables": [],
+        }
+    )
+    closure_ref = ArtifactRef(
+        artifact_id="empty-canonical-closure",
+        media_type="application/jcs",
+        size_bytes=len(closure_bytes),
+        raw_sha256=raw_blob_digest(closure_bytes),
+    )
+    store.put(manifest_bytes, manifest_ref)
+    store.put(closure_bytes, closure_ref)
+
+    bindings, refs = resolve_canonical_snapshot_bindings(
+        operation_artifact_refs=(closure_ref, manifest_ref),
+        canonical_table_set_closure_ref=closure_ref.artifact_id,
+        canonical_table_set_closure_digest=closure_ref.raw_sha256.value,
+        canonicalization_manifest_ref=manifest_ref.artifact_id,
+        canonicalization_manifest_digest=projection.manifest.manifest_digest.value,
+        read_artifact=store.locate,
+    )
+
+    assert bindings == ()
+    assert refs == (closure_ref, manifest_ref)
+    assert _build_input(snapshot_tables=bindings).snapshot_tables == ()
 
 
 def _projection_inputs() -> tuple[ProjectionTableInput, ...]:
@@ -343,6 +408,10 @@ def test_build_and_publish_from_pinned_parquet_artifact_succeeds() -> None:
         submit_attempt_id="sa-import-parquet",
         builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
         input_closure_digest="sha256:closure-parquet",
+        canonical_table_set_closure_ref="canonical-table-closure-parquet",
+        canonical_table_set_closure_digest="sha256:closure-parquet",
+        canonicalization_manifest_ref="canonicalization-manifest-parquet",
+        canonicalization_manifest_digest="sha256:manifest-parquet",
         source_artifact_digest=table.artifact.manifest.snapshot_digest.value,
         repository_base_digest=table.artifact.manifest.snapshot_digest.value,
         storage_projection_version=STORAGE_PROJECTION_VERSION,
@@ -443,6 +512,10 @@ def test_reuse_rejects_mismatched_input_closure_digest() -> None:
         submit_attempt_id=build_input.submit_attempt_id,
         builder_mutation_policy=build_input.builder_mutation_policy,
         input_closure_digest="sha256:other",
+        canonical_table_set_closure_ref=build_input.canonical_table_set_closure_ref,
+        canonical_table_set_closure_digest="sha256:other",
+        canonicalization_manifest_ref=build_input.canonicalization_manifest_ref,
+        canonicalization_manifest_digest=build_input.canonicalization_manifest_digest,
         source_artifact_digest=build_input.source_artifact_digest,
         repository_base_digest=build_input.repository_base_digest,
         storage_projection_version=build_input.storage_projection_version,

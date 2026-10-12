@@ -74,9 +74,7 @@ from gateway_backend.application.submission.contracts import (
     PrepareImportBuildInput,
     PrepareImportCheckpoint,
     RepositoryOperationTerminalStatus,
-    SnapshotTableBinding,
     SubmitImportPublicationPort,
-    is_submit_snapshot_table_binding_candidate,
 )
 from gateway_backend.application.submission.effect_pending_transaction import (
     BindRepositoryOperationRequest,
@@ -92,6 +90,7 @@ from gateway_backend.application.submission.import_builder import (
     SubmitImportBuilderError,
     pin_prepare_import_artifacts,
     publish_prepare_import_package,
+    resolve_canonical_snapshot_bindings,
     reuse_prepare_import_checkpoint,
 )
 from gateway_backend.application.submission.job_payload import (
@@ -119,7 +118,6 @@ from gateway_backend.application.submission.artifact_refs import store_ref_from_
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.capabilities.snapshot_materialization import manifest_from_bytes
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -222,7 +220,10 @@ class SubmitJobPayload:
     canonical_business_digest: str
     source_artifact_refs: tuple[str, ...]
     preview_ready_closure_ref: str
-    snapshot_table_set_digest: str
+    canonical_table_set_closure_ref: str
+    canonical_table_set_closure_digest: str
+    canonicalization_manifest_ref: str
+    canonicalization_manifest_digest: str
     ruleset_version: str
     storage_projection_version: str
     canonicalization_manifest_contract_version: str
@@ -298,7 +299,22 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
     canonical_business_digest = _require_non_empty_str(payload_object, "canonical_business_digest")
     source_artifact_refs = _decode_string_tuple(payload_object.get("source_artifact_refs"), label="source_artifact_refs")
     preview_ready_closure_ref = _require_non_empty_str(payload_object, "preview_ready_closure_ref")
-    snapshot_table_set_digest = _require_non_empty_str(payload_object, "snapshot_table_set_digest")
+    canonical_table_set_closure_ref = _require_non_empty_str(
+        payload_object,
+        "canonical_table_set_closure_ref",
+    )
+    canonical_table_set_closure_digest = _require_non_empty_str(
+        payload_object,
+        "canonical_table_set_closure_digest",
+    )
+    canonicalization_manifest_ref = _require_non_empty_str(
+        payload_object,
+        "canonicalization_manifest_ref",
+    )
+    canonicalization_manifest_digest = _require_non_empty_str(
+        payload_object,
+        "canonicalization_manifest_digest",
+    )
     ruleset_version = _require_non_empty_str(payload_object, "ruleset_version")
     storage_projection_version = _require_non_empty_str(payload_object, "storage_projection_version")
     canonicalization_manifest_contract_version = _require_non_empty_str(
@@ -345,7 +361,10 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         canonical_business_digest=canonical_business_digest,
         source_artifact_refs=source_artifact_refs,
         preview_ready_closure_ref=preview_ready_closure_ref,
-        snapshot_table_set_digest=snapshot_table_set_digest,
+        canonical_table_set_closure_ref=canonical_table_set_closure_ref,
+        canonical_table_set_closure_digest=canonical_table_set_closure_digest,
+        canonicalization_manifest_ref=canonicalization_manifest_ref,
+        canonicalization_manifest_digest=canonicalization_manifest_digest,
         ruleset_version=ruleset_version,
         storage_projection_version=storage_projection_version,
         canonicalization_manifest_contract_version=canonicalization_manifest_contract_version,
@@ -1388,11 +1407,22 @@ def _build_prepare_import_build_input(
     ruleset = migrated_table_ruleset_snapshot()
     if ruleset.ruleset_digest is None:
         raise SubmitImportBuilderError("ruleset digest is required")
-    snapshot_tables = _snapshot_bindings_from_operation(operation, attempt, store)
+    snapshot_tables, _canonical_refs = resolve_canonical_snapshot_bindings(
+        operation_artifact_refs=operation.artifact_refs,
+        canonical_table_set_closure_ref=attempt.canonical_table_set_closure_ref,
+        canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
+        canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
+        canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
+        read_artifact=store.locate,
+    )
     return PrepareImportBuildInput(
         submit_attempt_id=payload.submit_attempt_id,
         builder_mutation_policy=payload.builder_mutation_policy,
-        input_closure_digest=payload.snapshot_table_set_digest,
+        input_closure_digest=payload.canonical_table_set_closure_digest,
+        canonical_table_set_closure_ref=payload.canonical_table_set_closure_ref,
+        canonical_table_set_closure_digest=payload.canonical_table_set_closure_digest,
+        canonicalization_manifest_ref=payload.canonicalization_manifest_ref,
+        canonicalization_manifest_digest=payload.canonicalization_manifest_digest,
         source_artifact_digest=attempt.snapshot_digest,
         repository_base_digest=attempt.source_digest,
         storage_projection_version=_capability_storage_projection_version(
@@ -1458,18 +1488,13 @@ def _pin_prepare_refs(
     operation: OperationRecord,
     checkpoint: PrepareImportCheckpoint,
 ) -> None:
-    snapshot_refs = tuple(
-        ref
-        for ref in operation.artifact_refs
-        if ref.artifact_id in frozenset(attempt.snapshot_table_artifact_refs)
-    )
     with deps.control_transaction_factory() as unit_of_work:
         pin_prepare_import_artifacts(
             unit_of_work,
             submit_attempt_id=attempt.submit_attempt_id,
             manifest_ref=checkpoint.canonicalization_manifest_ref,
             package_ref=checkpoint.backend_import_artifact_ref,
-            existing_snapshot_refs=snapshot_refs,
+            existing_snapshot_refs=operation.artifact_refs,
         )
 
 
@@ -2152,6 +2177,14 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
         mismatches.append("source_artifact_refs")
     if payload.preview_ready_closure_ref != attempt.preview_ready_closure_ref:
         mismatches.append("preview_ready_closure_ref")
+    if payload.canonical_table_set_closure_ref != attempt.canonical_table_set_closure_ref:
+        mismatches.append("canonical_table_set_closure_ref")
+    if payload.canonical_table_set_closure_digest != attempt.canonical_table_set_closure_digest:
+        mismatches.append("canonical_table_set_closure_digest")
+    if payload.canonicalization_manifest_ref != attempt.canonicalization_manifest_ref:
+        mismatches.append("canonicalization_manifest_ref")
+    if payload.canonicalization_manifest_digest != attempt.canonicalization_manifest_digest:
+        mismatches.append("canonicalization_manifest_digest")
     if payload.accept_request_fingerprint != attempt.accept_request_fingerprint:
         mismatches.append("accept_request_fingerprint")
     if payload.repository_upload_idempotency_key != attempt.repository_upload_idempotency_key:
@@ -2171,68 +2204,6 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
             f"submit payload does not match attempt: {', '.join(mismatches)}",
             code="PAYLOAD_ATTEMPT_MISMATCH",
         )
-
-
-def _snapshot_bindings_from_operation(
-    operation: OperationRecord,
-    attempt: SubmitAttempt,
-    store: ArtifactStorePort,
-) -> tuple[SnapshotTableBinding, ...]:
-    required_ids = frozenset(attempt.snapshot_table_artifact_refs)
-    candidates: list[tuple[ArtifactRef, str, str]] = []
-    for ref in operation.artifact_refs:
-        if ref.artifact_id not in required_ids:
-            continue
-        if not is_submit_snapshot_table_binding_candidate(ref.artifact_id):
-            continue
-        try:
-            manifest = manifest_from_bytes(store.locate(ref))
-        except (ManifestVerificationError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-            raise SubmitImportBuilderError(
-                f"snapshot table manifest {ref.artifact_id!r} is missing or corrupt"
-            ) from exc
-        candidates.append((ref, manifest.table_name, manifest.snapshot_digest.value))
-    if not candidates:
-        raise SubmitImportBuilderError("operation artifact refs do not cover snapshot table bindings")
-
-    selected_refs: list[ArtifactRef] = []
-    by_table: dict[str, list[tuple[ArtifactRef, str, str]]] = {}
-    for ref, table_name, snapshot_digest in candidates:
-        by_table.setdefault(table_name, []).append((ref, table_name, snapshot_digest))
-    for group in by_table.values():
-        if len(group) == 1:
-            selected_refs.append(group[0][0])
-            continue
-        matching_side = [item for item in group if item[2] == attempt.snapshot_digest]
-        if matching_side:
-            selected_refs.append(matching_side[0][0])
-            continue
-        digest_counts: dict[str, int] = {}
-        for _ref, _table_name, snapshot_digest in group:
-            digest_counts[snapshot_digest] = digest_counts.get(snapshot_digest, 0) + 1
-        chosen_digest = min(digest_counts, key=lambda digest: (digest_counts[digest], digest))
-        for ref, _table_name, snapshot_digest in group:
-            if snapshot_digest == chosen_digest:
-                selected_refs.append(ref)
-                break
-
-    bindings = tuple(
-        sorted(
-            (
-                SnapshotTableBinding(
-                    artifact_id=ref.artifact_id,
-                    media_type=ref.media_type,
-                    size_bytes=ref.size_bytes,
-                    raw_sha256=ref.raw_sha256.value,
-                )
-                for ref in selected_refs
-            ),
-            key=lambda item: item.artifact_id,
-        )
-    )
-    if not bindings:
-        raise SubmitImportBuilderError("operation artifact refs do not cover snapshot table bindings")
-    return bindings
 
 
 def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
@@ -2695,7 +2666,10 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
         "canonical_business_digest",
         "source_artifact_refs",
         "preview_ready_closure_ref",
-        "snapshot_table_set_digest",
+        "canonical_table_set_closure_ref",
+        "canonical_table_set_closure_digest",
+        "canonicalization_manifest_ref",
+        "canonicalization_manifest_digest",
         "ruleset_version",
         "storage_projection_version",
         "canonicalization_manifest_contract_version",

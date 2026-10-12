@@ -27,8 +27,21 @@ REPEAT_KEYLESS_FAILURES = (
 
 HISTORY_BUNDLE_SURFACE_REF_FAILURES: tuple[tuple[str, dict[str, Any]], ...] = (
     ("missing pair", {"pairs": []}),
-    ("multiple pairs", {"pairs": [{"surface_ref": {}}, {"surface_ref": {}}]}),
-    ("missing surface ref", {"pairs": [{}]}),
+    ("multiple pairs", {"pairs": [{"pair_id": "p0"}, {"pair_id": "p1"}]}),
+    ("missing closure entries", {"pairs": [{"pair_id": "p0"}]}),
+    (
+        "missing surface artifact",
+        {"pairs": [{"pair_id": "p0"}], "closure_entries": []},
+    ),
+    (
+        "missing artifact ref",
+        {
+            "pairs": [{"pair_id": "p0"}],
+            "closure_entries": [
+                {"kind": "SURFACE", "logical_path": "pairs/p0/comparison-surface.json"}
+            ],
+        },
+    ),
 )
 
 
@@ -89,7 +102,23 @@ def test_history_bundle_surface_reference_is_selected_from_its_single_pair() -> 
         "size_bytes": 12,
     }
 
-    assert _history_surface_ref({"pairs": [{"surface_ref": surface_ref}]}) == surface_ref
+    bundle = {
+        "pairs": [{"pair_id": "op-p0"}],
+        "closure_entries": [
+            {
+                "kind": "RECORDS_CLOSURE",
+                "logical_path": "pairs/op-p0/comparison/records/closure.json",
+                "artifact_ref": {},
+            },
+            {
+                "kind": "SURFACE",
+                "logical_path": "pairs/op-p0/comparison-surface.json",
+                "artifact_ref": surface_ref,
+            },
+        ],
+    }
+
+    assert _history_surface_ref(bundle) == surface_ref
 
 
 @pytest.mark.parametrize(

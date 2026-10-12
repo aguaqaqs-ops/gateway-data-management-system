@@ -987,9 +987,25 @@ def _history_surface_ref(bundle: Mapping[str, Any]) -> Mapping[str, Any]:
     pairs = bundle.get("pairs")
     if not isinstance(pairs, list) or len(pairs) != 1 or not isinstance(pairs[0], Mapping):
         raise JourneyFailure("History bundle does not contain exactly one pair")
-    surface_ref = pairs[0].get("surface_ref")
+    pair_id = pairs[0].get("pair_id")
+    if type(pair_id) is not str or not pair_id:
+        raise JourneyFailure("History bundle pair has no identity")
+    entries = bundle.get("closure_entries")
+    if not isinstance(entries, list):
+        raise JourneyFailure("History bundle has no closure entries")
+    surface_path = f"pairs/{pair_id}/comparison-surface.json"
+    surface_entries = [
+        item
+        for item in entries
+        if isinstance(item, Mapping)
+        and item.get("kind") == "SURFACE"
+        and item.get("logical_path") == surface_path
+    ]
+    if len(surface_entries) != 1:
+        raise JourneyFailure("History bundle does not contain exactly one surface artifact")
+    surface_ref = surface_entries[0].get("artifact_ref")
     if not isinstance(surface_ref, Mapping):
-        raise JourneyFailure("History bundle pair has no surface reference")
+        raise JourneyFailure("History surface artifact has no reference")
     return cast(Mapping[str, Any], surface_ref)
 
 

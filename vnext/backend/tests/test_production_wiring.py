@@ -240,7 +240,7 @@ def _repository_catalog_transport(
                 "name": "items",
                 "columns": [{"name": "id", "sql_type": "INT", "nullable": False}],
                 "primary_key": ["id"],
-                "row_count": 3,
+                "row_count": 1,
             }
         ],
     }
@@ -449,7 +449,7 @@ def test_http_repository_main_resolve_uses_exact_wire() -> None:
     assert port.resolve_main_expected_commit(repository_id=str(REPO_ID)) == "commit-main"
 
 
-def test_http_arrow_hidden_summary_streams_tables_without_preloading_rows() -> None:
+def test_http_arrow_repository_session_only_streams_requested_table() -> None:
     catalog = {
         "commit_id": COMMIT_ID,
         "tables": [
@@ -499,12 +499,12 @@ def test_http_arrow_hidden_summary_streams_tables_without_preloading_rows() -> N
         RepositoryRef(repository_id=str(REPO_ID), ref=COMMIT_ID),
         None,
     )
-    summary = session.read_hidden_summary()
-    assert summary is not None
-    assert requested == ["items", "other"]
+    assert requested == []
     assert not hasattr(session, "_rows")
-    tuple(session.open_table_reader("items").stream_rows())
-    assert requested == ["items", "other", "items"]
+    reader = session.open_table_reader("items")
+    assert tuple(reader.stream_rows())
+    reader.close()
+    assert requested == ["items"]
     session.close()
 
 

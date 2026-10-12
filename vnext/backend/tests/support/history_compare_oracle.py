@@ -21,10 +21,13 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import materialize_repository_ref
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION, TableRulesetSnapshot
+from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.application.history.compare_jobs import _bound_from_materialization
 from tests.support.history_compare_job_harness import REPOSITORY_ID
-from tests.support.repository_ref_materialization import FakeRepositoryTableAccessProvider
+from tests.support.repository_ref_materialization import (
+    FakeRepositoryTableAccessProvider,
+    canonical_binding_for_catalog,
+)
 
 
 def materialize_bound_snapshot(
@@ -33,10 +36,13 @@ def materialize_bound_snapshot(
     commit_id: str,
     artifact_store: object,
 ) -> BoundSnapshotInput:
+    ruleset = migrated_table_ruleset_snapshot()
+    canonical_binding = canonical_binding_for_catalog(provider.catalog, ruleset=ruleset)
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=REPOSITORY_ID, ref=commit_id),
         provider=provider,
-        ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
+        ruleset=ruleset,
+        canonical_binding=canonical_binding,
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
@@ -45,7 +51,7 @@ def materialize_bound_snapshot(
     )
     result = materialize_repository_ref(request)
     assert result.status.value == "COMPLETE"
-    return _bound_from_materialization(result)
+    return _bound_from_materialization(result, canonical_binding=canonical_binding)
 
 
 def compare_bound_snapshots(

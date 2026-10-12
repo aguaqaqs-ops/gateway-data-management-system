@@ -14,6 +14,11 @@ from typing import ContextManager, cast
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.ports import (
+    CommitCanonicalMetadataError,
+    CommitCanonicalScope,
+)
 from gateway_backend.application.checkpoints import (
     CheckpointPublicationError,
     definition_matches_checkpoint,
@@ -67,7 +72,7 @@ from gateway_backend.capabilities.bundle_assembly import (
     collect_surface_refs,
 )
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
-from gateway_backend.capabilities.comparison import BoundSnapshotInput
+from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     open_snapshot_table_artifact,
@@ -88,6 +93,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     snapshot_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    CanonicalBinding,
     SqlSnapshotMaterializationRequest,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
@@ -115,11 +121,17 @@ from gateway_backend.capabilities.table_access.contracts import (
 )
 from gateway_backend.capabilities.table_access import parse_sql
 from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
     RULESET_VERSION,
+    StorageRuleView,
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
 )
-from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules import (
+    comparison_rule_set,
+    migrated_table_ruleset_snapshot,
+    resolve_table_rule,
+)
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
@@ -188,6 +200,10 @@ _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = Cont
 
 class PreviewJobError(ValueError):
     """Bounded preview job failure surfaced to the operation runtime."""
+
+    def __init__(self, message: str, *, diagnostic_code: str | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic_code = diagnostic_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -486,7 +502,20 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 intent="materialize-checkpoint",
             )
         else:
-            sides = _materialize_all_sides(payload, deps)
+            try:
+                sides = _materialize_all_sides(payload, deps)
+            except PreviewJobError as exc:
+                if exc.diagnostic_code is None:
+                    raise
+                _publish_preview_materialization_failure(
+                    operation=operation,
+                    step=step,
+                    lease_session=lease_session,
+                    diagnostic_code=exc.diagnostic_code,
+                    message=str(exc),
+                    control=control,
+                )
+                return ExecutorAcknowledgment.PUBLISHED
             envelope = envelope_for_step(
                 key=key,
                 operation=operation,
@@ -874,11 +903,19 @@ def _materialize_all_sides(
     payload: PreviewJobPayload,
     deps: PreviewRuntimeDependencies,
 ) -> dict[str, BoundSnapshotInput]:
+    runtime_ruleset = migrated_table_ruleset_snapshot()
+    canonical_binding = _preview_baseline_binding(payload, deps, runtime_ruleset)
     provider = deps.repository_provider_factory(
         payload.repository_id,
         payload.business_baseline_commit_id,
     )
-    baseline = _materialize_baseline(payload, provider, deps.artifact_store)
+    baseline = _materialize_baseline(
+        payload,
+        provider,
+        deps.artifact_store,
+        canonical_binding=canonical_binding,
+        ruleset=runtime_ruleset,
+    )
     sides: dict[str, BoundSnapshotInput] = {_SIDE_BASELINE: baseline}
     if payload.input_completeness is InputCompleteness.FULL:
         sides[_SIDE_INITIAL] = _materialize_uploaded_side(
@@ -904,11 +941,14 @@ def _materialize_baseline_commit(
     commit_id: str,
     provider: RepositoryTableAccessProvider,
     store: ArtifactStorePort,
+    canonical_binding: CanonicalBinding,
+    ruleset: TableRulesetSnapshot,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
         provider=provider,
-        ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
+        ruleset=ruleset,
+        canonical_binding=canonical_binding,
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
@@ -916,20 +956,55 @@ def _materialize_baseline_commit(
         artifact_store=store,
     )
     result = materialize_repository_ref(request)
-    return _bound_from_materialization(result, label="baseline")
+    return _bound_from_materialization(
+        result,
+        label="baseline",
+        canonical_binding=canonical_binding,
+    )
 
 
 def _materialize_baseline(
     payload: PreviewJobPayload,
     provider: RepositoryTableAccessProvider,
     store: ArtifactStorePort,
+    *,
+    canonical_binding: CanonicalBinding,
+    ruleset: TableRulesetSnapshot,
 ) -> BoundSnapshotInput:
     return _materialize_baseline_commit(
         repository_id=payload.repository_id,
         commit_id=payload.business_baseline_commit_id,
         provider=provider,
         store=store,
+        canonical_binding=canonical_binding,
+        ruleset=ruleset,
     )
+
+
+def _preview_baseline_binding(
+    payload: PreviewJobPayload,
+    deps: PreviewRuntimeDependencies,
+    runtime_ruleset: TableRulesetSnapshot,
+) -> CanonicalBinding:
+    with deps.control_transaction_factory() as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(payload.workspace_id)
+        if workspace is None or workspace.repository_id != payload.repository_id:
+            raise PreviewJobError("preview workspace scope is unavailable")
+        try:
+            metadata = unit_of_work.commit_canonical_metadata.resolve(
+                repository_id=payload.repository_id,
+                commit_id=payload.business_baseline_commit_id,
+                scope=CommitCanonicalScope(
+                    gateway_device_external_key=workspace.gateway_device_external_key,
+                    business_project_id=workspace.business_project_id,
+                ),
+            )
+        except CommitCanonicalMetadataError as exc:
+            raise PreviewJobError(
+                exc.diagnostic,
+                diagnostic_code=exc.code.value,
+            ) from exc
+    return canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
 
 
 def _materialize_uploaded_side(binding: SourceArtifactBinding, store: ArtifactStorePort) -> BoundSnapshotInput:
@@ -1206,11 +1281,20 @@ def compute_baseline_canonical_bundle_digest(
     if ruleset_version != RULESET_VERSION:
         raise PreviewJobError("ruleset_version is not supported by this implementation")
     provider = provider_factory(repository_id, baseline_head.business_baseline_commit_id)
+    runtime_ruleset = migrated_table_ruleset_snapshot()
+    canonical_binding = _runtime_binding_from_provider(
+        repository_id=repository_id,
+        commit_id=baseline_head.business_baseline_commit_id,
+        provider=provider,
+        ruleset=runtime_ruleset,
+    )
     baseline = _materialize_baseline_commit(
         repository_id=repository_id,
         commit_id=baseline_head.business_baseline_commit_id,
         provider=provider,
         store=store,
+        canonical_binding=canonical_binding,
+        ruleset=runtime_ruleset,
     )
     sides: dict[str, BoundSnapshotInput] = {_SIDE_BASELINE: baseline}
     if input_completeness is InputCompleteness.FULL:
@@ -1518,6 +1602,55 @@ def _publish_preview_ruleset_mismatch_failure(
     lease_session.publish_operation(builder)
 
 
+def _publish_preview_materialization_failure(
+    *,
+    operation: OperationRecord,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    diagnostic_code: str,
+    message: str,
+    control: ExecutionControl,
+) -> None:
+    def builder(
+        current_operation: OperationRecord,
+        current_step: StepRecord,
+        transaction_now: datetime,
+    ) -> tuple[StepRecord, OperationRecord]:
+        transaction = _active_preview_transaction.get()
+        if transaction is None:
+            raise PreviewJobError("preview materialization transaction is not bound")
+        _release_preview_step_protection(
+            transaction,
+            operation_id=current_operation.operation_id,
+            clear_operation_owner=True,
+        )
+        diagnostic = OperationDiagnostic(
+            code=diagnostic_code,
+            message=message[:255],
+        )
+        terminal_step = _terminal_step(
+            current_step,
+            transaction_now,
+            status=StepStatus.FAILED,
+            diagnostic=diagnostic,
+        )
+        terminal_operation = dataclasses.replace(
+            current_operation,
+            status=OperationStatus.FAILED,
+            diagnostic=diagnostic,
+            updated_at=transaction_now,
+            completed_at=transaction_now,
+            optimistic_version=current_operation.optimistic_version + 1,
+        )
+        return terminal_step, terminal_operation
+
+    lease_session.refresh_control()
+    if control.cancel_requested:
+        lease_session.publish_operation(_make_cancelled_terminal_builder())
+        return
+    lease_session.publish_operation(builder)
+
+
 def _pin_preview_refs(
     deps: PreviewRuntimeDependencies,
     refs: tuple[ArtifactRef, ...],
@@ -1707,12 +1840,80 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
     return BoundSnapshotInput(snapshot, summary, table_set)
 
 
-def _bound_from_materialization(result: SnapshotMaterializationResult, *, label: str) -> BoundSnapshotInput:
+def _bound_from_materialization(
+    result: SnapshotMaterializationResult,
+    *,
+    label: str,
+    canonical_binding: CanonicalBinding | None = None,
+) -> BoundSnapshotInput:
     if result.status is not SnapshotMaterializationStatus.COMPLETE:
-        raise PreviewJobError(f"{label} materialization failed")
+        diagnostic = result.diagnostics[0] if result.diagnostics else None
+        raise PreviewJobError(
+            f"{label} materialization failed",
+            diagnostic_code=None if diagnostic is None else diagnostic.code.value,
+        )
     if result.snapshot is None or result.summary is None:
         raise PreviewJobError(f"{label} materialization is incomplete")
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+    storage_facts: tuple[ComparisonStorageFacts, ...] = ()
+    if canonical_binding is not None:
+        descriptors = {item.table_name: item for item in result.summary.tables}
+        storage_facts = tuple(
+            ComparisonStorageFacts(
+                storage_rule_view=view,
+                source_schema_digest=descriptors[view.canonical_table].business_schema_digest,
+            )
+            for view in canonical_binding.tables
+            if view.canonical_table in descriptors
+        )
+    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set, storage_facts)
+
+
+def _runtime_binding_from_provider(
+    *,
+    repository_id: str,
+    commit_id: str,
+    provider: RepositoryTableAccessProvider,
+    ruleset: TableRulesetSnapshot,
+) -> CanonicalBinding:
+    if ruleset.ruleset_digest is None:
+        raise PreviewJobError("runtime ruleset digest is missing")
+    session = provider.open_ref(RepositoryRef(repository_id=repository_id, ref=commit_id), None)
+    try:
+        catalog = session.get_catalog()
+        if catalog.resolved_commit_hash != session.pinned_commit_hash():
+            raise PreviewJobError("Repository catalog is not pinned to the requested commit")
+        views: list[StorageRuleView] = []
+        for table in catalog.tables:
+            resolved = resolve_table_rule(
+                ruleset,
+                table.table_name,
+                primary_key_columns=table.primary_key_columns,
+            )
+            record = resolved.record
+            explicit_key = (
+                record.compare_key_columns
+                if record.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
+                else ()
+            )
+            views.append(
+                StorageRuleView(
+                    canonical_table=resolved.canonical_table,
+                    canonical_key_policy=record.canonical_key_policy,
+                    ordered_policy=record.ordered_policy,
+                    dropped_columns=record.dropped_columns,
+                    structural_columns=record.structural_columns,
+                    canonical_key_columns=explicit_key,
+                )
+            )
+    finally:
+        session.close()
+    return CanonicalBinding(
+        storage_projection_version=ruleset.storage_projection_version,
+        ruleset_id=ruleset.ruleset_id,
+        ruleset_version=ruleset.ruleset_version,
+        ruleset_digest=ruleset.ruleset_digest,
+        tables=tuple(sorted(views, key=lambda item: item.canonical_table.encode("utf-8"))),
+    )
 
 
 def _load_preview_payload(operation: OperationRecord, store: ArtifactStorePort) -> PreviewJobPayload:

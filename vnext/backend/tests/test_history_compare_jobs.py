@@ -53,7 +53,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     catalog_table,
-    hidden_summary_for,
     int_id_column,
     make_catalog,
     text_column,
@@ -180,11 +179,9 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
             ref=commit_id,
             commit=commit_id,
         )
-        hidden = hidden_summary_for(catalog, rows)
         return FakeRepositoryTableAccessProvider(
             catalog=catalog,
             base_catalog=catalog,
-            hidden=hidden,
             rows=rows,
             declared_rows=rows,
             current_commit=commit_id,
@@ -295,11 +292,20 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     assert [item["role"] for item in inputs] == [node_a, node_b, node_c]
 
 
-def test_materialize_records_integrity_failure_for_corrupt_hidden_summary(tmp_path: Path) -> None:
+def test_row_count_mismatch_fails_history_compare_without_integrity_incident(tmp_path: Path) -> None:
+    commit_id = BASELINE_HEAD.business_baseline_commit_id
+    provider = history_compare_provider(
+        commit_id=commit_id,
+        row_count=2,
+        declared_rows={"t": ((1,),)},
+    )
     harness = build_history_compare_harness(
         tmp_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
-        idempotency_key="history-compare-integrity",
+        custom_providers={
+            commit_id: provider,
+            "commit-b": history_compare_provider(commit_id="commit-b"),
+        },
+        idempotency_key="history-compare-row-count-mismatch",
     )
     insert_history_compare_operation(harness)
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
@@ -312,7 +318,9 @@ def test_materialize_records_integrity_failure_for_corrupt_hidden_summary(tmp_pa
         )
     assert operation.status is OperationStatus.FAILED
     assert materialize_step.status is StepStatus.FAILED
-    assert incident is not None
+    assert operation.diagnostic is not None
+    assert operation.diagnostic.code == "REPOSITORY_ROW_COUNT_MISMATCH"
+    assert incident is None
 
 
 def test_ruleset_mismatch_publishes_stable_failed_code(tmp_path: Path) -> None:
@@ -686,64 +694,6 @@ def test_cancel_at_assemble_entry_releases_materialize_checkpoint_protection(tmp
         assert unit_of_work.list_artifact_protection_for_owner(
             owner_kind="history-compare-checkpoint",
             owner_id=materialize_step_id,
-        ) == frozenset()
-        assert unit_of_work.list_artifact_protection_for_owner(
-            owner_kind="history-compare-operation",
-            owner_id=harness.operation_id,
-        ) == frozenset()
-
-
-def test_confirmed_integrity_incident_published_despite_cancel_signal(tmp_path: Path) -> None:
-    from gateway_backend.application.history import compare_jobs as compare_jobs_module
-
-    commit_id = BASELINE_HEAD.business_baseline_commit_id
-    rows_a = {"t": ((1,),)}
-    rows_b = {"t": ((2,),)}
-    harness = build_history_compare_harness(
-        tmp_path,
-        custom_providers={
-            commit_id: history_compare_provider(
-                commit_id=commit_id,
-                declared_rows=rows_a,
-                per_read_rows=(rows_b, rows_b),
-            )
-        },
-        idempotency_key="history-compare-cancel-race",
-    )
-    insert_history_compare_operation(harness)
-    session, control, operation, step = claim_next_step(harness)
-
-    original_materialize = compare_jobs_module._materialize_distinct_commits
-
-    def materialize_with_cancel_signal(payload: object, deps: object) -> object:
-        control.request_cancel()
-        return original_materialize(payload, deps)  # type: ignore[arg-type]
-
-    with patch.object(
-        compare_jobs_module,
-        "_materialize_distinct_commits",
-        side_effect=materialize_with_cancel_signal,
-    ):
-        run_claimed_handler(
-            harness,
-            HISTORY_COMPARE_MATERIALIZE_HANDLER,
-            session,
-            control,
-            operation,
-            step,
-        )
-
-    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        persisted = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
-    assert persisted.status is OperationStatus.FAILED
-    assert incident is not None
-    assert control.cancel_requested is True
-    # Integrity path fails before checkpoint publish; empty protection means no spurious pin only.
-    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.list_artifact_protection_for_owner(
-            owner_kind="history-compare-checkpoint",
-            owner_id=step.step_id,
         ) == frozenset()
         assert unit_of_work.list_artifact_protection_for_owner(
             owner_kind="history-compare-operation",

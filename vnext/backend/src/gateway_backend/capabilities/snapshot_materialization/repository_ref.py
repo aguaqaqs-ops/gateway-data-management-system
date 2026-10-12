@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import logging
 import time
 from datetime import UTC, datetime
 
-from gateway_shared_kernel import CanonicalEncodingError, DigestRef, canonicalize_identifier, raw_blob_digest
+from gateway_shared_kernel import CanonicalEncodingError, canonicalize_identifier
 
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
+    encode_cell_frame,
     fast_row_digest_of,
     fast_row_hash,
     raw_content_digest_of,
@@ -31,8 +34,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SUMMARY_CONTRACT_VERSION,
     CacheTrustLevel,
     BlankRowProvenance,
+    DegradedReason,
     DiagnosticSeverity,
-    HiddenFinalSummary,
     MaterializationDiagnostic,
     MaterializationDiagnosticCode,
     MaterializationPolicy,
@@ -47,6 +50,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationStatus,
     SnapshotSourceContext,
     SnapshotSummary,
+    SnapshotColumnDescriptor,
     SnapshotTable,
     SnapshotTableOrderedMetadata,
     SnapshotTableDescriptor,
@@ -59,13 +63,24 @@ from gateway_backend.capabilities.snapshot_materialization.scalar_encoding impor
 )
 from gateway_backend.capabilities.table_access.contracts import (
     MaterializedTableReader,
+    PARSER_VERSION,
     ParserInvocationContext,
     SourceRow,
     SourceTableDescriptor,
 )
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+from gateway_backend.capabilities.table_rules.contracts import (
+    OrderedPolicy,
+    StorageRuleView,
+    TABLE_RULESET_VERSION,
+)
+from gateway_backend.capabilities.snapshot_materialization._ruleset import (
+    CompareKeyError,
+    compare_key_index,
+    effective_key_columns,
+)
 
 _HaltCode = MaterializationDiagnosticCode
+_LOGGER = logging.getLogger(__name__)
 
 
 class _Halt(Exception):
@@ -75,15 +90,11 @@ class _Halt(Exception):
         message: str,
         *,
         table: str | None = None,
-        expected_digest_ref: DigestRef | None = None,
-        observed_digest_ref: DigestRef | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.table = table
-        self.expected_digest_ref = expected_digest_ref
-        self.observed_digest_ref = observed_digest_ref
 
 
 def materialize_repository_ref(
@@ -106,8 +117,6 @@ def materialize_repository_ref(
                     halt.code,
                     halt.message,
                     table=halt.table,
-                    expected_digest_ref=halt.expected_digest_ref,
-                    observed_digest_ref=halt.observed_digest_ref,
                 ),
             ),
         )
@@ -145,8 +154,6 @@ def _materialize(
                     halt.code,
                     halt.message,
                     table=halt.table,
-                    expected_digest_ref=halt.expected_digest_ref,
-                    observed_digest_ref=halt.observed_digest_ref,
                 ),
             ),
         )
@@ -182,46 +189,6 @@ def _materialize_open_session(
             MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED,
             "open_ref must pin a resolved commit hash",
         )
-    hidden = session.read_hidden_summary()
-    if hidden is None:
-        raise _Halt(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_MISSING,
-            "hidden FINAL summary is missing",
-        )
-    version_error = _hidden_version_mismatch(request, hidden)
-    if version_error is not None:
-        return _failed(stage, trust, (version_error,))
-    if hidden.materialization_stage is not MaterializationStage.FINAL:
-        raise _Halt(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
-            "hidden summary is not FINAL",
-            expected_digest_ref=raw_blob_digest(b"hidden-summary-stage:FINAL"),
-            observed_digest_ref=raw_blob_digest(
-                f"hidden-summary-stage:{hidden.materialization_stage.value}".encode("utf-8")
-            ),
-        )
-    recomputed = snapshot_digest_of(
-        stage=hidden.materialization_stage,
-        parser_version=hidden.parser_version,
-        table_ruleset_version=hidden.table_ruleset_version,
-        tables=hidden.tables,
-    )
-    if recomputed != hidden.snapshot_digest:
-        raise _Halt(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
-            "hidden snapshot_digest does not match stored descriptors",
-            expected_digest_ref=hidden.snapshot_digest,
-            observed_digest_ref=recomputed,
-        )
-    recomputed_raw = raw_state_digest_of(hidden.tables)
-    if recomputed_raw != hidden.raw_state_digest:
-        raise _Halt(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
-            "hidden raw_state_digest does not match stored descriptors",
-            expected_digest_ref=hidden.raw_state_digest,
-            observed_digest_ref=recomputed_raw,
-        )
-    _checkpoint(request.context)
     catalog = session.get_catalog()
     if catalog.resolved_commit_hash != pinned:
         raise _Halt(
@@ -229,71 +196,61 @@ def _materialize_open_session(
             "catalog commit is not pinned to the session commit",
         )
     indexed = _index_catalog(catalog)
-    selected = _select_hidden_tables(hidden, indexed, request.requested_tables)
+    binding = request.canonical_binding
+    if binding.is_initial and catalog.tables:
+        raise _Halt(
+            MaterializationDiagnosticCode.INITIAL_BASELINE_NOT_EMPTY,
+            "INITIAL baseline Repository commit contains user tables",
+        )
+    binding_by_name = {item.canonical_table: item for item in binding.tables}
+    if set(binding_by_name) != set(indexed):
+        raise _Halt(
+            MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+            "Repository catalog table set does not match canonical metadata",
+        )
+    selected_names = _selected_names(request, binding_by_name)
     diagnostics: list[MaterializationDiagnostic] = []
-    for table in selected:
-        catalog_table = indexed[table.table_name]
-        mapped_columns = tuple(map_repository_column(column) for column in catalog_table.columns)
-        column_names = tuple(item.source.canonical_name for item in mapped_columns)
-        schema = compare_schema_digest(table.table_name, column_names, table.compare_key_columns)
-        if schema != table.compare_schema_digest:
-            raise _Halt(
-                MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-                "catalog compare schema does not match hidden summary",
-                table=table.table_name,
-                expected_digest_ref=table.compare_schema_digest,
-                observed_digest_ref=schema,
-            )
-        hidden_names = tuple(column.name for column in table.columns)
-        if column_names != hidden_names:
-            raise _Halt(
-                MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-                "catalog columns do not match hidden summary",
-                table=table.table_name,
-                expected_digest_ref=raw_blob_digest(
-                    ("hidden-columns:" + ",".join(hidden_names)).encode("utf-8")
-                ),
-                observed_digest_ref=raw_blob_digest(
-                    ("catalog-columns:" + ",".join(column_names)).encode("utf-8")
-                ),
-            )
     published: list[SnapshotTable] = []
-    if request.policy is MaterializationPolicy.READERS_REQUIRED:
-        for table in selected:
-            _checkpoint(request.context)
-            catalog_table = indexed[table.table_name]
-            source_reader, table_diagnostics = _read_and_validate_table(
-                request, session, catalog_table, table
-            )
-            diagnostics.extend(table_diagnostics)
-            published.append(
-                SnapshotTable(
-                    descriptor=table,
-                    reader=BoundSnapshotTableReader(table, source_reader),
-                    diagnostics=tuple(table_diagnostics),
-                    ordered_metadata=SnapshotTableOrderedMetadata(
-                        blank_provenance=BlankRowProvenance.CANONICAL_PSEUDO_GID
-                    ),
-                )
-            )
+    descriptors: list[SnapshotTableDescriptor] = []
+    for name in selected_names:
+        _checkpoint(request.context)
+        catalog_table = indexed[name]
+        storage_view = binding_by_name[name]
+        descriptor, table, table_diagnostics = _read_and_materialize_table(
+            request,
+            session,
+            catalog_table,
+            storage_view,
+            stage,
+            keep_rows=request.policy is MaterializationPolicy.READERS_REQUIRED,
+        )
+        descriptors.append(descriptor)
+        diagnostics.extend(table_diagnostics)
+        if table is not None:
+            published.append(table)
+    selected = tuple(descriptors)
+    parser_version = request.parser_version or PARSER_VERSION
     source_context = SnapshotSourceContext(
         source_kind=SourceKind.IMMUTABLE_REPOSITORY_REF,
         repository_id=request.repository_ref.repository_id,
         repository_ref=request.repository_ref.ref,
         resolved_commit_hash=pinned,
     )
+    snapshot_id = hashlib.sha256(
+        f"{request.repository_ref.repository_id}:{pinned}".encode("utf-8")
+    ).hexdigest()[:32]
     snapshot_digest = snapshot_digest_of(
         stage=stage,
-        parser_version=hidden.parser_version,
-        table_ruleset_version=hidden.table_ruleset_version,
+        parser_version=parser_version,
+        table_ruleset_version=request.table_ruleset_version,
         tables=selected,
     )
     raw_state = raw_state_digest_of(selected)
     snapshot = Snapshot(
-        snapshot_id=hidden.snapshot_id,
+        snapshot_id=snapshot_id,
         source_kind=SourceKind.IMMUTABLE_REPOSITORY_REF,
-        parser_version=hidden.parser_version,
-        table_ruleset_version=hidden.table_ruleset_version,
+        parser_version=parser_version,
+        table_ruleset_version=request.table_ruleset_version,
         scalar_encoding_version=SCALAR_ENCODING_VERSION,
         snapshot_materialization_contract_version=SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
         row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
@@ -304,12 +261,12 @@ def _materialize_open_session(
         source_context=source_context,
     )
     summary = SnapshotSummary(
-        snapshot_id=hidden.snapshot_id,
+        snapshot_id=snapshot_id,
         snapshot_digest=snapshot_digest,
         raw_state_digest=raw_state,
         materialization_stage=stage,
-        parser_version=hidden.parser_version,
-        table_ruleset_version=hidden.table_ruleset_version,
+        parser_version=parser_version,
+        table_ruleset_version=request.table_ruleset_version,
         summary_contract_version=SUMMARY_CONTRACT_VERSION,
         table_count=len(selected),
         tables=selected,
@@ -320,9 +277,9 @@ def _materialize_open_session(
     table_set: SnapshotTableSet | None = None
     if request.policy is MaterializationPolicy.READERS_REQUIRED:
         table_set = SnapshotTableSet(
-            snapshot_id=hidden.snapshot_id,
+            snapshot_id=snapshot_id,
             snapshot_digest=snapshot_digest,
-            table_ruleset_version=hidden.table_ruleset_version,
+            table_ruleset_version=request.table_ruleset_version,
             tables=tuple(published),
             diagnostics=tuple(diagnostics),
         )
@@ -337,92 +294,168 @@ def _materialize_open_session(
     )
 
 
-def _read_and_validate_table(
+def _read_and_materialize_table(
     request: RepositoryRefMaterializationRequest,
     session: RepositoryRefSession,
     catalog_table: RepositoryCatalogTable,
-    hidden_table: SnapshotTableDescriptor,
-) -> tuple[MaterializedTableReader, tuple[MaterializationDiagnostic, ...]]:
+    storage_view: StorageRuleView,
+    stage: MaterializationStage,
+    *,
+    keep_rows: bool,
+) -> tuple[SnapshotTableDescriptor, SnapshotTable | None, tuple[MaterializationDiagnostic, ...]]:
+    table_name = canonicalize_identifier(catalog_table.table_name)
     try:
         reader = session.open_table_reader(catalog_table.table_name)
     except RepositoryProviderError as exc:
-        raise _Halt(exc.code, exc.message, table=hidden_table.table_name) from exc
+        raise _Halt(exc.code, exc.message, table=table_name) from exc
     diagnostics: list[MaterializationDiagnostic] = []
     encoded_rows: list[SourceRow] = []
-    try:
-        for raw in reader.stream_rows():
-            _checkpoint(request.context)
-            try:
-                encoded = encode_repository_row(
-                    catalog_table.columns, raw, table=hidden_table.table_name
-                )
-            except ValueError as exc:
-                raise _Halt(
-                    MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
-                    str(exc) or "repository row is malformed",
-                    table=hidden_table.table_name,
-                ) from exc
-            diagnostics.extend(encoded.diagnostics)
-            encoded_rows.append(encoded.cells)
-    except RepositoryProviderError as exc:
-        raise _Halt(exc.code, exc.message, table=hidden_table.table_name) from exc
-    finally:
-        reader.close()
-    mapped = tuple(map_repository_column(column) for column in catalog_table.columns)
-    source_columns = tuple(item.source for item in mapped)
-    try:
-        row_hashes = tuple(row_content_hash(source_columns, row) for row in encoded_rows)
-        fast_hashes = tuple(fast_row_hash(source_columns, row) for row in encoded_rows)
-    except (CanonicalEncodingError, ValueError) as exc:
-        raise _Halt(
-            MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
-            str(exc) or "repository scalar encoding failed",
-            table=hidden_table.table_name,
-        ) from exc
-    raw_digest = raw_content_digest_of(row_hashes)
-    fast_digest = fast_row_digest_of(fast_hashes)
-    if len(encoded_rows) != hidden_table.row_count:
-        raise _Halt(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-            "row count does not match hidden summary",
-            table=hidden_table.table_name,
-            expected_digest_ref=raw_blob_digest(
-                ("hidden-row-count:" + str(hidden_table.row_count)).encode("utf-8")
-            ),
-            observed_digest_ref=raw_blob_digest(
-                ("catalog-row-count:" + str(len(encoded_rows))).encode("utf-8")
-            ),
-        )
-    if hidden_table.raw_content_digest is None or raw_digest != hidden_table.raw_content_digest:
-        raise _Halt(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-            "raw_content_digest does not match hidden summary",
-            table=hidden_table.table_name,
-            expected_digest_ref=(
-                hidden_table.raw_content_digest
-                if hidden_table.raw_content_digest is not None
-                else raw_blob_digest(b"hidden-raw-content:missing")
-            ),
-            observed_digest_ref=raw_digest,
-        )
-    if hidden_table.fast_row_digest is not None and fast_digest != hidden_table.fast_row_digest:
-        raise _Halt(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-            "fast_row_digest does not match hidden summary",
-            table=hidden_table.table_name,
-            expected_digest_ref=hidden_table.fast_row_digest,
-            observed_digest_ref=fast_digest,
-        )
+    row_hashes: list[bytes] = []
+    fast_hashes: list[bytes] = []
+    mapped_columns = tuple(map_repository_column(column) for column in catalog_table.columns)
+    source_columns = tuple(item.source for item in mapped_columns)
     source_descriptor = SourceTableDescriptor(
         display_name=catalog_table.display_table_name or catalog_table.table_name,
-        canonical_name=hidden_table.table_name,
+        canonical_name=table_name,
         columns=source_columns,
         primary_key_canonical_names=tuple(
             canonicalize_identifier(name) for name in catalog_table.primary_key_columns
         ),
         reader_ready=True,
     )
-    return MaterializedTableReader(source_descriptor, tuple(encoded_rows)), tuple(diagnostics)
+    try:
+        compare_keys = effective_key_columns(source_descriptor, compare_key_index(request.ruleset))
+    except CompareKeyError as exc:
+        reader.close()
+        raise _Halt(
+            MaterializationDiagnosticCode.COMPARE_KEY_UNKNOWN_COLUMN,
+            str(exc),
+            table=table_name,
+        ) from exc
+    schema_digest = compare_schema_digest(
+        table_name,
+        tuple(column.canonical_name for column in source_columns),
+        compare_keys,
+    )
+    name_to_index = {column.canonical_name: index for index, column in enumerate(source_columns)}
+    key_indexes = tuple(name_to_index[name] for name in compare_keys)
+    seen_keys: set[tuple[bytes, ...]] = set()
+    duplicate_key = False
+    actual_count = 0
+    try:
+        for raw in reader.stream_rows():
+            _checkpoint(request.context)
+            try:
+                encoded = encode_repository_row(
+                    catalog_table.columns, raw, table=table_name
+                )
+            except ValueError as exc:
+                raise _Halt(
+                    MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
+                    str(exc) or "repository row is malformed",
+                    table=table_name,
+                ) from exc
+            diagnostics.extend(encoded.diagnostics)
+            actual_count += 1
+            row_hashes.append(row_content_hash(source_columns, encoded.cells))
+            fast_hashes.append(fast_row_hash(source_columns, encoded.cells))
+            if key_indexes:
+                key = tuple(
+                    encode_cell_frame(source_columns[index], encoded.cells[index])
+                    for index in key_indexes
+                )
+                if key in seen_keys:
+                    duplicate_key = True
+                else:
+                    seen_keys.add(key)
+            if keep_rows:
+                encoded_rows.append(encoded.cells)
+    except RepositoryProviderError as exc:
+        raise _Halt(exc.code, exc.message, table=table_name) from exc
+    except (CanonicalEncodingError, ValueError) as exc:
+        raise _Halt(
+            MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
+            str(exc) or "repository scalar encoding failed",
+            table=table_name,
+        ) from exc
+    finally:
+        reader.close()
+    if catalog_table.row_count is not None and actual_count != catalog_table.row_count:
+        _LOGGER.warning(
+            "Repository catalog row count differs from streamed row count",
+            extra={
+                "event": "repository_row_count_mismatch",
+                "diagnostic_code": MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH.value,
+                "metric_name": "repository_row_count_mismatch_total",
+                "metric_increment": 1,
+                "repository_id": request.repository_ref.repository_id,
+                "commit_id": request.repository_ref.ref,
+                "table": table_name,
+                "catalog_row_count": catalog_table.row_count,
+                "streamed_row_count": actual_count,
+            },
+        )
+        raise _Halt(
+            MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH,
+            "Repository catalog row count differs from streamed row count",
+            table=table_name,
+        )
+    degraded_reason: DegradedReason | None = None
+    if not compare_keys:
+        degraded_reason = DegradedReason.KEYLESS
+    elif duplicate_key:
+        degraded_reason = DegradedReason.DUPLICATE_EFFECTIVE_KEY
+        diagnostics.append(
+            MaterializationDiagnostic(
+                code=MaterializationDiagnosticCode.DUPLICATE_EFFECTIVE_KEY,
+                severity=DiagnosticSeverity.WARNING,
+                message="duplicate effective key rows were preserved",
+                table=table_name,
+            )
+        )
+    descriptor = SnapshotTableDescriptor(
+        table_name=table_name,
+        display_table_name=source_descriptor.display_name,
+        columns=tuple(
+            SnapshotColumnDescriptor(
+                name=column.canonical_name,
+                display_name=column.display_name,
+                nullable=column.nullable,
+                scalar_type=column.sql_type,
+            )
+            for column in source_columns
+        ),
+        primary_key_columns=source_descriptor.primary_key_canonical_names,
+        compare_key_columns=compare_keys,
+        row_count=actual_count,
+        materialization_stage=stage,
+        compare_schema_digest=schema_digest,
+        table_ruleset_version=request.table_ruleset_version,
+        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
+        scalar_encoding_version=SCALAR_ENCODING_VERSION,
+        fast_row_digest=fast_row_digest_of(tuple(fast_hashes)),
+        raw_content_digest=raw_content_digest_of(tuple(row_hashes)),
+        degraded_reason=degraded_reason,
+        diagnostics=tuple(diagnostics),
+    )
+    if not keep_rows:
+        return descriptor, None, tuple(diagnostics)
+    source_reader = MaterializedTableReader(source_descriptor, tuple(encoded_rows))
+    ordered_metadata = None
+    if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1:
+        ordered_metadata = SnapshotTableOrderedMetadata(
+            blank_provenance=BlankRowProvenance.CANONICAL_PSEUDO_GID
+        )
+    return (
+        descriptor,
+        SnapshotTable(
+            descriptor=descriptor,
+            reader=BoundSnapshotTableReader(descriptor, source_reader),
+            diagnostics=tuple(diagnostics),
+            ordered_metadata=ordered_metadata,
+        ),
+        tuple(diagnostics),
+    )
 
 
 def _index_catalog(catalog: RepositoryTableCatalog) -> dict[str, RepositoryCatalogTable]:
@@ -451,84 +484,25 @@ def _index_catalog(catalog: RepositoryTableCatalog) -> dict[str, RepositoryCatal
     return indexed
 
 
-def _select_hidden_tables(
-    hidden: HiddenFinalSummary,
-    indexed: dict[str, RepositoryCatalogTable],
-    requested: tuple[str, ...] | None,
-) -> tuple[SnapshotTableDescriptor, ...]:
-    by_name = {table.table_name: table for table in hidden.tables}
-    if requested is None:
-        selected_names = tuple(table.table_name for table in hidden.tables)
-    else:
-        selected_names = tuple(canonicalize_identifier(name) for name in requested)
-    selected: list[SnapshotTableDescriptor] = []
-    for name in selected_names:
-        hidden_table = by_name.get(name)
-        if hidden_table is None:
-            if name not in indexed:
-                raise _Halt(
-                    MaterializationDiagnosticCode.REQUESTED_TABLE_MISSING,
-                    f"requested table {name!r} is not in the catalog",
-                )
-            raise _Halt(
-                MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-                f"table {name!r} is not in the hidden summary",
-                table=name,
-                expected_digest_ref=raw_blob_digest(f"catalog-table:{name}".encode("utf-8")),
-                observed_digest_ref=raw_blob_digest(
-                    f"hidden-summary-table:missing:{name}".encode("utf-8")
-                ),
-            )
-        if name not in indexed:
-            raise _Halt(
-                MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-                f"hidden summary table {name!r} is missing from the catalog",
-                table=name,
-                expected_digest_ref=raw_blob_digest(f"catalog-table:{name}".encode("utf-8")),
-                observed_digest_ref=raw_blob_digest(b"catalog-table:missing"),
-            )
-        selected.append(hidden_table)
-    return tuple(selected)
-
-
-def _hidden_version_mismatch(
+def _selected_names(
     request: RepositoryRefMaterializationRequest,
-    hidden: HiddenFinalSummary,
-) -> MaterializationDiagnostic | None:
-    if hidden.table_ruleset_version != request.table_ruleset_version:
-        return _error(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_VERSION_MISMATCH,
-            "hidden summary table_ruleset_version does not match the request",
+    binding_by_name: dict[str, StorageRuleView],
+) -> tuple[str, ...]:
+    if request.requested_tables is None:
+        return tuple(sorted(binding_by_name, key=lambda item: item.encode("utf-8")))
+    selected = tuple(canonicalize_identifier(name) for name in request.requested_tables)
+    if len(set(selected)) != len(selected):
+        raise _Halt(
+            MaterializationDiagnosticCode.REQUESTED_TABLE_MISSING,
+            "requested tables must not contain duplicates",
         )
-    if hidden.scalar_encoding_version != request.scalar_encoding_version:
-        return _error(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_VERSION_MISMATCH,
-            "hidden summary scalar_encoding_version does not match the request",
+    missing = tuple(name for name in selected if name not in binding_by_name)
+    if missing:
+        raise _Halt(
+            MaterializationDiagnosticCode.REQUESTED_TABLE_MISSING,
+            f"requested table {missing[0]!r} is not in canonical metadata",
         )
-    if (
-        hidden.snapshot_materialization_contract_version
-        != request.snapshot_materialization_contract_version
-    ):
-        return _error(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_VERSION_MISMATCH,
-            "hidden summary snapshot_materialization_contract_version does not match",
-        )
-    if hidden.digest_contract_version != request.digest_contract_version:
-        return _error(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_VERSION_MISMATCH,
-            "hidden summary digest_contract_version does not match the request",
-        )
-    if hidden.summary_contract_version != SUMMARY_CONTRACT_VERSION:
-        return _error(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_VERSION_MISMATCH,
-            "hidden summary summary_contract_version is unsupported",
-        )
-    if request.parser_version is not None and hidden.parser_version != request.parser_version:
-        return _error(
-            MaterializationDiagnosticCode.HIDDEN_SUMMARY_VERSION_MISMATCH,
-            "hidden summary parser_version does not match the request",
-        )
-    return None
+    return selected
 
 
 def _ruleset_mismatch(
@@ -618,8 +592,6 @@ def _error(
     *,
     table: str | None = None,
     column: str | None = None,
-    expected_digest_ref: DigestRef | None = None,
-    observed_digest_ref: DigestRef | None = None,
 ) -> MaterializationDiagnostic:
     return MaterializationDiagnostic(
         code=code,
@@ -627,8 +599,6 @@ def _error(
         message=message,
         table=table,
         column=column,
-        expected_digest_ref=expected_digest_ref,
-        observed_digest_ref=observed_digest_ref,
     )
 
 

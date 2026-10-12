@@ -26,6 +26,11 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTable,
     SnapshotTableSet,
 )
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.ports import (
+    CommitCanonicalMetadata,
+    CommitCanonicalScope,
+)
 from gateway_backend.capabilities.storage_projection import (
     NeverCancel,
     ProjectionInvocationContext,
@@ -260,6 +265,16 @@ def test_canonical_snapshot_identity(
             bearer_token=service.bearer_token,
             timeout_seconds=30.0,
         )(seeded.repository_id, operation.result.commit_id)
+        canonical_binding = canonical_binding_for_commit(
+            CommitCanonicalMetadata(
+                repository_id=seeded.repository_id,
+                commit_id=operation.result.commit_id,
+                scope=CommitCanonicalScope("identity-device", "identity-project"),
+                initial=False,
+                manifest=canonical.manifest,
+            ),
+            runtime_ruleset=_RULESET,
+        )
         materialized = materialize_repository_ref(
             RepositoryRefMaterializationRequest(
                 repository_ref=RepositoryRef(
@@ -268,6 +283,7 @@ def test_canonical_snapshot_identity(
                 ),
                 provider=provider,
                 ruleset=_RULESET,
+                canonical_binding=canonical_binding,
                 table_ruleset_version=TABLE_RULESET_VERSION,
                 materialization_stage=MaterializationStage.FINAL,
                 policy=MaterializationPolicy.READERS_REQUIRED,

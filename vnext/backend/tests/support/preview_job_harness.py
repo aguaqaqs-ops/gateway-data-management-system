@@ -52,9 +52,13 @@ from tests.support.runtime_settings import make_operation_worker_settings
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     catalog_table,
-    hidden_summary_for,
     int_id_column,
     make_catalog,
+)
+from tests.support.canonical_metadata import (
+    CatalogCommitCanonicalMetadataPort,
+    MetadataControlDbUnitOfWork,
+    metadata_for_catalog,
 )
 from tests.support.source_package_fixtures import pack_tar_gz
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
@@ -92,10 +96,8 @@ def preview_baseline_provider(
             ref=commit_id,
             commit=commit_id,
         )
-        hidden = hidden_summary_for(catalog, {})
         return FakeRepositoryTableAccessProvider(
             catalog=catalog,
-            hidden=hidden,
             rows={},
             current_commit=commit_id,
         )
@@ -107,10 +109,8 @@ def preview_baseline_provider(
         ref=commit_id,
         commit=commit_id,
     )
-    hidden = hidden_summary_for(catalog, rows)
     return FakeRepositoryTableAccessProvider(
         catalog=catalog,
-        hidden=hidden,
         rows=rows,
         current_commit=commit_id,
     )
@@ -214,6 +214,8 @@ class PreviewJobHarness:
     def seed_workspace(self) -> None:
         workspace = build_workspace(generation=self.upload_revision.generation)
         with ControlDbUnitOfWork(self.db_path) as unit_of_work:
+            if unit_of_work.workspace.get_workspace(workspace.workspace_id) is not None:
+                return
             unit_of_work.workspace.save_workspace(workspace, expected_version=workspace.optimistic_version)
             unit_of_work.workspace.save_upload_revision(self.upload_revision)
 
@@ -253,14 +255,24 @@ def build_preview_harness(
     )
     baseline_provider = preview_baseline_provider(empty=empty_baseline)
     baseline_head_read = MutableBaselineHeadReadPort({REPOSITORY_ID: BASELINE_HEAD})
+    metadata_port = CatalogCommitCanonicalMetadataPort(
+        {
+            (REPOSITORY_ID, BASELINE_HEAD.business_baseline_commit_id): metadata_for_catalog(
+                baseline_provider.catalog,
+                initial=empty_baseline,
+            )
+        }
+    )
+    def control_uow_factory() -> MetadataControlDbUnitOfWork:
+        return MetadataControlDbUnitOfWork(db_path, metadata_port)
     deps = PreviewRuntimeDependencies(
         artifact_store=artifact_store,
         repository_provider_factory=repository_provider_factory(baseline_provider),
         baseline_head_read=baseline_head_read,
-        control_transaction_factory=lambda: ControlDbUnitOfWork(db_path),
+        control_transaction_factory=control_uow_factory,
     )
     definitions, handlers, decoders = preview_composition_bundle(deps)
-    publication_uow_factory = bind_control_transaction_factory(lambda: ControlDbUnitOfWork(db_path))
+    publication_uow_factory = bind_control_transaction_factory(control_uow_factory)
     build_job_worker_composition(
         definitions,
         handlers,
@@ -349,6 +361,7 @@ def preview_step_document(
 
 
 def insert_preview_operation(harness: PreviewJobHarness, operation_id: str = "op-preview-1") -> None:
+    harness.seed_workspace()
     operation = operation_record_from_document(
         preview_operation_document(operation_id, payload_object=decode_payload_object(harness))
     )

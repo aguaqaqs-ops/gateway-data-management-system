@@ -358,6 +358,39 @@ def _history_env(
     )
 
 
+def _seed_history_integrity_record(db_path: Path, *, operation_id: str) -> None:
+    from datetime import UTC, datetime
+
+    from gateway_backend.application.history.contracts import (
+        HISTORY_INTEGRITY_FAILURE_CLASS,
+        HISTORY_INTEGRITY_RECOMMENDED_ACTION,
+        HistoryCompareIntegrityRecord,
+        IntegrityAcknowledgementStatus,
+    )
+
+    now = datetime(2026, 9, 24, tzinfo=UTC)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.history_compare.save_integrity_record(
+            HistoryCompareIntegrityRecord(
+                incident_id=f"hci-{operation_id}",
+                operation_id=operation_id,
+                repository_id="repo-1",
+                commit_refs=({"commit_id": BASELINE_HEAD.business_baseline_commit_id},),
+                failure_class=HISTORY_INTEGRITY_FAILURE_CLASS,
+                expected_digest="sha256:" + "a" * 64,
+                observed_digest="sha256:" + "b" * 64,
+                affected_tables=("t",),
+                recommended_action=HISTORY_INTEGRITY_RECOMMENDED_ACTION,
+                first_seen_at=now,
+                last_seen_at=now,
+                acknowledgement_status=IntegrityAcknowledgementStatus.PENDING,
+                resolution_reference=None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+
 def _register_history_compare_bundle(
     history_env: WorkspaceHttpTestEnvironment,
     harness: object,
@@ -967,22 +1000,15 @@ def test_compare_result_decode_malformed_digest_returns_artifact_unavailable(
 
 def test_integrity_ack_route_requires_internal_bearer(db_path: Path, tmp_path: Path) -> None:
     from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
+    from tests.support.history_compare_job_harness import build_history_compare_harness
 
     seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
     harness = build_history_compare_harness(
         tmp_path,
         db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
         idempotency_key="history-compare-ack-http",
     )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    _seed_history_integrity_record(db_path, operation_id=harness.operation_id)
     history_env = _history_env(db_path.parent / "history-integrity-ack", db_path=db_path)
     response = history_env.client.post(
         f"/v1/history-compares/{harness.operation_id}/integrity-ack",
@@ -998,22 +1024,15 @@ def test_integrity_ack_route_requires_internal_bearer(db_path: Path, tmp_path: P
 
 def test_integrity_ack_route_acknowledges_incident(db_path: Path, tmp_path: Path) -> None:
     from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
+    from tests.support.history_compare_job_harness import build_history_compare_harness
 
     seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
     harness = build_history_compare_harness(
         tmp_path,
         db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
         idempotency_key="history-compare-ack-200",
     )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    _seed_history_integrity_record(db_path, operation_id=harness.operation_id)
     history_env = _history_env(db_path.parent / "history-integrity-ack-200", db_path=db_path)
     response = history_env.client.post(
         f"/v1/history-compares/{harness.operation_id}/integrity-ack",
@@ -1030,22 +1049,15 @@ def test_integrity_ack_route_acknowledges_incident(db_path: Path, tmp_path: Path
 
 def test_integrity_ack_route_rejects_resolution_change(db_path: Path, tmp_path: Path) -> None:
     from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
+    from tests.support.history_compare_job_harness import build_history_compare_harness
 
     seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
     harness = build_history_compare_harness(
         tmp_path,
         db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
         idempotency_key="history-compare-ack-409",
     )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    _seed_history_integrity_record(db_path, operation_id=harness.operation_id)
     history_env = _history_env(db_path.parent / "history-integrity-ack-409", db_path=db_path)
     headers = history_env.internal_auth_headers()
     first = history_env.client.post(
@@ -1118,22 +1130,15 @@ def test_history_compare_accept_idempotency_conflict_on_changed_nodes(
 
 def test_integrity_ack_route_replays_same_resolution_reference(db_path: Path, tmp_path: Path) -> None:
     from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
+    from tests.support.history_compare_job_harness import build_history_compare_harness
 
     seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
     harness = build_history_compare_harness(
         tmp_path,
         db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
         idempotency_key="history-compare-ack-replay",
     )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    _seed_history_integrity_record(db_path, operation_id=harness.operation_id)
     history_env = _history_env(db_path.parent / "history-integrity-ack-replay", db_path=db_path)
     headers = history_env.internal_auth_headers()
     payload = {

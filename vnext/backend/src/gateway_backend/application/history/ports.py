@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from gateway_backend.application.control_transactions import ControlTransaction
+from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.application.history.contracts import (
     HistoryCompareAcceptanceRecord,
     HistoryCompareIntegrityRecord,
@@ -19,6 +20,9 @@ from gateway_backend.operations import OperationStore
 
 
 class HistoryControlTransaction(ControlTransaction, Protocol):
+    @property
+    def commit_canonical_metadata(self) -> CommitCanonicalMetadataPort: ...
+
     @property
     def operations(self) -> OperationStore: ...
 

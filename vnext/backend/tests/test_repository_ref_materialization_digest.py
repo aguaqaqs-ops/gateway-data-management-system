@@ -15,8 +15,8 @@ from gateway_backend.capabilities.snapshot_materialization.scalar_encoding impor
 from gateway_shared_kernel import NullScalar, SignedIntegerScalar, StringScalar
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
+    canonical_binding_for_catalog,
     catalog_table,
-    hidden_summary_for,
     int_id_column,
     make_catalog,
     materialize_ref,
@@ -34,8 +34,7 @@ def test_catalog_to_descriptor_canonical_names() -> None:
     )
     rows = {"items": ((1, "a"),)}
     catalog = make_catalog((table,))
-    hidden = hidden_summary_for(catalog, rows)
-    provider = FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden, rows=rows)
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     result = materialize_ref(provider)
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.summary is not None
@@ -50,11 +49,13 @@ def test_identifier_collision_fails_closed() -> None:
     first = catalog_table("items", (int_id_column(),))
     second = catalog_table("ITEMS", (int_id_column(),))
     catalog = make_catalog((first, second))
-    hidden = hidden_summary_for(make_catalog((first,)), {"items": ((1,),)})
     provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, hidden=hidden, rows={"items": ((1,),)}
+        catalog=catalog, rows={"items": ((1,),)}
     )
-    result = materialize_ref(provider)
+    result = materialize_ref(
+        provider,
+        canonical_binding=canonical_binding_for_catalog(make_catalog((first,))),
+    )
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.snapshot is None
     assert result.diagnostics[0].code is (
@@ -74,12 +75,10 @@ def test_tuple_null_and_extra_fields() -> None:
 
 def test_provider_pads_omitted_nulls() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
-    hidden_rows = {"items": ((1, None),)}
     streamed = {"items": ((1,),)}
     catalog = make_catalog((table,))
-    hidden = hidden_summary_for(catalog, hidden_rows)
     provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, hidden=hidden, rows=streamed, pad_nulls=True
+        catalog=catalog, rows=streamed, pad_nulls=True
     )
     result = materialize_ref(provider, policy=MaterializationPolicy.READERS_REQUIRED)
     assert result.status is SnapshotMaterializationStatus.COMPLETE
@@ -89,9 +88,8 @@ def test_short_row_fails_read() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
     rows = {"items": ((1,),)}
     catalog = make_catalog((table,))
-    hidden = hidden_summary_for(catalog, {"items": ((1, "a"),)})
     provider = FakeRepositoryTableAccessProvider(
-        catalog=catalog, hidden=hidden, rows=rows, pad_nulls=False
+        catalog=catalog, rows=rows, pad_nulls=False
     )
     result = materialize_ref(provider, policy=MaterializationPolicy.READERS_REQUIRED)
     assert result.status is SnapshotMaterializationStatus.FAILED
@@ -116,12 +114,11 @@ def test_same_ref_repeats_same_snapshot_digest() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
     rows = {"items": ((1, "a"), (2, "b"))}
     catalog = make_catalog((table,))
-    hidden = hidden_summary_for(catalog, rows)
     first = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden, rows=rows)
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     )
     second = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden, rows=rows)
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     )
     assert first.snapshot is not None and second.snapshot is not None
     assert first.snapshot.snapshot_digest == second.snapshot.snapshot_digest
@@ -133,13 +130,12 @@ def test_row_order_does_not_change_content_digest() -> None:
     forward = {"items": ((1, "a"), (2, "b"))}
     reverse = {"items": ((2, "b"), (1, "a"))}
     catalog = make_catalog((table,))
-    hidden = hidden_summary_for(catalog, forward)
     left = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden, rows=forward),
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=forward),
         policy=MaterializationPolicy.READERS_REQUIRED,
     )
     right = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden, rows=reverse),
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=reverse),
         policy=MaterializationPolicy.READERS_REQUIRED,
     )
     assert left.status is SnapshotMaterializationStatus.COMPLETE
@@ -155,13 +151,11 @@ def test_duplicate_rows_are_preserved_in_digest() -> None:
     unique = {"items": ((1,),)}
     duplicated = {"items": ((1,), (1,))}
     catalog = make_catalog((table,))
-    hidden_unique = hidden_summary_for(catalog, unique)
-    hidden_dup = hidden_summary_for(catalog, duplicated)
     left = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden_unique, rows=unique)
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=unique)
     )
     right = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden_dup, rows=duplicated)
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=duplicated)
     )
     assert left.summary is not None and right.summary is not None
     assert left.summary.tables[0].raw_content_digest != right.summary.tables[0].raw_content_digest
@@ -175,13 +169,12 @@ def test_table_root_hash_does_not_replace_raw_digest() -> None:
     right_table = catalog_table("items", columns, table_root_hash="root-b")
     left_catalog = make_catalog((left_table,))
     right_catalog = make_catalog((right_table,))
-    hidden = hidden_summary_for(left_catalog, rows)
     left = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=left_catalog, hidden=hidden, rows=rows),
+        FakeRepositoryTableAccessProvider(catalog=left_catalog, rows=rows),
         policy=MaterializationPolicy.READERS_REQUIRED,
     )
     right = materialize_ref(
-        FakeRepositoryTableAccessProvider(catalog=right_catalog, hidden=hidden, rows=rows),
+        FakeRepositoryTableAccessProvider(catalog=right_catalog, rows=rows),
         policy=MaterializationPolicy.READERS_REQUIRED,
     )
     assert left.status is SnapshotMaterializationStatus.COMPLETE
@@ -196,8 +189,7 @@ def test_readers_required_publishes_reopenable_rows() -> None:
     table = catalog_table("items", (int_id_column(), text_column("name", 1)))
     rows = {"items": ((1, "a"), (2, None))}
     catalog = make_catalog((table,))
-    hidden = hidden_summary_for(catalog, rows)
-    provider = FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden, rows=rows)
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     result = materialize_ref(provider, policy=MaterializationPolicy.READERS_REQUIRED)
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.table_set is not None

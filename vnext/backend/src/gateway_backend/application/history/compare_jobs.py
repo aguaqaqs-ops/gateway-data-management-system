@@ -8,12 +8,15 @@ import json
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from types import TracebackType
 from typing import ContextManager, cast
 
-from gateway_shared_kernel import raw_blob_digest
-
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.ports import (
+    CommitCanonicalMetadataError,
+    CommitCanonicalScope,
+)
 from gateway_backend.application.checkpoints import (
     CheckpointPublicationError,
     definition_matches_checkpoint,
@@ -68,13 +71,12 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleRefScope,
     assemble_bundle,
 )
-from gateway_backend.capabilities.comparison import BoundSnapshotInput
+from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    MaterializationDiagnostic,
-    MaterializationDiagnosticCode,
+    CanonicalBinding,
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
@@ -132,13 +134,6 @@ _JOB_STATE_READY_CLOSURE_REF = "ready_closure_ref"
 _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
 
-_INTEGRITY_CANDIDATE_CODES = frozenset(
-    {
-        MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
-        MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-    }
-)
-
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(
     "_active_history_compare_transaction",
     default=None,
@@ -147,6 +142,10 @@ _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction
 
 class HistoryCompareJobError(ValueError):
     """Bounded history compare job failure surfaced to the operation runtime."""
+
+    def __init__(self, message: str, *, diagnostic_code: str | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic_code = diagnostic_code
 
 
 class HistoryCompareRulesetVersionMismatch(HistoryCompareJobError):
@@ -355,15 +354,6 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
         else:
             try:
                 sides = _materialize_distinct_commits(payload, deps)
-            except _IntegrityConfirmed as confirmed:
-                _publish_integrity_failure(
-                    lease_session=lease_session,
-                    operation=operation,
-                    step=step,
-                    payload=payload,
-                    confirmed=confirmed,
-                )
-                return ExecutorAcknowledgment.PUBLISHED
             except HistoryCompareRulesetVersionMismatch as exc:
                 _publish_ruleset_mismatch_failure(
                     lease_session=lease_session,
@@ -379,6 +369,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                     operation=operation,
                     step=step,
                     message=str(exc),
+                    diagnostic_code=exc.diagnostic_code,
                     control=control,
                 )
                 return ExecutorAcknowledgment.PUBLISHED
@@ -663,13 +654,32 @@ def _materialize_distinct_commits(
 ) -> dict[str, BoundSnapshotInput]:
     distinct_commits = tuple(dict.fromkeys(node.commit_id for node in payload.nodes))
     sides: dict[str, BoundSnapshotInput] = {}
+    runtime_ruleset = _assert_runtime_ruleset(payload).snapshot
     for commit_id in distinct_commits:
         provider = deps.repository_provider_factory(payload.repository_id, commit_id)
-        bound, _ = _materialize_commit_with_integrity(
+        with deps.control_transaction_factory() as unit_of_work:
+            try:
+                metadata = unit_of_work.commit_canonical_metadata.resolve(
+                    repository_id=payload.repository_id,
+                    commit_id=commit_id,
+                    scope=CommitCanonicalScope(
+                        gateway_device_external_key=payload.gateway_device_external_key,
+                        business_project_id=payload.business_project_id,
+                    ),
+                )
+            except CommitCanonicalMetadataError as exc:
+                raise HistoryCompareJobError(
+                    exc.diagnostic,
+                    diagnostic_code=exc.code.value,
+                ) from exc
+        binding = canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
+        bound = _materialize_commit(
             repository_id=payload.repository_id,
             commit_id=commit_id,
             provider=provider,
             store=deps.artifact_store,
+            canonical_binding=binding,
+            ruleset=runtime_ruleset,
         )
         sides[commit_id] = bound
 
@@ -688,111 +698,35 @@ def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRule
     return active_rules
 
 
-def _materialize_commit_with_integrity(
+def _materialize_commit(
     *,
     repository_id: str,
     commit_id: str,
     provider: RepositoryTableAccessProvider,
     store: ArtifactStorePort,
-) -> tuple[BoundSnapshotInput, SnapshotMaterializationResult]:
+    canonical_binding: CanonicalBinding,
+    ruleset: TableRulesetSnapshot,
+) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
         provider=provider,
-        ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
+        ruleset=ruleset,
+        canonical_binding=canonical_binding,
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
         artifact_store=store,
     )
-    first_observed_at = datetime.now(UTC)
-    first = materialize_repository_ref(request)
-    if first.status is SnapshotMaterializationStatus.COMPLETE:
-        return _bound_from_materialization(first), first
-    first_diag = _candidate_diagnostic(first)
-    if first_diag is None:
-        raise HistoryCompareJobError("commit materialization failed")
-    second = materialize_repository_ref(request)
-    last_observed_at = datetime.now(UTC)
-    if second.status is SnapshotMaterializationStatus.COMPLETE:
-        raise HistoryCompareJobError("commit materialization recovered on retry")
-    second_diag = _candidate_diagnostic(second)
-    if second_diag is None or second_diag.code != first_diag.code:
-        raise HistoryCompareJobError("commit materialization failed")
-    if not _integrity_confirmed(first_diag, second_diag):
-        has_public_facts = any(
-            diagnostic.expected_digest_ref is not None or diagnostic.observed_digest_ref is not None
-            for diagnostic in (first_diag, second_diag)
+    result = materialize_repository_ref(request)
+    if result.status is not SnapshotMaterializationStatus.COMPLETE:
+        diagnostic = result.diagnostics[0] if result.diagnostics else None
+        code = None if diagnostic is None else diagnostic.code.value
+        raise HistoryCompareJobError(
+            "commit materialization failed" if diagnostic is None else diagnostic.message,
+            diagnostic_code=code,
         )
-        if not has_public_facts:
-            raise HistoryCompareJobError("integrity candidate diagnostic is missing digest refs")
-        raise HistoryCompareJobError("commit materialization failed")
-    expected = first_diag.expected_digest_ref
-    observed = first_diag.observed_digest_ref
-    if expected is None or observed is None:
-        raise HistoryCompareJobError("integrity diagnostic is missing digest refs")
-    tables = tuple(
-        sorted(
-            {
-                item
-                for item in (first_diag.table, second_diag.table)
-                if type(item) is str and item
-            }
-        )
-    )
-    raise _IntegrityConfirmed(
-        expected_digest=expected.value,
-        observed_digest=observed.value,
-        affected_tables=tables,
-        commit_id=commit_id,
-        first_observed_at=first_observed_at,
-        last_observed_at=last_observed_at,
-    )
-
-
-def _integrity_confirmed(first: MaterializationDiagnostic, second: MaterializationDiagnostic) -> bool:
-    if first.code != second.code:
-        return False
-    if (
-        first.expected_digest_ref is None
-        or first.observed_digest_ref is None
-        or second.expected_digest_ref is None
-        or second.observed_digest_ref is None
-    ):
-        return False
-    if first.expected_digest_ref != second.expected_digest_ref:
-        return False
-    if _is_structural_integrity_diagnostic(first):
-        return first.observed_digest_ref == second.observed_digest_ref
-    # Content-track: stable expected; both observed disagree with expected (drift allowed).
-    return (
-        first.observed_digest_ref != first.expected_digest_ref
-        and second.observed_digest_ref != second.expected_digest_ref
-    )
-
-
-def _is_structural_integrity_diagnostic(diagnostic: MaterializationDiagnostic) -> bool:
-    expected = diagnostic.expected_digest_ref
-    observed = diagnostic.observed_digest_ref
-    if expected is None or observed is None:
-        return False
-    structural_labels: tuple[bytes, ...] = (b"catalog-table:missing",)
-    if type(diagnostic.table) is str and diagnostic.table:
-        structural_labels += (
-            f"catalog-table:{diagnostic.table}".encode(),
-            f"hidden-summary-table:missing:{diagnostic.table}".encode(),
-        )
-    return any(
-        expected == raw_blob_digest(label) or observed == raw_blob_digest(label)
-        for label in structural_labels
-    )
-
-
-def _candidate_diagnostic(result: SnapshotMaterializationResult) -> MaterializationDiagnostic | None:
-    for diagnostic in result.diagnostics:
-        if diagnostic.code in _INTEGRITY_CANDIDATE_CODES:
-            return diagnostic
-    return None
+    return _bound_from_materialization(result, canonical_binding=canonical_binding)
 
 
 def _assemble_comparison(
@@ -1037,6 +971,7 @@ def _publish_commit_unavailable_failure(
     operation: OperationRecord,
     step: StepRecord,
     message: str,
+    diagnostic_code: str | None = None,
     control: ExecutionControl,
 ) -> None:
     def builder(
@@ -1049,7 +984,7 @@ def _publish_commit_unavailable_failure(
             raise HistoryCompareJobError("history compare failure transaction is not bound")
         _release_history_compare_step_protection(transaction, operation_id=current_operation.operation_id)
         diagnostic = OperationDiagnostic(
-            code=HistoryCompareDiagnosticCode.HISTORY_COMMIT_UNAVAILABLE.value,
+            code=diagnostic_code or HistoryCompareDiagnosticCode.HISTORY_COMMIT_UNAVAILABLE.value,
             message=message[:255],
         )
         terminal_step = _terminal_step(
@@ -1215,12 +1150,25 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
     return BoundSnapshotInput(snapshot, summary, table_set)
 
 
-def _bound_from_materialization(result: SnapshotMaterializationResult) -> BoundSnapshotInput:
+def _bound_from_materialization(
+    result: SnapshotMaterializationResult,
+    *,
+    canonical_binding: CanonicalBinding,
+) -> BoundSnapshotInput:
     if result.status is not SnapshotMaterializationStatus.COMPLETE:
         raise HistoryCompareJobError("materialization failed")
     if result.snapshot is None or result.summary is None:
         raise HistoryCompareJobError("materialization is incomplete")
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+    descriptors = {item.table_name: item for item in result.summary.tables}
+    storage_facts = tuple(
+        ComparisonStorageFacts(
+            storage_rule_view=view,
+            source_schema_digest=descriptors[view.canonical_table].business_schema_digest,
+        )
+        for view in canonical_binding.tables
+        if view.canonical_table in descriptors
+    )
+    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set, storage_facts)
 
 
 def _closed_refs_from_sides(sides: dict[str, BoundSnapshotInput]) -> tuple[ArtifactRef, ...]:

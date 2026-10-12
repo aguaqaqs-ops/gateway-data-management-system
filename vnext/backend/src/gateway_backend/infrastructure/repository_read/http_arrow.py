@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -17,40 +16,15 @@ from gateway_repository_client.arrow_stream import ArrowIpcByteStream
 from gateway_repository_contracts import GetVersionedCatalogResponse
 from gateway_shared_kernel import canonicalize_identifier
 
-from gateway_backend.capabilities.snapshot_materialization._digest import (
-    compare_schema_digest,
-    fast_row_digest_of,
-    fast_row_hash,
-    raw_content_digest_of,
-    raw_state_digest_of,
-    row_content_hash,
-    snapshot_digest_of,
-)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    DIGEST_CONTRACT_VERSION,
-    ROW_MATERIALIZATION_PROFILE,
-    SCALAR_ENCODING_VERSION,
-    SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
-    SUMMARY_CONTRACT_VERSION,
-    DegradedReason,
-    HiddenFinalSummary,
     MaterializationDiagnosticCode,
-    MaterializationStage,
     RepositoryCatalogTable,
     RepositoryColumn,
     RepositoryProviderError,
     RepositoryRef,
     RepositoryRefTimeoutPolicy,
     RepositoryTableCatalog,
-    SnapshotColumnDescriptor,
-    SnapshotTableDescriptor,
 )
-from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
-    encode_repository_row,
-    map_repository_column,
-)
-from gateway_backend.capabilities.table_access.contracts import PARSER_VERSION
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 
 _REPOSITORY_SERVER_CONTRACT_VERSION = 1
 
@@ -121,7 +95,6 @@ class HttpArrowRepositoryRefSession:
         self._repository_id = repository_id
         self._commit_id = commit_id
         self._catalog: RepositoryTableCatalog | None = None
-        self._hidden: HiddenFinalSummary | None = None
         self._closed = False
 
     def pinned_commit_hash(self) -> str:
@@ -138,13 +111,6 @@ class HttpArrowRepositoryRefSession:
                 response=response,
             )
         return self._catalog
-
-    def read_hidden_summary(self) -> HiddenFinalSummary | None:
-        self._ensure_open()
-        if self._hidden is None:
-            catalog = self.get_catalog()
-            self._hidden = _hidden_summary_from_streaming_tables(catalog, self._iter_table_rows)
-        return self._hidden
 
     def open_table_reader(self, table_name: str) -> HttpArrowRepositoryTableReader:
         self._ensure_open()
@@ -337,75 +303,4 @@ def _catalog_from_response(
         resolved_commit_hash=commit_id,
         repository_server_contract_version=_REPOSITORY_SERVER_CONTRACT_VERSION,
         tables=tuple(tables),
-    )
-
-
-def _hidden_summary_from_streaming_tables(
-    catalog: RepositoryTableCatalog,
-    rows_factory: Callable[[str], Iterator[tuple[object | None, ...]]],
-) -> HiddenFinalSummary:
-    descriptors: list[SnapshotTableDescriptor] = []
-    for table in catalog.tables:
-        canonical = canonicalize_identifier(table.table_name)
-        mapped = tuple(map_repository_column(column) for column in table.columns)
-        source_columns = tuple(item.source for item in mapped)
-        column_names = tuple(item.canonical_name for item in source_columns)
-        compare_keys = tuple(canonicalize_identifier(name) for name in table.primary_key_columns)
-        schema = compare_schema_digest(canonical, column_names, compare_keys)
-        row_hashes: list[bytes] = []
-        fast_hashes: list[bytes] = []
-        row_count = 0
-        for row in rows_factory(table.table_name):
-            encoded_row = encode_repository_row(table.columns, tuple(row), table=canonical).cells
-            row_hashes.append(row_content_hash(source_columns, encoded_row))
-            fast_hashes.append(fast_row_hash(source_columns, encoded_row))
-            row_count += 1
-        columns = tuple(
-            SnapshotColumnDescriptor(
-                name=item.canonical_name,
-                display_name=item.display_name,
-                nullable=item.nullable,
-                scalar_type=item.sql_type,
-            )
-            for item in source_columns
-        )
-        descriptors.append(
-            SnapshotTableDescriptor(
-                table_name=canonical,
-                display_table_name=table.display_table_name or table.table_name,
-                columns=columns,
-                primary_key_columns=compare_keys,
-                compare_key_columns=compare_keys,
-                row_count=row_count,
-                materialization_stage=MaterializationStage.FINAL,
-                compare_schema_digest=schema,
-                table_ruleset_version=TABLE_RULESET_VERSION,
-                row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-                scalar_encoding_version=SCALAR_ENCODING_VERSION,
-                fast_row_digest=fast_row_digest_of(tuple(fast_hashes)),
-                raw_content_digest=raw_content_digest_of(tuple(row_hashes)),
-                degraded_reason=DegradedReason.KEYLESS if not compare_keys else None,
-            )
-        )
-    tables = tuple(descriptors)
-    snapshot_id = hashlib.sha256(
-        f"{catalog.repository_id}:{catalog.resolved_commit_hash}".encode("utf-8")
-    ).hexdigest()[:32]
-    return HiddenFinalSummary(
-        snapshot_id=snapshot_id,
-        snapshot_digest=snapshot_digest_of(
-            stage=MaterializationStage.FINAL,
-            parser_version=PARSER_VERSION,
-            table_ruleset_version=TABLE_RULESET_VERSION,
-            tables=tables,
-        ),
-        raw_state_digest=raw_state_digest_of(tables),
-        materialization_stage=MaterializationStage.FINAL,
-        parser_version=PARSER_VERSION,
-        table_ruleset_version=TABLE_RULESET_VERSION,
-        summary_contract_version=SUMMARY_CONTRACT_VERSION,
-        scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        snapshot_materialization_contract_version=SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
-        digest_contract_version=DIGEST_CONTRACT_VERSION,
-        tables=tables,
     )

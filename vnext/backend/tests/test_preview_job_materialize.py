@@ -37,6 +37,7 @@ pytestmark = pytest.mark.integration
 
 def test_materialize_uses_frozen_baseline_exact_commit(tmp_path: Path) -> None:
     harness = build_preview_harness(tmp_path)
+    harness.seed_workspace()
     payload = decode_preview_payload(decode_payload_object(harness))
     from gateway_backend.application.preview_jobs import _materialize_all_sides
 
@@ -68,6 +69,7 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
 
 def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> None:
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    harness.seed_workspace()
     operation_id = "op-materialize-modified-only"
     insert_preview_operation(harness, operation_id)
     session, control, operation, step = claim_next_step(harness)
@@ -85,6 +87,7 @@ def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> 
 
 def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> None:
     harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    harness.seed_workspace()
     bad_binding = store_source_package(
         harness.artifact_store,
         b"not-a-valid-package",

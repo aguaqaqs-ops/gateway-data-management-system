@@ -124,10 +124,9 @@ def _dataset_package(root: Path, dataset: Mapping[str, Any]) -> tuple[bytes, dic
     if not isinstance(files, list) or len(files) != 1 or not isinstance(files[0], dict):
         raise JourneyFailure(f"{dataset_id}: package manifest shape is invalid")
     file_info = cast(dict[str, Any], files[0])
-    relative_path = Path(str(file_info["path"]))
-    if relative_path.is_absolute() or ".." in relative_path.parts:
-        raise JourneyFailure(f"{dataset_id}: package path is not relative")
-    package_path = root / dataset_id / relative_path
+    if Path(str(file_info["path"])).name != "package.tar.gz":
+        raise JourneyFailure(f"{dataset_id}: dataset manifest package filename is unexpected")
+    package_path = root / "packages" / f"{dataset_id}.tar.gz"
     payload = package_path.read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     if len(payload) != int(file_info["bytes"]) or digest != file_info["sha256"]:
@@ -1202,11 +1201,37 @@ def run_journey() -> dict[str, Any]:
     }
 
 
+def validate_inputs() -> dict[str, Any]:
+    root = _real_dump_root()
+    datasets, census = _read_metadata(root)
+    validated = []
+    for dataset_id in sorted(datasets):
+        _package, file_info = _dataset_package(root, datasets[dataset_id])
+        ordered = _ordered_tables(census[dataset_id])
+        validated.append(
+            {
+                "dataset_id": dataset_id,
+                "sha256": file_info["sha256"],
+                "package_bytes": file_info["bytes"],
+                "table_count": census[dataset_id]["table_count"],
+                "row_count_total": census[dataset_id]["row_count_total"],
+                "pseudo_rows_total": sum(ordered.values()),
+            }
+        )
+    return {"datasets": validated, "conclusion": "INPUTS_VALID"}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args()
+    parser.add_argument(
+        "--validate-inputs",
+        action="store_true",
+        help="check package hashes and the G8a census without starting containers",
+    )
+    arguments = parser.parse_args()
     try:
-        print(json.dumps(run_journey(), sort_keys=True))
+        result = validate_inputs() if arguments.validate_inputs else run_journey()
+        print(json.dumps(result, sort_keys=True))
     except JourneyFailure as exc:
         print(json.dumps({"conclusion": "FAILED", "reason": str(exc)}))
         return 1

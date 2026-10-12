@@ -84,7 +84,7 @@ from tests.test_submit_job_effect import (
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.support.baseline_fixtures import read_authoritative_baseline_head
-from tests.test_submit_job_prepare import _materialize_snapshot, _run_prepare_handler
+from tests.test_submit_job_prepare import _materialize_ready_preview, _run_prepare_handler
 from tests.test_submit_transactions import (
     FakeAbortEvidencePort,
     RecordingMainResolvePort,
@@ -169,7 +169,7 @@ def _accept_prepared_operation_for_repository(
     expected_commit_id: str,
 ) -> str:
     seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
-    _snapshot_ref, snapshot_digest = _materialize_snapshot(store)
+    seed, _snapshot_ref, snapshot_digest = _materialize_ready_preview(seed, store)
     preflight = _preflight(seed)
     baseline_head, scope_resolution = _authoritative_accept_scope(db_path, seed)
     accepted = accept_submit_transaction(

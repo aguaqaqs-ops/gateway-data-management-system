@@ -722,19 +722,24 @@ def _summary_history_facts(
     operation_id: str,
     before_commit: str,
     current_commit: str,
+    surface_ref: Mapping[str, Any],
+    keyless_table_names: Iterable[str],
     ordered_table_names: Iterable[str],
 ) -> dict[str, Any]:
-    """Extract aggregate fact counts in-container without returning row data."""
+    """Read and validate published History facts in-container without row output."""
 
     remote_script = r'''
 import bisect, json, sqlite3
 from collections import Counter
 from pathlib import Path
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history.compare_jobs import _sides_from_materialize_checkpoint
+from gateway_backend.application.history.compare_jobs import (
+    HISTORY_COMPARE_STEP_MATERIALIZE,
+    _sides_from_materialize_checkpoint,
+    history_compare_step_id,
+)
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
-from gateway_backend.capabilities.comparison import ComparisonPlan, ComparisonRequest, DetailedFactsResult, compare_plan, plan_comparison
-from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.comparison import open_records_closure, read_records_artifact
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_shared_kernel import SignedIntegerScalar, UnsignedIntegerScalar, StringScalar
 
@@ -742,7 +747,9 @@ operation_id = json.loads(__import__('os').environ['S2B_HISTORY_OPERATION'])
 before_commit = json.loads(__import__('os').environ['S2B_HISTORY_BEFORE'])
 current_commit = json.loads(__import__('os').environ['S2B_HISTORY_CURRENT'])
 ordered_names = set(json.loads(__import__('os').environ['S2B_ORDERED_TABLES']))
-step_id = operation_id + '-step-1'
+keyless_names = set(json.loads(__import__('os').environ['S2B_KEYLESS_TABLES']))
+surface_ref = artifact_ref_from_dict(json.loads(__import__('os').environ['S2B_HISTORY_SURFACE_REF']))
+step_id = history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
 connection = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
 row = connection.execute('SELECT checkpoint_ref FROM step_records WHERE step_id = ?', (step_id,)).fetchone()
 if row is None or row[0] is None:
@@ -753,15 +760,25 @@ envelope = load_checkpoint_envelope(store, artifact_ref_from_dict(checkpoint))
 sides = _sides_from_materialize_checkpoint(envelope.job_state, store)
 before = sides[before_commit]
 current = sides[current_commit]
-request = ComparisonRequest(pair_id='pair-0', before=before, current=current,
-                            rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()))
-plan = plan_comparison(request)
-if not isinstance(plan, ComparisonPlan):
-    raise SystemExit('history pair planning did not produce a comparison plan')
-compared = compare_plan(plan)
-if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
-    raise SystemExit('history comparison did not produce detailed facts')
-facts = compared.facts
+surface = json.loads(store.locate(surface_ref))
+surface_tables_raw = surface.get('tables')
+surface_refs = surface.get('refs')
+if type(surface_tables_raw) is not list or type(surface_refs) is not dict:
+    raise SystemExit('History surface is invalid')
+surface_tables = {}
+for item in surface_tables_raw:
+    if type(item) is not dict or type(item.get('table_name')) is not str:
+        raise SystemExit('History surface table is invalid')
+    name = item['table_name']
+    if name in surface_tables:
+        raise SystemExit('History surface repeats a table')
+    surface_tables[name] = item
+if any(item.get('table_status') == 'DEGRADED' for item in surface_tables.values()):
+    raise SystemExit('a table degraded during History compare')
+records_ref_raw = surface_refs.get('records_closure_ref')
+if type(records_ref_raw) is not dict:
+    raise SystemExit('History surface has no records closure')
+closure = open_records_closure(store, artifact_ref_from_dict(records_ref_raw))
 
 def scalar_integer(value):
     if isinstance(value, (SignedIntegerScalar, UnsignedIntegerScalar)):
@@ -841,20 +858,42 @@ def gaps(rows, anchors):
     return result
 
 counts = Counter()
+records_by_table = {}
+for entry in closure.records:
+    rows = read_records_artifact(store, entry)
+    counts.update(str(record['record_kind']) for record in rows)
+    records_by_table.setdefault(entry.table_name, {})[entry.family.value] = rows
+
+def diagnostic_strings(value):
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [part for item in value.values() for part in diagnostic_strings(item)]
+    if isinstance(value, list):
+        return [part for item in value for part in diagnostic_strings(item)]
+    return []
+
+for name in keyless_names:
+    table = surface_tables.get(name)
+    if table is None:
+        raise SystemExit('History surface omitted a keyless fallback table')
+    if any('KEY_DEGRADED' in item for item in diagnostic_strings(table.get('diagnostics'))):
+        raise SystemExit('KEY_DEGRADED was reported for a keyless fallback table')
+
 ordered_results = {}
 all_table_names = set(ordered_names)
-for table in facts.tables:
-    counts.update(record.record_kind.value for record in table.records)
-    ordered_records = () if table.ordered_extension is None else table.ordered_extension.records
-    blank_records = () if table.blank_extension is None else table.blank_extension.records
-    counts.update(record.record_kind.value for record in ordered_records)
-    counts.update(record.record_kind.value for record in blank_records)
-    if table.table_name not in all_table_names:
-        continue
-    if table.status.value == 'DEGRADED':
+for table_name in sorted(all_table_names):
+    table = surface_tables.get(table_name)
+    if table is None:
+        raise SystemExit('History surface omitted an IEC104 ordered table')
+    if table.get('table_status') == 'DEGRADED':
         raise SystemExit('an IEC104 ordered table degraded during History compare')
-    before_rows = read_ordered_rows(before, table.table_name)
-    current_rows = read_ordered_rows(current, table.table_name)
+    family_rows = records_by_table.get(table_name, {})
+    standard_records = family_rows.get('STANDARD', ())
+    ordered_records = family_rows.get('ORDERED', ())
+    blank_records = family_rows.get('BLANK', ())
+    before_rows = read_ordered_rows(before, table_name)
+    current_rows = read_ordered_rows(current, table_name)
     before_real = stable_real_rows(before_rows)
     current_real = stable_real_rows(current_rows)
     current_positions = {gid: position for gid, position in current_real}
@@ -862,7 +901,7 @@ for table in facts.tables:
     positions = [current_positions[gid] for gid in common_keys]
     backbone = lis_backbone(common_keys, positions)
     expected_move_count = len(common_keys) - len(backbone)
-    moved_count = sum(record.record_kind.value == 'ORDERED_ROW_MOVED' for record in ordered_records)
+    moved_count = sum(record['record_kind'] == 'ORDERED_ROW_MOVED' for record in ordered_records)
     if moved_count != expected_move_count:
         raise SystemExit('ordered move count exceeds the minimum required by real row order')
     expected_before = gaps(before_rows, backbone)
@@ -884,23 +923,28 @@ for table in facts.tables:
             before_count,
             current_count,
         )] += 1
-    actual_intervals = Counter((
-        record.interval.before_start, record.interval.before_end,
-        record.interval.current_start, record.interval.current_end,
-        record.interval.row_count, record.before_occupancy, record.current_occupancy,
-    ) for record in blank_records)
+    actual_intervals = Counter()
+    for record in blank_records:
+        interval = record.get('interval')
+        if type(interval) is not dict or 'changed_columns' in record or 'field_changes' in record:
+            raise SystemExit('blank interval record exposed field-level changes')
+        actual_intervals[(
+            interval.get('before_start'), interval.get('before_end'),
+            interval.get('current_start'), interval.get('current_end'),
+            interval.get('row_count'), record.get('before_occupancy'), record.get('current_occupancy'),
+        )] += 1
     if actual_intervals != expected_intervals:
         raise SystemExit('blank records do not match net skeleton interval occupancy changes')
-    ordered_results[table.table_name] = {
-        'status': table.status.value,
-        'standard_record_counts': dict(Counter(record.record_kind.value for record in table.records)),
-        'ordered_record_counts': dict(Counter(record.record_kind.value for record in ordered_records)),
-        'blank_interval_record_counts': dict(Counter(record.record_kind.value for record in blank_records)),
-        'blank_net_row_delta': sum(record.interval.row_count for record in blank_records),
+    ordered_results[table_name] = {
+        'status': table['table_status'],
+        'standard_record_counts': dict(Counter(str(record['record_kind']) for record in standard_records)),
+        'ordered_record_counts': dict(Counter(str(record['record_kind']) for record in ordered_records)),
+        'blank_interval_record_counts': dict(Counter(str(record['record_kind']) for record in blank_records)),
+        'blank_net_row_delta': sum(int(record['interval']['row_count']) for record in blank_records),
         'expected_real_row_move_count': expected_move_count,
     }
 if set(ordered_results) != all_table_names:
-    raise SystemExit('History facts omitted one or more IEC104 ordered tables')
+    raise SystemExit('History surface omitted one or more IEC104 ordered tables')
 print(json.dumps({
     'total_fact_record_count': sum(counts.values()),
     'record_kind_counts': dict(sorted(counts.items())),
@@ -913,6 +957,8 @@ print(json.dumps({
             "S2B_HISTORY_OPERATION": json.dumps(operation_id),
             "S2B_HISTORY_BEFORE": json.dumps(before_commit),
             "S2B_HISTORY_CURRENT": json.dumps(current_commit),
+            "S2B_HISTORY_SURFACE_REF": json.dumps(dict(surface_ref)),
+            "S2B_KEYLESS_TABLES": json.dumps(sorted(set(keyless_table_names))),
             "S2B_ORDERED_TABLES": json.dumps(sorted(ordered_table_names)),
         }
     )
@@ -935,6 +981,16 @@ print(json.dumps({
     if not isinstance(payload, dict):
         raise JourneyFailure("aggregate History facts response was not an object")
     return cast(dict[str, Any], payload)
+
+
+def _history_surface_ref(bundle: Mapping[str, Any]) -> Mapping[str, Any]:
+    pairs = bundle.get("pairs")
+    if not isinstance(pairs, list) or len(pairs) != 1 or not isinstance(pairs[0], Mapping):
+        raise JourneyFailure("History bundle does not contain exactly one pair")
+    surface_ref = pairs[0].get("surface_ref")
+    if not isinstance(surface_ref, Mapping):
+        raise JourneyFailure("History bundle pair has no surface reference")
+    return cast(Mapping[str, Any], surface_ref)
 
 
 def _history_compare(
@@ -1168,6 +1224,8 @@ def _run_tier(
         operation_id=operation_id,
         before_commit=v1_commit_id,
         current_commit=v2_commit_id,
+        surface_ref=_history_surface_ref(cast(Mapping[str, Any], history_result["bundle"])),
+        keyless_table_names=(*v1_keyless_names, *v2_keyless_names),
         ordered_table_names=expected_ordered_tables,
     )
     api_record_count = int(cast(dict[str, Any], history_result["pair"])["record_count"])

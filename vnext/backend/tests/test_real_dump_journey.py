@@ -8,6 +8,7 @@ import pytest
 
 from benchmarks.real_dump_journey import (
     JourneyFailure,
+    _history_surface_ref,
     _keyless_fallback_table_names,
 )
 
@@ -22,6 +23,12 @@ REPEAT_KEYLESS_FAILURES = (
         "missing hint",
         {"diagnostics": {"diagnostics_summary": ""}, "change_kind": "UNCHANGED"},
     ),
+)
+
+HISTORY_BUNDLE_SURFACE_REF_FAILURES: tuple[tuple[str, dict[str, Any]], ...] = (
+    ("missing pair", {"pairs": []}),
+    ("multiple pairs", {"pairs": [{"surface_ref": {}}, {"surface_ref": {}}]}),
+    ("missing surface ref", {"pairs": [{}]}),
 )
 
 
@@ -72,6 +79,31 @@ def test_preview_fails_when_key_missing_is_reported() -> None:
 
     with pytest.raises(JourneyFailure, match="KEY_MISSING"):
         _keyless_fallback_table_names(surfaces, label="test Preview")
+
+
+def test_history_bundle_surface_reference_is_selected_from_its_single_pair() -> None:
+    surface_ref = {
+        "artifact_id": "surface-abc",
+        "media_type": "application/json",
+        "raw_sha256": "sha256:" + "a" * 64,
+        "size_bytes": 12,
+    }
+
+    assert _history_surface_ref({"pairs": [{"surface_ref": surface_ref}]}) == surface_ref
+
+
+@pytest.mark.parametrize(
+    ("case", "bundle"),
+    HISTORY_BUNDLE_SURFACE_REF_FAILURES,
+    ids=[case for case, _bundle in HISTORY_BUNDLE_SURFACE_REF_FAILURES],
+)
+def test_history_bundle_rejects_an_invalid_surface_reference(
+    case: str,
+    bundle: dict[str, Any],
+) -> None:
+    del case
+    with pytest.raises(JourneyFailure):
+        _history_surface_ref(bundle)
 
 
 @pytest.mark.parametrize(

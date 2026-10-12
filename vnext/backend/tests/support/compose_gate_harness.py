@@ -1154,7 +1154,12 @@ def poll_operation(
     )
 
 
-def read_workspace_row(env: dict[str, str], workspace_id: str) -> dict[str, Any]:
+def read_workspace_row(
+    env: dict[str, str],
+    workspace_id: str,
+    *,
+    require_preview_result: bool = True,
+) -> dict[str, Any]:
     script = (
         "import json, sqlite3, sys; "
         "conn = sqlite3.connect('/var/lib/gateway/control/control.sqlite3'); "
@@ -1172,7 +1177,9 @@ def read_workspace_row(env: dict[str, str], workspace_id: str) -> dict[str, Any]
     if result.returncode != 0:
         pytest.fail(f"failed to read workspace row: {result.stderr}\n{result.stdout}")
     payload = json.loads(result.stdout.strip() or "{}")
-    if not payload.get("current_preview_result_id"):
+    if not payload:
+        pytest.fail("workspace row is missing")
+    if require_preview_result and not payload.get("current_preview_result_id"):
         pytest.fail("workspace current_preview_result_id is empty after preview")
     return cast(dict[str, Any], payload)
 

@@ -293,6 +293,7 @@ def _insert_bulk_approved_archive_candidate_rows(
                 canonical_table_set_closure_ref, canonical_table_set_closure_digest,
                 preview_ready_closure_ref, preview_ready_closure_digest,
                 canonicalization_manifest_ref, canonicalization_manifest_digest,
+                prepared_canonicalization_manifest_ref, prepared_canonicalization_manifest_digest,
                 repository_import_artifact_ref, repository_artifact_ref, repository_operation_id,
                 repository_operation_evidence, requested_target_ref, requested_verification_policy,
                 requested_unknown_type_policy, builder_mutation_policy, accept_idempotency_key,
@@ -303,7 +304,8 @@ def _insert_bulk_approved_archive_candidate_rows(
             ) VALUES (
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
                 'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
-                'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
+                'manifest-1', 'sha256:manifest', 'manifest-1', 'sha256:manifest',
+                NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
             )

@@ -77,7 +77,7 @@ class _BadReader:
         return None
 
     def reopen(self) -> _BadReader:
-        raise AssertionError("reopen must not be used by comparison core")
+        return _BadReader(self._descriptor)
 
 
 def _bound(sql: str) -> BoundSnapshotInput:

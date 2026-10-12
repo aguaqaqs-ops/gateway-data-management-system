@@ -156,6 +156,7 @@ def _run_preview_and_submit(
     token: str = ACTOR2_TOKEN,
     retry_upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
     worker_baseline: dict[str, str] | None = None,
+    expected_preview_failure_code: str | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
         base_url=BACKEND_URL,
@@ -199,6 +200,60 @@ def _run_preview_and_submit(
             preview_operation_id,
             timeout_seconds=_SUBMIT_STEP_TIMEOUT_SECONDS,
         )
+        preview_failure: dict[str, str] | None = None
+        if expected_preview_failure_code is not None:
+            assert retry_upload_files_factory is not None
+            assert preview_terminal["status"] == "FAILED", json.dumps(preview_terminal, indent=2)
+            diagnostic = preview_terminal.get("diagnostic")
+            assert isinstance(diagnostic, dict)
+            assert diagnostic.get("code") == expected_preview_failure_code
+            preview_failure = {
+                "operation_id": preview_operation_id,
+                "status": str(preview_terminal["status"]),
+                "diagnostic_code": str(diagnostic["code"]),
+                "diagnostic_message": str(diagnostic.get("message", "")),
+            }
+            if worker_baseline is not None:
+                assert_worker_container_unchanged(env, worker_baseline)
+            workspace_row = read_workspace_row(env, workspace_id, require_preview_result=False)
+            assert workspace_row["current_preview_result_id"] is None
+            retry_upload_payload = retry_upload_files_factory(workspace_row["optimistic_version"])
+            retry_upload = client.post(
+                f"/v1/workspaces/{workspace_id}/upload-revisions",
+                headers=compose_auth_headers(
+                    token=token,
+                    idempotency_key=f"{journey_key_prefix}-retry-upload",
+                ),
+                files=retry_upload_payload,
+            )
+            assert retry_upload.status_code == 201, retry_upload.text
+            upload_body = retry_upload.json()
+            retry_preview = client.post(
+                f"/v1/workspaces/{workspace_id}/preview-operations",
+                headers=compose_auth_headers(
+                    token=token,
+                    idempotency_key=f"{journey_key_prefix}-retry-preview",
+                ),
+                json={
+                    "expected_workspace_version": upload_body["optimistic_version"],
+                    "upload_revision_id": upload_body["upload_revision_id"],
+                    "generation": upload_body["generation"],
+                    "expected_baseline_node_id": BASELINE_NODE_ID,
+                    "expected_baseline_head_version": 0,
+                    "options": {},
+                },
+            )
+            assert retry_preview.status_code == 202, retry_preview.text
+            preview_operation_id = retry_preview.json()["operation_id"]
+            preview_terminal = poll_operation(
+                client,
+                preview_operation_id,
+                timeout_seconds=_SUBMIT_STEP_TIMEOUT_SECONDS,
+            )
+            assert preview_terminal["status"] == "SUCCEEDED", json.dumps(preview_terminal, indent=2)
+            retry_upload_files_factory = None
+        else:
+            assert preview_terminal["status"] == "SUCCEEDED", json.dumps(preview_terminal, indent=2)
         workspace_row = read_workspace_row(env, workspace_id)
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
@@ -244,6 +299,11 @@ def _run_preview_and_submit(
             ),
             "worker_tail": worker_tail,
         }
+        if preview_failure is not None:
+            result["failed_preview_operation_id"] = preview_failure["operation_id"]
+            result["failed_preview_status"] = preview_failure["status"]
+            result["failed_preview_diagnostic_code"] = preview_failure["diagnostic_code"]
+            result["failed_preview_diagnostic_message"] = preview_failure["diagnostic_message"]
         if retry_upload_files_factory is not None:
             if result["submit_status"] == "FAILED":
                 assert_submit_occupancy_cleared_in_compose(
@@ -390,21 +450,18 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
             upload_files_factory=_t3_decimal_upload_files,
             retry_upload_files_factory=_baseline_only_upload_files,
             worker_baseline=worker_baseline,
+            expected_preview_failure_code="UNSUPPORTED_TABLE",
         )
         print(
             "case_b_prime_t3_decimal",
             json.dumps({k: v for k, v in case_b.items() if k != "worker_tail"}, indent=2),
         )
+        assert case_b["failed_preview_status"] == "FAILED"
+        assert case_b["failed_preview_diagnostic_code"] == "UNSUPPORTED_TABLE"
+        assert "column scalar_type is not supported" in case_b["failed_preview_diagnostic_message"]
         assert case_b["preview_status"] == "SUCCEEDED"
-        assert case_b["submit_status"] == "FAILED"
-        assert case_b["submit_diagnostic_code"] == "UNSUPPORTED_TABLE"
-        assert case_b["submit_diagnostic_message"] is not None
-        assert "column scalar_type is not supported" in case_b["submit_diagnostic_message"]
-        assert "t3" in case_b["submit_diagnostic_message"]
-        assert case_b["retry_preview_status"] == "SUCCEEDED"
-        assert case_b["retry_submit_status"] == "SUCCEEDED"
-        assert case_b["retry_submit_operation_id"] != case_b["submit_operation_id"]
-        assert case_b["resubmit_accept_status"] == 409
+        assert case_b["submit_status"] == "SUCCEEDED"
+        assert case_b["failed_preview_operation_id"] != case_b["preview_operation_id"]
     finally:
         if provenance:
             normalized = normalize_running_images(provenance, baseline_env["COMPOSE_PROJECT_NAME"])

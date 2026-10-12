@@ -35,6 +35,7 @@ from tests.support.upload_http_packages import upload_files
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 ARCHIVER_TOKEN = "compose-archiver-token"
+ACTOR2_TOKEN = "compose-actor-2-token"
 
 _start_three_container_stack = start_three_container_stack
 _run_accept_to_submission_read_journey = run_accept_to_submission_read_journey
@@ -69,6 +70,17 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                             "workspace_read",
                             "review_submission",
                             "archive_submission",
+                        ],
+                    },
+                    {
+                        "token": ACTOR2_TOKEN,
+                        "actor_id": "compose-actor-2",
+                        "gateway_device_external_key": DEVICE_KEY,
+                        "business_project_id": PROJECT_ID,
+                        "permissions": [
+                            "workspace_read",
+                            "upload_submit_workspace",
+                            "preview_workspace",
                         ],
                     },
                 ]
@@ -299,6 +311,7 @@ def test_compose_submit_removes_deleted_user_and_sibling_tables(tmp_path: Path) 
             env,
             initial_commit_id=baseline_commit_id,
             journey_key_prefix="removed-tables-sibling-addition",
+            token=ACTOR2_TOKEN,
             expected_baseline_node_id=baseline_node_id,
             expected_baseline_head_version=baseline_version,
             upload_files_factory=_upload_transition(

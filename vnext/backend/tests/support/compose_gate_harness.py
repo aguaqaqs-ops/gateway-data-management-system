@@ -1177,6 +1177,51 @@ def read_workspace_row(env: dict[str, str], workspace_id: str) -> dict[str, Any]
     return cast(dict[str, Any], payload)
 
 
+def read_preview_surface_table_states(
+    env: dict[str, str],
+    preview_bundle: dict[str, Any],
+) -> list[dict[str, Any]]:
+    surface_refs = [
+        cast(dict[str, object], pair["surface_ref"])
+        for pair in cast(list[dict[str, Any]], preview_bundle["pairs"])
+    ]
+    refs_literal = repr(surface_refs)
+    script = f"""
+import json
+from pathlib import Path
+from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+
+store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+refs = {refs_literal}
+states = []
+for ref_document in refs:
+    document = json.loads(
+        store.locate(artifact_ref_from_dict(ref_document)).decode("utf-8")
+    )
+    states.append({{
+        "summary": document["summary"],
+        "tables": [
+            {{
+                "table_name": table["table_name"],
+                "table_status": table["table_status"],
+                "change_kind": table["change_kind"],
+                "diagnostics": table["diagnostics"],
+            }}
+            for table in document["tables"]
+        ],
+    }})
+print(json.dumps(states, sort_keys=True))
+"""
+    result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
+    if result.returncode != 0:
+        pytest.fail(
+            f"failed to read preview surface table states: "
+            f"{result.stderr}\n{result.stdout}"
+        )
+    return cast(list[dict[str, Any]], json.loads(result.stdout.strip() or "[]"))
+
+
 def capture_business_table_state_in_compose(env: dict[str, str]) -> dict[str, tuple[int, str]]:
     tables_repr = repr(tuple(HISTORY_ZERO_WRITE_TABLES))
     script = f"""
@@ -1494,6 +1539,7 @@ def run_accept_to_submission_read_journey(
                 "workspace_id": workspace_id,
                 "preview_result_id": preview_result_id,
                 "preview_summaries": preview_summaries,
+                "preview_surfaces": read_preview_surface_table_states(env, preview_bundle),
             }
 
         accepted = client.post(

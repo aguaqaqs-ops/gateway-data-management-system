@@ -288,7 +288,10 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
         assert rule_preview_summaries
         for summary in rule_preview_summaries:
             assert int(summary["table_count"]) > 0
-            assert int(summary["degraded_table_count"]) == 0
+            assert int(summary["degraded_table_count"]) == 0, json.dumps(
+                rule_preview["preview_surfaces"],
+                indent=2,
+            )
 
         journey_b = run_accept_to_submission_read_journey(
             env,

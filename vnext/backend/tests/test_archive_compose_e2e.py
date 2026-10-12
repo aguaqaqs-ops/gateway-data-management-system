@@ -451,9 +451,13 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             for surface in changed_surfaces
             for table in cast(list[dict[str, Any]], surface["tables"])
         ]
-        keyless_changed = next(
-            table for table in changed_tables if table["table_name"] == KEYLESS_FALLBACK_TABLE
-        )
+    keyless_changed = next(
+        table
+        for surface in changed_surfaces
+        if surface["surface_id"] == "surface-initial_to_modified"
+        for table in cast(list[dict[str, Any]], surface["tables"])
+        if table["table_name"] == KEYLESS_FALLBACK_TABLE
+    )
         assert keyless_changed["row_change_stats"]["row_added_count"] == 1
         assert keyless_changed["row_change_stats"]["row_deleted_count"] == 1
         assert keyless_changed["row_change_stats"]["row_modified_count"] == 0

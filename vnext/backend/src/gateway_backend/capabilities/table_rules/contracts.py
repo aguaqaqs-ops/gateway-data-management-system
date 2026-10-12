@@ -23,7 +23,7 @@ TABLE_RULESET_VERSION = 1
 RULESET_ID = "backend-vnext/table-ruleset"
 RULESET_VERSION = "v2"
 TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v1"
-STORAGE_PROJECTION_VERSION = "1"
+STORAGE_PROJECTION_VERSION = "2"
 FALLBACK_SELECTOR_VALUE = "*"
 ORDERED_POSITION_COLUMN = "no"
 ORDERED_IDENTITY_COLUMN = "gid"
@@ -445,7 +445,7 @@ class TableRulesetSnapshot:
         if self.contract_version != TABLE_RULESET_CONTRACT_VERSION:
             raise ValueError("contract_version must be gateway-vnext.table-ruleset:v1")
         if self.storage_projection_version != STORAGE_PROJECTION_VERSION:
-            raise ValueError("storage_projection_version must be 1")
+            raise ValueError(f"storage_projection_version must be {STORAGE_PROJECTION_VERSION}")
         if type(self.rules) is not tuple:
             raise ValueError("rules must be a tuple")
         seen_selectors: set[str] = set()

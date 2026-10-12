@@ -10,6 +10,8 @@ from gateway_shared_kernel import (
     DeclaredType,
     DeclaredTypeKind,
     DigestRef,
+    Float32Scalar,
+    Float64Scalar,
     NullScalar,
     SignedIntegerScalar,
     StringScalar,
@@ -630,6 +632,12 @@ def _canonicalize_row(
             and isinstance(cell, SignedIntegerScalar)
         ):
             cell = UnsignedIntegerScalar(decimal=cell.decimal)
+        elif codec.declared_type is not None and codec.declared_type.kind is DeclaredTypeKind.FLOAT32:
+            if isinstance(cell, Float32Scalar) and cell.bits_hex.lower() == "80000000":
+                cell = Float32Scalar(bits_hex="00000000")
+        elif codec.declared_type is not None and codec.declared_type.kind is DeclaredTypeKind.FLOAT64:
+            if isinstance(cell, Float64Scalar) and cell.bits_hex.lower() == "8000000000000000":
+                cell = Float64Scalar(bits_hex="0000000000000000")
         try:
             encode_canonical_cell(cell, codec)
         except (CanonicalCellError, TypeError, CanonicalEncodingError) as exc:
@@ -1211,7 +1219,11 @@ def _resolve_declared_scalar_type(sql_type: str) -> DeclaredType | None:
         return declared
     if declared.kind is DeclaredTypeKind.UNSIGNED_INTEGER and declared.bits in {8, 16, 32}:
         return declared
-    if declared.kind in {DeclaredTypeKind.FLOAT32, DeclaredTypeKind.DATETIME}:
+    if declared.kind in {
+        DeclaredTypeKind.FLOAT32,
+        DeclaredTypeKind.FLOAT64,
+        DeclaredTypeKind.DATETIME,
+    }:
         return declared
     return None
 

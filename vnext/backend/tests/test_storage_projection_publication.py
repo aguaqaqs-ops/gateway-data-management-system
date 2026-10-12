@@ -187,6 +187,21 @@ def test_previous_manifest_version_decodes_but_cannot_be_written() -> None:
         durable_manifest_bytes(historical)
 
 
+def test_previous_storage_projection_version_decodes_but_cannot_be_written() -> None:
+    result = _project()
+    assert result.manifest is not None
+    historical = replace(result.manifest, storage_projection_version="1", manifest_digest=None)
+    historical = replace(historical, manifest_digest=compute_manifest_digest(historical))
+    assert historical.manifest_digest is not None
+    document = dict(manifest_document(historical))
+    document["manifest_digest"] = historical.manifest_digest.value
+    payload = canonicalize_json_value(document)
+
+    assert canonicalization_manifest_from_bytes(payload) == historical
+    with pytest.raises(PackageError, match="current storage_projection_version"):
+        durable_manifest_bytes(historical)
+
+
 def test_durable_manifest_size_gate_applies_to_write_and_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

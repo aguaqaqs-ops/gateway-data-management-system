@@ -9,6 +9,7 @@ import pytest
 from gateway_shared_kernel import (
     DateTimeScalar,
     Float32Scalar,
+    Float64Scalar,
     NullScalar,
     SignedIntegerScalar,
     StringScalar,
@@ -72,7 +73,10 @@ _CANONICAL_COLUMNS = (
     int_column("id"),
     typed_column("tiny_unsigned", "TINYINT UNSIGNED"),
     typed_column("small_unsigned", "SMALLINT UNSIGNED"),
+    typed_column("unsigned_value", "INT UNSIGNED"),
+    typed_column("wide_value", "BIGINT"),
     typed_column("reading", "FLOAT"),
+    typed_column("double_reading", "DOUBLE"),
     typed_column("sampled_at", "DATETIME"),
     typed_column("label", "CHAR(8)"),
     typed_column("optional_text", "VARCHAR(64)", nullable=True),
@@ -84,7 +88,10 @@ _CANONICAL_ROWS = (
         int_cell(1),
         uint_cell(2),
         uint_cell(300),
-        Float32Scalar(bits_hex="3fc00000"),
+        uint_cell(4294967295),
+        SignedIntegerScalar(decimal="-9223372036854775808"),
+        Float32Scalar(bits_hex="3dcccccd"),
+        Float64Scalar(bits_hex="8000000000000000"),
         DateTimeScalar(text="2026-10-11T12:34:56"),
         varchar_cell("tail  "),
         null_cell(),
@@ -95,12 +102,57 @@ _CANONICAL_ROWS = (
         int_cell(2),
         uint_cell(255),
         uint_cell(65535),
-        Float32Scalar(bits_hex="40200000"),
+        uint_cell(0),
+        SignedIntegerScalar(decimal="9223372036854775807"),
+        Float32Scalar(bits_hex="bf9d70a4"),
+        Float64Scalar(bits_hex="3fb999999999999a"),
         DateTimeScalar(text="2026-10-11T12:35:00"),
         varchar_cell("head"),
         varchar_cell("value"),
         varchar_cell("idle"),
         set_cell("write"),
+    ),
+    as_row(
+        int_cell(3),
+        uint_cell(7),
+        uint_cell(7),
+        uint_cell(2147483648),
+        SignedIntegerScalar(decimal="-1"),
+        Float32Scalar(bits_hex="33d6bf95"),
+        Float64Scalar(bits_hex="bff3ae147ae147ae"),
+        DateTimeScalar(text="2026-10-11T12:35:04"),
+        varchar_cell("third"),
+        null_cell(),
+        varchar_cell("active"),
+        set_cell("read"),
+    ),
+    as_row(
+        int_cell(4),
+        uint_cell(8),
+        uint_cell(8),
+        uint_cell(1000),
+        SignedIntegerScalar(decimal="1"),
+        Float32Scalar(bits_hex="00000001"),
+        Float64Scalar(bits_hex="3fb999999999999a"),
+        DateTimeScalar(text="2026-10-11T12:35:08"),
+        varchar_cell("fourth"),
+        varchar_cell("value"),
+        varchar_cell("idle"),
+        set_cell("write"),
+    ),
+    as_row(
+        int_cell(5),
+        uint_cell(0),
+        uint_cell(0),
+        uint_cell(42),
+        SignedIntegerScalar(decimal="0"),
+        Float32Scalar(bits_hex="80000000"),
+        Float64Scalar(bits_hex="0000000000000000"),
+        DateTimeScalar(text="2026-10-11T12:35:12"),
+        varchar_cell("fifth"),
+        null_cell(),
+        varchar_cell("active"),
+        set_cell("admin"),
     ),
 )
 _ORDERED_ROWS = (
@@ -271,6 +323,9 @@ def _sql_literal(cell: SourceCell) -> str:
     if isinstance(cell, Float32Scalar):
         number = struct.unpack(">f", bytes.fromhex(cell.bits_hex))[0]
         return format(number, ".9g")
+    if isinstance(cell, Float64Scalar):
+        number = struct.unpack(">d", bytes.fromhex(cell.bits_hex))[0]
+        return format(number, ".17g")
     if isinstance(cell, DateTimeScalar):
         return _quote_string(cell.text.replace("T", " "))
     if isinstance(cell, StringScalar):

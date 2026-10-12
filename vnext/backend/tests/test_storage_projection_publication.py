@@ -178,6 +178,30 @@ HISTORICAL_MANIFEST_VERSION_FIELDS = (
     ("ruleset_version", "v1", "current ruleset_version"),
 )
 
+HISTORICAL_CANONICALIZATION_CONTRACT_VERSIONS = ("3.0.0", "3.1.0")
+
+
+@pytest.mark.parametrize(
+    "contract_version",
+    HISTORICAL_CANONICALIZATION_CONTRACT_VERSIONS,
+)
+def test_durable_manifest_reader_accepts_published_contract_versions(
+    contract_version: str,
+) -> None:
+    result = _project()
+    assert result.manifest is not None
+    historical = replace(
+        result.manifest,
+        contract_version=contract_version,
+        manifest_digest=None,
+    )
+    historical = replace(historical, manifest_digest=compute_manifest_digest(historical))
+    document = dict(manifest_document(historical))
+    assert historical.manifest_digest is not None
+    document["manifest_digest"] = historical.manifest_digest.value
+
+    assert canonicalization_manifest_from_bytes(canonicalize_json_value(document)) == historical
+
 
 @pytest.mark.parametrize(
     ("field", "value", "write_error"),

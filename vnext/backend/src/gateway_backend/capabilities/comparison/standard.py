@@ -261,7 +261,9 @@ def _compare_task(task: Any) -> ComparisonTableFact:
 
     before_rows = _read_rows(task.before_table, before_descriptor, schema.selected)
     current_rows = _read_rows(task.current_table, current_descriptor, schema.selected)
-    if not schema.before_key:
+    if not schema.before_key or (
+        policy.allow_keyless_key_transition and not schema.current_key
+    ):
         fact = _compare_keyless(
             task.table_name,
             before_descriptor,

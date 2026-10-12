@@ -54,7 +54,9 @@ def build_import_mutation_snapshots(
                     row_digest=row_digest_from_image(image, retained_columns=retained),
                 )
             )
-        keyed_rows.sort(key=lambda item: key_bytes_for_ordering(item.key))
+        keyed_rows.sort(
+            key=lambda item: (key_bytes_for_ordering(item.key), item.row_digest.value)
+        )
         snapshots.append(
             MutationTableSnapshot(
                 manifest_table=projection_snapshot.manifest_table,

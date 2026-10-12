@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from gateway_backend.artifacts import ArtifactStorePort
@@ -311,6 +312,12 @@ def _row_diff_counts(
     before: MutationTableSnapshot,
     after: MutationTableSnapshot,
 ) -> tuple[int, int, int]:
+    if _is_keyless_snapshot(before) or _is_keyless_snapshot(after):
+        before_counts = Counter(row.row_digest.value for row in before.rows)
+        after_counts = Counter(row.row_digest.value for row in after.rows)
+        inserted = sum((after_counts - before_counts).values())
+        deleted = sum((before_counts - after_counts).values())
+        return inserted + deleted, inserted, deleted
     before_rows = {key_bytes_for_ordering(row.key): row for row in before.rows}
     after_rows = {key_bytes_for_ordering(row.key): row for row in after.rows}
     changed = 0
@@ -329,6 +336,17 @@ def _row_diff_counts(
             inserts += 1
             changed += 1
     return changed, inserts, deletes
+
+
+def _is_keyless_snapshot(snapshot: MutationTableSnapshot) -> bool:
+    return (
+        snapshot.storage_view.canonical_key_policy
+        in {
+            CanonicalKeyPolicy.EXPLICIT_KEYLESS,
+            CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+        }
+        and not snapshot.storage_view.canonical_key_columns
+    )
 
 
 def _has_unsupported_renderer_values(state: _PlannerState) -> bool:

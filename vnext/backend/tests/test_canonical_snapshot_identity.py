@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import struct
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,10 @@ from gateway_shared_kernel import (
     raw_blob_digest,
 )
 
-from gateway_backend.capabilities.snapshot_materialization import materialize_repository_ref
+from gateway_backend.capabilities.snapshot_materialization import (
+    canonical_state_digest_of,
+    materialize_repository_ref,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
@@ -164,6 +168,12 @@ _ORDERED_ROWS = (
     as_row(null_cell(), int_cell(2), varchar_cell("blank")),
     as_row(int_cell(9), int_cell(1), varchar_cell("real")),
 )
+_KEYLESS_DUPLICATE_COLUMNS = (typed_column("value", "VARCHAR(64)"),)
+_KEYLESS_DUPLICATE_ROWS = (
+    as_row(varchar_cell("same")),
+    as_row(varchar_cell("different")),
+    as_row(varchar_cell("same")),
+)
 
 
 def test_canonical_snapshot_identity(
@@ -188,6 +198,13 @@ def test_canonical_snapshot_identity(
         rows=_ORDERED_ROWS,
         snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
     )
+    keyless_reader, keyless_binding = table_input(
+        "keyless_duplicates_dc29",
+        columns=_KEYLESS_DUPLICATE_COLUMNS,
+        primary_key_columns=(),
+        rows=_KEYLESS_DUPLICATE_ROWS,
+        snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
+    )
     raw_table_set = SnapshotTableSet(
         snapshot_id="raw-canonical-identity",
         snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
@@ -195,11 +212,12 @@ def test_canonical_snapshot_identity(
         tables=(
             SnapshotTable(descriptor=data_binding.descriptor, reader=data_reader),
             SnapshotTable(descriptor=ordered_binding.descriptor, reader=ordered_reader),
+            SnapshotTable(descriptor=keyless_binding.descriptor, reader=keyless_reader),
         ),
     )
     canonical = project_canonical_table_set(raw_table_set, _RULESET)
     assert canonical.manifest is not None
-    assert len(canonical.tables) == 2
+    assert len(canonical.tables) == 3
     projection_inputs = (
         ProjectionTableInput(
             canonical_table="identity_dc15",
@@ -210,6 +228,11 @@ def test_canonical_snapshot_identity(
             canonical_table="b1_n1_iec104_syx_list",
             reader=ordered_reader.reopen(),
             source_binding=ordered_binding,
+        ),
+        ProjectionTableInput(
+            canonical_table="keyless_duplicates_dc29",
+            reader=keyless_reader.reopen(),
+            source_binding=keyless_binding,
         ),
     )
     projection = project_storage(
@@ -291,7 +314,11 @@ def test_canonical_snapshot_identity(
                 materialization_stage=MaterializationStage.FINAL,
                 policy=MaterializationPolicy.READERS_REQUIRED,
                 context=ParserInvocationContext(ParserNeverCancel()),
-                requested_tables=("identity_dc15", "b1_n1_iec104_syx_list"),
+                requested_tables=(
+                    "identity_dc15",
+                    "b1_n1_iec104_syx_list",
+                    "keyless_duplicates_dc29",
+                ),
             )
         )
 
@@ -310,8 +337,21 @@ def test_canonical_snapshot_identity(
         assert observed.descriptor.raw_content_digest == expected.descriptor.raw_content_digest
         assert expected.reader is not None
         assert observed.reader is not None
-        assert tuple(observed.reader.iter_rows()) == canonical_rows[name]
+        observed_rows = tuple(observed.reader.iter_rows())
+        if not expected.descriptor.primary_key_columns:
+            assert Counter(observed_rows) == Counter(canonical_rows[name])
+        else:
+            assert observed_rows == canonical_rows[name]
         observed.reader.close()
+    keyless = observed_by_name["keyless_duplicates_dc29"]
+    assert keyless.descriptor.primary_key_columns == ()
+    assert keyless.descriptor.row_count == 3
+    assert expected_by_name["keyless_duplicates_dc29"].descriptor.row_count == 3
+    assert canonical_state_digest_of(
+        tuple(table.descriptor for table in canonical.tables)
+    ) == canonical_state_digest_of(
+        tuple(table.descriptor for table in materialized.table_set.tables)
+    )
     for table in canonical.tables:
         if table.reader is not None:
             table.reader.close()

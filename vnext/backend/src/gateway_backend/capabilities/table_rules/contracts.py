@@ -21,7 +21,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 TABLE_RULESET_VERSION = 1
 RULESET_ID = "backend-vnext/table-ruleset"
-RULESET_VERSION = "v2"
+RULESET_VERSION = "v3"
 TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v1"
 STORAGE_PROJECTION_VERSION = "2"
 FALLBACK_SELECTOR_VALUE = "*"
@@ -109,6 +109,7 @@ class CanonicalKeyPolicy(StrEnum):
     NONE = "NONE"
     EXPLICIT = "EXPLICIT"
     DDL_PRIMARY_KEY = "DDL_PRIMARY_KEY"
+    DDL_PRIMARY_KEY_OR_KEYLESS = "DDL_PRIMARY_KEY_OR_KEYLESS"
     EXPLICIT_KEYLESS = "EXPLICIT_KEYLESS"
 
 
@@ -441,7 +442,7 @@ class TableRulesetSnapshot:
         if self.ruleset_id != RULESET_ID:
             raise ValueError("ruleset_id must be backend-vnext/table-ruleset")
         if self.ruleset_version != RULESET_VERSION:
-            raise ValueError("ruleset_version must be v2")
+            raise ValueError(f"ruleset_version must be {RULESET_VERSION}")
         if self.contract_version != TABLE_RULESET_CONTRACT_VERSION:
             raise ValueError("contract_version must be gateway-vnext.table-ruleset:v1")
         if self.storage_projection_version != STORAGE_PROJECTION_VERSION:
@@ -675,8 +676,8 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
     if record.static_role in {TableStaticRole.SNAPSHOT_ONLY, TableStaticRole.BROWSE_ONLY}:
         if record.compare_key_mode is not None or record.compare_key_columns:
             raise ValueError("snapshot-only and browse-only rules forbid compare keys")
-        if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY:
-            raise ValueError("snapshot-only and browse-only storage key is DDL primary key")
+        if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS:
+            raise ValueError("snapshot-only and browse-only storage key is DDL primary key or keyless")
         if record.ordered_policy is not OrderedPolicy.NONE:
             raise ValueError("snapshot-only and browse-only forbid ordered policy")
         if record.static_role is TableStaticRole.SNAPSHOT_ONLY:
@@ -720,8 +721,8 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
             raise ValueError("raw-PK fallback selector must be FALLBACK")
         if record.compare_key_mode is not TableCompareKeyMode.RAW_PRIMARY_KEY:
             raise ValueError("raw-PK fallback requires RAW_PRIMARY_KEY")
-        if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY:
-            raise ValueError("raw-PK fallback storage key is DDL primary key")
+        if record.canonical_key_policy is not CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS:
+            raise ValueError("raw-PK fallback storage key is DDL primary key or keyless")
     elif record.precedence_class is SelectorPrecedenceClass.STANDARD_DEVICE_CFG:
         if record.selector.kind is not TableRuleSelectorKind.EXACT:
             raise ValueError("device_cfg selector must be exact")
@@ -739,6 +740,13 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
             raise ValueError("unexpected regex selector for STANDARD_DIFF")
     elif record.selector.kind is not TableRuleSelectorKind.EXACT:
         raise ValueError("STANDARD_DIFF exact rules require exact selectors")
+    if (
+        record.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+        and record.precedence_class is not SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK
+    ):
+        raise ValueError(
+            "DDL_PRIMARY_KEY_OR_KEYLESS is restricted to snapshot-only, browse-only, and raw-PK fallback rules"
+        )
     if record.ordered_policy is not OrderedPolicy.NONE:
         raise ValueError("STANDARD_DIFF forbids ordered policy")
     if record.canonical_key_policy is CanonicalKeyPolicy.NONE:

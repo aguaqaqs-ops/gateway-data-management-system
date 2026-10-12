@@ -96,6 +96,7 @@ class _SchemaView:
     before_key: tuple[str, ...]
     current_key: tuple[str, ...]
     key_changed: bool
+    source_key_changed: bool
     key_invalid: bool
 
 def _schema_view(
@@ -117,13 +118,23 @@ def _schema_view(
     )
     before_key = policy.effective_key_before
     current_key = policy.effective_key_current
+    source_key_changed = (
+        policy.allow_keyless_key_transition
+        and before_key != current_key
+        and (not before_key or not current_key)
+    )
     key_invalid = (
         len(set(before_key)) != len(before_key)
         or len(set(current_key)) != len(current_key)
         or any(item not in before_columns for item in before_key)
         or any(item not in current_columns for item in current_key)
-        or any(item not in selected for item in before_key)
-        or any(item not in selected for item in current_key)
+        or (
+            not source_key_changed
+            and (
+                any(item not in selected for item in before_key)
+                or any(item not in selected for item in current_key)
+            )
+        )
         or any(item in incompatible for item in before_key)
         or any(item in incompatible for item in current_key)
     )
@@ -136,7 +147,8 @@ def _schema_view(
         incompatible=incompatible,
         before_key=before_key,
         current_key=current_key,
-        key_changed=before_key != current_key,
+        key_changed=before_key != current_key and not source_key_changed,
+        source_key_changed=source_key_changed,
         key_invalid=key_invalid,
     )
 
@@ -151,6 +163,8 @@ def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> 
         diagnostics.append("INCOMPATIBLE_SELECTED_COLUMNS")
     if schema.key_changed:
         diagnostics.append("EFFECTIVE_KEY_CHANGED")
+    if schema.source_key_changed:
+        diagnostics.append("SOURCE_PRIMARY_KEY_CHANGED")
     if any(item in policy.compare_excluded_columns for item in schema.before_key + schema.current_key):
         diagnostics.append("EFFECTIVE_KEY_IGNORED")
     return diagnostics
@@ -384,6 +398,10 @@ def _can_table_early_exit(
         and before.row_count == current.row_count
         and before.raw_content_digest is not None
         and before.raw_content_digest == current.raw_content_digest
+        and (
+            not policy.allow_keyless_key_transition
+            or policy.effective_key_before == policy.effective_key_current
+        )
         and policy.table_name == canonicalize_identifier(before.table_name)
     )
 
@@ -406,7 +424,11 @@ def _schema_changes_from_view(
 ) -> ComparisonSchemaChanges:
     change_source = _schema_change_source(
         has_schema_changes=bool(
-            schema.before_only or schema.current_only or schema.incompatible or schema.key_changed
+            schema.before_only
+            or schema.current_only
+            or schema.incompatible
+            or schema.key_changed
+            or schema.source_key_changed
         ),
         policy=policy,
     )

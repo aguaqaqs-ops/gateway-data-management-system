@@ -141,8 +141,17 @@ def _cell_kind(cell: CanonicalCellValue) -> str:
 def _render_mutations(mutations: tuple[ChangeSetMutation, ...]) -> bytes:
     parts: list[bytes] = []
     total = 0
+    cleared_keyless_tables: set[str] = set()
     for mutation in mutations:
-        statement = _render_mutation(mutation)
+        if mutation.operation is RowMutationOperation.DELETE and not mutation.canonical_storage_key.columns:
+            if mutation.canonical_table in cleared_keyless_tables:
+                continue
+            cleared_keyless_tables.add(mutation.canonical_table)
+            statement = (
+                f"DELETE FROM {_quote_identifier(mutation.canonical_table)};\n".encode("utf-8")
+            )
+        else:
+            statement = _render_mutation(mutation)
         if total + len(statement) > MAX_REPLAY_SQL_BYTES:
             raise _RenderSizeError()
         parts.append(statement)

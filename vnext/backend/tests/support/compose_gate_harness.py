@@ -1219,6 +1219,7 @@ for ref_document in refs:
                 "table_name": table["table_name"],
                 "table_status": table["table_status"],
                 "change_kind": table["change_kind"],
+                "row_change_stats": table["row_change_stats"],
                 "diagnostics": table["diagnostics"],
             }}
             for table in document["tables"]
@@ -1575,6 +1576,7 @@ def run_accept_to_submission_read_journey(
                 "workspace_id": workspace_id,
                 "preview_result_id": preview_result_id,
                 "preview_summaries": preview_summaries,
+                "preview_surfaces": read_preview_surface_table_states(env, preview_bundle),
                 "submit_error_code": expected_submit_code,
             }
         assert accepted.status_code == 202, accepted.text

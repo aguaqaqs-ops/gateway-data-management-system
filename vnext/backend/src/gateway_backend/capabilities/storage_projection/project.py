@@ -949,7 +949,7 @@ def _project_table(
         content_digest, ordering_digest, row_count, gid_real, gid_pseudo = _project_ordered(
             request, item, descriptor, view, codecs, retained_indexes
         )
-    elif view.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT_KEYLESS:
+    elif not view.canonical_key_columns:
         content_digest, row_count = _project_keyless(
             request, item, descriptor, view, codecs, retained_indexes
         )

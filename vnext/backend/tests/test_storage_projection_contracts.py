@@ -146,7 +146,7 @@ def _import_input() -> RepositoryImportArtifactInput:
 
 def test_versions_and_publication_budgets_match_s0() -> None:
     assert STORAGE_PROJECTION_VERSION == "2"
-    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.1.0"
+    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.2.0"
     assert PACKAGE_VERSION == 1
     assert MAX_MANIFEST_JSON_BYTES == 16 * _MIB
     assert MAX_REPLAY_SQL_BYTES == 200 * _MIB

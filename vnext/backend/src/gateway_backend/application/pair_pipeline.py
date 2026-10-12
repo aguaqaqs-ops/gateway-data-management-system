@@ -37,7 +37,10 @@ from gateway_backend.capabilities.surface_assembly import (
     assemble_surface,
 )
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    ComparisonRuleSet,
+)
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
@@ -144,6 +147,7 @@ def run_preview_pair_pipeline(
             status=assessment.status.value,
             assessment_digest=assessment.assessment_digest,
         ),
+        show_keyless_fallback_hint=True,
     )
     return PreviewPairPipelineResult(
         pair_id=pair_id,
@@ -213,6 +217,7 @@ def _run_comparison_risk_surface(
     control: ExecutionControl,
     cancel_message: str,
     identity_annotation: SurfaceIdentityAnnotation | None = None,
+    show_keyless_fallback_hint: bool = False,
 ) -> _ComparisonRiskSurfaceResult:
     plan = plan_comparison(request)
     if isinstance(plan, FailedResult):
@@ -251,6 +256,11 @@ def _run_comparison_risk_surface(
             records_closure=published.records_closure,
             risk_report=risk.risk_report,
             risk_annotation_closure=risk.risk_closure,
+            keyless_fallback_tables=(
+                _keyless_fallback_table_names(request)
+                if show_keyless_fallback_hint
+                else ()
+            ),
             ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
             identity_annotation=identity_annotation or SurfaceIdentityAnnotation(),
         ),
@@ -268,4 +278,23 @@ def _run_comparison_risk_surface(
         surface_result=surface,
         published=published,
         risk_evaluation=risk.risk_evaluation,
+    )
+
+
+def _keyless_fallback_table_names(request: ComparisonRequest) -> tuple[str, ...]:
+    names: set[str] = set()
+    for bound in (request.before, request.current):
+        descriptors = {item.table_name: item for item in bound.summary.tables}
+        for facts in bound.storage_facts:
+            table_name = facts.storage_rule_view.canonical_table
+            descriptor = descriptors.get(table_name)
+            if (
+                descriptor is not None
+                and facts.storage_rule_view.canonical_key_policy
+                is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+                and not descriptor.primary_key_columns
+            ):
+                names.add(table_name)
+    return tuple(
+        sorted(names)
     )

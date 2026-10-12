@@ -42,6 +42,16 @@ def test_openapi_archive_paths_match_literal_baseline(client: TestClient) -> Non
     assert FROZEN_ARCHIVE_OPENAPI_PATHS <= paths
 
 
+def test_openapi_documents_the_keyless_fallback_preview_hint(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    response = schema["paths"][
+        "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle"
+    ]["get"]["responses"]["200"]
+
+    assert "KEYLESS_FALLBACK" in response["description"]
+    assert "does not affect risk or submission eligibility" in response["description"]
+
+
 def test_openapi_schemas_reject_additional_properties(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     workspace_response = schema["components"]["schemas"]["WorkspaceResponse"]

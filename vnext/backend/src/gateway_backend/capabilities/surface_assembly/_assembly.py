@@ -105,6 +105,7 @@ def assemble_surface(
                     risk_by_name.get(table.table_name),
                     risk_entry_by_name.get(table.table_name),
                     request.risk_report_ref,
+                    keyless_fallback=table.table_name in request.keyless_fallback_tables,
                 )
             )
         checkpoint()
@@ -333,6 +334,8 @@ def _project_table(
     risk: object | None,
     risk_entry: object | None,
     risk_report_ref: ArtifactRef | None,
+    *,
+    keyless_fallback: bool = False,
 ) -> SurfaceTable:
     table_refs = SurfaceTableRefs() if artifact_entry is None else artifact_entry.table_refs
     records = _records_refs(table, records_closure)
@@ -367,6 +370,8 @@ def _project_table(
         messages.extend(risk.diagnostics)  # type: ignore[attr-defined]
     if ordered_unsupported:
         messages.append("ORDERED_DIFF_UNSUPPORTED")
+    if keyless_fallback:
+        messages.append("KEYLESS_FALLBACK")
     diagnostics = SurfaceDiagnostics(
         diagnostics_ref=None if artifact_entry is None else artifact_entry.diagnostics_ref,
         diagnostics_summary=_stable_messages(messages),

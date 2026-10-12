@@ -581,6 +581,7 @@ class _ComparisonTablePolicy:
     table_name: str
     compare_excluded_columns: tuple[str, ...] = ()
     keyless_policy: KeylessPolicy = KeylessPolicy.DEGRADE_NO_COMPARE_KEY
+    allow_keyless_key_transition: bool = False
     policy_version: str = "comparison-table-policy/v1"
     ordered_policy: OrderedTablePolicy | None = None
     effective_key_before: tuple[str, ...] = ()
@@ -602,6 +603,8 @@ class _ComparisonTablePolicy:
         object.__setattr__(self, "compare_excluded_columns", canonical_columns)
         if type(self.keyless_policy) is not KeylessPolicy:
             raise ValueError("keyless_policy must be KeylessPolicy")
+        if type(self.allow_keyless_key_transition) is not bool:
+            raise ValueError("allow_keyless_key_transition must be bool")
         if type(self.policy_version) is not str or self.policy_version == "":
             raise ValueError("policy_version must be a non-empty string")
         if self.ordered_policy is not None and type(self.ordered_policy) is not OrderedTablePolicy:

@@ -186,7 +186,7 @@ def test_ddl_fallback_unknown_table_uses_descriptor_primary_key() -> None:
     )
     assert result.status is ProjectionStatus.COMPLETE
     view = result.tables[0].storage_view
-    assert view.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY
+    assert view.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
     assert view.canonical_key_columns == ("id",)
     assert view.retained_columns == ("id", "name")
 
@@ -204,7 +204,7 @@ def test_canonical_table_projection_emits_canonical_descriptor_and_reader() -> N
 
     assert projected.status is ProjectionStatus.COMPLETE
     assert projected.manifest is not None
-    assert projected.manifest.contract_version == "3.1.0"
+    assert projected.manifest.contract_version == "3.2.0"
     assert len(projected.tables) == 1
     canonical = projected.tables[0]
     assert canonical.descriptor.primary_key_columns == ("board", "link_no")
@@ -708,7 +708,7 @@ def test_skip_table_is_omitted_and_version_manager_keeps_no() -> None:
     names = tuple(table.canonical_table for table in result.tables)
     assert "device_model_table" not in names
     version = next(table for table in result.tables if table.canonical_table == "version_manager")
-    assert version.storage_view.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY
+    assert version.storage_view.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
     assert "no" in version.storage_view.retained_columns
     assert version.storage_view.canonical_key_columns == ("id",)
 
@@ -752,16 +752,57 @@ def test_mismatched_snapshot_digest_is_binding_invalid() -> None:
     assert ProjectionDiagnosticCode.BINDING_INVALID in _codes(result)
 
 
-def test_empty_ddl_primary_key_fails_closed() -> None:
+def test_raw_primary_key_fallback_projects_keyless_rows_without_deduplicating() -> None:
+    rows = (
+        as_row(varchar_cell("repeat")),
+        as_row(varchar_cell("other")),
+        as_row(varchar_cell("repeat")),
+    )
     result = project_storage(
         _request(
             table_input(
                 "unknown_widget",
                 columns=(varchar_column("name"),),
                 primary_key_columns=(),
-                rows=(as_row(varchar_cell("a")),),
+                rows=rows,
             )
         )
     )
+    reordered = project_storage(
+        _request(
+            table_input(
+                "unknown_widget",
+                columns=(varchar_column("name"),),
+                primary_key_columns=(),
+                rows=(rows[2], rows[0], rows[1]),
+            )
+        )
+    )
+
+    assert result.status is ProjectionStatus.COMPLETE
+    assert reordered.status is ProjectionStatus.COMPLETE
+    assert result.manifest is not None
+    assert reordered.manifest is not None
+    assert result.import_input is not None
+    assert result.manifest.tables[0].canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert result.manifest.tables[0].canonical_key_columns == ()
+    assert result.manifest.tables[0].canonical_row_count == len(rows)
+    assert result.manifest.tables[0].content_digest == reordered.manifest.tables[0].content_digest
+    assert result.import_input.tables[0].primary_key == ()
+    assert result.import_input.tables[0].row_count == len(rows)
+
+
+def test_device_cfg_keeps_strict_ddl_primary_key_requirement() -> None:
+    result = project_storage(
+        _request(
+            table_input(
+                "device_cfg",
+                columns=(int_column("gid"), varchar_column("name")),
+                primary_key_columns=(),
+                rows=(as_row(int_cell(1), varchar_cell("device")),),
+            )
+        )
+    )
+
     assert result.status is ProjectionStatus.FAILED
     assert ProjectionDiagnosticCode.KEY_MISSING in _codes(result)

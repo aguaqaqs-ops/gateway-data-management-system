@@ -38,7 +38,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 STORAGE_PROJECTION_VERSION = TABLE_RULES_STORAGE_PROJECTION_VERSION
-CANONICALIZATION_MANIFEST_CONTRACT = "3.1.0"
+CANONICALIZATION_MANIFEST_CONTRACT = "3.2.0"
 CANONICALIZATION_MANIFEST_MEDIA_TYPE = "application/json"
 REPOSITORY_IMPORT_MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 PACKAGE_VERSION = 1

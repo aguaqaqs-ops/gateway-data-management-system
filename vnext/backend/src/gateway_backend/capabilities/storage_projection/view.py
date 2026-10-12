@@ -40,7 +40,10 @@ def derive_storage_rule_view(
     policy = record.canonical_key_policy
     if policy is CanonicalKeyPolicy.EXPLICIT:
         key_columns = record.compare_key_columns
-    elif policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY:
+    elif policy in {
+        CanonicalKeyPolicy.DDL_PRIMARY_KEY,
+        CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+    }:
         key_columns = tuple(
             canonicalize_rule_identifier(name) for name in descriptor.primary_key_columns
         )
@@ -55,12 +58,10 @@ def derive_storage_rule_view(
         canonicalize_rule_identifier(column.name) for column in descriptor.columns
     }
     retained_names = set(retained)
-    if policy is CanonicalKeyPolicy.EXPLICIT_KEYLESS:
-        if key_columns:
-            raise StorageViewError(
-                ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
-                "keyless tables must not declare a canonical key",
-            )
+    if policy is CanonicalKeyPolicy.EXPLICIT_KEYLESS or (
+        policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS and not key_columns
+    ):
+        pass
     else:
         if not key_columns:
             raise StorageViewError(ProjectionDiagnosticCode.KEY_MISSING, "canonical key is empty")

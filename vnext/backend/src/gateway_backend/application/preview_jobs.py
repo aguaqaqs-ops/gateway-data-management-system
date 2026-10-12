@@ -80,7 +80,11 @@ from gateway_backend.capabilities.bundle_assembly import (
     collect_surface_refs,
 )
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
-from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
+from gateway_backend.capabilities.comparison import (
+    BoundSnapshotInput,
+    ComparisonRecordsClosure,
+    ComparisonStorageFacts,
+)
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     materialize_projected_snapshot,
@@ -1228,7 +1232,11 @@ def _materialize_uploaded_side(
     return bound, manifest_ref, manifest_digest
 
 
-def surface_artifact_closure(surface: ComparisonSurface | None, pair_id: str) -> BundleArtifactClosure:
+def surface_artifact_closure(
+    surface: ComparisonSurface | None,
+    pair_id: str,
+    records_closure: ComparisonRecordsClosure | None = None,
+) -> BundleArtifactClosure:
     if surface is None:
         raise PreviewJobError("surface assembly did not produce a surface for bundle closure")
     bindings: list[BundleArtifactBinding] = []
@@ -1351,6 +1359,34 @@ def surface_artifact_closure(surface: ComparisonSurface | None, pair_id: str) ->
             f"{prefix}/projections/{projection.projection_id}/diagnostics.json",
             BundleArtifactKind.DIAGNOSTICS,
         )
+    if records_closure is not None:
+        closure_ref = surface.refs.records_closure_ref
+        if (
+            closure_ref is None
+            or closure_ref.raw_sha256 != records_closure.closure_manifest_digest
+            or surface.comparison_digest != records_closure.comparison_digest
+        ):
+            raise PreviewJobError("records closure does not match pair surface")
+        covered_refs = {binding.source_ref for binding in bindings}
+        for entry in records_closure.records:
+            family_path = entry.family.value.lower()
+            records_path = f"{prefix}/comparison/records/{entry.table_name}/{family_path}"
+            if entry.records_ref not in covered_refs:
+                add(
+                    entry.records_ref,
+                    f"{records_path}/rows.bin",
+                    BundleArtifactKind.RECORDS,
+                    table_name=entry.table_name,
+                )
+                covered_refs.add(entry.records_ref)
+            if entry.records_manifest_ref not in covered_refs:
+                add(
+                    entry.records_manifest_ref,
+                    f"{records_path}/manifest.json",
+                    BundleArtifactKind.RECORDS_MANIFEST,
+                    table_name=entry.table_name,
+                )
+                covered_refs.add(entry.records_manifest_ref)
     covered = {binding.source_ref for binding in bindings}
     for ref in collect_surface_refs(surface):
         if ref not in covered:
@@ -1419,7 +1455,11 @@ def _assemble_preview(
                 before_index,
                 current_index,
                 pair_state.surface_result,
-                surface_artifact_closure(pair_state.surface_result.surface, pair_id),
+                surface_artifact_closure(
+                    pair_state.surface_result.surface,
+                    pair_id,
+                    pair_state.records_closure,
+                ),
             )
         )
 

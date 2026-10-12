@@ -834,7 +834,11 @@ def _assemble_comparison(
                 before_index,
                 current_index,
                 pair_state.surface_result,
-                surface_artifact_closure(pair_state.surface_result.surface, pair_id),
+                surface_artifact_closure(
+                    pair_state.surface_result.surface,
+                    pair_id,
+                    pair_state.records_closure,
+                ),
             )
         )
 

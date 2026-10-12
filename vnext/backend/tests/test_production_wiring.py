@@ -354,14 +354,17 @@ def test_http_arrow_repository_session_only_streams_requested_table() -> None:
     session.close()
 
 
-def test_surface_artifact_closure_maps_ordered_and_projection_refs() -> None:
+def test_bundle_artifact_closure_maps_surface_and_hidden_records_refs() -> None:
     from dataclasses import replace
 
     from gateway_backend.application.preview_jobs import surface_artifact_closure
     from gateway_backend.capabilities.bundle_assembly._refs import collect_surface_refs
     from gateway_backend.capabilities.comparison.contracts import (
+        ComparisonRecordsClosure,
         ComparisonTableFact,
         ComparisonTableStatus,
+        RecordsArtifactFamily,
+        RecordsClosureEntry,
     )
     from gateway_backend.capabilities.surface_assembly import (
         assemble_surface,
@@ -374,6 +377,9 @@ def test_surface_artifact_closure_maps_ordered_and_projection_refs() -> None:
     ordered_ref = _ref("ordered-manifest")
     projection_ref = _ref("projection-body")
     risk_ref = _ref("projection-risk")
+    records_ref = _ref("hidden-records", "application/octet-stream")
+    records_manifest_ref = _ref("hidden-records-manifest")
+    records_closure_ref = _ref("hidden-records-closure")
     result = assemble_surface(
         _surface_request(_facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED)))
     )
@@ -394,14 +400,33 @@ def test_surface_artifact_closure_maps_ordered_and_projection_refs() -> None:
                 risk_summary_ref=risk_ref,
             ),
         ),
+        refs=replace(result.surface.refs, records_closure_ref=records_closure_ref),
     )
     surface = replace(surface, surface_digest=compute_surface_digest(surface))
     validate_surface(surface)
 
-    closure = surface_artifact_closure(surface, "pair-1")
+    records_closure = ComparisonRecordsClosure(
+        comparison_digest=surface.comparison_digest,
+        facts_core_digest=raw_blob_digest(b"facts"),
+        records=(
+            RecordsClosureEntry(
+                table_name="orders",
+                family=RecordsArtifactFamily.STANDARD,
+                records_ref=records_ref,
+                records_manifest_ref=records_manifest_ref,
+                records_manifest_digest=records_manifest_ref.raw_sha256,
+                records_content_digest=records_ref.raw_sha256,
+                record_count=1,
+            ),
+        ),
+        closure_manifest_digest=records_closure_ref.raw_sha256,
+    )
+    closure = surface_artifact_closure(surface, "pair-1", records_closure)
     paths = {binding.logical_path for binding in closure.entries}
     assert any(path.startswith("pairs/pair-1/ordered/") for path in paths)
     assert any(path.startswith("pairs/pair-1/projections/") for path in paths)
+    assert "pairs/pair-1/comparison/records/orders/standard/rows.bin" in paths
+    assert "pairs/pair-1/comparison/records/orders/standard/manifest.json" in paths
     covered = {binding.source_ref for binding in closure.entries}
     for ref in collect_surface_refs(surface):
         assert ref in covered

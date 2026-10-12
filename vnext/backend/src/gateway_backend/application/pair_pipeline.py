@@ -13,6 +13,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonPlan,
     DetailedFactsResult,
     ComparisonMode,
+    ComparisonRecordsClosure,
     FailedResult,
     compare_plan,
     plan_comparison,
@@ -84,6 +85,7 @@ class PreviewPairPipelineResult:
     comparison_digest: str
     risk_digest: str
     surface_digest: str
+    records_closure: ComparisonRecordsClosure
     surface_result: SurfaceAssemblyResult
 
 
@@ -94,6 +96,7 @@ class HistoryPairPipelineResult:
     risk_digest: str
     surface_digest: str
     record_count: int
+    records_closure: ComparisonRecordsClosure
     surface_result: SurfaceAssemblyResult
 
 
@@ -149,11 +152,15 @@ def run_preview_pair_pipeline(
         ),
         show_keyless_fallback_hint=True,
     )
+    records_closure = surface.published.records_closure
+    if records_closure is None:
+        raise PairPipelineError("records closure is missing")
     return PreviewPairPipelineResult(
         pair_id=pair_id,
         comparison_digest=surface.comparison_digest,
         risk_digest=surface.risk_digest,
         surface_digest=surface.surface_digest,
+        records_closure=records_closure,
         surface_result=surface.surface_result,
     )
 
@@ -195,6 +202,7 @@ def run_history_pair_pipeline(
         risk_digest=surface.risk_evaluation.risk_evaluation_digest.value,
         surface_digest=surface.surface_digest,
         record_count=int(record_count),
+        records_closure=records_closure,
         surface_result=surface.surface_result,
     )
 

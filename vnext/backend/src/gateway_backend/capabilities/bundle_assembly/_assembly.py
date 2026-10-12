@@ -550,7 +550,10 @@ def _plan_artifacts(
             dependencies = _embedded_refs(value)
             for dependency in dependencies:
                 if dependency not in binding_by_source:
-                    raise BundleAssemblyError("EMBEDDED_ARTIFACT_REF_MISSING_FROM_CLOSURE")
+                    parent_path = binding_by_source[source_ref].logical_path
+                    raise BundleAssemblyError(
+                        "EMBEDDED_ARTIFACT_REF_MISSING_FROM_CLOSURE:" + parent_path
+                    )
                 plan(dependency)
             rewritten_value = _rewrite_embedded_refs(value, planned)
             rewritten = canonicalize_json_value(rewritten_value)

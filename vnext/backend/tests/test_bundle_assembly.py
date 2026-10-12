@@ -298,6 +298,44 @@ def test_nested_json_refs_are_rewritten_and_closure_remains_replayable() -> None
     validate_bundle(result.bundle, source)
 
 
+def test_missing_nested_ref_diagnostic_identifies_parent_bundle_path() -> None:
+    source = InMemoryArtifactStore()
+    child_ref = _raw_ref("missing-child", b"child", "application/octet-stream")
+    parent_raw = canonicalize_json_value({"records_ref": artifact_ref_to_dict(child_ref)})
+    parent_ref = _raw_ref("parent-with-missing-child", parent_raw)
+    source.put(parent_raw, parent_ref)
+    surface_result = _surface_result(root_ref=parent_ref)
+    parent_path = "pairs/pair/diagnostics/surface.json"
+    result = assemble_bundle(
+        _request(
+            (
+                BundlePairInput(
+                    "pair",
+                    0,
+                    1,
+                    surface_result,
+                    BundleArtifactClosure(
+                        (
+                            BundleArtifactBinding(
+                                parent_ref,
+                                parent_path,
+                                BundleArtifactKind.DIAGNOSTICS,
+                                pair_id="pair",
+                            ),
+                        )
+                    ),
+                ),
+            )
+        ),
+        source_store=source,
+    )
+
+    assert result.status is BundleAssemblyStatus.FAILED
+    assert result.diagnostics == (
+        f"EMBEDDED_ARTIFACT_REF_MISSING_FROM_CLOSURE:{parent_path}",
+    )
+
+
 def test_missing_closure_ref_fails_closed_without_bundle() -> None:
     missing_ref = _raw_ref("missing", b"missing")
     result = assemble_bundle(

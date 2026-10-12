@@ -287,7 +287,7 @@ def _read_ordered_rows(
     selected_set = set(selected)
     required_set = set(policy.order_key) | set(policy.row_identity_key or ())
     rows: list[_OrderedRow] = []
-    reader = table.reader
+    reader = table.reader.reopen()
     try:
         for raw_row in reader.iter_rows():
             if type(raw_row) is not tuple or len(raw_row) != len(descriptor.columns):

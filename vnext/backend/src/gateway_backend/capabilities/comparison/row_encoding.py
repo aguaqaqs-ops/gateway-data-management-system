@@ -202,7 +202,7 @@ def _read_rows(
     columns = tuple(descriptor.columns)
     selected_set = set(selected)
     rows: list[_EncodedRow] = []
-    reader = table.reader
+    reader = table.reader.reopen()
     try:
         for raw_row in reader.iter_rows():
             if type(raw_row) is not tuple or len(raw_row) != len(columns):

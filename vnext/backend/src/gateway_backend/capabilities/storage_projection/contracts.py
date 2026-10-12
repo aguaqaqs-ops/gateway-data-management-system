@@ -130,6 +130,7 @@ class ProjectionTableInput:
     reader: SnapshotTableReader
     source_binding: ArtifactSourceBinding
     artifact: SnapshotTableArtifact | None = None
+    canonicalized_input: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
@@ -141,6 +142,8 @@ class ProjectionTableInput:
             raise ValueError("source_binding requires snapshot_digest")
         if self.source_binding.descriptor.table_name != self.canonical_table:
             raise ValueError("source_binding descriptor table_name must match canonical_table")
+        if type(self.canonicalized_input) is not bool:
+            raise ValueError("canonicalized_input must be bool")
         if self.artifact is not None:
             if type(self.artifact) is not SnapshotTableArtifact:
                 raise ValueError("artifact must be SnapshotTableArtifact or None")

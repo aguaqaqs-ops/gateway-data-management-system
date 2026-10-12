@@ -40,6 +40,7 @@ def project_ordered_rows(
     *,
     gid_index: int,
     no_index: int,
+    allow_existing_pseudo: bool = False,
 ) -> OrderedTableProjection:
     parsed: list[tuple[int, int | None, tuple[object, ...]]] = []
     nos: set[int] = set()
@@ -52,8 +53,11 @@ def project_ordered_rows(
                 "ordered no is not unique",
             )
         nos.add(no_value)
-        gid_value = _parse_gid_source(row[gid_index])
-        if gid_value is not None:
+        gid_value = _parse_gid_source(
+            row[gid_index],
+            allow_existing_pseudo=allow_existing_pseudo,
+        )
+        if gid_value is not None and gid_value < GID_PSEUDO_MIN:
             if gid_value in real_gids:
                 raise OrderedProjectionError(
                     ProjectionDiagnosticCode.KEY_DUPLICATE,
@@ -83,6 +87,14 @@ def project_ordered_rows(
             allocated = next_pseudo
             next_pseudo += 1
             pseudo_count += 1
+        elif allocated >= GID_PSEUDO_MIN:
+            if allocated != next_pseudo:
+                raise OrderedProjectionError(
+                    ProjectionDiagnosticCode.ROW_INTEGRITY,
+                    "canonical pseudo gid does not match ordered allocation",
+                )
+            next_pseudo += 1
+            pseudo_count += 1
         rewritten = list(row)
         rewritten[gid_index] = UnsignedIntegerScalar(decimal=str(allocated))
         projected.append(tuple(rewritten))
@@ -105,13 +117,15 @@ def _parse_no(cell: object) -> int:
     return value
 
 
-def _parse_gid_source(cell: object) -> int | None:
+def _parse_gid_source(cell: object, *, allow_existing_pseudo: bool = False) -> int | None:
     value = _parse_integer_cell(cell, blank_is_none=True)
     if value is None:
         return None
     if GID_REAL_MIN <= value <= GID_REAL_MAX:
         return value
     if GID_PSEUDO_MIN <= value <= GID_PSEUDO_MAX:
+        if allow_existing_pseudo:
+            return value
         raise OrderedProjectionError(
             ProjectionDiagnosticCode.ROW_INTEGRITY,
             "source gid is in the reserved pseudo range",

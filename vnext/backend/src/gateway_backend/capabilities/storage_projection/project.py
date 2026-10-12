@@ -1068,7 +1068,12 @@ def _project_ordered(
     _require_row_count(len(rows), descriptor, view)
     gid_index, no_index = _ordered_indexes(descriptor, view)
     try:
-        projected = project_ordered_rows(rows, gid_index=gid_index, no_index=no_index)
+        projected = project_ordered_rows(
+            rows,
+            gid_index=gid_index,
+            no_index=no_index,
+            allow_existing_pseudo=item.canonicalized_input,
+        )
     except OrderedProjectionError as exc:
         raise _ProjectionFailed(_error(exc.code, exc.message, view.canonical_table)) from exc
     structural = set(view.structural_columns)
@@ -1506,7 +1511,12 @@ def materialize_canonical_source_rows(
         _require_row_count(len(rows), descriptor, view)
         gid_index, no_index = _ordered_indexes(descriptor, view)
         try:
-            projected = project_ordered_rows(rows, gid_index=gid_index, no_index=no_index)
+            projected = project_ordered_rows(
+                rows,
+                gid_index=gid_index,
+                no_index=no_index,
+                allow_existing_pseudo=item.canonicalized_input,
+            )
         except OrderedProjectionError as exc:
             raise _ProjectionFailed(_error(exc.code, exc.message, view.canonical_table)) from exc
         content_rows = tuple(

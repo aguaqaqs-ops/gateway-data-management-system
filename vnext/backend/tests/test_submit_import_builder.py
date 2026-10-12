@@ -8,6 +8,7 @@ import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
+from gateway_backend.artifacts.serialize import artifact_ref_to_dict
 from gateway_backend.application.submission.contracts import (
     PrepareImportBuildInput,
     SnapshotTableBinding,
@@ -86,6 +87,7 @@ def _project_inputs(inputs: tuple[ProjectionTableInput, ...]) -> ProjectionResul
             reader=item.reader.reopen() if hasattr(item.reader, "reopen") else item.reader,
             source_binding=item.source_binding,
             artifact=item.artifact,
+            canonicalized_input=item.canonicalized_input,
         )
         for item in inputs
     )
@@ -421,6 +423,113 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     replay_sql = _replay_sql_from_package(package)
     assert "CREATE TABLE `com_cfg`" in replay_sql
     assert "`no`" not in replay_sql
+
+
+def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
+    store = InMemoryArtifactStore()
+    source = materialize_sql(
+        "CREATE TABLE `b1_n1_iec104_syx_list` ("
+        "`gid` INT NULL, `no` INT NOT NULL, `value` VARCHAR(16) NOT NULL, PRIMARY KEY (`no`));"
+        "INSERT INTO `b1_n1_iec104_syx_list` VALUES "
+        "(NULL, 3, 'blank-last'), (7, 2, 'real'), (NULL, 1, 'blank-first');",
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        artifact_store=store,
+    )
+    assert source.status is SnapshotMaterializationStatus.COMPLETE
+    assert source.snapshot is not None
+    assert source.table_set is not None
+    frozen = project_canonical_table_set(
+        source.table_set,
+        migrated_table_ruleset_snapshot(),
+    )
+    assert frozen.status is ProjectionStatus.COMPLETE
+    assert frozen.manifest is not None
+    assert frozen.manifest.manifest_digest is not None
+    assert frozen.manifest.tables[0].gid_pseudo_count == 2
+
+    canonical_snapshot = materialize_projected_snapshot(
+        source.snapshot,
+        frozen.tables,
+        artifact_store=store,
+        context=ParserInvocationContext(NeverCancel()),
+    )
+    assert canonical_snapshot.status is SnapshotMaterializationStatus.COMPLETE
+    assert canonical_snapshot.table_set is not None
+    bindings = tuple(
+        SnapshotTableBinding(
+            table_name=table.descriptor.table_name,
+            artifact_id=table.artifact.manifest_ref.artifact_id,
+            media_type=table.artifact.manifest_ref.media_type,
+            size_bytes=table.artifact.manifest_ref.size_bytes,
+            raw_sha256=table.artifact.manifest_ref.raw_sha256.value,
+        )
+        for table in canonical_snapshot.table_set.tables
+        if table.artifact is not None
+    )
+    assert len(bindings) == 1
+    projection_inputs = _open_projection_inputs(bindings, store=store)
+    assert projection_inputs[0].canonicalized_input is True
+
+    canonical_table = canonical_snapshot.table_set.tables[0]
+    assert canonical_table.artifact is not None
+    closure_payload = canonicalize_json_value(
+        {
+            "contract_version": "backend-vnext/preview/canonical-table-set-closure/v1",
+            "tables": [
+                {
+                    "table_name": canonical_table.descriptor.table_name,
+                    "manifest_ref": artifact_ref_to_dict(canonical_table.artifact.manifest_ref),
+                }
+            ],
+        }
+    )
+    closure_ref = ArtifactRef(
+        artifact_id="ordered-canonical-table-closure",
+        media_type="application/jcs",
+        size_bytes=len(closure_payload),
+        raw_sha256=raw_blob_digest(closure_payload),
+    )
+    store.put(closure_payload, closure_ref)
+    manifest_payload = durable_manifest_bytes(frozen.manifest)
+    manifest_ref = ArtifactRef(
+        artifact_id="ordered-canonicalization-manifest",
+        media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
+        size_bytes=len(manifest_payload),
+        raw_sha256=raw_blob_digest(manifest_payload),
+    )
+    store.put(manifest_payload, manifest_ref)
+    ruleset = migrated_table_ruleset_snapshot()
+    assert ruleset.ruleset_digest is not None
+    build_input = PrepareImportBuildInput(
+        submit_attempt_id="sa-ordered-pseudo-replay",
+        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        canonical_table_set_closure_ref=closure_ref,
+        canonical_table_set_closure_digest=closure_ref.raw_sha256.value,
+        canonicalization_manifest_ref=manifest_ref,
+        canonicalization_manifest_digest=frozen.manifest.manifest_digest.value,
+        expected_parent_commit_id="parent-ordered",
+        removed_tables=(),
+        source_artifact_digest=projection_inputs[0].source_binding.snapshot_digest.value,
+        repository_base_digest=_SNAPSHOT_DIGEST,
+        storage_projection_version=STORAGE_PROJECTION_VERSION,
+        ruleset_id=ruleset.ruleset_id,
+        ruleset_version=ruleset.ruleset_version,
+        ruleset_digest=ruleset.ruleset_digest.value,
+        snapshot_tables=bindings,
+    )
+
+    adapter = SubmitImportPublicationAdapter()
+    published = adapter.build_and_publish_from_inputs(
+        build_input=build_input,
+        store=store,
+        projection_inputs=projection_inputs,
+    )
+    package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
+    package_manifest = validate_repository_import_package(package)
+    assert package_manifest.canonicalization_manifest_digest == frozen.manifest.manifest_digest
+    replay_sql = _replay_sql_from_package(package)
+    assert "4000000000" in replay_sql
+    assert "4000000001" in replay_sql
 
 
 def _replay_sql_from_package(payload: bytes) -> str:

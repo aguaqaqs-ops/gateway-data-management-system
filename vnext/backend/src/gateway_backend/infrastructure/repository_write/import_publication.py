@@ -451,6 +451,7 @@ def _reopen_projection_inputs(
                 reader=new_reader,
                 source_binding=item.source_binding,
                 artifact=item.artifact,
+                canonicalized_input=item.canonicalized_input,
             )
         )
     return tuple(reopened)
@@ -486,6 +487,7 @@ def _open_projection_inputs(
                 reader=table.reader.reopen() if hasattr(table.reader, "reopen") else table.reader,
                 source_binding=source_binding,
                 artifact=table.artifact,
+                canonicalized_input=True,
             )
         )
     return tuple(opened)

@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from gateway_shared_kernel import (
+    DateTimeScalar,
+    Float32Scalar,
+    Float64Scalar,
+)
 
 from gateway_backend.capabilities.mutation_planning import (
     build_import_mutation_snapshots,
@@ -30,6 +35,7 @@ from tests.support.storage_projection import (
     set_cell,
     set_column,
     table_input,
+    typed_column,
     varchar_cell,
     varchar_column,
 )
@@ -170,3 +176,51 @@ def test_import_replay_supports_set_columns() -> None:
         removed_tables=(),
     ).decode("utf-8")
     assert "INSERT INTO `unknown_widget`" in replay_sql
+
+
+def test_import_replay_preserves_supported_canonical_scalar_cells() -> None:
+    columns = (
+        int_column("id"),
+        typed_column("ratio32", "FLOAT"),
+        typed_column("ratio64", "DOUBLE"),
+        typed_column("created_at", "DATETIME"),
+    )
+    cells = (
+        int_cell(1),
+        Float32Scalar(bits_hex="3f800000"),
+        Float64Scalar(bits_hex="4000000000000000"),
+        DateTimeScalar(text="2026-10-11T12:34:56"),
+    )
+    reader, binding = table_input(
+        "unknown_widget",
+        columns=columns,
+        primary_key_columns=("id",),
+        rows=(as_row(*cells),),
+    )
+    request = _request(
+        ProjectionTableInput(
+            canonical_table="unknown_widget",
+            reader=reader,
+            source_binding=binding,
+        )
+    )
+    result = project_storage(request)
+    assert result.status is ProjectionStatus.COMPLETE
+    projection_snapshots = build_import_projection_snapshots(
+        _request(
+            ProjectionTableInput(
+                canonical_table="unknown_widget",
+                reader=reader.reopen(),
+                source_binding=binding,
+            )
+        ),
+        result,
+    )
+    snapshots = build_import_mutation_snapshots(projection_snapshots)
+    image = dict(snapshots[0].rows[0].image.columns)
+    assert image == {
+        "created_at": {"kind": "datetime", "text": "2026-10-11T12:34:56"},
+        "id": {"kind": "signed-integer", "decimal": "1"},
+        "ratio32": {"kind": "float32", "bits_hex": "3f800000"},
+        "ratio64": {"kind": "float64", "bits_hex": "4000000000000000"},
+    }

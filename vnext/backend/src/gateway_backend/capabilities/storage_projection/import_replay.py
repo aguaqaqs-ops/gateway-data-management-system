@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from gateway_shared_kernel import (
+    DateTimeScalar,
+    Float32Scalar,
+    Float64Scalar,
     NullScalar,
     SignedIntegerScalar,
     StringScalar,
@@ -197,8 +200,14 @@ def _mutation_cell(cell: object, codec: CanonicalColumnCodec) -> dict[str, objec
         return {"kind": "unsigned-integer", "decimal": cell.decimal}
     if isinstance(cell, SignedIntegerScalar):
         return {"kind": "signed-integer", "decimal": cell.decimal}
+    if isinstance(cell, Float32Scalar):
+        return {"kind": "float32", "bits_hex": cell.bits_hex}
+    if isinstance(cell, Float64Scalar):
+        return {"kind": "float64", "bits_hex": cell.bits_hex}
     if isinstance(cell, StringScalar):
         return {"kind": "string", "text": cell.text}
+    if isinstance(cell, DateTimeScalar):
+        return {"kind": "datetime", "text": cell.text}
     raise ImportReplayError("unsupported canonical cell for mutation replay")
 
 

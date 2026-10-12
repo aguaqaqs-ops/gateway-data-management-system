@@ -1425,6 +1425,7 @@ def run_accept_to_submission_read_journey(
     expected_baseline_node_id: str = BASELINE_NODE_ID,
     expected_baseline_head_version: int = 0,
     expected_submit_code: str | None = None,
+    preview_only: bool = False,
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
@@ -1488,6 +1489,12 @@ def run_accept_to_submission_read_journey(
             cast(dict[str, Any], pair["summary"])
             for pair in cast(list[dict[str, Any]], preview_bundle["pairs"])
         ]
+        if preview_only:
+            return {
+                "workspace_id": workspace_id,
+                "preview_result_id": preview_result_id,
+                "preview_summaries": preview_summaries,
+            }
 
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",

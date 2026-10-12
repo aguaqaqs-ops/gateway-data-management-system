@@ -121,12 +121,12 @@ def _source_package(tables: tuple[str, ...]) -> bytes:
             "INSERT INTO t VALUES (1);",
         ),
         "com_cfg": (
-            "CREATE TABLE com_cfg (`index` INT NOT NULL, `no` INT NOT NULL, `value` VARCHAR(8), PRIMARY KEY (`index`));",
-            "INSERT INTO com_cfg VALUES (1, 10, 'a');",
+            "CREATE TABLE com_cfg (`index` INT NOT NULL, `value` VARCHAR(8), PRIMARY KEY (`index`));",
+            "INSERT INTO com_cfg VALUES (1, 'a');",
         ),
         "net_cfg": (
-            "CREATE TABLE net_cfg (board INT NOT NULL, link_no INT NOT NULL, `no` INT NOT NULL, PRIMARY KEY (board, link_no));",
-            "INSERT INTO net_cfg VALUES (1, 1, 10);",
+            "CREATE TABLE net_cfg (board INT NOT NULL, link_no INT NOT NULL, PRIMARY KEY (board, link_no));",
+            "INSERT INTO net_cfg VALUES (1, 1);",
         ),
     }
     sql = "\n".join(statement for table in tables for statement in statements[table]) + "\n"

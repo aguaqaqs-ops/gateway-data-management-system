@@ -29,6 +29,7 @@ from tests.support.compose_gate_harness import (
     normalize_running_images,
     oracle_history_compare_digest_from_materialize_checkpoint,
     ordered_compare_facts_from_materialize_checkpoint,
+    ordered_syx_sized_upload_files,
     persist_compose_gate_provenance,
     read_history_compare_materialize_job_state,
     read_repository_catalog,
@@ -226,11 +227,10 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             initial_commit_id=initial_commit_id,
             journey_key_prefix="ordered-a",
             token=SESSION_TOKEN,
-            upload_files_factory=lambda version: canonical_rules_ordered_upload_files(
-                com_cfg_no_before=10,
-                com_cfg_no_after=10,
-                ordered_rows_before=((5, 1, "a"), (7, 2, "b")),
-                ordered_rows_after=((5, 1, "a"), (7, 2, "b")),
+            upload_files_factory=lambda version: ordered_syx_sized_upload_files(
+                t_rows=(1,),
+                before_ordered_rows=(),
+                after_ordered_rows=((5, 1, "a"), (7, 2, "b")),
                 expected_version=version,
             ),
         )
@@ -258,10 +258,31 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             commit_id=main_after_a,
         )
         assert baseline_catalog["tables"]
-        baseline_com_cfg = next(
-            table for table in baseline_catalog["tables"] if table["name"] == "com_cfg"
+        assert "b1_n1_iec104_syx_list" in {
+            table["name"] for table in baseline_catalog["tables"]
+        }
+
+        rule_preview = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=main_after_a,
+            journey_key_prefix="ordered-rule-preview",
+            token=ACTOR2_TOKEN,
+            expected_baseline_node_id=str(archive_a["baseline_node_id"]),
+            expected_baseline_head_version=int(archive_a["baseline_head_version"]),
+            preview_only=True,
+            upload_files_factory=lambda version: canonical_rules_ordered_upload_files(
+                com_cfg_no_before=10,
+                com_cfg_no_after=99,
+                ordered_rows_before=((5, 1, "a"), (7, 2, "b")),
+                ordered_rows_after=((2, 1, "c"), (5, 2, "d")),
+                expected_version=version,
+            ),
         )
-        assert "no" not in {column["name"] for column in baseline_com_cfg["columns"]}
+        rule_preview_summaries = cast(list[dict[str, Any]], rule_preview["preview_summaries"])
+        assert rule_preview_summaries
+        for summary in rule_preview_summaries:
+            assert int(summary["table_count"]) > 0
+            assert int(summary["degraded_table_count"]) == 0
 
         journey_b = run_accept_to_submission_read_journey(
             env,
@@ -270,11 +291,10 @@ def test_ordered_history_compare_compose_journey(tmp_path: Path) -> None:
             token=ACTOR2_TOKEN,
             expected_baseline_node_id=str(archive_a["baseline_node_id"]),
             expected_baseline_head_version=int(archive_a["baseline_head_version"]),
-            upload_files_factory=lambda version: canonical_rules_ordered_upload_files(
-                com_cfg_no_before=10,
-                com_cfg_no_after=99,
-                ordered_rows_before=((5, 1, "a"), (7, 2, "b")),
-                ordered_rows_after=((2, 1, "c"), (5, 2, "d")),
+            upload_files_factory=lambda version: ordered_syx_sized_upload_files(
+                t_rows=(1,),
+                before_ordered_rows=((5, 1, "a"), (7, 2, "b")),
+                after_ordered_rows=((2, 1, "c"), (5, 2, "d")),
                 expected_version=version,
             ),
         )

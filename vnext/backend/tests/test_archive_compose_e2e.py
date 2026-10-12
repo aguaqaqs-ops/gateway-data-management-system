@@ -446,11 +446,6 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             ),
         )
         changed_surfaces = cast(list[dict[str, Any]], changed_preview["preview_surfaces"])
-        changed_tables = [
-            table
-            for surface in changed_surfaces
-            for table in cast(list[dict[str, Any]], surface["tables"])
-        ]
         keyless_changed = next(
             table
             for surface in changed_surfaces

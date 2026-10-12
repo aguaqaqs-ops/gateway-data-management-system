@@ -52,6 +52,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
+    RepositoryRows,
     catalog_table,
     int_id_column,
     make_catalog,
@@ -220,6 +221,96 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
         ),
     )
     assert facts.tables[0].status is ComparisonTableStatus.DEGRADED
+
+
+def test_materialize_checkpoint_preserves_keyless_storage_facts_for_history_compare(
+    tmp_path: Path,
+) -> None:
+    before_commit = BASELINE_HEAD.business_baseline_commit_id
+    current_commit = "commit-keyless-current"
+    before_rows = {"t": (("same",), ("same",), ("before",))}
+    current_rows = {"t": (("same",), ("same",), ("after",))}
+
+    def _provider(
+        commit_id: str,
+        rows: RepositoryRows,
+    ) -> FakeRepositoryTableAccessProvider:
+        table = catalog_table(
+            "t",
+            (text_column("value", 0),),
+            primary_key=(),
+            row_count=len(rows["t"]),
+        )
+        catalog = make_catalog(
+            (table,),
+            repository_id=REPOSITORY_ID,
+            ref=commit_id,
+            commit=commit_id,
+        )
+        return FakeRepositoryTableAccessProvider(
+            catalog=catalog,
+            base_catalog=catalog,
+            rows=rows,
+            declared_rows=rows,
+            current_commit=commit_id,
+        )
+
+    providers = {
+        before_commit: _provider(before_commit, before_rows),
+        current_commit: _provider(current_commit, current_rows),
+    }
+    harness = build_history_compare_harness(
+        tmp_path,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, before_commit),
+            ("bn-keyless-current", current_commit),
+        ),
+        custom_providers=providers,
+        idempotency_key="history-compare-keyless-checkpoint",
+    )
+    insert_history_compare_operation(harness)
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        materialize_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
+        )
+    assert materialize_step.checkpoint_ref is not None
+    materialize_envelope = load_checkpoint_envelope(
+        harness.artifact_store,
+        materialize_step.checkpoint_ref,
+    )
+    sides = materialize_envelope.job_state["sides"]
+    assert isinstance(sides, dict)
+    current_side = sides[current_commit]
+    assert isinstance(current_side, dict)
+    storage_facts = current_side["storage_facts"]
+    assert isinstance(storage_facts, list)
+    assert storage_facts[0]["canonical_key_policy"] == "DDL_PRIMARY_KEY_OR_KEYLESS"
+
+    run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+        )
+    assert assemble_step.checkpoint_ref is not None
+    assemble_envelope = load_checkpoint_envelope(
+        harness.artifact_store,
+        assemble_step.checkpoint_ref,
+    )
+    assemble_state = assemble_envelope.job_state["assemble_state"]
+    assert isinstance(assemble_state, dict)
+    pairs = assemble_state["pairs"]
+    assert isinstance(pairs, list)
+    pair = pairs[0]
+    assert isinstance(pair, dict)
+    assert pair["comparison_digest"] == oracle_comparison_digest(
+        before_provider=providers[before_commit],
+        current_provider=providers[current_commit],
+        before_commit=before_commit,
+        current_commit=current_commit,
+        artifact_store=harness.artifact_store,
+    )
 
 
 def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:

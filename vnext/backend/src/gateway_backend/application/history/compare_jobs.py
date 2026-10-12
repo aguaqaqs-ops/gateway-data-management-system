@@ -50,7 +50,11 @@ from gateway_backend.application.payloads import (
     PayloadDecoder,
     load_job_payload_bytes,
 )
-from gateway_backend.application.preview_jobs import surface_artifact_closure
+from gateway_backend.application.preview_jobs import (
+    _storage_facts_from_documents,
+    _storage_facts_to_documents,
+    surface_artifact_closure,
+)
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
@@ -120,7 +124,7 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v2"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v3"
 
 _JOB_STATE_SIDES = "sides"
 _JOB_STATE_ASSEMBLE = "assemble_state"
@@ -992,6 +996,7 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
         "snapshot": snapshot_to_document(bound.snapshot),
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "summary": snapshot_summary_to_document(bound.summary),
+        "storage_facts": _storage_facts_to_documents(bound.storage_facts),
         "tables": tables,
     }
 
@@ -1018,6 +1023,11 @@ def _sides_from_materialize_checkpoint(
 
 
 def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
+    if entry.get("contract_version") != HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION:
+        raise CheckpointDecodeError(
+            "materialize checkpoint side contract version is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
     tables_raw = entry.get("tables")
     if type(tables_raw) is not list:
         raise CheckpointDecodeError(
@@ -1066,13 +1076,35 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             "materialize checkpoint summary does not match its snapshot and tables",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         ) from exc
+    try:
+        storage_facts = _storage_facts_from_documents(entry.get("storage_facts"))
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint storage facts are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
+    descriptors = {table.table_name: table for table in summary.tables}
+    facts_by_table = {fact.storage_rule_view.canonical_table: fact for fact in storage_facts}
+    if len(facts_by_table) != len(storage_facts) or set(facts_by_table) != set(descriptors):
+        raise CheckpointDecodeError(
+            "materialize checkpoint storage facts do not match its snapshot tables",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if any(
+        facts_by_table[name].source_schema_digest != descriptor.business_schema_digest
+        for name, descriptor in descriptors.items()
+    ):
+        raise CheckpointDecodeError(
+            "materialize checkpoint storage facts do not match source schemas",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
     table_set = SnapshotTableSet(
         snapshot_id=snapshot.snapshot_id,
         snapshot_digest=snapshot.snapshot_digest,
         table_ruleset_version=snapshot.table_ruleset_version,
         tables=tuple(opened),
     )
-    return BoundSnapshotInput(snapshot, summary, table_set)
+    return BoundSnapshotInput(snapshot, summary, table_set, storage_facts)
 
 
 def _bound_from_materialization(

@@ -20,6 +20,7 @@ from gateway_backend.application.canonical_metadata.manifest_reader import (
 from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
+    CANONICALIZATION_MANIFEST_CONTRACT,
     STORAGE_PROJECTION_VERSION,
     CanonicalizationManifest,
     durable_manifest_bytes,
@@ -136,7 +137,7 @@ def _insert_submission(
 
 def _manifest(
     *,
-    contract_version: str = "3.1.0",
+    contract_version: str = CANONICALIZATION_MANIFEST_CONTRACT,
     storage_projection_version: str = STORAGE_PROJECTION_VERSION,
     ruleset_version: str = RULESET_VERSION,
 ) -> tuple[CanonicalizationManifest, bytes]:
@@ -151,7 +152,7 @@ def _manifest(
     )
     manifest = replace(draft, manifest_digest=compute_manifest_digest(draft))
     if (
-        contract_version == "3.1.0"
+        contract_version == CANONICALIZATION_MANIFEST_CONTRACT
         and storage_projection_version == STORAGE_PROJECTION_VERSION
         and ruleset_version == RULESET_VERSION
     ):

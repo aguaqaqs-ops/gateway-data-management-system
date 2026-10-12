@@ -58,7 +58,7 @@ def _rules(role: TableStaticRole) -> ComparisonRuleSet:
             precedence_class=precedence,
             static_role=role,
             table_storage=TableStorageDisposition.PROJECT,
-            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
             ordered_policy=OrderedPolicy.NONE,
         )
     )

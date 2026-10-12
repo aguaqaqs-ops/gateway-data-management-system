@@ -2,30 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import cast
 
 import pytest
-from gateway_shared_kernel import DigestRef, NullScalar, raw_blob_digest
+from gateway_shared_kernel import NullScalar, raw_blob_digest
 
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
     BoundSnapshotInput,
+    ComparisonRequest,
     ComparisonFacts,
     ComparisonPlan,
     ComparisonRecordKind,
-    ComparisonTablePolicy,
     ComparisonTableFact,
     ComparisonTableStatus,
     DetailedFactsResult,
-    IdentityStatus,
-    KeylessPolicy,
-    PairRole,
-    PairViewKind,
-    bind_pair_input,
     compare_plan,
-    plan_pair,
+    plan_comparison,
 )
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet, TableArtifactScope
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     SnapshotTable,
@@ -33,29 +28,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableSet,
 )
 from tests.support.snapshot_materialization import materialize_sql
+from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
 
 pytestmark = pytest.mark.unit
-
-
-@dataclass(frozen=True, slots=True)
-class _Assessment:
-    before_snapshot_digest: DigestRef
-    current_snapshot_digest: DigestRef
-    status: IdentityStatus = IdentityStatus.SAME_PROJECT
-    schema_version: str = "project-identity-assessment/v1"
-    rule_version: str = "version-manager-overlap/v1"
-    comparable_columns: tuple[str, ...] = ()
-    before_row_count: int = 0
-    current_row_count: int = 0
-    before_distinct_entry_count: int = 0
-    current_distinct_entry_count: int = 0
-    matched_entry_count: int = 0
-    before_entry_set_digest: DigestRef | None = None
-    current_entry_set_digest: DigestRef | None = None
-    assessment_digest: DigestRef = raw_blob_digest(b"comparison-assessment")
-    diagnostics: tuple[object, ...] = ()
-    requires_continuation_confirmation: bool = False
-    requires_submit_confirmation: bool = False
 
 
 class _CountingReader:
@@ -117,25 +92,18 @@ def _plan(
     before_sql: str,
     current_sql: str,
     *,
-    scope: ArtifactScope = ArtifactScope.ALL_CHANGES,
-    policies: tuple[ComparisonTablePolicy, ...] = (),
+    rule_set: ComparisonRuleSet | None = None,
+    scope: TableArtifactScope = TableArtifactScope.ALL_CHANGES,
 ) -> ComparisonPlan:
     before = _bound(before_sql)
     current = _bound(current_sql)
-    bound = bind_pair_input(
+    request = ComparisonRequest(
         pair_id="standard-pair",
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=PairRole.INITIAL_TO_MODIFIED,
         before=before,
         current=current,
-        artifact_scope=scope,
-        identity_assessment=_Assessment(
-            before.snapshot.snapshot_digest,
-            current.snapshot.snapshot_digest,
-        ),
-        table_policies=policies,
+        rule_set=rule_set or comparison_ruleset_for(standard_rule_record("t", artifact_scope=scope)),
     )
-    plan = plan_pair(bound)
+    plan = plan_comparison(request)
     assert isinstance(plan, ComparisonPlan)
     return plan
 
@@ -222,7 +190,7 @@ def test_schema_alignment_uses_intersection_and_reports_current_only_columns() -
     assert [record.record_kind for record in table.records] == [ComparisonRecordKind.SCHEMA_CHANGE]
 
 
-def test_ignored_only_change_is_schema_only_and_does_not_modify_rows() -> None:
+def test_compare_excluded_only_change_is_visible_without_row_records() -> None:
     before = """
         CREATE TABLE t (
             id INT NOT NULL PRIMARY KEY,
@@ -245,13 +213,16 @@ def test_ignored_only_change_is_schema_only_and_does_not_modify_rows() -> None:
             _plan(
                 before,
                 current,
-                policies=(ComparisonTablePolicy("t", ignored_columns=("aux",)),),
+                rule_set=comparison_ruleset_for(
+                    standard_rule_record("t", compare_excluded_columns=("aux",))
+                ),
             )
         )
     )
-    assert table.status is ComparisonTableStatus.SCHEMA_ONLY_CHANGED
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.content_changed is True
     assert table.row_modified_count == 0
-    assert [record.record_kind for record in table.records] == [ComparisonRecordKind.SCHEMA_CHANGE]
+    assert table.records == ()
 
 
 def test_incompatible_non_key_type_does_not_create_field_change() -> None:
@@ -287,44 +258,14 @@ def test_changed_effective_key_degrades_without_positional_fallback() -> None:
     assert [record.record_kind for record in table.records] == [ComparisonRecordKind.TABLE_DEGRADED]
 
 
-@pytest.mark.parametrize(
-    "policy, expected_status, expected_added, expected_deleted",
-    (
-        (
-            KeylessPolicy.DEGRADE_NO_COMPARE_KEY,
-            ComparisonTableStatus.DEGRADED,
-            0,
-            0,
-        ),
-        (
-            KeylessPolicy.FULL_ROW_DIGEST_SET_DIFF,
-            ComparisonTableStatus.MODIFIED,
-            1,
-            1,
-        ),
-    ),
-)
-def test_keyless_policy_is_explicit_and_deterministic(
-    policy: KeylessPolicy,
-    expected_status: ComparisonTableStatus,
-    expected_added: int,
-    expected_deleted: int,
-) -> None:
+def test_keyless_table_degrades_without_a_safe_effective_key() -> None:
     before = "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('a'), ('b');"
     current = "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('a'), ('c');"
 
-    table = _one_table(
-        _facts(
-            _plan(
-                before,
-                current,
-                policies=(ComparisonTablePolicy("t", keyless_policy=policy),),
-            )
-        )
-    )
-    assert table.status is expected_status
-    assert table.row_added_count == expected_added
-    assert table.row_deleted_count == expected_deleted
+    table = _one_table(_facts(_plan(before, current)))
+    assert table.status is ComparisonTableStatus.DEGRADED
+    assert table.row_added_count == 0
+    assert table.row_deleted_count == 0
     assert all(record.record_kind is not ComparisonRecordKind.ROW_MODIFIED for record in table.records)
 
 
@@ -332,7 +273,20 @@ def test_update_only_suppresses_records_but_keeps_counts() -> None:
     before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1);"
     current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (2);"
 
-    table = _one_table(_facts(_plan(before, current, scope=ArtifactScope.UPDATE_ONLY)))
+    table = _one_table(
+        _facts(
+            _plan(
+                before,
+                current,
+                rule_set=comparison_ruleset_for(
+                    standard_rule_record(
+                        "t",
+                        artifact_scope=TableArtifactScope.UPDATE_ONLY,
+                    )
+                ),
+            )
+        )
+    )
     assert table.row_added_count == 1
     assert table.row_deleted_count == 1
     assert table.suppressed_added_count == 1
@@ -385,19 +339,14 @@ def test_pair_and_table_early_exit_do_not_iterate_or_reopen_readers() -> None:
         diagnostics=original.table_set.diagnostics,
     )
     counted = BoundSnapshotInput(original.snapshot, original.summary, wrapped_set)
-    bound = bind_pair_input(
-        pair_id="early-exit",
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=PairRole.INITIAL_TO_MODIFIED,
-        before=counted,
-        current=counted,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        identity_assessment=_Assessment(
-            counted.snapshot.snapshot_digest,
-            counted.snapshot.snapshot_digest,
-        ),
+    plan = plan_comparison(
+        ComparisonRequest(
+            pair_id="early-exit",
+            before=counted,
+            current=counted,
+            rule_set=comparison_ruleset_for(),
+        )
     )
-    plan = plan_pair(bound)
     assert isinstance(plan, ComparisonPlan)
     result = compare_plan(plan)
     assert isinstance(result, DetailedFactsResult)
@@ -458,18 +407,13 @@ def test_facts_digest_is_deterministic_and_directional() -> None:
 
 
 def _plan_from_bounds(before: BoundSnapshotInput, current: BoundSnapshotInput) -> ComparisonPlan:
-    bound = bind_pair_input(
-        pair_id="standard-pair",
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=PairRole.INITIAL_TO_MODIFIED,
-        before=before,
-        current=current,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        identity_assessment=_Assessment(
-            before.snapshot.snapshot_digest,
-            current.snapshot.snapshot_digest,
-        ),
+    plan = plan_comparison(
+        ComparisonRequest(
+            pair_id="standard-pair",
+            before=before,
+            current=current,
+            rule_set=comparison_ruleset_for(),
+        )
     )
-    plan = plan_pair(bound)
     assert isinstance(plan, ComparisonPlan)
     return plan

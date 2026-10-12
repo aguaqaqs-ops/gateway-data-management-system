@@ -622,7 +622,7 @@ def _descriptor_payload(descriptor: SnapshotTableDescriptor) -> dict[str, Any]:
         "scalar_encoding_version": descriptor.scalar_encoding_version,
         "fast_row_digest": _digest_value(descriptor.fast_row_digest),
         "raw_content_digest": _digest_value(descriptor.raw_content_digest),
-        "business_content_digest": None,
+        "business_schema_digest": descriptor.business_schema_digest.value,
         "degraded_reason": (
             None if descriptor.degraded_reason is None else descriptor.degraded_reason.value
         ),
@@ -648,7 +648,7 @@ def _descriptor_from_payload(payload: dict[str, Any]) -> SnapshotTableDescriptor
         for item in columns_payload
     )
     degraded = payload.get("degraded_reason")
-    return SnapshotTableDescriptor(
+    descriptor = SnapshotTableDescriptor(
         table_name=str(payload["table_name"]),
         display_table_name=str(payload["display_table_name"]),
         columns=columns,
@@ -665,6 +665,9 @@ def _descriptor_from_payload(payload: dict[str, Any]) -> SnapshotTableDescriptor
         degraded_reason=None if degraded is None else DegradedReason(str(degraded)),
         diagnostics=_diagnostics_from_payload(payload.get("diagnostics")),
     )
+    if payload.get("business_schema_digest") != descriptor.business_schema_digest.value:
+        raise ValueError("descriptor business_schema_digest does not match its schema")
+    return descriptor
 
 
 def _diagnostic_payload(item: MaterializationDiagnostic) -> dict[str, object]:

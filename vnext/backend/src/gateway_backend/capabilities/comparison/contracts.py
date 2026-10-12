@@ -26,41 +26,19 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
     SnapshotTableSet,
 )
+from gateway_backend.capabilities.table_rules.contracts import (
+    ComparisonRuleSet,
+    StorageRuleView,
+)
 
 COMPARISON_BATCH_PORT_VERSION = 1
 COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v2"
-PROJECT_IDENTITY_ASSESSMENT_SCHEMA_VERSION = "project-identity-assessment/v1"
-PROJECT_IDENTITY_RULE_VERSION = "version-manager-overlap/v1"
 RECORDS_ARTIFACT_CONTRACT_VERSION = "backend-vnext/comparison-records/v1"
 RECORDS_CLOSURE_CONTRACT_VERSION = "backend-vnext/comparison-records-closure/v1"
 RECORDS_PARQUET_FORMAT = "PARQUET"
 STANDARD_RECORDS_SCHEMA_VERSION = "standard-records/v1"
 ORDERED_RECORDS_SCHEMA_VERSION = "ordered-records/v1"
 BLANK_RECORDS_SCHEMA_VERSION = "blank-records/v1"
-
-
-class PairViewKind(StrEnum):
-    """Flow-neutral view context supplied by the trusted orchestrator."""
-
-    PAIR_COMPARISON = "PAIR_COMPARISON"
-    INITIAL_SNAPSHOT = "INITIAL_SNAPSHOT"
-    HISTORY = "HISTORY"
-    ARCHIVE_REPLAY = "ARCHIVE_REPLAY"
-
-
-class PairRole(StrEnum):
-    """The directed pair role within a formal upload or replay flow."""
-
-    INITIAL_SNAPSHOT = "INITIAL_SNAPSHOT"
-    BASELINE_TO_INITIAL = "BASELINE_TO_INITIAL"
-    INITIAL_TO_MODIFIED = "INITIAL_TO_MODIFIED"
-    HISTORY = "HISTORY"
-    ARCHIVE_REPLAY = "ARCHIVE_REPLAY"
-
-
-class InputCompleteness(StrEnum):
-    FULL = "FULL"
-    MODIFIED_ONLY = "MODIFIED_ONLY"
 
 
 class ComparisonMode(StrEnum):
@@ -111,32 +89,29 @@ class ComparisonTableStatus(StrEnum):
     DEGRADED = "DEGRADED"
 
 
-class IdentityApplicability(StrEnum):
-    REQUIRED = "REQUIRED"
-    NOT_APPLICABLE = "NOT_APPLICABLE"
+class SchemaChangeSource(StrEnum):
+    SOURCE_SCHEMA = "SOURCE_SCHEMA"
+    STORAGE_PROJECTION_POLICY = "STORAGE_PROJECTION_POLICY"
+    BOTH = "BOTH"
 
 
-class IdentityStatus(StrEnum):
-    SAME_PROJECT = "SAME_PROJECT"
-    DIFFERENT_PROJECT = "DIFFERENT_PROJECT"
-    UNVERIFIABLE = "UNVERIFIABLE"
-    NOT_APPLICABLE = "NOT_APPLICABLE"
+@dataclass(frozen=True, slots=True)
+class ComparisonStorageFacts:
+    """Rule side facts stored with one canonical snapshot table."""
 
+    storage_rule_view: StorageRuleView
+    source_schema_digest: DigestRef
 
-class ContinuationAction(StrEnum):
-    ALLOW_DETAILED_ON_UNVERIFIABLE = "ALLOW_DETAILED_ON_UNVERIFIABLE"
-
-
-class BaselineReconstructionStatus(StrEnum):
-    AVAILABLE = "AVAILABLE"
-    UNAVAILABLE = "UNAVAILABLE"
+    def __post_init__(self) -> None:
+        if type(self.storage_rule_view) is not StorageRuleView:
+            raise ValueError("storage_rule_view must be StorageRuleView")
+        if type(self.source_schema_digest) is not DigestRef:
+            raise ValueError("source_schema_digest must be DigestRef")
 
 
 class PairResultKind(StrEnum):
-    INITIAL_SNAPSHOT = "INITIAL_SNAPSHOT"
     DETAILED_FACTS = "DETAILED_FACTS"
     DATASET_REPLACEMENT = "DATASET_REPLACEMENT"
-    IDENTITY_GATE_BLOCKED = "IDENTITY_GATE_BLOCKED"
     CANCELLED = "CANCELLED"
     FAILED = "FAILED"
 
@@ -148,7 +123,6 @@ class PairResultStatus(StrEnum):
     DEGRADED = "DEGRADED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
-    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 ORDERED_DIFF_CONTRACT_VERSION = "backend-vnext/ordered-diff/v2"
@@ -314,66 +288,6 @@ class ComparisonRecordsClosure:
         return self.closure_manifest_digest
 
 
-@runtime_checkable
-class ProjectIdentityAssessment(Protocol):
-    """Read-only consumer port for the separately owned identity capability.
-
-    R5 validates the binding fields below but never computes the assessment or exposes its
-    original identity entries.
-    """
-
-    @property
-    def schema_version(self) -> str: ...
-
-    @property
-    def rule_version(self) -> str: ...
-
-    @property
-    def before_snapshot_digest(self) -> DigestRef: ...
-
-    @property
-    def current_snapshot_digest(self) -> DigestRef: ...
-
-    @property
-    def status(self) -> IdentityStatus: ...
-
-    @property
-    def comparable_columns(self) -> tuple[str, ...]: ...
-
-    @property
-    def before_row_count(self) -> int: ...
-
-    @property
-    def current_row_count(self) -> int: ...
-
-    @property
-    def before_distinct_entry_count(self) -> int: ...
-
-    @property
-    def current_distinct_entry_count(self) -> int: ...
-
-    @property
-    def matched_entry_count(self) -> int: ...
-
-    @property
-    def before_entry_set_digest(self) -> DigestRef | None: ...
-
-    @property
-    def current_entry_set_digest(self) -> DigestRef | None: ...
-
-    @property
-    def assessment_digest(self) -> DigestRef: ...
-
-    @property
-    def diagnostics(self) -> tuple[object, ...]: ...
-
-    @property
-    def requires_continuation_confirmation(self) -> bool: ...
-
-    @property
-    def requires_submit_confirmation(self) -> bool: ...
-
-
 ComparisonOptionValue: TypeAlias = str | int | bool | None
 ContractVersionValue: TypeAlias = str | int
 ComparisonOptions: TypeAlias = tuple[tuple[str, ComparisonOptionValue], ...]
@@ -388,14 +302,13 @@ DEFAULT_CONTRACT_VERSIONS: ContractVersions = (
 class OrderedTablePolicy:
     """Explicit ordered semantics supplied by the trusted table-rules owner."""
 
-    policy_id: str = "ordered-gid-no-v1"
-    policy_version: str = ORDERED_DIFF_CONTRACT_VERSION
-    order_key: tuple[str, ...] = ("no",)
-    row_identity_key: tuple[str, ...] | None = ("gid",)
-    stable_key_candidates: tuple[str, ...] = ("gid",)
+    policy_id: str
+    policy_version: str
+    order_key: tuple[str, ...]
+    row_identity_key: tuple[str, ...] | None
+    stable_key_candidates: tuple[str, ...]
+    blank_row_policy: BlankRowPolicy
     value_columns: tuple[str, ...] = ()
-    ignored_columns: tuple[str, ...] = ("no",)
-    blank_row_policy: BlankRowPolicy = BlankRowPolicy.PSEUDO_BLANK_BY_MISSING_STABLE_KEY
     move_policy: str = "STABLE_KEY_RELATIVE_ORDER_V1"
     ambiguity_policy: str = "DEGRADE_ON_AMBIGUITY"
     tail_change_policy: str = "INTERVAL_OR_ROW_V1"
@@ -420,7 +333,6 @@ class OrderedTablePolicy:
             "order_key",
             "stable_key_candidates",
             "value_columns",
-            "ignored_columns",
         ):
             value = getattr(self, label)
             if type(value) is not tuple:
@@ -453,7 +365,6 @@ class OrderedTablePolicy:
                 ),
                 "stable_key_candidates": list(self.stable_key_candidates),
                 "value_columns": list(self.value_columns),
-                "ignored_columns": list(self.ignored_columns),
                 "blank_row_policy": self.blank_row_policy.value,
                 "move_policy": self.move_policy,
                 "ambiguity_policy": self.ambiguity_policy,
@@ -664,32 +575,53 @@ class BlankExtension:
 
 
 @dataclass(frozen=True, slots=True)
-class ComparisonTablePolicy:
+class _ComparisonTablePolicy:
     """Immutable per-table projection and keyless policy supplied by an upstream owner."""
 
     table_name: str
-    ignored_columns: tuple[str, ...] = ()
+    compare_excluded_columns: tuple[str, ...] = ()
     keyless_policy: KeylessPolicy = KeylessPolicy.DEGRADE_NO_COMPARE_KEY
     policy_version: str = "comparison-table-policy/v1"
     ordered_policy: OrderedTablePolicy | None = None
+    effective_key_before: tuple[str, ...] = ()
+    effective_key_current: tuple[str, ...] = ()
+    comparison_role: str = "STANDARD"
+    storage_facts_before: ComparisonStorageFacts | None = None
+    storage_facts_current: ComparisonStorageFacts | None = None
 
     def __post_init__(self) -> None:
         canonical_name = _require_canonical_table_name(self.table_name)
         object.__setattr__(self, "table_name", canonical_name)
-        if type(self.ignored_columns) is not tuple:
-            raise ValueError("ignored_columns must be a tuple")
+        if type(self.compare_excluded_columns) is not tuple:
+            raise ValueError("compare_excluded_columns must be a tuple")
         canonical_columns = tuple(
-            _require_canonical_column_name(column) for column in self.ignored_columns
+            _require_canonical_column_name(column) for column in self.compare_excluded_columns
         )
         if len(set(canonical_columns)) != len(canonical_columns):
-            raise ValueError("ignored_columns must not repeat names")
-        object.__setattr__(self, "ignored_columns", canonical_columns)
+            raise ValueError("compare_excluded_columns must not repeat names")
+        object.__setattr__(self, "compare_excluded_columns", canonical_columns)
         if type(self.keyless_policy) is not KeylessPolicy:
             raise ValueError("keyless_policy must be KeylessPolicy")
         if type(self.policy_version) is not str or self.policy_version == "":
             raise ValueError("policy_version must be a non-empty string")
         if self.ordered_policy is not None and type(self.ordered_policy) is not OrderedTablePolicy:
             raise ValueError("ordered_policy must be OrderedTablePolicy or None")
+        for label in ("effective_key_before", "effective_key_current"):
+            value = getattr(self, label)
+            if type(value) is not tuple:
+                raise ValueError(f"{label} must be a tuple")
+            canonical = tuple(_require_canonical_column_name(item) for item in value)
+            if len(set(canonical)) != len(canonical):
+                raise ValueError(f"{label} must not repeat names")
+            object.__setattr__(self, label, canonical)
+        if type(self.comparison_role) is not str or self.comparison_role not in {
+            "STANDARD", "ORDERED", "BROWSE_ONLY", "SNAPSHOT_ONLY"
+        }:
+            raise ValueError("comparison_role must be a supported role")
+        for label in ("storage_facts_before", "storage_facts_current"):
+            value = getattr(self, label)
+            if value is not None and type(value) is not ComparisonStorageFacts:
+                raise ValueError(f"{label} must be ComparisonStorageFacts or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -701,6 +633,7 @@ class ComparisonSchemaChanges:
     effective_compare_key_current: tuple[str, ...] = ()
     effective_compare_key_changed: bool = False
     incompatible_columns: tuple[str, ...] = ()
+    change_source: SchemaChangeSource | None = None
 
     def __post_init__(self) -> None:
         for label in (
@@ -720,6 +653,8 @@ class ComparisonSchemaChanges:
             object.__setattr__(self, label, canonical)
         if type(self.effective_compare_key_changed) is not bool:
             raise ValueError("effective_compare_key_changed must be bool")
+        if self.change_source is not None and type(self.change_source) is not SchemaChangeSource:
+            raise ValueError("change_source must be SchemaChangeSource or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -806,6 +741,7 @@ class ComparisonTableFact:
     suppressed_deleted_count: int = 0
     records: tuple[ComparisonRecord, ...] = ()
     diagnostics: tuple[str, ...] = ()
+    content_changed: bool = False
     table_fact_digest: DigestRef | None = None
     ordered_extension: OrderedExtension | None = None
     blank_extension: BlankExtension | None = None
@@ -846,6 +782,8 @@ class ComparisonTableFact:
             raise ValueError("ordered_extension must be OrderedExtension or None")
         if self.blank_extension is not None and type(self.blank_extension) is not BlankExtension:
             raise ValueError("blank_extension must be BlankExtension or None")
+        if type(self.content_changed) is not bool:
+            raise ValueError("content_changed must be bool")
 
 
 @dataclass(frozen=True, slots=True)
@@ -898,8 +836,6 @@ class ComparisonFacts:
     before_snapshot_digest: DigestRef
     current_snapshot_digest: DigestRef
     comparison_mode: ComparisonMode
-    project_identity_status: IdentityStatus
-    assessment_digest: DigestRef | None
     direction: str
     summary: ComparisonSummary
     tables: tuple[ComparisonTableFact, ...]
@@ -923,15 +859,6 @@ class ComparisonFacts:
             raise ValueError("scalar_encoding_version must be a positive int")
         if type(self.comparison_mode) is not ComparisonMode:
             raise ValueError("comparison_mode must be ComparisonMode")
-        if type(self.project_identity_status) is not IdentityStatus:
-            raise ValueError("project_identity_status must be IdentityStatus")
-        if self.assessment_digest is not None and type(self.assessment_digest) is not DigestRef:
-            raise ValueError("assessment_digest must be DigestRef or None")
-        if self.project_identity_status is IdentityStatus.NOT_APPLICABLE:
-            if self.assessment_digest is not None:
-                raise ValueError("NOT_APPLICABLE facts must not carry assessment_digest")
-        elif self.assessment_digest is None:
-            raise ValueError("applicable facts require assessment_digest")
         if type(self.summary) is not ComparisonSummary:
             raise ValueError("summary must be ComparisonSummary")
         if type(self.tables) is not tuple or any(
@@ -957,6 +884,7 @@ class BoundSnapshotInput:
     snapshot: Snapshot
     summary: SnapshotSummary
     table_set: SnapshotTableSet | None = None
+    storage_facts: tuple[ComparisonStorageFacts, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.snapshot) is not Snapshot:
@@ -984,193 +912,42 @@ class BoundSnapshotInput:
                     raise ValueError("table_set contains a table absent from summary")
                 if descriptor != summary_tables[table_name]:
                     raise ValueError("table_set descriptor must match summary descriptor")
+        if type(self.storage_facts) is not tuple or any(
+            type(item) is not ComparisonStorageFacts for item in self.storage_facts
+        ):
+            raise ValueError("storage_facts must contain ComparisonStorageFacts")
+        storage_names = tuple(item.storage_rule_view.canonical_table for item in self.storage_facts)
+        if storage_names != tuple(sorted(storage_names)) or len(set(storage_names)) != len(storage_names):
+            raise ValueError("storage_facts must use canonical unique order")
+        summary_names = set(_canonical_table_map(self.summary.tables))
+        if any(name not in summary_names for name in storage_names):
+            raise ValueError("storage_facts must refer to snapshot tables")
 
 
 @dataclass(frozen=True, slots=True)
-class BaselineReconstructionResult:
-    """Pinned baseline result supplied by an upstream flow/reconstruction owner."""
-
-    status: BaselineReconstructionStatus
-    baseline: BoundSnapshotInput | None = None
-    diagnostics: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        if type(self.status) is not BaselineReconstructionStatus:
-            raise ValueError("status must be BaselineReconstructionStatus")
-        _require_diagnostic_strings(self.diagnostics)
-        if self.status is BaselineReconstructionStatus.AVAILABLE:
-            if type(self.baseline) is not BoundSnapshotInput:
-                raise ValueError("AVAILABLE baseline reconstruction requires baseline")
-            return
-        if self.baseline is not None:
-            raise ValueError("UNAVAILABLE baseline reconstruction forbids baseline")
-        if not self.diagnostics:
-            raise ValueError("UNAVAILABLE baseline reconstruction requires diagnostics")
-
-
-@dataclass(frozen=True, slots=True)
-class TrustedFlowApplicabilityBinding:
-    """Opaque flow binding used for history/archive NOT_APPLICABLE contexts.
-
-    The trusted orchestrator is responsible for producing and authorizing this value. R5 only
-    validates its context and digest shape; actor/session authorization is deliberately absent.
-    """
-
-    view_kind: PairViewKind
-    binding_digest: DigestRef
-
-    def __post_init__(self) -> None:
-        if self.view_kind not in {PairViewKind.HISTORY, PairViewKind.ARCHIVE_REPLAY}:
-            raise ValueError("flow applicability binding requires history or archive view")
-        if type(self.binding_digest) is not DigestRef:
-            raise ValueError("binding_digest must be DigestRef")
-
-
-@dataclass(frozen=True, slots=True)
-class UnverifiableContinuationBinding:
-    """Revalidated, actor-free continuation binding for an UNVERIFIABLE assessment."""
-
-    action: ContinuationAction
-    pair_id: str
-    before_snapshot_digest: DigestRef
-    current_snapshot_digest: DigestRef
-    assessment_digest: DigestRef
-    assessment_set_digest: DigestRef | None = None
-    policy_version: str = ""
-
-    def __post_init__(self) -> None:
-        if self.action is not ContinuationAction.ALLOW_DETAILED_ON_UNVERIFIABLE:
-            raise ValueError("unsupported continuation action")
-        _require_opaque_id(self.pair_id, "pair_id")
-        if type(self.before_snapshot_digest) is not DigestRef:
-            raise ValueError("before_snapshot_digest must be DigestRef")
-        if type(self.current_snapshot_digest) is not DigestRef:
-            raise ValueError("current_snapshot_digest must be DigestRef")
-        if type(self.assessment_digest) is not DigestRef:
-            raise ValueError("assessment_digest must be DigestRef")
-        if self.assessment_set_digest is not None and type(self.assessment_set_digest) is not DigestRef:
-            raise ValueError("assessment_set_digest must be DigestRef or None")
-        if type(self.policy_version) is not str or self.policy_version == "":
-            raise ValueError("policy_version must be a non-empty string")
-
-
-@dataclass(frozen=True, slots=True)
-class PairExecutionInput:
-    """Flow-neutral, already-bound pair input consumed by the R5 planner."""
+class ComparisonRequest:
+    """Flow-neutral comparison input bound to canonical snapshots and active rules."""
 
     pair_id: str
-    view_kind: PairViewKind
-    pair_role: PairRole
-    before: BoundSnapshotInput | None
+    before: BoundSnapshotInput
     current: BoundSnapshotInput
-    input_completeness: InputCompleteness
-    comparison_mode: ComparisonMode | None
-    artifact_scope: ArtifactScope | None
-    identity_applicability: IdentityApplicability
-    identity_assessment: ProjectIdentityAssessment | None = None
-    continuation_binding: UnverifiableContinuationBinding | None = None
-    comparison_options: ComparisonOptions = ()
+    rule_set: ComparisonRuleSet
+    mode: ComparisonMode = ComparisonMode.DETAILED
+    options: ComparisonOptions = ()
     contract_versions: ContractVersions = DEFAULT_CONTRACT_VERSIONS
-    trusted_flow_binding: TrustedFlowApplicabilityBinding | None = None
-    table_policies: tuple[ComparisonTablePolicy, ...] = ()
 
     def __post_init__(self) -> None:
         _require_opaque_id(self.pair_id, "pair_id")
-        if type(self.view_kind) is not PairViewKind:
-            raise ValueError("view_kind must be PairViewKind")
-        if type(self.pair_role) is not PairRole:
-            raise ValueError("pair_role must be PairRole")
-        if self.before is not None and type(self.before) is not BoundSnapshotInput:
-            raise ValueError("before must be BoundSnapshotInput or None")
-        if type(self.current) is not BoundSnapshotInput:
-            raise ValueError("current must be BoundSnapshotInput")
-        if type(self.input_completeness) is not InputCompleteness:
-            raise ValueError("input_completeness must be InputCompleteness")
-        if self.comparison_mode is not None and type(self.comparison_mode) is not ComparisonMode:
-            raise ValueError("comparison_mode must be ComparisonMode or None")
-        if self.artifact_scope is not None and type(self.artifact_scope) is not ArtifactScope:
-            raise ValueError("artifact_scope must be ArtifactScope or None")
-        if type(self.identity_applicability) is not IdentityApplicability:
-            raise ValueError("identity_applicability must be IdentityApplicability")
-        if self.identity_assessment is not None and not isinstance(
-            self.identity_assessment, ProjectIdentityAssessment
-        ):
-            raise ValueError("identity_assessment must implement ProjectIdentityAssessment")
-        if self.continuation_binding is not None and type(
-            self.continuation_binding
-        ) is not UnverifiableContinuationBinding:
-            raise ValueError("continuation_binding must be UnverifiableContinuationBinding or None")
-        _validate_options(self.comparison_options, "comparison_options")
+        if type(self.before) is not BoundSnapshotInput or type(self.current) is not BoundSnapshotInput:
+            raise ValueError("before and current must be BoundSnapshotInput")
+        if type(self.rule_set) is not ComparisonRuleSet:
+            raise ValueError("rule_set must be ComparisonRuleSet")
+        if self.rule_set.ruleset_digest is None:
+            raise ValueError("comparison requires a complete runtime rule_set")
+        if type(self.mode) is not ComparisonMode:
+            raise ValueError("mode must be ComparisonMode")
+        _validate_options(self.options, "options")
         _validate_contract_versions(self.contract_versions)
-        if type(self.table_policies) is not tuple or any(
-            type(item) is not ComparisonTablePolicy for item in self.table_policies
-        ):
-            raise ValueError("table_policies must contain ComparisonTablePolicy")
-        policy_names = [item.table_name for item in self.table_policies]
-        if len(set(policy_names)) != len(policy_names):
-            raise ValueError("table_policies must not repeat table names")
-        if self.trusted_flow_binding is not None and type(
-            self.trusted_flow_binding
-        ) is not TrustedFlowApplicabilityBinding:
-            raise ValueError("trusted_flow_binding must be TrustedFlowApplicabilityBinding or None")
-
-        if self.view_kind is PairViewKind.INITIAL_SNAPSHOT:
-            if self.pair_role is not PairRole.INITIAL_SNAPSHOT:
-                raise ValueError("initial snapshot requires INITIAL_SNAPSHOT pair role")
-            if self.before is not None:
-                raise ValueError("initial snapshot forbids before")
-            if self.comparison_mode is not None or self.artifact_scope is not None:
-                raise ValueError("initial snapshot forbids comparison mode and artifact scope")
-            if self.identity_applicability is not IdentityApplicability.NOT_APPLICABLE:
-                raise ValueError("initial snapshot identity applicability must be NOT_APPLICABLE")
-            if self.identity_assessment is not None or self.continuation_binding is not None:
-                raise ValueError("initial snapshot forbids identity assessment and continuation")
-            if self.trusted_flow_binding is not None:
-                raise ValueError("initial snapshot forbids trusted flow binding")
-            return
-
-        if self.before is None:
-            raise ValueError("comparison input requires before")
-        if self.view_kind is PairViewKind.PAIR_COMPARISON:
-            if self.pair_role not in {PairRole.BASELINE_TO_INITIAL, PairRole.INITIAL_TO_MODIFIED}:
-                raise ValueError("pair comparison requires a formal upload pair role")
-            if self.identity_applicability is not IdentityApplicability.REQUIRED:
-                raise ValueError("pair comparison identity applicability must be REQUIRED")
-            if self.identity_assessment is None:
-                raise ValueError("pair comparison requires identity assessment")
-            if self.comparison_mode is None or self.artifact_scope is None:
-                raise ValueError("pair comparison requires mode and artifact scope")
-            assessment_status = getattr(self.identity_assessment, "status", None)
-            if type(assessment_status) is not IdentityStatus:
-                raise ValueError("identity assessment status must be IdentityStatus")
-            expected_mode = (
-                ComparisonMode.DATASET_REPLACEMENT
-                if assessment_status is IdentityStatus.DIFFERENT_PROJECT
-                else ComparisonMode.DETAILED
-            )
-            if self.comparison_mode is not expected_mode:
-                raise ValueError("comparison_mode must be derived from identity assessment")
-            if self.trusted_flow_binding is not None:
-                raise ValueError("pair comparison forbids trusted flow binding")
-            if self.input_completeness is InputCompleteness.MODIFIED_ONLY and self.pair_role is not PairRole.INITIAL_TO_MODIFIED:
-                raise ValueError("MODIFIED_ONLY requires INITIAL_TO_MODIFIED role")
-            return
-
-        expected_role = (
-            PairRole.HISTORY if self.view_kind is PairViewKind.HISTORY else PairRole.ARCHIVE_REPLAY
-        )
-        if self.pair_role is not expected_role:
-            raise ValueError("replay view requires matching pair role")
-        if self.input_completeness is not InputCompleteness.FULL:
-            raise ValueError("history and archive replay require FULL input")
-        if self.comparison_mode is not ComparisonMode.DETAILED or self.artifact_scope is None:
-            raise ValueError("history and archive replay require DETAILED mode and artifact scope")
-        if self.identity_applicability is not IdentityApplicability.NOT_APPLICABLE:
-            raise ValueError("history and archive identity applicability must be NOT_APPLICABLE")
-        if self.identity_assessment is not None or self.continuation_binding is not None:
-            raise ValueError("history and archive replay forbid identity assessment and continuation")
-        if self.trusted_flow_binding is None or self.trusted_flow_binding.view_kind is not self.view_kind:
-            raise ValueError("history and archive replay require matching trusted flow binding")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1183,7 +960,7 @@ class TableComparisonTask:
     before_table: SnapshotTable | None
     current_table: SnapshotTable | None
     artifact_scope: ArtifactScope
-    policy: ComparisonTablePolicy | None = None
+    policy: _ComparisonTablePolicy | None = None
 
     def __post_init__(self) -> None:
         canonical_name = _require_canonical_table_name(self.table_name)
@@ -1217,48 +994,38 @@ class TableComparisonTask:
             object.__setattr__(
                 self,
                 "policy",
-                ComparisonTablePolicy(table_name=canonical_name),
+                _ComparisonTablePolicy(table_name=canonical_name),
             )
-        elif type(self.policy) is not ComparisonTablePolicy:
-            raise ValueError("policy must be ComparisonTablePolicy or None")
+        elif type(self.policy) is not _ComparisonTablePolicy:
+            raise ValueError("policy must be _ComparisonTablePolicy or None")
         elif self.policy.table_name != canonical_name:
             raise ValueError("policy table name must match task")
 
 
 @dataclass(frozen=True, slots=True)
 class ComparisonPlan:
-    """Detailed comparison plan produced without opening any table reader."""
+    """Resolved table work for a flow-neutral ComparisonRequest."""
 
     pair_id: str
-    view_kind: PairViewKind
-    pair_role: PairRole
     before: BoundSnapshotInput
     current: BoundSnapshotInput
-    comparison_mode: ComparisonMode
-    artifact_scope: ArtifactScope
-    identity_status: IdentityStatus
-    assessment_digest: DigestRef | None
+    rule_set: ComparisonRuleSet
+    mode: ComparisonMode
     tasks: tuple[TableComparisonTask, ...]
     diagnostics: tuple[str, ...] = ()
-    comparison_options: ComparisonOptions = ()
+    options: ComparisonOptions = ()
     contract_versions: ContractVersions = DEFAULT_CONTRACT_VERSIONS
 
     def __post_init__(self) -> None:
         _require_opaque_id(self.pair_id, "pair_id")
-        if self.view_kind not in {PairViewKind.PAIR_COMPARISON, PairViewKind.HISTORY, PairViewKind.ARCHIVE_REPLAY}:
-            raise ValueError("comparison plan requires a pair or replay view")
-        if type(self.pair_role) is not PairRole:
-            raise ValueError("pair_role must be PairRole")
         if type(self.before) is not BoundSnapshotInput or type(self.current) is not BoundSnapshotInput:
             raise ValueError("comparison plan requires bound before and current")
-        if self.comparison_mode is not ComparisonMode.DETAILED:
-            raise ValueError("comparison plan only represents DETAILED execution")
-        if type(self.artifact_scope) is not ArtifactScope:
-            raise ValueError("artifact_scope must be ArtifactScope")
-        if type(self.identity_status) is not IdentityStatus:
-            raise ValueError("identity_status must be IdentityStatus")
-        if self.assessment_digest is not None and type(self.assessment_digest) is not DigestRef:
-            raise ValueError("assessment_digest must be DigestRef or None")
+        if type(self.rule_set) is not ComparisonRuleSet:
+            raise ValueError("rule_set must be ComparisonRuleSet")
+        if self.rule_set.ruleset_digest is None:
+            raise ValueError("comparison plan requires a complete runtime rule_set")
+        if type(self.mode) is not ComparisonMode:
+            raise ValueError("mode must be ComparisonMode")
         if type(self.tasks) is not tuple:
             raise ValueError("tasks must be a tuple")
         seen: set[str] = set()
@@ -1269,7 +1036,7 @@ class ComparisonPlan:
                 raise ValueError("tasks must not repeat table_name")
             seen.add(task.table_name)
         _require_diagnostic_strings(self.diagnostics)
-        _validate_options(self.comparison_options, "comparison_options")
+        _validate_options(self.options, "options")
         _validate_contract_versions(self.contract_versions)
 
 
@@ -1289,18 +1056,6 @@ class PairExecutionResultBase:
         if type(self.status) is not PairResultStatus:
             raise ValueError("status must be PairResultStatus")
         _require_diagnostic_strings(self.diagnostics)
-
-
-@dataclass(frozen=True, slots=True)
-class InitialSnapshotResult(PairExecutionResultBase):
-    kind: ClassVar[PairResultKind] = PairResultKind.INITIAL_SNAPSHOT
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        if self.status is not PairResultStatus.NOT_APPLICABLE:
-            raise ValueError("initial snapshot result status must be NOT_APPLICABLE")
-        if self.facts is not None or self.records_closure is not None:
-            raise ValueError("initial snapshot result forbids facts and records closure")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1335,20 +1090,6 @@ class DatasetReplacementResult(PairExecutionResultBase):
 
 
 @dataclass(frozen=True, slots=True)
-class IdentityGateBlockedResult(PairExecutionResultBase):
-    kind: ClassVar[PairResultKind] = PairResultKind.IDENTITY_GATE_BLOCKED
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        if self.status is not PairResultStatus.DEGRADED:
-            raise ValueError("identity gate result status must be DEGRADED")
-        if not self.diagnostics:
-            raise ValueError("identity gate result requires diagnostics")
-        if self.facts is not None or self.records_closure is not None:
-            raise ValueError("identity gate result forbids facts and records closure")
-
-
-@dataclass(frozen=True, slots=True)
 class CancelledResult(PairExecutionResultBase):
     kind: ClassVar[PairResultKind] = PairResultKind.CANCELLED
 
@@ -1377,10 +1118,8 @@ class FailedResult(PairExecutionResultBase):
 
 
 PairExecutionResult: TypeAlias = (
-    InitialSnapshotResult
-    | DetailedFactsResult
+    DetailedFactsResult
     | DatasetReplacementResult
-    | IdentityGateBlockedResult
     | CancelledResult
     | FailedResult
 )

@@ -13,12 +13,14 @@ Downstream consumers may import this module only.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.capabilities.composite_signal.contracts import CompositeLogicSource
@@ -56,6 +58,19 @@ GID_PSEUDO_MAX = 4_294_967_295
 _MAX_DIAGNOSTICS = 1024
 _MAX_DIAGNOSTIC_MESSAGE_BYTES = 4096
 _UTF8 = "utf-8"
+_SQL_INTEGER_DISPLAY = re.compile(
+    r"^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT)\(\d+\)(?:\s+(UNSIGNED|ZEROFILL))?$"
+)
+_SQL_FLOAT_DISPLAY = re.compile(r"^(FLOAT|DOUBLE|REAL)\(\d+(?:\s*,\s*\d+)?\)$")
+_SQL_ZERO_FSP = re.compile(r"^(TIME|DATETIME|TIMESTAMP)\(0+\)$")
+_SQL_DECIMAL_NORMALIZED = re.compile(
+    r"^DECIMAL\(\s*(\d+)(?:\s*,\s*(\d+))?\s*\)$"
+)
+_SQL_BIT_NORMALIZED = re.compile(r"^BIT\(\s*(\d+)\s*\)$")
+
+
+class SqlDeclaredTypeMappingError(ValueError):
+    """Raised when a SQL type spelling cannot be used in a canonical descriptor."""
 
 
 class SnapshotMaterializationStatus(StrEnum):
@@ -211,6 +226,8 @@ class SnapshotColumnDescriptor:
             type(self.scalar_type) is not str or self.scalar_type == ""
         ):
             raise ValueError("scalar_type must be a non-empty string or None")
+        if self.scalar_type is not None:
+            object.__setattr__(self, "scalar_type", normalize_sql_type_spelling(self.scalar_type))
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,7 +245,6 @@ class SnapshotTableDescriptor:
     scalar_encoding_version: int
     fast_row_digest: DigestRef | None = None
     raw_content_digest: DigestRef | None = None
-    business_content_digest: DigestRef | None = None
     degraded_reason: DegradedReason | None = None
     diagnostics: tuple[MaterializationDiagnostic, ...] = ()
 
@@ -259,8 +275,6 @@ class SnapshotTableDescriptor:
             raise ValueError("fast_row_digest must be DigestRef or None")
         if self.raw_content_digest is not None and type(self.raw_content_digest) is not DigestRef:
             raise ValueError("raw_content_digest must be DigestRef or None")
-        if self.business_content_digest is not None:
-            raise ValueError("S2 business_content_digest must be NOT_COMPUTED")
         if self.degraded_reason is not None and type(self.degraded_reason) is not DegradedReason:
             raise ValueError("degraded_reason must be DegradedReason or None")
         _require_diagnostics(self.diagnostics)
@@ -270,6 +284,10 @@ class SnapshotTableDescriptor:
             and self.raw_content_digest is None
         ):
             raise ValueError("FINAL success table requires raw_content_digest")
+
+    @property
+    def business_schema_digest(self) -> DigestRef:
+        return business_schema_digest_of(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,7 +340,6 @@ class Snapshot:
     raw_state_digest: DigestRef
     created_at: str
     source_context: SnapshotSourceContext
-    business_state_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
         _require_opaque_id(self.snapshot_id, "snapshot_id")
@@ -349,8 +366,6 @@ class Snapshot:
         _require_non_empty(self.created_at, "created_at")
         if type(self.source_context) is not SnapshotSourceContext:
             raise ValueError("source_context must be SnapshotSourceContext")
-        if self.business_state_digest is not None:
-            raise ValueError("S2 business_state_digest must be NOT_COMPUTED")
         if "/" in self.snapshot_id or "\\" in self.snapshot_id or "\x00" in self.snapshot_id:
             raise ValueError("snapshot_id must not be a path-shaped identity")
 
@@ -369,7 +384,6 @@ class SnapshotSummary:
     source_context: SnapshotSourceContext
     diagnostics: tuple[MaterializationDiagnostic, ...]
     row_count_total: int | None = None
-    business_state_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
         _require_opaque_id(self.snapshot_id, "snapshot_id")
@@ -402,8 +416,368 @@ class SnapshotSummary:
         _require_diagnostics(self.diagnostics)
         if self.row_count_total is not None:
             _require_non_negative_int(self.row_count_total, "row_count_total")
-        if self.business_state_digest is not None:
-            raise ValueError("S2 business_state_digest must be NOT_COMPUTED")
+
+    @property
+    def canonical_state_digest(self) -> DigestRef | None:
+        return canonical_state_digest_of(self.tables)
+
+
+def normalize_sql_type_spelling(spelling: str) -> str:
+    """Return the stable catalog spelling used in canonical descriptors."""
+
+    if type(spelling) is not str or spelling.strip() == "":
+        raise SqlDeclaredTypeMappingError("SQL type spelling must be non-empty")
+    token = _uppercase_and_collapse_outside_quotes(spelling.strip())
+    if token.endswith(" ZEROFILL"):
+        token = token.removesuffix(" ZEROFILL")
+        if not token.endswith(" UNSIGNED"):
+            token += " UNSIGNED"
+    enum_set_match = re.match(r"^(ENUM|SET)\s*\(", token)
+    if enum_set_match is not None:
+        kind = enum_set_match.group(1)
+        labels = _parse_enum_set_labels(token[enum_set_match.end() :], spelling)
+        _validate_enum_set_labels(kind, labels, spelling)
+        return f"{kind}({','.join(_quote_sql_label(label) for label in labels)})"
+    integer_match = _SQL_INTEGER_DISPLAY.fullmatch(token)
+    if integer_match is not None:
+        base, modifier = integer_match.groups()
+        base = "INT" if base == "INTEGER" else base
+        return f"{base} UNSIGNED" if modifier in {"UNSIGNED", "ZEROFILL"} else base
+    float_match = _SQL_FLOAT_DISPLAY.fullmatch(token)
+    if float_match is not None:
+        base = float_match.group(1)
+        return "DOUBLE" if base == "REAL" else base
+    zero_fsp_match = _SQL_ZERO_FSP.fullmatch(token)
+    if zero_fsp_match is not None:
+        return zero_fsp_match.group(1)
+    decimal_match = _SQL_DECIMAL_NORMALIZED.fullmatch(token)
+    if decimal_match is not None:
+        return f"DECIMAL({decimal_match.group(1)},{decimal_match.group(2) or '0'})"
+    bit_match = _SQL_BIT_NORMALIZED.fullmatch(token)
+    if bit_match is not None:
+        return f"BIT({bit_match.group(1)})"
+    if token == "INTEGER":
+        return "INT"
+    if token == "INTEGER UNSIGNED":
+        return "INT UNSIGNED"
+    return token
+
+
+def enum_set_labels_for_sql_spelling(spelling: str) -> tuple[str, tuple[str, ...]] | None:
+    normalized = normalize_sql_type_spelling(spelling)
+    match = re.match(r"^(ENUM|SET)\(", normalized)
+    if match is None:
+        if normalized.startswith(("ENUM", "SET")):
+            raise SqlDeclaredTypeMappingError(
+                f"malformed ENUM/SET SQL type spelling: {spelling}"
+            )
+        return None
+    kind = match.group(1)
+    labels = _parse_enum_set_labels(normalized[match.end() :], spelling)
+    _validate_enum_set_labels(kind, labels, spelling)
+    return kind, labels
+
+
+def _uppercase_and_collapse_outside_quotes(value: str) -> str:
+    output: list[str] = []
+    quote: str | None = None
+    pending_space = False
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if quote is not None:
+            output.append(char)
+            if char == quote:
+                if index + 1 < len(value) and value[index + 1] == quote:
+                    output.append(value[index + 1])
+                    index += 1
+                else:
+                    quote = None
+        elif char in {"'", '"'}:
+            if pending_space and output:
+                output.append(" ")
+            pending_space = False
+            quote = char
+            output.append(char)
+        elif char.isspace():
+            pending_space = True
+        else:
+            if pending_space and output:
+                output.append(" ")
+            pending_space = False
+            output.append(char.upper())
+        index += 1
+    return "".join(output).strip()
+
+
+def _parse_enum_set_labels(body: str, spelling: str) -> tuple[str, ...]:
+    labels: list[str] = []
+    cursor = 0
+    while True:
+        while cursor < len(body) and body[cursor].isspace():
+            cursor += 1
+        if cursor >= len(body):
+            raise SqlDeclaredTypeMappingError(
+                f"malformed ENUM/SET SQL type spelling: {spelling}"
+            )
+        if body[cursor] == ")":
+            if labels or cursor != len(body) - 1:
+                raise SqlDeclaredTypeMappingError(
+                    f"malformed ENUM/SET SQL type spelling: {spelling}"
+                )
+            break
+        if body[cursor] != "'":
+            raise SqlDeclaredTypeMappingError(
+                f"malformed ENUM/SET SQL type spelling: {spelling}"
+            )
+        cursor += 1
+        label: list[str] = []
+        while cursor < len(body):
+            char = body[cursor]
+            if char == "'":
+                if cursor + 1 < len(body) and body[cursor + 1] == "'":
+                    label.append("'")
+                    cursor += 2
+                    continue
+                cursor += 1
+                break
+            label.append(char)
+            cursor += 1
+        else:
+            raise SqlDeclaredTypeMappingError(
+                f"malformed ENUM/SET SQL type spelling: {spelling}"
+            )
+        labels.append("".join(label))
+        while cursor < len(body) and body[cursor].isspace():
+            cursor += 1
+        if cursor < len(body) and body[cursor] == ",":
+            cursor += 1
+            continue
+        if cursor < len(body) and body[cursor] == ")" and cursor == len(body) - 1:
+            break
+        raise SqlDeclaredTypeMappingError(
+            f"malformed ENUM/SET SQL type spelling: {spelling}"
+        )
+    if not labels:
+        raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
+    return tuple(labels)
+
+
+def _validate_enum_set_labels(kind: str, labels: tuple[str, ...], spelling: str) -> None:
+    if kind == "SET" and (
+        any(label == "" or "," in label for label in labels) or len(labels) > 64
+    ):
+        raise SqlDeclaredTypeMappingError(f"malformed SET SQL type spelling: {spelling}")
+    if kind == "ENUM" and len(labels) > 65535:
+        raise SqlDeclaredTypeMappingError(f"malformed ENUM SQL type spelling: {spelling}")
+    if any(len(label) > 255 for label in labels):
+        raise SqlDeclaredTypeMappingError(f"malformed ENUM/SET SQL type spelling: {spelling}")
+    if len(labels) != len(set(labels)):
+        raise SqlDeclaredTypeMappingError("ENUM/SET labels must not repeat")
+
+
+def _quote_sql_label(label: str) -> str:
+    return "'" + label.replace("'", "''") + "'"
+
+
+def business_schema_digest_of(table: SnapshotTableDescriptor) -> DigestRef:
+    """Digest business schema independently of physical column order."""
+
+    if type(table) is not SnapshotTableDescriptor:
+        raise ValueError("table must be SnapshotTableDescriptor")
+    columns = [
+        {
+            "name": canonicalize_identifier(column.name),
+            "type": column.scalar_type,
+            "nullable": column.nullable,
+        }
+        for column in table.columns
+    ]
+    columns.sort(key=lambda item: str(item["name"]).encode(_UTF8))
+    payload = {
+        "table_name": canonicalize_identifier(table.table_name),
+        "columns": columns,
+        "primary_key_columns": [
+            canonicalize_identifier(name) for name in table.primary_key_columns
+        ],
+    }
+    return raw_blob_digest(canonicalize_json_value(payload))
+
+
+def canonical_state_digest_of(
+    tables: tuple[SnapshotTableDescriptor, ...],
+) -> DigestRef | None:
+    """Digest canonical business state; fast row digests are diagnostic only."""
+
+    if type(tables) is not tuple:
+        raise ValueError("tables must be a tuple")
+    canonical_tables: list[dict[str, object]] = []
+    for table in sorted(
+        tables,
+        key=lambda item: canonicalize_identifier(item.table_name).encode(_UTF8),
+    ):
+        raw_content_digest = table.raw_content_digest
+        if raw_content_digest is None:
+            return None
+        canonical_tables.append(
+            {
+                "table_name": canonicalize_identifier(table.table_name),
+                "business_schema_digest": table.business_schema_digest.value,
+                "row_count": table.row_count,
+                "raw_content_digest": raw_content_digest.value,
+            }
+        )
+    return raw_blob_digest(canonicalize_json_value({"tables": canonical_tables}))
+
+
+def snapshot_to_document(snapshot: Snapshot) -> dict[str, object]:
+    if type(snapshot) is not Snapshot:
+        raise ValueError("snapshot must be Snapshot")
+    context = snapshot.source_context
+    return {
+        "snapshot_id": snapshot.snapshot_id,
+        "source_kind": snapshot.source_kind.value,
+        "parser_version": snapshot.parser_version,
+        "table_ruleset_version": snapshot.table_ruleset_version,
+        "scalar_encoding_version": snapshot.scalar_encoding_version,
+        "snapshot_materialization_contract_version": (
+            snapshot.snapshot_materialization_contract_version
+        ),
+        "row_materialization_profile": snapshot.row_materialization_profile,
+        "materialization_stage": snapshot.materialization_stage.value,
+        "snapshot_digest": snapshot.snapshot_digest.value,
+        "raw_state_digest": snapshot.raw_state_digest.value,
+        "created_at": snapshot.created_at,
+        "source_context": {
+            "source_kind": context.source_kind.value,
+            "sql_source_digest": _digest_document_value(context.sql_source_digest),
+            "composite_logic_source_digest": _digest_document_value(
+                context.composite_logic_source_digest
+            ),
+            "repository_id": context.repository_id,
+            "repository_ref": context.repository_ref,
+            "resolved_commit_hash": context.resolved_commit_hash,
+        },
+    }
+
+
+def snapshot_from_document(raw: object) -> Snapshot:
+    if type(raw) is not dict:
+        raise ValueError("snapshot document must be an object")
+    context_raw = raw.get("source_context")
+    if type(context_raw) is not dict:
+        raise ValueError("snapshot source_context must be an object")
+    context_kind = SourceKind(_document_string(context_raw.get("source_kind"), "source_kind"))
+    source_kind = SourceKind(_document_string(raw.get("source_kind"), "source_kind"))
+    if source_kind is not context_kind:
+        raise ValueError("snapshot source_kind must match source_context")
+    source_context = SnapshotSourceContext(
+        source_kind=context_kind,
+        sql_source_digest=_document_optional_digest(context_raw.get("sql_source_digest")),
+        composite_logic_source_digest=_document_optional_digest(
+            context_raw.get("composite_logic_source_digest")
+        ),
+        repository_id=_document_optional_string(context_raw.get("repository_id")),
+        repository_ref=_document_optional_string(context_raw.get("repository_ref")),
+        resolved_commit_hash=_document_optional_string(
+            context_raw.get("resolved_commit_hash")
+        ),
+    )
+    snapshot = Snapshot(
+        snapshot_id=_document_string(raw.get("snapshot_id"), "snapshot_id"),
+        source_kind=source_kind,
+        parser_version=_document_int(raw.get("parser_version"), "parser_version"),
+        table_ruleset_version=_document_int(
+            raw.get("table_ruleset_version"), "table_ruleset_version"
+        ),
+        scalar_encoding_version=_document_int(
+            raw.get("scalar_encoding_version"), "scalar_encoding_version"
+        ),
+        snapshot_materialization_contract_version=_document_int(
+            raw.get("snapshot_materialization_contract_version"),
+            "snapshot_materialization_contract_version",
+        ),
+        row_materialization_profile=_document_string(
+            raw.get("row_materialization_profile"), "row_materialization_profile"
+        ),
+        materialization_stage=MaterializationStage(
+            _document_string(raw.get("materialization_stage"), "materialization_stage")
+        ),
+        snapshot_digest=DigestRef(
+            _document_string(raw.get("snapshot_digest"), "snapshot_digest")
+        ),
+        raw_state_digest=DigestRef(
+            _document_string(raw.get("raw_state_digest"), "raw_state_digest")
+        ),
+        created_at=_document_string(raw.get("created_at"), "created_at"),
+        source_context=source_context,
+    )
+    if canonicalize_json_value(raw) != canonicalize_json_value(snapshot_to_document(snapshot)):
+        raise ValueError("snapshot document does not match its contract")
+    return snapshot
+
+
+def snapshot_summary_to_document(summary: SnapshotSummary) -> dict[str, object]:
+    if type(summary) is not SnapshotSummary:
+        raise ValueError("summary must be SnapshotSummary")
+    return {
+        "snapshot_id": summary.snapshot_id,
+        "snapshot_digest": summary.snapshot_digest.value,
+        "raw_state_digest": summary.raw_state_digest.value,
+        "materialization_stage": summary.materialization_stage.value,
+        "parser_version": summary.parser_version,
+        "table_ruleset_version": summary.table_ruleset_version,
+        "summary_contract_version": summary.summary_contract_version,
+        "table_count": summary.table_count,
+        "row_count_total": summary.row_count_total,
+        "canonical_state_digest": _digest_document_value(summary.canonical_state_digest),
+        "tables": [
+            {
+                "table_name": table.table_name,
+                "display_table_name": table.display_table_name,
+                "business_schema_digest": table.business_schema_digest.value,
+                "row_count": table.row_count,
+                "primary_key_columns": list(table.primary_key_columns),
+                "compare_key_columns": list(table.compare_key_columns),
+                "compare_schema_digest": table.compare_schema_digest.value,
+                "raw_content_digest": _digest_document_value(table.raw_content_digest),
+                "fast_row_digest": _digest_document_value(table.fast_row_digest),
+            }
+            for table in summary.tables
+        ],
+    }
+
+
+def snapshot_summary_from_document(
+    raw: object,
+    *,
+    snapshot: Snapshot,
+    tables: tuple[SnapshotTableDescriptor, ...],
+) -> SnapshotSummary:
+    if type(raw) is not dict:
+        raise ValueError("summary document must be an object")
+    row_count_total = _document_int(raw.get("row_count_total"), "row_count_total")
+    summary = SnapshotSummary(
+        snapshot_id=snapshot.snapshot_id,
+        snapshot_digest=snapshot.snapshot_digest,
+        raw_state_digest=snapshot.raw_state_digest,
+        materialization_stage=snapshot.materialization_stage,
+        parser_version=snapshot.parser_version,
+        table_ruleset_version=snapshot.table_ruleset_version,
+        summary_contract_version=SUMMARY_CONTRACT_VERSION,
+        table_count=len(tables),
+        tables=tables,
+        source_context=snapshot.source_context,
+        diagnostics=(),
+        row_count_total=row_count_total,
+    )
+    if row_count_total != sum(table.row_count for table in tables):
+        raise ValueError("summary row_count_total does not match its tables")
+    if canonicalize_json_value(raw) != canonicalize_json_value(
+        snapshot_summary_to_document(summary)
+    ):
+        raise ValueError("summary document does not match its snapshot and tables")
+    return summary
 
 
 @dataclass(frozen=True, slots=True)
@@ -1141,6 +1515,34 @@ class SnapshotMaterializationResult:
             return
         if ready == 0 or failed == 0:
             raise ValueError("PARTIAL requires a mix of ready and failed tables")
+
+
+def _digest_document_value(value: DigestRef | None) -> str | None:
+    return None if value is None else value.value
+
+
+def _document_string(value: object, label: str) -> str:
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string")
+    return value
+
+
+def _document_optional_string(value: object) -> str | None:
+    if value is None:
+        return None
+    return _document_string(value, "optional string")
+
+
+def _document_int(value: object, label: str) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{label} must be an integer")
+    return value
+
+
+def _document_optional_digest(value: object) -> DigestRef | None:
+    if value is None:
+        return None
+    return DigestRef(_document_string(value, "digest"))
 
 
 def _require_stage_trust(stage: MaterializationStage, trust: CacheTrustLevel) -> None:

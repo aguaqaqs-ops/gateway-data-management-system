@@ -70,6 +70,7 @@ from gateway_backend.http.dependencies import (
     WorkspaceHttpDependencies,
 )
 from gateway_backend.http.wiring import register_workspace_http
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.operations import (
@@ -955,6 +956,7 @@ def create_workspace_http_environment(
         bundle_reader=resolved_bundle_reader,
         admission_gate=resolved_gate,
         operation_reader=operation_reader,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
         submission_reader=submission_reader,
         internal_bearer_port=StaticInternalBearerPort(TEST_INTERNAL_BEARER),
         baseline_canonical_digest=baseline_digest,
@@ -962,8 +964,6 @@ def create_workspace_http_environment(
         operator_recovery_port=operator_recovery_port,
         now=clock,
     )
-    from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
-
     history_deps = HistoryHttpDependencies(
         unit_of_work_factory=unit_of_work_factory,
         snapshot_loader=HttpHistoryReader(resolved_db_path),
@@ -973,7 +973,7 @@ def create_workspace_http_environment(
         operation_reader=operation_reader,
         artifact_store=cast(BoundedArtifactStorePort, artifact_store),
         bundle_reader=resolved_bundle_reader,
-        table_ruleset_version=str(TABLE_RULESET_VERSION),
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
         now=clock,
     )
     app = create_app(workspace_http=deps, history_http=history_deps)

@@ -33,6 +33,7 @@ from gateway_backend.capabilities.storage_projection import (
     open_repository_import_package,
     project_storage,
     publish_canonicalization,
+    publish_canonicalization_manifest,
     repository_import_manifest_bytes,
 )
 from gateway_backend.capabilities.storage_projection import package as package_mod
@@ -171,6 +172,21 @@ def test_durable_manifest_jcs_round_trip_and_preimage_omits_digest() -> None:
     assert canonicalize_json_value(golden) == payload
 
 
+def test_previous_manifest_version_decodes_but_cannot_be_written() -> None:
+    result = _project()
+    assert result.manifest is not None
+    historical = replace(result.manifest, contract_version="3.0.0", manifest_digest=None)
+    historical = replace(historical, manifest_digest=compute_manifest_digest(historical))
+    assert historical.manifest_digest is not None
+    document = dict(manifest_document(historical))
+    document["manifest_digest"] = historical.manifest_digest.value
+    payload = canonicalize_json_value(document)
+
+    assert canonicalization_manifest_from_bytes(payload) == historical
+    with pytest.raises(PackageError, match="current contract_version"):
+        durable_manifest_bytes(historical)
+
+
 def test_durable_manifest_size_gate_applies_to_write_and_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -238,6 +254,18 @@ def test_publish_and_open_round_trip_opaque_refs() -> None:
     assert opened_manifest == result.manifest
     assert opened_package == result.import_input
     assert publication.manifest_digest == result.manifest.manifest_digest
+
+
+def test_manifest_publisher_does_not_require_an_import_package() -> None:
+    result = _project()
+    assert result.manifest is not None
+    store = InMemoryArtifactStore()
+
+    ref = publish_canonicalization_manifest(result.manifest, store)
+
+    assert ref.media_type == CANONICALIZATION_MANIFEST_MEDIA_TYPE
+    assert len(store._artifacts) == 1
+    assert open_canonicalization_manifest(store, ref) == result.manifest
 
 
 def test_failed_projection_does_not_publish() -> None:

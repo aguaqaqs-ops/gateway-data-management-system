@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import cast
 
 from gateway_backend.application.history.compare import validate_history_compare_binding
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_ASSEMBLE_HANDLER,
     HISTORY_COMPARE_JOB_CONTRACT_VERSION,
@@ -64,34 +63,13 @@ from tests.support.repository_ref_materialization import (
 )
 from tests.support.runtime_settings import make_operation_worker_settings
 from tests.support.workspace_fixtures import make_identity
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 
 REPOSITORY_ID = "repo-1"
 DEVICE_KEY = "device-1"
 PROJECT_ID = "project-1"
 IDEMPOTENCY_KEY = "history-compare-idem-1"
 ORDERED_SYX_TABLE = "b1_n1_iec104_syx_list"
-ORDERED_SYX_TABLE_EXPECTED_POLICY: dict[str, object] = {
-    "table_name": ORDERED_SYX_TABLE,
-    "ignored_columns": ["no"],
-    "keyless_policy": "DEGRADE_NO_COMPARE_KEY",
-    "policy_version": "comparison-table-policy/v1",
-    "ordered_policy": {
-        "policy_id": "ordered-gid-no-v1",
-        "policy_version": "backend-vnext/ordered-diff/v2",
-        "order_key": ["no"],
-        "row_identity_key": ["gid"],
-        "stable_key_candidates": ["gid"],
-        "value_columns": [],
-        "ignored_columns": ["no"],
-        "blank_row_policy": "PSEUDO_BLANK_BY_MISSING_STABLE_KEY",
-        "move_policy": "STABLE_KEY_RELATIVE_ORDER_V1",
-        "ambiguity_policy": "DEGRADE_ON_AMBIGUITY",
-        "tail_change_policy": "INTERVAL_OR_ROW_V1",
-        "table_processing_mode_policy": "ORDERED_MODE_V1",
-    },
-}
-
-
 def ordered_syx_catalog_table() -> RepositoryCatalogTable:
     return catalog_table(
         ORDERED_SYX_TABLE,
@@ -110,8 +88,7 @@ def net_cfg_catalog_table() -> RepositoryCatalogTable:
         (
             RepositoryColumn(name="board", ordinal=0, scalar_type="VARCHAR(32)", nullable=False),
             RepositoryColumn(name="link_no", ordinal=1, scalar_type="INT", nullable=False),
-            RepositoryColumn(name="no", ordinal=2, scalar_type="INT", nullable=False),
-            RepositoryColumn(name="value", ordinal=3, scalar_type="VARCHAR(8)", nullable=True),
+            RepositoryColumn(name="value", ordinal=2, scalar_type="VARCHAR(8)", nullable=True),
         ),
         primary_key=(),
     )
@@ -376,7 +353,7 @@ def build_history_compare_harness(
                     node_refs=node_refs,
                 ),
                 unit_of_work=unit_of_work,
-                table_ruleset_version=str(TABLE_RULESET_VERSION),
+                comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
             )
             assert validation.operation_id is not None
             assert validation.acceptance_id is not None
@@ -395,7 +372,7 @@ def build_history_compare_harness(
                     repository_id=validation.repository_id,
                     idempotency_key=idempotency_key,
                     request_fingerprint=validation.request_fingerprint,
-                    table_ruleset_version=validation.table_ruleset_version,
+                    comparison_ruleset_digest=validation.comparison_ruleset_digest,
                     nodes=validation.nodes,
                     operation_id=operation_id,
                     created_at=BASE_TIME,

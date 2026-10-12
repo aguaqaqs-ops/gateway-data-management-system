@@ -47,7 +47,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryProviderError,
     RepositoryTableAccessProvider,
 )
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import (
@@ -417,6 +417,10 @@ def prepare_backend_runtime(
     )
 
     scope_resolution = ProvisionedScopeResolution(settings.control_db_path)
+    active_comparison_rules = comparison_rule_set(migrated_table_ruleset_snapshot())
+    if active_comparison_rules.ruleset_digest is None:
+        raise RuntimeError("runtime comparison ruleset digest is missing")
+    comparison_ruleset_digest = active_comparison_rules.ruleset_digest.value
     workspace_http = WorkspaceHttpDependencies(
         session_port=LiveFileSessionPort(settings.session_file),
         scope_resolution=scope_resolution,
@@ -428,6 +432,7 @@ def prepare_backend_runtime(
         bundle_reader=LocalArtifactBundleReader(local_store),
         admission_gate=admission_gate,
         operation_reader=ReadOnlyOperationStore(unit_of_work_factory),
+        comparison_ruleset_digest=comparison_ruleset_digest,
         submission_reader=ReadOnlySubmissionStore(unit_of_work_factory),
         artifact_ref_lookup=LocalArtifactRefLookup(local_store),
         internal_bearer_port=StaticInternalBearerPort(
@@ -454,7 +459,7 @@ def prepare_backend_runtime(
         operation_reader=ReadOnlyOperationStore(unit_of_work_factory),
         artifact_store=artifact_store,
         bundle_reader=LocalArtifactBundleReader(local_store),
-        table_ruleset_version=str(TABLE_RULESET_VERSION),
+        comparison_ruleset_digest=comparison_ruleset_digest,
         now=lambda: datetime.now(UTC),
     )
     return BackendRuntime(

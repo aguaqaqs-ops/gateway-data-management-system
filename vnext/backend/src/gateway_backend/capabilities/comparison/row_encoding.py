@@ -41,7 +41,9 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonSchemaChanges,
     ComparisonSummary,
     ComparisonTableFact,
-    ComparisonTablePolicy,
+    _ComparisonTablePolicy,
+    SchemaChangeSource,
+    ComparisonStorageFacts,
     ComparisonTableStatus,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
@@ -99,7 +101,7 @@ class _SchemaView:
 def _schema_view(
     before: SnapshotTableDescriptor,
     current: SnapshotTableDescriptor,
-    policy: ComparisonTablePolicy,
+    policy: _ComparisonTablePolicy,
 ) -> _SchemaView:
     before_columns = _column_map(before)
     current_columns = _column_map(current)
@@ -107,14 +109,14 @@ def _schema_view(
     current_names = set(current_columns)
     before_only = tuple(sorted(before_names - current_names))
     current_only = tuple(sorted(current_names - before_names))
-    selected = tuple(sorted((before_names & current_names) - set(policy.ignored_columns)))
+    selected = tuple(sorted(before_names & current_names))
     incompatible = tuple(
         column
         for column in selected
         if _column_signature(before_columns[column]) != _column_signature(current_columns[column])
     )
-    before_key = tuple(canonicalize_identifier(item) for item in before.compare_key_columns)
-    current_key = tuple(canonicalize_identifier(item) for item in current.compare_key_columns)
+    before_key = policy.effective_key_before
+    current_key = policy.effective_key_current
     key_invalid = (
         len(set(before_key)) != len(before_key)
         or len(set(current_key)) != len(current_key)
@@ -139,17 +141,17 @@ def _schema_view(
     )
 
 
-def _schema_diagnostics(schema: _SchemaView, policy: ComparisonTablePolicy) -> list[str]:
+def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> list[str]:
     diagnostics: list[str] = []
-    if any(item not in policy.ignored_columns for item in schema.before_only):
+    if schema.before_only:
         diagnostics.append("BEFORE_ONLY_COLUMNS")
-    if any(item not in policy.ignored_columns for item in schema.current_only):
+    if schema.current_only:
         diagnostics.append("CURRENT_ONLY_COLUMNS")
     if schema.incompatible:
         diagnostics.append("INCOMPATIBLE_SELECTED_COLUMNS")
     if schema.key_changed:
         diagnostics.append("EFFECTIVE_KEY_CHANGED")
-    if any(item in policy.ignored_columns for item in schema.before_key + schema.current_key):
+    if any(item in policy.compare_excluded_columns for item in schema.before_key + schema.current_key):
         diagnostics.append("EFFECTIVE_KEY_IGNORED")
     return diagnostics
 
@@ -157,10 +159,10 @@ def _schema_diagnostics(schema: _SchemaView, policy: ComparisonTablePolicy) -> l
 def _ignored_values_changed(
     before: SnapshotTableDescriptor,
     current: SnapshotTableDescriptor,
-    policy: ComparisonTablePolicy,
+    policy: _ComparisonTablePolicy,
 ) -> bool:
     return (
-        bool(policy.ignored_columns)
+        bool(policy.compare_excluded_columns)
         and before.raw_content_digest is not None
         and current.raw_content_digest is not None
         and before.raw_content_digest != current.raw_content_digest
@@ -375,10 +377,10 @@ def _column_signature(column: SnapshotColumnDescriptor) -> tuple[str | None, boo
 def _can_table_early_exit(
     before: SnapshotTableDescriptor,
     current: SnapshotTableDescriptor,
-    policy: ComparisonTablePolicy,
+    policy: _ComparisonTablePolicy,
 ) -> bool:
     return (
-        before.compare_schema_digest == current.compare_schema_digest
+        before.business_schema_digest == current.business_schema_digest
         and before.row_count == current.row_count
         and before.raw_content_digest is not None
         and before.raw_content_digest == current.raw_content_digest
@@ -389,18 +391,25 @@ def _can_table_early_exit(
 def _empty_schema_changes(
     before: SnapshotTableDescriptor,
     current: SnapshotTableDescriptor,
+    policy: _ComparisonTablePolicy,
 ) -> ComparisonSchemaChanges:
-    key = tuple(canonicalize_identifier(item) for item in before.compare_key_columns)
     return ComparisonSchemaChanges(
         selected_columns=tuple(sorted(set(_column_map(before)) & set(_column_map(current)))),
-        effective_compare_key_before=key,
-        effective_compare_key_current=tuple(
-            canonicalize_identifier(item) for item in current.compare_key_columns
-        ),
+        effective_compare_key_before=policy.effective_key_before,
+        effective_compare_key_current=policy.effective_key_current,
     )
 
 
-def _schema_changes_from_view(schema: _SchemaView) -> ComparisonSchemaChanges:
+def _schema_changes_from_view(
+    schema: _SchemaView,
+    policy: _ComparisonTablePolicy | None = None,
+) -> ComparisonSchemaChanges:
+    change_source = _schema_change_source(
+        has_schema_changes=bool(
+            schema.before_only or schema.current_only or schema.incompatible or schema.key_changed
+        ),
+        policy=policy,
+    )
     return ComparisonSchemaChanges(
         before_only_columns=schema.before_only,
         current_only_columns=schema.current_only,
@@ -409,6 +418,49 @@ def _schema_changes_from_view(schema: _SchemaView) -> ComparisonSchemaChanges:
         effective_compare_key_current=schema.current_key,
         effective_compare_key_changed=schema.key_changed,
         incompatible_columns=schema.incompatible,
+        change_source=change_source,
+    )
+
+
+def _schema_change_source(
+    *,
+    has_schema_changes: bool,
+    policy: _ComparisonTablePolicy | None,
+) -> SchemaChangeSource | None:
+    if not has_schema_changes:
+        return None
+    if policy is None:
+        return SchemaChangeSource.SOURCE_SCHEMA
+    before_facts = policy.storage_facts_before
+    current_facts = policy.storage_facts_current
+    if before_facts is None or current_facts is None:
+        return None
+    policy_changed = _storage_policy_facts(before_facts) != _storage_policy_facts(current_facts)
+    source_changed = before_facts.source_schema_digest != current_facts.source_schema_digest
+    if policy_changed and source_changed:
+        return SchemaChangeSource.BOTH
+    if policy_changed:
+        return SchemaChangeSource.STORAGE_PROJECTION_POLICY
+    return SchemaChangeSource.SOURCE_SCHEMA
+
+
+def _storage_policy_facts(facts: ComparisonStorageFacts) -> tuple[object, ...]:
+    from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
+
+    if type(facts) is not ComparisonStorageFacts:
+        raise TypeError("storage facts must be ComparisonStorageFacts")
+    view = facts.storage_rule_view
+    explicit_key = (
+        view.canonical_key_columns
+        if view.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
+        else ()
+    )
+    return (
+        view.canonical_key_policy,
+        explicit_key,
+        view.ordered_policy,
+        view.structural_columns,
+        tuple((item.name, item.reason) for item in view.dropped_columns),
     )
 
 
@@ -431,6 +483,7 @@ def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
     return {
         "table_name": fact.table_name,
         "status": fact.status.value,
+        "content_changed": fact.content_changed,
         "schema_changes": {
             "before_only": list(fact.schema_changes.before_only_columns),
             "current_only": list(fact.schema_changes.current_only_columns),
@@ -439,6 +492,11 @@ def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
             "key_current": list(fact.schema_changes.effective_compare_key_current),
             "key_changed": fact.schema_changes.effective_compare_key_changed,
             "incompatible": list(fact.schema_changes.incompatible_columns),
+            "change_source": (
+                None
+                if fact.schema_changes.change_source is None
+                else fact.schema_changes.change_source.value
+            ),
         },
         "row_count_before": fact.row_count_before,
         "row_count_current": fact.row_count_current,
@@ -508,7 +566,6 @@ def _ordered_policy_payload(policy: Any) -> dict[str, object] | None:
         "row_identity_key": None if policy.row_identity_key is None else list(policy.row_identity_key),
         "stable_key_candidates": list(policy.stable_key_candidates),
         "value_columns": list(policy.value_columns),
-        "ignored_columns": list(policy.ignored_columns),
         "blank_row_policy": policy.blank_row_policy.value,
         "move_policy": policy.move_policy,
         "ambiguity_policy": policy.ambiguity_policy,

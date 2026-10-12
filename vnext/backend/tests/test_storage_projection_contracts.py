@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -29,6 +29,8 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionStatus,
     ProjectionTable,
     ProjectionTableInput,
+    PackageError,
+    durable_manifest_bytes,
     RepositoryImportArtifactInput,
     RepositoryImportColumn,
     RepositoryImportTable,
@@ -144,7 +146,7 @@ def _import_input() -> RepositoryImportArtifactInput:
 
 def test_versions_and_publication_budgets_match_s0() -> None:
     assert STORAGE_PROJECTION_VERSION == "1"
-    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.0.0"
+    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.1.0"
     assert PACKAGE_VERSION == 1
     assert MAX_MANIFEST_JSON_BYTES == 16 * _MIB
     assert MAX_REPLAY_SQL_BYTES == 200 * _MIB
@@ -173,6 +175,14 @@ def test_projection_request_requires_complete_ruleset_identity() -> None:
         _projection_request(ruleset=TableRulesetSnapshot(table_ruleset_version=1))
     with pytest.raises(ValueError, match="storage_projection_version must be 1"):
         _projection_request(storage_projection_version="2")
+
+
+def test_manifest_model_reads_the_previous_contract_but_writer_requires_current() -> None:
+    historical = replace(_manifest(dummy_digest()), contract_version="3.0.0")
+
+    assert historical.contract_version == "3.0.0"
+    with pytest.raises(PackageError, match="current contract_version"):
+        durable_manifest_bytes(historical)
 
 
 def test_failed_projection_must_not_publish_partial_import() -> None:

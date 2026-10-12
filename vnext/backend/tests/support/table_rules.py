@@ -20,6 +20,15 @@ from gateway_backend.capabilities.table_rules.contracts import (
     table_ruleset_from_document,
     table_ruleset_document,
 )
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
+
+
+def _runtime_comparison_ruleset_digest() -> str:
+    digest = comparison_rule_set(migrated_table_ruleset_snapshot()).ruleset_digest
+    if digest is None:
+        raise AssertionError("runtime comparison ruleset digest is missing")
+    return digest.value
 
 
 def skip_record(name: str = "device_model_table") -> TableRuleRecord:
@@ -54,7 +63,11 @@ def ordered_syx_record() -> TableRuleRecord:
     return ordered_record(r"^b\d+_n\d+_iec104_syx_list$")
 
 
-def ordered_record(pattern: str) -> TableRuleRecord:
+def ordered_record(
+    pattern: str,
+    *,
+    compare_excluded_columns: tuple[str, ...] = (),
+) -> TableRuleRecord:
     return TableRuleRecord(
         selector=TableRuleSelector(kind=TableRuleSelectorKind.REGEX, value=pattern),
         precedence_class=SelectorPrecedenceClass.ORDERED_DIFF,
@@ -64,11 +77,30 @@ def ordered_record(pattern: str) -> TableRuleRecord:
         ordered_policy=OrderedPolicy.GID_NO_V1,
         compare_key_mode=TableCompareKeyMode.ORDERED_STABLE_KEY,
         compare_key_columns=("gid",),
-        ignored_columns=("no",),
+        compare_excluded_columns=compare_excluded_columns,
         artifact_scope=TableArtifactScope.ORDERED_SEMANTIC,
         position_column="no",
         stable_key_candidates=("gid",),
         structural_columns=("no",),
+    )
+
+
+def standard_rule_record(
+    table_name: str,
+    *,
+    compare_excluded_columns: tuple[str, ...] = (),
+    artifact_scope: TableArtifactScope = TableArtifactScope.ALL_CHANGES,
+) -> TableRuleRecord:
+    return TableRuleRecord(
+        selector=TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value=table_name),
+        precedence_class=SelectorPrecedenceClass.STANDARD_EXACT,
+        static_role=TableStaticRole.STANDARD_DIFF,
+        table_storage=TableStorageDisposition.PROJECT,
+        canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY,
+        ordered_policy=OrderedPolicy.NONE,
+        compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
+        compare_excluded_columns=compare_excluded_columns,
+        artifact_scope=artifact_scope,
     )
 
 
@@ -117,3 +149,10 @@ def snapshot_from_records(*records: TableRuleRecord) -> TableRulesetSnapshot:
     )
     draft["rules"] = [record.to_document() for record in records]
     return table_ruleset_from_document(draft)
+
+
+def comparison_ruleset_for(*records: TableRuleRecord) -> ComparisonRuleSet:
+    rules = records
+    if not any(record.precedence_class is SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK for record in rules):
+        rules = (*rules, fallback_record())
+    return comparison_rule_set(snapshot_from_records(*rules))

@@ -11,6 +11,7 @@ from gateway_backend.capabilities.storage_projection.contracts import (
     REPOSITORY_IMPORT_MEDIA_TYPE,
     STORAGE_PROJECTION_VERSION,
     CancelProbe,
+    CanonicalProjectionResult,
     CanonicalPublication,
     CanonicalPublicationResult,
     CanonicalizationManifest,
@@ -46,12 +47,16 @@ from gateway_backend.capabilities.storage_projection.import_replay import (
     build_import_projection_snapshots,
     render_repository_import_schema_replay_sql,
 )
-from gateway_backend.capabilities.storage_projection.project import project_storage
+from gateway_backend.capabilities.storage_projection.project import (
+    project_canonical_table_set,
+    project_storage,
+)
 from gateway_backend.capabilities.storage_projection.publish import (
     PublicationError,
     open_canonicalization_manifest,
     open_repository_import_package,
     publish_canonicalization,
+    publish_canonicalization_manifest,
 )
 
 __all__ = [
@@ -67,6 +72,7 @@ __all__ = [
     "REPOSITORY_IMPORT_MEDIA_TYPE",
     "STORAGE_PROJECTION_VERSION",
     "CancelProbe",
+    "CanonicalProjectionResult",
     "CanonicalPublication",
     "CanonicalPublicationResult",
     "CanonicalizationManifest",
@@ -94,8 +100,10 @@ __all__ = [
     "durable_manifest_bytes",
     "open_canonicalization_manifest",
     "open_repository_import_package",
+    "project_canonical_table_set",
     "project_storage",
     "publish_canonicalization",
+    "publish_canonicalization_manifest",
     "render_repository_import_schema_replay_sql",
     "repository_import_input_from_bytes",
     "repository_import_manifest_bytes",

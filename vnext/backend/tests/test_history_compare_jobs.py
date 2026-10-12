@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
@@ -20,24 +21,12 @@ from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
-    _table_policies_from_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
-    ComparisonPlan,
-    ComparisonTableStatus,
-    DetailedFactsResult,
-    InputCompleteness,
     OrderedRecordKind,
-    PairRole,
-    PairViewKind,
-    TrustedFlowApplicabilityBinding,
-    bind_pair_input,
-    compare_plan,
-    plan_pair,
+    ComparisonTableStatus,
 )
-from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.history_compare import get_compare_result
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -45,7 +34,6 @@ from gateway_backend.operations import OperationStatus, StepStatus
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.history_compare_job_harness import (
     ORDERED_SYX_TABLE,
-    ORDERED_SYX_TABLE_EXPECTED_POLICY,
     REPOSITORY_ID,
     build_history_compare_harness,
     claim_next_step,
@@ -57,6 +45,7 @@ from tests.support.history_compare_job_harness import (
     run_full_history_compare_job,
     run_through_step,
 )
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryCatalogTable,
     RepositoryColumn,
@@ -71,15 +60,12 @@ from tests.support.repository_ref_materialization import (
 )
 from gateway_backend.operations.contracts import BusinessReference
 
-from tests.support.history_compare_oracle import materialize_bound_snapshot, oracle_comparison_digest
+from tests.support.history_compare_oracle import (
+    compare_bound_snapshots,
+    materialize_bound_snapshot,
+    oracle_comparison_digest,
+)
 from tests.support.history_zero_write_tables import capture_business_table_state
-
-NET_CFG_STANDARD_DIFF_EXPECTED_POLICY: dict[str, object] = {
-    "table_name": "net_cfg",
-    "ignored_columns": ["no"],
-    "keyless_policy": "DEGRADE_NO_COMPARE_KEY",
-    "policy_version": "comparison-table-policy/v1",
-}
 
 F1_POLICY_BINDING_CASES = (
     (
@@ -102,6 +88,20 @@ F1_POLICY_BINDING_CASES = (
         {ORDERED_SYX_TABLE: ((1, 99, "a"), (2, 2, "b"))},
         (OrderedRecordKind.ROW_MOVED,),
         0,
+    ),
+)
+
+RULESET_MISMATCH_STEPS = (
+    ("materialize_inputs", HISTORY_COMPARE_MATERIALIZE_HANDLER, ()),
+    (
+        "assemble_comparison",
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        (HISTORY_COMPARE_MATERIALIZE_HANDLER,),
+    ),
+    (
+        "publish_result",
+        HISTORY_COMPARE_PUBLISH_HANDLER,
+        (HISTORY_COMPARE_MATERIALIZE_HANDLER, HISTORY_COMPARE_ASSEMBLE_HANDLER),
     ),
 )
 
@@ -135,10 +135,10 @@ def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     sides = envelope.job_state["sides"]
     assert isinstance(sides, dict)
     assert set(sides) == {BASELINE_HEAD.business_baseline_commit_id}
-    assert isinstance(envelope.job_state.get("compare_binding_digest"), str)
+    assert "compare_binding_digest" not in envelope.job_state
 
 
-def test_assemble_resumes_without_rederiving_compare_binding(tmp_path: Path) -> None:
+def test_assemble_resumes_from_materialized_sides_with_runtime_ruleset(tmp_path: Path) -> None:
     harness = build_history_compare_harness(tmp_path, idempotency_key="history-compare-resume")
     insert_history_compare_operation(harness)
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
@@ -148,18 +148,8 @@ def test_assemble_resumes_without_rederiving_compare_binding(tmp_path: Path) -> 
             history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
         )
     assert materialize_step.checkpoint_ref is not None
-    with (
-        patch(
-            "gateway_backend.application.history.compare_jobs.migrated_table_ruleset_snapshot",
-            side_effect=RuntimeError("ruleset must not be re-derived"),
-        ),
-        patch(
-            "gateway_backend.application.history.compare_jobs.resolve_table_rule",
-            side_effect=RuntimeError("policy must not be re-derived"),
-        ),
-    ):
-        run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
-        run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
+    run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
+    run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
@@ -221,36 +211,20 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
     assert incident is None
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    policies_raw = envelope.job_state["table_policies"]
-    assert isinstance(policies_raw, list)
-    table_policies = _table_policies_from_checkpoint(policies_raw)
-    bound = bind_pair_input(
-        pair_id="pair-0",
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
-        before=materialize_bound_snapshot(
+    assert "table_policies" not in envelope.job_state
+    facts = compare_bound_snapshots(
+        materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
             artifact_store=harness.artifact_store,
         ),
-        current=materialize_bound_snapshot(
+        materialize_bound_snapshot(
             providers[current_commit],
             commit_id=current_commit,
             artifact_store=harness.artifact_store,
         ),
-        input_completeness=InputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=TrustedFlowApplicabilityBinding(
-            view_kind=PairViewKind.HISTORY,
-            binding_digest=DigestRef(str(envelope.job_state["compare_binding_digest"])),
-        ),
-        table_policies=table_policies,
     )
-    planned = plan_pair(bound)
-    assert isinstance(planned, ComparisonPlan)
-    compared = compare_plan(planned)
-    assert isinstance(compared, DetailedFactsResult) and compared.facts is not None
-    assert compared.facts.tables[0].status is ComparisonTableStatus.DEGRADED
+    assert facts.tables[0].status is ComparisonTableStatus.DEGRADED
 
 
 def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
@@ -348,7 +322,7 @@ def test_ruleset_mismatch_publishes_stable_failed_code(tmp_path: Path) -> None:
 
     harness = build_history_compare_harness(tmp_path, idempotency_key="history-compare-ruleset")
     payload = json.loads(harness.job_payload)
-    payload["table_ruleset_version"] = "0"
+    payload["comparison_ruleset_digest"] = "sha256:old-ruleset"
     object.__setattr__(harness, "job_payload", canonicalize_json_value(payload))
     insert_history_compare_operation(harness)
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
@@ -358,6 +332,39 @@ def test_ruleset_mismatch_publishes_stable_failed_code(tmp_path: Path) -> None:
     assert operation.status is OperationStatus.FAILED
     assert operation.diagnostic is not None
     assert operation.diagnostic.code == HistoryCompareDiagnosticCode.HISTORY_RULESET_VERSION_MISMATCH.value
+
+
+@pytest.mark.parametrize(
+    ("step_name", "handler_identity", "prior_handlers"),
+    RULESET_MISMATCH_STEPS,
+    ids=("materialize", "assemble", "publish"),
+)
+def test_history_compare_rejects_runtime_ruleset_change_before_each_step(
+    tmp_path: Path,
+    step_name: str,
+    handler_identity: str,
+    prior_handlers: tuple[str, ...],
+) -> None:
+    harness = build_history_compare_harness(tmp_path, idempotency_key=f"ruleset-drift-{step_name}")
+    insert_history_compare_operation(harness)
+    for prior_handler in prior_handlers:
+        run_through_step(harness, prior_handler)
+
+    with patch(
+        "gateway_backend.application.history.compare_jobs.comparison_rule_set",
+        return_value=SimpleNamespace(ruleset_digest=DigestRef("sha256:" + "cd" * 32)),
+    ):
+        run_through_step(harness, handler_identity)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(harness.operation_id)
+        failed_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, step_name)
+        )
+    assert operation.status is OperationStatus.FAILED
+    assert operation.diagnostic is not None
+    assert operation.diagnostic.code == HistoryCompareDiagnosticCode.HISTORY_RULESET_VERSION_MISMATCH.value
+    assert failed_step.status is StepStatus.FAILED
 
 
 def test_publish_pins_assemble_checkpoint_and_clears_step_checkpoints(tmp_path: Path) -> None:
@@ -449,50 +456,30 @@ def test_f1_policy_binding_integration_cases(
         )
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    policies_raw = envelope.job_state["table_policies"]
-    assert isinstance(policies_raw, list)
-    assert policies_raw[0] == ORDERED_SYX_TABLE_EXPECTED_POLICY
+    assert "table_policies" not in envelope.job_state
 
     run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
     run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
 
-    table_policies = _table_policies_from_checkpoint(policies_raw)
     oracle_digest = oracle_comparison_digest(
         before_provider=providers[before_commit],
         current_provider=providers[current_commit],
         before_commit=before_commit,
         current_commit=current_commit,
-        table_policies=table_policies,
-        compare_binding_digest=str(envelope.job_state["compare_binding_digest"]),
         artifact_store=harness.artifact_store,
     )
-    bound = bind_pair_input(
-        pair_id="pair-0",
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
-        before=materialize_bound_snapshot(
+    facts = compare_bound_snapshots(
+        materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
             artifact_store=harness.artifact_store,
         ),
-        current=materialize_bound_snapshot(
+        materialize_bound_snapshot(
             providers[current_commit],
             commit_id=current_commit,
             artifact_store=harness.artifact_store,
         ),
-        input_completeness=InputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=TrustedFlowApplicabilityBinding(
-            view_kind=PairViewKind.HISTORY,
-            binding_digest=DigestRef(str(envelope.job_state["compare_binding_digest"])),
-        ),
-        table_policies=table_policies,
     )
-    planned = plan_pair(bound)
-    assert isinstance(planned, ComparisonPlan)
-    compared = compare_plan(planned)
-    assert isinstance(compared, DetailedFactsResult) and compared.facts is not None
-    facts = compared.facts
     kinds: list[OrderedRecordKind] = []
     for table in facts.tables:
         extension = table.ordered_extension
@@ -515,12 +502,12 @@ def test_f1_policy_binding_integration_cases(
     assert pair["comparison_digest"] == oracle_digest
 
 
-def test_f1_standard_diff_keyed_ignored_column_net_cfg(tmp_path: Path) -> None:
+def test_history_compares_canonical_net_cfg_without_dropped_column(tmp_path: Path) -> None:
     table_name = "net_cfg"
     before_commit = BASELINE_HEAD.business_baseline_commit_id
     current_commit = "commit-b"
-    before_rows = {table_name: (("b1", 1, 1, "a"),)}
-    current_rows = {table_name: (("b1", 1, 99, "a"),)}
+    before_rows = {table_name: (("b1", 1, "a"),)}
+    current_rows = {table_name: (("b1", 1, "a"),)}
     providers = {
         before_commit: history_compare_net_cfg_provider(commit_id=before_commit, rows=before_rows),
         current_commit: history_compare_net_cfg_provider(commit_id=current_commit, rows=current_rows),
@@ -543,41 +530,23 @@ def test_f1_standard_diff_keyed_ignored_column_net_cfg(tmp_path: Path) -> None:
         )
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    policies_raw = envelope.job_state["table_policies"]
-    assert isinstance(policies_raw, list)
-    assert policies_raw[0] == NET_CFG_STANDARD_DIFF_EXPECTED_POLICY
+    assert "table_policies" not in envelope.job_state
 
     run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
     run_through_step(harness, HISTORY_COMPARE_PUBLISH_HANDLER)
 
-    table_policies = _table_policies_from_checkpoint(policies_raw)
-    bound = bind_pair_input(
-        pair_id="pair-0",
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
-        before=materialize_bound_snapshot(
+    facts = compare_bound_snapshots(
+        materialize_bound_snapshot(
             providers[before_commit],
             commit_id=before_commit,
             artifact_store=harness.artifact_store,
         ),
-        current=materialize_bound_snapshot(
+        materialize_bound_snapshot(
             providers[current_commit],
             commit_id=current_commit,
             artifact_store=harness.artifact_store,
         ),
-        input_completeness=InputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=TrustedFlowApplicabilityBinding(
-            view_kind=PairViewKind.HISTORY,
-            binding_digest=DigestRef(str(envelope.job_state["compare_binding_digest"])),
-        ),
-        table_policies=table_policies,
     )
-    planned = plan_pair(bound)
-    assert isinstance(planned, ComparisonPlan)
-    compared = compare_plan(planned)
-    assert isinstance(compared, DetailedFactsResult) and compared.facts is not None
-    facts = compared.facts
     kinds: list[OrderedRecordKind] = []
     for table in facts.tables:
         extension = table.ordered_extension
@@ -586,6 +555,7 @@ def test_f1_standard_diff_keyed_ignored_column_net_cfg(tmp_path: Path) -> None:
     assert kinds == []
     modified_count = sum(table.row_modified_count for table in facts.tables)
     assert modified_count == 0
+    assert facts.tables[0].status is ComparisonTableStatus.UNCHANGED
 
 
 def test_job_payload_within_budget_without_table_policies(tmp_path: Path) -> None:
@@ -625,7 +595,7 @@ def test_accept_operation_sets_business_refs_and_protection_owner(tmp_path: Path
         unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(harness.db_path, read_only=read_only),
         job_registry=job_registry,
         admission_gate=OpenAdmissionGate(),
-        table_ruleset_version=str(TABLE_RULESET_VERSION),
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
         now=datetime(2026, 9, 24, tzinfo=UTC),
     )
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:

@@ -3,32 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
-    BaselineReconstructionResult,
-    BaselineReconstructionStatus,
     BoundSnapshotInput,
+    ComparisonRequest,
     ComparisonPlan,
     DetailedFactsResult,
+    ComparisonMode,
     FailedResult,
-    PairExecutionInput,
-    PairRole,
-    PairViewKind,
-    TrustedFlowApplicabilityBinding,
-    bind_pair_input,
     compare_plan,
-    plan_pair,
+    plan_comparison,
     publish_records_closure,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
-from gateway_backend.capabilities.comparison.contracts import (
-    ComparisonTablePolicy,
-    IdentityStatus,
-    InputCompleteness as ComparisonInputCompleteness,
-)
 from gateway_backend.capabilities.risk_evaluation import (
     RiskEvaluationInput,
     RiskEvaluationStatus,
@@ -42,13 +32,22 @@ from gateway_backend.capabilities.surface_assembly import (
     SurfaceAssemblyInput,
     SurfaceAssemblyResult,
     SurfaceAssemblyStatus,
+    SurfaceIdentityAnnotation,
     SurfaceRefScope,
     assemble_surface,
 )
-from gateway_backend.domain.workspace.models import InputCompleteness
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
+
+
+class PreviewIdentityStatus(StrEnum):
+    SAME_PROJECT = "SAME_PROJECT"
+    DIFFERENT_PROJECT = "DIFFERENT_PROJECT"
+    UNVERIFIABLE = "UNVERIFIABLE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
 class PairPipelineError(Exception):
@@ -61,7 +60,7 @@ class PreviewIdentityAssessment:
     rule_version: str
     before_snapshot_digest: DigestRef
     current_snapshot_digest: DigestRef
-    status: IdentityStatus
+    status: PreviewIdentityStatus
     assessment_digest: DigestRef
     comparable_columns: tuple[str, ...] = ()
     before_row_count: int = 0
@@ -107,7 +106,7 @@ def preview_identity_assessment(
         rule_version="version-manager-overlap/v1",
         before_snapshot_digest=before.snapshot.snapshot_digest,
         current_snapshot_digest=current.snapshot.snapshot_digest,
-        status=IdentityStatus.SAME_PROJECT,
+        status=PreviewIdentityStatus.SAME_PROJECT,
         assessment_digest=assessment_digest,
     )
 
@@ -117,42 +116,34 @@ def run_preview_pair_pipeline(
     pair_id: str,
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
-    pair_role: PairRole,
-    input_completeness: InputCompleteness,
-    baseline: BoundSnapshotInput | None,
     store: ArtifactStorePort,
     control: ExecutionControl,
     view_id: str = PREVIEW_DEFAULT_VIEW_ID,
+    rule_set: ComparisonRuleSet | None = None,
 ) -> PreviewPairPipelineResult:
     assessment = preview_identity_assessment(before, current)
-    baseline_reconstruction = None
-    if input_completeness is InputCompleteness.MODIFIED_ONLY and baseline is not None:
-        baseline_reconstruction = BaselineReconstructionResult(
-            status=BaselineReconstructionStatus.AVAILABLE,
-            baseline=baseline,
-        )
-    bound = bind_pair_input(
+    active_rules = rule_set or comparison_rule_set(migrated_table_ruleset_snapshot())
+    request = ComparisonRequest(
         pair_id=pair_id,
-        view_kind=PairViewKind.PAIR_COMPARISON,
-        pair_role=pair_role,
-        before=before if input_completeness is InputCompleteness.FULL else None,
+        before=before,
         current=current,
-        input_completeness=(
-            ComparisonInputCompleteness.FULL
-            if input_completeness is InputCompleteness.FULL
-            else ComparisonInputCompleteness.MODIFIED_ONLY
+        rule_set=active_rules,
+        mode=(
+            ComparisonMode.DATASET_REPLACEMENT
+            if assessment.status is PreviewIdentityStatus.DIFFERENT_PROJECT
+            else ComparisonMode.DETAILED
         ),
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        identity_assessment=assessment,
-        baseline_reconstruction=baseline_reconstruction,
     )
     surface = _run_comparison_risk_surface(
-        bound=bound,
-        pair_id=pair_id,
+        request=request,
         view_id=view_id,
         store=store,
         control=control,
         cancel_message="preview pair pipeline cancelled",
+        identity_annotation=SurfaceIdentityAnnotation(
+            status=assessment.status.value,
+            assessment_digest=assessment.assessment_digest,
+        ),
     )
     return PreviewPairPipelineResult(
         pair_id=pair_id,
@@ -168,25 +159,19 @@ def run_history_pair_pipeline(
     pair_id: str,
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
-    table_policies: tuple[ComparisonTablePolicy, ...],
-    trusted_flow_binding: TrustedFlowApplicabilityBinding,
+    rule_set: ComparisonRuleSet,
     store: ArtifactStorePort,
     control: ExecutionControl,
 ) -> HistoryPairPipelineResult:
-    bound = bind_pair_input(
+    request = ComparisonRequest(
         pair_id=pair_id,
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
         before=before,
         current=current,
-        input_completeness=ComparisonInputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=trusted_flow_binding,
-        table_policies=table_policies,
+        rule_set=rule_set,
+        mode=ComparisonMode.DETAILED,
     )
     surface = _run_comparison_risk_surface(
-        bound=bound,
-        pair_id=pair_id,
+        request=request,
         view_id=pair_id,
         store=store,
         control=control,
@@ -222,16 +207,14 @@ class _ComparisonRiskSurfaceResult:
 
 def _run_comparison_risk_surface(
     *,
-    bound: PairExecutionInput | FailedResult,
-    pair_id: str,
+    request: ComparisonRequest,
     view_id: str,
     store: ArtifactStorePort,
     control: ExecutionControl,
     cancel_message: str,
+    identity_annotation: SurfaceIdentityAnnotation | None = None,
 ) -> _ComparisonRiskSurfaceResult:
-    if isinstance(bound, FailedResult):
-        raise PairPipelineError(f"pair binding failed: {bound.diagnostics}")
-    plan = plan_pair(bound)
+    plan = plan_comparison(request)
     if isinstance(plan, FailedResult):
         raise PairPipelineError(f"pair planning failed: {plan.diagnostics}")
     if not isinstance(plan, ComparisonPlan):
@@ -261,7 +244,7 @@ def _run_comparison_risk_surface(
     surface = assemble_surface(
         SurfaceAssemblyInput(
             comparison_facts=published.facts,
-            surface_id=f"surface-{pair_id}",
+            surface_id=f"surface-{request.pair_id}",
             view_id=view_id,
             before_role="before",
             current_role="current",
@@ -269,6 +252,7 @@ def _run_comparison_risk_surface(
             risk_report=risk.risk_report,
             risk_annotation_closure=risk.risk_closure,
             ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
+            identity_annotation=identity_annotation or SurfaceIdentityAnnotation(),
         ),
         context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
     )

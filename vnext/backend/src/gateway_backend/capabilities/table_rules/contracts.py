@@ -46,6 +46,7 @@ _RULE_RECORD_KEYS = frozenset(
         "canonical_key_policy",
         "compare_key_columns",
         "compare_key_mode",
+        "compare_excluded_columns",
         "dropped_columns",
         "ignored_columns",
         "ordered_policy",
@@ -119,6 +120,13 @@ class OrderedPolicy(StrEnum):
 class TableStorageDisposition(StrEnum):
     OMIT = "OMIT"
     PROJECT = "PROJECT"
+
+
+class ComparisonRole(StrEnum):
+    STANDARD = "STANDARD"
+    ORDERED = "ORDERED"
+    BROWSE_ONLY = "BROWSE_ONLY"
+    SNAPSHOT_ONLY = "SNAPSHOT_ONLY"
 
 
 _PRECEDENCE_ROLES: dict[SelectorPrecedenceClass, TableStaticRole] = {
@@ -215,6 +223,7 @@ class LegacyRuleDecision:
     compare_key_mode: TableCompareKeyMode | None = None
     compare_key_columns: tuple[str, ...] = ()
     ignored_columns: tuple[str, ...] = ()
+    compare_excluded_columns: tuple[str, ...] = ()
     artifact_scope: TableArtifactScope | None = None
     position_column: str | None = None
     stable_key_candidates: tuple[str, ...] = ()
@@ -229,6 +238,11 @@ class LegacyRuleDecision:
         object.__setattr__(self, "ignored_columns", _canonical_name_tuple(self.ignored_columns, "ignored_columns"))
         object.__setattr__(
             self,
+            "compare_excluded_columns",
+            _canonical_name_tuple(self.compare_excluded_columns, "compare_excluded_columns"),
+        )
+        object.__setattr__(
+            self,
             "stable_key_candidates",
             _canonical_name_tuple(self.stable_key_candidates, "stable_key_candidates"),
         )
@@ -241,6 +255,13 @@ class LegacyRuleDecision:
         if type(self.pseudo_key_start) is not int or isinstance(self.pseudo_key_start, bool):
             raise ValueError("pseudo_key_start must be an int")
         _reject_ignored_key_conflict(self.compare_key_columns, self.ignored_columns)
+        _validate_compare_excluded_columns(
+            compare_excluded_columns=self.compare_excluded_columns,
+            ignored_columns=self.ignored_columns,
+            compare_key_columns=self.compare_key_columns,
+            position_column=self.position_column,
+            structural_columns=(),
+        )
         if self.static_role is TableStaticRole.ORDERED_DIFF:
             _reject_ignored_identity_conflict(self.ignored_columns)
 
@@ -318,6 +339,7 @@ class TableRuleRecord:
     compare_key_mode: TableCompareKeyMode | None = None
     compare_key_columns: tuple[str, ...] = ()
     ignored_columns: tuple[str, ...] = ()
+    compare_excluded_columns: tuple[str, ...] = ()
     artifact_scope: TableArtifactScope | None = None
     position_column: str | None = None
     stable_key_candidates: tuple[str, ...] = ()
@@ -341,6 +363,11 @@ class TableRuleRecord:
             raise ValueError("precedence_class does not match static_role")
         object.__setattr__(self, "compare_key_columns", _canonical_name_tuple(self.compare_key_columns, "compare_key_columns"))
         object.__setattr__(self, "ignored_columns", _canonical_name_tuple(self.ignored_columns, "ignored_columns"))
+        object.__setattr__(
+            self,
+            "compare_excluded_columns",
+            _canonical_name_tuple(self.compare_excluded_columns, "compare_excluded_columns"),
+        )
         object.__setattr__(
             self,
             "stable_key_candidates",
@@ -370,6 +397,7 @@ class TableRuleRecord:
             "canonical_key_policy": self.canonical_key_policy.value,
             "compare_key_columns": list(self.compare_key_columns),
             "compare_key_mode": None if self.compare_key_mode is None else self.compare_key_mode.value,
+            "compare_excluded_columns": list(self.compare_excluded_columns),
             "dropped_columns": [
                 {"name": item.name, "reason": item.reason} for item in self.dropped_columns
             ],
@@ -440,6 +468,89 @@ class TableRulesetSnapshot:
             expected = compute_ruleset_digest(table_ruleset_document(self))
             if self.ruleset_digest != expected:
                 raise ValueError("ruleset_digest does not match the canonical document")
+
+
+@dataclass(frozen=True, slots=True)
+class OrderedComparisonRule:
+    position_column: str
+    stable_key_candidates: tuple[str, ...]
+    row_identity_key: tuple[str, ...]
+    blank_row_policy: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "position_column", canonicalize_rule_identifier(self.position_column))
+        object.__setattr__(
+            self,
+            "stable_key_candidates",
+            _canonical_name_tuple(self.stable_key_candidates, "stable_key_candidates"),
+        )
+        object.__setattr__(
+            self,
+            "row_identity_key",
+            _canonical_name_tuple(self.row_identity_key, "row_identity_key"),
+        )
+        if type(self.blank_row_policy) is not str or self.blank_row_policy == "":
+            raise ValueError("blank_row_policy must be a non-empty string")
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonRuleView:
+    canonical_table: str
+    comparison_role: ComparisonRole
+    artifact_scope: TableArtifactScope
+    compare_key_mode: TableCompareKeyMode | None
+    effective_key_columns: tuple[str, ...]
+    compare_excluded_columns: tuple[str, ...]
+    ordered: OrderedComparisonRule | None
+    comparison_rule_digest: DigestRef
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
+        if type(self.comparison_role) is not ComparisonRole:
+            raise ValueError("comparison_role must be ComparisonRole")
+        if type(self.artifact_scope) is not TableArtifactScope:
+            raise ValueError("artifact_scope must be TableArtifactScope")
+        if self.compare_key_mode is not None and type(self.compare_key_mode) is not TableCompareKeyMode:
+            raise ValueError("compare_key_mode must be TableCompareKeyMode or None")
+        object.__setattr__(
+            self,
+            "effective_key_columns",
+            _canonical_name_tuple(self.effective_key_columns, "effective_key_columns"),
+        )
+        object.__setattr__(
+            self,
+            "compare_excluded_columns",
+            _canonical_name_tuple(self.compare_excluded_columns, "compare_excluded_columns"),
+        )
+        if self.ordered is not None and type(self.ordered) is not OrderedComparisonRule:
+            raise ValueError("ordered must be OrderedComparisonRule or None")
+        if type(self.comparison_rule_digest) is not DigestRef:
+            raise ValueError("comparison_rule_digest must be DigestRef")
+        _validate_compare_excluded_columns(
+            compare_excluded_columns=self.compare_excluded_columns,
+            ignored_columns=(),
+            compare_key_columns=self.effective_key_columns,
+            position_column=None if self.ordered is None else self.ordered.position_column,
+            structural_columns=(),
+        )
+        if self.comparison_role is ComparisonRole.ORDERED:
+            if self.ordered is None or self.artifact_scope is not TableArtifactScope.ORDERED_SEMANTIC:
+                raise ValueError("ORDERED comparison rules require ordered semantics")
+        elif self.ordered is not None or self.artifact_scope is TableArtifactScope.ORDERED_SEMANTIC:
+            raise ValueError("only ORDERED comparison rules may carry ordered semantics")
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonRuleSet:
+    snapshot: TableRulesetSnapshot
+
+    def __post_init__(self) -> None:
+        if type(self.snapshot) is not TableRulesetSnapshot:
+            raise ValueError("snapshot must be TableRulesetSnapshot")
+
+    @property
+    def ruleset_digest(self) -> DigestRef | None:
+        return self.snapshot.ruleset_digest
 
 
 def table_ruleset_document(snapshot: TableRulesetSnapshot) -> dict[str, object]:
@@ -514,6 +625,9 @@ def _rule_record_from_document(payload: object) -> TableRuleRecord:
         compare_key_mode=_optional_enum(payload.get("compare_key_mode"), TableCompareKeyMode, "compare_key_mode"),
         compare_key_columns=_string_tuple(payload.get("compare_key_columns"), "compare_key_columns"),
         ignored_columns=_string_tuple(payload.get("ignored_columns"), "ignored_columns"),
+        compare_excluded_columns=_string_tuple(
+            payload.get("compare_excluded_columns"), "compare_excluded_columns"
+        ),
         artifact_scope=_optional_enum(payload.get("artifact_scope"), TableArtifactScope, "artifact_scope"),
         position_column=_optional_string(payload.get("position_column"), "position_column"),
         stable_key_candidates=_string_tuple(payload.get("stable_key_candidates"), "stable_key_candidates"),
@@ -533,6 +647,15 @@ def _dropped_column_from_document(payload: object) -> DroppedColumn:
 
 
 def _validate_rule_record(record: TableRuleRecord) -> None:
+    _validate_compare_excluded_columns(
+        compare_excluded_columns=record.compare_excluded_columns,
+        ignored_columns=record.ignored_columns,
+        compare_key_columns=record.compare_key_columns,
+        position_column=record.position_column,
+        structural_columns=record.structural_columns,
+    )
+    if set(record.compare_excluded_columns) & {item.name for item in record.dropped_columns}:
+        raise ValueError("compare-excluded columns must be retained in storage")
     if record.static_role is TableStaticRole.SKIP:
         if record.table_storage is not TableStorageDisposition.OMIT:
             raise ValueError("SKIP tables must be omitted from storage")
@@ -540,7 +663,7 @@ def _validate_rule_record(record: TableRuleRecord) -> None:
             raise ValueError("SKIP tables forbid a canonical key")
         if record.compare_key_mode is not None or record.compare_key_columns:
             raise ValueError("SKIP tables forbid compare keys")
-        if record.ignored_columns or record.dropped_columns or record.structural_columns:
+        if record.ignored_columns or record.compare_excluded_columns or record.dropped_columns or record.structural_columns:
             raise ValueError("SKIP tables forbid ignored or dropped columns")
         if record.ordered_policy is not OrderedPolicy.NONE:
             raise ValueError("SKIP tables forbid ordered policy")
@@ -636,17 +759,7 @@ def _validate_ignored_drop_mapping(record: TableRuleRecord) -> None:
     if len(dropped_by_name) != len(record.dropped_columns):
         raise ValueError("dropped_columns must not repeat names")
     expected_reason = legacy_ignored_column_reason(record.selector)
-    structural = set(record.structural_columns)
     for name in record.ignored_columns:
-        retained_ordered_no = (
-            record.ordered_policy is OrderedPolicy.GID_NO_V1
-            and name == ORDERED_POSITION_COLUMN
-            and name in structural
-        )
-        if retained_ordered_no:
-            if name in dropped_by_name:
-                raise ValueError("ordered no must not be DROP_FROM_STORAGE")
-            continue
         dropped = dropped_by_name.get(name)
         if dropped is None:
             raise ValueError("ignored columns must map to DROP_FROM_STORAGE")
@@ -695,6 +808,23 @@ def _reject_ignored_key_conflict(key_columns: tuple[str, ...], ignored_columns: 
 def _reject_ignored_identity_conflict(ignored_columns: tuple[str, ...]) -> None:
     if ORDERED_IDENTITY_COLUMN in set(ignored_columns):
         raise ValueError("ignored columns must not include ordered identity gid")
+
+
+def _validate_compare_excluded_columns(
+    *,
+    compare_excluded_columns: tuple[str, ...],
+    ignored_columns: tuple[str, ...],
+    compare_key_columns: tuple[str, ...],
+    position_column: str | None,
+    structural_columns: tuple[str, ...],
+) -> None:
+    if set(compare_excluded_columns) & set(ignored_columns):
+        raise ValueError("ignored and compare-excluded columns must not overlap")
+    protected = set(compare_key_columns) | set(structural_columns) | {ORDERED_IDENTITY_COLUMN}
+    if position_column is not None:
+        protected.add(position_column)
+    if set(compare_excluded_columns) & protected:
+        raise ValueError("compare-excluded columns must not include keys or structural columns")
 
 
 def _canonical_name_tuple(values: tuple[str, ...], label: str) -> tuple[str, ...]:

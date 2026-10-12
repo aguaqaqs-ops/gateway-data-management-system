@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.application.checkpoints import (
     CheckpointPublicationError,
@@ -24,7 +24,6 @@ from gateway_backend.application.checkpoints import (
     prepare_ready_closure,
     prepare_step_checkpoint,
 )
-from gateway_backend.application.history.compare_bindings import compute_compare_binding_digest
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_JOB_CONTRACT_VERSION,
     HISTORY_COMPARE_JOB_KIND,
@@ -68,16 +67,9 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleRefScope,
     assemble_bundle,
 )
-from gateway_backend.capabilities.comparison import (
-    BoundSnapshotInput,
-    PairViewKind,
-    TrustedFlowApplicabilityBinding,
-)
-from gateway_backend.capabilities.comparison.contracts import (
-    BlankRowPolicy,
-    ComparisonTablePolicy,
-    OrderedTablePolicy,
-)
+from gateway_backend.capabilities.comparison import BoundSnapshotInput
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnostic,
@@ -87,17 +79,13 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRef,
     RepositoryRefMaterializationRequest,
     RepositoryTableAccessProvider,
-    ROW_MATERIALIZATION_PROFILE,
-    SCALAR_ENCODING_VERSION,
-    SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
-    Snapshot,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
-    SnapshotSourceContext,
-    SnapshotSummary,
     SnapshotTableSet,
-    SourceKind,
-    SUMMARY_CONTRACT_VERSION,
+    snapshot_from_document,
+    snapshot_summary_from_document,
+    snapshot_summary_to_document,
+    snapshot_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
@@ -106,10 +94,7 @@ from gateway_backend.capabilities.table_access.contracts import NeverCancel, Par
 from gateway_backend.capabilities.table_rules.contracts import (
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
-    TableStaticRole,
 )
-from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.operations.contracts import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
@@ -138,13 +123,9 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v1"
-HISTORY_COMPARE_COMPARE_BINDING_CONTRACT_VERSION = "backend-vnext/history-compare/compare-binding/v1"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v2"
 
 _JOB_STATE_SIDES = "sides"
-_JOB_STATE_COMPARE_BINDING_PREIMAGE = "compare_binding_preimage"
-_JOB_STATE_COMPARE_BINDING_DIGEST = "compare_binding_digest"
-_JOB_STATE_TABLE_POLICIES = "table_policies"
 _JOB_STATE_ASSEMBLE = "assemble_state"
 _JOB_STATE_READY_CLOSURE = "ready_closure_artifact_id"
 _JOB_STATE_READY_CLOSURE_REF = "ready_closure_ref"
@@ -180,7 +161,7 @@ class HistoryCompareJobPayload:
     acceptance_id: str
     idempotency_key: str
     request_fingerprint: str
-    table_ruleset_version: str
+    comparison_ruleset_digest: str
     comparison_contract_version: str
     view_kind: str
     pair_count: int
@@ -269,7 +250,7 @@ def decode_history_compare_payload(payload_object: dict[str, object]) -> History
     acceptance_id = _require_non_empty_str(payload_object, "acceptance_id")
     idempotency_key = _require_non_empty_str(payload_object, "idempotency_key")
     request_fingerprint = _require_non_empty_str(payload_object, "request_fingerprint")
-    table_ruleset_version = _require_non_empty_str(payload_object, "table_ruleset_version")
+    comparison_ruleset_digest = _require_non_empty_str(payload_object, "comparison_ruleset_digest")
     comparison_contract_version = _require_non_empty_str(payload_object, "comparison_contract_version")
     view_kind = _require_non_empty_str(payload_object, "view_kind")
     pair_count = _require_positive_int(payload_object, "pair_count")
@@ -281,7 +262,7 @@ def decode_history_compare_payload(payload_object: dict[str, object]) -> History
         acceptance_id=acceptance_id,
         idempotency_key=idempotency_key,
         request_fingerprint=request_fingerprint,
-        table_ruleset_version=table_ruleset_version,
+        comparison_ruleset_digest=comparison_ruleset_digest,
         comparison_contract_version=comparison_contract_version,
         view_kind=view_kind,
         pair_count=pair_count,
@@ -367,6 +348,17 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
+        try:
+            _assert_runtime_ruleset(payload)
+        except HistoryCompareRulesetVersionMismatch as exc:
+            _publish_ruleset_mismatch_failure(
+                lease_session=lease_session,
+                operation=operation,
+                step=step,
+                message=str(exc),
+                control=control,
+            )
+            return ExecutorAcknowledgment.PUBLISHED
         key = definition.key
 
         if step.checkpoint_ref is not None:
@@ -385,9 +377,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
             )
         else:
             try:
-                sides, compare_binding_preimage, compare_binding_digest, table_policies = (
-                    _materialize_distinct_commits(payload, deps)
-                )
+                sides = _materialize_distinct_commits(payload, deps)
             except _IntegrityConfirmed as confirmed:
                 _publish_integrity_failure(
                     lease_session=lease_session,
@@ -423,9 +413,6 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
                     _JOB_STATE_SIDES: _serialize_sides(sides),
-                    _JOB_STATE_COMPARE_BINDING_PREIMAGE: compare_binding_preimage,
-                    _JOB_STATE_COMPARE_BINDING_DIGEST: compare_binding_digest,
-                    _JOB_STATE_TABLE_POLICIES: table_policies,
                 },
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
@@ -470,6 +457,17 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             return ExecutorAcknowledgment.PUBLISHED
 
         payload = _load_history_compare_payload(operation, deps.artifact_store)
+        try:
+            rule_set = _assert_runtime_ruleset(payload)
+        except HistoryCompareRulesetVersionMismatch as exc:
+            _publish_ruleset_mismatch_failure(
+                lease_session=lease_session,
+                operation=operation,
+                step=step,
+                message=str(exc),
+                control=control,
+            )
+            return ExecutorAcknowledgment.PUBLISHED
         materialize_step = _load_step(
             deps,
             operation_id=operation.operation_id,
@@ -487,19 +485,6 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
         sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store)
-        compare_binding_digest = materialize_envelope.job_state.get(_JOB_STATE_COMPARE_BINDING_DIGEST)
-        table_policies_raw = materialize_envelope.job_state.get(_JOB_STATE_TABLE_POLICIES)
-        if type(compare_binding_digest) is not str or not compare_binding_digest:
-            raise CheckpointDecodeError(
-                "materialize checkpoint is missing compare_binding_digest",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        if type(table_policies_raw) is not list:
-            raise CheckpointDecodeError(
-                "materialize checkpoint is missing table_policies",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
-            )
-        table_policies = _table_policies_from_checkpoint(table_policies_raw)
 
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
@@ -520,8 +505,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 payload=payload,
                 operation_id=operation.operation_id,
                 sides=sides,
-                table_policies=table_policies,
-                compare_binding_digest=compare_binding_digest,
+                rule_set=rule_set,
                 store=deps.artifact_store,
                 lease_session=lease_session,
                 control=control,
@@ -583,6 +567,19 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
         lease_session.refresh_control()
         if control.cancel_requested:
             lease_session.publish_operation(_make_cancelled_terminal_builder())
+            return ExecutorAcknowledgment.PUBLISHED
+
+        payload = _load_history_compare_payload(operation, deps.artifact_store)
+        try:
+            _assert_runtime_ruleset(payload)
+        except HistoryCompareRulesetVersionMismatch as exc:
+            _publish_ruleset_mismatch_failure(
+                lease_session=lease_session,
+                operation=operation,
+                step=step,
+                message=str(exc),
+                control=control,
+            )
             return ExecutorAcknowledgment.PUBLISHED
 
         assemble_step = _load_step(
@@ -676,78 +673,32 @@ class _IntegrityConfirmed(Exception):
 def _materialize_distinct_commits(
     payload: HistoryCompareJobPayload,
     deps: HistoryCompareRuntimeDependencies,
-) -> tuple[
-    dict[str, BoundSnapshotInput],
-    dict[str, object],
-    str,
-    list[dict[str, object]],
-]:
-    runtime_ruleset_version = str(TABLE_RULESET_VERSION)
-
-    if payload.table_ruleset_version != runtime_ruleset_version:
-        raise HistoryCompareRulesetVersionMismatch("frozen table_ruleset_version does not match runtime ruleset")
+) -> dict[str, BoundSnapshotInput]:
     distinct_commits = tuple(dict.fromkeys(node.commit_id for node in payload.nodes))
     sides: dict[str, BoundSnapshotInput] = {}
-    table_sets: list[SnapshotTableSet] = []
     for commit_id in distinct_commits:
         provider = deps.repository_provider_factory(payload.repository_id, commit_id)
-        bound, result = _materialize_commit_with_integrity(
+        bound, _ = _materialize_commit_with_integrity(
             repository_id=payload.repository_id,
             commit_id=commit_id,
             provider=provider,
             store=deps.artifact_store,
         )
         sides[commit_id] = bound
-        if bound.table_set is not None:
-            table_sets.append(bound.table_set)
 
-    ruleset = migrated_table_ruleset_snapshot()
-    if str(ruleset.table_ruleset_version) != runtime_ruleset_version:
-        raise HistoryCompareRulesetVersionMismatch("ruleset snapshot version mismatch")
+    return sides
 
-    table_names: dict[str, tuple[str, ...]] = {}
-    for table_set in table_sets:
-        for table in table_set.tables:
-            descriptor = table.descriptor
-            if descriptor.table_name not in table_names:
-                # First-seen PK is used only for ruleset policy projection; capability
-                # compares per-side descriptors and degrades on key_changed (design §5.4).
-                table_names[descriptor.table_name] = descriptor.primary_key_columns
 
-    policies = [
-        _policy_to_checkpoint_dict(_project_table_policy(resolve_table_rule(
-            ruleset,
-            table_name,
-            primary_key_columns=primary_key_columns,
-        )))
-        for table_name, primary_key_columns in sorted(table_names.items())
-    ]
-    compare_binding_preimage = {
-        "gateway_device_external_key": payload.gateway_device_external_key,
-        "business_project_id": payload.business_project_id,
-        "repository_id": payload.repository_id,
-        "nodes": [
-            {"ref_kind": node.ref_kind.value, "ref_id": node.ref_id, "commit_id": node.commit_id}
-            for node in payload.nodes
-        ],
-        "table_ruleset_version": payload.table_ruleset_version,
-        "comparison_contract_version": payload.comparison_contract_version,
-        "view_kind": payload.view_kind,
-        "pair_count": payload.pair_count,
-        "table_policies": policies,
-    }
-    compare_binding_digest = compute_compare_binding_digest(
-        gateway_device_external_key=payload.gateway_device_external_key,
-        business_project_id=payload.business_project_id,
-        repository_id=payload.repository_id,
-        nodes=payload.nodes,
-        table_ruleset_version=payload.table_ruleset_version,
-        table_policies=policies,
-        comparison_contract_version=payload.comparison_contract_version,
-        view_kind=payload.view_kind,
-        pair_count=payload.pair_count,
-    )
-    return sides, compare_binding_preimage, compare_binding_digest, policies
+def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:
+    active_rules = comparison_rule_set(migrated_table_ruleset_snapshot())
+    digest = active_rules.ruleset_digest
+    if digest is None:
+        raise HistoryCompareRulesetVersionMismatch("runtime comparison ruleset digest is missing")
+    if digest.value != payload.comparison_ruleset_digest:
+        raise HistoryCompareRulesetVersionMismatch(
+            "frozen comparison ruleset digest does not match runtime ruleset"
+        )
+    return active_rules
 
 
 def _materialize_commit_with_integrity(
@@ -857,117 +808,16 @@ def _candidate_diagnostic(result: SnapshotMaterializationResult) -> Materializat
     return None
 
 
-def _project_table_policy(resolved: object) -> ComparisonTablePolicy:
-    from gateway_backend.capabilities.table_rules.contracts import ResolvedTableRule
-
-    if type(resolved) is not ResolvedTableRule:
-        raise HistoryCompareJobError("table rule resolution failed")
-    decision = resolved.decision
-    ignored_columns = decision.ignored_columns
-    if decision.static_role is TableStaticRole.ORDERED_DIFF:
-        position_column = decision.position_column or "no"
-        stable_candidates = decision.stable_key_candidates
-        row_identity_key = (stable_candidates[0],) if len(stable_candidates) == 1 else None
-        return ComparisonTablePolicy(
-            table_name=resolved.canonical_table,
-            ignored_columns=ignored_columns,
-            ordered_policy=OrderedTablePolicy(
-                order_key=(position_column,),
-                row_identity_key=row_identity_key,
-                stable_key_candidates=stable_candidates,
-                ignored_columns=ignored_columns if ignored_columns else ("no",),
-                blank_row_policy=BlankRowPolicy.PSEUDO_BLANK_BY_MISSING_STABLE_KEY,
-            ),
-        )
-    return ComparisonTablePolicy(
-        table_name=resolved.canonical_table,
-        ignored_columns=ignored_columns,
-    )
-
-
-def _policy_to_checkpoint_dict(policy: ComparisonTablePolicy) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "table_name": policy.table_name,
-        "ignored_columns": list(policy.ignored_columns),
-        "keyless_policy": policy.keyless_policy.value,
-        "policy_version": policy.policy_version,
-    }
-    if policy.ordered_policy is not None:
-        ordered = policy.ordered_policy
-        payload["ordered_policy"] = {
-            "policy_id": ordered.policy_id,
-            "policy_version": ordered.policy_version,
-            "order_key": list(ordered.order_key),
-            "row_identity_key": None if ordered.row_identity_key is None else list(ordered.row_identity_key),
-            "stable_key_candidates": list(ordered.stable_key_candidates),
-            "value_columns": list(ordered.value_columns),
-            "ignored_columns": list(ordered.ignored_columns),
-            "blank_row_policy": ordered.blank_row_policy.value,
-            "move_policy": ordered.move_policy,
-            "ambiguity_policy": ordered.ambiguity_policy,
-            "tail_change_policy": ordered.tail_change_policy,
-            "table_processing_mode_policy": ordered.table_processing_mode_policy,
-        }
-    return payload
-
-
-def _table_policies_from_checkpoint(raw: list[object]) -> tuple[ComparisonTablePolicy, ...]:
-    policies: list[ComparisonTablePolicy] = []
-    for item in raw:
-        if type(item) is not dict:
-            raise CheckpointDecodeError("table policy entry is invalid", code="CHECKPOINT_JOB_STATE_MISMATCH")
-        ordered_raw = item.get("ordered_policy")
-        ordered_policy = None
-        if type(ordered_raw) is dict:
-            row_identity_key_raw = ordered_raw.get("row_identity_key")
-            row_identity_key = None
-            if type(row_identity_key_raw) is list:
-                row_identity_key = tuple(str(column) for column in row_identity_key_raw)
-            ordered_policy = OrderedTablePolicy(
-                policy_id=str(ordered_raw["policy_id"]),
-                policy_version=str(ordered_raw["policy_version"]),
-                order_key=tuple(str(column) for column in ordered_raw["order_key"]),
-                row_identity_key=row_identity_key,
-                stable_key_candidates=tuple(
-                    str(column) for column in ordered_raw["stable_key_candidates"]
-                ),
-                value_columns=tuple(str(column) for column in ordered_raw["value_columns"]),
-                ignored_columns=tuple(str(column) for column in ordered_raw["ignored_columns"]),
-                blank_row_policy=BlankRowPolicy(str(ordered_raw["blank_row_policy"])),
-                move_policy=str(ordered_raw["move_policy"]),
-                ambiguity_policy=str(ordered_raw["ambiguity_policy"]),
-                tail_change_policy=str(ordered_raw["tail_change_policy"]),
-                table_processing_mode_policy=str(ordered_raw["table_processing_mode_policy"]),
-            )
-        from gateway_backend.capabilities.comparison.contracts import KeylessPolicy
-
-        policies.append(
-            ComparisonTablePolicy(
-                table_name=str(item["table_name"]),
-                ignored_columns=tuple(str(column) for column in item["ignored_columns"]),
-                keyless_policy=KeylessPolicy(str(item["keyless_policy"])),
-                policy_version=str(item["policy_version"]),
-                ordered_policy=ordered_policy,
-            )
-        )
-    return tuple(policies)
-
-
 def _assemble_comparison(
     *,
     payload: HistoryCompareJobPayload,
     operation_id: str,
     sides: dict[str, BoundSnapshotInput],
-    table_policies: tuple[ComparisonTablePolicy, ...],
-    compare_binding_digest: str,
+    rule_set: ComparisonRuleSet,
     store: ArtifactStorePort,
     lease_session: LeaseSession,
     control: ExecutionControl,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
-    trusted_flow_binding = TrustedFlowApplicabilityBinding(
-        view_kind=PairViewKind.HISTORY,
-        binding_digest=DigestRef(compare_binding_digest),
-    )
     pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]] = []
     for index in range(payload.pair_count):
         before_node = payload.nodes[index]
@@ -1004,8 +854,7 @@ def _assemble_comparison(
             pair_id=pair_id,
             before=before,
             current=current,
-            table_policies=table_policies,
-            trusted_flow_binding=trusted_flow_binding,
+            rule_set=rule_set,
             store=store,
             control=control,
         )
@@ -1074,8 +923,7 @@ def _run_pair_pipeline(
     pair_id: str,
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
-    table_policies: tuple[ComparisonTablePolicy, ...],
-    trusted_flow_binding: TrustedFlowApplicabilityBinding,
+    rule_set: ComparisonRuleSet,
     store: ArtifactStorePort,
     control: ExecutionControl,
 ) -> _PairPipelineResult:
@@ -1084,8 +932,7 @@ def _run_pair_pipeline(
             pair_id=pair_id,
             before=before,
             current=current,
-            table_policies=table_policies,
-            trusted_flow_binding=trusted_flow_binding,
+            rule_set=rule_set,
             store=store,
             control=control,
         )
@@ -1295,9 +1142,9 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
     return {
         "contract_version": HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION,
         "commit_id": commit_id,
-        "snapshot": _snapshot_payload(bound.snapshot),
+        "snapshot": snapshot_to_document(bound.snapshot),
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
-        "summary": _summary_payload(bound.summary),
+        "summary": snapshot_summary_to_document(bound.summary),
         "tables": tables,
     }
 
@@ -1348,33 +1195,30 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             opened.append(open_snapshot_table_artifact(store, manifest_ref))
         except (TypeError, ValueError, KeyError, ManifestVerificationError) as exc:
             raise HistoryCompareJobError("materialize checkpoint table artifact is unreadable") from exc
-    snapshot = _snapshot_from_payload(entry.get("snapshot"))
+    try:
+        snapshot = snapshot_from_document(entry.get("snapshot"))
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint snapshot is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
     snapshot_digest_raw = entry.get("snapshot_digest")
     if type(snapshot_digest_raw) is not str or snapshot.snapshot_digest.value != snapshot_digest_raw:
         raise CheckpointDecodeError(
             "materialize checkpoint digest mismatch",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    summary_payload = entry.get("summary")
-    if type(summary_payload) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint summary is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+    try:
+        summary = snapshot_summary_from_document(
+            entry.get("summary"),
+            snapshot=snapshot,
+            tables=tuple(table.descriptor for table in opened),
         )
-    summary = SnapshotSummary(
-        snapshot_id=snapshot.snapshot_id,
-        snapshot_digest=snapshot.snapshot_digest,
-        raw_state_digest=snapshot.raw_state_digest,
-        materialization_stage=snapshot.materialization_stage,
-        parser_version=snapshot.parser_version,
-        table_ruleset_version=snapshot.table_ruleset_version,
-        summary_contract_version=SUMMARY_CONTRACT_VERSION,
-        table_count=len(opened),
-        tables=tuple(table.descriptor for table in opened),
-        source_context=snapshot.source_context,
-        diagnostics=(),
-        row_count_total=sum(table.descriptor.row_count for table in opened),
-    )
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint summary does not match its snapshot and tables",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
     table_set = SnapshotTableSet(
         snapshot_id=snapshot.snapshot_id,
         snapshot_digest=snapshot.snapshot_digest,
@@ -1390,104 +1234,6 @@ def _bound_from_materialization(result: SnapshotMaterializationResult) -> BoundS
     if result.snapshot is None or result.summary is None:
         raise HistoryCompareJobError("materialization is incomplete")
     return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
-
-
-def _snapshot_payload(snapshot: Snapshot) -> dict[str, object]:
-    context = snapshot.source_context
-    return {
-        "snapshot_id": snapshot.snapshot_id,
-        "source_kind": snapshot.source_kind.value,
-        "parser_version": snapshot.parser_version,
-        "table_ruleset_version": snapshot.table_ruleset_version,
-        "scalar_encoding_version": snapshot.scalar_encoding_version,
-        "snapshot_materialization_contract_version": snapshot.snapshot_materialization_contract_version,
-        "row_materialization_profile": snapshot.row_materialization_profile,
-        "materialization_stage": snapshot.materialization_stage.value,
-        "snapshot_digest": snapshot.snapshot_digest.value,
-        "raw_state_digest": snapshot.raw_state_digest.value,
-        "created_at": snapshot.created_at,
-        "source_context": {
-            "source_kind": context.source_kind.value,
-            "sql_source_digest": None if context.sql_source_digest is None else context.sql_source_digest.value,
-            "composite_logic_source_digest": (
-                None
-                if context.composite_logic_source_digest is None
-                else context.composite_logic_source_digest.value
-            ),
-            "repository_id": context.repository_id,
-            "repository_ref": context.repository_ref,
-            "resolved_commit_hash": context.resolved_commit_hash,
-        },
-    }
-
-
-def _snapshot_from_payload(raw: object) -> Snapshot:
-    if type(raw) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint snapshot is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    context_raw = raw.get("source_context")
-    if type(context_raw) is not dict:
-        raise CheckpointDecodeError(
-            "materialize checkpoint source_context is invalid",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
-        )
-    context_kind = SourceKind(str(context_raw["source_kind"]))
-    sql_digest = context_raw.get("sql_source_digest")
-    composite_digest = context_raw.get("composite_logic_source_digest")
-    source_context = SnapshotSourceContext(
-        source_kind=context_kind,
-        sql_source_digest=None if sql_digest is None else DigestRef(str(sql_digest)),
-        composite_logic_source_digest=(
-            None if composite_digest is None else DigestRef(str(composite_digest))
-        ),
-        repository_id=None if context_raw.get("repository_id") is None else str(context_raw["repository_id"]),
-        repository_ref=None if context_raw.get("repository_ref") is None else str(context_raw["repository_ref"]),
-        resolved_commit_hash=(
-            None
-            if context_raw.get("resolved_commit_hash") is None
-            else str(context_raw["resolved_commit_hash"])
-        ),
-    )
-    return Snapshot(
-        snapshot_id=str(raw["snapshot_id"]),
-        source_kind=context_kind,
-        parser_version=int(raw["parser_version"]),
-        table_ruleset_version=int(raw["table_ruleset_version"]),
-        scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        snapshot_materialization_contract_version=SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
-        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-        materialization_stage=MaterializationStage(str(raw["materialization_stage"])),
-        snapshot_digest=DigestRef(str(raw["snapshot_digest"])),
-        raw_state_digest=DigestRef(str(raw["raw_state_digest"])),
-        created_at=str(raw["created_at"]),
-        source_context=source_context,
-    )
-
-
-def _summary_payload(summary: object) -> dict[str, object]:
-    if type(summary) is not SnapshotSummary:
-        raise HistoryCompareJobError("summary payload type is invalid")
-    tables = []
-    for table in summary.tables:
-        tables.append(
-            {
-                "table_name": table.table_name,
-                "display_table_name": table.display_table_name,
-                "row_count": table.row_count,
-                "primary_key_columns": list(table.primary_key_columns),
-                "compare_key_columns": list(table.compare_key_columns),
-                "compare_schema_digest": table.compare_schema_digest.value,
-            }
-        )
-    return {
-        "snapshot_id": summary.snapshot_id,
-        "snapshot_digest": summary.snapshot_digest.value,
-        "table_count": summary.table_count,
-        "row_count_total": summary.row_count_total,
-        "tables": tables,
-    }
 
 
 def _closed_refs_from_sides(sides: dict[str, BoundSnapshotInput]) -> tuple[ArtifactRef, ...]:

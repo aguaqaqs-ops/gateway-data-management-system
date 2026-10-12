@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TypeAlias
 
@@ -17,7 +17,6 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordsClosure,
     ComparisonSchemaChanges,
     ComparisonTableStatus,
-    IdentityStatus,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RiskAnnotationClosure,
@@ -460,6 +459,7 @@ class SurfaceTable:
     display: SurfaceDisplay
     compare: SurfaceCompare
     diagnostics: SurfaceDiagnostics
+    content_changed: bool = False
     replacement_summary: SurfaceReplacementSummary | None = None
     ordered_extension: dict[str, object] | None = None
 
@@ -494,6 +494,8 @@ class SurfaceTable:
             raise ValueError("compare must be SurfaceCompare")
         if type(self.diagnostics) is not SurfaceDiagnostics:
             raise ValueError("diagnostics must be SurfaceDiagnostics")
+        if type(self.content_changed) is not bool:
+            raise ValueError("content_changed must be bool")
         if self.replacement_summary is not None and type(self.replacement_summary) is not SurfaceReplacementSummary:
             raise ValueError("replacement_summary must be SurfaceReplacementSummary or None")
         if self.ordered_extension is not None:
@@ -510,6 +512,7 @@ class SurfaceTable:
             "change_kind": self.change_kind.value,
             "columns": [item.to_document() for item in self.columns],
             "compare": self.compare.to_document(),
+            "content_changed": self.content_changed,
             "diagnostics": self.diagnostics.to_document(),
             "display": self.display.to_document(),
             "display_name": self.display_name,
@@ -674,6 +677,27 @@ class SurfaceRootRefs:
 
 
 @dataclass(frozen=True, slots=True)
+class SurfaceIdentityAnnotation:
+    """Neutral identity facts supplied by Application for presentation."""
+
+    status: str = "NOT_APPLICABLE"
+    assessment_digest: DigestRef | None = None
+    assessment_ref: ArtifactRef | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not str or self.status not in {
+            "SAME_PROJECT",
+            "DIFFERENT_PROJECT",
+            "UNVERIFIABLE",
+            "NOT_APPLICABLE",
+        }:
+            raise ValueError("status must be a supported identity annotation")
+        if self.assessment_digest is not None:
+            _require_digest(self.assessment_digest, "assessment_digest")
+        _require_optional_ref(self.assessment_ref, "assessment_ref")
+
+
+@dataclass(frozen=True, slots=True)
 class ComparisonSurface:
     surface_contract_version: str
     surface_digest: DigestRef
@@ -681,7 +705,7 @@ class ComparisonSurface:
     direction: str
     comparison_digest: DigestRef
     comparison_mode: ComparisonMode
-    project_identity_status: IdentityStatus
+    project_identity_status: str
     project_identity_assessment_digest: DigestRef | None
     requires_submit_confirmation: bool
     risk_evaluation_digest: DigestRef | None
@@ -703,8 +727,13 @@ class ComparisonSurface:
         _require_digest(self.comparison_digest, "comparison_digest")
         if type(self.comparison_mode) is not ComparisonMode:
             raise ValueError("comparison_mode must be ComparisonMode")
-        if type(self.project_identity_status) is not IdentityStatus:
-            raise ValueError("project_identity_status must be IdentityStatus")
+        if type(self.project_identity_status) is not str or self.project_identity_status not in {
+            "SAME_PROJECT",
+            "DIFFERENT_PROJECT",
+            "UNVERIFIABLE",
+            "NOT_APPLICABLE",
+        }:
+            raise ValueError("project_identity_status must be supported")
         if self.project_identity_assessment_digest is not None:
             _require_digest(self.project_identity_assessment_digest, "project_identity_assessment_digest")
         if type(self.requires_submit_confirmation) is not bool:
@@ -746,7 +775,7 @@ class ComparisonSurface:
             "project_identity_assessment_digest": _optional_digest(
                 self.project_identity_assessment_digest
             ),
-            "project_identity_status": self.project_identity_status.value,
+            "project_identity_status": self.project_identity_status,
             "projections": [item.to_document() for item in self.projections],
             "refs": self.refs.to_document(),
             "reserved_extensions": [
@@ -788,7 +817,7 @@ class SurfaceAssemblyInput:
     risk_report: RiskReport | None = None
     risk_annotation_closure: RiskAnnotationClosure | None = None
     table_artifacts: tuple[SurfaceArtifactIndexEntry, ...] = ()
-    project_identity_assessment_ref: ArtifactRef | None = None
+    identity_annotation: SurfaceIdentityAnnotation = field(default_factory=SurfaceIdentityAnnotation)
     risk_report_ref: ArtifactRef | None = None
     risk_annotation_closure_ref: ArtifactRef | None = None
     diagnostics_ref: ArtifactRef | None = None
@@ -820,12 +849,13 @@ class SurfaceAssemblyInput:
         if artifact_names != tuple(sorted(artifact_names)) or len(set(artifact_names)) != len(artifact_names):
             raise ValueError("table_artifacts must use canonical unique order")
         for label in (
-            "project_identity_assessment_ref",
             "risk_report_ref",
             "risk_annotation_closure_ref",
             "diagnostics_ref",
         ):
             _require_optional_ref(getattr(self, label), label)
+        if type(self.identity_annotation) is not SurfaceIdentityAnnotation:
+            raise ValueError("identity_annotation must be SurfaceIdentityAnnotation")
         if type(self.profile) is not SurfaceProfile:
             raise ValueError("profile must be SurfaceProfile")
         if type(self.ref_scope) is not SurfaceRefScope:

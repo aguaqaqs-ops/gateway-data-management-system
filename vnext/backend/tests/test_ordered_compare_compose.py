@@ -10,7 +10,6 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from gateway_backend.application.history.compare_jobs import _table_policies_from_checkpoint
 from tests.support.compose_gate_harness import (
     BACKEND_URL,
     BEARER_TOKEN,
@@ -37,7 +36,6 @@ from tests.support.compose_gate_harness import (
     run_accept_to_submission_read_journey,
     start_three_container_stack,
 )
-from tests.support.history_compare_job_harness import ORDERED_SYX_TABLE_EXPECTED_POLICY
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
@@ -151,10 +149,7 @@ def _assert_remote_matches_oracle(
     current_commit: str,
 ) -> None:
     job_state = read_history_compare_materialize_job_state(env, operation_id)
-    policies_raw = job_state["table_policies"]
-    assert isinstance(policies_raw, list)
-    assert policies_raw[0] == ORDERED_SYX_TABLE_EXPECTED_POLICY
-    _table_policies_from_checkpoint(policies_raw)
+    assert "table_policies" not in job_state
     oracle_digest = oracle_history_compare_digest_from_materialize_checkpoint(
         env,
         operation_id,

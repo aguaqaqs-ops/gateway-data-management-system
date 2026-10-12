@@ -28,6 +28,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 from gateway_backend.capabilities.table_rules.registry import (
     COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS,
+    COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS,
     COMPOSITE_SIGNAL_POINT_KEY_COLUMNS,
     COMPOSITE_SIGNAL_POINT_TABLE_NAME,
     DEFAULT_BROWSE_ONLY_TABLE_NAMES,
@@ -62,6 +63,7 @@ _GOLDEN = (
     / "document.json"
 )
 _COMPOSITE_IGNORED = frozenset(COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS)
+_COMPOSITE_COMPARE_EXCLUDED = frozenset(COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS)
 _MIGRATED_RULE_COUNT = 52
 
 
@@ -76,6 +78,7 @@ class ParityCase:
     compare_key_columns: tuple[str, ...]
     ignored_columns: frozenset[str]
     artifact_scope: TableArtifactScope | None
+    compare_excluded_columns: frozenset[str] = frozenset()
     position_column: str | None = None
     stable_key_candidates: tuple[str, ...] = ()
 
@@ -119,7 +122,7 @@ def _ordered_case(family: str) -> ParityCase:
         selector=f"regex:{pattern}",
         compare_key_mode=TableCompareKeyMode.ORDERED_STABLE_KEY,
         compare_key_columns=("gid",),
-        ignored_columns=frozenset({ORDERED_POSITION_COLUMN}),
+        ignored_columns=frozenset(),
         artifact_scope=TableArtifactScope.ORDERED_SEMANTIC,
         position_column=ORDERED_POSITION_COLUMN,
         stable_key_candidates=("gid",),
@@ -131,6 +134,7 @@ def _exact_standard(
     *,
     key_columns: tuple[str, ...],
     ignored: frozenset[str] = frozenset(),
+    compare_excluded: frozenset[str] = frozenset(),
     scope: TableArtifactScope = TableArtifactScope.ALL_CHANGES,
 ) -> ParityCase:
     return ParityCase(
@@ -143,6 +147,7 @@ def _exact_standard(
         compare_key_columns=key_columns,
         ignored_columns=ignored,
         artifact_scope=scope,
+        compare_excluded_columns=compare_excluded,
     )
 
 
@@ -184,6 +189,7 @@ LEGACY_PARITY_CASES: tuple[ParityCase, ...] = (
         COMPOSITE_SIGNAL_POINT_TABLE_NAME,
         key_columns=COMPOSITE_SIGNAL_POINT_KEY_COLUMNS,
         ignored=_COMPOSITE_IGNORED,
+        compare_excluded=_COMPOSITE_COMPARE_EXCLUDED,
     ),
     _exact_standard("net_cfg", key_columns=("board", "link_no"), ignored=frozenset({"no"})),
     ParityCase(
@@ -408,6 +414,7 @@ def test_legacy_parity_cases(migrated_snapshot: TableRulesetSnapshot, case: Pari
     assert decision.compare_key_mode is case.compare_key_mode
     assert decision.compare_key_columns == case.compare_key_columns
     assert frozenset(decision.ignored_columns) == case.ignored_columns
+    assert frozenset(decision.compare_excluded_columns) == case.compare_excluded_columns
     assert decision.artifact_scope is case.artifact_scope
     assert decision.position_column == case.position_column
     assert decision.stable_key_candidates == case.stable_key_candidates
@@ -421,7 +428,10 @@ def test_legacy_oracle_matches_parity_cases(case: ParityCase) -> None:
         None if case.compare_key_mode is None else case.compare_key_mode.value
     )
     assert oracle.compare_key_columns == case.compare_key_columns
-    assert oracle.ignored_columns == case.ignored_columns
+    expected_legacy_ignored = set(case.ignored_columns | case.compare_excluded_columns)
+    if case.position_column is not None:
+        expected_legacy_ignored.add(case.position_column)
+    assert oracle.ignored_columns == frozenset(expected_legacy_ignored)
     assert oracle.artifact_scope == (
         None if case.artifact_scope is None else case.artifact_scope.value
     )
@@ -475,7 +485,7 @@ def test_ignored_columns_map_to_storage_drops() -> None:
     for record in migrated_table_rule_records():
         dropped_by_name = {item.name: item for item in record.dropped_columns}
         if record.ordered_policy is OrderedPolicy.GID_NO_V1:
-            assert ORDERED_POSITION_COLUMN in record.ignored_columns
+            assert ORDERED_POSITION_COLUMN not in record.ignored_columns
             assert ORDERED_POSITION_COLUMN in record.structural_columns
             assert ORDERED_POSITION_COLUMN not in dropped_by_name
             continue

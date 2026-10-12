@@ -57,6 +57,7 @@ from tests.support.repository_ref_materialization import (
     make_catalog,
 )
 from tests.support.source_package_fixtures import pack_tar_gz
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from tests.support.workspace_fixtures import MutableBaselineHeadReadPort, make_baseline_head
 
 BASE_TIME = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
@@ -274,6 +275,7 @@ def build_preview_harness(
         business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
         baseline_head_version=BASELINE_HEAD.baseline_head_version,
         idempotency_key=IDEMPOTENCY_KEY,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
     )
     return PreviewJobHarness(
         db_path=db_path,

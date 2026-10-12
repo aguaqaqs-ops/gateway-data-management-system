@@ -6,6 +6,11 @@ import re
 
 from gateway_shared_kernel import DeclaredType, DeclaredTypeKind
 
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    SqlDeclaredTypeMappingError,
+    normalize_sql_type_spelling,
+)
+
 _TYPE_TOKEN = re.compile(r"^([A-Z]+)(?:\(([^)]*)\))?(?:\s+(UNSIGNED))?(?:\s+ZEROFILL)?.*$")
 _INTEGER_BITS = {
     "TINYINT": 8,
@@ -21,10 +26,6 @@ _TEXT_TYPES = frozenset(
 _BINARY_TYPES = frozenset(
     {"BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB"}
 )
-
-
-class SqlDeclaredTypeMappingError(ValueError):
-    """Raised when a SQL spelling cannot be mapped to a DeclaredType."""
 
 
 def _decimal_args(args: str | None) -> tuple[int, int]:
@@ -52,7 +53,7 @@ def _bit_width(args: str | None) -> int:
 def declared_type_for_sql_spelling(spelling: str) -> DeclaredType:
     """Map one SQL column type spelling to the canonical DeclaredType."""
 
-    token = spelling.strip().upper()
+    token = normalize_sql_type_spelling(spelling)
     match = _TYPE_TOKEN.match(token)
     if match is None:
         raise SqlDeclaredTypeMappingError(f"unsupported SQL type spelling: {spelling}")

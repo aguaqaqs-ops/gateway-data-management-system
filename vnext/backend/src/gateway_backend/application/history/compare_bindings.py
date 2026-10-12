@@ -44,7 +44,7 @@ def _accept_binding_payload(
     business_project_id: str,
     repository_id: str,
     nodes: Sequence[HistoryCompareNodeBinding],
-    table_ruleset_version: str,
+    comparison_ruleset_digest: str,
     comparison_contract_version: str,
     view_kind: str,
     pair_count: int,
@@ -54,7 +54,7 @@ def _accept_binding_payload(
         "business_project_id": business_project_id,
         "repository_id": repository_id,
         "nodes": [_node_binding_payload(node) for node in nodes],
-        "table_ruleset_version": table_ruleset_version,
+        "comparison_ruleset_digest": comparison_ruleset_digest,
         "comparison_contract_version": comparison_contract_version,
         "view_kind": view_kind,
         "pair_count": pair_count,
@@ -67,7 +67,7 @@ def compute_accept_binding_fingerprint(
     business_project_id: str,
     repository_id: str,
     nodes: Sequence[HistoryCompareNodeBinding],
-    table_ruleset_version: str,
+    comparison_ruleset_digest: str,
     comparison_contract_version: str = HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
     view_kind: str = "HISTORY",
     pair_count: int | None = None,
@@ -78,40 +78,12 @@ def compute_accept_binding_fingerprint(
         business_project_id=business_project_id,
         repository_id=repository_id,
         nodes=nodes,
-        table_ruleset_version=table_ruleset_version,
+        comparison_ruleset_digest=comparison_ruleset_digest,
         comparison_contract_version=comparison_contract_version,
         view_kind=view_kind,
         pair_count=resolved_pair_count,
     )
     return compute_history_compare_digest("accept-binding", payload)
-
-
-def compute_compare_binding_digest(
-    *,
-    gateway_device_external_key: str,
-    business_project_id: str,
-    repository_id: str,
-    nodes: Sequence[HistoryCompareNodeBinding],
-    table_ruleset_version: str,
-    table_policies: Sequence[Mapping[str, object]],
-    comparison_contract_version: str = HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
-    view_kind: str = "HISTORY",
-    pair_count: int | None = None,
-) -> str:
-    resolved_pair_count = pair_count if pair_count is not None else max(len(nodes) - 1, 1)
-    payload = _accept_binding_payload(
-        gateway_device_external_key=gateway_device_external_key,
-        business_project_id=business_project_id,
-        repository_id=repository_id,
-        nodes=nodes,
-        table_ruleset_version=table_ruleset_version,
-        comparison_contract_version=comparison_contract_version,
-        view_kind=view_kind,
-        pair_count=resolved_pair_count,
-    )
-    extended = dict(payload)
-    extended["table_policies"] = [dict(item) for item in table_policies]
-    return compute_history_compare_digest("compare-binding", extended)
 
 
 def deterministic_history_compare_ids(
@@ -151,7 +123,6 @@ __all__ = [
     "HISTORY_COMPARE_OPERATION_ID_KIND",
     "HISTORY_COMPARE_OPERATION_ID_VERSION",
     "compute_accept_binding_fingerprint",
-    "compute_compare_binding_digest",
     "compute_history_compare_digest",
     "deterministic_history_compare_ids",
     "nodes_json_from_bindings",

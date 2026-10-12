@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from tests.support.http_workspace_harness import (
 )
 from tests.support.upload_http_packages import upload_files
 from tests.support.workspace_fixtures import make_identity
+from tests.support.table_rules import _runtime_comparison_ruleset_digest
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 
 pytestmark = pytest.mark.unit
 
@@ -70,6 +73,10 @@ def test_start_preview_returns_202_with_operation_body(env: WorkspaceHttpTestEnv
     assert body["workspace_id"] == workspace["workspace_id"]
     assert body["upload_revision_id"] == upload["upload_revision_id"]
     assert body["generation"] == upload["generation"]
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(body["operation_id"])
+    assert operation.job_payload is not None
+    assert json.loads(operation.job_payload)["comparison_ruleset_digest"] == _runtime_comparison_ruleset_digest()
 
 
 def test_start_preview_requires_registry(env: WorkspaceHttpTestEnvironment, tmp_path: Path) -> None:

@@ -116,6 +116,7 @@ def summary_payload(result: SnapshotMaterializationResult) -> dict[str, Any]:
                 if table.degraded_reason is None
                 else table.degraded_reason.value,
                 "compare_schema_digest": table.compare_schema_digest.value,
+                "business_schema_digest": table.business_schema_digest.value,
                 "raw_content_digest": None
                 if table.raw_content_digest is None
                 else table.raw_content_digest.value,
@@ -130,6 +131,11 @@ def summary_payload(result: SnapshotMaterializationResult) -> dict[str, Any]:
         "row_count_total": result.summary.row_count_total,
         "snapshot_digest": result.snapshot.snapshot_digest.value,
         "raw_state_digest": result.snapshot.raw_state_digest.value,
+        "canonical_state_digest": (
+            None
+            if result.summary.canonical_state_digest is None
+            else result.summary.canonical_state_digest.value
+        ),
         "tables": tables,
     }
 

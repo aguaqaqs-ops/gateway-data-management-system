@@ -168,8 +168,8 @@ def test_assemble_resumes_from_checkpoint_when_repository_is_unavailable(tmp_pat
 @pytest.mark.parametrize(
     ("case_id", "side_document", "match"),
     (
-        ("missing_tables", {"snapshot": {}}, "closed table refs"),
-        ("null_tables", {"tables": None, "snapshot": {}}, "closed table refs"),
+            ("missing_tables", {"snapshot": {}}, "table refs must be a list"),
+            ("null_tables", {"tables": None, "snapshot": {}}, "table refs must be a list"),
         ("invalid_tables_type", {"tables": "bad", "snapshot": {}}, "table refs must be a list"),
     ),
 )
@@ -214,7 +214,7 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
     assert isinstance(baseline_side, dict)
     baseline_side["tables"] = []
 
-    with pytest.raises(CheckpointDecodeError, match="summary table_count mismatch"):
+    with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
         _sides_from_materialize_checkpoint(job_state, harness.artifact_store)
 
 
@@ -236,7 +236,7 @@ def test_materialize_checkpoint_rejects_missing_summary(tmp_path: Path) -> None:
     assert isinstance(baseline_side, dict)
     baseline_side.pop("summary", None)
 
-    with pytest.raises(CheckpointDecodeError, match="summary is invalid"):
+    with pytest.raises(CheckpointDecodeError, match="summary does not match its snapshot and tables"):
         _sides_from_materialize_checkpoint(job_state, harness.artifact_store)
 
 

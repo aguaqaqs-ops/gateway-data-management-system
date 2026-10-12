@@ -2,22 +2,15 @@
 
 from __future__ import annotations
 
-from gateway_shared_kernel import DigestRef
-
 from gateway_backend.capabilities.comparison import (
-    ArtifactScope,
     BoundSnapshotInput,
+    ComparisonFacts,
     ComparisonPlan,
-    ComparisonTablePolicy,
+    ComparisonRequest,
     ComparisonTableStatus,
     DetailedFactsResult,
-    InputCompleteness,
-    PairRole,
-    PairViewKind,
-    TrustedFlowApplicabilityBinding,
-    bind_pair_input,
     compare_plan,
-    plan_pair,
+    plan_comparison,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
@@ -27,6 +20,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import materialize_repository_ref
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
+from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION, TableRulesetSnapshot
 from gateway_backend.application.history.compare_jobs import _bound_from_materialization
 from tests.support.history_compare_job_harness import REPOSITORY_ID
@@ -54,14 +48,32 @@ def materialize_bound_snapshot(
     return _bound_from_materialization(result)
 
 
+def compare_bound_snapshots(
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+    *,
+    pair_id: str = "pair-0",
+) -> ComparisonFacts:
+    plan = plan_comparison(
+        ComparisonRequest(
+            pair_id=pair_id,
+            before=before,
+            current=current,
+            rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        )
+    )
+    assert isinstance(plan, ComparisonPlan)
+    result = compare_plan(plan)
+    assert isinstance(result, DetailedFactsResult) and result.facts is not None
+    return result.facts
+
+
 def oracle_comparison_digest(
     *,
     before_provider: FakeRepositoryTableAccessProvider,
     current_provider: FakeRepositoryTableAccessProvider,
     before_commit: str,
     current_commit: str,
-    table_policies: tuple[ComparisonTablePolicy, ...],
-    compare_binding_digest: str,
     artifact_store: object,
 ) -> str:
     before = materialize_bound_snapshot(
@@ -74,25 +86,7 @@ def oracle_comparison_digest(
         commit_id=current_commit,
         artifact_store=artifact_store,
     )
-    bound = bind_pair_input(
-        pair_id="pair-0",
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
-        before=before,
-        current=current,
-        input_completeness=InputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=TrustedFlowApplicabilityBinding(
-            view_kind=PairViewKind.HISTORY,
-            binding_digest=DigestRef(compare_binding_digest),
-        ),
-        table_policies=table_policies,
-    )
-    planned = plan_pair(bound)
-    assert isinstance(planned, ComparisonPlan)
-    compared = compare_plan(planned)
-    assert isinstance(compared, DetailedFactsResult) and compared.facts is not None
-    return compared.facts.comparison_digest.value
+    return compare_bound_snapshots(before, current).comparison_digest.value
 
 
 def assert_added_table_only_facts(
@@ -101,8 +95,6 @@ def assert_added_table_only_facts(
     current_provider: FakeRepositoryTableAccessProvider,
     before_commit: str,
     current_commit: str,
-    table_policies: tuple[ComparisonTablePolicy, ...],
-    compare_binding_digest: str,
     artifact_store: object,
     expected_record_count: int = 1,
 ) -> None:
@@ -116,25 +108,7 @@ def assert_added_table_only_facts(
         commit_id=current_commit,
         artifact_store=artifact_store,
     )
-    bound = bind_pair_input(
-        pair_id="pair-0",
-        view_kind=PairViewKind.HISTORY,
-        pair_role=PairRole.HISTORY,
-        before=before,
-        current=current,
-        input_completeness=InputCompleteness.FULL,
-        artifact_scope=ArtifactScope.ALL_CHANGES,
-        trusted_flow_binding=TrustedFlowApplicabilityBinding(
-            view_kind=PairViewKind.HISTORY,
-            binding_digest=DigestRef(compare_binding_digest),
-        ),
-        table_policies=table_policies,
-    )
-    planned = plan_pair(bound)
-    assert isinstance(planned, ComparisonPlan)
-    compared = compare_plan(planned)
-    assert isinstance(compared, DetailedFactsResult) and compared.facts is not None
-    facts = compared.facts
+    facts = compare_bound_snapshots(before, current)
     assert len(facts.tables) == 1
     assert facts.tables[0].status is ComparisonTableStatus.ADDED_TABLE
     record_count = sum(len(table.records) for table in facts.tables)

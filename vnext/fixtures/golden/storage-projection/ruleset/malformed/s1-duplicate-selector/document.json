@@ -4,6 +4,7 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "board",
         "link_no"
@@ -33,6 +34,7 @@
     {
       "artifact_scope": "ALL_CHANGES",
       "canonical_key_policy": "EXPLICIT",
+      "compare_excluded_columns": [],
       "compare_key_columns": [
         "board",
         "link_no"

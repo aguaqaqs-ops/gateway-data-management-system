@@ -20,6 +20,7 @@ from gateway_shared_kernel import DigestRef
 from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ArtifactSourceBinding,
+    SnapshotTable,
     SnapshotTableArtifact,
     SnapshotTableReader,
 )
@@ -37,7 +38,8 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 STORAGE_PROJECTION_VERSION = TABLE_RULES_STORAGE_PROJECTION_VERSION
-CANONICALIZATION_MANIFEST_CONTRACT = "3.0.0"
+CANONICALIZATION_MANIFEST_CONTRACT = "3.1.0"
+_READABLE_CANONICALIZATION_MANIFEST_CONTRACTS = frozenset({"3.0.0", "3.1.0"})
 CANONICALIZATION_MANIFEST_MEDIA_TYPE = "application/json"
 REPOSITORY_IMPORT_MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 PACKAGE_VERSION = 1
@@ -106,6 +108,7 @@ class ProjectionDiagnostic:
     severity: ProjectionDiagnosticSeverity
     message: str
     table_name: str | None = None
+    column_name: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.code) is not ProjectionDiagnosticCode:
@@ -118,6 +121,8 @@ class ProjectionDiagnostic:
             raise ValueError("diagnostic message exceeds max_diagnostic_message_bytes")
         if self.table_name is not None:
             object.__setattr__(self, "table_name", canonicalize_rule_identifier(self.table_name))
+        if self.column_name is not None:
+            object.__setattr__(self, "column_name", canonicalize_rule_identifier(self.column_name))
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,8 +293,8 @@ class CanonicalizationManifest:
     manifest_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
-        if self.contract_version != CANONICALIZATION_MANIFEST_CONTRACT:
-            raise ValueError("contract_version must be 3.0.0")
+        if self.contract_version not in _READABLE_CANONICALIZATION_MANIFEST_CONTRACTS:
+            raise ValueError("contract_version must be a supported CanonicalizationManifest version")
         if self.storage_projection_version != STORAGE_PROJECTION_VERSION:
             raise ValueError("storage_projection_version must be 1")
         if self.ruleset_id != RULESET_ID:
@@ -405,6 +410,34 @@ class ProjectionResult:
             raise ValueError("COMPLETE projection requires manifest_digest")
         if self.import_input.canonicalization_manifest_digest != self.manifest.manifest_digest:
             raise ValueError("import input must bind the opaque manifest digest")
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalProjectionResult:
+    status: ProjectionStatus
+    tables: tuple[SnapshotTable, ...]
+    manifest: CanonicalizationManifest | None = None
+    diagnostics: tuple[ProjectionDiagnostic, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not ProjectionStatus:
+            raise ValueError("status must be ProjectionStatus")
+        if type(self.tables) is not tuple:
+            raise ValueError("tables must be a tuple")
+        for table in self.tables:
+            if type(table) is not SnapshotTable:
+                raise ValueError("tables must contain SnapshotTable")
+        _require_diagnostics(self.diagnostics)
+        if self.status is ProjectionStatus.FAILED:
+            if self.tables or self.manifest is not None:
+                raise ValueError("FAILED canonical projection must not publish tables or manifest")
+            return
+        if type(self.manifest) is not CanonicalizationManifest:
+            raise ValueError("COMPLETE canonical projection requires CanonicalizationManifest")
+        if self.manifest.manifest_digest is None:
+            raise ValueError("COMPLETE canonical projection requires manifest_digest")
+        if self.diagnostics:
+            raise ValueError("COMPLETE canonical projection must not contain error diagnostics")
 
 
 @dataclass(frozen=True, slots=True)

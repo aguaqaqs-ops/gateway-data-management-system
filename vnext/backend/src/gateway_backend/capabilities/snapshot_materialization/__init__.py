@@ -1,9 +1,16 @@
 """Public surface of the Snapshot Materialization capability."""
 
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
-    SqlDeclaredTypeMappingError,
     declared_type_for_sql_spelling,
     try_declared_type_for_sql_spelling,
+)
+from gateway_backend.capabilities.snapshot_materialization._digest import (
+    cell_count_key,
+    compare_schema_digest,
+    fast_row_digest_of,
+    fast_row_hash,
+    raw_content_digest_of,
+    row_content_hash,
 )
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     ArtifactPublishError,
@@ -86,6 +93,15 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SqlSnapshotMaterializationRequest,
     BusinessSnapshotMaterializationRequest,
     ValidationStatusPolicy,
+    SqlDeclaredTypeMappingError,
+    business_schema_digest_of,
+    canonical_state_digest_of,
+    enum_set_labels_for_sql_spelling,
+    normalize_sql_type_spelling,
+    snapshot_from_document,
+    snapshot_summary_from_document,
+    snapshot_summary_to_document,
+    snapshot_to_document,
 )
 from gateway_backend.capabilities.snapshot_materialization.materialize import (
     materialize_sql_snapshot,
@@ -93,11 +109,31 @@ from gateway_backend.capabilities.snapshot_materialization.materialize import (
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
     materialize_repository_ref,
 )
+from gateway_backend.capabilities.table_access.contracts import (
+    SourceCell,
+    SourceColumnDescriptor,
+    SourceRow,
+    SqlLogicalType,
+    SqlSetValue,
+)
 
 __all__ = [
     "SqlDeclaredTypeMappingError",
+    "SourceCell",
+    "SourceColumnDescriptor",
+    "SourceRow",
+    "SqlLogicalType",
+    "SqlSetValue",
     "declared_type_for_sql_spelling",
+    "enum_set_labels_for_sql_spelling",
+    "normalize_sql_type_spelling",
     "try_declared_type_for_sql_spelling",
+    "cell_count_key",
+    "compare_schema_digest",
+    "fast_row_digest_of",
+    "fast_row_hash",
+    "raw_content_digest_of",
+    "row_content_hash",
     "ARTIFACT_COMPRESSION_ZSTD",
     "BATCH_READER_CONTRACT_VERSION",
     "BATCH_SCHEMA_METADATA_VERSION",
@@ -161,6 +197,12 @@ __all__ = [
     "SqlSnapshotMaterializationRequest",
     "BusinessSnapshotMaterializationRequest",
     "ValidationStatusPolicy",
+    "business_schema_digest_of",
+    "canonical_state_digest_of",
+    "snapshot_from_document",
+    "snapshot_summary_from_document",
+    "snapshot_summary_to_document",
+    "snapshot_to_document",
     "materialize_sql_snapshot",
     "materialize_business_snapshot",
     "materialize_repository_ref",

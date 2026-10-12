@@ -26,7 +26,6 @@ PRODUCTION_OPENAPI_PATHS = frozenset(
         "/v1/history-compares",
         "/v1/history-compares/{operation_id}",
         "/v1/history-compares/{operation_id}/bundle",
-        "/v1/history-compares/{operation_id}/integrity-ack",
         "/v1/workspaces",
         "/v1/workspaces/{workspace_id}/upload-revisions",
         "/v1/workspaces/{workspace_id}/preview-operations",

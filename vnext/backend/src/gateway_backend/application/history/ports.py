@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from gateway_backend.application.control_transactions import ControlTransaction
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.application.history.contracts import (
     HistoryCompareAcceptanceRecord,
-    HistoryCompareIntegrityRecord,
     HistoryFacts,
     HistoryPageSnapshot,
 )
@@ -102,25 +100,6 @@ class HistoryComparePort(Protocol):
         ref_id: str,
     ) -> str | None:
         """Resolve one node ref to a commit id or None."""
-
-    def has_pending_integrity_for_commit(self, *, repository_id: str, commit_id: str) -> bool:
-        """Return whether a pending integrity incident blocks one commit."""
-
-    def save_integrity_record(self, record: HistoryCompareIntegrityRecord) -> None:
-        """Persist one integrity incident."""
-
-    def get_integrity_by_operation_id(self, operation_id: str) -> HistoryCompareIntegrityRecord | None:
-        """Return integrity incident for one operation."""
-
-    def acknowledge_integrity(
-        self,
-        *,
-        operation_id: str,
-        resolution_reference: str,
-        updated_at: datetime,
-    ) -> HistoryCompareIntegrityRecord:
-        """Acknowledge one integrity incident."""
-
 
 @runtime_checkable
 class HistorySnapshotLoaderPort(Protocol):

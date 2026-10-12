@@ -200,12 +200,10 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
         materialize_step = unit_of_work.operations.get_step(
             history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
         )
     assert operation.status is OperationStatus.SUCCEEDED
-    assert incident is None
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
     assert "table_policies" not in envelope.job_state
@@ -292,7 +290,7 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     assert [item["role"] for item in inputs] == [node_a, node_b, node_c]
 
 
-def test_row_count_mismatch_fails_history_compare_without_integrity_incident(tmp_path: Path) -> None:
+def test_repository_row_count_mismatch_fails_history_compare(tmp_path: Path) -> None:
     commit_id = BASELINE_HEAD.business_baseline_commit_id
     provider = history_compare_provider(
         commit_id=commit_id,
@@ -312,7 +310,6 @@ def test_row_count_mismatch_fails_history_compare_without_integrity_incident(tmp
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
         materialize_step = unit_of_work.operations.get_step(
             history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
         )
@@ -320,7 +317,6 @@ def test_row_count_mismatch_fails_history_compare_without_integrity_incident(tmp
     assert materialize_step.status is StepStatus.FAILED
     assert operation.diagnostic is not None
     assert operation.diagnostic.code == "REPOSITORY_ROW_COUNT_MISMATCH"
-    assert incident is None
 
 
 def test_ruleset_mismatch_publishes_stable_failed_code(tmp_path: Path) -> None:
@@ -639,10 +635,8 @@ def test_cancel_before_materialize_leaves_operation_cancelled(tmp_path: Path) ->
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         persisted = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
     assert persisted.status is OperationStatus.CANCELLED
     assert persisted.ready_closure_ref is None
-    assert incident is None
     # Checkpoint never published on this path; empty protection means no spurious pin only.
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.list_artifact_protection_for_owner(

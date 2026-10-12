@@ -37,7 +37,6 @@ from gateway_backend.http.schemas.history import (
     HistoryCompareResultResponse,
     HistoryNodeRefKindLiteral,
     HistoryNodeRefResponse,
-    IntegrityIncidentResponse,
 )
 from gateway_backend.operations.contracts import OperationRecord, OperationStatus
 
@@ -100,11 +99,6 @@ def get_compare_result(
     unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     artifact_store: object,
 ) -> HistoryCompareResultResponse:
-    integrity = None
-    with unit_of_work_factory(read_only=True) as unit_of_work:
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(operation.operation_id)
-    if incident is not None and operation.status is OperationStatus.FAILED:
-        integrity = IntegrityIncidentResponse.from_record(incident)
     diagnostic = None
     if operation.diagnostic is not None:
         diagnostic = HistoryCompareDiagnosticResponse(
@@ -123,7 +117,6 @@ def get_compare_result(
         operation_id=operation.operation_id,
         status=_public_operation_status(operation.status),
         diagnostic=diagnostic,
-        integrity_incident=integrity,
         result=result,
     )
 

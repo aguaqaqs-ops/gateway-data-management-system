@@ -26,21 +26,13 @@ HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v2"
 HISTORY_COMPARE_MIN_NODES = 2
 HISTORY_COMPARE_MAX_NODES = 3
 HISTORY_COMPARE_VIEW_KIND = "HISTORY"
-HISTORY_INTEGRITY_FAILURE_CLASS = "HISTORY_REPOSITORY_INTEGRITY"
-HISTORY_INTEGRITY_RECOMMENDED_ACTION = "OPERATOR_REVIEW_REQUIRED"
 
 
 class HistoryCompareDiagnosticCode(StrEnum):
     """Worker/job contract diagnostic codes for History compare."""
 
     HISTORY_COMMIT_UNAVAILABLE = "HISTORY_COMMIT_UNAVAILABLE"
-    HISTORY_REPOSITORY_INTEGRITY = "HISTORY_REPOSITORY_INTEGRITY"
     HISTORY_RULESET_VERSION_MISMATCH = "HISTORY_RULESET_VERSION_MISMATCH"
-
-
-class IntegrityAcknowledgementStatus(StrEnum):
-    PENDING = "PENDING"
-    ACKNOWLEDGED = "ACKNOWLEDGED"
 
 
 class HistoryNodeRefKind(StrEnum):
@@ -234,53 +226,6 @@ class HistoryCompareAcceptanceRecord:
             raise ValueError("nodes must be a non-empty tuple")
         if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
             raise ValueError("created_at must be an aware datetime")
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryCompareIntegrityRecord:
-    incident_id: str
-    operation_id: str
-    repository_id: str
-    commit_refs: tuple[dict[str, str], ...]
-    failure_class: str
-    expected_digest: str
-    observed_digest: str
-    affected_tables: tuple[str, ...]
-    recommended_action: str
-    first_seen_at: datetime
-    last_seen_at: datetime
-    acknowledgement_status: IntegrityAcknowledgementStatus
-    resolution_reference: str | None
-    created_at: datetime
-    updated_at: datetime
-
-    def __post_init__(self) -> None:
-        for label in (
-            "incident_id",
-            "operation_id",
-            "repository_id",
-            "failure_class",
-            "expected_digest",
-            "observed_digest",
-            "recommended_action",
-        ):
-            value = getattr(self, label)
-            if type(value) is not str or not value:
-                raise ValueError(f"{label} must be a non-empty string")
-        if type(self.commit_refs) is not tuple:
-            raise ValueError("commit_refs must be a tuple")
-        if type(self.affected_tables) is not tuple:
-            raise ValueError("affected_tables must be a tuple")
-        if type(self.acknowledgement_status) is not IntegrityAcknowledgementStatus:
-            raise ValueError("acknowledgement_status must be IntegrityAcknowledgementStatus")
-        for label in ("first_seen_at", "last_seen_at", "created_at", "updated_at"):
-            value = getattr(self, label)
-            if value.tzinfo is None or value.utcoffset() is None:
-                raise ValueError(f"{label} must be an aware datetime")
-        if self.resolution_reference is not None and (
-            type(self.resolution_reference) is not str or not self.resolution_reference
-        ):
-            raise ValueError("resolution_reference must be a non-empty string or None")
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,9 +6,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from gateway_backend.http.schemas.history import IntegrityIncidentResponse
-
-
 class OperationDiagnosticResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -27,4 +24,3 @@ class OperationResponse(BaseModel):
     started_at: datetime | None = None
     completed_at: datetime | None = None
     diagnostic: OperationDiagnosticResponse | None = None
-    integrity_incident: IntegrityIncidentResponse | None = None

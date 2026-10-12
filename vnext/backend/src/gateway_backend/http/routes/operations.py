@@ -11,7 +11,6 @@ from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, get_workspace_http
 from gateway_backend.http.mappers import operation_to_response
 from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
-from gateway_backend.http.orchestration.history_compare import get_compare_result
 from gateway_backend.http.orchestration.operation_scope import (
     assert_workspace_read_permission,
     authorize_history_compare_operation_read,
@@ -47,16 +46,10 @@ def get_operation_route(
             assert_workspace_read_permission(context)
         raise
     if operation.job_kind == HISTORY_COMPARE_JOB_KIND:
-        acceptance = authorize_history_compare_operation_read(
+        authorize_history_compare_operation_read(
             context=context,
             operation=operation,
             unit_of_work_factory=history_deps.unit_of_work_factory,
-        )
-        compare_result = get_compare_result(
-            operation=operation,
-            acceptance=acceptance,
-            unit_of_work_factory=history_deps.unit_of_work_factory,
-            artifact_store=history_deps.artifact_store,
         )
         response = operation_to_response(operation)
         return OperationResponse(
@@ -68,7 +61,6 @@ def get_operation_route(
             started_at=response.started_at,
             completed_at=response.completed_at,
             diagnostic=response.diagnostic,
-            integrity_incident=compare_result.integrity_incident,
         )
     assert_workspace_read_permission(context)
     authorize_operation_read(

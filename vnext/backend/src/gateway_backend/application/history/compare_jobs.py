@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
@@ -29,12 +28,8 @@ from gateway_backend.application.checkpoints import (
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_JOB_CONTRACT_VERSION,
     HISTORY_COMPARE_JOB_KIND,
-    HISTORY_INTEGRITY_FAILURE_CLASS,
-    HISTORY_INTEGRITY_RECOMMENDED_ACTION,
     HistoryCompareDiagnosticCode,
-    HistoryCompareIntegrityRecord,
     HistoryCompareNodeBinding,
-    IntegrityAcknowledgementStatus,
 )
 from gateway_backend.application.history.ports import (
     HistoryControlTransaction as HistoryCompareControlTransaction,
@@ -638,16 +633,6 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
     return cast(ClaimedExecutor, execute)
 
 
-@dataclass(frozen=True, slots=True)
-class _IntegrityConfirmed(Exception):
-    expected_digest: str
-    observed_digest: str
-    affected_tables: tuple[str, ...]
-    commit_id: str
-    first_observed_at: datetime
-    last_observed_at: datetime
-
-
 def _materialize_distinct_commits(
     payload: HistoryCompareJobPayload,
     deps: HistoryCompareRuntimeDependencies,
@@ -859,66 +844,6 @@ def _run_pair_pipeline(
         )
     except PairPipelineError as exc:
         raise HistoryCompareJobError(str(exc)) from exc
-
-
-def _publish_integrity_failure(
-    *,
-    lease_session: LeaseSession,
-    operation: OperationRecord,
-    step: StepRecord,
-    payload: HistoryCompareJobPayload,
-    confirmed: _IntegrityConfirmed,
-) -> None:
-    incident_id = f"hci-{hashlib.sha256(operation.operation_id.encode()).hexdigest()[:24]}"
-
-    def builder(
-        current_operation: OperationRecord,
-        current_step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, OperationRecord]:
-        transaction = _active_history_compare_transaction.get()
-        if transaction is None:
-            raise HistoryCompareJobError("history compare integrity transaction is not bound")
-        record = HistoryCompareIntegrityRecord(
-            incident_id=incident_id,
-            operation_id=current_operation.operation_id,
-            repository_id=payload.repository_id,
-            commit_refs=({"commit_id": confirmed.commit_id},),
-            failure_class=HISTORY_INTEGRITY_FAILURE_CLASS,
-            expected_digest=confirmed.expected_digest,
-            observed_digest=confirmed.observed_digest,
-            affected_tables=confirmed.affected_tables,
-            recommended_action=HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-            first_seen_at=confirmed.first_observed_at,
-            last_seen_at=confirmed.last_observed_at,
-            acknowledgement_status=IntegrityAcknowledgementStatus.PENDING,
-            resolution_reference=None,
-            created_at=transaction_now,
-            updated_at=transaction_now,
-        )
-        transaction.history_compare.save_integrity_record(record)
-        _release_history_compare_step_protection(transaction, operation_id=current_operation.operation_id)
-        diagnostic = OperationDiagnostic(
-            code=HistoryCompareDiagnosticCode.HISTORY_REPOSITORY_INTEGRITY.value,
-            message=f"repository integrity incident {incident_id}",
-        )
-        terminal_step = _terminal_step(
-            current_step,
-            transaction_now,
-            status=StepStatus.FAILED,
-            diagnostic=diagnostic,
-        )
-        terminal_operation = dataclasses.replace(
-            current_operation,
-            status=OperationStatus.FAILED,
-            diagnostic=diagnostic,
-            updated_at=transaction_now,
-            completed_at=transaction_now,
-            optimistic_version=current_operation.optimistic_version + 1,
-        )
-        return terminal_step, terminal_operation
-
-    lease_session.publish_operation(builder)
 
 
 def _publish_ruleset_mismatch_failure(

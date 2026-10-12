@@ -869,49 +869,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         history_compare_acceptance_records( gateway_device_external_key, business_project_id, idempotency_key )
     """,
 
-    """
-    CREATE TABLE history_compare_integrity_records (
-        incident_id TEXT NOT NULL PRIMARY KEY
-            CHECK (typeof(incident_id) = 'text' AND length(CAST(incident_id AS BLOB)) BETWEEN 1 AND 255),
-        operation_id TEXT NOT NULL UNIQUE
-            CHECK (typeof(operation_id) = 'text' AND length(CAST(operation_id AS BLOB)) BETWEEN 1 AND 255),
-        repository_id TEXT NOT NULL
-            CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
-        commit_refs_json TEXT NOT NULL
-            CHECK (typeof(commit_refs_json) = 'text'),
-        failure_class TEXT NOT NULL
-            CHECK (typeof(failure_class) = 'text' AND length(CAST(failure_class AS BLOB)) BETWEEN 1 AND 255),
-        expected_digest TEXT NOT NULL
-            CHECK (typeof(expected_digest) = 'text' AND length(CAST(expected_digest AS BLOB)) BETWEEN 1 AND 255),
-        observed_digest TEXT NOT NULL
-            CHECK (typeof(observed_digest) = 'text' AND length(CAST(observed_digest AS BLOB)) BETWEEN 1 AND 255),
-        affected_tables_json TEXT NOT NULL
-            CHECK (typeof(affected_tables_json) = 'text'),
-        recommended_action TEXT NOT NULL
-            CHECK
-                (typeof(recommended_action) = 'text' AND length(CAST(recommended_action AS BLOB)) BETWEEN 1 AND 255),
-        first_seen_at_us INTEGER NOT NULL
-            CHECK (typeof(first_seen_at_us) = 'integer'),
-        last_seen_at_us INTEGER NOT NULL
-            CHECK (typeof(last_seen_at_us) = 'integer'),
-        acknowledgement_status TEXT NOT NULL
-            CHECK
-                (typeof(acknowledgement_status) = 'text' AND acknowledgement_status IN ('PENDING', 'ACKNOWLEDGED')),
-        resolution_reference TEXT
-            CHECK
-                (resolution_reference IS NULL OR (typeof(resolution_reference) = 'text' AND length(CAST(resolution_reference AS BLOB)) BETWEEN 1 AND 255)),
-        created_at_us INTEGER NOT NULL
-            CHECK (typeof(created_at_us) = 'integer'),
-        updated_at_us INTEGER NOT NULL
-            CHECK (typeof(updated_at_us) = 'integer')
-    )
-    """,
-
-    """
-    CREATE INDEX history_compare_integrity_pending_commit ON
-        history_compare_integrity_records( repository_id, acknowledgement_status )
-    """,
-
     # Artifact protection.
     """
     CREATE TABLE artifact_protection_intents (

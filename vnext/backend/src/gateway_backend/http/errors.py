@@ -37,7 +37,6 @@ from gateway_backend.application.history.errors import (
     HistoryCompareJobNotRegistered,
     HistoryCompareNodeNotFound,
     HistoryIntegrityFailure,
-    HistoryIntegrityUnresolved,
     HistoryRequestValidation,
 )
 from gateway_backend.application.workspace.errors import (
@@ -291,12 +290,6 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             code="SERVICE_NOT_READY",
             message="history compare service is not ready",
             status_code=503,
-        )
-    if isinstance(exc, HistoryIntegrityUnresolved):
-        return ApiError(
-            code="HISTORY_INTEGRITY_UNRESOLVED",
-            message="history integrity incident is unresolved",
-            status_code=409,
         )
     if isinstance(exc, HistoryApplicationError):
         return ApiError(

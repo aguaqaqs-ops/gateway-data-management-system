@@ -29,7 +29,6 @@ from gateway_backend.application.history.errors import (
     HistoryCompareIdempotencyConflict,
     HistoryCompareJobNotRegistered,
     HistoryCompareNodeNotFound,
-    HistoryIntegrityUnresolved,
     HistoryRequestValidation,
 )
 from gateway_backend.application.history.compare_jobs import (
@@ -296,13 +295,6 @@ def validate_history_compare_binding(
             operation_id=prior.operation_id,
             acceptance_id=prior.acceptance_id,
         )
-
-    for node in resolved_nodes:
-        if compare_port.has_pending_integrity_for_commit(
-            repository_id=fresh_scope.repository_id,
-            commit_id=node.commit_id,
-        ):
-            raise HistoryIntegrityUnresolved
 
     operation_id, acceptance_id = deterministic_history_compare_ids(
         gateway_device_external_key=command.context.gateway_device_external_key,

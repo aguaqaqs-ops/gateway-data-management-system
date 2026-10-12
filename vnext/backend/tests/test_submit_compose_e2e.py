@@ -159,7 +159,7 @@ def _archive_single_submission(client: httpx.Client, submission_id: str) -> dict
     preview = client.post("/v1/archive-plan-preview", json={"selected": selected})
     assert preview.status_code == 200, preview.text
     preview_body = cast(dict[str, Any], preview.json())
-    assert preview_body["can_start"] is True
+    assert preview_body["can_start"] is False
     head = cast(dict[str, Any], preview_body["head"])
     confirmation = client.post(
         "/v1/archive-confirmations",
@@ -176,17 +176,23 @@ def _archive_single_submission(client: httpx.Client, submission_id: str) -> dict
         },
     )
     assert confirmation.status_code == 201, confirmation.text
+    ready = client.post("/v1/archive-plan-preview", json={"selected": selected})
+    assert ready.status_code == 200, ready.text
+    ready_body = cast(dict[str, Any], ready.json())
+    assert ready_body["can_start"] is True
+    assert ready_body["audit_validity"] is True
+    ready_head = cast(dict[str, Any], ready_body["head"])
     started = client.post(
         "/v1/archives",
         headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key="removed-tables-start"),
         json={
-            "expected_baseline_node_id": head["business_baseline_node_id"],
-            "expected_baseline_head_version": head["baseline_head_version"],
-            "candidate_set_digest": preview_body["candidate_set_digest"],
+            "expected_baseline_node_id": ready_head["business_baseline_node_id"],
+            "expected_baseline_head_version": ready_head["baseline_head_version"],
+            "candidate_set_digest": ready_body["candidate_set_digest"],
             "selected": selected,
             "confirmation_refs": [
                 {
-                    "subject_digest": preview_body["selection_subject_digest"],
+                    "subject_digest": ready_body["selection_subject_digest"],
                     "sequence": confirmation.json()["sequence"],
                 }
             ],

@@ -119,20 +119,30 @@ def _history_facts_failure_detail(stderr: str) -> str:
                 file_name = frame.get("file")
                 line_number = frame.get("line")
                 function_name = frame.get("function")
-                if (
-                    isinstance(file_name, str)
-                    and re.fullmatch(r"[A-Za-z0-9_.<>-]{1,100}", file_name)
-                    and type(line_number) is int
-                    and line_number > 0
-                    and isinstance(function_name, str)
-                    and re.fullmatch(r"[A-Za-z0-9_.<>-]{1,100}", function_name)
-                ):
-                    parts.append(f"at {file_name}:{line_number} in {function_name}")
+                safe_file = (
+                    re.sub(r"[^A-Za-z0-9_.<>-]", "_", file_name)[:100]
+                    if isinstance(file_name, str)
+                    else ""
+                )
+                safe_function = (
+                    re.sub(r"[^A-Za-z0-9_.<>-]", "_", function_name)[:100]
+                    if isinstance(function_name, str)
+                    else ""
+                )
+                if type(line_number) is int and line_number > 0:
+                    if safe_file and safe_function:
+                        parts.append(f"at {safe_file}:{line_number} in {safe_function}")
+                    else:
+                        parts.append(f"at remote line {line_number}")
+            else:
+                frame_count = diagnostic.get("traceback_frame_count")
+                if type(frame_count) is int and frame_count >= 0:
+                    parts.append(f"traceback_frames={frame_count}")
             key = diagnostic.get("key")
             if isinstance(key, dict):
                 key_kind = key.get("kind")
                 key_value = key.get("value")
-                if key_kind in {"field", "table", "side"} and isinstance(key_value, str):
+                if key_kind in {"field", "column", "table", "side", "operation"} and isinstance(key_value, str):
                     if re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", key_value):
                         parts.append(f"key={key_kind}:{key_value}")
                 elif key_kind == "redacted":
@@ -813,9 +823,11 @@ from pathlib import Path
 
 def _safe_history_diagnostic(exc_type, exc_value, traceback_object):
     try:
-        frames = traceback.extract_tb(traceback_object)
+        effective_traceback = traceback_object or getattr(exc_value, '__traceback__', None)
+        frames = traceback.extract_tb(effective_traceback) if effective_traceback is not None else []
         frame = frames[-1] if frames else None
         diagnostic = {'exception': exc_type.__name__}
+        diagnostic['traceback_frame_count'] = len(frames)
         if frame is not None:
             diagnostic['frame'] = {
                 'file': Path(frame.filename).name,
@@ -830,13 +842,31 @@ def _safe_history_diagnostic(exc_type, exc_value, traceback_object):
                     'table_name', 'table_status', 'interval', 'row_count',
                     'before_occupancy', 'current_occupancy', 'diagnostics',
                     'records_closure_ref', 'tables', 'refs',
+                    'artifact_id', 'media_type', 'size_bytes', 'raw_sha256',
+                    'changed_columns', 'before_values', 'current_values',
+                    'field_changes', 'row_identity', 'before_position',
+                    'current_position', 'interval_digest', 'before_start',
+                    'before_end', 'current_start', 'current_end',
+                    'records', 'records_ref', 'records_manifest_ref',
+                    'records_manifest_digest', 'records_content_digest',
+                    'record_count', 'family', 'contract_version',
+                    'document_type', 'job_state', 'prior_output_refs',
+                    'checkpoint_ref', 'step_id', 'kind', 'column_name',
                 }
                 ordered = globals().get('ordered_names', set())
                 keyless = globals().get('keyless_names', set())
+                tables = globals().get('known_table_names', set())
+                columns = globals().get('known_column_names', set())
                 if raw_key in known_fields:
                     diagnostic['key'] = {'kind': 'field', 'value': raw_key}
-                elif raw_key in ordered | keyless:
+                elif raw_key in columns:
+                    diagnostic['key'] = {'kind': 'column', 'value': raw_key}
+                elif raw_key in ordered | keyless | tables:
                     diagnostic['key'] = {'kind': 'table', 'value': raw_key}
+                elif raw_key == globals().get('operation_id'):
+                    diagnostic['key'] = {'kind': 'operation', 'value': 'history-compare'}
+                elif raw_key in globals().get('sides', {}):
+                    diagnostic['key'] = {'kind': 'side', 'value': 'snapshot'}
                 elif raw_key == globals().get('before_commit'):
                     diagnostic['key'] = {'kind': 'side', 'value': 'before'}
                 elif raw_key == globals().get('current_commit'):
@@ -881,6 +911,12 @@ envelope = load_checkpoint_envelope(store, artifact_ref_from_dict(checkpoint))
 sides = _sides_from_materialize_checkpoint(envelope.job_state, store)
 before = sides[before_commit]
 current = sides[current_commit]
+known_column_names = {
+    column.name
+    for side in (before, current)
+    for table in side.tables
+    for column in table.descriptor.columns
+}
 surface = json.loads(store.locate(surface_ref))
 surface_tables_raw = surface.get('tables')
 surface_refs = surface.get('refs')
@@ -894,6 +930,7 @@ for item in surface_tables_raw:
     if name in surface_tables:
         raise SystemExit('History surface repeats a table')
     surface_tables[name] = item
+known_table_names = set(surface_tables)
 if any(item.get('table_status') == 'DEGRADED' for item in surface_tables.values()):
     raise SystemExit('a table degraded during History compare')
 records_ref_raw = surface_refs.get('records_closure_ref')

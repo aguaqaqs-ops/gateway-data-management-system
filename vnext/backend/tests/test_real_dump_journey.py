@@ -144,11 +144,21 @@ def test_history_facts_failure_does_not_echo_untrusted_exception_text() -> None:
 def test_history_facts_failure_reports_sanitized_exception_location() -> None:
     detail = _history_facts_failure_detail(
         'S2B_HISTORY_DIAGNOSTIC={"exception":"KeyError",'
-        '"frame":{"file":"<string>","line":166,"function":"<module>"},'
+        '"frame":{"file":"<string> odd","line":166,"function":"<module> odd"},'
         '"key":{"kind":"field","value":"no"}}\n'
     )
 
-    assert detail == "remote KeyError; at <string>:166 in <module>; key=field:no"
+    assert detail == "remote KeyError; at <string>_odd:166 in <module>_odd; key=field:no"
+
+
+def test_history_facts_failure_reports_missing_traceback_frames() -> None:
+    detail = _history_facts_failure_detail(
+        'S2B_HISTORY_DIAGNOSTIC={"exception":"KeyError",'
+        '"traceback_frame_count":0,"key":{"kind":"redacted",'
+        '"sha256":"1a28676a200ccdab"}}\n'
+    )
+
+    assert detail == "remote KeyError; traceback_frames=0; key_sha256=1a28676a200ccdab"
 
 
 @pytest.mark.parametrize(

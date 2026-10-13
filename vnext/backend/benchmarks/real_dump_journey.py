@@ -911,10 +911,12 @@ envelope = load_checkpoint_envelope(store, artifact_ref_from_dict(checkpoint))
 sides = _sides_from_materialize_checkpoint(envelope.job_state, store)
 before = sides[before_commit]
 current = sides[current_commit]
+if before.table_set is None or current.table_set is None:
+    raise SystemExit('History checkpoint side is missing a snapshot table set')
 known_column_names = {
     column.name
     for side in (before, current)
-    for table in side.tables
+    for table in side.table_set.tables
     for column in table.descriptor.columns
 }
 surface = json.loads(store.locate(surface_ref))
@@ -946,7 +948,12 @@ def scalar_integer(value):
     return None
 
 def read_ordered_rows(snapshot, name):
-    table = next((item for item in snapshot.tables if item.descriptor.table_name == name), None)
+    if snapshot.table_set is None:
+        raise SystemExit('ordered snapshot has no table set')
+    table = next(
+        (item for item in snapshot.table_set.tables if item.descriptor.table_name == name),
+        None,
+    )
     if table is None or table.reader is None:
         return []
     descriptor = table.descriptor

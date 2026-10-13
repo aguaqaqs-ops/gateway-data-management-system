@@ -164,7 +164,7 @@ def test_history_facts_failure_reports_missing_traceback_frames() -> None:
     assert detail == "remote KeyError; traceback_frames=0; key_sha256=1a28676a200ccdab"
 
 
-def test_history_fact_probe_passes_inputs_to_backend_exec(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_history_fact_probe_uses_bound_checkpoint_table_sets(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, Any] = {}
 
     def fake_run_compose(
@@ -200,6 +200,10 @@ def test_history_fact_probe_passes_inputs_to_backend_exec(monkeypatch: pytest.Mo
 
     args = calls["args"]
     assert args[:2] == ("exec", "-T")
+    remote_script = args[-1]
+    assert "for table in side.table_set.tables" in remote_script
+    assert "snapshot.table_set.tables" in remote_script
+    assert "snapshot.tables" not in remote_script
     remote_environment = {
         name: value
         for index, argument in enumerate(args)

@@ -346,6 +346,10 @@ def _require(response: httpx.Response, expected: int, label: str) -> dict[str, A
     return cast(dict[str, Any], payload)
 
 
+def _emit_progress(stage: str, event: str) -> None:
+    print(json.dumps({"event": event, "stage": stage}, sort_keys=True), flush=True)
+
+
 def _poll_operation(
     client: httpx.Client,
     operation_id: str,
@@ -353,6 +357,7 @@ def _poll_operation(
     stage: str,
     timeout_seconds: int = 7_200,
 ) -> dict[str, Any]:
+    _emit_progress(stage, "operation_started")
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         payload = _require(client.get(f"/v1/operations/{operation_id}"), 200, "operation status")
@@ -362,9 +367,10 @@ def _poll_operation(
                 diagnostic = payload.get("diagnostic")
                 code = diagnostic.get("code") if isinstance(diagnostic, dict) else "unknown"
                 raise JourneyFailure(f"{stage} operation ended {status}, diagnostic={code}")
+            _emit_progress(stage, "operation_succeeded")
             return payload
         time.sleep(2.0)
-    raise JourneyFailure("operation did not reach a terminal state before timeout")
+    raise JourneyFailure(f"{stage} operation did not reach a terminal state before timeout")
 
 
 def _workspace(client: httpx.Client) -> dict[str, Any]:
@@ -420,6 +426,7 @@ def _preview(
     baseline_node_id: str,
     baseline_head_version: int,
     idempotency_key: str,
+    stage: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     accepted = _require(
         client.post(
@@ -437,7 +444,7 @@ def _preview(
         202,
         "preview acceptance",
     )
-    _poll_operation(client, str(accepted["operation_id"]), stage="Preview")
+    _poll_operation(client, str(accepted["operation_id"]), stage=stage)
     refreshed = _workspace(client)
     result_id = refreshed.get("current_preview_result_id")
     if type(result_id) is not str or not result_id:
@@ -548,6 +555,7 @@ def _submit(
     baseline_node_id: str,
     baseline_head_version: int,
     idempotency_key: str,
+    stage: str,
     expect_no_change: bool = False,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
@@ -571,7 +579,8 @@ def _submit(
             raise JourneyFailure("repeat submit did not return NO_CANONICAL_CHANGE")
         return {"result": "NO_CANONICAL_CHANGE"}
     accepted = _require(response, 202, "submit acceptance")
-    _poll_operation(client, str(accepted["operation_id"]), stage="Submit")
+    _poll_operation(client, str(accepted["operation_id"]), stage=stage)
+    _emit_progress(stage, "submit_finalization_started")
     deadline = time.monotonic() + 7_200
     attempt: dict[str, Any] | None = None
     while time.monotonic() < deadline:
@@ -584,7 +593,7 @@ def _submit(
             break
         time.sleep(2.0)
     if attempt is None or attempt.get("state") != "FINALIZED":
-        raise JourneyFailure("submit attempt did not finalize")
+        raise JourneyFailure(f"{stage} attempt did not finalize")
     submission = _require(
         client.get(
             f"/v1/workspaces/{workspace['workspace_id']}/submissions/{attempt['submission_id']}"
@@ -594,6 +603,7 @@ def _submit(
     )
     if type(submission.get("repository_commit_id")) is not str:
         raise JourneyFailure("submission did not expose its Repository commit id")
+    _emit_progress(stage, "submit_finalized")
     return submission
 
 
@@ -1184,12 +1194,15 @@ def _history_surface_ref(bundle: Mapping[str, Any]) -> Mapping[str, Any]:
 def _history_compare(
     client: httpx.Client,
     *,
+    tier: str,
     v1_submission_id: str,
     v1_commit_id: str,
     v2_submission_id: str,
     v2_commit_id: str,
     idempotency_key: str,
 ) -> tuple[dict[str, Any], str]:
+    stage = f"{tier} History"
+    _emit_progress(stage, "history_compare_started")
     accepted = _require(
         client.post(
             "/v1/history-compares",
@@ -1223,7 +1236,7 @@ def _history_compare(
     if terminal is None or terminal.get("status") != "SUCCEEDED":
         diagnostic = terminal.get("diagnostic") if terminal is not None else None
         code = diagnostic.get("code") if isinstance(diagnostic, dict) else "timeout"
-        raise JourneyFailure(f"History compare did not succeed, diagnostic={code}")
+        raise JourneyFailure(f"{stage} compare did not succeed, diagnostic={code}")
     result = terminal.get("result")
     if not isinstance(result, dict) or not isinstance(result.get("pairs"), list) or len(result["pairs"]) != 1:
         raise JourneyFailure("History compare result has an unexpected pair count")
@@ -1242,6 +1255,7 @@ def _history_compare(
         raise JourneyFailure("History compare bundle was not a JSON manifest") from exc
     if not isinstance(bundle.get("closure_entries"), list):
         raise JourneyFailure("History compare bundle does not have closure entries")
+    _emit_progress(stage, "history_compare_succeeded")
     return {"operation_id": operation_id, "pair": pair, "bundle": bundle}, operation_id
 
 
@@ -1290,6 +1304,7 @@ def _run_tier(
             baseline_node_id=BASELINE_NODE_ID,
             baseline_head_version=0,
             idempotency_key=f"{project_name}-{tier}-v1-preview",
+            stage=f"{tier} v1 Preview",
         )
         v1_summary = _assert_preview_summaries(v1_manifest, unchanged=False)
         v1_keyless_names = _keyless_fallback_table_names(
@@ -1304,6 +1319,7 @@ def _run_tier(
             baseline_node_id=BASELINE_NODE_ID,
             baseline_head_version=0,
             idempotency_key=f"{project_name}-{tier}-v1-submit",
+            stage=f"{tier} v1 Submit",
         )
         v1_submission_id = str(v1_submission["submission_id"])
         v1_commit_id = str(v1_submission["repository_commit_id"])
@@ -1338,6 +1354,7 @@ def _run_tier(
             baseline_node_id=baseline_node_id,
             baseline_head_version=baseline_head_version,
             idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
+            stage=f"{tier} repeat v1 Preview",
         )
         repeat_summary = _assert_preview_summaries(repeat_manifest, unchanged=True)
         repeat_keyless_names = _keyless_fallback_table_names(
@@ -1354,6 +1371,7 @@ def _run_tier(
             baseline_node_id=baseline_node_id,
             baseline_head_version=baseline_head_version,
             idempotency_key=f"{project_name}-{tier}-repeat-v1-submit",
+            stage=f"{tier} repeat v1 Submit",
             expect_no_change=True,
         )
 
@@ -1371,6 +1389,7 @@ def _run_tier(
             baseline_node_id=baseline_node_id,
             baseline_head_version=baseline_head_version,
             idempotency_key=f"{project_name}-{tier}-v2-preview",
+            stage=f"{tier} v2 Preview",
         )
         v2_summary = _assert_preview_summaries(v2_manifest, unchanged=False)
         v2_keyless_names = _keyless_fallback_table_names(
@@ -1385,6 +1404,7 @@ def _run_tier(
             baseline_node_id=baseline_node_id,
             baseline_head_version=baseline_head_version,
             idempotency_key=f"{project_name}-{tier}-v2-submit",
+            stage=f"{tier} v2 Submit",
         )
         v2_submission_id = str(v2_submission["submission_id"])
         v2_commit_id = str(v2_submission["repository_commit_id"])
@@ -1399,6 +1419,7 @@ def _run_tier(
         _approve(client, v2_submission_id, f"{project_name}-{tier}-v2-review")
         history_result, operation_id = _history_compare(
             client,
+            tier=tier,
             v1_submission_id=v1_submission_id,
             v1_commit_id=v1_commit_id,
             v2_submission_id=v2_submission_id,

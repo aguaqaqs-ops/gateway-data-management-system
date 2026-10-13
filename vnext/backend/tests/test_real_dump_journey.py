@@ -13,6 +13,7 @@ from benchmarks.real_dump_journey import (
     _history_facts_failure_detail,
     _history_surface_ref,
     _keyless_fallback_table_names,
+    _poll_operation,
     _summary_history_facts,
 )
 
@@ -133,6 +134,21 @@ def test_history_facts_failure_reports_a_fixed_validation_message() -> None:
         )
         == "blank records do not match net skeleton interval occupancy changes"
     )
+
+
+def test_operation_timeout_identifies_its_tier_and_stage(capsys: pytest.CaptureFixture[str]) -> None:
+    stage = "t3 v2 Submit"
+
+    with pytest.raises(
+        JourneyFailure,
+        match="t3 v2 Submit operation did not reach a terminal state",
+    ):
+        _poll_operation(Any, "opaque-operation-id", stage=stage, timeout_seconds=0)
+
+    assert json.loads(capsys.readouterr().out) == {
+        "event": "operation_started",
+        "stage": stage,
+    }
 
 
 def test_history_facts_failure_does_not_echo_untrusted_exception_text() -> None:

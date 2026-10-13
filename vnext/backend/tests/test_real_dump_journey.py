@@ -141,6 +141,16 @@ def test_history_facts_failure_does_not_echo_untrusted_exception_text() -> None:
     assert "sensitive-row-value" not in detail
 
 
+def test_history_facts_failure_reports_sanitized_exception_location() -> None:
+    detail = _history_facts_failure_detail(
+        'S2B_HISTORY_DIAGNOSTIC={"exception":"KeyError",'
+        '"frame":{"file":"<string>","line":166,"function":"<module>"},'
+        '"key":{"kind":"field","value":"no"}}\n'
+    )
+
+    assert detail == "remote KeyError; at <string>:166 in <module>; key=field:no"
+
+
 @pytest.mark.parametrize(
     ("case", "bundle"),
     HISTORY_BUNDLE_SURFACE_REF_FAILURES,

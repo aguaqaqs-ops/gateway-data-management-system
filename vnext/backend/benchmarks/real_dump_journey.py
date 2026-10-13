@@ -103,6 +103,43 @@ def _history_facts_failure_detail(stderr: str) -> str:
         for message in _HISTORY_FACTS_VALIDATION_MESSAGES:
             if line == message or line.endswith(f": {message}"):
                 return message
+        if line.startswith("S2B_HISTORY_DIAGNOSTIC="):
+            try:
+                diagnostic = json.loads(line.split("=", maxsplit=1)[1])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(diagnostic, dict):
+                continue
+            exception_name = diagnostic.get("exception")
+            frame = diagnostic.get("frame")
+            parts = ["remote exception"]
+            if isinstance(exception_name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", exception_name):
+                parts = [f"remote {exception_name}"]
+            if isinstance(frame, dict):
+                file_name = frame.get("file")
+                line_number = frame.get("line")
+                function_name = frame.get("function")
+                if (
+                    isinstance(file_name, str)
+                    and re.fullmatch(r"[A-Za-z0-9_.<>-]{1,100}", file_name)
+                    and type(line_number) is int
+                    and line_number > 0
+                    and isinstance(function_name, str)
+                    and re.fullmatch(r"[A-Za-z0-9_.<>-]{1,100}", function_name)
+                ):
+                    parts.append(f"at {file_name}:{line_number} in {function_name}")
+            key = diagnostic.get("key")
+            if isinstance(key, dict):
+                key_kind = key.get("kind")
+                key_value = key.get("value")
+                if key_kind in {"field", "table", "side"} and isinstance(key_value, str):
+                    if re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", key_value):
+                        parts.append(f"key={key_kind}:{key_value}")
+                elif key_kind == "redacted":
+                    fingerprint = key.get("sha256")
+                    if isinstance(fingerprint, str) and re.fullmatch(r"[0-9a-f]{16}", fingerprint):
+                        parts.append(f"key_sha256={fingerprint}")
+            return "; ".join(parts)
     for line in reversed(lines):
         match = re.match(r"^([A-Za-z_][A-Za-z0-9_.]*)(?::|$)", line)
         if match:
@@ -770,7 +807,7 @@ def _summary_history_facts(
     """Read and validate published History facts in-container without row output."""
 
     remote_script = r'''
-import bisect, json, sqlite3
+import bisect, hashlib, json, sqlite3, sys, traceback
 from collections import Counter
 from pathlib import Path
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
@@ -790,6 +827,38 @@ current_commit = json.loads(__import__('os').environ['S2B_HISTORY_CURRENT'])
 ordered_names = set(json.loads(__import__('os').environ['S2B_ORDERED_TABLES']))
 keyless_names = set(json.loads(__import__('os').environ['S2B_KEYLESS_TABLES']))
 surface_ref = artifact_ref_from_dict(json.loads(__import__('os').environ['S2B_HISTORY_SURFACE_REF']))
+
+def _safe_history_diagnostic(exc_type, exc_value, traceback_object):
+    frames = traceback.extract_tb(traceback_object)
+    frame = frames[-1] if frames else None
+    diagnostic = {'exception': exc_type.__name__}
+    if frame is not None:
+        diagnostic['frame'] = {
+            'file': Path(frame.filename).name,
+            'line': frame.lineno,
+            'function': frame.name,
+        }
+    if isinstance(exc_value, KeyError) and exc_value.args:
+        raw_key = exc_value.args[0]
+        if isinstance(raw_key, str) and raw_key in {
+            'gid', 'no', 'record_kind', 'semantic_kind', 'entity_key_kind',
+            'table_name', 'table_status', 'interval', 'row_count',
+            'before_occupancy', 'current_occupancy', 'diagnostics',
+            'records_closure_ref', 'tables', 'refs',
+        }:
+            diagnostic['key'] = {'kind': 'field', 'value': raw_key}
+        elif isinstance(raw_key, str) and raw_key in ordered_names | keyless_names:
+            diagnostic['key'] = {'kind': 'table', 'value': raw_key}
+        elif raw_key == before_commit:
+            diagnostic['key'] = {'kind': 'side', 'value': 'before'}
+        elif raw_key == current_commit:
+            diagnostic['key'] = {'kind': 'side', 'value': 'current'}
+        else:
+            key_digest = hashlib.sha256(repr(raw_key).encode('utf-8', errors='replace')).hexdigest()[:16]
+            diagnostic['key'] = {'kind': 'redacted', 'sha256': key_digest}
+    print('S2B_HISTORY_DIAGNOSTIC=' + json.dumps(diagnostic, sort_keys=True), file=sys.stderr)
+
+sys.excepthook = _safe_history_diagnostic
 step_id = history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
 connection = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
 row = connection.execute('SELECT checkpoint_ref FROM step_records WHERE step_id = ?', (step_id,)).fetchone()

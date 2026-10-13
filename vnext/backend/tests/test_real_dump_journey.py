@@ -8,6 +8,7 @@ import pytest
 
 from benchmarks.real_dump_journey import (
     JourneyFailure,
+    _history_facts_failure_detail,
     _history_surface_ref,
     _keyless_fallback_table_names,
 )
@@ -119,6 +120,25 @@ def test_history_bundle_surface_reference_is_selected_from_its_single_pair() -> 
     }
 
     assert _history_surface_ref(bundle) == surface_ref
+
+
+def test_history_facts_failure_reports_a_fixed_validation_message() -> None:
+    assert (
+        _history_facts_failure_detail(
+            "Traceback (most recent call last):\nSystemExit: "
+            "blank records do not match net skeleton interval occupancy changes\n"
+        )
+        == "blank records do not match net skeleton interval occupancy changes"
+    )
+
+
+def test_history_facts_failure_does_not_echo_untrusted_exception_text() -> None:
+    detail = _history_facts_failure_detail(
+        "Traceback (most recent call last):\nKeyError: 'sensitive-row-value'\n"
+    )
+
+    assert detail.startswith("remote KeyError; stderr_sha256=")
+    assert "sensitive-row-value" not in detail
 
 
 @pytest.mark.parametrize(

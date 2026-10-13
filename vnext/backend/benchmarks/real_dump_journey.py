@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,46 @@ TERMINAL_OPERATION_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 
 class JourneyFailure(RuntimeError):
     """A bounded failure without response bodies that could contain row data."""
+
+
+_HISTORY_FACTS_VALIDATION_MESSAGES = frozenset(
+    {
+        "history materialize checkpoint is unavailable",
+        "History surface is invalid",
+        "History surface table is invalid",
+        "History surface repeats a table",
+        "a table degraded during History compare",
+        "History surface has no records closure",
+        "ordered snapshot has an invalid gid or position",
+        "History surface omitted a keyless fallback table",
+        "KEY_DEGRADED was reported for a keyless fallback table",
+        "History surface omitted an IEC104 ordered table",
+        "an IEC104 ordered table degraded during History compare",
+        "blank interval record exposed field-level changes",
+        "blank records do not match net skeleton interval occupancy changes",
+        "ordered move count exceeds the minimum required by real row order",
+        "History surface omitted one or more IEC104 ordered tables",
+    }
+)
+
+
+def _history_facts_failure_detail(stderr: str) -> str:
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    for line in reversed(lines):
+        for message in _HISTORY_FACTS_VALIDATION_MESSAGES:
+            if line == message or line.endswith(f": {message}"):
+                return message
+    for line in reversed(lines):
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_.]*)(?::|$)", line)
+        if match:
+            exception_name = match.group(1).rsplit(".", maxsplit=1)[-1]
+            if exception_name.endswith(("Error", "Exception")) or exception_name == "SystemExit":
+                fingerprint = hashlib.sha256(stderr.encode("utf-8", errors="replace")).hexdigest()[:16]
+                return f"remote {exception_name}; stderr_sha256={fingerprint}"
+    if not lines:
+        return "remote command returned no diagnostic"
+    fingerprint = hashlib.sha256(stderr.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"remote command failed; stderr_sha256={fingerprint}"
 
 
 def _repo_root() -> Path:
@@ -973,7 +1014,11 @@ print(json.dumps({
         timeout=900.0,
     )
     if result.returncode != 0:
-        raise JourneyFailure("aggregate History facts could not be verified in the backend container")
+        detail = _history_facts_failure_detail(result.stderr)
+        raise JourneyFailure(
+            "aggregate History facts could not be verified in the backend container "
+            f"(exit={result.returncode}; {detail})"
+        )
     try:
         payload = json.loads(result.stdout.strip().splitlines()[-1])
     except (IndexError, json.JSONDecodeError) as exc:

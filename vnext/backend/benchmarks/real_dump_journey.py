@@ -810,6 +810,48 @@ def _summary_history_facts(
 import bisect, hashlib, json, sqlite3, sys, traceback
 from collections import Counter
 from pathlib import Path
+
+def _safe_history_diagnostic(exc_type, exc_value, traceback_object):
+    try:
+        frames = traceback.extract_tb(traceback_object)
+        frame = frames[-1] if frames else None
+        diagnostic = {'exception': exc_type.__name__}
+        if frame is not None:
+            diagnostic['frame'] = {
+                'file': Path(frame.filename).name,
+                'line': frame.lineno,
+                'function': frame.name,
+            }
+        if isinstance(exc_value, KeyError) and exc_value.args:
+            raw_key = exc_value.args[0]
+            if type(raw_key) is str:
+                known_fields = {
+                    'gid', 'no', 'record_kind', 'semantic_kind', 'entity_key_kind',
+                    'table_name', 'table_status', 'interval', 'row_count',
+                    'before_occupancy', 'current_occupancy', 'diagnostics',
+                    'records_closure_ref', 'tables', 'refs',
+                }
+                ordered = globals().get('ordered_names', set())
+                keyless = globals().get('keyless_names', set())
+                if raw_key in known_fields:
+                    diagnostic['key'] = {'kind': 'field', 'value': raw_key}
+                elif raw_key in ordered | keyless:
+                    diagnostic['key'] = {'kind': 'table', 'value': raw_key}
+                elif raw_key == globals().get('before_commit'):
+                    diagnostic['key'] = {'kind': 'side', 'value': 'before'}
+                elif raw_key == globals().get('current_commit'):
+                    diagnostic['key'] = {'kind': 'side', 'value': 'current'}
+                else:
+                    key_digest = hashlib.sha256(raw_key.encode('utf-8', errors='replace')).hexdigest()[:16]
+                    diagnostic['key'] = {'kind': 'redacted', 'sha256': key_digest}
+            else:
+                diagnostic['key'] = {'kind': 'non-string'}
+        sys.stderr.write('S2B_HISTORY_DIAGNOSTIC=' + json.dumps(diagnostic, sort_keys=True) + '\n')
+    except BaseException:
+        sys.stderr.write('S2B_HISTORY_DIAGNOSTIC={"exception":"diagnostic_failure"}\n')
+
+sys.excepthook = _safe_history_diagnostic
+
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_MATERIALIZE,
@@ -828,37 +870,6 @@ ordered_names = set(json.loads(__import__('os').environ['S2B_ORDERED_TABLES']))
 keyless_names = set(json.loads(__import__('os').environ['S2B_KEYLESS_TABLES']))
 surface_ref = artifact_ref_from_dict(json.loads(__import__('os').environ['S2B_HISTORY_SURFACE_REF']))
 
-def _safe_history_diagnostic(exc_type, exc_value, traceback_object):
-    frames = traceback.extract_tb(traceback_object)
-    frame = frames[-1] if frames else None
-    diagnostic = {'exception': exc_type.__name__}
-    if frame is not None:
-        diagnostic['frame'] = {
-            'file': Path(frame.filename).name,
-            'line': frame.lineno,
-            'function': frame.name,
-        }
-    if isinstance(exc_value, KeyError) and exc_value.args:
-        raw_key = exc_value.args[0]
-        if isinstance(raw_key, str) and raw_key in {
-            'gid', 'no', 'record_kind', 'semantic_kind', 'entity_key_kind',
-            'table_name', 'table_status', 'interval', 'row_count',
-            'before_occupancy', 'current_occupancy', 'diagnostics',
-            'records_closure_ref', 'tables', 'refs',
-        }:
-            diagnostic['key'] = {'kind': 'field', 'value': raw_key}
-        elif isinstance(raw_key, str) and raw_key in ordered_names | keyless_names:
-            diagnostic['key'] = {'kind': 'table', 'value': raw_key}
-        elif raw_key == before_commit:
-            diagnostic['key'] = {'kind': 'side', 'value': 'before'}
-        elif raw_key == current_commit:
-            diagnostic['key'] = {'kind': 'side', 'value': 'current'}
-        else:
-            key_digest = hashlib.sha256(repr(raw_key).encode('utf-8', errors='replace')).hexdigest()[:16]
-            diagnostic['key'] = {'kind': 'redacted', 'sha256': key_digest}
-    print('S2B_HISTORY_DIAGNOSTIC=' + json.dumps(diagnostic, sort_keys=True), file=sys.stderr)
-
-sys.excepthook = _safe_history_diagnostic
 step_id = history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
 connection = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
 row = connection.execute('SELECT checkpoint_ref FROM step_records WHERE step_id = ?', (step_id,)).fetchone()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -143,7 +143,12 @@ def test_operation_timeout_identifies_its_tier_and_stage(capsys: pytest.CaptureF
         JourneyFailure,
         match="t3 v2 Submit operation did not reach a terminal state",
     ):
-        _poll_operation(Any, "opaque-operation-id", stage=stage, timeout_seconds=0)
+        _poll_operation(
+            cast(Any, object()),
+            "opaque-operation-id",
+            stage=stage,
+            timeout_seconds=0,
+        )
 
     assert json.loads(capsys.readouterr().out) == {
         "event": "operation_started",

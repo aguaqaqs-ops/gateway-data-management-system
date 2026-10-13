@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
 from typing import Any
 
 import pytest
@@ -11,6 +13,7 @@ from benchmarks.real_dump_journey import (
     _history_facts_failure_detail,
     _history_surface_ref,
     _keyless_fallback_table_names,
+    _summary_history_facts,
 )
 
 pytestmark = pytest.mark.unit
@@ -159,6 +162,60 @@ def test_history_facts_failure_reports_missing_traceback_frames() -> None:
     )
 
     assert detail == "remote KeyError; traceback_frames=0; key_sha256=1a28676a200ccdab"
+
+
+def test_history_fact_probe_passes_inputs_to_backend_exec(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_run_compose(
+        env: dict[str, str], *args: str, timeout: float = 600.0
+    ) -> subprocess.CompletedProcess[str]:
+        calls["env"] = env
+        calls["args"] = args
+        calls["timeout"] = timeout
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            '{"total_fact_record_count":0,"record_kind_counts":{},"ordered_tables":{}}',
+            "",
+        )
+
+    monkeypatch.setattr("benchmarks.real_dump_journey.run_compose", fake_run_compose)
+    surface_ref = {
+        "artifact_id": "surface-artifact",
+        "media_type": "application/json",
+        "size_bytes": 12,
+        "raw_sha256": "sha256:" + "a" * 64,
+    }
+
+    _summary_history_facts(
+        {"COMPOSE_PROJECT_NAME": "s2b-test"},
+        operation_id="history-operation",
+        before_commit="before-commit",
+        current_commit="current-commit",
+        surface_ref=surface_ref,
+        keyless_table_names=("fallback-table",),
+        ordered_table_names=("ordered-table",),
+    )
+
+    args = calls["args"]
+    assert args[:2] == ("exec", "-T")
+    remote_environment = {
+        name: value
+        for index, argument in enumerate(args)
+        if argument == "-e"
+        for name, value in (args[index + 1].split("=", maxsplit=1),)
+    }
+    assert remote_environment == {
+        "S2B_HISTORY_OPERATION": json.dumps("history-operation"),
+        "S2B_HISTORY_BEFORE": json.dumps("before-commit"),
+        "S2B_HISTORY_CURRENT": json.dumps("current-commit"),
+        "S2B_HISTORY_SURFACE_REF": json.dumps(surface_ref),
+        "S2B_KEYLESS_TABLES": json.dumps(["fallback-table"]),
+        "S2B_ORDERED_TABLES": json.dumps(["ordered-table"]),
+    }
+    assert calls["env"] == {"COMPOSE_PROJECT_NAME": "s2b-test"}
+    assert calls["timeout"] == 900.0
 
 
 @pytest.mark.parametrize(

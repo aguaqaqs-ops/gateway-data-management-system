@@ -1109,21 +1109,24 @@ print(json.dumps({
     'ordered_tables': ordered_results,
 }, sort_keys=True))
 '''
-    command_env = dict(env)
-    command_env.update(
-        {
-            "S2B_HISTORY_OPERATION": json.dumps(operation_id),
-            "S2B_HISTORY_BEFORE": json.dumps(before_commit),
-            "S2B_HISTORY_CURRENT": json.dumps(current_commit),
-            "S2B_HISTORY_SURFACE_REF": json.dumps(dict(surface_ref)),
-            "S2B_KEYLESS_TABLES": json.dumps(sorted(set(keyless_table_names))),
-            "S2B_ORDERED_TABLES": json.dumps(sorted(ordered_table_names)),
-        }
+    remote_environment = {
+        "S2B_HISTORY_OPERATION": json.dumps(operation_id),
+        "S2B_HISTORY_BEFORE": json.dumps(before_commit),
+        "S2B_HISTORY_CURRENT": json.dumps(current_commit),
+        "S2B_HISTORY_SURFACE_REF": json.dumps(dict(surface_ref)),
+        "S2B_KEYLESS_TABLES": json.dumps(sorted(set(keyless_table_names))),
+        "S2B_ORDERED_TABLES": json.dumps(sorted(ordered_table_names)),
+    }
+    remote_environment_args = tuple(
+        argument
+        for name, value in remote_environment.items()
+        for argument in ("-e", f"{name}={value}")
     )
     result = run_compose(
-        command_env,
+        dict(env),
         "exec",
         "-T",
+        *remote_environment_args,
         "backend",
         "python",
         "-c",

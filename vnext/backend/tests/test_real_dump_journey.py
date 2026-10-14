@@ -1,102 +1,250 @@
-"""Safety checks for aggregate real dump preview assertions."""
+"""Safety checks for the host-side real dump journey runner."""
 
 from __future__ import annotations
 
 import json
-import subprocess
-from typing import Any, cast
+import time
+from pathlib import Path
+from typing import Any
 
+import httpx
 import pytest
 
+from benchmarks import real_dump_journey
 from benchmarks.real_dump_journey import (
+    INITIAL_OPERATION_TIMEOUT_SECONDS,
+    JOURNEY_STEP_IDS,
     JourneyFailure,
-    _history_facts_failure_detail,
+    JourneyStepRunner,
+    _assert_preview_summaries,
     _history_surface_ref,
-    _keyless_fallback_table_names,
-    _poll_operation,
-    _summary_history_facts,
+    _keyless_fallback_candidates,
+    _operation_timeout_seconds,
+    _parse_cpu_stat,
+    _require_one_of,
+    _step_measurement,
 )
 
 pytestmark = pytest.mark.unit
 
-REPEAT_KEYLESS_FAILURES = (
-    (
-        "changed table",
-        {"diagnostics": {"diagnostics_summary": "KEYLESS_FALLBACK"}, "change_kind": "MODIFIED"},
-    ),
-    (
-        "missing hint",
-        {"diagnostics": {"diagnostics_summary": ""}, "change_kind": "UNCHANGED"},
-    ),
+CPU_STAT_INVALID_SHAPES = (
+    ("missing usage", "user_usec 7\nsystem_usec 4\n"),
+    ("malformed", "usage_usec nope\n"),
+    ("negative", "usage_usec -1\n"),
+    ("duplicate", "usage_usec 4\nusage_usec 5\n"),
 )
 
-HISTORY_BUNDLE_SURFACE_REF_FAILURES: tuple[tuple[str, dict[str, Any]], ...] = (
-    ("missing pair", {"pairs": []}),
-    ("multiple pairs", {"pairs": [{"pair_id": "p0"}, {"pair_id": "p1"}]}),
-    ("missing closure entries", {"pairs": [{"pair_id": "p0"}]}),
+PREVIEW_SUMMARY_FAILURES = (
     (
-        "missing surface artifact",
-        {"pairs": [{"pair_id": "p0"}], "closure_entries": []},
+        "wrong table count",
+        {"table_count": 2, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0},
+        False,
     ),
     (
-        "missing artifact ref",
-        {
-            "pairs": [{"pair_id": "p0"}],
-            "closure_entries": [
-                {"kind": "SURFACE", "logical_path": "pairs/p0/comparison-surface.json"}
-            ],
-        },
+        "degraded table",
+        {"table_count": 3, "changed_table_count": 0, "degraded_table_count": 1, "failed_table_count": 0},
+        False,
+    ),
+    (
+        "repeat changed",
+        {"table_count": 3, "changed_table_count": 1, "degraded_table_count": 0, "failed_table_count": 0},
+        True,
     ),
 )
 
 
-def _surface(table: dict[str, Any]) -> dict[str, Any]:
-    return {"surface_id": "preview-pair", "tables": [table]}
+def _cpu_snapshot(usage_usec: int) -> dict[str, dict[str, int]]:
+    return {
+        service: {
+            "usage_usec": usage_usec,
+            "user_usec": usage_usec - 10,
+            "system_usec": 10,
+        }
+        for service in ("backend", "worker", "repository-service")
+    }
 
 
-def test_preview_finds_distinct_keyless_fallback_tables_across_pairs() -> None:
-    surfaces = [
-        _surface(
+@pytest.mark.parametrize(
+    ("case", "payload"),
+    (
+        ("counters", "usage_usec 123\nuser_usec 100\nsystem_usec 23\n"),
+        ("extra cgroup counters", "usage_usec 123\nnr_periods 5\nnr_throttled 1\n"),
+    ),
+    ids=("standard", "additional-counters"),
+)
+def test_cpu_stat_parser_keeps_nonnegative_integer_counters(case: str, payload: str) -> None:
+    del case
+    parsed = _parse_cpu_stat(payload)
+
+    assert parsed["usage_usec"] == 123
+
+
+@pytest.mark.parametrize(
+    ("case", "payload"),
+    CPU_STAT_INVALID_SHAPES,
+    ids=[case for case, _payload in CPU_STAT_INVALID_SHAPES],
+)
+def test_cpu_stat_parser_rejects_incomplete_or_invalid_counters(
+    case: str,
+    payload: str,
+) -> None:
+    del case
+    with pytest.raises(JourneyFailure):
+        _parse_cpu_stat(payload)
+
+
+def test_step_measurement_reports_wall_and_per_container_cpu_deltas() -> None:
+    started = time.monotonic()
+
+    measurement = _step_measurement(
+        started_monotonic=started,
+        started_utc="2026-10-14T10:00:00.000Z",
+        cpu_start=_cpu_snapshot(100_000),
+        cpu_end=_cpu_snapshot(1_100_000),
+    )
+
+    assert measurement["started_at_utc"] == "2026-10-14T10:00:00.000Z"
+    assert measurement["wall_seconds"] >= 0
+    assert measurement["cpu_seconds"] == {
+        "backend": 1.0,
+        "worker": 1.0,
+        "repository-service": 1.0,
+    }
+    assert measurement["cpu_delta_usec"] == {
+        "backend": 1_000_000,
+        "worker": 1_000_000,
+        "repository-service": 1_000_000,
+    }
+
+
+def test_operation_timeout_uses_initial_cap_then_tier_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert _operation_timeout_seconds("t1", "history") == INITIAL_OPERATION_TIMEOUT_SECONDS
+    monkeypatch.setitem(real_dump_journey.OPERATION_TIMEOUT_SECONDS, "t2:v2-submit", 900)
+
+    assert _operation_timeout_seconds("t2", "v2-submit") == 900
+
+    monkeypatch.setitem(real_dump_journey.OPERATION_TIMEOUT_SECONDS, "t2:v2-submit", 299)
+    with pytest.raises(JourneyFailure, match="five minute minimum"):
+        _operation_timeout_seconds("t2", "v2-submit")
+
+
+def test_journey_step_runner_emits_metrics_and_persists_debug_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    snapshots = iter((_cpu_snapshot(100), _cpu_snapshot(500)))
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_container_cpu_stats",
+        lambda _env: next(snapshots),
+    )
+    state_path = tmp_path / "t1.state.json"
+    state: dict[str, Any] = {}
+    runner = JourneyStepRunner(
+        tier="t1",
+        env={},
+        state=state,
+        from_step=None,
+        state_path=state_path,
+    )
+
+    assert runner.run("v1-workspace", lambda: {"workspace_id": "ws-test"}) == {
+        "workspace_id": "ws-test"
+    }
+    assert json.loads(state_path.read_text(encoding="utf-8"))["v1-workspace"] == {
+        "workspace_id": "ws-test"
+    }
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [item["event"] for item in events] == ["step_started", "step_succeeded"]
+    assert all(item["timestamp_utc"].endswith("Z") for item in events)
+    assert events[1]["metrics"]["cpu_seconds"]["worker"] == 0.0
+
+
+def test_journey_step_runner_reuses_completed_steps_before_resume_point(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_container_cpu_stats",
+        lambda _env: pytest.fail("a reused step must not read container metrics"),
+    )
+    runner = JourneyStepRunner(
+        tier="t1",
+        env={},
+        state={"v1-workspace": {"workspace_id": "saved"}},
+        from_step="v1-upload",
+        state_path=None,
+    )
+
+    workspace = runner.run(
+        "v1-workspace",
+        lambda: pytest.fail("a reused step must not run again"),
+    )
+
+    assert workspace == {"workspace_id": "saved"}
+    assert json.loads(capsys.readouterr().out)["event"] == "step_reused"
+
+
+def test_preview_summary_requires_one_complete_source_census_pair() -> None:
+    manifest = {
+        "pairs": [
             {
-                "table_name": "fallback_a",
-                "change_kind": "ADDED_TABLE",
-                "diagnostics": {"diagnostics_summary": ["KEYLESS_FALLBACK"]},
+                "summary": {
+                    "table_count": 3,
+                    "changed_table_count": 0,
+                    "degraded_table_count": 0,
+                    "failed_table_count": 0,
+                }
             }
-        ),
-        _surface(
-            {
-                "table_name": "fallback_a",
-                "change_kind": "UNCHANGED",
-                "diagnostics": {"diagnostics_summary": "KEYLESS_FALLBACK"},
-            }
-        ),
-        _surface(
-            {
-                "table_name": "keyed_table",
-                "change_kind": "UNCHANGED",
-                "diagnostics": {"diagnostics_summary": ""},
-            }
-        ),
-    ]
+        ]
+    }
 
-    names = _keyless_fallback_table_names(surfaces, label="test Preview")
+    summary = _assert_preview_summaries(
+        manifest,
+        unchanged=True,
+        expected_table_count=3,
+    )
 
-    assert names == ("fallback_a",)
+    assert summary == {
+        "pair_count": 1,
+        "table_count": 3,
+        "changed_table_count": 0,
+        "degraded_table_count": 0,
+        "failed_table_count": 0,
+    }
 
 
-def test_preview_fails_when_key_missing_is_reported() -> None:
-    surfaces = [
-        _surface(
-            {
-                "table_name": "fallback_a",
-                "change_kind": "DEGRADED",
-                "diagnostics": {"diagnostics_summary": ["KEY_MISSING"]},
-            }
+@pytest.mark.parametrize(
+    ("case", "summary", "unchanged"),
+    PREVIEW_SUMMARY_FAILURES,
+    ids=[case for case, _summary, _unchanged in PREVIEW_SUMMARY_FAILURES],
+)
+def test_preview_summary_rejects_census_mismatch_degradation_or_change(
+    case: str,
+    summary: dict[str, int],
+    unchanged: bool,
+) -> None:
+    del case
+    with pytest.raises(JourneyFailure):
+        _assert_preview_summaries(
+            {"pairs": [{"summary": summary}]},
+            unchanged=unchanged,
+            expected_table_count=3,
         )
-    ]
 
-    with pytest.raises(JourneyFailure, match="KEY_MISSING"):
-        _keyless_fallback_table_names(surfaces, label="test Preview")
+
+def test_keyless_fallback_candidates_come_from_census_unresolved_tables() -> None:
+    names = _keyless_fallback_candidates(
+        {
+            "effective_key_scan": {
+                "unresolved_tables": ["fallback_b", "fallback_a", "fallback_b"]
+            }
+        }
+    )
+
+    assert names == ("fallback_a", "fallback_b")
 
 
 def test_history_bundle_surface_reference_is_selected_from_its_single_pair() -> None:
@@ -106,178 +254,73 @@ def test_history_bundle_surface_reference_is_selected_from_its_single_pair() -> 
         "raw_sha256": "sha256:" + "a" * 64,
         "size_bytes": 12,
     }
-
     bundle = {
         "pairs": [{"pair_id": "op-p0"}],
         "closure_entries": [
             {
-                "kind": "RECORDS_CLOSURE",
-                "logical_path": "pairs/op-p0/comparison/records/closure.json",
-                "artifact_ref": {},
-            },
-            {
                 "kind": "SURFACE",
                 "logical_path": "pairs/op-p0/comparison-surface.json",
                 "artifact_ref": surface_ref,
-            },
+            }
         ],
     }
 
     assert _history_surface_ref(bundle) == surface_ref
 
 
-def test_history_facts_failure_reports_a_fixed_validation_message() -> None:
-    assert (
-        _history_facts_failure_detail(
-            "Traceback (most recent call last):\nSystemExit: "
-            "blank records do not match net skeleton interval occupancy changes\n"
-        )
-        == "blank records do not match net skeleton interval occupancy changes"
-    )
+@pytest.mark.parametrize(
+    ("status_code", "accepted"),
+    ((200, True), (201, True), (409, False)),
+    ids=("replayed", "created", "conflict"),
+)
+def test_idempotent_http_acceptance_handles_replay_status(
+    status_code: int,
+    accepted: bool,
+) -> None:
+    response = httpx.Response(status_code, json={"status": "QUEUED"})
+
+    if accepted:
+        assert _require_one_of(response, {200, 201}, "test acceptance") == {"status": "QUEUED"}
+    else:
+        with pytest.raises(JourneyFailure, match="HTTP 409"):
+            _require_one_of(response, {200, 201}, "test acceptance")
 
 
-def test_operation_timeout_identifies_its_tier_and_stage(capsys: pytest.CaptureFixture[str]) -> None:
-    stage = "t3 v2 Submit"
-
-    with pytest.raises(
-        JourneyFailure,
-        match="t3 v2 Submit operation did not reach a terminal state",
-    ):
-        _poll_operation(
-            cast(Any, object()),
-            "opaque-operation-id",
-            stage=stage,
-            timeout_seconds=0,
-        )
-
-    assert json.loads(capsys.readouterr().out) == {
-        "event": "operation_started",
-        "stage": stage,
-    }
-
-
-def test_history_facts_failure_does_not_echo_untrusted_exception_text() -> None:
-    detail = _history_facts_failure_detail(
-        "Traceback (most recent call last):\nKeyError: 'sensitive-row-value'\n"
-    )
-
-    assert detail.startswith("remote KeyError; stderr_sha256=")
-    assert "sensitive-row-value" not in detail
-
-
-def test_history_facts_failure_reports_sanitized_exception_location() -> None:
-    detail = _history_facts_failure_detail(
-        'S2B_HISTORY_DIAGNOSTIC={"exception":"KeyError",'
-        '"frame":{"file":"<string> odd","line":166,"function":"<module> odd"},'
-        '"key":{"kind":"field","value":"no"}}\n'
-    )
-
-    assert detail == "remote KeyError; at <string>_odd:166 in <module>_odd; key=field:no"
-
-
-def test_history_facts_failure_reports_missing_traceback_frames() -> None:
-    detail = _history_facts_failure_detail(
-        'S2B_HISTORY_DIAGNOSTIC={"exception":"KeyError",'
-        '"traceback_frame_count":0,"key":{"kind":"redacted",'
-        '"sha256":"1a28676a200ccdab"}}\n'
-    )
-
-    assert detail == "remote KeyError; traceback_frames=0; key_sha256=1a28676a200ccdab"
-
-
-def test_history_fact_probe_uses_bound_checkpoint_table_sets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_passes_tier_resume_and_keep_stack_controls(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     calls: dict[str, Any] = {}
 
-    def fake_run_compose(
-        env: dict[str, str], *args: str, timeout: float = 600.0
-    ) -> subprocess.CompletedProcess[str]:
-        calls["env"] = env
-        calls["args"] = args
-        calls["timeout"] = timeout
-        return subprocess.CompletedProcess(
-            args,
-            0,
-            '{"total_fact_record_count":0,"record_kind_counts":{},"ordered_tables":{}}',
-            "",
-        )
+    def fake_run_journey(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
 
-    monkeypatch.setattr("benchmarks.real_dump_journey.run_compose", fake_run_compose)
-    surface_ref = {
-        "artifact_id": "surface-artifact",
-        "media_type": "application/json",
-        "size_bytes": 12,
-        "raw_sha256": "sha256:" + "a" * 64,
-    }
+    monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
 
-    _summary_history_facts(
-        {"COMPOSE_PROJECT_NAME": "s2b-test"},
-        operation_id="history-operation",
-        before_commit="before-commit",
-        current_commit="current-commit",
-        surface_ref=surface_ref,
-        keyless_table_names=("fallback-table",),
-        ordered_table_names=("ordered-table",),
+    result = real_dump_journey.main(
+        [
+            "--tier",
+            "t1",
+            "--from-step",
+            "v2-preview",
+            "--keep-stack",
+            "--project-name",
+            "s2b-debug",
+        ]
     )
 
-    args = calls["args"]
-    assert args[:2] == ("exec", "-T")
-    remote_script = args[-1]
-    assert "for table in side.table_set.tables" in remote_script
-    assert "snapshot.table_set.tables" in remote_script
-    assert "snapshot.tables" not in remote_script
-    remote_environment = {
-        name: value
-        for index, argument in enumerate(args)
-        if argument == "-e"
-        for name, value in (args[index + 1].split("=", maxsplit=1),)
+    assert result == 0
+    assert calls == {
+        "tier_filter": "t1",
+        "from_step": "v2-preview",
+        "keep_stack": True,
+        "requested_project_name": "s2b-debug",
     }
-    assert remote_environment == {
-        "S2B_HISTORY_OPERATION": json.dumps("history-operation"),
-        "S2B_HISTORY_BEFORE": json.dumps("before-commit"),
-        "S2B_HISTORY_CURRENT": json.dumps("current-commit"),
-        "S2B_HISTORY_SURFACE_REF": json.dumps(surface_ref),
-        "S2B_KEYLESS_TABLES": json.dumps(["fallback-table"]),
-        "S2B_ORDERED_TABLES": json.dumps(["ordered-table"]),
-    }
-    assert calls["env"] == {"COMPOSE_PROJECT_NAME": "s2b-test"}
-    assert calls["timeout"] == 900.0
+    assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
 
-@pytest.mark.parametrize(
-    ("case", "bundle"),
-    HISTORY_BUNDLE_SURFACE_REF_FAILURES,
-    ids=[case for case, _bundle in HISTORY_BUNDLE_SURFACE_REF_FAILURES],
-)
-def test_history_bundle_rejects_an_invalid_surface_reference(
-    case: str,
-    bundle: dict[str, Any],
-) -> None:
-    del case
-    with pytest.raises(JourneyFailure):
-        _history_surface_ref(bundle)
-
-
-@pytest.mark.parametrize(
-    ("case", "table_state"),
-    REPEAT_KEYLESS_FAILURES,
-    ids=[case for case, _state in REPEAT_KEYLESS_FAILURES],
-)
-def test_repeat_preview_requires_same_unchanged_keyless_tables(
-    case: str,
-    table_state: dict[str, Any],
-) -> None:
-    del case
-    surface = _surface(
-        {
-            "table_name": "fallback_a",
-            **table_state,
-        }
-    )
-
-    with pytest.raises(JourneyFailure):
-        _keyless_fallback_table_names(
-            [surface],
-            label="repeat Preview",
-            expected_names=("fallback_a",),
-            require_unchanged=True,
-        )
+def test_debug_step_order_covers_every_business_action() -> None:
+    assert JOURNEY_STEP_IDS[0] == "v1-workspace"
+    assert JOURNEY_STEP_IDS[-1] == "history"
+    assert "repeat-v1-submit" in JOURNEY_STEP_IDS

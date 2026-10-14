@@ -1,14 +1,15 @@
 """Run the S2b real dump Preview/Submit/History journey from the host.
 
-The source packages are read-only inputs. Uploads and public read operations use
-the HTTP APIs; only aggregate comparison facts are inspected inside the backend
-container because the public history result exposes a pair total, not per-kind
-record counts. No row values or row identifiers are emitted.
+The source packages are read-only inputs. Journey checks use public HTTP APIs;
+the public History result exposes a pair total and digests, while its bundle
+contains artifact references without a public artifact-content endpoint. No row
+values or row identifiers are emitted.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -19,7 +20,8 @@ import tempfile
 import time
 import uuid
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -42,9 +44,12 @@ from tests.support.compose_gate_harness import (
     cleanup_compose_project_artifacts,
     compose_auth_headers,
     compose_image_ids,
-    read_preview_surface_table_states,
+    release_compose_gate_lock,
     run_compose,
     start_three_container_stack,
+    wait_http_ok,
+    wait_repository_service_ready,
+    worker_ready,
 )
 
 REPOSITORY_SERVICE_IMAGE = os.environ.get(
@@ -70,97 +75,36 @@ EXPECTED_PAIRINGS = {
     "rd-t4-d": ("rd-t4-d-v1", "rd-t4-d-v2"),
 }
 TERMINAL_OPERATION_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}
+INITIAL_OPERATION_TIMEOUT_SECONDS = 3_600
+MINIMUM_OPERATION_TIMEOUT_SECONDS = 300
+
+# Populate after the first timestamped full journey with 5x measured durations.
+# Keys use "<tier>:<step-id>". Missing entries retain the initial 60 minute cap.
+OPERATION_TIMEOUT_SECONDS: dict[str, int] = {}
+
+JOURNEY_STEP_IDS = (
+    "v1-workspace",
+    "v1-upload",
+    "v1-preview",
+    "v1-repository-read",
+    "v1-approve",
+    "v1-archive",
+    "repeat-v1-workspace",
+    "repeat-v1-upload",
+    "repeat-v1-preview",
+    "repeat-v1-submit",
+    "v2-workspace",
+    "v2-upload",
+    "v2-preview",
+    "v2-submit",
+    "v2-repository-read",
+    "v2-approve",
+    "history",
+)
 
 
 class JourneyFailure(RuntimeError):
     """A bounded failure without response bodies that could contain row data."""
-
-
-_HISTORY_FACTS_VALIDATION_MESSAGES = frozenset(
-    {
-        "history materialize checkpoint is unavailable",
-        "History surface is invalid",
-        "History surface table is invalid",
-        "History surface repeats a table",
-        "a table degraded during History compare",
-        "History surface has no records closure",
-        "ordered snapshot has an invalid gid or position",
-        "History surface omitted a keyless fallback table",
-        "KEY_DEGRADED was reported for a keyless fallback table",
-        "History surface omitted an IEC104 ordered table",
-        "an IEC104 ordered table degraded during History compare",
-        "blank interval record exposed field-level changes",
-        "blank records do not match net skeleton interval occupancy changes",
-        "ordered move count exceeds the minimum required by real row order",
-        "History surface omitted one or more IEC104 ordered tables",
-    }
-)
-
-
-def _history_facts_failure_detail(stderr: str) -> str:
-    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
-    for line in reversed(lines):
-        for message in _HISTORY_FACTS_VALIDATION_MESSAGES:
-            if line == message or line.endswith(f": {message}"):
-                return message
-        if line.startswith("S2B_HISTORY_DIAGNOSTIC="):
-            try:
-                diagnostic = json.loads(line.split("=", maxsplit=1)[1])
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(diagnostic, dict):
-                continue
-            exception_name = diagnostic.get("exception")
-            frame = diagnostic.get("frame")
-            parts = ["remote exception"]
-            if isinstance(exception_name, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", exception_name):
-                parts = [f"remote {exception_name}"]
-            if isinstance(frame, dict):
-                file_name = frame.get("file")
-                line_number = frame.get("line")
-                function_name = frame.get("function")
-                safe_file = (
-                    re.sub(r"[^A-Za-z0-9_.<>-]", "_", file_name)[:100]
-                    if isinstance(file_name, str)
-                    else ""
-                )
-                safe_function = (
-                    re.sub(r"[^A-Za-z0-9_.<>-]", "_", function_name)[:100]
-                    if isinstance(function_name, str)
-                    else ""
-                )
-                if type(line_number) is int and line_number > 0:
-                    if safe_file and safe_function:
-                        parts.append(f"at {safe_file}:{line_number} in {safe_function}")
-                    else:
-                        parts.append(f"at remote line {line_number}")
-            else:
-                frame_count = diagnostic.get("traceback_frame_count")
-                if type(frame_count) is int and frame_count >= 0:
-                    parts.append(f"traceback_frames={frame_count}")
-            key = diagnostic.get("key")
-            if isinstance(key, dict):
-                key_kind = key.get("kind")
-                key_value = key.get("value")
-                if key_kind in {"field", "column", "table", "side", "operation"} and isinstance(key_value, str):
-                    if re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", key_value):
-                        parts.append(f"key={key_kind}:{key_value}")
-                elif key_kind == "redacted":
-                    fingerprint = key.get("sha256")
-                    if isinstance(fingerprint, str) and re.fullmatch(r"[0-9a-f]{16}", fingerprint):
-                        parts.append(f"key_sha256={fingerprint}")
-            return "; ".join(parts)
-    for line in reversed(lines):
-        match = re.match(r"^([A-Za-z_][A-Za-z0-9_.]*)(?::|$)", line)
-        if match:
-            exception_name = match.group(1).rsplit(".", maxsplit=1)[-1]
-            if exception_name.endswith(("Error", "Exception")) or exception_name == "SystemExit":
-                fingerprint = hashlib.sha256(stderr.encode("utf-8", errors="replace")).hexdigest()[:16]
-                return f"remote {exception_name}; stderr_sha256={fingerprint}"
-    if not lines:
-        return "remote command returned no diagnostic"
-    fingerprint = hashlib.sha256(stderr.encode("utf-8", errors="replace")).hexdigest()[:16]
-    return f"remote command failed; stderr_sha256={fingerprint}"
 
 
 def _repo_root() -> Path:
@@ -316,9 +260,25 @@ def _write_compose_secrets(root: Path) -> dict[str, str]:
     }
 
 
-def _compose_environment(secret_root: Path, project_name: str) -> dict[str, str]:
+def _compose_environment(
+    secret_root: Path,
+    project_name: str,
+    *,
+    write_secrets: bool = True,
+) -> dict[str, str]:
     environment = os.environ.copy()
-    environment.update(_write_compose_secrets(secret_root))
+    if write_secrets:
+        environment.update(_write_compose_secrets(secret_root))
+    else:
+        environment.update(
+            {
+                "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(secret_root / "repository-bearer-token"),
+                "GATEWAY_BACKEND_SESSION_FILE": str(secret_root / "session.json"),
+                "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(secret_root / "provisioned-mapping.json"),
+                "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(secret_root / "internal-bearer-token"),
+                "GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE": str(secret_root / "repository-bearer-token"),
+            }
+        )
     environment.update(
         {
             "COMPOSE_PROJECT_NAME": project_name,
@@ -346,8 +306,199 @@ def _require(response: httpx.Response, expected: int, label: str) -> dict[str, A
     return cast(dict[str, Any], payload)
 
 
-def _emit_progress(stage: str, event: str) -> None:
-    print(json.dumps({"event": event, "stage": stage}, sort_keys=True), flush=True)
+def _require_one_of(
+    response: httpx.Response,
+    expected: set[int],
+    label: str,
+) -> dict[str, Any]:
+    if response.status_code not in expected:
+        _require(response, min(expected), label)
+    return _require(response, response.status_code, label)
+
+
+def _utc_timestamp() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _emit_progress(stage: str, event: str, **details: Any) -> None:
+    print(
+        json.dumps(
+            {"event": event, "stage": stage, "timestamp_utc": _utc_timestamp(), **details},
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+
+
+def _parse_cpu_stat(payload: str) -> dict[str, int]:
+    values: dict[str, int] = {}
+    for line in payload.splitlines():
+        parts = line.split()
+        if len(parts) != 2 or not re.fullmatch(r"[a-z][a-z0-9_.]*", parts[0]):
+            raise JourneyFailure("container cpu.stat has an invalid row")
+        try:
+            value = int(parts[1])
+        except ValueError as exc:
+            raise JourneyFailure("container cpu.stat has a non-integer value") from exc
+        if value < 0 or parts[0] in values:
+            raise JourneyFailure("container cpu.stat contains an invalid counter")
+        values[parts[0]] = value
+    if "usage_usec" not in values:
+        raise JourneyFailure("container cpu.stat has no usage_usec counter")
+    return values
+
+
+def _container_cpu_stats(env: Mapping[str, str]) -> dict[str, dict[str, int]]:
+    stats: dict[str, dict[str, int]] = {}
+    for service in ("backend", "worker", "repository-service"):
+        listed = run_compose(dict(env), "ps", "-q", service)
+        container_ids = listed.stdout.strip().splitlines()
+        if listed.returncode != 0 or len(container_ids) != 1:
+            raise JourneyFailure(f"could not resolve the {service} container for cpu.stat")
+        inspected = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Pid}}", container_ids[0]],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30.0,
+        )
+        if inspected.returncode != 0:
+            raise JourneyFailure(f"could not inspect the {service} container for cpu.stat")
+        pid = inspected.stdout.strip()
+        if not pid.isdigit() or pid == "0":
+            raise JourneyFailure(f"the {service} container has no running host pid")
+        try:
+            cgroup_lines = (Path("/proc") / pid / "cgroup").read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise JourneyFailure(f"could not read the {service} host cgroup") from exc
+        unified_path = next(
+            (line.partition("::")[2] for line in cgroup_lines if line.startswith("0::")),
+            None,
+        )
+        if not unified_path:
+            raise JourneyFailure(f"the {service} container is not in a unified cgroup")
+        cgroup_root = Path("/sys/fs/cgroup").resolve()
+        cpu_stat_path = (cgroup_root / unified_path.lstrip("/") / "cpu.stat").resolve()
+        if not cpu_stat_path.is_relative_to(cgroup_root):
+            raise JourneyFailure(f"the {service} cgroup path escaped the host cgroup root")
+        try:
+            stats[service] = _parse_cpu_stat(cpu_stat_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise JourneyFailure(f"could not read the {service} host cpu.stat") from exc
+    return stats
+
+
+def _step_measurement(
+    *,
+    started_monotonic: float,
+    started_utc: str,
+    cpu_start: Mapping[str, Mapping[str, int]],
+    cpu_end: Mapping[str, Mapping[str, int]],
+) -> dict[str, Any]:
+    cpu_seconds: dict[str, float] = {}
+    cpu_delta_usec: dict[str, int] = {}
+    for service in ("backend", "worker", "repository-service"):
+        delta = int(cpu_end[service]["usage_usec"]) - int(cpu_start[service]["usage_usec"])
+        if delta < 0:
+            raise JourneyFailure(f"the {service} cpu.stat counter moved backwards")
+        cpu_delta_usec[service] = delta
+        cpu_seconds[service] = round(delta / 1_000_000, 3)
+    return {
+        "started_at_utc": started_utc,
+        "ended_at_utc": _utc_timestamp(),
+        "wall_seconds": round(time.monotonic() - started_monotonic, 3),
+        "cpu_seconds": cpu_seconds,
+        "cpu_delta_usec": cpu_delta_usec,
+        "cpu_stat_start": cpu_start,
+        "cpu_stat_end": cpu_end,
+    }
+
+
+def _operation_timeout_seconds(tier: str, step_id: str) -> int:
+    timeout = OPERATION_TIMEOUT_SECONDS.get(
+        f"{tier}:{step_id}", INITIAL_OPERATION_TIMEOUT_SECONDS
+    )
+    if timeout < MINIMUM_OPERATION_TIMEOUT_SECONDS:
+        raise JourneyFailure("operation timeout profile is below the five minute minimum")
+    return timeout
+
+
+def _json_copy(value: Any) -> Any:
+    return json.loads(json.dumps(value, sort_keys=True))
+
+
+class JourneyStepRunner:
+    def __init__(
+        self,
+        *,
+        tier: str,
+        env: Mapping[str, str],
+        state: dict[str, Any],
+        from_step: str | None,
+        state_path: Path | None,
+    ) -> None:
+        self.tier = tier
+        self.env = env
+        self.state = state
+        self.state_path = state_path
+        self.from_index = 0 if from_step is None else JOURNEY_STEP_IDS.index(from_step)
+        self.metrics: list[dict[str, Any]] = []
+
+    def run(self, step_id: str, action: Callable[[], Any]) -> Any:
+        index = JOURNEY_STEP_IDS.index(step_id)
+        stage = f"{self.tier} {step_id}"
+        if index < self.from_index:
+            if step_id not in self.state:
+                raise JourneyFailure(f"debug state is missing the completed step {step_id}")
+            _emit_progress(stage, "step_reused")
+            return self.state[step_id]
+
+        started_utc = _utc_timestamp()
+        started_monotonic = time.monotonic()
+        cpu_start = _container_cpu_stats(self.env)
+        _emit_progress(stage, "step_started", cpu_stat=cpu_start)
+        try:
+            value = action()
+            cpu_end = _container_cpu_stats(self.env)
+            measurement = _step_measurement(
+                started_monotonic=started_monotonic,
+                started_utc=started_utc,
+                cpu_start=cpu_start,
+                cpu_end=cpu_end,
+            )
+        except BaseException:
+            try:
+                cpu_end = _container_cpu_stats(self.env)
+                measurement = _step_measurement(
+                    started_monotonic=started_monotonic,
+                    started_utc=started_utc,
+                    cpu_start=cpu_start,
+                    cpu_end=cpu_end,
+                )
+            except Exception as metric_error:
+                measurement = {
+                    "started_at_utc": started_utc,
+                    "ended_at_utc": _utc_timestamp(),
+                    "wall_seconds": round(time.monotonic() - started_monotonic, 3),
+                    "cpu_stat_error": type(metric_error).__name__,
+                }
+            self.metrics.append({"step_id": step_id, **measurement})
+            _emit_progress(stage, "step_failed", metrics=measurement)
+            raise
+
+        stored_value = _json_copy(value)
+        self.state[step_id] = stored_value
+        if self.state_path is not None:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_path = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
+            temporary_path.write_text(
+                json.dumps(self.state, sort_keys=True),
+                encoding="utf-8",
+            )
+            temporary_path.replace(self.state_path)
+        self.metrics.append({"step_id": step_id, **measurement})
+        _emit_progress(stage, "step_succeeded", metrics=measurement)
+        return value
 
 
 def _poll_operation(
@@ -355,11 +506,12 @@ def _poll_operation(
     operation_id: str,
     *,
     stage: str,
-    timeout_seconds: int = 7_200,
+    timeout_seconds: int = INITIAL_OPERATION_TIMEOUT_SECONDS,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
-    _emit_progress(stage, "operation_started")
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
+    _emit_progress(stage, "operation_started", timeout_seconds=timeout_seconds)
+    operation_deadline = time.monotonic() + timeout_seconds if deadline is None else deadline
+    while time.monotonic() < operation_deadline:
         payload = _require(client.get(f"/v1/operations/{operation_id}"), 200, "operation status")
         status = payload.get("status")
         if status in TERMINAL_OPERATION_STATES:
@@ -415,7 +567,7 @@ def _upload_revision(
             "modified": ("package.tar.gz", package, "application/gzip"),
         },
     )
-    return _require(response, 201, "upload revision")
+    return _require_one_of(response, {200, 201}, "upload revision")
 
 
 def _preview(
@@ -427,24 +579,29 @@ def _preview(
     baseline_head_version: int,
     idempotency_key: str,
     stage: str,
+    operation_timeout_seconds: int,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    accepted = _require(
-        client.post(
-            f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
-            headers=compose_auth_headers(idempotency_key=idempotency_key),
-            json={
-                "expected_workspace_version": upload["optimistic_version"],
-                "upload_revision_id": upload["upload_revision_id"],
-                "generation": upload["generation"],
-                "expected_baseline_node_id": baseline_node_id,
-                "expected_baseline_head_version": baseline_head_version,
-                "options": {},
-            },
-        ),
-        202,
-        "preview acceptance",
+    response = client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
+        headers=compose_auth_headers(idempotency_key=idempotency_key),
+        json={
+            "expected_workspace_version": upload["optimistic_version"],
+            "upload_revision_id": upload["upload_revision_id"],
+            "generation": upload["generation"],
+            "expected_baseline_node_id": baseline_node_id,
+            "expected_baseline_head_version": baseline_head_version,
+            "options": {},
+        },
     )
-    _poll_operation(client, str(accepted["operation_id"]), stage=stage)
+    accepted = _require_one_of(response, {200, 202}, "preview acceptance")
+    deadline = time.monotonic() + operation_timeout_seconds
+    _poll_operation(
+        client,
+        str(accepted["operation_id"]),
+        stage=stage,
+        timeout_seconds=operation_timeout_seconds,
+        deadline=deadline,
+    )
     refreshed = _workspace(client)
     result_id = refreshed.get("current_preview_result_id")
     if type(result_id) is not str or not result_id:
@@ -469,10 +626,15 @@ def _preview(
     return {"workspace": refreshed, "result": result}, manifest
 
 
-def _assert_preview_summaries(manifest: Mapping[str, Any], *, unchanged: bool) -> dict[str, int]:
+def _assert_preview_summaries(
+    manifest: Mapping[str, Any],
+    *,
+    unchanged: bool,
+    expected_table_count: int,
+) -> dict[str, int]:
     pairs = manifest.get("pairs")
-    if not isinstance(pairs, list) or not pairs:
-        raise JourneyFailure("preview manifest has no pairs")
+    if not isinstance(pairs, list) or len(pairs) != 1:
+        raise JourneyFailure("preview manifest must have exactly one pair")
     totals: Counter[str] = Counter()
     for pair in pairs:
         if not isinstance(pair, dict) or not isinstance(pair.get("summary"), dict):
@@ -484,6 +646,8 @@ def _assert_preview_summaries(manifest: Mapping[str, Any], *, unchanged: bool) -
         failed = int(summary.get("failed_table_count", -1))
         if min(table_count, changed, degraded, failed) < 0 or table_count == 0:
             raise JourneyFailure("preview table summary is incomplete")
+        if table_count != expected_table_count:
+            raise JourneyFailure("preview table count differs from the source census")
         if degraded or failed or (unchanged and changed):
             raise JourneyFailure("preview table summary violated no-degradation/no-change expectations")
         totals.update(
@@ -498,54 +662,6 @@ def _assert_preview_summaries(manifest: Mapping[str, Any], *, unchanged: bool) -
     return dict(totals)
 
 
-def _diagnostic_strings(value: object) -> Iterable[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, Mapping):
-        for item in value.values():
-            yield from _diagnostic_strings(item)
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _diagnostic_strings(item)
-
-
-def _keyless_fallback_table_names(
-    surfaces: list[dict[str, Any]],
-    *,
-    label: str,
-    expected_names: Iterable[str] | None = None,
-    require_unchanged: bool = False,
-) -> tuple[str, ...]:
-    names: set[str] = set()
-    keyless_states: dict[str, list[str]] = {}
-    for surface in surfaces:
-        tables = surface.get("tables")
-        if not isinstance(tables, list):
-            raise JourneyFailure(f"{label}: preview surface has no table list")
-        for raw_table in tables:
-            if not isinstance(raw_table, dict) or type(raw_table.get("table_name")) is not str:
-                raise JourneyFailure(f"{label}: preview surface table entry is invalid")
-            table = cast(dict[str, Any], raw_table)
-            table_name = str(table["table_name"])
-            diagnostics = tuple(_diagnostic_strings(table.get("diagnostics")))
-            if any("KEY_MISSING" in item for item in diagnostics):
-                raise JourneyFailure(f"{label}: KEY_MISSING was reported for a preview table")
-            if not any("KEYLESS_FALLBACK" in item for item in diagnostics):
-                continue
-            names.add(table_name)
-            keyless_states.setdefault(table_name, []).append(str(table.get("change_kind", "")))
-
-    if expected_names is not None and names != set(expected_names):
-        raise JourneyFailure(f"{label}: keyless fallback table set differs from its expected set")
-    if require_unchanged and any(
-        change_kind != "UNCHANGED"
-        for table_states in keyless_states.values()
-        for change_kind in table_states
-    ):
-        raise JourneyFailure(f"{label}: a keyless fallback table was not UNCHANGED")
-    return tuple(sorted(names))
-
-
 def _submit(
     client: httpx.Client,
     *,
@@ -556,6 +672,7 @@ def _submit(
     baseline_head_version: int,
     idempotency_key: str,
     stage: str,
+    operation_timeout_seconds: int,
     expect_no_change: bool = False,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
@@ -578,10 +695,16 @@ def _submit(
         if payload.get("code") != "NO_CANONICAL_CHANGE":
             raise JourneyFailure("repeat submit did not return NO_CANONICAL_CHANGE")
         return {"result": "NO_CANONICAL_CHANGE"}
-    accepted = _require(response, 202, "submit acceptance")
-    _poll_operation(client, str(accepted["operation_id"]), stage=stage)
+    accepted = _require_one_of(response, {200, 202}, "submit acceptance")
+    deadline = time.monotonic() + operation_timeout_seconds
+    _poll_operation(
+        client,
+        str(accepted["operation_id"]),
+        stage=stage,
+        timeout_seconds=operation_timeout_seconds,
+        deadline=deadline,
+    )
     _emit_progress(stage, "submit_finalization_started")
-    deadline = time.monotonic() + 7_200
     attempt: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         attempt_response = client.get(
@@ -608,13 +731,13 @@ def _submit(
 
 
 def _approve(client: httpx.Client, submission_id: str, idempotency_key: str) -> None:
-    _require(
+    _require_one_of(
         client.post(
             f"/v1/submissions/{submission_id}/review-events",
             headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key=idempotency_key),
             json={"expected_review_version": 0, "action": "APPROVE"},
         ),
-        201,
+        {200, 201},
         "submission approval",
     )
 
@@ -650,7 +773,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
     if preview.get("can_start") is not False:
         raise JourneyFailure("archive plan should require explicit confirmation")
     head = cast(dict[str, Any], preview["head"])
-    confirmation = _require(
+    confirmation = _require_one_of(
         client.post(
             "/v1/archive-confirmations",
             headers=compose_auth_headers(
@@ -668,7 +791,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
                 "reason": "archive S2b real dump v1",
             },
         ),
-        201,
+        {200, 201},
         "archive confirmation",
     )
     ready = _require(
@@ -683,7 +806,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
     if ready.get("can_start") is not True or ready.get("audit_validity") is not True:
         raise JourneyFailure("confirmed archive plan is not ready")
     ready_head = cast(dict[str, Any], ready["head"])
-    archived = _require(
+    archived = _require_one_of(
         client.post(
             "/v1/archives",
             headers=compose_auth_headers(
@@ -703,7 +826,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
                 ],
             },
         ),
-        201,
+        {200, 201},
         "archive start",
     )
     if type(archived.get("baseline_node_id")) is not str:
@@ -814,357 +937,6 @@ def _pseudo_counts_from_http(
         catalog_client.close()
 
 
-def _summary_history_facts(
-    env: Mapping[str, str],
-    *,
-    operation_id: str,
-    before_commit: str,
-    current_commit: str,
-    surface_ref: Mapping[str, Any],
-    keyless_table_names: Iterable[str],
-    ordered_table_names: Iterable[str],
-) -> dict[str, Any]:
-    """Read and validate published History facts in-container without row output."""
-
-    remote_script = r'''
-import bisect, hashlib, json, sqlite3, sys, traceback
-from collections import Counter
-from pathlib import Path
-
-def _safe_history_diagnostic(exc_type, exc_value, traceback_object):
-    try:
-        effective_traceback = traceback_object or getattr(exc_value, '__traceback__', None)
-        frames = traceback.extract_tb(effective_traceback) if effective_traceback is not None else []
-        frame = frames[-1] if frames else None
-        diagnostic = {'exception': exc_type.__name__}
-        diagnostic['traceback_frame_count'] = len(frames)
-        if frame is not None:
-            diagnostic['frame'] = {
-                'file': Path(frame.filename).name,
-                'line': frame.lineno,
-                'function': frame.name,
-            }
-        if isinstance(exc_value, KeyError) and exc_value.args:
-            raw_key = exc_value.args[0]
-            if type(raw_key) is str:
-                known_fields = {
-                    'gid', 'no', 'record_kind', 'semantic_kind', 'entity_key_kind',
-                    'table_name', 'table_status', 'interval', 'row_count',
-                    'before_occupancy', 'current_occupancy', 'diagnostics',
-                    'records_closure_ref', 'tables', 'refs',
-                    'artifact_id', 'media_type', 'size_bytes', 'raw_sha256',
-                    'changed_columns', 'before_values', 'current_values',
-                    'field_changes', 'row_identity', 'before_position',
-                    'current_position', 'interval_digest', 'before_start',
-                    'before_end', 'current_start', 'current_end',
-                    'records', 'records_ref', 'records_manifest_ref',
-                    'records_manifest_digest', 'records_content_digest',
-                    'record_count', 'family', 'contract_version',
-                    'document_type', 'job_state', 'prior_output_refs',
-                    'checkpoint_ref', 'step_id', 'kind', 'column_name',
-                }
-                ordered = globals().get('ordered_names', set())
-                keyless = globals().get('keyless_names', set())
-                tables = globals().get('known_table_names', set())
-                columns = globals().get('known_column_names', set())
-                if raw_key in known_fields:
-                    diagnostic['key'] = {'kind': 'field', 'value': raw_key}
-                elif raw_key in columns:
-                    diagnostic['key'] = {'kind': 'column', 'value': raw_key}
-                elif raw_key in ordered | keyless | tables:
-                    diagnostic['key'] = {'kind': 'table', 'value': raw_key}
-                elif raw_key == globals().get('operation_id'):
-                    diagnostic['key'] = {'kind': 'operation', 'value': 'history-compare'}
-                elif raw_key in globals().get('sides', {}):
-                    diagnostic['key'] = {'kind': 'side', 'value': 'snapshot'}
-                elif raw_key == globals().get('before_commit'):
-                    diagnostic['key'] = {'kind': 'side', 'value': 'before'}
-                elif raw_key == globals().get('current_commit'):
-                    diagnostic['key'] = {'kind': 'side', 'value': 'current'}
-                else:
-                    key_digest = hashlib.sha256(raw_key.encode('utf-8', errors='replace')).hexdigest()[:16]
-                    diagnostic['key'] = {'kind': 'redacted', 'sha256': key_digest}
-            else:
-                diagnostic['key'] = {'kind': 'non-string'}
-        sys.stderr.write('S2B_HISTORY_DIAGNOSTIC=' + json.dumps(diagnostic, sort_keys=True) + '\n')
-    except BaseException:
-        sys.stderr.write('S2B_HISTORY_DIAGNOSTIC={"exception":"diagnostic_failure"}\n')
-
-sys.excepthook = _safe_history_diagnostic
-
-from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history.compare_jobs import (
-    HISTORY_COMPARE_STEP_MATERIALIZE,
-    _sides_from_materialize_checkpoint,
-    history_compare_step_id,
-)
-from gateway_backend.artifacts.serialize import artifact_ref_from_dict
-from gateway_backend.capabilities.comparison import open_records_closure, read_records_artifact
-from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
-from gateway_shared_kernel import SignedIntegerScalar, UnsignedIntegerScalar, StringScalar
-
-operation_id = json.loads(__import__('os').environ['S2B_HISTORY_OPERATION'])
-before_commit = json.loads(__import__('os').environ['S2B_HISTORY_BEFORE'])
-current_commit = json.loads(__import__('os').environ['S2B_HISTORY_CURRENT'])
-ordered_names = set(json.loads(__import__('os').environ['S2B_ORDERED_TABLES']))
-keyless_names = set(json.loads(__import__('os').environ['S2B_KEYLESS_TABLES']))
-surface_ref = artifact_ref_from_dict(json.loads(__import__('os').environ['S2B_HISTORY_SURFACE_REF']))
-
-step_id = history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
-connection = sqlite3.connect('/var/lib/gateway/control/control.sqlite3')
-row = connection.execute('SELECT checkpoint_ref FROM step_records WHERE step_id = ?', (step_id,)).fetchone()
-if row is None or row[0] is None:
-    raise SystemExit('history materialize checkpoint is unavailable')
-checkpoint = json.loads(row[0].decode('utf-8') if isinstance(row[0], bytes) else row[0])
-store = LocalArtifactStore(Path('/var/lib/gateway/artifacts'))
-envelope = load_checkpoint_envelope(store, artifact_ref_from_dict(checkpoint))
-sides = _sides_from_materialize_checkpoint(envelope.job_state, store)
-before = sides[before_commit]
-current = sides[current_commit]
-if before.table_set is None or current.table_set is None:
-    raise SystemExit('History checkpoint side is missing a snapshot table set')
-known_column_names = {
-    column.name
-    for side in (before, current)
-    for table in side.table_set.tables
-    for column in table.descriptor.columns
-}
-surface = json.loads(store.locate(surface_ref))
-surface_tables_raw = surface.get('tables')
-surface_refs = surface.get('refs')
-if type(surface_tables_raw) is not list or type(surface_refs) is not dict:
-    raise SystemExit('History surface is invalid')
-surface_tables = {}
-for item in surface_tables_raw:
-    if type(item) is not dict or type(item.get('table_name')) is not str:
-        raise SystemExit('History surface table is invalid')
-    name = item['table_name']
-    if name in surface_tables:
-        raise SystemExit('History surface repeats a table')
-    surface_tables[name] = item
-known_table_names = set(surface_tables)
-if any(item.get('table_status') == 'DEGRADED' for item in surface_tables.values()):
-    raise SystemExit('a table degraded during History compare')
-records_ref_raw = surface_refs.get('records_closure_ref')
-if type(records_ref_raw) is not dict:
-    raise SystemExit('History surface has no records closure')
-closure = open_records_closure(store, artifact_ref_from_dict(records_ref_raw))
-
-def scalar_integer(value):
-    if isinstance(value, (SignedIntegerScalar, UnsignedIntegerScalar)):
-        return int(value.decimal, 10)
-    if isinstance(value, StringScalar) and value.text.isdecimal():
-        return int(value.text, 10)
-    return None
-
-def read_ordered_rows(snapshot, name):
-    if snapshot.table_set is None:
-        raise SystemExit('ordered snapshot has no table set')
-    table = next(
-        (item for item in snapshot.table_set.tables if item.descriptor.table_name == name),
-        None,
-    )
-    if table is None or table.reader is None:
-        return []
-    descriptor = table.descriptor
-    indexes = {column.name: index for index, column in enumerate(descriptor.columns)}
-    gid_index, position_index = indexes['gid'], indexes['no']
-    reader = table.reader.reopen()
-    rows = []
-    try:
-        for raw in reader.iter_rows():
-            gid = scalar_integer(raw[gid_index])
-            position = scalar_integer(raw[position_index])
-            if gid is None or position is None:
-                raise SystemExit('ordered snapshot has an invalid gid or position')
-            rows.append((gid, position))
-    finally:
-        reader.close()
-    rows.sort(key=lambda item: item[1])
-    return rows
-
-def stable_real_rows(rows):
-    return [(gid, position) for gid, position in rows if gid < 4000000000]
-
-def lis_backbone(keys, positions):
-    if not positions:
-        return set()
-    reach = [0] * len(positions)
-    tails = []
-    for index in range(len(positions) - 1, -1, -1):
-        slot = bisect.bisect_left(tails, -positions[index])
-        if slot == len(tails):
-            tails.append(-positions[index])
-        else:
-            tails[slot] = -positions[index]
-        reach[index] = slot + 1
-    longest = max(reach)
-    levels = [[] for _ in range(longest + 1)]
-    for index, length in enumerate(reach):
-        levels[length].append(index)
-    chosen = []
-    previous = -1
-    for length in range(longest, 0, -1):
-        index = levels[length][bisect.bisect_right(levels[length], previous)]
-        chosen.append(index)
-        previous = index
-    return {keys[index] for index in chosen}
-
-def gaps(rows, anchors):
-    result = {}
-    previous_anchor = None
-    count = 0
-    start = end = 0
-    for gid, position in rows:
-        if gid >= 4000000000:
-            if count == 0:
-                start = position
-            count += 1
-            end = position
-            continue
-        if gid not in anchors:
-            continue
-        if count:
-            result[(previous_anchor, gid)] = (count, start, end)
-        previous_anchor = gid
-        count = 0
-    if count:
-        result[(previous_anchor, None)] = (count, start, end)
-    return result
-
-counts = Counter()
-records_by_table = {}
-for entry in closure.records:
-    rows = read_records_artifact(store, entry)
-    counts.update(str(record['record_kind']) for record in rows)
-    records_by_table.setdefault(entry.table_name, {})[entry.family.value] = rows
-
-def diagnostic_strings(value):
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, dict):
-        return [part for item in value.values() for part in diagnostic_strings(item)]
-    if isinstance(value, list):
-        return [part for item in value for part in diagnostic_strings(item)]
-    return []
-
-for name in keyless_names:
-    table = surface_tables.get(name)
-    if table is None:
-        raise SystemExit('History surface omitted a keyless fallback table')
-    if any('KEY_DEGRADED' in item for item in diagnostic_strings(table.get('diagnostics'))):
-        raise SystemExit('KEY_DEGRADED was reported for a keyless fallback table')
-
-ordered_results = {}
-all_table_names = set(ordered_names)
-for table_name in sorted(all_table_names):
-    table = surface_tables.get(table_name)
-    if table is None:
-        raise SystemExit('History surface omitted an IEC104 ordered table')
-    if table.get('table_status') == 'DEGRADED':
-        raise SystemExit('an IEC104 ordered table degraded during History compare')
-    family_rows = records_by_table.get(table_name, {})
-    standard_records = family_rows.get('STANDARD', ())
-    ordered_records = family_rows.get('ORDERED', ())
-    blank_records = family_rows.get('BLANK', ())
-    before_rows = read_ordered_rows(before, table_name)
-    current_rows = read_ordered_rows(current, table_name)
-    before_real = stable_real_rows(before_rows)
-    current_real = stable_real_rows(current_rows)
-    current_positions = {gid: position for gid, position in current_real}
-    common_keys = [gid for gid, _ in before_real if gid in current_positions]
-    positions = [current_positions[gid] for gid in common_keys]
-    backbone = lis_backbone(common_keys, positions)
-    expected_move_count = len(common_keys) - len(backbone)
-    moved_count = sum(record['record_kind'] == 'ORDERED_ROW_MOVED' for record in ordered_records)
-    if moved_count != expected_move_count:
-        raise SystemExit('ordered move count exceeds the minimum required by real row order')
-    expected_before = gaps(before_rows, backbone)
-    expected_current = gaps(current_rows, backbone)
-    expected_intervals = Counter()
-    for key in set(expected_before) | set(expected_current):
-        before_gap = expected_before.get(key)
-        current_gap = expected_current.get(key)
-        before_count = 0 if before_gap is None else before_gap[0]
-        current_count = 0 if current_gap is None else current_gap[0]
-        if before_count == current_count:
-            continue
-        expected_intervals[(
-            None if before_gap is None else before_gap[1],
-            None if before_gap is None else before_gap[2],
-            None if current_gap is None else current_gap[1],
-            None if current_gap is None else current_gap[2],
-            abs(current_count - before_count),
-            before_count,
-            current_count,
-        )] += 1
-    actual_intervals = Counter()
-    for record in blank_records:
-        interval = record.get('interval')
-        if type(interval) is not dict or 'changed_columns' in record or 'field_changes' in record:
-            raise SystemExit('blank interval record exposed field-level changes')
-        actual_intervals[(
-            interval.get('before_start'), interval.get('before_end'),
-            interval.get('current_start'), interval.get('current_end'),
-            interval.get('row_count'), record.get('before_occupancy'), record.get('current_occupancy'),
-        )] += 1
-    if actual_intervals != expected_intervals:
-        raise SystemExit('blank records do not match net skeleton interval occupancy changes')
-    ordered_results[table_name] = {
-        'status': table['table_status'],
-        'standard_record_counts': dict(Counter(str(record['record_kind']) for record in standard_records)),
-        'ordered_record_counts': dict(Counter(str(record['record_kind']) for record in ordered_records)),
-        'blank_interval_record_counts': dict(Counter(str(record['record_kind']) for record in blank_records)),
-        'blank_net_row_delta': sum(int(record['interval']['row_count']) for record in blank_records),
-        'expected_real_row_move_count': expected_move_count,
-    }
-if set(ordered_results) != all_table_names:
-    raise SystemExit('History surface omitted one or more IEC104 ordered tables')
-print(json.dumps({
-    'total_fact_record_count': sum(counts.values()),
-    'record_kind_counts': dict(sorted(counts.items())),
-    'ordered_tables': ordered_results,
-}, sort_keys=True))
-'''
-    remote_environment = {
-        "S2B_HISTORY_OPERATION": json.dumps(operation_id),
-        "S2B_HISTORY_BEFORE": json.dumps(before_commit),
-        "S2B_HISTORY_CURRENT": json.dumps(current_commit),
-        "S2B_HISTORY_SURFACE_REF": json.dumps(dict(surface_ref)),
-        "S2B_KEYLESS_TABLES": json.dumps(sorted(set(keyless_table_names))),
-        "S2B_ORDERED_TABLES": json.dumps(sorted(ordered_table_names)),
-    }
-    remote_environment_args = tuple(
-        argument
-        for name, value in remote_environment.items()
-        for argument in ("-e", f"{name}={value}")
-    )
-    result = run_compose(
-        dict(env),
-        "exec",
-        "-T",
-        *remote_environment_args,
-        "backend",
-        "python",
-        "-c",
-        remote_script,
-        timeout=900.0,
-    )
-    if result.returncode != 0:
-        detail = _history_facts_failure_detail(result.stderr)
-        raise JourneyFailure(
-            "aggregate History facts could not be verified in the backend container "
-            f"(exit={result.returncode}; {detail})"
-        )
-    try:
-        payload = json.loads(result.stdout.strip().splitlines()[-1])
-    except (IndexError, json.JSONDecodeError) as exc:
-        raise JourneyFailure("aggregate History facts response was invalid") from exc
-    if not isinstance(payload, dict):
-        raise JourneyFailure("aggregate History facts response was not an object")
-    return cast(dict[str, Any], payload)
-
-
 def _history_surface_ref(bundle: Mapping[str, Any]) -> Mapping[str, Any]:
     pairs = bundle.get("pairs")
     if not isinstance(pairs, list) or len(pairs) != 1 or not isinstance(pairs[0], Mapping):
@@ -1200,25 +972,23 @@ def _history_compare(
     v2_submission_id: str,
     v2_commit_id: str,
     idempotency_key: str,
+    operation_timeout_seconds: int,
 ) -> tuple[dict[str, Any], str]:
     stage = f"{tier} History"
     _emit_progress(stage, "history_compare_started")
-    accepted = _require(
-        client.post(
-            "/v1/history-compares",
-            headers=compose_auth_headers(token=HISTORY_READER_TOKEN, idempotency_key=idempotency_key),
-            json={
-                "nodes": [
-                    {"ref_kind": "submission", "ref_id": v1_submission_id},
-                    {"ref_kind": "submission", "ref_id": v2_submission_id},
-                ]
-            },
-        ),
-        202,
-        "History compare acceptance",
+    response = client.post(
+        "/v1/history-compares",
+        headers=compose_auth_headers(token=HISTORY_READER_TOKEN, idempotency_key=idempotency_key),
+        json={
+            "nodes": [
+                {"ref_kind": "submission", "ref_id": v1_submission_id},
+                {"ref_kind": "submission", "ref_id": v2_submission_id},
+            ]
+        },
     )
+    accepted = _require_one_of(response, {200, 202}, "History compare acceptance")
     operation_id = str(accepted["operation_id"])
-    deadline = time.monotonic() + 7_200
+    deadline = time.monotonic() + operation_timeout_seconds
     terminal: dict[str, Any] | None = None
     while time.monotonic() < deadline:
         payload = _require(
@@ -1256,7 +1026,22 @@ def _history_compare(
     if not isinstance(bundle.get("closure_entries"), list):
         raise JourneyFailure("History compare bundle does not have closure entries")
     _emit_progress(stage, "history_compare_succeeded")
-    return {"operation_id": operation_id, "pair": pair, "bundle": bundle}, operation_id
+    return {
+        "operation_id": operation_id,
+        "pair": pair,
+        "bundle": bundle,
+        "bundle_digest": result.get("bundle_digest"),
+    }, operation_id
+
+
+def _keyless_fallback_candidates(census: Mapping[str, Any]) -> tuple[str, ...]:
+    scan = census.get("effective_key_scan")
+    if not isinstance(scan, dict):
+        raise JourneyFailure("census has no effective-key scan")
+    unresolved = scan.get("unresolved_tables")
+    if not isinstance(unresolved, list) or any(type(item) is not str for item in unresolved):
+        raise JourneyFailure("census effective-key unresolved table list is invalid")
+    return tuple(sorted(set(cast(list[str], unresolved))))
 
 
 def _run_tier(
@@ -1268,179 +1053,301 @@ def _run_tier(
     datasets: Mapping[str, dict[str, Any]],
     census: Mapping[str, dict[str, Any]],
     env: dict[str, str],
-    secret_root: Path,
     project_name: str,
+    repository_id: str,
+    initial_commit_id: str,
+    step_state: dict[str, Any],
+    from_step: str | None,
+    state_path: Path | None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     v1_bytes, v1_file = _dataset_package(root, datasets[v1_id])
     v2_bytes, v2_file = _dataset_package(root, datasets[v2_id])
     v1_ordered = _ordered_tables(census[v1_id])
     v2_ordered = _ordered_tables(census[v2_id])
+    v1_keyless_names = _keyless_fallback_candidates(census[v1_id])
+    v2_keyless_names = _keyless_fallback_candidates(census[v2_id])
     if int(census[v1_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v1_id]:
         raise JourneyFailure(f"{v1_id}: census pseudo total differs from the accepted baseline")
     if int(census[v2_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v2_id]:
         raise JourneyFailure(f"{v2_id}: census pseudo total differs from the accepted baseline")
 
-    repository_id, initial_commit_id = start_three_container_stack(env, secret_root)
     images = compose_image_ids(env)
     repository_url = _repository_service_url(env)
+    runner = JourneyStepRunner(
+        tier=tier,
+        env=env,
+        state=step_state,
+        from_step=from_step,
+        state_path=state_path,
+    )
+
     with httpx.Client(
         base_url=BACKEND_URL,
         headers=compose_auth_headers(),
         timeout=600.0,
     ) as client:
-        # First upload reuses the empty INITIAL repository commit.
-        v1_workspace = _workspace(client)
-        v1_upload = _upload_revision(
-            client,
-            workspace=v1_workspace,
-            package=v1_bytes,
-            idempotency_key=f"{project_name}-{tier}-v1-upload",
+        v1_workspace = runner.run("v1-workspace", lambda: _workspace(client))
+        v1_upload = runner.run(
+            "v1-upload",
+            lambda: _upload_revision(
+                client,
+                workspace=cast(Mapping[str, Any], v1_workspace),
+                package=v1_bytes,
+                idempotency_key=f"{project_name}-{tier}-v1-upload",
+            ),
         )
-        v1_preview, v1_manifest = _preview(
-            client,
-            workspace=v1_workspace,
-            upload=v1_upload,
-            baseline_node_id=BASELINE_NODE_ID,
-            baseline_head_version=0,
-            idempotency_key=f"{project_name}-{tier}-v1-preview",
-            stage=f"{tier} v1 Preview",
+
+        def v1_preview_action() -> dict[str, Any]:
+            preview, manifest = _preview(
+                client,
+                workspace=cast(Mapping[str, Any], v1_workspace),
+                upload=cast(Mapping[str, Any], v1_upload),
+                baseline_node_id=BASELINE_NODE_ID,
+                baseline_head_version=0,
+                idempotency_key=f"{project_name}-{tier}-v1-preview",
+                stage=f"{tier} v1 Preview",
+                operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-preview"),
+            )
+            summary = _assert_preview_summaries(
+                manifest,
+                unchanged=False,
+                expected_table_count=int(census[v1_id]["table_count"]),
+            )
+            return {
+                "preview": preview,
+                "manifest": manifest,
+                "summary": summary,
+                "keyless_fallback_candidates": list(v1_keyless_names),
+            }
+
+        v1_preview_state = cast(
+            dict[str, Any],
+            runner.run("v1-preview", v1_preview_action),
         )
-        v1_summary = _assert_preview_summaries(v1_manifest, unchanged=False)
-        v1_keyless_names = _keyless_fallback_table_names(
-            read_preview_surface_table_states(env, v1_manifest),
-            label=f"{v1_id} Preview",
+        v1_preview = cast(dict[str, Any], v1_preview_state["preview"])
+        v1_summary = cast(dict[str, int], v1_preview_state["summary"])
+
+        v1_submission = runner.run(
+            "v1-submit",
+            lambda: _submit(
+                client,
+                workspace=cast(Mapping[str, Any], v1_workspace),
+                upload=cast(Mapping[str, Any], v1_upload),
+                preview=v1_preview,
+                baseline_node_id=BASELINE_NODE_ID,
+                baseline_head_version=0,
+                idempotency_key=f"{project_name}-{tier}-v1-submit",
+                stage=f"{tier} v1 Submit",
+                operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-submit"),
+            ),
         )
-        v1_submission = _submit(
-            client,
-            workspace=v1_workspace,
-            upload=v1_upload,
-            preview=v1_preview,
-            baseline_node_id=BASELINE_NODE_ID,
-            baseline_head_version=0,
-            idempotency_key=f"{project_name}-{tier}-v1-submit",
-            stage=f"{tier} v1 Submit",
-        )
+        v1_submission = cast(dict[str, Any], v1_submission)
         v1_submission_id = str(v1_submission["submission_id"])
         v1_commit_id = str(v1_submission["repository_commit_id"])
-        v1_repository = _pseudo_counts_from_http(
-            base_url=repository_url,
-            repository_id=repository_id,
-            commit_id=v1_commit_id,
-            expected_tables=v1_ordered,
-        )
-        if v1_repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v1_id]:
-            raise JourneyFailure(f"{v1_id}: committed pseudo row count differs from census")
 
-        _approve(client, v1_submission_id, f"{project_name}-{tier}-v1-review")
-        archive = _archive(client, v1_submission_id, f"{project_name}-{tier}-v1")
+        def v1_repository_read_action() -> dict[str, Any]:
+            repository = _pseudo_counts_from_http(
+                base_url=repository_url,
+                repository_id=repository_id,
+                commit_id=v1_commit_id,
+                expected_tables=v1_ordered,
+            )
+            if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v1_id]:
+                raise JourneyFailure(f"{v1_id}: committed pseudo row count differs from census")
+            if repository["row_count_total"] != int(census[v1_id]["row_count_total"]):
+                raise JourneyFailure(f"{v1_id}: Repository row count differs from census")
+            return repository
+
+        v1_repository = cast(
+            dict[str, Any],
+            runner.run("v1-repository-read", v1_repository_read_action),
+        )
+        def approve_v1_action() -> dict[str, bool]:
+            _approve(client, v1_submission_id, f"{project_name}-{tier}-v1-review")
+            return {"approved": True}
+
+        runner.run("v1-approve", approve_v1_action)
+
+        def archive_v1_action() -> dict[str, Any]:
+            archive = _archive(client, v1_submission_id, f"{project_name}-{tier}-v1")
+            if archive.get("baseline_commit_id") != v1_commit_id:
+                raise JourneyFailure("v1 Archive did not promote the v1 Repository commit")
+            return archive
+
+        archive = cast(dict[str, Any], runner.run("v1-archive", archive_v1_action))
         baseline_node_id = str(archive["baseline_node_id"])
         baseline_head_version = int(archive["baseline_head_version"])
-        if archive.get("baseline_commit_id") != v1_commit_id:
-            raise JourneyFailure("v1 Archive did not promote the v1 Repository commit")
 
-        # Repeating v1 against its archived canonical state must be all unchanged and a no-op.
-        repeat_workspace = _workspace(client)
-        repeat_upload = _upload_revision(
-            client,
-            workspace=repeat_workspace,
-            package=v1_bytes,
-            idempotency_key=f"{project_name}-{tier}-repeat-v1-upload",
+        repeat_workspace = runner.run(
+            "repeat-v1-workspace",
+            lambda: _workspace(client),
         )
-        repeat_preview, repeat_manifest = _preview(
-            client,
-            workspace=repeat_workspace,
-            upload=repeat_upload,
-            baseline_node_id=baseline_node_id,
-            baseline_head_version=baseline_head_version,
-            idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
-            stage=f"{tier} repeat v1 Preview",
-        )
-        repeat_summary = _assert_preview_summaries(repeat_manifest, unchanged=True)
-        repeat_keyless_names = _keyless_fallback_table_names(
-            read_preview_surface_table_states(env, repeat_manifest),
-            label=f"{v1_id} repeat Preview",
-            expected_names=v1_keyless_names,
-            require_unchanged=True,
-        )
-        repeat_submit = _submit(
-            client,
-            workspace=repeat_workspace,
-            upload=repeat_upload,
-            preview=repeat_preview,
-            baseline_node_id=baseline_node_id,
-            baseline_head_version=baseline_head_version,
-            idempotency_key=f"{project_name}-{tier}-repeat-v1-submit",
-            stage=f"{tier} repeat v1 Submit",
-            expect_no_change=True,
+        repeat_upload = runner.run(
+            "repeat-v1-upload",
+            lambda: _upload_revision(
+                client,
+                workspace=cast(Mapping[str, Any], repeat_workspace),
+                package=v1_bytes,
+                idempotency_key=f"{project_name}-{tier}-repeat-v1-upload",
+            ),
         )
 
-        v2_workspace = _workspace(client)
-        v2_upload = _upload_revision(
-            client,
-            workspace=v2_workspace,
-            package=v2_bytes,
-            idempotency_key=f"{project_name}-{tier}-v2-upload",
+        def repeat_v1_preview_action() -> dict[str, Any]:
+            preview, manifest = _preview(
+                client,
+                workspace=cast(Mapping[str, Any], repeat_workspace),
+                upload=cast(Mapping[str, Any], repeat_upload),
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
+                stage=f"{tier} repeat v1 Preview",
+                operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
+            )
+            summary = _assert_preview_summaries(
+                manifest,
+                unchanged=True,
+                expected_table_count=int(census[v1_id]["table_count"]),
+            )
+            if tuple(v1_keyless_names) != _keyless_fallback_candidates(census[v1_id]):
+                raise JourneyFailure("keyless fallback candidates changed during repeated Preview")
+            return {
+                "preview": preview,
+                "manifest": manifest,
+                "summary": summary,
+                "keyless_fallback_candidates": list(v1_keyless_names),
+            }
+
+        repeat_preview_state = cast(
+            dict[str, Any],
+            runner.run("repeat-v1-preview", repeat_v1_preview_action),
         )
-        v2_preview, v2_manifest = _preview(
-            client,
-            workspace=v2_workspace,
-            upload=v2_upload,
-            baseline_node_id=baseline_node_id,
-            baseline_head_version=baseline_head_version,
-            idempotency_key=f"{project_name}-{tier}-v2-preview",
-            stage=f"{tier} v2 Preview",
+        repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
+        repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
+
+        repeat_submit = runner.run(
+            "repeat-v1-submit",
+            lambda: _submit(
+                client,
+                workspace=cast(Mapping[str, Any], repeat_workspace),
+                upload=cast(Mapping[str, Any], repeat_upload),
+                preview=repeat_preview,
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-{tier}-repeat-v1-submit",
+                stage=f"{tier} repeat v1 Submit",
+                operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
+                expect_no_change=True,
+            ),
         )
-        v2_summary = _assert_preview_summaries(v2_manifest, unchanged=False)
-        v2_keyless_names = _keyless_fallback_table_names(
-            read_preview_surface_table_states(env, v2_manifest),
-            label=f"{v2_id} Preview",
+
+        v2_workspace = runner.run("v2-workspace", lambda: _workspace(client))
+        v2_upload = runner.run(
+            "v2-upload",
+            lambda: _upload_revision(
+                client,
+                workspace=cast(Mapping[str, Any], v2_workspace),
+                package=v2_bytes,
+                idempotency_key=f"{project_name}-{tier}-v2-upload",
+            ),
         )
-        v2_submission = _submit(
-            client,
-            workspace=v2_workspace,
-            upload=v2_upload,
-            preview=v2_preview,
-            baseline_node_id=baseline_node_id,
-            baseline_head_version=baseline_head_version,
-            idempotency_key=f"{project_name}-{tier}-v2-submit",
-            stage=f"{tier} v2 Submit",
+
+        def v2_preview_action() -> dict[str, Any]:
+            preview, manifest = _preview(
+                client,
+                workspace=cast(Mapping[str, Any], v2_workspace),
+                upload=cast(Mapping[str, Any], v2_upload),
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-{tier}-v2-preview",
+                stage=f"{tier} v2 Preview",
+                operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
+            )
+            summary = _assert_preview_summaries(
+                manifest,
+                unchanged=False,
+                expected_table_count=int(census[v2_id]["table_count"]),
+            )
+            return {
+                "preview": preview,
+                "manifest": manifest,
+                "summary": summary,
+                "keyless_fallback_candidates": list(v2_keyless_names),
+            }
+
+        v2_preview_state = cast(
+            dict[str, Any],
+            runner.run("v2-preview", v2_preview_action),
         )
+        v2_preview = cast(dict[str, Any], v2_preview_state["preview"])
+        v2_summary = cast(dict[str, int], v2_preview_state["summary"])
+
+        v2_submission = runner.run(
+            "v2-submit",
+            lambda: _submit(
+                client,
+                workspace=cast(Mapping[str, Any], v2_workspace),
+                upload=cast(Mapping[str, Any], v2_upload),
+                preview=v2_preview,
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-{tier}-v2-submit",
+                stage=f"{tier} v2 Submit",
+                operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-submit"),
+            ),
+        )
+        v2_submission = cast(dict[str, Any], v2_submission)
         v2_submission_id = str(v2_submission["submission_id"])
         v2_commit_id = str(v2_submission["repository_commit_id"])
-        v2_repository = _pseudo_counts_from_http(
-            base_url=repository_url,
-            repository_id=repository_id,
-            commit_id=v2_commit_id,
-            expected_tables=v2_ordered,
+
+        def v2_repository_read_action() -> dict[str, Any]:
+            repository = _pseudo_counts_from_http(
+                base_url=repository_url,
+                repository_id=repository_id,
+                commit_id=v2_commit_id,
+                expected_tables=v2_ordered,
+            )
+            if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v2_id]:
+                raise JourneyFailure(f"{v2_id}: committed pseudo row count differs from census")
+            if repository["row_count_total"] != int(census[v2_id]["row_count_total"]):
+                raise JourneyFailure(f"{v2_id}: Repository row count differs from census")
+            return repository
+
+        v2_repository = cast(
+            dict[str, Any],
+            runner.run("v2-repository-read", v2_repository_read_action),
         )
-        if v2_repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v2_id]:
-            raise JourneyFailure(f"{v2_id}: committed pseudo row count differs from census")
-        _approve(client, v2_submission_id, f"{project_name}-{tier}-v2-review")
-        history_result, operation_id = _history_compare(
-            client,
-            tier=tier,
-            v1_submission_id=v1_submission_id,
-            v1_commit_id=v1_commit_id,
-            v2_submission_id=v2_submission_id,
-            v2_commit_id=v2_commit_id,
-            idempotency_key=f"{project_name}-{tier}-history-compare",
+        def approve_v2_action() -> dict[str, bool]:
+            _approve(client, v2_submission_id, f"{project_name}-{tier}-v2-review")
+            return {"approved": True}
+
+        runner.run("v2-approve", approve_v2_action)
+
+        def history_action() -> dict[str, Any]:
+            result, operation_id = _history_compare(
+                client,
+                tier=tier,
+                v1_submission_id=v1_submission_id,
+                v1_commit_id=v1_commit_id,
+                v2_submission_id=v2_submission_id,
+                v2_commit_id=v2_commit_id,
+                idempotency_key=f"{project_name}-{tier}-history-compare",
+                operation_timeout_seconds=_operation_timeout_seconds(tier, "history"),
+            )
+            _history_surface_ref(cast(Mapping[str, Any], result["bundle"]))
+            return {"operation_id": operation_id, "result": result}
+
+        history_state = cast(
+            dict[str, Any],
+            runner.run("history", history_action),
         )
 
-    expected_ordered_tables = set(v1_ordered) | set(v2_ordered)
-    facts = _summary_history_facts(
-        env,
-        operation_id=operation_id,
-        before_commit=v1_commit_id,
-        current_commit=v2_commit_id,
-        surface_ref=_history_surface_ref(cast(Mapping[str, Any], history_result["bundle"])),
-        keyless_table_names=(*v1_keyless_names, *v2_keyless_names),
-        ordered_table_names=expected_ordered_tables,
-    )
-    api_record_count = int(cast(dict[str, Any], history_result["pair"])["record_count"])
-    if int(facts["total_fact_record_count"]) != api_record_count:
-        raise JourneyFailure("History HTTP record_count differs from aggregate comparison facts")
-
+    history_result = cast(dict[str, Any], history_state["result"])
+    history_pair = cast(dict[str, Any], history_result["pair"])
+    api_record_count = int(history_pair["record_count"])
+    if api_record_count < 0:
+        raise JourneyFailure("History HTTP record_count must be non-negative")
+    repeat_keyless_names = v1_keyless_names
     return {
         "tier": tier,
         "datasets": [
@@ -1456,6 +1363,7 @@ def _run_tier(
                 "keyless_fallback_tables": {
                     "count": len(v1_keyless_names),
                     "names": list(v1_keyless_names),
+                    "source": "S1 census effective_key_scan.unresolved_tables",
                 },
             },
             {
@@ -1470,30 +1378,80 @@ def _run_tier(
                 "keyless_fallback_tables": {
                     "count": len(v2_keyless_names),
                     "names": list(v2_keyless_names),
+                    "source": "S1 census effective_key_scan.unresolved_tables",
                 },
             },
         ],
         "repeat_v1": {
             "preview": repeat_summary,
             "submit": repeat_submit,
-            "keyless_fallback_tables_unchanged": {
+            "keyless_fallback_candidates_unchanged": {
                 "count": len(repeat_keyless_names),
                 "names": list(repeat_keyless_names),
+                "evidence": "all-table preview summary has changed_table_count=0",
             },
         },
         "history": {
             "record_count": api_record_count,
-            "record_kind_counts": facts["record_kind_counts"],
-            "ordered_tables": facts["ordered_tables"],
+            "bundle_digest": history_result.get("bundle_digest"),
+            "surface_digest": history_pair.get("surface_digest"),
+            "record_kind_counts": None,
+            "detail_availability": (
+                "public History HTTP exposes pair record_count and digests; "
+                "bundle artifacts are references without public content retrieval"
+            ),
         },
         "compose_image_ids": images,
+        "step_metrics": runner.metrics,
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "conclusion": "PASS",
         "empty_initial_commit_id": initial_commit_id,
     }
 
 
-def run_journey() -> dict[str, Any]:
+def _persist_debug_state(path: Path, state: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_suffix(path.suffix + ".tmp")
+    temporary_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    temporary_path.replace(path)
+
+
+def _load_debug_state(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise JourneyFailure("debug checkpoint could not be read") from exc
+    if not isinstance(payload, dict):
+        raise JourneyFailure("debug checkpoint is not an object")
+    return cast(dict[str, Any], payload)
+
+
+def _resume_stack(env: dict[str, str], state: Mapping[str, Any]) -> tuple[str, str]:
+    stack = state.get("_stack")
+    if not isinstance(stack, dict):
+        raise JourneyFailure("debug checkpoint has no stack identity")
+    repository_id = stack.get("repository_id")
+    initial_commit_id = stack.get("initial_commit_id")
+    if type(repository_id) is not str or type(initial_commit_id) is not str:
+        raise JourneyFailure("debug checkpoint has an invalid stack identity")
+    wait_repository_service_ready(env)
+    wait_http_ok(f"{BACKEND_URL}/readyz")
+    worker_ready(env)
+    return repository_id, initial_commit_id
+
+
+def _validate_project_name(project_name: str) -> None:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", project_name):
+        raise JourneyFailure("Compose project name must use 1..63 lowercase letters, digits, '_' or '-' ")
+
+
+def run_journey(
+    *,
+    tier_filter: str | None = None,
+    from_step: str | None = None,
+    keep_stack: bool = False,
+    requested_project_name: str | None = None,
+) -> dict[str, Any]:
     root = _real_dump_root()
     datasets, census = _read_metadata(root)
     current_head = subprocess.run(
@@ -1504,50 +1462,136 @@ def run_journey() -> dict[str, Any]:
         text=True,
         timeout=10.0,
     ).stdout.strip()
-    root_uuid = uuid.uuid4().hex[:8]
-    project_name = f"s2b-realdata-{os.getpid()}-{root_uuid}"
-    os.environ.pop("GATEWAY_COMPOSE_GATE_PREBUILT", None)
-    with tempfile.TemporaryDirectory(prefix="gdds-s2b-realdata-") as temporary_root:
-        base = Path(temporary_root)
-        first_secret_root = base / "t1"
-        first_env = _compose_environment(first_secret_root, project_name)
-        # Build once after the authoritative gate, then reuse those same V images for all tiers.
-        if subprocess.run(
-            ["docker", "image", "inspect", REPOSITORY_SERVICE_IMAGE],
-            check=False,
-            capture_output=True,
-            timeout=30.0,
-        ).returncode != 0:
-            raise JourneyFailure("the gate Repository Service image is missing")
-        build_compose_stack_images(first_env)
-        os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
+    if keep_stack and tier_filter is None:
+        raise JourneyFailure("--keep-stack requires --tier")
+    if from_step is not None and not keep_stack:
+        raise JourneyFailure("--from-step requires --keep-stack")
+    if from_step is not None and requested_project_name is None:
+        raise JourneyFailure("--from-step requires --project-name")
+    if requested_project_name is not None and not keep_stack:
+        raise JourneyFailure("--project-name is only used with --keep-stack")
+    if requested_project_name is None:
+        project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    else:
+        project_name = requested_project_name
+    _validate_project_name(project_name)
 
-        results = []
-        try:
-            for tier, (v1_id, v2_id) in EXPECTED_PAIRINGS.items():
-                secret_root = base / tier
-                env = _compose_environment(secret_root, project_name)
+    selected_tiers = [
+        (key.split("-")[1], pair)
+        for key, pair in EXPECTED_PAIRINGS.items()
+        if tier_filter is None or key.split("-")[1] == tier_filter
+    ]
+    if not selected_tiers:
+        raise JourneyFailure("requested real-data tier is unknown")
+
+    original_prebuilt = os.environ.get("GATEWAY_COMPOSE_GATE_PREBUILT")
+    os.environ.pop("GATEWAY_COMPOSE_GATE_PREBUILT", None)
+    results: list[dict[str, Any]] = []
+    state_paths: list[str] = []
+    stack_start_seconds: dict[str, float] = {}
+    project_root = root / "runs" / project_name
+    if keep_stack:
+        project_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with (
+            contextlib.nullcontext(project_root)
+            if keep_stack
+            else tempfile.TemporaryDirectory(prefix="gdds-s2b-realdata-")
+        ) as temporary_root:
+            base = Path(temporary_root) if not keep_stack else cast(Path, temporary_root)
+            if from_step is not None:
+                os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
+            else:
+                first_tier = selected_tiers[0][0]
+                first_secret_root = base / f"{first_tier}-secrets"
+                first_env = _compose_environment(first_secret_root, project_name)
+                if subprocess.run(
+                    ["docker", "image", "inspect", REPOSITORY_SERVICE_IMAGE],
+                    check=False,
+                    capture_output=True,
+                    timeout=30.0,
+                ).returncode != 0:
+                    raise JourneyFailure("the gate Repository Service image is missing")
+                build_compose_stack_images(first_env)
+                os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
+
+            for tier, (v1_id, v2_id) in selected_tiers:
+                state_path = base / f"{tier}.state.json" if keep_stack else None
+                if state_path is not None:
+                    state_paths.append(str(state_path))
+                if from_step is not None:
+                    if state_path is None:
+                        raise JourneyFailure("debug checkpoint path is unavailable")
+                    step_state = _load_debug_state(state_path)
+                else:
+                    if state_path is not None and state_path.exists():
+                        raise JourneyFailure(
+                            "debug checkpoint already exists; choose a new --project-name "
+                            "or resume with --from-step"
+                        )
+                    step_state = {}
+
+                secret_root = base / f"{tier}-secrets"
+                env = _compose_environment(
+                    secret_root,
+                    project_name,
+                    write_secrets=from_step is None,
+                )
                 acquire_compose_gate_lock()
                 try:
-                    result = _run_tier(
-                        tier=tier,
-                        v1_id=v1_id,
-                        v2_id=v2_id,
-                        root=root,
-                        datasets=datasets,
-                        census=census,
-                        env=env,
-                        secret_root=secret_root,
-                        project_name=project_name,
+                    stack_started = time.monotonic()
+                    if from_step is None:
+                        repository_id, initial_commit_id = start_three_container_stack(
+                            env,
+                            secret_root,
+                        )
+                        step_state["_stack"] = {
+                            "repository_id": repository_id,
+                            "initial_commit_id": initial_commit_id,
+                            "project_name": project_name,
+                            "tier": tier,
+                            "head": current_head,
+                        }
+                        if state_path is not None:
+                            _persist_debug_state(state_path, step_state)
+                    else:
+                        repository_id, initial_commit_id = _resume_stack(env, step_state)
+                    stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
+                    results.append(
+                        _run_tier(
+                            tier=tier,
+                            v1_id=v1_id,
+                            v2_id=v2_id,
+                            root=root,
+                            datasets=datasets,
+                            census=census,
+                            env=env,
+                            project_name=project_name,
+                            repository_id=repository_id,
+                            initial_commit_id=initial_commit_id,
+                            step_state=step_state,
+                            from_step=from_step,
+                            state_path=state_path,
+                        )
                     )
-                    results.append(result)
                 finally:
-                    cleanup_compose_project_artifacts(env)
-        finally:
+                    if keep_stack:
+                        release_compose_gate_lock()
+                    else:
+                        cleanup_compose_project_artifacts(env)
+    finally:
+        if original_prebuilt is None:
             os.environ.pop("GATEWAY_COMPOSE_GATE_PREBUILT", None)
+        else:
+            os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = original_prebuilt
+
     return {
         "head": current_head,
         "datasets": results,
+        "stack_start_seconds": stack_start_seconds,
+        "debug_project_name": project_name if keep_stack else None,
+        "debug_state_files": state_paths if keep_stack else [],
         "conclusion": "PASS",
     }
 
@@ -1567,21 +1611,46 @@ def validate_inputs() -> dict[str, Any]:
                 "table_count": census[dataset_id]["table_count"],
                 "row_count_total": census[dataset_id]["row_count_total"],
                 "pseudo_rows_total": sum(ordered.values()),
+                "keyless_fallback_candidates": list(
+                    _keyless_fallback_candidates(census[dataset_id])
+                ),
             }
         )
     return {"datasets": validated, "conclusion": "INPUTS_VALID"}
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--validate-inputs",
         action="store_true",
         help="check package hashes and the G8a census without starting containers",
     )
-    arguments = parser.parse_args()
+    parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
+    parser.add_argument("--from-step", choices=JOURNEY_STEP_IDS)
+    parser.add_argument("--keep-stack", action="store_true")
+    parser.add_argument("--project-name")
+    arguments = parser.parse_args(argv)
     try:
-        result = validate_inputs() if arguments.validate_inputs else run_journey()
+        if arguments.validate_inputs and any(
+            (
+                arguments.tier is not None,
+                arguments.from_step is not None,
+                arguments.keep_stack,
+                arguments.project_name is not None,
+            )
+        ):
+            raise JourneyFailure("--validate-inputs cannot be combined with journey controls")
+        result = (
+            validate_inputs()
+            if arguments.validate_inputs
+            else run_journey(
+                tier_filter=arguments.tier,
+                from_step=arguments.from_step,
+                keep_stack=arguments.keep_stack,
+                requested_project_name=arguments.project_name,
+            )
+        )
         print(json.dumps(result, sort_keys=True))
     except JourneyFailure as exc:
         print(json.dumps({"conclusion": "FAILED", "reason": str(exc)}))

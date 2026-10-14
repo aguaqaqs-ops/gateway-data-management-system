@@ -140,6 +140,8 @@ sha256sum vnext/repository_service/uv.lock
 - 阶段边界用附注 tag（例如 `p5-s1-exit`）标记；审核对象是 `<上一阶段 tag>..<候选提交>` 的提交区间。
 - 审核与复审在只读 detached worktree 中进行（`git worktree add --detach`），不在主工作区运行测试；
   测试运行期间任何人都不得在被测 worktree 中写入。
+- 调试与取证分开（P5 决议 DC30）：调试期间只跑 focused 测试与出问题的那一段真实数据，不跑完整 runner；收敛后在最终门禁提交上
+  完整运行权威 runner 与真实数据各一次作为证据。细节见执行计划 §8.9。
 - 未经 owner 授权不推送，不改写已被审核引用的提交。流程细节见
   [P5 收口执行计划 §8](docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-execution-plan.md)。
 

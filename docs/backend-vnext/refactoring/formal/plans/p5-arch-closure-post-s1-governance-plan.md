@@ -189,6 +189,16 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 5. G2 实施方留在 `/tmp` 的 6 个已注册临时 worktree（`gdds-g2-h-check`、`gdds-g6-final-a`、`gdds-g6-final-b`、`gdds-g6-identity-old`、`gdds-g6-verify-a`、`gdds-g6-verify-b`）：
    由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。已完成：复审时 `git worktree list` 只剩主工作区与 `/home/dev/gdds-p5-closure-s1`。
 
+### G11. 缩短完整门禁（runner；owner 2026-10-14，DC30；S2b 合入后、S3 kickoff 前）
+
+backend 批次单进程约 24 分钟（S2b 门禁 2,818 个用例），占完整门禁约 30 分钟中的大部分。AGENTS.md“其余包单进程”的前提（足够快、xdist 启动开销占主导）对 backend 已不成立。
+
+1. 先测量：在 clean worktree 上对 backend 批次加 `--durations=50` 跑一次，拆出 Compose 旅程、其他 serial 类用例与普通用例各自的耗时；
+2. 参照 repository_service：backend 普通用例 `-n ${GATEWAY_TEST_WORKERS}` 并行，Compose 旅程与依赖时序、端口、Dolt 或共享持久状态的用例标 `serial` 单进程运行；
+   标记与 `parallel_safe` 例外按 AGENTS.md「写测试」的审查要求逐项确认，不按 CPU 数盲目并行；
+3. 同步修改 `vnext/scripts/run-tests.sh`、AGENTS.md「跑测试」与 testing-conventions；用例数量与结果不变，只改运行方式；
+4. 验收：两次完整 runner exit 0，用例数与改动前一致；记录改动前后各批次耗时；独立审核后打 `p5-g11-exit`，作为 S3 的区间起点。
+
 ## 3. 顺序
 
 1. 已完成：S1 第 3 次复审通过 → `--no-ff` 合入 `main`（`139ee5fffd`）→ tag `p5-s1-exit`；G1、G5、G9。
@@ -206,4 +216,5 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
    - S2a-F3：实施设计 §4.8 时删除 Submit 的按前缀过滤启发式，包括 S2a 新增的 `comparison-ordered-`、`comparison-blank-`；
    - G8a-F1：若 S2b 重跑普查，先修普查 `ordered_projection.status`。
    2026-10-12：S2b 在真实数据旅程中停止（t1-v1 投影 23 项 `KEY_MISSING`，源 DDL 无主键）；owner 决议 DC29（无主键表兜底规则，决议记录 §12），S2b 按执行计划 §8.5 S2b.8 恢复。
-8. P5 exit：按 G10 清理。
+8. G11：S2b 合入后、S3 kickoff 前，缩短完整门禁（backend 并行化）。调试与取证分开（执行计划 §8.9，DC30）自 2026-10-14 起对 S2b 剩余部分与之后各阶段生效。
+9. P5 exit：按 G10 清理。

@@ -650,6 +650,10 @@ S5 选择 FULL 上传（非空基线）→ Submit → History compare 这条链�
 [Performance Measurement Guidance](../contracts/performance-measurement-and-baseline.md)：不设通过阈值，不建设新的 benchmark 平台；
 dataset ID、SHA-256 与 raw samples 按[决议记录 §4](p5-arch-closure-s0-owner-decisions.md#4-真实数据存放建议)记录。
 
+补充（DC30，2026-10-14）：“不设通过阈值”只针对 C 层（常数级开销）。P5 另有两层要求：A 层，真实数据每个 operation 在保护超时内进入终态（正确性）；
+B 层，没有结构性的慢（耗时随规模大致线性，读写按表或按批而非按行，无空等与重复全表读取），在发现的阶段修复并以计数断言回归。
+C 层自 S2b 起随每次取证记录，S5 汇总。业务容量目标由 owner 提供后，作为 Performance Measurement Guidance §5 的容量目标。
+
 ## 14. 停止条件与开放项
 
 出现以下情况时，停止对应阶段并回到 owner 处理：

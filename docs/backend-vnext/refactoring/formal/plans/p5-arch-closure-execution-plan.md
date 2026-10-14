@@ -194,6 +194,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     - compose：“提交 X → 审核 → 归档 → 再次上传 X”旅程的输入含一张 keyless 兜底表（含重复行），再次上传时该表 UNCHANGED；另有一次改动使该表显示一删一增；
     - 真实数据：t1–t4 不再因 `KEY_MISSING` 失败；各档 keyless 兜底表的数量与表名写入 handoff，重传时这些表 UNCHANGED；
     - 此前能投影成功的表，规范字节与内容摘要不变（golden 只因规则集与 manifest 的规则事实变化而更新，逐项说明）。
+  - 性能（DC30，决议记录 §13）：A 层——t1–t4 每个 operation 都在保护超时内进入终态，全程走完；B 层——按规模比例与墙钟/CPU 对比核对，
+    本阶段改动过的路径上的结构性慢在本阶段修复并以计数断言回归，其余登记到 S5；C 层——handoff 给出各档各步的墙钟与 CPU 时间，只记录不判定。
 
 ### S3 — composite_signal 接入
 
@@ -233,7 +235,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
 - 处置不可达基线：删除，或在 owning 设计中登记延期（owner、理由、重开条件）；登记后的条目保留在基线中并加注释。
   预期只剩 `external_target_sync` 与 canonical row hash 两组登记延期项。
 - 文档：逐条核对 S0 接受时并入的 Contract 与设计文本和最终实现一致；实现中发现的偏差走 owner 修订，不在收口中静默改写。
-- 按设计 §13 完成代表性链路测量，形成 Phase 6 候选列表；测量脚本只放在 `vnext/backend/benchmarks/`。
+- 按设计 §13 完成代表性链路测量，形成 Phase 6 候选列表；测量脚本只放在 `vnext/backend/benchmarks/`。汇总 S2b 起各阶段 C 层记录，
+  处置登记到 S5 的 B 层问题；owner 已给出业务容量目标时，同时报告与目标的差距（DC30）。
 - 最终门禁：fresh 构建 current HEAD 镜像；全部 compose 旅程 0 skipped；`./vnext/scripts/run-tests.sh` 全量；五包静态检查；
   真实数据链路在最终候选上重跑一次（主机侧）。
 - 交付 `pass_recommended` 与证据包；按 [P5 §2A.5](p5-business-vertical-slices-design.md) 逐项对照，由独立验收记录收口结论。
@@ -509,6 +512,7 @@ Application 特判或新增基线条目绕过。经 owner 明确批准的测量�
 - 实现者完成全部代码提交并在 `V` 上通过门禁后，最后一个提交只加 handoff（只改文档，不改变镜像构建上下文），即候选 `H`。
   审核对象是 `H`；实现者在最终回复中给出按 §8.7 填好的审核提示词，其中写明 `H`、`V` 与区间起点。
   `V → H` 的容器门禁结果按 AGENTS.md 沿用（`carried`），判定日志写在 worktree 外。
+  例外（DC30）：V 与 H 之间允许只改 `vnext/backend/benchmarks/` 与 `tests/test_real_dump_*.py` 的提交，见 §8.9。
 - 审核在新对话中进行，审核者不参与该阶段的实现。审核者在只读 detached worktree 中工作（`git worktree add --detach /home/dev/gdds-review-s<N>[-r<k>] <H>`），
   结束后删除；不在主工作区运行测试，避免与实施互相写入。报告按 §8.8 的模板写入 `plans/p5-arch-closure-s<N>-independent-review.md`
   （复审为 `plans/p5-arch-closure-s<N>-independent-rereview-<k>.md`），作为单独的纯文档提交，在审核 worktree 中提交后以
@@ -529,6 +533,7 @@ Application 特判或新增基线条目绕过。经 owner 明确批准的测量�
 - 最后一节为“审核提示词”：按 §8.7 的审核模板填好除 `H` 之外的全部字段；“必须核查”取自 §2 本阶段的验收、§3 的
   本阶段预算、§8.4/§8.5 的保留项，以及上面列出的请 reviewer 重点核对的内容。
 - 真实数据只记录 dataset ID、SHA-256、规模与结构统计（决议记录 §4）。
+- 有真实数据运行的阶段，handoff 附各档各步的墙钟与 CPU 时间表，并写明 A、B 层核对结论（DC30）；调试期间的运行只概述次数与发现，不作为证据。
 
 ### 8.3 真实数据的实际布局
 
@@ -691,3 +696,14 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
 | 原 finding | 关闭情况 | 依据 |
 | --- | --- | --- |
 ```
+
+### 8.9 调试与取证（DC30，owner 2026-10-14）
+
+- 调试：只跑 focused 测试与出问题的那一段真实数据；可在未提交的 worktree 上运行；不跑完整 runner；这些运行不作为证据，
+  日志可写到 `/home/dev/gdds-p5-closure-s1-gate-logs/<阶段>-debug-*`。真实数据的调试同样遵守整机单飞（Dolt 进程、Compose 栈、8000 端口）。
+- 取证：调试收敛后，在最终 V 上完整运行权威 runner 一次，随后在同一 V 上完整运行真实数据一次（preflight 与日志要求同 §8.1、AGENTS.md）。
+  取证失败且需要改产品代码：回到调试，收敛后形成新的 V 再取证一次。
+- V 之后、H 之前只改 `vnext/backend/benchmarks/` 与 `tests/test_real_dump_*.py`（不进入镜像）：门禁结果沿用；在最终提交上补跑这两个测试文件与五包静态检查，
+  重跑真实数据；carried 照常在同一 worktree 判定；handoff 列出 V 之后的这些提交。
+- 真实数据脚本：支持只跑某一档、从指定步骤开始、开发模式保留栈；每一步完成即核对；事件带时间戳并记录各容器 cgroup `cpu.stat`；
+  先跑 t1，t1 通过后再跑 t2–t4；核对走公开 HTTP 接口，不在容器内执行核对代码；保护超时按 DC30。

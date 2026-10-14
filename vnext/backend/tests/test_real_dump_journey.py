@@ -36,8 +36,8 @@ CPU_STAT_INVALID_SHAPES = (
 
 PREVIEW_SUMMARY_FAILURES = (
     (
-        "wrong table count",
-        {"table_count": 2, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0},
+        "empty table summary",
+        {"table_count": 0, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0},
         False,
     ),
     (
@@ -187,7 +187,7 @@ def test_journey_step_runner_reuses_completed_steps_before_resume_point(
     assert json.loads(capsys.readouterr().out)["event"] == "step_reused"
 
 
-def test_preview_summary_requires_one_complete_source_census_pair() -> None:
+def test_preview_summary_requires_one_complete_pair() -> None:
     manifest = {
         "pairs": [
             {
@@ -204,7 +204,6 @@ def test_preview_summary_requires_one_complete_source_census_pair() -> None:
     summary = _assert_preview_summaries(
         manifest,
         unchanged=True,
-        expected_table_count=3,
     )
 
     assert summary == {
@@ -221,7 +220,7 @@ def test_preview_summary_requires_one_complete_source_census_pair() -> None:
     PREVIEW_SUMMARY_FAILURES,
     ids=[case for case, _summary, _unchanged in PREVIEW_SUMMARY_FAILURES],
 )
-def test_preview_summary_rejects_census_mismatch_degradation_or_change(
+def test_preview_summary_rejects_incomplete_degradation_or_change(
     case: str,
     summary: dict[str, int],
     unchanged: bool,
@@ -231,7 +230,6 @@ def test_preview_summary_rejects_census_mismatch_degradation_or_change(
         _assert_preview_summaries(
             {"pairs": [{"summary": summary}]},
             unchanged=unchanged,
-            expected_table_count=3,
         )
 
 

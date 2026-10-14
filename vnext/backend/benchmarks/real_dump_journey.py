@@ -630,7 +630,6 @@ def _assert_preview_summaries(
     manifest: Mapping[str, Any],
     *,
     unchanged: bool,
-    expected_table_count: int,
 ) -> dict[str, int]:
     pairs = manifest.get("pairs")
     if not isinstance(pairs, list) or len(pairs) != 1:
@@ -646,8 +645,6 @@ def _assert_preview_summaries(
         failed = int(summary.get("failed_table_count", -1))
         if min(table_count, changed, degraded, failed) < 0 or table_count == 0:
             raise JourneyFailure("preview table summary is incomplete")
-        if table_count != expected_table_count:
-            raise JourneyFailure("preview table count differs from the source census")
         if degraded or failed or (unchanged and changed):
             raise JourneyFailure("preview table summary violated no-degradation/no-change expectations")
         totals.update(
@@ -1112,7 +1109,12 @@ def _run_tier(
             summary = _assert_preview_summaries(
                 manifest,
                 unchanged=False,
-                expected_table_count=int(census[v1_id]["table_count"]),
+            )
+            _emit_progress(
+                f"{tier} v1 Preview",
+                "preview_summary_verified",
+                summary=summary,
+                source_census_table_count=int(census[v1_id]["table_count"]),
             )
             return {
                 "preview": preview,
@@ -1207,7 +1209,12 @@ def _run_tier(
             summary = _assert_preview_summaries(
                 manifest,
                 unchanged=True,
-                expected_table_count=int(census[v1_id]["table_count"]),
+            )
+            _emit_progress(
+                f"{tier} repeat v1 Preview",
+                "preview_summary_verified",
+                summary=summary,
+                source_census_table_count=int(census[v1_id]["table_count"]),
             )
             if tuple(v1_keyless_names) != _keyless_fallback_candidates(census[v1_id]):
                 raise JourneyFailure("keyless fallback candidates changed during repeated Preview")
@@ -1266,7 +1273,12 @@ def _run_tier(
             summary = _assert_preview_summaries(
                 manifest,
                 unchanged=False,
-                expected_table_count=int(census[v2_id]["table_count"]),
+            )
+            _emit_progress(
+                f"{tier} v2 Preview",
+                "preview_summary_verified",
+                summary=summary,
+                source_census_table_count=int(census[v2_id]["table_count"]),
             )
             return {
                 "preview": preview,

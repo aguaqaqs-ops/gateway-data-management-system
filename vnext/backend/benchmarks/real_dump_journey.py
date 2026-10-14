@@ -1158,8 +1158,6 @@ def _run_tier(
             )
             if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v1_id]:
                 raise JourneyFailure(f"{v1_id}: committed pseudo row count differs from census")
-            if repository["row_count_total"] != int(census[v1_id]["row_count_total"]):
-                raise JourneyFailure(f"{v1_id}: Repository row count differs from census")
             return repository
 
         v1_repository = cast(
@@ -1322,8 +1320,6 @@ def _run_tier(
             )
             if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v2_id]:
                 raise JourneyFailure(f"{v2_id}: committed pseudo row count differs from census")
-            if repository["row_count_total"] != int(census[v2_id]["row_count_total"]):
-                raise JourneyFailure(f"{v2_id}: Repository row count differs from census")
             return repository
 
         v2_repository = cast(

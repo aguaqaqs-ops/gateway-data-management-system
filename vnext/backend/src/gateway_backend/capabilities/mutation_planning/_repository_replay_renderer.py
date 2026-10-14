@@ -51,6 +51,8 @@ _FLOAT64_BITS_RE = re.compile(r"^[0-9a-f]{16}$")
 _ASCII_FLOAT_RE = re.compile(
     r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$"
 )
+_MAX_INSERT_ROWS_PER_STATEMENT = 256
+_MAX_INSERT_STATEMENT_BYTES = 4 * 1024 * 1024
 
 ReplayRenderStatus = Literal["READY", "FAILED"]
 
@@ -142,20 +144,82 @@ def _render_mutations(mutations: tuple[ChangeSetMutation, ...]) -> bytes:
     parts: list[bytes] = []
     total = 0
     cleared_keyless_tables: set[str] = set()
-    for mutation in mutations:
-        if mutation.operation is RowMutationOperation.DELETE and not mutation.canonical_storage_key.columns:
-            if mutation.canonical_table in cleared_keyless_tables:
-                continue
-            cleared_keyless_tables.add(mutation.canonical_table)
-            statement = (
-                f"DELETE FROM {_quote_identifier(mutation.canonical_table)};\n".encode("utf-8")
-            )
-        else:
-            statement = _render_mutation(mutation)
+
+    def append(statement: bytes) -> None:
+        nonlocal total
         if total + len(statement) > MAX_REPLAY_SQL_BYTES:
             raise _RenderSizeError()
         parts.append(statement)
         total += len(statement)
+
+    pending_insert_values: list[bytes] = []
+    pending_insert_identity: tuple[str, tuple[str, ...]] | None = None
+    pending_insert_prefix: bytes | None = None
+    pending_insert_bytes = 0
+
+    def flush_inserts() -> None:
+        nonlocal pending_insert_bytes, pending_insert_identity, pending_insert_prefix
+        if not pending_insert_values:
+            return
+        if pending_insert_prefix is None:
+            raise _RenderCapabilityError("INSERT batch prefix is missing")
+        append(
+            pending_insert_prefix
+            + b", ".join(pending_insert_values)
+            + b";\n"
+        )
+        pending_insert_values.clear()
+        pending_insert_identity = None
+        pending_insert_prefix = None
+        pending_insert_bytes = 0
+
+    for mutation in mutations:
+        if mutation.operation is RowMutationOperation.INSERT:
+            if mutation.after_image is None:
+                raise _RenderCapabilityError("INSERT requires after_image")
+            identity = (
+                mutation.canonical_table,
+                tuple(column for column, _ in mutation.after_image.columns),
+            )
+            prefix = (
+                f"INSERT INTO {_quote_identifier(mutation.canonical_table)} "
+                f"({_quoted_column_list(mutation.after_image)}) VALUES "
+            ).encode("utf-8")
+            row_values = f"({_value_list(mutation.after_image)})".encode("utf-8")
+            new_batch = pending_insert_identity != identity
+            if (
+                not new_batch
+                and pending_insert_values
+                and pending_insert_bytes + 2 + len(row_values) > _MAX_INSERT_STATEMENT_BYTES
+            ):
+                new_batch = True
+            if new_batch:
+                flush_inserts()
+                pending_insert_identity = identity
+            additional_separator_bytes = 2 if pending_insert_values else 0
+            if not pending_insert_values:
+                pending_insert_prefix = prefix
+                pending_insert_bytes = len(prefix)
+            pending_insert_values.append(row_values)
+            pending_insert_bytes += len(row_values) + additional_separator_bytes
+            if (
+                len(pending_insert_values) >= _MAX_INSERT_ROWS_PER_STATEMENT
+                or pending_insert_bytes >= _MAX_INSERT_STATEMENT_BYTES
+            ):
+                flush_inserts()
+            continue
+
+        flush_inserts()
+        if mutation.operation is RowMutationOperation.DELETE and not mutation.canonical_storage_key.columns:
+            if mutation.canonical_table in cleared_keyless_tables:
+                continue
+            cleared_keyless_tables.add(mutation.canonical_table)
+            append(
+                f"DELETE FROM {_quote_identifier(mutation.canonical_table)};\n".encode("utf-8")
+            )
+        else:
+            append(_render_mutation(mutation))
+    flush_inserts()
     return b"".join(parts)
 
 

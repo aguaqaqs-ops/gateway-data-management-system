@@ -629,7 +629,10 @@ def test_keyless_multiset_changes_rebuild_and_identical_multisets_are_noop() -> 
     assert rendered.status == "READY"
     assert rendered.sql_bytes is not None
     assert rendered.sql_bytes.count(b"DELETE FROM `orders`;") == 1
-    assert rendered.sql_bytes.count(b"INSERT INTO `orders`") == 3
+    assert rendered.sql_bytes.count(b"INSERT INTO `orders`") == 1
+    assert rendered.sql_bytes.count(b"), (") == 2
+    assert rendered.sql_bytes.count(b", '9')") == 2
+    assert rendered.sql_bytes.count(b", '0')") == 1
 
 
 def _keyless_rows(*statuses: str) -> tuple[MutationKeyedRow, ...]:

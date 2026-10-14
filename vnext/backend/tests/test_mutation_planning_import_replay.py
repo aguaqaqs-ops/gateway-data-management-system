@@ -97,6 +97,51 @@ def test_import_replay_sql_includes_drop_create_and_inserts() -> None:
     assert "INSERT INTO `net_cfg`" in replay_sql
 
 
+def test_import_replay_batches_inserts_without_losing_row_occurrences() -> None:
+    reader, binding = table_input(
+        "batch_widget",
+        columns=(int_column("id"), varchar_column("value")),
+        primary_key_columns=("id",),
+        rows=tuple(
+            as_row(int_cell(index), varchar_cell(f"row-{index}"))
+            for index in range(258)
+        ),
+    )
+    result = project_storage(
+        _request(
+            ProjectionTableInput(
+                canonical_table="batch_widget",
+                reader=reader,
+                source_binding=binding,
+            )
+        )
+    )
+    assert result.status is ProjectionStatus.COMPLETE
+    projection_snapshots = build_import_projection_snapshots(
+        _request(
+            ProjectionTableInput(
+                canonical_table="batch_widget",
+                reader=reader.reopen(),
+                source_binding=binding,
+            )
+        ),
+        result,
+    )
+    replay_sql = render_import_mutation_dml(
+        result,
+        build_import_mutation_snapshots(projection_snapshots),
+        repository_base_digest=digest_ref("aa"),
+        removed_tables=(),
+    ).decode("utf-8")
+
+    insert_statements = [
+        line for line in replay_sql.splitlines() if line.startswith("INSERT INTO `batch_widget`")
+    ]
+    assert len(insert_statements) == 2
+    assert [line.count("), ") + 1 for line in insert_statements] == [256, 2]
+    assert all(replay_sql.count(f"'row-{index}'") == 1 for index in range(258))
+
+
 def test_import_replay_allocates_ordered_blank_gid() -> None:
     reader, binding = table_input(
         "b1_n1_iec104_syx_list",

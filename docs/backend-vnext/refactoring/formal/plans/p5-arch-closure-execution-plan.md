@@ -236,7 +236,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   预期只剩 `external_target_sync` 与 canonical row hash 两组登记延期项。
 - 文档：逐条核对 S0 接受时并入的 Contract 与设计文本和最终实现一致；实现中发现的偏差走 owner 修订，不在收口中静默改写。
 - 按设计 §13 完成代表性链路测量，形成 Phase 6 候选列表；测量脚本只放在 `vnext/backend/benchmarks/`。汇总 S2b 起各阶段 C 层记录，
-  处置登记到 S5 的 B 层问题；owner 已给出业务容量目标时，同时报告与目标的差距（DC30）。
+  处置登记到 S5 的 B 层问题；按业务容量目标（约 t4 的 2 倍，Preview 10 分钟内）以 t4 实测外推并报告差距，写明外推的局限，
+  并核对目标规模下 replay SQL 字节数的余量（DC30，决议记录 §13）。
 - 最终门禁：fresh 构建 current HEAD 镜像；全部 compose 旅程 0 skipped；`./vnext/scripts/run-tests.sh` 全量；五包静态检查；
   真实数据链路在最终候选上重跑一次（主机侧）。
 - 交付 `pass_recommended` 与证据包；按 [P5 §2A.5](p5-business-vertical-slices-design.md) 逐项对照，由独立验收记录收口结论。

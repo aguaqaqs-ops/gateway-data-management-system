@@ -86,6 +86,7 @@ JOURNEY_STEP_IDS = (
     "v1-workspace",
     "v1-upload",
     "v1-preview",
+    "v1-submit",
     "v1-repository-read",
     "v1-approve",
     "v1-archive",

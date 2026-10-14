@@ -321,4 +321,5 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
 def test_debug_step_order_covers_every_business_action() -> None:
     assert JOURNEY_STEP_IDS[0] == "v1-workspace"
     assert JOURNEY_STEP_IDS[-1] == "history"
+    assert "v1-submit" in JOURNEY_STEP_IDS
     assert "repeat-v1-submit" in JOURNEY_STEP_IDS

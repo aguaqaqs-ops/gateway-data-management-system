@@ -124,6 +124,7 @@ def test_http_arrow_adapter_reads_exact_commit_catalog_and_rows() -> None:
     catalog_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/catalog"
     rows_path = f"/v1/repositories/{REPO_ID}/versioned/commits/{encoded}/rows"
     arrow_bytes = _arrow_ipc_table()
+    row_read_timeouts: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.headers.get("Authorization") == f"Bearer {TEST_REPOSITORY_TOKEN}"
@@ -135,6 +136,11 @@ def test_http_arrow_adapter_reads_exact_commit_catalog_and_rows() -> None:
             )
         if request.url.path == rows_path:
             assert request.url.params.get("table_name") == "items"
+            timeout_extension = request.extensions.get("timeout")
+            assert isinstance(timeout_extension, dict)
+            row_read_timeout = timeout_extension.get("read")
+            assert type(row_read_timeout) is float
+            row_read_timeouts.append(row_read_timeout)
             return httpx.Response(
                 200,
                 content=arrow_bytes,
@@ -164,6 +170,7 @@ def test_http_arrow_adapter_reads_exact_commit_catalog_and_rows() -> None:
     reader = session.open_table_reader("items")
     rows = tuple(reader.stream_rows())
     assert rows == ((1,),)
+    assert row_read_timeouts == [300.0]
     session.close()
 
 

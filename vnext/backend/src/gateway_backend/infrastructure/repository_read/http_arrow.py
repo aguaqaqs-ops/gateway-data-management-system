@@ -27,6 +27,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 
 _REPOSITORY_SERVER_CONTRACT_VERSION = 1
+_REPOSITORY_ROW_STREAM_IDLE_TIMEOUT_SECONDS = 300.0
 
 
 class HttpArrowRepositoryTableAccessProvider:
@@ -228,6 +229,7 @@ def _client(
         base_url=base_url,
         bearer_token=bearer_token,
         timeout_seconds=timeout_seconds,
+        stream_idle_timeout_seconds=_REPOSITORY_ROW_STREAM_IDLE_TIMEOUT_SECONDS,
         transport=transport,
     )
 

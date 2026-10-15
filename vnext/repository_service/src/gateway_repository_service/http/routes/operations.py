@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Request
 
 from gateway_repository_contracts import GetOperationResponse
 from gateway_repository_service.http.auth import require_bearer_token
+from gateway_repository_service.http.openapi import simple_error_response
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.versioned_import.submission import ImportSubmissionService
 from gateway_repository_service.versioned_import.wire import build_operation_response
@@ -23,6 +24,7 @@ def register_operation_routes(app: FastAPI) -> None:
             401: {"description": "Authentication failed"},
             404: {"description": "Operation not found"},
             422: {"description": "Request validation failed"},
+            500: simple_error_response(description="RESPONSE_LIMIT_EXCEEDED"),
             503: {"description": "Service not ready"},
         },
     )

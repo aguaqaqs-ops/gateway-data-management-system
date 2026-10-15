@@ -342,7 +342,7 @@ def test_live_running_lease_does_not_mutate_on_startup(tmp_path: Path) -> None:
     harness = _make_harness(tmp_path)
     operation, step = harness.seed_claimed_running()
     startup = harness.worker_startup()
-    assert startup.startup() is StartupDisposition.READY
+    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
     with harness.read_uow() as unit_of_work:
         persisted = unit_of_work.operations.get_step(step.step_id)
     assert persisted.status is StepStatus.RUNNING
@@ -350,6 +350,19 @@ def test_live_running_lease_does_not_mutate_on_startup(tmp_path: Path) -> None:
     assert persisted.lease_token == step.lease_token
     assert persisted.started_at == step.started_at
     del operation
+
+
+def test_live_external_effect_lease_keeps_existing_startup_behavior(tmp_path: Path) -> None:
+    harness = _make_harness(tmp_path, capability=RecoveryCapabilityValue.EXTERNAL_EFFECT)
+    _operation, step = harness.seed_claimed_running()
+
+    assert harness.worker_startup().startup() is StartupDisposition.READY
+
+    with harness.read_uow() as unit_of_work:
+        persisted = unit_of_work.operations.get_step(step.step_id)
+    assert persisted.status is StepStatus.RUNNING
+    assert persisted.worker_id == step.worker_id
+    assert persisted.lease_token == step.lease_token
 
 
 @pytest.mark.parametrize(

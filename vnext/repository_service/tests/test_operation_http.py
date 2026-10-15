@@ -200,8 +200,12 @@ def test_production_openapi_operation_paths(env: ImportHttpTestEnvironment) -> N
     paths = env.client.get("/openapi.json").json()["paths"]
     assert set(paths.keys()) == PRODUCTION_OPENAPI_PATHS
     operation_path = paths["/v1/repositories/{repository_id}/operations/{operation_id}"]["get"]
-    for status in ("200", "401", "404", "422", "503"):
+    for status in ("200", "401", "404", "422", "500", "503"):
         assert status in operation_path["responses"]
+    assert operation_path["responses"]["500"]["description"] == "RESPONSE_LIMIT_EXCEEDED"
+    assert operation_path["responses"]["500"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/SimpleError"
+    }
 
 
 def test_get_operation_large_failed_operation_is_accepted(env: ImportHttpTestEnvironment) -> None:
@@ -255,4 +259,5 @@ def test_build_operation_response_rejects_oversized_wire_payload() -> None:
     )
     with pytest.raises(ServiceError) as exc_info:
         build_operation_response(response)
-    assert exc_info.value.status_code == 503
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.code == "RESPONSE_LIMIT_EXCEEDED"

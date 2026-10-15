@@ -35,6 +35,7 @@ from tests.support.compose_gate_harness import (
     read_workspace_row,
     require_docker,
     run_accept_to_submission_read_journey,
+    run_compose,
     start_three_container_stack,
 )
 from tests.support.source_package_fixtures import pack_tar_gz
@@ -501,3 +502,92 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         assert case_a["submit_status"] == "SUCCEEDED"
     finally:
         cleanup_compose_project_artifacts(ordered_env)
+
+
+def test_preview_worker_restart_takes_over_expired_running_operation(tmp_path: Path) -> None:
+    require_docker()
+    env = _compose_env(tmp_path, prefix="preview-worker-restart")
+    start_three_container_stack(env, tmp_path)
+
+    initial_sql = (
+        b"CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
+        b"INSERT INTO t VALUES (1);\n"
+    )
+    modified_sql = (
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
+        "INSERT INTO t VALUES "
+        + ",".join(f"({index})" for index in range(50_000))
+        + ";\n"
+    ).encode("utf-8")
+
+    try:
+        with httpx.Client(
+            base_url=BACKEND_URL,
+            headers=compose_auth_headers(token=ACTOR2_TOKEN),
+            timeout=60.0,
+        ) as client:
+            workspace = client.post(
+                "/v1/workspaces",
+                json={
+                    "gateway_device_external_key": DEVICE_KEY,
+                    "business_project_id": PROJECT_ID,
+                },
+            )
+            assert workspace.status_code in {200, 201}, workspace.text
+            workspace_body = workspace.json()
+            upload = client.post(
+                f"/v1/workspaces/{workspace_body['workspace_id']}/upload-revisions",
+                headers=compose_auth_headers(
+                    token=ACTOR2_TOKEN,
+                    idempotency_key="preview-worker-restart-upload",
+                ),
+                files=upload_files(
+                    expected_version=int(workspace_body["optimistic_version"]),
+                    initial_bytes=pack_tar_gz({"sql/dbcfg.sql": initial_sql}),
+                    modified_bytes=pack_tar_gz({"sql/dbcfg.sql": modified_sql}),
+                ),
+            )
+            assert upload.status_code == 201, upload.text
+            upload_body = upload.json()
+            preview = client.post(
+                f"/v1/workspaces/{workspace_body['workspace_id']}/preview-operations",
+                headers=compose_auth_headers(
+                    token=ACTOR2_TOKEN,
+                    idempotency_key="preview-worker-restart-preview",
+                ),
+                json={
+                    "expected_workspace_version": upload_body["optimistic_version"],
+                    "upload_revision_id": upload_body["upload_revision_id"],
+                    "generation": upload_body["generation"],
+                    "expected_baseline_node_id": BASELINE_NODE_ID,
+                    "expected_baseline_head_version": 0,
+                    "options": {},
+                },
+            )
+            assert preview.status_code == 202, preview.text
+            operation_id = str(preview.json()["operation_id"])
+
+            deadline = time.monotonic() + 30.0
+            observed_running = False
+            while time.monotonic() < deadline:
+                operation = client.get(f"/v1/operations/{operation_id}")
+                assert operation.status_code == 200, operation.text
+                status = operation.json()["status"]
+                if status == "RUNNING":
+                    observed_running = True
+                    break
+                assert status not in {"SUCCEEDED", "FAILED", "CANCELLED"}, operation.text
+                time.sleep(0.05)
+            assert observed_running, "Preview never entered RUNNING before its worker was terminated"
+
+            killed = run_compose(env, "kill", "--signal", "SIGKILL", "worker")
+            assert killed.returncode == 0, f"worker kill failed: {killed.stderr}\n{killed.stdout}"
+            restarted = run_compose(env, "up", "-d", "--no-deps", "worker")
+            assert restarted.returncode == 0, (
+                f"worker restart failed: {restarted.stderr}\n{restarted.stdout}"
+            )
+            terminal = poll_operation(client, operation_id, timeout_seconds=240.0)
+
+            assert terminal["status"] == "SUCCEEDED", json.dumps(terminal, indent=2)
+    finally:
+        cleanup_compose_project_artifacts(env)

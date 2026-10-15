@@ -29,7 +29,10 @@ from typing import Any, cast
 import httpx
 import pyarrow as pa
 import pyarrow.ipc as pa_ipc
-from gateway_repository_contracts import encode_commit_id_path_segment
+from gateway_repository_contracts import (
+    GetVersionedCatalogResponse,
+    encode_commit_id_path_segment,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -921,10 +924,31 @@ def _pseudo_counts_from_http(
         timeout=300.0,
     )
     try:
+        encoded = encode_commit_id_path_segment(commit_id)
+        catalog_response = repository_client.get(
+            f"/v1/repositories/{repository_id}/versioned/commits/{encoded}/catalog",
+        )
+        if catalog_response.status_code != 200:
+            code = "unknown"
+            try:
+                error_payload = catalog_response.json()
+                if isinstance(error_payload, dict) and isinstance(error_payload.get("code"), str):
+                    code = error_payload["code"]
+            except ValueError:
+                pass
+            raise JourneyFailure(
+                f"Repository catalog HTTP {catalog_response.status_code} ({code})"
+            )
+        try:
+            catalog = GetVersionedCatalogResponse.model_validate_json(catalog_response.content)
+        except ValueError as exc:
+            raise JourneyFailure("Repository catalog JSON response is invalid") from exc
+        if catalog.catalog.commit_id != commit_id:
+            raise JourneyFailure("Repository catalog commit ID differs from requested commit")
+
         actual: dict[str, int] = {}
         actual_row_counts: dict[str, int] = {}
         for table_name in sorted(expected_tables):
-            encoded = encode_commit_id_path_segment(commit_id)
             response = repository_client.get(
                 f"/v1/repositories/{repository_id}/versioned/commits/{encoded}/rows",
                 params={"table_name": table_name},
@@ -962,6 +986,11 @@ def _pseudo_counts_from_http(
             "ordered_row_count_total": sum(actual_row_counts.values()),
             "ordered_table_pseudo_counts": actual,
             "pseudo_rows_total": actual_total,
+            "catalog_json_bytes": len(catalog_response.content),
+            "catalog_table_count": len(catalog.catalog.tables),
+            "catalog_row_count_total": sum(
+                table.row_count for table in catalog.catalog.tables
+            ),
         }
     finally:
         repository_client.close()

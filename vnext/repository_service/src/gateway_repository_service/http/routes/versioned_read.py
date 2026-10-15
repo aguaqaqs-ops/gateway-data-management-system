@@ -55,7 +55,10 @@ def register_versioned_read_routes(app: FastAPI) -> None:
         "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog",
         response_model=GetVersionedCatalogResponse,
         status_code=200,
-        responses=versioned_read_json_responses(success_description="Versioned catalog"),
+        responses=versioned_read_json_responses(
+            success_description="Versioned catalog",
+            response_limit_exceeded=True,
+        ),
     )
     def get_versioned_catalog(
         request: Request,

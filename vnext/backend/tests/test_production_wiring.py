@@ -15,7 +15,11 @@ from gateway_backend.application.history.compare_jobs import history_compare_job
 from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_backend.bootstrap.operation_worker import build_production_preview_dependencies
-from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryRef
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    MaterializationDiagnosticCode,
+    RepositoryProviderError,
+    RepositoryRef,
+)
 from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness
 from gateway_backend.http.auth import LiveFileSessionPort
 from gateway_backend.bootstrap.composition import (
@@ -39,6 +43,7 @@ from gateway_backend.infrastructure.repository_read.http_arrow import (
     build_http_repository_provider_factory,
 )
 from gateway_repository_client.paths import encode_commit_id_path
+from gateway_repository_contracts import RESPONSE_LIMIT_EXCEEDED_CODE, SERVICE_NOT_READY_CODE
 from tests.support.runtime_settings import (
     TEST_MAPPING_COMMIT_ID,
     TEST_MAPPING_REPOSITORY_ID,
@@ -171,6 +176,50 @@ def test_http_arrow_adapter_reads_exact_commit_catalog_and_rows() -> None:
     rows = tuple(reader.stream_rows())
     assert rows == ((1,),)
     assert row_read_timeouts == [300.0]
+    session.close()
+
+
+CATALOG_READ_FAILURE_RESPONSES = (
+    (503, SERVICE_NOT_READY_CODE, True),
+    (500, RESPONSE_LIMIT_EXCEEDED_CODE, False),
+)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "wire_code", "retryable"),
+    CATALOG_READ_FAILURE_RESPONSES,
+)
+def test_http_arrow_catalog_errors_have_stable_retry_classification(
+    status_code: int,
+    wire_code: str,
+    retryable: bool,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            status_code,
+            json={
+                "code": wire_code,
+                "message": "catalog read was rejected",
+                "request_id": "req-catalog-error",
+            },
+            headers={"X-Request-ID": "req-catalog-error"},
+        )
+
+    provider = build_http_repository_provider_factory(
+        base_url="http://repository.test",
+        bearer_token=TEST_REPOSITORY_TOKEN,
+        timeout_seconds=30.0,
+        transport=httpx.MockTransport(handler),
+    )(str(REPO_ID), COMMIT_ID)
+    session = provider.open_ref(RepositoryRef(repository_id=str(REPO_ID), ref=COMMIT_ID), None)
+
+    with pytest.raises(RepositoryProviderError) as exc_info:
+        session.get_catalog()
+
+    assert exc_info.value.code is MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED
+    assert exc_info.value.retryable is retryable
+    assert wire_code in exc_info.value.message
     session.close()
 
 

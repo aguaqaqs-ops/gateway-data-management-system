@@ -158,6 +158,8 @@ def _materialize(
             ),
         )
     except RepositoryProviderError as exc:
+        if exc.retryable:
+            raise
         result = _failed(stage, trust, (_error(exc.code, exc.message, table=exc.table),))
     finally:
         if session is not None:
@@ -307,6 +309,8 @@ def _read_and_materialize_table(
     try:
         reader = session.open_table_reader(catalog_table.table_name)
     except RepositoryProviderError as exc:
+        if exc.retryable:
+            raise
         raise _Halt(exc.code, exc.message, table=table_name) from exc
     diagnostics: list[MaterializationDiagnostic] = []
     encoded_rows: list[SourceRow] = []
@@ -371,6 +375,8 @@ def _read_and_materialize_table(
             if keep_rows:
                 encoded_rows.append(encoded.cells)
     except RepositoryProviderError as exc:
+        if exc.retryable:
+            raise
         raise _Halt(exc.code, exc.message, table=table_name) from exc
     except (CanonicalEncodingError, ValueError) as exc:
         raise _Halt(

@@ -83,6 +83,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationStage,
     RepositoryRef,
     RepositoryRefMaterializationRequest,
+    RepositoryProviderError,
     RepositoryTableAccessProvider,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
@@ -110,6 +111,7 @@ from gateway_backend.operations.contracts import (
     StepStatus,
 )
 from gateway_backend.operations.lease_session import LeaseSession
+from gateway_backend.operations.recovery import HandlerExecutionFailure
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
     ExecutionControl,
@@ -380,6 +382,14 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                     control=control,
                 )
                 return ExecutorAcknowledgment.PUBLISHED
+            except RepositoryProviderError as exc:
+                if not exc.retryable:
+                    raise
+                raise HandlerExecutionFailure(
+                    retryable=True,
+                    diagnostic_code=f"repository.{exc.code.value.lower()}",
+                    reason=exc.message,
+                ) from exc
             except HistoryCompareJobError as exc:
                 _publish_commit_unavailable_failure(
                     lease_session=lease_session,

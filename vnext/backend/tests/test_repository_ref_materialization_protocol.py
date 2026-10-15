@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnosticCode,
     MaterializationPolicy,
+    RepositoryProviderError,
     RepositoryRef,
     SnapshotMaterializationStatus,
     SourceKind,
@@ -35,9 +38,8 @@ class CountCancel:
         return self.calls >= self.trip_after
 
 
-def test_open_ref_timeout_and_failure_mapping() -> None:
+def test_open_ref_deterministic_failure_mapping() -> None:
     cases = (
-        ("open_timeout", MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_TIMEOUT),
         ("open_not_found", MaterializationDiagnosticCode.REPOSITORY_REF_NOT_FOUND),
         ("open_failed", MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED),
     )
@@ -201,6 +203,20 @@ def test_cancel_fails_closed_and_closes_session() -> None:
     assert result.diagnostics[0].code is MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED
     assert provider.last_session is not None
     assert provider.last_session.close_count == 1
+
+
+def test_retryable_open_ref_timeout_reaches_operation_recovery() -> None:
+    table = catalog_table("items", (int_id_column(),))
+    provider = FakeRepositoryTableAccessProvider(
+        catalog=make_catalog((table,)),
+        rows={"items": ((1,),)},
+        open_timeout=True,
+    )
+
+    with pytest.raises(RepositoryProviderError) as exc_info:
+        materialize_ref(provider)
+
+    assert exc_info.value.retryable is True
 
 
 def test_deadline_fails_closed() -> None:

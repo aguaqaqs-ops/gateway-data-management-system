@@ -10,10 +10,17 @@ from typing import cast
 from uuid import UUID
 
 import httpx
+import pyarrow as pa
 import pyarrow.ipc as ipc
 from gateway_repository_client import RepositoryClient
 from gateway_repository_client.arrow_stream import ArrowIpcByteStream
+from gateway_repository_client.errors import (
+    RepositoryClientError,
+    RepositoryProtocolError,
+    RepositoryStreamError,
+)
 from gateway_repository_contracts import GetVersionedCatalogResponse
+from gateway_repository_contracts import RESPONSE_LIMIT_EXCEEDED_CODE, SERVICE_NOT_READY_CODE
 from gateway_shared_kernel import canonicalize_identifier
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -145,18 +152,36 @@ class HttpArrowRepositoryRefSession:
             )
 
     async def _load_catalog(self) -> GetVersionedCatalogResponse:
-        return cast(
-            GetVersionedCatalogResponse,
-            await self._client.get_versioned_catalog(
-                repository_id=_as_uuid(self._repository_id),
-                commit_id=self._commit_id,
-            ),
-        )
+        try:
+            return cast(
+                GetVersionedCatalogResponse,
+                await self._client.get_versioned_catalog(
+                    repository_id=_as_uuid(self._repository_id),
+                    commit_id=self._commit_id,
+                ),
+            )
+        except (RepositoryClientError, RepositoryProtocolError, httpx.HTTPError) as exc:
+            raise _repository_read_error("catalog read", exc) from exc
 
     def _iter_table_rows(self, table_name: str) -> Iterator[tuple[object | None, ...]]:
-        ipc_path = cast(str, _run(self._spool_table_ipc(table_name)))
+        try:
+            ipc_path = cast(str, _run(self._spool_table_ipc(table_name)))
+        except (
+            RepositoryClientError,
+            RepositoryProtocolError,
+            RepositoryStreamError,
+            httpx.HTTPError,
+            OSError,
+        ) as exc:
+            raise _repository_read_error("table row read", exc, table=table_name) from exc
         try:
             yield from _iter_rows_from_ipc_path(ipc_path)
+        except (OSError, pa.ArrowException, ValueError) as exc:
+            raise RepositoryProviderError(
+                MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED,
+                f"table row decoding failed: {type(exc).__name__}",
+                table=table_name,
+            ) from exc
         finally:
             Path(ipc_path).unlink(missing_ok=True)
 
@@ -246,6 +271,47 @@ def _as_uuid(repository_id: str) -> UUID:
             MaterializationDiagnosticCode.REPOSITORY_REF_NOT_FOUND,
             "repository_id must be a UUID",
         ) from exc
+
+
+def _repository_read_error(
+    operation: str,
+    exc: BaseException,
+    *,
+    table: str | None = None,
+) -> RepositoryProviderError:
+    code = (
+        MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED
+        if operation == "catalog read"
+        else MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED
+    )
+    if isinstance(exc, RepositoryClientError):
+        wire_code = exc.error.code
+        retryable = (
+            wire_code == SERVICE_NOT_READY_CODE
+            or (exc.status_code >= 500 and wire_code != RESPONSE_LIMIT_EXCEEDED_CODE)
+        )
+        detail = f"{wire_code}: {exc.error.message}"
+    elif isinstance(exc, RepositoryProtocolError):
+        retryable = False
+        detail = f"repository protocol error: {exc.message}"
+    elif isinstance(exc, RepositoryStreamError):
+        retryable = True
+        detail = exc.message
+    elif isinstance(exc, httpx.HTTPError):
+        retryable = True
+        detail = f"repository transport error: {type(exc).__name__}"
+    elif isinstance(exc, OSError):
+        retryable = True
+        detail = f"repository stream I/O error: {type(exc).__name__}"
+    else:
+        retryable = False
+        detail = f"repository read error: {type(exc).__name__}"
+    return RepositoryProviderError(
+        code,
+        f"{operation} failed ({detail})",
+        retryable=retryable,
+        table=table,
+    )
 
 
 async def _spool_arrow_ipc(stream: ArrowIpcByteStream) -> str:

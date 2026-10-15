@@ -295,6 +295,11 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
     class FakeRepositoryClient:
         def __init__(self, **_kwargs: Any) -> None:
             self.requested_tables: list[str] = []
+            self.catalog_requests = 0
+            self.catalog_payload = json.dumps(
+                {"catalog": {"commit_id": "a" * 32, "tables": []}},
+                separators=(",", ":"),
+            ).encode()
 
         def __enter__(self) -> FakeRepositoryClient:
             return self
@@ -305,8 +310,17 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
         def close(self) -> None:
             return None
 
-        def get(self, path: str, *, params: dict[str, str]) -> httpx.Response:
+        def get(
+            self,
+            path: str,
+            *,
+            params: dict[str, str] | None = None,
+        ) -> httpx.Response:
+            if path.endswith("/catalog"):
+                self.catalog_requests += 1
+                return httpx.Response(200, content=self.catalog_payload)
             assert path.endswith("/rows")
+            assert params is not None
             table_name = params["table_name"]
             self.requested_tables.append(table_name)
             rows = {
@@ -337,7 +351,11 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
         "ordered_row_count_total": 3,
         "ordered_table_pseudo_counts": {"ordered_with_pseudo": 2, "ordered_without_rows": 0},
         "pseudo_rows_total": 2,
+        "catalog_json_bytes": len(fake_clients[0].catalog_payload),
+        "catalog_table_count": 0,
+        "catalog_row_count_total": 0,
     }
+    assert fake_clients[0].catalog_requests == 1
     assert fake_clients[0].requested_tables == ["ordered_with_pseudo", "ordered_without_rows"]
 
 

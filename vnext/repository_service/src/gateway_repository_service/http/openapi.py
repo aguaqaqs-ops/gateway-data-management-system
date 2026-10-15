@@ -28,22 +28,34 @@ def simple_error_response(*, description: str) -> dict[str, Any]:
     }
 
 
-def versioned_read_error_responses() -> dict[int | str, dict[str, Any]]:
-    return {
+def versioned_read_error_responses(
+    *,
+    response_limit_exceeded: bool = False,
+) -> dict[int | str, dict[str, Any]]:
+    responses: dict[int | str, dict[str, Any]] = {
         401: simple_error_response(description="Authentication failed"),
         404: simple_error_response(description="Repository, ref, commit, or table not found"),
         422: simple_error_response(description="Request validation failed"),
         503: simple_error_response(description="Service not ready"),
     }
+    if response_limit_exceeded:
+        responses[500] = simple_error_response(description="RESPONSE_LIMIT_EXCEEDED")
+    return responses
 
 
-def versioned_read_json_responses(*, success_description: str) -> dict[int | str, dict[str, Any]]:
+def versioned_read_json_responses(
+    *,
+    success_description: str,
+    response_limit_exceeded: bool = False,
+) -> dict[int | str, dict[str, Any]]:
     return {
         200: {
             "description": success_description,
             "headers": REQUEST_ID_HEADER,
         },
-        **versioned_read_error_responses(),
+        **versioned_read_error_responses(
+            response_limit_exceeded=response_limit_exceeded,
+        ),
     }
 
 

@@ -37,11 +37,13 @@ from gateway_backend.operations.recovery import (
     RECOVERY_BACKOFF_SECONDS,
     RECOVERY_DIAGNOSTIC_CODES,
     ExternalEffectPhase,
+    HandlerExecutionFailure,
     HandlerFailureKind,
     RecoveryCapabilityValue,
     RecoveryPolicyDecision,
     RecoveryPolicyDecisionDisposition,
     RecoveryPolicyOutcomeDisposition,
+    RecoveryTransitionIntent,
     apply_recovery_backoff_jitter,
     classify_cancel,
     classify_expired_lease,
@@ -52,10 +54,12 @@ from gateway_backend.operations.recovery import (
     recovery_backoff_base_seconds,
     recovery_sessions_exhausted,
     recovery_sessions_remaining,
+    build_recovery_routed_executor,
     transition_for_decision,
     transition_for_outcome,
 )
 from gateway_backend.operations.worker import (
+    ClaimedExecutor,
     ExecutionControl,
     ExecutorAcknowledgment,
     LeaseSession,
@@ -450,6 +454,136 @@ def test_recovery_policy_decision_structural_parity_with_application() -> None:
     )
     application_decision = _policy_decision_to_application(decision)
     assert application_decision.disposition is RecoveryDecisionDisposition.MOVE_TO_RETRY_WAIT
+
+
+class _RecoveryReleaseSession:
+    def __init__(self) -> None:
+        self.intent: RecoveryTransitionIntent | None = None
+        self.diagnostic: OperationDiagnostic | None = None
+
+    def completion_acknowledgment(self) -> ExecutorAcknowledgment | None:
+        return None
+
+    def publish_recovery_release(
+        self,
+        intent: RecoveryTransitionIntent,
+        *,
+        diagnostic: OperationDiagnostic,
+    ) -> ExecutorAcknowledgment:
+        self.intent = intent
+        self.diagnostic = diagnostic
+        return ExecutorAcknowledgment.SAFE_HANDOFF
+
+
+REPOSITORY_READ_FAILURE_CASES = (
+    ("deterministic_read_error", False, 1, StepStatus.FAILED, OperationStatus.FAILED),
+    ("temporary_error_then_success", True, 1, StepStatus.RETRY_WAIT, None),
+    ("temporary_error_budget_exhausted", True, 3, StepStatus.FAILED, OperationStatus.FAILED),
+)
+
+
+@pytest.mark.parametrize(
+    ("scenario", "retryable", "attempt_count", "expected_step", "expected_operation"),
+    REPOSITORY_READ_FAILURE_CASES,
+)
+def test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostics(
+    scenario: str,
+    retryable: bool,
+    attempt_count: int,
+    expected_step: StepStatus,
+    expected_operation: OperationStatus | None,
+) -> None:
+    operation = _operation_record()
+    step = dataclasses.replace(_step_record(), attempt_count=attempt_count)
+    calls = 0
+
+    def handler(
+        _operation: OperationRecord,
+        _step: StepRecord,
+        _control: ExecutionControl,
+        _session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise HandlerExecutionFailure(
+                retryable=retryable,
+                diagnostic_code="repository.service_not_ready",
+                reason="repository catalog read failed (SERVICE_NOT_READY: service is not ready)",
+            )
+        return ExecutorAcknowledgment.PUBLISHED
+
+    execute = build_recovery_routed_executor(
+        cast(ClaimedExecutor, handler),
+        None,
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        jitter=_deterministic_jitter,
+        now_factory=lambda: BASE_TIME,
+    )
+    first_session = _RecoveryReleaseSession()
+    first_ack = execute(
+        operation,
+        step,
+        ExecutionControl(),
+        cast(LeaseSession, first_session),
+    )
+    assert first_ack is ExecutorAcknowledgment.SAFE_HANDOFF
+    assert first_session.intent is not None
+    assert first_session.intent.step_target is expected_step
+    assert first_session.intent.operation_target is expected_operation
+    assert first_session.diagnostic is not None
+    if expected_step is StepStatus.RETRY_WAIT:
+        assert first_session.diagnostic.code == DIAGNOSTIC_RETRY_SCHEDULED.upper()
+    else:
+        assert first_session.diagnostic.code == "REPOSITORY.SERVICE_NOT_READY"
+    assert "UNCLASSIFIED" not in first_session.diagnostic.code
+    assert "SERVICE_NOT_READY" in first_session.diagnostic.message
+
+    if scenario == "temporary_error_then_success":
+        second_session = _RecoveryReleaseSession()
+        second_ack = execute(
+            operation,
+            dataclasses.replace(step, attempt_count=2),
+            ExecutionControl(),
+            cast(LeaseSession, second_session),
+        )
+        assert second_ack is ExecutorAcknowledgment.PUBLISHED
+        assert second_session.intent is None
+        assert calls == 2
+
+
+def test_unexpected_pure_recompute_handler_exception_fails_operation_without_exiting_worker() -> None:
+    def handler(
+        _operation: OperationRecord,
+        _step: StepRecord,
+        _control: ExecutionControl,
+        _session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
+        raise RuntimeError("internal handler detail")
+
+    execute = build_recovery_routed_executor(
+        cast(ClaimedExecutor, handler),
+        None,
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        jitter=_deterministic_jitter,
+        now_factory=lambda: BASE_TIME,
+    )
+    session = _RecoveryReleaseSession()
+
+    acknowledgment = execute(
+        _operation_record(),
+        _step_record(),
+        ExecutionControl(),
+        cast(LeaseSession, session),
+    )
+
+    assert acknowledgment is ExecutorAcknowledgment.SAFE_HANDOFF
+    assert session.intent is not None
+    assert session.intent.step_target is StepStatus.FAILED
+    assert session.intent.operation_target is OperationStatus.FAILED
+    assert session.diagnostic is not None
+    assert session.diagnostic.code == "OPERATION.PURE_RECOMPUTE_FAILED"
+    assert session.diagnostic.message == "pure-recompute handler raised RuntimeError"
 
 
 EXPIRED_LEASE_MATRIX: tuple[

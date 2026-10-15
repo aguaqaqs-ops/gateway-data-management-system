@@ -83,15 +83,12 @@ MINIMUM_OPERATION_TIMEOUT_SECONDS = 300
 # A tier/step without its own completed measurement inherits the latest earlier
 # tier's measurement; once it completes, its own five-times profile is recorded.
 MEASURED_OPERATION_WALL_SECONDS: dict[str, float] = {
-    "t1:v1-preview": 53.012,
-    "t1:v1-submit": 41.643,
-    "t1:repeat-v1-preview": 1_303.648,
-    "t1:v2-preview": 1_466.762,
-    "t1:v2-submit": 55.936,
-    "t1:history": 3_573.195,
-    "t2:v1-preview": 734.341,
-    "t2:v1-submit": 247.455,
-    "t2:repeat-v1-preview": 5_173.487,
+    "t1:v1-preview": 52.975,
+    "t1:v1-submit": 41.652,
+    "t1:repeat-v1-preview": 73.116,
+    "t1:v2-preview": 77.105,
+    "t1:v2-submit": 41.547,
+    "t1:history": 73.002,
 }
 OPERATION_TIERS = ("t1", "t2", "t3", "t4")
 

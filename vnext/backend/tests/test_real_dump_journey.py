@@ -121,10 +121,10 @@ def test_operation_timeout_uses_five_times_measurement_with_five_minute_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert _operation_timeout_seconds("t1", "v1-preview") == 300
-    assert _operation_timeout_seconds("t2", "v1-preview") == 3_672
-    assert _operation_timeout_seconds("t2", "repeat-v1-preview") == 25_868
-    assert _operation_timeout_seconds("t2", "v2-preview") == 7_334
-    assert _operation_timeout_seconds("t4", "repeat-v1-preview") == 25_868
+    assert _operation_timeout_seconds("t2", "v1-preview") == 300
+    assert _operation_timeout_seconds("t2", "repeat-v1-preview") == 366
+    assert _operation_timeout_seconds("t2", "v2-preview") == 386
+    assert _operation_timeout_seconds("t4", "repeat-v1-preview") == 366
     assert _operation_timeout_seconds("t4", "unknown") == INITIAL_OPERATION_TIMEOUT_SECONDS
 
     monkeypatch.setitem(

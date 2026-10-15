@@ -11,6 +11,7 @@
   作出决议，记录为 DC23–DC27，见 §7。
 - 补充：2026-10-12 S2b 真实数据旅程停止后，owner 决议无主键表的兜底规则，记录为 DC29，见 §12。
 - 补充：2026-10-14 owner 决议调试与取证分开、P5 性能指标分三层，记录为 DC30，见 §13。
+- 补充：2026-10-15 S2b t4 真实数据暂停后，owner 决议 Catalog 上限、读取失败的终态与 P5 的性能范围，记录为 DC31，见 §14；其中第三部分修订 DC30 的 B 层处理与业务容量目标的用法。
 
 ```yaml
 record_kind: p5_arch_closure_s0_owner_decisions
@@ -449,3 +450,48 @@ implementation_authorized: no
 
   **四、缩短完整门禁**：backend 批次单进程约 24 分钟。S2b 合入后、S3 kickoff 前作为独立一步处理（治理修订计划 G11）。
 - **落点**：执行计划 §2 S2b 与 S5、§8.1、§8.2、§8.9；详细设计 §13；治理修订计划 G11 与 §3；AGENTS.md「主线开发与阶段边界」。
+- **修订（DC31，2026-10-15）**：第二部分 B 层由“P5 内修复”改为“只记录”，除非它使 A 层无法满足；第三部分的容量目标改为 Phase 6 的退出目标。见 §14 第三部分。
+
+## 14. Catalog 上限、读取失败的终态与 P5 的性能范围（DC31，2026-10-15）
+
+#### DC31 Catalog 上限按容量确定；读取类步骤的失败必须终态；P5 只验证正确性
+
+- **来源**：S2b 停止 handoff（`p5-s2b` @ `668055f55e`，§8.2）。t4 v1 Preview 用时 2,581 秒（worker CPU 2,571 秒），Submit 用时 815 秒，均成功。
+  之后公开 `GetVersionedCatalog` 首次请求 28 秒（Repository Service CPU 145 秒）后返回 `503 SERVICE_NOT_READY`，缓存后重试仍为 503。
+  Contract 规定成功 Catalog JSON 上限为 256 KiB，超出时返回同一错误码：t3（200 表）未触发、t4（320 表）触发，原因高度可能是超限，但错误 DTO 不区分分支，只能推断。
+  归档后重传 Preview 由 worker 经同一 API 读取基线 Catalog，收到 `RepositoryClientError`；worker 容器重启一次后没有重新领取任务，公开 operation 到
+  3,602 秒保护窗口结束仍为 `RUNNING`、无 diagnostic，违反 DC30 的 A 层。按 t4 实测线性外推，目标规模（约 2× t4）的 Preview 约 86 分钟，与 10 分钟目标相差约 8–9 倍。
+- **决议**（repository owner，2026-10-15）：
+
+  **一、Catalog 上限（保持单一接口）**
+  1. `GetVersionedCatalog` 保持一次返回整个 Catalog，不分页，不新增接口。
+  2. 上限按容量确定：在调试状态上测量 t4 Catalog 成功响应的 JSON 字节数（只含表结构、主键与行数，不读行数据）；`MAX_CATALOG_JSON_BYTES`
+     取实测值的 4 倍并向上取整到 MiB（覆盖约 2× t4 的目标规模，另留 2 倍余量）。实测值与取值写入 handoff 和 Repository Service Contract。
+  3. 响应超限不再返回 `503 SERVICE_NOT_READY`（它表示“暂时未就绪，可重试”，而超限是确定性的）：改为专用错误码 `RESPONSE_LIMIT_EXCEEDED`，HTTP 500，
+     client 与 worker 按不可重试处理。`GetOperation` 的 256 KiB 上限数值不变，超限时同样改用该错误码。
+  4. Repository Service Contract、wire 常量、OpenAPI 与 golden 直接改到目标形态，不建兼容层（AGENTS.md「项目前提」）。
+  5. S5 的容量核对在 replay SQL 200 MiB 之外，加上目标规模下 Catalog 字节数与新上限的余量。
+
+  **二、读取类步骤的失败必须进入终态**（属于 A 层，即正确性）
+  1. Preview 与 History 比较等 `PURE_RECOMPUTE` 步骤遇到的仓库读取错误分两类，都不得落入 `UNCLASSIFIED`：
+     - 临时性（连接失败、超时、真正的 `SERVICE_NOT_READY`）：按 `RETRYABLE` 在现有恢复预算内重试，用尽后 operation 为 `FAILED`；
+     - 确定性（4xx、`RESPONSE_LIMIT_EXCEEDED`、契约或解码错误）：按 `PERMANENT`，operation 直接为 `FAILED`。
+     两类都带公开 operation API 可见的 diagnostic code。不用 `MANUAL_RECOVERY_REQUIRED`：这些步骤没有外部副作用，用户重新发起即可。
+  2. handler 抛出的异常不得使 worker 进程退出。进程因外部原因退出时，重启后的 worker 须在“租约时长加退避”之内接管过期租约，按
+     [R5 重试、接管与副作用恢复设计](p4-r5-retry-takeover-effect-recovery-design.md)的处置进入重试或终态。本次“重启后未重新领取、operation 保持 `RUNNING`”
+     的具体路径由实施方以 focused 测试复现，写入 handoff。
+  3. 测试：focused 故障注入参数表（Catalog 确定性错误 → `FAILED` 并带 diagnostic；临时性错误 → 重试后成功，或预算用尽后 `FAILED`）；
+     一条 Compose 旅程在 Preview 进行中终止 worker，operation 最终进入终态（已有覆盖 Preview 的同类旅程时复用，不另建）。
+  4. 停止条件：需要新增 operation 或 step 状态、修改 R5 恢复设计的处置表，或改变 `EXTERNAL_EFFECT` 步骤的语义。
+
+  **三、P5 只验证正确性，性能整体留给 Phase 6**（修订 DC30 第二、三部分）
+  1. P5 的通过条件只含正确性：真实数据各档、各步结果正确，并保留 A 层——每个 operation 在保护超时内进入终态。卡住、无终态或超时属于正确性问题，照常阻断。
+  2. B 层由“P5 内修复”改为“只记录”：取证运行照常记录各步墙钟、CPU 与规模比例，疑似结构性的慢写进 handoff 并登记到 S5，P5 不修；
+     例外是它使 A 层无法满足（某一步超出保护超时）。
+  3. 调试阶段可在 t4 Preview 运行期间从主机侧采样一次热点（例如 py-spy），不改产品代码，结果写进 handoff 的 C 层表；容器权限不允许时跳过并说明。
+  4. 业务容量目标（约 2× t4，Preview 10 分钟内）是 Phase 6 的退出目标。S5 照常以 t4 实测外推并报告差距，写明 B 层未经修复确认，外推只用于排序。
+  5. Phase 6 可按需重新设计、重写实现（包括 Rust、缓存、存储与读取路径）。约束是公共 Contract 与业务语义：需要改 Contract 时走 owning Contract 修订；
+     项目没有兼容要求，不建兼容层。
+  6. 对照基准：S2b 取证运行在 handoff 中按档、按版本记录可经公开接口取得的结果事实——规范状态摘要、Preview 表级状态计数、Submit 结果、History
+     比较的各类记录数量（不含行数据）。Phase 6 改写后在同一数据集上应得到相同结果，作为改写的正确性对照。
+- **落点**：执行计划 §2 S2b 内容 12 与验收、§3 S2b、§8.5 S2b.9、S5；详细设计 §13；Repository Service Contract（由 S2b 实施方按本决议修改）。

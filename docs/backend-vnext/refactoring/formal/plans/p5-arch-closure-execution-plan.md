@@ -165,6 +165,9 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   11. **DC29（owner 2026-10-12，真实数据停止后）**：无主键表的兜底规则——SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则使用
       `DDL_PRIMARY_KEY_OR_KEYLESS`；keyless 存储保留重复行、整表重写；比较用 `FULL_ROW_DIGEST_SET_DIFF`；Preview 表级只读提示
       `KEYLESS_FALLBACK`；Canonical Storage 升 `3.2.0`（决议记录 §12）。
+  12. **DC31（owner 2026-10-15，t4 真实数据暂停后）**：`GetVersionedCatalog` 上限按 t4 实测的 4 倍确定，响应超限改为不可重试的
+      `RESPONSE_LIMIT_EXCEEDED`（`GetOperation` 同样改用该错误码）；Preview、History 比较等读取类步骤的仓库读取错误分临时性与确定性两类，
+      都以 `FAILED` 加 diagnostic 终态，worker 不因 handler 异常退出，重启后接管过期租约（决议记录 §14）。
 - 验收：
   - 设计 §12 的以下 owner 通过：`test_comparison_canonical_domain.py`（阶段门槛）、
     `test_repository_ref_materialization_protocol.py`、`test_preview_job_materialize.py`（ADDITIVE 激活、INITIAL 断言）、
@@ -194,8 +197,16 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     - compose：“提交 X → 审核 → 归档 → 再次上传 X”旅程的输入含一张 keyless 兜底表（含重复行），再次上传时该表 UNCHANGED；另有一次改动使该表显示一删一增；
     - 真实数据：t1–t4 不再因 `KEY_MISSING` 失败；各档 keyless 兜底表的数量与表名写入 handoff，重传时这些表 UNCHANGED；
     - 此前能投影成功的表，规范字节与内容摘要不变（golden 只因规则集与 manifest 的规则事实变化而更新，逐项说明）。
-  - 性能（DC30，决议记录 §13）：A 层——t1–t4 每个 operation 都在保护超时内进入终态，全程走完；B 层——按规模比例与墙钟/CPU 对比核对，
-    本阶段改动过的路径上的结构性慢在本阶段修复并以计数断言回归，其余登记到 S5；C 层——handoff 给出各档各步的墙钟与 CPU 时间，只记录不判定。
+  - DC31（Catalog 与读取失败）：
+    - Repository Service：上限常量、`RESPONSE_LIMIT_EXCEEDED` 与 Contract 文本一致；超限与未超限各一个用例；t4 Catalog 实测字节数与取值写入 handoff；
+    - backend：故障注入参数表——Catalog 确定性错误 → operation `FAILED` 且公开 diagnostic 可见；临时性错误 → 重试后成功，或预算用尽后 `FAILED`；
+      `RepositoryClientError` 不再落入 `UNCLASSIFIED`；handler 异常不使 worker 进程退出；
+    - compose：Preview 进行中终止 worker，operation 最终进入终态；
+    - 停止 handoff 中“重启后未重新领取、operation 保持 `RUNNING`”的路径已由 focused 测试复现并修复，handoff 写明。
+  - 性能（DC30，经 DC31 修订；决议记录 §13、§14）：A 层——t1–t4 每个 operation 都在保护超时内进入终态，全程走完；B 层——按规模比例与墙钟/CPU 对比记录，
+    疑似结构性的慢登记到 S5，不在 P5 修（使 A 层无法满足时除外）；C 层——handoff 给出各档各步的墙钟与 CPU 时间，只记录不判定。
+  - 对照基准（DC31）：handoff 按档、按版本记录可经公开接口取得的结果事实（规范状态摘要、Preview 表级状态计数、Submit 结果、History 各类记录数量），
+    不含行数据，作为 Phase 6 改写的正确性对照。
 
 ### S3 — composite_signal 接入
 
@@ -236,8 +247,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   预期只剩 `external_target_sync` 与 canonical row hash 两组登记延期项。
 - 文档：逐条核对 S0 接受时并入的 Contract 与设计文本和最终实现一致；实现中发现的偏差走 owner 修订，不在收口中静默改写。
 - 按设计 §13 完成代表性链路测量，形成 Phase 6 候选列表；测量脚本只放在 `vnext/backend/benchmarks/`。汇总 S2b 起各阶段 C 层记录，
-  处置登记到 S5 的 B 层问题；按业务容量目标（约 t4 的 2 倍，Preview 10 分钟内）以 t4 实测外推并报告差距，写明外推的局限，
-  并核对目标规模下 replay SQL 字节数的余量（DC30，决议记录 §13）。
+  列出登记到 S5 的 B 层问题（P5 不修，进入 Phase 6 候选，DC31）；按业务容量目标（约 t4 的 2 倍，Preview 10 分钟内，Phase 6 的退出目标）
+  以 t4 实测外推并报告差距，写明外推的局限，并核对目标规模下 replay SQL 字节数与 Catalog 字节数的余量（DC30、DC31，决议记录 §13、§14）。
 - 最终门禁：fresh 构建 current HEAD 镜像；全部 compose 旅程 0 skipped；`./vnext/scripts/run-tests.sh` 全量；五包静态检查；
   真实数据链路在最终候选上重跑一次（主机侧）。
 - 交付 `pass_recommended` 与证据包；按 [P5 §2A.5](p5-business-vertical-slices-design.md) 逐项对照，由独立验收记录收口结论。
@@ -392,6 +403,10 @@ S1 结构修订未改 checkpoint 载荷与 golden 断言；下列路径在 hando
   `test_storage_projection_core.py`、`test_comparison_standard.py`、`test_canonical_snapshot_identity.py`、`test_http_openapi.py`；
   `vnext/fixtures/golden/storage-projection/` 中随规则事实变化的文件；compose 输入 `tests/support/upload_http_packages.py` 与承载
   再次上传旅程的 compose 测试文件。
+- DC31（2026-10-15，决议记录 §14）：`vnext/repository_contracts`（wire 上限常量、错误码常量与导出）；`vnext/repository_service` 的
+  `versioned_read/wire.py` 与 GetOperation 的响应上限路径、OpenAPI 与相关测试；`vnext/repository_client`（错误码映射，按需）；
+  `docs/backend-vnext/refactoring/formal/contracts/repository-service.md`（上限与错误码）；backend `infrastructure/repository_read/http_arrow.py`
+  与读取错误的分类路径、`operations/` 中 worker 异常与过期租约接管的修复路径（最小集合，handoff 记录）；对应 focused 测试与一条 Compose 旅程。
 - 条件：`capabilities/snapshot_materialization/scalar_encoding.py`（仅当单遍读取暴露出 S2a 未覆盖的解码差异）；
   `infrastructure/repository_read/__init__.py`；`test_sqlite_submit_repository.py`、`test_submit_domain.py`、
   `test_workspace_domain.py`、`test_preview_read_http.py`（仅当新增的 PreviewResult/SubmitAttempt 字段在领域模型中为必填）。
@@ -585,6 +600,7 @@ owner 于 2026-09-27 提供的数据位于 `$GATEWAY_REAL_DUMP_ROOT`（本机为
 6. **S2b.6 DC9 与 HTTP**：设计 §5.5 的删除清单与 DC19；control DB 基线 schema 直接修改（测试按表归属）与 HTTP/OpenAPI 变更（设计 §10）。
 7. **S2b.7 旅程与门禁**：compose harness 不预导入（DC17）与 §2 S2b 的旅程；真实数据链路；全量与镜像。
 8. **S2b.8 无主键表兜底（DC29，owner 2026-10-12）**：在真实数据停止后追加，先于新的门禁提交 V 完成；内容见 §2 S2b 内容 11 与验收。
+9. **S2b.9 Catalog 上限与读取失败终态（DC31，owner 2026-10-15）**：在 t4 真实数据暂停后追加，先于门禁提交 V 完成；内容见 §2 S2b 内容 12 与验收。
 
 **S1 与 S2a 之间的真实数据格式保真前置（owner 2026-10-10，治理修订计划 G2）**：在 `main` 上依次修复 `table_access` 放行 mysqldump `@saved_cs_client`、composite AST 的 `Digital` 属性改为小写 `value`、按 8 份 `logics.xml` 的实测深度确定 `max_xml_depth`，并以诊断模式重跑普查更新 census JSON；独立审核后再启动 S2a kickoff。原 2026-09-27 的 parser 修复分支方案（`p5-closure/s1-parser`）由此取代。
 

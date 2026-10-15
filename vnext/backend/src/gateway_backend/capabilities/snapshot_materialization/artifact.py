@@ -274,7 +274,7 @@ def open_snapshot_table_artifact(
             str(exc) or "row file is missing or corrupt",
             table=manifest.table_name,
         ) from exc
-    source_columns = _validate_parquet_against_descriptor(
+    source_columns, rows = _validate_parquet_against_descriptor(
         parquet_bytes,
         manifest.descriptor,
         None,
@@ -302,8 +302,6 @@ def open_snapshot_table_artifact(
         source_columns,
         manifest.descriptor.primary_key_columns,
     )
-    table = read_parquet_table(parquet_bytes)
-    rows = iter_decoded_rows(table, source_columns)
     reader = BoundSnapshotTableReader(
         manifest.descriptor,
         ParquetBytesReader(source, parquet_bytes, rows),
@@ -555,7 +553,7 @@ def _validate_parquet_against_descriptor(
     descriptor: SnapshotTableDescriptor,
     expected_columns: tuple[SourceColumnDescriptor, ...] | None,
     table_name: str,
-) -> tuple[SourceColumnDescriptor, ...]:
+) -> tuple[tuple[SourceColumnDescriptor, ...], tuple[SourceRow, ...]]:
     try:
         table = read_parquet_table(parquet_bytes)
     except ValueError as exc:
@@ -603,7 +601,7 @@ def _validate_parquet_against_descriptor(
                 "parquet rows do not match raw_content_digest",
                 table=table_name,
             )
-    return columns
+    return columns, rows
 
 
 def _descriptor_payload(descriptor: SnapshotTableDescriptor) -> dict[str, Any]:

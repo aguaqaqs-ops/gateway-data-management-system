@@ -785,6 +785,17 @@ def _submit(
     return submission
 
 
+def _canonical_state_digest_from_submission(
+    submission: Mapping[str, Any],
+    *,
+    stage: str,
+) -> str:
+    digest = submission.get("canonical_business_digest")
+    if type(digest) is not str or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+        raise JourneyFailure(f"{stage} did not expose a canonical state digest")
+    return digest
+
+
 def _approve(client: httpx.Client, submission_id: str, idempotency_key: str) -> None:
     _require_one_of(
         client.post(
@@ -1216,6 +1227,10 @@ def _run_tier(
         v1_submission = cast(dict[str, Any], v1_submission)
         v1_submission_id = str(v1_submission["submission_id"])
         v1_commit_id = str(v1_submission["repository_commit_id"])
+        v1_canonical_state_digest = _canonical_state_digest_from_submission(
+            v1_submission,
+            stage=f"{tier} v1 Submit",
+        )
 
         def v1_repository_read_action() -> dict[str, Any]:
             repository = _pseudo_counts_from_http(
@@ -1379,6 +1394,10 @@ def _run_tier(
         v2_submission = cast(dict[str, Any], v2_submission)
         v2_submission_id = str(v2_submission["submission_id"])
         v2_commit_id = str(v2_submission["repository_commit_id"])
+        v2_canonical_state_digest = _canonical_state_digest_from_submission(
+            v2_submission,
+            stage=f"{tier} v2 Submit",
+        )
 
         def v2_repository_read_action() -> dict[str, Any]:
             repository = _pseudo_counts_from_http(
@@ -1436,6 +1455,7 @@ def _run_tier(
                 "package_bytes": v1_file["bytes"],
                 "table_count": census[v1_id]["table_count"],
                 "row_count_total": census[v1_id]["row_count_total"],
+                "canonical_state_digest": v1_canonical_state_digest,
                 "storage_column_type_counts": census[v1_id]["storage_column_type_counts"],
                 "repository": v1_repository,
                 "preview": v1_summary,
@@ -1451,6 +1471,7 @@ def _run_tier(
                 "package_bytes": v2_file["bytes"],
                 "table_count": census[v2_id]["table_count"],
                 "row_count_total": census[v2_id]["row_count_total"],
+                "canonical_state_digest": v2_canonical_state_digest,
                 "storage_column_type_counts": census[v2_id]["storage_column_type_counts"],
                 "repository": v2_repository,
                 "preview": v2_summary,

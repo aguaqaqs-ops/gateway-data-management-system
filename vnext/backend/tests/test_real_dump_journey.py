@@ -19,6 +19,7 @@ from benchmarks.real_dump_journey import (
     JourneyFailure,
     JourneyStepRunner,
     _assert_preview_summaries,
+    _canonical_state_digest_from_submission,
     _history_surface_ref,
     _keyless_fallback_candidates,
     _ordered_table_row_counts,
@@ -54,6 +55,13 @@ PREVIEW_SUMMARY_FAILURES = (
         {"table_count": 3, "changed_table_count": 1, "degraded_table_count": 0, "failed_table_count": 0},
         True,
     ),
+)
+
+CANONICAL_STATE_DIGEST_INPUTS: tuple[tuple[str, dict[str, Any], bool], ...] = (
+    ("valid canonical state digest", {"canonical_business_digest": "sha256:" + "a" * 64}, True),
+    ("missing digest", {}, False),
+    ("wrong digest scheme", {"canonical_business_digest": "sha1:" + "a" * 64}, False),
+    ("invalid digest characters", {"canonical_business_digest": "sha256:" + "g" * 64}, False),
 )
 
 
@@ -399,6 +407,26 @@ def test_ordered_census_row_counts_are_selected_by_table() -> None:
     }
 
     assert _ordered_table_row_counts(census) == {"table_a": 2, "table_b": 0}
+
+
+@pytest.mark.parametrize(
+    ("case", "submission", "valid"),
+    CANONICAL_STATE_DIGEST_INPUTS,
+    ids=[case for case, _submission, _valid in CANONICAL_STATE_DIGEST_INPUTS],
+)
+def test_public_submission_digest_is_recorded_as_canonical_state(
+    case: str,
+    submission: dict[str, Any],
+    valid: bool,
+) -> None:
+    del case
+    if valid:
+        assert _canonical_state_digest_from_submission(submission, stage="test Submit") == (
+            submission["canonical_business_digest"]
+        )
+    else:
+        with pytest.raises(JourneyFailure, match="canonical state digest"):
+            _canonical_state_digest_from_submission(submission, stage="test Submit")
 
 
 def test_history_bundle_surface_reference_is_selected_from_its_single_pair() -> None:

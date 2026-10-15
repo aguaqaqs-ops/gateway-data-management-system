@@ -119,6 +119,34 @@ def test_step_measurement_reports_wall_and_per_container_cpu_deltas() -> None:
         "worker": 1_000_000,
         "repository-service": 1_000_000,
     }
+    assert measurement["cpu_stat_reset_services"] == []
+
+
+def test_step_measurement_records_counter_reset_without_losing_wall_time() -> None:
+    started = time.monotonic()
+    cpu_start = _cpu_snapshot(1_000_000)
+    cpu_end = _cpu_snapshot(1_100_000)
+    cpu_end["worker"] = _cpu_snapshot(100_000)["worker"]
+
+    measurement = _step_measurement(
+        started_monotonic=started,
+        started_utc="2026-10-14T10:00:00.000Z",
+        cpu_start=cpu_start,
+        cpu_end=cpu_end,
+    )
+
+    assert measurement["wall_seconds"] >= 0
+    assert measurement["cpu_seconds"] == {
+        "backend": 0.1,
+        "worker": None,
+        "repository-service": 0.1,
+    }
+    assert measurement["cpu_delta_usec"] == {
+        "backend": 100_000,
+        "worker": None,
+        "repository-service": 100_000,
+    }
+    assert measurement["cpu_stat_reset_services"] == ["worker"]
 
 
 def test_operation_timeout_uses_five_times_measurement_with_five_minute_floor(

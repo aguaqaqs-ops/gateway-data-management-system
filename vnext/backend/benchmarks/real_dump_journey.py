@@ -440,12 +440,16 @@ def _step_measurement(
     cpu_start: Mapping[str, Mapping[str, int]],
     cpu_end: Mapping[str, Mapping[str, int]],
 ) -> dict[str, Any]:
-    cpu_seconds: dict[str, float] = {}
-    cpu_delta_usec: dict[str, int] = {}
+    cpu_seconds: dict[str, float | None] = {}
+    cpu_delta_usec: dict[str, int | None] = {}
+    cpu_stat_reset_services: list[str] = []
     for service in ("backend", "worker", "repository-service"):
         delta = int(cpu_end[service]["usage_usec"]) - int(cpu_start[service]["usage_usec"])
         if delta < 0:
-            raise JourneyFailure(f"the {service} cpu.stat counter moved backwards")
+            cpu_delta_usec[service] = None
+            cpu_seconds[service] = None
+            cpu_stat_reset_services.append(service)
+            continue
         cpu_delta_usec[service] = delta
         cpu_seconds[service] = round(delta / 1_000_000, 3)
     return {
@@ -454,6 +458,7 @@ def _step_measurement(
         "wall_seconds": round(time.monotonic() - started_monotonic, 3),
         "cpu_seconds": cpu_seconds,
         "cpu_delta_usec": cpu_delta_usec,
+        "cpu_stat_reset_services": cpu_stat_reset_services,
         "cpu_stat_start": cpu_start,
         "cpu_stat_end": cpu_end,
     }

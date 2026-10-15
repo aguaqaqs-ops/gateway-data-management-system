@@ -198,7 +198,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     - 真实数据：t1–t4 不再因 `KEY_MISSING` 失败；各档 keyless 兜底表的数量与表名写入 handoff，重传时这些表 UNCHANGED；
     - 此前能投影成功的表，规范字节与内容摘要不变（golden 只因规则集与 manifest 的规则事实变化而更新，逐项说明）。
   - DC31（Catalog 与读取失败）：
-    - Repository Service：上限常量、`RESPONSE_LIMIT_EXCEEDED` 与 Contract 文本一致；超限与未超限各一个用例；t4 Catalog 实测字节数与取值写入 handoff；
+    - Repository Service：上限常量、`RESPONSE_LIMIT_EXCEEDED` 与 Contract 文本一致；超限与未超限各一个用例；t3、t4 Catalog 离线估算字节数与取值写入 handoff；
+      取证运行记录的各档 Catalog 实际字节数写入 handoff，上限不低于 t4 实际值的 3 倍（决议记录 §14 第一部分第 2 条）；
     - backend：故障注入参数表——Catalog 确定性错误 → operation `FAILED` 且公开 diagnostic 可见；临时性错误 → 重试后成功，或预算用尽后 `FAILED`；
       `RepositoryClientError` 不再落入 `UNCLASSIFIED`；handler 异常不使 worker 进程退出；
     - compose：Preview 进行中终止 worker，operation 最终进入终态；

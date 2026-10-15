@@ -465,8 +465,13 @@ implementation_authorized: no
 
   **一、Catalog 上限（保持单一接口）**
   1. `GetVersionedCatalog` 保持一次返回整个 Catalog，不分页，不新增接口。
-  2. 上限按容量确定：在调试状态上测量 t4 Catalog 成功响应的 JSON 字节数（只含表结构、主键与行数，不读行数据）；`MAX_CATALOG_JSON_BYTES`
-     取实测值的 4 倍并向上取整到 MiB（覆盖约 2× t4 的目标规模，另留 2 倍余量）。实测值与取值写入 handoff 和 Repository Service Contract。
+  2. 上限按容量确定：`MAX_CATALOG_JSON_BYTES` 取 t4 Catalog 成功响应 JSON 字节数的 4 倍并向上取整到 MiB（覆盖约 2× t4 的目标规模，另留 2 倍余量）。
+     字节数与取值写入 handoff 和 Repository Service Contract。
+     - 补充（owner 2026-10-15，原 t4 调试栈已删除）：调试阶段用离线估算取值，不为测量重建 t4 栈。在进程内对 t3、t4 的 v1 运行存储投影，
+       用 Catalog 的 wire 模型序列化投影后的表结构、主键与行数并计字节（不读出行数据，不经 Docker）。t3 低于、t4 高于 256 KiB 即确认停止时 503 的原因；
+       另以合成 Catalog 的 focused 用例证明“超限 → 原错误码”的机制。
+     - 取证运行经公开接口记录各档 Catalog 的实际字节数；上限低于 t4 实际值的 3 倍（目标规模 2 倍外加 1.5 倍余量）时，按实际值重新取值并形成新的 V。
+     - 离线估算做不出时，授权在开发模式下只重建 t4 v1（上传、Preview、Submit，保留栈），用不提交的临时改动测量。
   3. 响应超限不再返回 `503 SERVICE_NOT_READY`（它表示“暂时未就绪，可重试”，而超限是确定性的）：改为专用错误码 `RESPONSE_LIMIT_EXCEEDED`，HTTP 500，
      client 与 worker 按不可重试处理。`GetOperation` 的 256 KiB 上限数值不变，超限时同样改用该错误码。
   4. Repository Service Contract、wire 常量、OpenAPI 与 golden 直接改到目标形态，不建兼容层（AGENTS.md「项目前提」）。

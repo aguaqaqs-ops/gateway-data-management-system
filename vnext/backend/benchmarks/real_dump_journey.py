@@ -79,9 +79,8 @@ TERMINAL_OPERATION_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 INITIAL_OPERATION_TIMEOUT_SECONDS = 3_600
 MINIMUM_OPERATION_TIMEOUT_SECONDS = 300
 
-# Operation budgets are calibrated per tier after a timestamped debug run.
-# A tier/step without its own completed measurement inherits the latest earlier
-# tier's measurement; once it completes, its own five-times profile is recorded.
+# Operation budgets are calibrated from timestamped runs at the same tier.
+# Until that exact tier/step has completed once, use the DC30 one-hour ceiling.
 MEASURED_OPERATION_WALL_SECONDS: dict[str, float] = {
     "t1:v1-preview": 52.975,
     "t1:v1-submit": 41.652,
@@ -89,6 +88,7 @@ MEASURED_OPERATION_WALL_SECONDS: dict[str, float] = {
     "t1:v2-preview": 77.105,
     "t1:v2-submit": 41.547,
     "t1:history": 73.002,
+    "t2:v1-preview": 721.355,
 }
 OPERATION_TIERS = ("t1", "t2", "t3", "t4")
 
@@ -428,15 +428,7 @@ def _step_measurement(
 def _operation_timeout_seconds(tier: str, step_id: str) -> int:
     if tier not in OPERATION_TIERS:
         raise JourneyFailure("operation timeout profile has an unknown tier")
-    tier_index = OPERATION_TIERS.index(tier)
-    measured_wall_seconds = next(
-        (
-            MEASURED_OPERATION_WALL_SECONDS[f"{known_tier}:{step_id}"]
-            for known_tier in reversed(OPERATION_TIERS[: tier_index + 1])
-            if f"{known_tier}:{step_id}" in MEASURED_OPERATION_WALL_SECONDS
-        ),
-        None,
-    )
+    measured_wall_seconds = MEASURED_OPERATION_WALL_SECONDS.get(f"{tier}:{step_id}")
     timeout = (
         INITIAL_OPERATION_TIMEOUT_SECONDS
         if measured_wall_seconds is None

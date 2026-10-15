@@ -161,23 +161,30 @@ def test_operation_timeout_uses_five_times_measurement_with_five_minute_floor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert _operation_timeout_seconds("t1", "v1-preview") == 300
+    assert _operation_timeout_seconds("t1", "v1-submit") == 300
+    assert _operation_timeout_seconds("t1", "repeat-v1-preview") == 316
+    assert _operation_timeout_seconds("t1", "v2-preview") == 386
+    assert _operation_timeout_seconds("t1", "v2-submit") == 300
+    assert _operation_timeout_seconds("t1", "history") == 315
     assert _operation_timeout_seconds("t2", "v1-preview") == 3_612
     assert _operation_timeout_seconds("t2", "v1-submit") == 1_186
-    assert _operation_timeout_seconds("t2", "repeat-v1-preview") == 3_069
-    assert _operation_timeout_seconds("t2", "v2-preview") == 3_521
-    assert _operation_timeout_seconds("t2", "v2-submit") == 1_196
-    assert _operation_timeout_seconds("t2", "history") == 2_514
-    assert _operation_timeout_seconds("t3", "v1-preview") == 6_225
-    assert _operation_timeout_seconds("t3", "v1-submit") == 2_404
-    assert _operation_timeout_seconds("t3", "repeat-v1-preview") == 6_827
+    assert _operation_timeout_seconds("t2", "repeat-v1-preview") == 3_019
+    assert _operation_timeout_seconds("t2", "v2-preview") == 3_441
+    assert _operation_timeout_seconds("t2", "v2-submit") == 1_186
+    assert _operation_timeout_seconds("t2", "history") == 2_464
+    assert _operation_timeout_seconds("t3", "v1-preview") == 6_215
+    assert _operation_timeout_seconds("t3", "v1-submit") == 2_414
+    assert _operation_timeout_seconds("t3", "repeat-v1-preview") == 6_828
     assert _operation_timeout_seconds("t3", "v2-preview") == 7_642
-    assert _operation_timeout_seconds("t3", "v2-submit") == 2_484
-    assert _operation_timeout_seconds("t3", "history") == 4_823
-    assert _operation_timeout_seconds("t4", "v1-preview") == 12_908
-    assert _operation_timeout_seconds("t4", "v1-submit") == 4_076
-    assert _operation_timeout_seconds("t4", "repeat-v1-preview") == 3_600
+    assert _operation_timeout_seconds("t3", "v2-submit") == 2_480
+    assert _operation_timeout_seconds("t3", "history") == 4_813
+    assert _operation_timeout_seconds("t4", "v1-preview") == 12_887
+    assert _operation_timeout_seconds("t4", "v1-submit") == 4_047
+    assert _operation_timeout_seconds("t4", "repeat-v1-preview") == 11_271
+    assert _operation_timeout_seconds("t4", "v2-preview") == 11_300
+    assert _operation_timeout_seconds("t4", "v2-submit") == 4_055
     assert _operation_timeout_seconds("t4", "unknown") == INITIAL_OPERATION_TIMEOUT_SECONDS
-    assert _operation_timeout_seconds("t4", "history") == INITIAL_OPERATION_TIMEOUT_SECONDS
+    assert _operation_timeout_seconds("t4", "history") == 6_821
 
     monkeypatch.setitem(
         real_dump_journey.MEASURED_OPERATION_WALL_SECONDS,

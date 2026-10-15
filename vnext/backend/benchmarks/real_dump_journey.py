@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -78,9 +79,21 @@ TERMINAL_OPERATION_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 INITIAL_OPERATION_TIMEOUT_SECONDS = 3_600
 MINIMUM_OPERATION_TIMEOUT_SECONDS = 300
 
-# Populate after the first timestamped full journey with 5x measured durations.
-# Keys use "<tier>:<step-id>". Missing entries retain the initial 60 minute cap.
-OPERATION_TIMEOUT_SECONDS: dict[str, int] = {}
+# Operation budgets are calibrated per tier after a timestamped debug run.
+# A tier/step without its own completed measurement inherits the latest earlier
+# tier's measurement; once it completes, its own five-times profile is recorded.
+MEASURED_OPERATION_WALL_SECONDS: dict[str, float] = {
+    "t1:v1-preview": 53.012,
+    "t1:v1-submit": 41.643,
+    "t1:repeat-v1-preview": 1_303.648,
+    "t1:v2-preview": 1_466.762,
+    "t1:v2-submit": 55.936,
+    "t1:history": 3_573.195,
+    "t2:v1-preview": 734.341,
+    "t2:v1-submit": 247.455,
+    "t2:repeat-v1-preview": 5_173.487,
+}
+OPERATION_TIERS = ("t1", "t2", "t3", "t4")
 
 JOURNEY_STEP_IDS = (
     "v1-workspace",
@@ -416,8 +429,24 @@ def _step_measurement(
 
 
 def _operation_timeout_seconds(tier: str, step_id: str) -> int:
-    timeout = OPERATION_TIMEOUT_SECONDS.get(
-        f"{tier}:{step_id}", INITIAL_OPERATION_TIMEOUT_SECONDS
+    if tier not in OPERATION_TIERS:
+        raise JourneyFailure("operation timeout profile has an unknown tier")
+    tier_index = OPERATION_TIERS.index(tier)
+    measured_wall_seconds = next(
+        (
+            MEASURED_OPERATION_WALL_SECONDS[f"{known_tier}:{step_id}"]
+            for known_tier in reversed(OPERATION_TIERS[: tier_index + 1])
+            if f"{known_tier}:{step_id}" in MEASURED_OPERATION_WALL_SECONDS
+        ),
+        None,
+    )
+    timeout = (
+        INITIAL_OPERATION_TIMEOUT_SECONDS
+        if measured_wall_seconds is None
+        else max(
+            MINIMUM_OPERATION_TIMEOUT_SECONDS,
+            math.ceil(measured_wall_seconds * 5),
+        )
     )
     if timeout < MINIMUM_OPERATION_TIMEOUT_SECONDS:
         raise JourneyFailure("operation timeout profile is below the five minute minimum")

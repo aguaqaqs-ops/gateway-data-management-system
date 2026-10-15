@@ -117,15 +117,32 @@ def test_step_measurement_reports_wall_and_per_container_cpu_deltas() -> None:
     }
 
 
-def test_operation_timeout_uses_initial_cap_then_tier_profile(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert _operation_timeout_seconds("t1", "history") == INITIAL_OPERATION_TIMEOUT_SECONDS
-    monkeypatch.setitem(real_dump_journey.OPERATION_TIMEOUT_SECONDS, "t2:v2-submit", 900)
+def test_operation_timeout_uses_five_times_measurement_with_five_minute_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _operation_timeout_seconds("t1", "v1-preview") == 300
+    assert _operation_timeout_seconds("t2", "v1-preview") == 3_672
+    assert _operation_timeout_seconds("t2", "repeat-v1-preview") == 25_868
+    assert _operation_timeout_seconds("t2", "v2-preview") == 7_334
+    assert _operation_timeout_seconds("t4", "repeat-v1-preview") == 25_868
+    assert _operation_timeout_seconds("t4", "unknown") == INITIAL_OPERATION_TIMEOUT_SECONDS
 
-    assert _operation_timeout_seconds("t2", "v2-submit") == 900
+    monkeypatch.setitem(
+        real_dump_journey.MEASURED_OPERATION_WALL_SECONDS,
+        "t2:v2-submit",
+        180.01,
+    )
+    assert _operation_timeout_seconds("t2", "v2-submit") == 901
 
-    monkeypatch.setitem(real_dump_journey.OPERATION_TIMEOUT_SECONDS, "t2:v2-submit", 299)
-    with pytest.raises(JourneyFailure, match="five minute minimum"):
-        _operation_timeout_seconds("t2", "v2-submit")
+    monkeypatch.setitem(
+        real_dump_journey.MEASURED_OPERATION_WALL_SECONDS,
+        "t2:v2-submit",
+        45.0,
+    )
+    assert _operation_timeout_seconds("t2", "v2-submit") == 300
+
+    with pytest.raises(JourneyFailure, match="unknown tier"):
+        _operation_timeout_seconds("t5", "history")
 
 
 def test_journey_step_runner_emits_metrics_and_persists_debug_checkpoint(

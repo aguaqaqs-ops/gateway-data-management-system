@@ -1,13 +1,13 @@
 # P5 架构收口 S2b handoff
 
-- 状态：**暂停，等待 owner 决定真实数据中的无主键表语义；S2b 未完成。**
-- 日期：2026-10-12
+- 状态：**暂停；DC29 已按 owner 决议实施，DC30 t4 真实旅程暴露 Repository Catalog 容量边界及 operation 未终态问题，需 owner 决定 Contract / 读取方案；S2b 未完成。**
+- 日期：2026-10-15
 - 分支 / worktree：`p5-s2b` / 独立 worktree
 - `range_start`：`p5-s2a-exit`，`6f3e2ed67a03a2c452c7a13ff02d3aeb7d0f6792`
 - kickoff base：`cae9a0f82be3415cc362e46b98da954edcf1d807`
-- 最后代码提交（实现 HEAD）：`acbf865142382b63f57fd8c01a12721137f0c79b`
+- 最后非 handoff 提交（实现 HEAD）：`a51bbc373d`（benchmark 诊断读取与保护超时校准；未形成最终 V）
 - 最后一次完整 runner 的提交：`08a8d9876bf2d347dd36cf8db4fac3d615306496`（仅为历史门禁结果，**不是最终 V**）
-- 最终门禁提交 V / 候选 H / carried：**未形成 / 未形成 / 未执行**。真实数据停止条件在 V→H 前触发；`acbf...` 之后没有再跑完整 runner或真实 HTTP 旅程。
+- 最终门禁提交 V / handoff-only H / carried：**未形成 / 本文提交 / 未执行**。完整 runner 与全档真实数据取证未在 DC29、DC30 恢复后执行；当前 HEAD 只是实现候选，不能称为 V 或 S2b exit。
 
 ## 1. 区间与提交
 
@@ -18,6 +18,8 @@
 | `0ce71cac2743ab71c8c4adc7eaa597821996edd3` | 合并 S2a |
 | `a80ca8c4020da26a01a285977dae402b77f69aa1` | S2a exit 记录 |
 | `cae9a0f82be3415cc362e46b98da954edcf1d807` | S2b 预算文档修订；kickoff base |
+
+Kickoff 后的审核方文档仅存在于 `main`，不在 `p5-s2b` 分支：`62cc7c3e0fddf53349f2df9d30c64ed6fb44d4d6`（DC29）与 `1925dcedc2835b7baa5a3f5860c865a2c16b86df`（DC30）。本 handoff 按这两份 main 文本记录决议，不复制或修改其规格。
 
 | 内容项 | 主提交 | 后续实现、修复或验证提交 |
 | --- | --- | --- |
@@ -43,7 +45,7 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 | 时点 | 违例 / 运行时环 / 不可达 |
 | --- | --- |
 | S2a exit 基线 | 3 / 0 / 14 |
-| 当前 `acbf...` | 0 / 0 / 14 |
+| 当前 `a51bbc373d`（benchmark-only 后续提交） | 0 / 0 / 14 |
 
 `prepare-dev-dependencies.sh` 在新 worktree 完成；随后 worktree clean，`uv.lock` 未改。当前五锁 SHA-256：
 
@@ -57,7 +59,7 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 
 ## 3. 实际验证
 
-### 当前实现 HEAD `acbf...`
+### 旧实现 HEAD `acbf...`（DC29 owner 决议前的停止版本）
 
 命令：
 
@@ -100,7 +102,7 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 - DTO / OpenAPI：HTTP History / Operation DTO 清除 DC9 字段；Preview 与 Submit 映射新规范事实、身份结论与失败码；OpenAPI 合同测试相应更新。
 - Control DB：仅改 `infrastructure/control_db/schema.py` 单一基线，未增加 migration。
 
-## 5. 真实数据与停止事实
+## 5. 真实数据与停止事实（2026-10-12；DC29 前）
 
 运行脚本：`vnext/backend/benchmarks/real_dump_journey.py`，主机侧通过公开 HTTP API；原始目录只读且不挂载到容器。权威的首次运行在 `08a8...` gate 后、同一提交、clean preflight 下开始；t1-v1 Preview 未完成，operation 失败为 `BINDING_INVALID`，日志文件名 `s2b-realdata-08a8d9876b.log`。随后为取到 stage/message 做了一次诊断重跑，运行前临时改过 host script，故该次 worktree dirty，不作为门禁或合规真实旅程证据；日志文件名 `s2b-realdata-diagnostic-08a8d9876b.log`。诊断完成后脚本不输出 operation message，仅保留 stage 与错误码。所有栈与 Dolt 均 teardown；没有完成 t1–t4 的 Submit / 重传 / History 有序表四项验收。
 
@@ -112,6 +114,8 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 
 停止原因：若继续必须由 owner 决定这些无主键表的规范键 / keyless 语义或规则处置，可能改变规范状态与比较语义。按本阶段真实数据停止规则暂停；没有猜测业务键、加 application 特判、排除数据或增加导入基线项。请 owner 决定允许的 canonical semantics 与规则更新范围；决定前不得形成最终 V/H、跑 carried 或宣称 S2b ready。
 
+该停止由 owner 2026-10-12 的 DC29 决议解决，并在 §8.1 记录实施。当前暂停是新的 DC30 Catalog / operation 阻断，见 §8.2。
+
 ## 6. 镜像与 carried
 
 `08a8...` 权威 runner 的最后已验证镜像记录（不是 `acbf...` 的镜像验证）：
@@ -122,10 +126,72 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 | backend | `sha256:d9d6792456e462f90a37fbd7e431add58d5a78ba99e996ee057f99cc191b3742` | provenance project `ordered-bisect-b-897226-baseline`；无 build-input / source-tree label |
 | worker | `sha256:a61e3bb0ec2403ed0e8a07ad7a76f03b79a80ae4aadc17c9f68afc616a2d0ed9` | provenance project `ordered-bisect-b-897226-baseline`；无 build-input / source-tree label |
 
-`acbf...` 晚于上述镜像与门禁；没有重建 backend / worker 或重算 repository-service source-tree 身份，因此 V→H carried **不适用 / 未判定**。恢复后最终实现 HEAD 需要重新执行完整 runner、记录新 image identities，再生成仅含 handoff 的候选提交。
+`acbf...` 晚于上述镜像与门禁；没有重建 backend / worker 或重算 repository-service source-tree 身份，因此当时的 V→H carried **不适用 / 未判定**。DC29 / DC30 恢复后的最终候选仍没有 V 镜像身份，详见 §8。
 
 ## 7. Reviewer / owner 核对重点与当前未完成项
 
-当前交付的是停止记录，不是审核候选，也不附 §8.7 的候选审核提示词。Owner 恢复后，独立审核仍需区分 R0 与三项审核方文档提交，并核查：§2 验收 owner、§3 路径预算、S1-F3、DC9 与 ADR 0016、`NO_CANONICAL_CHANGE` 唯一 owner、T1 闭包转移与启发式删除、`removed_tables` 三种情形、prepare checkpoint 复用、INITIAL 恒空、S2a-F1/F2、有序表四项真实数据结果、0/0/14 与最终 V 门禁及 carried。
+本文提交是 handoff-only 状态报告，不是 S2b 审核候选；DC29 已决议并实现，但尚无恢复后的完整 V runner 与全档真实数据取证。不能打 `p5-s2b-exit`、不能进行 carried，也不附可用于接受 S2b 的 §8.7 审核提示词。
 
-未完成项：无主键表语义 owner 决议；新 V 全量 runner；完整 t1–t4 HTTP 真实数据旅程；V→H carried 判定；最终候选 H 与审核提示词。
+待 owner 决定：`GetVersionedCatalog` 的 256 KiB 成功响应上限是否要修订，以及能否在不改变 Repository public contract 的前提下调整 S2b baseline read。若需修改 Contract，先修订 owning specification 与测试再恢复；不得以 Application 特判、排除表或把 benchmark rows 核对当成产品路径通过。
+
+恢复后，独立审核仍须区分 R0、kickoff 文档提交与 main 上的 DC29 / DC30 决议；核查 §2 验收 owner、§3 路径预算、S1-F3、DC9 与 ADR 0016、`NO_CANONICAL_CHANGE` 唯一 owner、T1 闭包转移与启发式删除、`removed_tables` 三种情形、prepare checkpoint 复用、INITIAL 恒空、S2a-F1/F2、DC29 keyless 行为、有序表四项真实数据结果、0/0/14、最终 V 门禁与 carried。
+
+未完成项：完整 runner 的最终 V；t1–t4 同一 V 上完整 HTTP 真实旅程与 DC29 keyless 重传 / 一删一增验收；所有 operation A 层终态及完整 B 层判断；V→H carried；最终 S2b 接受性审核与 `p5-s2b-exit`。
+
+## 8. DC29 / DC30 恢复记录（2026-10-15）
+
+### 8.1 owner 文档与 DC29 实施
+
+DC29 按 main 审核方文档提交 `62cc7c3e0fddf53349f2df9d30c64ed6fb44d4d6` 的决议 §12 实施；DC30 按 main 提交 `1925dcedc2835b7baa5a3f5860c865a2c16b86df` 的决议 §13 与执行计划 §8.9 执行。两提交都不在 `p5-s2b`，本阶段未修改 owning specs。
+
+DC29 的主提交是 `0c48314dbe`：加入 `DDL_PRIMARY_KEY_OR_KEYLESS` 规则语义，保留无主键重复行，以 `FULL_ROW_DIGEST_SET_DIFF` 做 keyless 比较，增加 `KEYLESS_FALLBACK` 表级只读提示，并更新 manifest contract 到 3.2.0；storage projection version 不变。其后相关修正为：
+
+| 提交 | 内容 |
+| --- | --- |
+| `bdd83be525` | 保留 keyless 内容变化的一删一增记录 |
+| `ae5998f13c`、`dd6be19b3e`、`4fe624e771`、`2cf35a8c54` | Compose keyless 旅程固定 archived baseline、变化 pair 选择与断言修正 |
+| `f3a278427b` | History comparison 继续传递规范存储事实 |
+| `041640eb7b`、`f541ef7846`、`e4defddb4f` | 有序 pseudo 身份、浮点 / datetime 单元格与 replay key 顺序规范化 |
+| `ce58301a4f`、`d13c088e8e`、`24e7257266` | Repository replay 批量插入、重复行断言与对应 golden 更新 |
+| `055ad724e5` | real-data Preview 记录 keyless fallback 候选 |
+| `09c3e8c217`、`e37323e220` | 缓存 immutable catalog；打开 snapshot artifact 时复用验证得到的 Parquet rows，避免二次完整读取 |
+
+其余 DC29 后续提交处理 History/Submit 闭包恢复、故障诊断、runner instrumentation 与超时剖面；提交列表见本 handoff 区间。没有新增 HTTP endpoint、运行时规则激活机制或导入基线条目。恢复后的最近验证批次为 `tests/test_real_dump_journey.py` **23 passed**，五包 ruff/mypy 全通过，`python -m tests.support.import_rules` 为 **0 / 0 / 14**；它们不是最终 V 的权威 runner。
+
+最近验证命令均使用 `GATEWAY_DEV_OFFLINE=1 ../scripts/uv-consume.sh -C . run ...`。ruff 五包均为 `All checks passed`；mypy 分别为 backend 475、repository_service 198、repository_contracts 15、repository_client 26、shared_kernel 34 个 source files，全无 issue。测试为 `cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_real_dump_journey.py -q`，23 passed；导入规则命令输出 0 违例 / 0 运行时环 / 14 不可达。五个 `uv.lock` SHA 与 §2 表相同。
+
+### 8.2 DC30 调试测量与 Catalog 阻断
+
+当前 benchmark 提交 `a51bbc373d` 做两项主机侧调整：t4 v1 Preview / Submit 完成后分别按实测 wall time 校准 operation guard；Repository ordered pseudo 核对改用既有 HTTP Arrow rows endpoint，逐张核对 census 行数与 pseudo 数，避免 benchmark 自身调用受限的整项目 Catalog JSON。新增 focused 用例覆盖这两项；没有改产品代码或 Repository public contract。
+
+t4 的输入统计（均来自 census / datasets 元数据）：
+
+| Dataset ID | SHA-256 | 包字节 | 源表数 | 源行数 | ordered 表数 / 行数 | pseudo 行数 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `rd-t4-d-v1` | `95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675` | 5,597,503 | 320 | 437,149 | 144 / 133,458 | 12,676 |
+| `rd-t4-d-v2` | `5a7cd54d9b996be55c34b7bb766eb01ad5c1b7c4fa9bd1e72f5c4741baee3611` | 5,596,595 | 320 | 437,229 | 144 / 133,530 | 12,688 |
+
+两份日志 `s2b-debug-t4-75196aaefa.log` 与 `s2b-debug-t4-75196aaefa-rows.log` 都是调试记录，不是验收证据。第一段 t4 v1 Preview 输出 311 张表、311 changed、0 degraded、0 failed；census 的 keyless fallback 候选为 33 张：`cnt_manage_cfg`、`comm_user_data`、`dev104_cfg`、`forwardtable_yc1`、`forwardtable_yc2`、`forwardtable_yk1`、`forwardtable_yt1`、`forwardtable_yx1`、`forwardtable_yx2`、`forwardtbl_lst_cs`、`forwardtbl_lst_dz`、`forwardtbl_lst_qt`、`forwardtbl_lst_yc`、`forwardtbl_lst_yk`、`forwardtbl_lst_ym`、`forwardtbl_lst_yt`、`forwardtbl_lst_yx`、`iec104_cfg`、`iec61850c_cfg`、`jdxx_cfg`、`mms_rp_cdc_index`、`nbridge_cfg`、`nr103d_cfg`、`nr103ht_cfg`、`out_time_cfg`、`project`、`sc_cfg`、`scada_cfg`、`sg_manage_cfg`、`sntp_cfg`、`vqc_cfg`、`wave_cfg`、`wf_cfg`。重传 Preview 没有完成，因此没有 keyless UNCHANGED 验收结果。
+
+可用的 t4 step wall / CPU 秒如下（CPU 列顺序为 backend / Repository Service / worker）：
+
+| Step | Wall 秒 | CPU 秒 | 调试结论 |
+| --- | ---: | --- | --- |
+| v1 workspace / upload | 0.713 / 0.946 | 0.020 / 0.001 / 0；0.263 / 0.002 / 0 | 成功 |
+| v1 Preview | 2,581.419 | 73.173 / 66.023 / 2,571.058 | 成功；311 表全部变化，无 degraded / failed |
+| v1 Submit | 815.074 | 25.440 / 204.013 / 752.241 | 成功 |
+| v1 Repository read（首次，经 catalog） | 28.063 | 0.635 / 145.002 / 0.063 | HTTP 503 `SERVICE_NOT_READY` |
+| v1 Repository read（host script 调整后，经 rows） | 24.480 | 0.631 / 49.418 / 0.059 | 144 ordered 表、133,458 行与 census 相符；pseudo 12,676 |
+| v1 approve / archive | 0.707 / 0.739 | 0.013 / 0.001 / 0.003；0.042 / 0.001 / 0.003 | 成功 |
+| repeat v1 workspace / upload | 0.694 / 0.975 | 0.006 / 0.001 / 0；0.268 / 0.002 / 0 | 成功 |
+| repeat v1 Preview | 3,602.081 | 无法读取结束 delta | 首次 3,600 秒保护窗口到期；operation 未进入终态，runner exit 1 |
+
+Catalog 阻断证据：公开 `GetVersionedCatalog` 首次请求 28.063 秒后返回 503；缓存后的同 commit 重试仍返回 `503 SERVICE_NOT_READY`，耗时 0.052 秒。Repository Service contract 明文规定成功 catalog JSON 上限为 256 KiB，超出时按同一错误码拒绝；错误 DTO 不公开 503 的具体分支，因此“本次是响应体超限”与这份证据高度一致，但仍标为推断。首个调试栈在 Submit 后的 catalog 请求失败；调整 benchmark 自身的核对方式后，HTTP rows 核对成功，但 archived baseline 的重复 Preview 仍由产品 worker 的 `HttpArrowRepositoryRefSession._load_catalog` 调用同一 public Catalog API，并收到 `RepositoryClientError: service is not ready`。worker 容器重启一次，之后无重新领取任务；公开 operation 直到 3,602.081 秒 step 保护窗口结束仍为 `RUNNING`，无 diagnostic，未终态。结束时 cgroup CPU 读取失败，故不报告该步 CPU delta。
+
+此处没有修改或提高 256 KiB 上限，也没有 Application 特判、排除表或新增 endpoint。benchmark rows 核对只证明 public rows 路径能够按 census 检查 ordered 表，不证明 Preview 产品路径通过；全项目 Catalog 表数 / 总行数不能从该受限 HTTP 响应取得。Handoff 使用 Preview 的 311 canonical table 结果与 census 的 320 源表 / 437,149 行作为分开标注的替代事实。
+
+### 8.3 V、取证与恢复条件
+
+DC29 / DC30 后没有在 clean committed HEAD 上运行最终权威 runner，也没有完成 t1–t4 同一 V 的真实旅程。`08a8d9876b` runner exit 0 是旧版历史结果；它不覆盖 DC29 实施、`a51bbc373d` benchmark 修改或 Catalog / operation 阻断。当前可报告的 runner exit 1 是 DC30 调试脚本的 t4 repeat-v1-Preview，不是权威 runner。没有最终 V 镜像 provenance、没有 carried 判定。
+
+调试项目已用带 project label 的定向 Compose teardown 删除容器、volume、network；Dolt 进程为空、8000 端口空闲。外部保留 t4 debug state 与上述两份 debug 日志，不含在 Git。恢复需要 owner 先决定 Catalog contract 上限 / 读取路径；随后实现并通过 focused 回归，再按 DC30 在最终 V 上取证一次完整 runner 与一次完整真实数据旅程。只有该次 runner 通过且所有 tiers operation 终态，才能形成 V、carried 与可接受的 S2b 审核候选。

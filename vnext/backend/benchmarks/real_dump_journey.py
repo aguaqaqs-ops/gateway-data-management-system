@@ -100,6 +100,8 @@ MEASURED_OPERATION_WALL_SECONDS: dict[str, float] = {
     "t3:v2-preview": 1528.248,
     "t3:v2-submit": 496.618,
     "t3:history": 964.409,
+    "t4:v1-preview": 2581.419,
+    "t4:v1-submit": 815.074,
 }
 OPERATION_TIERS = ("t1", "t2", "t3", "t4")
 
@@ -205,6 +207,24 @@ def _ordered_tables(census: Mapping[str, Any]) -> dict[str, int]:
         result[str(table_name)] = int(raw["pseudo_gid_count"])
     if sum(result.values()) != int(projection["pseudo_rows_total"]):
         raise JourneyFailure("ordered census pseudo count does not reconcile")
+    return result
+
+
+def _ordered_table_row_counts(census: Mapping[str, Any]) -> dict[str, int]:
+    projection = census.get("ordered_projection")
+    if not isinstance(projection, dict) or projection.get("status") != "COMPLETE":
+        raise JourneyFailure("ordered census must be COMPLETE before the journey")
+    raw_tables = projection.get("tables")
+    if not isinstance(raw_tables, dict):
+        raise JourneyFailure("ordered census has no table counts")
+    result: dict[str, int] = {}
+    for table_name, raw in raw_tables.items():
+        if type(table_name) is not str or not isinstance(raw, dict) or raw.get("status") != "COMPLETE":
+            raise JourneyFailure("ordered census contains a non-COMPLETE table")
+        row_count = raw.get("row_count")
+        if type(row_count) is not int or row_count < 0:
+            raise JourneyFailure("ordered census has an invalid table row count")
+        result[table_name] = row_count
     return result
 
 
@@ -885,45 +905,27 @@ def _repository_service_url(env: Mapping[str, str]) -> str:
     return f"http://{address}:8000"
 
 
-def _repository_catalog(
-    client: httpx.Client, repository_id: str, commit_id: str
-) -> tuple[list[dict[str, Any]], int]:
-    encoded = encode_commit_id_path_segment(commit_id)
-    response = client.get(
-        f"/v1/repositories/{repository_id}/versioned/commits/{encoded}/catalog"
-    )
-    payload = _require(response, 200, "Repository catalog")
-    catalog = cast(dict[str, Any], payload["catalog"])
-    tables = catalog.get("tables")
-    if not isinstance(tables, list):
-        raise JourneyFailure("Repository catalog has no table list")
-    normalized = [cast(dict[str, Any], item) for item in tables if isinstance(item, dict)]
-    total_rows = sum(int(item["row_count"]) for item in normalized)
-    return normalized, total_rows
-
-
 def _pseudo_counts_from_http(
     *,
     base_url: str,
     repository_id: str,
     commit_id: str,
     expected_tables: Mapping[str, int],
+    expected_row_counts: Mapping[str, int],
 ) -> dict[str, Any]:
-    catalog_client = httpx.Client(
+    if set(expected_tables) != set(expected_row_counts):
+        raise JourneyFailure("ordered census pseudo and row counts do not cover the same tables")
+    repository_client = httpx.Client(
         base_url=base_url,
         headers={"Authorization": f"Bearer {BEARER_TOKEN}"},
         timeout=300.0,
     )
     try:
-        catalog, row_count_total = _repository_catalog(catalog_client, repository_id, commit_id)
-        catalog_by_name = {str(item["name"]): item for item in catalog}
-        missing = sorted(set(expected_tables) - set(catalog_by_name))
-        if missing:
-            raise JourneyFailure("one or more census ordered tables are absent from Repository")
         actual: dict[str, int] = {}
+        actual_row_counts: dict[str, int] = {}
         for table_name in sorted(expected_tables):
             encoded = encode_commit_id_path_segment(commit_id)
-            response = catalog_client.get(
+            response = repository_client.get(
                 f"/v1/repositories/{repository_id}/versioned/commits/{encoded}/rows",
                 params={"table_name": table_name},
             )
@@ -946,22 +948,23 @@ def _pseudo_counts_from_http(
                     )
             except (pa.ArrowInvalid, ValueError, TypeError) as exc:
                 raise JourneyFailure("Repository ordered table Arrow stream is invalid") from exc
-            expected_rows = int(catalog_by_name[table_name]["row_count"])
+            expected_rows = expected_row_counts[table_name]
             if total != expected_rows:
-                raise JourneyFailure("Repository Arrow row count differs from its catalog")
+                raise JourneyFailure("Repository ordered row count differs from census")
             actual[table_name] = pseudo_count
+            actual_row_counts[table_name] = total
         expected_total = sum(int(value) for value in expected_tables.values())
         actual_total = sum(actual.values())
         if actual_total != expected_total:
             raise JourneyFailure("Repository ordered pseudo row count differs from census")
         return {
-            "table_count": len(catalog),
-            "row_count_total": row_count_total,
+            "ordered_table_count": len(actual),
+            "ordered_row_count_total": sum(actual_row_counts.values()),
             "ordered_table_pseudo_counts": actual,
             "pseudo_rows_total": actual_total,
         }
     finally:
-        catalog_client.close()
+        repository_client.close()
 
 
 def _history_surface_ref(bundle: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -1092,6 +1095,8 @@ def _run_tier(
     v2_bytes, v2_file = _dataset_package(root, datasets[v2_id])
     v1_ordered = _ordered_tables(census[v1_id])
     v2_ordered = _ordered_tables(census[v2_id])
+    v1_ordered_row_counts = _ordered_table_row_counts(census[v1_id])
+    v2_ordered_row_counts = _ordered_table_row_counts(census[v2_id])
     v1_keyless_names = _keyless_fallback_candidates(census[v1_id])
     v2_keyless_names = _keyless_fallback_candidates(census[v2_id])
     if int(census[v1_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v1_id]:
@@ -1184,6 +1189,7 @@ def _run_tier(
                 repository_id=repository_id,
                 commit_id=v1_commit_id,
                 expected_tables=v1_ordered,
+                expected_row_counts=v1_ordered_row_counts,
             )
             if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v1_id]:
                 raise JourneyFailure(f"{v1_id}: committed pseudo row count differs from census")
@@ -1346,6 +1352,7 @@ def _run_tier(
                 repository_id=repository_id,
                 commit_id=v2_commit_id,
                 expected_tables=v2_ordered,
+                expected_row_counts=v2_ordered_row_counts,
             )
             if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v2_id]:
                 raise JourneyFailure(f"{v2_id}: committed pseudo row count differs from census")

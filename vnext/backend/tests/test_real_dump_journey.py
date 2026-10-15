@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
+import pyarrow as pa
+import pyarrow.ipc as pa_ipc
 
 from benchmarks import real_dump_journey
 from benchmarks.real_dump_journey import (
@@ -19,8 +21,10 @@ from benchmarks.real_dump_journey import (
     _assert_preview_summaries,
     _history_surface_ref,
     _keyless_fallback_candidates,
+    _ordered_table_row_counts,
     _operation_timeout_seconds,
     _parse_cpu_stat,
+    _pseudo_counts_from_http,
     _require_one_of,
     _step_measurement,
 )
@@ -133,6 +137,8 @@ def test_operation_timeout_uses_five_times_measurement_with_five_minute_floor(
     assert _operation_timeout_seconds("t3", "v2-preview") == 7_642
     assert _operation_timeout_seconds("t3", "v2-submit") == 2_484
     assert _operation_timeout_seconds("t3", "history") == 4_823
+    assert _operation_timeout_seconds("t4", "v1-preview") == 12_908
+    assert _operation_timeout_seconds("t4", "v1-submit") == 4_076
     assert _operation_timeout_seconds("t4", "repeat-v1-preview") == 3_600
     assert _operation_timeout_seconds("t4", "unknown") == INITIAL_OPERATION_TIMEOUT_SECONDS
     assert _operation_timeout_seconds("t4", "history") == INITIAL_OPERATION_TIMEOUT_SECONDS
@@ -270,6 +276,83 @@ def test_keyless_fallback_candidates_come_from_census_unresolved_tables() -> Non
     )
 
     assert names == ("fallback_a", "fallback_b")
+
+
+def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    schema = pa.schema([("gid", pa.int64())])
+
+    def arrow_stream(values: list[int]) -> bytes:
+        sink = pa.BufferOutputStream()
+        with pa_ipc.new_stream(sink, schema) as writer:
+            if values:
+                writer.write_batch(
+                    pa.RecordBatch.from_arrays([pa.array(values, type=pa.int64())], schema=schema)
+                )
+        return cast(bytes, sink.getvalue().to_pybytes())
+
+    class FakeRepositoryClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.requested_tables: list[str] = []
+
+        def __enter__(self) -> FakeRepositoryClient:
+            return self
+
+        def __exit__(self, *_exc: object) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def get(self, path: str, *, params: dict[str, str]) -> httpx.Response:
+            assert path.endswith("/rows")
+            table_name = params["table_name"]
+            self.requested_tables.append(table_name)
+            rows = {
+                "ordered_with_pseudo": arrow_stream([3_999_999_999, 4_000_000_000, 4_000_000_001]),
+                "ordered_without_rows": arrow_stream([]),
+            }
+            return httpx.Response(200, content=rows[table_name])
+
+    fake_clients: list[FakeRepositoryClient] = []
+
+    def fake_client(**kwargs: Any) -> FakeRepositoryClient:
+        client = FakeRepositoryClient(**kwargs)
+        fake_clients.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "Client", fake_client)
+
+    counts = _pseudo_counts_from_http(
+        base_url="http://repository.invalid",
+        repository_id="repository-id",
+        commit_id="a" * 32,
+        expected_tables={"ordered_with_pseudo": 2, "ordered_without_rows": 0},
+        expected_row_counts={"ordered_with_pseudo": 3, "ordered_without_rows": 0},
+    )
+
+    assert counts == {
+        "ordered_table_count": 2,
+        "ordered_row_count_total": 3,
+        "ordered_table_pseudo_counts": {"ordered_with_pseudo": 2, "ordered_without_rows": 0},
+        "pseudo_rows_total": 2,
+    }
+    assert fake_clients[0].requested_tables == ["ordered_with_pseudo", "ordered_without_rows"]
+
+
+def test_ordered_census_row_counts_are_selected_by_table() -> None:
+    census = {
+        "ordered_projection": {
+            "status": "COMPLETE",
+            "tables": {
+                "table_a": {"status": "COMPLETE", "row_count": 2},
+                "table_b": {"status": "COMPLETE", "row_count": 0},
+            },
+        }
+    }
+
+    assert _ordered_table_row_counts(census) == {"table_a": 2, "table_b": 0}
 
 
 def test_history_bundle_surface_reference_is_selected_from_its_single_pair() -> None:

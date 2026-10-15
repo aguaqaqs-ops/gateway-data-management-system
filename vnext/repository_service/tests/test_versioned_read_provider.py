@@ -940,14 +940,14 @@ def test_branch_movement_keeps_pinned_commit_immutable(
     c1 = _commit_changes(offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000010")
     preflight_done = threading.Event()
     release = threading.Event()
-    original_exists = read_provider.commit_exists
+    original_catalog_at = read_provider.catalog_at
 
-    def gated_commit_exists(commit_id: str) -> bool:
-        exists = original_exists(commit_id)
-        if commit_id == c1 and exists:
+    def gated_catalog_at(commit_id: str) -> tuple[TableCatalog, ...]:
+        catalog = original_catalog_at(commit_id)
+        if commit_id == c1:
             preflight_done.set()
             assert release.wait(timeout=5.0)
-        return exists
+        return catalog
 
     def advance_main() -> None:
         assert preflight_done.wait(timeout=5.0)
@@ -964,7 +964,7 @@ def test_branch_movement_keeps_pinned_commit_immutable(
     store, _, repository_id = _visible_repository_setup(tmp_path)
     worker = threading.Thread(target=advance_main)
     worker.start()
-    with patch.object(read_provider, "commit_exists", side_effect=gated_commit_exists):
+    with patch.object(read_provider, "catalog_at", side_effect=gated_catalog_at):
         with patch(
             "gateway_repository_service.versioned_read.application.is_repository_visible",
             return_value=True,

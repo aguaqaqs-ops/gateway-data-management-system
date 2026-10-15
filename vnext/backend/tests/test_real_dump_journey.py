@@ -127,9 +127,15 @@ def test_operation_timeout_uses_five_times_measurement_with_five_minute_floor(
     assert _operation_timeout_seconds("t2", "v2-preview") == 3_521
     assert _operation_timeout_seconds("t2", "v2-submit") == 1_196
     assert _operation_timeout_seconds("t2", "history") == 2_514
+    assert _operation_timeout_seconds("t3", "v1-preview") == 6_225
+    assert _operation_timeout_seconds("t3", "v1-submit") == 2_404
+    assert _operation_timeout_seconds("t3", "repeat-v1-preview") == 6_827
+    assert _operation_timeout_seconds("t3", "v2-preview") == 7_642
+    assert _operation_timeout_seconds("t3", "v2-submit") == 2_484
+    assert _operation_timeout_seconds("t3", "history") == 4_823
     assert _operation_timeout_seconds("t4", "repeat-v1-preview") == 3_600
     assert _operation_timeout_seconds("t4", "unknown") == INITIAL_OPERATION_TIMEOUT_SECONDS
-    assert _operation_timeout_seconds("t3", "history") == INITIAL_OPERATION_TIMEOUT_SECONDS
+    assert _operation_timeout_seconds("t4", "history") == INITIAL_OPERATION_TIMEOUT_SECONDS
 
     monkeypatch.setitem(
         real_dump_journey.MEASURED_OPERATION_WALL_SECONDS,

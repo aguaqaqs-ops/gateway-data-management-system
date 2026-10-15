@@ -88,7 +88,12 @@ MEASURED_OPERATION_WALL_SECONDS: dict[str, float] = {
     "t1:v2-preview": 77.105,
     "t1:v2-submit": 41.547,
     "t1:history": 73.002,
-    "t2:v1-preview": 721.355,
+    "t2:v1-preview": 722.289,
+    "t2:v1-submit": 237.176,
+    "t2:repeat-v1-preview": 613.607,
+    "t2:v2-preview": 704.09,
+    "t2:v2-submit": 239.158,
+    "t2:history": 502.721,
 }
 OPERATION_TIERS = ("t1", "t2", "t3", "t4")
 

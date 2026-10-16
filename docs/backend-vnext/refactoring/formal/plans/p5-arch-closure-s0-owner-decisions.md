@@ -397,8 +397,10 @@ implementation_authorized: no
      Dolt 存储空间维护（如 `dolt gc`）与本决议无关，需要时另行立项。
 - **落点**：
   - [Canonical Storage](../contracts/canonical-storage-and-repository-boundary.md) §3 末句与 §9，版本升至 `3.2.0`（§8）：
-    manifest 的 `contract_version` 写 `3.2.0`，读取接受 `3.0.0`、`3.1.0`、`3.2.0`。storage projection version 不变：
-    此前能投影成功的表，规范字节与内容摘要不变（由 golden 证明）；新路径只用于此前被拒绝的表。
+    manifest 的 `contract_version` 写 `3.2.0`，读取接受 `3.0.0`、`3.1.0`、`3.2.0`。DC29 不提升 storage projection version：
+    此前能投影成功的表，规范字节与内容摘要不因 DC29 改变（由 golden 证明）；新路径只用于此前被拒绝的表。
+    （2026-10-16 更正：同一区间内 S2a-F1 的负零规范化 `26560b2595` 已把 storage projection version 从 `1` 提升到 `2`，
+    原文“不变”不准确，见 S2b 审核 S2b-F3。）
   - [P3-R4 存储投影设计](p3-r4-storage-projection-design.md) §5.2 与[详细设计](p5-arch-closure-design.md) §4.1、§4.5 加注；
   - 执行计划 §2 S2b（内容 11 与验收）、§3 S2b（DC29 路径）、§8.5（S2b.8）。
 - **停止条件**：Repository Service 无法无损写入或读回 keyless 表（含完全相同的重复行），或需要修改 Repository public contract 才能做到时，
@@ -498,5 +500,5 @@ implementation_authorized: no
   5. Phase 6 可按需重新设计、重写实现（包括 Rust、缓存、存储与读取路径）。约束是公共 Contract 与业务语义：需要改 Contract 时走 owning Contract 修订；
      项目没有兼容要求，不建兼容层。
   6. 对照基准：S2b 取证运行在 handoff 中按档、按版本记录可经公开接口取得的结果事实——规范状态摘要、Preview 表级状态计数、Submit 结果、History
-     比较的各类记录数量（不含行数据）。Phase 6 改写后在同一数据集上应得到相同结果，作为改写的正确性对照。
+     比较的记录总数与 bundle / surface 摘要（不含行数据；按类型的记录数没有公开接口，2026-10-16 按 S2b 复审更正）。Phase 6 改写后在同一数据集上应得到相同结果，作为改写的正确性对照。
 - **落点**：执行计划 §2 S2b 内容 12 与验收、§3 S2b、§8.5 S2b.9、S5；详细设计 §13；Repository Service Contract（由 S2b 实施方按本决议修改）。

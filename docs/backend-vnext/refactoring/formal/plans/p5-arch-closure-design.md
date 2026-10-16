@@ -716,6 +716,7 @@ r1 的停止条件“Dolt 拒绝 `TEXT` 主键”已由 DC20 决定，不再是�
   - Semantic version 由 `3.0.0` 升至 `3.1.0`；
   - CanonicalizationManifest 的 `contract_version` 记录其遵循的本 Contract 版本：S2a 起新写入的 manifest 记录 `3.1.0`，读取时按 ADR 0019 接受历史版本；manifest 载荷结构与 `canonicalization_manifest_digest` 算法不变；
   - storage projection version 不变。若 S1 kickoff 普查触发 DC12（JSON 改以 LONGTEXT 存储），按 §8 在 S2a handoff 中写明是否提升（DC27）。
+    （2026-10-16 更正：DC12 未触发，但 S2a 审核 S2a-F1 的负零规范化 `26560b2595` 改变了规范字节，storage projection version 由 `1` 提升到 `2`，见 S2b 审核 S2b-F3。）
 - §7、§9 与 DC10 一致，不修改。
 
 ### B.2 Ruleset Activation and Migration §1、§5

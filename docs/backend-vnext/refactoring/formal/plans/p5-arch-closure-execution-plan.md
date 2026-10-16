@@ -206,7 +206,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
     - 停止 handoff 中“重启后未重新领取、operation 保持 `RUNNING`”的路径已由 focused 测试复现并修复，handoff 写明。
   - 性能（DC30，经 DC31 修订；决议记录 §13、§14）：A 层——t1–t4 每个 operation 都在保护超时内进入终态，全程走完；B 层——按规模比例与墙钟/CPU 对比记录，
     疑似结构性的慢登记到 S5，不在 P5 修（使 A 层无法满足时除外）；C 层——handoff 给出各档各步的墙钟与 CPU 时间，只记录不判定。
-  - 对照基准（DC31）：handoff 按档、按版本记录可经公开接口取得的结果事实（规范状态摘要、Preview 表级状态计数、Submit 结果、History 各类记录数量），
+  - 对照基准（DC31）：handoff 按档、按版本记录可经公开接口取得的结果事实（规范状态摘要、Preview 表级状态计数、Submit 结果、History 记录总数与 bundle / surface 摘要），
     不含行数据，作为 Phase 6 改写的正确性对照。
 
 ### S3 — composite_signal 接入

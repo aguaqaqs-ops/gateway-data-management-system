@@ -72,7 +72,6 @@ def test_get_operation_returns_200(env: WorkspaceHttpTestEnvironment) -> None:
     assert body["operation_id"] == preview["operation_id"]
     assert body["status"] == "QUEUED"
     assert body["job_kind"] == "backend-vnext/preview"
-    assert body["integrity_incident"] is None
 
 
 def test_get_operation_requires_authentication(env: WorkspaceHttpTestEnvironment) -> None:
@@ -159,7 +158,6 @@ def test_get_submit_operation_returns_200(env: WorkspaceHttpTestEnvironment) -> 
     assert body["operation_id"] == operation_id
     assert body["job_kind"] == "backend-vnext/submit"
     assert body["status"] == "QUEUED"
-    assert body["integrity_incident"] is None
 
 
 def _accept_submit_operation(env: WorkspaceHttpTestEnvironment) -> tuple[str, str]:

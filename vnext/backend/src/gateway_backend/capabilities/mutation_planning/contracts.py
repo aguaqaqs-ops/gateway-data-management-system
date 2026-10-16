@@ -19,6 +19,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
 from gateway_backend.capabilities.storage_projection.contracts import (
+    CanonicalKeyPolicy,
     CanonicalizationManifest,
     CanonicalizationManifestTable,
     MAX_REPLAY_SQL_BYTES as _STORAGE_PROJECTION_MAX_REPLAY_SQL_BYTES,
@@ -602,17 +603,26 @@ class MutationTableSnapshot:
             raise ValueError("manifest_table name must match storage_view canonical_table")
         if type(self.rows) is not tuple:
             raise ValueError("rows must be a tuple")
-        previous_key: bytes | None = None
+        keyless = (
+            self.storage_view.canonical_key_policy
+            in {
+                CanonicalKeyPolicy.EXPLICIT_KEYLESS,
+                CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+            }
+            and not self.storage_view.canonical_key_columns
+        )
+        previous_sort_key: tuple[bytes, str] | None = None
         seen: set[bytes] = set()
         for item in self.rows:
             if type(item) is not MutationKeyedRow:
                 raise ValueError("rows must contain MutationKeyedRow")
             key_bytes = canonicalize_json_value(item.key.to_document())
-            if key_bytes in seen:
+            sort_key = (key_bytes, item.row_digest.value if keyless else "")
+            if not keyless and key_bytes in seen:
                 raise ValueError("rows must not repeat canonical storage keys")
-            if previous_key is not None and key_bytes < previous_key:
+            if previous_sort_key is not None and sort_key < previous_sort_key:
                 raise ValueError("rows must use canonical key order")
-            previous_key = key_bytes
+            previous_sort_key = sort_key
             seen.add(key_bytes)
 
 
@@ -925,7 +935,7 @@ def _canonicalize_cell_columns(
     columns: tuple[tuple[str, CanonicalCellValue], ...],
     label: str,
 ) -> tuple[tuple[str, CanonicalCellValue], ...]:
-    if type(columns) is not tuple or not columns:
+    if type(columns) is not tuple or (not columns and label != "key"):
         raise ValueError(f"{label} must be a non-empty tuple")
     normalized: list[tuple[str, CanonicalCellValue]] = []
     previous: str | None = None

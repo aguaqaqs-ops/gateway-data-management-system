@@ -20,7 +20,7 @@ from gateway_backend.operations.contracts import (
 )
 from gateway_backend.operations.persistence import LEASE_DURATION
 from gateway_backend.operations.state import TransitionDisposition, WritePrecondition
-from gateway_backend.operations.store import OperationStore, StaleWrite, StoreBusy
+from gateway_backend.operations.store import LeaseExpired, OperationStore, StaleWrite, StoreBusy
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
     ExecutionControl,
@@ -594,6 +594,26 @@ class HandlerRecoveryResult:
             _validate_bounded_diagnostic_message(self.reason)
 
 
+class HandlerExecutionFailure(Exception):
+    """Classified pure-recompute handler failure routed through the R5 budget."""
+
+    def __init__(self, *, retryable: bool, diagnostic_code: str, reason: str) -> None:
+        if type(retryable) is not bool:
+            raise ValueError("retryable must be bool")
+        _validate_namespaced_diagnostic_code(diagnostic_code)
+        encoded_reason = reason.encode("utf-8")
+        if len(encoded_reason) > _MAX_DIAGNOSTIC_MESSAGE_BYTES:
+            reason = encoded_reason[:_MAX_DIAGNOSTIC_MESSAGE_BYTES].decode(
+                "utf-8",
+                errors="ignore",
+            )
+        _validate_bounded_diagnostic_message(reason)
+        super().__init__(reason)
+        self.retryable = retryable
+        self.diagnostic_code = diagnostic_code
+        self.reason = reason
+
+
 @runtime_checkable
 class HandlerRecoveryCallback(Protocol):
     """In-process claim-path recovery callback; not HTTP, registry or R3 protocol."""
@@ -717,9 +737,53 @@ def build_recovery_routed_executor(
                 jitter=jitter,
                 now_factory=now_factory,
             )
-        acknowledgment = handler(operation, step, control, lease_session)
-        if type(acknowledgment) is not ExecutorAcknowledgment:
-            raise ValueError("handler must return ExecutorAcknowledgment")
+        try:
+            acknowledgment = handler(operation, step, control, lease_session)
+            if type(acknowledgment) is not ExecutorAcknowledgment:
+                raise ValueError("handler must return ExecutorAcknowledgment")
+        except (LeaseExpired, StaleWrite, StoreBusy):
+            raise
+        except HandlerExecutionFailure as exc:
+            if capability is not RecoveryCapabilityValue.PURE_RECOMPUTE:
+                raise
+            result = HandlerRecoveryResult(
+                disposition=(
+                    RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE
+                    if exc.retryable
+                    else RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE
+                ),
+                diagnostic_code=exc.diagnostic_code,
+                reason=exc.reason,
+            )
+            return finalize_handler_recovery(
+                operation,
+                step,
+                lease_session,
+                result,
+                capability=capability,
+                jitter=jitter,
+                now_factory=now_factory,
+            )
+        except Exception as exc:
+            if capability is not RecoveryCapabilityValue.PURE_RECOMPUTE:
+                raise
+            # Pure recompute has no external effect to reconcile. Fail this operation
+            # with a bounded diagnostic and keep the worker available for later work.
+            reason = f"pure-recompute handler raised {type(exc).__name__}"
+            result = HandlerRecoveryResult(
+                disposition=RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
+                diagnostic_code="operation.pure_recompute_failed",
+                reason=reason,
+            )
+            return finalize_handler_recovery(
+                operation,
+                step,
+                lease_session,
+                result,
+                capability=capability,
+                jitter=jitter,
+                now_factory=now_factory,
+            )
         return acknowledgment
 
     return execute
@@ -870,7 +934,10 @@ class StartupRecovery:
 
         now = self.now_factory()
         if not step_lease_expired(step, now):
-            return StartupDisposition.READY
+            # A restarted worker must not become idle-ready while any old RUNNING
+            # step still owns a live lease. Startup retries are bounded by the
+            # worker's existing startup budget and eventually revisit expiry.
+            return StartupDisposition.RETRYABLE_BLOCK
 
         try:
             with self.write_uow_factory() as unit_of_work:
@@ -883,7 +950,7 @@ class StartupRecovery:
                 if fresh_step.status is not StepStatus.RUNNING:
                     return StartupDisposition.READY
                 if not step_lease_expired(fresh_step, transaction_now):
-                    return StartupDisposition.READY
+                    return StartupDisposition.RETRYABLE_BLOCK
 
                 capability = self._capability_lookup(
                     fresh_operation.job_kind,
@@ -1347,6 +1414,7 @@ __all__ = [
     "HandlerFailureKind",
     "HandlerRecoveryCallback",
     "HandlerRecoveryResult",
+    "HandlerExecutionFailure",
     "Jitter",
     "MAX_RECOVERY_SESSIONS",
     "NowFactory",

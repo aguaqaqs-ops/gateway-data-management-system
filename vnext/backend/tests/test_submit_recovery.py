@@ -29,7 +29,6 @@ from gateway_backend.application.submission.abort_transaction import (
     abort_submit_transaction,
 )
 from gateway_backend.application.submission.accept_transaction import (
-    AcceptSubmitPreflight,
     accept_submit_transaction,
 )
 from gateway_backend.application.submit_registry import submit_job_registry
@@ -85,12 +84,9 @@ from tests.test_submit_job_effect import (
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.support.baseline_fixtures import read_authoritative_baseline_head
-from tests.test_submit_job_prepare import _materialize_snapshot, _run_prepare_handler
+from tests.test_submit_job_prepare import _materialize_ready_preview, _run_prepare_handler
 from tests.test_submit_transactions import (
-    PREVIEW_READY_CLOSURE_DIGEST,
-    SNAPSHOT_TABLE_SET_DIGEST,
     FakeAbortEvidencePort,
-    FakeBaselineCanonicalDigestPort,
     RecordingMainResolvePort,
     SubmitSeed,
     _SHA_INITIAL,
@@ -173,28 +169,8 @@ def _accept_prepared_operation_for_repository(
     expected_commit_id: str,
 ) -> str:
     seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
-    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
-    protected_refs = tuple(
-        ref for ref in seed.protected_refs if ref.artifact_id != "snap-1"
-    ) + (snapshot_ref,)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.clear_artifact_protection(
-            owner_kind="current-preview",
-            owner_id=seed.workspace.workspace_id,
-        )
-        unit_of_work.set_artifact_protection(
-            protected_refs,
-            owner_kind="current-preview",
-            owner_id=seed.workspace.workspace_id,
-            intent="current-preview",
-        )
-    preflight = AcceptSubmitPreflight(
-        snapshot_table_artifact_refs=(snapshot_ref.artifact_id,),
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
-        preview_operation_id=seed.preview_operation_id,
-        protected_artifact_refs=protected_refs,
-        snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
-    )
+    seed, _snapshot_ref, snapshot_digest = _materialize_ready_preview(seed, store)
+    preflight = _preflight(seed)
     baseline_head, scope_resolution = _authoritative_accept_scope(db_path, seed)
     accepted = accept_submit_transaction(
         command=_accept_command(
@@ -205,7 +181,6 @@ def _accept_prepared_operation_for_repository(
         scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(commit_id=expected_commit_id),
         preflight=preflight,
         now=TS1,
@@ -293,7 +268,6 @@ def _seed_running_submit_without_checkpoint(
         scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
@@ -459,7 +433,6 @@ def test_prepared_attempt_operator_abort_retains_occupancy(tmp_path: Path) -> No
         scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=_preflight(seed),
         now=TS1,
@@ -880,7 +853,9 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
     restart.
     """
     from gateway_backend.application.submission.contracts import PrepareImportPublicationResult
-    from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
+    from gateway_backend.infrastructure.repository_write.import_publication import (
+        SubmitImportPublicationAdapter,
+    )
 
     def _dolt_compatible_prepare_publication(
         self: SubmitImportPublicationAdapter,

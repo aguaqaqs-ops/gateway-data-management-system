@@ -7,8 +7,8 @@ from gateway_backend.application.history.contracts import (
     PERMISSION_READ_PROJECT_HISTORY,
 )
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
-from gateway_backend.application.submission.ports import WorkspaceControlUnitOfWorkFactory
 from gateway_backend.application.history.contracts import HistoryCompareAcceptanceRecord
+from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.domain.workspace.errors import PermissionDenied, ScopeForbidden, ScopeResolutionError
 from gateway_backend.domain.workspace.models import IdentityContext, ResolvedScope, Workspace
@@ -147,7 +147,7 @@ def authorize_history_compare_operation_read(
     *,
     context: IdentityContext,
     operation: OperationRecord,
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory,
+    unit_of_work_factory: HistoryControlUnitOfWorkFactory,
 ) -> HistoryCompareAcceptanceRecord:
     assert_permission(context, PERMISSION_READ_PROJECT_HISTORY)
     if operation.job_kind != HISTORY_COMPARE_JOB_KIND:

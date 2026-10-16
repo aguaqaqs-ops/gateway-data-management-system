@@ -296,6 +296,11 @@ def _emit_row_risks(
         ComparisonRecordKind.ROW_DELETED: table.row_deleted_count,
         ComparisonRecordKind.ROW_MODIFIED: table.row_modified_count,
     }
+    suppressed_counts = {
+        ComparisonRecordKind.ROW_ADDED: table.suppressed_added_count,
+        ComparisonRecordKind.ROW_DELETED: table.suppressed_deleted_count,
+        ComparisonRecordKind.ROW_MODIFIED: 0,
+    }
     for record_kind, count in counts.items():
         if count <= 0:
             continue
@@ -320,6 +325,17 @@ def _emit_row_risks(
             )
             emit(rule_id, target)
         if not matching_count:
+            if suppressed_counts[record_kind] == count:
+                emit(
+                    rule_id,
+                    RiskTarget(
+                        target_type=RiskTargetType.TABLE,
+                        table_name=table.table_name,
+                        coverage="ROW_RECORDS_SUPPRESSED",
+                    ),
+                    (("count", count),),
+                )
+                continue
             _require_records_closure(item, evaluation_input)
             emit(rule_id, RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_RECORDS_UNAVAILABLE"), (("count", count),))
         if matching_count < count:
@@ -328,10 +344,6 @@ def _emit_row_risks(
                 RiskTarget(target_type=RiskTargetType.TABLE, table_name=table.table_name, coverage="ROW_RECORDS_SUPPRESSED"),
                 (("count", count - matching_count),),
             )
-    if counts and not item.records and any(counts.values()) and evaluation_input.risk_options.annotation_detail_policy is not AnnotationDetailPolicy.COUNTS_ONLY:
-        _require_records_closure(item, evaluation_input)
-
-
 def _require_records_closure(item: ExtractedRiskFacts, evaluation_input: RiskEvaluationInput) -> None:
     access = evaluation_input.records_access
     if access is None:

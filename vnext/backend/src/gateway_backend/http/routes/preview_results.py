@@ -47,7 +47,13 @@ def get_preview_result_route(
 @router.get(
     "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
     responses={
-        200: {"content": {"application/octet-stream": {}}},
+        200: {
+            "description": (
+                "Preview bundle. Per-table surface diagnostics_summary may contain the informational "
+                "KEYLESS_FALLBACK hint; it does not affect risk or submission eligibility."
+            ),
+            "content": {"application/octet-stream": {}},
+        },
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND"},

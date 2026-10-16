@@ -44,9 +44,10 @@ _SUBMIT_ATTEMPT_COLUMNS = (
     "submit_attempt_id, workspace_id, workspace_generation, upload_revision_id, "
     "preview_result_id, repository_id, business_baseline_node_id, business_baseline_commit_id, "
     "baseline_head_version, repository_expected_commit_id, canonical_business_digest, "
-    "source_digest, snapshot_digest, source_artifact_refs, snapshot_table_artifact_refs, "
-    "preview_ready_closure_ref, preview_ready_closure_digest, canonicalization_manifest_ref, "
-    "canonicalization_manifest_digest, repository_import_artifact_ref, repository_artifact_ref, "
+    "source_digest, snapshot_digest, source_artifact_refs, canonical_table_set_closure_ref, "
+    "canonical_table_set_closure_digest, preview_ready_closure_ref, preview_ready_closure_digest, canonicalization_manifest_ref, "
+    "canonicalization_manifest_digest, prepared_canonicalization_manifest_ref, "
+    "prepared_canonicalization_manifest_digest, repository_import_artifact_ref, repository_artifact_ref, "
     "repository_operation_id, repository_operation_evidence, requested_target_ref, "
     "requested_verification_policy, requested_unknown_type_policy, builder_mutation_policy, "
     "accept_idempotency_key, accept_request_fingerprint, repository_upload_idempotency_key, "
@@ -333,9 +334,10 @@ class SQLiteSubmissionRepository:
                 business_baseline_commit_id = ?, baseline_head_version = ?,
                 repository_expected_commit_id = ?, canonical_business_digest = ?,
                 source_digest = ?, snapshot_digest = ?, source_artifact_refs = ?,
-                snapshot_table_artifact_refs = ?, preview_ready_closure_ref = ?,
+                canonical_table_set_closure_ref = ?, canonical_table_set_closure_digest = ?, preview_ready_closure_ref = ?,
                 preview_ready_closure_digest = ?, canonicalization_manifest_ref = ?,
-                canonicalization_manifest_digest = ?, repository_import_artifact_ref = ?,
+                canonicalization_manifest_digest = ?, prepared_canonicalization_manifest_ref = ?,
+                prepared_canonicalization_manifest_digest = ?, repository_import_artifact_ref = ?,
                 repository_artifact_ref = ?, repository_operation_id = ?,
                 repository_operation_evidence = ?, requested_target_ref = ?,
                 requested_verification_policy = ?, requested_unknown_type_policy = ?,
@@ -499,11 +501,14 @@ def submit_attempt_to_row(attempt: SubmitAttempt) -> tuple[object, ...]:
         attempt.source_digest,
         attempt.snapshot_digest,
         _encode_string_list(attempt.source_artifact_refs),
-        _encode_string_list(attempt.snapshot_table_artifact_refs),
+        attempt.canonical_table_set_closure_ref,
+        attempt.canonical_table_set_closure_digest,
         attempt.preview_ready_closure_ref,
         attempt.preview_ready_closure_digest,
         attempt.canonicalization_manifest_ref,
         attempt.canonicalization_manifest_digest,
+        attempt.prepared_canonicalization_manifest_ref,
+        attempt.prepared_canonicalization_manifest_digest,
         _encode_backend_artifact_ref(attempt.repository_import_artifact_ref),
         _encode_repository_artifact_ref(attempt.repository_artifact_ref),
         attempt.repository_operation_id,
@@ -546,13 +551,20 @@ def submit_attempt_from_row(row: Mapping[str, object]) -> SubmitAttempt:
         source_digest=_required_text(mapping, "source_digest"),
         snapshot_digest=_required_text(mapping, "snapshot_digest"),
         source_artifact_refs=_decode_string_list(_blob_value(mapping, "source_artifact_refs")),
-        snapshot_table_artifact_refs=_decode_string_list(
-            _blob_value(mapping, "snapshot_table_artifact_refs")
+        canonical_table_set_closure_ref=_required_text(mapping, "canonical_table_set_closure_ref"),
+        canonical_table_set_closure_digest=_required_text(
+            mapping, "canonical_table_set_closure_digest"
         ),
         preview_ready_closure_ref=_required_text(mapping, "preview_ready_closure_ref"),
         preview_ready_closure_digest=_required_text(mapping, "preview_ready_closure_digest"),
-        canonicalization_manifest_ref=_optional_text(mapping, "canonicalization_manifest_ref"),
-        canonicalization_manifest_digest=_optional_text(mapping, "canonicalization_manifest_digest"),
+        canonicalization_manifest_ref=_required_text(mapping, "canonicalization_manifest_ref"),
+        canonicalization_manifest_digest=_required_text(mapping, "canonicalization_manifest_digest"),
+        prepared_canonicalization_manifest_ref=_optional_text(
+            mapping, "prepared_canonicalization_manifest_ref"
+        ),
+        prepared_canonicalization_manifest_digest=_optional_text(
+            mapping, "prepared_canonicalization_manifest_digest"
+        ),
         repository_import_artifact_ref=_decode_backend_artifact_ref(
             mapping.get("repository_import_artifact_ref")
         ),

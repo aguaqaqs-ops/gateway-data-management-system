@@ -3,41 +3,44 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import json
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from types import TracebackType
-from typing import ContextManager, Protocol, cast, runtime_checkable
+from typing import ContextManager, cast
 
-from gateway_shared_kernel import raw_blob_digest
-
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.ports import (
+    CommitCanonicalMetadataError,
+    CommitCanonicalScope,
+)
 from gateway_backend.application.checkpoints import (
     CheckpointPublicationError,
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
+    load_checkpoint_state_artifact,
     load_ready_closure,
-    make_checkpoint_step_builder,
     prepare_ready_closure,
     prepare_step_checkpoint,
+    put_checkpoint_state_artifact,
 )
 from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_JOB_CONTRACT_VERSION,
     HISTORY_COMPARE_JOB_KIND,
-    HISTORY_INTEGRITY_FAILURE_CLASS,
-    HISTORY_INTEGRITY_RECOMMENDED_ACTION,
     HistoryCompareDiagnosticCode,
-    HistoryCompareIntegrityRecord,
     HistoryCompareNodeBinding,
-    IntegrityAcknowledgementStatus,
 )
-from gateway_backend.application.history.ports import HistoryComparePort
-from gateway_backend.application.job_steps import unique_artifact_refs
+from gateway_backend.application.history.ports import (
+    HistoryControlTransaction as HistoryCompareControlTransaction,
+)
+from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.application.pair_pipeline import (
     HistoryPairPipelineResult as _PairPipelineResult,
+    PairPipelineCancelled,
     PairPipelineError,
     run_history_pair_pipeline,
 )
@@ -51,7 +54,11 @@ from gateway_backend.application.payloads import (
     PayloadDecoder,
     load_job_payload_bytes,
 )
-from gateway_backend.application.preview_jobs import surface_artifact_closure
+from gateway_backend.application.preview_jobs import (
+    _storage_facts_from_documents,
+    _storage_facts_to_documents,
+    surface_artifact_closure,
+)
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
@@ -67,17 +74,17 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleRefScope,
     assemble_bundle,
 )
-from gateway_backend.capabilities.comparison import BoundSnapshotInput
+from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    MaterializationDiagnostic,
-    MaterializationDiagnosticCode,
+    CanonicalBinding,
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
     RepositoryRefMaterializationRequest,
+    RepositoryProviderError,
     RepositoryTableAccessProvider,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
@@ -105,7 +112,7 @@ from gateway_backend.operations.contracts import (
     StepStatus,
 )
 from gateway_backend.operations.lease_session import LeaseSession
-from gateway_backend.operations.store import OperationStore
+from gateway_backend.operations.recovery import HandlerExecutionFailure
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
     ExecutionControl,
@@ -123,20 +130,23 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v2"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v3"
 
 _JOB_STATE_SIDES = "sides"
+_JOB_STATE_MATERIALIZED_SIDES_REF = "materialized_sides_ref"
 _JOB_STATE_ASSEMBLE = "assemble_state"
+_JOB_STATE_ASSEMBLE_REF = "assemble_state_ref"
 _JOB_STATE_READY_CLOSURE = "ready_closure_artifact_id"
 _JOB_STATE_READY_CLOSURE_REF = "ready_closure_ref"
 _JOB_STATE_BUNDLE_ARTIFACT = "bundle_artifact_id"
 _JOB_STATE_BUNDLE_DIGEST = "bundle_digest"
-
-_INTEGRITY_CANDIDATE_CODES = frozenset(
-    {
-        MaterializationDiagnosticCode.HIDDEN_SUMMARY_CORRUPT,
-        MaterializationDiagnosticCode.HIDDEN_SUMMARY_DIGEST_MISMATCH,
-    }
+HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE = "history-compare-materialized-sides"
+HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION = (
+    "backend-vnext/history-compare/materialized-sides/v1"
+)
+HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE = "history-compare-assemble-state"
+HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION = (
+    "backend-vnext/history-compare/assemble-state/v1"
 )
 
 _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction | None] = ContextVar(
@@ -147,6 +157,10 @@ _active_history_compare_transaction: ContextVar[HistoryCompareControlTransaction
 
 class HistoryCompareJobError(ValueError):
     """Bounded history compare job failure surfaced to the operation runtime."""
+
+    def __init__(self, message: str, *, diagnostic_code: str | None = None) -> None:
+        super().__init__(message)
+        self.diagnostic_code = diagnostic_code
 
 
 class HistoryCompareRulesetVersionMismatch(HistoryCompareJobError):
@@ -166,29 +180,6 @@ class HistoryCompareJobPayload:
     view_kind: str
     pair_count: int
     nodes: tuple[HistoryCompareNodeBinding, ...]
-
-
-@runtime_checkable
-class HistoryCompareControlTransaction(Protocol):
-    @property
-    def operations(self) -> OperationStore: ...
-
-    @property
-    def history_compare(self) -> HistoryComparePort: ...
-
-    @property
-    def transaction_now(self) -> datetime: ...
-
-    def set_artifact_protection(
-        self,
-        refs: tuple[ArtifactRef, ...],
-        *,
-        owner_kind: str,
-        owner_id: str,
-        intent: str,
-    ) -> bool: ...
-
-    def clear_artifact_protection(self, *, owner_kind: str, owner_id: str) -> int: ...
 
 
 HistoryCompareControlTransactionFactory = Callable[[], ContextManager[HistoryCompareControlTransaction]]
@@ -368,9 +359,14 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                     "checkpoint envelope does not match the history compare materialize JobDefinition",
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
+            sides = _sides_from_materialize_checkpoint(
+                envelope.job_state,
+                deps.artifact_store,
+            )
+            sides_ref = _materialized_sides_ref_from_checkpoint(envelope.job_state)
             _pin_history_compare_refs(
                 deps,
-                (step.checkpoint_ref,),
+                (step.checkpoint_ref, sides_ref, *_closed_refs_from_sides(sides)),
                 owner_kind="history-compare-checkpoint",
                 owner_id=step.step_id,
                 intent="materialize-checkpoint",
@@ -378,15 +374,6 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
         else:
             try:
                 sides = _materialize_distinct_commits(payload, deps)
-            except _IntegrityConfirmed as confirmed:
-                _publish_integrity_failure(
-                    lease_session=lease_session,
-                    operation=operation,
-                    step=step,
-                    payload=payload,
-                    confirmed=confirmed,
-                )
-                return ExecutorAcknowledgment.PUBLISHED
             except HistoryCompareRulesetVersionMismatch as exc:
                 _publish_ruleset_mismatch_failure(
                     lease_session=lease_session,
@@ -396,31 +383,53 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                     control=control,
                 )
                 return ExecutorAcknowledgment.PUBLISHED
+            except RepositoryProviderError as exc:
+                assert exc.retryable, "repository_ref must return deterministic provider errors as diagnostics"
+                raise HandlerExecutionFailure(
+                    retryable=True,
+                    diagnostic_code=f"repository.{exc.code.value.lower()}",
+                    reason=exc.message,
+                ) from exc
             except HistoryCompareJobError as exc:
                 _publish_commit_unavailable_failure(
                     lease_session=lease_session,
                     operation=operation,
                     step=step,
                     message=str(exc),
+                    diagnostic_code=exc.diagnostic_code,
                     control=control,
                 )
                 return ExecutorAcknowledgment.PUBLISHED
 
+            sides_ref = put_checkpoint_state_artifact(
+                deps.artifact_store,
+                {
+                    "document_type": HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+                    "contract_version": HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION,
+                    _JOB_STATE_SIDES: _serialize_sides(sides),
+                },
+                artifact_id_prefix="history-compare-materialized-sides",
+            )
             envelope = envelope_for_step(
                 key=key,
                 operation=operation,
                 step=step,
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
-                    _JOB_STATE_SIDES: _serialize_sides(sides),
+                    _JOB_STATE_MATERIALIZED_SIDES_REF: artifact_ref_to_dict(sides_ref),
                 },
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
-                    extra_refs=_closed_refs_from_sides(sides),
+                    extra_refs=(sides_ref, *_closed_refs_from_sides(sides)),
+                    owner_kind="history-compare-checkpoint",
                     intent="materialize-checkpoint",
+                    active_transaction=_active_history_compare_transaction.get,
+                    transaction_missing=lambda: HistoryCompareJobError(
+                        "history compare checkpoint transaction is not bound"
+                    ),
                 )
             )
 
@@ -493,28 +502,61 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                     "checkpoint envelope does not match the history compare assemble JobDefinition",
                     code="CHECKPOINT_IDENTITY_MISMATCH",
                 )
+            assemble_state_ref, _assemble_state = history_compare_assemble_state_from_checkpoint(
+                envelope.job_state,
+                deps.artifact_store,
+            )
+            ready_closure_ref_raw = envelope.job_state.get(_JOB_STATE_READY_CLOSURE_REF)
+            if type(ready_closure_ref_raw) is not dict:
+                raise CheckpointDecodeError(
+                    "history compare assemble checkpoint is missing ready_closure_ref",
+                    code="CHECKPOINT_JOB_STATE_MISMATCH",
+                )
+            ready_closure_ref = artifact_ref_from_dict(ready_closure_ref_raw)
+            closure = load_ready_closure(deps.artifact_store, ready_closure_ref)
             _pin_history_compare_refs(
                 deps,
-                (step.checkpoint_ref,),
+                (
+                    step.checkpoint_ref,
+                    assemble_state_ref,
+                    ready_closure_ref,
+                    *closure.artifact_refs(),
+                ),
                 owner_kind="history-compare-checkpoint",
                 owner_id=step.step_id,
                 intent="assemble-checkpoint",
             )
         else:
-            assemble_state, bundle_manifest_ref, bundle_digest = _assemble_comparison(
-                payload=payload,
-                operation_id=operation.operation_id,
-                sides=sides,
-                rule_set=rule_set,
-                store=deps.artifact_store,
-                lease_session=lease_session,
-                control=control,
-            )
+            def publish_cancelled() -> None:
+                lease_session.publish_operation(_make_cancelled_terminal_builder())
+
+            try:
+                assemble_state, bundle_manifest_ref, bundle_digest = _assemble_comparison(
+                    payload=payload,
+                    operation_id=operation.operation_id,
+                    sides=sides,
+                    rule_set=rule_set,
+                    store=deps.artifact_store,
+                    lease_session=lease_session,
+                    control=control,
+                    on_cancel=publish_cancelled,
+                )
+            except PairPipelineCancelled:
+                return ExecutorAcknowledgment.PUBLISHED
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
                 ready_refs,
                 operation.job_contract_version,
+            )
+            assemble_state_ref = put_checkpoint_state_artifact(
+                deps.artifact_store,
+                {
+                    "document_type": HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+                    "contract_version": HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+                    _JOB_STATE_ASSEMBLE: assemble_state,
+                },
+                artifact_id_prefix="history-compare-assemble-state",
             )
             envelope = envelope_for_step(
                 key=assemble_definition.key,
@@ -522,7 +564,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 step=step,
                 checkpoint_generation=_checkpoint_generation(step),
                 job_state={
-                    _JOB_STATE_ASSEMBLE: assemble_state,
+                    _JOB_STATE_ASSEMBLE_REF: artifact_ref_to_dict(assemble_state_ref),
                     _JOB_STATE_READY_CLOSURE: closure_ref.artifact_id,
                     _JOB_STATE_READY_CLOSURE_REF: artifact_ref_to_dict(closure_ref),
                     _JOB_STATE_BUNDLE_ARTIFACT: bundle_manifest_ref.artifact_id,
@@ -531,10 +573,20 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
             )
             checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=checkpoint_ref,
-                    extra_refs=(closure_ref, bundle_manifest_ref, *ready_refs),
+                    extra_refs=(
+                        assemble_state_ref,
+                        closure_ref,
+                        bundle_manifest_ref,
+                        *ready_refs,
+                    ),
+                    owner_kind="history-compare-checkpoint",
                     intent="assemble-checkpoint",
+                    active_transaction=_active_history_compare_transaction.get,
+                    transaction_missing=lambda: HistoryCompareJobError(
+                        "history compare checkpoint transaction is not bound"
+                    ),
                 )
             )
 
@@ -660,29 +712,38 @@ def build_publish_result_handler(deps: HistoryCompareRuntimeDependencies) -> Cla
     return cast(ClaimedExecutor, execute)
 
 
-@dataclass(frozen=True, slots=True)
-class _IntegrityConfirmed(Exception):
-    expected_digest: str
-    observed_digest: str
-    affected_tables: tuple[str, ...]
-    commit_id: str
-    first_observed_at: datetime
-    last_observed_at: datetime
-
-
 def _materialize_distinct_commits(
     payload: HistoryCompareJobPayload,
     deps: HistoryCompareRuntimeDependencies,
 ) -> dict[str, BoundSnapshotInput]:
     distinct_commits = tuple(dict.fromkeys(node.commit_id for node in payload.nodes))
     sides: dict[str, BoundSnapshotInput] = {}
+    runtime_ruleset = _assert_runtime_ruleset(payload).snapshot
     for commit_id in distinct_commits:
         provider = deps.repository_provider_factory(payload.repository_id, commit_id)
-        bound, _ = _materialize_commit_with_integrity(
+        with deps.control_transaction_factory() as unit_of_work:
+            try:
+                metadata = unit_of_work.commit_canonical_metadata.resolve(
+                    repository_id=payload.repository_id,
+                    commit_id=commit_id,
+                    scope=CommitCanonicalScope(
+                        gateway_device_external_key=payload.gateway_device_external_key,
+                        business_project_id=payload.business_project_id,
+                    ),
+                )
+            except CommitCanonicalMetadataError as exc:
+                raise HistoryCompareJobError(
+                    exc.diagnostic,
+                    diagnostic_code=exc.code.value,
+                ) from exc
+        binding = canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
+        bound = _materialize_commit(
             repository_id=payload.repository_id,
             commit_id=commit_id,
             provider=provider,
             store=deps.artifact_store,
+            canonical_binding=binding,
+            ruleset=runtime_ruleset,
         )
         sides[commit_id] = bound
 
@@ -701,111 +762,35 @@ def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRule
     return active_rules
 
 
-def _materialize_commit_with_integrity(
+def _materialize_commit(
     *,
     repository_id: str,
     commit_id: str,
     provider: RepositoryTableAccessProvider,
     store: ArtifactStorePort,
-) -> tuple[BoundSnapshotInput, SnapshotMaterializationResult]:
+    canonical_binding: CanonicalBinding,
+    ruleset: TableRulesetSnapshot,
+) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
         provider=provider,
-        ruleset=TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION),
+        ruleset=ruleset,
+        canonical_binding=canonical_binding,
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
         artifact_store=store,
     )
-    first_observed_at = datetime.now(UTC)
-    first = materialize_repository_ref(request)
-    if first.status is SnapshotMaterializationStatus.COMPLETE:
-        return _bound_from_materialization(first), first
-    first_diag = _candidate_diagnostic(first)
-    if first_diag is None:
-        raise HistoryCompareJobError("commit materialization failed")
-    second = materialize_repository_ref(request)
-    last_observed_at = datetime.now(UTC)
-    if second.status is SnapshotMaterializationStatus.COMPLETE:
-        raise HistoryCompareJobError("commit materialization recovered on retry")
-    second_diag = _candidate_diagnostic(second)
-    if second_diag is None or second_diag.code != first_diag.code:
-        raise HistoryCompareJobError("commit materialization failed")
-    if not _integrity_confirmed(first_diag, second_diag):
-        has_public_facts = any(
-            diagnostic.expected_digest_ref is not None or diagnostic.observed_digest_ref is not None
-            for diagnostic in (first_diag, second_diag)
+    result = materialize_repository_ref(request)
+    if result.status is not SnapshotMaterializationStatus.COMPLETE:
+        diagnostic = result.diagnostics[0] if result.diagnostics else None
+        code = None if diagnostic is None else diagnostic.code.value
+        raise HistoryCompareJobError(
+            "commit materialization failed" if diagnostic is None else diagnostic.message,
+            diagnostic_code=code,
         )
-        if not has_public_facts:
-            raise HistoryCompareJobError("integrity candidate diagnostic is missing digest refs")
-        raise HistoryCompareJobError("commit materialization failed")
-    expected = first_diag.expected_digest_ref
-    observed = first_diag.observed_digest_ref
-    if expected is None or observed is None:
-        raise HistoryCompareJobError("integrity diagnostic is missing digest refs")
-    tables = tuple(
-        sorted(
-            {
-                item
-                for item in (first_diag.table, second_diag.table)
-                if type(item) is str and item
-            }
-        )
-    )
-    raise _IntegrityConfirmed(
-        expected_digest=expected.value,
-        observed_digest=observed.value,
-        affected_tables=tables,
-        commit_id=commit_id,
-        first_observed_at=first_observed_at,
-        last_observed_at=last_observed_at,
-    )
-
-
-def _integrity_confirmed(first: MaterializationDiagnostic, second: MaterializationDiagnostic) -> bool:
-    if first.code != second.code:
-        return False
-    if (
-        first.expected_digest_ref is None
-        or first.observed_digest_ref is None
-        or second.expected_digest_ref is None
-        or second.observed_digest_ref is None
-    ):
-        return False
-    if first.expected_digest_ref != second.expected_digest_ref:
-        return False
-    if _is_structural_integrity_diagnostic(first):
-        return first.observed_digest_ref == second.observed_digest_ref
-    # Content-track: stable expected; both observed disagree with expected (drift allowed).
-    return (
-        first.observed_digest_ref != first.expected_digest_ref
-        and second.observed_digest_ref != second.expected_digest_ref
-    )
-
-
-def _is_structural_integrity_diagnostic(diagnostic: MaterializationDiagnostic) -> bool:
-    expected = diagnostic.expected_digest_ref
-    observed = diagnostic.observed_digest_ref
-    if expected is None or observed is None:
-        return False
-    structural_labels: tuple[bytes, ...] = (b"catalog-table:missing",)
-    if type(diagnostic.table) is str and diagnostic.table:
-        structural_labels += (
-            f"catalog-table:{diagnostic.table}".encode(),
-            f"hidden-summary-table:missing:{diagnostic.table}".encode(),
-        )
-    return any(
-        expected == raw_blob_digest(label) or observed == raw_blob_digest(label)
-        for label in structural_labels
-    )
-
-
-def _candidate_diagnostic(result: SnapshotMaterializationResult) -> MaterializationDiagnostic | None:
-    for diagnostic in result.diagnostics:
-        if diagnostic.code in _INTEGRITY_CANDIDATE_CODES:
-            return diagnostic
-    return None
+    return _bound_from_materialization(result, canonical_binding=canonical_binding)
 
 
 def _assemble_comparison(
@@ -817,6 +802,7 @@ def _assemble_comparison(
     store: ArtifactStorePort,
     lease_session: LeaseSession,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]] = []
     for index in range(payload.pair_count):
@@ -847,7 +833,8 @@ def _assemble_comparison(
     for pair_id, before_node, current_node in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
-            raise HistoryCompareJobError("history compare assembly cancelled")
+            on_cancel()
+            raise PairPipelineCancelled
         before = sides[before_node.commit_id]
         current = sides[current_node.commit_id]
         pair_state = _run_pair_pipeline(
@@ -857,6 +844,7 @@ def _assemble_comparison(
             rule_set=rule_set,
             store=store,
             control=control,
+            on_cancel=on_cancel,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -866,7 +854,11 @@ def _assemble_comparison(
                 before_index,
                 current_index,
                 pair_state.surface_result,
-                surface_artifact_closure(pair_state.surface_result.surface, pair_id),
+                surface_artifact_closure(
+                    pair_state.surface_result.surface,
+                    pair_id,
+                    pair_state.records_closure,
+                ),
             )
         )
 
@@ -926,6 +918,7 @@ def _run_pair_pipeline(
     rule_set: ComparisonRuleSet,
     store: ArtifactStorePort,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
@@ -935,69 +928,12 @@ def _run_pair_pipeline(
             rule_set=rule_set,
             store=store,
             control=control,
+            on_cancel=on_cancel,
         )
+    except PairPipelineCancelled:
+        raise
     except PairPipelineError as exc:
         raise HistoryCompareJobError(str(exc)) from exc
-
-
-def _publish_integrity_failure(
-    *,
-    lease_session: LeaseSession,
-    operation: OperationRecord,
-    step: StepRecord,
-    payload: HistoryCompareJobPayload,
-    confirmed: _IntegrityConfirmed,
-) -> None:
-    incident_id = f"hci-{hashlib.sha256(operation.operation_id.encode()).hexdigest()[:24]}"
-
-    def builder(
-        current_operation: OperationRecord,
-        current_step: StepRecord,
-        transaction_now: datetime,
-    ) -> tuple[StepRecord, OperationRecord]:
-        transaction = _active_history_compare_transaction.get()
-        if transaction is None:
-            raise HistoryCompareJobError("history compare integrity transaction is not bound")
-        record = HistoryCompareIntegrityRecord(
-            incident_id=incident_id,
-            operation_id=current_operation.operation_id,
-            repository_id=payload.repository_id,
-            commit_refs=({"commit_id": confirmed.commit_id},),
-            failure_class=HISTORY_INTEGRITY_FAILURE_CLASS,
-            expected_digest=confirmed.expected_digest,
-            observed_digest=confirmed.observed_digest,
-            affected_tables=confirmed.affected_tables,
-            recommended_action=HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-            first_seen_at=confirmed.first_observed_at,
-            last_seen_at=confirmed.last_observed_at,
-            acknowledgement_status=IntegrityAcknowledgementStatus.PENDING,
-            resolution_reference=None,
-            created_at=transaction_now,
-            updated_at=transaction_now,
-        )
-        transaction.history_compare.save_integrity_record(record)
-        _release_history_compare_step_protection(transaction, operation_id=current_operation.operation_id)
-        diagnostic = OperationDiagnostic(
-            code=HistoryCompareDiagnosticCode.HISTORY_REPOSITORY_INTEGRITY.value,
-            message=f"repository integrity incident {incident_id}",
-        )
-        terminal_step = _terminal_step(
-            current_step,
-            transaction_now,
-            status=StepStatus.FAILED,
-            diagnostic=diagnostic,
-        )
-        terminal_operation = dataclasses.replace(
-            current_operation,
-            status=OperationStatus.FAILED,
-            diagnostic=diagnostic,
-            updated_at=transaction_now,
-            completed_at=transaction_now,
-            optimistic_version=current_operation.optimistic_version + 1,
-        )
-        return terminal_step, terminal_operation
-
-    lease_session.publish_operation(builder)
 
 
 def _publish_ruleset_mismatch_failure(
@@ -1050,6 +986,7 @@ def _publish_commit_unavailable_failure(
     operation: OperationRecord,
     step: StepRecord,
     message: str,
+    diagnostic_code: str | None = None,
     control: ExecutionControl,
 ) -> None:
     def builder(
@@ -1062,7 +999,7 @@ def _publish_commit_unavailable_failure(
             raise HistoryCompareJobError("history compare failure transaction is not bound")
         _release_history_compare_step_protection(transaction, operation_id=current_operation.operation_id)
         diagnostic = OperationDiagnostic(
-            code=HistoryCompareDiagnosticCode.HISTORY_COMMIT_UNAVAILABLE.value,
+            code=diagnostic_code or HistoryCompareDiagnosticCode.HISTORY_COMMIT_UNAVAILABLE.value,
             message=message[:255],
         )
         terminal_step = _terminal_step(
@@ -1145,6 +1082,7 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
         "snapshot": snapshot_to_document(bound.snapshot),
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "summary": snapshot_summary_to_document(bound.summary),
+        "storage_facts": _storage_facts_to_documents(bound.storage_facts),
         "tables": tables,
     }
 
@@ -1153,7 +1091,19 @@ def _sides_from_materialize_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
 ) -> dict[str, BoundSnapshotInput]:
-    raw_sides = job_state.get(_JOB_STATE_SIDES)
+    sides_ref = _materialized_sides_ref_from_checkpoint(job_state)
+    document = load_checkpoint_state_artifact(
+        store,
+        sides_ref,
+        document_type=HISTORY_COMPARE_MATERIALIZED_SIDES_DOCUMENT_TYPE,
+        contract_version=HISTORY_COMPARE_MATERIALIZED_SIDES_CONTRACT_VERSION,
+    )
+    if set(document) != {"document_type", "contract_version", _JOB_STATE_SIDES}:
+        raise CheckpointDecodeError(
+            "history compare materialized sides artifact fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_sides = document.get(_JOB_STATE_SIDES)
     if type(raw_sides) is not dict:
         raise CheckpointDecodeError(
             "materialize checkpoint sides are invalid",
@@ -1170,7 +1120,82 @@ def _sides_from_materialize_checkpoint(
     return sides
 
 
+def history_compare_assemble_state_from_checkpoint(
+    job_state: Mapping[str, object],
+    store: ArtifactStorePort | BoundedArtifactStorePort,
+) -> tuple[ArtifactRef, dict[str, object]]:
+    expected_fields = {
+        _JOB_STATE_ASSEMBLE_REF,
+        _JOB_STATE_READY_CLOSURE,
+        _JOB_STATE_READY_CLOSURE_REF,
+        _JOB_STATE_BUNDLE_ARTIFACT,
+        _JOB_STATE_BUNDLE_DIGEST,
+    }
+    if set(job_state) != expected_fields:
+        raise CheckpointDecodeError(
+            "history compare assemble checkpoint fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_ref = job_state.get(_JOB_STATE_ASSEMBLE_REF)
+    if type(raw_ref) is not dict:
+        raise CheckpointDecodeError(
+            "history compare assemble state ref is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    try:
+        assemble_state_ref = artifact_ref_from_dict(raw_ref)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "history compare assemble state ref is invalid",
+            code="CHECKPOINT_REF_INVALID",
+        ) from exc
+    document = load_checkpoint_state_artifact(
+        store,
+        assemble_state_ref,
+        document_type=HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+        contract_version=HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+    )
+    if set(document) != {"document_type", "contract_version", _JOB_STATE_ASSEMBLE}:
+        raise CheckpointDecodeError(
+            "history compare assemble state artifact fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    assemble_state = document.get(_JOB_STATE_ASSEMBLE)
+    if type(assemble_state) is not dict:
+        raise CheckpointDecodeError(
+            "history compare assemble state artifact is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return assemble_state_ref, cast(dict[str, object], assemble_state)
+
+
+def _materialized_sides_ref_from_checkpoint(job_state: Mapping[str, object]) -> ArtifactRef:
+    if set(job_state) != {_JOB_STATE_MATERIALIZED_SIDES_REF}:
+        raise CheckpointDecodeError(
+            "history compare materialize checkpoint fields are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    raw_ref = job_state.get(_JOB_STATE_MATERIALIZED_SIDES_REF)
+    if type(raw_ref) is not dict:
+        raise CheckpointDecodeError(
+            "history compare materialized sides ref is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    try:
+        return artifact_ref_from_dict(raw_ref)
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "history compare materialized sides ref is invalid",
+            code="CHECKPOINT_REF_INVALID",
+        ) from exc
+
+
 def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
+    if entry.get("contract_version") != HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION:
+        raise CheckpointDecodeError(
+            "materialize checkpoint side contract version is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
     tables_raw = entry.get("tables")
     if type(tables_raw) is not list:
         raise CheckpointDecodeError(
@@ -1219,21 +1244,56 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             "materialize checkpoint summary does not match its snapshot and tables",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         ) from exc
+    try:
+        storage_facts = _storage_facts_from_documents(entry.get("storage_facts"))
+    except (TypeError, ValueError, KeyError) as exc:
+        raise CheckpointDecodeError(
+            "materialize checkpoint storage facts are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
+    descriptors = {table.table_name: table for table in summary.tables}
+    facts_by_table = {fact.storage_rule_view.canonical_table: fact for fact in storage_facts}
+    if len(facts_by_table) != len(storage_facts) or set(facts_by_table) != set(descriptors):
+        raise CheckpointDecodeError(
+            "materialize checkpoint storage facts do not match its snapshot tables",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if any(
+        facts_by_table[name].source_schema_digest != descriptor.business_schema_digest
+        for name, descriptor in descriptors.items()
+    ):
+        raise CheckpointDecodeError(
+            "materialize checkpoint storage facts do not match source schemas",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
     table_set = SnapshotTableSet(
         snapshot_id=snapshot.snapshot_id,
         snapshot_digest=snapshot.snapshot_digest,
         table_ruleset_version=snapshot.table_ruleset_version,
         tables=tuple(opened),
     )
-    return BoundSnapshotInput(snapshot, summary, table_set)
+    return BoundSnapshotInput(snapshot, summary, table_set, storage_facts)
 
 
-def _bound_from_materialization(result: SnapshotMaterializationResult) -> BoundSnapshotInput:
+def _bound_from_materialization(
+    result: SnapshotMaterializationResult,
+    *,
+    canonical_binding: CanonicalBinding,
+) -> BoundSnapshotInput:
     if result.status is not SnapshotMaterializationStatus.COMPLETE:
         raise HistoryCompareJobError("materialization failed")
     if result.snapshot is None or result.summary is None:
         raise HistoryCompareJobError("materialization is incomplete")
-    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+    descriptors = {item.table_name: item for item in result.summary.tables}
+    storage_facts = tuple(
+        ComparisonStorageFacts(
+            storage_rule_view=view,
+            source_schema_digest=descriptors[view.canonical_table].business_schema_digest,
+        )
+        for view in canonical_binding.tables
+        if view.canonical_table in descriptors
+    )
+    return BoundSnapshotInput(result.snapshot, result.summary, result.table_set, storage_facts)
 
 
 def _closed_refs_from_sides(sides: dict[str, BoundSnapshotInput]) -> tuple[ArtifactRef, ...]:
@@ -1257,34 +1317,6 @@ def _side_input_refs(bound: BoundSnapshotInput) -> tuple[ArtifactRef, ...]:
 
 def _unique_refs(refs: tuple[ArtifactRef, ...]) -> tuple[ArtifactRef, ...]:
     return unique_artifact_refs(refs)
-
-
-def _pinned_checkpoint_builder(
-    *,
-    checkpoint_ref: ArtifactRef,
-    extra_refs: tuple[ArtifactRef, ...],
-    intent: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], StepRecord]:
-    inner = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
-
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> StepRecord:
-        candidate = inner(operation, step, transaction_now)
-        transaction = _active_history_compare_transaction.get()
-        if transaction is None:
-            raise HistoryCompareJobError("history compare checkpoint transaction is not bound")
-        transaction.set_artifact_protection(
-            _unique_refs((checkpoint_ref, *extra_refs)),
-            owner_kind="history-compare-checkpoint",
-            owner_id=step.step_id,
-            intent=intent,
-        )
-        return candidate
-
-    return builder
 
 
 def _pin_history_compare_refs(

@@ -10,6 +10,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from gateway_backend.artifacts.store import ArtifactStorePort
+from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -21,7 +22,6 @@ from gateway_backend.domain.submission.models import (
     SubmitVerificationPolicy,
     Submission,
     WorkspaceSubmitOccupancy as WorkspaceSubmitOccupancy,
-    derive_preview_canonical_business_digest,
 )
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
@@ -35,7 +35,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.application.submission.errors import PreviewBindingConflict
 
 SUBMIT_JOB_CONTRACT_VERSION = "backend-vnext/submit/v1"
-PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v1"
+PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v2"
 ACCEPT_SUBMIT_REQUEST_PREFIX = b"gateway-vnext:accept-submit-request:v1\0"
 REPOSITORY_UPLOAD_KEY_PREFIX = "p5b-upload-v1:"
 REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
@@ -43,12 +43,15 @@ REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
 
 @dataclass(frozen=True, slots=True)
 class SnapshotTableBinding:
+    table_name: str
     artifact_id: str
     media_type: str
     size_bytes: int
     raw_sha256: str
 
     def __post_init__(self) -> None:
+        if type(self.table_name) is not str or not self.table_name:
+            raise ValueError("table_name must be a non-empty string")
         if type(self.artifact_id) is not str or not self.artifact_id:
             raise ValueError("artifact_id must be a non-empty string")
         if type(self.media_type) is not str or not self.media_type:
@@ -59,29 +62,16 @@ class SnapshotTableBinding:
             raise ValueError("raw_sha256 must be a non-empty string")
 
 
-_SUBMIT_NON_TABLE_ARTIFACT_PREFIXES = (
-    "bundle-manifest-",
-    "comparison-closure-",
-    "comparison-standard-",
-    "comparison-standard-manifest-",
-    "comparison-ordered-",
-    "comparison-blank-",
-    "risk-annotation-",
-    "sta-rows-",
-)
-
-
-def is_submit_snapshot_table_binding_candidate(artifact_id: str) -> bool:
-    """Return whether a protected preview artifact may be opened as a snapshot table manifest."""
-
-    return not any(artifact_id.startswith(prefix) for prefix in _SUBMIT_NON_TABLE_ARTIFACT_PREFIXES)
-
-
 @dataclass(frozen=True, slots=True)
 class PrepareImportBuildInput:
     submit_attempt_id: str
     builder_mutation_policy: BuilderMutationPolicy
-    input_closure_digest: str
+    canonical_table_set_closure_ref: ArtifactRef
+    canonical_table_set_closure_digest: str
+    canonicalization_manifest_ref: ArtifactRef
+    canonicalization_manifest_digest: str
+    expected_parent_commit_id: str
+    removed_tables: tuple[str, ...]
     source_artifact_digest: str
     repository_base_digest: str
     storage_projection_version: str
@@ -95,25 +85,59 @@ class PrepareImportBuildInput:
             raise ValueError("submit_attempt_id must be a non-empty string")
         if type(self.builder_mutation_policy) is not BuilderMutationPolicy:
             raise ValueError("builder_mutation_policy must be BuilderMutationPolicy")
-        if type(self.input_closure_digest) is not str or not self.input_closure_digest:
-            raise ValueError("input_closure_digest must be a non-empty string")
-        if type(self.snapshot_tables) is not tuple or not self.snapshot_tables:
-            raise ValueError("snapshot_tables must be a non-empty tuple")
+        for field_name in (
+            "canonicalization_manifest_digest",
+            "expected_parent_commit_id",
+            "source_artifact_digest",
+            "repository_base_digest",
+            "storage_projection_version",
+            "ruleset_id",
+            "ruleset_version",
+            "ruleset_digest",
+        ):
+            if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
+                raise ValueError(f"{field_name} must be a non-empty string")
+        if type(self.canonical_table_set_closure_ref) is not ArtifactRef:
+            raise ValueError("canonical_table_set_closure_ref must be ArtifactRef")
+        if type(self.canonicalization_manifest_ref) is not ArtifactRef:
+            raise ValueError("canonicalization_manifest_ref must be ArtifactRef")
+        if self.canonical_table_set_closure_ref.raw_sha256.value != self.canonical_table_set_closure_digest:
+            raise ValueError("canonical table closure artifact ref raw SHA must match digest")
+        if type(self.removed_tables) is not tuple:
+            raise ValueError("removed_tables must be a tuple")
+        if any(type(name) is not str or not name for name in self.removed_tables):
+            raise ValueError("removed_tables must contain non-empty table names")
+        if self.removed_tables != tuple(
+            sorted(set(self.removed_tables), key=lambda name: name.encode("utf-8"))
+        ):
+            raise ValueError("removed_tables must contain sorted unique table names")
+        if type(self.snapshot_tables) is not tuple:
+            raise ValueError("snapshot_tables must be a tuple")
         for item in self.snapshot_tables:
             if type(item) is not SnapshotTableBinding:
                 raise ValueError("snapshot_tables must contain SnapshotTableBinding")
+        table_names = tuple(item.table_name for item in self.snapshot_tables)
+        if table_names != tuple(sorted(set(table_names), key=lambda name: name.encode("utf-8"))):
+            raise ValueError("snapshot_tables must contain sorted unique table names")
+        if set(table_names) & set(self.removed_tables):
+            raise ValueError("removed_tables must be disjoint from snapshot_tables")
 
 
 @dataclass(frozen=True, slots=True)
 class PrepareImportCheckpoint:
     schema_version: str
     attempt_id: str
+    canonical_table_set_closure_ref: str
+    canonical_table_set_closure_digest: str
+    input_canonicalization_manifest_ref: str
+    input_canonicalization_manifest_digest: str
+    expected_parent_commit_id: str
+    removed_tables: tuple[str, ...]
     canonicalization_manifest_ref: BackendArtifactRef
     canonicalization_manifest_digest: str
     backend_import_artifact_ref: BackendArtifactRef
     package_raw_size: int
     package_raw_sha256: str
-    input_closure_digest: str
     builder_mutation_policy: BuilderMutationPolicy
 
     def __post_init__(self) -> None:
@@ -121,6 +145,23 @@ class PrepareImportCheckpoint:
             raise ValueError("unsupported prepare import checkpoint schema")
         if type(self.attempt_id) is not str or not self.attempt_id:
             raise ValueError("attempt_id must be a non-empty string")
+        for field_name in (
+            "canonical_table_set_closure_ref",
+            "canonical_table_set_closure_digest",
+            "input_canonicalization_manifest_ref",
+            "input_canonicalization_manifest_digest",
+            "expected_parent_commit_id",
+        ):
+            if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
+                raise ValueError(f"{field_name} must be a non-empty string")
+        if type(self.removed_tables) is not tuple:
+            raise ValueError("removed_tables must be a tuple")
+        if any(type(name) is not str or not name for name in self.removed_tables):
+            raise ValueError("removed_tables must contain non-empty table names")
+        if self.removed_tables != tuple(
+            sorted(set(self.removed_tables), key=lambda name: name.encode("utf-8"))
+        ):
+            raise ValueError("removed_tables must contain sorted unique table names")
         if type(self.canonicalization_manifest_ref) is not BackendArtifactRef:
             raise ValueError("canonicalization_manifest_ref must be BackendArtifactRef")
         if type(self.canonicalization_manifest_digest) is not str or not self.canonicalization_manifest_digest:
@@ -272,7 +313,10 @@ def compute_accept_request_fingerprint(
     source_digest: str,
     snapshot_digest: str,
     source_artifact_refs: tuple[str, ...],
-    snapshot_table_artifact_refs: tuple[str, ...],
+    canonical_table_set_closure_ref: str,
+    canonical_table_set_closure_digest: str,
+    canonicalization_manifest_ref: str,
+    canonicalization_manifest_digest: str,
     preview_ready_closure_ref: str,
     preview_ready_closure_digest: str,
     repository_expected_commit_id: str,
@@ -295,7 +339,10 @@ def compute_accept_request_fingerprint(
         "source_digest": source_digest,
         "snapshot_digest": snapshot_digest,
         "source_artifact_refs": list(source_artifact_refs),
-        "snapshot_table_artifact_refs": list(snapshot_table_artifact_refs),
+        "canonical_table_set_closure_ref": canonical_table_set_closure_ref,
+        "canonical_table_set_closure_digest": canonical_table_set_closure_digest,
+        "canonicalization_manifest_ref": canonicalization_manifest_ref,
+        "canonicalization_manifest_digest": canonicalization_manifest_digest,
         "preview_ready_closure_ref": preview_ready_closure_ref,
         "preview_ready_closure_digest": preview_ready_closure_digest,
         "repository_expected_commit_id": repository_expected_commit_id,
@@ -313,9 +360,7 @@ def compute_accept_request_fingerprint(
 
 
 def preview_canonical_business_digest(preview_result: PreviewResult) -> str:
-    return derive_preview_canonical_business_digest(
-        bundle_digest=preview_result.digests.bundle_digest
-    )
+    return preview_result.canonical.modified_canonical_state_digest.value
 
 
 def _source_artifact_refs(upload_revision: UploadRevision) -> tuple[str, ...]:
@@ -336,7 +381,6 @@ def compute_new_accept_fingerprint(
     upload_revision: UploadRevision,
     baseline_head: BaselineHead,
     repository_expected_commit_id: str,
-    snapshot_table_artifact_refs: tuple[str, ...],
     preview_ready_closure_digest: str,
 ) -> str:
     assert_preview_ready_closure_digest(preview_ready_closure_digest)
@@ -357,7 +401,18 @@ def compute_new_accept_fingerprint(
         source_digest=preview_result.digests.source_digest,
         snapshot_digest=preview_result.digests.snapshot_digest,
         source_artifact_refs=_source_artifact_refs(upload_revision),
-        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
+        canonical_table_set_closure_ref=(
+            preview_result.canonical.canonical_table_set_closure_ref.artifact_id
+        ),
+        canonical_table_set_closure_digest=(
+            preview_result.canonical.canonical_table_set_closure_digest.value
+        ),
+        canonicalization_manifest_ref=(
+            preview_result.canonical.canonicalization_manifest_ref.artifact_id
+        ),
+        canonicalization_manifest_digest=(
+            preview_result.canonical.canonicalization_manifest_digest.value
+        ),
         preview_ready_closure_ref=preview_result.ready_closure_artifact_id,
         preview_ready_closure_digest=preview_ready_closure_digest,
         repository_expected_commit_id=repository_expected_commit_id,
@@ -388,7 +443,10 @@ def compute_replay_accept_fingerprint(
         source_digest=attempt.source_digest,
         snapshot_digest=attempt.snapshot_digest,
         source_artifact_refs=tuple(attempt.source_artifact_refs),
-        snapshot_table_artifact_refs=tuple(attempt.snapshot_table_artifact_refs),
+        canonical_table_set_closure_ref=attempt.canonical_table_set_closure_ref,
+        canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
+        canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
+        canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
         preview_ready_closure_ref=attempt.preview_ready_closure_ref,
         preview_ready_closure_digest=attempt.preview_ready_closure_digest,
         repository_expected_commit_id=attempt.repository_expected_commit_id,

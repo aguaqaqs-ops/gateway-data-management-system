@@ -61,6 +61,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
     _read_rows,
     _record_sort_key,
     _row_digest,
+    _row_occurrence_digest,
     _row_record,
     _schema_changes_from_view,
     _schema_diagnostics,
@@ -261,7 +262,9 @@ def _compare_task(task: Any) -> ComparisonTableFact:
 
     before_rows = _read_rows(task.before_table, before_descriptor, schema.selected)
     current_rows = _read_rows(task.current_table, current_descriptor, schema.selected)
-    if not schema.before_key:
+    if not schema.before_key or (
+        policy.allow_keyless_key_transition and not schema.current_key
+    ):
         fact = _compare_keyless(
             task.table_name,
             before_descriptor,
@@ -299,10 +302,7 @@ def _compare_single_side(
 ) -> ComparisonTableFact:
     if descriptor is None:
         raise StandardComparisonError("TABLE_DESCRIPTOR_MISSING")
-    selected = tuple(
-        canonicalize_identifier(column.name)
-        for column in descriptor.columns
-    )
+    selected = tuple(sorted(canonicalize_identifier(column.name) for column in descriptor.columns))
     schema_changes = ComparisonSchemaChanges(
         current_only_columns=selected if added else (),
         before_only_columns=() if added else selected,
@@ -326,14 +326,21 @@ def _compare_single_side(
     rows = _read_rows(table, descriptor, selected)
     records: list[ComparisonRecord] = []
     kind = ComparisonRecordKind.ROW_ADDED if added else ComparisonRecordKind.ROW_DELETED
-    identity_columns = (
-        policy.effective_key_current if added else policy.effective_key_before
-    ) or selected
+    key_columns = policy.effective_key_current if added else policy.effective_key_before
+    identity_columns = key_columns or selected
+    if not key_columns:
+        rows = tuple(sorted(rows, key=lambda row: _row_digest(row, identity_columns).value))
+    occurrence_counts: Counter[str] = Counter()
     for row in rows:
+        row_identity = _row_digest(row, identity_columns)
+        occurrence = occurrence_counts[row_identity.value]
+        occurrence_counts[row_identity.value] += 1
+        if not key_columns:
+            row_identity = _row_occurrence_digest(row_identity, occurrence)
         record = ComparisonRecord(
             table_name=table_name,
             record_kind=kind,
-            row_identity=_row_digest(row, identity_columns),
+            row_identity=row_identity,
             before_values=()
             if added
             else tuple(sorted(row.value_map().items())),
@@ -547,25 +554,35 @@ def _compare_keyless(
         )
     before_counts = Counter(_row_digest(row, schema.selected).value for row in before_rows)
     current_counts = Counter(_row_digest(row, schema.selected).value for row in current_rows)
-    added = sorted((current_counts - before_counts).elements())
-    deleted = sorted((before_counts - current_counts).elements())
+    added_counts = current_counts - before_counts
+    deleted_counts = before_counts - current_counts
+    added = [
+        (identity, occurrence)
+        for identity, count in sorted(added_counts.items())
+        for occurrence in range(before_counts[identity], before_counts[identity] + count)
+    ]
+    deleted = [
+        (identity, occurrence)
+        for identity, count in sorted(deleted_counts.items())
+        for occurrence in range(current_counts[identity], current_counts[identity] + count)
+    ]
     records: list[ComparisonRecord] = []
-    for identity in added:
+    for identity, occurrence in added:
         if artifact_scope is ArtifactScope.ALL_CHANGES:
             records.append(
                 ComparisonRecord(
                     table_name=table_name,
                     record_kind=ComparisonRecordKind.ROW_ADDED,
-                    row_identity=DigestRef(identity),
+                    row_identity=_row_occurrence_digest(DigestRef(identity), occurrence),
                 )
             )
-    for identity in deleted:
+    for identity, occurrence in deleted:
         if artifact_scope is ArtifactScope.ALL_CHANGES:
             records.append(
                 ComparisonRecord(
                     table_name=table_name,
                     record_kind=ComparisonRecordKind.ROW_DELETED,
-                    row_identity=DigestRef(identity),
+                    row_identity=_row_occurrence_digest(DigestRef(identity), occurrence),
                 )
             )
     if schema_diagnostics:

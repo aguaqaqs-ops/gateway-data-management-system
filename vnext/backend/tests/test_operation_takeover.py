@@ -48,7 +48,6 @@ from gateway_backend.operations.recovery import (
     AuthorizedOperatorRecovery,
     build_authorized_operator_recovery,
     build_startup_recovery,
-    step_lease_expired,
 )
 from gateway_backend.operations.store import LeaseExpired, StaleWrite
 from gateway_backend.operations.worker import (
@@ -338,58 +337,133 @@ def _make_harness(
     return TakeoverHarness(db_path=db_path, clock=mutable_clock, capability=capability)
 
 
-def test_live_running_lease_does_not_mutate_on_startup(tmp_path: Path) -> None:
-    harness = _make_harness(tmp_path)
+STARTUP_CAPABILITIES = (
+    RecoveryCapabilityValue.PURE_RECOMPUTE,
+    RecoveryCapabilityValue.EXTERNAL_EFFECT,
+    RecoveryCapabilityValue.NON_RETRYABLE,
+)
+
+STARTUP_LEASE_DISPOSITION_CASES = (
+    (
+        "live",
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        StartupDisposition.RETRYABLE_BLOCK,
+        StepStatus.RUNNING,
+        OperationStatus.RUNNING,
+        None,
+    ),
+    (
+        "live",
+        RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        StartupDisposition.RETRYABLE_BLOCK,
+        StepStatus.RUNNING,
+        OperationStatus.RUNNING,
+        None,
+    ),
+    (
+        "live",
+        RecoveryCapabilityValue.NON_RETRYABLE,
+        StartupDisposition.RETRYABLE_BLOCK,
+        StepStatus.RUNNING,
+        OperationStatus.RUNNING,
+        None,
+    ),
+    (
+        "expired",
+        RecoveryCapabilityValue.PURE_RECOMPUTE,
+        StartupDisposition.RETRYABLE_BLOCK,
+        StepStatus.RETRY_WAIT,
+        OperationStatus.RUNNING,
+        "R5.RETRY_SCHEDULED",
+    ),
+    (
+        "expired",
+        RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        StartupDisposition.RETRYABLE_BLOCK,
+        StepStatus.RETRY_WAIT,
+        OperationStatus.RUNNING,
+        "R5.RECONCILE_STARTED",
+    ),
+    (
+        "expired",
+        RecoveryCapabilityValue.NON_RETRYABLE,
+        StartupDisposition.FATAL_BLOCK,
+        StepStatus.MANUAL_RECOVERY_REQUIRED,
+        OperationStatus.MANUAL_RECOVERY_REQUIRED,
+        "R5.MANUAL_RECOVERY_REQUIRED",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("lease_state", "capability", "expected_startup", "expected_step", "expected_operation", "expected_code"),
+    STARTUP_LEASE_DISPOSITION_CASES,
+)
+def test_running_lease_startup_disposition_matrix(
+    tmp_path: Path,
+    lease_state: str,
+    capability: RecoveryCapabilityValue,
+    expected_startup: StartupDisposition,
+    expected_step: StepStatus,
+    expected_operation: OperationStatus,
+    expected_code: str | None,
+) -> None:
+    harness = _make_harness(tmp_path, capability=capability)
     operation, step = harness.seed_claimed_running()
-    startup = harness.worker_startup()
-    assert startup.startup() is StartupDisposition.READY
+    if lease_state == "expired":
+        harness.advance_past_lease(step)
+
+    assert harness.worker_startup().startup() is expected_startup
+
+    with harness.read_uow() as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
+        persisted_step = unit_of_work.operations.get_step(step.step_id)
+    assert persisted_operation.status is expected_operation
+    assert persisted_step.status is expected_step
+    if lease_state == "live":
+        assert persisted_step.worker_id == step.worker_id
+        assert persisted_step.lease_token == step.lease_token
+        assert persisted_step.started_at == step.started_at
+        assert persisted_step.diagnostic is None
+    else:
+        assert persisted_step.worker_id is None
+        assert persisted_step.lease_token is None
+        assert persisted_step.diagnostic is not None
+        assert persisted_step.diagnostic.code == expected_code
+        if expected_step is StepStatus.RETRY_WAIT:
+            assert persisted_step.retry_not_before is not None
+            assert persisted_step.retry_not_before <= harness.clock() + timedelta(
+                seconds=RECOVERY_BACKOFF_CAP_SECONDS
+            )
+        else:
+            assert persisted_step.retry_not_before is None
+
+
+@pytest.mark.parametrize("capability", STARTUP_CAPABILITIES)
+def test_transaction_recheck_blocks_a_lease_that_became_live(
+    tmp_path: Path,
+    capability: RecoveryCapabilityValue,
+) -> None:
+    harness = _make_harness(tmp_path, capability=capability)
+    operation, step = harness.seed_claimed_running()
+    lease_expires_at = step.lease_expires_at
+    assert lease_expires_at is not None
+    outer_now = lease_expires_at + timedelta(seconds=1)
+    recovery = build_startup_recovery(
+        write_uow_factory=harness.write_uow,
+        capability_lookup=lambda _job_kind, _step_name: capability,
+        jitter=_deterministic_jitter,
+        now_factory=lambda: outer_now,
+    )
+
+    # The outer read sees expiry, then the transaction clock observes a live lease.
+    assert recovery.recover_pair(operation, step) is StartupDisposition.RETRYABLE_BLOCK
+
     with harness.read_uow() as unit_of_work:
         persisted = unit_of_work.operations.get_step(step.step_id)
     assert persisted.status is StepStatus.RUNNING
     assert persisted.worker_id == step.worker_id
     assert persisted.lease_token == step.lease_token
-    assert persisted.started_at == step.started_at
-    del operation
-
-
-@pytest.mark.parametrize(
-    ("capability", "expected_diagnostic_code"),
-    (
-        (RecoveryCapabilityValue.PURE_RECOMPUTE, "R5.RETRY_SCHEDULED"),
-        (RecoveryCapabilityValue.EXTERNAL_EFFECT, "R5.RECONCILE_STARTED"),
-    ),
-)
-def test_expired_running_schedules_retry_wait_via_guarded_cas(
-    tmp_path: Path,
-    capability: RecoveryCapabilityValue,
-    expected_diagnostic_code: str,
-) -> None:
-    harness = _make_harness(tmp_path, capability=capability)
-    operation, step = harness.seed_claimed_running()
-    original_started_at = step.started_at
-    harness.advance_past_lease(step)
-    assert step_lease_expired(step, harness.clock())
-
-    startup = harness.worker_startup()
-    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
-
-    with harness.read_uow() as unit_of_work:
-        persisted = unit_of_work.operations.get_step(step.step_id)
-        assert persisted.status is StepStatus.RETRY_WAIT
-        assert persisted.started_at == original_started_at
-        assert persisted.attempt_count == step.attempt_count
-        assert persisted.worker_id is None
-        assert persisted.lease_token is None
-        assert persisted.retry_not_before is not None
-        assert persisted.diagnostic is not None
-        assert persisted.diagnostic.code == expected_diagnostic_code
-        assert persisted.retry_not_before <= harness.clock() + timedelta(
-            seconds=RECOVERY_BACKOFF_CAP_SECONDS
-        )
-        assert (
-            unit_of_work.operations.get_operation(operation.operation_id).status
-            is OperationStatus.RUNNING
-        )
 
 
 def test_due_retry_wait_reclaim_preserves_started_at_and_increments_attempt(

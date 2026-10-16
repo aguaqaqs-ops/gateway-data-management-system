@@ -24,10 +24,11 @@ from gateway_backend.application.checkpoints import (
     definition_matches_checkpoint,
     envelope_for_step,
     load_checkpoint_envelope,
-    make_checkpoint_step_builder,
+    load_ready_closure,
     prepare_step_checkpoint,
 )
 from gateway_backend.application.job_definitions import JobDefinition
+from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.application.payloads import (
     CheckpointDecodeError,
     PayloadDecodeError,
@@ -74,9 +75,7 @@ from gateway_backend.application.submission.contracts import (
     PrepareImportBuildInput,
     PrepareImportCheckpoint,
     RepositoryOperationTerminalStatus,
-    SnapshotTableBinding,
     SubmitImportPublicationPort,
-    is_submit_snapshot_table_binding_candidate,
 )
 from gateway_backend.application.submission.effect_pending_transaction import (
     BindRepositoryOperationRequest,
@@ -90,8 +89,10 @@ from gateway_backend.application.submission.finalize_transaction import (
 )
 from gateway_backend.application.submission.import_builder import (
     SubmitImportBuilderError,
+    derive_removed_tables,
     pin_prepare_import_artifacts,
     publish_prepare_import_package,
+    resolve_canonical_snapshot_bindings,
     reuse_prepare_import_checkpoint,
 )
 from gateway_backend.application.submission.job_payload import (
@@ -110,16 +111,16 @@ from gateway_backend.application.submission.errors import (
 )
 from gateway_backend.application.submission.ports import (
     RepositoryAbortEvidencePort,
+    RepositoryParentCatalogPort,
     RepositoryWritePort,
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
-    WorkspaceControlTransaction,
+    SubmitFinalizeControlTransaction,
 )
 from gateway_backend.application.submission.artifact_refs import store_ref_from_backend_artifact_ref
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.capabilities.snapshot_materialization import manifest_from_bytes
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
     BuilderMutationPolicy,
@@ -172,7 +173,12 @@ _JOB_STATE_MANIFEST_DIGEST = "canonicalization_manifest_digest"
 _JOB_STATE_BACKEND_IMPORT_REF = "backend_import_artifact_ref"
 _JOB_STATE_PACKAGE_RAW_SIZE = "package_raw_size"
 _JOB_STATE_PACKAGE_RAW_SHA256 = "package_raw_sha256"
-_JOB_STATE_INPUT_CLOSURE_DIGEST = "input_closure_digest"
+_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF = "canonical_table_set_closure_ref"
+_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST = "canonical_table_set_closure_digest"
+_JOB_STATE_INPUT_MANIFEST_REF = "input_canonicalization_manifest_ref"
+_JOB_STATE_INPUT_MANIFEST_DIGEST = "input_canonicalization_manifest_digest"
+_JOB_STATE_EXPECTED_PARENT_COMMIT_ID = "expected_parent_commit_id"
+_JOB_STATE_REMOVED_TABLES = "removed_tables"
 _JOB_STATE_BUILDER_POLICY = "builder_mutation_policy"
 
 _JOB_STATE_PREPARE_CHECKPOINT_REF = "prepare_checkpoint_ref"
@@ -188,7 +194,7 @@ _JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF = "terminal_result_evidence_ref"
 _TERMINAL_REPOSITORY_EVIDENCE_DOCUMENT_TYPE = "submit_repository_terminal_evidence"
 _TERMINAL_REPOSITORY_EVIDENCE_CONTRACT_VERSION = "backend-vnext/submit/repository-terminal-evidence/v1"
 
-_active_submit_transaction: ContextVar[WorkspaceControlTransaction | None] = ContextVar(
+_active_submit_transaction: ContextVar[SubmitFinalizeControlTransaction | None] = ContextVar(
     "_active_submit_transaction",
     default=None,
 )
@@ -222,7 +228,10 @@ class SubmitJobPayload:
     canonical_business_digest: str
     source_artifact_refs: tuple[str, ...]
     preview_ready_closure_ref: str
-    snapshot_table_set_digest: str
+    canonical_table_set_closure_ref: str
+    canonical_table_set_closure_digest: str
+    canonicalization_manifest_ref: str
+    canonicalization_manifest_digest: str
     ruleset_version: str
     storage_projection_version: str
     canonicalization_manifest_contract_version: str
@@ -235,7 +244,7 @@ class SubmitJobPayload:
     options: Mapping[str, object]
 
 
-SubmitControlTransactionFactory = Callable[[], ContextManager[WorkspaceControlTransaction]]
+SubmitControlTransactionFactory = Callable[[], ContextManager[SubmitFinalizeControlTransaction]]
 
 
 @runtime_checkable
@@ -248,6 +257,7 @@ class OperatorRecoveryApplicationPort(Protocol):
 class SubmitRuntimeDependencies:
     artifact_store: ArtifactStorePort
     publication: SubmitImportPublicationPort
+    parent_catalog: RepositoryParentCatalogPort
     repository_write: RepositoryWritePort
     terminal_evidence_decode: RepositoryTerminalEvidenceDecodePort
     control_transaction_factory: SubmitControlTransactionFactory
@@ -298,7 +308,22 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
     canonical_business_digest = _require_non_empty_str(payload_object, "canonical_business_digest")
     source_artifact_refs = _decode_string_tuple(payload_object.get("source_artifact_refs"), label="source_artifact_refs")
     preview_ready_closure_ref = _require_non_empty_str(payload_object, "preview_ready_closure_ref")
-    snapshot_table_set_digest = _require_non_empty_str(payload_object, "snapshot_table_set_digest")
+    canonical_table_set_closure_ref = _require_non_empty_str(
+        payload_object,
+        "canonical_table_set_closure_ref",
+    )
+    canonical_table_set_closure_digest = _require_non_empty_str(
+        payload_object,
+        "canonical_table_set_closure_digest",
+    )
+    canonicalization_manifest_ref = _require_non_empty_str(
+        payload_object,
+        "canonicalization_manifest_ref",
+    )
+    canonicalization_manifest_digest = _require_non_empty_str(
+        payload_object,
+        "canonicalization_manifest_digest",
+    )
     ruleset_version = _require_non_empty_str(payload_object, "ruleset_version")
     storage_projection_version = _require_non_empty_str(payload_object, "storage_projection_version")
     canonicalization_manifest_contract_version = _require_non_empty_str(
@@ -345,7 +370,10 @@ def decode_submit_payload(payload_object: dict[str, object]) -> SubmitJobPayload
         canonical_business_digest=canonical_business_digest,
         source_artifact_refs=source_artifact_refs,
         preview_ready_closure_ref=preview_ready_closure_ref,
-        snapshot_table_set_digest=snapshot_table_set_digest,
+        canonical_table_set_closure_ref=canonical_table_set_closure_ref,
+        canonical_table_set_closure_digest=canonical_table_set_closure_digest,
+        canonicalization_manifest_ref=canonicalization_manifest_ref,
+        canonicalization_manifest_digest=canonicalization_manifest_digest,
         ruleset_version=ruleset_version,
         storage_projection_version=storage_projection_version,
         canonicalization_manifest_contract_version=canonicalization_manifest_contract_version,
@@ -374,10 +402,10 @@ def bind_submit_control_transaction_factory(
     """Bind the active submit transaction for checkpoint and crossing writes."""
 
     class _BoundUnitOfWork:
-        def __init__(self, wrapped: ContextManager[WorkspaceControlTransaction]) -> None:
+        def __init__(self, wrapped: ContextManager[SubmitFinalizeControlTransaction]) -> None:
             self._wrapped = wrapped
 
-        def __enter__(self) -> WorkspaceControlTransaction:
+        def __enter__(self) -> SubmitFinalizeControlTransaction:
             transaction = self._wrapped.__enter__()
             _active_submit_transaction.set(transaction)
             return transaction
@@ -391,7 +419,7 @@ def bind_submit_control_transaction_factory(
             _active_submit_transaction.set(None)
             return self._wrapped.__exit__(exc_type, exc, tb)
 
-    def factory() -> ContextManager[WorkspaceControlTransaction]:
+    def factory() -> ContextManager[SubmitFinalizeControlTransaction]:
         return _BoundUnitOfWork(inner())
 
     return factory
@@ -408,6 +436,7 @@ def submit_composition_bundle(
     bound_deps = SubmitRuntimeDependencies(
         artifact_store=deps.artifact_store,
         publication=deps.publication,
+        parent_catalog=deps.parent_catalog,
         repository_write=deps.repository_write,
         terminal_evidence_decode=deps.terminal_evidence_decode,
         control_transaction_factory=bind_submit_control_transaction_factory(
@@ -464,6 +493,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     attempt=attempt,
                     operation=operation,
                     store=deps.artifact_store,
+                    parent_catalog=deps.parent_catalog,
                 )
                 reuse_prepare_import_checkpoint(
                     build_input=build_input,
@@ -491,6 +521,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     attempt=attempt,
                     operation=operation,
                     store=deps.artifact_store,
+                    parent_catalog=deps.parent_catalog,
                 )
                 publication = publish_prepare_import_package(
                     build_input=build_input,
@@ -640,12 +671,16 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
             )
             sent_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, sent_envelope)
             last_checkpoint_generation = lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=sent_checkpoint_ref,
                     extra_refs=(
                         request_state.prepare_checkpoint_ref,
                         request_state.request_artifact_ref,
                     ),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="submit-import-checkpoint",
                 )
             )
@@ -773,9 +808,13 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             )
             await_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="await-import-reconcile-checkpoint",
                 )
             )
@@ -824,9 +863,13 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             if await_checkpoint_ref is None:
                 raise SubmitJobError("await_import_result checkpoint is missing for reconcile handoff")
             checkpoint_generation = lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="await-import-reconcile-checkpoint",
                 )
             )
@@ -856,9 +899,13 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             )
             await_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, terminal_envelope)
             lease_session.publish_checkpoint(
-                _pinned_checkpoint_builder(
+                pinned_checkpoint_builder(
                     checkpoint_ref=await_checkpoint_ref,
                     extra_refs=(evidence_ref,),
+                    owner_kind="submit-checkpoint",
+                    active_transaction=_active_submit_transaction.get,
+                    transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                    deduplicate_refs=False,
                     intent="await-import-terminal-checkpoint",
                 )
             )
@@ -1093,9 +1140,13 @@ def _materialize_submit_checkpoint_state(
             repository_operation_id = None
         checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
         checkpoint_generation = lease_session.publish_checkpoint(
-            _pinned_checkpoint_builder(
+            pinned_checkpoint_builder(
                 checkpoint_ref=checkpoint_ref,
                 extra_refs=(prepare_checkpoint_ref, request_ref),
+                owner_kind="submit-checkpoint",
+                active_transaction=_active_submit_transaction.get,
+                transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+                deduplicate_refs=False,
                 intent="submit-import-checkpoint",
             )
         )
@@ -1162,9 +1213,13 @@ def _materialize_submit_checkpoint_state(
     )
     checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
     checkpoint_generation = lease_session.publish_checkpoint(
-        _pinned_checkpoint_builder(
+        pinned_checkpoint_builder(
             checkpoint_ref=checkpoint_ref,
             extra_refs=(prepare_checkpoint_ref, request_ref),
+            owner_kind="submit-checkpoint",
+            active_transaction=_active_submit_transaction.get,
+            transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+            deduplicate_refs=False,
             intent="submit-import-checkpoint",
         )
     )
@@ -1360,15 +1415,55 @@ def _build_prepare_import_build_input(
     attempt: SubmitAttempt,
     operation: OperationRecord,
     store: ArtifactStorePort,
+    parent_catalog: RepositoryParentCatalogPort,
 ) -> PrepareImportBuildInput:
     ruleset = migrated_table_ruleset_snapshot()
     if ruleset.ruleset_digest is None:
         raise SubmitImportBuilderError("ruleset digest is required")
-    snapshot_tables = _snapshot_bindings_from_operation(operation, attempt, store)
+    try:
+        ready_closure_ref = next(
+            (
+                ref
+                for ref in operation.artifact_refs
+                if ref.artifact_id == attempt.preview_ready_closure_ref
+            ),
+            None,
+        )
+        if ready_closure_ref is None:
+            raise SubmitImportBuilderError("operation is missing the preview ready closure ref")
+        ready_closure_refs = load_ready_closure(store, ready_closure_ref).artifact_refs()
+        snapshot_tables, canonical_refs = resolve_canonical_snapshot_bindings(
+            operation_artifact_refs=unique_artifact_refs(
+                (*operation.artifact_refs, *ready_closure_refs)
+            ),
+            canonical_table_set_closure_ref=attempt.canonical_table_set_closure_ref,
+            canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
+            canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
+            canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
+            read_artifact=store.locate,
+        )
+        canonical_refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
+        closure_ref = canonical_refs_by_id[attempt.canonical_table_set_closure_ref]
+        manifest_ref = canonical_refs_by_id[attempt.canonicalization_manifest_ref]
+        parent_table_names = parent_catalog.get_table_names(
+            repository_id=attempt.repository_id,
+            commit_id=attempt.repository_expected_commit_id,
+        )
+        removed_tables = derive_removed_tables(
+            parent_table_names=parent_table_names,
+            snapshot_tables=snapshot_tables,
+        )
+    except SubmitImportBuilderError as exc:
+        raise SubmitImportPublicationError(str(exc)) from exc
     return PrepareImportBuildInput(
         submit_attempt_id=payload.submit_attempt_id,
         builder_mutation_policy=payload.builder_mutation_policy,
-        input_closure_digest=payload.snapshot_table_set_digest,
+        canonical_table_set_closure_ref=closure_ref,
+        canonical_table_set_closure_digest=payload.canonical_table_set_closure_digest,
+        canonicalization_manifest_ref=manifest_ref,
+        canonicalization_manifest_digest=payload.canonicalization_manifest_digest,
+        expected_parent_commit_id=payload.repository_expected_commit_id,
+        removed_tables=removed_tables,
         source_artifact_digest=attempt.snapshot_digest,
         repository_base_digest=attempt.source_digest,
         storage_projection_version=_capability_storage_projection_version(
@@ -1407,9 +1502,13 @@ def _prepare_step_checkpoint(
         checkpoint=checkpoint,
     )
     lease_session.publish_checkpoint(
-        _pinned_checkpoint_builder(
+        pinned_checkpoint_builder(
             checkpoint_ref=checkpoint_ref,
             extra_refs=_prepare_checkpoint_extra_refs(checkpoint),
+            owner_kind="submit-checkpoint",
+            active_transaction=_active_submit_transaction.get,
+            transaction_missing=lambda: SubmitJobError("submit checkpoint transaction is not bound"),
+            deduplicate_refs=False,
             intent="prepare-import-checkpoint",
         )
     )
@@ -1430,18 +1529,13 @@ def _pin_prepare_refs(
     operation: OperationRecord,
     checkpoint: PrepareImportCheckpoint,
 ) -> None:
-    snapshot_refs = tuple(
-        ref
-        for ref in operation.artifact_refs
-        if ref.artifact_id in frozenset(attempt.snapshot_table_artifact_refs)
-    )
     with deps.control_transaction_factory() as unit_of_work:
         pin_prepare_import_artifacts(
             unit_of_work,
             submit_attempt_id=attempt.submit_attempt_id,
             manifest_ref=checkpoint.canonicalization_manifest_ref,
             package_ref=checkpoint.backend_import_artifact_ref,
-            existing_snapshot_refs=snapshot_refs,
+            existing_snapshot_refs=operation.artifact_refs,
         )
 
 
@@ -1470,7 +1564,12 @@ def _job_state_for_prepare(checkpoint: PrepareImportCheckpoint) -> dict[str, obj
         _JOB_STATE_BACKEND_IMPORT_REF: _backend_ref_to_dict(checkpoint.backend_import_artifact_ref),
         _JOB_STATE_PACKAGE_RAW_SIZE: checkpoint.package_raw_size,
         _JOB_STATE_PACKAGE_RAW_SHA256: checkpoint.package_raw_sha256,
-        _JOB_STATE_INPUT_CLOSURE_DIGEST: checkpoint.input_closure_digest,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF: checkpoint.canonical_table_set_closure_ref,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST: checkpoint.canonical_table_set_closure_digest,
+        _JOB_STATE_INPUT_MANIFEST_REF: checkpoint.input_canonicalization_manifest_ref,
+        _JOB_STATE_INPUT_MANIFEST_DIGEST: checkpoint.input_canonicalization_manifest_digest,
+        _JOB_STATE_EXPECTED_PARENT_COMMIT_ID: checkpoint.expected_parent_commit_id,
+        _JOB_STATE_REMOVED_TABLES: list(checkpoint.removed_tables),
         _JOB_STATE_BUILDER_POLICY: checkpoint.builder_mutation_policy.value,
     }
 
@@ -1484,7 +1583,12 @@ _ALLOWED_PREPARE_CHECKPOINT_KEYS = frozenset(
         _JOB_STATE_BACKEND_IMPORT_REF,
         _JOB_STATE_PACKAGE_RAW_SIZE,
         _JOB_STATE_PACKAGE_RAW_SHA256,
-        _JOB_STATE_INPUT_CLOSURE_DIGEST,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF,
+        _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST,
+        _JOB_STATE_INPUT_MANIFEST_REF,
+        _JOB_STATE_INPUT_MANIFEST_DIGEST,
+        _JOB_STATE_EXPECTED_PARENT_COMMIT_ID,
+        _JOB_STATE_REMOVED_TABLES,
         _JOB_STATE_BUILDER_POLICY,
     }
 )
@@ -1799,9 +1903,29 @@ def _prepare_checkpoint_from_job_state(
             job_state.get(_JOB_STATE_PACKAGE_RAW_SHA256),
             label="package_raw_sha256",
         ),
-        input_closure_digest=_require_non_empty_str_value(
-            job_state.get(_JOB_STATE_INPUT_CLOSURE_DIGEST),
-            label="input_closure_digest",
+        canonical_table_set_closure_ref=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_REF),
+            label="canonical_table_set_closure_ref",
+        ),
+        canonical_table_set_closure_digest=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST),
+            label="canonical_table_set_closure_digest",
+        ),
+        input_canonicalization_manifest_ref=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_INPUT_MANIFEST_REF),
+            label="input_canonicalization_manifest_ref",
+        ),
+        input_canonicalization_manifest_digest=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_INPUT_MANIFEST_DIGEST),
+            label="input_canonicalization_manifest_digest",
+        ),
+        expected_parent_commit_id=_require_non_empty_str_value(
+            job_state.get(_JOB_STATE_EXPECTED_PARENT_COMMIT_ID),
+            label="expected_parent_commit_id",
+        ),
+        removed_tables=_decode_checkpoint_string_tuple(
+            job_state.get(_JOB_STATE_REMOVED_TABLES),
+            label="removed_tables",
         ),
         builder_mutation_policy=BuilderMutationPolicy(
             _require_non_empty_str_value(job_state.get(_JOB_STATE_BUILDER_POLICY), label="builder_mutation_policy")
@@ -2124,6 +2248,14 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
         mismatches.append("source_artifact_refs")
     if payload.preview_ready_closure_ref != attempt.preview_ready_closure_ref:
         mismatches.append("preview_ready_closure_ref")
+    if payload.canonical_table_set_closure_ref != attempt.canonical_table_set_closure_ref:
+        mismatches.append("canonical_table_set_closure_ref")
+    if payload.canonical_table_set_closure_digest != attempt.canonical_table_set_closure_digest:
+        mismatches.append("canonical_table_set_closure_digest")
+    if payload.canonicalization_manifest_ref != attempt.canonicalization_manifest_ref:
+        mismatches.append("canonicalization_manifest_ref")
+    if payload.canonicalization_manifest_digest != attempt.canonicalization_manifest_digest:
+        mismatches.append("canonicalization_manifest_digest")
     if payload.accept_request_fingerprint != attempt.accept_request_fingerprint:
         mismatches.append("accept_request_fingerprint")
     if payload.repository_upload_idempotency_key != attempt.repository_upload_idempotency_key:
@@ -2145,68 +2277,6 @@ def _assert_payload_matches_attempt(payload: SubmitJobPayload, attempt: SubmitAt
         )
 
 
-def _snapshot_bindings_from_operation(
-    operation: OperationRecord,
-    attempt: SubmitAttempt,
-    store: ArtifactStorePort,
-) -> tuple[SnapshotTableBinding, ...]:
-    required_ids = frozenset(attempt.snapshot_table_artifact_refs)
-    candidates: list[tuple[ArtifactRef, str, str]] = []
-    for ref in operation.artifact_refs:
-        if ref.artifact_id not in required_ids:
-            continue
-        if not is_submit_snapshot_table_binding_candidate(ref.artifact_id):
-            continue
-        try:
-            manifest = manifest_from_bytes(store.locate(ref))
-        except (ManifestVerificationError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-            raise SubmitImportBuilderError(
-                f"snapshot table manifest {ref.artifact_id!r} is missing or corrupt"
-            ) from exc
-        candidates.append((ref, manifest.table_name, manifest.snapshot_digest.value))
-    if not candidates:
-        raise SubmitImportBuilderError("operation artifact refs do not cover snapshot table bindings")
-
-    selected_refs: list[ArtifactRef] = []
-    by_table: dict[str, list[tuple[ArtifactRef, str, str]]] = {}
-    for ref, table_name, snapshot_digest in candidates:
-        by_table.setdefault(table_name, []).append((ref, table_name, snapshot_digest))
-    for group in by_table.values():
-        if len(group) == 1:
-            selected_refs.append(group[0][0])
-            continue
-        matching_side = [item for item in group if item[2] == attempt.snapshot_digest]
-        if matching_side:
-            selected_refs.append(matching_side[0][0])
-            continue
-        digest_counts: dict[str, int] = {}
-        for _ref, _table_name, snapshot_digest in group:
-            digest_counts[snapshot_digest] = digest_counts.get(snapshot_digest, 0) + 1
-        chosen_digest = min(digest_counts, key=lambda digest: (digest_counts[digest], digest))
-        for ref, _table_name, snapshot_digest in group:
-            if snapshot_digest == chosen_digest:
-                selected_refs.append(ref)
-                break
-
-    bindings = tuple(
-        sorted(
-            (
-                SnapshotTableBinding(
-                    artifact_id=ref.artifact_id,
-                    media_type=ref.media_type,
-                    size_bytes=ref.size_bytes,
-                    raw_sha256=ref.raw_sha256.value,
-                )
-                for ref in selected_refs
-            ),
-            key=lambda item: item.artifact_id,
-        )
-    )
-    if not bindings:
-        raise SubmitImportBuilderError("operation artifact refs do not cover snapshot table bindings")
-    return bindings
-
-
 def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
     for business_ref in operation.business_refs:
         if business_ref.kind == "submit_attempt":
@@ -2217,7 +2287,7 @@ def _submit_attempt_id_from_operation(operation: OperationRecord) -> str:
 def read_write_factory(
     factory: SubmitControlTransactionFactory,
 ) -> SubmitControlUnitOfWorkFactory:
-    def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[WorkspaceControlTransaction]:
+    def unit_of_work_factory(*, read_only: bool = False) -> ContextManager[SubmitControlTransaction]:
         del read_only
         return factory()
 
@@ -2229,35 +2299,6 @@ def _definition_for_step(step_name: str) -> JobDefinition:
         if definition.key.step_name == step_name:
             return definition
     raise SubmitJobError(f"submit step definition is missing: {step_name}")
-
-
-def _pinned_checkpoint_builder(
-    *,
-    checkpoint_ref: ArtifactRef,
-    extra_refs: tuple[ArtifactRef, ...],
-    intent: str,
-) -> Callable[[OperationRecord, StepRecord, datetime], StepRecord]:
-    inner = make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref)
-
-    def builder(
-        operation: OperationRecord,
-        step: StepRecord,
-        transaction_now: datetime,
-    ) -> StepRecord:
-        candidate = inner(operation, step, transaction_now)
-        transaction = _active_submit_transaction.get()
-        if transaction is None:
-            raise SubmitJobError("submit checkpoint transaction is not bound")
-        _pin_submit_checkpoint_refs(
-            transaction,
-            step_id=step.step_id,
-            checkpoint_ref=checkpoint_ref,
-            extra_refs=extra_refs,
-            intent=intent,
-        )
-        return candidate
-
-    return builder
 
 
 def _make_successor_builder(
@@ -2696,7 +2737,10 @@ _ALLOWED_PAYLOAD_KEYS = frozenset(
         "canonical_business_digest",
         "source_artifact_refs",
         "preview_ready_closure_ref",
-        "snapshot_table_set_digest",
+        "canonical_table_set_closure_ref",
+        "canonical_table_set_closure_digest",
+        "canonicalization_manifest_ref",
+        "canonicalization_manifest_digest",
         "ruleset_version",
         "storage_projection_version",
         "canonicalization_manifest_contract_version",
@@ -2770,6 +2814,26 @@ def _decode_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
             raise PayloadDecodeError(f"{label} must contain non-empty strings", code="PAYLOAD_SHAPE_INVALID")
         decoded.append(item)
     return tuple(decoded)
+
+
+def _decode_checkpoint_string_tuple(value: object, *, label: str) -> tuple[str, ...]:
+    if type(value) is not list:
+        raise CheckpointDecodeError(f"{label} must be an array", code="CHECKPOINT_JOB_STATE_MISMATCH")
+    decoded: list[str] = []
+    for item in value:
+        if type(item) is not str or not item:
+            raise CheckpointDecodeError(
+                f"{label} must contain non-empty strings",
+                code="CHECKPOINT_JOB_STATE_MISMATCH",
+            )
+        decoded.append(item)
+    result = tuple(decoded)
+    if result != tuple(sorted(set(result), key=lambda name: name.encode("utf-8"))):
+        raise CheckpointDecodeError(
+            f"{label} must contain sorted unique strings",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return result
 
 
 def _decode_object_map(value: object, *, label: str) -> dict[str, object]:

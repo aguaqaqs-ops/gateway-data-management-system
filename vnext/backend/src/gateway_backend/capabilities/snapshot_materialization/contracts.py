@@ -6,7 +6,7 @@ Authority: docs/backend-vnext/refactoring/formal/plans/p3-r3-source-materializat
 S2 owns SQL Snapshot field tables, result/status pairing, and the
 materialize_sql_snapshot entrypoint. S3 owns business composition with
 composite_signal_point. S4 owns the RepositoryRef provider protocol and
-hidden FINAL summary readback. S5 owns SnapshotTableArtifact Parquet
+canonical binding. S5 owns SnapshotTableArtifact Parquet
 publish and cache trust validation.
 Downstream consumers may import this module only.
 """
@@ -30,7 +30,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SourceRow,
     XmlParseResult,
 )
-from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
+from gateway_backend.capabilities.table_rules.contracts import StorageRuleView, TableRulesetSnapshot
 if TYPE_CHECKING:
     import pyarrow as pa
 
@@ -168,10 +168,8 @@ class MaterializationDiagnosticCode(StrEnum):
     REPOSITORY_SNAPSHOT_DIGEST_MISMATCH = "REPOSITORY_SNAPSHOT_DIGEST_MISMATCH"
     REPOSITORY_SESSION_CLOSE_FAILED = "REPOSITORY_SESSION_CLOSE_FAILED"
     REPOSITORY_SCALAR_ENCODING_DIAGNOSTIC = "REPOSITORY_SCALAR_ENCODING_DIAGNOSTIC"
-    HIDDEN_SUMMARY_MISSING = "HIDDEN_SUMMARY_MISSING"
-    HIDDEN_SUMMARY_CORRUPT = "HIDDEN_SUMMARY_CORRUPT"
-    HIDDEN_SUMMARY_VERSION_MISMATCH = "HIDDEN_SUMMARY_VERSION_MISMATCH"
-    HIDDEN_SUMMARY_DIGEST_MISMATCH = "HIDDEN_SUMMARY_DIGEST_MISMATCH"
+    REPOSITORY_ROW_COUNT_MISMATCH = "REPOSITORY_ROW_COUNT_MISMATCH"
+    INITIAL_BASELINE_NOT_EMPTY = "INITIAL_BASELINE_NOT_EMPTY"
     RESERVED_PSEUDO_GID = "RESERVED_PSEUDO_GID"
 
 
@@ -188,8 +186,6 @@ class MaterializationDiagnostic:
     message: str
     table: str | None = None
     column: str | None = None
-    expected_digest_ref: DigestRef | None = None
-    observed_digest_ref: DigestRef | None = None
 
     def __post_init__(self) -> None:
         if type(self.code) is not MaterializationDiagnosticCode:
@@ -204,10 +200,6 @@ class MaterializationDiagnostic:
             raise ValueError("table must be a non-empty string or None")
         if self.column is not None and (type(self.column) is not str or self.column == ""):
             raise ValueError("column must be a non-empty string or None")
-        if self.expected_digest_ref is not None and type(self.expected_digest_ref) is not DigestRef:
-            raise ValueError("expected_digest_ref must be DigestRef or None")
-        if self.observed_digest_ref is not None and type(self.observed_digest_ref) is not DigestRef:
-            raise ValueError("observed_digest_ref must be DigestRef or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1309,51 +1301,34 @@ class RepositoryTableCatalog:
 
 
 @dataclass(frozen=True, slots=True)
-class HiddenFinalSummary:
-    snapshot_id: str
-    snapshot_digest: DigestRef
-    raw_state_digest: DigestRef
-    materialization_stage: MaterializationStage
-    parser_version: int
-    table_ruleset_version: int
-    summary_contract_version: int
-    scalar_encoding_version: int
-    snapshot_materialization_contract_version: int
-    digest_contract_version: int
-    tables: tuple[SnapshotTableDescriptor, ...]
+class CanonicalBinding:
+    """Commit-side storage identity and ruleset provenance supplied by Application."""
+
+    storage_projection_version: str
+    ruleset_id: str
+    ruleset_version: str
+    ruleset_digest: DigestRef
+    tables: tuple[StorageRuleView, ...]
+    is_initial: bool = False
 
     def __post_init__(self) -> None:
-        _require_opaque_id(self.snapshot_id, "snapshot_id")
-        if type(self.snapshot_digest) is not DigestRef:
-            raise ValueError("snapshot_digest must be DigestRef")
-        if type(self.raw_state_digest) is not DigestRef:
-            raise ValueError("raw_state_digest must be DigestRef")
-        if type(self.materialization_stage) is not MaterializationStage:
-            raise ValueError("materialization_stage must be MaterializationStage")
-        if type(self.parser_version) is not int or self.parser_version < 1:
-            raise ValueError("parser_version must be a positive int")
-        if type(self.table_ruleset_version) is not int or self.table_ruleset_version < 1:
-            raise ValueError("table_ruleset_version must be a positive int")
-        if type(self.summary_contract_version) is not int or self.summary_contract_version < 1:
-            raise ValueError("summary_contract_version must be a positive int")
-        if type(self.scalar_encoding_version) is not int or self.scalar_encoding_version < 1:
-            raise ValueError("scalar_encoding_version must be a positive int")
-        if (
-            type(self.snapshot_materialization_contract_version) is not int
-            or self.snapshot_materialization_contract_version < 1
+        for value, label in (
+            (self.storage_projection_version, "storage_projection_version"),
+            (self.ruleset_id, "ruleset_id"),
+            (self.ruleset_version, "ruleset_version"),
         ):
-            raise ValueError("snapshot_materialization_contract_version must be a positive int")
-        if type(self.digest_contract_version) is not int or self.digest_contract_version < 1:
-            raise ValueError("digest_contract_version must be a positive int")
-        if type(self.tables) is not tuple:
-            raise ValueError("tables must be a tuple")
-        seen: set[str] = set()
-        for table in self.tables:
-            if type(table) is not SnapshotTableDescriptor:
-                raise ValueError("tables must contain SnapshotTableDescriptor")
-            if table.table_name in seen:
-                raise ValueError("hidden summary tables must not repeat table_name")
-            seen.add(table.table_name)
+            _require_non_empty(value, label)
+        if type(self.ruleset_digest) is not DigestRef:
+            raise ValueError("ruleset_digest must be DigestRef")
+        if type(self.tables) is not tuple or any(type(item) is not StorageRuleView for item in self.tables):
+            raise ValueError("tables must contain StorageRuleView")
+        names = tuple(item.canonical_table for item in self.tables)
+        if names != tuple(sorted(names, key=lambda item: item.encode(_UTF8))) or len(set(names)) != len(names):
+            raise ValueError("tables must use sorted unique canonical names")
+        if type(self.is_initial) is not bool:
+            raise ValueError("is_initial must be bool")
+        if self.is_initial and self.tables:
+            raise ValueError("INITIAL canonical binding must not contain tables")
 
 
 @runtime_checkable
@@ -1378,9 +1353,6 @@ class RepositoryRefSession(Protocol):
 
     def get_catalog(self) -> RepositoryTableCatalog:
         """Eager-load and memoize the business-table catalog."""
-
-    def read_hidden_summary(self) -> HiddenFinalSummary | None:
-        """Return the hidden FINAL summary, or None when missing."""
 
     def open_table_reader(self, table_name: str) -> RepositoryTableReader:
         """Open a tuple reader for a catalog table."""
@@ -1407,6 +1379,7 @@ class RepositoryRefMaterializationRequest:
     repository_ref: RepositoryRef
     provider: RepositoryTableAccessProvider
     ruleset: TableRulesetSnapshot
+    canonical_binding: CanonicalBinding
     table_ruleset_version: int
     materialization_stage: MaterializationStage
     policy: MaterializationPolicy
@@ -1426,6 +1399,8 @@ class RepositoryRefMaterializationRequest:
             raise ValueError("provider must implement RepositoryTableAccessProvider")
         if type(self.ruleset) is not TableRulesetSnapshot:
             raise ValueError("ruleset must be TableRulesetSnapshot")
+        if type(self.canonical_binding) is not CanonicalBinding:
+            raise ValueError("canonical_binding must be CanonicalBinding")
         if type(self.table_ruleset_version) is not int or self.table_ruleset_version < 1:
             raise ValueError("table_ruleset_version must be a positive int")
         if self.materialization_stage is not MaterializationStage.FINAL:

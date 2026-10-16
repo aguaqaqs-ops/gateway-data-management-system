@@ -311,20 +311,24 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(snapshot_digest) = 'text' AND length(snapshot_digest) BETWEEN 1 AND 512),
         source_artifact_refs BLOB NOT NULL
             CHECK (typeof(source_artifact_refs) = 'blob'),
-        snapshot_table_artifact_refs BLOB NOT NULL
-            CHECK (typeof(snapshot_table_artifact_refs) = 'blob'),
+        canonical_table_set_closure_ref TEXT NOT NULL
+            CHECK (typeof(canonical_table_set_closure_ref) = 'text' AND length(canonical_table_set_closure_ref) BETWEEN 1 AND 255),
+        canonical_table_set_closure_digest TEXT NOT NULL
+            CHECK (typeof(canonical_table_set_closure_digest) = 'text' AND length(canonical_table_set_closure_digest) BETWEEN 1 AND 512),
         preview_ready_closure_ref TEXT NOT NULL
             CHECK
                 (typeof(preview_ready_closure_ref) = 'text' AND length(preview_ready_closure_ref) BETWEEN 1 AND 255),
         preview_ready_closure_digest TEXT NOT NULL
             CHECK
                 (typeof(preview_ready_closure_digest) = 'text' AND length(preview_ready_closure_digest) BETWEEN 1 AND 512),
-        canonicalization_manifest_ref TEXT
-            CHECK
-                (canonicalization_manifest_ref IS NULL OR (typeof(canonicalization_manifest_ref) = 'text' AND length(canonicalization_manifest_ref) BETWEEN 1 AND 255)),
-        canonicalization_manifest_digest TEXT
-            CHECK
-                (canonicalization_manifest_digest IS NULL OR (typeof(canonicalization_manifest_digest) = 'text' AND length(canonicalization_manifest_digest) BETWEEN 1 AND 512)),
+        canonicalization_manifest_ref TEXT NOT NULL
+            CHECK (typeof(canonicalization_manifest_ref) = 'text' AND length(canonicalization_manifest_ref) BETWEEN 1 AND 255),
+        canonicalization_manifest_digest TEXT NOT NULL
+            CHECK (typeof(canonicalization_manifest_digest) = 'text' AND length(canonicalization_manifest_digest) BETWEEN 1 AND 512),
+        prepared_canonicalization_manifest_ref TEXT
+            CHECK (prepared_canonicalization_manifest_ref IS NULL OR (typeof(prepared_canonicalization_manifest_ref) = 'text' AND length(prepared_canonicalization_manifest_ref) BETWEEN 1 AND 255)),
+        prepared_canonicalization_manifest_digest TEXT
+            CHECK (prepared_canonicalization_manifest_digest IS NULL OR (typeof(prepared_canonicalization_manifest_digest) = 'text' AND length(prepared_canonicalization_manifest_digest) BETWEEN 1 AND 512)),
         repository_import_artifact_ref BLOB
             CHECK (repository_import_artifact_ref IS NULL OR typeof(repository_import_artifact_ref) = 'blob'),
         repository_artifact_ref BLOB
@@ -450,6 +454,11 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE INDEX submission_records_archive_candidate_lookup ON
         submission_records(repository_id, based_on_baseline_node_id, submission_id)
+    """,
+
+    """
+    CREATE INDEX submission_records_repository_commit ON
+        submission_records(repository_id, repository_commit_id)
     """,
 
     """
@@ -858,49 +867,6 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE UNIQUE INDEX history_compare_acceptance_scope_idempotency ON
         history_compare_acceptance_records( gateway_device_external_key, business_project_id, idempotency_key )
-    """,
-
-    """
-    CREATE TABLE history_compare_integrity_records (
-        incident_id TEXT NOT NULL PRIMARY KEY
-            CHECK (typeof(incident_id) = 'text' AND length(CAST(incident_id AS BLOB)) BETWEEN 1 AND 255),
-        operation_id TEXT NOT NULL UNIQUE
-            CHECK (typeof(operation_id) = 'text' AND length(CAST(operation_id AS BLOB)) BETWEEN 1 AND 255),
-        repository_id TEXT NOT NULL
-            CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
-        commit_refs_json TEXT NOT NULL
-            CHECK (typeof(commit_refs_json) = 'text'),
-        failure_class TEXT NOT NULL
-            CHECK (typeof(failure_class) = 'text' AND length(CAST(failure_class AS BLOB)) BETWEEN 1 AND 255),
-        expected_digest TEXT NOT NULL
-            CHECK (typeof(expected_digest) = 'text' AND length(CAST(expected_digest AS BLOB)) BETWEEN 1 AND 255),
-        observed_digest TEXT NOT NULL
-            CHECK (typeof(observed_digest) = 'text' AND length(CAST(observed_digest AS BLOB)) BETWEEN 1 AND 255),
-        affected_tables_json TEXT NOT NULL
-            CHECK (typeof(affected_tables_json) = 'text'),
-        recommended_action TEXT NOT NULL
-            CHECK
-                (typeof(recommended_action) = 'text' AND length(CAST(recommended_action AS BLOB)) BETWEEN 1 AND 255),
-        first_seen_at_us INTEGER NOT NULL
-            CHECK (typeof(first_seen_at_us) = 'integer'),
-        last_seen_at_us INTEGER NOT NULL
-            CHECK (typeof(last_seen_at_us) = 'integer'),
-        acknowledgement_status TEXT NOT NULL
-            CHECK
-                (typeof(acknowledgement_status) = 'text' AND acknowledgement_status IN ('PENDING', 'ACKNOWLEDGED')),
-        resolution_reference TEXT
-            CHECK
-                (resolution_reference IS NULL OR (typeof(resolution_reference) = 'text' AND length(CAST(resolution_reference AS BLOB)) BETWEEN 1 AND 255)),
-        created_at_us INTEGER NOT NULL
-            CHECK (typeof(created_at_us) = 'integer'),
-        updated_at_us INTEGER NOT NULL
-            CHECK (typeof(updated_at_us) = 'integer')
-    )
-    """,
-
-    """
-    CREATE INDEX history_compare_integrity_pending_commit ON
-        history_compare_integrity_records( repository_id, acknowledgement_status )
     """,
 
     # Artifact protection.

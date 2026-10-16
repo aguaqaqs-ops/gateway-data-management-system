@@ -38,8 +38,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 STORAGE_PROJECTION_VERSION = TABLE_RULES_STORAGE_PROJECTION_VERSION
-CANONICALIZATION_MANIFEST_CONTRACT = "3.1.0"
-_READABLE_CANONICALIZATION_MANIFEST_CONTRACTS = frozenset({"3.0.0", "3.1.0"})
+CANONICALIZATION_MANIFEST_CONTRACT = "3.2.0"
 CANONICALIZATION_MANIFEST_MEDIA_TYPE = "application/json"
 REPOSITORY_IMPORT_MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 PACKAGE_VERSION = 1
@@ -131,6 +130,7 @@ class ProjectionTableInput:
     reader: SnapshotTableReader
     source_binding: ArtifactSourceBinding
     artifact: SnapshotTableArtifact | None = None
+    canonicalized_input: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
@@ -142,6 +142,8 @@ class ProjectionTableInput:
             raise ValueError("source_binding requires snapshot_digest")
         if self.source_binding.descriptor.table_name != self.canonical_table:
             raise ValueError("source_binding descriptor table_name must match canonical_table")
+        if type(self.canonicalized_input) is not bool:
+            raise ValueError("canonicalized_input must be bool")
         if self.artifact is not None:
             if type(self.artifact) is not SnapshotTableArtifact:
                 raise ValueError("artifact must be SnapshotTableArtifact or None")
@@ -163,7 +165,7 @@ class ProjectionRequest:
         if type(self.ruleset) is not TableRulesetSnapshot:
             raise ValueError("ruleset must be TableRulesetSnapshot")
         if self.storage_projection_version != STORAGE_PROJECTION_VERSION:
-            raise ValueError("storage_projection_version must be 1")
+            raise ValueError(f"storage_projection_version must be {STORAGE_PROJECTION_VERSION}")
         if self.ruleset.storage_projection_version != self.storage_projection_version:
             raise ValueError("ruleset storage_projection_version must match the request")
         if self.ruleset.ruleset_digest is None:
@@ -293,14 +295,15 @@ class CanonicalizationManifest:
     manifest_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
-        if self.contract_version not in _READABLE_CANONICALIZATION_MANIFEST_CONTRACTS:
-            raise ValueError("contract_version must be a supported CanonicalizationManifest version")
-        if self.storage_projection_version != STORAGE_PROJECTION_VERSION:
-            raise ValueError("storage_projection_version must be 1")
+        for value, label in (
+            (self.contract_version, "contract_version"),
+            (self.storage_projection_version, "storage_projection_version"),
+            (self.ruleset_version, "ruleset_version"),
+        ):
+            if type(value) is not str or value == "":
+                raise ValueError(f"{label} must be a non-empty string")
         if self.ruleset_id != RULESET_ID:
             raise ValueError("ruleset_id must be backend-vnext/table-ruleset")
-        if self.ruleset_version != RULESET_VERSION:
-            raise ValueError("ruleset_version must be v2")
         if type(self.ruleset_digest) is not DigestRef:
             raise ValueError("ruleset_digest must be DigestRef")
         if type(self.source_artifact_digest) is not DigestRef:

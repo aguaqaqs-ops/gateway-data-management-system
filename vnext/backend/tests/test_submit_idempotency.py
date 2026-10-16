@@ -22,10 +22,8 @@ from tests.test_submit_application import (
     BASELINE_HEAD,
     PREVIEW_READY_CLOSURE_DIGEST,
     PREVIEW_RESULT,
-    SNAPSHOT_TABLE_ARTIFACT_REFS,
     WORKSPACE,
     SubmitApplicationHarness,
-    build_accept_fingerprint,
     make_accept_command,
     make_submit_application_harness,
 )
@@ -50,8 +48,9 @@ def test_derive_repository_effect_keys_are_deterministic_and_distinct() -> None:
 
 
 def test_compute_accept_request_fingerprint_is_deterministic() -> None:
-    first = build_accept_fingerprint(repository_expected_commit_id="commit-main")
-    second = build_accept_fingerprint(repository_expected_commit_id="commit-main")
+    common = _fingerprint_inputs()
+    first = compute_accept_request_fingerprint(**cast(Any, common))
+    second = compute_accept_request_fingerprint(**cast(Any, common))
 
     assert first == second
     assert first.startswith("sha256:")
@@ -62,7 +61,46 @@ FINGERPRINT_INPUT_CASES = (
     ("source_digest", "d-source", "d-source-other"),
     ("snapshot_digest", "d-snapshot", "d-snapshot-other"),
     ("preview_ready_closure_digest", "d-closure", "d-closure-other"),
+    ("canonical_table_set_closure_digest", "closure-digest", "closure-digest-other"),
+    ("canonicalization_manifest_digest", "manifest-digest", "manifest-digest-other"),
 )
+
+
+def _fingerprint_inputs() -> dict[str, object]:
+    return {
+        "workspace_id": WORKSPACE.workspace_id,
+        "owner_actor_id": WORKSPACE.owner_actor_id,
+        "gateway_device_external_key": WORKSPACE.gateway_device_external_key,
+        "business_project_id": WORKSPACE.business_project_id,
+        "repository_id": WORKSPACE.repository_id,
+        "expected_workspace_version": WORKSPACE.optimistic_version,
+        "upload_revision_id": PREVIEW_RESULT.upload_revision_id,
+        "preview_result_id": PREVIEW_RESULT.preview_result_id,
+        "generation": PREVIEW_RESULT.generation,
+        "expected_baseline_node_id": BASELINE_HEAD.business_baseline_node_id,
+        "expected_baseline_head_version": BASELINE_HEAD.baseline_head_version,
+        "business_baseline_commit_id": BASELINE_HEAD.business_baseline_commit_id,
+        "canonical_business_digest": PREVIEW_RESULT.canonical.modified_canonical_state_digest.value,
+        "source_digest": PREVIEW_RESULT.digests.source_digest,
+        "snapshot_digest": PREVIEW_RESULT.digests.snapshot_digest,
+        "source_artifact_refs": ("initial-1", "modified-1"),
+        "canonical_table_set_closure_ref": (
+            PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
+        ),
+        "canonical_table_set_closure_digest": (
+            PREVIEW_RESULT.canonical.canonical_table_set_closure_digest.value
+        ),
+        "canonicalization_manifest_ref": (
+            PREVIEW_RESULT.canonical.canonicalization_manifest_ref.artifact_id
+        ),
+        "canonicalization_manifest_digest": (
+            PREVIEW_RESULT.canonical.canonicalization_manifest_digest.value
+        ),
+        "preview_ready_closure_ref": PREVIEW_RESULT.ready_closure_artifact_id,
+        "preview_ready_closure_digest": PREVIEW_READY_CLOSURE_DIGEST,
+        "repository_expected_commit_id": "commit-main",
+        "options": {},
+    }
 
 
 @pytest.mark.parametrize(("field_name", "baseline_value", "other_value"), FINGERPRINT_INPUT_CASES)
@@ -71,29 +109,7 @@ def test_compute_accept_request_fingerprint_changes_when_server_facts_change(
     baseline_value: str,
     other_value: str,
 ) -> None:
-    common = dict(
-        workspace_id=WORKSPACE.workspace_id,
-        owner_actor_id=WORKSPACE.owner_actor_id,
-        gateway_device_external_key=WORKSPACE.gateway_device_external_key,
-        business_project_id=WORKSPACE.business_project_id,
-        repository_id=WORKSPACE.repository_id,
-        expected_workspace_version=WORKSPACE.optimistic_version,
-        upload_revision_id=PREVIEW_RESULT.upload_revision_id,
-        preview_result_id=PREVIEW_RESULT.preview_result_id,
-        generation=PREVIEW_RESULT.generation,
-        expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
-        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-        canonical_business_digest=PREVIEW_RESULT.digests.bundle_digest,
-        source_digest=PREVIEW_RESULT.digests.source_digest,
-        snapshot_digest=PREVIEW_RESULT.digests.snapshot_digest,
-        source_artifact_refs=("initial-1", "modified-1"),
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
-        preview_ready_closure_ref=PREVIEW_RESULT.ready_closure_artifact_id,
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
-        repository_expected_commit_id="commit-main",
-        options={},
-    )
+    common = _fingerprint_inputs()
     baseline = compute_accept_request_fingerprint(
         **cast(Any, {**common, field_name: baseline_value})
     )
@@ -105,29 +121,7 @@ def test_compute_accept_request_fingerprint_changes_when_server_facts_change(
 
 
 def test_compute_accept_request_fingerprint_requires_closure_digest_not_ref_only() -> None:
-    shared = dict(
-        workspace_id=WORKSPACE.workspace_id,
-        owner_actor_id=WORKSPACE.owner_actor_id,
-        gateway_device_external_key=WORKSPACE.gateway_device_external_key,
-        business_project_id=WORKSPACE.business_project_id,
-        repository_id=WORKSPACE.repository_id,
-        expected_workspace_version=WORKSPACE.optimistic_version,
-        upload_revision_id=PREVIEW_RESULT.upload_revision_id,
-        preview_result_id=PREVIEW_RESULT.preview_result_id,
-        generation=PREVIEW_RESULT.generation,
-        expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
-        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
-        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
-        canonical_business_digest=PREVIEW_RESULT.digests.bundle_digest,
-        source_digest=PREVIEW_RESULT.digests.source_digest,
-        snapshot_digest=PREVIEW_RESULT.digests.snapshot_digest,
-        source_artifact_refs=("initial-1", "modified-1"),
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
-        preview_ready_closure_ref=PREVIEW_RESULT.ready_closure_artifact_id,
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
-        repository_expected_commit_id="commit-main",
-        options={},
-    )
+    shared = _fingerprint_inputs()
     baseline = compute_accept_request_fingerprint(**cast(Any, shared))
     changed_digest = compute_accept_request_fingerprint(
         **cast(
@@ -160,7 +154,6 @@ def test_compute_new_accept_fingerprint_rejects_empty_closure_digest(
             upload_revision=upload_revision,
             baseline_head=BASELINE_HEAD,
             repository_expected_commit_id="commit-main",
-            snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
             preview_ready_closure_digest="",
         )
 
@@ -178,9 +171,10 @@ def test_validate_accept_submit_rejects_empty_closure_digest(
             workspace_repository=harness.workspace_repository,
             submission_repository=harness.submission_repository,
             occupancy=harness.occupancy,
-            baseline_digest=harness.baseline_digest,
             main_resolve=harness.main_resolve,
-            snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+            current_storage_projection_ruleset_digest=(
+                PREVIEW_RESULT.canonical.storage_projection_ruleset_digest.value
+            ),
             preview_ready_closure_digest="",
         )
 
@@ -268,12 +262,16 @@ def test_compute_new_and_replay_fingerprints_match_seeded_attempt(
         upload_revision=upload_revision,
         baseline_head=BASELINE_HEAD,
         repository_expected_commit_id="commit-main",
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
+    )
+    attempt_with_prepared_output = replace(
+        attempt,
+        prepared_canonicalization_manifest_ref="prepared-manifest-output",
+        prepared_canonicalization_manifest_digest="sha256:prepared-manifest-output",
     )
     replay_fingerprint = compute_replay_accept_fingerprint(
         command=command,
-        attempt=attempt,
+        attempt=attempt_with_prepared_output,
         workspace=WORKSPACE,
     )
 
@@ -298,7 +296,14 @@ def test_compute_accept_request_fingerprint_includes_scope_and_policy_constants(
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("initial-1", "modified-1"),
-        snapshot_table_artifact_refs=SNAPSHOT_TABLE_ARTIFACT_REFS,
+        canonical_table_set_closure_ref=(
+            PREVIEW_RESULT.canonical.canonical_table_set_closure_ref.artifact_id
+        ),
+        canonical_table_set_closure_digest=(
+            PREVIEW_RESULT.canonical.canonical_table_set_closure_digest.value
+        ),
+        canonicalization_manifest_ref=PREVIEW_RESULT.canonical.canonicalization_manifest_ref.artifact_id,
+        canonicalization_manifest_digest=PREVIEW_RESULT.canonical.canonicalization_manifest_digest.value,
         preview_ready_closure_ref="closure-1",
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         repository_expected_commit_id="commit-main",

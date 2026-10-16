@@ -10,7 +10,7 @@ from gateway_backend.application.job_definitions import JobDefinitionLookupError
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     assert_accept_preflight_post_noop_guards,
-    assert_no_canonical_change_after_baseline,
+    assert_no_canonical_change,
     evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
     validate_accept_submit_with_frozen,
@@ -31,7 +31,6 @@ from gateway_backend.application.submission.job_payload import (
     build_submit_job_payload,
 )
 from gateway_backend.application.submission.ports import (
-    BaselineCanonicalDigestPort,
     RepositoryMainResolvePort,
     SubmitControlTransaction,
     SubmitControlUnitOfWorkFactory,
@@ -65,13 +64,11 @@ _SUBMIT_JOB_STEPS = (SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT, SUBMIT_STEP_AWAIT)
 
 @dataclass(frozen=True, slots=True)
 class AcceptSubmitPreflight:
-    snapshot_table_artifact_refs: tuple[str, ...]
     preview_ready_closure_digest: str
     preview_operation_id: str
     protected_artifact_refs: tuple[ArtifactRef, ...]
-    snapshot_table_set_digest: str
+    current_storage_projection_ruleset_digest: str
     resolved_repository_id: str | None = None
-    baseline_canonical_digest: str | None = None
     repository_expected_commit_id: str | None = None
 
 
@@ -111,7 +108,6 @@ def accept_submit_transaction(
     scope_resolution: ScopeResolutionPort,
     unit_of_work_factory: SubmitControlUnitOfWorkFactory,
     job_registry: JobDefinitionRegistry,
-    baseline_digest: BaselineCanonicalDigestPort,
     main_resolve: RepositoryMainResolvePort,
     preflight: AcceptSubmitPreflight,
     now: datetime,
@@ -136,31 +132,21 @@ def accept_submit_transaction(
                 resolved_repository_id=resolved.repository_id,
                 baseline_head=resolved.baseline_head,
                 preview_ready_closure_digest=preflight.preview_ready_closure_digest,
+                current_storage_projection_ruleset_digest=(
+                    preflight.current_storage_projection_ruleset_digest
+                ),
             )
             repository_id = loaded.workspace.repository_id
 
     if not is_replay:
         evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
 
-        if preflight.baseline_canonical_digest is not None:
-            baseline_canonical_digest = preflight.baseline_canonical_digest
-        else:
-            baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
-                repository_id=repository_id,
-                baseline_head=resolved.baseline_head,
-                input_completeness=loaded.upload_revision.input_completeness,
-                ruleset_version=loaded.preview_result.ruleset_version,
-            )
-        assert_no_canonical_change_after_baseline(
-            loaded=loaded,
-            baseline_canonical_digest=baseline_canonical_digest,
-        )
+        assert_no_canonical_change(loaded=loaded)
         assert_accept_preflight_post_noop_guards(loaded=loaded)
 
         frozen = replace(
             preflight,
             resolved_repository_id=resolved.repository_id,
-            baseline_canonical_digest=baseline_canonical_digest,
             repository_expected_commit_id=main_resolve.resolve_main_expected_commit(
                 repository_id=repository_id
             ),
@@ -191,7 +177,6 @@ def _accept_submit_in_transaction(
     is_replay = prior_record is not None
     if not is_replay and (
         preflight.resolved_repository_id is None
-        or preflight.baseline_canonical_digest is None
         or preflight.repository_expected_commit_id is None
     ):
         raise PreviewBindingConflict("accept preflight is missing frozen repository facts")
@@ -199,9 +184,10 @@ def _accept_submit_in_transaction(
         command=command,
         unit_of_work=unit_of_work,
         preflight_baseline_head=preflight_baseline_head,
-        baseline_canonical_digest=preflight.baseline_canonical_digest or "",
         repository_expected_commit_id=preflight.repository_expected_commit_id or "",
-        snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
+        current_storage_projection_ruleset_digest=(
+            preflight.current_storage_projection_ruleset_digest
+        ),
         preview_ready_closure_digest=preflight.preview_ready_closure_digest,
     )
     if validation.replay and validation.prior_attempt is not None:
@@ -237,7 +223,6 @@ def _accept_submit_in_transaction(
     step_id = f"{operation_id}-step-1"
     job_payload = build_submit_job_payload(
         attempt=attempt,
-        snapshot_table_set_digest=preflight.snapshot_table_set_digest,
         options=command.options,
     )
     artifact_refs = _artifact_refs_for_attempt(attempt, preflight.protected_artifact_refs)
@@ -320,7 +305,7 @@ def _accept_submit_in_transaction(
     )
     if artifact_refs:
         unit_of_work.set_artifact_protection(
-            artifact_refs,
+            preflight.protected_artifact_refs,
             owner_kind="submit-attempt",
             owner_id=submit_attempt_id,
             intent="submit-attempt",
@@ -357,25 +342,29 @@ def _assert_preview_protection_matches(
         owner_id=preview_operation_id,
     )
     held_refs = preview_refs | operation_refs
-    if held_refs != expected_ids:
-        raise PreviewBindingConflict("preview artifact protection does not match preflight refs")
+    if not expected_ids.issubset(held_refs):
+        raise PreviewBindingConflict("preview artifact protection does not cover preflight refs")
 
 
 def _artifact_refs_for_attempt(
     attempt: SubmitAttempt,
     protected_refs: tuple[ArtifactRef, ...],
 ) -> tuple[ArtifactRef, ...]:
-    required_ids = frozenset(
-        (
-            *attempt.source_artifact_refs,
-            *attempt.snapshot_table_artifact_refs,
-            attempt.preview_ready_closure_ref,
+    required_ids = tuple(
+        dict.fromkeys(
+            (
+                *attempt.source_artifact_refs,
+                attempt.preview_ready_closure_ref,
+                attempt.canonical_table_set_closure_ref,
+                attempt.canonicalization_manifest_ref,
+            )
         )
     )
-    selected = tuple(ref for ref in protected_refs if ref.artifact_id in required_ids)
-    if frozenset(ref.artifact_id for ref in selected) != required_ids:
+    selected_ids = {ref.artifact_id for ref in protected_refs}
+    if not set(required_ids).issubset(selected_ids):
         raise PreviewBindingConflict("protected artifact refs do not cover attempt bindings")
-    return selected
+    refs_by_id = {ref.artifact_id: ref for ref in protected_refs}
+    return tuple(refs_by_id[artifact_id] for artifact_id in required_ids)
 
 
 def _build_prepared_attempt(
@@ -408,11 +397,20 @@ def _build_prepared_attempt(
         source_digest=preview.digests.source_digest,
         snapshot_digest=preview.digests.snapshot_digest,
         source_artifact_refs=source_refs,
-        snapshot_table_artifact_refs=preflight.snapshot_table_artifact_refs,
         preview_ready_closure_ref=preview.ready_closure_artifact_id,
         preview_ready_closure_digest=preflight.preview_ready_closure_digest,
-        canonicalization_manifest_ref=None,
-        canonicalization_manifest_digest=None,
+        canonical_table_set_closure_ref=(
+            preview.canonical.canonical_table_set_closure_ref.artifact_id
+        ),
+        canonical_table_set_closure_digest=(
+            preview.canonical.canonical_table_set_closure_digest.value
+        ),
+        canonicalization_manifest_ref=(
+            preview.canonical.canonicalization_manifest_ref.artifact_id
+        ),
+        canonicalization_manifest_digest=(
+            preview.canonical.canonicalization_manifest_digest.value
+        ),
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
         repository_operation_id=None,

@@ -156,7 +156,7 @@ GET  /v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog
 GET  /v1/repositories/{repository_id}/versioned/commits/{commit_id}/rows?table_name=...
 ```
 
-`{commit_id}` path segment使用canonical base64url（无padding）传输逻辑`CommitId`；OpenAPI以`pattern: ^[A-Za-z0-9_-]+$`与`maxLength: 5464`声明。`GetVersionedCatalog`成功JSON body不得超过`MAX_CATALOG_JSON_BYTES`（256 KiB）；超出时Service返回`503 SERVICE_NOT_READY`。`GetOperation`成功JSON body不得超过`MAX_OPERATION_JSON_BYTES`（256 KiB）；超出时Service返回`503 SERVICE_NOT_READY`。
+`{commit_id}` path segment使用canonical base64url（无padding）传输逻辑`CommitId`；OpenAPI以`pattern: ^[A-Za-z0-9_-]+$`与`maxLength: 5464`声明。`GetVersionedCatalog`成功JSON body不得超过`MAX_CATALOG_JSON_BYTES`（t4 v1 离线投影估算为 285,725 bytes；取 4 倍后向上取整到 MiB，故上限为 2,097,152 bytes）；超出时 Service 返回 HTTP `500 RESPONSE_LIMIT_EXCEEDED`。`GetOperation`成功JSON body不得超过`MAX_OPERATION_JSON_BYTES`（256 KiB）；超出时 Service 返回 HTTP `500 RESPONSE_LIMIT_EXCEEDED`。
 
 ```text
 GET  /healthz

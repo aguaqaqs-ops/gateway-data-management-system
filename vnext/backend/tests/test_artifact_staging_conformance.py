@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -21,7 +20,6 @@ from gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc impo
 from gateway_backend.capabilities.canonical_row_hash.compute import canonical_row_hashes_v1
 from tests.support.artifact_staging import (
     assert_minimal_ref_has_no_host_path,
-    durable_root,
     object_and_sidecar_paths,
     open_local_store,
     put_bytes,
@@ -129,22 +127,6 @@ def test_sidecar_replace_failure_does_not_publish_locatable_artifact(
     reopened = reopen_local_store(root)
     with pytest.raises(ManifestVerificationError, match="unknown artifact_id"):
         reopened.locate(ref)
-
-
-def test_tmp_path_cleanup_does_not_mutate_durable_integrity_incident(tmp_path: Path) -> None:
-    durable = durable_root(tmp_path)
-    durable.mkdir()
-    incident = durable / "integrity-incident.json"
-    original = b'{"status":"MANUAL_RECOVERY_REQUIRED"}'
-    incident.write_bytes(original)
-
-    root = staging_root(tmp_path)
-    store = open_local_store(root)
-    put_bytes(store, OPAQUE_BYTES, artifact_id=OPAQUE_ARTIFACT_ID)
-    shutil.rmtree(root)
-
-    assert incident.read_bytes() == original
-    assert not root.exists()
 
 
 def test_raw_transport_digest_is_independent_of_owner_content_digest(tmp_path: Path) -> None:

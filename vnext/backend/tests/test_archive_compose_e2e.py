@@ -30,6 +30,11 @@ from tests.support.compose_gate_harness import (
     start_three_container_stack,
     wait_http_ok,
 )
+from tests.support.upload_http_packages import (
+    KEYLESS_FALLBACK_BASE_ROWS,
+    KEYLESS_FALLBACK_TABLE,
+    keyless_fallback_upload_files,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
@@ -174,6 +179,7 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             initial_commit_id=initial_commit_id,
             journey_key_prefix="compose-a",
             token=SESSION_TOKEN,
+            upload_files_factory=lambda version: keyless_fallback_upload_files(version),
         )
         with httpx.Client(
             base_url=BACKEND_URL,
@@ -389,6 +395,67 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                 },
             )
             assert restarted_audit.status_code == 200, restarted_audit.text
+
+        repeated = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=main_after_a,
+            journey_key_prefix="compose-post-archive-same-upload",
+            token=SESSION_TOKEN,
+            expected_baseline_node_id=str(started["baseline_node_id"]),
+            expected_baseline_head_version=int(started["baseline_head_version"]),
+            expected_submit_code="NO_CANONICAL_CHANGE",
+            upload_files_factory=lambda version: keyless_fallback_upload_files(version),
+        )
+        assert repeated["submit_error_code"] == "NO_CANONICAL_CHANGE"
+        summaries = cast(list[dict[str, Any]], repeated["preview_summaries"])
+        assert summaries
+        for summary in summaries:
+            assert int(summary["table_count"]) > 0
+            assert int(summary["changed_table_count"]) == 0
+            assert int(summary["degraded_table_count"]) == 0
+            assert int(summary["failed_table_count"]) == 0
+        repeated_surfaces = cast(list[dict[str, Any]], repeated["preview_surfaces"])
+        repeated_tables = [
+            table
+            for surface in repeated_surfaces
+            for table in cast(list[dict[str, Any]], surface["tables"])
+        ]
+        keyless_unchanged = next(
+            table
+            for table in repeated_tables
+            if table["table_name"] == KEYLESS_FALLBACK_TABLE
+        )
+        assert keyless_unchanged["change_kind"] == "UNCHANGED"
+        assert keyless_unchanged["row_change_stats"]["row_added_count"] == 0
+        assert keyless_unchanged["row_change_stats"]["row_deleted_count"] == 0
+        assert "KEYLESS_FALLBACK" in keyless_unchanged["diagnostics"]["diagnostics_summary"]
+
+        changed_rows = (*KEYLESS_FALLBACK_BASE_ROWS[:-1], "changed")
+        changed_preview = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=str(started["baseline_commit_id"]),
+            journey_key_prefix="compose-post-archive-keyless-change",
+            token=ACTOR2_TOKEN,
+            expected_baseline_node_id=str(started["baseline_node_id"]),
+            expected_baseline_head_version=int(started["baseline_head_version"]),
+            preview_only=True,
+            upload_files_factory=lambda version: keyless_fallback_upload_files(
+                version,
+                initial_rows=KEYLESS_FALLBACK_BASE_ROWS,
+                modified_rows=changed_rows,
+            ),
+        )
+        changed_surfaces = cast(list[dict[str, Any]], changed_preview["preview_surfaces"])
+        keyless_changed = next(
+            table
+            for surface in changed_surfaces
+            if surface["surface_id"] == "surface-initial_to_modified"
+            for table in cast(list[dict[str, Any]], surface["tables"])
+            if table["table_name"] == KEYLESS_FALLBACK_TABLE
+        )
+        assert keyless_changed["row_change_stats"]["row_added_count"] == 1
+        assert keyless_changed["row_change_stats"]["row_deleted_count"] == 1
+        assert keyless_changed["row_change_stats"]["row_modified_count"] == 0
     finally:
         provenance_path = persist_compose_gate_provenance(env, provenance)
         print(f"compose gate provenance written to {provenance_path}")

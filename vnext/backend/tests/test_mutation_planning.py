@@ -32,6 +32,9 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationTableSnapshot,
     RowMutationOperation,
 )
+from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import (
+    render_change_set_replay,
+)
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
 from tests.support.mutation_contracts import (
     digest,
@@ -594,6 +597,71 @@ def test_non_keyed_table_with_row_changes_rebuilds() -> None:
     assert result.status is MutationPlanStatus.READY
     assert result.plan is not None
     assert result.plan.table_summaries[0].operation is TableMutationKind.REBUILD_TABLE
+
+
+def test_keyless_multiset_changes_rebuild_and_identical_multisets_are_noop() -> None:
+    before = _keyless_snapshot(_keyless_rows("9", "9", "1"))
+    same = _keyless_snapshot(_keyless_rows("1", "9", "9"))
+    changed = _keyless_snapshot(_keyless_rows("0", "9", "9"))
+
+    unchanged_result = _plan(
+        planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(before,),
+            after_tables=(same,),
+        )
+    )
+    assert unchanged_result.status is MutationPlanStatus.NOOP
+
+    changed_result = _plan(
+        planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(before,),
+            after_tables=(changed,),
+        )
+    )
+    assert changed_result.status is MutationPlanStatus.READY
+    assert changed_result.plan is not None
+    assert changed_result.plan.table_summaries[0].operation is TableMutationKind.REBUILD_TABLE
+    assert changed_result.plan.table_summaries[0].changed_row_count == 2
+    assert changed_result.change_set_closure is not None
+    rendered = render_change_set_replay(changed_result.change_set_closure)
+    assert rendered.status == "READY"
+    assert rendered.sql_bytes is not None
+    assert rendered.sql_bytes.count(b"DELETE FROM `orders`;") == 1
+    assert rendered.sql_bytes.count(b"INSERT INTO `orders`") == 1
+    assert rendered.sql_bytes.count(b"), (") == 2
+    assert rendered.sql_bytes.count(b", 9)") == 2
+    assert rendered.sql_bytes.count(b", 0)") == 1
+
+
+def _keyless_rows(*statuses: str) -> tuple[MutationKeyedRow, ...]:
+    rows = tuple(
+        replace(keyed_row(status=status), key=CanonicalStorageKey(columns=()))
+        for status in statuses
+    )
+    return tuple(sorted(rows, key=lambda row: row.row_digest.value))
+
+
+def _keyless_snapshot(rows: tuple[MutationKeyedRow, ...]) -> MutationTableSnapshot:
+    base = table_snapshot(rows=())
+    view = replace(
+        base.storage_view,
+        canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+        canonical_key_columns=(),
+    )
+    manifest_row = replace(
+        base.manifest_table,
+        source_row_count=len(rows),
+        canonical_row_count=len(rows),
+        canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+        canonical_key_columns=(),
+    )
+    return MutationTableSnapshot(
+        manifest_table=manifest_row,
+        storage_view=view,
+        rows=rows,
+    )
 
 
 def _collect_keys(value: object) -> set[str]:

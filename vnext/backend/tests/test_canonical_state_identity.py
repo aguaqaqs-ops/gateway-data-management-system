@@ -5,7 +5,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import DigestRef, Float32Scalar, Float64Scalar, raw_blob_digest
+
+from gateway_backend.capabilities.storage_projection import project_canonical_table_set
+from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 
 from gateway_backend.capabilities.storage_projection._digest import compute_schema_digest
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -16,7 +20,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     Snapshot,
     SnapshotSourceContext,
     SnapshotSummary,
+    SnapshotTable,
     SnapshotTableDescriptor,
+    SnapshotTableSet,
     SourceKind,
     SUMMARY_CONTRACT_VERSION,
     canonical_state_digest_of,
@@ -24,6 +30,14 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     snapshot_summary_from_document,
     snapshot_summary_to_document,
     snapshot_to_document,
+)
+from tests.support.storage_projection import (
+    as_row,
+    dummy_digest,
+    int_cell,
+    int_column,
+    table_input,
+    typed_column,
 )
 
 _ROW_DIGEST = raw_blob_digest(b"row-content")
@@ -194,6 +208,52 @@ def test_canonical_state_digest_is_unavailable_without_raw_content_digest() -> N
     )
 
     assert canonical_state_digest_of((provisional,)) is None
+
+
+@pytest.mark.parametrize(
+    ("sql_type", "negative_zero", "positive_zero"),
+    (
+        ("FLOAT", Float32Scalar(bits_hex="80000000"), Float32Scalar(bits_hex="00000000")),
+        (
+            "DOUBLE",
+            Float64Scalar(bits_hex="8000000000000000"),
+            Float64Scalar(bits_hex="0000000000000000"),
+        ),
+    ),
+)
+def test_canonical_state_digest_treats_signed_and_positive_float_zero_as_equal(
+    sql_type: str,
+    negative_zero: Float32Scalar | Float64Scalar,
+    positive_zero: Float32Scalar | Float64Scalar,
+) -> None:
+    def state_digest(value: Float32Scalar | Float64Scalar) -> DigestRef:
+        reader, binding = table_input(
+            "float_zero_state",
+            columns=(int_column("id"), typed_column("reading", sql_type)),
+            primary_key_columns=("id",),
+            rows=(as_row(int_cell(1), value),),
+            snapshot_digest=dummy_digest(),
+        )
+        raw_table_set = SnapshotTableSet(
+            snapshot_id="float-zero-state",
+            snapshot_digest=dummy_digest(),
+            table_ruleset_version=TABLE_RULESET_VERSION,
+            tables=(SnapshotTable(descriptor=binding.descriptor, reader=reader),),
+        )
+        projected = project_canonical_table_set(
+            raw_table_set,
+            migrated_table_ruleset_snapshot(),
+        )
+        assert projected.status.value == "COMPLETE", projected.diagnostics
+        digest = canonical_state_digest_of(tuple(table.descriptor for table in projected.tables))
+        assert digest is not None
+        for table in projected.tables:
+            if table.reader is not None:
+                table.reader.close()
+        reader.close()
+        return digest
+
+    assert state_digest(negative_zero) == state_digest(positive_zero)
 
 
 def test_snapshot_and_summary_documents_round_trip_and_validate_schema_digest() -> None:

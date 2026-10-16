@@ -291,13 +291,28 @@ def _tamper_checkpoint_semantically_same_length(
     *,
     local_store: object | None = None,
 ) -> None:
-    from gateway_backend.application.checkpoints import StepCheckpointEnvelope, load_checkpoint_envelope
-    from gateway_backend.artifacts import ArtifactRef
+    from gateway_backend.application.checkpoints import (
+        load_checkpoint_envelope,
+        load_checkpoint_state_artifact,
+    )
+    from gateway_backend.application.history.compare_jobs import (
+        HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+        HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+    )
+    from gateway_backend.artifacts import ArtifactRef, artifact_ref_from_dict
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+
     assert isinstance(ref, ArtifactRef)
     envelope = load_checkpoint_envelope(artifact_store, ref)
-    original_bytes = envelope.to_canonical_bytes()
-    job_state = dict(envelope.job_state)
-    assemble_state = dict(cast(dict[str, object], job_state["assemble_state"]))
+    state_ref = artifact_ref_from_dict(cast(dict[str, object], envelope.job_state["assemble_state_ref"]))
+    original_bytes = artifact_store.locate(state_ref)
+    state_document = load_checkpoint_state_artifact(
+        artifact_store,
+        state_ref,
+        document_type=HISTORY_COMPARE_ASSEMBLE_STATE_DOCUMENT_TYPE,
+        contract_version=HISTORY_COMPARE_ASSEMBLE_STATE_CONTRACT_VERSION,
+    )
+    assemble_state = dict(cast(dict[str, object], state_document["assemble_state"]))
     pairs = list(cast(list[object], assemble_state["pairs"]))
     pair0 = dict(cast(dict[str, object], pairs[0]))
     digest = str(pair0["comparison_digest"])
@@ -305,27 +320,18 @@ def _tamper_checkpoint_semantically_same_length(
     pair0["comparison_digest"] = digest[:-1] + replacement
     pairs[0] = pair0
     assemble_state["pairs"] = pairs
-    job_state["assemble_state"] = assemble_state
-    tampered = StepCheckpointEnvelope(
-        job_kind=envelope.job_kind,
-        step_name=envelope.step_name,
-        operation_id=envelope.operation_id,
-        job_contract_version=envelope.job_contract_version,
-        checkpoint_generation=envelope.checkpoint_generation,
-        prior_output_refs=envelope.prior_output_refs,
-        job_state=job_state,
-    )
-    tampered_bytes = tampered.to_canonical_bytes()
+    state_document["assemble_state"] = assemble_state
+    tampered_bytes = canonicalize_json_value(state_document)
     assert len(tampered_bytes) == len(original_bytes)
     if local_store is not None:
         from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
         assert isinstance(local_store, LocalArtifactStore)
-        target, _sidecar = local_store._validated_paths(ref.artifact_id)  # noqa: SLF001
+        target, _sidecar = local_store._validated_paths(state_ref.artifact_id)  # noqa: SLF001
         target.write_bytes(tampered_bytes)
         return
     memory_store = cast(InMemoryArtifactStore, artifact_store)
-    memory_store._artifacts[ref.artifact_id] = (ref, tampered_bytes)  # noqa: SLF001
+    memory_store._artifacts[state_ref.artifact_id] = (state_ref, tampered_bytes)  # noqa: SLF001
 
 
 def _history_env(
@@ -676,8 +682,14 @@ def test_get_history_compare_result_succeeded_matches_assemble_checkpoint(
         history_env.artifact_store._store,
         assemble_step.checkpoint_ref,
     )
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    from gateway_backend.application.history.compare_jobs import (
+        history_compare_assemble_state_from_checkpoint,
+    )
+
+    _state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(
+        envelope.job_state,
+        history_env.artifact_store._store,
+    )
 
     response = history_env.client.get(
         f"/v1/history-compares/{operation_id}",
@@ -965,110 +977,6 @@ def test_compare_result_decode_malformed_digest_returns_artifact_unavailable(
     assert response.json()["code"] == "ARTIFACT_UNAVAILABLE"
 
 
-def test_integrity_ack_route_requires_internal_bearer(db_path: Path, tmp_path: Path) -> None:
-    from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
-
-    seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
-    harness = build_history_compare_harness(
-        tmp_path,
-        db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
-        idempotency_key="history-compare-ack-http",
-    )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
-    history_env = _history_env(db_path.parent / "history-integrity-ack", db_path=db_path)
-    response = history_env.client.post(
-        f"/v1/history-compares/{harness.operation_id}/integrity-ack",
-        headers=history_env.auth_headers(),
-        json={
-            "acknowledgement_status": "ACKNOWLEDGED",
-            "resolution_reference": "ticket-401",
-        },
-    )
-    assert response.status_code == 401
-    assert response.json()["code"] == "AUTHENTICATION_REQUIRED"
-
-
-def test_integrity_ack_route_acknowledges_incident(db_path: Path, tmp_path: Path) -> None:
-    from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
-
-    seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
-    harness = build_history_compare_harness(
-        tmp_path,
-        db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
-        idempotency_key="history-compare-ack-200",
-    )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
-    history_env = _history_env(db_path.parent / "history-integrity-ack-200", db_path=db_path)
-    response = history_env.client.post(
-        f"/v1/history-compares/{harness.operation_id}/integrity-ack",
-        headers=history_env.internal_auth_headers(),
-        json={
-            "acknowledgement_status": "ACKNOWLEDGED",
-            "resolution_reference": "ticket-200",
-        },
-    )
-    assert response.status_code == 200
-    assert response.json()["acknowledgement_status"] == "ACKNOWLEDGED"
-    assert response.json()["resolution_reference"] == "ticket-200"
-
-
-def test_integrity_ack_route_rejects_resolution_change(db_path: Path, tmp_path: Path) -> None:
-    from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
-
-    seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
-    harness = build_history_compare_harness(
-        tmp_path,
-        db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
-        idempotency_key="history-compare-ack-409",
-    )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
-    history_env = _history_env(db_path.parent / "history-integrity-ack-409", db_path=db_path)
-    headers = history_env.internal_auth_headers()
-    first = history_env.client.post(
-        f"/v1/history-compares/{harness.operation_id}/integrity-ack",
-        headers=headers,
-        json={
-            "acknowledgement_status": "ACKNOWLEDGED",
-            "resolution_reference": "ticket-first",
-        },
-    )
-    second = history_env.client.post(
-        f"/v1/history-compares/{harness.operation_id}/integrity-ack",
-        headers=headers,
-        json={
-            "acknowledgement_status": "ACKNOWLEDGED",
-            "resolution_reference": "ticket-second",
-        },
-    )
-    assert first.status_code == 200
-    assert second.status_code == 409
-    assert second.json()["code"] == "IDEMPOTENCY_CONFLICT"
-
-
 def test_history_compare_accept_idempotency_conflict_on_changed_nodes(
     db_path: Path,
     tmp_path: Path,
@@ -1114,100 +1022,6 @@ def test_history_compare_accept_idempotency_conflict_on_changed_nodes(
     assert first.status_code == 202
     assert second.status_code == 409
     assert second.json()["code"] == "IDEMPOTENCY_CONFLICT"
-
-
-def test_integrity_ack_route_replays_same_resolution_reference(db_path: Path, tmp_path: Path) -> None:
-    from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
-    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_MATERIALIZE_HANDLER
-    from tests.support.history_compare_job_harness import (
-        build_history_compare_harness,
-        insert_history_compare_operation,
-        run_through_step,
-    )
-
-    seed_provisioned_mapping_with_head(db_path, baseline_head=BASELINE_HEAD)
-    harness = build_history_compare_harness(
-        tmp_path,
-        db_path=db_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
-        idempotency_key="history-compare-ack-replay",
-    )
-    insert_history_compare_operation(harness)
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
-    history_env = _history_env(db_path.parent / "history-integrity-ack-replay", db_path=db_path)
-    headers = history_env.internal_auth_headers()
-    payload = {
-        "acknowledgement_status": "ACKNOWLEDGED",
-        "resolution_reference": "ticket-replay",
-    }
-    first = history_env.client.post(
-        f"/v1/history-compares/{harness.operation_id}/integrity-ack",
-        headers=headers,
-        json=payload,
-    )
-    second = history_env.client.post(
-        f"/v1/history-compares/{harness.operation_id}/integrity-ack",
-        headers=headers,
-        json=payload,
-    )
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert second.json()["resolution_reference"] == "ticket-replay"
-
-
-def test_accept_history_compare_rejects_pending_integrity_incident(
-    db_path: Path,
-    tmp_path: Path,
-) -> None:
-    from datetime import UTC, datetime
-
-    from gateway_backend.application.history.contracts import (
-        HISTORY_INTEGRITY_FAILURE_CLASS,
-        HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-        HistoryCompareIntegrityRecord,
-        IntegrityAcknowledgementStatus,
-    )
-
-    review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(
-        review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-integrity-block"),
-    )
-    node_a, node_b = _seed_compare_nodes(db_path)
-    ts = datetime(2026, 9, 24, tzinfo=UTC)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.history_compare.save_integrity_record(
-            HistoryCompareIntegrityRecord(
-                incident_id="hci-http-block",
-                operation_id="op-other",
-                repository_id="repo-1",
-                commit_refs=({"commit_id": "commit-b"},),
-                failure_class=HISTORY_INTEGRITY_FAILURE_CLASS,
-                expected_digest="sha256:" + "a" * 64,
-                observed_digest="sha256:" + "b" * 64,
-                affected_tables=(),
-                recommended_action=HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-                first_seen_at=ts,
-                last_seen_at=ts,
-                acknowledgement_status=IntegrityAcknowledgementStatus.PENDING,
-                resolution_reference=None,
-                created_at=ts,
-                updated_at=ts,
-            )
-        )
-    history_env = _history_env(db_path.parent / "history-integrity-block", db_path=db_path)
-    response = history_env.client.post(
-        "/v1/history-compares",
-        headers=history_env.auth_headers(idempotency_key="compare-integrity-block"),
-        json={
-            "nodes": [
-                {"ref_kind": "baseline_node", "ref_id": node_a},
-                {"ref_kind": "baseline_node", "ref_id": node_b},
-            ]
-        },
-    )
-    assert response.status_code == 409
-    assert response.json()["code"] == "HISTORY_INTEGRITY_UNRESOLVED"
 
 
 def test_history_compare_cross_scope_node_returns_404_without_disclosure(

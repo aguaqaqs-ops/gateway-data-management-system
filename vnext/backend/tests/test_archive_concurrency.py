@@ -249,7 +249,6 @@ def test_concurrent_accept_submit_and_archive_start_linearized(db_path: Path) ->
     from gateway_backend.application.archive.start import StartArchiveResult
     from tests.support.workspace_fixtures import FixedScopeResolutionPort
     from tests.test_submit_transactions import (
-        FakeBaselineCanonicalDigestPort,
         RecordingMainResolvePort,
         _accept_command,
         _preflight,
@@ -274,7 +273,6 @@ def test_concurrent_accept_submit_and_archive_start_linearized(db_path: Path) ->
             ),
             unit_of_work_factory=_uow_factory(db_path),
             job_registry=_submit_job_registry(),
-            baseline_digest=FakeBaselineCanonicalDigestPort(),
             main_resolve=RecordingMainResolvePort(),
             preflight=_preflight(submit_seed),
             now=TS_ARCHIVE,

@@ -27,9 +27,9 @@ class HistoryCompareNodeNotFound(HistoryApplicationError):
     """Raised when a node ref cannot be resolved in the authorized scope."""
 
 
-class HistoryIntegrityUnresolved(HistoryApplicationError):
-    """Raised when a pending integrity incident blocks a new compare accept."""
+class HistoryCompareJobNotRegistered(HistoryApplicationError):
+    """History compare processing is not available in the active job registry."""
 
 
-class HistoryCompareIntegrityAckConflict(HistoryApplicationError):
-    """Raised when integrity acknowledgement resolution_reference conflicts."""
+class HistoryCompareAcceptanceUnavailable(HistoryApplicationError):
+    """History compare acceptance could not be formed from validated bindings."""

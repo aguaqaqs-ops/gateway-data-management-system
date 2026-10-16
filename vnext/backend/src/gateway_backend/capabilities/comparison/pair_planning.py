@@ -23,6 +23,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.table_rules import resolve_comparison_rule_view
 from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
     ComparisonRole,
     ComparisonRuleView,
     TableArtifactScope,
@@ -106,6 +107,12 @@ def _comparison_policy(
     storage_facts_before: ComparisonStorageFacts | None,
     storage_facts_current: ComparisonStorageFacts | None,
 ) -> _ComparisonTablePolicy:
+    keyless_fallback = view.comparison_role is ComparisonRole.STANDARD and any(
+        facts is not None
+        and facts.storage_rule_view.canonical_key_policy
+        is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+        for facts in (storage_facts_before, storage_facts_current)
+    )
     ordered_policy = None
     if view.comparison_role is ComparisonRole.ORDERED:
         ordered = view.ordered
@@ -135,7 +142,12 @@ def _comparison_policy(
     return _ComparisonTablePolicy(
         table_name=view.canonical_table,
         compare_excluded_columns=view.compare_excluded_columns,
-        keyless_policy=KeylessPolicy.DEGRADE_NO_COMPARE_KEY,
+        keyless_policy=(
+            KeylessPolicy.FULL_ROW_DIGEST_SET_DIFF
+            if keyless_fallback
+            else KeylessPolicy.DEGRADE_NO_COMPARE_KEY
+        ),
+        allow_keyless_key_transition=keyless_fallback,
         policy_version=view.comparison_rule_digest.value,
         ordered_policy=ordered_policy,
         effective_key_before=() if before_view is None else before_view.effective_key_columns,

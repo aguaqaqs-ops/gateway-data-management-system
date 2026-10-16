@@ -14,13 +14,31 @@ from gateway_backend.capabilities.comparison import (
     ComparisonFacts,
     ComparisonPlan,
     ComparisonRecordKind,
+    SchemaChangeSource,
     ComparisonTableFact,
     ComparisonTableStatus,
     DetailedFactsResult,
+    ComparisonStorageFacts,
     compare_plan,
     plan_comparison,
 )
-from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet, TableArtifactScope
+from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.capabilities.risk_evaluation import (
+    RiskEvaluationInput,
+    RiskEvaluationStatus,
+    RiskOptions,
+    RiskReasonCode,
+    RiskRulesetSnapshot,
+    V1_RISK_RULE_SPECS,
+    evaluate_risk,
+)
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    ComparisonRuleSet,
+    StorageRuleView,
+    TableArtifactScope,
+)
+from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     SnapshotTable,
@@ -77,7 +95,7 @@ class _BadReader:
         return None
 
     def reopen(self) -> _BadReader:
-        raise AssertionError("reopen must not be used by comparison core")
+        return _BadReader(self._descriptor)
 
 
 def _bound(sql: str) -> BoundSnapshotInput:
@@ -269,6 +287,83 @@ def test_keyless_table_degrades_without_a_safe_effective_key() -> None:
     assert all(record.record_kind is not ComparisonRecordKind.ROW_MODIFIED for record in table.records)
 
 
+def test_raw_primary_key_fallback_compares_keyless_rows_as_a_multiset() -> None:
+    before = _bound_with_fallback_facts(
+        "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('a'), ('same'), ('same');",
+        b"source-without-key",
+    )
+    unchanged = _bound_with_fallback_facts(
+        "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('same'), ('a'), ('same');",
+        b"source-without-key",
+    )
+    changed = _bound_with_fallback_facts(
+        "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('a'), ('same'), ('other');",
+        b"source-without-key",
+    )
+
+    unchanged_table = _one_table(_facts(_plan_from_bounds(before, unchanged)))
+    changed_facts = _facts(_plan_from_bounds(before, changed))
+    changed_table = _one_table(changed_facts)
+
+    assert unchanged_table.status is ComparisonTableStatus.UNCHANGED
+    assert changed_table.status is ComparisonTableStatus.MODIFIED
+    assert (changed_table.row_added_count, changed_table.row_deleted_count) == (1, 1)
+    assert changed_table.row_modified_count == 0
+    assert not any("KEY_DEGRADED" in item for item in changed_table.diagnostics)
+    assert all(
+        record.record_kind in {ComparisonRecordKind.ROW_ADDED, ComparisonRecordKind.ROW_DELETED}
+        for record in changed_table.records
+    )
+    risk = evaluate_risk(
+        RiskEvaluationInput(
+            comparison_facts=changed_facts,
+            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
+            risk_options=RiskOptions(),
+        ),
+        artifact_store=InMemoryArtifactStore(),
+    )
+    assert risk.status is RiskEvaluationStatus.READY
+    assert risk.risk_report is not None
+    assert RiskReasonCode.KEY_DEGRADED not in risk.risk_report.tables[0].reason_codes
+
+
+def test_keyless_fallback_table_addition_keeps_duplicate_row_occurrences() -> None:
+    current = _bound_with_fallback_facts(
+        "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('same'), ('same');",
+        b"source-without-key",
+    )
+
+    table = _one_table(_facts(_plan_from_bounds(_bound(""), current)))
+    added_records = tuple(
+        record
+        for record in table.records
+        if record.record_kind is ComparisonRecordKind.ROW_ADDED
+    )
+
+    assert table.status is ComparisonTableStatus.ADDED_TABLE
+    assert table.row_added_count == 2
+    assert len(added_records) == 2
+    assert len({record.row_identity for record in added_records}) == 2
+
+
+@pytest.mark.parametrize("primary_key_appears", (True, False), ids=("appears", "disappears"))
+def test_raw_primary_key_appearance_or_disappearance_is_a_source_schema_change(
+    primary_key_appears: bool,
+) -> None:
+    keyless_sql = "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('same');"
+    keyed_sql = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value VARCHAR(8) NULL); INSERT INTO t VALUES (1, 'same');"
+    keyless = _bound_with_fallback_facts(keyless_sql, b"source-keyless")
+    keyed = _bound_with_fallback_facts(keyed_sql, b"source-keyed")
+    before, current = (keyless, keyed) if primary_key_appears else (keyed, keyless)
+
+    table = _one_table(_facts(_plan_from_bounds(before, current)))
+
+    assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
+    assert table.schema_changes.change_source is SchemaChangeSource.SOURCE_SCHEMA
+    assert table.schema_changes.effective_compare_key_changed is False
+    assert not any("KEY_DEGRADED" in item for item in table.diagnostics)
+
+
 def test_update_only_suppresses_records_but_keeps_counts() -> None:
     before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1);"
     current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (2);"
@@ -417,3 +512,19 @@ def _plan_from_bounds(before: BoundSnapshotInput, current: BoundSnapshotInput) -
     )
     assert isinstance(plan, ComparisonPlan)
     return plan
+
+
+def _bound_with_fallback_facts(sql: str, source_schema: bytes) -> BoundSnapshotInput:
+    bound = _bound(sql)
+    descriptor = bound.summary.tables[0]
+    facts = ComparisonStorageFacts(
+        storage_rule_view=StorageRuleView(
+            canonical_table=descriptor.table_name,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+            ordered_policy=OrderedPolicy.NONE,
+            retained_columns=tuple(column.name for column in descriptor.columns),
+            canonical_key_columns=descriptor.primary_key_columns,
+        ),
+        source_schema_digest=raw_blob_digest(source_schema),
+    )
+    return replace(bound, storage_facts=(facts,))

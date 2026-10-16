@@ -45,7 +45,7 @@ def _base_payload(**overrides: object) -> dict[str, object]:
             SourceArtifactRole.MODIFIED.value: _BINDING["raw_sha256"],
         },
         "input_digest": "fp-preview",
-        "ruleset_version": "v2",
+        "ruleset_version": "v3",
         "comparison_ruleset_digest": _runtime_comparison_ruleset_digest(),
         "capability_contract_versions": {},
         "provider_versions": {},
@@ -127,7 +127,7 @@ def test_build_preview_job_payload_round_trips_through_decoder() -> None:
         initial_binding=initial,
         modified_binding=modified,
     )
-    from gateway_backend.http.orchestration.preview_acceptance import build_preview_job_payload
+    from gateway_backend.application.workspace.preview import build_preview_job_payload
 
     payload_bytes = build_preview_job_payload(
         workspace_id=WORKSPACE_ID,

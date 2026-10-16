@@ -356,7 +356,7 @@ def _snapshot_only_foo() -> TableRuleRecord:
         precedence_class=SelectorPrecedenceClass.SNAPSHOT_ONLY,
         static_role=TableStaticRole.SNAPSHOT_ONLY,
         table_storage=TableStorageDisposition.PROJECT,
-        canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY,
+        canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
         ordered_policy=OrderedPolicy.NONE,
     )
 

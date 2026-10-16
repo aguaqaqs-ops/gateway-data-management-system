@@ -16,7 +16,7 @@ from gateway_backend.application.submission.errors import (
 )
 from gateway_backend.application.submission.finalize import finalize_submit
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_AWAIT
-from gateway_backend.application.submission.ports import WorkspaceControlTransaction
+from gateway_backend.application.submission.ports import SubmitFinalizeControlTransaction
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.artifacts.types import ArtifactRef
@@ -47,7 +47,7 @@ class FinalizeSubmitTransactionRequest:
 def finalize_submit_transaction(
     *,
     request: FinalizeSubmitTransactionRequest,
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
 ) -> FinalizeSubmitResult:
     attempt = unit_of_work.submission.get_submit_attempt(request.submit_attempt_id)
     if attempt is None:
@@ -176,7 +176,7 @@ def finalize_submit_transaction(
 
 
 def _insert_finalize_review_seed(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     submission: Submission,
 ) -> None:
     event, projection = build_seed_projection(
@@ -191,7 +191,7 @@ def _insert_finalize_review_seed(
 
 
 def _assert_finalize_review_closure(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     submission_id: str,
 ) -> None:
     try:
@@ -203,7 +203,7 @@ def _assert_finalize_review_closure(
 
 
 def _assert_finalized_closure(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     *,
     attempt: SubmitAttempt,
     submission: Submission,
@@ -226,7 +226,7 @@ def _assert_finalized_closure(
 
 
 def _transfer_finalize_protection(
-    unit_of_work: WorkspaceControlTransaction,
+    unit_of_work: SubmitFinalizeControlTransaction,
     *,
     attempt: SubmitAttempt,
 ) -> None:
@@ -250,12 +250,12 @@ def _transfer_finalize_protection(
             owner_id=attempt.submit_attempt_id,
             intent="source-package",
         )
-    manifest_digest = attempt.canonicalization_manifest_digest
-    if attempt.canonicalization_manifest_ref is not None and manifest_digest is not None:
+    manifest_digest = attempt.prepared_canonicalization_manifest_digest
+    if attempt.prepared_canonicalization_manifest_ref is not None and manifest_digest is not None:
         unit_of_work.set_artifact_protection(
             (
                 ArtifactRef(
-                    artifact_id=attempt.canonicalization_manifest_ref,
+                    artifact_id=attempt.prepared_canonicalization_manifest_ref,
                     media_type="application/json",
                     size_bytes=0,
                     raw_sha256=DigestRef(manifest_digest),

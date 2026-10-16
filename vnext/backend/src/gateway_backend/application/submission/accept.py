@@ -21,7 +21,6 @@ from gateway_backend.application.submission.errors import (
     SubmitOccupancyConflict,
 )
 from gateway_backend.application.submission.ports import (
-    BaselineCanonicalDigestPort,
     RepositoryMainResolvePort,
     SubmitControlTransaction,
     SubmitOccupancyReadPort,
@@ -57,6 +56,7 @@ class AcceptPreflightLoadedFacts:
     workspace_occupancy_held: bool
     repository_occupancy_held: bool
     preview_ready_closure_digest: str
+    current_storage_projection_ruleset_digest: str
 
 
 def validate_accept_submit(
@@ -66,9 +66,8 @@ def validate_accept_submit(
     workspace_repository: WorkspaceRepository,
     submission_repository: SubmissionRepository,
     occupancy: SubmitOccupancyReadPort,
-    baseline_digest: BaselineCanonicalDigestPort,
     main_resolve: RepositoryMainResolvePort | None = None,
-    snapshot_table_artifact_refs: tuple[str, ...] = (),
+    current_storage_projection_ruleset_digest: str,
     preview_ready_closure_digest: str,
 ) -> AcceptSubmitValidationResult:
     assert_permission(command.context, PERMISSION_UPLOAD_SUBMIT)
@@ -95,17 +94,15 @@ def validate_accept_submit(
     preview_result = _load_preview_result(workspace_repository, command, upload_revision, workspace)
     baseline_head = resolved.baseline_head
     _assert_baseline_binding(command, baseline_head)
-    if derive_preview_staleness(preview_result, baseline_head):
+    if derive_preview_staleness(
+        preview_result,
+        baseline_head,
+        current_storage_projection_ruleset_digest,
+    ):
         raise PreviewDerivedStale
 
     preview_digest = preview_canonical_business_digest(preview_result)
-    baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
-        repository_id=workspace.repository_id,
-        baseline_head=baseline_head,
-        input_completeness=upload_revision.input_completeness,
-        ruleset_version=preview_result.ruleset_version,
-    )
-    if preview_digest == baseline_canonical_digest:
+    if preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
         raise NoCanonicalChange
 
     _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
@@ -123,7 +120,6 @@ def validate_accept_submit(
         upload_revision=upload_revision,
         baseline_head=baseline_head,
         repository_expected_commit_id=repository_expected_commit_id,
-        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
         preview_ready_closure_digest=preview_ready_closure_digest,
     )
     return AcceptSubmitValidationResult(
@@ -203,6 +199,7 @@ def load_new_accept_preflight_facts(
     resolved_repository_id: str,
     baseline_head: BaselineHead,
     preview_ready_closure_digest: str,
+    current_storage_projection_ruleset_digest: str,
 ) -> AcceptPreflightLoadedFacts:
     """Load control-DB facts for new-key accepts inside a SQLite read transaction."""
     workspace = workspace_repository.get_workspace(command.workspace_id)
@@ -221,6 +218,7 @@ def load_new_accept_preflight_facts(
         workspace_occupancy_held=workspace_occupancy is not None,
         repository_occupancy_held=repository_occupancy is not None,
         preview_ready_closure_digest=preview_ready_closure_digest,
+        current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
     )
 
 
@@ -237,7 +235,11 @@ def evaluate_new_accept_preflight_local_guards(
     assert_workspace_version_cas(workspace, command.expected_workspace_version)
     _assert_preview_binding(workspace, command)
     _assert_baseline_binding(command, loaded.baseline_head)
-    if derive_preview_staleness(loaded.preview_result, loaded.baseline_head):
+    if derive_preview_staleness(
+        loaded.preview_result,
+        loaded.baseline_head,
+        loaded.current_storage_projection_ruleset_digest,
+    ):
         raise PreviewDerivedStale
 
 
@@ -253,13 +255,9 @@ def assert_accept_preflight_post_noop_guards(
     assert_preview_ready_closure_digest(loaded.preview_ready_closure_digest)
 
 
-def assert_no_canonical_change_after_baseline(
-    *,
-    loaded: AcceptPreflightLoadedFacts,
-    baseline_canonical_digest: str,
-) -> None:
+def assert_no_canonical_change(*, loaded: AcceptPreflightLoadedFacts) -> None:
     preview_digest = preview_canonical_business_digest(loaded.preview_result)
-    if preview_digest == baseline_canonical_digest:
+    if loaded.preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
         raise NoCanonicalChange
 
 
@@ -267,14 +265,10 @@ def evaluate_new_accept_preflight(
     *,
     command: AcceptSubmitCommand,
     loaded: AcceptPreflightLoadedFacts,
-    baseline_canonical_digest: str,
 ) -> None:
-    """Pure §6.1 steps 3-5 guards after control-DB facts are materialized."""
+    """Pure preflight guards after control-DB facts are materialized."""
     evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
-    assert_no_canonical_change_after_baseline(
-        loaded=loaded,
-        baseline_canonical_digest=baseline_canonical_digest,
-    )
+    assert_no_canonical_change(loaded=loaded)
     assert_accept_preflight_post_noop_guards(loaded=loaded)
 
 
@@ -283,9 +277,8 @@ def validate_accept_submit_with_frozen(
     command: AcceptSubmitCommand,
     unit_of_work: SubmitControlTransaction,
     preflight_baseline_head: BaselineHead,
-    baseline_canonical_digest: str,
     repository_expected_commit_id: str,
-    snapshot_table_artifact_refs: tuple[str, ...] = (),
+    current_storage_projection_ruleset_digest: str,
     preview_ready_closure_digest: str,
 ) -> AcceptSubmitValidationResult:
     workspace_repository = unit_of_work.workspace
@@ -329,11 +322,15 @@ def validate_accept_submit_with_frozen(
     _assert_baseline_binding(command, baseline_head)
     _assert_baseline_heads_match(baseline_head, preflight_baseline_head)
     _assert_preview_baseline_binding(preview_result, baseline_head)
-    if derive_preview_staleness(preview_result, baseline_head):
+    if derive_preview_staleness(
+        preview_result,
+        baseline_head,
+        current_storage_projection_ruleset_digest,
+    ):
         raise PreviewDerivedStale
 
     preview_digest = preview_canonical_business_digest(preview_result)
-    if preview_digest == baseline_canonical_digest:
+    if preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
         raise NoCanonicalChange
 
     _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
@@ -345,7 +342,6 @@ def validate_accept_submit_with_frozen(
         upload_revision=upload_revision,
         baseline_head=baseline_head,
         repository_expected_commit_id=repository_expected_commit_id,
-        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
         preview_ready_closure_digest=preview_ready_closure_digest,
     )
     return AcceptSubmitValidationResult(

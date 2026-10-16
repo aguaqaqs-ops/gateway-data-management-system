@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import struct
+from collections import Counter
 from pathlib import Path
 
 import pytest
 from gateway_shared_kernel import (
     DateTimeScalar,
     Float32Scalar,
+    Float64Scalar,
     NullScalar,
     SignedIntegerScalar,
     StringScalar,
@@ -16,7 +18,10 @@ from gateway_shared_kernel import (
     raw_blob_digest,
 )
 
-from gateway_backend.capabilities.snapshot_materialization import materialize_repository_ref
+from gateway_backend.capabilities.snapshot_materialization import (
+    canonical_state_digest_of,
+    materialize_repository_ref,
+)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
@@ -24,6 +29,11 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRefMaterializationRequest,
     SnapshotTable,
     SnapshotTableSet,
+)
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.ports import (
+    CommitCanonicalMetadata,
+    CommitCanonicalScope,
 )
 from gateway_backend.capabilities.storage_projection import (
     NeverCancel,
@@ -72,7 +82,10 @@ _CANONICAL_COLUMNS = (
     int_column("id"),
     typed_column("tiny_unsigned", "TINYINT UNSIGNED"),
     typed_column("small_unsigned", "SMALLINT UNSIGNED"),
+    typed_column("unsigned_value", "INT UNSIGNED"),
+    typed_column("wide_value", "BIGINT"),
     typed_column("reading", "FLOAT"),
+    typed_column("double_reading", "DOUBLE"),
     typed_column("sampled_at", "DATETIME"),
     typed_column("label", "CHAR(8)"),
     typed_column("optional_text", "VARCHAR(64)", nullable=True),
@@ -84,7 +97,10 @@ _CANONICAL_ROWS = (
         int_cell(1),
         uint_cell(2),
         uint_cell(300),
-        Float32Scalar(bits_hex="3fc00000"),
+        uint_cell(4294967295),
+        SignedIntegerScalar(decimal="-9223372036854775808"),
+        Float32Scalar(bits_hex="3dcccccd"),
+        Float64Scalar(bits_hex="8000000000000000"),
         DateTimeScalar(text="2026-10-11T12:34:56"),
         varchar_cell("tail  "),
         null_cell(),
@@ -95,17 +111,68 @@ _CANONICAL_ROWS = (
         int_cell(2),
         uint_cell(255),
         uint_cell(65535),
-        Float32Scalar(bits_hex="40200000"),
+        uint_cell(0),
+        SignedIntegerScalar(decimal="9223372036854775807"),
+        Float32Scalar(bits_hex="bf9d70a4"),
+        Float64Scalar(bits_hex="3fb999999999999a"),
         DateTimeScalar(text="2026-10-11T12:35:00"),
         varchar_cell("head"),
         varchar_cell("value"),
         varchar_cell("idle"),
         set_cell("write"),
     ),
+    as_row(
+        int_cell(3),
+        uint_cell(7),
+        uint_cell(7),
+        uint_cell(2147483648),
+        SignedIntegerScalar(decimal="-1"),
+        Float32Scalar(bits_hex="33d6bf95"),
+        Float64Scalar(bits_hex="bff3ae147ae147ae"),
+        DateTimeScalar(text="2026-10-11T12:35:04"),
+        varchar_cell("third"),
+        null_cell(),
+        varchar_cell("active"),
+        set_cell("read"),
+    ),
+    as_row(
+        int_cell(4),
+        uint_cell(8),
+        uint_cell(8),
+        uint_cell(1000),
+        SignedIntegerScalar(decimal="1"),
+        Float32Scalar(bits_hex="00000001"),
+        Float64Scalar(bits_hex="3fb999999999999a"),
+        DateTimeScalar(text="2026-10-11T12:35:08"),
+        varchar_cell("fourth"),
+        varchar_cell("value"),
+        varchar_cell("idle"),
+        set_cell("write"),
+    ),
+    as_row(
+        int_cell(5),
+        uint_cell(0),
+        uint_cell(0),
+        uint_cell(42),
+        SignedIntegerScalar(decimal="0"),
+        Float32Scalar(bits_hex="80000000"),
+        Float64Scalar(bits_hex="0000000000000000"),
+        DateTimeScalar(text="2026-10-11T12:35:12"),
+        varchar_cell("fifth"),
+        null_cell(),
+        varchar_cell("active"),
+        set_cell("admin"),
+    ),
 )
 _ORDERED_ROWS = (
     as_row(null_cell(), int_cell(2), varchar_cell("blank")),
     as_row(int_cell(9), int_cell(1), varchar_cell("real")),
+)
+_KEYLESS_DUPLICATE_COLUMNS = (typed_column("value", "VARCHAR(64)"),)
+_KEYLESS_DUPLICATE_ROWS = (
+    as_row(varchar_cell("same")),
+    as_row(varchar_cell("different")),
+    as_row(varchar_cell("same")),
 )
 
 
@@ -131,6 +198,13 @@ def test_canonical_snapshot_identity(
         rows=_ORDERED_ROWS,
         snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
     )
+    keyless_reader, keyless_binding = table_input(
+        "keyless_duplicates_dc29",
+        columns=_KEYLESS_DUPLICATE_COLUMNS,
+        primary_key_columns=(),
+        rows=_KEYLESS_DUPLICATE_ROWS,
+        snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
+    )
     raw_table_set = SnapshotTableSet(
         snapshot_id="raw-canonical-identity",
         snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
@@ -138,11 +212,12 @@ def test_canonical_snapshot_identity(
         tables=(
             SnapshotTable(descriptor=data_binding.descriptor, reader=data_reader),
             SnapshotTable(descriptor=ordered_binding.descriptor, reader=ordered_reader),
+            SnapshotTable(descriptor=keyless_binding.descriptor, reader=keyless_reader),
         ),
     )
     canonical = project_canonical_table_set(raw_table_set, _RULESET)
     assert canonical.manifest is not None
-    assert len(canonical.tables) == 2
+    assert len(canonical.tables) == 3
     projection_inputs = (
         ProjectionTableInput(
             canonical_table="identity_dc15",
@@ -153,6 +228,11 @@ def test_canonical_snapshot_identity(
             canonical_table="b1_n1_iec104_syx_list",
             reader=ordered_reader.reopen(),
             source_binding=ordered_binding,
+        ),
+        ProjectionTableInput(
+            canonical_table="keyless_duplicates_dc29",
+            reader=keyless_reader.reopen(),
+            source_binding=keyless_binding,
         ),
     )
     projection = project_storage(
@@ -170,7 +250,10 @@ def test_canonical_snapshot_identity(
         for table in canonical.tables
         if table.reader is not None
     }
-    replay_sql = render_repository_import_schema_replay_sql(projection.import_input)
+    replay_sql = render_repository_import_schema_replay_sql(
+        projection.import_input,
+        removed_tables=(),
+    )
     replay_sql += _render_canonical_inserts(canonical.tables, canonical_rows)
     package = build_repository_import_package(
         import_input=projection.import_input,
@@ -208,6 +291,16 @@ def test_canonical_snapshot_identity(
             bearer_token=service.bearer_token,
             timeout_seconds=30.0,
         )(seeded.repository_id, operation.result.commit_id)
+        canonical_binding = canonical_binding_for_commit(
+            CommitCanonicalMetadata(
+                repository_id=seeded.repository_id,
+                commit_id=operation.result.commit_id,
+                scope=CommitCanonicalScope("identity-device", "identity-project"),
+                initial=False,
+                manifest=canonical.manifest,
+            ),
+            runtime_ruleset=_RULESET,
+        )
         materialized = materialize_repository_ref(
             RepositoryRefMaterializationRequest(
                 repository_ref=RepositoryRef(
@@ -216,11 +309,16 @@ def test_canonical_snapshot_identity(
                 ),
                 provider=provider,
                 ruleset=_RULESET,
+                canonical_binding=canonical_binding,
                 table_ruleset_version=TABLE_RULESET_VERSION,
                 materialization_stage=MaterializationStage.FINAL,
                 policy=MaterializationPolicy.READERS_REQUIRED,
                 context=ParserInvocationContext(ParserNeverCancel()),
-                requested_tables=("identity_dc15", "b1_n1_iec104_syx_list"),
+                requested_tables=(
+                    "identity_dc15",
+                    "b1_n1_iec104_syx_list",
+                    "keyless_duplicates_dc29",
+                ),
             )
         )
 
@@ -239,8 +337,21 @@ def test_canonical_snapshot_identity(
         assert observed.descriptor.raw_content_digest == expected.descriptor.raw_content_digest
         assert expected.reader is not None
         assert observed.reader is not None
-        assert tuple(observed.reader.iter_rows()) == canonical_rows[name]
+        observed_rows = tuple(observed.reader.iter_rows())
+        if not expected.descriptor.primary_key_columns:
+            assert Counter(observed_rows) == Counter(canonical_rows[name])
+        else:
+            assert observed_rows == canonical_rows[name]
         observed.reader.close()
+    keyless = observed_by_name["keyless_duplicates_dc29"]
+    assert keyless.descriptor.primary_key_columns == ()
+    assert keyless.descriptor.row_count == 3
+    assert expected_by_name["keyless_duplicates_dc29"].descriptor.row_count == 3
+    assert canonical_state_digest_of(
+        tuple(table.descriptor for table in canonical.tables)
+    ) == canonical_state_digest_of(
+        tuple(table.descriptor for table in materialized.table_set.tables)
+    )
     for table in canonical.tables:
         if table.reader is not None:
             table.reader.close()
@@ -271,6 +382,9 @@ def _sql_literal(cell: SourceCell) -> str:
     if isinstance(cell, Float32Scalar):
         number = struct.unpack(">f", bytes.fromhex(cell.bits_hex))[0]
         return format(number, ".9g")
+    if isinstance(cell, Float64Scalar):
+        number = struct.unpack(">d", bytes.fromhex(cell.bits_hex))[0]
+        return format(number, ".17g")
     if isinstance(cell, DateTimeScalar):
         return _quote_string(cell.text.replace("T", " "))
     if isinstance(cell, StringScalar):

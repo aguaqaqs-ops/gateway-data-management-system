@@ -18,7 +18,6 @@ from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWo
 from tests.support.http_workspace_harness import (
     TS1,
     WorkspaceHttpTestEnvironment,
-    _PREVIEW_CANONICAL_DIGEST,
     create_workspace_http_environment,
     seed_submit_ready_workspace,
 )
@@ -219,7 +218,7 @@ def test_get_submission_returns_redacted_submission(seeded_env: tuple[WorkspaceH
     assert response.status_code == 200
     body = response.json()
     assert body["submission_id"] == "sub-1"
-    assert body["canonical_business_digest"] == _PREVIEW_CANONICAL_DIGEST
+    assert body["canonical_business_digest"] == "sha256:" + "5" * 64
     assert "repository_artifact_id" not in body
     assert "repository_import_artifact_raw_sha256" not in body
 

@@ -13,18 +13,19 @@ from fastapi import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.submission.ports import (
-    BaselineCanonicalDigestPort,
+    ReviewApplyControlUnitOfWorkFactory,
     RepositoryMainResolvePort,
-    WorkspaceControlUnitOfWorkFactory,
+    SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
-from gateway_backend.domain.workspace.models import BaselineHead, InputCompleteness  # noqa: TC001
 from gateway_backend.application.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
+    WorkspaceControlUnitOfWorkFactory,
     WorkspaceRepository,
 )
 from gateway_backend.application.control_transactions import ControlDbUnitOfWorkFactory
@@ -143,7 +144,12 @@ class ClosableAdmissionGate:
 
 
 @contextmanager
-def acquire_new_work(gate: AdmissionGatePort) -> Iterator[None]:
+def acquire_new_work(
+    gate: AdmissionGatePort,
+    *,
+    closed_code: str = "ADMISSION_LIMIT_REACHED",
+    closed_status: int = 429,
+) -> Iterator[None]:
     """Admit one creation request or raise 429 without leaking the slot."""
 
     if not gate.try_acquire():
@@ -151,36 +157,18 @@ def acquire_new_work(gate: AdmissionGatePort) -> Iterator[None]:
 
         closed = not gate.allows_new_work()
         raise ApiError(
-            code="ADMISSION_LIMIT_REACHED",
+            code=closed_code if closed else "ADMISSION_LIMIT_REACHED",
             message=(
                 "gateway admission is closed for new work"
                 if closed
                 else "gateway admission limit reached"
             ),
-            status_code=429,
+            status_code=closed_status if closed else 429,
         )
     try:
         yield
     finally:
         gate.release()
-
-
-class FailClosedBaselineCanonicalDigestPort:
-    def get_baseline_canonical_digest(
-        self,
-        *,
-        repository_id: str,
-        baseline_head: BaselineHead,
-        input_completeness: InputCompleteness,
-        ruleset_version: str,
-    ) -> str:
-        del repository_id, baseline_head, input_completeness, ruleset_version
-
-        raise ApiError(
-            code="SERVICE_NOT_READY",
-            message="baseline canonical digest port is unavailable",
-            status_code=503,
-        )
 
 
 class FailClosedRepositoryMainResolvePort:
@@ -221,7 +209,10 @@ class WorkspaceHttpDependencies:
     scope_resolution: ScopeResolutionPort
     baseline_head_read: BaselineHeadReadPort
     workspace_repository: WorkspaceRepository
-    unit_of_work_factory: WorkspaceControlUnitOfWorkFactory
+    workspace_unit_of_work_factory: WorkspaceControlUnitOfWorkFactory
+    submit_unit_of_work_factory: SubmitControlUnitOfWorkFactory
+    review_unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory
+    archive_unit_of_work_factory: ArchiveControlUnitOfWorkFactory
     artifact_store: BoundedArtifactStorePort
     job_registry: JobDefinitionRegistry
     bundle_reader: BundleReaderPort
@@ -233,9 +224,6 @@ class WorkspaceHttpDependencies:
     artifact_ref_lookup: ArtifactRefLookupPort = field(default_factory=FailClosedArtifactRefLookup)
     internal_bearer_port: InternalBearerPort = field(
         default_factory=_default_internal_bearer_port
-    )
-    baseline_canonical_digest: BaselineCanonicalDigestPort = field(
-        default_factory=FailClosedBaselineCanonicalDigestPort
     )
     main_resolve: RepositoryMainResolvePort = field(
         default_factory=FailClosedRepositoryMainResolvePort

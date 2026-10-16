@@ -33,7 +33,7 @@ from gateway_backend.application.history.contracts import (
 from gateway_backend.application.job_definitions import build_job_worker_composition
 from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
 from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
-from gateway_backend.http.orchestration.history_compare import build_history_compare_job_payload
+from gateway_backend.application.history.compare import build_history_compare_job_payload
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
@@ -57,10 +57,10 @@ from tests.support.repository_ref_materialization import (
     RepositoryRows,
     catalog_table,
     catalog_without_tables,
-    hidden_summary_for,
     int_id_column,
     make_catalog,
 )
+from tests.support.canonical_metadata import MetadataControlDbUnitOfWork, metadata_for_catalog, CatalogCommitCanonicalMetadataPort
 from tests.support.runtime_settings import make_operation_worker_settings
 from tests.support.workspace_fixtures import make_identity
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
@@ -106,10 +106,8 @@ def history_compare_net_cfg_provider(
         ref=commit_id,
         commit=commit_id,
     )
-    hidden = hidden_summary_for(catalog, rows)
     return FakeRepositoryTableAccessProvider(
         catalog=catalog,
-        hidden=hidden,
         rows=rows,
         current_commit=commit_id,
     )
@@ -119,10 +117,6 @@ def history_compare_ordered_provider(
     *,
     commit_id: str,
     rows: RepositoryRows,
-    mutate_snapshot_digest: bool = False,
-    mutate_raw_digest_table: str | None = None,
-    per_read_mutate_raw_digest_table: tuple[str | None, ...] = (),
-    per_read_raw_digest_extra_by_table: tuple[dict[str, bytes], ...] = (),
     missing_table_on_open: str | None = None,
 ) -> FakeRepositoryTableAccessProvider:
     table = ordered_syx_catalog_table()
@@ -132,19 +126,10 @@ def history_compare_ordered_provider(
         ref=commit_id,
         commit=commit_id,
     )
-    hidden = hidden_summary_for(
-        catalog,
-        rows,
-        mutate_snapshot_digest=mutate_snapshot_digest,
-        mutate_raw_digest_table=mutate_raw_digest_table,
-    )
     return FakeRepositoryTableAccessProvider(
         catalog=catalog,
-        hidden=hidden,
         rows=rows,
         current_commit=commit_id,
-        per_read_mutate_raw_digest_table=per_read_mutate_raw_digest_table,
-        per_read_raw_digest_extra_by_table=per_read_raw_digest_extra_by_table,
         missing_table_on_open=missing_table_on_open,
     )
 
@@ -155,16 +140,11 @@ def history_compare_provider(
     row_count: int = 1,
     declared_rows: RepositoryRows | None = None,
     per_read_rows: tuple[RepositoryRows, ...] = (),
-    mutate_snapshot_digest: bool = False,
-    mutate_raw_digest_table: str | None = None,
-    per_read_mutate_raw_digest_table: tuple[str | None, ...] = (),
-    per_read_raw_digest_extra_by_table: tuple[dict[str, bytes], ...] = (),
     per_read_catalog_without: tuple[tuple[str, ...], ...] = (),
-    per_read_hidden_catalog_without: tuple[tuple[str, ...], ...] = (),
     missing_table_on_open: str | None = None,
     catalog_without: tuple[str, ...] = (),
 ) -> FakeRepositoryTableAccessProvider:
-    table = catalog_table("t", (int_id_column(),))
+    table = catalog_table("t", (int_id_column(),), row_count=row_count)
     resolved_declared_rows = declared_rows or {
         "t": tuple((index,) for index in range(1, row_count + 1))
     }
@@ -179,24 +159,14 @@ def history_compare_provider(
         if catalog_without
         else full_catalog
     )
-    hidden = hidden_summary_for(
-        full_catalog,
-        resolved_declared_rows,
-        mutate_snapshot_digest=mutate_snapshot_digest,
-        mutate_raw_digest_table=mutate_raw_digest_table,
-    )
     return FakeRepositoryTableAccessProvider(
         catalog=session_catalog,
         base_catalog=full_catalog,
-        hidden=hidden,
         rows=resolved_declared_rows,
         declared_rows=resolved_declared_rows,
         current_commit=commit_id,
         per_read_rows=per_read_rows,
-        per_read_mutate_raw_digest_table=per_read_mutate_raw_digest_table,
-        per_read_raw_digest_extra_by_table=per_read_raw_digest_extra_by_table,
         per_read_catalog_without=per_read_catalog_without,
-        per_read_hidden_catalog_without=per_read_hidden_catalog_without,
         missing_table_on_open=missing_table_on_open,
     )
 
@@ -279,8 +249,6 @@ def build_history_compare_harness(
         (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.business_baseline_commit_id),
         ("bn-b", "commit-b"),
     ),
-    mutate_snapshot_digest_for: frozenset[str] = frozenset(),
-    mutate_raw_digest_for: frozenset[str] = frozenset(),
     custom_providers: dict[str, FakeRepositoryTableAccessProvider] | None = None,
     idempotency_key: str = IDEMPOTENCY_KEY,
     seed_acceptance: bool = True,
@@ -309,15 +277,19 @@ def build_history_compare_harness(
         providers = {
             commit_id: history_compare_provider(
                 commit_id=commit_id,
-                mutate_snapshot_digest=commit_id in mutate_snapshot_digest_for,
-                mutate_raw_digest_table="t" if commit_id in mutate_raw_digest_for else None,
             )
             for commit_id in distinct_commits
         }
     resolved_artifact_store = artifact_store or InMemoryArtifactStore()
+    metadata_port = CatalogCommitCanonicalMetadataPort(
+        {
+            (REPOSITORY_ID, commit_id): metadata_for_catalog(provider.catalog)
+            for commit_id, provider in providers.items()
+        }
+    )
 
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(resolved_db_path)
+        return MetadataControlDbUnitOfWork(resolved_db_path, metadata_port)
 
     deps = HistoryCompareRuntimeDependencies(
         artifact_store=resolved_artifact_store,

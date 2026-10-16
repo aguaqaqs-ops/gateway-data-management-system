@@ -140,6 +140,13 @@ def _require_sorted_unique_strings(value: object, label: str) -> tuple[str, ...]
     return result
 
 
+def _require_unique_identifiers_in_order(value: object, label: str) -> tuple[str, ...]:
+    result = _require_string_tuple(value, label)
+    if any(_require_identifier(item, label) != item for item in result) or len(set(result)) != len(result):
+        raise ValueError(f"{label} must contain canonical unique identifiers")
+    return result
+
+
 def _optional_digest(value: DigestRef | None) -> str | None:
     return None if value is None else value.value
 
@@ -223,11 +230,11 @@ class SurfaceSchemaSummary:
             "before_only_columns",
             "current_only_columns",
             "selected_columns",
-            "effective_compare_key_before",
-            "effective_compare_key_current",
             "incompatible_columns",
         ):
             object.__setattr__(self, label, _require_sorted_unique_strings(getattr(self, label), label))
+        for label in ("effective_compare_key_before", "effective_compare_key_current"):
+            object.__setattr__(self, label, _require_unique_identifiers_in_order(getattr(self, label), label))
         if type(self.effective_compare_key_changed) is not bool:
             raise ValueError("effective_compare_key_changed must be bool")
 
@@ -817,6 +824,7 @@ class SurfaceAssemblyInput:
     risk_report: RiskReport | None = None
     risk_annotation_closure: RiskAnnotationClosure | None = None
     table_artifacts: tuple[SurfaceArtifactIndexEntry, ...] = ()
+    keyless_fallback_tables: tuple[str, ...] = ()
     identity_annotation: SurfaceIdentityAnnotation = field(default_factory=SurfaceIdentityAnnotation)
     risk_report_ref: ArtifactRef | None = None
     risk_annotation_closure_ref: ArtifactRef | None = None
@@ -848,6 +856,12 @@ class SurfaceAssemblyInput:
         artifact_names = tuple(item.table_name for item in self.table_artifacts)
         if artifact_names != tuple(sorted(artifact_names)) or len(set(artifact_names)) != len(artifact_names):
             raise ValueError("table_artifacts must use canonical unique order")
+        if type(self.keyless_fallback_tables) is not tuple:
+            raise ValueError("keyless_fallback_tables must be a tuple")
+        keyless_names = tuple(_require_identifier(item, "keyless_fallback_table") for item in self.keyless_fallback_tables)
+        if keyless_names != tuple(sorted(keyless_names)) or len(set(keyless_names)) != len(keyless_names):
+            raise ValueError("keyless_fallback_tables must use canonical unique order")
+        object.__setattr__(self, "keyless_fallback_tables", keyless_names)
         for label in (
             "risk_report_ref",
             "risk_annotation_closure_ref",

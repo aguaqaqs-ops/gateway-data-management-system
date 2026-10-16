@@ -10,6 +10,8 @@ from gateway_shared_kernel import (
     DeclaredType,
     DeclaredTypeKind,
     DigestRef,
+    Float32Scalar,
+    Float64Scalar,
     NullScalar,
     SignedIntegerScalar,
     StringScalar,
@@ -37,6 +39,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SCALAR_ENCODING_VERSION,
     ArtifactSourceBinding,
     BlankRowProvenance,
+    DegradedReason,
     MaterializationStage,
     SnapshotColumnDescriptor,
     SnapshotColumnValueCounts,
@@ -630,6 +633,12 @@ def _canonicalize_row(
             and isinstance(cell, SignedIntegerScalar)
         ):
             cell = UnsignedIntegerScalar(decimal=cell.decimal)
+        elif codec.declared_type is not None and codec.declared_type.kind is DeclaredTypeKind.FLOAT32:
+            if isinstance(cell, Float32Scalar) and cell.bits_hex.lower() == "80000000":
+                cell = Float32Scalar(bits_hex="00000000")
+        elif codec.declared_type is not None and codec.declared_type.kind is DeclaredTypeKind.FLOAT64:
+            if isinstance(cell, Float64Scalar) and cell.bits_hex.lower() == "8000000000000000":
+                cell = Float64Scalar(bits_hex="0000000000000000")
         try:
             encode_canonical_cell(cell, codec)
         except (CanonicalCellError, TypeError, CanonicalEncodingError) as exc:
@@ -679,6 +688,10 @@ class _CanonicalProjectionReader:
     def descriptor(self) -> SnapshotTableDescriptor:
         self._ensure_open()
         return self._descriptor
+
+    def source_columns(self) -> tuple[SourceColumnDescriptor, ...]:
+        self._ensure_open()
+        return self._source_columns
 
     def iter_rows(self) -> Iterator[SourceRow]:
         self._ensure_open()
@@ -936,7 +949,7 @@ def _project_table(
         content_digest, ordering_digest, row_count, gid_real, gid_pseudo = _project_ordered(
             request, item, descriptor, view, codecs, retained_indexes
         )
-    elif view.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT_KEYLESS:
+    elif not view.canonical_key_columns:
         content_digest, row_count = _project_keyless(
             request, item, descriptor, view, codecs, retained_indexes
         )
@@ -1055,7 +1068,12 @@ def _project_ordered(
     _require_row_count(len(rows), descriptor, view)
     gid_index, no_index = _ordered_indexes(descriptor, view)
     try:
-        projected = project_ordered_rows(rows, gid_index=gid_index, no_index=no_index)
+        projected = project_ordered_rows(
+            rows,
+            gid_index=gid_index,
+            no_index=no_index,
+            allow_existing_pseudo=item.canonicalized_input,
+        )
     except OrderedProjectionError as exc:
         raise _ProjectionFailed(_error(exc.code, exc.message, view.canonical_table)) from exc
     structural = set(view.structural_columns)
@@ -1136,11 +1154,14 @@ def _bound_descriptor(item: ProjectionTableInput, snapshot_digest: DigestRef) ->
                 item.canonical_table,
             )
         )
-    if descriptor.degraded_reason is not None or descriptor.raw_content_digest is None:
+    if (
+        descriptor.degraded_reason is DegradedReason.TABLE_FAILED
+        or descriptor.raw_content_digest is None
+    ):
         raise _ProjectionFailed(
             _error(
                 ProjectionDiagnosticCode.BINDING_INVALID,
-                "projected tables must not be degraded",
+                "projected tables require complete source row content",
                 item.canonical_table,
             )
         )
@@ -1211,7 +1232,11 @@ def _resolve_declared_scalar_type(sql_type: str) -> DeclaredType | None:
         return declared
     if declared.kind is DeclaredTypeKind.UNSIGNED_INTEGER and declared.bits in {8, 16, 32}:
         return declared
-    if declared.kind in {DeclaredTypeKind.FLOAT32, DeclaredTypeKind.DATETIME}:
+    if declared.kind in {
+        DeclaredTypeKind.FLOAT32,
+        DeclaredTypeKind.FLOAT64,
+        DeclaredTypeKind.DATETIME,
+    }:
         return declared
     return None
 
@@ -1486,7 +1511,12 @@ def materialize_canonical_source_rows(
         _require_row_count(len(rows), descriptor, view)
         gid_index, no_index = _ordered_indexes(descriptor, view)
         try:
-            projected = project_ordered_rows(rows, gid_index=gid_index, no_index=no_index)
+            projected = project_ordered_rows(
+                rows,
+                gid_index=gid_index,
+                no_index=no_index,
+                allow_existing_pseudo=item.canonicalized_input,
+            )
         except OrderedProjectionError as exc:
             raise _ProjectionFailed(_error(exc.code, exc.message, view.canonical_table)) from exc
         content_rows = tuple(

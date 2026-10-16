@@ -15,6 +15,7 @@ import pytest
 
 from gateway_repository_contracts import (
     COMMIT_NOT_FOUND_CODE,
+    MAX_CATALOG_JSON_BYTES,
     MAX_COMMIT_ID_PATH_SEGMENT_LENGTH,
     REF_NOT_FOUND_CODE,
     REPOSITORY_NOT_FOUND_CODE,
@@ -42,6 +43,7 @@ from gateway_repository_service.versioned_read.errors import (
     TableNotFoundError,
     VersionedReadError,
 )
+from gateway_repository_service.versioned_read import wire as versioned_read_wire
 from gateway_repository_service.versioned_read.wire import build_catalog_response
 from support.http_harness import (
     PRODUCTION_OPENAPI_PATHS,
@@ -459,6 +461,15 @@ def test_openapi_read_routes_declare_simple_error_and_request_id(env: ImportHttp
             }
             assert response["headers"]["X-Request-ID"]["schema"]["type"] == "string"
         assert operation["responses"]["200"]["headers"]["X-Request-ID"]["schema"]["type"] == "string"
+    catalog_operation = paths[
+        "/v1/repositories/{repository_id}/versioned/commits/{commit_id}/catalog"
+    ]["get"]
+    catalog_limit_error = catalog_operation["responses"]["500"]
+    assert catalog_limit_error["description"] == "RESPONSE_LIMIT_EXCEEDED"
+    assert catalog_limit_error["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/SimpleError"
+    }
+    assert catalog_limit_error["headers"]["X-Request-ID"]["schema"]["type"] == "string"
 
 
 def test_openapi_has_no_json_rows_or_latest_terms(env: ImportHttpTestEnvironment) -> None:
@@ -506,10 +517,13 @@ def test_catalog_rejects_non_canonical_commit_id_alias(env: ImportHttpTestEnviro
     assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
 
 
-def test_build_catalog_response_rejects_oversized_wire_payload() -> None:
-    tables = tuple(
+def test_build_catalog_response_rejects_oversized_wire_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(versioned_read_wire, "MAX_CATALOG_JSON_BYTES", 128)
+    tables = (
         TableCatalog(
-            f"t{index}",
+            "oversized_catalog_table",
             (
                 ColumnCatalog(
                     name="id",
@@ -519,9 +533,30 @@ def test_build_catalog_response_rejects_oversized_wire_payload() -> None:
                 ),
             ),
             row_count=0,
-        )
-        for index in range(5000)
+        ),
     )
     with pytest.raises(ServiceError) as exc_info:
         build_catalog_response("commit-1", tables)
-    assert exc_info.value.status_code == 503
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.code == "RESPONSE_LIMIT_EXCEEDED"
+
+
+def test_build_catalog_response_accepts_payload_within_wire_limit() -> None:
+    response = build_catalog_response(
+        "commit-1",
+        (
+            TableCatalog(
+                "t",
+                (
+                    ColumnCatalog(
+                        name="id",
+                        sql_type="BIGINT",
+                        nullable=False,
+                        primary_key_position=1,
+                    ),
+                ),
+                row_count=0,
+            ),
+        ),
+    )
+    assert len(response.model_dump_json().encode("utf-8")) < MAX_CATALOG_JSON_BYTES

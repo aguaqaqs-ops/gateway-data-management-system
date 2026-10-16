@@ -31,8 +31,15 @@ from gateway_backend.capabilities.table_rules.contracts import (
     table_ruleset_document,
     table_ruleset_from_document,
 )
+from gateway_backend.capabilities.table_rules.registry import (
+    DEFAULT_BROWSE_ONLY_TABLE_NAMES,
+    DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS,
+    DEVICE_CFG_UPDATE_ONLY_TABLE_NAME,
+    migrated_table_rule_records,
+)
 from gateway_shared_kernel import DigestRef
 from tests.support.table_rules import (
+    keyless_record,
     net_cfg_record,
     ordered_syx_record,
     skip_record,
@@ -52,6 +59,52 @@ def test_empty_compare_keys_mean_ddl_pk_or_keyless() -> None:
     snapshot = TableRulesetSnapshot(table_ruleset_version=TABLE_RULESET_VERSION)
     assert snapshot.compare_keys == ()
     assert snapshot.table_ruleset_version == 1
+
+
+def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() -> None:
+    records = migrated_table_rule_records()
+    snapshot = next(
+        record
+        for record in records
+        if record.selector.value == DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS[0]
+    )
+    browse = next(
+        record
+        for record in records
+        if record.selector.value == DEFAULT_BROWSE_ONLY_TABLE_NAMES[0]
+    )
+    device_cfg = next(
+        record for record in records if record.selector.value == DEVICE_CFG_UPDATE_ONLY_TABLE_NAME
+    )
+    raw_fallback = next(
+        record
+        for record in records
+        if record.precedence_class is SelectorPrecedenceClass.STANDARD_RAW_PK_FALLBACK
+    )
+    protocol_option = next(
+        record
+        for record in records
+        if record.precedence_class is SelectorPrecedenceClass.STANDARD_PROTOCOL_OPTION
+    )
+    skipped = next(
+        record for record in records if record.precedence_class is SelectorPrecedenceClass.SKIP
+    )
+
+    assert snapshot.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert browse.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert raw_fallback.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+    assert device_cfg.canonical_key_policy is CanonicalKeyPolicy.DDL_PRIMARY_KEY
+    assert protocol_option.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
+    assert skipped.canonical_key_policy is CanonicalKeyPolicy.NONE
+    assert keyless_record().canonical_key_policy is CanonicalKeyPolicy.EXPLICIT_KEYLESS
+    with pytest.raises(ValueError, match="restricted to snapshot-only"):
+        snapshot_from_records(
+            replace(
+                protocol_option,
+                canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+            )
+        )
+    assert RULESET_VERSION == "v3"
 
 
 def test_compare_keys_are_canonical_table_and_key_columns() -> None:

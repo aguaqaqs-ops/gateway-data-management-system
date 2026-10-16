@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -13,6 +14,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonPlan,
     DetailedFactsResult,
     ComparisonMode,
+    ComparisonRecordsClosure,
     FailedResult,
     compare_plan,
     plan_comparison,
@@ -37,7 +39,10 @@ from gateway_backend.capabilities.surface_assembly import (
     assemble_surface,
 )
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    ComparisonRuleSet,
+)
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
@@ -52,6 +57,10 @@ class PreviewIdentityStatus(StrEnum):
 
 class PairPipelineError(Exception):
     """Pair pipeline failed before the job-specific error wrapper."""
+
+
+class PairPipelineCancelled(Exception):
+    """Pair pipeline observed cancellation after publishing the operation terminal."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +90,7 @@ class PreviewPairPipelineResult:
     comparison_digest: str
     risk_digest: str
     surface_digest: str
+    records_closure: ComparisonRecordsClosure
     surface_result: SurfaceAssemblyResult
 
 
@@ -91,6 +101,7 @@ class HistoryPairPipelineResult:
     risk_digest: str
     surface_digest: str
     record_count: int
+    records_closure: ComparisonRecordsClosure
     surface_result: SurfaceAssemblyResult
 
 
@@ -118,6 +129,7 @@ def run_preview_pair_pipeline(
     current: BoundSnapshotInput,
     store: ArtifactStorePort,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
     view_id: str = PREVIEW_DEFAULT_VIEW_ID,
     rule_set: ComparisonRuleSet | None = None,
 ) -> PreviewPairPipelineResult:
@@ -139,17 +151,22 @@ def run_preview_pair_pipeline(
         view_id=view_id,
         store=store,
         control=control,
-        cancel_message="preview pair pipeline cancelled",
+        on_cancel=on_cancel,
         identity_annotation=SurfaceIdentityAnnotation(
             status=assessment.status.value,
             assessment_digest=assessment.assessment_digest,
         ),
+        show_keyless_fallback_hint=True,
     )
+    records_closure = surface.published.records_closure
+    if records_closure is None:
+        raise PairPipelineError("records closure is missing")
     return PreviewPairPipelineResult(
         pair_id=pair_id,
         comparison_digest=surface.comparison_digest,
         risk_digest=surface.risk_digest,
         surface_digest=surface.surface_digest,
+        records_closure=records_closure,
         surface_result=surface.surface_result,
     )
 
@@ -162,6 +179,7 @@ def run_history_pair_pipeline(
     rule_set: ComparisonRuleSet,
     store: ArtifactStorePort,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -175,7 +193,7 @@ def run_history_pair_pipeline(
         view_id=pair_id,
         store=store,
         control=control,
-        cancel_message="history compare pair pipeline cancelled",
+        on_cancel=on_cancel,
     )
     records_closure = surface.published.records_closure
     if records_closure is None:
@@ -191,6 +209,7 @@ def run_history_pair_pipeline(
         risk_digest=surface.risk_evaluation.risk_evaluation_digest.value,
         surface_digest=surface.surface_digest,
         record_count=int(record_count),
+        records_closure=records_closure,
         surface_result=surface.surface_result,
     )
 
@@ -211,8 +230,9 @@ def _run_comparison_risk_surface(
     view_id: str,
     store: ArtifactStorePort,
     control: ExecutionControl,
-    cancel_message: str,
+    on_cancel: Callable[[], None],
     identity_annotation: SurfaceIdentityAnnotation | None = None,
+    show_keyless_fallback_hint: bool = False,
 ) -> _ComparisonRiskSurfaceResult:
     plan = plan_comparison(request)
     if isinstance(plan, FailedResult):
@@ -230,7 +250,8 @@ def _run_comparison_risk_surface(
     if not isinstance(published, DetailedFactsResult) or published.facts is None:
         raise PairPipelineError("records publication did not produce facts")
     if control.cancel_requested:
-        raise PairPipelineError(cancel_message)
+        on_cancel()
+        raise PairPipelineCancelled
     risk = evaluate_risk(
         RiskEvaluationInput(
             comparison_facts=published.facts,
@@ -251,6 +272,11 @@ def _run_comparison_risk_surface(
             records_closure=published.records_closure,
             risk_report=risk.risk_report,
             risk_annotation_closure=risk.risk_closure,
+            keyless_fallback_tables=(
+                _keyless_fallback_table_names(request)
+                if show_keyless_fallback_hint
+                else ()
+            ),
             ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
             identity_annotation=identity_annotation or SurfaceIdentityAnnotation(),
         ),
@@ -268,4 +294,23 @@ def _run_comparison_risk_surface(
         surface_result=surface,
         published=published,
         risk_evaluation=risk.risk_evaluation,
+    )
+
+
+def _keyless_fallback_table_names(request: ComparisonRequest) -> tuple[str, ...]:
+    names: set[str] = set()
+    for bound in (request.before, request.current):
+        descriptors = {item.table_name: item for item in bound.summary.tables}
+        for facts in bound.storage_facts:
+            table_name = facts.storage_rule_view.canonical_table
+            descriptor = descriptors.get(table_name)
+            if (
+                descriptor is not None
+                and facts.storage_rule_view.canonical_key_policy
+                is CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS
+                and not descriptor.primary_key_columns
+            ):
+                names.add(table_name)
+    return tuple(
+        sorted(names)
     )

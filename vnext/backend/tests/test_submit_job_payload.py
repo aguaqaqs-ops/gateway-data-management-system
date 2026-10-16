@@ -60,7 +60,6 @@ from gateway_backend.domain.submission.models import (
 pytestmark = pytest.mark.unit
 
 _TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
-_SNAPSHOT_TABLE_SET_DIGEST = "sha256:snapshot-set"
 _TERMINAL_EVIDENCE_DECODE = WireRepositoryTerminalEvidenceDecodePort()
 
 
@@ -80,11 +79,12 @@ def _prepared_attempt() -> SubmitAttempt:
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("initial-1", "modified-1"),
-        snapshot_table_artifact_refs=("snap-1",),
+        canonical_table_set_closure_ref="canonical-table-closure-1",
+        canonical_table_set_closure_digest="sha256:canonical-table-closure",
         preview_ready_closure_ref="closure-1",
         preview_ready_closure_digest="d-closure",
-        canonicalization_manifest_ref=None,
-        canonicalization_manifest_digest=None,
+        canonicalization_manifest_ref="canonical-manifest-1",
+        canonicalization_manifest_digest="sha256:canonical-manifest",
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
         repository_operation_id=None,
@@ -110,7 +110,6 @@ def _canonical_payload_object() -> dict[str, object]:
     attempt = _prepared_attempt()
     payload_bytes = build_submit_job_payload(
         attempt=attempt,
-        snapshot_table_set_digest=_SNAPSHOT_TABLE_SET_DIGEST,
         options={"trace": True},
     )
     payload_object = json.loads(payload_bytes)
@@ -127,7 +126,10 @@ def test_decode_submit_payload_accepts_canonical_payload_from_build_submit_job_p
     assert decoded.submit_attempt_id == attempt.submit_attempt_id
     assert decoded.workspace_id == attempt.workspace_id
     assert decoded.generation == attempt.workspace_generation
-    assert decoded.snapshot_table_set_digest == _SNAPSHOT_TABLE_SET_DIGEST
+    assert decoded.canonical_table_set_closure_ref == attempt.canonical_table_set_closure_ref
+    assert decoded.canonical_table_set_closure_digest == attempt.canonical_table_set_closure_digest
+    assert decoded.canonicalization_manifest_ref == attempt.canonicalization_manifest_ref
+    assert decoded.canonicalization_manifest_digest == attempt.canonicalization_manifest_digest
     assert decoded.accept_request_fingerprint == attempt.accept_request_fingerprint
     assert decoded.repository_upload_idempotency_key == attempt.repository_upload_idempotency_key
     assert decoded.repository_import_idempotency_key == attempt.repository_import_idempotency_key
@@ -210,7 +212,7 @@ def _artifact_ref_dict(artifact_id: str) -> dict[str, object]:
 
 def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
     return {
-        "schema_version": "backend-vnext/submit/prepare-import-checkpoint/v1",
+        "schema_version": "backend-vnext/submit/prepare-import-checkpoint/v2",
         "attempt_id": "sa-payload-1",
         "canonicalization_manifest_ref": _artifact_ref_dict("manifest-1"),
         "canonicalization_manifest_digest": "sha256:" + "b" * 64,
@@ -222,7 +224,12 @@ def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
         },
         "package_raw_size": 2,
         "package_raw_sha256": "sha256:" + "c" * 64,
-        "input_closure_digest": "sha256:" + "d" * 64,
+        "canonical_table_set_closure_ref": "canonical-closure-1",
+        "canonical_table_set_closure_digest": "sha256:" + "d" * 64,
+        "input_canonicalization_manifest_ref": "preview-manifest-1",
+        "input_canonicalization_manifest_digest": "sha256:" + "e" * 64,
+        "expected_parent_commit_id": "commit-parent-1",
+        "removed_tables": ["removed_table"],
         "builder_mutation_policy": "REBUILD_ALWAYS",
     }
 

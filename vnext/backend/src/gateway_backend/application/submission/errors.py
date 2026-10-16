@@ -200,6 +200,6 @@ class PrepareCheckpointPayloadBindingError(CheckpointDecodeError):
 
     def __init__(self) -> None:
         super().__init__(
-            "prepare checkpoint attempt_id does not match submit payload",
+            "prepare checkpoint does not match frozen submit payload bindings",
             code=self._CODE,
         )

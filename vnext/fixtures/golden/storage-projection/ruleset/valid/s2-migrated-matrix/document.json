@@ -163,7 +163,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -183,7 +183,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -203,7 +203,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -223,7 +223,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -243,7 +243,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -263,7 +263,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -283,7 +283,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -303,7 +303,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -323,7 +323,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -343,7 +343,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -363,7 +363,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -383,7 +383,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -403,7 +403,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -423,7 +423,7 @@
     },
     {
       "artifact_scope": null,
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": null,
@@ -1159,7 +1159,7 @@
     },
     {
       "artifact_scope": "ALL_CHANGES",
-      "canonical_key_policy": "DDL_PRIMARY_KEY",
+      "canonical_key_policy": "DDL_PRIMARY_KEY_OR_KEYLESS",
       "compare_excluded_columns": [],
       "compare_key_columns": [],
       "compare_key_mode": "RAW_PRIMARY_KEY",
@@ -1179,7 +1179,7 @@
     }
   ],
   "ruleset_id": "backend-vnext/table-ruleset",
-  "ruleset_version": "v2",
-  "storage_projection_version": "1",
+  "ruleset_version": "v3",
+  "storage_projection_version": "2",
   "table_ruleset_version": 1
 }

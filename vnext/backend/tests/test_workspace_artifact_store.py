@@ -47,7 +47,15 @@ def test_put_stream_publishes_exact_ref_and_verifies_read_back(tmp_path: Path) -
         expected_raw_sha256=DIGEST,
     )
     assert verification.verified is True
+    assert store.get_ref(ref.artifact_id) == ref
     assert b"".join(store.read_exact(ref)) == PAYLOAD
+
+
+def test_ref_lookup_rejects_an_unknown_artifact_id(tmp_path: Path) -> None:
+    store = BoundedArtifactStore(LocalArtifactStore(tmp_path / "artifacts"))
+
+    with pytest.raises(ManifestVerificationError, match="unknown artifact_id"):
+        store.get_ref("missing-artifact")
 
 
 def test_put_stream_rejects_digest_mismatch(tmp_path: Path) -> None:

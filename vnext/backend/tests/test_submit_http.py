@@ -10,14 +10,11 @@ import pytest
 
 from gateway_shared_kernel import DigestRef
 
-from gateway_backend.application.submission.contracts import preview_canonical_business_digest
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.http.dependencies import ClosableAdmissionGate
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
-    FakeBaselineCanonicalDigestPort,
     FailingMainResolvePort,
-    RecordingBaselineCanonicalDigestPort,
     RecordingMainResolvePort,
     WorkspaceHttpTestEnvironment,
     create_workspace_http_environment,
@@ -110,24 +107,6 @@ def test_accept_submit_replays_same_attempt(seeded_env: tuple[WorkspaceHttpTestE
     assert first.status_code == 202
     assert second.status_code == 202
     assert first.json()["submit_attempt_id"] == second.json()["submit_attempt_id"]
-
-
-def test_accept_submit_rejects_no_canonical_change(tmp_path: Path) -> None:
-    environment = create_workspace_http_environment(
-        tmp_path,
-        baseline_canonical_digest=FakeBaselineCanonicalDigestPort(
-            digest="sha256:" + "p" * 62 + "ca",
-        ),
-    )
-    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
-    workspace = _seeded_workspace_dict(seed)
-    response = environment.client.post(
-        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
-        headers=environment.auth_headers(idempotency_key="submit-no-change"),
-        json=_submit_body(workspace),
-    )
-    assert response.status_code == 409
-    assert response.json()["code"] == "NO_CANONICAL_CHANGE"
 
 
 def test_accept_submit_requires_submit_permission(tmp_path: Path) -> None:
@@ -261,38 +240,6 @@ def test_accept_submit_rejects_workspace_occupancy(
     assert second.json()["code"] == "SUBMIT_OCCUPANCY_CONFLICT"
 
 
-def test_accept_submit_prefers_no_canonical_change_over_occupancy_conflict(tmp_path: Path) -> None:
-    baseline_port = FakeBaselineCanonicalDigestPort()
-    environment = create_workspace_http_environment(
-        tmp_path,
-        baseline_canonical_digest=baseline_port,
-    )
-    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
-    workspace = _seeded_workspace_dict(seed)
-    url = f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts"
-    first = environment.client.post(
-        url,
-        headers=environment.auth_headers(idempotency_key="submit-no-change-first"),
-        json=_submit_body(workspace),
-    )
-    assert first.status_code == 202
-    baseline_port.digest = preview_canonical_business_digest(seed["preview_result"])
-    with ControlDbUnitOfWork(environment.db_path) as unit_of_work:
-        refreshed_workspace = unit_of_work.workspace.get_workspace(workspace["workspace_id"])
-        assert refreshed_workspace is not None
-        workspace = {
-            **workspace,
-            "optimistic_version": refreshed_workspace.optimistic_version,
-        }
-    second = environment.client.post(
-        url,
-        headers=environment.auth_headers(idempotency_key="submit-no-change-second"),
-        json=_submit_body(workspace),
-    )
-    assert second.status_code == 409
-    assert second.json()["code"] == "NO_CANONICAL_CHANGE"
-
-
 def test_accept_submit_rejects_unreadable_artifacts(tmp_path: Path) -> None:
     environment = create_workspace_http_environment(tmp_path)
     seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
@@ -398,23 +345,6 @@ def test_accept_submit_prefers_artifact_unavailable_over_main_resolve(tmp_path: 
     )
     assert response.status_code == 503
     assert response.json()["code"] == "ARTIFACT_UNAVAILABLE"
-
-
-def test_accept_submit_resolves_baseline_digest_once(tmp_path: Path) -> None:
-    baseline_port = RecordingBaselineCanonicalDigestPort()
-    environment = create_workspace_http_environment(
-        tmp_path,
-        baseline_canonical_digest=baseline_port,
-    )
-    seed = seed_submit_ready_workspace(environment.db_path, environment.artifact_store)
-    workspace = _seeded_workspace_dict(seed)
-    response = environment.client.post(
-        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
-        headers=environment.auth_headers(idempotency_key="submit-baseline-once"),
-        json=_submit_body(workspace),
-    )
-    assert response.status_code == 202
-    assert baseline_port.digest_calls == 1
 
 
 def test_accept_submit_replays_without_current_closure_metadata(

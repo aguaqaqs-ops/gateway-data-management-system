@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway_backend.domain.workspace.models import PreviewResult, PreviewResultDigests
+from tests.support.preview_fixtures import make_preview_canonical_bindings
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
     InMemoryBundleReader,
@@ -69,6 +70,7 @@ def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation
             surface_digest="d6",
             bundle_digest="bundle-digest",
         ),
+        canonical=make_preview_canonical_bindings(),
         bundle_artifact_id="bundle-artifact-1",
         ready_closure_artifact_id="closure-1",
         operation_id=operation_id,

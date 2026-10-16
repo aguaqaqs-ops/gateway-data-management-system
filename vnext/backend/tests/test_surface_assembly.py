@@ -138,6 +138,7 @@ def _request(
     records_closure: ComparisonRecordsClosure | None = None,
     surface_id: str = "surface-1",
     identity_annotation: SurfaceIdentityAnnotation = SurfaceIdentityAnnotation(),
+    keyless_fallback_tables: tuple[str, ...] = (),
 ) -> SurfaceAssemblyInput:
     return SurfaceAssemblyInput(
         comparison_facts=facts,
@@ -147,6 +148,7 @@ def _request(
         current_role="current",
         records_closure=records_closure,
         table_artifacts=(SurfaceArtifactIndexEntry("orders", table_refs),),
+        keyless_fallback_tables=keyless_fallback_tables,
         ref_scope=SurfaceRefScope.OPERATION_RELATIVE,
         identity_annotation=identity_annotation,
     )
@@ -412,6 +414,25 @@ def test_input_order_and_ref_rewrite_do_not_change_surface_digest() -> None:
     assert rewritten.surface_digest == with_ref.surface.surface_digest
     assert rewritten.tables[0].table_refs.current_table_ref == new_ref
     validate_surface(rewritten)
+
+
+def test_keyless_fallback_hint_is_read_only_surface_diagnostic() -> None:
+    facts = _facts(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.UNCHANGED,
+        )
+    )
+
+    result = assemble_surface(
+        _request(facts, keyless_fallback_tables=("orders",))
+    )
+
+    assert result.surface is not None
+    table = result.surface.tables[0]
+    assert table.table_status is ComparisonTableStatus.UNCHANGED
+    assert "KEYLESS_FALLBACK" in table.diagnostics.diagnostics_summary
+    assert result.surface.summary.changed_table_count == 0
 
 
 def test_forbidden_cache_ref_fails_before_ready() -> None:

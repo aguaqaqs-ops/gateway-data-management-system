@@ -57,7 +57,7 @@ def list_archive_candidates_route(
 ) -> ArchiveCandidatesResponse:
     return list_candidates_operation(
         context=context,
-        unit_of_work_factory=deps.unit_of_work_factory,
+        unit_of_work_factory=deps.archive_unit_of_work_factory,
     )
 
 
@@ -83,7 +83,7 @@ def preview_archive_plan_route(
     return preview_plan_operation(
         context=context,
         body=body,
-        unit_of_work_factory=deps.unit_of_work_factory,
+        unit_of_work_factory=deps.archive_unit_of_work_factory,
     )
 
 
@@ -122,7 +122,7 @@ def append_archive_confirmation_route(
     with acquire_new_work(deps.admission_gate):
         result = append_confirmation_operation(
             command=command,
-            unit_of_work_factory=deps.unit_of_work_factory,
+            unit_of_work_factory=deps.archive_unit_of_work_factory,
             now=deps.now(),
         )
     if result.replay:
@@ -165,7 +165,7 @@ def append_archive_anomaly_resolution_route(
     with acquire_new_work(deps.admission_gate):
         result = append_resolution_operation(
             command=command,
-            unit_of_work_factory=deps.unit_of_work_factory,
+            unit_of_work_factory=deps.archive_unit_of_work_factory,
             now=deps.now(),
         )
     if result.replay:
@@ -197,7 +197,7 @@ def list_archive_audit_events_route(
         subject_digest=subject_digest,
         after_sequence=after_sequence,
         limit=limit,
-        unit_of_work_factory=deps.unit_of_work_factory,
+        unit_of_work_factory=deps.archive_unit_of_work_factory,
     )
 
 
@@ -238,7 +238,7 @@ def start_archive_route(
     with acquire_new_work(deps.admission_gate):
         result = start_archive_operation(
             command=command,
-            unit_of_work_factory=deps.unit_of_work_factory,
+            unit_of_work_factory=deps.archive_unit_of_work_factory,
             now=deps.now(),
         )
     if result.replay:
@@ -264,5 +264,5 @@ def get_archive_result_route(
     return get_archive_result_operation(
         context=context,
         archive_result_id=archive_result_id,
-        unit_of_work_factory=deps.unit_of_work_factory,
+        unit_of_work_factory=deps.archive_unit_of_work_factory,
     )

@@ -31,7 +31,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.storage_projection import FakeSnapshotTableReader, int_cell, varchar_cell
-from tests.support.table_rules import comparison_ruleset_for, ordered_record
+from tests.support.table_rules import comparison_ruleset_for, ordered_record, standard_rule_record
 
 pytestmark = pytest.mark.unit
 
@@ -98,6 +98,45 @@ def test_ordered_content_and_move_are_separate_records() -> None:
     assert kinds.count(OrderedRecordKind.ROW_MOVED) == 1
     assert table.ordered_extension.ordered_summary.row_moved_count == 1
     assert table.ordered_extension.ordered_summary.position_changed_count == 1
+
+
+def test_comparison_reopens_an_intermediate_snapshot_used_by_multiple_pairs() -> None:
+    def source(ordered_value: str, standard_value: str) -> BoundSnapshotInput:
+        return _bound(
+            _sql(f"(1, 1, '{ordered_value}')")
+            + "CREATE TABLE s (id INT NOT NULL PRIMARY KEY, value VARCHAR(8));"
+            + f"INSERT INTO s VALUES (1, '{standard_value}');"
+        )
+
+    baseline = source("baseline", "baseline")
+    initial = source("initial", "initial")
+    modified = source("modified", "modified")
+    rule_set = comparison_ruleset_for(
+        ordered_record(r"^t$"),
+        standard_rule_record("s"),
+    )
+
+    def compare(pair_id: str, before: BoundSnapshotInput, current: BoundSnapshotInput) -> ComparisonFacts:
+        planned = plan_comparison(
+            ComparisonRequest(
+                pair_id=pair_id,
+                before=before,
+                current=current,
+                rule_set=rule_set,
+            )
+        )
+        assert isinstance(planned, ComparisonPlan)
+        return _facts(planned)
+
+    baseline_to_initial = compare("baseline-to-initial", baseline, initial)
+    initial_to_modified = compare("initial-to-modified", initial, modified)
+
+    first_tables = {table.table_name: table for table in baseline_to_initial.tables}
+    second_tables = {table.table_name: table for table in initial_to_modified.tables}
+    assert first_tables["t"].status.value == "MODIFIED"
+    assert first_tables["s"].status.value == "MODIFIED"
+    assert second_tables["t"].status.value == "MODIFIED"
+    assert second_tables["s"].status.value == "MODIFIED"
 
 
 def test_ordered_move_only_has_no_content_update() -> None:

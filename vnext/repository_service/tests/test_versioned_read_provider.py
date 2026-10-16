@@ -46,6 +46,7 @@ from gateway_repository_service.process import CommandResult, DoltRunner, Proces
 from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.settings import RepositoryServiceSettings
 from gateway_repository_service.versioned_read.application import VersionedReadApplication
+from gateway_repository_service.versioned_read import application as versioned_read_application
 from gateway_repository_service.versioned_read.errors import (
     CommitNotFoundError,
     MainRefNotFoundError,
@@ -364,13 +365,66 @@ def test_open_table_rows_exact_lookup_and_single_plan(tmp_path: Path) -> None:
     list(rows)
     assert len(compile_calls) == 1
     assert received_plan == [plan]
-    provider.catalog_at.assert_called_once_with("opaque-commit", existence_verified=True)
-    assert provider.commit_exists.call_count == 1
+    provider.catalog_at.assert_called_once_with("opaque-commit")
+    assert provider.commit_exists.call_count == 0
     with pytest.raises(TableNotFoundError):
         app.open_table_rows(repository_id, "opaque-commit", "records", UnknownTypePolicy.REJECT)
 
 
-def test_open_table_rows_commit_exists_called_once(tmp_path: Path) -> None:
+def test_catalog_is_loaded_once_across_sequential_table_row_requests(tmp_path: Path) -> None:
+    store, layout, repository_id = _visible_repository_setup(tmp_path)
+    catalog = (
+        TableCatalog(
+            "Records",
+            (ColumnCatalog("id", "BIGINT", False, 1),),
+            row_count=1,
+        ),
+        TableCatalog(
+            "OtherRecords",
+            (ColumnCatalog("id", "BIGINT", False, 1),),
+            row_count=1,
+        ),
+    )
+    providers: list[MagicMock] = []
+
+    def factory(_repository_id: UUID) -> MagicMock:
+        provider = MagicMock(spec=CandidateAReadProvider)
+        provider.catalog_at.return_value = catalog
+        provider.stream_table_at.return_value = iter(())
+        providers.append(provider)
+        return provider
+
+    app = VersionedReadApplication(store, layout, factory)
+    assert app.get_catalog(repository_id, "immutable-commit") == catalog
+
+    for table_name in ("Records", "OtherRecords"):
+        _plan, rows = app.open_table_rows(
+            repository_id,
+            "immutable-commit",
+            table_name,
+            UnknownTypePolicy.REJECT,
+        )
+        list(rows)
+
+    assert sum(provider.catalog_at.call_count for provider in providers) == 1
+    assert [provider.stream_table_at.call_count for provider in providers] == [0, 1, 1]
+
+
+def test_versioned_catalog_cache_does_not_retain_catalog_over_byte_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(versioned_read_application, "_VERSIONED_CATALOG_CACHE_BYTES", 1)
+    cache = versioned_read_application._VersionedCatalogCache()
+    key = (uuid4(), "immutable-commit")
+    loader = MagicMock(return_value=())
+
+    assert cache.get_or_load(key, loader) == ()
+    assert cache.get_or_load(key, loader) == ()
+
+    assert loader.call_count == 2
+
+
+def test_open_table_rows_rejects_missing_commit(tmp_path: Path) -> None:
     store, layout, repository_id = _visible_repository_setup(tmp_path)
     table = TableCatalog(
         "Records",
@@ -385,8 +439,13 @@ def test_open_table_rows_commit_exists_called_once(tmp_path: Path) -> None:
         row_count=0,
     )
     read_provider = MagicMock(spec=CandidateAReadProvider)
-    read_provider.commit_exists.side_effect = lambda commit_id: commit_id == "present-commit"
-    read_provider.catalog_at.return_value = (table,)
+
+    def catalog_at(commit_id: str, **_kwargs: object) -> tuple[TableCatalog, ...]:
+        if commit_id != "present-commit":
+            raise CommitNotFoundError("versioned read commit was not found")
+        return (table,)
+
+    read_provider.catalog_at.side_effect = catalog_at
     read_provider.stream_table_at.return_value = iter(())
 
     app = VersionedReadApplication(
@@ -401,9 +460,9 @@ def test_open_table_rows_commit_exists_called_once(tmp_path: Path) -> None:
             "Records",
             UnknownTypePolicy.REJECT,
         )
-    assert read_provider.commit_exists.call_count == 1
+    assert read_provider.catalog_at.call_count == 1
 
-    read_provider.commit_exists.reset_mock()
+    read_provider.catalog_at.reset_mock()
     _plan, rows = app.open_table_rows(
         repository_id,
         "present-commit",
@@ -411,8 +470,8 @@ def test_open_table_rows_commit_exists_called_once(tmp_path: Path) -> None:
         UnknownTypePolicy.REJECT,
     )
     list(rows)
-    assert read_provider.commit_exists.call_count == 1
-    read_provider.catalog_at.assert_called_once_with("present-commit", existence_verified=True)
+    assert read_provider.catalog_at.call_count == 1
+    read_provider.catalog_at.assert_called_once_with("present-commit")
     read_provider.stream_table_at.assert_called_once()
     assert read_provider.stream_table_at.call_args.kwargs["existence_verified"] is True
 
@@ -881,14 +940,14 @@ def test_branch_movement_keeps_pinned_commit_immutable(
     c1 = _commit_changes(offline, "gateway-versioned-import operation_id=00000000-0000-4000-8000-000000000010")
     preflight_done = threading.Event()
     release = threading.Event()
-    original_exists = read_provider.commit_exists
+    original_catalog_at = read_provider.catalog_at
 
-    def gated_commit_exists(commit_id: str) -> bool:
-        exists = original_exists(commit_id)
-        if commit_id == c1 and exists:
+    def gated_catalog_at(commit_id: str) -> tuple[TableCatalog, ...]:
+        catalog = original_catalog_at(commit_id)
+        if commit_id == c1:
             preflight_done.set()
             assert release.wait(timeout=5.0)
-        return exists
+        return catalog
 
     def advance_main() -> None:
         assert preflight_done.wait(timeout=5.0)
@@ -905,7 +964,7 @@ def test_branch_movement_keeps_pinned_commit_immutable(
     store, _, repository_id = _visible_repository_setup(tmp_path)
     worker = threading.Thread(target=advance_main)
     worker.start()
-    with patch.object(read_provider, "commit_exists", side_effect=gated_commit_exists):
+    with patch.object(read_provider, "catalog_at", side_effect=gated_catalog_at):
         with patch(
             "gateway_repository_service.versioned_read.application.is_repository_visible",
             return_value=True,

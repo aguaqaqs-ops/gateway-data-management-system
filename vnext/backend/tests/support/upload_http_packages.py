@@ -9,6 +9,8 @@ from gateway_shared_kernel import raw_blob_digest
 from tests.support.source_package_fixtures import load_bytes, pack_tar_gz
 
 _SQL = load_bytes("package/valid/s1-minimal-tar-gz/sql/dbcfg.sql")
+KEYLESS_FALLBACK_TABLE = "dc29_keyless_fallback"
+KEYLESS_FALLBACK_BASE_ROWS = ("duplicate", "duplicate", "stable")
 INITIAL_BYTES = pack_tar_gz({"sql/dbcfg.sql": _SQL})
 MODIFIED_BYTES = pack_tar_gz({"sql/dbcfg.sql": _SQL + b"\n-- modified\n"})
 INITIAL_DIGEST = raw_blob_digest(INITIAL_BYTES).value
@@ -66,3 +68,40 @@ def upload_files(
     if include_initial:
         files["initial"] = ("initial", initial_bytes, "application/gzip")
     return files
+
+
+def keyless_fallback_upload_files(
+    expected_version: int,
+    *,
+    initial_rows: tuple[str, ...] = KEYLESS_FALLBACK_BASE_ROWS,
+    modified_rows: tuple[str, ...] = KEYLESS_FALLBACK_BASE_ROWS,
+) -> dict[str, tuple[str, bytes, str]]:
+    initial_bytes = pack_tar_gz(
+        {"sql/dbcfg.sql": _keyless_fallback_sql(initial_rows)}
+    )
+    modified_bytes = pack_tar_gz(
+        {"sql/dbcfg.sql": _keyless_fallback_sql(modified_rows)}
+    )
+    return upload_files(
+        expected_version=expected_version,
+        initial_bytes=initial_bytes,
+        modified_bytes=modified_bytes,
+    )
+
+
+def _keyless_fallback_sql(rows: tuple[str, ...]) -> bytes:
+    if type(rows) is not tuple or any(type(row) is not str or row == "" for row in rows):
+        raise ValueError("keyless fallback rows must be a tuple of non-empty strings")
+    statements = [
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n",
+        "INSERT INTO t VALUES (1);\n",
+        f"CREATE TABLE {KEYLESS_FALLBACK_TABLE} (value VARCHAR(64));\n",
+    ]
+    statements.extend(
+        f"INSERT INTO {KEYLESS_FALLBACK_TABLE} VALUES ({_quote_sql_string(row)});\n" for row in rows
+    )
+    return "".join(statements).encode("utf-8")
+
+
+def _quote_sql_string(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"

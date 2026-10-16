@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 from gateway_shared_kernel import DigestRef
+import gateway_backend.application.history.compare_jobs as compare_jobs
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
@@ -21,6 +22,8 @@ from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
+    history_compare_assemble_state_from_checkpoint,
+    _sides_from_materialize_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.capabilities.comparison import (
@@ -31,10 +34,12 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.history_compare import get_compare_result
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import OperationStatus, StepStatus
+from gateway_backend.operations.worker import ExecutorAcknowledgment
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.history_compare_job_harness import (
     ORDERED_SYX_TABLE,
     REPOSITORY_ID,
+    HistoryCompareJobHarness,
     build_history_compare_harness,
     claim_next_step,
     history_compare_net_cfg_provider,
@@ -52,8 +57,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
+    RepositoryRows,
     catalog_table,
-    hidden_summary_for,
     int_id_column,
     make_catalog,
     text_column,
@@ -108,6 +113,18 @@ RULESET_MISMATCH_STEPS = (
 pytestmark = pytest.mark.unit
 
 
+def _history_assemble_state(
+    harness: HistoryCompareJobHarness,
+    job_state: object,
+) -> dict[str, object]:
+    assert isinstance(job_state, dict)
+    _state_ref, assemble_state = history_compare_assemble_state_from_checkpoint(
+        job_state,
+        harness.deps.artifact_store,
+    )
+    return assemble_state
+
+
 def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     harness = build_history_compare_harness(
         tmp_path,
@@ -132,10 +149,9 @@ def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     assert materialize_step.checkpoint_ref is not None
     assert assemble_step.status is StepStatus.PENDING
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    sides = envelope.job_state["sides"]
-    assert isinstance(sides, dict)
+    sides = _sides_from_materialize_checkpoint(envelope.job_state, harness.artifact_store)
     assert set(sides) == {BASELINE_HEAD.business_baseline_commit_id}
-    assert "compare_binding_digest" not in envelope.job_state
+    assert set(envelope.job_state) == {"materialized_sides_ref"}
 
 
 def test_assemble_resumes_from_materialized_sides_with_runtime_ruleset(tmp_path: Path) -> None:
@@ -159,8 +175,7 @@ def test_assemble_resumes_from_materialized_sides_with_runtime_ruleset(tmp_path:
     assert operation.status is OperationStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _history_assemble_state(harness, envelope.job_state)
     assert assemble_state["bundle_digest"]
 
 
@@ -180,11 +195,9 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
             ref=commit_id,
             commit=commit_id,
         )
-        hidden = hidden_summary_for(catalog, rows)
         return FakeRepositoryTableAccessProvider(
             catalog=catalog,
             base_catalog=catalog,
-            hidden=hidden,
             rows=rows,
             declared_rows=rows,
             current_commit=commit_id,
@@ -203,12 +216,10 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
         materialize_step = unit_of_work.operations.get_step(
             history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
         )
     assert operation.status is OperationStatus.SUCCEEDED
-    assert incident is None
     assert materialize_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
     assert "table_policies" not in envelope.job_state
@@ -225,6 +236,97 @@ def test_primary_key_change_across_commits_degrades_without_failing_job(tmp_path
         ),
     )
     assert facts.tables[0].status is ComparisonTableStatus.DEGRADED
+
+
+def test_materialize_checkpoint_preserves_keyless_storage_facts_for_history_compare(
+    tmp_path: Path,
+) -> None:
+    before_commit = BASELINE_HEAD.business_baseline_commit_id
+    current_commit = "commit-keyless-current"
+    before_rows = {"t": (("same",), ("same",), ("before",))}
+    current_rows = {"t": (("same",), ("same",), ("after",))}
+
+    def _provider(
+        commit_id: str,
+        rows: RepositoryRows,
+    ) -> FakeRepositoryTableAccessProvider:
+        table = catalog_table(
+            "t",
+            (text_column("value", 0),),
+            primary_key=(),
+            row_count=len(rows["t"]),
+        )
+        catalog = make_catalog(
+            (table,),
+            repository_id=REPOSITORY_ID,
+            ref=commit_id,
+            commit=commit_id,
+        )
+        return FakeRepositoryTableAccessProvider(
+            catalog=catalog,
+            base_catalog=catalog,
+            rows=rows,
+            declared_rows=rows,
+            current_commit=commit_id,
+        )
+
+    providers = {
+        before_commit: _provider(before_commit, before_rows),
+        current_commit: _provider(current_commit, current_rows),
+    }
+    harness = build_history_compare_harness(
+        tmp_path,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, before_commit),
+            ("bn-keyless-current", current_commit),
+        ),
+        custom_providers=providers,
+        idempotency_key="history-compare-keyless-checkpoint",
+    )
+    insert_history_compare_operation(harness)
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        materialize_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
+        )
+    assert materialize_step.checkpoint_ref is not None
+    materialize_envelope = load_checkpoint_envelope(
+        harness.artifact_store,
+        materialize_step.checkpoint_ref,
+    )
+    sides = _sides_from_materialize_checkpoint(
+        materialize_envelope.job_state,
+        harness.artifact_store,
+    )
+    current_side = sides[current_commit]
+    assert (
+        current_side.storage_facts[0].storage_rule_view.canonical_key_policy.value
+        == "DDL_PRIMARY_KEY_OR_KEYLESS"
+    )
+
+    run_through_step(harness, HISTORY_COMPARE_ASSEMBLE_HANDLER)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+        )
+    assert assemble_step.checkpoint_ref is not None
+    assemble_envelope = load_checkpoint_envelope(
+        harness.artifact_store,
+        assemble_step.checkpoint_ref,
+    )
+    assemble_state = _history_assemble_state(harness, assemble_envelope.job_state)
+    pairs = assemble_state["pairs"]
+    assert isinstance(pairs, list)
+    pair = pairs[0]
+    assert isinstance(pair, dict)
+    assert pair["comparison_digest"] == oracle_comparison_digest(
+        before_provider=providers[before_commit],
+        current_provider=providers[current_commit],
+        before_commit=before_commit,
+        current_commit=current_commit,
+        artifact_store=harness.artifact_store,
+    )
 
 
 def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
@@ -272,8 +374,7 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     assert operation.status is OperationStatus.SUCCEEDED
     assert assemble_step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
+    assemble_state = _history_assemble_state(harness, envelope.job_state)
     pairs = assemble_state["pairs"]
     assert isinstance(pairs, list)
     assert len(pairs) == 2
@@ -295,24 +396,33 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     assert [item["role"] for item in inputs] == [node_a, node_b, node_c]
 
 
-def test_materialize_records_integrity_failure_for_corrupt_hidden_summary(tmp_path: Path) -> None:
+def test_repository_row_count_mismatch_fails_history_compare(tmp_path: Path) -> None:
+    commit_id = BASELINE_HEAD.business_baseline_commit_id
+    provider = history_compare_provider(
+        commit_id=commit_id,
+        row_count=2,
+        declared_rows={"t": ((1,),)},
+    )
     harness = build_history_compare_harness(
         tmp_path,
-        mutate_snapshot_digest_for=frozenset({BASELINE_HEAD.business_baseline_commit_id}),
-        idempotency_key="history-compare-integrity",
+        custom_providers={
+            commit_id: provider,
+            "commit-b": history_compare_provider(commit_id="commit-b"),
+        },
+        idempotency_key="history-compare-row-count-mismatch",
     )
     insert_history_compare_operation(harness)
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
         materialize_step = unit_of_work.operations.get_step(
             history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_MATERIALIZE)
         )
     assert operation.status is OperationStatus.FAILED
     assert materialize_step.status is StepStatus.FAILED
-    assert incident is not None
+    assert operation.diagnostic is not None
+    assert operation.diagnostic.code == "REPOSITORY_ROW_COUNT_MISMATCH"
 
 
 def test_ruleset_mismatch_publishes_stable_failed_code(tmp_path: Path) -> None:
@@ -495,9 +605,10 @@ def test_f1_policy_binding_integration_cases(
         )
     assert assemble_step.checkpoint_ref is not None
     assemble_envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
-    assemble_state = assemble_envelope.job_state["assemble_state"]
-    assert isinstance(assemble_state, dict)
-    pair = assemble_state["pairs"][0]
+    assemble_state = _history_assemble_state(harness, assemble_envelope.job_state)
+    pairs = assemble_state["pairs"]
+    assert isinstance(pairs, list)
+    pair = pairs[0]
     assert isinstance(pair, dict)
     assert pair["comparison_digest"] == oracle_digest
 
@@ -631,10 +742,8 @@ def test_cancel_before_materialize_leaves_operation_cancelled(tmp_path: Path) ->
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         persisted = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
     assert persisted.status is OperationStatus.CANCELLED
     assert persisted.ready_closure_ref is None
-    assert incident is None
     # Checkpoint never published on this path; empty protection means no spurious pin only.
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.list_artifact_protection_for_owner(
@@ -693,59 +802,45 @@ def test_cancel_at_assemble_entry_releases_materialize_checkpoint_protection(tmp
         ) == frozenset()
 
 
-def test_confirmed_integrity_incident_published_despite_cancel_signal(tmp_path: Path) -> None:
-    from gateway_backend.application.history import compare_jobs as compare_jobs_module
-
-    commit_id = BASELINE_HEAD.business_baseline_commit_id
-    rows_a = {"t": ((1,),)}
-    rows_b = {"t": ((2,),)}
+def test_cancel_during_history_assembly_loop_leaves_operation_cancelled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     harness = build_history_compare_harness(
         tmp_path,
-        custom_providers={
-            commit_id: history_compare_provider(
-                commit_id=commit_id,
-                declared_rows=rows_a,
-                per_read_rows=(rows_b, rows_b),
-            )
-        },
-        idempotency_key="history-compare-cancel-race",
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.business_baseline_commit_id),
+            ("bn-b", "commit-b"),
+            ("bn-c", "commit-b"),
+        ),
+        idempotency_key="history-compare-cancel-assembly-loop",
     )
     insert_history_compare_operation(harness)
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    original = compare_jobs._run_pair_pipeline
+    calls = 0
+
+    def run_pair_then_cancel(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        result = original(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            kwargs["control"].request_cancel()
+        return result
+
+    monkeypatch.setattr(compare_jobs, "_run_pair_pipeline", run_pair_then_cancel)
     session, control, operation, step = claim_next_step(harness)
-
-    original_materialize = compare_jobs_module._materialize_distinct_commits
-
-    def materialize_with_cancel_signal(payload: object, deps: object) -> object:
-        control.request_cancel()
-        return original_materialize(payload, deps)  # type: ignore[arg-type]
-
-    with patch.object(
-        compare_jobs_module,
-        "_materialize_distinct_commits",
-        side_effect=materialize_with_cancel_signal,
-    ):
-        run_claimed_handler(
-            harness,
-            HISTORY_COMPARE_MATERIALIZE_HANDLER,
-            session,
-            control,
-            operation,
-            step,
-        )
+    acknowledgment = run_claimed_handler(
+        harness,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        session,
+        control,
+        operation,
+        step,
+    )
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         persisted = unit_of_work.operations.get_operation(harness.operation_id)
-        incident = unit_of_work.history_compare.get_integrity_by_operation_id(harness.operation_id)
-    assert persisted.status is OperationStatus.FAILED
-    assert incident is not None
-    assert control.cancel_requested is True
-    # Integrity path fails before checkpoint publish; empty protection means no spurious pin only.
-    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        assert unit_of_work.list_artifact_protection_for_owner(
-            owner_kind="history-compare-checkpoint",
-            owner_id=step.step_id,
-        ) == frozenset()
-        assert unit_of_work.list_artifact_protection_for_owner(
-            owner_kind="history-compare-operation",
-            owner_id=harness.operation_id,
-        ) == frozenset()
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert calls == 1
+    assert persisted.status is OperationStatus.CANCELLED

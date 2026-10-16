@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnosticCode,
     MaterializationPolicy,
+    RepositoryProviderError,
     RepositoryRef,
     SnapshotMaterializationStatus,
     SourceKind,
@@ -15,8 +18,8 @@ from gateway_backend.capabilities.table_access.contracts import ParserInvocation
 from tests.support.repository_ref_materialization import (
     DEFAULT_REF,
     FakeRepositoryTableAccessProvider,
+    canonical_binding_for_catalog,
     catalog_table,
-    hidden_summary_for,
     int_id_column,
     make_catalog,
     materialize_ref,
@@ -35,19 +38,16 @@ class CountCancel:
         return self.calls >= self.trip_after
 
 
-def test_open_ref_timeout_and_failure_mapping() -> None:
+def test_open_ref_deterministic_failure_mapping() -> None:
     cases = (
-        ("open_timeout", MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_TIMEOUT),
         ("open_not_found", MaterializationDiagnosticCode.REPOSITORY_REF_NOT_FOUND),
         ("open_failed", MaterializationDiagnosticCode.REPOSITORY_REF_OPEN_FAILED),
     )
     table = catalog_table("items", (int_id_column(),))
     catalog = make_catalog((table,))
-    hidden = hidden_summary_for(catalog, {"items": ((1,),)})
     for flag, code in cases:
         provider = FakeRepositoryTableAccessProvider(
             catalog=catalog,
-            hidden=hidden,
             rows={"items": ((1,),)},
             open_timeout=flag == "open_timeout",
             open_not_found=flag == "open_not_found",
@@ -75,7 +75,7 @@ def test_close_failure_does_not_change_digest() -> None:
     provider.close_error = True
     first = materialize_ref(
         FakeRepositoryTableAccessProvider(
-            catalog=provider.catalog, hidden=provider.hidden, rows=provider.rows
+            catalog=provider.catalog, rows=provider.rows
         )
     )
     second = materialize_ref(provider)
@@ -114,14 +114,54 @@ def test_requested_tables_filter_does_not_relist() -> None:
     items = catalog_table("items", (int_id_column(), text_column("name", 1)))
     rows = {"items": ((1, "a"),), "other": ((9,),)}
     catalog = make_catalog((items, extra))
-    hidden = hidden_summary_for(catalog, rows)
-    provider = FakeRepositoryTableAccessProvider(catalog=catalog, hidden=hidden, rows=rows)
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     result = materialize_ref(provider, requested_tables=("items",))
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.summary is not None
     assert tuple(table.table_name for table in result.summary.tables) == ("items",)
     assert provider.last_session is not None
     assert provider.last_session.catalog_load_count == 1
+    assert tuple(reader.stream_count for reader in provider.last_session.table_readers) == (1,)
+
+
+def test_catalog_row_count_mismatch_is_a_regular_failure() -> None:
+    table = catalog_table("items", (int_id_column(),), row_count=2)
+    provider = FakeRepositoryTableAccessProvider(
+        catalog=make_catalog((table,)),
+        rows={"items": ((1,),)},
+    )
+
+    result = materialize_ref(provider)
+
+    assert result.status is SnapshotMaterializationStatus.FAILED
+    assert result.snapshot is None
+    assert result.diagnostics[0].code is (
+        MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH
+    )
+    assert provider.last_session is not None
+    assert tuple(reader.stream_count for reader in provider.last_session.table_readers) == (1,)
+
+
+def test_initial_binding_rejects_repository_user_tables() -> None:
+    table = catalog_table("items", (int_id_column(),))
+    catalog = make_catalog((table,))
+    provider = FakeRepositoryTableAccessProvider(
+        catalog=catalog,
+        rows={"items": ((1,),)},
+    )
+
+    result = materialize_ref(
+        provider,
+        canonical_binding=canonical_binding_for_catalog(catalog, is_initial=True),
+    )
+
+    assert result.status is SnapshotMaterializationStatus.FAILED
+    assert result.snapshot is None
+    assert result.diagnostics[0].code is (
+        MaterializationDiagnosticCode.INITIAL_BASELINE_NOT_EMPTY
+    )
+    assert provider.last_session is not None
+    assert provider.last_session.table_readers == []
 
 
 def test_session_stays_pinned_after_ref_moves() -> None:
@@ -163,6 +203,20 @@ def test_cancel_fails_closed_and_closes_session() -> None:
     assert result.diagnostics[0].code is MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED
     assert provider.last_session is not None
     assert provider.last_session.close_count == 1
+
+
+def test_retryable_open_ref_timeout_reaches_operation_recovery() -> None:
+    table = catalog_table("items", (int_id_column(),))
+    provider = FakeRepositoryTableAccessProvider(
+        catalog=make_catalog((table,)),
+        rows={"items": ((1,),)},
+        open_timeout=True,
+    )
+
+    with pytest.raises(RepositoryProviderError) as exc_info:
+        materialize_ref(provider)
+
+    assert exc_info.value.retryable is True
 
 
 def test_deadline_fails_closed() -> None:

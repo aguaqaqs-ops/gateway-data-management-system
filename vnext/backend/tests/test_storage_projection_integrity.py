@@ -67,6 +67,7 @@ from tests.support.storage_projection import (
     set_column,
     table_input,
     typed_column,
+    uint_cell,
     varchar_cell,
     varchar_column,
 )
@@ -85,12 +86,14 @@ def _request(
     *inputs: TableInput,
     ruleset: TableRulesetSnapshot | None = None,
     context: ProjectionInvocationContext | None = None,
+    canonicalized_input: bool = False,
 ) -> ProjectionRequest:
     tables = tuple(
         ProjectionTableInput(
             canonical_table=binding.descriptor.table_name,
             reader=reader,
             source_binding=binding,
+            canonicalized_input=canonicalized_input,
         )
         for reader, binding in inputs
     )
@@ -390,6 +393,59 @@ def test_ordered_real_gid_and_blank_pseudo_allocation() -> None:
     assert table.content_digest == zero.tables[0].content_digest == empty.tables[0].content_digest
     assert table.ordering_digest == zero.tables[0].ordering_digest == empty.tables[0].ordering_digest
     assert GID_PSEUDO_MIN == 4_000_000_000
+
+
+def test_canonical_ordered_snapshot_reprojection_preserves_pseudo_identity() -> None:
+    raw = _request(
+        _ordered_input(
+            (
+                as_row(null_cell(), int_cell(3), varchar_cell("blank-last")),
+                as_row(int_cell(7), int_cell(2), varchar_cell("real")),
+                as_row(null_cell(), int_cell(1), varchar_cell("blank-first")),
+            )
+        )
+    )
+    initial = project_storage(raw)
+    assert initial.status is ProjectionStatus.COMPLETE
+    assert initial.tables[0].ordering_digest is not None
+
+    canonical_reader, canonical_binding = table_input(
+        "b1_n1_iec104_syx_list",
+        columns=(
+            typed_column("gid", "INT UNSIGNED"),
+            int_column("no"),
+            varchar_column("value"),
+        ),
+        primary_key_columns=("gid",),
+        rows=(
+            as_row(uint_cell(GID_PSEUDO_MIN + 1), int_cell(3), varchar_cell("blank-last")),
+            as_row(uint_cell(7), int_cell(2), varchar_cell("real")),
+            as_row(uint_cell(GID_PSEUDO_MIN), int_cell(1), varchar_cell("blank-first")),
+        ),
+    )
+    replayed = project_storage(
+        _request((canonical_reader, canonical_binding), canonicalized_input=True)
+    )
+    assert replayed.status is ProjectionStatus.COMPLETE
+    assert replayed.manifest is not None
+    assert replayed.manifest.tables[0].gid_real_count == 1
+    assert replayed.manifest.tables[0].gid_pseudo_count == 2
+    assert replayed.tables[0].content_digest == initial.tables[0].content_digest
+    assert replayed.tables[0].ordering_digest == initial.tables[0].ordering_digest
+
+    raw_pseudo_reader, raw_pseudo_binding = table_input(
+        "b1_n1_iec104_syx_list",
+        columns=(
+            typed_column("gid", "INT UNSIGNED"),
+            int_column("no"),
+            varchar_column("value"),
+        ),
+        primary_key_columns=("gid",),
+        rows=(as_row(uint_cell(GID_PSEUDO_MIN), int_cell(1), varchar_cell("blank")),),
+    )
+    rejected = project_storage(_request((raw_pseudo_reader, raw_pseudo_binding)))
+    assert rejected.status is ProjectionStatus.FAILED
+    assert rejected.diagnostics[0].message == "source gid is in the reserved pseudo range"
 
 
 def test_ordered_insert_order_does_not_change_digests() -> None:

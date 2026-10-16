@@ -15,6 +15,10 @@ from gateway_backend.infrastructure.control_db.sqlite_protection import SQLiteAr
 from gateway_backend.operations import OperationStore, StoreBusy
 
 if TYPE_CHECKING:
+    from gateway_backend.application.canonical_metadata.ports import (
+        CanonicalizationManifestReadPort,
+        CommitCanonicalMetadataPort,
+    )
     from gateway_backend.application.history.ports import HistoryComparePort
     from gateway_backend.infrastructure.control_db.sqlite_history_compare import (
         SQLiteHistoryCompareRepository,
@@ -94,6 +98,7 @@ class ControlDbUnitOfWork:
         *,
         read_only: bool = False,
         now: Callable[[], datetime] = _utc_now,
+        canonicalization_manifest_reader: CanonicalizationManifestReadPort | None = None,
     ) -> None:
         if type(read_only) is not bool:
             raise ValueError("read_only must be a bool")
@@ -101,6 +106,7 @@ class ControlDbUnitOfWork:
         self._db_path = db_path
         self._read_only = read_only
         self._now = now
+        self._canonicalization_manifest_reader = canonicalization_manifest_reader
         self._connection: sqlite3.Connection | None = None
         self._transaction_now: datetime | None = None
         self._operations: OperationStore | None = None
@@ -183,6 +189,19 @@ class ControlDbUnitOfWork:
         if self._history_compare is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._history_compare
+
+    @property
+    def commit_canonical_metadata(self) -> CommitCanonicalMetadataPort:
+        """Return the resolver bound to this transaction and protected artifact reader."""
+
+        reader = self._canonicalization_manifest_reader
+        if reader is None:
+            raise RuntimeError("canonicalization manifest reader is not configured")
+        from gateway_backend.infrastructure.control_db.sqlite_commit_metadata import (
+            SQLiteCommitCanonicalMetadataPort,
+        )
+
+        return SQLiteCommitCanonicalMetadataPort(self.connection, manifest_reader=reader)
 
     def set_artifact_protection(
         self,

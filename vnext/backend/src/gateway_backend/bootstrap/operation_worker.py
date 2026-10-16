@@ -39,6 +39,9 @@ from gateway_backend.application.preview_jobs import (
     build_preview_recovery_port,
     preview_composition_bundle,
 )
+from gateway_backend.application.canonical_metadata.manifest_reader import (
+    ArtifactBackedCanonicalizationManifestReader,
+)
 from gateway_backend.application.submit_jobs import (
     SubmitRuntimeDependencies,
     bind_submit_control_transaction_factory,
@@ -63,6 +66,7 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
 )
 from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
+    HttpRepositoryParentCatalogPort,
     load_repository_bearer_token,
 )
 from gateway_backend.infrastructure.repository_write import HttpRepositoryWriteClient
@@ -162,9 +166,16 @@ def build_production_preview_dependencies(
         is_protected=lambda artifact_id: _artifact_is_protected(settings.control_db_path, artifact_id),
         unpinned_ttl=timedelta(hours=24),
     )
+    manifest_reader = ArtifactBackedCanonicalizationManifestReader(
+        artifact_store=artifact_store,
+        artifact_refs=artifact_store,
+    )
 
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path)
+        return ControlDbUnitOfWork(
+            settings.control_db_path,
+            canonicalization_manifest_reader=manifest_reader,
+        )
 
     preview_deps = PreviewRuntimeDependencies(
         artifact_store=artifact_store,
@@ -220,6 +231,11 @@ def build_production_submit_dependencies(
     return SubmitRuntimeDependencies(
         artifact_store=preview_deps.artifact_store,
         publication=build_submit_import_publication_port(),
+        parent_catalog=HttpRepositoryParentCatalogPort(
+            base_url=settings.repository_base_url,
+            bearer_token=token,
+            timeout_seconds=settings.repository_timeout_seconds,
+        ),
         repository_write=HttpRepositoryWriteClient(
             base_url=settings.repository_base_url,
             bearer_token=token,

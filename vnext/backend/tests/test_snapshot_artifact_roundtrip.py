@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 from dataclasses import replace
+from typing import Any
 
+import pytest
+
+import gateway_backend.capabilities.snapshot_materialization.artifact as artifact_module
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     open_snapshot_table_artifact,
@@ -30,7 +34,9 @@ from tests.support.snapshot_artifact import first_ready_table, publish_first_tab
 from tests.support.snapshot_materialization import load_sql, materialize_business, materialize_sql, parse_fixture
 
 
-def test_parquet_round_trip_preserves_descriptor_rows_and_digests() -> None:
+def test_parquet_round_trip_preserves_descriptor_rows_and_digests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     store = InMemoryArtifactStore()
     source = first_ready_table("sql/valid/s2-null-and-types/input.sql")
     result = materialize_sql(
@@ -44,7 +50,17 @@ def test_parquet_round_trip_preserves_descriptor_rows_and_digests() -> None:
         store=store,
         context=ParserInvocationContext(NeverCancel()),
     )
+    read_parquet_table: Any = getattr(artifact_module, "read_parquet_table")
+    decode_calls = 0
+
+    def count_parquet_decodes(raw: bytes) -> Any:
+        nonlocal decode_calls
+        decode_calls += 1
+        return read_parquet_table(raw)
+
+    monkeypatch.setattr(artifact_module, "read_parquet_table", count_parquet_decodes)
     opened = open_snapshot_table_artifact(store, artifact.manifest_ref)
+    assert decode_calls == 1
     assert opened.descriptor == source.descriptor
     assert opened.descriptor.row_count == source.descriptor.row_count
     assert opened.descriptor.raw_content_digest == source.descriptor.raw_content_digest

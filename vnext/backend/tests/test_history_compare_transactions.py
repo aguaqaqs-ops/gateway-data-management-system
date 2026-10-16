@@ -18,18 +18,13 @@ from gateway_backend.application.history.contracts import (
     HISTORY_COMPARE_COMPARISON_CONTRACT_VERSION,
     HistoryCompareAcceptCommand,
     HistoryCompareAcceptanceRecord,
-    HistoryCompareIntegrityRecord,
     HistoryCompareNodeBinding,
     HistoryNodeRef,
     HistoryNodeRefKind,
-    HISTORY_INTEGRITY_FAILURE_CLASS,
-    HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-    IntegrityAcknowledgementStatus,
     PERMISSION_READ_PROJECT_HISTORY,
 )
 from gateway_backend.application.history.errors import (
     HistoryCompareIdempotencyConflict,
-    HistoryIntegrityUnresolved,
 )
 from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
@@ -176,7 +171,7 @@ def test_accept_binding_fingerprint_freezes_comparison_ruleset_digest() -> None:
     )
 
 
-def test_replay_happens_before_integrity_gate(db_path: Path) -> None:
+def test_idempotent_replay_returns_existing_acceptance(db_path: Path) -> None:
     _seed_scope(db_path)
     nodes = (
         HistoryCompareNodeBinding(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE, HEAD_COMMIT),
@@ -209,25 +204,6 @@ def test_replay_happens_before_integrity_gate(db_path: Path) -> None:
                 created_at=TS,
             ),
         )
-        unit_of_work.history_compare.save_integrity_record(
-            HistoryCompareIntegrityRecord(
-                incident_id="hci-test",
-                operation_id="op-other",
-                repository_id="repo-1",
-                commit_refs=({"commit_id": HEAD_COMMIT},),
-                failure_class=HISTORY_INTEGRITY_FAILURE_CLASS,
-                expected_digest="sha256:" + "a" * 64,
-                observed_digest="sha256:" + "b" * 64,
-                affected_tables=(),
-                recommended_action=HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-                first_seen_at=TS,
-                last_seen_at=TS,
-                acknowledgement_status=IntegrityAcknowledgementStatus.PENDING,
-                resolution_reference=None,
-                created_at=TS,
-                updated_at=TS,
-            )
-        )
         result = validate_history_compare_binding(
             command=_accept_command(idempotency_key="idem-replay"),
             unit_of_work=unit_of_work,
@@ -235,36 +211,6 @@ def test_replay_happens_before_integrity_gate(db_path: Path) -> None:
         )
     assert result.replay is True
     assert result.operation_id == operation_id
-
-
-def test_new_accept_blocked_by_pending_integrity(db_path: Path) -> None:
-    _seed_scope(db_path)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.history_compare.save_integrity_record(
-            HistoryCompareIntegrityRecord(
-                incident_id="hci-block",
-                operation_id="op-block",
-                repository_id="repo-1",
-                commit_refs=({"commit_id": HEAD_COMMIT},),
-                failure_class=HISTORY_INTEGRITY_FAILURE_CLASS,
-                expected_digest="sha256:" + "a" * 64,
-                observed_digest="sha256:" + "b" * 64,
-                affected_tables=(),
-                recommended_action=HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-                first_seen_at=TS,
-                last_seen_at=TS,
-                acknowledgement_status=IntegrityAcknowledgementStatus.PENDING,
-                resolution_reference=None,
-                created_at=TS,
-                updated_at=TS,
-            )
-        )
-        with pytest.raises(HistoryIntegrityUnresolved):
-            validate_history_compare_binding(
-                command=_accept_command(idempotency_key="idem-new"),
-                unit_of_work=unit_of_work,
-                comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
-            )
 
 
 def test_ruleset_drift_replay_raises_idempotency_conflict(db_path: Path) -> None:
@@ -371,86 +317,6 @@ def _history_accept_row_counts(db_path: Path) -> tuple[int, int, int]:
         operation_count = connection.execute("SELECT COUNT(*) FROM operation_records").fetchone()[0]
         step_count = connection.execute("SELECT COUNT(*) FROM step_records").fetchone()[0]
     return acceptance_count, operation_count, step_count
-
-
-def test_integrity_gate_rejects_accept_without_persisting_rows(db_path: Path) -> None:
-    _seed_scope(db_path)
-    seed_archived_baseline_node(
-        db_path,
-        node_id="bn-gate-b",
-        commit_id="commit-gate-b",
-        created_at_us=2,
-    )
-    before = _history_accept_row_counts(db_path)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.history_compare.save_integrity_record(
-            HistoryCompareIntegrityRecord(
-                incident_id="hci-gate",
-                operation_id="op-gate",
-                repository_id="repo-1",
-                commit_refs=({"commit_id": "commit-gate-b"},),
-                failure_class=HISTORY_INTEGRITY_FAILURE_CLASS,
-                expected_digest="sha256:" + "a" * 64,
-                observed_digest="sha256:" + "b" * 64,
-                affected_tables=(),
-                recommended_action=HISTORY_INTEGRITY_RECOMMENDED_ACTION,
-                first_seen_at=TS,
-                last_seen_at=TS,
-                acknowledgement_status=IntegrityAcknowledgementStatus.PENDING,
-                resolution_reference=None,
-                created_at=TS,
-                updated_at=TS,
-            )
-        )
-    job_registry = JobDefinitionRegistry.build(history_compare_job_definitions())
-    with pytest.raises(ApiError) as exc_info:
-        accept_compare_operation(
-            command=_accept_command(
-                idempotency_key="idem-gate",
-                nodes=(
-                    HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE),
-                    HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, "bn-gate-b"),
-                ),
-            ),
-            unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
-            job_registry=job_registry,
-            admission_gate=OpenAdmissionGate(),
-            comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
-            now=TS,
-        )
-    assert exc_info.value.code == "HISTORY_INTEGRITY_UNRESOLVED"
-    assert _history_accept_row_counts(db_path) == before
-
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.connection.execute(
-            """
-            UPDATE history_compare_integrity_records
-            SET acknowledgement_status = 'ACKNOWLEDGED',
-                resolution_reference = 'ticket-gate',
-                updated_at_us = ?
-            WHERE incident_id = ?
-            """,
-            (int(TS.timestamp() * 1_000_000), "hci-gate"),
-        )
-    result = accept_compare_operation(
-        command=_accept_command(
-            idempotency_key="idem-gate",
-            nodes=(
-                HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, HEAD_NODE),
-                HistoryNodeRef(HistoryNodeRefKind.BASELINE_NODE, "bn-gate-b"),
-            ),
-        ),
-        unit_of_work_factory=lambda *, read_only=False: ControlDbUnitOfWork(db_path, read_only=read_only),
-        job_registry=job_registry,
-        admission_gate=OpenAdmissionGate(),
-        comparison_ruleset_digest=RUNTIME_RULESET_DIGEST,
-        now=TS,
-    )
-    assert result.replay is False
-    after = _history_accept_row_counts(db_path)
-    assert after[0] == before[0] + 1
-    assert after[1] == before[1] + 1
-    assert after[2] == before[2] + 1
 
 
 @pytest.mark.serial

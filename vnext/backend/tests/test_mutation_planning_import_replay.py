@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from gateway_shared_kernel import (
+    DateTimeScalar,
+    Float32Scalar,
+    Float64Scalar,
+)
 
 from gateway_backend.capabilities.mutation_planning import (
     build_import_mutation_snapshots,
@@ -30,6 +35,7 @@ from tests.support.storage_projection import (
     set_cell,
     set_column,
     table_input,
+    typed_column,
     varchar_cell,
     varchar_column,
 )
@@ -78,16 +84,62 @@ def test_import_replay_sql_includes_drop_create_and_inserts() -> None:
     )
     snapshots = build_import_mutation_snapshots(projection_snapshots)
     replay_sql = (
-        render_repository_import_schema_replay_sql(result.import_input)
+        render_repository_import_schema_replay_sql(result.import_input, removed_tables=())
         + render_import_mutation_dml(
             result,
             snapshots,
             repository_base_digest=digest_ref("aa"),
+            removed_tables=(),
         )
     ).decode("utf-8")
     assert "DROP TABLE IF EXISTS `net_cfg`" in replay_sql
     assert "CREATE TABLE `net_cfg`" in replay_sql
     assert "INSERT INTO `net_cfg`" in replay_sql
+
+
+def test_import_replay_batches_inserts_without_losing_row_occurrences() -> None:
+    reader, binding = table_input(
+        "batch_widget",
+        columns=(int_column("id"), varchar_column("value")),
+        primary_key_columns=("id",),
+        rows=tuple(
+            as_row(int_cell(index), varchar_cell(f"row-{index}"))
+            for index in range(258)
+        ),
+    )
+    result = project_storage(
+        _request(
+            ProjectionTableInput(
+                canonical_table="batch_widget",
+                reader=reader,
+                source_binding=binding,
+            )
+        )
+    )
+    assert result.status is ProjectionStatus.COMPLETE
+    projection_snapshots = build_import_projection_snapshots(
+        _request(
+            ProjectionTableInput(
+                canonical_table="batch_widget",
+                reader=reader.reopen(),
+                source_binding=binding,
+            )
+        ),
+        result,
+    )
+    replay_sql = render_import_mutation_dml(
+        result,
+        build_import_mutation_snapshots(projection_snapshots),
+        repository_base_digest=digest_ref("aa"),
+        removed_tables=(),
+    ).decode("utf-8")
+
+    insert_statements = [
+        line for line in replay_sql.splitlines() if line.startswith("INSERT INTO `batch_widget`")
+    ]
+    assert len(insert_statements) == 2
+    assert [line.count("), ") + 1 for line in insert_statements] == [256, 2]
+    assert all(replay_sql.count(f"'row-{index}'") == 1 for index in range(258))
 
 
 def test_import_replay_allocates_ordered_blank_gid() -> None:
@@ -127,6 +179,7 @@ def test_import_replay_allocates_ordered_blank_gid() -> None:
         result,
         snapshots,
         repository_base_digest=digest_ref("aa"),
+        removed_tables=(),
     ).decode("utf-8")
     assert f"VALUES ({GID_PSEUDO_MIN}, 1, 'x')" in replay_sql
 
@@ -165,5 +218,91 @@ def test_import_replay_supports_set_columns() -> None:
         result,
         snapshots,
         repository_base_digest=digest_ref("aa"),
+        removed_tables=(),
     ).decode("utf-8")
     assert "INSERT INTO `unknown_widget`" in replay_sql
+
+
+def test_import_replay_preserves_supported_canonical_scalar_cells() -> None:
+    columns = (
+        int_column("id"),
+        typed_column("ratio32", "FLOAT"),
+        typed_column("ratio64", "DOUBLE"),
+        typed_column("created_at", "DATETIME"),
+    )
+    cells = (
+        int_cell(1),
+        Float32Scalar(bits_hex="3f800000"),
+        Float64Scalar(bits_hex="4000000000000000"),
+        DateTimeScalar(text="2026-10-11T12:34:56"),
+    )
+    reader, binding = table_input(
+        "unknown_widget",
+        columns=columns,
+        primary_key_columns=("id",),
+        rows=(as_row(*cells),),
+    )
+    request = _request(
+        ProjectionTableInput(
+            canonical_table="unknown_widget",
+            reader=reader,
+            source_binding=binding,
+        )
+    )
+    result = project_storage(request)
+    assert result.status is ProjectionStatus.COMPLETE
+    projection_snapshots = build_import_projection_snapshots(
+        _request(
+            ProjectionTableInput(
+                canonical_table="unknown_widget",
+                reader=reader.reopen(),
+                source_binding=binding,
+            )
+        ),
+        result,
+    )
+    snapshots = build_import_mutation_snapshots(projection_snapshots)
+    image = dict(snapshots[0].rows[0].image.columns)
+    assert image == {
+        "created_at": {"kind": "datetime", "text": "2026-10-11T12:34:56"},
+        "id": {"kind": "signed-integer", "decimal": "1"},
+        "ratio32": {"kind": "float32", "bits_hex": "3f800000"},
+        "ratio64": {"kind": "float64", "bits_hex": "4000000000000000"},
+    }
+
+
+def test_import_replay_canonicalizes_composite_key_column_order() -> None:
+    reader, binding = table_input(
+        "unknown_widget",
+        columns=(
+            int_column("z_id"),
+            int_column("a_id"),
+            varchar_column("value"),
+        ),
+        primary_key_columns=("z_id", "a_id"),
+        rows=(as_row(int_cell(2), int_cell(1), varchar_cell("x")),),
+    )
+    request = _request(
+        ProjectionTableInput(
+            canonical_table="unknown_widget",
+            reader=reader,
+            source_binding=binding,
+        )
+    )
+    result = project_storage(request)
+    assert result.status is ProjectionStatus.COMPLETE
+    projection_snapshots = build_import_projection_snapshots(
+        _request(
+            ProjectionTableInput(
+                canonical_table="unknown_widget",
+                reader=reader.reopen(),
+                source_binding=binding,
+            )
+        ),
+        result,
+    )
+    snapshots = build_import_mutation_snapshots(projection_snapshots)
+    assert snapshots[0].rows[0].key.columns == (
+        ("a_id", {"kind": "signed-integer", "decimal": "1"}),
+        ("z_id", {"kind": "signed-integer", "decimal": "2"}),
+    )

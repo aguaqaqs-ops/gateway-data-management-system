@@ -54,7 +54,9 @@ def build_import_mutation_snapshots(
                     row_digest=row_digest_from_image(image, retained_columns=retained),
                 )
             )
-        keyed_rows.sort(key=lambda item: key_bytes_for_ordering(item.key))
+        keyed_rows.sort(
+            key=lambda item: (key_bytes_for_ordering(item.key), item.row_digest.value)
+        )
         snapshots.append(
             MutationTableSnapshot(
                 manifest_table=projection_snapshot.manifest_table,
@@ -70,7 +72,14 @@ def render_import_mutation_dml(
     snapshots: tuple[MutationTableSnapshot, ...],
     *,
     repository_base_digest: DigestRef,
+    removed_tables: tuple[str, ...],
 ) -> bytes:
+    if type(removed_tables) is not tuple:
+        raise ImportReplayError("removed_tables must be a tuple")
+    if any(type(name) is not str or not name for name in removed_tables):
+        raise ImportReplayError("removed_tables must contain non-empty table names")
+    if removed_tables != tuple(sorted(set(removed_tables), key=lambda name: name.encode("utf-8"))):
+        raise ImportReplayError("removed_tables must contain sorted unique table names")
     manifest = result.manifest
     if manifest is None:
         raise ImportReplayError("projection manifest is required")
@@ -112,6 +121,10 @@ def render_import_mutation_dml(
         destructive_confirmation_granted=True,
     )
     planned = plan_storage_mutation(request)
+    if planned.status is MutationPlanStatus.NOOP:
+        if manifest.tables or snapshots or not removed_tables:
+            raise ImportReplayError("mutation planning failed for repository import replay")
+        return b""
     if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
         raise ImportReplayError("mutation planning failed for repository import replay")
     outcome = render_change_set_replay(planned.change_set_closure)

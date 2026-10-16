@@ -14,6 +14,7 @@ from gateway_repository_contracts import (
     MAX_CATALOG_JSON_BYTES,
     REF_NOT_FOUND_CODE,
     REPOSITORY_NOT_FOUND_CODE,
+    RESPONSE_LIMIT_EXCEEDED_CODE,
     REQUEST_VALIDATION_FAILED_CODE,
     ResolveVersionedRefResponse,
     SERVICE_NOT_READY_CODE,
@@ -73,9 +74,9 @@ def build_catalog_response(commit_id: str, tables: tuple[TableCatalog, ...]) -> 
     wire_size = len(response.model_dump_json().encode("utf-8"))
     if wire_size > MAX_CATALOG_JSON_BYTES:
         raise ServiceError(
-            code=SERVICE_NOT_READY_CODE,
-            message=_SERVICE_NOT_READY_MESSAGE,
-            status_code=503,
+            code=RESPONSE_LIMIT_EXCEEDED_CODE,
+            message="response limit exceeded",
+            status_code=500,
         )
     return response
 

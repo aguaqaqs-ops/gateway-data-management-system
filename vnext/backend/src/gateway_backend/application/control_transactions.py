@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from datetime import datetime
 from typing import Protocol
 
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
 from gateway_backend.operations.store import OperationStore
+
+
+class ControlTransaction(Protocol):
+    """Minimum shared session fact exposed by every control DB transaction."""
+
+    @property
+    def transaction_now(self) -> datetime: ...
 
 
 class ReadOnlySubmissionReader(Protocol):

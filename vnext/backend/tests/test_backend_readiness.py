@@ -23,7 +23,6 @@ from gateway_backend.infrastructure.control_db.database import assert_control_db
 from gateway_backend.http.auth import StaticInternalBearerPort
 from gateway_backend.http.dependencies import ReadOnlySubmissionStore
 from gateway_backend.bootstrap.composition import (
-    HttpBaselineCanonicalDigestPort,
     HttpRepositoryMainResolvePort,
     assert_repository_service_ready,
     prepare_backend_runtime,
@@ -151,7 +150,6 @@ def test_production_readyz_is_ok_after_startup_and_omits_secrets(tmp_path: Path)
     assert type(runtime.workspace_http.baseline_head_read).__name__ == "ProvisionedBaselineHeadRead"
     assert type(runtime.workspace_http.submission_reader) is ReadOnlySubmissionStore
     assert type(runtime.workspace_http.internal_bearer_port) is StaticInternalBearerPort
-    assert type(runtime.workspace_http.baseline_canonical_digest) is HttpBaselineCanonicalDigestPort
     assert type(runtime.workspace_http.main_resolve) is HttpRepositoryMainResolvePort
     assert runtime.workspace_http.job_registry.resolve_runnable is not None
 

@@ -57,7 +57,7 @@ def apply_review_route(
         result = apply_review_operation(
             command=command,
             scope_resolution=deps.scope_resolution,
-            unit_of_work_factory=deps.unit_of_work_factory,
+            unit_of_work_factory=deps.review_unit_of_work_factory,
             now=deps.now(),
         )
     if result.replay:
@@ -84,5 +84,5 @@ def get_review_facts_route(
         context=context,
         submission_id=submission_id,
         scope_resolution=deps.scope_resolution,
-        unit_of_work_factory=deps.unit_of_work_factory,
+        unit_of_work_factory=deps.review_unit_of_work_factory,
     )

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,7 +13,7 @@ from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     AcceptPreflightLoadedFacts,
     assert_accept_preflight_post_noop_guards,
-    assert_no_canonical_change_after_baseline,
+    assert_no_canonical_change,
     evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
     try_accept_submit_replay,
@@ -24,22 +23,21 @@ from gateway_backend.application.submission.accept_transaction import (
     accept_submit_transaction,
     assert_submit_job_registered,
 )
-from gateway_backend.application.submission.contracts import (
-    AcceptSubmitCommand,
-    is_submit_snapshot_table_binding_candidate,
-)
+from gateway_backend.application.submission.contracts import AcceptSubmitCommand
 from gateway_backend.application.submission.errors import PreviewBindingConflict, SubmitJobNotRegistered
 from gateway_backend.application.submission.ports import (
-    BaselineCanonicalDigestPort,
     RepositoryMainResolvePort,
     SubmitControlUnitOfWorkFactory,
 )
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.application.submission.import_builder import (
+    SubmitImportBuilderError,
+    resolve_canonical_snapshot_bindings,
+)
 from gateway_backend.domain.submission.models import SubmitAttempt
 from gateway_backend.domain.workspace.models import (
-    BaselineHead,
     IdentityContext,
     PreviewResult,
     UploadRevision,
@@ -61,19 +59,12 @@ def derive_preview_ready_closure_digest(preview: PreviewResult) -> str:
     return f"{PREVIEW_READY_CLOSURE_DIGEST_PREFIX}{preview.ready_closure_artifact_id}"
 
 
-def derive_snapshot_table_set_digest(snapshot_table_artifact_refs: tuple[str, ...]) -> str:
-    joined = ",".join(sorted(snapshot_table_artifact_refs))
-    digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
-
-
 def build_replay_preflight_from_attempt(attempt: SubmitAttempt) -> AcceptSubmitPreflight:
     return AcceptSubmitPreflight(
-        snapshot_table_artifact_refs=tuple(attempt.snapshot_table_artifact_refs),
         preview_ready_closure_digest=attempt.preview_ready_closure_digest,
         preview_operation_id="",
         protected_artifact_refs=(),
-        snapshot_table_set_digest=attempt.snapshot_digest,
+        current_storage_projection_ruleset_digest="",
     )
 
 
@@ -111,7 +102,8 @@ def load_accept_submit_preflight(
     preview_result: PreviewResult,
     upload_revision: UploadRevision,
     artifact_ref_lookup: ArtifactRefLookupPort,
-    baseline_canonical_digest: str | None = None,
+    artifact_store: BoundedArtifactStorePort,
+    current_storage_projection_ruleset_digest: str,
 ) -> AcceptSubmitPreflight:
     preview_operation_id = preview_result.operation_id
     with unit_of_work_factory(read_only=True) as unit_of_work:
@@ -125,41 +117,52 @@ def load_accept_submit_preflight(
         )
         held_ids = preview_refs | operation_refs
 
-    source_ids = frozenset(
-        binding.artifact_id
-        for _role, binding in sorted(
-            upload_revision.source_artifacts.items(),
-            key=lambda item: item[0].value,
+    try:
+        _table_bindings, canonical_refs = resolve_canonical_snapshot_bindings(
+            operation_artifact_refs=tuple(
+                ref
+                for artifact_id in held_ids
+                if (ref := artifact_ref_lookup.lookup_ref(artifact_id)) is not None
+            ),
+            canonical_table_set_closure_ref=(
+                preview_result.canonical.canonical_table_set_closure_ref.artifact_id
+            ),
+            canonical_table_set_closure_digest=(
+                preview_result.canonical.canonical_table_set_closure_digest.value
+            ),
+            canonicalization_manifest_ref=(
+                preview_result.canonical.canonicalization_manifest_ref.artifact_id
+            ),
+            canonicalization_manifest_digest=(
+                preview_result.canonical.canonicalization_manifest_digest.value
+            ),
+            read_artifact=lambda ref: b"".join(artifact_store.read_exact(ref)),
         )
-    )
-    closure_id = preview_result.ready_closure_artifact_id
-    protected_preview_artifact_ids = tuple(
-        sorted(
-            artifact_id
-            for artifact_id in held_ids
-            if artifact_id not in source_ids and artifact_id != closure_id
+    except SubmitImportBuilderError as exc:
+        raise PreviewBindingConflict(str(exc)) from exc
+    refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
+    for _role, binding in upload_revision.source_artifacts.items():
+        refs_by_id[binding.artifact_id] = ArtifactRef(
+            artifact_id=binding.artifact_id,
+            media_type=binding.media_type,
+            size_bytes=binding.size_bytes,
+            raw_sha256=DigestRef(binding.raw_sha256),
         )
+    ready_ref = artifact_ref_lookup.lookup_ref(preview_result.ready_closure_artifact_id)
+    if ready_ref is None:
+        raise PreviewBindingConflict("preview ready closure artifact metadata is missing")
+    refs_by_id[ready_ref.artifact_id] = ready_ref
+    protected_artifact_refs = tuple(refs_by_id[key] for key in sorted(refs_by_id))
+    expected_preview_ids = frozenset(refs_by_id) - frozenset(
+        binding.artifact_id for binding in upload_revision.source_artifacts.values()
     )
-    snapshot_table_artifact_refs = tuple(
-        sorted(
-            artifact_id
-            for artifact_id in protected_preview_artifact_ids
-            if is_submit_snapshot_table_binding_candidate(artifact_id)
-        )
-    )
-    protected_artifact_refs = _protected_artifact_refs(
-        upload_revision=upload_revision,
-        preview_result=preview_result,
-        snapshot_table_artifact_refs=protected_preview_artifact_ids,
-        artifact_ref_lookup=artifact_ref_lookup,
-    )
+    if not expected_preview_ids.issubset(held_ids):
+        raise PreviewBindingConflict("preview protection does not cover canonical bindings")
     return AcceptSubmitPreflight(
-        snapshot_table_artifact_refs=snapshot_table_artifact_refs,
         preview_ready_closure_digest=derive_preview_ready_closure_digest(preview_result),
         preview_operation_id=preview_operation_id,
         protected_artifact_refs=protected_artifact_refs,
-        snapshot_table_set_digest=derive_snapshot_table_set_digest(snapshot_table_artifact_refs),
-        baseline_canonical_digest=baseline_canonical_digest,
+        current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
     )
 
 
@@ -172,8 +175,8 @@ def accept_submit_operation(
     job_registry: JobDefinitionRegistry,
     artifact_store: BoundedArtifactStorePort,
     artifact_ref_lookup: ArtifactRefLookupPort,
-    baseline_digest: BaselineCanonicalDigestPort,
     main_resolve: RepositoryMainResolvePort,
+    current_storage_projection_ruleset_digest: str,
     now: datetime,
 ) -> SubmitAcceptanceResult:
     try:
@@ -190,7 +193,6 @@ def accept_submit_operation(
     is_replay = False
     preflight: AcceptSubmitPreflight
     new_key_loaded: AcceptPreflightLoadedFacts | None = None
-    resolved_baseline_head: BaselineHead | None = None
 
     with unit_of_work_factory(read_only=True) as unit_of_work:
         resolved = scope_resolution.resolve(command.context)
@@ -226,25 +228,16 @@ def accept_submit_operation(
                 resolved_repository_id=resolved.repository_id,
                 baseline_head=resolved.baseline_head,
                 preview_ready_closure_digest=preview_ready_closure_digest,
+                current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
             )
             evaluate_new_accept_preflight_local_guards(command=command, loaded=new_key_loaded)
-            resolved_baseline_head = resolved.baseline_head
 
     if is_replay:
         pass
     else:
-        if new_key_loaded is None or resolved_baseline_head is None:
+        if new_key_loaded is None:
             raise PreviewBindingConflict("accept preflight is missing loaded facts")
-        baseline_canonical_digest = baseline_digest.get_baseline_canonical_digest(
-            repository_id=new_key_loaded.workspace.repository_id,
-            baseline_head=resolved_baseline_head,
-            input_completeness=new_key_loaded.upload_revision.input_completeness,
-            ruleset_version=new_key_loaded.preview_result.ruleset_version,
-        )
-        assert_no_canonical_change_after_baseline(
-            loaded=new_key_loaded,
-            baseline_canonical_digest=baseline_canonical_digest,
-        )
+        assert_no_canonical_change(loaded=new_key_loaded)
         assert_accept_preflight_post_noop_guards(loaded=new_key_loaded)
         upload_revision = new_key_loaded.upload_revision
         preview_result = new_key_loaded.preview_result
@@ -254,7 +247,8 @@ def accept_submit_operation(
             preview_result=preview_result,
             upload_revision=upload_revision,
             artifact_ref_lookup=artifact_ref_lookup,
-            baseline_canonical_digest=baseline_canonical_digest,
+            artifact_store=artifact_store,
+            current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
         )
         for ref in preflight.protected_artifact_refs:
             verified = artifact_store.verify_readable(
@@ -274,7 +268,6 @@ def accept_submit_operation(
         scope_resolution=scope_resolution,
         unit_of_work_factory=unit_of_work_factory,
         job_registry=job_registry,
-        baseline_digest=baseline_digest,
         main_resolve=main_resolve,
         preflight=preflight,
         now=now,
@@ -301,36 +294,3 @@ def accept_submit_operation(
         ),
         replay=transaction_result.replay,
     )
-
-
-def _protected_artifact_refs(
-    *,
-    upload_revision: UploadRevision,
-    preview_result: PreviewResult,
-    snapshot_table_artifact_refs: tuple[str, ...],
-    artifact_ref_lookup: ArtifactRefLookupPort,
-) -> tuple[ArtifactRef, ...]:
-    refs_by_id: dict[str, ArtifactRef] = {}
-    for _role, binding in sorted(upload_revision.source_artifacts.items(), key=lambda item: item[0].value):
-        refs_by_id[binding.artifact_id] = ArtifactRef(
-            artifact_id=binding.artifact_id,
-            media_type=binding.media_type,
-            size_bytes=binding.size_bytes,
-            raw_sha256=DigestRef(binding.raw_sha256),
-        )
-    closure_id = preview_result.ready_closure_artifact_id
-    for artifact_id in (closure_id, *snapshot_table_artifact_refs):
-        if artifact_id in refs_by_id:
-            continue
-        resolved = artifact_ref_lookup.lookup_ref(artifact_id)
-        if resolved is None:
-            raise PreviewBindingConflict(f"artifact metadata is missing for {artifact_id!r}")
-        refs_by_id[artifact_id] = resolved
-    source_ids = frozenset(
-        binding.artifact_id for _role, binding in upload_revision.source_artifacts.items()
-    )
-    required_ids = source_ids | {closure_id} | frozenset(snapshot_table_artifact_refs)
-    selected = tuple(refs_by_id[artifact_id] for artifact_id in sorted(required_ids))
-    if frozenset(ref.artifact_id for ref in selected) != required_ids:
-        raise PreviewBindingConflict("preview artifact protection does not match required refs")
-    return selected

@@ -47,8 +47,8 @@ def mark_submit_attempt_effect_pending(
         target=SubmitAttemptState.EFFECT_PENDING,
         optimistic_version=attempt.optimistic_version + 1,
         effect_pending_at=request.effect_pending_at,
-        canonicalization_manifest_ref=manifest_ref.artifact_id,
-        canonicalization_manifest_digest=request.checkpoint.canonicalization_manifest_digest,
+        prepared_canonicalization_manifest_ref=manifest_ref.artifact_id,
+        prepared_canonicalization_manifest_digest=request.checkpoint.canonicalization_manifest_digest,
         repository_import_artifact_ref=request.checkpoint.backend_import_artifact_ref,
         repository_artifact_ref=request.repository_artifact_ref,
     )

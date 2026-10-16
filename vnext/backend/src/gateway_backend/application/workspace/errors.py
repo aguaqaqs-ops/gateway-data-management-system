@@ -27,3 +27,11 @@ class PreviewBindingConflict(WorkspaceApplicationError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class PreviewJobNotRegistered(WorkspaceApplicationError):
+    """Preview processing is not available in the active application registry."""
+
+
+class PreviewArtifactUnavailable(WorkspaceApplicationError):
+    """A frozen upload artifact cannot be read at Preview acceptance."""

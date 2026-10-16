@@ -11,11 +11,14 @@ from typing import cast
 
 import pytest
 from gateway_backend.application.submission.contracts import RepositoryImportOperation
+from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.application.submission.job_payload import SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.checkpoints import (
+    ReadyClosureDocument,
     load_checkpoint_envelope,
     put_checkpoint_envelope,
+    put_ready_closure,
 )
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.submit_jobs import (
@@ -36,6 +39,7 @@ from gateway_backend.operations.persistence import LEASE_DURATION
 from gateway_backend.operations.state import WritePrecondition
 from gateway_backend.operations.worker import StartupDisposition
 from tests.support.submit_job_harness import (
+    FixedRepositoryParentCatalogPort,
     RecordingTransport,
     SubmitWorkerHarness,
     assert_occupancy_released,
@@ -45,10 +49,6 @@ from tests.support.submit_job_harness import (
 from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    MaterializationPolicy,
-    SnapshotMaterializationStatus,
-)
 from gateway_backend.application.submit_jobs import _submit_attempt_id_from_operation
 from gateway_backend.domain.submission.models import RepositoryArtifactRef, SubmitAttemptState
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, initialize_control_db
@@ -63,18 +63,18 @@ from gateway_backend.operations.worker import (
     WriteUnitOfWorkFactory,
 )
 from gateway_backend.application.submission.errors import SubmitImportPublicationError
-from gateway_backend.repository_import_artifact import SubmitImportPublicationAdapter
-from tests.support.snapshot_materialization import materialize_sql
+from gateway_backend.infrastructure.repository_write.import_publication import (
+    SubmitImportPublicationAdapter,
+)
 from tests.support.workspace_fixtures import FixedScopeResolutionPort
 from tests.support.baseline_fixtures import read_authoritative_baseline_head
 from tests.test_submit_transactions import (
     PREVIEW_READY_CLOSURE_DIGEST,
-    SNAPSHOT_TABLE_SET_DIGEST,
-    FakeBaselineCanonicalDigestPort,
     RecordingMainResolvePort,
     SubmitSeed,
     _SHA_INITIAL,
     _accept_command,
+    _preflight,
     _submit_job_registry,
     _uow_factory,
     seed_submit_ready_workspace,
@@ -85,10 +85,6 @@ pytestmark = pytest.mark.unit
 TS1 = datetime(2024, 6, 1, 12, 30, 0, tzinfo=UTC)
 _WORKER_ID = "worker-prepare-1"
 _LEASE_TOKEN = "lease-prepare-1"
-_NET_CFG_SQL = (
-    "CREATE TABLE `net_cfg` (`board` VARCHAR NOT NULL, `link_no` INT NOT NULL, PRIMARY KEY (`board`, `link_no`));"
-    "INSERT INTO `net_cfg` VALUES ('eth0', 1);"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,31 +140,50 @@ def db_path(tmp_path: Path) -> Path:
 
 
 def _materialize_snapshot(store: InMemoryArtifactStore) -> tuple[ArtifactRef, str]:
-    result = materialize_sql(
-        _NET_CFG_SQL,
-        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-        artifact_store=store,
-    )
-    assert result.status is SnapshotMaterializationStatus.COMPLETE
-    assert result.table_set is not None
-    table = result.table_set.tables[0]
-    assert table.artifact is not None
-    return table.artifact.manifest_ref, table.artifact.manifest.snapshot_digest.value
+    from tests.support.preview_fixtures import make_canonical_artifact_fixture
+
+    fixture = make_canonical_artifact_fixture()
+    for ref in fixture.refs:
+        store.put(fixture.payloads[ref.artifact_id], ref)
+    return fixture.snapshot_table_ref, fixture.snapshot_digest
 
 
-def _accept_prepared_operation(
-    db_path: Path,
+def _materialize_ready_preview(
+    seed: SubmitSeed,
     store: InMemoryArtifactStore,
-    *,
-    repository_id: str = "repo-1",
-) -> str:
-    seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
+) -> tuple[SubmitSeed, ArtifactRef, str]:
+    from tests.support.preview_fixtures import make_canonical_artifact_fixture
+
     snapshot_ref, snapshot_digest = _materialize_snapshot(store)
+    fixture = make_canonical_artifact_fixture()
+    additional_refs: list[ArtifactRef] = []
+    for index in range(70):
+        payload = f"preview-output-{index}".encode("ascii")
+        ref = ArtifactRef(
+            artifact_id=f"preview-derived-{index:03d}",
+            media_type="application/octet-stream",
+            size_bytes=len(payload),
+            raw_sha256=raw_blob_digest(payload),
+        )
+        store.put(payload, ref)
+        additional_refs.append(ref)
+    ready_closure_ref = put_ready_closure(
+        store,
+        ReadyClosureDocument.build((*fixture.refs, *additional_refs), "backend-vnext/preview/v1"),
+    )
     protected_refs = tuple(
-        ref for ref in seed.protected_refs if ref.artifact_id != "snap-1"
-    ) + (snapshot_ref,)
-    baseline_head = read_authoritative_baseline_head(db_path, repository_id)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        ready_closure_ref if ref.artifact_id == seed.preview_result.ready_closure_artifact_id else ref
+        for ref in seed.protected_refs
+    )
+    preview = replace(seed.preview_result, ready_closure_artifact_id=ready_closure_ref.artifact_id)
+    from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+
+    preview_row = preview_result_to_row(preview)
+    with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE preview_result_records SET binding = ? WHERE preview_result_id = ?",
+            (preview_row[5], preview.preview_result_id),
+        )
         unit_of_work.clear_artifact_protection(
             owner_kind="current-preview",
             owner_id=seed.workspace.workspace_id,
@@ -179,13 +194,20 @@ def _accept_prepared_operation(
             owner_id=seed.workspace.workspace_id,
             intent="current-preview",
         )
-    preflight = AcceptSubmitPreflight(
-        snapshot_table_artifact_refs=(snapshot_ref.artifact_id,),
-        preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
-        preview_operation_id=seed.preview_operation_id,
-        protected_artifact_refs=protected_refs,
-        snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
-    )
+    return replace(seed, preview_result=preview, protected_refs=protected_refs), snapshot_ref, snapshot_digest
+
+
+def _accept_prepared_operation(
+    db_path: Path,
+    store: InMemoryArtifactStore,
+    *,
+    repository_id: str = "repo-1",
+) -> str:
+    seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
+    seed, snapshot_ref, snapshot_digest = _materialize_ready_preview(seed, store)
+    baseline_head = read_authoritative_baseline_head(db_path, repository_id)
+    assert snapshot_ref.artifact_id in {ref.artifact_id for ref in seed.protected_refs}
+    preflight = _preflight(seed)
     accepted = accept_submit_transaction(
         command=_accept_command(seed, idempotency_key="accept-key-1", baseline_head=baseline_head),
         scope_resolution=FixedScopeResolutionPort(
@@ -194,7 +216,6 @@ def _accept_prepared_operation(
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=preflight,
         now=TS1,
@@ -241,6 +262,7 @@ def _submit_runtime_dependencies(
     return SubmitRuntimeDependencies(
         artifact_store=store,
         publication=SubmitImportPublicationAdapter(),
+        parent_catalog=FixedRepositoryParentCatalogPort(),
         repository_write=_UnusedRepositoryWrite(),
         terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=_bound_control_transaction_factory(db_path, control_now),
@@ -434,28 +456,16 @@ def _accept_prepared_with_seed(
     accept_now: datetime | None = None,
 ) -> tuple[str, SubmitSeed]:
     seed = seed_submit_ready_workspace(db_path, repository_id=repository_id)
-    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
-    protected_refs = tuple(ref for ref in seed.protected_refs if ref.artifact_id != "snap-1") + (
-        snapshot_ref,
-    )
+    seed, snapshot_ref, snapshot_digest = _materialize_ready_preview(seed, store)
+    protected_refs = seed.protected_refs
     baseline_head = read_authoritative_baseline_head(db_path, repository_id)
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
-        unit_of_work.clear_artifact_protection(
-            owner_kind="current-preview",
-            owner_id=seed.workspace.workspace_id,
-        )
-        unit_of_work.set_artifact_protection(
-            protected_refs,
-            owner_kind="current-preview",
-            owner_id=seed.workspace.workspace_id,
-            intent="current-preview",
-        )
     preflight = AcceptSubmitPreflight(
-        snapshot_table_artifact_refs=(snapshot_ref.artifact_id,),
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         preview_operation_id=seed.preview_operation_id,
         protected_artifact_refs=protected_refs,
-        snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
+        current_storage_projection_ruleset_digest=(
+            seed.preview_result.canonical.storage_projection_ruleset_digest.value
+        ),
     )
     accepted = accept_submit_transaction(
         command=_accept_command(seed, idempotency_key="accept-key-1", baseline_head=baseline_head),
@@ -465,7 +475,6 @@ def _accept_prepared_with_seed(
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=preflight,
         now=accept_now or TS1,
@@ -740,10 +749,11 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
         fresh_workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
     assert fresh_workspace is not None
     seed_for_reaccept = replace(seed, workspace=fresh_workspace)
-    snapshot_ref, _ = _materialize_snapshot(harness.artifact_store)
-    protected_refs = tuple(ref for ref in seed.protected_refs if ref.artifact_id != "snap-1") + (
-        snapshot_ref,
+    seed_for_reaccept, snapshot_ref, _ = _materialize_ready_preview(
+        seed_for_reaccept,
+        harness.artifact_store,
     )
+    protected_refs = seed_for_reaccept.protected_refs
     baseline_head = read_authoritative_baseline_head(harness.db_path, attempt.repository_id)
     # Accept preflight requires current-preview protection; abort cleared it on first accept.
     with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
@@ -758,11 +768,12 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
             intent="current-preview",
         )
     preflight = AcceptSubmitPreflight(
-        snapshot_table_artifact_refs=(snapshot_ref.artifact_id,),
         preview_ready_closure_digest=PREVIEW_READY_CLOSURE_DIGEST,
         preview_operation_id=seed_for_reaccept.preview_operation_id,
         protected_artifact_refs=protected_refs,
-        snapshot_table_set_digest=SNAPSHOT_TABLE_SET_DIGEST,
+        current_storage_projection_ruleset_digest=(
+            seed_for_reaccept.preview_result.canonical.storage_projection_ruleset_digest.value
+        ),
     )
     accepted = accept_submit_transaction(
         command=_accept_command(
@@ -776,7 +787,6 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
         ),
         unit_of_work_factory=_uow_factory(harness.db_path),
         job_registry=_submit_job_registry(),
-        baseline_digest=FakeBaselineCanonicalDigestPort(),
         main_resolve=RecordingMainResolvePort(),
         preflight=preflight,
         now=clock["value"] + timedelta(minutes=1),

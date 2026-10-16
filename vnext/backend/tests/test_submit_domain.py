@@ -24,7 +24,6 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
     WorkspaceSubmitOccupancy,
-    derive_preview_canonical_business_digest,
 )
 from gateway_backend.domain.submission.policies import (
     assert_submission_attempt_binding,
@@ -66,11 +65,12 @@ def _prepared_attempt(**overrides: Any) -> SubmitAttempt:
         source_digest="d-source",
         snapshot_digest="d-snapshot",
         source_artifact_refs=("source-1",),
-        snapshot_table_artifact_refs=("snap-1",),
+        canonical_table_set_closure_ref="canonical-table-closure-1",
+        canonical_table_set_closure_digest="sha256:canonical-table-closure",
         preview_ready_closure_ref="closure-1",
         preview_ready_closure_digest="d-closure",
-        canonicalization_manifest_ref=None,
-        canonicalization_manifest_digest=None,
+        canonicalization_manifest_ref="canonical-manifest-1",
+        canonicalization_manifest_digest="sha256:canonical-manifest",
         repository_import_artifact_ref=None,
         repository_artifact_ref=None,
         repository_operation_id=None,
@@ -97,8 +97,8 @@ def _effect_pending_attempt() -> SubmitAttempt:
     return _prepared_attempt(
         state=SubmitAttemptState.EFFECT_PENDING,
         effect_pending_at=TS1,
-        canonicalization_manifest_ref="manifest-1",
-        canonicalization_manifest_digest="sha256:manifest",
+        prepared_canonicalization_manifest_ref="manifest-1",
+        prepared_canonicalization_manifest_digest="sha256:manifest",
         repository_import_artifact_ref=BACKEND_REF,
         repository_artifact_ref=REPOSITORY_REF,
         repository_operation_id="repo-op-1",
@@ -214,21 +214,6 @@ def test_transition_attempt_state_rejects_illegal_edges(
 FIELD_CO_PRESENCE_FAULTS = (
     (
         {
-            "canonicalization_manifest_ref": "manifest-1",
-            "canonicalization_manifest_digest": None,
-        },
-        "canonicalization manifest ref and digest must appear together",
-    ),
-    (
-        {
-            "repository_import_artifact_ref": BACKEND_REF,
-            "canonicalization_manifest_ref": None,
-            "canonicalization_manifest_digest": None,
-        },
-        "repository import artifact requires canonicalization manifest ref/digest",
-    ),
-    (
-        {
             "repository_artifact_ref": REPOSITORY_REF,
             "repository_import_artifact_ref": None,
         },
@@ -260,6 +245,20 @@ FIELD_CO_PRESENCE_FAULTS = (
 )
 
 
+REQUIRED_CANONICAL_BINDING_FAULTS = (
+    ({"canonical_table_set_closure_ref": ""}, "canonical_table_set_closure_ref must be a non-empty string"),
+    (
+        {"canonical_table_set_closure_digest": ""},
+        "canonical_table_set_closure_digest must be a non-empty string",
+    ),
+    ({"canonicalization_manifest_ref": ""}, "canonicalization_manifest_ref must be a non-empty string"),
+    (
+        {"canonicalization_manifest_digest": ""},
+        "canonicalization_manifest_digest must be a non-empty string",
+    ),
+)
+
+
 @pytest.mark.parametrize(("overrides", "message"), FIELD_CO_PRESENCE_FAULTS)
 def test_submit_attempt_rejects_field_co_presence_violations(
     overrides: dict[str, object],
@@ -269,8 +268,13 @@ def test_submit_attempt_rejects_field_co_presence_violations(
         _prepared_attempt(**overrides)
 
 
-def test_derive_preview_canonical_business_digest_uses_bundle_digest() -> None:
-    assert derive_preview_canonical_business_digest(bundle_digest="sha256:bundle") == "sha256:bundle"
+@pytest.mark.parametrize(("overrides", "message"), REQUIRED_CANONICAL_BINDING_FAULTS)
+def test_submit_attempt_requires_frozen_canonical_bindings(
+    overrides: dict[str, object],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        _prepared_attempt(**overrides)
 
 
 def test_workspace_submit_occupancy_requires_exactly_one_active_pointer() -> None:

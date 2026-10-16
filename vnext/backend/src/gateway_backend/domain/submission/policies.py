@@ -71,13 +71,9 @@ def assert_submission_attempt_binding(*, attempt: SubmitAttempt, submission: Sub
         raise SubmissionBindingConflict(
             "submission import package raw sha must match attempt checkpoint"
         )
-    if attempt.canonicalization_manifest_ref is not None and (
-        submission.canonicalization_manifest_ref != attempt.canonicalization_manifest_ref
-    ):
+    if submission.canonicalization_manifest_ref != attempt.prepared_canonicalization_manifest_ref:
         raise SubmissionBindingConflict("submission manifest ref must match attempt")
-    if attempt.canonicalization_manifest_digest is not None and (
-        submission.canonicalization_manifest_digest != attempt.canonicalization_manifest_digest
-    ):
+    if submission.canonicalization_manifest_digest != attempt.prepared_canonicalization_manifest_digest:
         raise SubmissionBindingConflict("submission manifest digest must match attempt")
     if submission.completed_verification_policy != submission.requested_verification_policy:
         raise SubmissionBindingConflict(

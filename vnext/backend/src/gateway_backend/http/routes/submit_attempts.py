@@ -81,12 +81,12 @@ def accept_submit_route(
             command=command,
             scope_resolution=deps.scope_resolution,
             workspace_repository=deps.workspace_repository,
-            unit_of_work_factory=deps.unit_of_work_factory,
+            unit_of_work_factory=deps.submit_unit_of_work_factory,
             job_registry=deps.job_registry,
             artifact_store=deps.artifact_store,
             artifact_ref_lookup=deps.artifact_ref_lookup,
-            baseline_digest=deps.baseline_canonical_digest,
             main_resolve=deps.main_resolve,
+            current_storage_projection_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
         )
     return result.response

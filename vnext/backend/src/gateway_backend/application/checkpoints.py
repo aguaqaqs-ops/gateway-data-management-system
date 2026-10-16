@@ -16,6 +16,7 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
 from gateway_backend.application.job_definitions import JobDefinition
 from gateway_backend.application.payloads import CHECKPOINT_DOCUMENT_TYPE, CheckpointDecodeError
+from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.store import (
     ArtifactStorePort,
@@ -39,7 +40,8 @@ _JCS_MEDIA_TYPE = "application/jcs"
 
 _DIAGNOSTIC_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_.:-]{0,127}$")
 _MAX_DECODER_MESSAGE_BYTES = 4 * 1024
-_MAX_REFS_PER_DOCUMENT = 64
+_MAX_PRIOR_OUTPUT_REFS = 64
+_MAX_READY_CLOSURE_OUTPUT_REFS = 4_096
 
 _CHECKPOINT_DOCUMENT_KEYS = frozenset(
     {
@@ -104,7 +106,7 @@ class StepCheckpointEnvelope:
             raise ValueError("checkpoint_generation must be a non-negative int")
         if type(self.prior_output_refs) is not tuple:
             raise ValueError("prior_output_refs must be a tuple")
-        if len(self.prior_output_refs) > _MAX_REFS_PER_DOCUMENT:
+        if len(self.prior_output_refs) > _MAX_PRIOR_OUTPUT_REFS:
             raise ValueError("prior_output_refs exceeds bounded document size")
         for item in self.prior_output_refs:
             if type(item) is not ArtifactRef:
@@ -229,7 +231,7 @@ class ReadyClosureDocument:
             raise ValueError("job_contract_version must be a non-empty string")
         if type(self.outputs) is not tuple:
             raise ValueError("outputs must be a tuple")
-        if len(self.outputs) > _MAX_REFS_PER_DOCUMENT:
+        if len(self.outputs) > _MAX_READY_CLOSURE_OUTPUT_REFS:
             raise ValueError("outputs exceeds bounded document size")
         for item in self.outputs:
             if type(item) is not ReadyClosureEntry:
@@ -254,7 +256,7 @@ class ReadyClosureDocument:
     ) -> ReadyClosureDocument:
         if type(output_refs) is not tuple:
             raise ValueError("output_refs must be a tuple")
-        if len(output_refs) > _MAX_REFS_PER_DOCUMENT:
+        if len(output_refs) > _MAX_READY_CLOSURE_OUTPUT_REFS:
             raise ValueError("output_refs exceeds bounded document size")
         for item in output_refs:
             if type(item) is not ArtifactRef:
@@ -353,6 +355,73 @@ def put_checkpoint_envelope(
         artifact_id=resolved_id,
         media_type=_JCS_MEDIA_TYPE,
     )
+
+
+def put_checkpoint_state_artifact(
+    store: ArtifactStorePort,
+    document: Mapping[str, object],
+    *,
+    artifact_id_prefix: str,
+) -> ArtifactRef:
+    """Persist variable-size job state outside the bounded checkpoint envelope."""
+
+    raw_bytes = canonicalize_json_value(dict(document))
+    return put_with_built_ref(
+        store,
+        raw_bytes,
+        artifact_id=_content_artifact_id(artifact_id_prefix, raw_bytes),
+        media_type=_JCS_MEDIA_TYPE,
+    )
+
+
+def load_checkpoint_state_artifact(
+    store: ArtifactStorePort | BoundedArtifactStorePort,
+    ref: ArtifactRef,
+    *,
+    document_type: str,
+    contract_version: str,
+) -> dict[str, object]:
+    """Load an exact canonical job-state artifact with its owning contract identity."""
+
+    if type(ref) is not ArtifactRef:
+        raise CheckpointDecodeError("checkpoint state ref is invalid", code="CHECKPOINT_REF_INVALID")
+    try:
+        locate = getattr(store, "locate", None)
+        if callable(locate):
+            raw_bytes = locate(ref)
+        else:
+            read_exact = getattr(store, "read_exact", None)
+            verify_readable = getattr(store, "verify_readable", None)
+            if not callable(read_exact) or not callable(verify_readable):
+                raise ManifestVerificationError("artifact store cannot read checkpoint state")
+            raw_bytes = b"".join(read_exact(ref))
+            verification = verify_readable(
+                ref,
+                expected_size=ref.size_bytes,
+                expected_raw_sha256=ref.raw_sha256,
+            )
+            if not verification.verified:
+                raise ManifestVerificationError(
+                    verification.reason or "checkpoint state artifact verification failed"
+                )
+    except (ManifestVerificationError, KeyError, OSError, TypeError, ValueError) as exc:
+        raise CheckpointDecodeError(str(exc), code="CHECKPOINT_REF_UNREADABLE") from exc
+    document = _parse_canonical_document_bytes(
+        raw_bytes,
+        shape_invalid_code="CHECKPOINT_SHAPE_INVALID",
+        non_canonical_message="checkpoint state bytes must be canonical JSON",
+    )
+    if document.get("document_type") != document_type:
+        raise CheckpointDecodeError(
+            "checkpoint state document type is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if document.get("contract_version") != contract_version:
+        raise CheckpointDecodeError(
+            "checkpoint state contract version is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    return document
 
 
 def load_checkpoint_envelope(store: ArtifactStorePort, ref: ArtifactRef) -> StepCheckpointEnvelope:
@@ -577,7 +646,7 @@ def _parse_artifact_ref_list(value: object, *, label: str) -> tuple[ArtifactRef,
         if type(item) is not dict:
             raise CheckpointDecodeError(f"{label} entries must be objects", code="CHECKPOINT_SHAPE_INVALID")
         refs.append(artifact_ref_from_dict(cast(dict[str, object], item)))
-    if len(refs) > _MAX_REFS_PER_DOCUMENT:
+    if len(refs) > _MAX_PRIOR_OUTPUT_REFS:
         raise CheckpointDecodeError(f"{label} exceeds bounded document size", code="CHECKPOINT_SHAPE_INVALID")
     refs_tuple = tuple(refs)
     try:

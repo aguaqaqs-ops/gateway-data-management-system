@@ -6,12 +6,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
 
+from gateway_backend.application.workspace.preview import accept_start_preview
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
 from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.preview_acceptance import (
-    accept_preview_operation,
     build_start_preview_command,
 )
 from gateway_backend.http.schemas.preview import OperationAcceptedResponse, StartPreviewRequest
@@ -69,15 +69,20 @@ def start_preview_route(
         request_fingerprint_seed=options,
     )
     with acquire_new_work(deps.admission_gate):
-        result = accept_preview_operation(
+        result = accept_start_preview(
             command=command,
             scope_resolution=deps.scope_resolution,
-            workspace_repository=deps.workspace_repository,
-            unit_of_work_factory=deps.unit_of_work_factory,
+            unit_of_work_factory=deps.workspace_unit_of_work_factory,
             job_registry=deps.job_registry,
             artifact_store=deps.artifact_store,
             comparison_ruleset_digest=deps.comparison_ruleset_digest,
             now=deps.now(),
             options=options,
         )
-    return result.response
+    return OperationAcceptedResponse(
+        operation_id=result.operation_id,
+        workspace_id=command.workspace_id,
+        upload_revision_id=command.upload_revision_id,
+        generation=command.generation,
+        status="QUEUED",
+    )

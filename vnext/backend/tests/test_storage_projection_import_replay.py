@@ -56,7 +56,10 @@ def test_schema_replay_sql_includes_drop_create() -> None:
     result = project_storage(request)
     assert result.status is ProjectionStatus.COMPLETE
     assert result.import_input is not None
-    replay_sql = render_repository_import_schema_replay_sql(result.import_input).decode("utf-8")
+    replay_sql = render_repository_import_schema_replay_sql(
+        result.import_input,
+        removed_tables=(),
+    ).decode("utf-8")
     assert "DROP TABLE IF EXISTS `net_cfg`" in replay_sql
     assert "CREATE TABLE `net_cfg`" in replay_sql
     assert "INSERT INTO" not in replay_sql

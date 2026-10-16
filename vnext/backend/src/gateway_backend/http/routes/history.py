@@ -16,7 +16,7 @@ from gateway_backend.application.history.contracts import (
 )
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.domain.workspace.policies import assert_permission
-from gateway_backend.http.auth import require_identity, require_internal_bearer
+from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import HistoryHttpDependencies, get_history_http
 from gateway_backend.http.orchestration.history_compare import (
     accept_compare_operation,
@@ -25,7 +25,6 @@ from gateway_backend.http.orchestration.history_compare import (
     read_compare_bundle,
 )
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.orchestration.history_integrity import acknowledge_integrity_incident
 from gateway_backend.http.orchestration.history_read import list_history_operation
 from gateway_backend.http.orchestration.operation_scope import authorize_history_compare_operation_read
 from gateway_backend.http.schemas.history import (
@@ -33,8 +32,6 @@ from gateway_backend.http.schemas.history import (
     HistoryCompareAcceptResponse,
     HistoryCompareResultResponse,
     HistoryListResponse,
-    IntegrityAcknowledgementRequest,
-    IntegrityAcknowledgementResponse,
 )
 
 router = APIRouter(tags=["history"])
@@ -89,7 +86,7 @@ def list_history_route(
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND"},
-        409: {"description": "IDEMPOTENCY_CONFLICT, ADMISSION_CONFLICT, HISTORY_INTEGRITY_UNRESOLVED"},
+        409: {"description": "IDEMPOTENCY_CONFLICT, ADMISSION_CONFLICT"},
         413: {"description": "REQUEST_TOO_LARGE"},
         422: {"description": "REQUEST_VALIDATION_FAILED"},
         429: {"description": "ADMISSION_LIMIT_REACHED"},
@@ -188,30 +185,4 @@ def get_history_compare_bundle_route(
         headers={
             "Content-Disposition": f'attachment; filename="history-compare-{operation_id}.bundle"'
         },
-    )
-
-
-@router.post(
-    "/v1/history-compares/{operation_id}/integrity-ack",
-    response_model=IntegrityAcknowledgementResponse,
-    responses={
-        401: {"description": "AUTHENTICATION_REQUIRED"},
-        404: {"description": "RESOURCE_NOT_FOUND"},
-        409: {"description": "IDEMPOTENCY_CONFLICT"},
-        422: {"description": "REQUEST_VALIDATION_FAILED"},
-        503: {"description": "HISTORY_INTEGRITY_FAILURE"},
-    },
-)
-def acknowledge_history_compare_integrity_route(
-    operation_id: str,
-    body: IntegrityAcknowledgementRequest,
-    deps: Annotated[HistoryHttpDependencies, Depends(get_history_http)],
-    _: Annotated[None, Depends(require_internal_bearer)],
-) -> IntegrityAcknowledgementResponse:
-    return acknowledge_integrity_incident(
-        operation_id=operation_id,
-        acknowledgement_status=body.acknowledgement_status,
-        resolution_reference=body.resolution_reference,
-        unit_of_work_factory=deps.unit_of_work_factory,
-        now=deps.now(),
     )

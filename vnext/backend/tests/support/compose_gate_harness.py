@@ -874,6 +874,7 @@ result = _run_pair_pipeline(
     rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
     store=store,
     control=ExecutionControl(),
+    on_cancel=lambda: None,
 )
 print(result.comparison_digest)
 """

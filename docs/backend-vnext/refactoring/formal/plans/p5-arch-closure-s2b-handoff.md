@@ -1,14 +1,13 @@
 # P5 架构收口 S2b handoff
 
-- 状态：**完成候选，待独立审核。S2b.8（DC29）与 S2b.9（DC31）已完成；门禁 V 与 t1–t4 真实数据取证通过。**
+- 状态：**完成候选，待独立复审。S2b.8（DC29）、S2b.9（DC31）与第一轮审核修订已完成；门禁 V 通过。真实数据按 owner 确认沿用 b0175cf583 取证。**
 - 日期：2026-10-16
 - 分支 / worktree：p5-s2b / /home/dev/gdds-p5-s2b
 - range_start：p5-s2a-exit，6f3e2ed67a03a2c452c7a13ff02d3aeb7d0f6792
 - kickoff base：cae9a0f82be3415cc362e46b98da954edcf1d807
-- 最后非 handoff 提交（实现 HEAD）：b0175cf583ba7e89b0db830607c0f9bf15dc4bf4
-- 门禁提交 V：adc5d87fea073545fde6416d123c3d7845e715ff
-- handoff-only 候选 H：本文最终提交。V..H 另包含 §8.9 允许的 benchmark / real-dump tests 提交 cbd4b8df94、488c4975f2、b0175cf583；其余差异均为 handoff-only 文档提交。
-- carried：通过。RS identity 与 V 的 build-input/source-tree label 一致；同 worktree 重建的 backend / worker image ID 与 V provenance 完全相同。
+- 最后非 handoff 提交（实现 HEAD）及门禁提交 V：`753c5768a533885b5e0af0865cfe28c62df3ce27`
+- handoff-only 候选 H：本文最终提交。V..H 仅包含本 handoff 文档提交。
+- carried：待 handoff 草案提交后，在同一 worktree 按 §8.10 完成并记录到最终 H。
 - main 上 kickoff 后的审核方文档提交不进入 p5-s2b，按提交区分：62cc7c3e0f（DC29）、1925dcedc2（DC30）、5a1a391ea8、92db9df18e（DC31）、a889acc242（Catalog 离线估算补充）。
 
 ## 1. 区间与提交
@@ -38,10 +37,28 @@ Kickoff 后的审核方文档仅存在于 main，不在 p5-s2b 分支：62cc7c3e
 | 门禁回归修复 | `08a8d9876bf2d347dd36cf8db4fac3d615306496` | 修复 archive fixture、reader 合约、Compose unsupported-table 旅程预期与 HTTP digest 断言 |
 | 真实数据暴露的比较 KEYLESS / 存储显式键缺陷 | `acbf865142382b63f57fd8c01a12721137f0c79b` | 仅对该提交跑了 focused 与静态检查；未跑新 V 的全量门禁 |
 
-| S2b.9 DC31：Catalog 容量、超限错误与 PURE_RECOMPUTE 读取失败终态 | 34ec9ef6f2c0a97c3b359788642d1cb1b603eb43 | adc5d87fea073545fde6416d123c3d7845e715ff 修复 serial gate 的受控并发屏障；其余 post-V 仅为 §8.9 允许的 benchmark / real-dump 测试调整：cbd4b8df94、488c4975f2、b0175cf583 |
+| S2b.9 DC31：Catalog 容量、超限错误与 PURE_RECOMPUTE 读取失败终态 | 34ec9ef6f2c0a97c3b359788642d1cb1b603eb43 | `adc5d87fea` 将 serial gate 的屏障拦截点从 `commit_exists` 移到 `catalog_at`；此前 `09c3e8c217` 加入 Catalog 缓存后已不再调用 `commit_exists`。随后 `cbd4b8df94`、`488c4975f2`、`b0175cf583` 只改 benchmark / real-dump tests |
 | V timeout measurement / public-result baseline | 488c4975f2 | b0175cf583 按首次完整带时间戳运行设置五倍保护超时；两次 post-V 完整 real-data 运行均在最终 V 的兼容实现上复核 |
+| 第一轮审核 S2b-F1：所有能力的有效 RUNNING 租约均阻断 startup，过期后保留 R5 处置 | `e94008889c` 审核 Finding | `d450f946bf`；参数表覆盖三种能力的有效 / 过期租约与事务内复查竞态 |
+| 第一轮审核 S2b-F2 / F4：组装取消发布 CANCELLED；确定性 Catalog 错误经 provider 与物化路径公开诊断 | `e94008889c` 审核 Findings | `4049986e4c`；三条取消路径与 RESPONSE_LIMIT_EXCEEDED 诊断用例 |
+| Compose oracle 对齐新增取消回调 | `e94008889c` 审核 Finding 导致的完整 runner 调试修复 | `753c5768a5`；传入无副作用取消 callback，focused Compose 旅程通过 |
 
-S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编码能力路径在 S1 已迁移；本区间没有为其另建副本。路径预算外仅增加了真实数据 runner 和上述可复现门禁 / fixture 修复，没有新增生产边界、规则基线条目或兼容路径。S2b.0 是 S1 复审 S1-F3 的延期收口项。
+S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编码能力路径在 S1 已迁移；本区间没有为其另建副本。S2b.0 是 S1 复审 S1-F3 的延期收口项。
+
+路径预算外生产路径逐项登记如下；它们均是对应内容项或可复现真实数据 / 测试缺陷所需的局部改动，没有新增生产边界、规则基线条目或兼容路径：
+
+| 路径 / 提交 | 预算外原因 |
+| --- | --- |
+| `capabilities/risk_evaluation/_engine.py` / `74db10e1fe` | 对行详情被抑制的比较结果保留表级风险计数，避免 DC29 keyless / 受限记录场景丢失已有计数事实。 |
+| `capabilities/bundle_assembly/_assembly.py` / `91ad5affcc` | 缺失嵌入 artifact ref 时把父 logical path 带进失败诊断，修复 bundle closure 故障定位。 |
+| `artifacts/store.py`、`infrastructure/artifact_store/{bounded_store,local_store}.py` / `9d2537c329` | S2b.1 canonical metadata manifest reader 需要按 artifact id 读取并验证已存 ref；仅增加对应 port 与 adapter forwarding。 |
+| `capabilities/snapshot_materialization/{materialize,artifact}.py` / `a8fb1ba902`、`e37323e220` | 前者是 S2b.3 上传侧规范投影必需实现；后者复用已验证的 Parquet rows，修复 snapshot artifact 重开时重复完整读取。 |
+| `capabilities/mutation_planning/{_planner,_repository_replay_renderer,contracts}.py` / `0c48314dbe`、`ce58301a4f` | DC29 keyless fallback 的写入规划与无行补丁的 replay；批量 INSERT 保留重复行并避免逐行写入。 |
+| `capabilities/storage_projection/_ordered.py` / `041640eb7b` | 冻结 ordered pseudo 身份在投影与 replay 中保持一致，满足真实 IEC104 有序表行为。 |
+| `capabilities/comparison/{ordered,row_encoding,contracts}.py` | DC29 keyless 集合差异、重复行一删一增以及 ordered pseudo 行编码 / 语义必须贯通比较能力契约。 |
+| `capabilities/surface_assembly/*` | DC29 的 `KEYLESS_FALLBACK` 只读提示需进入 Preview surface，不引入风险或持久状态。 |
+
+预算内的主机真实数据 runner、fixture / oracle 修复与 S2b.8 / S2b.9 内容项按 §2、§3 和后续修订记录执行。
 
 ## 2. 导入基线与依赖
 
@@ -50,7 +67,7 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 | 时点 | 违例 / 运行时环 / 不可达 |
 | --- | --- |
 | S2a exit 基线 | 3 / 0 / 14 |
-| 实现 HEAD b0175cf583（V 后仅 benchmark 与 real-dump tests 后续提交） | 0 / 0 / 14 |
+| 最终门禁 V `753c5768a5` | 0 / 0 / 14 |
 
 `prepare-dev-dependencies.sh` 在新 worktree 完成；随后 worktree clean，`uv.lock` 未改。当前五锁 SHA-256：
 
@@ -101,7 +118,7 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 
 ## 4. Golden、digest、checkpoint、DTO 与 OpenAPI
 
-- Golden：`vnext/fixtures/golden/storage-projection/manifest/valid/s5-durable-roundtrip/document.json`、ruleset malformed `s1-duplicate-selector` 与 valid `s1-net-cfg` / `s2-migrated-matrix` 更新到新规范投影语义。
+- Golden：storage-projection `manifest/valid/s5-durable-roundtrip/document.json`、ruleset malformed `s1-duplicate-selector` 与 valid `s1-net-cfg` / `s2-migrated-matrix` 共 4 项。四项里的 storage projection version 字段由 `26560b2595` 的 S2a-F1 负零归一从 1 升到 2；ruleset 由 v2 升到 v3。DC29 `0c48314dbe` 更新 `DDL_PRIMARY_KEY_OR_KEYLESS` 规则事实与 manifest contract 3.2.0，不负责 projection version 升级。mutation renderer first-load-insert SQL golden 另由 `ce58301a4f` 的批量 INSERT 语义更新。
 - Digest 与 S2a-F1/F2：`test_canonical_snapshot_identity.py` 在一次 Repository Service 启动中补充 INT UNSIGNED、BIGINT 边界、FLOAT 常见值与次正规值、负零；`test_canonical_state_identity.py` 覆盖 `-0.0` 与 `0.0` 同摘要。`acbf...` 让完整源行内容在 comparison descriptor 为 KEYLESS 时仍可按 storage key 投影。
 - Checkpoint：Preview / Submit 的规范表闭包与 manifest 绑定进入持久载荷；prepare package 与 attempt 绑定纳入允许键并复用。`0d9d0d9dc5` 的 attempt 绑定与 payload 不符即 FAILED 保留；无兼容 payload 别名。
 - DTO / OpenAPI：HTTP History / Operation DTO 清除 DC9 字段；Preview 与 Submit 映射新规范事实、身份结论与失败码；OpenAPI 合同测试相应更新。
@@ -121,49 +138,31 @@ S2a-F3 的启发式删除与 S2b.4 一起完成。S1 拆出的 comparison 行编
 
 该停止由 owner 2026-10-12 的 DC29 决议解决，并在 §8.1 记录实施。之后的 DC30 Catalog / operation 阻断已按 DC31 恢复处理，见 §8.2–§8.4。
 
-### 8.1 owner 文档与 DC29 实施
-
-DC29 按 main 审核方文档提交 `62cc7c3e0fddf53349f2df9d30c64ed6fb44d4d6` 的决议 §12 实施；DC30 按 main 提交 `1925dcedc2835b7baa5a3f5860c865a2c16b86df` 的决议 §13 与执行计划 §8.9 执行。两提交都不在 `p5-s2b`，本阶段未修改 owning specs。
-
-DC29 的主提交是 `0c48314dbe`：加入 `DDL_PRIMARY_KEY_OR_KEYLESS` 规则语义，保留无主键重复行，以 `FULL_ROW_DIGEST_SET_DIFF` 做 keyless 比较，增加 `KEYLESS_FALLBACK` 表级只读提示，并更新 manifest contract 到 3.2.0；storage projection version 不变。其后相关修正为：
-
-| 提交 | 内容 |
-| --- | --- |
-| `bdd83be525` | 保留 keyless 内容变化的一删一增记录 |
-| `ae5998f13c`、`dd6be19b3e`、`4fe624e771`、`2cf35a8c54` | Compose keyless 旅程固定 archived baseline、变化 pair 选择与断言修正 |
-| `f3a278427b` | History comparison 继续传递规范存储事实 |
-| `041640eb7b`、`f541ef7846`、`e4defddb4f` | 有序 pseudo 身份、浮点 / datetime 单元格与 replay key 顺序规范化 |
-| `ce58301a4f`、`d13c088e8e`、`24e7257266` | Repository replay 批量插入、重复行断言与对应 golden 更新 |
-| `055ad724e5` | real-data Preview 记录 keyless fallback 候选 |
-| `09c3e8c217`、`e37323e220` | 缓存 immutable catalog；打开 snapshot artifact 时复用验证得到的 Parquet rows，避免二次完整读取 |
-
-其余 DC29 后续提交处理 History/Submit 闭包恢复、故障诊断、runner instrumentation 与超时剖面；提交列表见本 handoff 区间。没有新增 HTTP endpoint、运行时规则激活机制或导入基线条目。恢复后的最近验证批次为 `tests/test_real_dump_journey.py` **23 passed**，五包 ruff/mypy 全通过，`python -m tests.support.import_rules` 为 **0 / 0 / 14**；它们不是最终 V 的权威 runner。
-
-最近验证命令均使用 `GATEWAY_DEV_OFFLINE=1 ../scripts/uv-consume.sh -C . run ...`。ruff 五包均为 `All checks passed`；mypy 分别为 backend 475、repository_service 198、repository_contracts 15、repository_client 26、shared_kernel 34 个 source files，全无 issue。测试为 `cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_real_dump_journey.py -q`，23 passed；导入规则命令输出 0 违例 / 0 运行时环 / 14 不可达。五个 `uv.lock` SHA 与 §2 表相同。
+DC29、DC30 与 DC31 的 owner 文档和实施映射见 §8.1–§8.3；此处只保留 2026-10-12 停止经过，避免重复 §8.1。
 
 ## 6. 镜像与 carried
 
-V = adc5d87fea073545fde6416d123c3d7845e715ff 的 provenance：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-gate-adc5d87fea-provenance.json；Compose project 为 ordered-bisect-b-2918210-baseline。V 上运行的镜像如下。
+第一轮审核前 S2b.9 V `adc5d87fea073545fde6416d123c3d7845e715ff` 的旧 provenance 为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-gate-adc5d87fea-provenance.json`，Compose project 为 `ordered-bisect-b-2918210-baseline`。修订后当前门禁 V 是 `753c5768a533885b5e0af0865cfe28c62df3ce27`；V 的镜像与 provenance 见下表和 §8.10。
 
 | 镜像 | image ID | 标签 / provenance |
 | --- | --- | --- |
-| repository-service | sha256:9ae3ab89eff4262b6a7645caf0a929eff5e7bd7b059de11c04abcb41f290f3bb | build-input revision adc5d87fea073545fde6416d123c3d7845e715ff；source-tree sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4；lock sha256:6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11 |
-| backend | sha256:b90b70e0ca75ade2802853124c57dce55233289af8572c728a709a1c604b0d2f | provenance project ordered-bisect-b-2918210-baseline；无 build-input / source-tree label |
-| worker | sha256:e14b5b8956f4ed70fb87056584b201db756ffcb2cfea62ad592516ff9ecfc4ef | provenance project ordered-bisect-b-2918210-baseline；无 build-input / source-tree label |
+| repository-service | `sha256:196148beb96d508ae634212c70f560bb9f6c739f9d589e42bad4b870947b1883` | provenance: `org.opencontainers.image.revision=753c5768a533885b5e0af0865cfe28c62df3ce27`; build-input revision `adc5d87fea073545fde6416d123c3d7845e715ff`; source-tree `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`; lock `sha256:6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11` |
+| backend | `sha256:4c7dd9242d867e5eec9314fc6bc549f264127e38b72715e2a34c024f73f30ebd` | provenance project `ordered-bisect-b-4106342-baseline`; no build-input / source-tree label |
+| worker | `sha256:f8b59e3d42ba299f4237d7dac8cbcc305b7fa00aac349ad033fae04653eb1100` | provenance project `ordered-bisect-b-4106342-baseline`; no build-input / source-tree label |
 
-carried 判定通过：在提交 aeccdbb96d 的同 worktree 中，build_context_digest.py identity 的 build_input_revision 为 adc5d87fea073545fde6416d123c3d7845e715ff、source_tree_sha256 为 sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4，与 V 的 repository-service label 相同；RS image ID 仍为 sha256:9ae3ab89eff4262b6a7645caf0a929eff5e7bd7b059de11c04abcb41f290f3bb。按 provenance project ordered-bisect-b-2918210-baseline 重建 backend / worker，没有在两次构建之间运行测试，ID 分别为 sha256:b90b70e0ca75ade2802853124c57dce55233289af8572c728a709a1c604b0d2f、sha256:e14b5b8956f4ed70fb87056584b201db756ffcb2cfea62ad592516ff9ecfc4ef，均与 V provenance 相同。构建日志：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-carried-backend-worker-aeccdbb96d.log。V..H 包含 §8.9 允许的 benchmark / real-dump tests 提交 cbd4b8df94、488c4975f2、b0175cf583，以及后续 handoff-only 文档提交；没有生产镜像输入变更。
+carried 待 handoff 草案提交后执行；identity、backend / worker 重建输出和日志将在 §8.10 记录。V provenance 文件为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-provenance.json`，镜像 inspect 为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-images.txt`。H 仅增加 handoff 文档，没有镜像输入变化。
 
 ## 7. Reviewer 核对重点与交付
 
 本 handoff 是 S2b 完成候选，不是审核报告。实现方没有打 p5-s2b-exit、不向 main 合并、不推送。所有 S2b.9、DC29 / DC31 验收证据与本阶段原有 §2 验收都请审核方按 §8.9 提示词复核；停止条件没有触发。导入规则最终为 0 / 0 / 14。
 
-## 8. DC29 / DC30 / DC31 恢复与完成记录（2026-10-16）
+## 8. DC29 / DC30 / DC31 恢复与第一轮审核修订（2026-10-16）
 
 ### 8.1 owner 文档与 DC29 实施
 
 DC29 按 main 审核方文档提交 `62cc7c3e0fddf53349f2df9d30c64ed6fb44d4d6` 的决议 §12 实施；DC30 按 main 提交 `1925dcedc2835b7baa5a3f5860c865a2c16b86df` 的决议 §13 与执行计划 §8.9 执行。两提交都不在 `p5-s2b`，本阶段未修改 owning specs。
 
-DC29 的主提交是 `0c48314dbe`：加入 `DDL_PRIMARY_KEY_OR_KEYLESS` 规则语义，保留无主键重复行，以 `FULL_ROW_DIGEST_SET_DIFF` 做 keyless 比较，增加 `KEYLESS_FALLBACK` 表级只读提示，并更新 manifest contract 到 3.2.0；storage projection version 不变。其后相关修正为：
+DC29 的主提交是 `0c48314dbe`：加入 `DDL_PRIMARY_KEY_OR_KEYLESS` 规则语义，保留无主键重复行，以 `FULL_ROW_DIGEST_SET_DIFF` 做 keyless 比较，增加 `KEYLESS_FALLBACK` 表级只读提示，并更新 manifest contract 到 3.2.0。storage projection version 实际在更早的 S2a-F1 提交 `26560b2595` 从 1 升到 2；DC29 没有再次变更它。其后相关修正为：
 
 | 提交 | 内容 |
 | --- | --- |
@@ -181,7 +180,7 @@ DC29 的主提交是 `0c48314dbe`：加入 `DDL_PRIMARY_KEY_OR_KEYLESS` 规则�
 
 ### 8.2 DC30 调试历史与 DC31 Catalog 离线估算
 
-原 t4 调试栈已删除；按 owner 2026-10-15 的补充决议 a889acc242，不为测量而重建。离线脚本在进程内复用 real_dump_census.py 的投影路径，对 t3、t4 v1 投影后仅序列化 Catalog wire 模型中的表结构、主键与行数；不读取行数据，不经 Docker。
+原 t4 调试栈已删除；按 owner 2026-10-15 的补充决议 a889acc242，不为测量而重建。离线脚本在进程内复用 real_dump_census.py 的投影路径，对 t3、t4 v1 投影后仅序列化 Catalog wire 模型中的表结构、主键与行数；不读取行数据，不经 Docker。t3 174,294 bytes 低于 256 KiB，t4 285,725 bytes 高于 256 KiB，按 DC31 判据确认旧 503 来自响应超限。合成 Catalog focused 用例 1 passed，证明旧实现超限时返回 `SERVICE_NOT_READY`。
 
 | 输入 | 投影状态 | Catalog 表数 | Catalog JSON 字节 | 与旧 256 KiB（262,144 bytes）的关系 |
 | --- | --- | ---: | ---: | --- |
@@ -200,33 +199,33 @@ DC31 主实现提交 34ec9ef6f2c0a97c3b359788642d1cb1b603eb43 完成以下内容
 
 - Catalog wire 常量改为 2 MiB；超限使用 RESPONSE_LIMIT_EXCEEDED / HTTP 500；GetOperation 原数值不变，错误码统一。Repository Service Contract、wire 常量、OpenAPI 与相关测试直接更新，无兼容层。
 - Preview 与 History 的 PURE_RECOMPUTE 仓库读取错误按临时 / 确定性分类：前者在现有 R5 recovery budget 中重试并带公开 diagnostic，用尽预算后 FAILED；确定性错误直接 FAILED 并带公开 diagnostic。RepositoryClientError 不再变成 UNCLASSIFIED；handler 异常被 recovery boundary 捕获，不退出 worker。
-- 卡住路径具体为：运行期 Preview worker 因 RepositoryClientError（此前异常路径）退出；操作保留 RUNNING 与未过期 lease；新 worker 启动扫描到 live lease 后将 startup 判为 retryable block，但 scheduler 不能领取仍被 live lease 占用的步骤，原实现让新 worker idle-ready 而未重访 expiry。修复将 PURE_RECOMPUTE live lease 的启动扫描维持在有界重试，直到租约过期后走已有 R5 接管 / retry / terminal 路径；没有增加 operation / step 状态或修改 R5 处置表。
-- 故障注入参数表 owner：test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostics，覆盖确定性错误 → FAILED+diagnostic、临时错误 → retry 后成功、临时错误 → 预算用尽 FAILED；另有 unexpected handler exception 不退出 worker 的用例。
+- 第一轮审核确认卡住路径适用于任何 capability：worker 进程在 lease 有效期内重启，StartupRecovery 对 EXTERNAL_EFFECT / NON_RETRYABLE 的 live RUNNING pair 曾返回 READY；正常领取循环只领取 PENDING / RETRY_WAIT，因此 worker 进入 idle-ready，lease 过期后也不会再被扫描，公开 operation 永久停在 RUNNING。F1 修复在任何 capability 的 live lease 上返回 RETRYABLE_BLOCK；事务内复查仍有效时同样阻断。lease 过期后继续依照原 R5 处置表；这不改变 EXTERNAL_EFFECT 语义，也没有新增状态、周期扫描或修改 R5。
+- 故障注入参数表 owner：test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostics，修订后确定性 Catalog 错误经 RepositoryProvider 与物化路径到达 FAILED，公开 diagnostic code 为 `REPOSITORY_CATALOG_LOAD_FAILED`、消息包含 `RESPONSE_LIMIT_EXCEEDED`；临时错误重试后成功；临时错误用尽恢复预算后 FAILED。另有 unexpected handler exception 不退出 worker 的用例。
 - Compose owner：test_preview_worker_restart_takes_over_expired_running_operation，在 Preview RUNNING 时 SIGKILL worker，重启后公开 operation 最终 SUCCEEDED。Repository 上限的合成超限与未超限用例为 test_build_catalog_response_rejects_oversized_wire_payload、test_build_catalog_response_accepts_payload_within_wire_limit；GetOperation 超限也仍使用 RESPONSE_LIMIT_EXCEEDED。
-- S2b.9 代码路径符合 §3 DC31 预算；未分页、未加接口、未新增状态，未改变 EXTERNAL_EFFECT 语义，未改 R5 处置表。post-V 修改仅限 benchmarks 与 test_real_dump_*.py，符合 §8.9。
+- 原 S2b.9 V `adc5d87fea` 后仅改 benchmarks 与 `test_real_dump_*.py`，符合 §8.9；本轮审核修订随后形成新 V `753c5768a5`。
 
-旧 34ec 门禁尝试发现 serial integration test 的线程 barrier 在 5 秒内未进入：test_branch_movement_keeps_pinned_commit_immutable，exit 1；这不是产品失败。adc5d87fea073545fde6416d123c3d7845e715ff 将其 barrier 改为受控更长预算后，完整 runner 在 clean worktree 重跑且 exit 0。两轮日志分别为 s2b-gate-34ec9ef6f2.log 与 s2b-gate-adc5d87fea.log。
+旧 34ec 门禁尝试发现 serial integration test 的线程 barrier 未进入：test_branch_movement_keeps_pinned_commit_immutable，exit 1。原因是 `09c3e8c217` 引入 immutable Catalog 缓存后，该测试仍拦截 `commit_exists`，而运行路径已不再调用它；`adc5d87fea` 将拦截点移至 `catalog_at` 后才重新执行完整 runner。这是测试屏障与缓存读取路径对齐，不是延长 timeout。两轮日志分别为 `s2b-gate-34ec9ef6f2.log` 与 `s2b-gate-adc5d87fea.log`。
 
-### 8.4 最终权威 runner V
+### 8.4 第一轮修订后的最终权威 runner V
 
-V = adc5d87fea073545fde6416d123c3d7845e715ff；日志 /home/dev/gdds-p5-closure-s1-gate-logs/s2b-gate-adc5d87fea.log，provenance 为相邻的 s2b-gate-adc5d87fea-provenance.json。开始 / 结束 HEAD 均为 V，status clean，preflight：legacy 链接存在、无 Dolt、无 Compose 容器、8000 空闲。执行 GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh，runner exit code 0。
+V = `753c5768a533885b5e0af0865cfe28c62df3ce27`；日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5.log`，provenance 为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-provenance.json`。开始 / 结束 HEAD 均为 V，status clean；preflight：legacy 链接存在、无 Dolt、无带 Compose project 标签的容器、8000 空闲。执行 `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`，runner 自身 exit code 0。先前 V `adc5d87fea` 的日志是历史验证，本次新 V 完整重跑。
 
 | 批次 | 结果 |
 | --- | --- |
 | shared_kernel | 242 passed |
 | repository_contracts | 152 passed |
 | repository_client | 154 passed |
-| backend（包含 Compose） | 2,834 passed，1 warning |
+| backend（包含 Compose） | 2,847 passed，1 warning |
 | repository_service parallel | 1,684 passed，1 skipped |
 | repository_service serial | 205 passed，1,685 deselected |
 
-S2b §2 owner 的实际命令是上述权威 runner（其内部按包调用受控 uv-consume / pytest）；本次 runner exit 0。backend owner 文件 test_comparison_canonical_domain.py、test_repository_ref_materialization_protocol.py、test_preview_job_materialize.py、test_submit_transactions.py、test_commit_canonical_metadata.py、test_submit_artifact_protection.py、test_submit_job_prepare.py 与 control DB schema tests 均在 backend batch；Repository integration owner test_submit_prepare_removed_tables.py 与 test_canonical_snapshot_identity.py 在 repository_service 批次。它们都由完整 runner 收集并通过，没有以定向补跑替代门禁。DC31 focused owners test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostics、test_build_catalog_response_rejects_oversized_wire_payload、test_build_catalog_response_accepts_payload_within_wire_limit、test_preview_worker_restart_takes_over_expired_running_operation 也均在该次 runner 通过。DC31 Compose worker restart 旅程在 backend batch 内通过。此前 34ec 失败后没有用定向补跑代替，adc5 是新 V 并重新运行全量 runner。
+S2b §2 owner 的实际命令是上述权威 runner（其内部按包调用受控 uv-consume / pytest）；本次 runner exit 0。`test_comparison_canonical_domain.py`、`test_repository_ref_materialization_protocol.py`、`test_preview_job_materialize.py`、`test_submit_transactions.py`、`test_commit_canonical_metadata.py`、`test_submit_artifact_protection.py`、`test_submit_job_prepare.py` 与 control DB schema tests 在 backend batch；integration `test_submit_prepare_removed_tables.py` 和 `test_canonical_snapshot_identity.py` 也都位于 `vnext/backend/tests`，在 backend batch 通过。DC31 focused owners、S2b-F1/F2/F4 tests 与 Compose journeys 同样在完整 runner 通过。旧 V `34ec`、`adc5` 的失败 / 通过均作为历史记录保留；最终 runner 在包含全部审核修订的新 V 上完成。
 
-最终 import_rules：IMPORT_RULE_BASELINE=frozenset({})，RUNTIME_CYCLE_BASELINE=()，unreachable 14，即 0 / 0 / 14。S2a exit 为 3 / 0 / 14，全程只减不增。五个 uv.lock SHA 未变；仍为 §2 所列值。最终 HEAD 的 post-V focused real-dump tests 与静态检查见 §8.8。
+最终 import_rules：IMPORT_RULE_BASELINE=frozenset({})，RUNTIME_CYCLE_BASELINE=()，unreachable 14，即 0 / 0 / 14。S2a exit 为 3 / 0 / 14，全程只减不增。五个 uv.lock SHA 未变；仍为 §2 所列值。最终 V 的五包静态检查与 focused tests 见 §8.10。
 
 ### 8.5 同一 V 的真实数据与对照基准
 
-最终证据日志：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-realdata-b0175cf583-retry1.log。完整运行在 gate 后、同一代码 V 与其 §8.9 允许的 benchmark-only 后续提交上，t1 通过后才运行 t2–t4；最后记录 HEAD b0175cf583ba7e89b0db830607c0f9bf15dc4bf4、status clean、exit 0、结论 PASS。运行期间未写 worktree；运行后栈与 Dolt 已 teardown。首次完整带时间戳校准运行日志为 s2b-realdata-postv-488c4975f2.log；该次用于校准，不作为最终取证。之后只改 benchmark / real-dump 测试，按 §8.9 在最终提交补跑两测试文件、五包静态与完整真实数据。最终取证使用本节首行所列日志。
+真实数据不在审核修订轮重跑：owner 已确认沿用 `b0175cf583` 的取证。日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-realdata-b0175cf583-retry1.log` 记录当时完整 t1–t4 journey 的起止 HEAD 为 `b0175cf583ba7e89b0db830607c0f9bf15dc4bf4`、status clean、exit 0、PASS；它不是新 V `753c5768a5` 上的运行。审核修订只涉及启动租约处置、取消终态和诊断测试，没有改动 benchmark、projection、comparison 或真实数据路径；owner 同意复用该证据。首次完整带时间戳校准日志 `s2b-realdata-postv-488c4975f2.log` 仍只作为校准，不作为最终取证。
 
 | 档 | 版本 | Dataset ID | SHA-256 | 包 bytes | 源表 / 总行数 | 规范状态摘要 | Preview changed / degraded / failed / table_count | Catalog bytes / 表数 / Catalog 行数 | IEC104 pseudo 行 |
 | --- | --- | --- | --- | ---: | --- | --- | --- | --- | ---: |
@@ -336,7 +335,7 @@ B 层按 DC31 只记录并交 S5。当前表中可见 Preview、Submit、History
 | history | 1352.081 | 36.412 | 274.586 | 1233.713 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
 ### 8.7 DC29、IEC104 与 History 可见结果
 
-DC29 实际结果：t1 23 张、t2 27 张、t3 v1 27 张 / v2 28 张、t4 33 张 keyless fallback 表；所有档重传时这些表均包含在 Preview 全表 changed=0 的结果中，UNCHANGED 且 Submit 为 NO_CANONICAL_CHANGE。不再出现 KEY_MISSING；keyless 表不是 DEGRADED，不产生 KEY_DEGRADED。Repository Service 同次启动的完全重复行 Dolt 往返、Compose 重传 unchanged 与一删一增用例均通过 V 的 runner。manifest 3.2.0；storage projection version 未变；已有表规范字节回归由更新后的 golden 覆盖。
+DC29 实际结果：t1 23 张、t2 27 张、t3 v1 27 张 / v2 28 张、t4 33 张 keyless fallback 表；所有档重传时这些表均包含在 Preview 全表 changed=0 的结果中，UNCHANGED 且 Submit 为 NO_CANONICAL_CHANGE。不再出现 KEY_MISSING；keyless 表不是 DEGRADED，不产生 KEY_DEGRADED。Repository Service 同次启动的完全重复行 Dolt 往返、Compose 重传 unchanged 与一删一增用例均由 V 的 runner 通过。manifest 3.2.0；storage projection version 是 2（S2a-F1 从 1 升至 2）；DC29 下此前可成功投影表的规范字节与内容摘要不变，golden 覆盖规则事实与 manifest contract 变化。
 
 按决议允许记录的表名如下（版本差异仅在 t3 v2 多出 comm_user_data）：
 
@@ -348,23 +347,21 @@ DC29 实际结果：t1 23 张、t2 27 张、t3 v1 27 张 / v2 28 张、t4 33 张
 
 IEC104 ordered pseudo 段行数逐档符合验收：t1 v1/v2 = 4/4；t2 = 3,056/2,674；t3 = 9,858/9,858；t4 = 12,676/12,688。重传 Preview 无变化，v1→v2 ordered tables 无降级。公开 History API 可返回 pair record_count 与 bundle / surface digest，但其 bundle artifact 只给引用，没有公开读取各类记录明细的接口；脚本没有在容器内核对，也没有新增接口。因此逐类 History 记录数无法由 HTTP 取得，本 handoff 以 public record_count 与 digest 作为替代证据；IEC104 空白区间净变化、移动不误标与字段变化不显示仍由 §2 owner tests / Compose 旅程证明，未从真实项目行数据推导或记录分类数量。
 
-DC9 删除清单与 HTTP/OpenAPI 变化沿 §3 的旧核对项；HistoryIntegrityFailure 保留；ADR 0016 Operation integrity 测试在 V 通过。Golden 变化：storage-projection manifest s5 durable roundtrip、ruleset malformed s1 duplicate selector、ruleset valid s1 net cfg / s2 migrated matrix，以及 mutation renderer first-load-insert SQL。DC29 只因 ruleset 与 manifest 规则事实更新；此前可成功投影的表字节 / 内容摘要不变，projection version 不变。DC31 未新增 golden 文件；OpenAPI 与 wire tests 覆盖响应上限和错误码。真实数据规范状态 digest 见 §8.5 表。
+DC9 删除清单与 HTTP/OpenAPI 变化沿 §3 的旧核对项；HistoryIntegrityFailure 保留；ADR 0016 Operation integrity 测试在 V 通过。Golden 变化：storage-projection manifest s5 durable roundtrip、ruleset malformed s1 duplicate selector、ruleset valid s1 net cfg / s2 migrated matrix，以及 mutation renderer first-load-insert SQL。前三类中 manifest 的 projection-version 字段 1→2 源于 `26560b2595` 的 S2a-F1 负零规范化，ruleset v2→v3 也在该提交；DC29 更新 `DDL_PRIMARY_KEY_OR_KEYLESS` 规则事实与 manifest contract 3.2.0，不改变此前能成功投影表的规范字节或内容摘要。mutation renderer golden 来自 `ce58301a4f` 的批量 INSERT。DC31 未新增 golden 文件；OpenAPI 与 wire tests 覆盖响应上限和错误码。真实数据规范状态 digest 见 §8.5 表。
 
-### 8.8 V 后提交、post-V 验证与 carried
+### 8.8 修订轮真实数据与修订后验证口径
 
-V 之后仅有 §8.9 明确允许的 benchmark / real-dump tests 提交：cbd4b8df94（处理 cgroup counter reset）、488c4975f2（输出 canonical state baselines）、b0175cf583（按首次完整运行校准保护超时）；均不在容器构建上下文中。最终 HEAD 上：
-- cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_real_dump_journey.py tests/test_real_dump_census.py -q：47 passed。
-- 五包分别运行 uv-consume ruff check . 与 mypy，全部通过；mypy 文件数 backend 475、repository_service 198、repository_contracts 15、repository_client 26、shared_kernel 34。
-- import_rules：0 / 0 / 14。
-- carried：通过，细节与三镜像 ID 见 §6；backend / worker 同 worktree 重建之间未运行测试。
+第一轮审核修订按 DC30 §8.9 调试 / 取证分离：focused 测试与 Compose 调试通过后，在 V `753c5768a5` 一次性完整运行权威 runner；真实数据按 owner 明确确认沿用 `b0175cf583` 的既有完整取证，不在修订轮重跑。V 后没有 production 或 test 提交；H 只改 handoff。
 
-调试路径预算内：复用 census 投影的离线 Catalog 估算；DC31 production、unit、Repository HTTP、Compose worker restart owner 均为 §3 必要路径。启用 benchmark 的分档 / 指定步骤 / 开发保留栈 / CPU 时间记录路径以满足 §8.9。未为 t4 Catalog 测量重建原栈。没有其他预算外生产路径；未触发阶段停止条件。
+可选的公开 Preview `ADDED` / `REMOVED` 表数没有补入 benchmark。现有真实数据日志仍记录 t2 v2 Preview `table_count=219`、Catalog 208 张；该差值可能由新增 / 移除表造成，但本修订没有给出逐项表数，避免将推断当成观测结果。Catalog 实际 JSON 字节见 §8.5，t1–t4 均低于 2 MiB 上限。
+
+修订轮未新增或修改 golden / digest / checkpoint / DTO / OpenAPI；F3 的 projection version 与 golden 来源更正见 §4、§8.7。修订未改 import graph，最终仍为 `0 / 0 / 14`；预算外生产路径逐项列于 §1，DC31 停止条件均未触发。
 
 ### 8.9 审核提示词
 
 任务：独立审核 P5 架构收口 S2b。审核者未参与实施；按 formal/guides/slice-design-execution-and-review-guide.md §5–§6 审核，不预设结论。
 
-审核对象：p5-s2b @ H（门禁提交 V = adc5d87fea073545fde6416d123c3d7845e715ff，实现 HEAD = b0175cf583ba7e89b0db830607c0f9bf15dc4bf4），区间 p5-s2a-exit..H。区间内审核方文档提交 0ce71cac27、a80ca8c402、cae9a0f82b 按提交区分；另有不在分支中的 main 审核方文档提交 62cc7c3e0f（DC29）、1925dcedc2（DC30）、5a1a391ea8、92db9df18e（DC31）、a889acc242（离线 Catalog 估算补充），不得将这些文档提交视为实现差异。
+审核对象：p5-s2b @ H（门禁提交 V = `753c5768a533885b5e0af0865cfe28c62df3ce27`），区间 `p5-s2a-exit..H`。区间内审核方文档提交 `0ce71cac27`、`a80ca8c402`、`cae9a0f82b` 与第一轮独立审核报告 `e94008889c` 按提交区分；实现修订提交从 `e94008889c` 之后核对。另有不在分支中的 main 审核方文档提交 `62cc7c3e0f`（DC29）、`1925dcedc2`（DC30）、`5a1a391ea8`、`92db9df18e`（DC31）、`a889acc242`（Catalog 离线估算补充），不得将这些文档提交视为实现差异。
 
 审核 worktree：先执行 git worktree add --detach /home/dev/gdds-review-s2b H，再创建本地 legacy 链接：ln -s /home/dev/gateway-data-management-system/legacy /home/dev/gdds-review-s2b/legacy。只在 detached review worktree 中审核，不修改本阶段代码与 handoff。
 
@@ -376,6 +373,26 @@ V 之后仅有 §8.9 明确允许的 benchmark / real-dump tests 提交：cbd4b8
 3. DC29 三类规则与 device_cfg 边界、manifest 3.2.0、已有表规范字节不变、keyless 重复行无损存储与集合比较、无 KEY_DEGRADED、KEYLESS_FALLBACK 提示、Dolt 重复行往返、Compose 与真实数据重传结果。
 4. DC31 Catalog 2 MiB 计算与 t3/t4 离线估算、公开接口实测 bytes、响应超限 RESPONSE_LIMIT_EXCEEDED、GetOperation 原上限、PURE_RECOMPUTE 临时 / 确定性失败 diagnostic 与 worker 不退出、restart/reclaim 具体路径和 Compose 终态；无新增状态、无 R5 表修改、无 endpoint。
 5. 真实数据日志中的 t1–t4 Preview / Submit / 重传 / History、有序 pseudo 四项、keyless 名单与计数、Catalog actual bytes；逐类 History count 无 public API 时采用的替代证据；A/B/C 表、各 operation 终态与保护超时、import_rules 0/0/14。
-6. V runner 日志与 exit code、provenance 镜像、V→H carried 判定、post-V 允许提交与 focused tests / 五包静态检查。检查 branch 区间时将 in-range reviewer docs commits 与 implementation commits 分开，main-only 决议文档只用于理解授权范围。
+6. V runner 日志与 exit code、provenance 镜像、V→H carried 判定、修订轮 focused tests / 五包静态检查。检查 branch 区间时将 in-range reviewer docs commits 与 implementation commits 分开，main-only 决议文档只用于理解授权范围。
+7. 第一轮 Findings：S2b-F1 所有 capability 的 live lease 与过期 R5 路径、事务复查竞态；S2b-F2 三条组装取消均为 CANCELLED；S2b-F4 provider / materialization 路径的公开 diagnostic；S2b-F3 projection version、预算外路径登记、Catalog cache 屏障拦截点、测试批次与重复小节修正。
 
 交付：plans/p5-arch-closure-s2b-independent-review.md。审核 worktree 提交审核报告后快进到 p5-s2b；由审核方在报告提交上打 p5-s2b-exit，再以 --no-ff 并入 main；不推送。
+
+### 8.10 第一轮审核修订记录
+
+| Finding / 事项 | 修订提交 | 处置与证据 |
+| --- | --- | --- |
+| S2b-F1 | `d450f946bf` | `StartupRecovery.recover_pair` 对任一 capability 的有效 RUNNING lease 返回 `RETRYABLE_BLOCK`；事务内复查竞态另有参数行；过期后 PURE_RECOMPUTE / EXTERNAL_EFFECT / NON_RETRYABLE 仍走现有 R5 处置。`test_operation_takeover.py` 参数表覆盖 6 个能力/租约组合与事务复查。 |
+| S2b-F2、S2b-F4 | `4049986e4c` | Preview assembly loop、pair_pipeline、History compare assembly 取消均发布 `_make_cancelled_terminal_builder()`；对应 tests 断言 `CANCELLED`。确定性 Catalog 错误经 provider 与物化路径到达公开 `FAILED`，diagnostic code `REPOSITORY_CATALOG_LOAD_FAILED` 且消息含 `RESPONSE_LIMIT_EXCEEDED`；删除无可达生产来源的 `if not exc.retryable: raise`。 |
+| Compose oracle 调试修复 | `753c5768a5` | 第一次新 runner 暴露 `test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey` 的内部 oracle 漏传取消 callback；补传无副作用 callback。focused Compose 复验 1 passed。 |
+| S2b-F3 | 本 handoff-only 提交 | projection version 1→2 与 golden 来源归于 `26560b2595`；列全预算外生产路径和理由；更正 `commit_exists`→`catalog_at` 的 Catalog cache 原因；将两项 integration tests 归入 backend batch；删除重复的 8.1 小节。 |
+
+修订调试阶段 focused 结果：F1–F4 相关 tests 15 passed；五个相关 backend test files（operation takeover、Preview assembly、History compare jobs、Preview materialize、operation recovery policy）164 passed；在最终代码 V 上再次执行 Compose oracle journey 1 passed（调试日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-debug-compose-oracle-753c5768a5.log`）。第一轮 runner 调试失败历史：`4049986e4c` 上 backend 2,846 passed、1 failed（Compose oracle 漏传 callback）；`753c5768a5` 修复后最终 runner 全量通过，没有以 focused 重跑替代权威结果。
+
+最终 V 的权威 runner：`GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`，exit code **0**；日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5.log`，provenance `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-provenance.json`。批次为 shared_kernel 242 passed、repository_contracts 152 passed、repository_client 154 passed、backend 2,847 passed / 1 warning、repository_service parallel 1,684 passed / 1 skipped、repository_service serial 205 passed / 1,685 deselected。runner 起止 HEAD 均为 V，status clean。
+
+V 上五包静态检查全部通过（ruff / mypy；mypy source files：shared_kernel 34、repository_contracts 15、repository_client 26、repository_service 198、backend 475）；`import_rules` 为 0 / 0 / 14。runner provenance 镜像：repository-service `sha256:196148beb96d508ae634212c70f560bb9f6c739f9d589e42bad4b870947b1883`，backend `sha256:4c7dd9242d867e5eec9314fc6bc549f264127e38b72715e2a34c024f73f30ebd`，worker `sha256:f8b59e3d42ba299f4237d7dac8cbcc305b7fa00aac349ad033fae04653eb1100`。RS build-input revision label `adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree label `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`、lock label `sha256:6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11`；详见 image inspect 文件 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-images.txt`。
+
+真实数据沿用 owner 确认的 `b0175cf583` 取证，未在修订轮重跑。其日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-realdata-b0175cf583-retry1.log`；Catalog 实测、DC29 keyless 与 IEC104 四项摘要见 §8.2、§8.5、§8.7。可选 ADDED / REMOVED 表计数未补；不把 t2 v2 的 Preview `table_count=219` 与 Catalog 208 的差值解释为已测得的增删计数。
+
+Carried 将在本 handoff 的 H 提交后、同一 worktree 完成。RS 将用 `build_context_digest.py identity` 对照 build-input revision 与 source-tree label；按 V provenance 的 Compose project `ordered-bisect-b-4106342-baseline` 重建 backend / worker，两个构建之间不跑测试，并比较 image ID。记录会在 H 提交后追加至本节并随 handoff 一并提交；若需再次修改 handoff，则在最终 H 后只允许复核 doc-only diff 不改变实现 V。

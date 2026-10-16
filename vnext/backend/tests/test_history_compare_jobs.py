@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
 from gateway_shared_kernel import DigestRef
+import gateway_backend.application.history.compare_jobs as compare_jobs
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
@@ -33,6 +34,7 @@ from gateway_backend.http.errors import ApiError
 from gateway_backend.http.orchestration.history_compare import get_compare_result
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import OperationStatus, StepStatus
+from gateway_backend.operations.worker import ExecutorAcknowledgment
 from tests.support.http_workspace_harness import BASELINE_HEAD
 from tests.support.history_compare_job_harness import (
     ORDERED_SYX_TABLE,
@@ -798,3 +800,47 @@ def test_cancel_at_assemble_entry_releases_materialize_checkpoint_protection(tmp
             owner_kind="history-compare-operation",
             owner_id=harness.operation_id,
         ) == frozenset()
+
+
+def test_cancel_during_history_assembly_loop_leaves_operation_cancelled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = build_history_compare_harness(
+        tmp_path,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.business_baseline_commit_id),
+            ("bn-b", "commit-b"),
+            ("bn-c", "commit-b"),
+        ),
+        idempotency_key="history-compare-cancel-assembly-loop",
+    )
+    insert_history_compare_operation(harness)
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    original = compare_jobs._run_pair_pipeline
+    calls = 0
+
+    def run_pair_then_cancel(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        result = original(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            kwargs["control"].request_cancel()
+        return result
+
+    monkeypatch.setattr(compare_jobs, "_run_pair_pipeline", run_pair_then_cancel)
+    session, control, operation, step = claim_next_step(harness)
+    acknowledgment = run_claimed_handler(
+        harness,
+        HISTORY_COMPARE_ASSEMBLE_HANDLER,
+        session,
+        control,
+        operation,
+        step,
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.operations.get_operation(harness.operation_id)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert calls == 1
+    assert persisted.status is OperationStatus.CANCELLED

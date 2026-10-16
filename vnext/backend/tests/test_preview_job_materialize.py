@@ -27,7 +27,8 @@ from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.capabilities.storage_projection import open_canonicalization_manifest
 from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.operations import StepStatus
+from gateway_backend.operations import OperationStatus, StepStatus
+from gateway_backend.operations.worker import ExecutorAcknowledgment
 from tests.support.preview_job_harness import (
     IDEMPOTENCY_KEY,
     REPOSITORY_ID,
@@ -49,6 +50,10 @@ from tests.support.canonical_metadata import (
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
 
 pytestmark = pytest.mark.integration
+
+DETERMINISTIC_CATALOG_FAILURE_CASES = (
+    ("RESPONSE_LIMIT_EXCEEDED", "REPOSITORY_CATALOG_LOAD_FAILED"),
+)
 
 
 def _materialized_side_documents(
@@ -195,3 +200,38 @@ def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> Non
 
     with pytest.raises(PreviewJobError, match="uploaded"):
         _materialize_all_sides(payload, harness.deps)
+
+
+@pytest.mark.parametrize(
+    ("wire_code", "expected_diagnostic_code"),
+    DETERMINISTIC_CATALOG_FAILURE_CASES,
+)
+def test_deterministic_catalog_failure_is_publicly_diagnostic(
+    tmp_path: Path,
+    wire_code: str,
+    expected_diagnostic_code: str,
+) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    harness.baseline_provider.catalog_error_message = (
+        f"catalog read failed ({wire_code}: response exceeded the configured limit)"
+    )
+    operation_id = "op-catalog-response-limit"
+    insert_preview_operation(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+
+    acknowledgment = run_claimed_handler(
+        harness,
+        PREVIEW_MATERIALIZE_HANDLER,
+        session,
+        control,
+        operation,
+        step,
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.operations.get_operation(operation_id)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert persisted.status is OperationStatus.FAILED
+    assert persisted.diagnostic is not None
+    assert persisted.diagnostic.code == expected_diagnostic_code
+    assert wire_code in persisted.diagnostic.message

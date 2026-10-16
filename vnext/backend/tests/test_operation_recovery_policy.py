@@ -476,7 +476,6 @@ class _RecoveryReleaseSession:
 
 
 REPOSITORY_READ_FAILURE_CASES = (
-    ("deterministic_read_error", False, 1, StepStatus.FAILED, OperationStatus.FAILED),
     ("temporary_error_then_success", True, 1, StepStatus.RETRY_WAIT, None),
     ("temporary_error_budget_exhausted", True, 3, StepStatus.FAILED, OperationStatus.FAILED),
 )

@@ -40,6 +40,7 @@ from gateway_backend.application.job_steps import pinned_checkpoint_builder, uni
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.application.pair_pipeline import (
     HistoryPairPipelineResult as _PairPipelineResult,
+    PairPipelineCancelled,
     PairPipelineError,
     run_history_pair_pipeline,
 )
@@ -383,8 +384,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 )
                 return ExecutorAcknowledgment.PUBLISHED
             except RepositoryProviderError as exc:
-                if not exc.retryable:
-                    raise
+                assert exc.retryable, "repository_ref must return deterministic provider errors as diagnostics"
                 raise HandlerExecutionFailure(
                     retryable=True,
                     diagnostic_code=f"repository.{exc.code.value.lower()}",
@@ -527,15 +527,22 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 intent="assemble-checkpoint",
             )
         else:
-            assemble_state, bundle_manifest_ref, bundle_digest = _assemble_comparison(
-                payload=payload,
-                operation_id=operation.operation_id,
-                sides=sides,
-                rule_set=rule_set,
-                store=deps.artifact_store,
-                lease_session=lease_session,
-                control=control,
-            )
+            def publish_cancelled() -> None:
+                lease_session.publish_operation(_make_cancelled_terminal_builder())
+
+            try:
+                assemble_state, bundle_manifest_ref, bundle_digest = _assemble_comparison(
+                    payload=payload,
+                    operation_id=operation.operation_id,
+                    sides=sides,
+                    rule_set=rule_set,
+                    store=deps.artifact_store,
+                    lease_session=lease_session,
+                    control=control,
+                    on_cancel=publish_cancelled,
+                )
+            except PairPipelineCancelled:
+                return ExecutorAcknowledgment.PUBLISHED
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
@@ -795,6 +802,7 @@ def _assemble_comparison(
     store: ArtifactStorePort,
     lease_session: LeaseSession,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]] = []
     for index in range(payload.pair_count):
@@ -825,7 +833,8 @@ def _assemble_comparison(
     for pair_id, before_node, current_node in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
-            raise HistoryCompareJobError("history compare assembly cancelled")
+            on_cancel()
+            raise PairPipelineCancelled
         before = sides[before_node.commit_id]
         current = sides[current_node.commit_id]
         pair_state = _run_pair_pipeline(
@@ -835,6 +844,7 @@ def _assemble_comparison(
             rule_set=rule_set,
             store=store,
             control=control,
+            on_cancel=on_cancel,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -908,6 +918,7 @@ def _run_pair_pipeline(
     rule_set: ComparisonRuleSet,
     store: ArtifactStorePort,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
@@ -917,7 +928,10 @@ def _run_pair_pipeline(
             rule_set=rule_set,
             store=store,
             control=control,
+            on_cancel=on_cancel,
         )
+    except PairPipelineCancelled:
+        raise
     except PairPipelineError as exc:
         raise HistoryCompareJobError(str(exc)) from exc
 

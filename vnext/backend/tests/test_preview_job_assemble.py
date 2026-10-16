@@ -6,10 +6,11 @@ import copy
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import gateway_backend.application.preview_jobs as preview_jobs
+import gateway_backend.application.pair_pipeline as pair_pipeline
 
 from gateway_backend.application.preview_jobs import PreviewJobError
 from gateway_backend.capabilities.bundle_assembly import (
@@ -46,7 +47,8 @@ from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.operations import StepStatus
+from gateway_backend.operations import OperationStatus, StepStatus
+from gateway_backend.operations.worker import ExecutorAcknowledgment
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.preview_job_harness import (
     BASELINE_HEAD,
@@ -163,6 +165,73 @@ def test_full_assemble_checkpoint_contains_dual_pair_closure(tmp_path: Path) -> 
     required_refs = assemble_state["required_refs"]
     assert isinstance(required_refs, list)
     assert required_refs
+
+
+def test_cancel_during_preview_assembly_loop_leaves_operation_cancelled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
+    operation_id = "op-assemble-cancel-loop"
+    _run_materialize(harness, operation_id)
+    original = preview_jobs._run_pair_pipeline
+    calls = 0
+
+    def run_pair_then_cancel(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        result = original(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            kwargs["control"].request_cancel()
+        return result
+
+    monkeypatch.setattr(preview_jobs, "_run_pair_pipeline", run_pair_then_cancel)
+    session, control, operation, step = claim_next_step(harness)
+    acknowledgment = run_claimed_handler(
+        harness,
+        PREVIEW_ASSEMBLE_HANDLER,
+        session,
+        control,
+        operation,
+        step,
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.operations.get_operation(operation_id)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert calls == 1
+    assert persisted.status is OperationStatus.CANCELLED
+
+
+def test_cancel_inside_pair_pipeline_leaves_operation_cancelled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.FULL)
+    operation_id = "op-assemble-cancel-pair-pipeline"
+    _run_materialize(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+    original = getattr(pair_pipeline, "publish_records_closure")
+
+    def publish_records_then_cancel(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        control.request_cancel()
+        return result
+
+    monkeypatch.setattr(pair_pipeline, "publish_records_closure", publish_records_then_cancel)
+    acknowledgment = run_claimed_handler(
+        harness,
+        PREVIEW_ASSEMBLE_HANDLER,
+        session,
+        control,
+        operation,
+        step,
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.operations.get_operation(operation_id)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert persisted.status is OperationStatus.CANCELLED
 
 
 def test_modified_only_assemble_checkpoint_contains_single_pair(tmp_path: Path) -> None:

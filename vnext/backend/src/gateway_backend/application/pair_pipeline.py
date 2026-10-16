@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -56,6 +57,10 @@ class PreviewIdentityStatus(StrEnum):
 
 class PairPipelineError(Exception):
     """Pair pipeline failed before the job-specific error wrapper."""
+
+
+class PairPipelineCancelled(Exception):
+    """Pair pipeline observed cancellation after publishing the operation terminal."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +129,7 @@ def run_preview_pair_pipeline(
     current: BoundSnapshotInput,
     store: ArtifactStorePort,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
     view_id: str = PREVIEW_DEFAULT_VIEW_ID,
     rule_set: ComparisonRuleSet | None = None,
 ) -> PreviewPairPipelineResult:
@@ -145,7 +151,7 @@ def run_preview_pair_pipeline(
         view_id=view_id,
         store=store,
         control=control,
-        cancel_message="preview pair pipeline cancelled",
+        on_cancel=on_cancel,
         identity_annotation=SurfaceIdentityAnnotation(
             status=assessment.status.value,
             assessment_digest=assessment.assessment_digest,
@@ -173,6 +179,7 @@ def run_history_pair_pipeline(
     rule_set: ComparisonRuleSet,
     store: ArtifactStorePort,
     control: ExecutionControl,
+    on_cancel: Callable[[], None],
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -186,7 +193,7 @@ def run_history_pair_pipeline(
         view_id=pair_id,
         store=store,
         control=control,
-        cancel_message="history compare pair pipeline cancelled",
+        on_cancel=on_cancel,
     )
     records_closure = surface.published.records_closure
     if records_closure is None:
@@ -223,7 +230,7 @@ def _run_comparison_risk_surface(
     view_id: str,
     store: ArtifactStorePort,
     control: ExecutionControl,
-    cancel_message: str,
+    on_cancel: Callable[[], None],
     identity_annotation: SurfaceIdentityAnnotation | None = None,
     show_keyless_fallback_hint: bool = False,
 ) -> _ComparisonRiskSurfaceResult:
@@ -243,7 +250,8 @@ def _run_comparison_risk_surface(
     if not isinstance(published, DetailedFactsResult) or published.facts is None:
         raise PairPipelineError("records publication did not produce facts")
     if control.cancel_requested:
-        raise PairPipelineError(cancel_message)
+        on_cancel()
+        raise PairPipelineCancelled
     risk = evaluate_risk(
         RiskEvaluationInput(
             comparison_facts=published.facts,

@@ -34,6 +34,7 @@ from gateway_backend.application.checkpoints import (
 from gateway_backend.application.job_steps import pinned_checkpoint_builder, unique_artifact_refs
 from gateway_backend.application.workspace.ports import WorkspaceControlTransaction as PreviewControlTransaction
 from gateway_backend.application.pair_pipeline import (
+    PairPipelineCancelled,
     PairPipelineError,
     PreviewIdentityStatus,
     PreviewPairPipelineResult as _PairPipelineResult,
@@ -590,8 +591,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
             try:
                 inputs = _materialize_all_sides(payload, deps)
             except RepositoryProviderError as exc:
-                if not exc.retryable:
-                    raise
+                assert exc.retryable, "repository_ref must return deterministic provider errors as diagnostics"
                 raise HandlerExecutionFailure(
                     retryable=True,
                     diagnostic_code=f"repository.{exc.code.value.lower()}",
@@ -749,15 +749,22 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                 intent="assemble-checkpoint",
             )
         else:
-            assemble_state, bundle_manifest_ref, bundle_digest = _assemble_preview(
-                payload,
-                inputs.sides,
-                inputs.canonical,
-                deps.artifact_store,
-                lease_session,
-                control,
-                active_rules,
-            )
+            def publish_cancelled() -> None:
+                lease_session.publish_operation(_make_cancelled_terminal_builder())
+
+            try:
+                assemble_state, bundle_manifest_ref, bundle_digest = _assemble_preview(
+                    payload,
+                    inputs.sides,
+                    inputs.canonical,
+                    deps.artifact_store,
+                    lease_session,
+                    control,
+                    active_rules,
+                    on_cancel=publish_cancelled,
+                )
+            except PairPipelineCancelled:
+                return ExecutorAcknowledgment.PUBLISHED
             ready_refs = _ready_closure_refs_from_assemble(assemble_state, bundle_manifest_ref)
             closure_ref = prepare_ready_closure(
                 deps.artifact_store,
@@ -1412,6 +1419,7 @@ def _assemble_preview(
     lease_session: LeaseSession,
     control: ExecutionControl,
     rule_set: ComparisonRuleSet,
+    on_cancel: Callable[[], None],
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
@@ -1448,7 +1456,8 @@ def _assemble_preview(
     for pair_id, before, current in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
-            raise PreviewJobError("preview assembly cancelled")
+            on_cancel()
+            raise PairPipelineCancelled
         pair_state = _run_pair_pipeline(
             pair_id=pair_id,
             before=before,
@@ -1456,6 +1465,7 @@ def _assemble_preview(
             store=store,
             control=control,
             rule_set=rule_set,
+            on_cancel=on_cancel,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -1524,6 +1534,7 @@ def _run_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
     rule_set: ComparisonRuleSet,
+    on_cancel: Callable[[], None],
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
@@ -1532,9 +1543,12 @@ def _run_pair_pipeline(
             current=current,
             store=store,
             control=control,
+            on_cancel=on_cancel,
             view_id=_PAIR_INITIAL_TO_MODIFIED,
             rule_set=rule_set,
         )
+    except PairPipelineCancelled:
+        raise
     except PairPipelineError as exc:
         raise PreviewJobError(str(exc)) from exc
 
@@ -2196,8 +2210,11 @@ def _bound_from_materialization(
 ) -> BoundSnapshotInput:
     if result.status is not SnapshotMaterializationStatus.COMPLETE:
         diagnostic = result.diagnostics[0] if result.diagnostics else None
+        message = f"{label} materialization failed"
+        if diagnostic is not None and diagnostic.message:
+            message = f"{message}: {diagnostic.message}"
         raise PreviewJobError(
-            f"{label} materialization failed",
+            message,
             diagnostic_code=None if diagnostic is None else diagnostic.code.value,
         )
     if result.snapshot is None or result.summary is None:

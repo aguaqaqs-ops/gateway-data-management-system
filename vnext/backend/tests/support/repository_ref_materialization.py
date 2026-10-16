@@ -91,6 +91,7 @@ class FakeRepositoryRefSession:
         fail_stream: bool,
         close_error: bool,
         catalog_error: bool,
+        catalog_error_message: str | None,
         missing_table_on_open: str | None,
     ) -> None:
         self._catalog = catalog
@@ -100,6 +101,7 @@ class FakeRepositoryRefSession:
         self._fail_stream = fail_stream
         self._close_error = close_error
         self._catalog_error = catalog_error
+        self._catalog_error_message = catalog_error_message
         self._missing_table_on_open = missing_table_on_open
         self.catalog_load_count = 0
         self.table_readers: list[FakeRepositoryTableReader] = []
@@ -111,10 +113,10 @@ class FakeRepositoryRefSession:
         return self._pinned_commit
 
     def get_catalog(self) -> RepositoryTableCatalog:
-        if self._catalog_error:
+        if self._catalog_error or self._catalog_error_message is not None:
             raise RepositoryProviderError(
                 MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
-                "catalog load failed",
+                self._catalog_error_message or "catalog load failed",
             )
         if self._memo is None:
             self.catalog_load_count += 1
@@ -170,6 +172,7 @@ class FakeRepositoryTableAccessProvider:
         fail_stream: bool = False,
         close_error: bool = False,
         catalog_error: bool = False,
+        catalog_error_message: str | None = None,
         missing_table_on_open: str | None = None,
         open_timeout: bool = False,
         open_not_found: bool = False,
@@ -190,6 +193,7 @@ class FakeRepositoryTableAccessProvider:
         self.fail_stream = fail_stream
         self.close_error = close_error
         self.catalog_error = catalog_error
+        self.catalog_error_message = catalog_error_message
         self.missing_table_on_open = missing_table_on_open
         self.open_timeout = open_timeout
         self.open_not_found = open_not_found
@@ -243,6 +247,7 @@ class FakeRepositoryTableAccessProvider:
             fail_stream=self.fail_stream,
             close_error=self.close_error,
             catalog_error=self.catalog_error,
+            catalog_error_message=self.catalog_error_message,
             missing_table_on_open=self.missing_table_on_open,
         )
         self.last_session = session

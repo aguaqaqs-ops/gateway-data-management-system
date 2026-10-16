@@ -7,7 +7,7 @@
 - kickoff base：cae9a0f82be3415cc362e46b98da954edcf1d807
 - 最后非 handoff 提交（实现 HEAD）及门禁提交 V：`753c5768a533885b5e0af0865cfe28c62df3ce27`
 - handoff-only 候选 H：本文最终提交。V..H 仅包含本 handoff 文档提交。
-- carried：待 handoff 草案提交后，在同一 worktree 按 §8.10 完成并记录到最终 H。
+- carried：通过。handoff-only 提交 `43722bb575` 上的 identity 与 backend / worker 重建结果均匹配 V；最终 H 相对该检查点只增加本 handoff 文档，build input 不变。H 提交后再核对一次 identity 和 image ID，日志路径见 §8.10。
 - main 上 kickoff 后的审核方文档提交不进入 p5-s2b，按提交区分：62cc7c3e0f（DC29）、1925dcedc2（DC30）、5a1a391ea8、92db9df18e（DC31）、a889acc242（Catalog 离线估算补充）。
 
 ## 1. 区间与提交
@@ -150,7 +150,7 @@ DC29、DC30 与 DC31 的 owner 文档和实施映射见 §8.1–§8.3；此处�
 | backend | `sha256:4c7dd9242d867e5eec9314fc6bc549f264127e38b72715e2a34c024f73f30ebd` | provenance project `ordered-bisect-b-4106342-baseline`; no build-input / source-tree label |
 | worker | `sha256:f8b59e3d42ba299f4237d7dac8cbcc305b7fa00aac349ad033fae04653eb1100` | provenance project `ordered-bisect-b-4106342-baseline`; no build-input / source-tree label |
 
-carried 待 handoff 草案提交后执行；identity、backend / worker 重建输出和日志将在 §8.10 记录。V provenance 文件为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-provenance.json`，镜像 inspect 为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-images.txt`。H 仅增加 handoff 文档，没有镜像输入变化。
+carried 结果与同 worktree 的 identity、backend / worker 重建输出见 §8.10。V provenance 文件为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-provenance.json`，镜像 inspect 为 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-gate-753c5768a5-images.txt`。H 仅增加 handoff 文档，没有镜像输入变化。
 
 ## 7. Reviewer 核对重点与交付
 
@@ -395,4 +395,4 @@ V 上五包静态检查全部通过（ruff / mypy；mypy source files：shared_k
 
 真实数据沿用 owner 确认的 `b0175cf583` 取证，未在修订轮重跑。其日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-realdata-b0175cf583-retry1.log`；Catalog 实测、DC29 keyless 与 IEC104 四项摘要见 §8.2、§8.5、§8.7。可选 ADDED / REMOVED 表计数未补；不把 t2 v2 的 Preview `table_count=219` 与 Catalog 208 的差值解释为已测得的增删计数。
 
-Carried 将在本 handoff 的 H 提交后、同一 worktree 完成。RS 将用 `build_context_digest.py identity` 对照 build-input revision 与 source-tree label；按 V provenance 的 Compose project `ordered-bisect-b-4106342-baseline` 重建 backend / worker，两个构建之间不跑测试，并比较 image ID。记录会在 H 提交后追加至本节并随 handoff 一并提交；若需再次修改 handoff，则在最终 H 后只允许复核 doc-only diff 不改变实现 V。
+在 handoff-only 提交 `43722bb57516ffea8f8b700a1180357ed01c599c` 上，`python3 vnext/repository_service/tests/support/build_context_digest.py identity` 输出 candidate SHA `43722bb57516ffea8f8b700a1180357ed01c599c`、build-input revision `adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`；后二者与 V 的 repository-service labels 一致，RS image ID 为 `sha256:196148beb96d508ae634212c70f560bb9f6c739f9d589e42bad4b870947b1883`。按 V provenance 的 Compose project `ordered-bisect-b-4106342-baseline` 执行 `docker compose -f vnext/deploy/compose.yaml build backend worker`，两个 build 之间没有运行测试；重建 ID 为 backend `sha256:4c7dd9242d867e5eec9314fc6bc549f264127e38b72715e2a34c024f73f30ebd`、worker `sha256:f8b59e3d42ba299f4237d7dac8cbcc305b7fa00aac349ad033fae04653eb1100`，与 V provenance 相同。日志：`/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-carried-43722bb575.log`。最终 H 只会增加 handoff 文档；H 提交后再核对 identity 与 image ID，日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s2b-revision-carried-final-H.log`，不在核对之间运行测试。

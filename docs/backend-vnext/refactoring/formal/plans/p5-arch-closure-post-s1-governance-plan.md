@@ -199,6 +199,18 @@ backend 批次单进程约 24 分钟（S2b 门禁 2,818 个用例），占完整
 3. 同步修改 `vnext/scripts/run-tests.sh`、AGENTS.md「跑测试」与 testing-conventions；用例数量与结果不变，只改运行方式；
 4. 验收：两次完整 runner exit 0，用例数与改动前一致；记录改动前后各批次耗时；独立审核后打 `p5-g11-exit`，作为 S3 的区间起点。
 
+kickoff 补充（审核方 2026-10-16，S2b 合入后）：
+
+- 基线：S2b 门禁 V `753c5768a5` 的 backend 批次 2,847 passed、1,631.86 s（27 分 12 秒），是改动前耗时与用例数的参照；kickoff 时仍须在 kickoff base 上自行测量一次（第 1 点）。
+- 依赖授权：backend dev group 增加 `pytest-xdist==3.8.0`（与 repository_service 同版本），按 AGENTS.md「改依赖」用 `uv add --dev` 更新 `vnext/backend/uv.lock`，
+  lock 必须保持 canonical PyPI identity（`test_canonical_lock_identity.py`）。不授权其他依赖变化（xdist 自身的传递依赖除外）。backend 镜像构建复制 `uv.lock`，
+  因此这是强制重建项：门禁 V 上的完整 runner 本身会重建全部镜像，不从 S2b 沿用 carried。
+- 范围：只改测试的运行方式与隔离（marker、`xdist_group`、测试侧固定路径或端口改为每用例独立）。不改生产代码，不删除、跳过或放宽任何用例；需要这样做才能并行的用例，标 `serial` 留在单进程批次，并在 handoff 登记。
+- Compose 旅程（共享 host 8000 与 `/tmp/gateway-compose-gate.lock`）、依赖固定时间预算的用例，一律留在 `serial and not parallel_safe` 批次。
+  `parallel_safe` 例外按 repository_service 的同等标准逐项审查。
+- 停止条件：需要改生产代码才能让用例隔离；需要删除、跳过或放宽用例；需要 xdist 以外的依赖；两次完整 runner 中任一次出现只在并行下出现的失败且无法在测试侧定位。
+- 工作区：`/home/dev/gdds-p5-g11`，分支 `p5-g11`，kickoff base 为 `main` 当时的 HEAD；按执行计划 §8 的阶段流程独立审核。
+
 ## 3. 顺序
 
 1. 已完成：S1 第 3 次复审通过 → `--no-ff` 合入 `main`（`139ee5fffd`）→ tag `p5-s1-exit`；G1、G5、G9。
@@ -216,5 +228,6 @@ backend 批次单进程约 24 分钟（S2b 门禁 2,818 个用例），占完整
    - S2a-F3：实施设计 §4.8 时删除 Submit 的按前缀过滤启发式，包括 S2a 新增的 `comparison-ordered-`、`comparison-blank-`；
    - G8a-F1：若 S2b 重跑普查，先修普查 `ordered_projection.status`。
    2026-10-12：S2b 在真实数据旅程中停止（t1-v1 投影 23 项 `KEY_MISSING`，源 DDL 无主键）；owner 决议 DC29（无主键表兜底规则，决议记录 §12），S2b 按执行计划 §8.5 S2b.8 恢复。
+   已完成（2026-10-16）：第 1 次复审通过（`plans/p5-arch-closure-s2b-independent-rereview-1.md`），tag `p5-s2b-exit` 在 `bd0b1d042f`，合并提交 `b130c35e3d`。
 8. G11：S2b 合入后、S3 kickoff 前，缩短完整门禁（backend 并行化）。调试与取证分开（执行计划 §8.9，DC30）自 2026-10-14 起对 S2b 剩余部分与之后各阶段生效。
 9. P5 exit：按 G10 清理。

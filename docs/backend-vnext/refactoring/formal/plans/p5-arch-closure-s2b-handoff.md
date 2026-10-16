@@ -8,7 +8,7 @@
 - 最后非 handoff 提交（实现 HEAD）：b0175cf583ba7e89b0db830607c0f9bf15dc4bf4
 - 门禁提交 V：adc5d87fea073545fde6416d123c3d7845e715ff
 - handoff-only 候选 H：本文最终提交（V 之后仅有本 handoff 文档提交）
-- carried：待在本文提交后按 V → H 规则完成同 worktree 镜像判定；镜像 provenance 来自 V。
+- carried：通过。RS identity 与 V 的 build-input/source-tree label 一致；同 worktree 重建的 backend / worker image ID 与 V provenance 完全相同。
 - main 上 kickoff 后的审核方文档提交不进入 p5-s2b，按提交区分：62cc7c3e0f（DC29）、1925dcedc2（DC30）、5a1a391ea8、92db9df18e（DC31）、a889acc242（Catalog 离线估算补充）。
 
 ## 1. 区间与提交
@@ -151,7 +151,7 @@ V = adc5d87fea073545fde6416d123c3d7845e715ff 的 provenance：/home/dev/gdds-p5-
 | backend | sha256:b90b70e0ca75ade2802853124c57dce55233289af8572c728a709a1c604b0d2f | provenance project ordered-bisect-b-2918210-baseline；无 build-input / source-tree label |
 | worker | sha256:e14b5b8956f4ed70fb87056584b201db756ffcb2cfea62ad592516ff9ecfc4ef | provenance project ordered-bisect-b-2918210-baseline；无 build-input / source-tree label |
 
-carried 最终判定待本 handoff 提交后写入本节：repository-service 对比 build_context_digest.py identity 与 V label；backend / worker 在同一 worktree 以 provenance project 重建，构建之间不运行测试，image ID 必须匹配 V provenance。V→H 之间除 handoff 文档外没有实现提交；V 之后的允许提交为 cbd4b8df94、488c4975f2、b0175cf583。
+carried 判定通过：在提交 aeccdbb96d 的同 worktree 中，build_context_digest.py identity 的 build_input_revision 为 adc5d87fea073545fde6416d123c3d7845e715ff、source_tree_sha256 为 sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4，与 V 的 repository-service label 相同；RS image ID 仍为 sha256:9ae3ab89eff4262b6a7645caf0a929eff5e7bd7b059de11c04abcb41f290f3bb。按 provenance project ordered-bisect-b-2918210-baseline 重建 backend / worker，没有在两次构建之间运行测试，ID 分别为 sha256:b90b70e0ca75ade2802853124c57dce55233289af8572c728a709a1c604b0d2f、sha256:e14b5b8956f4ed70fb87056584b201db756ffcb2cfea62ad592516ff9ecfc4ef，均与 V provenance 相同。构建日志：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-carried-backend-worker-aeccdbb96d.log。最终 H 仅增加 handoff 文档，不改镜像输入。V 之后的允许提交为 cbd4b8df94、488c4975f2、b0175cf583。
 
 ## 7. Reviewer 核对重点与交付
 
@@ -220,13 +220,13 @@ V = adc5d87fea073545fde6416d123c3d7845e715ff；日志 /home/dev/gdds-p5-closure-
 | repository_service parallel | 1,684 passed，1 skipped |
 | repository_service serial | 205 passed，1,685 deselected |
 
-S2b §2 所列 owners、test_comparison_canonical_domain.py、integration test_submit_prepare_removed_tables.py、ADR 0016 Operation integrity、DC29 / DC31 owner 均在该次 runner 中。DC31 compose worker restart 旅程在 backend batch 内通过。此前 34ec 失败后没有用定向补跑代替，adc5 是新 V 并重新运行全量 runner。
+S2b §2 owner 的实际命令是上述权威 runner（其内部按包调用受控 uv-consume / pytest）；本次 runner exit 0。backend owner 文件 test_comparison_canonical_domain.py、test_repository_ref_materialization_protocol.py、test_preview_job_materialize.py、test_submit_transactions.py、test_commit_canonical_metadata.py、test_submit_artifact_protection.py、test_submit_job_prepare.py 与 control DB schema tests 均在 backend batch；Repository integration owner test_submit_prepare_removed_tables.py 与 test_canonical_snapshot_identity.py 在 repository_service 批次。它们都由完整 runner 收集并通过，没有以定向补跑替代门禁。DC31 focused owners test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostics、test_build_catalog_response_rejects_oversized_wire_payload、test_build_catalog_response_accepts_payload_within_wire_limit、test_preview_worker_restart_takes_over_expired_running_operation 也均在该次 runner 通过。DC31 Compose worker restart 旅程在 backend batch 内通过。此前 34ec 失败后没有用定向补跑代替，adc5 是新 V 并重新运行全量 runner。
 
 最终 import_rules：IMPORT_RULE_BASELINE=frozenset({})，RUNTIME_CYCLE_BASELINE=()，unreachable 14，即 0 / 0 / 14。S2a exit 为 3 / 0 / 14，全程只减不增。五个 uv.lock SHA 未变；仍为 §2 所列值。最终 HEAD 的 post-V focused real-dump tests 与静态检查见 §8.8。
 
 ### 8.5 同一 V 的真实数据与对照基准
 
-最终证据日志：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-realdata-b0175cf583-retry1.log。完整运行在 gate 后、同一代码 V 与其 §8.9 允许的 benchmark-only 后续提交上，t1 通过后才运行 t2–t4；最后记录 HEAD b0175cf583ba7e89b0db830607c0f9bf15dc4bf4、status clean、exit 0、结论 PASS。运行期间未写 worktree；运行后栈与 Dolt 已 teardown。首个完整带时间戳成功运行用于校准保护超时；之后只改 benchmark / real-dump 测试，按 §8.9 在最终提交补跑两测试文件、五包静态与完整真实数据。
+最终证据日志：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-realdata-b0175cf583-retry1.log。完整运行在 gate 后、同一代码 V 与其 §8.9 允许的 benchmark-only 后续提交上，t1 通过后才运行 t2–t4；最后记录 HEAD b0175cf583ba7e89b0db830607c0f9bf15dc4bf4、status clean、exit 0、结论 PASS。运行期间未写 worktree；运行后栈与 Dolt 已 teardown。首次完整带时间戳校准运行日志为 s2b-realdata-postv-488c4975f2.log；该次用于校准，不作为最终取证。之后只改 benchmark / real-dump 测试，按 §8.9 在最终提交补跑两测试文件、五包静态与完整真实数据。最终取证使用本节首行所列日志。
 
 | 档 | 版本 | Dataset ID | SHA-256 | 包 bytes | 源表 / 总行数 | 规范状态摘要 | Preview changed / degraded / failed / table_count | Catalog bytes / 表数 / Catalog 行数 | IEC104 pseudo 行 |
 | --- | --- | --- | --- | ---: | --- | --- | --- | --- | ---: |
@@ -248,92 +248,92 @@ S2b §2 所列 owners、test_comparison_canonical_domain.py、integration test_s
 B 层按 DC31 只记录并交 S5。当前表中可见 Preview、Submit、History 的绝对耗时高，但整体 CPU 也高，不呈现 wall 明显远大于 CPU 的空等；主机侧 journey 经批量 HTTP 接口核对，不按行逐次调用。P5 未据此改产品代码。S5 候选是按规模复核 Preview / History 的 CPU 成本与重复读取路径；未把结构性原因写成已确认事实。C 层逐步结果如下：
 
 ### t1 — journey wall 380.335 s
-| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| v1-workspace | 0.699 | 0.027 | 0.001 | 0.000 | 完成并核对 |
-| v1-upload | 0.702 | 0.017 | 0.001 | 0.000 | 完成并核对 |
-| v1-preview | 52.989 | 1.495 | 1.309 | 40.985 | 完成并核对 |
-| v1-submit | 41.625 | 1.799 | 62.258 | 14.024 | 完成并核对 |
-| v1-repository-read | 10.726 | 0.258 | 56.924 | 0.013 | 完成并核对 |
-| v1-approve | 0.693 | 0.013 | 0.001 | 0.000 | 完成并核对 |
-| v1-archive | 0.748 | 0.049 | 0.106 | 0.003 | 完成并核对 |
-| repeat-v1-workspace | 0.682 | 0.070 | 0.001 | 0.000 | 完成并核对 |
-| repeat-v1-upload | 0.715 | 0.019 | 0.001 | 0.000 | 完成并核对 |
-| repeat-v1-preview | 73.086 | 2.063 | 31.095 | 47.090 | 完成并核对 |
-| repeat-v1-submit | 0.700 | 0.010 | 0.001 | 0.000 | 完成并核对 |
-| v2-workspace | 0.697 | 0.007 | 0.001 | 0.000 | 完成并核对 |
-| v2-upload | 0.726 | 0.020 | 0.001 | 0.000 | 完成并核对 |
-| v2-preview | 77.113 | 2.220 | 31.445 | 47.631 | 完成并核对 |
-| v2-submit | 43.561 | 1.883 | 68.438 | 13.949 | 完成并核对 |
-| v2-repository-read | 10.999 | 0.246 | 59.502 | 0.016 | 完成并核对 |
-| v2-approve | 0.694 | 0.009 | 0.001 | 0.003 | 完成并核对 |
-| history | 62.971 | 1.731 | 59.708 | 34.966 | 完成并核对 |
+| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 | B 层 | C 层 |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| v1-workspace | 0.699 | 0.027 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-upload | 0.702 | 0.017 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-preview | 52.989 | 1.495 | 1.309 | 40.985 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-submit | 41.625 | 1.799 | 62.258 | 14.024 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-repository-read | 10.726 | 0.258 | 56.924 | 0.013 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-approve | 0.693 | 0.013 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-archive | 0.748 | 0.049 | 0.106 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-workspace | 0.682 | 0.070 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-upload | 0.715 | 0.019 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-preview | 73.086 | 2.063 | 31.095 | 47.090 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-submit | 0.700 | 0.010 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-workspace | 0.697 | 0.007 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-upload | 0.726 | 0.020 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-preview | 77.113 | 2.220 | 31.445 | 47.631 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-submit | 43.561 | 1.883 | 68.438 | 13.949 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-repository-read | 10.999 | 0.246 | 59.502 | 0.016 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-approve | 0.694 | 0.009 | 0.001 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| history | 62.971 | 1.731 | 59.708 | 34.966 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
 
 ### t2 — journey wall 3057.978 s
-| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| v1-workspace | 0.700 | 0.041 | 0.001 | 0.000 | 完成并核对 |
-| v1-upload | 0.749 | 0.062 | 0.001 | 0.000 | 完成并核对 |
-| v1-preview | 722.321 | 20.119 | 18.107 | 714.050 | 完成并核对 |
-| v1-submit | 239.185 | 7.875 | 115.331 | 204.020 | 完成并核对 |
-| v1-repository-read | 27.288 | 0.743 | 117.978 | 0.067 | 完成并核对 |
-| v1-approve | 0.714 | 0.013 | 0.001 | 0.003 | 完成并核对 |
-| v1-archive | 0.726 | 0.041 | 0.001 | 0.000 | 完成并核对 |
-| repeat-v1-workspace | 0.706 | 0.007 | 0.001 | 0.000 | 完成并核对 |
-| repeat-v1-upload | 0.749 | 0.061 | 0.001 | 0.003 | 完成并核对 |
-| repeat-v1-preview | 603.888 | 16.994 | 75.174 | 571.636 | 完成并核对 |
-| repeat-v1-submit | 0.692 | 0.066 | 0.121 | 0.000 | 完成并核对 |
-| v2-workspace | 0.684 | 0.007 | 0.001 | 0.000 | 完成并核对 |
-| v2-upload | 0.745 | 0.064 | 0.001 | 0.000 | 完成并核对 |
-| v2-preview | 688.043 | 19.200 | 76.286 | 645.367 | 完成并核对 |
-| v2-submit | 239.071 | 7.908 | 125.586 | 197.632 | 完成并核对 |
-| v2-repository-read | 28.087 | 0.638 | 120.182 | 0.075 | 完成并核对 |
-| v2-approve | 0.692 | 0.008 | 0.001 | 0.000 | 完成并核对 |
-| history | 502.742 | 13.724 | 137.237 | 435.037 | 完成并核对 |
+| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 | B 层 | C 层 |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| v1-workspace | 0.700 | 0.041 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-upload | 0.749 | 0.062 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-preview | 722.321 | 20.119 | 18.107 | 714.050 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-submit | 239.185 | 7.875 | 115.331 | 204.020 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-repository-read | 27.288 | 0.743 | 117.978 | 0.067 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-approve | 0.714 | 0.013 | 0.001 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-archive | 0.726 | 0.041 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-workspace | 0.706 | 0.007 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-upload | 0.749 | 0.061 | 0.001 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-preview | 603.888 | 16.994 | 75.174 | 571.636 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-submit | 0.692 | 0.066 | 0.121 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-workspace | 0.684 | 0.007 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-upload | 0.745 | 0.064 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-preview | 688.043 | 19.200 | 76.286 | 645.367 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-submit | 239.071 | 7.908 | 125.586 | 197.632 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-repository-read | 28.087 | 0.638 | 120.182 | 0.075 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-approve | 0.692 | 0.008 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| history | 502.742 | 13.724 | 137.237 | 435.037 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
 
 ### t3 — journey wall 6149.528 s
-| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| v1-workspace | 0.680 | 0.066 | 0.001 | 0.000 | 完成并核对 |
-| v1-upload | 0.828 | 0.166 | 0.002 | 0.000 | 完成并核对 |
-| v1-preview | 1244.848 | 34.849 | 31.406 | 1238.459 | 完成并核对 |
-| v1-submit | 479.276 | 15.013 | 121.944 | 439.159 | 完成并核对 |
-| v1-repository-read | 24.743 | 0.619 | 101.863 | 0.050 | 完成并核对 |
-| v1-approve | 0.684 | 0.013 | 0.001 | 0.003 | 完成并核对 |
-| v1-archive | 0.717 | 0.042 | 0.001 | 0.000 | 完成并核对 |
-| repeat-v1-workspace | 0.687 | 0.007 | 0.001 | 0.000 | 完成并核对 |
-| repeat-v1-upload | 0.837 | 0.170 | 0.002 | 0.003 | 完成并核对 |
-| repeat-v1-preview | 1363.468 | 38.795 | 102.101 | 1320.655 | 完成并核对 |
-| repeat-v1-submit | 0.696 | 0.011 | 0.001 | 0.000 | 完成并核对 |
-| v2-workspace | 0.680 | 0.007 | 0.001 | 0.000 | 完成并核对 |
-| v2-upload | 0.844 | 0.177 | 0.002 | 0.000 | 完成并核对 |
-| v2-preview | 1528.329 | 43.236 | 106.024 | 1485.005 | 完成并核对 |
-| v2-submit | 502.930 | 15.619 | 139.734 | 450.994 | 完成并核对 |
-| v2-repository-read | 25.793 | 0.640 | 112.335 | 0.058 | 完成并核对 |
-| v2-approve | 0.684 | 0.008 | 0.001 | 0.000 | 完成并核对 |
-| history | 972.603 | 26.358 | 167.003 | 889.927 | 完成并核对 |
+| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 | B 层 | C 层 |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| v1-workspace | 0.680 | 0.066 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-upload | 0.828 | 0.166 | 0.002 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-preview | 1244.848 | 34.849 | 31.406 | 1238.459 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-submit | 479.276 | 15.013 | 121.944 | 439.159 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-repository-read | 24.743 | 0.619 | 101.863 | 0.050 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-approve | 0.684 | 0.013 | 0.001 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-archive | 0.717 | 0.042 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-workspace | 0.687 | 0.007 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-upload | 0.837 | 0.170 | 0.002 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-preview | 1363.468 | 38.795 | 102.101 | 1320.655 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-submit | 0.696 | 0.011 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-workspace | 0.680 | 0.007 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-upload | 0.844 | 0.177 | 0.002 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-preview | 1528.329 | 43.236 | 106.024 | 1485.005 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-submit | 502.930 | 15.619 | 139.734 | 450.994 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-repository-read | 25.793 | 0.640 | 112.335 | 0.058 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-approve | 0.684 | 0.008 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| history | 972.603 | 26.358 | 167.003 | 889.927 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
 
 ### t4 — journey wall 10139.016 s
-| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 |
-| --- | ---: | ---: | ---: | ---: | --- |
-| v1-workspace | 0.676 | 0.060 | 0.001 | 0.000 | 完成并核对 |
-| v1-upload | 0.934 | 0.263 | 0.002 | 0.000 | 完成并核对 |
-| v1-preview | 2567.441 | 72.550 | 64.806 | 2555.601 | 完成并核对 |
-| v1-submit | 805.214 | 25.238 | 205.344 | 742.664 | 完成并核对 |
-| v1-repository-read | 52.765 | 1.287 | 198.105 | 0.135 | 完成并核对 |
-| v1-approve | 0.690 | 0.013 | 0.001 | 0.000 | 完成并核对 |
-| v1-archive | 0.727 | 0.042 | 0.001 | 0.000 | 完成并核对 |
-| repeat-v1-workspace | 0.672 | 0.007 | 0.001 | 0.003 | 完成并核对 |
-| repeat-v1-upload | 0.956 | 0.393 | 0.055 | 0.003 | 完成并核对 |
-| repeat-v1-preview | 2244.159 | 64.425 | 172.875 | 2174.203 | 完成并核对 |
-| repeat-v1-submit | 0.668 | 0.010 | 0.001 | 0.000 | 完成并核对 |
-| v2-workspace | 0.691 | 0.006 | 0.001 | 0.000 | 完成并核对 |
-| v2-upload | 0.954 | 0.272 | 0.002 | 0.000 | 完成并核对 |
-| v2-preview | 2244.042 | 62.742 | 171.907 | —（cpu.stat reset） | 完成并核对 |
-| v2-submit | 814.908 | 24.871 | 226.217 | 748.357 | 完成并核对 |
-| v2-repository-read | 50.529 | 1.262 | 207.391 | 0.102 | 完成并核对 |
-| v2-approve | 0.699 | 0.009 | 0.001 | 0.003 | 完成并核对 |
-| history | 1352.081 | 36.412 | 274.586 | 1233.713 | 完成并核对 |
+| Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 | B 层 | C 层 |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| v1-workspace | 0.676 | 0.060 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-upload | 0.934 | 0.263 | 0.002 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-preview | 2567.441 | 72.550 | 64.806 | 2555.601 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-submit | 805.214 | 25.238 | 205.344 | 742.664 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-repository-read | 52.765 | 1.287 | 198.105 | 0.135 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-approve | 0.690 | 0.013 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v1-archive | 0.727 | 0.042 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-workspace | 0.672 | 0.007 | 0.001 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-upload | 0.956 | 0.393 | 0.055 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-preview | 2244.159 | 64.425 | 172.875 | 2174.203 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| repeat-v1-submit | 0.668 | 0.010 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-workspace | 0.691 | 0.006 | 0.001 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-upload | 0.954 | 0.272 | 0.002 | 0.000 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-preview | 2244.042 | 62.742 | 171.907 | —（cpu.stat reset） | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-submit | 814.908 | 24.871 | 226.217 | 748.357 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-repository-read | 50.529 | 1.262 | 207.391 | 0.102 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| v2-approve | 0.699 | 0.009 | 0.001 | 0.003 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
+| history | 1352.081 | 36.412 | 274.586 | 1233.713 | 完成并核对 | 记录未修；重负载见 S5 | wall/CPU 已记录 |
 ### 8.7 DC29、IEC104 与 History 可见结果
 
 DC29 实际结果：t1 23 张、t2 27 张、t3 v1 27 张 / v2 28 张、t4 33 张 keyless fallback 表；所有档重传时这些表均包含在 Preview 全表 changed=0 的结果中，UNCHANGED 且 Submit 为 NO_CANONICAL_CHANGE。不再出现 KEY_MISSING；keyless 表不是 DEGRADED，不产生 KEY_DEGRADED。Repository Service 同次启动的完全重复行 Dolt 往返、Compose 重传 unchanged 与一删一增用例均通过 V 的 runner。manifest 3.2.0；storage projection version 未变；已有表规范字节回归由更新后的 golden 覆盖。
@@ -356,7 +356,7 @@ V 之后仅有 §8.9 明确允许的 benchmark / real-dump tests 提交：cbd4b8
 - cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_real_dump_journey.py tests/test_real_dump_census.py -q：47 passed。
 - 五包分别运行 uv-consume ruff check . 与 mypy，全部通过；mypy 文件数 backend 475、repository_service 198、repository_contracts 15、repository_client 26、shared_kernel 34。
 - import_rules：0 / 0 / 14。
-- 同一 V→H worktree 的 carried：待执行；必须核对 RS identity/label，并以 provenance project 重建 backend 与 worker，image ID 与 provenance 相同；backend 与 worker 两次构建之间不运行测试。
+- carried：通过，细节与三镜像 ID 见 §6；backend / worker 同 worktree 重建之间未运行测试。
 
 调试路径预算内：复用 census 投影的离线 Catalog 估算；DC31 production、unit、Repository HTTP、Compose worker restart owner 均为 §3 必要路径。启用 benchmark 的分档 / 指定步骤 / 开发保留栈 / CPU 时间记录路径以满足 §8.9。未为 t4 Catalog 测量重建原栈。没有其他预算外生产路径；未触发阶段停止条件。
 

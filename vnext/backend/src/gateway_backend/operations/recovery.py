@@ -934,13 +934,10 @@ class StartupRecovery:
 
         now = self.now_factory()
         if not step_lease_expired(step, now):
-            capability = self._capability_lookup(operation.job_kind, step.step_name)
-            if capability is RecoveryCapabilityValue.PURE_RECOMPUTE:
-                # A restarted worker must not become idle-ready while the old pure
-                # computation still owns a live lease. Startup retries are bounded by
-                # the worker's existing startup budget and eventually revisit expiry.
-                return StartupDisposition.RETRYABLE_BLOCK
-            return StartupDisposition.READY
+            # A restarted worker must not become idle-ready while any old RUNNING
+            # step still owns a live lease. Startup retries are bounded by the
+            # worker's existing startup budget and eventually revisit expiry.
+            return StartupDisposition.RETRYABLE_BLOCK
 
         try:
             with self.write_uow_factory() as unit_of_work:
@@ -953,7 +950,7 @@ class StartupRecovery:
                 if fresh_step.status is not StepStatus.RUNNING:
                     return StartupDisposition.READY
                 if not step_lease_expired(fresh_step, transaction_now):
-                    return StartupDisposition.READY
+                    return StartupDisposition.RETRYABLE_BLOCK
 
                 capability = self._capability_lookup(
                     fresh_operation.job_kind,

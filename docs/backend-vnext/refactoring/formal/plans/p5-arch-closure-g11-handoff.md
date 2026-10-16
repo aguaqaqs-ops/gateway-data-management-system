@@ -40,7 +40,7 @@ backend 完整 runner 使用 `-q`，没有采集本轮每个 serial 用例的独
 
 ## Marker 分类与隔离审查
 
-基线有 27 个 backend 测试文件含 serial 标记（56 个收集项）；逐文件检查其 Compose、固定预算、信号、子进程、Dolt、端口及持久状态含义。V 上保留 34 个 serial 项，分布在 18 个文件。backend 没有 `parallel_safe` 用例；marker 在 `pyproject.toml` 的 strict-marker 列表中声明，`tests/conftest.py` 对 `serial and not parallel_safe` 自动加入 `xdist_group("serial")`，并继续给未标 `integration` / `unit` 的项默认加 `unit`。
+基线有 26 个 backend 测试文件含 serial 标记（56 个收集项）；逐文件检查其 Compose、固定预算、信号、子进程、Dolt、端口及持久状态含义。V 上保留 34 个 serial 项，分布在 18 个文件。backend 没有 `parallel_safe` 用例；marker 在 `pyproject.toml` 的 strict-marker 列表中声明，`tests/conftest.py` 对 `serial and not parallel_safe` 自动加入 `xdist_group("serial")`，并继续给未标 `integration` / `unit` 的项默认加 `unit`。
 
 ### serial 保留项
 

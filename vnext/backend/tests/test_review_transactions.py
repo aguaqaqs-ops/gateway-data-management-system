@@ -992,7 +992,6 @@ def test_apply_review_replay_fails_closed_on_corrupted_event_reason(review_seed:
     assert exc_info.value.stable_code == "REVIEW_INTEGRITY_FAILURE"
 
 
-@pytest.mark.serial
 def test_apply_review_concurrent_commands_produce_one_commit_and_stable_conflict(
     review_seed: ReviewSeed,
 ) -> None:

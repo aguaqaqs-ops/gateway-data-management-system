@@ -160,7 +160,6 @@ def test_submit_worker_runtime_claims_submit_operation(tmp_path: Path) -> None:
     assert work.step.step_name == SUBMIT_STEP_PREPARE
 
 
-@pytest.mark.serial
 def test_submit_worker_duplicate_claim_is_exclusive(tmp_path: Path) -> None:
     harness = build_submit_worker_harness(tmp_path, repository_base_url="http://127.0.0.1:9")
     operation_id = "operation-submit-worker-duplicate"
@@ -186,6 +185,7 @@ def test_submit_worker_duplicate_claim_is_exclusive(tmp_path: Path) -> None:
     assert claimed_step.lease_token is not None
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_submit_worker_reaches_ready_with_live_repository_service(
     tmp_path: Path,
@@ -265,7 +265,6 @@ def test_submit_worker_executes_submit_import_publishes_checkpoint(tmp_path: Pat
     assert await_step.status is StepStatus.PENDING
 
 
-@pytest.mark.serial
 def test_submit_import_w2_crash_rebuilds_checkpoint_via_claim(tmp_path: Path) -> None:
     from dataclasses import replace
     from datetime import timedelta

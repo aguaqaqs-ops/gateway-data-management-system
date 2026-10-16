@@ -15,6 +15,15 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 ./vnext/scripts/run-tests.sh
 ```
 
+权威 runner 将 backend 与 `repository_service` 分成并行主体和 serial 两遍：
+`-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"` 后接
+`-m "serial and not parallel_safe" -n 0`。其余三个包单进程运行。G11 kickoff base
+`676110a74b68` 的 backend 基线为 2,847 passed；marker 数为 `unit` 2,665、
+`integration` 205、`serial` 56（marker 可重叠）。`--durations=0` 的可见阶段耗时为
+Compose 1,575.36 秒、其他 serial 37.97 秒、其余用例 100.30 秒，基线墙钟 1,717.23 秒。
+Compose 占 backend 基线约 91.7%；细节与日志见
+[G11 handoff](refactoring/formal/plans/p5-arch-closure-g11-handoff.md)。
+
 linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；该目录不在提交里，缺它时 backend 的
 `test_table_rules_resolver.py` 有 58 个用例失败），再执行上面的两步。
 
@@ -51,9 +60,10 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 wheel。五锁 canonical registry identity 的权威 owner 为
 `backend/tests/test_canonical_lock_identity.py`。
 
-`repository_service` 分两遍执行：主体并行，未确认可隔离的 `serial` 组单独串行，避免
+`repository_service` 与 backend 分两遍执行：主体并行，未确认可隔离的 `serial` 组单独串行，避免
 CPU 争用导致时序敏感测试 flaky。少量从 serial 来源逐项审查通过的 `parallel_safe` 测试
-会加入主体并行批次。其余包体量小，worker 启动开销会超过并行收益，因此单进程执行。
+会加入主体并行批次。backend 当前没有 `parallel_safe` 例外；其余三个包体量小，
+worker 启动开销会超过并行收益，因此单进程执行。
 
 日常迭代用 marker 缩小范围：
 
@@ -222,14 +232,16 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
 
 ## Marker 分层
 
-三个 marker 在全部包的 `[tool.pytest.ini_options]` 中声明，并由 `--strict-markers`
-强制：拼错的 marker 会让收集直接失败。
+`unit`、`integration` 与 `serial` 在全部包的 `[tool.pytest.ini_options]` 中声明，
+并由 `--strict-markers` 强制：拼错的 marker 会让收集直接失败。`repository_service` 与
+backend 还声明 `parallel_safe`，记录经逐项隔离审查、可进入并行主体的 serial 来源例外。
 
 | Marker | 含义 |
 | --- | --- |
 | `unit` | 无重量级外部依赖，可全并发运行 |
 | `integration` | 需要真实 dolt、子进程或落盘状态 |
 | `serial` | 时序敏感，不得与其他测试争用 CPU |
+| `parallel_safe` | serial 来源中已逐项确认隔离、允许进入并行主体的例外 |
 
 `repository_service` 的 `tests/conftest.py` 统一处理分类与门禁：
 
@@ -239,6 +251,16 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
 - 标了 `integration` 而 dolt 不可用时统一 skip；**不要**在测试里手写
   `@pytest.mark.skipif(not dolt_available(), ...)`，门禁只有一处。
 - 标了 `serial` 的测试自动获得 `xdist_group("serial")`。
+
+backend 的 `tests/conftest.py` 保留默认 `unit` 分类：未标 `integration` 的测试（包括保留
+`serial` 的 unit 测试）自动获得 `unit`；serial 测试自动获得
+`xdist_group("serial")`，除非它们显式标了 `parallel_safe`。所有通过
+`requires_dolt` 或其他方式依赖真实 Dolt 的 backend 测试显式标 `integration`。
+
+G11 将 backend 也按上述两遍执行。kickoff base 收集到 2,847 项，其中 2,665 项有
+`unit`、205 项有 `integration`、56 项有 `serial`；后三项计数会重叠。
+改动前 7 个 Compose 旅程文件耗时约 1,575 秒，其他 serial 用例约 38 秒，剩余用例约
+100 秒。Compose 旅程的精确耗时构成见 G11 handoff。
 
 ### 新增测试时
 

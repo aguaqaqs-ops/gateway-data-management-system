@@ -154,7 +154,6 @@ def test_publish_cancel_before_publication_leaves_workspace_unchanged(tmp_path: 
     assert workspace.current_preview_result_id is None
 
 
-@pytest.mark.serial
 def test_publish_supersedes_when_baseline_head_drifts(tmp_path: Path) -> None:
     harness = build_preview_harness(tmp_path)
     operation_id = "op-publish-baseline-drift"
@@ -172,7 +171,6 @@ def test_publish_supersedes_when_baseline_head_drifts(tmp_path: Path) -> None:
     assert persisted_operation.status is OperationStatus.SUPERSEDED
 
 
-@pytest.mark.serial
 def test_successful_publish_does_not_insert_preview_idempotency(tmp_path: Path) -> None:
     harness = build_preview_harness(tmp_path)
     operation_id = "op-publish-idempotency"

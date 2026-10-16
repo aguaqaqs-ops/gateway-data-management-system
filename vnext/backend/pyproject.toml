@@ -42,6 +42,7 @@ dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
     "pytest-cov==7.1.0",
+    "pytest-xdist==3.8.0",
     "ruff==0.15.21",
 ]
 
@@ -52,6 +53,7 @@ markers = [
     "unit: no heavyweight external dependency; safe at full parallelism",
     "integration: needs real dolt, subprocesses, or durable on-disk state",
     "serial: timing sensitive; must not compete for CPU with other tests",
+    "parallel_safe: serial test audited as safe for the parallel batch",
 ]
 
 [tool.ruff]

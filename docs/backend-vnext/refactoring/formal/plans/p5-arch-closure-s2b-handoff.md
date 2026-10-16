@@ -245,7 +245,7 @@ S2b §2 owner 的实际命令是上述权威 runner（其内部按包调用受�
 
 保护超时依据首次完整带时间戳运行的实测 wall × 5，最低 300 s；未知操作保留首次运行的 3,600 s 上限。test_operation_timeout_uses_five_times_measurement_with_five_minute_floor 覆盖公式与 floor。最终运行所有 operation 均在保护超时内终态；无 A 层失败。CPU 秒按 backend / repository-service / worker 记录。t4 v2 Preview 的 worker cgroup 计数器重置，只有该格不可用。
 
-B 层按 DC31 只记录并交 S5。当前表中可见 Preview、Submit、History 的绝对耗时高，但整体 CPU 也高，不呈现 wall 明显远大于 CPU 的空等；主机侧 journey 经批量 HTTP 接口核对，不按行逐次调用。P5 未据此改产品代码。S5 候选是按规模复核 Preview / History 的 CPU 成本与重复读取路径；未把结构性原因写成已确认事实。C 层逐步结果如下：
+B 层按 DC31 只记录并交 S5。当前表中可见 Preview、Submit、History 的绝对耗时高，但整体 CPU 也高，不呈现 wall 明显远大于 CPU 的空等；主机侧 journey 经批量 HTTP 接口核对，不按行逐次调用。P5 未据此改产品代码。S5 候选是按规模复核 Preview / History 的 CPU 成本与重复读取路径；未把结构性原因写成已确认事实。DC31 的主机 py-spy 热点采样是可选项，本轮未采集。C 层逐步结果如下：
 
 ### t1 — journey wall 380.335 s
 | Step | Wall s | Backend CPU s | Repository Service CPU s | Worker CPU s | A 层 | B 层 | C 层 |

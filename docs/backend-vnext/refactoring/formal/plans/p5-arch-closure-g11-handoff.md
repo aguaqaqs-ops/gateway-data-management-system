@@ -12,9 +12,11 @@ V 与 H 的提交均带有 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.c
 
 ## 改动前基线
 
-基线在 clean kickoff base 上只运行 backend 一次，使用 `uv-consume.sh`，日志为：
+有效基线在 clean kickoff base 上通过 `uv-consume.sh` 运行 backend，日志为：
 
 `/home/dev/gdds-p5-closure-s1-gate-logs/g11-baseline-backend-676110a74b68f68ea89866e25fa7cffdaae8bf73.log`
+
+过程偏差如实记录：有效基线前发生了两次未形成证据的尝试。12:19:16Z 的首次调用因 backend `.venv` 尚未创建而无法启动 pytest（exit 2，没有收集或运行用例）；12:19:25Z 的 `uv-consume.sh` 调用收集并运行了 2,847 项，但 repository_service `.venv` 缺失，7 个真实 repository 用例在进入断言前失败，2,840 passed，耗时 1,651.68 秒，exit 1。该失败日志是 `/home/dev/gdds-p5-closure-s1-gate-logs/g11-baseline-backend-676110a74b68f68ea89866e25fa7cffdaae8bf73-invalid-missing-repository-venv.log`。依赖环境就绪后于 12:48:15Z 运行的上述有效基线为 2,847 passed、exit 0。故指定的“只跑一次”在操作次数上未能严格满足；下面的耗时、分类与基线对比只引用最后一次有效运行，不将失败尝试当成基线证据。
 
 收集到 2,847 项，2,847 passed，用时 1,717.23 秒（28:37）。marker 数有重叠：`unit` 2,665、`integration` 205、`serial` 56。审阅到的 7 个 Compose 旅程文件是 `test_archive_compose_e2e.py`、`test_backend_http_container_gate.py`、`test_history_compose_e2e.py`、`test_ordered_compare_compose.py`、`test_ordered_submit_bisect_compose.py`、`test_review_compose_e2e.py`、`test_submit_compose_e2e.py`。
 

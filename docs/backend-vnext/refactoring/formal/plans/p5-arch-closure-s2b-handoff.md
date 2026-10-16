@@ -7,7 +7,7 @@
 - kickoff base：cae9a0f82be3415cc362e46b98da954edcf1d807
 - 最后非 handoff 提交（实现 HEAD）：b0175cf583ba7e89b0db830607c0f9bf15dc4bf4
 - 门禁提交 V：adc5d87fea073545fde6416d123c3d7845e715ff
-- handoff-only 候选 H：本文最终提交（V 之后仅有本 handoff 文档提交）
+- handoff-only 候选 H：e5186cdaf5822f528c191327386274f7cfe60df9；V..H 另包含 §8.9 允许的 benchmark / real-dump tests 提交 cbd4b8df94、488c4975f2、b0175cf583，以及 handoff-only 提交 aeccdbb96d。
 - carried：通过。RS identity 与 V 的 build-input/source-tree label 一致；同 worktree 重建的 backend / worker image ID 与 V provenance 完全相同。
 - main 上 kickoff 后的审核方文档提交不进入 p5-s2b，按提交区分：62cc7c3e0f（DC29）、1925dcedc2（DC30）、5a1a391ea8、92db9df18e（DC31）、a889acc242（Catalog 离线估算补充）。
 
@@ -151,7 +151,7 @@ V = adc5d87fea073545fde6416d123c3d7845e715ff 的 provenance：/home/dev/gdds-p5-
 | backend | sha256:b90b70e0ca75ade2802853124c57dce55233289af8572c728a709a1c604b0d2f | provenance project ordered-bisect-b-2918210-baseline；无 build-input / source-tree label |
 | worker | sha256:e14b5b8956f4ed70fb87056584b201db756ffcb2cfea62ad592516ff9ecfc4ef | provenance project ordered-bisect-b-2918210-baseline；无 build-input / source-tree label |
 
-carried 判定通过：在提交 aeccdbb96d 的同 worktree 中，build_context_digest.py identity 的 build_input_revision 为 adc5d87fea073545fde6416d123c3d7845e715ff、source_tree_sha256 为 sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4，与 V 的 repository-service label 相同；RS image ID 仍为 sha256:9ae3ab89eff4262b6a7645caf0a929eff5e7bd7b059de11c04abcb41f290f3bb。按 provenance project ordered-bisect-b-2918210-baseline 重建 backend / worker，没有在两次构建之间运行测试，ID 分别为 sha256:b90b70e0ca75ade2802853124c57dce55233289af8572c728a709a1c604b0d2f、sha256:e14b5b8956f4ed70fb87056584b201db756ffcb2cfea62ad592516ff9ecfc4ef，均与 V provenance 相同。构建日志：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-carried-backend-worker-aeccdbb96d.log。最终 H 仅增加 handoff 文档，不改镜像输入。V 之后的允许提交为 cbd4b8df94、488c4975f2、b0175cf583。
+carried 判定通过：在提交 aeccdbb96d 的同 worktree 中，build_context_digest.py identity 的 build_input_revision 为 adc5d87fea073545fde6416d123c3d7845e715ff、source_tree_sha256 为 sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4，与 V 的 repository-service label 相同；RS image ID 仍为 sha256:9ae3ab89eff4262b6a7645caf0a929eff5e7bd7b059de11c04abcb41f290f3bb。按 provenance project ordered-bisect-b-2918210-baseline 重建 backend / worker，没有在两次构建之间运行测试，ID 分别为 sha256:b90b70e0ca75ade2802853124c57dce55233289af8572c728a709a1c604b0d2f、sha256:e14b5b8956f4ed70fb87056584b201db756ffcb2cfea62ad592516ff9ecfc4ef，均与 V provenance 相同。构建日志：/home/dev/gdds-p5-closure-s1-gate-logs/s2b-carried-backend-worker-aeccdbb96d.log。V..H 包含 §8.9 允许的 benchmark / real-dump tests 提交 cbd4b8df94、488c4975f2、b0175cf583，以及 handoff-only 提交 aeccdbb96d、e5186cdaf5；没有生产镜像输入变更。
 
 ## 7. Reviewer 核对重点与交付
 

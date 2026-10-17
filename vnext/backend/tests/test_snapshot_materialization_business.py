@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from gateway_backend.capabilities.composite_signal.contracts import (
     COMPOSITE_SIGNAL_POINT_TABLE,
     CompositeSignalPointRow,

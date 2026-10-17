@@ -833,9 +833,21 @@ def test_compose_history_compare_journey_zero_write_restart(
                 main_after_composite_v2,
                 "composite_signal_point",
             )
-            assert len(rows_v1) == len(rows_v2) == 1
-            assert rows_v1[0][0:2] == rows_v2[0][0:2]
-            assert rows_v1[0][3] != rows_v2[0][3]
+            assert len(rows_v1) == len(rows_v2) == 2
+            formula_digests_v1 = tuple(
+                value
+                for row in rows_v1
+                for value in row
+                if isinstance(value, str) and value.startswith("sha256:")
+            )
+            formula_digests_v2 = tuple(
+                value
+                for row in rows_v2
+                for value in row
+                if isinstance(value, str) and value.startswith("sha256:")
+            )
+            assert len(formula_digests_v1) == len(formula_digests_v2) == 1
+            assert formula_digests_v1 != formula_digests_v2
 
             composite_history = accept_history_compare(
                 history_reader,

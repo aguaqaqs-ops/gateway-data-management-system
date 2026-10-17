@@ -18,6 +18,9 @@ from benchmarks.real_dump_journey import (
     JOURNEY_STEP_IDS,
     JourneyFailure,
     JourneyStepRunner,
+    _assert_s3_catalog_summary,
+    _assert_s3_history_count,
+    _assert_s3_preview_summary,
     _assert_preview_summaries,
     _canonical_state_digest_from_submission,
     _history_surface_ref,
@@ -55,6 +58,13 @@ PREVIEW_SUMMARY_FAILURES = (
         {"table_count": 3, "changed_table_count": 1, "degraded_table_count": 0, "failed_table_count": 0},
         True,
     ),
+)
+
+S3_PREVIEW_SUMMARY_CASES = (
+    ("composite unchanged", {"table_count": 125, "changed_table_count": 4, "degraded_table_count": 0, "failed_table_count": 0}, 4, True),
+    ("composite changed", {"table_count": 125, "changed_table_count": 5, "degraded_table_count": 0, "failed_table_count": 0}, 5, True),
+    ("unexpected changed count", {"table_count": 125, "changed_table_count": 6, "degraded_table_count": 0, "failed_table_count": 0}, 5, False),
+    ("unexpected table count", {"table_count": 124, "changed_table_count": 4, "degraded_table_count": 0, "failed_table_count": 0}, 4, False),
 )
 
 CANONICAL_STATE_DIGEST_INPUTS: tuple[tuple[str, dict[str, Any], bool], ...] = (
@@ -263,6 +273,36 @@ def test_journey_step_runner_reuses_completed_steps_before_resume_point(
     assert json.loads(capsys.readouterr().out)["event"] == "step_reused"
 
 
+def test_operation_terminal_progress_includes_protected_wall_time(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class OperationClient:
+        def get(self, _path: str) -> dict[str, str]:
+            return {"status": "SUCCEEDED"}
+
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_require",
+        lambda response, _status, _label: cast(dict[str, Any], response),
+    )
+
+    result = real_dump_journey._poll_operation(
+        cast(httpx.Client, OperationClient()),
+        "operation-1",
+        stage="t1 Preview",
+        timeout_seconds=30,
+    )
+
+    assert result == {"status": "SUCCEEDED"}
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    terminal = events[-1]
+    assert terminal["event"] == "operation_succeeded"
+    assert terminal["operation_status"] == "SUCCEEDED"
+    assert terminal["timeout_seconds"] == 30
+    assert 0 <= terminal["operation_wall_seconds"] < 30
+
+
 def test_preview_summary_requires_one_complete_pair() -> None:
     manifest = {
         "pairs": [
@@ -309,6 +349,62 @@ def test_preview_summary_rejects_incomplete_degradation_or_change(
         )
 
 
+@pytest.mark.parametrize(
+    ("case", "summary", "expected_changed", "valid"),
+    S3_PREVIEW_SUMMARY_CASES,
+    ids=[case for case, _summary, _changed, _valid in S3_PREVIEW_SUMMARY_CASES],
+)
+def test_s3_preview_summary_matches_s2b_plus_composite(
+    case: str,
+    summary: dict[str, int],
+    expected_changed: int,
+    valid: bool,
+) -> None:
+    del case
+    if valid:
+        _assert_s3_preview_summary(
+            summary,
+            dataset_id="rd-t1-a-v2",
+            expected_changed=expected_changed,
+        )
+    else:
+        with pytest.raises(JourneyFailure):
+            _assert_s3_preview_summary(
+                summary,
+                dataset_id="rd-t1-a-v2",
+                expected_changed=expected_changed,
+            )
+
+
+def test_s3_catalog_reconciles_composite_rows_with_s2b_total() -> None:
+    _assert_s3_catalog_summary(
+        {
+            "catalog_table_count": 125,
+            "catalog_row_count_total": 3_731,
+            "composite_signal_point_row_count": 2,
+        },
+        dataset_id="rd-t1-a-v1",
+        composite_row_count=2,
+    )
+
+    with pytest.raises(JourneyFailure):
+        _assert_s3_catalog_summary(
+            {
+                "catalog_table_count": 125,
+                "catalog_row_count_total": 3_732,
+                "composite_signal_point_row_count": 2,
+            },
+            dataset_id="rd-t1-a-v1",
+            composite_row_count=2,
+        )
+
+
+def test_s3_history_count_adds_production_composite_records() -> None:
+    _assert_s3_history_count(tier="t1", actual_record_count=14, composite_record_count=2)
+    with pytest.raises(JourneyFailure):
+        _assert_s3_history_count(tier="t1", actual_record_count=15, composite_record_count=2)
+
+
 def test_keyless_fallback_candidates_come_from_census_unresolved_tables() -> None:
     names = _keyless_fallback_candidates(
         {
@@ -340,7 +436,22 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
             self.requested_tables: list[str] = []
             self.catalog_requests = 0
             self.catalog_payload = json.dumps(
-                {"catalog": {"commit_id": "a" * 32, "tables": []}},
+                {
+                    "catalog": {
+                        "commit_id": "a" * 32,
+                        "tables": [
+                            {
+                                "name": "composite_signal_point",
+                                "columns": [
+                                    {"name": "source_table", "sql_type": "VARCHAR(64)", "nullable": False},
+                                    {"name": "point_gid", "sql_type": "INT", "nullable": False},
+                                ],
+                                "primary_key": ["source_table", "point_gid"],
+                                "row_count": 2,
+                            }
+                        ],
+                    }
+                },
                 separators=(",", ":"),
             ).encode()
 
@@ -395,11 +506,73 @@ def test_repository_pseudo_counts_use_row_streams_and_census_row_counts(
         "ordered_table_pseudo_counts": {"ordered_with_pseudo": 2, "ordered_without_rows": 0},
         "pseudo_rows_total": 2,
         "catalog_json_bytes": len(fake_clients[0].catalog_payload),
-        "catalog_table_count": 0,
-        "catalog_row_count_total": 0,
+        "catalog_table_count": 1,
+        "catalog_row_count_total": 2,
+        "composite_signal_point_row_count": 2,
     }
     assert fake_clients[0].catalog_requests == 1
     assert fake_clients[0].requested_tables == ["ordered_with_pseudo", "ordered_without_rows"]
+
+
+@pytest.mark.parametrize(
+    ("tables", "is_empty"),
+    (
+        ([], True),
+        (
+            [
+                {
+                    "name": "composite_signal_point",
+                    "columns": [],
+                    "primary_key": [],
+                    "row_count": 0,
+                }
+            ],
+            False,
+        ),
+    ),
+    ids=("empty-initial", "nonempty-initial"),
+)
+def test_initial_repository_commit_must_be_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tables: list[dict[str, Any]],
+    is_empty: bool,
+) -> None:
+    class FakeRepositoryClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.closed = False
+
+        def get(self, _path: str) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"catalog": {"commit_id": "a" * 32, "tables": tables}},
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+    clients: list[FakeRepositoryClient] = []
+
+    def fake_client(**kwargs: Any) -> FakeRepositoryClient:
+        client = FakeRepositoryClient(**kwargs)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(httpx, "Client", fake_client)
+
+    if is_empty:
+        assert real_dump_journey._assert_initial_repository_commit_empty(
+            base_url="http://repository.invalid",
+            repository_id="repository-id",
+            commit_id="a" * 32,
+        ) == {"catalog_table_count": 0, "catalog_row_count_total": 0}
+    else:
+        with pytest.raises(JourneyFailure, match="not empty"):
+            real_dump_journey._assert_initial_repository_commit_empty(
+                base_url="http://repository.invalid",
+                repository_id="repository-id",
+                commit_id="a" * 32,
+            )
+    assert clients[0].closed
 
 
 def test_ordered_census_row_counts_are_selected_by_table() -> None:

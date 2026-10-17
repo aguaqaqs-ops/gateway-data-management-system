@@ -15,14 +15,26 @@ import re
 import tarfile
 from collections import Counter
 from collections.abc import Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
-from gateway_backend.capabilities.composite_signal.contracts import present_composite_logic_source
+from gateway_backend.capabilities.composite_signal.contracts import (
+    empty_composite_logic_source,
+    present_composite_logic_source,
+)
+from gateway_backend.capabilities.comparison import (
+    BoundSnapshotInput,
+    ComparisonPlan,
+    ComparisonRequest,
+    ComparisonStorageFacts,
+    DetailedFactsResult,
+    compare_plan,
+    plan_comparison,
+)
 from gateway_backend.capabilities.snapshot_materialization.compose import materialize_business_snapshot
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BusinessSnapshotMaterializationRequest,
@@ -31,10 +43,14 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationStage,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
+    SnapshotTable,
     SqlSnapshotMaterializationRequest,
     SnapshotTableSet,
 )
-from gateway_backend.capabilities.snapshot_materialization.materialize import materialize_sql_snapshot
+from gateway_backend.capabilities.snapshot_materialization.materialize import (
+    materialize_projected_snapshot,
+    materialize_sql_snapshot,
+)
 from gateway_backend.capabilities.source_package_staging.contracts import (
     OPTIONAL_XML_PATH,
     NeverCancel as StagingNeverCancel,
@@ -53,13 +69,20 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlSourceInput,
     XmlEventKind,
     XmlParseRequest,
+    XmlParseResult,
     XmlSourceInput,
 )
 from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_backend.capabilities.table_access.xml import parse_xml
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    StorageRuleView,
+    TableStaticRole,
+)
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
-from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy, TableStaticRole
+from gateway_backend.capabilities.table_rules import comparison_rule_set
+from gateway_backend.capabilities.storage_projection import project_canonical_table_set
 from gateway_backend.capabilities.storage_projection._ordered import (
     OrderedProjectionError,
     _parse_gid_source,
@@ -321,6 +344,247 @@ def _sql_snapshot_request(
         requested_tables=None,
         artifact_store=artifact_store,
     )
+
+
+class CompositeProjectionError(RuntimeError):
+    """A host-side composite projection failure with no source row data."""
+
+
+@dataclass(frozen=True)
+class CompositePairCensus:
+    status: str
+    before_row_count: int
+    current_row_count: int
+    added_count: int
+    removed_count: int
+    modified_count: int
+    history_record_count: int
+
+
+@dataclass(frozen=True)
+class _CompositeSnapshot:
+    bound: BoundSnapshotInput
+    row_count: int
+    artifact_store: InMemoryArtifactStore
+
+
+def _parse_logics_xml(xml_bytes: bytes) -> XmlParseResult:
+    return parse_xml(
+        XmlParseRequest(
+            source=XmlSourceInput(
+                document_content_digest=_ZERO_DIGEST,
+                xml_source_digest=raw_blob_digest(xml_bytes),
+                parser_input_contract_version=1,
+                encoding="utf-8",
+                source_size_bytes=len(xml_bytes),
+            ),
+            xml_utf8=xml_bytes,
+            context=ParserInvocationContext(NeverCancel()),
+        )
+    )
+
+
+def _close_snapshot_table_readers(table_set: SnapshotTableSet | None) -> None:
+    if table_set is None:
+        return
+    for table in table_set.tables:
+        if table.reader is None:
+            continue
+        try:
+            table.reader.close()
+        except Exception:
+            continue
+
+
+def _canonical_composite_snapshot_from_package(package_bytes: bytes) -> _CompositeSnapshot:
+    store = InMemoryArtifactStore()
+    staging = stage_source_package(
+        SourcePackageInput(
+            package_kind=PackageKind.TAR_GZ,
+            transport=StagingTransport.IDENTITY,
+            context=_CONTEXT,
+            payload=package_bytes,
+        ),
+        store,
+    )
+    if staging.status.value != "COMPLETE" or staging.required_sql_document_ref is None:
+        codes = tuple(item.code.value for item in staging.diagnostics)
+        raise CompositeProjectionError(f"source package staging failed: {codes!r}")
+
+    sql_bytes = store.locate(staging.required_sql_document_ref.artifact_ref)
+    analysis = _analyze_parse(sql_bytes)
+    parse_result = analysis["parse_result"]
+    if parse_result.status.value != "COMPLETE":
+        raise CompositeProjectionError("SQL parsing did not complete")
+
+    ruleset = migrated_table_ruleset_snapshot()
+    xml_ref = staging.optional_xml_document_ref
+    if xml_ref is None:
+        logic_source = empty_composite_logic_source()
+        xml_result = None
+    else:
+        xml_bytes = store.locate(xml_ref.artifact_ref)
+        logic_source = present_composite_logic_source(xml_bytes)
+        xml_result = _parse_logics_xml(xml_bytes)
+
+    sql_request = _sql_snapshot_request(
+        analysis,
+        sql_bytes=sql_bytes,
+        ruleset=ruleset,
+        artifact_store=store,
+        diagnostic_mode=True,
+    )
+    business = materialize_business_snapshot(
+        BusinessSnapshotMaterializationRequest(
+            sql=sql_request,
+            logic=logic_source,
+            xml=xml_result,
+        )
+    )
+    if (
+        business.status is not SnapshotMaterializationStatus.COMPLETE
+        or business.snapshot is None
+        or business.table_set is None
+    ):
+        codes = tuple(item.code.value for item in business.diagnostics)
+        _close_snapshot_table_readers(business.table_set)
+        raise CompositeProjectionError(f"business materialization failed: {codes!r}")
+
+    projected_tables: tuple[SnapshotTable, ...] = ()
+    canonical: SnapshotMaterializationResult | None = None
+    completed = False
+    try:
+        composite_table = next(
+            (
+                table
+                for table in business.table_set.tables
+                if table.descriptor.table_name == "composite_signal_point"
+            ),
+            None,
+        )
+        if composite_table is None:
+            raise CompositeProjectionError("business materialization omitted composite_signal_point")
+
+        selected_table_set = replace(business.table_set, tables=(composite_table,))
+        projected = project_canonical_table_set(selected_table_set, ruleset)
+        projected_tables = projected.tables
+        if projected.status.value != "COMPLETE" or projected.manifest is None:
+            codes = tuple(item.code.value for item in projected.diagnostics)
+            raise CompositeProjectionError(f"canonical projection failed: {codes!r}")
+
+        canonical = materialize_projected_snapshot(
+            business.snapshot,
+            projected_tables,
+            artifact_store=store,
+            context=analysis["context"],
+        )
+        if (
+            canonical.status is not SnapshotMaterializationStatus.COMPLETE
+            or canonical.snapshot is None
+            or canonical.summary is None
+            or canonical.table_set is None
+        ):
+            codes = tuple(item.code.value for item in canonical.diagnostics)
+            raise CompositeProjectionError(f"canonical snapshot materialization failed: {codes!r}")
+        if len(canonical.summary.tables) != 1 or len(projected.manifest.tables) != 1:
+            raise CompositeProjectionError("canonical composite snapshot must contain one table")
+
+        manifest_table = projected.manifest.tables[0]
+        if manifest_table.source_schema_digest is None:
+            raise CompositeProjectionError("canonical composite projection omitted source schema facts")
+        storage_view = StorageRuleView(
+            canonical_table=manifest_table.name,
+            canonical_key_policy=manifest_table.canonical_key_policy,
+            ordered_policy=manifest_table.ordered_policy,
+            dropped_columns=manifest_table.dropped_columns,
+            structural_columns=manifest_table.structural_columns,
+            retained_columns=manifest_table.retained_columns,
+            canonical_key_columns=(
+                manifest_table.canonical_key_columns
+                if manifest_table.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
+                else ()
+            ),
+        )
+        bound = BoundSnapshotInput(
+            canonical.snapshot,
+            canonical.summary,
+            canonical.table_set,
+            (
+                ComparisonStorageFacts(
+                    storage_rule_view=storage_view,
+                    source_schema_digest=manifest_table.source_schema_digest,
+                ),
+            ),
+        )
+        result = _CompositeSnapshot(
+            bound=bound,
+            row_count=canonical.summary.tables[0].row_count,
+            artifact_store=store,
+        )
+        completed = True
+        return result
+    finally:
+        for table in projected_tables:
+            if table.reader is None:
+                continue
+            try:
+                table.reader.close()
+            except Exception:
+                continue
+        _close_snapshot_table_readers(business.table_set)
+        if not completed and canonical is not None:
+            _close_snapshot_table_readers(canonical.table_set)
+
+
+def compare_composite_packages(
+    before_package: bytes,
+    current_package: bytes,
+    *,
+    pair_id: str,
+) -> CompositePairCensus:
+    """Project two packages through production and compare only the derived table."""
+    before = _canonical_composite_snapshot_from_package(before_package)
+    current = _canonical_composite_snapshot_from_package(current_package)
+    try:
+        plan = plan_comparison(
+            ComparisonRequest(
+                pair_id=pair_id,
+                before=before.bound,
+                current=current.bound,
+                rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+            )
+        )
+        if not isinstance(plan, ComparisonPlan):
+            raise CompositeProjectionError("production comparison could not plan the composite table")
+        result = compare_plan(plan)
+        if not isinstance(result, DetailedFactsResult) or result.facts is None:
+            raise CompositeProjectionError("production comparison did not return detailed composite facts")
+        if len(result.facts.tables) != 1:
+            raise CompositeProjectionError("production comparison returned more than the composite table")
+        table_fact = result.facts.tables[0]
+        if table_fact.table_name != "composite_signal_point":
+            raise CompositeProjectionError("production comparison returned an unexpected table")
+        row_change_count = (
+            table_fact.row_added_count + table_fact.row_deleted_count + table_fact.row_modified_count
+        )
+        if len(table_fact.records) != row_change_count:
+            raise CompositeProjectionError("composite production record count did not reconcile")
+        return CompositePairCensus(
+            status=table_fact.status.value,
+            before_row_count=before.row_count,
+            current_row_count=current.row_count,
+            added_count=table_fact.row_added_count,
+            removed_count=table_fact.row_deleted_count,
+            modified_count=table_fact.row_modified_count,
+            history_record_count=len(table_fact.records),
+        )
+    finally:
+        for snapshot in (before, current):
+            if snapshot.bound.table_set is None:
+                continue
+            for snapshot_table in snapshot.bound.table_set.tables:
+                if snapshot_table.reader is not None:
+                    snapshot_table.reader.close()
 
 
 def _column_index_by_name(descriptor: SnapshotTableDescriptor) -> dict[str, int]:
@@ -708,21 +972,13 @@ def census_one(
     logics_status = "absent"
     logics_events: int | None = None
     xml_parse = None
-    logic_source = present_composite_logic_source(xml_bytes or b"<Logic_Set></Logic_Set>")
+    logic_source = (
+        empty_composite_logic_source()
+        if xml_bytes is None
+        else present_composite_logic_source(xml_bytes)
+    )
     if xml_bytes is not None:
-        xml_parse = parse_xml(
-            XmlParseRequest(
-                source=XmlSourceInput(
-                    document_content_digest=_ZERO_DIGEST,
-                    xml_source_digest=raw_blob_digest(xml_bytes),
-                    parser_input_contract_version=1,
-                    encoding="utf-8",
-                    source_size_bytes=len(xml_bytes),
-                ),
-                xml_utf8=xml_bytes,
-                context=ParserInvocationContext(NeverCancel()),
-            )
-        )
+        xml_parse = _parse_logics_xml(xml_bytes)
         logics_status = xml_parse.status.value.lower()
         if xml_parse.status.value == "COMPLETE":
             logics_events = len(xml_parse.events)

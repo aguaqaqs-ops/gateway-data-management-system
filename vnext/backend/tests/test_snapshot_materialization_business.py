@@ -128,6 +128,9 @@ def test_sql_only_empty_and_present_xml_identities_differ() -> None:
         empty_composite_logic_source().composite_logic_source_digest
     )
     assert sql_only.snapshot.source_context.composite_logic_source_digest is None
+    assert missing.summary is not None
+    assert present_empty.summary is not None
+    assert missing.summary.canonical_state_digest == present_empty.summary.canonical_state_digest
 
 
 def test_business_digest_is_deterministic() -> None:

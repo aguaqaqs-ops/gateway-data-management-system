@@ -319,7 +319,6 @@ def _history_accept_row_counts(db_path: Path) -> tuple[int, int, int]:
     return acceptance_count, operation_count, step_count
 
 
-@pytest.mark.serial
 def test_concurrent_accept_with_same_idempotency_key_has_single_winner(db_path: Path) -> None:
     _seed_scope(db_path)
     seed_archived_baseline_node(

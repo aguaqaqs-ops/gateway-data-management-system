@@ -33,7 +33,7 @@ from gateway_backend.infrastructure.repository_write.import_publication import (
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.submit_job_harness import repository_service_session
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = pytest.mark.integration
 
 
 def _canonical_records_state(

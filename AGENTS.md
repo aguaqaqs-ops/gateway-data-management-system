@@ -39,18 +39,22 @@
 阶段性验证不要跑全量。按范围收敛：
 
 ```bash
-cd vnext/repository_service
+cd vnext/backend
+../scripts/uv-consume.sh -C . run pytest -m unit
+cd ../repository_service
 ../scripts/uv-consume.sh -C . run pytest -m unit          # 约 1490 项，无外部依赖，约 12 秒
 ../scripts/uv-consume.sh -C . run pytest -m integration   # 需要真实 dolt
 ../scripts/uv-consume.sh -C . run pytest -m 'serial and not parallel_safe' -n 0   # 未确认可隔离的时序敏感组
 ```
 
-`repository_service` 默认并行（`-n auto`）；其余包单进程，不要给它们加 xdist。
+`repository_service` 与 backend 在权威 runner 中各分两遍：`-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"` 并行主体，再以
+`-m "serial and not parallel_safe" -n 0` 单进程运行其余 serial 用例；另外三个包保持单进程。
 在 CPU 充足的正式开发环境中可显式调整非串行 worker 数量，例如
 `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；默认 `auto` 保留
 pytest-xdist 的自适应行为。`parallel_safe` 是从 `serial` 中经过逐项审查、确认不依赖
 时序、线程、进程、网络、Dolt 或共享持久化状态的例外；权威脚本会将它们加入并行批次。
-其余 `serial` 组始终 `-n 0`，不按 CPU 数量盲目并行化。
+其余 `serial` 组始终 `-n 0`，不按 CPU 数量盲目并行化。backend 当前没有
+`parallel_safe` 例外；其余 timing-sensitive 测试保留在单进程批次。
 
 开发机有临时 tmpfs 时，可将 pytest 临时工作区切换到指定的绝对路径，例如：
 `GATEWAY_TEST_BASETEMP=/mnt/gateway-test-tmpfs/pytest GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`。

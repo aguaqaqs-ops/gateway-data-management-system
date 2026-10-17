@@ -869,6 +869,7 @@ def test_archive_confirmation_rejects_non_string_fields_over_http(
     assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
 
 
+@pytest.mark.serial
 def test_archive_body_middleware_returns_on_client_disconnect() -> None:
     """客户端中途断开时中间件必须立即返回，不得空转阻塞事件循环。
 

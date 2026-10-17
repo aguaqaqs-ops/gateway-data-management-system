@@ -511,7 +511,6 @@ def test_session_budget_exhaustion_marks_manual_recovery(
     del operation
 
 
-@pytest.mark.serial
 def test_concurrent_recovery_cas_leaves_single_retry_wait(tmp_path: Path) -> None:
     harness = _make_harness(tmp_path)
     _operation, step = harness.seed_claimed_running()

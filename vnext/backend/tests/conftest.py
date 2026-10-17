@@ -29,8 +29,13 @@ def pytest_collection_modifyitems(
 ) -> None:
     for item in items:
         if (
+            item.get_closest_marker("serial") is not None
+            and item.get_closest_marker("parallel_safe") is None
+        ):
+            item.add_marker(pytest.mark.xdist_group("serial"))
+
+        if (
             item.get_closest_marker("integration") is None
-            and item.get_closest_marker("serial") is None
             and item.get_closest_marker("unit") is None
         ):
             item.add_marker(pytest.mark.unit)

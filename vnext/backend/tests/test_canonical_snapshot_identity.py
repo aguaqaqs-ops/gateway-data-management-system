@@ -74,7 +74,7 @@ from tests.support.storage_projection import (
     varchar_cell,
 )
 
-pytestmark = [pytest.mark.integration, pytest.mark.serial]
+pytestmark = pytest.mark.integration
 
 _SOURCE_SNAPSHOT_DIGEST = dummy_digest()
 _RULESET = migrated_table_ruleset_snapshot()

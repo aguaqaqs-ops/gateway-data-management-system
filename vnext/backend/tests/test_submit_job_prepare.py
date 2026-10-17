@@ -672,7 +672,6 @@ def test_prepare_checkpoint_schema_mismatch_retains_occupancy(
     )
 
 
-@pytest.mark.serial
 def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_reaccept(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

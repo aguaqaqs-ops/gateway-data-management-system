@@ -133,7 +133,7 @@ def test_submit_upload_and_import_wire_mapping_uses_recording_transport() -> Non
     assert operation_id == "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"
 
 
-@pytest.mark.serial
+@pytest.mark.integration
 def test_submit_upload_and_import_wire_mapping_against_live_repository(
     tmp_path: Path,
     requires_dolt: None,

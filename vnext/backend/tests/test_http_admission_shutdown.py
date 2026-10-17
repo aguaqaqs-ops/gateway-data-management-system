@@ -134,7 +134,6 @@ def test_production_lifespan_shutdown_marks_not_ready(tmp_path: Path) -> None:
         assert fastapi_app.state.admission_gate.allows_new_work() is False
 
 
-@pytest.mark.serial
 def test_admission_first_server_pre_drains_before_super_shutdown(tmp_path: Path) -> None:
     prepare_backend_runtime_paths(tmp_path)
     settings = make_backend_settings(

@@ -40,7 +40,7 @@ from tests.test_review_transactions import (
 )
 from tests.test_submit_transactions import BASELINE_HEAD
 
-pytestmark = [pytest.mark.unit, pytest.mark.serial]
+pytestmark = pytest.mark.unit
 
 TS_ARCHIVE = datetime(2024, 7, 1, 12, 0, 0, tzinfo=UTC)
 

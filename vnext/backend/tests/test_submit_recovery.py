@@ -492,7 +492,7 @@ def test_operator_abort_import_rejected_releases_occupancy(tmp_path: Path) -> No
     assert operation.status is OperationStatus.FAILED
 
 
-@pytest.mark.serial
+@pytest.mark.integration
 def test_operator_abort_evidence_rejects_unknown_repository_operation(
     tmp_path: Path,
     requires_dolt: None,
@@ -562,7 +562,7 @@ def test_submit_recovery_leaves_unmapped_errors_unhandled() -> None:
     assert _map_handler_failure_to_recovery_outcome(AttributeError("programming error")) is None
 
 
-@pytest.mark.serial
+@pytest.mark.integration
 def test_operator_abort_import_rejected_via_recovery_port(
     tmp_path: Path,
     requires_dolt: None,
@@ -688,7 +688,6 @@ def test_operator_abort_import_rejected_via_recovery_port(
     assert persisted_operation.status is OperationStatus.FAILED
 
 
-@pytest.mark.serial
 def test_await_import_finalize_commits_lease_acknowledgment_via_worker_runtime(
     tmp_path: Path,
 ) -> None:
@@ -743,7 +742,6 @@ def test_await_import_finalize_commits_lease_acknowledgment_via_worker_runtime(
     assert row_count == 1
 
 
-@pytest.mark.serial
 def test_await_import_finalize_response_loss_after_terminal_commit_before_worker_ack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -836,6 +834,7 @@ def test_await_import_finalize_response_loss_after_terminal_commit_before_worker
     assert startup.claim_one() is None
 
 
+@pytest.mark.integration
 @pytest.mark.serial
 def test_await_import_result_consumes_matching_terminal_after_repository_restart(
     tmp_path: Path,
@@ -987,7 +986,6 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
     assert workspace_occupancy.active_submission_id == submission.submission_id
 
 
-@pytest.mark.serial
 def test_await_import_stable_abort_completes_via_worker_runtime(
     tmp_path: Path,
 ) -> None:

@@ -23,13 +23,20 @@ from gateway_backend.application.preview_jobs import (
     decode_preview_payload,
 )
 from gateway_backend.application.workspace.preview import build_preview_job_payload
+from gateway_backend.artifacts.store import put_with_built_ref
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+from gateway_backend.capabilities.composite_signal.contracts import EMPTY_COMPOSITE_LOGIC_DIGEST
 from gateway_backend.capabilities.storage_projection import open_canonicalization_manifest
-from gateway_backend.domain.workspace.models import InputCompleteness, SourceArtifactRole
+from gateway_backend.domain.workspace.models import (
+    InputCompleteness,
+    SourceArtifactBinding,
+    SourceArtifactRole,
+)
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import OperationStatus, StepStatus
 from gateway_backend.operations.worker import ExecutorAcknowledgment
 from tests.support.preview_job_harness import (
+    BASELINE_HEAD,
     IDEMPOTENCY_KEY,
     REPOSITORY_ID,
     WORKSPACE_ID,
@@ -42,6 +49,7 @@ from tests.support.preview_job_harness import (
     step_id_for,
     store_source_package,
 )
+from tests.support.source_package_fixtures import pack_tar_gz
 from tests.support.canonical_metadata import (
     CatalogCommitCanonicalMetadataPort,
     MetadataControlDbUnitOfWork,
@@ -54,6 +62,25 @@ pytestmark = pytest.mark.integration
 DETERMINISTIC_CATALOG_FAILURE_CASES = (
     ("RESPONSE_LIMIT_EXCEEDED", "REPOSITORY_CATALOG_LOAD_FAILED"),
 )
+INVALID_LOGICS_CASES = (
+    ("malformed XML", b"<Logic_Set>", "XML_DOCUMENT_FAILED"),
+    (
+        "orphan formula",
+        b'<Logic_Set><Express Name="missing" Operator_Type="+"><Point Name="top"/>'
+        b"</Express></Logic_Set>",
+        "COMPOSITE_LOGIC_FAILED",
+    ),
+)
+_COMPOSITE_SQL = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "golden"
+    / "snapshot-materialization"
+    / "business"
+    / "valid"
+    / "s3-special-device"
+    / "input.sql"
+).read_bytes()
 
 
 def _materialized_side_documents(
@@ -71,6 +98,45 @@ def _materialized_side_documents(
     sides = state_document.get("sides")
     assert isinstance(sides, dict)
     return sides
+
+
+def _replace_modified_source_package(
+    harness: PreviewJobHarness,
+    *,
+    xml_bytes: bytes | None,
+    artifact_id: str,
+) -> None:
+    members = {"sql/dbcfg.sql": _COMPOSITE_SQL}
+    if xml_bytes is not None:
+        members["comps/logic/logics.xml"] = xml_bytes
+    package_bytes = pack_tar_gz(members)
+    reference = put_with_built_ref(
+        harness.artifact_store,
+        package_bytes,
+        artifact_id=artifact_id,
+        media_type="application/gzip",
+    )
+    binding = SourceArtifactBinding(
+        artifact_id=reference.artifact_id,
+        media_type=reference.media_type,
+        size_bytes=reference.size_bytes,
+        raw_sha256=reference.raw_sha256.value,
+    )
+    harness.upload_revision = replace(
+        harness.upload_revision,
+        input_completeness=InputCompleteness.MODIFIED_ONLY,
+        source_artifacts={SourceArtifactRole.MODIFIED: binding},
+    )
+    harness.job_payload = build_preview_job_payload(
+        workspace_id=WORKSPACE_ID,
+        upload_revision=harness.upload_revision,
+        repository_id=REPOSITORY_ID,
+        business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        idempotency_key=IDEMPOTENCY_KEY,
+        comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
+    )
 
 
 def test_materialize_uses_frozen_baseline_exact_commit(tmp_path: Path) -> None:
@@ -173,6 +239,90 @@ def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> 
     initial_side = sides["INITIAL"]
     assert isinstance(baseline_side, dict) and isinstance(initial_side, dict)
     assert baseline_side["snapshot_digest"] == initial_side["snapshot_digest"]
+
+
+@pytest.mark.parametrize(
+    ("case_name", "xml_bytes", "expected_diagnostic_code"),
+    INVALID_LOGICS_CASES,
+    ids=tuple(case[0] for case in INVALID_LOGICS_CASES),
+)
+def test_invalid_logics_xml_fails_preview_with_public_diagnostic(
+    tmp_path: Path,
+    case_name: str,
+    xml_bytes: bytes,
+    expected_diagnostic_code: str,
+) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    _replace_modified_source_package(
+        harness,
+        xml_bytes=xml_bytes,
+        artifact_id="invalid-logics-package",
+    )
+    operation_id = "op-preview-invalid-logics"
+    insert_preview_operation(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+
+    acknowledgment = run_claimed_handler(
+        harness,
+        PREVIEW_MATERIALIZE_HANDLER,
+        session,
+        control,
+        operation,
+        step,
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.operations.get_operation(operation_id)
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert persisted.status is OperationStatus.FAILED
+    assert persisted.diagnostic is not None
+    assert persisted.diagnostic.code == expected_diagnostic_code, case_name
+    assert persisted.diagnostic.message
+
+
+def test_missing_logics_xml_materializes_stable_empty_source(tmp_path: Path) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    _replace_modified_source_package(
+        harness,
+        xml_bytes=None,
+        artifact_id="missing-logics-package",
+    )
+    operation_id = "op-preview-empty-logics"
+    insert_preview_operation(harness, operation_id)
+    session, control, operation, step = claim_next_step(harness)
+
+    acknowledgment = run_claimed_handler(
+        harness,
+        PREVIEW_MATERIALIZE_HANDLER,
+        session,
+        control,
+        operation,
+        step,
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        persisted = unit_of_work.operations.get_operation(operation_id)
+        materialize_step = unit_of_work.operations.get_step(
+            step_id_for(operation_id, "materialize_inputs")
+        )
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert persisted.status is OperationStatus.RUNNING
+    assert materialize_step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
+    sides = _materialized_side_documents(envelope.job_state, harness)
+    modified = sides["MODIFIED"]
+    assert isinstance(modified, dict)
+    snapshot = modified["snapshot"]
+    assert isinstance(snapshot, dict)
+    source_context = snapshot["source_context"]
+    assert isinstance(source_context, dict)
+    assert source_context["composite_logic_source_digest"] == EMPTY_COMPOSITE_LOGIC_DIGEST.value
+    summary = modified["summary"]
+    assert isinstance(summary, dict)
+    tables = summary["tables"]
+    assert isinstance(tables, list)
+    derived = next(item for item in tables if item["table_name"] == "composite_signal_point")
+    assert derived["row_count"] == 2
 
 
 def test_materialize_fails_when_upload_package_is_invalid(tmp_path: Path) -> None:

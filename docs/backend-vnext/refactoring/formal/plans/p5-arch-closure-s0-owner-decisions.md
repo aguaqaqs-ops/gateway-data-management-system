@@ -555,6 +555,6 @@ implementation_authorized: no
 
   **二、真实数据按阶段改动面确定范围**（修订 DC30 第一部分的取证要求）：
   1. 取证的真实数据范围在阶段 kickoff 时写明，阶段退出前由 owner 确认；范围之外的不变量依靠更小的档位或既有的 focused / Compose 覆盖。
-  2. S3 为完整 t1–t4（已在进行）；S4 为 t1–t3 完整运行、t4 只运行 v1 提交与 v2 Preview、`DIFFERENT_PROJECT` 用小档之间的跨档上传验证；S5 最终候选为完整 t1–t4。
+  2. S3 为完整 t1–t4（已在进行；2026-10-17 第二次停止后，owner 修订为新 V 上 t4 完整、t1 冒烟，t2/t3 沿用 `f73deee604` 的结果，见治理修订计划 §3 第 9 项）；S4 为 t1–t3 完整运行、t4 只运行 v1 提交与 v2 Preview、`DIFFERENT_PROJECT` 用小档之间的跨档上传验证；S5 最终候选为完整 t1–t4。
   3. 不在 P5 内建设多档并发运行的基础设施。
 - **落点**：治理修订计划 G12；执行计划 §2 S4、§8.9；AGENTS.md「主线开发与阶段边界」。第一部分生效后，再同步 AGENTS.md「跑测试」「镜像身份等价」与 testing-conventions。

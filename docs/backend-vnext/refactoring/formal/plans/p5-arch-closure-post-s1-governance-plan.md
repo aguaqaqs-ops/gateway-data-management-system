@@ -282,7 +282,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      
      | 阶段 | 范围 |
      | --- | --- |
-     | S3（进行中） | 完整 t1–t4，按已恢复的提示词执行，不变 |
+     | S3（进行中） | 完整 t1–t4。2026-10-17 第二次停止后修订为：新 V 上完整运行 t4，t1 作冒烟；t2、t3 沿用 `f73deee604` 上的通过结果（见 §3 第 9 项） |
      | S4 | t1–t3 完整运行；t4 只运行 v1 提交与 v2 Preview（SAME_PROJECT）；DIFFERENT_PROJECT 用小档之间的跨档上传验证；不运行 t4 的重传 Preview 与 History |
      | S5 最终候选 | 完整 t1–t4，按执行计划 §2 S5 保留 |
    - 不在 P5 内建设多档并发运行的基础设施。
@@ -322,5 +322,26 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      - S2b 已有的真实数据不变量继续成立。
    - **恢复 `test_comparison_canonical_domain.py` 的“同内容 → 全表 UNCHANGED”不变量。** S3 实施中，这个测试被改成断言 composite 为 `ADDED_TABLE`，原因是 Repository 侧基线夹具里没有那张零行的 composite 表。按 DC6，S3 之后的提交都带这张表，应修正夹具，不应改变测试的含义。
    - **取证期间暂停主机上与本项目无关的批量负载。** preflight 以 Dolt、Compose、8000 端口为硬条件，并记录负载。
+
+   2026-10-17 第二次停止（STOP 记录 `ac9146da7f`；V `f73deee604` 的权威 runner exit 0）：
+   - t1–t3 全部通过，t4 的 v1 Preview 也通过；t4 v1 Submit 运行到 594.8 s 时，查询 operation 状态返回 HTTP 500 `INTERNAL_ERROR`，没有留下终态证据。
+   - 容器日志没有保存。
+   - 审核方从代码确认了一处既有缺陷：
+     - `GET /v1/operations/{id}` 用的 `ReadOnlyOperationStore` 实际执行 `BEGIN IMMEDIATE`（`bootstrap/composition.py` 传入的工厂默认 `read_only=False`）；
+     - 写锁被占用超过 `busy_timeout` 5 s 时，抛出 `StoreBusy`；
+     - HTTP 层没有映射 `StoreBusy`，于是返回 500。
+   - 是谁持有写锁超过 5 s，尚未查明。可能与以下两件事同源：t4 v1 Preview 末尾心跳出现 `StaleWrite` 后 worker 重启；S2b 的 t4 v2 Preview 也出现过 worker cpu.stat 重置。
+
+   owner 决议（2026-10-17）：
+   - **在 S3 内修复，不另立治理项。**
+     - 先在开发模式下只复现 t4 v1 Preview 与 Submit：记录写事务的持锁时长，保存全部容器日志。
+     - 然后修复：HTTP 只读查询改用只读事务；`StoreBusy` 映射为 503 `SERVICE_NOT_READY`；按复现结果修正持锁过长的写入方，以及心跳在锁竞争下丢失租约、导致进程退出的路径。
+     - 真实数据脚本在失败时先保存容器日志再拆栈；状态查询遇到 503 时在超时预算内重试。
+     - 路径预算与停止条件见恢复提示词。
+   - **取证范围（修订 DC33 中 S3 的范围）：**
+     - 新 V 上完整运行一次权威 runner；
+     - 真实数据完整运行 t4，t1 作为冒烟；
+     - t2、t3 沿用 `f73deee604` 上的通过结果。理由：本次修复只涉及事务模式、错误映射与心跳，不触及投影、比较与 composite。
+     - S5 最终候选仍完整运行 t1–t4。
 10. G12 第 1 项（按包沿用测试结果）：S3 合入后、S4 kickoff 前实施并独立审核，打 `p5-g12-exit`，作为 S4 的区间起点。G12 第 2 项（真实数据按阶段确定范围）即时生效，S4 按 G12 中的范围执行。
 11. P5 exit：按 G10 清理。

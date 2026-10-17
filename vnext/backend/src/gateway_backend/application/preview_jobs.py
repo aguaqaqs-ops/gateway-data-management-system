@@ -80,6 +80,10 @@ from gateway_backend.capabilities.bundle_assembly import (
     assemble_bundle,
     collect_surface_refs,
 )
+from gateway_backend.capabilities.composite_signal.contracts import (
+    empty_composite_logic_source,
+    present_composite_logic_source,
+)
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
@@ -88,10 +92,13 @@ from gateway_backend.capabilities.comparison import (
 )
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
+    materialize_business_snapshot,
     materialize_projected_snapshot,
     open_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    BusinessSnapshotMaterializationRequest,
+    MaterializationDiagnosticCode,
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
@@ -112,7 +119,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
     SqlSnapshotMaterializationRequest,
 )
-from gateway_backend.capabilities.snapshot_materialization import materialize_sql_snapshot
 from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
 )
@@ -132,8 +138,10 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
     SqlParseRequest,
     SqlSourceInput,
+    XmlParseRequest,
+    XmlSourceInput,
 )
-from gateway_backend.capabilities.table_access import parse_sql
+from gateway_backend.capabilities.table_access import parse_sql, parse_xml
 from gateway_backend.capabilities.storage_projection import (
     CanonicalProjectionResult,
     CanonicalizationManifest,
@@ -1196,19 +1204,53 @@ def _materialize_uploaded_side(
     dump = resolve_sql_dump_source(staged.required_sql_document_ref)
     sql_bytes = store.locate(staged.required_sql_document_ref.artifact_ref)
     parsed = parse_sql(_sql_request_from_bytes(sql_bytes))
-    raw_result = materialize_sql_snapshot(
-        _sql_materialization_request(parsed, dump.sql_source_digest, ruleset),
+    sql_request = _sql_materialization_request(parsed, dump.sql_source_digest, ruleset)
+    xml_ref = staged.optional_xml_document_ref
+    if xml_ref is None:
+        logic = empty_composite_logic_source()
+        xml_result = None
+    else:
+        xml_bytes = store.locate(xml_ref.artifact_ref)
+        logic = present_composite_logic_source(xml_bytes)
+        xml_digest = logic.document_content_digest
+        if xml_digest is None:
+            raise PreviewJobError("uploaded logics.xml content digest is missing")
+        try:
+            xml_request = XmlParseRequest(
+                source=XmlSourceInput(
+                    document_content_digest=xml_digest,
+                    xml_source_digest=xml_digest,
+                    parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION,
+                    encoding="utf-8",
+                    source_size_bytes=len(xml_bytes),
+                ),
+                xml_utf8=xml_bytes,
+                context=ParserInvocationContext(NeverCancel()),
+            )
+        except ValueError as exc:
+            raise PreviewJobError(
+                "uploaded /comps/logic/logics.xml failed parser input validation",
+                diagnostic_code=MaterializationDiagnosticCode.XML_DOCUMENT_FAILED.value,
+            ) from exc
+        xml_result = parse_xml(xml_request)
+    business_result = materialize_business_snapshot(
+        BusinessSnapshotMaterializationRequest(
+            sql=sql_request,
+            logic=logic,
+            xml=xml_result,
+        )
     )
-    if raw_result.status is not SnapshotMaterializationStatus.COMPLETE:
-        diagnostic = raw_result.diagnostics[0] if raw_result.diagnostics else None
+    if business_result.status is not SnapshotMaterializationStatus.COMPLETE:
+        diagnostic = business_result.diagnostics[0] if business_result.diagnostics else None
         raise PreviewJobError(
-            "uploaded SQL materialization failed",
+            "uploaded business materialization failed"
+            + ("" if diagnostic is None else f": {diagnostic.message}"),
             diagnostic_code=None if diagnostic is None else diagnostic.code.value,
         )
-    if raw_result.snapshot is None or raw_result.table_set is None:
-        raise PreviewJobError("uploaded SQL materialization is incomplete")
+    if business_result.snapshot is None or business_result.table_set is None:
+        raise PreviewJobError("uploaded business materialization is incomplete")
     projected: CanonicalProjectionResult = project_canonical_table_set(
-        raw_result.table_set,
+        business_result.table_set,
         ruleset,
     )
     if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
@@ -1222,7 +1264,7 @@ def _materialize_uploaded_side(
         )
     try:
         canonical_result = materialize_projected_snapshot(
-            raw_result.snapshot,
+            business_result.snapshot,
             projected.tables,
             artifact_store=store,
             context=ParserInvocationContext(NeverCancel()),
@@ -1231,7 +1273,7 @@ def _materialize_uploaded_side(
         for table in projected.tables:
             if table.reader is not None:
                 table.reader.close()
-        for table in raw_result.table_set.tables:
+        for table in business_result.table_set.tables:
             if table.reader is not None:
                 table.reader.close()
     bound = _bound_from_materialization(

@@ -138,12 +138,15 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
     assert canonical["storage_projection_ruleset_digest"].startswith("sha256:")
     closure_ref = artifact_ref_from_dict(canonical["canonical_table_set_closure_ref"])
     closure = json.loads(harness.artifact_store.locate(closure_ref).decode("utf-8"))
-    assert [item["table_name"] for item in closure["tables"]] == ["t"]
+    assert [item["table_name"] for item in closure["tables"]] == [
+        "composite_signal_point",
+        "t",
+    ]
     manifest_ref = artifact_ref_from_dict(canonical["canonicalization_manifest_ref"])
     manifest = open_canonicalization_manifest(harness.artifact_store, manifest_ref)
     assert manifest.manifest_digest is not None
     assert manifest.manifest_digest.value == canonical["canonicalization_manifest_digest"]
-    assert tuple(table.name for table in manifest.tables) == ("t",)
+    assert tuple(table.name for table in manifest.tables) == ("composite_signal_point", "t")
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.protection.is_protected(materialize_step.checkpoint_ref.artifact_id)
         raw_sides_ref = envelope.job_state["materialized_sides_ref"]

@@ -89,6 +89,8 @@ GATEWAY_COMPOSE_GATE_PROVENANCE_PATH=/home/dev/gdds-p5-closure-s1-gate-logs/g11b
 
 首次审核尚未完成时，审核方曾短暂创建 `p5-g11b-exit`；在发现阻塞项后已删除并确认 tag 不存在。该次审核不通过，临时 tag 不构成阶段退出证据；最终 H 仍须重新独立审核，通过后再创建退出 tag。H1 上 carried 结果已记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final.log`，但修订后的最终 H 必须重算 identity 并重建 backend/worker，最终结果以 `g11b-carried-final-h2.log` 为准。
 
+H2 复审确认 G11b 要求的三种参数场景已覆盖；额外的单 label 缺失案例属于增强覆盖，不是本阶段验收项。复审按执行计划 §8.2 指出 handoff 缺少最后一节“审核提示词”，因此 H2 结论为定向修订。该修订只补 handoff 提示词；不改代码、不重跑测试，最终 H3 的 carried 重新执行并记录如下。
+
 ## V 上完整门禁与 provenance
 
 完整权威 runner 仅在 V 上运行一次，未预先构建 RS 镜像：
@@ -146,4 +148,27 @@ V 前五包全部通过 `ruff check .` 与 `mypy`：
 docker compose -f /home/dev/gdds-p5-g11b/vnext/deploy/compose.yaml build backend worker
 ```
 
-两次构建之间不运行测试。V 与 H1 上已得到的两次 backend image ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，worker image ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`，与 V provenance 相等。H1 的 log 为 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final.log`，H0 草稿的过程 log 为 `g11b-carried-h0.log`；两者不能替代最终 H2 carried。最终 H 上的 identity 和两次 build 结果记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final-h2.log`：RS labels 为 build-input `adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`；两次 backend ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，两次 worker ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`；日志 exit 0、起止 HEAD 相同且 clean。
+两次构建之间不运行测试。V、H1 和 H2 上已得到的 backend image ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，worker image ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`，与 V provenance 相等。H1 的 log 为 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final.log`，H0 草稿的过程 log 为 `g11b-carried-h0.log`，H2 复审版的 log 为 `g11b-carried-final-h2.log`；这些都不能替代最终 H3 carried。H3 上 identity 和两次 build 的结果记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final-h3.log`：RS labels 为 build-input `adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`；两次 backend ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，两次 worker ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`；日志 exit 0、起止 HEAD 相同且 clean。
+
+## 审核提示词
+
+```text
+任务：独立审核 P5 G11b 的 backend Compose repository-service 镜像绑定修复与耗时方案报告。审核方未参与实施；按阶段验收与风险证据审核，不预设结论。
+
+审核对象：`p5-g11b` worktree 的最终 H（本 handoff-only commit；用 `git rev-parse HEAD` 解析 SHA），门禁提交 V = `d4c991f77c08d5e21ebfd5ca98155c420c971b6d`，实现 HEAD = V；区间 `460cfc77763fa23850dca2f58d5a59d25f36820c..H`。在只读 detached worktree 中审核，不改实现、测试或 handoff，不推送、不合并。
+
+权威依据：治理修订计划 G11b、`p5-arch-closure-g11-independent-review.md` §2.2–§2.3（R2-F1/R2-O1）、AGENTS.md、`testing-conventions.md`（P5-5E serial Compose 与 carried）、执行计划 §8.1–§8.2、§8.7、§8.9，以及 ADR 0012。
+
+必须核查：
+1. `ensure_repository_service_image()` 复用 canonical `build_context_digest.py identity`，比较两个 RS identity labels；dirty/identity 失败时关闭；缺失或不匹配时重建并核验。测试表覆盖一致不建、身份不一致构建、镜像缺失构建，Docker 调用由替身处理。
+2. V provenance 中 RS labels 与 V 上 canonical identity 相等；provenance 形状变化有说明。
+3. V 上权威 runner clean start/end、exit 0、命令与日志，以及各包计数：backend 2,813 + 34，再加新增 3 案例；其余包与 G11 一致，RS 1,684 + 1 skipped / 205。核对没有预构建 RS 镜像、没有删改既有用例。
+4. 11 个 Compose case 的测量阶段、固定等待来源、CPU/load 与 Docker 活动；核对外置 instrumentation patch/logs、重复 readiness 计时的校正依据，以及没有把调试运行误报为门禁证据。
+5. 方案报告评估并发、同文件共栈、缩短测试栈等待、阶段退出才运行、维持现状；每项给出节省、风险、文件和强制重建项；不实施方案。特别检查 3 个 ordered control projects、lease/restart case、submit 三旅程、backend image-only/live gate 的隔离与计时。
+6. 最终 H carried：RS identity 在 H 重算；在同一 worktree 与 V provenance project 下连续构建 backend/worker 两次，中间不运行测试；两个 image ID 均与 V provenance 相同。核对 `g11b-carried-final-h3.log` 的起止 HEAD、clean status、identity、project、IDs 和 exit code。
+7. 五包 ruff/mypy、backend `import_rules`、commit trailer，以及 H 仅在 V 之后新增 handoff 文档。
+
+验证：在审核 worktree 独立运行五包 ruff/mypy 与 `import_rules`；核对上述日志和 provenance。不要求重跑完整 runner，不运行 Compose 旅程。
+
+交付：回复审核结论（通过 / 定向修订 / 整体返工）和发现。只有全部通过时，按 owner 授权在 H 上创建附注 tag `p5-g11b-exit`；不推送。
+```

@@ -193,9 +193,9 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
    - 带`gateway.p2r1.build-input-revision`与`gateway.p2r1.source-tree-sha256` label的镜像
      （repository-service）：在最终HEAD用`build_context_digest.py identity`重算，两项都等于`V`
      门禁所用镜像的label。`org.opencontainers.image.revision`随提交变化，不参与比较。
-   - 没有source identity label的镜像（backend、worker）：在`V`的同一worktree中、两次构建之间
-     不运行任何测试，用与`V`相同的构建命令重建（project名取自provenance），image ID必须等于
-     `V`的Compose provenance中实际运行容器的image ID。构建上下文带入worktree的本地状态：
+   - 没有source identity label的镜像（backend、worker）：在运行`V`门禁的同一worktree中检出
+     最终HEAD后，两次构建之间不运行任何测试，用与`V`相同的构建命令重建（project名取自
+     provenance），image ID必须等于`V`的Compose provenance中实际运行容器的image ID。构建上下文带入worktree的本地状态：
      文件权限位由创建文件的umask决定、git不记录，并且影响COPY层的缓存键；被忽略的残留目录
      （例如只含`__pycache__`的旧包目录）会作为空目录进入镜像。换worktree重建通常得到不同ID
      （G2审核实测，治理修订计划G6b），不得用另一个worktree的结果判定“等价”或“不等价”。

@@ -20,7 +20,7 @@ from tests.support.preview_job_harness import (
 pytestmark = pytest.mark.unit
 
 
-def test_identical_uploaded_initial_and_repository_baseline_compare_unchanged(
+def test_identical_uploaded_tables_add_only_empty_composite_table_to_baseline(
     tmp_path: Path,
 ) -> None:
     harness = build_preview_harness(
@@ -33,6 +33,8 @@ def test_identical_uploaded_initial_and_repository_baseline_compare_unchanged(
     sides = _materialize_all_sides(payload, harness.deps)
     facts = compare_bound_snapshots(sides.sides["BASELINE"], sides.sides["INITIAL"])
 
-    assert tuple(table.table_name for table in facts.tables) == ("composite_signal_point", "t")
-    assert all(table.status is ComparisonTableStatus.UNCHANGED for table in facts.tables)
+    assert tuple((table.table_name, table.status) for table in facts.tables) == (
+        ("composite_signal_point", ComparisonTableStatus.ADDED_TABLE),
+        ("t", ComparisonTableStatus.UNCHANGED),
+    )
     assert all(not table.records for table in facts.tables)

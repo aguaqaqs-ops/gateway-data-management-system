@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, cast
@@ -742,6 +743,75 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "requested_project_name": "s2b-debug",
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
+
+
+def test_failed_real_dump_saves_compose_logs_before_teardown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    log_directory = tmp_path / "compose-logs"
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_LOG_DIR", str(log_directory))
+    monkeypatch.setattr(real_dump_journey, "_real_dump_root", lambda: tmp_path)
+    monkeypatch.setattr(real_dump_journey, "_read_metadata", lambda _root: ({}, {}))
+
+    def fake_subprocess_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        stdout = "ee0a4c43a7\n" if command[:2] == ["git", "rev-parse"] else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(real_dump_journey, "build_compose_stack_images", lambda _env: None)
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_compose_environment",
+        lambda *_args, **_kwargs: {"COMPOSE_PROJECT_NAME": "unit-real-dump"},
+    )
+    monkeypatch.setattr(
+        real_dump_journey,
+        "_offline_composite_comparison",
+        lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        real_dump_journey,
+        "acquire_compose_gate_lock",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        real_dump_journey,
+        "start_three_container_stack",
+        lambda *_args: ("repository-1", "commit-1"),
+    )
+
+    def fail_tier(**_kwargs: Any) -> dict[str, Any]:
+        raise JourneyFailure("synthetic Preview failure")
+
+    monkeypatch.setattr(real_dump_journey, "_run_tier", fail_tier)
+    events: list[str] = []
+
+    def fake_run_compose(
+        _env: dict[str, str],
+        *arguments: str,
+        **_kwargs: Any,
+    ) -> subprocess.CompletedProcess[str]:
+        assert arguments == ("logs", "--no-color", "--timestamps")
+        events.append("logs")
+        return subprocess.CompletedProcess(arguments, 0, stdout="all service logs", stderr="")
+
+    monkeypatch.setattr(real_dump_journey, "run_compose", fake_run_compose)
+
+    def record_cleanup(_env: dict[str, str]) -> None:
+        events.append("cleanup")
+
+    monkeypatch.setattr(real_dump_journey, "cleanup_compose_project_artifacts", record_cleanup)
+
+    with pytest.raises(JourneyFailure, match="synthetic Preview failure"):
+        real_dump_journey.run_journey(tier_filter="t1")
+
+    assert events == ["logs", "cleanup"]
+    compose_logs = list(log_directory.glob("*.compose.log"))
+    assert len(compose_logs) == 1
+    assert "all service logs" in compose_logs[0].read_text(encoding="utf-8")
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])["event"] == "compose_logs_saved"
 
 
 def test_debug_step_order_covers_every_business_action() -> None:

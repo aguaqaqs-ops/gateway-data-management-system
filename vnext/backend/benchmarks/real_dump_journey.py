@@ -1818,6 +1818,37 @@ def _validate_project_name(project_name: str) -> None:
         raise JourneyFailure("Compose project name must use 1..63 lowercase letters, digits, '_' or '-' ")
 
 
+def _save_compose_logs_before_teardown(env: dict[str, str], *, tier: str) -> Path:
+    configured_directory = os.environ.get("GATEWAY_REAL_DUMP_LOG_DIR")
+    log_directory = (
+        Path(configured_directory)
+        if configured_directory
+        else Path(tempfile.gettempdir()) / "gdds-real-dump-compose-logs"
+    )
+    if not log_directory.is_absolute():
+        raise JourneyFailure("real-dump Compose log directory must be absolute")
+    log_directory = log_directory.resolve()
+    if log_directory.is_relative_to(_repo_root().resolve()):
+        raise JourneyFailure("real-dump Compose logs must be outside the worktree")
+    log_directory.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    log_path = log_directory / f"real-dump-{tier}-{timestamp}.compose.log"
+    result = run_compose(env, "logs", "--no-color", "--timestamps", timeout=180.0)
+    log_path.write_text(
+        f"compose_logs_exit_code={result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}\n",
+        encoding="utf-8",
+    )
+    _emit_progress(
+        tier,
+        "compose_logs_saved",
+        log_file=log_path.name,
+        compose_logs_exit_code=result.returncode,
+    )
+    return log_path
+
+
 def run_journey(
     *,
     tier_filter: str | None = None,
@@ -1938,24 +1969,35 @@ def run_journey(
                     else:
                         repository_id, initial_commit_id = _resume_stack(env, step_state)
                     stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
-                    results.append(
-                        _run_tier(
-                            tier=tier,
-                            v1_id=v1_id,
-                            v2_id=v2_id,
-                            root=root,
-                            datasets=datasets,
-                            census=census,
-                            env=env,
-                            project_name=project_name,
-                            repository_id=repository_id,
-                            initial_commit_id=initial_commit_id,
-                            step_state=step_state,
-                            from_step=from_step,
-                            state_path=state_path,
-                            offline_composite=offline_composite,
+                    try:
+                        results.append(
+                            _run_tier(
+                                tier=tier,
+                                v1_id=v1_id,
+                                v2_id=v2_id,
+                                root=root,
+                                datasets=datasets,
+                                census=census,
+                                env=env,
+                                project_name=project_name,
+                                repository_id=repository_id,
+                                initial_commit_id=initial_commit_id,
+                                step_state=step_state,
+                                from_step=from_step,
+                                state_path=state_path,
+                                offline_composite=offline_composite,
+                            )
                         )
-                    )
+                    except BaseException:
+                        try:
+                            _save_compose_logs_before_teardown(env, tier=tier)
+                        except BaseException as log_error:
+                            _emit_progress(
+                                tier,
+                                "compose_logs_save_failed",
+                                diagnostic=type(log_error).__name__,
+                            )
+                        raise
                 finally:
                     if keep_stack:
                         release_compose_gate_lock()

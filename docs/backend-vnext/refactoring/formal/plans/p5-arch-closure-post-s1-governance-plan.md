@@ -218,6 +218,9 @@ kickoff 补充（审核方 2026-10-16，S2b 合入后）：
 
 来源：G11 第二审 R2-F1、R2-O1 与 §2.2（`plans/p5-arch-closure-g11-independent-review.md`）。
 
+状态：已完成（2026-10-17）。两位审核方均通过（`plans/p5-arch-closure-g11b-independent-review.md`），tag `p5-g11b-exit` 在 H `944982eb91`，合并提交 `e8b5322b3c`。
+R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推荐维持现状（完整门禁约 32.5 分钟）；两路并发预计节省约 3 分钟，是否另立一步由 owner 决定，不阻塞 S3。
+
 1. **R2-F1 修复。** backend 的 Compose 旅程不得使用身份与当前树不一致的 repository-service 镜像。
    - 当前行为：`compose_gate_harness.ensure_repository_service_image()` 只在镜像不存在时才构建。
    - 要求：比对镜像的 build-input/source-tree label 与当前树的 identity，不一致时重建；无法计算 identity 时（例如 worktree 有未提交改动），行为与 repository_service 的 Compose harness 一致，不得静默使用旧镜像。
@@ -267,4 +270,5 @@ kickoff 补充（审核方 2026-10-16，S2b 合入后）：
 8. G11：S2b 合入后、S3 kickoff 前，缩短完整门禁（backend 并行化）。调试与取证分开（执行计划 §8.9，DC30）自 2026-10-14 起对 S2b 剩余部分与之后各阶段生效。
    已完成（2026-10-17）：tag `p5-g11-exit`（`dcff8c0685`），合并提交 `fa902aa200`。
    G11b：Compose 旅程的 RS 镜像绑定（R2-F1）与耗时测量；S3 kickoff 前完成，S3 的区间起点改为 `p5-g11b-exit`。
+   已完成（2026-10-17）：tag `p5-g11b-exit`（`944982eb91`），合并提交 `e8b5322b3c`。S3 kickoff 的区间起点为 `p5-g11b-exit`。
 9. P5 exit：按 G10 清理。

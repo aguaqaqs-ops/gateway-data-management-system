@@ -48,11 +48,17 @@ from gateway_backend.operations import (
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
 from gateway_backend.operations.worker import ClaimedExecutor, ExecutionControl, ExecutorAcknowledgment, WriteUnitOfWorkFactory
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    MaterializationPolicy,
+    RepositoryCatalogTable,
+    RepositoryColumn,
+)
+from gateway_backend.capabilities.storage_projection import ProjectionStatus, project_canonical_table_set
+from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from tests.support.runtime_settings import make_operation_worker_settings
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     catalog_table,
-    int_id_column,
     make_catalog,
 )
 from tests.support.canonical_metadata import (
@@ -62,6 +68,7 @@ from tests.support.canonical_metadata import (
 )
 from tests.support.source_package_fixtures import pack_tar_gz
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
+from tests.support.snapshot_materialization import materialize_business
 from tests.support.workspace_fixtures import MutableBaselineHeadReadPort, make_baseline_head
 
 BASE_TIME = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
@@ -101,10 +108,9 @@ def preview_baseline_provider(
             rows={},
             current_commit=commit_id,
         )
-    table = catalog_table("t", (int_id_column(),))
-    rows = {"t": ((1,),)}
+    tables, rows = _canonical_baseline_catalog()
     catalog = make_catalog(
-        (table,),
+        tables,
         repository_id=REPOSITORY_ID,
         ref=commit_id,
         commit=commit_id,
@@ -114,6 +120,61 @@ def preview_baseline_provider(
         rows=rows,
         current_commit=commit_id,
     )
+
+
+def _canonical_baseline_catalog() -> tuple[
+    tuple[RepositoryCatalogTable, ...],
+    dict[str, tuple[tuple[object, ...], ...]],
+]:
+    """Build the test Repository catalog from the production business projection."""
+    ruleset = migrated_table_ruleset_snapshot()
+    materialized = materialize_business(
+        BASELINE_SQL,
+        empty=True,
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        ruleset=ruleset,
+    )
+    if materialized.table_set is None:
+        raise AssertionError("baseline business materialization did not publish a table set")
+    projected = project_canonical_table_set(materialized.table_set, ruleset)
+    if projected.status is not ProjectionStatus.COMPLETE:
+        diagnostics = tuple(
+            (item.code.value, item.table_name, item.message)
+            for item in projected.diagnostics
+        )
+        raise AssertionError(f"baseline business snapshot did not project canonically: {diagnostics!r}")
+
+    tables: list[RepositoryCatalogTable] = []
+    rows: dict[str, tuple[tuple[object, ...], ...]] = {}
+    try:
+        for item in projected.tables:
+            descriptor = item.descriptor
+            columns = tuple(
+                RepositoryColumn(
+                    name=column.name,
+                    ordinal=index,
+                    scalar_type=column.scalar_type,
+                    nullable=column.nullable,
+                )
+                for index, column in enumerate(descriptor.columns)
+            )
+            tables.append(
+                catalog_table(
+                    descriptor.table_name,
+                    columns,
+                    primary_key=descriptor.primary_key_columns,
+                    row_count=descriptor.row_count,
+                )
+            )
+            rows[descriptor.table_name] = ((1,),) if descriptor.table_name == "t" else ()
+    finally:
+        for item in projected.tables:
+            if item.reader is not None:
+                item.reader.close()
+        for item in materialized.table_set.tables:
+            if item.reader is not None:
+                item.reader.close()
+    return tuple(tables), rows
 
 
 def repository_provider_factory(

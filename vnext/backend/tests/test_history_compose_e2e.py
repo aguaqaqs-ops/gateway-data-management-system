@@ -55,6 +55,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
 ARCHIVER_TOKEN = "compose-archiver-token"
 ACTOR2_TOKEN = "compose-actor-2-token"
+ACTOR3_TOKEN = "compose-actor-3-token"
 HISTORY_READER_TOKEN = "compose-history-reader-token"
 CROSS_SCOPE_TOKEN = "compose-cross-scope-token"
 _LOGGER = logging.getLogger(__name__)
@@ -95,6 +96,18 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                     {
                         "token": ACTOR2_TOKEN,
                         "actor_id": "compose-actor-2",
+                        "gateway_device_external_key": DEVICE_KEY,
+                        "business_project_id": PROJECT_ID,
+                        "permissions": [
+                            "workspace_read",
+                            "upload_submit_workspace",
+                            "preview_workspace",
+                            "review_submission",
+                        ],
+                    },
+                    {
+                        "token": ACTOR3_TOKEN,
+                        "actor_id": "compose-actor-3",
                         "gateway_device_external_key": DEVICE_KEY,
                         "business_project_id": PROJECT_ID,
                         "permissions": [
@@ -781,7 +794,7 @@ def test_compose_history_compare_journey_zero_write_restart(
                 env,
                 initial_commit_id=main_after_a,
                 journey_key_prefix="history-composite-v2",
-                token=ACTOR2_TOKEN,
+                token=ACTOR3_TOKEN,
                 expected_baseline_node_id=archived_head_node_id,
                 expected_baseline_head_version=archived_head_version,
                 include_preview_surfaces=True,

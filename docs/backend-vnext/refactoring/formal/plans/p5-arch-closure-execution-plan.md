@@ -239,7 +239,8 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - Business Lifecycle 3.1.0 的身份相关条款实现完毕；
   - compose 旅程：跨项目上传 → 替换 Preview → 带确认提交 → 审核 → 带理由处置 → 归档；另加 `UNVERIFIABLE` 分支与
     FULL 混合模式（基线 pair 为替换、initial→modified 为详细比较）；
-  - 真实数据：同一项目前后版本预期为 `SAME_PROJECT`，不同项目之间预期为 `DIFFERENT_PROJECT`；结果不符时在 handoff 记录并交 owner 判断；
+  - 真实数据：同一项目前后版本预期为 `SAME_PROJECT`，不同项目之间预期为 `DIFFERENT_PROJECT`；结果不符时在 handoff 记录并交 owner 判断。
+    范围（DC33）：t1–t3 完整运行；t4 只运行 v1 提交与 v2 Preview；`DIFFERENT_PROJECT` 用小档之间的跨档上传验证；不运行 t4 的重传 Preview 与 History；
   - 阶段末重建镜像。
 
 ### S5 — 清理、测量与收口验收
@@ -726,7 +727,9 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
 
 - 调试：只跑 focused 测试与出问题的那一段真实数据；可在未提交的 worktree 上运行；不跑完整 runner；这些运行不作为证据，
   日志可写到 `/home/dev/gdds-p5-closure-s1-gate-logs/<阶段>-debug-*`。真实数据的调试同样遵守整机单飞（Dolt 进程、Compose 栈、8000 端口）。
-- 取证：调试收敛后，在最终 V 上完整运行权威 runner 一次，随后在同一 V 上完整运行真实数据一次（preflight 与日志要求同 §8.1、AGENTS.md）。
+- 取证：调试收敛后，在最终 V 上完整运行权威 runner 一次，随后在同一 V 上运行真实数据一次（preflight 与日志要求同 §8.1、AGENTS.md）。
+  真实数据的范围由阶段改动面决定，在阶段 kickoff 时写明，阶段退出前由 owner 确认；S3 与 S5 最终候选为完整 t1–t4，S4 见 §2 S4（DC33，治理修订计划 G12）。
+  权威 runner 中闭包未变化的包，可按 G12 第 1 项实施后的规则沿用结果；S5 最终门禁仍运行全部包。
   取证失败且需要改产品代码：回到调试，收敛后形成新的 V 再取证一次。
 - V 之后、H 之前只改 `vnext/backend/benchmarks/` 与 `tests/test_real_dump_*.py`（不进入镜像）：门禁结果沿用；在最终提交上补跑这两个测试文件与五包静态检查，
   重跑真实数据；carried 照常在同一 worktree 判定；handoff 列出 V 之后的这些提交。

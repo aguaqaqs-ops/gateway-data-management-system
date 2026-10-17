@@ -249,6 +249,45 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 提交测量报告；
    - 独立审核通过后打 `p5-g11b-exit`，取代 `p5-g11-exit` 作为 S3 的区间起点。
 
+### G12. 缩短阶段取证耗时（owner 2026-10-17，DC33；第 1 项在 S3 合入后、S4 kickoff 前实施，第 2 项即时生效）
+
+来源：owner 要求后续过程尽量避免全量运行。耗时构成（G11b、S2b 实测）：权威 runner 约 33 分钟，其中 backend 的 Compose 旅程 25 分钟、RS serial 6 分钟；真实数据 t1–t4 约 5.5 小时，其中 t4 为 2.8 小时。
+调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
+
+1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
+   - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
+   - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
+     - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`；
+     - 它的路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python`；repository_service → repository_contracts；
+     - 测试会读取的共享目录：`vnext/fixtures/`、`vnext/scripts/`（runner 与 uv wrapper），以及 Compose 用到的 `vnext/deploy/` 和相关包的镜像构建上下文。backend 的 Compose 旅程使用 RS 镜像，所以 backend 的闭包包括 repository_service；
+     - 不在 Git 中的输入：`legacy/` 目录的内容摘要（`test_table_rules_resolver.py` 读取它）；环境中的 Python 与 Dolt 版本。
+     
+     Git 中的部分用 tree 哈希比较，不在 Git 中的部分用内容摘要比较。
+   - **闭包完整性必须实测：** 实施时对每个包运行一次测试，用 Python audit hook（以外部插件加载，不进提交）记录进程实际打开的仓库内文件，证明全部落在闭包内；容器内的读取由镜像身份规则覆盖。实测有遗漏时扩大闭包，不得缩小测试范围。
+   - **沿用条件：**
+     - 来源 V 的权威 runner 在 clean worktree 上运行，整体 exit 0，日志记录起止 HEAD；
+     - 该包的闭包摘要在来源 V 与当前 V 上完全相同；
+     - 当前 V 上，闭包有变化的包都实际运行并通过；
+     - handoff 逐包记录闭包摘要、运行或沿用及来源 V。
+   - **工具与文档：**
+     - `run-tests.sh` 支持只运行指定的包，例如 `GATEWAY_TEST_PACKAGES=backend`；不指定时行为不变；
+     - 新增计算闭包摘要的脚本，带 unit 测试；
+     - AGENTS.md「跑测试」「镜像身份等价」与 testing-conventions 写明规则。镜像身份等价不受影响，两者分别判定。
+   - **不适用：** S5 的最终门禁（执行计划 §2 S5 要求全量）与发布门禁，仍运行全部包。
+   - **停止条件：** 需要改生产代码；闭包无法覆盖实测到的读取；需要新增依赖。
+   - **工作区：** `/home/dev/gdds-p5-g12`，分支 `p5-g12`。验收：脚本与 runner 改动的 focused 测试；一次完整权威 runner exit 0（改了 runner 脚本，不沿用）；闭包实测记录；独立审核后打 `p5-g12-exit`，S4 的区间起点改为 `p5-g12-exit`。
+2. **真实数据按阶段改动面确定范围（即时生效）。**
+   - DC30 中“在最终 V 上完整运行真实数据一次”改为：真实数据的取证范围由阶段改动面决定，在阶段 kickoff 时写明，阶段退出前由 owner 确认。范围之外的不变量依靠更小的档位或既有的 focused / Compose 覆盖。
+   - 剩余阶段的范围：
+     
+     | 阶段 | 范围 |
+     | --- | --- |
+     | S3（进行中） | 完整 t1–t4，按已恢复的提示词执行，不变 |
+     | S4 | t1–t3 完整运行；t4 只运行 v1 提交与 v2 Preview（SAME_PROJECT）；DIFFERENT_PROJECT 用小档之间的跨档上传验证；不运行 t4 的重传 Preview 与 History |
+     | S5 最终候选 | 完整 t1–t4，按执行计划 §2 S5 保留 |
+   - 不在 P5 内建设多档并发运行的基础设施。
+   - 已同步修订：执行计划 §8.9、§2 S4 的真实数据验收、AGENTS.md「主线开发与阶段边界」中 DC30 的表述。
+
 ## 3. 顺序
 
 1. 已完成：S1 第 3 次复审通过 → `--no-ff` 合入 `main`（`139ee5fffd`）→ tag `p5-s1-exit`；G1、G5、G9。
@@ -283,4 +322,5 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      - S2b 已有的真实数据不变量继续成立。
    - **恢复 `test_comparison_canonical_domain.py` 的“同内容 → 全表 UNCHANGED”不变量。** S3 实施中，这个测试被改成断言 composite 为 `ADDED_TABLE`，原因是 Repository 侧基线夹具里没有那张零行的 composite 表。按 DC6，S3 之后的提交都带这张表，应修正夹具，不应改变测试的含义。
    - **取证期间暂停主机上与本项目无关的批量负载。** preflight 以 Dolt、Compose、8000 端口为硬条件，并记录负载。
-10. P5 exit：按 G10 清理。
+10. G12 第 1 项（按包沿用测试结果）：S3 合入后、S4 kickoff 前实施并独立审核，打 `p5-g12-exit`，作为 S4 的区间起点。G12 第 2 项（真实数据按阶段确定范围）即时生效，S4 按 G12 中的范围执行。
+11. P5 exit：按 G10 清理。

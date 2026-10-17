@@ -8,9 +8,11 @@
 | --- | --- | --- |
 | kickoff base | `460cfc77763fa23850dca2f58d5a59d25f36820c` | 建立 worktree 时 `main` 的 HEAD；满足 G11b 的 `460cfc7776` 下限。 |
 | V | `d4c991f77c08d5e21ebfd5ca98155c420c971b6d` | 修复 RS 镜像 identity 绑定、增加参数表测试、记录 RS provenance label，并同步 carried 规则。唯一门禁提交。 |
-| H | 本 handoff-only commit | 仅增加本文件；审核区间为 kickoff base..H。最终完整 SHA 由审核请求中的 `git rev-parse HEAD` 给出。 |
+| H2 | `db601d171c065f13161f79a65edffa8f8fdf651e` | handoff 报告与初次复审修订：补全同文件共享栈候选分析。 |
+| H3 | `4d69184a8cb625c15e4abbfa8df813df5fbf9ec8` | handoff 审核提示词及 H2 复审记录；H3 复审后发现 §8.2 最小项遗漏，未打 tag。 |
+| H | 本 handoff-only commit | 补全 §8.2 要求的 `import_rules` 对照、路径预算和停止条件记录；仅增加本文件。最终完整 SHA 由审核请求中的 `git rev-parse HEAD` 给出。 |
 
-V 与 H 均带有 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。没有合并、rebase `main`、推送或由实施方打 tag。独立审核通过后由审核方打 `p5-g11b-exit`，作为 S3 区间起点。
+V、H2、H3 与 H 均带有 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。最终区间为 kickoff base..H；实现 HEAD 与门禁提交均为 V。没有合并、rebase `main`、推送或由实施方打 tag。独立审核通过后由审核方打 `p5-g11b-exit`，作为 S3 区间起点。
 
 ## R2-F1 修复
 
@@ -23,6 +25,21 @@ V 与 H 均带有 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。�
 - provenance 顶层增加 `repository_service_image`，记录 image ref、image ID，以及 `gateway.p2r1.build-input-revision` 和 `gateway.p2r1.source-tree-sha256` 两个 label。provenance JSON 形状因此扩展；既有 `containers` 字段保留。
 
 只改了测试 harness、测试和文档；没有改生产代码、Dockerfile、Compose 文件、既有用例或断言。
+
+## 路径预算、import_rules 前后对照与停止条件
+
+G11b 是治理计划中的测试 harness 与测试证据工作，不分配设计 §3 的生产代码路径预算；本轮没有启用条件路径、预算外路径或文件改名。实际实现改动只涉及 `compose_gate_harness.py`、新增参数表测试、AGENTS/testing-conventions 与本 handoff。
+
+按执行计划 §8.2 在 kickoff base 与 V 分别运行 `cd vnext/backend && ../scripts/uv-consume.sh -C . run python -m tests.support.import_rules`，外置日志为 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-import-rules-base-v.log`。三个基线值前后相同：
+
+| 节点 | violations | runtime cycles | unreachable modules |
+| --- | ---: | ---: | ---: |
+| kickoff base `460cfc77763fa23850dca2f58d5a59d25f36820c` | 0 | 0 | 14 |
+| V `d4c991f77c08d5e21ebfd5ca98155c420c971b6d` | 0 | 0 | 14 |
+
+设计 §14 的停止条件均未触发：G11b 没有改动数据类型、Dolt 一致性、比较语义、部署兼容性、身份交互、协议族或生产软件版本；本轮只改测试 harness、测试与文档。G11b 自身停止条件也未触发：无需改生产代码、Dockerfile 或 Compose；没有删除、跳过或放宽用例；identity 算法成功复用；完整 runner exit 0。
+
+G11b 验收由治理计划第 5 项承接。R2-F1 focused 参数表命令为 `cd vnext/backend && ../scripts/uv-consume.sh -C . run pytest tests/test_compose_repository_service_image_identity.py -q`（3 passed）；完整门禁、测量调试、五包 ruff/mypy 与 import_rules 的命令和结果记录在下文对应章节。完整门禁是唯一阶段验收 runner；调试测量只用于估算耗时，不作为门禁证据。
 
 ## Compose 旅程测量
 
@@ -89,7 +106,7 @@ GATEWAY_COMPOSE_GATE_PROVENANCE_PATH=/home/dev/gdds-p5-closure-s1-gate-logs/g11b
 
 首次审核尚未完成时，审核方曾短暂创建 `p5-g11b-exit`；在发现阻塞项后已删除并确认 tag 不存在。该次审核不通过，临时 tag 不构成阶段退出证据；最终 H 仍须重新独立审核，通过后再创建退出 tag。H1 上 carried 结果已记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final.log`，但修订后的最终 H 必须重算 identity 并重建 backend/worker，最终结果以 `g11b-carried-final-h2.log` 为准。
 
-H2 复审确认 G11b 要求的三种参数场景已覆盖；额外的单 label 缺失案例属于增强覆盖，不是本阶段验收项。复审按执行计划 §8.2 指出 handoff 缺少最后一节“审核提示词”，因此 H2 结论为定向修订。该修订只补 handoff 提示词；不改代码、不重跑测试，最终 H3 的 carried 重新执行并记录如下。
+H2 复审确认 G11b 要求的三种参数场景已覆盖；额外的单 label 缺失案例属于增强覆盖，不是本阶段验收项。复审按执行计划 §8.2 指出 handoff 缺少最后一节“审核提示词”，因此 H2 结论为定向修订。H3 补上提示词后，独立复审再次给出定向修订：§8.2 还要求 `import_rules` 前后对照与设计 §14 停止条件状态；这两项已在本修订中补齐。两次定向修订都只改 handoff，不改代码、不重跑测试；最终 H 的 carried 重新执行并记录如下。
 
 ## V 上完整门禁与 provenance
 
@@ -128,6 +145,14 @@ V identity 由 `python3 vnext/repository_service/tests/support/build_context_dig
 
 V 前五包全部通过 `ruff check .` 与 `mypy`：
 
+```bash
+(cd vnext/shared_kernel && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy)
+(cd vnext/repository_contracts && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy)
+(cd vnext/repository_client && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy)
+(cd vnext/backend && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy)
+(cd vnext/repository_service && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy)
+```
+
 | 包 | mypy 检查文件数 | 结果 |
 | --- | ---: | --- |
 | shared_kernel | 34 | ruff/mypy passed |
@@ -145,10 +170,11 @@ V 前五包全部通过 `ruff check .` 与 `mypy`：
 使用 V provenance project `ordered-bisect-b-554228-baseline`，执行同一命令两次：
 
 ```bash
-docker compose -f /home/dev/gdds-p5-g11b/vnext/deploy/compose.yaml build backend worker
+docker compose --project-name ordered-bisect-b-554228-baseline \
+  -f /home/dev/gdds-p5-g11b/vnext/deploy/compose.yaml build backend worker
 ```
 
-两次构建之间不运行测试。V、H1 和 H2 上已得到的 backend image ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，worker image ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`，与 V provenance 相等。H1 的 log 为 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final.log`，H0 草稿的过程 log 为 `g11b-carried-h0.log`，H2 复审版的 log 为 `g11b-carried-final-h2.log`；这些都不能替代最终 H3 carried。H3 上 identity 和两次 build 的结果记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final-h3.log`：RS labels 为 build-input `adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`；两次 backend ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，两次 worker ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`；日志 exit 0、起止 HEAD 相同且 clean。
+两次构建之间不运行测试。V、H1、H2 与 H3 上已得到的 backend image ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，worker image ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`，与 V provenance 相等。H1、H2、H3 的 carried 日志分别为 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final.log`、`g11b-carried-final-h2.log`、`g11b-carried-final-h3.log`，都不能替代最终 H carried。H 上 identity 和两次 build 的结果记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g11b-carried-final-h4.log`：RS labels 为 build-input `adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`；两次 backend ID 均为 `sha256:b752628c64b425749753e1f568fcc95ba12596faf3ad93e161675e81a546ed56`，两次 worker ID 均为 `sha256:e1759450dd4ba444b8f40f5d362a063114f5b3ef2d2784f515503dcdb021fcc9`；日志 exit 0、起止 HEAD 相同且 clean。
 
 ## 审核提示词
 
@@ -165,8 +191,9 @@ docker compose -f /home/dev/gdds-p5-g11b/vnext/deploy/compose.yaml build backend
 3. V 上权威 runner clean start/end、exit 0、命令与日志，以及各包计数：backend 2,813 + 34，再加新增 3 案例；其余包与 G11 一致，RS 1,684 + 1 skipped / 205。核对没有预构建 RS 镜像、没有删改既有用例。
 4. 11 个 Compose case 的测量阶段、固定等待来源、CPU/load 与 Docker 活动；核对外置 instrumentation patch/logs、重复 readiness 计时的校正依据，以及没有把调试运行误报为门禁证据。
 5. 方案报告评估并发、同文件共栈、缩短测试栈等待、阶段退出才运行、维持现状；每项给出节省、风险、文件和强制重建项；不实施方案。特别检查 3 个 ordered control projects、lease/restart case、submit 三旅程、backend image-only/live gate 的隔离与计时。
-6. 最终 H carried：RS identity 在 H 重算；在同一 worktree 与 V provenance project 下连续构建 backend/worker 两次，中间不运行测试；两个 image ID 均与 V provenance 相同。核对 `g11b-carried-final-h3.log` 的起止 HEAD、clean status、identity、project、IDs 和 exit code。
+6. 最终 H carried：RS identity 在 H 重算；在同一 worktree 与 V provenance project 下连续构建 backend/worker 两次，中间不运行测试；两个 image ID 均与 V provenance 相同。核对 `g11b-carried-final-h4.log` 的起止 HEAD、clean status、identity、project、IDs 和 exit code。
 7. 五包 ruff/mypy、backend `import_rules`、commit trailer，以及 H 仅在 V 之后新增 handoff 文档。
+8. Handoff 按执行计划 §8.2 记录 kickoff base/V 的 `import_rules` 前后值、路径预算与文件改名情况、设计 §14 和 G11b 停止条件状态、实际验收命令与结果；核对这些记录有对应证据。
 
 验证：在审核 worktree 独立运行五包 ruff/mypy 与 `import_rules`；核对上述日志和 provenance。不要求重跑完整 runner，不运行 Compose 旅程。
 

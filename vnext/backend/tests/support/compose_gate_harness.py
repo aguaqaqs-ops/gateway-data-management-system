@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -25,6 +26,11 @@ VNEXT_ROOT = Path(__file__).resolve().parents[3]
 DEPLOY_ROOT = VNEXT_ROOT / "deploy"
 COMPOSE_FILE = DEPLOY_ROOT / "compose.yaml"
 BUILD_REPOSITORY_SCRIPT = VNEXT_ROOT / "scripts" / "build-repository-service-image.sh"
+REPOSITORY_SERVICE_IDENTITY_SCRIPT = (
+    VNEXT_ROOT / "repository_service" / "tests" / "support" / "build_context_digest.py"
+)
+REPOSITORY_SERVICE_BUILD_INPUT_LABEL = "gateway.p2r1.build-input-revision"
+REPOSITORY_SERVICE_SOURCE_TREE_LABEL = "gateway.p2r1.source-tree-sha256"
 BACKEND_URL = "http://127.0.0.1:8000"
 GATE_PROJECT_ENV = "GATEWAY_COMPOSE_GATE_PROJECT_NAME"
 GATE_SESSION_ENV = "GATEWAY_COMPOSE_GATE_SESSION"
@@ -201,14 +207,9 @@ def run_repository_service_exec(
 
 def ensure_repository_service_image() -> None:
     image = repository_service_image()
-    inspect = subprocess.run(
-        ["docker", "image", "inspect", image],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=60.0,
-    )
-    if inspect.returncode == 0:
+    expected_identity = _repository_service_image_identity()
+    current = _inspect_image(image)
+    if _repository_service_image_matches(current, expected_identity):
         return
     if not BUILD_REPOSITORY_SCRIPT.is_file():
         pytest.fail(f"missing repository-service build script: {BUILD_REPOSITORY_SCRIPT}")
@@ -225,6 +226,60 @@ def ensure_repository_service_image() -> None:
             "repository-service image build failed; "
             f"stdout={completed.stdout[-500:]} stderr={completed.stderr[-500:]}"
         )
+    rebuilt = _inspect_image(image)
+    if not _repository_service_image_matches(rebuilt, expected_identity):
+        labels = rebuilt.get("labels", {})
+        pytest.fail(
+            "repository-service image provenance does not match current build context after build; "
+            f"expected build_input_revision={expected_identity[0]} "
+            f"actual={labels.get(REPOSITORY_SERVICE_BUILD_INPUT_LABEL)}, "
+            f"expected source_tree_sha256={expected_identity[1]} "
+            f"actual={labels.get(REPOSITORY_SERVICE_SOURCE_TREE_LABEL)}"
+        )
+
+
+def _repository_service_image_identity() -> tuple[str, str]:
+    """Use repository_service's canonical identity calculator and fail closed."""
+
+    completed = subprocess.run(
+        [sys.executable, str(REPOSITORY_SERVICE_IDENTITY_SCRIPT), "identity"],
+        cwd=VNEXT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+    if completed.returncode != 0:
+        pytest.fail(
+            "unable to compute repository-service image identity; refusing to use an existing image; "
+            f"stdout={completed.stdout[-500:]} stderr={completed.stderr[-500:]}"
+        )
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        pytest.fail(f"repository-service identity output is invalid JSON: {exc}")
+    if not isinstance(payload, dict):
+        pytest.fail("repository-service identity output must be a JSON object")
+    build_input_revision = payload.get("build_input_revision")
+    source_tree_sha256 = payload.get("source_tree_sha256")
+    if not isinstance(build_input_revision, str) or not isinstance(source_tree_sha256, str):
+        pytest.fail("repository-service identity output is missing required identity fields")
+    return build_input_revision, source_tree_sha256
+
+
+def _repository_service_image_matches(
+    image_info: dict[str, Any],
+    expected_identity: tuple[str, str],
+) -> bool:
+    if image_info.get("missing"):
+        return False
+    labels = image_info.get("labels")
+    if not isinstance(labels, dict):
+        return False
+    return (
+        labels.get(REPOSITORY_SERVICE_BUILD_INPUT_LABEL) == expected_identity[0]
+        and labels.get(REPOSITORY_SERVICE_SOURCE_TREE_LABEL) == expected_identity[1]
+    )
 
 
 def build_compose_stack_images(env: dict[str, str]) -> None:
@@ -547,9 +602,26 @@ def persist_compose_gate_provenance(
     env: dict[str, str],
     provenance: dict[str, dict[str, str]],
 ) -> Path:
+    repository_service_info = _inspect_image(repository_service_image())
+    labels = repository_service_info.get("labels", {})
+    if not _repository_service_image_matches(
+        repository_service_info,
+        _repository_service_image_identity(),
+    ):
+        pytest.fail("repository-service image provenance is missing or stale when persisting gate evidence")
+    if not isinstance(labels, dict):
+        pytest.fail("repository-service image labels are unavailable when persisting gate evidence")
     payload = {
         "compose_project_name": env["COMPOSE_PROJECT_NAME"],
         "containers": provenance,
+        "repository_service_image": {
+            "image_ref": repository_service_image(),
+            "image_id": repository_service_info.get("id"),
+            "labels": {
+                REPOSITORY_SERVICE_BUILD_INPUT_LABEL: labels[REPOSITORY_SERVICE_BUILD_INPUT_LABEL],
+                REPOSITORY_SERVICE_SOURCE_TREE_LABEL: labels[REPOSITORY_SERVICE_SOURCE_TREE_LABEL],
+            },
+        },
     }
     COMPOSE_GATE_PROVENANCE_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return COMPOSE_GATE_PROVENANCE_PATH

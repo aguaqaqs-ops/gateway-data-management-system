@@ -191,6 +191,9 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 
 ### G11. 缩短完整门禁（runner；owner 2026-10-14，DC30；S2b 合入后、S3 kickoff 前）
 
+状态：已完成（2026-10-17）。两位审核方均通过（`plans/p5-arch-closure-g11-independent-review.md`），tag `p5-g11-exit` 在 H `dcff8c0685`，合并提交 `fa902aa200`。
+验收条款全部满足，但完整门禁只缩短约 2%（backend 批次缩短约 8%）：backend 耗时的 91.7% 来自 7 个 Compose 旅程文件，原计划的前提不成立。后续见 G11b。
+
 backend 批次单进程约 24 分钟（S2b 门禁 2,818 个用例），占完整门禁约 30 分钟中的大部分。AGENTS.md“其余包单进程”的前提（足够快、xdist 启动开销占主导）对 backend 已不成立。
 
 1. 先测量：在 clean worktree 上对 backend 批次加 `--durations=50` 跑一次，拆出 Compose 旅程、其他 serial 类用例与普通用例各自的耗时；
@@ -211,6 +214,38 @@ kickoff 补充（审核方 2026-10-16，S2b 合入后）：
 - 停止条件：需要改生产代码才能让用例隔离；需要删除、跳过或放宽用例；需要 xdist 以外的依赖；两次完整 runner 中任一次出现只在并行下出现的失败且无法在测试侧定位。
 - 工作区：`/home/dev/gdds-p5-g11`，分支 `p5-g11`，kickoff base 为 `main` 当时的 HEAD；按执行计划 §8 的阶段流程独立审核。
 
+### G11b. Compose 旅程的 RS 镜像绑定与耗时测量（harness；owner 2026-10-17；S3 kickoff 前）
+
+来源：G11 第二审 R2-F1、R2-O1 与 §2.2（`plans/p5-arch-closure-g11-independent-review.md`）。
+
+1. **R2-F1 修复。** backend 的 Compose 旅程不得使用身份与当前树不一致的 repository-service 镜像。
+   - 当前行为：`compose_gate_harness.ensure_repository_service_image()` 只在镜像不存在时才构建。
+   - 要求：比对镜像的 build-input/source-tree label 与当前树的 identity，不一致时重建；无法计算 identity 时（例如 worktree 有未提交改动），行为与 repository_service 的 Compose harness 一致，不得静默使用旧镜像。
+   - 测试：增加一个权威测试，以参数表覆盖“一致→不构建”和“不一致或缺失→构建”。
+   - 修改 harness 属于强制重建项。
+2. **测量。** 对 11 个 Compose 旅程用例逐个拆分以下阶段的耗时：
+   - 镜像构建；
+   - 起栈与就绪；
+   - 旅程本身，并单独列出其中的固定等待，如租约过期、超时、轮询间隔；
+   - 重启；
+   - 拆栈与清理。
+
+   测量用的计时代码不进入提交：可以临时加在调试运行里，补丁存放在 worktree 外的日志目录，供审核核对。
+3. **方案报告（不实施）。** 根据测量结果，评估以下方案的预期节省、风险、涉及文件，以及是否属于强制重建项：
+   - 多个旅程并发运行：需要按 project 参数化 host 端口和 gate 锁，涉及 `deploy/compose.yaml`；
+   - 同一文件内共享 Compose 栈；
+   - 在测试栈中缩短固定等待；
+   - 部分旅程只在阶段退出时运行；
+   - 维持现状。
+
+   报告交 owner 决定是否另立一步实施。
+4. **文档。** 在 AGENTS.md 与 testing-conventions 的 carried 第 3 条中写明：backend/worker 重建时检出的应是最终 HEAD（R2-O1）。
+5. **验收。**
+   - 门禁提交上运行一次完整权威 runner，exit 0，用例数与 G11 一致（R2-F1 新增的用例除外，须逐项说明）；
+   - provenance 中的 RS 镜像 label 与 V 的 identity 一致；
+   - 提交测量报告；
+   - 独立审核通过后打 `p5-g11b-exit`，取代 `p5-g11-exit` 作为 S3 的区间起点。
+
 ## 3. 顺序
 
 1. 已完成：S1 第 3 次复审通过 → `--no-ff` 合入 `main`（`139ee5fffd`）→ tag `p5-s1-exit`；G1、G5、G9。
@@ -230,4 +265,6 @@ kickoff 补充（审核方 2026-10-16，S2b 合入后）：
    2026-10-12：S2b 在真实数据旅程中停止（t1-v1 投影 23 项 `KEY_MISSING`，源 DDL 无主键）；owner 决议 DC29（无主键表兜底规则，决议记录 §12），S2b 按执行计划 §8.5 S2b.8 恢复。
    已完成（2026-10-16）：第 1 次复审通过（`plans/p5-arch-closure-s2b-independent-rereview-1.md`），tag `p5-s2b-exit` 在 `bd0b1d042f`，合并提交 `b130c35e3d`。
 8. G11：S2b 合入后、S3 kickoff 前，缩短完整门禁（backend 并行化）。调试与取证分开（执行计划 §8.9，DC30）自 2026-10-14 起对 S2b 剩余部分与之后各阶段生效。
+   已完成（2026-10-17）：tag `p5-g11-exit`（`dcff8c0685`），合并提交 `fa902aa200`。
+   G11b：Compose 旅程的 RS 镜像绑定（R2-F1）与耗时测量；S3 kickoff 前完成，S3 的区间起点改为 `p5-g11b-exit`。
 9. P5 exit：按 G10 清理。

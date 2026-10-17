@@ -880,7 +880,14 @@ def test_facade_lazy_import_reachability_depends_on_imported_symbol(
     expect_composite_unreachable: bool,
 ) -> None:
     modules = backend_modules()
-    edges = _backend_edges()
+    # Isolate the facade closure from its S3 consumer so this test exercises the
+    # function-local import rule for both a bare package and a synthetic consumer.
+    edges = [
+        edge
+        for edge in _backend_edges()
+        if edge.target != "gateway_backend.capabilities.composite_signal"
+        or edge.source == "gateway_backend.capabilities.composite_signal"
+    ]
     assert any(
         edge.source == "gateway_backend.capabilities.composite_signal"
         and edge.context == "function"

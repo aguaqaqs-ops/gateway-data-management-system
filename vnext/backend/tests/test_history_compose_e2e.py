@@ -744,6 +744,17 @@ def test_compose_history_compare_journey_zero_write_restart(
             assert commits_before == commits_after_replay
             assert manifests_before == manifests_after_replay
 
+            with httpx.Client(
+                base_url=BACKEND_URL,
+                headers=_auth_headers(token=ARCHIVER_TOKEN),
+                timeout=120.0,
+            ) as reviewer:
+                _approve_submission(
+                    reviewer,
+                    str(journey_c["submission_id"]),
+                    idempotency_key="history-review-c-before-composite",
+                )
+
             logic_v1 = load_composite_fixture_text(
                 "xml/valid/s3-minimal-logic/input.xml"
             ).encode("utf-8")
@@ -762,6 +773,16 @@ def test_compose_history_compare_journey_zero_write_restart(
                     modified_xml=logic_v1,
                 ),
             )
+            with httpx.Client(
+                base_url=BACKEND_URL,
+                headers=_auth_headers(token=ARCHIVER_TOKEN),
+                timeout=120.0,
+            ) as reviewer:
+                _approve_submission(
+                    reviewer,
+                    str(composite_v1["submission_id"]),
+                    idempotency_key="history-review-composite-v1",
+                )
             main_after_composite_v1 = resolve_main_commit_id(
                 env,
                 repository_id,

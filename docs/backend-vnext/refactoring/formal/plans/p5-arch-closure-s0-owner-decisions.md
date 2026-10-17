@@ -12,6 +12,7 @@
 - 补充：2026-10-12 S2b 真实数据旅程停止后，owner 决议无主键表的兜底规则，记录为 DC29，见 §12。
 - 补充：2026-10-14 owner 决议调试与取证分开、P5 性能指标分三层，记录为 DC30，见 §13。
 - 补充：2026-10-15 S2b t4 真实数据暂停后，owner 决议 Catalog 上限、读取失败的终态与 P5 的性能范围，记录为 DC31，见 §14；其中第三部分修订 DC30 的 B 层处理与业务容量目标的用法。
+- 补充：2026-10-17 owner 决议把 Phase 6 规划讨论稿的 V2 并入 S5，扩展 S5 的测量范围，记录为 DC32，见 §15。
 
 ```yaml
 record_kind: p5_arch_closure_s0_owner_decisions
@@ -502,3 +503,36 @@ implementation_authorized: no
   6. 对照基准：S2b 取证运行在 handoff 中按档、按版本记录可经公开接口取得的结果事实——规范状态摘要、Preview 表级状态计数、Submit 结果、History
      比较的记录总数与 bundle / surface 摘要（不含行数据；按类型的记录数没有公开接口，2026-10-16 按 S2b 复审更正）。Phase 6 改写后在同一数据集上应得到相同结果，作为改写的正确性对照。
 - **落点**：执行计划 §2 S2b 内容 12 与验收、§3 S2b、§8.5 S2b.9、S5；详细设计 §13；Repository Service Contract（由 S2b 实施方按本决议修改）。
+
+## 15. S5 测量范围扩展为 Phase 6 的下界输入（DC32，2026-10-17）
+
+#### DC32 S5 的测量按阶段、按表分段，并测基本操作的吞吐
+
+- **来源**：[Phase 6 规划讨论稿](p6-planning-discussion.md) §3、§9 V2。Phase 6 改为“先测下界、再定目标”，需要每个阶段的耗时构成、逐表成本和本机基本操作的吞吐。
+  设计 §13 原定的单链路测量不足以支撑：旧实现的逐表统计已经不存在，需要重新实测。
+- **决议**（repository owner，2026-10-17）：讨论稿的 V2 并入 S5。S5 的测量在设计 §13 的基础上增加以下内容。
+
+  **一、阶段分段**
+  1. Preview、Submit、History 三类 operation 的每一步，拆到以下阶段：解析与物化；规范投影与表摘要；基线读取（RS I/O 与 Arrow → Python 转换分开）；
+     比较；风险与 surface；artifact 写入；mutation planning 与回放；Repository 导入与提交。每段记录墙钟与 CPU 时间。
+  2. 分段至少覆盖 t4 的 v1 Preview、重传 v1 Preview、v2 Preview、v1 Submit、v2 Submit 和 History；t1–t3 至少覆盖 v2 Preview，用于看规模关系。
+
+  **二、逐表成本**
+  1. 每张表、每个阶段记录墙钟与线程 CPU 时间，以及结构特征：行数、列数、比较角色、是否 ordered、产出的记录数、本次是否有变化。
+  2. 输出只含表名与数字，不含行数据。完整明细存放在决议记录 §4 授权的外部目录；handoff 给出按比较角色、行数区间汇总的分布表，以及耗时最高的若干张表。
+
+  **三、基本操作吞吐**
+  1. 在本机分别测量：包解压；现有 SQL 解析；Arrow → Python 转换；现有摘要计算，以及标准库可用的 SHA-256 与 BLAKE2b；Arrow IPC 写入与内存映射读取；
+     RS 逐表 Arrow 读取；同样规范数据直接导入 Dolt（在外部临时目录中的 Dolt 仓库，测完删除）。
+  2. 不新增依赖。BLAKE3 与 Rust 内核的吞吐留给讨论稿 V1。
+
+  **四、两个时间指标**
+  1. 每个 operation 分别记录“用户可见时间”（受理到结果可读）与“完成时间”（operation 终态）；当前实现中两者相同，照样分开记录，作为 Phase 6 的对照。
+  2. 条件允许时，按同一口径测一次旧实现（`legacy/backend_vnext/`）的 t4 Preview 两个指标；旧实现的运行环境无法恢复时，在 handoff 中说明原因，不阻塞 S5。
+
+  **五、实施方式与边界**
+  1. 测量在进程内调用生产 capability 的入口完成（同 `real_dump_census.py` 的方式），不另写一套逻辑；需要容器内的数据时，用 S2b 起的 journey 计时与 cgroup CPU 记录。
+  2. 不为测量改动产品代码，也不新增常驻的计时机制。确需在产品代码内计时的，按 G11b 的先例：使用不提交的临时补丁，补丁与日志存放在 worktree 外。
+  3. 测量属于调试运行（DC30），不是门禁证据；它不改变 S5 的通过条件（DC31：P5 只验证正确性），但测量结果是 S5 的必交物。
+  4. 测量脚本与其测试放在 `vnext/backend/benchmarks/` 与 `tests/test_real_dump_*.py`。
+- **落点**：执行计划 §2 S5、§3 S5；详细设计 §13；Phase 6 规划讨论稿 §9 V2、§10 第 7 项。

@@ -843,8 +843,8 @@ def test_production_reachability_matches_frozen_baseline() -> None:
 
 
 REACHABILITY_MODULE_SHAPES: tuple[tuple[str, bool], ...] = (
-    ("gateway_backend.capabilities.snapshot_materialization.compose", True),
-    ("gateway_backend.capabilities.table_access._xml_parser", True),
+    ("gateway_backend.capabilities.snapshot_materialization.compose", False),
+    ("gateway_backend.capabilities.table_access._xml_parser", False),
     ("gateway_backend.bootstrap.operation_worker", False),
     ("gateway_backend.application.submit_jobs", False),
 )

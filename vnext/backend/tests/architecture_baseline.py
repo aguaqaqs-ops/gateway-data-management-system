@@ -29,15 +29,5 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",
         "gateway_backend.capabilities.external_target_sync.contracts",
-        # S3: composite facade has no reachable consumer until business snapshot composition is wired.
-        "gateway_backend.capabilities.composite_signal._ast",
-        "gateway_backend.capabilities.composite_signal._bind",
-        "gateway_backend.capabilities.composite_signal._digest",
-        "gateway_backend.capabilities.composite_signal.materialize",
-        # S3: business snapshot compose + composite catalog; XML parser until logics.xml path.
-        "gateway_backend.capabilities.snapshot_materialization._catalog",
-        "gateway_backend.capabilities.snapshot_materialization.compose",
-        "gateway_backend.capabilities.table_access._xml_parser",
-        "gateway_backend.capabilities.table_access.xml",
     }
 )

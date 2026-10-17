@@ -74,6 +74,11 @@ CANONICAL_STATE_DIGEST_INPUTS: tuple[tuple[str, dict[str, Any], bool], ...] = (
     ("invalid digest characters", {"canonical_business_digest": "sha256:" + "g" * 64}, False),
 )
 
+OPERATION_STATUS_POLL_CASES = (
+    ("service not ready retries", (503, 200), True, (2.0,), 1),
+    ("internal error remains a failure", (500,), False, (), 0),
+)
+
 
 def _cpu_snapshot(usage_usec: int) -> dict[str, dict[str, int]]:
     return {
@@ -274,18 +279,11 @@ def test_journey_step_runner_reuses_completed_steps_before_resume_point(
 
 
 def test_operation_terminal_progress_includes_protected_wall_time(
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     class OperationClient:
-        def get(self, _path: str) -> dict[str, str]:
-            return {"status": "SUCCEEDED"}
-
-    monkeypatch.setattr(
-        real_dump_journey,
-        "_require",
-        lambda response, _status, _label: cast(dict[str, Any], response),
-    )
+        def get(self, _path: str) -> httpx.Response:
+            return httpx.Response(200, json={"status": "SUCCEEDED"})
 
     result = real_dump_journey._poll_operation(
         cast(httpx.Client, OperationClient()),
@@ -301,6 +299,70 @@ def test_operation_terminal_progress_includes_protected_wall_time(
     assert terminal["operation_status"] == "SUCCEEDED"
     assert terminal["timeout_seconds"] == 30
     assert 0 <= terminal["operation_wall_seconds"] < 30
+
+
+@pytest.mark.parametrize(
+    ("case", "statuses", "succeeds", "expected_sleeps", "expected_retries"),
+    OPERATION_STATUS_POLL_CASES,
+    ids=[case for case, *_rest in OPERATION_STATUS_POLL_CASES],
+)
+def test_operation_status_retries_service_not_ready_within_deadline(
+    case: str,
+    statuses: tuple[int, ...],
+    succeeds: bool,
+    expected_sleeps: tuple[float, ...],
+    expected_retries: int,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    del case
+    current_time = [0.0]
+    sleeps: list[float] = []
+    calls = 0
+
+    class OperationClient:
+        def get(self, _path: str) -> httpx.Response:
+            nonlocal calls
+            status = statuses[calls]
+            calls += 1
+            if status == 200:
+                payload = {"status": "SUCCEEDED"}
+            else:
+                payload = {"code": "SERVICE_NOT_READY" if status == 503 else "INTERNAL_ERROR"}
+            return httpx.Response(status, json=payload)
+
+    def sleep(delay: float) -> None:
+        sleeps.append(delay)
+        current_time[0] += delay
+
+    monkeypatch.setattr(time, "monotonic", lambda: current_time[0])
+    monkeypatch.setattr(time, "sleep", sleep)
+
+    if succeeds:
+        result = real_dump_journey._poll_operation(
+            cast(httpx.Client, OperationClient()),
+            "operation-1",
+            stage="t1 Preview",
+            timeout_seconds=5,
+        )
+        assert result["status"] == "SUCCEEDED"
+    else:
+        with pytest.raises(JourneyFailure, match="HTTP 500"):
+            real_dump_journey._poll_operation(
+                cast(httpx.Client, OperationClient()),
+                "operation-1",
+                stage="t1 Preview",
+                timeout_seconds=5,
+            )
+
+    assert calls == expected_retries + 1
+    assert tuple(sleeps) == expected_sleeps
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    retries = [event for event in events if event["event"] == "operation_status_retry"]
+    assert len(retries) == expected_retries
+    if retries:
+        assert retries[0]["status_code"] == 503
+        assert retries[0]["retry_count"] == 1
 
 
 def test_preview_summary_requires_one_complete_pair() -> None:

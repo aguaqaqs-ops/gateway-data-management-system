@@ -5,12 +5,14 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from threading import Event, Thread
 from types import TracebackType
 from typing import Self, cast
 
 import pytest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.operations.lease_session import LeaseSession as ConcreteLeaseSession
 from gateway_backend.operations.contracts import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationRecord,
@@ -25,6 +27,7 @@ from gateway_backend.operations.store import (
     OperationStore,
     OperationUnitOfWork,
     RecordNotFound,
+    StaleWrite,
     StoreBusy,
 )
 from gateway_backend.operations.worker import (
@@ -505,6 +508,122 @@ def test_heartbeat_serializes_with_publication_and_propagates_cancel() -> None:
     assert lifecycle.state is WorkerLifecycle.EXITED
     assert [event.code for event in events].count(WorkerEventCode.DRAIN_STARTED) == 1
     assert [event.code for event in events].count(WorkerEventCode.WORKER_EXITED) == 1
+
+
+@pytest.mark.serial
+def test_committed_terminal_operation_is_not_heartbeat_lease_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation, step = _active_records()
+    store = RuntimeStore(operation, step)
+    factory = RuntimeUowFactory(store)
+    terminal_published = Event()
+    heartbeat_attempted = Event()
+    clock = FakeClock()
+
+    def executor(
+        current_operation: OperationRecord,
+        current_step: StepRecord,
+        _control: ExecutionControl,
+        session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
+        def build_terminal(
+            live_operation: OperationRecord,
+            live_step: StepRecord,
+            now: datetime,
+        ) -> tuple[StepRecord, OperationRecord]:
+            assert live_operation == current_operation
+            assert live_step == current_step
+            terminal_step = dataclasses.replace(
+                live_step,
+                status=StepStatus.SUCCEEDED,
+                worker_id=None,
+                lease_token=None,
+                lease_expires_at=None,
+                updated_at=now,
+                completed_at=now,
+                optimistic_version=live_step.optimistic_version + 1,
+            )
+            terminal_operation = dataclasses.replace(
+                live_operation,
+                status=OperationStatus.SUCCEEDED,
+                updated_at=now,
+                completed_at=now,
+                optimistic_version=live_operation.optimistic_version + 1,
+            )
+            return terminal_step, terminal_operation
+
+        session.publish_operation(build_terminal)
+        terminal_published.set()
+        if not heartbeat_attempted.wait(timeout=5):
+            raise AssertionError("worker did not heartbeat during the terminal publication window")
+        return ExecutorAcknowledgment.PUBLISHED
+
+    original_heartbeat = ConcreteLeaseSession.heartbeat
+
+    def observe_heartbeat(session: ConcreteLeaseSession) -> StepRecord:
+        heartbeat_attempted.set()
+        return original_heartbeat(session)
+
+    monkeypatch.setattr(ConcreteLeaseSession, "heartbeat", observe_heartbeat)
+    startup = FakeStartup([ClaimedWork(operation, step, cast(ClaimedExecutor, executor))])
+    events: list[WorkerEvent] = []
+    draining = [False]
+
+    def wait(timeout: float) -> bool:
+        if timeout == 10.0:
+            if not terminal_published.wait(timeout=5):
+                raise AssertionError("executor did not commit the terminal operation")
+            clock.value += timeout
+            return False
+        assert timeout == 1.0
+        draining[0] = True
+        return True
+
+    _runtime(
+        startup,
+        factory,
+        events,
+        clock=clock,
+        thread_factory=cast(ThreadFactory, lambda target: Thread(target=target)),
+    ).run(
+        drain_requested=lambda: draining[0],
+        wait=wait,
+    )
+
+    assert heartbeat_attempted.is_set()
+    assert store.operation.status is OperationStatus.SUCCEEDED
+    assert store.step.status is StepStatus.SUCCEEDED
+    assert not any(event.code is WorkerEventCode.LEASE_LOST for event in events)
+
+
+def test_heartbeat_stale_write_before_terminal_commit_still_loses_worker_lease() -> None:
+    operation, step = _active_records()
+    store = RuntimeStore(operation, step)
+    factory = RuntimeUowFactory(store)
+    clock = FakeClock()
+    startup = FakeStartup(
+        [ClaimedWork(operation, step, cast(ClaimedExecutor, lambda *_args: None))]
+    )
+    events: list[WorkerEvent] = []
+
+    def wait(timeout: float) -> bool:
+        assert timeout == 10.0
+        store.step = dataclasses.replace(
+            store.step,
+            lease_token="lease-taken-over",
+            optimistic_version=store.step.optimistic_version + 1,
+        )
+        clock.value += timeout
+        return False
+
+    with pytest.raises(StaleWrite, match="worker or token no longer matches"):
+        _runtime(startup, factory, events, clock=clock).run(
+            drain_requested=lambda: False,
+            wait=wait,
+        )
+
+    assert any(event.code is WorkerEventCode.LEASE_LOST for event in events)
 
 
 def test_claim_busy_uses_bounded_exponential_backoff() -> None:

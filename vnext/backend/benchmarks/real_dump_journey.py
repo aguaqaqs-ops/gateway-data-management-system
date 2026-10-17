@@ -631,8 +631,26 @@ def _poll_operation(
     operation_started = time.monotonic()
     _emit_progress(stage, "operation_started", timeout_seconds=timeout_seconds)
     operation_deadline = time.monotonic() + timeout_seconds if deadline is None else deadline
+    retry_count = 0
     while time.monotonic() < operation_deadline:
-        payload = _require(client.get(f"/v1/operations/{operation_id}"), 200, "operation status")
+        response = client.get(f"/v1/operations/{operation_id}")
+        if response.status_code == 503:
+            retry_count += 1
+            remaining = operation_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            delay = min(2.0, remaining)
+            _emit_progress(
+                stage,
+                "operation_status_retry",
+                status_code=503,
+                retry_count=retry_count,
+                retry_delay_seconds=round(delay, 3),
+                timeout_seconds=timeout_seconds,
+            )
+            time.sleep(delay)
+            continue
+        payload = _require(response, 200, "operation status")
         status = payload.get("status")
         if status in TERMINAL_OPERATION_STATES:
             if status != "SUCCEEDED":

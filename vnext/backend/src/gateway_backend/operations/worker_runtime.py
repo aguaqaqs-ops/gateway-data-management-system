@@ -357,6 +357,9 @@ class WorkerRuntime:
                     self._observe_drain_intent(drain_requested, control)
                 continue
             except (StaleWrite, LeaseExpired):
+                if session.completion_acknowledgment() is not None:
+                    completed.wait()
+                    return pending_drain, False, None
                 raise
             return pending_drain, True, renewal_anchor
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Lock
@@ -28,7 +28,7 @@ from gateway_backend.application.workspace.ports import (
     WorkspaceControlUnitOfWorkFactory,
     WorkspaceRepository,
 )
-from gateway_backend.application.control_transactions import ControlDbUnitOfWorkFactory
+from gateway_backend.application.control_transactions import ControlDbSession
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory, HistorySnapshotLoaderPort
 from gateway_backend.http.errors import ApiError
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
@@ -53,6 +53,10 @@ class OperationReaderPort(Protocol):
 
     def get_step(self, step_id: str) -> StepRecord:
         """Return a step or raise RecordNotFound."""
+
+
+class ReadOnlyControlDbUnitOfWorkFactory(Protocol):
+    def __call__(self, *, read_only: bool = False) -> AbstractContextManager[ControlDbSession]: ...
 
 
 @runtime_checkable
@@ -284,11 +288,11 @@ def get_workspace_http(request: Request) -> WorkspaceHttpDependencies:
 class ReadOnlyOperationStore:
     """Read-only operation access for HTTP GET without opening a write transaction."""
 
-    def __init__(self, unit_of_work_factory: ControlDbUnitOfWorkFactory) -> None:
+    def __init__(self, unit_of_work_factory: ReadOnlyControlDbUnitOfWorkFactory) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
     def get_operation(self, operation_id: str) -> OperationRecord:
-        with self._unit_of_work_factory() as unit_of_work:
+        with self._unit_of_work_factory(read_only=True) as unit_of_work:
             try:
                 return unit_of_work.operations.get_operation(operation_id)
             except RecordNotFound:
@@ -301,7 +305,7 @@ class ReadOnlyOperationStore:
                 ) from None
 
     def get_step(self, step_id: str) -> StepRecord:
-        with self._unit_of_work_factory() as unit_of_work:
+        with self._unit_of_work_factory(read_only=True) as unit_of_work:
             try:
                 return unit_of_work.operations.get_step(step_id)
             except RecordNotFound:
@@ -317,15 +321,15 @@ class ReadOnlyOperationStore:
 class ReadOnlySubmissionStore:
     """Read-only submission access for HTTP GET without opening a write transaction."""
 
-    def __init__(self, unit_of_work_factory: ControlDbUnitOfWorkFactory) -> None:
+    def __init__(self, unit_of_work_factory: ReadOnlyControlDbUnitOfWorkFactory) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
     def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
-        with self._unit_of_work_factory() as unit_of_work:
+        with self._unit_of_work_factory(read_only=True) as unit_of_work:
             return unit_of_work.submission.get_submit_attempt(submit_attempt_id)
 
     def get_submission(self, submission_id: str) -> Submission | None:
-        with self._unit_of_work_factory() as unit_of_work:
+        with self._unit_of_work_factory(read_only=True) as unit_of_work:
             return unit_of_work.submission.get_submission(submission_id)
 
 

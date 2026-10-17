@@ -9,6 +9,7 @@ from gateway_shared_kernel import raw_blob_digest
 from tests.support.source_package_fixtures import load_bytes, pack_tar_gz
 
 _SQL = load_bytes("package/valid/s1-minimal-tar-gz/sql/dbcfg.sql")
+_COMPOSITE_SQL = load_bytes("business/valid/s3-special-device/input.sql")
 KEYLESS_FALLBACK_TABLE = "dc29_keyless_fallback"
 KEYLESS_FALLBACK_BASE_ROWS = ("duplicate", "duplicate", "stable")
 INITIAL_BYTES = pack_tar_gz({"sql/dbcfg.sql": _SQL})
@@ -84,6 +85,32 @@ def keyless_fallback_upload_files(
     )
     return upload_files(
         expected_version=expected_version,
+        initial_bytes=initial_bytes,
+        modified_bytes=modified_bytes,
+    )
+
+
+def composite_signal_upload_files(
+    expected_version: int,
+    *,
+    initial_xml: bytes,
+    modified_xml: bytes,
+) -> dict[str, tuple[str, bytes, str]]:
+    initial_bytes = pack_tar_gz(
+        {
+            "sql/dbcfg.sql": _COMPOSITE_SQL,
+            "comps/logic/logics.xml": initial_xml,
+        }
+    )
+    modified_bytes = pack_tar_gz(
+        {
+            "sql/dbcfg.sql": _COMPOSITE_SQL,
+            "comps/logic/logics.xml": modified_xml,
+        }
+    )
+    return upload_files(
+        expected_version=expected_version,
+        completeness="FULL",
         initial_bytes=initial_bytes,
         modified_bytes=modified_bytes,
     )

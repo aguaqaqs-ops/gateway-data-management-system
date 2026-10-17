@@ -271,4 +271,16 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    已完成（2026-10-17）：tag `p5-g11-exit`（`dcff8c0685`），合并提交 `fa902aa200`。
    G11b：Compose 旅程的 RS 镜像绑定（R2-F1）与耗时测量；S3 kickoff 前完成，S3 的区间起点改为 `p5-g11b-exit`。
    已完成（2026-10-17）：tag `p5-g11b-exit`（`944982eb91`），合并提交 `e8b5322b3c`。S3 kickoff 的区间起点为 `p5-g11b-exit`。
-9. P5 exit：按 G10 清理。
+9. S3 kickoff（区间起点 `p5-g11b-exit`；worktree `/home/dev/gdds-p5-s3`，分支 `p5-s3`，kickoff base `be5fd5a970`）。
+   2026-10-17 停止（STOP handoff `72bdb6a9ee`）：审核方的实施提示词要求“用公开接口取得的逐表 Preview 状态，证明除 `composite_signal_point` 外各表与 S2b 相同”。这超出了执行计划 §2 S3 的验收，而且 Backend 没有公开读取逐表状态的接口。实施方没有新增接口，也没有用容器内读取代替，这样处理是对的。
+
+   owner 决议（2026-10-17）：
+   - **不新增公开接口。** 逐表 Preview 读取接口属于新的公开 Contract，不在 S3 范围内。
+   - **证据要求改为公开汇总事实，并与 S2b 对照基准（s2b handoff §8.5）比较：**
+     - Preview：`table_count` = S2b + 1，degraded 与 failed 为 0；v2 的 changed = S2b 值 + (composite 有变化 ? 1 : 0)；
+     - RS Catalog：表数 = S2b + 1；总行数减去 `composite_signal_point` 的行数等于 S2b 的总行数；
+     - History：`record_count` 与 S2b 的差值等于 composite 的 v1→v2 记录数。这个记录数由主机侧离线投影从同一批包计算，只输出计数，再用生产比较能力比较 composite 表。
+     - S2b 已有的真实数据不变量继续成立。
+   - **恢复 `test_comparison_canonical_domain.py` 的“同内容 → 全表 UNCHANGED”不变量。** S3 实施中，这个测试被改成断言 composite 为 `ADDED_TABLE`，原因是 Repository 侧基线夹具里没有那张零行的 composite 表。按 DC6，S3 之后的提交都带这张表，应修正夹具，不应改变测试的含义。
+   - **取证期间暂停主机上与本项目无关的批量负载。** preflight 以 Dolt、Compose、8000 端口为硬条件，并记录负载。
+10. P5 exit：按 G10 清理。

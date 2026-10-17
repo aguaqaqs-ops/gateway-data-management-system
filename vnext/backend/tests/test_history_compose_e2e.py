@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryColumn
 from tests.support.compose_gate_harness import (
     BACKEND_URL,
     BASELINE_NODE_ID,
@@ -40,8 +41,12 @@ from tests.support.compose_gate_harness import (
     start_three_container_stack,
     wait_http_ok,
 )
-from tests.support.history_compare_job_harness import history_compare_provider
-from tests.support.repository_ref_materialization import FakeRepositoryTableAccessProvider
+from tests.support.repository_ref_materialization import (
+    FakeRepositoryTableAccessProvider,
+    catalog_table,
+    int_id_column,
+    make_catalog,
+)
 from tests.support.history_compare_oracle import oracle_comparison_digest
 from tests.support.composite_signal import load_text as load_composite_fixture_text
 from tests.support.upload_http_packages import composite_signal_upload_files
@@ -226,18 +231,65 @@ def _standard_provider_from_repository(
     commit_id: str,
 ) -> FakeRepositoryTableAccessProvider:
     raw_rows = read_repository_table_rows(env, repository_id, commit_id, "t")
-    if not raw_rows:
-        return history_compare_provider(
-            commit_id=commit_id,
-            row_count=0,
-            declared_rows={},
-            catalog_without=("t",),
-        )
     rows = tuple((int(cast(int, row[0])),) for row in raw_rows)
-    return history_compare_provider(
-        commit_id=commit_id,
-        row_count=len(rows),
-        declared_rows={"t": rows},
+    composite_rows = read_repository_table_rows(
+        env,
+        repository_id,
+        commit_id,
+        "composite_signal_point",
+    )
+    tables = (
+        catalog_table("t", (int_id_column(),), row_count=len(rows)),
+        catalog_table(
+            "composite_signal_point",
+            (
+                RepositoryColumn(
+                    name="source_table",
+                    ordinal=0,
+                    scalar_type="VARCHAR(64)",
+                    nullable=False,
+                ),
+                RepositoryColumn(
+                    name="point_gid",
+                    ordinal=1,
+                    scalar_type="BIGINT",
+                    nullable=False,
+                ),
+                RepositoryColumn(
+                    name="point_name",
+                    ordinal=2,
+                    scalar_type="TEXT",
+                    nullable=False,
+                ),
+                RepositoryColumn(
+                    name="formula_digest",
+                    ordinal=3,
+                    scalar_type="TEXT",
+                    nullable=True,
+                ),
+                RepositoryColumn(
+                    name="formula_ast_json",
+                    ordinal=4,
+                    scalar_type="LONGTEXT",
+                    nullable=True,
+                ),
+            ),
+            primary_key=("source_table", "point_gid"),
+            row_count=len(composite_rows),
+        ),
+    )
+    catalog = make_catalog(
+        tables,
+        repository_id=repository_id,
+        ref=commit_id,
+        commit=commit_id,
+    )
+    declared_rows = {"t": rows, "composite_signal_point": composite_rows}
+    return FakeRepositoryTableAccessProvider(
+        catalog=catalog,
+        rows=declared_rows,
+        declared_rows=declared_rows,
+        current_commit=commit_id,
     )
 
 

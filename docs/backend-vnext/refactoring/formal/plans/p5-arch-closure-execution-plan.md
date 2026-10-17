@@ -254,7 +254,7 @@ F1、F3、F4、F11 对应的修复不得作为普通延期项带入 P5 exit（�
   - 阶段分段：Preview、Submit、History 的每一步拆到解析与物化、规范投影与表摘要、基线读取（RS I/O 与 Arrow → Python 转换分开）、比较、风险与 surface、
     artifact 写入、mutation planning 与回放、Repository 导入与提交，各段记录墙钟与 CPU；至少覆盖 t4 的 v1 / 重传 v1 / v2 Preview、v1 / v2 Submit 与 History，t1–t3 至少覆盖 v2 Preview；
   - 逐表成本：每张表、每个阶段的墙钟与线程 CPU，以及行数、列数、比较角色、是否 ordered、记录数、本次是否有变化；完整明细放在外部授权目录，handoff 给出按角色与行数区间的分布和耗时最高的表；
-  - 基本操作吞吐：包解压、现有 SQL 解析、Arrow → Python 转换、现有摘要与标准库 SHA-256 / BLAKE2b、Arrow IPC 写入与内存映射读取、RS 逐表 Arrow 读取、同样规范数据直接导入 Dolt；不新增依赖；
+  - 基本操作吞吐：包解压、现有 SQL 解析、Arrow → Python 转换、现有摘要与 SHA-256 / BLAKE2b / BLAKE3、Arrow IPC 写入与内存映射读取、RS 逐表 Arrow 读取、同样规范数据直接导入 Dolt；只授权在 backend dev group 增加 `blake3`（条件见决议记录 §15 第三部分），不授权其他依赖；
   - 每个 operation 分别记录用户可见时间与完成时间；条件允许时按同一口径测一次旧实现的 t4 Preview，做不到时说明原因，不阻塞 S5；
   - 测量在进程内调用生产 capability 入口完成，不为测量改动产品代码；确需在产品代码内计时的，用不提交的临时补丁（G11b 先例）。测量是调试运行，不改变 S5 的通过条件，但结果是必交物。
 - 最终门禁：fresh 构建 current HEAD 镜像；全部 compose 旅程 0 skipped；`./vnext/scripts/run-tests.sh` 全量；五包静态检查；

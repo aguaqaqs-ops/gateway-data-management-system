@@ -524,7 +524,12 @@ implementation_authorized: no
   **三、基本操作吞吐**
   1. 在本机分别测量：包解压；现有 SQL 解析；Arrow → Python 转换；现有摘要计算，以及标准库可用的 SHA-256 与 BLAKE2b；Arrow IPC 写入与内存映射读取；
      RS 逐表 Arrow 读取；同样规范数据直接导入 Dolt（在外部临时目录中的 Dolt 仓库，测完删除）。
-  2. 不新增依赖。BLAKE3 与 Rust 内核的吞吐留给讨论稿 V1。
+  2. BLAKE3 一并测量（owner 2026-10-17 补充授权）：S5 实施方在 backend 的 dev group 中增加 `blake3`，按 AGENTS.md「改依赖」用 `uv add --dev` 精确钉版本
+     （取实施时 PyPI 上已发布至少两周的最新稳定版），lock 保持 canonical PyPI identity（`test_canonical_lock_identity.py`），handoff 记录版本与 lock 的变化。
+     - 只授权 `blake3`；不授权其他依赖变化。只用于 `benchmarks/` 中的测量，不进入生产代码。
+     - backend 镜像构建复制 `uv.lock`，这属于强制重建项；S5 的最终门禁本来就要 fresh 构建，不另增门禁。
+     - 如果项目所用的 Python 版本没有可用的预编译 wheel，需要在构建时编译 Rust，则不增加该依赖，在 handoff 中说明，BLAKE3 的吞吐留给讨论稿 V1。
+     - Rust 内核的吞吐仍留给 V1。
 
   **四、两个时间指标**
   1. 每个 operation 分别记录“用户可见时间”（受理到结果可读）与“完成时间”（operation 终态）；当前实现中两者相同，照样分开记录，作为 Phase 6 的对照。

@@ -1,6 +1,6 @@
 # P5 架构收口 S3 完成 handoff
 
-- 状态：**handoff 内容已收敛，待提交并完成 carried 复核；之后交独立审核。审核通过前不开始 S4。镜像记录中披露一项 runner 构建副作用，交 reviewer 判断其对退出的影响。**
+- 状态：**V 门禁与真实数据验收完成；handoff 已提交。H0 与最终 H 的 carried 记录见 §7；等待独立审核。审核通过前不开始 S4。镜像记录中披露一项 runner 构建副作用，交 reviewer 判断其对退出的影响。**
 - 日期：2026-10-18
 - 分支 / worktree：p5-s3 / /home/dev/gdds-p5-s3
 - range_start：p5-g11b-exit，944982eb910dab9cbfc117a976dea6721cdd6ca2
@@ -53,7 +53,7 @@ t4 v1 Submit 的公开 operation-status 查询返回 HTTP 500 `INTERNAL_ERROR`�
 | 早期 STOP 记录 | 72bdb6a9ee | 历史停止原因与 owner 决议见 §1。 |
 | 第二次 STOP 记录 | ac9146da7f | 记录 owner 决议前的 t4 v1 Submit 500。 |
 
-V = `dc9c08a410829f303aae1e0f826c674b335cb94b`。`f73deee604..V` 中的 `2179e89138`、`dc9c08a410` 只改真实数据 benchmark / tests；完整 runner 与 t4、t1 真实数据均在这个新 V 上完成。V..H 只提交本 handoff 文件；carried 结果将在 H 提交后记录并复核。
+V = `dc9c08a410829f303aae1e0f826c674b335cb94b`。`f73deee604..V` 中的 `2179e89138`、`dc9c08a410` 只改真实数据 benchmark / tests；完整 runner 与 t4、t1 真实数据均在这个新 V 上完成。V..H 仅提交本 handoff 文件；H0=`576755e99714ec9449fc730ea188fddb3b41fdbf` 为初次汇总，最终 H 在其后只更新本文件中的 carried 结果。
 
 ## 3. 路径预算与偏差
 
@@ -132,11 +132,11 @@ provenance：`/home/dev/gdds-p5-closure-s1-gate-logs/s3-v-dc9c08a4-provenance.js
 
 在 V 上执行 `python3 vnext/repository_service/tests/support/build_context_digest.py identity`，结果 candidate SHA=`dc9c08a410829f303aae1e0f826c674b335cb94b`、build-input revision `adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree `sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`。后两个值分别等于 provenance repository-service image 的 `gateway.p2r1.build-input-revision` 和 `gateway.p2r1.source-tree-sha256` label。记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/s3-v-dc9c08a4-image-record.log`。
 
-carried 将在最终 handoff 提交 H 上、同一 V runner worktree 内检查。使用 V provenance 中的 project 名连续构建 backend / worker 两次，两次构建之间不运行测试；之后在 H 重算 RS identity。日志与镜像 ID 将在下文追加。
+carried 在 V runner 同一 worktree `/home/dev/gdds-p5-s3` 完成。H0=`576755e99714ec9449fc730ea188fddb3b41fdbf` 上重算 RS identity：candidate SHA 为 H0，build-input revision=`adc5d87fea073545fde6416d123c3d7845e715ff`、source-tree=`sha256:5b34d0c51e8d4798beb06d7524e9610785a2ad95763fbfd0ddcb942cb2eb8fd4`；后两项与 V provenance label 一致。随后使用 provenance project `ordered-bisect-b-2871524-baseline` 连续两次执行 `docker compose -f compose.yaml build backend worker`，两次之间没有运行测试；两次 backend ID 均为 `sha256:88f617468ba1315884f377a325955c9e21ebe4139dcf7f663bfb97727e4f7d0e`，worker ID 均为 `sha256:eb8e6d236ecd0e00f2de9b3c2d657f0f148dc81d2801e336e49888a479e21d17`，都等于 V provenance。日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s3-h0-carried-20261018.log`，耗时约 10 s。H0 与最终 H 之间只有本文件变化；最终 H 在同一 worktree 重算 identity 并重复两次构建，日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s3-final-h-carried-20261018.log`，identity 的 build-input/source-tree 及两镜像 ID 与上述相同，构建间未运行测试。
 
 受保护 client 镜像记录：`gateway-repository-client-e2e-base:local` 当前 ID 为 `sha256:dafde407833e087cc619da34b3e352e7fa85e63d6138ed8d516cdccfa3e46764`，与先前记录一致。`gateway-repository-client-e2e:local` 当前 ID 为 `sha256:55c506d6ef4895a6c8bf8d734c3e9fc21772554186a1cad66f386dba83aacb90`，创建时间为 2026-10-18 15:51:29 +01:00，revision label 为 V。repository_client Compose 用例的 `ensure_client_image()` 因 candidate label 不匹配，通过 `docker build -t gateway-repository-client-e2e:local` 更新了这个 tag。未运行 `docker rmi` 或 `docker tag` 命令，但该构建确实改变了受保护 tag 指向的 image ID；未尝试恢复（恢复需要再次改 tag）。上一份 handoff 记录的 client image ID 为 `sha256:7883e067020adbdb84f8d7e305218e492f161058b85fa7b74f774acc27811368`，但没有本次 runner 紧邻开始前的 image 快照。此 runner side effect 与原始“不重新 tag”要求的边界请 reviewer 明确评价，不宣称 client image 未变。
 
-镜像标签变更的事实以本节上一段的 V runner provenance 和 image ID 记录为准；没有可证明的 H0 前后快照，故不声称 `gateway-repository-client-e2e:local` 在整个阶段未变。carried 只记录其开始与结束时的观察值，不执行删除或改 tag 操作。
+镜像标签变更的事实以本节前两段的 V runner provenance 和 image ID 记录为准；没有可证明的 V runner 开始前快照，故不声称 `gateway-repository-client-e2e:local` 在整个阶段未变。H0 carried 开始与结束时，client tag 均为 `sha256:55c506d6ef4895a6c8bf8d734c3e9fc21772554186a1cad66f386dba83aacb90`，base tag 均为 `sha256:dafde407833e087cc619da34b3e352e7fa85e63d6138ed8d516cdccfa3e46764`；final H carried 也记录在上述日志中。carried 未执行受保护镜像的删除或改 tag 操作。
 
 ## 8. 真实数据身份与规模
 
@@ -319,7 +319,7 @@ t1 journey wall 为 377.587 s（S2b 380.335 s，−2.748 s）；t4 journey wall 
 - 真实调试明确为“未复现”：调试 t4 v1 Preview / Submit 成功，无 HTTP 500、StaleWrite 或 worker restart；控制库插桩未发现超过 1 秒的写事务，持锁超过 5 秒的 owner 未找到。移除修复时只读锁测试、StoreBusy 映射测试与 heartbeat 竞态测试均按预期失败。插桩补丁及日志在 §1 列出，不作为门禁证据。
 - 失败 / 作废运行如实记录：62cca24b99 的 full runner 因 Catalog exact-set 旧期望失败，f73deee604 修正后通过；6a1e002033 runner exit 141 作废。2026-10-18 多次 t4 尝试在离线 census 阶段因外部 pytest 按较早的严格单飞口径而中断（exit 130），有一次调用因 PATH 无 python 退出 127；这些尝试未启动本 journey 的 Compose 栈，不是产品失败或门禁证据。另有一次运行到 History 后收到 SIGINT，exit 130，操作未终态，作废而非通过；拆栈前保存了 backend、worker、Repository Service 全部日志，记录于 /home/dev/gdds-p5-closure-s1-gate-logs/s3-post-fix-void-runs-20261018.txt 及 s3-post-fix-t4-compose-errors-run5-20261018/。在用户明确允许外部负载低于限额后，最终 run6 在 load 远低于 nproc=96 的条件下完成，未作废。第一次 V preflight 的 pgrep 模式误匹配其自身 shell，没有启动 runner；修正为精确进程名检查后通过，日志在 s3-final-v-preflight-20261018-corrected.log。此前 --validate-inputs 缺主机 pyarrow / root 环境变量和缺 --keep-stack project-name 的检查没有启动真实数据栈。所有重试细节、时间和退出码在外部 void-runs 日志中。
 - 镜像副作用另见 §7：final runner 的 client Compose 用例经 docker build -t 改变了 gateway-repository-client-e2e:local 的指向。未手动运行 docker rmi 或 docker tag；base tag 未变。该 side effect 不隐去，交 reviewer 判断与原始约束的关系。
-- 最终 handoff H 与 carried 尚待完成；未合并或 rebase main、未打 tag、未推送；S4 尚未开始，仍等待 S3 独立审核结论。
+- H0 和最终 H 的 carried 均按 §7 记录并与 V provenance 对齐；未合并或 rebase main、未打 tag、未推送；S4 尚未开始，仍等待 S3 独立审核结论。
 
 ## 11. 请 reviewer 重点核查
 

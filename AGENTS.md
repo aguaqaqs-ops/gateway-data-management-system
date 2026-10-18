@@ -24,6 +24,21 @@
 ./vnext/scripts/run-tests.sh
 ```
 
+阶段可用 `GATEWAY_TEST_PACKAGES` 只运行所需包，例如
+`GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法包名为
+`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；
+重复或未知名称以 exit 2 拒绝，选择顺序仍按权威 runner 的固定顺序执行。未设置该变量时运行全部包，
+原有两遍拆分、Compose 临时目录处理和五锁检查不变。S5 最终门禁与发布门禁必须运行全部包。
+
+runner 开始时会用 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>`
+为每个待运行包输出 JSON manifest；总摘要由逐项的 Git tree object、`legacy/` 内容和环境版本摘要组成，
+dirty worktree 会被拒绝。handoff 可用 `compare --source <V-manifest.json> --current <当前-manifest.json>`
+输出“可沿用”或“运行”及变化组成部分。来源 V 必须是该包实际运行并通过的权威 runner 运行：worktree
+clean、日志记录起止 HEAD、该包通过、整次 runner exit 0；只跑部分包的 runner 也可作为来源。若当前 V
+的包闭包有变化，该包必须在当前 V 实际运行并通过。handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志；
+链式沿用始终直接引用最初实际运行该包的 V，不引用沿用结果。详细规则见
+[testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
+
 权威入口的运行前提（不满足时结果不能作为门禁证据）：
 
 - 在已提交的 clean worktree 上运行。`repository_service` 的 Compose 用例经
@@ -186,6 +201,12 @@ sha256sum vnext/repository_service/uv.lock
 
 任一条件不满足，就在最终 HEAD 重建并重跑。同一提交上权威 runner 已运行过的 Compose 旅程
 （含 backend 批次中的 Compose 测试）不再单独重跑，provenance 取自该次运行。
+
+按包沿用与镜像身份等价分别判定：前者决定当前 V 上要运行哪些包，后者决定 V..H 的镜像结果能否
+`carried`。backend 闭包包括 Compose 使用的完整 `vnext/` Docker build context、Compose 与 Dockerfile、
+Rust workspace，以及测试运行时本机 Docker base image identity；因此 backend 包从合格来源 V 沿用时，
+该次权威 runner 中 backend Compose 旅程一并沿用。V..H 仍须单独满足本节镜像身份等价，阶段退出才能把
+容器门禁绑定到最终 HEAD。
 
 每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的 image revision/source-tree，
 以及延期到哪个节点或从哪个提交沿用。完整规则与记录模板见

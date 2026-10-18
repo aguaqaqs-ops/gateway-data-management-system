@@ -33,6 +33,52 @@ FAST_PACKAGES=(
     repository_client
 )
 
+ALL_PACKAGES=(
+    "${FAST_PACKAGES[@]}"
+    backend
+    repository_service
+)
+
+declare -A SELECTED_PACKAGE_SET=()
+SELECTED_PACKAGES=()
+if [[ "${GATEWAY_TEST_PACKAGES+x}" == "x" ]]; then
+    requested_packages="${GATEWAY_TEST_PACKAGES}"
+    if [[ ! "${requested_packages}" =~ ^[a-z_]+(,[a-z_]+)*$ ]]; then
+        echo "error: GATEWAY_TEST_PACKAGES must be a comma-separated list of package names" >&2
+        exit 2
+    fi
+    IFS=',' read -r -a requested_package_list <<<"${requested_packages}"
+    for package in "${requested_package_list[@]}"; do
+        case " ${ALL_PACKAGES[*]} " in
+            *" ${package} "*) ;;
+            *)
+                echo "error: unknown package in GATEWAY_TEST_PACKAGES: ${package}" >&2
+                exit 2
+                ;;
+        esac
+        if [[ -n "${SELECTED_PACKAGE_SET[${package}]:-}" ]]; then
+            echo "error: duplicate package in GATEWAY_TEST_PACKAGES: ${package}" >&2
+            exit 2
+        fi
+        SELECTED_PACKAGE_SET["${package}"]=1
+    done
+    for package in "${ALL_PACKAGES[@]}"; do
+        if [[ -n "${SELECTED_PACKAGE_SET[${package}]:-}" ]]; then
+            SELECTED_PACKAGES+=("${package}")
+        fi
+    done
+else
+    SELECTED_PACKAGES=("${ALL_PACKAGES[@]}")
+    for package in "${SELECTED_PACKAGES[@]}"; do
+        SELECTED_PACKAGE_SET["${package}"]=1
+    done
+fi
+
+declare -A PACKAGE_STATUS=()
+for package in "${SELECTED_PACKAGES[@]}"; do
+    PACKAGE_STATUS["${package}"]=passed
+done
+
 BACKEND_COMPOSE_TEST_FILES=(
     tests/test_archive_compose_e2e.py
     tests/test_backend_http_container_gate.py
@@ -55,18 +101,35 @@ gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${LOCK_SNAPSHOT}"
 
 export GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1
 
+INPUT_CLOSURE_SCRIPT="${VNEXT_ROOT}/scripts/test_input_closure.py"
+for package in "${SELECTED_PACKAGES[@]}"; do
+    echo "==> test input manifest package=${package}"
+    if ! python3 -I "${INPUT_CLOSURE_SCRIPT}" manifest --package "${package}"; then
+        for failed_package in "${SELECTED_PACKAGES[@]}"; do
+            PACKAGE_STATUS["${failed_package}"]=failed
+            echo "==> ${failed_package} status=${PACKAGE_STATUS[${failed_package}]}"
+        done
+        exit 1
+    fi
+done
+
 run_locked_pytest() {
     "${UV_CONSUME}" -C . run pytest "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
 test_exit=0
 for package in "${FAST_PACKAGES[@]}"; do
+    if [[ -z "${SELECTED_PACKAGE_SET[${package}]:-}" ]]; then
+        continue
+    fi
     echo "==> ${package}"
     if ! (cd "${VNEXT_ROOT}/${package}" && run_locked_pytest -q "$@"); then
         test_exit=1
+        PACKAGE_STATUS["${package}"]=failed
     fi
 done
 
+if [[ -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
 echo "==> backend (parallel)"
 backend_parallel_start=${SECONDS}
 backend_parallel_status=0
@@ -76,6 +139,7 @@ if ! (
 ); then
     test_exit=1
     backend_parallel_status=1
+    PACKAGE_STATUS[backend]=failed
 fi
 echo "==> backend (parallel) elapsed_seconds=$((SECONDS - backend_parallel_start)) status=${backend_parallel_status}"
 
@@ -95,6 +159,7 @@ if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
     ); then
         test_exit=1
         backend_serial_status=1
+        PACKAGE_STATUS[backend]=failed
     fi
     PYTEST_TMP_ARGS=()
     if ! (
@@ -103,6 +168,7 @@ if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
     ); then
         test_exit=1
         backend_serial_status=1
+        PACKAGE_STATUS[backend]=failed
     fi
     PYTEST_TMP_ARGS+=(--basetemp "${GATEWAY_TEST_BASETEMP}")
 else
@@ -112,10 +178,13 @@ else
     ); then
         test_exit=1
         backend_serial_status=1
+        PACKAGE_STATUS[backend]=failed
     fi
 fi
 echo "==> backend (serial) elapsed_seconds=$((SECONDS - backend_serial_start)) status=${backend_serial_status}"
+fi
 
+if [[ -n "${SELECTED_PACKAGE_SET[repository_service]:-}" ]]; then
 echo "==> repository_service (parallel)"
 repository_service_parallel_start=${SECONDS}
 repository_service_parallel_status=0
@@ -125,6 +194,7 @@ if ! (
 ); then
     test_exit=1
     repository_service_parallel_status=1
+    PACKAGE_STATUS[repository_service]=failed
 fi
 echo "==> repository_service (parallel) elapsed_seconds=$((SECONDS - repository_service_parallel_start)) status=${repository_service_parallel_status}"
 
@@ -145,6 +215,7 @@ if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
     ); then
         test_exit=1
         repository_service_serial_status=1
+        PACKAGE_STATUS[repository_service]=failed
     fi
     PYTEST_TMP_ARGS=()
     if ! (
@@ -153,6 +224,7 @@ if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
     ); then
         test_exit=1
         repository_service_serial_status=1
+        PACKAGE_STATUS[repository_service]=failed
     fi
 else
     if ! (
@@ -161,12 +233,21 @@ else
     ); then
         test_exit=1
         repository_service_serial_status=1
+        PACKAGE_STATUS[repository_service]=failed
     fi
 fi
 echo "==> repository_service (serial) elapsed_seconds=$((SECONDS - repository_service_serial_start)) status=${repository_service_serial_status}"
+fi
 
 if ! gateway_assert_lockfiles_unchanged "${VNEXT_ROOT}" "${LOCK_SNAPSHOT}"; then
-    exit 1
+    test_exit=1
+    for package in "${SELECTED_PACKAGES[@]}"; do
+        PACKAGE_STATUS["${package}"]=failed
+    done
 fi
+
+for package in "${SELECTED_PACKAGES[@]}"; do
+    echo "==> ${package} status=${PACKAGE_STATUS[${package}]}"
+done
 
 exit "${test_exit}"

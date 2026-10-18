@@ -34,6 +34,26 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 ./vnext/scripts/run-tests.sh
 ```
 
+阶段允许通过 `GATEWAY_TEST_PACKAGES` 指定部分包，例如
+`GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法值是
+`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；
+未知或重复名称以 exit 2 拒绝，实际执行顺序仍按权威 runner 固定顺序。未设置变量时运行全部包，
+原有包顺序、backend 与 `repository_service` 的两遍拆分、`GATEWAY_TEST_BASETEMP` 下的 Compose 文件
+处理和五锁检查不变。S5 最终门禁与发布门禁不允许缩小范围，必须运行全部包。
+
+runner 开始时为每个待运行包写出一份 JSON 闭包 manifest，可单独运行
+`python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>` 查看；dirty worktree 会被拒绝。
+Git 组成部分使用当前提交对应路径的 tree/blob object id，`legacy/` 使用按相对路径排序后的内容摘要，
+环境部分记录每包 Python `-VV`、Dolt、uv、rustc 版本；backend 与 `repository_service` 还记录 Docker/
+Compose 版本和 Docker build base image ids。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
+逐项比较并输出“运行”或“可沿用”及变化的组成部分。
+
+来源 V 必须满足：该包在该次权威 runner 中实际运行并通过；worktree clean；日志记录起止 HEAD；整次
+runner exit 0。只运行部分包的权威 runner 也可作为来源。当前 V 上闭包有变化的包都必须实际运行并通过。
+handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志。链式沿用必须直接引用最初实际运行该包的 V，
+不得把一次沿用结果当作新来源。manifest 比较只证明闭包相等；它不替代来源 runner 的 clean、包通过、
+整体 exit 0 与 HEAD 日志要求。
+
 ### 内网构建环境变量（仅记录名与语义；不得写入 lockfile 或 production runtime）
 
 | 变量 | 阶段 | 说明 |
@@ -203,6 +223,13 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
 
 任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
 评审逐项复核；复核不通过时不得以`carried`关闭finding。
+
+按包沿用与镜像身份等价分别判定：包沿用决定当前V要运行哪些包，镜像身份等价决定V..H能否
+`carried`。backend闭包包括Compose使用的完整`vnext/` Docker build context、Compose与相关
+Dockerfile、Rust workspace，以及运行时本机Docker base image ids；因此backend包从合格来源V
+沿用时，该次权威runner中的backend Compose旅程也一并沿用。V..H仍须单独满足镜像身份等价，阶段退出
+才能把容器门禁绑定到最终HEAD。RS闭包同样包含其`vnext/`构建上下文、repository-service和
+repository-client Dockerfile及Docker base image ids。
 
 避免重复执行：权威runner的backend批次已包含backend Compose旅程。同一提交上runner已运行
 并通过的Compose旅程不再单独重跑，provenance从该次运行的

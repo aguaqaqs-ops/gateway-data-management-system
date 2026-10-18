@@ -32,6 +32,10 @@ from gateway_backend.capabilities.table_rules.contracts import (
     table_ruleset_from_document,
 )
 from gateway_backend.capabilities.table_rules.registry import (
+    COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS,
+    COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS,
+    COMPOSITE_SIGNAL_POINT_KEY_COLUMNS,
+    COMPOSITE_SIGNAL_POINT_TABLE_NAME,
     DEFAULT_BROWSE_ONLY_TABLE_NAMES,
     DEFAULT_SNAPSHOT_ONLY_TABLE_PATTERNS,
     DEVICE_CFG_UPDATE_ONLY_TABLE_NAME,
@@ -105,6 +109,27 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
             )
         )
     assert RULESET_VERSION == "v3"
+
+
+def test_composite_signal_rule_matches_canonical_storage_and_comparison_contracts() -> None:
+    rule = next(
+        record
+        for record in migrated_table_rule_records()
+        if record.selector.value == COMPOSITE_SIGNAL_POINT_TABLE_NAME
+    )
+
+    assert COMPOSITE_SIGNAL_POINT_KEY_COLUMNS == ("source_table", "point_gid")
+    assert rule.compare_key_columns == COMPOSITE_SIGNAL_POINT_KEY_COLUMNS
+    assert rule.ignored_columns == COMPOSITE_SIGNAL_POINT_IGNORED_COLUMNS == (
+        "dev_addr",
+        "device_gid",
+        "point_payload_json",
+    )
+    assert rule.compare_excluded_columns == COMPOSITE_SIGNAL_POINT_COMPARE_EXCLUDED_COLUMNS == (
+        "formula_ast_json",
+        "point_name",
+    )
+    assert tuple(item.name for item in rule.dropped_columns) == rule.ignored_columns
 
 
 def test_compare_keys_are_canonical_table_and_key_columns() -> None:

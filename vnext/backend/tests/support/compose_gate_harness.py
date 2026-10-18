@@ -1558,6 +1558,7 @@ def run_accept_to_submission_read_journey(
     expected_baseline_head_version: int = 0,
     expected_submit_code: str | None = None,
     preview_only: bool = False,
+    include_preview_surfaces: bool = False,
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
 ) -> dict[str, Any]:
     with httpx.Client(
@@ -1673,10 +1674,13 @@ def run_accept_to_submission_read_journey(
         assert submission_body["submit_attempt_id"] == accepted_body["submit_attempt_id"]
         assert BEARER_TOKEN not in submission.text
         assert SESSION_TOKEN not in submission.text
-        return {
+        result = {
             "workspace_id": workspace_id,
             "submit_attempt_id": accepted_body["submit_attempt_id"],
             "submission_id": attempt["submission_id"],
             "preview_result_id": preview_result_id,
             "preview_summaries": preview_summaries,
         }
+        if include_preview_surfaces:
+            result["preview_surfaces"] = read_preview_surface_table_states(env, preview_bundle)
+        return result

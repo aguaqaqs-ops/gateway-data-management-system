@@ -333,6 +333,7 @@ def test_compose_submit_removes_deleted_user_and_sibling_tables(tmp_path: Path) 
             "t",
             "com_cfg",
             "net_cfg",
+            "composite_signal_point",
         }
         with httpx.Client(
             base_url=BACKEND_URL,
@@ -371,6 +372,9 @@ def test_compose_submit_removes_deleted_user_and_sibling_tables(tmp_path: Path) 
             repository_id=repository_id,
             commit_id=final_commit_id,
         )
-        assert {table["name"] for table in final_catalog["tables"]} == {"com_cfg"}
+        assert {table["name"] for table in final_catalog["tables"]} == {
+            "com_cfg",
+            "composite_signal_point",
+        }
     finally:
         cleanup_compose_project_artifacts(env)

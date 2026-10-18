@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, NamedTuple
 
@@ -19,9 +20,28 @@ from gateway_backend.capabilities.table_rules.contracts import (
     TableStaticRole,
 )
 from gateway_shared_kernel import NullScalar, SignedIntegerScalar, StringScalar
+from gateway_backend.capabilities.source_package_staging.contracts import (
+    OPTIONAL_XML_PATH,
+    REQUIRED_SQL_PATH,
+)
 
 from benchmarks import real_dump_census
 from benchmarks.real_dump_census import _storage_column_type_key
+
+_SPECIAL_SQL = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures/golden/snapshot-materialization/business/valid/s3-special-device/input.sql"
+).read_bytes()
+_MINIMAL_LOGICS = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures/golden/composite-signal/xml/valid/s3-minimal-logic/input.xml"
+).read_bytes()
+_CHANGED_FORMULA_LOGICS = _MINIMAL_LOGICS.replace(b'value="1"', b'value="2"')
+
+COMPOSITE_PACKAGE_COMPARISONS = (
+    pytest.param(_MINIMAL_LOGICS, "UNCHANGED", 0, 0, 0, 0, id="same-canonical-logic"),
+    pytest.param(_CHANGED_FORMULA_LOGICS, "MODIFIED", 0, 0, 1, 1, id="formula-digest-changed"),
+)
 
 CENSUS_STORAGE_COLUMN_TYPE_SHAPES: tuple[tuple[str, str], ...] = (
     ("INT(11) UNSIGNED", "INT UNSIGNED"),
@@ -43,6 +63,49 @@ def test_census_storage_column_type_key_preserves_unsigned(
     expected: str,
 ) -> None:
     assert _storage_column_type_key(sql_type) == expected
+
+
+@pytest.mark.parametrize(
+    ("current_logics", "status", "added", "removed", "modified", "history_records"),
+    COMPOSITE_PACKAGE_COMPARISONS,
+)
+@pytest.mark.unit
+def test_offline_composite_census_uses_business_projection_and_production_comparison(
+    current_logics: bytes,
+    status: str,
+    added: int,
+    removed: int,
+    modified: int,
+    history_records: int,
+) -> None:
+    before_package = real_dump_census.pack_tar_gz(
+        {
+            REQUIRED_SQL_PATH: _SPECIAL_SQL,
+            OPTIONAL_XML_PATH: _MINIMAL_LOGICS,
+        }
+    )
+    current_package = real_dump_census.pack_tar_gz(
+        {
+            REQUIRED_SQL_PATH: _SPECIAL_SQL,
+            OPTIONAL_XML_PATH: current_logics,
+        }
+    )
+
+    result = real_dump_census.compare_composite_packages(
+        before_package,
+        current_package,
+        pair_id="test-composite-pair",
+    )
+
+    assert result == real_dump_census.CompositePairCensus(
+        status=status,
+        before_row_count=2,
+        current_row_count=2,
+        added_count=added,
+        removed_count=removed,
+        modified_count=modified,
+        history_record_count=history_records,
+    )
 
 
 class KeyScanCoverageShape(NamedTuple):

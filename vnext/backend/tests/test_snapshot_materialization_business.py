@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from gateway_backend.capabilities.composite_signal.contracts import (
     COMPOSITE_SIGNAL_POINT_TABLE,
+    CompositeSignalPointRow,
+    CompositeSignalResult,
+    CompositeSignalStatus,
     empty_composite_logic_source,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -80,6 +85,8 @@ def test_business_bind_publishes_derived_table_without_rewriting_sql() -> None:
     assert derived.row_count == 2
     assert derived.primary_key_columns == ("source_table", "point_gid")
     assert derived.compare_key_columns == ("source_table", "point_gid")
+    source_table_column = next(column for column in derived.columns if column.name == "source_table")
+    assert source_table_column.scalar_type == "VARCHAR(64)"
     sql_tables = {table.table_name: table for table in sql_only.summary.tables}
     for table in result.summary.tables:
         if table.table_name == COMPOSITE_SIGNAL_POINT_TABLE:
@@ -123,6 +130,9 @@ def test_sql_only_empty_and_present_xml_identities_differ() -> None:
         empty_composite_logic_source().composite_logic_source_digest
     )
     assert sql_only.snapshot.source_context.composite_logic_source_digest is None
+    assert missing.summary is not None
+    assert present_empty.summary is not None
+    assert missing.summary.canonical_state_digest == present_empty.summary.canonical_state_digest
 
 
 def test_business_digest_is_deterministic() -> None:
@@ -218,6 +228,41 @@ def test_identity_violation_fails_without_derived_table() -> None:
     assert result.status is SnapshotMaterializationStatus.FAILED
     assert result.snapshot is None
     assert result.diagnostics[0].code is MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED
+
+
+def test_business_materialization_rejects_oversized_composite_source_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.capabilities.snapshot_materialization import compose
+
+    oversized_row = CompositeSignalPointRow(
+        source_table="t" * 65,
+        point_gid=1,
+        dev_addr=65532,
+        device_gid=1,
+        point_name="top",
+        point_payload_json="{}",
+        formula_digest=None,
+        formula_ast_json=None,
+    )
+    monkeypatch.setattr(
+        compose,
+        "materialize_composite_signal",
+        lambda _request: CompositeSignalResult(
+            status=CompositeSignalStatus.COMPLETE,
+            diagnostics=(),
+            rows=(oversized_row,),
+        ),
+    )
+
+    result = materialize_business(load_sql(_SPECIAL_SQL), _empty_xml())
+
+    assert result.status is SnapshotMaterializationStatus.FAILED
+    assert result.snapshot is None
+    assert result.summary is None
+    assert result.table_set is None
+    assert result.diagnostics[0].code is MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED
+    assert result.diagnostics[0].message == (
+        "composite source_table exceeds VARCHAR(64) maximum length of 64 characters"
+    )
 
 
 def test_business_cancel_does_not_publish_snapshot() -> None:

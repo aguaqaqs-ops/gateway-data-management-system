@@ -174,6 +174,28 @@ _KEYLESS_DUPLICATE_ROWS = (
     as_row(varchar_cell("different")),
     as_row(varchar_cell("same")),
 )
+_COMPOSITE_COLUMNS = (
+    typed_column("source_table", "VARCHAR(64)"),
+    typed_column("point_gid", "BIGINT"),
+    int_column("dev_addr"),
+    int_column("device_gid"),
+    typed_column("point_name", "TEXT"),
+    typed_column("point_payload_json", "LONGTEXT"),
+    typed_column("formula_digest", "TEXT", nullable=True),
+    typed_column("formula_ast_json", "LONGTEXT", nullable=True),
+)
+_COMPOSITE_ROWS = (
+    as_row(
+        varchar_cell("device_st"),
+        int_cell(10),
+        int_cell(65532),
+        int_cell(1),
+        varchar_cell("top"),
+        varchar_cell('{"name":"top"}'),
+        varchar_cell("sha256:" + "ab" * 32),
+        varchar_cell('{"operator":"+","point":"top"}'),
+    ),
+)
 
 
 def test_canonical_snapshot_identity(
@@ -205,6 +227,13 @@ def test_canonical_snapshot_identity(
         rows=_KEYLESS_DUPLICATE_ROWS,
         snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
     )
+    composite_reader, composite_binding = table_input(
+        "composite_signal_point",
+        columns=_COMPOSITE_COLUMNS,
+        primary_key_columns=("source_table", "point_gid"),
+        rows=_COMPOSITE_ROWS,
+        snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
+    )
     raw_table_set = SnapshotTableSet(
         snapshot_id="raw-canonical-identity",
         snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
@@ -213,11 +242,12 @@ def test_canonical_snapshot_identity(
             SnapshotTable(descriptor=data_binding.descriptor, reader=data_reader),
             SnapshotTable(descriptor=ordered_binding.descriptor, reader=ordered_reader),
             SnapshotTable(descriptor=keyless_binding.descriptor, reader=keyless_reader),
+            SnapshotTable(descriptor=composite_binding.descriptor, reader=composite_reader),
         ),
     )
     canonical = project_canonical_table_set(raw_table_set, _RULESET)
     assert canonical.manifest is not None
-    assert len(canonical.tables) == 3
+    assert len(canonical.tables) == 4
     projection_inputs = (
         ProjectionTableInput(
             canonical_table="identity_dc15",
@@ -233,6 +263,11 @@ def test_canonical_snapshot_identity(
             canonical_table="keyless_duplicates_dc29",
             reader=keyless_reader.reopen(),
             source_binding=keyless_binding,
+        ),
+        ProjectionTableInput(
+            canonical_table="composite_signal_point",
+            reader=composite_reader.reopen(),
+            source_binding=composite_binding,
         ),
     )
     projection = project_storage(
@@ -318,6 +353,7 @@ def test_canonical_snapshot_identity(
                     "identity_dc15",
                     "b1_n1_iec104_syx_list",
                     "keyless_duplicates_dc29",
+                    "composite_signal_point",
                 ),
             )
         )
@@ -343,6 +379,10 @@ def test_canonical_snapshot_identity(
         else:
             assert observed_rows == canonical_rows[name]
         observed.reader.close()
+    composite = observed_by_name["composite_signal_point"]
+    assert composite.descriptor.columns[0].scalar_type == "VARCHAR(64)"
+    assert composite.descriptor.primary_key_columns == ("source_table", "point_gid")
+    assert composite.descriptor.row_count == 1
     keyless = observed_by_name["keyless_duplicates_dc29"]
     assert keyless.descriptor.primary_key_columns == ()
     assert keyless.descriptor.row_count == 3

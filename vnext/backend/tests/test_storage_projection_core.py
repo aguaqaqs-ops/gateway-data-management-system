@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from gateway_shared_kernel import DateTimeScalar, DigestRef, Float32Scalar
@@ -214,6 +216,85 @@ def test_canonical_table_projection_emits_canonical_descriptor_and_reader() -> N
     assert canonical.reader is not None
     assert tuple(canonical.reader.iter_rows()) == tuple(row[:2] for row in _NET_CFG_ROWS)
     canonical.reader.close()
+
+
+def test_composite_signal_projection_matches_s3_canonical_golden() -> None:
+    columns = (
+        typed_column("source_table", "VARCHAR(64)"),
+        typed_column("point_gid", "BIGINT"),
+        int_column("dev_addr"),
+        int_column("device_gid"),
+        typed_column("point_name", "TEXT"),
+        typed_column("point_payload_json", "LONGTEXT"),
+        typed_column("formula_digest", "TEXT", nullable=True),
+        typed_column("formula_ast_json", "LONGTEXT", nullable=True),
+    )
+    rows = (
+        as_row(
+            varchar_cell("device_st"),
+            int_cell(10),
+            int_cell(65532),
+            int_cell(1),
+            varchar_cell("top"),
+            varchar_cell('{"name":"top"}'),
+            varchar_cell("sha256:" + "ab" * 32),
+            varchar_cell('{"operator":"+","point":"top"}'),
+        ),
+    )
+    reader, binding = table_input(
+        "composite_signal_point",
+        columns=columns,
+        primary_key_columns=("source_table", "point_gid"),
+        rows=rows,
+    )
+
+    result = project_storage(_request((reader, binding)))
+
+    assert result.status is ProjectionStatus.COMPLETE
+    assert result.manifest is not None
+    assert result.import_input is not None
+    projected = result.tables[0]
+    import_table = result.import_input.tables[0]
+    manifest_table = result.manifest.tables[0]
+    assert projected.storage_view.retained_columns == (
+        "source_table",
+        "point_gid",
+        "point_name",
+        "formula_digest",
+        "formula_ast_json",
+    )
+    assert import_table.primary_key == ("source_table", "point_gid")
+    actual = {
+        "canonical_columns": [
+            {"name": column.name, "sql_type": column.sql_type, "nullable": column.nullable}
+            for column in import_table.columns
+        ],
+        "canonical_key_columns": list(manifest_table.canonical_key_columns),
+        "canonical_schema_digest": (
+            None
+            if manifest_table.canonical_schema_digest is None
+            else manifest_table.canonical_schema_digest.value
+        ),
+        "content_digest": (
+            None if manifest_table.content_digest is None else manifest_table.content_digest.value
+        ),
+        "dropped_columns": [
+            {"name": item.name, "reason": item.reason} for item in manifest_table.dropped_columns
+        ],
+        "retained_columns": list(manifest_table.retained_columns),
+        "row_count": import_table.row_count,
+        "table_name": import_table.name,
+    }
+    golden_path = (
+        Path(__file__).resolve().parents[2]
+        / "fixtures"
+        / "golden"
+        / "storage-projection"
+        / "composite-signal"
+        / "canonical.json"
+    )
+    expected = json.loads(golden_path.read_text(encoding="utf-8"))
+    assert actual == expected
 
 
 def test_canonical_projection_uses_storage_key_for_compare_keyless_table() -> None:

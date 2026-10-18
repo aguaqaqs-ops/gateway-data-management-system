@@ -84,8 +84,9 @@ from gateway_backend.capabilities.table_access.contracts import (
 
 _BIGINT = DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=64)
 _TEXT = DeclaredType(kind=DeclaredTypeKind.STRING)
+_COMPOSITE_SOURCE_TABLE_MAX_LENGTH = 64
 _DERIVED_COLUMNS = (
-    ("source_table", "TEXT", _TEXT, False),
+    ("source_table", "VARCHAR(64)", _TEXT, False),
     ("point_gid", "BIGINT", _BIGINT, False),
     ("dev_addr", "BIGINT", _BIGINT, False),
     ("device_gid", "BIGINT", _BIGINT, False),
@@ -174,6 +175,26 @@ def materialize_business_snapshot(
     )
     if composite.status is CompositeSignalStatus.FAILED:
         return _failed(stage, trust, _map_composite_diagnostics(composite))
+    oversized_source_table = next(
+        (
+            row.source_table
+            for row in composite.rows
+            if len(row.source_table) > _COMPOSITE_SOURCE_TABLE_MAX_LENGTH
+        ),
+        None,
+    )
+    if oversized_source_table is not None:
+        return _failed(
+            stage,
+            trust,
+            (
+                _error(
+                    MaterializationDiagnosticCode.COMPOSITE_LOGIC_FAILED,
+                    "composite source_table exceeds VARCHAR(64) maximum length of 64 characters",
+                    table=oversized_source_table,
+                ),
+            ),
+        )
     try:
         composed = _compose(request, sql_result, composite, stage, trust)
         if request.sql.policy is MaterializationPolicy.ARTIFACTS_REQUIRED:

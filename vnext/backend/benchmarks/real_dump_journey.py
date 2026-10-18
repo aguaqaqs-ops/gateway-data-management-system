@@ -22,6 +22,7 @@ import time
 import uuid
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -35,6 +36,11 @@ from gateway_repository_contracts import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from benchmarks.real_dump_census import (
+    CompositeProjectionError,
+    compare_composite_packages,
+)
 
 from tests.support.compose_gate_harness import (
     BACKEND_URL,
@@ -78,6 +84,57 @@ EXPECTED_PAIRINGS = {
     "rd-t3-c": ("rd-t3-c-v1", "rd-t3-c-v2"),
     "rd-t4-d": ("rd-t4-d-v1", "rd-t4-d-v2"),
 }
+S2B_DATASET_BASELINE = {
+    "rd-t1-a-v1": {
+        "preview_changed": 124,
+        "preview_table_count": 124,
+        "catalog_table_count": 124,
+        "catalog_row_count_total": 3_729,
+    },
+    "rd-t1-a-v2": {
+        "preview_changed": 4,
+        "preview_table_count": 124,
+        "catalog_table_count": 124,
+        "catalog_row_count_total": 3_727,
+    },
+    "rd-t2-b-v1": {
+        "preview_changed": 208,
+        "preview_table_count": 208,
+        "catalog_table_count": 208,
+        "catalog_row_count_total": 73_648,
+    },
+    "rd-t2-b-v2": {
+        "preview_changed": 57,
+        "preview_table_count": 219,
+        "catalog_table_count": 208,
+        "catalog_row_count_total": 68_864,
+    },
+    "rd-t3-c-v1": {
+        "preview_changed": 191,
+        "preview_table_count": 191,
+        "catalog_table_count": 191,
+        "catalog_row_count_total": 122_251,
+    },
+    "rd-t3-c-v2": {
+        "preview_changed": 54,
+        "preview_table_count": 192,
+        "catalog_table_count": 192,
+        "catalog_row_count_total": 122_257,
+    },
+    "rd-t4-d-v1": {
+        "preview_changed": 311,
+        "preview_table_count": 311,
+        "catalog_table_count": 311,
+        "catalog_row_count_total": 246_359,
+    },
+    "rd-t4-d-v2": {
+        "preview_changed": 26,
+        "preview_table_count": 311,
+        "catalog_table_count": 311,
+        "catalog_row_count_total": 246_439,
+    },
+}
+S2B_HISTORY_RECORD_COUNTS = {"t1": 12, "t2": 11_511, "t3": 744, "t4": 168}
 TERMINAL_OPERATION_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 INITIAL_OPERATION_TIMEOUT_SECONDS = 3_600
 MINIMUM_OPERATION_TIMEOUT_SECONDS = 300
@@ -571,17 +628,42 @@ def _poll_operation(
     timeout_seconds: int = INITIAL_OPERATION_TIMEOUT_SECONDS,
     deadline: float | None = None,
 ) -> dict[str, Any]:
+    operation_started = time.monotonic()
     _emit_progress(stage, "operation_started", timeout_seconds=timeout_seconds)
     operation_deadline = time.monotonic() + timeout_seconds if deadline is None else deadline
+    retry_count = 0
     while time.monotonic() < operation_deadline:
-        payload = _require(client.get(f"/v1/operations/{operation_id}"), 200, "operation status")
+        response = client.get(f"/v1/operations/{operation_id}")
+        if response.status_code == 503:
+            retry_count += 1
+            remaining = operation_deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            delay = min(2.0, remaining)
+            _emit_progress(
+                stage,
+                "operation_status_retry",
+                status_code=503,
+                retry_count=retry_count,
+                retry_delay_seconds=round(delay, 3),
+                timeout_seconds=timeout_seconds,
+            )
+            time.sleep(delay)
+            continue
+        payload = _require(response, 200, "operation status")
         status = payload.get("status")
         if status in TERMINAL_OPERATION_STATES:
             if status != "SUCCEEDED":
                 diagnostic = payload.get("diagnostic")
                 code = diagnostic.get("code") if isinstance(diagnostic, dict) else "unknown"
                 raise JourneyFailure(f"{stage} operation ended {status}, diagnostic={code}")
-            _emit_progress(stage, "operation_succeeded")
+            _emit_progress(
+                stage,
+                "operation_succeeded",
+                operation_status=status,
+                timeout_seconds=timeout_seconds,
+                operation_wall_seconds=round(time.monotonic() - operation_started, 3),
+            )
             return payload
         time.sleep(2.0)
     raise JourneyFailure(f"{stage} operation did not reach a terminal state before timeout")
@@ -719,6 +801,49 @@ def _assert_preview_summaries(
             }
         )
     return dict(totals)
+
+
+def _assert_s3_preview_summary(
+    summary: Mapping[str, int],
+    *,
+    dataset_id: str,
+    expected_changed: int,
+) -> None:
+    baseline = S2B_DATASET_BASELINE[dataset_id]
+    if (
+        summary.get("table_count") != baseline["preview_table_count"] + 1
+        or summary.get("changed_table_count") != expected_changed
+        or summary.get("degraded_table_count") != 0
+        or summary.get("failed_table_count") != 0
+    ):
+        raise JourneyFailure(f"{dataset_id}: Preview summary differs from the S2b plus composite expectation")
+
+
+def _assert_s3_catalog_summary(
+    repository: Mapping[str, Any],
+    *,
+    dataset_id: str,
+    composite_row_count: int,
+) -> None:
+    baseline = S2B_DATASET_BASELINE[dataset_id]
+    if repository.get("catalog_table_count") != baseline["catalog_table_count"] + 1:
+        raise JourneyFailure(f"{dataset_id}: Repository Catalog table count differs from the S2b plus composite expectation")
+    if repository.get("composite_signal_point_row_count") != composite_row_count:
+        raise JourneyFailure(f"{dataset_id}: Repository composite row count differs from offline projection")
+    catalog_rows = repository.get("catalog_row_count_total")
+    if type(catalog_rows) is not int or catalog_rows - composite_row_count != baseline["catalog_row_count_total"]:
+        raise JourneyFailure(f"{dataset_id}: non-composite Repository row count differs from S2b")
+
+
+def _assert_s3_history_count(
+    *,
+    tier: str,
+    actual_record_count: int,
+    composite_record_count: int,
+) -> None:
+    expected = S2B_HISTORY_RECORD_COUNTS[tier] + composite_record_count
+    if actual_record_count != expected:
+        raise JourneyFailure(f"{tier}: History record count differs from S2b plus composite records")
 
 
 def _submit(
@@ -965,6 +1090,13 @@ def _pseudo_counts_from_http(
             raise JourneyFailure("Repository catalog JSON response is invalid") from exc
         if catalog.catalog.commit_id != commit_id:
             raise JourneyFailure("Repository catalog commit ID differs from requested commit")
+        composite_tables = [
+            table
+            for table in catalog.catalog.tables
+            if table.name == "composite_signal_point"
+        ]
+        if len(composite_tables) != 1:
+            raise JourneyFailure("Repository Catalog must contain one composite_signal_point table")
 
         actual: dict[str, int] = {}
         actual_row_counts: dict[str, int] = {}
@@ -1011,7 +1143,39 @@ def _pseudo_counts_from_http(
             "catalog_row_count_total": sum(
                 table.row_count for table in catalog.catalog.tables
             ),
+            "composite_signal_point_row_count": composite_tables[0].row_count,
         }
+    finally:
+        repository_client.close()
+
+
+def _assert_initial_repository_commit_empty(
+    *,
+    base_url: str,
+    repository_id: str,
+    commit_id: str,
+) -> dict[str, int]:
+    repository_client = httpx.Client(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {BEARER_TOKEN}"},
+        timeout=300.0,
+    )
+    try:
+        encoded = encode_commit_id_path_segment(commit_id)
+        response = repository_client.get(
+            f"/v1/repositories/{repository_id}/versioned/commits/{encoded}/catalog",
+        )
+        if response.status_code != 200:
+            raise JourneyFailure(f"initial Repository catalog HTTP {response.status_code}")
+        try:
+            catalog = GetVersionedCatalogResponse.model_validate_json(response.content)
+        except ValueError as exc:
+            raise JourneyFailure("initial Repository catalog JSON response is invalid") from exc
+        if catalog.catalog.commit_id != commit_id:
+            raise JourneyFailure("initial Repository Catalog commit ID differs from requested commit")
+        if catalog.catalog.tables:
+            raise JourneyFailure("initial Repository commit is not empty")
+        return {"catalog_table_count": 0, "catalog_row_count_total": 0}
     finally:
         repository_client.close()
 
@@ -1067,6 +1231,8 @@ def _history_compare(
     )
     accepted = _require_one_of(response, {200, 202}, "History compare acceptance")
     operation_id = str(accepted["operation_id"])
+    operation_started = time.monotonic()
+    _emit_progress(stage, "operation_started", timeout_seconds=operation_timeout_seconds)
     deadline = time.monotonic() + operation_timeout_seconds
     terminal: dict[str, Any] | None = None
     while time.monotonic() < deadline:
@@ -1086,6 +1252,13 @@ def _history_compare(
         diagnostic = terminal.get("diagnostic") if terminal is not None else None
         code = diagnostic.get("code") if isinstance(diagnostic, dict) else "timeout"
         raise JourneyFailure(f"{stage} compare did not succeed, diagnostic={code}")
+    _emit_progress(
+        stage,
+        "operation_succeeded",
+        operation_status=terminal["status"],
+        timeout_seconds=operation_timeout_seconds,
+        operation_wall_seconds=round(time.monotonic() - operation_started, 3),
+    )
     result = terminal.get("result")
     if not isinstance(result, dict) or not isinstance(result.get("pairs"), list) or len(result["pairs"]) != 1:
         raise JourneyFailure("History compare result has an unexpected pair count")
@@ -1123,6 +1296,36 @@ def _keyless_fallback_candidates(census: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(set(cast(list[str], unresolved))))
 
 
+def _offline_composite_comparison(
+    *,
+    tier: str,
+    v1_id: str,
+    v2_id: str,
+    root: Path,
+    datasets: Mapping[str, dict[str, Any]],
+) -> dict[str, Any]:
+    v1_package, _v1_file = _dataset_package(root, datasets[v1_id])
+    v2_package, _v2_file = _dataset_package(root, datasets[v2_id])
+    started = time.monotonic()
+    try:
+        result = compare_composite_packages(
+            v1_package,
+            v2_package,
+            pair_id=f"{tier}-composite-pair",
+        )
+    except CompositeProjectionError as exc:
+        raise JourneyFailure(f"{tier}: offline composite comparison failed: {exc}") from exc
+    elapsed = round(time.monotonic() - started, 3)
+    counts = asdict(result)
+    _emit_progress(
+        f"{tier} offline composite comparison",
+        "composite_counts_verified",
+        counts=counts,
+        elapsed_seconds=elapsed,
+    )
+    return {"counts": counts, "elapsed_seconds": elapsed}
+
+
 def _run_tier(
     *,
     tier: str,
@@ -1138,10 +1341,15 @@ def _run_tier(
     step_state: dict[str, Any],
     from_step: str | None,
     state_path: Path | None,
+    offline_composite: Mapping[str, Any],
 ) -> dict[str, Any]:
     started = time.monotonic()
     v1_bytes, v1_file = _dataset_package(root, datasets[v1_id])
     v2_bytes, v2_file = _dataset_package(root, datasets[v2_id])
+    composite_counts = cast(dict[str, Any], offline_composite["counts"])
+    composite_v1_row_count = int(composite_counts["before_row_count"])
+    composite_v2_row_count = int(composite_counts["current_row_count"])
+    composite_changed = composite_counts["status"] not in {"UNCHANGED", "BUSINESS_EQUIVALENT"}
     v1_ordered = _ordered_tables(census[v1_id])
     v2_ordered = _ordered_tables(census[v2_id])
     v1_ordered_row_counts = _ordered_table_row_counts(census[v1_id])
@@ -1152,9 +1360,23 @@ def _run_tier(
         raise JourneyFailure(f"{v1_id}: census pseudo total differs from the accepted baseline")
     if int(census[v2_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[v2_id]:
         raise JourneyFailure(f"{v2_id}: census pseudo total differs from the accepted baseline")
+    if tier == "t1":
+        depth = census[v1_id].get("logics_xml_max_depth")
+        if depth != 1:
+            raise JourneyFailure("t1 v1 logics.xml max depth differs from the accepted depth of 1")
 
     images = compose_image_ids(env)
     repository_url = _repository_service_url(env)
+    initial_repository = _assert_initial_repository_commit_empty(
+        base_url=repository_url,
+        repository_id=repository_id,
+        commit_id=initial_commit_id,
+    )
+    _emit_progress(
+        f"{tier} initial Repository commit",
+        "empty_initial_verified",
+        **initial_repository,
+    )
     runner = JourneyStepRunner(
         tier=tier,
         env=env,
@@ -1194,11 +1416,17 @@ def _run_tier(
                 manifest,
                 unchanged=False,
             )
+            _assert_s3_preview_summary(
+                summary,
+                dataset_id=v1_id,
+                expected_changed=S2B_DATASET_BASELINE[v1_id]["preview_table_count"] + 1,
+            )
             _emit_progress(
                 f"{tier} v1 Preview",
                 "preview_summary_verified",
                 summary=summary,
                 source_census_table_count=int(census[v1_id]["table_count"]),
+                composite_row_count=composite_v1_row_count,
             )
             return {
                 "preview": preview,
@@ -1243,6 +1471,11 @@ def _run_tier(
                 commit_id=v1_commit_id,
                 expected_tables=v1_ordered,
                 expected_row_counts=v1_ordered_row_counts,
+            )
+            _assert_s3_catalog_summary(
+                repository,
+                dataset_id=v1_id,
+                composite_row_count=composite_v1_row_count,
             )
             if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v1_id]:
                 raise JourneyFailure(f"{v1_id}: committed pseudo row count differs from census")
@@ -1297,11 +1530,17 @@ def _run_tier(
                 manifest,
                 unchanged=True,
             )
+            _assert_s3_preview_summary(
+                summary,
+                dataset_id=v1_id,
+                expected_changed=0,
+            )
             _emit_progress(
                 f"{tier} repeat v1 Preview",
                 "preview_summary_verified",
                 summary=summary,
                 source_census_table_count=int(census[v1_id]["table_count"]),
+                composite_row_count=composite_v1_row_count,
             )
             if tuple(v1_keyless_names) != _keyless_fallback_candidates(census[v1_id]):
                 raise JourneyFailure("keyless fallback candidates changed during repeated Preview")
@@ -1361,11 +1600,21 @@ def _run_tier(
                 manifest,
                 unchanged=False,
             )
+            expected_v2_changed = S2B_DATASET_BASELINE[v2_id]["preview_changed"] + int(
+                composite_changed
+            )
+            _assert_s3_preview_summary(
+                summary,
+                dataset_id=v2_id,
+                expected_changed=expected_v2_changed,
+            )
             _emit_progress(
                 f"{tier} v2 Preview",
                 "preview_summary_verified",
                 summary=summary,
                 source_census_table_count=int(census[v2_id]["table_count"]),
+                composite_changed=composite_changed,
+                composite_row_count=composite_v2_row_count,
             )
             return {
                 "preview": preview,
@@ -1411,6 +1660,11 @@ def _run_tier(
                 expected_tables=v2_ordered,
                 expected_row_counts=v2_ordered_row_counts,
             )
+            _assert_s3_catalog_summary(
+                repository,
+                dataset_id=v2_id,
+                composite_row_count=composite_v2_row_count,
+            )
             if repository["pseudo_rows_total"] != EXPECTED_PSEUDO_TOTALS[v2_id]:
                 raise JourneyFailure(f"{v2_id}: committed pseudo row count differs from census")
             return repository
@@ -1449,6 +1703,12 @@ def _run_tier(
     api_record_count = int(history_pair["record_count"])
     if api_record_count < 0:
         raise JourneyFailure("History HTTP record_count must be non-negative")
+    composite_record_count = int(composite_counts["history_record_count"])
+    _assert_s3_history_count(
+        tier=tier,
+        actual_record_count=api_record_count,
+        composite_record_count=composite_record_count,
+    )
     repeat_keyless_names = v1_keyless_names
     return {
         "tier": tier,
@@ -1459,6 +1719,8 @@ def _run_tier(
                 "package_bytes": v1_file["bytes"],
                 "table_count": census[v1_id]["table_count"],
                 "row_count_total": census[v1_id]["row_count_total"],
+                "logics_xml_max_depth": census[v1_id]["logics_xml_max_depth"],
+                "composite_signal_point_row_count": composite_v1_row_count,
                 "canonical_state_digest": v1_canonical_state_digest,
                 "storage_column_type_counts": census[v1_id]["storage_column_type_counts"],
                 "repository": v1_repository,
@@ -1475,6 +1737,8 @@ def _run_tier(
                 "package_bytes": v2_file["bytes"],
                 "table_count": census[v2_id]["table_count"],
                 "row_count_total": census[v2_id]["row_count_total"],
+                "logics_xml_max_depth": census[v2_id]["logics_xml_max_depth"],
+                "composite_signal_point_row_count": composite_v2_row_count,
                 "canonical_state_digest": v2_canonical_state_digest,
                 "storage_column_type_counts": census[v2_id]["storage_column_type_counts"],
                 "repository": v2_repository,
@@ -1497,6 +1761,9 @@ def _run_tier(
         },
         "history": {
             "record_count": api_record_count,
+            "s2b_record_count": S2B_HISTORY_RECORD_COUNTS[tier],
+            "composite_record_count": composite_record_count,
+            "composite_signal_point": composite_counts,
             "bundle_digest": history_result.get("bundle_digest"),
             "surface_digest": history_pair.get("surface_digest"),
             "record_kind_counts": None,
@@ -1506,6 +1773,8 @@ def _run_tier(
             ),
         },
         "compose_image_ids": images,
+        "initial_repository": initial_repository,
+        "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
         "step_metrics": runner.metrics,
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "conclusion": "PASS",
@@ -1547,6 +1816,37 @@ def _resume_stack(env: dict[str, str], state: Mapping[str, Any]) -> tuple[str, s
 def _validate_project_name(project_name: str) -> None:
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", project_name):
         raise JourneyFailure("Compose project name must use 1..63 lowercase letters, digits, '_' or '-' ")
+
+
+def _save_compose_logs_before_teardown(env: dict[str, str], *, tier: str) -> Path:
+    configured_directory = os.environ.get("GATEWAY_REAL_DUMP_LOG_DIR")
+    log_directory = (
+        Path(configured_directory)
+        if configured_directory
+        else Path(tempfile.gettempdir()) / "gdds-real-dump-compose-logs"
+    )
+    if not log_directory.is_absolute():
+        raise JourneyFailure("real-dump Compose log directory must be absolute")
+    log_directory = log_directory.resolve()
+    if log_directory.is_relative_to(_repo_root().resolve()):
+        raise JourneyFailure("real-dump Compose logs must be outside the worktree")
+    log_directory.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    log_path = log_directory / f"real-dump-{tier}-{timestamp}.compose.log"
+    result = run_compose(env, "logs", "--no-color", "--timestamps", timeout=180.0)
+    log_path.write_text(
+        f"compose_logs_exit_code={result.returncode}\n"
+        f"stdout:\n{result.stdout}\n"
+        f"stderr:\n{result.stderr}\n",
+        encoding="utf-8",
+    )
+    _emit_progress(
+        tier,
+        "compose_logs_saved",
+        log_file=log_path.name,
+        compose_logs_exit_code=result.returncode,
+    )
+    return log_path
 
 
 def run_journey(
@@ -1621,6 +1921,13 @@ def run_journey(
                 os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
 
             for tier, (v1_id, v2_id) in selected_tiers:
+                offline_composite = _offline_composite_comparison(
+                    tier=tier,
+                    v1_id=v1_id,
+                    v2_id=v2_id,
+                    root=root,
+                    datasets=datasets,
+                )
                 state_path = base / f"{tier}.state.json" if keep_stack else None
                 if state_path is not None:
                     state_paths.append(str(state_path))
@@ -1644,41 +1951,53 @@ def run_journey(
                 )
                 acquire_compose_gate_lock()
                 try:
-                    stack_started = time.monotonic()
-                    if from_step is None:
-                        repository_id, initial_commit_id = start_three_container_stack(
-                            env,
-                            secret_root,
+                    try:
+                        stack_started = time.monotonic()
+                        if from_step is None:
+                            repository_id, initial_commit_id = start_three_container_stack(
+                                env,
+                                secret_root,
+                            )
+                            step_state["_stack"] = {
+                                "repository_id": repository_id,
+                                "initial_commit_id": initial_commit_id,
+                                "project_name": project_name,
+                                "tier": tier,
+                                "head": current_head,
+                            }
+                            if state_path is not None:
+                                _persist_debug_state(state_path, step_state)
+                        else:
+                            repository_id, initial_commit_id = _resume_stack(env, step_state)
+                        stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
+                        results.append(
+                            _run_tier(
+                                tier=tier,
+                                v1_id=v1_id,
+                                v2_id=v2_id,
+                                root=root,
+                                datasets=datasets,
+                                census=census,
+                                env=env,
+                                project_name=project_name,
+                                repository_id=repository_id,
+                                initial_commit_id=initial_commit_id,
+                                step_state=step_state,
+                                from_step=from_step,
+                                state_path=state_path,
+                                offline_composite=offline_composite,
+                            )
                         )
-                        step_state["_stack"] = {
-                            "repository_id": repository_id,
-                            "initial_commit_id": initial_commit_id,
-                            "project_name": project_name,
-                            "tier": tier,
-                            "head": current_head,
-                        }
-                        if state_path is not None:
-                            _persist_debug_state(state_path, step_state)
-                    else:
-                        repository_id, initial_commit_id = _resume_stack(env, step_state)
-                    stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
-                    results.append(
-                        _run_tier(
-                            tier=tier,
-                            v1_id=v1_id,
-                            v2_id=v2_id,
-                            root=root,
-                            datasets=datasets,
-                            census=census,
-                            env=env,
-                            project_name=project_name,
-                            repository_id=repository_id,
-                            initial_commit_id=initial_commit_id,
-                            step_state=step_state,
-                            from_step=from_step,
-                            state_path=state_path,
-                        )
-                    )
+                    except BaseException:
+                        try:
+                            _save_compose_logs_before_teardown(env, tier=tier)
+                        except BaseException as log_error:
+                            _emit_progress(
+                                tier,
+                                "compose_logs_save_failed",
+                                diagnostic=type(log_error).__name__,
+                            )
+                        raise
                 finally:
                     if keep_stack:
                         release_compose_gate_lock()

@@ -63,6 +63,7 @@ from gateway_backend.domain.workspace.errors import (
     WorkspaceVersionConflict,
 )
 from gateway_backend.http.schemas.errors import ErrorResponse
+from gateway_backend.operations.store import StoreBusy
 
 INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
 INTERNAL_ERROR_MESSAGE = "internal server error"
@@ -496,6 +497,14 @@ def register_exception_handlers(app: FastAPI) -> None:
             message=exc.message,
             status_code=exc.status_code,
             details=exc.details,
+        )
+
+    @app.exception_handler(StoreBusy)
+    async def store_busy_error_handler(_request: Request, _exc: StoreBusy) -> JSONResponse:
+        return error_response(
+            code="SERVICE_NOT_READY",
+            message="service not ready",
+            status_code=503,
         )
 
     @app.exception_handler(RequestValidationError)

@@ -1,0 +1,58 @@
+{
+  "canonical_columns": [
+    {
+      "name": "source_table",
+      "nullable": false,
+      "sql_type": "VARCHAR(64)"
+    },
+    {
+      "name": "point_gid",
+      "nullable": false,
+      "sql_type": "BIGINT"
+    },
+    {
+      "name": "point_name",
+      "nullable": false,
+      "sql_type": "TEXT"
+    },
+    {
+      "name": "formula_digest",
+      "nullable": true,
+      "sql_type": "TEXT"
+    },
+    {
+      "name": "formula_ast_json",
+      "nullable": true,
+      "sql_type": "LONGTEXT"
+    }
+  ],
+  "canonical_key_columns": [
+    "source_table",
+    "point_gid"
+  ],
+  "canonical_schema_digest": "sha256:45ab9549945be08b1386620fbc3d2f88f28a6818852dd3dab1628fd34582104c",
+  "content_digest": "sha256:369e048b093be7a8ec62de2f1d31648bec77b3b595d660cc1d5ac4d2f1eb73b1",
+  "dropped_columns": [
+    {
+      "name": "dev_addr",
+      "reason": "legacy_ignored_column:composite_signal_point"
+    },
+    {
+      "name": "device_gid",
+      "reason": "legacy_ignored_column:composite_signal_point"
+    },
+    {
+      "name": "point_payload_json",
+      "reason": "legacy_ignored_column:composite_signal_point"
+    }
+  ],
+  "retained_columns": [
+    "source_table",
+    "point_gid",
+    "point_name",
+    "formula_digest",
+    "formula_ast_json"
+  ],
+  "row_count": 1,
+  "table_name": "composite_signal_point"
+}

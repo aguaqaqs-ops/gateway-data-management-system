@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryColumn
 from tests.support.compose_gate_harness import (
     BACKEND_URL,
     BASELINE_NODE_ID,
@@ -40,14 +41,21 @@ from tests.support.compose_gate_harness import (
     start_three_container_stack,
     wait_http_ok,
 )
-from tests.support.history_compare_job_harness import history_compare_provider
-from tests.support.repository_ref_materialization import FakeRepositoryTableAccessProvider
+from tests.support.repository_ref_materialization import (
+    FakeRepositoryTableAccessProvider,
+    catalog_table,
+    int_id_column,
+    make_catalog,
+)
 from tests.support.history_compare_oracle import oracle_comparison_digest
+from tests.support.composite_signal import load_text as load_composite_fixture_text
+from tests.support.upload_http_packages import composite_signal_upload_files
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
 ARCHIVER_TOKEN = "compose-archiver-token"
 ACTOR2_TOKEN = "compose-actor-2-token"
+ACTOR3_TOKEN = "compose-actor-3-token"
 HISTORY_READER_TOKEN = "compose-history-reader-token"
 CROSS_SCOPE_TOKEN = "compose-cross-scope-token"
 _LOGGER = logging.getLogger(__name__)
@@ -88,6 +96,18 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
                     {
                         "token": ACTOR2_TOKEN,
                         "actor_id": "compose-actor-2",
+                        "gateway_device_external_key": DEVICE_KEY,
+                        "business_project_id": PROJECT_ID,
+                        "permissions": [
+                            "workspace_read",
+                            "upload_submit_workspace",
+                            "preview_workspace",
+                            "review_submission",
+                        ],
+                    },
+                    {
+                        "token": ACTOR3_TOKEN,
+                        "actor_id": "compose-actor-3",
                         "gateway_device_external_key": DEVICE_KEY,
                         "business_project_id": PROJECT_ID,
                         "permissions": [
@@ -224,18 +244,65 @@ def _standard_provider_from_repository(
     commit_id: str,
 ) -> FakeRepositoryTableAccessProvider:
     raw_rows = read_repository_table_rows(env, repository_id, commit_id, "t")
-    if not raw_rows:
-        return history_compare_provider(
-            commit_id=commit_id,
-            row_count=0,
-            declared_rows={},
-            catalog_without=("t",),
-        )
     rows = tuple((int(cast(int, row[0])),) for row in raw_rows)
-    return history_compare_provider(
-        commit_id=commit_id,
-        row_count=len(rows),
-        declared_rows={"t": rows},
+    composite_rows = read_repository_table_rows(
+        env,
+        repository_id,
+        commit_id,
+        "composite_signal_point",
+    )
+    tables = (
+        catalog_table("t", (int_id_column(),), row_count=len(rows)),
+        catalog_table(
+            "composite_signal_point",
+            (
+                RepositoryColumn(
+                    name="source_table",
+                    ordinal=0,
+                    scalar_type="VARCHAR(64)",
+                    nullable=False,
+                ),
+                RepositoryColumn(
+                    name="point_gid",
+                    ordinal=1,
+                    scalar_type="BIGINT",
+                    nullable=False,
+                ),
+                RepositoryColumn(
+                    name="point_name",
+                    ordinal=2,
+                    scalar_type="TEXT",
+                    nullable=False,
+                ),
+                RepositoryColumn(
+                    name="formula_digest",
+                    ordinal=3,
+                    scalar_type="TEXT",
+                    nullable=True,
+                ),
+                RepositoryColumn(
+                    name="formula_ast_json",
+                    ordinal=4,
+                    scalar_type="LONGTEXT",
+                    nullable=True,
+                ),
+            ),
+            primary_key=("source_table", "point_gid"),
+            row_count=len(composite_rows),
+        ),
+    )
+    catalog = make_catalog(
+        tables,
+        repository_id=repository_id,
+        ref=commit_id,
+        commit=commit_id,
+    )
+    declared_rows = {"t": rows, "composite_signal_point": composite_rows}
+    return FakeRepositoryTableAccessProvider(
+        catalog=catalog,
+        rows=declared_rows,
+        declared_rows=declared_rows,
+        current_commit=commit_id,
     )
 
 
@@ -689,6 +756,125 @@ def test_compose_history_compare_journey_zero_write_restart(
             assert business_before == business_after_replay
             assert commits_before == commits_after_replay
             assert manifests_before == manifests_after_replay
+
+            logic_v1 = load_composite_fixture_text(
+                "xml/valid/s3-minimal-logic/input.xml"
+            ).encode("utf-8")
+            logic_v2 = logic_v1.replace(b'<Digital value="1"/>', b'<Digital value="2"/>')
+            assert logic_v2 != logic_v1
+            composite_v1 = run_accept_to_submission_read_journey(
+                env,
+                initial_commit_id=main_after_a,
+                journey_key_prefix="history-composite-v1",
+                token=ACTOR2_TOKEN,
+                expected_baseline_node_id=archived_head_node_id,
+                expected_baseline_head_version=archived_head_version,
+                upload_files_factory=lambda version: composite_signal_upload_files(
+                    version,
+                    initial_xml=logic_v1,
+                    modified_xml=logic_v1,
+                ),
+            )
+            with httpx.Client(
+                base_url=BACKEND_URL,
+                headers=_auth_headers(token=ARCHIVER_TOKEN),
+                timeout=120.0,
+            ) as reviewer:
+                _approve_submission(
+                    reviewer,
+                    str(composite_v1["submission_id"]),
+                    idempotency_key="history-review-composite-v1",
+                )
+            main_after_composite_v1 = resolve_main_commit_id(
+                env,
+                repository_id,
+                bearer_token=BEARER_TOKEN,
+            )
+            composite_v2 = run_accept_to_submission_read_journey(
+                env,
+                initial_commit_id=main_after_a,
+                journey_key_prefix="history-composite-v2",
+                token=ACTOR3_TOKEN,
+                expected_baseline_node_id=archived_head_node_id,
+                expected_baseline_head_version=archived_head_version,
+                include_preview_surfaces=True,
+                upload_files_factory=lambda version: composite_signal_upload_files(
+                    version,
+                    initial_xml=logic_v1,
+                    modified_xml=logic_v2,
+                ),
+            )
+            composite_surfaces = cast(list[dict[str, Any]], composite_v2["preview_surfaces"])
+            composite_table = next(
+                table
+                for surface in composite_surfaces
+                if surface["surface_id"] == "surface-initial_to_modified"
+                for table in cast(list[dict[str, Any]], surface["tables"])
+                if table["table_name"] == "composite_signal_point"
+            )
+            assert composite_table["table_status"] == "MODIFIED"
+            assert composite_table["row_change_stats"]["row_modified_count"] == 1
+
+            main_after_composite_v2 = resolve_main_commit_id(
+                env,
+                repository_id,
+                bearer_token=BEARER_TOKEN,
+            )
+            assert main_after_composite_v2 != main_after_composite_v1
+            rows_v1 = read_repository_table_rows(
+                env,
+                repository_id,
+                main_after_composite_v1,
+                "composite_signal_point",
+            )
+            rows_v2 = read_repository_table_rows(
+                env,
+                repository_id,
+                main_after_composite_v2,
+                "composite_signal_point",
+            )
+            assert len(rows_v1) == len(rows_v2) == 2
+            formula_digests_v1 = tuple(
+                value
+                for row in rows_v1
+                for value in row
+                if isinstance(value, str) and value.startswith("sha256:")
+            )
+            formula_digests_v2 = tuple(
+                value
+                for row in rows_v2
+                for value in row
+                if isinstance(value, str) and value.startswith("sha256:")
+            )
+            assert len(formula_digests_v1) == len(formula_digests_v2) == 1
+            assert formula_digests_v1 != formula_digests_v2
+
+            composite_history = accept_history_compare(
+                history_reader,
+                nodes=[
+                    {
+                        "ref_kind": "submission",
+                        "ref_id": str(composite_v1["submission_id"]),
+                    },
+                    {
+                        "ref_kind": "submission",
+                        "ref_id": str(composite_v2["submission_id"]),
+                    },
+                ],
+                idempotency_key="history-compare-composite-logic",
+                token=HISTORY_READER_TOKEN,
+            )
+            composite_history_result = history_reader.get(
+                f"/v1/history-compares/{composite_history['operation_id']}",
+            )
+            assert composite_history_result.status_code == 200, composite_history_result.text
+            composite_history_body = cast(dict[str, Any], composite_history_result.json())
+            assert composite_history_body["status"] == "SUCCEEDED"
+            assert composite_history_body["result"] is not None
+            composite_history_pair = composite_history_body["result"]["pairs"][0]
+            assert composite_history_pair["before_commit"] == main_after_composite_v1
+            assert composite_history_pair["current_commit"] == main_after_composite_v2
+            assert int(composite_history_pair["record_count"]) == 1
 
         print(
             "zero_table_pair_digest="

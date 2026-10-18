@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Any
 
 import pytest
@@ -10,7 +12,9 @@ from fastapi.testclient import TestClient
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.history.contracts import PERMISSION_READ_PROJECT_HISTORY
-from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.http.dependencies import ReadOnlyOperationStore
+from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork, connect_control_db
+from gateway_backend.operations.store import StoreBusy
 from tests.support.http_workspace_harness import (
     BASELINE_HEAD,
     TEST_BEARER_LIMITED,
@@ -72,6 +76,65 @@ def test_get_operation_returns_200(env: WorkspaceHttpTestEnvironment) -> None:
     assert body["operation_id"] == preview["operation_id"]
     assert body["status"] == "QUEUED"
     assert body["job_kind"] == "backend-vnext/preview"
+
+
+@pytest.mark.serial
+def test_operation_gets_remain_available_while_control_db_writer_holds_lock(
+    env: WorkspaceHttpTestEnvironment,
+) -> None:
+    operation_id, submit_attempt_id = _accept_submit_operation(env)
+    with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        workspace_id = next(ref.value for ref in operation.business_refs if ref.kind == "workspace")
+    writer = connect_control_db(env.db_path)
+    writer.execute("BEGIN IMMEDIATE")
+    lock_started = monotonic()
+    try:
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            operation_response_future = executor.submit(
+                env.client.get,
+                f"/v1/operations/{operation_id}",
+                headers=env.auth_headers(),
+            )
+            attempt_response_future = executor.submit(
+                env.client.get,
+                f"/v1/workspaces/{workspace_id}/submit-attempts/{submit_attempt_id}",
+                headers=env.auth_headers(),
+            )
+            submission_response_future = executor.submit(
+                env.client.get,
+                f"/v1/workspaces/{workspace_id}/submissions/sub-missing-under-write-lock",
+                headers=env.auth_headers(),
+            )
+            operation_response = operation_response_future.result(timeout=2)
+            attempt_response = attempt_response_future.result(timeout=2)
+            submission_response = submission_response_future.result(timeout=2)
+            assert writer.in_transaction
+            assert monotonic() - lock_started < 5
+            sleep(max(0.0, 5.1 - (monotonic() - lock_started)))
+            assert writer.in_transaction
+        assert operation_response.status_code == 200
+        assert operation_response.json()["operation_id"] == operation_id
+        assert attempt_response.status_code == 200
+        assert submission_response.status_code == 404
+    finally:
+        if writer.in_transaction:
+            writer.execute("ROLLBACK")
+        writer.close()
+
+
+def test_operation_get_maps_store_busy_to_503(
+    env: WorkspaceHttpTestEnvironment,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raise_store_busy(_self: ReadOnlyOperationStore, _operation_id: str) -> None:
+        raise StoreBusy("synthetic busy")
+
+    monkeypatch.setattr(ReadOnlyOperationStore, "get_operation", raise_store_busy)
+    response = env.client.get("/v1/operations/op-busy", headers=env.auth_headers())
+
+    assert response.status_code == 503
+    assert response.json()["code"] == "SERVICE_NOT_READY"
 
 
 def test_get_operation_requires_authentication(env: WorkspaceHttpTestEnvironment) -> None:

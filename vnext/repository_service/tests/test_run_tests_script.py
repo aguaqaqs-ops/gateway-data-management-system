@@ -73,11 +73,20 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     )
     _seed_repo_file(vnext_root, "scripts/uv-consume.sh")
     _seed_repo_file(repo_root, "legacy/table-rules.json", "{}\n")
+    _seed_repo_file(repo_root, ".gitignore", "**/.venv/\n")
     _seed_repo_file(
         repo_root,
         "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md",
         "Measurement methodology version: `fixture`\n",
     )
+    for package in LOCK_PACKAGES:
+        environment = vnext_root / package / ".venv"
+        site_packages = environment / "lib" / "python3.14" / "site-packages"
+        site_packages.mkdir(parents=True, exist_ok=True)
+        (environment / "pyvenv.cfg").write_text("fixture environment\n", encoding="utf-8")
+        (site_packages / "fixture_dependency.py").write_text(
+            f"PACKAGE = {package!r}\n", encoding="utf-8"
+        )
 
     git_env = os.environ.copy()
     subprocess.run(["git", "init", "-q", str(repo_root)], check=True)
@@ -136,6 +145,7 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         ),
     )
     calls_log = tmp_path / "pytest-invocations.log"
+    sync_log = tmp_path / "environment-syncs.log"
     fake_uv_consume = tmp_path / "uv-consume-fake.sh"
     _write_executable(
         fake_uv_consume,
@@ -143,6 +153,10 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
             """\
             #!/usr/bin/env bash
             set -euo pipefail
+            if [[ "$*" == "-C . sync" ]]; then
+              printf '%s\n' "$(basename "$PWD")" >>"${RUNNER_SYNC_LOG}"
+              exit 0
+            fi
             if [[ "$*" == *"python -VV"* ]]; then
               printf 'Python 3.14.6 (fixture)\\n'
               exit 0
@@ -166,6 +180,7 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env["GATEWAY_UV_CONSUME"] = str(fake_uv_consume)
     env["RUNNER_CALLS_LOG"] = str(calls_log)
+    env["RUNNER_SYNC_LOG"] = str(sync_log)
     env["GATEWAY_TEST_WORKERS"] = "1"
     env.pop("GATEWAY_TEST_PACKAGES", None)
     return repo_root, calls_log, env
@@ -224,6 +239,17 @@ def test_run_tests_runs_selected_packages_in_authoritative_order(
     assert completed.returncode == 0, completed.stderr
     actual_packages = [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()]
     assert actual_packages == expected_packages
+    actual_syncs = Path(env["RUNNER_SYNC_LOG"]).read_text().splitlines()
+    assert actual_syncs == sorted(
+        {"backend", "repository_service"} if "," in selection else {"shared_kernel"},
+        key=(
+            "shared_kernel",
+            "repository_contracts",
+            "repository_client",
+            "backend",
+            "repository_service",
+        ).index,
+    )
     manifests = [line for line in completed.stdout.splitlines() if line.startswith("==> test input manifest")]
     assert [line.rsplit("=", 1)[1] for line in manifests] == sorted(
         {"backend", "repository_service"} if "," in selection else {"shared_kernel"},
@@ -253,6 +279,13 @@ def test_run_tests_without_package_selection_keeps_all_packages_and_two_passes(
         "repository_service",
         "repository_service",
     ]
+    assert Path(env["RUNNER_SYNC_LOG"]).read_text().splitlines() == [
+        "shared_kernel",
+        "repository_contracts",
+        "repository_client",
+        "backend",
+        "repository_service",
+    ]
     assert "==> backend (parallel)" in completed.stdout
     assert "==> backend (serial)" in completed.stdout
     assert "==> repository_service (parallel)" in completed.stdout
@@ -274,3 +307,4 @@ def test_run_tests_rejects_unknown_duplicate_or_malformed_packages(
     assert completed.returncode == 2
     assert "GATEWAY_TEST_PACKAGES" in completed.stderr
     assert not calls_log.exists()
+    assert not Path(env["RUNNER_SYNC_LOG"]).exists()

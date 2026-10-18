@@ -101,6 +101,26 @@ gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${LOCK_SNAPSHOT}"
 
 export GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1
 
+# Materialize each selected locked environment before hashing it. uv run would
+# perform this sync at the first pytest invocation; doing it here makes the
+# manifest describe the environment the subsequent tests actually use.
+for package in "${SELECTED_PACKAGES[@]}"; do
+    echo "==> sync test environment package=${package}"
+    if ! (
+        cd "${VNEXT_ROOT}/${package}"
+        "${UV_CONSUME}" -C . sync
+    ); then
+        PACKAGE_STATUS["${package}"]=failed
+        for failed_package in "${SELECTED_PACKAGES[@]}"; do
+            if [[ "${PACKAGE_STATUS[${failed_package}]}" == "passed" ]]; then
+                PACKAGE_STATUS["${failed_package}"]=failed
+            fi
+            echo "==> ${failed_package} status=${PACKAGE_STATUS[${failed_package}]}"
+        done
+        exit 1
+    fi
+done
+
 INPUT_CLOSURE_SCRIPT="${VNEXT_ROOT}/scripts/test_input_closure.py"
 for package in "${SELECTED_PACKAGES[@]}"; do
     echo "==> test input manifest package=${package}"

@@ -266,6 +266,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      - 不在 Git 中的 `legacy/` 内容摘要（`test_table_rules_resolver.py` 读取它）；每包 Python `-VV`、Dolt、uv、rustc 版本；有 Docker 测试的包还记录 Docker/Compose 版本与本机 base image ID。
 
      Git 中的部分按当前提交的 tree/blob object id 比较；不在 Git 中的 `legacy/` 按排序后的相对路径和文件内容计算摘要，环境项按内容计算摘要。
+     每包实际使用的 uv 环境也按目录内容计算摘要，排除由锁定源码与解释器派生的 `__pycache__`、`.pyc`、`.pyo`。
    - **闭包完整性必须实测：** 对每个包运行完整测试，用 worktree 外加载的 Python audit hook 记录仓库内 `open` 路径；对 Docker build、Dolt、Rust 扩展和 shell 脚本等非 Python 读取方，说明其输入由上述完整 context、workspace、工具版本与共享脚本覆盖，并在需要时使用 `strace -f -e trace=openat` 补测。将实测路径集合与 manifest 比较；有遗漏时扩大闭包，不得缩小测试范围。审计 hook、trace 与日志留在 worktree 外。
    - **沿用条件：**
      - 来源 V 必须是实际运行了该包的权威 runner；worktree clean、日志记录起止 HEAD、该包通过且整次 runner exit 0。只运行部分包的 runner 也可作为来源；链式沿用必须直接引用最初实际运行该包的来源 V；

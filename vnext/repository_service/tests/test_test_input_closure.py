@@ -39,6 +39,16 @@ def _fixture_repo(tmp_path: Path) -> Path:
         else:
             path.mkdir(parents=True, exist_ok=True)
             (path / "fixture.txt").write_text(f"fixture for {relative}\n", encoding="utf-8")
+    for package in PACKAGES:
+        environment = repo_root / "vnext" / package / ".venv"
+        site_packages = environment / "lib" / "python3.14" / "site-packages"
+        site_packages.mkdir(parents=True, exist_ok=True)
+        (environment / "pyvenv.cfg").write_text("fixture environment\n", encoding="utf-8")
+        (site_packages / "fixture_dependency.py").write_text(
+            f"PACKAGE = {package!r}\n", encoding="utf-8"
+        )
+
+    (repo_root / ".gitignore").write_text("**/.venv/\n", encoding="utf-8")
 
     subprocess.run(["git", "init", "-q", str(repo_root)], check=True)
     subprocess.run(
@@ -105,7 +115,54 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
         "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md"
     ]
     assert service_components["non-git:legacy-content"]["kind"] == "content"
+    assert service_components["non-git:package-uv-environment"]["kind"] == "content"
+    assert service_components["non-git:package-uv-environment"]["paths"] == [
+        "vnext/repository_service/.venv"
+    ]
     assert service_components["environment:python-dolt-uv-rustc"]["values"] == FAKE_ENVIRONMENT
+
+
+@pytest.mark.unit
+def test_package_uv_environment_content_is_hashed_but_bytecode_is_derived(
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    original = _manifest(repo_root, "shared_kernel")
+    original_component = next(
+        component
+        for component in original["components"]
+        if component["name"] == "non-git:package-uv-environment"
+    )
+
+    dependency = (
+        repo_root
+        / "vnext"
+        / "shared_kernel"
+        / ".venv"
+        / "lib"
+        / "python3.14"
+        / "site-packages"
+        / "fixture_dependency.py"
+    )
+    dependency.write_text("PACKAGE = 'changed'\n", encoding="utf-8")
+    changed = _manifest(repo_root, "shared_kernel")
+    changed_component = next(
+        component
+        for component in changed["components"]
+        if component["name"] == "non-git:package-uv-environment"
+    )
+    assert changed_component["digest"] != original_component["digest"]
+
+    bytecode = dependency.parent / "__pycache__" / "fixture_dependency.cpython-314.pyc"
+    bytecode.parent.mkdir()
+    bytecode.write_bytes(b"derived bytecode")
+    after_bytecode = _manifest(repo_root, "shared_kernel")
+    after_component = next(
+        component
+        for component in after_bytecode["components"]
+        if component["name"] == "non-git:package-uv-environment"
+    )
+    assert after_component["digest"] == changed_component["digest"]
 
 
 @pytest.mark.unit

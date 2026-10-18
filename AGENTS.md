@@ -30,9 +30,12 @@
 重复或未知名称以 exit 2 拒绝，选择顺序仍按权威 runner 的固定顺序执行。未设置该变量时运行全部包，
 原有两遍拆分、Compose 临时目录处理和五锁检查不变。S5 最终门禁与发布门禁必须运行全部包。
 
-runner 开始时会用 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>`
-为每个待运行包输出 JSON manifest；总摘要由逐项的 Git tree object、`legacy/` 内容和环境版本摘要组成，
-dirty worktree 会被拒绝。handoff 可用 `compare --source <V-manifest.json> --current <当前-manifest.json>`
+runner 先通过受控 wrapper 同步待运行包的 locked uv 环境，再用
+`python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>`
+为每个待运行包输出 JSON manifest；总摘要由逐项的 Git tree object、`legacy/` 与该包实际 uv
+环境的内容摘要、以及环境版本摘要组成。uv 环境摘要排除由锁定源码和对应 Python 解释器生成的
+`__pycache__`、`.pyc`、`.pyo`。dirty worktree 会被拒绝。handoff 可用
+`compare --source <V-manifest.json> --current <当前-manifest.json>`
 输出“可沿用”或“运行”及变化组成部分。来源 V 必须是该包实际运行并通过的权威 runner 运行：worktree
 clean、日志记录起止 HEAD、该包通过、整次 runner exit 0；只跑部分包的 runner 也可作为来源。若当前 V
 的包闭包有变化，该包必须在当前 V 实际运行并通过。handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志；
@@ -204,7 +207,7 @@ sha256sum vnext/repository_service/uv.lock
 
 按包沿用与镜像身份等价分别判定：前者决定当前 V 上要运行哪些包，后者决定 V..H 的镜像结果能否
 `carried`。backend 闭包包括 Compose 使用的完整 `vnext/` Docker build context、Compose 与 Dockerfile、
-Rust workspace，以及测试运行时本机 Docker base image identity；因此 backend 包从合格来源 V 沿用时，
+Rust workspace、该包 uv 环境内容摘要，以及测试运行时本机 Docker base image identity；因此 backend 包从合格来源 V 沿用时，
 该次权威 runner 中 backend Compose 旅程一并沿用。V..H 仍须单独满足本节镜像身份等价，阶段退出才能把
 容器门禁绑定到最终 HEAD。
 

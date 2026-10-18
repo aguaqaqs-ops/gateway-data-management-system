@@ -308,6 +308,86 @@ def _legacy_content_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _environment_content_digest(path: Path) -> str:
+    """Hash the package's non-Git uv environment, excluding derived bytecode."""
+    if not path.exists():
+        raise ClosureError(f"package virtual environment is missing: {path}")
+    resolved_root = path.resolve(strict=True)
+    if not resolved_root.is_dir():
+        raise ClosureError(f"package virtual environment is not a directory: {path}")
+
+    digest = hashlib.sha256()
+    if path.is_symlink():
+        link_target = os.readlink(path).encode("utf-8")
+        digest.update(b"root-symlink\0")
+        digest.update(len(link_target).to_bytes(8, "big"))
+        digest.update(link_target)
+
+    entries: list[tuple[str, Path, str]] = []
+    def raise_walk_error(error: OSError) -> None:
+        raise ClosureError(f"could not enumerate package virtual environment: {error}")
+
+    for current, dirnames, filenames in os.walk(
+        resolved_root,
+        followlinks=False,
+        onerror=raise_walk_error,
+    ):
+        current_path = Path(current)
+        kept_dirs: list[str] = []
+        for dirname in sorted(dirnames):
+            candidate = current_path / dirname
+            relative = candidate.relative_to(resolved_root).as_posix()
+            if dirname == "__pycache__" or candidate.is_symlink():
+                if dirname != "__pycache__":
+                    entries.append((relative, candidate, "symlink"))
+                continue
+            entries.append((relative, candidate, "directory"))
+            kept_dirs.append(dirname)
+        dirnames[:] = kept_dirs
+        for filename in sorted(filenames):
+            if filename.endswith((".pyc", ".pyo")):
+                continue
+            candidate = current_path / filename
+            relative = candidate.relative_to(resolved_root).as_posix()
+            entries.append((relative, candidate, "symlink" if candidate.is_symlink() else "file"))
+
+    for relative, candidate, entry_kind in sorted(entries, key=lambda item: item[0]):
+        encoded_path = relative.encode("utf-8")
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(entry_kind.encode("ascii") + b"\0")
+        file_mode = candidate.lstat().st_mode & 0o777
+        digest.update(file_mode.to_bytes(2, "big"))
+        if entry_kind == "symlink":
+            target = os.readlink(candidate).encode("utf-8")
+            digest.update(len(target).to_bytes(8, "big"))
+            digest.update(target)
+        elif entry_kind == "file":
+            size = candidate.stat().st_size
+            digest.update(size.to_bytes(8, "big"))
+            with candidate.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _uv_environment_path(repo_root: Path, package: str) -> Path:
+    project_dir = repo_root / PACKAGE_PATHS[package]
+    configured_path = os.environ.get("UV_PROJECT_ENVIRONMENT")
+    if not configured_path:
+        return project_dir / ".venv"
+    path = Path(configured_path)
+    return path if path.is_absolute() else project_dir / path
+
+
+def _manifest_path(repo_root: Path, path: Path) -> str:
+    absolute = Path(os.path.abspath(path))
+    try:
+        return absolute.relative_to(repo_root).as_posix()
+    except ValueError:
+        return str(absolute)
+
+
 def _command_output(command: Sequence[str], *, cwd: Path) -> str:
     executable = shutil.which(command[0]) if not Path(command[0]).is_absolute() else command[0]
     if not executable:
@@ -492,6 +572,22 @@ def build_manifest(
             "paths": ["legacy"],
             "digest": _legacy_content_digest(legacy_path),
             "reason": "The table-rules resolver tests use the untracked legacy reference tree.",
+        }
+    )
+
+    environment_path = _uv_environment_path(repo_root, package)
+    components.append(
+        {
+            "name": "non-git:package-uv-environment",
+            "kind": "content",
+            "git_object_type": None,
+            "paths": [_manifest_path(repo_root, environment_path)],
+            "digest": _environment_content_digest(environment_path),
+            "reason": (
+                "Installed Python and native test dependencies are read from this uv environment; "
+                "the digest includes its files and executable modes, excluding __pycache__ and "
+                ".pyc/.pyo files derived from locked sources and the recorded interpreter."
+            ),
         }
     )
 

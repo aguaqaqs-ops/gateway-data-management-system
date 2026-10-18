@@ -142,7 +142,10 @@ def test_compare_reports_reuse_and_lists_changed_components(tmp_path: Path) -> N
     changed = copy.deepcopy(unchanged)
     changed["components"][0]["digest"] = "changed-digest"
     digest_components = [
-        {key: component[key] for key in ("name", "kind", "paths", "digest")}
+        {
+            key: component[key]
+            for key in ("name", "kind", "git_object_type", "paths", "digest")
+        }
         for component in changed["components"]
     ]
     changed["total_digest"] = hashlib.sha256(
@@ -162,6 +165,8 @@ def test_compare_reports_reuse_and_lists_changed_components(tmp_path: Path) -> N
             "component": source["components"][0]["name"],
             "source_kind": source["components"][0]["kind"],
             "current_kind": source["components"][0]["kind"],
+                "source_git_object_type": source["components"][0]["git_object_type"],
+                "current_git_object_type": source["components"][0]["git_object_type"],
             "source_paths": source["components"][0]["paths"],
             "current_paths": source["components"][0]["paths"],
             "source_digest": source["components"][0]["digest"],

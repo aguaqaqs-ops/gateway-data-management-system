@@ -380,11 +380,14 @@ def collect_environment(repo_root: Path, package: str) -> dict[str, str]:
     return versions
 
 
-def _git_component_digest(repo_root: Path, revision: str, path: str) -> str:
+def _git_component_identity(repo_root: Path, revision: str, path: str) -> tuple[str, str]:
     object_id = _run_git(repo_root, "rev-parse", "--verify", f"{revision}:{path}")
     if len(object_id) != 40 or any(character not in "0123456789abcdef" for character in object_id):
         raise ClosureError(f"unexpected Git object id for {path}: {object_id}")
-    return object_id
+    object_type = _run_git(repo_root, "cat-file", "-t", object_id)
+    if object_type not in {"blob", "tree"}:
+        raise ClosureError(f"unexpected Git object type for {path}: {object_type}")
+    return object_id, object_type
 
 
 def _finish_manifest(
@@ -395,7 +398,10 @@ def _finish_manifest(
     components: list[dict[str, Any]],
 ) -> dict[str, Any]:
     digest_components = [
-        {key: component[key] for key in ("name", "kind", "paths", "digest")}
+        {
+            key: component[key]
+            for key in ("name", "kind", "git_object_type", "paths", "digest")
+        }
         for component in components
     ]
     manifest_components = []
@@ -441,12 +447,18 @@ def build_manifest(
 
     components: list[dict[str, Any]] = []
     for spec in _component_specs(package):
+        object_id, object_type = _git_component_identity(
+            repo_root,
+            selected_revision,
+            spec["path"],
+        )
         components.append(
             {
                 "name": spec["name"],
-                "kind": "git-tree",
+                "kind": "git",
+                "git_object_type": object_type,
                 "paths": [spec["path"]],
-                "digest": _git_component_digest(repo_root, selected_revision, spec["path"]),
+                "digest": object_id,
                 "reason": spec["reason"],
             }
         )
@@ -456,6 +468,7 @@ def build_manifest(
         {
             "name": "non-git:legacy-content",
             "kind": "content",
+            "git_object_type": None,
             "paths": ["legacy"],
             "digest": _legacy_content_digest(legacy_path),
             "reason": "The table-rules resolver tests use the untracked legacy reference tree.",
@@ -471,6 +484,7 @@ def build_manifest(
         {
             "name": "environment:python-dolt-uv-rustc",
             "kind": "environment",
+            "git_object_type": None,
             "paths": [],
             "digest": hashlib.sha256(_canonical_json(environment_values)).hexdigest(),
             "values": environment_values,
@@ -512,6 +526,7 @@ def compare_manifests(source: Mapping[str, Any], current: Mapping[str, Any]) -> 
                 raise ClosureError(f"duplicate manifest component: {name}")
             if (
                 not isinstance(raw_component.get("kind"), str)
+                or raw_component.get("git_object_type") not in {None, "blob", "tree"}
                 or not isinstance(raw_component.get("paths"), list)
                 or any(not isinstance(path, str) for path in raw_component["paths"])
                 or not isinstance(raw_component.get("digest"), str)
@@ -524,7 +539,10 @@ def compare_manifests(source: Mapping[str, Any], current: Mapping[str, Any]) -> 
             "schema_version": manifest["schema_version"],
             "package": manifest["package"],
             "components": [
-                {key: component[key] for key in ("name", "kind", "paths", "digest")}
+                {
+                    key: component[key]
+                    for key in ("name", "kind", "git_object_type", "paths", "digest")
+                }
                 for component in sorted(result.values(), key=lambda item: item["name"])
             ],
         }
@@ -540,12 +558,18 @@ def compare_manifests(source: Mapping[str, Any], current: Mapping[str, Any]) -> 
         source_component = source_components.get(name)
         current_component = current_components.get(name)
         source_signature = (
-            {key: source_component[key] for key in ("kind", "paths", "digest")}
+            {
+                key: source_component[key]
+                for key in ("kind", "git_object_type", "paths", "digest")
+            }
             if source_component
             else None
         )
         current_signature = (
-            {key: current_component[key] for key in ("kind", "paths", "digest")}
+            {
+                key: current_component[key]
+                for key in ("kind", "git_object_type", "paths", "digest")
+            }
             if current_component
             else None
         )
@@ -555,6 +579,12 @@ def compare_manifests(source: Mapping[str, Any], current: Mapping[str, Any]) -> 
             "component": name,
             "source_kind": source_component.get("kind") if source_component else None,
             "current_kind": current_component.get("kind") if current_component else None,
+            "source_git_object_type": (
+                source_component.get("git_object_type") if source_component else None
+            ),
+            "current_git_object_type": (
+                current_component.get("git_object_type") if current_component else None
+            ),
             "source_paths": source_component.get("paths") if source_component else None,
             "current_paths": current_component.get("paths") if current_component else None,
             "source_digest": source_component.get("digest") if source_component else None,

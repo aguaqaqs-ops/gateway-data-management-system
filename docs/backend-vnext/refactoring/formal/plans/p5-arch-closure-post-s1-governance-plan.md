@@ -256,27 +256,28 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
 
 1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
+   - **实施状态（2026-10-18）：** 已在 `p5-g12` 实施；候选门禁结果、逐包摘要与独立审核状态记录在 G12 handoff。审核通过后由审核方更新 `main` 状态。
    - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
    - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
-     - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`；
-     - 它的路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python`；repository_service → repository_contracts；
-     - 测试会读取的共享目录：`vnext/fixtures/`、`vnext/scripts/`（runner 与 uv wrapper），以及 Compose 用到的 `vnext/deploy/` 和相关包的镜像构建上下文。backend 的 Compose 旅程使用 RS 镜像，所以 backend 的闭包包括 repository_service；
-     - 不在 Git 中的输入：`legacy/` 目录的内容摘要（`test_table_rules_resolver.py` 读取它）；环境中的 Python 与 Dolt 版本。
-     
-     Git 中的部分用 tree 哈希比较，不在 Git 中的部分用内容摘要比较。
-   - **闭包完整性必须实测：** 实施时对每个包运行一次测试，用 Python audit hook（以外部插件加载，不进提交）记录进程实际打开的仓库内文件，证明全部落在闭包内；容器内的读取由镜像身份规则覆盖。实测有遗漏时扩大闭包，不得缩小测试范围。
+     - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`，以及其传递路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python` 的 workspace crate；repository_service → repository_contracts；
+     - 所有包共同读取的 `vnext/fixtures/`、`vnext/scripts/`、`vnext/repository-workspace.toml`、`vnext/rust/rust-toolchain.toml`、`vnext/deploy/` 与五个 `uv.lock`（runner 的 uv wrapper 会检查五锁）；
+     - backend 和 repository_service 测试会构建的镜像输入：完整 `vnext/` Docker build context、Compose 文件和相关 Dockerfile。backend 覆盖 backend、worker 与 repository-service 镜像；repository_service 覆盖 repository-service、repository-client e2e 与 dependency-base 镜像。完整 context 同时覆盖 Dockerfile COPY 的其他目录；
+     - backend Rust 扩展读取的 workspace crate、`Cargo.lock` 与 `rust-toolchain.toml`；生成的 `target/` 不属于 Git tree，也不进入镜像 context；
+     - 不在 Git 中的 `legacy/` 内容摘要（`test_table_rules_resolver.py` 读取它）；每包 Python `-VV`、Dolt、uv、rustc 版本；有 Docker 测试的包还记录 Docker/Compose 版本与本机 base image ID。
+
+     Git 中的部分按当前提交的 tree/blob object id 比较；不在 Git 中的 `legacy/` 按排序后的相对路径和文件内容计算摘要，环境项按内容计算摘要。
+   - **闭包完整性必须实测：** 对每个包运行完整测试，用 worktree 外加载的 Python audit hook 记录仓库内 `open` 路径；对 Docker build、Dolt、Rust 扩展和 shell 脚本等非 Python 读取方，说明其输入由上述完整 context、workspace、工具版本与共享脚本覆盖，并在需要时使用 `strace -f -e trace=openat` 补测。将实测路径集合与 manifest 比较；有遗漏时扩大闭包，不得缩小测试范围。审计 hook、trace 与日志留在 worktree 外。
    - **沿用条件：**
-     - 来源 V 的权威 runner 在 clean worktree 上运行，整体 exit 0，日志记录起止 HEAD；
-     - 该包的闭包摘要在来源 V 与当前 V 上完全相同；
-     - 当前 V 上，闭包有变化的包都实际运行并通过；
-     - handoff 逐包记录闭包摘要、运行或沿用及来源 V。
+     - 来源 V 必须是实际运行了该包的权威 runner；worktree clean、日志记录起止 HEAD、该包通过且整次 runner exit 0。只运行部分包的 runner 也可作为来源；链式沿用必须直接引用最初实际运行该包的来源 V；
+     - 逐项比较包 manifest，来源 V 与当前 V 完全相同才可沿用；当前 V 上闭包有变化的包都必须实际运行并通过；
+     - handoff 逐包记录 manifest 总摘要、运行或沿用、来源 V 与来源日志。
    - **工具与文档：**
      - `run-tests.sh` 支持只运行指定的包，例如 `GATEWAY_TEST_PACKAGES=backend`；不指定时行为不变；
-     - 新增计算闭包摘要的脚本，带 unit 测试；
-     - AGENTS.md「跑测试」「镜像身份等价」与 testing-conventions 写明规则。镜像身份等价不受影响，两者分别判定。
+     - 新增计算与比较闭包 manifest 的标准库脚本，使用 `python3 -I`，带 unit 测试；runner 开始时为待运行包写 manifest，结束时逐包给出状态；
+     - AGENTS.md「跑测试」「镜像身份等价」与 testing-conventions 写明规则。包沿用决定当前 V 运行哪些包，镜像身份等价决定 V..H 能否 carried，两者分别判定。backend 闭包含完整镜像构建输入，因此 backend 沿用时其 Compose 旅程一并沿用；
    - **不适用：** S5 的最终门禁（执行计划 §2 S5 要求全量）与发布门禁，仍运行全部包。
    - **停止条件：** 需要改生产代码；闭包无法覆盖实测到的读取；需要新增依赖。
-   - **工作区：** `/home/dev/gdds-p5-g12`，分支 `p5-g12`。验收：脚本与 runner 改动的 focused 测试；一次完整权威 runner exit 0（改了 runner 脚本，不沿用）；闭包实测记录；独立审核后打 `p5-g12-exit`，S4 的区间起点改为 `p5-g12-exit`。
+   - **工作区：** `/home/dev/gdds-p5-g12`，分支 `p5-g12`。验收：脚本与 runner 改动的 unit 测试；一次完整权威 runner exit 0（改了 `vnext/scripts/`，所有包都必须实际运行）；闭包实测记录；独立审核后由审核方打 `p5-g12-exit`，S4 的区间起点改为 `p5-g12-exit`。
 2. **真实数据按阶段改动面确定范围（即时生效）。**
    - DC30 中“在最终 V 上完整运行真实数据一次”改为：真实数据的取证范围由阶段改动面决定，在阶段 kickoff 时写明，阶段退出前由 owner 确认。范围之外的不变量依靠更小的档位或既有的 focused / Compose 覆盖。
    - 剩余阶段的范围：

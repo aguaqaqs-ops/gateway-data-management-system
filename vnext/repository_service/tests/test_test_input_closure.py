@@ -101,6 +101,9 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
         "vnext/repository_client/tests/Dockerfile"
     ]
     assert service_components["path-dependency:vnext/repository_contracts"]["digest"]
+    assert service_components["test-authority:runtime-provider-feasibility"]["paths"] == [
+        "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md"
+    ]
     assert service_components["non-git:legacy-content"]["kind"] == "content"
     assert service_components["environment:python-dolt-uv-rustc"]["values"] == FAKE_ENVIRONMENT
 

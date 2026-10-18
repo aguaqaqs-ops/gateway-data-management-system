@@ -91,6 +91,13 @@ COMMON_GIT_COMPONENTS = (
 )
 
 PACKAGE_GIT_COMPONENTS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "repository_service": (
+        (
+            "test-authority:runtime-provider-feasibility",
+            "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md",
+            "Repository-service audit-corrective tests read this authority document to verify the measurement methodology version.",
+        ),
+    ),
     "backend": (
         (
             "rust:workspace",

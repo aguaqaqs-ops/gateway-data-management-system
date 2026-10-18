@@ -43,10 +43,14 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 
 runner 开始时为每个待运行包写出一份 JSON 闭包 manifest，可单独运行
 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>` 查看；dirty worktree 会被拒绝。
-Git 组成部分使用当前提交对应路径的 tree/blob object id，`legacy/` 使用按相对路径排序后的内容摘要，
+Git 组成部分使用当前提交对应路径的 tree/blob object id，`legacy/` 使用排序后的相对路径与文件内容摘要，
 环境部分记录每包 Python `-VV`、Dolt、uv、rustc 版本；backend 与 `repository_service` 还记录 Docker/
-Compose 版本和 Docker build base image ids。共享 rust-toolchain selector 也在每包闭包中，因为 manifest
-通过 rustup 解析并记录有效 rustc 版本。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
+Compose 版本和 Docker base image ids。每包闭包包括自身与传递路径依赖、fixtures、全部五个 lockfile、
+runner/wrapper 脚本、workspace 配置、deployment 输入和共享 rust-toolchain selector。backend 的 Rust
+闭包包含 workspace crate、`Cargo.lock` 与 `rust-toolchain.toml`（生成的 `target/` 排除）；backend 和
+`repository_service` 还包括 Compose 镜像使用的完整 `vnext/` build context、相关 Compose 与 Dockerfile。
+repository_service 的 context 因而包含 `repository_client` 及 e2e/dependency-base Dockerfile。manifest 对
+Docker 测试记录本机 base image id。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
 逐项比较并输出“运行”或“可沿用”及变化的组成部分。
 
 来源 V 必须满足：该包在该次权威 runner 中实际运行并通过；worktree clean；日志记录起止 HEAD；整次
@@ -54,6 +58,11 @@ runner exit 0。只运行部分包的权威 runner 也可作为来源。当前 V
 handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志。链式沿用必须直接引用最初实际运行该包的 V，
 不得把一次沿用结果当作新来源。manifest 比较只证明闭包相等；它不替代来源 runner 的 clean、包通过、
 整体 exit 0 与 HEAD 日志要求。
+
+按包沿用与镜像身份等价分别判定：包沿用决定当前 V 上哪些包需要运行，镜像身份等价决定 V..H 的容器结果能否
+carried。backend manifest 覆盖其 Compose 旅程使用的所有镜像构建上下文、Dockerfile、Rust workspace 与
+Docker base image id，因此 backend 沿用时，同一次权威 runner 的 backend Compose 旅程一并沿用；V..H
+仍须独立满足下文的镜像身份等价。S5 最终门禁与发布门禁始终运行全部包。
 
 ### 内网构建环境变量（仅记录名与语义；不得写入 lockfile 或 production runtime）
 

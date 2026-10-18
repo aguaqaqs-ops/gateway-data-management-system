@@ -45,7 +45,8 @@ runner 开始时为每个待运行包写出一份 JSON 闭包 manifest，可单�
 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>` 查看；dirty worktree 会被拒绝。
 Git 组成部分使用当前提交对应路径的 tree/blob object id，`legacy/` 使用按相对路径排序后的内容摘要，
 环境部分记录每包 Python `-VV`、Dolt、uv、rustc 版本；backend 与 `repository_service` 还记录 Docker/
-Compose 版本和 Docker build base image ids。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
+Compose 版本和 Docker build base image ids。共享 rust-toolchain selector 也在每包闭包中，因为 manifest
+通过 rustup 解析并记录有效 rustc 版本。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
 逐项比较并输出“运行”或“可沿用”及变化的组成部分。
 
 来源 V 必须满足：该包在该次权威 runner 中实际运行并通过；worktree clean；日志记录起止 HEAD；整次

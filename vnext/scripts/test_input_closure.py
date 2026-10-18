@@ -57,6 +57,11 @@ COMMON_GIT_COMPONENTS = (
         "vnext/repository-workspace.toml",
         "Shared repository workspace configuration read by development tooling.",
     ),
+    (
+        "shared:rust-toolchain-selector",
+        "vnext/rust/rust-toolchain.toml",
+        "rustup reads this selector when the manifest records the effective rustc version.",
+    ),
     ("shared:deployment", "vnext/deploy", "Compose and deployment inputs inspected or used by tests."),
     (
         "shared:lock-snapshot:backend",

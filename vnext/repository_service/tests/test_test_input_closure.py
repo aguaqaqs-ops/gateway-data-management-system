@@ -84,6 +84,9 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     assert backend_components["shared:workspace-definition"]["paths"] == [
         "vnext/repository-workspace.toml"
     ]
+    assert backend_components["shared:rust-toolchain-selector"]["paths"] == [
+        "vnext/rust/rust-toolchain.toml"
+    ]
     assert backend_components["rust:workspace"]["paths"] == ["vnext/rust"]
     assert backend_components["docker:context:vnext"]["digest"] == subprocess.run(
         ["git", "-C", str(repo_root), "rev-parse", "HEAD:vnext"],

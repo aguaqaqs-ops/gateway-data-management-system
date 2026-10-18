@@ -73,6 +73,11 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     )
     _seed_repo_file(vnext_root, "scripts/uv-consume.sh")
     _seed_repo_file(repo_root, "legacy/table-rules.json", "{}\n")
+    _seed_repo_file(
+        repo_root,
+        "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md",
+        "Measurement methodology version: `fixture`\n",
+    )
 
     git_env = os.environ.copy()
     subprocess.run(["git", "init", "-q", str(repo_root)], check=True)

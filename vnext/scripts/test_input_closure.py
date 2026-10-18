@@ -4,17 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
 PACKAGES = (
     "shared_kernel",
     "repository_contracts",
@@ -386,7 +389,30 @@ def _pytest_cache_path(repo_root: Path, package: str) -> Path:
     return repo_root / PACKAGE_PATHS[package] / ".pytest_cache"
 
 
-def _directory_content_digest(path: Path) -> str:
+def _hash_gzip_json_payload(digest: Any, path: Path) -> None:
+    """Hash the decoded content of a gzip JSON cache, ignoring its temporary filename header."""
+    payload_digest = hashlib.sha256()
+    payload_size = 0
+    try:
+        with gzip.open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                payload_size += len(chunk)
+                if payload_size > MAX_GZIP_JSON_PAYLOAD_BYTES:
+                    raise ClosureError(f"gzip JSON cache exceeds digest limit: {path}")
+                payload_digest.update(chunk)
+    except (OSError, EOFError, zlib.error) as exc:
+        raise ClosureError(f"could not decode gzip JSON cache {path}: {exc}") from exc
+
+    digest.update(b"gzip-json-payload\0")
+    digest.update(payload_size.to_bytes(8, "big"))
+    digest.update(payload_digest.digest())
+
+
+def _directory_content_digest(
+    path: Path,
+    *,
+    normalize_hypothesis_gzip: bool = False,
+) -> str:
     """Hash a non-Git input directory, including names, types, modes, and bytes."""
     digest = hashlib.sha256()
     if not path.exists() and not path.is_symlink():
@@ -454,6 +480,14 @@ def _directory_content_digest(path: Path) -> str:
                 raise ClosureError(f"input file symlink does not resolve to a file: {candidate}")
         else:
             source = candidate
+        if (
+            normalize_hypothesis_gzip
+            and entry_kind == "file"
+            and relative.startswith("unicode_data/")
+            and candidate.name.endswith(".json.gz")
+        ):
+            _hash_gzip_json_payload(digest, source)
+            continue
         size = source.stat().st_size
         digest.update(size.to_bytes(8, "big"))
         with source.open("rb") as stream:
@@ -694,11 +728,15 @@ def build_manifest(
             "kind": "content",
             "git_object_type": None,
             "paths": [_manifest_path(repo_root, hypothesis_storage_path)],
-            "digest": _directory_content_digest(hypothesis_storage_path),
+            "digest": _directory_content_digest(
+                hypothesis_storage_path,
+                normalize_hypothesis_gzip=True,
+            ),
             "reason": (
                 "Hypothesis may read cached constants, Unicode data, and examples while generating "
                 "test inputs; hash the effective package storage directory, including an explicit "
-                "missing-directory state."
+                "missing-directory state. Decode Unicode JSON gzip caches before hashing because "
+                "their gzip header records a random temporary filename that is not payload data."
             ),
         }
     )

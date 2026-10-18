@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import gzip
 import hashlib
+import io
 import json
 import runpy
 import subprocess
@@ -271,6 +273,49 @@ def test_hypothesis_storage_honors_configured_directory(
     )
     assert component["paths"] == ["vnext/backend/custom-hypothesis"]
     assert component["digest"] == CLOSURE["_directory_content_digest"](configured)
+
+
+@pytest.mark.unit
+def test_hypothesis_gzip_cache_hashes_decoded_payload_not_temporary_filename(
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    storage = repo_root / "vnext" / "backend" / ".hypothesis"
+    cache_file = storage / "unicode_data" / "16.0.0" / "codec-utf-8.json.gz"
+    cache_file.parent.mkdir(parents=True)
+
+    def gzip_cache(payload: bytes, filename: str) -> bytes:
+        buffer = io.BytesIO()
+        with gzip.GzipFile(filename=filename, mode="wb", fileobj=buffer, mtime=1) as stream:
+            stream.write(payload)
+        return buffer.getvalue()
+
+    payload = b"[[0, 55295], [57344, 1114111]]"
+    first_bytes = gzip_cache(payload, "temporary-one")
+    cache_file.write_bytes(first_bytes)
+    raw_first = CLOSURE["_directory_content_digest"](storage)
+    logical_first = CLOSURE["_directory_content_digest"](
+        storage,
+        normalize_hypothesis_gzip=True,
+    )
+
+    second_bytes = gzip_cache(payload, "temporary-two")
+    cache_file.write_bytes(second_bytes)
+    raw_second = CLOSURE["_directory_content_digest"](storage)
+    logical_second = CLOSURE["_directory_content_digest"](
+        storage,
+        normalize_hypothesis_gzip=True,
+    )
+    assert first_bytes != second_bytes
+    assert raw_first != raw_second
+    assert logical_first == logical_second
+
+    cache_file.write_bytes(gzip_cache(b"[[0, 10]]", "temporary-two"))
+    changed_payload = CLOSURE["_directory_content_digest"](
+        storage,
+        normalize_hypothesis_gzip=True,
+    )
+    assert changed_payload != logical_second
 
 
 @pytest.mark.unit

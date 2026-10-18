@@ -1951,25 +1951,25 @@ def run_journey(
                 )
                 acquire_compose_gate_lock()
                 try:
-                    stack_started = time.monotonic()
-                    if from_step is None:
-                        repository_id, initial_commit_id = start_three_container_stack(
-                            env,
-                            secret_root,
-                        )
-                        step_state["_stack"] = {
-                            "repository_id": repository_id,
-                            "initial_commit_id": initial_commit_id,
-                            "project_name": project_name,
-                            "tier": tier,
-                            "head": current_head,
-                        }
-                        if state_path is not None:
-                            _persist_debug_state(state_path, step_state)
-                    else:
-                        repository_id, initial_commit_id = _resume_stack(env, step_state)
-                    stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
                     try:
+                        stack_started = time.monotonic()
+                        if from_step is None:
+                            repository_id, initial_commit_id = start_three_container_stack(
+                                env,
+                                secret_root,
+                            )
+                            step_state["_stack"] = {
+                                "repository_id": repository_id,
+                                "initial_commit_id": initial_commit_id,
+                                "project_name": project_name,
+                                "tier": tier,
+                                "head": current_head,
+                            }
+                            if state_path is not None:
+                                _persist_debug_state(state_path, step_state)
+                        else:
+                            repository_id, initial_commit_id = _resume_stack(env, step_state)
+                        stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
                         results.append(
                             _run_tier(
                                 tier=tier,

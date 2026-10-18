@@ -80,6 +80,11 @@ OPERATION_STATUS_POLL_CASES = (
     ("internal error remains a failure", (500,), False, (), 0),
 )
 
+COMPOSE_LOGS_ON_FAILURE_CASES = (
+    ("stack startup", "synthetic Compose startup failure"),
+    ("journey step", "synthetic Preview failure"),
+)
+
 
 def _cpu_snapshot(usage_usec: int) -> dict[str, dict[str, int]]:
     return {
@@ -745,10 +750,17 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
 
+@pytest.mark.parametrize(
+    ("failure_point", "failure_message"),
+    COMPOSE_LOGS_ON_FAILURE_CASES,
+    ids=[failure_point for failure_point, _message in COMPOSE_LOGS_ON_FAILURE_CASES],
+)
 def test_failed_real_dump_saves_compose_logs_before_teardown(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    failure_point: str,
+    failure_message: str,
 ) -> None:
     log_directory = tmp_path / "compose-logs"
     monkeypatch.setenv("GATEWAY_REAL_DUMP_LOG_DIR", str(log_directory))
@@ -776,14 +788,15 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
         "acquire_compose_gate_lock",
         lambda: None,
     )
-    monkeypatch.setattr(
-        real_dump_journey,
-        "start_three_container_stack",
-        lambda *_args: ("repository-1", "commit-1"),
-    )
+    def start_stack(*_args: Any) -> tuple[str, str]:
+        if failure_point == "stack startup":
+            raise JourneyFailure(failure_message)
+        return "repository-1", "commit-1"
+
+    monkeypatch.setattr(real_dump_journey, "start_three_container_stack", start_stack)
 
     def fail_tier(**_kwargs: Any) -> dict[str, Any]:
-        raise JourneyFailure("synthetic Preview failure")
+        raise JourneyFailure(failure_message)
 
     monkeypatch.setattr(real_dump_journey, "_run_tier", fail_tier)
     events: list[str] = []
@@ -804,7 +817,7 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
 
     monkeypatch.setattr(real_dump_journey, "cleanup_compose_project_artifacts", record_cleanup)
 
-    with pytest.raises(JourneyFailure, match="synthetic Preview failure"):
+    with pytest.raises(JourneyFailure, match=failure_message):
         real_dump_journey.run_journey(tier_filter="t1")
 
     assert events == ["logs", "cleanup"]

@@ -319,26 +319,34 @@ def _command_output(command: Sequence[str], *, cwd: Path) -> str:
 def collect_environment(repo_root: Path, package: str) -> dict[str, str]:
     """Read versions from the interpreter and tools used by the authoritative runner."""
     package_path = PACKAGE_PATHS[package]
-    uv_consume = Path(
-        os.environ.get(
-            "GATEWAY_UV_CONSUME",
-            str(repo_root / "vnext" / "scripts" / "uv-consume.sh"),
-        )
-    )
-    if not uv_consume.is_absolute():
-        uv_consume = repo_root / uv_consume
-    python_output = _command_output(
+    project_dir = repo_root / package_path
+    uv_executable = shutil.which("uv")
+    if not uv_executable:
+        raise ClosureError("required environment tool is missing: uv")
+    python_result = subprocess.run(
         [
-            str(uv_consume),
-            "-C",
-            package_path,
-            "run",
-            "--no-sync",
+            uv_executable,
+            "--no-config",
             "python",
-            "-VV",
+            "find",
+            "--project",
+            str(project_dir),
         ],
-        cwd=repo_root,
+        cwd=project_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
+    if python_result.returncode != 0:
+        message = "\n".join(
+            part.strip() for part in (python_result.stdout, python_result.stderr) if part.strip()
+        )
+        raise ClosureError(f"could not resolve {package} Python interpreter: {message}")
+    python_executable = python_result.stdout.strip()
+    if not python_executable:
+        raise ClosureError(f"uv did not return a Python interpreter for {package}")
+    python_output = _command_output([python_executable, "-VV"], cwd=project_dir)
     versions = {
         "python_-VV": python_output,
         "dolt_version": _command_output(["dolt", "version"], cwd=repo_root),

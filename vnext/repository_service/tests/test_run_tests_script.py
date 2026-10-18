@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -93,7 +95,19 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
 
     fake_bin = tmp_path / "fake-bin"
     _write_executable(fake_bin / "dolt", "#!/usr/bin/env bash\nprintf 'dolt version 2.1.11\\n'\n")
-    _write_executable(fake_bin / "uv", "#!/usr/bin/env bash\nprintf 'uv 0.12.5\\n'\n")
+    _write_executable(
+        fake_bin / "uv",
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "--no-config" && "$2" == "python" && "$3" == "find" ]]; then
+              printf '%s\\n' {shlex.quote(sys.executable)}
+            else
+              printf 'uv 0.12.5\\n'
+            fi
+            """
+        ),
+    )
     _write_executable(fake_bin / "rustc", "#!/usr/bin/env bash\nprintf 'rustc 1.97.0 (fixture)\\n'\n")
     _write_executable(
         fake_bin / "docker",

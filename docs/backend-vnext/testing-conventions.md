@@ -44,7 +44,8 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 runner 开始时为每个待运行包写出一份 JSON 闭包 manifest，可单独运行
 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>` 查看；dirty worktree 会被拒绝。
 Git 组成部分使用当前提交对应路径的 tree/blob object id，`legacy/` 使用排序后的相对路径与文件内容摘要，
-环境部分记录每包 Python `-VV`、Dolt、uv、rustc 版本；backend 与 `repository_service` 还记录 Docker/
+环境部分记录每包 Python `-VV`、Dolt、uv、rustc 版本；每包还对有效 Hypothesis storage directory
+（`HYPOTHESIS_STORAGE_DIRECTORY` 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的完整内容和权限做摘要，涵盖可能参与输入生成或被测试工具读取的缓存。backend 与 `repository_service` 还记录 Docker/
 Compose 版本和 Docker base image ids。每包闭包包括自身与传递路径依赖、fixtures、全部五个 lockfile、
 runner/wrapper 脚本、workspace 配置、deployment 输入和共享 rust-toolchain selector。backend 的 Rust
 闭包包含 workspace crate、`Cargo.lock` 与 `rust-toolchain.toml`（生成的 `target/` 排除）；backend 和
@@ -236,7 +237,8 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
 
 按包沿用与镜像身份等价分别判定：包沿用决定当前V要运行哪些包，镜像身份等价决定V..H能否
 `carried`。包 manifest 还摘要该包实际使用的 uv 环境目录内容；由锁定源码与对应 Python
-解释器派生的 `__pycache__`、`.pyc`、`.pyo` 不计入内容摘要。backend闭包包括Compose使用的完整`vnext/`
+解释器派生的 `__pycache__`、`.pyc`、`.pyo` 不计入 uv 环境摘要。有效 Hypothesis storage directory 与包内
+`.pytest_cache` 的完整内容、路径与权限纳入包闭包，缓存内容变化会要求重新运行。backend闭包包括Compose使用的完整`vnext/`
 Docker build context、Compose与相关Dockerfile、Rust workspace，以及运行时本机Docker base image ids；因此backend包从合格来源V
 沿用时，该次权威runner中的backend Compose旅程也一并沿用。V..H仍须单独满足镜像身份等价，阶段退出
 才能把容器门禁绑定到最终HEAD。RS闭包同样包含其`vnext/`构建上下文、repository-service和

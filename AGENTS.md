@@ -32,8 +32,8 @@
 
 runner 先通过受控 wrapper 同步待运行包的 locked uv 环境，再用
 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>`
-为每个待运行包输出 JSON manifest；总摘要由逐项的 Git tree object、`legacy/` 与该包实际 uv
-环境的内容摘要、以及环境版本摘要组成。uv 环境摘要排除由锁定源码和对应 Python 解释器生成的
+为每个待运行包输出 JSON manifest；总摘要由逐项的 Git tree object、`legacy/`、该包实际 uv
+环境、有效 Hypothesis storage directory 与包内 `.pytest_cache` 的内容摘要、以及环境版本摘要组成。uv 环境摘要排除由锁定源码和对应 Python 解释器生成的
 `__pycache__`、`.pyc`、`.pyo`。dirty worktree 会被拒绝。handoff 可用
 `compare --source <V-manifest.json> --current <当前-manifest.json>`
 输出“可沿用”或“运行”及变化组成部分。来源 V 必须是该包实际运行并通过的权威 runner 运行：worktree
@@ -209,7 +209,8 @@ sha256sum vnext/repository_service/uv.lock
 `carried`。backend 闭包包括 Compose 使用的完整 `vnext/` Docker build context、Compose 与 Dockerfile、
 Rust workspace、该包 uv 环境内容摘要，以及测试运行时本机 Docker base image identity；因此 backend 包从合格来源 V 沿用时，
 该次权威 runner 中 backend Compose 旅程一并沿用。V..H 仍须单独满足本节镜像身份等价，阶段退出才能把
-容器门禁绑定到最终 HEAD。
+容器门禁绑定到最终 HEAD。每包闭包还摘要有效 Hypothesis storage directory（`HYPOTHESIS_STORAGE_DIRECTORY`
+或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的完整内容和权限，因为其中缓存可能参与测试输入生成或被测试工具读取。
 
 每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的 image revision/source-tree，
 以及延期到哪个节点或从哪个提交沿用。完整规则与记录模板见

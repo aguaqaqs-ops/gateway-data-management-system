@@ -48,8 +48,24 @@ def _fixture_repo(tmp_path: Path) -> Path:
         (site_packages / "fixture_dependency.py").write_text(
             f"PACKAGE = {package!r}\n", encoding="utf-8"
         )
+        hypothesis_constants = (
+            repo_root / "vnext" / package / ".hypothesis" / "constants"
+        )
+        hypothesis_constants.mkdir(parents=True, exist_ok=True)
+        (hypothesis_constants / "fixture-cache-entry").write_text(
+            f"cached inputs for {package}\n", encoding="utf-8"
+        )
+        pytest_cache = repo_root / "vnext" / package / ".pytest_cache" / "v" / "cache"
+        pytest_cache.mkdir(parents=True, exist_ok=True)
+        (pytest_cache / "nodeids").write_text(
+            '["tests/test_example.py::test_case"]\n',
+            encoding="utf-8",
+        )
 
-    (repo_root / ".gitignore").write_text("**/.venv/\n", encoding="utf-8")
+    (repo_root / ".gitignore").write_text(
+        "**/.venv/\n**/.hypothesis/\n**/.pytest_cache/\n**/custom-hypothesis/\n",
+        encoding="utf-8",
+    )
 
     subprocess.run(["git", "init", "-q", str(repo_root)], check=True)
     subprocess.run(
@@ -120,6 +136,14 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     assert service_components["non-git:package-uv-environment"]["paths"] == [
         "vnext/repository_service/.venv"
     ]
+    assert service_components["non-git:hypothesis-storage"]["kind"] == "content"
+    assert service_components["non-git:hypothesis-storage"]["paths"] == [
+        "vnext/repository_service/.hypothesis"
+    ]
+    assert service_components["non-git:pytest-cache"]["kind"] == "content"
+    assert service_components["non-git:pytest-cache"]["paths"] == [
+        "vnext/repository_service/.pytest_cache"
+    ]
     assert service_components["environment:python-dolt-uv-rustc"]["values"] == FAKE_ENVIRONMENT
 
 
@@ -164,6 +188,89 @@ def test_package_uv_environment_content_is_hashed_but_bytecode_is_derived(
         if component["name"] == "non-git:package-uv-environment"
     )
     assert after_component["digest"] == changed_component["digest"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("package", "cache_root", "cache_file", "component_name"),
+    [
+        (
+            "shared_kernel",
+            ".hypothesis",
+            "constants/fixture-cache-entry",
+            "non-git:hypothesis-storage",
+        ),
+        (
+            "backend",
+            ".hypothesis",
+            "constants/fixture-cache-entry",
+            "non-git:hypothesis-storage",
+        ),
+        ("shared_kernel", ".pytest_cache", "v/cache/nodeids", "non-git:pytest-cache"),
+        ("backend", ".pytest_cache", "v/cache/nodeids", "non-git:pytest-cache"),
+    ],
+)
+def test_non_git_test_cache_content_is_hashed(
+    package: str,
+    cache_root: str,
+    cache_file: str,
+    component_name: str,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    original = _manifest(repo_root, package)
+    original_component = next(
+        component
+        for component in original["components"]
+        if component["name"] == component_name
+    )
+    cache_entry = (
+        repo_root
+        / "vnext"
+        / package
+        / cache_root
+        / cache_file
+    )
+
+    cache_entry.write_text("changed cached constants\n", encoding="utf-8")
+    changed = _manifest(repo_root, package)
+    changed_component = next(
+        component
+        for component in changed["components"]
+        if component["name"] == original_component["name"]
+    )
+    assert changed_component["digest"] != original_component["digest"]
+
+    cache_entry.write_text("changed cached constants\n", encoding="utf-8")
+    cache_entry.chmod(0o755)
+    changed_mode = _manifest(repo_root, package)
+    changed_mode_component = next(
+        component
+        for component in changed_mode["components"]
+        if component["name"] == original_component["name"]
+    )
+    assert changed_mode_component["digest"] != changed_component["digest"]
+
+
+@pytest.mark.unit
+def test_hypothesis_storage_honors_configured_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    configured = repo_root / "vnext" / "backend" / "custom-hypothesis"
+    (configured / "constants").mkdir(parents=True)
+    (configured / "constants" / "entry").write_text("external setting\n", encoding="utf-8")
+    monkeypatch.setenv("HYPOTHESIS_STORAGE_DIRECTORY", "custom-hypothesis")
+
+    manifest = _manifest(repo_root, "backend")
+    component = next(
+        item
+        for item in manifest["components"]
+        if item["name"] == "non-git:hypothesis-storage"
+    )
+    assert component["paths"] == ["vnext/backend/custom-hypothesis"]
+    assert component["digest"] == CLOSURE["_directory_content_digest"](configured)
 
 
 @pytest.mark.unit

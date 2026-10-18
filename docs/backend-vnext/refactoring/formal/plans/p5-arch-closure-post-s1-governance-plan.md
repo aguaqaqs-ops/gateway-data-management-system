@@ -256,11 +256,12 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
 
 1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
-   - **实施状态（2026-10-18）：** 已在 `p5-g12` 实施；候选门禁结果、逐包摘要与独立审核状态记录在 G12 handoff。审核通过后由审核方更新 `main` 状态。
+   - **实施状态（2026-10-18）：** 已在 `p5-g12` 实施并按独立审核补齐 Hypothesis storage 输入摘要；候选门禁结果、逐包摘要与复审状态记录在 G12 handoff。审核通过后由审核方更新 `main` 状态。
    - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
    - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
      - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`，以及其传递路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python` 的 workspace crate；repository_service → repository_contracts；
      - 所有包共同读取的 `vnext/fixtures/`、`vnext/scripts/`、`vnext/repository-workspace.toml`、`vnext/rust/rust-toolchain.toml`、`vnext/deploy/` 与五个 `uv.lock`（runner 的 uv wrapper 会检查五锁）；
+     - 包实际使用的 Hypothesis storage directory（`HYPOTHESIS_STORAGE_DIRECTORY` 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的完整非 Git 内容和权限；缓存可能被测试工具读取并参与生成输入；
      - backend 和 repository_service 测试会构建的镜像输入：完整 `vnext/` Docker build context、Compose 文件和相关 Dockerfile。backend 覆盖 backend、worker 与 repository-service 镜像；repository_service 覆盖 repository-service、repository-client e2e 与 dependency-base 镜像。完整 context 同时覆盖 Dockerfile COPY 的其他目录；
      - backend Rust 扩展读取的 workspace crate、`Cargo.lock` 与 `rust-toolchain.toml`；生成的 `target/` 不属于 Git tree，也不进入镜像 context；
      - 不在 Git 中的 `legacy/` 内容摘要（`test_table_rules_resolver.py` 读取它）；每包 Python `-VV` 与 Unicode database 版本、Dolt、uv、rustc 版本；有 Docker 测试的包还记录 Docker/Compose 版本与本机 base image ID。

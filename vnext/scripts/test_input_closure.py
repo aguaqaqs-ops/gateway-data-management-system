@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 PACKAGES = (
     "shared_kernel",
     "repository_contracts",
@@ -371,6 +371,97 @@ def _environment_content_digest(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _hypothesis_storage_path(repo_root: Path, package: str) -> Path:
+    """Return Hypothesis's effective storage directory for the runner's package cwd."""
+    project_dir = repo_root / PACKAGE_PATHS[package]
+    configured_path = os.environ.get("HYPOTHESIS_STORAGE_DIRECTORY")
+    if not configured_path:
+        return project_dir / ".hypothesis"
+    path = Path(configured_path)
+    return path if path.is_absolute() else project_dir / path
+
+
+def _pytest_cache_path(repo_root: Path, package: str) -> Path:
+    """Return pytest's package-local default cache directory for the runner cwd."""
+    return repo_root / PACKAGE_PATHS[package] / ".pytest_cache"
+
+
+def _directory_content_digest(path: Path) -> str:
+    """Hash a non-Git input directory, including names, types, modes, and bytes."""
+    digest = hashlib.sha256()
+    if not path.exists() and not path.is_symlink():
+        digest.update(b"directory-missing\0")
+        return digest.hexdigest()
+
+    try:
+        resolved_root = path.resolve(strict=True)
+    except OSError as exc:
+        raise ClosureError(f"could not resolve input directory {path}: {exc}") from exc
+    if not resolved_root.is_dir():
+        raise ClosureError(f"input path is not a directory: {path}")
+
+    digest.update(b"directory\0")
+    digest.update((resolved_root.stat().st_mode & 0o777).to_bytes(2, "big"))
+    if path.is_symlink():
+        link_target = os.readlink(path).encode("utf-8")
+        digest.update(b"root-symlink\0")
+        digest.update(len(link_target).to_bytes(8, "big"))
+        digest.update(link_target)
+
+    entries: list[tuple[str, Path, str]] = []
+
+    def raise_walk_error(error: OSError) -> None:
+        raise ClosureError(f"could not enumerate input directory {path}: {error}")
+
+    for current, dirnames, filenames in os.walk(
+        resolved_root,
+        followlinks=False,
+        onerror=raise_walk_error,
+    ):
+        current_path = Path(current)
+        kept_dirs: list[str] = []
+        for dirname in sorted(dirnames):
+            candidate = current_path / dirname
+            if candidate.is_symlink():
+                raise ClosureError(f"input directory contains a directory symlink: {candidate}")
+            entries.append((candidate.relative_to(resolved_root).as_posix(), candidate, "directory"))
+            kept_dirs.append(dirname)
+        dirnames[:] = kept_dirs
+        for filename in sorted(filenames):
+            candidate = current_path / filename
+            entries.append(
+                (
+                    candidate.relative_to(resolved_root).as_posix(),
+                    candidate,
+                    "symlink" if candidate.is_symlink() else "file",
+                )
+            )
+
+    for relative, candidate, entry_kind in sorted(entries, key=lambda item: item[0]):
+        encoded_path = relative.encode("utf-8")
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(entry_kind.encode("ascii") + b"\0")
+        digest.update((candidate.lstat().st_mode & 0o777).to_bytes(2, "big"))
+        if entry_kind == "directory":
+            continue
+        if entry_kind == "symlink":
+            link_target = os.readlink(candidate).encode("utf-8")
+            digest.update(len(link_target).to_bytes(8, "big"))
+            digest.update(link_target)
+            source = candidate.resolve(strict=True)
+            if not source.is_file():
+                raise ClosureError(f"input file symlink does not resolve to a file: {candidate}")
+        else:
+            source = candidate
+        size = source.stat().st_size
+        digest.update(size.to_bytes(8, "big"))
+        with source.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _uv_environment_path(repo_root: Path, package: str) -> Path:
     project_dir = repo_root / PACKAGE_PATHS[package]
     configured_path = os.environ.get("UV_PROJECT_ENVIRONMENT")
@@ -592,6 +683,37 @@ def build_manifest(
                 "Installed Python and native test dependencies are read from this uv environment; "
                 "the digest includes its files and executable modes, excluding __pycache__ and "
                 ".pyc/.pyo files derived from locked sources and the recorded interpreter."
+            ),
+        }
+    )
+
+    hypothesis_storage_path = _hypothesis_storage_path(repo_root, package)
+    components.append(
+        {
+            "name": "non-git:hypothesis-storage",
+            "kind": "content",
+            "git_object_type": None,
+            "paths": [_manifest_path(repo_root, hypothesis_storage_path)],
+            "digest": _directory_content_digest(hypothesis_storage_path),
+            "reason": (
+                "Hypothesis may read cached constants, Unicode data, and examples while generating "
+                "test inputs; hash the effective package storage directory, including an explicit "
+                "missing-directory state."
+            ),
+        }
+    )
+
+    pytest_cache_path = _pytest_cache_path(repo_root, package)
+    components.append(
+        {
+            "name": "non-git:pytest-cache",
+            "kind": "content",
+            "git_object_type": None,
+            "paths": [_manifest_path(repo_root, pytest_cache_path)],
+            "digest": _directory_content_digest(pytest_cache_path),
+            "reason": (
+                "pytest's cache provider reads and writes the package-local .pytest_cache directory; "
+                "hash its complete content and permissions, including an explicit missing-directory state."
             ),
         }
     )

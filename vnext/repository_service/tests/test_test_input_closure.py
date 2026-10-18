@@ -20,6 +20,7 @@ CLOSURE = runpy.run_path(str(CLOSURE_SCRIPT))
 PACKAGES = CLOSURE["PACKAGES"]
 FAKE_ENVIRONMENT = {
     "python_-VV": "Python 3.14.6 (fixture)",
+    "python_unicode_data_version": "16.0.0",
     "dolt_version": "dolt version 2.1.11",
     "uv_version": "uv 0.12.5",
     "rustc_version": "rustc 1.97.0 (fixture)",

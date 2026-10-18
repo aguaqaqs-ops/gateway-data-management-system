@@ -263,7 +263,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      - 所有包共同读取的 `vnext/fixtures/`、`vnext/scripts/`、`vnext/repository-workspace.toml`、`vnext/rust/rust-toolchain.toml`、`vnext/deploy/` 与五个 `uv.lock`（runner 的 uv wrapper 会检查五锁）；
      - backend 和 repository_service 测试会构建的镜像输入：完整 `vnext/` Docker build context、Compose 文件和相关 Dockerfile。backend 覆盖 backend、worker 与 repository-service 镜像；repository_service 覆盖 repository-service、repository-client e2e 与 dependency-base 镜像。完整 context 同时覆盖 Dockerfile COPY 的其他目录；
      - backend Rust 扩展读取的 workspace crate、`Cargo.lock` 与 `rust-toolchain.toml`；生成的 `target/` 不属于 Git tree，也不进入镜像 context；
-     - 不在 Git 中的 `legacy/` 内容摘要（`test_table_rules_resolver.py` 读取它）；每包 Python `-VV`、Dolt、uv、rustc 版本；有 Docker 测试的包还记录 Docker/Compose 版本与本机 base image ID。
+     - 不在 Git 中的 `legacy/` 内容摘要（`test_table_rules_resolver.py` 读取它）；每包 Python `-VV` 与 Unicode database 版本、Dolt、uv、rustc 版本；有 Docker 测试的包还记录 Docker/Compose 版本与本机 base image ID。
 
      Git 中的部分按当前提交的 tree/blob object id 比较；不在 Git 中的 `legacy/` 按排序后的相对路径和文件内容计算摘要，环境项按内容计算摘要。
      每包实际使用的 uv 环境也按目录内容计算摘要，排除由锁定源码与解释器派生的 `__pycache__`、`.pyc`、`.pyo`。

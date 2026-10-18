@@ -439,8 +439,13 @@ def collect_environment(repo_root: Path, package: str) -> dict[str, str]:
     if not python_executable:
         raise ClosureError(f"uv did not return a Python interpreter for {package}")
     python_output = _command_output([python_executable, "-VV"], cwd=project_dir)
+    python_unicode_data_version = _command_output(
+        [python_executable, "-c", "import unicodedata; print(unicodedata.unidata_version)"],
+        cwd=project_dir,
+    )
     versions = {
         "python_-VV": python_output,
+        "python_unicode_data_version": python_unicode_data_version,
         "dolt_version": _command_output(["dolt", "version"], cwd=repo_root),
         "uv_version": _command_output(["uv", "--version"], cwd=repo_root),
         "rustc_version": _command_output(["rustc", "--version"], cwd=repo_root / "vnext" / "rust"),

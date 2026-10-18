@@ -185,6 +185,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 2. `/home/dev/gdds-p5-closure-s1-gate-logs/`：按 owner 意愿归档或删除；S1 的 `final-*` 日志是 `p5-s1-exit` 门禁证据，handoff 与第 3 次复审报告引用了它们。
 3. Docker 残留：每次权威 runner 都会留下以 project 命名的 backend/worker 镜像与卷（2026-10-10 实测 892 个镜像、76 个卷；2026-10-11 为 985 个镜像、76 个卷）。只在没有门禁运行时清理，
    **不得删除或重新 tag `gateway-repository-client-e2e:local`**（它同时是预装依赖基础镜像；删除会让下一次构建在慢网络上超时，S1 因此多跑了两次完整门禁）；该镜像层数过多时用 `docker export | docker import` 压平，而不是删除。
+   G7 之后，预装依赖基础镜像是单独的 `gateway-repository-client-e2e-base:local`。这条禁令的范围由 owner 于 2026-10-18 澄清（见 §3 第 9 项）：禁止的是手工对这两个镜像执行 `docker rmi`、`docker tag` 或其他删除操作，以及任何会让 `-base:local` 被重建或删除的操作。权威 runner 按候选 label 以 `-base:local` 为底重建、并用 `-t` 改变 `:local` 的指向，属于预期行为。
 4. 本计划各项（G2、G3、G6b、G7、G8）完成后，复核 AGENTS.md 与 testing-conventions 中 carried 规则的“同一 worktree”限制是否仍然需要。
 5. G2 实施方留在 `/tmp` 的 6 个已注册临时 worktree（`gdds-g2-h-check`、`gdds-g6-final-a`、`gdds-g6-final-b`、`gdds-g6-identity-old`、`gdds-g6-verify-a`、`gdds-g6-verify-b`）：
    由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。已完成：复审时 `git worktree list` 只剩主工作区与 `/home/dev/gdds-p5-closure-s1`。
@@ -343,5 +344,17 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      - 真实数据完整运行 t4，t1 作为冒烟；
      - t2、t3 沿用 `f73deee604` 上的通过结果。理由：本次修复只涉及事务模式、错误映射与心跳，不触及投影、比较与 composite。
      - S5 最终候选仍完整运行 t1–t4。
+
+   2026-10-18 独立审核初审（V `dc9c08a410`，H `96c835ac90`；V 的权威 runner exit 0，t1、t4 通过，t2/t3 按上一决议沿用）：结论为定向修订，唯一阻塞项是 S3-F1。
+   - **S3-F1 的内容：** V 的 runner 中，`ensure_client_image()`（`vnext/repository_service/tests/support/compose_lifecycle_harness.py`）用 `docker build -t` 把 `gateway-repository-client-e2e:local` 指向了新镜像。审核方认为这触及实施提示词中“不得 `docker rmi` 或重新 tag 两个 client e2e 镜像”的限制。
+   - **事实：**
+     - 这是 G7（`84177001e1`，2026-10-10）之后 harness 的既有行为：候选 label 不一致时，以 `-base:local` 为底重建 `:local`。S1 之后的各次门禁每换一个候选都会这样做。
+     - `p5-g11b-exit..H` 没有改动 harness。
+     - `-base:local` 仍是 2026-10-10 构建的 `dafde407833e`（12 层）。`:local` 现为 `55c506d6ef48`（20 层），建在 base 之上，label 为 V。
+
+   owner 决议（2026-10-18）：
+   - **S3-F1 不构成违规，不需要豁免，也不需要重跑。** 禁令范围按 G10 第 3 项的澄清执行。提示词的措辞没有排除 runner 的内部构建，责任在提示词。审核方按字面严格把关，做法正确。
+   - **S3-F1 改为观察项并关闭。** S3-F2（终态确认后 `completed.wait()` 无界等待，延迟 drain）保留为非阻塞观察。如果其他各项核查不变，审核结论改为通过，按惯例提交审核报告、打 `p5-s3-exit`。
+   - **之后各阶段的提示词统一写为：** “不得手工 `docker rmi`、`docker tag` 或删除 `gateway-repository-client-e2e:local` 与 `-base:local`；权威 runner 按候选 label 重建 `:local` 属于预期行为。”
 10. G12 第 1 项（按包沿用测试结果）：S3 合入后、S4 kickoff 前实施并独立审核，打 `p5-g12-exit`，作为 S4 的区间起点。G12 第 2 项（真实数据按阶段确定范围）即时生效，S4 按 G12 中的范围执行。
 11. P5 exit：按 G10 清理。

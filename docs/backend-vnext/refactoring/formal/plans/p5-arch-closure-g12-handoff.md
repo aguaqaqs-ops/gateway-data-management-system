@@ -5,10 +5,10 @@
 - 本项只实施 G12 第 1 项“按包沿用测试结果”（DC33 第一部分）。未开始 S4；真实数据范围为空，未运行真实数据。
 - kickoff base：`46c5684c98`。审核区间起点：`p5-s3-exit`（`6b2b5fd0e1`）。分支：`p5-g12`；实施 worktree：`/home/dev/gdds-p5-g12`。
 - 门禁提交 **V**：`62a4122f9ce97615113beae3bbbf6497b3ab2adf`。V 在 clean worktree 上由完整权威 runner 通过，起止 HEAD 相同、`clean_end=1`、runner exit 0。
-- 最终 **H** 是本 handoff 证据补齐后的文档提交。V 后只改文档；package manifest 与 Docker build 输入保持不变。H1 `e9921cf32771943dd6a2622b07bf886025b07f3b` 上的 backend-only 权威 runner 已在运行 V 完整 runner 的同一专用 LXC worktree 通过。最终 H 已在同一 worktree 完成五包 manifest 比较和 carried 判定，并以逐包实际运行来源判定沿用。
-- 独立审核通过前不进入 S4。没有合并或 rebase `main`，没有推送；审核通过后按授权标记 `p5-g12-exit`，作为 S4 的区间起点。
+- 最终实现候选 **H**：`5fbae736b028d2c30b3fa73f60e44d3d67810eeb`。V 后只改文档；package manifest 与 Docker build 输入保持不变。H1 `e9921cf32771943dd6a2622b07bf886025b07f3b` 上的 backend-only 权威 runner 已在运行 V 完整 runner 的同一专用 LXC worktree 通过。H 的五包 manifest 比较与 carried 判定均在该 worktree 完成，并以逐包实际运行来源判定沿用。独立审核报告 `docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-g12-independent-review.md` 结论为通过、findings 为无；报告提交和状态记录提交仅增加文档。
+- 没有合并或 rebase `main`，没有推送；独立审核通过后按授权标记 `p5-g12-exit`，作为 S4 的区间起点。S4 尚未开始。
 - 测试迁移到专用 LXC `ct108-gw-dms`（hostname `gw-dms-test`，root SSH）。`ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 已通过；该 LXC 有 128 CPU、96 GiB 内存。项目要求已补到 `AGENTS.md` 与 testing conventions：后续测试、容器门禁和取证均在此节点运行，不回退到开发主机。
-- 停止条件均未触发：未发现闭包外仓库文件读取；无需改生产代码、Compose、Dockerfile、harness、依赖或锁文件；未缩小测试范围或削弱断言。最终 H 的五包 manifest 与镜像 carried 结果按 §6–§7 记录；独立审核前不开始 S4。
+- 停止条件均未触发：未发现闭包外仓库输入读取；无需改生产代码、Compose、Dockerfile、harness、依赖或锁文件；未缩小测试范围或削弱断言。最终 H 的五包 manifest 与镜像 carried 结果按 §6–§7 记录；H 通过独立审核后标记阶段退出，仍未开始 S4。
 
 ## 2. 实施内容与路径预算
 
@@ -137,7 +137,7 @@ V 到 H1 的 backend/worker identity 连续构建检查未通过：使用 V prov
 
 V 上五包的 Ruff 与 mypy 均通过；mypy source files：`shared_kernel` 34、`repository_contracts` 15、`repository_client` 26、`repository_service` 199、`backend` 476。`import_rules` 为 0 violations / 0 runtime cycles / 6 unreachable。日志：`/home/dev/gdds-p5-closure-s1-gate-logs/g12-static-v7-62a4122f9c.log`。
 
-真实数据范围为空：本项未改生产行为，按 DC33 第二部分不运行真实数据。没有触发 G12 §14 停止条件；闭包审计无遗漏、V 完整权威 runner exit 0、未缩小测试范围。本 G12 第 1 项状态为“实施完成、独立审核待定”；独立审核完成前不开始 S4。main 上的实施状态由审核方合入时更新。
+真实数据范围为空：本项未改生产行为，按 DC33 第二部分不运行真实数据。没有触发 G12 §14 停止条件；闭包审计无遗漏、V 完整权威 runner exit 0、未缩小测试范围。本 G12 第 1 项状态为“实施完成、独立审核通过”；报告为 `docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-g12-independent-review.md`，`p5-g12-exit` 已标记为 S4 区间起点，S4 尚未开始。main 上的实施状态由审核方合入时更新。
 
 ## 9. 审核提示词
 
@@ -145,8 +145,8 @@ V 上五包的 Ruff 与 mypy 均通过；mypy source files：`shared_kernel` 34�
 任务：独立审核 P5 架构收口治理修订 G12 第 1 项（按包沿用测试结果）。按
 docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-guide.md §5–§6 审核，不预设结论。
 
-审核对象：分支 p5-g12 @ <最终 H>，门禁提交 V = 62a4122f9ce97615113beae3bbbf6497b3ab2adf；
-kickoff base = 46c5684c98，审核区间 p5-s3-exit（6b2b5fd0e1）..<最终 H>。
+审核对象：分支 p5-g12 @ H = 5fbae736b028d2c30b3fa73f60e44d3d67810eeb，门禁提交 V = 62a4122f9ce97615113beae3bbbf6497b3ab2adf；
+kickoff base = 46c5684c98，审核区间 p5-s3-exit（6b2b5fd0e1）..5fbae736b028d2c30b3fa73f60e44d3d67810eeb。
 只审 G12 第 1 项与区间内提交；不要开始 S4。在只读 detached worktree 中审核，不写实施 worktree。
 
 权威依据：治理修订计划 G12 第 1 项与决议记录 §16 DC33；执行计划 §8.1、§8.2、§8.7、§8.9；

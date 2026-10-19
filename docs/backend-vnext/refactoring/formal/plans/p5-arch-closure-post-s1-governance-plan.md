@@ -361,5 +361,5 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - **之后各阶段的提示词统一写为：** “不得手工 `docker rmi`、`docker tag` 或删除 `gateway-repository-client-e2e:local` 与 `-base:local`；权威 runner 按候选 label 重建 `:local` 属于预期行为。”
 
    已完成（2026-10-18）：按 owner 授权由审核方直接定稿，审核报告 `plans/p5-arch-closure-s3-independent-review.md`（结论通过），tag `p5-s3-exit` 在 `6b2b5fd0e1`，合并提交 `d3ce70df7a`；S3 worktree 与分支已清理。
-10. G12 第 1 项（按包沿用测试结果）：S3 合入后、S4 kickoff 前实施并独立审核，打 `p5-g12-exit`，作为 S4 的区间起点。G12 第 2 项（真实数据按阶段确定范围）即时生效，S4 按 G12 中的范围执行。
+10. **G12 第 1 项（按包沿用测试结果，已完成，2026-10-19）**：在分支 `p5-g12` 实施；门禁 V 为 `62a4122f9ce97615113beae3bbbf6497b3ab2adf`，独立审核对象 H 为 `5fbae736b028d2c30b3fa73f60e44d3d67810eeb`。审核报告 `plans/p5-arch-closure-g12-independent-review.md` 结论通过、findings 为无；`p5-g12-exit` 已标记为 S4 的区间起点。未合并或推送；main 上的实施状态待审核方合入时更新。G12 第 2 项（真实数据按阶段确定范围）即时生效，S4 按 G12 中的范围执行。
 11. P5 exit：按 G10 清理。

@@ -5,10 +5,10 @@
 - 本项只实施 G12 第 1 项“按包沿用测试结果”（DC33 第一部分）。未开始 S4；真实数据范围为空，未运行真实数据。
 - kickoff base：`46c5684c98`。审核区间起点：`p5-s3-exit`（`6b2b5fd0e1`）。分支：`p5-g12`；实施 worktree：`/home/dev/gdds-p5-g12`。
 - 门禁提交 **V**：`62a4122f9ce97615113beae3bbbf6497b3ab2adf`。V 在 clean worktree 上由完整权威 runner 通过，起止 HEAD 相同、`clean_end=1`、runner exit 0。
-- 最终 **H** 是本 handoff 与 G12 状态更新完成后的提交。V 后仅提交文档；package manifest 与 Docker build 输入保持不变。H 形成后，在运行 V runner 的同一专用 LXC worktree 检出 H，完成五包 manifest 比较和 carried 判定；如果 backend/worker image ID 不能满足等价规则，则在 H 上运行 backend-only 权威 runner。
+- 最终 **H** 是本 handoff 证据补齐后的文档提交。V 后只改文档；package manifest 与 Docker build 输入保持不变。H1 `e9921cf32771943dd6a2622b07bf886025b07f3b` 上的 backend-only 权威 runner 已在运行 V 完整 runner 的同一专用 LXC worktree 通过。最终 H 已在同一 worktree 完成五包 manifest 比较和 carried 判定，并以逐包实际运行来源判定沿用。
 - 独立审核通过前不进入 S4。没有合并或 rebase `main`，没有推送；审核通过后按授权标记 `p5-g12-exit`，作为 S4 的区间起点。
 - 测试迁移到专用 LXC `ct108-gw-dms`（hostname `gw-dms-test`，root SSH）。`ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 已通过；该 LXC 有 128 CPU、96 GiB 内存。项目要求已补到 `AGENTS.md` 与 testing conventions：后续测试、容器门禁和取证均在此节点运行，不回退到开发主机。
-- 停止条件均未触发：未发现闭包外仓库文件读取；无需改生产代码、Compose、Dockerfile、harness、依赖或锁文件；未缩小测试范围或削弱断言。H 上的 carried 检查尚待完成，不据此提前宣称最终退出。
+- 停止条件均未触发：未发现闭包外仓库文件读取；无需改生产代码、Compose、Dockerfile、harness、依赖或锁文件；未缩小测试范围或削弱断言。最终 H 的五包 manifest 与镜像 carried 结果按 §6–§7 记录；独立审核前不开始 S4。
 
 ## 2. 实施内容与路径预算
 
@@ -109,19 +109,35 @@ V runner 原始 manifest、重算结果和比较 JSON 位于 `/home/dev/gdds-p5-
 2. **S3 V 到 G12 V**：五包均“运行”。`shared_kernel`、`repository_contracts`、`repository_client` 的变化组件为 `shared:scripts`；backend 为 `docker:context:vnext`、`shared:scripts`；`repository_service` 为 `docker:context:vnext`、`package:repository_service`、`shared:scripts`。这符合 runner/closure 脚本属于五包闭包的定义。
 3. **指定包实跑**：preflight `/home/dev/gdds-p5-closure-s1-gate-logs/g12-preflight-20261019T181536Z.log` 通过后，运行 `GATEWAY_TEST_PACKAGES=shared_kernel GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`。日志 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-selective-shared-kernel-V7-20261019T181536Z.log` 记录只生成 `shared_kernel` manifest、只执行该包、242 passed、`shared_kernel status=passed`、runner exit 0，起止 HEAD 均为 V 且 clean。运行后 preflight `/home/dev/gdds-p5-closure-s1-gate-logs/g12-preflight-20261019T181547Z.log` 通过；该包 manifest 仍可沿用。
 
-H 的五包 manifest 判定和来源记录将在最终 H commit 形成后，按 §7 在 V runner 的同一 LXC worktree 完成并补入最终 handoff。当前 H 判定尚未作出，不将旧 handoff 中基于过期 schema/旧 V 的 H1/H2 结果沿用到新 V。
+H1 backend-only runner 在 clean worktree、HEAD `e9921cf32771943dd6a2622b07bf886025b07f3b` 上由权威入口运行，开始 `2026-10-19T18:21:23Z`、结束 `2026-10-19T18:48:07Z`，起止 HEAD 相同、`clean_start=1`、`clean_end=1`、exit 0。命令为 `GATEWAY_TEST_PACKAGES=backend GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；并行 2,839 passed，serial 36 passed。runner log 为 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-backend-runner-20261019T182123Z.log`，起始 backend manifest 总摘要 `0b81d651a3a4a17ecefd0a3c0b6c64ddfb350430557770b74519ce523f643c2b`，manifest 副本为 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-manifests/backend-runner-source/backend.json`。该部分 runner 自身 exit 0，故可作为 backend 包的直接实际运行来源。
+
+H 最终 manifest 复核记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H2-manifests/`，比较汇总为该目录的 `summary.log`；backend 的来源是上述 H1 backend-only 实际 runner，其余四包来源是 V 完整 runner。每个来源均为该包实际运行并通过的 clean 权威 runner，未使用沿用结果作为来源。H 的 handoff 文档变更不进入任一包的 manifest 或 Docker context；所有包闭包保持相等时按包复用其测试结果。
+
+| H 包 | H manifest 总摘要 | 判定 | 直接来源实际运行 | 来源日志 | 变化组成部分 |
+| --- | --- | --- | --- | --- | --- |
+| `shared_kernel` | `d7f8576efc5852ddb1286d7cdfc7556118b2a9a3c64d653f03fd44a457f856c8` | 可沿用 | V `62a4122f9ce97615113beae3bbbf6497b3ab2adf` | `/home/dev/gdds-p5-closure-s1-gate-logs/g12-V7-runner-62a4122f9c-20261019T173659Z.log` | 无 |
+| `repository_contracts` | `34824b4131307bfe178b6d0d870f7d1409b708d0e5dd491d00dbb8d0337db3ad` | 可沿用 | V `62a4122f9ce97615113beae3bbbf6497b3ab2adf` | `/home/dev/gdds-p5-closure-s1-gate-logs/g12-V7-runner-62a4122f9c-20261019T173659Z.log` | 无 |
+| `repository_client` | `8c719ccf5bc772287feca799876affd1db7e8ece071861971a53f4393f4401fb` | 可沿用 | V `62a4122f9ce97615113beae3bbbf6497b3ab2adf` | `/home/dev/gdds-p5-closure-s1-gate-logs/g12-V7-runner-62a4122f9c-20261019T173659Z.log` | 无 |
+| `backend` | `0b81d651a3a4a17ecefd0a3c0b6c64ddfb350430557770b74519ce523f643c2b` | 可沿用 | H1 `e9921cf32771943dd6a2622b07bf886025b07f3b` (backend-only actual runner) | `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-backend-runner-20261019T182123Z.log` | 无 |
+| `repository_service` | `79bbb50c94012d71826d71bb3eff4083b016432ff3cc2c1b3ab8890c7df3b1f0` | 可沿用 | V `62a4122f9ce97615113beae3bbbf6497b3ab2adf` | `/home/dev/gdds-p5-closure-s1-gate-logs/g12-V7-runner-62a4122f9c-20261019T173659Z.log` | 无 |
 
 ## 7. 镜像身份与 carried
 
 V 的 backend 完整 runner 确实执行了 Compose journey。该次 runner provenance 已原样保存到 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-V7-compose-provenance.json`：project `ordered-bisect-b-2478351-baseline`；backend image ID `sha256:c97a6bf29ff1745d51fce39857ce7fd3762ba89593a089500d37e2df2e34ec8f`；worker image ID `sha256:0006766c3b503260c13249d143d293b34421cd3e4ec1efe579dd840e9d7a134e`；repository-service ID `sha256:de6b8238b5773f251489faa27cbf9d58422329455a8985795dc67c8aa629e0fd`。provenance 同时记录实际运行的 backend、worker 和 repository-service 容器 image IDs。V 的 repository-service labels 为 build-input revision `62a4122f9ce97615113beae3bbbf6497b3ab2adf`、source-tree `sha256:9c6c5cdcabd28f4e9243564bbea6974bd6929181a3fd5e9b77bb3ac382817f6f`。
 
-H 的 carried 尚待在 V runner 的同一 LXC worktree 中判定。repository-service 按 H 重算的 identity 与本地镜像 labels 比较；backend/worker 按 V provenance 的 project 名连续构建两次，中间不运行测试，并要求两个 image ID 分别都等于 V provenance 中的 ID。任一项不满足时不声称 carried；backend 则在 H 上运行 backend-only 权威 runner，作为 H 的直接 Compose 门禁结果。最终 handoff 会记录 H 的逐包比较、label identity、两次 build IDs 或 fallback runner provenance。S5 最终门禁与发布门禁仍运行全部包。
+V 到 H1 的 repository-service identity 已通过：H1 重算 candidate SHA 为 `e9921cf32771943dd6a2622b07bf886025b07f3b`，build-input revision label 为 V `62a4122f9ce97615113beae3bbbf6497b3ab2adf`，source-tree label 为 `sha256:9c6c5cdcabd28f4e9243564bbea6974bd6929181a3fd5e9b77bb3ac382817f6f`，image ID 与 V provenance 相同（`sha256:de6b8238b5773f251489faa27cbf9d58422329455a8985795dc67c8aa629e0fd`）。H 的 handoff-only 文档提交不改变该 identity 或 Docker 输入。
+
+V 到 H1 的 backend/worker identity 连续构建检查未通过：使用 V provenance project `ordered-bisect-b-2478351-baseline`，在两次连续 `docker compose -f vnext/deploy/compose.yaml build backend worker` 之间未运行测试；两次 backend IDs 为 `sha256:6ddfee830c20f141432a6389772da424874a9f6e7e1205e2f979c3be2485974b`、`sha256:950f6d49490027c6f56ef92ce23494046ed4083f654fc8b9297d99543a5e143d`，worker IDs 为 `sha256:ecfd567da934b5cb4aa5b9abfcdacd09c6e22219d135fd9cbfd95e5e8c1fbdfa`、`sha256:96ba207070e9233c8042ee9dbc6c3fed5635b351ac5e923b51829212c04567aa`，均与 V provenance IDs 不同。完整记录 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-carried-backend-worker.log`。
+
+按规则，随后在 H1 上运行 backend-only 权威 runner，实际重跑并通过了 backend 全部并行/serial 测试和 Compose journey，直接生成 H1 backend/worker Compose provenance：project `ordered-bisect-b-3080631-baseline`；backend `sha256:d87172d3a7fed80506a936ed2ddb0b3b01fb1f87d9fabf6ae8f08589caaa3314`；worker `sha256:1c794eb57f521f9e3542c917449ca71352a2687474553f157bf77c9e6beb3729`；repository-service 仍为 `sha256:de6b8238b5773f251489faa27cbf9d58422329455a8985795dc67c8aa629e0fd`。provenance 文件 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-compose-provenance.json`。H handoff-only 提交与 H1 的 backend manifest 逐项相同；backend 的 Compose 测试随 backend 包结果一并沿用，依据是 backend 闭包明确覆盖 backend/worker/RS Dockerfile、Compose、完整 `vnext/` build context（含 tracked 内容、非 Git 输入和本机权限模式）、构建参数/设置与镜像身份输入。该覆盖关系使 H1 的实际 Compose journey 结果适用于 H，不以非确定性 image ID 构建替代测试结果。
+
+最终 H 的逐包比较、manifest 摘要、repository-service label identity 与 H1 backend 来源的记录保存在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H2-manifests/`，对应 preflight 记录也在同一日志根目录。五包 current manifest 对应最终 H；只含 handoff 的最终证据提交不改变任何 package manifest 或 Docker 输入。S5 最终门禁与发布门禁仍运行全部包。
 
 ## 8. 静态检查与停止条件
 
 V 上五包的 Ruff 与 mypy 均通过；mypy source files：`shared_kernel` 34、`repository_contracts` 15、`repository_client` 26、`repository_service` 199、`backend` 476。`import_rules` 为 0 violations / 0 runtime cycles / 6 unreachable。日志：`/home/dev/gdds-p5-closure-s1-gate-logs/g12-static-v7-62a4122f9c.log`。
 
-真实数据范围为空：本项未改生产行为，按 DC33 第二部分不运行真实数据。没有触发 G12 §14 停止条件；闭包审计无遗漏、V 完整权威 runner exit 0、未缩小测试范围。本 G12 第 1 项状态为“实施完成、独立审核待定”；carried/H finalization 与独立审核完成前不开始 S4。main 上的实施状态由审核方合入时更新。
+真实数据范围为空：本项未改生产行为，按 DC33 第二部分不运行真实数据。没有触发 G12 §14 停止条件；闭包审计无遗漏、V 完整权威 runner exit 0、未缩小测试范围。本 G12 第 1 项状态为“实施完成、独立审核待定”；独立审核完成前不开始 S4。main 上的实施状态由审核方合入时更新。
 
 ## 9. 审核提示词
 
@@ -150,10 +166,11 @@ AGENTS.md、docs/backend-vnext/testing-conventions.md 与本 handoff。
    复核未知/重复/空输入 exit 2、GATEWAY_TEST_BASETEMP 下 Compose 文件处理与五锁检查不变。
 5. 复核 V runner 的 preflight、clean_start、起止 HEAD/exit、逐包 manifest、完整测试计数和 RS +31 的逐项来源；
    核对 V self、S3 到 V 与 shared_kernel 单包实跑三项演示，以及来源 V 必须实际运行并通过的规则。
-6. 在 V runner 的同一 worktree 检出最终 H，逐项比较五包 manifest；复核 repository-service labels 与 H
-   identity 相等。核对 backend/worker 使用 V provenance project 连续构建两次的 ID；若不相等，确认 H 上
-   backend-only 权威 runner 在 clean HEAD 上通过、实际执行 Compose journey 并记录 provenance。评估包闭包完整覆盖
-   backend Compose build inputs 的依据能否满足 AGENTS.md 容器门禁要求。
+6. 在 V runner 的同一 worktree 检出最终 H，逐项比较五包 manifest，核对每个来源都是该包实际运行并通过的
+   权威 runner。复核 repository-service labels 与 H identity 相等。核对 backend/worker 使用 V provenance
+   project 连续构建两次的 ID；若不相等，确认后续 backend-only 权威 runner 在 clean HEAD 上通过、实际执行
+   Compose journey 并记录 provenance。评估 backend 包闭包完整覆盖 Docker build inputs、使 Compose 结果可随
+   backend 包结果沿用的依据能否满足 AGENTS.md 容器门禁要求。
 7. 复核五包 Ruff/mypy、import_rules 0/0/6、路径预算、专用测试节点要求、真实数据范围为空、停止条件状态，
    并确认没有开始 S4。
 

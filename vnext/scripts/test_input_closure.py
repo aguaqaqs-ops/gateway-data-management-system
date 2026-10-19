@@ -8,6 +8,8 @@ import gzip
 import hashlib
 import json
 import os
+import posixpath
+import re
 import shutil
 import subprocess
 import sys
@@ -16,7 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
 PACKAGES = (
     "shared_kernel",
@@ -890,6 +892,172 @@ def _git_component_identity(repo_root: Path, revision: str, path: str) -> tuple[
     return object_id, object_type
 
 
+def _dockerignore_patterns(dockerignore_path: Path) -> tuple[re.Pattern[str], ...]:
+    """Compile the Docker ignore syntax used by this context, failing closed on extensions."""
+    if dockerignore_path.is_symlink() or not dockerignore_path.is_file():
+        raise ClosureError(f"Docker context requires a regular .dockerignore: {dockerignore_path}")
+    try:
+        lines = dockerignore_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise ClosureError(f"could not read Docker ignore rules {dockerignore_path}: {exc}") from exc
+
+    compiled: list[re.Pattern[str]] = []
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+        if not line or raw_line.startswith("#"):
+            continue
+        if line.startswith("!"):
+            raise ClosureError(
+                f"unsupported negated Docker ignore rule at {dockerignore_path}:{line_number}"
+            )
+        pattern = posixpath.normpath(line).strip("/")
+        if pattern in {"", "."}:
+            continue
+        if pattern == ".." or pattern.startswith("../"):
+            raise ClosureError(
+                f"unsupported parent-relative Docker ignore rule at "
+                f"{dockerignore_path}:{line_number}: {line}"
+            )
+        if any(character in pattern for character in "[]\\"):
+            raise ClosureError(
+                f"unsupported Docker ignore glob at {dockerignore_path}:{line_number}: {line}"
+            )
+
+        translated: list[str] = []
+        index = 0
+        while index < len(pattern):
+            if pattern.startswith("**/", index):
+                translated.append("(?:.*/)?")
+                index += 3
+            elif pattern.startswith("**", index):
+                raise ClosureError(
+                    f"unsupported Docker double-star glob at "
+                    f"{dockerignore_path}:{line_number}: {line}"
+                )
+            elif pattern[index] == "*":
+                translated.append("[^/]*")
+                index += 1
+            elif pattern[index] == "?":
+                translated.append("[^/]")
+                index += 1
+            else:
+                translated.append(re.escape(pattern[index]))
+                index += 1
+        expression = "".join(translated)
+        compiled.append(re.compile(rf"^{expression}$"))
+    return tuple(compiled)
+
+
+def _docker_context_non_git_digest(
+    repo_root: Path,
+    context: str,
+    dockerfiles: Sequence[str],
+) -> str:
+    """Hash non-Git filesystem entries Docker will include from a build context."""
+    context_root = repo_root / context
+    if not context_root.is_dir() or context_root.is_symlink():
+        raise ClosureError(f"Docker context is not a regular directory: {context_root}")
+    rules = _dockerignore_patterns(context_root / ".dockerignore")
+    for dockerfile in dockerfiles:
+        dockerfile_path = Path(dockerfile)
+        specific_ignore = repo_root / dockerfile_path.with_name(
+            f"{dockerfile_path.name}.dockerignore"
+        )
+        if specific_ignore.exists() or specific_ignore.is_symlink():
+            raise ClosureError(
+                "Dockerfile-specific ignore rules require explicit closure modeling: "
+                f"{specific_ignore}"
+            )
+
+    tracked_paths = {
+        path
+        for path in _run_git(repo_root, "ls-files", "-z").split("\0")
+        if path
+    }
+    tracked_files: set[str] = set()
+    tracked_directories: set[str] = set()
+    prefix = f"{context.rstrip('/')}/"
+    for path in tracked_paths:
+        if path == context:
+            tracked_files.add("")
+            continue
+        if not path.startswith(prefix):
+            continue
+        relative = path[len(prefix) :]
+        tracked_files.add(relative)
+        parent = Path(relative).parent
+        while parent != Path("."):
+            tracked_directories.add(parent.as_posix())
+            parent = parent.parent
+
+    def ignored(relative: str) -> bool:
+        return any(rule.fullmatch(relative) is not None for rule in rules)
+
+    entries: list[tuple[str, Path, str]] = []
+
+    def raise_walk_error(error: OSError) -> None:
+        raise ClosureError(f"could not enumerate Docker context {context_root}: {error}")
+
+    for current, dirnames, filenames in os.walk(
+        context_root,
+        topdown=True,
+        followlinks=False,
+        onerror=raise_walk_error,
+    ):
+        current_path = Path(current)
+        current_relative = current_path.relative_to(context_root).as_posix()
+        if current_relative == ".":
+            current_relative = ""
+        kept_dirs: list[str] = []
+        for dirname in sorted(dirnames):
+            candidate = current_path / dirname
+            relative = f"{current_relative}/{dirname}" if current_relative else dirname
+            if ignored(relative):
+                continue
+            if candidate.is_symlink():
+                if relative not in tracked_files:
+                    entries.append((relative, candidate, "symlink"))
+                continue
+            if relative not in tracked_directories:
+                entries.append((relative, candidate, "directory"))
+            kept_dirs.append(dirname)
+        dirnames[:] = kept_dirs
+        for filename in sorted(filenames):
+            candidate = current_path / filename
+            relative = f"{current_relative}/{filename}" if current_relative else filename
+            if ignored(relative) or relative in tracked_files:
+                continue
+            if candidate.is_symlink():
+                entry_kind = "symlink"
+            elif candidate.is_file():
+                entry_kind = "file"
+            else:
+                raise ClosureError(f"unsupported filesystem entry in Docker context: {candidate}")
+            entries.append((relative, candidate, entry_kind))
+
+    digest = hashlib.sha256()
+    digest.update(b"docker-context-non-git-v1\0")
+    for relative, candidate, entry_kind in sorted(entries, key=lambda item: item[0]):
+        encoded_path = relative.encode("utf-8")
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(entry_kind.encode("ascii") + b"\0")
+        digest.update((candidate.lstat().st_mode & 0o777).to_bytes(2, "big"))
+        if entry_kind == "directory":
+            continue
+        if entry_kind == "symlink":
+            target = os.readlink(candidate).encode("utf-8")
+            digest.update(len(target).to_bytes(8, "big"))
+            digest.update(target)
+            continue
+        size = candidate.stat().st_size
+        digest.update(size.to_bytes(8, "big"))
+        with candidate.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _finish_manifest(
     *,
     package: str,
@@ -946,7 +1114,8 @@ def build_manifest(
     )
 
     components: list[dict[str, Any]] = []
-    for spec in _component_specs(package):
+    component_specs = _component_specs(package)
+    for spec in component_specs:
         object_id, object_type = _git_component_identity(
             repo_root,
             selected_revision,
@@ -962,6 +1131,29 @@ def build_manifest(
                 "reason": spec["reason"],
             }
         )
+        if spec["name"] == "docker:context:vnext":
+            components.append(
+                {
+                    "name": "non-git:docker-context:vnext",
+                    "kind": "content",
+                    "git_object_type": None,
+                    "paths": [spec["path"]],
+                    "digest": _docker_context_non_git_digest(
+                        repo_root,
+                        spec["path"],
+                        [
+                            item["path"]
+                            for item in component_specs
+                            if item["name"].startswith("dockerfile:")
+                        ],
+                    ),
+                    "reason": (
+                        "Docker includes ignored and other non-Git files in the build context unless "
+                        "excluded by .dockerignore; hash every included non-Git entry. The tracked "
+                        "context remains represented by its Git tree component."
+                    ),
+                }
+            )
 
     legacy_path = repo_root / "legacy"
     components.append(

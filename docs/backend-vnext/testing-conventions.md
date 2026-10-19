@@ -56,6 +56,9 @@ repository_service 的 context 因而包含 `repository_client` 及 e2e/dependen
 本机 base image ID、repository-service 与 dependency-base ID、client e2e 与 client dependency-base ID，以及
 会影响 build 的环境设置指纹。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
 逐项比较并输出“运行”或“可沿用”及变化的组成部分。
+对 backend 与 `repository_service` 的 `vnext/` Docker context，tracked 输入由 Git tree 覆盖；
+通过 `vnext/.dockerignore` 后仍进入 context 的非 Git 文件和目录按相对路径、类型、权限和内容摘要。
+当前摘要器遇到 Dockerfile 专属 ignore 文件或未建模的 ignore 语法时失败关闭，加入此类规则前须扩展并测试闭包实现。
 
 来源 V 必须满足：该包在该次权威 runner 中实际运行并通过；worktree clean；日志记录起止 HEAD；整次
 runner exit 0。只运行部分包的权威 runner 也可作为来源。当前 V 上闭包有变化的包都必须实际运行并通过。

@@ -80,7 +80,15 @@ def _fixture_repo(tmp_path: Path) -> Path:
         )
 
     (repo_root / ".gitignore").write_text(
-        "**/.venv/\n**/.hypothesis/\n**/.pytest_cache/\n**/custom-hypothesis/\n",
+        "**/.venv/\n**/.hypothesis/\n**/.pytest_cache/\n**/custom-hypothesis/\n"
+        "**/*.db\n",
+        encoding="utf-8",
+    )
+    dockerignore = repo_root / "vnext" / ".dockerignore"
+    dockerignore.write_text(
+        "**/.git\n**/.venv\n**/__pycache__\n**/.pytest_cache\n"
+        "**/.mypy_cache\n**/.ruff_cache\n**/.hypothesis\n**/*.so\n"
+        "**/*.whl\ntarget/\n",
         encoding="utf-8",
     )
 
@@ -141,6 +149,8 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
         capture_output=True,
         text=True,
     ).stdout.strip()
+    assert backend_components["non-git:docker-context:vnext"]["kind"] == "content"
+    assert backend_components["non-git:docker-context:vnext"]["paths"] == ["vnext"]
 
     repository_service = _manifest(repo_root, "repository_service")
     service_components = {
@@ -149,6 +159,7 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     assert service_components["dockerfile:repository-client-e2e"]["paths"] == [
         "vnext/repository_client/tests/Dockerfile"
     ]
+    assert service_components["non-git:docker-context:vnext"]["kind"] == "content"
     assert service_components["path-dependency:vnext/repository_contracts"]["digest"]
     assert service_components["test-authority:runtime-provider-feasibility"]["paths"] == [
         "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md"
@@ -171,6 +182,89 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     assert service_components["environment:runtime-and-docker-build"]["values"] == (
         expected_environment
     )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("package", ["backend", "repository_service"])
+def test_docker_context_hashes_included_ignored_files_and_skips_dockerignored_files(
+    package: str,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    original = _manifest(repo_root, package)
+    original_component = next(
+        component
+        for component in original["components"]
+        if component["name"] == "non-git:docker-context:vnext"
+    )
+
+    included_ignored_file = repo_root / "vnext" / package / "target" / "context-extra.db"
+    included_ignored_file.parent.mkdir()
+    included_ignored_file.write_text("first build-context payload\n", encoding="utf-8")
+    included = _manifest(repo_root, package)
+    included_component = next(
+        component
+        for component in included["components"]
+        if component["name"] == original_component["name"]
+    )
+    assert included_component["digest"] != original_component["digest"]
+    assert subprocess.run(
+        ["git", "-C", str(repo_root), "status", "--porcelain=v1"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout == ""
+
+    dockerignored_file = repo_root / "vnext" / "target" / "excluded.db"
+    dockerignored_file.parent.mkdir()
+    dockerignored_file.write_text("not in Docker context\n", encoding="utf-8")
+    after_excluded = _manifest(repo_root, package)
+    after_excluded_component = next(
+        component
+        for component in after_excluded["components"]
+        if component["name"] == original_component["name"]
+    )
+    assert after_excluded_component["digest"] == included_component["digest"]
+
+    included_ignored_file.write_text("changed build-context payload\n", encoding="utf-8")
+    changed = _manifest(repo_root, package)
+    changed_component = next(
+        component
+        for component in changed["components"]
+        if component["name"] == original_component["name"]
+    )
+    assert changed_component["digest"] != included_component["digest"]
+
+
+@pytest.mark.unit
+def test_dockerfile_specific_ignore_rules_fail_closed(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    dockerfile_ignore = repo_root / "vnext" / "backend" / "Dockerfile.dockerignore"
+    dockerfile_ignore.write_text("**/temporary\n", encoding="utf-8")
+
+    with pytest.raises(CLOSURE["ClosureError"], match="Dockerfile-specific ignore rules"):
+        CLOSURE["_docker_context_non_git_digest"](
+            repo_root,
+            "vnext",
+            ["vnext/backend/Dockerfile"],
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "rule",
+    ["!README.md\n", "[ab].txt\n", "**name\n"],
+)
+def test_unmodeled_dockerignore_syntax_fails_closed(
+    rule: str,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    dockerignore = repo_root / "vnext" / ".dockerignore"
+    dockerignore.write_text(rule, encoding="utf-8")
+
+    with pytest.raises(CLOSURE["ClosureError"]):
+        CLOSURE["_dockerignore_patterns"](dockerignore)
 
 
 @pytest.mark.unit

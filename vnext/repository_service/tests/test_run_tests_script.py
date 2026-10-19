@@ -40,6 +40,8 @@ def _seed_repo_file(repo_root: Path, relative: str, content: str = "fixture\n") 
 def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     repo_root = tmp_path / "runner-repo"
     vnext_root = repo_root / "vnext"
+    vnext_root.mkdir(parents=True)
+    shutil.copy2(VNEXT_ROOT / ".dockerignore", vnext_root / ".dockerignore")
     for package in LOCK_PACKAGES:
         _seed_repo_file(vnext_root, f"{package}/pyproject.toml")
         _seed_repo_file(vnext_root, f"{package}/uv.lock")

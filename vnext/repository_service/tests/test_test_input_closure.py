@@ -157,7 +157,7 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
         "vnext"
     ]
     assert any(
-        entry.startswith("vnext/backend/pyproject.toml kind=file mode=")
+        entry.startswith("vnext/backend/Dockerfile kind=file mode=")
         for entry in backend_components["non-git:docker-context-tracked-modes:vnext"][
             "entries"
         ]
@@ -255,7 +255,7 @@ def test_docker_context_hashes_included_ignored_files_and_skips_dockerignored_fi
 @pytest.mark.parametrize(
     ("relative_path", "candidate_modes"),
     [
-        ("vnext/backend/pyproject.toml", (0o600, 0o640, 0o620)),
+        ("vnext/backend/Dockerfile", (0o600, 0o640, 0o620)),
         ("vnext/backend", (0o700, 0o750, 0o755)),
     ],
 )

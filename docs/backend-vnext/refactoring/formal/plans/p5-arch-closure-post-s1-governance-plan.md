@@ -256,7 +256,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
 
 1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
-   - **实施状态（2026-10-19）：** 在 `p5-g12` 完成实现修订与定向单测；候选 V 的完整门禁与最终逐包摘要待取证。初审发现 Docker/Compose 有效镜像选择和本机 image ID 未闭合，已补入本项；旧 V 的缺 envelope 日志不作为证据。最终证据与独立审核状态记录在 G12 handoff。审核通过后由审核方更新 `main` 状态。
+   - **实施状态（2026-10-19）：** 在 `p5-g12` 完成实现与定向单测；V=`6dfbec982a98457e6c1e0e60c668f5348df3ac57` 的完整权威 runner exit 0，闭包实测五包均无遗漏，H 上逐包 manifest 与镜像身份均已沿用。初审发现 Docker/Compose 有效镜像选择和本机 image ID 未闭合，已补入本项；旧 V 的缺 envelope 日志不作为证据。最终证据记录在 G12 handoff 与 worktree 外日志。等待独立审核；审核通过后由审核方更新 `main` 状态并打 `p5-g12-exit`。
    - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
    - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
      - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`，以及其传递路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python` 的 workspace crate；repository_service → repository_contracts；

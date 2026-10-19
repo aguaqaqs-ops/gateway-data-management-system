@@ -152,6 +152,16 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     assert backend_components["non-git:docker-context:vnext"]["kind"] == "content"
     assert backend_components["non-git:docker-context:vnext"]["paths"] == ["vnext"]
     assert backend_components["non-git:docker-context:vnext"]["entries"] == []
+    assert backend_components["non-git:docker-context-tracked-modes:vnext"]["kind"] == "content"
+    assert backend_components["non-git:docker-context-tracked-modes:vnext"]["paths"] == [
+        "vnext"
+    ]
+    assert any(
+        entry.startswith("vnext/backend/pyproject.toml kind=file mode=")
+        for entry in backend_components["non-git:docker-context-tracked-modes:vnext"][
+            "entries"
+        ]
+    )
 
     repository_service = _manifest(repo_root, "repository_service")
     service_components = {
@@ -239,6 +249,54 @@ def test_docker_context_hashes_included_ignored_files_and_skips_dockerignored_fi
         if component["name"] == original_component["name"]
     )
     assert changed_component["digest"] != included_component["digest"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("relative_path", "candidate_modes"),
+    [
+        ("vnext/backend/pyproject.toml", (0o600, 0o640, 0o620)),
+        ("vnext/backend", (0o700, 0o750, 0o755)),
+    ],
+)
+def test_docker_context_hashes_tracked_worktree_modes_even_when_git_is_clean(
+    relative_path: str,
+    candidate_modes: tuple[int, ...],
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    tracked_path = repo_root / relative_path
+    original_mode = tracked_path.lstat().st_mode & 0o7777
+    changed_mode = next(mode for mode in candidate_modes if mode != original_mode)
+    before = _manifest(repo_root, "backend")
+    component_name = "non-git:docker-context-tracked-modes:vnext"
+    before_component = next(
+        component for component in before["components"] if component["name"] == component_name
+    )
+
+    tracked_path.chmod(changed_mode)
+    assert subprocess.run(
+        ["git", "-C", str(repo_root), "status", "--porcelain=v1"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout == ""
+
+    after = _manifest(repo_root, "backend")
+    after_component = next(
+        component for component in after["components"] if component["name"] == component_name
+    )
+    assert after_component["digest"] != before_component["digest"]
+    assert any(
+        entry.startswith(f"{relative_path} kind=")
+        and entry.endswith(f"mode={changed_mode:04o}")
+        for entry in after_component["entries"]
+    )
+    comparison = CLOSURE["compare_manifests"](before, after)
+    assert comparison["status"] == "运行"
+    assert [item["component"] for item in comparison["changed_components"]] == [
+        component_name
+    ]
 
 
 @pytest.mark.unit

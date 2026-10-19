@@ -11,6 +11,7 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import zlib
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
 PACKAGES = (
     "shared_kernel",
@@ -1063,6 +1064,65 @@ def _docker_context_non_git_digest(
     return digest.hexdigest(), included_paths
 
 
+def _docker_context_tracked_mode_digest(
+    repo_root: Path,
+    context: str,
+) -> tuple[str, list[str]]:
+    """Hash local permission bits Git omits for tracked Docker context paths."""
+    context_root = repo_root / context
+    if not context_root.is_dir() or context_root.is_symlink():
+        raise ClosureError(f"Docker context is not a regular directory: {context_root}")
+
+    tracked_paths = {
+        path
+        for path in _run_git(repo_root, "ls-files", "-z").split("\0")
+        if path
+    }
+    prefix = f"{context.rstrip('/')}/"
+    relative_paths = {"."}
+    for path in tracked_paths:
+        if not path.startswith(prefix):
+            continue
+        relative = path[len(prefix) :]
+        if not relative:
+            continue
+        relative_paths.add(relative)
+        parent = Path(relative).parent
+        while parent != Path("."):
+            relative_paths.add(parent.as_posix())
+            parent = parent.parent
+
+    digest = hashlib.sha256()
+    digest.update(b"docker-context-tracked-worktree-modes-v1\0")
+    entries: list[str] = []
+    for relative in sorted(relative_paths):
+        candidate = context_root if relative == "." else context_root / relative
+        try:
+            file_info = candidate.lstat()
+        except OSError as exc:
+            raise ClosureError(
+                f"could not stat tracked Docker context path {candidate}: {exc}"
+            ) from exc
+        if stat.S_ISDIR(file_info.st_mode):
+            entry_kind = "directory"
+        elif stat.S_ISLNK(file_info.st_mode):
+            entry_kind = "symlink"
+        elif stat.S_ISREG(file_info.st_mode):
+            entry_kind = "file"
+        else:
+            raise ClosureError(f"unsupported tracked Docker context entry: {candidate}")
+
+        mode = file_info.st_mode & 0o7777
+        encoded_path = relative.encode("utf-8")
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(entry_kind.encode("ascii") + b"\0")
+        digest.update(mode.to_bytes(2, "big"))
+        path = f"{context.rstrip('/')}/{relative}" if relative != "." else context
+        entries.append(f"{path} kind={entry_kind} mode={mode:04o}")
+    return digest.hexdigest(), entries
+
+
 def _finish_manifest(
     *,
     package: str,
@@ -1160,6 +1220,25 @@ def build_manifest(
                         "Docker includes ignored and other non-Git files in the build context unless "
                         "excluded by .dockerignore; hash every included non-Git entry. The tracked "
                         "context remains represented by its Git tree component."
+                    ),
+                }
+            )
+            tracked_mode_digest, tracked_mode_entries = _docker_context_tracked_mode_digest(
+                repo_root,
+                spec["path"],
+            )
+            components.append(
+                {
+                    "name": "non-git:docker-context-tracked-modes:vnext",
+                    "kind": "content",
+                    "git_object_type": None,
+                    "paths": [spec["path"]],
+                    "digest": tracked_mode_digest,
+                    "entries": tracked_mode_entries,
+                    "reason": (
+                        "Git stores only the executable bit for tracked files, while Docker receives "
+                        "local permission modes for context files and directories. Hash every tracked "
+                        "context path and its ancestors conservatively, including context-root mode."
                     ),
                 }
             )

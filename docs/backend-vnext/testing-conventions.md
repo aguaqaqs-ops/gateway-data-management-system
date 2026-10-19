@@ -15,6 +15,11 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 ./vnext/scripts/run-tests.sh
 ```
 
+所有测试、容器门禁与取证都在专用 LXC `ct108-gw-dms` 执行；开始前用
+`ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 检查连接，不回退到开发主机。SSH 会话以 root 登录时，
+设置磁盘上的 `TMPDIR=/home/dev/gdds-p5-closure-s1-gate-logs/g12-default-tmp`，避免复用其他用户拥有的
+`/tmp/pytest-of-root`；不需要 pytest tmpfs 时保持 `GATEWAY_TEST_BASETEMP` 未设置，以保留默认批次与 Compose 路径。
+
 权威 runner 将 backend 与 `repository_service` 分成并行主体和 serial 两遍：
 `-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"` 后接
 `-m "serial and not parallel_safe" -n 0`。其余三个包单进程运行。G11 kickoff base

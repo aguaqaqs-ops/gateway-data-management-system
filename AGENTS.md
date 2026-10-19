@@ -29,6 +29,8 @@
 所有测试、容器门禁和测试取证都在专用 LXC `ct108-gw-dms` 上执行，不在开发主机上运行。开始前用
 `ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 确认连接；在该节点的 clean、已提交 worktree 中运行，
 并继续满足下列 Dolt、Compose、端口和日志前提。节点暂不可用或前提不满足时，等待恢复后再测，不回退到开发主机。
+该 SSH 会话以 root 登录；用磁盘目录 `TMPDIR=/home/dev/gdds-p5-closure-s1-gate-logs/g12-default-tmp`
+隔离 pytest 临时文件，不修改 `/tmp/pytest-of-root` 的属主。默认不设置 `GATEWAY_TEST_BASETEMP`，需要显式验证该选项时除外。
 
 阶段可用 `GATEWAY_TEST_PACKAGES` 只运行所需包，例如
 `GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法包名为

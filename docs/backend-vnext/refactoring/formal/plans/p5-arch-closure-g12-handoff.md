@@ -2,200 +2,200 @@
 
 ## 1. 候选、范围与状态
 
-- `range_start`：tag `p5-s3-exit`，提交 `6b2b5fd0e1a82ae036b8ad19d233f3d68559465b`。
-- kickoff base：`46c5684c98`；分支 `p5-g12`，worktree `/home/dev/gdds-p5-g12`；已建立指向 `/home/dev/gateway-data-management-system/legacy` 的 `legacy` 符号链接。
-- 门禁提交 `V`：`ba486393137f8fe6d93464d05cce00a1a87aec98`。全量门禁在该 clean HEAD 上完成。
-- 候选 `H`：V 之后仅提交本 handoff；H 的 SHA 由最终审核请求和 `p5-g12-exit` tag 标识。本 handoff 只包含非构建输入文档，因此逐包 manifest 与 V 相同。
-- 实施范围仅为 G12 第 1 项：按包闭包比较后沿用测试结果。未改生产代码、Compose、Dockerfile、harness、依赖或锁文件；未合并/rebase main，未推送，未运行真实数据，未开始 S4。
-- G12 治理计划在本分支标为“已实施，待独立审核”；main 上的状态由审核方合入时更新。
+- 区间起点：tag p5-s3-exit，提交 6b2b5fd0e1a82ae036b8ad19d233f3d68559465b。
+- kickoff base：46c5684c98b087d2e1114f5c612ec47b08b6ad54；分支 p5-g12；worktree /home/dev/gdds-p5-g12。
+- worktree 的 legacy 符号链接指向 /home/dev/gateway-data-management-system/legacy。
+- 门禁提交 V：ba650d668249f593ef4f4c991cf40eade32cf6db。
+- 候选 H：V 之后的 handoff-only commit；审核请求从分支当前 HEAD 读取其完整 SHA。本 handoff 位于 H。
+- 本项只实施 G12 第 1 项。没有改生产代码、Compose、Dockerfile、测试 harness、依赖或锁文件；没有合并/rebase main、推送或手工操作两个 repository-client e2e 镜像；没有运行真实数据或开始 S4。
+- G12 第 1 项已实施，最终独立审核待进行。审核通过前不打 p5-g12-exit，也不开始 S4。
+- 本分支 V、H 的所有提交均带 trailer：Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>。G12 治理计划的实施状态已在本分支更新；main 的状态由审核方合入时更新。
 
-## 2. 实施提交与复核修正
+## 2. 实施摘要
+
+实施改动从 kickoff base 46c5684c98 开始，均在授权路径预算内：
 
 | 提交 | 内容 |
-|---|---|
-| `3741778f76` | 新增标准库闭包摘要脚本、runner 包选择和相应测试/规则文档。 |
-| `b78f3f65a6` | manifest 区分 Git blob/tree 类型，并纳入总摘要与逐组件比较。 |
-| `0a740ec7de` | 使用 `uv python find` 解析包解释器，避免摘要前触发环境同步。 |
-| `bb6bea1516` | 将 `rust-toolchain.toml` 纳入闭包。 |
-| `6299b0d85e` | 按审计发现，把 RS 测试读取的 provider feasibility 权威文档纳入 RS 闭包。 |
-| `8d42d61f7b` | 修复 runner 测试临时 Git fixture 缺少该权威文档的问题。 |
-| `90fc9c5bb6` | 初版 handoff；初次独立审核指出包 `.venv` 内容摘要与 Python Unicode 数据版本未覆盖。该版数据已由本 handoff 替换。 |
-| `73c98c8bb2` | 将每个包实际 `.venv` 的内容和可执行权限纳入摘要，排除派生 bytecode/cache。 |
-| `ba48639313` | 增加 `unicodedata.unidata_version`，闭合 Python Unicode 数据版本输入。 |
-| H | V 后唯一提交；仅更新本 handoff 为最终证据。 |
+| --- | --- |
+| 3741778f76 | 新增标准库闭包摘要脚本、runner 包选择和相应测试/规则文档。 |
+| b78f3f65a6 | Git 闭包项记录 blob/tree 类型，并纳入总摘要和逐项比较。 |
+| 0a740ec7de | 使用 uv python find 解析包解释器，不在摘要前同步环境。 |
+| bb6bea1516 | 将 Rust toolchain selector 纳入闭包。 |
+| 6299b0d85e | 按完整性审计把 RS 测试读取的 runtime-provider-feasibility 权威文档纳入 RS 闭包。 |
+| 8d42d61f7b | 为 runner 测试 fixture 补入上述权威文档。 |
+| 90fc9c5bb6、d9929e96b6 | 初版 handoff；独立复核提出包 uv 环境与 Python Unicode 数据版本缺口，已在后续提交修正。 |
+| 73c98c8bb2 | 摘要每包实际 uv 环境的内容和权限，排除由锁定源码与解释器派生的 bytecode。 |
+| ba48639313 | 记录 Python Unicode database 版本。 |
+| f1ea8348c5 | 加入每包 Hypothesis storage 和 pytest cache 内容摘要。 |
+| ba650d6682 | 处理 Hypothesis Unicode gzip header 的随机临时文件名，使用解压 payload 摘要，避免同一缓存语义导致 V 自比漂移。 |
 
-上述实施改动均位于授权路径预算内。V1/V2 修复、审计与门禁关系见本 handoff 后文；最终结论只使用 V 的权威门禁与最终闭包审计，不把调试运行作为门禁证据。
+初始独立复核指出的包环境、Unicode 版本与 Hypothesis 缓存问题均已闭合。gzip 归一化得到独立定向复核：Hypothesis 读取解压后的 JSON payload；路径、权限和其余 storage 项仍计入目录摘要。
 
-## 3. 闭包定义
+## 3. 闭包定义与组成
 
-`vnext/scripts/test_input_closure.py` 只使用 Python 标准库，由 runner 以 `python3 -I` 调用。每包 manifest 列出组件名、路径、类型、纳入理由和摘要，再计算 `total_digest`。Git 组件以候选 HEAD 中对应 blob/tree 对象及类型为摘要来源；非 Git 的 `legacy/` 和包 `.venv` 以内容摘要为来源。`.venv` 摘要包括文件内容和可执行权限，排除 `__pycache__` 与 `.pyc/.pyo`；Python `-VV` 和 Unicode 数据版本独立记录。dirty worktree 会失败，未提交改动不会被 tree hash 冒充为来源输入。
+vnext/scripts/test_input_closure.py 只使用 Python 标准库，runner 通过 python3 -I 调用。manifest schema version 为 3。每个 JSON manifest 逐项列出组件名、路径、类型、纳入理由和摘要，再计算 total_digest。比较按组件名、kind、Git object type、路径和摘要逐项进行；全部一致输出“可沿用”，任一项不同输出“运行”及变化项。
 
-比较按包和组件名称、kind、对象类型、路径、digest 逐项比较；闭包完全相等输出“可沿用”，任一组件变化输出“运行”及变化组件。来源 manifest 必须来自 clean worktree 上实际运行并通过的权威 runner；该次 runner 整体 exit 0 且日志记录起止 HEAD。链式沿用直接引用最初实际运行的来源 V。当前 V 上所有闭包变化的包必须实际运行并通过。S5 最终门禁与发布门禁仍运行全部包。
+- Git 中的文件或目录以候选提交对应的 blob/tree object id 与 object type 为摘要；未提交改动不能被 tree id 代表，dirty worktree 在 manifest/compare 时失败。
+- 非 Git 的 legacy 内容按排序后的相对路径、文件内容和链接目标摘要。
+- 每包实际 uv environment 记录目录结构、文件内容、权限和符号链接；排除 __pycache__、.pyc、.pyo 这类由已锁定源码和解释器派生的文件。
+- 每包有效 Hypothesis storage directory（HYPOTHESIS_STORAGE_DIRECTORY，或包目录下 .hypothesis）和包内 .pytest_cache 记录路径、类型、权限和内容。Unicode JSON gzip 以解压 payload 的长度与 SHA-256 计入，忽略 header 中随机临时文件名。
+- 环境项记录该包实际 Python 的 -VV、unicodedata 版本、Dolt、uv、rustc 版本。Docker 测试包另记录 Docker client/server、Compose 和 base image ids。
 
-所有包的公共组件为：
+所有包公共 Git 组成：
 
-- `vnext/<package>` 完整 Git tree（包源码、测试、配置、lockfile、Python selector）；
-- `vnext/deploy`、`vnext/fixtures`、`vnext/scripts`、`vnext/repository-workspace.toml`；
-- 五个包的全部 `uv.lock`（`uv-consume.sh` 每次消费前后检查五锁）；
-- `vnext/rust/rust-toolchain.toml`；
-- 非 Git `legacy/` 内容摘要（排序后的相对路径与文件内容；符号链接目标一并计入）；
-- 本包实际 `.venv` 的内容摘要；Python `-VV`、Python Unicode 数据版本、Dolt、uv 和 rustc 版本。
+- 自身 vnext/<package> tree。
+- vnext/fixtures、vnext/scripts、vnext/repository-workspace.toml、vnext/deploy。
+- 五个包的 uv.lock；uv-consume 在每次包命令前后检查五锁。
+- vnext/rust/rust-toolchain.toml。
+- legacy 内容摘要、包 uv environment、Hypothesis storage、pytest cache 和环境版本摘要。
 
-V 上记录到的环境版本为 Python 3.14.6、Unicode database 16.0.0、Dolt 2.1.11、uv 0.12.5、rustc 1.97.0。Docker build 相关包另记录 Docker client/server、Compose 和 base image IDs。
+路径依赖图按传递关系扩展：
 
-| 包 | 额外路径及理由 |
-|---|---|
-| `shared_kernel` | 自身完整 package tree；公共组件。 |
-| `repository_contracts` | 自身完整 package tree；公共组件。 |
-| `repository_client` | 自身完整 package tree 和 `vnext/repository_contracts` 完整 tree；公共组件。 |
-| `backend` | 自身完整 package tree；Python 传递依赖 `shared_kernel`、`repository_contracts`、`repository_client`；Rust workspace 中 `gateway-compute-python`、`gateway-compute-python-impl`、`gateway-compute-core`、`gateway-shared-kernel` 及整个 `vnext/rust` tree。完整 Rust tree 覆盖 crate 清单/源码、workspace `Cargo.toml`、`Cargo.lock`；单独记录 toolchain selector；`target/` 是派生产物且不在 Git tree。另纳入 Compose 文件、backend 与 repository-service Dockerfile 和完整 `vnext/` 构建上下文。 |
-| `repository_service` | 自身完整 package tree、`vnext/repository_contracts` 完整 tree，以及测试读取的 `docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md`。另纳入 Compose 文件、repository-service Dockerfile、client e2e 与 dependency-base Dockerfile 和完整 `vnext/` 构建上下文。 |
+- repository_client → repository_contracts。
+- repository_service → repository_contracts。
+- backend → shared_kernel、repository_contracts、repository_client、rust/gateway-compute-python → gateway-compute-python-impl → gateway-compute-core → gateway-shared-kernel。
+- backend 还直接闭包 Rust workspace vnext/rust，覆盖 Cargo workspace、所有 crate 的 Cargo.toml 和源码、Cargo.lock；target/ 是派生产物，不在 Git tree，且被 Docker ignore 排除。
+- RS 额外包括测试读取的 docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md。
 
-Docker 输入映射与覆盖：
+Docker 构建矩阵与闭包：
 
-- backend Compose 测试会构建 backend、worker 与 repository-service。backend 和 worker 共用 `vnext/backend/Dockerfile`，三个服务都以 `vnext/` 为 context；对应 Compose 文件、Dockerfile、完整 context 均在 backend 闭包。完整 `vnext/rust` tree 与 `.venv` 摘要覆盖 Rust 源码和已安装 native extension；Rust、Python base image IDs 以及 Docker 工具版本都记录在 backend manifest。
-- RS Compose 测试构建 repository-service；`compose_lifecycle_harness.py` 还以 `vnext/` 为 context 构建 `gateway-repository-client-e2e:local` 与 `gateway-repository-client-e2e-base:local`，分别由 `vnext/repository_client/tests/Dockerfile` 和 `Dockerfile.dependency-base` 构建。RS manifest 对应包含完整 `vnext/` tree、Compose、三个 Dockerfile、Python base image ID 和 Docker 工具版本。context 因此覆盖 client、contracts 和两个 Dockerfile 使用的其他目录。
-- `vnext/.dockerignore` 属于完整 `vnext/` Git tree。以整个 tracked context 作为组件是对 Docker 实际过滤后输入的保守超集；没有依据缩小该闭包。
+| 测试包 | 构建镜像 | Dockerfile | 构建上下文 |
+| --- | --- | --- | --- |
+| shared_kernel | 无 | 无 | 不适用 |
+| repository_contracts | 无 | 无 | 不适用 |
+| repository_client | 无 | 无 | 不适用 |
+| backend | backend、worker | vnext/backend/Dockerfile | vnext/ |
+| backend | repository-service | vnext/repository_service/Dockerfile | vnext/ |
+| repository_service | repository-service | vnext/repository_service/Dockerfile | vnext/ |
+| repository_service | gateway-repository-client-e2e:local | vnext/repository_client/tests/Dockerfile | vnext/ |
+| repository_service | gateway-repository-client-e2e-base:local | vnext/repository_client/tests/Dockerfile.dependency-base | vnext/ |
 
-非 Python 读取方与覆盖方式：
+backend 的闭包另含 vnext/deploy/compose.yaml、backend 与 repository-service Dockerfile、整个 vnext/ Git tree、Rust workspace、Docker 工具和 base image ids。backend 和 worker 使用同一 backend Dockerfile。backend Compose 旅程包含这三个镜像构建输入，因此 backend 包满足沿用条件时，同一 runner 中 backend Compose 旅程一并沿用。
 
-- Docker daemon 读取 Dockerfile 和 build context；上表的 context、Dockerfile、Compose 及 base image/tool identity 覆盖其输入。
-- Dolt 由 backend/RS 的真实集成测试启动；被测代码、测试和 fixtures 在 package/shared tree 中，表规则测试使用的参考数据在 `legacy/` 内容摘要中，Dolt 版本也记录在 manifest。测试运行期创建的临时仓库/数据库是测试输出状态，不是来源 V 的可复用输入；本项没有读取真实数据。
-- Rust/maturin 读取 workspace crate、`Cargo.lock` 和 `rust-toolchain.toml`；闭包包含整个 Rust workspace 和 toolchain selector。编译输出 `target/` 排除，已装入测试 `.venv` 的扩展二进制纳入 `.venv` 内容摘要。
-- shell runner、uv wrapper 与 image build 脚本由所有包共同纳入的 `vnext/scripts` 覆盖；uv workspace 配置和五锁快照单独列出。
+repository_service 的闭包含 vnext/deploy/compose.yaml、repository-service Dockerfile、client e2e 与 dependency-base Dockerfile、完整 vnext/ Git tree 和 Docker base image/tool identity。这个完整 context 覆盖 repository_client、repository_contracts、Dockerfile COPY 的其他目录及 vnext/.dockerignore。vnext/.dockerignore 会排除 .venv、Hypothesis/pytest/tool caches、Rust target、scripts、fixtures 等非构建内容；闭包仍取整个 tracked vnext tree，作为 Docker 实际过滤后输入的保守超集。
 
-## 4. Python 读取审计
+非 Python 读取方：
 
-按 DC30，audit hook 测试只用于调试取证，不是门禁。外部 audit hook 位于 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v3/hook/sitecustomize.py`，通过 worktree 外的 `PYTHONPATH` 注入，覆盖 xdist worker 和 Python 子进程；原始 hook、wrapper、路径快照和 JSONL 全部保存在日志目录，不进入提交。RS 的 v6 hook 同时解析 `os.open` descriptor 路径；RS v6 的汇总脚本为 `g12-audit-v3/summarize-v6.py`。
+- Docker/BuildKit 读取 Compose、Dockerfile、.dockerignore 与 context 文件；上述完整 context、Compose、Dockerfile、Docker 版本和 base image id 覆盖这些输入。其 Compose builds 在 V 的完整 runner 中实际运行。
+- Dolt 由 backend/RS 的集成与 Compose 用例启动。被测代码、测试、fixtures 和表规则参考数据分别落在 package/shared Git tree、vnext/fixtures 和 legacy 内容摘要；Dolt 版本在每包 manifest 中记录。测试期新建的临时仓库与数据库是测试产生的运行态，不是来源 V 的预先存在输入；没有读取真实数据。
+- Rust 扩展读取 package uv environment 中的已安装二进制；该目录内容被摘要。源码重建输入由 backend 的完整 Rust workspace、Cargo.lock、rust-toolchain.toml、backend Dockerfile/context 覆盖。rustc 版本记录在环境组件。
+- shell runner、uv wrapper、image build helper 均位于所有包共同纳入的 vnext/scripts；uv workspace 定义、五锁快照及工具版本另行纳入。
+- 未使用 strace：Python 路径由 audit hook 测量；Docker/BuildKit、Dolt、Rust 与 shell 的 repository input roots 已分别由完整 context/workspace/scripts 或 package environment 覆盖，没有需要额外扩大到仓库外路径的文件输入。非 Python 输入来源和覆盖边界逐项列在上方。
 
-统计为每包完整测试执行期间唯一的、位于 worktree 内的普通文件读取路径。表中的“闭包输入”是 manifest 覆盖路径；bytecode 和工具 cache 是分别由闭包源文件/解释器派生的读取；生成路径和闭包外读取均为 0。
+V 记录的工具环境：Python 3.14.6，Unicode database 16.0.0，Dolt 2.1.11，uv 0.12.5，rustc 1.97.0。Docker client 26.1.5+dfsg1 build a72d7cd，server 26.1.5+dfsg1，Compose 2.26.1-4。Python base image id 为 sha256:41bf03017a7e6559c7899e56da8317e2e2caa17dde53ce6482b17a197904f4c2；backend 另外记录 rust:1.97.0-bookworm id sha256:7ea53b11a01d2d52b4af8fa073cd76ecbaf7dc385b88cc9d0ce8205a7c941ff1。
 
-| 包 | 唯一读取文件 | manifest 覆盖 | 派生 bytecode | 派生 cache | 闭包外 |
-|---|---:|---:|---:|---:|---:|
-| `shared_kernel` | 278 | 226 | 34 | 18 | 0 |
-| `repository_contracts` | 180 | 164 | 15 | 1 | 0 |
-| `repository_client` | 421 | 385 | 35 | 1 | 0 |
-| `backend` | 2,146 | 1,252 | 585 | 309 | 0 |
-| `repository_service` | 1,271 | 1,065 | 204 | 2 | 0 |
+## 4. 完整性实测
 
-各包 generated-read count 均为 0。RS v6 的 `mode=None` audit 行均为 stat 时不存在的 open 尝试，不计作文件读取；成功的 `os.open` descriptor 路径由 hook 单独记录，未解析的实际读取数为 0。backend v6、client v6 同样未解析实际 descriptor 读取。cache 文件（包括测试工具/Hypothesis cache）属于派生运行状态，不参与 pytest 的默认测试选择；记录 Python/Unicode 版本、源码和锁文件后无需把 cache 当作独立输入。
+按照 DC30，Python audit hook 和完整逐包测试仅用于实现期取证，不作为门禁。hook 经 worktree 外 PYTHONPATH 注入，以覆盖 xdist worker 与 Python 子进程。hook、逐包 runner 日志、快照、总结脚本和结果均在 worktree 外：
 
-审计运行和摘要（均在 worktree 外）：
+- Hook：/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v3/hook/sitecustomize.py
+- Audit runner：/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v3/run-package-audit-v6.sh
+- Summary：/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v3/summarize-v6.py
+- 最终五包汇总：/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v7/
+- 各包完整 runner log 和 python-opens.jsonl：下表所列 g12-debug 文件。
 
-- `shared_kernel`：`g12-debug-shared_kernel-v3-20261018T194055Z.log`、对应 `-python-opens.jsonl`；汇总 `g12-audit-v3/shared_kernel-20261018T194055Z-summary.json`。
-- `repository_contracts`：`g12-debug-repository_contracts-v3-20261018T194121Z.log`、对应 `-python-opens.jsonl`；汇总 `g12-audit-v3/repository_contracts-20261018T194121Z-summary.json`。
-- `repository_client`：v6 runner/open logs `g12-debug-repository_client-v6-20261018T211245Z.log` 与 `...-python-opens.jsonl`；汇总 `g12-audit-v3/repository_client-20261018T211245Z-v6-summary.json`。
-- `backend`（含 Compose 旅程）：v6 runner/open logs `g12-debug-backend-v6-20261018T204347Z.log` 与 `...-python-opens.jsonl`；汇总 `g12-audit-v3/backend-20261018T204347Z-v6-summary.json`。
-- `repository_service`（含 Compose 旅程）：v6 runner/open logs `g12-debug-repository_service-v6-20261018T203637Z.log` 与 `...-python-opens.jsonl`；路径快照及汇总分别为 `g12-audit-v3/repository_service-20261018T203637Z-v6-before.json` 和 `...-v6-summary-corrected.json`。
+| 包 | 完整审计 log 时间戳 | 唯一存在的仓库内普通文件 open 路径 | manifest 覆盖 | 派生 bytecode | 闭包外 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| shared_kernel | 20261018T232811Z | 279 | 245 | 34 | 0 |
+| repository_contracts | 20261018T232816Z | 180 | 165 | 15 | 0 |
+| repository_client | 20261018T232821Z | 430 | 395 | 35 | 0 |
+| backend | 20261018T232828Z | 2,146 | 1,561 | 585 | 0 |
+| repository_service | 20261018T235711Z | 1,271 | 1,067 | 204 | 0 |
 
-审计 summary 中的 HEAD 与 `total_digest` 均匹配 V runner manifest。每包 full test run 的 exit code 均为 0。非 Python 读取路径的覆盖边界见上一节：Docker/Rust 的完整构建输入树被哈希，Dolt 输入由测试代码/fixtures 和 legacy 内容覆盖；未将未经观察的文件路径当作可沿用依据。
+五包 test-run-generated-read 为 0，derived-tool-cache-read 为 0，mode=None unresolved os.open groups 为 0。Hypothesis 与 pytest cache 已作为 manifest content component，因此计入 manifest 覆盖路径，不再作为未覆盖的 derived cache。每包 audit 汇总 JSON 中保留了事件数、total_digest、覆盖数和闭包外路径清单。
 
-## 5. Runner 改动与测试
+计数口径是测试期间在 worktree 内观察到的、事件时已存在的普通文件 open 路径去重数。Python audit-open 事件发生在 open 调用之前，因此单独的 builtins.open 记录表示打开尝试；mode=None 的低层 os.open 事件按 descriptor 结果配对，未解析数为 0。该口径对闭包检查取保守超集：失败的既存路径尝试也必须落在闭包中。所有包均为闭包外 0，未发现需扩大的路径。
 
-`GATEWAY_TEST_PACKAGES` 接受逗号分隔包名；未设置时按原固定顺序运行五包。指定包仍按原顺序子集运行；未知包、重复包和非法空项 exit 2。包环境同步后、测试前，为本次要运行的每包输出 JSON manifest；结束时逐包输出状态。backend/RS 两遍拆分、worker 分组、`GATEWAY_TEST_BASETEMP` 下 Compose 测试文件处理及五锁前后检查保持原逻辑；未设置包选择的 runner unit test 覆盖完整顺序和两遍拆分。
+逐包 runner log 均记录 HEAD ba650d668249f593ef4f4c991cf40eade32cf6db 起止一致和 exit 0。backend 并行 2,839、serial 36 全通过；repository_service 并行 1,703 passed/1 skipped、serial 205 全通过；其余三包分别 242、152、154 passed。审计执行了每个包的完整测试，backend 与 RS 均包含其 Compose 旅程。
 
-- `vnext/repository_service/tests/test_test_input_closure.py` 覆盖组件组成、transitive path dependencies、逐项比较、dirty worktree CLI 拒绝和 `.venv` digest 行为；同构输入经参数表共享。
-- `vnext/repository_service/tests/test_run_tests_script.py` 覆盖指定包、选择顺序、unset 时默认全包、两遍拆分、未知/重复/非法输入 exit 2；同构无效输入使用参数表。
-- 最终 V 的 RS 总数相较 S3 增加 13 项：闭包摘要 6 项，runner 选择 7 项；没有减少测试或削弱断言。
+## 5. Runner 改动与测试覆盖
+
+run-tests.sh 接受 GATEWAY_TEST_PACKAGES 逗号分隔子集；合法值为 shared_kernel、repository_contracts、repository_client、backend、repository_service。重复、未知、空项以 exit 2 拒绝；选择结果仍按权威 runner 固定顺序。unset 时仍运行全部包，backend/RS 两遍拆分、GATEWAY_TEST_BASETEMP 下 Compose 文件处理和五锁检查保持原样。每个待运行包在开始时先输出 JSON manifest，结束时逐包输出状态和测试结果。
+
+repository_service 测试新增 12 个 closure test cases（含 cache 与 path dependency 参数表）和净增 7 个 package-selection/validation cases；原有 runner failure-propagation case 保留。因此 RS 在 parallel 批次比 S3 增加 19 项，serial 与 skipped 数不变。
+
+- vnext/repository_service/tests/test_test_input_closure.py 覆盖 package/shared/Docker 输入组成、非 Git environment/cache 内容、Hypothesis gzip payload 归一化、传递路径依赖、比较变化和 dirty worktree 拒绝。
+- vnext/repository_service/tests/test_run_tests_script.py 覆盖指定单包、多包选择顺序、unset 时全包两遍、不合法/未知/重复包 exit 2。
+- 同构输入通过参数表归并。完整 V runner 同时包含这两组 unit tests，无需缩小测试范围。
 
 ## 6. V 的 preflight 与权威门禁
 
-最终取证前 preflight 在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-final-preflight-20261018.log`。开始/结束 HEAD 均为 V，worktree clean；load average `0.44, 0.91, 1.33`，整机 Dolt 进程 0、Compose 项目 0、8000 端口占用 0；记录了全部容器，当时仅有两个 BuildKit 容器。
+最终门禁前 preflight：/home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-preflight.log。时间 2026-10-19 00:04:39 UTC，HEAD 为 V，git status clean；load average 4.52 / 4.89 / 3.47；Dolt 0、Compose project 0、8000 listener 0。记录的全部容器仅有两个长期 BuildKit 容器。
 
-V 上只运行一次完整权威 runner，命令为：
+在 V clean worktree 上运行一次完整权威 runner；GATEWAY_TEST_PACKAGES、GATEWAY_TEST_BASETEMP 均 unset，workers=48：
 
-```bash
 GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
-```
 
-`GATEWAY_TEST_PACKAGES` 与 `GATEWAY_TEST_BASETEMP` 均未设置。外部日志 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-v-authoritative-runner-20261018.log` 记录开始/结束 UTC、起止 HEAD、clean status、每包 JSON manifest、逐包状态与 runner 自身 exit code。开始/结束 HEAD 都是 `ba486393137f8fe6d93464d05cce00a1a87aec98`，runner exit 0，结束 worktree clean。
+日志：/home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-authoritative-runner.log。开始时间 2026-10-19 00:04:43 UTC，结束时间 00:39:32 UTC；起止 HEAD 均为 ba650d668249f593ef4f4c991cf40eade32cf6db，结束 git status clean，runner 自身 exit 0。
 
-| 包 | S3 V `dc9c08a410` 基准 | G12 V 结果 | 差异 |
-|---|---:|---:|---:|
-| `shared_kernel` | 242 passed | 242 passed | 0 |
-| `repository_contracts` | 152 passed | 152 passed | 0 |
-| `repository_client` | 154 passed | 154 passed | 0 |
-| `backend` | 2,839 parallel + 36 serial passed | 2,839 parallel + 36 serial passed | 0 |
-| `repository_service` | 1,684 parallel passed + 1 skipped；205 serial passed | 1,697 parallel passed + 1 skipped；205 serial passed | +13 passed |
+| 包 | S3 V dc9c08a410 计数 | G12 V 计数 | 增减 |
+| --- | --- | --- | --- |
+| shared_kernel | 242 | 242 | 0 |
+| repository_contracts | 152 | 152 | 0 |
+| repository_client | 154 | 154 | 0 |
+| backend | 2,839 parallel + 36 serial | 2,839 parallel + 36 serial | 0 |
+| repository_service | 1,684 parallel + 1 skipped + 205 serial | 1,703 parallel + 1 skipped + 205 serial | +19 passed |
 
-RS +13 全部来自本项新增的 6 个闭包测试与 7 个 runner 包选择测试。其他包计数完全一致。V manifest `total_digest`：
+RS 的 +19 为本项新增 12 个 closure test cases 与 7 个 runner 包选择/校验 cases；S3 既有的 1 skipped 与 205 serial 数不变。其他包计数完全一致。
 
-| 包 | `total_digest` |
-|---|---|
-| `shared_kernel` | `91b18eea6087a14f530f451ca8cc38858f0164b8889289b36bf7c3ee52f42138` |
-| `repository_contracts` | `4e180843559e99ffc2e227b79e78c7437b91a68442fe0da0c0ac544eacd00882` |
-| `repository_client` | `758cb11ad8b3a7c72a3ad6019cbfa076ce5898d488251a096f0d9d7976ed0830` |
-| `backend` | `c77d4481fb2db8ad21d3700a1ee94efc51d9f5e7e0dffaa1b75b9b8a56d52c58` |
-| `repository_service` | `21a4922a74b647e869a41088c791793929aac044c9bf2133f372d8767258c104` |
+V runner-start manifest total_digest：
 
-manifest JSON 副本在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-final-v-manifests/`，原始逐包 manifest 在上述权威 runner 日志中。
+| 包 | total_digest |
+| --- | --- |
+| shared_kernel | d598cb66404201f9df9e9a36e07c1797121939ce43b5e0e36f97a3b7391da19d |
+| repository_contracts | a9b7db21069fbaf12eb9d3543f37998729601190abb7547476a7e8183db74713 |
+| repository_client | 8650c951ba9d8ee1deebaa73029abbcbf0474f0da5e0a790769b58018dba6078 |
+| backend | 2f6ab410800178dfbb9724744980d48344885c0ced385973601d03cad98d622f |
+| repository_service | d6bf440fdfff7b03c116287a2e3b469eb3a32f539caa2e72c7af607f5038809c |
 
-V 的 Compose provenance 副本 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-V-compose-provenance.json` 来自本次 backend/RS Compose 旅程：project `ordered-bisect-b-3141235-baseline`；backend `sha256:5172a3f6590229af3fe54a730c635cb52ea39b5e587ad600b3467e2ee9976731`；worker `sha256:e263c7b0d8d040286e4f8c33a03f24e6a1a7e64bdd2fb95e03cc47243dfb7484`；repository-service `sha256:017282612a607297c231507386637471edc6e5e5fc2247ac07c921476129611d`。RS image labels：build-input revision `ba486393137f8fe6d93464d05cce00a1a87aec98`，source tree `sha256:f650a0727b5a83f9a9be14ea5ed76c961ecc27e7230fe3c266096151ff3097d1`。
+原始 manifest JSON 位于 V runner log；独立副本、逐包比较日志位于 /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-manifests/。
 
-## 7. 沿用规则的三项演示
+本次 V Compose provenance：/home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-compose-provenance.json。project ordered-bisect-b-852072-baseline；backend image sha256:c77ee003b84d236f8d70dd950344a21dea372a7bd000a72b44ee21271bec02e7；worker sha256:c30f6e2ec49c9d0e499aceacd925e3a9aea0628adca9fa4bb4c3578d507aeed5；repository-service sha256:f2a46d9a5dcfa02f9d78482be3ed9ade5d5d6ada160cc738fcb5e69c04302b12。RS image labels 的 build-input revision 为 ba650d668249f593ef4f4c991cf40eade32cf6db，source-tree SHA-256 为 sha256:f92c586df7159406d2afe2d333c3114fdb2f4857425fc9d8c71bdca46c5f6ab4。
 
-比较结果和每包 JSON 在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-manifest-comparisons-20261018.json`、`g12-final-v-manifests/`：
+## 7. 沿用规则的演示与 H carried
 
-1. V 的成功权威 runner manifest 与 clean V 当前 manifest 逐包比较：五包全部“可沿用”，变化组件为空。
-2. 对 S3 V `dc9c08a410829f303aae1e0f826c674b335cb94b` 计算 manifest 后与 V 比较：五包全部“运行”。五包共同变化 `shared:scripts`；backend 和 RS 另有 `docker:context:vnext`；RS 另有 `package:repository_service`。这些变化没有被忽略。
-3. 在 clean V 上实际运行 `GATEWAY_TEST_PACKAGES=shared_kernel GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`：仅输出/运行 `shared_kernel`，242 passed，exit 0；日志 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-package-selection-shared-kernel-20261018.log`。preflight、起止 HEAD 和 envelope 见相邻 `g12-demo-preflight-20261018.log` 与日志目录内 package-selection envelope。
+沿用演示日志均位于 /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-manifests/：
 
-## 8. V → H `carried`
+1. V runner-start manifests 与 V 当前 manifests 对比，五包均为“可沿用”，changed_components 为空；V post-demo 再比较也全部“可沿用”。V total_digest 见上一节。
+2. 以当前 schema 对 S3 V dc9c08a410829f303aae1e0f826c674b335cb94b 计算 manifest 再和 V 比较，五包均为“运行”。shared_kernel、repository_contracts、repository_client 的变化项为 shared:scripts；backend 为 shared:scripts 与 docker:context:vnext；repository_service 为 shared:scripts、docker:context:vnext、package:repository_service。
+3. V 上实际运行 GATEWAY_TEST_PACKAGES=shared_kernel GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh。只运行 shared_kernel，242 passed，exit 0；起止 HEAD 均为 V。日志 /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-package-demo.log。之后五包仍与 V runner-start manifests 全部可沿用。
 
-逐包沿用与镜像身份等价分别判定：闭包比较决定当前 H 上需要运行哪些包；AGENTS.md 的镜像规则决定 V..H 容器结果是否 carried。backend 闭包包含 backend/worker/RS 的 Compose context、Dockerfile、Compose、Rust workspace、base image IDs 和工具版本，因此 backend 包从合格来源 V 沿用时，其 Compose 结果一并沿用。S5 最终门禁仍运行全部包。
+V 与 H 的包沿用和镜像身份等价分别判定：包比较决定 H 上哪些包要运行；V..H 的容器结果继续按 AGENTS.md 镜像身份规则判定。H 相对 V 只改本 handoff 文件；H 五包 manifest 与 V runner-start manifest 逐项相同，均可沿用。backend 闭包包含其 Compose 旅程的完整镜像构建输入，所以 backend 沿用时，其 Compose 结果也沿用；RS image identity 与 backend/worker 实际构建按同一 worktree H 复核。
 
-为满足“提交 H 后判定”，先提交 handoff-only 候选，再在运行 V 门禁的同一 worktree 完成比较与镜像构建；随后仅把这些实测结果写入 handoff，并以最终 handoff commit 作为 H。最终 H 的 compare、identity、preflight 和两次构建在最终提交上复核。完整最终日志写到 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H-carried-final.log`，最终 preflight 写到 `g12-H-carried-preflight-final.log`。
+H carried 证据：
+- 最终 H preflight：/home/dev/gdds-p5-closure-s1-gate-logs/g12-H-carried-preflight-final.log；记录 clean HEAD、load、所有容器、Dolt 进程、Compose projects 与 8000 listener。
+- 最终 H 五包 manifest compare 与 identity/build 结果：/home/dev/gdds-p5-closure-s1-gate-logs/g12-H-carried-final.log；清单和逐项 compare JSON 位于 /home/dev/gdds-p5-closure-s1-gate-logs/g12-H-manifests-final/。
+- RS identity 使用 python3 -I vnext/repository_service/tests/support/build_context_digest.py identity；build-input revision 与 V RS label 一致，为 ba650d668249f593ef4f4c991cf40eade32cf6db；source-tree SHA-256 与 V RS label 一致，为 sha256:f92c586df7159406d2afe2d333c3114fdb2f4857425fc9d8c71bdca46c5f6ab4。
+- backend/worker 在该 V 门禁 worktree 上，以 V provenance project ordered-bisect-b-852072-baseline 连续两次执行 docker compose --project-name ordered-bisect-b-852072-baseline -f /home/dev/gdds-p5-g12/vnext/deploy/compose.yaml build backend worker；两次之间没有运行测试。两次 backend ID 均为 sha256:c77ee003b84d236f8d70dd950344a21dea372a7bd000a72b44ee21271bec02e7；两次 worker ID 均为 sha256:c30f6e2ec49c9d0e499aceacd925e3a9aea0628adca9fa4bb4c3578d507aeed5，均与 V provenance 实际运行 ID 一致。
+- 没有手工 docker rmi、docker tag 或删除 gateway-repository-client-e2e:local 和 gateway-repository-client-e2e-base:local；权威 runner 按候选 label 重建 :local 属于预期行为。
 
-最终 H 上五包 manifest 逐项等于来源 V，全部可沿用。来源 V 是实际运行成功的 V 权威 runner，不是链式沿用来源：
+## 8. 静态检查与真实数据
 
-| 包 | H `total_digest` | H 状态 | 来源 V | 来源日志 |
-|---|---|---|---|---|
-| `shared_kernel` | `91b18eea6087a14f530f451ca8cc38858f0164b8889289b36bf7c3ee52f42138` | 可沿用 | `ba486393137f8fe6d93464d05cce00a1a87aec98` | `g12-v-authoritative-runner-20261018.log` |
-| `repository_contracts` | `4e180843559e99ffc2e227b79e78c7437b91a68442fe0da0c0ac544eacd00882` | 可沿用 | `ba486393137f8fe6d93464d05cce00a1a87aec98` | `g12-v-authoritative-runner-20261018.log` |
-| `repository_client` | `758cb11ad8b3a7c72a3ad6019cbfa076ce5898d488251a096f0d9d7976ed0830` | 可沿用 | `ba486393137f8fe6d93464d05cce00a1a87aec98` | `g12-v-authoritative-runner-20261018.log` |
-| `backend` | `c77d4481fb2db8ad21d3700a1ee94efc51d9f5e7e0dffaa1b75b9b8a56d52c58` | 可沿用 | `ba486393137f8fe6d93464d05cce00a1a87aec98` | `g12-v-authoritative-runner-20261018.log` |
-| `repository_service` | `21a4922a74b647e869a41088c791793929aac044c9bf2133f372d8767258c104` | 可沿用 | `ba486393137f8fe6d93464d05cce00a1a87aec98` | `g12-v-authoritative-runner-20261018.log` |
+五包 ruff/mypy 日志分别为：
 
-最终 H 的逐包比较输出、manifest 与 clean/head envelope 在 `g12-H-manifest-comparisons-final.log` 和 `g12-H-manifests-final/`。五包 `changed_components` 均为空。
+- /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-static-shared_kernel.log：ruff、mypy 通过，34 source files。
+- /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-static-repository_contracts.log：通过，15 source files。
+- /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-static-repository_client.log：通过，26 source files。
+- /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-static-backend.log：通过，476 source files；同一日志的 import_rules 为 0 violations / 0 runtime cycles / 6 unreachable modules。
+- /home/dev/gdds-p5-closure-s1-gate-logs/g12-V3-static-repository_service.log：通过，199 source files。
 
-镜像身份结果：
+本项真实数据范围为空；未运行或读取真实数据。停止条件均未触发：不需要预算外生产/Compose/Dockerfile/harness/依赖/锁修改；实测路径都可由闭包覆盖；G12 与容器门禁关系由完整构建输入闭包和独立 image identity 判定连接；V 全量 runner exit 0；没有缩小测试范围或削弱断言。
 
-- repository-service：最终 H 上 `python3 -I vnext/repository_service/tests/support/build_context_digest.py identity` 的 build-input revision 为 `ba486393137f8fe6d93464d05cce00a1a87aec98`，source-tree SHA-256 为 `sha256:f650a0727b5a83f9a9be14ea5ed76c961ecc27e7230fe3c266096151ff3097d1`；两项均与 `gateway-repository-service:local` labels 相同。identity 的 candidate SHA 是日志中记录的最终 H。
-- backend/worker：在同一 worktree 使用 V provenance project `ordered-bisect-b-3141235-baseline`，连续两次执行 `docker compose --project-name ordered-bisect-b-3141235-baseline -f /home/dev/gdds-p5-g12/vnext/deploy/compose.yaml build backend worker`，两次之间没有运行测试。两次 backend ID 均为 `sha256:5172a3f6590229af3fe54a730c635cb52ea39b5e587ad600b3467e2ee9976731`；两次 worker ID 均为 `sha256:e263c7b0d8d040286e4f8c33a03f24e6a1a7e64bdd2fb95e03cc47243dfb7484`，均匹配 V provenance 实际运行 ID。
-- 最终 H preflight 再次记录 clean HEAD、负载、全部容器，并确认 Dolt 进程 0、Compose 项目 0、8000 端口空闲。未手工对 `gateway-repository-client-e2e:local` 或 `gateway-repository-client-e2e-base:local` 执行 docker rmi、tag 或删除。
+## 9. 独立审核提示词（执行计划 §8.7）
 
-## 9. 静态检查、真实数据与容器记录
+任务：独立审核 P5 架构收口治理修订计划 G12 第 1 项“按包沿用测试结果”。按执行计划 §8.2、§8.7、§8.8 与 slice-design-execution-and-review-guide.md §5–§6 审核，不预设结论。
 
-`import_rules` 对照：kickoff base `46c5684c98` 承接的 S3 结果为 0 import violations / 0 runtime cycles / 6 unreachable modules；V 上再次执行后仍为 0/0/6（S3 handoff §4；V 输出见当前静态检查日志）。本项没有修改 backend 架构/import 边界。
+审核对象：p5-g12 分支当前 HEAD（执行 git rev-parse HEAD 取得候选 H）；审核区间 p5-s3-exit 6b2b5fd0e1a82ae036b8ad19d233f3d68559465b..H。只审核该区间。使用只读 detached worktree /home/dev/gdds-p5-g12-review，并创建指向 /home/dev/gateway-data-management-system/legacy 的 legacy 符号链接；不要改写实现 worktree、不要在测试运行期间写被测 worktree。
 
-V clean worktree 上五包 `ruff check .`、`mypy` 均通过；各包 mypy 检查数为 shared_kernel 34、contracts 15、client 26、backend 476、RS 199。`import_rules` 为 0 violations / 0 runtime cycles / 6 unreachable modules。命令、每包 exit code、开始/结束 HEAD 见 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-static-checks-20261018.log`。
-
-真实数据范围为空，本项未运行或读取真实数据。镜像结果绑定于 V；V..H 只增加 handoff，闭包与 image source tree 不变，按上一节复核 `carried`。容器版本、base IDs、V image IDs 和 RS labels 已在 manifest、Compose provenance 与 carried 日志中记录。
-
-## 10. 停止条件
-
-均未触发：无需改生产代码、Compose、Dockerfile、harness、依赖或锁；Python 实测没有闭包外路径；Docker/Rust/Dolt/shell 输入均有闭包组成覆盖；逐包沿用与容器门禁要求由完整 build-input 闭包及独立 image-identity 判定连接；V 全量权威 runner exit 0；未缩小测试范围或削弱断言。审核通过前不开始 S4。
-
-## 11. 审核提示词
-
-```text
-任务：独立审核 P5 架构收口治理修订计划 G12 第 1 项（按包沿用测试结果）。你未参与本项实现；按
- docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-guide.md §5–§6 审核，不预设结论。
-
-审核对象：分支 p5-g12 @ <H>（门禁提交 V = ba486393137f8fe6d93464d05cce00a1a87aec98；实现 HEAD 与 V 相同），
-区间 p5-s3-exit (6b2b5fd0e1a82ae036b8ad19d233f3d68559465b)..<H>。只审该区间差异。
-在只读 detached worktree 中工作：git worktree add --detach /home/dev/gdds-p5-g12-review <H>；建立 legacy 符号链接；不在主工作区写入。
-权威依据：G12 治理修订计划第 1 项、决议记录 §16 DC33 第一部分、执行计划 §8.2/§8.7/§8.9、
-AGENTS.md、docs/backend-vnext/testing-conventions.md 和本 handoff。
+权威依据：治理修订计划 G12 第 1 项、owner 决议 §16 DC33 第一部分、执行计划 §8.2/§8.7/§8.8/§8.9、AGENTS.md、testing-conventions.md 与本 handoff。
 
 必须核查：
-1. Python audit hook 实测路径、逐包闭包和计数；尤其确认 RS authority document、包 .venv 和 Python Unicode 版本都在最终 manifest；闭包外文件为 0。
-2. backend/worker/RS Compose 镜像、RS client e2e/dependency-base 镜像各自的 Dockerfile、Compose 与完整 vnext/ context；backend Compose 沿用依据是否由 backend 闭包完整覆盖。
-3. manifest 的 Git tree/blob 与非 Git 内容摘要、传递路径依赖、Rust workspace/Cargo.lock/toolchain、版本环境以及逐组件比较；dirty worktree 必须被拒绝。
-4. 未设置 GATEWAY_TEST_PACKAGES 时 runner 是否仍运行五包、顺序和两遍拆分是否保持；指定、未知、重复包行为；GATEWAY_TEST_BASETEMP 与五锁检查是否不变。
-5. V 权威 runner 的 clean worktree、起止 HEAD、exit 0、每包计数、manifest、Compose provenance；V→H carried 是否在同一 worktree 以 RS identity 和 backend/worker 连续两次构建验证。
-6. 路径预算、S3 计数增量 +13 的组成、五包 ruff/mypy、import_rules 0/0/6、真实数据为空、停止条件，以及本项未开始 S4。
+1. 外部 Python audit hook 的逐包日志、manifest 与总结；复核五包唯一读取文件数与闭包外为 0，检查 audit-open 是尝试事件的统计口径说明。
+2. 按包复核闭包组件、Git tree/blob 与非 Git 内容摘要、transitive path dependencies、Rust workspace/Cargo.lock/toolchain、Python/Dolt/uv/rustc 版本、RS authority document、package uv environments 和 Python Unicode database 版本。
+3. 复核 Docker build matrix：backend、worker、repository-service、repository-client e2e 和 dependency-base 的 Dockerfile、Compose 与 vnext/ context；确认 backend Compose carried 的闭包依据完整。
+4. 复核 dirty worktree 拒绝、组件差异比较；未设置 GATEWAY_TEST_PACKAGES 时 runner 五包顺序/两遍拆分、GATEWAY_TEST_BASETEMP Compose 文件处理和五锁检查行为；核对指定/未知/重复包。
+5. 复核 V clean preflight、起止 HEAD、完整 runner exit 0、每包计数、manifest 与 Compose provenance。重算 V↔V 与 dc9c08a410↔V 的比较，并检查 shared_kernel 单包演示日志。
+6. 复核 H 五包 manifest、RS image identity label、backend/worker 两次连续构建 ID 与 V provenance；确认所有检查在运行 V 门禁的同一 worktree 完成，期间没有运行测试。
+7. 核对 repository_service 相比 S3 +19 的组成（12 closure cases + 7 runner cases）、五包 ruff/mypy、import_rules 0/0/6、真实数据范围为空、停止条件和未开始 S4。
 
-验证：在只读审核 worktree 复核 V 的权威 runner、audit summaries 和 H carried 日志；按审核流程复核五包静态检查。不要在审核前开始 S4；不推送、不合并或 rebase main。
-交付：按执行计划 §8.8 记录独立审核报告；通过后由 owner/授权审核方在阶段审核记录上创建 p5-g12-exit。
-```
+验证约束：审核不修改候选实现，不推送、不合并/rebase main，不运行真实数据。按执行计划 §8.8 记录独立审核结论；只有审核通过后才按阶段流程将 p5-g12-exit 标在审核报告 commit，并把它作为 S4 区间起点。

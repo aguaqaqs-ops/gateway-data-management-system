@@ -256,7 +256,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
 
 1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
-   - **实施状态（2026-10-19）：** G12 工具、runner 选择与文档已在 `p5-g12` 实施；闭包修订已补入 Docker context 中 Git ignored 但仍被 Docker 读取的文件。旧 V=`6dfbec982a98457e6c1e0e60c668f5348df3ac57` 的 runner 与 handoff 证据已被后续闭包修订取代，不作为验收证据。当前候选 HEAD=`4417900a3a8ae2e7892a860b4bd4a8a7fefffd30`；定向单测 30/30、五包 ruff/mypy 与 `import_rules` 0/0/6 已在专用 LXC 验证。完整审计已确认 Python 读取路径闭包外为 0，但 backend 与 repository_service 的 Compose 用例因 LXC 缺少 P2R1 dependency-base 镜像和 `172.17.0.1:18080` 缓存服务而无法完成。尚未形成通过的全量 V、H、carried 或独立审核结论；待缓存迁移/访问方式确定后继续，当前不开始 S4。
+   - **实施状态（2026-10-19）：** G12 闭包摘要、runner 包选择、单测和文档已在 `p5-g12` 实施。完整 Python audit hook 实测五包的闭包外读取均为 0；专用节点 `ct108-gw-dms` 已完成 clean V=`8624a82ce3218b5719ce55a0f5a3c119efc70776` 的全量权威 runner，exit 0；五包 ruff/mypy 与 `import_rules` 0/0/6 通过。V 自比较五包均可沿用、S3 V 到 G12 V 五包均需运行、`shared_kernel` 单包实跑通过；完整 handoff 与 H 上 package/carried 判定见 `plans/p5-arch-closure-g12-handoff.md`。当前实施已完成，独立审核待定；审核通过前不开始 S4，main 上的状态由审核方合入时更新。
    - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
    - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
      - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`，以及其传递路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python` 的 workspace crate；repository_service → repository_contracts；

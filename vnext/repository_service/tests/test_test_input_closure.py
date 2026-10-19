@@ -151,6 +151,7 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     ).stdout.strip()
     assert backend_components["non-git:docker-context:vnext"]["kind"] == "content"
     assert backend_components["non-git:docker-context:vnext"]["paths"] == ["vnext"]
+    assert backend_components["non-git:docker-context:vnext"]["entries"] == []
 
     repository_service = _manifest(repo_root, "repository_service")
     service_components = {
@@ -208,6 +209,10 @@ def test_docker_context_hashes_included_ignored_files_and_skips_dockerignored_fi
         if component["name"] == original_component["name"]
     )
     assert included_component["digest"] != original_component["digest"]
+    assert included_component["entries"] == [
+        f"vnext/{package}/target",
+        f"vnext/{package}/target/context-extra.db",
+    ]
     assert subprocess.run(
         ["git", "-C", str(repo_root), "status", "--porcelain=v1"],
         check=True,
@@ -594,7 +599,7 @@ def test_compare_reports_reuse_and_lists_changed_components(tmp_path: Path) -> N
         {
             key: component[key]
             for key in ("name", "kind", "git_object_type", "paths", "digest")
-        }
+        } | ({"entries": component["entries"]} if "entries" in component else {})
         for component in changed["components"]
     ]
     changed["total_digest"] = hashlib.sha256(
@@ -618,6 +623,8 @@ def test_compare_reports_reuse_and_lists_changed_components(tmp_path: Path) -> N
                 "current_git_object_type": source["components"][0]["git_object_type"],
             "source_paths": source["components"][0]["paths"],
             "current_paths": source["components"][0]["paths"],
+            "source_entries": None,
+            "current_entries": None,
             "source_digest": source["components"][0]["digest"],
             "current_digest": "changed-digest",
         }

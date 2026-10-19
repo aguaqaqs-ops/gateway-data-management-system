@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
 PACKAGES = (
     "shared_kernel",
@@ -952,7 +952,7 @@ def _docker_context_non_git_digest(
     repo_root: Path,
     context: str,
     dockerfiles: Sequence[str],
-) -> str:
+) -> tuple[str, list[str]]:
     """Hash non-Git filesystem entries Docker will include from a build context."""
     context_root = repo_root / context
     if not context_root.is_dir() or context_root.is_symlink():
@@ -1035,9 +1035,10 @@ def _docker_context_non_git_digest(
                 raise ClosureError(f"unsupported filesystem entry in Docker context: {candidate}")
             entries.append((relative, candidate, entry_kind))
 
+    ordered_entries = sorted(entries, key=lambda item: item[0])
     digest = hashlib.sha256()
     digest.update(b"docker-context-non-git-v1\0")
-    for relative, candidate, entry_kind in sorted(entries, key=lambda item: item[0]):
+    for relative, candidate, entry_kind in ordered_entries:
         encoded_path = relative.encode("utf-8")
         digest.update(len(encoded_path).to_bytes(8, "big"))
         digest.update(encoded_path)
@@ -1055,7 +1056,11 @@ def _docker_context_non_git_digest(
         with candidate.open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
-    return digest.hexdigest()
+    included_paths = [
+        f"{context.rstrip('/')}/{relative}"
+        for relative, _, _ in ordered_entries
+    ]
+    return digest.hexdigest(), included_paths
 
 
 def _finish_manifest(
@@ -1065,13 +1070,15 @@ def _finish_manifest(
     worktree_head: str,
     components: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    digest_components = [
-        {
+    digest_components = []
+    for component in components:
+        digest_component = {
             key: component[key]
             for key in ("name", "kind", "git_object_type", "paths", "digest")
         }
-        for component in components
-    ]
+        if "entries" in component:
+            digest_component["entries"] = component["entries"]
+        digest_components.append(digest_component)
     manifest_components = []
     for component in components:
         rendered = dict(component)
@@ -1132,21 +1139,23 @@ def build_manifest(
             }
         )
         if spec["name"] == "docker:context:vnext":
+            context_digest, context_entries = _docker_context_non_git_digest(
+                repo_root,
+                spec["path"],
+                [
+                    item["path"]
+                    for item in component_specs
+                    if item["name"].startswith("dockerfile:")
+                ],
+            )
             components.append(
                 {
                     "name": "non-git:docker-context:vnext",
                     "kind": "content",
                     "git_object_type": None,
                     "paths": [spec["path"]],
-                    "digest": _docker_context_non_git_digest(
-                        repo_root,
-                        spec["path"],
-                        [
-                            item["path"]
-                            for item in component_specs
-                            if item["name"].startswith("dockerfile:")
-                        ],
-                    ),
+                    "digest": context_digest,
+                    "entries": context_entries,
                     "reason": (
                         "Docker includes ignored and other non-Git files in the build context unless "
                         "excluded by .dockerignore; hash every included non-Git entry. The tracked "
@@ -1280,17 +1289,23 @@ def compare_manifests(source: Mapping[str, Any], current: Mapping[str, Any]) -> 
                 raise ClosureError(f"manifest component is malformed: {name}")
             result[name] = raw_component
 
+        digest_components = []
+        for component in sorted(result.values(), key=lambda item: item["name"]):
+            digest_component = {
+                key: component[key]
+                for key in ("name", "kind", "git_object_type", "paths", "digest")
+            }
+            if "entries" in component:
+                entries = component["entries"]
+                if not isinstance(entries, list) or any(not isinstance(path, str) for path in entries):
+                    raise ClosureError(f"manifest component entries are malformed: {component['name']}")
+                digest_component["entries"] = entries
+            digest_components.append(digest_component)
         digest_payload = {
             "schema": manifest["schema"],
             "schema_version": manifest["schema_version"],
             "package": manifest["package"],
-            "components": [
-                {
-                    key: component[key]
-                    for key in ("name", "kind", "git_object_type", "paths", "digest")
-                }
-                for component in sorted(result.values(), key=lambda item: item["name"])
-            ],
+            "components": digest_components,
         }
         expected_total_digest = hashlib.sha256(_canonical_json(digest_payload)).hexdigest()
         if manifest.get("total_digest") != expected_total_digest:
@@ -1303,22 +1318,22 @@ def compare_manifests(source: Mapping[str, Any], current: Mapping[str, Any]) -> 
     for name in sorted(source_components.keys() | current_components.keys()):
         source_component = source_components.get(name)
         current_component = current_components.get(name)
-        source_signature = (
-            {
+        source_signature = None
+        if source_component:
+            source_signature = {
                 key: source_component[key]
                 for key in ("kind", "git_object_type", "paths", "digest")
             }
-            if source_component
-            else None
-        )
-        current_signature = (
-            {
+            if "entries" in source_component:
+                source_signature["entries"] = source_component["entries"]
+        current_signature = None
+        if current_component:
+            current_signature = {
                 key: current_component[key]
                 for key in ("kind", "git_object_type", "paths", "digest")
             }
-            if current_component
-            else None
-        )
+            if "entries" in current_component:
+                current_signature["entries"] = current_component["entries"]
         if source_signature == current_signature:
             continue
         changed.append({
@@ -1333,6 +1348,8 @@ def compare_manifests(source: Mapping[str, Any], current: Mapping[str, Any]) -> 
             ),
             "source_paths": source_component.get("paths") if source_component else None,
             "current_paths": current_component.get("paths") if current_component else None,
+            "source_entries": source_component.get("entries") if source_component else None,
+            "current_entries": current_component.get("entries") if current_component else None,
             "source_digest": source_component.get("digest") if source_component else None,
             "current_digest": current_component.get("digest") if current_component else None,
         })

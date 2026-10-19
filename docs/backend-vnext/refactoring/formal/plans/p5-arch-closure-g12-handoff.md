@@ -111,7 +111,7 @@ V runner 原始 manifest、重算结果和比较 JSON 位于 `/home/dev/gdds-p5-
 
 H1 backend-only runner 在 clean worktree、HEAD `e9921cf32771943dd6a2622b07bf886025b07f3b` 上由权威入口运行，开始 `2026-10-19T18:21:23Z`、结束 `2026-10-19T18:48:07Z`，起止 HEAD 相同、`clean_start=1`、`clean_end=1`、exit 0。命令为 `GATEWAY_TEST_PACKAGES=backend GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；并行 2,839 passed，serial 36 passed。runner log 为 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-backend-runner-20261019T182123Z.log`，起始 backend manifest 总摘要 `0b81d651a3a4a17ecefd0a3c0b6c64ddfb350430557770b74519ce523f643c2b`，manifest 副本为 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-manifests/backend-runner-source/backend.json`。该部分 runner 自身 exit 0，故可作为 backend 包的直接实际运行来源。
 
-H 最终 manifest 复核记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H2-manifests/`，比较汇总为该目录的 `summary.log`；backend 的来源是上述 H1 backend-only 实际 runner，其余四包来源是 V 完整 runner。每个来源均为该包实际运行并通过的 clean 权威 runner，未使用沿用结果作为来源。H 的 handoff 文档变更不进入任一包的 manifest 或 Docker context；所有包闭包保持相等时按包复用其测试结果。
+H 最终 manifest 复核记录在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H-final-manifests/`，比较汇总为该目录的 `summary.log`；backend 的来源是上述 H1 backend-only 实际 runner，其余四包来源是 V 完整 runner。每个来源均为该包实际运行并通过的 clean 权威 runner，未使用沿用结果作为来源。H 的 handoff 文档变更不进入任一包的 manifest 或 Docker context；所有包闭包保持相等时按包复用其测试结果。
 
 | H 包 | H manifest 总摘要 | 判定 | 直接来源实际运行 | 来源日志 | 变化组成部分 |
 | --- | --- | --- | --- | --- | --- |
@@ -131,7 +131,7 @@ V 到 H1 的 backend/worker identity 连续构建检查未通过：使用 V prov
 
 按规则，随后在 H1 上运行 backend-only 权威 runner，实际重跑并通过了 backend 全部并行/serial 测试和 Compose journey，直接生成 H1 backend/worker Compose provenance：project `ordered-bisect-b-3080631-baseline`；backend `sha256:d87172d3a7fed80506a936ed2ddb0b3b01fb1f87d9fabf6ae8f08589caaa3314`；worker `sha256:1c794eb57f521f9e3542c917449ca71352a2687474553f157bf77c9e6beb3729`；repository-service 仍为 `sha256:de6b8238b5773f251489faa27cbf9d58422329455a8985795dc67c8aa629e0fd`。provenance 文件 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H1-compose-provenance.json`。H handoff-only 提交与 H1 的 backend manifest 逐项相同；backend 的 Compose 测试随 backend 包结果一并沿用，依据是 backend 闭包明确覆盖 backend/worker/RS Dockerfile、Compose、完整 `vnext/` build context（含 tracked 内容、非 Git 输入和本机权限模式）、构建参数/设置与镜像身份输入。该覆盖关系使 H1 的实际 Compose journey 结果适用于 H，不以非确定性 image ID 构建替代测试结果。
 
-最终 H 的逐包比较、manifest 摘要、repository-service label identity 与 H1 backend 来源的记录保存在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H2-manifests/`，对应 preflight 记录也在同一日志根目录。五包 current manifest 对应最终 H；只含 handoff 的最终证据提交不改变任何 package manifest 或 Docker 输入。S5 最终门禁与发布门禁仍运行全部包。
+最终 H 的逐包比较、manifest 摘要、repository-service label identity 与 H1 backend 来源的记录保存在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-H-final-manifests/`，对应 preflight 记录也在同一日志根目录。五包 current manifest 对应最终 H；只含 handoff 的最终证据提交不改变任何 package manifest 或 Docker 输入。S5 最终门禁与发布门禁仍运行全部包。
 
 ## 8. 静态检查与停止条件
 

@@ -223,9 +223,10 @@ repository-service 与 dependency-base 的本机 image ID；prebuilt 模式还�
 该次权威 runner 中 backend Compose 旅程一并沿用。V..H 仍须单独满足本节镜像身份等价，阶段退出才能把
 容器门禁绑定到最终 HEAD。每包闭包还摘要有效 Hypothesis storage directory（`HYPOTHESIS_STORAGE_DIRECTORY`
 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的内容和权限，因为其中缓存可能参与测试输入生成或被测试工具读取。Hypothesis Unicode JSON gzip 缓存以解压后的 payload 摘要，忽略 gzip header 中随机临时文件名。
-对 backend 与 `repository_service`，完整 Docker context 的 Git 部分按 `vnext/` tree 摘要；通过
-`vnext/.dockerignore` 后仍会发送的非 Git 文件和目录按路径、类型、权限与内容摘要。未建模的
-Dockerfile 专属 ignore 文件或 ignore 语法会使 manifest 失败，直到纳入闭包规则。
+对 backend 与 `repository_service`，完整 Docker context 的 tracked 内容按 `vnext/` Git tree 摘要；Git 只
+记录 tracked 文件的 executable bit，普通权限模式由闭包单独摘要 `vnext/` 下 tracked 路径、祖先目录和 context
+根的本机 `0o7777` 模式。通过 `vnext/.dockerignore` 后仍会发送的非 Git 文件和目录按路径、类型、权限与内容摘要。
+未建模的 Dockerfile 专属 ignore 文件或 ignore 语法会使 manifest 失败，直到纳入闭包规则。
 
 每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的 image revision/source-tree，
 以及延期到哪个节点或从哪个提交沿用。完整规则与记录模板见

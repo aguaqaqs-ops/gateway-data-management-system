@@ -734,7 +734,7 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
   Hypothesis storage directory 和包内 `.pytest_cache` 的内容摘要；Hypothesis Unicode JSON gzip 以解压后的 payload 摘要。比较和来源 V 条件见 [AGENTS.md「跑测试」](../../../../../AGENTS.md) 与
   [testing-conventions.md](../../../testing-conventions.md)。
   按包沿用遵循[治理修订计划 G12 第 1 项](p5-arch-closure-post-s1-governance-plan.md)及
-  [testing-conventions.md](../../../testing-conventions.md)，其中 backend/RS 的 Compose 闭包还比较有效 build 设置、镜像选择与本机 image ID。
+  [testing-conventions.md](../../../testing-conventions.md)，其中 backend/RS 的 Compose 闭包还比较有效 build 设置、镜像选择、本机 image ID，以及 Docker context 内 tracked 路径和祖先目录的本机权限模式。
   取证失败且需要改产品代码：回到调试，收敛后形成新的 V 再取证一次。
 - V 之后、H 之前只改 `vnext/backend/benchmarks/` 与 `tests/test_real_dump_*.py`（不进入镜像）：门禁结果沿用；在最终提交上补跑这两个测试文件与五包静态检查，
   重跑真实数据；carried 照常在同一 worktree 判定；handoff 列出 V 之后的这些提交。

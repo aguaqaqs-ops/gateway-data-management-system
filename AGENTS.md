@@ -24,6 +24,12 @@
 ./vnext/scripts/run-tests.sh
 ```
 
+### 专用测试节点
+
+所有测试、容器门禁和测试取证都在专用 LXC `ct108-gw-dms` 上执行，不在开发主机上运行。开始前用
+`ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 确认连接；在该节点的 clean、已提交 worktree 中运行，
+并继续满足下列 Dolt、Compose、端口和日志前提。节点暂不可用或前提不满足时，等待恢复后再测，不回退到开发主机。
+
 阶段可用 `GATEWAY_TEST_PACKAGES` 只运行所需包，例如
 `GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法包名为
 `shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；

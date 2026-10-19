@@ -1,5 +1,7 @@
 # P5 架构收口治理修订 G12 第 1 项 handoff
 
+> **状态：工作中，本文件不是最终 handoff。** 下文记录的 V/H、全量 runner、carried 与审核结论已被后续发现的 Docker ignored-context 漏项取代，不得作为验收或审核依据。当前实施状态以[治理修订计划 G12 第 1 项](p5-arch-closure-post-s1-governance-plan.md)为准：闭包修订已提交，专用 LXC 已验证，但 backend 与 `repository_service` 的 Compose 证据仍受缺失的 P2R1 dependency-base 镜像/缓存阻断；尚无最终 V、H、carried、独立审核或 `p5-g12-exit`，未开始 S4。缓存问题解决后必须重写本文件并补齐全部验收记录。
+
 ## 1. 授权、区间与结论
 
 - 授权仅覆盖 G12 第 1 项“按包沿用测试结果”；没有开始 S4，没有运行真实数据，没有合并或 rebase `main`，也没有推送。

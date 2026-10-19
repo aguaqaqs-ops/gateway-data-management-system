@@ -256,7 +256,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
 
 1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
-   - **实施状态（2026-10-19）：** G12 闭包摘要、runner 包选择、单测和文档已在 `p5-g12` 实施。完整 Python audit hook 实测五包的闭包外读取均为 0；专用节点 `ct108-gw-dms` 已完成 clean V=`8624a82ce3218b5719ce55a0f5a3c119efc70776` 的全量权威 runner，exit 0；五包 ruff/mypy 与 `import_rules` 0/0/6 通过。V 自比较五包均可沿用、S3 V 到 G12 V 五包均需运行、`shared_kernel` 单包实跑通过；完整 handoff 与 H 上 package/carried 判定见 `plans/p5-arch-closure-g12-handoff.md`。当前实施已完成，独立审核待定；审核通过前不开始 S4，main 上的状态由审核方合入时更新。
+   - **实施状态（2026-10-19）：** G12 闭包摘要、runner 包选择、单测和文档已在 `p5-g12` 实施。完整 Python audit hook 实测五包的闭包外读取均为 0；专用节点 `ct108-gw-dms` 已完成 clean V=`8624a82ce3218b5719ce55a0f5a3c119efc70776` 的全量权威 runner，exit 0；五包 ruff/mypy 与 `import_rules` 0/0/6 通过。V 自比较五包均可沿用、S3 V 到 G12 V 五包均需运行、`shared_kernel` 单包实跑通过。H 上 repository-service label identity 相等；backend/worker 顶层 image ID 复建不等，故按 AGENTS 在最终 H 直接运行 backend Compose 门禁。完整 handoff 与 H 包结果见 `plans/p5-arch-closure-g12-handoff.md`。实施完成后待独立审核；审核通过前不开始 S4，main 上的状态由审核方合入时更新。
    - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
    - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
      - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`，以及其传递路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python` 的 workspace crate；repository_service → repository_contracts；

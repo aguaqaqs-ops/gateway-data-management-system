@@ -56,17 +56,17 @@ Git tree 覆盖 tracked 内容；Docker context 组件另按 `.dockerignore` 规
 
 每包完整测试使用 worktree 外的 `sitecustomize.py` audit hook 记录 Python `open` 事件中的仓库内路径，覆盖 xdist worker 和继承 `PYTHONPATH` 的 Python 子进程。权威 runner 以 `python3 -I` 启动 manifest CLI，隔离模式会忽略 `PYTHONPATH`；因此另用 worktree 外 `audit-isolated-manifest.sh` 启动同一个 `python3 -I ... manifest` 命令，并在 `-c` bootstrap 中先安装同一 hook。该补测覆盖隔离 CLI 对脚本、`.venv`、缓存等输入的读取。逐包运行完整测试，没有排除测试；backend 的 Compose journey 包括在内。
 
-hook、快照、汇总、隔离 CLI bootstrap 和 package runner 脚本原样保存在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v7/`。summary JSON 均记录 `outside_closure_paths=[]`、`outside_closure_read_files=0`、未解析读取组为 0、测试运行新生成并再读取文件为 0。下表“读取文件数”为唯一仓库内文件数，包含测试进程与隔离 manifest 补测；bytecode 是明确排除于环境摘要的派生文件。
+hook、快照、汇总、隔离 CLI bootstrap 和 package runner 脚本原样保存在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v7/`。该 audit hook 记录 Python `open` 事件和 `os.open` 的路径、模式及 flags，不跟踪 `read(2)`，所以下表的总数准确含义是“以 read/read-write 模式打开的唯一现存仓库内普通文件路径”，不能解释为实际读取了每个路径的内容。backend 的机械 summary 将唯一一个生成的 `.hypothesis/tmp/tmpg00z0dwa` 按其 `.hypothesis` 路径前缀算入覆盖；它由 Hypothesis `mkstemp` 以 O_RDWR 创建后立即关闭，再由 gzip 写入并改名。源码检查确认该临时路径没有内容读取，因此修正计数时将它从输入中剔除。五包实测中没有测试生成后再读的输入文件。bytecode 是明确排除于环境摘要、由已摘要 Python 源派生的文件。校正后的逐包账目保存在 `/home/dev/gdds-p5-closure-s1-gate-logs/g12-audit-v7/corrected-open-input-accounting.json`；该文件同时列出 raw event stream 和原 summary 的对应文件名。
 
-| 包 | 唯一仓库内读取文件 | manifest 覆盖 | 派生 bytecode | 闭包外 | 测试 runner 日志 / audit summary |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `shared_kernel` | 8,771 | 8,734 | 34 | 0 | `g12-audit-shared_kernel-v7-20261019T155410Z.log`；`g12-audit-v7/shared_kernel-20261019T155410Z-summary.json` |
-| `repository_contracts` | 8,607 | 8,590 | 15 | 0 | `g12-audit-repository_contracts-v7-20261019T155416Z.log`；`g12-audit-v7/repository_contracts-20261019T155416Z-summary.json` |
-| `repository_client` | 9,906 | 9,869 | 35 | 0 | `g12-audit-repository_client-v7-20261019T155422Z.log`；`g12-audit-v7/repository_client-20261019T155422Z-summary.json` |
-| `backend` | 12,056 | 12,053 | 0 | 0 | `g12-audit-backend-v7-20261019T155435Z.log`；`g12-audit-v7/backend-20261019T155435Z-summary.json` |
-| `repository_service` | 11,045 | 11,043 | 0 | 0 | `g12-audit-repository_service-v7-20261019T162240Z.log`；`g12-audit-v7/repository_service-20261019T162240Z-summary.json` |
+| 包 | read/read-write 模式打开的唯一仓库内路径 | manifest 覆盖的输入路径 | 派生 bytecode | 生成后仅写的临时路径 | 闭包外输入路径 | 测试 runner 日志 / audit summary |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `shared_kernel` | 8,771 | 8,737 | 34 | 0 | 0 | `g12-audit-shared_kernel-v7-20261019T155410Z.log`；`g12-audit-v7/shared_kernel-20261019T155410Z-summary.json` |
+| `repository_contracts` | 8,607 | 8,592 | 15 | 0 | 0 | `g12-audit-repository_contracts-v7-20261019T155416Z.log`；`g12-audit-v7/repository_contracts-20261019T155416Z-summary.json` |
+| `repository_client` | 9,906 | 9,871 | 35 | 0 | 0 | `g12-audit-repository_client-v7-20261019T155422Z.log`；`g12-audit-v7/repository_client-20261019T155422Z-summary.json` |
+| `backend` | 12,056 | 12,055 | 0 | 1 | 0 | `g12-audit-backend-v7-20261019T155435Z.log`；`g12-audit-v7/backend-20261019T155435Z-summary.json` |
+| `repository_service` | 11,045 | 11,045 | 0 | 0 | 0 | `g12-audit-repository_service-v7-20261019T162240Z.log`；`g12-audit-v7/repository_service-20261019T162240Z-summary.json` |
 
-每个 Python-open event stream 以 `g12-audit-<package>-v7-<timestamp>-python-opens.jsonl` 保存；审计 hook 为 `g12-audit-v7/hook/sitecustomize.py`，隔离补测脚本为 `g12-audit-v7/audit-isolated-manifest.sh`。五包 summary 中 outside read 均为 0。
+每个 Python-open event stream 以 `g12-audit-<package>-v7-<timestamp>-python-opens.jsonl` 保存；审计 hook 为 `g12-audit-v7/hook/sitecustomize.py`，隔离补测脚本为 `g12-audit-v7/audit-isolated-manifest.sh`。表中输入路径总数可由“manifest 覆盖的输入路径 + 派生 bytecode + 生成后仅写临时路径”复核；五包闭包外输入路径均为 0。唯一生成临时路径的审计记录在 backend 的 raw stream 中，其他四包没有 `.hypothesis/tmp` 事件。
 
 非 Python 读取方逐项覆盖如下：
 
@@ -153,7 +153,8 @@ kickoff base = 46c5684c98，审核区间 p5-s3-exit（6b2b5fd0e1）..<最终 H>�
 AGENTS.md、docs/backend-vnext/testing-conventions.md 与本 handoff。
 
 必须核查：
-1. 对照逐包 audit hook 实测路径和 manifest，复核读取文件数及闭包外为 0；检查 PYTHONPATH hook 对
+1. 对照逐包 audit hook 实测路径和 manifest，复核 read/read-write open 路径计数、派生 bytecode、backend 生成后仅写的
+   Hypothesis 临时路径分类及闭包外输入路径为 0；确认 open hook 不被表述为 read(2) 证据；检查 PYTHONPATH hook 对
    xdist/子进程的覆盖，以及 python3 -I manifest CLI 的隔离 bootstrap 补测；复核 Docker/Compose、Dolt、
    Cargo/rustup、本地 Rust 扩展、shell/uv 非 Python 输入覆盖理由。
 2. 逐个核对 RS client e2e/dependency-base 与 backend、worker、RS 的 Dockerfile、Compose 和完整

@@ -733,6 +733,8 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
   闭包 manifest 包括该包实际 uv 环境的内容摘要（排除由锁定源码和解释器派生的 Python bytecode）及有效
   Hypothesis storage directory 和包内 `.pytest_cache` 的内容摘要；Hypothesis Unicode JSON gzip 以解压后的 payload 摘要。比较和来源 V 条件见 [AGENTS.md「跑测试」](../../../../../AGENTS.md) 与
   [testing-conventions.md](../../../testing-conventions.md)。
+  按包沿用遵循[治理修订计划 G12 第 1 项](p5-arch-closure-post-s1-governance-plan.md)及
+  [testing-conventions.md](../../../testing-conventions.md)，其中 backend/RS 的 Compose 闭包还比较有效 build 设置、镜像选择与本机 image ID。
   取证失败且需要改产品代码：回到调试，收敛后形成新的 V 再取证一次。
 - V 之后、H 之前只改 `vnext/backend/benchmarks/` 与 `tests/test_real_dump_*.py`（不进入镜像）：门禁结果沿用；在最终提交上补跑这两个测试文件与五包静态检查，
   重跑真实数据；carried 照常在同一 worktree 判定；handoff 列出 V 之后的这些提交。

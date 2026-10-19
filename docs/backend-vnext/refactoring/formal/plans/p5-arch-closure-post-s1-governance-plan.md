@@ -256,15 +256,15 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
 
 1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
-   - **实施状态（2026-10-18）：** 已在 `p5-g12` 实施并按独立审核补齐 Hypothesis storage 输入摘要；候选门禁结果、逐包摘要与复审状态记录在 G12 handoff。审核通过后由审核方更新 `main` 状态。
+   - **实施状态（2026-10-19）：** 在 `p5-g12` 完成实现修订与定向单测；候选 V 的完整门禁与最终逐包摘要待取证。初审发现 Docker/Compose 有效镜像选择和本机 image ID 未闭合，已补入本项；旧 V 的缺 envelope 日志不作为证据。最终证据与独立审核状态记录在 G12 handoff。审核通过后由审核方更新 `main` 状态。
    - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
    - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
      - 包自身的源码、测试与 `pyproject.toml`、`uv.lock`、`.python-version`，以及其传递路径依赖：repository_client → repository_contracts；backend → shared_kernel、repository_contracts、repository_client、`rust/gateway-compute-python` 的 workspace crate；repository_service → repository_contracts；
      - 所有包共同读取的 `vnext/fixtures/`、`vnext/scripts/`、`vnext/repository-workspace.toml`、`vnext/rust/rust-toolchain.toml`、`vnext/deploy/` 与五个 `uv.lock`（runner 的 uv wrapper 会检查五锁）；
      - 包实际使用的 Hypothesis storage directory（`HYPOTHESIS_STORAGE_DIRECTORY` 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的非 Git 内容和权限；缓存可能被测试工具读取并参与生成输入，Hypothesis Unicode JSON gzip 以解压后的 payload 摘要；
-     - backend 和 repository_service 测试会构建的镜像输入：完整 `vnext/` Docker build context、Compose 文件和相关 Dockerfile。backend 覆盖 backend、worker 与 repository-service 镜像；repository_service 覆盖 repository-service、repository-client e2e 与 dependency-base 镜像。完整 context 同时覆盖 Dockerfile COPY 的其他目录；
+     - backend 和 repository_service 测试会构建的镜像输入：完整 `vnext/` Docker build context、Compose 文件和相关 Dockerfile。backend 覆盖 backend、worker 与 repository-service 镜像；repository_service 覆盖 repository-service、repository-client e2e 与 dependency-base 镜像。完整 context 同时覆盖 Dockerfile COPY 的其他目录；有效 build 参数/镜像选择需纳入摘要；所有可能被复用的 base、service 与 dependency-base tag 对应的本机 image ID 逐项记录，backend 的 prebuilt 模式还要摘要本机镜像清单；
      - backend Rust 扩展读取的 workspace crate、`Cargo.lock` 与 `rust-toolchain.toml`；生成的 `target/` 不属于 Git tree，也不进入镜像 context；
-     - 不在 Git 中的 `legacy/` 内容摘要（`test_table_rules_resolver.py` 读取它）；每包 Python `-VV` 与 Unicode database 版本、Dolt、uv、rustc 版本；有 Docker 测试的包还记录 Docker/Compose 版本与本机 base image ID。
+     - 不在 Git 中的 `legacy/` 内容摘要（`test_table_rules_resolver.py` 读取它）；每包 Python `-VV` 与 Unicode database 版本、Dolt、uv、rustc 版本；有 Docker 测试的包还记录 Docker/Compose 工具与 daemon identity、effective build 参数指纹及本机选用镜像 ID。可能含凭据的 proxy/cache URL 仅记录 SHA-256，不输出原值。
 
      Git 中的部分按当前提交的 tree/blob object id 比较；不在 Git 中的 `legacy/` 按排序后的相对路径和文件内容计算摘要，环境项按内容计算摘要。
      每包实际使用的 uv 环境也按目录内容计算摘要，排除由锁定源码与解释器派生的 `__pycache__`、`.pyc`、`.pyo`。

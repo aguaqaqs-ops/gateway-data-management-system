@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
 PACKAGES = (
     "shared_kernel",
@@ -161,6 +161,98 @@ PACKAGE_DOCKER_INPUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ),
     ),
 }
+
+DOCKER_INPUT_ENVIRONMENT: dict[str, tuple[str, ...]] = {
+    "backend": (
+        "DOCKER_CERT_PATH",
+        "DOCKER_CONFIG",
+        "DOCKER_CONTEXT",
+        "DOCKER_HOST",
+        "DOCKER_TLS",
+        "DOCKER_TLS_VERIFY",
+        "GATEWAY_BACKEND_UV_BOOTSTRAP_INDEX_URL",
+        "GATEWAY_BACKEND_UV_BOOTSTRAP_TRUSTED_HOST",
+        "GATEWAY_COMPOSE_GATE_PREBUILT",
+        "GATEWAY_COMPOSE_GATE_PROJECT_NAME",
+        "GATEWAY_COMPOSE_GATE_SESSION",
+        "GATEWAY_DOCKER_BUILD_NETWORK",
+        "GATEWAY_P2R1_CACHE_URL",
+        "GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE",
+        "GATEWAY_P2R1_BUILD_INPUT_REVISION",
+        "GATEWAY_P2R1_CANDIDATE_SHA",
+        "GATEWAY_P2R1_SOURCE_TREE_SHA256",
+        "GATEWAY_P2R1_UV_LOCK_SHA256",
+        "GATEWAY_UV_CONSUME",
+        "GATEWAY_VNEXT_LOCK_ROOT",
+        "GATEWAY_REPOSITORY_BASE_IMAGE",
+        "GATEWAY_REPOSITORY_DOLT_DOWNLOAD_URL",
+        "GATEWAY_REPOSITORY_SERVICE_IMAGE",
+        "GATEWAY_REPOSITORY_UV_BOOTSTRAP_INDEX_URL",
+        "GATEWAY_REPOSITORY_UV_BOOTSTRAP_TRUSTED_HOST",
+        "GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "PYTHONPATH",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TMPDIR",
+        "TZ",
+        "https_proxy",
+        "http_proxy",
+        "no_proxy",
+    ),
+    "repository_service": (
+        "DOCKER_CERT_PATH",
+        "DOCKER_CONFIG",
+        "DOCKER_CONTEXT",
+        "DOCKER_HOST",
+        "DOCKER_TLS",
+        "DOCKER_TLS_VERIFY",
+        "GATEWAY_DOCKER_BUILD_NETWORK",
+        "GATEWAY_P2R1_CACHE_URL",
+        "GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE",
+        "GATEWAY_P2R1_BUILD_INPUT_REVISION",
+        "GATEWAY_P2R1_CANDIDATE_SHA",
+        "GATEWAY_P2R1_SOURCE_TREE_SHA256",
+        "GATEWAY_P2R1_UV_LOCK_SHA256",
+        "GATEWAY_UV_CONSUME",
+        "GATEWAY_VNEXT_LOCK_ROOT",
+        "GATEWAY_REPOSITORY_BASE_IMAGE",
+        "GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE",
+        "GATEWAY_REPOSITORY_DOLT_DOWNLOAD_URL",
+        "GATEWAY_REPOSITORY_SERVICE_IMAGE",
+        "GATEWAY_REPOSITORY_UV_BOOTSTRAP_INDEX_URL",
+        "GATEWAY_REPOSITORY_UV_BOOTSTRAP_TRUSTED_HOST",
+        "GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "NO_PROXY",
+        "PATH",
+        "PYTHONPATH",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TMPDIR",
+        "TZ",
+        "https_proxy",
+        "http_proxy",
+        "no_proxy",
+    ),
+}
+
+DEFAULT_REPOSITORY_SERVICE_IMAGE = "gateway-repository-service:local"
+DEFAULT_REPOSITORY_BASE_IMAGE = "python:3.14.6-slim-bookworm"
+DEFAULT_REPOSITORY_CLIENT_IMAGE = "gateway-repository-client-e2e:local"
+DEFAULT_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE = "gateway-repository-client-e2e-base:local"
 
 
 class ClosureError(RuntimeError):
@@ -533,6 +625,182 @@ def _command_output(command: Sequence[str], *, cwd: Path) -> str:
     return output
 
 
+def _docker_image_id(repo_root: Path, image_reference: str) -> str:
+    completed = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", image_reference],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode == 0 and completed.stdout.strip():
+        return completed.stdout.strip()
+    error = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+    lowered_error = error.lower()
+    if any(
+        marker in lowered_error
+        for marker in ("no such image", "no such object", "not found")
+    ):
+        return "missing"
+    raise ClosureError(f"could not inspect Docker image {image_reference}: {error or completed.returncode}")
+
+
+def _docker_image_inventory(repo_root: Path) -> list[str]:
+    completed = subprocess.run(
+        ["docker", "image", "ls", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        error = "\n".join(part.strip() for part in (completed.stdout, completed.stderr) if part.strip())
+        raise ClosureError(f"could not inspect Docker image inventory: {error or completed.returncode}")
+    return sorted(line.strip() for line in completed.stdout.splitlines() if line.strip())
+
+
+def _external_override_inputs(
+    repo_root: Path,
+    environment: Mapping[str, str],
+) -> dict[str, str | None]:
+    results: dict[str, str | None] = {
+        "uv_consume_script_sha256": None,
+        "lock_snapshot_sha256": None,
+    }
+    configured_consumer = environment.get("GATEWAY_UV_CONSUME")
+    if configured_consumer:
+        consumer_path = Path(configured_consumer)
+        if not consumer_path.is_absolute():
+            consumer_path = repo_root / consumer_path
+        if not consumer_path.is_file():
+            raise ClosureError(f"configured uv-consume script is missing: {consumer_path}")
+        results["uv_consume_script_sha256"] = hashlib.sha256(
+            consumer_path.read_bytes()
+        ).hexdigest()
+
+    configured_lock_root = environment.get("GATEWAY_VNEXT_LOCK_ROOT")
+    if configured_lock_root:
+        lock_root = Path(configured_lock_root)
+        if not lock_root.is_absolute():
+            lock_root = repo_root / lock_root
+        lock_hashes: dict[str, str] = {}
+        for package, package_path in PACKAGE_PATHS.items():
+            lock_path = lock_root / package_path.removeprefix("vnext/") / "uv.lock"
+            if not lock_path.is_file():
+                raise ClosureError(f"configured lock snapshot is missing: {lock_path}")
+            lock_hashes[package] = hashlib.sha256(lock_path.read_bytes()).hexdigest()
+        results["lock_snapshot_sha256"] = hashlib.sha256(
+            _canonical_json(lock_hashes)
+        ).hexdigest()
+    return results
+
+
+def _docker_build_inputs(
+    repo_root: Path,
+    package: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, object]:
+    """Capture Docker selectors, sensitive setting fingerprints, and reusable image IDs."""
+    if package not in PACKAGE_DOCKER_INPUTS:
+        return {}
+    environment = os.environ if environ is None else environ
+    setting_names = set(DOCKER_INPUT_ENVIRONMENT[package])
+    setting_names.update(
+        name
+        for name in environment
+        if name.startswith(("COMPOSE_", "DOCKER_", "GATEWAY_", "UV_"))
+        and name not in {"GATEWAY_TEST_PACKAGES", "GATEWAY_TEST_WORKERS"}
+        and not name.startswith("GATEWAY_AUDIT_")
+    )
+    setting_fingerprints = {
+        name: {
+            "set": name in environment,
+            "sha256": (
+                hashlib.sha256(environment[name].encode("utf-8")).hexdigest()
+                if name in environment
+                else None
+            ),
+        }
+        for name in sorted(setting_names)
+    }
+
+    repository_lock = repo_root / "vnext" / "repository_service" / "uv.lock"
+    repository_lock_sha256 = hashlib.sha256(repository_lock.read_bytes()).hexdigest()
+    repository_service_image = (
+        environment.get("GATEWAY_REPOSITORY_SERVICE_IMAGE") or DEFAULT_REPOSITORY_SERVICE_IMAGE
+    )
+    repository_base_image = (
+        environment.get("GATEWAY_REPOSITORY_BASE_IMAGE") or DEFAULT_REPOSITORY_BASE_IMAGE
+    )
+    dependency_base_image = environment.get("GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE") or (
+        f"gateway-p2r1-repository:lock-{repository_lock_sha256[:12]}"
+    )
+    selections = {
+        "repository_service_image": repository_service_image,
+        "repository_service_base_image": repository_base_image,
+        "repository_service_dependency_base_image": dependency_base_image,
+        "repository_service_use_preloaded_dependencies": (
+            environment.get("GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES") or "0"
+        ),
+        "compose_build_network": environment.get("GATEWAY_DOCKER_BUILD_NETWORK") or "",
+        "repository_service_script_build_network": (
+            environment.get("GATEWAY_DOCKER_BUILD_NETWORK") or "host"
+        ),
+    }
+    image_references = {
+        "python:3.14.6-slim-bookworm",
+        repository_base_image,
+        repository_service_image,
+        dependency_base_image,
+    }
+    if package == "backend":
+        image_references.add("rust:1.97.0-bookworm")
+    else:
+        client_dependency_base_image = (
+            environment.get("GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE")
+            or DEFAULT_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE
+        )
+        selections["repository_client_image"] = DEFAULT_REPOSITORY_CLIENT_IMAGE
+        selections["repository_client_dependency_base_image"] = client_dependency_base_image
+        image_references.add(DEFAULT_REPOSITORY_CLIENT_IMAGE)
+        image_references.add(client_dependency_base_image)
+
+    configured_image_references = {
+        name: value
+        for name, value in environment.items()
+        if name.startswith("GATEWAY_") and name.endswith("_IMAGE") and value
+    }
+    selections["configured_image_references"] = dict(sorted(configured_image_references.items()))
+    image_references.update(configured_image_references.values())
+
+    image_ids = {
+        reference: _docker_image_id(repo_root, reference)
+        for reference in sorted(image_references)
+    }
+    prebuilt_enabled = environment.get("GATEWAY_COMPOSE_GATE_PREBUILT", "").strip() in {
+        "1",
+        "true",
+        "yes",
+    }
+    selections["compose_gate_prebuilt"] = prebuilt_enabled
+    prebuilt_inventory: list[str] | None = None
+    if package == "backend" and prebuilt_enabled:
+        # Per-test Compose project names can include the current pid and tmp path. When
+        # the harness is told to skip builds, every local image may be a possible input.
+        prebuilt_inventory = _docker_image_inventory(repo_root)
+
+    return {
+        "setting_fingerprints": setting_fingerprints,
+        "effective_selections": selections,
+        "image_ids": image_ids,
+        "prebuilt_local_image_inventory": prebuilt_inventory,
+        "external_override_inputs": _external_override_inputs(repo_root, environment),
+    }
+
+
 def collect_environment(repo_root: Path, package: str) -> dict[str, str]:
     """Read versions from the interpreter and tools used by the authoritative runner."""
     package_path = PACKAGE_PATHS[package]
@@ -583,26 +851,28 @@ def collect_environment(repo_root: Path, package: str) -> dict[str, str]:
         versions["docker_compose_version"] = _command_output(
             ["docker", "compose", "version"], cwd=repo_root
         )
-        image_references = {"python:3.14.6-slim-bookworm"}
-        if package == "backend":
-            image_references.add("rust:1.97.0-bookworm")
-        if package == "repository_service":
-            image_references.add(
-                os.environ.get(
-                    "GATEWAY_REPOSITORY_BASE_IMAGE",
-                    "python:3.14.6-slim-bookworm",
-                )
-                or "python:3.14.6-slim-bookworm"
-            )
-        image_ids = {
-            reference: _command_output(
-                ["docker", "image", "inspect", "--format", "{{.Id}}", reference],
-                cwd=repo_root,
-            )
-            for reference in sorted(image_references)
-        }
-        versions["docker_base_image_ids"] = json.dumps(
-            image_ids,
+        docker_context = _command_output(["docker", "context", "show"], cwd=repo_root)
+        docker_endpoint = _command_output(
+            [
+                "docker",
+                "context",
+                "inspect",
+                docker_context,
+                "--format",
+                "{{json .Endpoints.docker}}",
+            ],
+            cwd=repo_root,
+        )
+        versions["docker_context"] = docker_context
+        versions["docker_context_endpoint_sha256"] = hashlib.sha256(
+            docker_endpoint.encode("utf-8")
+        ).hexdigest()
+        versions["docker_platform_and_driver"] = _command_output(
+            ["docker", "info", "--format", "{{.OSType}}/{{.Architecture}} {{.Driver}}"],
+            cwd=repo_root,
+        )
+        versions["docker_build_inputs"] = json.dumps(
+            _docker_build_inputs(repo_root, package),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -763,13 +1033,16 @@ def build_manifest(
         raise ClosureError("environment version set must not be empty")
     components.append(
         {
-            "name": "environment:python-dolt-uv-rustc",
+            "name": "environment:runtime-and-docker-build",
             "kind": "environment",
             "git_object_type": None,
             "paths": [],
             "digest": hashlib.sha256(_canonical_json(environment_values)).hexdigest(),
             "values": environment_values,
-            "reason": "Runtime and build tool versions used by the package test environment.",
+            "reason": (
+                "Python, Unicode, Dolt, uv, rustc, Docker and Compose identities plus the effective "
+                "Docker build configuration, selected local image IDs, and prebuilt image inventory."
+            ),
         }
     )
     components.sort(key=lambda component: component["name"])

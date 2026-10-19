@@ -135,6 +135,14 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
               printf '26.1.5\\n'
             elif [[ "$*" == "compose version" ]]; then
               printf 'Docker Compose version v2.26.1 (fixture)\\n'
+            elif [[ "$*" == "context show" ]]; then
+              printf 'default\\n'
+            elif [[ "$1" == "context" && "$2" == "inspect" ]]; then
+              printf '{"Name":"default","Endpoints":{"docker":{"Host":"unix:///fixture.sock"}}}\\n'
+            elif [[ "$1" == "info" && "$2" == "--format" ]]; then
+              printf 'linux/amd64 overlay2\\n'
+            elif [[ "$1" == "image" && "$2" == "ls" ]]; then
+              exit 0
             elif [[ "$1" == "image" && "$2" == "inspect" ]]; then
               printf 'sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\n'
             else
@@ -177,6 +185,19 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     )
 
     env = os.environ.copy()
+    for name in tuple(env):
+        if name.startswith(
+            (
+                "DOCKER_",
+                "GATEWAY_BACKEND_UV_BOOTSTRAP_",
+                "GATEWAY_COMPOSE_GATE_",
+                "GATEWAY_DOCKER_BUILD_NETWORK",
+                "GATEWAY_P2R1_",
+                "GATEWAY_REPOSITORY_",
+                "GATEWAY_VNEXT_LOCK_ROOT",
+            )
+        ) or name in {"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"}:
+            env.pop(name, None)
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     env["GATEWAY_UV_CONSUME"] = str(fake_uv_consume)
     env["RUNNER_CALLS_LOG"] = str(calls_log)

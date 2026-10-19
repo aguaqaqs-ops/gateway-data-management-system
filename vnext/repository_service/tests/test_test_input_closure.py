@@ -19,6 +19,7 @@ VNEXT_ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = VNEXT_ROOT.parent
 CLOSURE_SCRIPT = VNEXT_ROOT / "scripts" / "test_input_closure.py"
 CLOSURE = runpy.run_path(str(CLOSURE_SCRIPT))
+CLOSURE_GLOBALS = CLOSURE["_docker_build_inputs"].__globals__
 PACKAGES = CLOSURE["PACKAGES"]
 FAKE_ENVIRONMENT = {
     "python_-VV": "Python 3.14.6 (fixture)",
@@ -27,6 +28,20 @@ FAKE_ENVIRONMENT = {
     "uv_version": "uv 0.12.5",
     "rustc_version": "rustc 1.97.0 (fixture)",
 }
+FAKE_DOCKER_BUILD_INPUTS = json.dumps(
+    {
+        "setting_fingerprints": {
+            "GATEWAY_REPOSITORY_SERVICE_IMAGE": {"set": False, "sha256": None}
+        },
+        "effective_selections": {
+            "repository_service_image": "gateway-repository-service:local"
+        },
+        "image_ids": {"gateway-repository-service:local": "sha256:fixture"},
+        "prebuilt_local_image_inventory": None,
+    },
+    sort_keys=True,
+    separators=(",", ":"),
+)
 
 
 def _fixture_repo(tmp_path: Path) -> Path:
@@ -87,12 +102,15 @@ def _fixture_repo(tmp_path: Path) -> Path:
 
 
 def _manifest(repo_root: Path, package: str = "backend") -> dict[str, Any]:
+    environment = dict(FAKE_ENVIRONMENT)
+    if package in CLOSURE["PACKAGE_DOCKER_INPUTS"]:
+        environment["docker_build_inputs"] = FAKE_DOCKER_BUILD_INPUTS
     return cast(
         dict[str, Any],
         CLOSURE["build_manifest"](
             repo_root,
             package,
-            environment=FAKE_ENVIRONMENT,
+            environment=environment,
         ),
     )
 
@@ -125,7 +143,9 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     ).stdout.strip()
 
     repository_service = _manifest(repo_root, "repository_service")
-    service_components = {component["name"]: component for component in repository_service["components"]}
+    service_components = {
+        component["name"]: component for component in repository_service["components"]
+    }
     assert service_components["dockerfile:repository-client-e2e"]["paths"] == [
         "vnext/repository_client/tests/Dockerfile"
     ]
@@ -146,7 +166,126 @@ def test_closure_manifest_lists_package_shared_and_docker_build_inputs(tmp_path:
     assert service_components["non-git:pytest-cache"]["paths"] == [
         "vnext/repository_service/.pytest_cache"
     ]
-    assert service_components["environment:python-dolt-uv-rustc"]["values"] == FAKE_ENVIRONMENT
+    expected_environment = dict(FAKE_ENVIRONMENT)
+    expected_environment["docker_build_inputs"] = FAKE_DOCKER_BUILD_INPUTS
+    assert service_components["environment:runtime-and-docker-build"]["values"] == (
+        expected_environment
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("package", ["backend", "repository_service"])
+def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_fingerprints(
+    package: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    inspected: list[str] = []
+    external_lock_root = tmp_path / "external-vnext"
+    for package_name, package_path in CLOSURE["PACKAGE_PATHS"].items():
+        lock_path = external_lock_root / package_path.removeprefix("vnext/") / "uv.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(f"external lock for {package_name}\n", encoding="utf-8")
+    external_consumer = tmp_path / "external-uv-consume.sh"
+    external_consumer.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+
+    def image_id(_repo_root: Path, reference: str) -> str:
+        inspected.append(reference)
+        return f"sha256:{hashlib.sha256(reference.encode()).hexdigest()}"
+
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_id", image_id)
+    monkeypatch.setitem(
+        CLOSURE_GLOBALS,
+        "_docker_image_inventory",
+        lambda _root: ["fixture:latest sha256:a"],
+    )
+    selected_environment = {
+        "GATEWAY_REPOSITORY_SERVICE_IMAGE": "fixture/service:custom",
+        "GATEWAY_REPOSITORY_BASE_IMAGE": "fixture/python:custom",
+        "GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE": "fixture/repository-deps:custom",
+        "GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE": "fixture/client-deps:custom",
+        "GATEWAY_P2R1_IMAGE": "fixture/p2r1:custom",
+        "GATEWAY_COMPOSE_GATE_PREBUILT": "true",
+        "COMPOSE_FILE": "vnext/deploy/compose.yaml",
+        "GATEWAY_VNEXT_LOCK_ROOT": str(external_lock_root),
+        "GATEWAY_UV_CONSUME": str(external_consumer),
+        "HTTP_PROXY": "http://user:secret@example.invalid:8080",
+    }
+
+    inputs = CLOSURE["_docker_build_inputs"](
+        repo_root,
+        package,
+        environ=selected_environment,
+    )
+
+    selections = inputs["effective_selections"]
+    assert selections["repository_service_image"] == "fixture/service:custom"
+    assert selections["repository_service_base_image"] == "fixture/python:custom"
+    assert selections["repository_service_dependency_base_image"] == (
+        "fixture/repository-deps:custom"
+    )
+    image_ids = inputs["image_ids"]
+    assert image_ids["fixture/service:custom"].startswith("sha256:")
+    assert image_ids["fixture/python:custom"].startswith("sha256:")
+    assert image_ids["fixture/repository-deps:custom"].startswith("sha256:")
+    assert image_ids["fixture/p2r1:custom"].startswith("sha256:")
+    assert "fixture/p2r1:custom" in inspected
+    assert inputs["setting_fingerprints"]["COMPOSE_FILE"] == {
+        "set": True,
+        "sha256": hashlib.sha256(b"vnext/deploy/compose.yaml").hexdigest(),
+    }
+    if package == "repository_service":
+        assert "fixture/client-deps:custom" in inspected
+    if package == "backend":
+        assert "rust:1.97.0-bookworm" in inspected
+    proxy_fingerprint = inputs["setting_fingerprints"]["HTTP_PROXY"]
+    assert proxy_fingerprint == {
+        "set": True,
+        "sha256": hashlib.sha256(selected_environment["HTTP_PROXY"].encode()).hexdigest(),
+    }
+    assert "user:secret" not in json.dumps(inputs)
+    assert inputs["external_override_inputs"]["uv_consume_script_sha256"] == hashlib.sha256(
+        external_consumer.read_bytes()
+    ).hexdigest()
+    assert inputs["external_override_inputs"]["lock_snapshot_sha256"] is not None
+    if package == "backend":
+        assert selections["compose_gate_prebuilt"] is True
+        assert inputs["prebuilt_local_image_inventory"] == ["fixture:latest sha256:a"]
+    else:
+        assert selections["repository_client_dependency_base_image"] == (
+            "fixture/client-deps:custom"
+        )
+        assert inputs["prebuilt_local_image_inventory"] is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("package", ["backend", "repository_service"])
+def test_changed_docker_build_inputs_require_package_rerun(
+    package: str,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    source = _manifest(repo_root, package)
+    environment = dict(FAKE_ENVIRONMENT)
+    changed_docker_inputs = json.loads(FAKE_DOCKER_BUILD_INPUTS)
+    changed_docker_inputs["image_ids"]["gateway-repository-service:local"] = "sha256:changed"
+    environment["docker_build_inputs"] = json.dumps(
+        changed_docker_inputs,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    current = CLOSURE["build_manifest"](
+        repo_root,
+        package,
+        environment=environment,
+    )
+
+    result = CLOSURE["compare_manifests"](source, current)
+    assert result["status"] == "运行"
+    assert [change["component"] for change in result["changed_components"]] == [
+        "environment:runtime-and-docker-build"
+    ]
 
 
 @pytest.mark.unit

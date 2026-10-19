@@ -38,7 +38,10 @@ runner 先通过受控 wrapper 同步待运行包的 locked uv 环境，再用
 `compare --source <V-manifest.json> --current <当前-manifest.json>`
 输出“可沿用”或“运行”及变化组成部分。来源 V 必须是该包实际运行并通过的权威 runner 运行：worktree
 clean、日志记录起止 HEAD、该包通过、整次 runner exit 0；只跑部分包的 runner 也可作为来源。若当前 V
-的包闭包有变化，该包必须在当前 V 实际运行并通过。handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志；
+的包闭包有变化，该包必须在当前 V 实际运行并通过。backend 与 `repository_service` 的环境组件还记录
+Docker/Compose 工具和 daemon 身份、有效 build 环境变量的指纹、选择的基础/服务/dependency-base 镜像 tag
+与本机 image ID（RS 还包括 client e2e/dependency-base）；backend 的 prebuilt 选项启用时摘要本机镜像清单。含凭据的 proxy/cache URL 只记录摘要，
+不输出原值。handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志；
 链式沿用始终直接引用最初实际运行该包的 V，不引用沿用结果。详细规则见
 [testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
 
@@ -207,7 +210,8 @@ sha256sum vnext/repository_service/uv.lock
 
 按包沿用与镜像身份等价分别判定：前者决定当前 V 上要运行哪些包，后者决定 V..H 的镜像结果能否
 `carried`。backend 闭包包括 Compose 使用的完整 `vnext/` Docker build context、Compose 与 Dockerfile、
-Rust workspace、该包 uv 环境内容摘要，以及测试运行时本机 Docker base image identity；因此 backend 包从合格来源 V 沿用时，
+Rust workspace、该包 uv 环境内容摘要、Docker build 参数与选择状态、Docker base image identity、
+repository-service 与 dependency-base 的本机 image ID；prebuilt 模式还包括本机镜像清单。因此 backend 包从合格来源 V 沿用时，
 该次权威 runner 中 backend Compose 旅程一并沿用。V..H 仍须单独满足本节镜像身份等价，阶段退出才能把
 容器门禁绑定到最终 HEAD。每包闭包还摘要有效 Hypothesis storage directory（`HYPOTHESIS_STORAGE_DIRECTORY`
 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的内容和权限，因为其中缓存可能参与测试输入生成或被测试工具读取。Hypothesis Unicode JSON gzip 缓存以解压后的 payload 摘要，忽略 gzip header 中随机临时文件名。

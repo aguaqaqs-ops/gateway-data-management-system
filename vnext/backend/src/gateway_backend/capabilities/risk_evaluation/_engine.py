@@ -466,7 +466,7 @@ def _finish_result(
             for item in evaluation_input.risk_ruleset.rules
             if item.rule_id is RiskRuleId.PROJECT_IDENTITY_MISMATCH
         )
-        reason_codes = (reason_for(pair_rule),)
+        reason_codes: tuple[RiskReasonCode, ...] = (reason_for(pair_rule),)
         summary = RiskSummary(
             risk_level=level_for(pair_rule),
             reason_codes=reason_codes,

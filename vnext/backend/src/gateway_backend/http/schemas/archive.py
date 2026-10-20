@@ -461,8 +461,14 @@ def validate_confirmation_reason_field(
 
 
 def _anomaly_to_response(anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomalyResponse:
+    if anomaly.subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED:
+        subject_kind = "APPROVED_SIBLING_EXCLUDED"
+    elif anomaly.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION:
+        subject_kind = "PROJECT_IDENTITY_EXCEPTION"
+    else:
+        raise ValueError("selection confirmation cannot be represented as an archive anomaly")
     return ArchivePreviewAnomalyResponse(
-        subject_kind=anomaly.subject_kind.value,
+        subject_kind=subject_kind,
         issue_code=anomaly.issue_code,
         target_submission_id=anomaly.target_submission_id,
         target_candidate_digest=anomaly.target_candidate_digest,

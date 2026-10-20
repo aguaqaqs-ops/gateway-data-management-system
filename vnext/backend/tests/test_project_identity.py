@@ -17,6 +17,7 @@ from gateway_backend.capabilities.project_identity import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     RepositoryColumn,
+    SnapshotColumnValueCounts,
     SnapshotTableDescriptor,
     SnapshotTableReader,
 )
@@ -248,6 +249,9 @@ def test_identity_assessment_turns_table_reader_failure_into_unverifiable() -> N
             return table.descriptor
 
         def iter_rows(self) -> Iterator[SourceRow]:
+            raise OSError("fixture read failure")
+
+        def count_column_values(self, column_name: str) -> SnapshotColumnValueCounts:
             raise OSError("fixture read failure")
 
         def close(self) -> None:

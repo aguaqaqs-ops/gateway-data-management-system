@@ -1745,9 +1745,9 @@ def _identity_assessment_set_digest(
     if not pairs:
         models: tuple[PreviewIdentityPair, ...] = ()
     elif isinstance(pairs[0], PreviewIdentityPair):
-        models = cast(tuple[PreviewIdentityPair, ...], pairs)
+        models = pairs
     else:
-        models = tuple(_identity_pair_model(item) for item in cast(list[_PairPipelineResult], pairs))
+        models = tuple(_identity_pair_model(item) for item in pairs)
     return raw_blob_digest(
         canonicalize_json_value(
             {

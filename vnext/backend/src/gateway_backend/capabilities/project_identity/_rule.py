@@ -79,6 +79,10 @@ def assess_project_identity(
     else:
         status = ProjectIdentityStatus.DIFFERENT_PROJECT
 
+    before_row_count = 0 if before_entries is None else before_entries.row_count
+    current_row_count = 0 if current_entries is None else current_entries.row_count
+    before_distinct_entry_count = 0 if before_entries is None else len(before_entries.entries)
+    current_distinct_entry_count = 0 if current_entries is None else len(current_entries.entries)
     fields: dict[str, object] = {
         "schema_version": PROJECT_IDENTITY_SCHEMA_VERSION,
         "rule_version": PROJECT_IDENTITY_RULE_VERSION,
@@ -86,14 +90,10 @@ def assess_project_identity(
         "current_snapshot_digest": current.snapshot_digest.value,
         "status": status.value,
         "comparable_columns": list(comparable_columns),
-        "before_row_count": 0 if before_entries is None else before_entries.row_count,
-        "current_row_count": 0 if current_entries is None else current_entries.row_count,
-        "before_distinct_entry_count": (
-            0 if before_entries is None else len(before_entries.entries)
-        ),
-        "current_distinct_entry_count": (
-            0 if current_entries is None else len(current_entries.entries)
-        ),
+        "before_row_count": before_row_count,
+        "current_row_count": current_row_count,
+        "before_distinct_entry_count": before_distinct_entry_count,
+        "current_distinct_entry_count": current_distinct_entry_count,
         "matched_entry_count": matched_entry_count,
         "before_entry_set_digest": (
             None if before_entries is None else before_entries.digest.value
@@ -112,10 +112,10 @@ def assess_project_identity(
         status=status,
         assessment_digest=digest,
         comparable_columns=comparable_columns,
-        before_row_count=int(fields["before_row_count"]),
-        current_row_count=int(fields["current_row_count"]),
-        before_distinct_entry_count=int(fields["before_distinct_entry_count"]),
-        current_distinct_entry_count=int(fields["current_distinct_entry_count"]),
+        before_row_count=before_row_count,
+        current_row_count=current_row_count,
+        before_distinct_entry_count=before_distinct_entry_count,
+        current_distinct_entry_count=current_distinct_entry_count,
         matched_entry_count=matched_entry_count,
         before_entry_set_digest=(
             None if before_entries is None else before_entries.digest

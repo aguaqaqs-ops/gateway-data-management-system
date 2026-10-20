@@ -227,9 +227,10 @@ def test_archive_confirmation_and_start_journey(archive_env: WorkspaceHttpTestEn
         json={
             **_confirmation_body(seed, reason="acknowledge sibling exclusion"),
             "action": "ACKNOWLEDGE_EXCLUSION",
+            "subject_kind": "APPROVED_SIBLING_EXCLUDED",
             "issue_code": "APPROVED_SIBLING_EXCLUDED",
-            "sibling_submission_id": dual.sibling_submission_id,
-            "sibling_candidate_digest": dual.sibling_candidate_digest,
+            "target_submission_id": dual.target_submission_id,
+            "target_candidate_digest": dual.target_candidate_digest,
             "subject_digest": dual.anomaly_subject_digest,
         },
     )
@@ -547,9 +548,10 @@ def test_archive_resolution_requires_non_null_reason(archive_env: WorkspaceHttpT
             {
                 **_confirmation_body(seed, reason=None),
                 "action": "ACKNOWLEDGE_EXCLUSION",
+                "subject_kind": "APPROVED_SIBLING_EXCLUDED",
                 "issue_code": "APPROVED_SIBLING_EXCLUDED",
-                "sibling_submission_id": dual.sibling_submission_id,
-                "sibling_candidate_digest": dual.sibling_candidate_digest,
+                "target_submission_id": dual.target_submission_id,
+                "target_candidate_digest": dual.target_candidate_digest,
                 "subject_digest": dual.anomaly_subject_digest,
             }
         )
@@ -687,9 +689,10 @@ def test_archive_write_routes_return_429_when_admission_closed(
         json={
             **_confirmation_body(seed, reason="acknowledge sibling exclusion"),
             "action": "ACKNOWLEDGE_EXCLUSION",
+            "subject_kind": "APPROVED_SIBLING_EXCLUDED",
             "issue_code": "APPROVED_SIBLING_EXCLUDED",
-            "sibling_submission_id": dual.sibling_submission_id,
-            "sibling_candidate_digest": dual.sibling_candidate_digest,
+            "target_submission_id": dual.target_submission_id,
+            "target_candidate_digest": dual.target_candidate_digest,
             "subject_digest": dual.anomaly_subject_digest,
         },
     )
@@ -702,9 +705,10 @@ def test_archive_write_routes_return_429_when_admission_closed(
         body = {
             **_confirmation_body(seed, reason="retry"),
             "action": "ACKNOWLEDGE_EXCLUSION",
+            "subject_kind": "APPROVED_SIBLING_EXCLUDED",
             "issue_code": "APPROVED_SIBLING_EXCLUDED",
-            "sibling_submission_id": dual.sibling_submission_id,
-            "sibling_candidate_digest": dual.sibling_candidate_digest,
+            "target_submission_id": dual.target_submission_id,
+            "target_candidate_digest": dual.target_candidate_digest,
             "subject_digest": dual.anomaly_subject_digest,
             "expected_sequence": 1,
         }
@@ -1065,9 +1069,10 @@ def test_archive_responses_do_not_leak_internal_fields(
         json={
             **_confirmation_body(seed, reason="acknowledge sibling exclusion"),
             "action": "ACKNOWLEDGE_EXCLUSION",
+            "subject_kind": "APPROVED_SIBLING_EXCLUDED",
             "issue_code": "APPROVED_SIBLING_EXCLUDED",
-            "sibling_submission_id": dual.sibling_submission_id,
-            "sibling_candidate_digest": dual.sibling_candidate_digest,
+            "target_submission_id": dual.target_submission_id,
+            "target_candidate_digest": dual.target_candidate_digest,
             "subject_digest": dual.anomaly_subject_digest,
         },
     )

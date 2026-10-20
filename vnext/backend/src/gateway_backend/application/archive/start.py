@@ -43,6 +43,7 @@ from gateway_backend.domain.archive.models import (
     ArchiveDispositionKind,
     ArchivePlan,
     ArchiveResult,
+    ArchiveSubjectKind,
 )
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -157,7 +158,12 @@ def start_archive(
             selected_submission_id=command.selected_ref.submission_id,
             expected_candidate_digest=command.selected_ref.expected_candidate_digest,
         )
-        anomalies = _derive_anomalies(snapshot, command.selected_ref, selection_subject_digest)
+        anomalies = _derive_anomalies(
+            unit_of_work,
+            snapshot,
+            command.selected_ref,
+            selection_subject_digest,
+        )
         _validate_audit_for_start(
             unit_of_work,
             snapshot=snapshot,
@@ -368,11 +374,15 @@ def _validate_audit_refs(
             anomaly.subject_digest,
             resolution_ref.sequence,
         )
-        if (
-            resolution_event is None
-            or resolution_event.action is not ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION
-        ):
+        expected_action = (
+            ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION
+            if anomaly.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION
+            else ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION
+        )
+        if resolution_event is None or resolution_event.action is not expected_action:
             raise CandidateBindingConflict("anomaly resolution audit reference is not affirmative")
+        if resolution_event.subject_kind is not anomaly.subject_kind:
+            raise CandidateBindingConflict("anomaly resolution subject kind does not match")
 
 
 def _collect_workspace_acceptance_bindings(

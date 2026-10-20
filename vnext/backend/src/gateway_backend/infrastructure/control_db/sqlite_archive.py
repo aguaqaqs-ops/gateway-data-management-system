@@ -110,7 +110,7 @@ class SQLiteArchiveRepository:
             INSERT INTO archive_anomaly_resolution_events (
                 event_id, repository_id, gateway_device_external_key, business_project_id,
                 subject_kind, subject_digest, sequence, action, issue_code,
-                sibling_submission_id, sibling_candidate_digest, reason, actor_id,
+                target_submission_id, target_candidate_digest, reason, actor_id,
                 occurred_at_us, idempotency_key, request_fingerprint, request_payload_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -124,8 +124,8 @@ class SQLiteArchiveRepository:
                 event.sequence,
                 event.action.value,
                 event.issue_code,
-                event.sibling_submission_id,
-                event.sibling_candidate_digest,
+                event.target_submission_id,
+                event.target_candidate_digest,
                 event.reason,
                 event.actor_id,
                 _datetime_to_epoch_us(event.occurred_at),
@@ -534,8 +534,8 @@ def _resolution_from_row(row: sqlite3.Row) -> ArchiveAnomalyResolutionEvent:
         sequence=row["sequence"],
         action=ArchiveAnomalyResolutionAction(row["action"]),
         issue_code=row["issue_code"],
-        sibling_submission_id=row["sibling_submission_id"],
-        sibling_candidate_digest=row["sibling_candidate_digest"],
+        target_submission_id=row["target_submission_id"],
+        target_candidate_digest=row["target_candidate_digest"],
         reason=row["reason"],
         actor_id=row["actor_id"],
         occurred_at=_epoch_us_to_datetime(row["occurred_at_us"]),

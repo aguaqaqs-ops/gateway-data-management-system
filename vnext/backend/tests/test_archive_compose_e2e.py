@@ -240,7 +240,7 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             assert len(preview_body["anomalies"]) == 1
             anomaly = preview_body["anomalies"][0]
             assert anomaly["issue_code"] == "APPROVED_SIBLING_EXCLUDED"
-            assert anomaly["sibling_submission_id"] == journey_b["submission_id"]
+            assert anomaly["target_submission_id"] == journey_b["submission_id"]
             assert len(preview_body["workspace_releases"]) == 2
 
             confirm = archiver.post(
@@ -269,10 +269,11 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                     "subject_digest": anomaly["subject_digest"],
                     "expected_sequence": 0,
                     "action": "ACKNOWLEDGE_EXCLUSION",
+                    "subject_kind": "APPROVED_SIBLING_EXCLUDED",
                     "reason": "acknowledge sibling exclusion",
                     "issue_code": "APPROVED_SIBLING_EXCLUDED",
-                    "sibling_submission_id": sibling["submission_id"],
-                    "sibling_candidate_digest": sibling["expected_candidate_digest"],
+                    "target_submission_id": sibling["submission_id"],
+                    "target_candidate_digest": sibling["expected_candidate_digest"],
                 },
             )
             assert resolve.status_code == 201, resolve.text

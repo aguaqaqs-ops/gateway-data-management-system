@@ -147,7 +147,7 @@ def test_archive_candidates_include_both_approved_siblings_on_same_base(db_path:
     assert len(result.candidates) == 2
     submission_ids = {candidate.submission_id for candidate in result.candidates}
     assert dual_seed.primary.submission_id in submission_ids
-    assert dual_seed.sibling_submission_id in submission_ids
+    assert dual_seed.target_submission_id in submission_ids
 
 
 def test_preview_dual_sibling_selection_reports_anomaly_and_blocks_start(db_path: Path) -> None:
@@ -164,7 +164,7 @@ def test_preview_dual_sibling_selection_reports_anomaly_and_blocks_start(db_path
     )
     assert len(preview_without_audit.anomalies) == 1
     assert preview_without_audit.anomalies[0].issue_code == "APPROVED_SIBLING_EXCLUDED"
-    assert preview_without_audit.anomalies[0].sibling_submission_id == dual_seed.sibling_submission_id
+    assert preview_without_audit.anomalies[0].target_submission_id == dual_seed.target_submission_id
     assert preview_without_audit.audit_valid is False
     assert preview_without_audit.can_start is False
 
@@ -189,7 +189,7 @@ def test_preview_dual_sibling_dispositions(db_path: Path) -> None:
     )
     dispositions = {item.submission_id: item.disposition for item in preview.dispositions}
     assert dispositions[dual_seed.primary.submission_id] == "ARCHIVED_BASELINE"
-    assert dispositions[dual_seed.sibling_submission_id] == "CLOSED_NOT_ARCHIVED"
+    assert dispositions[dual_seed.target_submission_id] == "CLOSED_NOT_ARCHIVED"
 
 
 @pytest.mark.parametrize(
@@ -313,7 +313,7 @@ def test_get_archive_candidates_rejects_tampered_sibling_projection(
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
             tamper_sql,
-            (dual_seed.sibling_submission_id,),
+            (dual_seed.target_submission_id,),
         )
     with pytest.raises(ArchiveIntegrityFailure):
         get_archive_candidates(
@@ -331,7 +331,7 @@ def test_get_archive_candidates_rejects_missing_review_state(db_path: Path) -> N
     )
 
     dual_seed = seed_approved_dual_sibling_archive(db_path)
-    delete_submission_review_state(db_path, dual_seed.sibling_submission_id)
+    delete_submission_review_state(db_path, dual_seed.target_submission_id)
     with pytest.raises(ArchiveIntegrityFailure, match="review projection is missing"):
         get_archive_candidates(
             context=dual_seed.primary.archiver_context,

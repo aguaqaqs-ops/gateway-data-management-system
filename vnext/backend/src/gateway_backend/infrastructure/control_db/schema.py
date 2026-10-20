@@ -800,21 +800,24 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK
                 (typeof(business_project_id) = 'text' AND length(CAST(business_project_id AS BLOB)) BETWEEN 1 AND 255),
         subject_kind TEXT NOT NULL
-            CHECK (subject_kind = 'APPROVED_SIBLING_EXCLUDED'),
+            CHECK (subject_kind IN ('APPROVED_SIBLING_EXCLUDED', 'PROJECT_IDENTITY_EXCEPTION')),
         subject_digest TEXT NOT NULL
             CHECK (typeof(subject_digest) = 'text' AND length(CAST(subject_digest AS BLOB)) BETWEEN 1 AND 255),
         sequence INTEGER NOT NULL
             CHECK (typeof(sequence) = 'integer' AND sequence > 0),
         action TEXT NOT NULL
-            CHECK (typeof(action) = 'text' AND action IN ('ACKNOWLEDGE_EXCLUSION', 'REVOKE')),
+            CHECK
+                (typeof(action) = 'text' AND action IN (
+                    'ACKNOWLEDGE_EXCLUSION', 'ACKNOWLEDGE_IDENTITY_EXCEPTION', 'REVOKE'
+                )),
         issue_code TEXT NOT NULL
             CHECK (typeof(issue_code) = 'text' AND length(CAST(issue_code AS BLOB)) BETWEEN 1 AND 255),
-        sibling_submission_id TEXT NOT NULL
+        target_submission_id TEXT NOT NULL
             CHECK
-                (typeof(sibling_submission_id) = 'text' AND length(CAST(sibling_submission_id AS BLOB)) BETWEEN 1 AND 255),
-        sibling_candidate_digest TEXT NOT NULL
+                (typeof(target_submission_id) = 'text' AND length(CAST(target_submission_id AS BLOB)) BETWEEN 1 AND 255),
+        target_candidate_digest TEXT NOT NULL
             CHECK
-                (typeof(sibling_candidate_digest) = 'text' AND length(CAST(sibling_candidate_digest AS BLOB)) BETWEEN 1 AND 255),
+                (typeof(target_candidate_digest) = 'text' AND length(CAST(target_candidate_digest AS BLOB)) BETWEEN 1 AND 255),
         reason TEXT NOT NULL
             CHECK (typeof(reason) = 'text' AND length(CAST(reason AS BLOB)) BETWEEN 1 AND 4096),
         actor_id TEXT NOT NULL

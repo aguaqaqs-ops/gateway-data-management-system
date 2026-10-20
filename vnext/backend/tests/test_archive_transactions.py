@@ -11,11 +11,28 @@ from gateway_backend.application.archive.errors import (
     ArchiveAnomalyUnresolved,
     ArchiveConfirmationRequired,
 )
+from gateway_backend.application.archive.audit import (
+    AppendArchiveAnomalyResolutionCommand,
+    append_archive_anomaly_resolution,
+)
+from gateway_backend.application.archive.queries import (
+    PROJECT_IDENTITY_EXCEPTION_ISSUE,
+    preview_archive_plan,
+)
 from gateway_backend.application.archive.start import StartArchiveCommand
 from gateway_backend.application.submission.errors import IdempotencyConflict
-from gateway_backend.domain.archive.models import ArchiveDispositionKind
+from gateway_backend.domain.archive.models import (
+    ArchiveAnomalyResolutionAction,
+    ArchiveDispositionKind,
+    ArchiveSubjectKind,
+)
+from gateway_backend.domain.submission.models import (
+    IdentityConfirmationAction,
+    SubmitIdentityConfirmation,
+)
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.control_db.sqlite_baseline import get_current_head_from_connection
+from gateway_backend.infrastructure.control_db.sqlite_submission import _encode_identity_confirmations
 from tests.support.archive_fixtures import (
     assert_archive_durable_state_unchanged,
     append_selection_confirmation,
@@ -28,6 +45,75 @@ from tests.test_submit_transactions import BASELINE_HEAD
 pytestmark = pytest.mark.unit
 
 TS_ARCHIVE = datetime(2024, 7, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def test_identity_exception_requires_reasoned_resolution_before_archive(db_path: Path) -> None:
+    seed = seed_approved_archive_candidate(db_path)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+        preview_result = unit_of_work.workspace.get_preview_result(submission.preview_result_id)
+        assert preview_result is not None
+    confirmation = SubmitIdentityConfirmation(
+        action=IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT,
+        assessment_set_digest=preview_result.identity_assessment_set_digest.value,
+        reason="approved dataset replacement",
+        actor_id="submitter-1",
+        confirmed_at=TS_ARCHIVE,
+    )
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE submission_records SET identity_confirmations = ? WHERE submission_id = ?",
+            (_encode_identity_confirmations((confirmation,)), seed.submission_id),
+        )
+
+    preview = preview_archive_plan(
+        context=seed.archiver_context,
+        selected_ref=seed.selected_ref,
+        unit_of_work_factory=_uow_factory(db_path),
+    )
+    assert len(preview.anomalies) == 1
+    anomaly = preview.anomalies[0]
+    assert anomaly.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION
+    assert anomaly.issue_code == PROJECT_IDENTITY_EXCEPTION_ISSUE
+    assert anomaly.target_submission_id == seed.submission_id
+    assert anomaly.target_candidate_digest == seed.selected_ref.expected_candidate_digest
+
+    confirmation_sequence = append_selection_confirmation(seed)
+    with pytest.raises(ArchiveAnomalyUnresolved, match="archive anomaly is unresolved"):
+        start_archive_for_seed(
+            seed,
+            confirmation_sequence=confirmation_sequence,
+            now=TS_ARCHIVE,
+        )
+
+    resolution = append_archive_anomaly_resolution(
+        command=AppendArchiveAnomalyResolutionCommand(
+            context=seed.archiver_context,
+            idempotency_key="identity-exception-resolution",
+            expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+            expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            selected=seed.selected_ref,
+            candidate_set_digest=seed.candidate_set_digest,
+            subject_digest=anomaly.subject_digest,
+            expected_sequence=0,
+            action=ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION,
+            reason="reviewed project identity change",
+            subject_kind=ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION,
+            issue_code=PROJECT_IDENTITY_EXCEPTION_ISSUE,
+            target_submission_id=seed.submission_id,
+            target_candidate_digest=seed.selected_ref.expected_candidate_digest,
+        ),
+        unit_of_work_factory=_uow_factory(db_path),
+        now=TS_ARCHIVE,
+    )
+    result = start_archive_for_seed(
+        seed,
+        confirmation_sequence=confirmation_sequence,
+        anomaly_resolution_sequences=((anomaly.subject_digest, resolution.sequence),),
+        now=TS_ARCHIVE,
+    )
+    assert result.selected_submission_id == seed.submission_id
 
 
 def test_get_archive_candidates_rejects_workspace_generation_mismatch(db_path: Path) -> None:
@@ -176,7 +262,7 @@ def test_start_archive_rejects_tampered_sibling_projection(
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         for submission_id in (
             dual_seed.primary.submission_id,
-            dual_seed.sibling_submission_id,
+            dual_seed.target_submission_id,
         ):
             submission = unit_of_work.submission.get_submission(submission_id)
             assert submission is not None
@@ -186,7 +272,7 @@ def test_start_archive_rejects_tampered_sibling_projection(
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
             tamper_sql,
-            (dual_seed.sibling_submission_id,),
+            (dual_seed.target_submission_id,),
         )
     with pytest.raises(ArchiveIntegrityFailure):
         start_archive(
@@ -231,14 +317,14 @@ def test_start_archive_rejects_missing_review_state(db_path: Path) -> None:
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         for submission_id in (
             dual_seed.primary.submission_id,
-            dual_seed.sibling_submission_id,
+            dual_seed.target_submission_id,
         ):
             submission = unit_of_work.submission.get_submission(submission_id)
             assert submission is not None
             workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
             assert workspace is not None
             workspace_versions[workspace.workspace_id] = workspace.optimistic_version
-    delete_submission_review_state(db_path, dual_seed.sibling_submission_id)
+    delete_submission_review_state(db_path, dual_seed.target_submission_id)
     with pytest.raises(ArchiveIntegrityFailure, match="review projection is missing"):
         start_archive(
             command=StartArchiveCommand(
@@ -335,14 +421,14 @@ def test_start_archive_triple_sibling_accepts_digest_sorted_resolution_refs(db_p
         anomaly_subject_digest = compute_anomaly_subject_digest(
             selection_subject_digest=primary.selection_subject_digest,
             issue_code="APPROVED_SIBLING_EXCLUDED",
-            sibling_submission_id=sibling_ref.submission_id,
-            sibling_candidate_digest=sibling_ref.expected_candidate_digest,
+            target_submission_id=sibling_ref.submission_id,
+            target_candidate_digest=sibling_ref.expected_candidate_digest,
         )
         resolution_sequence = append_anomaly_resolution(
             primary,
             anomaly_subject_digest=anomaly_subject_digest,
-            sibling_submission_id=sibling_ref.submission_id,
-            sibling_candidate_digest=sibling_ref.expected_candidate_digest,
+            target_submission_id=sibling_ref.submission_id,
+            target_candidate_digest=sibling_ref.expected_candidate_digest,
             idempotency_key=f"resolve-{sibling_ref.submission_id}",
             now=TS_ARCHIVE,
         )
@@ -552,7 +638,7 @@ def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> N
             dual_seed.primary.submission_id
         )
         sibling_disposition = unit_of_work.archive.list_dispositions_for_submission(
-            dual_seed.sibling_submission_id
+            dual_seed.target_submission_id
         )
     assert primary_disposition[0].disposition is ArchiveDispositionKind.ARCHIVED_BASELINE
     assert sibling_disposition[0].disposition is ArchiveDispositionKind.CLOSED_NOT_ARCHIVED

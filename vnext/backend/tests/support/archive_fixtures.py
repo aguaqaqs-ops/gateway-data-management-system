@@ -34,6 +34,7 @@ from gateway_backend.operations.contracts import OPERATION_RUNTIME_CONTRACT_VERS
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveConfirmationAction,
+    ArchiveSubjectKind,
 )
 from gateway_backend.domain.submission.review import ReviewAction
 from gateway_backend.domain.workspace.models import IdentityContext
@@ -114,8 +115,8 @@ class ArchiveSeed:
 class DualSiblingArchiveSeed:
     db_path: Path
     primary: ArchiveSeed
-    sibling_submission_id: str
-    sibling_candidate_digest: str
+    target_submission_id: str
+    target_candidate_digest: str
     anomaly_subject_digest: str
 
 
@@ -705,14 +706,14 @@ def seed_approved_dual_sibling_archive(db_path: Path) -> DualSiblingArchiveSeed:
     anomaly_subject_digest = compute_anomaly_subject_digest(
         selection_subject_digest=primary.selection_subject_digest,
         issue_code=APPROVED_SIBLING_EXCLUDED_ISSUE,
-        sibling_submission_id=sibling_ref.submission_id,
-        sibling_candidate_digest=sibling_ref.expected_candidate_digest,
+        target_submission_id=sibling_ref.submission_id,
+        target_candidate_digest=sibling_ref.expected_candidate_digest,
     )
     return DualSiblingArchiveSeed(
         db_path=db_path,
         primary=primary,
-        sibling_submission_id=sibling_ref.submission_id,
-        sibling_candidate_digest=sibling_ref.expected_candidate_digest,
+        target_submission_id=sibling_ref.submission_id,
+        target_candidate_digest=sibling_ref.expected_candidate_digest,
         anomaly_subject_digest=anomaly_subject_digest,
     )
 
@@ -746,8 +747,8 @@ def append_anomaly_resolution(
     seed: ArchiveSeed,
     *,
     anomaly_subject_digest: str,
-    sibling_submission_id: str,
-    sibling_candidate_digest: str,
+    target_submission_id: str,
+    target_candidate_digest: str,
     idempotency_key: str = "resolve-key-1",
     now: datetime = TS_ARCHIVE,
 ) -> int:
@@ -763,9 +764,10 @@ def append_anomaly_resolution(
             expected_sequence=0,
             action=ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION,
             reason="acknowledge sibling exclusion",
+            subject_kind=ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
             issue_code=APPROVED_SIBLING_EXCLUDED_ISSUE,
-            sibling_submission_id=sibling_submission_id,
-            sibling_candidate_digest=sibling_candidate_digest,
+            target_submission_id=target_submission_id,
+            target_candidate_digest=target_candidate_digest,
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         now=now,
@@ -814,8 +816,8 @@ def prepare_dual_sibling_start(
     resolution_sequence = append_anomaly_resolution(
         dual_seed.primary,
         anomaly_subject_digest=dual_seed.anomaly_subject_digest,
-        sibling_submission_id=dual_seed.sibling_submission_id,
-        sibling_candidate_digest=dual_seed.sibling_candidate_digest,
+        target_submission_id=dual_seed.target_submission_id,
+        target_candidate_digest=dual_seed.target_candidate_digest,
         now=now,
     )
     return confirmation_sequence, resolution_sequence

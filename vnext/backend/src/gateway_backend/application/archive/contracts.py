@@ -13,6 +13,7 @@ from gateway_backend.application.archive.errors import ArchiveRequestValidation
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveConfirmationAction,
+    ArchiveSubjectKind,
 )
 from gateway_backend.domain.submission.review import ReviewStatus
 
@@ -221,8 +222,8 @@ def compute_anomaly_subject_digest(
     *,
     selection_subject_digest: str,
     issue_code: str,
-    sibling_submission_id: str,
-    sibling_candidate_digest: str,
+    target_submission_id: str,
+    target_candidate_digest: str,
 ) -> str:
     payload = {
         "issue_code": issue_code,
@@ -230,16 +231,41 @@ def compute_anomaly_subject_digest(
             selection_subject_digest,
             field_name="selection_subject_digest",
         ),
-        "sibling_candidate_digest": validate_archive_digest(
-            sibling_candidate_digest,
-            field_name="sibling_candidate_digest",
+        "target_candidate_digest": validate_archive_digest(
+            target_candidate_digest,
+            field_name="target_candidate_digest",
         ),
-        "sibling_submission_id": validate_utf8_id(
-            sibling_submission_id,
-            field_name="sibling_submission_id",
+        "target_submission_id": validate_utf8_id(
+            target_submission_id,
+            field_name="target_submission_id",
         ),
     }
     return compute_archive_digest("anomaly", payload)
+
+
+def compute_identity_exception_subject_digest(
+    *,
+    submission_id: str,
+    candidate_digest: str,
+    preview_bundle_digest: str,
+    assessment_set_digest: str,
+) -> str:
+    payload = {
+        "assessment_set_digest": validate_archive_digest(
+            assessment_set_digest,
+            field_name="assessment_set_digest",
+        ),
+        "candidate_digest": validate_archive_digest(
+            candidate_digest,
+            field_name="candidate_digest",
+        ),
+        "preview_bundle_digest": validate_archive_digest(
+            preview_bundle_digest,
+            field_name="preview_bundle_digest",
+        ),
+        "submission_id": validate_utf8_id(submission_id, field_name="submission_id"),
+    }
+    return compute_archive_digest("project-identity-exception", payload)
 
 
 def compute_confirmation_request_fingerprint(
@@ -296,11 +322,12 @@ def compute_resolution_request_fingerprint(
     subject_digest: str,
     expected_sequence: int,
     action: ArchiveAnomalyResolutionAction,
+    subject_kind: ArchiveSubjectKind,
     reason: str,
     actor_id: str,
     issue_code: str,
-    sibling_submission_id: str,
-    sibling_candidate_digest: str,
+    target_submission_id: str,
+    target_candidate_digest: str,
 ) -> str:
     payload = {
         "action": action.value,
@@ -323,13 +350,14 @@ def compute_resolution_request_fingerprint(
         "reason": validate_utf8_reason(reason),
         "repository_id": repository_id,
         "selected_submission_id": validate_utf8_id(selected_submission_id, field_name="selected_submission_id"),
-        "sibling_candidate_digest": validate_archive_digest(
-            sibling_candidate_digest,
-            field_name="sibling_candidate_digest",
+        "subject_kind": subject_kind.value,
+        "target_candidate_digest": validate_archive_digest(
+            target_candidate_digest,
+            field_name="target_candidate_digest",
         ),
-        "sibling_submission_id": validate_utf8_id(
-            sibling_submission_id,
-            field_name="sibling_submission_id",
+        "target_submission_id": validate_utf8_id(
+            target_submission_id,
+            field_name="target_submission_id",
         ),
         "subject_digest": validate_archive_digest(subject_digest, field_name="subject_digest"),
     }

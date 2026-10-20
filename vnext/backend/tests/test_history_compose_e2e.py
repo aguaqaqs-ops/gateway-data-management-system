@@ -442,10 +442,11 @@ def test_compose_history_compare_journey_zero_write_restart(
                     "subject_digest": anomaly["subject_digest"],
                     "expected_sequence": 0,
                     "action": "ACKNOWLEDGE_EXCLUSION",
+                    "subject_kind": "APPROVED_SIBLING_EXCLUDED",
                     "reason": "acknowledge sibling exclusion",
                     "issue_code": "APPROVED_SIBLING_EXCLUDED",
-                    "sibling_submission_id": sibling["submission_id"],
-                    "sibling_candidate_digest": sibling["expected_candidate_digest"],
+                    "target_submission_id": sibling["submission_id"],
+                    "target_candidate_digest": sibling["expected_candidate_digest"],
                 },
             )
             assert resolve.status_code == 201, resolve.text

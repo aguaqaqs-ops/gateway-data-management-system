@@ -179,6 +179,10 @@ def _project_identity_upload_files(
             "CREATE TABLE version_manager (project_id VARCHAR(16) NOT NULL PRIMARY KEY, "
             "build VARCHAR(16), no INT);\n"
             f"INSERT INTO version_manager VALUES ('{project_id}', 'v1', 1);\n"
+            f"CREATE TABLE {KEYLESS_FALLBACK_TABLE} (value VARCHAR(64));\n"
+            f"INSERT INTO {KEYLESS_FALLBACK_TABLE} VALUES "
+            + ", ".join(f"('{row}')" for row in KEYLESS_FALLBACK_BASE_ROWS)
+            + ";\n"
         )
         return pack_tar_gz({"sql/dbcfg.sql": sql.encode("utf-8")})
 
@@ -527,7 +531,11 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             expected_baseline_node_id=str(started["baseline_node_id"]),
             expected_baseline_head_version=int(started["baseline_head_version"]),
             expected_submit_code="NO_CANONICAL_CHANGE",
-            upload_files_factory=lambda version: keyless_fallback_upload_files(version),
+            upload_files_factory=lambda version: _project_identity_upload_files(
+                version,
+                initial_project="project-b",
+                modified_project="project-b",
+            ),
         )
         assert repeated["submit_error_code"] == "NO_CANONICAL_CHANGE"
         summaries = cast(list[dict[str, Any]], repeated["preview_summaries"])

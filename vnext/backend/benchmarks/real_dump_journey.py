@@ -212,7 +212,7 @@ class JourneyFailure(RuntimeError):
 
 
 class WorkerStalledFailure(JourneyFailure):
-    """A worker heartbeat stopped while its operation was RUNNING."""
+    """A worker heartbeat stopped while its operation remained nonterminal."""
 
     def __init__(
         self,
@@ -240,6 +240,8 @@ class WorkerHeartbeatStall:
 
 class WorkerHeartbeatTracker:
     """Track the worker's published heartbeat events for active operations."""
+
+    _TERMINAL_OPERATION_STATUSES = frozenset({"SUCCEEDED", "FAILED", "CANCELLED"})
 
     _HEARTBEAT_RE = re.compile(
         r"operation_worker_event code=heartbeat_succeeded "
@@ -279,14 +281,22 @@ class WorkerHeartbeatTracker:
         *,
         now: float | None = None,
     ) -> WorkerHeartbeatStall | None:
-        if status != "RUNNING":
-            return None
         current_time = self._monotonic() if now is None else now
         with self._lock:
-            running_since = self._running_since.setdefault(operation_id, current_time)
+            running_since = self._running_since.get(operation_id)
+            if status == "RUNNING":
+                running_since = self._running_since.setdefault(operation_id, current_time)
+            elif status in self._TERMINAL_OPERATION_STATUSES:
+                self._running_since.pop(operation_id, None)
+                self._last_heartbeat.pop(operation_id, None)
+                return None
+            elif running_since is None:
+                return None
             last_heartbeat = self._last_heartbeat.get(operation_id)
             last_seen, step_id = (
-                last_heartbeat if last_heartbeat is not None else (running_since, None)
+                last_heartbeat
+                if last_heartbeat is not None
+                else (running_since if running_since is not None else current_time, None)
             )
         stalled_seconds = current_time - last_seen
         if stalled_seconds < self.stall_threshold_seconds:

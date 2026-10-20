@@ -422,6 +422,49 @@ def test_worker_heartbeat_log_resets_stall_clock_and_normal_heartbeats_do_not_tr
     assert stalled.stalled_seconds == 120.0
 
 
+def test_worker_stall_monitor_tracks_nonterminal_status_after_running() -> None:
+    current_time = [0.0]
+    tracker = WorkerHeartbeatTracker(
+        stall_threshold_seconds=120,
+        monotonic=lambda: current_time[0],
+    )
+
+    assert tracker.check_running_operation("operation-1", "QUEUED") is None
+    current_time[0] = 300.0
+    assert tracker.check_running_operation("operation-1", "QUEUED") is None
+
+    current_time[0] = 400.0
+    assert tracker.check_running_operation("operation-1", "RUNNING") is None
+    current_time[0] = 410.0
+    assert tracker.observe_log_line(
+        "worker operation_worker_event code=heartbeat_succeeded "
+        "operation_id=operation-1 step_id=step-1 worker_id=worker-1 attempt=1",
+        observed_at=current_time[0],
+    )
+
+    current_time[0] = 529.0
+    assert (
+        tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED")
+        is None
+    )
+    current_time[0] = 530.0
+    stalled = tracker.check_running_operation(
+        "operation-1",
+        "MANUAL_RECOVERY_REQUIRED",
+    )
+    assert stalled is not None
+    assert stalled.step_id == "step-1"
+    assert stalled.stalled_seconds == 120.0
+
+    current_time[0] = 600.0
+    assert tracker.check_running_operation("operation-1", "FAILED") is None
+    current_time[0] = 900.0
+    assert (
+        tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED")
+        is None
+    )
+
+
 def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_reason(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -16,11 +16,19 @@ from gateway_backend.capabilities.project_identity import (
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
+    RepositoryColumn,
     SnapshotTableDescriptor,
     SnapshotTableReader,
 )
 from gateway_backend.capabilities.table_access.contracts import SourceRow
 from tests.support.snapshot_materialization import materialize_sql
+from tests.support.repository_ref_materialization import (
+    FakeRepositoryTableAccessProvider,
+    canonical_binding_for_catalog,
+    catalog_table,
+    make_catalog,
+    materialize_ref,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -111,6 +119,43 @@ def _identity_input(
     return ProjectIdentityInput(result.snapshot.snapshot_digest, result.table_set)
 
 
+def _repository_identity_input(
+    shape: tuple[tuple[str, ...], tuple[tuple[object | None, ...], ...]] | None,
+) -> ProjectIdentityInput:
+    if shape is None:
+        table = catalog_table(
+            "unrelated",
+            (RepositoryColumn(name="value", ordinal=0, scalar_type="VARCHAR(32)", nullable=True),),
+            primary_key=(),
+        )
+        rows: dict[str, tuple[tuple[object | None, ...], ...]] = {"unrelated": (("x",),)}
+    else:
+        columns, table_rows = shape
+        table = catalog_table(
+            "version_manager",
+            tuple(
+                RepositoryColumn(
+                    name=column,
+                    ordinal=index,
+                    scalar_type="VARCHAR(32)",
+                    nullable=True,
+                )
+                for index, column in enumerate(columns)
+            ),
+            primary_key=(),
+        )
+        rows = {"version_manager": table_rows}
+    catalog = make_catalog((table,))
+    result = materialize_ref(
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows),
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        canonical_binding=canonical_binding_for_catalog(catalog),
+    )
+    assert result.snapshot is not None
+    assert result.table_set is not None
+    return ProjectIdentityInput(result.snapshot.snapshot_digest, result.table_set)
+
+
 @pytest.mark.parametrize(
     ("before_shape", "current_shape", "expected_status"),
     IDENTITY_ASSESSMENT_CASES,
@@ -146,6 +191,51 @@ def test_identity_assessment_does_not_publish_source_entries() -> None:
     )
 
     assert "private-version" not in str(assessment.to_document())
+
+
+IDENTITY_SOURCE_PARITY_CASES = (
+    pytest.param(
+        (("version", "build", "no"), (("v1", "b1", "old"),)),
+        (("no", "build", "version"), (("new", "b1", "v1"),)),
+        ProjectIdentityStatus.SAME_PROJECT,
+        id="same-project-with-ignored-no-column",
+    ),
+    pytest.param(
+        (("version", "build"), (("v1", "b1"),)),
+        (("version", "build"), (("v2", "b2"),)),
+        ProjectIdentityStatus.DIFFERENT_PROJECT,
+        id="different-project",
+    ),
+    pytest.param(
+        (("version",), (("v1",),)),
+        None,
+        ProjectIdentityStatus.UNVERIFIABLE,
+        id="missing-version-manager-table",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("before_shape", "current_shape", "expected_status"),
+    IDENTITY_SOURCE_PARITY_CASES,
+)
+def test_project_identity_matches_between_sql_and_repository_materialization(
+    before_shape: tuple[tuple[str, ...], tuple[tuple[object | None, ...], ...]],
+    current_shape: tuple[tuple[str, ...], tuple[tuple[object | None, ...], ...]] | None,
+    expected_status: ProjectIdentityStatus,
+) -> None:
+    sql_before = _identity_input(before_shape)
+    sql_current = _identity_input(current_shape)
+    repository_before = _repository_identity_input(before_shape)
+    repository_current = _repository_identity_input(current_shape)
+
+    assert sql_before.snapshot_digest == repository_before.snapshot_digest
+    assert sql_current.snapshot_digest == repository_current.snapshot_digest
+    sql_assessment = assess_project_identity(sql_before, sql_current)
+    repository_assessment = assess_project_identity(repository_before, repository_current)
+
+    assert sql_assessment.status is expected_status
+    assert repository_assessment.to_document() == sql_assessment.to_document()
 
 
 def test_identity_assessment_turns_table_reader_failure_into_unverifiable() -> None:

@@ -24,6 +24,35 @@
 ./vnext/scripts/run-tests.sh
 ```
 
+### 专用测试节点
+
+所有测试、容器门禁和测试取证都在专用 LXC `ct108-gw-dms` 上执行，不在开发主机上运行。开始前用
+`ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 确认连接；在该节点的 clean、已提交 worktree 中运行，
+并继续满足下列 Dolt、Compose、端口和日志前提。节点暂不可用或前提不满足时，等待恢复后再测，不回退到开发主机。
+该 SSH 会话以 root 登录；用磁盘目录 `TMPDIR=/home/dev/gdds-p5-closure-s1-gate-logs/g12-default-tmp`
+隔离 pytest 临时文件，不修改 `/tmp/pytest-of-root` 的属主。默认不设置 `GATEWAY_TEST_BASETEMP`，需要显式验证该选项时除外。
+
+阶段可用 `GATEWAY_TEST_PACKAGES` 只运行所需包，例如
+`GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法包名为
+`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；
+重复或未知名称以 exit 2 拒绝，选择顺序仍按权威 runner 的固定顺序执行。未设置该变量时运行全部包，
+原有两遍拆分、Compose 临时目录处理和五锁检查不变。S5 最终门禁与发布门禁必须运行全部包。
+
+runner 先通过受控 wrapper 同步待运行包的 locked uv 环境，再用
+`python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>`
+为每个待运行包输出 JSON manifest；总摘要由逐项的 Git tree object、`legacy/`、该包实际 uv
+环境、有效 Hypothesis storage directory 与包内 `.pytest_cache` 的内容摘要、以及环境版本摘要组成。uv 环境摘要排除由锁定源码和对应 Python 解释器生成的
+`__pycache__`、`.pyc`、`.pyo`。dirty worktree 会被拒绝。handoff 可用
+`compare --source <V-manifest.json> --current <当前-manifest.json>`
+输出“可沿用”或“运行”及变化组成部分。来源 V 必须是该包实际运行并通过的权威 runner 运行：worktree
+clean、日志记录起止 HEAD、该包通过、整次 runner exit 0；只跑部分包的 runner 也可作为来源。若当前 V
+的包闭包有变化，该包必须在当前 V 实际运行并通过。backend 与 `repository_service` 的环境组件还记录
+Docker/Compose 工具和 daemon 身份、有效 build 环境变量的指纹、选择的基础/服务/dependency-base 镜像 tag
+与本机 image ID（RS 还包括 client e2e/dependency-base）；backend 的 prebuilt 选项启用时摘要本机镜像清单。含凭据的 proxy/cache URL 只记录摘要，
+不输出原值。handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志；
+链式沿用始终直接引用最初实际运行该包的 V，不引用沿用结果。详细规则见
+[testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
+
 权威入口的运行前提（不满足时结果不能作为门禁证据）：
 
 - 在已提交的 clean worktree 上运行。`repository_service` 的 Compose 用例经
@@ -186,6 +215,18 @@ sha256sum vnext/repository_service/uv.lock
 
 任一条件不满足，就在最终 HEAD 重建并重跑。同一提交上权威 runner 已运行过的 Compose 旅程
 （含 backend 批次中的 Compose 测试）不再单独重跑，provenance 取自该次运行。
+
+按包沿用与镜像身份等价分别判定：前者决定当前 V 上要运行哪些包，后者决定 V..H 的镜像结果能否
+`carried`。backend 闭包包括 Compose 使用的完整 `vnext/` Docker build context、Compose 与 Dockerfile、
+Rust workspace、该包 uv 环境内容摘要、Docker build 参数与选择状态、Docker base image identity、
+repository-service 与 dependency-base 的本机 image ID；prebuilt 模式还包括本机镜像清单。因此 backend 包从合格来源 V 沿用时，
+该次权威 runner 中 backend Compose 旅程一并沿用。V..H 仍须单独满足本节镜像身份等价，阶段退出才能把
+容器门禁绑定到最终 HEAD。每包闭包还摘要有效 Hypothesis storage directory（`HYPOTHESIS_STORAGE_DIRECTORY`
+或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的内容和权限，因为其中缓存可能参与测试输入生成或被测试工具读取。Hypothesis Unicode JSON gzip 缓存以解压后的 payload 摘要，忽略 gzip header 中随机临时文件名。
+对 backend 与 `repository_service`，完整 Docker context 的 tracked 内容按 `vnext/` Git tree 摘要；Git 只
+记录 tracked 文件的 executable bit，普通权限模式由闭包单独摘要 `vnext/` 下 tracked 路径、祖先目录和 context
+根的本机 `0o7777` 模式。通过 `vnext/.dockerignore` 后仍会发送的非 Git 文件和目录按路径、类型、权限与内容摘要。
+未建模的 Dockerfile 专属 ignore 文件或 ignore 语法会使 manifest 失败，直到纳入闭包规则。
 
 每轮评审必须记录当前 HEAD、是否触发重建及理由、最后验证的 image revision/source-tree，
 以及延期到哪个节点或从哪个提交沿用。完整规则与记录模板见

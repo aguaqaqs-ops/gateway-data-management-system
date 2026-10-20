@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from gateway_backend.artifacts import InMemoryArtifactStore
+from gateway_backend.application.pair_pipeline import run_preview_pair_pipeline
+from gateway_backend.application.preview_jobs import surface_artifact_closure
+from gateway_backend.capabilities.bundle_assembly import (
+    BUNDLE_CONTRACT_VERSION,
+    BundleAssemblyInput,
+    BundleAssemblyStatus,
+    BundleInput,
+    BundlePairInput,
+    BundleProfile,
+    BundleRefScope,
+    assemble_bundle,
+)
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
     ComparisonFacts,
@@ -29,6 +43,7 @@ from gateway_backend.capabilities.risk_evaluation import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
+from gateway_backend.operations.worker import ExecutionControl
 
 pytestmark = pytest.mark.unit
 
@@ -136,4 +151,83 @@ def test_replacement_risk_is_high_at_pair_scope_without_table_annotations() -> N
     assert result.risk_report.overall.table_count == 0
     assert result.risk_report.overall.annotation_count == 0
     assert result.risk_report.tables == ()
+
+
+def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
+    store = InMemoryArtifactStore()
+
+    def bound(sql: str) -> BoundSnapshotInput:
+        result = materialize_sql(
+            sql,
+            policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+            artifact_store=store,
+        )
+        assert result.snapshot is not None
+        assert result.summary is not None
+        assert result.table_set is not None
+        return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+
+    before = bound(
+        "CREATE TABLE version_manager (project_id VARCHAR(16) NOT NULL PRIMARY KEY, build VARCHAR(16), no INT); "
+        "INSERT INTO version_manager VALUES ('project-a', 'v1', 1);"
+    )
+    current = bound(
+        "CREATE TABLE version_manager (project_id VARCHAR(16) NOT NULL PRIMARY KEY, build VARCHAR(16), no INT); "
+        "INSERT INTO version_manager VALUES ('project-b', 'v2', 2);"
+    )
+    pair_id = "replacement-pair"
+    pair = run_preview_pair_pipeline(
+        pair_id=pair_id,
+        before=before,
+        current=current,
+        store=store,
+        control=ExecutionControl(),
+        on_cancel=lambda: None,
+    )
+    surface = pair.surface_result.surface
+    assert surface is not None
+    version_manager = next(item for item in surface.tables if item.table_name == "version_manager")
+    assert version_manager.table_refs.before_table_ref is not None
+    assert version_manager.table_refs.current_table_ref is not None
+
+    closure = surface_artifact_closure(
+        surface,
+        pair_id,
+        pair.records_closure,
+        before=before,
+        current=current,
+    )
+    bundle = assemble_bundle(
+        BundleAssemblyInput(
+            bundle_contract_version=BUNDLE_CONTRACT_VERSION,
+            bundle_profile=BundleProfile.SINGLE_PAIR,
+            inputs=(
+                BundleInput(0, "before", "Before", snapshot_digest=before.snapshot.snapshot_digest),
+                BundleInput(1, "current", "Current", snapshot_digest=current.snapshot.snapshot_digest),
+            ),
+            pairs=(
+                BundlePairInput(
+                    pair_id,
+                    0,
+                    1,
+                    pair.surface_result,
+                    closure,
+                ),
+            ),
+            ref_scope=BundleRefScope.BUNDLE_RELATIVE,
+        ),
+        source_store=store,
+    )
+
+    assert bundle.status is BundleAssemblyStatus.READY
+    assert bundle.bundle is not None
+    assert bundle.bundle.artifact_closure_ref is not None
+    closure_document = json.loads(store.locate(bundle.bundle.artifact_closure_ref))
+    logical_paths = {
+        item["logical_path"] for item in closure_document["closure_entries"]
+    }
+    assert f"pairs/{pair_id}/tables/before/version_manager/manifest.json" in logical_paths
+    assert f"pairs/{pair_id}/tables/current/version_manager/manifest.json" in logical_paths
+    assert f"pairs/{pair_id}/tables/before/version_manager/rows/000000.parquet" in logical_paths
+    assert f"pairs/{pair_id}/tables/current/version_manager/rows/000000.parquet" in logical_paths
 

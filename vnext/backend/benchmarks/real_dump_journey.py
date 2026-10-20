@@ -15,9 +15,11 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from collections import Counter
@@ -205,6 +207,564 @@ JOURNEY_STEP_IDS = (
 
 class JourneyFailure(RuntimeError):
     """A bounded failure without response bodies that could contain row data."""
+
+
+class WorkerStalledFailure(JourneyFailure):
+    """A worker heartbeat stopped while its operation was RUNNING."""
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        operation_id: str,
+        diagnostics: Path | None,
+        diagnostic_error: str | None = None,
+    ) -> None:
+        super().__init__(f"{stage} worker_stalled")
+        self.reason = "worker_stalled"
+        self.stage = stage
+        self.operation_id = operation_id
+        self.diagnostics = diagnostics
+        self.diagnostic_error = diagnostic_error
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerHeartbeatStall:
+    operation_id: str
+    step_id: str | None
+    last_heartbeat_monotonic: float
+    stalled_seconds: float
+
+
+class WorkerHeartbeatTracker:
+    """Track the worker's published heartbeat events for active operations."""
+
+    _HEARTBEAT_RE = re.compile(
+        r"operation_worker_event code=heartbeat_succeeded "
+        r"operation_id=(?P<operation_id>\S+) step_id=(?P<step_id>\S+)"
+    )
+
+    def __init__(
+        self,
+        *,
+        stall_threshold_seconds: int = 120,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if type(stall_threshold_seconds) is not int or stall_threshold_seconds < 1:
+            raise ValueError("worker stall threshold must be a positive integer")
+        self.stall_threshold_seconds = stall_threshold_seconds
+        self._monotonic = monotonic
+        self._lock = threading.Lock()
+        self._last_heartbeat: dict[str, tuple[float, str]] = {}
+        self._running_since: dict[str, float] = {}
+
+    def observe_log_line(self, line: str, *, observed_at: float | None = None) -> bool:
+        match = self._HEARTBEAT_RE.search(line)
+        if match is None:
+            return False
+        now = self._monotonic() if observed_at is None else observed_at
+        with self._lock:
+            self._last_heartbeat[match.group("operation_id")] = (
+                now,
+                match.group("step_id"),
+            )
+        return True
+
+    def check_running_operation(
+        self,
+        operation_id: str,
+        status: object,
+        *,
+        now: float | None = None,
+    ) -> WorkerHeartbeatStall | None:
+        if status != "RUNNING":
+            return None
+        current_time = self._monotonic() if now is None else now
+        with self._lock:
+            running_since = self._running_since.setdefault(operation_id, current_time)
+            last_heartbeat = self._last_heartbeat.get(operation_id)
+            last_seen, step_id = (
+                last_heartbeat if last_heartbeat is not None else (running_since, None)
+            )
+        stalled_seconds = current_time - last_seen
+        if stalled_seconds < self.stall_threshold_seconds:
+            return None
+        return WorkerHeartbeatStall(
+            operation_id=operation_id,
+            step_id=step_id,
+            last_heartbeat_monotonic=last_seen,
+            stalled_seconds=stalled_seconds,
+        )
+
+
+def _worker_stall_threshold_seconds() -> int:
+    raw = os.environ.get("GATEWAY_REAL_DUMP_WORKER_STALL_SECONDS", "120")
+    try:
+        threshold = int(raw)
+    except ValueError as exc:
+        raise JourneyFailure("worker stall threshold must be a positive integer") from exc
+    if threshold < 1:
+        raise JourneyFailure("worker stall threshold must be a positive integer")
+    return threshold
+
+
+def _worker_stall_diagnostic_root() -> Path:
+    configured_directory = os.environ.get("GATEWAY_REAL_DUMP_LOG_DIR")
+    if configured_directory:
+        configured_path = Path(configured_directory)
+        if not configured_path.is_absolute():
+            raise JourneyFailure("worker stall diagnostics must use an absolute log directory")
+        configured = configured_path.resolve()
+        if configured.is_relative_to(_repo_root().resolve()):
+            raise JourneyFailure("worker stall diagnostics must be outside the worktree")
+        parent = configured.parent
+    else:
+        parent = Path(tempfile.gettempdir()).resolve()
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    path = parent / f"s4-stall-{timestamp}"
+    path.mkdir(parents=True, mode=0o700)
+    path.chmod(0o700)
+    return path
+
+
+def _capture_worker_thread_state(env: dict[str, str], root: Path) -> list[str]:
+    result = run_compose(env, "ps", "-q", "worker", timeout=30.0)
+    if result.returncode != 0:
+        raise JourneyFailure("could not resolve worker container for stall diagnostics")
+    container_ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not container_ids:
+        raise JourneyFailure("worker container is unavailable for stall diagnostics")
+    top = subprocess.run(
+        ["docker", "top", container_ids[0], "-eo", "pid"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30.0,
+    )
+    if top.returncode != 0:
+        (root / "worker-processes.txt").write_text(
+            f"docker top exit={top.returncode}\n{top.stdout}\n{top.stderr}",
+            encoding="utf-8",
+        )
+        raise JourneyFailure("could not list worker host PIDs for stall diagnostics")
+    host_pids = [
+        line.strip()
+        for line in top.stdout.splitlines()
+        if line.strip().isdigit()
+    ]
+    (root / "worker-processes.txt").write_text(
+        "\n".join(host_pids) + "\n",
+        encoding="utf-8",
+    )
+    for pid in host_pids:
+        task_root = Path("/proc") / pid / "task"
+        process_root = root / f"worker-pid-{pid}"
+        process_root.mkdir(mode=0o700)
+        try:
+            task_ids = sorted(path.name for path in task_root.iterdir())
+        except OSError as exc:
+            (process_root / "read-error.txt").write_text(
+                f"task directory unavailable: {type(exc).__name__}\n",
+                encoding="utf-8",
+            )
+            continue
+        for task_id in task_ids:
+            thread_root = process_root / f"thread-{task_id}"
+            thread_root.mkdir(mode=0o700)
+            for filename in ("comm", "wchan", "stack", "status"):
+                source = task_root / task_id / filename
+                try:
+                    content = source.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    content = f"unavailable: {type(exc).__name__}\n"
+                (thread_root / f"{filename}.txt").write_text(content, encoding="utf-8")
+    return host_pids
+
+
+def _capture_worker_python_stacks(host_pids: Sequence[str], root: Path) -> None:
+    py_spy = shutil.which("py-spy")
+    if py_spy is None:
+        (root / "py-spy-unavailable.txt").write_text(
+            "py-spy is not installed on the CT host\n",
+            encoding="utf-8",
+        )
+        return
+    for pid in host_pids:
+        try:
+            result = subprocess.run(
+                [py_spy, "dump", "--native", "--pid", pid],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30.0,
+            )
+            content = (
+                f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+        except Exception as exc:
+            content = f"py-spy failed: {type(exc).__name__}\n"
+        (root / f"py-spy-pid-{pid}.txt").write_text(content, encoding="utf-8")
+
+
+def _capture_container_inspections(env: dict[str, str], root: Path) -> None:
+    for service in ("backend", "worker", "repository-service"):
+        try:
+            result = run_compose(env, "ps", "-q", service, timeout=30.0)
+            container_ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            if result.returncode != 0 or not container_ids:
+                (root / f"docker-inspect-{service}.txt").write_text(
+                    f"container lookup exit={result.returncode}\n{result.stderr}",
+                    encoding="utf-8",
+                )
+                continue
+            inspected = subprocess.run(
+                ["docker", "inspect", *container_ids],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30.0,
+            )
+            (root / f"docker-inspect-{service}.json").write_text(
+                inspected.stdout or inspected.stderr,
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            (root / f"docker-inspect-{service}.txt").write_text(
+                f"docker inspect failed: {type(exc).__name__}\n",
+                encoding="utf-8",
+            )
+
+
+def _capture_control_operation_rows(
+    env: dict[str, str],
+    operation_id: str,
+    root: Path,
+) -> str | None:
+    # The live DB is opened read-only and copied before querying. Only the
+    # operation, step and lease fields needed to diagnose the stall are emitted.
+    snapshot_script = """
+import json, os, sqlite3, sys, tempfile
+from pathlib import Path
+
+operation_id = sys.argv[1]
+source = sqlite3.connect(
+    "file:/var/lib/gateway/control/control.sqlite3?mode=ro", uri=True
+)
+fd, snapshot_name = tempfile.mkstemp(prefix="gdds-s4-stall-control-")
+os.close(fd)
+try:
+    snapshot = sqlite3.connect(snapshot_name)
+    source.backup(snapshot)
+    operation_row = snapshot.execute(
+        "SELECT operation_id, status, created_at_us, updated_at_us, completed_at_us, "
+        "repository_operation_id FROM operation_records WHERE operation_id = ?",
+        (operation_id,),
+    ).fetchone()
+    step_rows = snapshot.execute(
+        "SELECT step_id, step_name, status, attempt_count, worker_id, "
+        "lease_expires_at_us, created_at_us, updated_at_us, started_at_us, completed_at_us "
+        "FROM step_records WHERE operation_id = ? ORDER BY step_name",
+        (operation_id,),
+    ).fetchall()
+    steps = [
+        {
+            "step_id": row[0], "step_name": row[1], "status": row[2],
+            "attempt_count": row[3], "owner": row[4],
+            "lease_expires_at_us": row[5], "created_at_us": row[6],
+            "updated_at_us": row[7], "started_at_us": row[8],
+            "completed_at_us": row[9],
+        }
+        for row in step_rows
+    ]
+    operation = None if operation_row is None else {
+        "operation_id": operation_row[0], "status": operation_row[1],
+        "created_at_us": operation_row[2], "updated_at_us": operation_row[3],
+        "completed_at_us": operation_row[4],
+        "repository_operation_id": operation_row[5],
+    }
+    leases = [
+        {
+            "step_id": step["step_id"], "owner": step["owner"],
+            "attempt_count": step["attempt_count"],
+            "lease_expires_at_us": step["lease_expires_at_us"],
+            "updated_at_us": step["updated_at_us"],
+        }
+        for step in steps if step["lease_expires_at_us"] is not None
+    ]
+    print(json.dumps({"operation": operation, "steps": steps, "leases": leases}, sort_keys=True))
+    snapshot.close()
+finally:
+    source.close()
+    Path(snapshot_name).unlink(missing_ok=True)
+"""
+    result = run_compose(
+        env,
+        "exec",
+        "-T",
+        "backend",
+        "python",
+        "-c",
+        snapshot_script,
+        operation_id,
+        timeout=60.0,
+    )
+    if result.returncode != 0:
+        (root / "control-db-selected-rows-error.txt").write_text(
+            f"snapshot/query exit={result.returncode}\n{result.stderr}",
+            encoding="utf-8",
+        )
+        return None
+    try:
+        summary = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        (root / "control-db-selected-rows-error.txt").write_text(
+            "snapshot/query returned invalid JSON\n",
+            encoding="utf-8",
+        )
+        return None
+    (root / "control-db-selected-rows.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    operation = summary.get("operation")
+    repository_operation_id = (
+        operation.get("repository_operation_id") if isinstance(operation, dict) else None
+    )
+    return repository_operation_id if isinstance(repository_operation_id, str) else None
+
+
+def _capture_repository_import_status(
+    *,
+    repository_url: str,
+    repository_id: str,
+    operation_id: str,
+    root: Path,
+) -> None:
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{repository_url}/v1/repositories/{repository_id}/operations/{operation_id}",
+                headers=compose_auth_headers(token=BEARER_TOKEN),
+            )
+        summary: dict[str, Any] = {"operation_id": operation_id, "http_status": response.status_code}
+        if response.status_code == 200:
+            payload = response.json()
+            if isinstance(payload, dict):
+                for name in ("status", "created_at", "started_at", "updated_at", "completed_at"):
+                    if name in payload:
+                        summary[name] = payload[name]
+    except (httpx.HTTPError, ValueError):
+        summary = {"operation_id": operation_id, "status_read": "unavailable"}
+    (root / "repository-import-status.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _capture_worker_stall_diagnostics(
+    *,
+    env: dict[str, str],
+    repository_id: str,
+    repository_url: str,
+    operation_id: str,
+    stage: str,
+    stall: WorkerHeartbeatStall,
+) -> Path:
+    root = _worker_stall_diagnostic_root()
+    previous_umask = os.umask(0o077)
+    errors: list[str] = []
+    try:
+        (root / "stall.json").write_text(
+            json.dumps(
+                {
+                    "failure_reason": "worker_stalled",
+                    "stage": stage,
+                    "operation_id": operation_id,
+                    "step_id": stall.step_id,
+                    "stall_threshold_seconds": _worker_stall_threshold_seconds(),
+                    "observed_stalled_seconds": round(stall.stalled_seconds, 3),
+                    "captured_at_utc": _utc_timestamp(),
+                    "repository_id": repository_id,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        host_pids: list[str] = []
+        for label, capture in (
+            ("worker thread state", lambda: _capture_worker_thread_state(env, root)),
+        ):
+            try:
+                host_pids = capture()
+            except Exception as exc:
+                errors.append(f"{label}: {type(exc).__name__}")
+        try:
+            _capture_worker_python_stacks(host_pids, root)
+        except Exception as exc:
+            errors.append(f"worker Python stacks: {type(exc).__name__}")
+        try:
+            _capture_container_inspections(env, root)
+        except Exception as exc:
+            errors.append(f"container inspect: {type(exc).__name__}")
+
+        repository_operation_id: str | None = None
+        try:
+            repository_operation_id = _capture_control_operation_rows(env, operation_id, root)
+        except Exception as exc:
+            errors.append(f"control DB snapshot: {type(exc).__name__}")
+        if repository_operation_id is not None:
+            try:
+                _capture_repository_import_status(
+                    repository_url=repository_url,
+                    repository_id=repository_id,
+                    operation_id=repository_operation_id,
+                    root=root,
+                )
+            except Exception as exc:
+                errors.append(f"Repository import status: {type(exc).__name__}")
+        else:
+            (root / "repository-import-status.json").write_text(
+                json.dumps({"status_read": "no repository_operation_id in control DB snapshot"})
+                + "\n",
+                encoding="utf-8",
+            )
+
+        try:
+            logs = run_compose(env, "logs", "--no-color", "--timestamps", timeout=180.0)
+            (root / "all-container-logs.txt").write_text(
+                f"compose_logs_exit_code={logs.returncode}\n"
+                f"stdout:\n{logs.stdout}\nstderr:\n{logs.stderr}",
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            errors.append(f"all container logs: {type(exc).__name__}")
+        if errors:
+            (root / "diagnostic-errors.txt").write_text("\n".join(errors) + "\n", encoding="utf-8")
+    finally:
+        os.umask(previous_umask)
+    return root
+
+
+class WorkerHeartbeatMonitor:
+    """Read worker heartbeat events and capture diagnostics before a stalled stack is torn down."""
+
+    def __init__(
+        self,
+        *,
+        env: dict[str, str],
+        repository_id: str,
+        repository_url: str,
+        tracker: WorkerHeartbeatTracker | None = None,
+        diagnostic_capture: Callable[..., Path] = _capture_worker_stall_diagnostics,
+        popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+    ) -> None:
+        self.env = env
+        self.repository_id = repository_id
+        self.repository_url = repository_url
+        self.tracker = tracker or WorkerHeartbeatTracker(
+            stall_threshold_seconds=_worker_stall_threshold_seconds()
+        )
+        self._diagnostic_capture = diagnostic_capture
+        self._popen = popen
+        self._process: subprocess.Popen[str] | None = None
+        self._reader_thread: threading.Thread | None = None
+
+    def __enter__(self) -> WorkerHeartbeatMonitor:
+        command = [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            "logs",
+            "--follow",
+            "--no-color",
+            "--timestamps",
+            "worker",
+        ]
+        try:
+            self._process = self._popen(
+                command,
+                cwd=DEPLOY_ROOT,
+                env=self.env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as exc:
+            raise JourneyFailure("could not start worker heartbeat log stream") from exc
+        self._reader_thread = threading.Thread(
+            target=self._read_heartbeat_log,
+            name="real-dump-worker-heartbeat-log",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        _emit_progress(
+            "real-data journey",
+            "worker_heartbeat_monitor_started",
+            stall_threshold_seconds=self.tracker.stall_threshold_seconds,
+            heartbeat_source="worker operation_worker_event code=heartbeat_succeeded logs",
+        )
+        return self
+
+    def _read_heartbeat_log(self) -> None:
+        if self._process is None or self._process.stdout is None:
+            return
+        for line in self._process.stdout:
+            self.tracker.observe_log_line(line)
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        process = self._process
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5.0)
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=5.0)
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+
+    def check_operation(self, operation_id: str, status: object, *, stage: str) -> None:
+        if self._process is not None and self._process.poll() is not None:
+            raise JourneyFailure("worker heartbeat log stream exited while an operation was active")
+        stall = self.tracker.check_running_operation(operation_id, status)
+        if stall is None:
+            return
+        diagnostics: Path | None = None
+        diagnostic_error: str | None = None
+        try:
+            diagnostics = self._diagnostic_capture(
+                env=self.env,
+                repository_id=self.repository_id,
+                repository_url=self.repository_url,
+                operation_id=operation_id,
+                stage=stage,
+                stall=stall,
+            )
+        except Exception as exc:
+            diagnostic_error = type(exc).__name__
+        _emit_progress(
+            stage,
+            "worker_stalled",
+            failure_reason="worker_stalled",
+            operation_id=operation_id,
+            step_id=stall.step_id,
+            stalled_seconds=round(stall.stalled_seconds, 3),
+            diagnostics=str(diagnostics) if diagnostics is not None else None,
+            diagnostic_error=diagnostic_error,
+        )
+        raise WorkerStalledFailure(
+            stage=stage,
+            operation_id=operation_id,
+            diagnostics=diagnostics,
+            diagnostic_error=diagnostic_error,
+        )
 
 
 def _repo_root() -> Path:
@@ -639,6 +1199,7 @@ def _poll_operation(
     stage: str,
     timeout_seconds: int = INITIAL_OPERATION_TIMEOUT_SECONDS,
     deadline: float | None = None,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> dict[str, Any]:
     operation_started = time.monotonic()
     _emit_progress(stage, "operation_started", timeout_seconds=timeout_seconds)
@@ -664,6 +1225,8 @@ def _poll_operation(
             continue
         payload = _require(response, 200, "operation status")
         status = payload.get("status")
+        if heartbeat_monitor is not None:
+            heartbeat_monitor.check_operation(operation_id, status, stage=stage)
         if status in TERMINAL_OPERATION_STATES:
             if status != "SUCCEEDED":
                 diagnostic = payload.get("diagnostic")
@@ -736,6 +1299,7 @@ def _preview(
     idempotency_key: str,
     stage: str,
     operation_timeout_seconds: int,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
@@ -757,6 +1321,7 @@ def _preview(
         stage=stage,
         timeout_seconds=operation_timeout_seconds,
         deadline=deadline,
+        heartbeat_monitor=heartbeat_monitor,
     )
     refreshed = _workspace(client)
     result_id = refreshed.get("current_preview_result_id")
@@ -907,6 +1472,7 @@ def _submit(
     operation_timeout_seconds: int,
     expect_no_change: bool = False,
     identity_confirmations: Sequence[Mapping[str, str]] = (),
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
     result = cast(Mapping[str, Any], preview["result"])
@@ -937,6 +1503,7 @@ def _submit(
         stage=stage,
         timeout_seconds=operation_timeout_seconds,
         deadline=deadline,
+        heartbeat_monitor=heartbeat_monitor,
     )
     _emit_progress(stage, "submit_finalization_started")
     attempt: dict[str, Any] | None = None
@@ -1328,6 +1895,7 @@ def _history_compare(
     v2_commit_id: str,
     idempotency_key: str,
     operation_timeout_seconds: int,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> tuple[dict[str, Any], str]:
     stage = f"{tier} History"
     _emit_progress(stage, "history_compare_started")
@@ -1356,6 +1924,8 @@ def _history_compare(
             200,
             "History compare status",
         )
+        if heartbeat_monitor is not None:
+            heartbeat_monitor.check_operation(operation_id, payload.get("status"), stage=stage)
         if payload.get("status") in TERMINAL_OPERATION_STATES:
             terminal = payload
             break
@@ -1454,6 +2024,7 @@ def _run_tier(
     from_step: str | None,
     state_path: Path | None,
     offline_composite: Mapping[str, Any],
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
     scope: str = "full",
 ) -> dict[str, Any]:
     started = time.monotonic()
@@ -1524,6 +2095,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v1-preview",
                 stage=f"{tier} v1 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -1572,6 +2144,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v1-submit",
                 stage=f"{tier} v1 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-submit"),
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
         v1_submission = cast(dict[str, Any], v1_submission)
@@ -1641,6 +2214,7 @@ def _run_tier(
                     idempotency_key=f"{project_name}-{tier}-v2-preview",
                     stage=f"{tier} v2 Preview",
                     operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
+                    heartbeat_monitor=heartbeat_monitor,
                 )
                 summary = _assert_preview_summaries(manifest, unchanged=False)
                 expected_changed = S2B_DATASET_BASELINE[v2_id]["preview_changed"] + int(
@@ -1735,6 +2309,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
                 stage=f"{tier} repeat v1 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -1786,6 +2361,7 @@ def _run_tier(
                 stage=f"{tier} repeat v1 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
                 expect_no_change=True,
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
 
@@ -1810,6 +2386,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v2-preview",
                 stage=f"{tier} v2 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -1862,6 +2439,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v2-submit",
                 stage=f"{tier} v2 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-submit"),
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
         v2_submission = cast(dict[str, Any], v2_submission)
@@ -1909,6 +2487,7 @@ def _run_tier(
                 v2_commit_id=v2_commit_id,
                 idempotency_key=f"{project_name}-{tier}-history-compare",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "history"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             _history_surface_ref(cast(Mapping[str, Any], result["bundle"]))
             return {"operation_id": operation_id, "result": result}
@@ -2014,6 +2593,7 @@ def _run_cross_project(
     project_name: str,
     repository_id: str,
     initial_commit_id: str,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     source_id, target_id = "rd-t1-a-v1", "rd-t2-b-v1"
@@ -2067,6 +2647,7 @@ def _run_cross_project(
                 idempotency_key=f"{project_name}-cross-source-preview",
                 stage="cross-project source v1 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds("t1", "v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(manifest, unchanged=False)
             _assert_s3_preview_summary(
@@ -2098,6 +2679,7 @@ def _run_cross_project(
                 idempotency_key=f"{project_name}-cross-source-submit",
                 stage="cross-project source v1 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds("t1", "v1-submit"),
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
         source_submission = cast(dict[str, Any], source_submission)
@@ -2155,6 +2737,7 @@ def _run_cross_project(
                 idempotency_key=f"{project_name}-cross-replacement-preview",
                 stage="cross-project replacement Preview",
                 operation_timeout_seconds=_operation_timeout_seconds("t2", "v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(manifest, unchanged=False)
             identity = _assert_identity_pair(
@@ -2198,6 +2781,7 @@ def _run_cross_project(
                         ),
                     },
                 ),
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
         target_submission = cast(dict[str, Any], target_submission)
@@ -2450,6 +3034,7 @@ def run_journey(
                     write_secrets=from_step is None,
                 )
                 acquire_compose_gate_lock()
+                stack_cleaned = False
                 try:
                     try:
                         stack_started = time.monotonic()
@@ -2470,41 +3055,50 @@ def run_journey(
                         else:
                             repository_id, initial_commit_id = _resume_stack(env, step_state)
                         stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
-                        if cross_project:
-                            results.append(
-                                _run_cross_project(
-                                    root=root,
-                                    datasets=datasets,
-                                    census=census,
-                                    env=env,
-                                    project_name=project_name,
-                                    repository_id=repository_id,
-                                    initial_commit_id=initial_commit_id,
+                        with WorkerHeartbeatMonitor(
+                            env=env,
+                            repository_id=repository_id,
+                            repository_url=_repository_service_url(env),
+                        ) as heartbeat_monitor:
+                            if cross_project:
+                                results.append(
+                                    _run_cross_project(
+                                        root=root,
+                                        datasets=datasets,
+                                        census=census,
+                                        env=env,
+                                        project_name=project_name,
+                                        repository_id=repository_id,
+                                        initial_commit_id=initial_commit_id,
+                                        heartbeat_monitor=heartbeat_monitor,
+                                    )
                                 )
-                            )
-                        else:
-                            if offline_composite is None:
-                                raise JourneyFailure("same-tier composite comparison was not prepared")
-                            results.append(
-                                _run_tier(
-                                    tier=tier,
-                                    v1_id=v1_id,
-                                    v2_id=v2_id,
-                                    root=root,
-                                    datasets=datasets,
-                                    census=census,
-                                    env=env,
-                                    project_name=project_name,
-                                    repository_id=repository_id,
-                                    initial_commit_id=initial_commit_id,
-                                    step_state=step_state,
-                                    from_step=from_step,
-                                    state_path=state_path,
-                                    offline_composite=offline_composite,
-                                    scope=scope,
+                            else:
+                                if offline_composite is None:
+                                    raise JourneyFailure(
+                                        "same-tier composite comparison was not prepared"
+                                    )
+                                results.append(
+                                    _run_tier(
+                                        tier=tier,
+                                        v1_id=v1_id,
+                                        v2_id=v2_id,
+                                        root=root,
+                                        datasets=datasets,
+                                        census=census,
+                                        env=env,
+                                        project_name=project_name,
+                                        repository_id=repository_id,
+                                        initial_commit_id=initial_commit_id,
+                                        step_state=step_state,
+                                        from_step=from_step,
+                                        state_path=state_path,
+                                        offline_composite=offline_composite,
+                                        heartbeat_monitor=heartbeat_monitor,
+                                        scope=scope,
+                                    )
                                 )
-                            )
-                    except BaseException:
+                    except BaseException as error:
                         try:
                             _save_compose_logs_before_teardown(env, tier=tier)
                         except BaseException as log_error:
@@ -2513,12 +3107,16 @@ def run_journey(
                                 "compose_logs_save_failed",
                                 diagnostic=type(log_error).__name__,
                             )
+                        if isinstance(error, WorkerStalledFailure):
+                            cleanup_compose_project_artifacts(env)
+                            stack_cleaned = True
                         raise
                 finally:
-                    if keep_stack:
-                        release_compose_gate_lock()
-                    else:
-                        cleanup_compose_project_artifacts(env)
+                    if not stack_cleaned:
+                        if keep_stack:
+                            release_compose_gate_lock()
+                        else:
+                            cleanup_compose_project_artifacts(env)
     finally:
         if original_prebuilt is None:
             os.environ.pop("GATEWAY_COMPOSE_GATE_PREBUILT", None)
@@ -2601,6 +3199,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         )
         print(json.dumps(result, sort_keys=True))
+    except WorkerStalledFailure as exc:
+        print(
+            json.dumps(
+                {
+                    "conclusion": "FAILED",
+                    "reason": "worker_stalled",
+                    "stage": exc.stage,
+                    "operation_id": exc.operation_id,
+                    "diagnostics": str(exc.diagnostics) if exc.diagnostics is not None else None,
+                    "diagnostic_error": exc.diagnostic_error,
+                },
+                sort_keys=True,
+            )
+        )
+        return 1
     except JourneyFailure as exc:
         print(json.dumps({"conclusion": "FAILED", "reason": str(exc)}))
         return 1

@@ -33,6 +33,9 @@ from benchmarks.real_dump_journey import (
     _pseudo_counts_from_http,
     _require_one_of,
     _step_measurement,
+    WorkerHeartbeatMonitor,
+    WorkerHeartbeatTracker,
+    WorkerStalledFailure,
 )
 
 pytestmark = pytest.mark.unit
@@ -95,6 +98,7 @@ OPERATION_STATUS_POLL_CASES = (
 COMPOSE_LOGS_ON_FAILURE_CASES = (
     ("stack startup", "synthetic Compose startup failure"),
     ("journey step", "synthetic Preview failure"),
+    ("worker stall", "worker_stalled"),
 )
 
 
@@ -381,6 +385,107 @@ def test_operation_status_retries_service_not_ready_within_deadline(
     if retries:
         assert retries[0]["status_code"] == 503
         assert retries[0]["retry_count"] == 1
+
+
+def test_worker_heartbeat_log_resets_stall_clock_and_normal_heartbeats_do_not_trip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_time = [0.0]
+    tracker = WorkerHeartbeatTracker(
+        stall_threshold_seconds=120,
+        monotonic=lambda: current_time[0],
+    )
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_WORKER_STALL_SECONDS", "45")
+    assert real_dump_journey._worker_stall_threshold_seconds() == 45
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_WORKER_STALL_SECONDS", "120")
+
+    assert tracker.check_running_operation("operation-1", "RUNNING") is None
+    for heartbeat_at in range(10, 131, 10):
+        current_time[0] = float(heartbeat_at)
+        assert tracker.observe_log_line(
+            "worker operation_worker_event code=heartbeat_succeeded "
+            "operation_id=operation-1 step_id=step-1 worker_id=worker-1 attempt=1",
+            observed_at=current_time[0],
+        )
+        assert tracker.check_running_operation(
+            "operation-1",
+            "RUNNING",
+            now=current_time[0],
+        ) is None
+
+    current_time[0] = 249.0
+    assert tracker.check_running_operation("operation-1", "RUNNING") is None
+    current_time[0] = 250.0
+    stalled = tracker.check_running_operation("operation-1", "RUNNING")
+    assert stalled is not None
+    assert stalled.step_id == "step-1"
+    assert stalled.stalled_seconds == 120.0
+
+
+def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    current_time = [0.0]
+    events: list[str] = []
+    diagnostics = tmp_path / "s4-stall-test"
+    tracker = WorkerHeartbeatTracker(
+        stall_threshold_seconds=2,
+        monotonic=lambda: current_time[0],
+    )
+    monitor = WorkerHeartbeatMonitor(
+        env={},
+        repository_id="repository-1",
+        repository_url="http://repository-service",
+        tracker=tracker,
+        diagnostic_capture=lambda **_kwargs: events.append("diagnostics") or diagnostics,
+    )
+
+    class OperationClient:
+        def get(self, _path: str) -> httpx.Response:
+            return httpx.Response(200, json={"status": "RUNNING"})
+
+    def sleep(delay: float) -> None:
+        current_time[0] += delay
+
+    monkeypatch.setattr(time, "monotonic", lambda: current_time[0])
+    monkeypatch.setattr(time, "sleep", sleep)
+    try:
+        with pytest.raises(WorkerStalledFailure) as caught:
+            real_dump_journey._poll_operation(
+                cast(httpx.Client, OperationClient()),
+                "operation-1",
+                stage="t4 v1 Submit",
+                timeout_seconds=10,
+                heartbeat_monitor=monitor,
+            )
+    finally:
+        events.append("teardown")
+
+    assert caught.value.reason == "worker_stalled"
+    assert caught.value.diagnostics == diagnostics
+    assert events == ["diagnostics", "teardown"]
+
+
+def test_operation_timeout_remains_distinct_from_worker_stall(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_time = [0.0]
+
+    class OperationClient:
+        def get(self, _path: str) -> httpx.Response:
+            return httpx.Response(200, json={"status": "RUNNING"})
+
+    monkeypatch.setattr(time, "monotonic", lambda: current_time[0])
+    monkeypatch.setattr(time, "sleep", lambda delay: current_time.__setitem__(0, current_time[0] + delay))
+    with pytest.raises(JourneyFailure, match="before timeout") as caught:
+        real_dump_journey._poll_operation(
+            cast(httpx.Client, OperationClient()),
+            "operation-1",
+            stage="t1 Preview",
+            timeout_seconds=3,
+        )
+    assert not isinstance(caught.value, WorkerStalledFailure)
 
 
 def test_preview_summary_requires_one_complete_pair() -> None:
@@ -866,6 +971,7 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
         "_compose_environment",
         lambda *_args, **_kwargs: {"COMPOSE_PROJECT_NAME": "unit-real-dump"},
     )
+    monkeypatch.setattr(real_dump_journey, "_repository_service_url", lambda _env: "http://repository")
     monkeypatch.setattr(
         real_dump_journey,
         "_offline_composite_comparison",
@@ -883,11 +989,38 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
 
     monkeypatch.setattr(real_dump_journey, "start_three_container_stack", start_stack)
 
+    events: list[str] = []
+
+    class FakeHeartbeatMonitor:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> FakeHeartbeatMonitor:
+            return self
+
+        def __exit__(self, *_args: Any) -> None:
+            return None
+
+        def check_operation(self, *_args: Any, **_kwargs: Any) -> None:
+            events.append("diagnostics")
+            raise WorkerStalledFailure(
+                stage="t4 v1 Submit",
+                operation_id="operation-1",
+                diagnostics=tmp_path / "s4-stall-test",
+            )
+
+    monkeypatch.setattr(real_dump_journey, "WorkerHeartbeatMonitor", FakeHeartbeatMonitor)
+
     def fail_tier(**_kwargs: Any) -> dict[str, Any]:
+        if failure_point == "worker stall":
+            cast(WorkerHeartbeatMonitor, _kwargs["heartbeat_monitor"]).check_operation(
+                "operation-1",
+                "RUNNING",
+                stage="t4 v1 Submit",
+            )
         raise JourneyFailure(failure_message)
 
     monkeypatch.setattr(real_dump_journey, "_run_tier", fail_tier)
-    events: list[str] = []
 
     def fake_run_compose(
         _env: dict[str, str],
@@ -906,9 +1039,13 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
     monkeypatch.setattr(real_dump_journey, "cleanup_compose_project_artifacts", record_cleanup)
 
     with pytest.raises(JourneyFailure, match=failure_message):
-        real_dump_journey.run_journey(tier_filter="t1")
+        real_dump_journey.run_journey(
+            tier_filter="t1",
+            keep_stack=failure_point == "worker stall",
+            requested_project_name="unit-real-dump" if failure_point == "worker stall" else None,
+        )
 
-    assert events == ["logs", "cleanup"]
+    assert events == (["diagnostics", "logs", "cleanup"] if failure_point == "worker stall" else ["logs", "cleanup"])
     compose_logs = list(log_directory.glob("*.compose.log"))
     assert len(compose_logs) == 1
     assert "all service logs" in compose_logs[0].read_text(encoding="utf-8")

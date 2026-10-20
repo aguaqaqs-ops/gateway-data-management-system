@@ -182,7 +182,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 清理清单：
 
 1. `git worktree remove --force /home/dev/gdds-p5-closure-s1`（需要 `--force`，因为含被忽略的 `.venv` 与 `target`），再 `git branch -d p5-closure/s1`。
-2. `/home/dev/gdds-p5-closure-s1-gate-logs/`：按 owner 意愿归档或删除；S1 的 `final-*` 日志是 `p5-s1-exit` 门禁证据，handoff 与第 3 次复审报告引用了它们。
+2. `/home/dev/gdds-p5-closure-s1-gate-logs/`：按 owner 意愿归档或删除；S1 的 `final-*` 日志是 `p5-s1-exit` 门禁证据，handoff 与第 3 次复审报告引用了它们。G12 起的日志在专用测试节点 `ct108-gw-dms` 的同名目录中，开发主机上没有。AGENTS.md 与 testing-conventions 把该节点的 `TMPDIR` 设在这个目录下的 `g12-default-tmp`；归档或删除前，先把 `TMPDIR` 改到别处并同步这两份文档。
 3. Docker 残留：每次权威 runner 都会留下以 project 命名的 backend/worker 镜像与卷（2026-10-10 实测 892 个镜像、76 个卷；2026-10-11 为 985 个镜像、76 个卷）。只在没有门禁运行时清理，
    **不得删除或重新 tag `gateway-repository-client-e2e:local`**（它同时是预装依赖基础镜像；删除会让下一次构建在慢网络上超时，S1 因此多跑了两次完整门禁）；该镜像层数过多时用 `docker export | docker import` 压平，而不是删除。
    G7 之后，预装依赖基础镜像是单独的 `gateway-repository-client-e2e-base:local`。这条禁令的范围由 owner 于 2026-10-18 澄清（见 §3 第 9 项）：禁止的是手工对这两个镜像执行 `docker rmi`、`docker tag` 或其他删除操作，以及任何会让 `-base:local` 被重建或删除的操作。权威 runner 按候选 label 以 `-base:local` 为底重建、并用 `-t` 改变 `:local` 的指向，属于预期行为。
@@ -256,6 +256,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 调试阶段已按 DC30 只跑 focused 测试；全量只发生在各阶段的最终 V 上，各一次。决议见 [决议记录](p5-arch-closure-s0-owner-decisions.md) §16（DC33）。
 
 1. **按包沿用测试结果（规则与工具，需实施并独立审核）。**
+   - **状态：已完成（2026-10-20 终审通过，合并提交 `86a60e58da`；见 §3 第 10 项）。** 以下为实施时的记录。
    - **实施状态（2026-10-19）：** G12 闭包摘要、runner 包选择、单测和文档已在 `p5-g12` 实施。v7 audit hook 与 `python3 -I` manifest 补测对五包均未发现闭包外读取；专用节点 `ct108-gw-dms` 上 clean V=`62a4122f9ce97615113beae3bbbf6497b3ab2adf` 的完整权威 runner exit 0，逐包结果为 242 / 152 / 154 / backend 2,839+36 / repository_service 1,715+1 skipped+205。五包 Ruff/mypy 与 `import_rules` 0/0/6 通过。V self compare 五包均可沿用；S3 V 到 G12 V 五包均需运行；`shared_kernel` 单包实跑通过。新 V 的 H carried 判定将在 handoff 文档提交后、V runner 同一 LXC worktree 完成并记录；独立审核通过前不开始 S4。完整证据见 `plans/p5-arch-closure-g12-handoff.md`；main 上的状态由审核方合入时更新。
    - **目的：** 包的测试输入没有变化时，沿用上一次已验证 V 的结果，不再运行。后续阶段主要改 backend，预计每阶段可沿用 RS 与三个小包，约省 6 分钟；backend 一旦改动，其 Compose 旅程照常运行。
    - **测试输入闭包：** 对每个包定义保守的闭包，至少包括：
@@ -361,5 +362,10 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - **之后各阶段的提示词统一写为：** “不得手工 `docker rmi`、`docker tag` 或删除 `gateway-repository-client-e2e:local` 与 `-base:local`；权威 runner 按候选 label 重建 `:local` 属于预期行为。”
 
    已完成（2026-10-18）：按 owner 授权由审核方直接定稿，审核报告 `plans/p5-arch-closure-s3-independent-review.md`（结论通过），tag `p5-s3-exit` 在 `6b2b5fd0e1`，合并提交 `d3ce70df7a`；S3 worktree 与分支已清理。
-10. **G12 第 1 项（按包沿用测试结果，已完成，2026-10-19）**：在分支 `p5-g12` 实施；门禁 V 为 `62a4122f9ce97615113beae3bbbf6497b3ab2adf`，独立审核对象 H 为 `5fbae736b028d2c30b3fa73f60e44d3d67810eeb`。审核报告 `plans/p5-arch-closure-g12-independent-review.md` 结论通过、findings 为无；`p5-g12-exit` 已标记为 S4 的区间起点。未合并或推送；main 上的实施状态待审核方合入时更新。G12 第 2 项（真实数据按阶段确定范围）即时生效，S4 按 G12 中的范围执行。
-11. P5 exit：按 G10 清理。
+10. **G12 第 1 项（按包沿用测试结果，已完成）**：在分支 `p5-g12` 实施；门禁 V 为 `62a4122f9c`，H 为 `5fbae736b0`。初审通过（`plans/p5-arch-closure-g12-independent-review.md`），tag `p5-g12-exit` 在 `13d97dc2db`；2026-10-20 终审通过（同一报告 §终审），合并提交 `86a60e58da`。G12 第 2 项（真实数据按阶段确定范围）即时生效，S4 按 G12 中的范围执行。
+   终审的三项 finding 与 owner 决议（2026-10-20）：
+   - **G12-F1（实现缺陷，不会错误沿用；转入 S4 第一步）：** manifest 在 runner 开始时记录了 `gateway-repository-client-e2e:local` 与 `gateway-repository-service:local` 的本机 image ID，而这两个镜像正是被测运行自己会重建的（client 镜像以 HEAD 为候选 label，每换提交运行 RS Compose 测试都会重建；RS 镜像在 identity 变化时重建）。来源 runner 一旦重建它们，后续任何提交都无法沿用该包；RS 在文档提交上重跑又会重建 client 镜像，无法收敛。G12 自己的证据之所以没暴露，是因为 V 的 runner 之前，审计运行已在 V 上建好了 `:local`。修正方向：这两个镜像只记录 tag 名与决定其内容的输入（`-base:local`、python base、RS dependency-base 的 ID），不记录自身 ID。
+   - **G12-F2（规则）：** 专用测试节点使用 containerd image store，同一棵树连续两次全缓存构建，backend/worker 的 image ID 也不相同（`g12-H1-carried-backend-worker.log`）。carried 第 3 条的 image ID 比较在该节点上无法满足；G12 自身的退出实际依靠 H1 的 backend 实跑加 H1→H 的闭包相等。owner 决议：backend/worker 的身份改用 backend 包 manifest 在同一 worktree 中逐项相等来判定，不再比较 image ID（DC34 第二部分）。已同步修订 AGENTS.md 与 testing-conventions 的 carried 第 3 条。
+   - **G12-F3（规则）：** G12 实施期间 AGENTS.md 新增“所有测试、容器门禁和取证都在专用 LXC `ct108-gw-dms` 上执行”，owner 确认这是其要求，记为 DC34 第一部分。
+11. **S4 kickoff**（区间起点 `p5-g12-exit`）。S4 携带项：G12-F1，作为 S4 的第一步修复。修复改动 `vnext/scripts/`，S4 的门禁 V 因此五个包全部运行。
+12. P5 exit：按 G10 清理。

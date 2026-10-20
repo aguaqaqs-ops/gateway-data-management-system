@@ -237,13 +237,16 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
    - 带`gateway.p2r1.build-input-revision`与`gateway.p2r1.source-tree-sha256` label的镜像
      （repository-service）：在最终HEAD用`build_context_digest.py identity`重算，两项都等于`V`
      门禁所用镜像的label。`org.opencontainers.image.revision`随提交变化，不参与比较。
-   - 没有source identity label的镜像（backend、worker）：在运行`V`门禁的同一worktree中检出
-     最终HEAD后，两次构建之间不运行任何测试，用与`V`相同的构建命令重建（project名取自
-     provenance），image ID必须等于`V`的Compose provenance中实际运行容器的image ID。构建上下文带入worktree的本地状态：
-     文件权限位由创建文件的umask决定、git不记录，并且影响COPY层的缓存键；被忽略的残留目录
-     （例如只含`__pycache__`的旧包目录）会作为空目录进入镜像。换worktree重建通常得到不同ID
-     （G2审核实测，治理修订计划G6b），不得用另一个worktree的结果判定“等价”或“不等价”。
-     缓存层被清理导致ID变化时，按不等价处理并重跑。
+   - 没有source identity label的镜像（backend、worker）：以backend包的闭包manifest判定。在运行
+     `V`门禁的同一worktree中检出最终HEAD，用`python3 -I vnext/scripts/test_input_closure.py manifest
+     --package backend`计算，与`V`那次runner起始时记录的backend manifest用`compare`逐项比较，必须
+     为“可沿用”。backend manifest覆盖Compose使用的完整`vnext/` build context（tracked内容、本机权限
+     模式、Docker会发送的非Git内容）、Compose与Dockerfile、有效build设置、所选base镜像ID以及
+     Docker/Compose工具与daemon身份。专用测试节点`ct108-gw-dms`使用containerd image store，同一棵树
+     连续两次全缓存构建的image ID也不相同（G12终审实测），因此不再比较image ID（owner决议DC34）。
+     构建上下文带入worktree的本地状态（文件权限位由umask决定、git不记录；被忽略的残留目录）会改变
+     manifest，换worktree计算通常得到不同结果（治理修订计划G6b），不得用另一个worktree的结果判定
+     “等价”或“不等价”。
 
 任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
 评审逐项复核；复核不通过时不得以`carried`关闭finding。

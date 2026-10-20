@@ -14,6 +14,7 @@
 - 补充：2026-10-15 S2b t4 真实数据暂停后，owner 决议 Catalog 上限、读取失败的终态与 P5 的性能范围，记录为 DC31，见 §14；其中第三部分修订 DC30 的 B 层处理与业务容量目标的用法。
 - 补充：2026-10-17 owner 决议把 Phase 6 规划讨论稿的 V2 并入 S5，扩展 S5 的测量范围，记录为 DC32，见 §15。
 - 补充：2026-10-17 owner 决议缩短阶段取证耗时（按包沿用测试结果；真实数据按阶段改动面确定范围），记录为 DC33，见 §16；其中第二部分修订 DC30 的取证要求。
+- 补充：2026-10-20 owner 决议测试在专用节点上执行，并修订该节点上 backend/worker 的 carried 判定，记录为 DC34，见 §17。
 
 ```yaml
 record_kind: p5_arch_closure_s0_owner_decisions
@@ -558,3 +559,13 @@ implementation_authorized: no
   2. S3 为完整 t1–t4（已在进行；2026-10-17 第二次停止后，owner 修订为新 V 上 t4 完整、t1 冒烟，t2/t3 沿用 `f73deee604` 的结果，见治理修订计划 §3 第 9 项）；S4 为 t1–t3 完整运行、t4 只运行 v1 提交与 v2 Preview、`DIFFERENT_PROJECT` 用小档之间的跨档上传验证；S5 最终候选为完整 t1–t4。
   3. 不在 P5 内建设多档并发运行的基础设施。
 - **落点**：治理修订计划 G12；执行计划 §2 S4、§8.9；AGENTS.md「主线开发与阶段边界」。第一部分生效后，再同步 AGENTS.md「跑测试」「镜像身份等价」与 testing-conventions。
+
+## 17. 专用测试节点与该节点上的 carried 判定（DC34，2026-10-20）
+
+#### DC34 测试在专用节点上执行；backend/worker 的镜像身份改用闭包 manifest 判定
+
+- **来源**：G12 实施期间，测试迁移到专用 LXC `ct108-gw-dms`（128 CPU、96 GiB），AGENTS.md 随之新增专用节点规则；G12 终审发现该节点的 containerd image store 下，同一棵树连续两次全缓存构建的 backend/worker image ID 也不相同，carried 第 3 条无法满足（治理修订计划 §3 第 10 项，G12-F2、G12-F3）。
+- **决议**（repository owner，2026-10-20）：
+  1. **专用测试节点。** 所有测试、容器门禁和取证都在 `ct108-gw-dms` 上执行，不回退到开发主机；节点不可用或前提不满足时等待恢复。整机单飞（Dolt、Compose、8000 端口）等运行前提照旧适用于该节点。
+  2. **backend/worker 的 carried 判定。** 不再比较 image ID。在运行 `V` 门禁的同一 worktree 中检出最终 HEAD，计算 backend 包的闭包 manifest，与 `V` 那次 runner 起始时的 backend manifest 逐项相等，即视为 backend/worker 镜像身份相等。repository-service 仍按 build-input/source-tree label 判定。carried 的其余条件不变；发布与最终 production gate 仍须在最终 HEAD 重建并完整运行。
+- **落点**：AGENTS.md「跑测试」「镜像身份等价」；testing-conventions「镜像身份等价与结果沿用」；治理修订计划 §3 第 10 项。

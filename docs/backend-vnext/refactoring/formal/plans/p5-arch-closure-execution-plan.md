@@ -728,7 +728,7 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
 - 调试：只跑 focused 测试与出问题的那一段真实数据；可在未提交的 worktree 上运行；不跑完整 runner；这些运行不作为证据，
   日志可写到 `/home/dev/gdds-p5-closure-s1-gate-logs/<阶段>-debug-*`。真实数据的调试同样遵守整机单飞（Dolt 进程、Compose 栈、8000 端口）。
 - 取证：调试收敛后，在最终 V 上完整运行权威 runner 一次，随后在同一 V 上运行真实数据一次（preflight 与日志要求同 §8.1、AGENTS.md）。
-  真实数据的范围由阶段改动面决定，在阶段 kickoff 时写明，阶段退出前由 owner 确认；S3 为新 V 上的 t4 完整与 t1 冒烟、t2/t3 沿用 `f73deee604`（owner 2026-10-17，治理修订计划 §3 第 9 项），S5 最终候选为完整 t1–t4，S4 见 §2 S4（DC33，治理修订计划 G12）。
+  真实数据的范围由阶段改动面决定，在阶段 kickoff 时写明，阶段退出前由 owner 确认；S3 为新 V 上的 t4 完整与 t1 冒烟、t2/t3 沿用 `f73deee604`（owner 2026-10-17，治理修订计划 §3 第 9 项），S5 最终候选为完整 t1–t4，S4 见 §2 S4，2026-10-20 停止后的修订见治理修订计划 §3 第 11 项（DC33，治理修订计划 G12）。
   权威 runner 中闭包未变化的包，按治理修订计划 G12 第 1 项与 [testing-conventions.md](../../../testing-conventions.md) 的来源 V 规则沿用结果；S5 最终门禁仍运行全部包。
   闭包 manifest 包括该包实际 uv 环境的内容摘要（排除由锁定源码和解释器派生的 Python bytecode）及有效
   Hypothesis storage directory 和包内 `.pytest_cache` 的内容摘要；Hypothesis Unicode JSON gzip 以解压后的 payload 摘要。比较和来源 V 条件见 [AGENTS.md「跑测试」](../../../../../AGENTS.md) 与

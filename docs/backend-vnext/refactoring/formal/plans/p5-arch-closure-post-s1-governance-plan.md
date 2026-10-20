@@ -288,7 +288,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      | 阶段 | 范围 |
      | --- | --- |
      | S3（已完成） | 完整 t1–t4。2026-10-17 第二次停止后修订为：新 V 上完整运行 t4，t1 作冒烟；t2、t3 沿用 `f73deee604` 上的通过结果（见 §3 第 9 项） |
-     | S4 | t1–t3 完整运行；t4 只运行 v1 提交与 v2 Preview（SAME_PROJECT）；DIFFERENT_PROJECT 用小档之间的跨档上传验证；不运行 t4 的重传 Preview 与 History |
+     | S4 | t1–t3 完整运行；t4 只运行 v1 提交与 v2 Preview（SAME_PROJECT）；DIFFERENT_PROJECT 用小档之间的跨档上传验证；不运行 t4 的重传 Preview 与 History。2026-10-20 停止后修订为：新 V 上运行 t4 的 v1 Preview、v1 提交与 v2 Preview，跨档旅程，t1 冒烟；t2、t3 有条件沿用 `938d41d171` 的通过结果（见 §3 第 11 项） |
      | S5 最终候选 | 完整 t1–t4，按执行计划 §2 S5 保留 |
    - 不在 P5 内建设多档并发运行的基础设施。
    - 已同步修订：执行计划 §8.9、§2 S4 的真实数据验收、AGENTS.md「主线开发与阶段边界」中 DC30 的表述。
@@ -368,4 +368,23 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - **G12-F2（规则）：** 专用测试节点使用 containerd image store，同一棵树连续两次全缓存构建，backend/worker 的 image ID 也不相同（`g12-H1-carried-backend-worker.log`）。carried 第 3 条的 image ID 比较在该节点上无法满足；G12 自身的退出实际依靠 H1 的 backend 实跑加 H1→H 的闭包相等。owner 决议：backend/worker 的身份改用 backend 包 manifest 在同一 worktree 中逐项相等来判定，不再比较 image ID（DC34 第二部分）。已同步修订 AGENTS.md 与 testing-conventions 的 carried 第 3 条。
    - **G12-F3（规则）：** G12 实施期间 AGENTS.md 新增“所有测试、容器门禁和取证都在专用 LXC `ct108-gw-dms` 上执行”，owner 确认这是其要求，记为 DC34 第一部分。
 11. **S4 kickoff**（区间起点 `p5-g12-exit`）。S4 携带项：G12-F1，作为 S4 的第一步修复。修复改动 `vnext/scripts/`，S4 的门禁 V 因此五个包全部运行。
+
+   2026-10-20 停止（V `938d41d171`，在 ct108 上的完整权威 runner exit 0；五包静态检查通过；`import_rules` 0 / 0 / 6）：
+   - t1–t3 完整旅程通过；t4 v1 Preview 通过，`table_count` 与 changed 均为 312，composite 435 行，与 S3 一致。
+   - t4 v1 Submit 在 4,047 s 预算内没有进入终态，运行 4,049 s 后按停止条件结束；没有运行 t4 v2、跨档旅程和 carried 判定。
+   - 审核方只读核查日志（`s4-realdata-t4-identity-938d41d171.log` 与对应 Compose 日志，均在 ct108）：
+     - 这不是变慢：S3 的同一步用时 800.757 s；S4 的 t2、t3 Submit 比 S3 更快（237→195 s、485→341 s）。
+     - worker 在 Submit 第三步（每秒查询一次 RS import 的状态）中，于 10:44:13 同时停止心跳和查询，此后没有任何输出；Submit 期间 worker 的 487 s CPU 基本都在前两步，之后不再消耗 CPU；容器没有退出；backend 与 RS 的 readyz 一直正常。
+     - ct108 的 `memory.events`、`pids.events` 均为 0，内存峰值约 31 GB。
+     - 卡住处的代码（`operations/`、worker runtime、repository client）不在 S4 的改动中；S3 的真实数据在开发主机上运行，这是 ct108 上第一次运行 t4。原因可能是 S4 引入，也可能是既有的偶发卡死或节点差异。
+
+   owner 决议（2026-10-20）：
+   - **不加长超时，在 S4 内修复，不另立治理项。** operation 永远停在运行中、没有自动恢复，属于 A 层缺陷。
+   - **real-data journey 增加 worker 停滞检测：** 心跳停滞超过阈值时，先在拆栈前保存诊断（worker 各线程的内核等待点与栈、Python 栈、容器状态、RS operation 状态、control DB 中该 operation 与租约的行、全部容器日志），再以独立的失败原因提前结束，不等满超时。只改 `vnext/backend/benchmarks/` 与对应测试。诊断留在 ct108 的日志目录，不进入 Git。允许在 ct108 上把 py-spy 装在仓库外，作为调试工具。
+   - **调试：** 先在 S4 代码上只复现 t4 v1 Preview 与 Submit；复现后在 S3 V `dc9c08a410` 上同样运行一次，区分 S4 回归与节点差异。在 S4 代码上连续两次没有复现，停止并交 owner。原因在节点环境、需要改 Dockerfile/Compose/依赖或 Contract 时，同样停止。
+   - **取证范围（修订 DC33 中 S4 的范围）：**
+     - 新 V 上运行权威 runner，闭包未变的包可按 G12 规则沿用 `938d41d171` 的运行；
+     - 真实数据运行 t4 的 v1 Preview、v1 Submit 与 v2 Preview，跨档 `DIFFERENT_PROJECT` 旅程，t1 作冒烟；
+     - t2、t3 沿用 `938d41d171` 的通过结果，前提是 `938d41d171..V` 不触及投影、比较、项目身份、composite、规范存储与 census 的业务路径；触及时重跑这两档。
+     - S5 最终候选仍完整运行 t1–t4。
 12. P5 exit：按 G10 清理。

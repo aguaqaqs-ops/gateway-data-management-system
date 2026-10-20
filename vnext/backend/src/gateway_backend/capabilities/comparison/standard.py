@@ -74,6 +74,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
     _column_map,
     _with_table_digest,
 )
+from gateway_backend.capabilities.comparison.replacement import compare_dataset_replacement
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     COMPARISON_PROJECTION_CONTRACT_VERSION,
     SCALAR_ENCODING_VERSION,
@@ -110,11 +111,7 @@ def compare_plan(
     if type(plan) is not ComparisonPlan:
         raise TypeError("plan must be ComparisonPlan")
     if plan.mode is ComparisonMode.DATASET_REPLACEMENT:
-        return DatasetReplacementResult(
-            pair_id=plan.pair_id,
-            status=PairResultStatus.CHANGED,
-            diagnostics=("DATASET_REPLACEMENT",),
-        )
+        return compare_dataset_replacement(plan)
     if plan.mode is not ComparisonMode.DETAILED:
         return FailedResult(
             pair_id=plan.pair_id,

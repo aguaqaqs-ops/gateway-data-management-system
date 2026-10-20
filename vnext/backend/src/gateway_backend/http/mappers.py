@@ -10,7 +10,11 @@ from gateway_backend.domain.workspace.models import (
     Workspace,
 )
 from gateway_backend.http.schemas.operation import OperationDiagnosticResponse, OperationResponse
-from gateway_backend.http.schemas.preview import PreviewResultResponse
+from gateway_backend.http.schemas.preview import (
+    PreviewArtifactRefResponse,
+    PreviewIdentityPairResponse,
+    PreviewResultResponse,
+)
 from gateway_backend.http.schemas.upload import SourceArtifactResponse, UploadRevisionResponse
 from gateway_backend.http.schemas.workspace import WorkspaceResponse
 from gateway_backend.operations.contracts import OperationRecord
@@ -68,6 +72,29 @@ def preview_result_to_response(state: PreviewReadState) -> PreviewResultResponse
         business_baseline_commit_id=result.business_baseline_commit_id,
         derived_stale=state.derived_stale,
         bundle_digest=result.digests.bundle_digest,
+        identity_assessment_set_digest=result.identity_assessment_set_digest.value,
+        identity_pairs=[
+            PreviewIdentityPairResponse(
+                pair_id=item.pair_id,
+                applicability=item.applicability.value,
+                status=item.status.value,
+                mode=item.mode.value,
+                assessment_ref=(
+                    None
+                    if item.assessment_ref is None
+                    else PreviewArtifactRefResponse(
+                        artifact_id=item.assessment_ref.artifact_id,
+                        media_type=item.assessment_ref.media_type,
+                        size_bytes=item.assessment_ref.size_bytes,
+                        raw_sha256=item.assessment_ref.raw_sha256.value,
+                    )
+                ),
+                assessment_digest=(
+                    None if item.assessment_digest is None else item.assessment_digest.value
+                ),
+            )
+            for item in result.identity_pairs
+        ],
         created_at=result.created_at,
     )
 

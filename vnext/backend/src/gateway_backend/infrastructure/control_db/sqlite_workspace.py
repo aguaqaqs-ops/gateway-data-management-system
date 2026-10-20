@@ -17,8 +17,12 @@ from gateway_backend.domain.workspace.models import (
     PreviewArtifactRef,
     PreviewAcceptanceRecord,
     PreviewCanonicalBindings,
+    PreviewIdentityPair,
     PreviewResult,
     PreviewResultDigests,
+    ProjectIdentityApplicability,
+    ProjectIdentityMode,
+    ProjectIdentityStatus,
     SourceArtifactBinding,
     SourceArtifactRole,
     UploadRevision,
@@ -406,6 +410,24 @@ def preview_result_to_row(result: PreviewResult) -> tuple[object, ...]:
             "modified_canonical_state_digest": result.canonical.modified_canonical_state_digest.value,
             "storage_projection_ruleset_digest": result.canonical.storage_projection_ruleset_digest.value,
         },
+        "identity_assessment_set_digest": result.identity_assessment_set_digest.value,
+        "identity_pairs": [
+            {
+                "applicability": item.applicability.value,
+                "assessment_digest": (
+                    None if item.assessment_digest is None else item.assessment_digest.value
+                ),
+                "assessment_ref": (
+                    None
+                    if item.assessment_ref is None
+                    else _preview_artifact_ref_to_document(item.assessment_ref)
+                ),
+                "mode": item.mode.value,
+                "pair_id": item.pair_id,
+                "status": item.status.value,
+            }
+            for item in result.identity_pairs
+        ],
         "bundle_artifact_id": result.bundle_artifact_id,
         "ready_closure_artifact_id": result.ready_closure_artifact_id,
     }
@@ -434,6 +456,9 @@ def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
     canonical_payload = binding.get("canonical")
     if type(canonical_payload) is not dict:
         raise ValueError("preview binding canonical must be an object")
+    identity_pairs_payload = binding.get("identity_pairs")
+    if type(identity_pairs_payload) is not list:
+        raise ValueError("preview binding identity_pairs must be an array")
     return PreviewResult(
         preview_result_id=_required_text(row, "preview_result_id"),
         workspace_id=_required_text(row, "workspace_id"),
@@ -478,10 +503,42 @@ def preview_result_from_row(row: Mapping[str, object]) -> PreviewResult:
                 str(canonical_payload["storage_projection_ruleset_digest"])
             ),
         ),
+        identity_assessment_set_digest=DigestRef(
+            str(binding["identity_assessment_set_digest"])
+        ),
+        identity_pairs=tuple(
+            _preview_identity_pair_from_document(item) for item in identity_pairs_payload
+        ),
         bundle_artifact_id=str(binding["bundle_artifact_id"]),
         ready_closure_artifact_id=str(binding["ready_closure_artifact_id"]),
         operation_id=_required_text(row, "operation_id"),
         created_at=_epoch_us_to_datetime(_required_int(row, "created_at_us")),
+    )
+
+
+def _preview_identity_pair_from_document(payload: object) -> PreviewIdentityPair:
+    if type(payload) is not dict or set(payload) != {
+        "applicability",
+        "assessment_digest",
+        "assessment_ref",
+        "mode",
+        "pair_id",
+        "status",
+    }:
+        raise ValueError("preview identity pair fields are invalid")
+    raw_ref = payload["assessment_ref"]
+    raw_digest = payload["assessment_digest"]
+    if raw_digest is not None and type(raw_digest) is not str:
+        raise ValueError("preview identity assessment digest is invalid")
+    return PreviewIdentityPair(
+        pair_id=str(payload["pair_id"]),
+        applicability=ProjectIdentityApplicability(str(payload["applicability"])),
+        status=ProjectIdentityStatus(str(payload["status"])),
+        mode=ProjectIdentityMode(str(payload["mode"])),
+        assessment_ref=(
+            None if raw_ref is None else _preview_artifact_ref_from_document(raw_ref)
+        ),
+        assessment_digest=None if raw_digest is None else DigestRef(raw_digest),
     )
 
 

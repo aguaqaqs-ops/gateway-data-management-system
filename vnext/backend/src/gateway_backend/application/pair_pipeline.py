@@ -8,6 +8,7 @@ from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
+from gateway_backend.artifacts.types import ArtifactRef
 
 from gateway_backend.capabilities.project_identity import (
     ProjectIdentityAssessment,
@@ -20,6 +21,8 @@ from gateway_backend.capabilities.comparison import (
     ComparisonRequest,
     ComparisonPlan,
     DetailedFactsResult,
+    DatasetReplacementResult,
+    ComparisonFacts,
     ComparisonMode,
     ComparisonRecordsClosure,
     FailedResult,
@@ -42,6 +45,8 @@ from gateway_backend.capabilities.surface_assembly import (
     SurfaceAssemblyResult,
     SurfaceAssemblyStatus,
     SurfaceIdentityAnnotation,
+    SurfaceArtifactIndexEntry,
+    SurfaceTableRefs,
     SurfaceRefScope,
     assemble_surface,
 )
@@ -69,9 +74,10 @@ class PreviewPairPipelineResult:
     comparison_digest: str
     risk_digest: str
     surface_digest: str
-    records_closure: ComparisonRecordsClosure
+    records_closure: ComparisonRecordsClosure | None
     surface_result: SurfaceAssemblyResult
-    identity_assessment: ProjectIdentityAssessment
+    identity_assessment: ProjectIdentityAssessment | None
+    identity_assessment_ref: ArtifactRef | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,15 +117,19 @@ def run_preview_pair_pipeline(
     on_cancel: Callable[[], None],
     view_id: str = PREVIEW_DEFAULT_VIEW_ID,
     rule_set: ComparisonRuleSet | None = None,
+    assess_identity: bool = True,
 ) -> PreviewPairPipelineResult:
-    assessment = preview_identity_assessment(before, current)
-    assessment_bytes = canonicalize_json_value(assessment.to_document())
-    assessment_ref = put_with_built_ref(
-        store,
-        assessment_bytes,
-        artifact_id=f"project-identity-{assessment.assessment_digest.value.removeprefix('sha256:')}",
-        media_type="application/json",
-    )
+    assessment: ProjectIdentityAssessment | None = None
+    assessment_ref = None
+    if assess_identity:
+        assessment = preview_identity_assessment(before, current)
+        assessment_bytes = canonicalize_json_value(assessment.to_document())
+        assessment_ref = put_with_built_ref(
+            store,
+            assessment_bytes,
+            artifact_id=f"project-identity-{assessment.assessment_digest.value.removeprefix('sha256:')}",
+            media_type="application/json",
+        )
     active_rules = rule_set or comparison_rule_set(migrated_table_ruleset_snapshot())
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -128,7 +138,7 @@ def run_preview_pair_pipeline(
         rule_set=active_rules,
         mode=(
             ComparisonMode.DATASET_REPLACEMENT
-            if assessment.status is ProjectIdentityStatus.DIFFERENT_PROJECT
+            if assessment is not None and assessment.status is ProjectIdentityStatus.DIFFERENT_PROJECT
             else ComparisonMode.DETAILED
         ),
     )
@@ -139,14 +149,19 @@ def run_preview_pair_pipeline(
         control=control,
         on_cancel=on_cancel,
         identity_annotation=SurfaceIdentityAnnotation(
-            status=assessment.status.value,
-            assessment_digest=assessment.assessment_digest,
+            status="NOT_APPLICABLE" if assessment is None else assessment.status.value,
+            assessment_digest=None if assessment is None else assessment.assessment_digest,
             assessment_ref=assessment_ref,
         ),
         show_keyless_fallback_hint=True,
     )
+    if not isinstance(surface.published, DetailedFactsResult):
+        raise PairPipelineError("history comparison did not produce detailed facts")
     records_closure = surface.published.records_closure
-    if records_closure is None:
+    if (
+        surface.comparison_facts.comparison_mode is ComparisonMode.DETAILED
+        and records_closure is None
+    ):
         raise PairPipelineError("records closure is missing")
     return PreviewPairPipelineResult(
         pair_id=pair_id,
@@ -156,6 +171,7 @@ def run_preview_pair_pipeline(
         records_closure=records_closure,
         surface_result=surface.surface_result,
         identity_assessment=assessment,
+        identity_assessment_ref=assessment_ref,
     )
 
 
@@ -208,7 +224,8 @@ class _ComparisonRiskSurfaceResult:
     risk_digest: str
     surface_digest: str
     surface_result: SurfaceAssemblyResult
-    published: DetailedFactsResult
+    published: DetailedFactsResult | DatasetReplacementResult
+    comparison_facts: ComparisonFacts
     risk_evaluation: RiskEvaluation | None
 
 
@@ -230,19 +247,26 @@ def _run_comparison_risk_surface(
     compared = compare_plan(plan)
     if isinstance(compared, FailedResult):
         raise PairPipelineError(f"pair comparison failed: {compared.diagnostics}")
-    if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
+    if isinstance(compared, DatasetReplacementResult):
+        if compared.facts is None:
+            raise PairPipelineError("replacement comparison did not produce facts")
+        published: DetailedFactsResult | DatasetReplacementResult = compared
+        comparison_facts = compared.facts
+    elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
+        published = publish_records_closure(compared, store)
+        if isinstance(published, FailedResult):
+            raise PairPipelineError(f"records closure failed: {published.diagnostics}")
+        if not isinstance(published, DetailedFactsResult) or published.facts is None:
+            raise PairPipelineError("records publication did not produce facts")
+        comparison_facts = published.facts
+    else:
         raise PairPipelineError("pair comparison did not produce facts")
-    published = publish_records_closure(compared, store)
-    if isinstance(published, FailedResult):
-        raise PairPipelineError(f"records closure failed: {published.diagnostics}")
-    if not isinstance(published, DetailedFactsResult) or published.facts is None:
-        raise PairPipelineError("records publication did not produce facts")
     if control.cancel_requested:
         on_cancel()
         raise PairPipelineCancelled
     risk = evaluate_risk(
         RiskEvaluationInput(
-            comparison_facts=published.facts,
+            comparison_facts=comparison_facts,
             risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
             risk_options=RiskOptions(),
         ),
@@ -252,7 +276,7 @@ def _run_comparison_risk_surface(
         raise PairPipelineError("risk evaluation failed")
     surface = assemble_surface(
         SurfaceAssemblyInput(
-            comparison_facts=published.facts,
+            comparison_facts=comparison_facts,
             surface_id=f"surface-{request.pair_id}",
             view_id=view_id,
             before_role="before",
@@ -260,6 +284,11 @@ def _run_comparison_risk_surface(
             records_closure=published.records_closure,
             risk_report=risk.risk_report,
             risk_annotation_closure=risk.risk_closure,
+            table_artifacts=(
+                _replacement_surface_table_artifacts(request)
+                if request.mode is ComparisonMode.DATASET_REPLACEMENT
+                else ()
+            ),
             keyless_fallback_tables=(
                 _keyless_fallback_table_names(request)
                 if show_keyless_fallback_hint
@@ -276,12 +305,42 @@ def _run_comparison_risk_surface(
         risk.risk_evaluation.risk_evaluation_digest.value if risk.risk_evaluation else ""
     )
     return _ComparisonRiskSurfaceResult(
-        comparison_digest=published.facts.comparison_digest.value,
+        comparison_digest=comparison_facts.comparison_digest.value,
         risk_digest=risk_digest,
         surface_digest=surface.surface.surface_digest.value,
         surface_result=surface,
         published=published,
+        comparison_facts=comparison_facts,
         risk_evaluation=risk.risk_evaluation,
+    )
+
+
+def _replacement_surface_table_artifacts(
+    request: ComparisonRequest,
+) -> tuple[SurfaceArtifactIndexEntry, ...]:
+    def table_map(bound: BoundSnapshotInput) -> dict[str, ArtifactRef]:
+        if bound.table_set is None:
+            raise PairPipelineError("replacement surface requires canonical table artifacts")
+        artifacts: dict[str, ArtifactRef] = {}
+        for table in bound.table_set.tables:
+            if table.artifact is None:
+                raise PairPipelineError(
+                    f"replacement surface table {table.descriptor.table_name} is missing its artifact"
+                )
+            artifacts[table.descriptor.table_name] = table.artifact.manifest_ref
+        return artifacts
+
+    before = table_map(request.before)
+    current = table_map(request.current)
+    return tuple(
+        SurfaceArtifactIndexEntry(
+            table_name=table_name,
+            table_refs=SurfaceTableRefs(
+                before_table_ref=before.get(table_name),
+                current_table_ref=current.get(table_name),
+            ),
+        )
+        for table_name in sorted(before.keys() | current.keys())
     )
 
 

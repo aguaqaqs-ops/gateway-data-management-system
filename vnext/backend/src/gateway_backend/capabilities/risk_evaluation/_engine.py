@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from gateway_backend.artifacts import ArtifactStorePort
 from gateway_backend.capabilities.comparison.contracts import (
+    ComparisonMode,
     ComparisonRecordKind,
     ComparisonRecordsClosure,
     ComparisonTableStatus,
@@ -63,6 +64,7 @@ _LEVEL_RANK: dict[RiskLevel, int] = {
     RiskLevel.LOW: 1,
 }
 _MESSAGES: dict[RiskReasonCode, str] = {
+    RiskReasonCode.PROJECT_IDENTITY_MISMATCH: "project identity differs; dataset replacement requires review",
     RiskReasonCode.TABLE_ADDED: "table added",
     RiskReasonCode.TABLE_DELETED: "table deleted",
     RiskReasonCode.SCHEMA_CHANGED: "schema changed",
@@ -119,6 +121,14 @@ def evaluate_risk(
     pair_started = context.clock()
     try:
         rules = validate_risk_ruleset(evaluation_input.risk_ruleset)
+        if evaluation_input.comparison_facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT:
+            return _publish_result(
+                evaluation_input,
+                [],
+                artifact_store,
+                execution_policy,
+                degraded=False,
+            )
         source_tables = evaluation_input.comparison_facts.tables
         if len(source_tables) > execution_policy.max_risk_tables_per_pair:
             raise _PairFailure("max_risk_tables_per_pair exceeded")
@@ -447,15 +457,32 @@ def _finish_result(
     degraded: bool,
 ) -> RiskEvaluationResult:
     levels = tuple(item.risk_level for item in table_risks)
-    reason_codes = tuple(
-        sorted({code for item in table_risks for code in item.reason_codes}, key=lambda value: value.value)
+    is_replacement = (
+        evaluation_input.comparison_facts.comparison_mode is ComparisonMode.DATASET_REPLACEMENT
     )
-    summary = RiskSummary(
-        risk_level=None if not levels else max(levels, key=lambda value: _LEVEL_RANK[value]),
-        reason_codes=reason_codes,
-        table_count=len(table_risks),
-        annotation_count=sum(item.annotation_count for item in table_risks),
-    )
+    if is_replacement:
+        pair_rule = next(
+            item
+            for item in evaluation_input.risk_ruleset.rules
+            if item.rule_id is RiskRuleId.PROJECT_IDENTITY_MISMATCH
+        )
+        reason_codes = (reason_for(pair_rule),)
+        summary = RiskSummary(
+            risk_level=level_for(pair_rule),
+            reason_codes=reason_codes,
+            table_count=0,
+            annotation_count=0,
+        )
+    else:
+        reason_codes = tuple(
+            sorted({code for item in table_risks for code in item.reason_codes}, key=lambda value: value.value)
+        )
+        summary = RiskSummary(
+            risk_level=None if not levels else max(levels, key=lambda value: _LEVEL_RANK[value]),
+            reason_codes=reason_codes,
+            table_count=len(table_risks),
+            annotation_count=sum(item.annotation_count for item in table_risks),
+        )
     ruleset_digest = evaluation_input.risk_ruleset.risk_ruleset_digest
     if ruleset_digest is None:
         raise _PairFailure("risk ruleset digest is missing")

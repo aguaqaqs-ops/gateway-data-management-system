@@ -129,6 +129,7 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
         "baseline_canonical_state_digest",
         "modified_canonical_state_digest",
         "storage_projection_ruleset_digest",
+        "baseline_is_initial",
     }
     for key in (
         "canonicalization_manifest_digest",
@@ -143,6 +144,7 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
     assert isinstance(canonical["canonicalization_manifest_ref"], dict)
     assert (canonical["initial_canonicalization_manifest_ref"] is not None) is full
     assert (canonical["initial_canonicalization_manifest_digest"] is not None) is full
+    assert type(canonical["baseline_is_initial"]) is bool
 
 
 def test_full_assemble_checkpoint_contains_dual_pair_closure(tmp_path: Path) -> None:
@@ -492,10 +494,21 @@ def test_empty_baseline_assemble_produces_ready_closure_and_canonical_bindings(
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
     assemble_state = _preview_assemble_state(harness, envelope.job_state)
     assert assemble_state["required_refs"]
+    identity_pairs = assemble_state["identity_pairs"]
+    assert isinstance(identity_pairs, list)
     if input_completeness is InputCompleteness.FULL:
         assert assemble_state["pair_ids"] == ["baseline_to_initial", "initial_to_modified"]
+        assert isinstance(identity_pairs[0], dict)
+        assert identity_pairs[0]["applicability"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["status"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["assessment_ref"] is None
     else:
         assert assemble_state["pair_ids"] == ["initial_to_modified"]
+        assert isinstance(identity_pairs[0], dict)
+        assert identity_pairs[0]["applicability"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["status"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["assessment_ref"] is None
+    assert isinstance(assemble_state["identity_assessment_set_digest"], str)
     digests = assemble_state["digests"]
     assert isinstance(digests, dict)
     preview_bundle_digest = digests["bundle_digest"]

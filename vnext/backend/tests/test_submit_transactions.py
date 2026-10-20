@@ -100,7 +100,12 @@ from tests.support.baseline_fixtures import (
     seed_provisioned_mapping_with_head,
     upsert_provisioned_mapping_row,
 )
-from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_baseline_head, make_identity
+from tests.support.workspace_fixtures import (
+    FixedScopeResolutionPort,
+    make_baseline_head,
+    make_identity,
+    make_not_applicable_preview_identity,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -293,6 +298,7 @@ def _submit_job_registry() -> JobDefinitionRegistry:
 
 
 def _preview_result(workspace_id: str) -> PreviewResult:
+    identity_digest, identity_pairs = make_not_applicable_preview_identity()
     return PreviewResult(
         preview_result_id="pr-1",
         workspace_id=workspace_id,
@@ -315,6 +321,8 @@ def _preview_result(workspace_id: str) -> PreviewResult:
             bundle_digest="sha256:preview-canonical",
         ),
         canonical=make_preview_canonical_bindings(),
+        identity_assessment_set_digest=identity_digest,
+        identity_pairs=identity_pairs,
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-preview-1",

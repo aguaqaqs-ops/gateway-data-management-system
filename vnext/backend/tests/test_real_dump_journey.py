@@ -829,6 +829,8 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
     assert result == 0
     assert calls == {
         "tier_filter": "t1",
+        "scope": "full",
+        "cross_project": False,
         "from_step": "v2-preview",
         "keep_stack": True,
         "requested_project_name": "s2b-debug",
@@ -867,7 +869,7 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
     monkeypatch.setattr(
         real_dump_journey,
         "_offline_composite_comparison",
-        lambda **_kwargs: None,
+            lambda **_kwargs: {"counts": {}, "elapsed_seconds": 0.0},
     )
     monkeypatch.setattr(
         real_dump_journey,
@@ -915,6 +917,7 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
 
 def test_debug_step_order_covers_every_business_action() -> None:
     assert JOURNEY_STEP_IDS[0] == "v1-workspace"
-    assert JOURNEY_STEP_IDS[-1] == "history"
+    assert JOURNEY_STEP_IDS.index("history") < JOURNEY_STEP_IDS.index("cross-source-workspace")
+    assert JOURNEY_STEP_IDS[-1] == "cross-replacement-archive"
     assert "v1-submit" in JOURNEY_STEP_IDS
     assert "repeat-v1-submit" in JOURNEY_STEP_IDS

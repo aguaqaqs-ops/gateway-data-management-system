@@ -36,7 +36,6 @@ from gateway_backend.application.workspace.ports import WorkspaceControlTransact
 from gateway_backend.application.pair_pipeline import (
     PairPipelineCancelled,
     PairPipelineError,
-    PreviewIdentityStatus,
     PreviewPairPipelineResult as _PairPipelineResult,
     run_preview_pair_pipeline,
 )
@@ -328,27 +327,6 @@ class _CanonicalPreviewMetadata:
 class _MaterializedPreviewInputs:
     sides: dict[str, BoundSnapshotInput]
     canonical: _CanonicalPreviewMetadata
-
-
-@dataclass(frozen=True, slots=True)
-class _PreviewIdentityAssessment:
-    schema_version: str
-    rule_version: str
-    before_snapshot_digest: DigestRef
-    current_snapshot_digest: DigestRef
-    status: PreviewIdentityStatus
-    assessment_digest: DigestRef
-    comparable_columns: tuple[str, ...] = ()
-    before_row_count: int = 0
-    current_row_count: int = 0
-    before_distinct_entry_count: int = 0
-    current_distinct_entry_count: int = 0
-    matched_entry_count: int = 0
-    before_entry_set_digest: DigestRef | None = None
-    current_entry_set_digest: DigestRef | None = None
-    diagnostics: tuple[object, ...] = ()
-    requires_continuation_confirmation: bool = False
-    requires_submit_confirmation: bool = False
 
 
 def preview_job_definitions() -> tuple[JobDefinition, ...]:

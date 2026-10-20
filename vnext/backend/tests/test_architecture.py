@@ -51,6 +51,7 @@ CAPABILITY_OWNERS = frozenset(
         "bundle_assembly",
         "mutation_planning",
         "external_target_sync",
+        "project_identity",
     }
 )
 
@@ -70,6 +71,7 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),
     "external_target_sync": frozenset({"mutation_planning"}),
+    "project_identity": frozenset({"snapshot_materialization", "table_access"}),
 }
 
 FORBIDDEN_IMPORT_PREFIXES = (

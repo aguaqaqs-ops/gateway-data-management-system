@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
-from gateway_backend.artifacts.store import ArtifactStorePort
+from gateway_backend.artifacts.store import ArtifactStorePort, put_with_built_ref
+
+from gateway_backend.capabilities.project_identity import (
+    ProjectIdentityAssessment,
+    ProjectIdentityInput,
+    ProjectIdentityStatus,
+    assess_project_identity,
+)
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
     ComparisonRequest,
@@ -48,40 +55,12 @@ from gateway_backend.operations.worker import ExecutionControl
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
 
 
-class PreviewIdentityStatus(StrEnum):
-    SAME_PROJECT = "SAME_PROJECT"
-    DIFFERENT_PROJECT = "DIFFERENT_PROJECT"
-    UNVERIFIABLE = "UNVERIFIABLE"
-    NOT_APPLICABLE = "NOT_APPLICABLE"
-
-
 class PairPipelineError(Exception):
     """Pair pipeline failed before the job-specific error wrapper."""
 
 
 class PairPipelineCancelled(Exception):
     """Pair pipeline observed cancellation after publishing the operation terminal."""
-
-
-@dataclass(frozen=True, slots=True)
-class PreviewIdentityAssessment:
-    schema_version: str
-    rule_version: str
-    before_snapshot_digest: DigestRef
-    current_snapshot_digest: DigestRef
-    status: PreviewIdentityStatus
-    assessment_digest: DigestRef
-    comparable_columns: tuple[str, ...] = ()
-    before_row_count: int = 0
-    current_row_count: int = 0
-    before_distinct_entry_count: int = 0
-    current_distinct_entry_count: int = 0
-    matched_entry_count: int = 0
-    before_entry_set_digest: DigestRef | None = None
-    current_entry_set_digest: DigestRef | None = None
-    diagnostics: tuple[object, ...] = ()
-    requires_continuation_confirmation: bool = False
-    requires_submit_confirmation: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +71,7 @@ class PreviewPairPipelineResult:
     surface_digest: str
     records_closure: ComparisonRecordsClosure
     surface_result: SurfaceAssemblyResult
+    identity_assessment: ProjectIdentityAssessment
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,17 +88,16 @@ class HistoryPairPipelineResult:
 def preview_identity_assessment(
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
-) -> PreviewIdentityAssessment:
-    assessment_digest = raw_blob_digest(
-        f"{before.snapshot.snapshot_digest.value}:{current.snapshot.snapshot_digest.value}".encode()
-    )
-    return PreviewIdentityAssessment(
-        schema_version="project-identity-assessment/v1",
-        rule_version="version-manager-overlap/v1",
-        before_snapshot_digest=before.snapshot.snapshot_digest,
-        current_snapshot_digest=current.snapshot.snapshot_digest,
-        status=PreviewIdentityStatus.SAME_PROJECT,
-        assessment_digest=assessment_digest,
+) -> ProjectIdentityAssessment:
+    return assess_project_identity(
+        ProjectIdentityInput(
+            snapshot_digest=before.snapshot.snapshot_digest,
+            table_set=before.table_set,
+        ),
+        ProjectIdentityInput(
+            snapshot_digest=current.snapshot.snapshot_digest,
+            table_set=current.table_set,
+        ),
     )
 
 
@@ -134,6 +113,13 @@ def run_preview_pair_pipeline(
     rule_set: ComparisonRuleSet | None = None,
 ) -> PreviewPairPipelineResult:
     assessment = preview_identity_assessment(before, current)
+    assessment_bytes = canonicalize_json_value(assessment.to_document())
+    assessment_ref = put_with_built_ref(
+        store,
+        assessment_bytes,
+        artifact_id=f"project-identity-{assessment.assessment_digest.value.removeprefix('sha256:')}",
+        media_type="application/json",
+    )
     active_rules = rule_set or comparison_rule_set(migrated_table_ruleset_snapshot())
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -142,7 +128,7 @@ def run_preview_pair_pipeline(
         rule_set=active_rules,
         mode=(
             ComparisonMode.DATASET_REPLACEMENT
-            if assessment.status is PreviewIdentityStatus.DIFFERENT_PROJECT
+            if assessment.status is ProjectIdentityStatus.DIFFERENT_PROJECT
             else ComparisonMode.DETAILED
         ),
     )
@@ -155,6 +141,7 @@ def run_preview_pair_pipeline(
         identity_annotation=SurfaceIdentityAnnotation(
             status=assessment.status.value,
             assessment_digest=assessment.assessment_digest,
+            assessment_ref=assessment_ref,
         ),
         show_keyless_fallback_hint=True,
     )
@@ -168,6 +155,7 @@ def run_preview_pair_pipeline(
         surface_digest=surface.surface_digest,
         records_closure=records_closure,
         surface_result=surface.surface_result,
+        identity_assessment=assessment,
     )
 
 

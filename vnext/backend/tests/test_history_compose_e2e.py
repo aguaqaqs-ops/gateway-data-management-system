@@ -36,6 +36,7 @@ from tests.support.compose_gate_harness import (
     read_repository_table_rows,
     require_docker,
     resolve_main_commit_id,
+    resolve_archive_preview_anomalies,
     run_accept_to_submission_read_journey,
     run_compose,
     start_three_container_stack,
@@ -406,15 +407,10 @@ def test_compose_history_compare_journey_zero_write_restart(
                 candidates_body,
                 str(journey_a["submission_id"]),
             )
-            sibling = _candidate_for_submission(
-                candidates_body,
-                str(journey_b["submission_id"]),
-            )
-
             preview = archiver.post("/v1/archive-plan-preview", json={"selected": selected})
             assert preview.status_code == 200, preview.text
             preview_body = cast(dict[str, Any], preview.json())
-            anomaly = preview_body["anomalies"][0]
+            assert len(preview_body["anomalies"]) == 2
 
             confirm = archiver.post(
                 "/v1/archive-confirmations",
@@ -431,25 +427,14 @@ def test_compose_history_compare_journey_zero_write_restart(
                 },
             )
             assert confirm.status_code == 201, confirm.text
-            resolve = archiver.post(
-                "/v1/archive-anomaly-resolutions",
-                headers=_auth_headers(idempotency_key="history-archive-resolve"),
-                json={
-                    "expected_baseline_node_id": preview_body["head"]["business_baseline_node_id"],
-                    "expected_baseline_head_version": preview_body["head"]["baseline_head_version"],
-                    "selected": selected,
-                    "candidate_set_digest": preview_body["candidate_set_digest"],
-                    "subject_digest": anomaly["subject_digest"],
-                    "expected_sequence": 0,
-                    "action": "ACKNOWLEDGE_EXCLUSION",
-                    "subject_kind": "APPROVED_SIBLING_EXCLUDED",
-                    "reason": "acknowledge sibling exclusion",
-                    "issue_code": "APPROVED_SIBLING_EXCLUDED",
-                    "target_submission_id": sibling["submission_id"],
-                    "target_candidate_digest": sibling["expected_candidate_digest"],
-                },
+            anomaly_resolution_refs = resolve_archive_preview_anomalies(
+                archiver,
+                preview_body=preview_body,
+                selected=selected,
+                token=ARCHIVER_TOKEN,
+                idempotency_key_prefix="history-archive-resolve",
+                reason="reviewed history archive anomaly",
             )
-            assert resolve.status_code == 201, resolve.text
 
             ready_preview = archiver.post(
                 "/v1/archive-plan-preview",
@@ -472,12 +457,7 @@ def test_compose_history_compare_journey_zero_write_restart(
                             "sequence": confirm.json()["sequence"],
                         }
                     ],
-                    "anomaly_resolution_refs": [
-                        {
-                            "subject_digest": anomaly["subject_digest"],
-                            "sequence": resolve.json()["sequence"],
-                        }
-                    ],
+                    "anomaly_resolution_refs": anomaly_resolution_refs,
                 },
             )
             assert start.status_code == 201, start.text

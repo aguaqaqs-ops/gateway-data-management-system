@@ -35,6 +35,7 @@ from tests.support.compose_gate_harness import (
     read_repository_catalog,
     require_docker,
     resolve_main_commit_id,
+    resolve_archive_preview_anomalies,
     run_accept_to_submission_read_journey,
     start_three_container_stack,
 )
@@ -171,6 +172,14 @@ def _archive_submission(client: httpx.Client, submission_id: str) -> dict[str, A
         },
     )
     assert confirmation.status_code == 201, confirmation.text
+    anomaly_resolution_refs = resolve_archive_preview_anomalies(
+        client,
+        preview_body=preview_body,
+        selected=selected,
+        token=ARCHIVER_TOKEN,
+        idempotency_key_prefix="ordered-archive-resolution",
+        reason="reviewed archive anomaly",
+    )
     ready = client.post("/v1/archive-plan-preview", json={"selected": selected})
     assert ready.status_code == 200, ready.text
     ready_body = cast(dict[str, Any], ready.json())
@@ -191,6 +200,7 @@ def _archive_submission(client: httpx.Client, submission_id: str) -> dict[str, A
                     "sequence": confirmation.json()["sequence"],
                 }
             ],
+            "anomaly_resolution_refs": anomaly_resolution_refs,
         },
     )
     assert started.status_code == 201, started.text

@@ -1548,6 +1548,57 @@ def poll_submit_attempt(
     raise RuntimeError(f"submit attempt did not reach terminal state: {submit_attempt_id}")
 
 
+def resolve_archive_preview_anomalies(
+    client: httpx.Client,
+    *,
+    preview_body: dict[str, Any],
+    selected: dict[str, Any],
+    token: str,
+    idempotency_key_prefix: str,
+    reason: str,
+) -> list[dict[str, Any]]:
+    action_by_kind = {
+        "APPROVED_SIBLING_EXCLUDED": "ACKNOWLEDGE_EXCLUSION",
+        "PROJECT_IDENTITY_EXCEPTION": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+    }
+    references: list[dict[str, Any]] = []
+    for index, raw_anomaly in enumerate(preview_body["anomalies"]):
+        anomaly = cast(dict[str, Any], raw_anomaly)
+        subject_kind = str(anomaly["subject_kind"])
+        action = action_by_kind.get(subject_kind)
+        if action is None:
+            raise AssertionError(f"unsupported archive anomaly subject kind: {subject_kind}")
+        response = client.post(
+            "/v1/archive-anomaly-resolutions",
+            headers=compose_auth_headers(
+                token=token,
+                idempotency_key=f"{idempotency_key_prefix}-{index}",
+            ),
+            json={
+                "expected_baseline_node_id": preview_body["head"]["business_baseline_node_id"],
+                "expected_baseline_head_version": preview_body["head"]["baseline_head_version"],
+                "selected": selected,
+                "candidate_set_digest": preview_body["candidate_set_digest"],
+                "subject_digest": anomaly["subject_digest"],
+                "expected_sequence": 0,
+                "action": action,
+                "subject_kind": subject_kind,
+                "reason": reason,
+                "issue_code": anomaly["issue_code"],
+                "target_submission_id": anomaly["target_submission_id"],
+                "target_candidate_digest": anomaly["target_candidate_digest"],
+            },
+        )
+        assert response.status_code == 201, response.text
+        references.append(
+            {
+                "subject_digest": anomaly["subject_digest"],
+                "sequence": response.json()["sequence"],
+            }
+        )
+    return references
+
+
 def run_accept_to_submission_read_journey(
     env: dict[str, str],
     *,
@@ -1557,6 +1608,7 @@ def run_accept_to_submission_read_journey(
     expected_baseline_node_id: str = BASELINE_NODE_ID,
     expected_baseline_head_version: int = 0,
     expected_submit_code: str | None = None,
+    identity_confirmation_reason: str | None = "Compose journey accepted preview identity findings",
     preview_only: bool = False,
     include_preview_surfaces: bool = False,
     upload_files_factory: Callable[[int], dict[str, tuple[str, bytes, str]]] | None = None,
@@ -1612,7 +1664,9 @@ def run_accept_to_submission_read_journey(
             f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}",
         )
         assert preview_read.status_code == 200, preview_read.text
-        assert preview_read.json()["business_baseline_commit_id"] == initial_commit_id
+        preview_result_body = cast(dict[str, Any], preview_read.json())
+        assert preview_result_body["business_baseline_commit_id"] == initial_commit_id
+        identity_pairs = cast(list[dict[str, Any]], preview_result_body["identity_pairs"])
         preview_bundle_response = client.get(
             f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
         )
@@ -1628,20 +1682,48 @@ def run_accept_to_submission_read_journey(
                 "preview_result_id": preview_result_id,
                 "preview_summaries": preview_summaries,
                 "preview_surfaces": read_preview_surface_table_states(env, preview_bundle),
+                "identity_pairs": identity_pairs,
+                "identity_assessment_set_digest": preview_result_body[
+                    "identity_assessment_set_digest"
+                ],
             }
 
+        submit_body: dict[str, Any] = {
+            "expected_workspace_version": workspace_row["optimistic_version"],
+            "upload_revision_id": upload_body["upload_revision_id"],
+            "preview_result_id": preview_result_id,
+            "generation": workspace_row["generation"],
+            "expected_baseline_node_id": expected_baseline_node_id,
+            "expected_baseline_head_version": expected_baseline_head_version,
+            "options": {},
+        }
+        required_actions = {
+            "DIFFERENT_PROJECT": "ACCEPT_DATASET_REPLACEMENT",
+            "UNVERIFIABLE": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+        }
+        actions = {
+            required_actions[pair["status"]]
+            for pair in identity_pairs
+            if pair["status"] in required_actions
+        }
+        identity_confirmations = [
+            {
+                "action": action,
+                "assessment_set_digest": preview_result_body["identity_assessment_set_digest"],
+                "reason": identity_confirmation_reason,
+            }
+            for action in (
+                "ACCEPT_DATASET_REPLACEMENT",
+                "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+            )
+            if action in actions
+        ]
+        if expected_submit_code is None and identity_confirmation_reason is not None:
+            submit_body["identity_confirmations"] = identity_confirmations
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
             headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-submit"),
-            json={
-                "expected_workspace_version": workspace_row["optimistic_version"],
-                "upload_revision_id": upload_body["upload_revision_id"],
-                "preview_result_id": preview_result_id,
-                "generation": workspace_row["generation"],
-                "expected_baseline_node_id": expected_baseline_node_id,
-                "expected_baseline_head_version": expected_baseline_head_version,
-                "options": {},
-            },
+            json=submit_body,
         )
         if expected_submit_code is not None:
             assert accepted.status_code == 409, accepted.text
@@ -1652,6 +1734,10 @@ def run_accept_to_submission_read_journey(
                 "preview_summaries": preview_summaries,
                 "preview_surfaces": read_preview_surface_table_states(env, preview_bundle),
                 "submit_error_code": expected_submit_code,
+                "identity_pairs": identity_pairs,
+                "identity_assessment_set_digest": preview_result_body[
+                    "identity_assessment_set_digest"
+                ],
             }
         assert accepted.status_code == 202, accepted.text
         accepted_body = accepted.json()
@@ -1680,6 +1766,11 @@ def run_accept_to_submission_read_journey(
             "submission_id": attempt["submission_id"],
             "preview_result_id": preview_result_id,
             "preview_summaries": preview_summaries,
+            "identity_pairs": identity_pairs,
+            "identity_confirmations": identity_confirmations,
+            "identity_assessment_set_digest": preview_result_body[
+                "identity_assessment_set_digest"
+            ],
         }
         if include_preview_surfaces:
             result["preview_surfaces"] = read_preview_surface_table_states(env, preview_bundle)

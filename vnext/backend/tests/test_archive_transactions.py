@@ -62,9 +62,14 @@ def test_identity_exception_requires_reasoned_resolution_before_archive(db_path:
         confirmed_at=TS_ARCHIVE,
     )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
+        encoded_confirmations = _encode_identity_confirmations((confirmation,))
+        unit_of_work.connection.execute(
+            "UPDATE submit_attempt_records SET identity_confirmations = ? WHERE submit_attempt_id = ?",
+            (encoded_confirmations, submission.submit_attempt_id),
+        )
         unit_of_work.connection.execute(
             "UPDATE submission_records SET identity_confirmations = ? WHERE submission_id = ?",
-            (_encode_identity_confirmations((confirmation,)), seed.submission_id),
+            (encoded_confirmations, seed.submission_id),
         )
 
     preview = preview_archive_plan(

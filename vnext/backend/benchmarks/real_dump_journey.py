@@ -1,4 +1,4 @@
-"""Run the S2b real dump Preview/Submit/History journey from the host.
+"""Run the S2b and S4 real dump journeys from the host.
 
 The source packages are read-only inputs. Journey checks use public HTTP APIs;
 the public History result exposes a pair total and digests, while its bundle
@@ -188,6 +188,18 @@ JOURNEY_STEP_IDS = (
     "v2-repository-read",
     "v2-approve",
     "history",
+    "cross-source-workspace",
+    "cross-source-upload",
+    "cross-source-preview",
+    "cross-source-submit",
+    "cross-source-approve",
+    "cross-source-archive",
+    "cross-replacement-workspace",
+    "cross-replacement-upload",
+    "cross-replacement-preview",
+    "cross-replacement-submit",
+    "cross-replacement-approve",
+    "cross-replacement-archive",
 )
 
 
@@ -803,6 +815,42 @@ def _assert_preview_summaries(
     return dict(totals)
 
 
+def _assert_identity_pair(
+    preview: Mapping[str, Any],
+    *,
+    expected_status: str,
+    expected_mode: str,
+) -> dict[str, str]:
+    result = preview.get("result")
+    if not isinstance(result, dict):
+        raise JourneyFailure("Preview result is missing project identity facts")
+    assessment_set_digest = result.get("identity_assessment_set_digest")
+    if (
+        type(assessment_set_digest) is not str
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", assessment_set_digest) is None
+    ):
+        raise JourneyFailure("Preview identity assessment set digest is invalid")
+    pairs = result.get("identity_pairs")
+    if not isinstance(pairs, list) or len(pairs) != 1 or not isinstance(pairs[0], dict):
+        raise JourneyFailure("Preview identity assessment must contain exactly one pair")
+    pair = cast(dict[str, Any], pairs[0])
+    expected_applicability = (
+        "NOT_APPLICABLE" if expected_status == "NOT_APPLICABLE" else "APPLICABLE"
+    )
+    if (
+        pair.get("status") != expected_status
+        or pair.get("mode") != expected_mode
+        or pair.get("applicability") != expected_applicability
+    ):
+        raise JourneyFailure("Preview project identity differs from the expected assessment")
+    return {
+        "assessment_set_digest": assessment_set_digest,
+        "applicability": expected_applicability,
+        "status": expected_status,
+        "mode": expected_mode,
+    }
+
+
 def _assert_s3_preview_summary(
     summary: Mapping[str, int],
     *,
@@ -858,6 +906,7 @@ def _submit(
     stage: str,
     operation_timeout_seconds: int,
     expect_no_change: bool = False,
+    identity_confirmations: Sequence[Mapping[str, str]] = (),
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
     result = cast(Mapping[str, Any], preview["result"])
@@ -872,6 +921,7 @@ def _submit(
             "expected_baseline_node_id": baseline_node_id,
             "expected_baseline_head_version": baseline_head_version,
             "options": {},
+            "identity_confirmations": [dict(item) for item in identity_confirmations],
         },
     )
     if expect_no_change:
@@ -937,7 +987,13 @@ def _approve(client: httpx.Client, submission_id: str, idempotency_key: str) -> 
     )
 
 
-def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[str, Any]:
+def _archive(
+    client: httpx.Client,
+    submission_id: str,
+    key_prefix: str,
+    *,
+    identity_exception_reason: str | None = None,
+) -> dict[str, Any]:
     candidates = _require(
         client.get("/v1/archive-candidates", headers=compose_auth_headers(token=ARCHIVER_TOKEN)),
         200,
@@ -955,7 +1011,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
         None,
     )
     if selected is None:
-        raise JourneyFailure("submitted v1 was not an archive candidate")
+        raise JourneyFailure("submission was not an archive candidate")
     preview = _require(
         client.post(
             "/v1/archive-plan-preview",
@@ -967,6 +1023,30 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
     )
     if preview.get("can_start") is not False:
         raise JourneyFailure("archive plan should require explicit confirmation")
+    raw_anomalies = preview.get("anomalies")
+    if not isinstance(raw_anomalies, list):
+        raise JourneyFailure("archive plan anomalies are invalid")
+    anomalies = [cast(dict[str, Any], item) for item in raw_anomalies if isinstance(item, dict)]
+    if len(anomalies) != len(raw_anomalies):
+        raise JourneyFailure("archive plan contains an invalid anomaly")
+    identity_anomalies = [
+        item for item in anomalies if item.get("subject_kind") == "PROJECT_IDENTITY_EXCEPTION"
+    ]
+    other_anomalies = [
+        item for item in anomalies if item.get("subject_kind") != "PROJECT_IDENTITY_EXCEPTION"
+    ]
+    if other_anomalies:
+        raise JourneyFailure("archive plan contains an unexpected non-identity anomaly")
+    if identity_exception_reason is None and identity_anomalies:
+        raise JourneyFailure("archive plan has an unresolved project identity exception")
+    if identity_exception_reason is not None and (
+        len(identity_anomalies) != 1
+        or identity_anomalies[0].get("target_submission_id") != submission_id
+        or identity_anomalies[0].get("target_candidate_digest")
+        != selected.get("expected_candidate_digest")
+        or identity_anomalies[0].get("issue_code") != "PROJECT_IDENTITY_EXCEPTION"
+    ):
+        raise JourneyFailure("archive plan identity exception differs from the selected submission")
     head = cast(dict[str, Any], preview["head"])
     confirmation = _require_one_of(
         client.post(
@@ -983,12 +1063,43 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
                 "subject_digest": preview["selection_subject_digest"],
                 "expected_sequence": 0,
                 "action": "CONFIRM",
-                "reason": "archive S2b real dump v1",
+                "reason": "archive real dump submission after review",
             },
         ),
         {200, 201},
         "archive confirmation",
     )
+    anomaly_resolution_refs: list[dict[str, Any]] = []
+    if identity_exception_reason is not None:
+        identity_anomaly = identity_anomalies[0]
+        resolution = _require_one_of(
+            client.post(
+                "/v1/archive-anomaly-resolutions",
+                headers=compose_auth_headers(
+                    token=ARCHIVER_TOKEN,
+                    idempotency_key=f"{key_prefix}-identity-resolution",
+                ),
+                json={
+                    "expected_baseline_node_id": head["business_baseline_node_id"],
+                    "expected_baseline_head_version": head["baseline_head_version"],
+                    "selected": selected,
+                    "candidate_set_digest": preview["candidate_set_digest"],
+                    "subject_digest": identity_anomaly["subject_digest"],
+                    "expected_sequence": 0,
+                    "action": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+                    "subject_kind": "PROJECT_IDENTITY_EXCEPTION",
+                    "reason": identity_exception_reason,
+                    "issue_code": identity_anomaly["issue_code"],
+                    "target_submission_id": identity_anomaly["target_submission_id"],
+                    "target_candidate_digest": identity_anomaly["target_candidate_digest"],
+                },
+            ),
+            {200, 201},
+            "identity exception resolution",
+        )
+        anomaly_resolution_refs.append(
+            {"subject_digest": identity_anomaly["subject_digest"], "sequence": resolution["sequence"]}
+        )
     ready = _require(
         client.post(
             "/v1/archive-plan-preview",
@@ -1019,6 +1130,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
                         "sequence": confirmation["sequence"],
                     }
                 ],
+                "anomaly_resolution_refs": anomaly_resolution_refs,
             },
         ),
         {200, 201},
@@ -1342,6 +1454,7 @@ def _run_tier(
     from_step: str | None,
     state_path: Path | None,
     offline_composite: Mapping[str, Any],
+    scope: str = "full",
 ) -> dict[str, Any]:
     started = time.monotonic()
     v1_bytes, v1_file = _dataset_package(root, datasets[v1_id])
@@ -1441,6 +1554,11 @@ def _run_tier(
         )
         v1_preview = cast(dict[str, Any], v1_preview_state["preview"])
         v1_summary = cast(dict[str, int], v1_preview_state["summary"])
+        v1_identity = _assert_identity_pair(
+            v1_preview,
+            expected_status="NOT_APPLICABLE",
+            expected_mode="DETAILED",
+        )
 
         v1_submission = runner.run(
             "v1-submit",
@@ -1501,6 +1619,98 @@ def _run_tier(
         baseline_node_id = str(archive["baseline_node_id"])
         baseline_head_version = int(archive["baseline_head_version"])
 
+        if scope == "t4-identity":
+            v2_workspace_partial = runner.run("v2-workspace", lambda: _workspace(client))
+            v2_upload_partial = runner.run(
+                "v2-upload",
+                lambda: _upload_revision(
+                    client,
+                    workspace=cast(Mapping[str, Any], v2_workspace_partial),
+                    package=v2_bytes,
+                    idempotency_key=f"{project_name}-{tier}-v2-upload",
+                ),
+            )
+
+            def v2_preview_partial_action() -> dict[str, Any]:
+                preview, manifest = _preview(
+                    client,
+                    workspace=cast(Mapping[str, Any], v2_workspace_partial),
+                    upload=cast(Mapping[str, Any], v2_upload_partial),
+                    baseline_node_id=baseline_node_id,
+                    baseline_head_version=baseline_head_version,
+                    idempotency_key=f"{project_name}-{tier}-v2-preview",
+                    stage=f"{tier} v2 Preview",
+                    operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
+                )
+                summary = _assert_preview_summaries(manifest, unchanged=False)
+                expected_changed = S2B_DATASET_BASELINE[v2_id]["preview_changed"] + int(
+                    composite_changed
+                )
+                _assert_s3_preview_summary(
+                    summary,
+                    dataset_id=v2_id,
+                    expected_changed=expected_changed,
+                )
+                identity = _assert_identity_pair(
+                    preview,
+                    expected_status="SAME_PROJECT",
+                    expected_mode="DETAILED",
+                )
+                _emit_progress(
+                    f"{tier} v2 Preview",
+                    "preview_identity_and_summary_verified",
+                    summary=summary,
+                    identity=identity,
+                    source_census_table_count=int(census[v2_id]["table_count"]),
+                    composite_row_count=composite_v2_row_count,
+                )
+                return {"preview": preview, "summary": summary, "identity": identity}
+
+            v2_partial_state = cast(
+                dict[str, Any],
+                runner.run("v2-preview", v2_preview_partial_action),
+            )
+            return {
+                "tier": tier,
+                "scope": scope,
+                "datasets": [
+                    {
+                        "dataset_id": v1_id,
+                        "sha256": v1_file["sha256"],
+                        "package_bytes": v1_file["bytes"],
+                        "table_count": census[v1_id]["table_count"],
+                        "row_count_total": census[v1_id]["row_count_total"],
+                        "logics_xml_max_depth": census[v1_id]["logics_xml_max_depth"],
+                        "composite_signal_point_row_count": composite_v1_row_count,
+                        "preview": v1_summary,
+                        "identity": v1_identity,
+                        "submit": {
+                            "canonical_state_digest": v1_canonical_state_digest,
+                            "submission_id": v1_submission_id,
+                        },
+                        "archive": archive,
+                    },
+                    {
+                        "dataset_id": v2_id,
+                        "sha256": v2_file["sha256"],
+                        "package_bytes": v2_file["bytes"],
+                        "table_count": census[v2_id]["table_count"],
+                        "row_count_total": census[v2_id]["row_count_total"],
+                        "logics_xml_max_depth": census[v2_id]["logics_xml_max_depth"],
+                        "composite_signal_point_row_count": composite_v2_row_count,
+                        "preview": v2_partial_state["summary"],
+                        "identity": v2_partial_state["identity"],
+                    },
+                ],
+                "initial_repository": initial_repository,
+                "compose_image_ids": images,
+                "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
+                "step_metrics": runner.metrics,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "conclusion": "PASS",
+                "empty_initial_commit_id": initial_commit_id,
+            }
+
         repeat_workspace = runner.run(
             "repeat-v1-workspace",
             lambda: _workspace(client),
@@ -1557,6 +1767,11 @@ def _run_tier(
         )
         repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
         repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
+        repeat_identity = _assert_identity_pair(
+            repeat_preview,
+            expected_status="SAME_PROJECT",
+            expected_mode="DETAILED",
+        )
 
         repeat_submit = runner.run(
             "repeat-v1-submit",
@@ -1629,6 +1844,11 @@ def _run_tier(
         )
         v2_preview = cast(dict[str, Any], v2_preview_state["preview"])
         v2_summary = cast(dict[str, int], v2_preview_state["summary"])
+        v2_identity = _assert_identity_pair(
+            v2_preview,
+            expected_status="SAME_PROJECT",
+            expected_mode="DETAILED",
+        )
 
         v2_submission = runner.run(
             "v2-submit",
@@ -1725,6 +1945,7 @@ def _run_tier(
                 "storage_column_type_counts": census[v1_id]["storage_column_type_counts"],
                 "repository": v1_repository,
                 "preview": v1_summary,
+                "identity": v1_identity,
                 "keyless_fallback_tables": {
                     "count": len(v1_keyless_names),
                     "names": list(v1_keyless_names),
@@ -1743,6 +1964,7 @@ def _run_tier(
                 "storage_column_type_counts": census[v2_id]["storage_column_type_counts"],
                 "repository": v2_repository,
                 "preview": v2_summary,
+                "identity": v2_identity,
                 "keyless_fallback_tables": {
                     "count": len(v2_keyless_names),
                     "names": list(v2_keyless_names),
@@ -1752,6 +1974,7 @@ def _run_tier(
         ],
         "repeat_v1": {
             "preview": repeat_summary,
+            "identity": repeat_identity,
             "submit": repeat_submit,
             "keyless_fallback_candidates_unchanged": {
                 "count": len(repeat_keyless_names),
@@ -1775,6 +1998,267 @@ def _run_tier(
         "compose_image_ids": images,
         "initial_repository": initial_repository,
         "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
+        "step_metrics": runner.metrics,
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+        "conclusion": "PASS",
+        "empty_initial_commit_id": initial_commit_id,
+    }
+
+
+def _run_cross_project(
+    *,
+    root: Path,
+    datasets: Mapping[str, dict[str, Any]],
+    census: Mapping[str, dict[str, Any]],
+    env: dict[str, str],
+    project_name: str,
+    repository_id: str,
+    initial_commit_id: str,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    source_id, target_id = "rd-t1-a-v1", "rd-t2-b-v1"
+    source_package, source_file = _dataset_package(root, datasets[source_id])
+    target_package, target_file = _dataset_package(root, datasets[target_id])
+    for dataset_id in (source_id, target_id):
+        if int(census[dataset_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[dataset_id]:
+            raise JourneyFailure(f"{dataset_id}: census pseudo total differs from the accepted baseline")
+
+    images = compose_image_ids(env)
+    repository_url = _repository_service_url(env)
+    initial_repository = _assert_initial_repository_commit_empty(
+        base_url=repository_url,
+        repository_id=repository_id,
+        commit_id=initial_commit_id,
+    )
+    runner = JourneyStepRunner(
+        tier="cross-project",
+        env=env,
+        state={},
+        from_step=None,
+        state_path=None,
+    )
+
+    with httpx.Client(
+        base_url=BACKEND_URL,
+        headers=compose_auth_headers(),
+        timeout=600.0,
+    ) as client:
+        source_workspace = runner.run(
+            "cross-source-workspace",
+            lambda: _workspace(client),
+        )
+        source_upload = runner.run(
+            "cross-source-upload",
+            lambda: _upload_revision(
+                client,
+                workspace=cast(Mapping[str, Any], source_workspace),
+                package=source_package,
+                idempotency_key=f"{project_name}-cross-source-upload",
+            ),
+        )
+
+        def source_preview_action() -> dict[str, Any]:
+            preview, manifest = _preview(
+                client,
+                workspace=cast(Mapping[str, Any], source_workspace),
+                upload=cast(Mapping[str, Any], source_upload),
+                baseline_node_id=BASELINE_NODE_ID,
+                baseline_head_version=0,
+                idempotency_key=f"{project_name}-cross-source-preview",
+                stage="cross-project source v1 Preview",
+                operation_timeout_seconds=_operation_timeout_seconds("t1", "v1-preview"),
+            )
+            summary = _assert_preview_summaries(manifest, unchanged=False)
+            _assert_s3_preview_summary(
+                summary,
+                dataset_id=source_id,
+                expected_changed=S2B_DATASET_BASELINE[source_id]["preview_table_count"] + 1,
+            )
+            identity = _assert_identity_pair(
+                preview,
+                expected_status="NOT_APPLICABLE",
+                expected_mode="DETAILED",
+            )
+            return {"preview": preview, "summary": summary, "identity": identity}
+
+        source_preview_state = cast(
+            dict[str, Any],
+            runner.run("cross-source-preview", source_preview_action),
+        )
+        source_preview = cast(dict[str, Any], source_preview_state["preview"])
+        source_submission = runner.run(
+            "cross-source-submit",
+            lambda: _submit(
+                client,
+                workspace=cast(Mapping[str, Any], source_workspace),
+                upload=cast(Mapping[str, Any], source_upload),
+                preview=source_preview,
+                baseline_node_id=BASELINE_NODE_ID,
+                baseline_head_version=0,
+                idempotency_key=f"{project_name}-cross-source-submit",
+                stage="cross-project source v1 Submit",
+                operation_timeout_seconds=_operation_timeout_seconds("t1", "v1-submit"),
+            ),
+        )
+        source_submission = cast(dict[str, Any], source_submission)
+        source_submission_id = str(source_submission["submission_id"])
+        source_commit_id = str(source_submission["repository_commit_id"])
+        source_digest = _canonical_state_digest_from_submission(
+            source_submission,
+            stage="cross-project source v1 Submit",
+        )
+        runner.run(
+            "cross-source-approve",
+            lambda: _approve(
+                client,
+                source_submission_id,
+                f"{project_name}-cross-source-review",
+            ),
+        )
+        source_archive = cast(
+            dict[str, Any],
+            runner.run(
+                "cross-source-archive",
+                lambda: _archive(
+                    client,
+                    source_submission_id,
+                    f"{project_name}-cross-source",
+                ),
+            ),
+        )
+        if source_archive.get("baseline_commit_id") != source_commit_id:
+            raise JourneyFailure("cross-project source Archive did not promote its Repository commit")
+        baseline_node_id = str(source_archive["baseline_node_id"])
+        baseline_head_version = int(source_archive["baseline_head_version"])
+
+        target_workspace = runner.run(
+            "cross-replacement-workspace",
+            lambda: _workspace(client),
+        )
+        target_upload = runner.run(
+            "cross-replacement-upload",
+            lambda: _upload_revision(
+                client,
+                workspace=cast(Mapping[str, Any], target_workspace),
+                package=target_package,
+                idempotency_key=f"{project_name}-cross-replacement-upload",
+            ),
+        )
+
+        def target_preview_action() -> dict[str, Any]:
+            preview, manifest = _preview(
+                client,
+                workspace=cast(Mapping[str, Any], target_workspace),
+                upload=cast(Mapping[str, Any], target_upload),
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-cross-replacement-preview",
+                stage="cross-project replacement Preview",
+                operation_timeout_seconds=_operation_timeout_seconds("t2", "v1-preview"),
+            )
+            summary = _assert_preview_summaries(manifest, unchanged=False)
+            identity = _assert_identity_pair(
+                preview,
+                expected_status="DIFFERENT_PROJECT",
+                expected_mode="DATASET_REPLACEMENT",
+            )
+            _emit_progress(
+                "cross-project replacement Preview",
+                "preview_identity_and_summary_verified",
+                summary=summary,
+                identity=identity,
+            )
+            return {"preview": preview, "summary": summary, "identity": identity}
+
+        target_preview_state = cast(
+            dict[str, Any],
+            runner.run("cross-replacement-preview", target_preview_action),
+        )
+        target_preview = cast(dict[str, Any], target_preview_state["preview"])
+        target_identity = cast(dict[str, str], target_preview_state["identity"])
+        target_submission = runner.run(
+            "cross-replacement-submit",
+            lambda: _submit(
+                client,
+                workspace=cast(Mapping[str, Any], target_workspace),
+                upload=cast(Mapping[str, Any], target_upload),
+                preview=target_preview,
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-cross-replacement-submit",
+                stage="cross-project replacement Submit",
+                operation_timeout_seconds=_operation_timeout_seconds("t2", "v1-submit"),
+                identity_confirmations=(
+                    {
+                        "action": "ACCEPT_DATASET_REPLACEMENT",
+                        "assessment_set_digest": target_identity["assessment_set_digest"],
+                        "reason": (
+                            "cross-project dataset replacement reviewed\n"
+                            "approved for the dedicated replacement journey"
+                        ),
+                    },
+                ),
+            ),
+        )
+        target_submission = cast(dict[str, Any], target_submission)
+        target_submission_id = str(target_submission["submission_id"])
+        target_commit_id = str(target_submission["repository_commit_id"])
+        target_digest = _canonical_state_digest_from_submission(
+            target_submission,
+            stage="cross-project replacement Submit",
+        )
+        runner.run(
+            "cross-replacement-approve",
+            lambda: _approve(
+                client,
+                target_submission_id,
+                f"{project_name}-cross-replacement-review",
+            ),
+        )
+        target_archive = cast(
+            dict[str, Any],
+            runner.run(
+                "cross-replacement-archive",
+                lambda: _archive(
+                    client,
+                    target_submission_id,
+                    f"{project_name}-cross-replacement",
+                    identity_exception_reason=(
+                        "reviewed project identity exception\n"
+                        "acknowledged before cross-project archive"
+                    ),
+                ),
+            ),
+        )
+        if target_archive.get("baseline_commit_id") != target_commit_id:
+            raise JourneyFailure("cross-project replacement Archive did not promote its Repository commit")
+
+    return {
+        "scope": "cross-project-t1-to-t2",
+        "source": {
+            "dataset_id": source_id,
+            "sha256": source_file["sha256"],
+            "package_bytes": source_file["bytes"],
+            "table_count": census[source_id]["table_count"],
+            "row_count_total": census[source_id]["row_count_total"],
+            "preview": source_preview_state["summary"],
+            "identity": source_preview_state["identity"],
+            "canonical_state_digest": source_digest,
+            "archive": source_archive,
+        },
+        "replacement": {
+            "dataset_id": target_id,
+            "sha256": target_file["sha256"],
+            "package_bytes": target_file["bytes"],
+            "table_count": census[target_id]["table_count"],
+            "row_count_total": census[target_id]["row_count_total"],
+            "preview": target_preview_state["summary"],
+            "identity": target_identity,
+            "canonical_state_digest": target_digest,
+            "archive": target_archive,
+        },
+        "initial_repository": initial_repository,
+        "compose_image_ids": images,
         "step_metrics": runner.metrics,
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "conclusion": "PASS",
@@ -1852,6 +2336,8 @@ def _save_compose_logs_before_teardown(env: dict[str, str], *, tier: str) -> Pat
 def run_journey(
     *,
     tier_filter: str | None = None,
+    scope: str = "full",
+    cross_project: bool = False,
     from_step: str | None = None,
     keep_stack: bool = False,
     requested_project_name: str | None = None,
@@ -1874,17 +2360,27 @@ def run_journey(
         raise JourneyFailure("--from-step requires --project-name")
     if requested_project_name is not None and not keep_stack:
         raise JourneyFailure("--project-name is only used with --keep-stack")
+    if scope not in {"full", "t4-identity"}:
+        raise JourneyFailure("requested real-data scope is unknown")
+    if scope == "t4-identity" and (tier_filter != "t4" or cross_project):
+        raise JourneyFailure("--scope t4-identity requires --tier t4")
+    if cross_project and (tier_filter is not None or keep_stack or from_step is not None):
+        raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
     if requested_project_name is None:
         project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     else:
         project_name = requested_project_name
     _validate_project_name(project_name)
 
-    selected_tiers = [
-        (key.split("-")[1], pair)
-        for key, pair in EXPECTED_PAIRINGS.items()
-        if tier_filter is None or key.split("-")[1] == tier_filter
-    ]
+    selected_tiers = (
+        [("t1", EXPECTED_PAIRINGS["rd-t1-a"])]
+        if cross_project
+        else [
+            (key.split("-")[1], pair)
+            for key, pair in EXPECTED_PAIRINGS.items()
+            if tier_filter is None or key.split("-")[1] == tier_filter
+        ]
+    )
     if not selected_tiers:
         raise JourneyFailure("requested real-data tier is unknown")
 
@@ -1921,12 +2417,16 @@ def run_journey(
                 os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
 
             for tier, (v1_id, v2_id) in selected_tiers:
-                offline_composite = _offline_composite_comparison(
-                    tier=tier,
-                    v1_id=v1_id,
-                    v2_id=v2_id,
-                    root=root,
-                    datasets=datasets,
+                offline_composite = (
+                    None
+                    if cross_project
+                    else _offline_composite_comparison(
+                        tier=tier,
+                        v1_id=v1_id,
+                        v2_id=v2_id,
+                        root=root,
+                        datasets=datasets,
+                    )
                 )
                 state_path = base / f"{tier}.state.json" if keep_stack else None
                 if state_path is not None:
@@ -1970,24 +2470,40 @@ def run_journey(
                         else:
                             repository_id, initial_commit_id = _resume_stack(env, step_state)
                         stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
-                        results.append(
-                            _run_tier(
-                                tier=tier,
-                                v1_id=v1_id,
-                                v2_id=v2_id,
-                                root=root,
-                                datasets=datasets,
-                                census=census,
-                                env=env,
-                                project_name=project_name,
-                                repository_id=repository_id,
-                                initial_commit_id=initial_commit_id,
-                                step_state=step_state,
-                                from_step=from_step,
-                                state_path=state_path,
-                                offline_composite=offline_composite,
+                        if cross_project:
+                            results.append(
+                                _run_cross_project(
+                                    root=root,
+                                    datasets=datasets,
+                                    census=census,
+                                    env=env,
+                                    project_name=project_name,
+                                    repository_id=repository_id,
+                                    initial_commit_id=initial_commit_id,
+                                )
                             )
-                        )
+                        else:
+                            if offline_composite is None:
+                                raise JourneyFailure("same-tier composite comparison was not prepared")
+                            results.append(
+                                _run_tier(
+                                    tier=tier,
+                                    v1_id=v1_id,
+                                    v2_id=v2_id,
+                                    root=root,
+                                    datasets=datasets,
+                                    census=census,
+                                    env=env,
+                                    project_name=project_name,
+                                    repository_id=repository_id,
+                                    initial_commit_id=initial_commit_id,
+                                    step_state=step_state,
+                                    from_step=from_step,
+                                    state_path=state_path,
+                                    offline_composite=offline_composite,
+                                    scope=scope,
+                                )
+                            )
                     except BaseException:
                         try:
                             _save_compose_logs_before_teardown(env, tier=tier)
@@ -2050,6 +2566,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="check package hashes and the G8a census without starting containers",
     )
     parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
+    parser.add_argument("--scope", choices=("full", "t4-identity"), default="full")
+    parser.add_argument(
+        "--cross-project",
+        action="store_true",
+        help="run the S4 t1 v1 to t2 v1 identity replacement journey",
+    )
     parser.add_argument("--from-step", choices=JOURNEY_STEP_IDS)
     parser.add_argument("--keep-stack", action="store_true")
     parser.add_argument("--project-name")
@@ -2058,6 +2580,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.validate_inputs and any(
             (
                 arguments.tier is not None,
+                arguments.scope != "full",
+                arguments.cross_project,
                 arguments.from_step is not None,
                 arguments.keep_stack,
                 arguments.project_name is not None,
@@ -2069,6 +2593,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if arguments.validate_inputs
             else run_journey(
                 tier_filter=arguments.tier,
+                scope=arguments.scope,
+                cross_project=arguments.cross_project,
                 from_step=arguments.from_step,
                 keep_stack=arguments.keep_stack,
                 requested_project_name=arguments.project_name,

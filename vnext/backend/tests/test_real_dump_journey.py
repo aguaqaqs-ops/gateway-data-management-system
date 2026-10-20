@@ -19,6 +19,7 @@ from benchmarks.real_dump_journey import (
     JOURNEY_STEP_IDS,
     JourneyFailure,
     JourneyStepRunner,
+    _assert_identity_pair,
     _assert_s3_catalog_summary,
     _assert_s3_history_count,
     _assert_s3_preview_summary,
@@ -58,6 +59,17 @@ PREVIEW_SUMMARY_FAILURES = (
         "repeat changed",
         {"table_count": 3, "changed_table_count": 1, "degraded_table_count": 0, "failed_table_count": 0},
         True,
+    ),
+)
+
+IDENTITY_ASSESSMENT_CASES = (
+    ("empty baseline", "NOT_APPLICABLE", "DETAILED", "NOT_APPLICABLE"),
+    ("same project", "SAME_PROJECT", "DETAILED", "APPLICABLE"),
+    (
+        "different project replacement",
+        "DIFFERENT_PROJECT",
+        "DATASET_REPLACEMENT",
+        "APPLICABLE",
     ),
 )
 
@@ -397,6 +409,80 @@ def test_preview_summary_requires_one_complete_pair() -> None:
         "degraded_table_count": 0,
         "failed_table_count": 0,
     }
+
+
+@pytest.mark.parametrize(
+    ("case", "status", "mode", "applicability"),
+    IDENTITY_ASSESSMENT_CASES,
+    ids=[case for case, _status, _mode, _applicability in IDENTITY_ASSESSMENT_CASES],
+)
+def test_real_data_journey_requires_the_expected_project_identity(
+    case: str,
+    status: str,
+    mode: str,
+    applicability: str,
+) -> None:
+    del case
+    preview = {
+        "result": {
+            "identity_assessment_set_digest": "sha256:" + "a" * 64,
+            "identity_pairs": [
+                {
+                    "applicability": applicability,
+                    "status": status,
+                    "mode": mode,
+                }
+            ],
+        }
+    }
+
+    result = _assert_identity_pair(
+        preview,
+        expected_status=status,
+        expected_mode=mode,
+    )
+
+    assert result == {
+        "assessment_set_digest": "sha256:" + "a" * 64,
+        "applicability": applicability,
+        "status": status,
+        "mode": mode,
+    }
+
+
+@pytest.mark.parametrize(
+    ("expected_status", "expected_mode", "actual_status", "actual_mode", "applicability"),
+    (
+        ("SAME_PROJECT", "DETAILED", "DIFFERENT_PROJECT", "DATASET_REPLACEMENT", "APPLICABLE"),
+        ("DIFFERENT_PROJECT", "DATASET_REPLACEMENT", "SAME_PROJECT", "DETAILED", "APPLICABLE"),
+        ("NOT_APPLICABLE", "DETAILED", "NOT_APPLICABLE", "DETAILED", "APPLICABLE"),
+    ),
+    ids=("unexpected-project-change", "missed-project-change", "applicability-mismatch"),
+)
+def test_real_data_journey_stops_when_project_identity_differs(
+    expected_status: str,
+    expected_mode: str,
+    actual_status: str,
+    actual_mode: str,
+    applicability: str,
+) -> None:
+    with pytest.raises(JourneyFailure, match="identity differs"):
+        _assert_identity_pair(
+            {
+                "result": {
+                    "identity_assessment_set_digest": "sha256:" + "a" * 64,
+                    "identity_pairs": [
+                        {
+                            "applicability": applicability,
+                            "status": actual_status,
+                            "mode": actual_mode,
+                        }
+                    ],
+                }
+            },
+            expected_status=expected_status,
+            expected_mode=expected_mode,
+        )
 
 
 @pytest.mark.parametrize(

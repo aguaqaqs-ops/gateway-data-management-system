@@ -461,6 +461,7 @@ def validate_confirmation_reason_field(
 
 
 def _anomaly_to_response(anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomalyResponse:
+    subject_kind: Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"]
     if anomaly.subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED:
         subject_kind = "APPROVED_SIBLING_EXCLUDED"
     elif anomaly.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION:

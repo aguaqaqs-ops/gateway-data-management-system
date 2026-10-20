@@ -250,16 +250,19 @@ def _run_comparison_risk_surface(
     if isinstance(compared, DatasetReplacementResult):
         if compared.facts is None:
             raise PairPipelineError("replacement comparison did not produce facts")
-        published: DetailedFactsResult | DatasetReplacementResult = compared
+        published = compared
         comparison_facts = compared.facts
     elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
         closure_result = publish_records_closure(compared, store)
         if isinstance(closure_result, FailedResult):
             raise PairPipelineError(f"records closure failed: {closure_result.diagnostics}")
-        if not isinstance(closure_result, DetailedFactsResult) or closure_result.facts is None:
+        if not isinstance(closure_result, DetailedFactsResult):
+            raise PairPipelineError("records publication did not produce facts")
+        closure_facts = closure_result.facts
+        if closure_facts is None:
             raise PairPipelineError("records publication did not produce facts")
         published = closure_result
-        comparison_facts = published.facts
+        comparison_facts = closure_facts
     else:
         raise PairPipelineError("pair comparison did not produce facts")
     if control.cancel_requested:

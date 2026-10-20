@@ -19,7 +19,6 @@ from gateway_backend.domain.submission.models import (
     SubmitAcceptanceRecord as SubmitAcceptanceRecord,
     SubmitAttempt,
     IdentityConfirmationAction,
-    SubmitIdentityConfirmation,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,

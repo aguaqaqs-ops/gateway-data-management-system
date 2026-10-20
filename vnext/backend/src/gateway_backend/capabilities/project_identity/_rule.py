@@ -36,7 +36,6 @@ from gateway_backend.capabilities.project_identity.contracts import (
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     DegradedReason,
-    SnapshotTable,
     SnapshotTableDescriptor,
 )
 from gateway_backend.capabilities.table_access.contracts import SqlSetValue

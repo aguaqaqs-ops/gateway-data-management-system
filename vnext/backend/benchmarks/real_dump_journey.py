@@ -48,6 +48,8 @@ from tests.support.compose_gate_harness import (
     BACKEND_URL,
     BASELINE_NODE_ID,
     BEARER_TOKEN,
+    COMPOSE_FILE,
+    DEPLOY_ROOT,
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,

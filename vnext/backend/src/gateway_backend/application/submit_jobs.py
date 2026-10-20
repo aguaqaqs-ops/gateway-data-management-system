@@ -140,10 +140,14 @@ from gateway_backend.operations.contracts import (
     StepStatus,
 )
 from gateway_backend.operations.recovery import (
+    DIAGNOSTIC_RETRY_SCHEDULED,
     OperatorRecoveryCommand,
     OperatorRecoveryRequest,
     RecoveryCapabilityLookup,
+    RecoveryCapabilityValue,
+    RecoveryPolicyOutcomeDisposition,
     build_authorized_operator_recovery,
+    transition_for_outcome,
 )
 from gateway_backend.operations.state import TransitionDisposition
 from gateway_backend.operations.worker import (
@@ -845,16 +849,33 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                     operation_id=submit_state.repository_operation_id,
                 )
             except (TimeoutError, RepositoryWriteTimeoutError):
-                lease_session.publish_operation(
-                    _make_manual_recovery_terminal_builder(
-                        submit_state.repository_operation_id,
-                        diagnostic=OperationDiagnostic(
-                            code=DIAGNOSTIC_RECONCILE_TIMEOUT.upper(),
-                            message="repository import reconcile session budget exhausted",
-                        ),
-                    )
+                now = datetime.now(UTC)
+                # One bounded poll timeout does not prove the Repository operation failed.
+                # Schedule a checkpointed retry; the existing R5 attempt budget bounds repeats.
+                intent = transition_for_outcome(
+                    RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
+                    capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+                    attempt_count=step.attempt_count,
+                    reconcile_elapsed_seconds=0.0,
+                    effect_boundary_crossed=True,
+                    cancel_requested=control.cancel_requested,
+                    now=now,
+                    jitter=lambda base, _cap: base,
                 )
-                return ExecutorAcknowledgment.PUBLISHED
+                if intent.step_target is StepStatus.RETRY_WAIT:
+                    diagnostic = OperationDiagnostic(
+                        code=DIAGNOSTIC_RETRY_SCHEDULED.upper(),
+                        message="repository import poll timed out; reconcile retry scheduled",
+                    )
+                else:
+                    diagnostic = OperationDiagnostic(
+                        code=DIAGNOSTIC_RECONCILE_TIMEOUT.upper(),
+                        message="repository import reconcile session budget exhausted",
+                    )
+                return lease_session.publish_recovery_release(
+                    intent,
+                    diagnostic=diagnostic,
+                )
 
         if repository_operation.status in {
             RepositoryOperationStatus.QUEUED,

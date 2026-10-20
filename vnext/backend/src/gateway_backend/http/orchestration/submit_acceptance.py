@@ -244,27 +244,37 @@ def accept_submit_operation(
         assert_no_canonical_change(loaded=new_key_loaded)
         upload_revision = new_key_loaded.upload_revision
         preview_result = new_key_loaded.preview_result
-        preflight = load_accept_submit_preflight(
-            command=command,
-            unit_of_work_factory=unit_of_work_factory,
-            preview_result=preview_result,
-            upload_revision=upload_revision,
-            artifact_ref_lookup=artifact_ref_lookup,
-            artifact_store=artifact_store,
-            current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
-        )
-        for ref in preflight.protected_artifact_refs:
-            verified = artifact_store.verify_readable(
-                ref,
-                expected_size=ref.size_bytes,
-                expected_raw_sha256=ref.raw_sha256,
+        if new_key_loaded.workspace_occupancy_held or new_key_loaded.repository_occupancy_held:
+            preflight = AcceptSubmitPreflight(
+                preview_ready_closure_digest=derive_preview_ready_closure_digest(preview_result),
+                preview_operation_id=preview_result.operation_id,
+                protected_artifact_refs=(),
+                current_storage_projection_ruleset_digest=(
+                    current_storage_projection_ruleset_digest
+                ),
             )
-            if not verified.verified:
-                raise ApiError(
-                    code="ARTIFACT_UNAVAILABLE",
-                    message="required artifact is not readable",
-                    status_code=503,
+        else:
+            preflight = load_accept_submit_preflight(
+                command=command,
+                unit_of_work_factory=unit_of_work_factory,
+                preview_result=preview_result,
+                upload_revision=upload_revision,
+                artifact_ref_lookup=artifact_ref_lookup,
+                artifact_store=artifact_store,
+                current_storage_projection_ruleset_digest=current_storage_projection_ruleset_digest,
+            )
+            for ref in preflight.protected_artifact_refs:
+                verified = artifact_store.verify_readable(
+                    ref,
+                    expected_size=ref.size_bytes,
+                    expected_raw_sha256=ref.raw_sha256,
                 )
+                if not verified.verified:
+                    raise ApiError(
+                        code="ARTIFACT_UNAVAILABLE",
+                        message="required artifact is not readable",
+                        status_code=503,
+                    )
 
     transaction_result = accept_submit_transaction(
         command=command,

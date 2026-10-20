@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -174,15 +175,13 @@ def test_get_review_displays_frozen_identity_confirmation(tmp_path: Path) -> Non
     assert response.status_code == 200
     body = response.json()
     assert body["identity_exception"] is True
-    assert body["identity_confirmations"] == [
-        {
-            "action": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
-            "assessment_set_digest": "sha256:" + "d" * 64,
-            "reason": "checked source\nreview carefully",
-            "actor_id": "operator-1",
-            "confirmed_at": confirmed_at.isoformat(),
-        }
-    ]
+    assert len(body["identity_confirmations"]) == 1
+    projected = body["identity_confirmations"][0]
+    assert projected["action"] == "ACCEPT_UNVERIFIABLE_DETAILED_RESULT"
+    assert projected["assessment_set_digest"] == "sha256:" + "d" * 64
+    assert projected["reason"] == "checked source\nreview carefully"
+    assert projected["actor_id"] == "operator-1"
+    assert datetime.fromisoformat(projected["confirmed_at"].replace("Z", "+00:00")) == confirmed_at
 
 
 def test_apply_review_replays_same_key_with_200(

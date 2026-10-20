@@ -897,6 +897,56 @@ def test_t1_no_canonical_change_precedes_identity_confirmation(db_path: Path) ->
     _assert_t1_zero_writes(seed.db_path, seed, idempotency_key="accept-key-noop-identity")
 
 
+def test_t1_identity_confirmation_precedes_submit_occupancy(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    first = accept_submit_transaction(
+        command=_accept_command(seed, idempotency_key="accept-key-occupancy-winner"),
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+    seed = _set_preview_identity_statuses(
+        seed,
+        (ProjectIdentityStatus.DIFFERENT_PROJECT,),
+    )
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(seed.workspace.workspace_id)
+        assert workspace is not None
+    seed = replace(seed, workspace=workspace)
+
+    with pytest.raises(ProjectIdentityConfirmationRequired):
+        accept_submit_transaction(
+            command=_accept_command(
+                seed,
+                idempotency_key="accept-key-identity-before-occupancy",
+            ),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
+        attempts = unit_of_work.connection.execute(
+            "SELECT COUNT(*) FROM submit_attempt_records"
+        ).fetchone()[0]
+    assert occupancy is not None
+    assert occupancy.submit_attempt_id == first.submit_attempt_id
+    assert attempts == 1
+
+
 def test_t1_replay_rechecks_current_permission_and_exact_scope(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     command = _accept_command(seed, idempotency_key="accept-key-scope-replay")
@@ -1204,6 +1254,12 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
             owner_id="ws-2",
             intent="current-preview",
         )
+    _upsert_provisioned_mapping_row(
+        db_path,
+        device_key="device-2",
+        project_id="project-2",
+        repository_id="repo-1",
+    )
 
     second_seed = SubmitSeed(
         db_path=db_path,

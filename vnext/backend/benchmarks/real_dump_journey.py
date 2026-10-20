@@ -2155,6 +2155,29 @@ def _run_tier(
             stage=f"{tier} v1 Submit",
         )
 
+        if scope == "t4-v1-submit":
+            return {
+                "tier": tier,
+                "scope": scope,
+                "dataset": {
+                    "dataset_id": v1_id,
+                    "sha256": v1_file["sha256"],
+                    "package_bytes": v1_file["bytes"],
+                    "table_count": census[v1_id]["table_count"],
+                    "row_count_total": census[v1_id]["row_count_total"],
+                    "preview": v1_summary,
+                    "identity": v1_identity,
+                    "submit": {
+                        "canonical_state_digest": v1_canonical_state_digest,
+                        "submission_id": v1_submission_id,
+                    },
+                },
+                "step_metrics": runner.metrics,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "conclusion": "PASS",
+                "empty_initial_commit_id": initial_commit_id,
+            }
+
         def v1_repository_read_action() -> dict[str, Any]:
             repository = _pseudo_counts_from_http(
                 base_url=repository_url,
@@ -2944,10 +2967,12 @@ def run_journey(
         raise JourneyFailure("--from-step requires --project-name")
     if requested_project_name is not None and not keep_stack:
         raise JourneyFailure("--project-name is only used with --keep-stack")
-    if scope not in {"full", "t4-identity"}:
+    if scope not in {"full", "t4-identity", "t4-v1-submit"}:
         raise JourneyFailure("requested real-data scope is unknown")
     if scope == "t4-identity" and (tier_filter != "t4" or cross_project):
         raise JourneyFailure("--scope t4-identity requires --tier t4")
+    if scope == "t4-v1-submit" and (tier_filter != "t4" or cross_project or from_step is not None):
+        raise JourneyFailure("--scope t4-v1-submit requires a fresh t4 journey")
     if cross_project and (tier_filter is not None or keep_stack or from_step is not None):
         raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
     if requested_project_name is None:
@@ -3164,7 +3189,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="check package hashes and the G8a census without starting containers",
     )
     parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
-    parser.add_argument("--scope", choices=("full", "t4-identity"), default="full")
+    parser.add_argument(
+        "--scope",
+        choices=("full", "t4-identity", "t4-v1-submit"),
+        default="full",
+    )
     parser.add_argument(
         "--cross-project",
         action="store_true",

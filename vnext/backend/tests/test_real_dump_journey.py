@@ -943,6 +943,27 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
 
+def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_run_journey(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
+
+    result = real_dump_journey.main(["--tier", "t4", "--scope", "t4-v1-submit"])
+
+    assert result == 0
+    assert calls["tier_filter"] == "t4"
+    assert calls["scope"] == "t4-v1-submit"
+    assert calls["cross_project"] is False
+    assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
+
+
 @pytest.mark.parametrize(
     ("failure_point", "failure_message"),
     COMPOSE_LOGS_ON_FAILURE_CASES,

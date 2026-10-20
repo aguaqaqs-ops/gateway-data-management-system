@@ -562,9 +562,11 @@ def _capture_repository_import_status(
         if response.status_code == 200:
             payload = response.json()
             if isinstance(payload, dict):
+                operation = payload.get("operation")
+                status_payload = operation if isinstance(operation, dict) else payload
                 for name in ("status", "created_at", "started_at", "updated_at", "completed_at"):
-                    if name in payload:
-                        summary[name] = payload[name]
+                    if name in status_payload:
+                        summary[name] = status_payload[name]
     except (httpx.HTTPError, ValueError):
         summary = {"operation_id": operation_id, "status_read": "unavailable"}
     (root / "repository-import-status.json").write_text(

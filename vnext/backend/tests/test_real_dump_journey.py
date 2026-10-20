@@ -510,6 +510,56 @@ def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_rea
     assert events == ["diagnostics", "teardown"]
 
 
+def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class OperationResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {
+                "operation": {
+                    "status": "SUCCEEDED",
+                    "created_at": "2026-10-20T15:00:00Z",
+                    "started_at": "2026-10-20T15:00:01Z",
+                    "updated_at": "2026-10-20T15:01:00Z",
+                    "completed_at": "2026-10-20T15:01:00Z",
+                }
+            }
+
+    class OperationClient:
+        def __enter__(self) -> OperationClient:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def get(self, _url: str, *, headers: dict[str, str]) -> OperationResponse:
+            assert headers
+            return OperationResponse()
+
+    monkeypatch.setattr(real_dump_journey.httpx, "Client", lambda **_kwargs: OperationClient())
+    real_dump_journey._capture_repository_import_status(
+        repository_url="http://repository-service",
+        repository_id="repository-1",
+        operation_id="repository-operation-1",
+        root=tmp_path,
+    )
+
+    status = json.loads((tmp_path / "repository-import-status.json").read_text())
+    assert status == {
+        "completed_at": "2026-10-20T15:01:00Z",
+        "created_at": "2026-10-20T15:00:00Z",
+        "http_status": 200,
+        "operation_id": "repository-operation-1",
+        "started_at": "2026-10-20T15:00:01Z",
+        "status": "SUCCEEDED",
+        "updated_at": "2026-10-20T15:01:00Z",
+    }
+
+
 def test_operation_timeout_remains_distinct_from_worker_stall(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

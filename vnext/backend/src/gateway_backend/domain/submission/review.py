@@ -116,7 +116,11 @@ class ReviewEvent:
         elif self.from_status is None:
             raise ValueError("user review events require from_status")
         if self.reason is not None:
-            validate_submission_reason(self.reason, allow_multiline=False)
+            validate_submission_reason(
+                self.reason,
+                allow_multiline=False,
+                require_non_whitespace=False,
+            )
 
 
 @dataclass(frozen=True, slots=True)

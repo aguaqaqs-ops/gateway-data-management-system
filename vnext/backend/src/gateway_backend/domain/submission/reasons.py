@@ -7,7 +7,12 @@ from gateway_backend.domain.submission.errors import InvalidReviewReason
 REASON_MAX_BYTES = 4096
 
 
-def validate_submission_reason(reason: str, *, allow_multiline: bool) -> str:
+def validate_submission_reason(
+    reason: str,
+    *,
+    allow_multiline: bool,
+    require_non_whitespace: bool = True,
+) -> str:
     """Validate a bounded reason while preserving its original text."""
 
     if type(reason) is not str:
@@ -25,7 +30,7 @@ def validate_submission_reason(reason: str, *, allow_multiline: bool) -> str:
     encoded = reason.encode("utf-8")
     if not 1 <= len(encoded) <= REASON_MAX_BYTES:
         raise InvalidReviewReason("reason exceeds bounded size")
-    if not any(not char.isspace() for char in reason):
+    if require_non_whitespace and not any(not char.isspace() for char in reason):
         raise InvalidReviewReason("reason must contain at least one non-whitespace character")
     return reason
 

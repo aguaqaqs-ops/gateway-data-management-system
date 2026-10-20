@@ -12,7 +12,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TextIO, cast
 
 import httpx
@@ -1697,27 +1697,14 @@ def run_accept_to_submission_read_journey(
             "expected_baseline_head_version": expected_baseline_head_version,
             "options": {},
         }
-        required_actions = {
-            "DIFFERENT_PROJECT": "ACCEPT_DATASET_REPLACEMENT",
-            "UNVERIFIABLE": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
-        }
-        actions = {
-            required_actions[pair["status"]]
-            for pair in identity_pairs
-            if pair["status"] in required_actions
-        }
-        identity_confirmations = [
-            {
-                "action": action,
-                "assessment_set_digest": preview_result_body["identity_assessment_set_digest"],
-                "reason": identity_confirmation_reason,
-            }
-            for action in (
-                "ACCEPT_DATASET_REPLACEMENT",
-                "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+        identity_confirmations = (
+            identity_confirmation_requests(
+                preview_result_body,
+                reason=identity_confirmation_reason,
             )
-            if action in actions
-        ]
+            if identity_confirmation_reason is not None
+            else []
+        )
         if expected_submit_code is None and identity_confirmation_reason is not None:
             submit_body["identity_confirmations"] = identity_confirmations
         accepted = client.post(
@@ -1775,3 +1762,35 @@ def run_accept_to_submission_read_journey(
         if include_preview_surfaces:
             result["preview_surfaces"] = read_preview_surface_table_states(env, preview_bundle)
         return result
+
+
+def identity_confirmation_requests(
+    preview_result: Mapping[str, Any],
+    *,
+    reason: str,
+) -> list[dict[str, str]]:
+    assessment_set_digest = preview_result.get("identity_assessment_set_digest")
+    identity_pairs = preview_result.get("identity_pairs")
+    assert isinstance(assessment_set_digest, str)
+    assert isinstance(identity_pairs, list)
+    required_actions = {
+        "DIFFERENT_PROJECT": "ACCEPT_DATASET_REPLACEMENT",
+        "UNVERIFIABLE": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+    }
+    actions = {
+        required_actions[pair["status"]]
+        for pair in identity_pairs
+        if isinstance(pair, dict) and pair.get("status") in required_actions
+    }
+    return [
+        {
+            "action": action,
+            "assessment_set_digest": assessment_set_digest,
+            "reason": reason,
+        }
+        for action in (
+            "ACCEPT_DATASET_REPLACEMENT",
+            "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+        )
+        if action in actions
+    ]

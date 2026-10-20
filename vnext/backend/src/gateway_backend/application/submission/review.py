@@ -244,4 +244,8 @@ def get_review_facts(
             submission_id=submission_id,
             resolved_scope=fresh_scope,
         )
-        return ReviewFacts(projection=facts.projection, events=facts.events)
+        return ReviewFacts(
+            projection=facts.projection,
+            events=facts.events,
+            identity_confirmations=facts.submission.identity_confirmations,
+        )

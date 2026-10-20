@@ -130,6 +130,7 @@ def _page_entry_to_node(
         archive_disposition=entry.archive_disposition,
         promoted_baseline_node_id=promoted_by_submission.get(entry.ref_id),
         eligibility_note=eligibility_note,
+            identity_exception=entry.identity_exception,
     )
 
 
@@ -197,6 +198,7 @@ def _submission_node(
         archive_disposition=submission_fact.disposition,
         promoted_baseline_node_id=promoted_by_submission.get(submission.submission_id),
         eligibility_note=eligibility_note,
+        identity_exception=bool(submission.identity_confirmations),
     )
 
 

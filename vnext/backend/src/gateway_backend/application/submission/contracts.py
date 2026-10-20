@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -17,6 +18,8 @@ from gateway_backend.domain.submission.models import (
     RepositorySubmitOccupancy as RepositorySubmitOccupancy,
     SubmitAcceptanceRecord as SubmitAcceptanceRecord,
     SubmitAttempt,
+    IdentityConfirmationAction,
+    SubmitIdentityConfirmation,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
@@ -30,6 +33,7 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     Workspace,
 )
+from gateway_backend.domain.submission.reasons import validate_submission_reason
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.submission.errors import PreviewBindingConflict
@@ -39,6 +43,23 @@ PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoi
 ACCEPT_SUBMIT_REQUEST_PREFIX = b"gateway-vnext:accept-submit-request:v1\0"
 REPOSITORY_UPLOAD_KEY_PREFIX = "p5b-upload-v1:"
 REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
+_SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class IdentityConfirmationRequest:
+    action: IdentityConfirmationAction
+    assessment_set_digest: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        if type(self.action) is not IdentityConfirmationAction:
+            raise ValueError("action must be IdentityConfirmationAction")
+        if type(self.assessment_set_digest) is not str or not _SHA256_DIGEST_PATTERN.fullmatch(
+            self.assessment_set_digest
+        ):
+            raise ValueError("assessment_set_digest must be a sha256 digest")
+        validate_submission_reason(self.reason, allow_multiline=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +245,16 @@ class AcceptSubmitCommand:
     expected_baseline_head_version: int
     idempotency_key: str
     options: Mapping[str, object]
+    identity_confirmations: tuple[IdentityConfirmationRequest, ...] = ()
+
+    def __post_init__(self) -> None:
+        if type(self.identity_confirmations) is not tuple or any(
+            type(item) is not IdentityConfirmationRequest for item in self.identity_confirmations
+        ):
+            raise ValueError("identity_confirmations must contain IdentityConfirmationRequest")
+        actions = tuple(item.action for item in self.identity_confirmations)
+        if len(actions) > 2 or len(set(actions)) != len(actions):
+            raise ValueError("identity_confirmations must have unique actions and at most two entries")
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +352,7 @@ def compute_accept_request_fingerprint(
     preview_ready_closure_digest: str,
     repository_expected_commit_id: str,
     options: Mapping[str, object],
+    identity_confirmations: tuple[IdentityConfirmationRequest, ...] = (),
 ) -> str:
     payload = {
         "workspace_id": workspace_id,
@@ -352,6 +384,14 @@ def compute_accept_request_fingerprint(
         "builder_mutation_policy": BuilderMutationPolicy.REBUILD_ALWAYS.value,
         "job_contract_version": SUBMIT_JOB_CONTRACT_VERSION,
         "options": dict(sorted(options.items())),
+        "identity_confirmations": [
+            {
+                "action": item.action.value,
+                "assessment_set_digest": item.assessment_set_digest,
+                "reason": item.reason,
+            }
+            for item in sorted(identity_confirmations, key=lambda item: item.action.value)
+        ],
     }
     digest = hashlib.sha256(
         ACCEPT_SUBMIT_REQUEST_PREFIX + canonicalize_json_value(payload)
@@ -417,6 +457,7 @@ def compute_new_accept_fingerprint(
         preview_ready_closure_digest=preview_ready_closure_digest,
         repository_expected_commit_id=repository_expected_commit_id,
         options=command.options,
+        identity_confirmations=command.identity_confirmations,
     )
 
 
@@ -451,6 +492,7 @@ def compute_replay_accept_fingerprint(
         preview_ready_closure_digest=attempt.preview_ready_closure_digest,
         repository_expected_commit_id=attempt.repository_expected_commit_id,
         options=command.options,
+        identity_confirmations=command.identity_confirmations,
     )
 
 ALLOWED_ABORT_CODES = frozenset({

@@ -6,8 +6,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+import re
 
 from gateway_backend.domain.submission.errors import SubmitAttemptInvariantViolation
+from gateway_backend.domain.submission.reasons import validate_submission_reason
 
 
 class SubmitAttemptState(StrEnum):
@@ -31,6 +33,35 @@ class SubmitUnknownTypePolicy(StrEnum):
 
 class BuilderMutationPolicy(StrEnum):
     REBUILD_ALWAYS = "REBUILD_ALWAYS"
+
+
+class IdentityConfirmationAction(StrEnum):
+    ACCEPT_DATASET_REPLACEMENT = "ACCEPT_DATASET_REPLACEMENT"
+    ACCEPT_UNVERIFIABLE_DETAILED_RESULT = "ACCEPT_UNVERIFIABLE_DETAILED_RESULT"
+
+
+_SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitIdentityConfirmation:
+    action: IdentityConfirmationAction
+    assessment_set_digest: str
+    reason: str
+    actor_id: str
+    confirmed_at: datetime
+
+    def __post_init__(self) -> None:
+        if type(self.action) is not IdentityConfirmationAction:
+            raise ValueError("action must be IdentityConfirmationAction")
+        if type(self.assessment_set_digest) is not str or not _SHA256_DIGEST_PATTERN.fullmatch(
+            self.assessment_set_digest
+        ):
+            raise ValueError("assessment_set_digest must be a sha256 digest")
+        validate_submission_reason(self.reason, allow_multiline=True)
+        _validate_non_empty_str(self.actor_id, "actor_id")
+        if type(self.confirmed_at) is not datetime:
+            raise ValueError("confirmed_at must be datetime")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +146,7 @@ class SubmitAttempt:
     finalized_at: datetime | None = None
     aborted_at: datetime | None = None
     abort_code: str | None = None
+    identity_confirmations: tuple[SubmitIdentityConfirmation, ...] = ()
 
     def __post_init__(self) -> None:
 
@@ -174,6 +206,7 @@ class SubmitAttempt:
             type(self.repository_artifact_ref) is not RepositoryArtifactRef
         ):
             raise ValueError("repository_artifact_ref must be RepositoryArtifactRef or None")
+        _validate_identity_confirmations(self.identity_confirmations)
         if (self.prepared_canonicalization_manifest_ref is None) != (
             self.prepared_canonicalization_manifest_digest is None
         ):
@@ -214,6 +247,7 @@ class Submission:
     target_ref: SubmitTargetRef
     created_by: str
     created_at: datetime
+    identity_confirmations: tuple[SubmitIdentityConfirmation, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_non_empty_str(self.submission_id, "submission_id")
@@ -251,6 +285,7 @@ class Submission:
         _validate_non_empty_str(self.created_by, "created_by")
         if type(self.created_at) is not datetime:
             raise ValueError("created_at must be datetime")
+        _validate_identity_confirmations(self.identity_confirmations)
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,3 +370,11 @@ def assert_submit_attempt_invariants(attempt: SubmitAttempt) -> None:
 def _validate_non_empty_str(value: object, field_name: str) -> None:
     if type(value) is not str or not value:
         raise ValueError(f"{field_name} must be a non-empty string")
+
+
+def _validate_identity_confirmations(value: object) -> None:
+    if type(value) is not tuple or any(type(item) is not SubmitIdentityConfirmation for item in value):
+        raise ValueError("identity_confirmations must contain SubmitIdentityConfirmation")
+    actions = tuple(item.action for item in value)
+    if len(actions) > 2 or len(set(actions)) != len(actions):
+        raise ValueError("identity_confirmations must have unique actions and at most two entries")

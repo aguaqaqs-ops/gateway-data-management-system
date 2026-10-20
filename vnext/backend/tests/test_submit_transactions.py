@@ -32,6 +32,7 @@ from gateway_backend.application.submission.contracts import (
     SUBMIT_JOB_CONTRACT_VERSION,
     AcceptSubmitCommand,
     FinalizeSubmitResult,
+    IdentityConfirmationRequest,
     MatchingAbortProof,
     MatchingFinalizeFacts,
     RepositoryOperationTerminalStatus,
@@ -44,6 +45,8 @@ from gateway_backend.application.submission.errors import (
     IdempotencyConflict,
     NoCanonicalChange,
     PreviewDerivedStale,
+    ProjectIdentityConfirmationMismatch,
+    ProjectIdentityConfirmationRequired,
     ReviewIntegrityFailure,
     SubmitJobNotRegistered,
     SubmitOccupancyConflict,
@@ -55,10 +58,14 @@ from gateway_backend.application.submission.finalize_transaction import (
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND, SUBMIT_STEP_AWAIT, SUBMIT_STEP_PREPARE, SUBMIT_STEP_SUBMIT
 from gateway_backend.application.submission.ports import SubmitControlUnitOfWorkFactory
 from gateway_backend.application.workspace.services import create_or_get_workspace
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.domain.submission.errors import SubmitAttemptVersionConflict
+from gateway_backend.domain.submission.errors import (
+    SubmitAttemptInvariantViolation,
+    SubmitAttemptVersionConflict,
+)
 from gateway_backend.domain.submission.review import ReviewEventKind, ReviewStatus
 from gateway_backend.domain.submission.models import (
     BackendArtifactRef,
@@ -69,13 +76,23 @@ from gateway_backend.domain.submission.models import (
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
+    IdentityConfirmationAction,
 )
-from gateway_backend.domain.workspace.errors import ScopeForbidden, WorkspaceVersionConflict
+from gateway_backend.domain.workspace.errors import (
+    PermissionDenied,
+    ScopeForbidden,
+    WorkspaceVersionConflict,
+)
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
     InputCompleteness,
     PreviewResult,
     PreviewResultDigests,
+    PreviewArtifactRef,
+    PreviewIdentityPair,
+    ProjectIdentityApplicability,
+    ProjectIdentityMode,
+    ProjectIdentityStatus,
     SourceArtifactBinding,
     SourceArtifactRole,
     UploadRevision,
@@ -330,6 +347,73 @@ def _preview_result(workspace_id: str) -> PreviewResult:
     )
 
 
+def _set_preview_identity_statuses(
+    seed: SubmitSeed,
+    statuses: tuple[ProjectIdentityStatus, ...],
+) -> SubmitSeed:
+    pair_ids = (
+        ("initial_to_modified",)
+        if len(statuses) == 1
+        else ("baseline_to_initial", "initial_to_modified")
+    )
+    assert len(statuses) == len(pair_ids)
+    pairs_list: list[PreviewIdentityPair] = []
+    for pair_id, status in zip(pair_ids, statuses, strict=True):
+        assessment_digest = raw_blob_digest(
+            canonicalize_json_value({"pair_id": pair_id, "status": status.value})
+        )
+        pairs_list.append(
+            PreviewIdentityPair(
+                pair_id=pair_id,
+                applicability=ProjectIdentityApplicability.APPLICABLE,
+                status=status,
+                mode=(
+                    ProjectIdentityMode.DATASET_REPLACEMENT
+                    if status is ProjectIdentityStatus.DIFFERENT_PROJECT
+                    else ProjectIdentityMode.DETAILED
+                ),
+                assessment_ref=PreviewArtifactRef(
+                    artifact_id=f"identity-{pair_id}",
+                    media_type="application/json",
+                    size_bytes=0,
+                    raw_sha256=assessment_digest,
+                ),
+                assessment_digest=assessment_digest,
+            )
+        )
+    pairs = tuple(pairs_list)
+    assessment_set_digest = raw_blob_digest(
+        canonicalize_json_value(
+            {
+                "schema": "project-identity-assessment-set/v1",
+                "pairs": [
+                    [
+                        pair.pair_id,
+                        pair.applicability.value,
+                        pair.status.value,
+                        pair.assessment_digest.value if pair.assessment_digest is not None else None,
+                    ]
+                    for pair in pairs
+                ],
+            }
+        )
+    )
+    preview = replace(
+        seed.preview_result,
+        identity_assessment_set_digest=assessment_set_digest,
+        identity_pairs=pairs,
+    )
+    from gateway_backend.infrastructure.control_db.sqlite_workspace import preview_result_to_row
+
+    preview_row = preview_result_to_row(preview)
+    with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
+        unit_of_work.connection.execute(
+            "UPDATE preview_result_records SET binding = ? WHERE preview_result_id = ?",
+            (preview_row[5], preview.preview_result_id),
+        )
+    return replace(seed, preview_result=preview)
+
+
 def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
@@ -464,6 +548,7 @@ def _accept_command(
     *,
     idempotency_key: str,
     baseline_head: BaselineHead = BASELINE_HEAD,
+    identity_confirmations: tuple[IdentityConfirmationRequest, ...] = (),
 ) -> AcceptSubmitCommand:
     return AcceptSubmitCommand(
         context=make_identity(
@@ -481,6 +566,7 @@ def _accept_command(
         expected_baseline_head_version=baseline_head.baseline_head_version,
         idempotency_key=idempotency_key,
         options={},
+        identity_confirmations=identity_confirmations,
     )
 
 
@@ -605,6 +691,263 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
     assert operation.status is OperationStatus.QUEUED
     assert workspace is not None
     assert workspace.optimistic_version == seed.workspace.optimistic_version + 1
+
+
+IDENTITY_CONFIRMATION_FAILURE_CASES = (
+    pytest.param(
+        (ProjectIdentityStatus.DIFFERENT_PROJECT,),
+        (),
+        False,
+        ProjectIdentityConfirmationRequired,
+        id="replacement-confirmation-required",
+    ),
+    pytest.param(
+        (ProjectIdentityStatus.UNVERIFIABLE,),
+        (),
+        False,
+        ProjectIdentityConfirmationRequired,
+        id="unverifiable-confirmation-required",
+    ),
+    pytest.param(
+        (ProjectIdentityStatus.DIFFERENT_PROJECT, ProjectIdentityStatus.UNVERIFIABLE),
+        (IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT,),
+        False,
+        ProjectIdentityConfirmationRequired,
+        id="each-status-requires-its-own-action",
+    ),
+    pytest.param(
+        (ProjectIdentityStatus.SAME_PROJECT,),
+        (IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT,),
+        False,
+        ProjectIdentityConfirmationMismatch,
+        id="unneeded-action-is-rejected",
+    ),
+    pytest.param(
+        (ProjectIdentityStatus.DIFFERENT_PROJECT,),
+        (IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT,),
+        True,
+        ProjectIdentityConfirmationMismatch,
+        id="assessment-set-digest-must-match",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("statuses", "actions", "wrong_digest", "expected_error"),
+    IDENTITY_CONFIRMATION_FAILURE_CASES,
+)
+def test_t1_identity_confirmation_guards_leave_no_durable_writes(
+    db_path: Path,
+    statuses: tuple[ProjectIdentityStatus, ...],
+    actions: tuple[IdentityConfirmationAction, ...],
+    wrong_digest: bool,
+    expected_error: type[Exception],
+) -> None:
+    seed = _set_preview_identity_statuses(seed_submit_ready_workspace(db_path), statuses)
+    digest = seed.preview_result.identity_assessment_set_digest.value
+    if wrong_digest:
+        digest = "sha256:" + "0" * 64
+    confirmations = tuple(
+        IdentityConfirmationRequest(
+            action=action,
+            assessment_set_digest=digest,
+            reason="operator confirmed identity handling",
+        )
+        for action in actions
+    )
+
+    with pytest.raises(expected_error):
+        accept_submit_transaction(
+            command=_accept_command(
+                seed,
+                idempotency_key="accept-key-identity-guard",
+                identity_confirmations=confirmations,
+            ),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+
+    _assert_t1_zero_writes(seed.db_path, seed, idempotency_key="accept-key-identity-guard")
+
+
+def test_t1_freezes_both_identity_confirmations_and_fingerprints_reason(db_path: Path) -> None:
+    seed = _set_preview_identity_statuses(
+        seed_submit_ready_workspace(db_path),
+        (ProjectIdentityStatus.DIFFERENT_PROJECT, ProjectIdentityStatus.UNVERIFIABLE),
+    )
+    digest = seed.preview_result.identity_assessment_set_digest.value
+    confirmations = (
+        IdentityConfirmationRequest(
+            action=IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT,
+            assessment_set_digest=digest,
+            reason="replace the selected dataset\noperator checked source",
+        ),
+        IdentityConfirmationRequest(
+            action=IdentityConfirmationAction.ACCEPT_UNVERIFIABLE_DETAILED_RESULT,
+            assessment_set_digest=digest,
+            reason="identity could not be verified\tcontinue with review",
+        ),
+    )
+    command = _accept_command(
+        seed,
+        idempotency_key="accept-key-identity-confirmed",
+        identity_confirmations=confirmations,
+    )
+    first = accept_submit_transaction(
+        command=command,
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+
+    with ControlDbUnitOfWork(seed.db_path, read_only=True) as unit_of_work:
+        attempt = unit_of_work.submission.get_submit_attempt(first.submit_attempt_id)
+    assert attempt is not None
+    assert tuple(item.action for item in attempt.identity_confirmations) == tuple(
+        item.action for item in confirmations
+    )
+    assert tuple(item.reason for item in attempt.identity_confirmations) == tuple(
+        item.reason for item in confirmations
+    )
+    assert all(item.assessment_set_digest == digest for item in attempt.identity_confirmations)
+    assert all(item.actor_id == command.context.actor_id for item in attempt.identity_confirmations)
+    assert all(item.confirmed_at == TS1 for item in attempt.identity_confirmations)
+    altered_attempt = replace(
+        attempt,
+        identity_confirmations=(
+            replace(attempt.identity_confirmations[0], reason="changed after acceptance"),
+            attempt.identity_confirmations[1],
+        ),
+    )
+    with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
+        with pytest.raises(SubmitAttemptInvariantViolation, match="identity confirmations are immutable"):
+            unit_of_work.submission.cas_update_attempt(altered_attempt, expected_version=0)
+
+    replay = accept_submit_transaction(
+        command=command,
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(seed),
+        now=TS1 + timedelta(seconds=1),
+    )
+    assert replay.replay is True
+    assert replay.submit_attempt_id == first.submit_attempt_id
+
+    changed_reason = replace(confirmations[0], reason="different confirmation text")
+    changed_command = replace(
+        command,
+        identity_confirmations=(changed_reason, confirmations[1]),
+    )
+    with pytest.raises(IdempotencyConflict):
+        accept_submit_transaction(
+            command=changed_command,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1 + timedelta(seconds=2),
+        )
+
+
+def test_t1_no_canonical_change_precedes_identity_confirmation(db_path: Path) -> None:
+    seed = _set_preview_identity_statuses(
+        seed_submit_ready_workspace(db_path),
+        (ProjectIdentityStatus.DIFFERENT_PROJECT,),
+    )
+    seed = _set_preview_canonical_states_equal(seed)
+    main_resolve = RecordingMainResolvePort()
+
+    with pytest.raises(NoCanonicalChange):
+        accept_submit_transaction(
+            command=_accept_command(seed, idempotency_key="accept-key-noop-identity"),
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=main_resolve,
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+
+    assert main_resolve.calls == 0
+    _assert_t1_zero_writes(seed.db_path, seed, idempotency_key="accept-key-noop-identity")
+
+
+def test_t1_replay_rechecks_current_permission_and_exact_scope(db_path: Path) -> None:
+    seed = seed_submit_ready_workspace(db_path)
+    command = _accept_command(seed, idempotency_key="accept-key-scope-replay")
+    accept_submit_transaction(
+        command=command,
+        scope_resolution=FixedScopeResolutionPort(
+            repository_id=seed.workspace.repository_id,
+            baseline_head=BASELINE_HEAD,
+        ),
+        unit_of_work_factory=_uow_factory(seed.db_path),
+        job_registry=_submit_job_registry(),
+        main_resolve=RecordingMainResolvePort(),
+        preflight=_preflight(seed),
+        now=TS1,
+    )
+
+    denied_permission = replace(
+        command,
+        context=replace(command.context, permissions=frozenset({"workspace_read"})),
+    )
+    with pytest.raises(PermissionDenied):
+        accept_submit_transaction(
+            command=denied_permission,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
+
+    wrong_scope = replace(
+        command,
+        context=replace(command.context, business_project_id="another-project"),
+    )
+    with pytest.raises(ScopeForbidden):
+        accept_submit_transaction(
+            command=wrong_scope,
+            scope_resolution=FixedScopeResolutionPort(
+                repository_id=seed.workspace.repository_id,
+                baseline_head=BASELINE_HEAD,
+            ),
+            unit_of_work_factory=_uow_factory(seed.db_path),
+            job_registry=_submit_job_registry(),
+            main_resolve=RecordingMainResolvePort(),
+            preflight=_preflight(seed),
+            now=TS1,
+        )
 
 
 def test_t1_accept_replay_returns_existing_attempt(db_path: Path) -> None:
@@ -890,13 +1233,19 @@ def _seed_effect_pending_attempt(
     seed: SubmitSeed,
     *,
     baseline_head: BaselineHead | None = None,
+    identity_confirmations: tuple[IdentityConfirmationRequest, ...] = (),
 ) -> SubmitAttempt:
     if baseline_head is None:
         from tests.support.baseline_fixtures import read_authoritative_baseline_head
 
         baseline_head = read_authoritative_baseline_head(db_path, seed.workspace.repository_id)
     accepted = accept_submit_transaction(
-        command=_accept_command(seed, idempotency_key="accept-key-1", baseline_head=baseline_head),
+        command=_accept_command(
+            seed,
+            idempotency_key="accept-key-1",
+            baseline_head=baseline_head,
+            identity_confirmations=identity_confirmations,
+        ),
         scope_resolution=FixedScopeResolutionPort(
             repository_id=seed.workspace.repository_id,
             baseline_head=baseline_head,
@@ -1408,6 +1757,32 @@ def _finalize(
             ),
             unit_of_work=unit_of_work,
         )
+
+
+def test_identity_confirmation_is_copied_from_attempt_to_submission(db_path: Path) -> None:
+    finalize_db_path = db_path.with_name("identity-finalize-control.db")
+    initialize_control_db(finalize_db_path)
+    seed = _set_preview_identity_statuses(
+        seed_submit_ready_workspace(finalize_db_path),
+        (ProjectIdentityStatus.DIFFERENT_PROJECT,),
+    )
+    confirmation = IdentityConfirmationRequest(
+        action=IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT,
+        assessment_set_digest=seed.preview_result.identity_assessment_set_digest.value,
+        reason="accepted replacement for archive review",
+    )
+    attempt = _seed_effect_pending_attempt(
+        finalize_db_path,
+        seed,
+        identity_confirmations=(confirmation,),
+    )
+
+    _finalize(finalize_db_path, attempt, seed)
+
+    with ControlDbUnitOfWork(finalize_db_path, read_only=True) as unit_of_work:
+        submission = unit_of_work.submission.get_submission("sub-1")
+    assert submission is not None
+    assert submission.identity_confirmations == attempt.identity_confirmations
 
 
 def _abort(

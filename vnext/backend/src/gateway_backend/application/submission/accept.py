@@ -18,6 +18,8 @@ from gateway_backend.application.submission.errors import (
     NoCanonicalChange,
     PreviewBindingConflict,
     PreviewDerivedStale,
+    ProjectIdentityConfirmationMismatch,
+    ProjectIdentityConfirmationRequired,
     SubmitOccupancyConflict,
 )
 from gateway_backend.application.submission.ports import (
@@ -33,7 +35,9 @@ from gateway_backend.domain.workspace.models import (
     ResolvedScope,
     UploadRevision,
     Workspace,
+    ProjectIdentityStatus,
 )
+from gateway_backend.domain.submission.models import IdentityConfirmationAction
 from gateway_backend.domain.workspace.policies import (
     assert_exact_scope,
     assert_permission,
@@ -104,6 +108,8 @@ def validate_accept_submit(
     preview_digest = preview_canonical_business_digest(preview_result)
     if preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
         raise NoCanonicalChange
+
+    _assert_identity_confirmations(command, preview_result)
 
     _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
     assert_preview_ready_closure_digest(preview_ready_closure_digest)
@@ -261,6 +267,26 @@ def assert_no_canonical_change(*, loaded: AcceptPreflightLoadedFacts) -> None:
         raise NoCanonicalChange
 
 
+def _assert_identity_confirmations(
+    command: AcceptSubmitCommand,
+    preview_result: PreviewResult,
+) -> None:
+    required_actions: set[IdentityConfirmationAction] = set()
+    if any(pair.status is ProjectIdentityStatus.DIFFERENT_PROJECT for pair in preview_result.identity_pairs):
+        required_actions.add(IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT)
+    if any(pair.status is ProjectIdentityStatus.UNVERIFIABLE for pair in preview_result.identity_pairs):
+        required_actions.add(IdentityConfirmationAction.ACCEPT_UNVERIFIABLE_DETAILED_RESULT)
+
+    supplied = {item.action: item for item in command.identity_confirmations}
+    if not required_actions.issubset(supplied):
+        raise ProjectIdentityConfirmationRequired
+    if set(supplied) != required_actions or any(
+        item.assessment_set_digest != preview_result.identity_assessment_set_digest.value
+        for item in supplied.values()
+    ):
+        raise ProjectIdentityConfirmationMismatch
+
+
 def evaluate_new_accept_preflight(
     *,
     command: AcceptSubmitCommand,
@@ -269,6 +295,7 @@ def evaluate_new_accept_preflight(
     """Pure preflight guards after control-DB facts are materialized."""
     evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
     assert_no_canonical_change(loaded=loaded)
+    _assert_identity_confirmations(command, loaded.preview_result)
     assert_accept_preflight_post_noop_guards(loaded=loaded)
 
 
@@ -332,6 +359,8 @@ def validate_accept_submit_with_frozen(
     preview_digest = preview_canonical_business_digest(preview_result)
     if preview_result.canonical.baseline_canonical_state_digest.value == preview_digest:
         raise NoCanonicalChange
+
+    _assert_identity_confirmations(command, preview_result)
 
     _assert_no_submit_occupancy(occupancy, workspace.workspace_id, workspace.repository_id)
     assert_preview_ready_closure_digest(preview_ready_closure_digest)

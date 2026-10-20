@@ -91,6 +91,24 @@ class NoCanonicalChange(SubmitApplicationError):
         )
 
 
+class ProjectIdentityConfirmationRequired(SubmitApplicationError):
+    """Preview contains an identity state without its required explicit confirmation."""
+
+    stable_code = "PROJECT_IDENTITY_CONFIRMATION_REQUIRED"
+
+    def __init__(self) -> None:
+        super().__init__("preview identity findings require confirmation")
+
+
+class ProjectIdentityConfirmationMismatch(SubmitApplicationError):
+    """Identity confirmation is not required or is bound to a different assessment set."""
+
+    stable_code = "PROJECT_IDENTITY_CONFIRMATION_MISMATCH"
+
+    def __init__(self) -> None:
+        super().__init__("identity confirmation does not match the preview assessment set")
+
+
 class FinalizeBindingMismatch(SubmitApplicationError):
     """Matching finalize facts do not satisfy SubmitAttempt checkpoint bindings."""
 

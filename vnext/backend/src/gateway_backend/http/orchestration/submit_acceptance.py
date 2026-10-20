@@ -12,7 +12,6 @@ from gateway_backend.application.job_definitions import JobDefinitionRegistry
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
     AcceptPreflightLoadedFacts,
-    assert_accept_preflight_post_noop_guards,
     assert_no_canonical_change,
     evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
@@ -23,7 +22,10 @@ from gateway_backend.application.submission.accept_transaction import (
     accept_submit_transaction,
     assert_submit_job_registered,
 )
-from gateway_backend.application.submission.contracts import AcceptSubmitCommand
+from gateway_backend.application.submission.contracts import (
+    AcceptSubmitCommand,
+    IdentityConfirmationRequest,
+)
 from gateway_backend.application.submission.errors import PreviewBindingConflict, SubmitJobNotRegistered
 from gateway_backend.application.submission.ports import (
     RepositoryMainResolvePort,
@@ -80,6 +82,7 @@ def build_accept_submit_command(
     expected_baseline_head_version: int,
     idempotency_key: str,
     options: Mapping[str, object],
+    identity_confirmations: tuple[IdentityConfirmationRequest, ...] = (),
 ) -> AcceptSubmitCommand:
     return AcceptSubmitCommand(
         context=context,
@@ -92,6 +95,7 @@ def build_accept_submit_command(
         expected_baseline_head_version=expected_baseline_head_version,
         idempotency_key=idempotency_key,
         options=dict(options),
+        identity_confirmations=identity_confirmations,
     )
 
 
@@ -238,7 +242,6 @@ def accept_submit_operation(
         if new_key_loaded is None:
             raise PreviewBindingConflict("accept preflight is missing loaded facts")
         assert_no_canonical_change(loaded=new_key_loaded)
-        assert_accept_preflight_post_noop_guards(loaded=new_key_loaded)
         upload_revision = new_key_loaded.upload_revision
         preview_result = new_key_loaded.preview_result
         preflight = load_accept_submit_preflight(

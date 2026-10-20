@@ -80,6 +80,20 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
     schema = client.get("/openapi.json").json()
     accept_request = schema["components"]["schemas"]["AcceptSubmitRequest"]
     assert accept_request.get("additionalProperties") is False
+    identity_confirmations = accept_request["properties"]["identity_confirmations"]
+    assert identity_confirmations["type"] == "array"
+    assert identity_confirmations["maxItems"] == 2
+    identity_confirmation_request = schema["components"]["schemas"][
+        "SubmitIdentityConfirmationRequest"
+    ]
+    assert identity_confirmation_request.get("additionalProperties") is False
+    assert identity_confirmation_request["properties"]["action"]["enum"] == [
+        "ACCEPT_DATASET_REPLACEMENT",
+        "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+    ]
+    assert "identity_exception" in schema["components"]["schemas"]["ReviewFactsResponse"]["properties"]
+    assert "identity_confirmations" in schema["components"]["schemas"]["ReviewFactsResponse"]["properties"]
+    assert "identity_exception" in schema["components"]["schemas"]["HistoryNodeResponse"]["properties"]
     submit_response = schema["components"]["schemas"]["SubmitAcceptedResponse"]
     assert "submit_attempt_id" in submit_response["properties"]
     recovery_request = schema["components"]["schemas"]["OperatorRecoveryRequestBody"]

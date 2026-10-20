@@ -5,14 +5,33 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gateway_backend.domain.submission.models import SubmitAttempt, Submission
-from gateway_backend.http.schemas.constraints import BoundedOpaqueId, NonNegativeIJsonInt
+from gateway_backend.http.schemas.constraints import (
+    BoundedDiagnosticReason,
+    BoundedOpaqueId,
+    NonNegativeIJsonInt,
+    Sha256Digest,
+)
 
 
 class AcceptSubmitOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+IdentityConfirmationActionLiteral = Literal[
+    "ACCEPT_DATASET_REPLACEMENT",
+    "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+]
+
+
+class SubmitIdentityConfirmationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: IdentityConfirmationActionLiteral
+    assessment_set_digest: Sha256Digest
+    reason: BoundedDiagnosticReason
 
 
 class AcceptSubmitRequest(BaseModel):
@@ -25,6 +44,17 @@ class AcceptSubmitRequest(BaseModel):
     expected_baseline_node_id: BoundedOpaqueId
     expected_baseline_head_version: NonNegativeIJsonInt
     options: AcceptSubmitOptions = Field(default_factory=AcceptSubmitOptions)
+    identity_confirmations: list[SubmitIdentityConfirmationRequest] = Field(
+        default_factory=list,
+        max_length=2,
+    )
+
+    @model_validator(mode="after")
+    def identity_actions_are_unique(self) -> AcceptSubmitRequest:
+        actions = tuple(item.action for item in self.identity_confirmations)
+        if len(set(actions)) != len(actions):
+            raise ValueError("identity confirmation actions must be unique")
+        return self
 
 
 SubmitAttemptStateLiteral = Literal["PREPARED", "EFFECT_PENDING", "FINALIZED", "ABORTED"]

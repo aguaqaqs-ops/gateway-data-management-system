@@ -9,7 +9,6 @@ from datetime import datetime
 from gateway_backend.application.job_definitions import JobDefinitionLookupError, JobDefinitionRegistry
 from gateway_backend.application.submission.accept import (
     PERMISSION_UPLOAD_SUBMIT,
-    assert_accept_preflight_post_noop_guards,
     assert_no_canonical_change,
     evaluate_new_accept_preflight_local_guards,
     load_new_accept_preflight_facts,
@@ -42,6 +41,7 @@ from gateway_backend.domain.submission.models import (
     SubmitAcceptanceRecord,
     SubmitAttempt,
     SubmitAttemptState,
+    SubmitIdentityConfirmation,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
@@ -142,7 +142,6 @@ def accept_submit_transaction(
         evaluate_new_accept_preflight_local_guards(command=command, loaded=loaded)
 
         assert_no_canonical_change(loaded=loaded)
-        assert_accept_preflight_post_noop_guards(loaded=loaded)
 
         frozen = replace(
             preflight,
@@ -429,4 +428,14 @@ def _build_prepared_attempt(
         optimistic_version=0,
         created_by=command.context.actor_id,
         created_at=now,
+        identity_confirmations=tuple(
+            SubmitIdentityConfirmation(
+                action=item.action,
+                assessment_set_digest=item.assessment_set_digest,
+                reason=item.reason,
+                actor_id=command.context.actor_id,
+                confirmed_at=now,
+            )
+            for item in command.identity_confirmations
+        ),
     )

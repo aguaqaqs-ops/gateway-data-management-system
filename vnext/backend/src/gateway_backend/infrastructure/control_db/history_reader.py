@@ -130,6 +130,7 @@ def _map_page_entry(row: object) -> HistoryPageEntry:
         based_on_baseline_node_id=row.based_on_baseline_node_id,
         review_status=ReviewStatus(row.review_status),
         archive_disposition=disposition,
+        identity_exception=row.identity_exception,
     )
 
 

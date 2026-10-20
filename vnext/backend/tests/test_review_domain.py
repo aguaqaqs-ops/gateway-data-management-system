@@ -36,6 +36,7 @@ from gateway_backend.domain.submission.review import (
     validate_review_idempotency_key,
     validate_review_reason,
 )
+from gateway_backend.domain.submission.reasons import validate_submission_reason
 from gateway_backend.domain.workspace.models import IdentityContext
 
 pytestmark = pytest.mark.unit
@@ -111,6 +112,18 @@ REVIEW_REASON_CASES = (
     ("reason_surrogate", ReviewAction.REJECT, "bad\ud800reason", InvalidReviewReason),
     ("reason_noncharacter", ReviewAction.REJECT, "bad\uffffreason", InvalidReviewReason),
     ("reason_too_large", ReviewAction.REJECT, "x" * 4097, InvalidReviewReason),
+    ("review_reason_multiline_remains_invalid", ReviewAction.REJECT, "line one\nline two", InvalidReviewReason),
+)
+
+SUBMISSION_REASON_MODE_CASES = (
+    pytest.param("line one\nline two", True, None, id="identity-lf-allowed"),
+    pytest.param("line one\rline two", True, None, id="identity-cr-allowed"),
+    pytest.param("tab\tallowed", True, None, id="identity-tab-allowed"),
+    pytest.param("line one\nline two", False, InvalidReviewReason, id="review-newline-rejected"),
+    pytest.param("line one\rline two", False, InvalidReviewReason, id="review-carriage-return-rejected"),
+    pytest.param("tab\tallowed", False, InvalidReviewReason, id="review-tab-rejected"),
+    pytest.param("bad\x00text", True, InvalidReviewReason, id="other-c0-rejected"),
+    pytest.param("bad\x85text", True, InvalidReviewReason, id="other-c1-rejected"),
 )
 
 REVIEW_IDEMPOTENCY_KEY_CASES = (
@@ -502,6 +515,20 @@ def test_validate_review_reason_contract(
             validate_review_reason(action, reason)
         return
     assert validate_review_reason(action, reason) == expected
+
+
+@pytest.mark.parametrize(("reason", "allow_multiline", "expected_error"), SUBMISSION_REASON_MODE_CASES)
+def test_shared_submission_reason_validation_selects_multiline_mode(
+    reason: str,
+    allow_multiline: bool,
+    expected_error: type[Exception] | None,
+) -> None:
+    if expected_error is not None:
+        with pytest.raises(expected_error):
+            validate_submission_reason(reason, allow_multiline=allow_multiline)
+        return
+
+    assert validate_submission_reason(reason, allow_multiline=allow_multiline) == reason
 
 
 def test_validate_review_reason_preserves_leading_and_trailing_whitespace() -> None:

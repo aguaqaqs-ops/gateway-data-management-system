@@ -92,6 +92,7 @@ def build_submission(*, command: FinalizeSubmitCommand) -> Submission:
         target_ref=command.facts.target_ref,
         created_by=command.attempt.created_by,
         created_at=command.created_at,
+        identity_confirmations=command.attempt.identity_confirmations,
     )
     assert_submission_attempt_binding(attempt=command.attempt, submission=submission)
     return submission

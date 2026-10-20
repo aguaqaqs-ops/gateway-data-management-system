@@ -75,6 +75,7 @@ class HistoryNode:
     archive_disposition: ArchiveDispositionKind | None = None
     promoted_baseline_node_id: str | None = None
     eligibility_note: HistoryEligibilityNote | None = None
+    identity_exception: bool = False
 
     def __post_init__(self) -> None:
         if type(self.ref_kind) is not HistoryNodeRefKind:
@@ -101,11 +102,15 @@ class HistoryNode:
             raise ValueError("promoted_baseline_node_id must be a non-empty string or None")
         if self.eligibility_note is not None and type(self.eligibility_note) is not HistoryEligibilityNote:
             raise ValueError("eligibility_note must be HistoryEligibilityNote or None")
+        if type(self.identity_exception) is not bool:
+            raise ValueError("identity_exception must be a bool")
         if self.node_kind is HistoryNodeKind.BASELINE_NODE:
             if self.baseline_kind is None:
                 raise ValueError("baseline nodes require baseline_kind")
             if self.review_status is not None or self.archive_disposition is not None:
                 raise ValueError("baseline nodes must not carry submission-only fields")
+            if self.identity_exception:
+                raise ValueError("baseline nodes must not carry identity_exception")
         elif self.node_kind is HistoryNodeKind.SUBMISSION:
             if self.baseline_kind is not None:
                 raise ValueError("submission nodes must not carry baseline_kind")
@@ -170,6 +175,7 @@ class HistoryPageEntry:
     based_on_baseline_node_id: str | None = None
     review_status: ReviewStatus | None = None
     archive_disposition: ArchiveDispositionKind | None = None
+    identity_exception: bool = False
 
 
 @dataclass(frozen=True, slots=True)

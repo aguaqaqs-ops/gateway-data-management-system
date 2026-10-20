@@ -6,6 +6,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
 
+from gateway_backend.application.submission.contracts import IdentityConfirmationRequest
+from gateway_backend.domain.submission.models import IdentityConfirmationAction
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.auth import require_identity
 from gateway_backend.http.dependencies import WorkspaceHttpDependencies, acquire_new_work, get_workspace_http
@@ -36,6 +38,7 @@ router = APIRouter(tags=["submit"])
         409: {
             "description": "IDEMPOTENCY_CONFLICT, WORKSPACE_VERSION_CONFLICT, PREVIEW_BINDING_CONFLICT, "
             "PREVIEW_DERIVED_STALE, BASELINE_VERSION_CONFLICT, SUBMIT_OCCUPANCY_CONFLICT, NO_CANONICAL_CHANGE"
+            ", PROJECT_IDENTITY_CONFIRMATION_REQUIRED, PROJECT_IDENTITY_CONFIRMATION_MISMATCH"
         },
         422: {"description": "REQUEST_VALIDATION_FAILED"},
         429: {"description": "ADMISSION_LIMIT_REACHED"},
@@ -75,6 +78,14 @@ def accept_submit_route(
         expected_baseline_head_version=body.expected_baseline_head_version,
         idempotency_key=resolved_key,
         options=options,
+        identity_confirmations=tuple(
+            IdentityConfirmationRequest(
+                action=IdentityConfirmationAction(item.action),
+                assessment_set_digest=item.assessment_set_digest,
+                reason=item.reason,
+            )
+            for item in body.identity_confirmations
+        ),
     )
     with acquire_new_work(deps.admission_gate):
         result = accept_submit_operation(

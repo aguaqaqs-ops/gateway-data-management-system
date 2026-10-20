@@ -11,6 +11,7 @@ from typing import cast
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.domain.submission.errors import (
+    SubmitAttemptInvariantViolation,
     SubmitAttemptVersionConflict,
     SubmitOccupancyConflict,
 )
@@ -22,6 +23,8 @@ from gateway_backend.domain.submission.models import (
     SubmitAcceptanceRecord,
     SubmitAttempt,
     SubmitAttemptState,
+    IdentityConfirmationAction,
+    SubmitIdentityConfirmation,
     SubmitTargetRef,
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
@@ -52,7 +55,8 @@ _SUBMIT_ATTEMPT_COLUMNS = (
     "requested_verification_policy, requested_unknown_type_policy, builder_mutation_policy, "
     "accept_idempotency_key, accept_request_fingerprint, repository_upload_idempotency_key, "
     "repository_import_idempotency_key, operation_id, state, submission_id, optimistic_version, "
-    "created_by, created_at_us, effect_pending_at_us, finalized_at_us, aborted_at_us, abort_code"
+    "created_by, created_at_us, effect_pending_at_us, finalized_at_us, aborted_at_us, abort_code, "
+    "identity_confirmations"
 )
 
 SUBMISSION_COLUMNS = (
@@ -62,7 +66,7 @@ SUBMISSION_COLUMNS = (
     "canonicalization_manifest_ref, canonicalization_manifest_digest, "
     "repository_import_artifact_raw_sha256, repository_artifact_id, "
     "requested_verification_policy, completed_verification_policy, requested_unknown_type_policy, "
-    "target_ref, created_by, created_at_us"
+    "target_ref, created_by, created_at_us, identity_confirmations"
 )
 
 
@@ -325,6 +329,9 @@ class SQLiteSubmissionRepository:
         expected_version: int,
     ) -> SubmitAttempt:
         self._require_writable()
+        current = self.get_submit_attempt(attempt.submit_attempt_id)
+        if current is not None and current.identity_confirmations != attempt.identity_confirmations:
+            raise SubmitAttemptInvariantViolation("SubmitAttempt identity confirmations are immutable")
         row = submit_attempt_to_row(attempt)
         updated = self._connection.execute(
             """
@@ -345,7 +352,8 @@ class SQLiteSubmissionRepository:
                 accept_request_fingerprint = ?, repository_upload_idempotency_key = ?,
                 repository_import_idempotency_key = ?, operation_id = ?, state = ?,
                 submission_id = ?, optimistic_version = ?, created_by = ?, created_at_us = ?,
-                effect_pending_at_us = ?, finalized_at_us = ?, aborted_at_us = ?, abort_code = ?
+                effect_pending_at_us = ?, finalized_at_us = ?, aborted_at_us = ?, abort_code = ?,
+                identity_confirmations = ?
             WHERE submit_attempt_id = ? AND optimistic_version = ?
             """,
             row[1:] + (attempt.submit_attempt_id, expected_version),
@@ -531,6 +539,7 @@ def submit_attempt_to_row(attempt: SubmitAttempt) -> tuple[object, ...]:
         _datetime_to_epoch_us(attempt.finalized_at) if attempt.finalized_at else None,
         _datetime_to_epoch_us(attempt.aborted_at) if attempt.aborted_at else None,
         attempt.abort_code,
+        _encode_identity_confirmations(attempt.identity_confirmations),
     )
 
 
@@ -601,6 +610,9 @@ def submit_attempt_from_row(row: Mapping[str, object]) -> SubmitAttempt:
         finalized_at=_optional_epoch_us(mapping, "finalized_at_us"),
         aborted_at=_optional_epoch_us(mapping, "aborted_at_us"),
         abort_code=_optional_text(mapping, "abort_code"),
+        identity_confirmations=_decode_identity_confirmations(
+            _blob_value(mapping, "identity_confirmations")
+        ),
     )
 
 
@@ -628,6 +640,7 @@ def submission_to_row(submission: Submission) -> tuple[object, ...]:
         submission.target_ref.value,
         submission.created_by,
         _datetime_to_epoch_us(submission.created_at),
+        _encode_identity_confirmations(submission.identity_confirmations),
     )
 
 
@@ -663,11 +676,66 @@ def submission_from_row(row: Mapping[str, object]) -> Submission:
         target_ref=SubmitTargetRef(_required_text(row, "target_ref")),
         created_by=_required_text(row, "created_by"),
         created_at=_epoch_us_to_datetime(_required_int(row, "created_at_us")),
+        identity_confirmations=_decode_identity_confirmations(
+            _blob_value(row, "identity_confirmations")
+        ),
     )
 
 
 def _encode_string_list(values: Sequence[str]) -> bytes:
     return canonicalize_json_value(list(values))
+
+
+def _encode_identity_confirmations(
+    values: tuple[SubmitIdentityConfirmation, ...],
+) -> bytes:
+    return canonicalize_json_value(
+        [
+            {
+                "action": item.action.value,
+                "assessment_set_digest": item.assessment_set_digest,
+                "reason": item.reason,
+                "actor_id": item.actor_id,
+                "confirmed_at_us": _datetime_to_epoch_us(item.confirmed_at),
+            }
+            for item in values
+        ]
+    )
+
+
+def _decode_identity_confirmations(value: bytes) -> tuple[SubmitIdentityConfirmation, ...]:
+    decoded = json.loads(value)
+    if type(decoded) is not list:
+        raise ValueError("identity confirmations must be a JSON array")
+    result: list[SubmitIdentityConfirmation] = []
+    for item in decoded:
+        if type(item) is not dict or set(item) != {
+            "action",
+            "assessment_set_digest",
+            "reason",
+            "actor_id",
+            "confirmed_at_us",
+        }:
+            raise ValueError("identity confirmation record has an invalid shape")
+        confirmed_at_us = item["confirmed_at_us"]
+        if type(confirmed_at_us) is not int:
+            raise ValueError("identity confirmation timestamp must be an integer")
+        result.append(
+            SubmitIdentityConfirmation(
+                action=IdentityConfirmationAction(item["action"]),
+                assessment_set_digest=item["assessment_set_digest"],
+                reason=item["reason"],
+                actor_id=item["actor_id"],
+                confirmed_at=_epoch_us_to_datetime(confirmed_at_us),
+            )
+        )
+    return tuple(result)
+
+
+def identity_exception_from_blob(value: object) -> bool:
+    if type(value) is not bytes:
+        raise ValueError("identity confirmations must be stored as bytes")
+    return bool(_decode_identity_confirmations(value))
 
 
 def _decode_string_list(payload: bytes) -> tuple[str, ...]:

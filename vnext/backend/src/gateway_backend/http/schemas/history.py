@@ -62,6 +62,7 @@ class HistoryNodeResponse(BaseModel):
     archive_disposition: HistoryArchiveDispositionLiteral | None = None
     promoted_baseline_node_id: BoundedOpaqueId | None = None
     eligibility_note: HistoryEligibilityNoteLiteral | None = None
+    identity_exception: bool = False
 
 
 class HistoryListResponse(BaseModel):
@@ -103,6 +104,7 @@ def history_node_to_response(node: HistoryNode) -> HistoryNodeResponse:
             if node.eligibility_note is None
             else cast(Literal["NOT_CANDIDATE_BASE_ADVANCED"], node.eligibility_note.value)
         ),
+        identity_exception=node.identity_exception,
     )
 
 

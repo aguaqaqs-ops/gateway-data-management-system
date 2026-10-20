@@ -9,8 +9,13 @@ from typing import Any
 import pytest
 
 from gateway_backend.application.submission.review import PERMISSION_REVIEW_SUBMISSION
+from gateway_backend.domain.submission.models import IdentityConfirmationAction, SubmitIdentityConfirmation
 from gateway_backend.http.dependencies import ClosableAdmissionGate
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+from gateway_backend.infrastructure.control_db.sqlite_submission import (
+    SUBMISSION_COLUMNS,
+    submission_to_row,
+)
 from tests.support.http_workspace_harness import (
     PendingReviewHttpSeed,
     TEST_BEARER,
@@ -134,6 +139,50 @@ def test_apply_review_returns_201_and_get_returns_facts(
     assert len(facts_body["events"]) == 2
     assert facts_body["events"][0]["event_kind"] == "SUBMISSION_FINALIZED"
     assert facts_body["events"][1]["event_kind"] == "APPROVED"
+    assert facts_body["identity_exception"] is False
+    assert facts_body["identity_confirmations"] == []
+
+
+def test_get_review_displays_frozen_identity_confirmation(tmp_path: Path) -> None:
+    env, seed = _review_env(tmp_path)
+    with ControlDbUnitOfWork(env.db_path) as unit_of_work:
+        submission = unit_of_work.submission.get_submission(seed.submission_id)
+        assert submission is not None
+        confirmed_at = submission.created_at
+        confirmed = replace(
+            submission,
+            identity_confirmations=(
+                SubmitIdentityConfirmation(
+                    action=IdentityConfirmationAction.ACCEPT_UNVERIFIABLE_DETAILED_RESULT,
+                    assessment_set_digest="sha256:" + "d" * 64,
+                    reason="checked source\nreview carefully",
+                    actor_id="operator-1",
+                    confirmed_at=confirmed_at,
+                ),
+            ),
+        )
+        columns = tuple(item.strip() for item in SUBMISSION_COLUMNS.split(","))
+        values = submission_to_row(confirmed)
+        identity_confirmations_blob = values[columns.index("identity_confirmations")]
+        assert isinstance(identity_confirmations_blob, bytes)
+        unit_of_work.connection.execute(
+            "UPDATE submission_records SET identity_confirmations = ? WHERE submission_id = ?",
+            (identity_confirmations_blob, seed.submission_id),
+        )
+
+    response = _get_review(env, seed)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["identity_exception"] is True
+    assert body["identity_confirmations"] == [
+        {
+            "action": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+            "assessment_set_digest": "sha256:" + "d" * 64,
+            "reason": "checked source\nreview carefully",
+            "actor_id": "operator-1",
+            "confirmed_at": confirmed_at.isoformat(),
+        }
+    ]
 
 
 def test_apply_review_replays_same_key_with_200(

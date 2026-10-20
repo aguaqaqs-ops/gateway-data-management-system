@@ -155,8 +155,6 @@ def run_preview_pair_pipeline(
         ),
         show_keyless_fallback_hint=True,
     )
-    if not isinstance(surface.published, DetailedFactsResult):
-        raise PairPipelineError("history comparison did not produce detailed facts")
     records_closure = surface.published.records_closure
     if (
         surface.comparison_facts.comparison_mode is ComparisonMode.DETAILED
@@ -199,6 +197,8 @@ def run_history_pair_pipeline(
         control=control,
         on_cancel=on_cancel,
     )
+    if not isinstance(surface.published, DetailedFactsResult):
+        raise PairPipelineError("history comparison did not produce detailed facts")
     records_closure = surface.published.records_closure
     if records_closure is None:
         raise PairPipelineError("records closure is missing")

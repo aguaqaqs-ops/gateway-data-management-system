@@ -1218,8 +1218,8 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
         workspace = Workspace(
             workspace_id="ws-2",
             owner_actor_id="actor-2",
-            gateway_device_external_key="device-2",
-            business_project_id="project-2",
+            gateway_device_external_key="device-1",
+            business_project_id="project-1",
             repository_id="repo-1",
             state=first_seed.workspace.state,
             generation=1,
@@ -1254,12 +1254,6 @@ def test_t1_repository_occupancy_conflict_blocks_second_workspace(db_path: Path)
             owner_id="ws-2",
             intent="current-preview",
         )
-    _upsert_provisioned_mapping_row(
-        db_path,
-        device_key="device-2",
-        project_id="project-2",
-        repository_id="repo-1",
-    )
 
     second_seed = SubmitSeed(
         db_path=db_path,

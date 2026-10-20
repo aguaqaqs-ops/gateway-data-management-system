@@ -608,13 +608,10 @@ def _capture_worker_stall_diagnostics(
         )
 
         host_pids: list[str] = []
-        for label, capture in (
-            ("worker thread state", lambda: _capture_worker_thread_state(env, root)),
-        ):
-            try:
-                host_pids = capture()
-            except Exception as exc:
-                errors.append(f"{label}: {type(exc).__name__}")
+        try:
+            host_pids = _capture_worker_thread_state(env, root)
+        except Exception as exc:
+            errors.append(f"worker thread state: {type(exc).__name__}")
         try:
             _capture_worker_python_stacks(host_pids, root)
         except Exception as exc:

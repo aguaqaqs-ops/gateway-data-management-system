@@ -476,12 +476,17 @@ def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_rea
         stall_threshold_seconds=2,
         monotonic=lambda: current_time[0],
     )
+
+    def capture_diagnostics(**_kwargs: object) -> Path:
+        events.append("diagnostics")
+        return diagnostics
+
     monitor = WorkerHeartbeatMonitor(
         env={},
         repository_id="repository-1",
         repository_url="http://repository-service",
         tracker=tracker,
-        diagnostic_capture=lambda **_kwargs: events.append("diagnostics") or diagnostics,
+        diagnostic_capture=capture_diagnostics,
     )
 
     class OperationClient:
@@ -540,7 +545,7 @@ def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
             assert headers
             return OperationResponse()
 
-    monkeypatch.setattr(real_dump_journey.httpx, "Client", lambda **_kwargs: OperationClient())
+    monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())
     real_dump_journey._capture_repository_import_status(
         repository_url="http://repository-service",
         repository_id="repository-1",

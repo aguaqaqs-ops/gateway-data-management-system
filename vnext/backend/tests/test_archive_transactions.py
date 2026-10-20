@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 import pytest
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.archive.errors import (
     ActiveSubmitAttempt,
@@ -62,6 +64,17 @@ def test_identity_exception_requires_reasoned_resolution_before_archive(db_path:
         confirmed_at=TS_ARCHIVE,
     )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
+        binding_row = unit_of_work.connection.execute(
+            "SELECT binding FROM preview_result_records WHERE preview_result_id = ?",
+            (submission.preview_result_id,),
+        ).fetchone()
+        assert binding_row is not None
+        binding = json.loads(binding_row["binding"])
+        binding["digests"]["bundle_digest"] = "sha256:" + "a" * 64
+        unit_of_work.connection.execute(
+            "UPDATE preview_result_records SET binding = ? WHERE preview_result_id = ?",
+            (canonicalize_json_value(binding), submission.preview_result_id),
+        )
         encoded_confirmations = _encode_identity_confirmations((confirmation,))
         unit_of_work.connection.execute(
             "UPDATE submit_attempt_records SET identity_confirmations = ? WHERE submit_attempt_id = ?",

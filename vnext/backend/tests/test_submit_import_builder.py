@@ -1046,7 +1046,7 @@ def test_repository_base_digest_reaches_mutation_planner(monkeypatch: pytest.Mon
         _build_input(store=store),
         repository_base_digest=base_digest.value,
     )
-    source_digest = DigestRef(build_input.source_artifact_digest)
+    source_digest = dummy_digest()
     adapter.build_and_publish(
         build_input=build_input,
         store=store,

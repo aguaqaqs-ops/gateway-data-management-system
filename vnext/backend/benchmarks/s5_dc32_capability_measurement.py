@@ -387,44 +387,6 @@ def _extract_required_sql(package: bytes) -> bytes:
         return stream.read()
 
 
-def _measure_existing_sql_parser(sql_bytes: bytes) -> dict[str, Any]:
-    from gateway_backend.capabilities.table_access.contracts import (
-        NeverCancel,
-        PARSER_INPUT_CONTRACT_VERSION,
-        ParserInvocationContext,
-        SqlParseRequest,
-        SqlSourceInput,
-    )
-    from gateway_backend.capabilities.table_access.sql import parse_sql
-
-    digest = raw_blob_digest(sql_bytes)
-    context = ParserInvocationContext(NeverCancel())
-    request = SqlParseRequest(
-        source=SqlSourceInput(
-            document_content_digest=digest,
-            sql_source_digest=digest,
-            parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION,
-            encoding="utf-8",
-            source_size_bytes=len(sql_bytes),
-        ),
-        sql_utf8=sql_bytes,
-        context=context,
-    )
-    wall_started = time.perf_counter()
-    cpu_started = time.thread_time()
-    parsed = parse_sql(request)
-    wall = time.perf_counter() - wall_started
-    cpu = time.thread_time() - cpu_started
-    del parsed
-    return {
-        "input_bytes": len(sql_bytes),
-        "wall_seconds": round(wall, 6),
-        "thread_cpu_seconds": round(cpu, 6),
-        "mib_per_second": _rate_mib(len(sql_bytes), wall),
-        "parser": "gateway_backend.capabilities.table_access.sql.parse_sql",
-    }
-
-
 def _table_facts(bound: BoundSnapshotInput) -> dict[str, dict[str, Any]]:
     manifest_tables: dict[str, Any] = {}
     for fact in bound.storage_facts:
@@ -995,7 +957,45 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
     stage_table_costs: list[dict[str, Any]] = []
     basic: dict[str, Any] = {}
     submit_table_facts: dict[str, Mapping[str, Any]] = {}
+
+    def checkpoint(status: str, *, failure_type: str | None = None) -> None:
+        value: dict[str, Any] = {
+            "schema_version": "s5-dc32-capability-measurement/v1",
+            "run_id": run_id,
+            "head": subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=_REPO_ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout.strip(),
+            "dataset_ids": list(dataset_ids),
+            "status": status,
+            "basic_operations": basic,
+            "scenarios": scenario_results,
+            "per_table_stage_costs": stage_table_costs,
+            "privacy": "no row values, row identifiers, SQL text, or credentials recorded",
+        }
+        if failure_type is not None:
+            value["failure_type"] = failure_type
+        _private_json(output, value)
+        print(
+            json.dumps(
+                {
+                    "event": "dc32_checkpoint",
+                    "status": status,
+                    "scenario_count": len(scenario_results),
+                    "table_measurement_count": len(stage_table_costs),
+                    "output": str(output),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+
     try:
+        checkpoint("RUNNING")
         for dataset_id in dataset_ids:
             item = index.get(dataset_id)
             if item is None:
@@ -1006,7 +1006,6 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                 sql_bytes = _extract_required_sql(package)
                 basic["package_decompression"] = _standalone_decompression(package)
                 basic["hash_algorithms"] = _measure_hashes(package, sql_bytes)
-                basic["existing_sql_parse"] = _measure_existing_sql_parser(sql_bytes)
             recorder = MeasurementRecorder(dataset_id)
             store = artifact_store
             stores[dataset_id] = store
@@ -1022,6 +1021,27 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                     bound.summary.row_count_total or 1,
                     scratch,
                 )
+                sql_parse_metrics = [
+                    metric
+                    for metric in recorder.stages
+                    if metric["stage"] == "sql_parse"
+                ]
+                parse_wall = sum(
+                    float(metric["wall_seconds"]) for metric in sql_parse_metrics
+                )
+                parse_cpu = sum(
+                    float(metric["thread_cpu_seconds"]) for metric in sql_parse_metrics
+                )
+                if not sql_parse_metrics:
+                    raise RuntimeError("production materialization did not expose SQL parse timing")
+                basic["existing_sql_parse"] = {
+                    "input_bytes": len(sql_bytes),
+                    "wall_seconds": round(parse_wall, 6),
+                    "thread_cpu_seconds": round(parse_cpu, 6),
+                    "mib_per_second": _rate_mib(len(sql_bytes), parse_wall),
+                    "parser": "gateway_backend.capabilities.table_access.sql.parse_sql",
+                    "measurement_source": "t4 v1 production Snapshot materialization sql_parse stage",
+                }
             _append_table_costs(
                 stage_table_costs,
                 scenario=dataset_id,
@@ -1036,6 +1056,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                     "summary": recorder.outputs,
                 }
             )
+            checkpoint("RUNNING")
         for tier in _DATASET_TIERS:
             v1_id = f"rd-{tier}-" + {"t1": "a", "t2": "b", "t3": "c", "t4": "d"}[tier] + "-v1"
             v2_id = v1_id.removesuffix("v1") + "v2"
@@ -1069,6 +1090,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                         "summary": first_preview,
                     }
                 )
+                checkpoint("RUNNING")
 
                 repeat_recorder = MeasurementRecorder("t4_repeat_v1_materialize")
                 repeated, _repeat_manifest_ref, _repeat_manifest_digest = _snapshot_package(
@@ -1091,6 +1113,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                         "summary": repeat_recorder.outputs,
                     }
                 )
+                checkpoint("RUNNING")
 
                 recorder = MeasurementRecorder("t4_repeat_v1_preview")
                 repeated_preview = _pair_measurement(
@@ -1114,6 +1137,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                         "summary": repeated_preview,
                     }
                 )
+                checkpoint("RUNNING")
 
                 recorder = MeasurementRecorder("t4_v2_preview")
                 v2_preview = _pair_measurement(
@@ -1138,6 +1162,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                         "summary": v2_preview,
                     }
                 )
+                checkpoint("RUNNING")
             else:
                 baseline = v1
                 current = v2
@@ -1165,6 +1190,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                         "summary": result,
                     }
                 )
+                checkpoint("RUNNING")
             if tier == "t4":
                 # The new change freezes T1 artifacts. The actual submit prepare capability path
                 # consumes those same refs and schema facts without re-projecting source rows.
@@ -1200,6 +1226,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                             "summary": result,
                         }
                     )
+                    checkpoint("RUNNING")
                 recorder = MeasurementRecorder("t4_history")
                 history = _pair_measurement(
                     recorder=recorder,
@@ -1223,8 +1250,9 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                         "summary": history,
                     }
                 )
+                checkpoint("RUNNING")
 
-        return {
+        final_result = {
             "schema_version": "s5-dc32-capability-measurement/v1",
             "run_id": run_id,
             "head": subprocess.run(
@@ -1236,11 +1264,17 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                 timeout=10,
             ).stdout.strip(),
             "dataset_ids": list(dataset_ids),
+            "status": "PASS",
             "basic_operations": basic,
             "scenarios": scenario_results,
             "per_table_stage_costs": stage_table_costs,
             "privacy": "no row values, row identifiers, SQL text, or credentials recorded",
         }
+        checkpoint("PASS")
+        return final_result
+    except BaseException as error:
+        checkpoint("FAILED", failure_type=type(error).__name__)
+        raise
     finally:
         import shutil
 

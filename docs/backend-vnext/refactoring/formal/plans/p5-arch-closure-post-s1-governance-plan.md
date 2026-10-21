@@ -437,4 +437,17 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 测试：新增一个按业务行为命名的权威测试，即在 ruleset A 下 T1 受理、prepare 前换成 digest 不同的 B 后恢复，Submit 按冻结产物完成，且包与 A 下一致；删除只断言“ruleset 不一致即拒绝”的旧测试与相关 mock。
    - handoff 记录引入提交，在文档核对表中把该项标为已修复，并注明 prepare 少做投影对 S5.4 测量的影响。
    - 若修复需要改 `storage_projection` 或 `snapshot_materialization` 的公开 API，或需要改任何 Contract 文本，先暂停汇报。修复完成后继续 S5.4 与最终门禁：最终门禁跑全部包，真实数据跑 t1–t4 全量。
+
+   2026-10-21 S5 最终门禁暂停（候选 V `a2cfe03c21`）：
+   - 全量 runner exit 1（未设包筛选）。shared_kernel 242、repository_contracts 152、repository_client 154 通过；backend 并行 2,904 passed，serial 38 passed、1 failed；repository_service 并行 1,724 passed、1 skipped，serial 205 passed。按停止条件，五包静态检查、t1–t4 真实数据、H 与 handoff 均未进行。
+   - 唯一失败：`tests/test_submit_recovery.py` 的 Repository 重启旅程用 `monkeypatch.setattr` 替换 `SubmitImportPublicationAdapter.build_and_publish_from_inputs`，而 `9f1df26914` 已把它改为私有的 `_build_and_publish_from_inputs`，属性不存在，pytest 直接报错。该用例是需要真实 Dolt 的 serial 集成测试，不在调试阶段的 focused 范围内；属性名以字符串传入，mypy 也查不到。产品行为不受影响。
+   - DC32 capability 测量已在 `a2cfe03c21` 完成，exit 0，18 个场景、14,939 条逐表记录。RS 逐表读取、用户可见/完成时间与旧实现 t4 Preview 同口径对照尚未取得。
+   - RS 并行批次的 1 个 skip 在 G12 与 S4 中都有，S4 的 RS `-m unit` 同样 1 skipped，属于 unit 用例，不是 Compose 旅程；具体用例名尚未记录。
+
+   owner 决议（2026-10-21）：
+   - 只修测试：改为替换公开的 `build_and_publish(self, *, build_input, store)`，不替换私有方法；不改产品代码与 Contract。在 tests、tools 与测试支持代码中搜索 S5 改名或删除符号的字符串引用（至少 `build_and_publish_from_inputs`、`_resolve_ruleset`、`_open_projection_inputs`，以及 Submit 路径上的 `migrated_table_ruleset_snapshot`），一并修正。
+   - 修正提交即新 V。新 V 上重建 fresh RS 镜像，完整运行全量 runner（不设包筛选）；`a2cfe03c21` 的 runner exit 1，不能作为任何包的沿用来源。
+   - DC32 capability 测量沿用 `a2cfe03c21`，条件是 `git diff --name-only a2cfe03c21..V` 只涉及 `vnext/backend/tests/`；handoff 写明来源提交、diff 结果、日志与明细文件。条件不满足时在 V 上重跑。
+   - RS `-m unit -rs` 查明那个 skip 的用例名与原因，写入 handoff。
+   - 其余按原计划：五包静态检查、真实数据 t1–t4 全量与 S5.4 其余测量、H、carried、正式 handoff。
 13. P5 exit：按 G10 清理。

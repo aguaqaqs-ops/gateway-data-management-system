@@ -32,15 +32,10 @@ from gateway_backend.application.recovery import (
     JOB_STATE_OPERATION_IDENTITY,
     JOB_STATE_REQUEST_FINGERPRINT,
     JOB_STATE_REQUEST_SENT,
-    JOB_STATE_RECONCILE_STARTED_AT,
-    RECONCILE_SESSION_BUDGET_SECONDS,
     RecoveryOutcome,
     RecoveryOutcomeDisposition,
     classify_external_effect_phase,
     compute_request_fingerprint,
-    parse_reconcile_started_at,
-    reconcile_elapsed_seconds,
-    reconcile_session_budget_exhausted,
     validate_external_effect_identity,
 )
 from tests.support.synthetic_jobs import (
@@ -62,10 +57,14 @@ from gateway_backend.operations import (
 )
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
+from gateway_backend.operations.recovery import (
+    RECONCILE_SESSION_BUDGET_SECONDS,
+)
 from gateway_backend.operations.worker import ExecutionControl, ExecutorAcknowledgment
 from tests.support.runtime_settings import make_operation_worker_settings
 
 BASE_TIME = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
+JOB_STATE_RECONCILE_STARTED_AT = "reconcile_started_at"
 IDEMPOTENCY_KEY_ALPHA = "idem-alpha"
 REQUEST_BODY_ALPHA = "request-alpha"
 
@@ -283,41 +282,6 @@ def test_classify_external_effect_phase_matrix() -> None:
     )
 
 
-RECONCILE_BUDGET_CASES: tuple[tuple[float, bool], ...] = (
-    (59.9, False),
-    (60.0, True),
-)
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(("elapsed", "exhausted"), RECONCILE_BUDGET_CASES)
-def test_reconcile_session_budget_exhausted(elapsed: float, exhausted: bool) -> None:
-    assert reconcile_session_budget_exhausted(elapsed) is exhausted
-    assert (
-        reconcile_session_budget_exhausted(
-            reconcile_elapsed_seconds(BASE_TIME, BASE_TIME + timedelta(seconds=elapsed))
-        )
-        is exhausted
-    )
-
-
-@pytest.mark.unit
-def test_parse_reconcile_started_at_reads_iso_utc() -> None:
-    job_state = {JOB_STATE_RECONCILE_STARTED_AT: "2026-08-24T12:00:00Z"}
-    parsed = parse_reconcile_started_at(job_state)
-    assert parsed == BASE_TIME
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "value",
-    (None, "", "not-a-timestamp", "2026-08-24T12:00:00", "2026-08-24T12:00:00+01:00"),
-)
-def test_parse_reconcile_started_at_rejects_missing_or_invalid_values(value: object) -> None:
-    with pytest.raises(ValueError):
-        parse_reconcile_started_at({JOB_STATE_RECONCILE_STARTED_AT: value})
-
-
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "timestamp",
@@ -469,8 +433,9 @@ def test_accepted_handler_then_recovery_polls_without_resubmit(tmp_path: Path) -
         step = unit_of_work.operations.get_step(step_id)
     assert step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(artifact_store, step.checkpoint_ref)
-    started_at = parse_reconcile_started_at(envelope.job_state)
-    assert started_at is not None
+    started_at_value = envelope.job_state[JOB_STATE_RECONCILE_STARTED_AT]
+    assert type(started_at_value) is str
+    started_at = datetime.fromisoformat(started_at_value.replace("Z", "+00:00"))
 
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,

@@ -19,12 +19,17 @@ from gateway_repository_contracts import (
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.recovery import DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
+import gateway_backend.application.submit_jobs as submit_jobs
 from gateway_backend.application.submit_jobs import (
+    SUBMIT_IMPORT_POLL_DEADLINE_SECONDS,
     _prepare_checkpoint_from_job_state,
     build_await_import_result_handler,
     build_submit_import_handler,
 )
-from gateway_backend.application.submission.errors import RepositoryUploadMetadataMismatch
+from gateway_backend.application.submission.errors import (
+    RepositoryUploadMetadataMismatch,
+    RepositoryWriteTimeoutError,
+)
 from gateway_backend.application.submission.job_payload import (
     SUBMIT_STEP_AWAIT,
     SUBMIT_STEP_PREPARE,
@@ -34,6 +39,7 @@ from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_fa
 from gateway_backend.domain.submission.models import SubmitAttemptState
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
+from gateway_backend.application.submission.ports import RepositoryWritePort
 from gateway_backend.operations import (
     OperationStatus,
     StepStatus,
@@ -259,6 +265,26 @@ def _run_submit_to_await_claim(
     return await_work, operation_id
 
 
+class _ImmediatePollTimeout:
+    def __init__(self, delegate: object) -> None:
+        self._delegate = delegate
+        self.deadlines: list[float | None] = []
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._delegate, name)
+
+    def wait_operation(
+        self,
+        *,
+        repository_id: str,
+        operation_id: str,
+        deadline_seconds: float | None = None,
+    ) -> object:
+        del repository_id, operation_id
+        self.deadlines.append(deadline_seconds)
+        raise RepositoryWriteTimeoutError("simulated bounded Repository poll timeout")
+
+
 def _prepare_manifest_digest(harness: SubmitWorkerHarness, operation_id: str) -> str:
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
@@ -397,10 +423,112 @@ def test_await_import_result_succeeded_finalizes_submission(tmp_path: Path) -> N
     assert submission is not None
 
 
+SUBMIT_IMPORT_POLL_TIMEOUT_CASES: tuple[
+    tuple[int, StepStatus, OperationStatus], ...
+] = (
+    (1, StepStatus.RETRY_WAIT, OperationStatus.RUNNING),
+    (2, StepStatus.RETRY_WAIT, OperationStatus.RUNNING),
+    (3, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED),
+)
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize(
+    ("poll_sessions", "expected_step_status", "expected_operation_status"),
+    SUBMIT_IMPORT_POLL_TIMEOUT_CASES,
+)
+def test_await_import_result_timeout_uses_bounded_submit_poll_sessions(
+    tmp_path: Path,
+    poll_sessions: int,
+    expected_step_status: StepStatus,
+    expected_operation_status: OperationStatus,
+) -> None:
+    harness = build_submit_worker_harness(tmp_path)
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        submit_step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_SUBMIT)
+        )
+    assert submit_step.checkpoint_ref is not None
+    submit_checkpoint = load_checkpoint_envelope(
+        harness.artifact_store,
+        submit_step.checkpoint_ref,
+    )
+    assert "reconcile_started_at" not in submit_checkpoint.job_state
+    recorder = _ImmediatePollTimeout(harness.submit_deps.repository_write)
+    timeout_deps = replace(
+        harness.submit_deps,
+        repository_write=cast(RepositoryWritePort, recorder),
+    )
+    handler = build_await_import_result_handler(timeout_deps)
+
+    for session_number in range(1, poll_sessions + 1):
+        assert await_work.step.attempt_count == session_number
+        worker_id, lease_token = _await_lease_identity(await_work)
+        control, session = _lease_session(
+            harness,
+            worker_id=worker_id,
+            lease_token=lease_token,
+            operation_id=operation_id,
+            step_id=await_work.step.step_id,
+        )
+        assert (
+            handler(await_work.operation, await_work.step, control, session)
+            is ExecutorAcknowledgment.PUBLISHED
+        )
+        with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+            operation = unit_of_work.operations.get_operation(operation_id)
+            current_step = unit_of_work.operations.get_step(
+                submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+            )
+        assert current_step.checkpoint_ref is not None
+        await_checkpoint = load_checkpoint_envelope(
+            harness.artifact_store,
+            current_step.checkpoint_ref,
+        )
+        assert "reconcile_started_at" not in await_checkpoint.job_state
+        assert operation.status is (
+            expected_operation_status
+            if session_number == poll_sessions
+            else OperationStatus.RUNNING
+        )
+        assert current_step.status is (
+            expected_step_status if session_number == poll_sessions else StepStatus.RETRY_WAIT
+        )
+        if session_number < poll_sessions:
+            with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
+                transaction_now = unit_of_work.operations.transaction_now
+                due_step = replace(
+                    current_step,
+                    retry_not_before=transaction_now,
+                    updated_at=transaction_now,
+                    optimistic_version=current_step.optimistic_version + 1,
+                )
+                assert (
+                    unit_of_work.operations.compare_and_set_step(
+                        due_step,
+                        WritePrecondition(
+                            expected_optimistic_version=current_step.optimistic_version,
+                            worker_id=None,
+                            lease_token=None,
+                        ),
+                    )
+                    is TransitionDisposition.APPLY
+                )
+            await_work = harness.runtime._startup.claim_one()
+            assert await_work is not None
+            assert await_work.step.step_name == SUBMIT_STEP_AWAIT
+
+    assert recorder.deadlines == [SUBMIT_IMPORT_POLL_DEADLINE_SECONDS] * poll_sessions
+
+
 @pytest.mark.serial
 def test_await_import_result_timeout_retries_until_repository_operation_is_terminal(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(submit_jobs, "SUBMIT_IMPORT_POLL_DEADLINE_SECONDS", 0.2)
+
     def _running_forever_handler(request: httpx.Request) -> httpx.Response:
         if "/operations/" in request.url.path and request.method == "GET":
             operation_id = request.url.path.rsplit("/", 1)[-1]

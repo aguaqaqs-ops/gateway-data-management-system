@@ -236,7 +236,7 @@ def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
 
 def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
     return {
-        "schema_version": "backend-vnext/submit/submit-import-checkpoint/v1",
+        "schema_version": "backend-vnext/submit/submit-import-checkpoint/v2",
         "prepare_checkpoint_ref": _artifact_ref_dict("prepare-cp-1"),
         "repository_artifact_ref": {
             "artifact_id": "018f0f3e-7b0a-7c16-8a9e-2e4b9f4d2c11",
@@ -251,16 +251,14 @@ def _canonical_submit_request_checkpoint_job_state() -> dict[str, object]:
         "import_idempotency_key": "p5b-import-v1:abc",
         "idempotency_key": "p5b-import-v1:abc",
         "request_sent": False,
-        "reconcile_started_at": "2024-06-01T12:00:00Z",
     }
 
 
 def _canonical_await_terminal_checkpoint_job_state() -> dict[str, object]:
     return {
-        "schema_version": "backend-vnext/submit/await-import-result-checkpoint/v1",
+        "schema_version": "backend-vnext/submit/await-import-result-checkpoint/v2",
         "submit_checkpoint_ref": _artifact_ref_dict("submit-cp-1"),
         "operation_identity": "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11",
-        "reconcile_started_at": "2024-06-01T12:00:00Z",
         "last_observed_repository_status": "SUCCEEDED",
         "terminal_result_evidence_ref": _artifact_ref_dict("evidence-1"),
     }
@@ -320,7 +318,7 @@ def test_prepare_checkpoint_rejects_inexact_job_state(
     (
         ({"request_sent": None}, "request_sent must be a bool"),
         ({"request_sent": "false"}, "request_sent must be a bool"),
-        ({"reconcile_started_at": None}, "missing keys"),
+        ({"reconcile_started_at": "2024-06-01T12:00:00Z"}, "unknown keys"),
         ({"use_sent_branch": True, "operation_identity": None}, "missing keys"),
         ({"unexpected_field": "x"}, "unknown keys"),
     ),
@@ -367,9 +365,13 @@ def test_submit_checkpoint_rejects_inexact_job_state(
         )
 
 
-def test_await_terminal_checkpoint_rejects_unknown_job_state_fields() -> None:
+@pytest.mark.parametrize(
+    "field",
+    ("unexpected_field", "reconcile_started_at"),
+)
+def test_await_terminal_checkpoint_rejects_unknown_job_state_fields(field: str) -> None:
     job_state = _canonical_await_terminal_checkpoint_job_state()
-    job_state["unexpected_field"] = "x"
+    job_state[field] = "x"
     submit_ref = artifact_ref_from_dict(_artifact_ref_dict("submit-cp-1"))
     with pytest.raises(CheckpointDecodeError, match="unknown keys"):
         _await_checkpoint_from_job_state(

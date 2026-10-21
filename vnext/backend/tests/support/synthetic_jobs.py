@@ -47,9 +47,6 @@ from gateway_backend.application.recovery import (
     RecoveryOutcomeDisposition,
     RecoveryPort,
     compute_request_fingerprint,
-    parse_reconcile_started_at,
-    reconcile_elapsed_seconds,
-    reconcile_session_budget_exhausted,
     validate_external_effect_identity,
 )
 from gateway_backend.application.recovery import RecoveryCapability
@@ -63,6 +60,9 @@ from gateway_backend.operations.contracts import (
     OperationStatus,
     StepRecord,
     StepStatus,
+)
+from gateway_backend.operations.recovery import (
+    reconcile_budget_exhausted,
 )
 from gateway_backend.operations.worker import (
     CheckpointGeneration,
@@ -98,6 +98,23 @@ _JOB_STATE_REQUEST_ARTIFACT_ID = "request_artifact_id"
 _JOB_STATE_REQUEST_FINGERPRINT = "request_fingerprint"
 _JOB_STATE_REQUEST_SENT = "request_sent"
 _JOB_STATE_RECONCILE_STARTED_AT = "reconcile_started_at"
+
+
+def _parse_reconcile_started_at(job_state: Mapping[str, object]) -> datetime:
+    value = job_state.get(_JOB_STATE_RECONCILE_STARTED_AT)
+    if type(value) is not str or not value:
+        raise ValueError("reconcile_started_at must be a non-empty string")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("reconcile_started_at is malformed") from exc
+    if (
+        parsed.tzinfo is None
+        or parsed.utcoffset() is None
+        or parsed.utcoffset().total_seconds() != 0
+    ):
+        raise ValueError("reconcile_started_at must be timezone-aware UTC")
+    return parsed
 
 
 @dataclass(frozen=True, slots=True)
@@ -632,10 +649,9 @@ def build_external_effect_stub_recovery_port(
             return identity_result
 
         try:
-            started_at = parse_reconcile_started_at(envelope.job_state)
-            budget_exhausted = reconcile_session_budget_exhausted(
-                reconcile_elapsed_seconds(started_at, now)
-            )
+            started_at = _parse_reconcile_started_at(envelope.job_state)
+            elapsed_seconds = (now - started_at).total_seconds()
+            budget_exhausted = reconcile_budget_exhausted(elapsed_seconds)
         except (TypeError, ValueError) as exc:
             return RecoveryOutcome(
                 disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,

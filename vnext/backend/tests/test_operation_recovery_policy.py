@@ -43,6 +43,7 @@ from gateway_backend.operations.recovery import (
     RecoveryPolicyDecision,
     RecoveryPolicyDecisionDisposition,
     RecoveryPolicyOutcomeDisposition,
+    ReconcileBudgetMode,
     RecoveryTransitionIntent,
     apply_recovery_backoff_jitter,
     classify_cancel,
@@ -434,6 +435,40 @@ RECONCILE_BUDGET_CASES: tuple[tuple[float, bool], ...] = (
 @pytest.mark.parametrize(("elapsed", "exhausted"), RECONCILE_BUDGET_CASES)
 def test_reconcile_budget_exhausted(elapsed: float, exhausted: bool) -> None:
     assert reconcile_budget_exhausted(elapsed) is exhausted
+
+
+SESSION_COUNT_ONLY_RECONCILE_CASES: tuple[tuple[int, StepStatus], ...] = (
+    (1, StepStatus.RETRY_WAIT),
+    (2, StepStatus.RETRY_WAIT),
+    (3, StepStatus.MANUAL_RECOVERY_REQUIRED),
+)
+
+
+@pytest.mark.parametrize(("attempt_count", "expected_step_status"), SESSION_COUNT_ONLY_RECONCILE_CASES)
+def test_session_count_only_reconcile_budget_uses_three_r5_sessions(
+    attempt_count: int,
+    expected_step_status: StepStatus,
+) -> None:
+    intent = transition_for_outcome(
+        RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
+        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        attempt_count=attempt_count,
+        reconcile_elapsed_seconds=None,
+        reconcile_budget_mode=ReconcileBudgetMode.RECOVERY_SESSIONS_ONLY,
+        effect_boundary_crossed=True,
+        cancel_requested=False,
+        now=BASE_TIME,
+        jitter=_deterministic_jitter,
+    )
+    assert intent.step_target is expected_step_status
+    assert intent.operation_target is (
+        OperationStatus.MANUAL_RECOVERY_REQUIRED
+        if expected_step_status is StepStatus.MANUAL_RECOVERY_REQUIRED
+        else None
+    )
+    assert intent.retain_occupancy is (
+        expected_step_status is StepStatus.MANUAL_RECOVERY_REQUIRED
+    )
 
 
 def _policy_decision_to_application(decision: RecoveryPolicyDecision) -> RecoveryDecision:

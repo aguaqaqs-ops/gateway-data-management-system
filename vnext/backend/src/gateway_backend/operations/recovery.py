@@ -95,6 +95,16 @@ class RecoveryPolicyOutcomeDisposition(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class ReconcileBudgetMode(StrEnum):
+    """Select whether R5 also applies its elapsed-time budget to a poll timeout.
+
+    ``RECOVERY_SESSIONS_ONLY`` is for callers that pass a separately bounded poll deadline.
+    """
+
+    CUMULATIVE_ELAPSED_TIME = "CUMULATIVE_ELAPSED_TIME"
+    RECOVERY_SESSIONS_ONLY = "RECOVERY_SESSIONS_ONLY"
+
+
 class HandlerFailureKind(StrEnum):
     """Bounded handler failure classification for policy routing."""
 
@@ -430,7 +440,8 @@ def transition_for_outcome(
     *,
     capability: RecoveryCapabilityValue,
     attempt_count: int,
-    reconcile_elapsed_seconds: float,
+    reconcile_elapsed_seconds: float | None,
+    reconcile_budget_mode: ReconcileBudgetMode = ReconcileBudgetMode.CUMULATIVE_ELAPSED_TIME,
     effect_boundary_crossed: bool,
     cancel_requested: bool,
     now: datetime,
@@ -439,6 +450,9 @@ def transition_for_outcome(
     step_source: StepStatus = StepStatus.RUNNING,
     operation_source: OperationStatus = OperationStatus.RUNNING,
 ) -> RecoveryTransitionIntent:
+    if type(reconcile_budget_mode) is not ReconcileBudgetMode:
+        raise ValueError("reconcile_budget_mode must be ReconcileBudgetMode")
+
     cancel_outcome = classify_cancel(
         cancel_requested=cancel_requested,
         effect_boundary_crossed=effect_boundary_crossed,
@@ -473,6 +487,7 @@ def transition_for_outcome(
                 capability=capability,
                 attempt_count=attempt_count,
                 reconcile_elapsed_seconds=reconcile_elapsed_seconds,
+                reconcile_budget_mode=reconcile_budget_mode,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -497,6 +512,7 @@ def transition_for_outcome(
                 capability=capability,
                 attempt_count=attempt_count,
                 reconcile_elapsed_seconds=reconcile_elapsed_seconds,
+                reconcile_budget_mode=reconcile_budget_mode,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -505,20 +521,28 @@ def transition_for_outcome(
                 step_source=step_source,
                 operation_source=operation_source,
             )
-        if reconcile_budget_exhausted(reconcile_elapsed_seconds):
-            return transition_for_outcome(
-                RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
-                capability=capability,
-                attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
-                effect_boundary_crossed=effect_boundary_crossed,
-                cancel_requested=False,
-                now=now,
-                jitter=jitter,
-                evidence_ambiguous=evidence_ambiguous,
-                step_source=step_source,
-                operation_source=operation_source,
-            )
+        if reconcile_budget_mode is ReconcileBudgetMode.CUMULATIVE_ELAPSED_TIME:
+            if reconcile_elapsed_seconds is None:
+                raise ValueError(
+                    "cumulative elapsed-time reconcile budget requires elapsed seconds"
+                )
+            if reconcile_budget_exhausted(reconcile_elapsed_seconds):
+                return transition_for_outcome(
+                    RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
+                    capability=capability,
+                    attempt_count=attempt_count,
+                    reconcile_elapsed_seconds=reconcile_elapsed_seconds,
+                    reconcile_budget_mode=reconcile_budget_mode,
+                    effect_boundary_crossed=effect_boundary_crossed,
+                    cancel_requested=False,
+                    now=now,
+                    jitter=jitter,
+                    evidence_ambiguous=evidence_ambiguous,
+                    step_source=step_source,
+                    operation_source=operation_source,
+                )
+        elif reconcile_elapsed_seconds is not None:
+            raise ValueError("session-count-only reconcile budget must not receive elapsed seconds")
         return RecoveryTransitionIntent(
             step_source=step_source,
             step_target=StepStatus.RETRY_WAIT,
@@ -535,6 +559,7 @@ def transition_for_outcome(
                 capability=capability,
                 attempt_count=attempt_count,
                 reconcile_elapsed_seconds=reconcile_elapsed_seconds,
+                reconcile_budget_mode=reconcile_budget_mode,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -685,7 +710,8 @@ def finalize_handler_recovery(
         result.disposition,
         capability=capability,
         attempt_count=step.attempt_count,
-        reconcile_elapsed_seconds=0.0,
+        reconcile_elapsed_seconds=None,
+        reconcile_budget_mode=ReconcileBudgetMode.RECOVERY_SESSIONS_ONLY,
         effect_boundary_crossed=False,
         cancel_requested=False,
         now=now,
@@ -1430,6 +1456,7 @@ __all__ = [
     "RecoveryPolicyDecision",
     "RecoveryPolicyDecisionDisposition",
     "RecoveryPolicyOutcomeDisposition",
+    "ReconcileBudgetMode",
     "RecoveryTransitionIntent",
     "StartupRecovery",
     "apply_operator_recovery_transition",

@@ -40,7 +40,6 @@ from gateway_backend.application.recovery import (
     DIAGNOSTIC_RECONCILE_TIMEOUT,
     JOB_STATE_IDEMPOTENCY_KEY,
     JOB_STATE_OPERATION_IDENTITY,
-    JOB_STATE_RECONCILE_STARTED_AT,
     JOB_STATE_REQUEST_FINGERPRINT,
     JOB_STATE_REQUEST_SENT,
     ExternalEffectRequestIdentity,
@@ -141,11 +140,13 @@ from gateway_backend.operations.contracts import (
 )
 from gateway_backend.operations.recovery import (
     DIAGNOSTIC_RETRY_SCHEDULED,
+    RECONCILE_SESSION_BUDGET_SECONDS,
     OperatorRecoveryCommand,
     OperatorRecoveryRequest,
     RecoveryCapabilityLookup,
     RecoveryCapabilityValue,
     RecoveryPolicyOutcomeDisposition,
+    ReconcileBudgetMode,
     build_authorized_operator_recovery,
     transition_for_outcome,
 )
@@ -164,8 +165,9 @@ from gateway_backend.application.submission.errors import (
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 
-SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v1"
-AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA = "backend-vnext/submit/await-import-result-checkpoint/v1"
+SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v2"
+AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA = "backend-vnext/submit/await-import-result-checkpoint/v2"
+SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = RECONCILE_SESSION_BUDGET_SECONDS
 _MAX_PREPARE_PROJECTION_MESSAGE_BYTES = 4 * 1024
 
 _JCS_MEDIA_TYPE = "application/jcs"
@@ -283,7 +285,6 @@ class _SubmitCheckpointState:
 class _AwaitCheckpointState:
     submit_checkpoint_ref: ArtifactRef
     repository_operation_id: str
-    reconcile_started_at: str
     last_observed_repository_status: str | None
     terminal_result_evidence_ref: ArtifactRef | None
 
@@ -670,7 +671,6 @@ def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecu
                     request_artifact_ref=request_state.request_artifact_ref,
                     request_fingerprint=request_state.request_fingerprint,
                     repository_operation_id=repository_operation_id,
-                    reconcile_started_at=_iso_utc_timestamp(datetime.now(UTC)),
                 ),
             )
             sent_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, sent_envelope)
@@ -798,7 +798,6 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 expected_repository_operation_id=submit_state.repository_operation_id,
             )
         else:
-            reconcile_started_at = _iso_utc_timestamp(datetime.now(UTC))
             envelope = envelope_for_step(
                 key=await_definition.key,
                 operation=operation,
@@ -807,7 +806,6 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 job_state=_job_state_for_await_reconcile(
                     submit_checkpoint_ref=submit_step.checkpoint_ref,
                     repository_operation_id=submit_state.repository_operation_id,
-                    reconcile_started_at=reconcile_started_at,
                 ),
             )
             await_checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
@@ -825,7 +823,6 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             await_checkpoint_state = _AwaitCheckpointState(
                 submit_checkpoint_ref=submit_step.checkpoint_ref,
                 repository_operation_id=submit_state.repository_operation_id,
-                reconcile_started_at=reconcile_started_at,
                 last_observed_repository_status=None,
                 terminal_result_evidence_ref=None,
             )
@@ -847,16 +844,19 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 repository_operation = deps.repository_write.wait_operation(
                     repository_id=payload.repository_id,
                     operation_id=submit_state.repository_operation_id,
+                    deadline_seconds=SUBMIT_IMPORT_POLL_DEADLINE_SECONDS,
                 )
             except (TimeoutError, RepositoryWriteTimeoutError):
                 now = datetime.now(UTC)
-                # One bounded poll timeout does not prove the Repository operation failed.
-                # Schedule a checkpointed retry; the existing R5 attempt budget bounds repeats.
+                # One bounded Submit import poll session does not prove the Repository operation
+                # failed. R5 bounds retries by three claimed sessions; cumulative elapsed time is
+                # intentionally not the budget for these individually bounded polls.
                 intent = transition_for_outcome(
                     RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
                     capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
                     attempt_count=step.attempt_count,
-                    reconcile_elapsed_seconds=0.0,
+                    reconcile_elapsed_seconds=None,
+                    reconcile_budget_mode=ReconcileBudgetMode.RECOVERY_SESSIONS_ONLY,
                     effect_boundary_crossed=True,
                     cancel_requested=control.cancel_requested,
                     now=now,
@@ -913,7 +913,6 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 job_state=_job_state_for_await_terminal(
                     submit_checkpoint_ref=submit_step.checkpoint_ref,
                     repository_operation_id=submit_state.repository_operation_id,
-                    reconcile_started_at=await_checkpoint_state.reconcile_started_at,
                     last_observed_repository_status=repository_operation.status.value,
                     terminal_result_evidence_ref=evidence_ref,
                 ),
@@ -933,7 +932,6 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             await_checkpoint_state = _AwaitCheckpointState(
                 submit_checkpoint_ref=submit_step.checkpoint_ref,
                 repository_operation_id=submit_state.repository_operation_id,
-                reconcile_started_at=await_checkpoint_state.reconcile_started_at,
                 last_observed_repository_status=repository_operation.status.value,
                 terminal_result_evidence_ref=evidence_ref,
             )
@@ -1123,7 +1121,6 @@ def _materialize_submit_checkpoint_state(
             media_type=_JCS_MEDIA_TYPE,
         )
         request_fingerprint = compute_request_fingerprint(request_bytes)
-        reconcile_started_at = _iso_utc_timestamp(attempt.effect_pending_at or datetime.now(UTC))
         if attempt.repository_operation_id is not None:
             envelope = envelope_for_step(
                 key=submit_definition.key,
@@ -1137,7 +1134,6 @@ def _materialize_submit_checkpoint_state(
                     request_artifact_ref=request_ref,
                     request_fingerprint=request_fingerprint,
                     repository_operation_id=attempt.repository_operation_id,
-                    reconcile_started_at=reconcile_started_at,
                 ),
             )
             request_sent = True
@@ -1154,7 +1150,6 @@ def _materialize_submit_checkpoint_state(
                     payload=payload,
                     request_artifact_ref=request_ref,
                     request_fingerprint=request_fingerprint,
-                    reconcile_started_at=reconcile_started_at,
                 ),
             )
             request_sent = False
@@ -1229,7 +1224,6 @@ def _materialize_submit_checkpoint_state(
             payload=payload,
             request_artifact_ref=request_ref,
             request_fingerprint=request_fingerprint,
-            reconcile_started_at=_iso_utc_timestamp(effect_pending_at),
         ),
     )
     checkpoint_ref = prepare_step_checkpoint(deps.artifact_store, envelope)
@@ -1626,7 +1620,6 @@ _ALLOWED_SUBMIT_CHECKPOINT_REQUEST_KEYS = frozenset(
         _JOB_STATE_IMPORT_KEY,
         JOB_STATE_IDEMPOTENCY_KEY,
         JOB_STATE_REQUEST_SENT,
-        JOB_STATE_RECONCILE_STARTED_AT,
     }
 )
 
@@ -1639,7 +1632,6 @@ _ALLOWED_AWAIT_RECONCILE_CHECKPOINT_KEYS = frozenset(
         _JOB_STATE_SCHEMA_VERSION,
         _JOB_STATE_SUBMIT_CHECKPOINT_REF,
         JOB_STATE_OPERATION_IDENTITY,
-        JOB_STATE_RECONCILE_STARTED_AT,
     }
 )
 
@@ -1702,13 +1694,11 @@ def _job_state_for_await_reconcile(
     *,
     submit_checkpoint_ref: ArtifactRef,
     repository_operation_id: str,
-    reconcile_started_at: str,
 ) -> dict[str, object]:
     return {
         _JOB_STATE_SCHEMA_VERSION: AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA,
         _JOB_STATE_SUBMIT_CHECKPOINT_REF: artifact_ref_to_dict(submit_checkpoint_ref),
         JOB_STATE_OPERATION_IDENTITY: repository_operation_id,
-        JOB_STATE_RECONCILE_STARTED_AT: reconcile_started_at,
     }
 
 
@@ -1716,7 +1706,6 @@ def _job_state_for_await_terminal(
     *,
     submit_checkpoint_ref: ArtifactRef,
     repository_operation_id: str,
-    reconcile_started_at: str,
     last_observed_repository_status: str,
     terminal_result_evidence_ref: ArtifactRef,
 ) -> dict[str, object]:
@@ -1724,7 +1713,6 @@ def _job_state_for_await_terminal(
         _JOB_STATE_SCHEMA_VERSION: AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA,
         _JOB_STATE_SUBMIT_CHECKPOINT_REF: artifact_ref_to_dict(submit_checkpoint_ref),
         JOB_STATE_OPERATION_IDENTITY: repository_operation_id,
-        JOB_STATE_RECONCILE_STARTED_AT: reconcile_started_at,
         _JOB_STATE_LAST_OBSERVED_REPOSITORY_STATUS: last_observed_repository_status,
         _JOB_STATE_TERMINAL_RESULT_EVIDENCE_REF: artifact_ref_to_dict(terminal_result_evidence_ref),
     }
@@ -1769,10 +1757,6 @@ def _await_checkpoint_from_job_state(
             "await checkpoint operation_identity does not match submit checkpoint",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
-    reconcile_started_at = _require_non_empty_str_value(
-        job_state.get(JOB_STATE_RECONCILE_STARTED_AT),
-        label="reconcile_started_at",
-    )
     last_observed_repository_status = None
     terminal_result_evidence_ref = None
     if has_terminal_evidence:
@@ -1789,7 +1773,6 @@ def _await_checkpoint_from_job_state(
     return _AwaitCheckpointState(
         submit_checkpoint_ref=expected_submit_checkpoint_ref,
         repository_operation_id=repository_operation_id,
-        reconcile_started_at=reconcile_started_at,
         last_observed_repository_status=last_observed_repository_status,
         terminal_result_evidence_ref=terminal_result_evidence_ref,
     )
@@ -1961,7 +1944,6 @@ def _job_state_for_submit_request(
     payload: SubmitJobPayload,
     request_artifact_ref: ArtifactRef,
     request_fingerprint: str,
-    reconcile_started_at: str,
 ) -> dict[str, object]:
     return {
         _JOB_STATE_SCHEMA_VERSION: SUBMIT_IMPORT_CHECKPOINT_SCHEMA,
@@ -1974,7 +1956,6 @@ def _job_state_for_submit_request(
         _JOB_STATE_IMPORT_KEY: payload.repository_import_idempotency_key,
         JOB_STATE_IDEMPOTENCY_KEY: payload.repository_import_idempotency_key,
         JOB_STATE_REQUEST_SENT: False,
-        JOB_STATE_RECONCILE_STARTED_AT: reconcile_started_at,
     }
 
 
@@ -1986,7 +1967,6 @@ def _job_state_for_submit_sent(
     request_artifact_ref: ArtifactRef,
     request_fingerprint: str,
     repository_operation_id: str,
-    reconcile_started_at: str,
 ) -> dict[str, object]:
     return {
         _JOB_STATE_SCHEMA_VERSION: SUBMIT_IMPORT_CHECKPOINT_SCHEMA,
@@ -2000,7 +1980,6 @@ def _job_state_for_submit_sent(
         JOB_STATE_IDEMPOTENCY_KEY: payload.repository_import_idempotency_key,
         JOB_STATE_REQUEST_SENT: True,
         JOB_STATE_OPERATION_IDENTITY: repository_operation_id,
-        JOB_STATE_RECONCILE_STARTED_AT: reconcile_started_at,
     }
 
 
@@ -2032,10 +2011,6 @@ def _submit_state_from_job_state(
             if request_sent
             else _ALLOWED_SUBMIT_CHECKPOINT_REQUEST_KEYS
         ),
-    )
-    _require_non_empty_str_value(
-        job_state.get(JOB_STATE_RECONCILE_STARTED_AT),
-        label="reconcile_started_at",
     )
     stored_prepare_ref = _require_artifact_ref_dict(
         job_state.get(_JOB_STATE_PREPARE_CHECKPOINT_REF),
@@ -2903,6 +2878,7 @@ def _decode_builder_mutation_policy(value: object) -> BuilderMutationPolicy:
 __all__ = [
     "AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA",
     "OperatorRecoveryApplicationPort",
+    "SUBMIT_IMPORT_POLL_DEADLINE_SECONDS",
     "SUBMIT_IMPORT_CHECKPOINT_SCHEMA",
     "SubmitJobPayload",
     "SubmitRepositoryPolicy",

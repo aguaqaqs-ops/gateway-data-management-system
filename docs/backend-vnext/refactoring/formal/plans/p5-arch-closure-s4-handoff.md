@@ -61,6 +61,23 @@ vnext/repository_service/tests/test_upload_artifact_integration.py
 vnext/repository_service/tests/test_upload_artifact_visibility.py
 ```
 
+不在 §3 S4 必改/条件清单中、也不属于上表四组的其余路径（独立审核 S4-F1 后补记）。逐项都是设计 §7 的验收在清单路径之外的接线、命名调整或 DTO/字段目标形态带来的测试更新；没有新增范围，没有 owner 另行授权的需要。
+
+| 路径 | 改动 | 对应验收（执行计划 §2 S4 / 设计 §7） |
+| --- | --- | --- |
+| `application/submission/finalize.py` | `build_submission()` 把 attempt 上的 `identity_confirmations` 冻结进 Submission（1 行）。 | Submit 冻结身份确认事实；清单中的 `accept`/`accept_transaction` 只负责受理，Submission 在 finalize 中构造。 |
+| `capabilities/comparison/standard.py` | `DATASET_REPLACEMENT` 模式从占位结果改为调用新增的 `replacement.compare_dataset_replacement()`。 | 替换比较事实；`standard.py` 是比较模式的分派入口，清单中的 `replacement.py` 需从这里接入。 |
+| `domain/submission/reasons.py`（新增） | Submission 领域共享理由校验 `validate_submission_reason(allow_multiline=...)`；`domain/submission/review.py` 改为调用它。 | DC28：清单要求把 `review.py` 的理由规则提取为 Submission 领域共享校验，新文件是该提取的落点（命名调整）。 |
+| `http/mappers.py` | Preview 结果响应映射 `identity_assessment_set_digest` 与 `identity_pairs`。 | HTTP DTO 目标形态；清单中的 `http/schemas/preview.py` 定义字段，mapper 负责从 Application 结果填充。 |
+| `application/history/contracts.py` | `HistoryNode`、`HistoryPageEntry` 增加只读 `identity_exception` 标记及校验（基线节点不得携带）。 | Review/History 只读展示身份异常；清单中的 `application/history/projection.py` 使用该字段。 |
+| `infrastructure/control_db/sqlite_history.py`、`infrastructure/control_db/history_reader.py` | History 查询读取 submission 的 `identity_confirmations` 并映射为 `identity_exception`。 | 同上；清单只列出 `sqlite_{workspace,submission,archive,review}`，History 的读取路径在这两个文件。 |
+| `tests/support/workspace_fixtures.py`、`tests/support/http_workspace_harness.py`、`test_preview_application.py`、`test_preview_read_http.py`、`test_production_wiring.py`、`test_submit_application.py`、`test_workspace_domain.py` | 新增 `make_not_applicable_preview_identity()` 夹具；构造 Preview 结果时补上新的必填身份字段（初始空基线为 `NOT_APPLICABLE`）。各用例原有断言不变。 | Preview 保存身份评估；初始空基线 `NOT_APPLICABLE`。 |
+| `tests/support/archive_fixtures.py`、`test_archive_audit.py`、`test_archive_http.py`、`test_archive_queries.py` | anomaly 字段由 `sibling_submission_id`/`sibling_candidate_digest` 改为 `target_submission_id`/`target_candidate_digest`，请求增加 `subject_kind`。断言含义不变。 | Archive 身份异常：anomaly 目标泛化为同级排除与身份异常两类（schema/DTO 目标形态，无旧字段别名）。 |
+| `tests/support/compose_gate_harness.py`、`test_history_compose_e2e.py`、`test_ordered_compare_compose.py`、`test_submit_compose_e2e.py` | 新增 `resolve_archive_preview_anomalies()`：按 `subject_kind` 逐项处置（`APPROVED_SIBLING_EXCLUDED`、`PROJECT_IDENTITY_EXCEPTION`），每次断言 201，未知类型直接失败。三个既有 Compose 旅程在 `StartArchive` 前改用它；`test_history_compose_e2e.py` 删除原内联的单项处置代码，并改为断言 anomaly 为 2 项。 | Archive 身份异常处置与 StartArchive 校验：既有旅程中出现身份异常后，必须处置才能归档。断言没有削弱。 |
+| `tests/support/compose_gate_harness.py`（`938d41d171`）、`test_ordered_submit_bisect_compose.py` | 新增 `identity_confirmation_requests()`；ordered submit 重试在 Preview 判为 `UNVERIFIABLE` 时带上身份确认后提交。 | Submit 身份确认：`UNVERIFIABLE` 必须确认才能受理。 |
+
+`p5-g12-exit..H` 区间中的 `AGENTS.md`、`docs/backend-vnext/testing-conventions.md`、G12 审核报告、治理修订计划与决议记录的改动来自 `p5-g12-exit` 之后、截至 kickoff base 的 main 上的 G12 收尾提交（`86a60e58da`、`368163c1b0`），不是 S4 的改动。
+
 `import_rules` 起点是 0 / 0 / 6；最终仍为 0 / 0 / 6（import violations / runtime cycles / unreachable modules），没有增加。每个子步结束的 focused 测试与 import_rules 记录留在 ct108 的 `s4-import-rules-*.log` 和各 focused log 中；最终日志为 `s4-import-rules-ed70ca1be2.log`。
 
 ## 4. 停滞事实、根因更正与修复

@@ -423,4 +423,18 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    owner 决议（2026-10-21）：
    - 修正实现，不改 Contract 文本：`_rule.py` 改为从 `snapshot_materialization` 的公开 facade 导入 `SqlSetValue`，从 allowlist 中移除 `table_access`。handoff 的文档核对表记录该偏差与决议，并注明由 S4 引入。
    - S5.3 其余条款全部核对完后，如有偏差，一次性汇总并附建议处置，再暂停交 owner；没有偏差则直接继续 S5.4 与最终门禁。
+
+   2026-10-21 S5.3 第二次暂停（其余条款核完，依赖偏差已在 `ba4ee7a5e6` 修复）：
+   - 偏差：DC11 规定 Submit 在 T1 之后只使用冻结的规范产物，不依赖运行期规则，prepare 也不重新投影；Ruleset Activation §1/§5 与设计 §4.8、§4.9 一致。实现中 `submit_jobs.py` 的 `_build_prepare_import_build_input` 从运行期 ruleset 取 id/version/digest；`infrastructure/repository_write/import_publication.py` 的 `_resolve_ruleset` 要求运行期 ruleset 与 build input 一致，再用运行期 ruleset 对冻结的规范表重跑 `project_storage`，并断言结果与冻结 manifest 相同。
+   - 影响：T1 之后、prepare checkpoint 写入之前恢复的 Submit，若跨越了 ruleset 激活，会进入 MANUAL_RECOVERY_REQUIRED；已 PREPARED 的复用包，不受影响。当前行为是拒绝而不是产出错误的包，不构成数据风险。ruleset 写在代码中，激活即发版；默认 drain 为 180 s，而 S4 的 t4 v1 Submit 用时 576 s，这个窗口实际可能遇到。
+   - 按 Contract 注记，该部分应在 S2a/S2b 交付，当时的审核均未发现；引入提交由实施方在 handoff 中确认。
+
+   owner 决议（2026-10-21）：
+   - 按已接受 Contract 与 DC11 修实现，不修订 Ruleset Activation §1/§5 与设计 §4.8、§4.9。
+   - T1 之后 prepare 不读取运行期 ruleset，也不调用 `project_storage`：build input 的 ruleset 身份与 `storage_projection_version` 取自冻结 manifest（或从 build input 删除）；import schema（列、类型、可空性、有序键）与 DML 只由冻结的规范表 artifact 与冻结 manifest 的逐表事实构建；删除 `_resolve_ruleset` 及“运行期 ruleset 不一致即拒绝”的分支。
+   - 冻结产物自身的绑定继续核对，不一致仍稳定失败：闭包与 manifest 的 ref/digest、表 artifact 的 `raw_sha256` 与 `snapshot_digest`、`source_artifact_digest`、expected parent CAS。
+   - 回归基准：同一输入下，新路径产出的 import 包（schema SQL、DML、包 digest）与旧路径逐字节一致。
+   - 测试：新增一个按业务行为命名的权威测试，即在 ruleset A 下 T1 受理、prepare 前换成 digest 不同的 B 后恢复，Submit 按冻结产物完成，且包与 A 下一致；删除只断言“ruleset 不一致即拒绝”的旧测试与相关 mock。
+   - handoff 记录引入提交，在文档核对表中把该项标为已修复，并注明 prepare 少做投影对 S5.4 测量的影响。
+   - 若修复需要改 `storage_projection` 或 `snapshot_materialization` 的公开 API，或需要改任何 Contract 文本，先暂停汇报。修复完成后继续 S5.4 与最终门禁：最终门禁跑全部包，真实数据跑 t1–t4 全量。
 13. P5 exit：按 G10 清理。

@@ -158,12 +158,10 @@ from gateway_backend.operations.worker import (
     LeaseSession,
     WriteUnitOfWorkFactory,
 )
-from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from gateway_backend.application.submission.errors import (
     PrepareCheckpointPayloadBindingError,
     SubmitImportPublicationError,
 )
-from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 
 SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v2"
 AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA = "backend-vnext/submit/await-import-result-checkpoint/v2"
@@ -1418,12 +1416,6 @@ def _recover_external_effect_step(
     )
 
 
-def _capability_storage_projection_version(contract_version: str) -> str:
-    if contract_version == "v1":
-        return STORAGE_PROJECTION_VERSION
-    raise SubmitImportBuilderError("unsupported storage_projection_version")
-
-
 def _build_prepare_import_build_input(
     *,
     payload: SubmitJobPayload,
@@ -1432,9 +1424,6 @@ def _build_prepare_import_build_input(
     store: ArtifactStorePort,
     parent_catalog: RepositoryParentCatalogPort,
 ) -> PrepareImportBuildInput:
-    ruleset = migrated_table_ruleset_snapshot()
-    if ruleset.ruleset_digest is None:
-        raise SubmitImportBuilderError("ruleset digest is required")
     try:
         ready_closure_ref = next(
             (
@@ -1481,12 +1470,6 @@ def _build_prepare_import_build_input(
         removed_tables=removed_tables,
         source_artifact_digest=attempt.snapshot_digest,
         repository_base_digest=attempt.source_digest,
-        storage_projection_version=_capability_storage_projection_version(
-            payload.storage_projection_version
-        ),
-        ruleset_id=ruleset.ruleset_id,
-        ruleset_version=ruleset.ruleset_version,
-        ruleset_digest=ruleset.ruleset_digest.value,
         snapshot_tables=snapshot_tables,
     )
 

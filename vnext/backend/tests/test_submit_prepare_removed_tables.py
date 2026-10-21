@@ -181,6 +181,7 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         assert empty_materialized.status is SnapshotMaterializationStatus.COMPLETE
         assert empty_materialized.table_set is not None
         assert empty_materialized.table_set.tables == ()
+        ruleset = migrated_table_ruleset_snapshot()
         empty_projection = project_canonical_table_set(empty_materialized.table_set, ruleset)
         assert empty_projection.manifest is not None
         assert empty_projection.manifest.manifest_digest is not None

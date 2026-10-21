@@ -443,7 +443,11 @@ def test_await_import_result_timeout_uses_bounded_submit_poll_sessions(
     expected_step_status: StepStatus,
     expected_operation_status: OperationStatus,
 ) -> None:
-    harness = build_submit_worker_harness(tmp_path)
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(default_repository_handler),
+    )
     await_work, operation_id = _run_submit_to_await_claim(harness)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         submit_step = unit_of_work.operations.get_step(

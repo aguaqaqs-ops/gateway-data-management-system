@@ -108,11 +108,8 @@ def _parse_reconcile_started_at(job_state: Mapping[str, object]) -> datetime:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
         raise ValueError("reconcile_started_at is malformed") from exc
-    if (
-        parsed.tzinfo is None
-        or parsed.utcoffset() is None
-        or parsed.utcoffset().total_seconds() != 0
-    ):
+    utc_offset = parsed.utcoffset()
+    if parsed.tzinfo is None or utc_offset is None or utc_offset.total_seconds() != 0:
         raise ValueError("reconcile_started_at must be timezone-aware UTC")
     return parsed
 

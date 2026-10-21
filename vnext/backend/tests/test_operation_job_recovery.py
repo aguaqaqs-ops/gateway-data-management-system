@@ -54,7 +54,6 @@ from gateway_backend.application.payloads import decode_job_payload
 from gateway_backend.application.recovery import (
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
     DIAGNOSTIC_RECONCILE_TIMEOUT,
-    RECONCILE_SESSION_BUDGET_SECONDS,
     RecoveryOutcomeDisposition,
     compute_request_fingerprint,
 )
@@ -82,7 +81,12 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.operations.contracts import JobStepKey, OperationRecord, StepRecord
 from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork, initialize_control_db
-from gateway_backend.operations.recovery import RecoveryCapabilityValue, StartupRecovery, build_startup_recovery
+from gateway_backend.operations.recovery import (
+    RECONCILE_SESSION_BUDGET_SECONDS,
+    RecoveryCapabilityValue,
+    StartupRecovery,
+    build_startup_recovery,
+)
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationStatus,

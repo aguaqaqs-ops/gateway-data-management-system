@@ -1629,7 +1629,7 @@ def _submit(
     collect_timing: bool = False,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
-    result = cast(Mapping[str, Any], preview["result"])
+    preview_result = cast(Mapping[str, Any], preview["result"])
     request_started = time.monotonic()
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
@@ -1637,7 +1637,7 @@ def _submit(
         json={
             "expected_workspace_version": workspace_state["optimistic_version"],
             "upload_revision_id": upload["upload_revision_id"],
-            "preview_result_id": result["preview_result_id"],
+            "preview_result_id": preview_result["preview_result_id"],
             "generation": workspace_state["generation"],
             "expected_baseline_node_id": baseline_node_id,
             "expected_baseline_head_version": baseline_head_version,
@@ -1649,15 +1649,15 @@ def _submit(
         payload = _require(response, 409, "no-change submit")
         if payload.get("code") != "NO_CANONICAL_CHANGE":
             raise JourneyFailure("repeat submit did not return NO_CANONICAL_CHANGE")
-        result: dict[str, Any] = {"result": "NO_CANONICAL_CHANGE"}
+        no_change_result: dict[str, Any] = {"result": "NO_CANONICAL_CHANGE"}
         if collect_timing:
             elapsed = round(time.monotonic() - request_started, 3)
-            result["operation_timing"] = {
+            no_change_result["operation_timing"] = {
                 "user_visible_seconds": elapsed,
                 "completion_seconds": elapsed,
                 "visibility_observation": "synchronous_no_change_response",
             }
-        return result
+        return no_change_result
     accepted = _require_one_of(response, {200, 202}, "submit acceptance")
     accepted_monotonic = time.monotonic()
     operation_id = str(accepted["operation_id"])

@@ -31,7 +31,7 @@ import pyarrow as pa
 import pyarrow.ipc as pa_ipc
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
-from gateway_backend.artifacts.store import InMemoryArtifactStore
+from gateway_backend.artifacts.store import InMemoryArtifactStore, put_with_built_ref
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.application import pair_pipeline, preview_jobs
 from gateway_backend.application.submission.contracts import (
@@ -57,6 +57,7 @@ from gateway_backend.capabilities.surface_assembly import _assembly as surface_a
 from gateway_backend.capabilities.mutation_planning import import_replay
 from gateway_backend.infrastructure.repository_write import import_publication
 from gateway_backend.domain.submission.models import BuilderMutationPolicy
+from gateway_backend.domain.workspace.models import SourceArtifactBinding
 from gateway_backend.operations.worker import ExecutionControl
 from gateway_backend.capabilities.table_rules import (
     comparison_rule_set,
@@ -317,6 +318,7 @@ def _append_table_costs(
     recorder: MeasurementRecorder,
     table_facts: Mapping[str, Any],
 ) -> None:
+    stages: tuple[str, ...]
     if "submit_prepare" in scenario:
         stages = (
             "schema_sql_rendering",
@@ -451,13 +453,13 @@ def _snapshot_package(
     store: ScratchArtifactStore,
     recorder: MeasurementRecorder,
 ) -> tuple[BoundSnapshotInput, ArtifactRef, DigestRef]:
-    package_ref = preview_jobs.put_with_built_ref(
+    package_ref = put_with_built_ref(
         store,
         package,
         artifact_id=f"s5-source-{uuid.uuid4().hex}",
         media_type="application/gzip",
     )
-    binding = preview_jobs.SourceArtifactBinding(
+    binding = SourceArtifactBinding(
         artifact_id=package_ref.artifact_id,
         media_type=package_ref.media_type,
         size_bytes=package_ref.size_bytes,
@@ -593,7 +595,7 @@ def _pair_measurement(
             store.write_bytes,
         )
         if history:
-            result = pair_pipeline.run_history_pair_pipeline(
+            history_result = pair_pipeline.run_history_pair_pipeline(
                 pair_id=scenario.replace("_", "-"),
                 before=before,
                 current=current,
@@ -602,15 +604,16 @@ def _pair_measurement(
                 control=ExecutionControl(),
                 on_cancel=lambda: None,
             )
-            facts = result.surface_result.surface
+            facts = history_result.surface_result.surface
+            records_closure = history_result.records_closure
             output: dict[str, Any] = {
-                "record_count": result.record_count,
-                "comparison_digest": result.comparison_digest,
-                "risk_digest": result.risk_digest,
-                "surface_digest": result.surface_digest,
+                "record_count": history_result.record_count,
+                "comparison_digest": history_result.comparison_digest,
+                "risk_digest": history_result.risk_digest,
+                "surface_digest": history_result.surface_digest,
             }
         else:
-            result = pair_pipeline.run_preview_pair_pipeline(
+            preview_result = pair_pipeline.run_preview_pair_pipeline(
                 pair_id=scenario.replace("_", "-"),
                 before=before,
                 current=current,
@@ -618,15 +621,16 @@ def _pair_measurement(
                 control=ExecutionControl(),
                 on_cancel=lambda: None,
             )
-            facts = result.surface_result.surface
+            facts = preview_result.surface_result.surface
+            records_closure = preview_result.records_closure
             output = {
-                "comparison_digest": result.comparison_digest,
-                "risk_digest": result.risk_digest,
-                "surface_digest": result.surface_digest,
+                "comparison_digest": preview_result.comparison_digest,
+                "risk_digest": preview_result.risk_digest,
+                "surface_digest": preview_result.surface_digest,
                 "identity_status": (
                     None
-                    if result.identity_assessment is None
-                    else result.identity_assessment.status.value
+                    if preview_result.identity_assessment is None
+                    else preview_result.identity_assessment.status.value
                 ),
             }
     recorder.stages.append(
@@ -646,7 +650,7 @@ def _pair_measurement(
         raise RuntimeError(f"{scenario}: capability pipeline did not produce a surface")
     table_details = _table_facts(current)
     surface_by_name = {item.table_name: item for item in facts.tables}
-    closure = result.records_closure
+    closure = records_closure
     records_by_name: dict[str, int] = {}
     if closure is not None:
         for entry in closure.records:

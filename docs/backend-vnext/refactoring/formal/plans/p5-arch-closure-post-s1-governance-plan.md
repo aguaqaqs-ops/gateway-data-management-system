@@ -416,4 +416,11 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - **S4-F2 采用方案一。** Submit 的 `await_import_result` 以 R5 的 3 个 60 s 对账会话为上限，替代累计 60 s 预算；S4 不再改代码。该项作为 S5 携带项（见第 12 项）。
    - **S4-F1 只改 handoff。** 授权审核方直接修订 handoff、完成终审、打 tag 并合入，不再经实施方和初审方。
 12. **S5 kickoff**（区间起点 `p5-s4-exit`）。S5 携带项：S4-F2，把 `await_import_result` 中的 `reconcile_elapsed_seconds=0.0` 改为显式、有名字的 Submit import 轮询预算（5B 设计 §13.1 允许的有上限 Repository poll 参数），在 Contract 层面写明它与 R5 会话上限的关系，并清理没有生产调用方的累计预算函数；S5 的完整 t4 记录每次 Submit 的 RS import 用时与使用的会话数。
+
+   2026-10-21 S5.3 暂停（文档与实现核对）：
+   - 偏差：Contract Taxonomy §4.4 与 Architecture §7.1 规定 `project_identity` 只依赖 `snapshot_materialization`；实现 `capabilities/project_identity/_rule.py` 直接从 `table_access.contracts` 导入 `SqlSetValue`，`test_architecture.py` 的 allowlist 也放进了 `table_access`。这条依赖由 S4 引入，S4 初审与终审均未发现。`snapshot_materialization` 的公开 facade 已重导出 `SqlSetValue`。
+
+   owner 决议（2026-10-21）：
+   - 修正实现，不改 Contract 文本：`_rule.py` 改为从 `snapshot_materialization` 的公开 facade 导入 `SqlSetValue`，从 allowlist 中移除 `table_access`。handoff 的文档核对表记录该偏差与决议，并注明由 S4 引入。
+   - S5.3 其余条款全部核对完后，如有偏差，一次性汇总并附建议处置，再暂停交 owner；没有偏差则直接继续 S5.4 与最终门禁。
 13. P5 exit：按 G10 清理。

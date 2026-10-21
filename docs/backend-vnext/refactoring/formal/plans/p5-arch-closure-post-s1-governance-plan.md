@@ -367,7 +367,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - **G12-F1（实现缺陷，不会错误沿用；转入 S4 第一步）：** manifest 在 runner 开始时记录了 `gateway-repository-client-e2e:local` 与 `gateway-repository-service:local` 的本机 image ID，而这两个镜像正是被测运行自己会重建的（client 镜像以 HEAD 为候选 label，每换提交运行 RS Compose 测试都会重建；RS 镜像在 identity 变化时重建）。来源 runner 一旦重建它们，后续任何提交都无法沿用该包；RS 在文档提交上重跑又会重建 client 镜像，无法收敛。G12 自己的证据之所以没暴露，是因为 V 的 runner 之前，审计运行已在 V 上建好了 `:local`。修正方向：这两个镜像只记录 tag 名与决定其内容的输入（`-base:local`、python base、RS dependency-base 的 ID），不记录自身 ID。
    - **G12-F2（规则）：** 专用测试节点使用 containerd image store，同一棵树连续两次全缓存构建，backend/worker 的 image ID 也不相同（`g12-H1-carried-backend-worker.log`）。carried 第 3 条的 image ID 比较在该节点上无法满足；G12 自身的退出实际依靠 H1 的 backend 实跑加 H1→H 的闭包相等。owner 决议：backend/worker 的身份改用 backend 包 manifest 在同一 worktree 中逐项相等来判定，不再比较 image ID（DC34 第二部分）。已同步修订 AGENTS.md 与 testing-conventions 的 carried 第 3 条。
    - **G12-F3（规则）：** G12 实施期间 AGENTS.md 新增“所有测试、容器门禁和取证都在专用 LXC `ct108-gw-dms` 上执行”，owner 确认这是其要求，记为 DC34 第一部分。
-11. **S4 kickoff**（区间起点 `p5-g12-exit`）。S4 携带项：G12-F1，作为 S4 的第一步修复。修复改动 `vnext/scripts/`，S4 的门禁 V 因此五个包全部运行。
+11. **S4（项目身份与数据替换，已完成）**：2026-10-21 终审通过（`plans/p5-arch-closure-s4-independent-review.md` §7），V 为 `ed70ca1be2`，H 为 `130a91103e`；tag `p5-s4-exit` 在 `5634dc6f9b`，合并提交 `54d55b899f`。kickoff（区间起点 `p5-g12-exit`）：S4 携带项：G12-F1，作为 S4 的第一步修复。修复改动 `vnext/scripts/`，S4 的门禁 V 因此五个包全部运行。
 
    2026-10-20 停止（V `938d41d171`，在 ct108 上的完整权威 runner exit 0；五包静态检查通过；`import_rules` 0 / 0 / 6）：
    - t1–t3 完整旅程通过；t4 v1 Preview 通过，`table_count` 与 changed 均为 312，composite 435 行，与 S3 一致。

@@ -39,16 +39,13 @@ from gateway_backend.capabilities.snapshot_materialization import (
     open_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    ArtifactSourceBinding,
     SnapshotTableDescriptor,
     SnapshotTableReader,
 )
-from gateway_backend.capabilities.snapshot_materialization.contracts import ArtifactSourceBinding
 from gateway_backend.capabilities.storage_projection import (
     MANIFEST_ENTRY_NAME,
     PACKAGE_VERSION,
-    CanonicalizationManifestTable,
-    ImportReplayKeyedRow,
-    ImportReplayTableSnapshot,
     ImportReplayError as ProjectionImportReplayError,
     ProjectionTable,
     ProjectionInvocationContext,
@@ -69,6 +66,11 @@ from gateway_backend.capabilities.storage_projection import (
     publish_canonicalization,
     render_repository_import_schema_replay_sql,
     validate_repository_import_package,
+)
+from gateway_backend.capabilities.storage_projection.contracts import (
+    CanonicalizationManifestTable,
+    ImportReplayKeyedRow,
+    ImportReplayTableSnapshot,
 )
 from gateway_backend.capabilities.table_rules import (
     ORDERED_IDENTITY_COLUMN,

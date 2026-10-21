@@ -71,7 +71,7 @@ ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
     "bundle_assembly": frozenset({"surface_assembly"}),
     "mutation_planning": frozenset({"storage_projection"}),
     "external_target_sync": frozenset({"mutation_planning"}),
-    "project_identity": frozenset({"snapshot_materialization", "table_access"}),
+    "project_identity": frozenset({"snapshot_materialization"}),
 }
 
 FORBIDDEN_IMPORT_PREFIXES = (

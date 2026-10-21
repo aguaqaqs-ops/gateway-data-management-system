@@ -374,7 +374,11 @@ def _extract_required_sql(package: bytes) -> bytes:
     with gzip.GzipFile(fileobj=io.BytesIO(package)) as compressed:
         expanded = compressed.read()
     with tarfile.open(fileobj=io.BytesIO(expanded), mode="r:") as archive:
-        matches = [member for member in archive.getmembers() if member.name == "sql/dbcfg.sql"]
+        matches = [
+            member
+            for member in archive.getmembers()
+            if member.name.lstrip("/") == "sql/dbcfg.sql"
+        ]
         if len(matches) != 1 or not matches[0].isfile():
             raise ValueError("real dump does not contain exactly one required SQL member")
         stream = archive.extractfile(matches[0])
@@ -998,6 +1002,11 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                 raise ValueError(f"unknown dataset: {dataset_id}")
             package = _dataset_path(root, item).read_bytes()
             package_cache[dataset_id] = package
+            if dataset_id == "rd-t4-d-v1":
+                sql_bytes = _extract_required_sql(package)
+                basic["package_decompression"] = _standalone_decompression(package)
+                basic["hash_algorithms"] = _measure_hashes(package, sql_bytes)
+                basic["existing_sql_parse"] = _measure_existing_sql_parser(sql_bytes)
             recorder = MeasurementRecorder(dataset_id)
             store = artifact_store
             stores[dataset_id] = store
@@ -1008,6 +1017,11 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                 recorder=recorder,
             )
             bounds[dataset_id] = (bound, manifest_ref, manifest_digest)
+            if dataset_id == "rd-t4-d-v1":
+                basic["arrow_ipc_and_conversion"] = _arrow_basic_operations(
+                    bound.summary.row_count_total or 1,
+                    scratch,
+                )
             _append_table_costs(
                 stage_table_costs,
                 scenario=dataset_id,
@@ -1022,16 +1036,6 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                     "summary": recorder.outputs,
                 }
             )
-            if dataset_id == "rd-t4-d-v1":
-                sql_bytes = _extract_required_sql(package)
-                basic["package_decompression"] = _standalone_decompression(package)
-                basic["hash_algorithms"] = _measure_hashes(package, sql_bytes)
-                basic["existing_sql_parse"] = _measure_existing_sql_parser(sql_bytes)
-                basic["arrow_ipc_and_conversion"] = _arrow_basic_operations(
-                    bound.summary.row_count_total or 1,
-                    scratch,
-                )
-
         for tier in _DATASET_TIERS:
             v1_id = f"rd-{tier}-" + {"t1": "a", "t2": "b", "t3": "c", "t4": "d"}[tier] + "-v1"
             v2_id = v1_id.removesuffix("v1") + "v2"

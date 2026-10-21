@@ -24,10 +24,10 @@ from benchmarks.s5_dc32_capability_measurement import (
 pytestmark = pytest.mark.unit
 
 
-def _package_with_sql(sql: bytes) -> bytes:
+def _package_with_sql(sql: bytes, *, member_name: str = "sql/dbcfg.sql") -> bytes:
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w:") as archive:
-        member = tarfile.TarInfo("sql/dbcfg.sql")
+        member = tarfile.TarInfo(member_name)
         member.size = len(sql)
         archive.addfile(member, io.BytesIO(sql))
     return gzip.compress(tar_buffer.getvalue())
@@ -37,6 +37,12 @@ def test_dc32_extracts_only_the_required_sql_member() -> None:
     sql = b"CREATE TABLE sample (id BIGINT);\n"
 
     assert _extract_required_sql(_package_with_sql(sql)) == sql
+
+
+def test_dc32_accepts_the_real_dump_rooted_archive_member_name() -> None:
+    sql = b"CREATE TABLE sample (id BIGINT);\n"
+
+    assert _extract_required_sql(_package_with_sql(sql, member_name="/sql/dbcfg.sql")) == sql
 
 
 def test_dc32_hash_measurement_reports_existing_and_candidate_hashes() -> None:

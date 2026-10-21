@@ -16,6 +16,7 @@ from gateway_repository_service.upload_artifact.visibility import (
     artifact_ready_path,
     is_artifact_visible,
 )
+from support.control_db_harness import locked_control_connection
 from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import create_repository, upload_headers
 
@@ -48,14 +49,16 @@ def test_upload_integration_publishes_ready_file_and_lifecycle(tmp_path: Path) -
             raw_sha256=body["artifact_ref"]["raw_sha256"],
         )
 
-        lifecycle = runtime.mutation_store._connection.execute(
-            """
-            SELECT artifact_id, repository_scope, size_bytes, raw_sha256, created_at, updated_at
-            FROM artifact_lifecycle
-            WHERE artifact_id = ?
-            """,
-            (str(artifact_id),),
-        ).fetchone()
+        with locked_control_connection(runtime.control_store) as connection:
+            lifecycle = connection.execute(
+                """
+                SELECT artifact_id, repository_scope, size_bytes, raw_sha256, created_at, updated_at
+                FROM artifact_lifecycle
+                WHERE artifact_id = ?
+                """,
+                (str(artifact_id),),
+            ).fetchone()
+            version = connection.execute("PRAGMA user_version").fetchone()
         assert lifecycle is not None
         assert lifecycle["repository_scope"] == repository_id.hex
         assert int(lifecycle["size_bytes"]) == len(payload)
@@ -63,5 +66,5 @@ def test_upload_integration_publishes_ready_file_and_lifecycle(tmp_path: Path) -
         assert lifecycle["created_at"]
         assert lifecycle["updated_at"]
 
-        version = runtime.control_store.connection.execute("PRAGMA user_version").fetchone()
+        assert version is not None
         assert int(version[0]) == CONTROL_DB_USER_VERSION

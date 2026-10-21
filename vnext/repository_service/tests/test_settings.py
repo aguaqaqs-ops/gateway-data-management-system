@@ -6,6 +6,7 @@ import pytest
 from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.settings import RepositoryServiceSettings, SettingsError
+from support.control_db_harness import locked_control_connection
 
 
 def test_repository_data_root_is_local_to_service() -> None:
@@ -164,7 +165,8 @@ def test_runtime_uses_code_control_db_user_version(tmp_path: Path, monkeypatch: 
     )
     runtime = ServiceRuntime.start(settings)
     try:
-        version = runtime.control_store.connection.execute("PRAGMA user_version").fetchone()
+        with locked_control_connection(runtime.control_store) as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()
         assert int(version[0]) == CONTROL_DB_USER_VERSION
     finally:
         runtime.shutdown()

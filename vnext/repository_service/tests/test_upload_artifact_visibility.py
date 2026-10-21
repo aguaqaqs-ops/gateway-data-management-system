@@ -16,6 +16,7 @@ from gateway_repository_service.upload_artifact.visibility import (
     has_published_artifact_file,
     is_artifact_visible,
 )
+from support.control_db_harness import control_db_transaction
 from support.lifecycle_harness import lifecycle_settings
 from support.upload_harness import create_repository, upload_headers
 
@@ -74,11 +75,11 @@ def test_ready_file_without_db_is_not_visible(tmp_path: Path) -> None:
         size_bytes = response.json()["artifact_ref"]["size_bytes"]
         runtime = cast(FastAPI, client.app).state.runtime
 
-        runtime.mutation_store._connection.execute(
-            "DELETE FROM synchronous_mutation_effects WHERE resource_id = ?",
-            (str(artifact_id),),
-        )
-        runtime.mutation_store._connection.commit()
+        with control_db_transaction(runtime.control_store) as connection:
+            connection.execute(
+                "DELETE FROM synchronous_mutation_effects WHERE resource_id = ?",
+                (str(artifact_id),),
+            )
 
         assert has_published_artifact_file(
             runtime.layout,

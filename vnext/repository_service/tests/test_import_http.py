@@ -29,6 +29,7 @@ from gateway_repository_service.mutation_store import IdempotencyKeyHash
 from gateway_repository_service.upload_artifact.admission_pin import ArtifactAdmissionPin
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path
 from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
+from support.control_db_harness import control_db_transaction
 from support.http_harness import (
     PRODUCTION_OPENAPI_PATHS,
     ImportHttpTestEnvironment,
@@ -146,11 +147,11 @@ def _seed_operation_for_replay(
 
 
 def _inject_malformed_result_json(env: ImportHttpTestEnvironment, operation_id: UUID) -> None:
-    env.control_store.connection.execute(
-        "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?",
-        ('{"commit_id": 123}', str(operation_id)),
-    )
-    env.control_store.connection.commit()
+    with control_db_transaction(env.control_store) as connection:
+        connection.execute(
+            "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?",
+            ('{"commit_id": 123}', str(operation_id)),
+        )
 
 
 def test_submit_requires_auth(env: ImportHttpTestEnvironment) -> None:
@@ -1026,11 +1027,11 @@ def test_submit_malformed_artifact_lifecycle_scope_returns_internal_error(
 ) -> None:
     repository_id = env.seed_repository()
     artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
-    env.control_store.connection.execute(
-        "UPDATE artifact_lifecycle SET repository_scope = ? WHERE artifact_id = ?",
-        ("not-a-uuid", str(artifact_id)),
-    )
-    env.control_store.connection.commit()
+    with control_db_transaction(env.control_store) as connection:
+        connection.execute(
+            "UPDATE artifact_lifecycle SET repository_scope = ? WHERE artifact_id = ?",
+            ("not-a-uuid", str(artifact_id)),
+        )
     response = _submit(
         env,
         repository_id,

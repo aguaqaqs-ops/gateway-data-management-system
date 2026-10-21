@@ -18,6 +18,7 @@ from gateway_repository_service.providers import OfflineCliProvider
 from gateway_repository_service.runtime import ServiceRuntime
 from gateway_repository_service.upload_artifact import visibility as upload_visibility
 from gateway_repository_service.upload_artifact.visibility import artifact_ready_path, is_artifact_visible
+from support.control_db_harness import control_db_transaction
 from support.lifecycle_harness import lifecycle_settings
 from support.recovery_harness import (
     crash_create_subprocess,
@@ -188,26 +189,26 @@ def test_startup_marks_bad_initial_commit_inconsistent(tmp_path: Path) -> None:
     try:
         response = replay_create(runtime, idempotency_key="startup-bad-initial-check")
         repository_id = UUID(str(response.repository_id))
-        runtime.control_store.connection.execute(
-            """
-            UPDATE synchronous_mutation_effects
-            SET response_body = ?
-            WHERE resource_id = ?
-            """,
-            (
-                json.dumps(
-                    {
-                        "repository_id": str(repository_id),
-                        "default_ref": "main",
-                        "initial_commit_id": "deadbeefdeadbeefdeadbeefdeadbeef",
-                    },
-                    separators=(",", ":"),
-                    sort_keys=True,
+        with control_db_transaction(runtime.control_store) as connection:
+            connection.execute(
+                """
+                UPDATE synchronous_mutation_effects
+                SET response_body = ?
+                WHERE resource_id = ?
+                """,
+                (
+                    json.dumps(
+                        {
+                            "repository_id": str(repository_id),
+                            "default_ref": "main",
+                            "initial_commit_id": "deadbeefdeadbeefdeadbeefdeadbeef",
+                        },
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                    str(repository_id),
                 ),
-                str(repository_id),
-            ),
-        )
-        runtime.control_store.connection.commit()
+            )
     finally:
         runtime.shutdown()
 
@@ -282,15 +283,15 @@ def test_consumed_artifact_missing_bytes_does_not_block_readiness(tmp_path: Path
         ready_path.parent.mkdir(parents=True, exist_ok=True)
         size_bytes, raw_sha256 = write_artifact(ready_path, payload)
         now = "2026-08-06T00:00:00+00:00"
-        runtime.import_store.mutation_store._connection.execute(
-            """
-            INSERT INTO artifact_lifecycle (
-                artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
-            , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
-            """,
-            (str(artifact_id), repository_id.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
-        )
-        runtime.import_store.mutation_store._connection.commit()
+        with control_db_transaction(runtime.control_store) as connection:
+            connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id, repository_scope, media_type, size_bytes, raw_sha256, created_at, updated_at
+                , cleanup_seq) VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle))
+                """,
+                (str(artifact_id), repository_id.hex, MEDIA_TYPE, size_bytes, raw_sha256, now, now),
+            )
         runtime.register_succeeded_upload(repository_id, artifact_id, size_bytes)
 
         binding = ImportRequestBinding(

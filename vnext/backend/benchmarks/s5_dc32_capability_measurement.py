@@ -594,6 +594,7 @@ def _pair_measurement(
             store.write_count,
             store.write_bytes,
         )
+        records_closure: Any
         if history:
             history_result = pair_pipeline.run_history_pair_pipeline(
                 pair_id=scenario.replace("_", "-"),

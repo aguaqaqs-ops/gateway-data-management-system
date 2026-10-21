@@ -407,4 +407,13 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - **审核必查项新增两条：**
      - t4 v1 Submit 中 RS import 的用时与实际使用的对账会话数，以及与 R5 上限之间的余量。S5 要完整运行 t4，余量不足时交 owner 判断。
      - 修复中传入 `reconcile_elapsed_seconds=0.0` 是否绕过了 R5 的耗时预算。
-12. P5 exit：按 G10 清理。
+
+   2026-10-21 审核（候选 H `d0b20ede10`，初审报告 `plans/p5-arch-closure-s4-independent-review.md`）：
+   - 初审结论为定向修订，S4-F1：handoff 没有说明全部超出 §3 S4 路径预算的改动。终审确认成立：另有 8 个生产文件、17 个测试或测试支持文件未说明；它们都是设计 §7 验收的接线、命名调整或 DTO 目标形态带来的测试更新，没有扩大范围。
+   - 终审新提出 S4-F2：`bafd64bf53` 传入 `reconcile_elapsed_seconds=0.0`，跳过了 R5 的耗时检查。R5 设计 §6 规定对账预算（60 s）用尽即转人工恢复，Submit 的 checkpoint 也持久保存 `reconcile_started_at`，按设计应从对账开始累计计时；修复后的实际上限是 3 个 60 s 会话。累计预算函数 `reconcile_session_budget_exhausted`、`parse_reconcile_started_at` 目前没有生产调用方。修复后的行为合理且有上限（t4 v1 Submit 中 RS import 79 s，使用 2/3 个会话），但它以字面量隐性改变了 R5 的规则。
+
+   owner 决议（2026-10-21）：
+   - **S4-F2 采用方案一。** Submit 的 `await_import_result` 以 R5 的 3 个 60 s 对账会话为上限，替代累计 60 s 预算；S4 不再改代码。该项作为 S5 携带项（见第 12 项）。
+   - **S4-F1 只改 handoff。** 授权审核方直接修订 handoff、完成终审、打 tag 并合入，不再经实施方和初审方。
+12. **S5 kickoff**（区间起点 `p5-s4-exit`）。S5 携带项：S4-F2，把 `await_import_result` 中的 `reconcile_elapsed_seconds=0.0` 改为显式、有名字的 Submit import 轮询预算（5B 设计 §13.1 允许的有上限 Repository poll 参数），在 Contract 层面写明它与 R5 会话上限的关系，并清理没有生产调用方的累计预算函数；S5 的完整 t4 记录每次 Submit 的 RS import 用时与使用的会话数。
+13. P5 exit：按 G10 清理。

@@ -36,7 +36,6 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.application import pair_pipeline, preview_jobs
 from gateway_backend.application.submission.contracts import (
     PrepareImportBuildInput,
-    SnapshotTableBinding,
 )
 from gateway_backend.application.submission.import_builder import (
     resolve_canonical_snapshot_bindings,

@@ -387,4 +387,24 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
      - 真实数据运行 t4 的 v1 Preview、v1 Submit 与 v2 Preview，跨档 `DIFFERENT_PROJECT` 旅程，t1 作冒烟；
      - t2、t3 沿用 `938d41d171` 的通过结果，前提是 `938d41d171..V` 不触及投影、比较、项目身份、composite、规范存储与 census 的业务路径；触及时重跑这两档。
      - S5 最终候选仍完整运行 t1–t4。
+
+   2026-10-21 第二次停止（候选 V `22c1a7e530`；在 ct108 上运行全部五个包，runner exit 1）：
+   - **对 10-20 停止原因的更正。** 当时说 worker 卡死，不准确。实际情况是：
+     - Submit 的 `await_import_result` 用一个 60 s 的对账会话轮询 RS import；会话到期时 import 仍在运行，原代码直接把 operation 置为人工恢复；
+     - 此后 worker 空闲，所以既没有心跳也不消耗 CPU；
+     - harness 不把这个状态视为结束，一直等到超时。
+     - 在 S3 V `dc9c08a410` 上同样复现，属于既有问题，不是 S4 引入的回归。
+   - **修复。** `bafd64bf53` 把这种情况改为走 R5 已有的重试策略：最多 3 个会话，每个 60 s，用尽后仍转人工恢复。撤掉修复后负向测试失败，修复后通过。修复后的 t4 调试运行中，v1 Submit 用时 576.182 s，operation 进入终态。
+   - **runner 失败。** `repository_service/tests/test_upload_artifact_visibility.py::test_ready_file_without_db_is_not_visible` 报 `sqlite3.OperationalError: cannot commit - no transaction is active`。
+     - 这是既有的偶发失败：2026-09-27 开发主机的 `run-tests-r2.log` 里，同一用例、同一行出现过完全相同的报错。
+     - 原因在测试本身：RS 的 control DB 只有一个连接，由 app 内的后台线程和各个 store 经 `transaction_lock` 共享；该测试绕过锁，直接对私有的 `mutation_store._connection` 执行 DELETE 和 commit，与后台线程的事务竞争。
+     - `938d41d171..22c1a7e530` 只改了 backend，与该失败无关。其余四个包通过。
+
+   owner 决议（2026-10-21）：
+   - **在 S4 内修复这个测试。** 只改 `repository_service` 的测试：在 `transaction_lock` 下、在明确的事务中完成删除，不改变测试要证明的内容；同一包内其他绕过锁直接操作 `_connection` 的测试一并修正。这些文件超出 S4 路径预算，在 handoff 中说明理由。
+   - **新 V 上运行 backend 与 `repository_service`。** `22c1a7e530` 的 runner exit 1，按 G12 规则不能作为任何包的沿用来源；另外三个包按 `compare` 结果沿用 `938d41d171`。
+   - **随后按 2026-10-20 的决议**完成真实数据、H 与 carried，范围不变。
+   - **审核必查项新增两条：**
+     - t4 v1 Submit 中 RS import 的用时与实际使用的对账会话数，以及与 R5 上限之间的余量。S5 要完整运行 t4，余量不足时交 owner 判断。
+     - 修复中传入 `reconcile_elapsed_seconds=0.0` 是否绕过了 R5 的耗时预算。
 12. P5 exit：按 G10 清理。

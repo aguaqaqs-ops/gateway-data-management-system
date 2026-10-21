@@ -94,6 +94,7 @@ from tests.support.workspace_fixtures import (
     MutableBaselineHeadReadPort,
     make_baseline_head,
     make_identity,
+    make_not_applicable_preview_identity,
 )
 
 TEST_BEARER = "test-session-token"
@@ -455,6 +456,7 @@ def seed_submit_ready_workspace(
             created_by="actor-1",
             created_at=TS0,
         )
+        identity_digest, identity_pairs = make_not_applicable_preview_identity()
         preview = PreviewResult(
             preview_result_id="pr-1",
             workspace_id=workspace.workspace_id,
@@ -477,6 +479,8 @@ def seed_submit_ready_workspace(
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
             canonical=make_preview_canonical_bindings(),
+            identity_assessment_set_digest=identity_digest,
+            identity_pairs=identity_pairs,
             bundle_artifact_id="bundle-1",
             ready_closure_artifact_id="closure-1",
             operation_id="op-preview-1",

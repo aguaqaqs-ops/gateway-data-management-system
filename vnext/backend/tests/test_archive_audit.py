@@ -26,6 +26,7 @@ from gateway_backend.application.submission.errors import IdempotencyConflict
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveConfirmationAction,
+    ArchiveSubjectKind,
 )
 from tests.support.archive_fixtures import (
     ArchiveSeed,
@@ -46,8 +47,8 @@ CONFIRMATION_IDEMPOTENCY_CONFLICT_SHAPES = (
 )
 
 RESOLUTION_IDEMPOTENCY_CONFLICT_SHAPES = (
-    pytest.param("sibling_submission_id", "sub-other", id="sibling-id"),
-    pytest.param("sibling_candidate_digest", "sha256:" + "3" * 64, id="sibling-digest"),
+    pytest.param("target_submission_id", "sub-other", id="sibling-id"),
+    pytest.param("target_candidate_digest", "sha256:" + "3" * 64, id="sibling-digest"),
     pytest.param("candidate_set_digest", "sha256:" + "4" * 64, id="candidate-set-digest"),
 )
 
@@ -144,8 +145,8 @@ def test_resolution_rejects_selected_as_sibling(db_path: Path) -> None:
     subject_digest = compute_anomaly_subject_digest(
         selection_subject_digest=seed.selection_subject_digest,
         issue_code="APPROVED_SIBLING_EXCLUDED",
-        sibling_submission_id=seed.selected_ref.submission_id,
-        sibling_candidate_digest=seed.selected_ref.expected_candidate_digest,
+        target_submission_id=seed.selected_ref.submission_id,
+        target_candidate_digest=seed.selected_ref.expected_candidate_digest,
     )
     with pytest.raises(BaselineVersionConflict, match="does not match current snapshot"):
         append_archive_anomaly_resolution(
@@ -160,9 +161,10 @@ def test_resolution_rejects_selected_as_sibling(db_path: Path) -> None:
                 expected_sequence=0,
                 action=ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION,
                 reason="invalid sibling",
+                subject_kind=ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
                 issue_code="APPROVED_SIBLING_EXCLUDED",
-                sibling_submission_id=seed.selected_ref.submission_id,
-                sibling_candidate_digest=seed.selected_ref.expected_candidate_digest,
+                target_submission_id=seed.selected_ref.submission_id,
+                target_candidate_digest=seed.selected_ref.expected_candidate_digest,
             ),
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, tzinfo=UTC),
@@ -427,9 +429,10 @@ def _resolution_command(
         expected_sequence=0,
         action=ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION,
         reason="acknowledge sibling exclusion",
+        subject_kind=ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
         issue_code="APPROVED_SIBLING_EXCLUDED",
-        sibling_submission_id=dual_seed.sibling_submission_id,
-        sibling_candidate_digest=dual_seed.sibling_candidate_digest,
+        target_submission_id=dual_seed.target_submission_id,
+        target_candidate_digest=dual_seed.target_candidate_digest,
     )
     if overrides:
         return replace(command, **overrides)
@@ -475,10 +478,10 @@ def test_resolution_replay_rejects_changed_binding_fields(
         now=datetime(2024, 7, 1, tzinfo=UTC),
     )
     mutated = _resolution_command(dual_seed)
-    if field_name == "sibling_submission_id":
-        mutated = replace(mutated, sibling_submission_id=replacement)
-    elif field_name == "sibling_candidate_digest":
-        mutated = replace(mutated, sibling_candidate_digest=replacement)
+    if field_name == "target_submission_id":
+        mutated = replace(mutated, target_submission_id=replacement)
+    elif field_name == "target_candidate_digest":
+        mutated = replace(mutated, target_candidate_digest=replacement)
     elif field_name == "candidate_set_digest":
         mutated = replace(mutated, candidate_set_digest=replacement)
     else:

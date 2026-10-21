@@ -33,6 +33,26 @@ class OperationAcceptedResponse(BaseModel):
     status: Literal["QUEUED"]
 
 
+class PreviewArtifactRefResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str
+    media_type: str
+    size_bytes: int
+    raw_sha256: str
+
+
+class PreviewIdentityPairResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pair_id: str
+    applicability: Literal["APPLICABLE", "NOT_APPLICABLE"]
+    status: Literal["SAME_PROJECT", "DIFFERENT_PROJECT", "UNVERIFIABLE", "NOT_APPLICABLE"]
+    mode: Literal["DETAILED", "DATASET_REPLACEMENT"]
+    assessment_ref: PreviewArtifactRefResponse | None
+    assessment_digest: str | None
+
+
 class PreviewResultResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -45,4 +65,6 @@ class PreviewResultResponse(BaseModel):
     business_baseline_commit_id: str
     derived_stale: bool
     bundle_digest: str
+    identity_assessment_set_digest: str
+    identity_pairs: list[PreviewIdentityPairResponse]
     created_at: datetime

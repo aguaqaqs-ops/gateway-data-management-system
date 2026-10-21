@@ -9,6 +9,7 @@ from gateway_backend.application.archive.contracts import (
     ArchiveCandidateRef,
     ArchiveSelectedRef,
     compute_anomaly_subject_digest,
+    compute_identity_exception_subject_digest,
     compute_selection_subject_digest,
     validate_archive_digest,
     validate_archive_sequence,
@@ -16,6 +17,7 @@ from gateway_backend.application.archive.contracts import (
 )
 from gateway_backend.application.archive.errors import (
     ArchiveAnomalyUnresolved,
+    ArchiveIntegrityFailure,
     ArchiveRequestValidation,
     ArchiveConfirmationRequired,
     ArchiveResultNotFound,
@@ -45,6 +47,7 @@ from gateway_backend.domain.workspace.policies import assert_permission
 
 PERMISSION_ARCHIVE_SUBMISSION = "archive_submission"
 APPROVED_SIBLING_EXCLUDED_ISSUE = "APPROVED_SIBLING_EXCLUDED"
+PROJECT_IDENTITY_EXCEPTION_ISSUE = "PROJECT_IDENTITY_EXCEPTION"
 ARCHIVE_AUDIT_EVENTS_MAX_LIMIT = 100
 
 
@@ -58,9 +61,10 @@ class ArchiveCandidatesResult:
 
 @dataclass(frozen=True, slots=True)
 class ArchivePreviewAnomaly:
+    subject_kind: ArchiveSubjectKind
     issue_code: str
-    sibling_submission_id: str
-    sibling_candidate_digest: str
+    target_submission_id: str
+    target_candidate_digest: str
     subject_digest: str
 
 
@@ -150,7 +154,12 @@ def preview_archive_plan(
                 selected_submission_id=selected.submission_id,
                 expected_candidate_digest=selected.expected_candidate_digest,
             )
-        anomalies = _derive_anomalies(snapshot, selected, selection_subject_digest)
+        anomalies = _derive_anomalies(
+            unit_of_work,
+            snapshot,
+            selected,
+            selection_subject_digest,
+        )
         confirmation_requirements = (
             (selection_subject_digest,) if selection_subject_digest is not None else ()
         )
@@ -223,7 +232,10 @@ def list_archive_audit_events(
             events: tuple[ArchiveConfirmationEvent | ArchiveAnomalyResolutionEvent, ...] = (
                 confirmation_events
             )
-        elif subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED:
+        elif subject_kind in {
+            ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
+            ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION,
+        }:
             resolution_events = unit_of_work.archive.list_resolution_events(
                 fresh_scope.repository_id,
                 context.gateway_device_external_key,
@@ -289,6 +301,7 @@ def _candidate_ref_matches(
 
 
 def _derive_anomalies(
+    unit_of_work: ArchiveControlTransaction,
     snapshot: ArchiveCandidateSnapshot,
     selected: ArchiveSelectedRef | None,
     selection_subject_digest: str | None,
@@ -302,14 +315,48 @@ def _derive_anomalies(
         subject_digest = compute_anomaly_subject_digest(
             selection_subject_digest=selection_subject_digest,
             issue_code=APPROVED_SIBLING_EXCLUDED_ISSUE,
-            sibling_submission_id=candidate.submission_id,
-            sibling_candidate_digest=candidate.expected_candidate_digest,
+            target_submission_id=candidate.submission_id,
+            target_candidate_digest=candidate.expected_candidate_digest,
         )
         anomalies.append(
             ArchivePreviewAnomaly(
+                subject_kind=ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
                 issue_code=APPROVED_SIBLING_EXCLUDED_ISSUE,
-                sibling_submission_id=candidate.submission_id,
-                sibling_candidate_digest=candidate.expected_candidate_digest,
+                target_submission_id=candidate.submission_id,
+                target_candidate_digest=candidate.expected_candidate_digest,
+                subject_digest=subject_digest,
+            )
+        )
+    selected_submission = unit_of_work.submission.get_submission(selected.submission_id)
+    if selected_submission is None:
+        raise ArchiveIntegrityFailure("selected candidate submission is missing")
+    if selected_submission.identity_confirmations:
+        preview_result = unit_of_work.workspace.get_preview_result(
+            selected_submission.preview_result_id
+        )
+        if preview_result is None:
+            raise ArchiveIntegrityFailure("identity confirmation preview result is missing")
+        confirmed_assessment_digests = {
+            confirmation.assessment_set_digest
+            for confirmation in selected_submission.identity_confirmations
+        }
+        expected_assessment_digest = preview_result.identity_assessment_set_digest.value
+        if confirmed_assessment_digests != {expected_assessment_digest}:
+            raise ArchiveIntegrityFailure(
+                "submission identity confirmations do not match its preview assessment"
+            )
+        subject_digest = compute_identity_exception_subject_digest(
+            submission_id=selected_submission.submission_id,
+            candidate_digest=selected.expected_candidate_digest,
+            preview_bundle_digest=preview_result.digests.bundle_digest,
+            assessment_set_digest=expected_assessment_digest,
+        )
+        anomalies.append(
+            ArchivePreviewAnomaly(
+                subject_kind=ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION,
+                issue_code=PROJECT_IDENTITY_EXCEPTION_ISSUE,
+                target_submission_id=selected_submission.submission_id,
+                target_candidate_digest=selected.expected_candidate_digest,
                 subject_digest=subject_digest,
             )
         )
@@ -379,15 +426,21 @@ def _latest_confirmation_is_affirmative(
 def _latest_resolution_is_affirmative(
     unit_of_work: ArchiveControlTransaction,
     repository_id: str,
+    subject_kind: ArchiveSubjectKind,
     subject_digest: str,
 ) -> bool:
     sequence = unit_of_work.archive.get_latest_resolution_sequence(repository_id, subject_digest)
     if sequence == 0:
         return False
     event = unit_of_work.archive.get_resolution_event(repository_id, subject_digest, sequence)
-    if event is None:
+    if event is None or event.subject_kind is not subject_kind:
         return False
-    return event.action is ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION
+    expected_action = (
+        ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION
+        if subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION
+        else ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION
+    )
+    return event.action is expected_action
 
 
 def _validate_audit_for_start(
@@ -410,6 +463,7 @@ def _validate_audit_for_start(
         if not _latest_resolution_is_affirmative(
             unit_of_work,
             snapshot.repository_id,
+            anomaly.subject_kind,
             anomaly.subject_digest,
         ):
-            raise ArchiveAnomalyUnresolved("approved sibling exclusion is unresolved")
+            raise ArchiveAnomalyUnresolved("archive anomaly is unresolved")

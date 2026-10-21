@@ -27,6 +27,7 @@ from tests.support.compose_gate_harness import (
     compose_auth_headers,
     cleanup_compose_project_artifacts,
     compose_project_name,
+    identity_confirmation_requests,
     modified_table_upload_files,
     normalize_running_images,
     ordered_syx_vocabulary_upload_files,
@@ -256,6 +257,20 @@ def _run_preview_and_submit(
         else:
             assert preview_terminal["status"] == "SUCCEEDED", json.dumps(preview_terminal, indent=2)
         workspace_row = read_workspace_row(env, workspace_id)
+        preview_result_response = client.get(
+            f"/v1/workspaces/{workspace_id}/preview-results/"
+            f"{workspace_row['current_preview_result_id']}"
+        )
+        assert preview_result_response.status_code == 200, preview_result_response.text
+        preview_result_body = cast(dict[str, Any], preview_result_response.json())
+        identity_pairs = cast(list[dict[str, Any]], preview_result_body["identity_pairs"])
+        identity_confirmations = identity_confirmation_requests(
+            preview_result_body,
+            reason=(
+                "ordered submit bisect accepted the UNVERIFIABLE detailed result\n"
+                "for the baseline-only retry control"
+            ),
+        )
         accepted = client.post(
             f"/v1/workspaces/{workspace_id}/submit-attempts",
             headers=compose_auth_headers(token=token, idempotency_key=f"{journey_key_prefix}-submit"),
@@ -267,6 +282,7 @@ def _run_preview_and_submit(
                 "expected_baseline_node_id": BASELINE_NODE_ID,
                 "expected_baseline_head_version": 0,
                 "options": {},
+                "identity_confirmations": identity_confirmations,
             },
         )
         assert accepted.status_code == 202, accepted.text
@@ -298,6 +314,11 @@ def _run_preview_and_submit(
             "submit_diagnostic_message": (
                 str(diagnostic["message"]) if isinstance(diagnostic, dict) else None
             ),
+            "identity_pairs": identity_pairs,
+            "identity_confirmations": identity_confirmations,
+            "identity_assessment_set_digest": preview_result_body[
+                "identity_assessment_set_digest"
+            ],
             "worker_tail": worker_tail,
         }
         if preview_failure is not None:
@@ -463,6 +484,17 @@ def test_ordered_submit_bisect_control_cases(tmp_path: Path) -> None:
         assert case_b["preview_status"] == "SUCCEEDED"
         assert case_b["submit_status"] == "SUCCEEDED"
         assert case_b["failed_preview_operation_id"] != case_b["preview_operation_id"]
+        assert any(pair["status"] == "UNVERIFIABLE" for pair in case_b["identity_pairs"])
+        assert case_b["identity_confirmations"] == [
+            {
+                "action": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT",
+                "assessment_set_digest": case_b["identity_assessment_set_digest"],
+                "reason": (
+                    "ordered submit bisect accepted the UNVERIFIABLE detailed result\n"
+                    "for the baseline-only retry control"
+                ),
+            }
+        ]
     finally:
         if provenance:
             normalized = normalize_running_images(provenance, baseline_env["COMPOSE_PROJECT_NAME"])

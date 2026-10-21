@@ -36,7 +36,6 @@ from gateway_backend.application.workspace.ports import WorkspaceControlTransact
 from gateway_backend.application.pair_pipeline import (
     PairPipelineCancelled,
     PairPipelineError,
-    PreviewIdentityStatus,
     PreviewPairPipelineResult as _PairPipelineResult,
     run_preview_pair_pipeline,
 )
@@ -87,6 +86,7 @@ from gateway_backend.capabilities.composite_signal.contracts import (
 from gateway_backend.capabilities.surface_assembly.contracts import ComparisonSurface
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
+    ComparisonMode,
     ComparisonRecordsClosure,
     ComparisonStorageFacts,
 )
@@ -169,6 +169,10 @@ from gateway_backend.domain.workspace.models import (
     InputCompleteness,
     PreviewArtifactRef,
     PreviewCanonicalBindings,
+    PreviewIdentityPair,
+    ProjectIdentityApplicability,
+    ProjectIdentityMode,
+    ProjectIdentityStatus,
     PreviewResult,
     PreviewResultDigests,
     SourceArtifactBinding,
@@ -206,7 +210,7 @@ PREVIEW_MATERIALIZE_HANDLER = "backend-vnext/preview/materialize/handler/v1"
 PREVIEW_ASSEMBLE_HANDLER = "backend-vnext/preview/assemble/handler/v1"
 PREVIEW_PUBLISH_HANDLER = "backend-vnext/preview/publish/handler/v1"
 
-PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v3"
+PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v4"
 PREVIEW_ASSEMBLE_CHECKPOINT_CONTRACT_VERSION = "backend-vnext/preview/assemble-checkpoint/v1"
 _JCS_MEDIA_TYPE = "application/jcs"
 
@@ -230,7 +234,7 @@ _CANONICAL_TABLE_CLOSURE_CONTRACT = "backend-vnext/preview/canonical-table-set-c
 PREVIEW_MATERIALIZED_SIDES_DOCUMENT_TYPE = "preview-materialized-sides"
 PREVIEW_MATERIALIZED_SIDES_CONTRACT_VERSION = "backend-vnext/preview/materialized-sides/v1"
 PREVIEW_ASSEMBLE_STATE_DOCUMENT_TYPE = "preview-assemble-state"
-PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v1"
+PREVIEW_ASSEMBLE_STATE_CONTRACT_VERSION = "backend-vnext/preview/assemble-state/v2"
 
 _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = ContextVar(
     "_active_preview_transaction",
@@ -296,6 +300,7 @@ class _CanonicalPreviewMetadata:
     baseline_canonical_state_digest: DigestRef
     modified_canonical_state_digest: DigestRef
     storage_projection_ruleset_digest: DigestRef
+    baseline_is_initial: bool
 
     def __post_init__(self) -> None:
         if type(self.canonical_table_set_closure_ref) is not ArtifactRef:
@@ -322,33 +327,14 @@ class _CanonicalPreviewMetadata:
             self.initial_canonicalization_manifest_digest
         ) is not DigestRef:
             raise ValueError("initial_canonicalization_manifest_digest must be DigestRef or None")
+        if type(self.baseline_is_initial) is not bool:
+            raise ValueError("baseline_is_initial must be bool")
 
 
 @dataclass(frozen=True, slots=True)
 class _MaterializedPreviewInputs:
     sides: dict[str, BoundSnapshotInput]
     canonical: _CanonicalPreviewMetadata
-
-
-@dataclass(frozen=True, slots=True)
-class _PreviewIdentityAssessment:
-    schema_version: str
-    rule_version: str
-    before_snapshot_digest: DigestRef
-    current_snapshot_digest: DigestRef
-    status: PreviewIdentityStatus
-    assessment_digest: DigestRef
-    comparable_columns: tuple[str, ...] = ()
-    before_row_count: int = 0
-    current_row_count: int = 0
-    before_distinct_entry_count: int = 0
-    current_distinct_entry_count: int = 0
-    matched_entry_count: int = 0
-    before_entry_set_digest: DigestRef | None = None
-    current_entry_set_digest: DigestRef | None = None
-    diagnostics: tuple[object, ...] = ()
-    requires_continuation_confirmation: bool = False
-    requires_submit_confirmation: bool = False
 
 
 def preview_job_definitions() -> tuple[JobDefinition, ...]:
@@ -1106,6 +1092,7 @@ def _materialize_all_sides(
             baseline_canonical_state_digest=baseline_state_digest,
             modified_canonical_state_digest=modified_state_digest,
             storage_projection_ruleset_digest=runtime_ruleset.ruleset_digest,
+            baseline_is_initial=canonical_binding.is_initial,
         ),
     )
 
@@ -1295,10 +1282,14 @@ def surface_artifact_closure(
     surface: ComparisonSurface | None,
     pair_id: str,
     records_closure: ComparisonRecordsClosure | None = None,
+    *,
+    before: BoundSnapshotInput | None = None,
+    current: BoundSnapshotInput | None = None,
 ) -> BundleArtifactClosure:
     if surface is None:
         raise PreviewJobError("surface assembly did not produce a surface for bundle closure")
     bindings: list[BundleArtifactBinding] = []
+    added_refs: set[ArtifactRef] = set()
     prefix = f"pairs/{pair_id}"
 
     def add(
@@ -1310,6 +1301,9 @@ def surface_artifact_closure(
     ) -> None:
         if ref is None:
             return
+        if ref in added_refs:
+            return
+        added_refs.add(ref)
         bindings.append(
             BundleArtifactBinding(
                 source_ref=ref,
@@ -1341,19 +1335,19 @@ def surface_artifact_closure(
         table_name = table.table_name
         add(
             table.table_refs.before_table_ref,
-            f"{prefix}/tables/before/{table_name}.parquet",
+            f"{prefix}/tables/before/{table_name}/manifest.json",
             BundleArtifactKind.SNAPSHOT_TABLE,
             table_name=table_name,
         )
         add(
             table.table_refs.current_table_ref,
-            f"{prefix}/tables/current/{table_name}.parquet",
+            f"{prefix}/tables/current/{table_name}/manifest.json",
             BundleArtifactKind.SNAPSHOT_TABLE,
             table_name=table_name,
         )
         add(
             table.table_refs.browse_table_ref,
-            f"{prefix}/tables/browse/{table_name}.parquet",
+            f"{prefix}/tables/browse/{table_name}/manifest.json",
             BundleArtifactKind.SNAPSHOT_TABLE,
             table_name=table_name,
         )
@@ -1446,6 +1440,26 @@ def surface_artifact_closure(
                     table_name=entry.table_name,
                 )
                 covered_refs.add(entry.records_manifest_ref)
+    if surface.comparison_mode is ComparisonMode.DATASET_REPLACEMENT:
+        if before is None or current is None:
+            raise PreviewJobError("replacement bundle closure requires both canonical table sets")
+        for role, bound in (("before", before), ("current", current)):
+            if bound.table_set is None:
+                raise PreviewJobError("replacement bundle closure is missing a canonical table set")
+            for snapshot_table in bound.table_set.tables:
+                artifact = snapshot_table.artifact
+                if artifact is None:
+                    raise PreviewJobError(
+                        f"replacement table {snapshot_table.descriptor.table_name} is missing its artifact"
+                    )
+                table_name = snapshot_table.descriptor.table_name
+                for index, ref in enumerate(artifact.manifest.row_file_refs):
+                    add(
+                        ref,
+                        f"{prefix}/tables/{role}/{table_name}/rows/{index:06d}.parquet",
+                        BundleArtifactKind.SNAPSHOT_TABLE,
+                        table_name=table_name,
+                    )
     covered = {binding.source_ref for binding in bindings}
     for ref in collect_surface_refs(surface):
         if ref not in covered:
@@ -1466,9 +1480,14 @@ def _assemble_preview(
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
     if payload.input_completeness is InputCompleteness.FULL:
-        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput], ...] = (
-            (_PAIR_BASELINE_TO_INITIAL, sides[_SIDE_BASELINE], sides[_SIDE_INITIAL]),
-            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED]),
+        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput, bool], ...] = (
+            (
+                _PAIR_BASELINE_TO_INITIAL,
+                sides[_SIDE_BASELINE],
+                sides[_SIDE_INITIAL],
+                not canonical.baseline_is_initial,
+            ),
+            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED], True),
         )
         bundle_profile = BundleProfile.MULTI_PAIR
         bundle_inputs: tuple[BundleInput, ...] = (
@@ -1486,6 +1505,7 @@ def _assemble_preview(
                 _PAIR_INITIAL_TO_MODIFIED,
                 sides[_SIDE_BASELINE],
                 sides[_SIDE_MODIFIED],
+                not canonical.baseline_is_initial,
             ),
         )
         bundle_profile = BundleProfile.SINGLE_PAIR
@@ -1495,7 +1515,7 @@ def _assemble_preview(
         )
         bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
 
-    for pair_id, before, current in pair_specs:
+    for pair_id, before, current, assess_identity in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
             on_cancel()
@@ -1508,6 +1528,7 @@ def _assemble_preview(
             control=control,
             rule_set=rule_set,
             on_cancel=on_cancel,
+            assess_identity=assess_identity,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -1521,6 +1542,8 @@ def _assemble_preview(
                     pair_state.surface_result.surface,
                     pair_id,
                     pair_state.records_closure,
+                    before=before,
+                    current=current,
                 ),
             )
         )
@@ -1563,6 +1586,8 @@ def _assemble_preview(
             "bundle_digest": bundle_result.bundle.bundle_digest.value,
         },
         _JOB_STATE_CANONICAL: _canonical_preview_metadata_to_document(canonical),
+        "identity_assessment_set_digest": _identity_assessment_set_digest(pair_results).value,
+        "identity_pairs": [_identity_pair_to_document(item) for item in pair_results],
         "required_refs": [artifact_ref_to_dict(item) for item in required_refs],
     }
     return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
@@ -1577,6 +1602,7 @@ def _run_pair_pipeline(
     control: ExecutionControl,
     rule_set: ComparisonRuleSet,
     on_cancel: Callable[[], None],
+    assess_identity: bool,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
@@ -1588,6 +1614,7 @@ def _run_pair_pipeline(
             on_cancel=on_cancel,
             view_id=_PAIR_INITIAL_TO_MODIFIED,
             rule_set=rule_set,
+            assess_identity=assess_identity,
         )
     except PairPipelineCancelled:
         raise
@@ -1621,6 +1648,12 @@ def _build_preview_result(
     if type(canonical_payload) is not dict:
         raise PreviewJobError("assemble checkpoint canonical Preview bindings are missing")
     canonical = _canonical_preview_metadata_from_document(canonical_payload)
+    identity_pairs = _identity_pairs_from_assemble_state(assemble_state)
+    identity_set_digest = DigestRef(
+        _checkpoint_string(assemble_state, "identity_assessment_set_digest")
+    )
+    if _identity_assessment_set_digest(identity_pairs) != identity_set_digest:
+        raise PreviewJobError("assemble checkpoint identity assessment set digest does not match")
     return PreviewResult(
         preview_result_id=f"pr-{uuid.uuid4()}",
         workspace_id=payload.workspace_id,
@@ -1647,11 +1680,142 @@ def _build_preview_result(
             modified_canonical_state_digest=canonical.modified_canonical_state_digest,
             storage_projection_ruleset_digest=canonical.storage_projection_ruleset_digest,
         ),
+        identity_assessment_set_digest=identity_set_digest,
+        identity_pairs=identity_pairs,
         bundle_artifact_id=bundle_artifact_id,
         ready_closure_artifact_id=ready_closure_artifact_id,
         operation_id=operation.operation_id,
         created_at=transaction_now,
     )
+
+
+def _identity_pair_model(pair: _PairPipelineResult) -> PreviewIdentityPair:
+    surface = pair.surface_result.surface
+    if surface is None:
+        raise PreviewJobError("pair surface is missing identity applicability")
+    assessment = pair.identity_assessment
+    if assessment is None:
+        return PreviewIdentityPair(
+            pair_id=pair.pair_id,
+            applicability=ProjectIdentityApplicability.NOT_APPLICABLE,
+            status=ProjectIdentityStatus.NOT_APPLICABLE,
+            mode=ProjectIdentityMode.DETAILED,
+            assessment_ref=None,
+            assessment_digest=None,
+        )
+    ref = pair.identity_assessment_ref
+    if ref is None:
+        raise PreviewJobError("applicable identity assessment is missing its artifact ref")
+    return PreviewIdentityPair(
+        pair_id=pair.pair_id,
+        applicability=ProjectIdentityApplicability.APPLICABLE,
+        status=ProjectIdentityStatus(assessment.status.value),
+        mode=ProjectIdentityMode(surface.comparison_mode.value),
+        assessment_ref=_workspace_artifact_ref(ref),
+        assessment_digest=assessment.assessment_digest,
+    )
+
+
+def _identity_pair_to_document(pair: _PairPipelineResult) -> dict[str, object]:
+    model = _identity_pair_model(pair)
+    return {
+        "applicability": model.applicability.value,
+        "assessment_digest": (
+            None if model.assessment_digest is None else model.assessment_digest.value
+        ),
+        "assessment_ref": (
+            None
+            if model.assessment_ref is None
+            else {
+                "artifact_id": model.assessment_ref.artifact_id,
+                "media_type": model.assessment_ref.media_type,
+                "size_bytes": model.assessment_ref.size_bytes,
+                "raw_sha256": model.assessment_ref.raw_sha256.value,
+            }
+        ),
+        "mode": model.mode.value,
+        "pair_id": model.pair_id,
+        "status": model.status.value,
+    }
+
+
+def _identity_assessment_set_digest(
+    pairs: tuple[PreviewIdentityPair, ...] | list[_PairPipelineResult],
+) -> DigestRef:
+    if not pairs:
+        models: tuple[PreviewIdentityPair, ...] = ()
+    elif isinstance(pairs[0], PreviewIdentityPair):
+        models = pairs
+    else:
+        models = tuple(_identity_pair_model(item) for item in pairs)
+    return raw_blob_digest(
+        canonicalize_json_value(
+            {
+                "schema": "project-identity-assessment-set/v1",
+                "pairs": [
+                    [
+                        item.pair_id,
+                        item.applicability.value,
+                        item.status.value,
+                        None if item.assessment_digest is None else item.assessment_digest.value,
+                    ]
+                    for item in models
+                ],
+            }
+        )
+    )
+
+
+def _identity_pairs_from_assemble_state(
+    assemble_state: dict[str, object],
+) -> tuple[PreviewIdentityPair, ...]:
+    raw_pairs = assemble_state.get("identity_pairs")
+    if type(raw_pairs) is not list or not raw_pairs:
+        raise CheckpointDecodeError(
+            "assemble checkpoint identity pairs are missing",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    pairs: list[PreviewIdentityPair] = []
+    expected_keys = {
+        "applicability",
+        "assessment_digest",
+        "assessment_ref",
+        "mode",
+        "pair_id",
+        "status",
+    }
+    try:
+        for raw in raw_pairs:
+            if type(raw) is not dict or set(raw) != expected_keys:
+                raise ValueError("identity pair fields are invalid")
+            raw_ref = raw["assessment_ref"]
+            if raw_ref is not None and type(raw_ref) is not dict:
+                raise ValueError("identity assessment ref is invalid")
+            raw_digest = raw["assessment_digest"]
+            if raw_digest is not None and type(raw_digest) is not str:
+                raise ValueError("identity assessment digest is invalid")
+            pairs.append(
+                PreviewIdentityPair(
+                    pair_id=_checkpoint_string(raw, "pair_id"),
+                    applicability=ProjectIdentityApplicability(
+                        _checkpoint_string(raw, "applicability")
+                    ),
+                    status=ProjectIdentityStatus(_checkpoint_string(raw, "status")),
+                    mode=ProjectIdentityMode(_checkpoint_string(raw, "mode")),
+                    assessment_ref=(
+                        None
+                        if raw_ref is None
+                        else _workspace_artifact_ref(artifact_ref_from_dict(raw_ref))
+                    ),
+                    assessment_digest=(None if raw_digest is None else DigestRef(raw_digest)),
+                )
+            )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CheckpointDecodeError(
+            "assemble checkpoint identity pairs are invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        ) from exc
+    return tuple(pairs)
 
 
 def _ready_closure_refs_from_assemble(
@@ -2365,6 +2529,7 @@ def _canonical_preview_metadata_to_document(
         "baseline_canonical_state_digest": canonical.baseline_canonical_state_digest.value,
         "modified_canonical_state_digest": canonical.modified_canonical_state_digest.value,
         "storage_projection_ruleset_digest": canonical.storage_projection_ruleset_digest.value,
+        "baseline_is_initial": canonical.baseline_is_initial,
     }
 
 
@@ -2380,6 +2545,7 @@ def _canonical_preview_metadata_from_document(
         "baseline_canonical_state_digest",
         "modified_canonical_state_digest",
         "storage_projection_ruleset_digest",
+        "baseline_is_initial",
     }
     if set(raw) != expected_keys:
         raise CheckpointDecodeError(
@@ -2395,6 +2561,7 @@ def _canonical_preview_metadata_from_document(
         or type(manifest_ref) is not dict
         or (initial_manifest_ref is not None and type(initial_manifest_ref) is not dict)
         or (initial_manifest_digest is not None and type(initial_manifest_digest) is not str)
+        or type(raw["baseline_is_initial"]) is not bool
     ):
         raise CheckpointDecodeError(
             "canonical preview checkpoint artifact refs are invalid",
@@ -2426,6 +2593,7 @@ def _canonical_preview_metadata_from_document(
             storage_projection_ruleset_digest=DigestRef(
                 _checkpoint_string(raw, "storage_projection_ruleset_digest")
             ),
+            baseline_is_initial=raw["baseline_is_initial"],
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise CheckpointDecodeError(

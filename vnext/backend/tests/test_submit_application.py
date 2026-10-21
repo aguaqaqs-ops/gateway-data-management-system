@@ -64,6 +64,7 @@ from tests.support.workspace_fixtures import (
     InMemoryWorkspaceRepository,
     make_baseline_head,
     make_identity,
+    make_not_applicable_preview_identity,
     seed_open_workspace,
 )
 
@@ -197,6 +198,7 @@ class SubmitApplicationHarness:
 
 
 def _preview_result(*, workspace_id: str, bundle_digest: str = "sha256:preview-canonical") -> PreviewResult:
+    identity_digest, identity_pairs = make_not_applicable_preview_identity()
     return PreviewResult(
         preview_result_id="pr-1",
         workspace_id=workspace_id,
@@ -219,6 +221,8 @@ def _preview_result(*, workspace_id: str, bundle_digest: str = "sha256:preview-c
             bundle_digest=bundle_digest,
         ),
         canonical=make_preview_canonical_bindings(),
+        identity_assessment_set_digest=identity_digest,
+        identity_pairs=identity_pairs,
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-preview-1",

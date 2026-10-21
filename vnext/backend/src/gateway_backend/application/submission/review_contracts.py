@@ -14,6 +14,7 @@ from gateway_backend.domain.submission.review import (
     validate_review_idempotency_key,
     validate_review_reason,
 )
+from gateway_backend.domain.submission.models import SubmitIdentityConfirmation
 from gateway_backend.domain.workspace.models import IdentityContext
 
 REVIEW_APPLY_FINGERPRINT_CONTRACT_VERSION = "gateway-vnext.review-apply-fingerprint.v1"
@@ -46,6 +47,7 @@ class ApplyReviewResult:
 class ReviewFacts:
     projection: ReviewProjection
     events: tuple[ReviewEvent, ...]
+    identity_confirmations: tuple[SubmitIdentityConfirmation, ...] = ()
 
 
 def compute_review_apply_request_fingerprint(

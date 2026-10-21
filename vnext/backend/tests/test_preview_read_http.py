@@ -18,7 +18,11 @@ from tests.support.http_workspace_harness import (
     create_workspace_http_environment,
 )
 from tests.support.upload_http_packages import upload_files
-from tests.support.workspace_fixtures import make_baseline_head, make_identity
+from tests.support.workspace_fixtures import (
+    make_baseline_head,
+    make_identity,
+    make_not_applicable_preview_identity,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -49,6 +53,7 @@ def _seed_upload(
 
 
 def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation_id: str = "op-read") -> PreviewResult:
+    identity_digest, identity_pairs = make_not_applicable_preview_identity()
     return PreviewResult(
         preview_result_id="pr-read-1",
         workspace_id=workspace["workspace_id"],
@@ -71,6 +76,8 @@ def _preview_result(workspace: dict[str, Any], upload: dict[str, Any], operation
             bundle_digest="bundle-digest",
         ),
         canonical=make_preview_canonical_bindings(),
+        identity_assessment_set_digest=identity_digest,
+        identity_pairs=identity_pairs,
         bundle_artifact_id="bundle-artifact-1",
         ready_closure_artifact_id="closure-1",
         operation_id=operation_id,
@@ -97,6 +104,8 @@ def test_get_preview_result_returns_derived_stale(env: WorkspaceHttpTestEnvironm
     body = response.json()
     assert body["derived_stale"] is True
     assert body["bundle_digest"] == "bundle-digest"
+    assert body["identity_assessment_set_digest"] == result.identity_assessment_set_digest.value
+    assert body["identity_pairs"][0]["status"] == "NOT_APPLICABLE"
 
 
 def test_get_preview_result_hides_cross_scope(tmp_path: Path) -> None:

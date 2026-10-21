@@ -34,7 +34,12 @@ from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_fa
 from gateway_backend.domain.submission.models import SubmitAttemptState
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_write.http import HttpRepositoryWriteClient
-from gateway_backend.operations import OperationStatus, StepStatus
+from gateway_backend.operations import (
+    OperationStatus,
+    StepStatus,
+    TransitionDisposition,
+    WritePrecondition,
+)
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.worker import (
     ClaimedWork,
@@ -393,7 +398,9 @@ def test_await_import_result_succeeded_finalizes_submission(tmp_path: Path) -> N
 
 
 @pytest.mark.serial
-def test_await_import_result_timeout_marks_manual_recovery(tmp_path: Path) -> None:
+def test_await_import_result_timeout_retries_until_repository_operation_is_terminal(
+    tmp_path: Path,
+) -> None:
     def _running_forever_handler(request: httpx.Request) -> httpx.Response:
         if "/operations/" in request.url.path and request.method == "GET":
             operation_id = request.url.path.rsplit("/", 1)[-1]
@@ -438,13 +445,69 @@ def test_await_import_result_timeout_marks_manual_recovery(tmp_path: Path) -> No
     )
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
-        await_step = unit_of_work.operations.get_step(
+        retry_step = unit_of_work.operations.get_step(submit_step_id(operation_id, SUBMIT_STEP_AWAIT))
+    assert operation.status is OperationStatus.RUNNING
+    assert retry_step.status is StepStatus.RETRY_WAIT
+    assert retry_step.diagnostic is not None
+    assert retry_step.diagnostic.code == "R5.RETRY_SCHEDULED"
+    assert retry_step.checkpoint_ref is not None
+
+    with ControlDbUnitOfWork(harness.db_path) as unit_of_work:
+        transaction_now = unit_of_work.operations.transaction_now
+        due_step = replace(
+            retry_step,
+            retry_not_before=transaction_now,
+            updated_at=transaction_now,
+            optimistic_version=retry_step.optimistic_version + 1,
+        )
+        assert (
+            unit_of_work.operations.compare_and_set_step(
+                due_step,
+                WritePrecondition(
+                    expected_optimistic_version=retry_step.optimistic_version,
+                    worker_id=None,
+                    lease_token=None,
+                ),
+            )
+            is TransitionDisposition.APPLY
+        )
+
+    retry_work = harness.runtime._startup.claim_one()
+    assert retry_work is not None
+    assert retry_work.step.step_name == SUBMIT_STEP_AWAIT
+    assert retry_work.step.attempt_count == retry_step.attempt_count + 1
+    manifest_digest = _prepare_manifest_digest(harness, operation_id)
+    terminal_write = replace(
+        cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write),
+        transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
+    )
+    retry_handler = build_await_import_result_handler(
+        replace(harness.submit_deps, repository_write=terminal_write)
+    )
+    retry_worker_id, retry_lease_token = _await_lease_identity(retry_work)
+    retry_control, retry_session = _lease_session(
+        harness,
+        worker_id=retry_worker_id,
+        lease_token=retry_lease_token,
+        operation_id=operation_id,
+        step_id=retry_work.step.step_id,
+    )
+    assert (
+        retry_handler(
+            retry_work.operation,
+            retry_work.step,
+            retry_control,
+            retry_session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        completed_operation = unit_of_work.operations.get_operation(operation_id)
+        completed_step = unit_of_work.operations.get_step(
             submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
         )
-    assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
-    assert operation.diagnostic is not None
-    assert operation.diagnostic.code == "R5.RECONCILE_TIMEOUT"
-    assert await_step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
+    assert completed_operation.status is OperationStatus.SUCCEEDED
+    assert completed_step.status is StepStatus.SUCCEEDED
 
 
 def test_await_import_result_disallowed_failure_marks_manual_recovery(tmp_path: Path) -> None:

@@ -36,7 +36,11 @@ from tests.support.preview_fixtures import (
     make_canonical_artifact_fixture,
     make_preview_canonical_bindings,
 )
-from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
+from tests.support.workspace_fixtures import (
+    FixedScopeResolutionPort,
+    make_identity,
+    make_not_applicable_preview_identity,
+)
 from gateway_backend.infrastructure.control_db.sqlite_mapping import ProvisionedBaselineHeadRead
 from gateway_backend.infrastructure.repository_read.http_arrow import (
     HttpArrowRepositoryTableAccessProvider,
@@ -614,6 +618,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
             created_by="actor-1",
             created_at=fixed_now,
         )
+        identity_digest, identity_pairs = make_not_applicable_preview_identity()
         preview = PreviewResult(
             preview_result_id="pr-accept-1",
             workspace_id=workspace.workspace_id,
@@ -636,6 +641,8 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
             canonical=make_preview_canonical_bindings(),
+            identity_assessment_set_digest=identity_digest,
+            identity_pairs=identity_pairs,
             bundle_artifact_id="bundle-1",
             ready_closure_artifact_id="closure-1",
             operation_id="op-preview-accept-1",

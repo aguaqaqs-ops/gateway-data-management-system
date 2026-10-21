@@ -15,6 +15,7 @@ import pytest
 from gateway_repository_contracts import ImportRequestHeaders, SubmitVersionedImportRequest
 from gateway_repository_service.http.errors import ServiceError
 from gateway_repository_service.versioned_import.submission import ImportSubmissionService
+from support.control_db_harness import control_db_transaction
 from support.http_harness import ImportHttpTestEnvironment, create_import_http_environment, import_request_body
 
 STORE_ERROR_CASES = [
@@ -156,8 +157,8 @@ def test_submit_replay_maps_store_invariant_to_internal_error(
 ) -> None:
     repository_id = env.seed_repository()
     operation_id = _seed_operation(env, repository_id, key=f"invariant-{case_name}")
-    env.control_store.connection.execute(sql, (*params_prefix, str(operation_id)))
-    env.control_store.connection.commit()
+    with control_db_transaction(env.control_store) as connection:
+        connection.execute(sql, (*params_prefix, str(operation_id)))
     artifact_id, size_bytes, raw_sha256 = env.seed_artifact(repository_id)
     body = import_request_body(
         repository_id=repository_id,

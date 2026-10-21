@@ -19,7 +19,10 @@ from gateway_backend.application.archive.contracts import (
     validate_utf8_id,
     validate_utf8_reason,
 )
-from gateway_backend.application.archive.errors import ArchiveAuditVersionConflict
+from gateway_backend.application.archive.errors import (
+    ArchiveAuditVersionConflict,
+    ArchiveRequestValidation,
+)
 from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.archive.queries import (
     PERMISSION_ARCHIVE_SUBMISSION,
@@ -65,9 +68,10 @@ class AppendArchiveAnomalyResolutionCommand:
     expected_sequence: int
     action: ArchiveAnomalyResolutionAction
     reason: str
+    subject_kind: ArchiveSubjectKind
     issue_code: str
-    sibling_submission_id: str
-    sibling_candidate_digest: str
+    target_submission_id: str
+    target_candidate_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +202,15 @@ def append_archive_anomaly_resolution(
         field_name="expected_baseline_head_version",
     )
     validated_reason = validate_utf8_reason(command.reason)
+    expected_action = {
+        ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION,
+        ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION: ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION,
+    }.get(command.subject_kind)
+    if expected_action is None or command.action not in {
+        expected_action,
+        ArchiveAnomalyResolutionAction.REVOKE,
+    }:
+        raise ArchiveRequestValidation("resolution action does not match subject kind")
     with unit_of_work_factory(read_only=False) as unit_of_work:
         fresh_scope = unit_of_work.resolve_provisioned_scope(
             gateway_device_external_key=command.context.gateway_device_external_key,
@@ -215,11 +228,12 @@ def append_archive_anomaly_resolution(
             subject_digest=command.subject_digest,
             expected_sequence=validated_sequence,
             action=command.action,
+            subject_kind=command.subject_kind,
             reason=validated_reason,
             actor_id=command.context.actor_id,
             issue_code=command.issue_code,
-            sibling_submission_id=command.sibling_submission_id,
-            sibling_candidate_digest=command.sibling_candidate_digest,
+            target_submission_id=command.target_submission_id,
+            target_candidate_digest=command.target_candidate_digest,
         )
         existing = unit_of_work.archive.find_resolution_idempotency(
             fresh_scope.repository_id,
@@ -248,14 +262,20 @@ def append_archive_anomaly_resolution(
             selected_submission_id=command.selected.submission_id,
             expected_candidate_digest=command.selected.expected_candidate_digest,
         )
-        anomalies = _derive_anomalies(snapshot, command.selected, selection_subject_digest)
+        anomalies = _derive_anomalies(
+            unit_of_work,
+            snapshot,
+            command.selected,
+            selection_subject_digest,
+        )
         matching_anomaly = next(
             (
                 anomaly
                 for anomaly in anomalies
-                if anomaly.issue_code == command.issue_code
-                and anomaly.sibling_submission_id == command.sibling_submission_id
-                and anomaly.sibling_candidate_digest == command.sibling_candidate_digest
+                if anomaly.subject_kind is command.subject_kind
+                and anomaly.issue_code == command.issue_code
+                and anomaly.target_submission_id == command.target_submission_id
+                and anomaly.target_candidate_digest == command.target_candidate_digest
             ),
             None,
         )
@@ -287,8 +307,9 @@ def append_archive_anomaly_resolution(
                 "expected_candidate_digest": command.selected.expected_candidate_digest,
                 "submission_id": command.selected.submission_id,
             },
-            "sibling_candidate_digest": command.sibling_candidate_digest,
-            "sibling_submission_id": command.sibling_submission_id,
+            "subject_kind": command.subject_kind.value,
+            "target_candidate_digest": command.target_candidate_digest,
+            "target_submission_id": command.target_submission_id,
             "subject_digest": command.subject_digest,
         }
         event = ArchiveAnomalyResolutionEvent(
@@ -296,15 +317,15 @@ def append_archive_anomaly_resolution(
             repository_id=snapshot.repository_id,
             gateway_device_external_key=command.context.gateway_device_external_key,
             business_project_id=command.context.business_project_id,
-            subject_kind=ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
+            subject_kind=matching_anomaly.subject_kind,
             subject_digest=command.subject_digest,
             sequence=next_sequence,
             action=command.action,
             issue_code=command.issue_code,
-            sibling_submission_id=command.sibling_submission_id,
-            sibling_candidate_digest=validate_archive_digest(
-                command.sibling_candidate_digest,
-                field_name="sibling_candidate_digest",
+            target_submission_id=command.target_submission_id,
+            target_candidate_digest=validate_archive_digest(
+                command.target_candidate_digest,
+                field_name="target_candidate_digest",
             ),
             reason=validated_reason,
             actor_id=command.context.actor_id,

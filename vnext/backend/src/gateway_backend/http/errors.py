@@ -23,6 +23,8 @@ from gateway_backend.application.submission.errors import (
     FinalizeRecoveryRequired,
     IdempotencyConflict as SubmitIdempotencyConflict,
     NoCanonicalChange,
+    ProjectIdentityConfirmationMismatch,
+    ProjectIdentityConfirmationRequired,
     PreviewBindingConflict as SubmitPreviewBindingConflict,
     PreviewDerivedStale,
     ReviewIntegrityFailure,
@@ -216,6 +218,18 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
     if isinstance(exc, NoCanonicalChange):
         return ApiError(
             code="NO_CANONICAL_CHANGE",
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, ProjectIdentityConfirmationRequired):
+        return ApiError(
+            code=exc.stable_code,
+            message=str(exc),
+            status_code=409,
+        )
+    if isinstance(exc, ProjectIdentityConfirmationMismatch):
+        return ApiError(
+            code=exc.stable_code,
             message=str(exc),
             status_code=409,
         )

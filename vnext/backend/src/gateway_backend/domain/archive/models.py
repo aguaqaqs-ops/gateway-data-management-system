@@ -15,6 +15,7 @@ class ArchiveDispositionKind(StrEnum):
 class ArchiveSubjectKind(StrEnum):
     CONFIRM_SELECTION = "CONFIRM_SELECTION"
     APPROVED_SIBLING_EXCLUDED = "APPROVED_SIBLING_EXCLUDED"
+    PROJECT_IDENTITY_EXCEPTION = "PROJECT_IDENTITY_EXCEPTION"
 
 
 class ArchiveConfirmationAction(StrEnum):
@@ -24,6 +25,7 @@ class ArchiveConfirmationAction(StrEnum):
 
 class ArchiveAnomalyResolutionAction(StrEnum):
     ACKNOWLEDGE_EXCLUSION = "ACKNOWLEDGE_EXCLUSION"
+    ACKNOWLEDGE_IDENTITY_EXCEPTION = "ACKNOWLEDGE_IDENTITY_EXCEPTION"
     REVOKE = "REVOKE"
 
 
@@ -168,8 +170,8 @@ class ArchiveAnomalyResolutionEvent:
     sequence: int
     action: ArchiveAnomalyResolutionAction
     issue_code: str
-    sibling_submission_id: str
-    sibling_candidate_digest: str
+    target_submission_id: str
+    target_candidate_digest: str
     reason: str
     actor_id: str
     occurred_at: datetime
@@ -178,13 +180,27 @@ class ArchiveAnomalyResolutionEvent:
     request_payload_json: str
 
     def __post_init__(self) -> None:
-        if self.subject_kind is not ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED:
+        if self.subject_kind not in {
+            ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED,
+            ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION,
+        }:
             raise ValueError(
-                "anomaly resolution event subject_kind must be APPROVED_SIBLING_EXCLUDED"
+                "anomaly resolution event subject_kind must identify an archive anomaly"
             )
         if type(self.sequence) is not int or self.sequence < 1:
             raise ValueError("sequence must be a positive integer")
         if type(self.reason) is not str or not self.reason:
             raise ValueError("reason must be a non-empty string")
+        for field_name in ("target_submission_id", "target_candidate_digest"):
+            if type(getattr(self, field_name)) is not str or not getattr(self, field_name):
+                raise ValueError(f"{field_name} must be a non-empty string")
+        if self.subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED and (
+            self.action is ArchiveAnomalyResolutionAction.ACKNOWLEDGE_IDENTITY_EXCEPTION
+        ):
+            raise ValueError("approved sibling exclusions require ACKNOWLEDGE_EXCLUSION")
+        if self.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION and (
+            self.action is ArchiveAnomalyResolutionAction.ACKNOWLEDGE_EXCLUSION
+        ):
+            raise ValueError("project identity exceptions require ACKNOWLEDGE_IDENTITY_EXCEPTION")
         if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
             raise ValueError("occurred_at must be an aware datetime")

@@ -1,4 +1,4 @@
-"""Run the S2b real dump Preview/Submit/History journey from the host.
+"""Run the S2b and S4 real dump journeys from the host.
 
 The source packages are read-only inputs. Journey checks use public HTTP APIs;
 the public History result exposes a pair total and digests, while its bundle
@@ -15,14 +15,16 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -46,6 +48,8 @@ from tests.support.compose_gate_harness import (
     BACKEND_URL,
     BASELINE_NODE_ID,
     BEARER_TOKEN,
+    COMPOSE_FILE,
+    DEPLOY_ROOT,
     DEVICE_KEY,
     PROJECT_ID,
     SESSION_TOKEN,
@@ -188,11 +192,590 @@ JOURNEY_STEP_IDS = (
     "v2-repository-read",
     "v2-approve",
     "history",
+    "cross-source-workspace",
+    "cross-source-upload",
+    "cross-source-preview",
+    "cross-source-submit",
+    "cross-source-approve",
+    "cross-source-archive",
+    "cross-replacement-workspace",
+    "cross-replacement-upload",
+    "cross-replacement-preview",
+    "cross-replacement-submit",
+    "cross-replacement-approve",
+    "cross-replacement-archive",
 )
 
 
 class JourneyFailure(RuntimeError):
     """A bounded failure without response bodies that could contain row data."""
+
+
+class WorkerStalledFailure(JourneyFailure):
+    """A worker heartbeat stopped while its operation remained nonterminal."""
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        operation_id: str,
+        diagnostics: Path | None,
+        diagnostic_error: str | None = None,
+    ) -> None:
+        super().__init__(f"{stage} worker_stalled")
+        self.reason = "worker_stalled"
+        self.stage = stage
+        self.operation_id = operation_id
+        self.diagnostics = diagnostics
+        self.diagnostic_error = diagnostic_error
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerHeartbeatStall:
+    operation_id: str
+    step_id: str | None
+    last_heartbeat_monotonic: float
+    stalled_seconds: float
+
+
+class WorkerHeartbeatTracker:
+    """Track the worker's published heartbeat events for active operations."""
+
+    _TERMINAL_OPERATION_STATUSES = frozenset({"SUCCEEDED", "FAILED", "CANCELLED"})
+
+    _HEARTBEAT_RE = re.compile(
+        r"operation_worker_event code=heartbeat_succeeded "
+        r"operation_id=(?P<operation_id>\S+) step_id=(?P<step_id>\S+)"
+    )
+
+    def __init__(
+        self,
+        *,
+        stall_threshold_seconds: int = 120,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if type(stall_threshold_seconds) is not int or stall_threshold_seconds < 1:
+            raise ValueError("worker stall threshold must be a positive integer")
+        self.stall_threshold_seconds = stall_threshold_seconds
+        self._monotonic = monotonic
+        self._lock = threading.Lock()
+        self._last_heartbeat: dict[str, tuple[float, str]] = {}
+        self._running_since: dict[str, float] = {}
+
+    def observe_log_line(self, line: str, *, observed_at: float | None = None) -> bool:
+        match = self._HEARTBEAT_RE.search(line)
+        if match is None:
+            return False
+        now = self._monotonic() if observed_at is None else observed_at
+        with self._lock:
+            self._last_heartbeat[match.group("operation_id")] = (
+                now,
+                match.group("step_id"),
+            )
+        return True
+
+    def check_running_operation(
+        self,
+        operation_id: str,
+        status: object,
+        *,
+        now: float | None = None,
+    ) -> WorkerHeartbeatStall | None:
+        current_time = self._monotonic() if now is None else now
+        with self._lock:
+            running_since = self._running_since.get(operation_id)
+            if status == "RUNNING":
+                running_since = self._running_since.setdefault(operation_id, current_time)
+            elif status in self._TERMINAL_OPERATION_STATUSES:
+                self._running_since.pop(operation_id, None)
+                self._last_heartbeat.pop(operation_id, None)
+                return None
+            elif running_since is None:
+                return None
+            last_heartbeat = self._last_heartbeat.get(operation_id)
+            last_seen, step_id = (
+                last_heartbeat
+                if last_heartbeat is not None
+                else (running_since if running_since is not None else current_time, None)
+            )
+        stalled_seconds = current_time - last_seen
+        if stalled_seconds < self.stall_threshold_seconds:
+            return None
+        return WorkerHeartbeatStall(
+            operation_id=operation_id,
+            step_id=step_id,
+            last_heartbeat_monotonic=last_seen,
+            stalled_seconds=stalled_seconds,
+        )
+
+
+def _worker_stall_threshold_seconds() -> int:
+    raw = os.environ.get("GATEWAY_REAL_DUMP_WORKER_STALL_SECONDS", "120")
+    try:
+        threshold = int(raw)
+    except ValueError as exc:
+        raise JourneyFailure("worker stall threshold must be a positive integer") from exc
+    if threshold < 1:
+        raise JourneyFailure("worker stall threshold must be a positive integer")
+    return threshold
+
+
+def _worker_stall_diagnostic_root() -> Path:
+    configured_directory = os.environ.get("GATEWAY_REAL_DUMP_LOG_DIR")
+    if configured_directory:
+        configured_path = Path(configured_directory)
+        if not configured_path.is_absolute():
+            raise JourneyFailure("worker stall diagnostics must use an absolute log directory")
+        configured = configured_path.resolve()
+        if configured.is_relative_to(_repo_root().resolve()):
+            raise JourneyFailure("worker stall diagnostics must be outside the worktree")
+        parent = configured.parent
+    else:
+        parent = Path(tempfile.gettempdir()).resolve()
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    path = parent / f"s4-stall-{timestamp}"
+    path.mkdir(parents=True, mode=0o700)
+    path.chmod(0o700)
+    return path
+
+
+def _capture_worker_thread_state(env: dict[str, str], root: Path) -> list[str]:
+    result = run_compose(env, "ps", "-q", "worker", timeout=30.0)
+    if result.returncode != 0:
+        raise JourneyFailure("could not resolve worker container for stall diagnostics")
+    container_ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if not container_ids:
+        raise JourneyFailure("worker container is unavailable for stall diagnostics")
+    top = subprocess.run(
+        ["docker", "top", container_ids[0], "-eo", "pid"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30.0,
+    )
+    if top.returncode != 0:
+        (root / "worker-processes.txt").write_text(
+            f"docker top exit={top.returncode}\n{top.stdout}\n{top.stderr}",
+            encoding="utf-8",
+        )
+        raise JourneyFailure("could not list worker host PIDs for stall diagnostics")
+    host_pids = [
+        line.strip()
+        for line in top.stdout.splitlines()
+        if line.strip().isdigit()
+    ]
+    (root / "worker-processes.txt").write_text(
+        "\n".join(host_pids) + "\n",
+        encoding="utf-8",
+    )
+    for pid in host_pids:
+        task_root = Path("/proc") / pid / "task"
+        process_root = root / f"worker-pid-{pid}"
+        process_root.mkdir(mode=0o700)
+        try:
+            task_ids = sorted(path.name for path in task_root.iterdir())
+        except OSError as exc:
+            (process_root / "read-error.txt").write_text(
+                f"task directory unavailable: {type(exc).__name__}\n",
+                encoding="utf-8",
+            )
+            continue
+        for task_id in task_ids:
+            thread_root = process_root / f"thread-{task_id}"
+            thread_root.mkdir(mode=0o700)
+            for filename in ("comm", "wchan", "stack", "status"):
+                source = task_root / task_id / filename
+                try:
+                    content = source.read_text(encoding="utf-8", errors="replace")
+                except OSError as exc:
+                    content = f"unavailable: {type(exc).__name__}\n"
+                (thread_root / f"{filename}.txt").write_text(content, encoding="utf-8")
+    return host_pids
+
+
+def _capture_worker_python_stacks(host_pids: Sequence[str], root: Path) -> None:
+    py_spy = shutil.which("py-spy")
+    if py_spy is None:
+        (root / "py-spy-unavailable.txt").write_text(
+            "py-spy is not installed on the CT host\n",
+            encoding="utf-8",
+        )
+        return
+    for pid in host_pids:
+        try:
+            result = subprocess.run(
+                [py_spy, "dump", "--native", "--pid", pid],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30.0,
+            )
+            content = (
+                f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            )
+        except Exception as exc:
+            content = f"py-spy failed: {type(exc).__name__}\n"
+        (root / f"py-spy-pid-{pid}.txt").write_text(content, encoding="utf-8")
+
+
+def _capture_container_inspections(env: dict[str, str], root: Path) -> None:
+    for service in ("backend", "worker", "repository-service"):
+        try:
+            result = run_compose(env, "ps", "-q", service, timeout=30.0)
+            container_ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+            if result.returncode != 0 or not container_ids:
+                (root / f"docker-inspect-{service}.txt").write_text(
+                    f"container lookup exit={result.returncode}\n{result.stderr}",
+                    encoding="utf-8",
+                )
+                continue
+            inspected = subprocess.run(
+                ["docker", "inspect", *container_ids],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30.0,
+            )
+            (root / f"docker-inspect-{service}.json").write_text(
+                inspected.stdout or inspected.stderr,
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            (root / f"docker-inspect-{service}.txt").write_text(
+                f"docker inspect failed: {type(exc).__name__}\n",
+                encoding="utf-8",
+            )
+
+
+def _capture_control_operation_rows(
+    env: dict[str, str],
+    operation_id: str,
+    root: Path,
+) -> str | None:
+    # The live DB is opened read-only and copied before querying. Only the
+    # operation, step and lease fields needed to diagnose the stall are emitted.
+    snapshot_script = """
+import json, os, sqlite3, sys, tempfile
+from pathlib import Path
+
+operation_id = sys.argv[1]
+source = sqlite3.connect(
+    "file:/var/lib/gateway/control/control.sqlite3?mode=ro", uri=True
+)
+fd, snapshot_name = tempfile.mkstemp(prefix="gdds-s4-stall-control-")
+os.close(fd)
+try:
+    snapshot = sqlite3.connect(snapshot_name)
+    source.backup(snapshot)
+    operation_row = snapshot.execute(
+        "SELECT operation_id, status, created_at_us, updated_at_us, completed_at_us, "
+        "repository_operation_id FROM operation_records WHERE operation_id = ?",
+        (operation_id,),
+    ).fetchone()
+    step_rows = snapshot.execute(
+        "SELECT step_id, step_name, status, attempt_count, worker_id, "
+        "lease_expires_at_us, created_at_us, updated_at_us, started_at_us, completed_at_us "
+        "FROM step_records WHERE operation_id = ? ORDER BY step_name",
+        (operation_id,),
+    ).fetchall()
+    steps = [
+        {
+            "step_id": row[0], "step_name": row[1], "status": row[2],
+            "attempt_count": row[3], "owner": row[4],
+            "lease_expires_at_us": row[5], "created_at_us": row[6],
+            "updated_at_us": row[7], "started_at_us": row[8],
+            "completed_at_us": row[9],
+        }
+        for row in step_rows
+    ]
+    operation = None if operation_row is None else {
+        "operation_id": operation_row[0], "status": operation_row[1],
+        "created_at_us": operation_row[2], "updated_at_us": operation_row[3],
+        "completed_at_us": operation_row[4],
+        "repository_operation_id": operation_row[5],
+    }
+    leases = [
+        {
+            "step_id": step["step_id"], "owner": step["owner"],
+            "attempt_count": step["attempt_count"],
+            "lease_expires_at_us": step["lease_expires_at_us"],
+            "updated_at_us": step["updated_at_us"],
+        }
+        for step in steps if step["lease_expires_at_us"] is not None
+    ]
+    print(json.dumps({"operation": operation, "steps": steps, "leases": leases}, sort_keys=True))
+    snapshot.close()
+finally:
+    source.close()
+    Path(snapshot_name).unlink(missing_ok=True)
+"""
+    result = run_compose(
+        env,
+        "exec",
+        "-T",
+        "backend",
+        "python",
+        "-c",
+        snapshot_script,
+        operation_id,
+        timeout=60.0,
+    )
+    if result.returncode != 0:
+        (root / "control-db-selected-rows-error.txt").write_text(
+            f"snapshot/query exit={result.returncode}\n{result.stderr}",
+            encoding="utf-8",
+        )
+        return None
+    try:
+        summary = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        (root / "control-db-selected-rows-error.txt").write_text(
+            "snapshot/query returned invalid JSON\n",
+            encoding="utf-8",
+        )
+        return None
+    (root / "control-db-selected-rows.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    operation = summary.get("operation")
+    repository_operation_id = (
+        operation.get("repository_operation_id") if isinstance(operation, dict) else None
+    )
+    return repository_operation_id if isinstance(repository_operation_id, str) else None
+
+
+def _capture_repository_import_status(
+    *,
+    repository_url: str,
+    repository_id: str,
+    operation_id: str,
+    root: Path,
+) -> None:
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{repository_url}/v1/repositories/{repository_id}/operations/{operation_id}",
+                headers=compose_auth_headers(token=BEARER_TOKEN),
+            )
+        summary: dict[str, Any] = {"operation_id": operation_id, "http_status": response.status_code}
+        if response.status_code == 200:
+            payload = response.json()
+            if isinstance(payload, dict):
+                operation = payload.get("operation")
+                status_payload = operation if isinstance(operation, dict) else payload
+                for name in ("status", "created_at", "started_at", "updated_at", "completed_at"):
+                    if name in status_payload:
+                        summary[name] = status_payload[name]
+    except (httpx.HTTPError, ValueError):
+        summary = {"operation_id": operation_id, "status_read": "unavailable"}
+    (root / "repository-import-status.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _capture_worker_stall_diagnostics(
+    *,
+    env: dict[str, str],
+    repository_id: str,
+    repository_url: str,
+    operation_id: str,
+    stage: str,
+    stall: WorkerHeartbeatStall,
+) -> Path:
+    root = _worker_stall_diagnostic_root()
+    previous_umask = os.umask(0o077)
+    errors: list[str] = []
+    try:
+        (root / "stall.json").write_text(
+            json.dumps(
+                {
+                    "failure_reason": "worker_stalled",
+                    "stage": stage,
+                    "operation_id": operation_id,
+                    "step_id": stall.step_id,
+                    "stall_threshold_seconds": _worker_stall_threshold_seconds(),
+                    "observed_stalled_seconds": round(stall.stalled_seconds, 3),
+                    "captured_at_utc": _utc_timestamp(),
+                    "repository_id": repository_id,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        host_pids: list[str] = []
+        try:
+            host_pids = _capture_worker_thread_state(env, root)
+        except Exception as exc:
+            errors.append(f"worker thread state: {type(exc).__name__}")
+        try:
+            _capture_worker_python_stacks(host_pids, root)
+        except Exception as exc:
+            errors.append(f"worker Python stacks: {type(exc).__name__}")
+        try:
+            _capture_container_inspections(env, root)
+        except Exception as exc:
+            errors.append(f"container inspect: {type(exc).__name__}")
+
+        repository_operation_id: str | None = None
+        try:
+            repository_operation_id = _capture_control_operation_rows(env, operation_id, root)
+        except Exception as exc:
+            errors.append(f"control DB snapshot: {type(exc).__name__}")
+        if repository_operation_id is not None:
+            try:
+                _capture_repository_import_status(
+                    repository_url=repository_url,
+                    repository_id=repository_id,
+                    operation_id=repository_operation_id,
+                    root=root,
+                )
+            except Exception as exc:
+                errors.append(f"Repository import status: {type(exc).__name__}")
+        else:
+            (root / "repository-import-status.json").write_text(
+                json.dumps({"status_read": "no repository_operation_id in control DB snapshot"})
+                + "\n",
+                encoding="utf-8",
+            )
+
+        try:
+            logs = run_compose(env, "logs", "--no-color", "--timestamps", timeout=180.0)
+            (root / "all-container-logs.txt").write_text(
+                f"compose_logs_exit_code={logs.returncode}\n"
+                f"stdout:\n{logs.stdout}\nstderr:\n{logs.stderr}",
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            errors.append(f"all container logs: {type(exc).__name__}")
+        if errors:
+            (root / "diagnostic-errors.txt").write_text("\n".join(errors) + "\n", encoding="utf-8")
+    finally:
+        os.umask(previous_umask)
+    return root
+
+
+class WorkerHeartbeatMonitor:
+    """Read worker heartbeat events and capture diagnostics before a stalled stack is torn down."""
+
+    def __init__(
+        self,
+        *,
+        env: dict[str, str],
+        repository_id: str,
+        repository_url: str,
+        tracker: WorkerHeartbeatTracker | None = None,
+        diagnostic_capture: Callable[..., Path] = _capture_worker_stall_diagnostics,
+        popen: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+    ) -> None:
+        self.env = env
+        self.repository_id = repository_id
+        self.repository_url = repository_url
+        self.tracker = tracker or WorkerHeartbeatTracker(
+            stall_threshold_seconds=_worker_stall_threshold_seconds()
+        )
+        self._diagnostic_capture = diagnostic_capture
+        self._popen = popen
+        self._process: subprocess.Popen[str] | None = None
+        self._reader_thread: threading.Thread | None = None
+
+    def __enter__(self) -> WorkerHeartbeatMonitor:
+        command = [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            "logs",
+            "--follow",
+            "--no-color",
+            "--timestamps",
+            "worker",
+        ]
+        try:
+            self._process = self._popen(
+                command,
+                cwd=DEPLOY_ROOT,
+                env=self.env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as exc:
+            raise JourneyFailure("could not start worker heartbeat log stream") from exc
+        self._reader_thread = threading.Thread(
+            target=self._read_heartbeat_log,
+            name="real-dump-worker-heartbeat-log",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        _emit_progress(
+            "real-data journey",
+            "worker_heartbeat_monitor_started",
+            stall_threshold_seconds=self.tracker.stall_threshold_seconds,
+            heartbeat_source="worker operation_worker_event code=heartbeat_succeeded logs",
+        )
+        return self
+
+    def _read_heartbeat_log(self) -> None:
+        if self._process is None or self._process.stdout is None:
+            return
+        for line in self._process.stdout:
+            self.tracker.observe_log_line(line)
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        process = self._process
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5.0)
+        if self._reader_thread is not None:
+            self._reader_thread.join(timeout=5.0)
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+
+    def check_operation(self, operation_id: str, status: object, *, stage: str) -> None:
+        if self._process is not None and self._process.poll() is not None:
+            raise JourneyFailure("worker heartbeat log stream exited while an operation was active")
+        stall = self.tracker.check_running_operation(operation_id, status)
+        if stall is None:
+            return
+        diagnostics: Path | None = None
+        diagnostic_error: str | None = None
+        try:
+            diagnostics = self._diagnostic_capture(
+                env=self.env,
+                repository_id=self.repository_id,
+                repository_url=self.repository_url,
+                operation_id=operation_id,
+                stage=stage,
+                stall=stall,
+            )
+        except Exception as exc:
+            diagnostic_error = type(exc).__name__
+        _emit_progress(
+            stage,
+            "worker_stalled",
+            failure_reason="worker_stalled",
+            operation_id=operation_id,
+            step_id=stall.step_id,
+            stalled_seconds=round(stall.stalled_seconds, 3),
+            diagnostics=str(diagnostics) if diagnostics is not None else None,
+            diagnostic_error=diagnostic_error,
+        )
+        raise WorkerStalledFailure(
+            stage=stage,
+            operation_id=operation_id,
+            diagnostics=diagnostics,
+            diagnostic_error=diagnostic_error,
+        )
 
 
 def _repo_root() -> Path:
@@ -627,6 +1210,7 @@ def _poll_operation(
     stage: str,
     timeout_seconds: int = INITIAL_OPERATION_TIMEOUT_SECONDS,
     deadline: float | None = None,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> dict[str, Any]:
     operation_started = time.monotonic()
     _emit_progress(stage, "operation_started", timeout_seconds=timeout_seconds)
@@ -652,6 +1236,8 @@ def _poll_operation(
             continue
         payload = _require(response, 200, "operation status")
         status = payload.get("status")
+        if heartbeat_monitor is not None:
+            heartbeat_monitor.check_operation(operation_id, status, stage=stage)
         if status in TERMINAL_OPERATION_STATES:
             if status != "SUCCEEDED":
                 diagnostic = payload.get("diagnostic")
@@ -724,6 +1310,7 @@ def _preview(
     idempotency_key: str,
     stage: str,
     operation_timeout_seconds: int,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
@@ -745,6 +1332,7 @@ def _preview(
         stage=stage,
         timeout_seconds=operation_timeout_seconds,
         deadline=deadline,
+        heartbeat_monitor=heartbeat_monitor,
     )
     refreshed = _workspace(client)
     result_id = refreshed.get("current_preview_result_id")
@@ -803,6 +1391,42 @@ def _assert_preview_summaries(
     return dict(totals)
 
 
+def _assert_identity_pair(
+    preview: Mapping[str, Any],
+    *,
+    expected_status: str,
+    expected_mode: str,
+) -> dict[str, str]:
+    result = preview.get("result")
+    if not isinstance(result, dict):
+        raise JourneyFailure("Preview result is missing project identity facts")
+    assessment_set_digest = result.get("identity_assessment_set_digest")
+    if (
+        type(assessment_set_digest) is not str
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", assessment_set_digest) is None
+    ):
+        raise JourneyFailure("Preview identity assessment set digest is invalid")
+    pairs = result.get("identity_pairs")
+    if not isinstance(pairs, list) or len(pairs) != 1 or not isinstance(pairs[0], dict):
+        raise JourneyFailure("Preview identity assessment must contain exactly one pair")
+    pair = cast(dict[str, Any], pairs[0])
+    expected_applicability = (
+        "NOT_APPLICABLE" if expected_status == "NOT_APPLICABLE" else "APPLICABLE"
+    )
+    if (
+        pair.get("status") != expected_status
+        or pair.get("mode") != expected_mode
+        or pair.get("applicability") != expected_applicability
+    ):
+        raise JourneyFailure("Preview project identity differs from the expected assessment")
+    return {
+        "assessment_set_digest": assessment_set_digest,
+        "applicability": expected_applicability,
+        "status": expected_status,
+        "mode": expected_mode,
+    }
+
+
 def _assert_s3_preview_summary(
     summary: Mapping[str, int],
     *,
@@ -858,6 +1482,8 @@ def _submit(
     stage: str,
     operation_timeout_seconds: int,
     expect_no_change: bool = False,
+    identity_confirmations: Sequence[Mapping[str, str]] = (),
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
     result = cast(Mapping[str, Any], preview["result"])
@@ -872,6 +1498,7 @@ def _submit(
             "expected_baseline_node_id": baseline_node_id,
             "expected_baseline_head_version": baseline_head_version,
             "options": {},
+            "identity_confirmations": [dict(item) for item in identity_confirmations],
         },
     )
     if expect_no_change:
@@ -887,6 +1514,7 @@ def _submit(
         stage=stage,
         timeout_seconds=operation_timeout_seconds,
         deadline=deadline,
+        heartbeat_monitor=heartbeat_monitor,
     )
     _emit_progress(stage, "submit_finalization_started")
     attempt: dict[str, Any] | None = None
@@ -937,7 +1565,13 @@ def _approve(client: httpx.Client, submission_id: str, idempotency_key: str) -> 
     )
 
 
-def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[str, Any]:
+def _archive(
+    client: httpx.Client,
+    submission_id: str,
+    key_prefix: str,
+    *,
+    identity_exception_reason: str | None = None,
+) -> dict[str, Any]:
     candidates = _require(
         client.get("/v1/archive-candidates", headers=compose_auth_headers(token=ARCHIVER_TOKEN)),
         200,
@@ -955,7 +1589,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
         None,
     )
     if selected is None:
-        raise JourneyFailure("submitted v1 was not an archive candidate")
+        raise JourneyFailure("submission was not an archive candidate")
     preview = _require(
         client.post(
             "/v1/archive-plan-preview",
@@ -967,6 +1601,30 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
     )
     if preview.get("can_start") is not False:
         raise JourneyFailure("archive plan should require explicit confirmation")
+    raw_anomalies = preview.get("anomalies")
+    if not isinstance(raw_anomalies, list):
+        raise JourneyFailure("archive plan anomalies are invalid")
+    anomalies = [cast(dict[str, Any], item) for item in raw_anomalies if isinstance(item, dict)]
+    if len(anomalies) != len(raw_anomalies):
+        raise JourneyFailure("archive plan contains an invalid anomaly")
+    identity_anomalies = [
+        item for item in anomalies if item.get("subject_kind") == "PROJECT_IDENTITY_EXCEPTION"
+    ]
+    other_anomalies = [
+        item for item in anomalies if item.get("subject_kind") != "PROJECT_IDENTITY_EXCEPTION"
+    ]
+    if other_anomalies:
+        raise JourneyFailure("archive plan contains an unexpected non-identity anomaly")
+    if identity_exception_reason is None and identity_anomalies:
+        raise JourneyFailure("archive plan has an unresolved project identity exception")
+    if identity_exception_reason is not None and (
+        len(identity_anomalies) != 1
+        or identity_anomalies[0].get("target_submission_id") != submission_id
+        or identity_anomalies[0].get("target_candidate_digest")
+        != selected.get("expected_candidate_digest")
+        or identity_anomalies[0].get("issue_code") != "PROJECT_IDENTITY_EXCEPTION"
+    ):
+        raise JourneyFailure("archive plan identity exception differs from the selected submission")
     head = cast(dict[str, Any], preview["head"])
     confirmation = _require_one_of(
         client.post(
@@ -983,12 +1641,43 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
                 "subject_digest": preview["selection_subject_digest"],
                 "expected_sequence": 0,
                 "action": "CONFIRM",
-                "reason": "archive S2b real dump v1",
+                "reason": "archive real dump submission after review",
             },
         ),
         {200, 201},
         "archive confirmation",
     )
+    anomaly_resolution_refs: list[dict[str, Any]] = []
+    if identity_exception_reason is not None:
+        identity_anomaly = identity_anomalies[0]
+        resolution = _require_one_of(
+            client.post(
+                "/v1/archive-anomaly-resolutions",
+                headers=compose_auth_headers(
+                    token=ARCHIVER_TOKEN,
+                    idempotency_key=f"{key_prefix}-identity-resolution",
+                ),
+                json={
+                    "expected_baseline_node_id": head["business_baseline_node_id"],
+                    "expected_baseline_head_version": head["baseline_head_version"],
+                    "selected": selected,
+                    "candidate_set_digest": preview["candidate_set_digest"],
+                    "subject_digest": identity_anomaly["subject_digest"],
+                    "expected_sequence": 0,
+                    "action": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+                    "subject_kind": "PROJECT_IDENTITY_EXCEPTION",
+                    "reason": identity_exception_reason,
+                    "issue_code": identity_anomaly["issue_code"],
+                    "target_submission_id": identity_anomaly["target_submission_id"],
+                    "target_candidate_digest": identity_anomaly["target_candidate_digest"],
+                },
+            ),
+            {200, 201},
+            "identity exception resolution",
+        )
+        anomaly_resolution_refs.append(
+            {"subject_digest": identity_anomaly["subject_digest"], "sequence": resolution["sequence"]}
+        )
     ready = _require(
         client.post(
             "/v1/archive-plan-preview",
@@ -1019,6 +1708,7 @@ def _archive(client: httpx.Client, submission_id: str, key_prefix: str) -> dict[
                         "sequence": confirmation["sequence"],
                     }
                 ],
+                "anomaly_resolution_refs": anomaly_resolution_refs,
             },
         ),
         {200, 201},
@@ -1216,6 +1906,7 @@ def _history_compare(
     v2_commit_id: str,
     idempotency_key: str,
     operation_timeout_seconds: int,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
 ) -> tuple[dict[str, Any], str]:
     stage = f"{tier} History"
     _emit_progress(stage, "history_compare_started")
@@ -1244,6 +1935,8 @@ def _history_compare(
             200,
             "History compare status",
         )
+        if heartbeat_monitor is not None:
+            heartbeat_monitor.check_operation(operation_id, payload.get("status"), stage=stage)
         if payload.get("status") in TERMINAL_OPERATION_STATES:
             terminal = payload
             break
@@ -1342,6 +2035,8 @@ def _run_tier(
     from_step: str | None,
     state_path: Path | None,
     offline_composite: Mapping[str, Any],
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
+    scope: str = "full",
 ) -> dict[str, Any]:
     started = time.monotonic()
     v1_bytes, v1_file = _dataset_package(root, datasets[v1_id])
@@ -1411,6 +2106,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v1-preview",
                 stage=f"{tier} v1 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -1441,6 +2137,11 @@ def _run_tier(
         )
         v1_preview = cast(dict[str, Any], v1_preview_state["preview"])
         v1_summary = cast(dict[str, int], v1_preview_state["summary"])
+        v1_identity = _assert_identity_pair(
+            v1_preview,
+            expected_status="NOT_APPLICABLE",
+            expected_mode="DETAILED",
+        )
 
         v1_submission = runner.run(
             "v1-submit",
@@ -1454,6 +2155,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v1-submit",
                 stage=f"{tier} v1 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-submit"),
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
         v1_submission = cast(dict[str, Any], v1_submission)
@@ -1463,6 +2165,29 @@ def _run_tier(
             v1_submission,
             stage=f"{tier} v1 Submit",
         )
+
+        if scope == "t4-v1-submit":
+            return {
+                "tier": tier,
+                "scope": scope,
+                "dataset": {
+                    "dataset_id": v1_id,
+                    "sha256": v1_file["sha256"],
+                    "package_bytes": v1_file["bytes"],
+                    "table_count": census[v1_id]["table_count"],
+                    "row_count_total": census[v1_id]["row_count_total"],
+                    "preview": v1_summary,
+                    "identity": v1_identity,
+                    "submit": {
+                        "canonical_state_digest": v1_canonical_state_digest,
+                        "submission_id": v1_submission_id,
+                    },
+                },
+                "step_metrics": runner.metrics,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "conclusion": "PASS",
+                "empty_initial_commit_id": initial_commit_id,
+            }
 
         def v1_repository_read_action() -> dict[str, Any]:
             repository = _pseudo_counts_from_http(
@@ -1501,6 +2226,99 @@ def _run_tier(
         baseline_node_id = str(archive["baseline_node_id"])
         baseline_head_version = int(archive["baseline_head_version"])
 
+        if scope == "t4-identity":
+            v2_workspace_partial = runner.run("v2-workspace", lambda: _workspace(client))
+            v2_upload_partial = runner.run(
+                "v2-upload",
+                lambda: _upload_revision(
+                    client,
+                    workspace=cast(Mapping[str, Any], v2_workspace_partial),
+                    package=v2_bytes,
+                    idempotency_key=f"{project_name}-{tier}-v2-upload",
+                ),
+            )
+
+            def v2_preview_partial_action() -> dict[str, Any]:
+                preview, manifest = _preview(
+                    client,
+                    workspace=cast(Mapping[str, Any], v2_workspace_partial),
+                    upload=cast(Mapping[str, Any], v2_upload_partial),
+                    baseline_node_id=baseline_node_id,
+                    baseline_head_version=baseline_head_version,
+                    idempotency_key=f"{project_name}-{tier}-v2-preview",
+                    stage=f"{tier} v2 Preview",
+                    operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
+                    heartbeat_monitor=heartbeat_monitor,
+                )
+                summary = _assert_preview_summaries(manifest, unchanged=False)
+                expected_changed = S2B_DATASET_BASELINE[v2_id]["preview_changed"] + int(
+                    composite_changed
+                )
+                _assert_s3_preview_summary(
+                    summary,
+                    dataset_id=v2_id,
+                    expected_changed=expected_changed,
+                )
+                identity = _assert_identity_pair(
+                    preview,
+                    expected_status="SAME_PROJECT",
+                    expected_mode="DETAILED",
+                )
+                _emit_progress(
+                    f"{tier} v2 Preview",
+                    "preview_identity_and_summary_verified",
+                    summary=summary,
+                    identity=identity,
+                    source_census_table_count=int(census[v2_id]["table_count"]),
+                    composite_row_count=composite_v2_row_count,
+                )
+                return {"preview": preview, "summary": summary, "identity": identity}
+
+            v2_partial_state = cast(
+                dict[str, Any],
+                runner.run("v2-preview", v2_preview_partial_action),
+            )
+            return {
+                "tier": tier,
+                "scope": scope,
+                "datasets": [
+                    {
+                        "dataset_id": v1_id,
+                        "sha256": v1_file["sha256"],
+                        "package_bytes": v1_file["bytes"],
+                        "table_count": census[v1_id]["table_count"],
+                        "row_count_total": census[v1_id]["row_count_total"],
+                        "logics_xml_max_depth": census[v1_id]["logics_xml_max_depth"],
+                        "composite_signal_point_row_count": composite_v1_row_count,
+                        "preview": v1_summary,
+                        "identity": v1_identity,
+                        "submit": {
+                            "canonical_state_digest": v1_canonical_state_digest,
+                            "submission_id": v1_submission_id,
+                        },
+                        "archive": archive,
+                    },
+                    {
+                        "dataset_id": v2_id,
+                        "sha256": v2_file["sha256"],
+                        "package_bytes": v2_file["bytes"],
+                        "table_count": census[v2_id]["table_count"],
+                        "row_count_total": census[v2_id]["row_count_total"],
+                        "logics_xml_max_depth": census[v2_id]["logics_xml_max_depth"],
+                        "composite_signal_point_row_count": composite_v2_row_count,
+                        "preview": v2_partial_state["summary"],
+                        "identity": v2_partial_state["identity"],
+                    },
+                ],
+                "initial_repository": initial_repository,
+                "compose_image_ids": images,
+                "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
+                "step_metrics": runner.metrics,
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "conclusion": "PASS",
+                "empty_initial_commit_id": initial_commit_id,
+            }
+
         repeat_workspace = runner.run(
             "repeat-v1-workspace",
             lambda: _workspace(client),
@@ -1525,6 +2343,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-repeat-v1-preview",
                 stage=f"{tier} repeat v1 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -1557,6 +2376,11 @@ def _run_tier(
         )
         repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
         repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
+        repeat_identity = _assert_identity_pair(
+            repeat_preview,
+            expected_status="SAME_PROJECT",
+            expected_mode="DETAILED",
+        )
 
         repeat_submit = runner.run(
             "repeat-v1-submit",
@@ -1571,6 +2395,7 @@ def _run_tier(
                 stage=f"{tier} repeat v1 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
                 expect_no_change=True,
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
 
@@ -1595,6 +2420,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v2-preview",
                 stage=f"{tier} v2 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -1629,6 +2455,11 @@ def _run_tier(
         )
         v2_preview = cast(dict[str, Any], v2_preview_state["preview"])
         v2_summary = cast(dict[str, int], v2_preview_state["summary"])
+        v2_identity = _assert_identity_pair(
+            v2_preview,
+            expected_status="SAME_PROJECT",
+            expected_mode="DETAILED",
+        )
 
         v2_submission = runner.run(
             "v2-submit",
@@ -1642,6 +2473,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-v2-submit",
                 stage=f"{tier} v2 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-submit"),
+                heartbeat_monitor=heartbeat_monitor,
             ),
         )
         v2_submission = cast(dict[str, Any], v2_submission)
@@ -1689,6 +2521,7 @@ def _run_tier(
                 v2_commit_id=v2_commit_id,
                 idempotency_key=f"{project_name}-{tier}-history-compare",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "history"),
+                heartbeat_monitor=heartbeat_monitor,
             )
             _history_surface_ref(cast(Mapping[str, Any], result["bundle"]))
             return {"operation_id": operation_id, "result": result}
@@ -1725,6 +2558,7 @@ def _run_tier(
                 "storage_column_type_counts": census[v1_id]["storage_column_type_counts"],
                 "repository": v1_repository,
                 "preview": v1_summary,
+                "identity": v1_identity,
                 "keyless_fallback_tables": {
                     "count": len(v1_keyless_names),
                     "names": list(v1_keyless_names),
@@ -1743,6 +2577,7 @@ def _run_tier(
                 "storage_column_type_counts": census[v2_id]["storage_column_type_counts"],
                 "repository": v2_repository,
                 "preview": v2_summary,
+                "identity": v2_identity,
                 "keyless_fallback_tables": {
                     "count": len(v2_keyless_names),
                     "names": list(v2_keyless_names),
@@ -1752,6 +2587,7 @@ def _run_tier(
         ],
         "repeat_v1": {
             "preview": repeat_summary,
+            "identity": repeat_identity,
             "submit": repeat_submit,
             "keyless_fallback_candidates_unchanged": {
                 "count": len(repeat_keyless_names),
@@ -1775,6 +2611,272 @@ def _run_tier(
         "compose_image_ids": images,
         "initial_repository": initial_repository,
         "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
+        "step_metrics": runner.metrics,
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+        "conclusion": "PASS",
+        "empty_initial_commit_id": initial_commit_id,
+    }
+
+
+def _run_cross_project(
+    *,
+    root: Path,
+    datasets: Mapping[str, dict[str, Any]],
+    census: Mapping[str, dict[str, Any]],
+    env: dict[str, str],
+    project_name: str,
+    repository_id: str,
+    initial_commit_id: str,
+    heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    source_id, target_id = "rd-t1-a-v1", "rd-t2-b-v1"
+    source_package, source_file = _dataset_package(root, datasets[source_id])
+    target_package, target_file = _dataset_package(root, datasets[target_id])
+    for dataset_id in (source_id, target_id):
+        if int(census[dataset_id]["ordered_projection"]["pseudo_rows_total"]) != EXPECTED_PSEUDO_TOTALS[dataset_id]:
+            raise JourneyFailure(f"{dataset_id}: census pseudo total differs from the accepted baseline")
+
+    images = compose_image_ids(env)
+    repository_url = _repository_service_url(env)
+    initial_repository = _assert_initial_repository_commit_empty(
+        base_url=repository_url,
+        repository_id=repository_id,
+        commit_id=initial_commit_id,
+    )
+    runner = JourneyStepRunner(
+        tier="cross-project",
+        env=env,
+        state={},
+        from_step=None,
+        state_path=None,
+    )
+
+    with httpx.Client(
+        base_url=BACKEND_URL,
+        headers=compose_auth_headers(),
+        timeout=600.0,
+    ) as client:
+        source_workspace = runner.run(
+            "cross-source-workspace",
+            lambda: _workspace(client),
+        )
+        source_upload = runner.run(
+            "cross-source-upload",
+            lambda: _upload_revision(
+                client,
+                workspace=cast(Mapping[str, Any], source_workspace),
+                package=source_package,
+                idempotency_key=f"{project_name}-cross-source-upload",
+            ),
+        )
+
+        def source_preview_action() -> dict[str, Any]:
+            preview, manifest = _preview(
+                client,
+                workspace=cast(Mapping[str, Any], source_workspace),
+                upload=cast(Mapping[str, Any], source_upload),
+                baseline_node_id=BASELINE_NODE_ID,
+                baseline_head_version=0,
+                idempotency_key=f"{project_name}-cross-source-preview",
+                stage="cross-project source v1 Preview",
+                operation_timeout_seconds=_operation_timeout_seconds("t1", "v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
+            )
+            summary = _assert_preview_summaries(manifest, unchanged=False)
+            _assert_s3_preview_summary(
+                summary,
+                dataset_id=source_id,
+                expected_changed=S2B_DATASET_BASELINE[source_id]["preview_table_count"] + 1,
+            )
+            identity = _assert_identity_pair(
+                preview,
+                expected_status="NOT_APPLICABLE",
+                expected_mode="DETAILED",
+            )
+            return {"preview": preview, "summary": summary, "identity": identity}
+
+        source_preview_state = cast(
+            dict[str, Any],
+            runner.run("cross-source-preview", source_preview_action),
+        )
+        source_preview = cast(dict[str, Any], source_preview_state["preview"])
+        source_submission = runner.run(
+            "cross-source-submit",
+            lambda: _submit(
+                client,
+                workspace=cast(Mapping[str, Any], source_workspace),
+                upload=cast(Mapping[str, Any], source_upload),
+                preview=source_preview,
+                baseline_node_id=BASELINE_NODE_ID,
+                baseline_head_version=0,
+                idempotency_key=f"{project_name}-cross-source-submit",
+                stage="cross-project source v1 Submit",
+                operation_timeout_seconds=_operation_timeout_seconds("t1", "v1-submit"),
+                heartbeat_monitor=heartbeat_monitor,
+            ),
+        )
+        source_submission = cast(dict[str, Any], source_submission)
+        source_submission_id = str(source_submission["submission_id"])
+        source_commit_id = str(source_submission["repository_commit_id"])
+        source_digest = _canonical_state_digest_from_submission(
+            source_submission,
+            stage="cross-project source v1 Submit",
+        )
+        runner.run(
+            "cross-source-approve",
+            lambda: _approve(
+                client,
+                source_submission_id,
+                f"{project_name}-cross-source-review",
+            ),
+        )
+        source_archive = cast(
+            dict[str, Any],
+            runner.run(
+                "cross-source-archive",
+                lambda: _archive(
+                    client,
+                    source_submission_id,
+                    f"{project_name}-cross-source",
+                ),
+            ),
+        )
+        if source_archive.get("baseline_commit_id") != source_commit_id:
+            raise JourneyFailure("cross-project source Archive did not promote its Repository commit")
+        baseline_node_id = str(source_archive["baseline_node_id"])
+        baseline_head_version = int(source_archive["baseline_head_version"])
+
+        target_workspace = runner.run(
+            "cross-replacement-workspace",
+            lambda: _workspace(client),
+        )
+        target_upload = runner.run(
+            "cross-replacement-upload",
+            lambda: _upload_revision(
+                client,
+                workspace=cast(Mapping[str, Any], target_workspace),
+                package=target_package,
+                idempotency_key=f"{project_name}-cross-replacement-upload",
+            ),
+        )
+
+        def target_preview_action() -> dict[str, Any]:
+            preview, manifest = _preview(
+                client,
+                workspace=cast(Mapping[str, Any], target_workspace),
+                upload=cast(Mapping[str, Any], target_upload),
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-cross-replacement-preview",
+                stage="cross-project replacement Preview",
+                operation_timeout_seconds=_operation_timeout_seconds("t2", "v1-preview"),
+                heartbeat_monitor=heartbeat_monitor,
+            )
+            summary = _assert_preview_summaries(manifest, unchanged=False)
+            identity = _assert_identity_pair(
+                preview,
+                expected_status="DIFFERENT_PROJECT",
+                expected_mode="DATASET_REPLACEMENT",
+            )
+            _emit_progress(
+                "cross-project replacement Preview",
+                "preview_identity_and_summary_verified",
+                summary=summary,
+                identity=identity,
+            )
+            return {"preview": preview, "summary": summary, "identity": identity}
+
+        target_preview_state = cast(
+            dict[str, Any],
+            runner.run("cross-replacement-preview", target_preview_action),
+        )
+        target_preview = cast(dict[str, Any], target_preview_state["preview"])
+        target_identity = cast(dict[str, str], target_preview_state["identity"])
+        target_submission = runner.run(
+            "cross-replacement-submit",
+            lambda: _submit(
+                client,
+                workspace=cast(Mapping[str, Any], target_workspace),
+                upload=cast(Mapping[str, Any], target_upload),
+                preview=target_preview,
+                baseline_node_id=baseline_node_id,
+                baseline_head_version=baseline_head_version,
+                idempotency_key=f"{project_name}-cross-replacement-submit",
+                stage="cross-project replacement Submit",
+                operation_timeout_seconds=_operation_timeout_seconds("t2", "v1-submit"),
+                identity_confirmations=(
+                    {
+                        "action": "ACCEPT_DATASET_REPLACEMENT",
+                        "assessment_set_digest": target_identity["assessment_set_digest"],
+                        "reason": (
+                            "cross-project dataset replacement reviewed\n"
+                            "approved for the dedicated replacement journey"
+                        ),
+                    },
+                ),
+                heartbeat_monitor=heartbeat_monitor,
+            ),
+        )
+        target_submission = cast(dict[str, Any], target_submission)
+        target_submission_id = str(target_submission["submission_id"])
+        target_commit_id = str(target_submission["repository_commit_id"])
+        target_digest = _canonical_state_digest_from_submission(
+            target_submission,
+            stage="cross-project replacement Submit",
+        )
+        runner.run(
+            "cross-replacement-approve",
+            lambda: _approve(
+                client,
+                target_submission_id,
+                f"{project_name}-cross-replacement-review",
+            ),
+        )
+        target_archive = cast(
+            dict[str, Any],
+            runner.run(
+                "cross-replacement-archive",
+                lambda: _archive(
+                    client,
+                    target_submission_id,
+                    f"{project_name}-cross-replacement",
+                    identity_exception_reason=(
+                        "reviewed project identity exception\n"
+                        "acknowledged before cross-project archive"
+                    ),
+                ),
+            ),
+        )
+        if target_archive.get("baseline_commit_id") != target_commit_id:
+            raise JourneyFailure("cross-project replacement Archive did not promote its Repository commit")
+
+    return {
+        "scope": "cross-project-t1-to-t2",
+        "source": {
+            "dataset_id": source_id,
+            "sha256": source_file["sha256"],
+            "package_bytes": source_file["bytes"],
+            "table_count": census[source_id]["table_count"],
+            "row_count_total": census[source_id]["row_count_total"],
+            "preview": source_preview_state["summary"],
+            "identity": source_preview_state["identity"],
+            "canonical_state_digest": source_digest,
+            "archive": source_archive,
+        },
+        "replacement": {
+            "dataset_id": target_id,
+            "sha256": target_file["sha256"],
+            "package_bytes": target_file["bytes"],
+            "table_count": census[target_id]["table_count"],
+            "row_count_total": census[target_id]["row_count_total"],
+            "preview": target_preview_state["summary"],
+            "identity": target_identity,
+            "canonical_state_digest": target_digest,
+            "archive": target_archive,
+        },
+        "initial_repository": initial_repository,
+        "compose_image_ids": images,
         "step_metrics": runner.metrics,
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "conclusion": "PASS",
@@ -1852,6 +2954,8 @@ def _save_compose_logs_before_teardown(env: dict[str, str], *, tier: str) -> Pat
 def run_journey(
     *,
     tier_filter: str | None = None,
+    scope: str = "full",
+    cross_project: bool = False,
     from_step: str | None = None,
     keep_stack: bool = False,
     requested_project_name: str | None = None,
@@ -1874,17 +2978,29 @@ def run_journey(
         raise JourneyFailure("--from-step requires --project-name")
     if requested_project_name is not None and not keep_stack:
         raise JourneyFailure("--project-name is only used with --keep-stack")
+    if scope not in {"full", "t4-identity", "t4-v1-submit"}:
+        raise JourneyFailure("requested real-data scope is unknown")
+    if scope == "t4-identity" and (tier_filter != "t4" or cross_project):
+        raise JourneyFailure("--scope t4-identity requires --tier t4")
+    if scope == "t4-v1-submit" and (tier_filter != "t4" or cross_project or from_step is not None):
+        raise JourneyFailure("--scope t4-v1-submit requires a fresh t4 journey")
+    if cross_project and (tier_filter is not None or keep_stack or from_step is not None):
+        raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
     if requested_project_name is None:
         project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     else:
         project_name = requested_project_name
     _validate_project_name(project_name)
 
-    selected_tiers = [
-        (key.split("-")[1], pair)
-        for key, pair in EXPECTED_PAIRINGS.items()
-        if tier_filter is None or key.split("-")[1] == tier_filter
-    ]
+    selected_tiers = (
+        [("t1", EXPECTED_PAIRINGS["rd-t1-a"])]
+        if cross_project
+        else [
+            (key.split("-")[1], pair)
+            for key, pair in EXPECTED_PAIRINGS.items()
+            if tier_filter is None or key.split("-")[1] == tier_filter
+        ]
+    )
     if not selected_tiers:
         raise JourneyFailure("requested real-data tier is unknown")
 
@@ -1921,12 +3037,16 @@ def run_journey(
                 os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = "1"
 
             for tier, (v1_id, v2_id) in selected_tiers:
-                offline_composite = _offline_composite_comparison(
-                    tier=tier,
-                    v1_id=v1_id,
-                    v2_id=v2_id,
-                    root=root,
-                    datasets=datasets,
+                offline_composite = (
+                    None
+                    if cross_project
+                    else _offline_composite_comparison(
+                        tier=tier,
+                        v1_id=v1_id,
+                        v2_id=v2_id,
+                        root=root,
+                        datasets=datasets,
+                    )
                 )
                 state_path = base / f"{tier}.state.json" if keep_stack else None
                 if state_path is not None:
@@ -1950,6 +3070,7 @@ def run_journey(
                     write_secrets=from_step is None,
                 )
                 acquire_compose_gate_lock()
+                stack_cleaned = False
                 try:
                     try:
                         stack_started = time.monotonic()
@@ -1970,25 +3091,50 @@ def run_journey(
                         else:
                             repository_id, initial_commit_id = _resume_stack(env, step_state)
                         stack_start_seconds[tier] = round(time.monotonic() - stack_started, 3)
-                        results.append(
-                            _run_tier(
-                                tier=tier,
-                                v1_id=v1_id,
-                                v2_id=v2_id,
-                                root=root,
-                                datasets=datasets,
-                                census=census,
-                                env=env,
-                                project_name=project_name,
-                                repository_id=repository_id,
-                                initial_commit_id=initial_commit_id,
-                                step_state=step_state,
-                                from_step=from_step,
-                                state_path=state_path,
-                                offline_composite=offline_composite,
-                            )
-                        )
-                    except BaseException:
+                        with WorkerHeartbeatMonitor(
+                            env=env,
+                            repository_id=repository_id,
+                            repository_url=_repository_service_url(env),
+                        ) as heartbeat_monitor:
+                            if cross_project:
+                                results.append(
+                                    _run_cross_project(
+                                        root=root,
+                                        datasets=datasets,
+                                        census=census,
+                                        env=env,
+                                        project_name=project_name,
+                                        repository_id=repository_id,
+                                        initial_commit_id=initial_commit_id,
+                                        heartbeat_monitor=heartbeat_monitor,
+                                    )
+                                )
+                            else:
+                                if offline_composite is None:
+                                    raise JourneyFailure(
+                                        "same-tier composite comparison was not prepared"
+                                    )
+                                results.append(
+                                    _run_tier(
+                                        tier=tier,
+                                        v1_id=v1_id,
+                                        v2_id=v2_id,
+                                        root=root,
+                                        datasets=datasets,
+                                        census=census,
+                                        env=env,
+                                        project_name=project_name,
+                                        repository_id=repository_id,
+                                        initial_commit_id=initial_commit_id,
+                                        step_state=step_state,
+                                        from_step=from_step,
+                                        state_path=state_path,
+                                        offline_composite=offline_composite,
+                                        heartbeat_monitor=heartbeat_monitor,
+                                        scope=scope,
+                                    )
+                                )
+                    except BaseException as error:
                         try:
                             _save_compose_logs_before_teardown(env, tier=tier)
                         except BaseException as log_error:
@@ -1997,12 +3143,16 @@ def run_journey(
                                 "compose_logs_save_failed",
                                 diagnostic=type(log_error).__name__,
                             )
+                        if isinstance(error, WorkerStalledFailure):
+                            cleanup_compose_project_artifacts(env)
+                            stack_cleaned = True
                         raise
                 finally:
-                    if keep_stack:
-                        release_compose_gate_lock()
-                    else:
-                        cleanup_compose_project_artifacts(env)
+                    if not stack_cleaned:
+                        if keep_stack:
+                            release_compose_gate_lock()
+                        else:
+                            cleanup_compose_project_artifacts(env)
     finally:
         if original_prebuilt is None:
             os.environ.pop("GATEWAY_COMPOSE_GATE_PREBUILT", None)
@@ -2050,6 +3200,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="check package hashes and the G8a census without starting containers",
     )
     parser.add_argument("--tier", choices=("t1", "t2", "t3", "t4"))
+    parser.add_argument(
+        "--scope",
+        choices=("full", "t4-identity", "t4-v1-submit"),
+        default="full",
+    )
+    parser.add_argument(
+        "--cross-project",
+        action="store_true",
+        help="run the S4 t1 v1 to t2 v1 identity replacement journey",
+    )
     parser.add_argument("--from-step", choices=JOURNEY_STEP_IDS)
     parser.add_argument("--keep-stack", action="store_true")
     parser.add_argument("--project-name")
@@ -2058,6 +3218,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.validate_inputs and any(
             (
                 arguments.tier is not None,
+                arguments.scope != "full",
+                arguments.cross_project,
                 arguments.from_step is not None,
                 arguments.keep_stack,
                 arguments.project_name is not None,
@@ -2069,12 +3231,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             if arguments.validate_inputs
             else run_journey(
                 tier_filter=arguments.tier,
+                scope=arguments.scope,
+                cross_project=arguments.cross_project,
                 from_step=arguments.from_step,
                 keep_stack=arguments.keep_stack,
                 requested_project_name=arguments.project_name,
             )
         )
         print(json.dumps(result, sort_keys=True))
+    except WorkerStalledFailure as exc:
+        print(
+            json.dumps(
+                {
+                    "conclusion": "FAILED",
+                    "reason": "worker_stalled",
+                    "stage": exc.stage,
+                    "operation_id": exc.operation_id,
+                    "diagnostics": str(exc.diagnostics) if exc.diagnostics is not None else None,
+                    "diagnostic_error": exc.diagnostic_error,
+                },
+                sort_keys=True,
+            )
+        )
+        return 1
     except JourneyFailure as exc:
         print(json.dumps({"conclusion": "FAILED", "reason": str(exc)}))
         return 1

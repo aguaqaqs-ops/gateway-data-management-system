@@ -34,7 +34,9 @@ from tests.support.upload_http_packages import (
     KEYLESS_FALLBACK_BASE_ROWS,
     KEYLESS_FALLBACK_TABLE,
     keyless_fallback_upload_files,
+    upload_files,
 )
+from tests.support.source_package_fixtures import pack_tar_gz
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
@@ -164,6 +166,33 @@ def _candidate_for_submission(candidates_body: dict[str, Any], submission_id: st
     raise AssertionError(f"candidate not found for submission {submission_id}")
 
 
+def _project_identity_upload_files(
+    expected_version: int,
+    *,
+    initial_project: str,
+    modified_project: str,
+) -> dict[str, tuple[str, bytes, str]]:
+    def package(project_id: str) -> bytes:
+        sql = (
+            "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value VARCHAR(32));\n"
+            "INSERT INTO t VALUES (1, 'value');\n"
+            "CREATE TABLE version_manager (project_id VARCHAR(16) NOT NULL PRIMARY KEY, "
+            "build VARCHAR(16), no INT);\n"
+            f"INSERT INTO version_manager VALUES ('{project_id}', 'v1', 1);\n"
+            f"CREATE TABLE {KEYLESS_FALLBACK_TABLE} (value VARCHAR(64));\n"
+            f"INSERT INTO {KEYLESS_FALLBACK_TABLE} VALUES "
+            + ", ".join(f"('{row}')" for row in KEYLESS_FALLBACK_BASE_ROWS)
+            + ";\n"
+        )
+        return pack_tar_gz({"sql/dbcfg.sql": sql.encode("utf-8")})
+
+    return upload_files(
+        expected_version=expected_version,
+        initial_bytes=package(initial_project),
+        modified_bytes=package(modified_project),
+    )
+
+
 def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
     tmp_path: Path,
 ) -> None:
@@ -179,8 +208,27 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             initial_commit_id=initial_commit_id,
             journey_key_prefix="compose-a",
             token=SESSION_TOKEN,
-            upload_files_factory=lambda version: keyless_fallback_upload_files(version),
+            identity_confirmation_reason="reviewed the incoming dataset replacement",
+            upload_files_factory=lambda version: _project_identity_upload_files(
+                version,
+                initial_project="project-a",
+                modified_project="project-b",
+            ),
         )
+        replacement_pairs = cast(list[dict[str, Any]], journey_a["identity_pairs"])
+        replacement_pair = next(
+            pair for pair in replacement_pairs if pair["pair_id"] == "initial_to_modified"
+        )
+        assert replacement_pair["status"] == "DIFFERENT_PROJECT"
+        assert replacement_pair["mode"] == "DATASET_REPLACEMENT"
+        assert len(journey_a["identity_confirmations"]) == 1
+        replacement_confirmation = journey_a["identity_confirmations"][0]
+        assert replacement_confirmation["action"] == "ACCEPT_DATASET_REPLACEMENT"
+        assert (
+            replacement_confirmation["assessment_set_digest"]
+            == journey_a["identity_assessment_set_digest"]
+        )
+        assert replacement_confirmation["reason"] == "reviewed the incoming dataset replacement"
         with httpx.Client(
             base_url=BACKEND_URL,
             headers=_auth_headers(token=ARCHIVER_TOKEN),
@@ -198,6 +246,16 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             initial_commit_id=initial_commit_id,
             journey_key_prefix="compose-b",
             token=ACTOR2_TOKEN,
+        )
+        assert any(
+            pair["status"] == "UNVERIFIABLE" for pair in journey_b["identity_pairs"]
+        )
+        assert len(journey_b["identity_confirmations"]) == 1
+        unverifiable_confirmation = journey_b["identity_confirmations"][0]
+        assert unverifiable_confirmation["action"] == "ACCEPT_UNVERIFIABLE_DETAILED_RESULT"
+        assert (
+            unverifiable_confirmation["assessment_set_digest"]
+            == journey_b["identity_assessment_set_digest"]
         )
         with httpx.Client(
             base_url=BACKEND_URL,
@@ -237,10 +295,16 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             assert preview.status_code == 200, preview.text
             preview_body = cast(dict[str, Any], preview.json())
             assert preview_body["can_start"] is False
-            assert len(preview_body["anomalies"]) == 1
-            anomaly = preview_body["anomalies"][0]
+            assert len(preview_body["anomalies"]) == 2
+            anomaly_by_kind = {
+                item["subject_kind"]: item for item in preview_body["anomalies"]
+            }
+            anomaly = anomaly_by_kind["APPROVED_SIBLING_EXCLUDED"]
+            identity_anomaly = anomaly_by_kind["PROJECT_IDENTITY_EXCEPTION"]
             assert anomaly["issue_code"] == "APPROVED_SIBLING_EXCLUDED"
-            assert anomaly["sibling_submission_id"] == journey_b["submission_id"]
+            assert anomaly["target_submission_id"] == journey_b["submission_id"]
+            assert identity_anomaly["issue_code"] == "PROJECT_IDENTITY_EXCEPTION"
+            assert identity_anomaly["target_submission_id"] == journey_a["submission_id"]
             assert len(preview_body["workspace_releases"]) == 2
 
             confirm = archiver.post(
@@ -269,13 +333,33 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                     "subject_digest": anomaly["subject_digest"],
                     "expected_sequence": 0,
                     "action": "ACKNOWLEDGE_EXCLUSION",
+                    "subject_kind": "APPROVED_SIBLING_EXCLUDED",
                     "reason": "acknowledge sibling exclusion",
                     "issue_code": "APPROVED_SIBLING_EXCLUDED",
-                    "sibling_submission_id": sibling["submission_id"],
-                    "sibling_candidate_digest": sibling["expected_candidate_digest"],
+                    "target_submission_id": sibling["submission_id"],
+                    "target_candidate_digest": sibling["expected_candidate_digest"],
                 },
             )
             assert resolve.status_code == 201, resolve.text
+            identity_resolve = archiver.post(
+                "/v1/archive-anomaly-resolutions",
+                headers=_auth_headers(idempotency_key="compose-identity-resolve"),
+                json={
+                    "expected_baseline_node_id": preview_body["head"]["business_baseline_node_id"],
+                    "expected_baseline_head_version": preview_body["head"]["baseline_head_version"],
+                    "selected": selected,
+                    "candidate_set_digest": preview_body["candidate_set_digest"],
+                    "subject_digest": identity_anomaly["subject_digest"],
+                    "expected_sequence": 0,
+                    "action": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+                    "subject_kind": "PROJECT_IDENTITY_EXCEPTION",
+                    "reason": "reviewed identity exception before archive",
+                    "issue_code": "PROJECT_IDENTITY_EXCEPTION",
+                    "target_submission_id": journey_a["submission_id"],
+                    "target_candidate_digest": selected["expected_candidate_digest"],
+                },
+            )
+            assert identity_resolve.status_code == 201, identity_resolve.text
 
             ready_preview = archiver.post(
                 "/v1/archive-plan-preview",
@@ -315,7 +399,11 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                         {
                             "subject_digest": anomaly["subject_digest"],
                             "sequence": resolve.json()["sequence"],
-                        }
+                        },
+                        {
+                            "subject_digest": identity_anomaly["subject_digest"],
+                            "sequence": identity_resolve.json()["sequence"],
+                        },
                     ],
                 },
             )
@@ -373,6 +461,21 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
                 },
             )
             assert audit.status_code == 200, audit.text
+            identity_audit = archiver.get(
+                "/v1/archive-audit-events",
+                params={
+                    "subject_kind": "PROJECT_IDENTITY_EXCEPTION",
+                    "subject_digest": identity_anomaly["subject_digest"],
+                    "after_sequence": 0,
+                    "limit": 100,
+                },
+            )
+            assert identity_audit.status_code == 200, identity_audit.text
+            identity_events = identity_audit.json()["events"]
+            assert len(identity_events) == 1
+            assert identity_events[0]["action"] == "ACKNOWLEDGE_IDENTITY_EXCEPTION"
+            assert identity_events[0]["reason"] == "reviewed identity exception before archive"
+            assert identity_events[0]["target_submission_id"] == journey_a["submission_id"]
 
             restart = run_compose(env, "restart", "backend", "worker")
             if restart.returncode != 0:
@@ -396,6 +499,30 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             )
             assert restarted_audit.status_code == 200, restarted_audit.text
 
+        mixed_preview = run_accept_to_submission_read_journey(
+            env,
+            initial_commit_id=str(started["baseline_commit_id"]),
+            journey_key_prefix="compose-full-mixed-identity",
+            token=SESSION_TOKEN,
+            expected_baseline_node_id=str(started["baseline_node_id"]),
+            expected_baseline_head_version=int(started["baseline_head_version"]),
+            preview_only=True,
+            upload_files_factory=lambda version: _project_identity_upload_files(
+                version,
+                initial_project="project-a",
+                modified_project="project-a",
+            ),
+        )
+        mixed_pairs = cast(list[dict[str, Any]], mixed_preview["identity_pairs"])
+        assert [pair["pair_id"] for pair in mixed_pairs] == [
+            "baseline_to_initial",
+            "initial_to_modified",
+        ]
+        assert mixed_pairs[0]["status"] == "DIFFERENT_PROJECT"
+        assert mixed_pairs[0]["mode"] == "DATASET_REPLACEMENT"
+        assert mixed_pairs[1]["status"] == "SAME_PROJECT"
+        assert mixed_pairs[1]["mode"] == "DETAILED"
+
         repeated = run_accept_to_submission_read_journey(
             env,
             initial_commit_id=main_after_a,
@@ -404,7 +531,11 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             expected_baseline_node_id=str(started["baseline_node_id"]),
             expected_baseline_head_version=int(started["baseline_head_version"]),
             expected_submit_code="NO_CANONICAL_CHANGE",
-            upload_files_factory=lambda version: keyless_fallback_upload_files(version),
+            upload_files_factory=lambda version: _project_identity_upload_files(
+                version,
+                initial_project="project-b",
+                modified_project="project-b",
+            ),
         )
         assert repeated["submit_error_code"] == "NO_CANONICAL_CHANGE"
         summaries = cast(list[dict[str, Any]], repeated["preview_summaries"])

@@ -36,7 +36,7 @@ FAKE_DOCKER_BUILD_INPUTS = json.dumps(
         "effective_selections": {
             "repository_service_image": "gateway-repository-service:local"
         },
-        "image_ids": {"gateway-repository-service:local": "sha256:fixture"},
+        "image_ids": {"python:3.14.6-slim-bookworm": "sha256:fixture"},
         "prebuilt_local_image_inventory": None,
     },
     sort_keys=True,
@@ -387,6 +387,7 @@ def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_finge
     assert image_ids["fixture/python:custom"].startswith("sha256:")
     assert image_ids["fixture/repository-deps:custom"].startswith("sha256:")
     assert image_ids["fixture/p2r1:custom"].startswith("sha256:")
+    assert "fixture/service:custom" in inspected
     assert "fixture/p2r1:custom" in inspected
     assert inputs["setting_fingerprints"]["COMPOSE_FILE"] == {
         "set": True,
@@ -394,6 +395,8 @@ def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_finge
     }
     if package == "repository_service":
         assert "fixture/client-deps:custom" in inspected
+        assert "gateway-repository-client-e2e:local" not in image_ids
+        assert "gateway-repository-client-e2e:local" not in inspected
     if package == "backend":
         assert "rust:1.97.0-bookworm" in inspected
     proxy_fingerprint = inputs["setting_fingerprints"]["HTTP_PROXY"]
@@ -416,6 +419,128 @@ def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_finge
         assert inputs["prebuilt_local_image_inventory"] is None
 
 
+DOCKER_IMAGE_ID_MANIFEST_CASES = (
+    pytest.param(
+        "backend",
+        "gateway-repository-service:local",
+        {},
+        False,
+        id="backend-rebuilt-repository-service",
+    ),
+    pytest.param(
+        "repository_service",
+        "gateway-repository-service:local",
+        {},
+        False,
+        id="repository-service-rebuilt-repository-service",
+    ),
+    pytest.param(
+        "repository_service",
+        "gateway-repository-client-e2e:local",
+        {},
+        False,
+        id="repository-service-rebuilt-client-e2e",
+    ),
+    pytest.param(
+        "backend",
+        "python:3.14.6-slim-bookworm",
+        {},
+        True,
+        id="backend-python-base",
+    ),
+    pytest.param(
+        "repository_service",
+        "python:3.14.6-slim-bookworm",
+        {},
+        True,
+        id="repository-service-python-base",
+    ),
+    pytest.param(
+        "backend",
+        "fixture/repository-deps:custom",
+        {"GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE": "fixture/repository-deps:custom"},
+        True,
+        id="backend-repository-dependency-base",
+    ),
+    pytest.param(
+        "repository_service",
+        "fixture/repository-deps:custom",
+        {"GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE": "fixture/repository-deps:custom"},
+        True,
+        id="repository-service-dependency-base",
+    ),
+    pytest.param(
+        "repository_service",
+        "gateway-repository-client-e2e-base:local",
+        {},
+        True,
+        id="repository-client-dependency-base",
+    ),
+    pytest.param(
+        "backend",
+        "rust:1.97.0-bookworm",
+        {},
+        True,
+        id="rust-base",
+    ),
+)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("package", "image_reference", "environment_overrides", "identity_affects_manifest"),
+    DOCKER_IMAGE_ID_MANIFEST_CASES,
+)
+def test_rebuilt_image_ids_are_excluded_and_build_input_ids_change_the_manifest(
+    package: str,
+    image_reference: str,
+    environment_overrides: dict[str, str],
+    identity_affects_manifest: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    current_image_id = "sha256:first"
+    inspected: list[str] = []
+
+    def image_id(_repo_root: Path, reference: str) -> str:
+        inspected.append(reference)
+        return current_image_id if reference == image_reference else f"sha256:{reference}"
+
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_id", image_id)
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_inventory", lambda _root: [])
+
+    def manifest() -> dict[str, Any]:
+        inputs = CLOSURE["_docker_build_inputs"](
+            repo_root,
+            package,
+            environ=environment_overrides,
+        )
+        environment = dict(FAKE_ENVIRONMENT)
+        environment["docker_build_inputs"] = json.dumps(
+            inputs,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return cast(
+            dict[str, Any],
+            CLOSURE["build_manifest"](
+                repo_root,
+                package,
+                environment=environment,
+            ),
+        )
+
+    first = manifest()
+    first_inspected = list(inspected)
+    current_image_id = "sha256:second"
+    second = manifest()
+    comparison = CLOSURE["compare_manifests"](first, second)
+
+    assert (image_reference in first_inspected) is identity_affects_manifest
+    assert comparison["status"] == ("运行" if identity_affects_manifest else "可沿用")
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize("package", ["backend", "repository_service"])
 def test_changed_docker_build_inputs_require_package_rerun(
@@ -426,7 +551,7 @@ def test_changed_docker_build_inputs_require_package_rerun(
     source = _manifest(repo_root, package)
     environment = dict(FAKE_ENVIRONMENT)
     changed_docker_inputs = json.loads(FAKE_DOCKER_BUILD_INPUTS)
-    changed_docker_inputs["image_ids"]["gateway-repository-service:local"] = "sha256:changed"
+    changed_docker_inputs["image_ids"]["python:3.14.6-slim-bookworm"] = "sha256:changed"
     environment["docker_build_inputs"] = json.dumps(
         changed_docker_inputs,
         sort_keys=True,

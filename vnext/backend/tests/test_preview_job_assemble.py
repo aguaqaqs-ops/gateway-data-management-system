@@ -34,6 +34,7 @@ from gateway_backend.application.preview_jobs import (
     PREVIEW_PUBLISH_HANDLER,
     PREVIEW_STEP_PUBLISH,
 )
+from gateway_backend.application.workspace.preview import build_preview_job_payload
 from gateway_backend.application.submission.accept_transaction import (
     accept_submit_transaction,
 )
@@ -52,12 +53,17 @@ from gateway_backend.operations.worker import ExecutorAcknowledgment
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.preview_job_harness import (
     BASELINE_HEAD,
+    IDEMPOTENCY_KEY,
+    INITIAL_SQL,
+    MODIFIED_SQL,
     REPOSITORY_ID,
     PreviewJobHarness,
+    build_upload_revision,
     build_preview_harness,
     claim_next_step,
     insert_preview_operation,
     run_claimed_handler,
+    store_source_package,
     step_id_for,
 )
 from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
@@ -129,6 +135,7 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
         "baseline_canonical_state_digest",
         "modified_canonical_state_digest",
         "storage_projection_ruleset_digest",
+        "baseline_is_initial",
     }
     for key in (
         "canonicalization_manifest_digest",
@@ -143,6 +150,7 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
     assert isinstance(canonical["canonicalization_manifest_ref"], dict)
     assert (canonical["initial_canonicalization_manifest_ref"] is not None) is full
     assert (canonical["initial_canonicalization_manifest_digest"] is not None) is full
+    assert type(canonical["baseline_is_initial"]) is bool
 
 
 def test_full_assemble_checkpoint_contains_dual_pair_closure(tmp_path: Path) -> None:
@@ -492,10 +500,21 @@ def test_empty_baseline_assemble_produces_ready_closure_and_canonical_bindings(
     envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
     assemble_state = _preview_assemble_state(harness, envelope.job_state)
     assert assemble_state["required_refs"]
+    identity_pairs = assemble_state["identity_pairs"]
+    assert isinstance(identity_pairs, list)
     if input_completeness is InputCompleteness.FULL:
         assert assemble_state["pair_ids"] == ["baseline_to_initial", "initial_to_modified"]
+        assert isinstance(identity_pairs[0], dict)
+        assert identity_pairs[0]["applicability"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["status"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["assessment_ref"] is None
     else:
         assert assemble_state["pair_ids"] == ["initial_to_modified"]
+        assert isinstance(identity_pairs[0], dict)
+        assert identity_pairs[0]["applicability"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["status"] == "NOT_APPLICABLE"
+        assert identity_pairs[0]["assessment_ref"] is None
+    assert isinstance(assemble_state["identity_assessment_set_digest"], str)
     digests = assemble_state["digests"]
     assert isinstance(digests, dict)
     preview_bundle_digest = digests["bundle_digest"]
@@ -560,6 +579,37 @@ def test_empty_baseline_submit_accepts_table_addition(
         input_completeness=input_completeness,
         empty_baseline=True,
     )
+    if input_completeness is InputCompleteness.FULL:
+        identity_metadata = (
+            "CREATE TABLE version_manager (`project_id` VARCHAR(32));\n"
+            "INSERT INTO version_manager VALUES ('project-a');\n"
+        )
+        initial_binding = store_source_package(
+            harness.artifact_store,
+            (INITIAL_SQL + identity_metadata).encode("utf-8"),
+            artifact_id="empty-baseline-initial-same-project",
+        )
+        modified_binding = store_source_package(
+            harness.artifact_store,
+            (MODIFIED_SQL + identity_metadata).encode("utf-8"),
+            artifact_id="empty-baseline-modified-same-project",
+        )
+        harness.upload_revision = build_upload_revision(
+            input_completeness=input_completeness,
+            initial_binding=initial_binding,
+            modified_binding=modified_binding,
+            generation=harness.upload_revision.generation,
+        )
+        harness.job_payload = build_preview_job_payload(
+            workspace_id=harness.upload_revision.workspace_id,
+            upload_revision=harness.upload_revision,
+            repository_id=REPOSITORY_ID,
+            business_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+            business_baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
+            baseline_head_version=BASELINE_HEAD.baseline_head_version,
+            idempotency_key=IDEMPOTENCY_KEY,
+            comparison_ruleset_digest=_runtime_comparison_ruleset_digest(),
+        )
     seed_provisioned_mapping_with_head(
         harness.db_path,
         repository_id=REPOSITORY_ID,
@@ -574,6 +624,16 @@ def test_empty_baseline_submit_accepts_table_addition(
         assert workspace.current_preview_result_id is not None
         preview_result = unit_of_work.workspace.get_preview_result(workspace.current_preview_result_id)
     assert preview_result is not None
+    if input_completeness is InputCompleteness.FULL:
+        assert [
+            (pair.applicability.value, pair.status.value)
+            for pair in preview_result.identity_pairs
+        ] == [("NOT_APPLICABLE", "NOT_APPLICABLE"), ("APPLICABLE", "SAME_PROJECT")]
+    else:
+        assert [
+            (pair.applicability.value, pair.status.value)
+            for pair in preview_result.identity_pairs
+        ] == [("NOT_APPLICABLE", "NOT_APPLICABLE")]
     command = AcceptSubmitCommand(
         context=make_identity(
             actor_id=workspace.owner_actor_id,

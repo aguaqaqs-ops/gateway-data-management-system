@@ -24,7 +24,7 @@ from gateway_backend.capabilities.comparison.contracts import (
 
 RISK_CONTRACT_VERSION = "backend-vnext/risk/v1"
 RISK_RULESET_CONTRACT_VERSION = "backend-vnext/risk-ruleset/v1"
-RISK_MODEL_VERSION = "backend-vnext/risk-model/v1"
+RISK_MODEL_VERSION = "backend-vnext/risk-model/v2"
 RISK_ANNOTATION_CONTRACT_VERSION = "backend-vnext/risk-annotations/v1"
 RISK_ANNOTATION_MEDIA_TYPE = "application/vnd.gateway.risk-annotations+json"
 RISK_ANNOTATION_MANIFEST_MEDIA_TYPE = (
@@ -36,8 +36,8 @@ RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
-RISK_RULESET_VERSION = "v1"
-RISK_RULE_VERSION = "v1"
+RISK_RULESET_VERSION = "v2"
+RISK_RULE_VERSION = "v2"
 
 
 RiskOptionValue: TypeAlias = str | int | bool | None
@@ -99,6 +99,7 @@ class RiskTargetType(StrEnum):
 
 
 class RiskScope(StrEnum):
+    PAIR = "PAIR"
     TABLE = "TABLE"
     STANDARD_ROWS = "STANDARD_ROWS"
     ORDERED_TABLE = "ORDERED_TABLE"
@@ -119,6 +120,7 @@ class RiskEvaluationStatus(StrEnum):
 
 
 class RiskRuleId(StrEnum):
+    PROJECT_IDENTITY_MISMATCH = "PROJECT_IDENTITY_MISMATCH"
     TABLE_ADDED = "TABLE_ADDED"
     TABLE_DELETED = "TABLE_DELETED"
     SCHEMA_CHANGED = "SCHEMA_CHANGED"
@@ -133,6 +135,7 @@ class RiskRuleId(StrEnum):
 
 
 class RiskReasonCode(StrEnum):
+    PROJECT_IDENTITY_MISMATCH = "PROJECT_IDENTITY_MISMATCH"
     TABLE_ADDED = "TABLE_ADDED"
     TABLE_DELETED = "TABLE_DELETED"
     SCHEMA_CHANGED = "SCHEMA_CHANGED"
@@ -1383,6 +1386,12 @@ def _default_rule(
 V1_RISK_RULE_SPECS: tuple[RiskRuleSpec, ...] = tuple(
     sorted(
         (
+            _default_rule(
+                RiskRuleId.PROJECT_IDENTITY_MISMATCH,
+                RiskScope.PAIR,
+                RiskReasonCode.PROJECT_IDENTITY_MISMATCH,
+                RiskLevel.HIGH,
+            ),
             _default_rule(RiskRuleId.TABLE_ADDED, RiskScope.TABLE, RiskReasonCode.TABLE_ADDED, RiskLevel.MEDIUM_LOW),
             _default_rule(RiskRuleId.TABLE_DELETED, RiskScope.TABLE, RiskReasonCode.TABLE_DELETED, RiskLevel.MEDIUM_HIGH),
             _default_rule(RiskRuleId.SCHEMA_CHANGED, RiskScope.TABLE, RiskReasonCode.SCHEMA_CHANGED, RiskLevel.MEDIUM_HIGH),

@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from gateway_backend.application.submission.review_contracts import ApplyReviewResult, ReviewFacts
+from gateway_backend.domain.submission.models import SubmitIdentityConfirmation
 from gateway_backend.domain.submission.review import ReviewEvent, ReviewProjection
 from gateway_backend.http.schemas.constraints import BoundedDiagnosticReason, NonNegativeIJsonInt
 
@@ -66,6 +67,18 @@ class ReviewFactsResponse(BaseModel):
     updated_by: str
     updated_at: datetime
     events: list[ReviewEventResponse] = Field(default_factory=list)
+    identity_exception: bool
+    identity_confirmations: list[ReviewIdentityConfirmationResponse] = Field(default_factory=list)
+
+
+class ReviewIdentityConfirmationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["ACCEPT_DATASET_REPLACEMENT", "ACCEPT_UNVERIFIABLE_DETAILED_RESULT"]
+    assessment_set_digest: str
+    reason: str
+    actor_id: str
+    confirmed_at: datetime
 
 
 def review_event_to_response(event: ReviewEvent) -> ReviewEventResponse:
@@ -102,4 +115,20 @@ def review_facts_to_response(facts: ReviewFacts) -> ReviewFactsResponse:
         updated_by=projection.updated_by,
         updated_at=projection.updated_at,
         events=[review_event_to_response(event) for event in facts.events],
+        identity_exception=bool(facts.identity_confirmations),
+        identity_confirmations=[
+            _identity_confirmation_to_response(item) for item in facts.identity_confirmations
+        ],
+    )
+
+
+def _identity_confirmation_to_response(
+    confirmation: SubmitIdentityConfirmation,
+) -> ReviewIdentityConfirmationResponse:
+    return ReviewIdentityConfirmationResponse(
+        action=confirmation.action.value,
+        assessment_set_digest=confirmation.assessment_set_digest,
+        reason=confirmation.reason,
+        actor_id=confirmation.actor_id,
+        confirmed_at=confirmation.confirmed_at,
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from gateway_backend.application.history.contracts import (
     HistoryNode,
     HistoryNodeKind,
     HistoryNodeRefKind,
+    HistoryPageEntry,
+    HistoryPageSnapshot,
     HistorySubmissionFact,
     HistoryTreeProjection,
 )
@@ -21,13 +24,21 @@ from gateway_backend.application.history.errors import HistoryRequestValidation
 from gateway_backend.application.history.errors import HistoryIntegrityFailure
 from gateway_backend.application.history.projection import (
     _order_key_from_node,
+    project_history_page,
     project_history_tree,
 )
 from gateway_backend.application.history.queries import get_project_history
 from gateway_backend.application.history.ports import HistoryControlUnitOfWorkFactory
 from gateway_backend.domain.archive.models import ArchiveDispositionKind
 from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
-from gateway_backend.domain.submission.models import Submission, SubmitTargetRef, SubmitUnknownTypePolicy, SubmitVerificationPolicy
+from gateway_backend.domain.submission.models import (
+    IdentityConfirmationAction,
+    Submission,
+    SubmitIdentityConfirmation,
+    SubmitTargetRef,
+    SubmitUnknownTypePolicy,
+    SubmitVerificationPolicy,
+)
 from gateway_backend.domain.submission.review import ReviewAction, ReviewStatus
 from gateway_backend.domain.workspace.errors import PermissionDenied
 from gateway_backend.domain.workspace.models import BaselineHead, IdentityContext
@@ -152,6 +163,7 @@ def _assert_history_nodes_equal(left: HistoryNode, right: HistoryNode) -> None:
     assert left.archive_disposition == right.archive_disposition
     assert left.promoted_baseline_node_id == right.promoted_baseline_node_id
     assert left.eligibility_note == right.eligibility_note
+    assert left.identity_exception == right.identity_exception
     if left.parent is None:
         assert right.parent is None
     else:
@@ -355,6 +367,65 @@ def test_projection_builds_baseline_and_submission_nodes_with_parent_edges() -> 
     assert submission_node.promoted_baseline_node_id == "node-2"
     assert archived_node.parent is not None
     assert archived_node.parent.ref_id == "node-1"
+
+
+def test_history_projects_identity_exception_from_submission_confirmations() -> None:
+    submission = replace(
+        _submission(
+            submission_id="sub-identity",
+            created_at=TS1,
+            repository_commit_id="commit-identity",
+        ),
+        identity_confirmations=(
+            SubmitIdentityConfirmation(
+                action=IdentityConfirmationAction.ACCEPT_DATASET_REPLACEMENT,
+                assessment_set_digest="sha256:" + "d" * 64,
+                reason="confirmed replacement",
+                actor_id="operator-1",
+                confirmed_at=TS1,
+            ),
+        ),
+    )
+    head = BaselineHead(
+        business_baseline_node_id="node-1",
+        business_baseline_commit_id="commit-base",
+        baseline_head_version=1,
+    )
+    tree = project_history_tree(
+        facts=_facts(
+            baseline_nodes=(),
+            submissions=(
+                HistorySubmissionFact(
+                    submission=submission,
+                    review_status=ReviewStatus.APPROVED,
+                    disposition=None,
+                ),
+            ),
+            head=head,
+        )
+    )
+    assert tree.nodes[0].identity_exception is True
+
+    page = project_history_page(
+        page=HistoryPageSnapshot(
+            head=head,
+            entries=(
+                HistoryPageEntry(
+                    ref_kind=HistoryNodeRefKind.SUBMISSION,
+                    ref_id="sub-identity",
+                    node_kind=HistoryNodeKind.SUBMISSION,
+                    commit_id="commit-identity",
+                    created_at=TS1,
+                    based_on_baseline_node_id="node-1",
+                    review_status=ReviewStatus.APPROVED,
+                    identity_exception=True,
+                ),
+            ),
+            promoted_by_submission={},
+            has_next_page=False,
+        )
+    )
+    assert page.nodes[0].identity_exception is True
 
 
 def test_projection_preserves_same_commit_dual_identity() -> None:

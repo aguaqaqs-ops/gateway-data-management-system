@@ -109,6 +109,85 @@ def test_accept_submit_replays_same_attempt(seeded_env: tuple[WorkspaceHttpTestE
     assert first.json()["submit_attempt_id"] == second.json()["submit_attempt_id"]
 
 
+IDENTITY_CONFIRMATION_HTTP_FAILURES = (
+    pytest.param(
+        [
+            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
+            {"action": "ACCEPT_UNVERIFIABLE_DETAILED_RESULT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
+            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
+        ],
+        id="more-than-two-confirmations",
+    ),
+    pytest.param(
+        [
+            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"},
+            {"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "b" * 64, "reason": "ok"},
+        ],
+        id="duplicate-action",
+    ),
+    pytest.param(
+        [{"action": "UNKNOWN", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "ok"}],
+        id="unknown-action",
+    ),
+    pytest.param(
+        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:not-a-digest", "reason": "ok"}],
+        id="malformed-digest",
+    ),
+    pytest.param(
+        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": ""}],
+        id="empty-reason",
+    ),
+    pytest.param(
+        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "x" * 4097}],
+        id="reason-over-byte-limit",
+    ),
+    pytest.param(
+        [{"action": "ACCEPT_DATASET_REPLACEMENT", "assessment_set_digest": "sha256:" + "a" * 64, "reason": "bad\x00reason"}],
+        id="forbidden-control-character",
+    ),
+)
+
+
+@pytest.mark.parametrize("identity_confirmations", IDENTITY_CONFIRMATION_HTTP_FAILURES)
+def test_accept_submit_rejects_invalid_identity_confirmation_input(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+    identity_confirmations: list[dict[str, str]],
+) -> None:
+    env, workspace = seeded_env
+    body = _submit_body(workspace)
+    body["identity_confirmations"] = identity_confirmations
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="submit-invalid-identity-confirmation"),
+        json=body,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "REQUEST_VALIDATION_FAILED"
+
+
+def test_accept_submit_identity_confirmation_reason_accepts_multiline_domain_text(
+    seeded_env: tuple[WorkspaceHttpTestEnvironment, dict[str, Any]],
+) -> None:
+    env, workspace = seeded_env
+    body = _submit_body(workspace)
+    body["identity_confirmations"] = [
+        {
+            "action": "ACCEPT_DATASET_REPLACEMENT",
+            "assessment_set_digest": "sha256:" + "a" * 64,
+            "reason": "first line\rsecond line\nthird\tline",
+        }
+    ]
+    response = env.client.post(
+        f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
+        headers=env.auth_headers(idempotency_key="submit-multiline-identity-reason"),
+        json=body,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "PROJECT_IDENTITY_CONFIRMATION_MISMATCH"
+
+
 def test_accept_submit_requires_submit_permission(tmp_path: Path) -> None:
     environment = create_workspace_http_environment(
         tmp_path,

@@ -1,7 +1,8 @@
 # P5 架构收口 S4 独立审核
 
-- 结论：**定向修订**
-- 日期：2026-10-21
+- 结论：**通过**（终审 2026-10-21）。初审结论为定向修订（S4-F1）；终审确认 S4-F1 并在 handoff 中关闭，另提出 S4-F2，owner 决议按方案一处理并转为 S5 携带项，见 §7。
+- 日期：初审 2026-10-21；终审 2026-10-21
+- 终审对象：`p5-s4` @ `130a91103e070031f923716ad1c90625543bc5d7`（H，V 未变）；tag `p5-s4-exit` 指向本报告的终审提交
 - 审核对象：`p5-s4` @ `d0b20ede10bdf26d36d68ed543b13084d50bd097`（门禁提交 V `ed70ca1be262653bb49267940e73e7edd09a2267`，实现 HEAD `ed70ca1be262653bb49267940e73e7edd09a2267`），区间 `13d97dc2db5cef4bd82583ab7ac339ed09b5aec3..d0b20ede10bdf26d36d68ed543b13084d50bd097`
 - 依据：执行计划 §2/§3 S4、§8；设计 §7.1–§7.7/§12/§14；ADR 0020；Business Lifecycle 3.1.0 身份条款；[S4 handoff](p5-arch-closure-s4-handoff.md)
 
@@ -64,4 +65,27 @@
 
 ## 6. 复审记录
 
-非复审，本节留空。
+S4-F1 的修订由审核方按 owner 授权直接完成（`130a91103e`，只改 handoff §3），复审并入 §7 终审，不另行复审。
+
+## 7. 终审（2026-10-21）
+
+### 7.1 核查
+
+- **路径预算（S4-F1）。** 用执行计划 §3 S4 的清单逐项对照 `p5-g12-exit..d0b20ede10` 的实际文件。除 handoff 已说明的四组路径和 RS 测试外，另有 8 个生产文件、17 个测试或测试支持文件没有说明。逐个阅读改动后确认：它们是设计 §7 验收在清单路径之外的接线（finalize 冻结身份确认、`standard.py` 接入替换比较、History 只读展示身份异常、Preview DTO mapper）、DC28 共享理由抽取的落点（新增 `domain/submission/reasons.py`），以及 DTO/字段目标形态带来的测试更新。`test_history_compose_e2e.py` 删除的内联处置代码改由共享 helper 逐项处置并断言 201，另加 anomaly 数断言，没有削弱。区间中的 AGENTS.md、testing-conventions 等文档改动来自截至 kickoff base 的 main 上 G12 收尾提交。S4-F1 成立，不涉及代码。
+- **R5 耗时预算（S4-F2，终审新提出）。** 在 `operations/recovery.py` 的 `transition_for_outcome()` 中，`RECONCILE_PENDING` 先检查会话数，再以 `reconcile_budget_exhausted(reconcile_elapsed_seconds)` 判定是否转人工恢复。修复处的会话刚好跑满 60 s，传入实际耗时会转人工恢复；传 `0.0` 等于跳过耗时检查。R5 设计 §6 规定对账预算用尽即转 `MANUAL_RECOVERY_REQUIRED`；Submit checkpoint 持久保存 `reconcile_started_at`，重试时保留不变，按设计预算应从对账开始累计计时。累计预算函数 `reconcile_session_budget_exhausted`、`parse_reconcile_started_at` 目前没有生产调用方。初审所述“0.0 表示下一会话尚未消耗耗时”与持久保存的起点不符。修复后的实际上限为 3 个 60 s 会话，行为合理且有上限；问题在于它以字面量隐性改变了 R5 的规则。
+- **余量。** 同意初审：t4 v1 Submit 的 RS import 79 s，使用 2/3 个会话，余 1 个；足以安排 S5 的完整 t4，但不是性能保证，S5 须实测。
+- **新 H 的 carried（DC34）。** 新 H `130a91103e` 只比 `d0b20ede10` 多 handoff 文档。经 bundle `s4-sync-final-review-130a91103e.bundle` 同步到 ct108，在运行 V runner 的同一 worktree `/home/dev/gdds-p5-s4` detached 检出，clean。五个包 compare 均为“可沿用”，总摘要与来源一致（前三包来源 `938d41d171`，backend/RS 来源 V）；`build_context_digest.py identity` 得到 `build_input_revision=ed70ca1be2…`、`source_tree_sha256=sha256:a3e56c4d…`，与本机 `gateway-repository-service:local` 的两个 label 相同。日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s4-final-review-carried-130a91103e.log`，脚本 `s4-final-review-carried.sh`，manifest 在 `s4-final-review-manifest-current/`。
+- **其余验收。** 抽查身份规则共用、受理顺序、Compose 旅程与真实数据日志，与初审一致；未另跑测试。
+
+### 7.2 Findings 处置
+
+| Finding | 处置 |
+| --- | --- |
+| S4-F1：handoff 未完整说明超出预算的路径 | 已关闭。审核方按 owner 授权在 handoff §3 补齐逐项映射（`130a91103e`）。 |
+| S4-F2：`reconcile_elapsed_seconds=0.0` 隐性改变 R5 耗时预算 | owner 决议（main `fd2282c1e0`，治理修订计划 §3 第 11、12 项）：Submit 的 `await_import_result` 以 R5 的 3 个 60 s 会话为上限，S4 不改代码；S5 携带项负责改为显式、有名字的 import 轮询预算，在 Contract 层面写明与 R5 的关系，清理无调用方的累计预算函数，并在完整 t4 中记录 RS import 用时与会话数。 |
+
+### 7.3 其他
+
+- 初审报告最初提交在 main（`9187b58139`），没有在阶段分支上。本报告的终审版本提交在 `p5-s4`，合入时以分支版本为准。
+- manifest 记录 HOME、LC_ALL、UV_CACHE_DIR 等环境变量的指纹。第一次核对沿用了 G12 脚本的环境（HOME=/home/dev、设置 UV_CACHE_DIR、不设 LC_ALL），backend/RS 判为“运行”，差异只在这些指纹；改用 V runner 的环境（HOME=/root、LC_ALL=C.UTF-8、不设 UV_CACHE_DIR）后五包均“可沿用”。该次尝试保留为 `s4-final-review-carried-130a91103e-env-mismatch.log`。handoff §10 只记录了 PATH 与 TMPDIR，S5 的 handoff 应记录 runner 与 carried 判定使用的完整环境。
+- 结论：S4 通过。`p5-s4-exit` 打在本报告的终审提交上，`--no-ff` 合入 main；S5 按治理修订计划 §3 第 12 项 kickoff。

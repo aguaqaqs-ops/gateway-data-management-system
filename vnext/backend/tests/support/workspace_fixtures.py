@@ -5,12 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
+from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.domain.workspace.errors import WorkspaceVersionConflict
 from gateway_backend.domain.workspace.models import (
     BaselineHead,
     IdentityContext,
     PreviewAcceptanceRecord,
+    PreviewIdentityPair,
     PreviewResult,
+    ProjectIdentityApplicability,
+    ProjectIdentityMode,
+    ProjectIdentityStatus,
     ResolvedScope,
     UploadRevision,
     Workspace,
@@ -19,6 +25,28 @@ from gateway_backend.domain.workspace.models import (
 )
 
 TS0 = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def make_not_applicable_preview_identity() -> tuple[DigestRef, tuple[PreviewIdentityPair, ...]]:
+    pairs = (
+        PreviewIdentityPair(
+            pair_id="initial_to_modified",
+            applicability=ProjectIdentityApplicability.NOT_APPLICABLE,
+            status=ProjectIdentityStatus.NOT_APPLICABLE,
+            mode=ProjectIdentityMode.DETAILED,
+            assessment_ref=None,
+            assessment_digest=None,
+        ),
+    )
+    digest = raw_blob_digest(
+        canonicalize_json_value(
+            {
+                "schema": "project-identity-assessment-set/v1",
+                "pairs": [["initial_to_modified", "NOT_APPLICABLE", "NOT_APPLICABLE", None]],
+            }
+        )
+    )
+    return digest, pairs
 
 
 @dataclass

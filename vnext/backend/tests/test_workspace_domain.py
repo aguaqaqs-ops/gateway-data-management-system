@@ -37,7 +37,12 @@ from gateway_backend.domain.workspace.policies import (
     scope_from_context,
     validate_upload_role_closure,
 )
-from tests.support.workspace_fixtures import make_baseline_head, make_identity, seed_open_workspace
+from tests.support.workspace_fixtures import (
+    make_baseline_head,
+    make_identity,
+    make_not_applicable_preview_identity,
+    seed_open_workspace,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -220,6 +225,7 @@ def test_derive_read_model_label_reflects_current_pointers() -> None:
 
 
 def _preview_result(*, head_version: int = 1, commit_id: str = "commit-1") -> PreviewResult:
+    identity_digest, identity_pairs = make_not_applicable_preview_identity()
     return PreviewResult(
         preview_result_id="pr-1",
         workspace_id="ws-1",
@@ -242,6 +248,8 @@ def _preview_result(*, head_version: int = 1, commit_id: str = "commit-1") -> Pr
             bundle_digest="d-bundle",
         ),
         canonical=make_preview_canonical_bindings(),
+        identity_assessment_set_digest=identity_digest,
+        identity_pairs=identity_pairs,
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-1",

@@ -41,8 +41,16 @@ from gateway_backend.http.schemas.constraints import (
 )
 
 ArchiveConfirmationActionLiteral = Literal["CONFIRM", "REVOKE"]
-ArchiveAnomalyResolutionActionLiteral = Literal["ACKNOWLEDGE_EXCLUSION", "REVOKE"]
-ArchiveSubjectKindLiteral = Literal["CONFIRM_SELECTION", "APPROVED_SIBLING_EXCLUDED"]
+ArchiveAnomalyResolutionActionLiteral = Literal[
+    "ACKNOWLEDGE_EXCLUSION",
+    "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+    "REVOKE",
+]
+ArchiveSubjectKindLiteral = Literal[
+    "CONFIRM_SELECTION",
+    "APPROVED_SIBLING_EXCLUDED",
+    "PROJECT_IDENTITY_EXCEPTION",
+]
 ArchiveDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
 
 
@@ -122,9 +130,10 @@ class AppendArchiveAnomalyResolutionRequest(BaseModel):
     expected_sequence: NonNegativeIJsonInt
     action: ArchiveAnomalyResolutionActionLiteral
     reason: BoundedDiagnosticReason
+    subject_kind: Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"]
     issue_code: BoundedOpaqueId
-    sibling_submission_id: BoundedOpaqueId
-    sibling_candidate_digest: ArchiveDigest
+    target_submission_id: BoundedOpaqueId
+    target_candidate_digest: ArchiveDigest
 
 
 class StartArchiveRequest(BaseModel):
@@ -172,9 +181,10 @@ class ArchiveCandidatesResponse(BaseModel):
 class ArchivePreviewAnomalyResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    subject_kind: Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"]
     issue_code: str
-    sibling_submission_id: str
-    sibling_candidate_digest: str
+    target_submission_id: str
+    target_candidate_digest: str
     subject_digest: str
 
 
@@ -220,8 +230,8 @@ class ArchiveAuditEventResponse(BaseModel):
     actor_id: str
     occurred_at: datetime
     issue_code: str | None = None
-    sibling_submission_id: str | None = None
-    sibling_candidate_digest: str | None = None
+    target_submission_id: str | None = None
+    target_candidate_digest: str | None = None
 
 
 class ArchiveAuditAppendResponse(BaseModel):
@@ -451,10 +461,18 @@ def validate_confirmation_reason_field(
 
 
 def _anomaly_to_response(anomaly: ArchivePreviewAnomaly) -> ArchivePreviewAnomalyResponse:
+    subject_kind: Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION"]
+    if anomaly.subject_kind is ArchiveSubjectKind.APPROVED_SIBLING_EXCLUDED:
+        subject_kind = "APPROVED_SIBLING_EXCLUDED"
+    elif anomaly.subject_kind is ArchiveSubjectKind.PROJECT_IDENTITY_EXCEPTION:
+        subject_kind = "PROJECT_IDENTITY_EXCEPTION"
+    else:
+        raise ValueError("selection confirmation cannot be represented as an archive anomaly")
     return ArchivePreviewAnomalyResponse(
+        subject_kind=subject_kind,
         issue_code=anomaly.issue_code,
-        sibling_submission_id=anomaly.sibling_submission_id,
-        sibling_candidate_digest=anomaly.sibling_candidate_digest,
+        target_submission_id=anomaly.target_submission_id,
+        target_candidate_digest=anomaly.target_candidate_digest,
         subject_digest=anomaly.subject_digest,
     )
 
@@ -499,8 +517,8 @@ def _audit_event_to_response(
         actor_id=event.actor_id,
         occurred_at=event.occurred_at,
         issue_code=event.issue_code,
-        sibling_submission_id=event.sibling_submission_id,
-        sibling_candidate_digest=event.sibling_candidate_digest,
+        target_submission_id=event.target_submission_id,
+        target_candidate_digest=event.target_candidate_digest,
     )
 
 

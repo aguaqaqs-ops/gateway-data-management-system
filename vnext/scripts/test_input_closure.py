@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
 PACKAGES = (
     "shared_kernel",
@@ -706,7 +706,7 @@ def _docker_build_inputs(
     *,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
-    """Capture Docker selectors, sensitive setting fingerprints, and reusable image IDs."""
+    """Capture Docker selectors, sensitive settings, and build-input image IDs."""
     if package not in PACKAGE_DOCKER_INPUTS:
         return {}
     environment = os.environ if environ is None else environ
@@ -778,6 +778,15 @@ def _docker_build_inputs(
     }
     selections["configured_image_references"] = dict(sorted(configured_image_references.items()))
     image_references.update(configured_image_references.values())
+
+    # These tags name outputs rebuilt by the Compose harness from the current
+    # source identity. Their selected names are inputs; their changing local
+    # image IDs are outputs and must not make a later manifest differ.
+    harness_rebuilt_images = {
+        DEFAULT_REPOSITORY_SERVICE_IMAGE,
+        DEFAULT_REPOSITORY_CLIENT_IMAGE,
+    }
+    image_references.difference_update(harness_rebuilt_images)
 
     image_ids = {
         reference: _docker_image_id(repo_root, reference)

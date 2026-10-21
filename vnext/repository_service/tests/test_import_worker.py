@@ -294,15 +294,16 @@ def test_dispatcher_does_not_double_claim_same_repository(
     peak = 0
     deadline = time.monotonic() + 1.0
     while time.monotonic() < deadline:
-        running = worker_env.connection.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM repository_import_operations
-            WHERE repository_scope = ?
-              AND status = ?
-            """,
-            (REPOSITORY_ID.hex, OperationStatus.RUNNING.value),
-        ).fetchone()
+        with worker_env.store._lock:
+            running = worker_env.connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM repository_import_operations
+                WHERE repository_scope = ?
+                  AND status = ?
+                """,
+                (REPOSITORY_ID.hex, OperationStatus.RUNNING.value),
+            ).fetchone()
         peak = max(peak, int(running["count"]))
         if peak > 1:
             break
@@ -332,15 +333,16 @@ def test_same_repository_running_mutex_observed(tmp_path: Path) -> None:
         peak = 0
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
-            running = env.connection.execute(
-                """
-                SELECT COUNT(*) AS count
-                FROM repository_import_operations
-                WHERE repository_scope = ?
-                  AND status = ?
-                """,
-                (REPOSITORY_ID.hex, OperationStatus.RUNNING.value),
-            ).fetchone()
+            with env.store._lock:
+                running = env.connection.execute(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM repository_import_operations
+                    WHERE repository_scope = ?
+                      AND status = ?
+                    """,
+                    (REPOSITORY_ID.hex, OperationStatus.RUNNING.value),
+                ).fetchone()
             peak = max(peak, int(running["count"]))
             if all(
                 (op := env.store.get_operation(REPOSITORY_ID, operation_id)) is not None
@@ -431,10 +433,11 @@ def test_cross_repository_respects_global_worker_bound(tmp_path: Path) -> None:
         peak = 0
         deadline = time.monotonic() + 8.0
         while time.monotonic() < deadline:
-            running = env.connection.execute(
-                "SELECT COUNT(*) AS count FROM repository_import_operations WHERE status = ?",
-                (OperationStatus.RUNNING.value,),
-            ).fetchone()
+            with env.store._lock:
+                running = env.connection.execute(
+                    "SELECT COUNT(*) AS count FROM repository_import_operations WHERE status = ?",
+                    (OperationStatus.RUNNING.value,),
+                ).fetchone()
             peak = max(peak, int(running["count"]))
             if all(
                 (op := env.store.get_operation(repo_id, op_id)) is not None

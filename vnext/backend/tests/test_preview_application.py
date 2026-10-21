@@ -31,6 +31,7 @@ from tests.support.workspace_fixtures import (
     MutableBaselineHeadReadPort,
     make_baseline_head,
     make_identity,
+    make_not_applicable_preview_identity,
     seed_open_workspace,
 )
 
@@ -77,6 +78,7 @@ def _seed_uploaded_workspace(
 
 
 def _preview_result(*, generation: int = 1) -> PreviewResult:
+    identity_digest, identity_pairs = make_not_applicable_preview_identity()
     return PreviewResult(
         preview_result_id="pr-1",
         workspace_id="ws-1",
@@ -99,6 +101,8 @@ def _preview_result(*, generation: int = 1) -> PreviewResult:
             bundle_digest="d-bundle",
         ),
         canonical=make_preview_canonical_bindings(),
+        identity_assessment_set_digest=identity_digest,
+        identity_pairs=identity_pairs,
         bundle_artifact_id="bundle-1",
         ready_closure_artifact_id="closure-1",
         operation_id="op-1",

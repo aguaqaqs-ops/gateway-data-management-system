@@ -27,6 +27,7 @@ from gateway_backend.infrastructure.control_db.sqlite_baseline import (
 )
 from gateway_backend.infrastructure.control_db.sqlite_submission import (
     SUBMISSION_COLUMNS,
+    identity_exception_from_blob,
     row_mapping,
     submission_from_row,
 )
@@ -67,6 +68,7 @@ class HistoryPageRow:
     based_on_baseline_node_id: str | None
     review_status: str | None
     archive_disposition: str | None
+    identity_exception: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +258,8 @@ def _load_history_page_rows(
                 parent_node_id,
                 NULL AS based_on_baseline_node_id,
                 NULL AS review_status,
-                NULL AS archive_disposition
+                NULL AS archive_disposition,
+                NULL AS identity_confirmations
             FROM baseline_node_records
             WHERE repository_id = ?
               AND gateway_device_external_key = ?
@@ -272,7 +275,8 @@ def _load_history_page_rows(
                 NULL,
                 s.based_on_baseline_node_id,
                 p.status,
-                d.disposition
+                d.disposition,
+                s.identity_confirmations
             FROM submission_records AS s
             INNER JOIN review_projection_records AS p
                 ON p.submission_id = s.submission_id
@@ -306,6 +310,7 @@ def _history_page_row_from_row(row: sqlite3.Row) -> HistoryPageRow:
     based_on_baseline_node_id = row["based_on_baseline_node_id"]
     review_status = row["review_status"]
     archive_disposition = row["archive_disposition"]
+    identity_confirmations = row["identity_confirmations"]
     return HistoryPageRow(
         ref_kind=ref_kind,
         ref_id=ref_id,
@@ -319,6 +324,11 @@ def _history_page_row_from_row(row: sqlite3.Row) -> HistoryPageRow:
         ),
         review_status=None if review_status is None else str(review_status),
         archive_disposition=None if archive_disposition is None else str(archive_disposition),
+        identity_exception=(
+            False
+            if identity_confirmations is None
+            else identity_exception_from_blob(identity_confirmations)
+        ),
     )
 
 

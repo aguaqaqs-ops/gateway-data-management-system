@@ -23,6 +23,7 @@ from gateway_backend.application.archive.start import StartArchiveCommand, start
 from gateway_backend.domain.archive.models import (
     ArchiveAnomalyResolutionAction,
     ArchiveConfirmationAction,
+    ArchiveSubjectKind,
 )
 from gateway_backend.domain.workspace.models import IdentityContext
 from gateway_backend.http.errors import ApiError
@@ -160,9 +161,10 @@ def build_append_resolution_command(
         expected_sequence=body.expected_sequence,
         action=ArchiveAnomalyResolutionAction(body.action),
         reason=body.reason,
+        subject_kind=ArchiveSubjectKind(body.subject_kind),
         issue_code=body.issue_code,
-        sibling_submission_id=body.sibling_submission_id,
-        sibling_candidate_digest=body.sibling_candidate_digest,
+        target_submission_id=body.target_submission_id,
+        target_candidate_digest=body.target_candidate_digest,
     )
 
 

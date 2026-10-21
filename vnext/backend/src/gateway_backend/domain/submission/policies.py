@@ -83,3 +83,5 @@ def assert_submission_attempt_binding(*, attempt: SubmitAttempt, submission: Sub
         raise SubmissionBindingConflict("submission target ref must match attempt request")
     if tuple(submission.source_artifact_refs) != tuple(attempt.source_artifact_refs):
         raise SubmissionBindingConflict("submission source artifact refs must match attempt")
+    if submission.identity_confirmations != attempt.identity_confirmations:
+        raise SubmissionBindingConflict("submission identity confirmations must match attempt")

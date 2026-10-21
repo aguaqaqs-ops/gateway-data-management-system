@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel.jcs import canonicalize_json_value
 
 class WorkspaceState(StrEnum):
     OPEN = "OPEN"
@@ -17,6 +18,23 @@ class WorkspaceState(StrEnum):
 class InputCompleteness(StrEnum):
     FULL = "FULL"
     MODIFIED_ONLY = "MODIFIED_ONLY"
+
+
+class ProjectIdentityApplicability(StrEnum):
+    APPLICABLE = "APPLICABLE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class ProjectIdentityStatus(StrEnum):
+    SAME_PROJECT = "SAME_PROJECT"
+    DIFFERENT_PROJECT = "DIFFERENT_PROJECT"
+    UNVERIFIABLE = "UNVERIFIABLE"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+
+
+class ProjectIdentityMode(StrEnum):
+    DETAILED = "DETAILED"
+    DATASET_REPLACEMENT = "DATASET_REPLACEMENT"
 
 
 class SourceArtifactRole(StrEnum):
@@ -307,6 +325,48 @@ class PreviewCanonicalBindings:
 
 
 @dataclass(frozen=True, slots=True)
+class PreviewIdentityPair:
+    pair_id: str
+    applicability: ProjectIdentityApplicability
+    status: ProjectIdentityStatus
+    mode: ProjectIdentityMode
+    assessment_ref: PreviewArtifactRef | None
+    assessment_digest: DigestRef | None
+
+    def __post_init__(self) -> None:
+        if type(self.pair_id) is not str or not self.pair_id:
+            raise ValueError("pair_id must be a non-empty string")
+        if type(self.applicability) is not ProjectIdentityApplicability:
+            raise ValueError("applicability must be ProjectIdentityApplicability")
+        if type(self.status) is not ProjectIdentityStatus:
+            raise ValueError("status must be ProjectIdentityStatus")
+        if type(self.mode) is not ProjectIdentityMode:
+            raise ValueError("mode must be ProjectIdentityMode")
+        if self.assessment_ref is not None and type(self.assessment_ref) is not PreviewArtifactRef:
+            raise ValueError("assessment_ref must be PreviewArtifactRef or None")
+        if self.assessment_digest is not None and type(self.assessment_digest) is not DigestRef:
+            raise ValueError("assessment_digest must be DigestRef or None")
+        if self.applicability is ProjectIdentityApplicability.NOT_APPLICABLE:
+            if (
+                self.status is not ProjectIdentityStatus.NOT_APPLICABLE
+                or self.mode is not ProjectIdentityMode.DETAILED
+                or self.assessment_ref is not None
+                or self.assessment_digest is not None
+            ):
+                raise ValueError("NOT_APPLICABLE identity pair has invalid assessment fields")
+        elif (
+            self.status is ProjectIdentityStatus.NOT_APPLICABLE
+            or self.assessment_ref is None
+            or self.assessment_digest is None
+        ):
+            raise ValueError("applicable identity pair requires an assessment")
+        elif (self.status is ProjectIdentityStatus.DIFFERENT_PROJECT) != (
+            self.mode is ProjectIdentityMode.DATASET_REPLACEMENT
+        ):
+            raise ValueError("identity mode does not match status")
+
+
+@dataclass(frozen=True, slots=True)
 class PreviewResult:
     preview_result_id: str
     workspace_id: str
@@ -321,6 +381,8 @@ class PreviewResult:
     provider_versions: Mapping[str, str]
     digests: PreviewResultDigests
     canonical: PreviewCanonicalBindings
+    identity_assessment_set_digest: DigestRef
+    identity_pairs: tuple[PreviewIdentityPair, ...]
     bundle_artifact_id: str
     ready_closure_artifact_id: str
     operation_id: str
@@ -353,6 +415,38 @@ class PreviewResult:
             raise ValueError("digests must be PreviewResultDigests")
         if type(self.canonical) is not PreviewCanonicalBindings:
             raise ValueError("canonical must be PreviewCanonicalBindings")
+        if type(self.identity_assessment_set_digest) is not DigestRef:
+            raise ValueError("identity_assessment_set_digest must be DigestRef")
+        if type(self.identity_pairs) is not tuple or any(
+            type(item) is not PreviewIdentityPair for item in self.identity_pairs
+        ):
+            raise ValueError("identity_pairs must contain PreviewIdentityPair")
+        pair_ids = tuple(item.pair_id for item in self.identity_pairs)
+        if pair_ids not in {
+            ("initial_to_modified",),
+            ("baseline_to_initial", "initial_to_modified"),
+        }:
+            raise ValueError("identity_pairs must use the Preview pair order")
+        expected_identity_digest = raw_blob_digest(
+            canonicalize_json_value(
+                {
+                    "schema": "project-identity-assessment-set/v1",
+                    "pairs": [
+                        [
+                            item.pair_id,
+                            item.applicability.value,
+                            item.status.value,
+                            None
+                            if item.assessment_digest is None
+                            else item.assessment_digest.value,
+                        ]
+                        for item in self.identity_pairs
+                    ],
+                }
+            )
+        )
+        if self.identity_assessment_set_digest != expected_identity_digest:
+            raise ValueError("identity assessment set digest does not match the pair results")
         if type(self.bundle_artifact_id) is not str or not self.bundle_artifact_id:
             raise ValueError("bundle_artifact_id must be a non-empty string")
         if type(self.ready_closure_artifact_id) is not str or not self.ready_closure_artifact_id:

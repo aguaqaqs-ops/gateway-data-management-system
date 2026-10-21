@@ -110,7 +110,12 @@ def assemble_surface(
             )
         checkpoint()
         table_tuple = tuple(tables)
-        root_diagnostics = _stable_messages(facts.diagnostics)
+        identity_diagnostics = (
+            ("PROJECT_IDENTITY_UNVERIFIABLE",)
+            if request.identity_annotation.status == "UNVERIFIABLE"
+            else ()
+        )
+        root_diagnostics = _stable_messages((*facts.diagnostics, *identity_diagnostics))
         if request.risk_report is not None:
             root_diagnostics = _stable_messages(
                 (*root_diagnostics, *request.risk_report.diagnostics)

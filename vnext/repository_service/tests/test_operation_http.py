@@ -19,6 +19,7 @@ from gateway_repository_contracts import (
 )
 from gateway_repository_service.mutation_store import IdempotencyKeyHash
 from gateway_repository_service.versioned_import import ImportRequestBinding, versioned_import_fingerprint_v1
+from support.control_db_harness import control_db_transaction
 from support.http_harness import (
     PRODUCTION_OPENAPI_PATHS,
     ImportHttpTestEnvironment,
@@ -176,11 +177,11 @@ def test_get_operation_malformed_durable_row_returns_internal_error(env: ImportH
             unknown_type_policy=UnknownTypePolicy.REJECT,
         ),
     )
-    env.control_store.connection.execute(
-        "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?",
-        ('{"commit_id": 123}', str(operation_id)),
-    )
-    env.control_store.connection.commit()
+    with control_db_transaction(env.control_store) as connection:
+        connection.execute(
+            "UPDATE repository_import_operations SET result_json = ? WHERE operation_id = ?",
+            ('{"commit_id": 123}', str(operation_id)),
+        )
     response = _get(env, repository_id, operation_id)
     assert response.status_code == 500
     assert response.json()["code"] == "INTERNAL_ERROR"

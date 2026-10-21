@@ -19,6 +19,7 @@ from benchmarks.real_dump_journey import (
     JOURNEY_STEP_IDS,
     JourneyFailure,
     JourneyStepRunner,
+    _assert_identity_pair,
     _assert_s3_catalog_summary,
     _assert_s3_history_count,
     _assert_s3_preview_summary,
@@ -32,6 +33,9 @@ from benchmarks.real_dump_journey import (
     _pseudo_counts_from_http,
     _require_one_of,
     _step_measurement,
+    WorkerHeartbeatMonitor,
+    WorkerHeartbeatTracker,
+    WorkerStalledFailure,
 )
 
 pytestmark = pytest.mark.unit
@@ -61,6 +65,17 @@ PREVIEW_SUMMARY_FAILURES = (
     ),
 )
 
+IDENTITY_ASSESSMENT_CASES = (
+    ("empty baseline", "NOT_APPLICABLE", "DETAILED", "NOT_APPLICABLE"),
+    ("same project", "SAME_PROJECT", "DETAILED", "APPLICABLE"),
+    (
+        "different project replacement",
+        "DIFFERENT_PROJECT",
+        "DATASET_REPLACEMENT",
+        "APPLICABLE",
+    ),
+)
+
 S3_PREVIEW_SUMMARY_CASES = (
     ("composite unchanged", {"table_count": 125, "changed_table_count": 4, "degraded_table_count": 0, "failed_table_count": 0}, 4, True),
     ("composite changed", {"table_count": 125, "changed_table_count": 5, "degraded_table_count": 0, "failed_table_count": 0}, 5, True),
@@ -83,6 +98,7 @@ OPERATION_STATUS_POLL_CASES = (
 COMPOSE_LOGS_ON_FAILURE_CASES = (
     ("stack startup", "synthetic Compose startup failure"),
     ("journey step", "synthetic Preview failure"),
+    ("worker stall", "worker_stalled"),
 )
 
 
@@ -371,6 +387,205 @@ def test_operation_status_retries_service_not_ready_within_deadline(
         assert retries[0]["retry_count"] == 1
 
 
+def test_worker_heartbeat_log_resets_stall_clock_and_normal_heartbeats_do_not_trip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_time = [0.0]
+    tracker = WorkerHeartbeatTracker(
+        stall_threshold_seconds=120,
+        monotonic=lambda: current_time[0],
+    )
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_WORKER_STALL_SECONDS", "45")
+    assert real_dump_journey._worker_stall_threshold_seconds() == 45
+    monkeypatch.setenv("GATEWAY_REAL_DUMP_WORKER_STALL_SECONDS", "120")
+
+    assert tracker.check_running_operation("operation-1", "RUNNING") is None
+    for heartbeat_at in range(10, 131, 10):
+        current_time[0] = float(heartbeat_at)
+        assert tracker.observe_log_line(
+            "worker operation_worker_event code=heartbeat_succeeded "
+            "operation_id=operation-1 step_id=step-1 worker_id=worker-1 attempt=1",
+            observed_at=current_time[0],
+        )
+        assert tracker.check_running_operation(
+            "operation-1",
+            "RUNNING",
+            now=current_time[0],
+        ) is None
+
+    current_time[0] = 249.0
+    assert tracker.check_running_operation("operation-1", "RUNNING") is None
+    current_time[0] = 250.0
+    stalled = tracker.check_running_operation("operation-1", "RUNNING")
+    assert stalled is not None
+    assert stalled.step_id == "step-1"
+    assert stalled.stalled_seconds == 120.0
+
+
+def test_worker_stall_monitor_tracks_nonterminal_status_after_running() -> None:
+    current_time = [0.0]
+    tracker = WorkerHeartbeatTracker(
+        stall_threshold_seconds=120,
+        monotonic=lambda: current_time[0],
+    )
+
+    assert tracker.check_running_operation("operation-1", "QUEUED") is None
+    current_time[0] = 300.0
+    assert tracker.check_running_operation("operation-1", "QUEUED") is None
+
+    current_time[0] = 400.0
+    assert tracker.check_running_operation("operation-1", "RUNNING") is None
+    current_time[0] = 410.0
+    assert tracker.observe_log_line(
+        "worker operation_worker_event code=heartbeat_succeeded "
+        "operation_id=operation-1 step_id=step-1 worker_id=worker-1 attempt=1",
+        observed_at=current_time[0],
+    )
+
+    current_time[0] = 529.0
+    assert (
+        tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED")
+        is None
+    )
+    current_time[0] = 530.0
+    stalled = tracker.check_running_operation(
+        "operation-1",
+        "MANUAL_RECOVERY_REQUIRED",
+    )
+    assert stalled is not None
+    assert stalled.step_id == "step-1"
+    assert stalled.stalled_seconds == 120.0
+
+    current_time[0] = 600.0
+    assert tracker.check_running_operation("operation-1", "FAILED") is None
+    current_time[0] = 900.0
+    assert (
+        tracker.check_running_operation("operation-1", "MANUAL_RECOVERY_REQUIRED")
+        is None
+    )
+
+
+def test_worker_stall_diagnostics_precede_teardown_and_have_distinct_failure_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    current_time = [0.0]
+    events: list[str] = []
+    diagnostics = tmp_path / "s4-stall-test"
+    tracker = WorkerHeartbeatTracker(
+        stall_threshold_seconds=2,
+        monotonic=lambda: current_time[0],
+    )
+
+    def capture_diagnostics(**_kwargs: object) -> Path:
+        events.append("diagnostics")
+        return diagnostics
+
+    monitor = WorkerHeartbeatMonitor(
+        env={},
+        repository_id="repository-1",
+        repository_url="http://repository-service",
+        tracker=tracker,
+        diagnostic_capture=capture_diagnostics,
+    )
+
+    class OperationClient:
+        def get(self, _path: str) -> httpx.Response:
+            return httpx.Response(200, json={"status": "RUNNING"})
+
+    def sleep(delay: float) -> None:
+        current_time[0] += delay
+
+    monkeypatch.setattr(time, "monotonic", lambda: current_time[0])
+    monkeypatch.setattr(time, "sleep", sleep)
+    try:
+        with pytest.raises(WorkerStalledFailure) as caught:
+            real_dump_journey._poll_operation(
+                cast(httpx.Client, OperationClient()),
+                "operation-1",
+                stage="t4 v1 Submit",
+                timeout_seconds=10,
+                heartbeat_monitor=monitor,
+            )
+    finally:
+        events.append("teardown")
+
+    assert caught.value.reason == "worker_stalled"
+    assert caught.value.diagnostics == diagnostics
+    assert events == ["diagnostics", "teardown"]
+
+
+def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class OperationResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {
+                "operation": {
+                    "status": "SUCCEEDED",
+                    "created_at": "2026-10-20T15:00:00Z",
+                    "started_at": "2026-10-20T15:00:01Z",
+                    "updated_at": "2026-10-20T15:01:00Z",
+                    "completed_at": "2026-10-20T15:01:00Z",
+                }
+            }
+
+    class OperationClient:
+        def __enter__(self) -> OperationClient:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def get(self, _url: str, *, headers: dict[str, str]) -> OperationResponse:
+            assert headers
+            return OperationResponse()
+
+    monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())
+    real_dump_journey._capture_repository_import_status(
+        repository_url="http://repository-service",
+        repository_id="repository-1",
+        operation_id="repository-operation-1",
+        root=tmp_path,
+    )
+
+    status = json.loads((tmp_path / "repository-import-status.json").read_text())
+    assert status == {
+        "completed_at": "2026-10-20T15:01:00Z",
+        "created_at": "2026-10-20T15:00:00Z",
+        "http_status": 200,
+        "operation_id": "repository-operation-1",
+        "started_at": "2026-10-20T15:00:01Z",
+        "status": "SUCCEEDED",
+        "updated_at": "2026-10-20T15:01:00Z",
+    }
+
+
+def test_operation_timeout_remains_distinct_from_worker_stall(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current_time = [0.0]
+
+    class OperationClient:
+        def get(self, _path: str) -> httpx.Response:
+            return httpx.Response(200, json={"status": "RUNNING"})
+
+    monkeypatch.setattr(time, "monotonic", lambda: current_time[0])
+    monkeypatch.setattr(time, "sleep", lambda delay: current_time.__setitem__(0, current_time[0] + delay))
+    with pytest.raises(JourneyFailure, match="before timeout") as caught:
+        real_dump_journey._poll_operation(
+            cast(httpx.Client, OperationClient()),
+            "operation-1",
+            stage="t1 Preview",
+            timeout_seconds=3,
+        )
+    assert not isinstance(caught.value, WorkerStalledFailure)
+
+
 def test_preview_summary_requires_one_complete_pair() -> None:
     manifest = {
         "pairs": [
@@ -397,6 +612,80 @@ def test_preview_summary_requires_one_complete_pair() -> None:
         "degraded_table_count": 0,
         "failed_table_count": 0,
     }
+
+
+@pytest.mark.parametrize(
+    ("case", "status", "mode", "applicability"),
+    IDENTITY_ASSESSMENT_CASES,
+    ids=[case for case, _status, _mode, _applicability in IDENTITY_ASSESSMENT_CASES],
+)
+def test_real_data_journey_requires_the_expected_project_identity(
+    case: str,
+    status: str,
+    mode: str,
+    applicability: str,
+) -> None:
+    del case
+    preview = {
+        "result": {
+            "identity_assessment_set_digest": "sha256:" + "a" * 64,
+            "identity_pairs": [
+                {
+                    "applicability": applicability,
+                    "status": status,
+                    "mode": mode,
+                }
+            ],
+        }
+    }
+
+    result = _assert_identity_pair(
+        preview,
+        expected_status=status,
+        expected_mode=mode,
+    )
+
+    assert result == {
+        "assessment_set_digest": "sha256:" + "a" * 64,
+        "applicability": applicability,
+        "status": status,
+        "mode": mode,
+    }
+
+
+@pytest.mark.parametrize(
+    ("expected_status", "expected_mode", "actual_status", "actual_mode", "applicability"),
+    (
+        ("SAME_PROJECT", "DETAILED", "DIFFERENT_PROJECT", "DATASET_REPLACEMENT", "APPLICABLE"),
+        ("DIFFERENT_PROJECT", "DATASET_REPLACEMENT", "SAME_PROJECT", "DETAILED", "APPLICABLE"),
+        ("NOT_APPLICABLE", "DETAILED", "NOT_APPLICABLE", "DETAILED", "APPLICABLE"),
+    ),
+    ids=("unexpected-project-change", "missed-project-change", "applicability-mismatch"),
+)
+def test_real_data_journey_stops_when_project_identity_differs(
+    expected_status: str,
+    expected_mode: str,
+    actual_status: str,
+    actual_mode: str,
+    applicability: str,
+) -> None:
+    with pytest.raises(JourneyFailure, match="identity differs"):
+        _assert_identity_pair(
+            {
+                "result": {
+                    "identity_assessment_set_digest": "sha256:" + "a" * 64,
+                    "identity_pairs": [
+                        {
+                            "applicability": applicability,
+                            "status": actual_status,
+                            "mode": actual_mode,
+                        }
+                    ],
+                }
+            },
+            expected_status=expected_status,
+            expected_mode=expected_mode,
+        )
 
 
 @pytest.mark.parametrize(
@@ -743,10 +1032,33 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
     assert result == 0
     assert calls == {
         "tier_filter": "t1",
+        "scope": "full",
+        "cross_project": False,
         "from_step": "v2-preview",
         "keep_stack": True,
         "requested_project_name": "s2b-debug",
     }
+    assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
+
+
+def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_run_journey(**kwargs: Any) -> dict[str, str]:
+        calls.update(kwargs)
+        return {"conclusion": "PASS"}
+
+    monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
+
+    result = real_dump_journey.main(["--tier", "t4", "--scope", "t4-v1-submit"])
+
+    assert result == 0
+    assert calls["tier_filter"] == "t4"
+    assert calls["scope"] == "t4-v1-submit"
+    assert calls["cross_project"] is False
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 
 
@@ -778,10 +1090,11 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
         "_compose_environment",
         lambda *_args, **_kwargs: {"COMPOSE_PROJECT_NAME": "unit-real-dump"},
     )
+    monkeypatch.setattr(real_dump_journey, "_repository_service_url", lambda _env: "http://repository")
     monkeypatch.setattr(
         real_dump_journey,
         "_offline_composite_comparison",
-        lambda **_kwargs: None,
+            lambda **_kwargs: {"counts": {}, "elapsed_seconds": 0.0},
     )
     monkeypatch.setattr(
         real_dump_journey,
@@ -795,11 +1108,38 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
 
     monkeypatch.setattr(real_dump_journey, "start_three_container_stack", start_stack)
 
+    events: list[str] = []
+
+    class FakeHeartbeatMonitor:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> FakeHeartbeatMonitor:
+            return self
+
+        def __exit__(self, *_args: Any) -> None:
+            return None
+
+        def check_operation(self, *_args: Any, **_kwargs: Any) -> None:
+            events.append("diagnostics")
+            raise WorkerStalledFailure(
+                stage="t4 v1 Submit",
+                operation_id="operation-1",
+                diagnostics=tmp_path / "s4-stall-test",
+            )
+
+    monkeypatch.setattr(real_dump_journey, "WorkerHeartbeatMonitor", FakeHeartbeatMonitor)
+
     def fail_tier(**_kwargs: Any) -> dict[str, Any]:
+        if failure_point == "worker stall":
+            cast(WorkerHeartbeatMonitor, _kwargs["heartbeat_monitor"]).check_operation(
+                "operation-1",
+                "RUNNING",
+                stage="t4 v1 Submit",
+            )
         raise JourneyFailure(failure_message)
 
     monkeypatch.setattr(real_dump_journey, "_run_tier", fail_tier)
-    events: list[str] = []
 
     def fake_run_compose(
         _env: dict[str, str],
@@ -818,9 +1158,13 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
     monkeypatch.setattr(real_dump_journey, "cleanup_compose_project_artifacts", record_cleanup)
 
     with pytest.raises(JourneyFailure, match=failure_message):
-        real_dump_journey.run_journey(tier_filter="t1")
+        real_dump_journey.run_journey(
+            tier_filter="t1",
+            keep_stack=failure_point == "worker stall",
+            requested_project_name="unit-real-dump" if failure_point == "worker stall" else None,
+        )
 
-    assert events == ["logs", "cleanup"]
+    assert events == (["diagnostics", "logs", "cleanup"] if failure_point == "worker stall" else ["logs", "cleanup"])
     compose_logs = list(log_directory.glob("*.compose.log"))
     assert len(compose_logs) == 1
     assert "all service logs" in compose_logs[0].read_text(encoding="utf-8")
@@ -829,6 +1173,7 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
 
 def test_debug_step_order_covers_every_business_action() -> None:
     assert JOURNEY_STEP_IDS[0] == "v1-workspace"
-    assert JOURNEY_STEP_IDS[-1] == "history"
+    assert JOURNEY_STEP_IDS.index("history") < JOURNEY_STEP_IDS.index("cross-source-workspace")
+    assert JOURNEY_STEP_IDS[-1] == "cross-replacement-archive"
     assert "v1-submit" in JOURNEY_STEP_IDS
     assert "repeat-v1-submit" in JOURNEY_STEP_IDS

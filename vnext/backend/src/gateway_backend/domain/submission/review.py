@@ -12,8 +12,8 @@ from gateway_backend.domain.submission.errors import (
     InvalidReviewTransition,
     ReviewClosureViolation,
 )
+from gateway_backend.domain.submission.reasons import validate_submission_reason
 
-_REVIEW_REASON_MAX_BYTES = 4096
 _REVIEW_IDEMPOTENCY_KEY_MIN_CHARS = 1
 _REVIEW_IDEMPOTENCY_KEY_MAX_CHARS = 255
 _REVIEW_IDEMPOTENCY_KEY_MIN_CODEPOINT = 0x0021
@@ -116,7 +116,11 @@ class ReviewEvent:
         elif self.from_status is None:
             raise ValueError("user review events require from_status")
         if self.reason is not None:
-            _assert_review_reason_scalar_contract(self.reason)
+            validate_submission_reason(
+                self.reason,
+                allow_multiline=False,
+                require_non_whitespace=False,
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,12 +300,7 @@ def validate_review_reason(action: ReviewAction, reason: str | None) -> str | No
         if action in {ReviewAction.REJECT, ReviewAction.RETURN_FOR_REVISION}:
             raise InvalidReviewReason("reason is required for reject and return actions")
         return None
-    if type(reason) is not str:
-        raise InvalidReviewReason("reason must be a string or null")
-    _assert_review_reason_scalar_contract(reason)
-    if not any(not char.isspace() for char in reason):
-        raise InvalidReviewReason("reason must contain at least one non-whitespace character")
-    return reason
+    return validate_submission_reason(reason, allow_multiline=False)
 
 
 def validate_review_idempotency_key(key: str) -> str:
@@ -321,24 +320,3 @@ def validate_review_idempotency_key(key: str) -> str:
                 "idempotency key must use printable ASCII characters only"
             )
     return key
-
-
-def _assert_review_reason_scalar_contract(reason: str) -> None:
-    for char in reason:
-        codepoint = ord(char)
-        if codepoint <= 0x001F or 0x007F <= codepoint <= 0x009F:
-            raise InvalidReviewReason("reason contains forbidden control characters")
-        if 0xD800 <= codepoint <= 0xDFFF:
-            raise InvalidReviewReason("reason contains surrogate code points")
-        if _is_unicode_noncharacter(codepoint):
-            raise InvalidReviewReason("reason contains noncharacter code points")
-    encoded = reason.encode("utf-8")
-    if not 1 <= len(encoded) <= _REVIEW_REASON_MAX_BYTES:
-        raise InvalidReviewReason("reason exceeds bounded size")
-
-
-def _is_unicode_noncharacter(codepoint: int) -> bool:
-    if 0xFDD0 <= codepoint <= 0xFDEF:
-        return True
-    low = codepoint & 0xFFFF
-    return low in {0xFFFE, 0xFFFF}

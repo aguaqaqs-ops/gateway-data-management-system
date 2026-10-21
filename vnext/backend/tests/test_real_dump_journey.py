@@ -1037,6 +1037,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "from_step": "v2-preview",
         "keep_stack": True,
         "requested_project_name": "s2b-debug",
+        "dc32_output": None,
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 

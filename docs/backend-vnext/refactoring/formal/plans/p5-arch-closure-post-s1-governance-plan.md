@@ -461,4 +461,13 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 修正提交即新 V。`benchmarks/` 属于 `vnext/` Docker context，新 V 上重建 fresh RS 镜像并运行全量 runner（不设包筛选）。
    - 真实数据：t1–t3 沿用 `241ee66d94`，条件是 `git diff --name-only 241ee66d94..V` 只涉及 `vnext/backend/benchmarks/real_dump_journey.py` 与其测试；t4 在新 V 上完整运行（v1 Preview、Submit、重传、v2、History），并取齐 S5.4 其余测量。
    - DC32 capability 测量继续沿用 `a2cfe03c21`，条件放宽为 `a2cfe03c21..V` 只涉及 `vnext/backend/tests/` 与上述探针及其测试，且 capability 测量路径不调用被修改的函数；handoff 写明 diff 与调用关系。任一沿用条件不满足，就在新 V 上重跑对应部分。
+
+   2026-10-22 S5 真实数据第二次暂停（V `a92f455afb`）：
+   - 探针测试、五包静态检查通过，fresh RS 镜像身份与 V 一致，全量 runner exit 0。真实数据 t1–t3 完整通过，t4 v1 Preview 通过，t4 v1 Submit 业务 operation SUCCEEDED（约 573.5 s）；随后探针报 `Submit Repository import duration is unavailable`，exit 1。Repository operation ID 已能取到。
+   - 原因在测量 harness：`_capture_repository_import_status` 从 RS 公开接口 `GET /v1/repositories/{id}/operations/{op}` 取 `started_at`/`completed_at`，而 `GetOperationResponse` 只有 `operation_id`、`status`、`result`、`error`，没有时间字段，任何环境下都取不到。时间戳在 RS control DB 的 `repository_import_operations`（`created_at`、`started_at`、`updated_at`、`completed_at`）。两次探针失败的共同原因：探针未在真实栈上跑通过，测试没有按真实接口与 schema 构造。
+
+   owner 决议（2026-10-22）：
+   - 修探针，不改产品代码、RS 公开接口与 Contract：在 RS 容器内只读打开 RS control DB，先备份再查询，只取该 operation 的 `status`、`created_at`、`started_at`、`completed_at`；用时按 `completed_at - started_at`，另记排队时间 `started_at - created_at`；公开接口仍用于核对 `status=SUCCEEDED`；任一项缺失直接失败。测试用 RS 正式 schema 建库，公开接口侧按 `GetOperationResponse` 真实形状构造。
+   - 证据运行前先做一次调试试跑（DC30 允许，不作证据）：给探针加只用于调试、默认关闭的开关，让 t1 也执行 Submit 对账取证；在 ct108 上用修复提交跑 t1，确认 v1、v2 两次 Submit 都取到 ID、会话数与用时。试跑通过后再形成新 V。
+   - 新 V 上重建 fresh RS 镜像并运行全量 runner。真实数据：t1–t3 改为沿用 `a92f455afb`，条件是 `a92f455afb..V` 只涉及 `vnext/backend/benchmarks/real_dump_journey.py` 与其测试；t4 在新 V 上完整运行。DC32 capability 测量继续沿用 `a2cfe03c21`，diff 条件相应包含本次改动。
 13. P5 exit：按 G10 清理。

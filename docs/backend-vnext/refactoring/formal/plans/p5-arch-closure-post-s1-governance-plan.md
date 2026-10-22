@@ -481,4 +481,15 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 形成 V 前在 ct108 上运行完整的 `tests/test_real_dump_journey.py`、backend `pytest -m unit`、backend ruff 与 mypy。此后的规则：改动某个模块时，focused 检查运行该模块对应的全部测试文件，不只运行新增用例。
    - t1 调试试跑沿用 `abb7968bbe`（`abb7968bbe..V` 只改测试，不作证据）。新 V 上重建 fresh RS 镜像并运行全量 runner。t1–t3 继续沿用 `a92f455afb`（`a92f455afb..V` 只涉及 `real_dump_journey.py` 与 `test_real_dump_journey.py`），t4 在新 V 上完整运行，DC32 capability 测量继续沿用 `a2cfe03c21`。
    - RS 那个 skip 不必补跑 `-rs`：RS 代码自 `241ee66d94` 以来未改，引用那次 `-rs` 结果（`test_p2_r1_target_cgroup_smoke.py`）。修正那段引号出错的 shell 校验后再使用，handoff 注明本次以独立身份校验为准。
+
+   2026-10-22 S5 初审（候选 H `89deee36a9`，V `b79844ddc2`；初审报告 `plans/p5-arch-closure-s5-independent-review.md`，p5-s5 `ac679c3961`）：结论为定向修订。V 全量 runner、fresh 镜像、同 V t1–t4 真实数据与 V→H carried 均经独立核对成立。
+   - S5-F1（阻塞）：`transition_for_outcome` 的两个生产调用方（`operations/recovery.py` 的 `finalize_handler_recovery`、`application/submit_jobs.py` 的 await poll timeout）都使用 `RECOVERY_SESSIONS_ONLY`；累计耗时分支与 `reconcile_budget_exhausted` 没有生产入口。S5 之前通用恢复路径就传 `0.0`，R5 §6 的累计预算在生产中从未生效。handoff §2 与 R5、5B 设计新增文字称“其他 R5 caller 继续使用默认累计耗时检查”，与事实不符。没有 Contract 或 ADR 规定累计预算。
+   - S5-F2（阻塞）：DC32 capability 测量把 `render_import_mutation_dml` 与其内部调用的 `plan_storage_mutation`、`render_change_set_replay` 同名分别计时再相加；t4 Submit 去重后不重叠部分约 305 s，adapter 外层约 370 s，与真实链路 566 s 相容；`plan_storage_mutation` 单独约 228 s。另有缺口：Submit 外层没有 CPU；pair artifact_write、Submit schema_sql_rendering 与 artifact_write 的逐表记录为未测零值；Submit 逐表数据未覆盖 planning/render 本体；“完成时间”记在 result/bundle 读取与核对之后；历史对照表混用 step wall 与 operation wall。
+   - S5-F3（非阻塞）：handoff §4 引用的决议应为 `e0054eceec`（偏差 1）与 `d876aea9fb`（偏差 2），并补原偏差引入提交 `90e7f90759`；§6、§8 把 V 上 t1–t4 全量重跑归为 owner 选择，与 `f84b930d4a`、`398204b4c0`、`0b8c2bac41` 的沿用决议不符。
+
+   owner 决议（2026-10-22）：
+   - S5-F1：授权修订 R5 设计 §6 的通用规则。删除累计耗时分支、`reconcile_budget_exhausted`、`ReconcileBudgetMode` 与 `reconcile_elapsed_seconds` 参数，以及只证明该分支的测试；R5 预算统一为“3 个恢复会话用尽 → MANUAL_RECOVERY_REQUIRED”，`RECONCILE_SESSION_BUDGET_SECONDS` 注明为单次会话的 poll 上限。同步修订 R5 §6、5B §13.1 与 handoff §2。生产行为不变；不改 Contract。
+   - S5-F2：用现有原始数据修正父子边界（只汇总不重叠段）、两个时间指标（完成时间取 `operation_terminal_seconds`，核对完成另行命名）与历史对照表（统一为 operation wall）；补 Submit 外层 CPU；按包计算的阶段标为共享成本，不记为零；planning/render 不改生产代码就无法逐表拆分时按包级记录 wall 与 CPU 并写明限制；实际执行但未测的阶段补测。不为测量修改生产代码。测量脚本修改后，在新 V 上整套重跑 DC32 capability 测量，不拼接新旧数据。重写 handoff §8、§10、§11。
+   - S5-F3：按上述来源修正 handoff，区分最后允许的沿用范围与实际重跑范围及原因（`--dc32-output` 不接受 `--tier`）。
+   - 新 V 上重建 fresh RS 镜像并运行全量 runner。真实数据沿用 `b79844ddc2`，条件是 `b79844ddc2..V` 的生产代码改动只限于删除 R5 累计分支及相应参数；其余改动限于 tests、benchmarks 与文档。形成 H 后做 carried，由初审方复审，再交终审。
 13. P5 exit：按 G10 清理。

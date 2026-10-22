@@ -2,7 +2,7 @@
 
 pass_recommended: yes
 
-建议 S5 验收通过：S5.1–S5.4、全量权威 runner、五包静态检查、fresh 镜像、t1–t4 真实旅程均已完成；H 提交后再在 V 门禁的同一 CT108 worktree 完成并记录 carried 判定。本文列出的证据没有触发执行计划 §14 停止条件。此建议等待独立审核；在 S5 审核通过前不做 P5 exit。P5 exit 清理依 G10 另行安排。
+建议 S5 验收通过：S5.1–S5.4、全量权威 runner、五包静态检查、fresh 镜像、t1–t4 真实旅程与最终 H 的 carried 判定均已完成。本文列出的证据没有触发执行计划 §14 停止条件。此建议等待独立审核；在 S5 审核通过前不做 P5 exit。P5 exit 清理依 G10 另行安排。
 
 ## 1. 区间、提交与环境
 
@@ -173,7 +173,7 @@ V runner 日志：`s5-b79844ddc2-full-runner.log`；起止 HEAD 均为 V，runne
 
 ### V→H carried（DC34）
 
-第一份 handoff-only 提交 H1 `cc15dabec9bf837ef7a277f2883e536026d27c60` 已在运行 V runner 的同一 CT108 worktree 中，以本节列出的完整 V runner 环境完成 carried 检查。日志 `s5-carried-cc15dabec9.log` 起止 HEAD 均为 H1、exit 0。RS `build_context_digest.py identity` 的 `build_input_revision=ed70ca1be262653bb49267940e73e7edd09a2267`、`source_tree_sha256=sha256:a3e56c4d90e67ba80b632599ead9dca8fc65d13d2193ad0f42472d9a9f68be3a` 均与 `gateway-repository-service:local` 两个 provenance label 一致。五包 manifest compare 均为“可沿用”，`changed_components=[]`，current digest 与 V runner 起始 digest 逐包相同，数值见上表。最终 H 也是 handoff-only；最终提交后的同 worktree 复核日志为 `/home/dev/gdds-p5-closure-s1-gate-logs/s5/s5-carried-final-H.log`，记录最终 HEAD、两项 RS label 比对与五包 manifest compare。
+第一份 handoff-only 提交 H1 `cc15dabec9bf837ef7a277f2883e536026d27c60` 已在运行 V runner 的同一 CT108 worktree 中，以本节列出的完整 V runner 环境完成 carried 检查。日志 `s5-carried-cc15dabec9.log` 起止 HEAD 均为 H1、exit 0。RS `build_context_digest.py identity` 的 `build_input_revision=ed70ca1be262653bb49267940e73e7edd09a2267`、`source_tree_sha256=sha256:a3e56c4d90e67ba80b632599ead9dca8fc65d13d2193ad0f42472d9a9f68be3a` 均与 `gateway-repository-service:local` 两个 provenance label 一致。五包 manifest compare 均为“可沿用”，`changed_components=[]`，current digest 与 V runner 起始 digest 逐包相同，数值见上表。最终 H 也是 handoff-only；最终提交后的同 worktree 复核日志 `/home/dev/gdds-p5-closure-s1-gate-logs/s5/s5-carried-final-H.log` 起止 HEAD 均为最终 H、exit 0。RS 两项 label 均匹配，五包 manifest 均为“可沿用”、`changed_components=[]`，且各自 digest 与 V runner 起始 digest 相同。
 
 ## 8. DC32 capability 测量
 

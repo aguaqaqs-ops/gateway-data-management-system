@@ -189,6 +189,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 4. 本计划各项（G2、G3、G6b、G7、G8）完成后，复核 AGENTS.md 与 testing-conventions 中 carried 规则的“同一 worktree”限制是否仍然需要。
 5. G2 实施方留在 `/tmp` 的 6 个已注册临时 worktree（`gdds-g2-h-check`、`gdds-g6-final-a`、`gdds-g6-final-b`、`gdds-g6-identity-old`、`gdds-g6-verify-a`、`gdds-g6-verify-b`）：
    由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。已完成：复审时 `git worktree list` 只剩主工作区与 `/home/dev/gdds-p5-closure-s1`。
+6. Compose 测试的 secret 文件权限依赖调用方 umask（2026-10-23 登记，来源见 §3 第 12 项 S5 定向修订）：backend Compose 测试用 `write_text` 创建 bearer token、session 等 secret 文件，没有设置权限；在 umask 077 下得到 600、属主 root 的文件，容器降权后无法读取。修正方向任选其一并写入 testing-conventions：在 runner 中固定 umask，或由测试 harness 对 secret 文件显式设置容器可读的权限。修正后复核 §3 第 12 项中“umask 022 下启动”的运行规则是否仍需保留。
 
 ### G11. 缩短完整门禁（runner；owner 2026-10-14，DC30；S2b 合入后、S3 kickoff 前）
 
@@ -492,4 +493,13 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - S5-F2：用现有原始数据修正父子边界（只汇总不重叠段）、两个时间指标（完成时间取 `operation_terminal_seconds`，核对完成另行命名）与历史对照表（统一为 operation wall）；补 Submit 外层 CPU；按包计算的阶段标为共享成本，不记为零；planning/render 不改生产代码就无法逐表拆分时按包级记录 wall 与 CPU 并写明限制；实际执行但未测的阶段补测。不为测量修改生产代码。测量脚本修改后，在新 V 上整套重跑 DC32 capability 测量，不拼接新旧数据。重写 handoff §8、§10、§11。
    - S5-F3：按上述来源修正 handoff，区分最后允许的沿用范围与实际重跑范围及原因（`--dc32-output` 不接受 `--tier`）。
    - 新 V 上重建 fresh RS 镜像并运行全量 runner。真实数据沿用 `b79844ddc2`，条件是 `b79844ddc2..V` 的生产代码改动只限于删除 R5 累计分支及相应参数；其余改动限于 tests、benchmarks 与文档。形成 H 后做 carried，由初审方复审，再交终审。
+
+   2026-10-23 S5 定向修订期间的三次停止（均未改变上述决议的范围）：
+   - 候选 `7ff34be684` 的 focused 检查停在 backend ruff：删除累计预算测试后，`test_operation_effect_reconcile.py` 留下只为已删断言读取 `reconcile_started_at` 的 `envelope` 赋值与导入。`55a8b81024` 只删除这两处，在新提交上从头重跑 focused 检查，全部通过，`55a8b81024` 成为新 V。
+   - V `55a8b81024` 的第一次全量 runner：backend serial 批次两项 Compose 用例失败，runner 被停止（exit 143）。原因是 runner 在 umask 077 下启动：测试用 `write_text` 写出的 bearer token 为 600、属主 root，repository-service 入口脚本降权到非 root 用户后无法读取，容器以 exit 3 退出。`b79844ddc2..V` 未改动 compose、镜像或 harness；ct108 root 默认 umask 为 0022。清理残留容器、网络和卷（未动镜像）后，在同一 V、umask 022 下重跑，exit 0。exit 143 的运行不作为任何沿用来源。
+   - DC32 capability 测量第一次启动 exit 1：`--real-dump-root` 误指向 `runs/`，读取数据集索引时失败，未启动场景、未产生输出或 scratch。按 `a2cfe03c21` 那次通过运行的参数形式在同一 V 上重跑。
+
+   owner 决议（2026-10-23）：
+   - 权威 runner、容器门禁、DC32 测量与 carried 判定一律在 umask 022 下启动，日志头部记录 `umask`。measurement 与日志文件的 600 权限由脚本显式 `chmod` 保证，不依赖 umask 077。carried 的 manifest 包含本机权限位，umask 不同可能导致不可沿用。
+   - Compose 测试的 secret 文件权限依赖调用方 umask，这是测试 harness 的隐患。S5 内不修（修改会换 V），登记为 G10 第 6 项，在 P5 exit 前处理。
 13. P5 exit：按 G10 清理。

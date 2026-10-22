@@ -470,4 +470,15 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 修探针，不改产品代码、RS 公开接口与 Contract：在 RS 容器内只读打开 RS control DB，先备份再查询，只取该 operation 的 `status`、`created_at`、`started_at`、`completed_at`；用时按 `completed_at - started_at`，另记排队时间 `started_at - created_at`；公开接口仍用于核对 `status=SUCCEEDED`；任一项缺失直接失败。测试用 RS 正式 schema 建库，公开接口侧按 `GetOperationResponse` 真实形状构造。
    - 证据运行前先做一次调试试跑（DC30 允许，不作证据）：给探针加只用于调试、默认关闭的开关，让 t1 也执行 Submit 对账取证；在 ct108 上用修复提交跑 t1，确认 v1、v2 两次 Submit 都取到 ID、会话数与用时。试跑通过后再形成新 V。
    - 新 V 上重建 fresh RS 镜像并运行全量 runner。真实数据：t1–t3 改为沿用 `a92f455afb`，条件是 `a92f455afb..V` 只涉及 `vnext/backend/benchmarks/real_dump_journey.py` 与其测试；t4 在新 V 上完整运行。DC32 capability 测量继续沿用 `a2cfe03c21`，diff 条件相应包含本次改动。
+
+   2026-10-22 S5 最终门禁第二次暂停（V `abb7968bbe`，探针实现 `d76cff8018`）：
+   - 探针 focused 测试与五包静态检查通过；t1 调试试跑 exit 0（不作证据），v1、v2 两次 Submit 都取到 ID、会话数、RS import 用时与排队时间。
+   - 全量 runner exit 1：backend 并行 1 failed、2,906 passed，串行 39 passed；其余四包通过（242 / 152 / 154 / RS 1,724 + 1 skipped + 205）。唯一失败是 `test_real_dump_journey.py::test_cli_passes_tier_resume_and_keep_stack_controls`：`d76cff8018` 给入口函数加了默认参数 `debug_t1_submit_probe=False`，CLI 总会传入，而该测试整字典比较调用参数，预期值没有这个键。focused 阶段只跑了新增的 3 个探针测试，没有跑完整测试文件。
+   - fresh RS 镜像身份与 label 一致（以独立身份校验日志为准；构建日志中一段后续 shell 校验因引号错误退出 1）。
+
+   owner 决议（2026-10-22）：
+   - 只改测试：预期参数补上 `debug_t1_submit_probe: False`，并核对同一文件中其他整字典比较 CLI 参数的测试。
+   - 形成 V 前在 ct108 上运行完整的 `tests/test_real_dump_journey.py`、backend `pytest -m unit`、backend ruff 与 mypy。此后的规则：改动某个模块时，focused 检查运行该模块对应的全部测试文件，不只运行新增用例。
+   - t1 调试试跑沿用 `abb7968bbe`（`abb7968bbe..V` 只改测试，不作证据）。新 V 上重建 fresh RS 镜像并运行全量 runner。t1–t3 继续沿用 `a92f455afb`（`a92f455afb..V` 只涉及 `real_dump_journey.py` 与 `test_real_dump_journey.py`），t4 在新 V 上完整运行，DC32 capability 测量继续沿用 `a2cfe03c21`。
+   - RS 那个 skip 不必补跑 `-rs`：RS 代码自 `241ee66d94` 以来未改，引用那次 `-rs` 结果（`test_p2_r1_target_cgroup_smoke.py`）。修正那段引号出错的 shell 校验后再使用，handoff 注明本次以独立身份校验为准。
 13. P5 exit：按 G10 清理。

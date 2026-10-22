@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -25,7 +25,6 @@ from tests.support.external_effect_stub import (
 from gateway_backend.application.recovery import (
     DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
-    DIAGNOSTIC_RECONCILE_TIMEOUT,
     ExternalEffectReconcilePhase,
     ExternalEffectRequestIdentity,
     JOB_STATE_IDEMPOTENCY_KEY,
@@ -57,14 +56,10 @@ from gateway_backend.operations import (
 )
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.persistence import OperationLifecycleActions
-from gateway_backend.operations.recovery import (
-    RECONCILE_SESSION_BUDGET_SECONDS,
-)
 from gateway_backend.operations.worker import ExecutionControl, ExecutorAcknowledgment
 from tests.support.runtime_settings import make_operation_worker_settings
 
 BASE_TIME = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
-JOB_STATE_RECONCILE_STARTED_AT = "reconcile_started_at"
 IDEMPOTENCY_KEY_ALPHA = "idem-alpha"
 REQUEST_BODY_ALPHA = "request-alpha"
 
@@ -176,7 +171,6 @@ def _job_state_for_identity(
     request_artifact_id: str,
     operation_identity: str,
     request_fingerprint: str | None = None,
-    reconcile_started_at: str = "2026-08-24T12:00:00Z",
 ) -> dict[str, object]:
     fingerprint = request_fingerprint or compute_request_fingerprint(_request_bytes())
     return {
@@ -185,7 +179,6 @@ def _job_state_for_identity(
         "request_artifact_id": request_artifact_id,
         JOB_STATE_OPERATION_IDENTITY: operation_identity,
         JOB_STATE_REQUEST_SENT: True,
-        JOB_STATE_RECONCILE_STARTED_AT: reconcile_started_at,
     }
 
 
@@ -283,64 +276,6 @@ def test_classify_external_effect_phase_matrix() -> None:
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "timestamp",
-    (None, "", "not-a-timestamp", "2026-08-24T12:00:00", "2026-08-24T12:00:00+01:00"),
-)
-def test_recovery_port_invalid_timestamp_fails_closed_without_poll(
-    tmp_path: Path,
-    timestamp: object,
-) -> None:
-    db_path = tmp_path / "invalid-reconcile-timestamp.sqlite3"
-    artifact_store = InMemoryArtifactStore()
-    operation_id = "operation-invalid-reconcile-timestamp"
-    step_id = "step-invalid-reconcile-timestamp"
-    session, control = _bootstrap_stub_claimed(
-        db_path,
-        operation_id=operation_id,
-        step_id=step_id,
-    )
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(step_id)
-    request_bytes = _request_bytes()
-    request_ref = put_with_built_ref(
-        artifact_store,
-        request_bytes,
-        artifact_id=request_artifact_id(request_bytes),
-        media_type="application/jcs",
-    )
-    envelope = envelope_for_step(
-        key=external_effect_stub_job_key(),
-        operation=operation,
-        step=step,
-        checkpoint_generation=step.attempt_count,
-        job_state=_job_state_for_identity(
-            request_artifact_id=request_ref.artifact_id,
-            operation_identity=_expected_identity(),
-            reconcile_started_at=timestamp,  # type: ignore[arg-type]
-        ),
-    )
-    checkpoint_ref = prepare_step_checkpoint(artifact_store, envelope)
-    session.publish_checkpoint(make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref))
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(step_id)
-    polling_stub = PollingExternalEffectStub(
-        DeterministicExternalEffectStub(request_bytes=request_bytes),
-        default_poll_result=StubOutcome.CONFIRMED,
-    )
-    recovery_port = build_external_effect_stub_recovery_port(
-        artifact_store,
-        external_stub=polling_stub,
-        now_factory=lambda: BASE_TIME,
-    )
-    outcome = recovery_port.recover(operation, step, control, session)
-    assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
-    assert polling_stub._poll_indexes == {}
-
-
-@pytest.mark.integration
 def test_recovery_port_non_polling_stub_fails_closed_without_confirmed_fallback(
     tmp_path: Path,
 ) -> None:
@@ -386,7 +321,6 @@ def test_recovery_port_non_polling_stub_fails_closed_without_confirmed_fallback(
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=SubmitOnlyStub(),
-        now_factory=lambda: BASE_TIME,
     )
     outcome = recovery_port.recover(operation, step, control, session)
     assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
@@ -433,14 +367,9 @@ def test_accepted_handler_then_recovery_polls_without_resubmit(tmp_path: Path) -
         step = unit_of_work.operations.get_step(step_id)
     assert step.checkpoint_ref is not None
     envelope = load_checkpoint_envelope(artifact_store, step.checkpoint_ref)
-    started_at_value = envelope.job_state[JOB_STATE_RECONCILE_STARTED_AT]
-    assert type(started_at_value) is str
-    started_at = datetime.fromisoformat(started_at_value.replace("Z", "+00:00"))
-
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=polling_stub,
-        now_factory=lambda: started_at + timedelta(seconds=1),
     )
     recovery_session = LeaseSession(
         worker_id=worker_id,
@@ -521,7 +450,6 @@ def test_confirmed_reload_recovery_polls_without_resubmit(tmp_path: Path) -> Non
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=recording_stub,
-        now_factory=lambda: BASE_TIME,
     )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
@@ -584,7 +512,6 @@ def test_unknown_poll_returns_manual_recovery_without_ready(tmp_path: Path) -> N
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=polling_stub,
-        now_factory=lambda: BASE_TIME,
     )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
@@ -601,65 +528,6 @@ def test_unknown_poll_returns_manual_recovery_without_ready(tmp_path: Path) -> N
     assert persisted_operation.status is OperationStatus.RUNNING
     assert persisted_step.status is StepStatus.RUNNING
     assert persisted_operation.ready_closure_ref is None
-
-
-@pytest.mark.integration
-def test_reconcile_timeout_returns_manual_recovery(tmp_path: Path) -> None:
-    db_path = tmp_path / "reconcile-timeout.sqlite3"
-    artifact_store = InMemoryArtifactStore()
-    operation_id = "operation-reconcile-timeout"
-    step_id = "step-reconcile-timeout"
-
-    request_bytes = _request_bytes()
-    polling_stub = PollingExternalEffectStub(
-        DeterministicExternalEffectStub(request_bytes=request_bytes),
-        default_poll_result=None,
-    )
-
-    session, control = _bootstrap_stub_claimed(
-        db_path,
-        operation_id=operation_id,
-        step_id=step_id,
-        stub_outcome=StubOutcome.ACCEPTED.value,
-    )
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(step_id)
-
-    started_at = BASE_TIME.isoformat().replace("+00:00", "Z")
-    request_ref = put_with_built_ref(
-        artifact_store,
-        request_bytes,
-        artifact_id=request_artifact_id(request_bytes),
-        media_type="application/jcs",
-    )
-    operation_identity = _expected_identity()
-    envelope = envelope_for_step(
-        key=external_effect_stub_job_key(),
-        operation=operation,
-        step=step,
-        checkpoint_generation=step.attempt_count,
-        job_state=_job_state_for_identity(
-            request_artifact_id=request_ref.artifact_id,
-            operation_identity=operation_identity,
-            reconcile_started_at=started_at,
-        ),
-    )
-    checkpoint_ref = prepare_step_checkpoint(artifact_store, envelope)
-    session.publish_checkpoint(make_checkpoint_step_builder(checkpoint_ref=checkpoint_ref))
-
-    recovery_port = build_external_effect_stub_recovery_port(
-        artifact_store,
-        external_stub=polling_stub,
-        now_factory=lambda: BASE_TIME + timedelta(seconds=RECONCILE_SESSION_BUDGET_SECONDS),
-    )
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(step_id)
-
-    outcome = recovery_port.recover(operation, step, control, session)
-    assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
-    assert outcome.diagnostic_code == DIAGNOSTIC_RECONCILE_TIMEOUT
 
 
 @pytest.mark.integration
@@ -710,7 +578,6 @@ def test_fingerprint_mismatch_returns_manual_without_resubmit(tmp_path: Path) ->
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=recording_stub,
-        now_factory=lambda: BASE_TIME,
     )
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)

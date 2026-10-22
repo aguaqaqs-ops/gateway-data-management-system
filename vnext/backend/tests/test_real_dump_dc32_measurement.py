@@ -71,13 +71,14 @@ def test_dc32_private_json_uses_private_directory_and_file_modes(tmp_path: Path)
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
 
 
-def test_dc32_table_costs_include_unmeasured_stage_rows_and_business_facts() -> None:
+def test_dc32_table_costs_distinguish_measured_shared_and_inapplicable_stages() -> None:
     recorder = MeasurementRecorder("t4_v1_preview")
     recorder.measure(
         "comparison",
         lambda: "compared",
         table_name="customer",
     )
+    recorder.measure("pair_artifact_write", lambda: None)
     table_facts: dict[str, Any] = {
         "customer": {
             "row_count": 12,
@@ -104,13 +105,76 @@ def test_dc32_table_costs_include_unmeasured_stage_rows_and_business_facts() -> 
         "artifact_write",
     }
     measured = next(item for item in result if item["stage"] == "comparison")
-    assert measured["measured"] is True
+    assert measured["measurement_status"] == "measured"
+    assert measured["wall_seconds"] is not None
     assert measured["comparison_role"] == "KEYED"
     assert measured["record_count"] == 3
     assert measured["changed"] is True
     unmeasured = next(item for item in result if item["stage"] == "risk_evaluation")
-    assert unmeasured["measured"] is False
-    assert unmeasured["wall_seconds"] == 0.0
+    assert unmeasured["measurement_status"] == "not_applicable"
+    assert unmeasured["wall_seconds"] is None
+    shared = next(item for item in result if item["stage"] == "artifact_write")
+    assert shared["measurement_status"] == "shared_cost_per_package"
+    assert shared["package_stage"] == "pair_artifact_write"
+    assert shared["wall_seconds"] is None
+
+
+def test_dc32_submit_table_costs_keep_planning_and_package_writes_shared() -> None:
+    recorder = MeasurementRecorder("rd-t4-d-v1_submit_prepare")
+    recorder.measure("submit_frozen_artifact_row_read", lambda: None, table_name="customer")
+    recorder.measure("submit_schema_sql_rendering", lambda: None)
+    recorder.measure("submit_artifact_write", lambda: None)
+    recorder.measure("submit_plan_storage_mutation", lambda: None)
+    recorder.measure("submit_render_change_set_replay", lambda: None)
+    recorder.measure("submit_render_import_mutation_dml", lambda: None)
+    table_facts: dict[str, Any] = {"customer": {"row_count": 12, "column_count": 4}}
+    result: list[dict[str, Any]] = []
+
+    _append_table_costs(
+        result,
+        scenario=recorder.scenario,
+        recorder=recorder,
+        table_facts=table_facts,
+    )
+
+    row_read = next(item for item in result if item["stage"] == "submit_frozen_artifact_row_read")
+    assert row_read["measurement_status"] == "measured"
+    assert row_read["measurement_scope"] == "per_table"
+    parent = next(
+        item for item in recorder.stages if item["stage"] == "submit_render_import_mutation_dml"
+    )
+    assert parent["measurement_status"] == "measured"
+    assert parent["measurement_relation"] == "parent_inclusive"
+    assert "submit_plan_storage_mutation" in parent["includes_stages"]
+    child = next(
+        item for item in recorder.stages if item["stage"] == "submit_plan_storage_mutation"
+    )
+    assert child["measurement_relation"] == "child"
+    assert child["parent_stage"] == "submit_render_import_mutation_dml"
+    for stage, package_stage in (
+        ("submit_plan_storage_mutation", "submit_plan_storage_mutation"),
+        ("submit_render_change_set_replay", "submit_render_change_set_replay"),
+        ("submit_render_import_mutation_dml", "submit_render_import_mutation_dml"),
+        ("schema_sql_rendering", "submit_schema_sql_rendering"),
+        ("artifact_write", "submit_artifact_write"),
+    ):
+        item = next(record for record in result if record["stage"] == stage)
+        assert item["measurement_status"] == "shared_cost_per_package"
+        assert item["package_stage"] == package_stage
+        assert item["wall_seconds"] is None
+        assert item["thread_cpu_seconds"] is None
+        if package_stage == "submit_render_import_mutation_dml":
+            assert item["measurement_relation"] == "parent_inclusive"
+            assert item["includes_stages"] == [
+                "submit_plan_storage_mutation",
+                "submit_render_change_set_replay",
+            ]
+        elif package_stage in {
+            "submit_plan_storage_mutation",
+            "submit_render_change_set_replay",
+        }:
+            assert item["measurement_relation"] == "child"
+            assert item["parent_stage"] == "submit_render_import_mutation_dml"
 
 
 def test_dc32_mib_rate_marks_zero_duration_as_unavailable() -> None:

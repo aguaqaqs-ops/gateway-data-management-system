@@ -70,6 +70,11 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _BACKEND_ROOT.parents[1]
 _DATASET_TIERS = ("t1", "t2", "t3", "t4")
 
+_SUBMIT_DML_PARENT = "submit_render_import_mutation_dml"
+_SUBMIT_DML_CHILDREN = frozenset(
+    {"submit_plan_storage_mutation", "submit_render_change_set_replay"}
+)
+
 
 @dataclass(slots=True)
 class MeasurementRecorder:
@@ -102,10 +107,21 @@ class MeasurementRecorder:
                 "wall_seconds": round(time.perf_counter() - wall_started, 6),
                 "thread_cpu_seconds": round(time.thread_time() - cpu_started, 6),
                 "failed": failed,
+                "measurement_status": "measured",
             }
+            if stage == _SUBMIT_DML_PARENT:
+                metric["measurement_relation"] = "parent_inclusive"
+                metric["includes_stages"] = sorted(_SUBMIT_DML_CHILDREN)
+            elif stage in _SUBMIT_DML_CHILDREN:
+                metric["measurement_relation"] = "child"
+                metric["parent_stage"] = _SUBMIT_DML_PARENT
+            else:
+                metric["measurement_relation"] = "independent_segment"
             if table_name is None:
+                metric["measurement_scope"] = "package"
                 self.stages.append(metric)
             else:
+                metric["measurement_scope"] = "per_table"
                 table_metric = self.per_table.setdefault(
                     (table_name, stage),
                     {
@@ -321,13 +337,22 @@ def _append_table_costs(
     stages: tuple[str, ...]
     if "submit_prepare" in scenario:
         stages = (
+            "submit_frozen_artifact_row_read",
+            "submit_build_import_mutation_snapshots",
+            "submit_plan_storage_mutation",
+            "submit_render_change_set_replay",
+            _SUBMIT_DML_PARENT,
             "schema_sql_rendering",
-            "mutation_planning_and_replay",
             "artifact_write",
         )
         phase = "submit_prepare"
     elif "preview" in scenario or "history" in scenario:
-        stages = ("comparison", "risk_evaluation", "surface_assembly", "artifact_write")
+        stages = (
+            "comparison",
+            "risk_evaluation",
+            "surface_assembly",
+            "artifact_write",
+        )
         phase = "pair_pipeline"
     else:
         stages = (
@@ -340,6 +365,50 @@ def _append_table_costs(
         facts = cast(dict[str, Any], raw_facts)
         for stage in stages:
             measured = recorder.per_table.get((table_name, stage), {})
+            package_stage: str | None = None
+            if phase == "submit_prepare" and stage == "schema_sql_rendering":
+                package_stage = "submit_schema_sql_rendering"
+            elif phase == "submit_prepare" and stage == "artifact_write":
+                package_stage = "submit_artifact_write"
+            elif phase == "pair_pipeline" and stage == "artifact_write":
+                package_stage = "pair_artifact_write"
+            elif phase == "submit_prepare" and stage in {
+                "submit_build_import_mutation_snapshots",
+                "submit_plan_storage_mutation",
+                "submit_render_change_set_replay",
+                _SUBMIT_DML_PARENT,
+            }:
+                package_stage = stage
+
+            if measured:
+                measurement_status = "measured"
+                wall_seconds: float | None = round(float(measured["wall_seconds"]), 6)
+                thread_cpu_seconds: float | None = round(
+                    float(measured["thread_cpu_seconds"]), 6
+                )
+                invocations: int | None = int(measured["invocations"])
+            elif package_stage is not None:
+                measurement_status = "shared_cost_per_package"
+                wall_seconds = None
+                thread_cpu_seconds = None
+                invocations = None
+            else:
+                measurement_status = "not_applicable"
+                wall_seconds = None
+                thread_cpu_seconds = None
+                invocations = None
+            if stage == _SUBMIT_DML_PARENT:
+                measurement_relation = "parent_inclusive"
+                parent_stage = None
+                includes_stages: list[str] | None = sorted(_SUBMIT_DML_CHILDREN)
+            elif stage in _SUBMIT_DML_CHILDREN:
+                measurement_relation = "child"
+                parent_stage = _SUBMIT_DML_PARENT
+                includes_stages = None
+            else:
+                measurement_relation = "independent_segment"
+                parent_stage = None
+                includes_stages = None
             produced_records = (
                 facts.get("record_count", 0)
                 if phase == "pair_pipeline"
@@ -353,12 +422,15 @@ def _append_table_costs(
                     "phase": phase,
                     "table_name": table_name,
                     "stage": stage,
-                    "wall_seconds": round(float(measured.get("wall_seconds", 0.0)), 6),
-                    "thread_cpu_seconds": round(
-                        float(measured.get("thread_cpu_seconds", 0.0)), 6
-                    ),
-                    "invocations": int(measured.get("invocations", 0)),
-                    "measured": bool(measured),
+                    "measurement_status": measurement_status,
+                    "measurement_scope": "per_table",
+                    "measurement_relation": measurement_relation,
+                    "parent_stage": parent_stage,
+                    "includes_stages": includes_stages,
+                    "wall_seconds": wall_seconds,
+                    "thread_cpu_seconds": thread_cpu_seconds,
+                    "invocations": invocations,
+                    "package_stage": package_stage,
                     "output_record_count": int(produced_records),
                     "row_count": facts.get("row_count"),
                     "column_count": facts.get("column_count"),
@@ -446,7 +518,7 @@ def _snapshot_package(
         )
     recorder.stages.append(
         {
-            "stage": "artifact_write",
+            "stage": "materialization_artifact_write",
             "wall_seconds": round(store.write_wall_seconds - writes_before[0], 6),
             "thread_cpu_seconds": round(
                 store.write_thread_cpu_seconds - writes_before[1], 6
@@ -454,7 +526,10 @@ def _snapshot_package(
             "artifact_count": store.write_count - writes_before[2],
             "bytes_written": store.write_bytes - writes_before[3],
             "failed": False,
-            "measurement_scope": "ArtifactStore.put calls within this materialization",
+            "measurement_status": "measured",
+            "measurement_scope": "package",
+            "measurement_relation": "independent_segment",
+            "measurement_detail": "ArtifactStore.put calls within this materialization",
         }
     )
     if bound.table_set is None or bound.summary.row_count_total is None:
@@ -602,7 +677,7 @@ def _pair_measurement(
             }
     recorder.stages.append(
         {
-            "stage": "artifact_write",
+            "stage": "pair_artifact_write",
             "wall_seconds": round(store.write_wall_seconds - writes_before[0], 6),
             "thread_cpu_seconds": round(
                 store.write_thread_cpu_seconds - writes_before[1], 6
@@ -610,7 +685,10 @@ def _pair_measurement(
             "artifact_count": store.write_count - writes_before[2],
             "bytes_written": store.write_bytes - writes_before[3],
             "failed": False,
-            "measurement_scope": "ArtifactStore.put calls within this pair pipeline",
+            "measurement_status": "measured",
+            "measurement_scope": "package",
+            "measurement_relation": "independent_segment",
+            "measurement_detail": "ArtifactStore.put calls within this pair pipeline",
         }
     )
     if facts is None:
@@ -686,12 +764,17 @@ def _submit_measurement(
     )
     adapter = import_publication.SubmitImportPublicationAdapter()
     patches = _capability_patches() + (
-        (import_replay, "plan_storage_mutation", "mutation_planning_and_replay", None),
-        (import_replay, "render_change_set_replay", "mutation_planning_and_replay", None),
+        (import_replay, "plan_storage_mutation", "submit_plan_storage_mutation", None),
+        (
+            import_replay,
+            "render_change_set_replay",
+            "submit_render_change_set_replay",
+            None,
+        ),
         (
             import_publication,
             "_keyed_rows_from_frozen_artifact",
-            "mutation_planning_and_replay",
+            "submit_frozen_artifact_row_read",
             lambda args, kwargs: cast(
                 str,
                 kwargs["manifest_table"].name
@@ -702,16 +785,21 @@ def _submit_measurement(
         (
             import_publication,
             "render_repository_import_schema_replay_sql",
-            "schema_sql_rendering",
+            "submit_schema_sql_rendering",
             None,
         ),
         (
             import_publication,
             "build_import_mutation_snapshots",
-            "mutation_planning_and_replay",
+            "submit_build_import_mutation_snapshots",
             None,
         ),
-        (import_publication, "render_import_mutation_dml", "mutation_planning_and_replay", None),
+        (
+            import_publication,
+            "render_import_mutation_dml",
+            _SUBMIT_DML_PARENT,
+            None,
+        ),
     )
     writes_before = (
         store.write_wall_seconds,
@@ -720,13 +808,27 @@ def _submit_measurement(
         store.write_bytes,
     )
     with _patched(recorder, patches):
-        started = time.perf_counter()
+        outer_wall_started = time.perf_counter()
+        outer_cpu_started = time.thread_time()
         publication = adapter.build_and_publish(build_input=build_input, store=store)
         package = adapter.read_back_package(checkpoint=publication.checkpoint, store=store)
-        total_wall = time.perf_counter() - started
+        total_wall = time.perf_counter() - outer_wall_started
+        total_cpu = time.thread_time() - outer_cpu_started
     recorder.stages.append(
         {
-            "stage": "artifact_write",
+            "stage": "submit_adapter_outer_build_publish_readback",
+            "wall_seconds": round(total_wall, 6),
+            "thread_cpu_seconds": round(total_cpu, 6),
+            "failed": False,
+            "measurement_status": "measured",
+            "measurement_scope": "adapter outer boundary",
+            "measurement_relation": "outer",
+            "includes_internal_stages": True,
+        }
+    )
+    recorder.stages.append(
+        {
+            "stage": "submit_artifact_write",
             "wall_seconds": round(store.write_wall_seconds - writes_before[0], 6),
             "thread_cpu_seconds": round(
                 store.write_thread_cpu_seconds - writes_before[1], 6
@@ -734,12 +836,57 @@ def _submit_measurement(
             "artifact_count": store.write_count - writes_before[2],
             "bytes_written": store.write_bytes - writes_before[3],
             "failed": False,
-            "measurement_scope": "ArtifactStore.put calls within Submit prepare/publish",
+            "measurement_status": "measured",
+            "measurement_scope": "package",
+            "measurement_relation": "independent_segment_inside_outer",
+            "measurement_detail": "ArtifactStore.put calls within Submit prepare/publish",
         }
     )
     _manifest_bytes, replay_sql = storage_package.unpack_repository_import_entries(package)
     import_input = storage_package.validate_repository_import_package(package)
     schema_columns = sum(len(table.columns) for table in import_input.tables)
+    package_stages = [
+        item
+        for item in recorder.stages
+        if item.get("measurement_scope") == "package"
+        and type(item.get("stage")) is str
+        and cast(str, item["stage"]).startswith("submit_")
+    ]
+    parent_metrics = [item for item in package_stages if item["stage"] == _SUBMIT_DML_PARENT]
+    child_metrics = [item for item in package_stages if item["stage"] in _SUBMIT_DML_CHILDREN]
+    parent_wall = sum(float(item["wall_seconds"]) for item in parent_metrics)
+    parent_cpu = sum(float(item["thread_cpu_seconds"]) for item in parent_metrics)
+    child_wall = sum(float(item["wall_seconds"]) for item in child_metrics)
+    child_cpu = sum(float(item["thread_cpu_seconds"]) for item in child_metrics)
+    parent_exclusive_wall = max(0.0, parent_wall - child_wall)
+    parent_exclusive_cpu = max(0.0, parent_cpu - child_cpu)
+    mutation_package_stages = [
+        item
+        for item in package_stages
+        if item["stage"]
+        in {
+            "submit_build_import_mutation_snapshots",
+            "submit_plan_storage_mutation",
+            "submit_render_change_set_replay",
+        }
+    ]
+    frozen_row_read = [
+        item
+        for (_table_name, stage), item in recorder.per_table.items()
+        if stage == "submit_frozen_artifact_row_read"
+    ]
+    mutation_wall = (
+        sum(float(item["wall_seconds"]) for item in mutation_package_stages)
+        + parent_exclusive_wall
+        + sum(float(item["wall_seconds"]) for item in frozen_row_read)
+    )
+    mutation_cpu = (
+        sum(float(item["thread_cpu_seconds"]) for item in mutation_package_stages)
+        + parent_exclusive_cpu
+        + sum(float(item["thread_cpu_seconds"]) for item in frozen_row_read)
+    )
+    schema_metrics = [item for item in package_stages if item["stage"] == "submit_schema_sql_rendering"]
+    artifact_metrics = [item for item in package_stages if item["stage"] == "submit_artifact_write"]
     return {
         "package_sha256": publication.checkpoint.package_raw_sha256,
         "package_bytes": len(package),
@@ -748,15 +895,48 @@ def _submit_measurement(
         "schema_column_count": schema_columns,
         "manifest_digest": import_input.canonicalization_manifest_digest.value,
         "tables": dict(table_facts) if table_facts is not None else _table_facts(bound),
-        "build_and_readback_wall_seconds": round(total_wall, 6),
-        "mutation_planning_and_replay_measured_wall_seconds": round(
-            sum(
-                item["wall_seconds"]
-                for item in recorder.stages
-                if item["stage"] == "mutation_planning_and_replay"
-            ),
-            6,
-        ),
+        "measurement_summary": {
+            "mutation_planning_and_replay_non_overlapping": {
+                "wall_seconds": round(mutation_wall, 6),
+                "thread_cpu_seconds": round(mutation_cpu, 6),
+                "includes_per_table_frozen_artifact_row_read": True,
+                "package_level_stages": sorted(
+                    {cast(str, item["stage"]) for item in mutation_package_stages}
+                    | {_SUBMIT_DML_PARENT}
+                ),
+            },
+            "render_import_mutation_dml_accounting": {
+                "parent_stage": _SUBMIT_DML_PARENT,
+                "parent_inclusive_wall_seconds": round(parent_wall, 6),
+                "parent_inclusive_thread_cpu_seconds": round(parent_cpu, 6),
+                "child_stages": sorted(_SUBMIT_DML_CHILDREN),
+                "children_wall_seconds": round(child_wall, 6),
+                "children_thread_cpu_seconds": round(child_cpu, 6),
+                "parent_exclusive_wall_seconds": round(parent_exclusive_wall, 6),
+                "parent_exclusive_thread_cpu_seconds": round(parent_exclusive_cpu, 6),
+            },
+            "schema_sql_rendering_package": {
+                "wall_seconds": round(
+                    sum(float(item["wall_seconds"]) for item in schema_metrics), 6
+                ),
+                "thread_cpu_seconds": round(
+                    sum(float(item["thread_cpu_seconds"]) for item in schema_metrics), 6
+                ),
+            },
+            "artifact_write_package": {
+                "wall_seconds": round(
+                    sum(float(item["wall_seconds"]) for item in artifact_metrics), 6
+                ),
+                "thread_cpu_seconds": round(
+                    sum(float(item["thread_cpu_seconds"]) for item in artifact_metrics), 6
+                ),
+            },
+            "adapter_outer_build_publish_readback": {
+                "wall_seconds": round(total_wall, 6),
+                "thread_cpu_seconds": round(total_cpu, 6),
+                "summed_with_internal_segments": False,
+            },
+        },
     }, replay_sql
 
 
@@ -960,7 +1140,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
 
     def checkpoint(status: str, *, failure_type: str | None = None) -> None:
         value: dict[str, Any] = {
-            "schema_version": "s5-dc32-capability-measurement/v1",
+            "schema_version": "s5-dc32-capability-measurement/v2",
             "run_id": run_id,
             "head": subprocess.run(
                 ["git", "rev-parse", "HEAD"],
@@ -1253,7 +1433,7 @@ def run(root: Path, output: Path, scratch_parent: Path, dataset_ids: tuple[str, 
                 checkpoint("RUNNING")
 
         final_result = {
-            "schema_version": "s5-dc32-capability-measurement/v1",
+            "schema_version": "s5-dc32-capability-measurement/v2",
             "run_id": run_id,
             "head": subprocess.run(
                 ["git", "rev-parse", "HEAD"],

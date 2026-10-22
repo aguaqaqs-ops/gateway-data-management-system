@@ -35,6 +35,7 @@ OPERATOR_RECOVERY_WORKER_ID = "operator-recovery"
 MAX_RECOVERY_SESSIONS = 3
 RECOVERY_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 RECOVERY_BACKOFF_CAP_SECONDS = 10.0
+# Maximum poll duration within one claimed reconcile session.
 RECONCILE_SESSION_BUDGET_SECONDS = 60.0
 
 DIAGNOSTIC_LEASE_EXPIRED = "r5.lease_expired"
@@ -93,16 +94,6 @@ class RecoveryPolicyOutcomeDisposition(StrEnum):
     RECONCILE_PENDING = "RECONCILE_PENDING"
     MANUAL_RECOVERY = "MANUAL_RECOVERY"
     CANCELLED = "CANCELLED"
-
-
-class ReconcileBudgetMode(StrEnum):
-    """Select whether R5 also applies its elapsed-time budget to a poll timeout.
-
-    ``RECOVERY_SESSIONS_ONLY`` is for callers that pass a separately bounded poll deadline.
-    """
-
-    CUMULATIVE_ELAPSED_TIME = "CUMULATIVE_ELAPSED_TIME"
-    RECOVERY_SESSIONS_ONLY = "RECOVERY_SESSIONS_ONLY"
 
 
 class HandlerFailureKind(StrEnum):
@@ -200,14 +191,6 @@ def recovery_sessions_remaining(attempt_count: int) -> int:
 
 def recovery_sessions_exhausted(attempt_count: int) -> bool:
     return recovery_sessions_remaining(attempt_count) == 0
-
-
-def reconcile_budget_exhausted(elapsed_seconds: float) -> bool:
-    if isinstance(elapsed_seconds, bool) or not isinstance(elapsed_seconds, (int, float)):
-        raise ValueError("elapsed_seconds must be a number")
-    if elapsed_seconds < 0:
-        raise ValueError("elapsed_seconds must be non-negative")
-    return float(elapsed_seconds) >= RECONCILE_SESSION_BUDGET_SECONDS
 
 
 def _retry_wait_decision(
@@ -440,8 +423,6 @@ def transition_for_outcome(
     *,
     capability: RecoveryCapabilityValue,
     attempt_count: int,
-    reconcile_elapsed_seconds: float | None,
-    reconcile_budget_mode: ReconcileBudgetMode = ReconcileBudgetMode.CUMULATIVE_ELAPSED_TIME,
     effect_boundary_crossed: bool,
     cancel_requested: bool,
     now: datetime,
@@ -450,9 +431,6 @@ def transition_for_outcome(
     step_source: StepStatus = StepStatus.RUNNING,
     operation_source: OperationStatus = OperationStatus.RUNNING,
 ) -> RecoveryTransitionIntent:
-    if type(reconcile_budget_mode) is not ReconcileBudgetMode:
-        raise ValueError("reconcile_budget_mode must be ReconcileBudgetMode")
-
     cancel_outcome = classify_cancel(
         cancel_requested=cancel_requested,
         effect_boundary_crossed=effect_boundary_crossed,
@@ -486,8 +464,6 @@ def transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
                 capability=capability,
                 attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
-                reconcile_budget_mode=reconcile_budget_mode,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -511,8 +487,6 @@ def transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
                 capability=capability,
                 attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
-                reconcile_budget_mode=reconcile_budget_mode,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -521,28 +495,6 @@ def transition_for_outcome(
                 step_source=step_source,
                 operation_source=operation_source,
             )
-        if reconcile_budget_mode is ReconcileBudgetMode.CUMULATIVE_ELAPSED_TIME:
-            if reconcile_elapsed_seconds is None:
-                raise ValueError(
-                    "cumulative elapsed-time reconcile budget requires elapsed seconds"
-                )
-            if reconcile_budget_exhausted(reconcile_elapsed_seconds):
-                return transition_for_outcome(
-                    RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
-                    capability=capability,
-                    attempt_count=attempt_count,
-                    reconcile_elapsed_seconds=reconcile_elapsed_seconds,
-                    reconcile_budget_mode=reconcile_budget_mode,
-                    effect_boundary_crossed=effect_boundary_crossed,
-                    cancel_requested=False,
-                    now=now,
-                    jitter=jitter,
-                    evidence_ambiguous=evidence_ambiguous,
-                    step_source=step_source,
-                    operation_source=operation_source,
-                )
-        elif reconcile_elapsed_seconds is not None:
-            raise ValueError("session-count-only reconcile budget must not receive elapsed seconds")
         return RecoveryTransitionIntent(
             step_source=step_source,
             step_target=StepStatus.RETRY_WAIT,
@@ -558,8 +510,6 @@ def transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
                 capability=capability,
                 attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
-                reconcile_budget_mode=reconcile_budget_mode,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -710,8 +660,6 @@ def finalize_handler_recovery(
         result.disposition,
         capability=capability,
         attempt_count=step.attempt_count,
-        reconcile_elapsed_seconds=None,
-        reconcile_budget_mode=ReconcileBudgetMode.RECOVERY_SESSIONS_ONLY,
         effect_boundary_crossed=False,
         cancel_requested=False,
         now=now,
@@ -1456,7 +1404,6 @@ __all__ = [
     "RecoveryPolicyDecision",
     "RecoveryPolicyDecisionDisposition",
     "RecoveryPolicyOutcomeDisposition",
-    "ReconcileBudgetMode",
     "RecoveryTransitionIntent",
     "StartupRecovery",
     "apply_operator_recovery_transition",
@@ -1475,7 +1422,6 @@ __all__ = [
     "compute_retry_not_before",
     "finalize_handler_recovery",
     "policy_diagnostic_to_operation_diagnostic",
-    "reconcile_budget_exhausted",
     "recovery_backoff_base_seconds",
     "recovery_sessions_exhausted",
     "recovery_sessions_remaining",

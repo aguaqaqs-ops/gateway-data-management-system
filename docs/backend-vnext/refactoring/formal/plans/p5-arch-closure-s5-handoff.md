@@ -36,22 +36,34 @@ V 的包提交按 S5 子步推进：
 
 | 子步 | 主要提交 | 结果 |
 | --- | --- | --- |
-| S5.1 S4-F2 | `9a1ae70a4f`, `3b1ee64bfa`, `66e631ce7a` | Submit poll/session 上限显式化，去除 Submit checkpoint 无用计时状态和无生产调用方的累计预算 helper；保留其他 R5 caller 的累计预算默认行为。 |
+| S5.1 S4-F2 | `9a1ae70a4f`, `3b1ee64bfa`, `66e631ce7a` | Submit poll/session 上限显式化，去除 Submit checkpoint 无用计时状态和无生产调用方的累计预算 helper；F1 再将 R5 通用上限统一为三个恢复会话。 |
 | S5.2 不可达基线 | `f37460dd4b` | 将两组不可达模块登记到 owning 设计；基线注释引用登记。 |
 | S5.3 project identity 拓扑 | `ba4ee7a5e6` | 从 Snapshot Materialization facade 导入 `SqlSetValue`，移除 project_identity 的 `table_access` allowlist。 |
 | S5.3 冻结 Submit prepare | `9f1df26914`, `227255a562`, `61d9387f05`, `882638e961` | Prepare 只使用 T1 冻结产物；保留冻结绑定及 A/B ruleset 回归。 |
 | DC32 依赖与 capability 测量 | `0c967542bb`, `f1ef573a6f`, `004bea5cdf`, `a21d933ce7`, `d7466b0064`, `75d98a2c49`, `a2cfe03c21` | 增加唯一获准的 dev-only BLAKE3、测量模块与用例；完成 DC32 capability 数据。 |
 | 恢复最终门禁与真实数据探针 | `241ee66d94`, `a92f455afb`, `d76cff8018`, `abb7968bbe`, `b79844ddc2` | 修测试 seam、Repository operation ID 与 import 时间读取，增加 t1 调试探针，再修 CLI 测试期望；最后一项只改测试。 |
 
-## 2. S5.1：S4-F2 修复
+## 2. S5.1：S4-F2 修复与 S5-F1 定向修订
 
-`application/submit_jobs.py` 定义 `SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = RECONCILE_SESSION_BUDGET_SECONDS`（60 秒），每个 Repository poll 显式传入该 deadline，并以 `ReconcileBudgetMode.RECOVERY_SESSIONS_ONLY` 选择 R5 的 3 个 claimed recovery session 上限。第 1、2 次会话 timeout 进入 `RETRY_WAIT`；第 3 次 timeout 转 `MANUAL_RECOVERY_REQUIRED`。Repository operation 已终态则按其结果完成 Submit，不因耗时分支继续重试。
+生产调用方是 `operations/recovery.py::finalize_handler_recovery` 和
+`application/submit_jobs.py::await_import_result` 的 poll timeout。S5.1 之前，通用 operation recovery
+路径在 S5 之前就传入 `reconcile_elapsed_seconds=0.0`；因此累计 60 秒分支一直没有生产调用方。Submit timeout
+使用单次 poll 上限并按恢复会话数决定重试，本次前的实现显式传入 `None` 与
+`RECOVERY_SESSIONS_ONLY`。
 
-Submit checkpoint 不再保存 `reconcile_started_at`，也不再保留不参与决策的状态。`application/recovery.py` 中没有生产调用方的 `reconcile_session_budget_exhausted`、`parse_reconcile_started_at` 与 `reconcile_elapsed_seconds` 及其常量删除。其他 R5 caller 仍默认使用累计耗时预算；operation 通用 handler 的先前 `0.0` 输入改为显式 session-only 模式，按旧的有效 0 秒语义保留行为。生产 Submit 路径不再以 `reconcile_elapsed_seconds=0.0` 绕过检查；`test_operation_state.py` 中的 `0.0` 只用于通用合法状态转换表，不是 Submit 生产路径或预算参数。
+本次按 owner 在 main `b5d2961d33` 的授权移除 `reconcile_budget_exhausted`、`ReconcileBudgetMode`、
+累计耗时分支，以及 `transition_for_outcome` 的 `reconcile_elapsed_seconds` / `reconcile_budget_mode`
+参数；同时删除两个生产调用点的对应实参、`__all__` 导出和只证明累计分支的测试/合成 fixture。
+通用状态转换仍按最多三个恢复会话决定重试或人工恢复；Submit 每个 Repository poll 继续以
+`SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = RECONCILE_SESSION_BUDGET_SECONDS`（60 秒）为单次会话上限。
+不修改 Contract。
 
-权威测试 `tests/test_submit_job_effect.py::test_await_import_result_timeout_uses_bounded_submit_poll_sessions` 参数表覆盖 session 1/2 → `RETRY_WAIT`、session 3 → `MANUAL_RECOVERY_REQUIRED`，并断言使用显式 60 秒 deadline、checkpoint 无 `reconcile_started_at`。保留 `test_await_import_result_timeout_retries_until_repository_operation_is_terminal`，因为它单独证明 Repository operation 进入终态后 Submit 成功。恢复策略与 effect/recovery 测试通过；未发现其他 operation 的 R5 语义改变。
+回归保留 `tests/test_submit_job_effect.py::test_await_import_result_timeout_uses_bounded_submit_poll_sessions`
+（会话 1/2 → `RETRY_WAIT`，会话 3 → `MANUAL_RECOVERY_REQUIRED`）、
+`test_await_import_result_timeout_retries_until_repository_operation_is_terminal`，以及 operation 通用
+状态转换/恢复用例。累计分支五个目标符号在生产代码和测试中的 `rg` 结果为 0，命令和完整结果见 §6。
 
-按 owner 授权只修订 R5 设计 §6 和 5B §13.1 关于 Submit poll 上限、3 个 recovery session 与累计 elapsed budget 的关系，文件为：
+按 owner 授权同步修订 R5 设计 §6 和 5B §13.1 的预算规则，文件为：
 
 - `docs/backend-vnext/refactoring/formal/plans/p4-r5-retry-takeover-effect-recovery-design.md`
 - `docs/backend-vnext/refactoring/formal/plans/p5-5b-submit-finalize-design.md`
@@ -89,9 +101,9 @@ Submit checkpoint 不再保存 `reconcile_started_at`，也不再保留不参与
 | History integrity/read inconsistency；5E §6.6、ADR 0016、Operation Lifecycle §4 | `application/history/` 与 repository read adapters；History 按 owner 区分稳定读取失败和 authority mismatch；`test_history_compare_jobs.py`、`test_repository_ref_materialization_protocol.py`。 | 对齐 |
 | 目标 DAG；Architecture §7.1/§7.2/§9.1/§10/§13 | `tests/support/import_rules.py`、`test_architecture.py` 与 `architecture_baseline.py`。无新增 import violation/cycle；6 个 unreachable 均有 owning 登记。 | 对齐 |
 
-**偏差 1（S4 引入的拓扑偏差）。** Owner 决议记录于 main `72a30b2edb`，没有合并 main。按决议将 `SqlSetValue` 改从 Snapshot Materialization 公开 facade 导入并移除 `table_access` allowlist；没有 Contract 文本修改。focused architecture、project_identity 测试与 `import_rules` 均通过，计数仍为 `0 / 0 / 6`。
+**偏差 1（S4 引入的拓扑偏差）。** Owner 决议记录于 main `e0054eceec`，没有合并 main。按决议将 `SqlSetValue` 改从 Snapshot Materialization 公开 facade 导入并移除 `table_access` allowlist；没有 Contract 文本修改。focused architecture、project_identity 测试与 `import_rules` 均通过，计数仍为 `0 / 0 / 6`。
 
-**偏差 2（Submit frozen ruleset）。** Owner 决议采用已接受 Contract 与 DC11 修实现，不改 Ruleset Activation §1/§5 和 P5 §4.8/§4.9。`9f1df26914` 实施：T1 以后 prepare 不读取 runtime ruleset，也不再次投影；build input 中的运行期 ruleset id/version/digest 与 storage projection version 移除，由冻结 manifest 提供事实。schema（列、类型、可空性、有序键）与 DML 只从冻结规范 artifact descriptor/row 及 manifest 逐表事实生成；删除 `_resolve_ruleset` 与 runtime ruleset mismatch 拒绝分支。闭包与 manifest ref/digest、table artifact raw_sha256/snapshot_digest、source_artifact_digest、expected parent CAS 绑定仍会校验，不一致仍稳定失败。`test_submit_prepare_recovers_from_frozen_t1_artifacts_after_ruleset_activation` 与 `test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_changes` 证明 A 在 T1 冻结、prepare 前切换至 digest 不同的 B 后仍可恢复；同输入产出的 schema SQL、DML 与包 digest 与旧 golden 逐字节一致。没有修改 storage_projection 或 snapshot_materialization 的公开 API。Prepare 少做两次投影；DC32 测量以最终 V 路径为准，没有伪造旧路径前后差值。
+**偏差 2（Submit frozen ruleset）。** Owner 决议记录于 main `d876aea9fb`，采用已接受 Contract 与 DC11 修实现，不改 Ruleset Activation §1/§5 和 P5 §4.8/§4.9。偏差由 `90e7f90759` 引入（`git log --all --follow -S 'def _resolve_ruleset' -- vnext/backend/src/gateway_backend/infrastructure/repository_write/import_publication.py`）；`9f1df26914` 实施修复：T1 以后 prepare 不读取 runtime ruleset，也不再次投影；build input 中的运行期 ruleset id/version/digest 与 storage projection version 移除，由冻结 manifest 提供事实。schema（列、类型、可空性、有序键）与 DML 只从冻结规范 artifact descriptor/row 及 manifest 逐表事实生成；删除 `_resolve_ruleset` 与 runtime ruleset mismatch 拒绝分支。闭包与 manifest ref/digest、table artifact raw_sha256/snapshot_digest、source_artifact_digest、expected parent CAS 绑定仍会校验，不一致仍稳定失败。`test_submit_prepare_recovers_from_frozen_t1_artifacts_after_ruleset_activation` 与 `test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_changes` 证明 A 在 T1 冻结、prepare 前切换至 digest 不同的 B 后仍可恢复；同输入产出的 schema SQL、DML 与包 digest 与旧 golden 逐字节一致。没有修改 storage_projection 或 snapshot_materialization 的公开 API。Prepare 少做两次投影；DC32 测量以最终 V 路径为准，没有伪造旧路径前后差值。
 
 ## 5. 路径预算与依赖
 
@@ -125,7 +137,9 @@ Submit checkpoint 不再保存 `reconcile_started_at`，也不再保留不参与
 | Runner V `abb7968bbe` exit 1 | CLI 参数测试整字典比较缺少默认参数 `debug_t1_submit_probe=False`。`b79844ddc2` 仅更新测试期望并核对同模块其他整字典比较。 |
 | fresh RS identity shell 校验曾因引号出错 | 修正了 worktree 外 `/home/dev/gdds-p5-closure-s1-gate-logs/s5/s5-build-and-verify-rs-v.sh`；脚本未入 Git。V 上重新执行的构建和独立身份校验均 PASS。 |
 
-按用户选择的完整旅程路径，在 `abb7968bbe` 上做过 t1 调试探针（不作证据）：`s5-debug-probe-t1-abb7968bbe.log`；v1/v2 Submit 均取得 Repository operation ID、RS `SUCCEEDED`、queue 0 秒、24/25 秒 RS import 与 1/3 个 reconcile session。最终 V 真实数据证据时关闭该调试开关。
+按 owner `398204b4c0` 决议的调试路径，在 `abb7968bbe` 上做过 t1 调试探针（不作证据）：`s5-debug-probe-t1-abb7968bbe.log`；v1/v2 Submit 均取得 Repository operation ID、RS `SUCCEEDED`、queue 0 秒、24/25 秒 RS import 与 1/3 个 reconcile session。最终 V 真实数据证据时关闭该调试开关。
+
+沿用授权与实际执行分开记录：owner 最后允许的范围由 main `f84b930d4a` → `398204b4c0` → `0b8c2bac41` 收敛为 t1–t3 沿用 `a92f455afb`、t4 在新 V 全量运行。V `b79844ddc2` 实际运行了 t1–t4 全量；原因是 `real_dump_journey.py --dc32-output` 不接受 `--tier`，不是 owner 另行选择全量重跑。`--dc32-output` 对 `--tier` 的拒绝由 harness 校验，见 `real_dump_journey.py` 的完整旅程约束和 `test_real_dump_journey.py` 对 CLI 参数的覆盖。
 
 符号搜索在 `vnext/backend/tests`（无 `vnext/backend/tools` 目录）执行。S5 区间 diff 提取 17 个被删/改名的 function/test 名，再逐名在 tests/tools/support 搜索；product helper 的测试引用为 0。搜索命令：
 
@@ -135,7 +149,14 @@ git diff --unified=0 5634dc6f9b..b79844ddc2 -- vnext/backend > /tmp/p5-s5-symbol
 rg -n '(_assert_projection_identity|_capability_storage_projection_version|_capture_control_operation_rows|_empty_projection_from_frozen_manifest|_open_frozen_manifest|_reopen_projection_inputs|_resolve_ruleset|build_and_publish_from_inputs|parse_reconcile_started_at|reconcile_elapsed_seconds|reconcile_session_budget_exhausted|test_await_terminal_checkpoint_rejects_unknown_job_state_fields|test_capability_storage_projection_version_maps_contract_v1|test_parse_reconcile_started_at_reads_iso_utc|test_parse_reconcile_started_at_rejects_missing_or_invalid_values|test_reconcile_session_budget_exhausted)' vnext/backend/tests
 ```
 
-四个指定字符串的总命中是 68：`build_and_publish_from_inputs` 0；`_resolve_ruleset` 0；`_open_projection_inputs` 6（`test_submit_import_builder.py` 对仍存在于 publication adapter 的 artifact reader 测试）；`migrated_table_ruleset_snapshot` 62、分布在 19 个测试/支持文件（规则 capability、其他 Preview/History 构造、Submit build-input fixture，以及断言 Submit prepare 不再读取 runtime ruleset 的 A/B 测试）。diff 派生 17 个候选名：8 个生产 helper/method、1 个通用 `json` helper、5 个测试函数名、3 个累计预算 helper；除过于通用的 `json` 外，其余 16 个均逐名搜索。没有已删除生产 helper 的陈旧调用。命中归类为 fixture/assertion、仍存在的 private artifact reader、迁移后的同名测试定义、通用 R5 测试。`reconcile_elapsed_seconds` 仍有 3 处/2 个测试文件引用，分别覆盖通用 R5 默认模式和 operation transition 输入，不属于 Submit 累计预算 helper；`test_await_terminal_checkpoint_rejects_unknown_job_state_fields` 的 1 处命中是 `test_submit_job_payload.py` 中保留的同名业务测试定义。
+四个指定字符串的历史总命中是 68：`build_and_publish_from_inputs` 0；`_resolve_ruleset` 0；`_open_projection_inputs` 6（`test_submit_import_builder.py` 对仍存在于 publication adapter 的 artifact reader 测试）；`migrated_table_ruleset_snapshot` 62、分布在 19 个测试/支持文件（规则 capability、其他 Preview/History 构造、Submit build-input fixture，以及断言 Submit prepare 不再读取 runtime ruleset 的 A/B 测试）。diff 派生 17 个候选名：8 个生产 helper/method、1 个通用 `json` helper、5 个测试函数名、3 个累计预算 helper；除过于通用的 `json` 外，其余 16 个均逐名搜索。没有已删除生产 helper 的陈旧调用。命中归类为 fixture/assertion、仍存在的 private artifact reader、迁移后的同名测试定义、通用 R5 测试。
+
+S5-F1 关闭后的残留搜索命令与结果：
+
+```text
+rg -n 'reconcile_budget_exhausted|ReconcileBudgetMode|CUMULATIVE_ELAPSED_TIME|RECOVERY_SESSIONS_ONLY|reconcile_elapsed_seconds' vnext/backend/src vnext/backend/tests
+exit 1; no matches (0)
+```
 
 ## 7. 五包检查与权威 runner
 
@@ -177,7 +198,11 @@ V runner 日志：`s5-b79844ddc2-full-runner.log`；起止 HEAD 均为 V，runne
 
 ## 8. DC32 capability 测量
 
-Owner 选择完整 t1–t4 DC32 journey；因此最终 V 上重跑 t1–t4 全部真实数据档作为证据，而不是沿用 a92 的 t1–t3。`s5-dc32-capability-v1.log` 与 `/home/dev/gateway-real-dumps/runs/s5-dc32-capability-v1.json` 的 capability 测量来源为 `a2cfe03c217908f5b22e6c7f0a79d55a919aa4c4`，PASS：8 个 dataset ID、18 个 production capability 场景、14,939 条逐表阶段记录。JSON 文件 mode `0600`，runs 目录 mode `0700`；日志 mode `0600`。未读取 dump 内容。
+owner 最后允许沿用的范围为 main `f84b930d4a` → `398204b4c0` → `0b8c2bac41`：t1–t3 使用 `a92f455afb` 的通过证据，t4 在新 V 全量运行。实际 V `b79844ddc2` 的 harness 以 `--dc32-output` 运行 t1–t4 全量，因为该选项不接受 `--tier`；这是实际命令约束，不是 owner 的范围选择。该完整真实旅程日志为 `s5-b79844ddc2-realdata-dc32-full.log`，真实数据明细为 `/home/dev/gateway-real-dumps/runs/s5-dc32-realdata-b79844ddc2.json`。
+
+S5-F2 完成后在新 V 上从头运行全部 DC32 capability 场景，使用新日志与 JSON 文件名；不拼接 `a2cfe03c21` 的旧数据。新日志、JSON 路径与权限、场景数、逐表记录数和运行结果列于本节下文。测量只记录 capability 调用，不修改生产代码，也不读取 dump 行内容。
+
+下方尚未重写的旧 capability 数字仅作历史记录，不作为 S5-F2 结论或新运行的输入。新 V 测量完成后，最终 H 将整体替换本节汇总、§10 逐表统计和 §11 B 层观察。
 
 允许沿用的范围经核对：
 
@@ -250,14 +275,14 @@ V 上完整真实旅程日志为 `s5-b79844ddc2-realdata-dc32-full.log`（mode `
 | t3 | 0 | 744 | 201 / 201 | `SAME_PROJECT` |
 | t4 | 0 | 168 | 435 / 435 | `SAME_PROJECT` |
 
-下面每格是“用户可见 / operation 完成”墙钟秒。用户可见事件与 terminal result 同时观察时，两者相同；operation 完成还包括调度收尾时间。Submit 的 approve/archive 在各档均完成，之后 History 结果与上表一致。
+下表时间来自现有 `/home/dev/gateway-real-dumps/runs/s5-dc32-realdata-b79844ddc2.json`，没有重跑真实数据。每格依次为“用户可见 / operation terminal / 核对完成”墙钟秒；完成时间统一使用 `operation_terminal_seconds`，`completion_seconds` 只作为 terminal result 读取与核对结束时间单独列示。重复 Submit 没有新的 operation terminal，记为 `—`。Submit 的 approve/archive 在各档均完成，之后 History 结果与上表一致。
 
 | 档 | v1 Preview | v1 Submit | 重传 Preview | 重传 Submit | v2 Preview | v2 Submit | History |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| t1 | `52.282 / 52.300` | `40.280 / 40.291` | `62.336 / 62.350` | `.008 / .008` | `66.376 / 66.390` | `44.309 / 44.319` | `62.184 / 62.191` |
-| t2 | `492.596 / 492.617` | `195.316 / 195.327` | `412.162 / 412.176` | `.008 / .008` | `458.414 / 458.429` | `187.255 / 187.265` | `342.987 / 342.996` |
-| t3 | `842.390 / 842.410` | `348.320 / 348.331` | `902.787 / 902.801` | `.007 / .007` | `1017.408 / 1017.423` | `358.375 / 358.384` | `625.762 / 625.771` |
-| t4 | `1684.782 / 1684.805` | `565.761 / 565.773` | `1463.686 / 1463.700` | `.008 / .008` | `1477.774 / 1477.789` | `573.831 / 573.841` | `892.522 / 892.530` |
+| t1 | `52.282 / 52.282 / 52.300` | `40.280 / 40.280 / 40.291` | `62.336 / 62.336 / 62.350` | `.008 / — / .008` | `66.376 / 66.376 / 66.390` | `44.309 / 44.309 / 44.319` | `62.184 / 62.184 / 62.191` |
+| t2 | `492.596 / 492.596 / 492.617` | `195.316 / 195.316 / 195.327` | `412.162 / 412.162 / 412.176` | `.008 / — / .008` | `458.414 / 458.414 / 458.429` | `187.255 / 187.255 / 187.265` | `342.987 / 342.987 / 342.996` |
+| t3 | `842.390 / 842.390 / 842.410` | `348.320 / 348.320 / 348.331` | `902.787 / 902.787 / 902.801` | `.007 / — / .007` | `1017.408 / 1017.408 / 1017.423` | `358.375 / 358.375 / 358.384` | `625.762 / 625.762 / 625.771` |
+| t4 | `1684.782 / 1684.782 / 1684.805` | `565.761 / 565.761 / 565.773` | `1463.686 / 1463.686 / 1463.700` | `.008 / — / .008` | `1477.774 / 1477.774 / 1477.789` | `573.831 / 573.831 / 573.841` | `892.522 / 892.522 / 892.530` |
 
 真实 journey 每步还用 host cgroup `cpu.stat` 记录 backend、worker、repository-service 的 CPU 秒；这是整个容器 CPU delta，不等同于上节 direct capability 的 thread CPU。
 
@@ -347,14 +372,14 @@ Catalog 读取也单独记录：t1 `122517 B / .008464s / .001037s CPU`；t2 `19
 
 ### S2b 起各阶段 C 层记录
 
-以下为已有 handoff 的 t4 operation wall 秒；S4 的真实数据范围不含重传 v1 Preview、v2 Submit 与 History，故留空。S5 数字与 V 真实数据 operation timing 一致。
+下表统一使用 t4 的 operation wall 秒。S2b handoff §9 只记录 journey step wall，没有 operation wall；因此留空，不用 step wall 代替。S3 取其 §9 operation 记录，S4 只填实际执行的三项 operation，S5 使用现有真实数据 JSON 的 `operation_terminal_seconds`。
 
-| 阶段 | v1 Preview | 重传 v1 Preview | v2 Preview | v1 Submit | v2 Submit | History |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| S2b | 2567.441 | 2244.159 | 2244.042 | 805.214 | 814.908 | 1352.081 |
-| S3 | 2657.230 | 2336.092 | 2339.742 | 802.912 | 812.804 | 1375.789 |
-| S4 | 1678.457 | — | 1463.782 | 578.201 | — | — |
-| S5 | 1684.782 | 1463.686 | 1477.774 | 565.761 | 573.831 | 892.522 |
+| 阶段 | v1 Preview | 重传 v1 Preview | v2 Preview | v1 Submit | v2 Submit | History | 各行来源 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| S2b | — | — | — | — | — | — | `p5-arch-closure-s2b-handoff.md` §9 仅有 step wall，故不换口径补值 |
+| S3 | 2656.491 | 2335.359 | 2339.012 | 800.757 | 810.836 | 1375.067 | `p5-arch-closure-s3-handoff.md` §9 operation wall |
+| S4 | 1677.773 | — | 1463.100 | 576.497 | — | — | `p5-arch-closure-s4-handoff.md` §9 operation wall；其余未运行 |
+| S5 | 1684.782 | 1463.686 | 1477.774 | 565.761 | 573.831 | 892.522 | `s5-dc32-realdata-b79844ddc2.json` 的 `operation_terminal_seconds` |
 
 ### B 层观察（登记到 Phase 6，不在 P5 修）
 

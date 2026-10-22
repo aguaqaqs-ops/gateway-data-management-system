@@ -43,7 +43,6 @@ from gateway_backend.operations.recovery import (
     RecoveryPolicyDecision,
     RecoveryPolicyDecisionDisposition,
     RecoveryPolicyOutcomeDisposition,
-    ReconcileBudgetMode,
     RecoveryTransitionIntent,
     apply_recovery_backoff_jitter,
     classify_cancel,
@@ -51,7 +50,6 @@ from gateway_backend.operations.recovery import (
     classify_handler_failure,
     classify_startup,
     compute_retry_not_before,
-    reconcile_budget_exhausted,
     recovery_backoff_base_seconds,
     recovery_sessions_exhausted,
     recovery_sessions_remaining,
@@ -424,28 +422,15 @@ def test_recovery_session_budget(
     assert recovery_sessions_exhausted(attempt_count) is exhausted
 
 
-RECONCILE_BUDGET_CASES: tuple[tuple[float, bool], ...] = (
-    (0.0, False),
-    (59.9, False),
-    (60.0, True),
-    (120.0, True),
-)
-
-
-@pytest.mark.parametrize(("elapsed", "exhausted"), RECONCILE_BUDGET_CASES)
-def test_reconcile_budget_exhausted(elapsed: float, exhausted: bool) -> None:
-    assert reconcile_budget_exhausted(elapsed) is exhausted
-
-
-SESSION_COUNT_ONLY_RECONCILE_CASES: tuple[tuple[int, StepStatus], ...] = (
+RECONCILE_SESSION_CASES: tuple[tuple[int, StepStatus], ...] = (
     (1, StepStatus.RETRY_WAIT),
     (2, StepStatus.RETRY_WAIT),
     (3, StepStatus.MANUAL_RECOVERY_REQUIRED),
 )
 
 
-@pytest.mark.parametrize(("attempt_count", "expected_step_status"), SESSION_COUNT_ONLY_RECONCILE_CASES)
-def test_session_count_only_reconcile_budget_uses_three_r5_sessions(
+@pytest.mark.parametrize(("attempt_count", "expected_step_status"), RECONCILE_SESSION_CASES)
+def test_reconcile_pending_uses_three_recovery_sessions(
     attempt_count: int,
     expected_step_status: StepStatus,
 ) -> None:
@@ -453,8 +438,6 @@ def test_session_count_only_reconcile_budget_uses_three_r5_sessions(
         RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
         capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
         attempt_count=attempt_count,
-        reconcile_elapsed_seconds=None,
-        reconcile_budget_mode=ReconcileBudgetMode.RECOVERY_SESSIONS_ONLY,
         effect_boundary_crossed=True,
         cancel_requested=False,
         now=BASE_TIME,
@@ -950,7 +933,6 @@ OUTCOME_TRANSITION_MATRIX: tuple[
         str,
         RecoveryPolicyOutcomeDisposition,
         int,
-        float,
         bool,
         bool,
         StepStatus | None,
@@ -959,26 +941,24 @@ OUTCOME_TRANSITION_MATRIX: tuple[
     ],
     ...,
 ] = (
-    ("published", RecoveryPolicyOutcomeDisposition.PUBLISHED, 1, 0.0, False, False, StepStatus.SUCCEEDED, OperationStatus.SUCCEEDED, False),
-    ("retryable_with_budget", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 1, 0.0, False, False, StepStatus.RETRY_WAIT, None, False),
-    ("retryable_exhausted", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 3, 0.0, False, False, StepStatus.FAILED, OperationStatus.FAILED, False),
-    ("reconcile_pending", RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING, 1, 10.0, False, False, StepStatus.RETRY_WAIT, None, False),
+    ("published", RecoveryPolicyOutcomeDisposition.PUBLISHED, 1, False, False, StepStatus.SUCCEEDED, OperationStatus.SUCCEEDED, False),
+    ("retryable_with_budget", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 1, False, False, StepStatus.RETRY_WAIT, None, False),
+    ("retryable_exhausted", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 3, False, False, StepStatus.FAILED, OperationStatus.FAILED, False),
+    ("reconcile_pending", RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING, 1, False, False, StepStatus.RETRY_WAIT, None, False),
     (
         "reconcile_pending_session_exhausted",
         RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
         3,
-        10.0,
         False,
         False,
         StepStatus.MANUAL_RECOVERY_REQUIRED,
         OperationStatus.MANUAL_RECOVERY_REQUIRED,
         True,
     ),
-    ("reconcile_timeout_manual", RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING, 1, 60.0, False, False, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED, True),
-    ("permanent_failure", RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE, 1, 0.0, False, False, StepStatus.FAILED, OperationStatus.FAILED, False),
-    ("manual_recovery", RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY, 1, 0.0, False, False, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED, True),
-    ("cancel_before_boundary", RecoveryPolicyOutcomeDisposition.CANCELLED, 1, 0.0, False, False, StepStatus.CANCELLED, OperationStatus.CANCELLED, False),
-    ("cancel_after_boundary_reconcile", RecoveryPolicyOutcomeDisposition.CANCELLED, 1, 0.0, True, True, StepStatus.RETRY_WAIT, None, False),
+    ("permanent_failure", RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE, 1, False, False, StepStatus.FAILED, OperationStatus.FAILED, False),
+    ("manual_recovery", RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY, 1, False, False, StepStatus.MANUAL_RECOVERY_REQUIRED, OperationStatus.MANUAL_RECOVERY_REQUIRED, True),
+    ("cancel_before_boundary", RecoveryPolicyOutcomeDisposition.CANCELLED, 1, False, False, StepStatus.CANCELLED, OperationStatus.CANCELLED, False),
+    ("cancel_after_boundary_reconcile", RecoveryPolicyOutcomeDisposition.CANCELLED, 1, True, True, StepStatus.RETRY_WAIT, None, False),
 )
 
 
@@ -987,7 +967,6 @@ OUTCOME_TRANSITION_MATRIX: tuple[
         "name",
         "outcome",
         "attempt_count",
-        "reconcile_elapsed",
         "effect_boundary_crossed",
         "cancel_requested",
         "step_target",
@@ -1000,7 +979,6 @@ def test_transition_for_outcome_matrix(
     name: str,
     outcome: RecoveryPolicyOutcomeDisposition,
     attempt_count: int,
-    reconcile_elapsed: float,
     effect_boundary_crossed: bool,
     cancel_requested: bool,
     step_target: StepStatus | None,
@@ -1012,7 +990,6 @@ def test_transition_for_outcome_matrix(
         outcome,
         capability=RecoveryCapabilityValue.PURE_RECOMPUTE,
         attempt_count=attempt_count,
-        reconcile_elapsed_seconds=reconcile_elapsed,
         effect_boundary_crossed=effect_boundary_crossed,
         cancel_requested=cancel_requested,
         now=BASE_TIME,

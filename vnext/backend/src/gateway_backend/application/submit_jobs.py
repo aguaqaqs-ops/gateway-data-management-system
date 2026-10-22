@@ -146,7 +146,6 @@ from gateway_backend.operations.recovery import (
     RecoveryCapabilityLookup,
     RecoveryCapabilityValue,
     RecoveryPolicyOutcomeDisposition,
-    ReconcileBudgetMode,
     build_authorized_operator_recovery,
     transition_for_outcome,
 )
@@ -847,14 +846,11 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             except (TimeoutError, RepositoryWriteTimeoutError):
                 now = datetime.now(UTC)
                 # One bounded Submit import poll session does not prove the Repository operation
-                # failed. R5 bounds retries by three claimed sessions; cumulative elapsed time is
-                # intentionally not the budget for these individually bounded polls.
+                # failed. R5 allows three claimed recovery sessions, each with one bounded poll.
                 intent = transition_for_outcome(
                     RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
                     capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
                     attempt_count=step.attempt_count,
-                    reconcile_elapsed_seconds=None,
-                    reconcile_budget_mode=ReconcileBudgetMode.RECOVERY_SESSIONS_ONLY,
                     effect_boundary_crossed=True,
                     cancel_requested=control.cancel_requested,
                     now=now,

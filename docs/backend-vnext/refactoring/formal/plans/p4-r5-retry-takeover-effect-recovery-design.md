@@ -130,7 +130,7 @@ re-executed. Successor publication remains R4's static single-successor/terminal
 | deterministic pure compute failure with a valid checkpoint | retry until three sessions, then `FAILED` |
 | external request not accepted | retry with the same idempotency key |
 | request accepted or outcome unknown | reconcile only; never blind replay |
-| cumulative reconcile budget exhausted | `MANUAL_RECOVERY_REQUIRED`, occupancy retained |
+| 3 个恢复会话用尽 | `MANUAL_RECOVERY_REQUIRED`, occupancy retained |
 | checkpoint/artifact unreadable | immediate manual recovery; do not recreate bytes |
 | explicit application permanent failure | `FAILED` |
 | unclassified executor failure | manual recovery, fail closed |
@@ -138,14 +138,12 @@ re-executed. Successor publication remains R4's static single-successor/terminal
 | cancel after request/effect boundary | continue reconcile; no synthetic `CANCELLED` |
 
 Defaults are three recovery sessions per Step, backoff `1s -> 2s -> 4s` capped at `10s`, bounded
-jitter with injectable clock/wait/jitter sources, and a 60-second active reconcile session.
-Polls inside one session do not increment `attempt_count`; a crashed session does. Submit's
-`await_import_result` uses the bounded Repository poll parameter documented in the 5B design:
-each claimed session polls for at most 60 seconds, a timeout retries while fewer than three
-sessions have run, and the third timeout moves to `MANUAL_RECOVERY_REQUIRED`. For this path the
-R5 transition uses the explicit `RECOVERY_SESSIONS_ONLY` budget mode; the cumulative elapsed-time
-check remains the default for other R5 callers. Submit does not persist `reconcile_started_at`
-because that timestamp does not participate in this session-count budget.
+jitter with injectable clock/wait/jitter sources, and a 60-second maximum poll duration within
+one active reconcile session. Polls inside one session do not increment `attempt_count`; a
+crashed session does. A timeout retries while fewer than three recovery sessions have run; the
+third exhausted session moves to `MANUAL_RECOVERY_REQUIRED`. Submit's `await_import_result` uses
+the bounded Repository poll parameter documented in the 5B design and does not persist
+`reconcile_started_at`, because the timestamp does not participate in the session-count budget.
 
 ## 7. Identity, diagnostics and operator recovery
 

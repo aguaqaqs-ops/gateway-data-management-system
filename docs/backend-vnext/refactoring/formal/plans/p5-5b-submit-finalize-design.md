@@ -762,9 +762,9 @@ Repository poll/reconcile/admission参数；P4的60s reconcile session、lease/b
 由5B改变。Submit 的 `await_import_result` 使用有名的
 `SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = 60.0` 作为每次 Repository poll 的上限。每次 poll timeout
 结束当前 R5 recovery session；最多三次 session（每次至多 60 秒），前三次中的前两次可重试，第三次
-进入 `MANUAL_RECOVERY_REQUIRED` 并保留 occupancy。该路径选择 R5 `RECOVERY_SESSIONS_ONLY` 模式，
-不跨 checkpoint 累计 60 秒；Submit checkpoint 不保存无用途的 `reconcile_started_at`。其他 R5
-调用方继续使用默认累计耗时检查。target/policy/mutation mode不是setting，固定在job contract。
+进入 `MANUAL_RECOVERY_REQUIRED` 并保留 occupancy。R5 对账上限统一按最多三个恢复会话计算；每个
+会话的 60 秒是单次 Repository poll 上限，不跨 checkpoint 累计。Submit checkpoint 不保存无用途的
+`reconcile_started_at`。target/policy/mutation mode不是setting，固定在job contract。
 
 Backend与worker必须从同一composition factory获得Submit definitions/decoders/handler identity；
 HTTP T1使用同一immutable registry snapshot做preflight。Repository client不得记录bearer、body、

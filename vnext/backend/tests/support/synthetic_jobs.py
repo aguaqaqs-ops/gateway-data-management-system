@@ -6,7 +6,7 @@ import dataclasses
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import cast
 
 from gateway_shared_kernel import raw_blob_digest
@@ -41,7 +41,6 @@ from gateway_backend.application.job_definitions import (
 from gateway_backend.application.recovery import (
     DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
-    DIAGNOSTIC_RECONCILE_TIMEOUT,
     ExternalEffectRequestIdentity,
     RecoveryOutcome,
     RecoveryOutcomeDisposition,
@@ -60,9 +59,6 @@ from gateway_backend.operations.contracts import (
     OperationStatus,
     StepRecord,
     StepStatus,
-)
-from gateway_backend.operations.recovery import (
-    reconcile_budget_exhausted,
 )
 from gateway_backend.operations.worker import (
     CheckpointGeneration,
@@ -97,23 +93,6 @@ _JOB_STATE_OPERATION_IDENTITY = "operation_identity"
 _JOB_STATE_REQUEST_ARTIFACT_ID = "request_artifact_id"
 _JOB_STATE_REQUEST_FINGERPRINT = "request_fingerprint"
 _JOB_STATE_REQUEST_SENT = "request_sent"
-_JOB_STATE_RECONCILE_STARTED_AT = "reconcile_started_at"
-
-
-def _parse_reconcile_started_at(job_state: Mapping[str, object]) -> datetime:
-    value = job_state.get(_JOB_STATE_RECONCILE_STARTED_AT)
-    if type(value) is not str or not value:
-        raise ValueError("reconcile_started_at must be a non-empty string")
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ValueError("reconcile_started_at is malformed") from exc
-    utc_offset = parsed.utcoffset()
-    if parsed.tzinfo is None or utc_offset is None or utc_offset.total_seconds() != 0:
-        raise ValueError("reconcile_started_at must be timezone-aware UTC")
-    return parsed
-
-
 @dataclass(frozen=True, slots=True)
 class PureComputePayload:
     """Bounded deterministic input for the pure-compute synthetic job."""
@@ -489,7 +468,6 @@ def build_external_effect_stub_handler(
                     )
                 )
                 return ExecutorAcknowledgment.PUBLISHED
-            reconcile_started_at = _iso_utc_timestamp(datetime.now(UTC))
             request_fingerprint = compute_request_fingerprint(request_bytes)
             envelope = envelope_for_step(
                 key=key,
@@ -501,7 +479,6 @@ def build_external_effect_stub_handler(
                     request_artifact_id=request_ref.artifact_id,
                     operation_identity=operation_identity,
                     request_fingerprint=request_fingerprint,
-                    reconcile_started_at=reconcile_started_at,
                 ),
             )
             checkpoint_ref = prepare_step_checkpoint(artifact_store, envelope)
@@ -560,7 +537,6 @@ def build_external_effect_stub_recovery_port(
     artifact_store: ArtifactStorePort,
     *,
     external_stub: ExternalEffectStub | None = None,
-    now_factory: Callable[[], datetime] | None = None,
 ) -> RecoveryPort:
     """Build a RecoveryPort that reuses the original external-effect identity."""
 
@@ -568,8 +544,6 @@ def build_external_effect_stub_recovery_port(
         raise ValueError("artifact_store must implement ArtifactStorePort")
 
     definition = external_effect_stub_job_definition()
-    clock = now_factory or (lambda: datetime.now(UTC))
-
     class _ExternalEffectStubRecoveryPort:
         def recover(
             self,
@@ -605,8 +579,6 @@ def build_external_effect_stub_recovery_port(
                 diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
                 reason="external effect stub is not poll-capable",
             )
-        now = clock()
-
         if step.checkpoint_ref is None:
             return _recover_external_effect_pre_request(
                 artifact_store=artifact_store,
@@ -618,7 +590,6 @@ def build_external_effect_stub_recovery_port(
                 expected_identity=expected_identity,
                 polling_stub=polling_stub,
                 lease_session=lease_session,
-                reconcile_started_at=now,
             )
 
         try:
@@ -644,23 +615,6 @@ def build_external_effect_stub_recovery_port(
         )
         if isinstance(identity_result, RecoveryOutcome):
             return identity_result
-
-        try:
-            started_at = _parse_reconcile_started_at(envelope.job_state)
-            elapsed_seconds = (now - started_at).total_seconds()
-            budget_exhausted = reconcile_budget_exhausted(elapsed_seconds)
-        except (TypeError, ValueError) as exc:
-            return RecoveryOutcome(
-                disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
-                diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
-                reason=f"invalid reconcile checkpoint timestamp: {exc}",
-            )
-        if budget_exhausted:
-            return RecoveryOutcome(
-                disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
-                diagnostic_code=DIAGNOSTIC_RECONCILE_TIMEOUT,
-                reason="external effect reconcile session budget exhausted",
-            )
 
         return _recover_external_effect_post_request(
             artifact_store=artifact_store,
@@ -724,7 +678,6 @@ def _job_state_for_request(
     request_artifact_id: str,
     operation_identity: str,
     request_fingerprint: str,
-    reconcile_started_at: str,
 ) -> dict[str, object]:
     return {
         _JOB_STATE_IDEMPOTENCY_KEY: idempotency_key,
@@ -732,7 +685,6 @@ def _job_state_for_request(
         _JOB_STATE_OPERATION_IDENTITY: operation_identity,
         _JOB_STATE_REQUEST_FINGERPRINT: request_fingerprint,
         _JOB_STATE_REQUEST_SENT: True,
-        _JOB_STATE_RECONCILE_STARTED_AT: reconcile_started_at,
     }
 
 
@@ -789,10 +741,6 @@ def _request_state_from_job_state(
         operation_identity=identity_result.repository_operation_id,
         checkpoint_ref=checkpoint_ref,
     )
-
-
-def _iso_utc_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _as_polling_stub(
@@ -894,7 +842,6 @@ def _recover_external_effect_pre_request(
     expected_identity: str,
     polling_stub: PollingExternalEffectStub,
     lease_session: LeaseSession,
-    reconcile_started_at: datetime,
 ) -> RecoveryOutcome:
     request_ref = put_with_built_ref(
         artifact_store,
@@ -919,7 +866,6 @@ def _recover_external_effect_pre_request(
             request_artifact_id=request_ref.artifact_id,
             operation_identity=operation_identity,
             request_fingerprint=compute_request_fingerprint(request_bytes),
-            reconcile_started_at=_iso_utc_timestamp(reconcile_started_at),
         ),
     )
     checkpoint_ref = prepare_step_checkpoint(artifact_store, envelope)

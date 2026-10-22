@@ -9,7 +9,6 @@ import pytest
 
 from gateway_backend.application.checkpoints import (
     envelope_for_step,
-    load_checkpoint_envelope,
     make_checkpoint_step_builder,
     prepare_step_checkpoint,
 )
@@ -366,7 +365,6 @@ def test_accepted_handler_then_recovery_polls_without_resubmit(tmp_path: Path) -
         operation = unit_of_work.operations.get_operation(operation_id)
         step = unit_of_work.operations.get_step(step_id)
     assert step.checkpoint_ref is not None
-    envelope = load_checkpoint_envelope(artifact_store, step.checkpoint_ref)
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=polling_stub,

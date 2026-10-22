@@ -447,33 +447,56 @@ def _capture_container_inspections(env: dict[str, str], root: Path) -> None:
             )
 
 
-def _capture_control_operation_rows(
+def _capture_submit_attempt_control_rows(
     env: dict[str, str],
     operation_id: str,
     root: Path,
     *,
     summary_out: dict[str, Any] | None = None,
-) -> str | None:
+) -> str:
     # The live DB is opened read-only and copied before querying. Only the
-    # operation, step and lease fields needed to diagnose the stall are emitted.
+    # operation, submit attempt, step and lease fields needed by the S5 probe
+    # and stall diagnosis are emitted.
     snapshot_script = """
 import json, os, sqlite3, sys, tempfile
 from pathlib import Path
 
-operation_id = sys.argv[1]
-source = sqlite3.connect(
-    "file:/var/lib/gateway/control/control.sqlite3?mode=ro", uri=True
-)
-fd, snapshot_name = tempfile.mkstemp(prefix="gdds-s4-stall-control-")
+database_path = Path(sys.argv[1])
+operation_id = sys.argv[2]
+source = sqlite3.connect(database_path.resolve().as_uri() + "?mode=ro", uri=True)
+fd, snapshot_name = tempfile.mkstemp(prefix="gdds-s5-submit-control-")
 os.close(fd)
 try:
     snapshot = sqlite3.connect(snapshot_name)
     source.backup(snapshot)
     operation_row = snapshot.execute(
-        "SELECT operation_id, status, created_at_us, updated_at_us, completed_at_us, "
-        "repository_operation_id FROM operation_records WHERE operation_id = ?",
+        "SELECT operation_id, status, created_at_us, updated_at_us, completed_at_us, business_refs "
+        "FROM operation_records WHERE operation_id = ?",
         (operation_id,),
     ).fetchone()
+    submit_attempt = None
+    if operation_row is not None:
+        business_refs = json.loads(bytes(operation_row[5]))
+        if not isinstance(business_refs, list):
+            raise ValueError("operation business_refs is not a list")
+        submit_attempt_ids = [
+            reference.get("value")
+            for reference in business_refs
+            if isinstance(reference, dict) and reference.get("kind") == "submit_attempt"
+        ]
+        if len(submit_attempt_ids) != 1 or not isinstance(submit_attempt_ids[0], str):
+            raise ValueError("operation must reference exactly one submit_attempt")
+        attempt_row = snapshot.execute(
+            "SELECT submit_attempt_id, operation_id, repository_operation_id "
+            "FROM submit_attempt_records WHERE submit_attempt_id = ?",
+            (submit_attempt_ids[0],),
+        ).fetchone()
+        if attempt_row is not None and attempt_row[1] != operation_id:
+            raise ValueError("submit_attempt belongs to a different operation")
+        submit_attempt = None if attempt_row is None else {
+            "submit_attempt_id": attempt_row[0],
+            "repository_operation_id": attempt_row[2],
+        }
     step_rows = snapshot.execute(
         "SELECT step_id, step_name, status, attempt_count, worker_id, "
         "lease_expires_at_us, created_at_us, updated_at_us, started_at_us, completed_at_us "
@@ -494,7 +517,6 @@ try:
         "operation_id": operation_row[0], "status": operation_row[1],
         "created_at_us": operation_row[2], "updated_at_us": operation_row[3],
         "completed_at_us": operation_row[4],
-        "repository_operation_id": operation_row[5],
     }
     leases = [
         {
@@ -505,7 +527,12 @@ try:
         }
         for step in steps if step["lease_expires_at_us"] is not None
     ]
-    print(json.dumps({"operation": operation, "steps": steps, "leases": leases}, sort_keys=True))
+    print(json.dumps({
+        "operation": operation,
+        "submit_attempt": submit_attempt,
+        "steps": steps,
+        "leases": leases,
+    }, sort_keys=True))
     snapshot.close()
 finally:
     source.close()
@@ -519,23 +546,32 @@ finally:
         "python",
         "-c",
         snapshot_script,
+        "/var/lib/gateway/control/control.sqlite3",
         operation_id,
         timeout=60.0,
     )
     if result.returncode != 0:
-        (root / "control-db-selected-rows-error.txt").write_text(
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+        error_path = root / "control-db-selected-rows-error.txt"
+        error_path.write_text(
             f"snapshot/query exit={result.returncode}\n{result.stderr}",
             encoding="utf-8",
         )
-        return None
+        error_path.chmod(0o600)
+        raise JourneyFailure("Submit attempt control DB query failed")
     try:
         summary = json.loads(result.stdout)
     except json.JSONDecodeError:
-        (root / "control-db-selected-rows-error.txt").write_text(
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+        error_path = root / "control-db-selected-rows-error.txt"
+        error_path.write_text(
             "snapshot/query returned invalid JSON\n",
             encoding="utf-8",
         )
-        return None
+        error_path.chmod(0o600)
+        raise JourneyFailure("Submit attempt control DB query returned invalid JSON") from None
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     root.chmod(0o700)
     selected_rows_path = root / "control-db-selected-rows.json"
@@ -546,11 +582,15 @@ finally:
     selected_rows_path.chmod(0o600)
     if summary_out is not None:
         summary_out.update(summary)
-    operation = summary.get("operation")
+    submit_attempt = summary.get("submit_attempt")
     repository_operation_id = (
-        operation.get("repository_operation_id") if isinstance(operation, dict) else None
+        submit_attempt.get("repository_operation_id")
+        if isinstance(submit_attempt, dict)
+        else None
     )
-    return repository_operation_id if isinstance(repository_operation_id, str) else None
+    if not isinstance(repository_operation_id, str) or not repository_operation_id:
+        raise JourneyFailure("Submit Repository operation id is missing from its attempt record")
+    return repository_operation_id
 
 
 def _capture_repository_import_status(
@@ -611,7 +651,7 @@ def _capture_submit_reconciliation_facts(
     enforce_three_session_limit: bool,
 ) -> dict[str, Any]:
     control_summary: dict[str, Any] = {}
-    repository_operation_id = _capture_control_operation_rows(
+    repository_operation_id = _capture_submit_attempt_control_rows(
         env,
         operation_id,
         root,
@@ -635,8 +675,6 @@ def _capture_submit_reconciliation_facts(
     sessions_used = reconciliation_step.get("attempt_count")
     if type(sessions_used) is not int or sessions_used < 1:
         raise JourneyFailure("Submit reconciliation session count is invalid")
-    if repository_operation_id is None:
-        raise JourneyFailure("Submit Repository operation id is missing from the control DB")
     repository_status = _capture_repository_import_status(
         repository_url=repository_url,
         repository_id=repository_id,
@@ -709,12 +747,11 @@ def _capture_worker_stall_diagnostics(
         except Exception as exc:
             errors.append(f"container inspect: {type(exc).__name__}")
 
-        repository_operation_id: str | None = None
         try:
-            repository_operation_id = _capture_control_operation_rows(env, operation_id, root)
+            repository_operation_id = _capture_submit_attempt_control_rows(env, operation_id, root)
         except Exception as exc:
             errors.append(f"control DB snapshot: {type(exc).__name__}")
-        if repository_operation_id is not None:
+        else:
             try:
                 _capture_repository_import_status(
                     repository_url=repository_url,
@@ -724,12 +761,6 @@ def _capture_worker_stall_diagnostics(
                 )
             except Exception as exc:
                 errors.append(f"Repository import status: {type(exc).__name__}")
-        else:
-            (root / "repository-import-status.json").write_text(
-                json.dumps({"status_read": "no repository_operation_id in control DB snapshot"})
-                + "\n",
-                encoding="utf-8",
-            )
 
         try:
             logs = run_compose(env, "logs", "--no-color", "--timestamps", timeout=180.0)

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -37,6 +39,21 @@ from benchmarks.real_dump_journey import (
     WorkerHeartbeatTracker,
     WorkerStalledFailure,
 )
+from gateway_backend.domain.submission.models import (
+    BackendArtifactRef,
+    BuilderMutationPolicy,
+    RepositoryArtifactRef,
+    SubmitAttempt,
+    SubmitAttemptState,
+    SubmitTargetRef,
+    SubmitUnknownTypePolicy,
+    SubmitVerificationPolicy,
+)
+from gateway_backend.infrastructure.control_db.database import (
+    connect_control_db,
+    initialize_control_db,
+)
+from gateway_backend.infrastructure.control_db.sqlite_submission import submit_attempt_to_row
 
 pytestmark = pytest.mark.unit
 
@@ -111,6 +128,147 @@ def _cpu_snapshot(usage_usec: int) -> dict[str, dict[str, int]]:
         }
         for service in ("backend", "worker", "repository-service")
     }
+
+
+def _seed_succeeded_submit_control_db(
+    db_path: Path,
+    *,
+    repository_operation_id: str | None,
+) -> None:
+    initialize_control_db(db_path)
+    connection = connect_control_db(db_path)
+    try:
+        with connection:
+            connection.execute(
+                """
+                INSERT INTO workspace_records (
+                    workspace_id, owner_actor_id, gateway_device_external_key,
+                    business_project_id, repository_id, state, generation,
+                    optimistic_version, current_upload_revision_id,
+                    current_preview_result_id, created_at_us, updated_at_us, closed_at_us
+                ) VALUES ('workspace-1', 'actor-1', 'device-1', 'project-1', 'repository-1',
+                          'OPEN', 1, 0, NULL, NULL, 1, 1, NULL)
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO operation_records (
+                    operation_id, contract_version, optimistic_version, job_kind,
+                    job_contract_version, job_payload, job_payload_ref, business_refs,
+                    artifact_refs, repository_operation_id, checkpoint_ref, ready_closure_ref,
+                    status, diagnostic, cancel_requested, created_at_us, updated_at_us,
+                    completed_at_us
+                ) VALUES (?, 'operation-runtime/v1', 1, 'submit', 'backend-submit/v1',
+                          NULL, NULL, ?, X'5B5D', NULL, NULL, NULL, 'SUCCEEDED', NULL,
+                          0, 1, 2, 2)
+                """,
+                (
+                    "operation-1",
+                    json.dumps(
+                        [{"kind": "submit_attempt", "value": "submit-attempt-1"}],
+                        separators=(",", ":"),
+                    ).encode(),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO step_records (
+                    step_id, operation_id, contract_version, optimistic_version,
+                    step_name, attempt_count, status, diagnostic, cancel_requested,
+                    retry_not_before_us, worker_id, lease_token, lease_expires_at_us,
+                    checkpoint_ref, prior_output_refs, created_at_us, updated_at_us,
+                    started_at_us, completed_at_us, eligible_at_us
+                ) VALUES ('step-1', 'operation-1', 'operation-runtime/v1', 1,
+                          'await_import_result', 2, 'SUCCEEDED', NULL, 0, NULL, NULL,
+                          NULL, NULL, NULL, X'5B5D', 1, 2, 1, 2, NULL)
+                """
+            )
+            timestamp = datetime(2026, 10, 20, 15, 0, 0, tzinfo=UTC)
+            attempt = SubmitAttempt(
+                submit_attempt_id="submit-attempt-1",
+                workspace_id="workspace-1",
+                workspace_generation=1,
+                upload_revision_id="upload-1",
+                preview_result_id="preview-1",
+                repository_id="repository-1",
+                business_baseline_node_id="baseline-1",
+                business_baseline_commit_id="commit-base",
+                baseline_head_version=1,
+                repository_expected_commit_id="commit-expected",
+                canonical_business_digest="sha256:canonical",
+                source_digest="sha256:source",
+                snapshot_digest="sha256:snapshot",
+                source_artifact_refs=(),
+                canonical_table_set_closure_ref="table-closure-1",
+                canonical_table_set_closure_digest="sha256:table-closure",
+                preview_ready_closure_ref="preview-closure-1",
+                preview_ready_closure_digest="sha256:preview-closure",
+                canonicalization_manifest_ref="manifest-1",
+                canonicalization_manifest_digest="sha256:manifest",
+                repository_import_artifact_ref=BackendArtifactRef(
+                    artifact_id="backend-artifact-1",
+                    media_type="application/vnd.gateway.repository-import",
+                    size_bytes=1,
+                    raw_sha256="sha256:" + "a" * 64,
+                ),
+                repository_artifact_ref=RepositoryArtifactRef(
+                    artifact_id="repository-artifact-1",
+                    media_type="application/vnd.gateway.repository-artifact",
+                    size_bytes=1,
+                    raw_sha256="sha256:" + "b" * 64,
+                ),
+                repository_operation_id=repository_operation_id,
+                repository_operation_evidence="confirmed",
+                requested_target_ref=SubmitTargetRef.MAIN,
+                requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
+                requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
+                builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+                accept_idempotency_key="accept-1",
+                accept_request_fingerprint="sha256:accept",
+                repository_upload_idempotency_key="upload-1",
+                repository_import_idempotency_key="import-1",
+                operation_id="operation-1",
+                state=SubmitAttemptState.FINALIZED,
+                submission_id="submission-1",
+                optimistic_version=1,
+                created_by="actor-1",
+                created_at=timestamp,
+                prepared_canonicalization_manifest_ref="prepared-manifest-1",
+                prepared_canonicalization_manifest_digest="sha256:prepared-manifest",
+                effect_pending_at=timestamp,
+                finalized_at=timestamp,
+            )
+            attempt_values = submit_attempt_to_row(attempt)
+            placeholders = ", ".join("?" for _ in attempt_values)
+            connection.execute(
+                f"INSERT INTO submit_attempt_records VALUES ({placeholders})",
+                attempt_values,
+            )
+    finally:
+        connection.close()
+
+
+def _run_submit_control_query_against_database(
+    monkeypatch: pytest.MonkeyPatch,
+    db_path: Path,
+) -> None:
+    def run_local_control_query(
+        _env: dict[str, str],
+        *command: str,
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        assert command[:5] == ("exec", "-T", "backend", "python", "-c")
+        script, container_db_path, operation_id = command[5:]
+        assert container_db_path == "/var/lib/gateway/control/control.sqlite3"
+        return subprocess.run(
+            [sys.executable, "-c", script, str(db_path), operation_id],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    monkeypatch.setattr(real_dump_journey, "run_compose", run_local_control_query)
 
 
 @pytest.mark.parametrize(
@@ -563,6 +721,86 @@ def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
         "status": "SUCCEEDED",
         "updated_at": "2026-10-20T15:01:00Z",
     }
+
+
+def test_succeeded_submit_reconciliation_follows_business_ref_to_repository_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    _seed_succeeded_submit_control_db(
+        db_path,
+        repository_operation_id="repository-operation-1",
+    )
+    _run_submit_control_query_against_database(monkeypatch, db_path)
+
+    class OperationResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {
+                "operation": {
+                    "status": "SUCCEEDED",
+                    "created_at": "2026-10-20T15:00:00Z",
+                    "started_at": "2026-10-20T15:00:01Z",
+                    "updated_at": "2026-10-20T15:01:00Z",
+                    "completed_at": "2026-10-20T15:01:00Z",
+                }
+            }
+
+    class OperationClient:
+        def __enter__(self) -> OperationClient:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def get(self, url: str, *, headers: dict[str, str]) -> OperationResponse:
+            assert url.endswith("/operations/repository-operation-1")
+            assert headers
+            return OperationResponse()
+
+    monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())
+    facts = real_dump_journey._capture_submit_reconciliation_facts(
+        env={"PATH": "/usr/bin"},
+        repository_url="http://repository-service",
+        repository_id="repository-1",
+        operation_id="operation-1",
+        root=tmp_path / "submit-facts",
+        enforce_three_session_limit=True,
+    )
+
+    assert facts["repository_operation_id"] == "repository-operation-1"
+    assert facts["await_import_result_attempt_count"] == 2
+    selected_rows = json.loads(
+        (tmp_path / "submit-facts" / "control-db-selected-rows.json").read_text()
+    )
+    assert selected_rows["submit_attempt"] == {
+        "repository_operation_id": "repository-operation-1",
+        "submit_attempt_id": "submit-attempt-1",
+    }
+    assert selected_rows["steps"][0]["step_name"] == "await_import_result"
+    assert selected_rows["steps"][0]["attempt_count"] == 2
+
+
+def test_succeeded_submit_without_attempt_repository_identity_fails_reconciliation_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "control.sqlite3"
+    _seed_succeeded_submit_control_db(db_path, repository_operation_id=None)
+    _run_submit_control_query_against_database(monkeypatch, db_path)
+
+    with pytest.raises(JourneyFailure, match="missing from its attempt record"):
+        real_dump_journey._capture_submit_reconciliation_facts(
+            env={"PATH": "/usr/bin"},
+            repository_url="http://repository-service",
+            repository_id="repository-1",
+            operation_id="operation-1",
+            root=tmp_path / "submit-facts",
+            enforce_three_session_limit=True,
+        )
 
 
 def test_operation_timeout_remains_distinct_from_worker_stall(

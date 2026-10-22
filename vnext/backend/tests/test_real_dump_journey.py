@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 import time
@@ -14,6 +15,7 @@ import httpx
 import pytest
 import pyarrow as pa
 import pyarrow.ipc as pa_ipc
+from gateway_repository_contracts import GetOperationResponse
 
 from benchmarks import real_dump_journey
 from benchmarks.real_dump_journey import (
@@ -56,6 +58,106 @@ from gateway_backend.infrastructure.control_db.database import (
 from gateway_backend.infrastructure.control_db.sqlite_submission import submit_attempt_to_row
 
 pytestmark = pytest.mark.unit
+
+REPOSITORY_OPERATION_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def _succeeded_repository_operation_payload(operation_id: str) -> dict[str, Any]:
+    response = GetOperationResponse.model_validate(
+        {
+            "operation": {
+                "operation_id": operation_id,
+                "status": "SUCCEEDED",
+                "result": {
+                    "commit_id": "commit-2",
+                    "target_ref": "main",
+                    "artifact_id": "00000000-0000-0000-0000-000000000002",
+                    "canonicalization_manifest_digest": "sha256:" + "a" * 64,
+                    "expected_commit_id": "commit-1",
+                    "completed_verification_policy": "STRUCTURAL",
+                    "unknown_type_policy": "REJECT",
+                },
+                "error": None,
+            }
+        }
+    )
+    return response.model_dump(mode="json")
+
+
+def _initialize_repository_service_control_db(db_path: Path) -> None:
+    service_source = Path(__file__).resolve().parents[2] / "repository_service" / "src"
+    initialize_script = """
+import sys
+import types
+from pathlib import Path
+
+source = Path(sys.argv[1])
+package = types.ModuleType("gateway_repository_service")
+package.__path__ = [str(source / "gateway_repository_service")]
+sys.modules["gateway_repository_service"] = package
+from gateway_repository_service.control_db import CONTROL_DB_USER_VERSION, ControlStore
+
+store = ControlStore.open(
+    Path(sys.argv[2]),
+    expected_version=CONTROL_DB_USER_VERSION,
+    busy_timeout_ms=1000,
+)
+store.close()
+"""
+    subprocess.run(
+        [sys.executable, "-c", initialize_script, str(service_source), str(db_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+
+
+def _seed_repository_import_operation(
+    db_path: Path,
+    *,
+    completed_at: str | None,
+) -> None:
+    connection = sqlite3.connect(db_path)
+    try:
+        connection.execute(
+            """
+            INSERT INTO repository_import_operations (
+                operation_id, repository_scope, key_hash, request_fingerprint,
+                artifact_id, artifact_media_type, artifact_size_bytes,
+                artifact_raw_sha256, target_ref, expected_commit_id,
+                requested_verification_policy, unknown_type_policy, status,
+                private_ref_name, operation_marker, enqueue_sequence, result_json,
+                created_at, started_at, updated_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                REPOSITORY_OPERATION_ID,
+                "repository-1",
+                b"k" * 32,
+                b"fingerprint",
+                "artifact-1",
+                "application/vnd.gateway.repository-import+zip",
+                1,
+                "a" * 64,
+                "main",
+                "commit-1",
+                "STRUCTURAL",
+                "REJECT",
+                "SUCCEEDED",
+                "private-ref-1",
+                "operation-marker-1",
+                1,
+                "{}",
+                "2026-10-20T15:00:00+00:00",
+                "2026-10-20T15:00:05+00:00",
+                "2026-10-20T15:01:05+00:00",
+                completed_at,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
 
 CPU_STAT_INVALID_SHAPES = (
     ("missing usage", "user_usec 7\nsystem_usec 4\n"),
@@ -251,17 +353,30 @@ def _seed_succeeded_submit_control_db(
 def _run_submit_control_query_against_database(
     monkeypatch: pytest.MonkeyPatch,
     db_path: Path,
+    repository_db_path: Path | None = None,
 ) -> None:
     def run_local_control_query(
         _env: dict[str, str],
         *command: str,
         timeout: float,
     ) -> subprocess.CompletedProcess[str]:
-        assert command[:5] == ("exec", "-T", "backend", "python", "-c")
+        assert command[:2] == ("exec", "-T")
+        service = command[2]
+        assert service in {"backend", "repository-service"}
+        assert command[3:5] == ("python", "-c")
         script, container_db_path, operation_id = command[5:]
-        assert container_db_path == "/var/lib/gateway/control/control.sqlite3"
+        if service == "backend":
+            assert container_db_path == "/var/lib/gateway/control/control.sqlite3"
+            local_db_path = db_path
+        else:
+            assert (
+                container_db_path
+                == real_dump_journey.REPOSITORY_SERVICE_CONTROL_DB_PATH
+            )
+            assert repository_db_path is not None
+            local_db_path = repository_db_path
         return subprocess.run(
-            [sys.executable, "-c", script, str(db_path), operation_id],
+            [sys.executable, "-c", script, str(local_db_path), operation_id],
             check=False,
             capture_output=True,
             text=True,
@@ -680,17 +795,11 @@ def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
     class OperationResponse:
         status_code = 200
 
-        @staticmethod
-        def json() -> dict[str, object]:
-            return {
-                "operation": {
-                    "status": "SUCCEEDED",
-                    "created_at": "2026-10-20T15:00:00Z",
-                    "started_at": "2026-10-20T15:00:01Z",
-                    "updated_at": "2026-10-20T15:01:00Z",
-                    "completed_at": "2026-10-20T15:01:00Z",
-                }
-            }
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        def json(self) -> dict[str, Any]:
+            return self.payload
 
     class OperationClient:
         def __enter__(self) -> OperationClient:
@@ -701,53 +810,46 @@ def test_worker_stall_diagnostics_capture_nested_repository_operation_status(
 
         def get(self, _url: str, *, headers: dict[str, str]) -> OperationResponse:
             assert headers
-            return OperationResponse()
+            return OperationResponse(_succeeded_repository_operation_payload(REPOSITORY_OPERATION_ID))
 
     monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())
     real_dump_journey._capture_repository_import_status(
         repository_url="http://repository-service",
         repository_id="repository-1",
-        operation_id="repository-operation-1",
+        operation_id=REPOSITORY_OPERATION_ID,
         root=tmp_path,
     )
 
-    status = json.loads((tmp_path / "repository-import-status.json").read_text())
+    status = json.loads((tmp_path / "repository-operation-public-status.json").read_text())
     assert status == {
-        "completed_at": "2026-10-20T15:01:00Z",
-        "created_at": "2026-10-20T15:00:00Z",
         "http_status": 200,
-        "operation_id": "repository-operation-1",
-        "started_at": "2026-10-20T15:00:01Z",
+        "operation_id": REPOSITORY_OPERATION_ID,
         "status": "SUCCEEDED",
-        "updated_at": "2026-10-20T15:01:00Z",
     }
 
 
-def test_succeeded_submit_reconciliation_follows_business_ref_to_repository_attempt(
+def test_succeeded_submit_reconciliation_records_repository_import_durations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    db_path = tmp_path / "control.sqlite3"
+    db_path = tmp_path / "backend-control.sqlite3"
     _seed_succeeded_submit_control_db(
         db_path,
-        repository_operation_id="repository-operation-1",
+        repository_operation_id=REPOSITORY_OPERATION_ID,
     )
-    _run_submit_control_query_against_database(monkeypatch, db_path)
+    repository_db_path = tmp_path / "repository-service-control.sqlite3"
+    _initialize_repository_service_control_db(repository_db_path)
+    _seed_repository_import_operation(
+        repository_db_path,
+        completed_at="2026-10-20T15:01:05+00:00",
+    )
+    _run_submit_control_query_against_database(monkeypatch, db_path, repository_db_path)
 
     class OperationResponse:
         status_code = 200
 
-        @staticmethod
-        def json() -> dict[str, object]:
-            return {
-                "operation": {
-                    "status": "SUCCEEDED",
-                    "created_at": "2026-10-20T15:00:00Z",
-                    "started_at": "2026-10-20T15:00:01Z",
-                    "updated_at": "2026-10-20T15:01:00Z",
-                    "completed_at": "2026-10-20T15:01:00Z",
-                }
-            }
+        def json(self) -> dict[str, Any]:
+            return _succeeded_repository_operation_payload(REPOSITORY_OPERATION_ID)
 
     class OperationClient:
         def __enter__(self) -> OperationClient:
@@ -757,7 +859,7 @@ def test_succeeded_submit_reconciliation_follows_business_ref_to_repository_atte
             return None
 
         def get(self, url: str, *, headers: dict[str, str]) -> OperationResponse:
-            assert url.endswith("/operations/repository-operation-1")
+            assert url.endswith(f"/operations/{REPOSITORY_OPERATION_ID}")
             assert headers
             return OperationResponse()
 
@@ -771,17 +873,73 @@ def test_succeeded_submit_reconciliation_follows_business_ref_to_repository_atte
         enforce_three_session_limit=True,
     )
 
-    assert facts["repository_operation_id"] == "repository-operation-1"
+    assert facts["repository_operation_id"] == REPOSITORY_OPERATION_ID
     assert facts["await_import_result_attempt_count"] == 2
+    assert facts["repository_import_elapsed_seconds"] == 60.0
+    assert facts["repository_import_queue_seconds"] == 5.0
+    assert facts["repository_import_status"] == "SUCCEEDED"
     selected_rows = json.loads(
         (tmp_path / "submit-facts" / "control-db-selected-rows.json").read_text()
     )
     assert selected_rows["submit_attempt"] == {
-        "repository_operation_id": "repository-operation-1",
+        "repository_operation_id": REPOSITORY_OPERATION_ID,
         "submit_attempt_id": "submit-attempt-1",
     }
     assert selected_rows["steps"][0]["step_name"] == "await_import_result"
     assert selected_rows["steps"][0]["attempt_count"] == 2
+    repository_row = json.loads(
+        (tmp_path / "submit-facts" / "repository-import-control-row.json").read_text()
+    )
+    assert repository_row == {
+        "status": "SUCCEEDED",
+        "created_at": "2026-10-20T15:00:00+00:00",
+        "started_at": "2026-10-20T15:00:05+00:00",
+        "completed_at": "2026-10-20T15:01:05+00:00",
+    }
+
+
+def test_submit_reconciliation_fails_when_repository_import_completion_time_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "backend-control.sqlite3"
+    _seed_succeeded_submit_control_db(
+        db_path,
+        repository_operation_id=REPOSITORY_OPERATION_ID,
+    )
+    repository_db_path = tmp_path / "repository-service-control.sqlite3"
+    _initialize_repository_service_control_db(repository_db_path)
+    _seed_repository_import_operation(repository_db_path, completed_at=None)
+    _run_submit_control_query_against_database(monkeypatch, db_path, repository_db_path)
+
+    class OperationResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, Any]:
+            return _succeeded_repository_operation_payload(REPOSITORY_OPERATION_ID)
+
+    class OperationClient:
+        def __enter__(self) -> OperationClient:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def get(self, _url: str, *, headers: dict[str, str]) -> OperationResponse:
+            assert headers
+            return OperationResponse()
+
+    monkeypatch.setattr(httpx, "Client", lambda **_kwargs: OperationClient())
+    with pytest.raises(JourneyFailure, match="completed_at timestamp is missing"):
+        real_dump_journey._capture_submit_reconciliation_facts(
+            env={"PATH": "/usr/bin"},
+            repository_url="http://repository-service",
+            repository_id="repository-1",
+            operation_id="operation-1",
+            root=tmp_path / "submit-facts",
+            enforce_three_session_limit=True,
+        )
 
 
 def test_succeeded_submit_without_attempt_repository_identity_fails_reconciliation_probe(

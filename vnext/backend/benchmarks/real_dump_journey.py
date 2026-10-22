@@ -69,6 +69,50 @@ from tests.support.compose_gate_harness import (
 REPOSITORY_SERVICE_IMAGE = os.environ.get(
     "GATEWAY_REPOSITORY_SERVICE_IMAGE", "gateway-repository-service:local"
 )
+# Compose mounts this data root for repository-service; RepositoryServiceSettings.control_db_path
+# appends service-state/repository-service.sqlite3.
+REPOSITORY_SERVICE_CONTROL_DB_PATH = (
+    "/var/lib/gateway/repository/service-state/repository-service.sqlite3"
+)
+REPOSITORY_IMPORT_CONTROL_ROW_SCRIPT = r"""
+import json
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+database_path, operation_id = sys.argv[1:3]
+temporary = tempfile.NamedTemporaryFile(prefix="repository-import-", suffix=".sqlite3", delete=False)
+snapshot_path = Path(temporary.name)
+temporary.close()
+try:
+    source = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+    try:
+        snapshot = sqlite3.connect(snapshot_path)
+        try:
+            source.backup(snapshot)
+        finally:
+            snapshot.close()
+    finally:
+        source.close()
+    snapshot = sqlite3.connect(f"file:{snapshot_path}?mode=ro", uri=True)
+    try:
+        snapshot.row_factory = sqlite3.Row
+        row = snapshot.execute(
+            "SELECT status, created_at, started_at, completed_at "
+            "FROM repository_import_operations WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Repository import operation row is missing")
+        print(json.dumps({name: row[name] for name in (
+            "status", "created_at", "started_at", "completed_at"
+        )}, sort_keys=True))
+    finally:
+        snapshot.close()
+finally:
+    snapshot_path.unlink(missing_ok=True)
+"""
 ARCHIVER_TOKEN = "s2b-realdata-archiver-token"
 HISTORY_READER_TOKEN = "s2b-realdata-history-reader-token"
 PSEUDO_GID_MIN = 4_000_000_000
@@ -606,20 +650,31 @@ def _capture_repository_import_status(
                 f"{repository_url}/v1/repositories/{repository_id}/operations/{operation_id}",
                 headers=compose_auth_headers(token=BEARER_TOKEN),
             )
-        summary: dict[str, Any] = {"operation_id": operation_id, "http_status": response.status_code}
-        if response.status_code == 200:
-            payload = response.json()
-            if isinstance(payload, dict):
-                operation = payload.get("operation")
-                status_payload = operation if isinstance(operation, dict) else payload
-                for name in ("status", "created_at", "started_at", "updated_at", "completed_at"):
-                    if name in status_payload:
-                        summary[name] = status_payload[name]
-    except (httpx.HTTPError, ValueError):
-        summary = {"operation_id": operation_id, "status_read": "unavailable"}
+    except httpx.HTTPError as exc:
+        raise JourneyFailure("Repository public operation status request failed") from exc
+    if response.status_code != 200:
+        raise JourneyFailure(
+            f"Repository public operation status returned HTTP {response.status_code}"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise JourneyFailure("Repository public operation status response is invalid JSON") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("operation"), dict):
+        raise JourneyFailure("Repository public operation response has an invalid shape")
+    operation = payload["operation"]
+    public_operation_id = operation.get("operation_id")
+    status = operation.get("status")
+    if public_operation_id != operation_id or not isinstance(status, str):
+        raise JourneyFailure("Repository public operation identity or status is invalid")
+    summary: dict[str, Any] = {
+        "operation_id": operation_id,
+        "http_status": response.status_code,
+        "status": status,
+    }
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     root.chmod(0o700)
-    status_path = root / "repository-import-status.json"
+    status_path = root / "repository-operation-public-status.json"
     status_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
@@ -628,17 +683,72 @@ def _capture_repository_import_status(
     return summary
 
 
-def _repository_import_elapsed_seconds(status: Mapping[str, Any]) -> float | None:
-    started_at = status.get("started_at")
-    completed_at = status.get("completed_at")
-    if type(started_at) is not str or type(completed_at) is not str:
-        return None
+def _read_repository_import_control_row(
+    *,
+    env: dict[str, str],
+    operation_id: str,
+    root: Path,
+) -> dict[str, Any]:
+    result = run_compose(
+        env,
+        "exec",
+        "-T",
+        "repository-service",
+        "python",
+        "-c",
+        REPOSITORY_IMPORT_CONTROL_ROW_SCRIPT,
+        REPOSITORY_SERVICE_CONTROL_DB_PATH,
+        operation_id,
+        timeout=60.0,
+    )
+    if result.returncode != 0:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+        error_path = root / "repository-import-control-row-error.txt"
+        error_path.write_text(
+            f"Repository control DB snapshot/query exit={result.returncode}\n",
+            encoding="utf-8",
+        )
+        error_path.chmod(0o600)
+        raise JourneyFailure("Repository import control DB query failed")
     try:
-        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return round((completed - started).total_seconds(), 3)
+        row = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise JourneyFailure("Repository import control DB query returned invalid JSON") from exc
+    required_fields = {
+        "status",
+        "created_at",
+        "started_at",
+        "completed_at",
+    }
+    if not isinstance(row, dict) or set(row) != required_fields:
+        raise JourneyFailure("Repository import control DB row has an invalid shape")
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root.chmod(0o700)
+    status_path = root / "repository-import-control-row.json"
+    status_path.write_text(json.dumps(row, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    status_path.chmod(0o600)
+    return row
+
+
+def _repository_import_timings(row: Mapping[str, Any]) -> tuple[float, float]:
+    timestamps: dict[str, datetime] = {}
+    for name in ("created_at", "started_at", "completed_at"):
+        value = row.get(name)
+        if type(value) is not str:
+            raise JourneyFailure(f"Repository import {name} timestamp is missing")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise JourneyFailure(f"Repository import {name} timestamp is invalid") from exc
+        if parsed.utcoffset() is None:
+            raise JourneyFailure(f"Repository import {name} timestamp has no timezone")
+        timestamps[name] = parsed
+    elapsed = (timestamps["completed_at"] - timestamps["started_at"]).total_seconds()
+    queued = (timestamps["started_at"] - timestamps["created_at"]).total_seconds()
+    if elapsed < 0 or queued < 0:
+        raise JourneyFailure("Repository import timestamps are not chronological")
+    return round(elapsed, 3), round(queued, 3)
 
 
 def _capture_submit_reconciliation_facts(
@@ -675,17 +785,22 @@ def _capture_submit_reconciliation_facts(
     sessions_used = reconciliation_step.get("attempt_count")
     if type(sessions_used) is not int or sessions_used < 1:
         raise JourneyFailure("Submit reconciliation session count is invalid")
-    repository_status = _capture_repository_import_status(
+    public_status = _capture_repository_import_status(
         repository_url=repository_url,
         repository_id=repository_id,
         operation_id=repository_operation_id,
         root=root,
     )
-    elapsed = _repository_import_elapsed_seconds(repository_status)
-    if repository_status.get("http_status") != 200 or repository_status.get("status") != "SUCCEEDED":
+    repository_row = _read_repository_import_control_row(
+        env=env,
+        operation_id=repository_operation_id,
+        root=root,
+    )
+    if repository_row.get("status") != public_status.get("status"):
+        raise JourneyFailure("Repository public and control DB operation statuses disagree")
+    if public_status.get("status") != "SUCCEEDED":
         raise JourneyFailure("Submit Repository import did not have a successful status record")
-    if elapsed is None:
-        raise JourneyFailure("Submit Repository import duration is unavailable")
+    elapsed, queue_seconds = _repository_import_timings(repository_row)
     remaining = max(0, 3 - sessions_used)
     if enforce_three_session_limit and sessions_used >= 3:
         raise JourneyFailure("t4 Submit exhausted the three-session reconciliation limit")
@@ -697,7 +812,8 @@ def _capture_submit_reconciliation_facts(
         "remaining_sessions": remaining,
         "session_margin": remaining,
         "repository_import_elapsed_seconds": elapsed,
-        "repository_import_status": repository_status.get("status"),
+        "repository_import_queue_seconds": queue_seconds,
+        "repository_import_status": public_status.get("status"),
     }
 
 
@@ -2450,6 +2566,9 @@ def _run_tier(
     dc32_metrics: list[dict[str, Any]] | None = None,
     dc32_scratch_root: Path | None = None,
     dc32_session_root: Path | None = None,
+    debug_t1_submit_probe: bool = False,
+    debug_submit_probe_root: Path | None = None,
+    debug_submit_probe_metrics: list[dict[str, Any]] | None = None,
     collect_timing: bool = False,
 ) -> dict[str, Any]:
     def record_operation_timing(operation: str, value: Mapping[str, Any]) -> None:
@@ -2462,6 +2581,59 @@ def _run_tier(
                     "operation": operation,
                     "timing": dict(timing),
                 }
+            )
+
+    def capture_submit_reconciliation(submission: Mapping[str, Any], *, version: str) -> None:
+        capture_t4_evidence = tier == "t4" and dc32_metrics is not None
+        capture_t1_debug = tier == "t1" and debug_t1_submit_probe
+        if not capture_t4_evidence and not capture_t1_debug:
+            return
+        operation_timing = submission.get("operation_timing")
+        operation_id = (
+            operation_timing.get("operation_id")
+            if isinstance(operation_timing, Mapping)
+            else None
+        )
+        if type(operation_id) is not str:
+            raise JourneyFailure(f"{tier} {version} Submit evidence identity is unavailable")
+        if capture_t4_evidence:
+            if dc32_session_root is None or dc32_metrics is None:
+                raise JourneyFailure("t4 Submit evidence output root is unavailable")
+            evidence_root = dc32_session_root / f"t4-{version}-submit"
+        else:
+            if debug_submit_probe_root is None or debug_submit_probe_metrics is None:
+                raise JourneyFailure("t1 debug Submit probe output root is unavailable")
+            evidence_root = debug_submit_probe_root / f"t1-{version}-submit"
+        facts = _capture_submit_reconciliation_facts(
+            env=env,
+            repository_url=repository_url,
+            repository_id=repository_id,
+            operation_id=operation_id,
+            root=evidence_root,
+            enforce_three_session_limit=capture_t4_evidence,
+        )
+        if capture_t4_evidence:
+            cast(list[dict[str, Any]], dc32_metrics).append(
+                {
+                    "kind": "submit_reconciliation",
+                    "tier": tier,
+                    "version": version,
+                    "facts": facts,
+                }
+            )
+        else:
+            cast(list[dict[str, Any]], debug_submit_probe_metrics).append(
+                {
+                    "kind": "submit_reconciliation",
+                    "tier": tier,
+                    "version": version,
+                    "facts": facts,
+                }
+            )
+            _emit_progress(
+                f"{tier} {version} Submit reconciliation probe",
+                "facts_verified",
+                **facts,
             )
 
     started = time.monotonic()
@@ -2605,38 +2777,13 @@ def _run_tier(
         )
         v1_submission = cast(dict[str, Any], v1_submission)
         record_operation_timing("v1_submit", v1_submission)
+        capture_submit_reconciliation(v1_submission, version="v1")
         v1_submission_id = str(v1_submission["submission_id"])
         v1_commit_id = str(v1_submission["repository_commit_id"])
         v1_canonical_state_digest = _canonical_state_digest_from_submission(
             v1_submission,
             stage=f"{tier} v1 Submit",
         )
-        if tier == "t4" and dc32_metrics is not None:
-            operation_timing = v1_submission.get("operation_timing")
-            operation_id = (
-                operation_timing.get("operation_id")
-                if isinstance(operation_timing, Mapping)
-                else None
-            )
-            if type(operation_id) is not str or dc32_session_root is None:
-                raise JourneyFailure("t4 v1 Submit evidence identity is unavailable for DC32")
-            v1_session_facts = _capture_submit_reconciliation_facts(
-                env=env,
-                repository_url=repository_url,
-                repository_id=repository_id,
-                operation_id=operation_id,
-                root=dc32_session_root / "t4-v1-submit",
-                enforce_three_session_limit=True,
-            )
-            dc32_metrics.append(
-                {
-                    "kind": "submit_reconciliation",
-                    "tier": tier,
-                    "version": "v1",
-                    "facts": v1_session_facts,
-                }
-            )
-
         if scope == "t4-v1-submit":
             return {
                 "tier": tier,
@@ -2977,38 +3124,13 @@ def _run_tier(
         )
         v2_submission = cast(dict[str, Any], v2_submission)
         record_operation_timing("v2_submit", v2_submission)
+        capture_submit_reconciliation(v2_submission, version="v2")
         v2_submission_id = str(v2_submission["submission_id"])
         v2_commit_id = str(v2_submission["repository_commit_id"])
         v2_canonical_state_digest = _canonical_state_digest_from_submission(
             v2_submission,
             stage=f"{tier} v2 Submit",
         )
-        if tier == "t4" and dc32_metrics is not None:
-            operation_timing = v2_submission.get("operation_timing")
-            operation_id = (
-                operation_timing.get("operation_id")
-                if isinstance(operation_timing, Mapping)
-                else None
-            )
-            if type(operation_id) is not str or dc32_session_root is None:
-                raise JourneyFailure("t4 v2 Submit evidence identity is unavailable for DC32")
-            v2_session_facts = _capture_submit_reconciliation_facts(
-                env=env,
-                repository_url=repository_url,
-                repository_id=repository_id,
-                operation_id=operation_id,
-                root=dc32_session_root / "t4-v2-submit",
-                enforce_three_session_limit=True,
-            )
-            dc32_metrics.append(
-                {
-                    "kind": "submit_reconciliation",
-                    "tier": tier,
-                    "version": "v2",
-                    "facts": v2_session_facts,
-                }
-            )
-
         def v2_repository_read_action() -> dict[str, Any]:
             repository = _pseudo_counts_from_http(
                 base_url=repository_url,
@@ -3506,6 +3628,7 @@ def run_journey(
     keep_stack: bool = False,
     requested_project_name: str | None = None,
     dc32_output: Path | None = None,
+    debug_t1_submit_probe: bool = False,
 ) -> dict[str, Any]:
     root = _real_dump_root()
     datasets, census = _read_metadata(root)
@@ -3541,6 +3664,15 @@ def run_journey(
         raise JourneyFailure("--scope t4-v1-submit requires a fresh t4 journey")
     if cross_project and (tier_filter is not None or keep_stack or from_step is not None):
         raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
+    if debug_t1_submit_probe and (
+        tier_filter != "t1"
+        or scope != "full"
+        or cross_project
+        or from_step is not None
+        or keep_stack
+        or dc32_output is not None
+    ):
+        raise JourneyFailure("--debug-submit-probe-t1 requires a fresh full --tier t1 journey")
     if requested_project_name is None:
         project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     else:
@@ -3551,6 +3683,9 @@ def run_journey(
     dc32_metrics: list[dict[str, Any]] | None = None
     dc32_scratch_root: Path | None = None
     dc32_session_root: Path | None = None
+    debug_submit_probe_root: Path | None = None
+    debug_submit_probe_metrics: list[dict[str, Any]] | None = None
+    debug_submit_probe_output: Path | None = None
     if dc32_output is not None:
         real_dump_runs = (root / "runs").resolve()
         dc32_output_path = dc32_output.resolve()
@@ -3568,6 +3703,15 @@ def run_journey(
         dc32_session_root = real_dump_runs / f"{project_name}-submit-facts"
         dc32_session_root.mkdir(mode=0o700, exist_ok=False)
         dc32_session_root.chmod(0o700)
+    if debug_t1_submit_probe:
+        real_dump_runs = (root / "runs").resolve()
+        real_dump_runs.mkdir(mode=0o700, parents=True, exist_ok=True)
+        real_dump_runs.chmod(0o700)
+        debug_submit_probe_root = real_dump_runs / f"{project_name}-debug-submit-probe"
+        debug_submit_probe_root.mkdir(mode=0o700, exist_ok=False)
+        debug_submit_probe_root.chmod(0o700)
+        debug_submit_probe_metrics = []
+        debug_submit_probe_output = debug_submit_probe_root / "t1-submit-probe.json"
 
     selected_tiers = (
         [("t1", EXPECTED_PAIRINGS["rd-t1-a"])]
@@ -3712,7 +3856,12 @@ def run_journey(
                                         dc32_metrics=dc32_metrics,
                                         dc32_scratch_root=dc32_scratch_root,
                                         dc32_session_root=dc32_session_root,
-                                        collect_timing=dc32_output_path is not None,
+                                        debug_t1_submit_probe=debug_t1_submit_probe,
+                                        debug_submit_probe_root=debug_submit_probe_root,
+                                        debug_submit_probe_metrics=debug_submit_probe_metrics,
+                                        collect_timing=(
+                                            dc32_output_path is not None or debug_t1_submit_probe
+                                        ),
                                     )
                                 )
                     except BaseException as error:
@@ -3733,6 +3882,20 @@ def run_journey(
                                     "status": "FAILED",
                                     "failure_type": type(error).__name__,
                                     "measurements": dc32_metrics,
+                                },
+                            )
+                        if (
+                            debug_submit_probe_output is not None
+                            and debug_submit_probe_metrics is not None
+                        ):
+                            _write_private_dc32_json(
+                                debug_submit_probe_output,
+                                {
+                                    "schema_version": "s5-debug-submit-probe-t1/v1",
+                                    "head": current_head,
+                                    "status": "FAILED",
+                                    "failure_type": type(error).__name__,
+                                    "measurements": debug_submit_probe_metrics,
                                 },
                             )
                         if isinstance(error, WorkerStalledFailure):
@@ -3772,6 +3935,22 @@ def run_journey(
                 "measurements": dc32_metrics,
             },
         )
+    if debug_submit_probe_output is not None and debug_submit_probe_metrics is not None:
+        _write_private_dc32_json(
+            debug_submit_probe_output,
+            {
+                "schema_version": "s5-debug-submit-probe-t1/v1",
+                "head": current_head,
+                "status": "PASS",
+                "measurement_count": len(debug_submit_probe_metrics),
+                "measurements": debug_submit_probe_metrics,
+            },
+        )
+        journey_result["debug_submit_probe"] = {
+            "status": "PASS",
+            "measurements": debug_submit_probe_metrics,
+            "output": str(debug_submit_probe_output),
+        }
     return journey_result
 
 
@@ -3824,6 +4003,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="write private S5/DC32 timing and Repository Arrow-read detail under runs/",
     )
+    parser.add_argument(
+        "--debug-submit-probe-t1",
+        action="store_true",
+        help="also capture v1/v2 Submit reconciliation facts during a fresh t1 debug journey",
+    )
     arguments = parser.parse_args(argv)
     try:
         if arguments.validate_inputs and any(
@@ -3835,6 +4019,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.keep_stack,
                 arguments.project_name is not None,
                 arguments.dc32_output is not None,
+                arguments.debug_submit_probe_t1,
             )
         ):
             raise JourneyFailure("--validate-inputs cannot be combined with journey controls")
@@ -3849,6 +4034,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 keep_stack=arguments.keep_stack,
                 requested_project_name=arguments.project_name,
                 dc32_output=arguments.dc32_output,
+                debug_t1_submit_probe=arguments.debug_submit_probe_t1,
             )
         )
         print(json.dumps(result, sort_keys=True))

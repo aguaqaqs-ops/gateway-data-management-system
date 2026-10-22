@@ -450,4 +450,15 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - DC32 capability 测量沿用 `a2cfe03c21`，条件是 `git diff --name-only a2cfe03c21..V` 只涉及 `vnext/backend/tests/`；handoff 写明来源提交、diff 结果、日志与明细文件。条件不满足时在 V 上重跑。
    - RS `-m unit -rs` 查明那个 skip 的用例名与原因，写入 handoff。
    - 其余按原计划：五包静态检查、真实数据 t1–t4 全量与 S5.4 其余测量、H、carried、正式 handoff。
+
+   2026-10-22 S5 真实数据暂停（V `241ee66d94`）：
+   - 全量 runner exit 0，五包实际运行：242 / 152 / 154 / backend 2,904 + 39 / RS 1,724 + 205，另有 1 个 unit skip，即 `test_p2_r1_target_cgroup_smoke.py`（仅在 delegated target container 中运行）。五包静态检查与 focused 检查通过，fresh RS 镜像身份与 label 一致。
+   - 真实数据：t1、t2、t3 完整链路通过，摘要符合基线；t4 v1 Preview 成功（1,666.729 s，312/312，composite 435），t4 v1 Submit 业务 operation SUCCEEDED（569.809 s）。随后的测量探针报 `Submit Repository operation id is missing from the control DB`，runner exit 1；t4 重传、v2 与 History 未运行。
+   - 原因在测量 harness：`benchmarks/real_dump_journey.py` 的 `_capture_control_operation_rows` 从 `operation_records.repository_operation_id` 取值，而 Submit 成功时该 ID 由 `bind_repository_operation_identity` 写在 `submit_attempt_records` 上，operation 记录上的同名字段只在转入人工恢复时写入。该函数原为 S4 卡住诊断编写，那时 operation 已进入人工恢复；S5 的 `f1ef573a6f` 把它用于成功的 Submit。该路径只在 t4 执行，探针本身没有测试。产品行为不受影响。
+
+   owner 决议（2026-10-22）：
+   - 修探针，不改产品代码与 Contract：从 operation 的 `business_refs` 取 `submit_attempt` ID，再读 `submit_attempt_records.repository_operation_id`；v1、v2 两处调用与卡住诊断路径使用同一个函数；取不到时仍直接失败。补测试：用正式 schema 建 control DB，放一条 SUCCEEDED 的 Submit，确认探针取到 ID 与会话数，不用手写字典模拟。
+   - 修正提交即新 V。`benchmarks/` 属于 `vnext/` Docker context，新 V 上重建 fresh RS 镜像并运行全量 runner（不设包筛选）。
+   - 真实数据：t1–t3 沿用 `241ee66d94`，条件是 `git diff --name-only 241ee66d94..V` 只涉及 `vnext/backend/benchmarks/real_dump_journey.py` 与其测试；t4 在新 V 上完整运行（v1 Preview、Submit、重传、v2、History），并取齐 S5.4 其余测量。
+   - DC32 capability 测量继续沿用 `a2cfe03c21`，条件放宽为 `a2cfe03c21..V` 只涉及 `vnext/backend/tests/` 与上述探针及其测试，且 capability 测量路径不调用被修改的函数；handoff 写明 diff 与调用关系。任一沿用条件不满足，就在新 V 上重跑对应部分。
 13. P5 exit：按 G10 清理。

@@ -3916,7 +3916,7 @@ def run_journey(
         if dc32_scratch_root is not None:
             shutil.rmtree(dc32_scratch_root, ignore_errors=True)
 
-    journey_result = {
+    journey_result: dict[str, Any] = {
         "head": current_head,
         "datasets": results,
         "stack_start_seconds": stack_start_seconds,

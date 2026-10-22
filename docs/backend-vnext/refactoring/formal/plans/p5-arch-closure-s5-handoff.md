@@ -171,6 +171,10 @@ V runner 日志：`s5-b79844ddc2-full-runner.log`；起止 HEAD 均为 V，runne
 | `backend` | `ab337285f850b0e6318eb54785833795bb8ffeda9be65fbc86dfa7968e4095f0` | V 实际运行通过 |
 | `repository_service` | `acbe7c9b712fef2aef1b2386e40f48bc6f77073021b02106eaf0cb2141c62509` | V 实际运行通过 |
 
+### V→H carried（DC34）
+
+第一份 handoff-only 提交 H1 `cc15dabec9bf837ef7a277f2883e536026d27c60` 已在运行 V runner 的同一 CT108 worktree 中，以本节列出的完整 V runner 环境完成 carried 检查。日志 `s5-carried-cc15dabec9.log` 起止 HEAD 均为 H1、exit 0。RS `build_context_digest.py identity` 的 `build_input_revision=ed70ca1be262653bb49267940e73e7edd09a2267`、`source_tree_sha256=sha256:a3e56c4d90e67ba80b632599ead9dca8fc65d13d2193ad0f42472d9a9f68be3a` 均与 `gateway-repository-service:local` 两个 provenance label 一致。五包 manifest compare 均为“可沿用”，`changed_components=[]`，current digest 与 V runner 起始 digest 逐包相同，数值见上表。最终 H 也是 handoff-only；最终提交后的同 worktree 复核日志为 `/home/dev/gdds-p5-closure-s1-gate-logs/s5/s5-carried-final-H.log`，记录最终 HEAD、两项 RS label 比对与五包 manifest compare。
+
 ## 8. DC32 capability 测量
 
 Owner 选择完整 t1–t4 DC32 journey；因此最终 V 上重跑 t1–t4 全部真实数据档作为证据，而不是沿用 a92 的 t1–t3。`s5-dc32-capability-v1.log` 与 `/home/dev/gateway-real-dumps/runs/s5-dc32-capability-v1.json` 的 capability 测量来源为 `a2cfe03c217908f5b22e6c7f0a79d55a919aa4c4`，PASS：8 个 dataset ID、18 个 production capability 场景、14,939 条逐表阶段记录。JSON 文件 mode `0600`，runs 目录 mode `0700`；日志 mode `0600`。未读取 dump 内容。

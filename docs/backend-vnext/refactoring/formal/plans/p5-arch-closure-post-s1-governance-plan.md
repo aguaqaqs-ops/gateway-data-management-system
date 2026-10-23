@@ -561,3 +561,14 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - Docker：ct108 删除 runner 按 compose project 命名的镜像 598 个，余 RS、client e2e、`-base`、dependency-base、python、rust 共 6 个，构建缓存未清。开发主机删除同类镜像 2059 个、其他本项目一次性 backend/worker 镜像 204 个、未打标签的旧 RS/client e2e/backend 镜像 28 个、测试残留卷 18 个；保留 RS、client e2e、`-base`、dependency-base、`gateway-repository-service:test-exit-code`、python、rust，与本项目无关的镜像未动。删除清单先写入文件核对后再执行，未使用 `-f`，无错误。
    - 保留：`refs/codex/...`、GitHub 远程跟踪引用、全部 tag、两台主机的证据日志目录（含其中 bundle）、真实数据与 `runs/`、ct108 当前 TMPDIR `/home/dev/gdds-test-tmp`、ct108 的 `/home/dev/gdds-p5-closure-tools`（S4 排查用 py-spy）。
    - 下一步：P5 整体 exit review；通过后在 main 打 `p5-exit`。推送由 owner 另行决定。
+   P5 整体 exit review 初审：定向修订（2026-10-23）：
+   - 审核对象 main `8ec03b5d75`，报告 `p5-exit-review.md` 提交于分支 `p5-exit-review` `85ebfb9a95`。M 上 fresh RS 镜像与全量 runner 通过（1 项非 Compose skipped），五包静态检查通过，import_rules 0/0/6。审核方核实两项阻塞成立。
+   - EXIT-F1（阻塞）：投影 capability 已收集全部 typed 诊断，但 `preview_jobs.py` 只取第一项写入 Operation diagnostic，且不标明侧，违反 DC14、收口设计 §4.2 与 Business Lifecycle“一次列出全部失败项”。Operation diagnostic 只有 `code` 与不超过 255 字符的 `message`，无法完整交付。
+   - EXIT-F2（阻塞）：ADR 0019 Required Verification 与设计 §12 指定的“ADDITIVE 激活后旧基线仍可 Preview”测试（owner `test_preview_job_materialize.py`）缺失；源码方向符合 DC10，属验收缺口。S0-F1 不得延期（S0 审核 §7.8）。
+   - EXIT-F3、EXIT-F4 不阻塞。
+   owner 决议（2026-10-23）：
+   - EXIT-F1：Operation diagnostic 增加可选、有上限的结构化明细 `details`。每项含 `code`、`side`（`INITIAL` / `MODIFIED`）、`table_name`、`column_name`（可空）；最多 100 项，超出部分以 `omitted_count` 计数，不截断已列项。Preview 投影失败时：FULL 模式两侧都完成投影并汇总全部失败后一次 FAILED；MODIFIED_ONLY 只有上传侧。顶层 `code`/`message` 保留为概要。同步修改 `operation-lifecycle-and-integrity.md` 中 diagnostic 形态、HTTP `OperationDiagnosticResponse` 与 OpenAPI golden；按 DC6 直接改形，不做兼容。control DB 中 diagnostic 为 JSON blob，不改 schema。不采用只拼接 message 或单独失败明细 artifact 的做法。
+   - EXIT-F2：在 `test_preview_job_materialize.py` 补该测试：基线 manifest 按规则 A 形成，运行期规则 B 为相对 A 的 ADDITIVE 变化，新受理的 Preview 经生产物化与组装接线成功，比较使用 B 的语义；既有的陈旧 Preview 拒绝与激活后恢复失败测试保持。
+   - EXIT-F3：Canonical Storage 标头的 projection version 订正为 2，由审核方在 exit 状态更新中处理。
+   - EXIT-F4：G11 R2-O3 并入本次修复（`test_http_admission_shutdown_process.py` 的子进程用例标 `integration`）；5B-S8 的 occupancy-assertion-gap 与 private-process-access 接受现状并关闭，重开条件为下次修改 T3 崩溃屏障或 Repository restart harness。
+   - 流程：修复在 `/home/dev/gdds-p5-exit-fix`（分支 `p5-exit-fix`，基于 `p5-exit-review` `85ebfb9a95`）实施；新 V 上 fresh RS 镜像与全量 runner，H 只改 handoff 并做 carried。真实数据不重跑：改动只影响投影失败路径，成功路径语义不变（DC33，owner 确认）。修复后由原审核方复审，复审记录追加到 `p5-exit-review.md`；审核方终审通过后在复审提交上打 `p5-exit`，以 `--no-ff` 合入 main。

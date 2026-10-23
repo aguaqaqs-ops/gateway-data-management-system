@@ -303,7 +303,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 2. **权威 runner 不写 `.pytest_cache`（G10 第 7 项）。** runner 的 pytest 调用加 `-p no:cacheprovider`；manifest 仍摘要 `.pytest_cache`。实施前确认没有测试使用 pytest 的 `cache` fixture 或 `config.cache`。验收：一次失败运行后紧接一次合格运行，该合格运行能与自身起始 manifest 比出“可沿用”。
 3. **ct108 TMPDIR 迁出日志目录。** 改为 `/home/dev/gdds-test-tmp`，同步 AGENTS.md 与 testing-conventions；旧目录在 G10 清理中删除。
 4. **复核 carried 的“同一 worktree”限制（G10 第 4 项）。** manifest 仍摘要本机权限位与非 Git 内容，预期结论为保留；结论写入 testing-conventions，不改代码。
-6. **Hypothesis 派生缓存不阻断 carried（owner 2026-10-23 追加，来源见 §3 第 13 项）。** `test_input_closure.py` 摘要 hypothesis-storage 时，排除 Hypothesis 自动生成的派生内容：存储目录顶层的 `.gitignore`、`constants/` 与 `unicode_data/`。只含这些内容的存储目录与目录不存在得到相同摘要；`examples/` 等其他内容照常按路径、类型、权限与内容摘要。排除依据：`constants/` 以模块源码 sha1 为键，缓存缺失或不可读时从源码重算；`unicode_data/` 由解释器的 unicodedata 决定；源码与解释器已由闭包其他组件摘要。删除被取代的 Unicode gzip 归一化，manifest schema 升一版，同步 AGENTS.md 与 testing-conventions 的闭包说明。验收：在新建 worktree 中，冷启动的包运行一次后，与自身起始 manifest 比出“可沿用”；对照组在旧工具上比出“运行”。
+6. **权威 runner 隔离 Hypothesis 存储（owner 2026-10-23 追加，同日修订；来源见 §3 第 13 项）。** runner 为每个包设置 `HYPOTHESIS_STORAGE_DIRECTORY`，指向 worktree 外、TMPDIR 下由 runner 专用的固定路径（例如 `$TMPDIR/gateway-runner-hypothesis/<包名>`）。起始 manifest 前确保该目录不存在，包的测试结束后删除，失败退出时同样删除；runner 不读写 worktree 中的 `.hypothesis`。`test_input_closure.py` 的摘要规则不变，仍摘要有效存储目录的全部内容（constants、unicode_data、examples）。carried 计算使用与 V runner 相同的该变量，写入 AGENTS.md 与 testing-conventions 的 carried 环境清单；目录有残留时比出“运行”。代价：每次运行重建派生缓存；runner 之间不保留 Hypothesis 失败样例，失败时依据 Hypothesis 打印的反例分析，exit≠0 的运行按既有规则先停止分析。验收：在新建 worktree 中，冷启动的包运行一次后与自身起始 manifest 比出“可沿用”，worktree 中没有生成 `.hypothesis`，runner 结束后存储目录不存在；对照组在旧 runner 上比出“运行”。
 7. **门禁：** 新 V 上 fresh RS 镜像与全量 runner（umask 022，日志记录 umask）；不改生产代码，不运行真实数据。H 只改 handoff，按 DC34 做 carried。
 
 ## 3. 顺序
@@ -543,3 +543,5 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - V `0e430ff990` 的静态检查、focused、验收 A/B 与全量 runner 均通过（exit 0）。H `e6ea9be727` 只增加 handoff；RS identity 与 labels 相符，但 shared_kernel 比出“运行”，唯一变化组件为 hypothesis-storage，实施方按规则停止。
    - 原因：`/home/dev/gdds-p5-g13` 是新建 worktree，V runner 起始时五个包都没有 `.hypothesis`（摘要为目录不存在的值）。runner 运行中 Hypothesis 在 shared_kernel 与 backend 下生成 `.gitignore`、`constants/` 与 `unicode_data/`，没有 `examples/`。backend 也会比出“运行”。S5 未遇到，是因为其 worktree 已运行过多次、缓存早已生成。每个阶段使用新 worktree，H 通常是 V 加 handoff 提交，该问题会反复出现。
    - owner 决议：不在 H 上补跑，把根因修复并入 G13 第 6 项；修复后换新 V，从头运行静态检查、focused、验收与全量 runner。`0e430ff990` 的运行结果作为历史保留，不作为新 V 的沿用来源。
+   - 第 6 项原方案（manifest 排除 `.gitignore`、`constants/`、`unicode_data/`）停止（2026-10-23）：实施方核对锁定的 Hypothesis 6.156.6 源码，`constants/` 与 `unicode_data/` 的缓存只要可以解析就被直接采用，只有读取或解析失败才从源码或 unicodedata 重算。排除它们会让可能影响测试输入的本地状态不进摘要，原方案的排除依据不成立。`.gitignore` 由 Hypothesis 写入，未见读取路径。实施方未改仓库、未开始新一轮测试。
+   - owner 决议：第 6 项改为权威 runner 隔离 Hypothesis 存储（与第 2 项禁用 pytest cacheprovider 同一原则：权威 runner 不读写 worktree 中的本地工具缓存），manifest 摘要规则不变，schema 不升版。

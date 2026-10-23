@@ -2,7 +2,7 @@
 
 pass_recommended: yes
 
-建议 S5 验收通过：S5.1–S5.4、V 全量权威 runner、五包静态检查、fresh RS 镜像、t1–t4 真实旅程、V 上 DC32 capability 全量重测与 V→H carried 均有证据。H 的 carried 复算与 final log 在 §7；本文证据没有触发执行计划 §14 停止条件。此建议等待独立复审；在 S5 审核通过前不做 P5 exit。P5 exit 清理依 G10 另行安排。
+建议 S5 验收通过：S5.1–S5.4、V 全量权威 runner、五包静态检查、fresh RS 镜像、t1–t4 真实旅程、V 上 DC32 capability 全量重测均有证据。H1 初次 carried 中 backend 因 pytest cache 变化返回“运行”，已按规则在 H1 `1dd049742c` 上直接运行 backend 并通过；最终 H 的五包 carried 来源及比较日志见 §7。该建议以最终比较五包均为“可沿用”为条件；本文证据没有触发执行计划 §14 停止条件。此建议等待独立复审；在 S5 审核通过前不做 P5 exit。P5 exit 清理依 G10 另行安排。
 
 ## 1. 区间、提交与环境
 
@@ -199,7 +199,21 @@ runner_exit_code=0
 
 ### V→H carried
 
-H 的 handoff-only diff 不触及五包闭包。最终在 V runner 的同一 CT108 worktree、umask 022、V runner 环境中重算 RS identity，与 RS image 的 build-input/source-tree labels 比较；从 r2 runner 日志提取 V 五包起始 manifests，逐包与 H manifests 执行 `test_input_closure.py compare`。结果、完整 H SHA、RS labels 和日志名将在最终 H 提交后记录；最终门禁要求五包均为“可沿用”，`changed_components=[]`。
+H1 `1dd049742c1a04636a0e5ea8171a2ac63411d8fb` 的 handoff-only diff 不触及五包闭包；初次 carried 仍发现 backend 需要运行。`s5-carried-H1-1dd049742c-r3.log` 显示四包可沿用，backend 因唯一变化 `non-git:pytest-cache` 返回“运行”：V r2 起始摘要为 `0d73e66eeb51039617df8ee7c0ea89dd8d532b7b2d7709032b7e4e03cfb37f65`，H1 比较时摘要为 `6dced36c50e98238a1f9f0997ec5dc2c37e2a785be669f00d77c946180ae4be6`。只读排查确认 `.pytest_cache/v/cache/lastfailed` 与 `nodeids` 最后修改时间为 2026-10-22 22:31:28 UTC，即 V r2 backend serial 批次结束时；r1（umask 077、exit 143）留下两项失败，r2 起始 manifest 包含这两项，r2 全部通过后 pytest 将 `lastfailed` 清为 `{}`。这是来源 runner 改写的本地缓存，不是 H1 diff；未手工修改或清理缓存。
+
+为遵守提交前检查顺序，在 H1 上重跑五包 ruff/mypy，全部通过，日志为 `s5-static-pre-H-1dd049742c.log`。随后在 clean H1 上以 umask `0022` 执行 backend-only runner r2：`GATEWAY_TEST_PACKAGES=backend GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`，起止 HEAD 均为 H1，exit 0；并行批次 2,896 passed，serial 批次 39 passed。日志为 `s5-backend-runner-1dd049742c-r2.log`，起始 backend manifest 保存为 `s5-manifest-1dd049742c-backend-r2-start.json`，`total_digest=828a304a68e201a65fd878f1f87c73de345184553d87805463d2defd603e16a7`；最终 carried 使用该 r2 起始 manifest。此前首次 H1 backend runner `s5-backend-runner-1dd049742c.log` 也通过。`s5-preflight-backend-1dd049742c.log` 与 `s5-postflight-backend-1dd049742c-r2.log` 通过；pre/postflight 无 Dolt、Compose 栈/容器或 8000 listener，H1 worktree clean，现有 RS image identity labels 一致，未重建镜像。
+
+最终 H 的逐包 carried 来源直接引用实际运行该包的来源 V，不链式引用 carried 结果：
+
+| 包 | 最终 H compare 的来源提交 | 起始 manifest `total_digest` | 来源证据 |
+| --- | --- | --- | --- |
+| `shared_kernel` | V `55a8b810249649b403339d406cd2b5744feb7863` | `c50ed6636ebed5dc3c67c2c788a556e60bae3981d4213d5f96bf620f6f2b8ff9` | V r2 runner |
+| `repository_contracts` | V `55a8b810249649b403339d406cd2b5744feb7863` | `cf02462ed6d4e953501e9a97e2b7f9f7c0fa8275f8a1d8b16abe540cd26b4517` | V r2 runner |
+| `repository_client` | V `55a8b810249649b403339d406cd2b5744feb7863` | `a9a541548bb64db8e0cf1067c72c18a08600eab0ca4cd5046f5b1227cde46d92` | V r2 runner |
+| `backend` | H1 `1dd049742c1a04636a0e5ea8171a2ac63411d8fb` | `828a304a68e201a65fd878f1f87c73de345184553d87805463d2defd603e16a7` | H1 backend-only runner r2 |
+| `repository_service` | V `55a8b810249649b403339d406cd2b5744feb7863` | `d498559964fdb430d3b09000f33a544057c28dd69ed6ca7615426b57a4a4cf6e` | V r2 runner |
+
+H commit 后在同一 CT108 worktree、umask 022、V runner 环境中重算 RS identity 并比较 image 的 build-input/source-tree labels，再将 H 五包 manifest 与上表来源 manifest 执行 `test_input_closure.py compare`。carried 记录写在 worktree 外的 `s5-carried-H-final-after-backend-run.log`；通过条件为 RS labels 一致且五包均“可沿用”、`changed_components=[]`。完整 H SHA 由复审方填写；H 不包含自身 SHA。
 
 ## 8. DC32 capability 测量
 
@@ -460,7 +474,7 @@ slice-design-execution-and-review-guide.md §5–§6 与执行计划 §8.8 审�
 2. S5-F2 新 V 是否从头运行全部 18 个 DC32 capability 场景；各 per-table 项是否区分实测、共享成本（按包计）、不适用且没有把未测记 0；planning/render 的逐表限制、Submit 父子边界、adapter outer、schema SQL/artifact write、pair artifact write 与 business materialization 计时是否有准确解释；§8/§10/§11 的数值是否能从新日志/JSON 复算且没有拼接旧 v1 数据。
 3. 真实数据是否正确沿用 b79844ddc2 的 t1–t4 证据，沿用条件是否由 `b79844ddc2..V` 逐文件 diff 支持；operation completion 是否使用 `operation_terminal_seconds`，结果核对完成是否单独命名；真实行内容、真实项目名与主机路径是否未入 Git。
 4. S5-F3 两项 owner decision SHA、偏差 2 引入提交、最后允许沿用范围与实际 t1–t4 全量重跑原因是否正确区分。
-5. 全量 runner exit 143 的 umask/secret-permission 原因、清理范围、umask 022 r2 通过结果，fresh RS 镜像 provenance，runner 起始 manifests，以及 H 的 carried compare 是否真实、完整；V runner 和 DC32 成功重测分别核对其自身日志与 exit code。
+5. 全量 runner exit 143 的 umask/secret-permission 原因、清理范围、umask 022 r2 通过结果，fresh RS 镜像 provenance 与 runner 起始 manifests；核对 H1 初次 backend carried 因 pytest cache 变化而未沿用、H1 backend-only runner 的通过结果，以及 `s5-carried-H-final-after-backend-run.log` 中最终 H 的 RS identity 与五包 compare 是否真实、完整。backend 来源应为 H1 backend runner，其余四包直接来源应为 V r2 runner；V runner 和 DC32 成功重测分别核对自身日志与 exit code。
 6. P5 §2A.5 五项、文件路径预算、S5 停止条件、H handoff-only scope 与 Phase 6 候选是否基于修正后事实；审核通过前没有宣称 P5 exit 或执行 G10 cleanup。
 
 复审验证：只在 CT108 审核 worktree 核对五包 ruff/mypy、import_rules、V 权威 runner/测量原始证据、RS identity/labels 与 V→H carried；不要求重跑全量 runner或真实数据。发现证据不符时按执行计划 §8.8 报告；不要修改 V、初审报告或 Contract。

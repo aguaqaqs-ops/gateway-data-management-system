@@ -75,7 +75,7 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     )
     _seed_repo_file(vnext_root, "scripts/uv-consume.sh")
     _seed_repo_file(repo_root, "legacy/table-rules.json", "{}\n")
-    _seed_repo_file(repo_root, ".gitignore", "**/.venv/\n")
+    _seed_repo_file(repo_root, ".gitignore", "**/.venv/\n**/.hypothesis/\n")
     _seed_repo_file(
         repo_root,
         "docs/backend-vnext/refactoring/formal/plans/p2-r1-runtime-provider-feasibility.md",
@@ -316,7 +316,7 @@ def test_run_tests_runs_selected_packages_in_authoritative_order(
         ).index,
     )
     manifests = [line for line in completed.stdout.splitlines() if line.startswith("==> test input manifest")]
-    assert [line.rsplit("=", 1)[1] for line in manifests] == sorted(
+    assert [line.split("package=", 1)[1].split(" ", 1)[0] for line in manifests] == sorted(
         {"backend", "repository_service"} if "," in selection else {"shared_kernel"},
         key=("shared_kernel", "repository_contracts", "repository_client", "backend", "repository_service").index,
     )

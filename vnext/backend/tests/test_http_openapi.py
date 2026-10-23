@@ -63,7 +63,9 @@ def test_openapi_operation_diagnostic_details_match_the_bounded_contract(client:
     details_schema = _non_null_union(diagnostic["properties"]["details"])
     assert details_schema["type"] == "array"
     assert details_schema["maxItems"] == 100
-    assert details_schema["items"]["$ref"].endswith("/OperationDiagnosticDetailResponse")
+    detail_items_schema = details_schema["items"]
+    assert isinstance(detail_items_schema, dict)
+    assert detail_items_schema["$ref"].endswith("/OperationDiagnosticDetailResponse")
     omitted_schema = _non_null_union(diagnostic["properties"]["omitted_count"])
     assert omitted_schema["minimum"] == 0
     assert omitted_schema["maximum"] == 2**53 - 1

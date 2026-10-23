@@ -47,6 +47,7 @@ from gateway_backend.capabilities.snapshot_materialization import (
     MaterializationStage,
     SnapshotMaterializationStatus,
 )
+from gateway_backend.operations.contracts import OperationDiagnosticSide
 from gateway_backend.capabilities.snapshot_materialization import materialize as snapshot_materialize
 from gateway_backend.capabilities.snapshot_materialization import artifact as snapshot_artifact
 from gateway_backend.capabilities.storage_projection import project as storage_project
@@ -515,6 +516,7 @@ def _snapshot_package(
             binding,
             store,
             ruleset,
+            side=OperationDiagnosticSide.MODIFIED,
         )
     recorder.stages.append(
         {

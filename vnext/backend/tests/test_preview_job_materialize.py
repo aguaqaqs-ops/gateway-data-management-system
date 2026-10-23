@@ -588,7 +588,7 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
     assert assemble_step.checkpoint_ref is not None
     assert len(observed_pairs) == 1
     pair = observed_pairs[0]
-    surface_result = pair.surface_result  # type: ignore[attr-defined]
+    surface_result = pair.surface_result
     surface = surface_result.surface
     assert surface is not None
     added_table = next(table for table in surface.tables if table.table_name == "new_preview_table")

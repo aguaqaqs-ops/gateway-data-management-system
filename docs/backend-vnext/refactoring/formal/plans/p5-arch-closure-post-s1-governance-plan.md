@@ -297,13 +297,14 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
 
 ### G13. P5 exit 前的测试工具修正（harness/runner；owner 2026-10-23；S5 合入后、G10 清理前）
 
-处理 G10 第 4、6、7 项，以及 ct108 TMPDIR 的迁移（G10 第 2 项的前提）。按阶段流程执行：在 `/home/dev/gdds-p5-g13`（分支 `p5-g13`）实施，测试在 ct108 上运行，初审后由审核方终审，打 `p5-g13-exit`，以 `--no-ff` 合入 main。区间起点 `p5-s5-exit`。
+处理 G10 第 4、6、7 项、ct108 TMPDIR 的迁移（G10 第 2 项的前提），以及 G13 执行中发现的 Hypothesis 派生缓存问题（第 6 项）。按阶段流程执行：在 `/home/dev/gdds-p5-g13`（分支 `p5-g13`）实施，测试在 ct108 上运行，初审后由审核方终审，打 `p5-g13-exit`，以 `--no-ff` 合入 main。区间起点 `p5-s5-exit`。
 
 1. **secret 文件权限不依赖 umask（G10 第 6 项）。** backend 与 repository_service 的测试、harness 及 `vnext/backend/benchmarks/` 中供容器读取的 secret 文件，创建后显式设置容器可读的权限。有意测试权限限制的用例（例如负向探针）保持原意。runner 在日志头部打印实际 umask。验收：在 umask 077 下运行，S5 r1 失败的两项 backend Compose 用例通过。
 2. **权威 runner 不写 `.pytest_cache`（G10 第 7 项）。** runner 的 pytest 调用加 `-p no:cacheprovider`；manifest 仍摘要 `.pytest_cache`。实施前确认没有测试使用 pytest 的 `cache` fixture 或 `config.cache`。验收：一次失败运行后紧接一次合格运行，该合格运行能与自身起始 manifest 比出“可沿用”。
 3. **ct108 TMPDIR 迁出日志目录。** 改为 `/home/dev/gdds-test-tmp`，同步 AGENTS.md 与 testing-conventions；旧目录在 G10 清理中删除。
 4. **复核 carried 的“同一 worktree”限制（G10 第 4 项）。** manifest 仍摘要本机权限位与非 Git 内容，预期结论为保留；结论写入 testing-conventions，不改代码。
-5. **门禁：** 新 V 上 fresh RS 镜像与全量 runner（umask 022，日志记录 umask）；不改生产代码，不运行真实数据。H 只改 handoff，按 DC34 做 carried。
+6. **Hypothesis 派生缓存不阻断 carried（owner 2026-10-23 追加，来源见 §3 第 13 项）。** `test_input_closure.py` 摘要 hypothesis-storage 时，排除 Hypothesis 自动生成的派生内容：存储目录顶层的 `.gitignore`、`constants/` 与 `unicode_data/`。只含这些内容的存储目录与目录不存在得到相同摘要；`examples/` 等其他内容照常按路径、类型、权限与内容摘要。排除依据：`constants/` 以模块源码 sha1 为键，缓存缺失或不可读时从源码重算；`unicode_data/` 由解释器的 unicodedata 决定；源码与解释器已由闭包其他组件摘要。删除被取代的 Unicode gzip 归一化，manifest schema 升一版，同步 AGENTS.md 与 testing-conventions 的闭包说明。验收：在新建 worktree 中，冷启动的包运行一次后，与自身起始 manifest 比出“可沿用”；对照组在旧工具上比出“运行”。
+7. **门禁：** 新 V 上 fresh RS 镜像与全量 runner（umask 022，日志记录 umask）；不改生产代码，不运行真实数据。H 只改 handoff，按 DC34 做 carried。
 
 ## 3. 顺序
 
@@ -538,3 +539,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 不在 main 中的 4 个 S4 handoff 候选（`e6e9075793`、`2ad35c0c94`、`eaa55fc40c`、`b051067f3d`，其中两个被 S4 handoff 引用）在开发主机以 `refs/archive/p5-s4/<sha>` 保存。
    - 证据日志目录（开发主机与 ct108 的 `gdds-p5-closure-s1-gate-logs`）、真实数据与 `runs/` 原地保留，不改路径。不明来源的 `refs/codex/...` 不动。
    - 是否推送 main 与 tag 到 GitHub，P5 exit 后由 owner 另行决定。
+   G13 carried 不满足（2026-10-23）：
+   - V `0e430ff990` 的静态检查、focused、验收 A/B 与全量 runner 均通过（exit 0）。H `e6ea9be727` 只增加 handoff；RS identity 与 labels 相符，但 shared_kernel 比出“运行”，唯一变化组件为 hypothesis-storage，实施方按规则停止。
+   - 原因：`/home/dev/gdds-p5-g13` 是新建 worktree，V runner 起始时五个包都没有 `.hypothesis`（摘要为目录不存在的值）。runner 运行中 Hypothesis 在 shared_kernel 与 backend 下生成 `.gitignore`、`constants/` 与 `unicode_data/`，没有 `examples/`。backend 也会比出“运行”。S5 未遇到，是因为其 worktree 已运行过多次、缓存早已生成。每个阶段使用新 worktree，H 通常是 V 加 handoff 提交，该问题会反复出现。
+   - owner 决议：不在 H 上补跑，把根因修复并入 G13 第 6 项；修复后换新 V，从头运行静态检查、focused、验收与全量 runner。`0e430ff990` 的运行结果作为历史保留，不作为新 V 的沿用来源。

@@ -545,3 +545,11 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - owner 决议：不在 H 上补跑，把根因修复并入 G13 第 6 项；修复后换新 V，从头运行静态检查、focused、验收与全量 runner。`0e430ff990` 的运行结果作为历史保留，不作为新 V 的沿用来源。
    - 第 6 项原方案（manifest 排除 `.gitignore`、`constants/`、`unicode_data/`）停止（2026-10-23）：实施方核对锁定的 Hypothesis 6.156.6 源码，`constants/` 与 `unicode_data/` 的缓存只要可以解析就被直接采用，只有读取或解析失败才从源码或 unicodedata 重算。排除它们会让可能影响测试输入的本地状态不进摘要，原方案的排除依据不成立。`.gitignore` 由 Hypothesis 写入，未见读取路径。实施方未改仓库、未开始新一轮测试。
    - owner 决议：第 6 项改为权威 runner 隔离 Hypothesis 存储（与第 2 项禁用 pytest cacheprovider 同一原则：权威 runner 不读写 worktree 中的本地工具缓存），manifest 摘要规则不变，schema 不升版。
+   - 候选 `28ab8098f7` 全量 runner exit 1（2026-10-23）：runner 设置的 `HYPOTHESIS_STORAGE_DIRECTORY` 被测试进程继承，`test_test_input_closure.py` 中 3 个假定环境无此变量的用例失败；focused 运行时没有该变量，未暴露。在 G13 范围内授权修复，`b93748c04e` 以模块级 autouse fixture 清除该变量，无新决议。
+   G13 终审通过（2026-10-23）：
+   - owner 同意免去独立初审，由审核方在终审中直接审核 `p5-s5-exit..e3fe69c945`。
+   - V `b93748c04e`：五包静态检查、两种 `HYPOTHESIS_STORAGE_DIRECTORY` 环境下的 focused、fresh RS 镜像（identity 与 labels 一致）、全量 runner（umask 022，exit 0，起止 HEAD 一致，worktree clean，结束后五包 runner 存储目录不存在）。验收 A（umask 077 Compose 用例）、B（失败后合格运行可沿用）、C（冷启动 worktree 运行后可沿用，worktree 不生成 `.hypothesis`；旧 runner 对照为“运行”）在 `28ab8098f7` 上通过，`28ab8098f7..b93748c04e` 只改该测试文件，沿用成立。
+   - H `e3fe69c945` 只改 handoff：RS identity 与 labels 一致；审核方用 V runner 起始 manifest 与 H manifest 独立重算五包 compare，全部“可沿用”，无变化组件。
+   - 附注 tag `p5-g13-exit` 指向 `e3fe69c945`，以 `--no-ff` 合入 main。
+   - 非阻断记录：（1）G10 第 6 项要求复核的“umask 022 下启动”规则保留，但理由改变：容器读取 secret 已不依赖 umask；manifest 仍摘要本机权限位（checkout 的 tracked 文件、uv 创建的 `.venv` 等），V runner 与 carried 必须使用相同 umask，因此该规则转为一致性要求，启动脚本继续在日志头部记录 umask。（2）runner 在退出时统一清理各包 Hypothesis 存储，而非每包测完即删，效果与第 6 项“runner 结束后目录不存在”相同，handoff 已说明。
+   - G10 第 4、6、7 项由 G13 处理完毕；第 2 项的前提（TMPDIR 迁到 `/home/dev/gdds-test-tmp`）已满足，旧 `g12-default-tmp` 在 G10 清理中删除。

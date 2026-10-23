@@ -231,3 +231,141 @@ V runner 日志 E/s5-b79844ddc2-full-runner.log：2026-10-22 08:03:04Z–08:41:0
 S5-F1、S5-F2 修订及相应 focused 验证完成后形成复审候选，按实际改动与 DC30–DC34 / S5 最终门禁规则准备证据。F3 随修订校正。不要把当前 corrected 子段算术视为已经补齐缺失 CPU、逐表成本或整条生产路径归因。
 
 保留的两组不可达模块按 §9 的 owner/重开条件处理。性能优化和容量目标继续属于 Phase 6；本报告不要求在 P5 优化算法。S5 审核通过后下一步仍由 owner 决定；P5 exit、G10 清理另行安排。本次仅提交独立报告到 p5-s5，不推送、不打 tag。
+
+
+## 6. 复审（2026-10-23）
+
+- 结论：**通过**。
+- 审核对象：`p5-s5` 的最终 H `fc2b63c521fb13f743c3b3b9f33d8f23223c4c0e`；门禁 V / 实现 HEAD `55a8b810249649b403339d406cd2b5744feb7863`；backend 的最终直接运行来源为 H1 `1dd049742c1a04636a0e5ea8171a2ac63411d8fb`。
+- 重点区间：`ac679c3961..H`，逐项审核 `7ff34be684`、`55a8b81024`、`1dd049742c`、`fc2b63c521`；整体判断仍限于 `p5-s4-exit..H`。初审正文原样保留；其“定向修订”结论对应旧 H，本节结论对应新 H。
+- 依据沿用初审列出的权威文档，并在 CT108 通过 `git -C /home/dev/gateway-data-management-system show <sha>` 阅读 main 的 `b5d2961d33`、`3159e4e083`、`1f271ad8a1` 实际 diff。仅传输 Git 对象，没有合并 main。
+- 审核位置：CT108 detached worktree `/home/dev/gdds-p5-s5-independent-review`，固定 H，补齐 legacy symlink；检查期间 tracked 内容只读。本次未参与修订实现，未运行全量 runner、Compose 或真实数据。
+- 以下 E、D 沿用 §4 定义；新增 R2 = `/home/dev/gdds-p5-closure-s1-gate-logs/s5-independent-rereview/`，所有取证文件均在 CT108、worktree 外。
+
+### 6.1 结论与原 finding 关闭情况
+
+F1、F2、F3 均已关闭。修订没有引入新的生产行为、Contract、依赖或部署边界变化；S5 的实现、全量门禁、真实数据沿用及最终 carried 可以接受。没有剩余阻塞项；另有一项非阻塞的日志字段缺失，详见 §6.2，不能把它写成“所有指定主日志均已记录 umask”。
+
+| 原 finding | 关闭情况 | 核对依据 |
+| --- | --- | --- |
+| S5-F1：无 consumer 的累计预算及错误设计文字 | 已关闭 | 两个生产 caller 和内部递归不再传 elapsed/mode；枚举、累计分支、helper、导出及专属测试/fixture 一并删除。R5 §6、5B §13.1 与代码一致，授权为 main b5d2961d33。五个指定符号在 H 的 src/tests 中 rg 均 0 命中。 |
+| S5-F2：重复计时、覆盖与时间口径 | 已关闭 | 新 V 整套 18 场景重测；Submit 父子/outer 边界、包级共享成本与外层 CPU 均明确，数值可从新 JSON 复算。完成时间采用已有 operation_terminal_seconds，核对完成单列；历史 C 表统一 operation wall。包级 planning/render 的逐表限制符合 b5d2961d33 的明确取舍。 |
+| S5-F3：owner 决议及真实数据范围归因 | 已关闭 | handoff §4 正确引用 e0054eceec、d876aea9fb 和偏差引入 90e7f90759；§6/§8 区分最后允许沿用的范围与 b79844ddc2 实际全量重跑及 CLI 原因。新 V 的真实数据沿用单独引用 b5d2961d33，未混淆两轮决定。 |
+
+通过的是本节固定 H 的 S5 独立复审，不是 P5 exit 或发布授权。后续仍交 owner 决定；本次不推送、不打 tag，不执行 G10 cleanup。
+
+### 6.2 非阻塞记录缺陷：DC32 r2 主日志漏记 umask
+
+- 类型：已证实记录缺陷；阻塞：否。
+- 位置：E/`s5-dc32-capability-55a8b81024-r2.log:1–13`；外部启动脚本 E/`s5-run-command.sh`。
+- 依据：main `3159e4e083` 要求在 umask 022 下启动并在日志头部记录；本次任务追加第 11 项明确要求核对。该主日志第 12 行直接执行 uv wrapper，第 13 行已经是第一个 measurement checkpoint，全文没有 umask 字段；通用启动脚本也没有记录它。
+- 已有旁证：E/`s5-dc32-preflight-55a8b81024-r2.log:1–4` 在 23:08:49Z 记录 `umask=0022`、clean V；主运行 23:08:54Z 开始。运行 exit 0、输出 JSON 和日志实际为 0600，runs 为 0700。V r2 runner、H1 backend r2、最终 carried 的主日志均实际包含 `umask=0022`。
+- 影响与判定：追加第 11 项的“主日志头部全部记录”没有完全满足；preflight 不能冒充测量进程自身的记录。本次无法仅从 DC32 主日志独立确认该进程的 umask。该缺行不证明实际使用了 077，也不推翻已复算的测量结果；DC32 是直接 capability/本机 Dolt 诊断，没有发生此前容器降权读取 secret 的失败，私密输出权限另有显式设置与检查。结合紧邻的同 V preflight，按指南 §6 和比例化政策将其列为非阻塞记录缺陷，不因缺一个字段要求重跑整套长测量。
+- 最小修正与关闭标准：后续启动记录显式打印实际 umask；如有当时保存的启动记录，单独关联到本次运行。保留原日志，不能事后添加一行并当作当时证据。本报告已如实登记当前证据限制；不以“当前 shell 是 022”反推历史进程。
+
+### 6.3 生产差异、回归与真实数据沿用
+
+逐行阅读 `git diff b79844ddc2..55a8b81024 -- vnext/backend/src`，生产改动仅两个文件：
+
+1. `operations/recovery.py`：删除 `ReconcileBudgetMode`、`reconcile_budget_exhausted`、累计分支及 elapsed/mode 参数、内部递归实参和导出；给 60 秒常量补单次 poll 注释。原 session-count 分支、取消/失败/终态转换、退避与 occupancy 逻辑没有改动。
+2. `application/submit_jobs.py`：删除枚举导入、poll timeout caller 的两个实参，调整注释；poll deadline 和三个 claimed session 的控制没有改动。
+
+H 中非递归生产调用仍只有 `operations/recovery.py:659` 与 `application/submit_jobs.py:850`，内部递归为 recovery.py:463/486/509。原 V 的两个入口已显式 session-only；S5 之前通用恢复曾传 0.0 的事实见初审 F1，不能把本次删除解释为停用了一个原先有效的累计限制。实际真实旅程不受影响，满足 b5d2961d33 对沿用 b79844ddc2 的条件。
+
+`55a8b81024` 的整个提交仅从 `test_operation_effect_reconcile.py` 删除 `load_checkpoint_envelope` 导入和未使用的 `envelope = ...` 赋值。修订区间共 12 个路径；b79844ddc2..V 共 13 个路径，多出的为初审报告。V..H 只改 handoff。没有测量生产插桩、锁/生产依赖变化或 Contract 文本变化，符合 §3 路径预算和 owner 授权。
+
+复核回归 owner：`test_reconcile_pending_uses_three_recovery_sessions`、Submit 的 bounded poll/session 参数化用例、Repository 已终态成功、通用状态转换矩阵、未知结果/取消后继续 reconcile 等仍在。删除的是累计分支专属断言及其合成时间状态；V focused 430 passed，backend unit 2,757 passed / 178 deselected，随后全量门禁覆盖。Submit/await checkpoint 仍只读写 v2，两种 v1 schema 字面量在 src/tests 中均 0；内联 canonical fixture、旧字段拒绝及实际 bytes digest 路径未被本轮放宽。
+
+真实数据来源仍为 b79844ddc2 的 t1–t4：原日志起止该提交、exit 0；JSON PASS / 36 measurements，其中 operation timing 28、baseline read 5、History read 1、Submit reconciliation 2。复核 handoff 的 28 组时间与原 JSON 一致；重复 Submit 无新 operation terminal，以“—”表示。t4 两次 Submit terminal 565.761 / 573.831 秒、worker CPU 479.216 / 477.801 秒、RS import 79 / 83 秒、session 2/3、余量各 1，沿用事实不变。
+
+### 6.4 DC32 新数据复算与范围
+
+新 JSON D/`s5-dc32-capability-55a8b81024.json` 的 head=V、schema=v2、status=PASS；运行日志从 0 场景连续 checkpoint 到 18，不是拼接旧 v1。场景构成为 materialize/project 9、Preview pair 6、Submit prepare 2、History 1，覆盖所需 t1–t4 范围。
+
+逐表计数独立复算为：
+
+- v1：14,939；v2：17,435；差 2,496。
+- 两个 Submit 场景各 312 张表，共 624 张表次；每张表从 3 条 stage 变成 7 条，故增加 `624 × (7 − 3) = 2,496`。原 mutation 合并行改为 frozen row read、snapshot build、plan、replay、DML parent 五行，另保留 schema/artifact 两行。
+- 实测 11,907、共享成本 5,519、不适用 9；所有 shared/not-applicable 的 wall/CPU 为 null。handoff §10 的 stage 汇总、20 行 role/row 分布和最慢三表均与 JSON 重算一致。
+- 9 条 not-applicable 均为派生 `composite_signal_point` 的 SQL 逐表 materialization 探针未执行；其派生工作由 `compose.py::materialize_business_snapshot` 的包级计时覆盖。此标签不表示 composite 无业务工作或零成本。pair artifact、Submit schema/artifact 的包级成本有实际 wall/CPU。
+
+| t4 Submit | v1 wall / thread CPU 秒 | v2 wall / thread CPU 秒 |
+| --- | ---: | ---: |
+| frozen artifact row read，逐表求和 | 30.236716 / 30.200350 | 33.676161 / 33.630934 |
+| snapshot build | 69.060765 / 69.022034 | 65.166574 / 65.102553 |
+| plan child | 230.808288 / 230.776276 | 228.957770 / 228.936570 |
+| replay child | 7.140672 / 7.139179 | 6.922427 / 6.921293 |
+| DML parent inclusive | 237.983897 / 237.950377 | 235.915228 / 235.892878 |
+| DML parent exclusive = parent − children | 0.034937 / 0.034922 | 0.035031 / 0.035015 |
+| 非重叠 subtotal = row read + snapshot + DML parent | 337.281378 / 337.172761 | 334.757963 / 334.626365 |
+| adapter outer build/publish/readback | 373.979684 / 373.753891 | 369.455820 / 369.208861 |
+
+表中 subtotal 等价于 row read + snapshot + plan + replay + parent-exclusive；没有父子重复。schema SQL 与 artifact write 不计入 mutation subtotal，已包含于 outer。handoff §8/§10/§11 数字一致；旧的 534–541 秒归因已撤除。
+
+生产 adapter 的 frozen row read、snapshot build、schema render、DML 为顺序调用，DML 内含 plan/replay；计时边界与这条调用链一致。benchmark 仍是内存 store 的直接 adapter 路径，计时外 resolve bindings，额外 readback，不能代表完整生产 prepare、持久化/事务和 RS import，thread CPU 不能等同 worker cgroup CPU。修订后的 B 层和 Phase 6 候选第 5 条按分开的边界调查，不再把组件与真实 operation 强行相加，结论成立。
+
+时间口径已校正：handoff §9 把原 `completion_seconds` 标成结果读取/核对完成，operation 完成取 terminal；§11 的 S3、S4 数字与各自 handoff 的 operation 字段一致，S2b 只有 step wall 因而留空并说明来源限制。旧实现 t4 对照限制、2×t4 未实跑的外推限制和 replay SQL/Catalog 字节余量均保留，没有以估算冒充验收实测。
+
+### 6.5 失败、重跑与通过来源
+
+以下时间均为 UTC。失败日志仅作诊断；没有被列为包或容器门禁的通过来源。
+
+| 运行 | 原始日志与核对结果 | 证据用途 |
+| --- | --- | --- |
+| 7ff34be684 focused/静态 | E/s5-focused-7ff34be684.log：focused 与 unit 先通过，backend ruff 第 243 行 F841；末尾 FOCUSED_CHECK_EXIT_CODE=1，起止 7ff34be684 | 失败记录；V 上从头重跑静态、focused 和 unit 后通过 |
+| V 全量 r1 | E/s5-full-runner-55a8b81024.log：21:52:25Z 开始；backend serial 2 failed / 2 passed 后中断；runner_exit_code=143，end_head=V | 不沿用。主日志没有 umask；077/secret 降权故障是 owner 3159e4e083 记录的调查结论，日志直接证明 readiness 失败及 RS exit 3 |
+| r1 清理 | E/s5-cleanup-55a8b81024.log：仅两个指定 Compose project，3 容器、2 网络、4 卷；清理后无匹配项，images_touched=no；r2 preflight 清洁 | 没有把这次残留清理混作 G10 cleanup |
+| V 全量 r2 | E/s5-full-runner-55a8b81024-r2.log：22:04:07Z–22:42:17Z，umask=0022，起止 V、clean，exit 0，五包实际运行 | V 唯一全量通过来源 |
+| DC32 错参数 | E/s5-dc32-capability-55a8b81024.log：22:42:49Z–22:42:50Z，exit 1，索引 datasets.json 不存在 | 未启动场景；r2 preflight 记录 failed_output=absent、scratch_candidates 为空。源码在建 scratch/checkpoint 之前读取索引，与记录一致 |
+| DC32 成功重测 | E/s5-dc32-capability-55a8b81024-r2.log：23:08:54Z–次日 00:31:58Z，起止 V、clean、exit 0；18 场景 / 17,435 行 | 新 capability 唯一来源；umask 字段缺失单列 §6.2 |
+| H1 初次 carried | E/s5-carried-H1-1dd049742c-r3.log：四包可沿用；backend 因 non-git:pytest-cache 返回“运行” | compare 命令 exit 0 不是“所有包通过”。handoff 没有把该 backend 结果当作 carried |
+| H1 backend 首次 | E/s5-backend-runner-1dd049742c.log：01:10:57Z–01:38:30Z，起止 H1、umask=0022、exit 0；2896 + 39 passed | 合格实跑；最终选择下一行 r2 为直接来源 |
+| H1 backend r2 | E/s5-backend-runner-1dd049742c-r2.log：01:41:06Z–02:08:20Z，起止 H1、umask=0022、exit 0；2896 + 39 passed | 最终 backend 与其 Compose 门禁直接来源；此前五包静态已全部通过 |
+
+V 五包计数为 242、152、154、backend 2896+39、RS 1724+205 和 1 skipped，合计 **5,412 passed / 1 skipped**。相对初审 V backend parallel 少 11，符合专属累计证明删除及测量用例调整；相对 S4 为 parallel −5、serial +3。其余包不变。唯一 skip 仍是 delegated target container 的 cgroup smoke，RS 源码未变；Compose journeys 0 skipped。
+
+V r2 的 backend 起始 total_digest 为 b1669d67…，H1 两次 backend 起始完整 manifest 完全相同，均为 828a304a…，不是只比较前缀。独立比较 V r2 → 当前 H 仍只差 pytest-cache（0d73e66e… → 6dced36c…）；没有手工清空缓存以制造沿用。按 main 1f271ad8a1 改用 H1 实跑，处置正确。
+
+### 6.6 Fresh 镜像、provenance 与最终 carried
+
+- RS：E/s5-build-rs-55a8b81024.log 起止 V、build/独立 label 校验 exit 0；fresh image `sha256:a1d2e14c8574ea10557c3d16a6643d17ae4c6dd440499379442edfab052f3fec`，candidate revision=V。build-input revision 仍为 `ed70ca1be262653bb49267940e73e7edd09a2267`，source-tree 仍为 `sha256:a3e56c4d90e67ba80b632599ead9dca8fc65d13d2193ad0f42472d9a9f68be3a`；这是未变的 RS build 输入身份，不是沿用旧 image ID。
+- backend/worker：H1 backend r2 执行原 fresh-build/运行镜像一致性 harness。TMPDIR 的最后一次 provenance 修改时间 01:58:51Z 落在该 runner 内，backend 为 `sha256:730e02af87d859b1ec112ae22f8254e8f287839d08c66d4471e31dc6dd58cb17`、worker 为 `sha256:7ee87691c042086b3fcd5a9ca7bac184da0f4b5f5a565ea461bc9d8198212eae`，RS 为上述 fresh image；只代表最后一次 capture，副本在 R2/H1-last-compose-provenance.json。handoff 的“未重建镜像”应结合上下文理解为未手工重建所沿用的 RS/client，不能解释成 backend harness 没有 build。
+- client e2e：V r2 postflight 与本次 inspect 一致，`sha256:8c01290166c5a95d2e386cfe3dddd994fca25da0f519917e261a62615c140e91`，revision=V，创建于 22:32:52Z；base 仍为 ba6c64db…，没有手工删 tag 的证据。
+- 最终作者 carried：E/s5-carried-H-final-after-backend-run.log，02:09:27Z–02:09:35Z，起止 H、clean、umask=0022、exit 0，RS 两 label 相同，五包 changed_components=[]。
+- 本次独立复算：在**原 V/H1 runner 的同一** CT108 `/home/dev/gdds-p5-s5` worktree，以 s5-env.sh 完整环境和 umask 022 重算；只把输出写到 R2，没有 checkout、sync、改权限、清 cache 或重建镜像。03:06:45Z–03:06:52Z，起止 H、exit 0，结果再次相同。
+
+| 包 | 直接实跑来源 | 来源起始 / 当前 H 相同 total_digest | 本次 compare |
+| --- | --- | --- | --- |
+| shared_kernel | V r2 | c50ed6636ebed5dc3c67c2c788a556e60bae3981d4213d5f96bf620f6f2b8ff9 | 可沿用 |
+| repository_contracts | V r2 | cf02462ed6d4e953501e9a97e2b7f9f7c0fa8275f8a1d8b16abe540cd26b4517 | 可沿用 |
+| repository_client | V r2 | a9a541548bb64db8e0cf1067c72c18a08600eab0ca4cd5046f5b1227cde46d92 | 可沿用 |
+| backend | H1 backend r2 | 828a304a68e201a65fd878f1f87c73de345184553d87805463d2defd603e16a7 | 可沿用 |
+| repository_service | V r2 | d498559964fdb430d3b09000f33a544057c28dd69ed6ca7615426b57a4a4cf6e | 可沿用 |
+
+逐包抽取原 runner 内嵌 manifest，与 handoff 指定来源 JSON 比较完整对象，全部相等；没有引用中间 carried 结果作为来源。H1..H 仅 handoff，满足 DC34 backend/worker 沿用规则。审核本轮 Current HEAD=H；rebuild required=no（只读复审）；最后直接验证来源为 RS/client 的 V 与 backend/worker 的 H1；最终 H container gate=carried。发布/最终 production gate 仍按其独立规则处理。
+
+### 6.7 验收总表与本次检查
+
+| 验收项 | 复审结果 |
+| --- | --- |
+| §2 S5 / §3 路径预算、fresh、全量 runner | 成立；owner 修订范围、V 全五包及 H1 backend 来源均闭合 |
+| 两组延期与 import_rules | 仍仅 canonical_row_hash / external_target_sync 两组，owner/reason/reopen 未改；本次实跑 0/0/6 |
+| §11 的 11 项、冻结 A/B、golden、bindings、Contract | 初审已核对且本轮未触碰相关实现；全量回归继续通过；Contract 目录整阶段无 diff |
+| DC32 四部分、逐表分布、两时钟及 t1–t4 | 数据与校正成立；包级分摊、直接 adapter 与完整 journey 的差异有明确限制；日志字段例外见 §6.2 |
+| 真实数据与容量/Phase 6 候选 | b79844ddc2 沿用条件逐行满足；composite/History/Preview facts 与 session 余量不变；容量估算仍不冒充 2×实跑 |
+| P5 §2A.5 五项 | 架构/摘要、执行边界/consumer、依赖/测量、回归/门禁、不可达 owning 处置逐项成立；F1/F2 原缺口已关闭 |
+| 停止条件与 G10 | 三次停止及 carried 不满足均已交 owner 并按决定恢复；无未处置停止项。G10 第 6、7 项已登记到 main，尚未执行；没有提前宣布 P5 exit |
+
+| 审核方本次实际检查 | 结果 / 证据 |
+| --- | --- |
+| 五包 ruff/mypy | H detached worktree，受控 wrapper `run --offline ruff check .` / `run --offline mypy`；全部通过，34/15/26/484/200 files；R2/static-import-rules.log，03:05:35Z–03:06:27Z，起止 H、exit 0、umask 0022 |
+| import_rules | 同日志；0 import / 0 cycle / 6 unreachable |
+| 五个 R5 符号及 checkpoint v1 | 在 CT108 使用随审核传入日志目录的 rg 15.2.0；src/tests 无命中，rg exit 1 是正常 no-match；R2/symbol-search.log |
+| identity 与五包 carried | R2/carried-H.log、recomputed-H-*.json；label 一致、五包可沿用；R2/provenance-audit.txt 核对起始对象 |
+| 新测量/历史来源/计数与分布 | R2/measurement-audit.txt、distribution-audit.txt；raw JSON 只读重算；未读取真实 dump 行内容 |
+| umask 与文件权限 | R2/umask-audit.txt；指定成功日志及 JSON 实际 0600、runs 0700；DC32 主日志字段缺口已单列 |
+| 原报告与差异边界 | 写本节前原报告 SHA-256 为 a82b7a764475e614dd44e66940bc63f30a3f3ae46b301bf8cd47cf5e17c05e74；确认与 ac679c3961 完整 bytes 相同，仅追加本节 |
+
+本次没有重新运行实现测试、容器或长链路测量；通过结论基于源码差异、上述独立静态/闭包检查与已有原始执行证据。一次尝试把历史 H1 manifest 作为 current 比较被 HEAD guard 正确拒绝（exit 2）；未改任何证据，改为在原 runner worktree 用实际 H 重算 manifest 比较，确认 V backend 的唯一变化为 pytest-cache，记录在 R2/V-backend-cache-difference.log。
+
+剩余工作归属明确：owner 决定 S5 后续与终审；G10 第 6 项 secret 权限隐患、第 7 项 pytest-cache 沿用问题及其他 exit 清理按 main 决议处理。S5 通过不等于这些事项已完成，也不等于 P5 exit。

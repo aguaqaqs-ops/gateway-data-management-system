@@ -189,7 +189,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 4. 本计划各项（G2、G3、G6b、G7、G8）完成后，复核 AGENTS.md 与 testing-conventions 中 carried 规则的“同一 worktree”限制是否仍然需要。
 5. G2 实施方留在 `/tmp` 的 6 个已注册临时 worktree（`gdds-g2-h-check`、`gdds-g6-final-a`、`gdds-g6-final-b`、`gdds-g6-identity-old`、`gdds-g6-verify-a`、`gdds-g6-verify-b`）：
    由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。已完成：复审时 `git worktree list` 只剩主工作区与 `/home/dev/gdds-p5-closure-s1`。
-6. Compose 测试的 secret 文件权限依赖调用方 umask（2026-10-23 登记，来源见 §3 第 12 项 S5 定向修订）：backend Compose 测试用 `write_text` 创建 bearer token、session 等 secret 文件，没有设置权限；在 umask 077 下得到 600、属主 root 的文件，容器降权后无法读取。修正方向任选其一并写入 testing-conventions：在 runner 中固定 umask，或由测试 harness 对 secret 文件显式设置容器可读的权限。修正后复核 §3 第 12 项中“umask 022 下启动”的运行规则是否仍需保留。
+6. Compose 测试的 secret 文件权限依赖调用方 umask（2026-10-23 登记，来源见 §3 第 12 项 S5 定向修订）：backend Compose 测试用 `write_text` 创建 bearer token、session 等 secret 文件，没有设置权限；在 umask 077 下得到 600、属主 root 的文件，容器降权后无法读取。修正方向任选其一并写入 testing-conventions：在 runner 中固定 umask，或由测试 harness 对 secret 文件显式设置容器可读的权限。修正后复核 §3 第 12 项中“umask 022 下启动”的运行规则是否仍需保留。在规则仍保留期间，runner、测量与 carried 的启动脚本在日志头部打印实际 umask，而不只在 preflight 中记录（S5 DC32 r2 主日志缺这一行）。
 7. 失败 runner 留下的 `.pytest_cache` 状态阻断 carried（2026-10-23 登记，来源见 §3 第 12 项 S5 carried 不满足）：失败运行写入 `lastfailed`，下一次合格运行的起始 manifest 包含这些记录，运行通过后 pytest 清空它们，于是该运行无法再与自身起始 manifest 比出“可沿用”。评估方向：runner 禁用 pytest cacheprovider，或 manifest 排除 `lastfailed` 等不参与测试输入的缓存项（需说明 Hypothesis 与其他工具不读取它们）。结论写入 testing-conventions 与 AGENTS.md 的闭包说明。
 
 ### G11. 缩短完整门禁（runner；owner 2026-10-14，DC30；S2b 合入后、S3 kickoff 前）
@@ -513,4 +513,11 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 不开例外，不清缓存。按“carried 不满足就在候选上运行”，在 `1dd049742c` 上只运行 backend 包（`GATEWAY_TEST_PACKAGES=backend`，umask 022），作为 backend 与其 Compose 门禁的直接结果；其余四包与 RS 镜像仍沿用 V r2。
    - 随后只改 handoff 形成最终 H。carried：RS 重算 identity 与 label 比较；backend 与 `1dd049742c` backend runner 的起始 manifest 比较；其余四包与 V r2 起始 manifest 比较；五包都必须可沿用。backend 仍不满足时停止，交 owner。
    - 失败 runner 在 `.pytest_cache` 留下的状态会让紧随其后的合格运行无法作为 backend 的 carried 来源。S5 内不改，登记为 G10 第 7 项。
+
+   2026-10-23 S5 复审与终审：**通过**。最终 H `fc2b63c521`，门禁 V `55a8b81024`，backend 直接来源 H1 `1dd049742c`；复审报告追加于 `plans/p5-arch-closure-s5-independent-review.md` §6（p5-s5 `5f2127f8ba`），初审原文字节未变。
+   - F1–F3 均已关闭。`b79844ddc2..V` 的生产代码改动只删除 R5 累计分支、枚举、helper 及相应参数，两个生产调用方原本即为 session-only，真实数据沿用 `b79844ddc2` 的条件成立；被删符号在 `vnext/` 中 0 命中。
+   - DC32 新测量：18 个场景，17,435 条逐表记录（实测 11,907、共享成本 5,519、不适用 9）。t4 Submit 不重叠小计 v1 337.3 s / v2 334.8 s（其中 `plan_storage_mutation` 230.8 / 229.0 s），adapter 外层 374.0 / 369.5 s 单列，不与子段相加。
+   - 最终 carried：RS 两个 label 一致，五包可沿用（backend 来源 H1 backend runner，其余四包来源 V r2）；复审方在原 runner worktree 独立重算，结果相同。
+   - 非阻塞记录缺陷：DC32 r2 主日志头部没有记录 umask，只有测量启动前 5 秒的同 V preflight 记录 `0022`。该测量不涉及容器降权读取 secret，输出权限显式设置，不重跑；处理并入 G10 第 6 项。
+   - owner 授权（2026-10-23）：tag `p5-s5-exit` 打在 `5f2127f8ba`，`p5-s5` 以 `--no-ff` 合入 main，不推送。下一步为第 13 项。
 13. P5 exit：按 G10 清理。

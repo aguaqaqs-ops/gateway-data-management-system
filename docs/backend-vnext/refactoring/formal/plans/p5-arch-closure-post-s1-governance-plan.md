@@ -190,6 +190,7 @@ S1 旧 worktree 占用约 950 MB（`vnext/rust/target` 429 MB、`backend/.venv` 
 5. G2 实施方留在 `/tmp` 的 6 个已注册临时 worktree（`gdds-g2-h-check`、`gdds-g6-final-a`、`gdds-g6-final-b`、`gdds-g6-identity-old`、`gdds-g6-verify-a`、`gdds-g6-verify-b`）：
    由实施方在 G2 修订结束时 `git worktree remove --force` 清理（不属于 P5 exit 才处理的项）。已完成：复审时 `git worktree list` 只剩主工作区与 `/home/dev/gdds-p5-closure-s1`。
 6. Compose 测试的 secret 文件权限依赖调用方 umask（2026-10-23 登记，来源见 §3 第 12 项 S5 定向修订）：backend Compose 测试用 `write_text` 创建 bearer token、session 等 secret 文件，没有设置权限；在 umask 077 下得到 600、属主 root 的文件，容器降权后无法读取。修正方向任选其一并写入 testing-conventions：在 runner 中固定 umask，或由测试 harness 对 secret 文件显式设置容器可读的权限。修正后复核 §3 第 12 项中“umask 022 下启动”的运行规则是否仍需保留。
+7. 失败 runner 留下的 `.pytest_cache` 状态阻断 carried（2026-10-23 登记，来源见 §3 第 12 项 S5 carried 不满足）：失败运行写入 `lastfailed`，下一次合格运行的起始 manifest 包含这些记录，运行通过后 pytest 清空它们，于是该运行无法再与自身起始 manifest 比出“可沿用”。评估方向：runner 禁用 pytest cacheprovider，或 manifest 排除 `lastfailed` 等不参与测试输入的缓存项（需说明 Hypothesis 与其他工具不读取它们）。结论写入 testing-conventions 与 AGENTS.md 的闭包说明。
 
 ### G11. 缩短完整门禁（runner；owner 2026-10-14，DC30；S2b 合入后、S3 kickoff 前）
 
@@ -502,4 +503,14 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    owner 决议（2026-10-23）：
    - 权威 runner、容器门禁、DC32 测量与 carried 判定一律在 umask 022 下启动，日志头部记录 `umask`。measurement 与日志文件的 600 权限由脚本显式 `chmod` 保证，不依赖 umask 077。carried 的 manifest 包含本机权限位，umask 不同可能导致不可沿用。
    - Compose 测试的 secret 文件权限依赖调用方 umask，这是测试 harness 的隐患。S5 内不修（修改会换 V），登记为 G10 第 6 项，在 P5 exit 前处理。
+
+   2026-10-23 S5 carried 不满足（V `55a8b81024`，handoff 候选 `1dd049742c` 只改 handoff）：
+   - V 的 r2 runner exit 0；DC32 capability 重测 exit 0（18 个场景，17,435 条逐表记录）。
+   - carried：RS identity 与 label 一致，四包可沿用；backend 因 `vnext/backend/.pytest_cache` 返回“运行”（r2 起始摘要 `0d73e66e…`，当前 `6dced36c…`）。
+   - 原因：r1（umask 077，exit 143）跑完 backend serial 后在 `lastfailed` 留下两项失败，r2 的起始 manifest 包含它们；r2 全部通过后 pytest 把 `lastfailed` 清为 `{}`。缓存文件最后修改于 r2 backend serial 结束时（22:31:28 UTC），之后没有写入。变化来自来源 runner 本身，与 `V..1dd049742c` 的改动无关。
+
+   owner 决议（2026-10-23）：
+   - 不开例外，不清缓存。按“carried 不满足就在候选上运行”，在 `1dd049742c` 上只运行 backend 包（`GATEWAY_TEST_PACKAGES=backend`，umask 022），作为 backend 与其 Compose 门禁的直接结果；其余四包与 RS 镜像仍沿用 V r2。
+   - 随后只改 handoff 形成最终 H。carried：RS 重算 identity 与 label 比较；backend 与 `1dd049742c` backend runner 的起始 manifest 比较；其余四包与 V r2 起始 manifest 比较；五包都必须可沿用。backend 仍不满足时停止，交 owner。
+   - 失败 runner 在 `.pytest_cache` 留下的状态会让紧随其后的合格运行无法作为 backend 的 carried 来源。S5 内不改，登记为 G10 第 7 项。
 13. P5 exit：按 G10 清理。

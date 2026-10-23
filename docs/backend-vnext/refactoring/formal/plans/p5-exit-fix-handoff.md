@@ -72,4 +72,16 @@ nodeid：`tests/test_preview_job_materialize.py::test_additive_ruleset_previews_
 
 ## H carried
 
-本文首次提交后，在 V runner 的同一 ct108 worktree、同一环境下执行 carried：先复核 RS identity 与 labels，再以 V runner 完全相同的 `HYPOTHESIS_STORAGE_DIRECTORY=/home/dev/gdds-test-tmp/gateway-runner-hypothesis/<package>` 为每个包生成 current manifest，确认目录无残留，并与 `v-manifests-88ba238a/<package>.json` 逐包 compare。Compare 结果及日志路径将在携带该结果的最终 handoff-only 提交中记录；本段不能作为 carried 通过证据。
+handoff 首次提交 `42706ba7cf` 后，在 V runner 的同一 ct108 worktree、相同环境下执行了 carried。RS 当前 identity 的 build-input revision 与 source-tree digest 均匹配 V 镜像 labels；uv lock label 也匹配。镜像 ID 只记录，不作为等价条件。
+
+五包均使用 V runner 相同的 `HYPOTHESIS_STORAGE_DIRECTORY=/home/dev/gdds-test-tmp/gateway-runner-hypothesis/<package>`，目录在 manifest 前后均不存在；与 V runner 起始 manifest 的 compare 全部为“可沿用”，`changed_components=[]`，source/current total digest 相等：
+
+| Package | V/current total digest | Result |
+| --- | --- | --- |
+| `shared_kernel` | `630927157f24e0aaddab1a98199d19cd8f979246181f958f1075f5c76cedbb5f` | 可沿用 |
+| `repository_contracts` | `a7025c2aeee34e562739bbff0af3e1cd4d7cc3b524baa56e5b95ec05b50d5425` | 可沿用 |
+| `repository_client` | `ac29d6e19391d9deca18bfe43994766627183312c211314550363e9945270885` | 可沿用 |
+| `backend` | `e738203b9d7dbca9ca579151919564cd58d1ee287f30b668b8106456542cc816` | 可沿用 |
+| `repository_service` | `b80d22fd57ee5af0f6f8843c2541034b1ab00ccb9474ff61c4b5759ff32e59b3` | 可沿用 |
+
+H1 carried 日志为 `h1-carried-42706ba7cf-20261023.log`；current manifests 与 compare JSON 分别在 `h1-current-manifests-42706ba7cf/`、`h1-compares-42706ba7cf/`。本 handoff 的最终记录提交只增加上述 carried 证据；提交后会在同一 worktree 重做同样检查，最终 H 的 carried 日志预定为 `h2-carried-final-20261023.log`，current manifests / compares 位于对应的 `h2-*-final/` 目录。最终 H 的 post-commit compare 以该日志为准。

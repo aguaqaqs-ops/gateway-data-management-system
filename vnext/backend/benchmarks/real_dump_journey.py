@@ -45,7 +45,6 @@ from benchmarks.real_dump_census import (
 )
 
 from tests.support.compose_gate_harness import (
-    write_container_readable_text,
     BACKEND_URL,
     BASELINE_NODE_ID,
     BEARER_TOKEN,
@@ -66,6 +65,7 @@ from tests.support.compose_gate_harness import (
     wait_repository_service_ready,
     worker_ready,
 )
+from tests.support.container_input_files import write_container_readable_text
 
 REPOSITORY_SERVICE_IMAGE = os.environ.get(
     "GATEWAY_REPOSITORY_SERVICE_IMAGE", "gateway-repository-service:local"

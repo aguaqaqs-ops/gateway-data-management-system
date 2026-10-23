@@ -11,7 +11,6 @@ import httpx
 import pytest
 
 from tests.support.compose_gate_harness import (
-    write_container_readable_text,
     BACKEND_URL,
     BEARER_TOKEN,
     DEVICE_KEY,
@@ -24,6 +23,7 @@ from tests.support.compose_gate_harness import (
     run_compose,
     start_three_container_stack,
 )
+from tests.support.container_input_files import write_container_readable_text
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 

@@ -15,7 +15,6 @@ import pytest
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryColumn
 from tests.support.compose_gate_harness import (
-    write_container_readable_text,
     BACKEND_URL,
     BASELINE_NODE_ID,
     BEARER_TOKEN,
@@ -43,6 +42,7 @@ from tests.support.compose_gate_harness import (
     start_three_container_stack,
     wait_http_ok,
 )
+from tests.support.container_input_files import write_container_readable_text
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     catalog_table,

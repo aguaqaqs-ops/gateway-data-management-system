@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from tests.support.compose_gate_harness import (
-    write_container_readable_text,
     BACKEND_URL,
     build_backend_image,
     capture_running_container_provenance,
@@ -24,6 +23,7 @@ from tests.support.compose_gate_harness import (
     require_docker,
     run_compose,
 )
+from tests.support.container_input_files import write_container_readable_text
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 

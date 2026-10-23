@@ -11,7 +11,6 @@ import httpx
 import pytest
 
 from tests.support.compose_gate_harness import (
-    write_container_readable_text,
     BACKEND_URL,
     BASELINE_NODE_ID,
     BEARER_TOKEN,
@@ -31,6 +30,7 @@ from tests.support.compose_gate_harness import (
     start_three_container_stack,
     wait_http_ok,
 )
+from tests.support.container_input_files import write_container_readable_text
 from tests.support.upload_http_packages import (
     KEYLESS_FALLBACK_BASE_ROWS,
     KEYLESS_FALLBACK_TABLE,

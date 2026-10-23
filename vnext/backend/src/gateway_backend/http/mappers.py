@@ -9,7 +9,11 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     Workspace,
 )
-from gateway_backend.http.schemas.operation import OperationDiagnosticResponse, OperationResponse
+from gateway_backend.http.schemas.operation import (
+    OperationDiagnosticDetailResponse,
+    OperationDiagnosticResponse,
+    OperationResponse,
+)
 from gateway_backend.http.schemas.preview import (
     PreviewArtifactRefResponse,
     PreviewIdentityPairResponse,
@@ -105,6 +109,20 @@ def operation_to_response(operation: OperationRecord) -> OperationResponse:
         diagnostic = OperationDiagnosticResponse(
             code=operation.diagnostic.code,
             message=operation.diagnostic.message,
+            details=(
+                None
+                if operation.diagnostic.details is None
+                else [
+                    OperationDiagnosticDetailResponse(
+                        code=item.code,
+                        side=item.side.value,
+                        table_name=item.table_name,
+                        column_name=item.column_name,
+                    )
+                    for item in operation.diagnostic.details
+                ]
+            ),
+            omitted_count=operation.diagnostic.omitted_count,
         )
     return OperationResponse(
         operation_id=operation.operation_id,

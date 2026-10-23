@@ -28,7 +28,7 @@ from tests.support.http_shutdown_harness import (
 from tests.support.http_workspace_harness import TEST_BEARER
 from tests.support.runtime_settings import TEST_REPOSITORY_TOKEN
 
-pytestmark = pytest.mark.serial
+pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 

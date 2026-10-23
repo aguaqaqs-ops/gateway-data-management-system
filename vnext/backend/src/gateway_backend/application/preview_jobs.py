@@ -184,6 +184,8 @@ from gateway_backend.operations.contracts import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     JobStepKey,
     OperationDiagnostic,
+    OperationDiagnosticDetail,
+    OperationDiagnosticSide,
     OperationRecord,
     OperationStatus,
     StepRecord,
@@ -245,9 +247,39 @@ _active_preview_transaction: ContextVar[PreviewControlTransaction | None] = Cont
 class PreviewJobError(ValueError):
     """Bounded preview job failure surfaced to the operation runtime."""
 
-    def __init__(self, message: str, *, diagnostic_code: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        diagnostic_code: str | None = None,
+        diagnostic_details: tuple[OperationDiagnosticDetail, ...] | None = None,
+        diagnostic_omitted_count: int = 0,
+    ) -> None:
         super().__init__(message)
         self.diagnostic_code = diagnostic_code
+        if diagnostic_details is None:
+            if diagnostic_omitted_count != 0:
+                raise ValueError("diagnostic_omitted_count requires diagnostic_details")
+            self.diagnostic_details = None
+            self.diagnostic_omitted_count = 0
+            return
+        ordered_details = tuple(sorted(diagnostic_details, key=_operation_diagnostic_detail_sort_key))
+        self.diagnostic_details = ordered_details[:100]
+        self.diagnostic_omitted_count = diagnostic_omitted_count + max(
+            0,
+            len(ordered_details) - 100,
+        )
+
+
+def _operation_diagnostic_detail_sort_key(
+    detail: OperationDiagnosticDetail,
+) -> tuple[str, str, str, str]:
+    return (
+        detail.side.value,
+        "" if detail.table_name is None else detail.table_name,
+        "" if detail.column_name is None else detail.column_name,
+        detail.code,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -600,6 +632,8 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                     lease_session=lease_session,
                     diagnostic_code=exc.diagnostic_code,
                     message=str(exc),
+                    diagnostic_details=exc.diagnostic_details,
+                    diagnostic_omitted_count=exc.diagnostic_omitted_count,
                     control=control,
                 )
                 return ExecutorAcknowledgment.PUBLISHED
@@ -1053,27 +1087,71 @@ def _materialize_all_sides(
     baseline_state_digest = canonical_state_digest_of(baseline.summary.tables)
     if baseline_state_digest is None:
         raise PreviewJobError("baseline canonical state digest is missing")
+
+    uploaded_side_specs: list[tuple[OperationDiagnosticSide, SourceArtifactBinding]] = []
+    if payload.input_completeness is InputCompleteness.FULL:
+        uploaded_side_specs.append(
+            (OperationDiagnosticSide.INITIAL, payload.source_artifacts[SourceArtifactRole.INITIAL])
+        )
+    uploaded_side_specs.append(
+        (OperationDiagnosticSide.MODIFIED, payload.source_artifacts[SourceArtifactRole.MODIFIED])
+    )
+    uploaded_sides: dict[
+        OperationDiagnosticSide,
+        tuple[BoundSnapshotInput, ArtifactRef, DigestRef],
+    ] = {}
+    upload_errors: list[PreviewJobError] = []
+    for side, binding in uploaded_side_specs:
+        try:
+            uploaded_sides[side] = _materialize_uploaded_side(
+                binding,
+                deps.artifact_store,
+                runtime_ruleset,
+                side=side,
+            )
+        except PreviewJobError as exc:
+            upload_errors.append(exc)
+    if upload_errors:
+        projection_errors = [error for error in upload_errors if error.diagnostic_details]
+        if not projection_errors:
+            raise upload_errors[0]
+        details = tuple(
+            detail
+            for error in projection_errors
+            for detail in (error.diagnostic_details or ())
+        )
+        source_omitted_count = sum(error.diagnostic_omitted_count for error in projection_errors)
+        diagnostic_count = len(details) + source_omitted_count
+        first_projection_error = projection_errors[0]
+        message = (
+            f"uploaded canonical projection failed ({diagnostic_count} diagnostic(s)); "
+            f"{first_projection_error}"
+        )
+        other_error = next(
+            (error for error in upload_errors if error.diagnostic_details is None),
+            None,
+        )
+        if other_error is not None:
+            message += f"; other upload failure: {other_error}"
+        raise PreviewJobError(
+            message,
+            diagnostic_code=first_projection_error.diagnostic_code,
+            diagnostic_details=details,
+            diagnostic_omitted_count=source_omitted_count,
+        )
+
     initial_manifest_ref: ArtifactRef | None = None
     initial_manifest_digest: DigestRef | None = None
     if payload.input_completeness is InputCompleteness.FULL:
-        initial, initial_manifest_ref, initial_manifest_digest = _materialize_uploaded_side(
-            payload.source_artifacts[SourceArtifactRole.INITIAL],
-            deps.artifact_store,
-            runtime_ruleset,
-        )
+        initial, initial_manifest_ref, initial_manifest_digest = uploaded_sides[
+            OperationDiagnosticSide.INITIAL
+        ]
         sides[_SIDE_INITIAL] = initial
-        sides[_SIDE_MODIFIED], manifest_ref, manifest_digest = _materialize_uploaded_side(
-            payload.source_artifacts[SourceArtifactRole.MODIFIED],
-            deps.artifact_store,
-            runtime_ruleset,
-        )
     else:
         sides[_SIDE_INITIAL] = baseline
-        sides[_SIDE_MODIFIED], manifest_ref, manifest_digest = _materialize_uploaded_side(
-            payload.source_artifacts[SourceArtifactRole.MODIFIED],
-            deps.artifact_store,
-            runtime_ruleset,
-        )
+    sides[_SIDE_MODIFIED], manifest_ref, manifest_digest = uploaded_sides[
+        OperationDiagnosticSide.MODIFIED
+    ]
     modified_state_digest = canonical_state_digest_of(sides[_SIDE_MODIFIED].summary.tables)
     if modified_state_digest is None:
         raise PreviewJobError("modified canonical state digest is missing")
@@ -1173,6 +1251,8 @@ def _materialize_uploaded_side(
     binding: SourceArtifactBinding,
     store: ArtifactStorePort,
     ruleset: TableRulesetSnapshot,
+    *,
+    side: OperationDiagnosticSide,
 ) -> tuple[BoundSnapshotInput, ArtifactRef, DigestRef]:
     artifact_ref = _artifact_ref_from_binding(binding)
     raw_bytes = store.locate(artifact_ref)
@@ -1241,13 +1321,47 @@ def _materialize_uploaded_side(
         ruleset,
     )
     if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
-        projection_diagnostic = projected.diagnostics[0] if projected.diagnostics else None
+        ordered_diagnostics = tuple(
+            sorted(
+                projected.diagnostics,
+                key=lambda item: (
+                    "" if item.table_name is None else item.table_name,
+                    "" if item.column_name is None else item.column_name,
+                    item.code.value,
+                ),
+            )
+        )
+        projection_diagnostic = ordered_diagnostics[0] if ordered_diagnostics else None
+        diagnostic_details = (
+            tuple(
+                OperationDiagnosticDetail(
+                    code=item.code.value,
+                    side=side,
+                    table_name=item.table_name,
+                    column_name=item.column_name,
+                )
+                for item in ordered_diagnostics
+            )
+            if ordered_diagnostics
+            else None
+        )
+        location = "projection"
+        if projection_diagnostic is not None and projection_diagnostic.table_name is not None:
+            location = projection_diagnostic.table_name
+            if projection_diagnostic.column_name is not None:
+                location += f".{projection_diagnostic.column_name}"
         raise PreviewJobError(
-            "uploaded canonical projection failed"
-            + ("" if projection_diagnostic is None else f": {projection_diagnostic.message}"),
+            f"uploaded canonical projection failed on {side.value}"
+            + (
+                ""
+                if projection_diagnostic is None
+                else f" ({len(ordered_diagnostics)} diagnostic(s)); first "
+                f"{projection_diagnostic.code.value} at {location}: {projection_diagnostic.message}"
+            ),
             diagnostic_code=(
                 None if projection_diagnostic is None else projection_diagnostic.code.value
             ),
+            diagnostic_details=diagnostic_details,
         )
     try:
         canonical_result = materialize_projected_snapshot(
@@ -1995,6 +2109,8 @@ def _publish_preview_materialization_failure(
     lease_session: LeaseSession,
     diagnostic_code: str,
     message: str,
+    diagnostic_details: tuple[OperationDiagnosticDetail, ...] | None,
+    diagnostic_omitted_count: int,
     control: ExecutionControl,
 ) -> None:
     def builder(
@@ -2013,6 +2129,10 @@ def _publish_preview_materialization_failure(
         diagnostic = OperationDiagnostic(
             code=diagnostic_code,
             message=message[:255],
+            details=diagnostic_details,
+            omitted_count=(
+                diagnostic_omitted_count if diagnostic_details is not None else None
+            ),
         )
         terminal_step = _terminal_step(
             current_step,

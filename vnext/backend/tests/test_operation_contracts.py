@@ -25,6 +25,8 @@ from gateway_backend.operations import (
     BusinessReference,
     JobStepKey,
     OperationDiagnostic,
+    OperationDiagnosticDetail,
+    OperationDiagnosticSide,
     OperationRecord,
     OperationStatus,
     StepRecord,
@@ -92,6 +94,9 @@ EXPECTED_STEP_DOCUMENT_KEYS = frozenset(
 )
 EXPECTED_BUSINESS_REFERENCE_KEYS = frozenset({"kind", "value"})
 EXPECTED_DIAGNOSTIC_KEYS = frozenset({"code", "message"})
+EXPECTED_DIAGNOSTIC_ALLOWED_KEYS = frozenset(
+    {"code", "message", "details", "omitted_count"}
+)
 
 _PROP = settings(max_examples=40, deadline=None, derandomize=True)
 
@@ -542,7 +547,7 @@ MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object
     ),
     (
         "wrong-contract-version",
-        _minimal_operation_document(contract_version="backend-vnext/operation-runtime/v2"),
+        _minimal_operation_document(contract_version="backend-vnext/operation-runtime/v1"),
         "contract_version mismatch",
     ),
     (
@@ -603,7 +608,7 @@ MALFORMED_OPERATION_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object
     ),
     (
         "unknown-future-contract-version",
-        _minimal_operation_document(contract_version="backend-vnext/operation-runtime/v2"),
+        _minimal_operation_document(contract_version="backend-vnext/operation-runtime/v1"),
         "contract_version mismatch",
     ),
     (
@@ -788,7 +793,7 @@ MALFORMED_STEP_DOCUMENT_SHAPES: tuple[tuple[str, dict[str, object] | object, str
     ),
     (
         "unknown-future-contract-version",
-        _minimal_step_document(contract_version="backend-vnext/operation-runtime/v2"),
+        _minimal_step_document(contract_version="backend-vnext/operation-runtime/v1"),
         "contract_version mismatch",
     ),
     (
@@ -1144,7 +1149,7 @@ DIRECT_RECORD_CONSTRUCTOR_FAULTS: tuple[
     (
         "operation-runtime-version",
         "operation",
-        {"contract_version": "backend-vnext/operation-runtime/v2"},
+        {"contract_version": "backend-vnext/operation-runtime/v1"},
         "contract_version mismatch",
     ),
     (
@@ -1180,7 +1185,7 @@ DIRECT_RECORD_CONSTRUCTOR_FAULTS: tuple[
     (
         "step-runtime-version",
         "step",
-        {"contract_version": "backend-vnext/operation-runtime/v2"},
+        {"contract_version": "backend-vnext/operation-runtime/v1"},
         "contract_version mismatch",
     ),
     (
@@ -1232,7 +1237,7 @@ def test_operations_package_importable() -> None:
 
 
 def test_contract_version_exact() -> None:
-    assert OPERATION_RUNTIME_CONTRACT_VERSION == "backend-vnext/operation-runtime/v1"
+    assert OPERATION_RUNTIME_CONTRACT_VERSION == "backend-vnext/operation-runtime/v2"
 
 
 def test_operation_status_values_exact() -> None:
@@ -1372,7 +1377,7 @@ def test_operation_document_key_inventory_matches_contract_module() -> None:
     assert EXPECTED_OPERATION_DOCUMENT_KEYS == _OPERATION_DOCUMENT_KEYS
     assert EXPECTED_STEP_DOCUMENT_KEYS == _STEP_DOCUMENT_KEYS
     assert EXPECTED_BUSINESS_REFERENCE_KEYS == _BUSINESS_REFERENCE_KEYS
-    assert EXPECTED_DIAGNOSTIC_KEYS == _DIAGNOSTIC_KEYS
+    assert EXPECTED_DIAGNOSTIC_ALLOWED_KEYS == _DIAGNOSTIC_KEYS
 
 
 def test_operation_full_document_emits_exact_closed_key_set() -> None:
@@ -1505,6 +1510,183 @@ def test_business_reference_round_trips_document_shape() -> None:
 def test_operation_diagnostic_round_trips_document_shape() -> None:
     diagnostic = OperationDiagnostic(code="FAILED", message="owner reason")
     assert diagnostic.to_document() == {"code": "FAILED", "message": "owner reason"}
+
+
+def test_operation_diagnostic_details_round_trip_in_stable_order() -> None:
+    details = (
+        OperationDiagnosticDetail(
+            code="UNSUPPORTED_TABLE",
+            side=OperationDiagnosticSide.MODIFIED,
+            table_name="broken_b",
+            column_name="bad_a",
+        ),
+        OperationDiagnosticDetail(
+            code="UNSUPPORTED_TABLE",
+            side=OperationDiagnosticSide.INITIAL,
+            table_name="broken_a",
+            column_name="bad_b",
+        ),
+        OperationDiagnosticDetail(
+            code="KEY_MISSING",
+            side=OperationDiagnosticSide.INITIAL,
+            table_name="broken_a",
+            column_name=None,
+        ),
+    )
+    diagnostic = OperationDiagnostic(
+        code="UNSUPPORTED_TABLE",
+        message="3 projection failures",
+        details=details,
+        omitted_count=0,
+    )
+    document = _failed_operation_document(diagnostic=diagnostic.to_document())
+
+    round_tripped = operation_record_from_document(document)
+
+    assert round_tripped.diagnostic == diagnostic
+    assert diagnostic.to_document() == {
+        "code": "UNSUPPORTED_TABLE",
+        "message": "3 projection failures",
+        "details": [
+            {
+                "code": "KEY_MISSING",
+                "side": "INITIAL",
+                "table_name": "broken_a",
+                "column_name": None,
+            },
+            {
+                "code": "UNSUPPORTED_TABLE",
+                "side": "INITIAL",
+                "table_name": "broken_a",
+                "column_name": "bad_b",
+            },
+            {
+                "code": "UNSUPPORTED_TABLE",
+                "side": "MODIFIED",
+                "table_name": "broken_b",
+                "column_name": "bad_a",
+            },
+        ],
+        "omitted_count": 0,
+    }
+
+
+INVALID_DIAGNOSTIC_DETAIL_CASES = (
+    (
+        "details-and-omitted-count-must-appear-together",
+        {
+            "code": "FAILED",
+            "message": "reason",
+            "details": [
+                {"code": "KEY_MISSING", "side": "MODIFIED", "table_name": "t", "column_name": None}
+            ],
+        },
+        "must appear together",
+    ),
+    (
+        "invalid-detail-side",
+        {
+            "code": "FAILED",
+            "message": "reason",
+            "details": [
+                {"code": "KEY_MISSING", "side": "BASELINE", "table_name": "t", "column_name": None}
+            ],
+            "omitted_count": 0,
+        },
+        "side must be INITIAL or MODIFIED",
+    ),
+    (
+        "omitted-count-requires-full-details",
+        {
+            "code": "FAILED",
+            "message": "reason",
+            "details": [
+                {"code": "KEY_MISSING", "side": "MODIFIED", "table_name": "t", "column_name": None}
+            ],
+            "omitted_count": 1,
+        },
+        "only when details reach the maximum size",
+    ),
+    (
+        "omitted-count-bool-is-invalid",
+        {
+            "code": "FAILED",
+            "message": "reason",
+            "details": [
+                {"code": "KEY_MISSING", "side": "MODIFIED", "table_name": "t", "column_name": None}
+            ],
+            "omitted_count": True,
+        },
+        "diagnostic.omitted_count must be an integer",
+    ),
+    (
+        "detail-table-name-too-long",
+        {
+            "code": "FAILED",
+            "message": "reason",
+            "details": [
+                {
+                    "code": "KEY_MISSING",
+                    "side": "MODIFIED",
+                    "table_name": "t" * 256,
+                    "column_name": None,
+                }
+            ],
+            "omitted_count": 0,
+        },
+        "diagnostic detail table_name must be 1..255 UTF-8 bytes",
+    ),
+    (
+        "detail-code-too-long",
+        {
+            "code": "FAILED",
+            "message": "reason",
+            "details": [
+                {
+                    "code": "A" * 129,
+                    "side": "MODIFIED",
+                    "table_name": "t",
+                    "column_name": None,
+                }
+            ],
+            "omitted_count": 0,
+        },
+        "bounded opaque code pattern",
+    ),
+    (
+        "details-over-limit",
+        {
+            "code": "FAILED",
+            "message": "reason",
+            "details": [
+                {
+                    "code": "KEY_MISSING",
+                    "side": "MODIFIED",
+                    "table_name": "t",
+                    "column_name": f"column_{index}",
+                }
+                for index in range(101)
+            ],
+            "omitted_count": 1,
+        },
+        "diagnostic.details must contain 1..100 items",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("case_name", "diagnostic", "match"),
+    INVALID_DIAGNOSTIC_DETAIL_CASES,
+    ids=tuple(case[0] for case in INVALID_DIAGNOSTIC_DETAIL_CASES),
+)
+def test_operation_record_rejects_invalid_diagnostic_details(
+    case_name: str,
+    diagnostic: dict[str, object],
+    match: str,
+) -> None:
+    del case_name
+    with pytest.raises(ValueError, match=match):
+        operation_record_from_document(_failed_operation_document(diagnostic=diagnostic))
 
 
 @pytest.mark.parametrize(

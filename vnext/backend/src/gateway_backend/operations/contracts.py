@@ -16,7 +16,7 @@ from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.types import ArtifactRef, assert_no_host_path_identity
 
-OPERATION_RUNTIME_CONTRACT_VERSION = "backend-vnext/operation-runtime/v1"
+OPERATION_RUNTIME_CONTRACT_VERSION = "backend-vnext/operation-runtime/v2"
 OPERATION_DOCUMENT_TYPE = "operation"
 STEP_DOCUMENT_TYPE = "step"
 
@@ -25,6 +25,8 @@ _MAX_OPAQUE_ID_BYTES = 255
 _MAX_REGISTRY_NAME_LEN = 128
 _MAX_CONTRACT_VERSION_LEN = 128
 _MAX_DIAGNOSTIC_MESSAGE_BYTES = 4 * 1024
+_MAX_DIAGNOSTIC_DETAILS = 100
+_MAX_DIAGNOSTIC_DETAIL_NAME_BYTES = 255
 _MAX_INLINE_PAYLOAD_BYTES = 64 * 1024
 _MAX_JSON_DEPTH = 32
 _MAX_JSON_AGGREGATE = 4096
@@ -89,7 +91,9 @@ _STEP_DOCUMENT_KEYS = frozenset(
     }
 )
 _BUSINESS_REFERENCE_KEYS = frozenset({"kind", "value"})
-_DIAGNOSTIC_KEYS = frozenset({"code", "message"})
+_DIAGNOSTIC_KEYS = frozenset({"code", "message", "details", "omitted_count"})
+_DIAGNOSTIC_REQUIRED_KEYS = frozenset({"code", "message"})
+_DIAGNOSTIC_DETAIL_KEYS = frozenset({"code", "side", "table_name", "column_name"})
 
 
 class OperationStatus(StrEnum):
@@ -166,17 +170,82 @@ class BusinessReference:
         return {"kind": self.kind, "value": self.value}
 
 
+class OperationDiagnosticSide(StrEnum):
+    INITIAL = "INITIAL"
+    MODIFIED = "MODIFIED"
+
+
+@dataclass(frozen=True, slots=True)
+class OperationDiagnosticDetail:
+    code: str
+    side: OperationDiagnosticSide
+    table_name: str | None
+    column_name: str | None
+
+    def __post_init__(self) -> None:
+        _validate_diagnostic_code(self.code)
+        if type(self.side) is str:
+            try:
+                object.__setattr__(self, "side", OperationDiagnosticSide(self.side))
+            except ValueError as exc:
+                raise ValueError("diagnostic detail side must be INITIAL or MODIFIED") from exc
+        elif type(self.side) is not OperationDiagnosticSide:
+            raise ValueError("diagnostic detail side must be INITIAL or MODIFIED")
+        _validate_diagnostic_detail_name(self.table_name, "diagnostic detail table_name", optional=True)
+        _validate_diagnostic_detail_name(
+            self.column_name,
+            "diagnostic detail column_name",
+            optional=True,
+        )
+
+    def to_document(self) -> dict[str, object]:
+        return {
+            "code": self.code,
+            "side": self.side.value,
+            "table_name": self.table_name,
+            "column_name": self.column_name,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class OperationDiagnostic:
     code: str
     message: str
+    details: tuple[OperationDiagnosticDetail, ...] | None = None
+    omitted_count: int | None = None
 
     def __post_init__(self) -> None:
         _validate_diagnostic_code(self.code)
         _validate_diagnostic_message(self.message)
+        if self.details is None:
+            if self.omitted_count is not None:
+                raise ValueError("diagnostic.omitted_count requires diagnostic.details")
+            return
+        if type(self.details) is not tuple:
+            raise ValueError("diagnostic.details must be a tuple")
+        if not 1 <= len(self.details) <= _MAX_DIAGNOSTIC_DETAILS:
+            raise ValueError(f"diagnostic.details must contain 1..{_MAX_DIAGNOSTIC_DETAILS} items")
+        if any(type(item) is not OperationDiagnosticDetail for item in self.details):
+            raise ValueError("diagnostic.details must contain OperationDiagnosticDetail")
+        ordered_details = tuple(sorted(self.details, key=_diagnostic_detail_sort_key))
+        object.__setattr__(self, "details", ordered_details)
+        omitted_count = self.omitted_count
+        if omitted_count is None:
+            omitted_count = 0
+            object.__setattr__(self, "omitted_count", omitted_count)
+        if type(omitted_count) is not int or not 0 <= omitted_count <= _IJSON_MAX_SAFE_INTEGER:
+            raise ValueError("diagnostic.omitted_count must be a non-negative I-JSON safe integer")
+        if omitted_count > 0 and len(ordered_details) != _MAX_DIAGNOSTIC_DETAILS:
+            raise ValueError(
+                "diagnostic.omitted_count may be positive only when details reach the maximum size"
+            )
 
     def to_document(self) -> dict[str, object]:
-        return {"code": self.code, "message": self.message}
+        document: dict[str, object] = {"code": self.code, "message": self.message}
+        if self.details is not None:
+            document["details"] = [item.to_document() for item in self.details]
+            document["omitted_count"] = self.omitted_count
+        return document
 
 
 @dataclass(frozen=True, slots=True)
@@ -730,16 +799,105 @@ def _validate_diagnostic_message(value: object) -> None:
         raise ValueError("diagnostic.message must be 1..4 KiB UTF-8")
 
 
+def _validate_diagnostic_detail_name(
+    value: object,
+    label: str,
+    *,
+    optional: bool = False,
+) -> None:
+    if value is None and optional:
+        return
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string" if not optional else f"{label} must be a string or null")
+    encoded = value.encode("utf-8")
+    if not 1 <= len(encoded) <= _MAX_DIAGNOSTIC_DETAIL_NAME_BYTES:
+        raise ValueError(f"{label} must be 1..{_MAX_DIAGNOSTIC_DETAIL_NAME_BYTES} UTF-8 bytes")
+    if _CONTROL_CHAR_RE.search(value):
+        raise ValueError(f"{label} must not contain control characters")
+
+
+def _parse_diagnostic_detail_name(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise ValueError(f"{label} must be a string or null")
+    _validate_diagnostic_detail_name(value, label, optional=True)
+    return value
+
+
+def _diagnostic_detail_sort_key(
+    detail: OperationDiagnosticDetail,
+) -> tuple[str, str, str, str]:
+    return (
+        detail.side.value,
+        "" if detail.table_name is None else detail.table_name,
+        "" if detail.column_name is None else detail.column_name,
+        detail.code,
+    )
+
+
 def _parse_optional_diagnostic(value: object) -> OperationDiagnostic | None:
     if value is None:
         return None
     if type(value) is not dict:
         raise ValueError("diagnostic must be an object or null")
-    _reject_unknown_keys(value, _DIAGNOSTIC_KEYS, "diagnostic")
+    unknown = set(value) - _DIAGNOSTIC_KEYS
+    if unknown:
+        raise ValueError("diagnostic contains unknown fields")
+    missing = _DIAGNOSTIC_REQUIRED_KEYS - set(value)
+    if missing:
+        raise ValueError("diagnostic missing fields")
+    has_details = "details" in value
+    has_omitted_count = "omitted_count" in value
+    if has_details != has_omitted_count:
+        raise ValueError("diagnostic.details and diagnostic.omitted_count must appear together")
+    details = _parse_diagnostic_details(value["details"]) if has_details else None
     return OperationDiagnostic(
         code=_parse_diagnostic_code(value["code"]),
         message=_parse_diagnostic_message(value["message"]),
+        details=details,
+        omitted_count=(
+            _parse_ijson_int(value["omitted_count"], "diagnostic.omitted_count")
+            if has_omitted_count
+            else None
+        ),
     )
+
+
+def _parse_diagnostic_details(value: object) -> tuple[OperationDiagnosticDetail, ...]:
+    if type(value) is not list:
+        raise ValueError("diagnostic.details must be a list")
+    if not 1 <= len(value) <= _MAX_DIAGNOSTIC_DETAILS:
+        raise ValueError(f"diagnostic.details must contain 1..{_MAX_DIAGNOSTIC_DETAILS} items")
+    details: list[OperationDiagnosticDetail] = []
+    for item in value:
+        if type(item) is not dict:
+            raise ValueError("diagnostic.details items must be objects")
+        _reject_unknown_keys(item, _DIAGNOSTIC_DETAIL_KEYS, "diagnostic detail")
+        raw_side = item["side"]
+        if type(raw_side) is not str:
+            raise ValueError("diagnostic detail side must be a string")
+        try:
+            side = OperationDiagnosticSide(raw_side)
+        except ValueError as exc:
+            raise ValueError("diagnostic detail side must be INITIAL or MODIFIED") from exc
+        table_name = _parse_diagnostic_detail_name(
+            item["table_name"],
+            "diagnostic detail table_name",
+        )
+        column_name = _parse_diagnostic_detail_name(
+            item["column_name"],
+            "diagnostic detail column_name",
+        )
+        details.append(
+            OperationDiagnosticDetail(
+                code=_parse_diagnostic_code(item["code"]),
+                side=side,
+                table_name=table_name,
+                column_name=column_name,
+            )
+        )
+    return tuple(details)
 
 
 def _parse_diagnostic_code(value: object) -> str:

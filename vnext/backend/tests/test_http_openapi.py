@@ -52,6 +52,54 @@ def test_openapi_documents_the_keyless_fallback_preview_hint(client: TestClient)
     assert "does not affect risk or submission eligibility" in response["description"]
 
 
+def test_openapi_operation_diagnostic_details_match_the_bounded_contract(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()["components"]["schemas"]
+    diagnostic = schema["OperationDiagnosticResponse"]
+    detail = schema["OperationDiagnosticDetailResponse"]
+
+    assert diagnostic["additionalProperties"] is False
+    assert set(diagnostic["properties"]) == {"code", "message", "details", "omitted_count"}
+    assert set(diagnostic["required"]) == {"code", "message"}
+    details_schema = _non_null_union(diagnostic["properties"]["details"])
+    assert details_schema["type"] == "array"
+    assert details_schema["maxItems"] == 100
+    assert details_schema["items"]["$ref"].endswith("/OperationDiagnosticDetailResponse")
+    omitted_schema = _non_null_union(diagnostic["properties"]["omitted_count"])
+    assert omitted_schema["minimum"] == 0
+    assert omitted_schema["maximum"] == 2**53 - 1
+
+    assert detail["additionalProperties"] is False
+    assert set(detail["properties"]) == {"code", "side", "table_name", "column_name"}
+    assert set(detail["required"]) == {"code", "side", "table_name", "column_name"}
+    assert detail["properties"]["code"]["maxLength"] == 128
+    assert detail["properties"]["side"]["enum"] == ["INITIAL", "MODIFIED"]
+    for field in ("table_name", "column_name"):
+        assert _non_null_union(detail["properties"][field])["maxLength"] == 255
+
+    history_diagnostic = schema["HistoryCompareDiagnosticResponse"]
+    assert set(history_diagnostic["properties"]) == {
+        "code",
+        "message",
+        "details",
+        "omitted_count",
+    }
+    history_details = _non_null_union(history_diagnostic["properties"]["details"])
+    assert history_details["maxItems"] == 100
+
+
+def _non_null_union(schema: dict[str, object]) -> dict[str, object]:
+    alternatives = schema.get("anyOf")
+    if not isinstance(alternatives, list):
+        return schema
+    non_null = next(
+        item
+        for item in alternatives
+        if isinstance(item, dict) and item.get("type") != "null"
+    )
+    assert isinstance(non_null, dict)
+    return non_null
+
+
 def test_openapi_schemas_reject_additional_properties(client: TestClient) -> None:
     schema = client.get("/openapi.json").json()
     workspace_response = schema["components"]["schemas"]["WorkspaceResponse"]

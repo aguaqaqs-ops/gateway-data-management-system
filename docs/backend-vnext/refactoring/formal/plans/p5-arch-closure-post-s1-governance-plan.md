@@ -553,3 +553,11 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 附注 tag `p5-g13-exit` 指向 `e3fe69c945`，以 `--no-ff` 合入 main。
    - 非阻断记录：（1）G10 第 6 项要求复核的“umask 022 下启动”规则保留，但理由改变：容器读取 secret 已不依赖 umask；manifest 仍摘要本机权限位（checkout 的 tracked 文件、uv 创建的 `.venv` 等），V runner 与 carried 必须使用相同 umask，因此该规则转为一致性要求，启动脚本继续在日志头部记录 umask。（2）runner 在退出时统一清理各包 Hypothesis 存储，而非每包测完即删，效果与第 6 项“runner 结束后目录不存在”相同，handoff 已说明。
    - G10 第 4、6、7 项由 G13 处理完毕；第 2 项的前提（TMPDIR 迁到 `/home/dev/gdds-test-tmp`）已满足，旧 `g12-default-tmp` 在 G10 清理中删除。
+   G10 清理完成（2026-10-23，审核方执行；清单经 owner 逐项确认“全部按建议执行”）：
+   - 执行前确认两台主机无 Dolt、无容器、无 Compose 栈、无运行中的测试；删除前逐一确认 worktree clean、引用指向的提交在 main 中。
+   - 开发主机 git：4 个 S4 handoff 候选存为 `refs/archive/p5-s4/<完整 sha>`；删除 worktree `gdds-p5-closure-s1`（其 `gate-logs/` 与证据目录 `s1-worktree-gate-logs/` 逐字节一致）、`gdds-p5-s5`、`gdds-p5-g13`；删除已合入分支 `p5-closure/s1`、`p5-g11`、`p5-g11b`、`p5-g13`、`p5-s5` 与引用 `refs/remotes/ct108/s5-final-H`。
+   - ct108 git：main 经 bundle 快进到 `0af39a22f6`，补齐 tag `p5-s4-exit`、`p5-s5-exit`、`p5-g13-exit`（与开发主机指向相同提交）；删除 worktree `gdds-p5-g12`、`gdds-p5-s4`、`gdds-p5-s5`、`gdds-p5-g13`，已合入分支 7 个，同步引用 `refs/remotes/{g12,s4,s4-sync,s5-targeted}/*`、`refs/s5/*`、`refs/s4/*`（其中 4 个未合入提交已在开发主机存档）。
+   - 文件：删除开发主机 4 个 S5 bundle 与 /tmp 下 14 个 S4/S5 bundle、20 个审核临时环境目录和 2 个临时文件；删除 ct108 /tmp 下 10 个 bundle、证据目录中的旧 TMPDIR `g12-default-tmp` 与 `g12-pytest-temp`。两份真实数据 Compose 日志移入证据目录并设为 600（sha256 移动前后一致）：开发主机 S3 日志到 `s3-realdata-compose-logs/`（目录 700），ct108 S4 日志到 `s4-realdata-compose-logs/`。
+   - Docker：ct108 删除 runner 按 compose project 命名的镜像 598 个，余 RS、client e2e、`-base`、dependency-base、python、rust 共 6 个，构建缓存未清。开发主机删除同类镜像 2059 个、其他本项目一次性 backend/worker 镜像 204 个、未打标签的旧 RS/client e2e/backend 镜像 28 个、测试残留卷 18 个；保留 RS、client e2e、`-base`、dependency-base、`gateway-repository-service:test-exit-code`、python、rust，与本项目无关的镜像未动。删除清单先写入文件核对后再执行，未使用 `-f`，无错误。
+   - 保留：`refs/codex/...`、GitHub 远程跟踪引用、全部 tag、两台主机的证据日志目录（含其中 bundle）、真实数据与 `runs/`、ct108 当前 TMPDIR `/home/dev/gdds-test-tmp`、ct108 的 `/home/dev/gdds-p5-closure-tools`（S4 排查用 py-spy）。
+   - 下一步：P5 整体 exit review；通过后在 main 打 `p5-exit`。推送由 owner 另行决定。

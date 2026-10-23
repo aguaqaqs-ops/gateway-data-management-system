@@ -28,6 +28,8 @@ from gateway_backend.operations import (
     CorruptPersistedRecord,
     ConflictingDuplicate,
     OperationDiagnostic,
+    OperationDiagnosticDetail,
+    OperationDiagnosticSide,
     OperationStatus,
     RecordNotFound,
     StepStatus,
@@ -412,7 +414,46 @@ sys.stdin.buffer.read(1)
 def test_operation_store_commits_and_reads_back_after_reopen(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path)
-    operation = operation_record_from_document(_operation_document("op-file-0001"))
+    operation_document = _operation_document("op-file-0001")
+    operation_document["diagnostic"] = {
+        "code": "PROJECTION_FAILED",
+        "message": "2 projection diagnostics",
+        "details": [
+            {
+                "code": "UNKNOWN_COLUMN",
+                "side": OperationDiagnosticSide.MODIFIED.value,
+                "table_name": "accounts",
+                "column_name": "status",
+            },
+            {
+                "code": "UNKNOWN_TABLE",
+                "side": OperationDiagnosticSide.INITIAL.value,
+                "table_name": "legacy_accounts",
+                "column_name": None,
+            },
+        ],
+        "omitted_count": 0,
+    }
+    operation = operation_record_from_document(operation_document)
+    assert operation.diagnostic == OperationDiagnostic(
+        code="PROJECTION_FAILED",
+        message="2 projection diagnostics",
+        details=(
+            OperationDiagnosticDetail(
+                code="UNKNOWN_COLUMN",
+                side=OperationDiagnosticSide.MODIFIED,
+                table_name="accounts",
+                column_name="status",
+            ),
+            OperationDiagnosticDetail(
+                code="UNKNOWN_TABLE",
+                side=OperationDiagnosticSide.INITIAL,
+                table_name="legacy_accounts",
+                column_name=None,
+            ),
+        ),
+        omitted_count=0,
+    )
     step = step_record_from_document(_step_document("op-file-0001", "step-file-0001"))
 
     with ControlDbUnitOfWork(db_path, now=lambda: LATER_TIME) as unit_of_work:

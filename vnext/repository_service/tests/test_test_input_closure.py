@@ -44,6 +44,11 @@ FAKE_DOCKER_BUILD_INPUTS = json.dumps(
 )
 
 
+@pytest.fixture(autouse=True)
+def _without_runner_hypothesis_storage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HYPOTHESIS_STORAGE_DIRECTORY", raising=False)
+
+
 def _fixture_repo(tmp_path: Path) -> Path:
     repo_root = tmp_path / "closure-repo"
     paths: set[str] = {"legacy/reference.json"}

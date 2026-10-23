@@ -295,6 +295,16 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 不在 P5 内建设多档并发运行的基础设施。
    - 已同步修订：执行计划 §8.9、§2 S4 的真实数据验收、AGENTS.md「主线开发与阶段边界」中 DC30 的表述。
 
+### G13. P5 exit 前的测试工具修正（harness/runner；owner 2026-10-23；S5 合入后、G10 清理前）
+
+处理 G10 第 4、6、7 项，以及 ct108 TMPDIR 的迁移（G10 第 2 项的前提）。按阶段流程执行：在 `/home/dev/gdds-p5-g13`（分支 `p5-g13`）实施，测试在 ct108 上运行，初审后由审核方终审，打 `p5-g13-exit`，以 `--no-ff` 合入 main。区间起点 `p5-s5-exit`。
+
+1. **secret 文件权限不依赖 umask（G10 第 6 项）。** backend 与 repository_service 的测试、harness 及 `vnext/backend/benchmarks/` 中供容器读取的 secret 文件，创建后显式设置容器可读的权限。有意测试权限限制的用例（例如负向探针）保持原意。runner 在日志头部打印实际 umask。验收：在 umask 077 下运行，S5 r1 失败的两项 backend Compose 用例通过。
+2. **权威 runner 不写 `.pytest_cache`（G10 第 7 项）。** runner 的 pytest 调用加 `-p no:cacheprovider`；manifest 仍摘要 `.pytest_cache`。实施前确认没有测试使用 pytest 的 `cache` fixture 或 `config.cache`。验收：一次失败运行后紧接一次合格运行，该合格运行能与自身起始 manifest 比出“可沿用”。
+3. **ct108 TMPDIR 迁出日志目录。** 改为 `/home/dev/gdds-test-tmp`，同步 AGENTS.md 与 testing-conventions；旧目录在 G10 清理中删除。
+4. **复核 carried 的“同一 worktree”限制（G10 第 4 项）。** manifest 仍摘要本机权限位与非 Git 内容，预期结论为保留；结论写入 testing-conventions，不改代码。
+5. **门禁：** 新 V 上 fresh RS 镜像与全量 runner（umask 022，日志记录 umask）；不改生产代码，不运行真实数据。H 只改 handoff，按 DC34 做 carried。
+
 ## 3. 顺序
 
 1. 已完成：S1 第 3 次复审通过 → `--no-ff` 合入 `main`（`139ee5fffd`）→ tag `p5-s1-exit`；G1、G5、G9。
@@ -521,3 +531,10 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - 非阻塞记录缺陷：DC32 r2 主日志头部没有记录 umask，只有测量启动前 5 秒的同 V preflight 记录 `0022`。该测量不涉及容器降权读取 secret，输出权限显式设置，不重跑；处理并入 G10 第 6 项。
    - owner 授权（2026-10-23）：tag `p5-s5-exit` 打在 `5f2127f8ba`，`p5-s5` 以 `--no-ff` 合入 main，不推送。下一步为第 13 项。
 13. P5 exit：按 G10 清理。
+   owner 决议（2026-10-23）：
+   - 顺序：先 G13（测试工具修正），合入后执行 G10 清理，最后进行 P5 整体 exit review（执行计划 §1：另行进行，不由执行计划签署），通过后在 main 打 `p5-exit`。
+   - G13 走正常的实施、初审与终审流程。
+   - G10 清理由审核方直接执行：开发主机与 ct108 的 worktree、已合入分支、同步引用、bundle 与旧 TMPDIR；删除前逐一确认 worktree clean、引用指向的提交已在 main 中。Docker 只删除测试 runner 按 compose project 命名的 backend/worker 镜像与 `s2b-realdata-*` 镜像，先列清单交 owner 确认；保留 RS、client e2e 及其 base、dependency-base 与 python 基础镜像，不清构建缓存。
+   - 不在 main 中的 4 个 S4 handoff 候选（`e6e9075793`、`2ad35c0c94`、`eaa55fc40c`、`b051067f3d`，其中两个被 S4 handoff 引用）在开发主机以 `refs/archive/p5-s4/<sha>` 保存。
+   - 证据日志目录（开发主机与 ct108 的 `gdds-p5-closure-s1-gate-logs`）、真实数据与 `runs/` 原地保留，不改路径。不明来源的 `refs/codex/...` 不动。
+   - 是否推送 main 与 tag 到 GitHub，P5 exit 后由 owner 另行决定。

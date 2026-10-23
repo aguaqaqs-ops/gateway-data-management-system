@@ -45,6 +45,7 @@ from benchmarks.real_dump_census import (
 )
 
 from tests.support.compose_gate_harness import (
+    write_container_readable_text,
     BACKEND_URL,
     BASELINE_NODE_ID,
     BEARER_TOKEN,
@@ -1113,9 +1114,10 @@ def _ordered_table_row_counts(census: Mapping[str, Any]) -> dict[str, int]:
 def _write_compose_secrets(root: Path) -> dict[str, str]:
     root.mkdir(parents=True, exist_ok=True)
     bearer = root / "repository-bearer-token"
-    bearer.write_text(f"{BEARER_TOKEN}\n", encoding="utf-8")
+    write_container_readable_text(bearer, f"{BEARER_TOKEN}\n", encoding="utf-8")
     session_file = root / "session.json"
-    session_file.write_text(
+    write_container_readable_text(
+        session_file,
         json.dumps(
             {
                 "sessions": [
@@ -1155,9 +1157,14 @@ def _write_compose_secrets(root: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     internal_bearer = root / "internal-bearer-token"
-    internal_bearer.write_text("s2b-realdata-internal-bearer\n", encoding="utf-8")
+    write_container_readable_text(
+        internal_bearer,
+        "s2b-realdata-internal-bearer\n",
+        encoding="utf-8",
+    )
     mapping = root / "provisioned-mapping.json"
-    mapping.write_text(
+    write_container_readable_text(
+        mapping,
         json.dumps(
             {
                 "mappings": [

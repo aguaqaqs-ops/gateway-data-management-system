@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+printf '==> umask=%s\n' "$(umask)"
+
 # Authoritative test entrypoint for the vNext Python packages.
 #
 # backend and repository_service run in two passes: the bulk of each suite in
@@ -134,7 +136,7 @@ for package in "${SELECTED_PACKAGES[@]}"; do
 done
 
 run_locked_pytest() {
-    "${UV_CONSUME}" -C . run pytest "${PYTEST_TMP_ARGS[@]}" "$@"
+    "${UV_CONSUME}" -C . run pytest -p no:cacheprovider "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
 test_exit=0

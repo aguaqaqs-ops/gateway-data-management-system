@@ -292,7 +292,12 @@ def test_run_tests_without_package_selection_keeps_all_packages_and_two_passes(
     repo_root, calls_log, env = _runner_fixture(tmp_path)
     completed = _run_runner(repo_root, env)
     assert completed.returncode == 0, completed.stderr
+    assert "==> umask=" in completed.stdout
     actual_packages = [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()]
+    assert all(
+        "\t-C . run pytest -p no:cacheprovider " in line
+        for line in calls_log.read_text().splitlines()
+    )
     assert actual_packages == [
         "shared_kernel",
         "repository_contracts",

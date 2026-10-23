@@ -17,7 +17,7 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 
 所有测试、容器门禁与取证都在专用 LXC `ct108-gw-dms` 执行；开始前用
 `ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 检查连接，不回退到开发主机。SSH 会话以 root 登录时，
-设置磁盘上的 `TMPDIR=/home/dev/gdds-p5-closure-s1-gate-logs/g12-default-tmp`，避免复用其他用户拥有的
+设置磁盘上的 `TMPDIR=/home/dev/gdds-test-tmp`，避免复用其他用户拥有的
 `/tmp/pytest-of-root`；不需要 pytest tmpfs 时保持 `GATEWAY_TEST_BASETEMP` 未设置，以保留默认批次与 Compose 路径。
 
 权威 runner 将 backend 与 `repository_service` 分成并行主体和 serial 两遍：
@@ -244,9 +244,10 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
      模式、Docker会发送的非Git内容）、Compose与Dockerfile、有效build设置、所选base镜像ID以及
      Docker/Compose工具与daemon身份。专用测试节点`ct108-gw-dms`使用containerd image store，同一棵树
      连续两次全缓存构建的image ID也不相同（G12终审实测），因此不再比较image ID（owner决议DC34）。
-     构建上下文带入worktree的本地状态（文件权限位由umask决定、git不记录；被忽略的残留目录）会改变
-     manifest，换worktree计算通常得到不同结果（治理修订计划G6b），不得用另一个worktree的结果判定
-     “等价”或“不等价”。
+     构建上下文带入worktree的本地状态（tracked 路径及祖先目录的本机权限位、Docker context 中仍会发送的非 Git 文件和目录）会改变
+     manifest；包闭包还摘要有效 `.hypothesis` 与 `.pytest_cache` 的路径、内容和权限。Git 不会规范化这些状态，
+     换 worktree 可能得到不同摘要，因此 G13 复核后保留“同一 worktree”限制（治理修订计划 G6b）；不得用另一个
+     worktree 的结果判定“等价”或“不等价”。
 
 任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
 评审逐项复核；复核不通过时不得以`carried`关闭finding。

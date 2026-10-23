@@ -20,7 +20,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
-    STORAGE_PROJECTION_VERSION,
     durable_manifest_bytes,
     project_canonical_table_set,
 )
@@ -110,8 +109,6 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         canonicalization_manifest_digest=manifest_digest,
         read_artifact=store.locate,
     )
-    ruleset = migrated_table_ruleset_snapshot()
-    assert ruleset.ruleset_digest is not None
     adapter = SubmitImportPublicationAdapter()
 
     with repository_service_session(tmp_path) as service:
@@ -135,10 +132,6 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
             removed_tables=(),
             source_artifact_digest=source_digest,
             repository_base_digest=source_digest,
-            storage_projection_version=STORAGE_PROJECTION_VERSION,
-            ruleset_id=ruleset.ruleset_id,
-            ruleset_version=ruleset.ruleset_version,
-            ruleset_digest=ruleset.ruleset_digest.value,
             snapshot_tables=snapshot_tables,
         )
         first_checkpoint = adapter.build_and_publish(
@@ -188,6 +181,7 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         assert empty_materialized.status is SnapshotMaterializationStatus.COMPLETE
         assert empty_materialized.table_set is not None
         assert empty_materialized.table_set.tables == ()
+        ruleset = migrated_table_ruleset_snapshot()
         empty_projection = project_canonical_table_set(empty_materialized.table_set, ruleset)
         assert empty_projection.manifest is not None
         assert empty_projection.manifest.manifest_digest is not None
@@ -223,10 +217,6 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
             removed_tables=removed_tables,
             source_artifact_digest=empty_projection.manifest.source_artifact_digest.value,
             repository_base_digest=source_digest,
-            storage_projection_version=STORAGE_PROJECTION_VERSION,
-            ruleset_id=ruleset.ruleset_id,
-            ruleset_version=ruleset.ruleset_version,
-            ruleset_digest=ruleset.ruleset_digest.value,
             snapshot_tables=(),
         )
         second_checkpoint = adapter.build_and_publish(

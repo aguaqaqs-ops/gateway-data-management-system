@@ -560,8 +560,14 @@ S1 只做结构修复、不改行为：golden、业务 digest、checkpoint 载�
 模块改名导致的基线条目替换，须在同一 diff 中给出理由。
 
 **S1 修订登记（2026-10-10）**：`tests/architecture_baseline.py` 的起始基线为 3 条 import 违例、0 个运行时环、14 个不可达模块，条内注释标明关闭阶段。此前 10 项来自包级 facade 可达性扩展；按实际导入的 wrapper 符号展开后，4 个仅由不可达 `compose.py` 调用的 composite 模块应计入不可达项。Owner 批准将测量基线由 10 更正为 14，理由、工具语义与 S3 归属见 [S0 owner decisions](p5-arch-closure-s0-owner-decisions.md) §10；这只更正测量，不放宽后续只减不增要求。
-`external_target_sync` 三模块按上表 A9 登记外部目标延期（决议见 [S0 owner decisions](p5-arch-closure-s0-owner-decisions.md) §9）。
-迁入 `capabilities/canonical_row_hash/` 后的 `compute` / IPC / `contracts` 无生产消费者，登记 **Phase 6** 延期（DC26 选项 3）。
+S5 不可达基线的延期登记如下；实现和测试基线注释引用本表：
+
+| 基线组 | 模块 | Owner | 理由 | 重开条件 |
+| --- | --- | --- | --- | --- |
+| `external_target_sync`（A9） | `contracts`、`_ledger_digest`、`_reference_executor` | Mutation Planning | 当前没有生产 external-target journey；在 P5 中强行接入会引入未确认的 consumer 与流程。 | owner 接受 external-target Contract 且存在明确的生产 journey consumer 时，由 Mutation Planning owner 重开。 |
+| canonical row hash（A6 / DC26 选项 3） | `contracts`、`compute`、`canonical_row_hash_ipc` | Backend vNext Architecture | capability 已迁入目标目录，但当前没有生产 journey consumer；保留为 Phase 6 的 Rust 覆盖与性能输入。 | Phase 6 选择该 capability 作为真实生产 workload 的输入，或确认新的生产 consumer 时，由 Backend Architecture owner 重开。 |
+
+`external_target_sync` 的延期选择见 [S0 owner decisions](p5-arch-closure-s0-owner-decisions.md) §9；canonical row hash 的绑定放置与延期选择见 DC26（§7.2）。
 
 ## 10. 持久化、HTTP 与部署影响
 

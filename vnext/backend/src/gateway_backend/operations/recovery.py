@@ -35,6 +35,7 @@ OPERATOR_RECOVERY_WORKER_ID = "operator-recovery"
 MAX_RECOVERY_SESSIONS = 3
 RECOVERY_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 RECOVERY_BACKOFF_CAP_SECONDS = 10.0
+# Maximum poll duration within one claimed reconcile session.
 RECONCILE_SESSION_BUDGET_SECONDS = 60.0
 
 DIAGNOSTIC_LEASE_EXPIRED = "r5.lease_expired"
@@ -190,14 +191,6 @@ def recovery_sessions_remaining(attempt_count: int) -> int:
 
 def recovery_sessions_exhausted(attempt_count: int) -> bool:
     return recovery_sessions_remaining(attempt_count) == 0
-
-
-def reconcile_budget_exhausted(elapsed_seconds: float) -> bool:
-    if isinstance(elapsed_seconds, bool) or not isinstance(elapsed_seconds, (int, float)):
-        raise ValueError("elapsed_seconds must be a number")
-    if elapsed_seconds < 0:
-        raise ValueError("elapsed_seconds must be non-negative")
-    return float(elapsed_seconds) >= RECONCILE_SESSION_BUDGET_SECONDS
 
 
 def _retry_wait_decision(
@@ -430,7 +423,6 @@ def transition_for_outcome(
     *,
     capability: RecoveryCapabilityValue,
     attempt_count: int,
-    reconcile_elapsed_seconds: float,
     effect_boundary_crossed: bool,
     cancel_requested: bool,
     now: datetime,
@@ -472,7 +464,6 @@ def transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
                 capability=capability,
                 attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -496,21 +487,6 @@ def transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
                 capability=capability,
                 attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
-                effect_boundary_crossed=effect_boundary_crossed,
-                cancel_requested=False,
-                now=now,
-                jitter=jitter,
-                evidence_ambiguous=evidence_ambiguous,
-                step_source=step_source,
-                operation_source=operation_source,
-            )
-        if reconcile_budget_exhausted(reconcile_elapsed_seconds):
-            return transition_for_outcome(
-                RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
-                capability=capability,
-                attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -534,7 +510,6 @@ def transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
                 capability=capability,
                 attempt_count=attempt_count,
-                reconcile_elapsed_seconds=reconcile_elapsed_seconds,
                 effect_boundary_crossed=effect_boundary_crossed,
                 cancel_requested=False,
                 now=now,
@@ -685,7 +660,6 @@ def finalize_handler_recovery(
         result.disposition,
         capability=capability,
         attempt_count=step.attempt_count,
-        reconcile_elapsed_seconds=0.0,
         effect_boundary_crossed=False,
         cancel_requested=False,
         now=now,
@@ -1448,7 +1422,6 @@ __all__ = [
     "compute_retry_not_before",
     "finalize_handler_recovery",
     "policy_diagnostic_to_operation_diagnostic",
-    "reconcile_budget_exhausted",
     "recovery_backoff_base_seconds",
     "recovery_sessions_exhausted",
     "recovery_sessions_remaining",

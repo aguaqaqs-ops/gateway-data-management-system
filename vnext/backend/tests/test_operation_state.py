@@ -1170,7 +1170,6 @@ def test_recovery_policy_transition_intents_subset_of_allowed_transitions() -> N
                 outcome,
                 capability=RecoveryCapabilityValue.PURE_RECOMPUTE,
                 attempt_count=1,
-                reconcile_elapsed_seconds=0.0,
                 effect_boundary_crossed=False,
                 cancel_requested=False,
                 now=base_time,

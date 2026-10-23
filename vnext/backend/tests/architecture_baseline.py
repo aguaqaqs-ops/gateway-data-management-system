@@ -21,11 +21,11 @@ RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = ()
 
 UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
     {
-        # A6 / Phase 6 (DC26 defer): capability shell migrated; production consumer deferred.
+        # A6 / DC26 Phase 6 defer; owner, rationale, and reopen condition: design §9 deferral register.
         "gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc",
         "gateway_backend.capabilities.canonical_row_hash.compute",
         "gateway_backend.capabilities.canonical_row_hash.contracts",
-        # A9 (external target defer, design §9): no production external-target journey yet.
+        # A9 external-target defer; owner, rationale, and reopen condition: design §9 deferral register.
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",
         "gateway_backend.capabilities.external_target_sync.contracts",

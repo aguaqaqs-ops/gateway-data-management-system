@@ -18,14 +18,10 @@ from gateway_backend.operations.worker import ExecutionControl, LeaseSession
 _NAMESPACED_DIAGNOSTIC_CODE_RE = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
 _MAX_DIAGNOSTIC_MESSAGE_BYTES = 4 * 1024
 
-# Mirrors gateway_backend.operations.recovery.RECONCILE_SESSION_BUDGET_SECONDS without importing operations.
-RECONCILE_SESSION_BUDGET_SECONDS = 60.0
-
 JOB_STATE_IDEMPOTENCY_KEY = "idempotency_key"
 JOB_STATE_REQUEST_FINGERPRINT = "request_fingerprint"
 JOB_STATE_OPERATION_IDENTITY = "operation_identity"
 JOB_STATE_REQUEST_SENT = "request_sent"
-JOB_STATE_RECONCILE_STARTED_AT = "reconcile_started_at"
 
 DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH = "r5.effect_identity_mismatch"
 DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED = "r5.manual_recovery_required"
@@ -166,36 +162,6 @@ def classify_external_effect_phase(
     return ExternalEffectReconcilePhase.PRE_REQUEST
 
 
-def reconcile_session_budget_exhausted(elapsed_seconds: float) -> bool:
-    if isinstance(elapsed_seconds, bool) or not isinstance(elapsed_seconds, (int, float)):
-        raise ValueError("elapsed_seconds must be a number")
-    if elapsed_seconds < 0:
-        raise ValueError("elapsed_seconds must be non-negative")
-    return float(elapsed_seconds) >= RECONCILE_SESSION_BUDGET_SECONDS
-
-
-def parse_reconcile_started_at(job_state: Mapping[str, object]) -> datetime:
-    """Read the mandatory UTC reconcile start timestamp from a checkpoint."""
-
-    if not isinstance(job_state, Mapping):
-        raise ValueError("job_state must be a mapping")
-    value = job_state.get(JOB_STATE_RECONCILE_STARTED_AT)
-    if type(value) is not str or not value:
-        raise ValueError(f"{JOB_STATE_RECONCILE_STARTED_AT} must be a non-empty string")
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise ValueError(f"{JOB_STATE_RECONCILE_STARTED_AT} is malformed") from exc
-    _validate_utc_datetime(parsed, JOB_STATE_RECONCILE_STARTED_AT)
-    return parsed
-
-
-def reconcile_elapsed_seconds(started_at: datetime, now: datetime) -> float:
-    _validate_utc_datetime(started_at, "started_at")
-    _validate_utc_datetime(now, "now")
-    return (now - started_at).total_seconds()
-
-
 def _manual_recovery_outcome(*, diagnostic_code: str, reason: str) -> RecoveryOutcome:
     return RecoveryOutcome(
         disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
@@ -270,10 +236,8 @@ __all__ = [
     "ExternalEffectRequestIdentity",
     "JOB_STATE_IDEMPOTENCY_KEY",
     "JOB_STATE_OPERATION_IDENTITY",
-    "JOB_STATE_RECONCILE_STARTED_AT",
     "JOB_STATE_REQUEST_FINGERPRINT",
     "JOB_STATE_REQUEST_SENT",
-    "RECONCILE_SESSION_BUDGET_SECONDS",
     "RecoveryCapability",
     "RecoveryDecision",
     "RecoveryDecisionDisposition",
@@ -282,8 +246,5 @@ __all__ = [
     "RecoveryPort",
     "classify_external_effect_phase",
     "compute_request_fingerprint",
-    "parse_reconcile_started_at",
-    "reconcile_elapsed_seconds",
-    "reconcile_session_budget_exhausted",
     "validate_external_effect_identity",
 ]

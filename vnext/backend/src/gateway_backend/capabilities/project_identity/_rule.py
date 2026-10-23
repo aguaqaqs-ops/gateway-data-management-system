@@ -38,7 +38,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     DegradedReason,
     SnapshotTableDescriptor,
 )
-from gateway_backend.capabilities.table_access.contracts import SqlSetValue
+from gateway_backend.capabilities.snapshot_materialization import SqlSetValue
 
 _VERSION_MANAGER_TABLE = "version_manager"
 _EXCLUDED_COLUMN = "no"

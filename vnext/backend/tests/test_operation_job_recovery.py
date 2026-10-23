@@ -11,7 +11,7 @@ R5 S3c fault matrix (one authoritative owner per invariant):
 | stale writer | ``test_operation_takeover`` ``test_old_lease_token_*``, ``test_operator_command_stale_*``; R4 stale CAS in ``test_operation_worker_integration`` |
 | corrupt checkpoint | ``test_reload_rejects_missing_or_corrupt_*`` (``RELOAD_ARTIFACT_FAULTS`` × ``PAYLOAD_RELOAD_CONSUMERS``); ``test_stub_reload_rejects_*`` (``STUB_REQUEST_ARTIFACT_FAULTS``) |
 | retry exhaustion | ``test_operation_takeover`` ``test_session_budget_exhaustion_marks_manual_recovery`` |
-| reconcile timeout | S3b ``test_external_effect_recovery_port_reconcile_budget_exhausted``; S2b ``test_operation_effect_reconcile`` |
+| reconcile outcome | ``test_external_effect_recovery_port_accepted_polls_original_identity``; S2b ``test_operation_effect_reconcile`` |
 | operator action | S2c ``test_operation_takeover`` ``test_operator_*`` |
 
 R4 delegated (indexed, not duplicated): payload reload, checkpoint round-trip (S2a),
@@ -53,8 +53,6 @@ from gateway_backend.application.job_definitions import JobWorkerComposition, bu
 from gateway_backend.application.payloads import decode_job_payload
 from gateway_backend.application.recovery import (
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
-    DIAGNOSTIC_RECONCILE_TIMEOUT,
-    RECONCILE_SESSION_BUDGET_SECONDS,
     RecoveryOutcomeDisposition,
     compute_request_fingerprint,
 )
@@ -82,7 +80,11 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.operations.contracts import JobStepKey, OperationRecord, StepRecord
 from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork, initialize_control_db
-from gateway_backend.operations.recovery import RecoveryCapabilityValue, StartupRecovery, build_startup_recovery
+from gateway_backend.operations.recovery import (
+    RecoveryCapabilityValue,
+    StartupRecovery,
+    build_startup_recovery,
+)
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
     OperationStatus,
@@ -1750,7 +1752,6 @@ def _stub_job_state_for_identity(
     request_artifact_id: str,
     operation_identity: str,
     request_fingerprint: str | None = None,
-    reconcile_started_at: str = "2026-08-24T12:00:00Z",
 ) -> dict[str, object]:
     fingerprint = request_fingerprint or compute_request_fingerprint(_stub_request_bytes())
     return {
@@ -1759,7 +1760,6 @@ def _stub_job_state_for_identity(
         "request_artifact_id": request_artifact_id,
         "operation_identity": operation_identity,
         "request_sent": True,
-        "reconcile_started_at": reconcile_started_at,
     }
 
 
@@ -1807,7 +1807,6 @@ def _publish_stub_post_request_checkpoint(
     worker_id: str,
     lease_token: str,
     stub_outcome: str = StubOutcome.ACCEPTED.value,
-    reconcile_started_at: str = "2026-08-24T12:00:00Z",
 ) -> ArtifactRef:
     session, _control = _bootstrap_stub_claimed(
         db_path,
@@ -1837,7 +1836,6 @@ def _publish_stub_post_request_checkpoint(
         job_state=_stub_job_state_for_identity(
             request_artifact_id=request_ref.artifact_id,
             operation_identity=operation_identity,
-            reconcile_started_at=reconcile_started_at,
         ),
     )
     checkpoint_ref = prepare_step_checkpoint(artifact_store, envelope)
@@ -1927,7 +1925,6 @@ def test_external_effect_recovery_port_creates_request_checkpoint(tmp_path: Path
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=polling_stub,
-        now_factory=lambda: BASE_TIME,
     )
     session, control = _recovery_session(
         db_path,
@@ -1994,15 +1991,9 @@ def test_external_effect_recovery_port_accepted_polls_original_identity(tmp_path
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         step_after_handler = unit_of_work.operations.get_step(step_id)
     assert step_after_handler.checkpoint_ref is not None
-    envelope = load_checkpoint_envelope(artifact_store, step_after_handler.checkpoint_ref)
-    started_at = envelope.job_state["reconcile_started_at"]
-    assert isinstance(started_at, str)
-    reconcile_started_at = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=polling_stub,
-        now_factory=lambda: reconcile_started_at + timedelta(seconds=1),
     )
     recovery_session, recovery_control = _recovery_session(
         db_path,
@@ -2084,7 +2075,6 @@ def test_external_effect_recovery_port_confirmed_from_checkpoint(tmp_path: Path)
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=recording_stub,
-        now_factory=lambda: BASE_TIME,
     )
     session, control = _recovery_session(
         db_path,
@@ -2145,7 +2135,6 @@ def test_external_effect_recovery_port_unknown_manual_no_false_ready(tmp_path: P
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=polling_stub,
-        now_factory=lambda: BASE_TIME,
     )
     session, control = _recovery_session(
         db_path,
@@ -2168,69 +2157,6 @@ def test_external_effect_recovery_port_unknown_manual_no_false_ready(tmp_path: P
     assert persisted_operation.status is OperationStatus.RUNNING
     _assert_external_effect_recovery_invariants(
         recording_stub=RecordingExternalEffectStub(polling_stub),
-        expected_submit_count=0,
-        persisted_operation=persisted_operation,
-        persisted_step=persisted_step,
-        expected_identity=expected_identity,
-        allow_ready=False,
-        artifact_store=artifact_store,
-    )
-
-
-def test_external_effect_recovery_port_reconcile_budget_exhausted(tmp_path: Path) -> None:
-    db_path = tmp_path / "stub-recovery-budget-exhausted.sqlite3"
-    artifact_store = InMemoryArtifactStore()
-    operation_id = "operation-stub-recovery-budget-exhausted"
-    step_id = "step-stub-recovery-budget-exhausted"
-    worker_id = "worker-stub-recovery-budget-exhausted"
-    lease_token = "lease-stub-recovery-budget-exhausted"
-
-    request_bytes = _stub_request_bytes()
-    expected_identity = _expected_stub_identity()
-    polling_stub = PollingExternalEffectStub(
-        DeterministicExternalEffectStub(request_bytes=request_bytes),
-        default_poll_result=None,
-    )
-    recording_stub = RecordingExternalEffectStub(polling_stub)
-    started_at = BASE_TIME.isoformat().replace("+00:00", "Z")
-
-    _publish_stub_post_request_checkpoint(
-        db_path,
-        artifact_store,
-        operation_id=operation_id,
-        step_id=step_id,
-        worker_id=worker_id,
-        lease_token=lease_token,
-        stub_outcome=StubOutcome.ACCEPTED.value,
-        reconcile_started_at=started_at,
-    )
-
-    recovery_port = build_external_effect_stub_recovery_port(
-        artifact_store,
-        external_stub=recording_stub,
-        now_factory=lambda: BASE_TIME + timedelta(seconds=RECONCILE_SESSION_BUDGET_SECONDS),
-    )
-    session, control = _recovery_session(
-        db_path,
-        operation_id=operation_id,
-        step_id=step_id,
-        worker_id=worker_id,
-        lease_token=lease_token,
-    )
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        operation = unit_of_work.operations.get_operation(operation_id)
-        step = unit_of_work.operations.get_step(step_id)
-
-    outcome = recovery_port.recover(operation, step, control, session)
-    assert outcome.disposition is RecoveryOutcomeDisposition.MANUAL_RECOVERY
-    assert outcome.diagnostic_code == DIAGNOSTIC_RECONCILE_TIMEOUT
-    assert recording_stub.submit_count == 0
-
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        persisted_operation = unit_of_work.operations.get_operation(operation_id)
-        persisted_step = unit_of_work.operations.get_step(step_id)
-    _assert_external_effect_recovery_invariants(
-        recording_stub=recording_stub,
         expected_submit_count=0,
         persisted_operation=persisted_operation,
         persisted_step=persisted_step,
@@ -2286,15 +2212,9 @@ def test_external_effect_recovery_port_cancel_after_request_continues_reconcile(
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         step_after_cancel = unit_of_work.operations.get_step(step_id)
     assert step_after_cancel.checkpoint_ref is not None
-    envelope = load_checkpoint_envelope(artifact_store, step_after_cancel.checkpoint_ref)
-    started_at = envelope.job_state["reconcile_started_at"]
-    assert isinstance(started_at, str)
-    reconcile_started_at = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=polling_stub,
-        now_factory=lambda: reconcile_started_at + timedelta(seconds=1),
     )
     recovery_session, recovery_control = _recovery_session(
         db_path,
@@ -2374,7 +2294,6 @@ def test_external_effect_recovery_port_post_request_no_artifact_recreation(
     recovery_port = build_external_effect_stub_recovery_port(
         artifact_store,
         external_stub=recording_stub,
-        now_factory=lambda: BASE_TIME,
     )
     session, control = _recovery_session(
         db_path,

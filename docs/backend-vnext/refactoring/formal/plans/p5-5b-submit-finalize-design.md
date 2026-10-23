@@ -604,8 +604,8 @@ artifact ref预算：
 | Step | schema version | Closed job-state fields |
 | --- | --- | --- |
 | prepare | `backend-vnext/submit/prepare-import-checkpoint/v1` | attempt_id、manifest_ref/digest、backend_import_artifact_ref、package raw size/SHA、builder policy、input closure digest |
-| submit | `backend-vnext/submit/submit-import-checkpoint/v1` | prepare checkpoint ref、RepositoryArtifactRef、upload key、closed import request bytes ref/digest、request fingerprint、import key、`request_sent`、repository_operation_id? |
-| await | `backend-vnext/submit/await-import-result-checkpoint/v1` | submit checkpoint ref、repository_operation_id、last observed Repository status、matching terminal result/evidence ref?、reconcile_started_at? |
+| submit | `backend-vnext/submit/submit-import-checkpoint/v2` | prepare checkpoint ref、RepositoryArtifactRef、upload key、closed import request bytes ref/digest、request fingerprint、import key、`request_sent`、repository_operation_id? |
+| await | `backend-vnext/submit/await-import-result-checkpoint/v2` | submit checkpoint ref、repository_operation_id、last observed Repository status、matching terminal result/evidence ref? |
 
 `request_sent=true`与non-null Repository operation ID在同一checkpoint CAS出现；此前
 `request_sent=false`只表示operation identity尚未durable捕获，不证明网络没有收到请求。Terminal
@@ -759,7 +759,12 @@ disabled不取消已接受worker effect，但阻止新Accept和所有未授权re
 复用现有Backend/worker settings owner：absolute control DB/artifact root、Repository base URL、
 secret-file bearer、bounded request timeout、session/mapping file。5B新增的语义配置只允许是bounded
 Repository poll/reconcile/admission参数；P4的60s reconcile session、lease/backoff/drain contract不
-由5B改变。target/policy/mutation mode不是setting，固定在job contract。
+由5B改变。Submit 的 `await_import_result` 使用有名的
+`SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = 60.0` 作为每次 Repository poll 的上限。每次 poll timeout
+结束当前 R5 recovery session；最多三次 session（每次至多 60 秒），前三次中的前两次可重试，第三次
+进入 `MANUAL_RECOVERY_REQUIRED` 并保留 occupancy。R5 对账上限统一按最多三个恢复会话计算；每个
+会话的 60 秒是单次 Repository poll 上限，不跨 checkpoint 累计。Submit checkpoint 不保存无用途的
+`reconcile_started_at`。target/policy/mutation mode不是setting，固定在job contract。
 
 Backend与worker必须从同一composition factory获得Submit definitions/decoders/handler identity；
 HTTP T1使用同一immutable registry snapshot做preflight。Repository client不得记录bearer、body、

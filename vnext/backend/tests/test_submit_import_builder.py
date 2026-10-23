@@ -14,8 +14,17 @@ from gateway_backend.application.submission.contracts import (
     SnapshotTableBinding,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    MaterializationStage,
     MaterializationPolicy,
+    ROW_MATERIALIZATION_PROFILE,
+    SCALAR_ENCODING_VERSION,
+    SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
+    Snapshot,
     SnapshotMaterializationStatus,
+    SnapshotSourceContext,
+    SnapshotTable,
+    SnapshotTableSet,
+    SourceKind,
 )
 from gateway_backend.application.submission.import_builder import (
     SubmitImportBuilderError,
@@ -33,9 +42,17 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
     ProjectionStatus,
     STORAGE_PROJECTION_VERSION,
+    build_import_projection_snapshots,
     durable_manifest_bytes,
+    open_canonicalization_manifest,
     project_canonical_table_set,
     project_storage,
+    publish_canonicalization,
+    render_repository_import_schema_replay_sql,
+)
+from gateway_backend.capabilities.mutation_planning import (
+    build_import_mutation_snapshots,
+    render_import_mutation_dml,
 )
 from gateway_backend.capabilities.snapshot_materialization import materialize_projected_snapshot
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
@@ -43,6 +60,13 @@ from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_
 from gateway_backend.capabilities.storage_projection.package import (
     unpack_repository_import_entries,
     validate_repository_import_package,
+)
+from gateway_backend.capabilities.table_access.contracts import PARSER_VERSION
+from gateway_backend.capabilities.table_rules import TABLE_RULESET_VERSION
+from gateway_backend.capabilities.table_rules import (
+    TableRulesetSnapshot,
+    table_ruleset_document,
+    table_ruleset_from_document,
 )
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.domain.submission.models import BuilderMutationPolicy
@@ -118,8 +142,8 @@ def _build_input(
     snapshot_tables: tuple[SnapshotTableBinding, ...] | None = None,
     projection_inputs: tuple[ProjectionTableInput, ...] | None = None,
 ) -> PrepareImportBuildInput:
-    ruleset = migrated_table_ruleset_snapshot()
-    assert ruleset.ruleset_digest is not None
+    if store is not None and snapshot_tables is None:
+        return _frozen_build_input(store, projection_inputs or _projection_inputs())
     projection = _project_inputs(projection_inputs or _projection_inputs())
     assert projection.manifest is not None
     assert projection.manifest.manifest_digest is not None
@@ -149,10 +173,6 @@ def _build_input(
         removed_tables=(),
         source_artifact_digest=projection.manifest.source_artifact_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
-        storage_projection_version=STORAGE_PROJECTION_VERSION,
-        ruleset_id=ruleset.ruleset_id,
-        ruleset_version=ruleset.ruleset_version,
-        ruleset_digest=ruleset.ruleset_digest.value,
         snapshot_tables=(
             snapshot_tables
             if snapshot_tables is not None
@@ -166,6 +186,123 @@ def _build_input(
                 ),
             )
         ),
+    )
+
+
+def _frozen_build_input(
+    store: InMemoryArtifactStore,
+    raw_inputs: tuple[ProjectionTableInput, ...],
+) -> PrepareImportBuildInput:
+    ruleset = migrated_table_ruleset_snapshot()
+    source_digest = raw_inputs[0].source_binding.snapshot_digest
+    source_context = SnapshotSourceContext(
+        source_kind=SourceKind.SQL_DUMP_SOURCE,
+        sql_source_digest=source_digest,
+    )
+    source_snapshot = Snapshot(
+        snapshot_id="submit-import-source",
+        source_kind=SourceKind.SQL_DUMP_SOURCE,
+        parser_version=PARSER_VERSION,
+        table_ruleset_version=TABLE_RULESET_VERSION,
+        scalar_encoding_version=SCALAR_ENCODING_VERSION,
+        snapshot_materialization_contract_version=SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
+        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
+        materialization_stage=MaterializationStage.FINAL,
+        snapshot_digest=source_digest,
+        raw_state_digest=source_digest,
+        created_at="2025-01-01T00:00:00Z",
+        source_context=source_context,
+    )
+    source_tables = tuple(
+        SnapshotTable(
+            descriptor=item.source_binding.descriptor,
+            reader=item.reader.reopen(),
+            artifact=item.artifact,
+        )
+        for item in raw_inputs
+    )
+    table_set = SnapshotTableSet(
+        snapshot_id=source_snapshot.snapshot_id,
+        snapshot_digest=source_digest,
+        table_ruleset_version=TABLE_RULESET_VERSION,
+        tables=source_tables,
+    )
+    frozen = project_canonical_table_set(table_set, ruleset)
+    for table in source_tables:
+        if table.reader is not None:
+            table.reader.close()
+    assert frozen.status is ProjectionStatus.COMPLETE
+    assert frozen.manifest is not None
+    assert frozen.manifest.manifest_digest is not None
+    try:
+        canonical = materialize_projected_snapshot(
+            source_snapshot,
+            frozen.tables,
+            artifact_store=store,
+            context=ParserInvocationContext(NeverCancel()),
+        )
+    finally:
+        for table in frozen.tables:
+            if table.reader is not None:
+                table.reader.close()
+    assert canonical.status is SnapshotMaterializationStatus.COMPLETE
+    assert canonical.snapshot is not None
+    assert canonical.table_set is not None
+
+    manifest_payload = durable_manifest_bytes(frozen.manifest)
+    manifest_ref = ArtifactRef(
+        artifact_id="fixture-canonicalization-manifest",
+        media_type=CANONICALIZATION_MANIFEST_MEDIA_TYPE,
+        size_bytes=len(manifest_payload),
+        raw_sha256=raw_blob_digest(manifest_payload),
+    )
+    store.put(manifest_payload, manifest_ref)
+    canonical_tables = tuple(
+        table for table in canonical.table_set.tables if table.artifact is not None
+    )
+    closure_payload = canonicalize_json_value(
+        {
+            "contract_version": "backend-vnext/preview/canonical-table-set-closure/v1",
+            "tables": [
+                {
+                    "table_name": table.descriptor.table_name,
+                    "manifest_ref": artifact_ref_to_dict(table.artifact.manifest_ref),
+                }
+                for table in canonical_tables
+                if table.artifact is not None
+            ],
+        }
+    )
+    closure_ref = ArtifactRef(
+        artifact_id="fixture-canonical-table-closure",
+        media_type="application/jcs",
+        size_bytes=len(closure_payload),
+        raw_sha256=raw_blob_digest(closure_payload),
+    )
+    store.put(closure_payload, closure_ref)
+    bindings = tuple(
+        SnapshotTableBinding(
+            table_name=table.descriptor.table_name,
+            artifact_id=table.artifact.manifest_ref.artifact_id,
+            media_type=table.artifact.manifest_ref.media_type,
+            size_bytes=table.artifact.manifest_ref.size_bytes,
+            raw_sha256=table.artifact.manifest_ref.raw_sha256.value,
+        )
+        for table in canonical_tables
+        if table.artifact is not None
+    )
+    return PrepareImportBuildInput(
+        submit_attempt_id="sa-import-frozen-fixture",
+        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        canonical_table_set_closure_ref=closure_ref,
+        canonical_table_set_closure_digest=closure_ref.raw_sha256.value,
+        canonicalization_manifest_ref=manifest_ref,
+        canonicalization_manifest_digest=frozen.manifest.manifest_digest.value,
+        expected_parent_commit_id="parent-commit-1",
+        removed_tables=(),
+        source_artifact_digest=canonical.snapshot.snapshot_digest.value,
+        repository_base_digest=_SNAPSHOT_DIGEST,
+        snapshot_tables=bindings,
     )
 
 
@@ -260,8 +397,6 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     )
     store.put(manifest_bytes, manifest_ref)
     store.put(closure_bytes, closure_ref)
-    ruleset = migrated_table_ruleset_snapshot()
-    assert ruleset.ruleset_digest is not None
     build_input = PrepareImportBuildInput(
         submit_attempt_id="sa-empty-removal",
         builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
@@ -273,10 +408,6 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
         removed_tables=("old_table",),
         source_artifact_digest=canonical.manifest.source_artifact_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
-        storage_projection_version=STORAGE_PROJECTION_VERSION,
-        ruleset_id=ruleset.ruleset_id,
-        ruleset_version=ruleset.ruleset_version,
-        ruleset_digest=ruleset.ruleset_digest.value,
         snapshot_tables=(),
     )
     adapter = SubmitImportPublicationAdapter()
@@ -386,8 +517,6 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         raw_sha256=raw_blob_digest(manifest_payload),
     )
     store.put(manifest_payload, manifest_ref)
-    ruleset = migrated_table_ruleset_snapshot()
-    assert ruleset.ruleset_digest is not None
     build_input = PrepareImportBuildInput(
         submit_attempt_id="sa-frozen-dropped-column",
         builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
@@ -404,17 +533,12 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         removed_tables=(),
         source_artifact_digest=canonical_inputs[0].source_binding.snapshot_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
-        storage_projection_version=STORAGE_PROJECTION_VERSION,
-        ruleset_id=ruleset.ruleset_id,
-        ruleset_version=ruleset.ruleset_version,
-        ruleset_digest=ruleset.ruleset_digest.value,
         snapshot_tables=bindings,
     )
     adapter = SubmitImportPublicationAdapter()
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=canonical_inputs,
     )
     package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     package_input = validate_repository_import_package(package)
@@ -498,8 +622,6 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         raw_sha256=raw_blob_digest(manifest_payload),
     )
     store.put(manifest_payload, manifest_ref)
-    ruleset = migrated_table_ruleset_snapshot()
-    assert ruleset.ruleset_digest is not None
     build_input = PrepareImportBuildInput(
         submit_attempt_id="sa-ordered-pseudo-replay",
         builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
@@ -511,18 +633,13 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
         removed_tables=(),
         source_artifact_digest=projection_inputs[0].source_binding.snapshot_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
-        storage_projection_version=STORAGE_PROJECTION_VERSION,
-        ruleset_id=ruleset.ruleset_id,
-        ruleset_version=ruleset.ruleset_version,
-        ruleset_digest=ruleset.ruleset_digest.value,
         snapshot_tables=bindings,
     )
 
     adapter = SubmitImportPublicationAdapter()
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=projection_inputs,
     )
     package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     package_manifest = validate_repository_import_package(package)
@@ -537,21 +654,133 @@ def _replay_sql_from_package(payload: bytes) -> str:
     return replay_sql.decode("utf-8")
 
 
+def test_submit_prepare_reuses_t1_frozen_products_after_ruleset_activation_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gateway_backend.application.submit_jobs as submit_jobs_module
+    import gateway_backend.capabilities.table_rules.registry as ruleset_registry
+    import gateway_backend.infrastructure.repository_write.import_publication as publication_module
+
+    store = InMemoryArtifactStore()
+    ruleset_a = migrated_table_ruleset_snapshot()
+    build_input = _frozen_build_input(store, _projection_inputs())
+    frozen_manifest = open_canonicalization_manifest(
+        store,
+        build_input.canonicalization_manifest_ref,
+    )
+    assert frozen_manifest.ruleset_digest == ruleset_a.ruleset_digest
+    assert frozen_manifest.manifest_digest is not None
+
+    # Byte-for-byte reference for the pre-fix Submit implementation: reproject the same
+    # T1 artifacts under ruleset A, then render using T1's frozen manifest.
+    old_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store)
+    old_request = ProjectionRequest(
+        ruleset=ruleset_a,
+        storage_projection_version=STORAGE_PROJECTION_VERSION,
+        tables=old_inputs,
+        context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
+    )
+    old_projection = project_storage(old_request)
+    assert old_projection.status is ProjectionStatus.COMPLETE
+    assert old_projection.manifest is not None
+    assert old_projection.import_input is not None
+    assert old_projection.manifest.source_artifact_digest.value == build_input.source_artifact_digest
+
+    replay_inputs = _open_projection_inputs(build_input.snapshot_tables, store=store)
+    replay_request = ProjectionRequest(
+        ruleset=ruleset_a,
+        storage_projection_version=STORAGE_PROJECTION_VERSION,
+        tables=replay_inputs,
+        context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
+    )
+    try:
+        projection_snapshots = build_import_projection_snapshots(replay_request, old_projection)
+    finally:
+        for item in replay_inputs:
+            item.reader.close()
+    after_tables = build_import_mutation_snapshots(projection_snapshots)
+    assert frozen_manifest.manifest_digest is not None
+    old_projection = replace(
+        old_projection,
+        manifest=frozen_manifest,
+        import_input=replace(
+            old_projection.import_input,
+            canonicalization_manifest_digest=frozen_manifest.manifest_digest,
+        ),
+    )
+    assert old_projection.import_input is not None
+    old_schema_sql = render_repository_import_schema_replay_sql(
+        old_projection.import_input,
+        removed_tables=build_input.removed_tables,
+    )
+    old_dml = render_import_mutation_dml(
+        old_projection,
+        after_tables,
+        repository_base_digest=DigestRef(build_input.repository_base_digest),
+        removed_tables=build_input.removed_tables,
+    )
+    old_publication = publish_canonicalization(
+        old_projection,
+        store=store,
+        replay_sql=old_schema_sql + old_dml,
+        context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
+    )
+    assert old_publication.status is ProjectionStatus.COMPLETE
+    assert old_publication.publication is not None
+    old_package = store.locate(old_publication.publication.package_ref)
+
+    ruleset_b_document = table_ruleset_document(ruleset_a)
+    rules = ruleset_b_document["rules"]
+    assert type(rules) is list
+    ruleset_b_document["rules"] = rules[:-1]
+    ruleset_b = table_ruleset_from_document(ruleset_b_document)
+    assert ruleset_a.ruleset_digest != ruleset_b.ruleset_digest
+    runtime_ruleset_reads = 0
+
+    def _activated_ruleset_b() -> TableRulesetSnapshot:
+        nonlocal runtime_ruleset_reads
+        runtime_ruleset_reads += 1
+        return ruleset_b
+
+    monkeypatch.setattr(
+        ruleset_registry,
+        "migrated_table_ruleset_snapshot",
+        _activated_ruleset_b,
+    )
+    monkeypatch.setattr(
+        submit_jobs_module,
+        "migrated_table_ruleset_snapshot",
+        _activated_ruleset_b,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        publication_module,
+        "migrated_table_ruleset_snapshot",
+        _activated_ruleset_b,
+        raising=False,
+    )
+
+    adapter = SubmitImportPublicationAdapter()
+    published = adapter.build_and_publish(build_input=build_input, store=store)
+    new_package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
+    assert runtime_ruleset_reads == 0
+    assert raw_blob_digest(new_package) == raw_blob_digest(old_package)
+    assert _replay_sql_from_package(new_package).encode("utf-8") == old_schema_sql + old_dml
+
+
 def test_rebuild_always_publish_is_deterministic_for_same_inputs() -> None:
     adapter = SubmitImportPublicationAdapter()
     first_store = InMemoryArtifactStore()
     second_store = InMemoryArtifactStore()
     build_input = _build_input(store=first_store)
     second_build_input = _build_input(store=second_store)
-    first = adapter.build_and_publish_from_inputs(
+    first = adapter.build_and_publish(
         build_input=build_input,
         store=first_store,
-        projection_inputs=_projection_inputs(),
     )
-    second = adapter.build_and_publish_from_inputs(
+    second = adapter.build_and_publish(
         build_input=second_build_input,
         store=second_store,
-        projection_inputs=_projection_inputs(),
     )
     assert first.replay is False
     assert second.replay is False
@@ -568,10 +797,9 @@ def test_rebuild_always_publish_is_deterministic_for_same_inputs() -> None:
 def test_rebuild_replay_includes_ddl_and_inserts() -> None:
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=_build_input(store=store),
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     payload = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     replay_sql = _replay_sql_from_package(payload)
@@ -604,10 +832,9 @@ def test_ordered_blank_gid_replay_matches_projection() -> None:
             source_binding=binding,
         ),
     )
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=_build_input(store=store, projection_inputs=projection_inputs),
         store=store,
-        projection_inputs=projection_inputs,
     )
     payload = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     replay_sql = _replay_sql_from_package(payload)
@@ -635,10 +862,9 @@ def test_set_column_input_publishes_successfully() -> None:
             source_binding=binding,
         ),
     )
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=_build_input(store=store, projection_inputs=projection_inputs),
         store=store,
-        projection_inputs=projection_inputs,
     )
     payload = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     replay_sql = _replay_sql_from_package(payload)
@@ -673,10 +899,9 @@ def test_skipped_table_does_not_break_publication() -> None:
             source_binding=skip_binding,
         ),
     )
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=_build_input(store=store, projection_inputs=projection_inputs),
         store=store,
-        projection_inputs=projection_inputs,
     )
     assert published.checkpoint.backend_import_artifact_ref.artifact_id.startswith("r4-package-")
 
@@ -685,10 +910,9 @@ def test_checkpoint_reuse_read_back_preserves_package_identity() -> None:
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
     build_input = _build_input(store=store)
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     reused = reuse_prepare_import_checkpoint(
         build_input=build_input,
@@ -713,16 +937,14 @@ def test_orphan_bytes_before_checkpoint_do_not_change_published_identity() -> No
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
     build_input = _build_input(store=store)
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     orphan_count = len(store._artifacts)
-    second = adapter.build_and_publish_from_inputs(
+    second = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     assert len(store._artifacts) > orphan_count
     reused = reuse_prepare_import_checkpoint(
@@ -744,10 +966,9 @@ def test_orphan_bytes_before_checkpoint_do_not_change_published_identity() -> No
 def test_publish_writes_only_manifest_and_package_artifacts() -> None:
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=_build_input(store=store),
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     artifact_ids = set(store._artifacts)
     assert published.checkpoint.canonicalization_manifest_ref.artifact_id in artifact_ids
@@ -780,7 +1001,6 @@ def test_build_and_publish_from_pinned_parquet_artifact_succeeds() -> None:
     projection_inputs = _open_projection_inputs((binding,), store=store)
     build_input = _build_input(
         store=store,
-        snapshot_tables=(binding,),
         projection_inputs=projection_inputs,
     )
     adapter = SubmitImportPublicationAdapter()
@@ -798,10 +1018,9 @@ def test_repository_base_digest_may_differ_from_source_artifact_digest() -> None
         _build_input(store=store),
         repository_base_digest=digest_ref("cc").value,
     )
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     assert published.checkpoint.canonicalization_manifest_digest
 
@@ -822,17 +1041,15 @@ def test_repository_base_digest_reaches_mutation_planner(monkeypatch: pytest.Mon
     )
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
-    source_digest = dummy_digest()
     base_digest = digest_ref("cc")
     build_input = replace(
         _build_input(store=store),
-        source_artifact_digest=source_digest.value,
         repository_base_digest=base_digest.value,
     )
-    adapter.build_and_publish_from_inputs(
+    source_digest = dummy_digest()
+    adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     assert captured
     request = captured[0]
@@ -844,10 +1061,9 @@ def test_reuse_rejects_mismatched_semantic_manifest_digest() -> None:
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
     build_input = _build_input(store=store)
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     mismatched = replace(
         published.checkpoint,
@@ -877,10 +1093,9 @@ def test_reuse_rejects_changed_frozen_prepare_bindings(binding_change: str) -> N
     adapter = SubmitImportPublicationAdapter()
     store = InMemoryArtifactStore()
     build_input = _build_input(store=store)
-    published = adapter.build_and_publish_from_inputs(
+    published = adapter.build_and_publish(
         build_input=build_input,
         store=store,
-        projection_inputs=_projection_inputs(),
     )
     if binding_change == "closure_ref":
         changed = replace(

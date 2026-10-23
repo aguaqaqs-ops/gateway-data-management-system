@@ -24,7 +24,6 @@ from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.submit_jobs import (
     SubmitControlTransactionFactory,
     SubmitRuntimeDependencies,
-    _capability_storage_projection_version,
     bind_submit_control_transaction_factory,
     build_prepare_import_handler,
 )
@@ -46,7 +45,12 @@ from tests.support.submit_job_harness import (
     assert_occupancy_retained,
     build_submit_worker_harness,
 )
-from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
+from gateway_backend.capabilities.table_rules import (
+    TableRulesetSnapshot,
+    migrated_table_ruleset_snapshot,
+    table_ruleset_document,
+    table_ruleset_from_document,
+)
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.application.submit_jobs import _submit_attempt_id_from_operation
@@ -322,10 +326,6 @@ def _run_prepare_handler(
     return handler(operation, step, control, session)
 
 
-def test_capability_storage_projection_version_maps_contract_v1() -> None:
-    assert _capability_storage_projection_version("v1") == STORAGE_PROJECTION_VERSION
-
-
 def test_prepare_handler_publishes_checkpoint_and_successor(
     db_path: Path,
 ) -> None:
@@ -346,6 +346,57 @@ def test_prepare_handler_publishes_checkpoint_and_successor(
     assert prepare_step.checkpoint_ref is not None
     assert submit_step.status is StepStatus.PENDING
     assert operation.status is OperationStatus.RUNNING
+
+
+def test_submit_prepare_recovers_from_frozen_t1_artifacts_after_ruleset_activation(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import gateway_backend.application.submit_jobs as submit_jobs_module
+    import gateway_backend.capabilities.table_rules.registry as ruleset_registry
+    import gateway_backend.infrastructure.repository_write.import_publication as publication_module
+
+    ruleset_a = migrated_table_ruleset_snapshot()
+    ruleset_b_document = table_ruleset_document(ruleset_a)
+    rules = ruleset_b_document["rules"]
+    assert type(rules) is list
+    ruleset_b_document["rules"] = rules[:-1]
+    ruleset_b = table_ruleset_from_document(ruleset_b_document)
+    assert ruleset_a.ruleset_digest != ruleset_b.ruleset_digest
+
+    store = InMemoryArtifactStore()
+    operation_id = _accept_prepared_operation(db_path, store)
+    runtime_reads = 0
+
+    def _activated_ruleset_b() -> TableRulesetSnapshot:
+        nonlocal runtime_reads
+        runtime_reads += 1
+        return ruleset_b
+
+    monkeypatch.setattr(ruleset_registry, "migrated_table_ruleset_snapshot", _activated_ruleset_b)
+    monkeypatch.setattr(
+        submit_jobs_module,
+        "migrated_table_ruleset_snapshot",
+        _activated_ruleset_b,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        publication_module,
+        "migrated_table_ruleset_snapshot",
+        _activated_ruleset_b,
+        raising=False,
+    )
+
+    acknowledgment = _run_prepare_handler(db_path, store, operation_id)
+
+    assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
+    assert runtime_reads == 0
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        prepare_step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
+    assert operation.status is OperationStatus.RUNNING
+    assert prepare_step.status is StepStatus.SUCCEEDED
+    assert prepare_step.checkpoint_ref is not None
 
 
 def test_prepare_handler_publication_failure_marks_operation_failed(

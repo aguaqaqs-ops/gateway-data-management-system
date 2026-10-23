@@ -861,9 +861,8 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
         *,
         build_input: PrepareImportBuildInput,
         store: ArtifactStorePort,
-        projection_inputs: tuple[Any, ...],
     ) -> PrepareImportPublicationResult:
-        del self, projection_inputs
+        del self
         return build_dolt_compatible_prepare_publication(
             build_input=build_input,
             store=store,
@@ -871,7 +870,7 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
 
     monkeypatch.setattr(
         SubmitImportPublicationAdapter,
-        "build_and_publish_from_inputs",
+        "build_and_publish",
         _dolt_compatible_prepare_publication,
     )
 

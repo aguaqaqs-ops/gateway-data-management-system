@@ -69,6 +69,50 @@ from tests.support.compose_gate_harness import (
 REPOSITORY_SERVICE_IMAGE = os.environ.get(
     "GATEWAY_REPOSITORY_SERVICE_IMAGE", "gateway-repository-service:local"
 )
+# Compose mounts this data root for repository-service; RepositoryServiceSettings.control_db_path
+# appends service-state/repository-service.sqlite3.
+REPOSITORY_SERVICE_CONTROL_DB_PATH = (
+    "/var/lib/gateway/repository/service-state/repository-service.sqlite3"
+)
+REPOSITORY_IMPORT_CONTROL_ROW_SCRIPT = r"""
+import json
+import sqlite3
+import sys
+import tempfile
+from pathlib import Path
+
+database_path, operation_id = sys.argv[1:3]
+temporary = tempfile.NamedTemporaryFile(prefix="repository-import-", suffix=".sqlite3", delete=False)
+snapshot_path = Path(temporary.name)
+temporary.close()
+try:
+    source = sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)
+    try:
+        snapshot = sqlite3.connect(snapshot_path)
+        try:
+            source.backup(snapshot)
+        finally:
+            snapshot.close()
+    finally:
+        source.close()
+    snapshot = sqlite3.connect(f"file:{snapshot_path}?mode=ro", uri=True)
+    try:
+        snapshot.row_factory = sqlite3.Row
+        row = snapshot.execute(
+            "SELECT status, created_at, started_at, completed_at "
+            "FROM repository_import_operations WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Repository import operation row is missing")
+        print(json.dumps({name: row[name] for name in (
+            "status", "created_at", "started_at", "completed_at"
+        )}, sort_keys=True))
+    finally:
+        snapshot.close()
+finally:
+    snapshot_path.unlink(missing_ok=True)
+"""
 ARCHIVER_TOKEN = "s2b-realdata-archiver-token"
 HISTORY_READER_TOKEN = "s2b-realdata-history-reader-token"
 PSEUDO_GID_MIN = 4_000_000_000
@@ -447,31 +491,56 @@ def _capture_container_inspections(env: dict[str, str], root: Path) -> None:
             )
 
 
-def _capture_control_operation_rows(
+def _capture_submit_attempt_control_rows(
     env: dict[str, str],
     operation_id: str,
     root: Path,
-) -> str | None:
+    *,
+    summary_out: dict[str, Any] | None = None,
+) -> str:
     # The live DB is opened read-only and copied before querying. Only the
-    # operation, step and lease fields needed to diagnose the stall are emitted.
+    # operation, submit attempt, step and lease fields needed by the S5 probe
+    # and stall diagnosis are emitted.
     snapshot_script = """
 import json, os, sqlite3, sys, tempfile
 from pathlib import Path
 
-operation_id = sys.argv[1]
-source = sqlite3.connect(
-    "file:/var/lib/gateway/control/control.sqlite3?mode=ro", uri=True
-)
-fd, snapshot_name = tempfile.mkstemp(prefix="gdds-s4-stall-control-")
+database_path = Path(sys.argv[1])
+operation_id = sys.argv[2]
+source = sqlite3.connect(database_path.resolve().as_uri() + "?mode=ro", uri=True)
+fd, snapshot_name = tempfile.mkstemp(prefix="gdds-s5-submit-control-")
 os.close(fd)
 try:
     snapshot = sqlite3.connect(snapshot_name)
     source.backup(snapshot)
     operation_row = snapshot.execute(
-        "SELECT operation_id, status, created_at_us, updated_at_us, completed_at_us, "
-        "repository_operation_id FROM operation_records WHERE operation_id = ?",
+        "SELECT operation_id, status, created_at_us, updated_at_us, completed_at_us, business_refs "
+        "FROM operation_records WHERE operation_id = ?",
         (operation_id,),
     ).fetchone()
+    submit_attempt = None
+    if operation_row is not None:
+        business_refs = json.loads(bytes(operation_row[5]))
+        if not isinstance(business_refs, list):
+            raise ValueError("operation business_refs is not a list")
+        submit_attempt_ids = [
+            reference.get("value")
+            for reference in business_refs
+            if isinstance(reference, dict) and reference.get("kind") == "submit_attempt"
+        ]
+        if len(submit_attempt_ids) != 1 or not isinstance(submit_attempt_ids[0], str):
+            raise ValueError("operation must reference exactly one submit_attempt")
+        attempt_row = snapshot.execute(
+            "SELECT submit_attempt_id, operation_id, repository_operation_id "
+            "FROM submit_attempt_records WHERE submit_attempt_id = ?",
+            (submit_attempt_ids[0],),
+        ).fetchone()
+        if attempt_row is not None and attempt_row[1] != operation_id:
+            raise ValueError("submit_attempt belongs to a different operation")
+        submit_attempt = None if attempt_row is None else {
+            "submit_attempt_id": attempt_row[0],
+            "repository_operation_id": attempt_row[2],
+        }
     step_rows = snapshot.execute(
         "SELECT step_id, step_name, status, attempt_count, worker_id, "
         "lease_expires_at_us, created_at_us, updated_at_us, started_at_us, completed_at_us "
@@ -492,7 +561,6 @@ try:
         "operation_id": operation_row[0], "status": operation_row[1],
         "created_at_us": operation_row[2], "updated_at_us": operation_row[3],
         "completed_at_us": operation_row[4],
-        "repository_operation_id": operation_row[5],
     }
     leases = [
         {
@@ -503,7 +571,12 @@ try:
         }
         for step in steps if step["lease_expires_at_us"] is not None
     ]
-    print(json.dumps({"operation": operation, "steps": steps, "leases": leases}, sort_keys=True))
+    print(json.dumps({
+        "operation": operation,
+        "submit_attempt": submit_attempt,
+        "steps": steps,
+        "leases": leases,
+    }, sort_keys=True))
     snapshot.close()
 finally:
     source.close()
@@ -517,32 +590,51 @@ finally:
         "python",
         "-c",
         snapshot_script,
+        "/var/lib/gateway/control/control.sqlite3",
         operation_id,
         timeout=60.0,
     )
     if result.returncode != 0:
-        (root / "control-db-selected-rows-error.txt").write_text(
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+        error_path = root / "control-db-selected-rows-error.txt"
+        error_path.write_text(
             f"snapshot/query exit={result.returncode}\n{result.stderr}",
             encoding="utf-8",
         )
-        return None
+        error_path.chmod(0o600)
+        raise JourneyFailure("Submit attempt control DB query failed")
     try:
         summary = json.loads(result.stdout)
     except json.JSONDecodeError:
-        (root / "control-db-selected-rows-error.txt").write_text(
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+        error_path = root / "control-db-selected-rows-error.txt"
+        error_path.write_text(
             "snapshot/query returned invalid JSON\n",
             encoding="utf-8",
         )
-        return None
-    (root / "control-db-selected-rows.json").write_text(
+        error_path.chmod(0o600)
+        raise JourneyFailure("Submit attempt control DB query returned invalid JSON") from None
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root.chmod(0o700)
+    selected_rows_path = root / "control-db-selected-rows.json"
+    selected_rows_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    operation = summary.get("operation")
+    selected_rows_path.chmod(0o600)
+    if summary_out is not None:
+        summary_out.update(summary)
+    submit_attempt = summary.get("submit_attempt")
     repository_operation_id = (
-        operation.get("repository_operation_id") if isinstance(operation, dict) else None
+        submit_attempt.get("repository_operation_id")
+        if isinstance(submit_attempt, dict)
+        else None
     )
-    return repository_operation_id if isinstance(repository_operation_id, str) else None
+    if not isinstance(repository_operation_id, str) or not repository_operation_id:
+        raise JourneyFailure("Submit Repository operation id is missing from its attempt record")
+    return repository_operation_id
 
 
 def _capture_repository_import_status(
@@ -551,28 +643,178 @@ def _capture_repository_import_status(
     repository_id: str,
     operation_id: str,
     root: Path,
-) -> None:
+) -> dict[str, Any]:
     try:
         with httpx.Client(timeout=15.0) as client:
             response = client.get(
                 f"{repository_url}/v1/repositories/{repository_id}/operations/{operation_id}",
                 headers=compose_auth_headers(token=BEARER_TOKEN),
             )
-        summary: dict[str, Any] = {"operation_id": operation_id, "http_status": response.status_code}
-        if response.status_code == 200:
-            payload = response.json()
-            if isinstance(payload, dict):
-                operation = payload.get("operation")
-                status_payload = operation if isinstance(operation, dict) else payload
-                for name in ("status", "created_at", "started_at", "updated_at", "completed_at"):
-                    if name in status_payload:
-                        summary[name] = status_payload[name]
-    except (httpx.HTTPError, ValueError):
-        summary = {"operation_id": operation_id, "status_read": "unavailable"}
-    (root / "repository-import-status.json").write_text(
+    except httpx.HTTPError as exc:
+        raise JourneyFailure("Repository public operation status request failed") from exc
+    if response.status_code != 200:
+        raise JourneyFailure(
+            f"Repository public operation status returned HTTP {response.status_code}"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise JourneyFailure("Repository public operation status response is invalid JSON") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("operation"), dict):
+        raise JourneyFailure("Repository public operation response has an invalid shape")
+    operation = payload["operation"]
+    public_operation_id = operation.get("operation_id")
+    status = operation.get("status")
+    if public_operation_id != operation_id or not isinstance(status, str):
+        raise JourneyFailure("Repository public operation identity or status is invalid")
+    summary: dict[str, Any] = {
+        "operation_id": operation_id,
+        "http_status": response.status_code,
+        "status": status,
+    }
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root.chmod(0o700)
+    status_path = root / "repository-operation-public-status.json"
+    status_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    status_path.chmod(0o600)
+    return summary
+
+
+def _read_repository_import_control_row(
+    *,
+    env: dict[str, str],
+    operation_id: str,
+    root: Path,
+) -> dict[str, Any]:
+    result = run_compose(
+        env,
+        "exec",
+        "-T",
+        "repository-service",
+        "python",
+        "-c",
+        REPOSITORY_IMPORT_CONTROL_ROW_SCRIPT,
+        REPOSITORY_SERVICE_CONTROL_DB_PATH,
+        operation_id,
+        timeout=60.0,
+    )
+    if result.returncode != 0:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root.chmod(0o700)
+        error_path = root / "repository-import-control-row-error.txt"
+        error_path.write_text(
+            f"Repository control DB snapshot/query exit={result.returncode}\n",
+            encoding="utf-8",
+        )
+        error_path.chmod(0o600)
+        raise JourneyFailure("Repository import control DB query failed")
+    try:
+        row = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise JourneyFailure("Repository import control DB query returned invalid JSON") from exc
+    required_fields = {
+        "status",
+        "created_at",
+        "started_at",
+        "completed_at",
+    }
+    if not isinstance(row, dict) or set(row) != required_fields:
+        raise JourneyFailure("Repository import control DB row has an invalid shape")
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root.chmod(0o700)
+    status_path = root / "repository-import-control-row.json"
+    status_path.write_text(json.dumps(row, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    status_path.chmod(0o600)
+    return row
+
+
+def _repository_import_timings(row: Mapping[str, Any]) -> tuple[float, float]:
+    timestamps: dict[str, datetime] = {}
+    for name in ("created_at", "started_at", "completed_at"):
+        value = row.get(name)
+        if type(value) is not str:
+            raise JourneyFailure(f"Repository import {name} timestamp is missing")
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise JourneyFailure(f"Repository import {name} timestamp is invalid") from exc
+        if parsed.utcoffset() is None:
+            raise JourneyFailure(f"Repository import {name} timestamp has no timezone")
+        timestamps[name] = parsed
+    elapsed = (timestamps["completed_at"] - timestamps["started_at"]).total_seconds()
+    queued = (timestamps["started_at"] - timestamps["created_at"]).total_seconds()
+    if elapsed < 0 or queued < 0:
+        raise JourneyFailure("Repository import timestamps are not chronological")
+    return round(elapsed, 3), round(queued, 3)
+
+
+def _capture_submit_reconciliation_facts(
+    *,
+    env: dict[str, str],
+    repository_url: str,
+    repository_id: str,
+    operation_id: str,
+    root: Path,
+    enforce_three_session_limit: bool,
+) -> dict[str, Any]:
+    control_summary: dict[str, Any] = {}
+    repository_operation_id = _capture_submit_attempt_control_rows(
+        env,
+        operation_id,
+        root,
+        summary_out=control_summary,
+    )
+    operation = control_summary.get("operation")
+    steps = control_summary.get("steps")
+    if not isinstance(operation, Mapping) or not isinstance(steps, list):
+        raise JourneyFailure("Submit reconciliation facts are missing from the control DB")
+    reconciliation_step = next(
+        (
+            step
+            for step in steps
+            if isinstance(step, Mapping)
+            and step.get("step_name") in {"await_import_result", "AwaitImportResult"}
+        ),
+        None,
+    )
+    if not isinstance(reconciliation_step, Mapping):
+        raise JourneyFailure("Submit await_import_result step is missing from the control DB")
+    sessions_used = reconciliation_step.get("attempt_count")
+    if type(sessions_used) is not int or sessions_used < 1:
+        raise JourneyFailure("Submit reconciliation session count is invalid")
+    public_status = _capture_repository_import_status(
+        repository_url=repository_url,
+        repository_id=repository_id,
+        operation_id=repository_operation_id,
+        root=root,
+    )
+    repository_row = _read_repository_import_control_row(
+        env=env,
+        operation_id=repository_operation_id,
+        root=root,
+    )
+    if repository_row.get("status") != public_status.get("status"):
+        raise JourneyFailure("Repository public and control DB operation statuses disagree")
+    if public_status.get("status") != "SUCCEEDED":
+        raise JourneyFailure("Submit Repository import did not have a successful status record")
+    elapsed, queue_seconds = _repository_import_timings(repository_row)
+    remaining = max(0, 3 - sessions_used)
+    if enforce_three_session_limit and sessions_used >= 3:
+        raise JourneyFailure("t4 Submit exhausted the three-session reconciliation limit")
+    return {
+        "operation_id": operation_id,
+        "repository_operation_id": repository_operation_id,
+        "await_import_result_attempt_count": sessions_used,
+        "reconciliation_session_limit": 3,
+        "remaining_sessions": remaining,
+        "session_margin": remaining,
+        "repository_import_elapsed_seconds": elapsed,
+        "repository_import_queue_seconds": queue_seconds,
+        "repository_import_status": public_status.get("status"),
+    }
 
 
 def _capture_worker_stall_diagnostics(
@@ -621,12 +863,11 @@ def _capture_worker_stall_diagnostics(
         except Exception as exc:
             errors.append(f"container inspect: {type(exc).__name__}")
 
-        repository_operation_id: str | None = None
         try:
-            repository_operation_id = _capture_control_operation_rows(env, operation_id, root)
+            repository_operation_id = _capture_submit_attempt_control_rows(env, operation_id, root)
         except Exception as exc:
             errors.append(f"control DB snapshot: {type(exc).__name__}")
-        if repository_operation_id is not None:
+        else:
             try:
                 _capture_repository_import_status(
                     repository_url=repository_url,
@@ -636,12 +877,6 @@ def _capture_worker_stall_diagnostics(
                 )
             except Exception as exc:
                 errors.append(f"Repository import status: {type(exc).__name__}")
-        else:
-            (root / "repository-import-status.json").write_text(
-                json.dumps({"status_read": "no repository_operation_id in control DB snapshot"})
-                + "\n",
-                encoding="utf-8",
-            )
 
         try:
             logs = run_compose(env, "logs", "--no-color", "--timestamps", timeout=180.0)
@@ -1211,6 +1446,9 @@ def _poll_operation(
     timeout_seconds: int = INITIAL_OPERATION_TIMEOUT_SECONDS,
     deadline: float | None = None,
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
+    accepted_monotonic: float | None = None,
+    visible_probe: Callable[[], bool] | None = None,
+    timing: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     operation_started = time.monotonic()
     _emit_progress(stage, "operation_started", timeout_seconds=timeout_seconds)
@@ -1243,6 +1481,14 @@ def _poll_operation(
                 diagnostic = payload.get("diagnostic")
                 code = diagnostic.get("code") if isinstance(diagnostic, dict) else "unknown"
                 raise JourneyFailure(f"{stage} operation ended {status}, diagnostic={code}")
+            if timing is not None and accepted_monotonic is not None:
+                terminal_seconds = time.monotonic() - accepted_monotonic
+                timing["operation_terminal_seconds"] = round(terminal_seconds, 3)
+                timing["user_visible_seconds"] = timing.get(
+                    "user_visible_seconds",
+                    round(terminal_seconds, 3),
+                )
+                timing.setdefault("visibility_observation", "operation_terminal_result")
             _emit_progress(
                 stage,
                 "operation_succeeded",
@@ -1251,6 +1497,18 @@ def _poll_operation(
                 operation_wall_seconds=round(time.monotonic() - operation_started, 3),
             )
             return payload
+        if (
+            timing is not None
+            and accepted_monotonic is not None
+            and visible_probe is not None
+            and "user_visible_seconds" not in timing
+            and visible_probe()
+        ):
+            timing["user_visible_seconds"] = round(
+                time.monotonic() - accepted_monotonic,
+                3,
+            )
+            timing["visibility_observation"] = "first_successful_result_read_probe"
         time.sleep(2.0)
     raise JourneyFailure(f"{stage} operation did not reach a terminal state before timeout")
 
@@ -1311,6 +1569,7 @@ def _preview(
     stage: str,
     operation_timeout_seconds: int,
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
+    collect_timing: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-operations",
@@ -1325,14 +1584,34 @@ def _preview(
         },
     )
     accepted = _require_one_of(response, {200, 202}, "preview acceptance")
+    accepted_monotonic = time.monotonic()
+    timing: dict[str, Any] = {}
+    operation_id = str(accepted["operation_id"])
+
+    def result_is_readable() -> bool:
+        current_workspace = _workspace(client)
+        result_id = current_workspace.get("current_preview_result_id")
+        if type(result_id) is not str or not result_id:
+            return False
+        result_response = client.get(
+            f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result_id}"
+        )
+        if result_response.status_code == 404:
+            return False
+        result_payload = _require(result_response, 200, "preview visibility probe")
+        return result_payload.get("operation_id") == operation_id
+
     deadline = time.monotonic() + operation_timeout_seconds
     _poll_operation(
         client,
-        str(accepted["operation_id"]),
+        operation_id,
         stage=stage,
         timeout_seconds=operation_timeout_seconds,
         deadline=deadline,
         heartbeat_monitor=heartbeat_monitor,
+        accepted_monotonic=accepted_monotonic if collect_timing else None,
+        visible_probe=result_is_readable if collect_timing else None,
+        timing=timing if collect_timing else None,
     )
     refreshed = _workspace(client)
     result_id = refreshed.get("current_preview_result_id")
@@ -1355,7 +1634,17 @@ def _preview(
     summaries = manifest.get("pairs")
     if not isinstance(summaries, list) or not summaries:
         raise JourneyFailure("preview bundle did not include a pair summary")
-    return {"workspace": refreshed, "result": result}, manifest
+    preview = {"workspace": refreshed, "result": result}
+    if collect_timing:
+        timing.setdefault(
+            "user_visible_seconds",
+            round(time.monotonic() - accepted_monotonic, 3),
+        )
+        timing.setdefault("visibility_observation", "post_terminal_result_read")
+        timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
+        timing["visibility_poll_interval_seconds"] = 2.0
+        preview["operation_timing"] = timing
+    return preview, manifest
 
 
 def _assert_preview_summaries(
@@ -1484,16 +1773,18 @@ def _submit(
     expect_no_change: bool = False,
     identity_confirmations: Sequence[Mapping[str, str]] = (),
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
+    collect_timing: bool = False,
 ) -> dict[str, Any]:
     workspace_state = cast(Mapping[str, Any], preview["workspace"])
-    result = cast(Mapping[str, Any], preview["result"])
+    preview_result = cast(Mapping[str, Any], preview["result"])
+    request_started = time.monotonic()
     response = client.post(
         f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts",
         headers=compose_auth_headers(idempotency_key=idempotency_key),
         json={
             "expected_workspace_version": workspace_state["optimistic_version"],
             "upload_revision_id": upload["upload_revision_id"],
-            "preview_result_id": result["preview_result_id"],
+            "preview_result_id": preview_result["preview_result_id"],
             "generation": workspace_state["generation"],
             "expected_baseline_node_id": baseline_node_id,
             "expected_baseline_head_version": baseline_head_version,
@@ -1505,16 +1796,48 @@ def _submit(
         payload = _require(response, 409, "no-change submit")
         if payload.get("code") != "NO_CANONICAL_CHANGE":
             raise JourneyFailure("repeat submit did not return NO_CANONICAL_CHANGE")
-        return {"result": "NO_CANONICAL_CHANGE"}
+        no_change_result: dict[str, Any] = {"result": "NO_CANONICAL_CHANGE"}
+        if collect_timing:
+            elapsed = round(time.monotonic() - request_started, 3)
+            no_change_result["operation_timing"] = {
+                "user_visible_seconds": elapsed,
+                "completion_seconds": elapsed,
+                "visibility_observation": "synchronous_no_change_response",
+            }
+        return no_change_result
     accepted = _require_one_of(response, {200, 202}, "submit acceptance")
+    accepted_monotonic = time.monotonic()
+    operation_id = str(accepted["operation_id"])
+    timing: dict[str, Any] = {"operation_id": operation_id}
+
+    def submission_is_readable() -> bool:
+        attempt_response = client.get(
+            f"/v1/workspaces/{workspace['workspace_id']}/submit-attempts/{accepted['submit_attempt_id']}"
+        )
+        if attempt_response.status_code == 404:
+            return False
+        attempt_payload = _require(attempt_response, 200, "submit visibility attempt")
+        if attempt_payload.get("state") != "FINALIZED":
+            return False
+        submission_response = client.get(
+            f"/v1/workspaces/{workspace['workspace_id']}/submissions/{attempt_payload['submission_id']}"
+        )
+        if submission_response.status_code == 404:
+            return False
+        _require(submission_response, 200, "submit visibility result")
+        return True
+
     deadline = time.monotonic() + operation_timeout_seconds
     _poll_operation(
         client,
-        str(accepted["operation_id"]),
+        operation_id,
         stage=stage,
         timeout_seconds=operation_timeout_seconds,
         deadline=deadline,
         heartbeat_monitor=heartbeat_monitor,
+        accepted_monotonic=accepted_monotonic if collect_timing else None,
+        visible_probe=submission_is_readable if collect_timing else None,
+        timing=timing if collect_timing else None,
     )
     _emit_progress(stage, "submit_finalization_started")
     attempt: dict[str, Any] | None = None
@@ -1539,6 +1862,14 @@ def _submit(
     if type(submission.get("repository_commit_id")) is not str:
         raise JourneyFailure("submission did not expose its Repository commit id")
     _emit_progress(stage, "submit_finalized")
+    if collect_timing:
+        timing.setdefault(
+            "user_visible_seconds",
+            round(time.monotonic() - accepted_monotonic, 3),
+        )
+        timing.setdefault("visibility_observation", "post_terminal_submission_read")
+        timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
+        submission["operation_timing"] = timing
     return submission
 
 
@@ -1839,6 +2170,189 @@ def _pseudo_counts_from_http(
         repository_client.close()
 
 
+def _measure_repository_commit_rows(
+    *,
+    base_url: str,
+    repository_id: str,
+    commit_id: str,
+    scenario: str,
+    scratch_root: Path,
+) -> dict[str, Any]:
+    """Measure public RS Arrow reads and Arrow-to-Python conversion without retaining rows."""
+    repository_client = httpx.Client(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {BEARER_TOKEN}"},
+        timeout=300.0,
+    )
+    try:
+        encoded = encode_commit_id_path_segment(commit_id)
+        wall_started = time.perf_counter()
+        cpu_started = time.thread_time()
+        catalog_response = repository_client.get(
+            f"/v1/repositories/{repository_id}/versioned/commits/{encoded}/catalog",
+        )
+        catalog_wall = time.perf_counter() - wall_started
+        catalog_cpu = time.thread_time() - cpu_started
+        if catalog_response.status_code != 200:
+            raise JourneyFailure(
+                f"DC32 Repository catalog HTTP {catalog_response.status_code}"
+            )
+        try:
+            catalog = GetVersionedCatalogResponse.model_validate_json(catalog_response.content)
+        except ValueError as exc:
+            raise JourneyFailure("DC32 Repository catalog response is invalid") from exc
+        if catalog.catalog.commit_id != commit_id:
+            raise JourneyFailure("DC32 Repository catalog commit identity changed")
+
+        tables: list[dict[str, Any]] = []
+        total_rows = 0
+        total_arrow_bytes = 0
+        largest: tuple[str, pa.Table] | None = None
+        for table in catalog.catalog.tables:
+            response_started = time.perf_counter()
+            response_cpu_started = time.thread_time()
+            response = repository_client.get(
+                f"/v1/repositories/{repository_id}/versioned/commits/{encoded}/rows",
+                params={"table_name": table.name},
+            )
+            response_wall = time.perf_counter() - response_started
+            response_cpu = time.thread_time() - response_cpu_started
+            if response.status_code != 200:
+                raise JourneyFailure(
+                    f"DC32 Repository rows HTTP {response.status_code} for table"
+                )
+            arrow_bytes = response.content
+            decode_started = time.perf_counter()
+            decode_cpu_started = time.thread_time()
+            try:
+                arrow_table = pa_ipc.open_stream(arrow_bytes).read_all()
+            except (pa.ArrowInvalid, ValueError, TypeError) as exc:
+                raise JourneyFailure("DC32 Repository Arrow stream is invalid") from exc
+            decode_wall = time.perf_counter() - decode_started
+            decode_cpu = time.thread_time() - decode_cpu_started
+            if arrow_table.num_rows != table.row_count:
+                raise JourneyFailure("DC32 Arrow row count differs from Repository Catalog")
+
+            conversion_started = time.perf_counter()
+            conversion_cpu_started = time.thread_time()
+            converted_columns = [column.to_pylist() for column in arrow_table.columns]
+            converted_row_count = len(converted_columns[0]) if converted_columns else 0
+            conversion_wall = time.perf_counter() - conversion_started
+            conversion_cpu = time.thread_time() - conversion_cpu_started
+            if converted_row_count != table.row_count:
+                raise JourneyFailure("DC32 Arrow-to-Python conversion lost rows")
+
+            tables.append(
+                {
+                    "table_name": table.name,
+                    "row_count": table.row_count,
+                    "column_count": len(table.columns),
+                    "arrow_response_bytes": len(arrow_bytes),
+                    "rs_arrow_read": {
+                        "wall_seconds": round(response_wall, 6),
+                        "thread_cpu_seconds": round(response_cpu, 6),
+                        "mib_per_second": _mib_per_second(len(arrow_bytes), response_wall),
+                    },
+                    "arrow_stream_decode": {
+                        "wall_seconds": round(decode_wall, 6),
+                        "thread_cpu_seconds": round(decode_cpu, 6),
+                    },
+                    "arrow_to_python": {
+                        "wall_seconds": round(conversion_wall, 6),
+                        "thread_cpu_seconds": round(conversion_cpu, 6),
+                        "rows_materialized": converted_row_count,
+                    },
+                }
+            )
+            total_rows += table.row_count
+            total_arrow_bytes += len(arrow_bytes)
+            if largest is None or table.row_count > largest[1].num_rows:
+                largest = (table.name, arrow_table)
+            del converted_columns
+
+        ipc_roundtrip: dict[str, Any] | None = None
+        if largest is not None:
+            scratch_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            fd, raw_path = tempfile.mkstemp(prefix="dc32-arrow-", suffix=".ipc", dir=scratch_root)
+            os.fchmod(fd, 0o600)
+            os.close(fd)
+            ipc_path = Path(raw_path)
+            table_name, largest_table = largest
+            write_started = time.perf_counter()
+            write_cpu_started = time.thread_time()
+            with pa.OSFile(str(ipc_path), "wb") as sink:
+                with pa_ipc.new_file(sink, largest_table.schema) as writer:
+                    writer.write_table(largest_table)
+            write_wall = time.perf_counter() - write_started
+            write_cpu = time.thread_time() - write_cpu_started
+            mmap_started = time.perf_counter()
+            mmap_cpu_started = time.thread_time()
+            buffer_hash = hashlib.sha256()
+            with pa.memory_map(str(ipc_path), "r") as source:
+                mapped = pa_ipc.open_file(source).read_all()
+                for column in mapped.columns:
+                    for chunk in column.chunks:
+                        for buffer in chunk.buffers():
+                            if buffer is not None:
+                                buffer_hash.update(memoryview(buffer))
+            mmap_wall = time.perf_counter() - mmap_started
+            mmap_cpu = time.thread_time() - mmap_cpu_started
+            ipc_roundtrip = {
+                "table_name": table_name,
+                "row_count": largest_table.num_rows,
+                "column_count": largest_table.num_columns,
+                "ipc_file_bytes": ipc_path.stat().st_size,
+                "ipc_write": {
+                    "wall_seconds": round(write_wall, 6),
+                    "thread_cpu_seconds": round(write_cpu, 6),
+                },
+                "ipc_mmap_read_and_buffer_scan": {
+                    "wall_seconds": round(mmap_wall, 6),
+                    "thread_cpu_seconds": round(mmap_cpu, 6),
+                    "sha256_prefix": buffer_hash.hexdigest()[:12],
+                },
+            }
+            ipc_path.unlink(missing_ok=True)
+        return {
+            "scenario": scenario,
+            "repository_id": repository_id,
+            "commit_id": commit_id,
+            "catalog": {
+                "wall_seconds": round(catalog_wall, 6),
+                "thread_cpu_seconds": round(catalog_cpu, 6),
+                "response_bytes": len(catalog_response.content),
+                "table_count": len(catalog.catalog.tables),
+                "row_count_total": total_rows,
+            },
+            "total_arrow_response_bytes": total_arrow_bytes,
+            "tables": tables,
+            "arrow_ipc_roundtrip_largest_table": ipc_roundtrip,
+        }
+    finally:
+        repository_client.close()
+
+
+def _mib_per_second(size_bytes: int, seconds: float) -> float | None:
+    if seconds <= 0:
+        return None
+    return round(size_bytes / (1024 * 1024) / seconds, 3)
+
+
+def _write_private_dc32_json(path: Path, value: Mapping[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    temporary = path.with_name(path.name + ".tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    temporary.chmod(0o600)
+    temporary.replace(path)
+    path.chmod(0o600)
+
+
 def _assert_initial_repository_commit_empty(
     *,
     base_url: str,
@@ -1907,6 +2421,7 @@ def _history_compare(
     idempotency_key: str,
     operation_timeout_seconds: int,
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
+    collect_timing: bool = False,
 ) -> tuple[dict[str, Any], str]:
     stage = f"{tier} History"
     _emit_progress(stage, "history_compare_started")
@@ -1922,7 +2437,9 @@ def _history_compare(
     )
     accepted = _require_one_of(response, {200, 202}, "History compare acceptance")
     operation_id = str(accepted["operation_id"])
-    operation_started = time.monotonic()
+    accepted_monotonic = time.monotonic()
+    operation_started = accepted_monotonic
+    timing: dict[str, Any] = {"operation_id": operation_id}
     _emit_progress(stage, "operation_started", timeout_seconds=operation_timeout_seconds)
     deadline = time.monotonic() + operation_timeout_seconds
     terminal: dict[str, Any] | None = None
@@ -1952,6 +2469,11 @@ def _history_compare(
         timeout_seconds=operation_timeout_seconds,
         operation_wall_seconds=round(time.monotonic() - operation_started, 3),
     )
+    if collect_timing:
+        terminal_seconds = time.monotonic() - accepted_monotonic
+        timing["operation_terminal_seconds"] = round(terminal_seconds, 3)
+        timing["user_visible_seconds"] = round(terminal_seconds, 3)
+        timing["visibility_observation"] = "terminal_history_result"
     result = terminal.get("result")
     if not isinstance(result, dict) or not isinstance(result.get("pairs"), list) or len(result["pairs"]) != 1:
         raise JourneyFailure("History compare result has an unexpected pair count")
@@ -1971,12 +2493,16 @@ def _history_compare(
     if not isinstance(bundle.get("closure_entries"), list):
         raise JourneyFailure("History compare bundle does not have closure entries")
     _emit_progress(stage, "history_compare_succeeded")
-    return {
+    result_value: dict[str, Any] = {
         "operation_id": operation_id,
         "pair": pair,
         "bundle": bundle,
         "bundle_digest": result.get("bundle_digest"),
-    }, operation_id
+    }
+    if collect_timing:
+        timing["completion_seconds"] = round(time.monotonic() - accepted_monotonic, 3)
+        result_value["operation_timing"] = timing
+    return result_value, operation_id
 
 
 def _keyless_fallback_candidates(census: Mapping[str, Any]) -> tuple[str, ...]:
@@ -2037,7 +2563,79 @@ def _run_tier(
     offline_composite: Mapping[str, Any],
     heartbeat_monitor: WorkerHeartbeatMonitor | None = None,
     scope: str = "full",
+    dc32_metrics: list[dict[str, Any]] | None = None,
+    dc32_scratch_root: Path | None = None,
+    dc32_session_root: Path | None = None,
+    debug_t1_submit_probe: bool = False,
+    debug_submit_probe_root: Path | None = None,
+    debug_submit_probe_metrics: list[dict[str, Any]] | None = None,
+    collect_timing: bool = False,
 ) -> dict[str, Any]:
+    def record_operation_timing(operation: str, value: Mapping[str, Any]) -> None:
+        timing = value.get("operation_timing")
+        if dc32_metrics is not None and isinstance(timing, Mapping):
+            dc32_metrics.append(
+                {
+                    "kind": "operation_timing",
+                    "tier": tier,
+                    "operation": operation,
+                    "timing": dict(timing),
+                }
+            )
+
+    def capture_submit_reconciliation(submission: Mapping[str, Any], *, version: str) -> None:
+        capture_t4_evidence = tier == "t4" and dc32_metrics is not None
+        capture_t1_debug = tier == "t1" and debug_t1_submit_probe
+        if not capture_t4_evidence and not capture_t1_debug:
+            return
+        operation_timing = submission.get("operation_timing")
+        operation_id = (
+            operation_timing.get("operation_id")
+            if isinstance(operation_timing, Mapping)
+            else None
+        )
+        if type(operation_id) is not str:
+            raise JourneyFailure(f"{tier} {version} Submit evidence identity is unavailable")
+        if capture_t4_evidence:
+            if dc32_session_root is None or dc32_metrics is None:
+                raise JourneyFailure("t4 Submit evidence output root is unavailable")
+            evidence_root = dc32_session_root / f"t4-{version}-submit"
+        else:
+            if debug_submit_probe_root is None or debug_submit_probe_metrics is None:
+                raise JourneyFailure("t1 debug Submit probe output root is unavailable")
+            evidence_root = debug_submit_probe_root / f"t1-{version}-submit"
+        facts = _capture_submit_reconciliation_facts(
+            env=env,
+            repository_url=repository_url,
+            repository_id=repository_id,
+            operation_id=operation_id,
+            root=evidence_root,
+            enforce_three_session_limit=capture_t4_evidence,
+        )
+        if capture_t4_evidence:
+            cast(list[dict[str, Any]], dc32_metrics).append(
+                {
+                    "kind": "submit_reconciliation",
+                    "tier": tier,
+                    "version": version,
+                    "facts": facts,
+                }
+            )
+        else:
+            cast(list[dict[str, Any]], debug_submit_probe_metrics).append(
+                {
+                    "kind": "submit_reconciliation",
+                    "tier": tier,
+                    "version": version,
+                    "facts": facts,
+                }
+            )
+            _emit_progress(
+                f"{tier} {version} Submit reconciliation probe",
+                "facts_verified",
+                **facts,
+            )
+
     started = time.monotonic()
     v1_bytes, v1_file = _dataset_package(root, datasets[v1_id])
     v2_bytes, v2_file = _dataset_package(root, datasets[v2_id])
@@ -2072,6 +2670,22 @@ def _run_tier(
         "empty_initial_verified",
         **initial_repository,
     )
+    if tier == "t4" and dc32_metrics is not None and dc32_scratch_root is not None:
+        empty_baseline_read = _measure_repository_commit_rows(
+            base_url=repository_url,
+            repository_id=repository_id,
+            commit_id=initial_commit_id,
+            scenario="t4_v1_preview_empty_baseline",
+            scratch_root=dc32_scratch_root,
+        )
+        dc32_metrics.append(
+            {
+                "kind": "repository_baseline_read",
+                "tier": tier,
+                "used_by_scenarios": ["t4_v1_preview"],
+                "measurement": empty_baseline_read,
+            }
+        )
     runner = JourneyStepRunner(
         tier=tier,
         env=env,
@@ -2107,6 +2721,7 @@ def _run_tier(
                 stage=f"{tier} v1 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-preview"),
                 heartbeat_monitor=heartbeat_monitor,
+                collect_timing=collect_timing,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -2136,6 +2751,7 @@ def _run_tier(
             runner.run("v1-preview", v1_preview_action),
         )
         v1_preview = cast(dict[str, Any], v1_preview_state["preview"])
+        record_operation_timing("v1_preview", v1_preview)
         v1_summary = cast(dict[str, int], v1_preview_state["summary"])
         v1_identity = _assert_identity_pair(
             v1_preview,
@@ -2156,16 +2772,18 @@ def _run_tier(
                 stage=f"{tier} v1 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v1-submit"),
                 heartbeat_monitor=heartbeat_monitor,
+                collect_timing=collect_timing,
             ),
         )
         v1_submission = cast(dict[str, Any], v1_submission)
+        record_operation_timing("v1_submit", v1_submission)
+        capture_submit_reconciliation(v1_submission, version="v1")
         v1_submission_id = str(v1_submission["submission_id"])
         v1_commit_id = str(v1_submission["repository_commit_id"])
         v1_canonical_state_digest = _canonical_state_digest_from_submission(
             v1_submission,
             stage=f"{tier} v1 Submit",
         )
-
         if scope == "t4-v1-submit":
             return {
                 "tier": tier,
@@ -2210,6 +2828,25 @@ def _run_tier(
             dict[str, Any],
             runner.run("v1-repository-read", v1_repository_read_action),
         )
+        if dc32_metrics is not None and dc32_scratch_root is not None:
+            v1_commit_read = _measure_repository_commit_rows(
+                base_url=repository_url,
+                repository_id=repository_id,
+                commit_id=v1_commit_id,
+                scenario=f"{tier}_v1_commit_baseline",
+                scratch_root=dc32_scratch_root,
+            )
+            used_by_scenarios = [f"{tier}_v2_preview", f"{tier}_history"]
+            if tier == "t4":
+                used_by_scenarios.insert(0, "t4_repeat_v1_preview")
+            dc32_metrics.append(
+                {
+                    "kind": "repository_baseline_read",
+                    "tier": tier,
+                    "used_by_scenarios": used_by_scenarios,
+                    "measurement": v1_commit_read,
+                }
+            )
         def approve_v1_action() -> dict[str, bool]:
             _approve(client, v1_submission_id, f"{project_name}-{tier}-v1-review")
             return {"approved": True}
@@ -2249,6 +2886,7 @@ def _run_tier(
                     stage=f"{tier} v2 Preview",
                     operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
                     heartbeat_monitor=heartbeat_monitor,
+                    collect_timing=collect_timing,
                 )
                 summary = _assert_preview_summaries(manifest, unchanged=False)
                 expected_changed = S2B_DATASET_BASELINE[v2_id]["preview_changed"] + int(
@@ -2278,6 +2916,7 @@ def _run_tier(
                 dict[str, Any],
                 runner.run("v2-preview", v2_preview_partial_action),
             )
+            record_operation_timing("v2_preview", cast(Mapping[str, Any], v2_partial_state["preview"]))
             return {
                 "tier": tier,
                 "scope": scope,
@@ -2344,6 +2983,7 @@ def _run_tier(
                 stage=f"{tier} repeat v1 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-preview"),
                 heartbeat_monitor=heartbeat_monitor,
+                collect_timing=collect_timing,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -2375,6 +3015,7 @@ def _run_tier(
             runner.run("repeat-v1-preview", repeat_v1_preview_action),
         )
         repeat_preview = cast(dict[str, Any], repeat_preview_state["preview"])
+        record_operation_timing("repeat_v1_preview", repeat_preview)
         repeat_summary = cast(dict[str, int], repeat_preview_state["summary"])
         repeat_identity = _assert_identity_pair(
             repeat_preview,
@@ -2396,8 +3037,10 @@ def _run_tier(
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "repeat-v1-submit"),
                 expect_no_change=True,
                 heartbeat_monitor=heartbeat_monitor,
+                collect_timing=collect_timing,
             ),
         )
+        record_operation_timing("repeat_v1_submit", cast(Mapping[str, Any], repeat_submit))
 
         v2_workspace = runner.run("v2-workspace", lambda: _workspace(client))
         v2_upload = runner.run(
@@ -2421,6 +3064,7 @@ def _run_tier(
                 stage=f"{tier} v2 Preview",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-preview"),
                 heartbeat_monitor=heartbeat_monitor,
+                collect_timing=collect_timing,
             )
             summary = _assert_preview_summaries(
                 manifest,
@@ -2454,6 +3098,7 @@ def _run_tier(
             runner.run("v2-preview", v2_preview_action),
         )
         v2_preview = cast(dict[str, Any], v2_preview_state["preview"])
+        record_operation_timing("v2_preview", v2_preview)
         v2_summary = cast(dict[str, int], v2_preview_state["summary"])
         v2_identity = _assert_identity_pair(
             v2_preview,
@@ -2474,16 +3119,18 @@ def _run_tier(
                 stage=f"{tier} v2 Submit",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "v2-submit"),
                 heartbeat_monitor=heartbeat_monitor,
+                collect_timing=collect_timing,
             ),
         )
         v2_submission = cast(dict[str, Any], v2_submission)
+        record_operation_timing("v2_submit", v2_submission)
+        capture_submit_reconciliation(v2_submission, version="v2")
         v2_submission_id = str(v2_submission["submission_id"])
         v2_commit_id = str(v2_submission["repository_commit_id"])
         v2_canonical_state_digest = _canonical_state_digest_from_submission(
             v2_submission,
             stage=f"{tier} v2 Submit",
         )
-
         def v2_repository_read_action() -> dict[str, Any]:
             repository = _pseudo_counts_from_http(
                 base_url=repository_url,
@@ -2505,6 +3152,25 @@ def _run_tier(
             dict[str, Any],
             runner.run("v2-repository-read", v2_repository_read_action),
         )
+        if (
+            tier == "t4"
+            and dc32_metrics is not None
+            and dc32_scratch_root is not None
+        ):
+            v2_commit_read = _measure_repository_commit_rows(
+                base_url=repository_url,
+                repository_id=repository_id,
+                commit_id=v2_commit_id,
+                scenario="t4_history_v2_commit",
+                scratch_root=dc32_scratch_root,
+            )
+            dc32_metrics.append(
+                {
+                    "kind": "repository_history_read",
+                    "tier": tier,
+                    "measurement": v2_commit_read,
+                }
+            )
         def approve_v2_action() -> dict[str, bool]:
             _approve(client, v2_submission_id, f"{project_name}-{tier}-v2-review")
             return {"approved": True}
@@ -2522,6 +3188,7 @@ def _run_tier(
                 idempotency_key=f"{project_name}-{tier}-history-compare",
                 operation_timeout_seconds=_operation_timeout_seconds(tier, "history"),
                 heartbeat_monitor=heartbeat_monitor,
+                collect_timing=collect_timing,
             )
             _history_surface_ref(cast(Mapping[str, Any], result["bundle"]))
             return {"operation_id": operation_id, "result": result}
@@ -2530,6 +3197,7 @@ def _run_tier(
             dict[str, Any],
             runner.run("history", history_action),
         )
+    record_operation_timing("history", cast(Mapping[str, Any], history_state["result"]))
 
     history_result = cast(dict[str, Any], history_state["result"])
     history_pair = cast(dict[str, Any], history_result["pair"])
@@ -2959,6 +3627,8 @@ def run_journey(
     from_step: str | None = None,
     keep_stack: bool = False,
     requested_project_name: str | None = None,
+    dc32_output: Path | None = None,
+    debug_t1_submit_probe: bool = False,
 ) -> dict[str, Any]:
     root = _real_dump_root()
     datasets, census = _read_metadata(root)
@@ -2978,6 +3648,14 @@ def run_journey(
         raise JourneyFailure("--from-step requires --project-name")
     if requested_project_name is not None and not keep_stack:
         raise JourneyFailure("--project-name is only used with --keep-stack")
+    if dc32_output is not None and (
+        tier_filter is not None
+        or scope != "full"
+        or cross_project
+        or from_step is not None
+        or keep_stack
+    ):
+        raise JourneyFailure("--dc32-output requires the complete fresh same-project journey")
     if scope not in {"full", "t4-identity", "t4-v1-submit"}:
         raise JourneyFailure("requested real-data scope is unknown")
     if scope == "t4-identity" and (tier_filter != "t4" or cross_project):
@@ -2986,11 +3664,54 @@ def run_journey(
         raise JourneyFailure("--scope t4-v1-submit requires a fresh t4 journey")
     if cross_project and (tier_filter is not None or keep_stack or from_step is not None):
         raise JourneyFailure("--cross-project cannot be combined with tier or debug controls")
+    if debug_t1_submit_probe and (
+        tier_filter != "t1"
+        or scope != "full"
+        or cross_project
+        or from_step is not None
+        or keep_stack
+        or dc32_output is not None
+    ):
+        raise JourneyFailure("--debug-submit-probe-t1 requires a fresh full --tier t1 journey")
     if requested_project_name is None:
         project_name = f"s2b-realdata-{os.getpid()}-{uuid.uuid4().hex[:8]}"
     else:
         project_name = requested_project_name
     _validate_project_name(project_name)
+
+    dc32_output_path: Path | None = None
+    dc32_metrics: list[dict[str, Any]] | None = None
+    dc32_scratch_root: Path | None = None
+    dc32_session_root: Path | None = None
+    debug_submit_probe_root: Path | None = None
+    debug_submit_probe_metrics: list[dict[str, Any]] | None = None
+    debug_submit_probe_output: Path | None = None
+    if dc32_output is not None:
+        real_dump_runs = (root / "runs").resolve()
+        dc32_output_path = dc32_output.resolve()
+        if not dc32_output_path.is_relative_to(real_dump_runs):
+            raise JourneyFailure("DC32 output must be stored under GATEWAY_REAL_DUMP_ROOT/runs")
+        real_dump_runs.mkdir(mode=0o700, parents=True, exist_ok=True)
+        real_dump_runs.chmod(0o700)
+        dc32_metrics = []
+        scratch_parent = Path(os.environ.get("TMPDIR", tempfile.gettempdir())).resolve()
+        scratch_parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        dc32_scratch_root = Path(
+            tempfile.mkdtemp(prefix=f"{project_name}-dc32-", dir=scratch_parent)
+        )
+        dc32_scratch_root.chmod(0o700)
+        dc32_session_root = real_dump_runs / f"{project_name}-submit-facts"
+        dc32_session_root.mkdir(mode=0o700, exist_ok=False)
+        dc32_session_root.chmod(0o700)
+    if debug_t1_submit_probe:
+        real_dump_runs = (root / "runs").resolve()
+        real_dump_runs.mkdir(mode=0o700, parents=True, exist_ok=True)
+        real_dump_runs.chmod(0o700)
+        debug_submit_probe_root = real_dump_runs / f"{project_name}-debug-submit-probe"
+        debug_submit_probe_root.mkdir(mode=0o700, exist_ok=False)
+        debug_submit_probe_root.chmod(0o700)
+        debug_submit_probe_metrics = []
+        debug_submit_probe_output = debug_submit_probe_root / "t1-submit-probe.json"
 
     selected_tiers = (
         [("t1", EXPECTED_PAIRINGS["rd-t1-a"])]
@@ -3132,6 +3853,15 @@ def run_journey(
                                         offline_composite=offline_composite,
                                         heartbeat_monitor=heartbeat_monitor,
                                         scope=scope,
+                                        dc32_metrics=dc32_metrics,
+                                        dc32_scratch_root=dc32_scratch_root,
+                                        dc32_session_root=dc32_session_root,
+                                        debug_t1_submit_probe=debug_t1_submit_probe,
+                                        debug_submit_probe_root=debug_submit_probe_root,
+                                        debug_submit_probe_metrics=debug_submit_probe_metrics,
+                                        collect_timing=(
+                                            dc32_output_path is not None or debug_t1_submit_probe
+                                        ),
                                     )
                                 )
                     except BaseException as error:
@@ -3142,6 +3872,31 @@ def run_journey(
                                 tier,
                                 "compose_logs_save_failed",
                                 diagnostic=type(log_error).__name__,
+                            )
+                        if dc32_output_path is not None and dc32_metrics is not None:
+                            _write_private_dc32_json(
+                                dc32_output_path,
+                                {
+                                    "schema_version": "s5-dc32-real-journey/v1",
+                                    "head": current_head,
+                                    "status": "FAILED",
+                                    "failure_type": type(error).__name__,
+                                    "measurements": dc32_metrics,
+                                },
+                            )
+                        if (
+                            debug_submit_probe_output is not None
+                            and debug_submit_probe_metrics is not None
+                        ):
+                            _write_private_dc32_json(
+                                debug_submit_probe_output,
+                                {
+                                    "schema_version": "s5-debug-submit-probe-t1/v1",
+                                    "head": current_head,
+                                    "status": "FAILED",
+                                    "failure_type": type(error).__name__,
+                                    "measurements": debug_submit_probe_metrics,
+                                },
                             )
                         if isinstance(error, WorkerStalledFailure):
                             cleanup_compose_project_artifacts(env)
@@ -3158,8 +3913,10 @@ def run_journey(
             os.environ.pop("GATEWAY_COMPOSE_GATE_PREBUILT", None)
         else:
             os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = original_prebuilt
+        if dc32_scratch_root is not None:
+            shutil.rmtree(dc32_scratch_root, ignore_errors=True)
 
-    return {
+    journey_result: dict[str, Any] = {
         "head": current_head,
         "datasets": results,
         "stack_start_seconds": stack_start_seconds,
@@ -3167,6 +3924,34 @@ def run_journey(
         "debug_state_files": state_paths if keep_stack else [],
         "conclusion": "PASS",
     }
+    if dc32_output_path is not None and dc32_metrics is not None:
+        _write_private_dc32_json(
+            dc32_output_path,
+            {
+                "schema_version": "s5-dc32-real-journey/v1",
+                "head": current_head,
+                "status": "PASS",
+                "measurement_count": len(dc32_metrics),
+                "measurements": dc32_metrics,
+            },
+        )
+    if debug_submit_probe_output is not None and debug_submit_probe_metrics is not None:
+        _write_private_dc32_json(
+            debug_submit_probe_output,
+            {
+                "schema_version": "s5-debug-submit-probe-t1/v1",
+                "head": current_head,
+                "status": "PASS",
+                "measurement_count": len(debug_submit_probe_metrics),
+                "measurements": debug_submit_probe_metrics,
+            },
+        )
+        journey_result["debug_submit_probe"] = {
+            "status": "PASS",
+            "measurements": debug_submit_probe_metrics,
+            "output": str(debug_submit_probe_output),
+        }
+    return journey_result
 
 
 def validate_inputs() -> dict[str, Any]:
@@ -3213,6 +3998,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--from-step", choices=JOURNEY_STEP_IDS)
     parser.add_argument("--keep-stack", action="store_true")
     parser.add_argument("--project-name")
+    parser.add_argument(
+        "--dc32-output",
+        type=Path,
+        help="write private S5/DC32 timing and Repository Arrow-read detail under runs/",
+    )
+    parser.add_argument(
+        "--debug-submit-probe-t1",
+        action="store_true",
+        help="also capture v1/v2 Submit reconciliation facts during a fresh t1 debug journey",
+    )
     arguments = parser.parse_args(argv)
     try:
         if arguments.validate_inputs and any(
@@ -3223,6 +4018,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 arguments.from_step is not None,
                 arguments.keep_stack,
                 arguments.project_name is not None,
+                arguments.dc32_output is not None,
+                arguments.debug_submit_probe_t1,
             )
         ):
             raise JourneyFailure("--validate-inputs cannot be combined with journey controls")
@@ -3236,6 +4033,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from_step=arguments.from_step,
                 keep_stack=arguments.keep_stack,
                 requested_project_name=arguments.project_name,
+                dc32_output=arguments.dc32_output,
+                debug_t1_submit_probe=arguments.debug_submit_probe_t1,
             )
         )
         print(json.dumps(result, sort_keys=True))

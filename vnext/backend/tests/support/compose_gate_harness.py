@@ -18,6 +18,7 @@ from typing import Any, TextIO, cast
 import httpx
 import pytest
 
+from tests.support.container_input_files import write_container_readable_text
 from tests.support.history_zero_write_tables import HISTORY_ZERO_WRITE_TABLES
 from tests.support.source_package_fixtures import pack_tar_gz
 from tests.support.upload_http_packages import _SQL, upload_files
@@ -1156,7 +1157,8 @@ def seed_repository_and_mapping(env: dict[str, str]) -> tuple[str, str]:
         commit_id=baseline_commit_id,
     )
     mapping_path = Path(env["GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE"])
-    mapping_path.write_text(
+    write_container_readable_text(
+        mapping_path,
         json.dumps(
             {
                 "mappings": [

@@ -23,15 +23,17 @@ from tests.support.compose_gate_harness import (
     require_docker,
     run_compose,
 )
+from tests.support.container_input_files import write_container_readable_text
 
 pytestmark = [pytest.mark.integration, pytest.mark.serial]
 
 
 def _compose_env(tmp_path: Path) -> dict[str, str]:
     bearer = tmp_path / "repository-bearer-token"
-    bearer.write_text("container-gate-bearer\n", encoding="utf-8")
+    write_container_readable_text(bearer, "container-gate-bearer\n", encoding="utf-8")
     session = tmp_path / "session.json"
-    session.write_text(
+    write_container_readable_text(
+        session,
         json.dumps(
             {
                 "sessions": [
@@ -48,9 +50,10 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     internal_bearer = tmp_path / "internal-bearer-token"
-    internal_bearer.write_text("container-gate-internal\n", encoding="utf-8")
+    write_container_readable_text(internal_bearer, "container-gate-internal\n", encoding="utf-8")
     mapping = tmp_path / "provisioned-mapping.json"
-    mapping.write_text(
+    write_container_readable_text(
+        mapping,
         json.dumps(
             {
                 "mappings": [

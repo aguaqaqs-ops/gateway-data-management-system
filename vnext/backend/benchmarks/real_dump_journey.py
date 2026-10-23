@@ -65,6 +65,7 @@ from tests.support.compose_gate_harness import (
     wait_repository_service_ready,
     worker_ready,
 )
+from tests.support.container_input_files import write_container_readable_text
 
 REPOSITORY_SERVICE_IMAGE = os.environ.get(
     "GATEWAY_REPOSITORY_SERVICE_IMAGE", "gateway-repository-service:local"
@@ -1113,9 +1114,10 @@ def _ordered_table_row_counts(census: Mapping[str, Any]) -> dict[str, int]:
 def _write_compose_secrets(root: Path) -> dict[str, str]:
     root.mkdir(parents=True, exist_ok=True)
     bearer = root / "repository-bearer-token"
-    bearer.write_text(f"{BEARER_TOKEN}\n", encoding="utf-8")
+    write_container_readable_text(bearer, f"{BEARER_TOKEN}\n", encoding="utf-8")
     session_file = root / "session.json"
-    session_file.write_text(
+    write_container_readable_text(
+        session_file,
         json.dumps(
             {
                 "sessions": [
@@ -1155,9 +1157,14 @@ def _write_compose_secrets(root: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     internal_bearer = root / "internal-bearer-token"
-    internal_bearer.write_text("s2b-realdata-internal-bearer\n", encoding="utf-8")
+    write_container_readable_text(
+        internal_bearer,
+        "s2b-realdata-internal-bearer\n",
+        encoding="utf-8",
+    )
     mapping = root / "provisioned-mapping.json"
-    mapping.write_text(
+    write_container_readable_text(
+        mapping,
         json.dumps(
             {
                 "mappings": [

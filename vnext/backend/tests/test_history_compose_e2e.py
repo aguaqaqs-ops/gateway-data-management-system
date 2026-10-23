@@ -42,6 +42,7 @@ from tests.support.compose_gate_harness import (
     start_three_container_stack,
     wait_http_ok,
 )
+from tests.support.container_input_files import write_container_readable_text
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     catalog_table,
@@ -64,9 +65,10 @@ _LOGGER = logging.getLogger(__name__)
 
 def _compose_env(tmp_path: Path) -> dict[str, str]:
     bearer = tmp_path / "repository-bearer-token"
-    bearer.write_text(f"{BEARER_TOKEN}\n", encoding="utf-8")
+    write_container_readable_text(bearer, f"{BEARER_TOKEN}\n", encoding="utf-8")
     session = tmp_path / "session.json"
-    session.write_text(
+    write_container_readable_text(
+        session,
         json.dumps(
             {
                 "sessions": [
@@ -144,9 +146,10 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     internal_bearer = tmp_path / "internal-bearer-token"
-    internal_bearer.write_text("compose-internal-bearer\n", encoding="utf-8")
+    write_container_readable_text(internal_bearer, "compose-internal-bearer\n", encoding="utf-8")
     mapping = tmp_path / "provisioned-mapping.json"
-    mapping.write_text(
+    write_container_readable_text(
+        mapping,
         json.dumps(
             {
                 "mappings": [

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+printf '==> umask=%s\n' "$(umask)"
+
 # Authoritative test entrypoint for the vNext Python packages.
 #
 # backend and repository_service run in two passes: the bulk of each suite in
@@ -12,20 +14,26 @@ VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${VNEXT_ROOT}/scripts/lib/gateway-index-env.sh"
 UV_CONSUME="${GATEWAY_UV_CONSUME:-${VNEXT_ROOT}/scripts/uv-consume.sh}"
 TEST_WORKERS="${GATEWAY_TEST_WORKERS:-auto}"
-if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
-    echo "error: GATEWAY_TEST_WORKERS must be auto or a non-negative integer" >&2
+
+RUNNER_TMPDIR="${TMPDIR:-/tmp}"
+if [[ "${RUNNER_TMPDIR}" != /* ]]; then
+    echo "error: TMPDIR must be an absolute path for the authoritative runner" >&2
     exit 2
 fi
+if [[ ! -d "${RUNNER_TMPDIR}" ]]; then
+    echo "error: TMPDIR must name an existing directory: ${RUNNER_TMPDIR}" >&2
+    exit 2
+fi
+RUNNER_TMPDIR="$(cd "${RUNNER_TMPDIR}" && pwd -P)"
+REPO_ROOT="$(cd "${VNEXT_ROOT}/.." && pwd -P)"
+if [[ "${RUNNER_TMPDIR}" == "${REPO_ROOT}" || "${RUNNER_TMPDIR}" == "${REPO_ROOT}/"* ]]; then
+    echo "error: TMPDIR must be outside the worktree: ${RUNNER_TMPDIR}" >&2
+    exit 2
+fi
+RUNNER_HYPOTHESIS_ROOT="${RUNNER_TMPDIR%/}/gateway-runner-hypothesis"
+echo "==> Hypothesis storage root=${RUNNER_HYPOTHESIS_ROOT} (effective TMPDIR=${RUNNER_TMPDIR})"
 
 PYTEST_TMP_ARGS=()
-if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
-    if [[ "${GATEWAY_TEST_BASETEMP}" != /* ]]; then
-        echo "error: GATEWAY_TEST_BASETEMP must be an absolute path" >&2
-        exit 2
-    fi
-    mkdir -p "${GATEWAY_TEST_BASETEMP}"
-    PYTEST_TMP_ARGS+=(--basetemp "${GATEWAY_TEST_BASETEMP}")
-fi
 
 FAST_PACKAGES=(
     shared_kernel
@@ -95,8 +103,68 @@ REPOSITORY_SERVICE_COMPOSE_TEST_FILES=(
     tests/test_versioned_read_compose_e2e.py
 )
 
+runner_hypothesis_storage_path() {
+    printf '%s/%s\n' "${RUNNER_HYPOTHESIS_ROOT}" "$1"
+}
+
+LOCK_SNAPSHOT=""
+cleanup_runner_state() {
+    local exit_status=$?
+    local cleanup_failed=0
+    trap - EXIT
+    trap '' HUP INT TERM
+    for package in "${SELECTED_PACKAGES[@]}"; do
+        local storage_path
+        storage_path="$(runner_hypothesis_storage_path "${package}")"
+        if [[ -e "${storage_path}" || -L "${storage_path}" ]]; then
+            echo "==> cleanup Hypothesis storage package=${package} path=${storage_path}"
+            if ! rm -rf -- "${storage_path}"; then
+                echo "error: could not remove Hypothesis storage: ${storage_path}" >&2
+                cleanup_failed=1
+            fi
+        else
+            printf '==> cleanup Hypothesis storage package=%s path=%s status=already_absent\n' \
+                "${package}" "${storage_path}"
+        fi
+    done
+    if [[ -n "${LOCK_SNAPSHOT}" ]] && ! rm -f "${LOCK_SNAPSHOT}"; then
+        echo "error: could not remove lock snapshot: ${LOCK_SNAPSHOT}" >&2
+        cleanup_failed=1
+    fi
+    if [[ "${exit_status}" -eq 0 && "${cleanup_failed}" -ne 0 ]]; then
+        exit_status=1
+    fi
+    exit "${exit_status}"
+}
+trap cleanup_runner_state EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+for package in "${SELECTED_PACKAGES[@]}"; do
+    storage_path="$(runner_hypothesis_storage_path "${package}")"
+    if [[ -e "${storage_path}" || -L "${storage_path}" ]]; then
+        echo "==> remove stale Hypothesis storage package=${package} path=${storage_path}"
+        rm -rf -- "${storage_path}"
+    else
+        echo "==> Hypothesis storage package=${package} path=${storage_path} status=already_absent"
+    fi
+done
+
+if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
+    echo "error: GATEWAY_TEST_WORKERS must be auto or a non-negative integer" >&2
+    exit 2
+fi
+if [[ -n "${GATEWAY_TEST_BASETEMP:-}" ]]; then
+    if [[ "${GATEWAY_TEST_BASETEMP}" != /* ]]; then
+        echo "error: GATEWAY_TEST_BASETEMP must be an absolute path" >&2
+        exit 2
+    fi
+    mkdir -p "${GATEWAY_TEST_BASETEMP}"
+    PYTEST_TMP_ARGS+=(--basetemp "${GATEWAY_TEST_BASETEMP}")
+fi
+
 LOCK_SNAPSHOT="$(mktemp)"
-trap 'rm -f "${LOCK_SNAPSHOT}"' EXIT
 gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${LOCK_SNAPSHOT}"
 
 export GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1
@@ -123,8 +191,14 @@ done
 
 INPUT_CLOSURE_SCRIPT="${VNEXT_ROOT}/scripts/test_input_closure.py"
 for package in "${SELECTED_PACKAGES[@]}"; do
-    echo "==> test input manifest package=${package}"
-    if ! python3 -I "${INPUT_CLOSURE_SCRIPT}" manifest --package "${package}"; then
+    storage_path="$(runner_hypothesis_storage_path "${package}")"
+    if [[ -e "${storage_path}" || -L "${storage_path}" ]]; then
+        echo "error: Hypothesis storage must be absent before manifest: ${storage_path}" >&2
+        exit 1
+    fi
+    echo "==> test input manifest package=${package} hypothesis_storage=${storage_path}"
+    if ! HYPOTHESIS_STORAGE_DIRECTORY="${storage_path}" \
+        python3 -I "${INPUT_CLOSURE_SCRIPT}" manifest --package "${package}"; then
         for failed_package in "${SELECTED_PACKAGES[@]}"; do
             PACKAGE_STATUS["${failed_package}"]=failed
             echo "==> ${failed_package} status=${PACKAGE_STATUS[${failed_package}]}"
@@ -134,7 +208,11 @@ for package in "${SELECTED_PACKAGES[@]}"; do
 done
 
 run_locked_pytest() {
-    "${UV_CONSUME}" -C . run pytest "${PYTEST_TMP_ARGS[@]}" "$@"
+    local package="${PWD##*/}"
+    local storage_path
+    storage_path="$(runner_hypothesis_storage_path "${package}")"
+    HYPOTHESIS_STORAGE_DIRECTORY="${storage_path}" \
+        "${UV_CONSUME}" -C . run pytest -p no:cacheprovider "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
 test_exit=0

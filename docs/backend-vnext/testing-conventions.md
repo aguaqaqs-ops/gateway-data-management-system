@@ -17,7 +17,7 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 
 所有测试、容器门禁与取证都在专用 LXC `ct108-gw-dms` 执行；开始前用
 `ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 检查连接，不回退到开发主机。SSH 会话以 root 登录时，
-设置磁盘上的 `TMPDIR=/home/dev/gdds-p5-closure-s1-gate-logs/g12-default-tmp`，避免复用其他用户拥有的
+设置磁盘上的 `TMPDIR=/home/dev/gdds-test-tmp`，避免复用其他用户拥有的
 `/tmp/pytest-of-root`；不需要 pytest tmpfs 时保持 `GATEWAY_TEST_BASETEMP` 未设置，以保留默认批次与 Compose 路径。
 
 权威 runner 将 backend 与 `repository_service` 分成并行主体和 serial 两遍：
@@ -46,11 +46,21 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 原有包顺序、backend 与 `repository_service` 的两遍拆分、`GATEWAY_TEST_BASETEMP` 下的 Compose 文件
 处理和五锁检查不变。S5 最终门禁与发布门禁不允许缩小范围，必须运行全部包。
 
+权威 runner 为每个选中包无条件设置 `HYPOTHESIS_STORAGE_DIRECTORY` 为
+`<TMPDIR>/gateway-runner-hypothesis/<包名>`；路径不含随机部分。`TMPDIR` 未设置或为空时固定使用 `/tmp`，
+有效目录必须是 worktree 外已存在的绝对路径。runner 在 manifest 前删除选中包的残留目录，并在退出时（包括失败与
+可捕获的中断）清理这些包专属目录；不会删除 worktree 的 `.hypothesis` 或 TMPDIR 下的其他内容。同一包的
+所有 pytest 调用共用一个目录，包括 backend 与 `repository_service` 的并行、串行两遍。worktree 内的
+`.hypothesis` 只用于开发者直接运行 focused 测试，不是权威 runner 的输入。
+
+权威 runner 不跨运行保留 Hypothesis 失败样例，这是隔离目录带来的代价。失败时依据 Hypothesis 输出的反例分析；
+runner exit 非 0 时先停止并处理失败，不继续做 carried 或后续验收。
+
 runner 开始时为每个待运行包写出一份 JSON 闭包 manifest，可单独运行
 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>` 查看；dirty worktree 会被拒绝。
 Git 组成部分使用当前提交对应路径的 tree/blob object id，`legacy/` 使用排序后的相对路径与文件内容摘要，
 环境部分记录每包 Python `-VV`、Dolt、uv、rustc 版本；每包还对有效 Hypothesis storage directory
-（`HYPOTHESIS_STORAGE_DIRECTORY` 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的内容和权限做摘要，涵盖可能参与输入生成或被测试工具读取的缓存。Hypothesis Unicode JSON gzip cache 以解压 payload 摘要，避免把 header 中的临时文件名当作测试输入。backend 与 `repository_service` 还记录 Docker/
+（`HYPOTHESIS_STORAGE_DIRECTORY` 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的路径、内容和权限做摘要，涵盖可能参与输入生成或被测试工具读取的缓存。摘要规则不变；权威 runner 会把有效 storage path 指向 worktree 外的固定包专属目录，并在 manifest 前后清理。backend 与 `repository_service` 还记录 Docker/
 Compose 工具与 daemon 身份、有效 build 环境变量指纹、基础/服务/dependency-base 镜像 tag 和本机 image ID；
 backend 的 prebuilt Compose 选项启用时，manifest 还摘要本机镜像清单。proxy/cache URL 等可能含凭据的值只记录 SHA-256，
 不将原值写入 manifest。每包闭包包括自身与传递路径依赖、fixtures、全部五个 lockfile、
@@ -68,6 +78,9 @@ tracked 文件的 executable bit，普通权限模式由闭包单独摘要 `vnex
 
 来源 V 必须满足：该包在该次权威 runner 中实际运行并通过；worktree clean；日志记录起止 HEAD；整次
 runner exit 0。只运行部分包的权威 runner 也可作为来源。当前 V 上闭包有变化的包都必须实际运行并通过。
+carried 计算必须为每个包设置与来源 V runner 相同的 `HYPOTHESIS_STORAGE_DIRECTORY`
+（`<TMPDIR>/gateway-runner-hypothesis/<包名>`；TMPDIR 未设置或为空时为 `/tmp`）；该目录须不存在，若有残留会使
+`hypothesis-storage` 组件变化并要求运行。worktree 内 `.hypothesis` 仅用于开发者 focused 测试。
 handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志。链式沿用必须直接引用最初实际运行该包的 V，
 不得把一次沿用结果当作新来源。manifest 比较只证明闭包相等；它不替代来源 runner 的 clean、包通过、
 整体 exit 0 与 HEAD 日志要求。
@@ -244,9 +257,10 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
      模式、Docker会发送的非Git内容）、Compose与Dockerfile、有效build设置、所选base镜像ID以及
      Docker/Compose工具与daemon身份。专用测试节点`ct108-gw-dms`使用containerd image store，同一棵树
      连续两次全缓存构建的image ID也不相同（G12终审实测），因此不再比较image ID（owner决议DC34）。
-     构建上下文带入worktree的本地状态（文件权限位由umask决定、git不记录；被忽略的残留目录）会改变
-     manifest，换worktree计算通常得到不同结果（治理修订计划G6b），不得用另一个worktree的结果判定
-     “等价”或“不等价”。
+     构建上下文带入worktree的本地状态（tracked 路径及祖先目录的本机权限位、Docker context 中仍会发送的非 Git 文件和目录）会改变
+     manifest；包闭包还摘要有效 `.hypothesis` 与 `.pytest_cache` 的路径、内容和权限。Git 不会规范化这些状态，
+     换 worktree 可能得到不同摘要，因此 G13 复核后保留“同一 worktree”限制（治理修订计划 G6b）；不得用另一个
+     worktree 的结果判定“等价”或“不等价”。
 
 任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
 评审逐项复核；复核不通过时不得以`carried`关闭finding。
@@ -254,7 +268,9 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
 按包沿用与镜像身份等价分别判定：包沿用决定当前V要运行哪些包，镜像身份等价决定V..H能否
 `carried`。包 manifest 还摘要该包实际使用的 uv 环境目录内容；由锁定源码与对应 Python
 解释器派生的 `__pycache__`、`.pyc`、`.pyo` 不计入 uv 环境摘要。有效 Hypothesis storage directory 与包内
-`.pytest_cache` 的内容、路径与权限纳入包闭包，缓存内容变化会要求重新运行；gzip JSON cache 按解压后的 payload 计算摘要。backend闭包包括Compose使用的完整`vnext/`
+`.pytest_cache` 的内容、路径与权限纳入包闭包，缓存内容变化会要求重新运行；权威 runner 将 Hypothesis 存储隔离到
+TMPDIR 下的固定包专属路径并在运行前后清理，carried 使用与来源 V 相同的 `HYPOTHESIS_STORAGE_DIRECTORY`，
+且确认目录不存在。backend闭包包括Compose使用的完整`vnext/`
 Docker build context、Compose与相关Dockerfile、Rust workspace，以及运行时本机Docker base image ids；因此backend包从合格来源V
 沿用时，该次权威runner中的backend Compose旅程也一并沿用。V..H仍须单独满足镜像身份等价，阶段退出
 才能把容器门禁绑定到最终HEAD。RS闭包同样包含其`vnext/`构建上下文、repository-service和

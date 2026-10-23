@@ -126,6 +126,8 @@ EXPECTED_PUBLIC_EXPORTS = frozenset(
         "BusinessReference",
         "JobStepKey",
         "OperationDiagnostic",
+        "OperationDiagnosticDetail",
+        "OperationDiagnosticSide",
         "OperationRecord",
         "OperationStatus",
         "StepRecord",

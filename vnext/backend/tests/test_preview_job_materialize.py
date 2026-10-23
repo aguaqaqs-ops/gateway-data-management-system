@@ -52,7 +52,7 @@ from gateway_backend.domain.workspace.models import (
 )
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.http.mappers import operation_to_response
-from gateway_backend.operations import OperationStatus, StepStatus
+from gateway_backend.operations import OperationStatus, RecordNotFound, StepStatus
 from gateway_backend.operations.worker import ExecutorAcknowledgment
 from tests.support.preview_job_harness import (
     BASELINE_HEAD,
@@ -404,9 +404,8 @@ def test_projection_failures_publish_complete_bounded_operation_details(
         materialize_step = unit_of_work.operations.get_step(
             step_id_for(operation_id, "materialize_inputs")
         )
-        assemble_step = unit_of_work.operations.get_step(
-            step_id_for(operation_id, PREVIEW_STEP_ASSEMBLE)
-        )
+        with pytest.raises(RecordNotFound):
+            unit_of_work.operations.get_step(step_id_for(operation_id, PREVIEW_STEP_ASSEMBLE))
         workspace = unit_of_work.workspace.get_workspace(WORKSPACE_ID)
 
     assert acknowledgment is ExecutorAcknowledgment.PUBLISHED
@@ -441,9 +440,9 @@ def test_projection_failures_publish_complete_bounded_operation_details(
     assert response_diagnostic.omitted_count == persisted.diagnostic.omitted_count
 
     assert persisted.ready_closure_ref is None
+    assert persisted.repository_operation_id is None
     assert materialize_step.status is StepStatus.FAILED
     assert materialize_step.checkpoint_ref is None
-    assert assemble_step.status is StepStatus.PENDING
     assert workspace is not None
     assert workspace.current_preview_result_id is None
     assert harness.baseline_provider.open_count == 1
@@ -574,7 +573,7 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
     session, control, operation, step = claim_next_step(harness)
     run_claimed_handler(
         harness,
-        PREVIEW_ASSEMBLE_HANDLER,
+        preview_jobs.PREVIEW_ASSEMBLE_HANDLER,
         session,
         control,
         operation,

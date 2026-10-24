@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r2，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）。
+- 状态：**讨论稿 r4，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -325,6 +325,63 @@ Dolt 始终是权威来源，规范表存储和各类缓存都是派生数据：
 - **Contract 影响：** 修订 Canonical Storage 中内容摘要与行编码的定义，storage projection version 提升，golden 重建。按 DC6，直接改到目标形态。
 - **顺序（r2 补充）：** Performance Measurement §5 要求优化前后业务摘要不变，而 D1 本身改变摘要。建议把 D1 作为 Phase 6 中单独的 Contract 变更阶段，完成后重新测一次作为后续优化的对照基准（§13 B1）。
 
+#### D1 审核分析（r4，2026-10-24）
+
+**现状：每张表实际有四个摘要，定义与 consumer 各不相同。**
+
+| 摘要 | 位置 | 定义 | consumer |
+| --- | --- | --- | --- |
+| manifest `content_digest` | `storage_projection/_digest.py`、`project.py` | SHA-256；keyed 表按读取顺序（即源顺序）逐单元格计算；keyless 先排序；ordered 按 gid 排序且不含结构列，另有 `ordering_digest` | manifest digest → Submission 记录、import 包绑定、PreviewResult、checkpoint 校验、Submit 重投影核对（`import_publication.py`）、mutation planning |
+| `raw_content_digest` | `snapshot_materialization/_digest.py` | 每行一个 domain-separated SHA-256（列名排序后编码），再按多重集合排序合并；**已经与行顺序无关** | 规范状态摘要（DC13、ADR 0019），即 `NO_CANONICAL_CHANGE` 与陈旧判定；比较提前退出（`comparison/row_encoding.py`）；snapshot digest → 比较请求与 bundle digest；HTTP `canonical_business_digest`；Dolt 读回时重算（`repository_ref.py`） |
+| `fast_row_digest` | 同上 | 另一种逐行 SHA-256 | 只作诊断，但计入 snapshot digest 与 raw state digest |
+| Rust `canonical_row_hash` | `capabilities/canonical_row_hash` | 在 Arrow 上计算 Shared Kernel 行哈希，有 vector 一致性测试 | 生产中不可达（P5 exit review §6.1） |
+
+另外两点：
+
+- **重复计算。** 投影时每个保留单元格要编码 3–4 次：内容摘要一遍；ordered 表再算一遍自校验，keyless 表的多重集合摘要也算两遍；之后 reopen reader，再算 `row_content_hash` 与 `fast_row_hash`。重算的是同一份内存数据，并不证明什么。
+- **哈希本身不是瓶颈。** 按 t4 源 SQL 79 MB 估算，SHA-256（约 1.7 GiB/s）每遍不到 0.1 s。“规范投影与表摘要 219 s”几乎全部花在 Python 逐单元格编码和多次遍历上（待 V5 确认）。换成 BLAKE3 省下的不到 1 秒。
+- **现有 manifest 摘要不能用于“只读变化表”。** keyed 表的 manifest `content_digest` 依赖源顺序，与 Dolt 读回顺序不同，读回后无法重算出同一个值；`CommitCanonicalMetadataPort` 目前也只返回存储身份，不返回每表摘要。
+
+**按 r2 原方案（BLAKE3、列式编码、按键排序）的影响面：**
+
+- **Shared Kernel 的线上类型：** `DigestRef` 只接受 `sha256:` 前缀。改用 BLAKE3 要么改这个类型，进而影响 HTTP DTO、源码中的 6 处正则校验和 `real_dump_journey`；要么给摘要贴错算法标签，后者不可接受。
+- **Contract：**
+  - Shared Canonical Encoding：ROW、RAW_CONTENT 两类摘要和 digest vectors；
+  - Snapshot Materialization：`DIGEST_CONTRACT_VERSION`、snapshot digest；
+  - Canonical Storage §4：推翻“producer 不得自行排序”，storage projection version 从 2 升到 3；
+  - ADR 0019/DC13：规范状态摘要的组成项变了；
+  - Canonical Row Hash Compute Boundary：要重写或删除；
+  - Comparison 与 bundle：snapshot digest 变化会传到 bundle、PreviewResult 和 surface；
+  - Performance Measurement §5。
+- **对照基准：**
+  - 17 个 golden 目录（mutation 7、snapshot-materialization 5、storage-projection 3、canonical-row-hash 1、schema 1）；
+  - shared-kernel digest vectors 和 Rust vector conformance；
+  - 写死摘要的测试；
+  - checkpoint 载荷：按 DC6 不做兼容，删除本地 control DB；
+  - **P5 记录的 t1–t4 真实数据摘要全部失效**，要重新跑一次建立基准。
+- **键依赖：** 按键排序后再哈希，摘要就依赖键的定义。DC29 下的 keyless↔keyed 切换，即使行完全相同，摘要也会变。多重集合方案没有这个问题。
+
+**与解析器主线及 C2 的关系：**
+
+- 解析器差分的主判据（§6.3 第 1 层）是解析输出逐值对照，与摘要定义无关。下游摘要对照（第 2 层）是相对比较，两边用同一套下游代码，用哪种摘要都成立；但摘要定义不能在主线进行中途改变。
+- 只有摘要值不变，真实数据 t1–t4 才能直接和 P5 的已知值比，成为最强的绝对 oracle。
+- `parser_version` 进入 snapshot digest。Rust 解析器必须沿用同一个值，把它定义为语义版本，而不是实现标识。
+- 如果解析器与物化合并（C2），Rust 路径要自己算 `raw_content_digest` 与 snapshot digest，摘要定义必须在 C2 实现之前定稿。r2 的 §13 D3 顺序“解析器主线 → D1 摘要阶段”与此冲突：会先用 Rust 实现旧编码，再丢掉重写。
+
+**审核方建议：B1 改为“保值统一”。**
+
+1. 以现有 `raw_content_digest` 作为唯一的表摘要。它已与行顺序无关，Dolt 读回也能重算出同一个值。
+2. manifest 的 `content_digest` 改为同一个值，storage projection version 升到 3。ordered 表的统一口径（现 manifest 摘要不含结构列，`raw_content_digest` 包含全部规范列，含伪 gid）与 `ordering_digest` 是否保留，在设计中定。
+3. 去掉重复计算；`fast_row_digest` 是否一并删除，单独决定（删除会改变 snapshot digest）。
+4. `CommitCanonicalMetadataPort` 返回每表摘要。这是“只读变化表”这一结构性门槛（DC35 第 1 项）的前提。
+5. 实现复用现有的 Rust `canonical_row_hash` 内核，让 Rust 先以一个小而好验证的步骤进入生产链路。
+
+这样，规范状态摘要、snapshot 与 bundle digest、HTTP DTO 和真实数据的规范状态摘要基准都不变；变化的只有 manifest digest（随之体现在 PreviewResult、Submission 记录与 checkpoint 中的值），golden 只改 storage-projection 与 mutation 两组；Performance Measurement §5 的“业务摘要不变”自然满足。
+
+- **BLAKE3：** 降为备选，只在 Rust 化之后哈希实测占该段比例明显时再考虑，并且只用于新的、带算法标签的内容摘要类型。
+- **阶段位置：** 单独成一个小的 Contract 阶段，放在 S0 与 V5 之后、解析器主线之前；D9（只增列的 schema 变化）若同期决议，并入同一阶段，对照基准只重建一次。
+- **若 owner 仍选 r2 原方案：** B1 要排在 V6 与解析器完整实现之后、“接入”与 C2 之前；Python 参照实现也要实现新编码；还要单独为 t1–t4 重建一次基准。
+
 ### D2 规范表文件用不压缩的 Arrow IPC，内存映射读取
 
 - 每张规范表一个 Arrow IPC 文件，以 D1 的摘要命名；先写临时文件，再原子 rename。
@@ -413,6 +470,38 @@ Dolt 始终是权威来源，规范表存储和各类缓存都是派生数据：
 - **Contract 影响：** 第 1、2 种都需要 import 包能表达“表 B 的内容与表 A 相同”，要修订 RepositoryImportArtifact 的包格式（Repository 一侧）。
 - **优先级可以靠后：** 重复写入只发生在同组表一起变化时，以及首次提交时；而且 Submit 对耗时不敏感，S5 也显示 Submit 的大头不在 Dolt 写入。先用 V4 的统计算出最坏情况，再决定是否投入。
 
+### D9 只增列的 schema 变化：按共有字段判定风险（r4 新增）
+
+**发现与需求（owner，2026-10-24）：** 业务数据测试中，某些情况下数十张表同时出现 schema 变化，基本是新数据相比归档数据增加列（列只增不减）。这种情况下，前端展示应只判每张表两个版本共有字段是否变化（风险），不直接降级；后端与实际入库可以登记 schema 变化。
+
+**现状（代码核对）：**
+
+- **比较核心已经只比较共有列。** `comparison/row_encoding.py` 的 `_schema_view` 取两侧列名交集作为比较列，行级新增、删除、修改都按共有列产出，另加一条 `SCHEMA_CHANGE` 记录（`CURRENT_ONLY_COLUMNS`）。ordered 表同样比较共有列，只有必需列缺失、类型不兼容或没有共有列时才降级。
+- **“降级”来自表状态与下游映射。** 只要有新增列，表状态就是 `SCHEMA_CHANGED`，覆盖 `MODIFIED`/`UNCHANGED`：
+  - 风险：`SCHEMA_CHANGED` 默认规则对每张表发出 `MEDIUM_HIGH` 的表级风险，风险范围从 `STANDARD_ROWS` 变为 `TABLE`；
+  - surface：处理模式为 `SCHEMA_ONLY`，展示策略为 `RECORDS_ONLY`（没有 records 时为 `DEGRADED_NOTICE`），而不是普通更新表的 `CURRENT_WITH_RECORDS`；
+  - 性能：business schema digest 不同，比较的提前退出不成立，这类表都要全量读基线并比较。
+- **入库：** 投影 schema 变化时 mutation planning 整表重写（`_table_projection_unchanged`）。每个 commit 的 manifest 已记录保留列与 schema digest，schema 变化历史可以从中推导。
+
+**建议：**
+
+- **适用条件：** 前侧的列是后侧列的子集，共有列的签名（规范类型、可空性）相同，有效键不变。删列、改类型、改键仍按现行 `SCHEMA_CHANGED`/`DEGRADED` 处理。
+- **比较：** 表状态按共有列的结果取 `MODIFIED` 或 `UNCHANGED`，附“新增列”标志与列清单；新增列的值不参与比较。
+- **风险：** 新增单独的“只增列”规则，默认等级由 owner 定（建议 LOW 或只作提示）；共有列的行级风险按 `STANDARD_ROWS` 正常评估。
+- **surface：** 按普通更新或未变化展示，附新增列清单。
+- **登记：** 入库照常整表重写并产生新版本；是否在 Submission 或 History 结果中显式列出新增列，待定。只增列属于规范状态变化，因此可能出现“Preview 共有字段无变化，Submit 仍产生新版本”，与 G8 中 ordered 空白行字段的已接受先例相同，须写入 Contract。
+- **性质与阶段：** 这是业务语义变更（Comparison、Risk、Surface Contract 与相应 golden），不是性能工作；但它和 B1 一样改变对照基准，建议并入同一个 Contract 阶段，基准只重建一次。D7 的列式比较实现须同时满足这一语义。
+- **测量：** DC35 的 W1–W4 未覆盖这一场景。建议补一个负载（数十张表只增列、共有字段大部分不变），并在普查中增加只输出计数的统计：只增列的表数及其行数。
+
+**表摘要是否需要增加字段：**
+
+- **正确性上不需要。** 比较本来就按共有列计算。表摘要的作用是判断“规范内容是否有任何变化”，只增列确实是变化；读取并比较这类表，不违反 DC35 的结构性门槛（未变化的表不读基线）。
+- **可选的性能字段：每列摘要。** 在 manifest 中为每张表记录按规范键顺序逐列计算的摘要。keyed 表在键列摘要与行数相同、共有列的列摘要都相同时，可以不读基线，直接判定共有字段无变化；只有 `compare_excluded` 列变化时也能跳过比较。限制如下：
+  - 它要求规范行顺序（按键排序），与 B1“保值统一”的多重集合摘要是两套定义；
+  - keyless 表不适用，因为列摘要无法还原行的组合；ordered 表要按 gid 顺序另行定义；
+  - manifest 每表增加约“列数 × 32 字节”，体积可以忽略。
+- **建议：** B1 不加。每列摘要作为备选优化：属于派生的性能字段，不进入规范状态摘要。是否采用，待上面的负载实测后决定。读基线由 D2 的 mmap 承担、比较列式化（D7）之后，这类表全量比较的成本若已很小，就不加。
+
 ## 10. 旧实现：可以参考的与需要重新设计的
 
 旧实现位于本地参考目录 `legacy/backend_vnext/`，只用作行为参考（AGENTS.md「项目前提」）。
@@ -474,13 +563,14 @@ Dolt 始终是权威来源，规范表存储和各类缓存都是派生数据：
 
 | # | 事项 | 状态 | 审核方初步倾向 |
 | --- | --- | --- | --- |
-| B1 | D1 表摘要（BLAKE3、列式编码、与行顺序无关），以及它作为单独 Contract 变更阶段、完成后重建对照基准 | 待决议 | 单独成段，在性能优化之前 |
+| B1 | D1 表摘要（BLAKE3、列式编码、与行顺序无关），以及它作为单独 Contract 变更阶段、完成后重建对照基准 | 待决议 | r4 改为“保值统一”（§9 D1 审核分析）：以现有 `raw_content_digest` 为唯一表摘要，manifest 内容摘要统一到它，去掉重复计算，commit 元数据返回每表摘要，复用 Rust `canonical_row_hash`；BLAKE3 降为备选。单独成一个小 Contract 阶段，在 S0/V5 之后、解析器主线之前，与 B8 同阶段 |
 | B2 | D2 与 D3 规范表存储：格式、两类引用、Preview 只同步写入小事实；修订 ADR 0019 与设计 §4.6，调整 T1 冻结对象；比例化保障说明 | 待决议 | 接受方向，引用生命周期与清理在设计中细化 |
 | B3 | D5 第 ③ 层计算去重与规则主体 digest；“只有纯函数可以缓存”写入比较与风险 Contract | 待决议 | 接受 |
 | B4 | D5 第 ② 层“分组分裂”风险信号是否在 Phase 6 范围内 | 待决议 | 拆出单独立项 |
 | B5 | D7 比较列式化（以 V1 为前提）；差分测试与一致性条款作为强制要求；分歧点先写入 Contract | 待决议 | 接受，ordered 视 V1 结论 |
 | B6 | D8 同内容表写入优化（依 V3、V4 决定；可能修订 RepositoryImportArtifact） | 待决议 | 靠后 |
 | B7 | Submit 复用 Preview 产物（§5.3），涉及 T1 冻结对象与 ADR 0019 | 待决议 | 在 B2 的设计中一并评估 |
+| B8 | D9 只增列的 schema 变化：前端只按共有字段判定风险，不降级；入库照常并登记 schema 变化 | **owner 需求（2026-10-24）**，细节待决议 | 业务语义变更，修订 Comparison、Risk、Surface Contract；与 B1 同一 Contract 阶段；“只增列”风险的默认等级、是否在 Submission/History 中显式列出新增列由 owner 定；表摘要不增加字段，每列摘要作为备选优化，待实测后决定 |
 
 ### C. 技术路线
 
@@ -499,9 +589,11 @@ Dolt 始终是权威来源，规范表存储和各类缓存都是派生数据：
 | # | 事项 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | D1 | 耗时归因（V5） | **owner 方向（2026-10-24）：按需补充** | 先用 step 时间戳，不足时 py-spy |
-| D2 | Phase 6 测量 runbook | **部分决议（DC35）**：预热 1 次、测量 3 次取中位数；冷/热启动按负载区分；测量期间独占参考节点；规模口径与合成数据集 | 测试节点三台分工已决议（DC36，新节点初始化并核对后生效）；待定：合成规则细节 |
-| D3 | Phase 6 阶段结构 | 待决议 | S0 决议 → V1/V5/V6（V3/V4 视 B6）→ 设计与执行计划 + 独立文档审核 → 解析器主线 → D1 摘要阶段 → 按业务阶段分段实施；DC30/DC33/DC34 与 G12/G13 的门禁规则沿用 |
+| D2 | Phase 6 测量 runbook | **部分决议（DC35）**：预热 1 次、测量 3 次取中位数；冷/热启动按负载区分；测量期间独占参考节点；规模口径与合成数据集 | 测试节点三台分工已决议并生效（DC36，2026-10-24）；待定：合成规则细节 |
+| D3 | Phase 6 阶段结构 | 待决议 | S0 决议 → V1/V5/V6（V3/V4 视 B6）→ 设计与执行计划 + 独立文档审核 → B1/B8 Contract 阶段（r4 调整：原为解析器主线之后的 D1 摘要阶段，见 §9 D1 审核分析）→ 解析器主线 → 按业务阶段分段实施；DC30/DC33/DC34 与 G12/G13 的门禁规则沿用 |
 | D4 | V2 是否并入 S5 | **已决议（2026-10-17，DC32）** | 并入 S5，已完成 |
+| D5 | Rust 测试的正式入口与门禁覆盖（建议并入 C1/C3 讨论） | 待决议 | 权威 runner 现在不跑 `cargo test`。调试节点上直接执行 `cargo test --workspace --locked` 失败 1 例（`gateway-compute-python` 的 `adapter_errors`，`No module named 'pyarrow.lib'`）：`vnext/rust/gateway-compute-python/tests/common/mod.rs` 写死了 `backend/.venv/lib/python3.14/site-packages`，未激活 venv 时 PyO3 嵌入的是系统 Python 3.13。设置 `VIRTUAL_ENV=<backend .venv>` 与 `LD_LIBRARY_PATH=<uv cpython-3.14.6 lib>` 后 exit 0。Rust 解析器主线开始前须定下调用方式（例如固定 PyO3 解释器，或提供脚本入口），并把 Rust 测试纳入权威门禁。数据见 [节点核对报告](p6-node-init-report.md) §5、§7 |
+| D6 | 单次门禁时长（建议并入 D3 讨论，作为 P6 的测试基础设施事项） | 待决议 | 64 核新节点与 128 核 ct108 跑完整 runner 的时间相同（约 39 分钟）。耗时主要在 backend 串行批次（39 个用例约 1,590 s，大部分是 Compose 旅程）与 repository_service 串行批次（约 593 s）。加节点解决的是不同类运行之间的排队；要缩短单次门禁，须缩短串行批次。与 G11b-O3（并发优化，当时未授权）相关。数据见 [节点核对报告](p6-node-init-report.md) §4–§6 |
 
 ## 14. 不在本稿范围
 

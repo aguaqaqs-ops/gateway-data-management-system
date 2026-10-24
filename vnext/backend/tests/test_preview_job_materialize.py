@@ -442,6 +442,7 @@ def test_projection_failures_publish_complete_bounded_operation_details(
     assert len(persisted.diagnostic.message) <= 255
     assert f"{case.expected_total} diagnostic(s)" in persisted.diagnostic.message
     assert persisted.diagnostic.details is not None
+    assert persisted.diagnostic.omitted_count is not None
     assert len(persisted.diagnostic.details) <= 100
     assert (
         len(persisted.diagnostic.details) + persisted.diagnostic.omitted_count

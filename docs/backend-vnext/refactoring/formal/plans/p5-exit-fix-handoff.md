@@ -85,3 +85,74 @@ handoff 首次提交 `42706ba7cf` 后，在 V runner 的同一 ct108 worktree、
 | `repository_service` | `b80d22fd57ee5af0f6f8843c2541034b1ab00ccb9474ff61c4b5759ff32e59b3` | 可沿用 |
 
 H1 carried 日志为 `h1-carried-42706ba7cf-20261023.log`；current manifests 与 compare JSON 分别在 `h1-current-manifests-42706ba7cf/`、`h1-compares-42706ba7cf/`。本 handoff 的最终记录提交只增加上述 carried 证据；提交后会在同一 worktree 重做同样检查，最终 H 的 carried 日志预定为 `h2-carried-final-20261023.log`，current manifests / compares 位于对应的 `h2-*-final/` 目录。最终 H 的 post-commit compare 以该日志为准。
+
+## EXIT-R1-F1 第二轮：投影诊断省略计数
+
+### 原因与修复
+
+复审 `p5-exit-rereview` 提交 `e9f80f8acc` 的 §9.3 指出，Storage Projection 的 `MAX_DIAGNOSTICS = 1024` 只限制保留列表，超出部分在投影聚合及 canonical 合并处被丢弃而没有计数。Preview 因此只能对收到的条目计算 Operation 的 100 项明细上限：例如 MODIFIED_ONLY 的三张表各有 400 个失败列时，真实失败数是 1,200，旧结果却把 1,024 当作总数。
+
+`ProjectionResult` 与 `CanonicalProjectionResult` 现在都要求调用方提供非负整数 `omitted_diagnostic_count`，没有默认兼容值。COMPLETE 结果必须是 0；值大于 0 时，`diagnostics` 必须正好保留 1,024 项。所有构造点均已传递真实值或显式传 0，包括 `infrastructure/repository_write/import_publication.py` 的冻结导入结果。
+
+当前各处计数如下：
+
+1. `_project_storage` 在 runtime / snapshot / `_selected_inputs` 失败返回前，按异常诊断总数减去保留数计算省略量。
+2. `_project_storage` 的逐表投影循环每次只把尚有容量的诊断加入有界列表，并将 `len(exc.diagnostics) - 实际追加数` 累加到省略量；后续表继续处理并计数。
+3. `project_canonical_table_set` 收集投影前的 reader / binding 错误时同样保持最多 1,024 项；与 `project_storage` 合并时，累加其上游省略量和本次合并容量不足而省略的数量。
+4. canonical snapshot table 组装失败时继续有界收集；对应 FAILED 构造保留此前累计的省略量。两个 canonical FAILED 返回点都不再静默切片。
+
+取消和超时仍立即返回单条 `PROJECTION_CANCELLED` / `PROJECTION_TIMEOUT` 诊断，`omitted_diagnostic_count=0`。未增加无界诊断列表、artifact、证据状态或状态机。
+
+Preview 上传侧将 capability 的省略量传给 `PreviewJobError.diagnostic_omitted_count`，概要消息的数量使用“收到的诊断 + 上游省略数”。FULL 会先尝试 INITIAL 和 MODIFIED 两侧，随后合并两侧诊断与省略量，再按 Operation 的 100 项上限累计本层截断；MODIFIED_ONLY 只处理 MODIFIED。最终公开不变量为 `len(details) + omitted_count == 完整失败数`，message 仍不超过 255 字符。Operation 持久化、control DB JSON diagnostic blob 和 HTTP mapper 沿用上一节已验证的数据通路。
+
+明细选择规则：capability 按投影处理顺序保留前 1,024 条；Operation 从这个保留集中按 `(side, table_name, column_name, code)` 稳定排序，再取前 100 条。故列出的条目有序且结果确定，但不承诺是全部失败中的全局排序最小 100 条。该规则没有改变成功路径语义。
+
+### 测试
+
+F1 唯一行为 owner 仍为 `vnext/backend/tests/test_preview_job_materialize.py`：通过生产 Preview materialization、Control DB 重读和 `operation_to_response` 一次验证 capability 到公开 Operation 的完整失败路径。
+
+`PROJECTION_FAILURE_CASES` 新增两项：
+
+- `modified projection counts failures beyond capability limit`：MODIFIED_ONLY，3 张表各 400 个 DECIMAL 失败列，并含合法 INT 主键；每张表共 401 列，低于 parser 512 列上限，期望总数 1,200。
+- `full projection counts failures beyond capability limit on both sides`：FULL，INITIAL 和 MODIFIED 各 3 张表、每表 400 个失败列，期望总数 2,400。Operation 列出的 100 项全部来自 INITIAL，且按稳定排序键有序。
+
+两项复用既有参数化测试，断言 Operation 为 FAILED、没有 READY closure / assemble step / Repository effect、details 不超过 100、明细与 omitted 总数精确、概要消息包含完整总数，且 Control DB 读回与 HTTP mapper 结果一致。既有 101 项边界用例和 F2 ADDITIVE 用例均保留。`test_storage_projection_contracts.py` 的参数表对两种 result contract 覆盖负数、COMPLETE 非零、未达上限却有正 omitted 三类拒绝；capability 截断总数只由 Preview 端到端用例证明。
+
+新增参数用例 nodeid：
+
+- `tests/test_preview_job_materialize.py::test_projection_failures_publish_complete_bounded_operation_details[modified projection counts failures beyond capability limit]`
+- `tests/test_preview_job_materialize.py::test_projection_failures_publish_complete_bounded_operation_details[full projection counts failures beyond capability limit on both sides]`
+- `tests/test_storage_projection_contracts.py::test_projection_results_validate_omitted_diagnostic_count[negative]`
+- `tests/test_storage_projection_contracts.py::test_projection_results_validate_omitted_diagnostic_count[complete with omissions]`
+- `tests/test_storage_projection_contracts.py::test_projection_results_validate_omitted_diagnostic_count[omissions below cap]`
+
+### V 与验证记录
+
+本轮 V 为 `6badf722c9e8e243e7802bb37ae1afe8893d4872`，基于 H `ddd1b2a1cf50eb046243b66bea0c69022b25330c`。其前一候选 `573b2c0d12` 的 backend mypy 因测试把 `int` 与 `int | None` 相加而按停止规则终止；`6badf722c9` 只在该求和断言前加入 `assert persisted.diagnostic.omitted_count is not None`，没有改类型、语义或其他文件。此修正提交重新从五包静态检查开始验收。
+
+`573b2c0d12` 上此前 508 项 focused 调试通过，但该结果不作为 V 证据。正式候选 `6badf722c9` 的五包静态检查 / `import_rules` → focused → R2-O3 unit collect → preflight → fresh RS → 全量 runner → postflight 按序从头执行；Focused 全文件 631 passed，随后单独复跑 MODIFIED_ONLY 3×400 nodeid，1 passed。
+
+| 顺序 | 结果 | ct108 记录 |
+| --- | --- | --- |
+| 五包 Ruff / mypy | 五包均通过；mypy 文件数：34 / 15 / 26 / 486 / 200。 | `static-import-rules-6badf722c9-20261024.log` |
+| `import_rules` | 0 import violations / 0 runtime cycles / 6 registered unreachable modules。 | 同上 |
+| Focused 全文件 | 631 passed、1 条既有 Starlette deprecation warning；随后单独记录 MODIFIED_ONLY 3×400 用例 1 passed。 | `focused-6badf722c9-20261024.log` |
+| R2-O3 unit collect | 3 deselected / 0 selected；pytest exit 5 是空选择的预期值，核对脚本 exit 0。 | `r2-o3-unit-collect-6badf722c9-20261024.log` |
+| Preflight | clean V；无 Dolt 进程、容器、Compose 项目或 8000 listener；Docker daemon identity `f4933ba1-00e8-4655-9011-44c9c2d2b161`。 | `preflight-6badf722c9-20261024.log` |
+| Fresh repository-service image | 正式构建脚本成功；image ID `sha256:ed8c0d7bbf9e0c49ece0783fcf108d03fbfcaffc8cd56e626917f65c1d49dc41`。revision label 为 V；build-input revision `b93748c04e63be4eeece66cb5abaadf13fd7b6d3`、source-tree `sha256:b24fa92dbbb59d00617eec838a22ca947fa98fe42fab996770aa9b9e20f7f15c`、uv-lock `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11` 均与 identity / lock 一致。 | `fresh-rs-build-6badf722c9-20261024.log` |
+| 权威全量 runner | 五包通过；242 + 152 + 154 + backend 2,917 parallel / 39 serial + repository_service 1,730 parallel / 205 serial = **5,439 passed，1 skipped**；runner exit 0。 | `full-runner-6badf722c9-20261024.log` |
+| Postflight | clean V；无 Dolt、容器、Compose 项目或 8000 listener；五个 runner Hypothesis 目录均不存在；RS labels 仍匹配。 | `postflight-6badf722c9-20261024.log` |
+
+V runner 起始 manifests 已从实际全量 runner 日志提取并校验 clean HEAD，位于 `v-manifests-6badf722c9/`；提取记录为 `manifest-extraction-6badf722c9-20261024.log`。五包 total_digest：
+
+| Package | V runner total_digest |
+| --- | --- |
+| `shared_kernel` | `630927157f24e0aaddab1a98199d19cd8f979246181f958f1075f5c76cedbb5f` |
+| `repository_contracts` | `a7025c2aeee34e562739bbff0af3e1cd4d7cc3b524baa56e5b95ec05b50d5425` |
+| `repository_client` | `ac29d6e19391d9deca18bfe43994766627183312c211314550363e9945270885` |
+| `backend` | `145ce59abb434326c79994e5254f0beb41974610584d30544dd4113dbba34387` |
+| `repository_service` | `8bf2f982abbadcafe27498a2f32e79b81e7800919ffe83de13fb2d6a21483c33` |
+
+相对上一 H `ddd1b2a1cf`，V 的 `git diff --stat` 为 7 个文件、178 insertions / 27 deletions；改动限于投影诊断省略计数的 capability / Preview 失败路径及对应构造与行为测试。成功投影结果始终提供 0，成功路径语义不变；没有改 Operation Contract 文本、control DB schema、RS API 或 storage projection 的诊断产生逻辑。本轮依据 `458b40fbea` 的 DC33 决议不重跑真实数据，也不运行 DC32 测量。未遇到 auto mode 拒绝。
+
+本节提交后在 V runner 的同一 ct108 worktree 执行 H carried；carried 比较与最终 handoff commit 的记录随后附于本节。来源必须直接使用上述 V runner manifests，不引用其他 carried 结果。

@@ -33,7 +33,9 @@ accepted且`p5_5b_design_s0_authorized: yes`；P5-5B implementation与real Repos
 当前 [5D docs-only entry/design/plan](../plans/p5-5d-s0-entry-brief.md) 已独立审核通过，
 四项文档 finding 全部关闭，
 [Business Lifecycle 固定归属补充](../contracts/business-lifecycle-and-state.md#repository-scope-ownership-amendment)
-已接受为 3.0.0，S1 Contract 前置已满足；5D/5E implementation、production deployment 与新的 Repository effect 均未授权。此前 dated overlay 保留为历史记录，当前状态以本 closure 为准。
+已接受为 3.0.0，S1 Contract 前置已满足；5D/5E implementation、production deployment 与新的 Repository effect 均未授权。此前 dated overlay 保留为历史记录。
+
+2026-10-24 P5 exit overlay：P5-5D、5E 均已 slice exit；[P5 架构收口](../plans/p5-arch-closure-design.md) S1–S5 与治理修订 G1–G13 已完成，[P5 整体 exit review](../plans/p5-exit-review.md) 经两轮修复与复审，终审通过，附注 tag `p5-exit`。已登记的延期项与重开条件见该报告 §6；production deployment 与新的 Repository effect 仍未授权；Phase 6 由 owner 另行 kickoff。当前状态以本 overlay 为准，此前各 overlay 为历史记录。
 
 
 ## 1. 目标与范围

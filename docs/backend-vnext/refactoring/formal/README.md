@@ -11,6 +11,7 @@
 
 当前内容（仓库 P5 默认入口）：
 
+- **P5 整体 exit：通过（2026-10-24，tag `p5-exit`）**。[P5 Exit Review](plans/p5-exit-review.md)（初审定向修订，两轮修复后第二次复审通过）、[修复 handoff](plans/p5-exit-fix-handoff.md)；终审记录见治理修订计划 §3 第 13 项。下一阶段 Phase 6 由 owner 另行 kickoff（[讨论稿](plans/p6-planning-discussion.md)）。
 - [P5 Business Vertical Slices Design Baseline](plans/p5-business-vertical-slices-design.md)
 - [P5 架构收口 S0 Entry Brief](plans/p5-arch-closure-s0-entry-brief.md)、
   [详细设计](plans/p5-arch-closure-design.md)、[执行计划](plans/p5-arch-closure-execution-plan.md)、
@@ -21,6 +22,8 @@
   - [G2 独立审核](plans/p5-arch-closure-g2-independent-review.md)（@ `c9a09ddb35`：定向修订，G2-F1 阻塞）；[G2 第 1 次复审](plans/p5-arch-closure-g2-independent-rereview-1.md)（@ `eece236590`：通过）；[G2 handoff](plans/p5-arch-closure-g2-handoff.md)；[G8a handoff](plans/p5-arch-closure-g8a-handoff.md) 与 [G8a 独立审核](plans/p5-arch-closure-g8a-independent-review.md)（@ `4ff6c44e60`：通过，无阶段 tag）；[G3 实施规格](plans/p5-arch-closure-g3-spec.md)（owner 已确认，独立 worktree 实施）；[G3 handoff](plans/p5-arch-closure-g3-handoff.md) 与 [G3 独立审核](plans/p5-arch-closure-g3-independent-review.md)（@ `6dfb5bd6c9`：通过，tag `p5-g3-exit`）；[G8b 实施规格](plans/p5-arch-closure-g8b-spec.md)（owner 已决议）；[G8b handoff](plans/p5-arch-closure-g8b-handoff.md) 与 [G8b 独立审核](plans/p5-arch-closure-g8b-independent-review.md)（@ `43d5d44fdf`：通过，tag `p5-g8b-exit`）
   - [S1 独立审核与复审](plans/p5-arch-closure-s1-independent-review.md)、[第 1 次复审](plans/p5-arch-closure-s1-independent-rereview-1.md)、[第 3 次复审](plans/p5-arch-closure-s1-independent-rereview-3.md)（通过）；[handoff](plans/p5-arch-closure-s1-handoff.md)、[census](plans/p5-arch-closure-s1-census.json)
   - [S2a handoff](plans/p5-arch-closure-s2a-handoff.md) 与 [S2a 独立审核](plans/p5-arch-closure-s2a-independent-review.md)（@ `39efa08db1`：通过，tag `p5-s2a-exit`）
+  - [S2b handoff](plans/p5-arch-closure-s2b-handoff.md)、[独立审核](plans/p5-arch-closure-s2b-independent-review.md)、[第 1 次复审](plans/p5-arch-closure-s2b-independent-rereview-1.md)（通过，tag `p5-s2b-exit`）；[S3 handoff](plans/p5-arch-closure-s3-handoff.md) 与 [独立审核](plans/p5-arch-closure-s3-independent-review.md)（tag `p5-s3-exit`）；[S4 handoff](plans/p5-arch-closure-s4-handoff.md) 与 [独立审核](plans/p5-arch-closure-s4-independent-review.md)（tag `p5-s4-exit`）；[S5 handoff](plans/p5-arch-closure-s5-handoff.md) 与 [独立审核](plans/p5-arch-closure-s5-independent-review.md)（tag `p5-s5-exit`）
+  - 治理修订：[G11 handoff](plans/p5-arch-closure-g11-handoff.md) 与 [审核](plans/p5-arch-closure-g11-independent-review.md)（tag `p5-g11-exit`）；[G11b handoff](plans/p5-arch-closure-g11b-handoff.md) 与 [审核](plans/p5-arch-closure-g11b-independent-review.md)（tag `p5-g11b-exit`）；[G12 handoff](plans/p5-arch-closure-g12-handoff.md) 与 [审核](plans/p5-arch-closure-g12-independent-review.md)（tag `p5-g12-exit`）；[G13 handoff](plans/p5-g13-handoff.md)（tag `p5-g13-exit`）；G10 清理记录在治理修订计划 §3 第 13 项
   - [S0 独立文档审核报告](plans/p5-arch-closure-s0-independent-docs-review.md)（r1 @ `3e5d5807e5`：定向修订；含 2026-09-26 复核补充）
   - [r2 独立复审（第一份）](plans/p5-arch-closure-s0-independent-rereview.md)（@ `5858eaaa08`：定向修订）
   - [r2 独立复审（第二份）](plans/p5-arch-closure-s0-independent-rereview-2.md)（@ `5858eaaa08`：定向修订；O1–O5 已决议为 DC23–DC27）
@@ -68,7 +71,7 @@ P5-5A historical input（slice exit pass；container gate pass）：
 - [P5-5A S6 Handoff](plans/p5-5a-s6-handoff.md)（slice exit pass；container gate pass）
 
 P4 专用入口仍为 [P4 Active Context Index](plans/p4-active-context-index.md)；**P4-R6 exit pass**。
-P5-5B/5C/5D/5E slice exit pass；5E History Compare 完成 @ `21723698`；P5 架构收口 S0 文档已接受，收口实现、production deployment 与新的 Repository effect 未授权。
+P5-5B/5C/5D/5E slice exit pass；5E History Compare 完成 @ `21723698`；P5 架构收口已完成，P5 整体 exit 通过（2026-10-24，tag `p5-exit`）；production deployment 与新的 Repository effect 未授权。
 P4 Active Context Index 不覆盖 P5 semantic default entry。
 以下清单保留 P4/P3 设计和 handoff 的可达性，但不改变上述 P5 默认顺序：
 
@@ -168,7 +171,9 @@ tags `docs/p3-p4-cleanup-pre-20260823`、`docs/p3-p4-cleanup-final-20260823`。
 fixture追溯；其中的同步Preview、`START_REVIEW`、Archive/Repository ref写入或旧状态名不得反向
 覆盖当前P5 authority。
 
-当前阶段：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`；P4-R1至P4-R6均已
+当前阶段（2026-10-24 更新）：P5 整体 exit 通过（tag `p5-exit`，见 [P5 Exit Review](plans/p5-exit-review.md)）；下文为 P5 期间的历史状态记录。
+
+历史阶段记录：`phase_2_complete: yes`；P3 final closure `p3_exit: pass`；P4-R1至P4-R6均已
 exit/pass。P5总体设计基线accepted；P5-5A slice exit `pass`；P5-5B gate evidence @
 `460d6f5b` 经独立 acceptance 复核，`p5_5b_slice_exit: pass`。P5-5B 的历史 implementation
 authority 已消费并关闭；5B exit 本身不授权新的 P5-5B 改动、P5-5C 或 production deployment。

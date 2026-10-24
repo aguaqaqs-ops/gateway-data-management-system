@@ -242,7 +242,7 @@ capability 公共面、私有模块/符号、contracts 叶子、包根归属、�
 规则判定的问题，以本表跟踪。
 
 第二轮复核（2026-09-25，代码基线 `2172369803`）确认的补充问题如下。它们与本节既有问题一并由
-[P5 架构收口设计](p5-arch-closure-design.md) 处置（S0 文档已于 2026-09-27 接受，ADR 0018–0021 为 Accepted；实现未授权）：
+[P5 架构收口设计](p5-arch-closure-design.md) 处置（S0 文档已于 2026-09-27 接受，ADR 0018–0021 为 Accepted；收口已于 2026-10-24 完成，tag `p5-exit`）：
 
 | 补充问题 | 处置入口 |
 | --- | --- |
@@ -528,7 +528,8 @@ online ruleset migration、external event consumer、HA和外部DB保持独立�
 [P5-5E Slice Exit — Final](p5-5e-slice-exit-final.md) 已签署 `p5_5e_slice_exit: pass`
 （gate HEAD `21723698`），5A–5E 业务纵切均已 slice exit。
 [P5 架构收口 S0 文档](p5-arch-closure-s0-entry-brief.md)已于 2026-09-27 接受（ADR 0018–0021 Accepted），并已合入主线。
-**下一步：repository owner 给出收口实现授权后，按 [收口执行计划](p5-arch-closure-execution-plan.md) 进行 S1 kickoff**
-（漂移复核、import 基线记录、真实数据普查），再依次执行 S1–S5；§2A.5 收口验收通过后才能进入 P5 整体 exit。
-5E exit 之后的 [prepare checkpoint 修复](p5-prepare-occupancy-investigation-report.md)（`0d9d0d9dc5`）容器门禁仍为延期。
+收口按 [执行计划](p5-arch-closure-execution-plan.md) 完成 S1–S5 与治理修订 G1–G13，§2A.5 收口验收成立；
+[P5 整体 exit review](p5-exit-review.md) 经两轮修复与复审，于 2026-10-24 终审通过，附注 tag `p5-exit`。
+5E exit 之后的 [prepare checkpoint 修复](p5-prepare-occupancy-investigation-report.md)（`0d9d0d9dc5`）的容器门禁已由后续阶段及 exit review 的 fresh 门禁覆盖。
+已登记的延期项与重开条件见 exit review §6。**下一步：Phase 6 由 owner 另行 kickoff**（讨论稿见 [p6-planning-discussion.md](p6-planning-discussion.md)）。
 production deployment 与新的 Repository effect 未授权。

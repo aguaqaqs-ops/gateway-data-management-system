@@ -10,7 +10,7 @@ Owner：Table Rules/Storage Projection（canonical content）；Repository Servi
 
 Semantic version：`3.2.0`（2026-10-12，DC29；前版 `3.1.0`、`3.0.0`）
 
-Storage projection version：`1`
+Storage projection version：`2`（P5 收口 S2a-F1 的负零规范化 `26560b2595` 从 `1` 提升，见下文 `3.2.0` 说明）
 
 ## 1. Authority boundary
 
@@ -247,7 +247,7 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 `canonicalization_manifest_digest` 算法不变；CanonicalizationManifest 的 `contract_version` 自
 [P5 架构收口](../plans/p5-arch-closure-design.md) S2a 起记录 `3.1.0`，读取接受历史版本。storage projection
 version 不变；若 S1 kickoff 普查触发 JSON 以 LONGTEXT 存储，在 S2a handoff 中按本节写明是否提升。实现随收口
-S1–S5 交付，交付前现行源码仍按 `3.0.0` 行为运行。
+S1–S5 交付，交付前现行源码仍按 `3.0.0` 行为运行（已随 P5 收口交付，tag `p5-exit`）。
 
 `3.2.0`（2026-10-12，DC29）：§3 增加 `DDL_PRIMARY_KEY_OR_KEYLESS`，SNAPSHOT_ONLY、BROWSE_ONLY 与 raw-PK 兜底规则在源 DDL 无主键时按 keyless
 存储，取代“keyless 不能作为 fallback”；manifest 每表条目的 canonical key policy 增加该取值。CanonicalizationManifest 的

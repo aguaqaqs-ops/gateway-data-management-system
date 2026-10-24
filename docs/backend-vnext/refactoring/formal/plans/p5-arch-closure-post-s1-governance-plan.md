@@ -585,3 +585,7 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - G6b 重新评估：本次 exit review 在 M 上 fresh 全量，是因为 G10 清理已删除原门禁 worktree，属计划内选择，不是 carried 判定失败；两轮修复的 carried 均在门禁 worktree 内由实施方与审核方复现成立。审核方判断未触发 G6b 重新评估条件，维持 C；owner 可另行重开。
    - 附注 tag `p5-exit` 指向 `bdf04c3651`，以 `--no-ff` 合入 main。EXIT-F3 及报告 §7 列出的状态文本在合入后统一更新。
    - 保留：分支 `p5-exit-review`、`p5-exit-rereview`、`p5-exit-rereview-2`、`p5-exit-fix` 及对应 worktree（含 ct108 的 `/home/dev/gdds-p5-exit-fix`）暂不删除，之后按 G10 方式先列清单再清理。推送由 owner 另行决定。
+   P5 exit 状态更新（2026-10-24，审核方执行；合入后的单独 docs 提交）：
+   - EXIT-F3：Canonical Storage 标头 projection version 订正为 `2`，注明由 S2a-F1 负零规范化提升；`3.1.0` 段“实现随收口交付”注明已交付。
+   - 收口入口简报、执行计划、收口设计各增加“当前状态”行，保留 S0 时点的“实现未授权”为历史；P5 设计 §2A 补充问题说明与 §13 “Current next action” 改为收口完成、P5 exit 通过、下一步 Phase 6 由 owner 另行 kickoff，`0d9d0d9dc5` 容器门禁改为已被后续 fresh 门禁覆盖；formal/README 增加 P5 exit 入口及 S2b–S5、G11–G13 报告链接，更新阶段状态；架构与重构总纲增加 2026-10-24 P5 exit overlay。
+   - 报告 §7 其余项不在本次处理，均为非阻塞文档整理：`docs/backend-vnext/capabilities/snapshot-materialization.md` 的 ADR 0019 取代提示、收口设计 §1 DC 总览补 DC28–DC34 索引与 DC26 表述澄清、旧 5B/G11 deferred register 按 exit review §6 整理。留待 Phase 6 kickoff 前或首次修改相关文档时处理。

@@ -2,6 +2,8 @@
 
 状态：**ACCEPTED — S0 文档（r4）由 repository owner 于 2026-09-27 接受；实现未授权**
 
+当前状态（2026-10-24）：**执行完成**。S1–S5 与治理修订 G1–G13 已完成并合入 `main`；P5 整体 exit review 经两轮修复与复审，于 2026-10-24 终审通过，附注 tag `p5-exit`（[exit review](p5-exit-review.md)、[修复 handoff](p5-exit-fix-handoff.md)、[治理修订计划](p5-arch-closure-post-s1-governance-plan.md) §3 第 13 项）。上一行“实现未授权”是 S0 接受时的状态；下文各节保留当时的计划与授权记录。
+
 日期：2026-09-27（r4 与接受）；r2、r3 为 2026-09-26；r1 为 2026-09-25
 
 Owner：Backend vNext Architecture

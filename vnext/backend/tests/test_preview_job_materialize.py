@@ -112,6 +112,17 @@ class ProjectionFailureCase:
     expected_total: int
 
 
+_TRUNCATED_FAILURE_COLUMNS = tuple(f"bad_{index:03d}" for index in range(400))
+_MODIFIED_TRUNCATED_FAILURE_TABLES = tuple(
+    (f"modified_broken_{index:02d}", _TRUNCATED_FAILURE_COLUMNS)
+    for index in range(3)
+)
+_INITIAL_TRUNCATED_FAILURE_TABLES = tuple(
+    (f"initial_broken_{index:02d}", _TRUNCATED_FAILURE_COLUMNS)
+    for index in range(3)
+)
+
+
 PROJECTION_FAILURE_CASES = (
     ProjectionFailureCase(
         "multiple tables",
@@ -153,6 +164,22 @@ PROJECTION_FAILURE_CASES = (
         (("many_broken", tuple(f"bad_{index:03d}" for index in range(101))),),
         None,
         101,
+    ),
+    ProjectionFailureCase(
+        "modified projection counts failures beyond capability limit",
+        InputCompleteness.MODIFIED_ONLY,
+        (),
+        _MODIFIED_TRUNCATED_FAILURE_TABLES,
+        None,
+        1200,
+    ),
+    ProjectionFailureCase(
+        "full projection counts failures beyond capability limit on both sides",
+        InputCompleteness.FULL,
+        _INITIAL_TRUNCATED_FAILURE_TABLES,
+        _MODIFIED_TRUNCATED_FAILURE_TABLES,
+        None,
+        2400,
     ),
 )
 
@@ -415,14 +442,23 @@ def test_projection_failures_publish_complete_bounded_operation_details(
     assert len(persisted.diagnostic.message) <= 255
     assert f"{case.expected_total} diagnostic(s)" in persisted.diagnostic.message
     assert persisted.diagnostic.details is not None
-    assert len(persisted.diagnostic.details) == min(case.expected_total, 100)
-    assert persisted.diagnostic.omitted_count == case.expected_total - min(case.expected_total, 100)
+    assert len(persisted.diagnostic.details) <= 100
+    assert (
+        len(persisted.diagnostic.details) + persisted.diagnostic.omitted_count
+        == case.expected_total
+    )
 
     if case.expected_details is None:
-        expected_details = tuple(
-            ("MODIFIED", "many_broken", f"bad_{index:03d}", "UNSUPPORTED_TABLE")
-            for index in range(100)
+        diagnostic_candidates = tuple(
+            (side, table_name, column_name, "UNSUPPORTED_TABLE")
+            for side, tables in (
+                ("INITIAL", case.initial_tables),
+                ("MODIFIED", case.modified_tables),
+            )
+            for table_name, columns in tables
+            for column_name in columns
         )
+        expected_details = tuple(sorted(diagnostic_candidates))[:100]
     else:
         expected_details = case.expected_details
     actual_details = tuple(
@@ -430,6 +466,13 @@ def test_projection_failures_publish_complete_bounded_operation_details(
         for item in persisted.diagnostic.details
     )
     assert actual_details == expected_details
+    actual_sort_keys = tuple(
+        (side, table_name, "" if column_name is None else column_name, code)
+        for side, table_name, column_name, code in actual_details
+    )
+    assert actual_sort_keys == tuple(sorted(actual_sort_keys))
+    if case.input_completeness is InputCompleteness.FULL and case.expected_total > 100:
+        assert all(side == "INITIAL" for side, _table, _column, _code in actual_details)
 
     response_diagnostic = operation_to_response(persisted).diagnostic
     assert response_diagnostic is not None

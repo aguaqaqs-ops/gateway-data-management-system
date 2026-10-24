@@ -1332,6 +1332,7 @@ def _materialize_uploaded_side(
             )
         )
         projection_diagnostic = ordered_diagnostics[0] if ordered_diagnostics else None
+        complete_diagnostic_count = len(ordered_diagnostics) + projected.omitted_diagnostic_count
         diagnostic_details = (
             tuple(
                 OperationDiagnosticDetail(
@@ -1355,13 +1356,14 @@ def _materialize_uploaded_side(
             + (
                 ""
                 if projection_diagnostic is None
-                else f" ({len(ordered_diagnostics)} diagnostic(s)); first "
+                else f" ({complete_diagnostic_count} diagnostic(s)); first "
                 f"{projection_diagnostic.code.value} at {location}: {projection_diagnostic.message}"
             ),
             diagnostic_code=(
                 None if projection_diagnostic is None else projection_diagnostic.code.value
             ),
             diagnostic_details=diagnostic_details,
+            diagnostic_omitted_count=projected.omitted_diagnostic_count,
         )
     try:
         canonical_result = materialize_projected_snapshot(

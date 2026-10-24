@@ -388,6 +388,7 @@ class RepositoryImportArtifactInput:
 class ProjectionResult:
     status: ProjectionStatus
     tables: tuple[ProjectionTable, ...]
+    omitted_diagnostic_count: int
     diagnostics: tuple[ProjectionDiagnostic, ...] = ()
     manifest: CanonicalizationManifest | None = None
     import_input: RepositoryImportArtifactInput | None = None
@@ -401,6 +402,11 @@ class ProjectionResult:
             if type(table) is not ProjectionTable:
                 raise ValueError("tables must contain ProjectionTable")
         _require_diagnostics(self.diagnostics)
+        _require_omitted_diagnostic_count(
+            self.status,
+            self.diagnostics,
+            self.omitted_diagnostic_count,
+        )
         if self.status is ProjectionStatus.FAILED:
             if self.manifest is not None or self.import_input is not None:
                 raise ValueError("FAILED projection must not publish manifest or import input")
@@ -419,6 +425,7 @@ class ProjectionResult:
 class CanonicalProjectionResult:
     status: ProjectionStatus
     tables: tuple[SnapshotTable, ...]
+    omitted_diagnostic_count: int
     manifest: CanonicalizationManifest | None = None
     diagnostics: tuple[ProjectionDiagnostic, ...] = ()
 
@@ -431,6 +438,11 @@ class CanonicalProjectionResult:
             if type(table) is not SnapshotTable:
                 raise ValueError("tables must contain SnapshotTable")
         _require_diagnostics(self.diagnostics)
+        _require_omitted_diagnostic_count(
+            self.status,
+            self.diagnostics,
+            self.omitted_diagnostic_count,
+        )
         if self.status is ProjectionStatus.FAILED:
             if self.tables or self.manifest is not None:
                 raise ValueError("FAILED canonical projection must not publish tables or manifest")
@@ -506,6 +518,18 @@ def _require_diagnostics(diagnostics: tuple[ProjectionDiagnostic, ...]) -> None:
     for item in diagnostics:
         if type(item) is not ProjectionDiagnostic:
             raise ValueError("diagnostics must contain ProjectionDiagnostic")
+
+
+def _require_omitted_diagnostic_count(
+    status: ProjectionStatus,
+    diagnostics: tuple[ProjectionDiagnostic, ...],
+    omitted_diagnostic_count: int,
+) -> None:
+    _require_non_negative_int(omitted_diagnostic_count, "omitted_diagnostic_count")
+    if status is ProjectionStatus.COMPLETE and omitted_diagnostic_count != 0:
+        raise ValueError("COMPLETE projection omitted_diagnostic_count must be 0")
+    if omitted_diagnostic_count > 0 and len(diagnostics) != MAX_DIAGNOSTICS:
+        raise ValueError("omitted_diagnostic_count requires max_diagnostics retained")
 
 
 def _require_non_negative_int(value: object, label: str) -> None:

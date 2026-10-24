@@ -411,6 +411,7 @@ def _build_frozen_projection(
     projection = ProjectionResult(
         status=ProjectionStatus.COMPLETE,
         tables=tuple(projected_tables),
+        omitted_diagnostic_count=0,
         manifest=frozen_manifest,
         import_input=RepositoryImportArtifactInput(
             package_version=PACKAGE_VERSION,

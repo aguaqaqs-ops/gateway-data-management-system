@@ -570,6 +570,7 @@ implementation_authorized: no
   1. **专用测试节点。** 所有测试、容器门禁和取证都在 `ct108-gw-dms` 上执行，不回退到开发主机；节点不可用或前提不满足时等待恢复。整机单飞（Dolt、Compose、8000 端口）等运行前提照旧适用于该节点。
   2. **backend/worker 的 carried 判定。** 不再比较 image ID。在运行 `V` 门禁的同一 worktree 中检出最终 HEAD，计算 backend 包的闭包 manifest，与 `V` 那次 runner 起始时的 backend manifest 逐项相等，即视为 backend/worker 镜像身份相等。repository-service 仍按 build-input/source-tree label 判定。carried 的其余条件不变；发布与最终 production gate 仍须在最终 HEAD 重建并完整运行。
 - **落点**：AGENTS.md「跑测试」「镜像身份等价」；testing-conventions「镜像身份等价与结果沿用」；治理修订计划 §3 第 10 项。
+- **修订（DC36，2026-10-24）**：测试节点由一台扩为三台分工，生效条件与规则见 §19；生效前本决议第 1 项照旧适用。
 
 ## 18. Phase 6 的目标设定方法（DC35，2026-10-24）
 
@@ -587,3 +588,21 @@ implementation_authorized: no
   8. **统计方法。** 每个负载预热 1 次、测量 3 次，取中位数并报告范围。W1、W4 按冷启动测量（规范表存储中只有已提交基线的条目）；W2、W3 允许命中上一次 Preview 留下的临时条目，报告写明状态。失败运行不计入。门槛只在取证运行中判定，普通 CI 不设计时阈值（Performance Measurement §7）。
 - **修订**：DC30 第三部分与 DC31 第三部分第 4 项中的容量目标由本决议取代其门槛形式；DC30 的规模（约 2× t4）与 10 分钟数值保留，后者转为完成时间硬上限。
 - **落点**：Phase 6 规划讨论稿 §3、§13（A1、A3 决议，D2 部分决议，新增 P7 项）；后续 Phase 6 设计与测量 runbook；implementation-stages §9 的退出条件在 Phase 6 设计时改写。
+
+## 19. 测试节点扩为三台分工（DC36，2026-10-24）
+
+#### DC36 参考与取证、门禁、调试三类节点分开；各节点各自单飞
+
+- **来源**：Phase 6 讨论中评估测试耗时。全量门禁约 37 分钟，主要在两个串行批次；真实数据 t1–t4 一轮约 4.2 小时（t4 约 1.85 h、t3 约 1.14 h、t2 约 0.58 h、t1 约 5 min）。同一节点须整机单飞（Dolt 残留检查扫描整机进程、Compose 共用 8000 端口），DC35 又要求测量期间独占参考节点，门禁、真实数据、调试与测量只能排队。瓶颈不在核数，而在同一节点上的串行排队。owner 另有不共享硬件的独立资源。
+- **决议**（repository owner，2026-10-24）：
+  1. **三类节点。**
+     - 参考与取证节点：`ct108-gw-dms`（128 vCPU、96 GiB）。Phase 6 性能测量（DC35 参考环境）与真实数据 t4。
+     - 门禁节点（新节点 A）：权威全量 runner、容器门禁与 carried。
+     - 调试与辅助节点（新节点 B）：focused 测试、Rust 编译、解析器差分测试套件、真实数据 t1–t3。
+     三台节点之间不共享硬件；开发主机只用于编辑，不运行测试（DC34 原则不变）。
+  2. **各节点各自满足运行前提。** 整机单飞、clean 已提交 worktree、legacy 链接、日志与权限、umask、TMPDIR 与 runner 环境等规则在每台节点上分别适用。
+  3. **carried 与来源 V 同节点、同 worktree。** 闭包 manifest 包含 Docker 守护进程身份与本机镜像 ID，跨节点计算不得用于判定“可沿用”或“运行”；门禁与 carried 固定在门禁节点。
+  4. **真实数据可与门禁在不同节点并行。** 前提是同一个 V；各自记录起止 HEAD 与 exit code。为减少门禁失败时的浪费，可在门禁的并行批次通过后再启动真实数据。DC30 中“完整运行权威 runner 一次，随后在同一 V 上完整运行真实数据一次”的“随后”据此放宽为“同一 V 上各运行一次”。真实数据按档拆到参考节点与调试节点时，同一档的完整旅程在同一节点内完成。
+  5. **新节点初始化。** 与 ct108 一致的 OS、Docker、uv、Dolt、Rust 工具链与 runner 环境（`TMPDIR=/home/dev/gdds-test-tmp` 等）；首次构建 client e2e 镜像，之后照旧不得手工删除；代码同步沿用 git bundle，不经 GitHub。真实数据由 owner 放置在需要的节点，约定不变。
+  6. **生效条件。** 两台新节点按初始化清单完成并通过核对（工具版本与 ct108 一致，各自完整运行一次权威 runner 且 exit 0）后生效；生效时同步修订 AGENTS.md「专用测试节点」与 testing-conventions。生效前，所有测试仍按 DC34 在 `ct108-gw-dms` 上执行。新节点规格由 owner 稍后提供。
+- **落点**：生效时修订 AGENTS.md「跑测试」「镜像身份等价」、testing-conventions、执行计划 §8.9；Phase 6 规划讨论稿 §13 D2。

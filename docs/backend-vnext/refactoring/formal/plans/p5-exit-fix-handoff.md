@@ -130,7 +130,7 @@ F1 唯一行为 owner 仍为 `vnext/backend/tests/test_preview_job_materialize.p
 
 本轮 V 为 `6badf722c9e8e243e7802bb37ae1afe8893d4872`，基于 H `ddd1b2a1cf50eb046243b66bea0c69022b25330c`。其前一候选 `573b2c0d12` 的 backend mypy 因测试把 `int` 与 `int | None` 相加而按停止规则终止；`6badf722c9` 只在该求和断言前加入 `assert persisted.diagnostic.omitted_count is not None`，没有改类型、语义或其他文件。此修正提交重新从五包静态检查开始验收。
 
-`573b2c0d12` 上此前 508 项 focused 调试通过，但该结果不作为 V 证据。正式候选 `6badf722c9` 的五包静态检查 / `import_rules` → focused → R2-O3 unit collect → preflight → fresh RS → 全量 runner → postflight 按序从头执行；Focused 全文件 631 passed，随后单独复跑 MODIFIED_ONLY 3×400 nodeid，1 passed。
+`573b2c0d12` 上此前 508 项 focused 调试通过，但该结果不作为 V 证据；调试日志为 `focused-debug-573b2c0d12-20261024.log`。backend mypy 停止日志为 `static-import-rules-573b2c0d12-20261024.log`。正式候选 `6badf722c9` 的五包静态检查 / `import_rules` → focused → R2-O3 unit collect → preflight → fresh RS → 全量 runner → postflight 按序从头执行；Focused 全文件 631 passed，随后单独复跑 MODIFIED_ONLY 3×400 nodeid，1 passed。
 
 | 顺序 | 结果 | ct108 记录 |
 | --- | --- | --- |
@@ -156,3 +156,17 @@ V runner 起始 manifests 已从实际全量 runner 日志提取并校验 clean 
 相对上一 H `ddd1b2a1cf`，V 的 `git diff --stat` 为 7 个文件、178 insertions / 27 deletions；改动限于投影诊断省略计数的 capability / Preview 失败路径及对应构造与行为测试。成功投影结果始终提供 0，成功路径语义不变；没有改 Operation Contract 文本、control DB schema、RS API 或 storage projection 的诊断产生逻辑。本轮依据 `458b40fbea` 的 DC33 决议不重跑真实数据，也不运行 DC32 测量。未遇到 auto mode 拒绝。
 
 本节提交后在 V runner 的同一 ct108 worktree 执行 H carried；carried 比较与最终 handoff commit 的记录随后附于本节。来源必须直接使用上述 V runner manifests，不引用其他 carried 结果。
+
+### 本轮 H1 carried
+
+本节首次 handoff 提交 H1=`32bf1ab5ce691d0120e94c8bd15999d06df9e409` 后，在 V runner 的同一 ct108 worktree、相同环境下与 V runner 起始 manifests 逐包 compare。每包均使用原 runner 路径 `HYPOTHESIS_STORAGE_DIRECTORY=/home/dev/gdds-test-tmp/gateway-runner-hypothesis/<package>`，manifest 前后对应目录均不存在；五包均为“可沿用”、`changed_components=[]`，current 与 V source total_digest 相等。
+
+| Package | V source / H1 current total_digest | H1 compare |
+| --- | --- | --- |
+| `shared_kernel` | `630927157f24e0aaddab1a98199d19cd8f979246181f958f1075f5c76cedbb5f` | 可沿用 |
+| `repository_contracts` | `a7025c2aeee34e562739bbff0af3e1cd4d7cc3b524baa56e5b95ec05b50d5425` | 可沿用 |
+| `repository_client` | `ac29d6e19391d9deca18bfe43994766627183312c211314550363e9945270885` | 可沿用 |
+| `backend` | `145ce59abb434326c79994e5254f0beb41974610584d30544dd4113dbba34387` | 可沿用 |
+| `repository_service` | `8bf2f982abbadcafe27498a2f32e79b81e7800919ffe83de13fb2d6a21483c33` | 可沿用 |
+
+H1 carried 日志为 `h1-carried-32bf1ab5ce-20261024.log`；current manifests / compare JSON 分别位于 `h1-current-manifests-32bf1ab5ce-20261024/`、`h1-compares-32bf1ab5ce-20261024/`。最终 handoff commit H2 提交后，会在同一 worktree 再按 V runner 环境重跑五包 carried，并核对 RS identity / labels；H2 的 post-commit 结果以 `h2-carried-final-6badf722c9-20261024.log` 和 `h2-*-final-6badf722c9-20261024/` 为准，source 始终直接引用 V runner manifests。

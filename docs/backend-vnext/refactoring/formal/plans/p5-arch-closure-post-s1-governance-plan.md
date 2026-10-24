@@ -572,3 +572,16 @@ R2-F1 已修复，carried 第 3 条已写明检出最终 HEAD。方案报告推�
    - EXIT-F3：Canonical Storage 标头的 projection version 订正为 2，由审核方在 exit 状态更新中处理。
    - EXIT-F4：G11 R2-O3 并入本次修复（`test_http_admission_shutdown_process.py` 的子进程用例标 `integration`）；5B-S8 的 occupancy-assertion-gap 与 private-process-access 接受现状并关闭，重开条件为下次修改 T3 崩溃屏障或 Repository restart harness。
    - 流程：修复在 `/home/dev/gdds-p5-exit-fix`（分支 `p5-exit-fix`，基于 `p5-exit-review` `85ebfb9a95`）实施；新 V 上 fresh RS 镜像与全量 runner，H 只改 handoff 并做 carried。真实数据不重跑：改动只影响投影失败路径，成功路径语义不变（DC33，owner 确认）。修复后由原审核方复审，复审记录追加到 `p5-exit-review.md`；审核方终审通过后在复审提交上打 `p5-exit`，以 `--no-ff` 合入 main。
+   第一次复审：定向修订（2026-10-24）：
+   - 审核对象 H `ddd1b2a1cf`（V `88ba238a88`），报告 §9 提交于分支 `p5-exit-rereview` `e9f80f8acc`。EXIT-F2、EXIT-F4 关闭；EXIT-F1 未完全关闭，剩 EXIT-R1-F1：storage projection 的诊断上限 1024 截断时不计数，Preview 只对收到的明细计算 `omitted_count`。3 表 × 400 个失败列的合成输入公开为 100 条明细加 924，应为 100 加 1100。
+   - 审核方核实成立。修正方向在 EXIT-F1 决议范围内，无新决议：两种投影结果携带被截断的诊断数，各截断点累加，Preview 透传并在 FULL 两侧汇总。列出的明细为保留集排序后的前 100 项，只保证有序、确定且总数精确，不要求是全部失败中排序最小的 100 项，不收集无上限列表。取消与超时保持单条诊断语义。
+   - 修复期间两次在静态检查停止（`75946afda3` 的 3 项 backend mypy；`573b2c0d12` 的 1 项测试类型收窄），均为机械修正，新建提交后从静态检查重跑，无新决议。
+   P5 整体 exit 终审通过（2026-10-24）：
+   - 第二次复审通过，阻塞项 0：审核对象 H `8cfc518598`（V `6badf722c9`），报告 §10 提交于分支 `p5-exit-rereview-2` `bdf04c3651`（逐字保留 §1–§9）。
+   - 审核方终审核对：`ddd1b2a1cf..V` 生产改动限 storage projection 结果计数、截断点累加、Preview 透传与 import publication 构造点；`_selected_inputs` 新增的取消/超时分支与原行为等价（运行时失败只带一条诊断）。测试新增两条进入既有 `PROJECTION_FAILURE_CASES`（MODIFIED_ONLY 1200、FULL 2400），明细断言仍精确锁定条数；结果字段校验进入 `test_storage_projection_contracts.py` 共享参数表。
+   - ct108 原始日志：V 五包静态检查与 import_rules 0/0/6；focused 631 passed；fresh RS 镜像 labels 一致；全量 runner umask 022、起止 V、clean、exit 0，共 5439 passed、1 skipped（242/152/154；backend 2917 + 39；RS 1730 + 1 skipped + 205）。H 只改 handoff，实施方与复审方各自在 V runner 同一 worktree 做五包 carried，全部可沿用；RS build-input 与 source-tree label 与 H 重算一致。复审方独立合成边界检查 100 + 1100、100 + 2300，exit 0。
+   - 非阻断记录：单侧失败也经汇总分支，概要 message 出现重复前缀（如 “uploaded canonical projection failed (1200 diagnostic(s)); uploaded canonical projection failed on MODIFIED (1200 diagnostic(s)); …”）。数字正确，message 为不超过 255 字符的概要，结构化信息在 `details`/`omitted_count`，不修改。
+   - 真实数据：按本轮 DC33 决议不重跑；本轮生产改动只涉及投影失败的诊断与计数，成功路径语义不变。
+   - G6b 重新评估：本次 exit review 在 M 上 fresh 全量，是因为 G10 清理已删除原门禁 worktree，属计划内选择，不是 carried 判定失败；两轮修复的 carried 均在门禁 worktree 内由实施方与审核方复现成立。审核方判断未触发 G6b 重新评估条件，维持 C；owner 可另行重开。
+   - 附注 tag `p5-exit` 指向 `bdf04c3651`，以 `--no-ff` 合入 main。EXIT-F3 及报告 §7 列出的状态文本在合入后统一更新。
+   - 保留：分支 `p5-exit-review`、`p5-exit-rereview`、`p5-exit-rereview-2`、`p5-exit-fix` 及对应 worktree（含 ct108 的 `/home/dev/gdds-p5-exit-fix`）暂不删除，之后按 G10 方式先列清单再清理。推送由 owner 另行决定。

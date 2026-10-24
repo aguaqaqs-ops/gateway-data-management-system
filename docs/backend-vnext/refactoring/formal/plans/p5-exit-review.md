@@ -427,3 +427,169 @@ build-input 指向 G13 V 是身份算法的产品输入结果，并不表示复�
 | G13 secret 权限、pytest cache、TMPDIR、Hypothesis | 已完成，V=b93748c04e，最终记录在治理 §3 第13项与 `P/p5-g13-handoff.md`。当前 M 与该 V 的 vnext/AGENTS 相同；本次 fresh runner 证明正常 022 路径、五包 cache 隔离与退出清理。原 077/失败后沿用/新 worktree 沿用验收只引用该阶段已记录范围，未冒充本次另测。 |
 
 G1–G13 的完成记录与本次两个业务/验收 finding 不冲突：治理门禁可以全部通过，而既有测试仍漏掉 Contract 要求。整体结论因此保持 **定向修订，2 个阻塞项**。
+
+## 9. 第一次复审（2026-10-24）
+
+### 9.1 结论与固定对象
+
+- 结论：**定向修订；剩余 1 个阻塞项，EXIT-F1 未完全关闭**。EXIT-F2 已关闭，EXIT-F4 已按修复与 owner 决议关闭；EXIT-F3 仍为已安排统一状态更新的非阻塞文档项。
+- 审核对象 H：`ddd1b2a1cf50eb046243b66bea0c69022b25330c`；门禁提交 V：`88ba238a88af23eea00ee0d15dae504d6731dd95`；复审区间：`85ebfb9a95..H`。本节行号指 H。
+- 依据：原报告 EXIT-F1/F2/F4 关闭标准；`458b40fbea` 上治理计划 §3 第13项末尾的 owner 决议；H 的 `p5-exit-fix-handoff.md`；现行 Business Lifecycle §2、Operation Lifecycle §6.2；执行计划 §8 与 AGENTS/testing-conventions。§1–§8 保留为初审历史记录，本节为本次复审结论。
+- 开发主机在独立 detached `/home/dev/gdds-p5-exit-rereview` 审查 H，并建立 legacy 链接；没有在实施工作区写源码。独立 carried 与唯一新增的合成边界检查只在 ct108 原 V runner 的 `/home/dev/gdds-p5-exit-fix`、HEAD=H、clean 状态下执行。
+- 没有读取真实数据、运行 DC32、重建镜像或重跑完整 runner。复审检查出现失败后立即停止，未调试、未修代码、未重跑；只完成此复审记录。
+
+### 9.2 原 finding 关闭情况
+
+| 原 finding | 关闭情况 | H 上的依据 |
+| --- | --- | --- |
+| EXIT-F1 全部投影失败明细与 side | **部分关闭，仍阻塞** | `B/application/preview_jobs.py:1089` 遍历 FULL 两侧；`:1323` 把投影诊断映射为带 side/table/column 的明细；`:2129` 写入 terminal Operation/Step。Operations v2、SQLite JSON blob、HTTP mapper 接线成立，现有多表/多列/双侧/101项测试通过；但上游 1024 项截断没有计入新 `omitted_count`，见 §9.3。 |
+| EXIT-F2 ADDITIVE 新 Preview 读取旧基线 | **已关闭** | `T/test_preview_job_materialize.py::test_additive_ruleset_previews_nonempty_baseline_from_older_manifest` 构造非空基线 A 的 manifest；B 保留 A 全部规则并追加 exact BROWSE_ONLY 规则，A/B digest 不同。新任务冻结 B，经生产 materialize 与 assemble handler 成功；旧基线仍 pinned，上传 manifest 为 B；实际 pair pipeline 的新表事实为 ADDED_TABLE、content_changed=true、无 records_ref，验证 B 的语义。观测包装调用原 pipeline，并非替换其结果。既有 stale Preview、跨激活恢复拒绝测试未被删除或放宽。 |
+| EXIT-F3 Canonical Storage projection version 标头 | **非阻塞，待统一更新** | H 未修改该标头；owner 在 `458b40fbea` 明确交审核方在 exit 状态更新时订正为 2。本次复审不提前修改 Contract 或签署 exit。 |
+| EXIT-F4 / G11 R2-O3 | **已关闭** | `T/test_http_admission_shutdown_process.py:31` 同时标 integration/serial；V 的 unit collect 为 3 deselected / 0 selected。pytest exit 5 是该空选择检查的预期结果，不是失败 runner。完整 runner 仍实际执行这 3 项。 |
+| EXIT-F4 / occupancy-assertion-gap、private-process-access | **已按 owner 决议关闭** | `458b40fbea` 的治理计划 §3 第13项明确接受现状；重开条件为下次修改 T3 崩溃屏障或 Repository restart harness。无需为了关闭旧建议新增测试矩阵；这不是宣称两处代码已经改动。 |
+
+修订的合理部分已核对：`OperationDiagnosticDetail` 的字段、排序、100 项上限及 omitted_count 配对校验属于既有 Operations owner；Operation/Step document version 提升为 v2，未加入旧版兼容分支。SQLite store 继续以 `to_document()`/parser 读写原 JSON blob；新增文件型 DB 关闭后重开测试确实回读 Operation 与 Step 明细。HTTP Operation 与 History diagnostic schema/mapper 同步，OpenAPI 结构断言存在。未新增独立 artifact、incident 状态机或生产依赖。
+
+### 9.3 EXIT-R1-F1：上游诊断截断未计入 omitted_count（EXIT-F1 未完全关闭）
+
+- 类型：**已证实缺陷**；是否阻塞：**是**。这是原 EXIT-F1 的边界遗漏，不把它另计成第二个未关闭阻塞项。
+- 位置：
+  - `B/capabilities/storage_projection/contracts.py:49`：`MAX_DIAGNOSTICS = 1024`；
+  - `B/capabilities/storage_projection/project.py:807`：只把剩余容量内的诊断追加到结果，后续失败诊断丢弃；`:220` 的 canonical 结果还有一次最多 1024 项的截断；
+  - `B/application/preview_jobs.py:247`：只计算收到的明细超过 100 的数量；`:1118` 起的两侧汇总只累加这些已知数量，无法计入 capability 先前丢掉的条目；
+  - `F/contracts/operation-lifecycle-and-integrity.md:137` 附近：omitted_count 记录“未列出的总项数”；owner 决议要求 FULL 汇总全部投影失败，最多列 100 项，其余计数。
+- 依据：原 DC14、EXIT-F1 及 `458b40fbea` 的有界明细决议。已有 capability 1024 上限可以保留；问题是新增的“总项数”契约不能把上游截断当成从未发生。
+- 触发场景与影响：MODIFIED_ONLY 上传三张合成表，每表 400 个不受支持的 DECIMAL 列，另有一个合法 INT 主键；每表 401 列，低于 parser 的 512 列上限。生产 Preview materialize handler 实际识别投影失败，公开 Operation 最终为 FAILED，但输出只有 100 条 details、omitted_count=924，概要称共 1024 项。实际有 1200 个失败列，正确的省略数应为 1100；176 项在上游被静默丢弃。用户收到错误的失败总数，不能据“已列 + 已省略”判断完整失败范围。
+- 独立复现：在 H 的 ct108 clean worktree 复用现有 Preview harness 和纯合成 SQL，经生产 handler、SQLite store、`operation_to_response` 读取公开结果；没有 mock projection，没有真实 Dolt/Compose/真实数据。日志 `independent-diagnostic-boundary-20261024.log`：
+
+  ```text
+  SYNTHETIC_INPUT tables=3 unsupported_columns_per_table=400 expected_total=1200
+  OPERATION_STATUS= FAILED
+  PUBLIC_LISTED= 100
+  PUBLIC_OMITTED= 924
+  PUBLIC_ACCOUNTED= 1024
+  AssertionError: 1200 failures require 100 listed + 1100 omitted; upstream cap lost failures
+  END_HEAD=ddd1b2a1cf50eb046243b66bea0c69022b25330c
+  END_STATUS=
+  EXIT_CODE=1
+  ```
+
+- 最小修正方向：在现有投影结果链中保留有界列表，并透传上游已省略计数/完整诊断计数，再与 Operation 100 项截断及 FULL 两侧计数合并。无需保存无上限列表、增加失败 artifact 或另建 evidence 机制。若选择改变“精确总数”语义，须由 owner 明确修订当前承诺，不能继续输出貌似精确的 1024。
+- 关闭标准：在 Preview 唯一测试 owner 的现有共享参数表中增加超过 capability 1024 上限的合成输入，断言公开 `len(details) + omitted_count` 等于完整失败数、列表不超过 100、排序与 side 保持、整体 FAILED 且无 READY/Repository effect；两侧计数的合并同时核对。现有 101 项测试只能证明 Operation 自身的上限，不能证明跨 capability 上限的累计。
+- 停止记录：该检查 exit 1 后停止所有进一步测试、carried 和门禁操作。没有修改或重跑失败检查，也未尝试其他边界输入；下述 carried 是失败发生前已完成的独立复算。
+
+### 9.4 提交范围、停止记录与真实数据适用性
+
+`85ebfb9a95..V` 为 16 个文件，生产改动集中于 Preview 失败诊断、Operations 契约及 HTTP 输出接线；另有相应测试、两份 Contract 文本与 benchmark 的调用适配。`V..H` **只改 handoff**（87 行），没有测试、源码、镜像输入或锁变化。
+
+`75946afda3..88ba238a88` 确实只改三文件：benchmark 给 `_materialize_uploaded_side` 传 MODIFIED side，OpenAPI 测试将 items 收窄为 dict 后读取 `$ref`，F2 测试删除无效 type-ignore。未改变计时边界、投影成功产物或 F2 场景。Handoff 已保留早期 debug focused 失败和“focused 先于静态”的顺序偏差，并明确那些结果不作 V 证据。独立读取的 V 静态日志、focused 日志与后续门禁记录均对应新 V；没有将旧失败候选的结果拼成通过证据。
+
+本轮产品 diff 不为空，因此不能沿用初审“从 S5 到 M 产品 diff 为空”的论证。真实数据免重跑的依据是 `458b40fbea` 中本轮 owner/DC33 明确批准：修订限投影失败信息、成功路径业务语义不变；benchmark 补 side 不改成功路径测量口径。没有据此宣称修复已在真实失败数据上验证；§9.3 是额外合成验收中发现的缺陷，不否定 S5 已交付的成功旅程测量。
+
+### 9.5 门禁原始记录与独立 carried
+
+日志根目录为 ct108 `/home/dev/gdds-p5-closure-s1-gate-logs/p5-exit-fix/`，目录 700，日志/manifest 文件 600。以下是对原始日志的独立核对，不冒充本次重新运行全量。
+
+| 检查 | 结果与日志 |
+| --- | --- |
+| V 五包 Ruff/mypy、import_rules | 全通过；mypy 34/15/26/486/200 个文件，import_rules 0/0/6。`static-import-rules-88ba238a-20261023.log` 起止 V，exit 0。 |
+| V focused 全文件 | 845 passed，exit 0；`focused-88ba238a-20261023.log`。DC32 对应文件为 synthetic 测试，不是重新测量。 |
+| R2-O3 unit collect | 3 deselected、0 selected；`r2-o3-unit-collect-88ba238a-20261023.log`。 |
+| V preflight / fresh RS | 无 Dolt、容器、Compose、8000 listener，clean；build 脚本实际执行，fresh image 与 candidate revision、build-input/source-tree/lock labels 相符；`preflight-88ba238a-20261023.log`、`fresh-rs-build-88ba238a-20261023.log`。 |
+| V 权威全量 | shared_kernel 242、repository_contracts 152、repository_client 154；backend parallel 2912、serial 39；RS parallel 1730 + 1 skipped、serial 205。共 **5434 passed、1 skipped，runner exit 0**，起止 V/clean；`full-runner-88ba238a-20261023.log`。 |
+| Compose / skipped | 两个 serial 批次均 0 skipped；唯一 skipped 仍为未修改的 host-only delegated target-container cgroup smoke，RS 测试及 runner 筛选未改。未重跑 Compose 或另跑 skip 诊断。 |
+| V postflight | clean、无 Dolt/容器/Compose/8000 listener，五包 Hypothesis 目录不存在，root 为空，RS labels 匹配；`postflight-88ba238a-20261023.log`。 |
+| 实施方 H carried | `h2-carried-final-20261023.log` 固定最终 H，五包可沿用，起止 H/clean，exit 0；不是只停留在较早 handoff 提交。 |
+| **复审方独立 carried** | `independent-carried-20261024.log`：从 V runner 原文逐包解析 JSON，确认与保存的 V manifests 完全相等；在原 runner 同一 worktree、HEAD=H 重算五包当前 manifest 并 compare，**全部可沿用、changed_components=[]**；RS labels 匹配，起止 H/clean，exit 0。 |
+| **复审方新增边界检查** | `independent-diagnostic-boundary-20261024.log`：§9.3 合成场景 exit 1；起止 H/clean。随后停止，不以此前 runner 成功掩盖此失败。 |
+
+独立 carried 使用原 V 的 umask 022、HOME/LC_ALL/PATH/TMPDIR 与 skip-lock-assert 设置，未设置 UV_CACHE_DIR/GATEWAY_TEST_PACKAGES/GATEWAY_TEST_BASETEMP；manifest 时逐包显式设定 V runner 相同的 Hypothesis 路径并确认不存在。当前 manifest 与 compare 存于 `independent-review-20261024/`，均在 worktree 外。该复算发生在新增边界检查之前，不把其结果表述为失败检查后的再次 carried。
+
+| 包 | 独立复算的 V/H 相同 total_digest |
+| --- | --- |
+| shared_kernel | `630927157f24e0aaddab1a98199d19cd8f979246181f958f1075f5c76cedbb5f` |
+| repository_contracts | `a7025c2aeee34e562739bbff0af3e1cd4d7cc3b524baa56e5b95ec05b50d5425` |
+| repository_client | `ac29d6e19391d9deca18bfe43994766627183312c211314550363e9945270885` |
+| backend | `e738203b9d7dbca9ca579151919564cd58d1ee287f30b668b8106456542cc816` |
+| repository_service | `b80d22fd57ee5af0f6f8843c2541034b1ab00ccb9474ff61c4b5759ff32e59b3` |
+
+RS image 为 `sha256:22cd13dfa799bec4c8f20547dae051c211d1d050c02ddf3aac4f51781429c979`；build-input revision 为 `b93748c04e63be4eeece66cb5abaadf13fd7b6d3`，source-tree 为 `sha256:b24fa92dbbb59d00617eec838a22ca947fa98fe42fab996770aa9b9e20f7f15c`。revision label 保留 V，H 重算两个身份 label 一致；image ID 仅记录，不作为跨构建等价条件。backend/worker 由同 worktree backend manifest 判定，未跨 worktree 重算替代原输入。
+
+### 9.6 剩余前置与处置边界
+
+先关闭 §9.3 的精确计数缺口，再复审 EXIT-F1；当前不能宣布 P5 整体退出。原 §6 的两组不可达模块、Phase 6 性能项与其余已登记重开条件未受本轮改动影响，不重开已成立的架构收口；§7 的状态文本更新及 EXIT-F3 仍留给统一 exit 状态更新。
+
+本轮仅追加此报告，初审原文不改；报告提交从 H 派生，不改实施分支或 main。未推送、合并、rebase 或打 tag；未清理实施方仍需用于下一轮的 ct108 worktree、镜像、缓存或已有证据。
+
+## 10. 第二次复审（2026-10-24）
+
+### 10.1 结论与对象
+
+- 结论：**通过；阻塞项 0**。EXIT-F1 及其第一次复审遗漏 EXIT-R1-F1 已关闭；EXIT-F2、EXIT-F4 的关闭结论保持。EXIT-F3 仍是 owner 已安排在统一 exit 状态更新中处理的非阻塞标头订正，不作为本次通过的隐藏前置。
+- 审核对象 H：`8cfc518598cc5b34cc64bd53839568909a69a1d4`；门禁提交 V：`6badf722c9e8e243e7802bb37ae1afe8893d4872`；复审代码区间：`ddd1b2a1cf..H`，对应上一份复审报告提交 `e9f80f8acc` 的 §9.3。上一复审报告没有合入实施分支，本报告逐字保留该提交的 §1–§9，再追加本节，不把它误写成 H 已包含的提交。
+- 依据：§9.3 关闭标准、原 DC14/EXIT-F1、`458b40fbea` 中的 owner 决议、H 的修复 handoff、AGENTS/testing-conventions 与执行计划 §8。仅核对本轮差异、原 finding 及改动传播；初审其他成立项不重新展开。
+- 本地审核在独立 detached `/home/dev/gdds-p5-exit-rereview-2`、HEAD=H 进行，已建 legacy 链接。独立运行检查只在 ct108 原 V runner 的 `/home/dev/gdds-p5-exit-fix`、HEAD=H、clean 状态下完成。
+
+综合初审、第一次复审和本轮结果，P5 整体 exit 的阻塞性缺口已消除，整体收口验收成立。§6 的已登记延期与重开条件仍保留；本次通过不表示 Phase 6 容量目标已达成，也不代替后续统一状态更新、打 tag、合并或发布动作。
+
+### 10.2 Finding 关闭与源码核对
+
+| 项 | 结论 | H 上的证据 |
+| --- | --- | --- |
+| capability 1024 项截断计数 | 已修复 | `B/capabilities/storage_projection/contracts.py:391`、`:428` 为两种 result 增加必传 `omitted_diagnostic_count`；`:523` 校验非负整数、COMPLETE 为 0、正省略数须已有 1024 项。没有用默认 0 掩盖旧构造点。 |
+| 逐表、前置失败与 canonical 合并 | 已修复 | `project.py:270` 的 `_retain_diagnostics` 保持列表有界并返回本次省略量；`:822` 计算前置失败截断；`:845` 逐表累加；`:224` 同时加入上游省略数及 canonical 合并截断；`:250` 处理 canonical 组装失败。两个 canonical FAILED 返回点带真实累计值，不再静默切片。 |
+| Preview 单侧及 FULL 总数 | 已修复 | `B/application/preview_jobs.py:1335` 概要采用收到条目数加上游省略数；`:1366` 透传给 PreviewJobError；`:267` 再加 Operation 100 项截断；`:1122` 起 FULL 合并两侧已保留条目和省略数。没有重复计数或把上游截断当成零。 |
+| 成功/取消路径传播 | 无成功语义回归证据 | COMPLETE 构造明确传 0，包括 `B/infrastructure/repository_write/import_publication.py:414` 的冻结导入结果；manifest、canonical bytes、投影内容与 import 渲染未改变。取消/超时仍返回专属单条诊断，不承诺统计未完成扫描的全部失败；未扩大扫描或引入无界列表。 |
+| 权威行为测试 | 关闭标准满足 | `T/test_preview_job_materialize.py` 的现有 `PROJECTION_FAILURE_CASES` 新增 MODIFIED_ONLY 1200 项和 FULL 2400 项；生产 handler → control DB 重读 → HTTP mapper，检查完整总数、100 项上限、side/排序、FAILED、无 READY/assemble/Repository effect。原 101 项与 ADDITIVE 用例保留。两种 result 的非法计数由 `test_storage_projection_contracts.py::test_projection_results_validate_omitted_diagnostic_count` 共享参数表验证。 |
+| EXIT-F2 / EXIT-F4 | 保持已关闭 | 本轮未改变 A/B 规则测试的业务构造和成功断言，正式 focused 与 full runner 包含它；R2-O3 仍为 integration/serial，unit collect 0 selected。其余两项旧观察的 owner 接受决定不变。 |
+
+明细选择与顺序已核对：capability 按处理顺序保留前 1024 条，Operation 对保留集稳定排序后取前 100；FULL 再合并两侧。它保证已列条目有序、数量有界、完整失败总数精确，**不承诺列出全部失败中全局排序最小的 100 条**。Handoff 明确了这个区别，与 owner 的有界明细和排序要求相容。
+
+**新增 findings：无。** EXIT-R1-F1 是原 EXIT-F1 的最后一处遗漏，本轮关闭后不再保留为阻塞或延期项。
+
+### 10.3 独立重验原失败场景
+
+复审方在 ct108 的 H 上再次构造纯合成 SQL，复用既有 Preview harness，但自行从生产 handler、SQLite store 和 `operation_to_response` 读取并断言实际公开结果；没有 mock projection，也未使用真实数据或真实 Repository effect。除原 MODIFIED_ONLY 3×400 外，同次检查增加 FULL 两侧各 3×400，未写入新的测试文件。
+
+| 输入 | 公开 details | 公开 omitted_count | 已列 + 省略 | 其他断言 |
+| --- | ---: | ---: | ---: | --- |
+| MODIFIED_ONLY，3 表 × 400 失败列 | 100 | **1100** | **1200** | FAILED；明细排序稳定、side=MODIFIED；概要计数 1200；无 READY closure / Repository operation effect。 |
+| FULL，两侧各 3 表 × 400 失败列 | 100 | **2300** | **2400** | FAILED；保留的明细 side=INITIAL、排序稳定；概要计数 2400；无 READY closure / Repository operation effect。 |
+
+日志：`independent-diagnostic-boundary-r2-20261024.log`，起止 HEAD 均 H、worktree clean、exit 0。合成表每张包含 400 个失败列和合法 INT 主键，共 401 列，未越过 parser 的 512 列限制。结束后的 Dolt/容器/Compose/8000 检查为空，runner Hypothesis root 为空；临时合成产物已随测试临时目录清理。上次 100+924 的错误结果被直接纠正，不只是换了断言或文字说明。
+
+### 10.4 验证来源、停止记录与 carried
+
+`573b2c0d12..V` 确实只有 `T/test_preview_job_materialize.py` 一行：在求和前断言 `omitted_count is not None`；未使用 ignore/cast，未改变求和值或业务预期。`ddd1b2a1cf..V` 为 7 个文件、178 additions/27 deletions；`V..H` 只有 handoff 85 行。此前 508 项 focused 属调试、不作为验收；mypy 停止后已在新 V 从五包静态检查重新开始。没有把调试结果或较早候选的成功结果拼入当前 V。
+
+ct108 日志根目录仍为 `/home/dev/gdds-p5-closure-s1-gate-logs/p5-exit-fix/`。原始验收日志均已独立读取核对，以下全量/focused 结果为 V 的实际运行，本次未重复执行整套门禁。
+
+| 检查 | 结果 / 日志 |
+| --- | --- |
+| V 五包 Ruff/mypy、import_rules | 全通过；mypy 34/15/26/486/200 文件；0/0/6。`static-import-rules-6badf722c9-20261024.log`。 |
+| V 正式 focused 全文件 | 631 passed；包含 Preview/Operations/control DB/HTTP/Storage Projection/import/prepare 等受影响完整文件，另单列 MODIFIED_ONLY 3×400 用例 1 passed。`focused-6badf722c9-20261024.log`。 |
+| V R2-O3 | 3 deselected / 0 selected；pytest 预期 exit 5，检查脚本 exit 0。`r2-o3-unit-collect-6badf722c9-20261024.log`。 |
+| V preflight / fresh RS / postflight | clean V，未发现 Dolt、容器、Compose 或端口占用；正式构建脚本成功，revision/identity/labels 匹配；结束五包 Hypothesis 目录不存在。`preflight-6badf722c9-20261024.log`、`fresh-rs-build-6badf722c9-20261024.log`、`postflight-6badf722c9-20261024.log`。 |
+| V 全量 runner | **5439 passed，1 skipped，exit 0**：242/152/154；backend 2917 parallel +39 serial；RS 1730 parallel +205 serial。起止 V/clean。`full-runner-6badf722c9-20261024.log`。 |
+| Compose / skipped | 两个 serial 批次均 0 skipped；唯一 skipped 为未改动的 host-only target-container cgroup smoke，与原定位相同。没有补跑 Compose 或重复定位已确定的 skip。 |
+| 实施方最终 H carried | `h2-carried-final-6badf722c9-20261024.log` 固定最终 H，五包可沿用，exit 0；不是仅 H1 的结果。 |
+| 复审方独立 carried | `independent-carried-r2-20261024.log`：从 V runner 原文逐包解析 manifest，确认与 `v-manifests-6badf722c9/` 保存文件完全相等；在同一个原 runner worktree、HEAD=H 重算 current 并 compare，五包全部可沿用、changed_components=[]、exit 0。 |
+| 复审方独立边界检查 | §10.3 两个场景实际通过，起止 H/clean、exit 0；`independent-diagnostic-boundary-r2-20261024.log`。 |
+
+独立 carried 使用 umask 022、原 HOME/LC_ALL/PATH/TMPDIR/skip-lock-assert 环境，逐包设置原 runner 的 Hypothesis 路径并确认目录不存在；未设置 UV_CACHE_DIR、GATEWAY_TEST_PACKAGES 或 GATEWAY_TEST_BASETEMP。日志显式 600，current/compare 目录 `independent-review-r2-20261024/` 为 700，文件 600，全部位于 worktree 外。
+
+| 包 | 独立确认 V/H 相等的 total_digest |
+| --- | --- |
+| shared_kernel | `630927157f24e0aaddab1a98199d19cd8f979246181f958f1075f5c76cedbb5f` |
+| repository_contracts | `a7025c2aeee34e562739bbff0af3e1cd4d7cc3b524baa56e5b95ec05b50d5425` |
+| repository_client | `ac29d6e19391d9deca18bfe43994766627183312c211314550363e9945270885` |
+| backend | `145ce59abb434326c79994e5254f0beb41974610584d30544dd4113dbba34387` |
+| repository_service | `8bf2f982abbadcafe27498a2f32e79b81e7800919ffe83de13fb2d6a21483c33` |
+
+RS image 为 `sha256:ed8c0d7bbf9e0c49ece0783fcf108d03fbfcaffc8cd56e626917f65c1d49dc41`，revision label 为 V；H 重算 build-input `b93748c04e63be4eeece66cb5abaadf13fd7b6d3`、source-tree `sha256:b24fa92dbbb59d00617eec838a22ca947fa98fe42fab996770aa9b9e20f7f15c` 与镜像 labels 相同，uv-lock label 与当前锁 SHA 相同。Image ID 仅记录，不作等价判据；backend/worker 依同 worktree backend manifest 判定。
+
+### 10.5 收尾与保留事项
+
+本轮未改成功路径 canonical/manifest/import 业务语义、依赖锁或部署边界；真实数据不重跑依据仍为 `458b40fbea` 的本轮 DC33 授权及实际改动范围，不以“产品 diff 为空”代替该判断。没有读取真实数据、运行 DC32 或新增性能结论。
+
+原 §6 的六个不可达模块、Phase 6 性能候选、已登记延期与重开条件继续有效；EXIT-F3 及 §7 状态文本由终审方统一更新，不能把历史“实现未授权/仍待 kickoff”当成当前事实。本轮只提交审核报告，保留初审与第一次复审历史；未修改源码、测试、Contract、ADR 或治理正文，未推送、合并、rebase、打 tag，也未清理实施方的 worktree、镜像或缓存。

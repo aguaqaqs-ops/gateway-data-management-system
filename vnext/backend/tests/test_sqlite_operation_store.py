@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -21,6 +22,8 @@ from gateway_backend.operations import (
     ConflictingDuplicate,
     LeaseExpired,
     OperationDiagnostic,
+    OperationDiagnosticDetail,
+    OperationDiagnosticSide,
     OperationRecord,
     OperationStore,
     OperationStatus,
@@ -167,6 +170,41 @@ def test_operation_mapping_round_trips_all_composite_fields() -> None:
     assert operation_record_from_row(row) == record
 
 
+def test_operation_mapping_round_trips_diagnostic_details_json_blob() -> None:
+    diagnostic = OperationDiagnostic(
+        code="UNSUPPORTED_TABLE",
+        message="2 projection failures",
+        details=(
+            OperationDiagnosticDetail(
+                code="UNSUPPORTED_TABLE",
+                side=OperationDiagnosticSide.MODIFIED,
+                table_name="broken_b",
+                column_name="bad_b",
+            ),
+            OperationDiagnosticDetail(
+                code="UNSUPPORTED_TABLE",
+                side=OperationDiagnosticSide.MODIFIED,
+                table_name="broken_a",
+                column_name="bad_a",
+            ),
+        ),
+        omitted_count=0,
+    )
+    record = dataclasses.replace(
+        _operation_record(),
+        status=OperationStatus.FAILED,
+        diagnostic=diagnostic,
+        completed_at=datetime_from_text(LATER_TIMESTAMP),
+        optimistic_version=1,
+    )
+
+    row = operation_record_to_row(record)
+
+    assert isinstance(row["diagnostic"], bytes)
+    assert json.loads(row["diagnostic"]) == diagnostic.to_document()
+    assert operation_record_from_row(row) == record
+
+
 def test_step_mapping_round_trips_retry_metadata_and_refs() -> None:
     record = _step_record()
     row = step_record_to_row(record)
@@ -194,7 +232,7 @@ CORRUPT_OPERATION_ROWS = (
     ("scalar is outside the R1 range", {"optimistic_version": -1}),
     ("boolean has invalid integer", {"cancel_requested": 2}),
     ("enum has unknown value", {"status": "UNKNOWN"}),
-    ("contract version is unknown", {"contract_version": "backend-vnext/operation-runtime/v2"}),
+    ("contract version is unknown", {"contract_version": "backend-vnext/operation-runtime/v1"}),
     ("canonical JSON is not UTF-8", {"job_payload": b"\xff"}),
     ("composite binding is inconsistent", {"job_payload": None, "job_payload_ref": None}),
 )
@@ -218,7 +256,7 @@ CORRUPT_STEP_ROWS = (
     ("boolean has invalid integer", {"cancel_requested": 2}),
     ("eligible metadata is inconsistent", {"eligible_at_us": 0}),
     ("status has unknown value", {"status": "UNKNOWN", "eligible_at_us": None}),
-    ("contract version is unknown", {"contract_version": "backend-vnext/operation-runtime/v2"}),
+    ("contract version is unknown", {"contract_version": "backend-vnext/operation-runtime/v1"}),
 )
 
 CLAIM_LOCAL_VALIDATION_FAILURES = (

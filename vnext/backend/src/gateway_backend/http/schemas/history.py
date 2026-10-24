@@ -18,6 +18,7 @@ from gateway_backend.http.schemas.constraints import (
     NonNegativeIJsonInt,
     Sha256Digest,
 )
+from gateway_backend.http.schemas.operation import OperationDiagnosticDetailResponse
 
 HistoryNodeRefKindLiteral = Literal["baseline_node", "submission"]
 HistoryNodeKindLiteral = Literal["BASELINE_NODE", "SUBMISSION", "SYSTEM_MIGRATION"]
@@ -142,6 +143,8 @@ class HistoryCompareDiagnosticResponse(BaseModel):
 
     code: str
     message: str
+    details: list[OperationDiagnosticDetailResponse] | None = Field(default=None, max_length=100)
+    omitted_count: NonNegativeIJsonInt | None = None
 
 
 class HistoryComparePairResultResponse(BaseModel):

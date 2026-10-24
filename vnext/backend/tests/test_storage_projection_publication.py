@@ -315,7 +315,12 @@ def test_manifest_publisher_does_not_require_an_import_package() -> None:
 
 def test_failed_projection_does_not_publish() -> None:
     store = InMemoryArtifactStore()
-    result = ProjectionResult(status=ProjectionStatus.FAILED, tables=(), diagnostics=())
+    result = ProjectionResult(
+        status=ProjectionStatus.FAILED,
+        tables=(),
+        omitted_diagnostic_count=0,
+        diagnostics=(),
+    )
     published = publish_canonicalization(
         result,
         store=store,

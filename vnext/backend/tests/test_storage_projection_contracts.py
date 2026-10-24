@@ -19,6 +19,7 @@ from gateway_backend.capabilities.storage_projection import (
     STORAGE_PROJECTION_VERSION,
     CanonicalizationManifest,
     CanonicalizationManifestTable,
+    CanonicalProjectionResult,
     NeverCancel,
     ProjectionDiagnostic,
     ProjectionDiagnosticCode,
@@ -64,6 +65,11 @@ FORBIDDEN_FIELD_NAMES = frozenset(
         "replay_sql",
         "parser_invocation_context",
     }
+)
+INVALID_OMITTED_DIAGNOSTIC_COUNT_CASES = (
+    ("negative", ProjectionStatus.FAILED, -1, (), "non-negative int"),
+    ("complete with omissions", ProjectionStatus.COMPLETE, 1, (), "must be 0"),
+    ("omissions below cap", ProjectionStatus.FAILED, 1, (), "requires max_diagnostics"),
 )
 
 
@@ -195,6 +201,7 @@ def test_failed_projection_must_not_publish_partial_import() -> None:
                     storage_view=_storage_view(),
                 ),
             ),
+            omitted_diagnostic_count=0,
             diagnostics=(
                 ProjectionDiagnostic(
                     code=ProjectionDiagnosticCode.REQUIRED_TABLE_FAILED,
@@ -204,6 +211,35 @@ def test_failed_projection_must_not_publish_partial_import() -> None:
                 ),
             ),
             import_input=_import_input(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("case_name", "status", "omitted_count", "diagnostics", "message"),
+    INVALID_OMITTED_DIAGNOSTIC_COUNT_CASES,
+    ids=tuple(case[0] for case in INVALID_OMITTED_DIAGNOSTIC_COUNT_CASES),
+)
+def test_projection_results_validate_omitted_diagnostic_count(
+    case_name: str,
+    status: ProjectionStatus,
+    omitted_count: int,
+    diagnostics: tuple[ProjectionDiagnostic, ...],
+    message: str,
+) -> None:
+    del case_name
+    with pytest.raises(ValueError, match=message):
+        ProjectionResult(
+            status=status,
+            tables=(),
+            omitted_diagnostic_count=omitted_count,
+            diagnostics=diagnostics,
+        )
+    with pytest.raises(ValueError, match=message):
+        CanonicalProjectionResult(
+            status=status,
+            tables=(),
+            omitted_diagnostic_count=omitted_count,
+            diagnostics=diagnostics,
         )
 
 
@@ -219,6 +255,7 @@ def test_complete_projection_binds_opaque_manifest_digest() -> None:
                 row_count=0,
             ),
         ),
+        omitted_diagnostic_count=0,
         manifest=_manifest(request.ruleset.ruleset_digest),
         import_input=_import_input(),
     )

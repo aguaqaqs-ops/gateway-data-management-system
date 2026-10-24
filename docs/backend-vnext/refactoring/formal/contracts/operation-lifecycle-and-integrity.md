@@ -118,18 +118,25 @@ Repository effect 和 external sync 的全局 quiescence 汇总。该 owner 拆�
   S1b 增加 `BusinessReference`、`OperationRecord`、`StepRecord`、`OperationDiagnostic` 与
   `operation_record_from_document` / `step_record_from_document`；S2b 增加
   `WritePrecondition`、`TransitionDisposition` 与 transition/write guards。
-- Runtime contract version：`backend-vnext/operation-runtime/v1`；与 job payload contract
+- Runtime contract version：`backend-vnext/operation-runtime/v2`；与 job payload contract
   version 分开版本化。Operations 不重新导出 `ArtifactRef`。
 
 ### 6.2 Closed persisted documents
 
 Operation 与 Step persisted document 均为 closed object；`to_document()` 发出全部 keys
 （不适用值为 `null`）；parser 要求 exact key set 并拒绝 unknown field/version/type。
+`diagnostic` 内未提供的可选明细字段会省略，不写成空数组或 `null`。
 
 - `document_type` 分别为 `operation` / `step`，作为 serializer/parser discriminator，不作为
   record field。
-- `business_refs` item 为 `{"kind","value"}`；`diagnostic` 为 `{"code","message"}`；
+- `business_refs` item 为 `{"kind","value"}`；没有结构化明细时 `diagnostic` 为
+  `{"code","message"}`。包含明细时还带 `details` 与 `omitted_count`；每项为
+  `{"code","side","table_name","column_name"}`，`side` 为 `INITIAL` 或 `MODIFIED`，
+  `column_name` 可为 `null`。投影级诊断没有对应表时 `table_name` 可为 `null`。
   artifact/checkpoint/ref item 复用 artifact owner 的 `ArtifactRef` document shape。
+- Diagnostic 明细最多 100 项，按 `(side, table_name, column_name, code)` 稳定排序；空字段先于
+  有值字段。`omitted_count` 记录未列出的总项数，仅当已列明细达到 100 项时可大于零；未省略时
+  为 `0`。无明细时不输出 `details` 或 `omitted_count`。
 - `job_payload` 与 `job_payload_ref` 恰有一个非 null；inline payload root 必须是 JSON object，
   空 payload 使用 `{}`；record 内 inline payload 保存 canonical JCS `bytes`。
 - Timestamp 仅接受 canonical UTC `YYYY-MM-DDTHH:MM:SS[.ffffff]Z`；tuple 输出保持 semantic
@@ -162,12 +169,17 @@ Operation 与 Step persisted document 均为 closed object；`to_document()` 发
 `[A-Za-z0-9._:/-]`；
 inline payload 最大 64 KiB；JSON depth 32、aggregate 4096、key 128 UTF-8 bytes、string 16 KiB；
 business/artifact refs 每 tuple 最多 64、单 record 内 ArtifactRef 合计最多 64；optimistic
-version / attempt count 为非负 I-JSON safe integer。Runtime 只验证 JSON/I-JSON shape 与资源
-预算，不解释 job payload 业务字段。
+version / attempt count 与 diagnostic `omitted_count` 为非负 I-JSON safe integer。Diagnostic
+code 为 1..128 个匹配诊断码 pattern 的 ASCII 字符；明细最多 100 项；`table_name` / `column_name` 为 `null` 或
+1..255 UTF-8 bytes。Runtime 只验证 JSON/I-JSON shape 与资源预算，不解释 job payload 业务字段。
 
 2026-09-13 P4-R6-S0 bounded amendment：`/` 是已确认 P5 `backend-vnext/preview`
 consumer 需要的 opaque namespace 字符。它不表示文件系统路径、URL 或层级，runtime 不得将
 registry name 拼接为 host path。该扩展不拒绝任何原先合法值，不改 persisted key、
-schema、status/CAS 语义或 `backend-vnext/operation-runtime/v1` version。`BusinessReference.kind`
+schema、status/CAS 语义或当时的 `backend-vnext/operation-runtime/v1` version。`BusinessReference.kind`
 复用同一 pattern。精确 disposition 与回归要求见
 [P4-R6/R1 Registry-Name Contract Reopen](../plans/p4-r6-r1-registry-name-contract-reopen.md)。
+
+P5 EXIT-F1 增加了 persisted diagnostic 明细字段，Operation/Step closed document 的运行时
+Contract 从 `backend-vnext/operation-runtime/v1` 提升为 `backend-vnext/operation-runtime/v2`；
+不读取旧版本记录，也不改 control DB schema。

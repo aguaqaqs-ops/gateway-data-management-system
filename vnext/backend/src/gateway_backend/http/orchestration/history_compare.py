@@ -40,6 +40,7 @@ from gateway_backend.http.schemas.history import (
     HistoryNodeRefKindLiteral,
     HistoryNodeRefResponse,
 )
+from gateway_backend.http.schemas.operation import OperationDiagnosticDetailResponse
 from gateway_backend.operations.contracts import OperationRecord, OperationStatus
 
 
@@ -106,6 +107,20 @@ def get_compare_result(
         diagnostic = HistoryCompareDiagnosticResponse(
             code=operation.diagnostic.code,
             message=operation.diagnostic.message,
+            details=(
+                None
+                if operation.diagnostic.details is None
+                else [
+                    OperationDiagnosticDetailResponse(
+                        code=item.code,
+                        side=item.side.value,
+                        table_name=item.table_name,
+                        column_name=item.column_name,
+                    )
+                    for item in operation.diagnostic.details
+                ]
+            ),
+            omitted_count=operation.diagnostic.omitted_count,
         )
     result = None
     if operation.status is OperationStatus.SUCCEEDED:

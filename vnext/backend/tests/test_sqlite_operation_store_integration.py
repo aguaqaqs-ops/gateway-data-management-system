@@ -28,6 +28,8 @@ from gateway_backend.operations import (
     CorruptPersistedRecord,
     ConflictingDuplicate,
     OperationDiagnostic,
+    OperationDiagnosticDetail,
+    OperationDiagnosticSide,
     OperationStatus,
     RecordNotFound,
     StepStatus,
@@ -412,6 +414,25 @@ sys.stdin.buffer.read(1)
 def test_operation_store_commits_and_reads_back_after_reopen(tmp_path: Path) -> None:
     db_path = tmp_path / "control.sqlite3"
     initialize_control_db(db_path)
+    diagnostic = OperationDiagnostic(
+        code="PROJECTION_FAILED",
+        message="2 projection diagnostics",
+        details=(
+            OperationDiagnosticDetail(
+                code="UNKNOWN_COLUMN",
+                side=OperationDiagnosticSide.MODIFIED,
+                table_name="accounts",
+                column_name="status",
+            ),
+            OperationDiagnosticDetail(
+                code="UNKNOWN_TABLE",
+                side=OperationDiagnosticSide.INITIAL,
+                table_name="legacy_accounts",
+                column_name=None,
+            ),
+        ),
+        omitted_count=0,
+    )
     operation = operation_record_from_document(_operation_document("op-file-0001"))
     step = step_record_from_document(_step_document("op-file-0001", "step-file-0001"))
 
@@ -420,10 +441,50 @@ def test_operation_store_commits_and_reads_back_after_reopen(tmp_path: Path) -> 
             unit_of_work.operations.insert_operation_with_initial_step(operation, step)
             is TransitionDisposition.APPLY
         )
+        actions = OperationLifecycleActions(
+            unit_of_work.operations,
+            transaction_now=unit_of_work.transaction_now,
+        )
+        claimed = actions.claim_one("worker-file", "lease-file")
+        assert claimed is not None
+        running_operation, running_step = claimed
+        failed_step = dataclasses.replace(
+            running_step,
+            status=StepStatus.FAILED,
+            diagnostic=diagnostic,
+            completed_at=LATER_TIME,
+            updated_at=LATER_TIME,
+            worker_id=None,
+            lease_token=None,
+            lease_expires_at=None,
+            optimistic_version=running_step.optimistic_version + 1,
+        )
+        failed_operation = dataclasses.replace(
+            running_operation,
+            status=OperationStatus.FAILED,
+            diagnostic=diagnostic,
+            completed_at=LATER_TIME,
+            updated_at=LATER_TIME,
+            optimistic_version=running_operation.optimistic_version + 1,
+        )
+        assert actions.complete_operation(
+            failed_step,
+            WritePrecondition(
+                expected_optimistic_version=running_step.optimistic_version,
+                worker_id=running_step.worker_id,
+                lease_token=running_step.lease_token,
+            ),
+            failed_operation,
+            WritePrecondition(
+                expected_optimistic_version=running_operation.optimistic_version,
+                worker_id=None,
+                lease_token=None,
+            ),
+        ) == (TransitionDisposition.APPLY, TransitionDisposition.APPLY)
 
     with ControlDbUnitOfWork(db_path, read_only=True, now=lambda: LATER_TIME) as unit_of_work:
-        assert unit_of_work.operations.get_operation(operation.operation_id) == operation
-        assert unit_of_work.operations.get_step(step.step_id) == step
+        assert unit_of_work.operations.get_operation(operation.operation_id) == failed_operation
+        assert unit_of_work.operations.get_step(step.step_id) == failed_step
         with pytest.raises(RuntimeError, match="read-only"):
             unit_of_work.operations.insert_operation_with_initial_step(operation, step)
 

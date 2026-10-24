@@ -149,6 +149,7 @@ def project_canonical_table_set(
         return CanonicalProjectionResult(
             status=ProjectionStatus.FAILED,
             tables=(),
+            omitted_diagnostic_count=0,
             diagnostics=(
                 _error(
                     ProjectionDiagnosticCode.BINDING_INVALID,
@@ -160,6 +161,7 @@ def project_canonical_table_set(
         return CanonicalProjectionResult(
             status=ProjectionStatus.FAILED,
             tables=(),
+            omitted_diagnostic_count=0,
             diagnostics=(
                 _error(ProjectionDiagnosticCode.RULESET_INVALID, "projection requires a complete ruleset_digest"),
             ),
@@ -167,29 +169,36 @@ def project_canonical_table_set(
 
     inputs: list[ProjectionTableInput] = []
     diagnostics: list[ProjectionDiagnostic] = []
+    omitted_diagnostic_count = 0
     source_by_name = {table.descriptor.table_name: table for table in raw_table_set.tables}
     for table in raw_table_set.tables:
         reader = table.reader
         if reader is None:
             if _is_skip_table(ruleset, table.descriptor):
                 continue
-            diagnostics.append(
-                _error(
-                    ProjectionDiagnosticCode.BINDING_INVALID,
-                    "canonical projection requires a table reader",
-                    table.descriptor.table_name,
-                )
+            omitted_diagnostic_count += _retain_diagnostics(
+                diagnostics,
+                (
+                    _error(
+                        ProjectionDiagnosticCode.BINDING_INVALID,
+                        "canonical projection requires a table reader",
+                        table.descriptor.table_name,
+                    ),
+                ),
             )
             continue
         try:
             isolated = reader.reopen()
         except Exception:
-            diagnostics.append(
-                _error(
-                    ProjectionDiagnosticCode.BINDING_INVALID,
-                    "table reader could not be reopened",
-                    table.descriptor.table_name,
-                )
+            omitted_diagnostic_count += _retain_diagnostics(
+                diagnostics,
+                (
+                    _error(
+                        ProjectionDiagnosticCode.BINDING_INVALID,
+                        "table reader could not be reopened",
+                        table.descriptor.table_name,
+                    ),
+                ),
             )
             continue
         inputs.append(
@@ -212,12 +221,14 @@ def project_canonical_table_set(
     )
     projection = project_storage(request) if inputs else _empty_projection_result(request)
     if projection.status is ProjectionStatus.FAILED:
-        diagnostics.extend(projection.diagnostics)
+        omitted_diagnostic_count += projection.omitted_diagnostic_count
+        omitted_diagnostic_count += _retain_diagnostics(diagnostics, projection.diagnostics)
     if diagnostics:
         return CanonicalProjectionResult(
             status=ProjectionStatus.FAILED,
             tables=(),
-            diagnostics=tuple(diagnostics[:MAX_DIAGNOSTICS]),
+            omitted_diagnostic_count=omitted_diagnostic_count,
+            diagnostics=tuple(diagnostics),
         )
     assert projection.manifest is not None
     projected_by_name = {table.canonical_table: table for table in projection.tables}
@@ -236,7 +247,7 @@ def project_canonical_table_set(
                 )
             )
         except _ProjectionFailed as exc:
-            diagnostics.extend(exc.diagnostics)
+            omitted_diagnostic_count += _retain_diagnostics(diagnostics, exc.diagnostics)
     if diagnostics:
         for table in canonical_tables:
             if table.reader is not None:
@@ -244,13 +255,25 @@ def project_canonical_table_set(
         return CanonicalProjectionResult(
             status=ProjectionStatus.FAILED,
             tables=(),
-            diagnostics=tuple(diagnostics[:MAX_DIAGNOSTICS]),
+            omitted_diagnostic_count=omitted_diagnostic_count,
+            diagnostics=tuple(diagnostics),
         )
     return CanonicalProjectionResult(
         status=ProjectionStatus.COMPLETE,
         tables=tuple(canonical_tables),
+        omitted_diagnostic_count=0,
         manifest=projection.manifest,
     )
+
+
+def _retain_diagnostics(
+    retained: list[ProjectionDiagnostic],
+    incoming: tuple[ProjectionDiagnostic, ...],
+) -> int:
+    remaining = MAX_DIAGNOSTICS - len(retained)
+    retained_count = min(remaining, len(incoming))
+    retained.extend(incoming[:retained_count])
+    return len(incoming) - retained_count
 
 
 def _empty_projection_input(table_set: SnapshotTableSet) -> ProjectionTableInput:
@@ -295,6 +318,7 @@ def _empty_projection_result(request: ProjectionRequest) -> ProjectionResult:
     return ProjectionResult(
         status=ProjectionStatus.COMPLETE,
         tables=(),
+        omitted_diagnostic_count=0,
         manifest=replace(manifest, manifest_digest=digest),
         import_input=RepositoryImportArtifactInput(
             package_version=PACKAGE_VERSION,
@@ -781,13 +805,26 @@ def _project_storage(request: ProjectionRequest) -> ProjectionResult:
         snapshot_digest = _shared_snapshot_digest(request)
         selected = _selected_inputs(request)
     except _ProjectionFailed as exc:
+        if exc.diagnostic.code in {
+            ProjectionDiagnosticCode.PROJECTION_CANCELLED,
+            ProjectionDiagnosticCode.PROJECTION_TIMEOUT,
+        }:
+            return ProjectionResult(
+                status=ProjectionStatus.FAILED,
+                tables=(),
+                omitted_diagnostic_count=0,
+                diagnostics=(exc.diagnostic,),
+            )
+        retained = exc.diagnostics[:MAX_DIAGNOSTICS]
         return ProjectionResult(
             status=ProjectionStatus.FAILED,
             tables=(),
-            diagnostics=exc.diagnostics[:MAX_DIAGNOSTICS],
+            omitted_diagnostic_count=len(exc.diagnostics) - len(retained),
+            diagnostics=retained,
         )
     projected: list[tuple[ProjectionTable, CanonicalizationManifestTable, RepositoryImportTable]] = []
     diagnostics: list[ProjectionDiagnostic] = []
+    omitted_diagnostic_count = 0
     for item in selected:
         try:
             _raise_if_runtime(request)
@@ -802,15 +839,15 @@ def _project_storage(request: ProjectionRequest) -> ProjectionResult:
                 return ProjectionResult(
                     status=ProjectionStatus.FAILED,
                     tables=(),
+                    omitted_diagnostic_count=0,
                     diagnostics=(exc.diagnostic,),
                 )
-            remaining = MAX_DIAGNOSTICS - len(diagnostics)
-            if remaining > 0:
-                diagnostics.extend(exc.diagnostics[:remaining])
+            omitted_diagnostic_count += _retain_diagnostics(diagnostics, exc.diagnostics)
     if diagnostics:
         return ProjectionResult(
             status=ProjectionStatus.FAILED,
             tables=(),
+            omitted_diagnostic_count=omitted_diagnostic_count,
             diagnostics=tuple(diagnostics),
         )
     return _complete_result(request, snapshot_digest, projected)
@@ -851,6 +888,7 @@ def _complete_result(
     return ProjectionResult(
         status=ProjectionStatus.COMPLETE,
         tables=tuple(item[0] for item in projected),
+        omitted_diagnostic_count=0,
         manifest=manifest,
         import_input=import_input,
     )

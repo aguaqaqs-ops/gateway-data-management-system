@@ -153,6 +153,8 @@ Preview进入`SUPERSEDED`，旧RUNNING Preview收到cooperative cancellation。
 比较在规范域进行，比较语义使用运行期规则集：被规则丢弃的列与 SKIP 表不属于比较对象；只存不比的
 表以表级事实呈现内容变化；列序不属于规范业务状态。规范投影失败（不支持的类型、键或表）使整个
 Preview 失败，并一次列出全部失败项。
+这些失败项通过 terminal Operation diagnostic 的 bounded `details` 明细交付，字段形态见
+[Operation Lifecycle and Repository Integrity Contract §6.2](operation-lifecycle-and-integrity.md#62-closed-persisted-documents)。
 
 必需source/table/default pair/bundle closure缺失使整个Preview失败。`/comps/logic/logics.xml`
 存在时是必需输入，解析失败或违反composite业务不变量使整个Preview失败；缺失时使用稳定的EMPTY来源。

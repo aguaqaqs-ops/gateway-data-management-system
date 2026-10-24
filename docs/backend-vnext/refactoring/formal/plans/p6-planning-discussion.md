@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r10，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）。
+- 状态：**讨论稿 r11，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -554,6 +554,59 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 - 仓库中已有 Rust 与 PyO3 的基础：`vnext/rust/gateway-compute-python`。
 - 列式化是否作为 Phase 6 的主线，由 V1 的结论决定。
 
+#### D7 审核分析与 owner 决定（r11，2026-10-24）
+
+**S5 数据（t4，比较与风险段，wall 秒）：**
+
+| 场景 | 比较 | 风险 | 说明 |
+| --- | ---: | ---: | --- |
+| v1 首次上传（空基线） | 148.4 | 27.4 | 全部是新增表 |
+| 原样重传（0 张表变化） | 40.6 | 0.0 | 本应接近 0 |
+| v2（26 张表变化） | 39.2 | 0.0 | |
+| History | 38.6 | 0.0 | |
+
+**代码核对中的两个发现：**
+
+1. **ordered 表从不提前退出。** standard 表在内容摘要相同时直接判为未变化；`comparison/standard.py` 的 `_compare_task` 在提前退出判断之前就把 ordered 表交给 `compare_ordered_task`，后者总是读两侧全量数据并跑完整算法。重传、v2 与 History 中约 40 s 基本是这部分。另外，未变化 ordered 表的 facts 中有 `before/current_ordered_digest`，它们由比较侧从行数据算出且含表名；要做到不读数据就判定未变化，这两个摘要须改为取自 B1 的表摘要或 manifest，并去掉表名（同时满足 B3 的纯函数要求）。
+2. **整表新增时逐行产出完整记录。** 新增表的每一行都生成一条带全部值的 `ROW_ADDED` 记录，风险再按行发 `MEDIUM_LOW` 标注（t4 首次上传约 25 万条，原因全部相同；单表与 pair 的标注上限为 200 万与 400 万，不会触发降级）。v1 的比较 148 s 与风险 27 s 主要是这一项。B9 补齐整表打包后，这些记录与 bundle 中的整表数据完全重复。
+
+**owner 决定（2026-10-24）：**
+
+1. 未变化 ordered 表“不读、不比”放进 B1/B8/B9 的 Contract 阶段，作为 B1 结构性门槛的一部分，不等 D7。
+2. 整表新增或删除时，逐行记录与整表浏览两种方式 owner 都可接受，**采用审核方建议：整表浏览加表级计数风险**（理由与条件见下）。
+3. D7 用 Rust 加 arrow-rs，不引入 Polars。
+4. D7 先做 standard 与 keyless；ordered 待 V1 结论。
+
+**整表新增/删除的处理（审核方建议，owner 采纳）：**
+
+- **理由：**
+  - 逐行记录与 bundle 中的整表数据重复，首次上传的下载体积因此约翻倍；
+  - 逐行 `ROW_ADDED` 标注对整张新表没有区分度：每一行的原因相同、等级相同；
+  - W1 的比较与风险时间（t4 约 175 s）基本消失；
+  - `UPDATE_ONLY` 范围已经对新增、删除行不产出记录，是现成先例。
+- **做法：**
+  - 表状态仍为 `ADDED_TABLE` / `DELETED_TABLE`；
+  - 不产出逐行记录；
+  - 风险改为一条表级标注，证据中带行数（现有 `TABLE_ADDED` / `TABLE_DELETED` 规则加计数）；
+  - surface 用 `TABLE_BROWSE`：新增表浏览 `current_table_ref`，删除表浏览 `before_table_ref`（现映射为 `RECORDS_ONLY`/`SUMMARY_ONLY`，需修订）。
+- **条件：**
+  - 依赖 B9 的整表打包，二者须在同一个 Contract 阶段落地，否则新增表在前端完全不可见；
+  - 前端的表浏览须能在表级展示风险。
+- **代价：** 新增表不再有逐行风险定位。以后若需要对新增表的特定行告警，按 D9 的触发事件预留方式接入。
+- **范围：** 只针对整表新增或删除；两侧都存在的表不受影响。
+
+**D7 的范围：**
+
+- **standard keyed 表：** 按键做哈希连接，比较行摘要，只对修改行逐列比较。S5 中大于 1 万行的 standard 表是逐表耗时最大的一组。
+- **keyless 表：** 行摘要排序后做多重集合合并。
+- **ordered 表：** Python 版 845 行（含 G8b 骨架与并列规则），须先把规则写成精确规格。V1 在变化的 ordered 表上做 Rust 原型与差分测试，再决定是否迁移；V1 期间 ordered 表保留 Python，只处理变化表。
+- **技术栈：** Rust 加 arrow-rs（workspace 已钉 arrow 59.1、parquet、pyo3-arrow），不引入 Polars：Polars 自带线程池，与 C6 的统一固定并发上限冲突，Python 侧也会出现两套列式引擎（C5）。记录由 Rust 直接写成 Parquet，不经 Python 对象。
+- **接口：** 粗粒度调用，一张表的任务进，facts 加 records 出（ADR 0001）；输入不含表名（B3），同一接口直接支持单次操作内去重与以后的跨操作缓存。
+- **一致性：** 沿用 §6.3 的差分分层，Python 实现作为参照，可用 feature flag 退回。分歧点先写进 Contract：浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则。退出条件沿用 implementation-stages §9：facts、records、排序与 digest 一致。
+- **收益：** 不预估倍数，以 V1 与 D7 原型实测为准。
+
+**顺序：** B1/B8/B9 Contract 阶段（含 ordered 不读不比、整表新增/删除改为整表浏览）→ V1 → D7（standard、keyless；ordered 视 V1）。B2 的格式切换与 B3 的单次操作内去重随 D7 落地。
+
 ### D8 Dolt 中同内容表的重复写入
 
 块共享解决了空间问题，这一点旧实现已经测过；但每张表的行数据仍要逐行写入、建树，写入耗时无法靠块共享消除。候选做法如下，按推测收益从高到低排列，都要实测（V3）：
@@ -701,7 +754,7 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 | B2 | D2 与 D3 规范表存储：格式、两类引用、写入时机；比例化保障说明 | **owner 方向（2026-10-24）**：同步写入；正式引用只保留当前 BaselineHead；先不压缩 | 见 §9 D2/D3 审核分析：用现有保护表实现两类引用，不新增状态机；T1 冻结对象与 ADR 0019 结构不变，修订 Canonical Storage §5 的格式与生命周期及设计 §4.6 的闭包条目格式；读取时校验 raw SHA-256，不符回退 Dolt；格式切换与 D7 或 C2 同期。待设计细化：磁盘需求估算、上传侧原始表是否仍需持久化 |
 | B3 | D5 第 ③ 层计算去重与规则主体 digest；“只有纯函数可以缓存”写入比较与风险 Contract | **owner 方向（2026-10-24）**：拆分；单次操作内去重随 D7 实施；跨操作缓存（即 History 的 diff/risk 缓存）设计在 Phase 6 设计中定稿，实现排在 D7 之后，以 A2 的 History 目标验收；diff/risk 条目按 TTL 保留 | 见 §9 D5 第 ③ 层审核分析：缓存键取去掉表名的整个单表任务输入摘要；风险只缓存未套用 pair 上限的单表标注；History 结果整表打包，优先读表缓存 |
 | B4 | D5 第 ② 层“分组分裂”风险信号是否在 Phase 6 范围内 | 待决议 | 拆出单独立项 |
-| B5 | D7 比较列式化（以 V1 为前提）；差分测试与一致性条款作为强制要求；分歧点先写入 Contract | 待决议 | 接受，ordered 视 V1 结论 |
+| B5 | D7 比较列式化（以 V1 为前提）；差分测试与一致性条款作为强制要求；分歧点先写入 Contract | **owner 方向（2026-10-24）**：Rust 加 arrow-rs，不引入 Polars；先做 standard 与 keyless，ordered 待 V1；未变化 ordered 表不读不比放进 B1/B8/B9 Contract 阶段；整表新增/删除改为整表浏览加表级计数风险 | 见 §9 D7 审核分析。整表新增/删除的处理依赖 B9，须同阶段落地；前端表浏览须能展示表级风险 |
 | B6 | D8 同内容表写入优化（依 V3、V4 决定；可能修订 RepositoryImportArtifact） | 待决议 | 靠后 |
 | B7 | Submit 复用 Preview 产物（§5.3），涉及 T1 冻结对象与 ADR 0019 | 待决议 | 在 B2 的设计中一并评估。B2 采用同步写入后，Submit prepare 照旧读 T1 冻结的规范表，不重新投影；剩下的是 mutation planning（plan child 231 s）能否复用 Preview 的比较结果 |
 | B8 | D9 只增列的 schema 变化：按共有字段判定，不降级；入库照常并登记 schema 变化 | **owner 方向（2026-10-24）**：只增列与 ENUM/SET 值域扩展不算 diff、无风险；只减列保持现行；不在 Submission/History 中列出新增列；Preview 不提示“提交仍会生成版本”；为只增列与只减列预留触发事件（如告警），暂不实现 | 业务语义变更，修订 Comparison、Risk、Surface Contract，与 B1 同一 Contract 阶段。方向已全部给出，细节进入 Contract 修订。表摘要不增加字段（testdata1：每列摘要最多省约 10% 的行） |

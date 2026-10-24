@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r8，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）。
+- 状态：**讨论稿 r9，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -507,7 +507,7 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
   3. 未命中时读表缓存，再未命中才读 Dolt，计算后写回。
   
   pair 级的 surface 与 bundle 由单表结果在汇总步骤组装。
-- **只靠第 1 步就去掉大部分 Dolt 读取。** History 的 2–3 个节点可以不相邻，现在每个节点都全量读 Dolt；有了 B1 的每表摘要，未变化的表不读数据。这一步不依赖任何缓存，属于 B1 的结构性门槛。
+- **第 1 步省掉的是比较，不是读取。** History 的 2–3 个节点可以不相邻，现在每个节点都全量读 Dolt；有了 B1 的每表摘要，未变化的表不再比较。但 History 结果需要打包整表数据（见下方 owner 决定），整表读取仍然需要，由表缓存承担。
 - **缓存在哪里形成：**
   - diff/risk 条目在计算时形成，计算可以发生在 Preview 或 History 中；
   - Submit finalize 不做计算，只给该 Submit 对应 Preview 的条目加引用，让“父 commit → 新 commit”的结果保留下来（相当于旧实现的“Submit finalize 晋升”，内容寻址后只是加引用）；
@@ -516,10 +516,16 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
   - 规则集激活后键全部变化，首次 History 需重算，这是正确行为；
   - 不相邻节点中，一张表在区间内变化不止一次时，前后摘要对是新的，需要两侧表数据；B2 只为 head 保留表文件，更早 commit 的表首次走 Dolt、按 TTL 回填；
   - Preview 与 History 的 artifact scope 不同时，键不同，不能共用。
-- **待定：**
-  - diff/risk 条目的保留范围：按 commit 链保留会随历史增长（每次只增加变化表的记录，单表有上限）；建议按 TTL，或只保留最近 N 个 commit；
-  - History 结果是否引用整表数据供浏览（surface 的 `current_table_ref`）。若引用，diff 命中仍需表文件，可改为浏览时按需读取；待核实；
-  - 跨操作缓存从“暂缓”改为“设计在 Phase 6 设计中定稿，实现排在 D7 之后，以 A2 的 History 目标验收”。这样 D7 的单表接口直接按可缓存的形态产出，以后不返工。
+- **owner 决定（2026-10-24）：**
+  - diff/risk 条目**按 TTL 保留**，不沿 commit 链长期保留；
+  - History 结果**需要引用整表数据**，优先从表缓存读取。数据全量打包发送给客户端，客户端不再依赖服务端；上一版中“浏览时按需读取”会让客户端向服务端按需取数，违背这一原则，**撤回**。
+- **整表打包对 History 设计的影响：**
+  - 整表数据在服务端组装结果时读取：先读表缓存，未命中读 Dolt，读到后按 TTL 回填，再全部打进 bundle。
+  - diff/risk 缓存命中省掉的是比较与风险计算，不省整表读取。B1 的每表摘要省掉的也只是未变化表的比较。
+  - 能否“大部分避免 Dolt”，取决于各节点的表是否在表缓存中：当前 head 有正式引用，重复查询在 TTL 内命中；更早 commit 的表首次查询走 Dolt。若查询较早 commit 的 History 很常见，需重新评估 B2 中“正式引用只保留 head”。
+  - 三节点 History 中，相邻节点内容相同的表按内容地址共享（bundle 契约已有 `shared/snapshot-tables/`），打包体积约为一份全量加上变化表。
+  - bundle 中表文件的格式与服务端存储格式不同：bundle 契约规定为 Parquet，B2 的服务端存储为不压缩的 Arrow IPC。每次打包都从 IPC 编码 Parquet 有成本；可以按“表摘要 + Parquet writer 版本”缓存导出的 Parquet，按 TTL 管理（`contracts/comparison-bundle.md` 已规定跨 operation 的 snapshot Parquet cache 只能按 layout digest 与 writer 版本精确命中）。也可以改为直接发送 IPC，但下载体积大很多；待 owner 与前端确认。
+- **待定：** 跨操作缓存从“暂缓”改为“设计在 Phase 6 设计中定稿，实现排在 D7 之后，以 A2 的 History 目标验收”。这样 D7 的单表接口直接按可缓存的形态产出，以后不返工。
 
 ### D6 表级计算调度：按特征建模，配置独立于 ruleset
 
@@ -671,6 +677,7 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 | 三项文档整理 | snapshot-materialization 文档的 ADR 0019 取代提示；收口设计 DC28–DC34 索引与 DC26 表述；旧 5B/G11 deferred register 整理 | kickoff 前或首次修改相关文档时 |
 | G6b 是否重新评估 | P5 exit review 认为已触及重新评估条件；终审判断未触发，维持 C | owner 决定 |
 | 重要 keyless 表是否定义自然键 | 业务评估（DC29 后续，部署前） | 结论可能影响 D1、D7 对 keyless 的处理，建议在 D1 定稿前给出 |
+| 标准模式 bundle 不含整表数据 | 代码核对（2026-10-24）：`application/pair_pipeline.py` 只在 DATASET_REPLACEMENT 模式下向 surface 传入表 ref，标准模式传空，Preview 与 History 的 bundle 因此只含 records、risk 与摘要，不含整表 Parquet；HTTP 下载按存储的 bundle 原样输出。这与 owner 的“数据全量打包发送客户端”原则及 `docs/backend-vnext/contracts/comparison-bundle.md`（Preview 为每张表发布 `current_table_ref`；History 发布可浏览的 snapshot rows）不一致，P5 文档中没有对应的决议或延期登记；测试只覆盖 replacement 模式与 bundle 组装单元。真实数据旅程只核对摘要，未发现该问题 | 业务缺口，不是性能工作；建议单独立项（§13 B9），在 Phase 6 实现前或 B1/B8 的 Contract 阶段中修复 |
 | GitHub 默认分支 | 远程默认分支仍为 `phase1/gate-ownership-repair` | owner 在 GitHub 设置中改为 `main` |
 
 ## 13. 待 owner 决议的事项
@@ -692,12 +699,13 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 | --- | --- | --- | --- |
 | B1 | D1 表摘要（BLAKE3、列式编码、与行顺序无关），以及它作为单独 Contract 变更阶段、完成后重建对照基准 | 待决议 | r4 改为“保值统一”（§9 D1 审核分析）：以现有 `raw_content_digest` 为唯一表摘要，manifest 内容摘要统一到它，去掉重复计算，commit 元数据返回每表摘要，复用 Rust `canonical_row_hash`；BLAKE3 降为备选。单独成一个小 Contract 阶段，在 S0/V5 之后、解析器主线之前，与 B8 同阶段 |
 | B2 | D2 与 D3 规范表存储：格式、两类引用、写入时机；比例化保障说明 | **owner 方向（2026-10-24）**：同步写入；正式引用只保留当前 BaselineHead；先不压缩 | 见 §9 D2/D3 审核分析：用现有保护表实现两类引用，不新增状态机；T1 冻结对象与 ADR 0019 结构不变，修订 Canonical Storage §5 的格式与生命周期及设计 §4.6 的闭包条目格式；读取时校验 raw SHA-256，不符回退 Dolt；格式切换与 D7 或 C2 同期。待设计细化：磁盘需求估算、上传侧原始表是否仍需持久化 |
-| B3 | D5 第 ③ 层计算去重与规则主体 digest；“只有纯函数可以缓存”写入比较与风险 Contract | **owner 方向（2026-10-24）**：拆分；单次操作内去重随 D7 实施，跨操作缓存暂缓 | 见 §9 D5 第 ③ 层审核分析：缓存键取去掉表名的整个单表任务输入摘要；风险只缓存未套用 pair 上限的单表标注。待 owner 确认：跨操作缓存与 History 缓存是同一路径，建议改为“设计在 Phase 6 设计中定稿、实现排在 D7 之后”；diff/risk 条目的保留范围 |
+| B3 | D5 第 ③ 层计算去重与规则主体 digest；“只有纯函数可以缓存”写入比较与风险 Contract | **owner 方向（2026-10-24）**：拆分；单次操作内去重随 D7 实施，跨操作缓存暂缓 | 见 §9 D5 第 ③ 层审核分析：缓存键取去掉表名的整个单表任务输入摘要；风险只缓存未套用 pair 上限的单表标注。待 owner 确认：跨操作缓存与 History 缓存是同一路径，建议改为“设计在 Phase 6 设计中定稿、实现排在 D7 之后”。已定：diff/risk 条目按 TTL 保留；History 结果打包整表数据，优先读表缓存 |
 | B4 | D5 第 ② 层“分组分裂”风险信号是否在 Phase 6 范围内 | 待决议 | 拆出单独立项 |
 | B5 | D7 比较列式化（以 V1 为前提）；差分测试与一致性条款作为强制要求；分歧点先写入 Contract | 待决议 | 接受，ordered 视 V1 结论 |
 | B6 | D8 同内容表写入优化（依 V3、V4 决定；可能修订 RepositoryImportArtifact） | 待决议 | 靠后 |
 | B7 | Submit 复用 Preview 产物（§5.3），涉及 T1 冻结对象与 ADR 0019 | 待决议 | 在 B2 的设计中一并评估。B2 采用同步写入后，Submit prepare 照旧读 T1 冻结的规范表，不重新投影；剩下的是 mutation planning（plan child 231 s）能否复用 Preview 的比较结果 |
 | B8 | D9 只增列的 schema 变化：按共有字段判定，不降级；入库照常并登记 schema 变化 | **owner 方向（2026-10-24）**：只增列与 ENUM/SET 值域扩展不算 diff、无风险；只减列保持现行；不在 Submission/History 中列出新增列；Preview 不提示“提交仍会生成版本”；为只增列与只减列预留触发事件（如告警），暂不实现 | 业务语义变更，修订 Comparison、Risk、Surface Contract，与 B1 同一 Contract 阶段。方向已全部给出，细节进入 Contract 修订。表摘要不增加字段（testdata1：每列摘要最多省约 10% 的行） |
+| B9 | 标准模式 bundle 补齐整表数据（§12）：Preview 与 History 按“全量打包、客户端不依赖服务端”的原则发布整表 snapshot rows；整表优先从表缓存读取 | **owner 原则（2026-10-24）**；实现范围待决议 | 先确认“全量”的范围：Preview 是否包含未变化的表（旧 bundle 契约要求包含）；History 每个节点是否都包含全部表。再定 bundle 表文件格式：Parquet（导出结果按表摘要缓存）或直接发送 IPC。与 B1/B8 同一 Contract 阶段 |
 
 ### C. 技术路线
 

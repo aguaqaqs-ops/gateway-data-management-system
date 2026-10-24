@@ -26,9 +26,21 @@
 
 ### 专用测试节点
 
-所有测试、容器门禁和测试取证都在专用 LXC `ct108-gw-dms` 上执行，不在开发主机上运行。开始前用
-`ssh -o BatchMode=yes ct108-gw-dms 'echo OK'` 确认连接；在该节点的 clean、已提交 worktree 中运行，
-并继续满足下列 Dolt、Compose、端口和日志前提。节点暂不可用或前提不满足时，等待恢复后再测，不回退到开发主机。
+所有测试、容器门禁和测试取证都在专用测试节点上执行，不在开发主机上运行（owner 决议 DC34、DC36）。
+三台节点互不共享硬件，按用途分工：
+
+| 节点（SSH 别名） | 用途 |
+| --- | --- |
+| `ct108-gw-dms-04` | 门禁：权威全量 runner、容器门禁与 carried |
+| `ct108-gw-dms-05` | 调试：focused 测试、Rust 编译、解析器差分测试、真实数据 t1–t3 |
+| `ct108-gw-dms` | 参考与取证：Phase 6 性能测量（测量期间独占）、真实数据 t4 |
+
+开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 确认连接；在该节点的 clean、已提交 worktree 中运行。
+下列 Dolt、Compose、端口和日志前提在每台节点上分别满足：同一节点整机单飞，不同节点之间可以并行。
+carried 必须与来源 V 在同一节点、同一 worktree 计算；闭包 manifest 不记录节点身份，跨节点的结果不得用于判定。
+runner、carried 与真实数据日志开头记录 `hostname` 与起止时间，handoff 写明每次运行所在的节点。
+真实数据可与门禁在不同节点上对同一 V 并行运行，同一档的完整旅程在同一节点内完成。
+节点暂不可用或前提不满足时，等待恢复后再测，不回退到开发主机；需要临时改用其他节点时由 owner 决定。
 该 SSH 会话以 root 登录；用磁盘目录 `TMPDIR=/home/dev/gdds-test-tmp`
 隔离 pytest 临时文件，不修改 `/tmp/pytest-of-root` 的属主。默认不设置 `GATEWAY_TEST_BASETEMP`，需要显式验证该选项时除外。
 权威 runner 为每个选中包无条件设置 `HYPOTHESIS_STORAGE_DIRECTORY` 为

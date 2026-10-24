@@ -15,6 +15,8 @@
 - 补充：2026-10-17 owner 决议把 Phase 6 规划讨论稿的 V2 并入 S5，扩展 S5 的测量范围，记录为 DC32，见 §15。
 - 补充：2026-10-17 owner 决议缩短阶段取证耗时（按包沿用测试结果；真实数据按阶段改动面确定范围），记录为 DC33，见 §16；其中第二部分修订 DC30 的取证要求。
 - 补充：2026-10-20 owner 决议测试在专用节点上执行，并修订该节点上 backend/worker 的 carried 判定，记录为 DC34，见 §17。
+- 补充：2026-10-24 owner 决议 Phase 6 目标的设定方法，记录为 DC35，见 §18；其中修订 DC30、DC31 的业务容量目标用法。
+- 补充：2026-10-24 owner 决议测试节点扩为三台分工，记录为 DC36，见 §19；两台新节点核对通过，当日生效，修订 DC34 第 1 项。
 
 ```yaml
 record_kind: p5_arch_closure_s0_owner_decisions
@@ -570,7 +572,7 @@ implementation_authorized: no
   1. **专用测试节点。** 所有测试、容器门禁和取证都在 `ct108-gw-dms` 上执行，不回退到开发主机；节点不可用或前提不满足时等待恢复。整机单飞（Dolt、Compose、8000 端口）等运行前提照旧适用于该节点。
   2. **backend/worker 的 carried 判定。** 不再比较 image ID。在运行 `V` 门禁的同一 worktree 中检出最终 HEAD，计算 backend 包的闭包 manifest，与 `V` 那次 runner 起始时的 backend manifest 逐项相等，即视为 backend/worker 镜像身份相等。repository-service 仍按 build-input/source-tree label 判定。carried 的其余条件不变；发布与最终 production gate 仍须在最终 HEAD 重建并完整运行。
 - **落点**：AGENTS.md「跑测试」「镜像身份等价」；testing-conventions「镜像身份等价与结果沿用」；治理修订计划 §3 第 10 项。
-- **修订（DC36，2026-10-24）**：测试节点由一台扩为三台分工，生效条件与规则见 §19；生效前本决议第 1 项照旧适用。
+- **修订（DC36，2026-10-24）**：测试节点由一台扩为三台分工，生效条件与规则见 §19；2026-10-24 两台新节点核对通过，DC36 生效，本决议第 1 项由 DC36 替代，其余各项不变。
 
 ## 18. Phase 6 的目标设定方法（DC35，2026-10-24）
 
@@ -601,8 +603,29 @@ implementation_authorized: no
      - 调试与辅助节点（新节点 B）：focused 测试、Rust 编译、解析器差分测试套件、真实数据 t1–t3。
      三台节点之间不共享硬件；开发主机只用于编辑，不运行测试（DC34 原则不变）。
   2. **各节点各自满足运行前提。** 整机单飞、clean 已提交 worktree、legacy 链接、日志与权限、umask、TMPDIR 与 runner 环境等规则在每台节点上分别适用。
-  3. **carried 与来源 V 同节点、同 worktree。** 闭包 manifest 包含 Docker 守护进程身份与本机镜像 ID，跨节点计算不得用于判定“可沿用”或“运行”；门禁与 carried 固定在门禁节点。
+  3. **carried 与来源 V 同节点、同 worktree。** 跨节点计算的 manifest 不得用于判定“可沿用”或“运行”；门禁与 carried 固定在门禁节点。闭包 manifest 不记录节点或 Docker 守护进程的身份，克隆出的节点在首次重建镜像前连本机 image ID 也相同，manifest 本身无法区分节点（2026-10-24 核对时更正原理由）。因此本条靠规则保证：runner、carried 与真实数据日志开头记录 `hostname` 与起止时间，handoff 写明来源 V 与 carried 所在节点，评审逐项核对。
   4. **真实数据可与门禁在不同节点并行。** 前提是同一个 V；各自记录起止 HEAD 与 exit code。为减少门禁失败时的浪费，可在门禁的并行批次通过后再启动真实数据。DC30 中“完整运行权威 runner 一次，随后在同一 V 上完整运行真实数据一次”的“随后”据此放宽为“同一 V 上各运行一次”。真实数据按档拆到参考节点与调试节点时，同一档的完整旅程在同一节点内完成。
   5. **新节点初始化。** 与 ct108 一致的 OS、Docker、uv、Dolt、Rust 工具链与 runner 环境（`TMPDIR=/home/dev/gdds-test-tmp` 等）；首次构建 client e2e 镜像，之后照旧不得手工删除；代码同步沿用 git bundle，不经 GitHub。真实数据由 owner 放置在需要的节点，约定不变。
   6. **生效条件。** 两台新节点按初始化清单完成并通过核对（工具版本与 ct108 一致，各自完整运行一次权威 runner 且 exit 0）后生效；生效时同步修订 AGENTS.md「专用测试节点」与 testing-conventions。生效前，所有测试仍按 DC34 在 `ct108-gw-dms` 上执行。新节点规格由 owner 稍后提供。
 - **落点**：生效时修订 AGENTS.md「跑测试」「镜像身份等价」、testing-conventions、执行计划 §8.9；Phase 6 规划讨论稿 §13 D2。
+- **生效（repository owner，2026-10-24）**：两台新节点由 owner 从 ct108 克隆，按初始化清单核对通过，DC36 当日生效，DC34 第 1 项由本决议替代。核对报告见 [p6-node-init-report.md](p6-node-init-report.md)（提交 `7229a06eab`，合入 `8fd78fed34`），reviewer 已对照节点日志复核。
+  - **节点与角色**：
+
+    | 角色 | SSH 别名 | hostname | vCPU / 内存 / rootfs |
+    | --- | --- | --- | --- |
+    | 参考与取证 | `ct108-gw-dms` | `gw-dms-test` | 128 / 96 GiB / 300 G |
+    | 门禁（节点 A） | `ct108-gw-dms-04` | `gw-dms-test-04` | 64（32 物理核）/ 64 GiB / 300 G |
+    | 调试与辅助（节点 B） | `ct108-gw-dms-05` | `gw-dms-test-05` | 64（32 物理核）/ 64 GiB / 300 G |
+
+    三台均为 AMD EPYC 9654 上的 LXC，互不共享硬件。LAN 地址与 MAC 不进 Git，以开发主机 `~/.ssh/config` 的别名为准。
+  - **核对结果**：
+    - 工具版本逐项一致：Debian 13、Docker 29.9.1、Compose v5.6.0、containerd snapshotter、Dolt 2.1.11、uv 0.11.28、Python 3.13.5、git 2.47.3、Rust 1.97.0（含 rustfmt、clippy）。
+    - 克隆带入的相同 Docker engine ID 已在 04、05 上重新生成；machine-id、SSH host key 由克隆过程重新生成。
+    - 04、05 在 V0 `d99e212733` 上各自完整运行权威 runner 一次（`GATEWAY_TEST_WORKERS=48`），exit 0，耗时 2343 s 与 2331 s，与 ct108 参考逐批相差不超过 6 s。
+    - 04 完成 fresh RS 镜像、postflight 与同一 worktree 的 carried 演练，五包均为“可沿用”。
+  - **接受的偏差**：
+    - PVE 宿主内核 `7.0.14-23-pve`（ct108 为 `-22`），只记录。
+    - runner 在 TMPDIR 留下 `tmp.*`、`uv-*.lock`、sqlite `-shm/-wal` 等残留，与 ct108 相同，属治理修订计划的遗留项，核对后已清空。
+    - 在节点 B 上直接执行 `cargo test --workspace` 失败 1 例，原因是测试 harness 写死 backend venv 的 Python 3.14 路径，而 host 编译链接系统 Python 3.13。权威 runner 当前不运行 `cargo test`，因此不属于本决议的生效条件，转入 Phase 6 讨论（Rust 测试的正式入口与门禁覆盖）。
+  - **观察**：64 核新节点与 128 核 ct108 的全量 runner 耗时相同，主要耗时在 backend 串行批次（39 项约 1590 s）。加节点解决的是不同类运行之间的排队，单次门禁时长须靠缩短串行批次，转入 Phase 6 讨论。
+  - **真实数据**：随克隆复制到 04、05。门禁节点 04 上的副本由 owner 自行删除；05 保留（t1–t3），ct108 保留（t4 与测量）。

@@ -16,7 +16,11 @@ bytes.workspace = true
 parquet.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+memchr.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
 serde_json.workspace = true
+proptest.workspace = true
+sha2.workspace = true

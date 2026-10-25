@@ -201,11 +201,17 @@ class RepositoryReadMetrics:
     per_table: dict[str, dict[str, float | int]] = field(default_factory=dict)
     catalog_table_count: int = 0
 
-    def measure(self, stage: str, action: Callable[[], _T]) -> _T:
+    def measure(
+        self,
+        stage: str,
+        action: Callable[..., _T],
+        *args: Any,
+        **kwargs: Any,
+    ) -> _T:
         wall_started = time.perf_counter()
         cpu_started = time.thread_time()
         try:
-            result = action()
+            result = action(*args, **kwargs)
         except BaseException:
             self.stages.append(
                 {
@@ -1081,13 +1087,6 @@ def run(
             store=store,
             recorder=v1_recorder,
         )
-        v2_recorder = s5.MeasurementRecorder("v5b_t4_v2_package")
-        v2_bound, v2_manifest_ref, v2_manifest_digest = s5._snapshot_package(
-            dataset_id="rd-t4-d-v2",
-            package=v2_package,
-            store=store,
-            recorder=v2_recorder,
-        )
         materialization, repository_baseline, _repository_reads = (
             _measure_repository_materialization(
                 store=store,
@@ -1101,6 +1100,13 @@ def run(
         result["segments"].append(materialization)
         checkpoint("RUNNING")
 
+        v2_recorder = s5.MeasurementRecorder("v5b_t4_v2_package")
+        v2_bound, v2_manifest_ref, v2_manifest_digest = s5._snapshot_package(
+            dataset_id="rd-t4-d-v2",
+            package=v2_package,
+            store=store,
+            recorder=v2_recorder,
+        )
         empty_baseline = s5._empty_baseline(store)
         v1_bundle_metrics, v1_bundle, v1_ready_refs = _measure_bundle(
             scenario="t4_v1_preview_bundle",

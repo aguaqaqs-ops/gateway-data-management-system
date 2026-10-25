@@ -322,5 +322,5 @@ implementation_authorized: no
 
 1. 按 §4 第 1、2 行修订 implementation-stages 与讨论稿。
 2. S0 前置项：kickoff 小修；DC48 第 1 项（DC36 会话）；V1、V5、V6、V7，V8 并行；keyless 自然键的业务评估。
-3. 前置验证完成后，编写 Phase 6 设计与执行计划，进行独立文档审核。
+3. 前置验证完成后，编写 Phase 6 设计与执行计划，进行独立文档审核。（2026-10-26：前置验证已全部完成；[详细设计](p6-design.md) 与 [执行计划](p6-execution-plan.md) r1 已起草，待独立文档审核。）
 4. 审核通过后进入 S1a。

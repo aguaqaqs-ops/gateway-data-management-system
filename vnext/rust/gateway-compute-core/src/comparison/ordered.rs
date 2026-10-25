@@ -531,17 +531,17 @@ fn compare_ordered_table_inner(
                 Vec::new(),
                 vec!["ORDERED_PROVIDER".to_string()],
             ));
-            ordered_records.push(ordered_record(
-                &options.table_name,
-                "ORDERED_ROW_ADDED",
-                "DATA_INSERT",
-                row.stable_identity.as_deref(),
-                None,
-                Some(row.position),
-                Vec::new(),
-                Vec::new(),
-                values(row, &value_columns),
-            )?);
+            ordered_records.push(ordered_record(OrderedRecordSpec {
+                table_name: &options.table_name,
+                record_kind: "ORDERED_ROW_ADDED",
+                semantic_kind: "DATA_INSERT",
+                row_identity: row.stable_identity.as_deref(),
+                before_position: None,
+                current_position: Some(row.position),
+                changed_columns: Vec::new(),
+                before_values: Vec::new(),
+                current_values: values(row, &value_columns),
+            })?);
         }
         for key in &deleted_keys {
             let row = &before.rows[before_real[key]];
@@ -554,17 +554,17 @@ fn compare_ordered_table_inner(
                 Vec::new(),
                 vec!["ORDERED_PROVIDER".to_string()],
             ));
-            ordered_records.push(ordered_record(
-                &options.table_name,
-                "ORDERED_ROW_DELETED",
-                "DATA_DELETE",
-                row.stable_identity.as_deref(),
-                Some(row.position),
-                None,
-                Vec::new(),
-                values(row, &value_columns),
-                Vec::new(),
-            )?);
+            ordered_records.push(ordered_record(OrderedRecordSpec {
+                table_name: &options.table_name,
+                record_kind: "ORDERED_ROW_DELETED",
+                semantic_kind: "DATA_DELETE",
+                row_identity: row.stable_identity.as_deref(),
+                before_position: Some(row.position),
+                current_position: None,
+                changed_columns: Vec::new(),
+                before_values: values(row, &value_columns),
+                current_values: Vec::new(),
+            })?);
         }
     }
 
@@ -608,33 +608,33 @@ fn compare_ordered_table_inner(
             field_changes,
             diagnostics: Vec::new(),
         });
-        ordered_records.push(ordered_record(
-            &options.table_name,
-            "ORDERED_ROW_MODIFIED",
-            "CONTENT_UPDATE",
-            Some(identity),
-            Some(before_row.position),
-            Some(current_row.position),
-            changed_columns.clone(),
+        ordered_records.push(ordered_record(OrderedRecordSpec {
+            table_name: &options.table_name,
+            record_kind: "ORDERED_ROW_MODIFIED",
+            semantic_kind: "CONTENT_UPDATE",
+            row_identity: Some(identity),
+            before_position: Some(before_row.position),
+            current_position: Some(current_row.position),
+            changed_columns: changed_columns.clone(),
             before_values,
             current_values,
-        )?);
+        })?);
     }
 
     for key in &moved_keys {
         let before_row = &before.rows[before_real[key]];
         let current_row = &current.rows[current_real[key]];
-        ordered_records.push(ordered_record(
-            &options.table_name,
-            "ORDERED_ROW_MOVED",
-            "MOVE",
-            before_row.stable_identity.as_deref(),
-            Some(before_row.position),
-            Some(current_row.position),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        )?);
+        ordered_records.push(ordered_record(OrderedRecordSpec {
+            table_name: &options.table_name,
+            record_kind: "ORDERED_ROW_MOVED",
+            semantic_kind: "MOVE",
+            row_identity: before_row.stable_identity.as_deref(),
+            before_position: Some(before_row.position),
+            current_position: Some(current_row.position),
+            changed_columns: Vec::new(),
+            before_values: Vec::new(),
+            current_values: Vec::new(),
+        })?);
     }
 
     standard_records.sort_by(|left, right| {
@@ -754,7 +754,7 @@ fn compare_ordered_table_inner(
                 row_deleted_count: deleted_count,
                 row_modified_count: modified_count,
                 row_moved_count: moved_count,
-                position_changed_count: position_changed_count,
+                position_changed_count,
                 degraded_count: 0,
             },
             before_ordered_digest: before_digest,
@@ -930,30 +930,33 @@ fn standard_record(
     }
 }
 
-fn ordered_record(
-    table_name: &str,
-    record_kind: &str,
-    semantic_kind: &str,
-    row_identity: Option<&str>,
+struct OrderedRecordSpec<'a> {
+    table_name: &'a str,
+    record_kind: &'a str,
+    semantic_kind: &'a str,
+    row_identity: Option<&'a str>,
     before_position: Option<i64>,
     current_position: Option<i64>,
     changed_columns: Vec<String>,
     before_values: Vec<CanonicalValue>,
     current_values: Vec<CanonicalValue>,
-) -> Result<OrderedRecord, OrderedCompareError> {
+}
+
+fn ordered_record(spec: OrderedRecordSpec<'_>) -> Result<OrderedRecord, OrderedCompareError> {
     Ok(OrderedRecord {
-        table_name: table_name.to_string(),
-        record_kind: record_kind.to_string(),
-        semantic_kind: semantic_kind.to_string(),
+        table_name: spec.table_name.to_string(),
+        record_kind: spec.record_kind.to_string(),
+        semantic_kind: spec.semantic_kind.to_string(),
         entity_key_kind: "REAL_STABLE".to_string(),
-        row_identity: row_identity
+        row_identity: spec
+            .row_identity
             .ok_or_else(|| OrderedCompareError::new("ROW_IDENTITY_MISSING"))?
             .to_string(),
-        before_position,
-        current_position,
-        changed_columns,
-        before_values,
-        current_values,
+        before_position: spec.before_position,
+        current_position: spec.current_position,
+        changed_columns: spec.changed_columns,
+        before_values: spec.before_values,
+        current_values: spec.current_values,
         diagnostics: Vec::new(),
     })
 }
@@ -1674,7 +1677,7 @@ fn blank_gaps(
             continue;
         }
         let stable_key = row.stable_key.as_ref();
-        let is_anchor = anchors.map_or(true, |set| stable_key.is_some_and(|key| set.contains(key)));
+        let is_anchor = anchors.is_none_or(|set| stable_key.is_some_and(|key| set.contains(key)));
         if !is_anchor {
             continue;
         }

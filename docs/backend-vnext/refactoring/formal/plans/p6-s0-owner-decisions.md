@@ -229,7 +229,8 @@ implementation_authorized: no
   5. **门禁**：沿用 AGENTS、DC30、DC33、DC34、DC36、G12、G13；每个阶段的最终提交运行一次权威 runner（含 `rust` 包）；改动 Rust 或镜像时重建 backend 镜像并跑容器门禁；阶段边界打 `p6-sN-exit` 附注 tag。
   6. **前置验证任务**：
      - V1 ordered 比较的小规模 Rust 验证，决定 ordered 是否进 Rust；
-     - V5 operation 级耗时归因，先用 step 时间戳，不足时用 py-spy；
+     - V5 operation 级耗时归因，先用 step 时间戳，不足时用 py-spy（2026-10-25 完成，见 [V5 报告](p6-v5-attribution-report.md)）；
+     - V5b 分段补测（owner 2026-10-25 补充）：不加产品插桩，只扩展测量工具，补测基线 commit 全量物化、完整 bundle 组装、Submit prepare 的 build input 解析与 checkpoint 序列化四段；S1 之后重建对照基准时沿用；
      - V6 SQL 解析器原型，按 DC46 第 5 项验收；
      - V7 Dolt 回放（整表重建与行级修改的耗时，核对两条路径的表哈希相同）与 Dolt 读取吞吐、并发读取加速比，用于 DC45 阈值与 DC38 H2 门槛定稿；
      - V8 门禁耗时剖析（DC48）。
@@ -263,7 +264,7 @@ implementation_authorized: no
 | 项 | 所属决议 | 何时定 |
 | --- | --- | --- |
 | ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39 | Phase 6 设计 |
-| W1–W4 目标数值定稿 | DC35 | V5、V6 之后 |
+| W1–W4 目标数值定稿 | DC35 | V5（已完成）、V5b、V6 之后 |
 | H2 门槛定稿 | DC38 | V7 之后 |
 | 行级修改的阈值定稿 | DC45 | V7 之后 |
 | Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |

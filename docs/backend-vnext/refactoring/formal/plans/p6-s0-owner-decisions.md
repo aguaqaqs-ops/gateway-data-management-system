@@ -284,7 +284,7 @@ implementation_authorized: no
 | Storage Mutation Contract §2/§3；ADR 0014 | DC45 | S1a |
 | Comparison、Risk、Surface Contract；comparison-bundle 契约 | DC40、DC41、DC43、DC44 | S1b、S3、S5 |
 | HTTP Contract（上传超时错误码） | DC49 | S1b |
-| run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions | DC48；DC51 第 2 项（如需写入） | S0，由负责 DC36 的会话实施 |
+| run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions | DC48；DC51 第 2 项（如需写入） | S0，由负责 DC36 的会话实施；交接说明见 [p6-dc48-rust-test-gate-handoff.md](p6-dc48-rust-test-gate-handoff.md) |
 | Canonical Row Hash Compute Boundary Contract（删除）；backend Dockerfile 的 maturin 构建目标 | DC52 | S2a |
 
 ## 5. 后续步骤

@@ -14,6 +14,8 @@ P5-5D 与 P5-5E 已分别由 [5D Slice Exit — Final](p5-5d-slice-exit-final.md
 [5E Slice Exit — Final](p5-5e-slice-exit-final.md) 声明 `p5_5d_slice_exit: pass`、`p5_5e_slice_exit: pass`。
 P5 架构收口 S0 文档已于 2026-09-27 接受（ADR 0018–0021 Accepted），收口实现、production deployment 与新的
 Repository effect 未授权。
+P5 整体 exit 已于 2026-10-24 通过（tag `p5-exit`）。Phase 6 S0 决议见
+[Phase 6 S0 Owner 决议记录](p6-s0-owner-decisions.md)（DC37–DC50），§9、§10 按其中 DC37 改写；Phase 6 实现未授权。
 P4 默认上下文从 [P4 Active Context Index](p4-active-context-index.md) 开始；P5 当前入口为
 [P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md) 与
 [P5 架构收口 S0 Entry Brief](p5-arch-closure-s0-entry-brief.md)。
@@ -102,9 +104,9 @@ Phase 4  Durable Operation Runtime
     |
 Phase 5  Business Vertical Slices
     |
-Phase 6  Rust Coverage Expansion and Compute Optimization
+Phase 6  Single-operation Performance and Rust Adoption（单任务性能与 Rust 接入）
     |
-Phase 7  Concurrency, Cache and Performance
+Phase 7  Multi-project Concurrency and Capacity（多项目并发与容量）
     |
 Phase 8  Shadow Traffic and Cutover
     |
@@ -634,71 +636,77 @@ compose 正式旅程与 S4 fresh 并合门禁。不修改 Workspace/Submission/A
 - 完成 [P5 架构纠偏与阶段收口](p5-business-vertical-slices-design.md#p5-architecture-guardrails) 中的已确认边界修复与风险处置，并提供一条真实业务链路的
   代表性性能测量，作为 Phase 6 热点排序输入；不要求 P5 提前迁移 Rust 或达到新增性能阈值。
 
-## 9. Phase 6：Rust Coverage Expansion and Compute Optimization
+## 9. Phase 6：Single-operation Performance and Rust Adoption（单任务性能与 Rust 接入）
+
+本节按 [Phase 6 S0 Owner 决议记录](p6-s0-owner-decisions.md) DC37 改写（2026-10-25）。阶段结构见该记录 DC50，详细分析见 [Phase 6 规划讨论稿](p6-planning-discussion.md)。
 
 ### 目标
 
-在 Phase 3 首批 Rust production kernel 的基础上，根据完整业务 journey profile 扩大 Rust 覆盖并深度优化数据路径。Phase 6 不是首次引入 Rust，也不机械替换所有 Python/Polars 实现。
+单个 operation 的延迟达到已决议的目标：DC35 的 W1–W4（Preview）、DC38 的 H1–H3（History）与 S1–S4（Submit），以及结构性条件“成本随变化量增长”。Rust 在本阶段首次进入生产链路：P5 结束时生产链路是纯 Python，唯一的 Rust consumer（`canonical_row_hash`）不可达。
 
 Provider route 遵守 [ADR 0001](../adr/0001-python-rust-hybrid-compute-strategy.md)，收益声明遵守 [Performance Measurement and Baseline](../contracts/performance-measurement-and-baseline.md)。
 
+### 范围
+
+- operation 内部的表级并行（必要时表内分块）、operation 内并发读取 Dolt，受单任务资源上限 N（并发）与 M（内存）约束。
+- 自身目标需要的缓存：规范表存储、跨操作 diff/risk 缓存、bundle 导出缓存。机制只用内容寻址、现有保护表、TTL、ADR 0012 的协作清理与读取时校验。
+- 一个 Contract 阶段（表摘要统一、Submit 只写变化、只增列的 schema 变化、bundle 补齐整表等）。其中的业务语义修正不是性能工作；按 Performance Measurement §5，前后结果不作为性能收益比较，该阶段之后重建一次对照基准。
+
 ### 推荐顺序
 
-1. 复核 Phase 3 scalar/digest、projection、standard diff 和 records 的端到端收益与内存表现。
-2. 优化 Arrow zero-copy、batch size、materialization 次数和 Rust/Polars 线程预算。
-3. 根据 fixtures 和 profile 引入 ordered preparation、classification、interval 和 move。
-4. 根据 risk records 规模评估 Rust facts extraction，规则定义和业务决策继续保留 Python。
-5. 最后单独评估 SQL streaming parser，不按当前 Python parser 机械翻译。
+按 DC50：S0（决议、前置验证 V1/V5/V6/V7、设计与执行计划）→ S1a 摘要与存储 Contract → S1b 业务语义 Contract → 重建对照基准 → S2a SQL 解析器 → S2b 上传侧数据路径与表存储 → S3 比较 → S4 Submit → S5 History 与跨操作缓存 → S6 收尾。SQL 解析器是主线并提前（DC46），不按现有 Python parser 机械翻译。
 
 ### 实现形态
 
 ```text
-gateway-compute-core       Rust algorithms
+gateway-compute-core       Rust algorithms（按 capability 分模块）
 gateway-compute-python     PyO3/Arrow adapter
-gateway-compute-worker     artifact-based worker/CLI
+gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 ```
 
-- 同步低延迟路径使用 PyO3 + Arrow 粗粒度调用。
-- 大型异步任务可以由 Rust worker 消费 Parquet/Arrow artifact。
-- Python 保留 domain、application、Operation Runtime、ruleset selection 和频繁变化的业务 policy。
-- Risk 的大规模 facts extraction 可进入 Rust，规则定义和小规模决策优先保留 Python。
+- 同步路径使用 PyO3 + Arrow 粗粒度调用；长调用释放 GIL，并响应取消与截止时间。
+- Rust core 不写文件，只产出 Arrow 结果或 IPC 字节，由 Python ArtifactStore 落盘（Rust safety policy §4）。
+- 每个 worker 进程一个固定 N 的 Rayon 池；pyarrow 线程池按同一 N 设定；不引入 Polars。
+- Python 保留 domain、application、Operation Runtime、ruleset selection、业务 policy 与风险规则。
 
 ### 进入条件
 
-- 目标阶段有独立 profile，且占正式请求 CPU 或内存的显著比例。
-- Python reference oracle 和跨语言 golden fixture 已稳定。
-- Arrow/Parquet 和 scalar/digest contract 已版本化。
-- Phase 3 首批 Rust provider 已通过真实纵切验证，不存在尚未收口的基础 FFI/打包问题。
-- Slice 5B 已按 measurement contract 产生 accepted vNext baseline；没有 baseline 不得声明 coverage/provider 优化收益。
+- 满足 Performance Measurement §5 的优化进入条件；对照基准为 S5（DC32）的测量记录，Contract 阶段之后重建。
+- 目标阶段有独立 profile（S5 与 V5 提供）。
+- Python reference oracle 与跨语言差分验证就绪（讨论稿 §6.3、DC44、DC46）。
+- Arrow 映射与 scalar/digest Contract 已版本化（表摘要由 DC39 收口，Arrow 列映射在设计阶段定稿）。
+- Rust 构建已接入 backend 镜像；Rust 测试已进入权威门禁，Python 测试使用当前扩展（DC48）。
 
 ### 退出条件
 
-- Rust 与 Python reference 的 facts、records、排序和 digest 一致。
-- Kernel 和端到端 benchmark 均达到预设收益门槛。
-- Panic、超时、取消、内存不足和 native crash 有明确失败边界。
-- Rust provider 可通过 feature flag 回退到 reference provider。
+- DC35 与 DC38 的业务目标在参考环境与单任务上限 N 下达到；结构性计数断言通过；分段下界分析只作报告。
+- Rust 与 Python reference 的 facts、records、排序和 digest 一致；1 个线程与 N 个线程的输出逐字节相同。
+- Panic、超时、取消、内存不足和 native crash 有明确失败边界；单表超出内存预算时稳定失败。
+- 按 Performance Measurement §6 报告存储变化（规范表存储为新增的持久化派生数据）。
+- 各 Rust 路径接入期间的 feature flag 已删除，生产不保留双路径；Python 实现降为测试用参照（差分测试与小数据 oracle）。
 
 ### 本阶段不做
 
 - 不按 Python 文件、class 和 dataclass 一一翻译 Rust。
-- 不通过逐行 PyO3 调用传递百万个 Python object。
-- 不长期维护两个同等权威的正式算法实现；Python 逐步转为小数据 oracle/fallback。
+- 不通过逐行 PyO3 调用传递大量 Python object。
+- 不处理多个 operation 之间的并发、排队与容量（Phase 7）。
 
-## 10. Phase 7：Concurrency, Cache and Performance
+## 10. Phase 7：Multi-project Concurrency and Capacity（多项目并发与容量）
+
+本节按 DC37 改写（2026-10-25）。
 
 ### 目标
 
-在完整正确路径稳定且首份 vNext baseline 已 accepted 后，根据同一可比 series 的 measurement 引入受控并行、cache 和 provider 优化。
+在 Phase 6 退出、单任务资源上限 N/M 已测定之后，提高多个 operation 同时执行时的吞吐，并保持资源可控。以单任务资源上限为单位，多个独立项目的处理能力按数量线性扩展是设计目标，由多项目扩展测量验证，不预设成立（DC35 第 6 项）。
 
 ### 主要工作
 
-- Capability 内部按表/partition 并行和确定性汇总。
-- Operation 固定 fan-out/fan-in，仅用于需要独立恢复的 pair/task。
-- Repository Service 单 repository writer 和节点级资源队列。
-- Snapshot table、projection、comparison core、risk 和 artifact cache。
-- Cache authority、promotion、validation、eviction 和 cleanup。
-- Polars LazyFrame/streaming、Arrow zero-copy、Rust Rayon 和 I/O pipeline 优化。
-- 建立统一并发预算，控制 Operation worker、Python pool、Polars/Rayon 和 Repository worker。
+- 同时执行的槽位上限 K（K × 单任务上限 ≤ 机器资源）、项目之间的公平调度、对用户可见的排队状态。
+- 多 worker：重新设计启动时的租约判定（S2b 复审 R1-O2）。
+- 跨 operation 的 Repository Service 资源队列、单 repository writer 与节点级排队；其他共享瓶颈（control DB、磁盘与内存带宽）；HTTP 准入名额在慢速上传期间的占用（DC49）。
+- 按容量淘汰与多项目缓存治理：TTL 之外的磁盘预算淘汰、命中统计与容量规划；只在存储测量显示需要时做。
+- 建立统一并发预算，单个 operation 的工作池服从该预算；过载时背压。
+- 多项目扩展测量：1、2、4、K 个独立项目同时运行。
 
 ### 退出条件
 

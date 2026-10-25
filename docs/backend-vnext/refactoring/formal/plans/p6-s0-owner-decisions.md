@@ -1,0 +1,270 @@
+# Phase 6 S0 Owner 决议记录
+
+- 状态：**已决议**（repository owner，2026-10-24 至 2026-10-25）。本记录是 Phase 6 设计与执行计划的输入。它不直接修改 Contract 版本或 ADR 状态，相应修订在各阶段按“落点”进行；本记录也不构成实现授权。
+- 决议人：repository owner
+- 记录人：Phase 6 S0 讨论的审核方。依据讨论稿各项分析与 owner 的逐项答复整理。
+- 依据：
+  - [Phase 6 规划讨论稿](p6-planning-discussion.md) r21（提交 `206f4816c2`），以下简称“讨论稿”；
+  - [P5 S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) 中与 Phase 6 相关的 DC35（目标设定方法）与 DC36（测试节点三台分工）。本记录的编号接续为 DC37–DC50。
+
+```yaml
+record_kind: p6_s0_owner_decisions
+decided_by: repository_owner
+decided_at: [2026-10-24, 2026-10-25]
+discussion_draft: p6-planning-discussion.md r21 @ 206f4816c2
+decisions: DC37-DC50
+prior_phase6_decisions: [DC35, DC36]   # 记录在 p5-arch-closure-s0-owner-decisions.md
+adr_status_changed: no
+implementation_authorized: no
+```
+
+## 1. 决议总览
+
+| 编号 | 主题 | 讨论稿 | 讨论稿事项 |
+| --- | --- | --- | --- |
+| DC37 | Phase 6 与 Phase 7 的边界；implementation-stages §9/§10 改写；feature flag 只在接入期间保留 | §4 | A4 |
+| DC38 | Submit 与 History 的目标；Submit 后首次 History 的命中路径；上传传输不计入 | §3.2、§3.8 | A2 |
+| DC39 | 表摘要保值统一；Preview 只读、只比变化表（含 ordered） | §9 D1、D7 | B1、B5 第 1 项 |
+| DC40 | 只增列的 schema 变化按共有字段判定 | §9 D9 | B8 |
+| DC41 | bundle 补齐整表数据；整表新增或删除改为整表浏览加表级计数风险 | §9 D5、D7、§12 | B9、B5 第 2 项 |
+| DC42 | 规范表存储：按内容寻址、两类引用、同步写入、不压缩 | §9 D2、D3 | B2 |
+| DC43 | 计算去重与跨操作缓存；“分组分裂”拆出单独立项 | §9 D5 | B3、B4 |
+| DC44 | 比较改为 Rust 列式实现 | §9 D7 | B5 第 3、4 项 |
+| DC45 | Submit 只写变化；同内容表写入优化不做 | §9 D8、D10 | B6、B7 |
+| DC46 | SQL 解析器主线与上传侧数据路径合并 | §6 | C1、C2 |
+| DC47 | Rust 范围、并发与技术栈 | §5 | C3–C7 |
+| DC48 | Rust 测试进入权威门禁；门禁时长先剖析 | §11 V8、§12、§13 D5/D6 | D5、D6 |
+| DC49 | 慢速外网上传的接收限制 | §3.2、§12 | — |
+| DC50 | Phase 6 阶段结构与前置验证任务 | §8.1、§11 | D3 |
+
+## 2. 决议详情
+
+### DC37 Phase 6 与 Phase 7 的边界
+
+- **来源**：讨论稿 §4、§13 A4。implementation-stages §9 的目标、推荐顺序、进入与退出条件与已定方向不符：生产链路目前是纯 Python，唯一的 Rust consumer 不可达，Phase 6 是 Rust 首次进入生产链路；accepted baseline 状态机已被 Performance Measurement 3.0.0 废除。
+- **决议**：
+  1. **Phase 6 管单个 operation 的延迟**，以 DC35、DC38 的目标与结构性计数断言为退出条件。手段包括 operation 内部的表级与数据级并行、operation 内并发读取 Dolt（受单任务上限 N 约束），以及自身目标需要的缓存。缓存机制只用内容寻址、现有保护表、TTL、ADR 0012 的协作清理与读取时校验。
+  2. **Phase 7 管多个 operation 的吞吐与资源**：槽位上限 K、公平调度、排队状态、多项目扩展测量、多 worker（重新设计启动租约判定）、跨 operation 的 RS 资源队列与单 repository writer、其他共享瓶颈、按容量淘汰与多项目缓存治理、统一并发预算与背压。按容量淘汰只在 Measurement Contract §6 的存储测量显示需要时才做。
+  3. **Phase 6 含一个 Contract 阶段**（DC50 的 S1a、S1b）。其中的业务语义修正不是性能工作；按 Measurement Contract §5，前后结果不作为性能收益比较。
+  4. **feature flag**：各 Rust 路径接入期间保留，可退回 Python 参照实现；Phase 6 退出时删除生产开关，Python 降为测试用参照（差分测试与小数据 oracle），生产不保留双路径。
+  5. **阶段改名**：Phase 6 为“单任务性能与 Rust 接入”，Phase 7 为“多项目并发与容量”。
+- **修订**：implementation-stages §9 中“Phase 3 首批 Rust provider 已通过真实纵切验证”“Slice 5B 已产生 accepted vNext baseline”两条进入条件，以及“Rust provider 可通过 feature flag 回退”的退出条件，由本决议取代。
+- **落点**：implementation-stages §2、§9、§10，按讨论稿 §4.2 的改写要点修改，随本记录同期提交。
+
+### DC38 Submit 与 History 的目标
+
+- **来源**：讨论稿 §3.8、§13 A2。S5（t4）：History 893 s，其中比较 39 s，大头是两个节点各自从 Dolt 全量读取并在 Python 中物化；Submit 566 s，同一份 replay SQL 直接导入 Dolt 约 24 s。
+- **决议**：
+  1. **History 分三种负载，门槛为用户可见时间（2× t4）**：
+     - H1 相邻首查（上一 commit 与 head，规则集未变，Submit 后首次查询）≤ 60 s；
+     - H2 冷查询（派生缓存全部未命中）≤ 5 min，草案，V7 后定稿；
+     - H3 重复查询（TTL 内）≤ 15 s；
+     - 三节点在 H2 条件下补测一次，只报告，受 10 min 硬上限。
+     - 计数断言：TTL 内的 H1 与 H3，Dolt 读取次数与比较次数均为 0；TTL 外的 H1，Dolt 读取次数等于旧节点的变化表数。
+  2. **Submit 的门槛为完成时间**（从受理到 Submission 提交成功、main 已前移）：S1 首次 Submit 与 S4 几乎全变 ≤ 5 min，S3 少量变化 ≤ 2 min，所有 Submit ≤ 10 min。结构性门槛为 DC45 的计数断言；原样重传不产生 Repository operation。
+  3. **Submit 后首次 History 的命中路径**：表缓存（DC42）、diff/risk 缓存（DC43）与导出缓存（DC41）都在 Preview 与 Submit 的链路上形成。旧 head 的变化表在 head 前移后按 TTL 保留，TTL 从最后一次引用起算；diff/risk 条目由 Submit finalize 在移动 head 的同一事务中登记引用。
+  4. **FULL 模式的 Preview** 没有直接计算“基线 → 修改”，其后首次 History 的 diff/risk 缓存不命中、对变化表重算。**接受**，不在 Preview 中多算一个 pair。
+  5. **上传传输不计入** DC35 的两个时间指标：“受理”在整个上传包接收完毕之后。旅程另行记录上传耗时，只报告。
+  6. **测量安排**：在 DC35 的合成 2× t4 旅程上接着跑，统计规则同 DC35；清空派生缓存模拟冷启动。
+- **落点**：Phase 6 设计、测量 runbook；讨论稿 §3.8。
+
+### DC39 表摘要保值统一与结构性过滤
+
+- **来源**：讨论稿 §9 D1 审核分析（r4）、§9 D7。每张表现有四种摘要；`raw_content_digest` 已与行顺序无关，Dolt 读回能重算出同一个值；manifest `content_digest` 依赖源顺序，不能用于“只读变化表”；哈希本身不是瓶颈。ordered 表在比较中从不提前退出，重传、v2 与 History 中约 40 s 基本是这部分。
+- **决议**：
+  1. 以现有 `raw_content_digest`（SHA-256）作为唯一的表摘要；manifest 的内容摘要统一为同一个值，storage projection version 从 2 升到 3。
+  2. 去掉重复计算；`CommitCanonicalMetadataPort` 返回每表摘要，作为 DC35 结构性门槛“未变化的表不读基线、不做比较”的前提。
+  3. Preview 用基线 commit 的每表摘要过滤，只读、只比变化表；未变化的 ordered 表同样不读、不比，`before/current_ordered_digest` 改为取自表摘要或 manifest 并去掉表名。
+  4. 不采用 BLAKE3。只有在 Rust 化之后哈希实测占比明显时才重新考虑，且只用于新的、带算法标签的摘要类型。
+  5. 规范状态摘要、snapshot 与 bundle digest、HTTP DTO 与真实数据的规范状态摘要基准都不变；变化的是 manifest digest（随之体现在 PreviewResult、Submission 记录与 checkpoint 中）。
+- **设计阶段待定**：ordered 表的统一口径（现 manifest 摘要不含结构列，`raw_content_digest` 含全部规范列与伪 gid）；是否保留 `ordering_digest`；是否删除 `fast_row_digest`（删除会改变 snapshot digest）。
+- **落点**：Canonical Storage §4（内容摘要定义与 projection version）、ADR 0019 的 commit 元数据端口、相关 golden（storage-projection、mutation）；DC50 的 S1a。
+
+### DC40 只增列的 schema 变化按共有字段判定
+
+- **来源**：讨论稿 §9 D9。业务数据中数十张表同时只增列；testdata1（data1 → data2）中 32 张表只增列、2 张 ENUM 标签扩展、没有减列或主键变化。
+- **决议**：
+  1. 只增列不算 diff、没有风险：每张表按两个版本的共有字段判定变化与风险，不降级。
+  2. ENUM 标签扩展（只增加标签、已有标签全部保留，插入位置不限）与 SET 成员扩展算兼容，同样不算 diff；删除或改名标签仍按不兼容处理。
+  3. 只减列保持现行（`SCHEMA_CHANGED`，`MEDIUM_HIGH`）。
+  4. 后端与入库照常处理并可登记 schema 变化；Submission 与 History 结果不列出新增列；全部变化都是只增列时，Preview 不提示“提交仍会生成版本”。
+  5. 比较能力为两侧都存在的表计算 schema 演进分类（`NONE`、`COLUMNS_ADDED`、`COLUMNS_REMOVED`、`INCOMPATIBLE`），作为比较 facts 的稳定字段保留，为以后的触发事件（例如告警）预留；现在不建事件总线、通知状态机或订阅配置。
+  6. 表摘要不增加每列摘要字段。
+  7. testdata1 登记为真实数据档 W5（schema 演进负载）；owner 允许拷贝到其他测试节点。
+- **已知后果**：只增列改变规范状态，`NO_CANONICAL_CHANGE` 不成立，提交后仍生成版本，须写入 Contract；新增列的值在本期不受风险检查。
+- **落点**：Comparison、Risk、Surface Contract 与相应 golden；DC50 的 S1b。
+
+### DC41 bundle 补齐整表数据；整表新增或删除改为整表浏览
+
+- **来源**：讨论稿 §12（标准模式 bundle 不含整表数据）、§9 D5、§9 D7。代码核对：`application/pair_pipeline.py` 只在 DATASET_REPLACEMENT 模式下向 surface 传入表 ref，标准模式的 Preview 与 History bundle 不含整表 Parquet，与 owner 的“数据全量打包发送客户端、客户端不依赖服务端”原则及 comparison-bundle 契约不一致。整表新增时逐行产出 `ROW_ADDED` 记录与逐行风险标注，t4 首次上传约 25 万条，比较 148 s 与风险 27 s 主要在这里。
+- **决议**：
+  1. Preview 的 bundle 包含全部表（含未变化的表）；History 每个节点都包含全部表。整表优先从表缓存读取，未命中读 Dolt 并按 TTL 回填。客户端不向服务端按需取数。
+  2. bundle 中的表文件仍用 Parquet；导出结果按“表摘要 + Parquet writer 版本”缓存，按 TTL 管理。
+  3. 整表新增或删除：表状态仍为 `ADDED_TABLE` / `DELETED_TABLE`；不产出逐行记录；风险改为一条表级标注，证据中带行数；surface 用整表浏览（新增表浏览 `current_table_ref`，删除表浏览 `before_table_ref`）。前端的表浏览须能在表级展示风险。两侧都存在的表不受影响。
+  4. 第 3 项依赖第 1 项，二者在同一阶段落地。
+- **落点**：comparison-bundle 契约（跨 operation 的 snapshot Parquet cache 改为按表摘要命中）、Comparison、Risk、Surface Contract 与 golden；DC50 的 S1b。
+
+### DC42 规范表存储
+
+- **来源**：讨论稿 §9 D2、D3 及其审核分析（r7）。现有表文件为 zstd Parquet 加 JCS manifest、ID 随机、写后立即读回；读取把整个文件读成 bytes，与 mmap 零拷贝不兼容；“projected snapshot 写入 153 s”主要花在 Python 编码、压缩与回读。
+- **决议**：
+  1. 一个按内容寻址的存储，两类引用，直接用现有保护表（`artifact_protection_intents`）实现，不新增状态机：临时引用即现有的 Preview owner；正式引用新增一种 owner 类型，**只绑定项目当前的 BaselineHead**，head 前移时在同一 control DB 事务里移到新 head。更早 commit 的表由 Dolt 兜底读取、按 TTL 回填，不挂正式引用。
+  2. 规范表文件在 Preview 中**同步写入**；T1 照旧冻结 MODIFIED 侧的规范表集合闭包与 manifest，Submit prepare 照旧读冻结产物，ADR 0019 与设计 §4.6 的结构不变，闭包条目改为指向按内容寻址的文件。
+  3. 文件**不压缩**，用 Arrow IPC，mmap 读取。
+  4. 内容地址由 storage projection version、business schema digest、行数、表摘要（DC39）与 Arrow 映射版本组成，不含表名；文件内的行按规范顺序存放。
+  5. 读取时在 mmap 上校验 raw SHA-256，不符按缺失处理，从 Dolt 读取并重写；写入用临时文件加原子 rename，删除写后回读。
+  6. 复用已有文件时，TTL 从最后一次引用起算；先登记保护，再确认文件存在。
+  7. 格式切换随 DC46 的上传侧数据路径一起做。
+  8. 若实际使用中“查询较早 commit”的 History 很常见，重新评估“正式引用只保留 head”。
+- **设计阶段待定**：磁盘需求估算（每个项目的 head 体积加 Preview TTL 副本）与参考节点磁盘容量；超出预算时再评估 LZ4；上传侧原始表在 checkpoint 恢复之外是否还有使用方（没有则不再持久化，见 DC46）。
+- **比例化保障**：没有新增独立状态机、证据机制或 helper；丢失或损坏由读取校验加 Dolt 兜底处理，只影响性能。
+- **落点**：Canonical Storage §5 的格式与生命周期、设计 §4.6 的闭包条目格式；DC50 的 S2b。
+
+### DC43 计算去重与跨操作缓存
+
+- **来源**：讨论稿 §9 D5。按原始 SQL 统计，同内容表组的去重在单次操作内可省约 10–20% 的比较量；t4 与 testdata1 中同内容表组的分裂与合并都是 0。
+- **决议**：
+  1. 只有纯函数可以缓存：单表比较结果与“未套用 pair 上限之前”的单表风险标注，是“去掉表名与显示名之后的整个单表任务输入”的纯函数；表名、显示名、标注编号、pair 上限与组合信号表在汇总步骤绑定。写入 Comparison 与 Risk Contract。
+  2. 缓存键取上述任务输入的摘要，含不含表名的规则主体 digest、两侧有效键与存储规则、schema digest、行数、算法与记录格式版本、artifact scope；不手工列字段。
+  3. 单次操作内去重随 DC44 实施；跨操作缓存（History 的 diff/risk 缓存）实现排在 DC44 之后，以 DC38 的 History 目标验收；diff/risk 条目按 TTL 保留，不沿 commit 链长期保留。
+  4. 权威测试：同一输入，开启与关闭去重，facts 与 records 的摘要相同。
+  5. “分组分裂”风险信号与 ruleset 中“预期相同的表族”声明**拆出单独立项，不进 Phase 6**。重开条件：业务方提出需求，或出现因分组分裂漏报风险的实际案例。
+- **落点**：Comparison、Risk Contract；DC50 的 S3、S5。
+
+### DC44 比较改为 Rust 列式实现
+
+- **来源**：讨论稿 §9 D7。
+- **决议**：
+  1. 用 Rust 加 arrow-rs，不引入 Polars。
+  2. 先做 standard 与 keyless；ordered 待前置验证 V1 的结论。
+  3. Python 实现作为参照实现，按 §6.3 的差分分层验证；分歧点（浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则）先写进 Contract。
+  4. 列式实现须同时满足 DC40 的语义。
+- **落点**：Comparison Contract；DC50 的 S3。
+
+### DC45 Submit 只写变化
+
+- **来源**：讨论稿 §9 D8、D10。现有 Submit 每次重写全部表：prepare 用 `REBUILD_ALWAYS` 规划但传入的“变化前”为空，schema SQL 为每张表生成 `DROP` + `CREATE`，与 Storage Mutation Contract §2“每个变化表生成完整重建”不符；plan child 231 s 主要花在逐行构造变化集对象与没有消费方的摘要上。RS 在从 expected parent 建立的私有 ref 上执行 `replay.sql`，并用整个 catalog 与包 manifest 做 STRUCTURAL 校验，已支持只写变化。真实数据中变化表的行级变化比例两极分布。
+- **决议**：
+  1. **表级跳过**：prepare 拿 T1 冻结的上传侧 manifest 与 expected parent 的 manifest 逐表比较，内容摘要、schema 摘要、键与存储视图都相同的表不进入 `replay.sql`；删除的表照旧 `DROP`；parent 为 INITIAL、缺少 metadata 或投影版本不同时全部按变化处理；包 manifest 仍列出全部表。
+  2. **按阈值行级修改或整表重建**：生产 policy 从 `REBUILD_ALWAYS` 改为 `ADAPTIVE_PATCH`；有序表（GID_NO_V1）纳入行级修改，以 `gid` 为存储键、`no` 作为普通列更新；keyless 表（DC29）与 schema 变化的表（含 DC40 的只增列）仍整表重建。阈值先沿用 Storage Mutation Contract §3 的 1,000 行 / 5%，V7 实测后定稿。行级 diff 所需的基线优先从规范表存储读取，Dolt 兜底；存储 diff 与比较共用列式内核。
+  3. **不复用 Preview 的比较结果**：Preview 的结果按前端语义生成（共有列、比较排除列、风险预算截断），不能替代存储变更。
+  4. **渲染直通**：变化表直接从冻结的规范 Arrow 表渲染 SQL，导入路径不再构造逐行变化集对象、不计算没有消费方的摘要；表级决定仍归规划器。
+  5. **保留通用规划器与 ChangeSet Contract**，作为 ADR 0014 外部目标的 Contract owner。外部分区库（按表类型汇总所有项目的数据，用于加速查询）只作预留，不排优先级。
+  6. **正确性前提**：expected parent CAS、从存储读出的基线按 parent manifest 摘要校验、ADR 0009 的受信 Repository。按比例化保障政策，不另加条件 DML 或提交后回读校验。
+  7. **计数断言**：`replay.sql` 涉及的表数等于变化表数；行级语句数等于行级修改表的变化行数。
+  8. **同内容表在 Dolt 中的写入优化（B6）不做**：估算最多省约 4–5 s，且要修订跨 Backend 与 Repository Service 边界的包格式。重开条件：本决议完成后 Submit 仍达不到 DC38 的目标，且实测 Dolt 写入占比明显。
+- **落点**：Storage Mutation Contract §2/§3、ADR 0014（生产默认 policy）、Canonical Storage §6.1（`replay.sql` 是相对 expected parent 的确定性 replay）、T1 冻结的 `builder_mutation_policy`、prepare checkpoint 增加 parent manifest 摘要绑定、包 golden；RepositoryImportArtifact 包格式与 Repository Service Contract 不变。表级跳过与阈值方案在 DC50 的 S1a；渲染直通与列式存储 diff 在 S4。
+
+### DC46 SQL 解析器主线与上传侧数据路径合并
+
+- **来源**：讨论稿 §6。现有解析 0.54 MiB/s；t4 v1 Preview 上传侧四段（解析 140 s、物化 212 s、投影与摘要 219 s、snapshot 写入 153 s，合计 724 s）都是逐行 Python；只换解析器、再把 Arrow 转回 Python 行（36.5 MiB/s），收益会被抵消。
+- **决议**：
+  1. SQL 解析器作为 Phase 6 的主线并提前（DC37 修订 implementation-stages 中“最后单独评估 SQL parser”的排序）。
+  2. **数据路径合并、Contract 不合并**：每张表在 Rust 中依次完成解析（table_access）、业务列与检查（snapshot_materialization）、规范投影（storage_projection）与表摘要，数据始终是 Arrow；三个 capability 仍各自拥有语义与诊断，模块依赖不变。composite signal 留在 Python，先在 Arrow 上按特殊设备过滤，只把命中的行转成 Python。
+  3. 上传侧原始表不再写 Parquet，物化步骤崩溃后从 SourcePackage 重算；设计中逐一核实没有其他使用方。
+  4. 差分验证：解析结果逐值对照为主判据，下游摘要对照为端到端判据；类型化值完全相等；错误路径要求诊断码、表与语句位置相同，**错误消息文本不要求相同**；语料五层，第 ④ 层为 t1–t4 与 testdata1。1 个线程与 N 个线程、不同分块大小的输出逐字节相同。
+  5. V6 原型的验收：第 ① 层语料子集与 t4 第 ④ 层差异为 0；并行确定；2× t4 约 160 MB 的 SQL 在固定 N 下解析 ≤ 10 s，单线程吞吐只报告。达不到时先重新评估方案。
+  6. Arrow 列映射在设计阶段定稿：表摘要按规范标量编码计算，与 Arrow 物理类型无关；映射单独加版本号。
+  7. 不做覆盖引导 fuzz（cargo-fuzz 需要 nightly，Rust safety policy §2 禁止）；用 stable 上的 proptest 做 Rust 侧属性测试，加上 Hypothesis 差分。
+- **落点**：讨论稿 §6；DC50 的 S2a、S2b。
+
+### DC47 Rust 范围、并发与技术栈
+
+- **来源**：讨论稿 §5、§9 D6。
+- **决议**：
+  1. **模块拆解**（讨论稿 §5.4）：解析、物化检查、规范投影与表摘要为一条 Arrow 数据路径；比较按 DC44；Submit 存储 diff 与 SQL 渲染与比较共用列式内核；风险 facts 不进 Rust（V5 显示占比明显时重开）；History 读取与 bundle 导出不新建 kernel。
+  2. **Rust core 不写文件**（Rust safety policy §4）：core 只产出 Arrow 结果或在内存中编码的 IPC 字节，由 Python 的 ArtifactStore 落盘；读取由 pyarrow mmap 后经 Arrow C Stream 交给 Rust。
+  3. **crate 结构**：一个 core crate 加一个 PyO3 adapter；core 内按 capability 分模块，由 `gateway-architecture-check` 约束依赖方向；`gateway-compute-worker` 按需，不建。
+  4. **并发分层**：按表并行（L2）是唯一主机制，随各 kernel 一起做；FULL 模式的双侧物化与双 pair 并入 L2；基线读取与解析重叠（L1c）、表内分块（L3）按实测条件再做；operation 之间并行属 Phase 7。每个 kernel 必测 1 个线程与 N 个线程的输出逐字节相同。
+  5. **并发上限**：每个 worker 进程一个固定 N 的 Rayon 池，启动时建好、所有 kernel 共用；N 按 DC35 的加速曲线取值，设计阶段先用 V6 给暂定值。按预估内存准入，同时运行的任务总和不超过 M；单表超过 M 时以资源预算诊断稳定失败。Rust 长调用释放 GIL（沿用 `py.detach`）并定期检查取消与截止时间。pyarrow 的 CPU 与 I/O 线程池在 worker 启动时按 N 设定。测试环境默认 N=1，只有一致性测试显式比较 1 与 N。
+  6. **调度配置**：部署配置只开放 N 与 M，可修改、有范围校验、写进测量记录；小表阈值、LPT 成本系数、L3 分块大小为代码常量，随实现版本校准。调度信息不放进 ruleset，不参与任何摘要。
+  7. **技术栈**：新增 rayon、memchr、arrow-ipc（=59.1.0，不开压缩 feature）、arrow-row、arrow-ord、arrow-select（=59.1.0）、proptest（只作 dev-dependency）。不引入 Polars、BLAKE3、自定义内存分配器、criterion。Python 侧不加依赖。
+- **落点**：讨论稿 §5、§9 D6；Phase 6 设计。
+
+### DC48 Rust 测试进入权威门禁；门禁时长先剖析
+
+- **来源**：讨论稿 §12、§13 D5/D6；[节点核对报告](p6-node-init-report.md) §4–§7。权威 runner 不运行任何 cargo 命令；backend 以路径依赖引用 maturin 构建的扩展，uv 默认只在 `pyproject.toml` 等变化时重建，只改 Rust 源码时 Python 测试可能运行旧的扩展（推断，待验证）；`cargo test` 失败的一例源于 adapter 测试嵌入 Python 解释器并写死 venv 路径。全量门禁约 39 分钟，主要在 backend 与 repository_service 的串行批次。
+- **决议**：
+  1. Rust 测试进入权威门禁，作为 Phase 6 开工的前置任务，在 V1、V6 之前完成：
+     - 先在调试节点验证“只改 Rust 源码时 `uv sync` 不重建扩展”；
+     - 需要 Python 解释器的 adapter 测试改为 pytest，测已安装的扩展；删除嵌入解释器的写法；
+     - 权威 runner 增加第六个包 `rust`（`cargo fmt --check`、`cargo clippy --workspace --locked -- -D warnings`、`cargo test --workspace --locked`，离线，`CARGO_TARGET_DIR` 在 worktree 外），闭包 manifest 相应增加；
+     - 保证 Python 测试使用当前扩展（`tool.uv.cache-keys` 或强制重装），门禁增加一条构建输入一致性检查。
+  2. runner、AGENTS 与 testing-conventions 的修改由负责 DC36 的会话实施。
+  3. 门禁时长不阻塞 Phase 6。先做 V8 剖析；只采用不削弱门禁证据的改法，预计缩短约 40% 以上时才作为测试基础设施阶段插入。backend 与 repository_service 跨节点分开运行涉及 AGENTS 的规则，归负责 DC36 的会话。
+- **落点**：run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions（DC36 会话）；讨论稿 §11 V8。
+
+### DC49 慢速外网上传的接收限制
+
+- **来源**：讨论稿 §3.2、§12。上传带宽从局域网千兆到外网不足 3 Mbps 不等。代码核对：上传接收已流式化、async，Preview operation 在受理之后才创建，worker 不空等网络；但整次上传有固定 60 s 总时限（`FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS`，超时返回 413），1 Mbps 下 t4 包已很勉强；受理在事件循环上同步解压校验整个包；准入闸门在整个上传期间占用名额。
+- **决议**：
+  1. 改为空闲超时（连续 60 s 没有收到数据）加总上限；**最低支持带宽 1 Mbps**，总上限按“最大压缩包 ÷ 1 Mbps”推出（256 MiB 约 36 分钟）；超时使用独立的错误码，不再返回 413。
+  2. 范围：256 MiB 是 Preview 上传（第一阶段，SQL 与 XML 核心数据）压缩包的上限，不是 Submit 的限制。Backend 到 RS 的导入包另有服务端内部上限。各项上传上限会随业务变化调整，总时长上限随之按 1 Mbps 重新推算；这些上限现为代码常量，调整需随版本修改。
+  3. 受理中的同步工作移到线程池，在 Phase 6 中修复。
+  4. 准入名额的占用交给 Phase 7。
+  5. 不做“边收边解析”。
+- **落点**：HTTP Contract（新错误码）、`application/workspace/upload_limits.py`、`http/orchestration/`；DC50 的 S1b。
+
+### DC50 Phase 6 阶段结构与前置验证任务
+
+- **来源**：讨论稿 §8.1、§11、§13 D3。
+- **决议**：
+  1. **排序原则**：先改 Contract、再改性能，Contract 阶段之后重建一次对照基准，之后的纯性能阶段结果须与基准逐字节一致；每类 golden 只改一次；按依赖排序。
+  2. **S0（开工前）**：本记录与 implementation-stages 改写；kickoff 小修（`uv-consume.sh` 的 EXIT trap、SQLite 旁路文件残留、三项文档整理）；DC48 第 1 项；前置验证 V1、V5、V6、V7（V8 并行，不阻塞）；重要 keyless 表是否定义自然键的业务评估，在 S1a 之前给出；Phase 6 设计、执行计划与独立文档审核。
+  3. **实施阶段**：
+     - **S1a 摘要与存储 Contract**：DC39；DC45 的表级跳过与 `ADAPTIVE_PATCH`（用现有规划器）。
+     - **S1b 业务语义 Contract**：DC40、DC41、DC49 第 1、3 项；生成合成 2× t4 并写入测量 runbook；testdata1 登记为 W5。
+     - **重建对照基准**：用 Python 实现，在 `ct108-gw-dms` 上测 t1–t4、testdata1 与合成 2× t4。
+     - **S2a 解析器**：完整的 Rust 解析器与五层差分，放在 feature flag 之后，不切生产。
+     - **S2b 上传侧数据路径与表存储**：DC46 第 2、3 项；DC42；DC47 第 5 项；切换生产。
+     - **S3 比较**：DC44；DC43 的单次操作内去重。
+     - **S4 Submit**：DC45 的渲染直通与列式存储 diff；按 V7 定稿阈值。
+     - **S5 History 与跨操作缓存**：DC43 的跨操作缓存；History 按表拼接；Dolt 按表并发读取。
+     - **S6 收尾**：加速曲线定 N；删除生产 feature flag；2× t4 全部负载取证（W1–W4、H1–H3、S1–S4、计数断言）；存储报告（Measurement Contract §6）；Phase 6 退出。
+     - 测试基础设施阶段按 DC48 第 3 项可选插入。
+  4. **真实数据（DC33：kickoff 写明，退出时 owner 确认）**：S1a、S1b 为 t1–t4 与 testdata1 完整旅程；S2a 只做解析结果逐值差分；S2b 至 S5 为 t1–t4 与 testdata1 端到端摘要与基准一致，并测本阶段相关负载；S6 为 2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。t1–t3 与 testdata1 在 `ct108-gw-dms-05`，t4 与测量在 `ct108-gw-dms`。
+  5. **门禁**：沿用 AGENTS、DC30、DC33、DC34、DC36、G12、G13；每个阶段的最终提交运行一次权威 runner（含 `rust` 包）；改动 Rust 或镜像时重建 backend 镜像并跑容器门禁；阶段边界打 `p6-sN-exit` 附注 tag。
+  6. **前置验证任务**：
+     - V1 ordered 比较的小规模 Rust 验证，决定 ordered 是否进 Rust；
+     - V5 operation 级耗时归因，先用 step 时间戳，不足时用 py-spy；
+     - V6 SQL 解析器原型，按 DC46 第 5 项验收；
+     - V7 Dolt 回放（整表重建与行级修改的耗时，核对两条路径的表哈希相同）与 Dolt 读取吞吐、并发读取加速比，用于 DC45 阈值与 DC38 H2 门槛定稿；
+     - V8 门禁耗时剖析（DC48）。
+     - V3（Dolt 同内容表写入）与 V4（同内容表组统计）不再是前置任务，随 DC45 第 8 项或 DC43 第 5 项重开时再做。
+- **落点**：Phase 6 设计与执行计划；讨论稿 §8.1、§11。
+
+## 3. 设计阶段待定项
+
+| 项 | 所属决议 | 何时定 |
+| --- | --- | --- |
+| ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39 | Phase 6 设计 |
+| W1–W4 目标数值定稿 | DC35 | V5、V6 之后 |
+| H2 门槛定稿 | DC38 | V7 之后 |
+| 行级修改的阈值定稿 | DC45 | V7 之后 |
+| Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |
+| 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
+| ordered 比较是否进 Rust | DC44 | V1 之后 |
+| N 的暂定值与定稿 | DC47 | V6 后暂定，S6 定稿 |
+| 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
+| 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1a 之前 |
+
+以下仍由 owner 另行决定，不属于本记录：G6b 是否重新评估（讨论稿 §12）；GitHub 远程默认分支改为 `main`。
+
+## 4. 需同步修订的文档
+
+| 文档 | 内容 | 时机 |
+| --- | --- | --- |
+| implementation-stages §2、§9、§10 | 按 DC37 与讨论稿 §4.2 改写，阶段改名 | 随本记录 |
+| Phase 6 规划讨论稿 | 状态改为“已整理为 DC37–DC50”，§13 B1 改为已决议 | 随本记录 |
+| Canonical Storage §4、§5、§6.1；ADR 0019 的 commit 元数据端口 | DC39、DC42、DC45 | 所在实施阶段 |
+| Storage Mutation Contract §2/§3；ADR 0014 | DC45 | S1a |
+| Comparison、Risk、Surface Contract；comparison-bundle 契约 | DC40、DC41、DC43、DC44 | S1b、S3、S5 |
+| HTTP Contract（上传超时错误码） | DC49 | S1b |
+| run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions | DC48 | S0，由负责 DC36 的会话实施 |
+
+## 5. 后续步骤
+
+1. 按 §4 第 1、2 行修订 implementation-stages 与讨论稿。
+2. S0 前置项：kickoff 小修；DC48 第 1 项（DC36 会话）；V1、V5、V6、V7，V8 并行；keyless 自然键的业务评估。
+3. 前置验证完成后，编写 Phase 6 设计与执行计划，进行独立文档审核。
+4. 审核通过后进入 S1a。

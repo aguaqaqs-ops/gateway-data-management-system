@@ -1,19 +1,21 @@
 # Phase 6 执行计划
 
-状态：**DRAFT r1 — 待独立文档审核；实现未授权**
+状态：**DRAFT r2 — 按 S0 独立文档审核修订，待定向复审；实现未授权**
 
-日期：2026-10-26（r1）
+日期：2026-10-26（r2）；r1 为 2026-10-26
+
+审核：[S0 独立文档审核](p6-s0-independent-docs-review.md)；findings 处置见详细设计附录 A。
 
 Owner：Backend vNext Architecture
 
-入口：[S0 Owner 决议记录](p6-s0-owner-decisions.md) → [详细设计](p6-design.md) → 本文
+入口：[S0 Owner 决议记录](p6-s0-owner-decisions.md)（DC37–DC55）→ [详细设计](p6-design.md) → 本文
 
 B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`，R=`vnext/rust/`。本文写未来的步骤与期望证据；实际结果写入各阶段 handoff。
 
 ## 1. 执行形态
 
 ```text
-S0  决议（DC37–DC54）、前置验证（已完成）、本设计与计划、独立文档审核、kickoff 小修、keyless 自然键评估
+S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划、独立文档审核、kickoff 小修、keyless 自然键评估
  -> S1a 摘要与存储 Contract（DC39、DC45 表级跳过与阈值）+ worker step 归因
  -> S1b 业务语义 Contract（DC40、DC41、DC49、参照解析器修复与语义定稿）+ 合成负载
  -> 重建对照基准（Python）
@@ -36,22 +38,23 @@ S0  决议（DC37–DC54）、前置验证（已完成）、本设计与计划�
 - **独立文档审核：** 审核对象为本文、详细设计、决议记录 DC37–DC54 与 implementation-stages §9/§10 的改写；必须复核的代码事实见设计 §2.2（Submit 全量重写、Preview 全量物化基线、bundle 不含整表、上传 60 s 总时限、uv 不重建扩展）。审核报告模板沿用 [P5 执行计划 §8.8](p5-arch-closure-execution-plan.md)。
 - **kickoff 小修**（不单独审核，随 S1a 审核）：`uv-consume.sh` 的 EXIT trap（`mktemp` 锁快照残留）；测试留下的 `repository-import-*.sqlite3-shm/-wal`；三项文档整理（讨论稿 §12）；RS defunct `dolt` 进程：交 RS owner 排查，修复若涉及 Dockerfile/Compose 则为强制重建项，可并入 S1a。
 - **业务评估：** 重要 keyless 表是否定义自然键，S1a kickoff 之前由 owner 给出；结论可能影响 DC39 与 S3 对 keyless 的处理。
-- **接受：** owner 接受文档后给出实现授权。
+- **定向复审：** r2 交同一审核者复审，逐项核对附录 A 的处置与 findings 的关闭标准。
+- **接受：** 复审通过、owner 接受文档后给出实现授权。
 
 ### S1a — 摘要与存储 Contract
 
 - 目标：设计 §4。
 - 前置：S0 接受；keyless 自然键评估已给出。
 - 内容：
-  1. 表摘要统一（设计 §4.1）：manifest 内容摘要改为 `raw_content_digest`；`STORAGE_PROJECTION_VERSION = "3"`；删除 `ordering_digest`；去掉重复计算。
-  2. Preview 与 History 的结构性过滤（§4.2），含未变化 ordered 表不读不比，`before/current_ordered_digest` 改取自表摘要。
-  3. Submit 表级跳过与 `ADAPTIVE_PATCH`（§4.3）：T1 冻结 policy、prepare checkpoint 绑定 parent manifest digest、有序表资格、阈值 1,000 行 / 1%；阈值复测。
-  4. Contract 修订（§4.5）与 golden（storage-projection、mutation、包）。
-  5. worker step 归因（§4.4），写入 handoff。
+  1. 表摘要统一（设计 §4.1）：manifest 内容摘要改为 `raw_content_digest`；`STORAGE_PROJECTION_VERSION = "3"`；删除 `ordering_digest`（含 `import_publication.py` 的传递）；去掉重复计算。
+  2. Preview 与 History 的结构性过滤（§4.2，完整条件），含未变化 ordered 表不读不比；ordered 逻辑摘要在投影时计算并连同策略摘要写入 manifest（§4.1，DC55 第 1 项）。
+  3. Submit 表级跳过与 `ADAPTIVE_PATCH`（§4.3）：T1 冻结 policy、prepare checkpoint 绑定 parent manifest digest、parent 行按 manifest 校验、有序表资格、阈值 1,000 行 / 1%；阈值复测后冻结阈值与 INSERT 批量规则（DC55 第 5 项）。
+  4. Contract 修订（设计 §14 中标注 S1a 的行）与 golden（storage-projection、mutation、导入包，设计 §4.6）。
+  5. worker step 归因（§4.4）：每项 step 间隔与残差的来源、削减方案、处理阶段与 owner，写入 handoff。
 - 验收：
-  - 计数断言（设计 §16.2 第 1、2 行）在 focused 测试与 t4 旅程中成立；
+  - 设计 §16.2 中基线读取、比较派发与 Submit 的计数断言在 focused 测试中按公式成立（含手算示例），t4 旅程中记录；
   - 新旧路径在 t4 v2 上的 Dolt 表哈希相同；
-  - 规范状态摘要、snapshot 与 bundle digest、HTTP DTO 不变（golden 中只有 manifest digest 及其传播值变化）；
+  - 设计 §4.1 摘要变化与保值清单中“保值”的各项不变；golden 只有 S1a 组变化；
   - 权威 runner 六个包通过；容器门禁（Submit 路径与镜像内代码变化）。
 - 真实数据：t1–t4 完整旅程（t1–t3 在 05，t4 在 ct108），业务结果按新 Contract 核对。
 
@@ -63,29 +66,29 @@ S0  决议（DC37–DC54）、前置验证（已完成）、本设计与计划�
   1. 只增列（§5.1）；
   2. bundle 补齐整表与导出缓存（§5.2）；整表新增或删除改为整表浏览（§5.3）；
   3. 慢速上传：空闲超时、总上限、新错误码、受理移到线程池（§5.4）；
-  4. 参照解析器的缺陷修复与语义定稿（§5.5；kickoff 时 owner 逐项确认）；
+  4. 参照解析器的缺陷修复与语义定稿（§5.5；kickoff 时 owner 逐项确认 P 项）；零日期维持拒绝；FLOAT 直接舍入在 Shared Kernel 修复（DC55 第 4 项）；
   5. 合成 2× t4 与 W4 生成工具、测量 runbook（§5.6）；
-  6. Contract 修订（§5.7）与 golden。
+  6. Contract 修订（设计 §14 中标注 S1b 的行）与 golden（comparison、risk、surface、bundle、table-access、shared-kernel 编码向量，设计 §4.6）。
 - 验收：
   - 只增列的表不降级、无风险；Submit 仍生成版本；
-  - Preview 与 History 的 bundle 含全部表，重复导出命中导出缓存；
+  - Preview 与 History 的 bundle 含全部表，重复导出命中导出缓存，内容相同而 schema 不同时不误命中；
   - 上传在低速下不因总时长失败、空闲超时返回新错误码；
-  - 参照解析器对 V6 列出的输入给出确定诊断，不抛未捕获异常；
+  - 参照解析器对 V6 列出的输入给出确定诊断，不抛未捕获异常；新增接受的值有合成往返用例；
   - 权威 runner 与容器门禁。
 - 真实数据：t1–t4 完整旅程；t3 覆盖只增列（即原 testdata1）。
 
 ### 重建对照基准
 
 - 前置：S1b exit。
-- 内容：设计 §6；记录写入基准 handoff，作为 S2a–S6 的对照。
+- 内容：设计 §6，覆盖设计 §16.3 验收矩阵中的全部场景；记录写入基准 handoff，作为 S2a–S6 的对照。
 - 节点：`ct108-gw-dms` 独占。
 
 ### S2a — SQL 解析器
 
 - 目标：设计 §7。
-- 前置：S1b exit（语义已定稿）。
+- 前置：S1b exit（语义已定稿）；重建对照基准已完成。
 - 内容：补齐诊断与语料；PyO3 adapter；worker 级共享线程池；feature flag 之后接入（只差分）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
-- 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；`import_rules` 基线相应更新；权威 runner 与容器门禁（Dockerfile 变化）。
+- 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；新扩展的构建输入检查、`rust` 包排除的去除与 `import_rules` 基线同步核对；权威 runner 与容器门禁（Dockerfile 变化）。
 - 真实数据：只做第 ④ 层逐值差分（05；t4 也可在 05，DC50 补充）。
 
 ### S2b — 上传侧数据路径与规范表存储
@@ -93,44 +96,44 @@ S0  决议（DC37–DC54）、前置验证（已完成）、本设计与计划�
 - 目标：设计 §8。
 - 前置：S2a exit；设计核对项（上传侧原始表的使用方、磁盘估算）已完成。
 - 内容：数据路径合并 kernel；Arrow 列映射 v1；规范表存储（内容地址、IPC、读取校验、BaselineHead 正式引用与 TTL）；N/M 准入与 pyarrow 线程池；feature flag 切换生产；Canonical Storage §5 修订。
-- 验收：t1–t4 端到端摘要与基准一致；存储的权威测试；计数断言；W1–W3 测量（ct108）；权威 runner 与容器门禁。
+- 验收：t1–t4 端到端摘要与基准一致；存储读取校验、Dolt 兜底与冻结产物四种状态的权威测试；计数断言；W1–W3 测量（ct108）；**W2 可达性检查点**（设计 §16.1：剩余成本不能在 30 s 内闭合时停止，交 owner）；权威 runner 与容器门禁。
 - 真实数据：t1–t4 端到端摘要一致；测本阶段相关负载。
 
 ### S3 — 比较与逐行记录
 
 - 目标：设计 §9。
 - 前置：S2b exit。
-- 内容：共用比较内核（standard、keyless、ordered）；逐行记录 Arrow 与 `content_digest`；记录写入改为 pyarrow 由 Arrow batch 写；单次操作内去重；分歧点写进 Contract；feature flag 接入。
-- 验收：差分（语料、随机、t1–t4）逐字节一致；记录 golden 逐字节一致；去重开关不改结果；W3、W4 测量；权威 runner 与容器门禁。
+- 内容：共用比较内核（standard、keyless、ordered）；逐行记录 Arrow 与 `content_digest`；记录写入改为 pyarrow 由 Arrow batch 写，删除发布后回读（保留读取校验）；风险按 Arrow 分批消费；单次操作内去重（键含规则与版本）；Comparison 与 Risk 的缓存条款修订（设计 §14）；分歧点按现行行为写进 Contract；feature flag 接入。
+- 验收：差分（语料、随机、t1–t4）逐字节一致；记录 golden 逐字节一致；去重开关不改结果；W3、W4（含 FULL 一次与 100% 压力档，只报告）测量，W4 中不存在未计入的逐行 Python 转换；权威 runner 与容器门禁。
 
 ### S4 — Submit
 
 - 目标：设计 §10。
 - 前置：S3 exit。
-- 内容：渲染直通；存储 diff 共用内核；阈值定稿。
-- 验收：`replay.sql` 与 S1a 产物逐字节一致；计数断言；S1–S4 完成时间；权威 runner 与容器门禁（Submit Compose 旅程）。
+- 内容：渲染直通；存储 diff 共用内核；用最终渲染器复测 S1a 冻结的阈值与批量规则（须调整时作为例外交 owner）。
+- 验收：同一输入的 `replay.sql` 与 S1a 产物逐字节一致；设计 §16.2 的 Submit 计数；S1–S4 完成时间（main 前移）；权威 runner 与容器门禁（Submit Compose 旅程）。
 
 ### S5 — History 与跨操作缓存
 
 - 目标：设计 §11。
 - 前置：S3、S4 exit。
-- 内容：diff/risk 缓存与 finalize 登记引用；History 按表拼接；Dolt 并发读取（≤ RS 容量，503 退避）；H2 冷读验收。
-- 验收：H1–H3 计数断言与门槛；缓存只缓存纯函数结果的权威测试；权威 runner 与容器门禁。
+- 内容：diff/risk 缓存（只缓存纯函数结果，pair 上限在汇总绑定）与 finalize 登记引用；History 按表拼接（完整条件）；Dolt 并发读取（≤ min(N, RS 容量)，503 有界退避，继承取消与截止时间）；H2 冷读验收。
+- 验收：设计 §16.3 中 H1、H1-FULL、H1-回填、H2、H2-三节点（只报告）、H3 各场景；计数断言按 §16.2 的条件判定；缓存只缓存纯函数结果的权威测试；权威 runner 与容器门禁。
 
 ### S6 — 收尾
 
 - 目标：设计 §12。
-- 内容：加速曲线定 N；删除生产 feature flag；2× t4 全部负载取证（W1–W4、H1–H3、S1–S4）；存储报告；门禁时长重新剖析；Phase 6 退出。
-- 验收：设计 §1.1 全部门槛与 §16.2 全部计数断言；Phase 6 退出审核。
+- 内容：加速曲线定 N；删除生产 feature flag；按设计 §16.3 验收矩阵完成全部场景取证；存储报告；门禁时长重新剖析；Phase 6 退出。
+- 验收：设计 §16.3 全部场景（门槛项达标、只报告项有记录）与 §16.2 全部计数断言；最终提交上完整运行权威 runner（六个包）与容器门禁各一次；Phase 6 退出审核。
 - 真实数据：2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。
 
 ## 3. 路径预算（主要改动面）
 
 | 阶段 | 主要路径 |
 | --- | --- |
-| S1a | B`capabilities/storage_projection/`（`_digest.py`、`project.py`、`publish.py`、`contracts.py`、`import_replay.py`）、B`capabilities/table_rules/contracts.py`、B`capabilities/mutation_planning/`、B`capabilities/comparison/standard.py` 与 `ordered.py`、B`application/preview_jobs.py`、B`application/history/compare_jobs.py`、B`application/submission/import_builder.py`、B`infrastructure/repository_write/import_publication.py`、B`application/submit_jobs.py`；golden：storage-projection、mutation |
-| S1b | B`capabilities/comparison/`（`row_encoding.py`、`contracts.py`、`artifacts.py`）、B`capabilities/risk_evaluation/`、B`capabilities/surface_assembly/`、B`capabilities/bundle_assembly/`、B`application/pair_pipeline.py`、B`http/orchestration/`（`multipart_stream.py`、`multipart_upload.py`）、B`application/workspace/upload_limits.py`、B`capabilities/table_access/`（参照解析器修复）、`vnext/backend/benchmarks/`（合成负载）；control DB 基线 schema（导出缓存 owner） |
-| S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python*`（新 adapter，删除旧 crate 内容）、B`capabilities/table_access/`（flag 接入）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/native_kernel_component.sh`（删除） |
+| S1a | B`capabilities/storage_projection/`（`_digest.py`、`project.py`、`publish.py`、`contracts.py`、`package.py`、`import_replay.py`）、B`capabilities/table_rules/contracts.py`、B`capabilities/mutation_planning/`、B`capabilities/comparison/standard.py` 与 `ordered.py`、B`application/preview_jobs.py`、B`application/history/compare_jobs.py`、B`application/submission/import_builder.py`、B`infrastructure/repository_write/import_publication.py`、B`application/submit_jobs.py`；golden：storage-projection、mutation |
+| S1b | `vnext/shared_kernel/src/gateway_shared_kernel/scalar.py`（FLOAT 直接舍入）与 shared-kernel 编码向量 golden、B`capabilities/comparison/`（`row_encoding.py`、`contracts.py`、`artifacts.py`）、B`capabilities/risk_evaluation/`、B`capabilities/surface_assembly/`、B`capabilities/bundle_assembly/`、B`application/pair_pipeline.py`、B`http/orchestration/`（`multipart_stream.py`、`multipart_upload.py`）、B`application/workspace/upload_limits.py`、B`capabilities/table_access/`（参照解析器修复）、`vnext/backend/benchmarks/`（合成负载）；control DB 基线 schema（导出缓存 owner） |
+| S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python*`（新 adapter，删除旧 crate 内容）、B`capabilities/table_access/`（flag 接入）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/check-rust-extension-build-input.sh`（核对新扩展）、`vnext/scripts/native_kernel_component.sh`（删除）、T`architecture_baseline.py` 与 `import_rules` 基线 |
 | S2b | R`gateway-compute-core/src/`（物化、投影、摘要模块）、B`capabilities/snapshot_materialization/`、B`capabilities/storage_projection/`、B`artifacts/` 与 B`infrastructure/artifact_store/`、control DB 基线 schema（BaselineHead owner）、B`settings.py`（N、M）、B`bootstrap/operation_worker.py`（线程池） |
 | S3 | R`gateway-compute-core/src/comparison/`、B`capabilities/comparison/`、B`capabilities/risk_evaluation/`（接口） |
 | S4 | R`gateway-compute-core/src/`（渲染）、B`capabilities/mutation_planning/`、B`infrastructure/repository_write/import_publication.py` |
@@ -171,7 +174,7 @@ GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
 
 ## 7. 停止规则
 
-设计 §17 的停止条件之外：
+设计 §17 的停止条件（含 S2b 的 W2 可达性检查点）之外：
 
 - runner exit 非 0 时先处理该失败，不继续 carried 或后续验收（AGENTS）；
 - auto-mode 分类器拒绝的命令不改写绕过，停下报告；

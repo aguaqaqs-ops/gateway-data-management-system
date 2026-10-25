@@ -19,7 +19,9 @@ pyo3-arrow = "=0.19.0"
 arrow-array = "=59.1.0"
 arrow-buffer = "=59.1.0"
 arrow-data = "=59.1.0"
+arrow-ipc = { version = "=59.1.0", default-features = false }
 arrow-schema = "=59.1.0"
+arrow-select = "=59.1.0"
 bytes = "=1.12.1"
 parquet = { version = "=59.1.0", features = ["arrow"] }
 serde = "=1.0.229"

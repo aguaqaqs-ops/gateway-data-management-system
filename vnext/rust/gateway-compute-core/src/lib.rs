@@ -2,6 +2,7 @@
 
 mod arrow_extract;
 mod arrow_mapping;
+pub mod comparison;
 mod contract;
 mod errors;
 mod pipeline;

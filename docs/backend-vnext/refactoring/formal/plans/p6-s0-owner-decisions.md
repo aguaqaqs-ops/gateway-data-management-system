@@ -195,6 +195,7 @@ implementation_authorized: no
   2. runner、AGENTS 与 testing-conventions 的修改由负责 DC36 的会话实施。
   3. 门禁时长不阻塞 Phase 6。先做 V8 剖析；只采用不削弱门禁证据的改法，预计缩短约 40% 以上时才作为测试基础设施阶段插入。backend 与 repository_service 跨节点分开运行涉及 AGENTS 的规则，归负责 DC36 的会话。
 - **落点**：run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions（DC36 会话）；讨论稿 §11 V8。
+- **实施（2026-10-25）**：第 1 项已完成，实施提交 `4526084da1`，handoff 见 [p6-dc48-handoff.md](p6-dc48-handoff.md)，轻量审核通过，见 [p6-dc48-review.md](p6-dc48-review.md)。选用强制重装（`--reinstall-package`）；构建输入以 `vnext/rust` 的 Git tree id 嵌入扩展并在 runner 中检查。节点 05 的反例实测确认：只改 Rust 源码时 `uv sync` 不重建扩展。owner 同日确认 `cargo test` 在 S2a 之前同时排除 `gateway-compute-python-impl`（其测试同样嵌入 Python 解释器）。
 
 ### DC49 慢速外网上传的接收限制
 
@@ -253,7 +254,7 @@ implementation_authorized: no
 - **决议**（repository owner，2026-10-25）：
   1. 现有 Rust 扩展视为过时，不迁移、不复用；测试直接面向新设计。
   2. **DC39 的表摘要统一（S1a）用 Python 实现**，不复用旧的 Rust 内核；Rust 从 S2a 开始进入。
-  3. **DC48 简化：** 旧扩展的测试（含嵌入解释器的 `adapter_errors.rs`）随旧扩展删除，不迁移成 pytest，也不再验证旧扩展是否过时；新扩展从一开始按 DC48 的方式建立测试与构建一致性检查。V1、V6 的原型直接建在新代码上。
+  3. **DC48 简化：** `cargo test` 在 S2a 之前排除 `gateway-compute-python` 与 `gateway-compute-python-impl`（后者由 owner 2026-10-25 确认）。 旧扩展的测试（含嵌入解释器的 `adapter_errors.rs`）随旧扩展删除，不迁移成 pytest，也不再验证旧扩展是否过时；新扩展从一开始按 DC48 的方式建立测试与构建一致性检查。V1、V6 的原型直接建在新代码上。
   4. **删除时机为 S2a：** 删除 `capabilities/canonical_row_hash`、`gateway-compute-core` 中的旧 pipeline、PyO3 adapter 的旧入口、`canonical-row-hash` golden、Canonical Row Hash Compute Boundary Contract、`native_kernel_component.sh`，以及引用它们的测试与架构基线条目。backend Dockerfile 的 maturin 构建步骤保留，改为构建新 crate；在 S2a 新旧替换，镜像始终能构建，也不出现 Rust 完全不在生产链路的空窗期。
 - **落点**：DC48、DC50 已相应修订；S2a 的执行计划。
 

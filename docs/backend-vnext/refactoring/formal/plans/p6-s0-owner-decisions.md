@@ -93,7 +93,7 @@ implementation_authorized: no
   4. 后端与入库照常处理并可登记 schema 变化；Submission 与 History 结果不列出新增列；全部变化都是只增列时，Preview 不提示“提交仍会生成版本”。
   5. 比较能力为两侧都存在的表计算 schema 演进分类（`NONE`、`COLUMNS_ADDED`、`COLUMNS_REMOVED`、`INCOMPATIBLE`），作为比较 facts 的稳定字段保留，为以后的触发事件（例如告警）预留；现在不建事件总线、通知状态机或订阅配置。
   6. 表摘要不增加每列摘要字段。
-  7. testdata1 登记为真实数据档 W5（schema 演进负载）；owner 允许拷贝到其他测试节点。
+  7. ~~testdata1 登记为真实数据档 W5~~（2026-10-25 取消，owner 确认）：testdata1 的 data1、data2 与 t3 的 v1、v2 数据包逐字节相同（2026-10-25 核对），S5 的真实数据旅程已覆盖。t3 即 schema 演进样本，不另行登记；本记录与讨论稿中其余提到 testdata1 之处均指 t3。
 - **已知后果**：只增列改变规范状态，`NO_CANONICAL_CHANGE` 不成立，提交后仍生成版本，须写入 Contract；新增列的值在本期不受风险检查。
 - **落点**：Comparison、Risk、Surface Contract 与相应 golden；DC50 的 S1b。
 
@@ -167,6 +167,7 @@ implementation_authorized: no
   3. 上传侧原始表不再写 Parquet，物化步骤崩溃后从 SourcePackage 重算；设计中逐一核实没有其他使用方。
   4. 差分验证：解析结果逐值对照为主判据，下游摘要对照为端到端判据；类型化值完全相等；错误路径要求诊断码、表与语句位置相同，**错误消息文本不要求相同**；语料五层，第 ④ 层为 t1–t4 与 testdata1。1 个线程与 N 个线程、不同分块大小的输出逐字节相同。
   5. V6 原型的验收：第 ① 层语料子集与 t4 第 ④ 层差异为 0；并行确定；2× t4 约 160 MB 的 SQL 在固定 N 下解析 ≤ 10 s，单线程吞吐只报告。达不到时先重新评估方案。
+     **结果（2026-10-25，[V6 报告](p6-v6-parser-prototype-report.md)）：** 通过。语料 118 例与 t1–t4 两版 8 份真实数据（3,389 万个值）差异为 0；1–32 线程、1 B–1 MiB 块输出逐字节相同；ct108 上 2× t4 单线程 1.25 s、32 线程 0.28 s；解析器单独的暂定 N 为 4（并行效率 0.65）。
   6. Arrow 列映射在设计阶段定稿：表摘要按规范标量编码计算，与 Arrow 物理类型无关；映射单独加版本号。
   7. 不做覆盖引导 fuzz（cargo-fuzz 需要 nightly，Rust safety policy §2 禁止）；用 stable 上的 proptest 做 Rust 侧属性测试，加上 Hypothesis 差分。
 - **落点**：讨论稿 §6；DC50 的 S2a、S2b。
@@ -217,7 +218,7 @@ implementation_authorized: no
   2. **S0（开工前）**：本记录与 implementation-stages 改写；kickoff 小修（`uv-consume.sh` 的 EXIT trap、SQLite 旁路文件残留、三项文档整理）；DC48 第 1 项；前置验证 V1、V5、V6、V7（V8 并行，不阻塞）；重要 keyless 表是否定义自然键的业务评估，在 S1a 之前给出；Phase 6 设计、执行计划与独立文档审核。
   3. **实施阶段**：
      - **S1a 摘要与存储 Contract**：DC39；DC45 的表级跳过与 `ADAPTIVE_PATCH`（用现有规划器）。
-     - **S1b 业务语义 Contract**：DC40、DC41、DC49 第 1、3 项；生成合成 2× t4 并写入测量 runbook；testdata1 登记为 W5。
+     - **S1b 业务语义 Contract**：DC40、DC41、DC49 第 1、3 项；生成合成 2× t4 并写入测量 runbook；参照实现的输入边界缺陷（V6 报告“需要澄清的语义”第 3、9 项：BIT 负数、超宽 BIT、非 ASCII 的 `b'..'` 与深层嵌套 JSON 抛出未捕获的异常）的修复，以及 FLOAT 两次舍入（第 1 项）与其余语义问题（第 2、4–8 项）的定稿（owner 2026-10-25 决定在 S1b 完成；S2a 不同时改语义和换实现）。
      - **重建对照基准**：用 Python 实现，在 `ct108-gw-dms` 上测 t1–t4、testdata1 与合成 2× t4。
      - **S2a 解析器**：完整的 Rust 解析器与五层差分，放在 feature flag 之后，不切生产；同时删除现有 Rust 扩展（DC52）。
      - **S2b 上传侧数据路径与表存储**：DC46 第 2、3 项；DC42；DC47 第 5 项；切换生产。
@@ -233,7 +234,7 @@ implementation_authorized: no
      - V1 ordered 比较的小规模 Rust 验证，决定 ordered 是否进 Rust；
      - V5 operation 级耗时归因，先用 step 时间戳，不足时用 py-spy（2026-10-25 完成，见 [V5 报告](p6-v5-attribution-report.md)）；
      - V5b 分段补测（owner 2026-10-25 补充）：不加产品插桩，只扩展测量工具，补测基线 commit 全量物化、完整 bundle 组装、Submit prepare 的 build input 解析与 checkpoint 序列化四段；S1 之后重建对照基准时沿用；
-     - V6 SQL 解析器原型，按 DC46 第 5 项验收；
+     - V6 SQL 解析器原型，按 DC46 第 5 项验收（2026-10-25 完成并以 merge commit `863330e757` 合入 main，见 [V6 报告](p6-v6-parser-prototype-report.md)）；
      - V7 Dolt 回放（整表重建与行级修改的耗时，核对两条路径的表哈希相同）与 Dolt 读取吞吐、并发读取加速比，用于 DC45 阈值与 DC38 H2 门槛定稿（2026-10-25 完成，见 [V7 报告](p6-v7-dolt-report.md)）；
      - V8 门禁耗时剖析（DC48）。
      - V3（Dolt 同内容表写入）与 V4（同内容表组统计）不再是前置任务，随 DC45 第 8 项或 DC43 第 5 项重开时再做。
@@ -266,13 +267,13 @@ implementation_authorized: no
 | 项 | 所属决议 | 何时定 |
 | --- | --- | --- |
 | ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39 | Phase 6 设计 |
-| W1–W4 目标数值定稿 | DC35 | V5（已完成）、V5b、V6 之后 |
+| W1–W4 目标数值定稿 | DC35 | V5、V5b、V6 均已完成，可以定稿 |
 | H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |
 | 行级修改的阈值定稿 | DC45 | S1a 复测、S4 定稿（V7 已完成，草案改为 1,000 行 / 1%） |
 | Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |
 | 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
 | ordered 比较是否进 Rust | DC44 | V1 之后 |
-| N 的暂定值与定稿 | DC47 | V6 后暂定，S6 定稿 |
+| N 的暂定值与定稿 | DC47 | V6 给出解析器单独的暂定值 4；整条路径的 N 在 S2b 后暂定，S6 定稿 |
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
 | 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1a 之前 |
 

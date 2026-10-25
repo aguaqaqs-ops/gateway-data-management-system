@@ -21,7 +21,6 @@ use gateway_compute_core::comparison::{
     BlankProvenance, OrderedCompareOptions, OrderedCompareResult, OrderedTablePair, SchemaChanges,
     build_ordered_pool, compare_ordered_table, compare_ordered_tables_parallel,
 };
-use gateway_shared_kernel::raw_blob_digest;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -350,9 +349,6 @@ fn case_summary(
             }
         }
     }
-    let digest = raw_blob_digest(canonical)
-        .map(|value| value.as_str().to_string())
-        .unwrap_or_else(|_| "digest-error".to_string());
     json!({
         "case_id": input.case_id,
         "corpus": input.corpus,
@@ -369,11 +365,8 @@ fn case_summary(
         "standard_record_count": result.records.len(),
         "ordered_record_count": result.ordered_extension.records.len(),
         "blank_record_count": result.blank_extension.records.len(),
-        "before_ordered_digest": result.ordered_extension.before_ordered_digest,
-        "current_ordered_digest": result.ordered_extension.current_ordered_digest,
         "sample_positions": positions,
         "type_markers": markers,
-        "normal_form_digest": digest,
         "normal_form_bytes": canonical.len(),
         "timing": times,
     })

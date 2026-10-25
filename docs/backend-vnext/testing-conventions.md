@@ -2,8 +2,9 @@
 
 状态：2026-08-07 建立；2026-08-09 增补P2后半段container gate合并规则；
 2026-08-13 冻结Docker/Compose触发式重建、评审记录、全局风险验证与artifact cleanup规则
+2026-10-25 增加 `rust` 包、backend Rust 扩展强制重装与构建输入一致性检查（DC48），门禁 worktree 保留规则（DC51）
 
-本文规定 vNext Python 包的测试分层、执行入口与性能约束。Fixture 材料语义由
+本文规定 vNext 各包（五个 Python 包与 `rust` 包）的测试分层、执行入口与性能约束。Fixture 材料语义由
 [Testing Fixtures](testing-fixtures.md) 拥有，本文不重复。
 
 ## 执行入口
@@ -37,7 +38,7 @@ Compose 占 backend 基线约 91.7%；细节与日志见
 linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`；该目录不在提交里，缺它时 backend 的
 `test_table_rules_resolver.py` 有 58 个用例失败），再执行上面的两步。
 
-`prepare-dev-dependencies.sh` 只同步五包 venv，不跑 pytest。`run-tests.sh` 按正确顺序跑
+`prepare-dev-dependencies.sh` 只同步五包 venv，不跑 pytest。`run-tests.sh` 先跑 `rust` 包，再按正确顺序跑
 完全部 Python 包：
 
 ```bash
@@ -45,13 +46,56 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 ```
 
 阶段允许通过 `GATEWAY_TEST_PACKAGES` 指定部分包，例如
-`GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法值是
-`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；
-未知或重复名称以 exit 2 拒绝，实际执行顺序仍按权威 runner 固定顺序。未设置变量时运行全部包，
+`GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法值按固定顺序是
+`rust`、`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；
+未知或重复名称以 exit 2 拒绝，实际执行顺序仍按权威 runner 固定顺序。未设置变量时运行全部六个包，
 原有包顺序、backend 与 `repository_service` 的两遍拆分、`GATEWAY_TEST_BASETEMP` 下的 Compose 文件
-处理和五锁检查不变。S5 最终门禁与发布门禁不允许缩小范围，必须运行全部包。
+处理和五锁检查不变。S5 最终门禁与发布门禁不允许缩小范围，必须运行全部包（含 `rust`）。
 
-权威 runner 为每个选中包无条件设置 `HYPOTHESIS_STORAGE_DIRECTORY` 为
+### `rust` 包与 backend 的 Rust 扩展（DC48）
+
+`rust` 包最先运行，失败最快暴露。它在 `vnext/rust` 下依次执行以下三步；三步都执行，每步记录
+`elapsed_seconds` 与 `status`，任一失败则 `rust status=failed`，其余包照常运行：
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --locked --offline --all-targets -- -D warnings
+cargo test --workspace --locked --offline --exclude gateway-compute-python --exclude gateway-compute-python-impl
+```
+
+- **S2a 之前的排除**：旧扩展的 `gateway-compute-python`（`tests/adapter_errors.rs`）与
+  `gateway-compute-python-impl`（`kernel_component_tests`）的测试在 Rust 中嵌入 Python 解释器，并从
+  `backend/.venv/lib/python3.14/site-packages` 导入 pyarrow；PyO3 默认选中系统 Python 3.13 时失败。两者随旧扩展在
+  S2a 删除（DC52），届时去掉排除；owner 2026-10-25 确认 impl 一并排除。clippy 与 fmt 仍覆盖全部 crate。新扩展需要
+  Python 解释器的测试用 pytest 测已安装的扩展，不在 Rust 中嵌入解释器（DC48）。
+- **离线**：cargo 以 `--locked --offline` 运行，crate 缓存在 `CARGO_HOME`（固定环境下为 `/root/.cargo`）。
+- **`CARGO_TARGET_DIR`**：固定为 worktree 外的 `<TMPDIR>/gateway-runner-cargo-target`（`TMPDIR` 未设置或为空时为
+  `/tmp`）。它是构建缓存，不是测试输入，不进闭包。选中 `rust` 或 backend 时，runner 在使用前删除残留、退出时
+  （包括失败与可捕获的中断）删除，因此每次门禁都从空目录完整构建（节点 05 实测：空目录下 `rust` 包三步合计约
+  26 s，backend 同步中扩展的 release 构建约 27 s）；runner 不再向 worktree 的 `vnext/rust/target` 写入。
+- **`PYO3_PYTHON`**：排除旧扩展的测试之后，`cargo test` 中没有 crate 嵌入 Python，runner 不设置 `PYO3_PYTHON`。
+  clippy 仍会运行 PyO3 的构建脚本，它按 `PYO3_PYTHON`、`VIRTUAL_ENV`、`CONDA_PREFIX`、PATH 上的 `python3` 的顺序选择
+  解释器；闭包记录 `PYO3_PYTHON` 的值与所选解释器的 `-VV`。今后若有 crate 需要嵌入解释器，通过 `PYO3_PYTHON`
+  显式指定，不依赖系统 `python3`。
+- runner 的额外命令行参数只传给 pytest，不传给 cargo。
+
+backend 以 maturin 路径依赖安装 Rust 扩展（`gateway-compute-python = { path = "../rust/gateway-compute-python" }`）。
+uv 默认只在扩展的 `pyproject.toml` 等文件变化时重建路径依赖；节点 05 实测只提交 `.rs` 改动后 `uv sync`
+不重建，Python 测试继续使用旧的 `.so`。为此：
+
+- **强制重装（DC48 3.2 的 B 方案）**：runner 同步 backend 时始终使用
+  `uv-consume.sh -C . sync --reinstall-package gateway-compute-python`，`CARGO_TARGET_DIR` 同上。选 B 而不选
+  `tool.uv.cache-keys`（A）的理由：B 不依赖文件 mtime，也不需要维护与 crate 依赖图同步的 glob 列表；与
+  `native_kernel_component.sh` 的写法一致；代价只是每次门禁重建一次扩展。A 经实测同样可用，未采用。
+- **构建输入一致性检查**：runner 以 `GATEWAY_RUST_BUILD_INPUT=<HEAD:vnext/rust 的 Git tree id>` 构建扩展，扩展在编译时用
+  `option_env!` 嵌入该值，暴露为 `gateway_compute.gateway_compute.__build_input__`（未设置时为空串，镜像构建即如此）。
+  同步后 `vnext/scripts/check-rust-extension-build-input.sh` 读取已安装扩展的值并与当前提交比较，不一致、为空或无法导入时
+  backend 失败，runner 在 manifest 之前以 exit 1 停止。该变量只传给 backend 的同步命令，不导出到 manifest 与 pytest 的环境。
+  cargo 跟踪 `option_env!` 读取的变量，值变化时重新编译所在 crate。此机制对任何以 maturin 路径依赖装入 backend 的扩展都成立，
+  S2a 的新 crate 沿用：在扩展的 `#[pymodule]` 中同样导出 `__build_input__`。
+- 开发者在 Rust 改动后跑 backend focused 测试时，同样先用 `--reinstall-package gateway-compute-python` 同步。
+
+权威 runner 为每个选中的 Python 包无条件设置 `HYPOTHESIS_STORAGE_DIRECTORY` 为
 `<TMPDIR>/gateway-runner-hypothesis/<包名>`；路径不含随机部分。`TMPDIR` 未设置或为空时固定使用 `/tmp`，
 有效目录必须是 worktree 外已存在的绝对路径。runner 在 manifest 前删除选中包的残留目录，并在退出时（包括失败与
 可捕获的中断）清理这些包专属目录；不会删除 worktree 的 `.hypothesis` 或 TMPDIR 下的其他内容。同一包的
@@ -76,6 +120,16 @@ repository_service 的 context 因而包含 `repository_client` 及 e2e/dependen
 本机 base image ID、repository-service 与 dependency-base ID、client e2e 与 client dependency-base ID，以及
 会影响 build 的环境设置指纹。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
 逐项比较并输出“运行”或“可沿用”及变化的组成部分。
+
+`rust` 包的闭包（schema version 9 起）：`package:rust` 为 `vnext/rust` 的 Git tree（未跟踪的 `target/` 不在其中），
+`rust:cargo-lock` 单列 `Cargo.lock`；共享组件与 Python 包相同（fixtures、`vnext/scripts`、workspace 配置、
+rust-toolchain selector、deployment、五个 lockfile）；`non-git:cargo-config` 按路径与内容摘要 cargo 会读取的
+`.cargo/config.toml`/`.cargo/config`（`vnext/rust` 及其祖先目录、`CARGO_HOME`，不存在的文件不记录）；
+`environment:rust-toolchain` 记录 `rustc -vV`、`cargo`、`rustfmt`、`clippy-driver` 版本（在 `vnext/rust` 下按
+`rust-toolchain.toml` 选择）、`PYO3_PYTHON` 与 PyO3 构建脚本所选解释器的 `-VV`，以及 `CARGO_*`、`RUST*`、
+`PYO3_*`、`HOME`、`PATH`、`VIRTUAL_ENV`、`CONDA_PREFIX`、`LANG`、`LC_ALL`、`TZ` 的 SHA-256 指纹（`CARGO_TARGET_DIR`
+除外）。`rust` 包没有 uv 环境、Hypothesis storage、pytest cache，也不读 `legacy/`，这些组件不出现在它的 manifest
+中；crate 内容由 `Cargo.lock` 的 checksum 固定。`compare` 对 `rust` 包的“可沿用 / 运行”判定与其他包相同。
 对 backend 与 `repository_service` 的 `vnext/` Docker context，tracked 内容由 Git tree 覆盖；Git 只记录
 tracked 文件的 executable bit，普通权限模式由闭包单独摘要 `vnext/` 下 tracked 路径、祖先目录和 context
 根的本机 `0o7777` 模式。通过 `vnext/.dockerignore` 后仍进入 context 的非 Git 文件和目录按相对路径、类型、权限和内容摘要。
@@ -123,8 +177,8 @@ wheel。五锁 canonical registry identity 的权威 owner 为
 `backend/tests/test_canonical_lock_identity.py`。
 
 `repository_service` 与 backend 分两遍执行：主体并行，未确认可隔离的 `serial` 组单独串行，避免
-CPU 争用导致时序敏感测试 flaky。少量从 serial 来源逐项审查通过的 `parallel_safe` 测试
-会加入主体并行批次。backend 当前没有 `parallel_safe` 例外；其余三个包体量小，
+CPU 争用导致时序敏感测试 flaky。`rust` 包由 cargo 自行并行，不受 `GATEWAY_TEST_WORKERS` 影响。少量从 serial 来源逐项审查通过的 `parallel_safe` 测试
+会加入主体并行批次。backend 当前没有 `parallel_safe` 例外；其余三个 Python 包体量小，
 worker 启动开销会超过并行收益，因此单进程执行。
 
 日常迭代用 marker 缩小范围：
@@ -266,6 +320,7 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
      manifest；包闭包还摘要有效 `.hypothesis` 与 `.pytest_cache` 的路径、内容和权限。Git 不会规范化这些状态，
      换 worktree 可能得到不同摘要，因此 G13 复核后保留“同一 worktree”限制（治理修订计划 G6b）；不得用另一个
      worktree 的结果判定“等价”或“不等价”。同一 worktree 也意味着同一节点（owner 决议 DC36）。
+     因此阶段的门禁 worktree 保留到该阶段 exit 合入之后再清理（owner 决议 DC51）。
 
 任一条件不满足，就在最终HEAD重建镜像并重跑受影响的容器门禁。等价判定由实现方记录，独立
 评审逐项复核；复核不通过时不得以`carried`关闭finding。

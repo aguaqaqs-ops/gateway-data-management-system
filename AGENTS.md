@@ -43,7 +43,7 @@ runner、carried 与真实数据日志开头记录 `hostname` 与起止时间，
 节点暂不可用或前提不满足时，等待恢复后再测，不回退到开发主机；需要临时改用其他节点时由 owner 决定。
 该 SSH 会话以 root 登录；用磁盘目录 `TMPDIR=/home/dev/gdds-test-tmp`
 隔离 pytest 临时文件，不修改 `/tmp/pytest-of-root` 的属主。默认不设置 `GATEWAY_TEST_BASETEMP`，需要显式验证该选项时除外。
-权威 runner 为每个选中包无条件设置 `HYPOTHESIS_STORAGE_DIRECTORY` 为
+权威 runner 为每个选中的 Python 包无条件设置 `HYPOTHESIS_STORAGE_DIRECTORY` 为
 `<TMPDIR>/gateway-runner-hypothesis/<包名>`；`TMPDIR` 未设置或为空时固定使用 `/tmp`。
 runner 只清理这些包专属目录，manifest 前清理残留，退出时（包括失败与可捕获的中断）再次清理；不会触碰
 worktree 的 `.hypothesis` 或 TMPDIR 下其他内容。权威 runner 不保留跨运行的 Hypothesis 失败样例；失败时先停下，
@@ -51,15 +51,34 @@ worktree 的 `.hypothesis` 或 TMPDIR 下其他内容。权威 runner 不保留�
 worktree 内的 `.hypothesis` 仅供开发者直接运行 focused 测试时使用。
 
 阶段可用 `GATEWAY_TEST_PACKAGES` 只运行所需包，例如
-`GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法包名为
-`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；
-重复或未知名称以 exit 2 拒绝，选择顺序仍按权威 runner 的固定顺序执行。未设置该变量时运行全部包，
-原有两遍拆分、Compose 临时目录处理和五锁检查不变。S5 最终门禁与发布门禁必须运行全部包。
+`GATEWAY_TEST_PACKAGES=backend,repository_service ./vnext/scripts/run-tests.sh`。合法包名按固定顺序为
+`rust`、`shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service`；
+重复或未知名称以 exit 2 拒绝，选择顺序仍按权威 runner 的固定顺序执行。未设置该变量时运行全部六个包，
+原有两遍拆分、Compose 临时目录处理和五锁检查不变。S5 最终门禁与发布门禁必须运行全部包（含 `rust`）。
+
+`rust` 包在 `vnext/rust` 下依次运行 `cargo fmt --all --check`、
+`cargo clippy --workspace --locked --offline --all-targets -- -D warnings` 与
+`cargo test --workspace --locked --offline`（DC48）；三步都执行，任一失败则该包失败。S2a 删除旧扩展之前，
+`cargo test` 排除 `gateway-compute-python` 与 `gateway-compute-python-impl`：两者的测试在 Rust 中嵌入 Python
+解释器并读取 backend 环境（DC52，owner 2026-10-25 确认同时排除 impl），S2a 删除旧 crate 时一并去掉排除；
+clippy 与 fmt 仍覆盖全部 crate。cargo 的 `CARGO_TARGET_DIR` 固定为 worktree 外的
+`<TMPDIR>/gateway-runner-cargo-target`，只作构建缓存、不进闭包；选中 `rust` 或 backend 时 runner 在使用前删除残留、
+退出时删除。runner 的额外参数只传给 pytest。
+
+backend 以 maturin 路径依赖安装 Rust 扩展，uv 只改 Rust 源码时不会重建它。因此 runner 同步 backend 时
+始终使用 `--reinstall-package gateway-compute-python`，并以 `GATEWAY_RUST_BUILD_INPUT=<HEAD:vnext/rust 的 tree id>`
+构建；随后 `vnext/scripts/check-rust-extension-build-input.sh` 读取已安装扩展的 `__build_input__`，与当前提交的
+tree id 不一致时 backend 失败，runner 在 manifest 之前停止。开发者在 Rust 改动后跑 backend focused 测试时，
+同样先用 `--reinstall-package gateway-compute-python` 同步。
 
 runner 先通过受控 wrapper 同步待运行包的 locked uv 环境，再用
 `python3 -I vnext/scripts/test_input_closure.py manifest --package <包名>`
-为每个待运行包输出 JSON manifest；总摘要由逐项的 Git tree object、`legacy/`、该包实际 uv
-环境、有效 Hypothesis storage directory 与包内 `.pytest_cache` 的内容摘要、以及环境版本摘要组成。uv 环境摘要排除由锁定源码和对应 Python 解释器生成的
+为每个待运行包输出 JSON manifest；Python 包的总摘要由逐项的 Git tree object、`legacy/`、该包实际 uv
+环境、有效 Hypothesis storage directory 与包内 `.pytest_cache` 的内容摘要、以及环境版本摘要组成。`rust` 包没有
+uv 环境、Hypothesis 与 pytest 缓存，总摘要由 `vnext/rust` 的 Git tree（不含未跟踪的 `target/`）、`Cargo.lock`、
+共享的 rust-toolchain selector、五个 lockfile、runner/wrapper 脚本等共享组件、cargo config 文件内容，以及
+`rustc`/`cargo`/`rustfmt`/`clippy-driver` 版本、PyO3 构建脚本所用解释器（`PYO3_PYTHON` 若设置）和
+`CARGO_*`/`RUST*`/`PYO3_*` 设置指纹（不含 `CARGO_TARGET_DIR`）组成。uv 环境摘要排除由锁定源码和对应 Python 解释器生成的
 `__pycache__`、`.pyc`、`.pyo`。dirty worktree 会被拒绝。handoff 可用
 `compare --source <V-manifest.json> --current <当前-manifest.json>`
 输出“可沿用”或“运行”及变化组成部分。来源 V 必须是该包实际运行并通过的权威 runner 运行：worktree
@@ -99,7 +118,8 @@ cd ../repository_service
 ```
 
 `repository_service` 与 backend 在权威 runner 中各分两遍：`-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"` 并行主体，再以
-`-m "serial and not parallel_safe" -n 0` 单进程运行其余 serial 用例；另外三个包保持单进程。
+`-m "serial and not parallel_safe" -n 0` 单进程运行其余 serial 用例；另外三个 Python 包保持单进程；
+`rust` 包最先运行，失败最快暴露。
 在 CPU 充足的正式开发环境中可显式调整非串行 worker 数量，例如
 `GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh`；默认 `auto` 保留
 pytest-xdist 的自适应行为。`parallel_safe` 是从 `serial` 中经过逐项审查、确认不依赖
@@ -235,6 +255,7 @@ sha256sum vnext/repository_service/uv.lock
    containerd image store 下，同一棵树连续构建得到的 image ID 也不相同，不再比较 image ID（owner
    决议 DC34）。manifest 包含 worktree 本地的权限位与 Docker context 中的非 Git 内容，换 worktree
    计算通常得到不同结果，不得用另一个 worktree 的结果判定“等价”或“不等价”（治理修订计划 G6b）。
+   因此阶段的门禁 worktree 保留到该阶段 exit 合入之后再清理（DC51）。
 
 任一条件不满足，就在最终 HEAD 重建并重跑。同一提交上权威 runner 已运行过的 Compose 旅程
 （含 backend 批次中的 Compose 测试）不再单独重跑，provenance 取自该次运行。
@@ -294,4 +315,13 @@ main CAS、control DB事务和跨root误操作仍保持强验证。完整测试�
 
 ```bash
 cd vnext/<package> && ../scripts/uv-consume.sh -C . run ruff check . && ../scripts/uv-consume.sh -C . run mypy
+```
+
+改动 `vnext/rust` 时还要过 rustfmt 与 clippy。它们会编译 crate，按 DC36 在调试节点 `ct108-gw-dms-05` 上运行，
+`CARGO_TARGET_DIR` 放在 worktree 外：
+
+```bash
+cd vnext/rust && cargo fmt --all --check \
+  && CARGO_TARGET_DIR=/home/dev/gdds-test-tmp/<任务>-cargo-target \
+     cargo clippy --workspace --locked --offline --all-targets -- -D warnings
 ```

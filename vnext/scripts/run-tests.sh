@@ -3,11 +3,12 @@ set -euo pipefail
 
 printf '==> umask=%s\n' "$(umask)"
 
-# Authoritative test entrypoint for the vNext Python packages.
+# Authoritative test entrypoint for the vNext packages.
 #
+# The rust package (cargo fmt, clippy and test in vnext/rust) runs first.
 # backend and repository_service run in two passes: the bulk of each suite in
 # parallel, then timing sensitive serial tests on their own so they never
-# compete for CPU. The three smaller packages run in one process.
+# compete for CPU. The three smaller Python packages run in one process.
 
 VNEXT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/gateway-index-env.sh
@@ -32,6 +33,9 @@ if [[ "${RUNNER_TMPDIR}" == "${REPO_ROOT}" || "${RUNNER_TMPDIR}" == "${REPO_ROOT
 fi
 RUNNER_HYPOTHESIS_ROOT="${RUNNER_TMPDIR%/}/gateway-runner-hypothesis"
 echo "==> Hypothesis storage root=${RUNNER_HYPOTHESIS_ROOT} (effective TMPDIR=${RUNNER_TMPDIR})"
+# Cargo build cache for the rust package and the backend extension build. It is
+# not a test input; the runner removes it before use and on exit.
+RUNNER_CARGO_TARGET_DIR="${RUNNER_TMPDIR%/}/gateway-runner-cargo-target"
 
 PYTEST_TMP_ARGS=()
 
@@ -41,10 +45,23 @@ FAST_PACKAGES=(
     repository_client
 )
 
-ALL_PACKAGES=(
+PYTHON_PACKAGES=(
     "${FAST_PACKAGES[@]}"
     backend
     repository_service
+)
+
+ALL_PACKAGES=(
+    rust
+    "${PYTHON_PACKAGES[@]}"
+)
+
+# Until S2a deletes the old extension (DC52), its crates' tests embed a Python
+# interpreter and read the backend environment, so cargo test skips them.
+# clippy and fmt still cover the whole workspace.
+RUST_TEST_EXCLUDES=(
+    --exclude gateway-compute-python
+    --exclude gateway-compute-python-impl
 )
 
 declare -A SELECTED_PACKAGE_SET=()
@@ -82,6 +99,17 @@ else
     done
 fi
 
+SELECTED_PYTHON_PACKAGES=()
+for package in "${SELECTED_PACKAGES[@]}"; do
+    if [[ "${package}" != "rust" ]]; then
+        SELECTED_PYTHON_PACKAGES+=("${package}")
+    fi
+done
+USES_CARGO_TARGET=0
+if [[ -n "${SELECTED_PACKAGE_SET[rust]:-}" || -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
+    USES_CARGO_TARGET=1
+fi
+
 declare -A PACKAGE_STATUS=()
 for package in "${SELECTED_PACKAGES[@]}"; do
     PACKAGE_STATUS["${package}"]=passed
@@ -113,7 +141,7 @@ cleanup_runner_state() {
     local cleanup_failed=0
     trap - EXIT
     trap '' HUP INT TERM
-    for package in "${SELECTED_PACKAGES[@]}"; do
+    for package in "${SELECTED_PYTHON_PACKAGES[@]}"; do
         local storage_path
         storage_path="$(runner_hypothesis_storage_path "${package}")"
         if [[ -e "${storage_path}" || -L "${storage_path}" ]]; then
@@ -127,6 +155,17 @@ cleanup_runner_state() {
                 "${package}" "${storage_path}"
         fi
     done
+    if [[ "${USES_CARGO_TARGET}" == "1" ]]; then
+        if [[ -e "${RUNNER_CARGO_TARGET_DIR}" || -L "${RUNNER_CARGO_TARGET_DIR}" ]]; then
+            echo "==> cleanup cargo target path=${RUNNER_CARGO_TARGET_DIR}"
+            if ! rm -rf -- "${RUNNER_CARGO_TARGET_DIR}"; then
+                echo "error: could not remove cargo target: ${RUNNER_CARGO_TARGET_DIR}" >&2
+                cleanup_failed=1
+            fi
+        else
+            echo "==> cleanup cargo target path=${RUNNER_CARGO_TARGET_DIR} status=already_absent"
+        fi
+    fi
     if [[ -n "${LOCK_SNAPSHOT}" ]] && ! rm -f "${LOCK_SNAPSHOT}"; then
         echo "error: could not remove lock snapshot: ${LOCK_SNAPSHOT}" >&2
         cleanup_failed=1
@@ -141,7 +180,7 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-for package in "${SELECTED_PACKAGES[@]}"; do
+for package in "${SELECTED_PYTHON_PACKAGES[@]}"; do
     storage_path="$(runner_hypothesis_storage_path "${package}")"
     if [[ -e "${storage_path}" || -L "${storage_path}" ]]; then
         echo "==> remove stale Hypothesis storage package=${package} path=${storage_path}"
@@ -150,6 +189,14 @@ for package in "${SELECTED_PACKAGES[@]}"; do
         echo "==> Hypothesis storage package=${package} path=${storage_path} status=already_absent"
     fi
 done
+if [[ "${USES_CARGO_TARGET}" == "1" ]]; then
+    if [[ -e "${RUNNER_CARGO_TARGET_DIR}" || -L "${RUNNER_CARGO_TARGET_DIR}" ]]; then
+        echo "==> remove stale cargo target path=${RUNNER_CARGO_TARGET_DIR}"
+        rm -rf -- "${RUNNER_CARGO_TARGET_DIR}"
+    else
+        echo "==> cargo target path=${RUNNER_CARGO_TARGET_DIR} status=already_absent"
+    fi
+fi
 
 if [[ ! "${TEST_WORKERS}" =~ ^(auto|[0-9]+)$ ]]; then
     echo "error: GATEWAY_TEST_WORKERS must be auto or a non-negative integer" >&2
@@ -169,28 +216,64 @@ gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${LOCK_SNAPSHOT}"
 
 export GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1
 
+fail_all_selected_packages() {
+    local failed_package
+    for failed_package in "${SELECTED_PACKAGES[@]}"; do
+        PACKAGE_STATUS["${failed_package}"]=failed
+        echo "==> ${failed_package} status=${PACKAGE_STATUS[${failed_package}]}"
+    done
+}
+
 # Materialize each selected locked environment before hashing it. uv run would
 # perform this sync at the first pytest invocation; doing it here makes the
 # manifest describe the environment the subsequent tests actually use.
-for package in "${SELECTED_PACKAGES[@]}"; do
+#
+# uv does not rebuild the backend's Rust extension (a path dependency) when only
+# Rust sources change, so the backend sync always reinstalls it, embedding the
+# vnext/rust tree id of HEAD, and the runner then checks the installed value.
+if [[ -n "${SELECTED_PACKAGE_SET[backend]:-}" ]]; then
+    if ! RUST_BUILD_INPUT="$(git -C "${REPO_ROOT}" rev-parse --verify --quiet 'HEAD:vnext/rust')"; then
+        echo "error: could not resolve the vnext/rust tree of HEAD" >&2
+        fail_all_selected_packages
+        exit 1
+    fi
+fi
+for package in "${SELECTED_PYTHON_PACKAGES[@]}"; do
     echo "==> sync test environment package=${package}"
-    if ! (
+    sync_args=()
+    if [[ "${package}" == "backend" ]]; then
+        sync_args=(--reinstall-package gateway-compute-python)
+        echo "==> rust extension build input=${RUST_BUILD_INPUT} cargo_target=${RUNNER_CARGO_TARGET_DIR}"
+    fi
+    sync_status=0
+    (
         cd "${VNEXT_ROOT}/${package}"
-        "${UV_CONSUME}" -C . sync
-    ); then
-        PACKAGE_STATUS["${package}"]=failed
-        for failed_package in "${SELECTED_PACKAGES[@]}"; do
-            if [[ "${PACKAGE_STATUS[${failed_package}]}" == "passed" ]]; then
-                PACKAGE_STATUS["${failed_package}"]=failed
-            fi
-            echo "==> ${failed_package} status=${PACKAGE_STATUS[${failed_package}]}"
-        done
+        if [[ "${package}" == "backend" ]]; then
+            # Only the extension build sees these; manifests and pytest do not.
+            export GATEWAY_RUST_BUILD_INPUT="${RUST_BUILD_INPUT}"
+            export CARGO_TARGET_DIR="${RUNNER_CARGO_TARGET_DIR}"
+        fi
+        "${UV_CONSUME}" -C . sync "${sync_args[@]}"
+    ) || sync_status=1
+    if [[ "${sync_status}" -eq 0 && "${package}" == "backend" ]]; then
+        "${VNEXT_ROOT}/scripts/check-rust-extension-build-input.sh" || sync_status=1
+    fi
+    if [[ "${sync_status}" -ne 0 ]]; then
+        fail_all_selected_packages
         exit 1
     fi
 done
 
 INPUT_CLOSURE_SCRIPT="${VNEXT_ROOT}/scripts/test_input_closure.py"
 for package in "${SELECTED_PACKAGES[@]}"; do
+    if [[ "${package}" == "rust" ]]; then
+        echo "==> test input manifest package=${package}"
+        if ! python3 -I "${INPUT_CLOSURE_SCRIPT}" manifest --package "${package}"; then
+            fail_all_selected_packages
+            exit 1
+        fi
+        continue
+    fi
     storage_path="$(runner_hypothesis_storage_path "${package}")"
     if [[ -e "${storage_path}" || -L "${storage_path}" ]]; then
         echo "error: Hypothesis storage must be absent before manifest: ${storage_path}" >&2
@@ -199,10 +282,7 @@ for package in "${SELECTED_PACKAGES[@]}"; do
     echo "==> test input manifest package=${package} hypothesis_storage=${storage_path}"
     if ! HYPOTHESIS_STORAGE_DIRECTORY="${storage_path}" \
         python3 -I "${INPUT_CLOSURE_SCRIPT}" manifest --package "${package}"; then
-        for failed_package in "${SELECTED_PACKAGES[@]}"; do
-            PACKAGE_STATUS["${failed_package}"]=failed
-            echo "==> ${failed_package} status=${PACKAGE_STATUS[${failed_package}]}"
-        done
+        fail_all_selected_packages
         exit 1
     fi
 done
@@ -215,7 +295,37 @@ run_locked_pytest() {
         "${UV_CONSUME}" -C . run pytest -p no:cacheprovider "${PYTEST_TMP_ARGS[@]}" "$@"
 }
 
+run_rust_step() {
+    local step="$1"
+    shift
+    local step_start=${SECONDS}
+    local step_status=0
+    echo "==> rust (${step})"
+    if ! (
+        cd "${VNEXT_ROOT}/rust"
+        CARGO_TARGET_DIR="${RUNNER_CARGO_TARGET_DIR}" cargo "$@"
+    ); then
+        step_status=1
+    fi
+    echo "==> rust (${step}) elapsed_seconds=$((SECONDS - step_start)) status=${step_status}"
+    return "${step_status}"
+}
+
 test_exit=0
+if [[ -n "${SELECTED_PACKAGE_SET[rust]:-}" ]]; then
+    echo "==> rust"
+    rust_start=${SECONDS}
+    rust_status=0
+    run_rust_step fmt fmt --all --check || rust_status=1
+    run_rust_step clippy clippy --workspace --locked --offline --all-targets -- -D warnings || rust_status=1
+    run_rust_step test test --workspace --locked --offline "${RUST_TEST_EXCLUDES[@]}" || rust_status=1
+    if [[ "${rust_status}" -ne 0 ]]; then
+        test_exit=1
+        PACKAGE_STATUS[rust]=failed
+    fi
+    echo "==> rust elapsed_seconds=$((SECONDS - rust_start)) status=${rust_status}"
+fi
+
 for package in "${FAST_PACKAGES[@]}"; do
     if [[ -z "${SELECTED_PACKAGE_SET[${package}]:-}" ]]; then
         continue

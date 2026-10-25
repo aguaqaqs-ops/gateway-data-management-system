@@ -21,12 +21,22 @@ CLOSURE_SCRIPT = VNEXT_ROOT / "scripts" / "test_input_closure.py"
 CLOSURE = runpy.run_path(str(CLOSURE_SCRIPT))
 CLOSURE_GLOBALS = CLOSURE["_docker_build_inputs"].__globals__
 PACKAGES = CLOSURE["PACKAGES"]
+PYTHON_PACKAGES = CLOSURE["PYTHON_PACKAGES"]
 FAKE_ENVIRONMENT = {
     "python_-VV": "Python 3.14.6 (fixture)",
     "python_unicode_data_version": "16.0.0",
     "dolt_version": "dolt version 2.1.11",
     "uv_version": "uv 0.12.5",
     "rustc_version": "rustc 1.97.0 (fixture)",
+}
+FAKE_RUST_ENVIRONMENT = {
+    "rustc_version": "rustc 1.97.0 (fixture)",
+    "cargo_version": "cargo 1.97.0 (fixture)",
+    "rustfmt_version": "rustfmt 1.9.0 (fixture)",
+    "clippy_driver_version": "clippy 0.1.97 (fixture)",
+    "pyo3_python": "",
+    "pyo3_interpreter_-VV": "Python 3.13.5 (fixture)",
+    "rust_build_settings": "{}",
 }
 FAKE_DOCKER_BUILD_INPUTS = json.dumps(
     {
@@ -62,7 +72,7 @@ def _fixture_repo(tmp_path: Path) -> Path:
         else:
             path.mkdir(parents=True, exist_ok=True)
             (path / "fixture.txt").write_text(f"fixture for {relative}\n", encoding="utf-8")
-    for package in PACKAGES:
+    for package in PYTHON_PACKAGES:
         environment = repo_root / "vnext" / package / ".venv"
         site_packages = environment / "lib" / "python3.14" / "site-packages"
         site_packages.mkdir(parents=True, exist_ok=True)
@@ -115,6 +125,15 @@ def _fixture_repo(tmp_path: Path) -> Path:
 
 
 def _manifest(repo_root: Path, package: str = "backend") -> dict[str, Any]:
+    if package == "rust":
+        return cast(
+            dict[str, Any],
+            CLOSURE["build_manifest"](
+                repo_root,
+                package,
+                environment=dict(FAKE_RUST_ENVIRONMENT),
+            ),
+        )
     environment = dict(FAKE_ENVIRONMENT)
     if package in CLOSURE["PACKAGE_DOCKER_INPUTS"]:
         environment["docker_build_inputs"] = FAKE_DOCKER_BUILD_INPUTS
@@ -769,6 +788,116 @@ def test_path_dependency_closure_includes_transitive_dependencies(
     package_path = CLOSURE["PACKAGE_PATHS"][package]
     dependencies = set(CLOSURE["expand_path_dependencies"](package_path))
     assert required_paths <= dependencies
+
+
+def _commit_all(repo_root: Path, message: str) -> None:
+    subprocess.run(["git", "-C", str(repo_root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "commit", "-qm", message], check=True)
+
+
+@pytest.mark.unit
+def test_rust_manifest_covers_workspace_lockfile_shared_inputs_and_cargo_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    cargo_home = tmp_path / "cargo-home"
+    monkeypatch.setenv("CARGO_HOME", str(cargo_home))
+    manifest = _manifest(repo_root, "rust")
+    components = {component["name"]: component for component in manifest["components"]}
+    assert set(components) == {
+        "package:rust",
+        "rust:cargo-lock",
+        "non-git:cargo-config",
+        "environment:rust-toolchain",
+    } | {name for name, _path, _reason in CLOSURE["COMMON_GIT_COMPONENTS"]}
+    rust_tree = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD:vnext/rust"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert components["package:rust"]["digest"] == rust_tree
+    assert components["rust:cargo-lock"]["paths"] == ["vnext/rust/Cargo.lock"]
+    baseline_entries = components["non-git:cargo-config"]["entries"]
+    assert not any(entry.startswith("vnext/") for entry in baseline_entries)
+    assert components["environment:rust-toolchain"]["values"] == FAKE_RUST_ENVIRONMENT
+
+    cargo_home.mkdir()
+    (cargo_home / "config.toml").write_text('[build]\nrustflags = ["-Copt-level=1"]\n')
+    with_config = _manifest(repo_root, "rust")
+    result = CLOSURE["compare_manifests"](manifest, with_config)
+    assert result["status"] == "运行"
+    assert [change["component"] for change in result["changed_components"]] == [
+        "non-git:cargo-config"
+    ]
+    current_entries = result["changed_components"][0]["current_entries"]
+    assert current_entries[:-1] == baseline_entries
+    assert current_entries[-1].startswith(f"{cargo_home / 'config.toml'} sha256=")
+
+    (repo_root / "vnext" / "rust" / "Cargo.lock").write_text("changed lock\n", encoding="utf-8")
+    _commit_all(repo_root, "change Cargo.lock")
+    changed_lock = _manifest(repo_root, "rust")
+    result = CLOSURE["compare_manifests"](with_config, changed_lock)
+    assert result["status"] == "运行"
+    assert [change["component"] for change in result["changed_components"]] == [
+        "package:rust",
+        "rust:cargo-lock",
+    ]
+    assert CLOSURE["compare_manifests"](changed_lock, _manifest(repo_root, "rust"))[
+        "status"
+    ] == "可沿用"
+
+
+@pytest.mark.unit
+def test_rust_environment_records_toolchain_pyo3_interpreter_and_build_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    fake_bin = tmp_path / "fake-rust-bin"
+    fake_bin.mkdir()
+    for tool, output in (
+        ("rustc", "rustc 1.97.0 (fixture)"),
+        ("cargo", "cargo 1.97.0 (fixture)"),
+        ("rustfmt", "rustfmt 1.9.0 (fixture)"),
+        ("clippy-driver", "clippy 0.1.97 (fixture)"),
+        ("selected-python", "Python 3.14.6 (fixture)"),
+    ):
+        script = fake_bin / tool
+        script.write_text(f"#!/bin/sh\nprintf '%s\\n' '{output}'\n", encoding="utf-8")
+        script.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fake_bin))
+    base = {
+        "PATH": str(fake_bin),
+        "PYO3_PYTHON": str(fake_bin / "selected-python"),
+        "RUSTFLAGS": "-Dwarnings",
+        "CARGO_TARGET_DIR": "/cache/one",
+    }
+    values = CLOSURE["collect_rust_environment"](repo_root, environ=base)
+    assert values["rustc_version"] == "rustc 1.97.0 (fixture)"
+    assert values["clippy_driver_version"] == "clippy 0.1.97 (fixture)"
+    assert values["pyo3_python"] == str(fake_bin / "selected-python")
+    assert values["pyo3_interpreter_-VV"] == "Python 3.14.6 (fixture)"
+    settings = json.loads(values["rust_build_settings"])
+    assert settings["RUSTFLAGS"] == {
+        "set": True,
+        "sha256": hashlib.sha256(b"-Dwarnings").hexdigest(),
+    }
+    assert settings["PYO3_PYTHON"]["set"] is True
+    assert settings["VIRTUAL_ENV"] == {"set": False, "sha256": None}
+    assert "CARGO_TARGET_DIR" not in settings
+
+    assert CLOSURE["collect_rust_environment"](
+        repo_root, environ=base | {"CARGO_TARGET_DIR": "/cache/two"}
+    ) == values
+    assert CLOSURE["collect_rust_environment"](
+        repo_root, environ=base | {"RUSTFLAGS": "-Copt-level=0"}
+    ) != values
+    without_pyo3 = {key: value for key, value in base.items() if key != "PYO3_PYTHON"}
+    assert CLOSURE["collect_rust_environment"](repo_root, environ=without_pyo3)[
+        "pyo3_interpreter_-VV"
+    ] == "missing"
 
 
 @pytest.mark.unit

@@ -19,17 +19,25 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
-PACKAGES = (
+RUST_PACKAGE = "rust"
+PYTHON_PACKAGES = (
     "shared_kernel",
     "repository_contracts",
     "repository_client",
     "backend",
     "repository_service",
 )
+PACKAGES = (RUST_PACKAGE, *PYTHON_PACKAGES)
 
 PACKAGE_PATHS = {package: f"vnext/{package}" for package in PACKAGES}
+
+# Environment variables that change what cargo, rustc, or PyO3's build script
+# produce. The runner's CARGO_TARGET_DIR is a build cache, not an input.
+RUST_ENVIRONMENT_PREFIXES = ("CARGO_", "RUST", "PYO3_")
+RUST_ENVIRONMENT_NAMES = ("CONDA_PREFIX", "HOME", "LANG", "LC_ALL", "PATH", "TZ", "VIRTUAL_ENV")
+RUST_ENVIRONMENT_EXCLUDED = frozenset({"CARGO_TARGET_DIR"})
 
 # These edges are the path dependencies loaded by uv and by the backend's Rust
 # extension. Keeping the graph explicit makes transitive paths part of the
@@ -109,6 +117,13 @@ PACKAGE_GIT_COMPONENTS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "rust:workspace",
             "vnext/rust",
             "Cargo workspace, Cargo.lock, rust-toolchain.toml, and all transitive crate sources; Git trees exclude target/.",
+        ),
+    ),
+    RUST_PACKAGE: (
+        (
+            "rust:cargo-lock",
+            "vnext/rust/Cargo.lock",
+            "cargo runs with --locked --offline; the lockfile pins every crate the workspace builds.",
         ),
     ),
 }
@@ -330,7 +345,12 @@ def _component_specs(package: str) -> list[dict[str, str]]:
         {
             "name": f"package:{package}",
             "path": package_path,
-            "reason": "Package source, tests, pyproject.toml, lockfile, and Python selector.",
+            "reason": (
+                "Cargo workspace, every crate's sources and tests, Cargo.lock, and "
+                "rust-toolchain.toml; Git trees exclude the untracked target/."
+                if package == RUST_PACKAGE
+                else "Package source, tests, pyproject.toml, lockfile, and Python selector."
+            ),
         }
     ]
     for dependency in expand_path_dependencies(package_path):
@@ -689,7 +709,8 @@ def _external_override_inputs(
         if not lock_root.is_absolute():
             lock_root = repo_root / lock_root
         lock_hashes: dict[str, str] = {}
-        for package, package_path in PACKAGE_PATHS.items():
+        for package in PYTHON_PACKAGES:
+            package_path = PACKAGE_PATHS[package]
             lock_path = lock_root / package_path.removeprefix("vnext/") / "uv.lock"
             if not lock_path.is_file():
                 raise ClosureError(f"configured lock snapshot is missing: {lock_path}")
@@ -811,6 +832,120 @@ def _docker_build_inputs(
         "prebuilt_local_image_inventory": prebuilt_inventory,
         "external_override_inputs": _external_override_inputs(repo_root, environment),
     }
+
+
+def _rust_environment_fingerprints(environment: Mapping[str, str]) -> dict[str, object]:
+    """Fingerprint environment settings that can change Rust build or test results."""
+    names = set(RUST_ENVIRONMENT_NAMES)
+    names.update(name for name in environment if name.startswith(RUST_ENVIRONMENT_PREFIXES))
+    names.difference_update(RUST_ENVIRONMENT_EXCLUDED)
+    return {
+        name: {
+            "set": name in environment,
+            "sha256": (
+                hashlib.sha256(environment[name].encode("utf-8")).hexdigest()
+                if name in environment
+                else None
+            ),
+        }
+        for name in sorted(names)
+    }
+
+
+def _pyo3_interpreter(environment: Mapping[str, str]) -> str | None:
+    """Return the interpreter PyO3's build script selects, in its documented order."""
+    configured = environment.get("PYO3_PYTHON")
+    if configured:
+        return configured
+    for prefix_name in ("VIRTUAL_ENV", "CONDA_PREFIX"):
+        prefix = environment.get(prefix_name)
+        if prefix:
+            candidate = Path(prefix) / "bin" / "python"
+            if candidate.exists():
+                return str(candidate)
+    for name in ("python3", "python"):
+        found = shutil.which(name, path=environment.get("PATH"))
+        if found:
+            return found
+    return None
+
+
+def collect_rust_environment(
+    repo_root: Path,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Read the Rust toolchain selected in vnext/rust and the settings that affect it."""
+    environment = os.environ if environ is None else environ
+    workspace = repo_root / PACKAGE_PATHS[RUST_PACKAGE]
+    versions = {
+        "rustc_version": _command_output(["rustc", "-vV"], cwd=workspace),
+        "cargo_version": _command_output(["cargo", "--version"], cwd=workspace),
+        "rustfmt_version": _command_output(["rustfmt", "--version"], cwd=workspace),
+        "clippy_driver_version": _command_output(["clippy-driver", "--version"], cwd=workspace),
+        "pyo3_python": environment.get("PYO3_PYTHON") or "",
+    }
+    interpreter = _pyo3_interpreter(environment)
+    versions["pyo3_interpreter_-VV"] = (
+        _command_output([interpreter, "-VV"], cwd=workspace) if interpreter else "missing"
+    )
+    versions["rust_build_settings"] = json.dumps(
+        _rust_environment_fingerprints(environment),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return versions
+
+
+def _cargo_config_files(
+    repo_root: Path,
+    environment: Mapping[str, str],
+) -> list[Path]:
+    """List the existing cargo config files that cargo reads for vnext/rust."""
+    workspace = repo_root / PACKAGE_PATHS[RUST_PACKAGE]
+    directories = [workspace, *workspace.parents]
+    cargo_home = environment.get("CARGO_HOME")
+    if cargo_home:
+        home_directory = Path(cargo_home)
+    elif environment.get("HOME"):
+        home_directory = Path(environment["HOME"]) / ".cargo"
+    else:
+        home_directory = None
+    candidates: list[Path] = []
+    for directory in directories:
+        candidates.extend(
+            (directory / ".cargo" / "config.toml", directory / ".cargo" / "config")
+        )
+    if home_directory is not None:
+        candidates.extend((home_directory / "config.toml", home_directory / "config"))
+    result: list[Path] = []
+    for candidate in candidates:
+        absolute = Path(os.path.abspath(candidate))
+        if absolute not in result and (absolute.exists() or absolute.is_symlink()):
+            if not absolute.is_file():
+                raise ClosureError(f"cargo config is not a regular file: {absolute}")
+            result.append(absolute)
+    return result
+
+
+def _cargo_config_digest(
+    repo_root: Path,
+    environment: Mapping[str, str],
+) -> tuple[str, list[str]]:
+    """Hash cargo config files by path and content; missing files are omitted."""
+    digest = hashlib.sha256()
+    digest.update(b"cargo-config-v1\0")
+    entries: list[str] = []
+    for path in _cargo_config_files(repo_root, environment):
+        manifest_path = _manifest_path(repo_root, path)
+        content_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        encoded_path = manifest_path.encode("utf-8")
+        digest.update(len(encoded_path).to_bytes(8, "big"))
+        digest.update(encoded_path)
+        digest.update(bytes.fromhex(content_sha256))
+        entries.append(f"{manifest_path} sha256={content_sha256}")
+    return digest.hexdigest(), entries
 
 
 def collect_environment(repo_root: Path, package: str) -> dict[str, str]:
@@ -1252,6 +1387,16 @@ def build_manifest(
                 }
             )
 
+    if package == RUST_PACKAGE:
+        _append_rust_non_git_components(repo_root, components, environment_values=environment)
+        components.sort(key=lambda component: component["name"])
+        return _finish_manifest(
+            package=package,
+            head=selected_revision,
+            worktree_head=head,
+            components=components,
+        )
+
     legacy_path = repo_root / "legacy"
     components.append(
         {
@@ -1340,6 +1485,57 @@ def build_manifest(
         head=selected_revision,
         worktree_head=head,
         components=components,
+    )
+
+
+def _append_rust_non_git_components(
+    repo_root: Path,
+    components: list[dict[str, Any]],
+    *,
+    environment_values: Mapping[str, str] | None,
+) -> None:
+    """Add the rust package's cargo config and toolchain components.
+
+    The rust package has no uv environment, Hypothesis storage, pytest cache, or
+    legacy input; crate downloads are pinned by Cargo.lock checksums.
+    """
+    config_digest, config_entries = _cargo_config_digest(repo_root, os.environ)
+    components.append(
+        {
+            "name": "non-git:cargo-config",
+            "kind": "content",
+            "git_object_type": None,
+            "paths": [],
+            "digest": config_digest,
+            "entries": config_entries,
+            "reason": (
+                "cargo merges .cargo/config.toml files from vnext/rust and its ancestors plus "
+                "CARGO_HOME; they can change rustflags, sources, and profiles. Hash each "
+                "existing file by path and content."
+            ),
+        }
+    )
+    values = (
+        dict(environment_values)
+        if environment_values is not None
+        else collect_rust_environment(repo_root)
+    )
+    if not values:
+        raise ClosureError("environment version set must not be empty")
+    components.append(
+        {
+            "name": "environment:rust-toolchain",
+            "kind": "environment",
+            "git_object_type": None,
+            "paths": [],
+            "digest": hashlib.sha256(_canonical_json(values)).hexdigest(),
+            "values": values,
+            "reason": (
+                "rustc, cargo, rustfmt, and clippy-driver selected by rust-toolchain.toml, the "
+                "interpreter PyO3's build script uses (PYO3_PYTHON when set), and fingerprints "
+                "of CARGO_*/RUST*/PYO3_* and related settings, excluding CARGO_TARGET_DIR."
+            ),
+        }
     )
 
 

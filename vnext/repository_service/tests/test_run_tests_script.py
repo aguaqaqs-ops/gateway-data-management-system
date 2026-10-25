@@ -23,6 +23,15 @@ LOCK_PACKAGES = (
     "repository_contracts",
     "shared_kernel",
 )
+AUTHORITATIVE_ORDER = (
+    "rust",
+    "shared_kernel",
+    "repository_contracts",
+    "repository_client",
+    "backend",
+    "repository_service",
+)
+RUST_TEST_EXCLUDES = "--exclude gateway-compute-python --exclude gateway-compute-python-impl"
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -68,6 +77,10 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     scripts.mkdir(parents=True, exist_ok=True)
     shutil.copy2(RUN_TESTS_SCRIPT, scripts / "run-tests.sh")
     shutil.copy2(CLOSURE_SCRIPT, scripts / "test_input_closure.py")
+    shutil.copy2(
+        VNEXT_ROOT / "scripts" / "check-rust-extension-build-input.sh",
+        scripts / "check-rust-extension-build-input.sh",
+    )
     (scripts / "lib").mkdir()
     shutil.copy2(
         VNEXT_ROOT / "scripts" / "lib" / "gateway-index-env.sh",
@@ -128,6 +141,36 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         ),
     )
     _write_executable(fake_bin / "rustc", "#!/usr/bin/env bash\nprintf 'rustc 1.97.0 (fixture)\\n'\n")
+    _write_executable(fake_bin / "rustfmt", "#!/usr/bin/env bash\nprintf 'rustfmt 1.9.0 (fixture)\\n'\n")
+    _write_executable(
+        fake_bin / "clippy-driver", "#!/usr/bin/env bash\nprintf 'clippy 0.1.97 (fixture)\\n'\n"
+    )
+    cargo_log = tmp_path / "cargo-invocations.log"
+    _write_executable(
+        fake_bin / "cargo",
+        textwrap.dedent(
+            """\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            if [[ "$*" == "--version" ]]; then
+              printf 'cargo 1.97.0 (fixture)\\n'
+              exit 0
+            fi
+            target="${CARGO_TARGET_DIR:-}"
+            if [[ -e "${target}/stale-marker" ]]; then
+              target_state=stale
+            else
+              target_state=fresh
+            fi
+            printf '%s\\t%s\\t%s\\t%s\\n' "$PWD" "$*" "${target}" "${target_state}" \\
+              >>"${RUNNER_CARGO_LOG}"
+            mkdir -p "${target}"
+            if [[ "$1" == "${RUNNER_CARGO_FAIL_STEP:-none}" ]]; then
+              exit 101
+            fi
+            """
+        ),
+    )
     _write_executable(
         fake_bin / "docker",
         textwrap.dedent(
@@ -187,6 +230,8 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     )
     calls_log = tmp_path / "pytest-invocations.log"
     sync_log = tmp_path / "environment-syncs.log"
+    build_log = tmp_path / "extension-builds.log"
+    installed_build_input = tmp_path / "installed-build-input"
     fake_uv_consume = tmp_path / "uv-consume-fake.sh"
     _write_executable(
         fake_uv_consume,
@@ -195,7 +240,18 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
             #!/usr/bin/env bash
             set -euo pipefail
             if [[ "$*" == "-C . sync" ]]; then
-              printf '%s\n' "$(basename "$PWD")" >>"${RUNNER_SYNC_LOG}"
+              printf '%s\\n' "$(basename "$PWD")" >>"${RUNNER_SYNC_LOG}"
+              exit 0
+            fi
+            if [[ "$*" == "-C . sync --reinstall-package gateway-compute-python" ]]; then
+              printf '%s\\n' "$(basename "$PWD")" >>"${RUNNER_SYNC_LOG}"
+              printf '%s\\t%s\\t%s\\n' "$(basename "$PWD")" "${GATEWAY_RUST_BUILD_INPUT:-}" \\
+                "${CARGO_TARGET_DIR:-}" >>"${RUNNER_BUILD_LOG}"
+              printf '%s\\n' "${GATEWAY_RUST_BUILD_INPUT:-}" >"${RUNNER_INSTALLED_BUILD_INPUT}"
+              exit 0
+            fi
+            if [[ "$*" == "-C . run --no-sync python -I -c "* ]]; then
+              printf '%s\\n' "${RUNNER_INSTALLED_BUILD_INPUT_OVERRIDE-$(cat "${RUNNER_INSTALLED_BUILD_INPUT}")}"
               exit 0
             fi
             if [[ "$*" == *"python -VV"* ]]; then
@@ -242,12 +298,17 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     env["GATEWAY_UV_CONSUME"] = str(fake_uv_consume)
     env["RUNNER_CALLS_LOG"] = str(calls_log)
     env["RUNNER_SYNC_LOG"] = str(sync_log)
+    env["RUNNER_BUILD_LOG"] = str(build_log)
+    env["RUNNER_INSTALLED_BUILD_INPUT"] = str(installed_build_input)
+    env["RUNNER_CARGO_LOG"] = str(cargo_log)
     env["RUNNER_MANIFEST_LOG"] = str(manifest_log)
     env["RUNNER_HYPOTHESIS_ROOT"] = str(tmpdir / "gateway-runner-hypothesis")
     env["REAL_PYTHON"] = sys.executable
     env["TMPDIR"] = str(tmpdir)
     env["GATEWAY_TEST_WORKERS"] = "1"
     env.pop("GATEWAY_TEST_PACKAGES", None)
+    env.pop("GATEWAY_RUST_BUILD_INPUT", None)
+    env.pop("CARGO_TARGET_DIR", None)
     return repo_root, calls_log, env
 
 
@@ -283,48 +344,157 @@ def test_run_tests_serial_batches_keep_first_batch_failure(tmp_path: Path) -> No
     assert "repository_service status=failed" in completed.stdout
 
 
+def _ordered(packages: set[str]) -> list[str]:
+    return sorted(packages, key=AUTHORITATIVE_ORDER.index)
+
+
+def _manifest_packages(stdout: str) -> list[str]:
+    return [
+        line.split("package=", 1)[1].split(" ", 1)[0]
+        for line in stdout.splitlines()
+        if line.startswith("==> test input manifest")
+    ]
+
+
+def _cargo_calls(env: dict[str, str]) -> list[list[str]]:
+    cargo_log = Path(env["RUNNER_CARGO_LOG"])
+    if not cargo_log.exists():
+        return []
+    return [line.split("\t") for line in cargo_log.read_text().splitlines()]
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("selection", "expected_packages"),
+    ("selection", "selected", "expected_pytest"),
     [
-        ("shared_kernel", ["shared_kernel"]),
+        ("shared_kernel", {"shared_kernel"}, ["shared_kernel"]),
         (
             "repository_service,backend",
+            {"backend", "repository_service"},
             ["backend", "backend", "repository_service", "repository_service"],
         ),
+        ("rust", {"rust"}, []),
+        ("shared_kernel,rust", {"rust", "shared_kernel"}, ["shared_kernel"]),
     ],
 )
 def test_run_tests_runs_selected_packages_in_authoritative_order(
     tmp_path: Path,
     selection: str,
-    expected_packages: list[str],
+    selected: set[str],
+    expected_pytest: list[str],
 ) -> None:
     repo_root, calls_log, env = _runner_fixture(tmp_path)
     completed = _run_runner(repo_root, env, packages=selection)
     assert completed.returncode == 0, completed.stderr
-    actual_packages = [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()]
-    assert actual_packages == expected_packages
-    actual_syncs = Path(env["RUNNER_SYNC_LOG"]).read_text().splitlines()
-    assert actual_syncs == sorted(
-        {"backend", "repository_service"} if "," in selection else {"shared_kernel"},
-        key=(
-            "shared_kernel",
-            "repository_contracts",
-            "repository_client",
-            "backend",
-            "repository_service",
-        ).index,
+    actual_pytest = (
+        [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()]
+        if calls_log.exists()
+        else []
     )
-    manifests = [line for line in completed.stdout.splitlines() if line.startswith("==> test input manifest")]
-    assert [line.split("package=", 1)[1].split(" ", 1)[0] for line in manifests] == sorted(
-        {"backend", "repository_service"} if "," in selection else {"shared_kernel"},
-        key=("shared_kernel", "repository_contracts", "repository_client", "backend", "repository_service").index,
-    )
-    for package in set(expected_packages):
+    assert actual_pytest == expected_pytest
+    sync_log = Path(env["RUNNER_SYNC_LOG"])
+    actual_syncs = sync_log.read_text().splitlines() if sync_log.exists() else []
+    assert actual_syncs == _ordered(selected - {"rust"})
+    assert _manifest_packages(completed.stdout) == _ordered(selected)
+    assert bool(_cargo_calls(env)) == ("rust" in selected)
+    for package in selected:
         assert f"==> {package} status=passed" in completed.stdout
+    for package in set(AUTHORITATIVE_ORDER) - selected:
+        assert f"==> {package} status=" not in completed.stdout
     if selection == "shared_kernel":
         assert '"package": "shared_kernel"' in completed.stdout
         assert '"package": "backend"' not in completed.stdout
+    if "rust" in selected:
+        assert '"package": "rust"' in completed.stdout
+        assert completed.stdout.index("==> rust (fmt)") < completed.stdout.index(
+            "==> rust status=passed"
+        )
+        if "shared_kernel" in selected:
+            assert completed.stdout.index("==> rust elapsed_seconds=") < completed.stdout.index(
+                "==> shared_kernel\n"
+            )
+
+
+@pytest.mark.unit
+def test_run_tests_rust_package_runs_fmt_clippy_and_test_outside_worktree(
+    tmp_path: Path,
+) -> None:
+    repo_root, _calls_log, env = _runner_fixture(tmp_path)
+    cargo_target = Path(env["TMPDIR"]) / "gateway-runner-cargo-target"
+    cargo_target.mkdir()
+    (cargo_target / "stale-marker").write_text("left by an earlier run\n", encoding="utf-8")
+
+    completed = _run_runner(repo_root, env, packages="rust,backend")
+    assert completed.returncode == 0, completed.stderr
+
+    calls = _cargo_calls(env)
+    assert [call[1] for call in calls] == [
+        "fmt --all --check",
+        "clippy --workspace --locked --offline --all-targets -- -D warnings",
+        f"test --workspace --locked --offline {RUST_TEST_EXCLUDES}",
+    ]
+    assert {call[0] for call in calls} == {str(repo_root / "vnext" / "rust")}
+    assert {call[2] for call in calls} == {str(cargo_target)}
+    assert {call[3] for call in calls} == {"fresh"}
+    for step in ("fmt", "clippy", "test"):
+        assert f"==> rust ({step}) elapsed_seconds=" in completed.stdout
+    assert f"==> cleanup cargo target path={cargo_target}" in completed.stdout
+    assert not cargo_target.exists()
+    assert not (repo_root / "vnext" / "rust" / "target").exists()
+
+
+@pytest.mark.unit
+def test_run_tests_rust_failure_fails_only_the_rust_package(tmp_path: Path) -> None:
+    repo_root, calls_log, env = _runner_fixture(tmp_path)
+    env["RUNNER_CARGO_FAIL_STEP"] = "clippy"
+    completed = _run_runner(repo_root, env, packages="rust,shared_kernel")
+    assert completed.returncode == 1, completed.stderr
+    assert [call[1].split(" ", 1)[0] for call in _cargo_calls(env)] == ["fmt", "clippy", "test"]
+    assert "==> rust (clippy) elapsed_seconds=" in completed.stdout
+    assert "==> rust status=failed" in completed.stdout
+    assert "==> shared_kernel status=passed" in completed.stdout
+    assert [Path(line.split("\t", 1)[0]).name for line in calls_log.read_text().splitlines()] == [
+        "shared_kernel"
+    ]
+
+
+@pytest.mark.unit
+def test_run_tests_rebuilds_backend_extension_with_current_rust_tree(tmp_path: Path) -> None:
+    repo_root, _calls_log, env = _runner_fixture(tmp_path)
+    rust_tree = subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD:vnext/rust"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    completed = _run_runner(repo_root, env, packages="backend")
+    assert completed.returncode == 0, completed.stderr
+    cargo_target = Path(env["TMPDIR"]) / "gateway-runner-cargo-target"
+    assert Path(env["RUNNER_BUILD_LOG"]).read_text().splitlines() == [
+        f"backend\t{rust_tree}\t{cargo_target}"
+    ]
+    assert (
+        f"==> rust extension build input expected={rust_tree} installed={rust_tree} status=ok"
+        in completed.stdout
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("installed", ["0" * 40, ""])
+def test_run_tests_rejects_backend_extension_from_another_rust_tree(
+    tmp_path: Path,
+    installed: str,
+) -> None:
+    repo_root, calls_log, env = _runner_fixture(tmp_path)
+    env["RUNNER_INSTALLED_BUILD_INPUT_OVERRIDE"] = installed
+    completed = _run_runner(repo_root, env, packages="backend,repository_service")
+    assert completed.returncode == 1
+    assert "status=mismatch" in completed.stdout
+    assert "was not built from the current vnext/rust tree" in completed.stderr
+    assert "==> backend status=failed" in completed.stdout
+    assert "==> repository_service status=failed" in completed.stdout
+    assert _manifest_packages(completed.stdout) == []
+    assert not calls_log.exists()
 
 
 @pytest.mark.unit

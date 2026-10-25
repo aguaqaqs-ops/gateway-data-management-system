@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r20，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）；r16 2026-10-25（C1/C2 记录 owner 决定：差分验证细节、V6 验收、数据路径合并而 Contract 不合并、Arrow 列映射在设计阶段定稿；§3.2 与 §12 登记慢速外网上传的分析）；r17 2026-10-25（慢速上传的 owner 决定：空闲超时加总上限、最低支持带宽 1 Mbps；受理移到线程池；准入名额交给 Phase 7；不做边收边解析）；r18 2026-10-25（C4/C6/C7 记录 owner 决定：L2 为唯一主机制、每个 worker 一个固定 N 的 Rayon 池与内存预算 M、部署配置只开放 N 与 M）；r19 2026-10-25（C3/C5 记录 owner 决定：§5.4 模块拆解定稿、IPC 由 Python 落盘、proptest 替代 cargo-fuzz、新增依赖清单、pyarrow 线程池纳入 N）；r20 2026-10-25（D5/D6 记录 owner 决定：Rust 测试进入权威门禁、adapter 测试改为 pytest、保证 Python 测试用当前扩展；门禁时长先做 V8 剖析，不阻塞 Phase 6）。
+- 状态：**讨论稿 r21，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）；r16 2026-10-25（C1/C2 记录 owner 决定：差分验证细节、V6 验收、数据路径合并而 Contract 不合并、Arrow 列映射在设计阶段定稿；§3.2 与 §12 登记慢速外网上传的分析）；r17 2026-10-25（慢速上传的 owner 决定：空闲超时加总上限、最低支持带宽 1 Mbps；受理移到线程池；准入名额交给 Phase 7；不做边收边解析）；r18 2026-10-25（C4/C6/C7 记录 owner 决定：L2 为唯一主机制、每个 worker 一个固定 N 的 Rayon 池与内存预算 M、部署配置只开放 N 与 M）；r19 2026-10-25（C3/C5 记录 owner 决定：§5.4 模块拆解定稿、IPC 由 Python 落盘、proptest 替代 cargo-fuzz、新增依赖清单、pyarrow 线程池纳入 N）；r20 2026-10-25（D5/D6 记录 owner 决定：Rust 测试进入权威门禁、adapter 测试改为 pytest、保证 Python 测试用当前扩展；门禁时长先做 V8 剖析，不阻塞 Phase 6）；r21 2026-10-25（D3 记录 owner 决定：新增 §8.1 Phase 6 阶段结构、各阶段真实数据范围与 S0 前置项；§8 阶段表按已定方向更正）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -456,13 +456,67 @@ Dolt 始终是权威来源，规范表存储和各类缓存都是派生数据：
 | --- | --- | --- | --- | --- |
 | ① | 上传与 staging | 接收、限额检查、解包 | 流式解包，不重复落盘 | I/O 吞吐（解压 415 MiB/s） |
 | ② | 解析与物化 | 全量解析 SQL 与 `logics.xml` | 新解析器（§6）：扫描后按表与按块并行，直接产出列式数据 | 新解析器的实测吞吐（V6） |
-| ③ | 规范投影与表摘要 | 全量（上传侧） | 列式投影；BLAKE3 表摘要（D1）；按表并行（D6） | 哈希与排序的实测吞吐 |
-| ④ | 基线解析 | 只取变化表 | 用基线 commit 的 manifest 中的表摘要过滤；变化表优先从规范表存储读取（D2、D3），缺失时由 Dolt 兜底；与 ② 重叠执行（L1c） | 与变化表的数量成正比 |
-| ⑤ | 比较、风险与 surface | 只处理变化表 | 列式比较（D7）；计算去重（D5）；按调度分组并行（D6）；FULL 模式双 pair 并行（L1b） | 与变化行数成正比 |
-| ⑥ | 发布 Preview | 写入用户需要的结果 | 只同步写入小的权威事实，大文件异步写入（D3） | 小 |
+| ③ | 规范投影与表摘要 | 全量（上传侧） | 列式投影；表摘要沿用 SHA-256 现值（D1，r4 保值统一）；按表并行（C4） | 哈希与排序的实测吞吐 |
+| ④ | 基线解析 | 只取变化表 | 用基线 commit 的 manifest 中的表摘要过滤；变化表优先从规范表存储读取（D2、D3），缺失时由 Dolt 兜底（L1c 不单独做，C4） | 与变化表的数量成正比 |
+| ⑤ | 比较、风险与 surface | 只处理变化表 | 列式比较（D7）；计算去重（D5）；按调度分组并行（D6）；FULL 模式双 pair 并入按表并行（C4） | 与变化行数成正比 |
+| ⑥ | 发布 Preview | 写入用户需要的结果 | 规范表文件同步写入（B2，r7 取代原“大文件异步写入”）；bundle 补齐整表（B9） | 小 |
 | ⑦ | Submit 受理 | 比对摘要 | 现状已经很便宜 | 毫秒级 |
 | ⑧ | Submit 准备与回放 | 只写变化 | 表级跳过、按阈值行级修改、渲染直通（D10）；keyless 表按 DC29 整表重写；同内容表组的写入优化不做（D8） | **受 Dolt 写入限制**：同样数据直接导入 Dolt 实测 24 s |
 | ⑨ | History 比较 | 只处理变化表 | manifest 过滤 + 比较结果缓存 + 规范表存储 | 缓存命中时接近零 |
+
+### 8.1 Phase 6 阶段结构（D3，owner 决定，r21，2026-10-25）
+
+排序原则：
+
+- **先改 Contract，再改性能。** 按 Measurement Contract §5，Contract 变更的结果不能算作性能收益。所以 Contract 阶段放在最前，做完后重建对照基准；之后的纯性能阶段，结果必须与基准逐字节一致。
+- **按 golden 分组，** 每类 golden 只改一次。
+- **按依赖排序：** 表摘要 → 解析器与表存储 → 比较 → Submit → History → 收尾。
+
+**S0：开工前**
+
+| 项 | 内容 | 依据 |
+| --- | --- | --- |
+| 正式决议 | 讨论稿整理为 S0 正式决议（DC37 起）；按 §4.2 改写 implementation-stages §9/§10 | A4 |
+| kickoff 小修 | `uv-consume.sh` 的 EXIT trap、SQLite 旁路文件残留、三项文档整理 | §12 |
+| D5 | Rust 测试进入权威门禁，确认 Python 测试使用当前扩展（DC36 会话实施） | §13 D5 |
+| 前置验证 | V1、V5、V6、V7；V8 并行，不阻塞 | §11 |
+| 业务评估 | 重要 keyless 表是否定义自然键，在 S1a 之前给出 | §12 |
+| 设计与计划 | Phase 6 设计、执行计划，独立文档审核 | |
+
+**实施阶段**
+
+| 阶段 | 范围 | 改动的 golden / Contract | 依赖 |
+| --- | --- | --- | --- |
+| **S1a 摘要与存储 Contract** | B1 统一表摘要（投影版本 2→3，commit 元数据返回每表摘要）；Preview 只读、只比变化表，包括未变化的 ordered 表（B5）；D10 的表级跳过与 `ADAPTIVE_PATCH`（用现有规划器，有序表纳入） | manifest 摘要、导入包与 `replay.sql`、prepare checkpoint | S0 |
+| **S1b 业务语义 Contract** | B8 只增列按共有字段判定；B9 bundle 补齐整表（Parquet 与导出缓存）；B5 整表新增/删除改为整表浏览加表级计数风险；上传空闲超时与新错误码；受理移到线程池（§12） | 比较、风险、surface、bundle 的 golden；HTTP 错误码 | S1a |
+| **重建对照基准** | 用 Python 实现，在 ct108 上测 t1–t4、testdata1 与合成 2× t4 | — | S1b |
+| **S2a 解析器** | 完整的 Rust 解析器与五层差分（§6.3）；放在 feature flag 之后，不切生产 | 无（输出须与 Python 一致） | V6 |
+| **S2b 上传侧数据路径与表存储** | 物化检查、投影、摘要 kernel（C2，§6.2a）；B2 表存储（内容寻址、两类引用、IPC + mmap、读取校验与 Dolt 兜底；上传侧原始表不再持久化）；切换生产；N/M 与 pyarrow 线程池（C6） | 无（摘要须与基准一致）；Canonical Storage §5 的格式与生命周期 | S2a |
+| **S3 比较** | D7 standard、keyless 列式比较；ordered 视 V1 而定；单次操作内去重（B3） | 无 | S2b |
+| **S4 Submit** | D10 渲染直通与列式存储 diff；按 V7 定稿阈值；Submit 的计数断言 | 无（`replay.sql` 须与 S1a 一致） | S3（共用比较内核） |
+| **S5 History 与跨操作缓存** | B3 跨操作 diff/risk 缓存（Submit finalize 加引用、TTL）；History 按表拼接（§3.8）；Dolt 按表并发读取（V7） | 比较与风险 Contract 中“只有纯函数可以缓存” | S3、S4 |
+| **S6 收尾** | 加速曲线定 N；删除生产 feature flag，Python 降为测试参照（A4）；2× t4 全部负载取证（W1–W4、H1–H3、S1–S4、计数断言）；存储报告（Measurement §6）；Phase 6 退出 | — | 全部 |
+| （可选）测试基础设施 | V8 显示能缩短约 40% 以上时插入，位置不限 | runner 与 AGENTS（DC36 会话） | V8 |
+
+- **S1 拆成两段：** S1a 改存储与摘要类 golden，S1b 改展示与业务类 golden，各改一次。S1a 自身已带来结构性收益：重传和少量变化时不读、不比未变化的表。
+- **S2 拆成两段：** 解析器先单独做，只用于差分验证，风险最小。S2b 一次性切换“解析 → 投影 → 表存储”整条数据路径，避免“Rust 解析、再转回 Python 行”的中间状态进入生产。
+- **S4 在 S3 之后：** 存储 diff 与比较共用列式内核。
+- **S5 在 S3、S4 之后：** 缓存条目的形态由 D7 的单表接口决定；Submit finalize 加引用发生在 S4 的路径上。
+- **生产 flag 保留到 S6：** 按 A4，Phase 6 退出时一并删除，不在各阶段分别删。
+
+**真实数据（DC33：kickoff 写明，退出时由 owner 确认）**
+
+| 阶段 | 真实数据 | 节点 |
+| --- | --- | --- |
+| S1a、S1b | t1–t4 与 testdata1 完整旅程，业务结果按新 Contract 核对 | t1–t3 与 testdata1 在 `ct108-gw-dms-05`，t4 在 `ct108-gw-dms` |
+| 重建基准 | t1–t4、testdata1、2× t4 测量 | `ct108-gw-dms`（独占） |
+| S2a | 只做第 ④ 层差分：t1–t4 与 testdata1 的解析结果逐值相同 | 同 S1 |
+| S2b、S3、S4、S5 | t1–t4 与 testdata1 端到端摘要与基准一致；测本阶段相关的负载 | 同 S1；测量在 `ct108-gw-dms` |
+| S6 | 2× t4 全部负载，1 次预热加 3 次测量；t1–t4 完整旅程 | `ct108-gw-dms` |
+
+- **门禁：** 沿用 AGENTS、DC30、DC34、DC36、G12、G13。每个阶段的最终提交运行一次权威 runner（含 D5 新增的 `rust` 包）；改动 Rust 或镜像时重建 backend 镜像并跑容器门禁；阶段边界打 `p6-sN-exit` 附注 tag，审核在只读 detached worktree 中进行。
+- **合成 2× t4 与 testdata1：** 在 S1b 期间按 DC35（§3.6）生成合成 2× t4 并写入测量 runbook，使重建基准能包含它；testdata1 在 S1b 登记为真实数据档 W5（D9）。
+- **对照基准只重建一次：** S1 之后重建，之后各阶段只核对结果一致，不再重建。
 
 第 ⑧ 步最可能受物理限制，因为 Dolt 的写入和提交不受我们控制。它单独定目标，不和 Preview 共用一个门槛。按 owner 的判断，Submit 是用户可以离开的异步过程，对耗时不敏感；但 S5 显示现有 Submit 的大头不在 Dolt 写入（§2.3）。
 
@@ -1021,7 +1075,7 @@ RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
 | --- | --- | --- | --- |
 | D1 | 耗时归因（V5） | **owner 方向（2026-10-24）：按需补充** | 先用 step 时间戳，不足时 py-spy |
 | D2 | Phase 6 测量 runbook | **部分决议（DC35）**：预热 1 次、测量 3 次取中位数；冷/热启动按负载区分；测量期间独占参考节点；规模口径与合成数据集 | 测试节点三台分工已决议并生效（DC36，2026-10-24）；待定：合成规则细节 |
-| D3 | Phase 6 阶段结构 | 待决议 | S0 决议 → D5 Rust 测试入口（r20：V1、V6 之前完成）→ V1/V5/V6/V7（V8 可并行，不阻塞）→ 设计与执行计划 + 独立文档审核 → B1/B7/B8/B9 Contract 阶段（r13：加入 B7 的表级跳过与阈值方案；r4 调整：原为解析器主线之后的 D1 摘要阶段，见 §9 D1 审核分析）→ 解析器主线 → 按业务阶段分段实施；DC30/DC33/DC34 与 G12/G13 的门禁规则沿用 |
+| D3 | Phase 6 阶段结构 | **已决定（owner，2026-10-25）** | 见 §8.1：S0（正式决议、kickoff 小修、D5、V1/V5/V6/V7、keyless 自然键评估、设计与计划）→ S1a 摘要与存储 Contract → S1b 业务语义 Contract → 重建对照基准 → S2a 解析器 → S2b 上传侧数据路径与表存储 → S3 比较 → S4 Submit → S5 History 与跨操作缓存 → S6 收尾；测试基础设施阶段按 V8 可选插入。真实数据范围见 §8.1；DC30/DC33/DC34/DC36 与 G12/G13 的门禁规则沿用 |
 | D4 | V2 是否并入 S5 | **已决议（2026-10-17，DC32）** | 并入 S5，已完成 |
 | D5 | Rust 测试的正式入口与门禁覆盖 | **已决定（owner，2026-10-25）**：Phase 6 开工的前置任务，在 V1、V6 之前完成；runner、AGENTS 与 testing-conventions 的修改由 DC36 会话实施 | 现状见 §12 两行。做法：<br>① 先在调试节点验证“只改 Rust 源码时 `uv sync` 不重建扩展”。<br>② Rust 测试按是否需要 Python 解释器分开：core、shared-kernel、architecture-check 用 `cargo test`；需要解释器的 adapter 测试改为 pytest，测已安装的扩展（同 `test_production_extension.py`），删除嵌入解释器的 `adapter_errors.rs` 写法，不再需要 `VIRTUAL_ENV`、`LD_LIBRARY_PATH`。<br>③ 权威 runner 增加第六个包 `rust`：`cargo fmt --check`、`cargo clippy --workspace --locked -- -D warnings`、`cargo test --workspace --locked`，离线运行，`CARGO_TARGET_DIR` 在 worktree 外；闭包 manifest 加 `rust` 包（workspace、`Cargo.lock`、`rust-toolchain.toml`、rustc/cargo 版本）。05 实测 build 15 s、test 6 s。<br>④ 保证 Python 测试用当前扩展：在 backend 的 `pyproject.toml` 中把 Rust 源码加入 `tool.uv.cache-keys`，或 runner 对 `gateway-compute-python` 强制重装（`--reinstall-package`）；门禁增加一条检查，确认已安装扩展的构建输入与当前提交一致。数据见 [节点核对报告](p6-node-init-report.md) §5、§7 |
 | D6 | 单次门禁时长 | **已决定（owner，2026-10-25）**：不阻塞 Phase 6；先做 V8 剖析 | 64 核新节点与 128 核 ct108 跑完整 runner 的时间相同（约 39 分钟）：backend 串行批次 39 个用例约 1,590 s（含 Compose 旅程，固定使用主机端口 8000 并加 flock，同一节点只能逐个运行），repository_service 串行批次约 593 s，其余批次合计约 160 s。按 DC30，完整门禁只在每个阶段的最终提交上运行，8–10 个阶段的成本可以接受。候选方向（V8 后选择）：Compose 旅程动态端口与唯一项目名、使旅程可同机并行（G11b-O3）；同一模块的旅程共用一套栈（须逐项审查隔离）；repository_service 串行组逐项审查归入 `parallel_safe`。只采用不削弱门禁证据的改法，预计缩短约 40% 以上时才作为 Phase 6 的测试基础设施小阶段。backend 与 repository_service 跨节点分开运行涉及 AGENTS 的“最终门禁运行全部包”与 carried 同节点规则，归 DC36 会话。数据见 [节点核对报告](p6-node-init-report.md) §4–§6 |

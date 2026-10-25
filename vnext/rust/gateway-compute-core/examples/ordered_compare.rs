@@ -153,10 +153,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                 current: pair.current,
                 options: pair.options,
             })?;
-            if iteration >= arguments.warmups {
-                if let Some(times) = per_case_times.get_mut(index) {
-                    times.push(started.elapsed().as_secs_f64());
-                }
+            if iteration >= arguments.warmups
+                && let Some(times) = per_case_times.get_mut(index)
+            {
+                times.push(started.elapsed().as_secs_f64());
             }
         }
     }
@@ -319,15 +319,15 @@ fn case_summary(
     for record in &result.ordered_extension.records {
         markers_in_values(&record.before_values, &mut markers);
         markers_in_values(&record.current_values, &mut markers);
-        if positions.len() < 16 {
-            if let Some(position) = record.before_position {
-                positions.push(position);
-            }
-            if positions.len() < 16 {
-                if let Some(position) = record.current_position {
-                    positions.push(position);
-                }
-            }
+        if positions.len() < 16
+            && let Some(position) = record.before_position
+        {
+            positions.push(position);
+        }
+        if positions.len() < 16
+            && let Some(position) = record.current_position
+        {
+            positions.push(position);
         }
     }
     for record in &result.blank_extension.records {

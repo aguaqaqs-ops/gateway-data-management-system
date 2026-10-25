@@ -194,7 +194,7 @@ implementation_authorized: no
      - 权威 runner 增加第六个包 `rust`（`cargo fmt --check`、`cargo clippy --workspace --locked -- -D warnings`、`cargo test --workspace --locked`，离线，`CARGO_TARGET_DIR` 在 worktree 外），闭包 manifest 相应增加；
      - 保证 Python 测试使用当前扩展（`tool.uv.cache-keys` 或强制重装），门禁增加一条构建输入一致性检查；新扩展同样以 maturin 路径依赖装入 backend 环境，uv 不重建的问题依然存在。
   2. runner、AGENTS 与 testing-conventions 的修改由负责 DC36 的会话实施。
-  3. 门禁时长不阻塞 Phase 6。先做 V8 剖析；只采用不削弱门禁证据的改法，预计缩短约 40% 以上时才作为测试基础设施阶段插入。backend 与 repository_service 跨节点分开运行涉及 AGENTS 的规则，归负责 DC36 的会话。
+  3. 门禁时长不阻塞 Phase 6。先做 V8 剖析（2026-10-25 完成，[V8 报告](p6-v8-gate-profile.md)；owner 决定测试基础设施阶段暂不插入，S2b 之后重新剖析）；只采用不削弱门禁证据的改法，预计缩短约 40% 以上时才作为测试基础设施阶段插入。backend 与 repository_service 跨节点分开运行涉及 AGENTS 的规则，归负责 DC36 的会话。
 - **落点**：run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions（DC36 会话）；讨论稿 §11 V8。
 - **实施（2026-10-25）**：第 1 项已完成，实施提交 `4526084da1`，handoff 见 [p6-dc48-handoff.md](p6-dc48-handoff.md)，轻量审核通过，见 [p6-dc48-review.md](p6-dc48-review.md)。选用强制重装（`--reinstall-package`）；构建输入以 `vnext/rust` 的 Git tree id 嵌入扩展并在 runner 中检查。节点 05 的反例实测确认：只改 Rust 源码时 `uv sync` 不重建扩展。owner 同日确认 `cargo test` 在 S2a 之前同时排除 `gateway-compute-python-impl`（其测试同样嵌入 Python 解释器）。
 

@@ -227,6 +227,7 @@ implementation_authorized: no
      - **S6 收尾**：加速曲线定 N；删除生产 feature flag；2× t4 全部负载取证（W1–W4、H1–H3、S1–S4、计数断言）；存储报告（Measurement Contract §6）；Phase 6 退出。
      - 测试基础设施阶段按 DC48 第 3 项可选插入。
   4. **真实数据（DC33：kickoff 写明，退出时 owner 确认）**：S1a、S1b 为 t1–t4 与 testdata1 完整旅程；S2a 只做解析结果逐值差分；S2b 至 S5 为 t1–t4 与 testdata1 端到端摘要与基准一致，并测本阶段相关负载；S6 为 2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。t1–t3 与 testdata1 在 `ct108-gw-dms-05`，t4 与测量在 `ct108-gw-dms`。
+     - **补充（owner，2026-10-25）：** 允许在 `ct108-gw-dms-05` 上使用 t4，用于正确性对照（例如 V6 的逐值差分）。05 上自克隆起就有 t4 的两个数据包（`/home/dev/gateway-real-dumps/packages/`），DC36 生效记录写的是“05 保留 t1–t3”，与实际不符，以此为准。性能测量与 t4 的完整旅程取证仍在 `ct108-gw-dms`。
   5. **门禁**：沿用 AGENTS、DC30、DC33、DC34、DC36、G12、G13；每个阶段的最终提交运行一次权威 runner（含 `rust` 包）；改动 Rust 或镜像时重建 backend 镜像并跑容器门禁；阶段边界打 `p6-sN-exit` 附注 tag。
   6. **前置验证任务**：
      - V1 ordered 比较的小规模 Rust 验证，决定 ordered 是否进 Rust；

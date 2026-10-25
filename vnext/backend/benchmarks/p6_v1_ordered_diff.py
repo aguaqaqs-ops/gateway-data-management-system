@@ -756,6 +756,21 @@ def _build_synthetic_and_random(outdir: Path, random_samples: int, seed: int) ->
         case["case_label"] = label
         cases.append(case)
 
+    schema_plan = _plan(
+        "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL); INSERT INTO t VALUES (1,1,'a');",
+        "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL, added VARCHAR(8) NULL); INSERT INTO t VALUES (1,1,'a','new');",
+    )
+    schema_task = next(
+        item for item in schema_plan.tasks
+        if item.policy is not None and item.policy.ordered_policy is not None
+    )
+    schema_fact = ordered_reference.compare_ordered_task(schema_task)
+    schema_case, _ = _input_case(
+        "ordered-schema-added-column-only", "synthetic", schema_task, schema_fact, outdir
+    )
+    schema_case["case_label"] = "added-column-only"
+    cases.append(schema_case)
+
     missing_plan = _plan(
         "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL); INSERT INTO t VALUES (1,1,'a');",
         "CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL); INSERT INTO t VALUES (1,1,'a');",

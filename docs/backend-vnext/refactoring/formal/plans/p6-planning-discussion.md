@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r27，已整理为正式决议**。§13 各事项已由 owner 决议，记录为 DC37–DC52，见 [Phase 6 S0 Owner 决议记录](p6-s0-owner-decisions.md)；两者不一致时以决议记录为准。本稿保留分析过程与数据，作为 Phase 6 设计的输入。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）；r16 2026-10-25（C1/C2 记录 owner 决定：差分验证细节、V6 验收、数据路径合并而 Contract 不合并、Arrow 列映射在设计阶段定稿；§3.2 与 §12 登记慢速外网上传的分析）；r17 2026-10-25（慢速上传的 owner 决定：空闲超时加总上限、最低支持带宽 1 Mbps；受理移到线程池；准入名额交给 Phase 7；不做边收边解析）；r18 2026-10-25（C4/C6/C7 记录 owner 决定：L2 为唯一主机制、每个 worker 一个固定 N 的 Rayon 池与内存预算 M、部署配置只开放 N 与 M）；r19 2026-10-25（C3/C5 记录 owner 决定：§5.4 模块拆解定稿、IPC 由 Python 落盘、proptest 替代 cargo-fuzz、新增依赖清单、pyarrow 线程池纳入 N）；r20 2026-10-25（D5/D6 记录 owner 决定：Rust 测试进入权威门禁、adapter 测试改为 pytest、保证 Python 测试用当前扩展；门禁时长先做 V8 剖析，不阻塞 Phase 6）；r21 2026-10-25（D3 记录 owner 决定：新增 §8.1 Phase 6 阶段结构、各阶段真实数据范围与 S0 前置项；§8 阶段表按已定方向更正）；r22 2026-10-25（owner 确认 B1 按“保值统一”定稿、各“owner 方向”项按已决议记录；整理为 DC37–DC50，implementation-stages §2、§9、§10 按 DC37 改写；随后补充 DC51 G6b 维持 C、DC52 现有 Rust 扩展视为过时）；r23 2026-10-25（V5 完成：§2.3 增加 step 级归因结论；新增 V5b，只扩展测量工具，不加产品插桩）；r24 2026-10-25（V7 完成：D10 阈值草案改为 1,000 行 / 1%，§3.8 补 V7 读取参考与 RS 容量，§12 登记一次性计数脚本的缺陷与 RS defunct 进程）；r25 2026-10-25（V5b、V8 完成：§2.3 增加分段补测结论，§13 D6 记录测试基础设施阶段暂不插入）；r26 2026-10-25（V6 完成并合入 main；testdata1 即 t3，取消 W5 登记；§12 登记参照实现的输入边界缺陷与语义问题，在 S1b 处理）；r27 2026-10-25（V1 完成并合入 main：ordered 在 S3 进入 Rust；§12 登记伪 gid 起点的规格冲突）。
+- 状态：**讨论稿 r28，已整理为正式决议**。§13 各事项已由 owner 决议，记录为 DC37–DC52，见 [Phase 6 S0 Owner 决议记录](p6-s0-owner-decisions.md)；两者不一致时以决议记录为准。本稿保留分析过程与数据，作为 Phase 6 设计的输入。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）；r16 2026-10-25（C1/C2 记录 owner 决定：差分验证细节、V6 验收、数据路径合并而 Contract 不合并、Arrow 列映射在设计阶段定稿；§3.2 与 §12 登记慢速外网上传的分析）；r17 2026-10-25（慢速上传的 owner 决定：空闲超时加总上限、最低支持带宽 1 Mbps；受理移到线程池；准入名额交给 Phase 7；不做边收边解析）；r18 2026-10-25（C4/C6/C7 记录 owner 决定：L2 为唯一主机制、每个 worker 一个固定 N 的 Rayon 池与内存预算 M、部署配置只开放 N 与 M）；r19 2026-10-25（C3/C5 记录 owner 决定：§5.4 模块拆解定稿、IPC 由 Python 落盘、proptest 替代 cargo-fuzz、新增依赖清单、pyarrow 线程池纳入 N）；r20 2026-10-25（D5/D6 记录 owner 决定：Rust 测试进入权威门禁、adapter 测试改为 pytest、保证 Python 测试用当前扩展；门禁时长先做 V8 剖析，不阻塞 Phase 6）；r21 2026-10-25（D3 记录 owner 决定：新增 §8.1 Phase 6 阶段结构、各阶段真实数据范围与 S0 前置项；§8 阶段表按已定方向更正）；r22 2026-10-25（owner 确认 B1 按“保值统一”定稿、各“owner 方向”项按已决议记录；整理为 DC37–DC50，implementation-stages §2、§9、§10 按 DC37 改写；随后补充 DC51 G6b 维持 C、DC52 现有 Rust 扩展视为过时）；r23 2026-10-25（V5 完成：§2.3 增加 step 级归因结论；新增 V5b，只扩展测量工具，不加产品插桩）；r24 2026-10-25（V7 完成：D10 阈值草案改为 1,000 行 / 1%，§3.8 补 V7 读取参考与 RS 容量，§12 登记一次性计数脚本的缺陷与 RS defunct 进程）；r25 2026-10-25（V5b、V8 完成：§2.3 增加分段补测结论，§13 D6 记录测试基础设施阶段暂不插入）；r26 2026-10-25（V6 完成并合入 main；testdata1 即 t3，取消 W5 登记；§12 登记参照实现的输入边界缺陷与语义问题，在 S1b 处理）；r27 2026-10-25（V1 完成并合入 main：ordered 在 S3 进入 Rust；§12 登记伪 gid 起点的规格冲突）；r28 2026-10-25（W1–W4 定稿与达标条件 DC53；逐行记录进入 Rust DC54）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -142,7 +142,7 @@ r1 的“每个阶段达到下界的约定倍数以内”不再作为门槛：�
 
 **上传传输不计入（r16 补充）。** “受理”在整个上传包接收完毕之后，上传的网络传输时间不在两个指标内。网络速度从局域网千兆到外网不足 3 Mbps 不等（owner，2026-10-25），旅程另行记录上传耗时，只报告、不设门槛。慢速网络下的接收限制见 §12。旧实现把 comparison cache 的补全放在返回之后的 `ASYNC_COMPARISON_CORE_CACHE_COMPLETION` 步骤里（`legacy/backend_vnext/flows/upload_preview.py`），它的“60 s 返回”很可能是用户可见时间。
 
-### 3.3 工作负载与目标数值（草案）
+### 3.3 工作负载与目标数值（r28：已定稿，DC53）
 
 | 负载 | 场景 | 用户可见时间（2× t4） |
 | --- | --- | --- |
@@ -153,6 +153,8 @@ r1 的“每个阶段达到下界的约定倍数以内”不再作为门槛：�
 | 所有负载 | 完成时间 | ≤ 10 min（保留 DC30 原值作为硬上限） |
 
 FULL 模式（双侧、双 pair）在 W3、W4 中各补测一次。数值在 V5、V6 完成后定稿，调整须经 owner 确认。
+
+**r28 定稿（DC53，owner 2026-10-25）：** 上表数值维持不变，作为定稿值；S2b 之后有实测再考虑收紧 W1、W3。达标条件：S1a 结束时对完整 worker step 做归因，查清每个 Preview 约 18 s 的 step 间隔与 V5b 约 175 s 的未归因残差（W2 的前置条件）；W4 的合成规则为“全部表变化、每表约 10% 行变化（ordered 表含位移）”，另加一档 100% 行变化的压力测试，只报告。逐行记录的生成与序列化在 S3 进入 Rust（DC54），否则按 Python 约 1.3 ms/条，100% 行变化时仅记录就约 11 分钟。
 
 按 S5 的吞吐粗估：t4 的解压、哈希、Arrow IPC 读写合计在秒级；解析器达到每秒数十 MiB 时，2× t4 约 160 MB 的 SQL 解析只需数秒；现有全量基线读取 52 s（t4）是 W4 中最大的已知项，由规范表存储（D2、D3）降低。
 
@@ -332,7 +334,7 @@ owner 提出的几类并发作为参考选项列入；是否值得做、先后�
 | 模块 | Rust 范围 | Python 保留 | 依据 |
 | --- | --- | --- | --- |
 | 解析、物化检查、规范投影、表摘要（`table_access`、`snapshot_materialization`、`storage_projection`） | 一条 Arrow 数据路径，三个 capability 各自的 kernel；产出 Arrow 或在内存中编码的 IPC 字节 | 请求与预算组装、规则解析、诊断映射、manifest 组装、IPC 落盘 | C1/C2（§6.2a）；表摘要沿用 SHA-256（B1） |
-| 比较（`comparison`） | standard、keyless 先做；ordered 等 V1 | 比较模式选择、结果 Contract | D7/B5 |
+| 比较（`comparison`） | standard、keyless 与 ordered（V1 后确定）；**r28：同时产出逐行记录的 Arrow 列与 `content_digest`（DC54）** | 比较模式选择、结果 Contract；用 pyarrow 写记录 Parquet | D7/B5、DC54 |
 | 风险 facts（`risk_evaluation`） | **不进 Rust** | 全部保留 | B5 改为整表计数风险后，只剩变化行的标注，占比很小；V5 显示占比明显时重开 |
 | Submit 存储 diff 与 SQL 渲染（`mutation_planning`） | 与比较共用列式内核 | 表级决定（跳过、重建、行级）、CAS 与发布语义 | D10 |
 | History 读取与 bundle 导出 | **不新建 kernel** | RS 返回的 Arrow 直接写成规范表；导出用 pyarrow 写 Parquet | 两者都不需要逐行 Python |

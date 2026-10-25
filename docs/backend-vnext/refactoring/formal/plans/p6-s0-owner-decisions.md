@@ -5,15 +5,16 @@
 - 记录人：Phase 6 S0 讨论的审核方。依据讨论稿各项分析与 owner 的逐项答复整理。
 - 依据：
   - [Phase 6 规划讨论稿](p6-planning-discussion.md) r21（提交 `206f4816c2`），以下简称“讨论稿”；
-  - [P5 S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) 中与 Phase 6 相关的 DC35（目标设定方法）与 DC36（测试节点三台分工）。本记录的编号接续为 DC37–DC52。
+  - [P5 S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) 中与 Phase 6 相关的 DC35（目标设定方法）与 DC36（测试节点三台分工）。本记录的编号接续为 DC37–DC54。
 - 补充：2026-10-25 owner 决议 G6b 维持 C 并增加门禁 worktree 的保留规则（DC51），以及现有 Rust 扩展视为过时、直接以新设计测试（DC52），见 §2 末尾；DC48、DC50 相应修订。
+- 补充：2026-10-25 owner 决议 W1–W4 目标数值定稿与达标条件（DC53），以及逐行记录的生成与序列化进入 Rust（DC54），见 §2 末尾。
 
 ```yaml
 record_kind: p6_s0_owner_decisions
 decided_by: repository_owner
 decided_at: [2026-10-24, 2026-10-25]
 discussion_draft: p6-planning-discussion.md r21 @ 206f4816c2
-decisions: DC37-DC52
+decisions: DC37-DC54
 prior_phase6_decisions: [DC35, DC36]   # 记录在 p5-arch-closure-s0-owner-decisions.md
 adr_status_changed: no
 implementation_authorized: no
@@ -39,6 +40,8 @@ implementation_authorized: no
 | DC50 | Phase 6 阶段结构与前置验证任务 | §8.1、§11 | D3 |
 | DC51 | G6b 维持 C；门禁 worktree 保留到阶段 exit 合入之后 | §12 | — |
 | DC52 | 现有 Rust 扩展视为过时，直接以新设计测试 | §9 D1、§12 | — |
+| DC53 | W1–W4 目标数值定稿与达标条件 | §3.3 | A1 |
+| DC54 | 逐行记录的生成与序列化进入 Rust（S3） | §5.4 | — |
 
 ## 2. 决议详情
 
@@ -176,7 +179,7 @@ implementation_authorized: no
 
 - **来源**：讨论稿 §5、§9 D6。
 - **决议**：
-  1. **模块拆解**（讨论稿 §5.4）：解析、物化检查、规范投影与表摘要为一条 Arrow 数据路径；比较按 DC44；Submit 存储 diff 与 SQL 渲染与比较共用列式内核；风险 facts 不进 Rust（V5 显示占比明显时重开）；History 读取与 bundle 导出不新建 kernel。
+  1. **模块拆解**（讨论稿 §5.4）：解析、物化检查、规范投影与表摘要为一条 Arrow 数据路径；比较按 DC44；Submit 存储 diff 与 SQL 渲染与比较共用列式内核；风险 facts 不进 Rust（V5 显示占比明显时重开）；History 读取与 bundle 导出不新建 kernel。（DC54 补充：比较 kernel 同时产出逐行记录的 Arrow 列与 `content_digest`，Python 只写 Parquet。）
   2. **Rust core 不写文件**（Rust safety policy §4）：core 只产出 Arrow 结果或在内存中编码的 IPC 字节，由 Python 的 ArtifactStore 落盘；读取由 pyarrow mmap 后经 Arrow C Stream 交给 Rust。
   3. **crate 结构**：一个 core crate 加一个 PyO3 adapter；core 内按 capability 分模块，由 `gateway-architecture-check` 约束依赖方向；`gateway-compute-worker` 按需，不建。
   4. **并发分层**：按表并行（L2）是唯一主机制，随各 kernel 一起做；FULL 模式的双侧物化与双 pair 并入 L2；基线读取与解析重叠（L1c）、表内分块（L3）按实测条件再做；operation 之间并行属 Phase 7。每个 kernel 必测 1 个线程与 N 个线程的输出逐字节相同。
@@ -217,12 +220,12 @@ implementation_authorized: no
   1. **排序原则**：先改 Contract、再改性能，Contract 阶段之后重建一次对照基准，之后的纯性能阶段结果须与基准逐字节一致；每类 golden 只改一次；按依赖排序。
   2. **S0（开工前）**：本记录与 implementation-stages 改写；kickoff 小修（`uv-consume.sh` 的 EXIT trap、SQLite 旁路文件残留、三项文档整理）；DC48 第 1 项；前置验证 V1、V5、V6、V7（V8 并行，不阻塞）；重要 keyless 表是否定义自然键的业务评估，在 S1a 之前给出；Phase 6 设计、执行计划与独立文档审核。
   3. **实施阶段**：
-     - **S1a 摘要与存储 Contract**：DC39；DC45 的表级跳过与 `ADAPTIVE_PATCH`（用现有规划器）。
+     - **S1a 摘要与存储 Contract**：DC39；DC45 的表级跳过与 `ADAPTIVE_PATCH`（用现有规划器）；阶段结束、重建对照基准时对完整 worker step 做归因（DC53 第 2 项）。
      - **S1b 业务语义 Contract**：DC40、DC41、DC49 第 1、3 项；生成合成 2× t4 并写入测量 runbook；参照实现的输入边界缺陷（V6 报告“需要澄清的语义”第 3、9 项：BIT 负数、超宽 BIT、非 ASCII 的 `b'..'` 与深层嵌套 JSON 抛出未捕获的异常）的修复，以及 FLOAT 两次舍入（第 1 项）与其余语义问题（第 2、4–8 项）的定稿（owner 2026-10-25 决定在 S1b 完成；S2a 不同时改语义和换实现）。
      - **重建对照基准**：用 Python 实现，在 `ct108-gw-dms` 上测 t1–t4、testdata1 与合成 2× t4。
      - **S2a 解析器**：完整的 Rust 解析器与五层差分，放在 feature flag 之后，不切生产；同时删除现有 Rust 扩展（DC52）。
      - **S2b 上传侧数据路径与表存储**：DC46 第 2、3 项；DC42；DC47 第 5 项；切换生产。
-     - **S3 比较**：DC44；DC43 的单次操作内去重。
+     - **S3 比较**：DC44；DC43 的单次操作内去重；DC54 的逐行记录由 Rust 生成。
      - **S4 Submit**：DC45 的渲染直通与列式存储 diff；按 V7 定稿阈值。
      - **S5 History 与跨操作缓存**：DC43 的跨操作缓存；History 按表拼接；Dolt 按表并发读取。
      - **S6 收尾**：加速曲线定 N；删除生产 feature flag；2× t4 全部负载取证（W1–W4、H1–H3、S1–S4、计数断言）；存储报告（Measurement Contract §6）；Phase 6 退出。
@@ -262,12 +265,34 @@ implementation_authorized: no
   4. **删除时机为 S2a：** 删除 `capabilities/canonical_row_hash`、`gateway-compute-core` 中的旧 pipeline、PyO3 adapter 的旧入口、`canonical-row-hash` golden、Canonical Row Hash Compute Boundary Contract、`native_kernel_component.sh`，以及引用它们的测试与架构基线条目。backend Dockerfile 的 maturin 构建步骤保留，改为构建新 crate；在 S2a 新旧替换，镜像始终能构建，也不出现 Rust 完全不在生产链路的空窗期。
 - **落点**：DC48、DC50 已相应修订；S2a 的执行计划。
 
+### DC53 W1–W4 目标数值定稿与达标条件
+
+- **来源**：DC35 第 4 项约定 W1–W4 草案数值在 V5、V6 完成后定稿。V5、V5b、V6、V7、V1 已完成（讨论稿 §2.3、§11）。按已定方案估算（2× t4、N=4）：计算部分 W1 约 35–45 s、W2 约 30–35 s、W3 约 40–50 s、W4 约 45 s 加记录与风险；另有两项固定开销——每个 Preview 两处 step 间隔合计约 18 s（V5；worker 空闲轮询为 1 s，不能解释），以及 V5b 未归因的 worker step 残差约 175 s（基线物化约 75 s、assemble 固定约 100 s）。逐行记录的生成与序列化在 Python 中约 1.3 ms/条（V5b）。
+- **决议**（repository owner，2026-10-25）：
+  1. **定稿数值（2× t4，用户可见时间）：** W1 ≤ 3 min、W2 ≤ 30 s、W3 ≤ 60 s、W4 ≤ 3 min，维持 DC35 草案；完成时间 ≤ 10 min 硬上限、FULL 模式在 W3 与 W4 各补测一次、统计方法均不变。S2b 之后有实测再考虑收紧 W1、W3；调整须经 owner 确认。
+  2. **W2 的前置条件：** S1a 结束、重建对照基准时，对完整 worker step 做归因，查清 step 间隔与约 175 s 残差的来源；测量工具仍无法归因时，由 owner 决定是否增加产品插桩。W2 能否达标取决于这两项能否消除，若 S2b 证明其中一项是物理下限，再由 owner 决定是否调整。
+  3. **W4 合成规则：** 在已有基线上，全部表都有变化，每表约 10% 的行变化（插入、删除、修改混合，ordered 表包含位移）；另设一档“每表 100% 行变化”的压力测试，只报告、不设门槛。规则写入测量 runbook。
+- **修订**：DC35 第 4 项的“草案”由本决议定稿；第 7 项的 W4“扰动全部表”由第 3 项细化。
+- **落点**：测量 runbook；DC50 的 S1a（第 2 项）与 S1b（合成 2× t4 与 W4 规则）；讨论稿 §3.3。
+
+### DC54 逐行记录的生成与序列化进入 Rust（S3）
+
+- **来源**：V5b：v1 Preview 的 250,471 条逐行记录，records closure 生成约 318 s、写后全量回读约 95 s，约 1.3 ms/条，全部在 Python 中（`capabilities/comparison/artifacts.py`：逐条构造 dict 并做规范 JSON 编码，用 `from_pylist` 转回 Arrow 写 Parquet，写后整份解码回 Python 行重算摘要）。DC41 去掉了整表新增或删除时的逐行记录，但两侧都存在的表仍逐行产出；按 DC53 的 W4 规则约 5 万条，100% 行变化时约 50 万条（约 11 分钟）。DC44、DC47 的 Rust 范围只覆盖比较本身。
+- **决议**（repository owner，2026-10-25）：
+  1. Rust 比较 kernel 直接按记录族的 schema 产出 Arrow 记录列，并用与现行实现相同的 JCS 规范编码计算 `content_digest`，与 Python 逐字节相同。
+  2. Python 只用 pyarrow 把 Arrow batch 直接写成 Parquet，不经过逐行 dict；manifest 与 closure 的形态不变。
+  3. 写后回读校验改由 Rust 对读回的 Arrow 重算摘要，或按 DC42 第 9 条的思路删除，在 Phase 6 设计中二选一。
+  4. 记录的逻辑内容、`content_digest` 与 manifest 不变，Comparison 与 bundle 的 Contract 不改；现有 golden 作为逐字节回归基准。若设计中发现必须改动记录产物格式，按 Contract 变更另行提交 owner。
+  5. 风险标注仍留在 Python（DC47 第 1 项）。
+- **落点**：DC47 第 1 项的模块拆解、DC50 的 S3；讨论稿 §5.4。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |
 | --- | --- | --- |
 | ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39 | Phase 6 设计 |
-| W1–W4 目标数值定稿 | DC35 | V5、V5b、V6 均已完成，可以定稿 |
+| W1–W4 目标数值定稿 | DC35 | 已定稿（DC53） |
+| 记录写后回读：Rust 重算摘要或删除 | DC54 | Phase 6 设计 |
 | H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |
 | 行级修改的阈值定稿 | DC45 | S1a 复测、S4 定稿（V7 已完成，草案改为 1,000 行 / 1%） |
 | Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |

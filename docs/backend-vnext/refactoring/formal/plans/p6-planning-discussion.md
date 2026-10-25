@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r15，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）。
+- 状态：**讨论稿 r16，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）；r16 2026-10-25（C1/C2 记录 owner 决定：差分验证细节、V6 验收、数据路径合并而 Contract 不合并、Arrow 列映射在设计阶段定稿；§3.2 与 §12 登记慢速外网上传的分析）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -122,7 +122,9 @@ r1 的“每个阶段达到下界的约定倍数以内”不再作为门槛：�
 - **用户可见时间：** 从受理到 Preview 结果可读（READY）。
 - **完成时间：** 包括 READY 之后的全部后台工作，例如 D3 的规范表文件写入。
 
-两者都测量；门槛以用户可见时间为主，完成时间设硬上限。旧实现把 comparison cache 的补全放在返回之后的 `ASYNC_COMPARISON_CORE_CACHE_COMPLETION` 步骤里（`legacy/backend_vnext/flows/upload_preview.py`），它的“60 s 返回”很可能是用户可见时间。
+两者都测量；门槛以用户可见时间为主，完成时间设硬上限。
+
+**上传传输不计入（r16 补充）。** “受理”在整个上传包接收完毕之后，上传的网络传输时间不在两个指标内。网络速度从局域网千兆到外网不足 3 Mbps 不等（owner，2026-10-25），旅程另行记录上传耗时，只报告、不设门槛。慢速网络下的接收限制见 §12。旧实现把 comparison cache 的补全放在返回之后的 `ASYNC_COMPARISON_CORE_CACHE_COMPLETION` 步骤里（`legacy/backend_vnext/flows/upload_preview.py`），它的“60 s 返回”很可能是用户可见时间。
 
 ### 3.3 工作负载与目标数值（草案）
 
@@ -322,7 +324,7 @@ owner 倾向：并发上限用固定配置，仍可讨论。
 
 owner 方向（2026-10-24）：**SQL 解析器作为 Phase 6 的主线并提前做。**
 
-理由：解析为 0.54 MiB/s，是基本操作中最慢的一项；解析与物化合计约 350 s，是 t4 Preview 中最大的开销之一；它在每次 Preview 与 Submit 重投影中都必须全量执行，不能靠按变化量计算省掉。这与 implementation-stages §9“最后单独评估 SQL streaming parser”的排序冲突，需要同步修订。
+理由：解析为 0.54 MiB/s，是基本操作中最慢的一项；解析与物化合计约 350 s，是 t4 Preview 中最大的开销之一；它在每次 Preview 中都必须全量执行，不能靠按变化量计算省掉（r16 更正：S5.3 之后 Submit prepare 只读 T1 冻结的产物，不再重新解析或投影）。这与 implementation-stages §9“最后单独评估 SQL streaming parser”的排序冲突，需要同步修订。
 
 解析器同时决定真实数据的格式保真（G2 的教训），因此差分验证是它的核心交付物，而不是附属测试。
 
@@ -335,6 +337,28 @@ owner 方向（2026-10-24）：**SQL 解析器作为 Phase 6 的主线并提前�
 - **Python 解析器保留为参照实现**（ADR 0001），通过 feature flag 可退回；Phase 6 退出后降为小数据 oracle。
 - **Rust 安全：** 不使用 `unsafe`（如需使用，按 Rust safety policy 单独评审）；panic 在 FFI 边界转为确定的失败；解析器单独做 coverage-guided fuzz（cargo-fuzz），只验证不崩溃、不超预算。
 
+### 6.2a 解析与物化、投影的数据路径合并（C2，owner 决定，r16，2026-10-25）
+
+**为什么只换解析器不够。** t4 v1 Preview 中上传侧的四段都是逐行 Python：SQL 解析 140 s、business materialization 212 s、规范投影与表摘要 219 s、projected snapshot 写入 153 s，合计 724 s。只把解析器换成 Rust、输出 Arrow，物化仍要把 Arrow 转回 Python 行（实测 36.5 MiB/s），省下的 140 s 会被转换抵消一大部分。物化与投影还在重复做同类事：物化逐行算两次行哈希、检查重复有效键与伪 gid 范围（`snapshot_materialization/materialize.py` 的 `_consume_rows`）；投影再遍历一遍，选保留列、算规范键、分配有序表 gid，再算一次摘要。
+
+**决定：数据路径合并，Contract 不合并。** 每张表在 Rust 中依次处理，数据始终是 Arrow：
+
+```text
+SQL 字节 → 解析（table_access）→ 业务列与检查（snapshot_materialization：
+伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（storage_projection：保留列、
+规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要（B1，沿用现值，复用
+canonical_row_hash）→ 写规范表 IPC（B2）
+```
+
+- **Python 保留：** 请求与预算组装、规则解析（比较键、存储视图）、诊断映射、manifest 组装。
+- **composite signal 留在 Python：** 它读 `device` 与 5 张特殊点表（`device_st` 等，是最大的表）。在 Arrow 上先按特殊设备过滤，只把命中的行转成 Python。
+- **边界不变：** 三个 capability 仍各自拥有语义与诊断，模块依赖（`test_architecture`）不变。可以是三个 Arrow 进、Arrow 出的 kernel 依次调用，也可以是一个分三段的 kernel，在设计中定。
+- **上传侧原始表不再写 Parquet（B2 第 8 条）：** 物化步骤崩溃后，用新解析器从 SourcePackage 重算，代价很小。设计中须逐一核实原始表没有其他使用方。
+- **B2 的格式切换随 C2 接入一起做：** 解析器直接产出 Arrow 时切到 IPC。
+- **Arrow 列映射（owner 决定：设计阶段定稿）：** 原则是表摘要按规范标量编码计算，与 Arrow 物理类型无关；映射单独加版本号（B2 内容地址中的“Arrow 映射版本”），修改映射不影响摘要。现在的 Parquet 除布尔、二进制、SET 以外都存成文本。哪些类型改为原生 Arrow 类型（整数、布尔、二进制、浮点按位），哪些保留规范文本（DECIMAL、日期时间、零日期），结合 V1 与 V6 的实测再定。
+- **差分验证覆盖：** §6.3 第二层（下游摘要对照）覆盖合并后的路径。每个阶段边界另做逐值对照：解析结果规范形，以及投影输出逐列相等。
+- **主要风险是范围：** 一次覆盖三个 capability 的语义，按 §6.4 分步做，每步都有差分对照。
+
 ### 6.3 差分验证建议
 
 **对照点分两层：**
@@ -342,7 +366,7 @@ owner 方向（2026-10-24）：**SQL 解析器作为 Phase 6 的主线并提前�
 1. **解析输出逐值对照（主判据）。** 定义“解析结果规范形”：每张表的描述（表名、列、声明类型、主键）、行数，以及按列的类型化值（类型标记加字节表示）与行顺序。参照实现的输出经一个仅用于测试的转换器变成同一规范形，与 Rust 输出逐列比较；不一致时报告第一个差异的表、列、行号与两侧值的类型标记（真实数据只输出位置与类型，不输出值）。
 2. **下游摘要对照（端到端）。** 同一输入经两种解析器后，business snapshot digest、规范表摘要、manifest digest 必须相同。
 
-**判定标准：** 类型化值完全相等，没有容差。错误路径要求诊断码相同、表与语句位置相同；错误消息文本是否要求相同，待决议（建议不要求）。
+**判定标准：** 类型化值完全相等，没有容差。错误路径要求诊断码相同、表与语句位置相同；错误消息文本不要求相同（owner 决定，r16）。
 
 **语料分五层：**
 
@@ -351,19 +375,25 @@ owner 方向（2026-10-24）：**SQL 解析器作为 Phase 6 的主线并提前�
 | ① 现有测试改为双实现参数化 | 现有解析器单元测试与 golden 对两种实现各跑一遍；每个现有用例自动成为差分用例 | 普通 CI |
 | ② 语法感知的随机生成 | Hypothesis 按 mysqldump 结构生成语句与边界字面量（§6.2 所列各类），比较两实现的输出与错误 | 普通 CI（有限样本）+ 定期加大样本 |
 | ③ 负例与预算 | 截断语句、引号不配对、超长值、超出预算的输入；两实现须以相同诊断失败 | 普通 CI |
-| ④ 真实数据 t1–t4（v1、v2） | 在 ct108 全量解析，逐表逐列对照与下游摘要对照；只输出计数、表名与摘要（DC22、真实数据不入 Git） | 每次取证运行一次（DC30） |
+| ④ 真实数据 t1–t4（v1、v2）与 testdata1（r16 加入，覆盖只增列的 schema 演进） | 在测试节点全量解析，逐表逐列对照与下游摘要对照；只输出计数、表名与摘要（DC22、真实数据不入 Git） | 每次取证运行一次（DC30） |
 | ⑤ 普查覆盖的格式类别 | G2 普查统计到的格式类别各取合成样本，确保真实数据里出现过的形态都有用例 | 普通 CI |
 
 **并行确定性：** Rust 解析器分别以 1 个线程和 N 个线程运行，输出必须逐字节相同；分块大小取不同值，输出也必须相同。
 
 **性能断言：** 不在 CI 中设时间阈值（Performance Measurement §7）；吞吐在取证运行中记录。
 
-### 6.4 解析器主线的阶段建议
+### 6.4 解析器主线的阶段（r16 按 C2 改写）
 
-1. **V6 原型：** 只实现扫描与 INSERT 值解析，在 t4 上测单线程与多线程吞吐，并跑语料 ①④ 的子集，确认可行性与下界。
-2. **完整实现：** 补齐 DDL、样板语句、预算与诊断；五层语料全部通过。
-3. **接入：** 解析器输出直接进入列式物化；Python 路径保留在 feature flag 之后。
-4. **取证：** 真实数据 t1–t4 端到端摘要一致，记录吞吐与 Preview 墙钟变化。
+1. **V6 原型：** 只实现扫描与 INSERT 值解析。验收标准（owner 决定，r16）：
+   - **一致性：** 第 ① 层语料子集与 t4 的第 ④ 层逐值对照，差异为 0；
+   - **并行确定性：** 1 个线程与 N 个线程的输出逐字节相同；
+   - **吞吐：** 2× t4 约 160 MB 的 SQL，在固定 N 下解析 ≤ 10 s（合计约 16 MiB/s，即 W1 3 分钟预算中分给解析的份额）；单线程吞吐只报告。
+
+   达不到时，先重新评估方案，再进入完整实现。
+2. **完整解析器：** 补齐 DDL、样板语句、预算与诊断，五层语料全部通过。
+3. **物化与投影 kernel（§6.2a）：** 业务检查、规范投影、表摘要与 IPC 写入；逐列对照与下游摘要对照通过。
+4. **接入：** 放在 feature flag 之后接入；同时把规范表格式切到 IPC（B2）。
+5. **取证：** t1–t4 与 testdata1 端到端摘要一致，记录吞吐与 Preview 墙钟的变化。
 
 ## 7. 主线：规范表是唯一流转的数据形态
 
@@ -877,7 +907,7 @@ RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
   - 同样数据直接导入 Dolt 的耗时已由 S5 给出（24 s），作为第 ⑧ 步的下界。
 - **V4 同内容表组的统计（r12：不再是 Phase 6 前置任务。D5 与 D8 需要的计数已由一次性统计回答，见 §9 D5 第 ② 层与 D8；正式统计在 B4 或 B6 重开时再做）：** 在普查中增加只输出计数的统计：每份数据中同内容表组的数量、组的大小、组内行数，以及 v1→v2 的分组分裂与合并。用来估算 D5 的去重收益和 D8 的最坏情况。前提：先修普查工具的 G8a-F1（未扫描却报告 ordered_projection COMPLETE）。
 - **V5 operation 级耗时归因（按需补充，r2 新增）：** 先不加插桩，从 control DB 的 step `started_at` / `completed_at` 得到 t4 Preview、Submit、History 的 step 级拆分；如仍不足以解释 §2.3 的缺口，再在 t4 Preview 运行期间用 py-spy 从主机侧采样一次（DC31 已允许，不改产品代码）。需要产品插桩时另行授权。
-- **V6 SQL 解析器原型（r2 新增，主线的第一步）：** 见 §6.4 第 1 项。输出：单线程与多线程吞吐、与参照实现在现有测试和 t4 上的一致性、需要澄清的语义。
+- **V6 SQL 解析器原型（r2 新增，主线的第一步）：** 见 §6.4 第 1 项，验收标准已定（r16）。输出：单线程与多线程吞吐、与参照实现在现有测试和 t4 上的一致性、需要澄清的语义。
 - **V7 Dolt 回放：整表重建与行级修改（r13 新增）：**
   - **做法：** 在调试节点上，用 t4 v2 与 testdata1 的变化表，分别生成整表重建与行级修改的 `replay.sql`（一次性脚本即可）。在同一 parent 上回放并计时，同时核对两条路径的表哈希相同。
   - **读取（r14 增加）：** 测 Dolt 逐表读取的吞吐，以及并发读取的加速比。
@@ -894,6 +924,7 @@ RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
 | G6b 是否重新评估 | P5 exit review 认为已触及重新评估条件；终审判断未触发，维持 C | owner 决定 |
 | 重要 keyless 表是否定义自然键 | 业务评估（DC29 后续，部署前） | 结论可能影响 D1、D7 对 keyless 的处理，建议在 D1 定稿前给出 |
 | 标准模式 bundle 不含整表数据 | 代码核对（2026-10-24）：`application/pair_pipeline.py` 只在 DATASET_REPLACEMENT 模式下向 surface 传入表 ref，标准模式传空，Preview 与 History 的 bundle 因此只含 records、risk 与摘要，不含整表 Parquet；HTTP 下载按存储的 bundle 原样输出。这与 owner 的“数据全量打包发送客户端”原则及 `docs/backend-vnext/contracts/comparison-bundle.md`（Preview 为每张表发布 `current_table_ref`；History 发布可浏览的 snapshot rows）不一致，P5 文档中没有对应的决议或延期登记；测试只覆盖 replacement 模式与 bundle 组装单元。真实数据旅程只核对摘要，未发现该问题 | 业务缺口，不是性能工作；单独立项（§13 B9），owner 已给出范围与格式；在 B1/B8 的 Contract 阶段中修复 |
+| 慢速外网上传的接收限制（r16 登记，代码核对 2026-10-25） | 上传接收已经流式化：路由为 async，`http/orchestration/multipart_stream.py` 逐块写入磁盘，等待网络时不占事件循环；Preview operation 在受理之后才创建，worker 不会空等网络。但有三处问题：<br>① **整次上传有固定 60 s 总时限**（`FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS`，从开始接收起算，不是空闲超时），超时返回 413 `UPLOAD_LIMIT_EXCEEDED`。3 Mbps 下 60 s 最多收约 22 MB，1 Mbps 下约 7.5 MB；t4 包 5.6 MB、2× t4 约 11 MB，在 1 Mbps 下必然失败。该时限与 256 MiB 的压缩包上限也不相称（60 s 收完 256 MiB 需要约 36 Mbps）。现行 Contract 中没有找到这一数值的出处。<br>② **受理在事件循环上同步执行**（`multipart_upload.py` 的 `_accept_staged_upload`）：逐项解压整个 tar.gz 做校验、写入 artifact store、提交 control DB。按解压 415 MiB/s 估算，t4 约 0.2–0.5 s，2× t4 约 1 s；在此期间同一进程的其他请求（轮询、其他上传的接收）都停住。worker staging 还会再解压一遍。<br>③ **准入闸门**（`ClosableAdmissionGate`，上限 32）在整个上传期间占用一个名额，慢速上传会长期占住名额 | ① 是业务缺口：改为空闲超时（例如连续 60 s 没有收到数据）加一个按“最大包 ÷ 最低支持带宽”推出的总上限，超时使用独立的错误码；最低支持带宽由 owner 定。② 小修：把受理中的同步工作移到线程池，在 Phase 6 中修复。③ 属于多项目并发，交给 Phase 7 |
 | GitHub 默认分支 | 远程默认分支仍为 `phase1/gate-ownership-repair` | owner 在 GitHub 设置中改为 `main` |
 
 ## 13. 待 owner 决议的事项
@@ -927,8 +958,8 @@ RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
 
 | # | 事项 | 状态 | 说明 |
 | --- | --- | --- | --- |
-| C1 | SQL 解析器作为主线并提前（§6） | **owner 方向（2026-10-24）** | 待定细节：差分验证的判定标准（错误消息是否要求一致）、语料范围、V6 原型的验收 |
-| C2 | 解析器主线是否连同 business materialization 一并改为“解析即列式物化” | 待决议 | 物化 212 s 也是逐行 Python；合并可省去中间对象 |
+| C1 | SQL 解析器作为主线并提前（§6） | **已决定（owner，2026-10-25）** | 错误消息文本不要求一致（诊断码、表、语句位置须相同）；五层语料，第 ④ 层加入 testdata1；V6 按“差异为 0、并行确定、2× t4 解析 ≤ 10 s”验收（§6.4） |
+| C2 | 解析器主线是否连同 business materialization 一并改为“解析即列式物化” | **已决定（owner，2026-10-25）**：数据路径合并、Contract 不合并 | 见 §6.2a。范围为解析、物化检查、规范投影、表摘要与 IPC 写入，composite signal 留在 Python；B2 的格式切换随 C2 接入一起做；Arrow 列映射在设计阶段定稿，摘要与 Arrow 物理类型无关 |
 | C3 | Rust 的目标：首要是突破并发瓶颈，同时计入单核效率（§5.1） | **owner 方向（2026-10-24）** | 待定：模块拆解（§5.4）与各层并发的取舍（§5.2） |
 | C4 | 并发分层的取舍与顺序：L1a 双侧物化、L1b 双 pair、L1c 流水线重叠、L2 表级、L3 表内数据级（§5.2） | 待决议 | 建议 L2 为主线；L1a/L1b 只惠及 FULL 模式，成本低可顺带；L3 用于大表；顺序以 V5/V6 实测决定 |
 | C5 | 技术栈 | **owner 方向（2026-10-24）：允许按需增加** | 待定：每项新依赖（Polars、arrow-rs、rayon 等）随所在阶段说明理由；避免 Python 侧同时引入两套列式引擎 |

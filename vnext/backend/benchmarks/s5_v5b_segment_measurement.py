@@ -1198,7 +1198,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--repository-id", required=True)
     parser.add_argument("--baseline-commit", required=True)
     parser.add_argument("--bearer-token-file", type=Path, required=True)
-    parser.add_argument("--repository-service-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--repository-service-url", required=True)
     args = parser.parse_args(argv)
     result = run(
         real_dump_root=args.real_dump_root.resolve(),

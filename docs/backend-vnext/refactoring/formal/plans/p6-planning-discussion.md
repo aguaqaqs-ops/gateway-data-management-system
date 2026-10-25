@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r12，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）。
+- 状态：**讨论稿 r13，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -97,7 +97,7 @@ capability 分段（wall / 线程 CPU 秒；各段属于不同测量边界，**�
 - **backend 计算路径没有任何并行。** 只有 worker runtime 的执行线程；Preview 的上传侧物化（`preview_jobs.py` 中按 side 的循环）、两个 pair（`_PAIR_BASELINE_TO_INITIAL`、`_PAIR_INITIAL_TO_MODIFIED`）、pair 内的比较→风险→surface 都是串行。worker 墙钟约等于 worker CPU；测试节点有 128 vCPU。
 - **数据在 Python 中逐行、逐单元格处理。** SQL 解析器（`capabilities/table_access/`，约 2,600 行手写字节游标）为每个单元格构造 Python 字面量对象；物化、投影、比较也是逐行 Python。
 - **归因缺口：** 上表各段分开测量，粗略合计约 900 s，只有 v1 Preview operation 1,685 s 的一半左右；剩余部分（步骤之间的 artifact 写入与读回、checkpoint、序列化，或测量边界本身的差异）没有归因。Step 记录带 `started_at` / `completed_at`，可以不加插桩先得到 step 级拆分（§11 V5）。
-- **Submit 与下界的差距：** 同一份 replay SQL 直接导入 Dolt 约 24 s，现有 Submit 566 s；大头在 snapshot build 与 mutation planning（plan child 231 s），不在 Dolt 写入。
+- **Submit 与下界的差距：** 同一份 replay SQL 直接导入 Dolt 约 24 s，现有 Submit 566 s；大头在 snapshot build 与 mutation planning（plan child 231 s），不在 Dolt 写入。现有 Submit 每次重写全部表，与变化量无关（§9 D10）。
 
 真实数据的结构统计（G2 普查）：完全相同的重复行为 0；按规则键重复的行共 40,748 行，都是同键不同内容，已按 G8 用伪 gid 处理。
 
@@ -205,7 +205,7 @@ owner 提出的几类并发作为参考选项列入；是否值得做、先后�
 | 按变化量计算（结构性） | 用表摘要与基线 manifest 比对，只对变化表做基线读取与比较 | 重传与低变化 v2 耗时接近全量（§2.1） |
 | 减少物化次数与格式转换 | 现链路：SQL → 单元格对象 → business snapshot → 投影 → artifact 写入 → 读回比较；改为一次产出规范 Arrow 表并沿用到比较 | materialization 212 s、snapshot 写入 153 s |
 | 比较结果复用（History） | 以“前表摘要、后表摘要、规则主体 digest”为键缓存（D5 第 ③ 层） | History 893 s，重复查询应接近零 |
-| Submit 复用 Preview 的产物 | Submit 的 snapshot build 与 mutation planning 能否复用 Preview 已冻结的规范表与变化集（以摘要校验）；涉及 T1 冻结对象与 ADR 0019，需单独讨论 | Submit 566 s，对比 Dolt 直接导入 24 s |
+| Submit 只写变化 | 已定（D10）：表级跳过未变化表；变化表按阈值行级修改或整表重建；从冻结的规范表直接渲染 SQL。复用 Preview 冻结的规范表与 manifest，不复用 Preview 的比较结果 | Submit 566 s，对比 Dolt 直接导入 24 s |
 | 降低 RS 读取成本 | 基线优先从规范表存储读取（D2/D3），Dolt 兜底 | RS 读取 52 s |
 
 ### 5.4 模块拆解（待讨论的初步划分）
@@ -219,7 +219,7 @@ owner 提出的几类并发作为参考选项列入；是否值得做、先后�
 | 规范投影与表摘要（`storage_projection`） | 列式投影、排序检查、BLAKE3 摘要 | 规则解析、诊断与上限 | 依赖 D1 |
 | 比较（`comparison`） | standard 哈希连接、keyless 多重集合、ordered 序列算法 | 比较模式选择、结果 Contract | 以 V1 决定 ordered 是否进 Rust |
 | 风险 facts（`risk_evaluation`） | 大规模 facts 提取 | 规则定义与决策 | 现 27 s，优先级低 |
-| mutation planning（Submit） | 变化集计算、replay SQL 渲染 | CAS 与发布语义 | 先确定能否复用 Preview 产物（§5.3） |
+| mutation planning（Submit） | 存储 diff（与比较共用列式内核）、replay SQL 渲染 | 表级决定（跳过、重建、行级）、CAS 与发布语义 | 见 D10 |
 | 调度 | Rayon 工作池、LPT 派发 | 调度配置与并发上限 | 见 D6 与 §5.5 |
 
 ### 5.5 并发上限：固定配置的收益与风险
@@ -288,7 +288,7 @@ owner 方向（2026-10-24）：**SQL 解析器作为 Phase 6 的主线并提前�
      → 规范表存储（Arrow IPC，按摘要寻址；Preview 只挂临时引用）
 Preview：上传侧摘要与基线 manifest 比对 → 只对变化表从存储 mmap 读取
          （缺失时由 Dolt 兜底并回填）→ 按调度分组做列式比较
-Submit：只把变化表写入 Dolt（权威）；commit 成功后，相关表加正式引用
+Submit：未变化表跳过，变化表按阈值行级修改或整表重建，写入 Dolt（权威）；commit 成功后，相关表加正式引用
 History：manifest 过滤 + 比较结果缓存 + 规范表存储
 ```
 
@@ -305,7 +305,7 @@ Dolt 始终是权威来源，规范表存储和各类缓存都是派生数据：
 | ⑤ | 比较、风险与 surface | 只处理变化表 | 列式比较（D7）；计算去重（D5）；按调度分组并行（D6）；FULL 模式双 pair 并行（L1b） | 与变化行数成正比 |
 | ⑥ | 发布 Preview | 写入用户需要的结果 | 只同步写入小的权威事实，大文件异步写入（D3） | 小 |
 | ⑦ | Submit 受理 | 比对摘要 | 现状已经很便宜 | 毫秒级 |
-| ⑧ | Submit 准备与回放 | 只写变化表 | 复用 Preview 产物（§5.3，待讨论）；增量回放、批量写入；keyless 表按 DC29 整表重写；同内容表组的写入优化（D8） | **受 Dolt 写入限制**：同样数据直接导入 Dolt 实测 24 s |
+| ⑧ | Submit 准备与回放 | 只写变化 | 表级跳过、按阈值行级修改、渲染直通（D10）；keyless 表按 DC29 整表重写；同内容表组的写入优化不做（D8） | **受 Dolt 写入限制**：同样数据直接导入 Dolt 实测 24 s |
 | ⑨ | History 比较 | 只处理变化表 | manifest 过滤 + 比较结果缓存 + 规范表存储 | 缓存命中时接近零 |
 
 第 ⑧ 步最可能受物理限制，因为 Dolt 的写入和提交不受我们控制。它单独定目标，不和 Preview 共用一个门槛。按 owner 的判断，Submit 是用户可以离开的异步过程，对耗时不敏感；但 S5 显示现有 Submit 的大头不在 Dolt 写入（§2.3）。
@@ -697,6 +697,72 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 - **作为真实数据档：** 把 testdata1 按现有真实数据档的方式打包登记（`datasets.json`，别名不含项目名），作为 DC35 W1–W4 之外的 schema 演进负载（W5），同时用于 D9 的端到端验证。
 - **节点：** owner 已允许拷贝到其他测试节点。按 DC36，调试放在 `ct108-gw-dms-05`，取证放在 `ct108-gw-dms`，需要时再拷贝，同一档的完整旅程在同一节点内完成。
 
+### D10 Submit 只写变化：表级跳过、按阈值行级修改、渲染直通（r13 新增）
+
+**现状（代码核对，2026-10-25）：**
+
+- **每次 Submit 都重写全部表。** prepare 用 `REBUILD_ALWAYS` 规划，但传入的“变化前”状态为空（`capabilities/mutation_planning/import_replay.py`），规划器把每张表都当作新表；schema SQL 为每张表生成 `DROP TABLE` + `CREATE TABLE`（`capabilities/storage_projection/import_replay.py`），DML 插入全部行。t4 v2 只有 26 张表变化，prepare 外层仍为 369 s，与 v1 的 374 s 相当。
+- **与 Contract 不符。** Storage Mutation Contract §2 把 `REBUILD_ALWAYS` 定义为“每个变化表生成完整重建”，现在的实现是所有表都重建。
+- **plan child 231 s 的去向。** 主要是逐行构造变化集对象（`ChangeSetMutation`、`MutationKeyedRow`）、两次排序校验、对整个变化集做 canonical JSON 摘要。导入路径不发布变化集（`artifact_store=None`），渲染器也不检查这些摘要，变化集摘要与逐行摘要都没有消费方。真正渲染 SQL 的 replay child 只有 7 s；snapshot build 69 s 是把冻结的 Parquet 表读成 Python 行。
+- **RS 已支持只写变化。** RS 从 expected parent 建立私有 ref，在上面执行 `replay.sql`，再用整个 catalog 与包 manifest 做 STRUCTURAL 校验（表集合、行数、主键、列）。只要 manifest 仍列出全部表，`replay.sql` 只处理变化部分也能通过，RS 的 Contract 与代码都不用改。
+- **归因缺口。** 真实旅程中 Submit 的 worker CPU（479 s）比 prepare 外层（374 s）多约 100 s，归属未明，由 V5 拆分。
+
+**真实数据：变化比例两极分布。** 一次性脚本按原始 SQL 计算，只记计数，已去掉不入库的 skipped 表；本地 medium 与 testdata1 是同一份文件，独立样本只有两个。
+
+| | 变化表 | 按主键变化 ≤ 5% 的表 | 这些表的行数 / 实际变化行 | 其余变化表 |
+| --- | ---: | ---: | ---: | --- |
+| t4 v1→v2 | 30 | 12 | 63,936 / 156 | 16 张约 100% 变化（键整体更换），2 张 keyless |
+| testdata1 | 55 | 8 | 32,020 / 380 | 14 张约 100% 变化，32 张只增列，1 张 keyless |
+
+- 阈值放在 5% 到 50% 之间的任何位置，分出来的表都完全相同，结果对阈值不敏感。
+- t4 的 12 张小变化表全是有序表（11 张 iec104、1 张 forwardtable）。不纳入有序表，阈值方案在 t4 上没有收益。
+
+写入 Dolt 的数据量（按约 24 s 导入 25 万行粗估，t4 v2 的 Dolt 写入从约 8 s 降到约 2 s，2× t4 时翻倍）：
+
+| | 全部重写（现状） | 只重建变化表 | 再加阈值 |
+| --- | ---: | ---: | --- |
+| t4 v2 | 约 16.3 万行 | 约 8.2 万行 | 约 1.8 万行重建 + 156 条行级语句 |
+| testdata1 | 约 11.8 万行 | 约 11.5 万行 | 约 8.3 万行重建 + 380 条行级语句 |
+
+**owner 决定（r13，2026-10-25）：**
+
+1. **表级跳过（B7a）。** prepare 拿 T1 冻结的上传侧 manifest，与 expected parent 的 manifest（经 CommitCanonicalMetadataPort 解析）逐表比较。内容摘要（D1）、schema 摘要、键与存储视图都相同的表，不进入 `replay.sql`；删除的表照旧 `DROP`。parent 为 INITIAL、缺少 metadata 或投影版本不同时，全部表按变化处理。包 manifest 仍列出全部表。
+2. **变化表按阈值行级修改或整表重建。**
+   - **policy：** 生产 policy 从 `REBUILD_ALWAYS` 改为 `ADAPTIVE_PATCH`。变化表满足 Contract §3 的条件时用 DELETE / UPDATE / INSERT，否则整表重建。
+   - **有序表：** 纳入行级修改（GID_NO_V1）。以 `gid` 为存储键，位置 `no` 作为普通列更新。中间插入一行会让后面所有行的 `no` 变化，空 gid 行的伪 gid 也按 `no` 顺序连续分配，这些都表现为大量 UPDATE，会自然超过阈值、退回整表重建，正确性不受影响。
+   - **仍整表重建：** keyless 表（DC29），以及 schema 变化的表（含 D9 的只增列）。“ALTER 加列 + 行级修改”通常等于更新每一行，现在不做。
+   - **阈值：** 先沿用 Contract §3 的 1,000 行 / 5%，V7 实测后定稿。
+   - **基线来源：** 行级 diff 需要的基线，优先从规范表存储读取（D2、D3；parent 即正式引用的 BaselineHead），Dolt 兜底。
+   - **比较内核：** 存储 diff 按存储键比较全部保留列，与 D7 共用列式比较内核，只是参数不同。
+3. **不复用 Preview 的比较结果。** Preview 的比较结果按前端语义生成：按 D9 只比较两版共有的列，有比较时排除的列，还有风险预算截断。存储需要完整的保留列，两者不能互相替代。Submit 复用的是 Preview 冻结的规范表与 manifest。
+4. **渲染直通（B7b）。** 变化表直接从冻结的规范 Arrow 表渲染 SQL，整表重建与行级修改都如此。导入路径不再构造逐行变化集对象，也不再计算没有消费方的摘要。表级决定（跳过、重建、行级、删除确认）仍归规划器。snapshot build 随 B2 的 Arrow IPC 存储解决，之后按 §5.4 进入 Rust。W1 与 W4 没有可跳过的表，只能靠这一部分提速。
+5. **保留通用规划器与 ChangeSet Contract。** 它们是 ADR 0014 外部目标的 Contract owner。`external_target_sync` 目前没有生产调用方，Phase 6 不删除。外部分区库的预留见 §14。
+
+**正确性前提。** 表级跳过与行级修改都假定 parent 在 Dolt 中的内容与 parent manifest 一致：整表重建会覆盖不一致，跳过与行级修改不会。保证来自：
+- expected parent CAS；
+- 从存储读出的基线按 parent manifest 的摘要校验；
+- ADR 0009 的受信 Repository（Dolt 只经由 Submit 写入）。
+
+按比例化保障政策，不另加条件 DML 或提交后回读校验。
+
+**Contract 影响。**
+- Storage Mutation Contract §2/§3：生产 policy 改为 `ADAPTIVE_PATCH`，有序表纳入行级修改资格；
+- ADR 0014：生产默认 policy；
+- Canonical Storage §6.1：`replay.sql` 改为相对 expected parent 的确定性 replay，未变化表不出现；
+- T1 冻结的 `builder_mutation_policy`；
+- prepare checkpoint 增加 parent manifest 摘要的绑定；
+- 包 golden。
+
+RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
+
+**验证。**
+- **差分验证：** Dolt 按内容寻址，新旧两条路径在 t4 v2 上应得到相同的表哈希。这一点未实测，作为差分验证项。
+- **计数断言（满足 A3）：** `replay.sql` 涉及的表数等于变化表数；行级语句数等于行级修改表的变化行数。
+
+**阶段位置。**
+- **Contract 阶段：** 表级跳过、阈值方案的 Contract 修订，以及基于现有规划器的实现，放进 B1/B8/B9 的 Contract 阶段，包 golden 只改一次。
+- **阶段 ⑧：** 渲染直通与列式存储 diff 依赖 B2 与 D7 的列式内核。
+
 ## 10. 旧实现：可以参考的与需要重新设计的
 
 旧实现位于本地参考目录 `legacy/backend_vnext/`，只用作行为参考（AGENTS.md「项目前提」）。
@@ -728,6 +794,9 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 - **V4 同内容表组的统计（r12：不再是 Phase 6 前置任务。D5 与 D8 需要的计数已由一次性统计回答，见 §9 D5 第 ② 层与 D8；正式统计在 B4 或 B6 重开时再做）：** 在普查中增加只输出计数的统计：每份数据中同内容表组的数量、组的大小、组内行数，以及 v1→v2 的分组分裂与合并。用来估算 D5 的去重收益和 D8 的最坏情况。前提：先修普查工具的 G8a-F1（未扫描却报告 ordered_projection COMPLETE）。
 - **V5 operation 级耗时归因（按需补充，r2 新增）：** 先不加插桩，从 control DB 的 step `started_at` / `completed_at` 得到 t4 Preview、Submit、History 的 step 级拆分；如仍不足以解释 §2.3 的缺口，再在 t4 Preview 运行期间用 py-spy 从主机侧采样一次（DC31 已允许，不改产品代码）。需要产品插桩时另行授权。
 - **V6 SQL 解析器原型（r2 新增，主线的第一步）：** 见 §6.4 第 1 项。输出：单线程与多线程吞吐、与参照实现在现有测试和 t4 上的一致性、需要澄清的语义。
+- **V7 Dolt 回放：整表重建与行级修改（r13 新增）：**
+  - **做法：** 在调试节点上，用 t4 v2 与 testdata1 的变化表，分别生成整表重建与行级修改的 `replay.sql`（一次性脚本即可）。在同一 parent 上回放并计时，同时核对两条路径的表哈希相同。
+  - **输出：** D10 的阈值定稿；Dolt 写入在 Submit 中的占比，供 A2 与 B6 的重开条件使用。
 
 ## 12. 开启前需处理的遗留项
 
@@ -765,7 +834,7 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 | B4 | D5 第 ② 层“分组分裂”风险信号是否在 Phase 6 范围内 | **已决定（owner，2026-10-24）**：拆出单独立项，不进 Phase 6 | t4 与 testdata1 中组分裂、合并均为 0；重开条件：业务方提出需求，或出现因分组分裂漏报风险的实际案例（§9 D5） |
 | B5 | D7 比较列式化（以 V1 为前提）；差分测试与一致性条款作为强制要求；分歧点先写入 Contract | **owner 方向（2026-10-24）**：Rust 加 arrow-rs，不引入 Polars；先做 standard 与 keyless，ordered 待 V1；未变化 ordered 表不读不比放进 B1/B8/B9 Contract 阶段；整表新增/删除改为整表浏览加表级计数风险 | 见 §9 D7 审核分析。整表新增/删除的处理依赖 B9，须同阶段落地；前端表浏览须能展示表级风险 |
 | B6 | D8 同内容表写入优化（依 V3、V4 决定；可能修订 RepositoryImportArtifact） | **已决定（owner，2026-10-24）**：不做；V3、V4 不再是前置任务 | 估算最多省约 4–5 s；重开条件：B7 完成后 Submit 仍达不到 A2 的目标，且 Dolt 写入占比明显（§9 D8） |
-| B7 | Submit 复用 Preview 产物（§5.3），涉及 T1 冻结对象与 ADR 0019 | 待决议 | 在 B2 的设计中一并评估。B2 采用同步写入后，Submit prepare 照旧读 T1 冻结的规范表，不重新投影；剩下的是 mutation planning（plan child 231 s）能否复用 Preview 的比较结果 |
+| B7 | Submit 复用 Preview 产物（§5.3），涉及 T1 冻结对象与 ADR 0019 | **已决定（owner，2026-10-25）**：表级跳过未变化表；变化表按阈值行级修改或整表重建（生产 policy 改为 `ADAPTIVE_PATCH`，有序表纳入，阈值先沿用 1,000 行 / 5%，V7 后定稿）；渲染直通；不复用 Preview 的比较结果；保留通用规划器与 ChangeSet Contract | 见 §9 D10。现有 Submit 每次重写全部表；修订 Storage Mutation §2/§3、ADR 0014、Canonical Storage §6.1、prepare checkpoint 与包 golden，RS Contract 不变。Contract 修订与基于现有规划器的实现放进 B1/B8/B9 Contract 阶段；渲染直通与列式存储 diff 放在阶段 ⑧ |
 | B8 | D9 只增列的 schema 变化：按共有字段判定，不降级；入库照常并登记 schema 变化 | **owner 方向（2026-10-24）**：只增列与 ENUM/SET 值域扩展不算 diff、无风险；只减列保持现行；不在 Submission/History 中列出新增列；Preview 不提示“提交仍会生成版本”；为只增列与只减列预留触发事件（如告警），暂不实现 | 业务语义变更，修订 Comparison、Risk、Surface Contract，与 B1 同一 Contract 阶段。方向已全部给出，细节进入 Contract 修订。表摘要不增加字段（testdata1：每列摘要最多省约 10% 的行） |
 | B9 | 标准模式 bundle 补齐整表数据（§12）：Preview 与 History 按“全量打包、客户端不依赖服务端”的原则发布整表 snapshot rows；整表优先从表缓存读取 | **owner 方向（2026-10-24）**：Preview 包含全部表（含未变化的表）；History 每个节点都包含全部表；bundle 表文件用 Parquet，导出结果按“表摘要 + writer 版本”缓存、按 TTL 管理 | 业务缺口，不是性能工作；与 B1/B8 同一 Contract 阶段。Preview 打包当前侧（上传）全部表，只有被删除的表需要基线侧数据；History 每个节点的全部表优先读表缓存，未命中读 Dolt 并按 TTL 回填 |
 
@@ -787,7 +856,7 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 | --- | --- | --- | --- |
 | D1 | 耗时归因（V5） | **owner 方向（2026-10-24）：按需补充** | 先用 step 时间戳，不足时 py-spy |
 | D2 | Phase 6 测量 runbook | **部分决议（DC35）**：预热 1 次、测量 3 次取中位数；冷/热启动按负载区分；测量期间独占参考节点；规模口径与合成数据集 | 测试节点三台分工已决议并生效（DC36，2026-10-24）；待定：合成规则细节 |
-| D3 | Phase 6 阶段结构 | 待决议 | S0 决议 → V1/V5/V6 → 设计与执行计划 + 独立文档审核 → B1/B8/B9 Contract 阶段（r4 调整：原为解析器主线之后的 D1 摘要阶段，见 §9 D1 审核分析）→ 解析器主线 → 按业务阶段分段实施；DC30/DC33/DC34 与 G12/G13 的门禁规则沿用 |
+| D3 | Phase 6 阶段结构 | 待决议 | S0 决议 → V1/V5/V6/V7 → 设计与执行计划 + 独立文档审核 → B1/B7/B8/B9 Contract 阶段（r13：加入 B7 的表级跳过与阈值方案；r4 调整：原为解析器主线之后的 D1 摘要阶段，见 §9 D1 审核分析）→ 解析器主线 → 按业务阶段分段实施；DC30/DC33/DC34 与 G12/G13 的门禁规则沿用 |
 | D4 | V2 是否并入 S5 | **已决议（2026-10-17，DC32）** | 并入 S5，已完成 |
 | D5 | Rust 测试的正式入口与门禁覆盖（建议并入 C1/C3 讨论） | 待决议 | 权威 runner 现在不跑 `cargo test`。调试节点上直接执行 `cargo test --workspace --locked` 失败 1 例（`gateway-compute-python` 的 `adapter_errors`，`No module named 'pyarrow.lib'`）：`vnext/rust/gateway-compute-python/tests/common/mod.rs` 写死了 `backend/.venv/lib/python3.14/site-packages`，未激活 venv 时 PyO3 嵌入的是系统 Python 3.13。设置 `VIRTUAL_ENV=<backend .venv>` 与 `LD_LIBRARY_PATH=<uv cpython-3.14.6 lib>` 后 exit 0。Rust 解析器主线开始前须定下调用方式（例如固定 PyO3 解释器，或提供脚本入口），并把 Rust 测试纳入权威门禁。数据见 [节点核对报告](p6-node-init-report.md) §5、§7 |
 | D6 | 单次门禁时长（建议并入 D3 讨论，作为 P6 的测试基础设施事项） | 待决议 | 64 核新节点与 128 核 ct108 跑完整 runner 的时间相同（约 39 分钟）。耗时主要在 backend 串行批次（39 个用例约 1,590 s，大部分是 Compose 旅程）与 repository_service 串行批次（约 593 s）。加节点解决的是不同类运行之间的排队；要缩短单次门禁，须缩短串行批次。与 G11b-O3（并发优化，当时未授权）相关。数据见 [节点核对报告](p6-node-init-report.md) §4–§6 |
@@ -798,4 +867,10 @@ owner 提出的设计：在对应数据 Submit 或首次 History cache miss 时�
 - 多 worker、全局并发预算与背压（Phase 7）。
 - Phase 8 shadow 切换与 Phase 9 生产加固。
 - “分组分裂”等新的业务风险事实（已拆出单独立项，§13 B4）。
+- 外部分区库（owner 初步设想，r13 预留，不排优先级）：未来可能用一个外部库，按表类型以分区大表汇总所有项目的数据，用于加速查询，避免轮询各项目的 Dolt。现有设计已留出位置，Phase 6 不做额外工作：
+  - ChangeSet 是 ADR 0014 定义的目标无关变化集；
+  - 规划按目标分别进行，输入里带 `threshold_policy` 与 `renderer_capability`，外部库可以用自己的阈值，或始终用行级修改；
+  - 外部库相对自己上次同步状态的增量，由 `external_target_sync` 的 ledger 管理。
+
+  D10 因此保留通用规划器与 ChangeSet Contract。
 - Dolt 中同内容表的写入优化（不做，按重开条件登记，§13 B6）。

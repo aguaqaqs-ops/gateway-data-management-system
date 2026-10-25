@@ -182,7 +182,7 @@ implementation_authorized: no
   5. **并发上限**：每个 worker 进程一个固定 N 的 Rayon 池，启动时建好、所有 kernel 共用；N 按 DC35 的加速曲线取值，设计阶段先用 V6 给暂定值。按预估内存准入，同时运行的任务总和不超过 M；单表超过 M 时以资源预算诊断稳定失败。Rust 长调用释放 GIL（沿用 `py.detach`）并定期检查取消与截止时间。pyarrow 的 CPU 与 I/O 线程池在 worker 启动时按 N 设定。测试环境默认 N=1，只有一致性测试显式比较 1 与 N。
   6. **对 RS 的并发读取**（owner 2026-10-25 按 V7 补充）：RS 的逐表读取许可池容量为 8，超出时以 503 立即拒绝、不排队。operation 内对 RS 的并发读取不超过 RS 的容量，由客户端信号量控制；503 作为背压，退避后重试，不作为失败。多个 operation 共享该许可池，跨 operation 的分配归 Phase 7。
   7. **调度配置**：部署配置只开放 N 与 M，可修改、有范围校验、写进测量记录；小表阈值、LPT 成本系数、L3 分块大小为代码常量，随实现版本校准。调度信息不放进 ruleset，不参与任何摘要。
-  7. **技术栈**：新增 rayon、memchr、arrow-ipc（=59.1.0，不开压缩 feature）、arrow-row、arrow-ord、arrow-select（=59.1.0）、proptest（只作 dev-dependency）。不引入 Polars、BLAKE3、自定义内存分配器、criterion。Python 侧不加依赖。
+  8. **技术栈**：新增 rayon、memchr、arrow-ipc（=59.1.0，不开压缩 feature）、arrow-row、arrow-ord、arrow-select（=59.1.0）、proptest（只作 dev-dependency）。不引入 Polars、BLAKE3、自定义内存分配器、criterion。Python 侧不加依赖。
 - **落点**：讨论稿 §5、§9 D6；Phase 6 设计。
 
 ### DC48 Rust 测试进入权威门禁；门禁时长先剖析

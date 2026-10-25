@@ -5,14 +5,15 @@
 - 记录人：Phase 6 S0 讨论的审核方。依据讨论稿各项分析与 owner 的逐项答复整理。
 - 依据：
   - [Phase 6 规划讨论稿](p6-planning-discussion.md) r21（提交 `206f4816c2`），以下简称“讨论稿”；
-  - [P5 S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) 中与 Phase 6 相关的 DC35（目标设定方法）与 DC36（测试节点三台分工）。本记录的编号接续为 DC37–DC50。
+  - [P5 S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) 中与 Phase 6 相关的 DC35（目标设定方法）与 DC36（测试节点三台分工）。本记录的编号接续为 DC37–DC52。
+- 补充：2026-10-25 owner 决议 G6b 维持 C 并增加门禁 worktree 的保留规则（DC51），以及现有 Rust 扩展视为过时、直接以新设计测试（DC52），见 §2 末尾；DC48、DC50 相应修订。
 
 ```yaml
 record_kind: p6_s0_owner_decisions
 decided_by: repository_owner
 decided_at: [2026-10-24, 2026-10-25]
 discussion_draft: p6-planning-discussion.md r21 @ 206f4816c2
-decisions: DC37-DC50
+decisions: DC37-DC52
 prior_phase6_decisions: [DC35, DC36]   # 记录在 p5-arch-closure-s0-owner-decisions.md
 adr_status_changed: no
 implementation_authorized: no
@@ -36,6 +37,8 @@ implementation_authorized: no
 | DC48 | Rust 测试进入权威门禁；门禁时长先剖析 | §11 V8、§12、§13 D5/D6 | D5、D6 |
 | DC49 | 慢速外网上传的接收限制 | §3.2、§12 | — |
 | DC50 | Phase 6 阶段结构与前置验证任务 | §8.1、§11 | D3 |
+| DC51 | G6b 维持 C；门禁 worktree 保留到阶段 exit 合入之后 | §12 | — |
+| DC52 | 现有 Rust 扩展视为过时，直接以新设计测试 | §9 D1、§12 | — |
 
 ## 2. 决议详情
 
@@ -185,11 +188,10 @@ implementation_authorized: no
 
 - **来源**：讨论稿 §12、§13 D5/D6；[节点核对报告](p6-node-init-report.md) §4–§7。权威 runner 不运行任何 cargo 命令；backend 以路径依赖引用 maturin 构建的扩展，uv 默认只在 `pyproject.toml` 等变化时重建，只改 Rust 源码时 Python 测试可能运行旧的扩展（推断，待验证）；`cargo test` 失败的一例源于 adapter 测试嵌入 Python 解释器并写死 venv 路径。全量门禁约 39 分钟，主要在 backend 与 repository_service 的串行批次。
 - **决议**：
-  1. Rust 测试进入权威门禁，作为 Phase 6 开工的前置任务，在 V1、V6 之前完成：
-     - 先在调试节点验证“只改 Rust 源码时 `uv sync` 不重建扩展”；
-     - 需要 Python 解释器的 adapter 测试改为 pytest，测已安装的扩展；删除嵌入解释器的写法；
+  1. Rust 测试进入权威门禁，作为 Phase 6 开工的前置任务，在 V1、V6 之前完成（按 DC52 修订：现有扩展不再迁移，以下各项按新设计从一开始建立）：
+     - 新扩展需要 Python 解释器的测试用 pytest 测已安装的扩展，不在 Rust 中嵌入解释器；现有 `adapter_errors.rs` 等随旧扩展删除，不迁移，也不再验证旧扩展是否过时；
      - 权威 runner 增加第六个包 `rust`（`cargo fmt --check`、`cargo clippy --workspace --locked -- -D warnings`、`cargo test --workspace --locked`，离线，`CARGO_TARGET_DIR` 在 worktree 外），闭包 manifest 相应增加；
-     - 保证 Python 测试使用当前扩展（`tool.uv.cache-keys` 或强制重装），门禁增加一条构建输入一致性检查。
+     - 保证 Python 测试使用当前扩展（`tool.uv.cache-keys` 或强制重装），门禁增加一条构建输入一致性检查；新扩展同样以 maturin 路径依赖装入 backend 环境，uv 不重建的问题依然存在。
   2. runner、AGENTS 与 testing-conventions 的修改由负责 DC36 的会话实施。
   3. 门禁时长不阻塞 Phase 6。先做 V8 剖析；只采用不削弱门禁证据的改法，预计缩短约 40% 以上时才作为测试基础设施阶段插入。backend 与 repository_service 跨节点分开运行涉及 AGENTS 的规则，归负责 DC36 的会话。
 - **落点**：run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions（DC36 会话）；讨论稿 §11 V8。
@@ -215,7 +217,7 @@ implementation_authorized: no
      - **S1a 摘要与存储 Contract**：DC39；DC45 的表级跳过与 `ADAPTIVE_PATCH`（用现有规划器）。
      - **S1b 业务语义 Contract**：DC40、DC41、DC49 第 1、3 项；生成合成 2× t4 并写入测量 runbook；testdata1 登记为 W5。
      - **重建对照基准**：用 Python 实现，在 `ct108-gw-dms` 上测 t1–t4、testdata1 与合成 2× t4。
-     - **S2a 解析器**：完整的 Rust 解析器与五层差分，放在 feature flag 之后，不切生产。
+     - **S2a 解析器**：完整的 Rust 解析器与五层差分，放在 feature flag 之后，不切生产；同时删除现有 Rust 扩展（DC52）。
      - **S2b 上传侧数据路径与表存储**：DC46 第 2、3 项；DC42；DC47 第 5 项；切换生产。
      - **S3 比较**：DC44；DC43 的单次操作内去重。
      - **S4 Submit**：DC45 的渲染直通与列式存储 diff；按 V7 定稿阈值。
@@ -233,6 +235,28 @@ implementation_authorized: no
      - V3（Dolt 同内容表写入）与 V4（同内容表组统计）不再是前置任务，随 DC45 第 8 项或 DC43 第 5 项重开时再做。
 - **落点**：Phase 6 设计与执行计划；讨论稿 §8.1、§11。
 
+### DC51 G6b 维持 C；门禁 worktree 保留到阶段 exit 合入之后
+
+- **来源**：讨论稿 §12；[治理修订计划](p5-arch-closure-post-s1-governance-plan.md) G6b；[P5 exit review](p5-exit-review.md) §6/§7。同一提交在两个 worktree 中构建出的 backend/worker 镜像 ID 不同（权限位与未跟踪的残留目录进入镜像），carried 只能在原门禁 worktree 中判定。owner 2026-10-11 选 C；P5 exit 时因 G10 清理按计划删除了门禁 worktree 而 fresh 全量，终审判断未触发重新评估条件。
+- **决议**（repository owner，2026-10-25）：
+  1. **维持 C，不重新评估。** 理由：
+     - 原 A 方案（为 backend 镜像加身份 label，替代比较 image ID）已不对题：DC34 之后 carried 比较的是闭包 manifest，剩下的问题是 manifest 本身依赖 worktree（本地权限位与 Docker context 中的非 Git 内容）；
+     - Phase 6 几乎每个阶段都改 backend 或 Rust，backend 闭包每次都变，按规则必须实际运行，backend 的 carried 很少用到；DC36 已把门禁与 carried 固定在门禁节点的同一 worktree；
+     - 上次触发由流程造成，可以用流程避免（第 2 项）。
+  2. **流程规则：** 阶段的门禁 worktree 保留到该阶段 exit 合入之后再清理。
+  3. **重新评估：** 条件不变（独立审核需要在门禁 worktree 之外复核 carried，或再次因此多跑一次完整门禁）。真要做时，目标改为“与 worktree 无关的闭包 manifest”（接近原 B 方案：用 `COPY --chmod` 等消除权限位依赖，context 只取已跟踪文件），由负责 DC36 的会话负责。
+- **落点**：第 2 项写入 Phase 6 执行计划；如需写入 AGENTS 或 testing-conventions，由负责 DC36 的会话实施。
+
+### DC52 现有 Rust 扩展视为过时，直接以新设计测试
+
+- **来源**：owner 2026-10-25。现有扩展（`gateway-compute-python` 与 `canonical_row_hash`）在生产中不可达（P5 exit review §6.1）；讨论稿 §9 D1 曾建议复用其 Rust `canonical_row_hash` 内核，让 Rust 先进入生产链路。
+- **决议**（repository owner，2026-10-25）：
+  1. 现有 Rust 扩展视为过时，不迁移、不复用；测试直接面向新设计。
+  2. **DC39 的表摘要统一（S1a）用 Python 实现**，不复用旧的 Rust 内核；Rust 从 S2a 开始进入。
+  3. **DC48 简化：** 旧扩展的测试（含嵌入解释器的 `adapter_errors.rs`）随旧扩展删除，不迁移成 pytest，也不再验证旧扩展是否过时；新扩展从一开始按 DC48 的方式建立测试与构建一致性检查。V1、V6 的原型直接建在新代码上。
+  4. **删除时机为 S2a：** 删除 `capabilities/canonical_row_hash`、`gateway-compute-core` 中的旧 pipeline、PyO3 adapter 的旧入口、`canonical-row-hash` golden、Canonical Row Hash Compute Boundary Contract、`native_kernel_component.sh`，以及引用它们的测试与架构基线条目。backend Dockerfile 的 maturin 构建步骤保留，改为构建新 crate；在 S2a 新旧替换，镜像始终能构建，也不出现 Rust 完全不在生产链路的空窗期。
+- **落点**：DC48、DC50 已相应修订；S2a 的执行计划。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |
@@ -248,7 +272,7 @@ implementation_authorized: no
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
 | 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1a 之前 |
 
-以下仍由 owner 另行决定，不属于本记录：G6b 是否重新评估（讨论稿 §12）；GitHub 远程默认分支改为 `main`。
+以下仍由 owner 另行决定，不属于本记录：GitHub 远程默认分支改为 `main`。G6b 已由 DC51 决定维持 C。
 
 ## 4. 需同步修订的文档
 
@@ -260,7 +284,8 @@ implementation_authorized: no
 | Storage Mutation Contract §2/§3；ADR 0014 | DC45 | S1a |
 | Comparison、Risk、Surface Contract；comparison-bundle 契约 | DC40、DC41、DC43、DC44 | S1b、S3、S5 |
 | HTTP Contract（上传超时错误码） | DC49 | S1b |
-| run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions | DC48 | S0，由负责 DC36 的会话实施 |
+| run-tests.sh、test_input_closure.py、AGENTS.md、testing-conventions | DC48；DC51 第 2 项（如需写入） | S0，由负责 DC36 的会话实施 |
+| Canonical Row Hash Compute Boundary Contract（删除）；backend Dockerfile 的 maturin 构建目标 | DC52 | S2a |
 
 ## 5. 后续步骤
 

@@ -906,6 +906,7 @@ def _export_scale_cases(outdir: Path, sizes: list[int], runs: int) -> tuple[list
         # The scale fixture uses the same table reader as the Python oracle and a
         # value-equivalent Arrow batch as the Rust input.
         fact = ordered_reference.compare_ordered_task(task)
+        ordered_fact = fact.ordered_extension
         case_id = f"scale-{count}"
         before_relative = f"ipc/{case_id}.before.arrow"
         current_relative = f"ipc/{case_id}.current.arrow"
@@ -922,7 +923,11 @@ def _export_scale_cases(outdir: Path, sizes: list[int], runs: int) -> tuple[list
             "expected_ocf": expected_relative,
             "policy": {
                 "policy_version": "iec104-gid-no-v1",
-                "policy_digest": None,
+                "policy_digest": (
+                    None
+                    if ordered_fact is None
+                    else _digest_value(ordered_fact.policy_digest)
+                ),
                 "value_columns": ["value"],
                 "digest_value_columns": ["value"],
                 "compare_excluded_columns": [],

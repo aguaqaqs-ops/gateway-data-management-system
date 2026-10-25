@@ -26,7 +26,6 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 const INPUT_FORMAT: &str = "gateway.comparison.ordered-inputs";
-const OCF_MAGIC: &[u8; 8] = b"GDMSOCF1";
 
 #[derive(Debug, Deserialize)]
 struct InputManifest {

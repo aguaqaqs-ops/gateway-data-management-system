@@ -60,7 +60,7 @@ implementation_authorized: no
 - **决议**：
   1. **History 分三种负载，门槛为用户可见时间（2× t4）**：
      - H1 相邻首查（上一 commit 与 head，规则集未变，Submit 后首次查询）≤ 60 s；
-     - H2 冷查询（派生缓存全部未命中）≤ 5 min，草案，V7 后定稿；
+     - H2 冷查询（派生缓存全部未命中）≤ 5 min，草案，S5 用两节点 2× t4 冷读验收定稿（V7 参考：一个已热的 t4 commit 8 并发读完约 26.7 s，[V7 报告](p6-v7-dolt-report.md)）；
      - H3 重复查询（TTL 内）≤ 15 s；
      - 三节点在 H2 条件下补测一次，只报告，受 10 min 硬上限。
      - 计数断言：TTL 内的 H1 与 H3，Dolt 读取次数与比较次数均为 0；TTL 外的 H1，Dolt 读取次数等于旧节点的变化表数。
@@ -149,13 +149,13 @@ implementation_authorized: no
 - **来源**：讨论稿 §9 D8、D10。现有 Submit 每次重写全部表：prepare 用 `REBUILD_ALWAYS` 规划但传入的“变化前”为空，schema SQL 为每张表生成 `DROP` + `CREATE`，与 Storage Mutation Contract §2“每个变化表生成完整重建”不符；plan child 231 s 主要花在逐行构造变化集对象与没有消费方的摘要上。RS 在从 expected parent 建立的私有 ref 上执行 `replay.sql`，并用整个 catalog 与包 manifest 做 STRUCTURAL 校验，已支持只写变化。真实数据中变化表的行级变化比例两极分布。
 - **决议**：
   1. **表级跳过**：prepare 拿 T1 冻结的上传侧 manifest 与 expected parent 的 manifest 逐表比较，内容摘要、schema 摘要、键与存储视图都相同的表不进入 `replay.sql`；删除的表照旧 `DROP`；parent 为 INITIAL、缺少 metadata 或投影版本不同时全部按变化处理；包 manifest 仍列出全部表。
-  2. **按阈值行级修改或整表重建**：生产 policy 从 `REBUILD_ALWAYS` 改为 `ADAPTIVE_PATCH`；有序表（GID_NO_V1）纳入行级修改，以 `gid` 为存储键、`no` 作为普通列更新；keyless 表（DC29）与 schema 变化的表（含 DC40 的只增列）仍整表重建。阈值先沿用 Storage Mutation Contract §3 的 1,000 行 / 5%，V7 实测后定稿。行级 diff 所需的基线优先从规范表存储读取，Dolt 兜底；存储 diff 与比较共用列式内核。
+  2. **按阈值行级修改或整表重建**：生产 policy 从 `REBUILD_ALWAYS` 改为 `ADAPTIVE_PATCH`；有序表（GID_NO_V1）纳入行级修改，以 `gid` 为存储键、`no` 作为普通列更新；keyless 表（DC29）与 schema 变化的表（含 DC40 的只增列）仍整表重建。阈值（owner 2026-10-25 按 V7 修订）：**1,000 行 / 1%**；V7 实测逐行修改约 9 ms / 条语句、整表重建约 0.11 ms / 行，交叉点约为表行数的 1.2%，原草案 5% 比重建慢约 4 倍。S1a 用实际渲染器（INSERT 与 DELETE 可成批）与 RS 回放路径复测，S4 定稿（[V7 报告](p6-v7-dolt-report.md)）。行级 diff 所需的基线优先从规范表存储读取，Dolt 兜底；存储 diff 与比较共用列式内核。
   3. **不复用 Preview 的比较结果**：Preview 的结果按前端语义生成（共有列、比较排除列、风险预算截断），不能替代存储变更。
   4. **渲染直通**：变化表直接从冻结的规范 Arrow 表渲染 SQL，导入路径不再构造逐行变化集对象、不计算没有消费方的摘要；表级决定仍归规划器。
   5. **保留通用规划器与 ChangeSet Contract**，作为 ADR 0014 外部目标的 Contract owner。外部分区库（按表类型汇总所有项目的数据，用于加速查询）只作预留，不排优先级。
   6. **正确性前提**：expected parent CAS、从存储读出的基线按 parent manifest 摘要校验、ADR 0009 的受信 Repository。按比例化保障政策，不另加条件 DML 或提交后回读校验。
   7. **计数断言**：`replay.sql` 涉及的表数等于变化表数；行级语句数等于行级修改表的变化行数。
-  8. **同内容表在 Dolt 中的写入优化（B6）不做**：估算最多省约 4–5 s，且要修订跨 Backend 与 Repository Service 边界的包格式。重开条件：本决议完成后 Submit 仍达不到 DC38 的目标，且实测 Dolt 写入占比明显。
+  8. **同内容表在 Dolt 中的写入优化（B6）不做**（V7：混合写入估算约 4.5 s，Dolt 写入只占 t4 Submit 的 0.8–2.8%，重开条件不成立）：估算最多省约 4–5 s，且要修订跨 Backend 与 Repository Service 边界的包格式。重开条件：本决议完成后 Submit 仍达不到 DC38 的目标，且实测 Dolt 写入占比明显。
 - **落点**：Storage Mutation Contract §2/§3、ADR 0014（生产默认 policy）、Canonical Storage §6.1（`replay.sql` 是相对 expected parent 的确定性 replay）、T1 冻结的 `builder_mutation_policy`、prepare checkpoint 增加 parent manifest 摘要绑定、包 golden；RepositoryImportArtifact 包格式与 Repository Service Contract 不变。表级跳过与阈值方案在 DC50 的 S1a；渲染直通与列式存储 diff 在 S4。
 
 ### DC46 SQL 解析器主线与上传侧数据路径合并
@@ -180,7 +180,8 @@ implementation_authorized: no
   3. **crate 结构**：一个 core crate 加一个 PyO3 adapter；core 内按 capability 分模块，由 `gateway-architecture-check` 约束依赖方向；`gateway-compute-worker` 按需，不建。
   4. **并发分层**：按表并行（L2）是唯一主机制，随各 kernel 一起做；FULL 模式的双侧物化与双 pair 并入 L2；基线读取与解析重叠（L1c）、表内分块（L3）按实测条件再做；operation 之间并行属 Phase 7。每个 kernel 必测 1 个线程与 N 个线程的输出逐字节相同。
   5. **并发上限**：每个 worker 进程一个固定 N 的 Rayon 池，启动时建好、所有 kernel 共用；N 按 DC35 的加速曲线取值，设计阶段先用 V6 给暂定值。按预估内存准入，同时运行的任务总和不超过 M；单表超过 M 时以资源预算诊断稳定失败。Rust 长调用释放 GIL（沿用 `py.detach`）并定期检查取消与截止时间。pyarrow 的 CPU 与 I/O 线程池在 worker 启动时按 N 设定。测试环境默认 N=1，只有一致性测试显式比较 1 与 N。
-  6. **调度配置**：部署配置只开放 N 与 M，可修改、有范围校验、写进测量记录；小表阈值、LPT 成本系数、L3 分块大小为代码常量，随实现版本校准。调度信息不放进 ruleset，不参与任何摘要。
+  6. **对 RS 的并发读取**（owner 2026-10-25 按 V7 补充）：RS 的逐表读取许可池容量为 8，超出时以 503 立即拒绝、不排队。operation 内对 RS 的并发读取不超过 RS 的容量，由客户端信号量控制；503 作为背压，退避后重试，不作为失败。多个 operation 共享该许可池，跨 operation 的分配归 Phase 7。
+  7. **调度配置**：部署配置只开放 N 与 M，可修改、有范围校验、写进测量记录；小表阈值、LPT 成本系数、L3 分块大小为代码常量，随实现版本校准。调度信息不放进 ruleset，不参与任何摘要。
   7. **技术栈**：新增 rayon、memchr、arrow-ipc（=59.1.0，不开压缩 feature）、arrow-row、arrow-ord、arrow-select（=59.1.0）、proptest（只作 dev-dependency）。不引入 Polars、BLAKE3、自定义内存分配器、criterion。Python 侧不加依赖。
 - **落点**：讨论稿 §5、§9 D6；Phase 6 设计。
 
@@ -232,7 +233,7 @@ implementation_authorized: no
      - V5 operation 级耗时归因，先用 step 时间戳，不足时用 py-spy（2026-10-25 完成，见 [V5 报告](p6-v5-attribution-report.md)）；
      - V5b 分段补测（owner 2026-10-25 补充）：不加产品插桩，只扩展测量工具，补测基线 commit 全量物化、完整 bundle 组装、Submit prepare 的 build input 解析与 checkpoint 序列化四段；S1 之后重建对照基准时沿用；
      - V6 SQL 解析器原型，按 DC46 第 5 项验收；
-     - V7 Dolt 回放（整表重建与行级修改的耗时，核对两条路径的表哈希相同）与 Dolt 读取吞吐、并发读取加速比，用于 DC45 阈值与 DC38 H2 门槛定稿；
+     - V7 Dolt 回放（整表重建与行级修改的耗时，核对两条路径的表哈希相同）与 Dolt 读取吞吐、并发读取加速比，用于 DC45 阈值与 DC38 H2 门槛定稿（2026-10-25 完成，见 [V7 报告](p6-v7-dolt-report.md)）；
      - V8 门禁耗时剖析（DC48）。
      - V3（Dolt 同内容表写入）与 V4（同内容表组统计）不再是前置任务，随 DC45 第 8 项或 DC43 第 5 项重开时再做。
 - **落点**：Phase 6 设计与执行计划；讨论稿 §8.1、§11。
@@ -265,8 +266,8 @@ implementation_authorized: no
 | --- | --- | --- |
 | ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39 | Phase 6 设计 |
 | W1–W4 目标数值定稿 | DC35 | V5（已完成）、V5b、V6 之后 |
-| H2 门槛定稿 | DC38 | V7 之后 |
-| 行级修改的阈值定稿 | DC45 | V7 之后 |
+| H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |
+| 行级修改的阈值定稿 | DC45 | S1a 复测、S4 定稿（V7 已完成，草案改为 1,000 行 / 1%） |
 | Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |
 | 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
 | ordered 比较是否进 Rust | DC44 | V1 之后 |
@@ -274,7 +275,7 @@ implementation_authorized: no
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
 | 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1a 之前 |
 
-以下仍由 owner 另行决定，不属于本记录：GitHub 远程默认分支改为 `main`。G6b 已由 DC51 决定维持 C。
+以下仍由 owner 另行决定，不属于本记录：GitHub 远程默认分支改为 `main`；Repository Service 容器中累积 defunct `dolt` 进程的排查（讨论稿 §12，交 RS 的 owner）。G6b 已由 DC51 决定维持 C。
 
 ## 4. 需同步修订的文档
 

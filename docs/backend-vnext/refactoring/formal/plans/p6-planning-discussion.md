@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r18，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）；r16 2026-10-25（C1/C2 记录 owner 决定：差分验证细节、V6 验收、数据路径合并而 Contract 不合并、Arrow 列映射在设计阶段定稿；§3.2 与 §12 登记慢速外网上传的分析）；r17 2026-10-25（慢速上传的 owner 决定：空闲超时加总上限、最低支持带宽 1 Mbps；受理移到线程池；准入名额交给 Phase 7；不做边收边解析）；r18 2026-10-25（C4/C6/C7 记录 owner 决定：L2 为唯一主机制、每个 worker 一个固定 N 的 Rayon 池与内存预算 M、部署配置只开放 N 与 M）。
+- 状态：**讨论稿 r19，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）；r16 2026-10-25（C1/C2 记录 owner 决定：差分验证细节、V6 验收、数据路径合并而 Contract 不合并、Arrow 列映射在设计阶段定稿；§3.2 与 §12 登记慢速外网上传的分析）；r17 2026-10-25（慢速上传的 owner 决定：空闲超时加总上限、最低支持带宽 1 Mbps；受理移到线程池；准入名额交给 Phase 7；不做边收边解析）；r18 2026-10-25（C4/C6/C7 记录 owner 决定：L2 为唯一主机制、每个 worker 一个固定 N 的 Rayon 池与内存预算 M、部署配置只开放 N 与 M）；r19 2026-10-25（C3/C5 记录 owner 决定：§5.4 模块拆解定稿、IPC 由 Python 落盘、proptest 替代 cargo-fuzz、新增依赖清单、pyarrow 线程池纳入 N）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -308,19 +308,34 @@ owner 提出的几类并发作为参考选项列入；是否值得做、先后�
 | Submit 只写变化 | 已定（D10）：表级跳过未变化表；变化表按阈值行级修改或整表重建；从冻结的规范表直接渲染 SQL。复用 Preview 冻结的规范表与 manifest，不复用 Preview 的比较结果 | Submit 566 s，对比 Dolt 直接导入 24 s |
 | 降低 RS 读取成本 | 基线优先从规范表存储读取（D2/D3），Dolt 兜底 | RS 读取 52 s |
 
-### 5.4 模块拆解（待讨论的初步划分）
+### 5.4 模块拆解（C3，owner 决定，r19，2026-10-25）
 
 原则沿用 implementation-stages §9 与 ADR 0001：Rust 承担数据密集计算，接口为 Arrow 进、Arrow 出的粗粒度调用；Python 保留 domain、application、Operation Runtime、ruleset 选择与业务 policy；不按 Python 文件逐一翻译。
 
-| 模块 | 候选的 Rust 范围 | Python 保留 | 备注 |
+| 模块 | Rust 范围 | Python 保留 | 依据 |
 | --- | --- | --- | --- |
-| SQL 与 XML 解析（`table_access`） | 流式扫描、语句与值解析、按表与按块并行、直接产出列式数据 | 请求与预算的组装、诊断的映射 | 主线并提前（§6） |
-| business materialization（`snapshot_materialization`） | 与解析合并为“解析即列式物化” | 业务快照的组装规则 | 范围是否与解析一并做，待决议（§13 C2） |
-| 规范投影与表摘要（`storage_projection`） | 列式投影、排序检查、BLAKE3 摘要 | 规则解析、诊断与上限 | 依赖 D1 |
-| 比较（`comparison`） | standard 哈希连接、keyless 多重集合、ordered 序列算法 | 比较模式选择、结果 Contract | 以 V1 决定 ordered 是否进 Rust |
-| 风险 facts（`risk_evaluation`） | 大规模 facts 提取 | 规则定义与决策 | 现 27 s，优先级低 |
-| mutation planning（Submit） | 存储 diff（与比较共用列式内核）、replay SQL 渲染 | 表级决定（跳过、重建、行级）、CAS 与发布语义 | 见 D10 |
-| 调度 | Rayon 工作池、LPT 派发 | 调度配置与并发上限 | 见 D6 与 §5.5 |
+| 解析、物化检查、规范投影、表摘要（`table_access`、`snapshot_materialization`、`storage_projection`） | 一条 Arrow 数据路径，三个 capability 各自的 kernel；产出 Arrow 或在内存中编码的 IPC 字节 | 请求与预算组装、规则解析、诊断映射、manifest 组装、IPC 落盘 | C1/C2（§6.2a）；表摘要沿用 SHA-256（B1） |
+| 比较（`comparison`） | standard、keyless 先做；ordered 等 V1 | 比较模式选择、结果 Contract | D7/B5 |
+| 风险 facts（`risk_evaluation`） | **不进 Rust** | 全部保留 | B5 改为整表计数风险后，只剩变化行的标注，占比很小；V5 显示占比明显时重开 |
+| Submit 存储 diff 与 SQL 渲染（`mutation_planning`） | 与比较共用列式内核 | 表级决定（跳过、重建、行级）、CAS 与发布语义 | D10 |
+| History 读取与 bundle 导出 | **不新建 kernel** | RS 返回的 Arrow 直接写成规范表；导出用 pyarrow 写 Parquet | 两者都不需要逐行 Python |
+| 调度 | 每个 worker 一个 Rayon 池 | N 与 M 的配置 | C4/C6/C7 |
+
+- **IPC 由 Python 落盘（Rust safety policy §4）：** Rust core 不依赖文件系统与 ArtifactStore。core 只产出 Arrow 结果或 IPC 字节，由 Python 的 ArtifactStore 写入，路径、临时文件加原子 rename、保护登记仍归 ArtifactStore。读取方向由 pyarrow 对 IPC 文件做 mmap，再经 Arrow C Stream 交给 Rust，仍是零拷贝（现有 adapter 已是 Arrow 流进、Arrow 流出）。多一次内存到磁盘的写入，按 2.6 GiB/s 计，t4 不到 1 s。
+- **crate 结构：** 保持一个 core crate（`gateway-compute-core`）加一个 PyO3 adapter；core 内按 capability 分模块，由已有的 `gateway-architecture-check` 约束模块之间的依赖方向，与 Python 的 capability 依赖图一致；编译时间成为问题时再拆 crate。`gateway-compute-worker` 按 A4 改为“按需”，不建。
+
+**技术栈（C5，owner 决定，r19，2026-10-25）：**
+
+| 依赖 | 用途 | Rust safety policy §5 是否需要专门说明 |
+| --- | --- | --- |
+| rayon | 每个 worker 的固定线程池 | 否（纯 Rust）；池的大小固定为 N，符合 §6 中“禁止不设上限的 fan-out” |
+| memchr | 解析器扫描语句、引号与转义边界 | 否；库内部使用 SIMD、对外是安全 API，策略禁止的是“手写 SIMD” |
+| arrow-ipc（=59.1.0，不开压缩 feature） | 在内存中编码与解码 IPC | 否；不开压缩就不会引入原生压缩库 |
+| arrow-row、arrow-ord、arrow-select（=59.1.0） | 多列键的行格式、排序、按下标取值，用于比较与存储 diff | 否 |
+| proptest（只作 dev-dependency） | Rust 侧属性测试，替代 cargo-fuzz（§6.2） | 否 |
+
+- **不引入：** Polars（B5）、BLAKE3（B1 沿用 SHA-256）、自定义内存分配器（策略禁止）、criterion（性能按 Measurement Contract 在生产入口测量，不建微基准框架）。
+- **Python 侧不加新依赖，** 列式只用已有的 pyarrow。
 
 ### 5.5 并发上限：固定配置的收益与风险
 
@@ -342,7 +357,8 @@ owner 倾向：并发上限用固定配置，仍可讨论。
 4. **Rust 长调用释放 GIL、可取消：**
    - **释放 GIL：** worker 的租约与心跳在 Python 线程中运行，不释放 GIL 会导致租约过期、触发恢复；现有 adapter 已用 `py.detach`，沿用。
    - **响应取消：** kernel 定期检查取消标志与截止时间。
-5. **测试环境默认 N=1：** 权威 runner 的并行批次最多开 48 个 xdist 进程，每个进程再开 N 个线程会严重超额订阅；只有一致性测试显式比较 1 与 N。
+5. **pyarrow 线程池也由 N 设定（r19）：** pyarrow 自带 C++ 线程池，默认按 CPU 数起线程（ct108 上是 128），现在代码中没有设置；Parquet 读写与 bundle 导出都会用到。worker 启动时按 N 设置 pyarrow 的 CPU 线程数与 I/O 线程数。
+6. **测试环境默认 N=1：** 权威 runner 的并行批次最多开 48 个 xdist 进程，每个进程再开 N 个线程会严重超额订阅；只有一致性测试显式比较 1 与 N。
 
 ## 6. SQL 解析器：主线并提前
 
@@ -361,7 +377,7 @@ owner 方向（2026-10-24）：**SQL 解析器作为 Phase 6 的主线并提前�
 - **语义与现有解析器逐项对齐：** 转义序列、字符集与多字节字符、`_binary` 与十六进制/位字面量、NULL、负零与指数浮点、大精度 DECIMAL、零日期、条件注释 `/*!40101 ... */`、`LOCK TABLES` 等样板语句、CRLF。
 - **预算与诊断：** 现有 `ParserRuntime` 的上限与 `TableAccessError` 诊断（错误码、表与语句位置）属于行为的一部分，必须保留。
 - **Python 解析器保留为参照实现**（ADR 0001），通过 feature flag 可退回；Phase 6 退出后降为小数据 oracle。
-- **Rust 安全：** 不使用 `unsafe`（如需使用，按 Rust safety policy 单独评审）；panic 在 FFI 边界转为确定的失败；解析器单独做 coverage-guided fuzz（cargo-fuzz），只验证不崩溃、不超预算。
+- **Rust 安全：** 不使用 `unsafe`（如需使用，按 Rust safety policy 单独评审）；panic 在 FFI 边界转为确定的失败。不做覆盖引导 fuzz（r19，owner 决定）：cargo-fuzz 需要 nightly，而 Rust safety policy §2 禁止 nightly；改用 stable 上的 proptest 做 Rust 侧属性测试（只验证不崩溃、不超预算），加上 §6.3 第 ② 层的 Hypothesis 差分。
 
 ### 6.2a 解析与物化、投影的数据路径合并（C2，owner 决定，r16，2026-10-25）
 
@@ -373,7 +389,7 @@ owner 方向（2026-10-24）：**SQL 解析器作为 Phase 6 的主线并提前�
 SQL 字节 → 解析（table_access）→ 业务列与检查（snapshot_materialization：
 伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（storage_projection：保留列、
 规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要（B1，沿用现值，复用
-canonical_row_hash）→ 写规范表 IPC（B2）
+canonical_row_hash）→ 产出 IPC 字节，由 Python ArtifactStore 落盘（B2；r19：Rust core 不写文件，§5.4）
 ```
 
 - **Python 保留：** 请求与预算组装、规则解析（比较键、存储视图）、诊断映射、manifest 组装。
@@ -990,9 +1006,9 @@ RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
 | --- | --- | --- | --- |
 | C1 | SQL 解析器作为主线并提前（§6） | **已决定（owner，2026-10-25）** | 错误消息文本不要求一致（诊断码、表、语句位置须相同）；五层语料，第 ④ 层加入 testdata1；V6 按“差异为 0、并行确定、2× t4 解析 ≤ 10 s”验收（§6.4） |
 | C2 | 解析器主线是否连同 business materialization 一并改为“解析即列式物化” | **已决定（owner，2026-10-25）**：数据路径合并、Contract 不合并 | 见 §6.2a。范围为解析、物化检查、规范投影、表摘要与 IPC 写入，composite signal 留在 Python；B2 的格式切换随 C2 接入一起做；Arrow 列映射在设计阶段定稿，摘要与 Arrow 物理类型无关 |
-| C3 | Rust 的目标：首要是突破并发瓶颈，同时计入单核效率（§5.1） | **owner 方向（2026-10-24）** | 待定：模块拆解（§5.4）与各层并发的取舍（§5.2） |
+| C3 | Rust 的目标：首要是突破并发瓶颈，同时计入单核效率（§5.1） | **已决定（owner，2026-10-25）** | 模块拆解见 §5.4：风险 facts 不进 Rust，History 读取与导出不新建 kernel，一个 core crate 加 adapter；Rust core 不写文件，IPC 由 Python ArtifactStore 落盘；并发分层见 C4 |
 | C4 | 并发分层的取舍与顺序：L1a 双侧物化、L1b 双 pair、L1c 流水线重叠、L2 表级、L3 表内数据级（§5.2） | **已决定（owner，2026-10-25）** | L2 为唯一主机制，随 kernel 一起做；L1a/L1b 并入 L2；L1c 与 L3 按实测条件再做；1 与 N 线程输出逐字节相同（§5.2） |
-| C5 | 技术栈 | **owner 方向（2026-10-24）：允许按需增加** | 待定：每项新依赖（Polars、arrow-rs、rayon 等）随所在阶段说明理由；避免 Python 侧同时引入两套列式引擎 |
+| C5 | 技术栈 | **已决定（owner，2026-10-25）** | 新增 rayon、memchr、arrow-ipc（不开压缩）、arrow-row/ord/select、proptest（dev）；不引入 Polars、BLAKE3、自定义分配器、criterion；Python 侧不加依赖；pyarrow 线程池按 N 设定；proptest 加 Hypothesis 差分替代 cargo-fuzz（§5.4、§6.2） |
 | C6 | 并发上限（§5.5） | **已决定（owner，2026-10-25）** | 每个 worker 一个固定 N 的 Rayon 池，N 按加速曲线取值；按预估内存准入 M，单表超限稳定失败；长调用释放 GIL、可取消；测试默认 N=1（§5.5） |
 | C7 | 调度配置独立于 ruleset（D6） | **已决定（owner，2026-10-25）** | 部署配置只开放 N 与 M（可修改、有范围校验、写进测量记录），其余为代码常量（D6） |
 

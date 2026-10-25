@@ -353,12 +353,16 @@ def _unique_refs(refs: Sequence[ArtifactRef]) -> tuple[ArtifactRef, ...]:
     return tuple(by_id[key] for key in sorted(by_id))
 
 
-def _table_artifact_refs(bound: Any) -> tuple[ArtifactRef, ...]:
+def _table_artifact_refs(
+    bound: Any, *, allow_missing: bool = False
+) -> tuple[ArtifactRef, ...]:
     if bound.table_set is None:
         raise RuntimeError("canonical snapshot table set is missing")
     refs: list[ArtifactRef] = []
     for table in bound.table_set.tables:
         if table.artifact is None:
+            if allow_missing:
+                continue
             raise RuntimeError("canonical snapshot artifact is missing")
         refs.extend((table.artifact.manifest_ref, *table.artifact.manifest.row_file_refs))
     return _unique_refs(refs)
@@ -591,12 +595,22 @@ def _measure_bundle(
     reopened_records = open_records_closure(store, closure_ref)
     records_readback_wall = time.perf_counter() - records_before
     records_readback_cpu = time.thread_time() - records_cpu_before
+    if before.table_set is None or current.table_set is None:
+        raise RuntimeError("Preview bundle snapshot table set is missing")
+    before_missing_artifact_count = sum(
+        table.artifact is None for table in before.table_set.tables
+    )
+    current_missing_artifact_count = sum(
+        table.artifact is None for table in current.table_set.tables
+    )
+    if current_missing_artifact_count:
+        raise RuntimeError("current canonical snapshot artifact is missing")
     output_refs = _unique_refs(
         (
             *bundle_result.referenced_artifacts,
             bundle.manifest_ref,
             bundle.artifact_closure_ref,
-            *_table_artifact_refs(before),
+            *_table_artifact_refs(before, allow_missing=True),
             *_table_artifact_refs(current),
         )
     )
@@ -630,6 +644,8 @@ def _measure_bundle(
             },
             "table_count": current.summary.table_count,
             "row_count_total": current.summary.row_count_total,
+            "before_table_count_without_artifact": before_missing_artifact_count,
+            "current_table_count_without_artifact": current_missing_artifact_count,
             "table_record_counts": [
                 {"table_name": entry.table_name, "record_count": entry.record_count}
                 for entry in reopened_records.records
@@ -1114,6 +1130,13 @@ def run(
             current=v1_bound,
             store=store,
         )
+        result["segments"].append(
+            {
+                "scenario": "t4_v1_preview_bundle_assembly",
+                **v1_bundle_metrics,
+            }
+        )
+        checkpoint("RUNNING")
         v2_bundle_metrics, _v2_bundle, v2_ready_refs = _measure_bundle(
             scenario="t4_v2_preview_bundle",
             before=repository_baseline,
@@ -1122,19 +1145,18 @@ def run(
         )
         result["segments"].append(
             {
-                "scenario": "t4_preview_bundle_assembly",
-                "v1": v1_bundle_metrics,
-                "v2": v2_bundle_metrics,
-                "package_materialization": {
-                    "v1_table_count": v1_bound.summary.table_count,
-                    "v1_row_count_total": v1_bound.summary.row_count_total,
-                    "v1_stages": v1_recorder.stages,
-                    "v2_table_count": v2_bound.summary.table_count,
-                    "v2_row_count_total": v2_bound.summary.row_count_total,
-                    "v2_stages": v2_recorder.stages,
-                },
+                "scenario": "t4_v2_preview_bundle_assembly",
+                **v2_bundle_metrics,
             }
         )
+        result["package_materialization"] = {
+            "v1_table_count": v1_bound.summary.table_count,
+            "v1_row_count_total": v1_bound.summary.row_count_total,
+            "v1_stages": v1_recorder.stages,
+            "v2_table_count": v2_bound.summary.table_count,
+            "v2_row_count_total": v2_bound.summary.row_count_total,
+            "v2_stages": v2_recorder.stages,
+        }
         checkpoint("RUNNING")
 
         (

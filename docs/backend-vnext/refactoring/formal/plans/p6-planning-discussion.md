@@ -205,7 +205,7 @@ FULL 模式（双侧、双 pair）在 W3、W4 中各补测一次。数值在 V5�
 
 TTL 内的 H1 因此不读 Dolt、不做比较，只做 pair 级 surface 汇总与 bundle 拼装；60 s 的门槛覆盖 TTL 外的兜底路径。不命中的情况：
 
-- **FULL 模式的 Preview：** Preview 的两个 pair 是“基线 → 初始”与“初始 → 修改”，没有直接计算“基线 → 修改”，而 Submit 提交的是修改侧。H1 的 diff/risk 缓存因此不命中，要对变化表重算；表缓存与导出缓存仍命中。**审核方建议：** 接受这一点（D7 之后只算变化表，代价小），不在 Preview 中多算一个 pair。待 owner 确认。
+- **FULL 模式的 Preview：** Preview 的两个 pair 是“基线 → 初始”与“初始 → 修改”，没有直接计算“基线 → 修改”，而 Submit 提交的是修改侧。H1 的 diff/risk 缓存因此不命中，要对变化表重算；表缓存与导出缓存仍命中。**owner 决定（2026-10-25）：** 接受（D7 之后只算变化表，代价小），不在 Preview 中多算一个 pair。
 - **规则集在 Preview 与 History 之间激活：** 键全部变化，按 H2 处理，这是正确行为。
 - **Preview 与 Submit 的间隔超过 TTL：** diff/risk 条目可能已被清理，finalize 无条目可登记，首次 History 对变化表重算。
 
@@ -873,7 +873,7 @@ RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
 | # | 事项 | 状态 | 审核方初步倾向 |
 | --- | --- | --- | --- |
 | A1 | 目标的设定方法（§3） | **已决议（DC35，2026-10-24）** | 业务目标与结构性条件为门槛、下界分析只作报告；W1–W4 与草案数值（V5、V6 后定稿）；ct108 不设配额、按单任务资源上限 N/M 测量；项目级并发交给 Phase 7；合成 2× t4；1 + 3 次取中位数 |
-| A2 | Submit 与 History 是否设目标（S5：Submit 566 s，对比 Dolt 直接导入 24 s；History 893 s） | **已决定（owner，2026-10-25）**：History 分 H1 相邻首查 ≤ 60 s、H2 冷查询 ≤ 5 min（V7 后定稿）、H3 重复查询 ≤ 15 s，H1（TTL 内）与 H3 以计数断言为门槛；Submit 按完成时间设门槛：S1/S4 ≤ 5 min、S3 ≤ 2 min，加 D10 的计数断言 | 见 §3.8。待 owner 确认：FULL 模式 Preview 之后的首次 History，diff/risk 缓存不命中，审核方建议接受 |
+| A2 | Submit 与 History 是否设目标（S5：Submit 566 s，对比 Dolt 直接导入 24 s；History 893 s） | **已决定（owner，2026-10-25）**：History 分 H1 相邻首查 ≤ 60 s、H2 冷查询 ≤ 5 min（V7 后定稿）、H3 重复查询 ≤ 15 s，H1（TTL 内）与 H3 以计数断言为门槛；Submit 按完成时间设门槛：S1/S4 ≤ 5 min、S3 ≤ 2 min，加 D10 的计数断言 | 见 §3.8。FULL 模式 Preview 之后的首次 History，diff/risk 缓存不命中，owner 决定接受 |
 | A3 | “成本随变化量增长”是否作为硬性退出条件（§3.7） | **已决议（DC35 第 1 项）** | 是，尽量用确定性计数断言证明 |
 | A4 | Phase 6 与 Phase 7 的边界（§4），同时改写 implementation-stages §9 的进入条件（§0 第 2 项） | 待决议 | 按 §4 调整 |
 

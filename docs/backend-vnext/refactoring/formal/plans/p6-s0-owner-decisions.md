@@ -139,7 +139,7 @@ implementation_authorized: no
 - **来源**：讨论稿 §9 D7。
 - **决议**：
   1. 用 Rust 加 arrow-rs，不引入 Polars。
-  2. 先做 standard 与 keyless；ordered 待前置验证 V1 的结论。
+  2. 先做 standard 与 keyless；ordered 待前置验证 V1 的结论。**V1 结论（owner 2026-10-25 确认）：ordered 在 S3 与 standard、keyless 一起进入 Rust，** 共用规范编码、共有列投影、行身份、记录排序、资源上限与 facts 管线，ordered 专属的 LIS 主干、绝对 `no` 位置与空白区间规则留在 ordered 模块内（[V1 报告](p6-v1-ordered-prototype-report.md)）。
   3. Python 实现作为参照实现，按 §6.3 的差分分层验证；分歧点（浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则）先写进 Contract。
   4. 列式实现须同时满足 DC40 的语义。
 - **落点**：Comparison Contract；DC50 的 S3。
@@ -180,7 +180,7 @@ implementation_authorized: no
   2. **Rust core 不写文件**（Rust safety policy §4）：core 只产出 Arrow 结果或在内存中编码的 IPC 字节，由 Python 的 ArtifactStore 落盘；读取由 pyarrow mmap 后经 Arrow C Stream 交给 Rust。
   3. **crate 结构**：一个 core crate 加一个 PyO3 adapter；core 内按 capability 分模块，由 `gateway-architecture-check` 约束依赖方向；`gateway-compute-worker` 按需，不建。
   4. **并发分层**：按表并行（L2）是唯一主机制，随各 kernel 一起做；FULL 模式的双侧物化与双 pair 并入 L2；基线读取与解析重叠（L1c）、表内分块（L3）按实测条件再做；operation 之间并行属 Phase 7。每个 kernel 必测 1 个线程与 N 个线程的输出逐字节相同。
-  5. **并发上限**：每个 worker 进程一个固定 N 的 Rayon 池，启动时建好、所有 kernel 共用；N 按 DC35 的加速曲线取值，设计阶段先用 V6 给暂定值。按预估内存准入，同时运行的任务总和不超过 M；单表超过 M 时以资源预算诊断稳定失败。Rust 长调用释放 GIL（沿用 `py.detach`）并定期检查取消与截止时间。pyarrow 的 CPU 与 I/O 线程池在 worker 启动时按 N 设定。测试环境默认 N=1，只有一致性测试显式比较 1 与 N。
+  5. **并发上限**：每个 worker 进程一个固定 N 的 Rayon 池，启动时建好、所有 kernel 共用；N 按 DC35 的加速曲线取值，设计阶段先用 V6 给暂定值。按预估内存准入，同时运行的任务总和不超过 M；单表超过 M 时以资源预算诊断稳定失败。Rust 长调用释放 GIL（沿用 `py.detach`）并定期检查取消与截止时间。pyarrow 的 CPU 与 I/O 线程池在 worker 启动时按 N 设定。测试环境默认 N=1，只有一致性测试显式比较 1 与 N。（V1 参考：t4 变化 ordered 表的 Rust 进程峰值从 1 线程的约 191 MiB 增至 16 线程的约 1.2 GB，32 线程比 16 线程慢；M 的准入估算与 N 的取值应计入这一点。）
   6. **对 RS 的并发读取**（owner 2026-10-25 按 V7 补充）：RS 的逐表读取许可池容量为 8，超出时以 503 立即拒绝、不排队。operation 内对 RS 的并发读取不超过 RS 的容量，由客户端信号量控制；503 作为背压，退避后重试，不作为失败。多个 operation 共享该许可池，跨 operation 的分配归 Phase 7。
   7. **调度配置**：部署配置只开放 N 与 M，可修改、有范围校验、写进测量记录；小表阈值、LPT 成本系数、L3 分块大小为代码常量，随实现版本校准。调度信息不放进 ruleset，不参与任何摘要。
   8. **技术栈**：新增 rayon、memchr、arrow-ipc（=59.1.0，不开压缩 feature）、arrow-row、arrow-ord、arrow-select（=59.1.0）、proptest（只作 dev-dependency）。不引入 Polars、BLAKE3、自定义内存分配器、criterion。Python 侧不加依赖。
@@ -231,7 +231,7 @@ implementation_authorized: no
      - **补充（owner，2026-10-25）：** 允许在 `ct108-gw-dms-05` 上使用 t4，用于正确性对照（例如 V6 的逐值差分）。05 上自克隆起就有 t4 的两个数据包（`/home/dev/gateway-real-dumps/packages/`），DC36 生效记录写的是“05 保留 t1–t3”，与实际不符，以此为准。性能测量与 t4 的完整旅程取证仍在 `ct108-gw-dms`。
   5. **门禁**：沿用 AGENTS、DC30、DC33、DC34、DC36、G12、G13；每个阶段的最终提交运行一次权威 runner（含 `rust` 包）；改动 Rust 或镜像时重建 backend 镜像并跑容器门禁；阶段边界打 `p6-sN-exit` 附注 tag。
   6. **前置验证任务**：
-     - V1 ordered 比较的小规模 Rust 验证，决定 ordered 是否进 Rust；
+     - V1 ordered 比较的小规模 Rust 验证，决定 ordered 是否进 Rust（2026-10-25 完成并以 merge commit `102c857f7e` 合入 main，见 [V1 报告](p6-v1-ordered-prototype-report.md)）；
      - V5 operation 级耗时归因，先用 step 时间戳，不足时用 py-spy（2026-10-25 完成，见 [V5 报告](p6-v5-attribution-report.md)）；
      - V5b 分段补测（owner 2026-10-25 补充）：不加产品插桩，只扩展测量工具，补测基线 commit 全量物化、完整 bundle 组装、Submit prepare 的 build input 解析与 checkpoint 序列化四段；S1 之后重建对照基准时沿用；
      - V6 SQL 解析器原型，按 DC46 第 5 项验收（2026-10-25 完成并以 merge commit `863330e757` 合入 main，见 [V6 报告](p6-v6-parser-prototype-report.md)）；
@@ -272,7 +272,8 @@ implementation_authorized: no
 | 行级修改的阈值定稿 | DC45 | S1a 复测、S4 定稿（V7 已完成，草案改为 1,000 行 / 1%） |
 | Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |
 | 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
-| ordered 比较是否进 Rust | DC44 | V1 之后 |
+| ordered 比较是否进 Rust | DC44 | 已定（V1）：S3 进入 Rust |
+| `ordered-diff.md` 中伪 gid 起点（20 亿）与 Canonical Storage G8（40 亿–4,294,967,295）的冲突 | DC39、DC44 | S1a 修订 Contract 时明确以 G8 为准（实现已按 G8） |
 | N 的暂定值与定稿 | DC47 | V6 给出解析器单独的暂定值 4；整条路径的 N 在 S2b 后暂定，S6 定稿 |
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
 | 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1a 之前 |

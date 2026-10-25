@@ -1,7 +1,7 @@
 # Phase 6 规划讨论稿：按业务阶段的性能优化
 
-- 状态：**讨论稿 r14，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
-- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）。
+- 状态：**讨论稿 r15，尚未形成正式决议**。本文整理 owner 与审核方的讨论结论，不改变任何现行 Contract、ADR 或计划；§13 的事项经 owner 决议后，才进入正式的 Phase 6 设计与执行计划。§13 中标为“owner 方向”的条目是 owner 已给出的方向，细节仍待讨论；标为“已决议”的条目以 S0 owner 决议记录为准。
+- 日期：r1 2026-10-17；r2 2026-10-24（P5 exit 后更新：S5 实测数据、Rust 目标与并发分层、SQL 解析器主线与差分验证、开启前问题清单）；r3 2026-10-24（A1 目标设定已决议为 DC35，§3 改写为决议内容）；r4 2026-10-24（DC36 生效，更新 §13 D2；新增 §13 D5 Rust 测试入口、D6 单次门禁时长；§9 D1 增加审核分析，§13 B1 倾向改为“保值统一”；新增 §9 D9 与 §13 B8：只增列的 schema 变化）；r5 2026-10-24（D9/B8 记录 owner 方向、testdata1 计数、schema 演进分类与触发事件预留、ENUM 值域扩展）；r6 2026-10-24（owner 决定 ENUM 标签扩展算兼容、Preview 不提示）；r7 2026-10-24（SET 同理、只减列保持现行；§9 D2/D3 增加审核分析，B2 记录 owner 方向：同步写入、正式引用只保留 head、先不压缩）；r8 2026-10-24（§9 D5 增加第 ③ 层审核分析与 History 缓存分析，B3 记录 owner 方向：拆分、跨操作缓存暂缓）；r9 2026-10-24（diff/risk 按 TTL 保留；History 整表打包、优先读表缓存，撤回按需读取；§12 登记标准模式 bundle 不含整表，新增 §13 B9）；r10 2026-10-24（B9 范围：Preview 与 History 每个节点都含全部表，bundle 用 Parquet 加导出缓存；跨操作缓存实现排在 D7 之后，以 A2 验收）；r11 2026-10-24（§9 D7 增加审核分析，B5 记录 owner 方向：Rust 加 arrow-rs、standard/keyless 先行、ordered 不读不比归入 B1 阶段、整表新增/删除改为整表浏览）；r12 2026-10-24（B4 拆出单独立项、B6 不做，均按重开条件登记；V3、V4 不再是前置任务）；r13 2026-10-25（新增 §9 D10，B7 记录 owner 决定：表级跳过未变化表、变化表按阈值行级修改或整表重建、渲染直通；新增 V7；§14 预留外部分区库）；r14 2026-10-25（新增 §3.8，A2 记录 owner 决定：History 分 H1/H2/H3 三种负载、Submit 按完成时间设宽松上限；补充 Submit 后首次 History 的命中路径；V7 增加 Dolt 读取实测）；r15 2026-10-25（A4 记录 owner 决定：§4 改写为 Phase 6/7 边界与 implementation-stages §9/§10 的改写要点；feature flag 只在接入期间保留）。
 - 范围：P5 收口之后的性能工作，即 [implementation-stages](implementation-stages.md) §9 Phase 6 与 §10 Phase 7。
 - 关联：
   - [S0 owner 决议](p5-arch-closure-s0-owner-decisions.md) §13（DC30）、§14（DC31）、§15（DC32）；
@@ -26,7 +26,9 @@
 2. [implementation-stages](implementation-stages.md) §9 的进入条件有两条需要改写：
    - “Slice 5B 产生 accepted vNext baseline”：该 baseline 状态机已被 Performance Measurement 3.0.0 废除；
    - “Phase 3 首批 Rust provider 已通过真实纵切验证”：目前唯一的 Rust consumer `canonical_row_hash` 不可达（P5 exit review §6.1），生产链路是纯 Python。Phase 6 是 Rust 首次进入生产链路。
-3. 前置验证 V1、V3、V4 未做（§11）。
+
+   r15：A4 已决定改写整节 §9/§10，不限于进入条件，要点见 §4。
+3. 前置验证 V1、V5、V6、V7 未做（§11；r12 起 V3、V4 不再是前置任务）。
 4. operation 级耗时归因不完整（§2.3）。
 
 ## 1. 背景与问题
@@ -209,14 +211,44 @@ TTL 内的 H1 因此不读 Dolt、不做比较，只做 pair 级 surface 汇总�
 - **规则集在 Preview 与 History 之间激活：** 键全部变化，按 H2 处理，这是正确行为。
 - **Preview 与 Submit 的间隔超过 TTL：** diff/risk 条目可能已被清理，finalize 无条目可登记，首次 History 对变化表重算。
 
-## 4. Phase 6 与 Phase 7 的边界（建议）
+## 4. Phase 6 与 Phase 7 的边界（A4，owner 决定，r15，2026-10-25）
 
-| 阶段 | 原定内容 | 建议调整 |
+### 4.1 边界
+
+| 阶段 | 原定内容 | 决定 |
 | --- | --- | --- |
-| Phase 6 | 扩大 Rust 覆盖、优化计算与数据路径 | **单个 operation 的延迟**，以 §3 的阶段目标为退出条件。手段不限，包括 operation 内部的表级与数据级并行（从 Phase 7 前移，§5），以及同一项目内按内容摘要的确定性复用 |
-| Phase 7 | 并行、缓存、并发预算、背压 | **多个 operation 的吞吐与资源（项目级并发，DC35 第 6 项）**：同时执行的槽位上限 K（K × 单任务上限 ≤ 机器资源）、项目之间的公平调度、对用户可见的排队状态、多项目扩展测量（1、2、4、K 个独立项目）；多 worker（需要重新设计启动时的租约判定，S2b 复审 R1-O2）；共享瓶颈（Repository Service 与 Dolt、control DB、磁盘与内存带宽）；跨 operation 的通用缓存治理（淘汰、晋升、权威性校验）；统一并发预算、背压 |
+| Phase 6 | 扩大 Rust 覆盖、优化计算与数据路径 | **单个 operation 的延迟**，以 §3 的目标（DC35 的 W1–W4、§3.8 的 H1–H3 与 S1–S4、结构性计数断言）为退出条件。手段不限，包括 operation 内部的表级与数据级并行（从 Phase 7 前移，§5），operation 内并发读取 Dolt（受单任务上限 N 约束，V7 实测），以及自身目标需要的缓存 |
+| Phase 7 | 并行、缓存、并发预算、背压 | **多个 operation 的吞吐与资源（项目级并发，DC35 第 6 项）**。包括：<br>• 同时执行的槽位上限 K（K × 单任务上限 ≤ 机器资源）；<br>• 项目之间的公平调度；<br>• 对用户可见的排队状态；<br>• 多项目扩展测量（1、2、4、K 个独立项目）；<br>• 多 worker（需要重新设计启动时的租约判定，S2b 复审 R1-O2）；<br>• 跨 operation 的 RS 资源队列、单 repository writer 与节点级排队；<br>• 其他共享瓶颈（control DB、磁盘与内存带宽）；<br>• 按容量淘汰与多项目缓存治理；<br>• 统一并发预算、背压 |
 
-把 operation 内并行前移的理由：worker 是单核，并行是数量级提升的直接手段之一。Phase 6 只须保证单任务资源可控、可度量，单任务失败（例如内存不足）不影响其他任务。implementation-stages §9 的进入条件同时改写（§0 第 2 项）。
+- **缓存的分工。** B2 的规范表存储、B3 的跨操作 diff/risk 缓存与 B9 的导出缓存在 Phase 6 实施。机制只用内容寻址、现有保护表、TTL、ADR 0012 的协作清理与读取时校验；“晋升”只是加一条引用。Phase 7 负责 TTL 之外按容量淘汰（磁盘预算），以及多项目下的命中统计与容量规划；按比例化保障政策，只在 Measurement Contract §6 的存储测量显示需要时才做。
+- **Phase 6 含一个 Contract 阶段。** B1/B7/B8/B9 中，B8 与 B9 是业务语义的修正，不是性能工作。按 Measurement Contract §5，这些改动属于 Contract 变更，前后结果不作为性能收益比较；Contract 阶段之后重建对照基准（§13 D3）。
+- **operation 内并行前移的理由：** worker 是单核，并行是数量级提升的直接手段之一。Phase 6 只须保证单任务资源可控、可度量，单任务失败（例如内存不足）不影响其他任务。
+
+### 4.2 implementation-stages §9/§10 的改写要点
+
+正文在 S0 形成正式决议（DC37 起）时一并修改；本稿只记录要点。阶段改名为：Phase 6“单任务性能与 Rust 接入”，Phase 7“多项目并发与容量”。
+
+**§9 Phase 6：**
+
+| 条款 | 现文 | 改为 |
+| --- | --- | --- |
+| 目标 | “在 Phase 3 首批 Rust production kernel 的基础上……Phase 6 不是首次引入 Rust” | 单个 operation 的延迟达到 §3 的目标；Rust 首次进入生产链路（现有唯一 consumer 不可达，生产链路是纯 Python） |
+| 推荐顺序 | 先复核 Phase 3 kernel，最后单独评估 SQL parser | 按 §13 D3：S0 → V1/V5/V6/V7 → 设计与执行计划 → Contract 阶段 → 重建对照基准 → 解析器主线 → 按业务阶段分段实施 |
+| 实现形态 | Rust/Polars 线程预算；`gateway-compute-worker` | 去掉 Polars（B5）；artifact worker/CLI 改为“按需” |
+| 进入条件：accepted baseline | “Slice 5B 已按 measurement contract 产生 accepted vNext baseline” | 满足 Measurement Contract §5 的优化进入条件；对照基准为 S5 DC32 的测量记录，Contract 阶段后重建 |
+| 进入条件：Phase 3 Rust provider | “已通过真实纵切验证” | Rust 构建已接入 backend 镜像；Rust 测试的入口与门禁覆盖已确定（§13 D5） |
+| 进入条件：其余三条 | 独立 profile；Python reference oracle 与跨语言 golden；Arrow/Parquet 与 scalar/digest Contract 已版本化 | 保留。profile 由 S5 与 V5 提供；跨语言 golden 落在差分验证上（§6.3、D7）；digest 由 B1 收口 |
+| 退出条件：收益门槛 | “Kernel 和端到端 benchmark 均达到预设收益门槛” | §3 的业务目标与结构性计数断言；下界分析只作报告（DC35）；补一条 Measurement Contract §6 的存储报告（B2 新增持久化派生数据） |
+| 退出条件：feature flag | “Rust provider 可通过 feature flag 回退到 reference provider” | **owner 决定：** 各 Rust 路径接入期间保留 feature flag，可退回 Python 参照实现；Phase 6 退出时删除生产开关，Python 降为测试用参照（差分测试与小数据 oracle），生产不保留双路径 |
+
+**§10 Phase 7：**
+
+- **进入条件：** 去掉“首份 vNext baseline 已 accepted”，改为 Phase 6 退出，且单任务上限 N/M 已测定。
+- **主要工作：**
+  - 删去“Capability 内部按表/partition 并行”（已前移到 Phase 6）；
+  - 缓存一项改为“按容量淘汰与多项目缓存治理”；
+  - 去掉 Polars；
+  - 补入 §4.1 中 Phase 7 的各项。
 
 ## 5. Rust 的目标与优化分层
 
@@ -875,7 +907,7 @@ RepositoryImportArtifact 的包格式与 Repository Service Contract 不变。
 | A1 | 目标的设定方法（§3） | **已决议（DC35，2026-10-24）** | 业务目标与结构性条件为门槛、下界分析只作报告；W1–W4 与草案数值（V5、V6 后定稿）；ct108 不设配额、按单任务资源上限 N/M 测量；项目级并发交给 Phase 7；合成 2× t4；1 + 3 次取中位数 |
 | A2 | Submit 与 History 是否设目标（S5：Submit 566 s，对比 Dolt 直接导入 24 s；History 893 s） | **已决定（owner，2026-10-25）**：History 分 H1 相邻首查 ≤ 60 s、H2 冷查询 ≤ 5 min（V7 后定稿）、H3 重复查询 ≤ 15 s，H1（TTL 内）与 H3 以计数断言为门槛；Submit 按完成时间设门槛：S1/S4 ≤ 5 min、S3 ≤ 2 min，加 D10 的计数断言 | 见 §3.8。FULL 模式 Preview 之后的首次 History，diff/risk 缓存不命中，owner 决定接受 |
 | A3 | “成本随变化量增长”是否作为硬性退出条件（§3.7） | **已决议（DC35 第 1 项）** | 是，尽量用确定性计数断言证明 |
-| A4 | Phase 6 与 Phase 7 的边界（§4），同时改写 implementation-stages §9 的进入条件（§0 第 2 项） | 待决议 | 按 §4 调整 |
+| A4 | Phase 6 与 Phase 7 的边界（§4），同时改写 implementation-stages §9 的进入条件（§0 第 2 项） | **已决定（owner，2026-10-25）** | 见 §4：Phase 6 管单个 operation 的延迟（含 operation 内并行、自身目标需要的缓存）；Phase 7 管多个 operation 的吞吐与资源；feature flag 只在接入期间保留，Phase 6 退出时删除生产开关；implementation-stages §9/§10 整节改写并改名，正文随 S0 正式决议修改 |
 
 ### B. 需要修订 Contract 的设计决定
 

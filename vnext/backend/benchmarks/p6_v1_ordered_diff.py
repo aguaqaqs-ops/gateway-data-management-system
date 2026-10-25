@@ -665,6 +665,9 @@ def _mutate_rows(rng: random.Random, rows: list[tuple[int | None, str]]) -> list
 
 
 def _build_synthetic_and_random(outdir: Path, random_samples: int, seed: int) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    backend_root = str(Path(__file__).resolve().parents[1])
+    if backend_root not in sys.path:
+        sys.path.insert(0, backend_root)
     from tests.test_comparison_ordered import BACKBONE_OUTCOMES, _plan
 
     cases: list[dict[str, object]] = []

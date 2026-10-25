@@ -28,6 +28,9 @@ serde_json_canonicalizer = "=0.3.2"
 sha2 = { version = "=0.11.0", default-features = false }
 thiserror = "=2.0.18"
 base64 = "=0.22.1"
+memchr = "=2.8.3"
+rayon = "=1.12.0"
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

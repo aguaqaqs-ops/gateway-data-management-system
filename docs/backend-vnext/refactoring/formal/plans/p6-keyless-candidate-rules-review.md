@@ -1,6 +1,6 @@
 # Phase 6 keyless 表候选键与兜底规则讨论稿
 
-> 状态：供 owner 与审核者讨论，不是已批准的 ruleset 决议，也不授权修改产品规则。
+> 状态：已审核；owner 于 2026-10-26 作出决定，记为 [DC56](p6-s0-owner-decisions.md#dc56-keyless-表的自然键与处理角色dc50-业务评估)，结论见 §6。本稿正文保留讨论时的提案表述；规则改动在 S1b 实施。
 > 范围：汇总真实数据候选键普查，并记录 owner 对候选键、列判据兜底及 `forwardtable_*` 后续普查的补充意见。
 
 ## 1. 本次请审核的内容
@@ -106,15 +106,15 @@ owner 提议接下来对 `forwardtable_*` 做专项普查确认，并把相关�
 
 ## 6. 建议的评审结论格式
 
-审核完成后按下表记录，不在本稿中预填结论：
+审核结论（owner 2026-10-26，DC56）：
 
 | 事项 | owner 决定 | Contract / 决议落点 | 验证与 golden | 状态 |
 | --- | --- | --- | --- | --- |
-| 已知逐表显式键 | 待确认 | 待确认 | 待确认 | 讨论中 |
-| `(no, page_no)` 表的 BROWSE_ONLY 与 storage key | 待确认 | 待确认 | 待确认 | 讨论中 |
-| 列存在 fallback 的适用条件和优先级 | 待确认 | 待确认 | 待确认 | 讨论中 |
-| NULL/重复键回退及额外调用 | 待确认 | 待确认 | 待确认 | 讨论中 |
-| `forwardtable_*` 专项普查及空点语义 | 待普查并确认 | 待确认 | 待确认 | 待处理 |
-| 是否引入 `KEYLESS_ORDERED` | 待确认 | 待确认 | 待确认 | 讨论中 |
+| 已知逐表显式键 | 接受：`comm_user_data`、`forwardtbl_lst_*`（8 张）、`mms_rp_cdc_index`、`out_time_cfg` 共 11 张表 | DC56 第 1 项；S1b 规则改动 | S1b 规则集与 manifest golden（设计 §4.6 例外行） | 已决定 |
+| `(no, page_no)` 表的 BROWSE_ONLY 与 storage key | 18 张表按 BROWSE_ONLY（17 张新增）；存储保持 keyless，不加存储键 | DC56 第 2 项；Contract 不变 | 同上 | 已决定 |
+| 列存在 fallback 的适用条件和优先级 | Phase 6 不实施，不预留接口；登记重开条件 | DC56 第 3 项 | — | 暂缓 |
+| NULL/重复键回退及额外调用 | 随列存在兜底一并暂缓；显式键遇重复或 NULL 时投影稳定失败 | DC56 第 1、3 项 | — | 暂缓 |
+| `forwardtable_*` 专项普查及空点语义 | 保持 SNAPSHOT_ONLY；做一次空点行调查（重复行、非空点 `gid` 唯一性、行顺序与 `gid` 顺序） | DC56 第 4 项 | 不改规则 | 待调查 |
+| 是否引入 `KEYLESS_ORDERED` | 不引入；调查发现问题时作为 Phase 6 之外的单独立项 | DC56 第 4 项 | — | 不引入 |
 
 本稿与候选键普查报告均不修改生产规则，不作“应补键”的最终判断，不推送任何提交。

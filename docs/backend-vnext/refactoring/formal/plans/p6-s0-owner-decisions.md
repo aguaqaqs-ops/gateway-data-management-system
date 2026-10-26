@@ -44,6 +44,7 @@ implementation_authorized: no
 | DC53 | W1–W4 目标数值定稿与达标条件 | §3.3 | A1 |
 | DC54 | 逐行记录的生成与序列化进入 Rust（S3） | §5.4 | — |
 | DC55 | 独立文档审核后的决议修订（F1–F5） | — | — |
+| DC56 | keyless 表的自然键与处理角色（DC50 业务评估） | — | — |
 
 ## 2. 决议详情
 
@@ -299,6 +300,16 @@ implementation_authorized: no
   5. **计数口径与字节冻结（F5，修订 DC45 第 2、7 项）：** 计数断言只针对逻辑数量，不针对 SQL 语句数：规划器的逻辑变更数按 Storage Mutation §4 计（同键 UPDATE 计 1 次，键变化计 DELETE + INSERT 2 次）；表按“变化、新增、删除、未变”四类给出公式（设计 §16.2）；去重或缓存命中后的实际 kernel 调用数单独记录，只要求不超过逻辑派发数。行级修改阈值与 INSERT 批量规则在 S1a 实测后冻结；S4 对同一输入做 `replay.sql` 逐字节回归；若 S4 实测必须调整阈值，作为明确例外交 owner 决定，并在 S4 更新包 golden。
 - **落点**：DC39、DC41、DC42、DC45 及 DC50 S1b 的对应条目已注明“DC55 修订”；[详细设计](p6-design.md) 与 [执行计划](p6-execution-plan.md) r2。
 
+### DC56 keyless 表的自然键与处理角色（DC50 业务评估）
+
+- **来源**：[keyless 候选键普查](p6-keyless-candidate-census.md)（t1–t4 的 v1、v2 共 8 份数据，35 张 keyless 表，只含计数与列名）与[规则讨论稿](p6-keyless-candidate-rules-review.md)；S0 讨论会话审核意见。普查没有发现 DC29 清单以外的新表。
+- **决议**（repository owner，2026-10-26）：
+  1. **逐表显式键（11 张表）：** `comm_user_data` 用 `data_key`；`forwardtbl_lst_*` 系列（cs、dz、qt、yc、yk、ym、yt、yx 共 8 张）用 `tbname`；`mms_rp_cdc_index` 用 `idx`；`out_time_cfg` 用 `(board, link_no)`。这些表由 keyless 改为 keyed，比较给出字段级变化，Submit 可走行级修改。显式键是严格规则：之后数据中键列出现重复或 NULL 时，该表投影稳定失败，不回退 keyless。`out_time_cfg` 与 4 个 `forwardtbl_lst_*` 系列在现有数据中均为空表，键按业务语义指定，不是数据验证的结果。`forwardtbl_lst_*` 的选择器形式（8 个精确名或系列正则）在 S1b kickoff 确认。
+  2. **18 张含 `(no, page_no)` 的表按 BROWSE_ONLY 处理，存储保持 keyless：** `cnt_manage_cfg`、`dev104_cfg`、`iec101_cfg`、`iec104_cfg`、`iec104gw_cfg`、`iec61850c_cfg`、`jdxx_cfg`、`nbridge_cfg`、`nr103d_cfg`、`nr103ht_cfg`、`sc_cfg`、`scada_cfg`、`sg_manage_cfg`、`sntp_cfg`、`vqc_cfg`、`wave_cfg`、`wf_cfg` 新加入 BROWSE_ONLY 名单，`project` 已在名单中。不为 BROWSE_ONLY 增加存储键，不拆分存储键与比较键，Contract 不变。owner 接受业务后果：这些表变化时不再产生逐行记录与风险，只有表级变化事实（DC16）与整表浏览。
+  3. **列存在兜底暂不实施：** 按列集合自动选键、校验失败回退 keyless 及额外处理调用，Phase 6 不实施，也不预留接口。DC29 的 keyless 兜底继续处理新表；需要键的新表按规则激活补显式规则。**重开条件：** 出现新的 keyless 表，且业务上需要字段级比较。
+  4. **`forwardtable_*` 保持现状并做一次专项调查：** 6 张 `forwardtable_*` 继续命中 SNAPSHOT_ONLY、keyless 存储、不做比较；不引入 `KEYLESS_ORDERED`。由实施者做一次专项调查（只输出计数与列状态分类，不输出单元格值），确认：完全相同的重复行是否都是空点行；非空点行的 `gid` 是否唯一；源数据中的行顺序是否与 `gid` 顺序一致。结论由 owner 确认；若发现重复行不全是空点行，或行顺序有业务含义且无法由 `gid` 恢复，作为 Phase 6 之外的单独立项。
+- **落点**：S1b 实施第 1、2 项的规则改动（`capabilities/table_rules/` 名单与规则；规则集版本提升），storage-projection 组中的规则集与 manifest golden 随之在 S1b 更新一次（[详细设计](p6-design.md) §4.6 的例外行）；第 4 项的调查不改规则，不阻塞 S1b。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |
@@ -314,7 +325,7 @@ implementation_authorized: no
 | `ordered-diff.md` 中伪 gid 起点（20 亿）与 Canonical Storage G8（40 亿–4,294,967,295）的冲突 | DC39、DC44 | S1a 修订 Contract 时明确以 G8 为准（实现已按 G8） |
 | N 的暂定值与定稿 | DC47 | V6 给出解析器单独的暂定值 4；整条路径的 N 在 S2b 后暂定，S6 定稿 |
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
-| 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1b kickoff 之前（2026-10-26 修订）；先由实施者做候选键普查，owner 确认，补键的规则改动在 S1b |
+| 重要 keyless 表是否定义自然键 | DC50 | 已定（DC56，2026-10-26）：11 张表补显式键，17 张表加入 BROWSE_ONLY，规则改动在 S1b；`forwardtable_*` 保持 SNAPSHOT_ONLY，另做一次空点行调查 |
 
 以下仍由 owner 另行决定，不属于本记录：GitHub 远程默认分支改为 `main`；Repository Service 容器中累积 defunct `dolt` 进程的排查（讨论稿 §12，交 RS 的 owner）。G6b 已由 DC51 决定维持 C。
 

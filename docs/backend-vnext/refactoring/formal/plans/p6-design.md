@@ -187,6 +187,7 @@ handoff 对每项给出：来源、处理方案、处理阶段与 owner。仍无
 | golden 组 | 唯一更新节点 | 之后 |
 | --- | --- | --- |
 | storage-projection、mutation、导入包 | S1a | 冻结；S4 只回归，调整须 owner 例外（DC55 第 5 项） |
+| storage-projection 中的规则集文档与 manifest（例外） | S1b | DC56 的补键与 BROWSE_ONLY 名单改变规则集（版本提升）与受影响表的规范键，在 S1b 更新一次后冻结；mutation 与导入包 golden 只在其输入含受影响表时随之更新 |
 | comparison、risk、surface、bundle | S1b | 冻结；S3 的分歧点只把现行行为写进 Contract，不改语义；若必须改语义，作为例外交 owner 并在重建基准前完成 |
 | table-access（参照解析器修复与语义） | S1b | 冻结；S2a 的 Rust 实现以其为基准 |
 | shared-kernel 编码向量（FLOAT 直接舍入） | S1b | 冻结 |
@@ -521,7 +522,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 参照解析器的 P 项语义 | §5.5 表中各项；深层 JSON 有界拒绝 | §5.5 |
 | Arrow 列映射 v1 | §8.1 | §8.1 |
 | 上传侧原始表的使用方、磁盘估算 | 设计核对项，S2b kickoff 前完成 | §8.1、§8.2 |
-| 重要 keyless 表的自然键 | 业务评估，S1b kickoff 之前给出（DC50，owner 2026-10-26 修订）；补键的规则改动在 S1b，与比较类 golden 一起冻结 | — |
+| 重要 keyless 表的自然键 | 已定（DC56）：11 张表补显式键，17 张表加入 BROWSE_ONLY，存储保持 keyless；规则改动在 S1b，与比较类 golden 一起冻结；`forwardtable_*` 保持 SNAPSHOT_ONLY，另做一次空点行调查 | §4.6 |
 
 ## 附录 A：S0 独立文档审核 findings 处置
 

@@ -72,6 +72,7 @@ IMPORT_KEY = "import-idem-submit-effect"
 PACKAGE_BYTES = b"submit-package-bytes"
 PACKAGE_SHA256 = "b" * 64
 EXPECTED_COMMIT_ID = "commit-main"
+EXPECTED_PARENT_COMMIT_ID = "commit-base"
 
 
 def _import_request_body(repository_artifact_ref: RepositoryArtifactRef) -> dict[str, object]:
@@ -307,7 +308,7 @@ def _operation_poll_handler(
     manifest_digest: str,
     *,
     operation_id_override: str | None = None,
-    expected_commit_id: str = EXPECTED_COMMIT_ID,
+    expected_commit_id: str = EXPECTED_PARENT_COMMIT_ID,
     completed_verification_policy: str = VerificationPolicy.STRUCTURAL.value,
     unknown_type_policy: str = UnknownTypePolicy.REJECT.value,
 ) -> Callable[[httpx.Request], httpx.Response]:
@@ -715,7 +716,7 @@ def _run_await_binding_mismatch_case(
     poll_handler = _operation_poll_handler(
         manifest_digest,
         operation_id_override=operation_id_override,
-        expected_commit_id=expected_commit_id or EXPECTED_COMMIT_ID,
+        expected_commit_id=expected_commit_id or EXPECTED_PARENT_COMMIT_ID,
         completed_verification_policy=completed_verification_policy
         or VerificationPolicy.STRUCTURAL.value,
         unknown_type_policy=unknown_type_policy or UnknownTypePolicy.REJECT.value,

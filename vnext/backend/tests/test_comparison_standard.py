@@ -45,6 +45,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableReader,
     SnapshotTableSet,
 )
+from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
 
@@ -433,11 +434,28 @@ def test_pair_and_table_early_exit_do_not_iterate_or_reopen_readers() -> None:
         tables=tuple(wrapped_tables),
         diagnostics=original.table_set.diagnostics,
     )
+    descriptor = original.summary.tables[0]
+    assert descriptor.raw_content_digest is not None
+    storage_facts = (
+        ComparisonStorageFacts(
+            storage_rule_view=StorageRuleView(
+                canonical_table=descriptor.table_name,
+                canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+                ordered_policy=OrderedPolicy.NONE,
+                retained_columns=tuple(column.name for column in descriptor.columns),
+                canonical_key_columns=descriptor.primary_key_columns,
+            ),
+            source_schema_digest=descriptor.business_schema_digest,
+            canonical_schema_digest=descriptor.business_schema_digest,
+            raw_content_digest=descriptor.raw_content_digest,
+            storage_projection_version=STORAGE_PROJECTION_VERSION,
+        ),
+    )
     counted = BoundSnapshotInput(
         original.snapshot,
         original.summary,
         wrapped_set,
-        storage_facts=original.storage_facts,
+        storage_facts=storage_facts,
     )
     plan = plan_comparison(
         ComparisonRequest(

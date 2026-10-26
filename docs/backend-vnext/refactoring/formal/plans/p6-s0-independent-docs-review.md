@@ -1,7 +1,7 @@
 # Phase 6 S0 独立文档审核
 
-- 结论：**定向修订**（第 1 次复审：7 项关闭、3 项部分关闭，新增 2 项阻塞；仍未关闭 F1、F5、F6、F11、F12，详见 §6）
-- 最近复审：2026-10-26（UTC），main @ `01c41e78bbcc4158e71d2a56fda2b8d726e2e172`。以下 §1–§5 保留首次审核记录，不代表最新关闭状态。
+- 结论：**定向修订**（第 2 次复审：F1、F6、F11、F12 关闭；F5 部分关闭，仍为唯一阻塞；新增非阻塞 F13，详见 §7）
+- 最近复审：2026-10-26（UTC），main @ `0adc2459739e910b3c595ed3c1ea16bb43b3b507`。以下 §1–§6 保留此前审核历史，不代表最新关闭状态。
 - 日期：2026-10-25（UTC）
 - 审核对象：main @ `fc109806bb714bf004fa4ffd7b043941e834fa4e`，本地、未推送；`p6-design.md` r1、`p6-execution-plan.md` r1、`p6-s0-owner-decisions.md` DC37–DC54、`implementation-stages.md` §2、§9、§10。
 - 审核形态：S0 文档快照审核，不是实现阶段退出审核；无本轮门禁提交 V。开发机在 `/home/dev/gdds-p6-s0-review` detached worktree 阅读，被审文件未修改。
@@ -287,3 +287,125 @@
 - 当前被审 HEAD 为 `01c41e78bbcc4158e71d2a56fda2b8d726e2e172`；本次仅追加审核报告，不触发镜像重建。最后验证的 image revision/source-tree **本轮未核验，不作 carried 声明**；下一实施阶段按 AGENTS 在其候选上建立门禁证据。静态检查环境安装构建了既有 Rust 扩展，不是 Rust gate 或新 adapter 验收。
 - 本次只提交此报告，§1–§5 保留首次审核历史；不会修改设计、计划、决议或实现来替作者关闭问题。提交后清理开发机审核 worktree 与 05 的本次检查 worktree；05 日志保留在 worktree 外。不推送，不改写被审提交。
 - 未遇到 auto-mode 分类器拒绝，也未改写命令规避拒绝。
+
+## 7. 第 2 次复审记录
+
+### 7.1 对象与结论
+
+- 结论：**定向修订**。本轮五个待关闭编号中，**F1、F6、F11、F12 关闭，F5 部分关闭**；F5 仅剩 History 需求与实际读取公式的遗漏，仍阻塞。新增 **P6-S0-F13，非阻塞**，是 ordered 摘要 Rust 化阶段的文字未同步。未关闭项共 2 个，其中阻塞 1 个；修订范围已明显收敛，仍需关闭 F5 后由 owner 接受 S0、授权实施。
+- 日期：2026-10-26（UTC）。审核对象：main @ `0adc2459739e910b3c595ed3c1ea16bb43b3b507`，本地、未推送；设计 r3、计划 r3、DC55 第 1 项再次修订。对照对象为 `01c41e78bb`，关闭标准为本报告 §6.2–§6.6；沿用 P5 执行计划 §8.8 模板。
+- 审核在 `/home/dev/gdds-p6-s0-review` detached worktree 只读进行；没有实现门禁 V，没有修改被审文档或源码。两次对象之间 `vnext/` 与 AGENTS 无差异，本轮仍重读相关调用链。以下设计/计划/决议行号均对应 r3；B/SK/RS 前缀同开头，简称 `comparison/` 等指 B 下 `capabilities/` 中的模块。
+
+### 7.2 逐项关闭判定
+
+| 原 finding | 关闭情况 | 依据 |
+| --- | --- | --- |
+| P6-S0-F1 | **关闭** | DC55 第 1 项（决议 `:294`）、设计 `:132`、`:145`–`:147`、`:155`、`:362` 与计划 `:50` 改用当前侧规范行计算，取消 manifest 的 ordered 新字段；摘要保值表和 §4.6 golden 生命周期保持一致。对于满足 U 的表，有只读一侧而保留既有双侧结果的路径，详见 §7.3；不再依赖不可逆哈希反推 blank facts。 |
+| P6-S0-F5 | **部分关闭，仍阻塞** | 设计 `:450`–`:474` 已分开 patch 净变化、rebuild 写入、DROP 和只报告的 planner summary；新增阈值/批量前提，上一轮两个反例均成立。读取已分逻辑与实际，但 `:439` 的 History 行比较需求只列旧节点 X∪D，漏掉当前节点 X；其“上述需求”无法覆盖仅当前规范表缺失、导出缓存命中的状态。见 §7.4，仍未满足“按层与两侧来源无歧义计算”的关闭标准。 |
+| P6-S0-F6 | **关闭（设计可执行性，不是性能达标）** | §16.1（`:401`–`:427`）修正证据类别、可复算小计、未知项检查点与 S2b 判定式；§9（`:310`–`:312`）明确风险消费内存 Arrow、存储读取校验由 Rust 承担并进入 History/bundle 成本。W4 的 Python 风险 5 s 明标假设；未知成本不再冒充已消除。小计和判定式验算见 §7.5；F13 的阶段残句不改变该可行性检查的用途。 |
+| P6-S0-F11 | **关闭** | 设计 `:132` 明确“本次受理冻结的有效 pair 策略（含两侧共有列）”；历史 R1 标签相同不再构成复用依据。当前规则变化时按 R2 重算，schema 不同走 X 普通比较；§15 `:382` 指定相应权威测试。`pair_planning.py:45`–`:71`、`:125`–`:140` 的双侧描述符和运行期规则均可在不读 before 行时使用。 |
+| P6-S0-F12 | **关闭** | 设计 `:132`、`:155`、`:328`、附录 `:539` 明确 occupancy 及其余 facts 由当前侧行现算或取健康 diff/risk 缓存；不再仅凭 manifest 两个哈希生成全部 facts。现有规范行带 blank provenance，单侧 gap 计算具有所需锚点/计数；头部、内部、尾部空白已进入同一 ordered 测试 owner（`:382`）。源码等价推导与调用限制见 §7.3。 |
+
+### 7.3 ordered 专项：行来源、有效策略与单侧计算的输入
+
+**当前侧不是固定的 MODIFIED，也不能假设 materialize 与 assemble 共享内存。** r3 的“内存中的上传侧”应理解为本次 pair 当前侧的规范行来源；实际现行实现有 checkpoint/artifact reader，目标 S2b 有 IPC reader。以下每条路径都有来源，未发现必须读取未变 before 行才能计算摘要的依赖。
+
+| 路径/状态 | 当前侧与可用来源 | 源码/设计依据 |
+| --- | --- | --- |
+| MODIFIED_ONLY Preview | baseline→MODIFIED，当前侧为上传后投影的 MODIFIED | B`application/preview_jobs.py:1618`–`:1625`；投影 reader 与规范 blank metadata 见 `storage_projection/project.py:483`–`:504` |
+| FULL Preview | baseline→INITIAL、INITIAL→MODIFIED；两次当前侧分别是上传的 INITIAL、MODIFIED | `preview_jobs.py:1598`–`:1607`；不能都拿 MODIFIED 代替当前侧。INITIAL baseline 没有 U 表，走新增路径 |
+| Preview assemble/重启恢复 | 从 materialize checkpoint 打开当前侧 artifact 的 reader，不依赖上一步 Python 对象存活 | `preview_jobs.py:2463`–`:2529`；S2b 原始表 consumer 核对仍是设计 `:272` 的切换前置，缺失产物按既定恢复/失败规则处理，不用另一份输入代替 |
+| 两节点 History | pair 的 current commit；S1a 现有 artifact/RS，S2b 起规范表存储/精确 commit Dolt 兜底 | B`application/history/compare_jobs.py:715`–`:793`、`:838`–`:844`；设计 §8.2、§11。S1a 尚无整表导出优化，也不能据此取消单侧摘要的独立读取需求 |
+| 三节点 History | 两个相邻 pair 的 current 分别为第 2、第 3 节点，按各自 pair 的规则/描述符计算 | `history/compare_jobs.py:807`–`:811`；不能用最终 head 的一份行替代所有 pair |
+| History 导出命中、diff/risk 未命中 | 仍需读当前 U 中 ordered 表；不能以 bundle 无需读表为由跳过摘要 | 设计 `:439` 已把“单侧摘要需要当前节点行”列为独立需求，补足 `:155` “本来要为打包读取”的简写；旧节点行无需为此读取 |
+| History diff/risk 健康命中 | 直接用完整有效任务键命中的 facts；无须单侧重算 | 设计 `:313`、`:327`–`:330`、`:448`/`:461`；规则变化不命中旧条目。损坏/缺失回退仍由现有读取与恢复边界处理 |
+
+策略构造不需要 before 的行，但需要 **before/current 两侧描述符与存储事实**。`comparison/pair_planning.py:37`–`:61` 以本次 request 的规则解析两侧 view，再将双侧 descriptor 交 `_comparison_policy`；`:125`–`:140` 的 `value_columns` 来自两侧共有列，`:169`–`:182` 对双侧取交集。U 已要求 schema 相同，故共有列与当前侧同一列集一致；仍应沿用这个双侧构造，不能因为只读一侧就把 before descriptor 设成 `None`。History 的 `_assert_runtime_ruleset`（`:753`–`:762`）检查受理冻结的 digest，Preview assemble 显式传 `rule_set`（`:1645`）；R1→R2 因而使用当前 R2，而非历史 manifest 的规则。
+
+blank 所需 provenance 也可得：上传投影 `storage_projection/project.py:496`–`:504` 和 Repository 物化 `snapshot_materialization/repository_ref.py:450`–`:461` 都生成 `CANONICAL_PSEUDO_GID`；`snapshot_materialization/artifact.py:305`–`:325` 在打开 artifact 时还原 metadata，History checkpoint 同样调用 `open_snapshot_table_artifact`（`:1220`）。单侧扫描必须使用这份**规范行与规范 provenance**，不能拿原始 SQL 行按 pseudo-gid 规则解释，也不能丢掉 metadata 后直接哈希 Arrow 裸列。
+
+**逐字节等价的静态推导：** 对 U 中通过现行 ordered 校验的表，`ordered.py:270`–`:340` 按本次 `schema.selected`、required key、规范 blank provenance 编码并按 position 排序；两侧内容/schema/存储相同，所以得到同一 `_OrderedRow` 序列。`_ordered_digest`（`:746`）的 table name、policy version、stable/position/blank/content 均相同，一次计算可作为两侧值。`_occupancy_digest(_blank_gaps(rows, None))`（`:729`–`:743`）只依赖这一侧按 position 排列的真实锚点与空白数量，同样可直接复用两侧；它不是把两侧共同 backbone 当成单侧输入。
+
+对于头部/内部/尾部空白，设序列为 `blank, A, blank, B, blank`，单侧 gap 分别是 `(None,A):1`、`(A,B):1`、`(B,None):1`；两侧相同则每个 gap 的差为 0，records 为空，occupancy 两侧取同一规范 JSON 摘要。空表给空 gap 列表，全空白表给 `(None,None):n`，也不需要 LIS。一般 U 的真实行 position 严格递增，旧算法 `:500`–`:508` 的 backbone 是所有真实 key，故 moved/position changed 和所有增删改计数均为 0；ordered/blank status、replay guarantee、schema facts、policy digest 等仍按既有结构填充，不能只填两个摘要。
+
+**不要把现有 `_compare_single_side` 当作这项优化。** `ordered.py:159`–`:185` 表达的是 ADDED/DELETED：另一侧 rows 为空、descriptor 为 `None`，会生成增删记录和不同的 blank 摘要；`_single_side_schema_changes`（`:253`）也不是双侧 schema facts。新分支应复用双侧策略/校验与单侧编码/摘要 helper，或等价地构造“两侧相同”的 facts，保留 `_ordered_schema_diagnostics`、row 读取异常的既有 degraded 语义，不能仅因 manifest 相等就把失效输入强制标成 UNCHANGED。r3 没有要求调用该新增/删除入口，故这属于实施约束，不作为新 blocker。上述是源码推导，实际新旧结果逐字节断言仍由 §15 指定的 ordered 测试在实现阶段完成。
+
+### 7.4 F5：手算结果、剩余反例与最小关闭方向
+
+| §16.2 示例 | 手算/源码核对结果 |
+| --- | --- |
+| 1,000 行合格 keyed 表新增两行 | X=1；基线需求 1，未复用时实际读 1；行派发/kernel 各 1；净 INSERT=2，比例 `2/1002 < 1%`，可 patch。相同列身份且字节未超限时可一条批量 INSERT，但 SQL 条数不作断言，正确 |
+| 同一表一行键变化 | X=1，DELETE+INSERT=2，`2/1000=0.2%`，可 patch；读/派发计数同上，正确 |
+| 100 行表改 6 行 | `6/100=6%`，超过拟定 1%，也超过现行 5%；rebuild 写入 100，planner `changed_row_count=6` 只报告，正确。旧 `_changeset.py:80` 的 200 个 DELETE/INSERT 对象不再被冒充该写入数 |
+| 新增表 n 行 | A=1，基线读 0，行派发/kernel 0，表级处理 1；rebuild 写入 n，正确 |
+| 删除表 10 行 | D=1，表级处理 1，DROP 1、写入 0；planner summary 10，正确。示例实际读 1 是没有可复用基线数据/导出的情形，导出命中时须按上方“实际读取≤逻辑需求”处理 |
+| 两张同内容表相同变化 | 逻辑派发 2；在完整任务键也相同的前提下 kernel 1，读取按完整内容身份可为 1 或 2；Submit 各自计数，正确。仅 raw hash 相同但 schema/规则不同不能套用去重例子 |
+| 只缺 diff/risk，两侧规范表健康 | X=1，重算需要两侧行，但两侧都从存储读取，Dolt=0、kernel=1，正确 |
+| H3 健康命中 | Dolt/kernel/单侧摘要均 0，正确；这是逻辑派发之后的命中分支，不与派发数冲突 |
+
+依据为 B`mutation_planning/_planner.py:150`–`:215`、`_patch_eligible:253` 起，`_repository_replay_renderer.py:176`–`:209` 的行数/字节/列身份切批，以及 Storage Mutation §4。上述数字均为人工代入，不是新跑产品测试。上一轮的“重建 summary≠写入行数”和“删表 summary≠0”已经修正，不再要求作者重做这部分。
+
+**仍未关闭的 F5 仅限下述读取公式：** 设计 `:439` 将 History 的行比较需求写成“旧节点 X∪D”，随后用各层需求中的存储 miss 数算 Dolt 次数，却没有当前节点 X 的行需求。取一个两侧都存在且内容变化的非 ordered 表 t：diff/risk 未命中；旧节点规范表健康；当前节点规范表缺失；两侧导出缓存均健康。按该行列出的需求，旧节点存储命中、bundle 不读表、又没有 U ordered 单侧摘要需求，推得 Dolt=0；但 `pair_planning.py:68`–`:69` 与双侧比较需要 current rows，按 §8.2 的规范表存储→Dolt 回退应读取当前 commit 的 t，实际为 1。若实现打算将导出 Parquet 作为另一比较输入来源，则必须明列其可信输入转换与计数，不能由“导出命中”暗中推定当前规范行已存在。
+
+- 类型仍为**已证实缺陷，阻塞**；位置收敛为 `p6-design.md:439` 与执行计划 S5 的 §16.2 验收引用；影响是低报当前侧读取或给正确回退错误的计数上限，不是新的数据安全机制要求。
+- 最小修正：在 diff/risk 未命中且需要行比较的 pair 中，分别列 old-X 与 current-X；D 的表级处理/导出需求独立列出，A/所有节点的 bundle 需求照现规则。合并去重后再按完整内容身份和缓存层计算实际读取，不能只列旧节点。健康 diff/risk 命中应消除两侧比较行需求，而不自动消除独立 bundle 需求。
+- 关闭标准：保留已正确的八个例子，补上述“仅当前规范表 miss、导出命中”的 1 次 Dolt 回退结果，以及其两侧都健康时的 0 次结果；正文公式与示例一致即可。无需新建计数框架或扩大测试矩阵。
+
+### 7.5 F6：预算小计与 W2 判定式复算
+
+按表头明确排除 e、i、j、k，a–h 的已知项相加如下（单位 s）：
+
+| 负载 | 逐项相加 | 精确区间 | 文档约数 |
+| --- | --- | --- | --- |
+| W1 | 1 + 0.5 + (2–5) + 14 | 17.5–20.5 | 18–21，一致 |
+| W2 | 1 + 0.5 + (2–5) | 3.5–6.5 | 4–7，一致 |
+| W3 | 1 + 0.5 + (2–5) + 2 + 1 + 2 + 1 | 9.5–12.5 | 10–13，一致 |
+| W4 | 1 + 0.5 + (2–5) + 14 + (1–5) + (5–10) + 5 | 28.5–40.5 | 29–41，一致 |
+
+V6 的 0.481 s 正确标为 2× t4 原型实测；写入约 14 s 正确标为旧路径外推（`624×2×6.994/624=13.988`）。W2 写入 0 是内容全部命中且不重写的明确假设，W3 约 2 s、物化 2–5 s、Rust 单侧摘要 <1 s 均不能当成生产实测。g 的 V1 来源不含 IPC/输出编码，S3 取证必须以 g 所声明的完整“比较与逐行记录”边界测量；i 的 bundle 成本含真实读 closure 时的 Rust 校验。i/k 中提到的 assemble 固定开销归因后只能落入一个最终成本项，不能重复相加。r3 把这些未知/外推绑定到阶段检查，足以关闭 S0 预算建模缺口，不表示已有端到端可达证明。
+
+判定式 `W2_S2b − Σ有证据、有阶段的剩余削减上界 ≤ 30 s` 是**可行性筛查**而非达标验收：例如实测 40 s、唯一不重叠且有证据的削减上界为 12 s，则乐观剩余 28 s，可继续验证；上界只有 8 s，则 32 s，停止交 owner；存在任何未归因项时即使算术为 28 s 也停止。未归因项的可削减额度为 0，不能靠未知收益填洞。多个削减不能重复覆盖同一 wall 段，实际削减未达预期时仍需重新核对可达性，最终 ≤30 s 由 S6 测量判定。
+
+W2 没有变化表行比较，不能借 S3 的 changed-kernel 吞吐抵扣；它有 e 项的未变 ordered 单侧扫描，S3 若确实缩短该项，可用**该项自身证据**申报削减。§9 已为新算记录的 Python 风险和缓存/bundle 读 closure 的 Rust 校验分别明确执行路径，W4 约 5 s 风险仍是待验证假设，超出预算继续按 DC47 处理，不自动搬迁全部规则。因而本轮关闭 F6，不要求在 S0 运行尚不存在的优化实现。
+
+### 7.6 新增 P6-S0-F13：S2b 路径仍残留与 S3 安排相冲突的 ordered 摘要计算
+
+- 类型：**非阻塞建议**；是否阻塞：**否**。
+- 位置：`p6-design.md:269`（§8.1），对照 `:132`、`:155`、`:409` 与 DC55 第 1 项。
+- 依据：r3 已取消投影时为 manifest 预计算 ordered 字段；§4.2 明确单侧摘要 S1a 用 Python、S3 起用 Rust，预算 e 也是 S1a/S3 检查。§8.1 仍称 S2b 上传合并路径依次完成“表摘要、ordered 逻辑摘要与 fast_row_digest”，未说明此处如何获得本次完整 pair 策略或是否代替 S3 的计算。
+- 触发场景与影响：实现者照 S2b 清单预计算一次，assemble 又按当前 pair 重算，产生无 consumer 的重复扫描；或误将单侧策略的值当作 pair 结果，并高估 W2 在 S2b 已获得的削减。更具体的新 §4.1/§4.2 已给出正确方向，因此本轮不把这条残留文字单独列为阻塞，也不重开已关闭 F11。
+- 最小修正方向：同步 §8.1，删除无 consumer 的 ordered 预计算措辞；若有意把单侧摘要提前到 S2b，则明确完整 pair 输入、唯一计算位置并同步 e 项阶段，不能两处各算一次。
+- 关闭标准：设计和计划对 ordered 单侧摘要的 Python→Rust 节点、输入与预算归属只有一种解释；不要求新增机制、Contract 版本或测试 owner。
+
+### 7.7 验收核对与已关闭项影响范围
+
+| 验收项 | 结果 | 依据/限制 |
+| --- | --- | --- |
+| 五项逐一按原关闭标准复核 | 完成 | §7.2；F5 仅保留一个明确反例，不重复否定已修正部分 |
+| Preview/FULL/History/恢复的 ordered 输入 | 设计路径可满足 | §7.3；保留双侧元数据，只减少 before 行读取，不使用 ADDED/DELETED 单侧入口 |
+| 计数手算与上一轮反例 | Submit 与已列示例通过；History 公式仍遗漏 | §7.4 |
+| 已知项小计与 W2 检查点 | 通过设计审核 | §7.5；不是生产性能通过或最终门槛豁免 |
+| F2–F4、F7–F10 | 维持关闭 | 本轮仅复核受影响的缓存输入、blank metadata/恢复、§13/§14 ordered 字段撤回、§15 owner 与导航文字；完整表身份、零日期、FULL/三节点矩阵、CAS/保护、旧扩展与 runner 规则未被 r3 推翻 |
+| 比例化与阶段依赖 | 无新增过度保障机制 | 单侧扫描使用当前规则和既有输入校验；沿用 ordered 权威测试 owner，不加摘要持久字段、历史规则兼容层或独立恢复机制；阶段文字问题见 F13 |
+| S0 接受 | 尚未满足 | F5 关闭后定向复核并由 owner 接受；F13 可同轮文字对齐 |
+
+### 7.8 本次实际执行的检查
+
+| 检查 | 命令/方法 | 结果 |
+| --- | --- | --- |
+| 主 checkout 与 detached 快照 | `git status --short`、`git rev-parse HEAD`；`git worktree add --detach /home/dev/gdds-p6-s0-review 0adc245973` | 初始 main clean；HEAD 为目标完整 SHA；开发机仅阅读、手算与写审核报告 |
+| 差异/源码/模板 | `git diff 01c41e78bb 0adc245973`、`rg`、`nl -ba`、`sed -n` | 三份 r3 修订与上一轮关闭标准逐项比对；`vnext/`、AGENTS 差异为空；重读 pair planning、ordered/blank、Preview/History checkpoint、投影 provenance、planner/renderer 与 P5 §8.8 |
+| 05 preflight | `ssh -o BatchMode=yes ct108-gw-dms-05 'echo OK'`；hostname、`pgrep -af`、`docker ps`、HEAD/status/worktree list | `gw-dms-test-05`；无其他测试/编译/Dolt/测量任务和运行容器，节点主 checkout clean |
+| 节点快照同步 | `git bundle create - main` 经 SSH 写入节点日志目录，fetch 后建 `/home/dev/gdds-p6-s0-rereview2` detached worktree 并建 legacy 链接 | 节点 worktree 同为目标提交；未移动节点 main；无本地临时 bundle |
+| 五包提交前静态检查 | 05 每包执行 `../scripts/uv-consume.sh -C . run ruff check .` 与 `../scripts/uv-consume.sh -C . run mypy` | 全部通过；mypy 文件数 shared_kernel=34、repository_contracts=15、repository_client=26、backend=486、repository_service=200；无锁文件漂移；不是产品测试或性能取证 |
+| 产品测试/门禁/测量 | 未执行 | 未运行 pytest、权威 runner、Compose 或真实数据旅程；本轮无需动态测量；未在开发机运行测试 |
+
+静态检查日志：05 的 `/home/dev/gdds-p6-s0-rereview2-logs/static.log`；2026-10-26T04:49:43Z–04:50:42Z，起止 HEAD 均为 `0adc2459739e910b3c595ed3c1ea16bb43b3b507`，exit=0，结束 tracked worktree clean。root SSH、LC_ALL=C.UTF-8、umask=022、TMPDIR=`/home/dev/gdds-test-tmp`；CARGO_TARGET_DIR=`/home/dev/gdds-p6-s0-rereview2-logs/cargo-target` 位于 worktree 外。
+
+### 7.9 验证限制与交付边界
+
+- 单侧摘要的逐字节等价是根据现行编码、排序、策略与 blank 函数推导；没有声称新 helper 已实现或测试通过。有效输入之外的诊断/degraded 语义仍受 S1a 保值约定约束。实现阶段须以既有完整 facts/golden 比较证明，不能仅比较两个摘要。
+- 未读取或提交真实数据；预算只核对入库报告与人工算术，不把原型吞吐当作端到端结果。未知成本、S2b W2 判定和 S3 W4 实测仍是实施检查点。
+- 当前被审 HEAD=`0adc2459739e910b3c595ed3c1ea16bb43b3b507`。报告为纯文档变更，不触发镜像重建；最后验证的 image revision/source-tree 本轮未核验，不作 carried 声明。五包静态检查不是 runner/容器门禁；环境安装构建既有扩展也不是 Rust gate。
+- 只提交本报告，保留 §1–§6 历史；不修改被审文档，不推送。交付时删除开发机和 05 的本次 detached worktree；节点日志及其中的临时 bundle/构建缓存保留在 `/home/dev/gdds-p6-s0-rereview2-logs/`，不需要单独删除。此前复审遗留的临时文件不属于本次清理范围。
+- 本轮未遇到 auto-mode 分类器拒绝，未尝试绕过此前拒绝的删除操作。

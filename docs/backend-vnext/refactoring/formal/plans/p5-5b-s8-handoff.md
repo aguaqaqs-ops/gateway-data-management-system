@@ -32,7 +32,7 @@ five_package_static: pass
 authoritative_runner: pass
 findings_closed: [S7-F2, S8-F1]
 findings_open: []
-deferred: [S7-O1, S7-O3, S7-O4, occupancy-assertion-gap, shutdown-no-caller, private-process-access]
+historical_deferred_at_s8: [S7-O1, S7-O3, S7-O4, occupancy-assertion-gap, shutdown-no-caller, private-process-access]
 reopen_required: []
 implementation_authority_unchanged: false
 p5_5b_slice_exit: pass_recommended
@@ -200,9 +200,12 @@ cd vnext/backend
 # 2 passed, 11 deselected
 ```
 
-## Deferred register（非阻塞）
+## S8 时点的历史 Deferred register（非阻塞）
 
-| 项 | 来源 | 处置 |
+下表保留 S8 handoff 当时的观察与状态，不表示这些项目在 P5 exit 后仍全部待办。当前处置以
+[P5 exit review](p5-exit-review.md) §6.2 和 §7 EXIT-F4 为准。
+
+| 项 | 来源 | S8 时点处置 |
 | --- | --- | --- |
 | S7-O1 PRE_REQUEST cross-owner | [p5-5b-s7-independent-review.md](p5-5b-s7-independent-review.md) §cross-owner | acceptable |
 | S7-O3 `defer_operation_terminal` 无 production caller | [p5-5b-s7-independent-review-5.md](p5-5b-s7-independent-review-5.md) F7 closure | deferred |
@@ -211,6 +214,17 @@ cd vnext/backend
 | shutdown-no-caller | `tests/support/submit_job_harness.py` `RepositoryServiceClient.shutdown` 仅 test harness；无 production caller（S8 handoff 观察） | deferred |
 | private-process-access | `test_await_import_result_consumes_matching_terminal_after_repository_restart` finally 块访问 `service1._process`（S8 handoff 观察；§490 restart owner） | deferred |
 | Repository restart owner 范围 | [p5-5b-submit-finalize-execution-plan.md](p5-5b-submit-finalize-execution-plan.md) §490–491；review-7 | 仅 hard-kill 后持久性 + Backend 消费；graceful shutdown / startup recovery 属其他 owner |
+
+### P5 exit 后的当前处置
+
+| 历史观察 | 当前状态与 owner |
+| --- | --- |
+| S7-O1 PRE_REQUEST cross-owner | 已接受的跨 owner 终态路径；Submission / Operations 继续遵守既有 abort-code 约束，无新增迁移工作。 |
+| S7-O3 `defer_operation_terminal` 无 production caller | 已关闭：现有生产调用方见 `submit_jobs.py`；删除“无 caller”待办。 |
+| S7-O4 `abort_submit_in_control_transaction` 未导出 `__all__` | 保持 Application 内部 helper；新增外部公共消费者时由 Submission Application owner 重新评估。 |
+| occupancy-assertion-gap / private-process-access | Submission 测试 owner 可在后续测试整理中评估；当前观察不证明 occupancy 错误，也不要求额外安全机制。 |
+| shutdown-no-caller | 测试 harness 生命周期支撑，无生产调用方符合当前边界；只有提出生产 graceful-shutdown Contract 时才重开。 |
+| Repository restart owner 范围 | 保持既有分工：Submission 覆盖 hard-kill 后持久性与 Backend 消费；Repository Service 覆盖 startup 与 graceful lifecycle。 |
 
 ## Hygiene
 

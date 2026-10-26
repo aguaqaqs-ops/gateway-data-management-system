@@ -304,7 +304,7 @@ build-input 指向 G13 V 是身份算法的产品输入结果，并不表示复�
 | G8b-F2 tie 时绝对 no 未变也可能标 moved | Ordered Comparison owner；相同最优 backbone 的确定性选择 | 治理计划 §3 G8b 记录保留该规则（`:319` 附近）；是 owner 接受的语义折中，不是未修 bug；若业务要求唯一绝对位置解释，重开算法/Contract。 |
 | G6b 跨 worktree carried 不可直接复核 | Build/Architecture owner；权限和非 Git context 属输入 | owner 2026-10-11 选 C（计划 `:121`），DC34 后用同 worktree manifest，不比 containerd image ID。本次旧 worktree 删除，按任务明确选择 fresh。再次因跨 worktree 多跑全量已触及原重新评估条件，统一 exit 时应回到 owner 评估 A；本审核无权自行实施 label 方案。 |
 | G11 R2-O2 三项 SQLite 并发测试隐含 5 s busy_timeout | Backend 测试 owner；两次阶段门禁及本次通过，不等于无时序依赖 | 原审核 `:81` 已给条件：出现不稳定就移回 serial；登记重开条件成立。 |
-| G11 R2-O3 子进程测试误归 unit | 未找到后续明确处置节点；建议 Backend 测试 owner | `T/test_http_admission_shutdown_process.py:31` 仍 serial-only；EXIT-F4，建议下次 marker 整理接受/修订。 |
+| G11 R2-O3 子进程测试最初误归 unit | Backend 测试 owner；EXIT-F4 已关闭 | `T/test_http_admission_shutdown_process.py` 现标 integration/serial；P5 exit 的 unit collect 为 0 selected，完整 runner 正常执行；不再是 marker 整理待办。 |
 | G11b-O2 服务端 operation 耗时归因未实测 | Test Infrastructure / 性能诊断；旧门禁轮询时间不能断言全是异步执行 | 保留为下次门禁性能分析的测量限制，非产品容量证据；不以 S5 产品 import 测量冒充当时所有测试服务端测量。 |
 | G11b-O3 两路 Compose 并发优化 | Build/Test Infrastructure + repository owner；预计收益小且涉及端口/锁/URL | 保持当前串行，须 owner 另立步骤才实施；不是退出前置。 |
 | S2b R1-O3 可选 ADDED/REMOVED 表数对照 | 真实链路测量 owner；未观测的差值不能猜作事实 | 原处置为 S5 或后续真实数据核对；M 的 S5 handoff 未明确关闭该具体差值解释，保留到下一次相关真实链路复核，不重跑本次。 |

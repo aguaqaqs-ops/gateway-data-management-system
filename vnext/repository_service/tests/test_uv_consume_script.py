@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -114,6 +116,74 @@ def test_uv_consume_rejects_index_override(tmp_path: Path) -> None:
     assert "secret-pass" not in completed.stderr
     assert "user:secret" not in completed.stderr
     assert not log_file.exists()
+
+
+@pytest.mark.unit
+def test_uv_consume_cleans_lock_snapshot_after_uv_failure(tmp_path: Path) -> None:
+    log_file = tmp_path / "uv.log"
+    lock_tmp = tmp_path / "lock-tmp"
+    lock_tmp.mkdir()
+    completed = _run_uv_consume(
+        tmp_path,
+        args=["run", "python", "-c", "pass"],
+        env={"TMPDIR": str(lock_tmp)},
+        log_file=log_file,
+        fake_uv=_fake_uv_script(log_file, run_exit=23),
+    )
+
+    assert completed.returncode == 23
+    assert list(lock_tmp.iterdir()) == []
+
+
+@pytest.mark.unit
+@pytest.mark.serial
+def test_uv_consume_cleans_lock_snapshot_after_sigterm(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    lock_tmp = tmp_path / "lock-tmp"
+    lock_tmp.mkdir()
+    started = tmp_path / "uv-started"
+    fake_uv = bin_dir / "uv"
+    _write_executable(
+        fake_uv,
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            touch "{started}"
+            exec sleep 30
+            """
+        ),
+    )
+    environment = os.environ.copy()
+    environment["PATH"] = f"{bin_dir}{os.pathsep}{environment.get('PATH', '')}"
+    environment["TMPDIR"] = str(lock_tmp)
+    environment["GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT"] = "0"
+    process = subprocess.Popen(
+        ["bash", str(UV_CONSUME), "-C", str(VNEXT_ROOT / "shared_kernel"), "run", "python"],
+        cwd=VNEXT_ROOT,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not started.exists() and time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            time.sleep(0.02)
+        assert started.exists(), "fake uv did not start"
+        assert list(lock_tmp.iterdir()), "lock snapshot was not created before uv started"
+        os.killpg(process.pid, signal.SIGTERM)
+        _stdout, _stderr = process.communicate(timeout=10)
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.communicate()
+
+    assert process.returncode in {143, -signal.SIGTERM}
+    assert list(lock_tmp.iterdir()) == []
 
 
 @pytest.mark.unit

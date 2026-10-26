@@ -81,3 +81,14 @@ G11 计划当初的前提是“backend 的大部分耗时来自普通用例”�
 - **R2-O2：** 有 3 个并发用例移入了并行批次，它们隐含依赖 SQLite `busy_timeout`（5 s），handoff 写的是“没有固定 timeout”。余量很大，两次运行都通过了，风险低；一旦出现不稳定，改回 serial。
 - **R2-O3：** conftest 改动后，只标 serial 的用例也会自动获得 `unit`，`test_http_admission_shutdown_process.py` 里 3 个涉及子进程和信号的用例因此成了 `unit`，与 marker 表中“子进程属于 integration”的定义不一致。这与 repository_service 的现有行为相同，runner 也不按 `unit` 筛选。建议之后把这 3 个用例标为 integration。
 - **R2-O4：** 并行调试和无 dolt unit 调试的日志中，head 写的是 kickoff base，实际运行的是还没提交的 V 改动。这些是调试日志，不作为证据。
+
+### P5 exit 后的当前处置
+
+本节保留上面的 G11 审核观察作为历史记录；当前状态以 [P5 exit review](p5-exit-review.md) §6.2 和 §7 EXIT-F4 为准。
+
+- **R2-O1 / G11b-O1：** 已由后续 G12/DC34 的镜像身份规则覆盖；按当前同 worktree manifest 规则判定 carried。
+- **R2-O2：** 三项 SQLite `busy_timeout` 并发用例仍有条件重开项；出现不稳定时由 Backend 测试 owner 移回 serial。
+- **R2-O3：** 已关闭；相关子进程测试现标为 integration/serial，P5 exit 的 unit 收集核对为 0 selected。
+- **R2-O4：** 无效调试尝试继续只作非证据，不是待修代码项。
+- **G11b-O2：** 仍是历史门禁耗时归因的测量限制；仅在后续门禁性能分析时考虑，不作为产品容量证据。
+- **G11b-O3：** Compose 旅程继续串行；并发优化需 owner 另立授权步骤，未列为阶段退出前置。

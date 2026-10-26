@@ -69,8 +69,15 @@ Repository owner 决定（DC1–DC9 为 2026-09-25，DC10–DC27 为 2026-09-26�
 | DC23 | Ruleset Activation §5 末句随附录 B.2 一并修订：带外部 effect 的 operation 按冻结产物继续，纯计算 operation 按 §1 稳定失败 | 0019 |
 | DC24 | Preview 在受理时冻结运行期规则集 digest，每步执行前比较，不同即稳定失败 | 0019 |
 | DC25 | manifest artifact 的 digest 与 Submission 记录不符时按稳定失败处理，附诊断、日志与指标，不属于 incident 范围 | 0019 |
-| DC26 | canonical row hash 的 Rust 绑定放置由 Backend Architecture 在 r3 选定（结果见 §9 A6 行） | — |
+| DC26 | canonical row hash 的绑定位置已确定：只放行 `capability:canonical_row_hash → ext:compute`；没有生产消费者的三个模块另行登记 Phase 6 延期，不是保留的 import 违规（§9 A6） | — |
 | DC27 | DC12 触发时，在 S2a handoff 中按 Canonical Storage §8 写明 storage projection version 的处理（条件决议） | 0018 |
+| DC28 | 身份确认理由允许 LF、CR、TAB；Review 理由保持原有单行规则，按调用方显式选择共享校验模式 | 0020 |
+| DC29 | 无主键表按 keyless 完整多重集合处理，不推断或补造自然键；Contract 修订为 3.2.0 | 0018 |
+| DC30 | 调试与正式取证分开；P5 验证正确性并交付性能输入，容量目标属于 Phase 6（后经 DC31、DC33 细化） | — |
+| DC31 | Catalog 上限按容量确定；读取步骤失败必须进入终态；P5 只验证正确性，B 层性能问题登记到 Phase 6 | — |
+| DC32 | S5 测量按阶段、按表分段并测基本操作吞吐，作为 Phase 6 的下界输入 | — |
+| DC33 | 按包沿用符合条件的测试结果；真实数据范围按阶段改动面确定 | — |
+| DC34 | 测试在专用节点执行；backend/worker carried 使用来源与当前 HEAD 的同 worktree manifest 判定，这些镜像不比较 containerd image ID | — |
 
 非目标：
 
@@ -545,7 +552,7 @@ same key 且 same fingerprint 的重放返回原结果；same key 但 fingerprin
 | A2 私有模块导入 | HTTP 上传受理移入 Application（例如 `application/workspace/upload_admission.py`），经 `source_package_staging` 公开的受限成员枚举入口实现；HTTP 只保留 DTO 映射与流式读取（HTTP 区不得导入 capability）。`http_arrow` 两条随 §5.2 关闭 | S1 / S2b |
 | A3 事务→job 反向调用 | checkpoint 保护释放下沉到 submission 用例内的下层模块 | S1 |
 | A5 nominal ref 倒挂 | Submission 领域持有自身的包引用值对象；`artifacts` 不导入 domain；转换函数移至 `application/submission` | S1 |
-| A6 包根模块 | 删除重复的 `canonicalization_manifest.py`/`canonicalization_cells.py`；import 包媒体类型只由 storage_projection 契约定义，adapter 测试断言与 wire 常量一致；`repository_import_artifact.py` 的 adapter 按 §4.8 迁入 infrastructure；`compute.py`、`canonical_row_hash_ipc.py` 移入 `capabilities/canonical_row_hash`；import 规则精确放行 `capability:canonical_row_hash → ext:compute`（DC26 选定：ADR 0001 与 Contract Taxonomy §4.4 允许 capability facade 直接调用 PyO3 production provider；该 capability 只有 Rust 一个 production provider，不存在需要由 composition 选择的 provider，也就不按 P5 §2A.3 预建 provider 端口；放行只针对该 owner，不是整层或按文件名的豁免；`capabilities/canonical_row_hash/contracts.py` 仍保持叶子，不导入 compute，只 import contract 不加载 Rust 扩展），放行在同一 diff 中说明，`tests/support/import_rules.py` 与 `test_architecture.py` 的规则形态参数表同步修改；三个模块仍不可达，登记 Phase 6 延期（改名后的不可达条目在同一 diff 中给出理由）；`synthetic_w2.py` 移至 `tests/support` | S1 / S2b |
+| A6 包根模块 | 删除重复的 `canonicalization_manifest.py`/`canonicalization_cells.py`；import 包媒体类型只由 storage_projection 契约定义，adapter 测试断言与 wire 常量一致；`repository_import_artifact.py` 的 adapter 按 §4.8 迁入 infrastructure；`compute.py`、`canonical_row_hash_ipc.py` 移入 `capabilities/canonical_row_hash`；import 规则精确放行 `capability:canonical_row_hash → ext:compute`（DC26 选定：ADR 0001 与 Contract Taxonomy §4.4 允许 capability facade 直接调用 PyO3 production provider；该 capability 只有 Rust 一个 production provider，不存在需要由 composition 选择的 provider，也就不按 P5 §2A.3 预建 provider 端口；放行只针对该 owner，不是整层或按文件名的豁免；`capabilities/canonical_row_hash/contracts.py` 仍保持叶子，不导入 compute，只 import contract 不加载 Rust 扩展），放行在同一 diff 中说明，`tests/support/import_rules.py` 与 `test_architecture.py` 的规则形态参数表同步修改；三个模块仍不可达，登记 Phase 6 延期（改名后的不可达条目在同一 diff 中给出理由）。DC26 的绑定边已解决，不可达登记是独立的无生产消费者延期，不代表保留 import 违规；`synthetic_w2.py` 移至 `tests/support` | S1 / S2b |
 | A7 contracts 跳板 | 公共面改为 facade + contracts，contracts 为叶子；DAG 测试放行上游 facade | S1 |
 | A8 绕过 facade | Application 只从 facade 或 contracts 导入 | S1 |
 | A9 / N-dead 不可达代码 | 删除 `cache/comparison_core.py`、`capabilities/comparison/provider.py`、`capabilities/snapshot_materialization/cache.py`、两个占位 capability；`external_target_sync` 登记延期（真实外部目标出现时重开）；composite 与 XML 模块（含 `snapshot_materialization._catalog`）在 S3 变为可达；synthetic job 与 external effect 桩移出生产包和 worker 装配 | S1 / S3 / S5 |

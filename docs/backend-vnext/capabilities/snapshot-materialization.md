@@ -2,6 +2,12 @@
 
 本文定义 SourcePackage、SQL dump document、repository ref 与 Snapshot/Table 之间的能力边界。Capability 不绑定 upload、submit 或 history compare 流程。
 
+> **当前权威提示：** 本文中仍要求 FINAL SnapshotSummary 写入 repository hidden system table、并要求
+> repository-ref readback 以 hidden summary 为权威的表述，已由 [ADR 0019](../refactoring/formal/adr/0019-commit-canonical-metadata-authority.md)
+> 取代；本提示适用于下方“设计原则”“Stable Entrypoints”及 `repository_ref_materialization` 小节中的相应旧句。
+> 当前 commit 规范元数据权威是 Backend 持有的 `CanonicalizationManifest`，Repository-ref 采用单遍读取，
+> 不写入、不读取或校验 hidden summary。其他 Snapshot materialization 语义仍按本文与 owning Contract 执行。
+
 ## 能力列表
 
 ```text
@@ -34,7 +40,7 @@ Capability 必须保持 flow-neutral 和显式输入输出。
 - Capability 可以暴露多个稳定 entrypoint；SourcePackage 定位、SqlDumpSource resolution、SQL parser/materializer、RepositoryRef materialization 都应能独立测试和复用。
 - `backend_vnext.capabilities.table_rules` 是共享语义真源。Snapshot materialization 负责派生自己的 materialization 视图，但 compare-key / compare participation 的语义判定必须来自同一份规则。
 - 对于没有可用 compare key 的表，Snapshot materialization 不再自动补全列 surrogate key；它应保留为 keyless 事实，并按 shared rules / comparison contract 进入早退或降级判断。
-- submit finalize 写入的 FINAL SnapshotSummary 必须在 repository commit/ref 内以隐藏系统表形式落地；history compare / archive 读取这份正式事实，而不是自己重建摘要。
+- **已由 ADR 0019 取代（历史表述）：** submit finalize 写入的 FINAL SnapshotSummary 必须在 repository commit/ref 内以隐藏系统表形式落地；history compare / archive 读取这份正式事实，而不是自己重建摘要。
 - `/sql/dbcfg.sql` 是当前项目的 SourcePackage 业务约定，不应成为 SQL dump parser 的唯一入口。
 - `/comps/logic/logics.xml` 是可选业务文档，由 `composite_signal` capability 消费；缺失时使用稳定 EMPTY source。
 - 正式 upload、submit 和 archive source replay 统一调用 business-source wrapper，组合 SQL SnapshotTable 与 `composite_signal_point` 后再最终化 identity；SQL-only benchmark entrypoint 不改变。
@@ -75,7 +81,7 @@ resolve_snapshot_table_set(snapshot_ref | materialization_result, policy) -> Sna
 - `SnapshotTableReader` 可以持有 deferred row source；preview 阶段的表行数据只应在 `iter_rows()` 或显式 digest 校验时展开，reader init 本身不应触发行 materialization。
 - `materialize_sql_snapshot_preview` 允许只做 `fast_row_digest` 的同步构造，输出 `PROVISIONAL` snapshot/summary。
 - `finalize_snapshot_materialization` 负责 canonical row digest 校验、`raw_content_digest` 生成以及 `FINAL` snapshot/summary 落地。
-- `finalize_snapshot_materialization(...)` 如果运行在 submit finalize / repository import 路径下，还必须把 FINAL SnapshotSummary 写入 repository commit/ref 的隐藏系统表，并让后续 readback 以这份 hidden summary 为权威事实。
+- **已由 ADR 0019 取代（历史表述）：** `finalize_snapshot_materialization(...)` 如果运行在 submit finalize / repository import 路径下，还必须把 FINAL SnapshotSummary 写入 repository commit/ref 的隐藏系统表，并让后续 readback 以这份 hidden summary 为权威事实。
 - `materialize_repository_ref` 不读取 SourcePackage 或 SQL，只通过 repository table access provider 归一化 repository row stream。
 - Flow-facing helper 可以组合上述入口，但测试、benchmark 或外部项目可以直接调用其中任一稳定入口。
 - `materialize_business_source_package*` 是正式业务 flow-facing wrapper；它调用 SQL materialization、composite XML parser/materializer 与通用 Snapshot result rebuild/finalize，不复制 digest 算法。
@@ -349,7 +355,7 @@ repository_server / dolt_repository module
 - repository server 不理解 Workspace、Submission、Comparison、table ruleset 或 business digest。
 - repository server 只提供 repository-local 的表 catalog、reader、export 和生命周期控制。
 - snapshot materialization 负责 canonical identifier、scalar encoding、compare schema digest、raw content digest、state digest 和 SnapshotSummary。
-- repository ref materialization 负责读取 repository commit/ref 内的 hidden summary table，并在该事实基础上恢复 SnapshotSummary；它不应在 summary 缺失时自己重建一套轻量摘要来掩盖不完整数据。
+- **已由 ADR 0019 取代（历史表述）：** repository ref materialization 负责读取 repository commit/ref 内的 hidden summary table，并在该事实基础上恢复 SnapshotSummary；它不应在 summary 缺失时自己重建一套轻量摘要来掩盖不完整数据。
 
 输入：
 

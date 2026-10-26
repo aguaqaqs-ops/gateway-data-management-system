@@ -832,6 +832,9 @@ def test_succeeded_submit_reconciliation_records_repository_import_durations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    repository_import_tmp = tmp_path / "repository-import-tmp"
+    repository_import_tmp.mkdir()
+    monkeypatch.setenv("TMPDIR", str(repository_import_tmp))
     db_path = tmp_path / "backend-control.sqlite3"
     _seed_succeeded_submit_control_db(
         db_path,
@@ -896,12 +899,16 @@ def test_succeeded_submit_reconciliation_records_repository_import_durations(
         "started_at": "2026-10-20T15:00:05+00:00",
         "completed_at": "2026-10-20T15:01:05+00:00",
     }
+    assert list(repository_import_tmp.glob("repository-import-*.sqlite3*")) == []
 
 
 def test_submit_reconciliation_fails_when_repository_import_completion_time_is_missing(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    repository_import_tmp = tmp_path / "repository-import-tmp"
+    repository_import_tmp.mkdir()
+    monkeypatch.setenv("TMPDIR", str(repository_import_tmp))
     db_path = tmp_path / "backend-control.sqlite3"
     _seed_succeeded_submit_control_db(
         db_path,
@@ -940,6 +947,7 @@ def test_submit_reconciliation_fails_when_repository_import_completion_time_is_m
             root=tmp_path / "submit-facts",
             enforce_three_session_limit=True,
         )
+    assert list(repository_import_tmp.glob("repository-import-*.sqlite3*")) == []
 
 
 def test_succeeded_submit_without_attempt_repository_identity_fails_reconciliation_probe(

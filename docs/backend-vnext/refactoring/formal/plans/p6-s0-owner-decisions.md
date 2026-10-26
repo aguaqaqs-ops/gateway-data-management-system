@@ -220,7 +220,7 @@ implementation_authorized: no
 - **来源**：讨论稿 §8.1、§11、§13 D3。
 - **决议**：
   1. **排序原则**：先改 Contract、再改性能，Contract 阶段之后重建一次对照基准，之后的纯性能阶段结果须与基准逐字节一致；每类 golden 只改一次；按依赖排序。
-  2. **S0（开工前）**：本记录与 implementation-stages 改写；kickoff 小修（`uv-consume.sh` 的 EXIT trap、SQLite 旁路文件残留、三项文档整理）；DC48 第 1 项；前置验证 V1、V5、V6、V7（V8 并行，不阻塞）；重要 keyless 表是否定义自然键的业务评估，在 S1a 之前给出；Phase 6 设计、执行计划与独立文档审核。
+  2. **S0（开工前）**：本记录与 implementation-stages 改写；kickoff 小修（`uv-consume.sh` 的 EXIT trap、SQLite 旁路文件残留、三项文档整理）；DC48 第 1 项；前置验证 V1、V5、V6、V7（V8 并行，不阻塞）；重要 keyless 表是否定义自然键的业务评估，在 S1b kickoff 之前给出（owner 2026-10-26 修订：原为 S1a 之前；补键改变规范键与比较结果，属于 S1b 冻结的比较类 golden，故截止点改为 S1b kickoff 之前，S1a 不等待）；Phase 6 设计、执行计划与独立文档审核。
   3. **实施阶段**：
      - **S1a 摘要与存储 Contract**：DC39；DC45 的表级跳过与 `ADAPTIVE_PATCH`（用现有规划器）；阶段结束、重建对照基准时对完整 worker step 做归因（DC53 第 2 项）。
      - **S1b 业务语义 Contract**：DC40、DC41、DC49 第 1、3 项；生成合成 2× t4 并写入测量 runbook；参照实现的输入边界缺陷（V6 报告“需要澄清的语义”第 3、9 项：BIT 负数、超宽 BIT、非 ASCII 的 `b'..'` 与深层嵌套 JSON 抛出未捕获的异常）的修复，以及 FLOAT 两次舍入（第 1 项）与其余语义问题（第 2、4–8 项）的定稿（owner 2026-10-25 决定在 S1b 完成；S2a 不同时改语义和换实现）。**（DC55 第 4 项修订：零日期维持拒绝；FLOAT 修复在 Shared Kernel。）**
@@ -314,7 +314,7 @@ implementation_authorized: no
 | `ordered-diff.md` 中伪 gid 起点（20 亿）与 Canonical Storage G8（40 亿–4,294,967,295）的冲突 | DC39、DC44 | S1a 修订 Contract 时明确以 G8 为准（实现已按 G8） |
 | N 的暂定值与定稿 | DC47 | V6 给出解析器单独的暂定值 4；整条路径的 N 在 S2b 后暂定，S6 定稿 |
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
-| 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1a 之前 |
+| 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1b kickoff 之前（2026-10-26 修订）；先由实施者做候选键普查，owner 确认，补键的规则改动在 S1b |
 
 以下仍由 owner 另行决定，不属于本记录：GitHub 远程默认分支改为 `main`；Repository Service 容器中累积 defunct `dolt` 进程的排查（讨论稿 §12，交 RS 的 owner）。G6b 已由 DC51 决定维持 C。
 

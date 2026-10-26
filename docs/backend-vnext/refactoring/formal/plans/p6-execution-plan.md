@@ -37,7 +37,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 - **独立文档审核：** 审核对象为本文、详细设计、决议记录 DC37–DC55 与 implementation-stages §9/§10 的改写；必须复核的代码事实见设计 §2.2（Submit 全量重写、Preview 全量物化基线、bundle 不含整表、上传 60 s 总时限、uv 不重建扩展）。审核报告模板沿用 [P5 执行计划 §8.8](p5-arch-closure-execution-plan.md)。
 - **kickoff 小修**（不单独审核，随 S1a 审核）：`uv-consume.sh` 的 EXIT trap（`mktemp` 锁快照残留）；测试留下的 `repository-import-*.sqlite3-shm/-wal`；三项文档整理（讨论稿 §12）；RS defunct `dolt` 进程：交 RS owner 排查，修复若涉及 Dockerfile/Compose 则为强制重建项，可并入 S1a。
-- **业务评估：** 重要 keyless 表是否定义自然键，S1a kickoff 之前由 owner 给出；结论可能影响 DC39 与 S3 对 keyless 的处理。
+- **业务评估：** 重要 keyless 表是否定义自然键，**S1b kickoff 之前**由 owner 给出（owner 2026-10-26 修订：原为 S1a 之前；补键改变规范键与比较结果，属于 S1b 冻结的比较类 golden，故截止点改为 S1b kickoff 之前，S1a 不等待）；先由实施者做候选键普查（见下），owner 确认后，补键的规则改动放进 S1b。
 - **定向复审：** 交同一审核者复审，逐项核对设计附录 A 的处置与 findings 的关闭标准（r2、r3 已经第 1、2 次复审，r4 待定向复核 F5 与 F13）。
 - **接受：** 复审通过、owner 接受文档后给出实现授权。
 - **接受与授权（repository owner，2026-10-26）：** 第 3 次复审结论为通过（[S0 独立文档审核](p6-s0-independent-docs-review.md) §8）；owner 接受本文、详细设计 r4 与决议记录 DC37–DC55。**实现授权范围：** kickoff 小修（含 RS defunct 进程的排查与小范围修复）、keyless 候选键普查（测量工具与报告，不改规则）、S1a。S1b 及之后各阶段另行授权。
@@ -47,7 +47,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S1a — 摘要与存储 Contract
 
 - 目标：设计 §4。
-- 前置：S0 接受；keyless 自然键评估已给出。
+- 前置：S0 接受；kickoff 小修经轻量审核通过。
 - 内容：
   1. 表摘要统一（设计 §4.1）：manifest 内容摘要改为 `raw_content_digest`；`STORAGE_PROJECTION_VERSION = "3"`；删除 `ordering_digest`（含 `import_publication.py` 的传递）；去掉重复计算。
   2. Preview 与 History 的结构性过滤（§4.2，完整条件），含未变化 ordered 表不读基线、不做行比较，其逻辑摘要与 occupancy 摘要用当前侧的行按本次有效 pair 策略计算（§4.1，DC55 第 1 项）。
@@ -64,12 +64,13 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S1b — 业务语义 Contract
 
 - 目标：设计 §5。
-- 前置：S1a exit。
+- 前置：S1a exit；keyless 自然键评估已由 owner 给出。
 - 内容：
   1. 只增列（§5.1）；
   2. bundle 补齐整表与导出缓存（§5.2）；整表新增或删除改为整表浏览（§5.3）；
   3. 慢速上传：空闲超时、总上限、新错误码、受理移到线程池（§5.4）；
   4. 参照解析器的缺陷修复与语义定稿（§5.5；kickoff 时 owner 逐项确认 P 项）；零日期维持拒绝；FLOAT 直接舍入在 Shared Kernel 修复（DC55 第 4 项）；
+  4a. 按 owner 的 keyless 自然键评估，把选定的表补为显式键规则（规则集版本随之提升），与比较类 golden 一起在本阶段冻结；
   5. 合成 2× t4 与 W4 生成工具、测量 runbook（§5.6）；
   6. Contract 修订（设计 §14 中标注 S1b 的行）与 golden（comparison、risk、surface、bundle、table-access、shared-kernel 编码向量，设计 §4.6）。
 - 验收：

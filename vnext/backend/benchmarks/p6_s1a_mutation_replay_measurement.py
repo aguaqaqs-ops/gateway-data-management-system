@@ -378,6 +378,7 @@ def _replay_branch(
     sql_bytes: bytes,
     table_names: Sequence[str],
     label: str,
+    branch_refs: list[str],
 ) -> dict[str, Any]:
     branch = f"p6s1a-measure-{label}-{uuid.uuid4().hex[:8]}"
     _dolt_exec(
@@ -385,6 +386,7 @@ def _replay_branch(
         repository_path=repository_path,
         arguments=("branch", branch, base_commit),
     )
+    branch_refs.append(branch)
     _dolt_exec(
         container=container,
         repository_path=repository_path,
@@ -577,6 +579,7 @@ def run(
     store = v5b.FileMeasurementArtifactStore(scratch_path / "artifacts")
     start_wall = time.perf_counter()
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    branch_refs: list[str] = []
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=_REPO_ROOT,
@@ -722,6 +725,7 @@ def run(
             sql_bytes=adaptive_sql,
             table_names=target_names,
             label="t4-v2-adaptive",
+            branch_refs=branch_refs,
         )
         full_replay = _replay_branch(
             container=repository_service_container,
@@ -730,6 +734,7 @@ def run(
             sql_bytes=full_sql,
             table_names=target_names,
             label="t4-v2-full-rebuild",
+            branch_refs=branch_refs,
         )
         adaptive_hash_equal = adaptive_replay.pop("hashes") == actual_hashes
         full_hash_equal = full_replay.pop("hashes") == actual_hashes
@@ -806,6 +811,7 @@ def run(
                     sql_bytes=sql,
                     table_names=(table_name,),
                     label=f"one-percent-{label}",
+                    branch_refs=branch_refs,
                 )
             patch_hashes = measured["patch"].pop("hashes")
             rebuild_hashes = measured["rebuild"].pop("hashes")
@@ -925,6 +931,7 @@ def run(
             "status": "FAILED",
             "failure_type": type(exc).__name__,
             "wall_seconds": round(time.perf_counter() - start_wall, 6),
+            "branch_refs_left_for_owner": branch_refs,
             "privacy": "table names, counts, timings, branch refs, and hash equality only",
         }
         _write_result(output_path, failure)

@@ -199,7 +199,7 @@ def _mutation_snapshots_from_saved_artifacts(
         try:
             replay_rows = _keyed_rows_from_frozen_artifact(
                 reader,
-                descriptor=opened.manifest.descriptor,
+                descriptor=opened.descriptor,
                 manifest_table=manifest_table,
             )
         finally:

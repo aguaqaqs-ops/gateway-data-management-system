@@ -229,10 +229,16 @@ def _source_order_stats(
             descents += 1
         elif right == left:
             equal_pairs += 1
-    order_evaluable = bool(point_gids) and gid_null_rows == 0 and gid_non_numeric_rows == 0
-    non_decreasing: bool | None = (descents == 0) if order_evaluable else None
+    order_evaluable: bool | None = (
+        None
+        if not point_gids
+        else gid_null_rows == 0 and gid_non_numeric_rows == 0
+    )
+    non_decreasing: bool | None = (
+        descents == 0 if order_evaluable is True else None
+    )
     strictly_increasing: bool | None = (
-        descents == 0 and equal_pairs == 0 if order_evaluable else None
+        descents == 0 and equal_pairs == 0 if order_evaluable is True else None
     )
     point_gid_stats = _gid_stats([rows[index] for index in point_rows], gid_index)
 

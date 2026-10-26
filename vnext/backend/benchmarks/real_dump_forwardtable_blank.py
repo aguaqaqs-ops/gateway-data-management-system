@@ -860,18 +860,86 @@ def _render_markdown(report: dict[str, Any]) -> str:
                 )
         lines.append("")
 
-    lines.extend(
-        [
-            "## 对 DC56 第 4 项的结论",
-            "",
-            "- 重复行是否全属同一类列状态模式：按表与数据集查看上方重复模式表；跨模式或模式内是否被 owner 认定为空点，需 owner 依据状态分类确认。",
-            "- 非空点 gid 是否唯一：报告给出“至少一个非 gid 列为 OTHER_NONEMPTY”的可复算 proxy 上 gid NULL、重复组及唯一性。owner 确认空点模式后，可据逐模式计数作最终归类。",
-            "- 源顺序是否与 gid 顺序一致：按同一 proxy 的源 INSERT 顺序报告非递减、下降点及相等相邻点；blank proxy 的首部、交错、尾部计数及每个状态模式的位置计数见逐表明细。owner 选择空点模式后可据此判断其分布。",
-            "- 本调查不定义空点行的业务语义，也不提出规则改动；如重复行并非同一业务空点模式，或顺序有业务含义且不能由 gid 恢复，按 DC56 另行立项条件处理。",
-            "",
-        ]
-    )
+    lines.extend(_render_conclusions(report))
     return "\n".join(lines)
+
+
+def _render_conclusions(report: dict[str, Any]) -> list[str]:
+    observations = [
+        (table["table_name"], dataset)
+        for table in report["tables"]
+        for dataset in table["datasets"]
+        if dataset["present"]
+    ]
+    repeated = [
+        (table_name, dataset)
+        for table_name, dataset in observations
+        if dataset["exact_duplicates"]["group_count"] > 0
+    ]
+    mixed_duplicate_modes = [
+        (table_name, dataset)
+        for table_name, dataset in repeated
+        if len(dataset["exact_duplicates"]["by_state_pattern"]) > 1
+    ]
+    proxy_rows = [
+        (table_name, dataset, dataset["source_order"]["non_empty_point_proxy"])
+        for table_name, dataset in observations
+        if dataset["source_order"]["non_empty_point_proxy"]["row_count"] > 0
+    ]
+    proxy_gid_exceptions = [
+        (table_name, dataset, point)
+        for table_name, dataset, point in proxy_rows
+        if point["gid_null_rows"] > 0 or point["gid_non_null_duplicate_group_count"] > 0
+    ]
+    evaluated_order = [
+        (table_name, dataset, point)
+        for table_name, dataset, point in proxy_rows
+        if point["gid_numeric_order_evaluable"]
+    ]
+    descending_order = [
+        (table_name, dataset, point)
+        for table_name, dataset, point in evaluated_order
+        if point["gid_descending_adjacent_pair_count"] > 0
+    ]
+    unevaluable_order = [
+        (table_name, dataset, point)
+        for table_name, dataset, point in proxy_rows
+        if not point["gid_numeric_order_evaluable"]
+    ]
+    interleaved_proxy = [
+        (table_name, dataset, dataset["source_order"]["blank_point_proxy_distribution"])
+        for table_name, dataset in observations
+        if dataset["source_order"]["blank_point_proxy_distribution"][
+            "interleaved_between_point_proxy_rows"
+        ]
+        > 0
+    ]
+
+    def labels(items: Sequence[tuple[str, dict[str, Any], dict[str, Any]]]) -> str:
+        return "、".join(f"{name}/{item['dataset_id']}" for name, item, _ in items) or "无"
+
+    mixed_labels = "、".join(
+        f"{name}/{item['dataset_id']}"
+        for name, item in mixed_duplicate_modes
+    ) or "无"
+    proxy_exception_labels = labels(proxy_gid_exceptions)
+    descending_labels = labels(descending_order)
+    unevaluable_labels = labels(unevaluable_order)
+    interleaved_labels = "、".join(
+        f"{name}/{item['dataset_id']}"
+        for name, item, _distribution in interleaved_proxy
+    ) or "无"
+
+    return [
+        "## 对 DC56 第 4 项的结论",
+        "",
+        f"- 重复行状态模式：有重复组的表/数据组合 {len(repeated)} 组；其中跨多个状态模式的组合 {len(mixed_duplicate_modes)} 组（{mixed_labels}）。其余有重复组的组合各自只有一种模式；具体模式与组数/行数见明细。该结果只比较列状态，不断定模式的业务含义。",
+        f"- 非空点 gid 唯一性：按上述非 gid 列 proxy，有行的组合 {len(proxy_rows)} 组；gid NULL 或非 NULL 重复组的例外为 {proxy_exception_labels}。具体 NULL、重复组数及多余行数见明细。",
+        f"- 源顺序与 gid：按 proxy 有行且 gid 可数值比较的组合 {len(evaluated_order)} 组；其中有下降点的组合 {len(descending_order)} 组（{descending_labels}）。gid 不可判定的组合 {len(unevaluable_order)} 组（{unevaluable_labels}）；相等相邻点另计于明细。",
+        f"- 空点位置 proxy：存在 proxy 行交错分布的表/数据组合 {len(interleaved_proxy)} 组（{interleaved_labels}）；各组合的首部、交错、尾部行数以及逐模式位置计数见明细。空点模式须由 owner 确认后再解释该分布。",
+        "- 本调查不定义空点行的业务语义，也不提出规则改动；如重复行并非同一业务空点模式，或顺序有业务含义且不能由 gid 恢复，按 DC56 另行立项条件处理。",
+        "",
+    ]
 
 
 def _bool_label(value: bool | None) -> str:

@@ -24,7 +24,6 @@ from typing import Any, Sequence
 import s5_dc32_capability_measurement as s5
 import s5_v5b_segment_measurement as v5b
 from gateway_shared_kernel import DigestRef
-from gateway_shared_kernel import raw_blob_digest
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _BACKEND_ROOT.parents[1]
@@ -44,7 +43,6 @@ from gateway_backend.capabilities.mutation_planning._digest import (  # noqa: E4
     row_digest_from_image,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (  # noqa: E402
-    CanonicalStorageKey,
     MutationKeyedRow,
     PersistedRowImage,
 )
@@ -53,7 +51,6 @@ from gateway_backend.capabilities.snapshot_materialization import (  # noqa: E40
 )
 from gateway_backend.capabilities.storage_projection import (  # noqa: E402
     CanonicalizationManifest,
-    CanonicalizationManifestTable,
 )
 from gateway_backend.capabilities.storage_projection._digest import (  # noqa: E402
     compute_manifest_digest,
@@ -71,9 +68,6 @@ from gateway_backend.capabilities.storage_projection.import_replay import (  # n
 )
 from gateway_backend.capabilities.storage_projection.package import (  # noqa: E402
     canonicalization_manifest_from_bytes,
-)
-from gateway_backend.capabilities.table_rules import (  # noqa: E402
-    migrated_table_ruleset_snapshot,
 )
 from gateway_backend.capabilities.table_rules.contracts import (  # noqa: E402
     OrderedPolicy,
@@ -687,7 +681,6 @@ def run(
             before_snapshots=(),
             mutation_policy=MutationPolicy.REBUILD_ALWAYS,
         )
-        full_names = tuple(table.name for table in v2_manifest.tables)
         full_sql, full_rebuild_tables = _sql_for_plan(
             planned=full_rebuild,
             import_input=import_all,

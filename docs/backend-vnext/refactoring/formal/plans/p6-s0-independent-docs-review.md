@@ -1,6 +1,7 @@
 # Phase 6 S0 独立文档审核
 
-- 结论：**定向修订**
+- 结论：**定向修订**（第 1 次复审：7 项关闭、3 项部分关闭，新增 2 项阻塞；仍未关闭 F1、F5、F6、F11、F12，详见 §6）
+- 最近复审：2026-10-26（UTC），main @ `01c41e78bbcc4158e71d2a56fda2b8d726e2e172`。以下 §1–§5 保留首次审核记录，不代表最新关闭状态。
 - 日期：2026-10-25（UTC）
 - 审核对象：main @ `fc109806bb714bf004fa4ffd7b043941e834fa4e`，本地、未推送；`p6-design.md` r1、`p6-execution-plan.md` r1、`p6-s0-owner-decisions.md` DC37–DC54、`implementation-stages.md` §2、§9、§10。
 - 审核形态：S0 文档快照审核，不是实现阶段退出审核；无本轮门禁提交 V。开发机在 `/home/dev/gdds-p6-s0-review` detached worktree 阅读，被审文件未修改。
@@ -183,3 +184,106 @@
 - 开放项仍须 owner 确认。特别是 F1/F2/F5 揭示决议短句之间或与完整 Contract 的冲突，作者不能仅改设计而把原决议保留成另一个相反验收口径；F4 不能仅以“t1–t4 不含该值”关闭。
 - 进入实施前：关闭 F1–F8、完成定向复审、给出 keyless 自然键评估与实现授权。S2b 前完成原始表 consumer 和磁盘核对；其后依据完整路径实测确认 W2/W4 和 H2，不提前承诺达标，不默默放宽目标。
 - 本轮没有遇到 auto-mode 分类器拒绝，没有改写命令规避拒绝。报告提交到 main 后删除本轮开发机及 05 的审核 worktree；05 的静态检查日志保留在 worktree 外。不推送，不改写被审提交。
+
+## 6. 复审记录
+
+### 6.1 第 1 次复审：对象与结论
+
+- 结论：**定向修订**。原 F1–F10 中 **7 项关闭、3 项部分关闭**；新增 **P6-S0-F11、P6-S0-F12**，均阻塞。仍未关闭的阻塞编号共 **5 个：F1、F5、F6、F11、F12**；其中 F11/F12 是 F1 新方案的具体缺口，并非五个相互独立的根因。不能据此接受 S0 或授权 S1a。
+- 日期：2026-10-26（UTC）。审核对象为 main @ `01c41e78bbcc4158e71d2a56fda2b8d726e2e172`，本地、未推送；设计 r2（含附录 A）、执行计划 r2、决议记录 DC55 及 DC39/DC41/DC42/DC45/DC50 修订。对照首次审核对象 `fc109806bb714bf004fa4ffd7b043941e834fa4e` 与本报告 §2 的关闭标准。
+- 依据：P5 执行计划 §8.8；AGENTS；P5 DC35/DC36；P6 决议（DC55 优先于被修订旧条目）；设计引用的 owning Contract/ADR；V5/V5b/V6/V1 报告。以下行号均为本次被审提交，B/SK/RS 前缀同报告开头。
+- 此为文档复审，没有实现门禁提交 V。使用 `/home/dev/gdds-p6-s0-review` detached worktree 阅读；被审文档和源码未修改。源码与 AGENTS 在两次被审提交之间无差异，但本轮仍亲自核对下列调用链，不以首次报告代替源码证据。
+- 本节为便于阅读，源码路径中 `comparison/`、`mutation_planning/` 等 capability 名称均相对于 B`capabilities/`；同段省略目录的文件沿用该段模块目录。
+
+### 6.2 原 findings 逐项关闭判定
+
+| 原 finding | 关闭情况 | 按原关闭标准核对的依据 |
+| --- | --- | --- |
+| P6-S0-F1 | **部分关闭，仍阻塞** | DC55 第 1 项（决议 `:294`）保留 ordered 逻辑摘要定义；设计 `:138` 的传播表、`:184` 的 golden 生命周期与计划 `:49`–`:57` 一致，消除了 r1 用 raw digest 替换 logical digest 的直接冲突。投影阶段确有完整比较规则来源，见 §6.3。但新方案的策略命中条件和生成未变化 facts 所需字段不完整（F11/F12），尚不能满足原标准中的“S1a 保值验收可满足”。 |
+| P6-S0-F2 | **关闭** | DC55 第 2 项；设计 §4.2（`:155`）、§5.2（`:210`）、§11（`:328`）统一完整表身份，导出键使用 row-layout/schema/repository scope/writer，并保留具名绑定；§15 将 schema 判定交 Preview 结构过滤测试、导出误命中交 bundle 组装测试，History 只 smoke。空表不含 schema 的源码事实仍见 B`capabilities/snapshot_materialization/_digest.py:105`。这是设计闭合，未宣称实现已验证；ordered 策略问题单列 F11。 |
+| P6-S0-F3 | **关闭** | DC55 第 3 项与设计 `:281`–`:293` 明列 T1 前、T1 后 prepare 前、PREPARED、已提交副本四种恢复状态；未提交冻结内容无替代来源时稳定失败、不移动 main。设计 `:165` 保留 parent manifest 校验与 CAS，`:280`/`:391` 保留 finalize 同事务保护转移；§14/§15 给出 Contract 与恢复测试 owner。未引入新的恢复状态机。 |
+| P6-S0-F4 | **关闭** | DC55 第 4 项、设计 `:227`–`:241` 明确零日期维持拒绝，FLOAT 由 Shared Kernel 修复；计划 `:69`、`:71`、`:135` 纳入真实实现及 golden。源码 SK`scalar.py:431`、`:639` 与 RS`arrow_mapping.py:472`/`:484` 的边界没有被绕开。新增接受值安排合成往返，S1b 定稿后才换 Rust；因此不再需要为零日期修订 RS wire mapping。 |
+| P6-S0-F5 | **部分关闭，仍阻塞** | DC55 第 5 项、设计 `:168`/`:321`/`:437` 已取消 SQL statement 数断言，并在 S1a 冻结阈值与 batching，S4 只回归或走 owner 例外。§16.2 新增集合、观测点和六个例子，但重建/删除的“逻辑数”与所指规划器摘要不符，读取公式又混用逻辑需求和实际 cache miss；不能无歧义手算，详见 §6.4。 |
+| P6-S0-F6 | **部分关闭，仍阻塞** | §4.4（`:171`–`:178`）增加归因、削减方案、owner 和停止条件；§9（`:311`–`:312`）明确 Arrow 风险接口、删除发布后回读；§16.1 与计划 `:99` 加入 S2b W2 检查点，方向正确。但预算表不是可加总的端到端账，读取 content 校验没有计算归属，“不能闭合”也缺可执行判据，详见 §6.5。不要求 S0 提前证明优化后的性能。 |
+| P6-S0-F7 | **关闭** | 设计 §16.3（`:450`–`:468`）补 W3/W4 FULL、100% 压力只报告、H1-FULL、健康命中/损坏回填、H2 两节点/三节点和 Submit 时点；§16.4 明确冷热条件，样本与范围沿用 DC35。计划 `:83`、`:89` 明确先重建基准，`:121`、`:127` 覆盖 History 变体与最终六包/容器门禁。H1 的无条件零计算矛盾已解；读取数量错误仍归 F5，不重复记为 F7。 |
+| P6-S0-F8 | **关闭** | 设计 §14（`:355`–`:373`）已列现行条款→目标→owner→阶段→golden/测试，含 Comparison table-level cache、Risk 未套 pair 上限结果、Snapshot Table Access IPC 边界、ADR 0014/Storage Mutation 的生产 Dolt 例外；§9/§11 缓存输入含规则主体、版本、scope，pair 限额和表名后绑定，命中重建当前 operation closure。计划 S3/S5 同步安排修约；基础 CAS/事务未弱化。新 ordered 元数据缺口需在此清单补充，归 F11/F12。 |
+| P6-S0-F9 | **关闭（原为非阻塞建议）** | 设计 §15（`:377`–`:395`）将跳过、阈值、prepare、finalize、读取恢复、503、native crash 分开指定 owner；`:298`–`:300` 将 M 扩至常驻输入/输出/scratch，并区分预算拒绝与 runtime 接管。规则复用现有测试体系，无需加重复矩阵。后续 kickoff 落实具名用例即可。 |
+| P6-S0-F10 | **关闭（原为非阻塞建议）** | 设计 `:83`、`:90`–`:97` 校正 step 范围、ordered 适用路径、ordering_digest 外部传递、RS 默认容量；`:290` 指向 P5 收口设计 §4.6，DC54 第 3 项改引 DC42 第 5 项；讨论稿头部 r29。计划 `:91`/`:136` 补新扩展 build-input、runner 排除与 import_rules 核对。原列举的删除遗漏和无效引用已修正；新的预算证据分类错误归 F6。 |
+
+### 6.3 F1 的源码专项核对：规则在投影时可得，但不等于 pair 策略已确定
+
+**比较规则视图可得，不构成“投影拿不到规则”的 blocker。** B`application/preview_jobs.py:1071` 取得完整 `TableRulesetSnapshot`；`:1250` 上传侧物化接收该 snapshot，`:1319` 将其传给 `project_canonical_table_set`。B`capabilities/storage_projection/contracts.py:157` 的 `ProjectionRequest` 也持有完整 ruleset。B`capabilities/table_rules/resolver.py:64` 的 `comparison_rule_set` 与 `:70` 的 `resolve_comparison_rule_view` 能在有表名、主键列时解析比较角色、排除列、ordered identity/position 和规则摘要。因此可复用 table_rules 的 owning 接口安排预计算，不需要为此新建规则来源或历史规则兼容层。
+
+但现行完整 `OrderedTablePolicy` 不是单侧 ruleset view 本身：B`capabilities/comparison/pair_planning.py:125`–`:140` 还把**两侧共有列**填入 `value_columns`，`:169`–`:182` 对双侧取交集；`comparison/contracts.py:358` 起计算的 policy digest 覆盖这些字段。只掌握投影时的一侧 schema，不能无条件承诺预计算值适用于以后所有 pair；即使两侧存储策略标签相等，也须与本次受理冻结的有效比较策略核对。应修正复用条件及 fallback 范围，不能通过修改 ordered 定义或放宽 S1a comparison/bundle golden 来掩盖差异（F11）。
+
+### 6.4 F5 剩余缺口与关闭要求
+
+- **重建“写入行数”不是所指的 planner summary。** 设计 `:432` 将 patch 净变化数与 rebuild 写入行数混成一个计数，并指向“规划器摘要”；`:446` 删除表写作 0 行。当前 B`capabilities/mutation_planning/_planner.py:155`–`:159` 对新增/删除表记 `before_count + after_count`，`:170`–`:175` 对投影变化另有全表计数，普通阈值 fallback 在 `:202`–`:215` 仍保留净变化数。例：相同 schema 的 100 行表修改 6 行，按现行 5% 或拟定 1% 都重建，summary 是 6，新表写入 100 行；B`_changeset.py:80` 则构造 100 DELETE + 100 INSERT。删除一个 10 行表的 summary 是 10，生产 replay 的 DROP 可以是 1 条、INSERT 可以是 0，但不能把 0 当作该 summary。Storage Mutation §4（`storage-mutation-and-change-set.md:58`）也没有定义“DROP 后逻辑变更归零”的规则。
+- **两行 INSERT 例子缺路由前提。** 设计 `:443`/`:444` 的 patch 示例只有在 schema/key/资格不变、落在冻结阈值内且未跨 renderer batch 字节上限时才成立；小表两行变化可能走 rebuild。当前 renderer `B…/mutation_planning/_repository_replay_renderer.py:176`–`:209` 同时按表/列身份、字节上限与 256 行切 batch。补出例如 1,000 行合格 keyed 表和小行值，即可保留这两个示例，不必新增 SQL statement 验收。
+- **读取“等式”没有区分需求与命中。** 设计 `:428` 对 X/D 给出等式，`:448` 又允许 H3 全命中读取 0；`:435` 将“TTL 外或缓存缺失”直接等同于读取旧节点 X/D。diff/risk 条目缺失但规范表副本健康时，可重算而 Dolt 读取 0；当前 head 的规范表及导出副本缺失时也可能读当前 commit；整表 bundle 的缺失副本可涉及 U。两张同内容表还可能只有一次物理读取。§11/§8.2 本身允许这些状态，不能用旧节点集合等式覆盖所有 miss。
+- **最小修正与关闭标准：** 保留 DC55 已定的 SQL 字节冻结；将净变化/规划器摘要、重建写入行数、物理 mutation 分列，明确使用哪一个作为验收，若引入新计数明确其观测点，不能声称它就是旧字段。对读取分别写出阶段/用途的逻辑表需求和按 `(commit, table/content identity)` 去重、缓存命中后实际读取；H1 缺失场景应按实际缺失的层与两侧来源计算。六个原例子补齐资格和缓存前提，再用上述重建、删表、仅 diff cache miss 验算无矛盾即可；无需扩成跨层组合测试矩阵。
+
+### 6.5 F6 剩余缺口与关闭要求
+
+| §16.1 项目 | 复审判断 |
+| --- | --- |
+| SQL 约 0.5 s | V6 `:114`/`:126` 的 N=4 为 **2× t4 已实测 0.481 s**，数值引用合理；不是表头 `:401` 所称“t4 实测再放大一倍”。它仍只是解析原型，不是生产 IPC/投影全路径。 |
+| 1,248 次写入、10–15 s | V5b A（`:40`）为旧路径 624 次 `ArtifactStore.put` 合计 6.994 s，线性加倍约 13.988 s，作为粗估有来源；但这应标为**旧路径线性外推**，并说明目标 IPC 文件/manifest 数量与 W2 内容命中时是否仍写。旧 Parquet/ArtifactStore 的平均调用成本不是新 IPC 路径实测；V5b 明示 put 是嵌套子计数，不能与含它的阶段再次相加。 |
+| W2 计算合计 30–35 s | 表内具数字的受理、解析、投影和写入小计约 **13.5–21.5 s**，bundle 只写“缓存命中”而无耗时，其余计算为 0；不能据此复算 30–35 s。step 2–20 s 与残差另列，正文又说另加，读者无法确定总计边界、重叠项和剩余缺口。不能把“缓存命中”当作免费或把残差当作一定消失。 |
+| S2b W2 检查点 | 阶段和停止责任已补对，但“剩余成本已不能在 30 s 内闭合”没有可记录的判定式。W2 已跳过比较，S3 的 changed-kernel 加速不能泛化成 W2 的未来收益。应在 S2b handoff 以完整受理至 READY wall 为锚，列仍会发生的成本与有依据、具名的剩余削减上界；没有归属的残差不能作为可削减额度。总量不能闭合或仍未知时交 owner，不是只在证明物理下限后才停。 |
+| W4 记录读取/风险 | §9 已禁止重建完整 `ComparisonRecord` 元组，也正确删除发布后回读；但同时保留实际读取的 raw/content/schema 校验。B`comparison/artifacts.py:279`、`:547`–`:578`、`:618` 当前仍全量解码并重算 JCS content digest。风险只取所需列无法替代对**全部记录内容**的校验；把读取改成分 batch 也只改变峰值，未消除扫描/编码时间。§16.1 没有这段的归属/预算，`:419` 因而还不能断言“不存在未计入的转换或回读”。约 5 s Python 风险应明确为待验证假设，并说明是否包含该校验。 |
+
+**最小修正与关闭标准：** 用不重叠的粗粒度账替代当前合计，逐行标明“目标工作量×来源吞吐”的假设、实际 wall/CPU/嵌套关系与阶段；允许保留未知值，但未知值必须触发既定检查点。给出 S2b W2 可直接填实测数的判定式和允许继续/交 owner 的条件。给 W4 保留的读取 content 校验指定执行接口、计算 owner 和所属预算段，例如复用 Rust Arrow/JCS 能力重算而保持 Python 风险规则不搬迁；若保留 Python 处理则计入其成本。仍由 S3 W4 实测验证与触发 DC47 重开，不要求 S0 新跑性能测试，不放宽指标，也不增设读取证据机制。
+
+### 6.6 新增 findings
+
+#### P6-S0-F11：预计算 ordered 摘要只比较两侧历史策略，漏掉当前 pair 的有效策略
+
+- 类型：**已证实缺陷**；是否阻塞：**是**。
+- 位置：DC55 第 1 项（`p6-s0-owner-decisions.md:294`）；`p6-design.md:132`、`:155`–`:158`、`:362`；`p6-execution-plan.md:50`。
+- 依据：ADR 0019 Decision 6（`:53`–`:54`）规定 Preview/History 按受理时冻结的运行期 ruleset 比较，commit 元数据只提供存储身份/provenance。B`comparison/pair_planning.py:125`–`:140` 的完整 ordered policy 还依赖 pair 共有列；B`comparison/ordered.py:746`/`:770` 的摘要实际使用 policy version 与 value columns。投影规则来源可得的正面证据见 §6.3。
+- 触发场景与影响：两个历史 commit 都在 R1 下生成 manifest，随后只调整 comparison 排除列为 R2，存储视图/schema/内容不变；两侧存储的策略摘要仍相等，按新条文会直接取 R1 摘要，而当前重算应使用 R2，输出 facts/digest 不一致。不同 schema 的 pair 还必须用共有列策略，不能仅凭单侧规则摘要复用全列逻辑值。§4.2 的 U 条件不含这类有效性判断，却无条件承诺不读不比，连策略不同时的回退也与它冲突。
+- 最小修正方向：由 owner 澄清 DC55 的“相同”包含**各侧缓存计算身份与本次有效 pair 策略相同**，其身份覆盖实际使用的列投影和规则语义；不能改用 commit 历史规则做 History。区分“存储内容未变”与“足以不读行生成本次比较结果”，按当前策略不匹配/元数据不足安排最小回退，并同步读取计数、Contract 清单和缓存命中条件。
+- 关闭标准：文档可无歧义推导规则不变同 schema 命中、两侧历史规则相同但当前规则变化、两侧 schema/共有列不同三种结果；明确哪些允许不读行、哪些重算。沿用 §15 的 ordered 权威测试 owner，要求预计算路径与现算 facts/digest 相同；不新增历史规则兼容层或重复测试 owner。
+
+#### P6-S0-F12：manifest 新字段不足以保值生成未变化 ordered 表的 blank facts
+
+- 类型：**已证实缺陷**；是否阻塞：**是**。
+- 位置：`p6-design.md:132`、`:145`–`:147`、`:156`、`:346`/`:357`；DC55 第 1 项；执行计划 S1a 保值验收。
+- 依据：B`comparison/ordered.py:527`、`:599` 即使未变化也输出 `BlankExtension`；`:729`–`:743` 的两侧 occupancy digest 根据稳定锚点间空白数量计算。B`comparison/row_encoding.py:667`–`:687` 将其纳入 facts digest。当前 `storage_projection/contracts.py:233`–`:248` 的 manifest 只有伪 gid 总数等，没有该分布摘要；r2 新增的仅是 ordered logical digest 与策略摘要，二者的哈希值不能反推出 occupancy digest。
+- 触发场景与影响：两侧为同一张含空白行的 ordered 表，且规则/schema/存储全部相同。原算法虽无 changed records，仍生成内容相关的非空 occupancy digest。r2 要求只凭 manifest 构造 UNCHANGED facts，不读基线行；缺少所需字段时只能漏填/用常量而改变 comparison/surface/bundle digest，或重新读取行而违反声明的零读验收。这个问题在当前规则完全相同时仍存在，与 F11 独立。
+- 最小修正方向：列出从 manifest 合成完整 UNCHANGED ordered/blank facts 的最小字段和计算来源；例如在已有投影扫描中一并保存所需 occupancy 摘要及有效性身份，或使用明确已验证且适配当前策略的完整 facts 来源。同步 Canonical Storage/Ordered Diff 的字段、manifest/checkpoint 传播及 S1a golden；不能把 occupancy 字段删掉或改成常量来维持“零读”。
+- 关闭标准：给出含头部/内部/尾部空白的未变化 ordered 输入在新旧路径的 facts 字段对应，证明 logical digest、occupancy digest、policy 和其余非行数据都能从所列来源获得且保持原值；健康命中无需读行，元数据不适配有明确回退。由同一个 ordered 比较测试 owner 承接保值断言，不新建保障层。
+
+### 6.7 验收核对与比例化意见
+
+| 验收项 | 结果 | 证据/限制 |
+| --- | --- | --- |
+| 原 F1–F10 按关闭标准复审 | 完成 | §6.2；没有把附录 A 自称“已处置”当成关闭证据 |
+| DC55 落实与新矛盾 | 需定向修订 | 第 2–4 项闭合；第 1 项需 F11/F12；第 5 项字节冻结成立，但设计计数仍需 F5 |
+| 规则在物化/投影时是否可得 | 可得 | §6.3 源码；所缺是有效 pair 身份与完整 facts 元数据，而非 ruleset 传递 |
+| W2/W4 可行性与判停 | 仍有技术路径，尚未闭合 | F6；没有把粗估标成达标证据；S1a 归因与 S2b/S3 检查点应保留 |
+| 阶段顺序、golden、flag 与旧扩展 | 本轮未发现新的实质冲突 | 计划 S1a→S1b→基准→S2a→S2b→S3→S4→S5→S6；S2a 镜像/build-input/import_rules，S6 删除生产 flag；S4 golden 调整限 owner 例外 |
+| Contract/DTO/checkpoint/schema | 原 F8 关闭；ordered 增补待完成 | 新字段不能遗漏 §13/§14 的载荷与测试落点；不要求兼容迁移或旧数据回填 |
+| 基础边界与测试归属 | 保留 | caller 输入、资源上限、T1、parent 校验、CAS 与 finalize 事务仍强验证；F11/F12 是既有输出语义保值要求，不扩大信任域 |
+| 文档收尾 | 非阻塞提醒 | 决议待定表 `:309` 仍称“S4 定稿”，`:337` 仍称 r1；计划 S0 `:38` 仍写 DC37–DC54。DC55/计划正文已明确优先口径，建议随下一轮对齐这些导航文字，不据此重开已关闭项 |
+| S0 exit/实现授权 | 未满足 | 5 个未关闭编号按上述范围修订、定向复审后由 owner 接受；本报告不代替授权 |
+
+### 6.8 本次实际执行的检查
+
+| 检查 | 命令/方法 | 结果 |
+| --- | --- | --- |
+| 主 checkout 与指定快照 | `git status --short`、`git rev-parse HEAD`；`git worktree add --detach /home/dev/gdds-p6-s0-review 01c41e78bb` | 起始 main clean，HEAD 等于本次目标；开发机只读审核，无测试/测量 |
+| 差异与来源 | `git diff fc109806bb 01c41e78bb`；`rg`、`sed -n`、`nl -ba` | 阅读 r2/决议修订与原关闭标准；`git diff ... -- vnext AGENTS.md` 为空；亲自复核规则入口、pair policy、ordered/blank 摘要、mutation planner/renderer、records 校验；数字外推手算，未执行产品代码 |
+| 05 节点 preflight | `ssh -o BatchMode=yes ct108-gw-dms-05 'echo OK'`；hostname、`pgrep -af`、`docker ps`、节点 HEAD/status | 可连接，`gw-dms-test-05`；检查时无其他测试/编译/Dolt/测量任务或运行容器，节点 checkout clean |
+| 05 独立已提交 worktree | bundle/scp/fetch；`git worktree add --detach /home/dev/gdds-p6-s0-rereview1 01c41e78bb`；legacy 符号链接 | 不移动节点 main；同一 clean 被审提交；`TMPDIR=/home/dev/gdds-test-tmp`，`CARGO_TARGET_DIR=/home/dev/gdds-test-tmp/p6-s0-rereview1-cargo-target` 在 worktree 外 |
+| 五包提交前静态检查 | 05 各包 `../scripts/uv-consume.sh -C . run ruff check .` 与 `../scripts/uv-consume.sh -C . run mypy` | 全部通过；mypy 文件数 shared_kernel=34、repository_contracts=15、repository_client=26、backend=486、repository_service=200；没有锁文件漂移 |
+| 静态检查 provenance | `/home/dev/gdds-p6-s0-rereview1-static.log`（05） | 2026-10-26T00:00:06Z–00:01:05Z；起止 HEAD 均 `01c41e78bbcc4158e71d2a56fda2b8d726e2e172`；exit=0；结束 tracked worktree clean；root SSH、LC_ALL=C.UTF-8、umask=022 |
+| 产品测试/门禁/测量 | 未执行 | 未运行 pytest、权威 runner、Compose、真实数据旅程或性能测量；没有在开发机跑测试 |
+
+### 6.9 验证限制与交付边界
+
+- 本轮证明的是文档与源码/Contract 的一致性。F11/F12 的输入是根据源码推导的反例，未运行动态用例；静态检查不证明优化已实现或 W2/W4 达标。预算仅重读公开入库报告并复核算术，没有访问真实数据内容，也没有真实数据进入 Git。
+- 当前被审 HEAD 为 `01c41e78bbcc4158e71d2a56fda2b8d726e2e172`；本次仅追加审核报告，不触发镜像重建。最后验证的 image revision/source-tree **本轮未核验，不作 carried 声明**；下一实施阶段按 AGENTS 在其候选上建立门禁证据。静态检查环境安装构建了既有 Rust 扩展，不是 Rust gate 或新 adapter 验收。
+- 本次只提交此报告，§1–§5 保留首次审核历史；不会修改设计、计划、决议或实现来替作者关闭问题。提交后清理开发机审核 worktree 与 05 的本次检查 worktree；05 日志保留在 worktree 外。不推送，不改写被审提交。
+- 未遇到 auto-mode 分类器拒绝，也未改写命令规避拒绝。

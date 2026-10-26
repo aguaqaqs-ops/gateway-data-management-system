@@ -10,6 +10,7 @@ import argparse
 import csv
 import io
 import json
+import re
 import socket
 import statistics
 import subprocess
@@ -701,18 +702,24 @@ def run(
 
         repository_key = uuid.UUID(repository_id).hex
         repository_path = f"/var/lib/gateway/repository/versioned/{repository_key}"
-        current_ref = _dolt_exec(
+        branch_lines = _dolt_exec(
             container=repository_service_container,
             repository_path=repository_path,
-            arguments=("symbolic-ref", "--short", "HEAD"),
-        ).decode("utf-8").strip()
+            arguments=("branch",),
+        ).decode("utf-8").splitlines()
+        current_ref = next(
+            (line[2:].strip() for line in branch_lines if line.startswith("* ")),
+            None,
+        )
         if current_ref != "main":
             raise RuntimeError("Repository Service main ref is not checked out")
-        current_head = _dolt_exec(
+        current_head_output = _dolt_exec(
             container=repository_service_container,
             repository_path=repository_path,
-            arguments=("rev-parse", "main"),
-        ).decode("utf-8").strip()
+            arguments=("log", "-n", "1", "--oneline"),
+        ).decode("utf-8")
+        current_head_line = re.sub(r"\x1b\[[0-9;]*m", "", current_head_output).strip()
+        current_head = current_head_line.split(maxsplit=1)[0] if current_head_line else ""
         if current_head != target_commit:
             raise RuntimeError("Repository Service main ref is not at t4 v2 target")
         target_names = tuple(table.name for table in v2_manifest.tables)

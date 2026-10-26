@@ -445,10 +445,15 @@ def seed_submit_ready_workspace(
     actor_id: str = "actor-1",
     device_key: str = "device-1",
     project_id: str = "project-1",
+    baseline_head: BaselineHead = BASELINE_HEAD,
 ) -> SubmitSeed:
     from tests.support.baseline_fixtures import read_authoritative_baseline_head
 
-    _seed_provisioned_mapping(db_path, repository_id=repository_id)
+    _seed_provisioned_mapping(
+        db_path,
+        repository_id=repository_id,
+        baseline_head=baseline_head,
+    )
     baseline_head = read_authoritative_baseline_head(db_path, repository_id)
     scope_resolution = FixedScopeResolutionPort(
         repository_id=repository_id,

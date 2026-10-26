@@ -121,8 +121,8 @@ def _query(db_path: Path, env: dict[str, str], sql: str) -> str:
     ).stdout
 
 
-def _dolt_version() -> str:
-    output = _run(("dolt", "version")).stdout
+def _dolt_version(env: dict[str, str]) -> str:
+    output = _run(("dolt", "version"), env=env).stdout
     match = re.search(r"dolt version ([0-9.]+)", output)
     if match is None:
         raise RuntimeError(f"could not parse Dolt version: {output.strip()}")
@@ -657,9 +657,15 @@ def run(run_root: Path) -> dict[str, object]:
     env["HOME"] = str(home_path)
     env["LC_ALL"] = "C.UTF-8"
     env["TZ"] = "UTC"
+    dolt_home = home_path / ".dolt"
+    dolt_home.mkdir()
+    (dolt_home / "config_global.json").write_text(
+        json.dumps({"versioncheck.disabled": "true", "metrics.disabled": "true"}),
+        encoding="utf-8",
+    )
 
     started_at = _now()
-    version = _dolt_version()
+    version = _dolt_version(env)
     if version != _EXPECTED_DOLT_VERSION:
         raise RuntimeError(
             f"Dolt version {version} does not match pinned version {_EXPECTED_DOLT_VERSION}"

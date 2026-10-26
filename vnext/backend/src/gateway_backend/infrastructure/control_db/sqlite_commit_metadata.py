@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+from gateway_shared_kernel import DigestRef
+
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadata,
     CommitCanonicalMetadataCode,
@@ -52,8 +54,13 @@ class SQLiteCommitCanonicalMetadataPort(CommitCanonicalMetadataPort):
 
         submission_rows = self._connection.execute(
             """
-            SELECT s.canonicalization_manifest_ref, s.canonicalization_manifest_digest
+            SELECT s.canonicalization_manifest_ref, s.canonicalization_manifest_digest,
+                   a.snapshot_digest
             FROM submission_records AS s
+            JOIN submit_attempt_records AS a
+              ON a.submit_attempt_id = s.submit_attempt_id
+             AND a.submission_id = s.submission_id
+             AND a.state = 'FINALIZED'
             JOIN workspace_records AS w ON w.workspace_id = s.workspace_id
             WHERE s.repository_id = ?
               AND s.repository_commit_id = ?
@@ -101,13 +108,14 @@ class SQLiteCommitCanonicalMetadataPort(CommitCanonicalMetadataPort):
         if not submission_rows:
             raise _missing_metadata()
 
-        manifest_ref_id, expected_digest = submission_rows[0]
+        manifest_ref_id, expected_digest, snapshot_digest = submission_rows[0]
         return self._load_submission_metadata(
             repository_id=repository_id,
             commit_id=commit_id,
             scope=scope,
             manifest_ref_id=manifest_ref_id,
             expected_digest=expected_digest,
+            snapshot_digest=snapshot_digest,
         )
 
     def _load_submission_metadata(
@@ -118,10 +126,13 @@ class SQLiteCommitCanonicalMetadataPort(CommitCanonicalMetadataPort):
         scope: CommitCanonicalScope,
         manifest_ref_id: object,
         expected_digest: object,
+        snapshot_digest: object,
     ) -> CommitCanonicalMetadata:
         if type(manifest_ref_id) is not str or not manifest_ref_id:
             raise _missing_metadata()
         if type(expected_digest) is not str or not expected_digest:
+            raise _missing_metadata()
+        if type(snapshot_digest) is not str or not snapshot_digest:
             raise _missing_metadata()
         try:
             manifest = self._manifest_reader.read_manifest(manifest_ref_id)
@@ -147,6 +158,7 @@ class SQLiteCommitCanonicalMetadataPort(CommitCanonicalMetadataPort):
             scope=scope,
             initial=False,
             manifest=manifest,
+            snapshot_digest=DigestRef(snapshot_digest),
         )
 
     def _record_digest_mismatch(

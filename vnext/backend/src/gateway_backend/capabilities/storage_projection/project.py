@@ -53,13 +53,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.storage_projection._digest import (
     CanonicalCellError,
     CanonicalColumnCodec,
-    ContentDigestBuilder,
-    compute_keyless_content_digest,
     compute_manifest_digest,
-    compute_ordering_digest,
     compute_schema_digest,
     encode_canonical_cell,
-    encode_row_cell_frame,
     classify_enum_set_sql_type,
 )
 from gateway_backend.capabilities.storage_projection._ordered import (
@@ -408,55 +404,16 @@ def _canonical_snapshot_table(
         canonical_columns,
         table_name=source.descriptor.table_name,
     )
-    try:
-        isolated = source_reader.reopen()
-    except Exception as exc:
+    if (
+        projected.row_count != manifest_table.canonical_row_count
+        or projected.content_digest is None
+        or projected.content_digest != manifest_table.content_digest
+        or projected.fast_row_digest is None
+    ):
         raise _ProjectionFailed(
             _error(
-                ProjectionDiagnosticCode.BINDING_INVALID,
-                "table reader could not be reopened for canonical hashing",
-                source.descriptor.table_name,
-            )
-        ) from exc
-    canonical_request, canonical_input = _projection_request_for_reader(
-        raw_reader=isolated,
-        raw_descriptor=source.descriptor,
-        ruleset=request.ruleset,
-        context=request.context,
-        snapshot_digest=snapshot_digest,
-        artifact=source.artifact,
-    )
-    row_hashes: list[bytes] = []
-    fast_hashes: list[bytes] = []
-    observed_count = 0
-    try:
-        for row in _iter_canonical_rows(
-            canonical_request,
-            canonical_input,
-            view=projected.storage_view,
-            retained_indexes=retained_indexes,
-            codecs=codecs,
-        ):
-            row_hashes.append(row_content_hash(canonical_source_columns, row))
-            fast_hashes.append(fast_row_hash(canonical_source_columns, row))
-            observed_count += 1
-    except _ProjectionFailed:
-        raise
-    except Exception as exc:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.BINDING_INVALID,
-                "table reader failed while hashing canonical rows",
-                source.descriptor.table_name,
-            )
-        ) from exc
-    finally:
-        canonical_input.reader.close()
-    if observed_count != manifest_table.canonical_row_count:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.ROW_INTEGRITY,
-                "canonical row count does not match the manifest",
+                ProjectionDiagnosticCode.DIGEST_MISMATCH,
+                "projected table digest facts do not match the manifest",
                 source.descriptor.table_name,
             )
         )
@@ -467,7 +424,7 @@ def _canonical_snapshot_table(
         columns=canonical_columns,
         primary_key_columns=key_columns,
         compare_key_columns=key_columns,
-        row_count=observed_count,
+        row_count=projected.row_count,
         materialization_stage=MaterializationStage.FINAL,
         compare_schema_digest=snapshot_compare_schema_digest(
             source.descriptor.table_name,
@@ -477,8 +434,8 @@ def _canonical_snapshot_table(
         table_ruleset_version=source.descriptor.table_ruleset_version,
         row_materialization_profile=source.descriptor.row_materialization_profile,
         scalar_encoding_version=source.descriptor.scalar_encoding_version,
-        fast_row_digest=fast_row_digest_of(tuple(fast_hashes)),
-        raw_content_digest=raw_content_digest_of(tuple(row_hashes)),
+        fast_row_digest=projected.fast_row_digest,
+        raw_content_digest=projected.content_digest,
     )
     reader = _CanonicalProjectionReader(
         raw_reader=source_reader,
@@ -983,22 +940,36 @@ def _project_table(
         columns=schema_columns,
         primary_key=view.canonical_key_columns,
     )
+    source_columns_by_name = {
+        canonicalize_rule_identifier(column.name): column for column in descriptor.columns
+    }
+    canonical_columns = tuple(
+        SnapshotColumnDescriptor(
+            name=str(column["name"]),
+            display_name=source_columns_by_name[str(column["name"])].display_name,
+            nullable=bool(column["nullable"]),
+            scalar_type=str(column["sql_type"]),
+        )
+        for column in schema_columns
+    )
+    canonical_source_columns = _snapshot_source_columns(
+        canonical_columns,
+        table_name=view.canonical_table,
+    )
     if view.ordered_policy is OrderedPolicy.GID_NO_V1:
-        content_digest, ordering_digest, row_count, gid_real, gid_pseudo = _project_ordered(
-            request, item, descriptor, view, codecs, retained_indexes
+        content_digest, fast_digest, row_count, gid_real, gid_pseudo = _project_ordered(
+            request, item, descriptor, view, codecs, retained_indexes, canonical_source_columns
         )
     elif not view.canonical_key_columns:
-        content_digest, row_count = _project_keyless(
-            request, item, descriptor, view, codecs, retained_indexes
+        content_digest, fast_digest, row_count = _project_keyless(
+            request, item, descriptor, view, codecs, retained_indexes, canonical_source_columns
         )
-        ordering_digest = None
         gid_real = None
         gid_pseudo = None
     else:
-        content_digest, row_count = _project_keyed(
-            request, item, descriptor, view, codecs, retained_indexes
+        content_digest, fast_digest, row_count = _project_keyed(
+            request, item, descriptor, view, codecs, retained_indexes, canonical_source_columns
         )
-        ordering_digest = None
         gid_real = None
         gid_pseudo = None
     projection_table = ProjectionTable(
@@ -1007,7 +978,7 @@ def _project_table(
         row_count=row_count,
         schema_digest=schema_digest,
         content_digest=content_digest,
-        ordering_digest=ordering_digest,
+        fast_row_digest=fast_digest,
     )
     manifest_table = CanonicalizationManifestTable(
         name=view.canonical_table,
@@ -1022,7 +993,6 @@ def _project_table(
         source_schema_digest=descriptor.compare_schema_digest,
         canonical_schema_digest=schema_digest,
         content_digest=content_digest,
-        ordering_digest=ordering_digest,
         gid_real_count=gid_real,
         gid_pseudo_count=gid_pseudo,
     )
@@ -1049,25 +1019,32 @@ def _project_keyed(
     view: StorageRuleView,
     codecs: Mapping[int, CanonicalColumnCodec],
     retained_indexes: tuple[int, ...],
-) -> tuple[DigestRef, int]:
+    canonical_source_columns: tuple[SourceColumnDescriptor, ...],
+) -> tuple[DigestRef, DigestRef, int]:
     key_indexes = _column_indexes(descriptor, view.canonical_key_columns)
-    content = ContentDigestBuilder()
     seen_keys: set[tuple[object, ...]] = set()
-    row_count = 0
+    row_hashes: list[bytes] = []
+    fast_hashes: list[bytes] = []
     for row in _iter_source_rows(request, item, descriptor, view):
-        _consume_keyed_row(
-            row=row,
-            view=view,
-            codecs=codecs,
-            retained_indexes=retained_indexes,
-            key_indexes=key_indexes,
-            key_names=view.canonical_key_columns,
-            content=content,
-            seen_keys=seen_keys,
-        )
-        row_count += 1
-    _require_row_count(row_count, descriptor, view)
-    return content.finish(), row_count
+        key = _row_key(row, key_indexes, view.canonical_key_columns, view.canonical_table)
+        if key in seen_keys:
+            raise _ProjectionFailed(
+                _error(
+                    ProjectionDiagnosticCode.KEY_DUPLICATE,
+                    "canonical key is not unique",
+                    view.canonical_table,
+                )
+            )
+        seen_keys.add(key)
+        canonical_row = _canonicalize_row(row, retained_indexes, codecs, view)
+        row_hashes.append(row_content_hash(canonical_source_columns, canonical_row))
+        fast_hashes.append(fast_row_hash(canonical_source_columns, canonical_row))
+    _require_row_count(len(row_hashes), descriptor, view)
+    return (
+        raw_content_digest_of(tuple(row_hashes)),
+        fast_row_digest_of(tuple(fast_hashes)),
+        len(row_hashes),
+    )
 
 
 def _project_keyless(
@@ -1077,21 +1054,20 @@ def _project_keyless(
     view: StorageRuleView,
     codecs: Mapping[int, CanonicalColumnCodec],
     retained_indexes: tuple[int, ...],
-) -> tuple[DigestRef, int]:
-    frames: list[bytes] = []
+    canonical_source_columns: tuple[SourceColumnDescriptor, ...],
+) -> tuple[DigestRef, DigestRef, int]:
+    row_hashes: list[bytes] = []
+    fast_hashes: list[bytes] = []
     for row in _iter_source_rows(request, item, descriptor, view):
-        frames.append(_encode_row_frame(row, retained_indexes, codecs, view))
-    _require_row_count(len(frames), descriptor, view)
-    content_digest = compute_keyless_content_digest(frames)
-    if content_digest != compute_keyless_content_digest(tuple(frames)):
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.DIGEST_MISMATCH,
-                "content digest mismatch",
-                view.canonical_table,
-            )
-        )
-    return content_digest, len(frames)
+        canonical_row = _canonicalize_row(row, retained_indexes, codecs, view)
+        row_hashes.append(row_content_hash(canonical_source_columns, canonical_row))
+        fast_hashes.append(fast_row_hash(canonical_source_columns, canonical_row))
+    _require_row_count(len(row_hashes), descriptor, view)
+    return (
+        raw_content_digest_of(tuple(row_hashes)),
+        fast_row_digest_of(tuple(fast_hashes)),
+        len(row_hashes),
+    )
 
 
 def _project_ordered(
@@ -1101,6 +1077,7 @@ def _project_ordered(
     view: StorageRuleView,
     codecs: Mapping[int, CanonicalColumnCodec],
     retained_indexes: tuple[int, ...],
+    canonical_source_columns: tuple[SourceColumnDescriptor, ...],
 ) -> tuple[DigestRef, DigestRef, int, int, int]:
     rows = tuple(_iter_source_rows(request, item, descriptor, view))
     _require_row_count(len(rows), descriptor, view)
@@ -1114,46 +1091,19 @@ def _project_ordered(
         )
     except OrderedProjectionError as exc:
         raise _ProjectionFailed(_error(exc.code, exc.message, view.canonical_table)) from exc
-    structural = set(view.structural_columns)
-    content_indexes = tuple(
-        index
-        for index, name in zip(retained_indexes, view.retained_columns, strict=True)
-        if name not in structural
+    row_hashes: list[bytes] = []
+    fast_hashes: list[bytes] = []
+    for row in projected.rows:
+        canonical_row = _canonicalize_row(row, retained_indexes, codecs, view)
+        row_hashes.append(row_content_hash(canonical_source_columns, canonical_row))
+        fast_hashes.append(fast_row_hash(canonical_source_columns, canonical_row))
+    return (
+        raw_content_digest_of(tuple(row_hashes)),
+        fast_row_digest_of(tuple(fast_hashes)),
+        len(projected.rows),
+        projected.real_count,
+        projected.pseudo_count,
     )
-    content_rows = tuple(sorted(projected.rows, key=lambda row: _allocated_gid(row[gid_index])))
-    content = ContentDigestBuilder()
-    for row in content_rows:
-        for index in content_indexes:
-            content.add_cell_frame(_encode_cell(row[index], codecs[index], view))
-    content_digest = content.finish()
-    replay = ContentDigestBuilder()
-    for row in content_rows:
-        for index in content_indexes:
-            replay.add_cell_frame(_encode_cell(row[index], codecs[index], view))
-    if content_digest != replay.finish():
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.DIGEST_MISMATCH,
-                "content digest mismatch",
-                view.canonical_table,
-            )
-        )
-    ordering_digest = compute_ordering_digest(
-        ordered_policy=view.ordered_policy.value,
-        rows=projected.facts,
-    )
-    if ordering_digest != compute_ordering_digest(
-        ordered_policy=view.ordered_policy.value,
-        rows=projected.facts,
-    ):
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.DIGEST_MISMATCH,
-                "ordering digest mismatch",
-                view.canonical_table,
-            )
-        )
-    return content_digest, ordering_digest, len(projected.rows), projected.real_count, projected.pseudo_count
 
 
 def _bound_descriptor(item: ProjectionTableInput, snapshot_digest: DigestRef) -> SnapshotTableDescriptor:
@@ -1437,102 +1387,6 @@ def _require_row_count(row_count: int, descriptor: SnapshotTableDescriptor, view
                 view.canonical_table,
             )
         )
-
-
-def _consume_keyed_row(
-    *,
-    row: tuple[object, ...],
-    view: StorageRuleView,
-    codecs: Mapping[int, CanonicalColumnCodec],
-    retained_indexes: tuple[int, ...],
-    key_indexes: tuple[int, ...],
-    key_names: tuple[str, ...],
-    content: ContentDigestBuilder,
-    seen_keys: set[tuple[object, ...]],
-) -> None:
-    key = _row_key(row, key_indexes, key_names, view.canonical_table)
-    if key in seen_keys:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.KEY_DUPLICATE,
-                "canonical key is not unique",
-                view.canonical_table,
-            )
-        )
-    seen_keys.add(key)
-    for index in retained_indexes:
-        content.add_cell_frame(_encode_cell(row[index], codecs[index], view))
-
-
-def _encode_row_frame(
-    row: tuple[object, ...],
-    retained_indexes: tuple[int, ...],
-    codecs: Mapping[int, CanonicalColumnCodec],
-    view: StorageRuleView,
-) -> bytes:
-    try:
-        return encode_row_cell_frame(row, retained_indexes, codecs)
-    except CanonicalCellError as exc:
-        raise _ProjectionFailed(
-            _error(ProjectionDiagnosticCode.UNSUPPORTED_TABLE, str(exc), view.canonical_table)
-        ) from exc
-    except TypeError as exc:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
-                "cell is not a typed scalar",
-                view.canonical_table,
-            )
-        ) from exc
-    except CanonicalEncodingError as exc:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
-                "cell encoding failed",
-                view.canonical_table,
-            )
-        ) from exc
-    except OSError as exc:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.BINDING_INVALID,
-                "content digest write failed",
-                view.canonical_table,
-            )
-        ) from exc
-
-
-def _encode_cell(cell: object, codec: CanonicalColumnCodec, view: StorageRuleView) -> bytes:
-    try:
-        return encode_canonical_cell(cell, codec)
-    except CanonicalCellError as exc:
-        raise _ProjectionFailed(
-            _error(ProjectionDiagnosticCode.UNSUPPORTED_TABLE, str(exc), view.canonical_table)
-        ) from exc
-    except TypeError as exc:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
-                "cell is not a typed scalar",
-                view.canonical_table,
-            )
-        ) from exc
-    except CanonicalEncodingError as exc:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
-                "cell encoding failed",
-                view.canonical_table,
-            )
-        ) from exc
-    except OSError as exc:
-        raise _ProjectionFailed(
-            _error(
-                ProjectionDiagnosticCode.BINDING_INVALID,
-                "content digest write failed",
-                view.canonical_table,
-            )
-        ) from exc
 
 
 def materialize_canonical_source_rows(

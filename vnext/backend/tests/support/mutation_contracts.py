@@ -142,6 +142,7 @@ def manifest_table(
         structural_columns=(),
         dropped_columns=(),
         canonical_key_columns=("board", "link_no"),
+        source_schema_digest=schema_digest,
         canonical_schema_digest=schema_digest,
         content_digest=content_digest,
     )

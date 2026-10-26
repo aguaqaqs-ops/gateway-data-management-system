@@ -25,14 +25,19 @@ canonical before/after storage projection
   -> Dolt renderer or external target renderer
 ```
 
-首版 policy 为 `REBUILD_ALWAYS`；`ADAPTIVE_PATCH` 全局开启只启用 planner。patch eligibility
-要求 canonical storage key、稳定 projection、无未建模 FK/trigger/cascade/generated side
-effect、目标能力支持，并同时满足 `changed_row_count <= 1000`、`change_ratio <= 5%`。
-不使用 estimated bytes eligibility；最终 `replay.sql > 200 MiB` 仍直接拒绝。
+Submit 的生产 Dolt path 使用 `ADAPTIVE_PATCH`，并按变化表独立选择 rebuild、patch 或 no-op。
+通用 planner 保留 `REBUILD_ALWAYS` 供显式调用。Patch eligibility 要求稳定 canonical storage
+key、未变化的 schema/key/storage projection、无未建模 FK/trigger/cascade/generated side
+effect、目标能力支持，并同时满足 `changed_row_count <= 1000`、`change_ratio <= 1%`。
+`GID_NO_V1` 有序表可按 `gid` key patch，`no` 是普通 persisted column。INSERT replay 每条 SQL
+最多 256 行。不使用 estimated bytes eligibility；最终 `replay.sql > 200 MiB` 仍直接拒绝。
 
 中间 artifact 只保存结构化 mutation、before digest 和完整 after-image，不保存 SQL。Dolt
-使用 deterministic replay SQL，外部 target 使用自己的 parameterized command stream。
-所有 mutation 使用 key guard、精确 affected-row 检查、change-set digest 和 readback。
+使用 deterministic replay SQL，外部 target 使用自己的 parameterized command stream。生产 Dolt
+path 以 expected-parent CAS、受信 Repository 与按 parent manifest 校验的 parent rows 为前提，
+不使用条件 DML、affected-row 检查或提交后 readback。外部 target 保留其条件 DML、事务、精确
+affected-row 与 readback 要求。生产约束由
+[Storage Mutation and Change Set](../contracts/storage-mutation-and-change-set.md) §3、§6 细化。
 
 ## Alternatives
 

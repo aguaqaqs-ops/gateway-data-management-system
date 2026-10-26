@@ -167,6 +167,8 @@ def test_explicit_net_cfg_drops_ignored_column_and_repeats_key_in_manifest() -> 
     assert manifest_table.retained_columns == table.storage_view.retained_columns
     assert manifest_table.canonical_key_columns == table.storage_view.canonical_key_columns
     assert manifest_table.dropped_columns == dropped
+    assert manifest_table.content_digest == table.content_digest
+    assert manifest_table.content_digest == table.descriptor.raw_content_digest
     import_table = result.import_input.tables[0]
     assert tuple(column.name for column in import_table.columns) == ("board", "link_no")
     assert import_table.primary_key == ("board", "link_no")
@@ -206,7 +208,7 @@ def test_canonical_table_projection_emits_canonical_descriptor_and_reader() -> N
 
     assert projected.status is ProjectionStatus.COMPLETE
     assert projected.manifest is not None
-    assert projected.manifest.contract_version == "3.2.0"
+    assert projected.manifest.contract_version == "3.3.0"
     assert len(projected.tables) == 1
     canonical = projected.tables[0]
     assert canonical.descriptor.primary_key_columns == ("board", "link_no")

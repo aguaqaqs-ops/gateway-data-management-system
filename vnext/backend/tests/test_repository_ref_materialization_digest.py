@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    CanonicalTableIdentity,
     MaterializationDiagnosticCode,
     MaterializationPolicy,
     RepositoryColumn,
@@ -203,3 +206,71 @@ def test_readers_required_publishes_reopenable_rows() -> None:
     assert len(list(reopened.iter_rows())) == 2
     reopened.close()
     published.reader.close()
+
+
+def test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary() -> None:
+    first = catalog_table("items", (int_id_column(), text_column("name", 1)))
+    second = catalog_table("widgets", (int_id_column(), text_column("label", 1)))
+    catalog = make_catalog((first, second))
+    rows = {"items": ((1, "a"),), "widgets": ((2, "b"),)}
+    ruleset_binding = canonical_binding_for_catalog(catalog)
+    full = materialize_ref(
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows),
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        canonical_binding=ruleset_binding,
+    )
+    assert full.status is SnapshotMaterializationStatus.COMPLETE
+    assert full.summary is not None
+    assert full.snapshot is not None
+    descriptors = {item.table_name: item for item in full.summary.tables}
+    binding = replace(
+        ruleset_binding,
+        snapshot_digest=full.snapshot.snapshot_digest,
+        table_identities=tuple(
+            CanonicalTableIdentity(
+                canonical_table=name,
+                row_count=descriptor.row_count,
+                source_schema_digest=descriptor.business_schema_digest,
+                canonical_schema_digest=descriptor.business_schema_digest,
+                raw_content_digest=descriptor.raw_content_digest,
+            )
+            for name, descriptor in sorted(descriptors.items())
+            if descriptor.raw_content_digest is not None
+        ),
+    )
+
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
+    selected = materialize_ref(
+        provider,
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        canonical_binding=binding,
+        requested_tables=("items",),
+    )
+    assert selected.status is SnapshotMaterializationStatus.COMPLETE
+    assert selected.summary is not None
+    assert tuple(item.table_name for item in selected.summary.tables) == ("items", "widgets")
+    assert selected.summary.snapshot_digest == full.summary.snapshot_digest
+    assert selected.summary.canonical_state_digest == full.summary.canonical_state_digest
+    assert selected.table_set is not None
+    assert tuple(item.descriptor.table_name for item in selected.table_set.tables) == ("items",)
+    assert provider.last_session is not None
+    assert tuple(item.catalog_table().table_name for item in provider.last_session.table_readers) == (
+        "items",
+    )
+
+    no_read_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
+    no_read = materialize_ref(
+        no_read_provider,
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        canonical_binding=binding,
+        requested_tables=(),
+    )
+    assert no_read.status is SnapshotMaterializationStatus.COMPLETE
+    assert no_read.summary is not None
+    assert len(no_read.summary.tables) == 2
+    assert no_read.summary.snapshot_digest == full.summary.snapshot_digest
+    assert no_read.summary.canonical_state_digest == full.summary.canonical_state_digest
+    assert no_read.table_set is not None
+    assert no_read.table_set.tables == ()
+    assert no_read_provider.last_session is not None
+    assert no_read_provider.last_session.table_readers == []

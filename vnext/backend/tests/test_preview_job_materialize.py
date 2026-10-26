@@ -312,6 +312,7 @@ def test_initial_baseline_rejects_repository_user_tables(tmp_path: Path) -> None
         {
             (REPOSITORY_ID, "commit-base"): metadata_for_catalog(
                 harness.baseline_provider.catalog,
+                rows_by_table=harness.baseline_provider.rows,
                 initial=True,
             )
         }
@@ -345,6 +346,8 @@ def test_full_materialize_publishes_checkpoint_and_assemble_successor(tmp_path: 
     assert materialize_step.status is StepStatus.SUCCEEDED
     assert materialize_step.checkpoint_ref is not None
     assert assemble_step.status is StepStatus.PENDING
+    assert harness.baseline_provider.last_session is not None
+    assert harness.baseline_provider.last_session.table_readers == []
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
     sides = _materialized_side_documents(envelope.job_state, harness)
     assert {"BASELINE", "INITIAL", "MODIFIED"}.issubset(sides)
@@ -384,6 +387,12 @@ def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> 
     session, control, operation, step = claim_next_step(harness)
     run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
 
+    assert harness.baseline_provider.last_session is not None
+    assert tuple(
+        item.catalog_table().table_name
+        for item in harness.baseline_provider.last_session.table_readers
+    ) == ("t",)
+
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         materialize_step = unit_of_work.operations.get_step(step_id_for(operation_id, "materialize_inputs"))
     assert materialize_step.checkpoint_ref is not None
@@ -394,6 +403,22 @@ def test_modified_only_reuses_baseline_for_effective_initial(tmp_path: Path) -> 
     initial_side = sides["INITIAL"]
     assert isinstance(baseline_side, dict) and isinstance(initial_side, dict)
     assert baseline_side["snapshot_digest"] == initial_side["snapshot_digest"]
+
+
+def test_unchanged_preview_table_does_not_read_baseline_rows(tmp_path: Path) -> None:
+    harness = build_preview_harness(
+        tmp_path,
+        input_completeness=InputCompleteness.MODIFIED_ONLY,
+        canonical_noop=True,
+    )
+    harness.seed_workspace()
+    payload = decode_preview_payload(decode_payload_object(harness))
+    from gateway_backend.application.preview_jobs import _materialize_all_sides
+
+    _materialize_all_sides(payload, harness.deps)
+
+    assert harness.baseline_provider.last_session is not None
+    assert harness.baseline_provider.last_session.table_readers == []
 
 
 @pytest.mark.parametrize(
@@ -530,6 +555,7 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
 
     baseline_metadata = metadata_for_catalog(
         harness.baseline_provider.catalog,
+        rows_by_table=harness.baseline_provider.rows,
         ruleset=ruleset_a,
         initial=False,
     )

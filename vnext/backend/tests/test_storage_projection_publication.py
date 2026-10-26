@@ -178,14 +178,14 @@ HISTORICAL_MANIFEST_VERSION_FIELDS = (
     ("ruleset_version", "v1", "current ruleset_version"),
 )
 
-HISTORICAL_CANONICALIZATION_CONTRACT_VERSIONS = ("3.0.0", "3.1.0")
+HISTORICAL_CANONICALIZATION_CONTRACT_VERSIONS = ("3.0.0", "3.1.0", "3.2.0")
 
 
 @pytest.mark.parametrize(
     "contract_version",
     HISTORICAL_CANONICALIZATION_CONTRACT_VERSIONS,
 )
-def test_durable_manifest_reader_accepts_published_contract_versions(
+def test_durable_manifest_reader_rejects_historical_contract_versions(
     contract_version: str,
 ) -> None:
     result = _project()
@@ -200,7 +200,8 @@ def test_durable_manifest_reader_accepts_published_contract_versions(
     assert historical.manifest_digest is not None
     document["manifest_digest"] = historical.manifest_digest.value
 
-    assert canonicalization_manifest_from_bytes(canonicalize_json_value(document)) == historical
+    with pytest.raises(PackageError, match="current contract_version"):
+        canonicalization_manifest_from_bytes(canonicalize_json_value(document))
 
 
 @pytest.mark.parametrize(
@@ -208,7 +209,7 @@ def test_durable_manifest_reader_accepts_published_contract_versions(
     HISTORICAL_MANIFEST_VERSION_FIELDS,
     ids=[field for field, _value, _error in HISTORICAL_MANIFEST_VERSION_FIELDS],
 )
-def test_historical_manifest_versions_decode_as_provenance_but_cannot_be_written(
+def test_historical_manifest_versions_cannot_be_read_or_written(
     field: str,
     value: str,
     write_error: str,
@@ -227,7 +228,8 @@ def test_historical_manifest_versions_decode_as_provenance_but_cannot_be_written
     document["manifest_digest"] = historical.manifest_digest.value
     payload = canonicalize_json_value(document)
 
-    assert canonicalization_manifest_from_bytes(payload) == historical
+    with pytest.raises(PackageError, match=write_error.replace("new manifest writes require", "durable manifest requires")):
+        canonicalization_manifest_from_bytes(payload)
     with pytest.raises(PackageError, match=write_error):
         durable_manifest_bytes(historical)
 

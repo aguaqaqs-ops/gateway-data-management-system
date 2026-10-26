@@ -29,8 +29,9 @@ before canonical storage snapshot
 - `REBUILD_ALWAYS`：每个变化表生成完整重建 mutation；
 - `ADAPTIVE_PATCH`：planner 对每张表独立判断 patch eligibility，允许 mixed plan。
 
-全局启用 `ADAPTIVE_PATCH` 只启用 planner，不强制所有表 patch。首版 production default
-仍为 `REBUILD_ALWAYS`。
+生产 `RepositoryImportArtifact` 路径冻结使用 `ADAPTIVE_PATCH`，planner 对每张变化表独立判断，
+允许 mixed plan。通用 planner 仍保留 `REBUILD_ALWAYS` 供明确选择该策略的非生产调用方使用；它不是
+Submit 的生产默认值。
 
 ## 3. Patch eligibility
 
@@ -38,11 +39,14 @@ before canonical storage snapshot
 
 - canonical storage key 稳定、唯一、可直接定位行；
 - schema、key、storage projection 没有变化；
-- table 不是 keyless、ordered、degraded 或 unsupported table；
+- table 不是 keyless、degraded 或 unsupported table；`GID_NO_V1` ordered table 可 patch，
+  以 `gid` 为稳定 canonical storage key，`no` 作为普通 persisted column；
 - 没有 foreign key、trigger、cascade、generated/server-default 或其他未建模外部副作用；
-- target renderer 支持该表所有 logical types、条件 DML、事务和必要 readback；
+- target renderer 支持该表所有 logical types 与其目标所需的 apply semantics；外部目标保留
+  条件 DML、affected-row 检查、事务与 readback 要求，生产 Dolt 路径按 §6 的 expected-parent CAS
+  边界执行；
 - `changed_row_count <= 1,000`；
-- `change_ratio <= 5%`。
+- `change_ratio <= 1%`。
 
 `change_ratio` 定义为：
 
@@ -50,6 +54,8 @@ before canonical storage snapshot
 changed_row_count / max(before_row_count, after_row_count, 1)
 ```
 
+阈值 policy 冻结为 `1,000` 行和 `1%`。INSERT replay 每条 SQL 最多包含 `256` 行；
+S1a 在 t4 v2 的真实变化表上验证逐行路径与整表重建耗时并冻结这两个值。
 没有 estimated patch bytes eligibility 条件。最终 renderer 产生的 `replay.sql` 仍受
 `200 MiB` artifact admission 限制；超过限制直接拒绝，不拆分、不 fallback。
 
@@ -107,9 +113,12 @@ DELETE -> UPDATE -> INSERT
 每个阶段按 canonical key 排序。所有 digest 使用 canonical encoding，不受输入顺序、
 线程调度或 provider language 影响。
 
-`UPDATE/DELETE` 带 canonical key 和 before-image guard，并要求 affected-row 数精确匹配。
-`INSERT` 遇到已存在 key 为冲突。drift、guard mismatch 或 capability failure 均 fail
-closed，要求 full resync，不自动 merge。
+外部目标的 `UPDATE/DELETE` 带 canonical key 和 before-image guard，并要求 affected-row 数
+精确匹配；`INSERT` 遇到已存在 key 为冲突。生产 Dolt renderer 在 Repository Service 私有 ref
+上按 expected parent 构造确定性 replay，变化表 parent rows 先按 parent manifest 的行数与
+`raw_content_digest` 校验；不生成 conditional DML，不做 affected-row 检查或提交后 readback。
+其正确性依赖受信 Repository、expected-parent CAS 与上述 parent 行校验。各目标的 drift 与
+capability failure 按其既定 full-resync/error contract 处理，不自动 merge。
 
 ## 7. Renderer boundary and lifecycle
 

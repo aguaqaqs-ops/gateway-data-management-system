@@ -159,7 +159,7 @@ def _build_input(
     closure_digest = "sha256:" + "a" * 64
     return PrepareImportBuildInput(
         submit_attempt_id="sa-import-1",
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=ArtifactRef(
             artifact_id="canonical-table-closure",
             media_type="application/jcs",
@@ -170,6 +170,10 @@ def _build_input(
         canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=projection.manifest.manifest_digest.value,
         expected_parent_commit_id="parent-commit-1",
+        repository_id="test-repository",
+        parent_manifest=None,
+        parent_manifest_digest=None,
+        parent_is_initial=True,
         removed_tables=(),
         source_artifact_digest=projection.manifest.source_artifact_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
@@ -293,12 +297,16 @@ def _frozen_build_input(
     )
     return PrepareImportBuildInput(
         submit_attempt_id="sa-import-frozen-fixture",
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=closure_ref,
         canonical_table_set_closure_digest=closure_ref.raw_sha256.value,
         canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=frozen.manifest.manifest_digest.value,
         expected_parent_commit_id="parent-commit-1",
+        repository_id="test-repository",
+        parent_manifest=None,
+        parent_manifest_digest=None,
+        parent_is_initial=True,
         removed_tables=(),
         source_artifact_digest=canonical.snapshot.snapshot_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
@@ -376,6 +384,9 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     )
     assert canonical.manifest is not None
     assert canonical.manifest.manifest_digest is not None
+    parent_projection = _project_inputs()
+    assert parent_projection.manifest is not None
+    assert parent_projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(canonical.manifest)
     manifest_ref = ArtifactRef(
         artifact_id="empty-state-removal-manifest",
@@ -399,13 +410,17 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     store.put(closure_bytes, closure_ref)
     build_input = PrepareImportBuildInput(
         submit_attempt_id="sa-empty-removal",
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=closure_ref,
         canonical_table_set_closure_digest=closure_ref.raw_sha256.value,
         canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=canonical.manifest.manifest_digest.value,
         expected_parent_commit_id="parent-with-old-table",
-        removed_tables=("old_table",),
+        repository_id="test-repository",
+        parent_manifest=parent_projection.manifest,
+        parent_manifest_digest=parent_projection.manifest.manifest_digest.value,
+        parent_is_initial=False,
+        removed_tables=("net_cfg",),
         source_artifact_digest=canonical.manifest.source_artifact_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
         snapshot_tables=(),
@@ -414,9 +429,9 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     published = adapter.build_and_publish(build_input=build_input, store=store)
     package = adapter.read_back_package(checkpoint=published.checkpoint, store=store)
     replay_sql = _replay_sql_from_package(package)
-    assert "DROP TABLE IF EXISTS `old_table`" in replay_sql
+    assert "DROP TABLE IF EXISTS `net_cfg`" in replay_sql
     assert "CREATE TABLE" not in replay_sql
-    assert published.checkpoint.removed_tables == ("old_table",)
+    assert published.checkpoint.removed_tables == ("net_cfg",)
 
 
 def _projection_inputs() -> tuple[ProjectionTableInput, ...]:
@@ -519,7 +534,7 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
     store.put(manifest_payload, manifest_ref)
     build_input = PrepareImportBuildInput(
         submit_attempt_id="sa-frozen-dropped-column",
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=ArtifactRef(
             artifact_id="frozen-com_cfg-closure",
             media_type="application/jcs",
@@ -530,6 +545,10 @@ def test_prepare_uses_frozen_manifest_after_storage_projection_drops_column() ->
         canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=frozen.manifest.manifest_digest.value,
         expected_parent_commit_id="parent-com_cfg",
+        repository_id="test-repository",
+        parent_manifest=None,
+        parent_manifest_digest=None,
+        parent_is_initial=True,
         removed_tables=(),
         source_artifact_digest=canonical_inputs[0].source_binding.snapshot_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,
@@ -624,12 +643,16 @@ def test_prepare_replays_canonical_ordered_pseudo_gid_snapshot() -> None:
     store.put(manifest_payload, manifest_ref)
     build_input = PrepareImportBuildInput(
         submit_attempt_id="sa-ordered-pseudo-replay",
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=closure_ref,
         canonical_table_set_closure_digest=closure_ref.raw_sha256.value,
         canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=frozen.manifest.manifest_digest.value,
         expected_parent_commit_id="parent-ordered",
+        repository_id="test-repository",
+        parent_manifest=None,
+        parent_manifest_digest=None,
+        parent_is_initial=True,
         removed_tables=(),
         source_artifact_digest=projection_inputs[0].source_binding.snapshot_digest.value,
         repository_base_digest=_SNAPSHOT_DIGEST,

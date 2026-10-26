@@ -102,12 +102,23 @@ class ComparisonStorageFacts:
 
     storage_rule_view: StorageRuleView
     source_schema_digest: DigestRef
+    canonical_schema_digest: DigestRef | None = None
+    raw_content_digest: DigestRef | None = None
+    storage_projection_version: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.storage_rule_view) is not StorageRuleView:
             raise ValueError("storage_rule_view must be StorageRuleView")
         if type(self.source_schema_digest) is not DigestRef:
             raise ValueError("source_schema_digest must be DigestRef")
+        if self.canonical_schema_digest is not None and type(self.canonical_schema_digest) is not DigestRef:
+            raise ValueError("canonical_schema_digest must be DigestRef or None")
+        if self.raw_content_digest is not None and type(self.raw_content_digest) is not DigestRef:
+            raise ValueError("raw_content_digest must be DigestRef or None")
+        if self.storage_projection_version is not None and (
+            type(self.storage_projection_version) is not str or not self.storage_projection_version
+        ):
+            raise ValueError("storage_projection_version must be a non-empty string or None")
 
 
 class PairResultKind(StrEnum):

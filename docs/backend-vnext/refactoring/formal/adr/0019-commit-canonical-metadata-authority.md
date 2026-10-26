@@ -35,14 +35,15 @@
 ## Decision
 
 1. **commit 规范元数据的权威是 Backend 持有的 `CanonicalizationManifest`**，经 Submission 取得。
-   - `CommitCanonicalMetadataPort` 以 `(repository_id, commit_id)` 为键，只经该 Repository 的 Submission 与 BaselineNode 记录解析，并限定在 operation 冻结的 scope 内；返回取自 manifest 的存储身份（`storage_projection_version` 与每表规则侧存储事实，见详细设计 §4.1）和规则集 provenance；无法解析时稳定失败（`COMMIT_CANONICAL_METADATA_MISSING`）；
+   - `CommitCanonicalMetadataPort` 以 `(repository_id, commit_id)` 为键，只经该 Repository 的 Submission 与 BaselineNode 记录解析，并限定在 operation 冻结的 scope 内；返回取自 manifest 的存储身份（`storage_projection_version`、每表 `raw_content_digest`、source/canonical schema digest、行数与规则侧 StorageRuleView）、规则集 provenance，以及现有 `SubmitAttempt.snapshot_digest`；无法解析时稳定失败（`COMMIT_CANONICAL_METADATA_MISSING`）。这些每表身份是 Preview、History 与 Submit 的结构性过滤输入，表摘要不能脱离 schema、存储视图、行数与投影版本单独使用；
    - 读取 manifest artifact 时 digest 与 Submission 记录不符：稳定失败（`COMMIT_CANONICAL_METADATA_DIGEST_MISMATCH`），附诊断、结构化日志与指标，不创建持久 incident（DC25）；
-   - 解码历史 manifest 时，contract、storage projection 与 ruleset 的版本只作 provenance，接受任何已发布的值；新写入的 manifest 仍按当前常量校验；
+   - durable manifest 的 contract、storage projection 与 ruleset 版本必须匹配当前基线；S1a 不读取旧 manifest。现有 control DB 与测试 Repository 数据按本仓库前提删除并重建，不做兼容解码或数据迁移；
    - Repository 中不写隐藏表，Repository wire 不变。
 2. **初始 BaselineNode 恒为空提交**（DC17）：零表规范状态，`canonical_binding` 取运行期规则集；物化时断言 catalog 中没有用户表，不满足即稳定失败（`INITIAL_BASELINE_NOT_EMPTY`）。不支持预置数据的初始库。
-3. **Repository-ref 物化改为单遍读取。**
+3. **Repository-ref 物化使用 commit metadata，并按需读取行。**
    - provider 协议删除 hidden summary；`canonical_binding` 由 Application 按 commit 元数据提供；descriptor 由 catalog 构造；
-   - catalog 行数与读取行数不一致时，作为普通失败处理（`REPOSITORY_ROW_COUNT_MISMATCH`）；
+   - 调用方可指定需要行数据的表集合。物化仍校验 catalog 的完整表集合，并为未选中的表按 catalog 与 manifest 身份构造 descriptor，但不打开其行 reader；空集合表示本次不读任何表行。若 binding 来自已提交 Submission，则 Snapshot digest 沿用其 SubmitAttempt 中已受理的 `snapshot_digest`；选中表仍按 manifest 校验行数与 `raw_content_digest`；
+   - 选中的表验证 catalog 行数、实际行数与 manifest 的 `raw_content_digest`；行数不一致时稳定失败（`REPOSITORY_ROW_COUNT_MISMATCH`），摘要不一致时稳定失败（`REPOSITORY_SNAPSHOT_DIGEST_MISMATCH`）；
    - adapter 只负责传输，不计算摘要；标量解码由 snapshot_materialization 的编码 owner 负责，与投影侧编码一致。
 4. **不做读回校验。** 规范编码的一致性由共享编码、真实 Dolt 同一性测试、契约与 golden 测试以及 Repository STRUCTURAL 校验保证。
 5. **规范状态摘要与无变化判定。**
@@ -70,7 +71,7 @@
 
 ## Consequences
 
-- Preview 基线物化与 History 节点物化各减少一次全表读取；AcceptSubmit 不再执行比较流水线。
+- Preview 与 History 的未变化普通表由 commit manifest 元数据短路，不读取基线行或派发行比较；变化表仍由 Repository-ref materializer 校验并读取。未变化 ordered 表只读取 pair 的 current 侧规范行以填充既有逻辑与 occupancy facts。AcceptSubmit 不执行比较流水线。
 - 5E-S2 的 integrity 机制与 v6 表被移除（在 5E slice exit 之后执行）。
 - 未来的 `SYSTEM_MIGRATION` commit 必须同时登记 manifest。
 - control DB 新增前向 migration；compose harness 的初始基线改为空提交。（注：control DB schema 规则由 G3 取代，见设计 DC6。）
@@ -78,8 +79,8 @@
 
 ## Required Verification
 
-- 单遍物化：读取次数、行数不一致为普通失败、`snapshot_id` 确定性。
-- `CommitCanonicalMetadataPort` 只在所属 Repository 与冻结 scope 内解析；manifest digest 不符时稳定失败；历史版本的 manifest 可以解码（唯一 owner：`test_commit_canonical_metadata.py`）。
+- Repository-ref 子集读取：catalog 仍完整校验，未选择表不打开 reader，空选择读取零表，选中表验证行数与 `raw_content_digest`，`snapshot_id` 确定性。
+- `CommitCanonicalMetadataPort` 只在所属 Repository 与冻结 scope 内解析；manifest digest 不符时稳定失败；旧 contract/storage/ruleset 版本的 durable manifest 稳定拒绝（唯一 owner：`test_storage_projection_publication.py`）。
 - 初始基线非空时稳定失败。
 - `NO_CANONICAL_CHANGE` 判定；陈旧 Preview（基线漂移、缺摘要、规则集不同）被拒绝。
 - ADDITIVE 激活后旧基线仍可 Preview；Preview/History 在激活后恢复时稳定失败，Preview 包括受理后、materialize 前发生激活的情形。

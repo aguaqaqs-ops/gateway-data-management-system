@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订（[决议记录](../plans/p5-arch-closure-s0-owner-decisions.md) §12）
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,9 +8,9 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.2.0`（2026-10-12，DC29；前版 `3.1.0`、`3.0.0`）
+Semantic version：`3.3.0`（2026-10-26，Phase 6 S1a；前版 `3.2.0`、`3.1.0`、`3.0.0`）
 
-Storage projection version：`2`（P5 收口 S2a-F1 的负零规范化 `26560b2595` 从 `1` 提升，见下文 `3.2.0` 说明）
+Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
 ## 1. Authority boundary
 
@@ -86,12 +86,14 @@ Source real gid 必须唯一并处于 real range；source `0 | NULL | empty` 才
 
 ## 4. CanonicalizationManifest
 
-每次import的durable`CanonicalizationManifest`至少记录：contract/storage
+每次 import 的 durable `CanonicalizationManifest`至少记录：contract/storage
 projection version，source artifact digest，ruleset ID/version/digest；每表
 source/canonical schema digest、source/canonical row count、
-retained/structural/dropped columns+reason、canonical key、canonical content
-digest、optional ordering digest/ordered identity policy与gid range/count；以及
-manifest digest。
+retained/structural/dropped columns+reason、canonical key、统一表摘要
+`content_digest`（其值等于该表的 `raw_content_digest`）、ordered identity policy 与
+gid range/count；以及 manifest digest。Manifest 不包含 `ordering_digest` 或额外的行摘要字段。
+`fast_row_digest` 保留在 Snapshot Materialization 中并进入 snapshot 身份；Repository-ref
+rowless materialization 从现有 SubmitAttempt 的 snapshot digest 恢复提交侧快照身份。
 
 Table Rules/Storage Projection owner拥有其语义。Repository Service只消费manifest中的
 required table、schema和row count做structural check；不验证业务content/ordering
@@ -116,8 +118,13 @@ collation 列修饰符不属于 v1 schema identity。Arrow 物理类型不进入
 行数，不使用它。比较、规范状态摘要与 `NO_CANONICAL_CHANGE` 使用 Snapshot Materialization 拥有、与
 列序无关的 business schema digest（ADR 0018），二者不可互换。
 
-每表 content digest 的单元格 bytes 由 [Shared Canonical Encoding](shared-canonical-encoding.md)
-§3.2 唯一拥有：
+每表的 `content_digest` 使用 Snapshot Materialization 定义的 `raw_content_digest`：先按
+[Shared Canonical Encoding](shared-canonical-encoding.md) §3.2 对保留列的每个规范单元格编码，
+形成行摘要，再以无序 row-hash 聚合计算表摘要。它与行顺序无关，保留重复行；空表摘要不包含
+schema 输入，任何使用方都必须同时检查行数、schema digest、StorageRuleView 与投影版本。
+Ordered 表的规范行包含结构列 `no` 与伪 gid，因此它们的变化会改变统一表摘要。
+
+单元格 bytes 由 [Shared Canonical Encoding](shared-canonical-encoding.md) §3.2 唯一拥有：
 
 ```text
 ENUM 单元格 = string 或 null 的 scalar_frame
@@ -125,12 +132,10 @@ SET NULL 单元格 = null scalar_frame
 SET 非 null 单元格 = sequence_frame 本身，不再外包 scalar tag
 ```
 
-空 SET 是长度为 0 的 `sequence_frame`，不得写成 null。表 content digest 的行/列拼接
-沿用 CanonicalizationManifest 既有 per-cell 规则；不使用 Shared Kernel `encode_row`，
-不改变 Canonical Row Hash Arrow mapping v1，不升 `canonical_encoding_version`。
-ordinal、dictionary index 与未规范化的 SET 输入顺序不得进入 content preimage。行/表
-排序沿用既有 Contract；producer 不得自行排序。Repository 任一 verification level
-都不重算这些业务 digest。
+空 SET 是长度为 0 的 `sequence_frame`，不得写成 null。不使用 Shared Kernel `encode_row`，
+不改变 Canonical Row Hash Arrow mapping v1，不升 `canonical_encoding_version`。ordinal、
+dictionary index 与未规范化的 SET 输入顺序不得进入 row preimage。Repository 任一 verification
+level 都不重算这些业务 digest。
 
 ## 5. Artifact lifecycle
 
@@ -165,9 +170,10 @@ serialization、Dolt apply/commit、operation marker、mandatory commit CAS，�
 `FULL_SCAN`再以bounded batches读取全部user rows并验证type conversion与实际row
 count。任何level都不计算business content/ordering digest或防篡改evidence。
 
-业务content/ordering digest在import前由Storage Projection owner计算和保存。Caller
-根据业务风险选择Repository verification level，并为低保障选择负责；Repository的
-FULL_SCAN仍不能替代业务digest validation。
+业务表摘要在 import 前由 Storage Projection owner 计算和保存。Ordered Diff 的逻辑摘要与
+occupancy 摘要仍由 Comparison owner 按当前有效 pair 策略计算；它们与表摘要是不同语义。
+Caller 根据业务风险选择 Repository verification level，并为低保障选择负责；Repository 的
+FULL_SCAN 仍不能替代业务表摘要 validation。
 
 RepositoryImportArtifact是Storage Projection owner的content contract；minimal
 ArtifactRef只包含opaque ID、media type、size和raw SHA。Repository Service只解释

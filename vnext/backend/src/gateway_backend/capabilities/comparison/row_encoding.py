@@ -408,11 +408,24 @@ def _can_table_early_exit(
     current: SnapshotTableDescriptor,
     policy: _ComparisonTablePolicy,
 ) -> bool:
+    before_facts = policy.storage_facts_before
+    current_facts = policy.storage_facts_current
     return (
         before.business_schema_digest == current.business_schema_digest
         and before.row_count == current.row_count
         and before.raw_content_digest is not None
         and before.raw_content_digest == current.raw_content_digest
+        and before_facts is not None
+        and current_facts is not None
+        and before_facts.storage_rule_view == current_facts.storage_rule_view
+        and before_facts.source_schema_digest == current_facts.source_schema_digest
+        and before_facts.canonical_schema_digest is not None
+        and before_facts.canonical_schema_digest == current_facts.canonical_schema_digest
+        and before_facts.raw_content_digest == before.raw_content_digest
+        and current_facts.raw_content_digest == current.raw_content_digest
+        and before_facts.raw_content_digest == current_facts.raw_content_digest
+        and before_facts.storage_projection_version is not None
+        and before_facts.storage_projection_version == current_facts.storage_projection_version
         and (
             not policy.allow_keyless_key_transition
             or policy.effective_key_before == policy.effective_key_current

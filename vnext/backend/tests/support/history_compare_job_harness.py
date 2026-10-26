@@ -283,7 +283,10 @@ def build_history_compare_harness(
     resolved_artifact_store = artifact_store or InMemoryArtifactStore()
     metadata_port = CatalogCommitCanonicalMetadataPort(
         {
-            (REPOSITORY_ID, commit_id): metadata_for_catalog(provider.catalog)
+            (REPOSITORY_ID, commit_id): metadata_for_catalog(
+                provider.catalog,
+                rows_by_table=provider.rows,
+            )
             for commit_id, provider in providers.items()
         }
     )

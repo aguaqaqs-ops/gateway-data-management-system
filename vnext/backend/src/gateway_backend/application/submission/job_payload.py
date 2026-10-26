@@ -63,7 +63,7 @@ def build_submit_job_payload(
             "verification_policy": attempt.requested_verification_policy.value,
             "unknown_type_policy": attempt.requested_unknown_type_policy.value,
         },
-        "builder_mutation_policy": BuilderMutationPolicy.REBUILD_ALWAYS.value,
+        "builder_mutation_policy": BuilderMutationPolicy.ADAPTIVE_PATCH.value,
         "options": dict(options or {}),
     }
     return canonicalize_json_value(payload)

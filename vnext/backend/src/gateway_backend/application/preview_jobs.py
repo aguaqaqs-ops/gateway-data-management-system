@@ -99,6 +99,9 @@ from gateway_backend.capabilities.snapshot_materialization import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BusinessSnapshotMaterializationRequest,
     MaterializationDiagnosticCode,
+    DiagnosticSeverity,
+    DegradedReason,
+    MaterializationDiagnostic,
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
@@ -109,6 +112,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
     SnapshotTableSet,
+    SnapshotTableDescriptor,
+    SnapshotColumnDescriptor,
     canonical_state_digest_of,
     snapshot_from_document,
     snapshot_summary_from_document,
@@ -212,7 +217,7 @@ PREVIEW_MATERIALIZE_HANDLER = "backend-vnext/preview/materialize/handler/v1"
 PREVIEW_ASSEMBLE_HANDLER = "backend-vnext/preview/assemble/handler/v1"
 PREVIEW_PUBLISH_HANDLER = "backend-vnext/preview/publish/handler/v1"
 
-PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v4"
+PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/preview/materialize-side/v5"
 PREVIEW_ASSEMBLE_CHECKPOINT_CONTRACT_VERSION = "backend-vnext/preview/assemble-checkpoint/v1"
 _JCS_MEDIA_TYPE = "application/jcs"
 
@@ -1076,18 +1081,6 @@ def _materialize_all_sides(
         payload.repository_id,
         payload.business_baseline_commit_id,
     )
-    baseline = _materialize_baseline(
-        payload,
-        provider,
-        deps.artifact_store,
-        canonical_binding=canonical_binding,
-        ruleset=runtime_ruleset,
-    )
-    sides: dict[str, BoundSnapshotInput] = {_SIDE_BASELINE: baseline}
-    baseline_state_digest = canonical_state_digest_of(baseline.summary.tables)
-    if baseline_state_digest is None:
-        raise PreviewJobError("baseline canonical state digest is missing")
-
     uploaded_side_specs: list[tuple[OperationDiagnosticSide, SourceArtifactBinding]] = []
     if payload.input_completeness is InputCompleteness.FULL:
         uploaded_side_specs.append(
@@ -1142,16 +1135,36 @@ def _materialize_all_sides(
 
     initial_manifest_ref: ArtifactRef | None = None
     initial_manifest_digest: DigestRef | None = None
+    sides: dict[str, BoundSnapshotInput] = {}
     if payload.input_completeness is InputCompleteness.FULL:
         initial, initial_manifest_ref, initial_manifest_digest = uploaded_sides[
             OperationDiagnosticSide.INITIAL
         ]
         sides[_SIDE_INITIAL] = initial
     else:
-        sides[_SIDE_INITIAL] = baseline
+        initial = None
     sides[_SIDE_MODIFIED], manifest_ref, manifest_digest = uploaded_sides[
         OperationDiagnosticSide.MODIFIED
     ]
+    baseline_compare_current = initial if initial is not None else sides[_SIDE_MODIFIED]
+    requested_baseline_tables = _changed_canonical_tables(
+        canonical_binding,
+        baseline_compare_current,
+    )
+    baseline = _materialize_baseline(
+        payload,
+        provider,
+        deps.artifact_store,
+        canonical_binding=canonical_binding,
+        ruleset=runtime_ruleset,
+        requested_tables=requested_baseline_tables,
+    )
+    sides[_SIDE_BASELINE] = baseline
+    if payload.input_completeness is InputCompleteness.MODIFIED_ONLY:
+        sides[_SIDE_INITIAL] = baseline
+    baseline_state_digest = canonical_state_digest_of(baseline.summary.tables)
+    if baseline_state_digest is None:
+        raise PreviewJobError("baseline canonical state digest is missing")
     modified_state_digest = canonical_state_digest_of(sides[_SIDE_MODIFIED].summary.tables)
     if modified_state_digest is None:
         raise PreviewJobError("modified canonical state digest is missing")
@@ -1183,6 +1196,7 @@ def _materialize_baseline_commit(
     store: ArtifactStorePort,
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
+    requested_tables: tuple[str, ...] | None = None,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
@@ -1193,6 +1207,7 @@ def _materialize_baseline_commit(
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
+        requested_tables=requested_tables,
         artifact_store=store,
     )
     result = materialize_repository_ref(request)
@@ -1210,6 +1225,7 @@ def _materialize_baseline(
     *,
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
+    requested_tables: tuple[str, ...] | None = None,
 ) -> BoundSnapshotInput:
     return _materialize_baseline_commit(
         repository_id=payload.repository_id,
@@ -1218,6 +1234,7 @@ def _materialize_baseline(
         store=store,
         canonical_binding=canonical_binding,
         ruleset=ruleset,
+        requested_tables=requested_tables,
     )
 
 
@@ -1245,6 +1262,39 @@ def _preview_baseline_binding(
                 diagnostic_code=exc.code.value,
             ) from exc
     return canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
+
+
+def _changed_canonical_tables(
+    before_binding: CanonicalBinding,
+    current: BoundSnapshotInput,
+) -> tuple[str, ...]:
+    """Select only parent tables whose full manifest identity differs from current."""
+
+    if before_binding.is_initial:
+        return ()
+    identities = {item.canonical_table: item for item in before_binding.table_identities}
+    views = {item.canonical_table: item for item in before_binding.tables}
+    descriptors = {item.table_name: item for item in current.summary.tables}
+    facts = {item.storage_rule_view.canonical_table: item for item in current.storage_facts}
+    changed: list[str] = []
+    for name in sorted(views, key=lambda item: item.encode("utf-8")):
+        identity = identities[name]
+        descriptor = descriptors.get(name)
+        fact = facts.get(name)
+        unchanged = (
+            descriptor is not None
+            and fact is not None
+            and descriptor.row_count == identity.row_count
+            and descriptor.raw_content_digest == identity.raw_content_digest
+            and fact.raw_content_digest == identity.raw_content_digest
+            and fact.source_schema_digest == identity.source_schema_digest
+            and fact.canonical_schema_digest == identity.canonical_schema_digest
+            and fact.storage_rule_view == views[name]
+            and fact.storage_projection_version == before_binding.storage_projection_version
+        )
+        if not unchanged:
+            changed.append(name)
+    return tuple(changed)
 
 
 def _materialize_uploaded_side(
@@ -2229,6 +2279,7 @@ def _side_binding_document(
     if bound.table_set is None:
         raise PreviewJobError(f"{role} table set is missing closed refs")
     tables: list[dict[str, object]] = []
+    materialized_names: set[str] = set()
     for table in bound.table_set.tables:
         if table.artifact is None:
             raise PreviewJobError(f"{role} table {table.descriptor.table_name} is missing artifact refs")
@@ -2241,6 +2292,12 @@ def _side_binding_document(
                 ],
             }
         )
+        materialized_names.add(table.descriptor.table_name)
+    unmaterialized_descriptors = [
+        _snapshot_descriptor_to_document(table)
+        for table in bound.summary.tables
+        if table.table_name not in materialized_names
+    ]
     source_ref: dict[str, object] | None = None
     repository_identity: dict[str, object] | None = None
     context = bound.snapshot.source_context
@@ -2266,6 +2323,7 @@ def _side_binding_document(
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "raw_state_digest": bound.snapshot.raw_state_digest.value,
         "summary": snapshot_summary_to_document(bound.summary),
+        "unmaterialized_descriptors": unmaterialized_descriptors,
         "storage_facts": _storage_facts_to_documents(bound.storage_facts),
         "tables": tables,
     }
@@ -2503,10 +2561,30 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     try:
+        summary_raw = entry.get("summary")
+        if type(summary_raw) is not dict or type(summary_raw.get("tables")) is not list:
+            raise ValueError("summary tables are invalid")
+        descriptors_by_name = {table.descriptor.table_name: table.descriptor for table in opened}
+        raw_unmaterialized = entry.get("unmaterialized_descriptors")
+        if type(raw_unmaterialized) is not list:
+            raise ValueError("unmaterialized_descriptors must be a list")
+        for raw_descriptor in raw_unmaterialized:
+            descriptor = _snapshot_descriptor_from_document(raw_descriptor)
+            if descriptor.table_name in descriptors_by_name:
+                raise ValueError("unmaterialized descriptor repeats a materialized table")
+            descriptors_by_name[descriptor.table_name] = descriptor
+        raw_summary_tables = summary_raw["tables"]
+        ordered_names = tuple(
+            _document_string(item, "table_name")
+            for item in raw_summary_tables
+            if type(item) is dict
+        )
+        if len(ordered_names) != len(raw_summary_tables) or set(ordered_names) != set(descriptors_by_name):
+            raise ValueError("summary and materialized descriptors do not match")
         summary = snapshot_summary_from_document(
-            entry.get("summary"),
+            summary_raw,
             snapshot=snapshot,
-            tables=tuple(table.descriptor for table in opened),
+            tables=tuple(descriptors_by_name[name] for name in ordered_names),
         )
     except (TypeError, ValueError, KeyError) as exc:
         raise CheckpointDecodeError(
@@ -2526,6 +2604,18 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             "materialize checkpoint storage facts are invalid",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         ) from exc
+    descriptors_by_name = {item.table_name: item for item in summary.tables}
+    facts_by_name = {item.storage_rule_view.canonical_table: item for item in storage_facts}
+    if set(facts_by_name) != set(descriptors_by_name) or any(
+        facts_by_name[name].raw_content_digest != descriptor.raw_content_digest
+        or facts_by_name[name].canonical_schema_digest is None
+        or facts_by_name[name].storage_projection_version is None
+        for name, descriptor in descriptors_by_name.items()
+    ):
+        raise CheckpointDecodeError(
+            "materialize checkpoint storage facts do not match table identities",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
     return BoundSnapshotInput(snapshot, summary, table_set, storage_facts)
 
 
@@ -2549,10 +2639,14 @@ def _bound_from_materialization(
         raise PreviewJobError(f"{label} materialization is incomplete")
     if canonical_binding is not None:
         descriptors = {item.table_name: item for item in result.summary.tables}
+        identities = {item.canonical_table: item for item in canonical_binding.table_identities}
         storage_facts = tuple(
             ComparisonStorageFacts(
                 storage_rule_view=view,
-                source_schema_digest=descriptors[view.canonical_table].business_schema_digest,
+                source_schema_digest=identities[view.canonical_table].source_schema_digest,
+                canonical_schema_digest=identities[view.canonical_table].canonical_schema_digest,
+                raw_content_digest=identities[view.canonical_table].raw_content_digest,
+                storage_projection_version=canonical_binding.storage_projection_version,
             )
             for view in canonical_binding.tables
             if view.canonical_table in descriptors
@@ -2565,8 +2659,12 @@ def _comparison_storage_facts(
 ) -> tuple[ComparisonStorageFacts, ...]:
     facts: list[ComparisonStorageFacts] = []
     for table in manifest.tables:
-        if table.source_schema_digest is None:
-            raise PreviewJobError("canonical manifest is missing source schema facts")
+        if (
+            table.source_schema_digest is None
+            or table.canonical_schema_digest is None
+            or table.content_digest is None
+        ):
+            raise PreviewJobError("canonical manifest is missing table identity facts")
         view = StorageRuleView(
             canonical_table=table.name,
             canonical_key_policy=table.canonical_key_policy,
@@ -2584,6 +2682,9 @@ def _comparison_storage_facts(
             ComparisonStorageFacts(
                 storage_rule_view=view,
                 source_schema_digest=table.source_schema_digest,
+                canonical_schema_digest=table.canonical_schema_digest,
+                raw_content_digest=table.content_digest,
+                storage_projection_version=manifest.storage_projection_version,
             )
         )
     return tuple(facts)
@@ -2724,6 +2825,133 @@ def _canonical_preview_metadata_from_document(
         ) from exc
 
 
+def _snapshot_descriptor_to_document(descriptor: SnapshotTableDescriptor) -> dict[str, object]:
+    return {
+        "table_name": descriptor.table_name,
+        "display_table_name": descriptor.display_table_name,
+        "columns": [
+            {
+                "name": column.name,
+                "display_name": column.display_name,
+                "nullable": column.nullable,
+                "scalar_type": column.scalar_type,
+            }
+            for column in descriptor.columns
+        ],
+        "primary_key_columns": list(descriptor.primary_key_columns),
+        "compare_key_columns": list(descriptor.compare_key_columns),
+        "row_count": descriptor.row_count,
+        "materialization_stage": descriptor.materialization_stage.value,
+        "compare_schema_digest": descriptor.compare_schema_digest.value,
+        "table_ruleset_version": descriptor.table_ruleset_version,
+        "row_materialization_profile": descriptor.row_materialization_profile,
+        "scalar_encoding_version": descriptor.scalar_encoding_version,
+        "fast_row_digest": None if descriptor.fast_row_digest is None else descriptor.fast_row_digest.value,
+        "raw_content_digest": None if descriptor.raw_content_digest is None else descriptor.raw_content_digest.value,
+        "degraded_reason": None if descriptor.degraded_reason is None else descriptor.degraded_reason.value,
+        "diagnostics": [
+            {
+                "code": diagnostic.code.value,
+                "severity": diagnostic.severity.value,
+                "message": diagnostic.message,
+                "table": diagnostic.table,
+                "column": diagnostic.column,
+            }
+            for diagnostic in descriptor.diagnostics
+        ],
+    }
+
+
+def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
+    if type(raw) is not dict:
+        raise ValueError("snapshot descriptor must be an object")
+    expected = {
+        "table_name",
+        "display_table_name",
+        "columns",
+        "primary_key_columns",
+        "compare_key_columns",
+        "row_count",
+        "materialization_stage",
+        "compare_schema_digest",
+        "table_ruleset_version",
+        "row_materialization_profile",
+        "scalar_encoding_version",
+        "fast_row_digest",
+        "raw_content_digest",
+        "degraded_reason",
+        "diagnostics",
+    }
+    if set(raw) != expected:
+        raise ValueError("snapshot descriptor fields are invalid")
+    columns_raw = raw["columns"]
+    diagnostics_raw = raw["diagnostics"]
+    if type(columns_raw) is not list or type(diagnostics_raw) is not list:
+        raise ValueError("snapshot descriptor columns and diagnostics must be lists")
+    columns: list[SnapshotColumnDescriptor] = []
+    for item in columns_raw:
+        if type(item) is not dict or set(item) != {"name", "display_name", "nullable", "scalar_type"}:
+            raise ValueError("snapshot column fields are invalid")
+        scalar_type = item["scalar_type"]
+        if scalar_type is not None and type(scalar_type) is not str:
+            raise ValueError("scalar_type must be a string or null")
+        if type(item["nullable"]) is not bool:
+            raise ValueError("nullable must be bool")
+        columns.append(
+            SnapshotColumnDescriptor(
+                name=_document_string(item, "name"),
+                display_name=_document_string(item, "display_name"),
+                nullable=item["nullable"],
+                scalar_type=scalar_type,
+            )
+        )
+    diagnostics: list[MaterializationDiagnostic] = []
+    for item in diagnostics_raw:
+        if type(item) is not dict or set(item) != {"code", "severity", "message", "table", "column"}:
+            raise ValueError("snapshot diagnostic fields are invalid")
+        table = item["table"]
+        column = item["column"]
+        if (table is not None and type(table) is not str) or (
+            column is not None and type(column) is not str
+        ):
+            raise ValueError("snapshot diagnostic table and column must be strings or null")
+        diagnostics.append(
+            MaterializationDiagnostic(
+                code=MaterializationDiagnosticCode(_document_string(item, "code")),
+                severity=DiagnosticSeverity(_document_string(item, "severity")),
+                message=_document_string(item, "message"),
+                table=table,
+                column=column,
+            )
+        )
+    raw_fast = raw["fast_row_digest"]
+    raw_content = raw["raw_content_digest"]
+    raw_degraded = raw["degraded_reason"]
+    if raw_fast is not None and type(raw_fast) is not str:
+        raise ValueError("fast_row_digest must be a string or null")
+    if raw_content is not None and type(raw_content) is not str:
+        raise ValueError("raw_content_digest must be a string or null")
+    if raw_degraded is not None and type(raw_degraded) is not str:
+        raise ValueError("degraded_reason must be a string or null")
+    return SnapshotTableDescriptor(
+        table_name=_document_string(raw, "table_name"),
+        display_table_name=_document_string(raw, "display_table_name"),
+        columns=tuple(columns),
+        primary_key_columns=_document_string_tuple(raw, "primary_key_columns"),
+        compare_key_columns=_document_string_tuple(raw, "compare_key_columns"),
+        row_count=_document_int(raw, "row_count"),
+        materialization_stage=MaterializationStage(_document_string(raw, "materialization_stage")),
+        compare_schema_digest=DigestRef(_document_string(raw, "compare_schema_digest")),
+        table_ruleset_version=_document_int(raw, "table_ruleset_version"),
+        row_materialization_profile=_document_string(raw, "row_materialization_profile"),
+        scalar_encoding_version=_document_int(raw, "scalar_encoding_version"),
+        fast_row_digest=None if raw_fast is None else DigestRef(raw_fast),
+        raw_content_digest=None if raw_content is None else DigestRef(raw_content),
+        degraded_reason=None if raw_degraded is None else DegradedReason(raw_degraded),
+        diagnostics=tuple(diagnostics),
+    )
+
+
 def _storage_facts_to_documents(
     facts: tuple[ComparisonStorageFacts, ...],
 ) -> list[dict[str, object]]:
@@ -2734,6 +2962,15 @@ def _storage_facts_to_documents(
             {
                 "canonical_table": view.canonical_table,
                 "source_schema_digest": fact.source_schema_digest.value,
+                "canonical_schema_digest": (
+                    None
+                    if fact.canonical_schema_digest is None
+                    else fact.canonical_schema_digest.value
+                ),
+                "raw_content_digest": (
+                    None if fact.raw_content_digest is None else fact.raw_content_digest.value
+                ),
+                "storage_projection_version": fact.storage_projection_version,
                 "canonical_key_policy": view.canonical_key_policy.value,
                 "ordered_policy": view.ordered_policy.value,
                 "dropped_columns": [
@@ -2758,6 +2995,9 @@ def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, 
     expected_keys = {
         "canonical_table",
         "source_schema_digest",
+        "canonical_schema_digest",
+        "raw_content_digest",
+        "storage_projection_version",
         "canonical_key_policy",
         "ordered_policy",
         "dropped_columns",
@@ -2802,12 +3042,28 @@ def _storage_facts_from_documents(raw: object) -> tuple[ComparisonStorageFacts, 
                 else DigestRef(storage_rule_digest_raw)
             ),
         )
+        canonical_schema_raw = item["canonical_schema_digest"]
+        if canonical_schema_raw is not None and type(canonical_schema_raw) is not str:
+            raise ValueError("canonical_schema_digest must be a string or null")
+        raw_content_digest = item["raw_content_digest"]
+        if raw_content_digest is not None and type(raw_content_digest) is not str:
+            raise ValueError("raw_content_digest must be a string or null")
+        storage_projection_raw = item["storage_projection_version"]
+        if storage_projection_raw is not None and type(storage_projection_raw) is not str:
+            raise ValueError("storage_projection_version must be a string or null")
         facts.append(
             ComparisonStorageFacts(
                 storage_rule_view=view,
                 source_schema_digest=DigestRef(
                     _document_string(item, "source_schema_digest")
                 ),
+                canonical_schema_digest=(
+                    None if canonical_schema_raw is None else DigestRef(canonical_schema_raw)
+                ),
+                raw_content_digest=(
+                    None if raw_content_digest is None else DigestRef(raw_content_digest)
+                ),
+                storage_projection_version=storage_projection_raw,
             )
         )
     return tuple(facts)

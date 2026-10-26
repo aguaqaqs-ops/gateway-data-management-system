@@ -8,6 +8,7 @@ from typing import Protocol
 
 from gateway_backend.application.archive.ports import ArchiveClosureReadPort
 from gateway_backend.application.control_transactions import ControlTransaction
+from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.application.submission.contracts import (
     MatchingAbortProof,
     RepositoryImportOperation,
@@ -40,6 +41,9 @@ class SubmitControlTransaction(ControlTransaction, Protocol):
 
     @property
     def operations(self) -> OperationStore: ...
+
+    @property
+    def commit_canonical_metadata(self) -> CommitCanonicalMetadataPort: ...
 
     @property
     def transaction_now(self) -> datetime: ...

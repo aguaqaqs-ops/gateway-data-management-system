@@ -38,7 +38,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 STORAGE_PROJECTION_VERSION = TABLE_RULES_STORAGE_PROJECTION_VERSION
-CANONICALIZATION_MANIFEST_CONTRACT = "3.2.0"
+CANONICALIZATION_MANIFEST_CONTRACT = "3.3.0"
 CANONICALIZATION_MANIFEST_MEDIA_TYPE = "application/json"
 REPOSITORY_IMPORT_MEDIA_TYPE = "application/vnd.gateway.repository-import.v1+tar+zstd"
 PACKAGE_VERSION = 1
@@ -209,7 +209,7 @@ class ProjectionTable:
     row_count: int | None = None
     schema_digest: DigestRef | None = None
     content_digest: DigestRef | None = None
-    ordering_digest: DigestRef | None = None
+    fast_row_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
@@ -225,8 +225,8 @@ class ProjectionTable:
             raise ValueError("schema_digest must be DigestRef or None")
         if self.content_digest is not None and type(self.content_digest) is not DigestRef:
             raise ValueError("content_digest must be DigestRef or None")
-        if self.ordering_digest is not None and type(self.ordering_digest) is not DigestRef:
-            raise ValueError("ordering_digest must be DigestRef or None")
+        if self.fast_row_digest is not None and type(self.fast_row_digest) is not DigestRef:
+            raise ValueError("fast_row_digest must be DigestRef or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,7 +243,6 @@ class CanonicalizationManifestTable:
     source_schema_digest: DigestRef | None = None
     canonical_schema_digest: DigestRef | None = None
     content_digest: DigestRef | None = None
-    ordering_digest: DigestRef | None = None
     gid_real_count: int | None = None
     gid_pseudo_count: int | None = None
 
@@ -277,7 +276,6 @@ class CanonicalizationManifestTable:
             (self.source_schema_digest, "source_schema_digest"),
             (self.canonical_schema_digest, "canonical_schema_digest"),
             (self.content_digest, "content_digest"),
-            (self.ordering_digest, "ordering_digest"),
         ):
             if digest is not None and type(digest) is not DigestRef:
                 raise ValueError(f"{label} must be DigestRef or None")

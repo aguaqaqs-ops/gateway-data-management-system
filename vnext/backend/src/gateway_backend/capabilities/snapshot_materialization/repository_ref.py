@@ -55,6 +55,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableOrderedMetadata,
     SnapshotTableDescriptor,
     SnapshotTableSet,
+    CanonicalTableIdentity,
     SourceKind,
 )
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
@@ -211,21 +212,50 @@ def _materialize_open_session(
             "Repository catalog table set does not match canonical metadata",
         )
     selected_names = _selected_names(request, binding_by_name)
+    selected_set = set(selected_names)
+    identities = {item.canonical_table: item for item in binding.table_identities}
+    if request.requested_tables is not None and set(binding_by_name) - selected_set:
+        if set(identities) != set(binding_by_name):
+            raise _Halt(
+                MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                "canonical metadata is required for tables excluded from row materialization",
+            )
     diagnostics: list[MaterializationDiagnostic] = []
     published: list[SnapshotTable] = []
     descriptors: list[SnapshotTableDescriptor] = []
-    for name in selected_names:
+    for name in sorted(binding_by_name, key=lambda item: item.encode("utf-8")):
         _checkpoint(request.context)
         catalog_table = indexed[name]
         storage_view = binding_by_name[name]
-        descriptor, table, table_diagnostics = _read_and_materialize_table(
-            request,
-            session,
-            catalog_table,
-            storage_view,
-            stage,
-            keep_rows=request.policy is MaterializationPolicy.READERS_REQUIRED,
-        )
+        if name in selected_set:
+            descriptor, table, table_diagnostics = _read_and_materialize_table(
+                request,
+                session,
+                catalog_table,
+                storage_view,
+                stage,
+                keep_rows=request.policy is MaterializationPolicy.READERS_REQUIRED,
+            )
+            identity = identities.get(name)
+            if identity is not None and (
+                descriptor.row_count != identity.row_count
+                or descriptor.raw_content_digest != identity.raw_content_digest
+            ):
+                raise _Halt(
+                    MaterializationDiagnosticCode.REPOSITORY_SNAPSHOT_DIGEST_MISMATCH,
+                    "Repository table content does not match canonical metadata",
+                    table=name,
+                )
+        else:
+            identity = identities[name]
+            descriptor = _describe_without_rows(
+                request,
+                catalog_table,
+                identity,
+                stage,
+            )
+            table = None
+            table_diagnostics = ()
         descriptors.append(descriptor)
         diagnostics.extend(table_diagnostics)
         if table is not None:
@@ -241,12 +271,13 @@ def _materialize_open_session(
     snapshot_id = hashlib.sha256(
         f"{request.repository_ref.repository_id}:{pinned}".encode("utf-8")
     ).hexdigest()[:32]
-    snapshot_digest = snapshot_digest_of(
+    computed_snapshot_digest = snapshot_digest_of(
         stage=stage,
         parser_version=parser_version,
         table_ruleset_version=request.table_ruleset_version,
         tables=selected,
     )
+    snapshot_digest = binding.snapshot_digest or computed_snapshot_digest
     raw_state = raw_state_digest_of(selected)
     snapshot = Snapshot(
         snapshot_id=snapshot_id,
@@ -293,6 +324,69 @@ def _materialize_open_session(
         snapshot=snapshot,
         summary=summary,
         table_set=table_set,
+    )
+
+
+def _describe_without_rows(
+    request: RepositoryRefMaterializationRequest,
+    catalog_table: RepositoryCatalogTable,
+    identity: CanonicalTableIdentity,
+    stage: MaterializationStage,
+) -> SnapshotTableDescriptor:
+    table_name = canonicalize_identifier(catalog_table.table_name)
+    mapped_columns = tuple(map_repository_column(column) for column in catalog_table.columns)
+    source_columns = tuple(item.source for item in mapped_columns)
+    source_descriptor = SourceTableDescriptor(
+        display_name=catalog_table.display_table_name or catalog_table.table_name,
+        canonical_name=table_name,
+        columns=source_columns,
+        primary_key_canonical_names=tuple(
+            canonicalize_identifier(name) for name in catalog_table.primary_key_columns
+        ),
+        reader_ready=True,
+    )
+    try:
+        compare_keys = effective_key_columns(source_descriptor, compare_key_index(request.ruleset))
+    except CompareKeyError as exc:
+        raise _Halt(
+            MaterializationDiagnosticCode.COMPARE_KEY_UNKNOWN_COLUMN,
+            str(exc),
+            table=table_name,
+        ) from exc
+    if catalog_table.row_count is not None and catalog_table.row_count != identity.row_count:
+        raise _Halt(
+            MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH,
+            "Repository catalog row count differs from canonical metadata",
+            table=table_name,
+        )
+    columns = tuple(
+        SnapshotColumnDescriptor(
+            name=column.canonical_name,
+            display_name=column.display_name,
+            nullable=column.nullable,
+            scalar_type=column.sql_type,
+        )
+        for column in source_columns
+    )
+    return SnapshotTableDescriptor(
+        table_name=table_name,
+        display_table_name=source_descriptor.display_name,
+        columns=columns,
+        primary_key_columns=source_descriptor.primary_key_canonical_names,
+        compare_key_columns=compare_keys,
+        row_count=identity.row_count,
+        materialization_stage=stage,
+        compare_schema_digest=compare_schema_digest(
+            table_name,
+            tuple(column.canonical_name for column in source_columns),
+            compare_keys,
+        ),
+        table_ruleset_version=request.table_ruleset_version,
+        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
+        scalar_encoding_version=SCALAR_ENCODING_VERSION,
+        fast_row_digest=None,
+        raw_content_digest=identity.raw_content_digest,
+        degraded_reason=None if compare_keys else DegradedReason.KEYLESS,
     )
 
 

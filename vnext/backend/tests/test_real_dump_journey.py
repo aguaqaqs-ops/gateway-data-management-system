@@ -324,7 +324,7 @@ def _seed_succeeded_submit_control_db(
                 requested_target_ref=SubmitTargetRef.MAIN,
                 requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
                 requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
-                builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+                builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
                 accept_idempotency_key="accept-1",
                 accept_request_fingerprint="sha256:accept",
                 repository_upload_idempotency_key="upload-1",

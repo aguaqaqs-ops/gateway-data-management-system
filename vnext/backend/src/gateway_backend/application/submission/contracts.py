@@ -32,13 +32,14 @@ from gateway_backend.domain.workspace.models import (
     UploadRevision,
     Workspace,
 )
+from gateway_backend.capabilities.storage_projection.contracts import CanonicalizationManifest
 from gateway_backend.domain.submission.reasons import validate_submission_reason
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.application.submission.errors import PreviewBindingConflict
 
 SUBMIT_JOB_CONTRACT_VERSION = "backend-vnext/submit/v1"
-PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v2"
+PREPARE_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/prepare-import-checkpoint/v3"
 ACCEPT_SUBMIT_REQUEST_PREFIX = b"gateway-vnext:accept-submit-request:v1\0"
 REPOSITORY_UPLOAD_KEY_PREFIX = "p5b-upload-v1:"
 REPOSITORY_IMPORT_KEY_PREFIX = "p5b-import-v1:"
@@ -91,6 +92,10 @@ class PrepareImportBuildInput:
     canonicalization_manifest_ref: ArtifactRef
     canonicalization_manifest_digest: str
     expected_parent_commit_id: str
+    repository_id: str
+    parent_manifest: CanonicalizationManifest | None
+    parent_manifest_digest: str | None
+    parent_is_initial: bool
     removed_tables: tuple[str, ...]
     source_artifact_digest: str
     repository_base_digest: str
@@ -104,6 +109,7 @@ class PrepareImportBuildInput:
         for field_name in (
             "canonicalization_manifest_digest",
             "expected_parent_commit_id",
+            "repository_id",
             "source_artifact_digest",
             "repository_base_digest",
         ):
@@ -113,6 +119,20 @@ class PrepareImportBuildInput:
             raise ValueError("canonical_table_set_closure_ref must be ArtifactRef")
         if type(self.canonicalization_manifest_ref) is not ArtifactRef:
             raise ValueError("canonicalization_manifest_ref must be ArtifactRef")
+        if self.parent_manifest is not None and type(self.parent_manifest) is not CanonicalizationManifest:
+            raise ValueError("parent_manifest must be CanonicalizationManifest or None")
+        if type(self.parent_is_initial) is not bool:
+            raise ValueError("parent_is_initial must be bool")
+        if self.parent_is_initial:
+            if self.parent_manifest is not None or self.parent_manifest_digest is not None:
+                raise ValueError("INITIAL parent must not contain manifest facts")
+        elif (
+            self.parent_manifest is None
+            or self.parent_manifest_digest is None
+            or self.parent_manifest.manifest_digest is None
+            or self.parent_manifest_digest != self.parent_manifest.manifest_digest.value
+        ):
+            raise ValueError("non-INITIAL parent requires a digest-bound manifest")
         if self.canonical_table_set_closure_ref.raw_sha256.value != self.canonical_table_set_closure_digest:
             raise ValueError("canonical table closure artifact ref raw SHA must match digest")
         if type(self.removed_tables) is not tuple:
@@ -144,6 +164,8 @@ class PrepareImportCheckpoint:
     input_canonicalization_manifest_ref: str
     input_canonicalization_manifest_digest: str
     expected_parent_commit_id: str
+    parent_manifest_digest: str | None
+    parent_is_initial: bool
     removed_tables: tuple[str, ...]
     canonicalization_manifest_ref: BackendArtifactRef
     canonicalization_manifest_digest: str
@@ -168,6 +190,14 @@ class PrepareImportCheckpoint:
                 raise ValueError(f"{field_name} must be a non-empty string")
         if type(self.removed_tables) is not tuple:
             raise ValueError("removed_tables must be a tuple")
+        if self.parent_manifest_digest is not None and (
+            type(self.parent_manifest_digest) is not str or not self.parent_manifest_digest
+        ):
+            raise ValueError("parent_manifest_digest must be a non-empty string or None")
+        if type(self.parent_is_initial) is not bool:
+            raise ValueError("parent_is_initial must be bool")
+        if self.parent_is_initial != (self.parent_manifest_digest is None):
+            raise ValueError("parent manifest digest must match INITIAL parent status")
         if any(type(name) is not str or not name for name in self.removed_tables):
             raise ValueError("removed_tables must contain non-empty table names")
         if self.removed_tables != tuple(
@@ -372,7 +402,7 @@ def compute_accept_request_fingerprint(
         "requested_target_ref": SubmitTargetRef.MAIN.value,
         "requested_verification_policy": SubmitVerificationPolicy.STRUCTURAL.value,
         "requested_unknown_type_policy": SubmitUnknownTypePolicy.REJECT.value,
-        "builder_mutation_policy": BuilderMutationPolicy.REBUILD_ALWAYS.value,
+        "builder_mutation_policy": BuilderMutationPolicy.ADAPTIVE_PATCH.value,
         "job_contract_version": SUBMIT_JOB_CONTRACT_VERSION,
         "options": dict(sorted(options.items())),
         "identity_confirmations": [

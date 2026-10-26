@@ -333,6 +333,11 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     harness = build_history_compare_harness(tmp_path)
     run_full_history_compare_job(harness)
 
+    assert harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session is not None
+    assert harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session.table_readers == []
+    assert harness.providers["commit-b"].last_session is not None
+    assert harness.providers["commit-b"].last_session.table_readers == []
+
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
         publish_step = unit_of_work.operations.get_step(
@@ -341,6 +346,97 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     assert operation.status is OperationStatus.SUCCEEDED
     assert publish_step.status is StepStatus.SUCCEEDED
     assert operation.ready_closure_ref is not None
+
+
+def test_changed_history_table_reads_both_pair_sides(tmp_path: Path) -> None:
+    before_commit = BASELINE_HEAD.business_baseline_commit_id
+    current_commit = "commit-changed-current"
+    providers = {
+        before_commit: history_compare_provider(
+            commit_id=before_commit,
+            declared_rows={"t": ((1,),)},
+        ),
+        current_commit: history_compare_provider(
+            commit_id=current_commit,
+            declared_rows={"t": ((2,),)},
+        ),
+    }
+    harness = build_history_compare_harness(
+        tmp_path,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, before_commit),
+            ("bn-changed-current", current_commit),
+        ),
+        custom_providers=providers,
+        idempotency_key="history-compare-changed-table-reads-both-sides",
+    )
+    run_full_history_compare_job(harness)
+
+    for provider in providers.values():
+        session = provider.last_session
+        assert session is not None
+        assert tuple(reader.catalog_table().table_name for reader in session.table_readers) == ("t",)
+
+
+def test_unchanged_ordered_history_reads_current_side_and_preserves_facts(
+    tmp_path: Path,
+) -> None:
+    before_commit = BASELINE_HEAD.business_baseline_commit_id
+    current_commit = "commit-ordered-current"
+    rows: RepositoryRows = {
+        ORDERED_SYX_TABLE: (
+            (1, 1, "a"),
+            (4_000_000_000, 2, "blank"),
+            (2, 3, "b"),
+        )
+    }
+    providers = {
+        before_commit: history_compare_ordered_provider(
+            commit_id=before_commit,
+            rows=rows,
+        ),
+        current_commit: history_compare_ordered_provider(
+            commit_id=current_commit,
+            rows=rows,
+        ),
+    }
+    harness = build_history_compare_harness(
+        tmp_path,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, before_commit),
+            ("bn-ordered-current", current_commit),
+        ),
+        custom_providers=providers,
+        idempotency_key="history-compare-unchanged-ordered",
+    )
+    run_full_history_compare_job(harness)
+
+    before_session = providers[before_commit].last_session
+    current_session = providers[current_commit].last_session
+    assert before_session is not None and current_session is not None
+    assert before_session.table_readers == []
+    assert tuple(reader.catalog_table().table_name for reader in current_session.table_readers) == (
+        ORDERED_SYX_TABLE,
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+        )
+    assert assemble_step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
+    assemble_state = _history_assemble_state(harness, envelope.job_state)
+    pairs = assemble_state["pairs"]
+    assert isinstance(pairs, list)
+    pair = pairs[0]
+    assert isinstance(pair, dict)
+    assert pair["comparison_digest"] == oracle_comparison_digest(
+        before_provider=providers[before_commit],
+        current_provider=providers[current_commit],
+        before_commit=before_commit,
+        current_commit=current_commit,
+        artifact_store=harness.artifact_store,
+    )
 
 
 def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:

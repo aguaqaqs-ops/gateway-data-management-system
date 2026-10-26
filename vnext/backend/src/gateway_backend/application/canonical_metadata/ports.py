@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
+from gateway_shared_kernel import DigestRef
+
 from gateway_backend.capabilities.storage_projection import CanonicalizationManifest
 
 
@@ -40,6 +42,7 @@ class CommitCanonicalMetadata:
     scope: CommitCanonicalScope
     initial: bool
     manifest: CanonicalizationManifest | None = None
+    snapshot_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
         if type(self.repository_id) is not str or not self.repository_id:
@@ -51,10 +54,12 @@ class CommitCanonicalMetadata:
         if type(self.initial) is not bool:
             raise ValueError("initial must be bool")
         if self.initial:
-            if self.manifest is not None:
-                raise ValueError("INITIAL metadata must not have a manifest")
+            if self.manifest is not None or self.snapshot_digest is not None:
+                raise ValueError("INITIAL metadata must not have a manifest or snapshot digest")
         elif type(self.manifest) is not CanonicalizationManifest:
             raise ValueError("Submission metadata requires a CanonicalizationManifest")
+        elif type(self.snapshot_digest) is not DigestRef:
+            raise ValueError("Submission metadata requires a snapshot_digest")
 
 
 @runtime_checkable

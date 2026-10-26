@@ -59,6 +59,10 @@ from gateway_backend.application.submit_registry import (
     submit_job_definitions,
 )
 from gateway_backend.application.submission.abort import ALLOWED_ABORT_CODES, validate_abort_proof
+from gateway_backend.application.canonical_metadata.ports import (
+    CommitCanonicalMetadataError,
+    CommitCanonicalScope,
+)
 from gateway_backend.application.submission.abort_transaction import (
     AbortPreparedSubmitRequest,
     AbortSubmitTransactionRequest,
@@ -181,6 +185,8 @@ _JOB_STATE_CANONICAL_TABLE_SET_CLOSURE_DIGEST = "canonical_table_set_closure_dig
 _JOB_STATE_INPUT_MANIFEST_REF = "input_canonicalization_manifest_ref"
 _JOB_STATE_INPUT_MANIFEST_DIGEST = "input_canonicalization_manifest_digest"
 _JOB_STATE_EXPECTED_PARENT_COMMIT_ID = "expected_parent_commit_id"
+_JOB_STATE_PARENT_MANIFEST_DIGEST = "parent_manifest_digest"
+_JOB_STATE_PARENT_IS_INITIAL = "parent_is_initial"
 _JOB_STATE_REMOVED_TABLES = "removed_tables"
 _JOB_STATE_BUILDER_POLICY = "builder_mutation_policy"
 
@@ -496,6 +502,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     operation=operation,
                     store=deps.artifact_store,
                     parent_catalog=deps.parent_catalog,
+                    control_transaction_factory=deps.control_transaction_factory,
                 )
                 reuse_prepare_import_checkpoint(
                     build_input=build_input,
@@ -524,6 +531,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     operation=operation,
                     store=deps.artifact_store,
                     parent_catalog=deps.parent_catalog,
+                    control_transaction_factory=deps.control_transaction_factory,
                 )
                 publication = publish_prepare_import_package(
                     build_input=build_input,
@@ -1419,6 +1427,7 @@ def _build_prepare_import_build_input(
     operation: OperationRecord,
     store: ArtifactStorePort,
     parent_catalog: RepositoryParentCatalogPort,
+    control_transaction_factory: SubmitControlTransactionFactory,
 ) -> PrepareImportBuildInput:
     try:
         ready_closure_ref = next(
@@ -1445,10 +1454,41 @@ def _build_prepare_import_build_input(
         canonical_refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
         closure_ref = canonical_refs_by_id[attempt.canonical_table_set_closure_ref]
         manifest_ref = canonical_refs_by_id[attempt.canonicalization_manifest_ref]
+        with control_transaction_factory() as unit_of_work:
+            workspace = unit_of_work.workspace.get_workspace(attempt.workspace_id)
+            if workspace is None or workspace.repository_id != attempt.repository_id:
+                raise SubmitImportBuilderError("submit parent canonical scope is unavailable")
+            try:
+                parent_metadata = unit_of_work.commit_canonical_metadata.resolve(
+                    repository_id=attempt.repository_id,
+                    commit_id=attempt.repository_expected_commit_id,
+                    scope=CommitCanonicalScope(
+                        gateway_device_external_key=workspace.gateway_device_external_key,
+                        business_project_id=workspace.business_project_id,
+                    ),
+                )
+            except CommitCanonicalMetadataError as exc:
+                raise SubmitImportBuilderError(exc.diagnostic) from exc
+        parent_manifest = parent_metadata.manifest
+        parent_is_initial = parent_metadata.initial
+        parent_manifest_digest = (
+            None
+            if parent_manifest is None or parent_manifest.manifest_digest is None
+            else parent_manifest.manifest_digest.value
+        )
+        if not parent_is_initial and parent_manifest_digest is None:
+            raise SubmitImportBuilderError("parent canonical manifest digest is missing")
         parent_table_names = parent_catalog.get_table_names(
             repository_id=attempt.repository_id,
             commit_id=attempt.repository_expected_commit_id,
         )
+        if parent_is_initial:
+            if parent_table_names:
+                raise SubmitImportBuilderError("INITIAL parent catalog is not empty")
+        elif parent_manifest is None or set(parent_table_names) != {
+            table.name for table in parent_manifest.tables
+        }:
+            raise SubmitImportBuilderError("parent catalog and canonical manifest disagree")
         removed_tables = derive_removed_tables(
             parent_table_names=parent_table_names,
             snapshot_tables=snapshot_tables,
@@ -1463,6 +1503,10 @@ def _build_prepare_import_build_input(
         canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=payload.canonicalization_manifest_digest,
         expected_parent_commit_id=payload.repository_expected_commit_id,
+        repository_id=attempt.repository_id,
+        parent_manifest=parent_manifest,
+        parent_manifest_digest=parent_manifest_digest,
+        parent_is_initial=parent_is_initial,
         removed_tables=removed_tables,
         source_artifact_digest=attempt.snapshot_digest,
         repository_base_digest=attempt.source_digest,
@@ -1563,6 +1607,8 @@ def _job_state_for_prepare(checkpoint: PrepareImportCheckpoint) -> dict[str, obj
         _JOB_STATE_INPUT_MANIFEST_REF: checkpoint.input_canonicalization_manifest_ref,
         _JOB_STATE_INPUT_MANIFEST_DIGEST: checkpoint.input_canonicalization_manifest_digest,
         _JOB_STATE_EXPECTED_PARENT_COMMIT_ID: checkpoint.expected_parent_commit_id,
+        _JOB_STATE_PARENT_MANIFEST_DIGEST: checkpoint.parent_manifest_digest,
+        _JOB_STATE_PARENT_IS_INITIAL: checkpoint.parent_is_initial,
         _JOB_STATE_REMOVED_TABLES: list(checkpoint.removed_tables),
         _JOB_STATE_BUILDER_POLICY: checkpoint.builder_mutation_policy.value,
     }
@@ -1582,6 +1628,8 @@ _ALLOWED_PREPARE_CHECKPOINT_KEYS = frozenset(
         _JOB_STATE_INPUT_MANIFEST_REF,
         _JOB_STATE_INPUT_MANIFEST_DIGEST,
         _JOB_STATE_EXPECTED_PARENT_COMMIT_ID,
+        _JOB_STATE_PARENT_MANIFEST_DIGEST,
+        _JOB_STATE_PARENT_IS_INITIAL,
         _JOB_STATE_REMOVED_TABLES,
         _JOB_STATE_BUILDER_POLICY,
     }
@@ -1868,6 +1916,18 @@ def _prepare_checkpoint_from_job_state(
     attempt_id = job_state.get(_JOB_STATE_ATTEMPT_ID)
     if type(attempt_id) is not str or attempt_id != expected_attempt_id:
         raise PrepareCheckpointPayloadBindingError()
+    parent_manifest_digest = job_state.get(_JOB_STATE_PARENT_MANIFEST_DIGEST)
+    parent_is_initial = job_state.get(_JOB_STATE_PARENT_IS_INITIAL)
+    if parent_manifest_digest is not None and type(parent_manifest_digest) is not str:
+        raise CheckpointDecodeError(
+            "prepare checkpoint parent manifest digest is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
+    if type(parent_is_initial) is not bool:
+        raise CheckpointDecodeError(
+            "prepare checkpoint parent status is invalid",
+            code="CHECKPOINT_JOB_STATE_MISMATCH",
+        )
     return PrepareImportCheckpoint(
         schema_version=PREPARE_IMPORT_CHECKPOINT_SCHEMA,
         attempt_id=attempt_id,
@@ -1906,6 +1966,8 @@ def _prepare_checkpoint_from_job_state(
             job_state.get(_JOB_STATE_EXPECTED_PARENT_COMMIT_ID),
             label="expected_parent_commit_id",
         ),
+        parent_manifest_digest=parent_manifest_digest,
+        parent_is_initial=parent_is_initial,
         removed_tables=_decode_checkpoint_string_tuple(
             job_state.get(_JOB_STATE_REMOVED_TABLES),
             label="removed_tables",
@@ -2688,9 +2750,9 @@ def _validate_policy_constants(
             "repository_policy.unknown_type_policy must be REJECT",
             code="PAYLOAD_SHAPE_INVALID",
         )
-    if builder_mutation_policy is not BuilderMutationPolicy.REBUILD_ALWAYS:
+    if builder_mutation_policy is not BuilderMutationPolicy.ADAPTIVE_PATCH:
         raise PayloadDecodeError(
-            "builder_mutation_policy must be REBUILD_ALWAYS",
+            "builder_mutation_policy must be ADAPTIVE_PATCH",
             code="PAYLOAD_SHAPE_INVALID",
         )
 

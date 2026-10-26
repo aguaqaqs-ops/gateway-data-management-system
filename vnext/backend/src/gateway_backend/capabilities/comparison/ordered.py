@@ -64,6 +64,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.row_encoding import (
     _EncodedRow,
+    _can_table_early_exit,
     _encode_cell,
     _ignored_values_changed,
     _row_digest,
@@ -134,6 +135,30 @@ def compare_ordered_task(task: TableComparisonTask) -> ComparisonTableFact:
     diagnostics = _ordered_schema_diagnostics(before, current, ordered_policy, schema)
     if diagnostics:
         return _degraded_fact(task, before, current, schema_changes, diagnostics)
+
+    if _can_table_early_exit(before, current, policy):
+        try:
+            current_rows = _read_ordered_rows(
+                task.current_table,
+                current,
+                schema.selected,
+                ordered_policy,
+            )
+        except StandardComparisonError as exc:
+            return _degraded_fact(task, before, current, schema_changes, (str(exc),))
+        return _build_fact(
+            table_name=task.table_name,
+            before_descriptor=before,
+            current_descriptor=current,
+            before_rows=current_rows,
+            current_rows=current_rows,
+            selected=schema.selected,
+            policy=policy,
+            ordered_policy=ordered_policy,
+            artifact_scope=task.artifact_scope,
+            schema_changes=schema_changes,
+            schema_diagnostics=(),
+        )
 
     try:
         before_rows = _read_ordered_rows(task.before_table, before, schema.selected, ordered_policy)

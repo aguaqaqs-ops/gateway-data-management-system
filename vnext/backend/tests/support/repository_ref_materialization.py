@@ -343,6 +343,7 @@ def canonical_binding_for_catalog(
                     if record.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
                     else ()
                 )
+                dropped_names = {item.name for item in record.dropped_columns}
                 views.append(
                     StorageRuleView(
                         canonical_table=table.table_name,
@@ -350,6 +351,11 @@ def canonical_binding_for_catalog(
                         ordered_policy=record.ordered_policy,
                         dropped_columns=record.dropped_columns,
                         structural_columns=record.structural_columns,
+                        retained_columns=tuple(
+                            canonicalize_identifier(column.name)
+                            for column in table.columns
+                            if canonicalize_identifier(column.name) not in dropped_names
+                        ),
                         canonical_key_columns=key_columns,
                     )
                 )
@@ -364,6 +370,9 @@ def canonical_binding_for_catalog(
                         canonical_table=table.table_name,
                         canonical_key_policy=key_policy,
                         ordered_policy=OrderedPolicy.NONE,
+                        retained_columns=tuple(
+                            canonicalize_identifier(column.name) for column in table.columns
+                        ),
                         canonical_key_columns=(),
                     )
                 )

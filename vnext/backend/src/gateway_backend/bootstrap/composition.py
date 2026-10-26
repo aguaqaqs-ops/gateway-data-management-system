@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,6 +14,9 @@ from uuid import UUID, uuid4
 import httpx
 from gateway_repository_client import RepositoryClient
 from gateway_backend.application.job_definitions import JobDefinitionRegistry
+from gateway_backend.application.canonical_metadata.manifest_reader import (
+    ArtifactBackedCanonicalizationManifestReader,
+)
 from gateway_backend.application.preview_jobs import preview_job_definitions
 from gateway_backend.application.history.compare_jobs import history_compare_job_definitions
 from gateway_backend.application.history.compare_registry import assert_compare_registry_ready
@@ -72,8 +75,10 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
 from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
 from gateway_backend.infrastructure.repository_read import (
     HttpRepositoryParentCatalogPort,
+    build_http_repository_provider_factory,
     load_repository_bearer_token,
 )
+from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryTableAccessProvider
 from gateway_backend.infrastructure.repository_write import (
     HttpRepositoryAbortEvidencePort,
     HttpRepositoryWriteClient,
@@ -295,6 +300,10 @@ def prepare_backend_runtime(
         unpinned_ttl=timedelta(seconds=settings.cleanup_unpinned_ttl_seconds),
     )
     admission_gate = ClosableAdmissionGate(limit=settings.http_new_work_limit)
+    manifest_reader = ArtifactBackedCanonicalizationManifestReader(
+        artifact_store=artifact_store,
+        artifact_refs=artifact_store,
+    )
 
     def unit_of_work_factory(*, read_only: bool = False) -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path, read_only=read_only)
@@ -307,11 +316,21 @@ def prepare_backend_runtime(
     )
 
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path)
+        return ControlDbUnitOfWork(
+            settings.control_db_path,
+            canonicalization_manifest_reader=manifest_reader,
+        )
 
     submit_deps = SubmitRuntimeDependencies(
         artifact_store=artifact_store,
-        publication=SubmitImportPublicationAdapter(),
+        publication=SubmitImportPublicationAdapter(
+            repository_provider_factory=build_http_repository_provider_factory(
+                base_url=settings.repository_base_url,
+                bearer_token=repository_token,
+                timeout_seconds=settings.repository_timeout_seconds,
+                transport=repository_transport,
+            ),
+        ),
         parent_catalog=HttpRepositoryParentCatalogPort(
             base_url=settings.repository_base_url,
             bearer_token=repository_token,
@@ -386,14 +405,19 @@ def prepare_backend_runtime(
     )
 
 
-def build_submit_import_publication_port() -> SubmitImportPublicationPort:
+def build_submit_import_publication_port(
+    *,
+    repository_provider_factory: Callable[[str, str], RepositoryTableAccessProvider],
+) -> SubmitImportPublicationPort:
     """Production Submit import publication adapter wired at the composition root."""
 
     from gateway_backend.infrastructure.repository_write.import_publication import (
         SubmitImportPublicationAdapter,
     )
 
-    return SubmitImportPublicationAdapter()
+    return SubmitImportPublicationAdapter(
+        repository_provider_factory=repository_provider_factory,
+    )
 
 
 __all__ = [

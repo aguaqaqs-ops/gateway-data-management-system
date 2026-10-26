@@ -105,7 +105,7 @@ def test_versions_and_budgets_match_s0() -> None:
     assert THRESHOLD_POLICY_VERSION == "backend-vnext/mutation-threshold/v1"
     assert CANONICAL_ENCODING_VERSION == 1
     assert MAX_PATCH_CHANGED_ROWS == 1_000
-    assert MAX_PATCH_CHANGE_RATIO == "0.05"
+    assert MAX_PATCH_CHANGE_RATIO == "0.01"
     assert MAX_CHANGE_SET_JSON_BYTES == 16 * _MIB
     assert MAX_REPLAY_SQL_BYTES == 200 * _MIB
 

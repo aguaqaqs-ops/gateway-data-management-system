@@ -92,7 +92,7 @@ def _submit_operation_document(operation_id: str) -> dict[str, object]:
                 "verification_policy": "STRUCTURAL",
                 "unknown_type_policy": "REJECT",
             },
-            "builder_mutation_policy": "REBUILD_ALWAYS",
+            "builder_mutation_policy": "ADAPTIVE_PATCH",
             "options": {},
         },
         "job_payload_ref": None,

@@ -29,6 +29,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRefMaterializationRequest,
     SnapshotTable,
     SnapshotTableSet,
+    snapshot_digest_of,
 )
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.canonical_metadata.ports import (
@@ -53,6 +54,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlSetValue,
 )
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+from gateway_backend.capabilities.table_access.contracts import PARSER_VERSION
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.repository_read.http_arrow import (
     build_http_repository_provider_factory,
@@ -333,6 +335,12 @@ def test_canonical_snapshot_identity(
                 scope=CommitCanonicalScope("identity-device", "identity-project"),
                 initial=False,
                 manifest=canonical.manifest,
+                snapshot_digest=snapshot_digest_of(
+                    stage=MaterializationStage.FINAL,
+                    parser_version=PARSER_VERSION,
+                    table_ruleset_version=TABLE_RULESET_VERSION,
+                    tables=tuple(table.descriptor for table in canonical.tables),
+                ),
             ),
             runtime_ruleset=_RULESET,
         )

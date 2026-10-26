@@ -136,6 +136,8 @@ def build_dolt_compatible_prepare_publication(
         input_canonicalization_manifest_ref=build_input.canonicalization_manifest_ref.artifact_id,
         input_canonicalization_manifest_digest=build_input.canonicalization_manifest_digest,
         expected_parent_commit_id=build_input.expected_parent_commit_id,
+        parent_manifest_digest=build_input.parent_manifest_digest,
+        parent_is_initial=build_input.parent_is_initial,
         removed_tables=build_input.removed_tables,
         canonicalization_manifest_ref=backend_artifact_ref_from_store_ref(manifest_ref),
         canonicalization_manifest_digest=LIVE_RESTART_OWNER_MANIFEST_DIGEST,

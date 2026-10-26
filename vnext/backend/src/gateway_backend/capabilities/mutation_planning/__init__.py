@@ -9,7 +9,9 @@ from gateway_backend.capabilities.mutation_planning._planner import plan_storage
 from gateway_backend.capabilities.mutation_planning.import_replay import (
     ImportReplayError,
     build_import_mutation_snapshots,
+    plan_import_mutation,
     render_import_mutation_dml,
+    render_planned_import_mutation_dml,
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (
     CANONICAL_ENCODING_VERSION,
@@ -118,6 +120,8 @@ __all__ = [
     "mutation_plan_identity_payload",
     "ImportReplayError",
     "build_import_mutation_snapshots",
+    "plan_import_mutation",
+    "render_planned_import_mutation_dml",
     "plan_storage_mutation",
     "render_import_mutation_dml",
     "publish_change_set_closure",

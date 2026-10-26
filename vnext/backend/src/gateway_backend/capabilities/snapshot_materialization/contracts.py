@@ -1301,6 +1301,27 @@ class RepositoryTableCatalog:
 
 
 @dataclass(frozen=True, slots=True)
+class CanonicalTableIdentity:
+    """Manifest facts used to filter immutable Repository tables without reading rows."""
+
+    canonical_table: str
+    row_count: int
+    source_schema_digest: DigestRef
+    canonical_schema_digest: DigestRef
+    raw_content_digest: DigestRef
+
+    def __post_init__(self) -> None:
+        _require_non_empty(self.canonical_table, "canonical_table")
+        _require_non_negative_int(self.row_count, "row_count")
+        if type(self.source_schema_digest) is not DigestRef:
+            raise ValueError("source_schema_digest must be DigestRef")
+        if type(self.canonical_schema_digest) is not DigestRef:
+            raise ValueError("canonical_schema_digest must be DigestRef")
+        if type(self.raw_content_digest) is not DigestRef:
+            raise ValueError("raw_content_digest must be DigestRef")
+
+
+@dataclass(frozen=True, slots=True)
 class CanonicalBinding:
     """Commit-side storage identity and ruleset provenance supplied by Application."""
 
@@ -1309,6 +1330,8 @@ class CanonicalBinding:
     ruleset_version: str
     ruleset_digest: DigestRef
     tables: tuple[StorageRuleView, ...]
+    table_identities: tuple[CanonicalTableIdentity, ...] = ()
+    snapshot_digest: DigestRef | None = None
     is_initial: bool = False
 
     def __post_init__(self) -> None:
@@ -1320,15 +1343,30 @@ class CanonicalBinding:
             _require_non_empty(value, label)
         if type(self.ruleset_digest) is not DigestRef:
             raise ValueError("ruleset_digest must be DigestRef")
+        if self.snapshot_digest is not None and type(self.snapshot_digest) is not DigestRef:
+            raise ValueError("snapshot_digest must be DigestRef or None")
         if type(self.tables) is not tuple or any(type(item) is not StorageRuleView for item in self.tables):
             raise ValueError("tables must contain StorageRuleView")
         names = tuple(item.canonical_table for item in self.tables)
         if names != tuple(sorted(names, key=lambda item: item.encode(_UTF8))) or len(set(names)) != len(names):
             raise ValueError("tables must use sorted unique canonical names")
+        if type(self.table_identities) is not tuple or any(
+            type(item) is not CanonicalTableIdentity for item in self.table_identities
+        ):
+            raise ValueError("table_identities must contain CanonicalTableIdentity")
+        identity_names = tuple(item.canonical_table for item in self.table_identities)
+        if identity_names != tuple(sorted(identity_names, key=lambda item: item.encode(_UTF8))) or len(
+            set(identity_names)
+        ) != len(identity_names):
+            raise ValueError("table_identities must use sorted unique canonical names")
+        if identity_names and identity_names != names:
+            raise ValueError("table_identities must cover the same tables as the storage views")
         if type(self.is_initial) is not bool:
             raise ValueError("is_initial must be bool")
-        if self.is_initial and self.tables:
+        if self.is_initial and (self.tables or self.table_identities):
             raise ValueError("INITIAL canonical binding must not contain tables")
+        if self.is_initial and self.snapshot_digest is not None:
+            raise ValueError("INITIAL canonical binding must not have a snapshot_digest")
 
 
 @runtime_checkable

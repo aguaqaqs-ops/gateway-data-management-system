@@ -151,8 +151,8 @@ def _import_input() -> RepositoryImportArtifactInput:
 
 
 def test_versions_and_publication_budgets_match_s0() -> None:
-    assert STORAGE_PROJECTION_VERSION == "2"
-    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.2.0"
+    assert STORAGE_PROJECTION_VERSION == "3"
+    assert CANONICALIZATION_MANIFEST_CONTRACT == "3.3.0"
     assert PACKAGE_VERSION == 1
     assert MAX_MANIFEST_JSON_BYTES == 16 * _MIB
     assert MAX_REPLAY_SQL_BYTES == 200 * _MIB
@@ -179,7 +179,7 @@ def test_public_types_have_no_forbidden_fields() -> None:
 def test_projection_request_requires_complete_ruleset_identity() -> None:
     with pytest.raises(ValueError, match="projection requires a complete ruleset_digest"):
         _projection_request(ruleset=TableRulesetSnapshot(table_ruleset_version=1))
-    with pytest.raises(ValueError, match="storage_projection_version must be 2"):
+    with pytest.raises(ValueError, match="storage_projection_version must be 3"):
         _projection_request(storage_projection_version="1")
 
 

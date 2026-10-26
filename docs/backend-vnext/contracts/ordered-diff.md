@@ -82,8 +82,11 @@ stable_key_candidates: [gid]
 order_key: no
 ignored_columns: [no]
 blank_row_policy: PSEUDO_BLANK_BY_MISSING_STABLE_KEY
-pseudo_key_start: 2000000000
+pseudo_key_start: 4000000000
 ```
+
+`pseudo_key_start` 与 `[4_000_000_000, 4_294_967_295]` 的 Canonical Storage G8 pseudo gid
+range 一致；该 range 是 physical identity，不展示为真实业务 gid。
 
 规则：
 
@@ -293,7 +296,6 @@ scalar_encoding_version
 ```text
 ordered_digest_contract_version
 canonical table name
-side
 stable key field
 position field
 ordered_policy_digest optional
@@ -308,6 +310,12 @@ ordered_row_content_digest
 - ignored columns 不进入 ordered value digest。
 - diagnostics、artifact refs、host path 不进入 digest。
 - records manifest digest 可以进入 ordered table fact digest。
+- 当两侧表都存在且完整结构身份相同（行数、表摘要、schema digest、StorageRuleView 与
+  storage projection version 相同）时，Comparison 可从本 pair 的 current 侧规范行按两侧描述符
+  构造的有效 pair policy 计算一次 ordered logical digest 与 occupancy digest，并将相同的值填入
+  before/current facts。输入行及 blank provenance 必须来自规范 metadata；已有 schema/read
+  diagnostic 与 degraded 语义继续生效。该路径不读取 before 行、不执行 LIS 或 ordered record
+  generation，也不改变 digest preimage、facts 结构与外部 DTO。
 
 ## 与 Comparison / Risk / Surface 的关系
 

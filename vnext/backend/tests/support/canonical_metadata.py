@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from gateway_shared_kernel import raw_blob_digest
+from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
 
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadata,
@@ -14,18 +14,28 @@ from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalScope,
 )
 from gateway_backend.capabilities.storage_projection import (
+    CANONICALIZATION_MANIFEST_CONTRACT,
     STORAGE_PROJECTION_VERSION,
     CanonicalizationManifest,
     CanonicalizationManifestTable,
+)
+from gateway_backend.capabilities.storage_projection._digest import compute_schema_digest
+from gateway_backend.capabilities.storage_projection.project import _retained_schema
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    MaterializationPolicy,
+    RepositoryTableCatalog,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     TableRulesetSnapshot,
 )
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
-from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryTableCatalog
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
-from tests.support.repository_ref_materialization import canonical_binding_for_catalog
+from tests.support.repository_ref_materialization import (
+    FakeRepositoryTableAccessProvider,
+    canonical_binding_for_catalog,
+    materialize_ref,
+)
 
 
 class CatalogCommitCanonicalMetadataPort(CommitCanonicalMetadataPort):
@@ -62,7 +72,7 @@ class MetadataControlDbUnitOfWork(ControlDbUnitOfWork):
 def metadata_for_catalog(
     catalog: RepositoryTableCatalog,
     *,
-    rows_by_table: Mapping[str, int] | None = None,
+    rows_by_table: Mapping[str, tuple[tuple[object | None, ...], ...]] | None = None,
     ruleset: TableRulesetSnapshot | None = None,
     initial: bool | None = None,
     scope: CommitCanonicalScope | None = None,
@@ -75,13 +85,37 @@ def metadata_for_catalog(
         is_initial=is_initial,
     )
     manifest = None
+    snapshot_digest: DigestRef | None = None
     if not is_initial:
+        provider = FakeRepositoryTableAccessProvider(
+            catalog=catalog,
+            rows=rows_by_table or {},
+            current_commit=catalog.resolved_commit_hash,
+        )
+        materialized = materialize_ref(
+            provider,
+            policy=MaterializationPolicy.READERS_REQUIRED,
+            ruleset=active,
+            canonical_binding=canonical_binding,
+        )
+        if (
+            materialized.status.value != "COMPLETE"
+            or materialized.summary is None
+            or materialized.snapshot is None
+        ):
+            raise AssertionError("test Repository catalog did not materialize completely")
+        descriptors = {item.table_name: item for item in materialized.summary.tables}
         tables_by_name = {table.table_name.casefold(): table for table in catalog.tables}
         manifest_tables = []
         for view in canonical_binding.tables:
             catalog_table = tables_by_name[view.canonical_table.casefold()]
-            retained = tuple(sorted(column.name.casefold() for column in catalog_table.columns))
-            row_count = (rows_by_table or {}).get(view.canonical_table, catalog_table.row_count or 0)
+            retained = view.retained_columns
+            rows = (rows_by_table or {}).get(view.canonical_table)
+            row_count = len(rows) if rows is not None else catalog_table.row_count or 0
+            descriptor = descriptors[view.canonical_table]
+            if descriptor.raw_content_digest is None:
+                raise AssertionError("test Repository descriptor is missing the raw digest")
+            schema_columns, _, _ = _retained_schema(view, descriptor)
             manifest_tables.append(
                 CanonicalizationManifestTable(
                     name=view.canonical_table,
@@ -97,12 +131,18 @@ def metadata_for_catalog(
                         if view.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
                         else ()
                     ),
+                    source_schema_digest=descriptor.compare_schema_digest,
+                    canonical_schema_digest=compute_schema_digest(
+                        columns=schema_columns,
+                        primary_key=view.canonical_key_columns,
+                    ),
+                    content_digest=descriptor.raw_content_digest,
                 )
             )
         if active.ruleset_digest is None:
             raise ValueError("test ruleset digest is missing")
         manifest = CanonicalizationManifest(
-            contract_version="test-canonicalization-manifest",
+            contract_version=CANONICALIZATION_MANIFEST_CONTRACT,
             storage_projection_version=STORAGE_PROJECTION_VERSION,
             ruleset_id=active.ruleset_id,
             ruleset_version=active.ruleset_version,
@@ -110,12 +150,14 @@ def metadata_for_catalog(
             source_artifact_digest=raw_blob_digest(b"test-source-artifact"),
             tables=tuple(manifest_tables),
         )
+        snapshot_digest = materialized.snapshot.snapshot_digest
     return CommitCanonicalMetadata(
         repository_id=catalog.repository_id,
         commit_id=catalog.resolved_commit_hash,
         scope=scope or CommitCanonicalScope("device-1", "project-1"),
         initial=is_initial,
         manifest=manifest,
+        snapshot_digest=snapshot_digest,
     )
 
 

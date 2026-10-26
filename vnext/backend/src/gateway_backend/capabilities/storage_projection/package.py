@@ -64,7 +64,6 @@ _DURABLE_TABLE_KEYS = (
     "gid_real_count",
     "name",
     "ordered_policy",
-    "ordering_digest",
     "retained_columns",
     "source_row_count",
     "source_schema_digest",
@@ -156,6 +155,21 @@ def canonicalization_manifest_from_bytes(payload: bytes) -> CanonicalizationMani
         )
     except ValueError as exc:
         raise PackageError(ProjectionDiagnosticCode.BINDING_INVALID, str(exc)) from exc
+    if manifest.contract_version != CANONICALIZATION_MANIFEST_CONTRACT:
+        raise PackageError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            "durable manifest requires the current contract_version",
+        )
+    if manifest.storage_projection_version != STORAGE_PROJECTION_VERSION:
+        raise PackageError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            "durable manifest requires the current storage_projection_version",
+        )
+    if manifest.ruleset_version != RULESET_VERSION:
+        raise PackageError(
+            ProjectionDiagnosticCode.BINDING_INVALID,
+            "durable manifest requires the current ruleset_version",
+        )
     recomputed = compute_manifest_digest(manifest)
     if recomputed != manifest.manifest_digest:
         raise PackageError(
@@ -429,7 +443,6 @@ def _durable_table(value: object, index: int) -> CanonicalizationManifestTable:
                 "canonical_schema_digest",
             ),
             content_digest=_optional_digest(mapping["content_digest"], "content_digest"),
-            ordering_digest=_optional_digest(mapping["ordering_digest"], "ordering_digest"),
             gid_real_count=_optional_int(mapping["gid_real_count"], "gid_real_count"),
             gid_pseudo_count=_optional_int(mapping["gid_pseudo_count"], "gid_pseudo_count"),
         )

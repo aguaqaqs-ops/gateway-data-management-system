@@ -55,6 +55,9 @@ from gateway_backend.application.payloads import (
     load_job_payload_bytes,
 )
 from gateway_backend.application.preview_jobs import (
+    _document_string,
+    _snapshot_descriptor_from_document,
+    _snapshot_descriptor_to_document,
     _storage_facts_from_documents,
     _storage_facts_to_documents,
     surface_artifact_closure,
@@ -76,7 +79,7 @@ from gateway_backend.capabilities.bundle_assembly import (
 )
 from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet, OrderedPolicy
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
@@ -130,7 +133,7 @@ HISTORY_COMPARE_MATERIALIZE_HANDLER = "backend-vnext/history-compare/materialize
 HISTORY_COMPARE_ASSEMBLE_HANDLER = "backend-vnext/history-compare/assemble/handler/v1"
 HISTORY_COMPARE_PUBLISH_HANDLER = "backend-vnext/history-compare/publish/handler/v1"
 
-HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v3"
+HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION = "backend-vnext/history-compare/materialize-side/v4"
 
 _JOB_STATE_SIDES = "sides"
 _JOB_STATE_MATERIALIZED_SIDES_REF = "materialized_sides_ref"
@@ -719,8 +722,10 @@ def _materialize_distinct_commits(
     distinct_commits = tuple(dict.fromkeys(node.commit_id for node in payload.nodes))
     sides: dict[str, BoundSnapshotInput] = {}
     runtime_ruleset = _assert_runtime_ruleset(payload).snapshot
+    bindings: dict[str, CanonicalBinding] = {}
+    providers: dict[str, RepositoryTableAccessProvider] = {}
     for commit_id in distinct_commits:
-        provider = deps.repository_provider_factory(payload.repository_id, commit_id)
+        providers[commit_id] = deps.repository_provider_factory(payload.repository_id, commit_id)
         with deps.control_transaction_factory() as unit_of_work:
             try:
                 metadata = unit_of_work.commit_canonical_metadata.resolve(
@@ -737,17 +742,64 @@ def _materialize_distinct_commits(
                     diagnostic_code=exc.code.value,
                 ) from exc
         binding = canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
+        bindings[commit_id] = binding
+
+    requested_by_commit = _history_requested_tables(payload, bindings)
+    for commit_id in distinct_commits:
         bound = _materialize_commit(
             repository_id=payload.repository_id,
             commit_id=commit_id,
-            provider=provider,
+            provider=providers[commit_id],
             store=deps.artifact_store,
-            canonical_binding=binding,
+            canonical_binding=bindings[commit_id],
             ruleset=runtime_ruleset,
+            requested_tables=requested_by_commit[commit_id],
         )
         sides[commit_id] = bound
 
     return sides
+
+
+def _history_requested_tables(
+    payload: HistoryCompareJobPayload,
+    bindings: dict[str, CanonicalBinding],
+) -> dict[str, tuple[str, ...]]:
+    requested: dict[str, set[str]] = {commit_id: set() for commit_id in bindings}
+    for index in range(len(payload.nodes) - 1):
+        before_commit = payload.nodes[index].commit_id
+        current_commit = payload.nodes[index + 1].commit_id
+        before = bindings[before_commit]
+        current = bindings[current_commit]
+        before_views = {view.canonical_table: view for view in before.tables}
+        current_views = {view.canonical_table: view for view in current.tables}
+        before_identities = {item.canonical_table: item for item in before.table_identities}
+        current_identities = {item.canonical_table: item for item in current.table_identities}
+        for name in before_views.keys() | current_views.keys():
+            before_view = before_views.get(name)
+            current_view = current_views.get(name)
+            before_identity = before_identities.get(name)
+            current_identity = current_identities.get(name)
+            unchanged = (
+                before_view is not None
+                and current_view is not None
+                and before_identity is not None
+                and current_identity is not None
+                and before.storage_projection_version == current.storage_projection_version
+                and before_view == current_view
+                and before_identity == current_identity
+            )
+            if unchanged:
+                if current_view is not None and current_view.ordered_policy is OrderedPolicy.GID_NO_V1:
+                    requested[current_commit].add(name)
+                continue
+            if before_view is not None:
+                requested[before_commit].add(name)
+            if current_view is not None:
+                requested[current_commit].add(name)
+    return {
+        commit_id: tuple(sorted(names, key=lambda item: item.encode("utf-8")))
+        for commit_id, names in requested.items()
+    }
 
 
 def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:
@@ -770,6 +822,7 @@ def _materialize_commit(
     store: ArtifactStorePort,
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
+    requested_tables: tuple[str, ...] | None = None,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
@@ -780,6 +833,7 @@ def _materialize_commit(
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
+        requested_tables=requested_tables,
         artifact_store=store,
     )
     result = materialize_repository_ref(request)
@@ -1064,6 +1118,7 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
     if bound.table_set is None:
         raise HistoryCompareJobError("snapshot table set is missing closed refs")
     tables: list[dict[str, object]] = []
+    materialized_names: set[str] = set()
     for table in bound.table_set.tables:
         if table.artifact is None:
             raise HistoryCompareJobError(f"table {table.descriptor.table_name} is missing artifact refs")
@@ -1076,12 +1131,19 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
                 ],
             }
         )
+        materialized_names.add(table.descriptor.table_name)
+    unmaterialized_descriptors = [
+        _snapshot_descriptor_to_document(table)
+        for table in bound.summary.tables
+        if table.table_name not in materialized_names
+    ]
     return {
         "contract_version": HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION,
         "commit_id": commit_id,
         "snapshot": snapshot_to_document(bound.snapshot),
         "snapshot_digest": bound.snapshot.snapshot_digest.value,
         "summary": snapshot_summary_to_document(bound.summary),
+        "unmaterialized_descriptors": unmaterialized_descriptors,
         "storage_facts": _storage_facts_to_documents(bound.storage_facts),
         "tables": tables,
     }
@@ -1234,10 +1296,30 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     try:
+        summary_raw = entry.get("summary")
+        if type(summary_raw) is not dict or type(summary_raw.get("tables")) is not list:
+            raise ValueError("summary tables are invalid")
+        descriptors_by_name = {table.descriptor.table_name: table.descriptor for table in opened}
+        raw_unmaterialized = entry.get("unmaterialized_descriptors")
+        if type(raw_unmaterialized) is not list:
+            raise ValueError("unmaterialized_descriptors must be a list")
+        for raw_descriptor in raw_unmaterialized:
+            descriptor = _snapshot_descriptor_from_document(raw_descriptor)
+            if descriptor.table_name in descriptors_by_name:
+                raise ValueError("unmaterialized descriptor repeats a materialized table")
+            descriptors_by_name[descriptor.table_name] = descriptor
+        raw_summary_tables = summary_raw["tables"]
+        ordered_names = tuple(
+            _document_string(item, "table_name")
+            for item in raw_summary_tables
+            if type(item) is dict
+        )
+        if len(ordered_names) != len(raw_summary_tables) or set(ordered_names) != set(descriptors_by_name):
+            raise ValueError("summary and materialized descriptors do not match")
         summary = snapshot_summary_from_document(
-            entry.get("summary"),
+            summary_raw,
             snapshot=snapshot,
-            tables=tuple(table.descriptor for table in opened),
+            tables=tuple(descriptors_by_name[name] for name in ordered_names),
         )
     except (TypeError, ValueError, KeyError) as exc:
         raise CheckpointDecodeError(
@@ -1259,11 +1341,13 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     if any(
-        facts_by_table[name].source_schema_digest != descriptor.business_schema_digest
+        facts_by_table[name].raw_content_digest != descriptor.raw_content_digest
+        or facts_by_table[name].canonical_schema_digest is None
+        or facts_by_table[name].storage_projection_version is None
         for name, descriptor in descriptors.items()
     ):
         raise CheckpointDecodeError(
-            "materialize checkpoint storage facts do not match source schemas",
+            "materialize checkpoint storage facts do not match table identities",
             code="CHECKPOINT_JOB_STATE_MISMATCH",
         )
     table_set = SnapshotTableSet(
@@ -1285,10 +1369,14 @@ def _bound_from_materialization(
     if result.snapshot is None or result.summary is None:
         raise HistoryCompareJobError("materialization is incomplete")
     descriptors = {item.table_name: item for item in result.summary.tables}
+    identities = {item.canonical_table: item for item in canonical_binding.table_identities}
     storage_facts = tuple(
         ComparisonStorageFacts(
             storage_rule_view=view,
-            source_schema_digest=descriptors[view.canonical_table].business_schema_digest,
+            source_schema_digest=identities[view.canonical_table].source_schema_digest,
+            canonical_schema_digest=identities[view.canonical_table].canonical_schema_digest,
+            raw_content_digest=identities[view.canonical_table].raw_content_digest,
+            storage_projection_version=canonical_binding.storage_projection_version,
         )
         for view in canonical_binding.tables
         if view.canonical_table in descriptors

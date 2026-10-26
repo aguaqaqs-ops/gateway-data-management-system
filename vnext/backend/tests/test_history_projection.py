@@ -812,7 +812,7 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
                 'sa-failed-import', 'ws-failed-import', 1, 'ur-1', 'pr-1', 'repo-1',
                 ?, ?, 1, 'commit-main', 'sha256:canonical', 'd-source', 'd-snapshot',
                 ?, ?, ?, 'closure-1', 'd-closure', 'manifest-1', 'sha256:manifest', NULL, NULL,
-                NULL, NULL, 'main', 'STRUCTURAL', 'REJECT', 'REBUILD_ALWAYS', 'accept-key',
+                NULL, NULL, 'main', 'STRUCTURAL', 'REJECT', 'ADAPTIVE_PATCH', 'accept-key',
                 'sha256:fp', 'upload-key', 'import-key', 'op-excluded-marker', 'ABORTED',
                 NULL, 1, 'actor-1', 1, NULL, NULL, 1, 'IMPORT_FAILED'
             )

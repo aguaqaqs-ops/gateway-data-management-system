@@ -109,6 +109,41 @@ def _insert_submission(
         repository_id=repository_id,
         scope=scope,
     )
+    attempt_id = f"attempt-{submission_id}"
+    snapshot_digest = "sha256:" + "33" * 32
+    connection.execute(
+        """
+        INSERT INTO submit_attempt_records (
+            submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
+            preview_result_id, repository_id, business_baseline_node_id,
+            business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
+            canonical_business_digest, source_digest, snapshot_digest, source_artifact_refs,
+            canonical_table_set_closure_ref, canonical_table_set_closure_digest,
+            preview_ready_closure_ref, preview_ready_closure_digest, canonicalization_manifest_ref,
+            canonicalization_manifest_digest, requested_target_ref, requested_verification_policy,
+            requested_unknown_type_policy, builder_mutation_policy, accept_idempotency_key,
+            accept_request_fingerprint, repository_upload_idempotency_key,
+            repository_import_idempotency_key, operation_id, state, submission_id,
+            optimistic_version, created_by, created_at_us
+        ) VALUES (
+            ?, ?, 1, 'upload-1', 'preview-1', ?, 'initial-node', 'initial-commit', 1,
+            'initial-commit', 'sha256:canonical', 'sha256:source', ?, X'5B5D',
+            'canonical-closure', 'sha256:closure', 'ready-closure', 'sha256:ready', ?, ?,
+            'main', 'STRUCTURAL', 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fingerprint',
+            'upload-key', 'import-key', ?, 'FINALIZED', ?, 1, 'actor-1', 0
+        )
+        """,
+        (
+            attempt_id,
+            workspace_id,
+            repository_id,
+            snapshot_digest,
+            manifest_ref_id,
+            manifest_digest,
+            f"operation-{submission_id}",
+            submission_id,
+        ),
+    )
     connection.execute(
         """
         INSERT INTO submission_records (
@@ -125,7 +160,7 @@ def _insert_submission(
         """,
         (
             submission_id,
-            f"attempt-{submission_id}",
+            attempt_id,
             workspace_id,
             repository_id,
             commit_id,
@@ -325,7 +360,7 @@ def test_manifest_digest_mismatch_fails_with_diagnostic_log_and_metric(
     connection.close()
 
 
-def test_historical_manifest_versions_are_returned_as_provenance() -> None:
+def test_unsupported_manifest_versions_fail_closed_as_missing_provenance() -> None:
     connection = _connection()
     store = InMemoryArtifactStore()
     historical, payload = _manifest(
@@ -345,15 +380,12 @@ def test_historical_manifest_versions_are_returned_as_provenance() -> None:
     )
     resolver = _resolver(connection, store)
 
-    metadata = resolver.resolve(
-        repository_id="repository-1",
-        commit_id="historical-commit",
-        scope=FROZEN_SCOPE,
-    )
+    with pytest.raises(CommitCanonicalMetadataError) as raised:
+        resolver.resolve(
+            repository_id="repository-1",
+            commit_id="historical-commit",
+            scope=FROZEN_SCOPE,
+        )
 
-    assert metadata.initial is False
-    assert metadata.manifest == historical
-    assert metadata.manifest.contract_version == "published-contract-2"
-    assert metadata.manifest.storage_projection_version == "published-storage-0"
-    assert metadata.manifest.ruleset_version == "published-rules-v1"
+    assert raised.value.code is CommitCanonicalMetadataCode.MISSING
     connection.close()

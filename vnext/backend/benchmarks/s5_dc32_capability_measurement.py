@@ -753,12 +753,16 @@ def _submit_measurement(
     )
     build_input = PrepareImportBuildInput(
         submit_attempt_id=submit_id,
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         canonical_table_set_closure_ref=closure_ref,
         canonical_table_set_closure_digest=closure_ref.raw_sha256.value,
         canonicalization_manifest_ref=manifest_ref,
         canonicalization_manifest_digest=manifest_digest.value,
         expected_parent_commit_id=expected_parent,
+        repository_id="test-repository",
+        parent_manifest=None,
+        parent_manifest_digest=None,
+        parent_is_initial=True,
         removed_tables=removed_tables,
         source_artifact_digest=bound.snapshot.snapshot_digest.value,
         repository_base_digest="sha256:" + "00" * 32,

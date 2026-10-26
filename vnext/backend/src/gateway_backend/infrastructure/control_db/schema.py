@@ -348,7 +348,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK
                 (typeof(requested_unknown_type_policy) = 'text' AND requested_unknown_type_policy IN ('REJECT')),
         builder_mutation_policy TEXT NOT NULL
-            CHECK (typeof(builder_mutation_policy) = 'text' AND builder_mutation_policy IN ('REBUILD_ALWAYS')),
+            CHECK (typeof(builder_mutation_policy) = 'text' AND builder_mutation_policy IN ('ADAPTIVE_PATCH')),
         accept_idempotency_key TEXT NOT NULL
             CHECK (typeof(accept_idempotency_key) = 'text' AND length(accept_idempotency_key) BETWEEN 1 AND 255),
         accept_request_fingerprint TEXT NOT NULL

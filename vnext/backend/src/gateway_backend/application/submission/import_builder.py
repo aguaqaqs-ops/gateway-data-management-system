@@ -205,7 +205,7 @@ def publish_prepare_import_package(
     publication: SubmitImportPublicationPort,
     store: ArtifactStorePort,
 ) -> PrepareImportPublicationResult:
-    _assert_rebuild_policy(build_input)
+    _assert_adaptive_policy(build_input)
     return publication.build_and_publish(build_input=build_input, store=store)
 
 
@@ -216,7 +216,7 @@ def reuse_prepare_import_checkpoint(
     publication: SubmitImportPublicationPort,
     store: ArtifactStorePort,
 ) -> PrepareImportPublicationResult:
-    _assert_rebuild_policy(build_input)
+    _assert_adaptive_policy(build_input)
     _assert_checkpoint_matches_build_input(checkpoint=checkpoint, build_input=build_input)
     package_payload = publication.read_back_package(checkpoint=checkpoint, store=store)
     if raw_blob_digest(package_payload).value != checkpoint.package_raw_sha256:
@@ -259,9 +259,9 @@ def pin_prepare_import_artifacts(
     )
 
 
-def _assert_rebuild_policy(build_input: PrepareImportBuildInput) -> None:
-    if build_input.builder_mutation_policy is not BuilderMutationPolicy.REBUILD_ALWAYS:
-        raise SubmitImportBuilderError("builder_mutation_policy must be REBUILD_ALWAYS")
+def _assert_adaptive_policy(build_input: PrepareImportBuildInput) -> None:
+    if build_input.builder_mutation_policy is not BuilderMutationPolicy.ADAPTIVE_PATCH:
+        raise SubmitImportBuilderError("builder_mutation_policy must be ADAPTIVE_PATCH")
 
 
 def _assert_checkpoint_matches_build_input(
@@ -280,6 +280,8 @@ def _assert_checkpoint_matches_build_input(
         or checkpoint.input_canonicalization_manifest_digest
         != build_input.canonicalization_manifest_digest
         or checkpoint.expected_parent_commit_id != build_input.expected_parent_commit_id
+        or checkpoint.parent_manifest_digest != build_input.parent_manifest_digest
+        or checkpoint.parent_is_initial != build_input.parent_is_initial
         or checkpoint.removed_tables != build_input.removed_tables
         or checkpoint.builder_mutation_policy is not build_input.builder_mutation_policy
     ):

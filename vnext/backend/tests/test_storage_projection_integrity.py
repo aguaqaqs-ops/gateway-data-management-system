@@ -29,7 +29,6 @@ from gateway_backend.capabilities.storage_projection import (
 )
 from gateway_backend.capabilities.storage_projection._digest import (
     CanonicalColumnCodec,
-    compute_keyless_content_digest,
     encode_canonical_cell,
     manifest_document,
 )
@@ -355,7 +354,7 @@ def test_ordered_real_gid_and_blank_pseudo_allocation() -> None:
     table = result.tables[0]
     assert table.storage_view.canonical_key_columns == ("gid",)
     assert table.storage_view.structural_columns == ("no",)
-    assert table.ordering_digest is not None
+    assert table.fast_row_digest is not None
     assert result.manifest is not None
     facts = result.manifest.tables[0]
     assert facts.gid_real_count == 1
@@ -391,7 +390,7 @@ def test_ordered_real_gid_and_blank_pseudo_allocation() -> None:
     assert zero.status is ProjectionStatus.COMPLETE
     assert empty.status is ProjectionStatus.COMPLETE
     assert table.content_digest == zero.tables[0].content_digest == empty.tables[0].content_digest
-    assert table.ordering_digest == zero.tables[0].ordering_digest == empty.tables[0].ordering_digest
+    assert table.content_digest == zero.tables[0].content_digest == empty.tables[0].content_digest
     assert GID_PSEUDO_MIN == 4_000_000_000
 
 
@@ -407,7 +406,7 @@ def test_canonical_ordered_snapshot_reprojection_preserves_pseudo_identity() -> 
     )
     initial = project_storage(raw)
     assert initial.status is ProjectionStatus.COMPLETE
-    assert initial.tables[0].ordering_digest is not None
+    assert initial.tables[0].fast_row_digest is not None
 
     canonical_reader, canonical_binding = table_input(
         "b1_n1_iec104_syx_list",
@@ -431,7 +430,7 @@ def test_canonical_ordered_snapshot_reprojection_preserves_pseudo_identity() -> 
     assert replayed.manifest.tables[0].gid_real_count == 1
     assert replayed.manifest.tables[0].gid_pseudo_count == 2
     assert replayed.tables[0].content_digest == initial.tables[0].content_digest
-    assert replayed.tables[0].ordering_digest == initial.tables[0].ordering_digest
+    assert replayed.tables[0].content_digest == initial.tables[0].content_digest
 
     raw_pseudo_reader, raw_pseudo_binding = table_input(
         "b1_n1_iec104_syx_list",
@@ -459,10 +458,10 @@ def test_ordered_insert_order_does_not_change_digests() -> None:
     assert first.status is ProjectionStatus.COMPLETE
     assert second.status is ProjectionStatus.COMPLETE
     assert first.tables[0].content_digest == second.tables[0].content_digest
-    assert first.tables[0].ordering_digest == second.tables[0].ordering_digest
+    assert first.tables[0].fast_row_digest == second.tables[0].fast_row_digest
 
 
-def test_ordered_position_shift_changes_only_ordering_digest() -> None:
+def test_ordered_position_shift_changes_unified_content_digest() -> None:
     original = (
         as_row(int_cell(1), int_cell(1), varchar_cell("a")),
         as_row(int_cell(2), int_cell(2), varchar_cell("b")),
@@ -481,8 +480,7 @@ def test_ordered_position_shift_changes_only_ordering_digest() -> None:
     assert first.status is ProjectionStatus.COMPLETE
     assert position.status is ProjectionStatus.COMPLETE
     assert content.status is ProjectionStatus.COMPLETE
-    assert first.tables[0].content_digest == position.tables[0].content_digest
-    assert first.tables[0].ordering_digest != position.tables[0].ordering_digest
+    assert first.tables[0].content_digest != position.tables[0].content_digest
     assert first.tables[0].content_digest != content.tables[0].content_digest
 
 
@@ -739,30 +737,34 @@ def test_raw_provenance_digest_is_not_r4_content() -> None:
     assert dummy_digest() != digest_ref("aa")
 
 
-def test_digest_mismatch_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = {"n": 0}
-    original = compute_keyless_content_digest
+def test_projection_computes_each_table_digest_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
 
-    def flaky(frames: object) -> DigestRef:
-        calls["n"] += 1
-        digest = original(frames)  # type: ignore[arg-type]
-        if calls["n"] == 2:
-            return DigestRef.from_raw_digest(b"\x00" * 32)
-        return digest
-
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.storage_projection.project.compute_keyless_content_digest",
-        flaky,
+    projection_module = importlib.import_module(
+        "gateway_backend.capabilities.storage_projection.project"
     )
+    calls = {"raw": 0, "fast": 0}
+    raw_digest = projection_module.raw_content_digest_of
+    fast_digest = projection_module.fast_row_digest_of
+
+    def counted_raw(rows: tuple[bytes, ...]) -> DigestRef:
+        calls["raw"] += 1
+        return raw_digest(rows)
+
+    def counted_fast(rows: tuple[bytes, ...]) -> DigestRef:
+        calls["fast"] += 1
+        return fast_digest(rows)
+
+    monkeypatch.setattr(projection_module, "raw_content_digest_of", counted_raw)
+    monkeypatch.setattr(projection_module, "fast_row_digest_of", counted_fast)
     result = project_storage(
         _request(
             _keyless_input((as_row(varchar_cell("a")),)),
             ruleset=snapshot_from_records(keyless_record()),
         )
     )
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.DIGEST_MISMATCH in _codes(result)
+    assert result.status is ProjectionStatus.COMPLETE
+    assert calls == {"raw": 1, "fast": 1}
 
 
 def test_output_write_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:

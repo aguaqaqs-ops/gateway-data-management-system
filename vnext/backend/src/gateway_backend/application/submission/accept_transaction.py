@@ -417,7 +417,7 @@ def _build_prepared_attempt(
         requested_target_ref=SubmitTargetRef.MAIN,
         requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
         requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
         accept_idempotency_key=command.idempotency_key,
         accept_request_fingerprint=validation.accept_request_fingerprint,
         repository_upload_idempotency_key=derive_repository_upload_idempotency_key(submit_attempt_id),

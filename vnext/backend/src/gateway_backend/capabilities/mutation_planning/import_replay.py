@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from gateway_shared_kernel import DigestRef
 
 from gateway_backend.capabilities.mutation_planning._digest import (
@@ -15,6 +17,7 @@ from gateway_backend.capabilities.mutation_planning._repository_replay_renderer 
 )
 from gateway_backend.capabilities.mutation_planning.contracts import (
     CanonicalStorageKey,
+    ChangeSetClosure,
     MutationKeyedRow,
     MutationPlanStatus,
     MutationPlanningInput,
@@ -22,10 +25,13 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationPolicy,
     MutationProjectionBinding,
     MutationRepositoryBase,
+    MutationPlanningResult,
     MutationSourceIdentity,
     MutationTableSnapshot,
     MutationThresholdPolicy,
     PersistedRowImage,
+    RowMutationOperation,
+    compute_change_set_digest,
 )
 from gateway_backend.capabilities.storage_projection.contracts import (
     CanonicalizationManifest,
@@ -73,6 +79,10 @@ def render_import_mutation_dml(
     *,
     repository_base_digest: DigestRef,
     removed_tables: tuple[str, ...],
+    before_manifest: CanonicalizationManifest | None = None,
+    before_snapshots: tuple[MutationTableSnapshot, ...] = (),
+    mutation_policy: MutationPolicy = MutationPolicy.REBUILD_ALWAYS,
+    rebuild_tables: tuple[str, ...] = (),
 ) -> bytes:
     if type(removed_tables) is not tuple:
         raise ImportReplayError("removed_tables must be a tuple")
@@ -81,27 +91,84 @@ def render_import_mutation_dml(
     if removed_tables != tuple(sorted(set(removed_tables), key=lambda name: name.encode("utf-8"))):
         raise ImportReplayError("removed_tables must contain sorted unique table names")
     manifest = result.manifest
-    if manifest is None:
+    if manifest is None or manifest.manifest_digest is None:
         raise ImportReplayError("projection manifest is required")
-    empty_manifest = CanonicalizationManifest(
-        contract_version=manifest.contract_version,
-        storage_projection_version=manifest.storage_projection_version,
-        ruleset_id=manifest.ruleset_id,
-        ruleset_version=manifest.ruleset_version,
-        ruleset_digest=manifest.ruleset_digest,
-        source_artifact_digest=manifest.source_artifact_digest,
-        tables=(),
-        manifest_digest=DigestRef("sha256:" + "0f" * 32),
+    if rebuild_tables != tuple(sorted(set(rebuild_tables), key=lambda name: name.encode("utf-8"))):
+        raise ImportReplayError("rebuild_tables must contain sorted unique table names")
+    before = before_manifest
+    if before is None:
+        before = CanonicalizationManifest(
+            contract_version=manifest.contract_version,
+            storage_projection_version=manifest.storage_projection_version,
+            ruleset_id=manifest.ruleset_id,
+            ruleset_version=manifest.ruleset_version,
+            ruleset_digest=manifest.ruleset_digest,
+            source_artifact_digest=manifest.source_artifact_digest,
+            tables=(),
+            manifest_digest=DigestRef("sha256:" + "0f" * 32),
+        )
+    planned = plan_import_mutation(
+        result,
+        snapshots,
+        repository_base_digest=repository_base_digest,
+        before_manifest=before,
+        before_snapshots=before_snapshots,
+        mutation_policy=mutation_policy,
     )
+    if planned.status is MutationPlanStatus.NOOP:
+        if snapshots or before_snapshots:
+            raise ImportReplayError("mutation planning failed for repository import replay")
+        return b""
+    if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
+        raise ImportReplayError("mutation planning failed for repository import replay")
+    return render_planned_import_mutation_dml(planned, rebuild_tables=rebuild_tables)
+
+
+def render_planned_import_mutation_dml(
+    planned: MutationPlanningResult,
+    *,
+    rebuild_tables: tuple[str, ...] = (),
+) -> bytes:
+    if type(rebuild_tables) is not tuple or rebuild_tables != tuple(
+        sorted(set(rebuild_tables), key=lambda name: name.encode("utf-8"))
+    ):
+        raise ImportReplayError("rebuild_tables must contain sorted unique table names")
+    if planned.status is MutationPlanStatus.NOOP:
+        return b""
+    if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
+        raise ImportReplayError("mutation planning failed for repository import replay")
+    closure = _omit_rebuild_deletes(planned.change_set_closure, set(rebuild_tables))
+    outcome = render_change_set_replay(closure)
+    if outcome.status != "READY" or outcome.sql_bytes is None:
+        raise ImportReplayError("mutation DML rendering failed")
+    return outcome.sql_bytes
+
+
+def plan_import_mutation(
+    result: ProjectionResult,
+    after_snapshots: tuple[MutationTableSnapshot, ...],
+    *,
+    repository_base_digest: DigestRef,
+    before_manifest: CanonicalizationManifest,
+    before_snapshots: tuple[MutationTableSnapshot, ...] = (),
+    mutation_policy: MutationPolicy = MutationPolicy.ADAPTIVE_PATCH,
+) -> MutationPlanningResult:
+    manifest = result.manifest
+    if manifest is None or manifest.manifest_digest is None:
+        raise ImportReplayError("projection manifest is required")
+    if before_manifest.manifest_digest is None:
+        raise ImportReplayError("parent manifest digest is required")
+    if type(mutation_policy) is not MutationPolicy:
+        raise ImportReplayError("mutation_policy is invalid")
     binding = MutationProjectionBinding(
-        before_storage_projection_digest=manifest.manifest_digest or DigestRef("sha256:" + "00" * 32),
-        after_storage_projection_digest=manifest.manifest_digest or DigestRef("sha256:" + "01" * 32),
-        before_manifest_digest=empty_manifest.manifest_digest or DigestRef("sha256:" + "02" * 32),
-        after_manifest_digest=manifest.manifest_digest or DigestRef("sha256:" + "03" * 32),
+        before_storage_projection_digest=before_manifest.manifest_digest,
+        after_storage_projection_digest=manifest.manifest_digest,
+        before_manifest_digest=before_manifest.manifest_digest,
+        after_manifest_digest=manifest.manifest_digest,
         table_ruleset_digest=manifest.ruleset_digest,
     )
     planning_input = MutationPlanningInput(
-        mutation_policy=MutationPolicy.REBUILD_ALWAYS,
+        mutation_policy=mutation_policy,
         projection_binding=binding,
         repository_base=MutationRepositoryBase(
             base_repository_ref_digest=repository_base_digest,
@@ -114,20 +181,30 @@ def render_import_mutation_dml(
     )
     request = MutationPlanningRequest(
         planning_input=planning_input,
-        before_manifest=empty_manifest,
+        before_manifest=before_manifest,
         after_manifest=manifest,
-        before_tables=(),
-        after_tables=snapshots,
+        before_tables=before_snapshots,
+        after_tables=after_snapshots,
         destructive_confirmation_granted=True,
     )
-    planned = plan_storage_mutation(request)
-    if planned.status is MutationPlanStatus.NOOP:
-        if manifest.tables or snapshots or not removed_tables:
-            raise ImportReplayError("mutation planning failed for repository import replay")
-        return b""
-    if planned.status is not MutationPlanStatus.READY or planned.change_set_closure is None:
-        raise ImportReplayError("mutation planning failed for repository import replay")
-    outcome = render_change_set_replay(planned.change_set_closure)
-    if outcome.status != "READY" or outcome.sql_bytes is None:
-        raise ImportReplayError("mutation DML rendering failed")
-    return outcome.sql_bytes
+    return plan_storage_mutation(request)
+
+
+def _omit_rebuild_deletes(
+    closure: ChangeSetClosure,
+    rebuild_tables: set[str],
+) -> ChangeSetClosure:
+    if not rebuild_tables:
+        return closure
+    mutations = tuple(
+        mutation
+        for mutation in closure.mutations
+        if not (
+            mutation.canonical_table in rebuild_tables
+            and mutation.operation is RowMutationOperation.DELETE
+        )
+    )
+    if mutations == closure.mutations:
+        return closure
+    manifest = replace(closure.manifest, change_set_digest=compute_change_set_digest(mutations))
+    return ChangeSetClosure(manifest=manifest, mutations=mutations)

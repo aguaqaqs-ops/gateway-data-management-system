@@ -954,13 +954,15 @@ def _measure_checkpoints_and_pins(
         input_canonicalization_manifest_ref=v2_manifest_ref.artifact_id,
         input_canonicalization_manifest_digest=v2_manifest_digest.value,
         expected_parent_commit_id=parent_commit_id,
+        parent_manifest_digest=None,
+        parent_is_initial=True,
         removed_tables=removed_tables,
         canonicalization_manifest_ref=manifest_backend_ref,
         canonicalization_manifest_digest=v2_manifest_digest.value,
         backend_import_artifact_ref=package_backend_ref,
         package_raw_size=placeholder_package.size_bytes,
         package_raw_sha256=placeholder_package.raw_sha256.value,
-        builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+        builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
     )
     submit_job_state = submit_jobs._job_state_for_prepare(submit_checkpoint)
     submit_envelope = StepCheckpointEnvelope(

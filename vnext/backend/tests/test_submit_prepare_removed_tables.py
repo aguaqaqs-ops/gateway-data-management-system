@@ -21,6 +21,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     durable_manifest_bytes,
+    open_canonicalization_manifest,
     project_canonical_table_set,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
@@ -100,6 +101,8 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
     closure_ref, manifest_ref, artifact_refs, source_digest, manifest_digest = (
         _canonical_records_state(store)
     )
+    parent_manifest = open_canonicalization_manifest(store, manifest_ref)
+    assert parent_manifest.manifest_digest is not None
     closure_digest = closure_ref.raw_sha256.value
     snapshot_tables, _canonical_refs = resolve_canonical_snapshot_bindings(
         operation_artifact_refs=artifact_refs,
@@ -123,12 +126,16 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         ) == ()
         first_input = PrepareImportBuildInput(
             submit_attempt_id="sa-submit-table-removal-create",
-            builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+            builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
             canonical_table_set_closure_ref=closure_ref,
             canonical_table_set_closure_digest=closure_digest,
             canonicalization_manifest_ref=manifest_ref,
             canonicalization_manifest_digest=manifest_digest,
             expected_parent_commit_id=seeded.initial_commit_id,
+            repository_id=seeded.repository_id,
+            parent_manifest=None,
+            parent_manifest_digest=None,
+            parent_is_initial=True,
             removed_tables=(),
             source_artifact_digest=source_digest,
             repository_base_digest=source_digest,
@@ -208,12 +215,16 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         store.put(empty_closure_bytes, empty_closure_ref)
         second_input = PrepareImportBuildInput(
             submit_attempt_id="sa-submit-table-removal-delete",
-            builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+            builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
             canonical_table_set_closure_ref=empty_closure_ref,
             canonical_table_set_closure_digest=empty_closure_ref.raw_sha256.value,
             canonicalization_manifest_ref=empty_manifest_ref,
             canonicalization_manifest_digest=empty_projection.manifest.manifest_digest.value,
             expected_parent_commit_id=parent_commit_id,
+            repository_id=seeded.repository_id,
+            parent_manifest=parent_manifest,
+            parent_manifest_digest=parent_manifest.manifest_digest.value,
+            parent_is_initial=False,
             removed_tables=removed_tables,
             source_artifact_digest=empty_projection.manifest.source_artifact_digest.value,
             repository_base_digest=source_digest,

@@ -307,7 +307,7 @@ def _insert_bulk_approved_archive_candidate_rows(
                 'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', 'manifest-1', 'sha256:manifest',
                 NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
-                'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
+                'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
             )
             """,
@@ -508,7 +508,7 @@ def _insert_bulk_rejected_archive_candidate_rows(
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
                 'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
-                'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
+                'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
             )
             """,

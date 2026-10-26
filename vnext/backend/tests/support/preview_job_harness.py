@@ -320,6 +320,7 @@ def build_preview_harness(
         {
             (REPOSITORY_ID, BASELINE_HEAD.business_baseline_commit_id): metadata_for_catalog(
                 baseline_provider.catalog,
+                rows_by_table=baseline_provider.rows,
                 initial=empty_baseline,
             )
         }

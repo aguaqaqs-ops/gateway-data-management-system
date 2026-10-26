@@ -22,7 +22,6 @@ from gateway_shared_kernel import (
     encode_typed_scalar,
 )
 from gateway_shared_kernel.jcs import canonicalize_json_value
-from gateway_shared_kernel.uleb128 import encode_uleb128
 
 from gateway_backend.capabilities.storage_projection.contracts import (
     CanonicalizationManifest,
@@ -50,18 +49,6 @@ class CanonicalColumnCodec:
     labels: tuple[str, ...] = ()
 
 
-class ContentDigestBuilder:
-    def __init__(self) -> None:
-        self._hasher = hashlib.sha256()
-
-    def add_cell_frame(self, cell_frame: bytes) -> None:
-        self._hasher.update(encode_uleb128(len(cell_frame)))
-        self._hasher.update(cell_frame)
-
-    def finish(self) -> DigestRef:
-        return DigestRef.from_raw_digest(self._hasher.digest())
-
-
 def compute_storage_rule_digest(view: StorageRuleView) -> DigestRef:
     payload = {
         "canonical_key_columns": list(view.canonical_key_columns),
@@ -87,38 +74,6 @@ def compute_schema_digest(
         "primary_key": list(primary_key),
     }
     return _sha256_jcs(payload)
-
-
-def compute_keyless_content_digest(row_frames: Sequence[bytes]) -> DigestRef:
-    hasher = hashlib.sha256()
-    for frame in sorted(row_frames):
-        hasher.update(frame)
-    return DigestRef.from_raw_digest(hasher.digest())
-
-
-def compute_ordering_digest(
-    *,
-    ordered_policy: str,
-    rows: Sequence[Mapping[str, int]],
-) -> DigestRef:
-    payload = {
-        "ordered_policy": ordered_policy,
-        "rows": [dict(row) for row in rows],
-    }
-    return _sha256_jcs(payload)
-
-
-def encode_row_cell_frame(
-    row: Sequence[object],
-    indexes: Sequence[int],
-    codecs: Mapping[int, CanonicalColumnCodec],
-) -> bytes:
-    parts = bytearray()
-    for index in indexes:
-        cell_frame = encode_canonical_cell(row[index], codecs[index])
-        parts.extend(encode_uleb128(len(cell_frame)))
-        parts.extend(cell_frame)
-    return bytes(parts)
 
 
 def encode_retained_cell(cell: object, declared_type: DeclaredType) -> bytes:
@@ -194,7 +149,6 @@ def _manifest_table_document(table: CanonicalizationManifestTable) -> dict[str, 
         "gid_real_count": table.gid_real_count,
         "name": table.name,
         "ordered_policy": table.ordered_policy.value,
-        "ordering_digest": _optional_digest(table.ordering_digest),
         "retained_columns": list(table.retained_columns),
         "source_row_count": table.source_row_count,
         "source_schema_digest": _optional_digest(table.source_schema_digest),

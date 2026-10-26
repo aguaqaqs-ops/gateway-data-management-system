@@ -375,10 +375,6 @@ def _assert_publication_authority(
             raise _PublishFailed(
                 _error(ProjectionDiagnosticCode.DIGEST_MISMATCH, "content digest mismatch", name)
             )
-        if projected_table.ordering_digest != manifest_table.ordering_digest:
-            raise _PublishFailed(
-                _error(ProjectionDiagnosticCode.DIGEST_MISMATCH, "ordering digest mismatch", name)
-            )
 
 
 def _put_bytes(

@@ -32,9 +32,9 @@ CHANGE_SET_MANIFEST_CONTRACT_VERSION = "backend-vnext/change-set-manifest/v1"
 THRESHOLD_POLICY_VERSION = "backend-vnext/mutation-threshold/v1"
 RENDERER_CAPABILITY_CONTRACT_VERSION = "backend-vnext/mutation-renderer-capability/v1"
 CANONICAL_ENCODING_VERSION = 1
-DEFAULT_MUTATION_POLICY = "REBUILD_ALWAYS"
+DEFAULT_MUTATION_POLICY = "ADAPTIVE_PATCH"
 MAX_PATCH_CHANGED_ROWS = 1_000
-MAX_PATCH_CHANGE_RATIO = "0.05"
+MAX_PATCH_CHANGE_RATIO = "0.01"
 _MIB = 1024 * 1024
 MAX_CHANGE_SET_JSON_BYTES = 16 * _MIB
 MAX_REPLAY_SQL_BYTES = _STORAGE_PROJECTION_MAX_REPLAY_SQL_BYTES
@@ -215,7 +215,7 @@ class MutationThresholdPolicy:
         if type(self.max_patch_change_ratio) is not str or self.max_patch_change_ratio == "":
             raise ValueError("max_patch_change_ratio must be a non-empty string")
         if self.max_patch_change_ratio != MAX_PATCH_CHANGE_RATIO:
-            raise ValueError("max_patch_change_ratio must match the frozen S0 value")
+            raise ValueError("max_patch_change_ratio must match the frozen S1a value")
 
     def to_document(self) -> dict[str, object]:
         return {

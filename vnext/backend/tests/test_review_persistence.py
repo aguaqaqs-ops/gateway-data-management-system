@@ -95,7 +95,7 @@ def test_sqlite_review_repository_round_trips_seed(db_path: Path) -> None:
                 'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 1, 'commit-main',
                 'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
-                'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
+                'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
             )
             """,
@@ -558,7 +558,7 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
             'sa-1', 'ws-1', 1, 'ur-1', 'pr-1', 'repo-1', 'node-1', 'commit-base', 1, 'commit-main',
             'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
             'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
-            'REJECT', 'REBUILD_ALWAYS', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
+            'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
             'op-1', 'FINALIZED', 'sub-1', 1, 'actor-1', 1, 1, 1, NULL, NULL
         )
         """,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from decimal import Decimal
 
 from gateway_backend.artifacts import ArtifactStorePort
 from gateway_backend.capabilities.mutation_planning._artifacts import (
@@ -135,6 +136,11 @@ def _failed(code: MutationFailureCode) -> MutationPlanningResult:
 
 
 def _all_tables_unchanged(state: _PlannerState) -> bool:
+    if (
+        state.request.before_manifest.storage_projection_version
+        != state.request.after_manifest.storage_projection_version
+    ):
+        return False
     for name in state.table_names:
         before = state.before_by_name.get(name)
         after = state.after_by_name.get(name)
@@ -150,8 +156,8 @@ def _all_tables_unchanged(state: _PlannerState) -> bool:
 def _decision_for_table(state: _PlannerState, table_name: str) -> TableMutationDecision:
     before = state.before_by_name.get(table_name)
     after = state.after_by_name.get(table_name)
-    before_count = 0 if before is None else len(before.rows)
-    after_count = 0 if after is None else len(after.rows)
+    before_count = 0 if before is None else before.manifest_table.canonical_row_count
+    after_count = 0 if after is None else after.manifest_table.canonical_row_count
     if before is None or after is None:
         summary = TableMutationSummary(
             canonical_table=table_name,
@@ -167,7 +173,11 @@ def _decision_for_table(state: _PlannerState, table_name: str) -> TableMutationD
             before_snapshot=before,
             after_snapshot=after,
         )
-    if not _table_projection_unchanged(before, after):
+    if (
+        state.request.before_manifest.storage_projection_version
+        != state.request.after_manifest.storage_projection_version
+        or not _table_projection_unchanged(before, after)
+    ):
         changed, _, _ = _row_diff_counts(before, after)
         summary = TableMutationSummary(
             canonical_table=table_name,
@@ -266,7 +276,9 @@ def _patch_eligible(
     if changed_row_count > threshold.max_patch_changed_rows:
         return False
     max_rows = max(before_row_count, after_row_count, 1)
-    if changed_row_count * 100 > max_rows * 5:
+    ratio = Decimal(threshold.max_patch_change_ratio)
+    numerator, denominator = ratio.as_integer_ratio()
+    if changed_row_count * denominator > max_rows * numerator:
         return False
     return True
 
@@ -277,7 +289,7 @@ def _keyed_patchable(view: StorageRuleView) -> bool:
         CanonicalKeyPolicy.EXPLICIT_KEYLESS,
     }:
         return False
-    if view.ordered_policy is not OrderedPolicy.NONE:
+    if view.ordered_policy not in {OrderedPolicy.NONE, OrderedPolicy.GID_NO_V1}:
         return False
     return bool(view.canonical_key_columns)
 

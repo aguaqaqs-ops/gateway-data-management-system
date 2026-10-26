@@ -1142,7 +1142,7 @@ def test_t1_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
             requested_target_ref=SubmitTargetRef.MAIN,
             requested_verification_policy=SubmitVerificationPolicy.STRUCTURAL,
             requested_unknown_type_policy=SubmitUnknownTypePolicy.REJECT,
-            builder_mutation_policy=BuilderMutationPolicy.REBUILD_ALWAYS,
+            builder_mutation_policy=BuilderMutationPolicy.ADAPTIVE_PATCH,
             accept_idempotency_key="accept-key-1",
             accept_request_fingerprint=fingerprint,
             repository_upload_idempotency_key="p5b-upload-v1:abc",

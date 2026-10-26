@@ -30,12 +30,18 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationPlanningRequest,
     MutationPlanningResult,
     MutationTableSnapshot,
+    PersistedRowImage,
     RowMutationOperation,
 )
+from gateway_backend.capabilities.mutation_planning._digest import row_digest_from_image
 from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import (
     render_change_set_replay,
 )
-from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    OrderedPolicy,
+    StorageRuleView,
+)
 from tests.support.mutation_contracts import (
     digest,
     keyed_row,
@@ -145,8 +151,8 @@ R7_REBUILD_PATCH_NOOP_CASES: tuple[tuple[str, object], ...] = (
         "adaptive_patch_single_update",
         {
             "policy": MutationPolicy.ADAPTIVE_PATCH,
-            "before_count": 20,
-            "after_count": 20,
+            "before_count": 100,
+            "after_count": 100,
             "changed": {0},
             "operation": TableMutationKind.PATCH_DML,
         },
@@ -155,8 +161,8 @@ R7_REBUILD_PATCH_NOOP_CASES: tuple[tuple[str, object], ...] = (
         "table_noop_in_mixed_plan",
         {
             "policy": MutationPolicy.ADAPTIVE_PATCH,
-            "before_count": 20,
-            "after_count": 20,
+            "before_count": 100,
+            "after_count": 100,
             "changed": {0},
             "extra_unchanged_table": "inventory",
             "operations": {
@@ -209,7 +215,7 @@ R7_THRESHOLD_BOUNDARY_CASES: tuple[tuple[str, object], ...] = (
     (
         "ratio_at_boundary_patch",
         {
-            "row_count": 20,
+            "row_count": 100,
             "changed": {0},
             "operation": TableMutationKind.PATCH_DML,
         },
@@ -217,7 +223,7 @@ R7_THRESHOLD_BOUNDARY_CASES: tuple[tuple[str, object], ...] = (
     (
         "ratio_over_boundary_rebuild",
         {
-            "row_count": 20,
+            "row_count": 100,
             "changed": {0, 1},
             "operation": TableMutationKind.REBUILD_TABLE,
         },
@@ -225,7 +231,7 @@ R7_THRESHOLD_BOUNDARY_CASES: tuple[tuple[str, object], ...] = (
     (
         "count_at_boundary_patch",
         {
-            "row_count": 20000,
+            "row_count": 100000,
             "changed": set(range(1000)),
             "operation": TableMutationKind.PATCH_DML,
         },
@@ -233,7 +239,7 @@ R7_THRESHOLD_BOUNDARY_CASES: tuple[tuple[str, object], ...] = (
     (
         "count_over_boundary_rebuild",
         {
-            "row_count": 20000,
+            "row_count": 100100,
             "changed": set(range(1001)),
             "operation": TableMutationKind.REBUILD_TABLE,
         },
@@ -368,6 +374,177 @@ def test_threshold_boundary_cases(case_id: str, case: dict[str, Any]) -> None:
     assert result.status is MutationPlanStatus.READY
     assert result.plan is not None
     assert result.plan.table_summaries[0].operation is case["operation"]
+
+
+def test_submit_count_examples_match_hand_computed_net_changes() -> None:
+    before, after = _snapshot_with_rows(before_count=1000, after_count=1002)
+    inserted = _plan(
+        planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(before,),
+            after_tables=(after,),
+        ),
+        store=InMemoryArtifactStore(),
+    )
+    assert inserted.plan is not None and inserted.change_set_closure is not None
+    inserted_summary = inserted.plan.table_summaries[0]
+    assert inserted_summary.operation is TableMutationKind.PATCH_DML
+    assert inserted_summary.changed_row_count == 2
+    assert [item.operation for item in inserted.change_set_closure.mutations] == [
+        RowMutationOperation.INSERT,
+        RowMutationOperation.INSERT,
+    ]
+
+    before_rows = _rows(1000)
+    after_rows = list(before_rows)
+    after_rows[0] = keyed_row(board="1000", link_no="0")
+    after_key_change = table_snapshot(
+        rows=tuple(sorted(after_rows, key=lambda row: key_bytes_for_ordering(row.key))),
+        content_digest=raw_blob_digest(b"key-change"),
+    )
+    key_changed = _plan(
+        planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(table_snapshot(rows=before_rows),),
+            after_tables=(after_key_change,),
+        ),
+        store=InMemoryArtifactStore(),
+    )
+    assert key_changed.plan is not None and key_changed.change_set_closure is not None
+    key_change_summary = key_changed.plan.table_summaries[0]
+    assert key_change_summary.operation is TableMutationKind.PATCH_DML
+    assert key_change_summary.changed_row_count == 2
+    assert sorted(item.operation for item in key_changed.change_set_closure.mutations) == [
+        RowMutationOperation.DELETE,
+        RowMutationOperation.INSERT,
+    ]
+
+    before, after = _snapshot_with_rows(
+        before_count=100,
+        after_count=100,
+        changed_after=set(range(6)),
+    )
+    rebuilt = _plan(
+        planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(before,),
+            after_tables=(after,),
+        ),
+        store=InMemoryArtifactStore(),
+    )
+    assert rebuilt.plan is not None
+    rebuild_summary = rebuilt.plan.table_summaries[0]
+    assert rebuild_summary.operation is TableMutationKind.REBUILD_TABLE
+    assert rebuild_summary.changed_row_count == 6
+    assert rebuild_summary.after_row_count == 100
+
+
+def test_submit_table_level_counts_for_added_and_deleted_tables() -> None:
+    added = _plan(
+        planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(),
+            after_tables=(table_snapshot(table="added", rows=_rows(7)),),
+        ),
+        store=InMemoryArtifactStore(),
+    )
+    assert added.plan is not None
+    added_summary = added.plan.table_summaries[0]
+    assert added_summary.canonical_table == "added"
+    assert added_summary.operation is TableMutationKind.REBUILD_TABLE
+    assert added_summary.changed_row_count == 7
+    assert added_summary.after_row_count == 7
+
+    deleted = _plan(
+        planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(table_snapshot(table="deleted", rows=_rows(10)),),
+            after_tables=(),
+            destructive_confirmation_granted=True,
+        ),
+        store=InMemoryArtifactStore(),
+    )
+    assert deleted.plan is not None
+    deleted_summary = deleted.plan.table_summaries[0]
+    assert deleted_summary.canonical_table == "deleted"
+    assert deleted_summary.operation is TableMutationKind.REBUILD_TABLE
+    assert deleted_summary.changed_row_count == 10
+    assert deleted_summary.after_row_count == 0
+
+
+def test_gid_no_v1_table_is_patchable_within_the_frozen_threshold() -> None:
+    retained = ("gid", "no", "value")
+    view = StorageRuleView(
+        canonical_table="t",
+        canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
+        ordered_policy=OrderedPolicy.GID_NO_V1,
+        retained_columns=retained,
+        canonical_key_columns=("gid",),
+        structural_columns=("no",),
+        dropped_columns=(),
+    )
+    manifest_table_value = manifest_table(table="t", row_count=100)
+    manifest_table_value = replace(
+        manifest_table_value,
+        ordered_policy=OrderedPolicy.GID_NO_V1,
+        retained_columns=retained,
+        structural_columns=("no",),
+        canonical_key_columns=("gid",),
+    )
+
+    def rows(changed: set[int]) -> tuple[MutationKeyedRow, ...]:
+        result: list[MutationKeyedRow] = []
+        for index in range(1, 101):
+            gid = {"kind": "unsigned-integer", "decimal": str(index)}
+            image = PersistedRowImage(
+                columns=(
+                    ("gid", gid),
+                    ("no", {"kind": "signed-integer", "decimal": str(index)}),
+                    (
+                        "value",
+                        {"kind": "string", "text": "changed" if index - 1 in changed else "stable"},
+                    ),
+                )
+            )
+            result.append(
+                MutationKeyedRow(
+                    key=CanonicalStorageKey(columns=(("gid", gid),)),
+                    image=image,
+                    row_digest=row_digest_from_image(image, retained_columns=retained),
+                )
+            )
+        result.sort(key=lambda row: key_bytes_for_ordering(row.key))
+        return tuple(result)
+
+    before_rows = rows(set())
+    for changed, expected in (
+        ({0}, TableMutationKind.PATCH_DML),
+        ({0, 1}, TableMutationKind.REBUILD_TABLE),
+    ):
+        after_rows = rows(changed)
+        before = MutationTableSnapshot(
+            manifest_table=replace(manifest_table_value, row_count=100),
+            storage_view=view,
+            rows=before_rows,
+        )
+        after = MutationTableSnapshot(
+            manifest_table=replace(
+                manifest_table_value,
+                row_count=100,
+                content_digest=raw_blob_digest(f"ordered:{changed}".encode()),
+            ),
+            storage_view=view,
+            rows=after_rows,
+        )
+        request = planning_request(
+            policy=MutationPolicy.ADAPTIVE_PATCH,
+            before_tables=(before,),
+            after_tables=(after,),
+        )
+        result = _plan(request, store=InMemoryArtifactStore())
+        assert result.status is MutationPlanStatus.READY
+        assert result.plan is not None
+        assert result.plan.table_summaries[0].operation is expected
 
 
 def test_change_set_identity_is_stable_and_order_independent() -> None:
@@ -514,6 +691,7 @@ def test_mixed_plan_closure_manifest_keeps_noop_table_summary() -> None:
         "inventory",
         "orders",
     ]
+    assert {item.canonical_table for item in result.change_set_closure.mutations} == {"orders"}
 
 
 def test_cancellation_fails_closed() -> None:

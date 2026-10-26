@@ -48,6 +48,9 @@ from gateway_backend.application.submit_jobs import (
     build_submit_recovery_port,
     submit_composition_bundle,
 )
+from gateway_backend.application.canonical_metadata.manifest_reader import (
+    ArtifactBackedCanonicalizationManifestReader,
+)
 from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.infrastructure.artifact_store import (
@@ -221,16 +224,25 @@ def build_production_submit_dependencies(
         raise ValueError("preview_deps must be PreviewRuntimeDependencies")
 
     token = load_repository_bearer_token(settings.repository_bearer_token_file)
+    manifest_reader = ArtifactBackedCanonicalizationManifestReader(
+        artifact_store=preview_deps.artifact_store,
+        artifact_refs=preview_deps.artifact_store,
+    )
 
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path)
+        return ControlDbUnitOfWork(
+            settings.control_db_path,
+            canonicalization_manifest_reader=manifest_reader,
+        )
 
     def submission_id_factory() -> str:
         return f"sub-{uuid4()}"
 
     return SubmitRuntimeDependencies(
         artifact_store=preview_deps.artifact_store,
-        publication=build_submit_import_publication_port(),
+        publication=build_submit_import_publication_port(
+            repository_provider_factory=preview_deps.repository_provider_factory,
+        ),
         parent_catalog=HttpRepositoryParentCatalogPort(
             base_url=settings.repository_base_url,
             bearer_token=token,

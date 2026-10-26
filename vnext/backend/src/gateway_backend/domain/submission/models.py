@@ -32,7 +32,7 @@ class SubmitUnknownTypePolicy(StrEnum):
 
 
 class BuilderMutationPolicy(StrEnum):
-    REBUILD_ALWAYS = "REBUILD_ALWAYS"
+    ADAPTIVE_PATCH = "ADAPTIVE_PATCH"
 
 
 class IdentityConfirmationAction(StrEnum):

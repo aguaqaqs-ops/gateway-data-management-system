@@ -8,6 +8,7 @@
   - [P5 S0 Owner 决议记录](p5-arch-closure-s0-owner-decisions.md) 中与 Phase 6 相关的 DC35（目标设定方法）与 DC36（测试节点三台分工）。本记录的编号接续为 DC37–DC55。
 - 补充：2026-10-25 owner 决议 G6b 维持 C 并增加门禁 worktree 的保留规则（DC51），以及现有 Rust 扩展视为过时、直接以新设计测试（DC52），见 §2 末尾；DC48、DC50 相应修订。
 - 补充：2026-10-25 owner 决议 W1–W4 目标数值定稿与达标条件（DC53），以及逐行记录的生成与序列化进入 Rust（DC54），见 §2 末尾。
+- 补充：2026-10-26 独立文档审核后 owner 修订决议为 DC55；S0 文档（详细设计与执行计划 r4）经首次审核与三次复审通过（[S0 独立文档审核](p6-s0-independent-docs-review.md)），由 owner 接受；实现授权范围见执行计划 §2 S0。
 
 ```yaml
 record_kind: p6_s0_owner_decisions

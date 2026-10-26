@@ -15,7 +15,7 @@ P5-5D 与 P5-5E 已分别由 [5D Slice Exit — Final](p5-5d-slice-exit-final.md
 P5 架构收口 S0 文档已于 2026-09-27 接受（ADR 0018–0021 Accepted），收口实现、production deployment 与新的
 Repository effect 未授权。
 P5 整体 exit 已于 2026-10-24 通过（tag `p5-exit`）。Phase 6 S0 决议见
-[Phase 6 S0 Owner 决议记录](p6-s0-owner-decisions.md)（DC37–DC52），§9、§10 按其中 DC37 改写；Phase 6 实现未授权。
+[Phase 6 S0 Owner 决议记录](p6-s0-owner-decisions.md)（DC37–DC55），§9、§10 按其中 DC37 改写。Phase 6 S0 文档（[详细设计](p6-design.md)、[执行计划](p6-execution-plan.md)）已于 2026-10-26 由 owner 接受；已授权 kickoff 小修、keyless 候选键普查与 S1a，其余阶段另行授权。
 P4 默认上下文从 [P4 Active Context Index](p4-active-context-index.md) 开始；P5 当前入口为
 [P5 Business Vertical Slices Design Baseline](p5-business-vertical-slices-design.md) 与
 [P5 架构收口 S0 Entry Brief](p5-arch-closure-s0-entry-brief.md)。

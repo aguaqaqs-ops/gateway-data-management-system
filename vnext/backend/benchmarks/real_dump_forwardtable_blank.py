@@ -829,6 +829,7 @@ def _render_markdown(report: dict[str, Any]) -> str:
                     leading=deltas["blank_proxy_leading_rows"],
                     interleaved=deltas["blank_proxy_interleaved_rows"],
                     trailing=deltas["blank_proxy_trailing_rows"],
+                    no_reference=deltas["blank_proxy_without_point_reference_rows"],
                     monotonic=(
                         f"{_bool_label(change['non_empty_point_gid_non_decreasing_v1'])}→"
                         f"{_bool_label(change['non_empty_point_gid_non_decreasing_v2'])} "

@@ -1,8 +1,8 @@
 # Phase 6 执行计划
 
-状态：**DRAFT r2 — 按 S0 独立文档审核修订，待定向复审；实现未授权**
+状态：**DRAFT r3 — 按 S0 独立文档审核第 1 次复审修订，待第 2 次复审；实现未授权**
 
-日期：2026-10-26（r2）；r1 为 2026-10-26
+日期：2026-10-26（r3）；r1、r2 为 2026-10-26
 
 审核：[S0 独立文档审核](p6-s0-independent-docs-review.md)；findings 处置见详细设计附录 A。
 
@@ -35,10 +35,10 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S0 — 剩余工作
 
-- **独立文档审核：** 审核对象为本文、详细设计、决议记录 DC37–DC54 与 implementation-stages §9/§10 的改写；必须复核的代码事实见设计 §2.2（Submit 全量重写、Preview 全量物化基线、bundle 不含整表、上传 60 s 总时限、uv 不重建扩展）。审核报告模板沿用 [P5 执行计划 §8.8](p5-arch-closure-execution-plan.md)。
+- **独立文档审核：** 审核对象为本文、详细设计、决议记录 DC37–DC55 与 implementation-stages §9/§10 的改写；必须复核的代码事实见设计 §2.2（Submit 全量重写、Preview 全量物化基线、bundle 不含整表、上传 60 s 总时限、uv 不重建扩展）。审核报告模板沿用 [P5 执行计划 §8.8](p5-arch-closure-execution-plan.md)。
 - **kickoff 小修**（不单独审核，随 S1a 审核）：`uv-consume.sh` 的 EXIT trap（`mktemp` 锁快照残留）；测试留下的 `repository-import-*.sqlite3-shm/-wal`；三项文档整理（讨论稿 §12）；RS defunct `dolt` 进程：交 RS owner 排查，修复若涉及 Dockerfile/Compose 则为强制重建项，可并入 S1a。
 - **业务评估：** 重要 keyless 表是否定义自然键，S1a kickoff 之前由 owner 给出；结论可能影响 DC39 与 S3 对 keyless 的处理。
-- **定向复审：** r2 交同一审核者复审，逐项核对附录 A 的处置与 findings 的关闭标准。
+- **定向复审：** 交同一审核者复审，逐项核对设计附录 A 的处置与 findings 的关闭标准（r2 已经第 1 次复审，r3 待第 2 次复审）。
 - **接受：** 复审通过、owner 接受文档后给出实现授权。
 
 ### S1a — 摘要与存储 Contract
@@ -47,7 +47,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 前置：S0 接受；keyless 自然键评估已给出。
 - 内容：
   1. 表摘要统一（设计 §4.1）：manifest 内容摘要改为 `raw_content_digest`；`STORAGE_PROJECTION_VERSION = "3"`；删除 `ordering_digest`（含 `import_publication.py` 的传递）；去掉重复计算。
-  2. Preview 与 History 的结构性过滤（§4.2，完整条件），含未变化 ordered 表不读不比；ordered 逻辑摘要在投影时计算并连同策略摘要写入 manifest（§4.1，DC55 第 1 项）。
+  2. Preview 与 History 的结构性过滤（§4.2，完整条件），含未变化 ordered 表不读基线、不做行比较，其逻辑摘要与 occupancy 摘要用当前侧的行按本次有效 pair 策略计算（§4.1，DC55 第 1 项）。
   3. Submit 表级跳过与 `ADAPTIVE_PATCH`（§4.3）：T1 冻结 policy、prepare checkpoint 绑定 parent manifest digest、parent 行按 manifest 校验、有序表资格、阈值 1,000 行 / 1%；阈值复测后冻结阈值与 INSERT 批量规则（DC55 第 5 项）。
   4. Contract 修订（设计 §14 中标注 S1a 的行）与 golden（storage-projection、mutation、导入包，设计 §4.6）。
   5. worker step 归因（§4.4）：每项 step 间隔与残差的来源、削减方案、处理阶段与 owner，写入 handoff。

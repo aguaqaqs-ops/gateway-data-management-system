@@ -81,7 +81,7 @@ implementation_authorized: no
 - **决议**：
   1. 以现有 `raw_content_digest`（SHA-256）作为唯一的表摘要；manifest 的内容摘要统一为同一个值，storage projection version 从 2 升到 3。
   2. 去掉重复计算；`CommitCanonicalMetadataPort` 返回每表摘要，作为 DC35 结构性门槛“未变化的表不读基线、不做比较”的前提。
-  3. Preview 用基线 commit 的每表摘要过滤，只读、只比变化表；未变化的 ordered 表同样不读、不比，`before/current_ordered_digest` 改为取自表摘要或 manifest 并去掉表名。**（DC55 第 1 项修订：ordered 逻辑摘要定义不变，改为投影时计算并连同策略摘要写入 manifest，不改取自表摘要。）**
+  3. Preview 用基线 commit 的每表摘要过滤，只读、只比变化表；未变化的 ordered 表同样不读、不比，`before/current_ordered_digest` 改为取自表摘要或 manifest 并去掉表名。**（DC55 第 1 项修订：ordered 逻辑摘要与 occupancy 摘要定义不变；未变化的 ordered 表用当前侧的行按本次有效 pair 策略计算，不读基线侧，manifest 不新增字段。）**
   4. 不采用 BLAKE3。只有在 Rust 化之后哈希实测占比明显时才重新考虑，且只用于新的、带算法标签的摘要类型。
   5. 规范状态摘要、snapshot 与 bundle digest、HTTP DTO 与真实数据的规范状态摘要基准都不变；变化的是 manifest digest（随之体现在 PreviewResult、Submission 记录与 checkpoint 中）。
 - **设计阶段待定**：ordered 表的统一口径（现 manifest 摘要不含结构列，`raw_content_digest` 含全部规范列与伪 gid）；是否保留 `ordering_digest`；是否删除 `fast_row_digest`（删除会改变 snapshot digest）。
@@ -291,7 +291,7 @@ implementation_authorized: no
 
 - **来源**：[S0 独立文档审核](p6-s0-independent-docs-review.md)（结论：定向修订；8 项阻塞）。其中 F1–F5 揭示决议条文之间或与完整 Contract 之间的冲突，须由 owner 修订决议本身。
 - **决议**（repository owner，2026-10-26，接受审核方与作者的建议）：
-  1. **ordered 逻辑摘要（F1，修订 DC39 第 3 项）：** Ordered Diff 契约定义的 ordered 逻辑摘要（含表名、策略版本，排除 ignored columns）**定义不变**；改为在投影时计算，并连同对应的 ordered 策略摘要写入 manifest。比较时两侧策略摘要相同即直接取用、不读行；不同则读行重算。由此未变化的 ordered 表仍不读不比，comparison、surface 与 bundle digest 在 S1a 保持不变（DC39 第 5 项成立）。
+  1. **未变化 ordered 表的 facts（F1，修订 DC39 第 3 项；2026-10-26 按第 1 次复审 F11、F12 再修订）：** Ordered Diff 定义的 ordered 逻辑摘要与空白区间的 occupancy 摘要**定义不变**。对满足“未变化”完整条件的 ordered 表，两侧内容相同，比较 facts 用**当前侧的行**、按**本次受理冻结的有效 pair 策略**（含两侧共有列）计算，两侧取同一值；不读基线侧，也不运行完整比较算法。Preview 的当前侧即内存中的上传侧；History 的当前节点表本来就要为整表打包读取（DC41），健康缓存命中时直接用 diff/risk 缓存。**manifest 不新增 ordered 字段**（取消第 1 次修订中“写入 manifest”的做法）。comparison、surface 与 bundle digest 在 S1a 保持不变（DC39 第 5 项成立）。
   2. **完整表身份（F2，修订 DC41 第 2 项）：** 导出缓存键改为现有 row-layout 身份（行内容 + 导出 schema + repository scope）加 Parquet writer 版本，不只用表摘要。Preview 与 History 判定“未变化”统一使用完整条件：表摘要、schema digest、存储视图与投影版本都相同。
   3. **冻结产物的恢复边界（F3，修订 DC42 第 5 项）：** “读取校验失败即从 Dolt 读取并重写”只适用于已提交表的派生副本（从对应的精确 commit 回填）。T1 冻结、尚未提交的规范表：T1 之前可从 SourcePackage 重算（重跑 Preview）；T1 之后、prepare 之前缺失或损坏时稳定失败、不移动 main（与现行 artifact 行为相同）；PREPARED 之后复用已冻结的导入包。
   4. **零日期（F4，修订 DC50 中 S1b 的语义定稿范围）：** Phase 6 维持现行的稳定拒绝，不接受零日期与零日期时间；真实数据出现时另行立项（届时须同时修订 Shared Canonical Encoding、Repository Service 的 Arrow 映射与客户端解码）。FLOAT 两次舍入的修复由 Shared Kernel 的标量规范化承担（`shared_kernel/scalar.py`），S1b 路径预算包含 shared_kernel 及其编码 golden。
@@ -306,7 +306,7 @@ implementation_authorized: no
 | W1–W4 目标数值定稿 | DC35 | 已定稿（DC53） |
 | 记录写后回读：Rust 重算摘要或删除 | DC54 | Phase 6 设计 |
 | H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |
-| 行级修改的阈值定稿 | DC45 | S1a 复测、S4 定稿（V7 已完成，草案改为 1,000 行 / 1%） |
+| 行级修改的阈值定稿 | DC45 | S1a 复测后冻结；S4 只做回归，须调整时作为例外交 owner（DC55 第 5 项） |
 | Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |
 | 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
 | ordered 比较是否进 Rust | DC44 | 已定（V1）：S3 进入 Rust |
@@ -334,5 +334,5 @@ implementation_authorized: no
 
 1. 按 §4 第 1、2 行修订 implementation-stages 与讨论稿。
 2. S0 前置项：kickoff 小修；DC48 第 1 项（DC36 会话）；V1、V5、V6、V7，V8 并行；keyless 自然键的业务评估。
-3. 前置验证完成后，编写 Phase 6 设计与执行计划，进行独立文档审核。（2026-10-26：前置验证已全部完成；[详细设计](p6-design.md) 与 [执行计划](p6-execution-plan.md) r1 已起草，待独立文档审核。）
+3. 前置验证完成后，编写 Phase 6 设计与执行计划，进行独立文档审核。（2026-10-26：前置验证已全部完成；[详细设计](p6-design.md) 与 [执行计划](p6-execution-plan.md) 已起草，经独立文档审核与复审修订，见两份文档的状态行。）
 4. 审核通过后进入 S1a。

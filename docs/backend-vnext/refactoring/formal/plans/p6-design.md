@@ -1,14 +1,14 @@
 # Phase 6 详细设计：单任务性能与 Rust 接入
 
-状态：**DRAFT r2 — 按 S0 独立文档审核修订，待定向复审；实现未授权**
+状态：**DRAFT r3 — 按 S0 独立文档审核第 1 次复审修订，待第 2 次复审；实现未授权**
 
-日期：2026-10-26（r2）；r1 为 2026-10-26
+日期：2026-10-26（r3）；r1、r2 为 2026-10-26
 
 Owner：Backend vNext Architecture（Phase 6 牵头）；各项语义归属见 §14
 
 入口：[S0 Owner 决议记录](p6-s0-owner-decisions.md)（DC37–DC55）→ 本文 → [执行计划](p6-execution-plan.md)
 
-审核：[S0 独立文档审核](p6-s0-independent-docs-review.md)（r1，定向修订，8 项阻塞、2 项非阻塞）；处置见附录 A。
+审核：[S0 独立文档审核](p6-s0-independent-docs-review.md)：首次审核（r1，定向修订，8 项阻塞、2 项非阻塞）；第 1 次复审（r2，定向修订：F1、F5、F6 部分关闭，新增 F11、F12）。处置见附录 A。
 
 依据：[Phase 6 规划讨论稿](p6-planning-discussion.md)（分析过程与数据）；前置验证报告
 [V5](p6-v5-attribution-report.md)、[V5b](p6-v5b-segment-report.md)、[V6](p6-v6-parser-prototype-report.md)、
@@ -59,7 +59,7 @@ ADR [0001](../adr/0001-python-rust-hybrid-compute-strategy.md)、[0009](../adr/0
 DC37 边界与 feature flag；DC38 Submit 与 History 目标；DC39 表摘要保值统一与结构性过滤；DC40 只增列；DC41 bundle 整表与整表浏览；DC42 规范表存储；
 DC43 计算去重与跨操作缓存；DC44 比较列式化（ordered 一并进入 Rust）；DC45 Submit 只写变化；DC46 解析器主线与数据路径合并；DC47 Rust 范围、并发与技术栈；
 DC48 Rust 测试入门禁（已实施）；DC49 慢速上传；DC50 阶段结构；DC51 门禁 worktree 保留；DC52 旧扩展过时；DC53 W1–W4 定稿；DC54 逐行记录进入 Rust；
-**DC55 审核后的决议修订**（ordered 逻辑摘要写入 manifest、完整表身份、冻结产物恢复边界、零日期维持拒绝、计数口径与字节冻结）。
+**DC55 审核后的决议修订**（未变化 ordered 表用当前侧按本次有效 pair 策略计算 facts、完整表身份、冻结产物恢复边界、零日期维持拒绝、计数口径与字节冻结）。
 
 ### 1.3 非目标（D）
 
@@ -108,9 +108,9 @@ DC48 Rust 测试入门禁（已实施）；DC49 慢速上传；DC50 阶段结构
 
 ```text
 上传（流式接收，空闲超时）→ 受理（线程池）
-  → Rust：扫描与解析 → 业务列与检查 → 规范投影 → 表摘要与 ordered 逻辑摘要
+  → Rust：扫描与解析 → 业务列与检查 → 规范投影 → 表摘要
     → Arrow / IPC 字节 →（Python）ArtifactStore 写入规范表存储（按内容寻址）
-  → manifest（每表：表摘要、schema digest、存储视图、ordered 逻辑摘要与策略摘要）
+  → manifest（每表：表摘要、schema digest、存储视图）
 Preview：与基线 commit manifest 按完整条件逐表比对 → 只对变化表与删除表读基线
          （已提交表从存储 mmap 读，Dolt 兜底）→ Rust 比较 + 逐行记录 Arrow 与 content_digest
          → 风险（Python，按 Arrow 分批消费）→ surface → bundle（全部表 Parquet，导出缓存）
@@ -129,11 +129,11 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 
 - **表摘要（D）：** 每表唯一的表摘要 = 现有 `raw_content_digest`，与行顺序无关，Dolt 读回能重算出同一个值。它只代表行内容；凡需要表身份的地方都与 schema digest 等一起使用（§4.2、§5.2）。
 - **manifest（D）：** `CanonicalizationManifestTable` 的内容摘要字段改为表摘要；`STORAGE_PROJECTION_VERSION` 从 `"2"` 升到 `"3"`（`capabilities/table_rules/contracts.py`）。投影版本不同的 parent 一律按“全部变化”处理；不做兼容，本地 control DB 与 Dolt 测试数据重建（AGENTS 项目前提）。
-- **ordered 逻辑摘要（D，DC55 第 1 项）：** Ordered Diff 定义的逻辑摘要不变；在投影时计算，连同 ordered 策略摘要写入 manifest 的每表条目。比较时两侧策略摘要相同即直接取用，不读行；不同则读行重算。
+- **未变化 ordered 表的 facts（D，DC55 第 1 项）：** Ordered Diff 定义的 ordered 逻辑摘要与空白区间 occupancy 摘要定义不变。满足“未变化”完整条件（§4.2）的 ordered 表，两侧内容相同，facts 用当前侧的行、按本次受理冻结的有效 pair 策略（含两侧共有列）计算，两侧取同一值；不读基线侧，不运行完整比较算法（LIS、记录生成）。manifest 不新增 ordered 字段。
 - **`ordering_digest`（P）：** 删除，包括 storage_projection 内部的计算与自校验，以及 `import_publication.py` 中的传递；统一表摘要覆盖全部规范列（含 `no` 与伪 gid），顺序变化即内容变化。它与 ordered 逻辑摘要是两回事，不合并。
 - **`fast_row_digest`（P）：** 保留。它进入 snapshot 身份；若以后要删除，须重开 owner 决定与 Contract，并重建基准，不作为普通优化（审核意见）。
 - **去掉重复计算（D）：** 投影时同一份数据不再编码 3–4 次。
-- **commit 元数据（D）：** `CommitCanonicalMetadataPort` 返回的 manifest 带上述每表字段，作为结构性过滤的输入（ADR 0019 的端口形态不变，语义说明补充）。
+- **commit 元数据（D）：** `CommitCanonicalMetadataPort` 返回的 manifest 带每表表摘要、schema digest 与存储视图，作为结构性过滤的输入（ADR 0019 的端口形态不变，语义说明补充）。
 
 **摘要变化与保值清单（S1a）：**
 
@@ -142,9 +142,8 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 | 表摘要（`raw_content_digest`） | 保值 | 定义不变 |
 | manifest 每表内容摘要 | **变化** | 改为表摘要的值 |
 | `ordering_digest` | **删除** | |
-| manifest 每表新增 ordered 逻辑摘要与策略摘要 | **新增** | 值与比较侧现算的相同 |
 | manifest digest | **变化** | 随以上字段变化；体现在 PreviewResult、Submission 记录与 checkpoint 中 |
-| ordered 逻辑摘要、comparison / surface / bundle digest | 保值 | S1b 才因 DC40、DC41 变化 |
+| ordered 逻辑摘要、occupancy 摘要、comparison / surface / bundle digest | 保值 | 未变化 ordered 表的单侧计算与现算逐字节相同；S1b 才因 DC40、DC41 变化 |
 | snapshot digest、规范状态摘要、`fast_row_digest`、HTTP DTO | 保值 | |
 | 导入包与 `replay.sql` | **变化** | 只写变化（§4.3） |
 
@@ -153,7 +152,7 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 ### 4.2 Preview 与 History 的结构性过滤（DC39、DC55 第 2 项）
 
 - **未变化的完整条件（D）：** 两侧都存在，且表摘要、schema digest、存储视图与投影版本都相同。仅表摘要相同不够（零行表不同 schema、只改可空性等）。
-- 满足完整条件的表：不读基线行、不做比较；facts 由 manifest 生成（行数、`UNCHANGED`；ordered 逻辑摘要按 §4.1 取用）。
+- 满足完整条件的表：不读基线行、不做行比较；facts 的行数与 `UNCHANGED` 来自 manifest。ordered 表另按 §4.1 用当前侧的行计算逻辑摘要与 occupancy 摘要：Preview 的当前侧是内存中的上传侧；History 的当前节点表本来要为整表打包读取（§5.2），健康缓存命中时直接用 diff/risk 缓存（§11）。S1a 中这一单侧计算在 Python 中进行，成本计入 §16.1；S3 起由 Rust 计算。
 - 变化表与删除表读取基线：S1a 中经 RS 逐表读取（规范表存储在 S2b 才有），并发 ≤ min(N, RS 有效容量)（DC47 第 6 项；S1a 可先顺序读取）；新增表没有基线可读。
 - History 的两个节点使用同一套完整条件；整表数据的读取随 DC41 的打包进行（§5.2）。
 - 计数断言见 §16.2。
@@ -309,7 +308,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 - **共用内核（DC44、V1）：** standard、keyless 与 ordered 在 `gateway-compute-core/src/comparison/` 中共用规范编码、共有列投影（DC40 的语义）、行身份、记录排序、资源上限与 facts 管线；ordered 专属的 LIS 主干、绝对 `no` 位置与空白区间规则留在 ordered 模块。
 - **逐行记录（DC54）：** kernel 按记录族 schema 产出 Arrow 记录列，并用相同 JCS 编码计算 `content_digest`；Python 用 pyarrow 由 Arrow batch 写 Parquet。发布后的整份回读解码删除；实际读取时的 raw、content 与 schema 校验及普通 I/O 失败处理保留。记录产物与 Contract 不变，现有 golden 作为逐字节回归基准；如必须改动格式，按 Contract 变更另行提交 owner。
-- **风险的消费接口：** 风险仍在 Python（DC47 第 1 项）。风险引擎改为按表、按 Arrow batch 有界地读取记录，只转换风险规则需要的列，不先重建完整的 `ComparisonRecord` 元组，也不对每次打开的 closure 全量 `to_pylist`。W4 实测风险段超出 §16.1 预算时，按 DC47 第 1 项的重开条件评估风险热点进入 Rust。
+- **风险的消费接口：** 风险仍在 Python（DC47 第 1 项）。在 Preview 与 History 的计算路径中，风险直接消费 kernel 在内存中产出的 Arrow 记录，按表、按 batch 有界地读取，只转换风险规则需要的列，不先重建完整的 `ComparisonRecord` 元组；这条路径不从 Parquet 读回，因此没有读取校验成本。约 5 s（W4）的风险段是待 S3 验证的假设；超出 §16.1 预算时，按 DC47 第 1 项的重开条件评估风险热点进入 Rust。
+- **记录的读取校验：** 只发生在从存储读取 closure 时（History 命中 diff/risk 缓存、bundle 组装）：raw、content 与 schema 校验由 Rust 对读出的 Arrow 重算 JCS `content_digest`，计入 H1、H3 与 bundle 的预算（§16.1）。
 - **单次操作内去重（DC43）：** 缓存键为“去掉表名与显示名之后的单表任务输入”的摘要，包含比较与风险规则主体及其版本、两侧有效键与存储规则、schema digest、行数、算法与记录格式版本、artifact scope；表名、显示名、标注编号、pair 上限与组合信号表在汇总步骤绑定。权威测试：开启与关闭去重，facts 与 records 摘要相同。
 - **分歧点：** 浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则，按现行行为写进 Contract，不改语义（§4.6）。
 - **接入：** feature flag 之后；差分覆盖第 ① 层语料、随机差分与 t1–t4。
@@ -325,7 +325,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 ## 11. S5：History 与跨操作缓存
 
 - **diff/risk 缓存（DC43）：** 只缓存纯函数结果——单表比较结果与未套用 pair 上限的单表风险标注；键同 §9 的单次去重键（含规则主体与版本、scope）；pair 上限、组合信号表与表名在汇总步骤绑定，命中后的结果与当前 operation 的 closure 重新绑定。条目作为 artifact 存放并经保护表登记引用；在计算时形成（Preview 或 History），按 TTL 保留；Submit finalize 在移动 head 的同一事务中给该 Submit 对应 Preview 的条目登记引用。
-- **History 按表拼接（DC38）：** 两侧满足 §4.2 的完整条件 → 未变化；否则查 diff/risk 缓存 → 读表缓存 → Dolt 兜底并回填；pair 级 surface 与 bundle 由单表结果汇总。
+- **History 按表拼接（DC38）：** 两侧满足 §4.2 的完整条件 → 未变化（ordered 表的 facts 按 §4.1 用当前节点的行计算，或取自 diff/risk 缓存）；否则查 diff/risk 缓存 → 读表缓存 → Dolt 兜底并回填；pair 级 surface 与 bundle 由单表结果汇总。
 - **Dolt 并发读取：** 同 §8.3。
 - **计数与例外：** 见 §16.2 与 §16.3（H1 的零比较只在“该 pair 已计算、规则相同、缓存健康”时成立；FULL 模式 Preview 之后的首次 History 允许重算，DC38 第 4 项；缓存文件缺失或损坏时走回填，作为正确性场景单独验收）。
 - **H2 定稿：** 两节点 2× t4 派生缓存全 miss 旅程验收；三节点补测一次，只报告。
@@ -343,7 +343,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 面 | 影响 | 阶段 |
 | --- | --- | --- |
 | control DB | 保护表新增 owner 类型（BaselineHead 正式引用；导出缓存；diff/risk 缓存）；schema 基线直接修改，本地 DB 删除重建（DC6） | S1b、S2b、S5 |
-| manifest | 每表内容摘要改值、删除 `ordering_digest`、新增 ordered 逻辑摘要与策略摘要 | S1a |
+| manifest | 每表内容摘要改值、删除 `ordering_digest`；不新增 ordered 字段 | S1a |
 | checkpoint 载荷 | prepare checkpoint 绑定 parent manifest digest；Preview 与 History checkpoint 引用内容寻址文件 | S1a、S2b |
 | HTTP | 上传超时的新错误码；Preview/History 结果中整表浏览的 surface；bundle 含整表 | S1b |
 | 部署配置 | N、M（可修改、有范围校验） | S2b |
@@ -354,12 +354,12 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 | 文档与现行条款 | 目标条款 | owner | 阶段 | golden / 测试 |
 | --- | --- | --- | --- | --- |
-| Canonical Storage §4：内容摘要按逐单元格规则、producer 不得自行排序；含 `ordering_digest` | 每表内容摘要为与行顺序无关的统一表摘要；删除 `ordering_digest`；新增 ordered 逻辑摘要与策略摘要字段；投影版本 3 | Canonical Storage / Storage Projection | S1a | storage-projection |
+| Canonical Storage §4：内容摘要按逐单元格规则、producer 不得自行排序；含 `ordering_digest` | 每表内容摘要为与行顺序无关的统一表摘要；删除 `ordering_digest`；投影版本 3 | Canonical Storage / Storage Projection | S1a | storage-projection |
 | Canonical Storage §5：第一版不长期保存 full-row archive | 规范表存储的角色与生命周期：BaselineHead 正式引用、TTL 副本、冻结产物四种状态（§8.2） | Canonical Storage | S2b | 存储与恢复测试 |
 | Canonical Storage §6.1：`replay.sql` 是 snapshot replay | 相对 expected parent 的确定性 replay，未变化表不出现 | Canonical Storage | S1a | 导入包 |
 | Storage Mutation §2/§3：生产默认 `REBUILD_ALWAYS`；有序表不可 patch；阈值 5% | 生产默认 `ADAPTIVE_PATCH`；有序表可 patch；阈值 1,000 行 / 1%；§4 计数口径不变 | Storage Mutation | S1a | mutation |
 | ADR 0014 与 Storage Mutation 中的条件 DML、affected-row、readback 要求 | 生产 Dolt 路径以 expected-parent CAS、parent 行按 manifest 校验与受信 Repository 为前提，不适用这些要求；外部目标保留 | Storage Mutation / ADR 0014 | S1a | — |
-| Ordered Diff：逻辑摘要的计算来源；伪 gid 起点 20 亿 | 逻辑摘要定义不变，可在策略摘要相同时取自 manifest；伪 gid 范围以 Canonical Storage G8 为准 | Comparison | S1a | ordered 测试 |
+| Ordered Diff：逻辑摘要与 occupancy 摘要按比较计算；伪 gid 起点 20 亿 | 定义不变；对两侧内容相同的表，可用当前侧的行按本次有效 pair 策略计算并作为两侧的值；伪 gid 范围以 Canonical Storage G8 为准 | Comparison | S1a | ordered 测试 |
 | ADR 0019 | manifest 每表字段作为结构性过滤输入；T1 冻结产物的恢复边界（§8.2） | ADR 0019 | S1a、S2b | — |
 | Comparison：schema 变化即 `SCHEMA_CHANGED`；整表新增/删除逐行记录 | schema 演进分类与只增列；整表新增/删除不产逐行记录；`NO_CANONICAL_CHANGE` 说明 | Comparison | S1b | comparison |
 | Comparison「Cache」：第一版只做 pair 级缓存，不做 table 级 facts 缓存 | 单表纯函数结果可按完整任务输入键缓存；pair 上限与表名在汇总绑定 | Comparison | S3（单次去重）、S5（跨操作） | 去重与缓存测试 |
@@ -379,7 +379,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 不变量 | 权威 owner（拟） | smoke |
 | --- | --- | --- |
 | 表摘要与行顺序无关、Dolt 读回可重算 | storage_projection 摘要测试 | — |
-| ordered 逻辑摘要取自 manifest 与现算一致 | ordered 比较测试 | — |
+| 未变化 ordered 表的单侧计算与现算一致（含头部、内部、尾部空白；规则变化；schema 不同不判未变化） | ordered 比较测试 | — |
 | 完整条件判定未变化（零行不同 schema、只改可空性不得误判） | Preview 结构过滤测试 | History 旅程 |
 | Submit 跳过未变化表 | mutation planning 单元测试 | Compose Submit 旅程 |
 | 阈值路由 | mutation planning 单元测试 | — |
@@ -396,56 +396,82 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 16. 性能测量与验收
 
-### 16.1 端到端预算（2× t4，N=4）
+### 16.1 端到端预算与 W2 检查点（2× t4，N=4）
 
-“实测”指已在 t4 上实测并放大一倍；“外推”指按原型或基本吞吐推算；“待归因”指 V5/V5b 中来源未明、须在 S1a 查清。
+下表是**不重叠**的分项账：每一项只计一次，不与包含它的阶段重复相加。“工作量”按 2× t4（约 624 张规范表、约 49 万行、约 159 MB SQL）计；“依据”标明是实测（原型或旧路径在 t4 / 2× t4 上的数）、外推（工作量 × 假设吞吐）还是未知。未知项必须在所列检查点给出实测值。
 
-| 段 | W1 | W2 | W3 | W4 | 性质 | 处理阶段 |
-| --- | ---: | ---: | ---: | ---: | --- | --- |
-| 受理（解压、校验、写入） | ~1 s | ~1 s | ~1 s | ~1 s | 外推 | S1b |
-| SQL 解析 | ~0.5 s | ~0.5 s | ~0.5 s | ~0.5 s | 实测（V6） | S2a/S2b |
-| 物化检查、投影、摘要 | ~2–5 s | 同 | 同 | 同 | 外推 | S2b |
-| 规范表写入（约 1,248 次 ArtifactStore 写入） | ~10–15 s | 同 | 同 | 同 | 实测（V5b 每次约 11 ms） | S2b |
-| 基线读取 | 0 | 0 | ~1 s | ~1–5 s（存储命中） | 外推 | S1a/S2b |
-| 比较 | ~0 | 0 | ~2 s | ~5–10 s | 外推（V1） | S3 |
-| 逐行记录发布 | ~0 | 0 | 小 | ~5 万条，Rust 后约数秒 | 外推（V5b 现约 1.3 ms/条） | S3 |
-| 风险（Python） | ~0 | 0 | ~1 s | ~5 s（按 Arrow 分批） | 外推 | S3 |
-| bundle（全部表导出） | 数秒 | 缓存命中 | 数秒 | 数秒 | 外推 | S1b |
-| step 间隔 | ~2–20 s | 同 | 同 | 同 | 实测（V5），待归因 | S1a |
-| 未归因残差 | ? | ~175 s | ~175 s | ? | 待归因 | S1a |
-| **计算部分合计** | ~35–45 s | ~30–35 s | ~40–50 s | ~60–90 s | | |
+| 段 | 工作量 × 吞吐假设 | W1 | W2 | W3 | W4 | 依据 | 检查点 |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| a 受理（解压、校验、写入 SourcePackage） | 160 MB × 415 MiB/s 解压，另加写入 | ~1 s | ~1 s | ~1 s | ~1 s | 外推（S5 解压吞吐） | S1b |
+| b SQL 解析 | V6：2× t4 在 N=4 时 0.481 s | 0.5 s | 0.5 s | 0.5 s | 0.5 s | 实测（V6 原型，2× t4） | S2b |
+| c 物化检查、投影、摘要 | 约 49 万行；按 V6 单行成本的 2–5 倍 | ~2–5 s | 同 | 同 | 同 | 外推 | S2b |
+| d 规范表写入 | 约 1,248 次写入 × 约 11 ms（旧 Parquet 路径每次 `put` 的平均成本） | ~14 s | 0（内容命中，不重写） | ~2 s | ~14 s | 外推（V5b 旧路径线性加倍；新 IPC 路径须实测） | S2b |
+| e 未变化 ordered 表的单侧摘要 | 未变化 ordered 表的行数 × 编码与哈希吞吐 | 0 | 未知（Python）；Rust 后 <1 s | 同 | 0 | 未知 | S1a（Python）、S3（Rust） |
+| f 基线读取（变化表与删除表） | \|X\|+\|D\| 张表，存储 mmap 命中 | 0 | 0 | ~1 s | ~1–5 s | 外推 | S2b |
+| g 行比较与逐行记录 | 变化行数 × V1 单行成本（约 22 µs/行，单线程） | 0 | 0 | ~2 s | ~5–10 s | 外推（V1，不含 IPC 与输出编码） | S3 |
+| h 风险（Python，消费内存中的 Arrow 记录） | W4 约 5 万条 × 约 0.1 ms/条 | 0 | 0 | ~1 s | ~5 s | 外推（V5b 现行约 0.11 ms/条），假设 | S3 |
+| i bundle 组装与导出 | W1、W3、W4 导出整表 Parquet；W2 导出缓存命中，只组装清单 | 未知 | 未知 | 未知 | 未知 | 未知（含 §4.4 的 assemble 固定开销） | S1b、S2b |
+| j step 间隔 | 每个 Preview 两处，单处 1.0–9.8 s | 2–20 s | 2–20 s | 2–20 s | 2–20 s | 实测（V5） | S1a 归因 |
+| k 未归因残差 | 基线物化约 75 s、assemble 约 100 s | 未知 | 未知 | 未知 | 未知 | 待归因（V5b） | S1a 归因 |
+| **已知项小计（a–h，不含 e、i、j、k）** | | ~18–21 s | ~4–7 s | ~10–13 s | ~29–41 s | | |
 
-- **W2 是风险最高的负载：** 计算部分已接近 30 s，另有 step 间隔与残差。S1a 的归因（§4.4）必须给出每项的削减方案与处理阶段；**S2b 设可达性检查点**：若 S2b 实测后 W2 的剩余成本已不能在 30 s 内闭合，按 DC53 第 2 项交 owner 决定，不自动放宽，也不推迟到 S6 才发现。
-- **W4：** 不存在未计入的逐行 Python 转换或回读：记录由 Rust 产出（S3），风险按 Arrow 分批读取（§9），bundle 导出不重复解码。S3 用 W4 实测核对；风险段超出预算时按 DC47 第 1 项评估。
-- 原型吞吐不冒充生产端到端结果；预算只用于排序与判停。
+- **W2 检查点（S2b，可判定）：** 以 S2b 实测的 W2（受理到 READY，§16.3 的统计方法）为锚，列出仍在路径上的各项实测成本，以及每项有依据、有具名阶段的剩余削减上界：
+
+  ```text
+  W2_S2b − Σ 剩余削减上界（每项须有证据与阶段，未归因残差计 0）≤ 30 s  → 继续
+  否则，或 W2_S2b 中仍有未归因项                                          → 停止，交 owner（DC53 第 2 项）
+  ```
+
+  W2 不做行比较，S3 对比较的加速不能计入 W2 的削减。
+- **W4：** 计算路径中不存在未计入的逐行 Python 转换或回读：记录由 Rust 产出（S3），风险消费内存中的 Arrow 记录，Parquet 只写不读；读取校验只在 History 与 bundle 读取 closure 时由 Rust 进行。S3 用 W4 实测核对 g、h；风险段超出预算时按 DC47 第 1 项评估。
+- 原型吞吐不冒充生产端到端结果；预算用于排序与判停，不作为达标证据。
 
 ### 16.2 计数断言（DC55 第 5 项）
 
 **表集合：** 对每张表按两侧比较：未变 U（两侧都存在且满足 §4.2 完整条件）、变化 X（两侧都存在但不满足）、新增 A（只在当前侧）、删除 D（只在基线侧）。
 
-| 断言 | 公式 | 观测点 |
+**读取：区分逻辑需求与实际读取。**
+
+| 断言 | 内容 | 观测点 |
 | --- | --- | --- |
-| 基线读取表数 | = \|X\| + \|D\|（W2 为 0） | 读取请求计数（存储与 RS 分别记录） |
-| 比较的逻辑派发数 | 行比较 = \|X\|；表级处理 = \|A\| + \|D\| | 比较管线的派发记录 |
-| 实际 kernel 调用数 | ≤ \|X\|（去重、缓存命中后可更少） | kernel 调用计数 |
-| Submit `replay.sql` 涉及的表数 | = \|X\| + \|A\| + \|D\|（\|D\| 为 `DROP`） | 规划器的表级决定 |
-| Submit 逻辑变更数 | 行级修改表按 Storage Mutation §4：同键 UPDATE 计 1，键变化计 DELETE + INSERT 2；整表重建表计其写入行数 | 规划器摘要，与独立计算的 diff 对照 |
+| Preview 基线的逻辑需求 | 需要基线侧行的表 = X ∪ D | 管线的需求记录 |
+| Preview 基线的实际读取 | 按 (commit, 内容身份) 去重后的实际读取数 ≤ \|X\|+\|D\|；其中 Dolt 读取数 = 存储未命中或校验失败的表数。**W2：需求为 0，实际读取为 0** | 存储与 RS 读取计数 |
+| History（两节点） | 需求按层分别记录：行比较需要旧节点 X ∪ D 的行；整表打包需要两个节点全部表的导出（命中导出缓存则不读表）；单侧摘要需要当前节点未变 ordered 表的行（命中 diff/risk 缓存则不需要）。实际 Dolt 读取数 = 上述需求中存储副本缺失或校验失败的 (commit, 表) 数 | 存储、RS 与缓存计数 |
+
+**比较：**
+
+| 断言 | 内容 |
+| --- | --- |
+| 行比较的逻辑派发 | = \|X\| |
+| 表级处理 | = \|A\| + \|D\|（整表浏览与表级风险） |
+| 实际 kernel 调用 | ≤ \|X\|（单次去重、diff/risk 缓存命中后更少） |
+| 未变 ordered 表的单侧摘要计算 | = 未变 ordered 表中未命中 diff/risk 缓存的表数 |
+
+**Submit：** 不断言 SQL 语句数（INSERT 现为批量，按表与列身份、每条最多 256 行和字节上限切分）。
+
+| 断言 | 内容 | 观测点 |
+| --- | --- | --- |
+| 表级决定 | 进入 `replay.sql` 的表 = X ∪ A ∪ D；X 中每表的决定为行级修改或整表重建（按 S1a 冻结的阈值），A 为整表重建，D 为 `DROP` | 规划器的表级决定 |
+| 行级修改表 | 逻辑变更数 = 独立计算的净 diff：同键 UPDATE 计 1，键变化计 DELETE + INSERT 2，新增行 INSERT 1，删除行 DELETE 1（Storage Mutation §4） | 规划器的变更列表 |
+| 整表重建表 | 写入行数 = 变化后的行数 | 渲染统计 |
+| 删除表 | `DROP` 1 次，写入 0 行 | 渲染统计 |
+| 规划器的 `changed_row_count` | 保持现行定义（行级修改表为净变化，新增/删除表为 before + after，投影变化表为全表计数），只作报告，不作为验收 | 规划器摘要 |
 | 原样重传（S2） | 不产生 Repository operation | 受理结果 |
-| H1（该 pair 已计算、规则相同、缓存健康）、H3 | Dolt 读取次数 = 0；kernel 调用数 = 0 | 读取与 kernel 计数 |
-| H1（TTL 外或缓存缺失） | Dolt 读取次数 = 旧节点的 \|X\| + \|D\| | 读取计数 |
 
-SQL 语句数不作为断言（INSERT 现为每条最多 256 行的批量）。
+**History 的零计算条件：** H1（该 pair 已在 Preview 或 History 中计算、规则相同、缓存健康）与 H3：Dolt 读取数 = 0，kernel 调用数 = 0，单侧摘要计算数 = 0。
 
-**手算示例**（其余表均未变）：
+**手算示例**（其余表均未变；行级修改示例的前提：表为合格的 keyed 表，约 1,000 行，schema、键与存储视图不变，变化在冻结阈值内，单批不超字节上限）：
 
-| 场景 | 集合 | 基线读取 | 行比较派发 / 表级 | kernel 调用 | replay 表数 | 逻辑变更数 |
-| --- | --- | ---: | --- | ---: | ---: | --- |
-| keyed 表 t 新增两行（渲染为一条批量 INSERT） | X={t} | 1 | 1 / 0 | 1 | 1 | 2（INSERT×2；SQL 语句 1 条，不断言） |
-| keyed 表 t 一行的键变化 | X={t} | 1 | 1 / 0 | 1 | 1 | 2（DELETE + INSERT） |
-| 只有新增表 t（n 行） | A={t} | 0 | 0 / 1 | 0 | 1 | 整表重建写入 n 行 |
-| 只有删除表 t | D={t} | 1（bundle 需要基线侧数据） | 0 / 1 | 0 | 1（`DROP`） | 0 行 |
-| 两张同内容表 t1、t2 发生相同变化 | X={t1,t2} | 2 | 2 / 0 | 1（去重后） | 2 | 各自按表计 |
-| H3 重复查询，缓存健康 | — | 0 | 派发照常记录 | 0 | — | — |
+| 场景 | 集合 | Preview 基线实际读取 | 行比较 / 表级 | kernel | 表级决定 | 逻辑变更或写入 |
+| --- | --- | ---: | --- | ---: | --- | --- |
+| keyed 表 t 新增两行 | X={t} | 1 | 1 / 0 | 1 | 行级修改 | INSERT×2（SQL 可为 1 条，不断言） |
+| keyed 表 t 一行的键变化 | X={t} | 1 | 1 / 0 | 1 | 行级修改 | DELETE + INSERT = 2 |
+| 100 行 keyed 表 t 修改 6 行（6% 超过 1% 阈值） | X={t} | 1 | 1 / 0 | 1 | 整表重建 | 写入 100 行；`changed_row_count`=6，只报告 |
+| 只有新增表 t（n 行） | A={t} | 0 | 0 / 1 | 0 | 整表重建 | 写入 n 行 |
+| 只有删除表 t（10 行） | D={t} | 1（bundle 需要基线侧数据） | 0 / 1 | 0 | `DROP` | 写入 0 行；`changed_row_count`=10，只报告 |
+| 两张同内容表 t1、t2 发生相同变化 | X={t1,t2} | ≤ 2（同内容身份可共享一次读取） | 2 / 0 | 1（去重后） | 各自按表 | 各自按表 |
+| History：diff/risk 缓存缺失，但两节点规范表副本健康 | 旧节点 X={t} | Dolt 0 | 1 / 0 | 1 | — | — |
+| History：H3 重复查询，缓存健康 | — | Dolt 0 | 派发照常记录 | 0 | — | — |
 
 ### 16.3 验收矩阵
 
@@ -476,7 +502,7 @@ SQL 语句数不作为断言（INSERT 现为每条最多 256 行的批量）。
 停止条件（遇到即停止并报告 owner）：
 
 1. S1a 的归因（§4.4）无法解释 step 间隔或约 175 s 残差的来源；
-2. S2b 的 W2 可达性检查显示剩余成本不能在 30 s 内闭合（§16.1）；
+2. S2b 的 W2 检查点判定为停止（§16.1 的判定式）；
 3. 任一 Rust kernel 与参照实现出现无法归入“参照实现不符合 Contract”的差异；
 4. 阈值复测显示 1% 仍比整表重建慢，或 S4 实测要求调整 S1a 冻结的阈值或批量规则；
 5. 规范表存储的磁盘估算超出参考节点容量；
@@ -498,7 +524,7 @@ SQL 语句数不作为断言（INSERT 现为每条最多 256 行的批量）。
 
 | finding | 类型 | 处置 | 位置 |
 | --- | --- | --- | --- |
-| F1 ordered 摘要变更与 bundle digest 冻结冲突 | 阻塞 | owner 修订 DC39 第 3 项（DC55 第 1 项）：逻辑摘要定义不变，投影时计算并连同策略摘要写入 manifest；新增摘要变化与保值清单与 golden 生命周期；Ordered Diff 修订列入清单；S3 分歧点只写现行行为 | §4.1、§4.6、§9、§14 |
+| F1 ordered 摘要变更与 bundle digest 冻结冲突 | 阻塞 | （r2 处置，其中“写入 manifest”的做法已由下方第 1 次复审 F1 行取代）owner 修订 DC39 第 3 项（DC55 第 1 项）：逻辑摘要定义不变，投影时计算并连同策略摘要写入 manifest；新增摘要变化与保值清单与 golden 生命周期；Ordered Diff 修订列入清单；S3 分歧点只写现行行为 | §4.1、§4.6、§9、§14 |
 | F2 内容摘要当作完整表身份 | 阻塞 | owner 修订 DC41 第 2 项（DC55 第 2 项）：导出缓存键为 row-layout 身份加 writer 版本；未变化统一用完整条件；表名绑定保留；权威测试列入 §15 | §4.2、§5.2、§11、§15 |
 | F3 冻结产物不能由 Dolt 回填 | 阻塞 | owner 修订 DC42 第 5 项（DC55 第 3 项）：四种状态的来源与终态；parent 行按 manifest 校验与 CAS | §3、§4.3、§8.2、§15 |
 | F4 零日期跨服务语义 | 阻塞 | owner 决定维持拒绝（DC55 第 4 项）；FLOAT 修复归 Shared Kernel，列入 S1b 路径预算与 golden | §5.5、§13、§14；执行计划 §3 |
@@ -508,3 +534,9 @@ SQL 语句数不作为断言（INSERT 现为每条最多 256 行的批量）。
 | F8 Contract 修订清单不完整 | 阻塞 | 新增“现行条款 → 目标条款 → owner → 阶段 → golden/测试”清单，覆盖 Comparison Cache、Risk、Snapshot Table Access、ADR 0014 与 Storage Mutation 的生产路径条款；缓存键含规则与版本 | §9、§11、§14 |
 | F9 测试归属与资源边界 | 非阻塞 | 拆分测试 owner；RS 并发 ≤ min(N, RS 容量)，重试继承取消与截止时间；M 估算口径；native crash 与预算拒绝区分 | §7、§8.3、§15 |
 | F10 事实与引用校正 | 非阻塞 | `ordering_digest` 的跨模块传递；RS 容量为可配置默认值；V5 间隔的实际差异；P5 收口设计 §4.6 链接；DC42 回读条目引用改为第 5 项；讨论稿版本标记；S2a 路径预算补列 build-input 检查与 `import_rules` | §2.1、§2.2、§7、§8.2；执行计划 §3 |
+| 第 1 次复审 F1（部分关闭） | 阻塞 | owner 再修订 DC55 第 1 项：取消 manifest 新字段；未变化 ordered 表用当前侧的行按本次有效 pair 策略计算逻辑摘要与 occupancy 摘要，两侧取同一值，不读基线侧；保值清单与 Contract 清单相应修改 | §4.1、§4.2、§11、§14 |
+| 第 1 次复审 F11（预计算摘要漏掉当前 pair 的有效策略） | 阻塞 | 同上：始终使用本次受理冻结的有效 pair 策略（含共有列）计算，规则变化或 schema 不同不会复用历史值；schema 不同时不满足“未变化”完整条件，走行比较 | §4.1、§4.2、§15 |
+| 第 1 次复审 F12（manifest 字段不足以生成 blank facts） | 阻塞 | 同上：occupancy 摘要与其余 facts 字段都由当前侧的行现算，不依赖 manifest；权威测试覆盖头部、内部、尾部空白 | §4.1、§15 |
+| 第 1 次复审 F5（部分关闭） | 阻塞 | Submit 分列表级决定、行级修改的逻辑变更数、整表重建的写入行数与删除表；`changed_row_count` 保持现行定义只作报告；读取区分逻辑需求与实际读取，按层与缓存状态计算；手算示例补路由与缓存前提，增加整表重建与只缺 diff/risk 缓存的例子 | §16.2 |
+| 第 1 次复审 F6（部分关闭） | 阻塞 | 预算改为不重叠分项账，逐项写工作量 × 吞吐假设与依据，未知项绑定检查点；S2b W2 检查点给出判定式，未归因残差不计入可削减额度；风险消费内存中的 Arrow 记录，读取校验只在从存储读 closure 时由 Rust 进行并计入 H1/H3 与 bundle 预算；风险约 5 s 标为待验证假设 | §9、§16.1 |
+| 第 1 次复审的导航文字提醒 | 非阻塞 | 决议记录待定表、后续步骤与执行计划 S0 的版本与编号已对齐 | 决议记录 §3、§5；执行计划 §2 |

@@ -454,6 +454,34 @@ def _run_through_publish(harness: PreviewJobHarness, operation_id: str) -> None:
     run_claimed_handler(harness, PREVIEW_PUBLISH_HANDLER, session, control, operation, step)
 
 
+def test_unchanged_identity_table_reuses_current_rows_without_baseline_read(
+    tmp_path: Path,
+) -> None:
+    harness = build_preview_harness(
+        tmp_path,
+        input_completeness=InputCompleteness.MODIFIED_ONLY,
+        canonical_noop=True,
+        include_identity_table=True,
+    )
+
+    _run_through_publish(harness, "op-unchanged-project-identity")
+
+    assert harness.baseline_provider.last_session is not None
+    assert harness.baseline_provider.last_session.table_readers == []
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        workspace = unit_of_work.workspace.get_workspace(harness.upload_revision.workspace_id)
+        assert workspace is not None
+        assert workspace.current_preview_result_id is not None
+        preview_result = unit_of_work.workspace.get_preview_result(
+            workspace.current_preview_result_id
+        )
+    assert preview_result is not None
+    assert [
+        (item.applicability.value, item.status.value, item.mode.value)
+        for item in preview_result.identity_pairs
+    ] == [("APPLICABLE", "SAME_PROJECT", "DETAILED")]
+
+
 @dataclass
 class _HarnessArtifactRefLookup:
     store: InMemoryArtifactStore

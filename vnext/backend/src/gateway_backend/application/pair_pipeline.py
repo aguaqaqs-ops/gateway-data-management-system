@@ -15,6 +15,7 @@ from gateway_backend.capabilities.project_identity import (
     ProjectIdentityStatus,
     assess_project_identity,
 )
+from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
     ComparisonRequest,
@@ -93,11 +94,13 @@ class HistoryPairPipelineResult:
 def preview_identity_assessment(
     before: BoundSnapshotInput,
     current: BoundSnapshotInput,
+    *,
+    before_table_set: SnapshotTableSet | None = None,
 ) -> ProjectIdentityAssessment:
     return assess_project_identity(
         ProjectIdentityInput(
             snapshot_digest=before.snapshot.snapshot_digest,
-            table_set=before.table_set,
+            table_set=before.table_set if before_table_set is None else before_table_set,
         ),
         ProjectIdentityInput(
             snapshot_digest=current.snapshot.snapshot_digest,
@@ -117,11 +120,16 @@ def run_preview_pair_pipeline(
     view_id: str = PREVIEW_DEFAULT_VIEW_ID,
     rule_set: ComparisonRuleSet | None = None,
     assess_identity: bool = True,
+    identity_before_table_set: SnapshotTableSet | None = None,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
     if assess_identity:
-        assessment = preview_identity_assessment(before, current)
+        assessment = preview_identity_assessment(
+            before,
+            current,
+            before_table_set=identity_before_table_set,
+        )
         assessment_bytes = canonicalize_json_value(assessment.to_document())
         assessment_ref = put_with_built_ref(
             store,

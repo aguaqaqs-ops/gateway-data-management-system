@@ -100,6 +100,7 @@ def preview_baseline_provider(
     *,
     commit_id: str = BASELINE_HEAD.business_baseline_commit_id,
     empty: bool = False,
+    baseline_sql: str = BASELINE_SQL,
 ) -> FakeRepositoryTableAccessProvider:
     if empty:
         catalog = make_catalog(
@@ -113,7 +114,7 @@ def preview_baseline_provider(
             rows={},
             current_commit=commit_id,
         )
-    tables, rows = _canonical_baseline_catalog()
+    tables, rows = _canonical_baseline_catalog(baseline_sql)
     catalog = make_catalog(
         tables,
         repository_id=REPOSITORY_ID,
@@ -127,16 +128,20 @@ def preview_baseline_provider(
     )
 
 
-def _canonical_baseline_catalog() -> tuple[
+def _canonical_baseline_catalog(
+    baseline_sql: str = BASELINE_SQL,
+) -> tuple[
     tuple[RepositoryCatalogTable, ...],
     dict[str, tuple[tuple[object, ...], ...]],
 ]:
-    tables, row_items, _manifest = _canonical_baseline_data()
+    tables, row_items, _manifest = _canonical_baseline_data(baseline_sql)
     return tables, dict(row_items)
 
 
 @cache
-def _canonical_baseline_data() -> tuple[
+def _canonical_baseline_data(
+    baseline_sql: str = BASELINE_SQL,
+) -> tuple[
     tuple[RepositoryCatalogTable, ...],
     tuple[tuple[str, tuple[tuple[object, ...], ...]], ...],
     CanonicalizationManifest,
@@ -144,7 +149,7 @@ def _canonical_baseline_data() -> tuple[
     """Build the test Repository catalog from the production business projection."""
     ruleset = migrated_table_ruleset_snapshot()
     materialized = materialize_business(
-        BASELINE_SQL,
+        baseline_sql,
         empty=True,
         policy=MaterializationPolicy.READERS_REQUIRED,
         ruleset=ruleset,
@@ -183,7 +188,12 @@ def _canonical_baseline_data() -> tuple[
                     row_count=descriptor.row_count,
                 )
             )
-            rows[descriptor.table_name] = ((1,),) if descriptor.table_name == "t" else ()
+            if descriptor.table_name == "t":
+                rows[descriptor.table_name] = ((1,),)
+            elif descriptor.table_name == "version_manager":
+                rows[descriptor.table_name] = (("project-a",),)
+            else:
+                rows[descriptor.table_name] = ()
     finally:
         for item in projected.tables:
             if item.reader is not None:
@@ -304,16 +314,24 @@ def build_preview_harness(
     input_completeness: InputCompleteness = InputCompleteness.FULL,
     canonical_noop: bool = False,
     empty_baseline: bool = False,
+    include_identity_table: bool = False,
 ) -> PreviewJobHarness:
     db_path = tmp_path / "preview-control.sqlite3"
     bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
     artifact_store = InMemoryArtifactStore()
+    identity_sql = (
+        "CREATE TABLE version_manager (`project_id` VARCHAR(32));\n"
+        "INSERT INTO version_manager VALUES ('project-a');\n"
+        if include_identity_table
+        else ""
+    )
+    baseline_sql = BASELINE_SQL + identity_sql
     if empty_baseline and canonical_noop:
         modified_sql = EMPTY_SQL
         initial_sql = EMPTY_SQL
     else:
-        modified_sql = BASELINE_SQL if canonical_noop else MODIFIED_SQL
-        initial_sql = BASELINE_SQL if canonical_noop else INITIAL_SQL
+        modified_sql = baseline_sql if canonical_noop else MODIFIED_SQL + identity_sql
+        initial_sql = baseline_sql if canonical_noop else INITIAL_SQL + identity_sql
     modified_binding = store_source_package(
         artifact_store,
         modified_sql.encode("utf-8"),
@@ -331,9 +349,12 @@ def build_preview_harness(
         initial_binding=initial_binding,
         modified_binding=modified_binding,
     )
-    baseline_provider = preview_baseline_provider(empty=empty_baseline)
+    baseline_provider = preview_baseline_provider(
+        empty=empty_baseline,
+        baseline_sql=baseline_sql,
+    )
     baseline_head_read = MutableBaselineHeadReadPort({REPOSITORY_ID: BASELINE_HEAD})
-    baseline_manifest = None if empty_baseline else _canonical_baseline_data()[2]
+    baseline_manifest = None if empty_baseline else _canonical_baseline_data(baseline_sql)[2]
     metadata_port = CatalogCommitCanonicalMetadataPort(
         {
             (REPOSITORY_ID, BASELINE_HEAD.business_baseline_commit_id): metadata_for_catalog(

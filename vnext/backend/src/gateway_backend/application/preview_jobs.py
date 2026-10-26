@@ -111,6 +111,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SourceKind,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
+    SnapshotTable,
     SnapshotTableSet,
     SnapshotTableDescriptor,
     SnapshotColumnDescriptor,
@@ -1297,6 +1298,72 @@ def _changed_canonical_tables(
     return tuple(changed)
 
 
+def _unchanged_baseline_identity_table_set(
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+) -> SnapshotTableSet | None:
+    """Reuse current version_manager rows for identity when its full table identity matches."""
+
+    if before.table_set is None or current.table_set is None:
+        return None
+    before_descriptor = next(
+        (item for item in before.summary.tables if item.table_name == "version_manager"),
+        None,
+    )
+    current_descriptor = next(
+        (item for item in current.summary.tables if item.table_name == "version_manager"),
+        None,
+    )
+    before_fact = next(
+        (
+            item
+            for item in before.storage_facts
+            if item.storage_rule_view.canonical_table == "version_manager"
+        ),
+        None,
+    )
+    current_fact = next(
+        (
+            item
+            for item in current.storage_facts
+            if item.storage_rule_view.canonical_table == "version_manager"
+        ),
+        None,
+    )
+    if (
+        before_descriptor is None
+        or current_descriptor is None
+        or before_fact is None
+        or current_fact is None
+        or before_descriptor.row_count != current_descriptor.row_count
+        or before_descriptor.raw_content_digest != current_descriptor.raw_content_digest
+        or before_descriptor.degraded_reason != current_descriptor.degraded_reason
+        or before_fact.raw_content_digest != current_fact.raw_content_digest
+        or before_fact.source_schema_digest != current_fact.source_schema_digest
+        or before_fact.canonical_schema_digest != current_fact.canonical_schema_digest
+        or before_fact.storage_rule_view != current_fact.storage_rule_view
+        or before_fact.storage_projection_version != current_fact.storage_projection_version
+    ):
+        return None
+    current_table = next(
+        (
+            item
+            for item in current.table_set.tables
+            if item.descriptor.table_name == "version_manager"
+        ),
+        None,
+    )
+    if current_table is None:
+        return None
+    return SnapshotTableSet(
+        snapshot_id=before.snapshot.snapshot_id,
+        snapshot_digest=before.snapshot.snapshot_digest,
+        table_ruleset_version=current.table_set.table_ruleset_version,
+        tables=(current_table,),
+        diagnostics=current.table_set.diagnostics,
+    )
+
+
 def _materialize_uploaded_side(
     binding: SourceArtifactBinding,
     store: ArtifactStorePort,
@@ -1646,14 +1713,17 @@ def _assemble_preview(
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
     if payload.input_completeness is InputCompleteness.FULL:
-        pair_specs: tuple[tuple[str, BoundSnapshotInput, BoundSnapshotInput, bool], ...] = (
+        pair_specs: tuple[
+            tuple[str, BoundSnapshotInput, BoundSnapshotInput, bool, bool], ...
+        ] = (
             (
                 _PAIR_BASELINE_TO_INITIAL,
                 sides[_SIDE_BASELINE],
                 sides[_SIDE_INITIAL],
                 not canonical.baseline_is_initial,
+                True,
             ),
-            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED], True),
+            (_PAIR_INITIAL_TO_MODIFIED, sides[_SIDE_INITIAL], sides[_SIDE_MODIFIED], True, False),
         )
         bundle_profile = BundleProfile.MULTI_PAIR
         bundle_inputs: tuple[BundleInput, ...] = (
@@ -1672,6 +1742,7 @@ def _assemble_preview(
                 sides[_SIDE_BASELINE],
                 sides[_SIDE_MODIFIED],
                 not canonical.baseline_is_initial,
+                True,
             ),
         )
         bundle_profile = BundleProfile.SINGLE_PAIR
@@ -1681,7 +1752,7 @@ def _assemble_preview(
         )
         bundle_indexes = {_PAIR_INITIAL_TO_MODIFIED: (0, 1)}
 
-    for pair_id, before, current, assess_identity in pair_specs:
+    for pair_id, before, current, assess_identity, reuse_unchanged_baseline_identity in pair_specs:
         lease_session.refresh_control()
         if control.cancel_requested:
             on_cancel()
@@ -1695,6 +1766,11 @@ def _assemble_preview(
             rule_set=rule_set,
             on_cancel=on_cancel,
             assess_identity=assess_identity,
+            identity_before_table_set=(
+                _unchanged_baseline_identity_table_set(before, current)
+                if assess_identity and reuse_unchanged_baseline_identity
+                else None
+            ),
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -1769,6 +1845,7 @@ def _run_pair_pipeline(
     rule_set: ComparisonRuleSet,
     on_cancel: Callable[[], None],
     assess_identity: bool,
+    identity_before_table_set: SnapshotTableSet | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
@@ -1781,6 +1858,7 @@ def _run_pair_pipeline(
             view_id=_PAIR_INITIAL_TO_MODIFIED,
             rule_set=rule_set,
             assess_identity=assess_identity,
+            identity_before_table_set=identity_before_table_set,
         )
     except PairPipelineCancelled:
         raise

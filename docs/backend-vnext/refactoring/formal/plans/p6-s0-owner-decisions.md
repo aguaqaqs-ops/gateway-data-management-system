@@ -308,6 +308,10 @@ implementation_authorized: no
   2. **18 张含 `(no, page_no)` 的表按 BROWSE_ONLY 处理，存储保持 keyless：** `cnt_manage_cfg`、`dev104_cfg`、`iec101_cfg`、`iec104_cfg`、`iec104gw_cfg`、`iec61850c_cfg`、`jdxx_cfg`、`nbridge_cfg`、`nr103d_cfg`、`nr103ht_cfg`、`sc_cfg`、`scada_cfg`、`sg_manage_cfg`、`sntp_cfg`、`vqc_cfg`、`wave_cfg`、`wf_cfg` 新加入 BROWSE_ONLY 名单，`project` 已在名单中。不为 BROWSE_ONLY 增加存储键，不拆分存储键与比较键，Contract 不变。owner 接受业务后果：这些表变化时不再产生逐行记录与风险，只有表级变化事实（DC16）与整表浏览。
   3. **列存在兜底暂不实施：** 按列集合自动选键、校验失败回退 keyless 及额外处理调用，Phase 6 不实施，也不预留接口。DC29 的 keyless 兜底继续处理新表；需要键的新表按规则激活补显式规则。**重开条件：** 出现新的 keyless 表，且业务上需要字段级比较。
   4. **`forwardtable_*` 保持现状并做一次专项调查：** 6 张 `forwardtable_*` 继续命中 SNAPSHOT_ONLY、keyless 存储、不做比较；不引入 `KEYLESS_ORDERED`。由实施者做一次专项调查（只输出计数与列状态分类，不输出单元格值），确认：完全相同的重复行是否都是空点行；非空点行的 `gid` 是否唯一；源数据中的行顺序是否与 `gid` 顺序一致。结论由 owner 确认；若发现重复行不全是空点行，或行顺序有业务含义且无法由 `gid` 恢复，作为 Phase 6 之外的单独立项。
+- **第 4 项调查结论**（[`forwardtable_*` 空点行调查](p6-forwardtable-blank-rows.md)；repository owner，2026-10-26）：
+  1. **数据结果：** 22 个有重复的表/数据组合中，完全相同的重复行都属于同一列状态模式（`gid`、`devaddr`、`fun`、`inf`、`icseq` 为 0，`fcda` 为空串，`desc` 非空），共 6,177 行，没有单独出现的同模式行；除去这些行后 `gid` 唯一且无 NULL；源顺序中 `gid` 在 30 个组合里有 27 个出现下降（共 10,242 处），空点行 6,176 行夹在正常点之间、1 行在表尾。
+  2. **owner 确认：** 该模式是业务上的空点行；行位置有业务含义，源顺序不能由 `gid` 恢复。但 `forwardtable_*` 是实际转发表（ordered 表）的模板，当前没有业务用途，只保存作参考；必要时可用同源的对应 ordered 表恢复顺序（owner 的业务判断，本次调查未比对 ordered 表）。
+  3. **处置：** 维持 SNAPSHOT_ONLY、keyless 存储、不做比较；owner 接受这些表的存储与导出不保留源行顺序。不引入 `KEYLESS_ORDERED`，不另行立项。**重开条件：** 模板开始被实际使用（例如用于生成转发表，或导出交付设备），需要保留行顺序时，另行立项设计保序存储，并届时验证能否由对应 ordered 表恢复顺序。
 - **落点**：S1b 实施第 1、2 项的规则改动（`capabilities/table_rules/` 名单与规则；规则集版本提升），storage-projection 组中的规则集与 manifest golden 随之在 S1b 更新一次（[详细设计](p6-design.md) §4.6 的例外行）；第 4 项的调查不改规则，不阻塞 S1b。
 
 ## 3. 设计阶段待定项
@@ -325,7 +329,7 @@ implementation_authorized: no
 | `ordered-diff.md` 中伪 gid 起点（20 亿）与 Canonical Storage G8（40 亿–4,294,967,295）的冲突 | DC39、DC44 | S1a 修订 Contract 时明确以 G8 为准（实现已按 G8） |
 | N 的暂定值与定稿 | DC47 | V6 给出解析器单独的暂定值 4；整条路径的 N 在 S2b 后暂定，S6 定稿 |
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
-| 重要 keyless 表是否定义自然键 | DC50 | 已定（DC56，2026-10-26）：11 张表补显式键，17 张表加入 BROWSE_ONLY，规则改动在 S1b；`forwardtable_*` 保持 SNAPSHOT_ONLY，另做一次空点行调查 |
+| 重要 keyless 表是否定义自然键 | DC50 | 已定（DC56，2026-10-26）：11 张表补显式键，17 张表加入 BROWSE_ONLY，规则改动在 S1b；`forwardtable_*` 保持 SNAPSHOT_ONLY；空点行调查已完成，不另行立项（DC56 第 4 项结论） |
 
 以下仍由 owner 另行决定，不属于本记录：GitHub 远程默认分支改为 `main`；Repository Service 容器中累积 defunct `dolt` 进程的排查（讨论稿 §12，交 RS 的 owner）。G6b 已由 DC51 决定维持 C。
 

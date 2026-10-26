@@ -23,7 +23,7 @@
 ## 方法
 
 - 输入为调试节点上的 t1–t4 v1、v2 共 8 份真实数据；原始 SQL 与单元格值仅在进程内处理，不写入 JSON、日志或本报告。
-- 先通过现有 staging、业务物化与规范投影路径验证 auto-mode 分类；任一目标表不是 `SNAPSHOT_ONLY` 且 keyless 时立即拒绝，不绕过分类器。随后统计取自 production SQL parser 的 `ParseResult` / `SqlTableReader`，在业务物化和规范投影之前。原始解析列与投影列、原始读取行数与投影行数逐表核对。
+- 先通过现有 staging、业务物化与规范投影路径验证表规则分类；任一目标表不是 `SNAPSHOT_ONLY` 且 keyless 时立即拒绝。随后统计取自 production SQL parser 的 `ParseResult` / `SqlTableReader`，在业务物化和规范投影之前。原始解析列与投影列、原始读取行数与投影行数逐表核对。
 - 源顺序核对：`parse_sql` 按 SQL statement 扫描顺序调用 `parse_insert`；后者按 VALUES tuple 顺序追加 `TupleSpan`；`_assemble` 将 span 顺序交给 `SqlTableReader`，其 `iter_rows()` 顺序遍历 span。故此处记录的是各表 INSERT tuple 的源顺序，不是规范投影或重排后的顺序。
 - 完全重复按解析后的完整行（包含列名、SQL 类型和 typed cell）指纹分组。重复组模式按每列的 `NULL`、`EMPTY_STRING`、`NUMERIC_ZERO`、`OTHER_NONEMPTY` 分类；空字符串只匹配长度为零的字符串，数值零只匹配解析为数值类型且值为零的单元格。指纹只留在进程内。
 - “非重复行”指其完整行只出现一次；第 3 项移除完全重复组的全部行后检查其余（单例）行的 gid。NULL 单独计数，重复组只统计非 NULL gid。

@@ -522,7 +522,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 参照解析器的 P 项语义 | §5.5 表中各项；深层 JSON 有界拒绝 | §5.5 |
 | Arrow 列映射 v1 | §8.1 | §8.1 |
 | 上传侧原始表的使用方、磁盘估算 | 设计核对项，S2b kickoff 前完成 | §8.1、§8.2 |
-| 重要 keyless 表的自然键 | 已定（DC56）：11 张表补显式键，17 张表加入 BROWSE_ONLY，存储保持 keyless；规则改动在 S1b，与比较类 golden 一起冻结；`forwardtable_*` 保持 SNAPSHOT_ONLY，另做一次空点行调查 | §4.6 |
+| 重要 keyless 表的自然键 | 已定（DC56）：11 张表补显式键，17 张表加入 BROWSE_ONLY，存储保持 keyless；规则改动在 S1b，与比较类 golden 一起冻结；`forwardtable_*` 保持 SNAPSHOT_ONLY，空点行调查已完成，不另行立项（DC56 第 4 项结论） | §4.6 |
 
 ## 附录 A：S0 独立文档审核 findings 处置
 

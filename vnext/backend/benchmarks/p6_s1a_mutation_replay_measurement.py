@@ -35,6 +35,7 @@ from gateway_backend.capabilities.mutation_planning import (  # noqa: E402
     MutationTableSnapshot,
     RowMutationOperation,
     TableMutationKind,
+    build_import_mutation_snapshots,
     plan_import_mutation,
     render_planned_import_mutation_dml,
 )
@@ -57,6 +58,7 @@ from gateway_backend.capabilities.storage_projection._digest import (  # noqa: E
 )
 from gateway_backend.capabilities.storage_projection.contracts import (  # noqa: E402
     PACKAGE_VERSION,
+    ImportReplayTableSnapshot,
     ProjectionResult,
     ProjectionStatus,
     RepositoryImportArtifactInput,
@@ -119,20 +121,20 @@ def _mutation_snapshots(
         if reader is None:
             raise RuntimeError("canonical table artifact has no reader")
         try:
-            rows = _keyed_rows_from_frozen_artifact(
+            replay_rows = _keyed_rows_from_frozen_artifact(
                 reader,
                 descriptor=table.descriptor,
                 manifest_table=manifest_table,
             )
         finally:
             reader.close()
-        snapshots.append(
-            MutationTableSnapshot(
-                manifest_table=manifest_table,
-                storage_view=view,
-                rows=rows,
-            )
+        replay_snapshot = ImportReplayTableSnapshot(
+            manifest_table=manifest_table,
+            storage_view=view,
+            rows=replay_rows,
         )
+        mutation_snapshot = build_import_mutation_snapshots((replay_snapshot,))[0]
+        snapshots.append(mutation_snapshot)
     return tuple(snapshots)
 
 

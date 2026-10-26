@@ -498,7 +498,7 @@ def _build_report(specs: tuple[DatasetSpec, ...]) -> dict[str, Any]:
 def _version_changes(datasets: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     by_id = {item["dataset_id"]: item for item in datasets}
     changes: list[dict[str, Any]] = []
-    metric_paths = (
+    metric_paths: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("row_count", ("row_count",)),
         ("duplicate_group_count", ("exact_duplicates", "group_count")),
         ("duplicate_extra_rows", ("exact_duplicates", "extra_rows")),
@@ -613,8 +613,8 @@ def _version_changes(datasets: Sequence[dict[str, Any]]) -> list[dict[str, Any]]
         after_patterns = _pattern_counts(after)
         pattern_deltas = []
         for states in sorted(set(before_patterns) | set(after_patterns)):
-            before_count = before_patterns.get(states, {})
-            after_count = after_patterns.get(states, {})
+            before_count = before_patterns.get(states, Counter())
+            after_count = after_patterns.get(states, Counter())
             pattern_deltas.append(
                 {
                     "columns": after["columns"] if after["present"] else before["columns"],

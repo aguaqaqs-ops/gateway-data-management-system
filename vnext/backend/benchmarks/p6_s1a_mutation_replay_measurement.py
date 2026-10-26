@@ -51,6 +51,9 @@ from gateway_backend.capabilities.mutation_planning.contracts import (  # noqa: 
 from gateway_backend.capabilities.snapshot_materialization import (  # noqa: E402
     open_snapshot_table_artifact,
 )
+from gateway_backend.capabilities.snapshot_materialization.contracts import (  # noqa: E402
+    RepositoryProviderError,
+)
 from gateway_backend.capabilities.storage_projection import (  # noqa: E402
     CanonicalizationManifest,
 )
@@ -342,6 +345,30 @@ def _dolt_exec(
     return result.stdout
 
 
+def _dolt_current_branch(*, container: str, repository_path: str) -> str | None:
+    lines = _dolt_exec(
+        container=container,
+        repository_path=repository_path,
+        arguments=("branch",),
+    ).decode("utf-8").splitlines()
+    return next(
+        (line[2:].strip() for line in lines if line.startswith("* ")),
+        None,
+    )
+
+
+def _dolt_current_commit(*, container: str, repository_path: str) -> str:
+    output = _dolt_exec(
+        container=container,
+        repository_path=repository_path,
+        arguments=("log", "-n", "1", "--oneline"),
+    ).decode("utf-8")
+    clean_output = re.sub(r"\x1b\[[0-9;]*m", "", output).strip()
+    if not clean_output:
+        raise RuntimeError("Repository Service Dolt log returned no current commit")
+    return clean_output.split(maxsplit=1)[0]
+
+
 def _read_hashes(
     *,
     container: str,
@@ -619,31 +646,57 @@ def run(
         )
         v1_manifest = _manifest_from_ref(store, v1_manifest_ref)
         v2_manifest = _manifest_from_ref(store, v2_manifest_ref)
-        full_materialization, parent_bound, _reads = v5b._measure_repository_materialization(
+        changed_names = _changed_table_names(
+            v1_manifest,
+            v2_manifest,
+            parent_is_initial=False,
+        )
+        v1_names = {table.name for table in v1_manifest.tables}
+        v2_names = {table.name for table in v2_manifest.tables}
+        changed_parent_names = tuple(
+            name for name in changed_names if name in v1_names and name in v2_names
+        )
+        changed_target_names = tuple(name for name in changed_names if name in v2_names)
+        deleted_names = tuple(name for name in changed_names if name in v1_names - v2_names)
+        selected_materialization, parent_bound, _reads = v5b._measure_repository_materialization(
             store=store,
             repository_id=repository_id,
             commit_id=baseline_commit,
             bearer_token=bearer,
             base_url=repository_service_url,
             canonical_source=v1_bound,
+            requested_tables=changed_parent_names,
+            scenario="t4_v1_changed_parent_row_materialization",
         )
-
-        changed_names = _changed_table_names(
-            v1_manifest,
-            v2_manifest,
-            parent_is_initial=False,
-        )
-        before_changed = _mutation_snapshots(
+        before_row_snapshots = _mutation_snapshots(
             store,
             parent_bound,
             v1_manifest,
-            changed_names,
+            changed_parent_names,
         )
         after_changed = _mutation_snapshots(
             store,
             v2_bound,
             v2_manifest,
-            changed_names,
+            changed_target_names,
+        )
+        before_by_name = {
+            snapshot.manifest_table.name: snapshot for snapshot in before_row_snapshots
+        }
+        v1_views = _bound_views(v1_bound)
+        v1_tables = {table.name: table for table in v1_manifest.tables}
+        for name in deleted_names:
+            view = v1_views.get(name)
+            table = v1_tables.get(name)
+            if view is None or table is None:
+                raise RuntimeError("deleted-table mutation descriptor is incomplete")
+            before_by_name[name] = MutationTableSnapshot(
+                manifest_table=table,
+                storage_view=view,
+            )
+        before_changed = tuple(
+            before_by_name[name]
+            for name in sorted(before_by_name, key=lambda item: item.encode("utf-8"))
         )
         after_all = _mutation_snapshots(
             store,
@@ -702,24 +755,16 @@ def run(
 
         repository_key = uuid.UUID(repository_id).hex
         repository_path = f"/var/lib/gateway/repository/versioned/{repository_key}"
-        branch_lines = _dolt_exec(
+        current_ref = _dolt_current_branch(
             container=repository_service_container,
             repository_path=repository_path,
-            arguments=("branch",),
-        ).decode("utf-8").splitlines()
-        current_ref = next(
-            (line[2:].strip() for line in branch_lines if line.startswith("* ")),
-            None,
         )
         if current_ref != "main":
             raise RuntimeError("Repository Service main ref is not checked out")
-        current_head_output = _dolt_exec(
+        current_head = _dolt_current_commit(
             container=repository_service_container,
             repository_path=repository_path,
-            arguments=("log", "-n", "1", "--oneline"),
-        ).decode("utf-8")
-        current_head_line = re.sub(r"\x1b\[[0-9;]*m", "", current_head_output).strip()
-        current_head = current_head_line.split(maxsplit=1)[0] if current_head_line else ""
+        )
         if current_head != target_commit:
             raise RuntimeError("Repository Service main ref is not at t4 v2 target")
         target_names = tuple(table.name for table in v2_manifest.tables)
@@ -843,11 +888,10 @@ def run(
             item["rebuild"]["total_seconds"] for item in sample_hashes
         )
 
-        main_after = _dolt_exec(
+        main_after = _dolt_current_commit(
             container=repository_service_container,
             repository_path=repository_path,
-            arguments=("rev-parse", "main"),
-        ).decode("utf-8").strip()
+        )
         if main_after != target_commit:
             raise RuntimeError("measurement changed Repository Service main ref")
 
@@ -858,7 +902,7 @@ def run(
             "started_at_utc": started_at,
             "ended_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "status": "PASS",
-            "baseline_materialization": full_materialization,
+            "changed_parent_materialization": selected_materialization,
             "t4_v2_changed_table_count": len(changed_names),
             "t4_v2_changed_tables": list(changed_names),
             "adaptive_plan": {
@@ -945,6 +989,13 @@ def run(
             "branch_refs_left_for_owner": branch_refs,
             "privacy": "table names, counts, timings, branch refs, and hash equality only",
         }
+        if isinstance(exc, RepositoryProviderError):
+            failure["repository_provider_error"] = {
+                "code": exc.code.value,
+                "retryable": exc.retryable,
+                "table": exc.table,
+                "cause_type": type(exc.__cause__).__name__ if exc.__cause__ is not None else None,
+            }
         if completed_measurement is not None:
             failure["partial_measurement"] = {
                 key: value

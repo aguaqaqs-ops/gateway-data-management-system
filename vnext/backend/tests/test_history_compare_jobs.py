@@ -427,6 +427,7 @@ def test_deleted_history_table_reads_only_the_old_pair_side(tmp_path: Path) -> N
         custom_providers=providers,
         idempotency_key="history-compare-deleted-table-old-side-read",
     )
+    insert_history_compare_operation(harness)
 
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
 

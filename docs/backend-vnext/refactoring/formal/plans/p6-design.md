@@ -164,9 +164,9 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 - **表级跳过：** prepare 取 T1 冻结的上传侧 manifest 与 expected parent 的 manifest，按 §4.2 的完整条件逐表比较；未变化的表不进入 `replay.sql`；删除的表照旧 `DROP`；parent 为 INITIAL、缺少 metadata 或投影版本不同时全部按变化处理；包 manifest 仍列出全部表（RS STRUCTURAL 校验整个 catalog）。
 - **行级修改：** 生产 policy 改为 `ADAPTIVE_PATCH`；资格按 Storage Mutation §3 修订：keyed 表与有序表（GID_NO_V1，以 `gid` 为存储键、`no` 为普通列）可行级修改；keyless 表与 schema 变化的表整表重建；阈值 1,000 行 / 1%。
 - **parent 行：** 变化表的 parent 行经 RS 读取（S1a），读取结果按 parent manifest 的表摘要校验，不一致时稳定失败；S2b 起优先读规范表存储中该 commit 的副本。正确性前提为 expected-parent CAS、parent 行按 manifest 校验与受信 Repository（DC45 第 6 项）；生产 Dolt 路径不加条件 DML、affected-row 检查或提交后读回（§14 的 ADR 0014 修订）。
-- **实现：** S1a 用现有 Python 规划器与渲染器（`capabilities/mutation_planning/`）；导入路径不再为未变化的表构造变化集。逐行变化集对象与无消费方摘要的去除、渲染直通在 S4。
+- **实现：** S1a 用现有 Python 规划器与渲染器（`capabilities/mutation_planning/`）；导入路径不再为未变化的表构造变化集。渲染器把同一表的逐行 UPDATE 与 DELETE 合并为按批语句（DC57）：形式先在固定 Dolt 版本上用合成表预检，须语法可执行、按主键查找、Dolt 表哈希与逐行形式相同；逻辑变更与 §16.2 计数不变。逐行变化集对象与无消费方摘要的去除、渲染直通在 S4，S4 对同一输入逐字节回归 S1a 的按批产物。
 - **checkpoint 与 T1：** T1 冻结的 `builder_mutation_policy` 改为 `ADAPTIVE_PATCH`；prepare checkpoint 增加 parent manifest digest 的绑定，恢复时核对。
-- **阈值与批量规则冻结（D，DC55 第 5 项）：** S1a 用实际渲染器与 RS 回放路径，对 t4 v2 的变化表实测逐行与重建的耗时，确认 1% 不比重建慢；阈值与 INSERT 批量规则（现为每条最多 256 行）在 S1a 冻结。S4 只做逐字节回归；若必须调整阈值，作为例外交 owner，并在 S4 更新包 golden。
+- **阈值与批量规则冻结（D，DC55 第 5 项）：** S1a 用实际渲染器与 RS 回放路径，对 t4 v2 的变化表实测逐行与重建的耗时，确认 1% 不比重建慢；阈值与 INSERT 批量规则（现为每条最多 256 行、4 MiB），以及 UPDATE、DELETE 的批量上限（DC57）在 S1a 冻结。首次实测（逐行渲染）在 1% 样本上比重建慢约 17.7%，按 DC57 改为按批渲染后复测；仍慢时按实测盈亏点降低比例阈值，交 owner 确认。S4 只做逐字节回归；若必须调整阈值，作为例外交 owner，并在 S4 更新包 golden。
 - **验证：** 新旧路径在 t4 v2 上得到的 Dolt 表哈希相同（V7 已在一次性回放中证明，S1a 用产品路径复核）。
 
 ### 4.4 worker step 归因与残差处理（DC53 第 2 项）
@@ -508,7 +508,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 1. S1a 的归因（§4.4）无法解释 step 间隔或约 175 s 残差的来源；
 2. S2b 的 W2 检查点判定为停止（§16.1 的判定式）；
 3. 任一 Rust kernel 与参照实现出现无法归入“参照实现不符合 Contract”的差异；
-4. 阈值复测显示 1% 仍比整表重建慢，或 S4 实测要求调整 S1a 冻结的阈值或批量规则；
+4. 阈值复测显示 1% 仍比整表重建慢（2026-10-26 已触发一次，按 DC57 改为按批渲染后复测；再次触发时按 DC57 第 4 项交 owner），或 S4 实测要求调整 S1a 冻结的阈值或批量规则；
 5. 规范表存储的磁盘估算超出参考节点容量；
 6. 逐行记录必须改变产物格式（DC54 第 4 项）；
 7. 某阶段的门槛在设计手段用尽后仍不能达到。

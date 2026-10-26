@@ -34,6 +34,6 @@
   ],
   "ruleset_id": "backend-vnext/table-ruleset",
   "ruleset_version": "v3",
-  "storage_projection_version": "2",
+  "storage_projection_version": "3",
   "table_ruleset_version": 1
 }

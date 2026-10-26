@@ -1,6 +1,6 @@
 {
   "package_version": 1,
-  "canonicalization_manifest_digest": "sha256:829f994be7687d1839f7fb095540773da8e00b2e9ce99df26bcc58f206974f7e",
+  "canonicalization_manifest_digest": "sha256:a2df4ae48b2d75553c0e65eeca902382b068770037d894af92d979e36a201e67",
   "tables": [
     {
       "name": "net_cfg",

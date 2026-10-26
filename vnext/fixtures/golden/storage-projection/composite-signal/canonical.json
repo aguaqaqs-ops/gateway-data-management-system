@@ -31,7 +31,7 @@
     "point_gid"
   ],
   "canonical_schema_digest": "sha256:45ab9549945be08b1386620fbc3d2f88f28a6818852dd3dab1628fd34582104c",
-  "content_digest": "sha256:369e048b093be7a8ec62de2f1d31648bec77b3b595d660cc1d5ac4d2f1eb73b1",
+  "content_digest": "sha256:f4e58c0b3db878b46c0a4a9dba1466a2858d300038307e992ec408d9ccedf51e",
   "dropped_columns": [
     {
       "name": "dev_addr",

@@ -213,7 +213,7 @@ R7_DESTRUCTIVE_CONFIRMATION_CASES: tuple[tuple[str, object], ...] = (
     ),
 )
 
-R7_THRESHOLD_BOUNDARY_CASES: tuple[tuple[str, object], ...] = (
+THRESHOLD_BOUNDARY_CASES: tuple[tuple[str, object], ...] = (
     (
         "ratio_at_boundary_patch",
         {
@@ -358,7 +358,7 @@ def test_destructive_confirmation_cases(case_id: str, case: dict[str, object]) -
     )
 
 
-@pytest.mark.parametrize(("case_id", "case"), R7_THRESHOLD_BOUNDARY_CASES)
+@pytest.mark.parametrize(("case_id", "case"), THRESHOLD_BOUNDARY_CASES)
 def test_threshold_boundary_cases(case_id: str, case: dict[str, Any]) -> None:
     before = table_snapshot(rows=(keyed_row(),))
     after = table_snapshot(rows=(keyed_row(board="9"),))

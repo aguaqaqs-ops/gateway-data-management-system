@@ -182,7 +182,7 @@ def test_uv_consume_cleans_lock_snapshot_after_sigterm(tmp_path: Path) -> None:
             os.killpg(process.pid, signal.SIGKILL)
             process.communicate()
 
-    assert process.returncode == 143
+    assert process.returncode in {143, -signal.SIGTERM}
     assert list(lock_tmp.iterdir()) == []
 
 

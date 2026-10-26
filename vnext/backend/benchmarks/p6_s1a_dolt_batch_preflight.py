@@ -205,8 +205,8 @@ def _statement_batches(
             or len(candidate_sql.encode("utf-8")) > _BATCH_BYTES
         ):
             batches.append(render(pending))
-            pending = [item]
-            candidate_sql = render(pending)
+            pending = []
+            candidate_sql = render((item,))
         if len(candidate_sql.encode("utf-8")) > _BATCH_BYTES:
             raise RuntimeError("one mutation row exceeds the 4 MiB statement limit")
         pending.append(item)

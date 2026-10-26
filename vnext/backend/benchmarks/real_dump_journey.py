@@ -112,6 +112,8 @@ try:
     finally:
         snapshot.close()
 finally:
+    Path(f"{snapshot_path}-shm").unlink(missing_ok=True)
+    Path(f"{snapshot_path}-wal").unlink(missing_ok=True)
     snapshot_path.unlink(missing_ok=True)
 """
 ARCHIVER_TOKEN = "s2b-realdata-archiver-token"

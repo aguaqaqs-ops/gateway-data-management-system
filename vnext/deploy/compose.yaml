@@ -114,6 +114,7 @@ services:
         read_only: true
   repository-service:
     image: ${GATEWAY_REPOSITORY_SERVICE_IMAGE:-gateway-repository-service:local}
+    init: true
     build:
       context: ..
       dockerfile: repository_service/Dockerfile

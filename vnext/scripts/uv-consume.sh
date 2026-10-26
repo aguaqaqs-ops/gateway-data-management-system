@@ -34,6 +34,8 @@ cleanup_lock_snapshot() {
     fi
 }
 
+trap cleanup_lock_snapshot EXIT
+
 snapshot_lockfiles() {
     LOCK_SNAPSHOT="$(mktemp)"
     gateway_snapshot_lockfile_sha256 "${VNEXT_ROOT}" >"${LOCK_SNAPSHOT}"

@@ -161,7 +161,6 @@ def test_uv_consume_cleans_lock_snapshot_after_sigterm(tmp_path: Path) -> None:
     environment["GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT"] = "0"
     process = subprocess.Popen(
         ["bash", str(UV_CONSUME), "-C", str(VNEXT_ROOT / "shared_kernel"), "run", "python"],
-        check=False,
         cwd=VNEXT_ROOT,
         env=environment,
         stdout=subprocess.PIPE,

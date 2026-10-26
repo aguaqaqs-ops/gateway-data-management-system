@@ -62,6 +62,9 @@ from gateway_backend.capabilities.bundle_assembly import (  # noqa: E402
     validate_bundle,
 )
 from gateway_backend.capabilities.comparison import open_records_closure  # noqa: E402
+from gateway_backend.capabilities.snapshot_materialization.contracts import (  # noqa: E402
+    CanonicalTableIdentity,
+)
 from gateway_backend.capabilities.snapshot_materialization import (  # noqa: E402
     CanonicalBinding,
     MaterializationPolicy,
@@ -377,12 +380,36 @@ def _canonical_binding(bound: Any, ruleset: Any) -> CanonicalBinding:
             key=lambda item: item.canonical_table.encode("utf-8"),
         )
     )
+    if bound.table_set is None:
+        raise RuntimeError("canonical snapshot table set is missing")
+    descriptors = {table.descriptor.table_name: table.descriptor for table in bound.table_set.tables}
+    identities: list[CanonicalTableIdentity] = []
+    for fact in sorted(
+        bound.storage_facts,
+        key=lambda item: item.storage_rule_view.canonical_table.encode("utf-8"),
+    ):
+        canonical_table = fact.storage_rule_view.canonical_table
+        descriptor = descriptors.get(canonical_table)
+        if descriptor is None:
+            raise RuntimeError(f"canonical snapshot descriptor is missing for {canonical_table}")
+        if fact.canonical_schema_digest is None or fact.raw_content_digest is None:
+            raise RuntimeError(f"canonical snapshot identity digests are missing for {canonical_table}")
+        identities.append(
+            CanonicalTableIdentity(
+                canonical_table=canonical_table,
+                row_count=descriptor.row_count,
+                source_schema_digest=fact.source_schema_digest,
+                canonical_schema_digest=fact.canonical_schema_digest,
+                raw_content_digest=fact.raw_content_digest,
+            )
+        )
     return CanonicalBinding(
         storage_projection_version=ruleset.storage_projection_version,
         ruleset_id=ruleset.ruleset_id,
         ruleset_version=ruleset.ruleset_version,
         ruleset_digest=ruleset.ruleset_digest,
         tables=views,
+        table_identities=tuple(identities),
     )
 
 

@@ -181,7 +181,9 @@ def _accept_prepared_operation_for_repository(
         scope_resolution=scope_resolution,
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        main_resolve=RecordingMainResolvePort(commit_id=expected_commit_id),
+        main_resolve=RecordingMainResolvePort(
+            commit_id=baseline_head.business_baseline_commit_id
+        ),
         preflight=preflight,
         now=TS1,
     )

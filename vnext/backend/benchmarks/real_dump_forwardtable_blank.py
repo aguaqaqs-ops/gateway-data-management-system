@@ -201,12 +201,14 @@ def _source_order_stats(
     columns: tuple[str, ...], rows: Sequence[tuple[object, ...]]
 ) -> dict[str, Any]:
     gid_index = columns.index("gid")
-    content_indexes = tuple(index for index, name in enumerate(columns) if name != "gid")
+    payload_indexes = tuple(
+        index for index, name in enumerate(columns) if name not in {"gid", "desc"}
+    )
     row_states = [tuple(_cell_state(cell) for cell in row) for row in rows]
     point_rows = [
         index
         for index, states in enumerate(row_states)
-        if any(states[column_index] == "OTHER_NONEMPTY" for column_index in content_indexes)
+        if any(states[column_index] == "OTHER_NONEMPTY" for column_index in payload_indexes)
     ]
     point_row_set = set(point_rows)
     blank_proxy_rows = [index for index in range(len(rows)) if index not in point_row_set]
@@ -271,7 +273,7 @@ def _source_order_stats(
         "source_order_stage": "production SQL parser ParseResult / SqlTableReader, before business materialization and canonical projection",
         "row_count": len(rows),
         "non_empty_point_proxy": {
-            "definition": "row with OTHER_NONEMPTY in at least one non-gid column",
+            "definition": "row with OTHER_NONEMPTY in a non-gid, non-desc payload column; status proxy, not business classification",
             "row_count": len(point_rows),
             **point_gid_stats,
             "gid_non_numeric_rows": gid_non_numeric_rows,
@@ -283,7 +285,7 @@ def _source_order_stats(
             "gid_comparable_adjacent_pair_count": comparable_pairs,
         },
         "blank_point_proxy_distribution": {
-            "definition": "row with no OTHER_NONEMPTY state in any non-gid column; not a business classification",
+            "definition": "row with no OTHER_NONEMPTY state in any non-gid, non-desc payload column; not a business classification",
             "row_count": len(blank_proxy_rows),
             "leading_before_first_point_proxy_rows": leading,
             "interleaved_between_point_proxy_rows": interleaved,
@@ -311,6 +313,8 @@ def _scan_table(
     columns = tuple(column.canonical_name for column in descriptor.columns)
     if "gid" not in columns:
         raise CensusRefusal(f"{spec.dataset_id}/{table_name}: gid column is absent")
+    if "desc" not in columns:
+        raise CensusRefusal(f"{spec.dataset_id}/{table_name}: desc column is absent")
     projected_columns = projected_metadata.columns
     if columns != projected_columns:
         raise CensusRefusal(f"{spec.dataset_id}/{table_name}: source/projection columns differ")
@@ -414,7 +418,7 @@ def _empty_table_entry(dataset_id: str, table_name: str) -> dict[str, Any]:
             "source_order_stage": "production SQL parser ParseResult / SqlTableReader, before business materialization and canonical projection",
             "row_count": 0,
             "non_empty_point_proxy": {
-                "definition": "row with OTHER_NONEMPTY in at least one non-gid column",
+                "definition": "row with OTHER_NONEMPTY in a non-gid, non-desc payload column; status proxy, not business classification",
                 "row_count": 0,
                 "gid_null_rows": 0,
                 "gid_non_null_duplicate_group_count": 0,
@@ -429,7 +433,7 @@ def _empty_table_entry(dataset_id: str, table_name: str) -> dict[str, Any]:
                 "gid_comparable_adjacent_pair_count": 0,
             },
             "blank_point_proxy_distribution": {
-                "definition": "row with no OTHER_NONEMPTY state in any non-gid column; not a business classification",
+                "definition": "row with no OTHER_NONEMPTY state in any non-gid, non-desc payload column; not a business classification",
                 "row_count": 0,
                 "leading_before_first_point_proxy_rows": 0,
                 "interleaved_between_point_proxy_rows": 0,
@@ -707,7 +711,7 @@ def _render_markdown(report: dict[str, Any]) -> str:
         "- 源顺序核对：`parse_sql` 按 SQL statement 扫描顺序调用 `parse_insert`；后者按 VALUES tuple 顺序追加 `TupleSpan`；`_assemble` 将 span 顺序交给 `SqlTableReader`，其 `iter_rows()` 顺序遍历 span。故此处记录的是各表 INSERT tuple 的源顺序，不是规范投影或重排后的顺序。",
         "- 完全重复按解析后的完整行（包含列名、SQL 类型和 typed cell）指纹分组。重复组模式按每列的 `NULL`、`EMPTY_STRING`、`NUMERIC_ZERO`、`OTHER_NONEMPTY` 分类；空字符串只匹配长度为零的字符串，数值零只匹配解析为数值类型且值为零的单元格。指纹只留在进程内。",
         "- “非重复行”指其完整行只出现一次；第 3 项移除完全重复组的全部行后检查其余（单例）行的 gid。NULL 单独计数，重复组只统计非 NULL gid。",
-        "- 业务空点定义由 owner 判断，本报告不代为指定。为提供顺序量化，`non-empty point proxy` 暂定义为至少一个非 gid 列为 `OTHER_NONEMPTY` 的行；`blank point proxy` 是其补集。逐状态模式同时给出相对 proxy 行的首部、交错、尾部计数，owner 可按认定的模式汇总。",
+        "- 业务空点定义由 owner 判断，本报告不代为指定。顺序敏感性 proxy 将 `desc` 列排除，`non-empty point proxy` 定义为至少一个其余非 gid payload 列为 `OTHER_NONEMPTY` 的行；`blank point proxy` 是其补集。该列状态约定不是业务分类；逐状态模式给出相对 proxy 行的首部、交错、尾部计数，owner 可按认定的模式汇总。",
         "- 顺序使用 proxy 行的 gid typed numeric 值；`gid_non_decreasing` 为非递减判断，另列下降相邻对和相等相邻对。存在 NULL 或非数值 gid 时标为不可判定，并报告数量。",
         "- v1→v2 差值为 v2 减 v1；缺表按零行、零组计，并另列是否出现/消失及 schema 是否变化。状态模式差值按完整列状态向量对应。",
         "",
@@ -941,7 +945,7 @@ def _render_conclusions(report: dict[str, Any]) -> list[str]:
         "## 对 DC56 第 4 项的结论",
         "",
         f"- 重复行状态模式：有重复组的表/数据组合 {len(repeated)} 组；其中跨多个状态模式的组合 {len(mixed_duplicate_modes)} 组（{mixed_labels}）。其余有重复组的组合各自只有一种模式；具体模式与组数/行数见明细。该结果只比较列状态，不断定模式的业务含义。",
-        f"- 非空点 gid 唯一性：按上述非 gid 列 proxy，有行的组合 {len(proxy_rows)} 组；gid NULL 或非 NULL 重复组的例外为 {proxy_exception_labels}。具体 NULL、重复组数及多余行数见明细。",
+        f"- 非空点 gid 唯一性：按上述排除 desc 的 payload proxy，有行的组合 {len(proxy_rows)} 组；gid NULL 或非 NULL 重复组的例外为 {proxy_exception_labels}。具体 NULL、重复组数及多余行数见明细。",
         f"- 源顺序与 gid：按 proxy 有行且 gid 可数值比较的组合 {len(evaluated_order)} 组；其中有下降点的组合 {len(descending_order)} 组（{descending_labels}）。gid 不可判定的组合 {len(unevaluable_order)} 组（{unevaluable_labels}）；相等相邻点另计于明细。",
         f"- 空点位置 proxy：存在 proxy 行交错分布的表/数据组合 {len(interleaved_proxy)} 组（{interleaved_labels}）；各组合的首部、交错、尾部行数以及逐模式位置计数见明细。空点模式须由 owner 确认后再解释该分布。",
         "- 本调查不定义空点行的业务语义，也不提出规则改动；如重复行并非同一业务空点模式，或顺序有业务含义且不能由 gid 恢复，按 DC56 另行立项条件处理。",

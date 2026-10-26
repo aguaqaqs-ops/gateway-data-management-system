@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
+from gateway_backend.artifacts import ArtifactRefLookupPort
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
@@ -223,7 +224,7 @@ def build_production_submit_dependencies(
     token = load_repository_bearer_token(settings.repository_bearer_token_file)
     manifest_reader = ArtifactBackedCanonicalizationManifestReader(
         artifact_store=preview_deps.artifact_store,
-        artifact_refs=preview_deps.artifact_store,
+        artifact_refs=cast(ArtifactRefLookupPort, preview_deps.artifact_store),
     )
 
     def control_transaction_factory() -> ControlDbUnitOfWork:

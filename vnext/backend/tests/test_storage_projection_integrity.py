@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import cast
 
 import pytest
 from gateway_shared_kernel import (
@@ -744,8 +745,14 @@ def test_projection_computes_each_table_digest_once(monkeypatch: pytest.MonkeyPa
         "gateway_backend.capabilities.storage_projection.project"
     )
     calls = {"raw": 0, "fast": 0}
-    raw_digest = projection_module.raw_content_digest_of
-    fast_digest = projection_module.fast_row_digest_of
+    raw_digest = cast(
+        Callable[[tuple[bytes, ...]], DigestRef],
+        projection_module.raw_content_digest_of,
+    )
+    fast_digest = cast(
+        Callable[[tuple[bytes, ...]], DigestRef],
+        projection_module.fast_row_digest_of,
+    )
 
     def counted_raw(rows: tuple[bytes, ...]) -> DigestRef:
         calls["raw"] += 1

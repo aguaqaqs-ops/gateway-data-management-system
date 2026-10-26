@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -72,7 +72,7 @@ class MetadataControlDbUnitOfWork(ControlDbUnitOfWork):
 def metadata_for_catalog(
     catalog: RepositoryTableCatalog,
     *,
-    rows_by_table: Mapping[str, tuple[tuple[object | None, ...], ...]] | None = None,
+    rows_by_table: Mapping[str, Sequence[Sequence[object | None]]] | None = None,
     ruleset: TableRulesetSnapshot | None = None,
     manifest_override: CanonicalizationManifest | None = None,
     initial: bool | None = None,

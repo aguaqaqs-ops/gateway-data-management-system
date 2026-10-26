@@ -333,10 +333,11 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     harness = build_history_compare_harness(tmp_path)
     run_full_history_compare_job(harness)
 
-    assert harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session is not None
-    assert harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session.table_readers == []
-    assert harness.providers["commit-b"].last_session is not None
-    assert harness.providers["commit-b"].last_session.table_readers == []
+    baseline_session = harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session
+    current_session = harness.providers["commit-b"].last_session
+    assert baseline_session is not None and current_session is not None
+    assert baseline_session.table_readers == []
+    assert current_session.table_readers == []
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)

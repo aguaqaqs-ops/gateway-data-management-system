@@ -553,6 +553,11 @@ def _canonical_binding_from_manifest(manifest: CanonicalizationManifest) -> Cano
             raw_content_digest=table.content_digest,
         )
         for table in sorted(manifest.tables, key=lambda item: item.name.encode("utf-8"))
+        if (
+            table.source_schema_digest is not None
+            and table.canonical_schema_digest is not None
+            and table.content_digest is not None
+        )
     )
     return CanonicalBinding(
         storage_projection_version=manifest.storage_projection_version,

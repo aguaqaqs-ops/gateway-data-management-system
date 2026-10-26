@@ -70,7 +70,8 @@ def canonical_binding_for_commit(
             )
             for table in sorted(manifest.tables, key=lambda item: item.name.encode("utf-8"))
             if (
-                table.canonical_schema_digest is not None
+                table.source_schema_digest is not None
+                and table.canonical_schema_digest is not None
                 and table.content_digest is not None
             )
         ),

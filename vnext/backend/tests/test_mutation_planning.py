@@ -492,16 +492,17 @@ def test_gid_no_v1_table_is_patchable_within_the_frozen_threshold() -> None:
     def rows(changed: set[int]) -> tuple[MutationKeyedRow, ...]:
         result: list[MutationKeyedRow] = []
         for index in range(1, 101):
-            gid = {"kind": "unsigned-integer", "decimal": str(index)}
+            gid: dict[str, object] = {"kind": "unsigned-integer", "decimal": str(index)}
+            columns: tuple[tuple[str, dict[str, object]], ...] = (
+                ("gid", gid),
+                ("no", {"kind": "signed-integer", "decimal": str(index)}),
+                (
+                    "value",
+                    {"kind": "string", "text": "changed" if index - 1 in changed else "stable"},
+                ),
+            )
             image = PersistedRowImage(
-                columns=(
-                    ("gid", gid),
-                    ("no", {"kind": "signed-integer", "decimal": str(index)}),
-                    (
-                        "value",
-                        {"kind": "string", "text": "changed" if index - 1 in changed else "stable"},
-                    ),
-                )
+                columns=columns
             )
             result.append(
                 MutationKeyedRow(

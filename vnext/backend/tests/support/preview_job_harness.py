@@ -315,23 +315,32 @@ def build_preview_harness(
     canonical_noop: bool = False,
     empty_baseline: bool = False,
     include_identity_table: bool = False,
+    identity_project_id: str = "project-a",
 ) -> PreviewJobHarness:
     db_path = tmp_path / "preview-control.sqlite3"
     bootstrap_control_database(make_operation_worker_settings(db_path.parent, control_db_path=db_path))
     artifact_store = InMemoryArtifactStore()
     identity_sql = (
         "CREATE TABLE version_manager (`project_id` VARCHAR(32));\n"
+        f"INSERT INTO version_manager VALUES ('{identity_project_id}');\n"
+        if include_identity_table
+        else ""
+    )
+    baseline_identity_sql = (
+        "CREATE TABLE version_manager (`project_id` VARCHAR(32));\n"
         "INSERT INTO version_manager VALUES ('project-a');\n"
         if include_identity_table
         else ""
     )
-    baseline_sql = BASELINE_SQL + identity_sql
+    baseline_sql = BASELINE_SQL + baseline_identity_sql
     if empty_baseline and canonical_noop:
         modified_sql = EMPTY_SQL
         initial_sql = EMPTY_SQL
     else:
-        modified_sql = baseline_sql if canonical_noop else MODIFIED_SQL + identity_sql
-        initial_sql = baseline_sql if canonical_noop else INITIAL_SQL + identity_sql
+        modified_table_sql = BASELINE_SQL if canonical_noop else MODIFIED_SQL
+        initial_table_sql = BASELINE_SQL if canonical_noop else INITIAL_SQL
+        modified_sql = modified_table_sql + identity_sql
+        initial_sql = initial_table_sql + identity_sql
     modified_binding = store_source_package(
         artifact_store,
         modified_sql.encode("utf-8"),

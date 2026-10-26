@@ -348,11 +348,64 @@ def _replacement_surface_table_artifacts(
         SurfaceArtifactIndexEntry(
             table_name=table_name,
             table_refs=SurfaceTableRefs(
-                before_table_ref=before.get(table_name),
+                before_table_ref=(
+                    before.get(table_name)
+                    or (
+                        current.get(table_name)
+                        if _same_complete_table_identity(
+                            request.before,
+                            request.current,
+                            table_name,
+                        )
+                        else None
+                    )
+                ),
                 current_table_ref=current.get(table_name),
             ),
         )
         for table_name in sorted(before.keys() | current.keys())
+    )
+
+
+def _same_complete_table_identity(
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+    table_name: str,
+) -> bool:
+    before_descriptor = next(
+        (item for item in before.summary.tables if item.table_name == table_name),
+        None,
+    )
+    current_descriptor = next(
+        (item for item in current.summary.tables if item.table_name == table_name),
+        None,
+    )
+    before_facts = next(
+        (item for item in before.storage_facts if item.storage_rule_view.canonical_table == table_name),
+        None,
+    )
+    current_facts = next(
+        (item for item in current.storage_facts if item.storage_rule_view.canonical_table == table_name),
+        None,
+    )
+    return (
+        before_descriptor is not None
+        and current_descriptor is not None
+        and before_facts is not None
+        and current_facts is not None
+        and before_descriptor.business_schema_digest == current_descriptor.business_schema_digest
+        and before_descriptor.row_count == current_descriptor.row_count
+        and before_descriptor.raw_content_digest is not None
+        and before_descriptor.raw_content_digest == current_descriptor.raw_content_digest
+        and before_descriptor.degraded_reason == current_descriptor.degraded_reason
+        and before_facts.storage_rule_view == current_facts.storage_rule_view
+        and before_facts.source_schema_digest == current_facts.source_schema_digest
+        and before_facts.canonical_schema_digest is not None
+        and before_facts.canonical_schema_digest == current_facts.canonical_schema_digest
+        and before_facts.raw_content_digest == before_descriptor.raw_content_digest
+        and current_facts.raw_content_digest == current_descriptor.raw_content_digest
+        and before_facts.storage_projection_version is not None
+        and before_facts.storage_projection_version == current_facts.storage_projection_version
     )
 
 

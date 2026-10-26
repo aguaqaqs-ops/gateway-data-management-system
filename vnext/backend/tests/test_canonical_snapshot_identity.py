@@ -29,8 +29,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRefMaterializationRequest,
     SnapshotTable,
     SnapshotTableSet,
-    snapshot_digest_of,
 )
+from gateway_backend.capabilities.snapshot_materialization._digest import snapshot_digest_of
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadata,

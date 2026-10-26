@@ -397,7 +397,6 @@ def _same_complete_table_identity(
         and before_descriptor.row_count == current_descriptor.row_count
         and before_descriptor.raw_content_digest is not None
         and before_descriptor.raw_content_digest == current_descriptor.raw_content_digest
-        and before_descriptor.degraded_reason == current_descriptor.degraded_reason
         and before_facts.storage_rule_view == current_facts.storage_rule_view
         and before_facts.source_schema_digest == current_facts.source_schema_digest
         and before_facts.canonical_schema_digest is not None

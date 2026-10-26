@@ -403,7 +403,10 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
     from gateway_backend.application.payloads import CheckpointDecodeError
     from gateway_backend.application.preview_jobs import _materialized_preview_inputs_from_checkpoint
 
-    harness = build_preview_harness(tmp_path)
+    harness = build_preview_harness(
+        tmp_path,
+        input_completeness=InputCompleteness.MODIFIED_ONLY,
+    )
     operation_id = "op-materialize-tamper"
     _run_materialize(harness, operation_id)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
@@ -416,6 +419,7 @@ def test_materialize_checkpoint_rejects_tables_cleared_from_nonempty_summary(tmp
     assert isinstance(sides, dict)
     baseline_side = sides["BASELINE"]
     assert isinstance(baseline_side, dict)
+    assert baseline_side["tables"]
     baseline_side["tables"] = []
     _replace_materialized_sides_document(job_state, sides_document, harness)
 

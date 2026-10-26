@@ -1337,7 +1337,6 @@ def _unchanged_baseline_identity_table_set(
         or current_fact is None
         or before_descriptor.row_count != current_descriptor.row_count
         or before_descriptor.raw_content_digest != current_descriptor.raw_content_digest
-        or before_descriptor.degraded_reason != current_descriptor.degraded_reason
         or before_fact.raw_content_digest != current_fact.raw_content_digest
         or before_fact.source_schema_digest != current_fact.source_schema_digest
         or before_fact.canonical_schema_digest != current_fact.canonical_schema_digest

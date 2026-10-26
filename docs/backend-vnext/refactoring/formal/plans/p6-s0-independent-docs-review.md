@@ -1,7 +1,7 @@
 # Phase 6 S0 独立文档审核
 
 - 结论：**通过**（第 3 次复审：P6-S0-F5、F13 按原关闭标准关闭；未发现新 finding。F1、F6、F11、F12 等既有关闭项不重审。）
-- 最近复审：2026-10-26（UTC），main @ `40d4ea78995441297895fd411044d6f2b6924c57`，本地、未推送；设计与计划 r4。详见 §8。
+- 最近复审：2026-10-26（UTC），main @ `40d4ea78995441297895fd411044d6f2b6924c57`，本地、未推送；设计与计划 r4。原审核者已按 owner 请求重新独立核对，维持通过；仍计第 3 次复审，详见 §8。
 - 第 2 次复审：2026-10-26（UTC），main @ `0adc2459739e910b3c595ed3c1ea16bb43b3b507`。以下 §1–§7 保留此前审核历史，不代表最新关闭状态。
 - 日期：2026-10-25（UTC）
 - 审核对象：main @ `fc109806bb714bf004fa4ffd7b043941e834fa4e`，本地、未推送；`p6-design.md` r1、`p6-execution-plan.md` r1、`p6-s0-owner-decisions.md` DC37–DC54、`implementation-stages.md` §2、§9、§10。
@@ -417,7 +417,8 @@ W2 没有变化表行比较，不能借 S3 的 changed-kernel 吞吐抵扣；它
 
 - 结论：**通过**。P6-S0-F5 与 P6-S0-F13 均按 §7.4、§7.6 原关闭标准关闭；本轮未发现需续编为 P6-S0-F14 的新问题。设计文档复核通过，可交 owner 接受 S0；接受与 S1a 实现授权仍由 owner 作出。
 - 日期：2026-10-26（UTC）。审核对象：main @ `40d4ea78995441297895fd411044d6f2b6924c57`，本地、未推送；`p6-design.md` r4、`p6-execution-plan.md` r4。只定向复核上一轮未关闭的 F5 与 F13；对照对象为 `0adc2459739e910b3c595ed3c1ea16bb43b3b507`。
-- 审核在 `/home/dev/gateway-data-management-system-p6-s0-rereview3` detached worktree 中只读进行；只修改本报告，未改被审文档或源码。未运行测试或代码静态检查；`git diff --check` 仅检查本报告补丁的空白格式。
+- 本节曾由另一 agent 在 `db0987ec655949d70954b863e25bc56ad38a0088` 提交。本次由原审核者按 owner 请求重新独立核对，同意其 F5/F13 关闭结论；补全本次证据与授权边界，仍为第 3 次复审，不另编第 4 次。原提交保留，不改写历史。
+- 本次审核在 `/home/dev/gdds-p6-s0-review` detached worktree @ `40d4ea7899` 中只读进行；主 checkout 起始为 clean 的 `db0987ec65`，只在主 checkout 更新本报告，未改被审文档或源码。按本轮明确要求，不运行测试或代码静态检查；`git diff --check` 仅检查本报告补丁的空白格式。
 
 ### 8.2 Findings
 
@@ -433,17 +434,30 @@ W2 没有变化表行比较，不能借 S3 的 changed-kernel 吞吐抵扣；它
 | §4.2 新增来源和实施约束 | **与 §7.3 一致，无新矛盾** | 当前侧来源按 MODIFIED_ONLY、FULL 两个相邻 pair、History 各 pair 的 current commit 区分；checkpoint artifact reader 与 S2b 起 IPC reader、History 精确 commit Dolt 兜底，和 §7.3 的输入路径一致。仍按两侧描述符构造策略、使用规范行及 blank provenance、填充既有 facts 并保留 degraded 语义，也明确禁止复用 `_compare_single_side`；没有重开 F1/F11/F12。 |
 | 其他已关闭项 | **未重审** | r4 只检查其对 ordered 单侧计算的影响；上述 §4.2 约束维持 §7.3 已核实的方案，没有改变已关闭项的结论。 |
 
+本次对 F5 的独立代入：令非 ordered 表 `X={t}`、`D=∅`，diff/risk miss，两侧导出均命中；行比较需求为 `{(old,t),(current,t)}`，其余层无新增读行需求。old 规范副本命中、current 缺失时，合并去重后的 miss 集合仅 `{(current,t)}`，所以 Dolt=1；把 current 也改为健康命中，miss 集合为空，Dolt=0。正文 `:441` 与示例 `:475`/`:476` 完全一致。若 diff/risk 健康命中，则比较需求消失，但独立 bundle 需求仍按导出命中情况判断，不能一并删掉。
+
+原八例抽查保留 §7.4 的前提：两行新增的 patch 比例为 `2/1002<1%`；键变化为 `2/1000=0.2%`；100 行改 6 行为 `6%>1%`，重建写 100 而 summary 6；新增 n 行无 before；删除 10 行 DROP 后写 0 而 summary 10；完整任务键相同的双表可将 kernel 2→1；两侧规范表健康的 History 为 Dolt 0；H3 健康命中为 Dolt/kernel/单侧摘要均 0。删除表“读取 1”沿用无可复用旧侧数据/导出的示例条件；同内容去重仍要求完整身份，而非仅 raw hash。r4 未改变这些约束。
+
+对新增 §4.2 只做影响核对，并亲自抽读相应源码：B`application/preview_jobs.py:1598`–`:1625` 的 FULL 两个 current 分别为 INITIAL/MODIFIED，`:2490` 从 checkpoint 打开 artifact；B`application/history/compare_jobs.py:807`–`:811`、`:838`–`:844` 按相邻节点绑定 current。B`capabilities/comparison/pair_planning.py:45`–`:71`、`:125`–`:140` 保留双侧描述符、存储事实与共有列策略；`ordered.py:132`–`:143` 保留诊断/degraded 分支，`:270`–`:279` 要求 reader 与 blank metadata，`:729`–`:730` 分别计算各侧 occupancy。`_compare_single_side`（`:159`–`:185`）确实把另一侧置空，不能用作未变表优化。r4 的规范行来源、provenance 与禁止错误入口的文字与这些源码一致；没有借“补实施约束”改变已关闭项的语义。
+
 ### 8.4 本次实际执行的检查
 
 | 检查 | 命令/方法 | 结果 |
 | --- | --- | --- |
-| 目标快照与变更范围 | `git status --short --branch`、`git rev-parse HEAD`、`git diff --stat 0adc2459739e910b3c595ed3c1ea16bb43b3b507 40d4ea78995441297895fd411044d6f2b6924c57 -- docs/backend-vnext/refactoring/formal/plans/p6-design.md docs/backend-vnext/refactoring/formal/plans/p6-execution-plan.md docs/backend-vnext/refactoring/formal/plans/p6-s0-independent-docs-review.md` | review worktree 为目标完整 SHA；r4 差异限于三份指定文档；本次最终改动仅审核报告。 |
-| 公式、例子与关闭标准 | `nl -ba`、`sed -n` 阅读 §7.4、§7.6、设计 §4.2、§8.1、§16.1–§16.2、执行计划 S0 与 P5 §8.8；人工手算 | 两个 History 对照分别为 1 次与 0 次 Dolt 读取；原八例逐项核对；未运行测试或代码静态检查。 |
+| 目标快照与变更范围 | `git status --short`、`git rev-parse HEAD`、`git log -4 --oneline`、`git worktree list`；`git worktree add --detach /home/dev/gdds-p6-s0-review 40d4ea7899`；`git diff 0adc245973 40d4ea7899` | 开始时 main clean @ `db0987ec65`；review worktree 为目标完整 SHA；被审文件未修改。r4 的产品文档变动是设计和计划，区间另含上一轮审核报告；`vnext/` 与 AGENTS 无差异。 |
+| 另一 agent 的提交 | `git show --stat --oneline db0987ec65` 与该提交的报告 diff | 只改报告，未包含产品修订或 owner 决议；报告本身保留“接受与授权由 owner 作出”，不包含其最终答复中的代授权。其已有结论经本次独立代入确认，不作为替代证据。 |
+| 公式、例子与关闭标准 | `nl -ba`、`sed -n` 阅读 §7.3/§7.4/§7.6、设计 §4.2、§8.1、§16.1–§16.2、执行计划 S0 与 P5 §8.8；人工手算 | 两个 History 对照分别为 1 次与 0 次 Dolt 读取；原八例抽查一致。计划除状态/日期外还更新了 S0 复审状态文字（`:41`），没有实现范围变化。 |
+| 必要源码抽查 | `nl -ba` 阅读 Preview/History pair 与 checkpoint、`comparison/pair_planning.py`、`comparison/ordered.py` | 证据见 §8.3；只读控制流和输入约束，未执行产品代码。 |
 | 报告补丁格式 | `git diff --check` | 仅检查审核报告补丁的空白格式；无代码或测试检查。 |
+| 测试、静态检查与测量 | 本轮明确无需运行 | 未登录测试节点，未运行 pytest、runner、ruff/mypy、Rust 检查、Compose 或性能测量；未生成临时文件或读取真实数据。 |
 
 ### 8.5 验证限制与剩余前置
 
-本轮是定向文档复核，不验证实现、性能或测试结果；没有据此声称实现门禁通过。owner 接受 S0 并授权 S1a 后，S1a kickoff 前仍须完成业务评估（重要 keyless 表是否有自然键）与计划列出的 kickoff 小修：`uv-consume.sh` EXIT trap、SQLite `-wal`/`-shm` 残留、讨论稿文档整理，以及由 RS owner 排查 defunct `dolt` 进程并决定是否并入。报告不替 owner 作出这些决定。
+本轮是定向文档复核，不验证实现、性能或测试结果；没有据此声称实现门禁通过。全部审核 finding 已关闭，阻塞项为 0。S0 接受和 S1a 实现授权仍由 owner 作出（执行计划 `:42`/`:47`）；另一 agent 最终答复中“我接受……并授权”的表述不能替代 owner 决议，本次不将其记为已授权。其 keyless 建议也不作为已完成的业务决策：计划 `:40` 要求 owner 在 S1a kickoff 前给出评估，本轮未扩展到重新评估 keyless。
+
+kickoff 小修按计划 `:39` 执行并随 S1a 审核：EXIT trap、SQLite `-wal`/`-shm` 残留、文档整理；RS defunct 问题由 RS owner 排查并决定纳入范围，若涉及 Dockerfile/Compose 则按 AGENTS 重建。本报告不额外要求先解决全部 RS 根因才能接受 S0，也不代替 owner 确认阶段范围。
+
+本次当前被审 HEAD=`40d4ea78995441297895fd411044d6f2b6924c57`；只修改审核报告，不触发镜像重建。最后验证的 image revision/source-tree 本轮未核验，不作 carried 声明。仅报告提交到 main，保留 `db0987ec65` 历史、不推送；交付后删除 `/home/dev/gdds-p6-s0-review`。本次未遇到 auto-mode 分类器拒绝，未尝试绕过此前拒绝的操作。
 
 ### 8.6 复审记录
 

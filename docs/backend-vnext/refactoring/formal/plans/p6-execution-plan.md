@@ -1,8 +1,8 @@
 # Phase 6 执行计划
 
-状态：**DRAFT r3 — 按 S0 独立文档审核第 1 次复审修订，待第 2 次复审；实现未授权**
+状态：**DRAFT r4 — 按 S0 独立文档审核第 2 次复审修订，待定向复核；实现未授权**
 
-日期：2026-10-26（r3）；r1、r2 为 2026-10-26
+日期：2026-10-26（r4）；r1–r3 为 2026-10-26
 
 审核：[S0 独立文档审核](p6-s0-independent-docs-review.md)；findings 处置见详细设计附录 A。
 
@@ -38,7 +38,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - **独立文档审核：** 审核对象为本文、详细设计、决议记录 DC37–DC55 与 implementation-stages §9/§10 的改写；必须复核的代码事实见设计 §2.2（Submit 全量重写、Preview 全量物化基线、bundle 不含整表、上传 60 s 总时限、uv 不重建扩展）。审核报告模板沿用 [P5 执行计划 §8.8](p5-arch-closure-execution-plan.md)。
 - **kickoff 小修**（不单独审核，随 S1a 审核）：`uv-consume.sh` 的 EXIT trap（`mktemp` 锁快照残留）；测试留下的 `repository-import-*.sqlite3-shm/-wal`；三项文档整理（讨论稿 §12）；RS defunct `dolt` 进程：交 RS owner 排查，修复若涉及 Dockerfile/Compose 则为强制重建项，可并入 S1a。
 - **业务评估：** 重要 keyless 表是否定义自然键，S1a kickoff 之前由 owner 给出；结论可能影响 DC39 与 S3 对 keyless 的处理。
-- **定向复审：** 交同一审核者复审，逐项核对设计附录 A 的处置与 findings 的关闭标准（r2 已经第 1 次复审，r3 待第 2 次复审）。
+- **定向复审：** 交同一审核者复审，逐项核对设计附录 A 的处置与 findings 的关闭标准（r2、r3 已经第 1、2 次复审，r4 待定向复核 F5 与 F13）。
 - **接受：** 复审通过、owner 接受文档后给出实现授权。
 
 ### S1a — 摘要与存储 Contract

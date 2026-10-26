@@ -1,14 +1,14 @@
 # Phase 6 详细设计：单任务性能与 Rust 接入
 
-状态：**DRAFT r3 — 按 S0 独立文档审核第 1 次复审修订，待第 2 次复审；实现未授权**
+状态：**DRAFT r4 — 按 S0 独立文档审核第 2 次复审修订，待定向复核；实现未授权**
 
-日期：2026-10-26（r3）；r1、r2 为 2026-10-26
+日期：2026-10-26（r4）；r1–r3 为 2026-10-26
 
 Owner：Backend vNext Architecture（Phase 6 牵头）；各项语义归属见 §14
 
 入口：[S0 Owner 决议记录](p6-s0-owner-decisions.md)（DC37–DC55）→ 本文 → [执行计划](p6-execution-plan.md)
 
-审核：[S0 独立文档审核](p6-s0-independent-docs-review.md)：首次审核（r1，定向修订，8 项阻塞、2 项非阻塞）；第 1 次复审（r2，定向修订：F1、F5、F6 部分关闭，新增 F11、F12）。处置见附录 A。
+审核：[S0 独立文档审核](p6-s0-independent-docs-review.md)：首次审核（r1，定向修订，8 项阻塞、2 项非阻塞）；第 1 次复审（r2，定向修订：F1、F5、F6 部分关闭，新增 F11、F12）；第 2 次复审（r3，定向修订：F1、F6、F11、F12 关闭，F5 部分关闭，新增非阻塞 F13）。处置见附录 A。
 
 依据：[Phase 6 规划讨论稿](p6-planning-discussion.md)（分析过程与数据）；前置验证报告
 [V5](p6-v5-attribution-report.md)、[V5b](p6-v5b-segment-report.md)、[V6](p6-v6-parser-prototype-report.md)、
@@ -152,7 +152,9 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 ### 4.2 Preview 与 History 的结构性过滤（DC39、DC55 第 2 项）
 
 - **未变化的完整条件（D）：** 两侧都存在，且表摘要、schema digest、存储视图与投影版本都相同。仅表摘要相同不够（零行表不同 schema、只改可空性等）。
-- 满足完整条件的表：不读基线行、不做行比较；facts 的行数与 `UNCHANGED` 来自 manifest。ordered 表另按 §4.1 用当前侧的行计算逻辑摘要与 occupancy 摘要：Preview 的当前侧是内存中的上传侧；History 的当前节点表本来要为整表打包读取（§5.2），健康缓存命中时直接用 diff/risk 缓存（§11）。S1a 中这一单侧计算在 Python 中进行，成本计入 §16.1；S3 起由 Rust 计算。
+- 满足完整条件的表：不读基线行、不做行比较；facts 的行数与 `UNCHANGED` 来自 manifest。ordered 表另按 §4.1 用当前侧的规范行计算逻辑摘要与 occupancy 摘要，计算发生在 assemble 中、按每个 pair 一次（S1a 用 Python，S3 起用 Rust），健康缓存命中时直接用 diff/risk 缓存（§11）。成本计入 §16.1 的 e 项。
+- **当前侧的规范行来源：** 是本 pair 的当前侧，不固定为 MODIFIED：MODIFIED_ONLY Preview 为上传的 MODIFIED；FULL Preview 的两个 pair 分别为上传的 INITIAL 与 MODIFIED；History 为各 pair 的 current commit（三节点时分别为第 2、第 3 节点）。读取经 materialize checkpoint 的 artifact reader（S2b 起为规范表存储的 IPC reader），不依赖上一步 Python 对象存活；History 经存储，缺失时从精确 commit 经 Dolt 兜底（§8.2）。
+- **单侧计算的实施约束（第 2 次复审 §7.3）：** 有效 pair 策略仍按现行方式由两侧描述符与存储事实构造（`comparison/pair_planning.py`），不能因只读一侧而把基线侧描述符设为空；行编码与 blank provenance 使用规范行及其规范 metadata（`CANONICAL_PSEUDO_GID`），不按原始 SQL 重新解释；ordered/blank status、replay guarantee、schema facts、policy digest 等 facts 字段按既有结构填充；现有 schema 诊断与行读取异常的 degraded 语义保留，不能仅因 manifest 相等就强制标为 `UNCHANGED`；**不得复用 `_compare_single_side`**——它表达的是整表新增或删除，会产生增删记录与不同的 blank 摘要。
 - 变化表与删除表读取基线：S1a 中经 RS 逐表读取（规范表存储在 S2b 才有），并发 ≤ min(N, RS 有效容量)（DC47 第 6 项；S1a 可先顺序读取）；新增表没有基线可读。
 - History 的两个节点使用同一套完整条件；整表数据的读取随 DC41 的打包进行（§5.2）。
 - 计数断言见 §16.2。
@@ -266,7 +268,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ### 8.1 数据路径合并（DC46）
 
-- 解析 → 业务列与检查（伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（保留列、规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要、ordered 逻辑摘要与 `fast_row_digest` 在 Rust 中依次完成，数据始终是 Arrow；三个 capability 各自拥有语义与诊断，模块依赖不变。
+- 解析 → 业务列与检查（伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（保留列、规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要与 `fast_row_digest` 在 Rust 中依次完成，数据始终是 Arrow；三个 capability 各自拥有语义与诊断，模块依赖不变。上传路径不预计算 ordered 逻辑摘要与 occupancy 摘要：它们依赖本次 pair 策略，只在 assemble 中按 pair 计算一次（§4.2，S3 起由 Rust 计算）。
 - composite signal 留在 Python：在 Arrow 上先按特殊设备过滤 `device` 与 5 张特殊点表，只把命中行转成 Python。
 - Rust 输出规范表的 IPC 字节，由 Python ArtifactStore 写入（Rust safety policy §4）。
 - **上传侧原始表不再写 Parquet（设计核对项，S2b kickoff 前完成）：** 逐一核对 materialize 与 assemble 的 checkpoint、FULL 双侧、composite、bundle、T1 与恢复路径中的读取者；未完成前不进入 S2b 切换。
@@ -436,7 +438,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | --- | --- | --- |
 | Preview 基线的逻辑需求 | 需要基线侧行的表 = X ∪ D | 管线的需求记录 |
 | Preview 基线的实际读取 | 按 (commit, 内容身份) 去重后的实际读取数 ≤ \|X\|+\|D\|；其中 Dolt 读取数 = 存储未命中或校验失败的表数。**W2：需求为 0，实际读取为 0** | 存储与 RS 读取计数 |
-| History（两节点） | 需求按层分别记录：行比较需要旧节点 X ∪ D 的行；整表打包需要两个节点全部表的导出（命中导出缓存则不读表）；单侧摘要需要当前节点未变 ordered 表的行（命中 diff/risk 缓存则不需要）。实际 Dolt 读取数 = 上述需求中存储副本缺失或校验失败的 (commit, 表) 数 | 存储、RS 与缓存计数 |
+| History（每个 pair） | 需求按层分别记录，跨层按 (commit, 内容身份) 合并去重后再计算实际读取：<br>• **行比较**（diff/risk 未命中的 X 表）：需要旧节点与当前节点两侧的行，即 old-X 与 current-X；<br>• **表级处理**：D 表需要旧节点的行用于整表浏览与导出；<br>• **单侧摘要**（diff/risk 未命中的未变 ordered 表）：需要当前节点的行；<br>• **整表打包**：两个节点全部表的导出，命中导出缓存则不读表。<br>diff/risk 健康命中消除该表的行比较与单侧摘要需求，但不消除整表打包需求。实际 Dolt 读取数 = 合并后的需求中存储副本缺失或校验失败的 (commit, 表) 数 | 存储、RS 与缓存计数 |
 
 **比较：**
 
@@ -470,7 +472,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 只有新增表 t（n 行） | A={t} | 0 | 0 / 1 | 0 | 整表重建 | 写入 n 行 |
 | 只有删除表 t（10 行） | D={t} | 1（bundle 需要基线侧数据） | 0 / 1 | 0 | `DROP` | 写入 0 行；`changed_row_count`=10，只报告 |
 | 两张同内容表 t1、t2 发生相同变化 | X={t1,t2} | ≤ 2（同内容身份可共享一次读取） | 2 / 0 | 1（去重后） | 各自按表 | 各自按表 |
-| History：diff/risk 缓存缺失，但两节点规范表副本健康 | 旧节点 X={t} | Dolt 0 | 1 / 0 | 1 | — | — |
+| History：diff/risk 缓存缺失，但两节点规范表副本健康 | X={t}（非 ordered） | Dolt 0（两侧都从存储读） | 1 / 0 | 1 | — | — |
+| History：diff/risk 缓存缺失；旧节点规范表健康，当前节点 t 的规范表缺失；两侧导出缓存均健康 | X={t}（非 ordered） | Dolt 1（当前 commit 的 t，按 §8.2 回填） | 1 / 0 | 1 | — | — |
 | History：H3 重复查询，缓存健康 | — | Dolt 0 | 派发照常记录 | 0 | — | — |
 
 ### 16.3 验收矩阵
@@ -540,3 +543,6 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 第 1 次复审 F5（部分关闭） | 阻塞 | Submit 分列表级决定、行级修改的逻辑变更数、整表重建的写入行数与删除表；`changed_row_count` 保持现行定义只作报告；读取区分逻辑需求与实际读取，按层与缓存状态计算；手算示例补路由与缓存前提，增加整表重建与只缺 diff/risk 缓存的例子 | §16.2 |
 | 第 1 次复审 F6（部分关闭） | 阻塞 | 预算改为不重叠分项账，逐项写工作量 × 吞吐假设与依据，未知项绑定检查点；S2b W2 检查点给出判定式，未归因残差不计入可削减额度；风险消费内存中的 Arrow 记录，读取校验只在从存储读 closure 时由 Rust 进行并计入 H1/H3 与 bundle 预算；风险约 5 s 标为待验证假设 | §9、§16.1 |
 | 第 1 次复审的导航文字提醒 | 非阻塞 | 决议记录待定表、后续步骤与执行计划 S0 的版本与编号已对齐 | 决议记录 §3、§5；执行计划 §2 |
+| 第 2 次复审 F5（部分关闭） | 阻塞 | History 的读取需求改为按 pair 分层列出：行比较需要 old-X 与 current-X 两侧，D 表的表级处理与导出、未变 ordered 的单侧摘要、整表打包各自独立；跨层按 (commit, 内容身份) 合并去重后计算实际 Dolt 读取；diff/risk 命中只消除行比较与单侧摘要需求。补“当前节点规范表缺失、导出命中”读 Dolt 1 次与“两侧健康”0 次两例 | §16.2 |
+| 第 2 次复审 F13（非阻塞） | 非阻塞 | S2b 上传路径删除 ordered 逻辑摘要的预计算；单侧摘要只在 assemble 中按 pair 计算一次，S1a 用 Python、S3 起用 Rust，预算 e 项的阶段一致 | §4.2、§8.1 |
+| 第 2 次复审 §7.3 的实施约束（非 finding） | — | 写入 §4.2：当前侧规范行来源按 pair 与模式区分、经 checkpoint 或存储 reader 读取；有效策略仍由两侧描述符构造；使用规范 provenance；facts 按既有结构填充并保留 degraded 语义；不得复用 `_compare_single_side` | §4.2 |

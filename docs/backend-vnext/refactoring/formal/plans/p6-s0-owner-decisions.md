@@ -44,6 +44,8 @@ implementation_authorized: no
 | DC53 | W1–W4 目标数值定稿与达标条件 | §3.3 | A1 |
 | DC54 | 逐行记录的生成与序列化进入 Rust（S3） | §5.4 | — |
 | DC55 | 独立文档审核后的决议修订（F1–F5） | — | — |
+| DC56 | keyless 表的自然键与处理角色（DC50 业务评估） | — | — |
+| DC57 | 行级修改按批渲染（S1a 阈值停止后的处理） | — | — |
 
 ## 2. 决议详情
 
@@ -299,6 +301,31 @@ implementation_authorized: no
   5. **计数口径与字节冻结（F5，修订 DC45 第 2、7 项）：** 计数断言只针对逻辑数量，不针对 SQL 语句数：规划器的逻辑变更数按 Storage Mutation §4 计（同键 UPDATE 计 1 次，键变化计 DELETE + INSERT 2 次）；表按“变化、新增、删除、未变”四类给出公式（设计 §16.2）；去重或缓存命中后的实际 kernel 调用数单独记录，只要求不超过逻辑派发数。行级修改阈值与 INSERT 批量规则在 S1a 实测后冻结；S4 对同一输入做 `replay.sql` 逐字节回归；若 S4 实测必须调整阈值，作为明确例外交 owner 决定，并在 S4 更新包 golden。
 - **落点**：DC39、DC41、DC42、DC45 及 DC50 S1b 的对应条目已注明“DC55 修订”；[详细设计](p6-design.md) 与 [执行计划](p6-execution-plan.md) r2。
 
+### DC56 keyless 表的自然键与处理角色（DC50 业务评估）
+
+- **来源**：[keyless 候选键普查](p6-keyless-candidate-census.md)（t1–t4 的 v1、v2 共 8 份数据，35 张 keyless 表，只含计数与列名）与[规则讨论稿](p6-keyless-candidate-rules-review.md)；S0 讨论会话审核意见。普查没有发现 DC29 清单以外的新表。
+- **决议**（repository owner，2026-10-26）：
+  1. **逐表显式键（11 张表）：** `comm_user_data` 用 `data_key`；`forwardtbl_lst_*` 系列（cs、dz、qt、yc、yk、ym、yt、yx 共 8 张）用 `tbname`；`mms_rp_cdc_index` 用 `idx`；`out_time_cfg` 用 `(board, link_no)`。这些表由 keyless 改为 keyed，比较给出字段级变化，Submit 可走行级修改。显式键是严格规则：之后数据中键列出现重复或 NULL 时，该表投影稳定失败，不回退 keyless。`out_time_cfg` 与 4 个 `forwardtbl_lst_*` 系列在现有数据中均为空表，键按业务语义指定，不是数据验证的结果。`forwardtbl_lst_*` 的选择器形式（8 个精确名或系列正则）在 S1b kickoff 确认。
+  2. **18 张含 `(no, page_no)` 的表按 BROWSE_ONLY 处理，存储保持 keyless：** `cnt_manage_cfg`、`dev104_cfg`、`iec101_cfg`、`iec104_cfg`、`iec104gw_cfg`、`iec61850c_cfg`、`jdxx_cfg`、`nbridge_cfg`、`nr103d_cfg`、`nr103ht_cfg`、`sc_cfg`、`scada_cfg`、`sg_manage_cfg`、`sntp_cfg`、`vqc_cfg`、`wave_cfg`、`wf_cfg` 新加入 BROWSE_ONLY 名单，`project` 已在名单中。不为 BROWSE_ONLY 增加存储键，不拆分存储键与比较键，Contract 不变。owner 接受业务后果：这些表变化时不再产生逐行记录与风险，只有表级变化事实（DC16）与整表浏览。
+  3. **列存在兜底暂不实施：** 按列集合自动选键、校验失败回退 keyless 及额外处理调用，Phase 6 不实施，也不预留接口。DC29 的 keyless 兜底继续处理新表；需要键的新表按规则激活补显式规则。**重开条件：** 出现新的 keyless 表，且业务上需要字段级比较。
+  4. **`forwardtable_*` 保持现状并做一次专项调查：** 6 张 `forwardtable_*` 继续命中 SNAPSHOT_ONLY、keyless 存储、不做比较；不引入 `KEYLESS_ORDERED`。由实施者做一次专项调查（只输出计数与列状态分类，不输出单元格值），确认：完全相同的重复行是否都是空点行；非空点行的 `gid` 是否唯一；源数据中的行顺序是否与 `gid` 顺序一致。结论由 owner 确认；若发现重复行不全是空点行，或行顺序有业务含义且无法由 `gid` 恢复，作为 Phase 6 之外的单独立项。
+- **第 4 项调查结论**（[`forwardtable_*` 空点行调查](p6-forwardtable-blank-rows.md)；repository owner，2026-10-26）：
+  1. **数据结果：** 22 个有重复的表/数据组合中，完全相同的重复行都属于同一列状态模式（`gid`、`devaddr`、`fun`、`inf`、`icseq` 为 0，`fcda` 为空串，`desc` 非空），共 6,177 行，没有单独出现的同模式行；除去这些行后 `gid` 唯一且无 NULL；源顺序中 `gid` 在 30 个组合里有 27 个出现下降（共 10,242 处），空点行 6,176 行夹在正常点之间、1 行在表尾。
+  2. **owner 确认：** 该模式是业务上的空点行；行位置有业务含义，源顺序不能由 `gid` 恢复。但 `forwardtable_*` 是实际转发表（ordered 表）的模板，当前没有业务用途，只保存作参考；必要时可用同源的对应 ordered 表恢复顺序（owner 的业务判断，本次调查未比对 ordered 表）。
+  3. **处置：** 维持 SNAPSHOT_ONLY、keyless 存储、不做比较；owner 接受这些表的存储与导出不保留源行顺序。不引入 `KEYLESS_ORDERED`，不另行立项。**重开条件：** 模板开始被实际使用（例如用于生成转发表，或导出交付设备），需要保留行顺序时，另行立项设计保序存储，并届时验证能否由对应 ordered 表恢复顺序。
+- **落点**：S1b 实施第 1、2 项的规则改动（`capabilities/table_rules/` 名单与规则；规则集版本提升），storage-projection 组中的规则集与 manifest golden 随之在 S1b 更新一次（[详细设计](p6-design.md) §4.6 的例外行）；第 4 项的调查不改规则，不阻塞 S1b。
+
+### DC57 行级修改按批渲染（S1a 阈值停止后的处理）
+
+- **来源**：[S1a handoff](p6-s1a-handoff.md)（S1a 按设计 §17 第 4 项停止）。t4 v2 的 1% 有序表样本 `b1_n11_iec104_syx_list`（98/9,828 行）：行级修改三轮中位 1.458 秒，整表重建 1.239 秒，修改慢约 17.7%。整表重建约 40 条语句（一条整表 DELETE 加按批 INSERT），行级修改每行一条语句（92 条 UPDATE 加 1 条 INSERT），每条约 15 毫秒，主要是单条语句的固定开销；这张表的盈亏点约 83 行（0.85%）。t4 v2 整体回放中，行级修改 3.2 秒、整表重建 27.4 秒，两者的 Dolt 表哈希与当前结果全部相同（312/312）。
+- **决议**（repository owner，2026-10-26，选择 B）：
+  1. **行级修改按批渲染：** 渲染器把同一表的逐行 UPDATE 与 DELETE 合并为按批语句，INSERT 沿用每条最多 256 行、4 MiB 的规则；UPDATE 与 DELETE 的批量上限在 S1a 实测后与 INSERT 规则一同冻结。规划器的逻辑变更与 §16.2 的逻辑计数口径不变，只改变渲染出的语句形式与条数。
+  2. **语句形式由预检选定：** 在固定的 Dolt 版本上先用合成表预检候选形式（例如按批 `DELETE … WHERE 键 IN (…)` 加按批 INSERT，或按批 upsert），覆盖单列键、复合键与有序表（GID_NO_V1）；选定形式须满足：语法可执行、查找走主键而不是全表扫描、结果的 Dolt 表哈希与逐行形式相同、Dolt 中同键行显示为修改。预检不满足时停止，交 owner。
+  3. **正确性前提不变：** 仍为 expected-parent CAS、parent 行按 parent manifest 校验与受信 Repository（DC45 第 6 项、ADR 0014 修订）；不新增条件 DML 或 affected-row 检查。若选定 upsert 形式，“目标行不存在时插入”由上述前提排除，与现行逐行 UPDATE 不检查影响行数的处理一致。
+  4. **阈值保持 1,000 行 / 1%：** 按批渲染后在同一样本上复测。仍慢于重建时退回 A：按实测盈亏点降低比例阈值，作为本决议的例外交 owner 确认。
+  5. **阶段归属：** 语句合批从 S4 的“渲染直通”提前到 S1a；mutation 组 golden 随之在 S1a 更新（属于 S1a 组）。S4 的渲染直通对同一输入逐字节回归 S1a 的按批产物。
+- **落点**：[详细设计](p6-design.md) §4.3、§17；[执行计划](p6-execution-plan.md) §2 S1a 第 3 项。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |
@@ -307,14 +334,14 @@ implementation_authorized: no
 | W1–W4 目标数值定稿 | DC35 | 已定稿（DC53） |
 | 记录写后回读：Rust 重算摘要或删除 | DC54 | Phase 6 设计 |
 | H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |
-| 行级修改的阈值定稿 | DC45 | S1a 复测后冻结；S4 只做回归，须调整时作为例外交 owner（DC55 第 5 项） |
+| 行级修改的阈值定稿 | DC45、DC57 | S1a 按批渲染后复测并冻结（含 UPDATE、DELETE 批量上限；不达标时按 DC57 第 4 项交 owner）；S4 只做回归，须调整时作为例外交 owner（DC55 第 5 项） |
 | Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |
 | 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
 | ordered 比较是否进 Rust | DC44 | 已定（V1）：S3 进入 Rust |
 | `ordered-diff.md` 中伪 gid 起点（20 亿）与 Canonical Storage G8（40 亿–4,294,967,295）的冲突 | DC39、DC44 | S1a 修订 Contract 时明确以 G8 为准（实现已按 G8） |
 | N 的暂定值与定稿 | DC47 | V6 给出解析器单独的暂定值 4；整条路径的 N 在 S2b 后暂定，S6 定稿 |
 | 合成 2× t4 的生成规则 | DC35、DC50 | S1b，写入测量 runbook |
-| 重要 keyless 表是否定义自然键 | DC50 | 业务评估，S1b kickoff 之前（2026-10-26 修订）；先由实施者做候选键普查，owner 确认，补键的规则改动在 S1b |
+| 重要 keyless 表是否定义自然键 | DC50 | 已定（DC56，2026-10-26）：11 张表补显式键，17 张表加入 BROWSE_ONLY，规则改动在 S1b；`forwardtable_*` 保持 SNAPSHOT_ONLY；空点行调查已完成，不另行立项（DC56 第 4 项结论） |
 
 以下仍由 owner 另行决定，不属于本记录：GitHub 远程默认分支改为 `main`；Repository Service 容器中累积 defunct `dolt` 进程的排查（讨论稿 §12，交 RS 的 owner）。G6b 已由 DC51 决定维持 C。
 

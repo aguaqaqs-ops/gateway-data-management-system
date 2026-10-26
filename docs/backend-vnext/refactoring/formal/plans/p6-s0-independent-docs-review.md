@@ -1,7 +1,8 @@
 # Phase 6 S0 独立文档审核
 
-- 结论：**定向修订**（第 2 次复审：F1、F6、F11、F12 关闭；F5 部分关闭，仍为唯一阻塞；新增非阻塞 F13，详见 §7）
-- 最近复审：2026-10-26（UTC），main @ `0adc2459739e910b3c595ed3c1ea16bb43b3b507`。以下 §1–§6 保留此前审核历史，不代表最新关闭状态。
+- 结论：**通过**（第 3 次复审：P6-S0-F5、F13 按原关闭标准关闭；未发现新 finding。F1、F6、F11、F12 等既有关闭项不重审。）
+- 最近复审：2026-10-26（UTC），main @ `40d4ea78995441297895fd411044d6f2b6924c57`，本地、未推送；设计与计划 r4。详见 §8。
+- 第 2 次复审：2026-10-26（UTC），main @ `0adc2459739e910b3c595ed3c1ea16bb43b3b507`。以下 §1–§7 保留此前审核历史，不代表最新关闭状态。
 - 日期：2026-10-25（UTC）
 - 审核对象：main @ `fc109806bb714bf004fa4ffd7b043941e834fa4e`，本地、未推送；`p6-design.md` r1、`p6-execution-plan.md` r1、`p6-s0-owner-decisions.md` DC37–DC54、`implementation-stages.md` §2、§9、§10。
 - 审核形态：S0 文档快照审核，不是实现阶段退出审核；无本轮门禁提交 V。开发机在 `/home/dev/gdds-p6-s0-review` detached worktree 阅读，被审文件未修改。
@@ -409,3 +410,44 @@ W2 没有变化表行比较，不能借 S3 的 changed-kernel 吞吐抵扣；它
 - 当前被审 HEAD=`0adc2459739e910b3c595ed3c1ea16bb43b3b507`。报告为纯文档变更，不触发镜像重建；最后验证的 image revision/source-tree 本轮未核验，不作 carried 声明。五包静态检查不是 runner/容器门禁；环境安装构建既有扩展也不是 Rust gate。
 - 只提交本报告，保留 §1–§6 历史；不修改被审文档，不推送。交付时删除开发机和 05 的本次 detached worktree；节点日志及其中的临时 bundle/构建缓存保留在 `/home/dev/gdds-p6-s0-rereview2-logs/`，不需要单独删除。此前复审遗留的临时文件不属于本次清理范围。
 - 本轮未遇到 auto-mode 分类器拒绝，未尝试绕过此前拒绝的删除操作。
+
+## 8. 第 3 次复审记录
+
+### 8.1 对象与结论
+
+- 结论：**通过**。P6-S0-F5 与 P6-S0-F13 均按 §7.4、§7.6 原关闭标准关闭；本轮未发现需续编为 P6-S0-F14 的新问题。设计文档复核通过，可交 owner 接受 S0；接受与 S1a 实现授权仍由 owner 作出。
+- 日期：2026-10-26（UTC）。审核对象：main @ `40d4ea78995441297895fd411044d6f2b6924c57`，本地、未推送；`p6-design.md` r4、`p6-execution-plan.md` r4。只定向复核上一轮未关闭的 F5 与 F13；对照对象为 `0adc2459739e910b3c595ed3c1ea16bb43b3b507`。
+- 审核在 `/home/dev/gateway-data-management-system-p6-s0-rereview3` detached worktree 中只读进行；只修改本报告，未改被审文档或源码。未运行测试或代码静态检查；`git diff --check` 仅检查本报告补丁的空白格式。
+
+### 8.2 Findings
+
+无新增 finding。
+
+### 8.3 验收核对
+
+| 验收项 | 结果 | 证据 |
+| --- | --- | --- |
+| P6-S0-F5：History 当前侧读取遗漏反例 | **关闭** | 设计 §16.2（`:441`、`:475`–`:476`）现按 pair 分层；diff/risk miss 的 `X={t}` 需要 old-X 与 current-X。旧侧规范副本健康、当前侧缺失、两侧导出缓存健康时，打包层不读表，行比较层仅当前侧存储 miss，按精确 commit 回退 Dolt 1 次。两侧规范副本都健康时，比较所需两侧均由存储满足，Dolt 为 0。导出命中不再掩盖当前侧行比较需求，两个指定场景与正文公式一致。 |
+| P6-S0-F5：原有八个例子 | **未被改坏** | §16.2 的六个 Preview/Submit 例子仍分别给出：新增两行 `X=1`、基线读取 1、净 INSERT 2；键变化 DELETE+INSERT 2；100 行改 6 行时重建写 100、summary 6 仅报告；新增表无基线读取、写 n 行；删除表由 bundle 读取旧侧、DROP 且写 0 行；同内容双表逻辑派发 2、完整任务键相同才将 kernel 去重为 1。原有 History 两例也成立：两侧存储健康时 Dolt 0；H3 健康命中时 Dolt/kernel/单侧摘要均为 0。原“两节点副本健康”行现明确标为非 ordered 的 `X={t}` 且两侧健康，属于澄清；新增的当前侧缺失行使示例总数为九。 |
+| P6-S0-F13：ordered 摘要的阶段、输入与预算 | **关闭** | §8.1（`:271`）删除上传路径对 ordered/occupancy 摘要的预计算，只在 assemble 按 pair 计算；§4.2（`:155`–`:157`）明确每 pair 一次、S1a 用 Python、S3 起用 Rust，成本归 e 项。与 §16.1（`:411`）S1a/S3 的检查点一致，满足 §7.6 关闭标准。 |
+| §4.2 新增来源和实施约束 | **与 §7.3 一致，无新矛盾** | 当前侧来源按 MODIFIED_ONLY、FULL 两个相邻 pair、History 各 pair 的 current commit 区分；checkpoint artifact reader 与 S2b 起 IPC reader、History 精确 commit Dolt 兜底，和 §7.3 的输入路径一致。仍按两侧描述符构造策略、使用规范行及 blank provenance、填充既有 facts 并保留 degraded 语义，也明确禁止复用 `_compare_single_side`；没有重开 F1/F11/F12。 |
+| 其他已关闭项 | **未重审** | r4 只检查其对 ordered 单侧计算的影响；上述 §4.2 约束维持 §7.3 已核实的方案，没有改变已关闭项的结论。 |
+
+### 8.4 本次实际执行的检查
+
+| 检查 | 命令/方法 | 结果 |
+| --- | --- | --- |
+| 目标快照与变更范围 | `git status --short --branch`、`git rev-parse HEAD`、`git diff --stat 0adc2459739e910b3c595ed3c1ea16bb43b3b507 40d4ea78995441297895fd411044d6f2b6924c57 -- docs/backend-vnext/refactoring/formal/plans/p6-design.md docs/backend-vnext/refactoring/formal/plans/p6-execution-plan.md docs/backend-vnext/refactoring/formal/plans/p6-s0-independent-docs-review.md` | review worktree 为目标完整 SHA；r4 差异限于三份指定文档；本次最终改动仅审核报告。 |
+| 公式、例子与关闭标准 | `nl -ba`、`sed -n` 阅读 §7.4、§7.6、设计 §4.2、§8.1、§16.1–§16.2、执行计划 S0 与 P5 §8.8；人工手算 | 两个 History 对照分别为 1 次与 0 次 Dolt 读取；原八例逐项核对；未运行测试或代码静态检查。 |
+| 报告补丁格式 | `git diff --check` | 仅检查审核报告补丁的空白格式；无代码或测试检查。 |
+
+### 8.5 验证限制与剩余前置
+
+本轮是定向文档复核，不验证实现、性能或测试结果；没有据此声称实现门禁通过。owner 接受 S0 并授权 S1a 后，S1a kickoff 前仍须完成业务评估（重要 keyless 表是否有自然键）与计划列出的 kickoff 小修：`uv-consume.sh` EXIT trap、SQLite `-wal`/`-shm` 残留、讨论稿文档整理，以及由 RS owner 排查 defunct `dolt` 进程并决定是否并入。报告不替 owner 作出这些决定。
+
+### 8.6 复审记录
+
+| 原 finding | 关闭情况 | 依据 |
+| --- | --- | --- |
+| P6-S0-F5 | **关闭** | §16.2 逐 pair 列出 old-X/current-X、D、未变 ordered 单侧摘要和整表打包的独立需求，再按存储 miss 计算 Dolt 读取；当前侧单独 miss 的新反例为 1，两侧健康对照为 0，原八例保持成立，满足 §7.4 关闭标准。 |
+| P6-S0-F13 | **关闭** | §8.1、§4.2 与 §16.1 对 ordered 摘要的唯一计算位置、输入、Python→Rust 阶段和 e 项预算归属一致，满足 §7.6 关闭标准。 |

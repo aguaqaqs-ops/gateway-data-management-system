@@ -379,6 +379,69 @@ def test_changed_history_table_reads_both_pair_sides(tmp_path: Path) -> None:
         assert tuple(reader.catalog_table().table_name for reader in session.table_readers) == ("t",)
 
 
+def test_deleted_history_table_reads_only_the_old_pair_side(tmp_path: Path) -> None:
+    before_commit = BASELINE_HEAD.business_baseline_commit_id
+    current_commit = "commit-with-deleted-table"
+    before_tables = (
+        catalog_table("t", (int_id_column(),), primary_key=("id",), row_count=1),
+        catalog_table(
+            "version_manager",
+            (text_column("project_id", 0),),
+            primary_key=(),
+            row_count=1,
+        ),
+    )
+    current_tables = (catalog_table("t", (int_id_column(),), primary_key=("id",), row_count=1),)
+    before_rows: RepositoryRows = {"t": ((1,),), "version_manager": (("project-1",),)}
+    current_rows: RepositoryRows = {"t": ((2,),)}
+
+    def _provider(
+        commit_id: str,
+        tables: tuple[RepositoryCatalogTable, ...],
+        rows: RepositoryRows,
+    ) -> FakeRepositoryTableAccessProvider:
+        catalog = make_catalog(
+            tables,
+            repository_id=REPOSITORY_ID,
+            ref=commit_id,
+            commit=commit_id,
+        )
+        return FakeRepositoryTableAccessProvider(
+            catalog=catalog,
+            base_catalog=catalog,
+            rows=rows,
+            declared_rows=rows,
+            current_commit=commit_id,
+        )
+
+    providers = {
+        before_commit: _provider(before_commit, before_tables, before_rows),
+        current_commit: _provider(current_commit, current_tables, current_rows),
+    }
+    harness = build_history_compare_harness(
+        tmp_path,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, before_commit),
+            ("bn-deleted-table", current_commit),
+        ),
+        custom_providers=providers,
+        idempotency_key="history-compare-deleted-table-old-side-read",
+    )
+
+    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+
+    before_session = providers[before_commit].last_session
+    current_session = providers[current_commit].last_session
+    assert before_session is not None and current_session is not None
+    assert tuple(reader.catalog_table().table_name for reader in before_session.table_readers) == (
+        "t",
+        "version_manager",
+    )
+    assert tuple(reader.catalog_table().table_name for reader in current_session.table_readers) == (
+        "t",
+    )
+
+
 def test_unchanged_ordered_history_reads_current_side_and_preserves_facts(
     tmp_path: Path,
 ) -> None:

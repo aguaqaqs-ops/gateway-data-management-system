@@ -421,6 +421,33 @@ def test_unchanged_preview_table_does_not_read_baseline_rows(tmp_path: Path) -> 
     assert harness.baseline_provider.last_session.table_readers == []
 
 
+def test_preview_reads_changed_and_deleted_baseline_tables_only(tmp_path: Path) -> None:
+    harness = build_preview_harness(
+        tmp_path,
+        input_completeness=InputCompleteness.MODIFIED_ONLY,
+        include_identity_table=True,
+    )
+    _replace_projection_failure_packages(
+        harness,
+        initial_sql=None,
+        modified_sql=(
+            "CREATE TABLE t (id INT NOT NULL PRIMARY KEY);\n"
+            "INSERT INTO t VALUES (1), (2);\n"
+        ),
+    )
+    harness.seed_workspace()
+    payload = decode_preview_payload(decode_payload_object(harness))
+    from gateway_backend.application.preview_jobs import _materialize_all_sides
+
+    _materialize_all_sides(payload, harness.deps)
+
+    assert harness.baseline_provider.last_session is not None
+    assert tuple(
+        reader.catalog_table().table_name
+        for reader in harness.baseline_provider.last_session.table_readers
+    ) == ("t", "version_manager")
+
+
 @pytest.mark.parametrize(
     "case",
     PROJECTION_FAILURE_CASES,

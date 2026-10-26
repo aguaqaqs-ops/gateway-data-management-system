@@ -48,9 +48,6 @@ from gateway_backend.application.submit_jobs import (
     build_submit_recovery_port,
     submit_composition_bundle,
 )
-from gateway_backend.application.canonical_metadata.manifest_reader import (
-    ArtifactBackedCanonicalizationManifestReader,
-)
 from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
 from gateway_backend.infrastructure.artifact_store import (

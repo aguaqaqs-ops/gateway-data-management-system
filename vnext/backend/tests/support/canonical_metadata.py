@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
+from gateway_shared_kernel import DigestRef, raw_blob_digest
 
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadata,

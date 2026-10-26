@@ -111,7 +111,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SourceKind,
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
-    SnapshotTable,
     SnapshotTableSet,
     SnapshotTableDescriptor,
     SnapshotColumnDescriptor,

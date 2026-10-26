@@ -75,7 +75,6 @@ from gateway_backend.capabilities.mutation_planning._digest import (
 )
 from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
-    SourceRow,
 )
 from gateway_backend.capabilities.storage_projection import (
     MANIFEST_ENTRY_NAME,

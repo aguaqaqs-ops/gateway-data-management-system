@@ -223,7 +223,7 @@ def _accept_prepared_operation(
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        main_resolve=RecordingMainResolvePort(commit_id=baseline_head.business_baseline_commit_id),
+        main_resolve=RecordingMainResolvePort(),
         preflight=preflight,
         now=TS1,
     )
@@ -547,7 +547,7 @@ def _accept_prepared_with_seed(
         ),
         unit_of_work_factory=_uow_factory(seed.db_path),
         job_registry=_submit_job_registry(),
-        main_resolve=RecordingMainResolvePort(commit_id=baseline_head.business_baseline_commit_id),
+        main_resolve=RecordingMainResolvePort(),
         preflight=preflight,
         now=accept_now or TS1,
     )

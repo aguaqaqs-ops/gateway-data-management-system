@@ -433,7 +433,12 @@ def test_pair_and_table_early_exit_do_not_iterate_or_reopen_readers() -> None:
         tables=tuple(wrapped_tables),
         diagnostics=original.table_set.diagnostics,
     )
-    counted = BoundSnapshotInput(original.snapshot, original.summary, wrapped_set)
+    counted = BoundSnapshotInput(
+        original.snapshot,
+        original.summary,
+        wrapped_set,
+        storage_facts=original.storage_facts,
+    )
     plan = plan_comparison(
         ComparisonRequest(
             pair_id="early-exit",

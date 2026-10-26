@@ -46,7 +46,9 @@ from gateway_backend.capabilities.mutation_planning import (
     PersistedRowImage,
     TableMutationKind,
     build_import_mutation_snapshots,
+    key_bytes_for_ordering,
     plan_import_mutation,
+    row_digest_from_image,
     render_planned_import_mutation_dml,
 )
 from gateway_backend.capabilities.snapshot_materialization import (
@@ -68,10 +70,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTable,
     SnapshotTableDescriptor,
     SnapshotTableReader,
-)
-from gateway_backend.capabilities.mutation_planning._digest import (
-    key_bytes_for_ordering,
-    row_digest_from_image,
 )
 from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,

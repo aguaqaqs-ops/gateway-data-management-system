@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import time
 
 import pytest
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    CanonicalTableIdentity,
     MaterializationDiagnosticCode,
     MaterializationPolicy,
     RepositoryProviderError,
@@ -114,11 +116,36 @@ def test_requested_tables_filter_does_not_relist() -> None:
     items = catalog_table("items", (int_id_column(), text_column("name", 1)))
     rows = {"items": ((1, "a"),), "other": ((9,),)}
     catalog = make_catalog((items, extra))
+    binding = canonical_binding_for_catalog(catalog)
+    full = materialize_ref(
+        FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows),
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        canonical_binding=binding,
+    )
+    assert full.status is SnapshotMaterializationStatus.COMPLETE
+    assert full.summary is not None
+    identities = tuple(
+        CanonicalTableIdentity(
+            canonical_table=descriptor.table_name,
+            row_count=descriptor.row_count,
+            source_schema_digest=descriptor.business_schema_digest,
+            canonical_schema_digest=descriptor.business_schema_digest,
+            raw_content_digest=descriptor.raw_content_digest,
+        )
+        for descriptor in full.summary.tables
+        if descriptor.raw_content_digest is not None
+    )
+    binding = replace(binding, table_identities=identities)
     provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
-    result = materialize_ref(provider, requested_tables=("items",))
+    result = materialize_ref(
+        provider,
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        canonical_binding=binding,
+        requested_tables=("items",),
+    )
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.summary is not None
-    assert tuple(table.table_name for table in result.summary.tables) == ("items",)
+    assert tuple(table.table_name for table in result.summary.tables) == ("items", "other")
     assert provider.last_session is not None
     assert provider.last_session.catalog_load_count == 1
     assert tuple(reader.stream_count for reader in provider.last_session.table_readers) == (1,)

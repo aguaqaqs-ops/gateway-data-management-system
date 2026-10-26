@@ -6,6 +6,10 @@ from gateway_backend.capabilities.mutation_planning._artifacts import (
     validate_published_change_set_closure,
 )
 from gateway_backend.capabilities.mutation_planning._planner import plan_storage_mutation
+from gateway_backend.capabilities.mutation_planning._digest import (
+    key_bytes_for_ordering,
+    row_digest_from_image,
+)
 from gateway_backend.capabilities.mutation_planning.import_replay import (
     ImportReplayError,
     build_import_mutation_snapshots,
@@ -120,7 +124,9 @@ __all__ = [
     "mutation_plan_identity_payload",
     "ImportReplayError",
     "build_import_mutation_snapshots",
+    "key_bytes_for_ordering",
     "plan_import_mutation",
+    "row_digest_from_image",
     "render_planned_import_mutation_dml",
     "plan_storage_mutation",
     "render_import_mutation_dml",

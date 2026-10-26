@@ -74,6 +74,7 @@ def metadata_for_catalog(
     *,
     rows_by_table: Mapping[str, tuple[tuple[object | None, ...], ...]] | None = None,
     ruleset: TableRulesetSnapshot | None = None,
+    manifest_override: CanonicalizationManifest | None = None,
     initial: bool | None = None,
     scope: CommitCanonicalScope | None = None,
 ) -> CommitCanonicalMetadata:
@@ -150,6 +151,8 @@ def metadata_for_catalog(
             source_artifact_digest=raw_blob_digest(b"test-source-artifact"),
             tables=tuple(manifest_tables),
         )
+        if manifest_override is not None:
+            manifest = manifest_override
         snapshot_digest = materialized.snapshot.snapshot_digest
     return CommitCanonicalMetadata(
         repository_id=catalog.repository_id,

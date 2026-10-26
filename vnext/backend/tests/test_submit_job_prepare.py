@@ -27,6 +27,9 @@ from gateway_backend.application.submit_jobs import (
     bind_submit_control_transaction_factory,
     build_prepare_import_handler,
 )
+from gateway_backend.application.canonical_metadata.manifest_reader import (
+    ArtifactBackedCanonicalizationManifestReader,
+)
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
 )
@@ -241,11 +244,22 @@ def _accept_prepared_operation(
 def _control_db_factory(
     db_path: Path,
     control_now: Callable[[], datetime] | None = None,
+    store: InMemoryArtifactStore | None = None,
 ) -> Callable[[], ControlDbUnitOfWork]:
+    reader = (
+        None
+        if store is None
+        else ArtifactBackedCanonicalizationManifestReader(artifact_store=store, artifact_refs=store)
+    )
+
     def factory() -> ControlDbUnitOfWork:
         if control_now is not None:
-            return ControlDbUnitOfWork(db_path, now=control_now)
-        return ControlDbUnitOfWork(db_path)
+            return ControlDbUnitOfWork(
+                db_path,
+                now=control_now,
+                canonicalization_manifest_reader=reader,
+            )
+        return ControlDbUnitOfWork(db_path, canonicalization_manifest_reader=reader)
 
     return factory
 
@@ -253,8 +267,9 @@ def _control_db_factory(
 def _bound_control_transaction_factory(
     db_path: Path,
     control_now: Callable[[], datetime] | None = None,
+    store: InMemoryArtifactStore | None = None,
 ) -> SubmitControlTransactionFactory:
-    return bind_submit_control_transaction_factory(_control_db_factory(db_path, control_now))
+    return bind_submit_control_transaction_factory(_control_db_factory(db_path, control_now, store))
 
 
 def _submit_runtime_dependencies(
@@ -269,7 +284,7 @@ def _submit_runtime_dependencies(
         parent_catalog=FixedRepositoryParentCatalogPort(),
         repository_write=_UnusedRepositoryWrite(),
         terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
-        control_transaction_factory=_bound_control_transaction_factory(db_path, control_now),
+        control_transaction_factory=_bound_control_transaction_factory(db_path, control_now, store),
         submission_id_factory=lambda: "sub-test-1",
     )
 
@@ -279,8 +294,9 @@ def _claimed_prepare_session(
     operation_id: str,
     *,
     control_now: Callable[[], datetime] | None = None,
+    store: InMemoryArtifactStore | None = None,
 ) -> tuple[LeaseSession, ExecutionControl]:
-    uow_factory = _control_db_factory(db_path, control_now)
+    uow_factory = _control_db_factory(db_path, control_now, store)
     with uow_factory() as unit_of_work:
         transaction_now = unit_of_work.operations.transaction_now
         claimed = OperationLifecycleActions(
@@ -300,7 +316,7 @@ def _claimed_prepare_session(
         step_id=claimed_step.step_id,
         write_uow_factory=cast(
             WriteUnitOfWorkFactory,
-            _bound_control_transaction_factory(db_path, control_now),
+            _bound_control_transaction_factory(db_path, control_now, store),
         ),
         control=control,
         observer=lambda _event: None,
@@ -318,8 +334,13 @@ def _run_prepare_handler(
     handler = build_prepare_import_handler(
         _submit_runtime_dependencies(db_path, store, control_now=control_now)
     )
-    session, control = _claimed_prepare_session(db_path, operation_id, control_now=control_now)
-    uow_factory = _control_db_factory(db_path, control_now)
+    session, control = _claimed_prepare_session(
+        db_path,
+        operation_id,
+        control_now=control_now,
+        store=store,
+    )
+    uow_factory = _control_db_factory(db_path, control_now, store)
     with uow_factory() as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
         step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
@@ -458,7 +479,7 @@ def test_prepare_handler_reuses_checkpoint_on_replay(
     monkeypatch.setattr(LeaseSession, "publish_successor", skip_successor)
 
     handler = build_prepare_import_handler(_submit_runtime_dependencies(db_path, store))
-    session, control = _claimed_prepare_session(db_path, operation_id)
+    session, control = _claimed_prepare_session(db_path, operation_id, store=store)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
         step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
@@ -651,7 +672,7 @@ def test_prepare_checkpoint_payload_binding_mismatch_aborts_prepared_attempt(
     )
     operation_id = _accept_prepared_operation(db_path, store)
     handler = build_prepare_import_handler(_submit_runtime_dependencies(db_path, store))
-    session, control = _claimed_prepare_session(db_path, operation_id)
+    session, control = _claimed_prepare_session(db_path, operation_id, store=store)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
         step = unit_of_work.operations.get_step(f"{operation_id}-step-1")
@@ -695,7 +716,7 @@ def test_prepare_checkpoint_schema_mismatch_retains_occupancy(
     )
     operation_id = _accept_prepared_operation(db_path, store)
     handler = build_prepare_import_handler(_submit_runtime_dependencies(db_path, store))
-    session, control = _claimed_prepare_session(db_path, operation_id)
+    session, control = _claimed_prepare_session(db_path, operation_id, store=store)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(operation_id)
         step = unit_of_work.operations.get_step(f"{operation_id}-step-1")

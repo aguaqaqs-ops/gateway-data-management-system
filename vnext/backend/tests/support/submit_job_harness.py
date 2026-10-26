@@ -34,6 +34,9 @@ from gateway_backend.capabilities.storage_projection.contracts import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
 )
 from gateway_backend.application.submission.artifact_refs import backend_artifact_ref_from_store_ref
+from gateway_backend.application.canonical_metadata.manifest_reader import (
+    ArtifactBackedCanonicalizationManifestReader,
+)
 from gateway_repository_contracts import REPOSITORY_IMPORT_MEDIA_TYPE
 from gateway_backend.bootstrap.operation_worker import build_worker_write_uow_factory
 from gateway_backend.application.submission.job_payload import (
@@ -556,9 +559,17 @@ def build_submit_worker_harness(
     else:
         bootstrap_control_database(settings)
     artifact_store = InMemoryArtifactStore()
+    manifest_reader = ArtifactBackedCanonicalizationManifestReader(
+        artifact_store=artifact_store,
+        artifact_refs=artifact_store,
+    )
 
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(settings.control_db_path, now=control_now)
+        return ControlDbUnitOfWork(
+            settings.control_db_path,
+            now=control_now,
+            canonicalization_manifest_reader=manifest_reader,
+        )
 
     def read_uow_factory() -> ControlDbUnitOfWork:
         return ControlDbUnitOfWork(settings.control_db_path, read_only=True, now=control_now)

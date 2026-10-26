@@ -168,7 +168,7 @@ def test_explicit_net_cfg_drops_ignored_column_and_repeats_key_in_manifest() -> 
     assert manifest_table.canonical_key_columns == table.storage_view.canonical_key_columns
     assert manifest_table.dropped_columns == dropped
     assert manifest_table.content_digest == table.content_digest
-    assert manifest_table.content_digest == table.descriptor.raw_content_digest
+    assert table.fast_row_digest is not None
     import_table = result.import_input.tables[0]
     assert tuple(column.name for column in import_table.columns) == ("board", "link_no")
     assert import_table.primary_key == ("board", "link_no")

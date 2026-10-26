@@ -772,7 +772,7 @@ def test_output_write_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> N
         raise OSError("hash sink failed")
 
     monkeypatch.setattr(
-        "gateway_backend.capabilities.storage_projection._digest.encode_canonical_cell",
+        "gateway_backend.capabilities.storage_projection.project.encode_canonical_cell",
         boom,
     )
     result = project_storage(

@@ -22,12 +22,13 @@ from gateway_backend.capabilities.snapshot_materialization.repository_ref import
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
+from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.history.compare_jobs import _bound_from_materialization
 from tests.support.history_compare_job_harness import REPOSITORY_ID
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
-    canonical_binding_for_catalog,
 )
+from tests.support.canonical_metadata import metadata_for_catalog
 
 
 def materialize_bound_snapshot(
@@ -37,7 +38,12 @@ def materialize_bound_snapshot(
     artifact_store: object,
 ) -> BoundSnapshotInput:
     ruleset = migrated_table_ruleset_snapshot()
-    canonical_binding = canonical_binding_for_catalog(provider.catalog, ruleset=ruleset)
+    metadata = metadata_for_catalog(
+        provider.catalog,
+        rows_by_table={name: tuple(tuple(row) for row in rows) for name, rows in provider.rows.items()},
+        ruleset=ruleset,
+    )
+    canonical_binding = canonical_binding_for_commit(metadata, runtime_ruleset=ruleset)
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=REPOSITORY_ID, ref=commit_id),
         provider=provider,

@@ -285,7 +285,7 @@ def build_history_compare_harness(
         {
             (REPOSITORY_ID, commit_id): metadata_for_catalog(
                 provider.catalog,
-                rows_by_table=provider.rows,
+                rows_by_table=_rows_matching_catalog_counts(provider),
             )
             for commit_id, provider in providers.items()
         }
@@ -373,6 +373,26 @@ def build_history_compare_harness(
         operation_id=operation_id,
         publication_uow_factory=publication_uow_factory,
     )
+
+
+def _rows_matching_catalog_counts(
+    provider: FakeRepositoryTableAccessProvider,
+) -> dict[str, tuple[tuple[object | None, ...], ...]]:
+    """Build source metadata from catalog-sized rows while preserving malformed runtime streams."""
+    result: dict[str, tuple[tuple[object | None, ...], ...]] = {}
+    for table in provider.catalog.tables:
+        rows = tuple(tuple(row) for row in provider.rows.get(table.table_name, ()))
+        expected = table.row_count
+        if expected is None or len(rows) == expected:
+            result[table.table_name] = rows
+            continue
+        if not rows and expected:
+            raise AssertionError("history fixture metadata requires at least one row for a count mismatch")
+        if len(rows) > expected:
+            result[table.table_name] = rows[:expected]
+        else:
+            result[table.table_name] = rows + rows[-1:] * (expected - len(rows))
+    return result
 
 
 def history_compare_operation_document(

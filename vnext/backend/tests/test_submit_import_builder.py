@@ -384,7 +384,7 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     )
     assert canonical.manifest is not None
     assert canonical.manifest.manifest_digest is not None
-    parent_projection = _project_inputs()
+    parent_projection = _project_inputs(_projection_inputs())
     assert parent_projection.manifest is not None
     assert parent_projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(canonical.manifest)

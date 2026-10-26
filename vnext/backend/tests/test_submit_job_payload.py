@@ -212,7 +212,7 @@ def _artifact_ref_dict(artifact_id: str) -> dict[str, object]:
 
 def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
     return {
-        "schema_version": "backend-vnext/submit/prepare-import-checkpoint/v2",
+        "schema_version": "backend-vnext/submit/prepare-import-checkpoint/v3",
         "attempt_id": "sa-payload-1",
         "canonicalization_manifest_ref": _artifact_ref_dict("manifest-1"),
         "canonicalization_manifest_digest": "sha256:" + "b" * 64,
@@ -229,6 +229,8 @@ def _canonical_prepare_checkpoint_job_state() -> dict[str, object]:
         "input_canonicalization_manifest_ref": "preview-manifest-1",
         "input_canonicalization_manifest_digest": "sha256:" + "e" * 64,
         "expected_parent_commit_id": "commit-parent-1",
+        "parent_manifest_digest": "sha256:" + "f" * 64,
+        "parent_is_initial": False,
         "removed_tables": ["removed_table"],
         "builder_mutation_policy": "ADAPTIVE_PATCH",
     }

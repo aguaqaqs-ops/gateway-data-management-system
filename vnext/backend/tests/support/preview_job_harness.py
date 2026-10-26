@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import cache
 import json
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
@@ -53,7 +54,11 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryCatalogTable,
     RepositoryColumn,
 )
-from gateway_backend.capabilities.storage_projection import ProjectionStatus, project_canonical_table_set
+from gateway_backend.capabilities.storage_projection import (
+    CanonicalizationManifest,
+    ProjectionStatus,
+    project_canonical_table_set,
+)
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from tests.support.runtime_settings import make_operation_worker_settings
 from tests.support.repository_ref_materialization import (
@@ -126,6 +131,16 @@ def _canonical_baseline_catalog() -> tuple[
     tuple[RepositoryCatalogTable, ...],
     dict[str, tuple[tuple[object, ...], ...]],
 ]:
+    tables, row_items, _manifest = _canonical_baseline_data()
+    return tables, dict(row_items)
+
+
+@cache
+def _canonical_baseline_data() -> tuple[
+    tuple[RepositoryCatalogTable, ...],
+    tuple[tuple[str, tuple[tuple[object, ...], ...]], ...],
+    CanonicalizationManifest,
+]:
     """Build the test Repository catalog from the production business projection."""
     ruleset = migrated_table_ruleset_snapshot()
     materialized = materialize_business(
@@ -143,6 +158,8 @@ def _canonical_baseline_catalog() -> tuple[
             for item in projected.diagnostics
         )
         raise AssertionError(f"baseline business snapshot did not project canonically: {diagnostics!r}")
+    if projected.manifest is None:
+        raise AssertionError("baseline business projection did not publish a manifest")
 
     tables: list[RepositoryCatalogTable] = []
     rows: dict[str, tuple[tuple[object, ...], ...]] = {}
@@ -174,7 +191,7 @@ def _canonical_baseline_catalog() -> tuple[
         for item in materialized.table_set.tables:
             if item.reader is not None:
                 item.reader.close()
-    return tuple(tables), rows
+    return tuple(tables), tuple(sorted(rows.items())), projected.manifest
 
 
 def repository_provider_factory(
@@ -316,11 +333,13 @@ def build_preview_harness(
     )
     baseline_provider = preview_baseline_provider(empty=empty_baseline)
     baseline_head_read = MutableBaselineHeadReadPort({REPOSITORY_ID: BASELINE_HEAD})
+    baseline_manifest = None if empty_baseline else _canonical_baseline_data()[2]
     metadata_port = CatalogCommitCanonicalMetadataPort(
         {
             (REPOSITORY_ID, BASELINE_HEAD.business_baseline_commit_id): metadata_for_catalog(
                 baseline_provider.catalog,
                 rows_by_table=baseline_provider.rows,
+                manifest_override=baseline_manifest,
                 initial=empty_baseline,
             )
         }

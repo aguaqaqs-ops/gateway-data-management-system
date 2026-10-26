@@ -514,9 +514,7 @@ def test_projection_failures_publish_complete_bounded_operation_details(
     assert materialize_step.checkpoint_ref is None
     assert workspace is not None
     assert workspace.current_preview_result_id is None
-    assert harness.baseline_provider.open_count == 1
-    assert harness.baseline_provider.last_session is not None
-    assert harness.baseline_provider.last_session.closed is True
+    assert harness.baseline_provider.open_count == 0
 
 
 def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(

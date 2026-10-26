@@ -3083,6 +3083,13 @@ def _document_string_tuple(raw: dict[str, object], key: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _document_int(raw: dict[str, object], key: str) -> int:
+    value = raw[key]
+    if type(value) is not int or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{key} must be a non-negative integer")
+    return value
+
+
 def _checkpoint_string(raw: dict[str, object], key: str) -> str:
     value = raw[key]
     if type(value) is not str or not value:

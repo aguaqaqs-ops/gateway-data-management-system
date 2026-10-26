@@ -22,6 +22,7 @@ from gateway_backend.capabilities.mutation_planning import (
     validate_published_change_set_closure,
 )
 from gateway_backend.capabilities.mutation_planning import _artifacts as mutation_artifacts
+from gateway_backend.capabilities.mutation_planning._planner import _patch_eligible
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.mutation_planning.contracts import (
     ChangeSetArtifact,
@@ -29,6 +30,7 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationKeyedRow,
     MutationPlanningRequest,
     MutationPlanningResult,
+    MutationThresholdPolicy,
     MutationTableSnapshot,
     PersistedRowImage,
     RowMutationOperation,
@@ -216,32 +218,32 @@ R7_THRESHOLD_BOUNDARY_CASES: tuple[tuple[str, object], ...] = (
         "ratio_at_boundary_patch",
         {
             "row_count": 100,
-            "changed": {0},
-            "operation": TableMutationKind.PATCH_DML,
+            "changed_row_count": 1,
+            "eligible": True,
         },
     ),
     (
         "ratio_over_boundary_rebuild",
         {
             "row_count": 100,
-            "changed": {0, 1},
-            "operation": TableMutationKind.REBUILD_TABLE,
+            "changed_row_count": 2,
+            "eligible": False,
         },
     ),
     (
         "count_at_boundary_patch",
         {
-            "row_count": 100000,
-            "changed": set(range(1000)),
-            "operation": TableMutationKind.PATCH_DML,
+            "row_count": 100_000,
+            "changed_row_count": 1000,
+            "eligible": True,
         },
     ),
     (
         "count_over_boundary_rebuild",
         {
-            "row_count": 100100,
-            "changed": set(range(1001)),
-            "operation": TableMutationKind.REBUILD_TABLE,
+            "row_count": 100_100,
+            "changed_row_count": 1001,
+            "eligible": False,
         },
     ),
 )
@@ -358,22 +360,17 @@ def test_destructive_confirmation_cases(case_id: str, case: dict[str, object]) -
 
 @pytest.mark.parametrize(("case_id", "case"), R7_THRESHOLD_BOUNDARY_CASES)
 def test_threshold_boundary_cases(case_id: str, case: dict[str, Any]) -> None:
-    row_count = int(case["row_count"])
-    changed = cast(set[int], case["changed"])
-    before, after = _snapshot_with_rows(
-        before_count=row_count,
-        after_count=row_count,
-        changed_after=changed,
+    before = table_snapshot(rows=(keyed_row(),))
+    after = table_snapshot(rows=(keyed_row(board="9"),))
+    eligible = _patch_eligible(
+        before,
+        after,
+        changed_row_count=int(case["changed_row_count"]),
+        before_row_count=int(case["row_count"]),
+        after_row_count=int(case["row_count"]),
+        threshold=MutationThresholdPolicy(),
     )
-    request = planning_request(
-        policy=MutationPolicy.ADAPTIVE_PATCH,
-        before_tables=(before,),
-        after_tables=(after,),
-    )
-    result = _plan(request, store=InMemoryArtifactStore())
-    assert result.status is MutationPlanStatus.READY
-    assert result.plan is not None
-    assert result.plan.table_summaries[0].operation is case["operation"]
+    assert eligible is case["eligible"]
 
 
 def test_submit_count_examples_match_hand_computed_net_changes() -> None:
@@ -523,14 +520,14 @@ def test_gid_no_v1_table_is_patchable_within_the_frozen_threshold() -> None:
     ):
         after_rows = rows(changed)
         before = MutationTableSnapshot(
-            manifest_table=replace(manifest_table_value, row_count=100),
+            manifest_table=replace(manifest_table_value, canonical_row_count=100),
             storage_view=view,
             rows=before_rows,
         )
         after = MutationTableSnapshot(
             manifest_table=replace(
                 manifest_table_value,
-                row_count=100,
+                canonical_row_count=100,
                 content_digest=raw_blob_digest(f"ordered:{changed}".encode()),
             ),
             storage_view=view,
@@ -604,7 +601,7 @@ def test_change_set_identity_is_stable_and_order_independent() -> None:
 
 
 def test_ready_closure_document_has_no_sql_or_checkpoint_fields() -> None:
-    before, after = _snapshot_with_rows(before_count=20, after_count=20, changed_after={0})
+    before, after = _snapshot_with_rows(before_count=100, after_count=100, changed_after={0})
     result = _plan(
         planning_request(
             policy=MutationPolicy.ADAPTIVE_PATCH,

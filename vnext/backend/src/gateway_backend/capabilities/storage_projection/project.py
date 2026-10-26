@@ -606,7 +606,25 @@ def _canonicalize_row(
                         name,
                     )
                 )
+            if any(type(member) is not str or member not in codec.labels for member in members):
+                raise _ProjectionFailed(
+                    _error(
+                        ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
+                        "SET cell contains an undeclared label",
+                        view.canonical_table,
+                        name,
+                    )
+                )
             seen = set(members)
+            if len(seen) != len(members):
+                raise _ProjectionFailed(
+                    _error(
+                        ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
+                        "SET cell contains duplicate labels",
+                        view.canonical_table,
+                        name,
+                    )
+                )
             cell = SqlSetValue(tuple(label for label in codec.labels if label in seen))
         elif (
             codec.declared_type is not None
@@ -627,6 +645,15 @@ def _canonicalize_row(
                 _error(
                     ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
                     "cell cannot be represented by its canonical column type",
+                    view.canonical_table,
+                    name,
+                )
+            ) from exc
+        except OSError as exc:
+            raise _ProjectionFailed(
+                _error(
+                    ProjectionDiagnosticCode.BINDING_INVALID,
+                    "canonical cell digest write failed",
                     view.canonical_table,
                     name,
                 )

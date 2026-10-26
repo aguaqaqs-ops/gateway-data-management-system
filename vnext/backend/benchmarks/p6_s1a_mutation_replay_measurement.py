@@ -75,6 +75,9 @@ from gateway_backend.capabilities.storage_projection.import_replay import (  # n
 from gateway_backend.capabilities.storage_projection.package import (  # noqa: E402
     canonicalization_manifest_from_bytes,
 )
+from gateway_backend.infrastructure.artifact_store.local_store import (  # noqa: E402
+    LocalArtifactStore,
+)
 from gateway_backend.capabilities.table_rules.contracts import (  # noqa: E402
     OrderedPolicy,
 )
@@ -140,6 +143,110 @@ def _mutation_snapshots(
         mutation_snapshot = build_import_mutation_snapshots((replay_snapshot,))[0]
         snapshots.append(mutation_snapshot)
     return tuple(snapshots)
+
+
+def _mutation_snapshots_from_saved_artifacts(
+    store: LocalArtifactStore,
+    manifest: CanonicalizationManifest,
+    storage_views: dict[str, Any],
+    table_names: Sequence[str],
+) -> tuple[MutationTableSnapshot, ...]:
+    """Read rows from the successful V5b t4 baseline materialization artifact store."""
+    manifest_by_name = {item.name: item for item in manifest.tables}
+    matching_refs: dict[str, Any] = {}
+    for path in store.artifact_root.rglob("*"):
+        if not path.is_file() or path.name.endswith(".ref.jcs") or path.stat().st_size > 2_000_000:
+            continue
+        try:
+            payload = json.loads(path.read_bytes())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict) or "artifact_contract_version" not in payload:
+            continue
+        table_name = payload.get("table_name")
+        if table_name not in table_names:
+            continue
+        descriptor = payload.get("descriptor")
+        if not isinstance(descriptor, dict):
+            continue
+        manifest_table = manifest_by_name.get(table_name)
+        if manifest_table is None or manifest_table.content_digest is None:
+            raise RuntimeError("saved parent artifact has no matching canonical manifest table")
+        if (
+            descriptor.get("raw_content_digest") != manifest_table.content_digest.value
+            or descriptor.get("row_count") != manifest_table.canonical_row_count
+        ):
+            continue
+        sidecar = path.with_name(f"{path.name}.ref.jcs")
+        try:
+            ref_payload = json.loads(sidecar.read_bytes())
+            ref = store.get_ref(ref_payload["artifact_id"])
+        except (OSError, KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("saved parent artifact reference is unavailable") from exc
+        matching_refs.setdefault(table_name, ref)
+
+    snapshots: list[MutationTableSnapshot] = []
+    for name in sorted(set(table_names), key=lambda item: item.encode("utf-8")):
+        manifest_table = manifest_by_name.get(name)
+        view = storage_views.get(name)
+        ref = matching_refs.get(name)
+        if manifest_table is None or view is None or ref is None:
+            raise RuntimeError("saved parent mutation snapshot binding is incomplete")
+        opened = open_snapshot_table_artifact(store, ref)
+        reader = opened.reader
+        if reader is None:
+            raise RuntimeError("saved parent table artifact has no reader")
+        try:
+            replay_rows = _keyed_rows_from_frozen_artifact(
+                reader,
+                descriptor=opened.manifest.descriptor,
+                manifest_table=manifest_table,
+            )
+        finally:
+            reader.close()
+        if len(replay_rows) != manifest_table.canonical_row_count:
+            raise RuntimeError("saved parent artifact row count does not match the t4 manifest")
+        replay_snapshot = ImportReplayTableSnapshot(
+            manifest_table=manifest_table,
+            storage_view=view,
+            rows=replay_rows,
+        )
+        snapshots.extend(build_import_mutation_snapshots((replay_snapshot,)))
+    return tuple(snapshots)
+
+
+def _parent_materialization_evidence(
+    evidence_path: Path,
+    changed_names: Sequence[str],
+) -> dict[str, Any]:
+    evidence = json.loads(evidence_path.read_bytes())
+    if evidence.get("status") != "PASS":
+        raise RuntimeError("saved V5b parent materialization evidence did not pass")
+    if sorted(evidence.get("s1a_baseline_filter", {}).get("changed_tables", [])) != sorted(
+        changed_names
+    ):
+        raise RuntimeError("saved V5b changed-table set does not match the t4 v1/v2 packages")
+    selected = next(
+        (
+            segment
+            for segment in evidence.get("segments", [])
+            if segment.get("scenario") == "t4_v2_s1a_selected_baseline_materialization"
+        ),
+        None,
+    )
+    if selected is None or selected.get("requested_table_count") != len(changed_names):
+        raise RuntimeError("saved V5b selected baseline materialization segment is missing")
+    return {
+        "source_head": evidence["head"],
+        "source_started_at_utc": evidence["started_at_utc"],
+        "source_ended_at_utc": evidence["ended_at_utc"],
+        "source_output": str(evidence_path),
+        "scenario": selected["scenario"],
+        "requested_table_count": selected["requested_table_count"],
+        "materialized_table_count": selected["materialized_table_count"],
+        "materialized_row_count_total": selected["materialized_row_count_total"],
+        "total_wall_seconds": selected["total_wall_seconds"],
+    }
 
 
 def _import_input(
@@ -589,21 +696,29 @@ def run(
     real_dump_root: Path,
     output_path: Path,
     scratch_path: Path,
+    parent_artifact_root: Path,
+    parent_materialization_evidence: Path,
     repository_id: str,
     baseline_commit: str,
     target_commit: str,
-    bearer_token_file: Path,
-    repository_service_url: str,
     repository_service_container: str,
 ) -> dict[str, Any]:
     output_path = output_path.resolve()
     scratch_path = scratch_path.resolve()
+    parent_artifact_root = parent_artifact_root.resolve()
+    parent_materialization_evidence = parent_materialization_evidence.resolve()
     if output_path.is_relative_to(_REPO_ROOT) or scratch_path.is_relative_to(_REPO_ROOT):
         raise ValueError("measurement output and scratch paths must be outside the worktree")
+    if parent_artifact_root.is_relative_to(_REPO_ROOT):
+        raise ValueError("saved parent artifact store must be outside the worktree")
     if output_path.exists() or scratch_path.exists():
         raise ValueError("measurement output or scratch path already exists")
-    if not real_dump_root.is_dir() or not bearer_token_file.is_file():
-        raise ValueError("t4 inputs or Repository Service credentials are unavailable")
+    if (
+        not real_dump_root.is_dir()
+        or not parent_artifact_root.is_dir()
+        or not parent_materialization_evidence.is_file()
+    ):
+        raise ValueError("t4 inputs or saved parent materialization evidence are unavailable")
     scratch_path.mkdir(mode=0o700, parents=True, exist_ok=False)
     scratch_path.chmod(0o700)
     store = v5b.FileMeasurementArtifactStore(scratch_path / "artifacts")
@@ -622,9 +737,6 @@ def run(
     output_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     output_path.parent.chmod(0o700)
     try:
-        bearer = bearer_token_file.read_text(encoding="utf-8").strip()
-        if not bearer:
-            raise ValueError("Repository Service bearer token is empty")
         dataset_index = s5._dataset_index(real_dump_root)
         v1_item = dataset_index.get("rd-t4-d-v1")
         v2_item = dataset_index.get("rd-t4-d-v2")
@@ -658,20 +770,16 @@ def run(
         )
         changed_target_names = tuple(name for name in changed_names if name in v2_names)
         deleted_names = tuple(name for name in changed_names if name in v1_names - v2_names)
-        selected_materialization, parent_bound, _reads = v5b._measure_repository_materialization(
-            store=store,
-            repository_id=repository_id,
-            commit_id=baseline_commit,
-            bearer_token=bearer,
-            base_url=repository_service_url,
-            canonical_source=v1_bound,
-            requested_tables=changed_parent_names,
-            scenario="t4_v1_changed_parent_row_materialization",
+        selected_materialization = _parent_materialization_evidence(
+            parent_materialization_evidence,
+            changed_names,
         )
-        before_row_snapshots = _mutation_snapshots(
-            store,
-            parent_bound,
+        parent_store = LocalArtifactStore(parent_artifact_root)
+        v1_views = _bound_views(v1_bound)
+        before_row_snapshots = _mutation_snapshots_from_saved_artifacts(
+            parent_store,
             v1_manifest,
+            v1_views,
             changed_parent_names,
         )
         after_changed = _mutation_snapshots(
@@ -903,6 +1011,12 @@ def run(
             "ended_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "status": "PASS",
             "changed_parent_materialization": selected_materialization,
+            "parent_row_snapshot_reuse": {
+                "source_head": selected_materialization["source_head"],
+                "table_count": len(before_row_snapshots),
+                "row_count": sum(len(table.rows) for table in before_changed),
+                "artifact_root": str(parent_artifact_root),
+            },
             "t4_v2_changed_table_count": len(changed_names),
             "t4_v2_changed_tables": list(changed_names),
             "adaptive_plan": {
@@ -1016,22 +1130,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--real-dump-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scratch", type=Path, required=True)
+    parser.add_argument("--parent-artifact-root", type=Path, required=True)
+    parser.add_argument("--parent-materialization-evidence", type=Path, required=True)
     parser.add_argument("--repository-id", required=True)
     parser.add_argument("--baseline-commit", required=True)
     parser.add_argument("--target-commit", required=True)
-    parser.add_argument("--bearer-token-file", type=Path, required=True)
-    parser.add_argument("--repository-service-url", required=True)
     parser.add_argument("--repository-service-container", required=True)
     args = parser.parse_args(argv)
     result = run(
         real_dump_root=args.real_dump_root.resolve(),
         output_path=args.output,
         scratch_path=args.scratch,
+        parent_artifact_root=args.parent_artifact_root,
+        parent_materialization_evidence=args.parent_materialization_evidence,
         repository_id=args.repository_id,
         baseline_commit=args.baseline_commit,
         target_commit=args.target_commit,
-        bearer_token_file=args.bearer_token_file,
-        repository_service_url=args.repository_service_url,
         repository_service_container=args.repository_service_container,
     )
     print(

@@ -580,6 +580,7 @@ def run(
     start_wall = time.perf_counter()
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     branch_refs: list[str] = []
+    completed_measurement: dict[str, Any] | None = None
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=_REPO_ROOT,
@@ -917,6 +918,7 @@ def run(
             "privacy": "table names, counts, timings, branch refs, and hash equality only",
             "wall_seconds": round(time.perf_counter() - start_wall, 6),
         }
+        completed_measurement = result
         if median_patch_seconds >= median_rebuild_seconds:
             raise RuntimeError("one-percent patch replay was not faster than table rebuild")
         _write_result(output_path, result)
@@ -934,6 +936,12 @@ def run(
             "branch_refs_left_for_owner": branch_refs,
             "privacy": "table names, counts, timings, branch refs, and hash equality only",
         }
+        if completed_measurement is not None:
+            failure["partial_measurement"] = {
+                key: value
+                for key, value in completed_measurement.items()
+                if key not in {"schema_version", "status", "privacy"}
+            }
         _write_result(output_path, failure)
         raise
 

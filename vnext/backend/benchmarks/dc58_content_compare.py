@@ -32,6 +32,7 @@ import pyarrow.parquet as pq
 DIGEST_FIELDS = frozenset(
     {
         "artifact_content_digest",
+        "assessment_digest",
         "before_entry_set_digest",
         "before_ordered_digest",
         "before_snapshot_digest",
@@ -62,6 +63,7 @@ DIGEST_FIELDS = frozenset(
         "modified_canonical_state_digest",
         "ordering_digest",
         "package_raw_sha256",
+        "parent_manifest_digest",
         "policy_digest",
         "project_identity_assessment_digest",
         "projection_logical_digest",
@@ -105,6 +107,8 @@ RUNTIME_ID_FIELDS = frozenset(
         "commit_id",
         "current_preview_result_id",
         "current_upload_revision_id",
+        "expected_commit_id",
+        "expected_parent_commit_id",
         "initial_commit_id",
         "node_id",
         "operation_id",

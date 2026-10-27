@@ -1,17 +1,20 @@
 # Phase 6 S1a handoff
 
-## DC57 后续状态（最新）
+## 当前停止状态（2026-10-27）
 
-状态：**阈值复测与 t4 v2 表哈希通过；S1a 仍在执行，尚未完成最终候选旅程、worker step 归因和门禁，也未交独立阶段审核。** 批量 renderer 的 1% patch 三轮均快于整表重建；冻结值为 1,000 行且不超过 1%、INSERT/UPDATE/DELETE 每条最多 256 行且不超过 4 MiB。最终候选 `ac73504ad8b44f43322aaf12a8df38caf3800a57` 上的 t1–t3、t4 归因、04 六包 runner 与容器门禁仍待运行。
+状态：**S1a 未完成，未交独立阶段审核。** 04 六包权威 runner 在候选 HEAD `8e64af7ca43438a8e2b40e59d0bf86e7e404c244` 上 exit 1；History Compose focused 复现 comparison digest 不保值，触发 §4.1 停止条件。停止后续验收，不启动 V5b、不重跑门禁。阈值复测与 t4 v2 Dolt 表哈希通过，见下文。
 
-- 实现分支 `p6-s1a-impl`。已用 merge commit 合入 `main` 的 `45b169de6a`：`8b18758fd20d7a4fdc8250e16ff30e444f45da77`，无 rebase。当前提交 `ac73504ad8b44f43322aaf12a8df38caf3800a57`；未推送、未打 tag。
-- 相对 `55363b37e1`，最终验证仍须在同一 HEAD 完成：05 跑 t1–t3，ct108 跑 t4 与归因，04 重建 repository-service 镜像并跑六包权威 runner。范围内的产品改动是 mutation renderer 与 owner 明确授权的 Arrow worker 异常诊断；所有真实旅程均按补充要求重跑。
-- 用于范围核对的 `55363b37e1..ac73504ad8` 变更文件完整清单：
+- 实现分支 `p6-s1a-impl`；已用 merge commit 合入 `main` 的 `45b169de6a`：`8b18758fd20d7a4fdc8250e16ff30e444f45da77`，无 rebase；未推送、未打 tag。
+- 最终候选同 HEAD 真实旅程：t1、t2 在 05 PASS；t3 在 v2 Preview、t4 在 v2 Preview 期间按停止条件中断。t1 start 02:54:47Z、History 成功于 02:59:49.951Z，benchmark 输出 `conclusion=PASS`（其 wrapper 未写 end/exit 标记）；t2 start 03:01:29Z、end 03:37:57Z、exit 0。日志：`/home/dev/gdds-p6-logs/s1a/05-t1-final-retry-8e64af7ca4-20261027.log`、`05-t2-final-8e64af7ca4-20261027.log`、`05-t3-final-8e64af7ca4-20261027.log`、`ct108-t4-final-retry-8e64af7ca4-20261027.log`。t3 脚本 exit 130；t4 被 SIGINT，日志未写脚本 exit 标记。两栈仅停止服务，容器与 volumes 保留。
+- 04 固定 DC48 环境六包 runner：rust、shared_kernel、repository_contracts、repository_client、repository_service 通过；backend 的 `test_compose_history_compare_journey_zero_write_restart` 失败，整轮 `runner_exit=1`。日志 `/home/dev/gdds-p6-logs/s1a/04-runner-retry-8e64af7ca4-20261027.log`，2026-10-27T03:16:20Z–03:51:34Z。第一次 runner 因残留 `GATEWAY_DOCKER_BUILD_NETWORK=host` 导致 BuildKit `network.host` 权限错误，exit 1，日志 `/home/dev/gdds-p6-logs/s1a/04-runner-8e64af7ca4-20261027.log`；随后清除此变量重跑。
+- History focused 在 04 clean detached worktree 中复现，日志 `/home/dev/gdds-p6-logs/s1a/04-focused-history-digest-debug3-8e64af7ca4-20261027.log`，04:09:52Z–04:13:39Z，exit 1。checkpoint 与本地 oracle 的表名、行数、`raw_content_digest` 相同；checkpoint 两侧 snapshot digest 为 `sha256:d679512e7025c931a6a366e3da24bfa2fd47226cc992aa732337c8aacc1d0379` / `sha256:2c99660c0927056f5b13740dfaef86e8d40942881db98ecbf950f99e0f4e29e0`，本地完整行重算为 `sha256:f197994536a19425a2feb32e8a353b9618cda5075ad79046c7abf8ce247bb83f` / `sha256:101cd0a307d70ea1e398f814f42dad515f2269b1edc78bc3b1cd241eddf4b7b7`。S1a 的 `canonical_binding_for_commit` 将提交元数据的 `snapshot_digest` 传入 History materializer；comparison digest 直接包含两侧 snapshot digest。该差异违反 §4.1 comparison digest 保值项；需要 owner 决定后续处理，本阶段未修改设计、计划、决议或 golden。
+- 04 已重建 repository-service 镜像，日志 `/home/dev/gdds-p6-logs/s1a/04-rebuild-8e64af7ca4-20261027.log`；image revision 为 `8e64af7ca43438a8e2b40e59d0bf86e7e404c244`，image ID `sha256:d351b00712f15e30bb54f2d3566bc857fbf5ce78a2e9f9a187c43f68cddea077`。失败 runner 不是本阶段门禁通过证据。
+- 相对 `55363b37e1` 的 `55363b37e1..8e64af7ca4` 变更文件完整清单：
   - 合并自 `main` 的文档：`docs/backend-vnext/refactoring/formal/plans/p6-design.md`、`p6-execution-plan.md`、`p6-s0-owner-decisions.md`、`p6-forwardtable-blank-rows.md`、`p6-keyless-candidate-census.md`、`p6-keyless-candidate-rules-review.md`、本 handoff。
   - Benchmark：`vnext/backend/benchmarks/p6_s1a_dolt_batch_preflight.py`、`p6_s1a_mutation_replay_measurement.py`、`real_dump_forwardtable_blank.py`、`real_dump_journey.py`、`s5_v5b_segment_measurement.py`。
   - 产品源码：`vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py` 与 `vnext/repository_service/src/gateway_repository_service/versioned_read/arrow_bridge.py`。第二项只在 Arrow worker 捕获异常时记录异常类型与消息，不记录行数据。
   - 测试与 golden：`vnext/backend/tests/test_dolt_renderer.py`；`vnext/fixtures/golden/mutation/renderer/valid/destructive-delete/expected.sql`、`mixed-scalars/expected.sql`、`multi-table-patch/expected.sql`、`patch-single-update/expected.sql`、`rebuild-replace-rows/expected.sql`。
-- DC57 变更提交：合并 `8b18758fd2`；预检工具 `7b552981f8`、边界修正 `24136e4e53`、隔离 Dolt 配置 `6c770d963b`、逐候选 EXPLAIN 证据 `ec689eda0a`；渲染器实现与 mutation golden `cbe32df8bb`。RS/回放修复提交为 `085b54ffdc746d2ea3b7ccd1a610c629ddd4d28a`，t4 操作计时工具提交为 `ac73504ad8b44f43322aaf12a8df38caf3800a57`。提交均带规定的 Co-Authored-By trailer，未推送、未打 tag。
+- DC57 变更提交：合并 `8b18758fd2`；预检工具 `7b552981f8`、边界修正 `24136e4e53`、隔离 Dolt 配置 `6c770d963b`、逐候选 EXPLAIN 证据 `ec689eda0a`；渲染器实现与 mutation golden `cbe32df8bb`。RS/回放修复提交为 `085b54ffdc746d2ea3b7ccd1a610c629ddd4d28a`，t4 操作计时工具提交为 `ac73504ad8b44f43322aaf12a8df38caf3800a57`，当前 HEAD 为 `8e64af7ca43438a8e2b40e59d0bf86e7e404c244`。提交均带规定的 Co-Authored-By trailer，未推送、未打 tag。
 
 ### Dolt 批量语句预检
 
@@ -32,15 +35,16 @@
 - **已确认根因：测量工具污染了 RS 正在服务的 Dolt 仓库文件属主。** run3/run4 的回放工具曾以 root 经 `docker exec` 在该 live repository 上执行 `dolt branch/checkout/sql/add/commit`，把 `.dolt/noms/manifest`（模式 600）、`repo_state.json`、`.dolt/tmp` 等改成 root 所有；以 `gateway` 用户运行的 RS 随后读取失败，请求开始约 40 ms 即中止。run1/run2 之前的 t4 旅程与 V5b RS 读取成功；run3/run4 的中止与表无关，不能作为某张表或 RS 正常产品读取路径失败的证据。
 - **测量工具已修正：** `085b54ffdc` 起，live repository 仅经 RepositoryClient resolve main，并在测量前后核对 ref；工具用 `docker cp` 把仓库复制到 scratch，在 `--network none` 的隔离容器中进行 branch/checkout/SQL/add/commit/hash 回放。parent rows 通过 RS HTTP Arrow 产品路径读取，不从 V5b 存储加载；其输出确认 requested/materialized 均为全部 27 张 `X∪D` 表。scratch 与隔离容器信息见 `/home/dev/gdds-p6-logs/s1a/ct108-mutation-replay-085b54ffdc.json`。
 - **RS 诊断已加：** `arrow_bridge.py` 的 `_run_worker` 捕获异常时记录异常类型和消息，不记录行数据；focused 测试断言日志不含合成行值。CT108-05 的 2 个 focused 用例通过，repository_service Ruff 与 strict mypy 通过，日志 `/home/dev/gdds-p6-logs/s1a/05-focused-085b54ffdc-20261027.log`。变更是诊断，不改 RS 读取语义或重试策略。
-- 被污染的旧栈 `p6-s1a-t4-clean-55363b37` 已按 owner 授权仅执行 `docker compose stop`，三个容器和 volumes 均保留；停止记录 `/home/dev/gdds-p6-logs/s1a/ct108-stop-contaminated-55363b37-20261027.log`。其后新建栈 `p6-s1a-t4-measure-085b54ffdc`，t4 完整旅程 PASS；阈值回放全程只对仓库副本写入，live main 前后相同。最终候选仍需使用自己的新栈完成 t4。
-- Submit 的 `import_publication._materialize_parent_rows` 对变化且可 patch 的表经 RS 读 parent rows，再按 parent manifest 校验；本次 27 张 `X∪D` 全部读成功，其中含 `b1_n11_iec104_syx_list`。History 的 `_materialize_commit` 同样通过 RS provider 请求 X 两侧、D 旧侧和未变 ordered 当前侧；最终候选 t4 History 旅程待完成。
+- 被污染的旧栈 `p6-s1a-t4-clean-55363b37` 已按 owner 授权仅执行 `docker compose stop`，三个容器和 volumes 均保留；停止记录 `/home/dev/gdds-p6-logs/s1a/ct108-stop-contaminated-55363b37-20261027.log`。其后新建栈 `p6-s1a-t4-measure-085b54ffdc`，t4 完整旅程 PASS；阈值回放全程只对仓库副本写入，live main 前后相同。
+- 最终候选上的 t3 栈 `p6-s1a-final-t3-8e64af7ca4` 与 t4 栈 `p6-s1a-final-t4-retry-8e64af7ca4` 均在 2026-10-27T04:16:33Z 后停止服务，保留容器和 volumes。t4 的 `docker compose stop` exit 0；t3 的 Compose stop 客户端挂起，随后对其三个容器执行 `docker stop --timeout 1`，命令 exit 0，容器状态为 worker 137、backend 0、repository-service 137。没有删除容器、volume、ref 或文件。
+- Submit 的 `import_publication._materialize_parent_rows` 对变化且可 patch 的表经 RS 读 parent rows，再按 parent manifest 校验；27 张 `X∪D` 全部读成功，其中含 `b1_n11_iec104_syx_list`。History 的 `_materialize_commit` 请求 X 两侧、D 旧侧和未变 ordered 当前侧。候选 t4 在 v1 Preview/Submit、重复 v1 Preview 后进入 v2 Preview；因 History comparison digest 保值失败而提前中断，未完成候选上的 v2、History 或归因。
 - 对应测试：`test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary`、`test_changed_history_table_reads_both_pair_sides`、`test_deleted_history_table_reads_only_the_old_pair_side`、`test_unchanged_ordered_history_reads_current_side_and_preserves_facts`、Arrow bridge worker failure focused test、repository client 的 before/after-bytes retry 测试。它们验证选择与错误传播；本次 27/27 产品路径读取是 t4 实测证据。
 
 ### 尚未完成的验收及资源
 
 - 目前已在新渲染器与 RS 正式读取路径上完成阈值复测与 t4 v2 全表哈希复核；数值见“阈值、批量与 Dolt 表哈希”。1,000 行样本在 9,822 行表上占 10.175%，故按双门槛选择重建；未把它描述成 1% patch 性能样本。
-- 最终候选 `ac73504ad8` 上的 t1–t3、t4（含操作时序与归因）、V5b 补测、04 六包权威 runner、镜像重建和容器门禁仍未完成。未完成前不交独立阶段审核。
-- `p6-s1a-t4-clean-55363b37` 旧污染栈已停止但保留；`p6-s1a-t4-measure-085b54ffdc` 新测量栈仍保留，后续最终候选须使用新栈。所有 worktrees、Dolt refs、日志、artifact scratch、bundles 与 Git refs 均由 owner 后续清理；本任务不运行任何删除文件或 ref 的命令。原 `.p6-s1a-a6938cd.bundle` 主 checkout 副本及 05 日志目录副本继续保留。
+- 候选 `8e64af7ca4` 的 t1/t2 PASS，t3/t4 因 History 保值停止条件中断；04 镜像重建已完成但六包 runner exit 1；V5b 最终候选补测、worker step 归因和阶段门禁未完成。未完成前不交独立阶段审核。
+- `p6-s1a-t4-clean-55363b37` 旧污染栈已停止但保留；`p6-s1a-t4-measure-085b54ffdc`、`p6-s1a-final-t3-8e64af7ca4`、`p6-s1a-final-t4-retry-8e64af7ca4` 均保留容器与 volumes。所有 worktrees、Dolt refs、日志、artifact scratch、bundles 与 Git refs 由 owner 后续清理；本任务不运行任何删除文件或 ref 的命令。原 `.p6-s1a-a6938cd.bundle` 主 checkout 副本及 05 日志目录副本继续保留。
 
 ---
 
@@ -135,7 +139,7 @@ V5b 第一次调用错误地把 backend host `127.0.0.1:8000` 当成 Repository 
 ## Runner、镜像与门禁
 
 - 五个 Python 包 Ruff + mypy：CT108-05，HEAD `30458dc83517b742ac620a8eb16e17fd50752d2c`，2026-10-26T19:45:06Z–19:45:08Z，exit 0；backend 486 source files、repository_service 200 source files。日志 `/home/dev/gdds-p6-logs/s1a/05-static-30458dc835-20261026.log`。较早 HEAD `04124576d1` 与 `749e9bb5df` 的静态检查也通过，日志见 `/home/dev/gdds-p6-logs/s1a/`。
-- 04 六包权威 runner、逐包 manifest、repository-service 镜像重建及 Compose 门禁均**未运行**：§17.4 已要求停止后续验收。不得将 S1a 标为通过。
+- 04 已重建 repository-service 镜像，并运行六包权威 runner；该轮 exit 1（backend History Compose digest assertion failed，其余五包通过）。逐包 manifest 与 Compose provenance 保留在节点日志/worktree 外部位置。因为 §4.1 保值项失败，不得将该轮标为门禁通过，也不得继续 S1a 阶段审核。
 
 ## 偏差、未决与保留内容
 

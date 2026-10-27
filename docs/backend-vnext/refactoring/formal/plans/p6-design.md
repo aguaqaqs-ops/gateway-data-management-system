@@ -151,7 +151,7 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 | 规范状态摘要、HTTP DTO 形状 | 保值 | 规范状态摘要本来不含 `fast_row_digest` |
 | 导入包与 `replay.sql` | **变化** | 只写变化（§4.3） |
 
-**核对方式（DC58）：** 摘要值改变的产物，屏蔽三类字段：摘要与哈希字段；由摘要派生的内容寻址标识（`artifact_id` 等引用）；运行实例字段（operation、workspace、pair 等 ID，时间与耗时，随机生成的 artifact ID，以及包含这些值的路径）。屏蔽后与改动前逐字节相同，并顺着引用逐个加载被引用的产物（records closure 与各记录族、风险、surface、bundle 成员、导出表），按逻辑角色（表名、记录族、产物种类）对齐，用同一口径比较内容，覆盖 HTTP DTO；golden fixture 与真实数据（t1）都按此口径。另以测试证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
+**核对方式（DC58）：** 摘要值改变的产物，屏蔽三类字段：摘要与哈希字段；由摘要派生的内容寻址标识（`artifact_id` 等引用）；运行实例字段（operation、workspace、pair 等 ID，时间与耗时，随机生成的 artifact ID，以及包含这些值的路径）。屏蔽后与改动前逐字节相同，并顺着引用逐个加载被引用的产物（records closure 与各记录族、风险、surface、bundle 成员、导出表），按逻辑角色（表名、记录族、产物种类）对齐，用同一口径比较内容，覆盖 HTTP DTO。范围分两类：内容应保值的产物（比较记录与 facts、风险、surface、bundle、snapshot-materialization 内容、HTTP DTO 及其 golden）按上述口径核对，golden fixture 与真实数据（t1）都须相同；§4.1 列为变化的组（mutation、storage-projection、导入包）不要求相同，但每处差异须对应到 §4.1、§4.3 或 DC57 列出的变更，对应不上即停止。另以测试证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
 
 **golden 生命周期：** 见 §4.6。
 

@@ -369,7 +369,7 @@ def _indexed_plan(db_path: Path, env: dict[str, str], table: _Table, keys: Seque
     )
     plan = result.stdout + result.stderr
     if result.returncode == 0 and _plan_has_pk_index(plan, table):
-        return "tuple_in", plan.strip()
+        return "tuple_in", _plan_summary(plan)
     if len(table.key_columns) == 1:
         raise RuntimeError(f"EXPLAIN ANALYZE did not show a primary-key lookup for {table.name}: {plan}")
     predicate = _key_predicate(table, keys, composite_form="or_equals")
@@ -382,7 +382,16 @@ def _indexed_plan(db_path: Path, env: dict[str, str], table: _Table, keys: Seque
     plan = result.stdout + result.stderr
     if result.returncode != 0 or not _plan_has_pk_index(plan, table):
         raise RuntimeError(f"EXPLAIN ANALYZE found no primary-key lookup for {table.name}: {plan}")
-    return "or_equals", plan.strip()
+    return "or_equals", _plan_summary(plan)
+
+
+def _plan_summary(plan: str) -> str:
+    lines = [
+        line.strip(" +|│├─")
+        for line in plan.splitlines()
+        if "IndexedTableAccess(" in line or "index:" in line or "TableScan(" in line
+    ]
+    return " | ".join(lines)
 
 
 def _plan_has_pk_index(plan: str, table: _Table) -> bool:
@@ -551,6 +560,33 @@ def _run_table(
     lookup_indices = (*_UPDATE_KEYS, *_DELETE_KEYS)
     lookup_keys = [_key(table, index) for index in lookup_indices]
     composite_form, explain_plan = _indexed_plan(db_path, env, table, lookup_keys)
+    candidate_lookup_indices = {
+        "delete_insert": {"delete_where_in": (*_UPDATE_KEYS, *_DELETE_KEYS)},
+        "upsert": {
+            "delete_where_in": _DELETE_KEYS,
+            "duplicate_key_match": (*_UPDATE_KEYS, *_INSERT_KEYS),
+        },
+        "case_update": {
+            "delete_where_in": _DELETE_KEYS,
+            "update_where_in": _UPDATE_KEYS,
+        },
+    }
+    candidate_plans: dict[str, dict[str, str]] = {}
+    for form, checks in candidate_lookup_indices.items():
+        candidate_plans[form] = {}
+        for operation, indices in checks.items():
+            selected_form, plan_summary = _indexed_plan(
+                db_path,
+                env,
+                table,
+                [_key(table, index) for index in indices],
+            )
+            if selected_form != composite_form:
+                raise RuntimeError(
+                    f"{table.name} uses inconsistent indexed predicate forms: "
+                    f"{composite_form} and {selected_form}"
+                )
+            candidate_plans[form][operation] = plan_summary
     reference_sql, reference_sizes = _rowwise_sql(table)
     reference = _run_branch(
         db_path=db_path,
@@ -628,6 +664,7 @@ def _run_table(
         "ordered_gid_no_v1": table.ordered,
         "composite_predicate": composite_form,
         "explain_analyze_select_plan": explain_plan,
+        "candidate_explain_analyze_select_plans": candidate_plans,
         "row_limit_case": {
             "update_rows": len(_UPDATE_KEYS),
             "delete_rows": len(_DELETE_KEYS),

@@ -207,7 +207,7 @@ GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
 
 ### 8.4 真实数据与调试取证
 
-沿用 DC30、DC33：调试期间只跑 focused 测试与出问题的那一段真实数据；收敛后在最终门禁提交上完整运行权威 runner 一次、运行真实数据一次作为证据；真实数据范围在 kickoff 写明、退出前由 owner 确认。真实数据不进 Git（DC22）；含真实数据的中间产物放在节点 worktree 外，阶段结束后经 owner 授权清理。
+沿用 DC30、DC33：调试期间只跑 focused 测试与出问题的那一段真实数据；收敛后先在节点 05 做门禁前预检（[P5 执行计划 §8.9](p5-arch-closure-execution-plan.md)），再在最终门禁提交上完整运行权威 runner 一次、运行真实数据一次作为证据；真实数据范围在 kickoff 写明、退出前由 owner 确认。真实数据不进 Git（DC22）；含真实数据的中间产物放在节点 worktree 外，阶段结束后经 owner 授权清理。
 
 ### 8.5 提示词与审核报告模板
 

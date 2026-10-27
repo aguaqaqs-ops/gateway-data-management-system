@@ -731,6 +731,16 @@ docs/backend-vnext/refactoring/formal/guides/slice-design-execution-and-review-g
   日志可写到 `/home/dev/gdds-p5-closure-s1-gate-logs/<阶段>-debug-*`。真实数据的调试同样遵守整机单飞（Dolt 进程、Compose 栈、8000 端口）。
 - 节点分工（DC36，2026-10-24 生效）：调试在调试节点 `ct108-gw-dms-05`；权威 runner、容器门禁与 carried 在门禁节点 `ct108-gw-dms-04`；
   Phase 6 性能测量与真实数据 t4 在参考节点 `ct108-gw-dms`，t1–t3 在调试节点。各节点分别满足单飞与运行前提；日志开头记录 `hostname` 与起止时间。
+- 门禁前预检（owner 2026-10-27）：在节点 04 启动权威 runner 之前，先在调试节点 05 上对候选 V 做一次预检，避免在 04 上为一次本可提前发现的失败
+  消耗约 39 分钟的全量运行。预检在候选 V 的已提交 clean worktree 中运行（Compose 用例需要），05 同样满足整机单飞；Rust 改动后先以
+  `--reinstall-package gateway-compute-python` 同步 backend。依次：
+  1. 五包 ruff 与 mypy；改动 `vnext/rust` 时加 rustfmt 与 clippy（同 AGENTS「提交前」）；
+  2. backend 与 `repository_service` 的并行主体：`../scripts/uv-consume.sh -C . run pytest -m "(not serial) or parallel_safe" -n auto`，各约 1 分钟以内；
+  3. 本次改动可能影响的串行用例与 Compose 旅程，按文件 focused 运行（`-n 0`）；涉及 Compose 时先按 AGENTS 重建所需镜像。范围由实施者按改动面
+     选取，至少覆盖改动直接触及的 Compose 旅程与上一次门禁失败过的用例。
+
+  预检属于调试，不作为证据，不替代门禁的任何一步，也不改变按包沿用与镜像身份等价的判定；日志写到调试目录，handoff 只简要记录预检的节点、
+  提交、范围与结果。预检失败回到调试；全部通过后再在 04 上启动权威 runner。
 - 取证：调试收敛后，在最终 V 上完整运行权威 runner 一次，并在同一 V 上运行真实数据一次（preflight 与日志要求同 §8.1、AGENTS.md）。
   DC36 起二者可在不同节点上并行；为减少门禁失败时的浪费，可在门禁的并行批次通过后再启动真实数据。
   真实数据的范围由阶段改动面决定，在阶段 kickoff 时写明，阶段退出前由 owner 确认；S3 为新 V 上的 t4 完整与 t1 冒烟、t2/t3 沿用 `f73deee604`（owner 2026-10-17，治理修订计划 §3 第 9 项），S5 最终候选为完整 t1–t4，S4 见 §2 S4，2026-10-20 停止后的修订见治理修订计划 §3 第 11 项（DC33，治理修订计划 G12）。

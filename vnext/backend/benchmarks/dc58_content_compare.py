@@ -582,8 +582,14 @@ def snapshot_descriptions(run: Run, masked_paths: set[str]) -> dict[tuple[str, s
                 path=f"$snapshot[{operation_role}][{label}].storage_facts",
                 masked_paths=masked_paths,
             )
+            raw_snapshot = side.get("snapshot", {})
+            repository_ref_matches_carrier = (
+                _repository_ref_matches_carrier(run, operation_role, label, raw_snapshot)
+                if isinstance(raw_snapshot, dict)
+                else False
+            )
             snapshot = normalize_json(
-                side.get("snapshot", {}),
+                raw_snapshot,
                 path=f"$snapshot[{operation_role}][{label}].snapshot",
                 masked_paths=masked_paths,
             )
@@ -616,6 +622,7 @@ def snapshot_descriptions(run: Run, masked_paths: set[str]) -> dict[tuple[str, s
                 "descriptor_bindings": descriptor_bindings,
                 "table_artifacts": table_entries,
                 "table_count": len(descriptors),
+                "repository_ref_matches_carrier": repository_ref_matches_carrier,
                 "rowless_nonempty_descriptors": sorted(
                     name
                     for name, descriptor in descriptors.items()
@@ -664,6 +671,15 @@ def compare_snapshot_descriptions(
                     "fields": changed_paths(lside["snapshot"], rside["snapshot"]),
                 }
             )
+        for run, side in ((base, lside), (candidate, rside)):
+            if side["repository_ref_matches_carrier"] is False:
+                differences.append(
+                    {
+                        "role": list(role),
+                        "reason": "repository-ref-carrier-binding",
+                        "run": run.label,
+                    }
+                )
         left_facts = {
             str(fact["canonical_table"]): fact
             for fact in lside["storage_facts"]
@@ -849,17 +865,33 @@ def _canonical_carrier_role(operation_role: str, side_role: str) -> str | None:
     if operation_role == "v1-preview":
         return "v1" if side_role == "MODIFIED" else None
     if operation_role == "repeat-v1-preview":
-        return "v1" if side_role in {"BASELINE", "MODIFIED"} else None
+        return "v1" if side_role in {"BASELINE", "INITIAL", "MODIFIED"} else None
     if operation_role == "v2-preview":
         if side_role == "MODIFIED":
             return "v2"
-        return "v1" if side_role == "BASELINE" else None
+        return "v1" if side_role in {"BASELINE", "INITIAL"} else None
     if operation_role == "history":
         if side_role == "repository-v1":
             return "v1"
         if side_role == "repository-v2":
             return "v2"
     return None
+
+
+def _repository_ref_matches_carrier(
+    run: Run,
+    operation_role: str,
+    side_role: str,
+    snapshot: dict[str, Any],
+) -> bool | None:
+    carrier_role = _canonical_carrier_role(operation_role, side_role)
+    if carrier_role is None:
+        return None
+    submit = run.state.get(f"{carrier_role}-submit", {})
+    expected_commit = submit.get("repository_commit_id") if isinstance(submit, dict) else None
+    source_context = snapshot.get("source_context")
+    repository_ref = source_context.get("repository_ref") if isinstance(source_context, dict) else None
+    return isinstance(expected_commit, str) and repository_ref == expected_commit
 
 
 def canonical_submit_tables(run: Run, masked_paths: set[str]) -> dict[str, dict[str, Any]]:

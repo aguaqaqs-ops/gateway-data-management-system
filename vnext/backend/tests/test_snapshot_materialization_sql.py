@@ -77,7 +77,6 @@ def test_row_order_does_not_change_content_digests() -> None:
     assert left.snapshot.snapshot_digest == right.snapshot.snapshot_digest
     assert left.summary is not None and right.summary is not None
     assert left.summary.tables[0].raw_content_digest == right.summary.tables[0].raw_content_digest
-    assert left.summary.tables[0].fast_row_digest == right.summary.tables[0].fast_row_digest
 
 
 def test_package_kind_does_not_enter_sql_snapshot_identity() -> None:
@@ -172,5 +171,4 @@ def test_provisional_omits_raw_content_digest() -> None:
     assert result.status is SnapshotMaterializationStatus.COMPLETE
     assert result.cache_trust_level.value == "PROVISIONAL"
     assert result.summary is not None
-    assert result.summary.tables[0].fast_row_digest is not None
     assert result.summary.tables[0].raw_content_digest is None

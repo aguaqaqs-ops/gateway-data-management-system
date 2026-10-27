@@ -53,7 +53,6 @@ def canonical_binding_for_commit(
         ruleset_id=manifest.ruleset_id,
         ruleset_version=manifest.ruleset_version,
         ruleset_digest=manifest.ruleset_digest,
-        snapshot_digest=metadata.snapshot_digest,
         tables=tuple(
             sorted(
                 (_storage_rule_view(table) for table in manifest.tables),

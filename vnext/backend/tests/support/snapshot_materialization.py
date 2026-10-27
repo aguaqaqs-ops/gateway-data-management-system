@@ -120,7 +120,6 @@ def summary_payload(result: SnapshotMaterializationResult) -> dict[str, Any]:
                 "raw_content_digest": None
                 if table.raw_content_digest is None
                 else table.raw_content_digest.value,
-                "fast_row_digest": None if table.fast_row_digest is None else table.fast_row_digest.value,
             }
         )
     return {

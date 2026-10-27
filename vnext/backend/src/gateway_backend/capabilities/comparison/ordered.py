@@ -146,18 +146,14 @@ def compare_ordered_task(task: TableComparisonTask) -> ComparisonTableFact:
             )
         except StandardComparisonError as exc:
             return _degraded_fact(task, before, current, schema_changes, (str(exc),))
-        return _build_fact(
+        return _build_unchanged_fact(
             table_name=task.table_name,
             before_descriptor=before,
             current_descriptor=current,
-            before_rows=current_rows,
             current_rows=current_rows,
-            selected=schema.selected,
             policy=policy,
             ordered_policy=ordered_policy,
-            artifact_scope=task.artifact_scope,
             schema_changes=schema_changes,
-            schema_diagnostics=(),
         )
 
     try:
@@ -178,6 +174,59 @@ def compare_ordered_task(task: TableComparisonTask) -> ComparisonTableFact:
         artifact_scope=task.artifact_scope,
         schema_changes=schema_changes,
         schema_diagnostics=(),
+    )
+
+
+def _build_unchanged_fact(
+    *,
+    table_name: str,
+    before_descriptor: SnapshotTableDescriptor,
+    current_descriptor: SnapshotTableDescriptor,
+    current_rows: tuple[_OrderedRow, ...],
+    policy: _ComparisonTablePolicy,
+    ordered_policy: OrderedTablePolicy,
+    schema_changes: ComparisonSchemaChanges,
+) -> ComparisonTableFact:
+    """Build identical-side ordered facts without invoking the diff algorithm."""
+
+    logical_digest = _ordered_digest(current_rows, ordered_policy, table_name)
+    occupancy_digest = _occupancy_digest(_blank_gaps(current_rows, None))
+    return ComparisonTableFact(
+        table_name=table_name,
+        status=ComparisonTableStatus.UNCHANGED,
+        before_descriptor=before_descriptor,
+        current_descriptor=current_descriptor,
+        schema_changes=schema_changes,
+        row_count_before=before_descriptor.row_count,
+        row_count_current=current_descriptor.row_count,
+        row_added_count=0,
+        row_deleted_count=0,
+        row_modified_count=0,
+        suppressed_added_count=0,
+        suppressed_deleted_count=0,
+        records=(),
+        diagnostics=(),
+        content_changed=_ignored_values_changed(before_descriptor, current_descriptor, policy),
+        ordered_extension=OrderedExtension(
+            status=OrderedStatus.UNCHANGED,
+            ordered_summary=OrderedSummary(),
+            records=(),
+            before_ordered_digest=logical_digest,
+            current_ordered_digest=logical_digest,
+            replay_guarantee=ReplayGuarantee.EXACT,
+            table_processing_mode=None,
+            diagnostics=(),
+            policy_digest=ordered_policy.policy_digest,
+        ),
+        blank_extension=BlankExtension(
+            status=OrderedStatus.UNCHANGED,
+            blank_summary=BlankSummary(),
+            records=(),
+            before_occupancy_digest=occupancy_digest,
+            current_occupancy_digest=occupancy_digest,
+            replay_guarantee=ReplayGuarantee.EXACT,
+            diagnostics=(),
+        ),
     )
 
 

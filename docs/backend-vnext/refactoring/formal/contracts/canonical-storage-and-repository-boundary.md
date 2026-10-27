@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.3.0`（2026-10-26，Phase 6 S1a；前版 `3.2.0`、`3.1.0`、`3.0.0`）
+Semantic version：`3.4.0`（2026-10-27，DC58；前版 `3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
 
 Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
@@ -92,8 +92,10 @@ source/canonical schema digest、source/canonical row count、
 retained/structural/dropped columns+reason、canonical key、统一表摘要
 `content_digest`（其值等于该表的 `raw_content_digest`）、ordered identity policy 与
 gid range/count；以及 manifest digest。Manifest 不包含 `ordering_digest` 或额外的行摘要字段。
-`fast_row_digest` 保留在 Snapshot Materialization 中并进入 snapshot 身份；Repository-ref
-rowless materialization 从现有 SubmitAttempt 的 snapshot digest 恢复提交侧快照身份。
+Snapshot digest 的每表输入为表名、比较 schema 摘要、业务 schema 摘要、比较键、行数与
+表摘要；不读行的 Repository-ref 描述由 catalog 与 manifest 生成，并与读行描述逐字段相同。
+Upload、Preview baseline 与 History 两侧使用同一算法，不以 SubmitAttempt 中的 snapshot
+digest 替代计算。Manifest 只保存统一表摘要 `content_digest`，不保存额外的逐行摘要。
 
 Table Rules/Storage Projection owner拥有其语义。Repository Service只消费manifest中的
 required table、schema和row count做structural check；不验证业务content/ordering
@@ -214,7 +216,7 @@ tables[]
 ```
 
 `canonicalization_manifest_digest`由Storage Projection拥有，Repository只把它作为
-opaque关联值。完整contract、ruleset、source/content/ordering digest保存在Backend
+opaque关联值。完整contract、ruleset、source/table digest保存在Backend
 durable CanonicalizationManifest，不复制到临时package。Package传输完整性只使用
 minimal ArtifactRef的size/raw SHA-256。
 
@@ -225,9 +227,12 @@ SQL type，`nullable`是boolean。Object unknown field、duplicate或invalid key
 reference全部拒绝。`manifest.json`使用strict UTF-8 JSON，但不要求JCS，也不建立
 package semantic/self digest。
 
-`replay.sql`是受信Storage Projection生成的确定性snapshot replay，不是外部用户
-提交的任意SQL。Repository Service将其限制在server-owned Repository/Dolt runtime
-内执行，不建设完整SQL grammar或semantic package validator。若信任边界改变为
+`replay.sql`是受信Storage Projection相对 expected parent 生成的确定性 replay，不是外部用户
+提交的任意SQL。满足完整未变化条件的表不进入 replay；新增或变化表按冻结的修改策略写入，删除表生成
+`DROP`。Package manifest 仍列出目标 ref 的全部表，以便 Repository 校验完整 catalog。Parent 为
+INITIAL、缺少 manifest 或 projection version 不同时，所有当前表均按变化处理。Repository Service
+将 replay 限制在 server-owned Repository/Dolt runtime 内执行，不建设完整 SQL grammar 或 semantic
+package validator。若信任边界改变为
 不可信上传者，必须重开ADR 0009。
 
 ## 7. Projection upgrade/schema alignment

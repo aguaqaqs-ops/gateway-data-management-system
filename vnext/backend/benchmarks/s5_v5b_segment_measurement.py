@@ -62,6 +62,9 @@ from gateway_backend.capabilities.bundle_assembly import (  # noqa: E402
     validate_bundle,
 )
 from gateway_backend.capabilities.comparison import open_records_closure  # noqa: E402
+from gateway_backend.capabilities.snapshot_materialization.contracts import (  # noqa: E402
+    CanonicalTableIdentity,
+)
 from gateway_backend.capabilities.snapshot_materialization import (  # noqa: E402
     CanonicalBinding,
     MaterializationPolicy,
@@ -377,12 +380,36 @@ def _canonical_binding(bound: Any, ruleset: Any) -> CanonicalBinding:
             key=lambda item: item.canonical_table.encode("utf-8"),
         )
     )
+    if bound.table_set is None:
+        raise RuntimeError("canonical snapshot table set is missing")
+    descriptors = {table.descriptor.table_name: table.descriptor for table in bound.table_set.tables}
+    identities: list[CanonicalTableIdentity] = []
+    for fact in sorted(
+        bound.storage_facts,
+        key=lambda item: item.storage_rule_view.canonical_table.encode("utf-8"),
+    ):
+        canonical_table = fact.storage_rule_view.canonical_table
+        descriptor = descriptors.get(canonical_table)
+        if descriptor is None:
+            raise RuntimeError(f"canonical snapshot descriptor is missing for {canonical_table}")
+        if fact.canonical_schema_digest is None or fact.raw_content_digest is None:
+            raise RuntimeError(f"canonical snapshot identity digests are missing for {canonical_table}")
+        identities.append(
+            CanonicalTableIdentity(
+                canonical_table=canonical_table,
+                row_count=descriptor.row_count,
+                source_schema_digest=fact.source_schema_digest,
+                canonical_schema_digest=fact.canonical_schema_digest,
+                raw_content_digest=fact.raw_content_digest,
+            )
+        )
     return CanonicalBinding(
         storage_projection_version=ruleset.storage_projection_version,
         ruleset_id=ruleset.ruleset_id,
         ruleset_version=ruleset.ruleset_version,
         ruleset_digest=ruleset.ruleset_digest,
         tables=views,
+        table_identities=tuple(identities),
     )
 
 
@@ -394,6 +421,8 @@ def _measure_repository_materialization(
     bearer_token: str,
     base_url: str,
     canonical_source: Any,
+    requested_tables: tuple[str, ...] | None = None,
+    scenario: str = "t4_v1_repository_ref_materialization",
 ) -> tuple[dict[str, Any], Any, RepositoryReadMetrics]:
     ruleset = migrated_table_ruleset_snapshot()
     binding = _canonical_binding(canonical_source, ruleset)
@@ -413,6 +442,7 @@ def _measure_repository_materialization(
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
+        requested_tables=requested_tables,
         artifact_store=store,
     )
     before_io = store.io_stats()
@@ -476,9 +506,17 @@ def _measure_repository_materialization(
     python_wall = total_wall - rs_wall - write_wall - internal_read_wall
     python_cpu = total_cpu - rs_cpu - write_cpu - internal_read_cpu
     summary = {
-        "scenario": "t4_v1_repository_ref_materialization",
+        "scenario": scenario,
         "total_wall_seconds": round(total_wall, 6),
         "total_thread_cpu_seconds": round(total_cpu, 6),
+        "requested_table_count": (
+            None if requested_tables is None else len(requested_tables)
+        ),
+        "materialized_table_count": len(table_rows),
+        "materialized_row_count_total": sum(
+            int(item["row_count"]) for item in table_rows
+        ),
+        "materialized_tables": [item["table_name"] for item in table_rows],
         "repository_reads": {
             "stages": read_metrics.stages,
             "per_table": [
@@ -1105,7 +1143,7 @@ def run(
             store=store,
             recorder=v1_recorder,
         )
-        materialization, repository_baseline, _repository_reads = (
+        materialization, _repository_baseline, _repository_reads = (
             _measure_repository_materialization(
                 store=store,
                 repository_id=repository_id,
@@ -1125,6 +1163,38 @@ def run(
             store=store,
             recorder=v2_recorder,
         )
+        ruleset = migrated_table_ruleset_snapshot()
+        baseline_binding = _canonical_binding(v1_bound, ruleset)
+        changed_tables = preview_jobs._changed_canonical_tables(
+            baseline_binding,
+            v2_bound,
+        )
+        selective_materialization, selective_repository_baseline, _selective_reads = (
+            _measure_repository_materialization(
+                store=store,
+                repository_id=repository_id,
+                commit_id=baseline_commit_id,
+                bearer_token=bearer_token,
+                base_url=repository_service_url,
+                canonical_source=v1_bound,
+                requested_tables=changed_tables,
+                scenario="t4_v2_s1a_selected_baseline_materialization",
+            )
+        )
+        selective_materialization["logical_changed_table_count"] = len(changed_tables)
+        selective_materialization["logical_changed_tables"] = list(changed_tables)
+        result["segments"].append(selective_materialization)
+        result["s1a_baseline_filter"] = {
+            "changed_table_count": len(changed_tables),
+            "changed_tables": list(changed_tables),
+            "catalog_table_count": selective_materialization["repository_reads"][
+                "table_count"
+            ],
+            "row_stream_table_count": len(
+                selective_materialization["repository_reads"]["per_table"]
+            ),
+        }
+        checkpoint("RUNNING")
         empty_baseline = s5._empty_baseline(store)
         v1_bundle_metrics, v1_bundle, v1_ready_refs = _measure_bundle(
             scenario="t4_v1_preview_bundle",
@@ -1141,7 +1211,7 @@ def run(
         checkpoint("RUNNING")
         v2_bundle_metrics, _v2_bundle, v2_ready_refs = _measure_bundle(
             scenario="t4_v2_preview_bundle",
-            before=repository_baseline,
+            before=selective_repository_baseline,
             current=v2_bound,
             store=store,
         )

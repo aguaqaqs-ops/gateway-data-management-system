@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from itertools import combinations, permutations
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +15,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonFacts,
     ComparisonTableFact,
     ComparisonPlan,
+    ComparisonStorageFacts,
     DetailedFactsResult,
     OrderedRecordKind,
     OrderedStatus,
@@ -21,14 +23,22 @@ from gateway_backend.capabilities.comparison import (
     compare_plan,
     plan_comparison,
 )
-from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    ComparisonRuleSet,
+    OrderedPolicy,
+    StorageRuleView,
+)
 from gateway_backend.capabilities.comparison.ordered import _backbone_indices
+from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit
+from gateway_backend.capabilities.comparison import ordered as ordered_comparison
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance,
     MaterializationPolicy,
     SnapshotTableOrderedMetadata,
     SnapshotMaterializationStatus,
 )
+from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from tests.support.snapshot_materialization import materialize_sql
 from tests.support.storage_projection import FakeSnapshotTableReader, int_cell, varchar_cell
 from tests.support.table_rules import comparison_ruleset_for, ordered_record, standard_rule_record
@@ -61,6 +71,45 @@ def _plan(
         before=before,
         current=current,
         rule_set=selected_rules,
+    )
+    planned = plan_comparison(request)
+    assert isinstance(planned, ComparisonPlan)
+    return planned
+
+
+def _plan_with_equal_storage_facts(sql: str) -> ComparisonPlan:
+    before = _bound(sql)
+    current = _bound(sql)
+
+    def storage_facts(bound: BoundSnapshotInput) -> tuple[ComparisonStorageFacts, ...]:
+        assert len(bound.summary.tables) == 1
+        descriptor = bound.summary.tables[0]
+        assert descriptor.raw_content_digest is not None
+        view = StorageRuleView(
+            canonical_table=descriptor.table_name,
+            canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
+            ordered_policy=OrderedPolicy.GID_NO_V1,
+            structural_columns=("no",),
+            retained_columns=tuple(column.name for column in descriptor.columns),
+            canonical_key_columns=("gid",),
+        )
+        return (
+            ComparisonStorageFacts(
+                storage_rule_view=view,
+                source_schema_digest=descriptor.business_schema_digest,
+                canonical_schema_digest=descriptor.business_schema_digest,
+                raw_content_digest=descriptor.raw_content_digest,
+                storage_projection_version=STORAGE_PROJECTION_VERSION,
+            ),
+        )
+
+    before = replace(before, storage_facts=storage_facts(before))
+    current = replace(current, storage_facts=storage_facts(current))
+    request = ComparisonRequest(
+        pair_id="ordered-early-exit",
+        before=before,
+        current=current,
+        rule_set=comparison_ruleset_for(ordered_record(r"^t$")),
     )
     planned = plan_comparison(request)
     assert isinstance(planned, ComparisonPlan)
@@ -245,6 +294,64 @@ def test_ordered_facts_and_extension_digests_are_deterministic() -> None:
     second = _facts(_plan(before, current))
     assert first.facts_core_digest == second.facts_core_digest
     assert _table(first).table_fact_digest == _table(second).table_fact_digest
+
+
+def test_unchanged_ordered_early_exit_matches_full_facts_without_running_diff() -> None:
+    source = _sql("(1, 1, 'a'), (2, 2, 'b')")
+    oracle_plan = _plan_with_equal_storage_facts(source)
+
+    with patch(
+        "gateway_backend.capabilities.comparison.ordered._can_table_early_exit",
+        return_value=False,
+    ):
+        oracle = _table(_facts(oracle_plan))
+
+    optimized_plan = _plan_with_equal_storage_facts(source)
+
+    with patch(
+        "gateway_backend.capabilities.comparison.ordered._can_table_early_exit",
+        wraps=_can_table_early_exit,
+    ) as early_exit:
+        with (
+            patch.object(
+                ordered_comparison,
+                "_build_fact",
+                wraps=ordered_comparison._build_fact,
+            ) as full_diff,
+            patch.object(
+                ordered_comparison,
+                "_backbone_indices",
+                wraps=ordered_comparison._backbone_indices,
+            ) as lis,
+            patch.object(
+                ordered_comparison,
+                "_compare_single_side",
+                wraps=ordered_comparison._compare_single_side,
+            ) as single_side,
+            patch.object(
+                ordered_comparison,
+                "_ordered_digest",
+                wraps=ordered_comparison._ordered_digest,
+            ) as ordered_digest,
+            patch.object(
+                ordered_comparison,
+                "_occupancy_digest",
+                wraps=ordered_comparison._occupancy_digest,
+            ) as occupancy_digest,
+        ):
+            actual = _table(_facts(optimized_plan))
+
+    early_exit.assert_called_once()
+    full_diff.assert_not_called()
+    lis.assert_not_called()
+    single_side.assert_not_called()
+    ordered_digest.assert_called_once()
+    occupancy_digest.assert_called_once()
+    for field in fields(ComparisonTableFact):
+        assert getattr(actual, field.name) == getattr(oracle, field.name), (
+            field.name,
+            actual.diagnostics,
+        )
 
 
 def test_canonical_pseudo_gid_requires_explicit_provenance() -> None:

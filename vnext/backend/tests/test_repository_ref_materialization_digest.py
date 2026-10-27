@@ -225,7 +225,6 @@ def test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary(
     descriptors = {item.table_name: item for item in full.summary.tables}
     binding = replace(
         ruleset_binding,
-        snapshot_digest=full.snapshot.snapshot_digest,
         table_identities=tuple(
             CanonicalTableIdentity(
                 canonical_table=name,

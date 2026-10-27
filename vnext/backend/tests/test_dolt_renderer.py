@@ -7,6 +7,8 @@ from dataclasses import replace
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 
+from gateway_backend.capabilities.mutation_planning import _repository_replay_renderer as replay_renderer
+from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.mutation_planning import (
     MutationFailureCode,
     MutationPlanStatus,
@@ -41,6 +43,7 @@ from tests.support.mutation_renderer_fixtures import (
     load_closure,
     load_expected_sql,
 )
+from tests.support.mutation_contracts import int_cell, row_image, storage_key
 from gateway_backend.capabilities.mutation_planning.contracts import TableMutationKind
 
 pytestmark = pytest.mark.unit
@@ -95,9 +98,9 @@ def test_multi_table_sql_statement_order_matches_mutations() -> None:
     outcome = render_change_set_replay(closure)
     assert outcome.sql_bytes is not None
     statements = [line for line in outcome.sql_bytes.decode("utf-8").splitlines() if line]
-    assert len(statements) == len(closure.mutations)
-    for statement, mutation in zip(statements, closure.mutations, strict=True):
-        assert mutation.canonical_table in statement
+    assert len(statements) <= len(closure.mutations)
+    assert all("`orders`" in statement for statement in statements)
+    for statement in statements:
         assert statement.endswith(";")
 
 
@@ -172,9 +175,325 @@ def test_update_excludes_key_columns_from_set_clause() -> None:
     outcome = render_change_set_replay(closure)
     assert outcome.sql_bytes is not None
     text = outcome.sql_bytes.decode("utf-8")
-    assert "SET `status`=" in text
+    assert "SET `status`=CASE WHEN" in text
     assert "SET `board`=" not in text
     assert "SET `link_no`=" not in text
+
+
+def _update_mutation(
+    *,
+    table: str,
+    key: CanonicalStorageKey,
+    image: PersistedRowImage,
+    label: str,
+) -> ChangeSetMutation:
+    return ChangeSetMutation(
+        canonical_table=table,
+        operation=RowMutationOperation.UPDATE,
+        canonical_storage_key=key,
+        before_row_digest=raw_blob_digest(label.encode("utf-8")),
+        after_image=image,
+    )
+
+
+def _sort_by_key(mutations: tuple[ChangeSetMutation, ...]) -> tuple[ChangeSetMutation, ...]:
+    return tuple(sorted(mutations, key=lambda item: key_bytes_for_ordering(item.canonical_storage_key)))
+
+
+def test_renderer_batches_delete_update_and_insert_at_256_rows() -> None:
+    deletes = _sort_by_key(
+        tuple(delete_mutation(board="1", link_no=str(index)) for index in range(257))
+    )
+    updates = _sort_by_key(
+        tuple(
+            _update_mutation(
+                table="orders",
+                key=storage_key(board="2", link_no=str(index)),
+                image=row_image(board="2", link_no=str(index), status="1"),
+                label=f"before-update-{index}",
+            )
+            for index in range(257)
+        )
+    )
+    inserts = _sort_by_key(
+        tuple(insert_mutation(board="3", link_no=str(index)) for index in range(257))
+    )
+    closure = change_set_closure(mutations=(*deletes, *updates, *inserts))
+    outcome = render_change_set_replay(closure)
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    statements = outcome.sql_bytes.decode("utf-8").splitlines()
+    assert [statement.split(" ", maxsplit=1)[0] for statement in statements] == [
+        "DELETE",
+        "DELETE",
+        "UPDATE",
+        "UPDATE",
+        "INSERT",
+        "INSERT",
+    ]
+    assert [statement.count("),(") + 1 for statement in statements[:4]] == [256, 1, 256, 1]
+    assert [statement.count("), (") + 1 for statement in statements[4:]] == [256, 1]
+    assert all(len(statement.encode("utf-8")) <= 4 * 1024 * 1024 for statement in statements)
+
+
+def test_renderer_batches_composite_keys_and_mixed_mutations() -> None:
+    deletes = _sort_by_key(
+        (
+            delete_mutation(board="1", link_no="2"),
+            delete_mutation(board="1", link_no="3"),
+        )
+    )
+    updates = _sort_by_key(
+        (
+            _update_mutation(
+                table="orders",
+                key=storage_key(board="2", link_no="4"),
+                image=row_image(board="2", link_no="4", status="1"),
+                label="before-4",
+            ),
+            _update_mutation(
+                table="orders",
+                key=storage_key(board="2", link_no="5"),
+                image=row_image(board="2", link_no="5", status="2"),
+                label="before-5",
+            ),
+        )
+    )
+    inserts = _sort_by_key(
+        (insert_mutation(board="3", link_no="6"), insert_mutation(board="3", link_no="7"))
+    )
+    outcome = render_change_set_replay(
+        change_set_closure(mutations=(*deletes, *updates, *inserts))
+    )
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    statements = outcome.sql_bytes.decode("utf-8").splitlines()
+    assert len(statements) == 3
+    assert statements[0].startswith(
+        "DELETE FROM `orders` WHERE (`board`,`link_no`) IN ((1, 2),(1, 3));"
+    )
+    assert statements[1].startswith("UPDATE `orders` SET `status`=CASE WHEN")
+    assert "WHEN `board`=2 AND `link_no`=4 THEN 1" in statements[1]
+    assert "WHEN `board`=2 AND `link_no`=5 THEN 2" in statements[1]
+    assert "WHERE (`board`,`link_no`) IN ((2, 4),(2, 5));" in statements[1]
+    assert statements[2].startswith("INSERT INTO `orders` ")
+    assert statements[0].startswith("DELETE") and statements[1].startswith("UPDATE")
+    assert statements[2].count("), (") == 1
+
+
+def test_renderer_uses_gid_as_ordered_storage_key_and_updates_no_as_value() -> None:
+    mutations: list[ChangeSetMutation] = []
+    for index in (1, 2):
+        gid = 4_000_000_000 + index
+        key = CanonicalStorageKey(
+            columns=(("gid", {"kind": "unsigned-integer", "decimal": str(gid)}),)
+        )
+        image = PersistedRowImage(
+            columns=(
+                ("gid", {"kind": "unsigned-integer", "decimal": str(gid)}),
+                ("no", int_cell(str(index + 20))),
+                ("payload", {"kind": "string", "text": f"point-{index}"}),
+            )
+        )
+        mutations.append(
+            _update_mutation(
+                table="ordered_points",
+                key=key,
+                image=image,
+                label=f"before-ordered-{index}",
+            )
+        )
+    outcome = render_change_set_replay(
+        change_set_closure(mutations=_sort_by_key(tuple(mutations)))
+    )
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    statement = outcome.sql_bytes.decode("utf-8").strip()
+    assert statement.startswith("UPDATE `ordered_points` SET `no`=CASE WHEN `gid`=")
+    assert ", `payload`=CASE WHEN `gid`=" in statement
+    assert "`gid`=CASE" not in statement
+    assert "WHERE `gid` IN (4000000001,4000000002);" in statement
+
+
+def test_renderer_splits_update_batches_at_the_statement_byte_limit() -> None:
+    payload = "x" * 2_100_000
+    mutations = tuple(
+        _update_mutation(
+            table="orders",
+            key=storage_key(board="9", link_no=str(index)),
+            image=PersistedRowImage(
+                columns=(
+                    ("board", int_cell("9")),
+                    ("link_no", int_cell(str(index))),
+                    ("payload", {"kind": "string", "text": payload}),
+                )
+            ),
+            label=f"before-wide-{index}",
+        )
+        for index in range(2)
+    )
+    closure = change_set_closure(mutations=_sort_by_key(mutations))
+    outcome = render_change_set_replay(closure)
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    statements = outcome.sql_bytes.decode("utf-8").splitlines()
+    assert len(statements) == 2
+    assert all(len(statement.encode("utf-8")) <= 4 * 1024 * 1024 for statement in statements)
+
+
+def test_renderer_splits_delete_batches_at_the_statement_byte_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay_renderer, "_MAX_DELETE_STATEMENT_BYTES", 1_500)
+    deletes = tuple(
+        ChangeSetMutation(
+            canonical_table="wide_keys",
+            operation=RowMutationOperation.DELETE,
+            canonical_storage_key=CanonicalStorageKey(
+                columns=(("id", {"kind": "string", "text": f"key-{index}-" + "x" * 900}),)
+            ),
+            before_row_digest=raw_blob_digest(f"wide-before-{index}".encode("utf-8")),
+        )
+        for index in range(2)
+    )
+    closure = change_set_closure(mutations=_sort_by_key(deletes))
+    outcome = render_change_set_replay(closure)
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    statements = outcome.sql_bytes.splitlines()
+    assert len(statements) == 2
+    assert all(len(statement) <= 1_500 for statement in statements)
+
+
+def _mutation_with_text_value(
+    operation: RowMutationOperation,
+    *,
+    index: int,
+    value_size: int,
+) -> ChangeSetMutation:
+    text = ("é" * (value_size // 2)) + ("x" if value_size % 2 else "")
+    if operation is RowMutationOperation.DELETE:
+        return ChangeSetMutation(
+            canonical_table="wide_keys",
+            operation=operation,
+            canonical_storage_key=CanonicalStorageKey(
+                columns=(("id", {"kind": "string", "text": f"{index}-" + text}),)
+            ),
+            before_row_digest=raw_blob_digest(f"before-{index}".encode("utf-8")),
+        )
+
+    base = (
+        insert_mutation(table="wide_values", board=str(index), link_no="1")
+        if operation is RowMutationOperation.INSERT
+        else _update_mutation(
+            table="wide_values",
+            key=storage_key(board=str(index), link_no="1"),
+            image=row_image(board=str(index), link_no="1"),
+            label=f"before-{index}",
+        )
+    )
+    assert base.after_image is not None
+    image = PersistedRowImage(
+        columns=tuple(
+            (name, {"kind": "string", "text": text}) if name == "status" else (name, cell)
+            for name, cell in base.after_image.columns
+        )
+    )
+    return replace(base, after_image=image)
+
+
+def _rendered_statement_sizes(mutations: tuple[ChangeSetMutation, ...]) -> tuple[int, ...]:
+    outcome = render_change_set_replay(change_set_closure(mutations=mutations))
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    return tuple(len(statement) for statement in outcome.sql_bytes.splitlines(keepends=True))
+
+
+def _value_size_for_statement(
+    operation: RowMutationOperation,
+    *,
+    target_size: int,
+    row_count: int,
+) -> int:
+    assert row_count in {1, 2}
+    if row_count == 1:
+        mutations: tuple[ChangeSetMutation, ...] = (
+            _mutation_with_text_value(operation, index=1, value_size=0),
+        )
+    else:
+        mutations = (
+            _mutation_with_text_value(operation, index=1, value_size=32),
+            _mutation_with_text_value(operation, index=2, value_size=0),
+        )
+    baseline_size = _rendered_statement_sizes(mutations)[0]
+    payload_size = target_size - baseline_size
+    assert payload_size >= 0
+    return payload_size
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        RowMutationOperation.INSERT,
+        RowMutationOperation.UPDATE,
+        RowMutationOperation.DELETE,
+    ),
+)
+def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: RowMutationOperation,
+) -> None:
+    byte_limit = 4 * 1024 * 1024
+    limit_name = {
+        RowMutationOperation.INSERT: "_MAX_INSERT_STATEMENT_BYTES",
+        RowMutationOperation.UPDATE: "_MAX_UPDATE_STATEMENT_BYTES",
+        RowMutationOperation.DELETE: "_MAX_DELETE_STATEMENT_BYTES",
+    }[operation]
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
+
+    exact_value_size = _value_size_for_statement(
+        operation,
+        target_size=byte_limit,
+        row_count=2,
+    )
+    exact_mutations = (
+        _mutation_with_text_value(operation, index=1, value_size=32),
+        _mutation_with_text_value(operation, index=2, value_size=exact_value_size),
+    )
+    assert _rendered_statement_sizes((exact_mutations[0],))[0] < byte_limit
+    assert _rendered_statement_sizes((exact_mutations[1],))[0] < byte_limit
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
+    assert _rendered_statement_sizes(exact_mutations) == (byte_limit,)
+
+    over_limit_mutations = (
+        exact_mutations[0],
+        _mutation_with_text_value(
+            operation,
+            index=2,
+            value_size=exact_value_size + 1,
+        ),
+    )
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
+    assert _rendered_statement_sizes(over_limit_mutations) == (byte_limit + 1,)
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
+    split_sizes = _rendered_statement_sizes(over_limit_mutations)
+    assert len(split_sizes) == 2
+    assert all(size <= byte_limit for size in split_sizes)
+
+    oversized_value_size = _value_size_for_statement(
+        operation,
+        target_size=byte_limit + 1,
+        row_count=1,
+    )
+    oversized_mutation = _mutation_with_text_value(
+        operation,
+        index=3,
+        value_size=oversized_value_size,
+    )
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
+    assert _rendered_statement_sizes((oversized_mutation,)) == (byte_limit + 1,)
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
+    assert _rendered_statement_sizes((oversized_mutation,)) == (byte_limit + 1,)
 
 
 def test_string_escape_in_sql_literal() -> None:

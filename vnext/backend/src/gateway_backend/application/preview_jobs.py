@@ -2922,7 +2922,6 @@ def _snapshot_descriptor_to_document(descriptor: SnapshotTableDescriptor) -> dic
         "table_ruleset_version": descriptor.table_ruleset_version,
         "row_materialization_profile": descriptor.row_materialization_profile,
         "scalar_encoding_version": descriptor.scalar_encoding_version,
-        "fast_row_digest": None if descriptor.fast_row_digest is None else descriptor.fast_row_digest.value,
         "raw_content_digest": None if descriptor.raw_content_digest is None else descriptor.raw_content_digest.value,
         "degraded_reason": None if descriptor.degraded_reason is None else descriptor.degraded_reason.value,
         "diagnostics": [
@@ -2953,7 +2952,6 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
         "table_ruleset_version",
         "row_materialization_profile",
         "scalar_encoding_version",
-        "fast_row_digest",
         "raw_content_digest",
         "degraded_reason",
         "diagnostics",
@@ -3000,11 +2998,8 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
                 column=column,
             )
         )
-    raw_fast = raw["fast_row_digest"]
     raw_content = raw["raw_content_digest"]
     raw_degraded = raw["degraded_reason"]
-    if raw_fast is not None and type(raw_fast) is not str:
-        raise ValueError("fast_row_digest must be a string or null")
     if raw_content is not None and type(raw_content) is not str:
         raise ValueError("raw_content_digest must be a string or null")
     if raw_degraded is not None and type(raw_degraded) is not str:
@@ -3021,7 +3016,6 @@ def _snapshot_descriptor_from_document(raw: object) -> SnapshotTableDescriptor:
         table_ruleset_version=_document_int(raw, "table_ruleset_version"),
         row_materialization_profile=_document_string(raw, "row_materialization_profile"),
         scalar_encoding_version=_document_int(raw, "scalar_encoding_version"),
-        fast_row_digest=None if raw_fast is None else DigestRef(raw_fast),
         raw_content_digest=None if raw_content is None else DigestRef(raw_content),
         degraded_reason=None if raw_degraded is None else DegradedReason(raw_degraded),
         diagnostics=tuple(diagnostics),

@@ -773,7 +773,6 @@ def _build_frozen_projection(
                     row_count=frozen_table.canonical_row_count,
                     schema_digest=frozen_table.canonical_schema_digest,
                     content_digest=frozen_table.content_digest,
-                    fast_row_digest=descriptor.fast_row_digest,
                 )
             )
             if table_name in mutation_table_names:

@@ -335,12 +335,7 @@ def test_canonical_snapshot_identity(
                 scope=CommitCanonicalScope("identity-device", "identity-project"),
                 initial=False,
                 manifest=canonical.manifest,
-                snapshot_digest=snapshot_digest_of(
-                    stage=MaterializationStage.FINAL,
-                    parser_version=PARSER_VERSION,
-                    table_ruleset_version=TABLE_RULESET_VERSION,
-                    tables=tuple(table.descriptor for table in canonical.tables),
-                ),
+                snapshot_digest=_SOURCE_SNAPSHOT_DIGEST,
             ),
             runtime_ruleset=_RULESET,
         )
@@ -367,6 +362,13 @@ def test_canonical_snapshot_identity(
         )
 
     assert materialized.table_set is not None
+    assert materialized.snapshot is not None
+    assert materialized.snapshot.snapshot_digest == snapshot_digest_of(
+        stage=MaterializationStage.FINAL,
+        parser_version=PARSER_VERSION,
+        table_ruleset_version=TABLE_RULESET_VERSION,
+        tables=tuple(table.descriptor for table in canonical.tables),
+    )
     expected_by_name = {table.descriptor.table_name: table for table in canonical.tables}
     observed_by_name = {
         table.descriptor.table_name: table for table in materialized.table_set.tables

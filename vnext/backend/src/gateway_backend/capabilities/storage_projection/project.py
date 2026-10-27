@@ -23,8 +23,6 @@ from gateway_backend.capabilities.snapshot_materialization import (
     cell_count_key,
     compare_schema_digest as snapshot_compare_schema_digest,
     enum_set_labels_for_sql_spelling,
-    fast_row_digest_of,
-    fast_row_hash,
     raw_content_digest_of,
     row_content_hash,
     try_declared_type_for_sql_spelling,
@@ -408,7 +406,6 @@ def _canonical_snapshot_table(
         projected.row_count != manifest_table.canonical_row_count
         or projected.content_digest is None
         or projected.content_digest != manifest_table.content_digest
-        or projected.fast_row_digest is None
     ):
         raise _ProjectionFailed(
             _error(
@@ -434,7 +431,6 @@ def _canonical_snapshot_table(
         table_ruleset_version=source.descriptor.table_ruleset_version,
         row_materialization_profile=source.descriptor.row_materialization_profile,
         scalar_encoding_version=source.descriptor.scalar_encoding_version,
-        fast_row_digest=projected.fast_row_digest,
         raw_content_digest=projected.content_digest,
     )
     reader = _CanonicalProjectionReader(
@@ -984,17 +980,17 @@ def _project_table(
         table_name=view.canonical_table,
     )
     if view.ordered_policy is OrderedPolicy.GID_NO_V1:
-        content_digest, fast_digest, row_count, gid_real, gid_pseudo = _project_ordered(
+        content_digest, row_count, gid_real, gid_pseudo = _project_ordered(
             request, item, descriptor, view, codecs, retained_indexes, canonical_source_columns
         )
     elif not view.canonical_key_columns:
-        content_digest, fast_digest, row_count = _project_keyless(
+        content_digest, row_count = _project_keyless(
             request, item, descriptor, view, codecs, retained_indexes, canonical_source_columns
         )
         gid_real = None
         gid_pseudo = None
     else:
-        content_digest, fast_digest, row_count = _project_keyed(
+        content_digest, row_count = _project_keyed(
             request, item, descriptor, view, codecs, retained_indexes, canonical_source_columns
         )
         gid_real = None
@@ -1005,7 +1001,6 @@ def _project_table(
         row_count=row_count,
         schema_digest=schema_digest,
         content_digest=content_digest,
-        fast_row_digest=fast_digest,
     )
     manifest_table = CanonicalizationManifestTable(
         name=view.canonical_table,
@@ -1047,11 +1042,10 @@ def _project_keyed(
     codecs: Mapping[int, CanonicalColumnCodec],
     retained_indexes: tuple[int, ...],
     canonical_source_columns: tuple[SourceColumnDescriptor, ...],
-) -> tuple[DigestRef, DigestRef, int]:
+) -> tuple[DigestRef, int]:
     key_indexes = _column_indexes(descriptor, view.canonical_key_columns)
     seen_keys: set[tuple[object, ...]] = set()
     row_hashes: list[bytes] = []
-    fast_hashes: list[bytes] = []
     for row in _iter_source_rows(request, item, descriptor, view):
         key = _row_key(row, key_indexes, view.canonical_key_columns, view.canonical_table)
         if key in seen_keys:
@@ -1065,11 +1059,9 @@ def _project_keyed(
         seen_keys.add(key)
         canonical_row = _canonicalize_row(row, retained_indexes, codecs, view)
         row_hashes.append(row_content_hash(canonical_source_columns, canonical_row))
-        fast_hashes.append(fast_row_hash(canonical_source_columns, canonical_row))
     _require_row_count(len(row_hashes), descriptor, view)
     return (
         raw_content_digest_of(tuple(row_hashes)),
-        fast_row_digest_of(tuple(fast_hashes)),
         len(row_hashes),
     )
 
@@ -1082,17 +1074,14 @@ def _project_keyless(
     codecs: Mapping[int, CanonicalColumnCodec],
     retained_indexes: tuple[int, ...],
     canonical_source_columns: tuple[SourceColumnDescriptor, ...],
-) -> tuple[DigestRef, DigestRef, int]:
+) -> tuple[DigestRef, int]:
     row_hashes: list[bytes] = []
-    fast_hashes: list[bytes] = []
     for row in _iter_source_rows(request, item, descriptor, view):
         canonical_row = _canonicalize_row(row, retained_indexes, codecs, view)
         row_hashes.append(row_content_hash(canonical_source_columns, canonical_row))
-        fast_hashes.append(fast_row_hash(canonical_source_columns, canonical_row))
     _require_row_count(len(row_hashes), descriptor, view)
     return (
         raw_content_digest_of(tuple(row_hashes)),
-        fast_row_digest_of(tuple(fast_hashes)),
         len(row_hashes),
     )
 
@@ -1105,7 +1094,7 @@ def _project_ordered(
     codecs: Mapping[int, CanonicalColumnCodec],
     retained_indexes: tuple[int, ...],
     canonical_source_columns: tuple[SourceColumnDescriptor, ...],
-) -> tuple[DigestRef, DigestRef, int, int, int]:
+) -> tuple[DigestRef, int, int, int]:
     rows = tuple(_iter_source_rows(request, item, descriptor, view))
     _require_row_count(len(rows), descriptor, view)
     gid_index, no_index = _ordered_indexes(descriptor, view)
@@ -1119,14 +1108,11 @@ def _project_ordered(
     except OrderedProjectionError as exc:
         raise _ProjectionFailed(_error(exc.code, exc.message, view.canonical_table)) from exc
     row_hashes: list[bytes] = []
-    fast_hashes: list[bytes] = []
     for row in projected.rows:
         canonical_row = _canonicalize_row(row, retained_indexes, codecs, view)
         row_hashes.append(row_content_hash(canonical_source_columns, canonical_row))
-        fast_hashes.append(fast_row_hash(canonical_source_columns, canonical_row))
     return (
         raw_content_digest_of(tuple(row_hashes)),
-        fast_row_digest_of(tuple(fast_hashes)),
         len(projected.rows),
         projected.real_count,
         projected.pseudo_count,

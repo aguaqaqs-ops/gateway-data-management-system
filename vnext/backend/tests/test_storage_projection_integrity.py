@@ -355,7 +355,6 @@ def test_ordered_real_gid_and_blank_pseudo_allocation() -> None:
     table = result.tables[0]
     assert table.storage_view.canonical_key_columns == ("gid",)
     assert table.storage_view.structural_columns == ("no",)
-    assert table.fast_row_digest is not None
     assert result.manifest is not None
     facts = result.manifest.tables[0]
     assert facts.gid_real_count == 1
@@ -407,7 +406,6 @@ def test_canonical_ordered_snapshot_reprojection_preserves_pseudo_identity() -> 
     )
     initial = project_storage(raw)
     assert initial.status is ProjectionStatus.COMPLETE
-    assert initial.tables[0].fast_row_digest is not None
 
     canonical_reader, canonical_binding = table_input(
         "b1_n1_iec104_syx_list",
@@ -459,7 +457,6 @@ def test_ordered_insert_order_does_not_change_digests() -> None:
     assert first.status is ProjectionStatus.COMPLETE
     assert second.status is ProjectionStatus.COMPLETE
     assert first.tables[0].content_digest == second.tables[0].content_digest
-    assert first.tables[0].fast_row_digest == second.tables[0].fast_row_digest
 
 
 def test_ordered_position_shift_changes_unified_content_digest() -> None:
@@ -744,26 +741,16 @@ def test_projection_computes_each_table_digest_once(monkeypatch: pytest.MonkeyPa
     projection_module = importlib.import_module(
         "gateway_backend.capabilities.storage_projection.project"
     )
-    calls = {"raw": 0, "fast": 0}
+    calls = {"raw": 0}
     raw_digest = cast(
         Callable[[tuple[bytes, ...]], DigestRef],
         projection_module.raw_content_digest_of,
     )
-    fast_digest = cast(
-        Callable[[tuple[bytes, ...]], DigestRef],
-        projection_module.fast_row_digest_of,
-    )
-
     def counted_raw(rows: tuple[bytes, ...]) -> DigestRef:
         calls["raw"] += 1
         return raw_digest(rows)
 
-    def counted_fast(rows: tuple[bytes, ...]) -> DigestRef:
-        calls["fast"] += 1
-        return fast_digest(rows)
-
     monkeypatch.setattr(projection_module, "raw_content_digest_of", counted_raw)
-    monkeypatch.setattr(projection_module, "fast_row_digest_of", counted_fast)
     result = project_storage(
         _request(
             _keyless_input((as_row(varchar_cell("a")),)),
@@ -771,7 +758,7 @@ def test_projection_computes_each_table_digest_once(monkeypatch: pytest.MonkeyPa
         )
     )
     assert result.status is ProjectionStatus.COMPLETE
-    assert calls == {"raw": 1, "fast": 1}
+    assert calls == {"raw": 1}
 
 
 def test_output_write_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:

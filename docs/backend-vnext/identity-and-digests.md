@@ -75,6 +75,7 @@ cache key
 ```text
 snapshot_digest_payload:
   digest_contract_version
+  materialization_stage
   parser_version
   table_ruleset_version
   scalar_encoding_version
@@ -83,10 +84,12 @@ snapshot_digest_payload:
   tables:
     - canonical_table_name
       compare_schema_digest
+      business_schema_digest
+      compare_key_columns
       row_count
       raw_content_digest
-      business_content_digest optional
-      compare_key_digest optional
+  composite_logic_source_digest optional
+  composite_signal_contract_version optional
 ```
 
 不参与：
@@ -106,7 +109,7 @@ diagnostics
 
 ## Raw 与 Business Digest
 
-`raw_state_digest` 表示完整 raw table state，用于发现规范化行内容变化。
+`raw_state_digest` 表示 schema-independent 的规范化 raw table state，由表名、行数与 `raw_content_digest` 组成；它不等同于含 business schema 的规范状态摘要。`raw_content_digest` 缺失时，raw state 仍记录该表的行数与缺失摘要状态。
 
 `business_state_digest` 表示应用 table rules 后的业务等价状态，可用于 summary early exit。第一阶段字段应落地，但允许部分表或部分规则返回 `NOT_COMPUTED`。
 
@@ -128,16 +131,11 @@ diagnostics
 | `raw_content_digest` | raw row 内容校验 | 覆盖 canonicalized full rows；row order 和 field order 不影响结果。 |
 | `business_content_digest` | 业务等价内容 | 应用 table rules / ignored columns / projection 语义后计算；可为 `NOT_COMPUTED`。 |
 | `artifact_content_digest` | 物理 artifact 校验 | 校验 Parquet/CSV/manifest 等 artifact 文件，不替代 raw content digest。 |
-| `fast_row_digest` | upload provisional row hash | 只看 INSERT 数据块的快路径 hash；用于 upload-local dedup / routing / 预筛，也可以作为 FINAL hidden summary table 的辅助 provenance / audit 字段。 |
 | `row_layout_digest` | 表导出布局复用 | 由 canonical raw content digest 和 canonical export schema content 组成，用于 row file / export IO cache 命中；不包含 table name 或 compare key 语义。 |
 | `projection_schema_digest` | projection schema 校验 | 由 `contracts/comparison.md` 定义，基于规则加工后的 compare-ready schema。 |
 | `projection_logical_digest` | projection 内容校验 | 由 `contracts/comparison.md` 定义，基于规则加工后的 compare-ready rows。 |
 
 `content_digest` 如果作为短名出现，应等价于 `raw_content_digest`。
-
-补充分层：
-
-- `fast_row_digest`：upload parse 阶段的 INSERT 数据块 hash，用于更轻量的 provisional dedup / routing 预筛，也可以在 FINAL hidden summary table 中作为辅助 provenance / audit 字段保留。
 
 在 upload / export build 阶段，artifact builder 应使用 `row_layout_digest` 作为物理 row file 复用键；它可以作为 row file / export IO cache 命中依据，但不应把 table name 或 compare schema 语义混入这个键里。
 
@@ -145,7 +143,7 @@ diagnostics
 
 - `table_raw_sql_digest`：upload parse 阶段的 raw SQL hash，用于诊断、回放和粗粒度路由，不替代语义 digest。
 - `base_table_fingerprint`：表级 provenance / 身份元数据，可用于展示和诊断。
-- 这些字段可以由 `table_raw_sql_digest`、parser diagnostics 或 replay metadata 派生或携带，但不应进入 `raw_content_digest` 的语义定义，也不应替代 `fast_row_digest` 或 `row_layout_digest` 作为主判据。
+- 这些字段可以由 `table_raw_sql_digest`、parser diagnostics 或 replay metadata 派生或携带，但不应进入 `raw_content_digest` 的语义定义，也不应替代 `row_layout_digest` 作为主判据。
 - `canonical_artifact_ref` / `previous_canonical_artifact_ref` 如果存在，应视为 finalized summary metadata，而不是 digest 输入或 digest 结果的一部分。
 
 Projection digest 不进入当前 Snapshot materialization 的第一版 contract。它由 `contracts/comparison.md` 定义，输入应包含 raw table facts、table ruleset、compare key、ignored columns、scalar normalization 和 projection contract version。

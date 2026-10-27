@@ -235,7 +235,6 @@ class SnapshotTableDescriptor:
     table_ruleset_version: int
     row_materialization_profile: str
     scalar_encoding_version: int
-    fast_row_digest: DigestRef | None = None
     raw_content_digest: DigestRef | None = None
     degraded_reason: DegradedReason | None = None
     diagnostics: tuple[MaterializationDiagnostic, ...] = ()
@@ -263,8 +262,6 @@ class SnapshotTableDescriptor:
             raise ValueError("row_materialization_profile must be sql-canonical-v1")
         if self.scalar_encoding_version != SCALAR_ENCODING_VERSION:
             raise ValueError("scalar_encoding_version must be 1")
-        if self.fast_row_digest is not None and type(self.fast_row_digest) is not DigestRef:
-            raise ValueError("fast_row_digest must be DigestRef or None")
         if self.raw_content_digest is not None and type(self.raw_content_digest) is not DigestRef:
             raise ValueError("raw_content_digest must be DigestRef or None")
         if self.degraded_reason is not None and type(self.degraded_reason) is not DegradedReason:
@@ -599,7 +596,7 @@ def business_schema_digest_of(table: SnapshotTableDescriptor) -> DigestRef:
 def canonical_state_digest_of(
     tables: tuple[SnapshotTableDescriptor, ...],
 ) -> DigestRef | None:
-    """Digest canonical business state; fast row digests are diagnostic only."""
+    """Digest canonical business state from schema and canonical row facts."""
 
     if type(tables) is not tuple:
         raise ValueError("tables must be a tuple")
@@ -733,7 +730,6 @@ def snapshot_summary_to_document(summary: SnapshotSummary) -> dict[str, object]:
                 "compare_key_columns": list(table.compare_key_columns),
                 "compare_schema_digest": table.compare_schema_digest.value,
                 "raw_content_digest": _digest_document_value(table.raw_content_digest),
-                "fast_row_digest": _digest_document_value(table.fast_row_digest),
             }
             for table in summary.tables
         ],
@@ -1331,7 +1327,6 @@ class CanonicalBinding:
     ruleset_digest: DigestRef
     tables: tuple[StorageRuleView, ...]
     table_identities: tuple[CanonicalTableIdentity, ...] = ()
-    snapshot_digest: DigestRef | None = None
     is_initial: bool = False
 
     def __post_init__(self) -> None:
@@ -1343,8 +1338,6 @@ class CanonicalBinding:
             _require_non_empty(value, label)
         if type(self.ruleset_digest) is not DigestRef:
             raise ValueError("ruleset_digest must be DigestRef")
-        if self.snapshot_digest is not None and type(self.snapshot_digest) is not DigestRef:
-            raise ValueError("snapshot_digest must be DigestRef or None")
         if type(self.tables) is not tuple or any(type(item) is not StorageRuleView for item in self.tables):
             raise ValueError("tables must contain StorageRuleView")
         names = tuple(item.canonical_table for item in self.tables)
@@ -1365,8 +1358,6 @@ class CanonicalBinding:
             raise ValueError("is_initial must be bool")
         if self.is_initial and (self.tables or self.table_identities):
             raise ValueError("INITIAL canonical binding must not contain tables")
-        if self.is_initial and self.snapshot_digest is not None:
-            raise ValueError("INITIAL canonical binding must not have a snapshot_digest")
 
 
 @runtime_checkable

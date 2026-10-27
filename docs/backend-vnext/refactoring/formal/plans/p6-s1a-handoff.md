@@ -1,6 +1,55 @@
 # Phase 6 S1a handoff
 
-状态：**STOPPED，S1a 未完成、未交独立阶段审核。** t4 v2 的 1% ordered-table patch 中位耗时高于整表重建，触发设计 §17 第 4 项停止条件。按要求未继续 worker step 归因、04 权威 runner、镜像重建或 Compose 门禁；本文记录现状并交 owner 决定后续设计/阶段处理。
+## DC57 后续状态（最新）
+
+状态：**STOPPED，S1a 未完成、未交独立阶段审核。** DC57 将批量 UPDATE/DELETE 渲染纳入 S1a，并要求在新渲染器上重新测量；此前 1% 样本慢于重建的数据来自逐行渲染路径，现仅作历史记录，不作为当前停止原因。当前停止原因是 run4 在 RS 正式 Arrow 行读取路径中，对变化表 `b1_n11_iec104_syx_list` 连续三次中止；现有日志不能揭示服务端底层异常。继续阈值测量必须使用 RS 路径，不能复用缓存行绕开该故障；查明具体原因需要 RS 侧诊断或修复，超出本次 S1a 产品改动范围。
+
+- 当前实现分支 `p6-s1a-impl`，当前提交 `cbe32df8bbff5ffe247044390dc3f0c9fff3ba45`。已按要求以 merge commit 合入当时的 `main`：`82b402165875edf7f5e78b29c44fddfd77725781`，无 rebase。
+- 相对 `55363b37e1`，产品源码变化仅有 `vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py`。因此按 owner 补充，沿用 `55363b37e1` 上 t1–t4 的 **Preview/History** 结果、V5b 分段测量与基线读取计时、基线行消费者盘点。旧旅程中的 Submit 结果不作为当前渲染器的 Submit 验收证据。
+- 用于范围核对的 `55363b37e1..cbe32df8bb` 变更文件完整清单：
+  - DC57 与合并自 `main` 的文档：`docs/backend-vnext/refactoring/formal/plans/p6-design.md`、`p6-execution-plan.md`、`p6-s0-owner-decisions.md`、`p6-forwardtable-blank-rows.md`、`p6-keyless-candidate-census.md`、`p6-keyless-candidate-rules-review.md`、本 handoff。
+  - Benchmark：`vnext/backend/benchmarks/p6_s1a_dolt_batch_preflight.py`、`p6_s1a_mutation_replay_measurement.py`、`real_dump_forwardtable_blank.py`、`s5_v5b_segment_measurement.py`。
+  - 产品源码：`vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py`（唯一产品源码变化）。
+  - 测试与 golden：`vnext/backend/tests/test_dolt_renderer.py`；`vnext/fixtures/golden/mutation/renderer/valid/destructive-delete/expected.sql`、`mixed-scalars/expected.sql`、`multi-table-patch/expected.sql`、`patch-single-update/expected.sql`、`rebuild-replace-rows/expected.sql`。
+- DC57 变更提交：合并 `82b40216`；预检工具 `7b552981f8`、边界修正 `24136e4e53`、隔离 Dolt 配置 `6c770d963b`、逐候选 EXPLAIN 证据 `ec689eda0a`；渲染器实现与 mutation golden `cbe32df8bb`。这些提交均带规定的 Co-Authored-By trailer，未推送、未打 tag。
+
+### Dolt 批量语句预检
+
+- 节点 `ct108-gw-dms-05`（hostname `gw-dms-test-05`），Dolt `2.1.11`，HEAD `ec689eda0aa520050fdf1f01a35422adc7e281d5`；2026-10-26T23:59:29Z–2026-10-27T00:00:24Z，exit 0。日志 `/home/dev/gdds-p6-logs/s1a/05-dc57-preflight-ec689eda0a-20261027.log`，JSON `/home/dev/gdds-p6-logs/s1a/05-dc57-preflight-dolt-ec689eda0a-20261027/report.json`。
+- 合成表覆盖单列主键 `id`、复合主键 `(k1,k2)` 和 `gid` 为存储主键的 ordered/GID_NO_V1 形态。分别执行逐行基准、按批 DELETE+INSERT、按批 upsert+DELETE，以及生产候选 CASE UPDATE+DELETE+普通 INSERT。所有形式在三种表形态上可执行；结果表哈希与逐行基准相同，`dolt_diff` 将 256 个同键行标为 modified，并正确报告 256 removed / 256 added；单行字节边界样本也显示 modified。
+- 查询计划：Dolt 2.1.11 对经典 `EXPLAIN` 的 DML/SELECT 在此 CLI 返回空计划，因此预检用 `EXPLAIN ANALYZE SELECT` 对每条候选完全相同的主键谓词检查查找计划。单列、复合元组 IN、ordered gid 查找均显示 `IndexedTableAccess`，无 `TableScan`。这是本版本可取得的主键访问证据；DML 本身的经典 EXPLAIN 不提供可读计划。
+- 256 UPDATE + 256 DELETE + 256 INSERT 场景耗时：逐行 768 条语句约 4.45–4.85 秒；CASE UPDATE 三条、DELETE+INSERT 四条、upsert 三条分别约 0.12–0.16 秒。另测接近 4 MiB 的 payload（4,194,048 字节），候选语句不超过 4,194,304 字节，哈希和 diff 等价。选择生产 CASE 批量 UPDATE + 主键 IN 批量 DELETE，INSERT 保持 256 行 / 4 MiB：保留 UPDATE/DELETE/INSERT 的独立语义，避免以 DELETE+INSERT 代替更新，也不把 INSERT 语义折叠进 upsert。
+- 预检第一次运行在测试工具批边界生成重复主键，exit 非零；修复后正式运行通过。探索性 smoke 曾因隔离 Dolt HOME 缺少身份失败，后续补上固定配置；上述均不是产品失败。工具与合成 repository/ref 保留。
+
+### 渲染器与 focused 验证
+
+- 同一表的 UPDATE 与 DELETE 按最多 256 行或最多 4 MiB 语句字节分批；复合键 DELETE 使用 tuple IN，UPDATE 用 CASE 并以主键 IN 限定行；keyless 整表 DELETE 语义及表/op 顺序保留。INSERT 规则沿用 256 行 / 4 MiB。规划器与 §16.2 计数逻辑未改。
+- focused 测试覆盖 257 行批边界、复合键、ordered gid 主键、混合 DELETE/UPDATE/INSERT 与 UPDATE/DELETE 字节边界；只更新 mutation renderer 的五个 expected.sql golden。
+- 节点 `ct108-gw-dms-05`，HEAD `cbe32df8bbff5ffe247044390dc3f0c9fff3ba45`，2026-10-27T00:07:38Z–00:08:20Z，Ruff backend 全包与 mypy（486 source files）通过；focused pytest 80 passed、1 deselected，5.52 秒。日志 `/home/dev/gdds-p6-logs/s1a/05-dc57-focused-cbe32df8bb-20261027.log`。`test_submit_prepare_removed_tables.py` 带 integration marker，在本次 `-m unit` 命令中 deselected。
+
+### RS Arrow 中止调查与影响
+
+- run3：HEAD `749e9bb5df7148f6591a39f749eb40e77c08396f`，2026-10-26T18:21:29Z–18:42:51Z，约 1,281.8 秒后失败。该版本 benchmark 请求了完整 baseline，而非 S1a 所需的变化表，误读未变化的 `adv_app_list`；run3 归类为测量器越界，不能证明变化表路径失败。
+- run4：HEAD `f3e7fe7c749a15cb313872f272d1c1fd17caa498`，2026-10-26T18:50:27Z–19:11:50Z，约 1,283.3 秒后失败。工具已把 `requested_tables` 限定为本次变化表集合（其中包含 `b1_n11_iec104_syx_list`），经 `build_http_repository_provider_factory`、`materialize_repository_ref`、HTTP Arrow client 与 RS 的 `/versioned/.../rows` 正式产品路径读取；同一变化表连续三次中止。因此不是 run3 的全表误读所致，属于 RS 行流路径失败。
+- 客户端栈记录 `httpx.RemoteProtocolError: peer closed connection without sending complete message body (incomplete chunked read)`，之后为 `RepositoryStreamError: Arrow stream read failed before bytes were exposed`；backend 映射成 retryable `REPOSITORY_TABLE_READ_FAILED`，表名为 `b1_n11_iec104_syx_list`。RS 日志记录 `BridgeStreamAbortedError` 与 worker 未及时退出。容器未 OOM、未重启。`ArrowIpcStreamBridge._run_worker` 捕获异常后只发送 failure sentinel，不保留/记录异常对象；`CandidateADoltCli` 又将行流提供方错误映射为泛化 unavailable。因此现存日志无法区分底层是 Dolt 查询/退出、CSV/行解码还是流取消收敛问题。精确定位需要安全的 RS 侧诊断或修复，本阶段没有改 RS 代码，也没有通过缓存 artifact 绕过。
+- Submit 的 `import_publication._materialize_parent_rows` 对变化且可 patch 的表，通过同一 Repository provider 和 `materialize_repository_ref` 读 parent rows，再按 parent manifest 校验；该类 RS 行流失败会使 prepare 无法完成，影响此次选中的变化表，不影响未选中的表。History 的 `_materialize_commit` 同样走该 provider：X 两侧、D 旧侧和未变 ordered 当前侧按规则请求行；若请求表发生相同中止，该 History compare 也会失败。普通未变且未被选中的表继续被跳过。
+- 对应已有语义/故障边界测试：`test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary`、`test_changed_history_table_reads_both_pair_sides`、`test_deleted_history_table_reads_only_the_old_pair_side`、`test_unchanged_ordered_history_reads_current_side_and_preserves_facts`、`test_arrow_bridge_worker_failure_aborts_consumer`、repository client 的 before/after-bytes retry 测试。它们验证选择和通用错误传播，不覆盖该真实 t4 表的 RS 行流故障。
+- owner 决策点：先决定是否允许 S1a 范围外的 RS 诊断/修复，或另行处理该路径故障。未获得该决策前，按用户停止条件，不进入阈值复测、final-candidate t1–t4 Submit 重跑、worker step 归因、04 镜像重建/六包 runner 与 Compose 门禁。run3/run4 都不是当前候选通过证据。
+
+### 尚未完成的验收及资源
+
+- 尚未在批量渲染后用 RS 路径完成 `b1_n11_iec104_syx_list` 的 1% 三轮交替与 1,000 行附近样本；尚未复测 t4 v2 ADAPTIVE_PATCH / 整表重建全表哈希。DC57 的 1,000 行 / 1% 仅为候选待复测值，未在新 renderer 上冻结。
+- 55363 上 t1–t4 Preview/History、V5b 分段与基线读计时、基线行消费者审计按用户补充沿用。当前 renderer 的 Submit 产物变化，因此 final-candidate Submit 旅程没有通过或沿用。
+- assemble 约 100 秒、Submit prepare 约 36 秒及各 worker step 间隔的来源仍未完成归因；没有添加产品插桩。04 六包权威 runner、repository-service 镜像重建与 Compose 门禁均未运行。
+- 已知 ct108 仍有上一轮 `p6-s1a-t4-clean-55363b37` Compose 栈在运行（worker/backend/repository-service 三容器）；本任务没有 stop/down/remove。所有 worktrees、Dolt 测量 refs、日志、artifact scratch、bundle 与 refs 均保留；需清理内容由 owner 后续处理。原 `.p6-s1a-a6938cd.bundle` 主 checkout 副本及 05 日志目录副本继续保留。
+
+---
+
+## DC57 之前的阶段记录（历史）
+
+以下记录来自 DC57 合入前的候选 `30458dc83517b742ac620a8eb16e17fd50752d2c`。其中“1% 慢于重建并触发停止”针对旧逐行 renderer；按 DC57 必须在批量 renderer 上复测，不能沿用为当前阈值结论。
+
+历史状态：**STOPPED，S1a 未完成、未交独立阶段审核。** t4 v2 的 1% ordered-table patch 中位耗时高于整表重建。按当时的设计版本未继续 worker step 归因、04 权威 runner、镜像重建或 Compose 门禁。
 
 ## 候选与提交
 

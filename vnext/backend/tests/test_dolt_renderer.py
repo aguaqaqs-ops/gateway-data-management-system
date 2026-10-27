@@ -420,14 +420,26 @@ def _value_size_for_statement(
     high = target_size * 2
     while low <= high:
         candidate_size = (low + high) // 2
-        mutations = (first, *(
-            _mutation_with_text_value(
-                operation,
-                index=index,
-                value_size=candidate_size,
+        if row_count == 1:
+            mutations = (
+                _mutation_with_text_value(
+                    operation,
+                    index=1,
+                    value_size=candidate_size,
+                ),
             )
-            for index in range(2, row_count + 1)
-        ))
+        else:
+            mutations = (
+                first,
+                *(
+                    _mutation_with_text_value(
+                        operation,
+                        index=index,
+                        value_size=candidate_size,
+                    )
+                    for index in range(2, row_count + 1)
+                ),
+            )
         sizes = _rendered_statement_sizes(tuple(mutations))
         assert len(sizes) == 1
         if sizes[0] == target_size:

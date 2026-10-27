@@ -251,10 +251,12 @@ def test_ordered_facts_and_extension_digests_are_deterministic() -> None:
 
 def test_unchanged_ordered_early_exit_matches_full_facts_without_running_diff() -> None:
     source = _sql("(1, 1, 'a'), (2, 2, 'b')")
-    plan = _plan(source, source)
+    oracle_plan = _plan(source, source)
 
     with patch.object(ordered_comparison, "_can_table_early_exit", return_value=False):
-        oracle = _table(_facts(plan))
+        oracle = _table(_facts(oracle_plan))
+
+    optimized_plan = _plan(source, source)
 
     with (
         patch.object(ordered_comparison, "_build_fact", side_effect=AssertionError("full diff invoked")) as full_diff,
@@ -279,7 +281,7 @@ def test_unchanged_ordered_early_exit_matches_full_facts_without_running_diff() 
             wraps=ordered_comparison._occupancy_digest,
         ) as occupancy_digest,
     ):
-        actual = _table(_facts(plan))
+        actual = _table(_facts(optimized_plan))
 
     for field in fields(ComparisonTableFact):
         assert getattr(actual, field.name) == getattr(oracle, field.name), field.name

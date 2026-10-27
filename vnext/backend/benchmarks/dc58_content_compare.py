@@ -46,6 +46,7 @@ DIGEST_FIELDS = frozenset(
         "canonicalization_manifest_digest",
         "closure_manifest_digest",
         "compare_schema_digest",
+        "composite_logic_source_digest",
         "comparison_digest",
         "content_digest",
         "current_entry_set_digest",

@@ -42,7 +42,33 @@ S1a 产品候选为 `af559ae3d274e3e9df687b448edd331cdc6d7412`（分支 `p6-s1a-
 - focused 断言：`test_submit_count_examples_match_hand_computed_net_changes`、`test_submit_table_level_counts_for_added_and_deleted_tables`、`test_threshold_boundary_cases`、`test_skipped_table_does_not_break_publication`。Preview 另有上表的 baseline read/selector 断言。
 - `55363b37e1` 上较早 focused 记录：05，149 passed / 50 deselected，16.56 秒，日志 `/home/dev/gdds-p6-logs/s1a/05-focused-55363b37e1-20261026.log`。DC58 最终 focused 在 05、HEAD `af559ae3`，backend 462 passed；另有 Ruff 与 backend/repository_service mypy 通过，日志 `/home/dev/gdds-p6-logs/s1a/05-dc58-final-focused-af559-20261027.log`。
 
-保值核对：规范状态摘要、snapshot digest、bundle digest、ordered 逻辑摘要、occupancy 摘要、comparison records/facts、risk、surface、bundle 内容及 HTTP DTO 均未观察到非预期变化；DC58 摘要字段按设计更新。golden 仅改变本阶段指定的三组。t1–t4 业务 journey 中 Preview/History 与 Submit 结果符合候选 Contract。重复 Submit 都没有 Repository operation：`NO_CANONICAL_CHANGE`。
+保值核对：规范状态摘要、ordered 逻辑摘要、occupancy 摘要，以及 comparison records/facts、risk、surface、bundle 内容和 HTTP DTO 的内容按 DC58 屏蔽口径保值；snapshot、raw-state、comparison、surface、bundle 等摘要值按 DC58 变化。golden 里 mutation 与 storage-projection 的 16 处差异已按 §4.1、§4.3 与 DC57 对应，snapshot-materialization 内容及其 golden 屏蔽后相同。逐项证据见下节。t1–t4 业务 journey 中 Preview/History 与 Submit 结果符合候选 Contract。重复 Submit 都没有 Repository operation：`NO_CANONICAL_CHANGE`。
+
+## DC58 内容保值核对
+
+- **口径。** 在 05（hostname `gw-dms-test-05`）运行 `/home/dev/gdds-p6-logs/s1a/compare-dc58-masked-final.py`。比较前忽略摘要/哈希字段、内容寻址 ID 与引用、运行实例 ID、时间/耗时字段，以及路径中嵌入的运行 ID；bundle closure 按规范化 `logical_path`、产物 `kind`、`table_name` 与 `shared` 对齐。逐个从产物存储加载 closure 引用，JSON 内容按同一屏蔽口径规范化比较，非 JSON 内容逐字节比较，并检查嵌套 artifact 引用均可解析。只比较内容；报告不含行值或产物值。
+- **范围与 t1 结果。** 重用既有的 t1 完整旅程与 volumes，不重跑：`5a2989bec2fbc269b0e567bcee4cc309513f90e4` 的 state `/home/dev/gateway-real-dumps/runs/p6-s1a-base-t1-5a2989/t1.state.json`、artifacts `/var/lib/docker/volumes/p6-s1a-base-t1-5a2989_backend-artifacts/_data`；`af559ae3d274e3e9df687b448edd331cdc6d7412` 的 state `/home/dev/gateway-real-dumps/runs/p6-s1a-af559-t1/t1.state.json`、artifacts `/var/lib/docker/volumes/p6-s1a-af559-t1_backend-artifacts/_data`。保存的 HTTP journey DTO 全部屏蔽后相同（0 个差异字段）；v1 Preview 330、v2 Preview 9、History 8 个 closure 产物均相同，所有嵌套引用可解析（0 个 unresolved）。覆盖 records closure、全部记录族及 facts、风险注解、surface、bundle 成员、ordered/identity 产物和 journey 中的仓库读取/导出响应。
+- **Golden 范围与结果。** 比较两 worktree 的 `vnext/fixtures/golden` 全部 72 个 fixture。内容保值组的 53 个 fixture（canonical-row-hash 3、composite-signal 8、snapshot-materialization 20、table-access 22）屏蔽后均相同；其中 snapshot-materialization 内容及其 20 个 golden 均保值。§4.1 列为变化的组单独逐处核对：mutation 与 storage-projection 共 16 个 fixture 文件存在差异，均对应已批准的 S1a 变化；其余 fixture 相同。导入包 golden 无差异。
+- **脚本与报告。** 比较脚本：`/home/dev/gdds-p6-logs/s1a/compare-dc58-masked-final.py`；机器报告：`/home/dev/gdds-p6-logs/s1a/05-dc58-masked-final-existing-t1-and-golden-20261027.json`。报告记录 5a/af559 HEAD、三份 DTO/bundle 结果与 72 个 fixture 的字段级差异位置，不记录数据值。
+
+| # | Golden fixture | 差异字段 | 对应的已批准变更 |
+| --- | --- | --- | --- |
+| 1 | `mutation/renderer/capability-failures/source-literal-anomaly/closure.json` | `manifest.threshold_policy.max_patch_change_ratio` | §4.3 冻结的 1% 变化率阈值 |
+| 2 | `mutation/renderer/valid/destructive-delete/closure.json` | 同上 | §4.3 冻结的 1% 变化率阈值 |
+| 3 | `mutation/renderer/valid/first-load-insert/closure.json` | 同上 | §4.3 冻结的 1% 变化率阈值 |
+| 4 | `mutation/renderer/valid/mixed-scalars/closure.json` | 同上 | §4.3 冻结的 1% 变化率阈值 |
+| 5 | `mutation/renderer/valid/multi-table-patch/closure.json` | 同上 | §4.3 冻结的 1% 变化率阈值 |
+| 6 | `mutation/renderer/valid/patch-single-update/closure.json` | 同上 | §4.3 冻结的 1% 变化率阈值 |
+| 7 | `mutation/renderer/valid/rebuild-replace-rows/closure.json` | 同上 | §4.3 冻结的 1% 变化率阈值 |
+| 8 | `mutation/renderer/valid/destructive-delete/expected.sql` | SQL 内容 | DC57 按批渲染 |
+| 9 | `mutation/renderer/valid/mixed-scalars/expected.sql` | SQL 内容 | DC57 按批渲染 |
+| 10 | `mutation/renderer/valid/multi-table-patch/expected.sql` | SQL 内容 | DC57 按批渲染 |
+| 11 | `mutation/renderer/valid/patch-single-update/expected.sql` | SQL 内容 | DC57 按批渲染 |
+| 12 | `mutation/renderer/valid/rebuild-replace-rows/expected.sql` | SQL 内容 | DC57 按批渲染 |
+| 13 | `storage-projection/manifest/valid/s5-durable-roundtrip/document.json` | `contract_version`、`storage_projection_version` | §4.1 投影版本提升至 `3` |
+| 14 | `storage-projection/ruleset/malformed/s1-duplicate-selector/document.json` | `storage_projection_version` | §4.1 投影版本提升至 `3` |
+| 15 | `storage-projection/ruleset/valid/s1-net-cfg/document.json` | `storage_projection_version` | §4.1 投影版本提升至 `3` |
+| 16 | `storage-projection/ruleset/valid/s2-migrated-matrix/document.json` | `storage_projection_version` | §4.1 投影版本提升至 `3` |
 
 ## Dolt 语句预检、阈值与表哈希
 
@@ -98,16 +124,26 @@ ct108 上以 e52ad2 新起隔离 Compose 项目 `p6-s1a-timing-e52ad2`；旧 `p6
 | 项目与来源 | 实测与计数 | 削减方向；处理阶段；owner |
 | --- | --- | --- |
 | v1 Preview `materialize_inputs`，上传包 SQL/business/canonical stages | worker 765.659s；上传侧 764.832s、312 canonical tables / 246,794 rows。SQL parse 174.973s / 79,446,967 bytes；business snapshot 238.008s / 320 tables / 437,149 rows；canonical projection 143.627s / 312 tables；canonical snapshot 207.326s / 312 tables；包 staging 0.636s、XML parse 0.074s、baseline rows 0.116s、publish manifest 0.135s。 | 这解释 Preview materialize 的主要时间；与 S1a baseline skip 无关。后续性能阶段优化 parser/materialization 的多次全表遍历和摘要生成；阶段 S2b/S3；owner 为 backend ingestion 与 canonical snapshot/compute owner。 |
-| v1 assemble checkpoint read | 45.110s，读 3 sides / 312 table summaries。 | checkpoint 中重复/宽描述的读写及解码可在后续存储阶段压缩/按需加载；阶段 S1b/S2b；owner 为 backend artifact/checkpoint owner。 |
-| v1 pair comparison（约 180s 残差） | `preview.pair.compare` 184.992s，312 comparison tables；这是旧分段汇总未单独归出的约 180s 主要来源。整个 pair pipeline 625.544s，其中 record closure 生成 397.315s（223 record entries / 250,470 records；standard 218.267s、ordered 177.884s）、risk 42.423s、surface assembly 0.405s。 | 比较是计算主项，优化算法和批处理；记录 closure 的序列化/写入需流式或降低重复物化。阶段 S3 comparison/compute 与 S1b artifact output；owner 分别为 comparison kernel 与 backend artifact owner。 |
-| v1 bundle 与 assemble 收尾 | bundle 总 51.393s；其内部 plan/read source 23.370s（1,071 artifacts / 82,781,386 bytes）、publish 13.369s（1,074 artifacts / 86,083,925 bytes）、readback validation 1.101s；ready closure 0.503s（1,618 artifacts）、state artifact 0.061s、checkpoint prepare 0.011s。`assemble_preview` 全 step 723.046s。 | 减少 artifacts 的重复扫描/读回，批量或流式发布；阶段 S1b；owner 为 bundle/artifact owner。DB publish 操作本身低于 0.1s，不是残差来源。 |
-| v2 Preview assemble（约 72s 残差） | 全 step 111.196s；checkpoint read 58.656s（3 sides / 936 side-table descriptors）；pair pipeline 49.335s，其中 compare 47.158s、records 1.160s、risk 0.342s，surface 0.325s；bundle 2.442s，ready/state/checkpoint 合计约 0.27s。相对 V5b 的 38.223s pair pipeline，残差约 72s 可分解为 checkpoint 58.656s、诊断运行中约 11s 的 pair pipeline 增量与约 2–3s 收尾。 | 主要收益来自 checkpoint 不必反复读三侧全描述；次要是 comparison。阶段 S1b checkpoint/storage 与 S3 comparison；owner 为 backend artifact/checkpoint 与 comparison kernel owner。 |
+| v1 assemble_preview 与 V5b 的总差额 | worker 全 step 723.046176s = checkpoint read 45.110388s + pair pipeline 625.543636s + bundle 51.392878s + finish 0.999274s。V5b 可比 pair pipeline + bundle 为 544.147088s；差额 178.899088s = checkpoint（V5b 不含）45.110388s + pair pipeline 差额 124.680735s + bundle 差额 8.108691s + finish 0.999274s。 | 这是 worker 与独立测量的阶段级分解；差额成因与后续 owner/阶段登记见下方 DC59 诊断项。 |
+| v1 pair pipeline 子项（worker / V5b / 差额） | comparison planning 0.167553 / 0.134448 / +0.033105s；compare 184.992010 / 146.716866 / +38.275144s；records closure generation 397.315471 / 318.699340 / +78.616131s；risk 42.422923 / 34.724948 / +7.697975s；surface 0.404734 / 0.328366 / +0.076368s；未分配 pipeline 聚合余量 0.240945 / 0.258933 / −0.017988s。合计 pair pipeline 625.543636 / 500.862901 / +124.680735s。**V5b 包含 risk 与 surface 阶段**，不是跳过；另有 records-closure full-readback validation 98.506376s（223 entries / 250,471 records）和 bundle readback validation 1.038912s，分别在 V5b 聚合段外单列。 | compare、records、risk 与 surface 的阶段差异作为 S3 比较/计算诊断项；owner 为 backend comparison/compute owner。对计时边界内约 0.018s 的聚合余量不作额外归因。 |
+| v1 bundle 与 finish 子项 | worker bundle 51.392878s，V5b `assemble_bundle` 43.284187s，差额 +8.108691s。worker plan/read source 23.370085s（1,071 artifacts / 82,781,386 bytes）、publish 13.369318s（1,074 artifacts / 86,083,925 bytes）、readback validation 1.100630s；V5b bundle store 写 1,075 次 / 86,095,739 bytes，写入 12.616292s。worker 收尾总计 0.999274s，其中 ready closure 0.502910s、state artifact 0.061151s、checkpoint prepare 0.011355s，其他收尾/计时余量约 0.423858s。 | V5b 用 `FileMeasurementArtifactStore`，产物位于测量 scratch；worker 用 Compose `backend-artifacts` volume。写入量相近，现有证据不能把 bundle 的 8.109s 差额归因于存储位置。重复扫描/读回与 I/O 作为 S1b artifact/checkpoint 诊断项；owner 为 backend artifact/checkpoint owner。 |
+| v2 assemble_preview 与 V5b 的总差额 | worker 全 step 111.196204s = checkpoint read 58.655686s（3 sides / 936 side-table descriptors）+ pair pipeline 49.334631s + bundle 2.442234s + finish 0.763653s。V5b 可比 pair pipeline + bundle 为 40.227114s；差额 70.969090s = checkpoint（V5b 不含）58.655686s + pair pipeline 差额 11.111565s + bundle 差额 0.438186s + finish 0.763653s。pair 子项 worker / V5b / 差额：planning 0.172608 / 0.139477 / +0.033131s；compare 47.157924 / 36.261424 / +10.896500s；records 1.159850 / 1.072630 / +0.087220s；risk 0.341929 / 0.337177 / +0.004752s；surface 0.324848 / 0.260593 / +0.064255s；pipeline 聚合余量 0.177472 / 0.151765 / +0.025707s。V5b 同样包含 risk 与 surface。 | 与 v1 相同：checkpoint 和 bundle I/O/读写归 S1b；pair stages 的 worker/V5b 墙钟差归 S3 诊断，原因目前未被测量分离。owner 见 DC59 登记。 |
 | v1 Submit `prepare_import` | 469.094s；打开 312 表冻结投影输入 44.637s；建 frozen projection 39.231s；build after snapshots 82.731s；parent rows 0；plan/render mutations 299.196s（312 changed / 312 rebuild）；package publish 0.354s，包 2,363,395 bytes。 | 大头是整表级 projection/snapshot 与 312 表计划/渲染。ADAPTIVE_PATCH 的变化表实测已在 S1a 验收；后续降低冻结输入重复读和投影物化成本，阶段 S2b；owner 为 Submit/backend mutation 与 snapshot owner。 |
 | v2 Submit `prepare_import` 中约 36s 的部分 | prepare 全 step 212.327s；打开 312 表输入 45.201s，build 27 个变化表 frozen projection 10.571s、after snapshots 27.447s；通过 RS 读取 25 表 / 129,426 rows 的 parent rows 90.520s；plan/render 36.357s（27 changed / 15 rebuild）；其余 canonicalize/DB/publish 为亚秒级。 | 36s 被 mutation plan/render 明确定位；继续优化渲染的算法与按表批处理，阈值已冻结，不改变判定。90.520s parent rows 是必要的 RS product read，可优化 Arrow 流吞吐/关闭开销但不能绕过 RS 或削弱 parent manifest 校验；后续性能阶段 S2b；owner 为 mutation renderer 与 Repository Service。 |
 | Submit 到 Repository operation | v1 `submit_import` worker 0.270s，RS POST 约 0.035s；await 先 `repository_wait` 60.001s timeout，随后重试等待 0.431s（第二 attempt 的 worker 时间 0.533s），checkpoint/DB 读取与终态写入合计几十 ms。v2 `submit_import` 0.244s，await `repository_wait` 49.706s。RS cgroup CPU 分别约 179.458s / 183.478s，耗时主要是 RS/Dolt 异步导入回放，worker 在等待。 | 异步回放自身由 Repository Service/Dolt owner 优化；worker await 按当前 retry/lease Contract 工作，不为了缩短数字而放宽成功/恢复语义。后续 RS 性能阶段；owner 为 Repository Service/Dolt。 |
 | step 领取、执行开始、完成及相邻 step 间隔 | claim SQL 约 19–40ms（首个 26.330ms），claim 后 execution start 约 2–3ms。常见 step 完成至下一个执行开始为 2.6–9.95s：例如 v1 materialize→assemble 4.88s、assemble→publish 7.65s、prepare→submit 9.95s、submit→await 9.73s；v2 各相邻步骤约 8.7–9.75s；History materialize→assemble 约 8.1s、assemble→publish 约 8.3s。 | 已定位到 `WorkerRuntime._run_claim`：非 drain 路径等待 `_wait_interruptibly(timeout, ...)` 至下一 heartbeat（默认约 10s），等待不观察 executor 的 `completed` event，因此完成后仍可能等到 timeout。后续 worker runtime/performance 阶段让 executor 完成可唤醒 supervisor，同时保留 heartbeat/drain/lease 语义；owner 为 backend Worker Runtime/Operations。 |
 | Submit 后长间隔、History 前长间隔与 harness polling | v1 await 后到下一操作约 79.6s，其中另行经 RS 产品路径做 v1 repository row verification 75.197s；v2 对应约 78.3s，其中 row verification 76.372s、approval 0.674s及 harness 调度约 1s。`real_dump_journey.py::_poll_operation` 每次 2s 轮询，最多带来约一个轮询周期的结果发现延迟。 | 大间隔是验收 harness 明确发起的 Repository row verification，不是 worker step 空转；保持验证时，可把这部分移出 operation elapsed 的展示口径但不可省略校验。阶段 benchmark harness；owner 为性能测量工具 owner。2s poll 仅是可选的 harness 响应优化。 |
 | Control DB 与 RS read-stream 诊断 | heartbeat 每约 10s 一次，单事务约 0.15–0.20s；各 job 累计 3.3–25.3s 且与 executor 并行。RS summary 有 37 条 Arrow bridge worker 30s join timeout warning；相关 rows HTTP 请求均为 200（526 请求），旅程与 History 成功。警告来自 `arrow_bridge.py::_await_close_outcome` 达到 30s join timeout 后的 warning/owned stream terminate 路径；没有按 request 记录的 duration，无法把 37 次相加为 wall-time。 | heartbeat DB 不解释 residual，不建议削弱 lease。Arrow warning 是已定位的 stream close 性能问题，不是请求中止或表特异错误；精确并发占比需 RS 单请求关闭阶段计时。阶段 Repository Service 后续性能诊断；owner 为 RS owner。S1a 没改 RS 路径。 |
+
+### DC59 登记：worker 与 V5b 同代码耗时差
+
+| 诊断项 | 已知差异与限制 | 处理阶段与 owner |
+| --- | --- | --- |
+| checkpoint 读取 | worker 读取 3 sides 的 checkpoint（v1 45.110s、v2 58.656s）；V5b 的 pair/bundle 独立测量不含该阶段。 | S1b artifact/checkpoint 性能项；backend artifact/checkpoint owner。 |
+| pair pipeline | V5b 与 worker 使用同一候选代码，但 compare、records closure、risk、surface 的墙钟差额未被现有分段测量隔离到运行环境、存储或调度因素。 | S3 comparison/compute 诊断项；backend comparison/compute owner。按阶段子项复测，不把差额当成已确认根因。 |
+| bundle 与 artifact store | worker 写 Compose `backend-artifacts` volume，V5b 写 measurement scratch 中的 `LocalArtifactStore`。记录的写入字节量相近，尚不能解释 v1 8.109s、v2 0.438s 的 bundle 差额。 | S1b artifact/checkpoint 诊断项；backend artifact/checkpoint owner。 |
+
+以上阶段级分解满足 DC59 粒度；worker/V5b 的差额成因留在对应阶段 kickoff 跟进，不增加 S1a 产品插桩或改变 S1a 候选。
 
 step 切换间隔与 harness 的 2s poll 已按 control DB/worker/RS 时间线区分。v1 与 v2 的 assemble/prepare 残差均有可定位阶段；本诊断没有遗留未定位的 S1a 阻断项。RS 37 次 close warning 的精确 wall 占比未量化，列为后续 RS 性能诊断，不与已解释的 assemble 残差混算。
 
@@ -121,7 +157,7 @@ step 切换间隔与 harness 的 2s poll 已按 control DB/worker/RS 时间线�
 
 - 较早 History digest 停止发生在 `8e64af7`；DC58 决定 row-free snapshot identity 后已在 af559 修正，最终候选 focused 与旅程均通过。历史日志在 `/home/dev/gdds-p6-logs/s1a/04-focused-history-digest-debug3-8e64af7ca4-20261027.log`。
 - run3/run4 Arrow stream 中止根因为旧测量工具以 root 经 `docker exec` 改写 RS 正在服务的 Dolt 仓库文件，造成文件属主与 gateway euid 不一致；修复后回放只在 scratch 仓库副本进行，parent rows 经 RS 产品路径。旧测量日志保留在 `/home/dev/gdds-p6-logs/s1a/`，复测成功记录见 `ct108-af559-mutation-replay-20261027.log`。
-- 早前 py-spy 附着探测没有形成可用剖析证据（权限/目标识别探测未能得到 profile）。按 owner 新授权改用独立诊断分支的结构化阶段计时；没有用剖析耗时替代正式 t4 证据。
+- py-spy 外部采样运行的日志出现约 287.60s 采样滞后；同一采样日志稍后继续增长，文件记录的最高值为 358.48s。该日志未与 harness 事件逐行对时，因此两值分别保留，不把 287.60s 写成文件绝对峰值。worker heartbeat 被拖延，Compose 日志记录 `lease_lost` / `heartbeat_busy_deadline`，harness 将 t4 v1 Preview 判为 `worker_stalled`。运行停在 `materialize_inputs`，没有进入 `assemble_preview`，因此不作为耗时或归因证据；后续采用独立诊断分支的结构化阶段计时。证据：`/home/dev/gdds-p6-logs/s1a/ct108-af559-pyspy-v1preview-v2preview-20261027.log`、`/home/dev/gdds-p6-logs/s1a/ct108-af559-journey-v1preview-v2preview-20261027.log`、`/home/dev/gdds-p6-logs/s1a/real-dump-t4-20261027T091816908320Z.compose.log`。
 - e52ad2 首次 journey launcher 因 uv script path 和 shell quoting 在 Compose 前失败；修正后 retry2 的完整旅程 exit 0。日志：`ct108-timing-diag-full-t4-e52ad2-20261027.log`、`...retry1-20261027.log`、`...retry2-20261027.log`。最终 candidate 的 S1a 验收仍以 af559 对应的正式 runner、t1–t4、V5b 与阈值测量为准。
 
 ## 需要 owner 后续清理的内容
@@ -132,6 +168,7 @@ step 切换间隔与 harness 的 2s poll 已按 control DB/worker/RS 时间线�
 
 - ct108 仓库外工具目录：`/home/dev/gdds-p6-logs/s1a/py-spy-042-tool/py-spy`、`py-spy-tool/py-spy`、`py-spy-bin/py-spy`、`py-spy-042-bin/py-spy`。
 - profile、pid 与探测日志：`/home/dev/gdds-p6-logs/s1a/ct108-af559-pyspy-*`，含 speedscope JSON；保留的诊断 worker/RS/control 时间线见上文。
+- DC58 比较工具与报告：`/home/dev/gdds-p6-logs/s1a/compare-dc58-masked-final.py`、`/home/dev/gdds-p6-logs/s1a/05-dc58-masked-final-existing-t1-and-golden-20261027.json`。
 - 诊断 Compose override、resolved Compose、launcher：`compose-timing-diag-port-20261027.yaml`、`compose-timing-diag-resolved-20261027.yaml`、`run-t4-timing-diag-20261027.py`，均在 `/home/dev/gdds-p6-logs/s1a/`。
 - t4 real-dump state/output：`/home/dev/gateway-real-dumps/runs/p6-s1a-*`，包括 `p6-s1a-timing-e52ad2/t4.state.json`；不得纳入 Git。
 

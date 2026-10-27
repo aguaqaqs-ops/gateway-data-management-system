@@ -48,6 +48,7 @@ implementation_authorized: no
 | DC57 | 行级修改按批渲染（S1a 阈值停止后的处理） | — | — |
 | DC58 | 快照身份不含逐行快速摘要；删除 `fast_row_digest` | — | — |
 | DC59 | S1a 归因的验收粒度 | — | — |
+| DC60 | S1a 初审修订：语句字节规则与重跑范围 | — | — |
 
 ## 2. 决议详情
 
@@ -348,6 +349,15 @@ implementation_authorized: no
   3. DC58 第 4 项的核对方式按设计 §4.1 的表述执行（屏蔽摘要、派生标识与运行实例字段，并顺着引用比较产物内容）。
   4. DC58 核对中 mutation 与 storage-projection 组的 16 处 golden 差异（阈值 `max_patch_change_ratio`、按批渲染的 `expected.sql`、`storage_projection_version` 与 `contract_version`）均对应已批准的 S1a 变更，不触发停止；核对范围按设计 §4.1 分为“内容保值”与“列为变化的组”两类。
 - **落点**：[详细设计](p6-design.md) §4.1、§4.4。
+
+### DC60 S1a 初审修订：语句字节规则与重跑范围
+
+- **来源**：[S1a 独立阶段审核](p6-s1a-independent-review.md)（结论：定向修订；F1 未变化 ordered 表仍运行完整比较与 LIS，F2 INSERT 可生成超过 4 MiB 的语句，F3 DC58 核对的屏蔽过宽且未覆盖 snapshot-materialization 内容）。4 MiB 是渲染器自定的分批上限，不是 Repository Service 或 Dolt 的硬限制（RS 读取单行上限为 64 MiB）；S1a 之前大行的 INSERT 与逐行 UPDATE 都能单独成句执行，S1a 的按批 UPDATE/DELETE 在单行超限时失败，属于退化。
+- **决议**（repository owner，2026-10-27）：
+  1. **语句字节规则：** INSERT、UPDATE、DELETE 统一：每条最多 256 行；多行批次按完整 UTF-8 语句（含 `;\n`）不超过 4 MiB，加入下一行会超限时先结束当前批次；单行本身超过 4 MiB 时单独成一条语句，不失败。前提是先在 05 用合成数据证明 5–8 MiB 的单行 INSERT 与 CASE UPDATE 经 RS 实际回放路径执行成功、表哈希与逐行形式相同；不成立时停止，由 owner 改为稳定失败。规则写入 Storage Mutation Contract。
+  2. **重跑范围：** 修复 F1–F3 后的新候选重跑 S1a 验收（04 权威 runner 与镜像重建、t1–t4 旅程、阈值复测与 t4 v2 表哈希、DC58 核对）；worker step 归因不重跑，沿用 DC59 已接受的阶段级分解，F1/F2 对耗时的影响以新候选 t4 旅程的耗时为准。
+  3. F1、F3 按审核建议修复：未变化 ordered 表直接构造两侧相同的 facts，摘要各算一次，不运行完整比较与 LIS；DC58 核对改用显式屏蔽字段清单，并补比较 snapshot-materialization 内容与规范表等产物。
+- **落点**：[详细设计](p6-design.md) §4.3；[执行计划](p6-execution-plan.md) §2 S1a“证据范围”。
 
 ## 3. 设计阶段待定项
 

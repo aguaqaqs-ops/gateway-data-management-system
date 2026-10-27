@@ -27,7 +27,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
  -> S6  收尾与 Phase 6 退出
 ```
 
-阶段顺序依据见设计 §4–§12 与 DC50：先改 Contract、再改性能；每类 golden 只改一次；表摘要 → 解析器与存储 → 比较 → Submit → History。
+阶段顺序依据见设计 §4–§12 与 DC50：先改 Contract、再改性能；每类 golden 只改一次（例外见设计 §4.6）；表摘要 → 解析器与存储 → 比较 → Submit → History。
 
 每个实施阶段结束交独立审核，未通过不进入下一阶段。前置验证类工作（原型、测量）不做独立审核，结果在设计审核中复核（DC48 讨论）。
 
@@ -49,7 +49,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 目标：设计 §4。
 - 前置：S0 接受；kickoff 小修经轻量审核通过。
 - 内容：
-  1. 表摘要统一（设计 §4.1）：manifest 内容摘要改为 `raw_content_digest`；`STORAGE_PROJECTION_VERSION = "3"`；删除 `ordering_digest`（含 `import_publication.py` 的传递）；去掉重复计算。
+  1. 表摘要统一与快照身份（设计 §4.1，DC58）：快照身份只用不读行即可得到的表级事实，删除 `fast_row_digest`；manifest 内容摘要改为 `raw_content_digest`；`STORAGE_PROJECTION_VERSION = "3"`；删除 `ordering_digest`（含 `import_publication.py` 的传递）；去掉重复计算。
   2. Preview 与 History 的结构性过滤（§4.2，完整条件），含未变化 ordered 表不读基线、不做行比较，其逻辑摘要与 occupancy 摘要用当前侧的行按本次有效 pair 策略计算（§4.1，DC55 第 1 项）。
   3. Submit 表级跳过与 `ADAPTIVE_PATCH`（§4.3）：T1 冻结 policy、prepare checkpoint 绑定 parent manifest digest、parent 行按 manifest 校验、有序表资格、阈值 1,000 行 / 1%；行级修改按批渲染（DC57：先用合成表预检 Dolt 语句形式，再复测）；阈值复测后冻结阈值与 INSERT、UPDATE、DELETE 的批量规则（DC55 第 5 项、DC57）。
   4. Contract 修订（设计 §14 中标注 S1a 的行）与 golden（storage-projection、mutation、导入包，设计 §4.6）。
@@ -58,9 +58,10 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 验收：
   - 设计 §16.2 中基线读取、比较派发与 Submit 的计数断言在 focused 测试中按公式成立（含手算示例），t4 旅程中记录；
   - 新旧路径在 t4 v2 上的 Dolt 表哈希相同；
-  - 设计 §4.1 摘要变化与保值清单中“保值”的各项不变；golden 只有 S1a 组变化；
+  - 设计 §4.1 摘要变化与保值清单中“保值”的各项不变；摘要值改变的产物按 §4.1 的核对方式（屏蔽摘要字段后逐字节相同）核对；golden 只按 §4.6 变化；
   - 权威 runner 六个包通过；容器门禁（Submit 路径与镜像内代码变化）。
 - 真实数据：t1–t4 完整旅程（t1–t3 在 05，t4 在 ct108），业务结果按新 Contract 核对。
+- 证据范围（owner 2026-10-27）：S1a 的全部验收（阈值复测、Dolt 表哈希、t1–t4 旅程、worker step 归因、权威 runner 与容器门禁）在最终候选上重新运行，不沿用此前候选的结果。
 
 ### S1b — 业务语义 Contract
 

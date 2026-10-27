@@ -217,7 +217,6 @@ def normalize_json(value: Any, *, path: str, masked_paths: set[str]) -> Any:
         for raw_key, item in value.items():
             key = str(raw_key)
             item_path = f"{path}.{key}"
-            lower = key.lower()
             if _SUSPICIOUS_DIGEST_KEY.search(key) and key not in DIGEST_FIELDS:
                 raise ValueError(f"unlisted digest field path: {item_path}")
             if _SUSPICIOUS_TIME_KEY.search(key) and key not in TIME_FIELDS:

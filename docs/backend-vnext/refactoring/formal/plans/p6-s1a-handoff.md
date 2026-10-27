@@ -2,16 +2,16 @@
 
 ## DC57 后续状态（最新）
 
-状态：**STOPPED，S1a 未完成、未交独立阶段审核。** DC57 将批量 UPDATE/DELETE 渲染纳入 S1a，并要求在新渲染器上重新测量；此前 1% 样本慢于重建的数据来自逐行渲染路径，现仅作历史记录，不作为当前停止原因。当前停止原因是 run4 在 RS 正式 Arrow 行读取路径中，对变化表 `b1_n11_iec104_syx_list` 连续三次中止；现有日志不能揭示服务端底层异常。继续阈值测量必须使用 RS 路径，不能复用缓存行绕开该故障；查明具体原因需要 RS 侧诊断或修复，超出本次 S1a 产品改动范围。
+状态：**阈值复测与 t4 v2 表哈希通过；S1a 仍在执行，尚未完成最终候选旅程、worker step 归因和门禁，也未交独立阶段审核。** 批量 renderer 的 1% patch 三轮均快于整表重建；冻结值为 1,000 行且不超过 1%、INSERT/UPDATE/DELETE 每条最多 256 行且不超过 4 MiB。最终候选 `ac73504ad8b44f43322aaf12a8df38caf3800a57` 上的 t1–t3、t4 归因、04 六包 runner 与容器门禁仍待运行。
 
-- 当前实现分支 `p6-s1a-impl`，当前提交 `cbe32df8bbff5ffe247044390dc3f0c9fff3ba45`。已按要求以 merge commit 合入当时的 `main`：`82b402165875edf7f5e78b29c44fddfd77725781`，无 rebase。
-- 相对 `55363b37e1`，产品源码变化仅有 `vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py`。因此按 owner 补充，沿用 `55363b37e1` 上 t1–t4 的 **Preview/History** 结果、V5b 分段测量与基线读取计时、基线行消费者盘点。旧旅程中的 Submit 结果不作为当前渲染器的 Submit 验收证据。
-- 用于范围核对的 `55363b37e1..cbe32df8bb` 变更文件完整清单：
-  - DC57 与合并自 `main` 的文档：`docs/backend-vnext/refactoring/formal/plans/p6-design.md`、`p6-execution-plan.md`、`p6-s0-owner-decisions.md`、`p6-forwardtable-blank-rows.md`、`p6-keyless-candidate-census.md`、`p6-keyless-candidate-rules-review.md`、本 handoff。
-  - Benchmark：`vnext/backend/benchmarks/p6_s1a_dolt_batch_preflight.py`、`p6_s1a_mutation_replay_measurement.py`、`real_dump_forwardtable_blank.py`、`s5_v5b_segment_measurement.py`。
-  - 产品源码：`vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py`（唯一产品源码变化）。
+- 实现分支 `p6-s1a-impl`。已用 merge commit 合入 `main` 的 `45b169de6a`：`8b18758fd20d7a4fdc8250e16ff30e444f45da77`，无 rebase。当前提交 `ac73504ad8b44f43322aaf12a8df38caf3800a57`；未推送、未打 tag。
+- 相对 `55363b37e1`，最终验证仍须在同一 HEAD 完成：05 跑 t1–t3，ct108 跑 t4 与归因，04 重建 repository-service 镜像并跑六包权威 runner。范围内的产品改动是 mutation renderer 与 owner 明确授权的 Arrow worker 异常诊断；所有真实旅程均按补充要求重跑。
+- 用于范围核对的 `55363b37e1..ac73504ad8` 变更文件完整清单：
+  - 合并自 `main` 的文档：`docs/backend-vnext/refactoring/formal/plans/p6-design.md`、`p6-execution-plan.md`、`p6-s0-owner-decisions.md`、`p6-forwardtable-blank-rows.md`、`p6-keyless-candidate-census.md`、`p6-keyless-candidate-rules-review.md`、本 handoff。
+  - Benchmark：`vnext/backend/benchmarks/p6_s1a_dolt_batch_preflight.py`、`p6_s1a_mutation_replay_measurement.py`、`real_dump_forwardtable_blank.py`、`real_dump_journey.py`、`s5_v5b_segment_measurement.py`。
+  - 产品源码：`vnext/backend/src/gateway_backend/capabilities/mutation_planning/_repository_replay_renderer.py` 与 `vnext/repository_service/src/gateway_repository_service/versioned_read/arrow_bridge.py`。第二项只在 Arrow worker 捕获异常时记录异常类型与消息，不记录行数据。
   - 测试与 golden：`vnext/backend/tests/test_dolt_renderer.py`；`vnext/fixtures/golden/mutation/renderer/valid/destructive-delete/expected.sql`、`mixed-scalars/expected.sql`、`multi-table-patch/expected.sql`、`patch-single-update/expected.sql`、`rebuild-replace-rows/expected.sql`。
-- DC57 变更提交：合并 `82b40216`；预检工具 `7b552981f8`、边界修正 `24136e4e53`、隔离 Dolt 配置 `6c770d963b`、逐候选 EXPLAIN 证据 `ec689eda0a`；渲染器实现与 mutation golden `cbe32df8bb`。这些提交均带规定的 Co-Authored-By trailer，未推送、未打 tag。
+- DC57 变更提交：合并 `8b18758fd2`；预检工具 `7b552981f8`、边界修正 `24136e4e53`、隔离 Dolt 配置 `6c770d963b`、逐候选 EXPLAIN 证据 `ec689eda0a`；渲染器实现与 mutation golden `cbe32df8bb`。RS/回放修复提交为 `085b54ffdc746d2ea3b7ccd1a610c629ddd4d28a`，t4 操作计时工具提交为 `ac73504ad8b44f43322aaf12a8df38caf3800a57`。提交均带规定的 Co-Authored-By trailer，未推送、未打 tag。
 
 ### Dolt 批量语句预检
 
@@ -29,19 +29,18 @@
 
 ### RS Arrow 中止调查与影响
 
-- run3：HEAD `749e9bb5df7148f6591a39f749eb40e77c08396f`，2026-10-26T18:21:29Z–18:42:51Z，约 1,281.8 秒后失败。该版本 benchmark 请求了完整 baseline，而非 S1a 所需的变化表，误读未变化的 `adv_app_list`；run3 归类为测量器越界，不能证明变化表路径失败。
-- run4：HEAD `f3e7fe7c749a15cb313872f272d1c1fd17caa498`，2026-10-26T18:50:27Z–19:11:50Z，约 1,283.3 秒后失败。工具已把 `requested_tables` 限定为本次变化表集合（其中包含 `b1_n11_iec104_syx_list`），经 `build_http_repository_provider_factory`、`materialize_repository_ref`、HTTP Arrow client 与 RS 的 `/versioned/.../rows` 正式产品路径读取；同一变化表连续三次中止。因此不是 run3 的全表误读所致，属于 RS 行流路径失败。
-- 客户端栈记录 `httpx.RemoteProtocolError: peer closed connection without sending complete message body (incomplete chunked read)`，之后为 `RepositoryStreamError: Arrow stream read failed before bytes were exposed`；backend 映射成 retryable `REPOSITORY_TABLE_READ_FAILED`，表名为 `b1_n11_iec104_syx_list`。RS 日志记录 `BridgeStreamAbortedError` 与 worker 未及时退出。容器未 OOM、未重启。`ArrowIpcStreamBridge._run_worker` 捕获异常后只发送 failure sentinel，不保留/记录异常对象；`CandidateADoltCli` 又将行流提供方错误映射为泛化 unavailable。因此现存日志无法区分底层是 Dolt 查询/退出、CSV/行解码还是流取消收敛问题。精确定位需要安全的 RS 侧诊断或修复，本阶段没有改 RS 代码，也没有通过缓存 artifact 绕过。
-- Submit 的 `import_publication._materialize_parent_rows` 对变化且可 patch 的表，通过同一 Repository provider 和 `materialize_repository_ref` 读 parent rows，再按 parent manifest 校验；该类 RS 行流失败会使 prepare 无法完成，影响此次选中的变化表，不影响未选中的表。History 的 `_materialize_commit` 同样走该 provider：X 两侧、D 旧侧和未变 ordered 当前侧按规则请求行；若请求表发生相同中止，该 History compare 也会失败。普通未变且未被选中的表继续被跳过。
-- 对应已有语义/故障边界测试：`test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary`、`test_changed_history_table_reads_both_pair_sides`、`test_deleted_history_table_reads_only_the_old_pair_side`、`test_unchanged_ordered_history_reads_current_side_and_preserves_facts`、`test_arrow_bridge_worker_failure_aborts_consumer`、repository client 的 before/after-bytes retry 测试。它们验证选择和通用错误传播，不覆盖该真实 t4 表的 RS 行流故障。
-- owner 决策点：先决定是否允许 S1a 范围外的 RS 诊断/修复，或另行处理该路径故障。未获得该决策前，按用户停止条件，不进入阈值复测、final-candidate t1–t4 Submit 重跑、worker step 归因、04 镜像重建/六包 runner 与 Compose 门禁。run3/run4 都不是当前候选通过证据。
+- **已确认根因：测量工具污染了 RS 正在服务的 Dolt 仓库文件属主。** run3/run4 的回放工具曾以 root 经 `docker exec` 在该 live repository 上执行 `dolt branch/checkout/sql/add/commit`，把 `.dolt/noms/manifest`（模式 600）、`repo_state.json`、`.dolt/tmp` 等改成 root 所有；以 `gateway` 用户运行的 RS 随后读取失败，请求开始约 40 ms 即中止。run1/run2 之前的 t4 旅程与 V5b RS 读取成功；run3/run4 的中止与表无关，不能作为某张表或 RS 正常产品读取路径失败的证据。
+- **测量工具已修正：** `085b54ffdc` 起，live repository 仅经 RepositoryClient resolve main，并在测量前后核对 ref；工具用 `docker cp` 把仓库复制到 scratch，在 `--network none` 的隔离容器中进行 branch/checkout/SQL/add/commit/hash 回放。parent rows 通过 RS HTTP Arrow 产品路径读取，不从 V5b 存储加载；其输出确认 requested/materialized 均为全部 27 张 `X∪D` 表。scratch 与隔离容器信息见 `/home/dev/gdds-p6-logs/s1a/ct108-mutation-replay-085b54ffdc.json`。
+- **RS 诊断已加：** `arrow_bridge.py` 的 `_run_worker` 捕获异常时记录异常类型和消息，不记录行数据；focused 测试断言日志不含合成行值。CT108-05 的 2 个 focused 用例通过，repository_service Ruff 与 strict mypy 通过，日志 `/home/dev/gdds-p6-logs/s1a/05-focused-085b54ffdc-20261027.log`。变更是诊断，不改 RS 读取语义或重试策略。
+- 被污染的旧栈 `p6-s1a-t4-clean-55363b37` 已按 owner 授权仅执行 `docker compose stop`，三个容器和 volumes 均保留；停止记录 `/home/dev/gdds-p6-logs/s1a/ct108-stop-contaminated-55363b37-20261027.log`。其后新建栈 `p6-s1a-t4-measure-085b54ffdc`，t4 完整旅程 PASS；阈值回放全程只对仓库副本写入，live main 前后相同。最终候选仍需使用自己的新栈完成 t4。
+- Submit 的 `import_publication._materialize_parent_rows` 对变化且可 patch 的表经 RS 读 parent rows，再按 parent manifest 校验；本次 27 张 `X∪D` 全部读成功，其中含 `b1_n11_iec104_syx_list`。History 的 `_materialize_commit` 同样通过 RS provider 请求 X 两侧、D 旧侧和未变 ordered 当前侧；最终候选 t4 History 旅程待完成。
+- 对应测试：`test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary`、`test_changed_history_table_reads_both_pair_sides`、`test_deleted_history_table_reads_only_the_old_pair_side`、`test_unchanged_ordered_history_reads_current_side_and_preserves_facts`、Arrow bridge worker failure focused test、repository client 的 before/after-bytes retry 测试。它们验证选择与错误传播；本次 27/27 产品路径读取是 t4 实测证据。
 
 ### 尚未完成的验收及资源
 
-- 尚未在批量渲染后用 RS 路径完成 `b1_n11_iec104_syx_list` 的 1% 三轮交替与 1,000 行附近样本；尚未复测 t4 v2 ADAPTIVE_PATCH / 整表重建全表哈希。DC57 的 1,000 行 / 1% 仅为候选待复测值，未在新 renderer 上冻结。
-- 55363 上 t1–t4 Preview/History、V5b 分段与基线读计时、基线行消费者审计按用户补充沿用。当前 renderer 的 Submit 产物变化，因此 final-candidate Submit 旅程没有通过或沿用。
-- assemble 约 100 秒、Submit prepare 约 36 秒及各 worker step 间隔的来源仍未完成归因；没有添加产品插桩。04 六包权威 runner、repository-service 镜像重建与 Compose 门禁均未运行。
-- 已知 ct108 仍有上一轮 `p6-s1a-t4-clean-55363b37` Compose 栈在运行（worker/backend/repository-service 三容器）；本任务没有 stop/down/remove。所有 worktrees、Dolt 测量 refs、日志、artifact scratch、bundle 与 refs 均保留；需清理内容由 owner 后续处理。原 `.p6-s1a-a6938cd.bundle` 主 checkout 副本及 05 日志目录副本继续保留。
+- 目前已在新渲染器与 RS 正式读取路径上完成阈值复测与 t4 v2 全表哈希复核；数值见“阈值、批量与 Dolt 表哈希”。1,000 行样本在 9,822 行表上占 10.175%，故按双门槛选择重建；未把它描述成 1% patch 性能样本。
+- 最终候选 `ac73504ad8` 上的 t1–t3、t4（含操作时序与归因）、V5b 补测、04 六包权威 runner、镜像重建和容器门禁仍未完成。未完成前不交独立阶段审核。
+- `p6-s1a-t4-clean-55363b37` 旧污染栈已停止但保留；`p6-s1a-t4-measure-085b54ffdc` 新测量栈仍保留，后续最终候选须使用新栈。所有 worktrees、Dolt refs、日志、artifact scratch、bundles 与 Git refs 均由 owner 后续清理；本任务不运行任何删除文件或 ref 的命令。原 `.p6-s1a-a6938cd.bundle` 主 checkout 副本及 05 日志目录副本继续保留。
 
 ---
 
@@ -99,13 +98,14 @@ focused backend 运行：CT108-05，HEAD `55363b37e1`，149 passed / 50 deselect
 
 ## 阈值、批量与 Dolt 表哈希
 
-- 预期冻结规则：`changed_row_count <= 1,000` 且 `changed_row_count / max(before_rows, after_rows, 1) <= 1%`；INSERT 每条语句最多 256 行、最多 4 MiB。
-- CT108，`gw-dms-test`，HEAD `30458dc83517b742ac620a8eb16e17fd50752d2c`，2026-10-26T19:45:35Z–20:16:51Z，测量工具 exit 1（工具在阈值失败时主动非零退出）。JSON：`/home/dev/gdds-p6-logs/s1a/ct108-s1a-mutation-replay-rerun6-30458dc835-20261026.json`；日志：`/home/dev/gdds-p6-logs/s1a/ct108-s1a-mutation-replay-rerun6-30458dc835-20261026.log`。
-- 1% 边界样本为 `b1_n11_iec104_syx_list`：parent 9,822 行，target 9,828 行；t4 实际净变化 13 行，合成后为 98/9,828 = 0.99715%。Patch 为 92 UPDATE + 6 INSERT；整表重建为 9,822 DELETE + 9,828 INSERT。三轮交替总耗时：patch 1.530375 / 1.425461 / 1.457966 秒，中位数 **1.457966 秒**；重建 1.255599 / 1.210597 / 1.238513 秒，中位数 **1.238513 秒**。Patch 慢 **17.7%**，触发设计 §17 第 4 项；S1a 在此停止，阈值不得在本次验收中静默下调。三轮各自的 patch/rebuild table hash 均相等。
-- t4 v2 全表 hash 对照：ADAPTIVE_PATCH 与整表重建分别对 312 张表全部匹配当前 t4 v2；两条路径相互等价。回放总耗时分别为 3.164501 秒与 27.446389 秒。此项通过，但不能抵消 1% 边界失败。
-- 实测 INSERT 批量规则：上限 256 行 / 4 MiB；t4 自适应计划生成 108 条 INSERT 语句，最大语句 256 行 / 34,476 字节；全表重建生成 1,077 条，最大语句 256 行 / 399,520 字节。仍冻结为 256 行 / 4 MiB。
-- 基线读取计时复用 CT108 V5b 成功报告（HEAD `48cb02c5fb0f6e157f703a9903ad2158fd28c81d`）：27 张 `X∪D` 表、139,838 行，74.857846 秒；mutation replay parent rows 从该已验证 artifact store 加载，并逐表以 v1 manifest 的 raw digest 与行数校验。
-- 非证据的工具失败均保留：run1（17:13:10Z–17:39:30Z，ImportReplay/Mutation 行类型不匹配）；run2（17:43:31Z–18:18:18Z，不支持的 Dolt `symbolic-ref`）；run3（18:21:29Z–18:42:51Z，误读未变化 `adv_app_list` 时 Repository Service Arrow 流中止）；run4（18:50:26Z–19:11:52Z，读取变化表 `b1_n11_iec104_syx_list` 的 Arrow 流三次中止，发生在 replay refs 创建前）；run5（19:22:01Z–19:44:00Z，辅助代码错误访问 `SnapshotTable.manifest`，refs 创建前失败）。全部 JSON 与日志路径保留在 `/home/dev/gdds-p6-logs/s1a/`。最终 rerun6 完成全表 hash 与三轮阈值 replay，但因 §17.4 失败而非零退出。
+- 冻结策略：仅当 `changed_row_count <= 1,000` **且** `changed_row_count / max(before_rows, after_rows, 1) <= 1%` 时使用 PATCH_DML。INSERT、UPDATE、DELETE 每条语句均最多 256 行且不超过 4 MiB；超出任一批边界时拆分。该规则与 mutation planner / renderer 常量一致；§16.2 的逻辑变更计数不变。
+- 正式阈值复测：ct108（hostname `gw-dms-test`），Dolt `2.1.11`，HEAD `085b54ffdc746d2ea3b7ccd1a610c629ddd4d28a`，测量 JSON 时间 2026-10-27T02:10:20Z–02:42:47Z、exit 0。日志 `/home/dev/gdds-p6-logs/s1a/ct108-mutation-replay-direct-085b54ffdc-20261027.log`；JSON `/home/dev/gdds-p6-logs/s1a/ct108-mutation-replay-085b54ffdc.json`。测量工具完整运行 1,955.187 秒；测量前后 RS main ref 一致；所有 Dolt mutations、branches 和 hash replay 仅在 scratch 仓库副本执行。
+- RS parent read：请求并成功物化全部 27 张 `X∪D` 表，合计 139,838 行（26 张 X + 1 张 D），含 `b1_n11_iec104_syx_list`。RS HTTP Arrow 产品路径总读取约 9.797 秒，ArtifactStore 与 readback 合计约 0.75 秒；Python materialize/digest remainder 约 63.895 秒。`repository_main_unchanged=true`，副本回放容器已停止并保留。
+- 1% 边界样本 `b1_n11_iec104_syx_list`：parent 9,822 行、target 9,828 行、t4 实际净变化 13 行；测试净变化 98 行，即 0.99715%。Patch 为 92 UPDATE + 6 INSERT；整表重建为 9,822 DELETE + 9,828 INSERT。交替三轮 patch 总耗时 0.600049 / 0.605835 / 0.619870 秒，中位数 **0.605835 秒**；重建为 1.255938 / 1.194844 / 1.235459 秒，中位数 **1.235459 秒**。Patch 中位数快约 51%；每轮 patch/rebuild 表哈希相等。1% 未触发 §17.4 停止条件。
+- 1,000 行上限样本：同一表合成 1,000 个变化，parent 9,822 / target 9,828，变化率 10.175%。由于超过 1% 比例门槛，ADAPTIVE_PATCH 正确回退为 REBUILD_TABLE；adaptive 与重建哈希相等，耗时分别 1.277966 / 1.252483 秒。该样本验证 1,000 变化数下双门槛派发正确；它不是 1% patch 的性能样本。
+- t4 v2 全表哈希：26 张 X + 1 张 D，目标共 312 张表。ADAPTIVE_PATCH 与整表重建各自对当前 t4 v2 匹配 **312/312**，两条路径结果相同；回放总耗时分别 **2.514646 秒**与 **27.384033 秒**。Adaptive 计划 15 张整表重建，行级 mutation 为 21,974 DELETE、22,054 INSERT、84 UPDATE；整表重建写入 246,874 行。
+- 批量实测：合成预检在单列键、复合键与 GID_NO_V1 ordered 三类表验证每种批量语句语法、主键查找计划、Dolt 哈希与 diff；生产形式 CASE UPDATE + 主键 IN DELETE + 多值 INSERT 均通过。256 UPDATE + 256 DELETE + 256 INSERT 场景，生产候选用约 0.12–0.16 秒，逐行 768 语句约 4.45–4.85 秒；近 4 MiB 样本为 4,194,048 字节且仍在限制内。故冻结三类 mutation 每批 256 行 / 4 MiB。
+- 之前按逐行 renderer 测得 1% 慢约 17.7% 的结果保留为 DC57 历史依据，不再作为当前停止条件；本次同样本批量复测已通过。此前 run1–run5、测量 launcher import 失败及 DC57 预检探索失败日志均保留。run3/run4 的 Arrow 中止根因是 root 写 live RS repo 后污染文件属主，非表特异；细节见“RS Arrow 中止调查与影响”。
 
 ## t1–t4 真实旅程
 

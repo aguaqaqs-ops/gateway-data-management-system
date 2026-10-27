@@ -1,10 +1,12 @@
 # Phase 6 S1a 独立阶段审核
 
-日期：2026-10-27（UTC）。结论：**定向修订，暂不接受阶段退出**。
+最新复审：2026-10-27（UTC），产品候选 `7d0ce6220ac2541b76ab75191d43ce6113003966`，handoff `a5098fe8b6d2843a3964492d96c0dd37899fbd96`。结论：**通过**。F1–F3、N1–N2 均关闭；本轮未发现新的阻塞项。04 原门禁 worktree 的 backend、repository_service 闭包与 RS 镜像身份核对通过，支持该产品候选到 handoff 提交的 carried。完整复审记录、owner 对 F2 的授权与退出建议见 **§7**。
 
-存在 **3 项阻塞 finding、2 项非阻塞 finding**。已复现的产品问题是未变 ordered 表仍执行完整比较中的逐行比较/LIS，以及 INSERT 单条 SQL 可突破冻结的 4 MiB 上限；另有 DC58 内容保值证据范围不足。未发现需要否定整体方案、引入兼容层或扩大信任边界的问题。
+以下 §1–§6 保留首次审核的事实与结论，适用对象是 `af559ae3d2 / 26c066e9bb`，不是最新候选。首次审核日期：2026-10-27；结论为 **定向修订，暂不接受阶段退出**。
 
-六包门禁、真实旅程、阈值/表哈希证据有合格来源；本次 focused 复跑通过。`af559ae3d2 → 26c066e9bb` 的 backend、repository_service 闭包及镜像身份等价核对通过，可以 **carried**。这些通过项不代替上述三个阻塞项的关闭。
+首次审核发现 **3 项阻塞 finding、2 项非阻塞 finding**。当时复现的产品问题是未变 ordered 表仍执行完整比较中的逐行比较/LIS，以及 INSERT 单条 SQL 可突破冻结的 4 MiB 上限；另有 DC58 内容保值证据范围不足。未发现需要否定整体方案、引入兼容层或扩大信任边界的问题。
+
+首次审核确认六包门禁、真实旅程、阈值/表哈希证据有合格来源；当次 focused 复跑通过。`af559ae3d2 → 26c066e9bb` 的 backend、repository_service 闭包及镜像身份等价核对通过，可以 **carried**。这些通过项当时不代替上述三个阻塞项的关闭。
 
 ## 1. 对象、边界与工作方式
 
@@ -254,3 +256,129 @@ handoff 的 stacks/volumes、worktrees/refs/bundles、Dolt scratch 清单覆盖�
 - 05 `review-focused-static-af559-20261027.log`、`review-ordered-insert-probes-20261027.log`，以及 `/home/dev/gdds-test-tmp/s1a-review-ordered-*` 合成测试目录；focused 的普通测试缓存/临时目录保留。
 
 **exit tag 建议：目前不创建 `p6-s1a-exit`，不指向 af559、26c066 或 e52ad2。** 实现方关闭 F1/F2，补齐 F3 并复审通过后，将修订候选、准确 handoff 和本报告/复审结果合入 main；在该最终接受的 main 提交上创建附注 tag `p6-s1a-exit`。先按 AGENTS 对最终对象完成必要门禁及 carried 判定；诊断分支始终排除。本次仅提交审核报告，不替 owner 接受阶段、不移动阶段 ref、不推送。
+
+## 7. 第一次复审：7d0ce622 / a5098fe8
+
+### 7.1 结论、对象与授权
+
+**通过。** 原三项阻塞 F1–F3 与非阻塞 N1–N2 均关闭；未发现新的阻塞 finding。结论基于源码差分、独立 focused/探针、保存证据的重新计算及原节点 carried，不仅采用 handoff 的关闭声明。
+
+- 完整阶段区间：`5a2989bec2..a5098fe8b6`；本次增量：`26c066e9bb..a5098fe8b6`。
+- V2：`7d0ce6220ac2541b76ab75191d43ce6113003966`；H2：`a5098fe8b6d2843a3964492d96c0dd37899fbd96`，H2 的直接父提交为 V2。
+- `git diff --name-only V2 H2` 只有 handoff。两者 `vnext` tree 均为 `5a24af2e59d2dfd105fccfdeb2e916c524f60c13`。增量共十文件：两个产品文件、一个 Contract、四个测试文件、两个 benchmark 工具、handoff；无新增 golden 变化，无锁/Rust/部署改动。
+- 使用 `git worktree add --detach /home/dev/p6-s1a-rereview-audit H2`，建立 legacy 符号链接；该审核 worktree 全程无 tracked 写入、clean。报告在既有 `p6-s1a-review` 分支更新，保留首次报告提交 `852eef4a95`，不把实现分支合入审核分支。
+- 重读 AGENTS 与完整新 handoff，复核既有 DC55/DC57/DC58/DC59、设计 §4 与本次 Contract 差分；未变的阶段要求继续按首次审核记录执行。诊断 e52ad2 的对象未变，`git merge-base --is-ancestor e52ad2c48b H2` 返回 1；不在候选历史内。
+
+**F2 的权威规则在复审会话中由 owner 明确提供（2026-10-27），要点如下：**
+
+> 4 MiB 是多行批次的上限，按完整 UTF-8 语句计（前缀、分隔符、值与 `;\n`）；加入下一行会超限时先结束当前批次。单行本身超过 4 MiB 时单独成句，不失败；INSERT、UPDATE、DELETE 统一，包括撤回 UPDATE/DELETE 单行超限失败的处理。先在 05 用合成数据验证 5–8 MiB INSERT 与 CASE UPDATE 经 RS 实际回放成功、表哈希与逐行形式相同；若不能执行则停止并报告。三种语句补恰好上限、超过 1 字节与单行超限测试；最终规则写入 Storage Mutation Contract。
+
+该明确授权优先于 DC57 旧条文“INSERT 每条最多 4 MiB”的字面及首次审核 F2 的“超限稳定失败”建议。本次不要求恢复旧建议，也不自行修改决议。Storage Mutation §3 已直接写入上述最终规则；单个 replay artifact 的 200 MiB admission 仍保留。后续阅读旧设计/DC57 时应连同本授权和最新 Contract 理解，避免把批上限误读为单行硬拒绝阈值。
+
+### 7.2 Finding 关闭记录
+
+| 项目 | 独立复核与结果 |
+| --- | --- |
+| F1：关闭 | `comparison/ordered.py:152` 调用专用 `_build_unchanged_fact`（`:180`），ordered 与 occupancy 各算一次，两侧同值；不构造双侧 key map、不逐列比较、不调用 LIS、不生成记录。双侧 descriptors/pair policy、前置 schema diagnostics 与 current reader degraded 路径保持；没有调用 `_compare_single_side`。新增 oracle 测试逐字段比较普通路径，并检查完整比较/LIS/单侧增删入口调用为零、两类摘要各一次。本次复跑通过；另以空表、全 blank、混合 blank 三例强制完整路径作 oracle，优化路径禁调用 `_build_fact`/LIS，facts 全字段相同。 |
+| F2：关闭（按 owner 修订规则） | INSERT 计数包含 `;\n`；下一行将超限时先 flush，超限单行不会再与另一行合并。UPDATE/DELETE 改为同一规则，撤销单行超限拒绝。三种语句的完整 UTF-8 恰好上限/超 1 byte/单行例外测试通过，原 257 行边界、批身份与顺序测试也通过。05 RS integration 的 5 MiB INSERT 与 CASE UPDATE 成功；本次补充探针分别在 INSERT 后和 UPDATE 后读取 Dolt 表哈希，两阶段均与逐行形式相同，而不只依赖最终 UPDATE 后的哈希。 |
+| F3：关闭 | 新工具 `benchmarks/dc58_content_compare.py` 读取 materialize/prepare checkpoint，按 side/table 和 v1/v2 logical role 对齐，验证引用大小/SHA、descriptor 与 canonical carrier 的 raw_content 绑定，并核对 Repository commit 角色。行内容从 Parquet 解码按 schema 与完整 cell 编码比较，不以行数或摘要字段被屏蔽后的相等代替内容。新增导出采集经 RS HTTP Arrow 路径；保存报告比较的是每表 schema 与完整行内容的独立 SHA，不是业务 snapshot_digest。两份导出 report 的 head 与 baseline/V2 一致。独立复跑得到与作者逐字段完全相同的报告，详见 §7.4。 |
+| N1：关闭 | 新 handoff 的历史更正表与首次审核原证据一致：预检路径/时间、旧三组耗时、旧 image ID 均修正；新候选数值单列，不冒充旧候选结果。当前阈值报告内部测量时间为 16:32:37–17:04:34，外层日志含环境同步为 16:31:57–17:04:45，两者边界不同，不是抄录矛盾。 |
+| N2：关闭 | 原遗漏目录及两处同类 stall 目录已补列。本次只读检查三处均存在：`/home/dev/gdds-p6-logs/s4-stall-20261027T091815873258Z`、`.../s4-stall-20261027T094919180432Z`、`/home/dev/gdds-test-tmp/s4-stall-20261026T142723567891Z`。清单覆盖新增 reviewfix worktrees、volumes、scratch、refs、失败与成功证据；未执行清理。 |
+
+F3 方法的具体边界：新屏蔽器仍是本阶段离线证据工具，不当作任意业务 JSON 的通用比较器。它按明确字段名而非 `_id` 后缀或 64-hex 值屏蔽，并保留具体路径清单；两项原反例现在均识别为不同。实际 15,692 条屏蔽路径中，本次检查没有落在 `.before_values`、`.current_values`、`.cells[]`、`.rows[]`、`.value.*`、`.values.*` 的路径。Parquet 业务 cell 不经过该字段屏蔽器。
+
+工具对 storage facts 的版本/retained_columns 变化另列解释，不混入“全相同”：实际版本从 absent 到 3，仓库侧六组共 750 个事实由空 retained_columns 补为 catalog 列；上传侧三组 375 个事实 retained_columns 不变。此前实现已补全仓库描述符；真实表 schema/行内容、canonicalization manifest metadata 与 side descriptors 另有直接比较，所以这里不构成未解释的数据变化。manifest 版本确为 3.2.0→3.3.0、projection 2→3。
+
+### 7.3 本次 focused 与补充探针
+
+三节点 `ssh -o BatchMode=yes <alias> 'echo OK'` 均成功。23:11:42 UTC 检查 04/05/ct108 的 `docker ps` 和 pytest/runner/dolt/cargo 进程，均无活动任务（除检查命令本身）。所有测试仅在 05 已提交、clean、带 legacy 链接的 `L/05-reviewfix-7d0ce622-wt` 运行，起止 V2；使用磁盘 TMPDIR、未设置 BASETEMP。没有运行全量 runner 或真实旅程，没有在开发机运行测试。
+
+`L/review2-focused-static-7d0ce622-20261027.log`：23:12:51–23:13:42 UTC，exit 0。
+
+```bash
+export TMPDIR=/home/dev/gdds-test-tmp PYTHONDONTWRITEBYTECODE=1
+for package in shared_kernel repository_contracts repository_client backend repository_service; do
+  ./vnext/scripts/uv-consume.sh -C "vnext/$package" run --no-sync ruff check .
+  ./vnext/scripts/uv-consume.sh -C "vnext/$package" run --no-sync mypy
+done
+./vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest -q -n 0 \
+  tests/test_comparison_ordered.py tests/test_dolt_renderer.py \
+  tests/test_mutation_planning.py tests/test_history_compare_jobs.py \
+  tests/test_repository_ref_materialization_protocol.py
+./vnext/scripts/uv-consume.sh -C vnext/repository_service run --no-sync pytest -q -n 0 \
+  tests/test_import_worker_integration.py -k oversized_single_row
+```
+
+五包 Ruff/mypy 通过；backend **132 passed / 30.74s**，RS **1 passed / 3 deselected / 16.61s**。一个既有 Starlette/httpx warning。包含 mutation 手算/阈值、row-free 五种表描述、History selector 和 ordered provenance/degraded 测试。候选现有 `05-reviewfix-count-assertions-r1-20261027.log` 另有 6 passed，起止 V2；其第一次 wrapper 路径错误未执行 pytest，未作为通过证据。
+
+- ordered oracle 与嵌套引用补查：`L/review2-oracle-reference-7d0ce622-20261027.log`，23:15:38–23:15:39，exit 0。用现有 `_plan_with_equal_storage_facts`、`_facts`，patch `_can_table_early_exit=False` 得 oracle；优化路径把 `_build_fact`/`_backbone_indices` 设为调用即失败，然后比较 `dataclasses.fields(ComparisonTableFact)`。三例均为 UNCHANGED 且全字段相同。
+- 分阶段大语句哈希：`L/review2-large-replay-hashes-r1-7d0ce622-20261027.log`，23:17:10–23:17:28，exit 0。调用现有 RS integration 测试，用 wrapper 保留原 `ImportWorkerPool.__init__` 与 `ImportOperationStore.get_operation` 行为；只在成功终态追加 `SELECT DOLT_HASHOF_TABLE('records')`，分别比较两种回放形式的 INSERT 后/UPDATE 后哈希。两项 true，未改产品。首次直接导入因未加入 pytest 配置的 tests 搜索路径报 `ModuleNotFoundError: support`，在执行回放之前退出；失败日志 `review2-large-replay-hashes-7d0ce622-20261027.log` 保留。纠正 Python 搜索路径后才得到上述成功证据。
+
+### 7.4 DC58 独立重新计算
+
+05 离线复算日志 `L/review2-dc58-7d0ce622-20261027.log`，23:14:52–23:14:57 UTC，起止 V2、clean、exit 0；新报告 `L/review2-dc58-7d0ce622-20261027.json`。未重跑 baseline、未重新启动任何真实数据容器，原证据文件只读。
+
+命令为受控 wrapper 执行 `python benchmarks/dc58_content_compare.py`，参数明确为：
+
+| 参数 | baseline / candidate |
+| --- | --- |
+| `--*-state` | `/home/dev/gateway-real-dumps/runs/p6-s1a-base-t1-5a2989/t1.state.json` / `.../p6-s1a-reviewfix-t1-7d0ce622/t1.state.json` |
+| `--*-project` 与 `--*-run-root` | 上述两个 project 及各自 run 根目录 |
+| `--*-artifacts` | 各 project 的 `/var/lib/docker/volumes/<project>_backend-artifacts/_data` |
+| `--*-control-db` | 各 project 的 `/var/lib/docker/volumes/<project>_backend-control/_data/control.sqlite3`（工具以 mode=ro 打开） |
+| `--*-golden` | `L/base-5a2989-wt/vnext/fixtures/golden` / `L/05-reviewfix-7d0ce622-wt/vnext/fixtures/golden`，均为绝对路径 |
+| `--*-exports` | `L/05-dc58-baseline-exports-20261027.json` / `L/05-reviewfix-t1-exports-20261027.json` |
+| `--report` | 上述 review2 JSON，不覆盖作者报告 |
+
+结果：11 对 side logical roles、**1,125 个 descriptor、399 个双侧表产物、302 个非空 row-free 描述的内容载体、250 个 Submit canonical table 产物**全部相同；v1/v2 RS 导出各 125 表，分别 3,733/3,731 行，逐表 schema/content 相同。HTTP DTO 相同。v1/v2/History 的 bundle 比较分别为 330/9/8，无差异、无 unresolved。
+
+对 bundle 的解引用没有仅信任脚本的“文件存在”：独立遍历每个已读 JSON 的嵌套 artifact_id，与该 bundle 已读取的 entry ID 集合求差。baseline 与 candidate 各自的 v1/v2/History 分别有 329/8/7 个 distinct nested refs，**范围外引用均为零**。因此本次实际证据中所有嵌套引用产物都已参加内容比较；不把脚本对任意未来嵌套结构的处理能力泛化为保证。
+
+golden 72/72：56 相同、16 个允许差异，逐项仍是 §3 列明的七个 1% threshold closure、五个 CASE UPDATE/DELETE SQL、四个版本文档；无额外差异。`git diff 26c066e9bb H2 -- vnext/fixtures` 为空；本轮规则修订未改变既有 golden 字节。工具中的允许清单以文件为单位，本次另核对实际 changed paths 仍只有已批准字段/SQL，未单凭文件白名单接受任意内容。
+
+重新计算的整份 JSON 与作者 `05-dc58-final-corrected-path-5a2989-vs-7d0ce622-20261027.json` 解析后完全相同。此前空 fixture 路径的失败报告没有参与判定。已删除的 fast/ordering 字段名现在只因离线工具需要识别 baseline 旧产物出现在其 allowlist 中，不是生产兼容层或恢复旧计算。
+
+### 7.5 最终候选已有证据及阶段要求
+
+独立读取原始日志中的 hostname、HEAD/HEAD_END、起止时间和 exit，以及对应 JSON；以下均绑定 V2，不沿用 af559 的最终门禁、旅程、阈值或表哈希：
+
+| 节点与证据（相对 L） | UTC 时间与结论 |
+| --- | --- |
+| 04 `04-reviewfix-rs-image-20261027.log` | 16:30:48–16:30:56，起止 V2、exit 0，RS 重建。 |
+| 04 `04-reviewfix-six-package-runner-20261027.log` | 16:30:56–17:10:40，起止 V2、dirty entries 0、exit 0。Rust fmt/clippy/test 全通过；shared_kernel 242、contracts 152、client 154、backend 2944+39、RS 1741（1 skip）+207。 |
+| 05 `05-reviewfix-t1-full-20261027.log` | 16:30:34–16:35:42，起止 V2、exit 0；导出另至 16:36:09。 |
+| 05 `05-reviewfix-t2-full-r1-20261027.log` | 16:38:40–17:13:49，起止 V2、exit 0。 |
+| 05 `05-reviewfix-t3-full-r1-20261027.log` | 17:13:51–18:22:51，起止 V2、exit 0。 |
+| ct108 `ct108-reviewfix-t4-full-20261027.log` | 17:06:41–18:37:38，起止 V2、exit 0；v2 comparison changed 26/312，degraded 0，History 168 records。 |
+| ct108 `ct108-reviewfix-threshold-and-hashes-20261027.log`、`ct108-reviewfix-mutation-replay-7d0ce622-20261027.json` | 外层 16:31:57–17:04:45、JSON 测量 16:32:37–17:04:34，起止 V2、exit 0；仅 scratch copy 回放，parent 经 RS Arrow，原 main 不变。 |
+
+阈值 JSON：98/9,828 变化的 1% 档，三轮 hash_equal=true，patch/rebuild 中位 **0.612836/1.227434s**；1,000 行、10.175% 档选择 REBUILD_TABLE，哈希相同。t4 v2 **312/312** adaptive/full/current 表哈希相同，回放总秒 **2.511356/27.414983**，未触发 §17 的 1% 慢于重建停止项。该测量使用相同 t4 数据，开始时间早于本轮完整旅程；它是 V2 渲染器的独立 replay 测量，不声称读取了尚未完成的新旅程提交。
+
+04 环境与 DC48 相符：Python 3.14.6、uv 0.11.28、Dolt 2.1.11、rustc 1.97.0、Docker 29.9.1、Compose 5.6.0；Rust extension expected/installed build-input 均为 `c8c8d21454c34f348887309452a68eb711faad0e`。逐包 Hypothesis storage 与外部 cargo target 按 runner 设置/清理。原 Compose 旅程已在本次权威 runner 通过，不额外复跑。
+
+本轮未触动 DC58 snapshot preimage、完整表过滤、Submit parent/checkpoint 绑定、RS arrow_bridge 日志；首次审核相应通过项继续成立。handoff 的消费者盘点补全了 identity/composite/replacement/恢复/History 删除表及 Submit 独立 parent 路径；计数口径未变化，F1 现在补足 U ordered 不做完整比较。Contract 仍直接写目标形态，无兼容机制。
+
+DC59 归因沿用已接受的 e52ad2 阶段级分解；handoff 明示 F1/F2 后没有重跑 worker timing，也没有把新旧耗时差断言成修复的因果收益。handoff“Worker step 归因”表中的 checkpoint/pair/bundle/prepare/await/step/harness/RS close 问题仍逐项有处理方案、阶段与 owner；本轮未要求重做已经接受的归因。
+
+### 7.6 Carried：通过
+
+在 04 **原 V2 runner worktree** `L/04-reviewfix-7d0ce622-wt` 进行，而非审核机或其它 worktree。先确认 clean/空闲，再通过 bundle 导入 H2、`git checkout --detach H2`；仅 handoff 变化，未重建/重 tag 镜像。来源 manifest 从 `04-reviewfix-six-package-runner-20261027.log` 原始 JSON 提取，不重算来源。
+
+使用来源 `PATH=/home/dev/.cargo/bin:…`、`TMPDIR=/home/dev/gdds-test-tmp`、`LC_ALL=C.UTF-8`、runner 设置的 `GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1`；各包设置来源 `HYPOTHESIS_STORAGE_DIRECTORY` 并确认目录不存在。执行 AGENTS 规定的 `python3 -I vnext/scripts/test_input_closure.py manifest --package ...` 与 `compare --source ... --current ...`。
+
+| 包 | V2/H2 相同 total_digest | 结果 |
+| --- | --- | --- |
+| backend | `98100c318168c0a5ec052bc31bccf148678bde43381de09edb86ed9315052de5` | 可沿用，changed_components=[] |
+| repository_service | `87f2f822d7225466025bfe71960f04c34aec4987d7917400cbba542af8df4182` | 可沿用，changed_components=[] |
+
+`python3 -I vnext/repository_service/tests/support/build_context_digest.py identity` 与 `docker image inspect gateway-repository-service:local` 一致：build-input `90efd8161afbf28c8b1b6c679974f885b6f856df`、source-tree `sha256:255d603d3261e867d3d48b1f7bb35664f39cf2769bf7d3beba7d3be082574d14`、最后验证的 image revision V2；本地 image ID 为 `sha256:9ca7474e1aa5a12004b176063617f856d6fdea03a097814502af0fc32429f07a`。不以重复构建 image ID 相等作为条件。
+
+日志：04 `L/review2-carried-a5098fe8-20261027.log`，23:13:11–23:13:15 UTC，exit 0，切换前 V2、后 H2、结束 clean。source/current/compare JSON 文件为 `review2-source-{package}-7d0ce622.json`、`review2-current-{package}-a5098fe8.json`、`review2-compare-{package}-a5098fe8.json`。本轮文档变化不触发重建，容器证据直接来自 V2 权威 runner。该 worktree 当前保留在 H2，按 DC51 不清理。
+
+### 7.7 过程、保留物与 exit tag 建议
+
+本次没有修改产品、测试、Contract、设计、计划、决议或 handoff；没有推送、打 tag、删除文件/ref、清理容器/volume；没有收到 auto-mode 分类器拒绝。05 未安装 `rg`，只读文件盘点改用 Python pathlib；补充探针的导入失败如 §7.3 如实保留。原先 handoff 删除重建、root 污染 RS、py-spy stalled 等历史偏差保留在首次报告与原始日志，不重新制造事故或改写历史证据。
+
+新增保留物：开发机 `/home/dev/p6-s1a-rereview-audit`，既有报告 worktree/审核分支；开发机及 04 的 `L/review2-handoff-a5098fe8-20261027.bundle`；04 的 review2 carried/manifests；05 的 review2 focused、DC58 JSON/log、oracle/reference、失败与成功大语句探针日志，以及 `/home/dev/gdds-test-tmp/s1a-review2-large-replay-3rr2uz1a` 合成仓库。数据内容不进入 Git；本次唯一提交文件为本报告。所有真实数据 stacks/volumes/refs 保留，清理由 owner 后续决定。
+
+**exit tag 建议更新：** H2 `a5098fe8b6` 是本次通过的阶段候选；产品锚点为 V2 `7d0ce6220a`。owner 接受后，将候选与审核报告合入 main，在最终接受的 main 提交上打附注 `p6-s1a-exit`。若该提交还包含本报告或其它文档，应继续在保留的 04 原门禁 worktree 对最终 HEAD 完成 AGENTS carried；本次 carried 严格只覆盖 V2→H2，不预先覆盖未知 merge 结果。不要指向旧 af559/26c066 或诊断 e52ad2。本次审核不执行合并、推送或打 tag。

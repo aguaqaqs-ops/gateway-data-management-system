@@ -146,12 +146,12 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 | manifest digest | **变化** | 随以上字段变化；体现在 PreviewResult、Submission 记录与 checkpoint 中 |
 | ordered 逻辑摘要、occupancy 摘要 | 保值 | 未变化 ordered 表的单侧计算与现算逐字节相同 |
 | snapshot digest、原始状态摘要 | **变化** | 去掉 `fast_row_digest`（DC58） |
-| comparison / surface / bundle digest | **变化** | 随 snapshot digest 变化；屏蔽摘要字段后输出逐字节不变（见下方核对方式）；S1b 再因 DC40、DC41 变化 |
+| comparison / surface / bundle digest | **变化** | 随 snapshot digest 变化；按下方核对方式与改动前一致；S1b 再因 DC40、DC41 变化 |
 | `fast_row_digest` | **删除** | DC58 |
 | 规范状态摘要、HTTP DTO 形状 | 保值 | 规范状态摘要本来不含 `fast_row_digest` |
 | 导入包与 `replay.sql` | **变化** | 只写变化（§4.3） |
 
-**核对方式（DC58）：** 摘要值改变的产物，以“屏蔽摘要字段后与改动前逐字节相同”核对，覆盖比较记录、facts、风险、surface、bundle 内容与 HTTP DTO；另以测试证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
+**核对方式（DC58）：** 摘要值改变的产物，屏蔽三类字段：摘要与哈希字段；由摘要派生的内容寻址标识（`artifact_id` 等引用）；运行实例字段（operation、workspace、pair 等 ID，时间与耗时，随机生成的 artifact ID，以及包含这些值的路径）。屏蔽后与改动前逐字节相同，并顺着引用逐个加载被引用的产物（records closure 与各记录族、风险、surface、bundle 成员、导出表），按逻辑角色（表名、记录族、产物种类）对齐，用同一口径比较内容，覆盖 HTTP DTO；golden fixture 与真实数据（t1）都按此口径。另以测试证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
 
 **golden 生命周期：** 见 §4.6。
 
@@ -182,7 +182,7 @@ S1a 退出前，在 ct108 上对 S1a 候选 HEAD 运行 t4 完整旅程（同 V5
 1. 各处 step 间隔（单处 1.0–9.8 s）来自 step 发布、checkpoint、租约、领取路径中的哪一段；
 2. 基线物化约 75 s、assemble 约 100 s、Submit prepare 约 36 s 残差的来源。
 
-handoff 对每项给出：来源、处理方案、处理阶段与 owner。仍无法归因时停止，由 owner 决定是否增加产品插桩（§17）。W2 的可达性在 S2b 检查（§16.1）。
+handoff 对每项给出：来源、处理方案、处理阶段与 owner。归因到阶段级即可：给出各子阶段耗时，以及与独立测量（V5b）对应段的差额；同一代码在 worker 与独立测量之间耗时不同的原因，作为对应阶段的性能诊断项登记（阶段与 owner）（DC59）。仍无法归因时停止，由 owner 决定是否增加产品插桩（§17）。W2 的可达性在 S2b 检查（§16.1）。
 
 ### 4.5 S1a 的 Contract 修订
 

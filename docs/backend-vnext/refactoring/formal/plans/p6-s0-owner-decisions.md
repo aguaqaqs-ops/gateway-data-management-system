@@ -49,6 +49,7 @@ implementation_authorized: no
 | DC58 | 快照身份不含逐行快速摘要；删除 `fast_row_digest` | — | — |
 | DC59 | S1a 归因的验收粒度 | — | — |
 | DC60 | S1a 初审修订：语句字节规则与重跑范围 | — | — |
+| DC61 | worker 在 step 完成后立即唤醒；镜像构建脚本的锁快照清理 | — | — |
 
 ## 2. 决议详情
 
@@ -358,6 +359,18 @@ implementation_authorized: no
   2. **重跑范围：** 修复 F1–F3 后的新候选重跑 S1a 验收（04 权威 runner 与镜像重建、t1–t4 旅程、阈值复测与 t4 v2 表哈希、DC58 核对）；worker step 归因不重跑，沿用 DC59 已接受的阶段级分解，F1/F2 对耗时的影响以新候选 t4 旅程的耗时为准。
   3. F1、F3 按审核建议修复：未变化 ordered 表直接构造两侧相同的 facts，摘要各算一次，不运行完整比较与 LIS；DC58 核对改用显式屏蔽字段清单，并补比较 snapshot-materialization 内容与规范表等产物。
 - **落点**：[详细设计](p6-design.md) §4.3；[执行计划](p6-execution-plan.md) §2 S1a“证据范围”。
+
+### DC61 worker 在 step 完成后立即唤醒；镜像构建脚本的锁快照清理
+
+- **来源**：[S1a handoff](p6-s1a-handoff.md) 的 step 间隔归因（DC59）。`WorkerRuntime._run_claim` 在非 drain 状态下等待注入的 `wait`（即停止信号 `stop_requested.wait`），超时为距下一次 heartbeat 的时间；executor 结束时设置的完成事件在这条路径上无人等待，supervisor 要到下一次 heartbeat（默认 10 s）才发现 step 已结束。drain 状态下等待的是完成事件，没有这个问题。实测每个 step 边界 2.6–9.95 s，t4 一次完整旅程合计约 1 分钟，小档占比更高；这就是 DC53 中 W2 前置条件所指的 step 间隔。另在 S1a exit 清理时发现：`build-repository-service-image.sh` 创建锁快照后没有 EXIT trap，约 10 处提前退出都会留下快照文件；其错误路径测试未隔离 TMPDIR，每次权威 runner 在节点的 TMPDIR 留下若干文件（04 累计 147 个，已清理）。与 kickoff 修复的 `uv-consume.sh` 属同一类问题。
+- **决议**（repository owner，2026-10-28）：
+  1. **立即唤醒：** executor 结束（成功或抛出异常）时立即唤醒 supervisor，随即校验结果并领取下一个 step。runtime 持有一个唤醒事件，executor 结束与停止信号都将其置位；非 drain 等待改为等待该事件，超时仍为距下一次 heartbeat 或 drain 截止的时间；醒来后照常检查完成、drain 意图与 heartbeat 时间。不改成短间隔轮询。
+  2. **不变项：** heartbeat 间隔 10 s、lease 时长与续约、drain 与 drain 超时语义、每个 worker 同时最多一个 executor 均不变；Operation Lifecycle Contract 的 lease/heartbeat 条款不改，不新增 golden。
+  3. **测试：** `test_operation_worker_scheduler.py` 补行为测试，使用注入的时钟与事件，不依赖真实耗时（必须用真实时间时标 `serial`）：短 executor 完成后 supervisor 在 heartbeat 到期前返回且不发 heartbeat；执行中收到停止信号仍按现有规则进入 drain；长 executor 照常按周期发 heartbeat。
+  4. **验收：** 由 control DB 的 step 时间戳计算 S1b 每档真实数据旅程（t1–t4）的 step 间隔（前一 step 完成到下一 step 开始）；不再出现接近 heartbeat 周期的等待，超过 1 s 的间隔在 handoff 中逐项说明。旅程耗时与 S1a 的对比只作记录，不另做归因。
+  5. **锁快照清理：** `build-repository-service-image.sh` 用 EXIT trap 删除锁快照，覆盖全部退出路径；其测试把 TMPDIR 设为测试临时目录，并断言错误路径不留文件。该脚本属于镜像构建脚本，按 AGENTS 是强制重建项，S1b 最终候选照常重建并运行容器门禁。
+  6. **阶段：** 两项均在 S1b 实施（owner 2026-10-28）。
+- **落点**：[详细设计](p6-design.md) §4.4、§5.7、§16 的 j 行；[执行计划](p6-execution-plan.md) §2 S1b 第 7、8 项与 §3 路径预算。
 
 ## 3. 设计阶段待定项
 

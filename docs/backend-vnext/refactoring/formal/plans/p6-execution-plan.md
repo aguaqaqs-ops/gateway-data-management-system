@@ -75,12 +75,15 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
   4. 参照解析器的缺陷修复与语义定稿（§5.5；kickoff 时 owner 逐项确认 P 项）；零日期维持拒绝；FLOAT 直接舍入在 Shared Kernel 修复（DC55 第 4 项）；
   4a. 按 DC56 改规则：11 张表补显式键，17 张表加入 BROWSE_ONLY 名单（规则集版本随之提升）；storage-projection 中的规则集与 manifest golden 按设计 §4.6 的例外行在本阶段更新一次，与比较类 golden 一起冻结；
   5. 合成 2× t4 与 W4 生成工具、测量 runbook（§5.6）；
-  6. Contract 修订（设计 §14 中标注 S1b 的行）与 golden（comparison、risk、surface、bundle、table-access、shared-kernel 编码向量，设计 §4.6）。
+  6. Contract 修订（设计 §14 中标注 S1b 的行）与 golden（comparison、risk、surface、bundle、table-access、shared-kernel 编码向量，设计 §4.6）；
+  7. worker 在 step 完成后立即唤醒（设计 §5.7，DC61 第 1–4 项）；
+  8. `build-repository-service-image.sh` 的锁快照用 EXIT trap 清理，测试隔离 TMPDIR（DC61 第 5 项）。
 - 验收：
   - 只增列的表不降级、无风险；Submit 仍生成版本；
   - Preview 与 History 的 bundle 含全部表，重复导出命中导出缓存，内容相同而 schema 不同时不误命中；
   - 上传在低速下不因总时长失败、空闲超时返回新错误码；
   - 参照解析器对 V6 列出的输入给出确定诊断，不抛未捕获异常；新增接受的值有合成往返用例；
+  - t1–t4 旅程的 step 间隔不再出现接近 heartbeat 周期的等待，超过 1 s 的在 handoff 中逐项说明（DC61）；权威 runner 后节点 TMPDIR 不留锁快照文件；
   - 权威 runner 与容器门禁。
 - 真实数据：t1–t4 完整旅程；t3 覆盖只增列（即原 testdata1）。
 
@@ -139,7 +142,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 | 阶段 | 主要路径 |
 | --- | --- |
 | S1a | B`capabilities/storage_projection/`（`_digest.py`、`project.py`、`publish.py`、`contracts.py`、`package.py`、`import_replay.py`）、B`capabilities/table_rules/contracts.py`、B`capabilities/mutation_planning/`、B`capabilities/comparison/standard.py` 与 `ordered.py`、B`application/preview_jobs.py`、B`application/history/compare_jobs.py`、B`application/submission/import_builder.py`、B`infrastructure/repository_write/import_publication.py`、B`application/submit_jobs.py`；golden：storage-projection、mutation |
-| S1b | `vnext/shared_kernel/src/gateway_shared_kernel/scalar.py`（FLOAT 直接舍入）与 shared-kernel 编码向量 golden、B`capabilities/comparison/`（`row_encoding.py`、`contracts.py`、`artifacts.py`）、B`capabilities/risk_evaluation/`、B`capabilities/surface_assembly/`、B`capabilities/bundle_assembly/`、B`application/pair_pipeline.py`、B`http/orchestration/`（`multipart_stream.py`、`multipart_upload.py`）、B`application/workspace/upload_limits.py`、B`capabilities/table_access/`（参照解析器修复）、B`capabilities/table_rules/`（DC56 规则改动）与 storage-projection 规则集、manifest golden、`vnext/backend/benchmarks/`（合成负载）；control DB 基线 schema（导出缓存 owner） |
+| S1b | `vnext/shared_kernel/src/gateway_shared_kernel/scalar.py`（FLOAT 直接舍入）与 shared-kernel 编码向量 golden、B`capabilities/comparison/`（`row_encoding.py`、`contracts.py`、`artifacts.py`）、B`capabilities/risk_evaluation/`、B`capabilities/surface_assembly/`、B`capabilities/bundle_assembly/`、B`application/pair_pipeline.py`、B`http/orchestration/`（`multipart_stream.py`、`multipart_upload.py`）、B`application/workspace/upload_limits.py`、B`capabilities/table_access/`（参照解析器修复）、B`capabilities/table_rules/`（DC56 规则改动）与 storage-projection 规则集、manifest golden、`vnext/backend/benchmarks/`（合成负载）；control DB 基线 schema（导出缓存 owner）；B`operations/worker_runtime.py`、B`bootstrap/operation_worker.py`（DC61）；`vnext/scripts/build-repository-service-image.sh` 与其测试（DC61） |
 | S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python*`（新 adapter，删除旧 crate 内容）、B`capabilities/table_access/`（flag 接入）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/check-rust-extension-build-input.sh`（核对新扩展）、`vnext/scripts/native_kernel_component.sh`（删除）、T`architecture_baseline.py` 与 `import_rules` 基线 |
 | S2b | R`gateway-compute-core/src/`（物化、投影、摘要模块）、B`capabilities/snapshot_materialization/`、B`capabilities/storage_projection/`、B`artifacts/` 与 B`infrastructure/artifact_store/`、control DB 基线 schema（BaselineHead owner）、B`settings.py`（N、M）、B`bootstrap/operation_worker.py`（线程池） |
 | S3 | R`gateway-compute-core/src/comparison/`、B`capabilities/comparison/`、B`capabilities/risk_evaluation/`（接口） |

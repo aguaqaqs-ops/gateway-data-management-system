@@ -184,6 +184,8 @@ S1a 退出前，在 ct108 上对 S1a 候选 HEAD 运行 t4 完整旅程（同 V5
 
 handoff 对每项给出：来源、处理方案、处理阶段与 owner。归因到阶段级即可：给出各子阶段耗时，以及与独立测量（V5b）对应段的差额；同一代码在 worker 与独立测量之间耗时不同的原因，作为对应阶段的性能诊断项登记（阶段与 owner）（DC59）。仍无法归因时停止，由 owner 决定是否增加产品插桩（§17）。W2 的可达性在 S2b 检查（§16.1）。
 
+S1a 归因结论：step 间隔来自 worker supervisor 在 executor 结束后仍等到下一次 heartbeat 才领取下一个 step，在 S1b 修复（§5.7，DC61）。
+
 ### 4.5 S1a 的 Contract 修订
 
 见 §14 的修订清单（标注 S1a 的行）。
@@ -255,7 +257,14 @@ P 项在 S1b kickoff 时由 owner 逐项确认。语义改动在 S1b 定稿并�
 - 规则写入测量 runbook（`vnext/backend/benchmarks/` 下的生成工具，Git 中只出现表名与计数）。
 - t3 即原 testdata1，作为 schema 演进样本（DC40 第 7 项）。
 
-### 5.7 S1b 的 Contract 修订
+### 5.7 worker 在 step 完成后立即唤醒（DC61）
+
+- executor 结束（成功或抛出异常）时立即唤醒 supervisor，随即校验结果并领取下一个 step。runtime 持有一个唤醒事件，executor 结束与停止信号都将其置位；非 drain 等待该事件，超时为距下一次 heartbeat 或 drain 截止的时间；醒来后检查完成、drain 意图与 heartbeat 时间。不使用短间隔轮询。
+- heartbeat 间隔、lease 时长与续约、drain 语义与单 executor 约束不变；Operation Lifecycle Contract 不改。
+- 验收：S1b 的 t1–t4 旅程中，step 间隔（由 control DB 的 step 时间戳计算）不再出现接近 heartbeat 周期的等待；超过 1 s 的逐项说明。
+- 同阶段附带：`build-repository-service-image.sh` 用 EXIT trap 删除锁快照，测试隔离 TMPDIR 并断言错误路径不留文件。
+
+### 5.8 S1b 的 Contract 修订
 
 见 §14 的修订清单（标注 S1b 的行）。
 
@@ -421,7 +430,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | g 行比较与逐行记录 | 变化行数 × V1 单行成本（约 22 µs/行，单线程） | 0 | 0 | ~2 s | ~5–10 s | 外推（V1，不含 IPC 与输出编码） | S3 |
 | h 风险（Python，消费内存中的 Arrow 记录） | W4 约 5 万条 × 约 0.1 ms/条 | 0 | 0 | ~1 s | ~5 s | 外推（V5b 现行约 0.11 ms/条），假设 | S3 |
 | i bundle 组装与导出 | W1、W3、W4 导出整表 Parquet；W2 导出缓存命中，只组装清单 | 未知 | 未知 | 未知 | 未知 | 未知（含 §4.4 的 assemble 固定开销） | S1b、S2b |
-| j step 间隔 | 每个 Preview 两处，单处 1.0–9.8 s | 2–20 s | 2–20 s | 2–20 s | 2–20 s | 实测（V5） | S1a 归因 |
+| j step 间隔 | 每个 Preview 两处，单处 1.0–9.8 s | 2–20 s | 2–20 s | 2–20 s | 2–20 s | 实测（V5） | S1a 归因；S1b 修复（DC61） |
 | k 未归因残差 | 基线物化约 75 s、assemble 约 100 s | 未知 | 未知 | 未知 | 未知 | 待归因（V5b） | S1a 归因 |
 | **已知项小计（a–h，不含 e、i、j、k）** | | ~18–21 s | ~4–7 s | ~10–13 s | ~29–41 s | | |
 

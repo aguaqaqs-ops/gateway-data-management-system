@@ -21,12 +21,12 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
-from urllib.parse import quote
 
 import httpx
 import pyarrow as pa
 import pyarrow.ipc as pa_ipc
 import pyarrow.parquet as pq
+from gateway_repository_contracts import encode_commit_id_path_segment
 
 
 DIGEST_FIELDS = frozenset(
@@ -959,7 +959,7 @@ def repository_export_tables(run: Run, state_role: str) -> dict[str, Any]:
         timeout=300.0,
     )
     try:
-        encoded_commit = quote(commit_id, safe="")
+        encoded_commit = encode_commit_id_path_segment(commit_id)
         catalog_response = client.get(
             f"/v1/repositories/{repository_id}/versioned/commits/{encoded_commit}/catalog"
         )

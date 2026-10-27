@@ -625,7 +625,6 @@ def _descriptor_payload(descriptor: SnapshotTableDescriptor) -> dict[str, Any]:
         "table_ruleset_version": descriptor.table_ruleset_version,
         "row_materialization_profile": descriptor.row_materialization_profile,
         "scalar_encoding_version": descriptor.scalar_encoding_version,
-        "fast_row_digest": _digest_value(descriptor.fast_row_digest),
         "raw_content_digest": _digest_value(descriptor.raw_content_digest),
         "business_schema_digest": descriptor.business_schema_digest.value,
         "degraded_reason": (
@@ -665,7 +664,6 @@ def _descriptor_from_payload(payload: dict[str, Any]) -> SnapshotTableDescriptor
         table_ruleset_version=int(payload["table_ruleset_version"]),
         row_materialization_profile=str(payload["row_materialization_profile"]),
         scalar_encoding_version=int(payload["scalar_encoding_version"]),
-        fast_row_digest=_optional_digest(payload.get("fast_row_digest")),
         raw_content_digest=_optional_digest(payload.get("raw_content_digest")),
         degraded_reason=None if degraded is None else DegradedReason(str(degraded)),
         diagnostics=_diagnostics_from_payload(payload.get("diagnostics")),

@@ -21,8 +21,6 @@ from gateway_backend.capabilities.composite_signal.contracts import COMPOSITE_SI
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     encode_cell_frame,
-    fast_row_digest_of,
-    fast_row_hash,
     raw_content_digest_of,
     raw_state_digest_of,
     row_content_hash,
@@ -430,7 +428,7 @@ def _materialize_table(
         )
         return descriptor, None, (diagnostic,)
     try:
-        row_hashes, fast_hashes, duplicate = _consume_rows(
+        row_hashes, duplicate = _consume_rows(
             parsed.reader, request.context, compare_keys, source.canonical_name
         )
     except _Halt as halt:
@@ -462,7 +460,6 @@ def _materialize_table(
                 table=source.canonical_name,
             )
         )
-    fast_digest = fast_row_digest_of(fast_hashes)
     raw_digest = (
         raw_content_digest_of(row_hashes) if stage is MaterializationStage.FINAL else None
     )
@@ -486,7 +483,6 @@ def _materialize_table(
         table_ruleset_version=request.table_ruleset_version,
         row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
         scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        fast_row_digest=fast_digest,
         raw_content_digest=raw_digest,
         degraded_reason=degraded,
         diagnostics=tuple(diagnostics),
@@ -539,7 +535,7 @@ def _consume_rows(
     context: ParserInvocationContext,
     compare_keys: tuple[str, ...],
     table_name: str,
-) -> tuple[tuple[bytes, ...], tuple[bytes, ...], bool]:
+) -> tuple[tuple[bytes, ...], bool]:
     descriptor = reader.descriptor()
     columns = descriptor.columns
     key_indexes = _key_indexes(descriptor, compare_keys)
@@ -548,7 +544,6 @@ def _consume_rows(
         None,
     )
     row_hashes: list[bytes] = []
-    fast_hashes: list[bytes] = []
     seen: set[tuple[bytes, ...]] = set()
     duplicate = False
     for row in reader.iter_rows():
@@ -559,7 +554,6 @@ def _consume_rows(
                 f"SQL source table {table_name!r} gid is in the reserved pseudo range",
             )
         row_hashes.append(row_content_hash(columns, row))
-        fast_hashes.append(fast_row_hash(columns, row))
         if key_indexes:
             key = tuple(encode_cell_frame(columns[index], row[index]) for index in key_indexes)
             if key in seen:
@@ -567,7 +561,7 @@ def _consume_rows(
             else:
                 seen.add(key)
     _checkpoint(context)
-    return tuple(row_hashes), tuple(fast_hashes), duplicate
+    return tuple(row_hashes), duplicate
 
 
 def _is_reserved_pseudo_gid(cell: object) -> bool:

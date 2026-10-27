@@ -13,8 +13,6 @@ from gateway_shared_kernel import CanonicalEncodingError, canonicalize_identifie
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     encode_cell_frame,
-    fast_row_digest_of,
-    fast_row_hash,
     raw_content_digest_of,
     raw_state_digest_of,
     row_content_hash,
@@ -277,7 +275,7 @@ def _materialize_open_session(
         table_ruleset_version=request.table_ruleset_version,
         tables=selected,
     )
-    snapshot_digest = binding.snapshot_digest or computed_snapshot_digest
+    snapshot_digest = computed_snapshot_digest
     raw_state = raw_state_digest_of(selected)
     snapshot = Snapshot(
         snapshot_id=snapshot_id,
@@ -384,7 +382,6 @@ def _describe_without_rows(
         table_ruleset_version=request.table_ruleset_version,
         row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
         scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        fast_row_digest=None,
         raw_content_digest=identity.raw_content_digest,
         degraded_reason=None if compare_keys else DegradedReason.KEYLESS,
     )
@@ -409,7 +406,6 @@ def _read_and_materialize_table(
     diagnostics: list[MaterializationDiagnostic] = []
     encoded_rows: list[SourceRow] = []
     row_hashes: list[bytes] = []
-    fast_hashes: list[bytes] = []
     mapped_columns = tuple(map_repository_column(column) for column in catalog_table.columns)
     source_columns = tuple(item.source for item in mapped_columns)
     source_descriptor = SourceTableDescriptor(
@@ -456,7 +452,6 @@ def _read_and_materialize_table(
             diagnostics.extend(encoded.diagnostics)
             actual_count += 1
             row_hashes.append(row_content_hash(source_columns, encoded.cells))
-            fast_hashes.append(fast_row_hash(source_columns, encoded.cells))
             if key_indexes:
                 key = tuple(
                     encode_cell_frame(source_columns[index], encoded.cells[index])
@@ -533,7 +528,6 @@ def _read_and_materialize_table(
         table_ruleset_version=request.table_ruleset_version,
         row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
         scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        fast_row_digest=fast_row_digest_of(tuple(fast_hashes)),
         raw_content_digest=raw_content_digest_of(tuple(row_hashes)),
         degraded_reason=degraded_reason,
         diagnostics=tuple(diagnostics),

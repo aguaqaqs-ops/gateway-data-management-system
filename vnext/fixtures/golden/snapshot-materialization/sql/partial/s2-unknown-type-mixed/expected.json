@@ -4,8 +4,8 @@
   "cache_trust_level": "CONTENT_VERIFIED",
   "table_count": 2,
   "row_count_total": 1,
-  "snapshot_digest": "sha256:e48b996d70b36c33793a646b7efe68eda058c61eb033e263916922e929c457a4",
-  "raw_state_digest": "sha256:f5a520a3313be6b4643698133e738343f6f0cea88a5d75750335a768cea1c4e3",
+  "snapshot_digest": "sha256:cb45d44e2a536657676fc4fcfbb1977d25e18d8dbed24efbebdea4f681772edb",
+  "raw_state_digest": "sha256:1c50db457dbcd20b282d2f88aab677b0a994af97ced7267a84a288c11dd7105a",
   "canonical_state_digest": null,
   "tables": [
     {
@@ -21,8 +21,7 @@
       "degraded_reason": null,
       "compare_schema_digest": "sha256:f1c8fdc880c965ccc4085e47bbef7d58fb91f8c39bc6cc21275647eb88bdef4a",
       "business_schema_digest": "sha256:67ba69e8e9b63c765edfe96583b682b6eb32389beffb8eb4f8e88fbf87d1d631",
-      "raw_content_digest": "sha256:7f1755d47ea5ec68dd6b83fd56052f8f23d01ea472c04b929f7f68bfa5bb5348",
-      "fast_row_digest": "sha256:4cb9883fda1aca366c9831b6d79129dbdec6964939527932ef0fee5e63f7a8fe"
+      "raw_content_digest": "sha256:7f1755d47ea5ec68dd6b83fd56052f8f23d01ea472c04b929f7f68bfa5bb5348"
     },
     {
       "table_name": "bad",
@@ -33,8 +32,7 @@
       "degraded_reason": "TABLE_FAILED",
       "compare_schema_digest": "sha256:50bde92e5e28d0eec015a58c4f10f1e17aaeac30a4715e3ddaccebe526197425",
       "business_schema_digest": "sha256:98087abc6efc84bc198e84d166f1cf782f75dc7597b6dcb1e158955d7ffe0943",
-      "raw_content_digest": null,
-      "fast_row_digest": null
+      "raw_content_digest": null
     }
   ]
 }

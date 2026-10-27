@@ -31,8 +31,6 @@ from gateway_backend.capabilities.snapshot_materialization._catalog import (
 )
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
-    fast_row_digest_of,
-    fast_row_hash,
     raw_content_digest_of,
     raw_state_digest_of,
     row_content_hash,
@@ -328,7 +326,6 @@ def _derived_table(
     )
     encoded_rows = tuple(_encode_row(row) for row in rows)
     row_hashes = tuple(row_content_hash(source_columns, row) for row in encoded_rows)
-    fast_hashes = tuple(fast_row_hash(source_columns, row) for row in encoded_rows)
     compare_keys = COMPOSITE_SIGNAL_POINT_KEY
     schema_digest = compare_schema_digest(
         COMPOSITE_SIGNAL_POINT_TABLE,
@@ -355,7 +352,6 @@ def _derived_table(
         table_ruleset_version=table_ruleset_version,
         row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
         scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        fast_row_digest=fast_row_digest_of(fast_hashes),
         raw_content_digest=(
             raw_content_digest_of(row_hashes) if stage is MaterializationStage.FINAL else None
         ),

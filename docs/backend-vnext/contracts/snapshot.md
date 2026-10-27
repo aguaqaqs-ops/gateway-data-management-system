@@ -107,7 +107,6 @@ FINAL SnapshotSummary 的 canonical 事实应在 repository commit/ref 内以隐
 - `compare_schema_digest`
 - `raw_content_digest`
 - `business_content_digest`
-- `fast_row_digest`
 - `row_count`
 - `degraded_reason`
 - `projection_status`
@@ -132,7 +131,6 @@ SnapshotTableDescriptor:
   row_count
   materialization_stage: PROVISIONAL | FINAL
   source_ddl_digest optional
-  fast_row_digest optional
   raw_ddl_digest optional
   compare_schema_digest
   raw_content_digest
@@ -157,9 +155,8 @@ SnapshotTableDescriptor:
 - `primary_key_columns` 表达原始 DDL 主键；`compare_key_columns` 表达 table rules 解析后的比较键，两者可以不同。
 - `column_comment`、原始标识符和 presentation rules 不进入 compare schema、content、projection、risk 或 row-layout digest。
 - `source_ddl_digest` / `raw_ddl_digest` 不进入业务 `snapshot_digest`。
-- `fast_row_digest` 是只看 INSERT 数据块的快路径 hash，可作为 provisional dedup / routing 输入。
-- `fast_row_digest` 也可以作为 hidden summary table 的辅助 provenance / audit 字段，但不能替代 canonical digest 或 compare-ready 事实。
-- `materialization_stage=PROVISIONAL` 时，`raw_content_digest` 可以暂缺；`fast_row_digest` 负责 upload-local identity，canonical digest 由异步 finalization 补齐。
+- Snapshot digest 的每表输入只包括可由表描述与 manifest 获得的事实：表名、比较 schema 摘要、业务 schema 摘要、比较键、行数与表摘要。Repository-ref 未读行的描述必须与读行描述逐字段相同；上传、Preview 基线与 History 使用同一算法。
+- `materialization_stage=PROVISIONAL` 时，`raw_content_digest` 可以暂缺；FINAL materialization 必须提供 `raw_content_digest`。
 - `materialization_stage=FINAL` 时，`raw_content_digest` 必须存在。
 - `compare_schema_digest` 只表达 canonical 字段集合和 compare key 选择，不表达字段顺序。
 - `raw_content_digest` 表达 canonicalized raw rows，row order 和 field order 不应改变结果。
@@ -222,10 +219,12 @@ snapshot_digest_payload:
   tables:
     - canonical_table_name
       compare_schema_digest
+      business_schema_digest
+      compare_key_columns
       row_count
       raw_content_digest
-      business_content_digest optional
-      compare_key_digest optional
+  composite_logic_source_digest optional
+  composite_signal_contract_version optional
 ```
 
 不参与：
@@ -300,7 +299,7 @@ Degraded table policy：
 
 ## Raw 与 Business Digest
 
-`raw_state_digest` / `raw_content_digest` 表示完整 raw table state，用于发现规范化行内容变化。
+`raw_state_digest` 由表名、行数与 `raw_content_digest` 组成，不包含 schema；`raw_content_digest` 表示规范化 raw rows，含重复行但忽略无业务意义的行顺序。
 
 `business_state_digest` / `business_content_digest` 表示应用 table rules 后的业务等价状态。第一阶段字段应落地，但允许部分表或部分规则返回 `NOT_COMPUTED`；如果尚未引入额外 business normalization，可以与 raw digest 相同。
 

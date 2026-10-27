@@ -11,6 +11,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalTableIdentity,
     MaterializationDiagnosticCode,
     MaterializationPolicy,
+    RepositoryColumn,
     RepositoryProviderError,
     RepositoryRef,
     SnapshotMaterializationStatus,
@@ -28,6 +29,7 @@ from tests.support.repository_ref_materialization import (
     minimal_fixture,
     text_column,
 )
+from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 
 
 class CountCancel:
@@ -149,6 +151,96 @@ def test_requested_tables_filter_does_not_relist() -> None:
     assert provider.last_session is not None
     assert provider.last_session.catalog_load_count == 1
     assert tuple(reader.stream_count for reader in provider.last_session.table_readers) == (1,)
+
+
+@pytest.mark.parametrize("case", ("single_key", "composite_key", "keyless", "ordered", "zero_rows"))
+def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
+    ruleset = migrated_table_ruleset_snapshot()
+    target_rows: tuple[tuple[object | None, ...], ...]
+    if case == "single_key":
+        target = catalog_table("single_items", (int_id_column(),))
+        target_rows = ((1,),)
+    elif case == "composite_key":
+        target = catalog_table(
+            "composite_items",
+            (int_id_column(), text_column("region", 1)),
+            primary_key=("id", "region"),
+        )
+        target_rows = ((1, "north"),)
+    elif case == "keyless":
+        target = catalog_table(
+            "keyless_items",
+            (text_column("value", 0),),
+            primary_key=(),
+        )
+        target_rows = (("same",), ("same",))
+    elif case == "ordered":
+        target = catalog_table(
+            "b1_n11_iec104_syx_list",
+            (
+                RepositoryColumn(name="gid", ordinal=0, scalar_type="INT UNSIGNED", nullable=False),
+                RepositoryColumn(name="no", ordinal=1, scalar_type="INT", nullable=False),
+                text_column("value", 2),
+            ),
+            primary_key=("gid",),
+        )
+        target_rows = ((1, 1, "first"), (2, 2, "second"))
+    else:
+        target = catalog_table("empty_items", (int_id_column(),), row_count=0)
+        target_rows = ()
+
+    selected = catalog_table("selected_items", (int_id_column(),))
+    catalog = make_catalog((target, selected))
+    rows = {target.table_name: target_rows, selected.table_name: ((9,),)}
+    full_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
+    binding = canonical_binding_for_catalog(catalog, ruleset=ruleset)
+    full = materialize_ref(
+        full_provider,
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        canonical_binding=binding,
+        ruleset=ruleset,
+    )
+    assert full.status is SnapshotMaterializationStatus.COMPLETE
+    assert full.summary is not None
+    full_descriptors = {item.table_name: item for item in full.summary.tables}
+    identities = tuple(
+        CanonicalTableIdentity(
+            canonical_table=item.table_name,
+            row_count=item.row_count,
+            source_schema_digest=item.business_schema_digest,
+            canonical_schema_digest=item.business_schema_digest,
+            raw_content_digest=item.raw_content_digest,
+        )
+        for item in full.summary.tables
+        if item.raw_content_digest is not None
+    )
+    rowless_binding = replace(binding, table_identities=identities)
+
+    rowless_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
+    rowless = materialize_ref(
+        rowless_provider,
+        policy=MaterializationPolicy.READERS_REQUIRED,
+        requested_tables=("selected_items",),
+        canonical_binding=rowless_binding,
+        ruleset=ruleset,
+    )
+
+    assert rowless.status is SnapshotMaterializationStatus.COMPLETE
+    assert rowless.summary is not None
+    assert rowless.snapshot is not None and full.snapshot is not None
+    assert rowless.snapshot.snapshot_digest == full.snapshot.snapshot_digest
+    rowless_descriptors = {item.table_name: item for item in rowless.summary.tables}
+    assert rowless_descriptors[target.table_name] == full_descriptors[target.table_name]
+    assert rowless_provider.last_session is not None
+    assert tuple(
+        reader.catalog_table().table_name
+        for reader in rowless_provider.last_session.table_readers
+    ) == ("selected_items",)
+    if case == "ordered":
+        ordered_view = next(
+            item for item in rowless_binding.tables if item.canonical_table == target.table_name
+        )
+        assert ordered_view.ordered_policy.value == "GID_NO_V1"
 
 
 def test_catalog_row_count_mismatch_is_a_regular_failure() -> None:

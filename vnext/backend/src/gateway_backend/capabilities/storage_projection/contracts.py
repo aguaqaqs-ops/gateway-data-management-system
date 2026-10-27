@@ -209,7 +209,6 @@ class ProjectionTable:
     row_count: int | None = None
     schema_digest: DigestRef | None = None
     content_digest: DigestRef | None = None
-    fast_row_digest: DigestRef | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "canonical_table", canonicalize_rule_identifier(self.canonical_table))
@@ -225,8 +224,6 @@ class ProjectionTable:
             raise ValueError("schema_digest must be DigestRef or None")
         if self.content_digest is not None and type(self.content_digest) is not DigestRef:
             raise ValueError("content_digest must be DigestRef or None")
-        if self.fast_row_digest is not None and type(self.fast_row_digest) is not DigestRef:
-            raise ValueError("fast_row_digest must be DigestRef or None")
 
 
 @dataclass(frozen=True, slots=True)

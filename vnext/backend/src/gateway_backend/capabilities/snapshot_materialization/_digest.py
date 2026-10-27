@@ -1,13 +1,12 @@
 """SQL Snapshot digest helpers owned by snapshot_materialization.
 
 Uses Shared Kernel row/raw-content kinds for row hashes and raw_content_digest.
-snapshot/compare-schema/fast-row/raw-state use owner JCS or domain-prefixed
-frames plus raw_blob_digest. Does not import canonicalization_cells.
+Snapshot, compare-schema, and raw-state digests use owner JCS frames plus
+raw_blob_digest. Does not import canonicalization_cells.
 """
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 from gateway_shared_kernel import (
@@ -47,7 +46,6 @@ from gateway_backend.capabilities.table_access.contracts import (
 
 _NULL_TYPE = DeclaredType(kind=DeclaredTypeKind.NULL)
 _STRING_TYPE = DeclaredType(kind=DeclaredTypeKind.STRING)
-_FAST_ROW_DOMAIN = b"gateway-vnext:snapshot-materialization:fast-row:v1\0"
 _COMPARE_SCHEMA_KIND = "compare-schema"
 _SNAPSHOT_KIND = "snapshot"
 _RAW_STATE_KIND = "raw-state"
@@ -95,20 +93,8 @@ def row_content_hash(columns: tuple[SourceColumnDescriptor, ...], row: SourceRow
     return semantic_digest(DigestKind.ROW, encode_row_frame(columns, row)).raw_digest
 
 
-def fast_row_hash(columns: tuple[SourceColumnDescriptor, ...], row: SourceRow) -> bytes:
-    payload = b"".join(
-        encode_cell_frame(column, cell) for column, cell in zip(columns, row, strict=True)
-    )
-    return hashlib.sha256(payload).digest()
-
-
 def raw_content_digest_of(row_hashes: tuple[bytes, ...]) -> DigestRef:
     return unordered_row_hashes_content_digest(row_hashes).digest_ref
-
-
-def fast_row_digest_of(row_hashes: tuple[bytes, ...]) -> DigestRef:
-    frame = _unordered_hash_frame(row_hashes)
-    return raw_blob_digest(_FAST_ROW_DOMAIN + frame)
 
 
 def compare_schema_digest(
@@ -162,7 +148,6 @@ def raw_state_digest_of(tables: tuple[SnapshotTableDescriptor, ...]) -> DigestRe
                 "canonical_table": table.table_name,
                 "row_count": table.row_count,
                 "raw_content_digest": _digest_value(table.raw_content_digest),
-                "fast_row_digest": _digest_value(table.fast_row_digest),
             }
             for table in _sorted_tables(tables)
         ],
@@ -182,7 +167,6 @@ def _table_digest_payload(table: SnapshotTableDescriptor) -> dict[str, Any]:
         "compare_schema_digest": table.compare_schema_digest.value,
         "row_count": table.row_count,
         "raw_content_digest": _digest_value(table.raw_content_digest),
-        "fast_row_digest": _digest_value(table.fast_row_digest),
         "business_schema_digest": table.business_schema_digest.value,
         "compare_key_columns": list(table.compare_key_columns),
     }
@@ -199,14 +183,3 @@ def _digest_value(digest: DigestRef | None) -> str | None:
     if digest is None:
         return None
     return digest.value
-
-
-def _unordered_hash_frame(row_hashes: tuple[bytes, ...]) -> bytes:
-    hashes = list(row_hashes)
-    hashes.sort()
-    parts = bytearray(encode_uleb128(len(hashes)))
-    for item in hashes:
-        if len(item) != 32:
-            raise ValueError("row hash must be exactly 32 bytes")
-        parts.extend(item)
-    return bytes(parts)

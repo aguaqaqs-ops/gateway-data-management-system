@@ -42,7 +42,7 @@
 2. **初始 BaselineNode 恒为空提交**（DC17）：零表规范状态，`canonical_binding` 取运行期规则集；物化时断言 catalog 中没有用户表，不满足即稳定失败（`INITIAL_BASELINE_NOT_EMPTY`）。不支持预置数据的初始库。
 3. **Repository-ref 物化使用 commit metadata，并按需读取行。**
    - provider 协议删除 hidden summary；`canonical_binding` 由 Application 按 commit 元数据提供；descriptor 由 catalog 构造；
-   - 调用方可指定需要行数据的表集合。物化仍校验 catalog 的完整表集合，并为未选中的表按 catalog 与 manifest 身份构造 descriptor，但不打开其行 reader；空集合表示本次不读任何表行。若 binding 来自已提交 Submission，则 Snapshot digest 沿用其 SubmitAttempt 中已受理的 `snapshot_digest`；选中表仍按 manifest 校验行数与 `raw_content_digest`；
+   - 调用方可指定需要行数据的表集合。物化仍校验 catalog 的完整表集合，并为未选中的表按 catalog 与 manifest 身份构造 descriptor，但不打开其行 reader；空集合表示本次不读任何表行。所有 descriptor 使用同一 Snapshot digest 算法；即使 binding 来自已提交 Submission，也按表名、schema 摘要、比较键、行数与 manifest 的 `raw_content_digest` 计算，不沿用 SubmitAttempt 的 `snapshot_digest`。选中表仍按 manifest 校验行数与 `raw_content_digest`；
    - 选中的表验证 catalog 行数、实际行数与 manifest 的 `raw_content_digest`；行数不一致时稳定失败（`REPOSITORY_ROW_COUNT_MISMATCH`），摘要不一致时稳定失败（`REPOSITORY_SNAPSHOT_DIGEST_MISMATCH`）；
    - adapter 只负责传输，不计算摘要；标量解码由 snapshot_materialization 的编码 owner 负责，与投影侧编码一致。
 4. **不做读回校验。** 规范编码的一致性由共享编码、真实 Dolt 同一性测试、契约与 golden 测试以及 Repository STRUCTURAL 校验保证。

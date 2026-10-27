@@ -31,6 +31,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     snapshot_summary_to_document,
     snapshot_to_document,
 )
+from gateway_backend.capabilities.snapshot_materialization._digest import raw_state_digest_of
 from tests.support.storage_projection import (
     as_row,
     dummy_digest,
@@ -41,7 +42,6 @@ from tests.support.storage_projection import (
 )
 
 _ROW_DIGEST = raw_blob_digest(b"row-content")
-_FAST_DIGEST = raw_blob_digest(b"fast-row-a")
 _COMPARE_DIGEST = raw_blob_digest(b"compare-schema")
 _BASE_COLUMNS = (
     SnapshotColumnDescriptor("id", "id", False, "INT UNSIGNED"),
@@ -55,7 +55,6 @@ def _descriptor(
     primary_key_columns: tuple[str, ...] = ("id",),
     row_count: int = 1,
     raw_content_digest: DigestRef | None = _ROW_DIGEST,
-    fast_row_digest: DigestRef = _FAST_DIGEST,
     materialization_stage: MaterializationStage = MaterializationStage.FINAL,
 ) -> SnapshotTableDescriptor:
     return SnapshotTableDescriptor(
@@ -70,7 +69,6 @@ def _descriptor(
         table_ruleset_version=1,
         row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
         scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        fast_row_digest=fast_row_digest,
         raw_content_digest=raw_content_digest,
     )
 
@@ -188,17 +186,25 @@ def test_business_schema_digest_tracks_business_definition(
         assert _manifest_schema_digest(candidate) != _manifest_schema_digest(baseline)
 
 
-def test_canonical_state_digest_uses_content_and_row_count_but_ignores_fast_digest() -> None:
+def test_canonical_state_digest_uses_content_and_row_count() -> None:
     baseline = _descriptor()
     changed_content = _descriptor(raw_content_digest=raw_blob_digest(b"different-content"))
     changed_row_count = _descriptor(row_count=2)
-    changed_fast_digest = _descriptor(fast_row_digest=raw_blob_digest(b"fast-row-b"))
 
     baseline_digest = canonical_state_digest_of((baseline,))
     assert baseline_digest is not None
     assert canonical_state_digest_of((changed_content,)) != baseline_digest
     assert canonical_state_digest_of((changed_row_count,)) != baseline_digest
-    assert canonical_state_digest_of((changed_fast_digest,)) == baseline_digest
+
+
+def test_raw_state_digest_retains_schema_independent_identity() -> None:
+    empty_baseline = _descriptor(row_count=0)
+    empty_with_column = _added_column()
+
+    assert canonical_state_digest_of((empty_baseline,)) != canonical_state_digest_of(
+        (empty_with_column,)
+    )
+    assert raw_state_digest_of((empty_baseline,)) == raw_state_digest_of((empty_with_column,))
 
 
 def test_canonical_state_digest_is_unavailable_without_raw_content_digest() -> None:

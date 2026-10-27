@@ -7,8 +7,6 @@ from gateway_backend.capabilities.snapshot_materialization.sql_declared_types im
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     cell_count_key,
     compare_schema_digest,
-    fast_row_digest_of,
-    fast_row_hash,
     raw_content_digest_of,
     row_content_hash,
 )
@@ -131,8 +129,6 @@ __all__ = [
     "try_declared_type_for_sql_spelling",
     "cell_count_key",
     "compare_schema_digest",
-    "fast_row_digest_of",
-    "fast_row_hash",
     "raw_content_digest_of",
     "row_content_hash",
     "ARTIFACT_COMPRESSION_ZSTD",

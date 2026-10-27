@@ -417,7 +417,9 @@ def _value_size_for_statement(
 ) -> int:
     assert row_count in {1, 2}
     if row_count == 1:
-        mutations = (_mutation_with_text_value(operation, index=1, value_size=0),)
+        mutations: tuple[ChangeSetMutation, ...] = (
+            _mutation_with_text_value(operation, index=1, value_size=0),
+        )
     else:
         mutations = (
             _mutation_with_text_value(operation, index=1, value_size=32),

@@ -30,6 +30,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     StorageRuleView,
 )
 from gateway_backend.capabilities.comparison.ordered import _backbone_indices
+from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit
 from gateway_backend.capabilities.comparison import ordered as ordered_comparison
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance,
@@ -299,15 +300,17 @@ def test_unchanged_ordered_early_exit_matches_full_facts_without_running_diff() 
     source = _sql("(1, 1, 'a'), (2, 2, 'b')")
     oracle_plan = _plan_with_equal_storage_facts(source)
 
-    with patch.object(ordered_comparison, "_can_table_early_exit", return_value=False):
+    with patch(
+        "gateway_backend.capabilities.comparison.ordered._can_table_early_exit",
+        return_value=False,
+    ):
         oracle = _table(_facts(oracle_plan))
 
     optimized_plan = _plan_with_equal_storage_facts(source)
 
-    with patch.object(
-        ordered_comparison,
-        "_can_table_early_exit",
-        wraps=ordered_comparison._can_table_early_exit,
+    with patch(
+        "gateway_backend.capabilities.comparison.ordered._can_table_early_exit",
+        wraps=_can_table_early_exit,
     ) as early_exit:
         with (
             patch.object(

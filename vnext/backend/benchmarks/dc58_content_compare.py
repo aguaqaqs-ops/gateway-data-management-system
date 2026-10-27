@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import copy
 import hashlib
 import json
 import re
@@ -111,14 +112,21 @@ DIGEST_MAP_FIELDS = frozenset({"source_digests"})
 RUNTIME_ID_FIELDS = frozenset(
     {
         "acceptance_id",
+        "archive_plan_id",
+        "archive_result_id",
         "artifact_id",
         "attempt_id",
+        "based_on_baseline_node_id",
         "baseline_node_id",
+        "baseline_commit_id",
         "business_baseline_node_id",
+        "business_baseline_commit_id",
         "bundle_artifact_id",
         "commit_id",
         "current_preview_result_id",
         "current_upload_revision_id",
+        "before_commit",
+        "current_commit",
         "expected_commit_id",
         "expected_parent_commit_id",
         "initial_commit_id",
@@ -128,6 +136,7 @@ RUNTIME_ID_FIELDS = frozenset(
         "preview_result_id",
         "ready_closure_artifact_id",
         "ref_id",
+        "released_workspace_ids",
         "repository_commit_id",
         "repository_expected_commit_id",
         "repository_id",
@@ -136,6 +145,7 @@ RUNTIME_ID_FIELDS = frozenset(
         "snapshot_id",
         "submit_attempt_id",
         "submission_id",
+        "selected_submission_id",
         "surface_id",
         "upload_revision_id",
         "view_id",
@@ -246,6 +256,9 @@ def normalize_json(value: Any, *, path: str, masked_paths: set[str]) -> Any:
             if key in DIGEST_FIELDS or key in DIGEST_MAP_FIELDS:
                 _record_path(masked_paths, item_path)
                 continue
+            if key == "repository_ref" and path.endswith(".source_context"):
+                _record_path(masked_paths, item_path)
+                continue
             if key in RUNTIME_ID_FIELDS and (
                 key != "artifact_id" or _is_reference_artifact_id(item_path)
             ):
@@ -273,6 +286,11 @@ def normalize_json(value: Any, *, path: str, masked_paths: set[str]) -> Any:
                             bool(item.get("shared", False)),
                         )
                     )
+        inputs = normalized.get("inputs")
+        if isinstance(inputs, list) and all(
+            isinstance(item, dict) and isinstance(item.get("role"), str) for item in inputs
+        ):
+            inputs.sort(key=lambda item: str(item["role"]))
         return normalized
     if isinstance(value, list):
         result: list[Any] = []
@@ -581,7 +599,7 @@ def snapshot_descriptions(run: Run, masked_paths: set[str]) -> dict[tuple[str, s
                         raise ValueError("canonical table entry has no manifest reference")
                     table_entries[name] = snapshot_table_summary(run.artifacts, manifest_ref)
                     masked_paths.update(
-                        f"$snapshot[{operation_role}][{label}].tables[{name}].{path.removeprefix('$snapshot.')}"
+                        f"$snapshot[{operation_role}][{label}].tables[{name}].{path.removeprefix('$snapshot_table.')}"
                         for path in table_entries[name]["mask_paths"]
                     )
             result[key] = {
@@ -624,6 +642,7 @@ def compare_snapshot_descriptions(
     descriptor_count = 0
     shared_table_payload_count = 0
     rowless_resolution: list[dict[str, Any]] = []
+    projection_metadata_changes: list[dict[str, Any]] = []
     for role in sorted(set(left) | set(right)):
         if role not in left or role not in right:
             differences.append({"role": list(role), "reason": "missing-side"})
@@ -645,12 +664,78 @@ def compare_snapshot_descriptions(
                     "fields": changed_paths(lside["snapshot"], rside["snapshot"]),
                 }
             )
-        if lside["storage_facts"] != rside["storage_facts"]:
+        left_facts = {
+            str(fact["canonical_table"]): fact
+            for fact in lside["storage_facts"]
+            if isinstance(fact, dict) and isinstance(fact.get("canonical_table"), str)
+        }
+        right_facts = {
+            str(fact["canonical_table"]): fact
+            for fact in rside["storage_facts"]
+            if isinstance(fact, dict) and isinstance(fact.get("canonical_table"), str)
+        }
+        if set(left_facts) != set(right_facts):
+            differences.append({"role": list(role), "reason": "storage-fact-table-set"})
+        fact_differences: list[dict[str, Any]] = []
+        version_pairs: Counter[tuple[str, str]] = Counter()
+        retained_count_pairs: Counter[tuple[int, int]] = Counter()
+        version_change_count = 0
+        retained_columns_change_count = 0
+        for table_name in sorted(set(left_facts) & set(right_facts)):
+            before_fact = dict(left_facts[table_name])
+            current_fact = dict(right_facts[table_name])
+            before_version = before_fact.get("storage_projection_version", _OMIT)
+            current_version = current_fact.get("storage_projection_version", _OMIT)
+            version_pair = (
+                "<absent>" if before_version is _OMIT else str(before_version),
+                "<absent>" if current_version is _OMIT else str(current_version),
+            )
+            version_pairs[version_pair] += 1
+            approved_version_transition = (
+                before_version in (_OMIT, "2", 2) and current_version in ("3", 3)
+            )
+            if before_version != current_version:
+                version_change_count += 1
+                if not approved_version_transition:
+                    fact_differences.append(
+                        {
+                            "table_name": table_name,
+                            "fields": ["storage_projection_version"],
+                        }
+                    )
+            before_retained = before_fact.get("retained_columns", _OMIT)
+            current_retained = current_fact.get("retained_columns", _OMIT)
+            if isinstance(before_retained, list) and isinstance(current_retained, list):
+                retained_count_pairs[(len(before_retained), len(current_retained))] += 1
+            if before_retained != current_retained:
+                retained_columns_change_count += 1
+            if approved_version_transition:
+                before_fact.pop("storage_projection_version", None)
+                current_fact.pop("storage_projection_version", None)
+                if before_retained != current_retained:
+                    before_fact.pop("retained_columns", None)
+                    current_fact.pop("retained_columns", None)
+            changed = changed_paths(before_fact, current_fact)
+            if changed:
+                fact_differences.append({"table_name": table_name, "fields": changed})
+        if fact_differences:
             differences.append(
+                {"role": list(role), "reason": "storage-facts", "tables": fact_differences}
+            )
+        if version_change_count or retained_columns_change_count:
+            projection_metadata_changes.append(
                 {
                     "role": list(role),
-                    "reason": "storage-facts",
-                    "fields": changed_paths(lside["storage_facts"], rside["storage_facts"]),
+                    "table_fact_count": len(set(left_facts) & set(right_facts)),
+                    "storage_projection_version_pairs": [
+                        {"before": before, "candidate": current, "table_count": count}
+                        for (before, current), count in sorted(version_pairs.items())
+                    ],
+                    "retained_columns_changed_table_count": retained_columns_change_count,
+                    "retained_column_count_pairs": [
+                        {"before_count": before, "candidate_count": current, "table_count": count}
+                        for (before, current), count in sorted(retained_count_pairs.items())
+                    ],
                 }
             )
         if set(lside["descriptors"]) != set(rside["descriptors"]):
@@ -750,18 +835,21 @@ def compare_snapshot_descriptions(
         "candidate_logical_roles": len(right),
         "descriptors_compared": descriptor_count,
         "table_artifact_payloads_compared": shared_table_payload_count,
+        "approved_storage_projection_metadata_changes": projection_metadata_changes,
         "rowless_nonempty_descriptors_resolved": len(rowless_resolution),
         "rowless_content_carriers": rowless_resolution[:300],
         "equal_after_mask": not differences,
         "difference_count": len(differences),
-        "differences": differences[:100],
+        "differences": differences,
         "missing_row_artifact_policy": "rowless side descriptors are compared directly; canonical table-set artifacts and Repository exports are compared separately by v1/v2 table role",
     }
 
 
 def _canonical_carrier_role(operation_role: str, side_role: str) -> str | None:
-    if operation_role in {"v1-preview", "repeat-v1-preview"}:
+    if operation_role == "v1-preview":
         return "v1" if side_role == "MODIFIED" else None
+    if operation_role == "repeat-v1-preview":
+        return "v1" if side_role in {"BASELINE", "MODIFIED"} else None
     if operation_role == "v2-preview":
         if side_role == "MODIFIED":
             return "v2"
@@ -813,7 +901,7 @@ def canonical_submit_tables(run: Run, masked_paths: set[str]) -> dict[str, dict[
                 raise ValueError("canonical table-set entry has no manifest reference")
             tables[name] = snapshot_table_summary(run.artifacts, ref)
             masked_paths.update(
-                f"$canonical[{role}][{name}].{path.removeprefix('$snapshot.')}"
+                f"$canonical[{role}][{name}].{path.removeprefix('$snapshot_table.')}"
                 for path in tables[name]["mask_paths"]
             )
         if role in result:
@@ -1125,8 +1213,33 @@ def _nested_artifact_ids(value: Any) -> list[str]:
 
 
 def compare_state(base: Run, candidate: Run, masked_paths: set[str]) -> dict[str, Any]:
-    left = {key: value for key, value in base.state.items() if key != "_stack"}
-    right = {key: value for key, value in candidate.state.items() if key != "_stack"}
+    def logicalized_state(run: Run) -> dict[str, Any]:
+        state = copy.deepcopy({key: value for key, value in run.state.items() if key != "_stack"})
+        submission_roles: dict[str, str] = {}
+        for role in ("v1", "v2"):
+            submit = state.get(f"{role}-submit", {})
+            submission_id = submit.get("submission_id") if isinstance(submit, dict) else None
+            if isinstance(submission_id, str):
+                submission_roles[submission_id] = f"repository-{role}"
+        history_inputs = (
+            state.get("history", {})
+            .get("result", {})
+            .get("bundle", {})
+            .get("inputs", [])
+        )
+        if isinstance(history_inputs, list):
+            for entry in history_inputs:
+                if not isinstance(entry, dict):
+                    continue
+                raw_role = entry.get("role")
+                logical_role = submission_roles.get(raw_role) if isinstance(raw_role, str) else None
+                if logical_role is not None:
+                    entry["role"] = logical_role
+                    _record_path(masked_paths, "$http_dto.history.result.bundle.inputs[*].role")
+        return state
+
+    left = logicalized_state(base)
+    right = logicalized_state(candidate)
     left_normalized = normalize_json(left, path="$http_dto", masked_paths=masked_paths)
     right_normalized = normalize_json(right, path="$http_dto", masked_paths=masked_paths)
     differences = changed_paths(left_normalized, right_normalized)
@@ -1260,13 +1373,15 @@ def main(argv: list[str] | None = None) -> int:
     report = {
         "baseline_head": base.state.get("_stack", {}).get("head"),
         "candidate_head": candidate.state.get("_stack", {}).get("head"),
-        "mask_method": "exact field-name allowlists; no arbitrary suffix-ID masking and no digest-shaped-value masking; logical_path normalizes only embedded operation tokens; content-addressed artifact refs are dereferenced",
+        "mask_method": "exact field-name allowlists; no arbitrary suffix-ID masking and no digest-shaped-value masking; logical_path normalizes only embedded operation tokens; history bundle input submission IDs are aligned to v1/v2 logical roles; content-addressed artifact refs are dereferenced",
         "masked_field_keys": {
             "digest_hash_fields": sorted(DIGEST_FIELDS),
             "digest_map_fields": sorted(DIGEST_MAP_FIELDS),
             "content_addressed_and_runtime_ids": sorted(RUNTIME_ID_FIELDS),
             "time_and_duration_fields": sorted(TIME_FIELDS),
             "path_fields": sorted(PATH_FIELDS),
+            "runtime_reference_paths": ["$.source_context.repository_ref"],
+            "logical_role_alignment_fields": ["$.history.result.bundle.inputs[*].role"],
             "business_project_id_masked": False,
             "table_id_masked": False,
             "annotation_id_masked": False,

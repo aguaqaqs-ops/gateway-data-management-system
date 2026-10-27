@@ -31,11 +31,17 @@ import pyarrow.parquet as pq
 
 DIGEST_FIELDS = frozenset(
     {
+        "after_manifest_digest",
+        "after_storage_projection_digest",
         "artifact_content_digest",
         "assessment_digest",
+        "base_repository_ref_digest",
+        "before_manifest_digest",
         "before_entry_set_digest",
         "before_ordered_digest",
+        "before_row_digest",
         "before_snapshot_digest",
+        "before_storage_projection_digest",
         "baseline_canonical_state_digest",
         "bundle_digest",
         "bundle_manifest_digest",
@@ -45,6 +51,8 @@ DIGEST_FIELDS = frozenset(
         "canonical_state_digest",
         "canonical_table_set_closure_digest",
         "canonicalization_manifest_digest",
+        "capability_digest",
+        "change_set_digest",
         "closure_manifest_digest",
         "compare_schema_digest",
         "composite_logic_source_digest",
@@ -83,10 +91,14 @@ DIGEST_FIELDS = frozenset(
         "snapshot_digest",
         "source_artifact_digest",
         "source_digest",
+        "source_identity_digest",
         "source_schema_digest",
         "storage_projection_ruleset_digest",
+        "storage_projection_digest",
         "storage_rule_digest",
         "surface_digest",
+        "table_ruleset_digest",
+        "table_schema_digest",
     }
 )
 

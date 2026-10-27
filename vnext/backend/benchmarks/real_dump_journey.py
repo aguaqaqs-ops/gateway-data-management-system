@@ -3869,7 +3869,9 @@ def run_journey(
                                         debug_submit_probe_root=debug_submit_probe_root,
                                         debug_submit_probe_metrics=debug_submit_probe_metrics,
                                         collect_timing=(
-                                            dc32_output_path is not None or debug_t1_submit_probe
+                                            dc32_output_path is not None
+                                            or debug_t1_submit_probe
+                                            or tier == "t4"
                                         ),
                                     )
                                 )

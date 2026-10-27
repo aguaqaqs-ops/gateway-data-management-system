@@ -7,7 +7,7 @@ import math
 import re
 import struct
 from dataclasses import dataclass
-from typing import Literal
+from typing import Callable, Literal
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -53,6 +53,10 @@ _ASCII_FLOAT_RE = re.compile(
 )
 _MAX_INSERT_ROWS_PER_STATEMENT = 256
 _MAX_INSERT_STATEMENT_BYTES = 4 * 1024 * 1024
+_MAX_DELETE_ROWS_PER_STATEMENT = 256
+_MAX_DELETE_STATEMENT_BYTES = 4 * 1024 * 1024
+_MAX_UPDATE_ROWS_PER_STATEMENT = 256
+_MAX_UPDATE_STATEMENT_BYTES = 4 * 1024 * 1024
 
 ReplayRenderStatus = Literal["READY", "FAILED"]
 
@@ -173,7 +177,9 @@ def _render_mutations(mutations: tuple[ChangeSetMutation, ...]) -> bytes:
         pending_insert_prefix = None
         pending_insert_bytes = 0
 
-    for mutation in mutations:
+    index = 0
+    while index < len(mutations):
+        mutation = mutations[index]
         if mutation.operation is RowMutationOperation.INSERT:
             if mutation.after_image is None:
                 raise _RenderCapabilityError("INSERT requires after_image")
@@ -207,18 +213,58 @@ def _render_mutations(mutations: tuple[ChangeSetMutation, ...]) -> bytes:
                 or pending_insert_bytes >= _MAX_INSERT_STATEMENT_BYTES
             ):
                 flush_inserts()
+            index += 1
             continue
 
         flush_inserts()
         if mutation.operation is RowMutationOperation.DELETE and not mutation.canonical_storage_key.columns:
-            if mutation.canonical_table in cleared_keyless_tables:
-                continue
-            cleared_keyless_tables.add(mutation.canonical_table)
-            append(
-                f"DELETE FROM {_quote_identifier(mutation.canonical_table)};\n".encode("utf-8")
-            )
-        else:
-            append(_render_mutation(mutation))
+            table = mutation.canonical_table
+            while (
+                index < len(mutations)
+                and mutations[index].canonical_table == table
+                and mutations[index].operation is RowMutationOperation.DELETE
+                and not mutations[index].canonical_storage_key.columns
+            ):
+                index += 1
+            if table not in cleared_keyless_tables:
+                cleared_keyless_tables.add(table)
+                append(f"DELETE FROM {_quote_identifier(table)};\n".encode("utf-8"))
+            continue
+
+        if mutation.operation is RowMutationOperation.DELETE:
+            batch: list[ChangeSetMutation] = []
+            while index < len(mutations):
+                candidate = mutations[index]
+                if (
+                    candidate.canonical_table != mutation.canonical_table
+                    or candidate.operation is not RowMutationOperation.DELETE
+                    or _key_column_names(candidate) != _key_column_names(mutation)
+                ):
+                    break
+                batch.append(candidate)
+                index += 1
+            for statement in _render_delete_batches(batch):
+                append(statement)
+            continue
+
+        if mutation.operation is RowMutationOperation.UPDATE:
+            batch = []
+            mutation_shape = _update_shape(mutation)
+            while index < len(mutations):
+                candidate = mutations[index]
+                if (
+                    candidate.canonical_table != mutation.canonical_table
+                    or candidate.operation is not RowMutationOperation.UPDATE
+                    or _update_shape(candidate) != mutation_shape
+                ):
+                    break
+                batch.append(candidate)
+                index += 1
+            for statement in _render_update_batches(batch):
+                append(statement)
+            continue
+
+        raise _RenderCapabilityError("unsupported mutation operation")
     flush_inserts()
     return b"".join(parts)
 
@@ -227,23 +273,149 @@ class _RenderSizeError(Exception):
     """Rendered output would exceed the replay byte cap."""
 
 
-def _render_mutation(mutation: ChangeSetMutation) -> bytes:
-    table = _quote_identifier(mutation.canonical_table)
-    if mutation.operation is RowMutationOperation.DELETE:
-        where = _key_predicate(mutation.canonical_storage_key)
-        return f"DELETE FROM {table} WHERE {where};\n".encode("utf-8")
-    if mutation.operation is RowMutationOperation.UPDATE:
-        if mutation.after_image is None:
-            raise _RenderCapabilityError("UPDATE requires after_image")
-        key_columns = {column for column, _ in mutation.canonical_storage_key.columns}
-        assignments = _assignment_list(mutation.after_image, exclude=key_columns)
-        where = _key_predicate(mutation.canonical_storage_key)
-        return f"UPDATE {table} SET {assignments} WHERE {where};\n".encode("utf-8")
+def _key_column_names(mutation: ChangeSetMutation) -> tuple[str, ...]:
+    return tuple(column for column, _ in mutation.canonical_storage_key.columns)
+
+
+def _update_shape(mutation: ChangeSetMutation) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     if mutation.after_image is None:
-        raise _RenderCapabilityError("INSERT requires after_image")
-    columns = _quoted_column_list(mutation.after_image)
-    values = _value_list(mutation.after_image)
-    return f"INSERT INTO {table} ({columns}) VALUES ({values});\n".encode("utf-8")
+        raise _RenderCapabilityError("UPDATE requires after_image")
+    return (
+        mutation.canonical_table,
+        _key_column_names(mutation),
+        tuple(column for column, _ in mutation.after_image.columns),
+    )
+
+
+def _key_predicate_batch(keys: tuple[CanonicalStorageKey, ...]) -> str:
+    if not keys or not keys[0].columns:
+        raise _RenderCapabilityError("batched key predicate requires keyed rows")
+    column_names = tuple(column for column, _ in keys[0].columns)
+    if any(tuple(column for column, _ in key.columns) != column_names for key in keys):
+        raise _RenderCapabilityError("batched keys must use the same columns")
+    if len(column_names) == 1:
+        values = ",".join(
+            _render_literal(key.columns[0][1], label=column_names[0]) for key in keys
+        )
+        return f"{_quote_identifier(column_names[0])} IN ({values})"
+    columns = ",".join(_quote_identifier(column) for column in column_names)
+    values = ",".join(
+        "("
+        + ", ".join(
+            _render_literal(cell, label=column)
+            for column, cell in key.columns
+        )
+        + ")"
+        for key in keys
+    )
+    return f"({columns}) IN ({values})"
+
+
+def _render_delete_batch(mutations: tuple[ChangeSetMutation, ...]) -> bytes:
+    if not mutations:
+        raise _RenderCapabilityError("DELETE batch cannot be empty")
+    first = mutations[0]
+    if any(
+        item.operation is not RowMutationOperation.DELETE
+        or item.canonical_table != first.canonical_table
+        or _key_column_names(item) != _key_column_names(first)
+        for item in mutations
+    ):
+        raise _RenderCapabilityError("DELETE batch contains incompatible mutations")
+    keys = tuple(item.canonical_storage_key for item in mutations)
+    statement = (
+        f"DELETE FROM {_quote_identifier(first.canonical_table)} "
+        f"WHERE {_key_predicate_batch(keys)};\n"
+    )
+    return statement.encode("utf-8")
+
+
+def _render_delete_batches(mutations: list[ChangeSetMutation]) -> tuple[bytes, ...]:
+    return _render_limited_mutation_batches(
+        mutations,
+        row_limit=_MAX_DELETE_ROWS_PER_STATEMENT,
+        byte_limit=_MAX_DELETE_STATEMENT_BYTES,
+        render=_render_delete_batch,
+    )
+
+
+def _render_update_batch(mutations: tuple[ChangeSetMutation, ...]) -> bytes:
+    if not mutations:
+        raise _RenderCapabilityError("UPDATE batch cannot be empty")
+    first = mutations[0]
+    if first.after_image is None:
+        raise _RenderCapabilityError("UPDATE requires after_image")
+    if any(
+        item.operation is not RowMutationOperation.UPDATE
+        or _update_shape(item) != _update_shape(first)
+        for item in mutations
+    ):
+        raise _RenderCapabilityError("UPDATE batch contains incompatible mutations")
+    key_columns = set(_key_column_names(first))
+    updated_columns = tuple(
+        column for column, _ in first.after_image.columns if column not in key_columns
+    )
+    if not updated_columns:
+        raise _RenderCapabilityError("UPDATE requires at least one SET assignment")
+    image_cells = [dict(item.after_image.columns) for item in mutations if item.after_image is not None]
+    assignments: list[str] = []
+    for column in updated_columns:
+        branches = " ".join(
+            f"WHEN {_key_predicate(item.canonical_storage_key)} THEN "
+            f"{_render_literal(image[column], label=column)}"
+            for item, image in zip(mutations, image_cells, strict=True)
+        )
+        quoted_column = _quote_identifier(column)
+        assignments.append(
+            f"{quoted_column}=CASE {branches} ELSE {quoted_column} END"
+        )
+    where = _key_predicate_batch(
+        tuple(item.canonical_storage_key for item in mutations)
+    )
+    statement = (
+        f"UPDATE {_quote_identifier(first.canonical_table)} "
+        f"SET {', '.join(assignments)} WHERE {where};\n"
+    )
+    return statement.encode("utf-8")
+
+
+def _render_update_batches(mutations: list[ChangeSetMutation]) -> tuple[bytes, ...]:
+    return _render_limited_mutation_batches(
+        mutations,
+        row_limit=_MAX_UPDATE_ROWS_PER_STATEMENT,
+        byte_limit=_MAX_UPDATE_STATEMENT_BYTES,
+        render=_render_update_batch,
+    )
+
+
+def _render_limited_mutation_batches(
+    mutations: list[ChangeSetMutation],
+    *,
+    row_limit: int,
+    byte_limit: int,
+    render: Callable[[tuple[ChangeSetMutation, ...]], bytes],
+) -> tuple[bytes, ...]:
+    statements: list[bytes] = []
+    for offset in range(0, len(mutations), row_limit):
+        batch = tuple(mutations[offset : offset + row_limit])
+
+        def append_with_byte_splits(items: tuple[ChangeSetMutation, ...]) -> None:
+            rendered = render(items)
+            if len(rendered) <= byte_limit:
+                statements.append(rendered)
+                return
+            if len(items) == 1:
+                raise _RenderSizeError()
+            middle = len(items) // 2
+            append_with_byte_splits(items[:middle])
+            append_with_byte_splits(items[middle:])
+
+        if not batch:
+            continue
+        append_with_byte_splits(batch)
+    if any(len(statement) > byte_limit for statement in statements):
+        raise _RenderSizeError()
+    return tuple(statements)
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -254,19 +426,6 @@ def _quote_identifier(identifier: str) -> str:
 
 def _quoted_column_list(image: PersistedRowImage) -> str:
     return ", ".join(_quote_identifier(column) for column, _ in image.columns)
-
-
-def _assignment_list(image: PersistedRowImage, *, exclude: set[str]) -> str:
-    assignments: list[str] = []
-    for column, cell in image.columns:
-        if column in exclude:
-            continue
-        assignments.append(
-            f"{_quote_identifier(column)}={_render_literal(cell, label=column)}"
-        )
-    if not assignments:
-        raise _RenderCapabilityError("UPDATE requires at least one SET assignment")
-    return ", ".join(assignments)
 
 
 def _value_list(image: PersistedRowImage) -> str:

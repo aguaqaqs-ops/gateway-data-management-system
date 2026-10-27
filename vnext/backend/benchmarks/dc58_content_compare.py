@@ -77,6 +77,7 @@ DIGEST_FIELDS = frozenset(
         "risk_evaluation_digest",
         "ruleset_digest",
         "sha256",
+        "sql_source_digest",
         "snapshot_digest",
         "source_artifact_digest",
         "source_digest",

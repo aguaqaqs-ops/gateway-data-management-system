@@ -335,7 +335,7 @@ implementation_authorized: no
   1. **快照身份：** snapshot digest 的每表输入只用不读行即可得到的表级事实：表名、比较 schema 摘要、业务 schema 摘要、比较键、行数与表摘要。仓库侧未变化的表由目录与 commit manifest 生成表描述，不读行，须与读行得到的描述逐字段相同。Preview 基线、History 两侧与上传侧用同一算法；删除以提交元数据摘要代替计算的做法。
   2. **删除 `fast_row_digest`：** 计算、表描述字段、checkpoint 序列化、manifest 与 Contract 条文一并删除。原始状态摘要去掉它后，若与规范状态摘要重复且没有独立使用方，一并删除；有独立使用方时保留并列明。
   3. **摘要值一次性改变：** snapshot digest、原始状态摘要，以及包含它们的 comparison、surface、bundle digest 在 S1a 改变一次，是设计 §4.1 保值清单与 §4.6 golden 生命周期的例外；snapshot-materialization golden 与上述组中的摘要值在 S1a 更新。规范状态摘要、ordered 逻辑摘要、occupancy 摘要与 HTTP DTO 形状保值。没有兼容要求，不保留旧摘要算法或双算。
-  4. **核对方式：** 摘要值改变的产物，屏蔽三类字段：摘要与哈希字段；由摘要派生的内容寻址标识（`artifact_id` 等引用）；运行实例字段（operation、workspace、pair 等 ID，时间与耗时，随机生成的 artifact ID，以及包含这些值的路径）。屏蔽后与改动前逐字节相同，并顺着引用逐个加载被引用的产物（records closure 与各记录族、风险、surface、bundle 成员、导出表），按逻辑角色（表名、记录族、产物种类）对齐，用同一口径比较内容，覆盖 HTTP DTO；golden fixture 与真实数据（t1）都按此口径；另证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
+  4. **核对方式：** 摘要值改变的产物，屏蔽三类字段：摘要与哈希字段；由摘要派生的内容寻址标识（`artifact_id` 等引用）；运行实例字段（operation、workspace、pair 等 ID，时间与耗时，随机生成的 artifact ID，以及包含这些值的路径）。屏蔽后与改动前逐字节相同，并顺着引用逐个加载被引用的产物（records closure 与各记录族、风险、surface、bundle 成员、导出表），按逻辑角色（表名、记录族、产物种类）对齐，用同一口径比较内容，覆盖 HTTP DTO。范围分两类：内容应保值的产物（比较记录与 facts、风险、surface、bundle、snapshot-materialization 内容、HTTP DTO 及其 golden）按上述口径核对，golden fixture 与真实数据（t1）都须相同；§4.1 列为变化的组（mutation、storage-projection、导入包）不要求相同，但每处差异须对应到 §4.1、§4.3 或 DC57 列出的变更，对应不上即停止；另证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
   5. **证据范围：** 设计与 Contract 直接写目标形态，被取代的机制与其测试一并删除（AGENTS 项目前提）。S1a 全部验收在最终候选上重新运行，不沿用此前候选的阈值、表哈希与旅程结果。
 - **落点**：[详细设计](p6-design.md) §4.1、§4.6、§14、§17；[执行计划](p6-execution-plan.md) §2 S1a；DC39 对应条目注明由本决议取代。
 
@@ -346,6 +346,7 @@ implementation_authorized: no
   1. 设计 §4.4 的归因到阶段级即可：各子阶段耗时及与独立测量对应段的差额，每项给出处理方案、阶段与 owner。
   2. worker 与 V5b 在同一代码上的耗时差，作为性能诊断项登记：checkpoint 读取与产物写入归 S1b（产物/checkpoint），记录生成与 compare 归 S3（比较），在对应阶段的 kickoff 中列入。
   3. DC58 第 4 项的核对方式按设计 §4.1 的表述执行（屏蔽摘要、派生标识与运行实例字段，并顺着引用比较产物内容）。
+  4. DC58 核对中 mutation 与 storage-projection 组的 16 处 golden 差异（阈值 `max_patch_change_ratio`、按批渲染的 `expected.sql`、`storage_projection_version` 与 `contract_version`）均对应已批准的 S1a 变更，不触发停止；核对范围按设计 §4.1 分为“内容保值”与“列为变化的组”两类。
 - **落点**：[详细设计](p6-design.md) §4.1、§4.4。
 
 ## 3. 设计阶段待定项

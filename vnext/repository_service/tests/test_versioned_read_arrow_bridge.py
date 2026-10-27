@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import signal
 import threading
 import time
@@ -193,6 +194,33 @@ def test_arrow_bridge_worker_failure_aborts_consumer() -> None:
     assert_lacks_stream_eos(body)
     assert bridge._terminal_outcome == "failure"
     assert count_decoded_rows_without_error(body) == 1
+
+
+def test_arrow_bridge_worker_failure_logs_error_without_row_data(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    plan, batches = _plan_and_batches(batch_count=1, rows_per_batch=1)
+    row_payload = repr(batches[0].to_pylist())
+
+    def failing_rows() -> Iterator[pa.RecordBatch]:
+        yield batches[0]
+        raise RuntimeError("synthetic stream failure")
+
+    bridge = ArrowIpcStreamBridge(plan, failing_rows(), threading.Event())
+    with caplog.at_level(
+        logging.WARNING,
+        logger="gateway_repository_service.versioned_read.arrow_bridge",
+    ):
+
+        async def consume() -> None:
+            async for _chunk in bridge.iter_bytes():
+                pass
+
+        with pytest.raises(BridgeStreamAbortedError):
+            asyncio.run(consume())
+
+    assert "RuntimeError: synthetic stream failure" in caplog.text
+    assert row_payload not in caplog.text
 
 
 @pytest.mark.serial

@@ -454,9 +454,14 @@ class ArrowIpcStreamBridge:
             if not self._put_terminal(_SUCCESS_SENTINEL):
                 return
             completed = True
-        except Exception:
+        except Exception as exc:
             if completed:
                 return
+            _LOGGER.warning(
+                "versioned read arrow bridge worker failed: %s: %s",
+                type(exc).__name__,
+                str(exc),
+            )
             self._put_terminal(_FAILURE_SENTINEL)
         finally:
             if writer is not None and not completed:

@@ -1,12 +1,14 @@
-"""Measure S1a mutation replay paths against an isolated t4 Repository parent.
+"""Measure S1a mutation replay paths against a t4 Repository parent.
 
-The runner writes only table names, counts, timings, branch labels, and hash equality
-facts. Replay SQL is piped into the Repository Service container and is never saved.
+Parent rows are read through the Repository Service product path. Dolt replay runs
+only in a separate repository copy under the measurement scratch directory. The
+runner records table names, counts, timings, branch labels, and hash equality facts.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
 import io
 import json
@@ -18,13 +20,14 @@ import sys
 import time
 import uuid
 from collections import Counter
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Sequence
 
 import s5_dc32_capability_measurement as s5
 import s5_v5b_segment_measurement as v5b
 from gateway_shared_kernel import DigestRef
+from gateway_repository_client import RepositoryClient
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _BACKEND_ROOT.parents[1]
@@ -74,9 +77,6 @@ from gateway_backend.capabilities.storage_projection.import_replay import (  # n
 )
 from gateway_backend.capabilities.storage_projection.package import (  # noqa: E402
     canonicalization_manifest_from_bytes,
-)
-from gateway_backend.infrastructure.artifact_store.local_store import (  # noqa: E402
-    LocalArtifactStore,
 )
 from gateway_backend.capabilities.table_rules.contracts import (  # noqa: E402
     OrderedPolicy,
@@ -143,110 +143,6 @@ def _mutation_snapshots(
         mutation_snapshot = build_import_mutation_snapshots((replay_snapshot,))[0]
         snapshots.append(mutation_snapshot)
     return tuple(snapshots)
-
-
-def _mutation_snapshots_from_saved_artifacts(
-    store: LocalArtifactStore,
-    manifest: CanonicalizationManifest,
-    storage_views: dict[str, Any],
-    table_names: Sequence[str],
-) -> tuple[MutationTableSnapshot, ...]:
-    """Read rows from the successful V5b t4 baseline materialization artifact store."""
-    manifest_by_name = {item.name: item for item in manifest.tables}
-    matching_refs: dict[str, Any] = {}
-    for path in store.artifact_root.rglob("*"):
-        if not path.is_file() or path.name.endswith(".ref.jcs") or path.stat().st_size > 2_000_000:
-            continue
-        try:
-            payload = json.loads(path.read_bytes())
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if not isinstance(payload, dict) or "artifact_contract_version" not in payload:
-            continue
-        table_name = payload.get("table_name")
-        if table_name not in table_names:
-            continue
-        descriptor = payload.get("descriptor")
-        if not isinstance(descriptor, dict):
-            continue
-        manifest_table = manifest_by_name.get(table_name)
-        if manifest_table is None or manifest_table.content_digest is None:
-            raise RuntimeError("saved parent artifact has no matching canonical manifest table")
-        if (
-            descriptor.get("raw_content_digest") != manifest_table.content_digest.value
-            or descriptor.get("row_count") != manifest_table.canonical_row_count
-        ):
-            continue
-        sidecar = path.with_name(f"{path.name}.ref.jcs")
-        try:
-            ref_payload = json.loads(sidecar.read_bytes())
-            ref = store.get_ref(ref_payload["artifact_id"])
-        except (OSError, KeyError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError("saved parent artifact reference is unavailable") from exc
-        matching_refs.setdefault(table_name, ref)
-
-    snapshots: list[MutationTableSnapshot] = []
-    for name in sorted(set(table_names), key=lambda item: item.encode("utf-8")):
-        manifest_table = manifest_by_name.get(name)
-        view = storage_views.get(name)
-        ref = matching_refs.get(name)
-        if manifest_table is None or view is None or ref is None:
-            raise RuntimeError("saved parent mutation snapshot binding is incomplete")
-        opened = open_snapshot_table_artifact(store, ref)
-        reader = opened.reader
-        if reader is None:
-            raise RuntimeError("saved parent table artifact has no reader")
-        try:
-            replay_rows = _keyed_rows_from_frozen_artifact(
-                reader,
-                descriptor=opened.descriptor,
-                manifest_table=manifest_table,
-            )
-        finally:
-            reader.close()
-        if len(replay_rows) != manifest_table.canonical_row_count:
-            raise RuntimeError("saved parent artifact row count does not match the t4 manifest")
-        replay_snapshot = ImportReplayTableSnapshot(
-            manifest_table=manifest_table,
-            storage_view=view,
-            rows=replay_rows,
-        )
-        snapshots.extend(build_import_mutation_snapshots((replay_snapshot,)))
-    return tuple(snapshots)
-
-
-def _parent_materialization_evidence(
-    evidence_path: Path,
-    changed_names: Sequence[str],
-) -> dict[str, Any]:
-    evidence = json.loads(evidence_path.read_bytes())
-    if evidence.get("status") != "PASS":
-        raise RuntimeError("saved V5b parent materialization evidence did not pass")
-    if sorted(evidence.get("s1a_baseline_filter", {}).get("changed_tables", [])) != sorted(
-        changed_names
-    ):
-        raise RuntimeError("saved V5b changed-table set does not match the t4 v1/v2 packages")
-    selected = next(
-        (
-            segment
-            for segment in evidence.get("segments", [])
-            if segment.get("scenario") == "t4_v2_s1a_selected_baseline_materialization"
-        ),
-        None,
-    )
-    if selected is None or selected.get("requested_table_count") != len(changed_names):
-        raise RuntimeError("saved V5b selected baseline materialization segment is missing")
-    return {
-        "source_head": evidence["head"],
-        "source_started_at_utc": evidence["started_at_utc"],
-        "source_ended_at_utc": evidence["ended_at_utc"],
-        "source_output": str(evidence_path),
-        "scenario": selected["scenario"],
-        "requested_table_count": selected["requested_table_count"],
-        "materialized_table_count": selected["materialized_table_count"],
-        "materialized_row_count_total": selected["materialized_row_count_total"],
-        "total_wall_seconds": selected["total_wall_seconds"],
-    }
 
 
 def _import_input(
@@ -428,17 +324,37 @@ def _insert_statement_metrics(sql_bytes: bytes) -> dict[str, int]:
     }
 
 
+@dataclass(frozen=True)
+class _DoltTarget:
+    container: str
+    repository_path: str
+    is_replay_copy: bool
+
+
 def _dolt_exec(
     *,
-    container: str,
-    repository_path: str,
+    target: _DoltTarget,
     arguments: Sequence[str],
     stdin: bytes | None = None,
+    mutation: bool = False,
 ) -> bytes:
+    if not target.is_replay_copy:
+        raise RuntimeError("Dolt CLI access to the live Repository Service repository is forbidden")
+    mutating_command = arguments[0] in {"add", "commit", "checkout"} or (
+        arguments[0] == "branch" and len(arguments) > 1
+    )
+    if arguments[0] == "sql" and stdin is not None and not mutation:
+        first_statement = stdin.lstrip().split(None, 1)[0].upper() if stdin.strip() else b""
+        if first_statement != b"SELECT":
+            mutating_command = True
+    if mutating_command and not mutation:
+        raise RuntimeError("Dolt mutation command requires an explicit replay-copy authorization")
     command = ["docker", "exec"]
     if stdin is not None:
         command.append("-i")
-    command.extend(("-w", repository_path, container, "/usr/local/bin/dolt", *arguments))
+    command.extend(
+        ("-w", target.repository_path, target.container, "/usr/local/bin/dolt", *arguments)
+    )
     result = subprocess.run(
         command,
         input=stdin,
@@ -452,10 +368,110 @@ def _dolt_exec(
     return result.stdout
 
 
-def _dolt_current_branch(*, container: str, repository_path: str) -> str | None:
+def _resolve_live_main_commit(
+    *,
+    repository_id: str,
+    repository_service_url: str,
+    bearer_token: str,
+) -> str:
+    client = RepositoryClient(
+        base_url=repository_service_url,
+        bearer_token=bearer_token,
+        timeout_seconds=30.0,
+    )
+    response = asyncio.run(
+        client.resolve_versioned_ref(repository_id=uuid.UUID(repository_id))
+    )
+    return response.commit_id
+
+
+def _create_replay_copy(
+    *,
+    source: _DoltTarget,
+    scratch_path: Path,
+) -> tuple[_DoltTarget, dict[str, str]]:
+    repository_copy = scratch_path / "repository-copy"
+    repository_copy.mkdir(mode=0o700, exist_ok=False)
+    copied = subprocess.run(
+        ["docker", "cp", f"{source.container}:{source.repository_path}/.", str(repository_copy)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=3600,
+    )
+    if copied.returncode != 0:
+        raise RuntimeError("could not copy the Repository Service repository to measurement scratch")
+    image_result = subprocess.run(
+        ["docker", "inspect", "--format={{.Image}}", source.container],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=30,
+        text=True,
+    )
+    if image_result.returncode != 0 or not image_result.stdout.strip():
+        raise RuntimeError("Repository Service image identity is unavailable for Dolt replay")
+    image_id = image_result.stdout.strip()
+    sandbox_container = f"p6s1a-dolt-replay-{uuid.uuid4().hex[:12]}"
+    started = subprocess.run(
+        [
+            "docker",
+            "run",
+            "--detach",
+            "--name",
+            sandbox_container,
+            "--network",
+            "none",
+            "--user",
+            "0:0",
+            "--mount",
+            f"type=bind,source={repository_copy},target=/measurement/repository",
+            "--entrypoint",
+            "/bin/sleep",
+            image_id,
+            "infinity",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        timeout=60,
+        text=True,
+    )
+    if started.returncode != 0:
+        raise RuntimeError("could not start isolated Dolt replay container")
+    return (
+        _DoltTarget(
+            container=sandbox_container,
+            repository_path="/measurement/repository",
+            is_replay_copy=True,
+        ),
+        {
+            "container": sandbox_container,
+            "image_id": image_id,
+            "repository_copy_path": str(repository_copy),
+        },
+    )
+
+
+def _stop_replay_copy(target: _DoltTarget) -> bool:
+    if not target.is_replay_copy:
+        raise RuntimeError("refusing to stop a non-measurement container")
+    try:
+        result = subprocess.run(
+            ["docker", "stop", "--time", "10", target.container],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _dolt_current_branch(target: _DoltTarget) -> str | None:
     lines = _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("branch",),
     ).decode("utf-8").splitlines()
     return next(
@@ -464,10 +480,9 @@ def _dolt_current_branch(*, container: str, repository_path: str) -> str | None:
     )
 
 
-def _dolt_current_commit(*, container: str, repository_path: str) -> str:
+def _dolt_current_commit(target: _DoltTarget) -> str:
     output = _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("log", "-n", "1", "--oneline"),
     ).decode("utf-8")
     clean_output = re.sub(r"\x1b\[[0-9;]*m", "", output).strip()
@@ -478,8 +493,7 @@ def _dolt_current_commit(*, container: str, repository_path: str) -> str:
 
 def _read_hashes(
     *,
-    container: str,
-    repository_path: str,
+    target: _DoltTarget,
     table_names: Sequence[str],
 ) -> dict[str, str]:
     queries = []
@@ -491,8 +505,7 @@ def _read_hashes(
     if not queries:
         return {}
     result = _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("sql", "--result-format=csv"),
         stdin=(" UNION ALL ".join(queries) + ";\n").encode("utf-8"),
     ).decode("utf-8")
@@ -509,45 +522,45 @@ def _read_hashes(
 
 def _replay_branch(
     *,
-    container: str,
-    repository_path: str,
+    target: _DoltTarget,
     base_commit: str,
     sql_bytes: bytes,
     table_names: Sequence[str],
     label: str,
     branch_refs: list[str],
 ) -> dict[str, Any]:
+    if not target.is_replay_copy:
+        raise RuntimeError("replay requires a measurement repository copy")
     branch = f"p6s1a-measure-{label}-{uuid.uuid4().hex[:8]}"
     _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("branch", branch, base_commit),
+        mutation=True,
     )
     branch_refs.append(branch)
     _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("checkout", branch),
+        mutation=True,
     )
     replay_started = time.perf_counter()
     _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("sql", "--result-format=csv"),
         stdin=sql_bytes,
+        mutation=True,
     )
     replay_seconds = time.perf_counter() - replay_started
     add_started = time.perf_counter()
     _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("add", "--all"),
+        mutation=True,
     )
     add_seconds = time.perf_counter() - add_started
     commit_started = time.perf_counter()
     _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=(
             "commit",
             "--allow-empty",
@@ -555,17 +568,17 @@ def _replay_branch(
             "Phase 6 S1a replay measurement",
             "--author=Gateway Repository Service <repository@gateway.invalid>",
         ),
+        mutation=True,
     )
     commit_seconds = time.perf_counter() - commit_started
     hashes = _read_hashes(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         table_names=table_names,
     )
     _dolt_exec(
-        container=container,
-        repository_path=repository_path,
+        target=target,
         arguments=("checkout", "main"),
+        mutation=True,
     )
     return {
         "branch": branch,
@@ -592,14 +605,15 @@ def _changed_row_count(
     return len(inserted) + len(deleted) + updated
 
 
-def _synthetic_one_percent_target(
+def _synthetic_target_with_change_count(
     before: MutationTableSnapshot,
     after: MutationTableSnapshot,
+    *,
+    target_changes: int,
 ) -> tuple[MutationTableSnapshot, dict[str, int]]:
     current_changes = _changed_row_count(before, after)
-    target_changes = int(max(len(before.rows), len(after.rows), 1) * 0.01)
     if target_changes <= current_changes:
-        raise RuntimeError("t4 v2 sample already exceeds the one-percent target")
+        raise RuntimeError("requested synthetic change count is not above the t4 v2 changes")
     before_by_key = {key_bytes_for_ordering(row.key): row for row in before.rows}
     changed_keys = {
         key_bytes_for_ordering(row.key)
@@ -616,25 +630,17 @@ def _synthetic_one_percent_target(
     extra_changes = target_changes - current_changes
     if len(candidates) < extra_changes:
         raise RuntimeError("t4 v2 table has too few unchanged rows for one-percent sample")
+    candidate_cells = dict(candidates[0].image.columns)
     value_column = next(
         (
             name
             for name in after.manifest_table.structural_columns
             if name not in after.storage_view.canonical_key_columns
-            and any(column == name for column, _cell in candidates[0].image.columns)
+            and name in candidate_cells
+            and candidate_cells[name].get("kind") in {"signed-integer", "unsigned-integer"}
         ),
         None,
     )
-    if value_column is None:
-        value_column = next(
-            (
-                name
-                for name, cell in candidates[0].image.columns
-                if name not in after.storage_view.canonical_key_columns
-                and cell.get("kind") in {"signed-integer", "unsigned-integer"}
-            ),
-            None,
-        )
     if value_column is None:
         raise RuntimeError("ordered t4 v2 table has no mutable non-key integer column")
 
@@ -682,6 +688,18 @@ def _synthetic_one_percent_target(
     }
 
 
+def _synthetic_one_percent_target(
+    before: MutationTableSnapshot,
+    after: MutationTableSnapshot,
+) -> tuple[MutationTableSnapshot, dict[str, int]]:
+    target_changes = int(max(len(before.rows), len(after.rows), 1) * 0.01)
+    return _synthetic_target_with_change_count(
+        before,
+        after,
+        target_changes=target_changes,
+    )
+
+
 def _mutation_counts(planned: Any) -> dict[str, int]:
     counts = Counter(mutation.operation.value for mutation in planned.change_set_closure.mutations)
     return {
@@ -696,8 +714,8 @@ def run(
     real_dump_root: Path,
     output_path: Path,
     scratch_path: Path,
-    parent_artifact_root: Path,
-    parent_materialization_evidence: Path,
+    bearer_token_file: Path,
+    repository_service_url: str,
     repository_id: str,
     baseline_commit: str,
     target_commit: str,
@@ -705,20 +723,13 @@ def run(
 ) -> dict[str, Any]:
     output_path = output_path.resolve()
     scratch_path = scratch_path.resolve()
-    parent_artifact_root = parent_artifact_root.resolve()
-    parent_materialization_evidence = parent_materialization_evidence.resolve()
+    bearer_token_file = bearer_token_file.resolve()
     if output_path.is_relative_to(_REPO_ROOT) or scratch_path.is_relative_to(_REPO_ROOT):
         raise ValueError("measurement output and scratch paths must be outside the worktree")
-    if parent_artifact_root.is_relative_to(_REPO_ROOT):
-        raise ValueError("saved parent artifact store must be outside the worktree")
     if output_path.exists() or scratch_path.exists():
         raise ValueError("measurement output or scratch path already exists")
-    if (
-        not real_dump_root.is_dir()
-        or not parent_artifact_root.is_dir()
-        or not parent_materialization_evidence.is_file()
-    ):
-        raise ValueError("t4 inputs or saved parent materialization evidence are unavailable")
+    if not real_dump_root.is_dir() or not bearer_token_file.is_file():
+        raise ValueError("t4 package root or Repository Service token file is unavailable")
     scratch_path.mkdir(mode=0o700, parents=True, exist_ok=False)
     scratch_path.chmod(0o700)
     store = v5b.FileMeasurementArtifactStore(scratch_path / "artifacts")
@@ -726,6 +737,9 @@ def run(
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     branch_refs: list[str] = []
     completed_measurement: dict[str, Any] | None = None
+    replay_target: _DoltTarget | None = None
+    replay_sandbox: dict[str, str] | None = None
+    replay_sandbox_stopped = False
     head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=_REPO_ROOT,
@@ -770,16 +784,44 @@ def run(
         )
         changed_target_names = tuple(name for name in changed_names if name in v2_names)
         deleted_names = tuple(name for name in changed_names if name in v1_names - v2_names)
-        selected_materialization = _parent_materialization_evidence(
-            parent_materialization_evidence,
-            changed_names,
+        repository_key = uuid.UUID(repository_id).hex
+        repository_path = f"/var/lib/gateway/repository/versioned/{repository_key}"
+        live_target = _DoltTarget(
+            container=repository_service_container,
+            repository_path=repository_path,
+            is_replay_copy=False,
         )
-        parent_store = LocalArtifactStore(parent_artifact_root)
-        v1_views = _bound_views(v1_bound)
-        before_row_snapshots = _mutation_snapshots_from_saved_artifacts(
-            parent_store,
+        bearer_token = bearer_token_file.read_text(encoding="utf-8").strip()
+        if not bearer_token:
+            raise ValueError("Repository Service bearer-token file is empty")
+        current_head = _resolve_live_main_commit(
+            repository_id=repository_id,
+            repository_service_url=repository_service_url,
+            bearer_token=bearer_token,
+        )
+        if current_head != target_commit:
+            raise RuntimeError("Repository Service main ref is not at t4 v2 target")
+        selected_materialization, parent_bound, _parent_reads = (
+            v5b._measure_repository_materialization(
+                store=store,
+                repository_id=repository_id,
+                commit_id=baseline_commit,
+                bearer_token=bearer_token,
+                base_url=repository_service_url,
+                canonical_source=v1_bound,
+                requested_tables=changed_names,
+                scenario="t4_v2_s1a_parent_read_x_union_d",
+            )
+        )
+        if (
+            selected_materialization["requested_table_count"] != len(changed_names)
+            or selected_materialization["materialized_table_count"] != len(changed_names)
+        ):
+            raise RuntimeError("Repository Service did not materialize every requested X∪D table")
+        before_row_snapshots = _mutation_snapshots(
+            store,
+            parent_bound,
             v1_manifest,
-            v1_views,
             changed_parent_names,
         )
         after_changed = _mutation_snapshots(
@@ -861,29 +903,23 @@ def run(
             ),
         )
 
-        repository_key = uuid.UUID(repository_id).hex
-        repository_path = f"/var/lib/gateway/repository/versioned/{repository_key}"
-        current_ref = _dolt_current_branch(
-            container=repository_service_container,
-            repository_path=repository_path,
+        replay_target, replay_sandbox = _create_replay_copy(
+            source=live_target,
+            scratch_path=scratch_path,
         )
-        if current_ref != "main":
-            raise RuntimeError("Repository Service main ref is not checked out")
-        current_head = _dolt_current_commit(
-            container=repository_service_container,
-            repository_path=repository_path,
-        )
-        if current_head != target_commit:
-            raise RuntimeError("Repository Service main ref is not at t4 v2 target")
+        replay_ref = _dolt_current_branch(replay_target)
+        if replay_ref != "main":
+            raise RuntimeError("measurement repository copy main ref is not checked out")
+        replay_head = _dolt_current_commit(replay_target)
+        if replay_head != target_commit:
+            raise RuntimeError("measurement repository copy is not at t4 v2 target")
         target_names = tuple(table.name for table in v2_manifest.tables)
         actual_hashes = _read_hashes(
-            container=repository_service_container,
-            repository_path=repository_path,
+            target=replay_target,
             table_names=target_names,
         )
         adaptive_replay = _replay_branch(
-            container=repository_service_container,
-            repository_path=repository_path,
+            target=replay_target,
             base_commit=baseline_commit,
             sql_bytes=adaptive_sql,
             table_names=target_names,
@@ -891,8 +927,7 @@ def run(
             branch_refs=branch_refs,
         )
         full_replay = _replay_branch(
-            container=repository_service_container,
-            repository_path=repository_path,
+            target=replay_target,
             base_commit=baseline_commit,
             sql_bytes=full_sql,
             table_names=target_names,
@@ -904,19 +939,17 @@ def run(
         if not adaptive_hash_equal or not full_hash_equal:
             raise RuntimeError("t4 v2 table hashes differ across replay paths")
 
-        ordered_candidates = [
-            snapshot
-            for snapshot in after_changed
-            if snapshot.storage_view.ordered_policy is OrderedPolicy.GID_NO_V1
-            and len(snapshot.rows) >= 1000
-        ]
-        if not ordered_candidates:
-            raise RuntimeError("t4 v2 has no large changed GID_NO_V1 table")
-        sample_after = sorted(
-            ordered_candidates,
-            key=lambda item: item.manifest_table.name.encode("utf-8"),
-        )[0]
-        table_name = sample_after.manifest_table.name
+        table_name = "b1_n11_iec104_syx_list"
+        sample_after = next(
+            (item for item in after_changed if item.manifest_table.name == table_name),
+            None,
+        )
+        if (
+            sample_after is None
+            or sample_after.storage_view.ordered_policy is not OrderedPolicy.GID_NO_V1
+            or len(sample_after.rows) < 1000
+        ):
+            raise RuntimeError("t4 v2 does not contain the required ordered 1% sample")
         sample_before = next(
             item
             for item in before_changed
@@ -968,8 +1001,7 @@ def run(
             measured: dict[str, dict[str, Any]] = {}
             for label, sql in ordered_sql:
                 measured[label] = _replay_branch(
-                    container=repository_service_container,
-                    repository_path=repository_path,
+                    target=replay_target,
                     base_commit=baseline_commit,
                     sql_bytes=sql,
                     table_names=(table_name,),
@@ -996,12 +1028,75 @@ def run(
             item["rebuild"]["total_seconds"] for item in sample_hashes
         )
 
-        main_after = _dolt_current_commit(
-            container=repository_service_container,
-            repository_path=repository_path,
+        row_limit_target, row_limit_counts = _synthetic_target_with_change_count(
+            sample_before,
+            sample_after,
+            target_changes=1_000,
+        )
+        row_limit_adaptive = plan_import_mutation(
+            sample_projection,
+            (row_limit_target,),
+            repository_base_digest=parent_digest,
+            before_manifest=v1_manifest,
+            before_snapshots=(sample_before,),
+            mutation_policy=MutationPolicy.ADAPTIVE_PATCH,
+        )
+        row_limit_rebuild = plan_import_mutation(
+            sample_projection,
+            (row_limit_target,),
+            repository_base_digest=parent_digest,
+            before_manifest=v1_manifest,
+            before_snapshots=(sample_before,),
+            mutation_policy=MutationPolicy.REBUILD_ALWAYS,
+        )
+        if row_limit_adaptive.plan is None or row_limit_rebuild.plan is None:
+            raise RuntimeError("1,000-row mutation plans are incomplete")
+        row_limit_adaptive_sql, _row_limit_adaptive_rebuild_tables = _sql_for_plan(
+            planned=row_limit_adaptive,
+            import_input=sample_import,
+            removed_tables=(),
+        )
+        row_limit_rebuild_sql, _row_limit_rebuild_tables = _sql_for_plan(
+            planned=row_limit_rebuild,
+            import_input=sample_import,
+            removed_tables=(),
+        )
+        row_limit_adaptive_replay = _replay_branch(
+            target=replay_target,
+            base_commit=baseline_commit,
+            sql_bytes=row_limit_adaptive_sql,
+            table_names=(table_name,),
+            label="one-thousand-row-adaptive",
+            branch_refs=branch_refs,
+        )
+        row_limit_rebuild_replay = _replay_branch(
+            target=replay_target,
+            base_commit=baseline_commit,
+            sql_bytes=row_limit_rebuild_sql,
+            table_names=(table_name,),
+            label="one-thousand-row-rebuild",
+            branch_refs=branch_refs,
+        )
+        row_limit_hash_equal = (
+            row_limit_adaptive_replay.pop("hashes")
+            == row_limit_rebuild_replay.pop("hashes")
+        )
+        if not row_limit_hash_equal:
+            raise RuntimeError("1,000-row adaptive and rebuild table hashes differ")
+
+        main_after = _resolve_live_main_commit(
+            repository_id=repository_id,
+            repository_service_url=repository_service_url,
+            bearer_token=bearer_token,
         )
         if main_after != target_commit:
             raise RuntimeError("measurement changed Repository Service main ref")
+        replay_main_after = _dolt_current_commit(replay_target)
+        if replay_main_after != target_commit:
+            raise RuntimeError("measurement changed copy main ref")
+        replay_sandbox_stopped = _stop_replay_copy(replay_target)
+        if not replay_sandbox_stopped:
+            raise RuntimeError("could not stop isolated Dolt replay container")
 
         result = {
             "schema_version": "p6-s1a-mutation-replay-measurement/v1",
@@ -1010,12 +1105,13 @@ def run(
             "started_at_utc": started_at,
             "ended_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "status": "PASS",
-            "changed_parent_materialization": selected_materialization,
-            "parent_row_snapshot_reuse": {
-                "source_head": selected_materialization["source_head"],
-                "table_count": len(before_row_snapshots),
-                "row_count": sum(len(table.rows) for table in before_changed),
-                "artifact_root": str(parent_artifact_root),
+            "parent_row_materialization": selected_materialization,
+            "parent_row_snapshot": {
+                "source": "Repository Service HTTP Arrow product path",
+                "x_union_d_table_count": selected_materialization["materialized_table_count"],
+                "x_union_d_row_count": selected_materialization["materialized_row_count_total"],
+                "patch_parent_table_count": len(before_row_snapshots),
+                "patch_parent_row_count": sum(len(table.rows) for table in before_row_snapshots),
             },
             "t4_v2_changed_table_count": len(changed_names),
             "t4_v2_changed_tables": list(changed_names),
@@ -1072,6 +1168,20 @@ def run(
                 "median_patch_total_seconds": median_patch_seconds,
                 "median_rebuild_total_seconds": median_rebuild_seconds,
             },
+            "one_thousand_row_sample": {
+                "table_name": table_name,
+                **row_limit_counts,
+                "change_ratio": row_limit_counts["synthetic_changed_row_count"]
+                / max(row_limit_counts["parent_row_count"], row_limit_counts["target_row_count"]),
+                "adaptive_operation": row_limit_adaptive.plan.table_summaries[0].operation.value,
+                "adaptive_mutation_counts": _mutation_counts(row_limit_adaptive),
+                "rebuild_mutation_counts": _mutation_counts(row_limit_rebuild),
+                "adaptive_sql_bytes": len(row_limit_adaptive_sql),
+                "rebuild_sql_bytes": len(row_limit_rebuild_sql),
+                "adaptive_and_rebuild_hash_equal": row_limit_hash_equal,
+                "adaptive_replay": row_limit_adaptive_replay,
+                "rebuild_replay": row_limit_rebuild_replay,
+            },
             "branch_refs_left_for_owner": [
                 adaptive_replay["branch"],
                 full_replay["branch"],
@@ -1081,6 +1191,11 @@ def run(
                     for label in ("patch", "rebuild")
                 ],
             ],
+            "replay_sandbox": {
+                **(replay_sandbox or {}),
+                "stopped": replay_sandbox_stopped,
+                "branch_refs_are_in_scratch_copy_only": True,
+            },
             "repository_main_unchanged": True,
             "privacy": "table names, counts, timings, branch refs, and hash equality only",
             "wall_seconds": round(time.perf_counter() - start_wall, 6),
@@ -1091,6 +1206,8 @@ def run(
         _write_result(output_path, result)
         return result
     except BaseException as exc:
+        if replay_target is not None and not replay_sandbox_stopped:
+            replay_sandbox_stopped = _stop_replay_copy(replay_target)
         failure = {
             "schema_version": "p6-s1a-mutation-replay-measurement/v1",
             "hostname": socket.gethostname(),
@@ -1101,6 +1218,11 @@ def run(
             "failure_type": type(exc).__name__,
             "wall_seconds": round(time.perf_counter() - start_wall, 6),
             "branch_refs_left_for_owner": branch_refs,
+            "replay_sandbox": {
+                **(replay_sandbox or {}),
+                "stopped": replay_sandbox_stopped if replay_target is not None else None,
+                "branch_refs_are_in_scratch_copy_only": True,
+            },
             "privacy": "table names, counts, timings, branch refs, and hash equality only",
         }
         if isinstance(exc, RepositoryProviderError):
@@ -1130,8 +1252,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--real-dump-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--scratch", type=Path, required=True)
-    parser.add_argument("--parent-artifact-root", type=Path, required=True)
-    parser.add_argument("--parent-materialization-evidence", type=Path, required=True)
+    parser.add_argument("--bearer-token-file", type=Path, required=True)
+    parser.add_argument("--repository-service-url", required=True)
     parser.add_argument("--repository-id", required=True)
     parser.add_argument("--baseline-commit", required=True)
     parser.add_argument("--target-commit", required=True)
@@ -1141,8 +1263,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         real_dump_root=args.real_dump_root.resolve(),
         output_path=args.output,
         scratch_path=args.scratch,
-        parent_artifact_root=args.parent_artifact_root,
-        parent_materialization_evidence=args.parent_materialization_evidence,
+        bearer_token_file=args.bearer_token_file,
+        repository_service_url=args.repository_service_url,
         repository_id=args.repository_id,
         baseline_commit=args.baseline_commit,
         target_commit=args.target_commit,

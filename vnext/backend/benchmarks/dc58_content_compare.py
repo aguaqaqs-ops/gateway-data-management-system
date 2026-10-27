@@ -884,6 +884,8 @@ def _repository_ref_matches_carrier(
     side_role: str,
     snapshot: dict[str, Any],
 ) -> bool | None:
+    if side_role == "MODIFIED":
+        return None
     carrier_role = _canonical_carrier_role(operation_role, side_role)
     if carrier_role is None:
         return None

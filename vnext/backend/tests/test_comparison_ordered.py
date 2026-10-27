@@ -258,41 +258,51 @@ def test_unchanged_ordered_early_exit_matches_full_facts_without_running_diff() 
 
     optimized_plan = _plan(source, source)
 
-    with (
-        patch.object(ordered_comparison, "_build_fact", side_effect=AssertionError("full diff invoked")) as full_diff,
-        patch.object(
-            ordered_comparison,
-            "_backbone_indices",
-            side_effect=AssertionError("LIS invoked"),
-        ) as lis,
-        patch.object(
-            ordered_comparison,
-            "_compare_single_side",
-            side_effect=AssertionError("single-side comparison invoked"),
-        ) as single_side,
-        patch.object(
-            ordered_comparison,
-            "_ordered_digest",
-            wraps=ordered_comparison._ordered_digest,
-        ) as ordered_digest,
-        patch.object(
-            ordered_comparison,
-            "_occupancy_digest",
-            wraps=ordered_comparison._occupancy_digest,
-        ) as occupancy_digest,
-    ):
-        actual = _table(_facts(optimized_plan))
+    with patch.object(
+        ordered_comparison,
+        "_can_table_early_exit",
+        wraps=ordered_comparison._can_table_early_exit,
+    ) as early_exit:
+        with (
+            patch.object(
+                ordered_comparison,
+                "_build_fact",
+                wraps=ordered_comparison._build_fact,
+            ) as full_diff,
+            patch.object(
+                ordered_comparison,
+                "_backbone_indices",
+                wraps=ordered_comparison._backbone_indices,
+            ) as lis,
+            patch.object(
+                ordered_comparison,
+                "_compare_single_side",
+                wraps=ordered_comparison._compare_single_side,
+            ) as single_side,
+            patch.object(
+                ordered_comparison,
+                "_ordered_digest",
+                wraps=ordered_comparison._ordered_digest,
+            ) as ordered_digest,
+            patch.object(
+                ordered_comparison,
+                "_occupancy_digest",
+                wraps=ordered_comparison._occupancy_digest,
+            ) as occupancy_digest,
+        ):
+            actual = _table(_facts(optimized_plan))
 
-    for field in fields(ComparisonTableFact):
-        assert getattr(actual, field.name) == getattr(oracle, field.name), (
-            field.name,
-            actual.diagnostics,
-        )
+    early_exit.assert_called_once()
     full_diff.assert_not_called()
     lis.assert_not_called()
     single_side.assert_not_called()
     ordered_digest.assert_called_once()
     occupancy_digest.assert_called_once()
+    for field in fields(ComparisonTableFact):
+        assert getattr(actual, field.name) == getattr(oracle, field.name), (
+            field.name,
+            actual.diagnostics,
+        )
 
 
 def test_canonical_pseudo_gid_requires_explicit_provenance() -> None:

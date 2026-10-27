@@ -62,6 +62,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
   - 权威 runner 六个包通过；容器门禁（Submit 路径与镜像内代码变化）。
 - 真实数据：t1–t4 完整旅程（t1–t3 在 05，t4 在 ct108），业务结果按新 Contract 核对。
 - 证据范围（owner 2026-10-27）：S1a 的验收（阈值复测、Dolt 表哈希、t1–t4 旅程、DC58 核对、权威 runner 与容器门禁）在最终候选上重新运行，不沿用此前候选的结果；worker step 归因按 DC59 已接受的阶段级分解，不随候选重跑（DC60）。
+- **状态：已通过（repository owner，2026-10-27）。** 产品候选 `7d0ce6220a`，handoff `a5098fe8b6`（[S1a handoff](p6-s1a-handoff.md)）；[独立审核](p6-s1a-independent-review.md)首次结论为定向修订（F1–F3、N1–N2），第一次复审通过。验收证据均绑定 `7d0ce6220a`：04 六包权威 runner（含 RS 镜像重建与 Compose 旅程）、05 t1–t3、ct108 t4 与阈值/表哈希复测；owner 确认真实数据范围为 t1–t4 完整旅程（DC33）。合入后在 04 原门禁 worktree 对 exit 提交做 carried，附注 tag `p6-s1a-exit`。
 
 ### S1b — 业务语义 Contract
 
@@ -116,7 +117,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 - 目标：设计 §10。
 - 前置：S3 exit。
-- 内容：渲染直通；存储 diff 共用内核；用最终渲染器复测 S1a 冻结的阈值与批量规则（须调整时作为例外交 owner）。
+- 内容：渲染直通；存储 diff 共用内核；用最终渲染器复测 S1a 冻结的阈值与批量规则（须调整时作为例外交 owner）。S1a 终审登记（2026-10-27）：UPDATE、DELETE 分批时每加一行重渲染整批（`_render_limited_mutation_batches`），渲染量随批大小平方增长；整表重建对 parent 每行生成逐键 DELETE，代价随重建表行数放大。t4 未见可测回退，S4 改为按增量累计完整语句字节分批，批次划分与 SQL 字节不变。
 - 验收：同一输入的 `replay.sql` 与 S1a 产物逐字节一致；设计 §16.2 的 Submit 计数；S1–S4 完成时间（main 前移）；权威 runner 与容器门禁（Submit Compose 旅程）。
 
 ### S5 — History 与跨操作缓存

@@ -1,6 +1,6 @@
 # Phase 6 S0 Kickoff 小修 Handoff
 
-状态：**实施完成，待 S0 讨论会话轻量审核**
+状态：**已通过轻量审核并合入 main**（[kickoff 审核](p6-kickoff-review.md)）
 
 日期：2026-10-26（UTC）
 

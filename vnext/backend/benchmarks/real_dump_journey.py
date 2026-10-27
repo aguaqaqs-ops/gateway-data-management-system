@@ -3909,7 +3909,7 @@ def run_journey(
                                     "measurements": debug_submit_probe_metrics,
                                 },
                             )
-                        if isinstance(error, WorkerStalledFailure):
+                        if isinstance(error, WorkerStalledFailure) and not keep_stack:
                             cleanup_compose_project_artifacts(env)
                             stack_cleaned = True
                         raise

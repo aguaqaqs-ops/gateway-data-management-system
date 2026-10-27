@@ -1124,12 +1124,38 @@ def repository_export_tables(run: Run, state_role: str) -> dict[str, Any]:
         client.close()
 
 
-def compare_repository_exports(base: Run, candidate: Run) -> dict[str, Any]:
+def capture_repository_exports(run: Run) -> dict[str, Any]:
+    return {
+        "head": run.state.get("_stack", {}).get("head"),
+        "roles": {
+            role: repository_export_tables(run, role)
+            for role in ("v1", "v2")
+        },
+    }
+
+
+def compare_repository_exports(
+    base: Run,
+    candidate: Run,
+    *,
+    baseline_exports: dict[str, Any] | None = None,
+    candidate_exports: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     roles: dict[str, Any] = {}
     differences: list[dict[str, Any]] = []
+    left_roles = (
+        baseline_exports["roles"]
+        if baseline_exports is not None
+        else {role: repository_export_tables(base, role) for role in ("v1", "v2")}
+    )
+    right_roles = (
+        candidate_exports["roles"]
+        if candidate_exports is not None
+        else {role: repository_export_tables(candidate, role) for role in ("v1", "v2")}
+    )
     for role in ("v1", "v2"):
-        left = repository_export_tables(base, role)
-        right = repository_export_tables(candidate, role)
+        left = left_roles[role]
+        right = right_roles[role]
         table_differences: list[dict[str, Any]] = []
         for name in sorted(set(left["tables"]) | set(right["tables"])):
             if name not in left["tables"] or name not in right["tables"]:
@@ -1369,6 +1395,13 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         parser.add_argument(f"--{prefix}-run-root", type=Path, required=True)
         parser.add_argument(f"--{prefix}-golden", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument(
+        "--capture-exports",
+        choices=("baseline", "candidate"),
+        help="capture v1/v2 Repository exports for one live run without writing row values",
+    )
+    parser.add_argument("--baseline-exports", type=Path)
+    parser.add_argument("--candidate-exports", type=Path)
     return parser.parse_args(argv)
 
 
@@ -1392,6 +1425,41 @@ def main(argv: list[str] | None = None) -> int:
         arguments.candidate_run_root,
         arguments.candidate_golden,
     )
+    if arguments.capture_exports is not None:
+        run = base if arguments.capture_exports == "baseline" else candidate
+        report = capture_repository_exports(run)
+        arguments.report.parent.mkdir(parents=True, exist_ok=True)
+        arguments.report.write_text(
+            json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            json.dumps(
+                {
+                    "head": report["head"],
+                    "role_table_counts": {
+                        role: value["table_count"]
+                        for role, value in report["roles"].items()
+                    },
+                    "report": str(arguments.report),
+                    "status": "CAPTURED",
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    if (arguments.baseline_exports is None) != (arguments.candidate_exports is None):
+        raise ValueError("baseline and candidate export reports must be supplied together")
+    baseline_exports = (
+        json.loads(arguments.baseline_exports.read_text(encoding="utf-8"))
+        if arguments.baseline_exports is not None
+        else None
+    )
+    candidate_exports = (
+        json.loads(arguments.candidate_exports.read_text(encoding="utf-8"))
+        if arguments.candidate_exports is not None
+        else None
+    )
     masked_paths: set[str] = set()
     snapshots = compare_snapshot_descriptions(base, candidate, masked_paths)
     canonical_tables = compare_canonical_tables(base, candidate, masked_paths)
@@ -1402,7 +1470,12 @@ def main(argv: list[str] | None = None) -> int:
     ]
     state = compare_state(base, candidate, masked_paths)
     golden = compare_golden(base, candidate, masked_paths)
-    exports = compare_repository_exports(base, candidate)
+    exports = compare_repository_exports(
+        base,
+        candidate,
+        baseline_exports=baseline_exports,
+        candidate_exports=candidate_exports,
+    )
     counterexamples = counterexample_checks(masked_paths)
     report = {
         "baseline_head": base.state.get("_stack", {}).get("head"),

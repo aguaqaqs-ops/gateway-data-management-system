@@ -1473,7 +1473,7 @@ def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
     COMPOSE_LOGS_ON_FAILURE_CASES,
     ids=[failure_point for failure_point, _message in COMPOSE_LOGS_ON_FAILURE_CASES],
 )
-def test_failed_real_dump_saves_compose_logs_before_teardown(
+def test_failed_real_dump_saves_logs_and_preserves_requested_stack(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1570,7 +1570,11 @@ def test_failed_real_dump_saves_compose_logs_before_teardown(
             requested_project_name="unit-real-dump" if failure_point == "worker stall" else None,
         )
 
-    assert events == (["diagnostics", "logs", "cleanup"] if failure_point == "worker stall" else ["logs", "cleanup"])
+    assert events == (
+        ["diagnostics", "logs"]
+        if failure_point == "worker stall"
+        else ["logs", "cleanup"]
+    )
     compose_logs = list(log_directory.glob("*.compose.log"))
     assert len(compose_logs) == 1
     assert "all service logs" in compose_logs[0].read_text(encoding="utf-8")

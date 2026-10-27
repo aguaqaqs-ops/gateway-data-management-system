@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -179,6 +179,209 @@ def test_dolt_worker_happy_path(
     private_ref = f"gateway-import-{OPERATION_ID.hex}"
     with pytest.raises(Exception):
         provider.read_ref(private_ref)
+
+
+@pytest.mark.integration
+@pytest.mark.serial
+def test_repository_import_replays_oversized_single_row_insert_and_case_update(
+    tmp_path: Path,
+) -> None:
+    """Exercise >4 MiB mutation statements through the production import replay worker."""
+
+    settings = lifecycle_settings(tmp_path)
+    layout = DurableLayout.create_for_probe(settings.data_root)
+    runner = DoltRunner(settings, layout.root)
+    providers: dict[UUID, CandidateAImportProvider] = {}
+    repositories: dict[str, tuple[UUID, CandidateAImportProvider]] = {}
+
+    for form in ("batch", "rowwise"):
+        repository_id = uuid4()
+        repository = published_repository_path(layout, repository_id)
+        repository.mkdir(parents=True, exist_ok=True)
+        cli = OfflineCliProvider(settings, layout, repository, runner)
+        cli.initialize_repository()
+        provider = CandidateAImportProvider(settings, layout, repository, runner)
+        providers[repository_id] = provider
+        repositories[form] = (repository_id, provider)
+
+    control_store = ControlStore.open(
+        settings.control_db_path,
+        expected_version=CONTROL_DB_USER_VERSION,
+        busy_timeout_ms=1000,
+    )
+    store = ImportOperationStore(
+        control_store.connection,
+        transaction_lock=control_store.transaction_lock,
+    )
+
+    def provider_factory(repository_id: UUID) -> CandidateAImportProvider:
+        return providers[repository_id]
+
+    pool = ImportWorkerPool(
+        settings=settings,
+        layout=layout,
+        store=store,
+        provider_factory=provider_factory,
+        locks=RepositoryLockRegistry(),
+    )
+    pool.start()
+
+    def import_sql(
+        repository_id: UUID,
+        provider: CandidateAImportProvider,
+        *,
+        sql: str,
+        row_count: int,
+        operation_name: str,
+    ) -> None:
+        artifact_id = uuid4()
+        operation_id = uuid4()
+        ready_path = artifact_ready_path(layout, repository_id, artifact_id)
+        ready_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "package_version": 1,
+            "canonicalization_manifest_digest": f"large-replay-{operation_name}",
+            "tables": [
+                {
+                    "name": "records",
+                    "schema": {
+                        "columns": [
+                            {"name": "id", "sql_type": "BIGINT", "nullable": False},
+                            {"name": "payload", "sql_type": "MEDIUMTEXT", "nullable": True},
+                        ],
+                        "primary_key": ["id"],
+                    },
+                    "row_count": row_count,
+                }
+            ],
+        }
+        payload = build_package_bytes(manifest=manifest, replay_sql=sql.encode("utf-8"))
+        size_bytes, raw_sha256 = write_artifact(ready_path, payload)
+        with store._lock:
+            store.mutation_store._connection.execute(
+                """
+                INSERT INTO artifact_lifecycle (
+                    artifact_id, repository_scope, media_type, size_bytes, raw_sha256,
+                    created_at, updated_at, cleanup_seq
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, (
+                    SELECT COALESCE(MAX(cleanup_seq), 0) + 1 FROM artifact_lifecycle
+                ))
+                """,
+                (
+                    str(artifact_id),
+                    repository_id.hex,
+                    MEDIA_TYPE,
+                    size_bytes,
+                    raw_sha256,
+                    "2026-10-27T00:00:00+00:00",
+                    "2026-10-27T00:00:00+00:00",
+                ),
+            )
+            store.mutation_store._connection.commit()
+
+        binding = ImportRequestBinding(
+            repository_id=repository_id,
+            artifact_ref=RepositoryArtifactRef(
+                artifact_id=artifact_id,
+                media_type=MEDIA_TYPE,
+                size_bytes=size_bytes,
+                raw_sha256=raw_sha256,
+            ),
+            target_ref="main",
+            expected_commit_id=provider.read_ref("main"),
+            verification_policy=VerificationPolicy.STRUCTURAL,
+            unknown_type_policy=UnknownTypePolicy.REJECT,
+        )
+        key_hash = IdempotencyKeyHash.from_raw_key(f"oversized-{operation_name}")
+        store.claim_or_enqueue(
+            binding,
+            key_hash=key_hash,
+            fingerprint=versioned_import_fingerprint_v1(binding=binding, key_hash=key_hash),
+            operation_id=operation_id,
+        )
+        pool.notify()
+
+        deadline = time.monotonic() + 180.0
+        while time.monotonic() < deadline:
+            operation = store.get_operation(repository_id, operation_id)
+            if operation is not None and operation.status in {
+                OperationStatus.SUCCEEDED,
+                OperationStatus.FAILED,
+            }:
+                assert operation.status is OperationStatus.SUCCEEDED, (
+                    operation.error.code if operation.error is not None else "import failed"
+                )
+                return
+            time.sleep(0.05)
+        raise AssertionError("large replay import did not reach a terminal status")
+
+    try:
+        for form, (repository_id, provider) in repositories.items():
+            import_sql(
+                repository_id,
+                provider,
+                sql=(
+                    "CREATE TABLE records ("
+                    "id BIGINT NOT NULL PRIMARY KEY, payload MEDIUMTEXT NULL);\n"
+                    "INSERT INTO records (id, payload) VALUES (0, 'seed');\n"
+                ),
+                row_count=1,
+                operation_name=f"{form}-base",
+            )
+
+        large_insert_value = "x" * (5 * 1024 * 1024)
+        large_update_value = "y" * (5 * 1024 * 1024)
+        large_insert_sql = (
+            "INSERT INTO records (id, payload) VALUES (1, '"
+            + large_insert_value
+            + "');\n"
+        )
+        large_case_update_sql = (
+            "UPDATE records SET payload=CASE WHEN id=1 THEN '"
+            + large_update_value
+            + "' ELSE payload END WHERE id IN (1);\n"
+        )
+        assert 5 * 1024 * 1024 < len(large_insert_sql.encode("utf-8")) < 8 * 1024 * 1024
+        assert 5 * 1024 * 1024 < len(large_case_update_sql.encode("utf-8")) < 8 * 1024 * 1024
+
+        for form, (repository_id, provider) in repositories.items():
+            insert_sql = large_insert_sql
+            update_sql = large_case_update_sql
+            if form == "rowwise":
+                update_sql = (
+                    "UPDATE records SET payload='"
+                    + large_update_value
+                    + "' WHERE id=1;\n"
+                )
+            import_sql(
+                repository_id,
+                provider,
+                sql=insert_sql,
+                row_count=2,
+                operation_name=f"{form}-insert",
+            )
+            import_sql(
+                repository_id,
+                provider,
+                sql=update_sql,
+                row_count=2,
+                operation_name=f"{form}-update",
+            )
+
+        hashes: dict[str, str] = {}
+        for form, (_, provider) in repositories.items():
+            rows = provider._cli.query_json(
+                f"oversized_{form}_table_hash",
+                "SELECT DOLT_HASHOF_TABLE('records') AS table_hash;\n",
+            )
+            assert len(rows) == 1
+            table_hash = rows[0].get("table_hash")
+            assert isinstance(table_hash, str) and table_hash
+            hashes[form] = table_hash
+        assert hashes["batch"] == hashes["rowwise"]
+    finally:
+        pool.stop()
+        control_store.close()
 
 
 REPOSITORY_B_ID = UUID("018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c12")

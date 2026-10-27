@@ -365,6 +365,145 @@ def test_renderer_splits_delete_batches_at_the_statement_byte_limit(
     assert all(len(statement) <= 1_500 for statement in statements)
 
 
+def _mutation_with_text_value(
+    operation: RowMutationOperation,
+    *,
+    index: int,
+    value_size: int,
+) -> ChangeSetMutation:
+    text = ("é" * (value_size // 2)) + ("x" if value_size % 2 else "")
+    if operation is RowMutationOperation.DELETE:
+        return ChangeSetMutation(
+            canonical_table="wide_keys",
+            operation=operation,
+            canonical_storage_key=CanonicalStorageKey(
+                columns=(("id", {"kind": "string", "text": f"{index}-" + text}),)
+            ),
+            before_row_digest=raw_blob_digest(f"before-{index}".encode("utf-8")),
+        )
+
+    base = (
+        insert_mutation(table="wide_values", board=str(index), link_no="1")
+        if operation is RowMutationOperation.INSERT
+        else _update_mutation(
+            table="wide_values",
+            key=storage_key(board=str(index), link_no="1"),
+            image=row_image(board=str(index), link_no="1"),
+            label=f"before-{index}",
+        )
+    )
+    assert base.after_image is not None
+    image = PersistedRowImage(
+        columns=tuple(
+            (name, {"kind": "string", "text": text}) if name == "status" else (name, cell)
+            for name, cell in base.after_image.columns
+        )
+    )
+    return replace(base, after_image=image)
+
+
+def _rendered_statement_sizes(mutations: tuple[ChangeSetMutation, ...]) -> tuple[int, ...]:
+    outcome = render_change_set_replay(change_set_closure(mutations=mutations))
+    assert outcome.status == "READY"
+    assert outcome.sql_bytes is not None
+    return tuple(len(statement) for statement in outcome.sql_bytes.splitlines(keepends=True))
+
+
+def _value_size_for_statement(
+    operation: RowMutationOperation,
+    *,
+    target_size: int,
+    row_count: int,
+) -> int:
+    first = _mutation_with_text_value(operation, index=1, value_size=32)
+    low = 0
+    high = target_size * 2
+    while low <= high:
+        candidate_size = (low + high) // 2
+        mutations = (first, *(
+            _mutation_with_text_value(
+                operation,
+                index=index,
+                value_size=candidate_size,
+            )
+            for index in range(2, row_count + 1)
+        ))
+        sizes = _rendered_statement_sizes(tuple(mutations))
+        assert len(sizes) == 1
+        if sizes[0] == target_size:
+            return candidate_size
+        if sizes[0] < target_size:
+            low = candidate_size + 1
+        else:
+            high = candidate_size - 1
+    raise AssertionError(f"no payload size renders a {target_size}-byte statement")
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        RowMutationOperation.INSERT,
+        RowMutationOperation.UPDATE,
+        RowMutationOperation.DELETE,
+    ),
+)
+def test_mutation_statement_byte_limit_includes_complete_utf8_statement(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: RowMutationOperation,
+) -> None:
+    byte_limit = 4 * 1024 * 1024
+    limit_name = {
+        RowMutationOperation.INSERT: "_MAX_INSERT_STATEMENT_BYTES",
+        RowMutationOperation.UPDATE: "_MAX_UPDATE_STATEMENT_BYTES",
+        RowMutationOperation.DELETE: "_MAX_DELETE_STATEMENT_BYTES",
+    }[operation]
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
+
+    exact_value_size = _value_size_for_statement(
+        operation,
+        target_size=byte_limit,
+        row_count=2,
+    )
+    exact_mutations = (
+        _mutation_with_text_value(operation, index=1, value_size=32),
+        _mutation_with_text_value(operation, index=2, value_size=exact_value_size),
+    )
+    assert _rendered_statement_sizes((exact_mutations[0],))[0] < byte_limit
+    assert _rendered_statement_sizes((exact_mutations[1],))[0] < byte_limit
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
+    assert _rendered_statement_sizes(exact_mutations) == (byte_limit,)
+
+    over_limit_mutations = (
+        exact_mutations[0],
+        _mutation_with_text_value(
+            operation,
+            index=2,
+            value_size=exact_value_size + 1,
+        ),
+    )
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
+    assert _rendered_statement_sizes(over_limit_mutations) == (byte_limit + 1,)
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
+    split_sizes = _rendered_statement_sizes(over_limit_mutations)
+    assert len(split_sizes) == 2
+    assert all(size <= byte_limit for size in split_sizes)
+
+    oversized_value_size = _value_size_for_statement(
+        operation,
+        target_size=byte_limit + 1,
+        row_count=1,
+    )
+    oversized_mutation = _mutation_with_text_value(
+        operation,
+        index=3,
+        value_size=oversized_value_size,
+    )
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit * 2)
+    assert _rendered_statement_sizes((oversized_mutation,)) == (byte_limit + 1,)
+    monkeypatch.setattr(replay_renderer, limit_name, byte_limit)
+    assert _rendered_statement_sizes((oversized_mutation,)) == (byte_limit + 1,)
+
+
 def test_string_escape_in_sql_literal() -> None:
     image = PersistedRowImage(
         columns=(

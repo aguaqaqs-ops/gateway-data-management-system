@@ -205,12 +205,11 @@ def _render_mutations(mutations: tuple[ChangeSetMutation, ...]) -> bytes:
             additional_separator_bytes = 2 if pending_insert_values else 0
             if not pending_insert_values:
                 pending_insert_prefix = prefix
-                pending_insert_bytes = len(prefix)
+                pending_insert_bytes = len(prefix) + len(b";\n")
             pending_insert_values.append(row_values)
             pending_insert_bytes += len(row_values) + additional_separator_bytes
             if (
                 len(pending_insert_values) >= _MAX_INSERT_ROWS_PER_STATEMENT
-                or pending_insert_bytes >= _MAX_INSERT_STATEMENT_BYTES
             ):
                 flush_inserts()
             index += 1
@@ -397,24 +396,28 @@ def _render_limited_mutation_batches(
 ) -> tuple[bytes, ...]:
     statements: list[bytes] = []
     for offset in range(0, len(mutations), row_limit):
-        batch = tuple(mutations[offset : offset + row_limit])
-
-        def append_with_byte_splits(items: tuple[ChangeSetMutation, ...]) -> None:
-            rendered = render(items)
-            if len(rendered) <= byte_limit:
-                statements.append(rendered)
-                return
-            if len(items) == 1:
-                raise _RenderSizeError()
-            middle = len(items) // 2
-            append_with_byte_splits(items[:middle])
-            append_with_byte_splits(items[middle:])
-
-        if not batch:
-            continue
-        append_with_byte_splits(batch)
-    if any(len(statement) > byte_limit for statement in statements):
-        raise _RenderSizeError()
+        row_limited = mutations[offset : offset + row_limit]
+        batch: tuple[ChangeSetMutation, ...] = ()
+        rendered_batch: bytes | None = None
+        for mutation in row_limited:
+            candidate = (*batch, mutation)
+            rendered_candidate = render(candidate)
+            if batch and len(rendered_candidate) > byte_limit:
+                assert rendered_batch is not None
+                statements.append(rendered_batch)
+                batch = (mutation,)
+                rendered_batch = render(batch)
+            else:
+                batch = candidate
+                rendered_batch = rendered_candidate
+            if len(batch) >= row_limit:
+                assert rendered_batch is not None
+                statements.append(rendered_batch)
+                batch = ()
+                rendered_batch = None
+        if batch:
+            assert rendered_batch is not None
+            statements.append(rendered_batch)
     return tuple(statements)
 
 

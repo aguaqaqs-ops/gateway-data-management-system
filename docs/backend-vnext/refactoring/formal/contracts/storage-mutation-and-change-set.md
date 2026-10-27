@@ -54,8 +54,10 @@ Submit 的生产默认值。
 changed_row_count / max(before_row_count, after_row_count, 1)
 ```
 
-阈值 policy 冻结为 `1,000` 行和 `1%`。INSERT replay 每条 SQL 最多包含 `256` 行；
-S1a 在 t4 v2 的真实变化表上验证逐行路径与整表重建耗时并冻结这两个值。
+阈值 policy 冻结为 `1,000` 行和 `1%`。INSERT、UPDATE、DELETE replay 每条 SQL 最多包含
+`256` 行，且多行语句最多 `4 MiB`。字节数按完整 UTF-8 语句计算，包含 SQL 前缀、行间分隔符、
+值和结尾的 `;\n`；若加入下一行会超限，先结束当前批次。单行语句即使超过 `4 MiB` 也独立成句，
+不因该批次上限失败。S1a 在 t4 v2 的真实变化表上验证逐行路径与整表重建耗时并冻结行数阈值。
 没有 estimated patch bytes eligibility 条件。最终 renderer 产生的 `replay.sql` 仍受
 `200 MiB` artifact admission 限制；超过限制直接拒绝，不拆分、不 fallback。
 

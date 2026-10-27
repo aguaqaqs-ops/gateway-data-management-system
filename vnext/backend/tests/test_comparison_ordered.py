@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from itertools import combinations, permutations
+from unittest.mock import patch
 
 import pytest
 
@@ -23,6 +24,7 @@ from gateway_backend.capabilities.comparison import (
 )
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.comparison.ordered import _backbone_indices
+from gateway_backend.capabilities.comparison import ordered as ordered_comparison
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     BlankRowProvenance,
     MaterializationPolicy,
@@ -245,6 +247,47 @@ def test_ordered_facts_and_extension_digests_are_deterministic() -> None:
     second = _facts(_plan(before, current))
     assert first.facts_core_digest == second.facts_core_digest
     assert _table(first).table_fact_digest == _table(second).table_fact_digest
+
+
+def test_unchanged_ordered_early_exit_matches_full_facts_without_running_diff() -> None:
+    source = _sql("(1, 1, 'a'), (2, 2, 'b')")
+    plan = _plan(source, source)
+
+    with patch.object(ordered_comparison, "_can_table_early_exit", return_value=False):
+        oracle = _table(_facts(plan))
+
+    with (
+        patch.object(ordered_comparison, "_build_fact", side_effect=AssertionError("full diff invoked")) as full_diff,
+        patch.object(
+            ordered_comparison,
+            "_backbone_indices",
+            side_effect=AssertionError("LIS invoked"),
+        ) as lis,
+        patch.object(
+            ordered_comparison,
+            "_compare_single_side",
+            side_effect=AssertionError("single-side comparison invoked"),
+        ) as single_side,
+        patch.object(
+            ordered_comparison,
+            "_ordered_digest",
+            wraps=ordered_comparison._ordered_digest,
+        ) as ordered_digest,
+        patch.object(
+            ordered_comparison,
+            "_occupancy_digest",
+            wraps=ordered_comparison._occupancy_digest,
+        ) as occupancy_digest,
+    ):
+        actual = _table(_facts(plan))
+
+    for field in fields(ComparisonTableFact):
+        assert getattr(actual, field.name) == getattr(oracle, field.name), field.name
+    full_diff.assert_not_called()
+    lis.assert_not_called()
+    single_side.assert_not_called()
+    ordered_digest.assert_called_once()
+    occupancy_digest.assert_called_once()
 
 
 def test_canonical_pseudo_gid_requires_explicit_provenance() -> None:

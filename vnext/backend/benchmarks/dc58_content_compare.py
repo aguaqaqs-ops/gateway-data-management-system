@@ -568,7 +568,7 @@ def snapshot_descriptions(run: Run, masked_paths: set[str]) -> dict[tuple[str, s
                         raise ValueError("canonical table entry has no manifest reference")
                     table_entries[name] = snapshot_table_summary(run.artifacts, manifest_ref)
                     masked_paths.update(
-                        f"$snapshot[{operation_role}][{label}].tables[{name}].{path.removeprefix('$snapshot.')}
+                        f"$snapshot[{operation_role}][{label}].tables[{name}].{path.removeprefix('$snapshot.')}"
                         for path in table_entries[name]["mask_paths"]
                     )
             result[key] = {
@@ -800,7 +800,7 @@ def canonical_submit_tables(run: Run, masked_paths: set[str]) -> dict[str, dict[
                 raise ValueError("canonical table-set entry has no manifest reference")
             tables[name] = snapshot_table_summary(run.artifacts, ref)
             masked_paths.update(
-                f"$canonical[{role}][{name}].{path.removeprefix('$snapshot.')}
+                f"$canonical[{role}][{name}].{path.removeprefix('$snapshot.')}"
                 for path in tables[name]["mask_paths"]
             )
         if role in result:

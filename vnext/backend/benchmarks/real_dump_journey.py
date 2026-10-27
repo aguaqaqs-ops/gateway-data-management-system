@@ -3924,8 +3924,6 @@ def run_journey(
             os.environ.pop("GATEWAY_COMPOSE_GATE_PREBUILT", None)
         else:
             os.environ["GATEWAY_COMPOSE_GATE_PREBUILT"] = original_prebuilt
-        if dc32_scratch_root is not None:
-            shutil.rmtree(dc32_scratch_root, ignore_errors=True)
 
     journey_result: dict[str, Any] = {
         "head": current_head,
@@ -3935,6 +3933,8 @@ def run_journey(
         "debug_state_files": state_paths if keep_stack else [],
         "conclusion": "PASS",
     }
+    if dc32_scratch_root is not None:
+        journey_result["dc32_scratch_root"] = str(dc32_scratch_root)
     if dc32_output_path is not None and dc32_metrics is not None:
         _write_private_dc32_json(
             dc32_output_path,
@@ -3944,6 +3944,7 @@ def run_journey(
                 "status": "PASS",
                 "measurement_count": len(dc32_metrics),
                 "measurements": dc32_metrics,
+                "scratch_root": str(dc32_scratch_root) if dc32_scratch_root is not None else None,
             },
         )
     if debug_submit_probe_output is not None and debug_submit_probe_metrics is not None:

@@ -398,20 +398,7 @@ def snapshot_table_summary(root: Path, ref: dict[str, Any]) -> dict[str, Any]:
     row_refs = document.get("row_file_refs")
     if not isinstance(descriptor, dict) or not isinstance(row_refs, list):
         raise ValueError("snapshot table artifact is missing its descriptor or row references")
-    selected = {
-        key: document[key]
-        for key in (
-            "artifact_contract_version",
-            "compression",
-            "descriptor",
-            "diagnostics",
-            "ordered_metadata",
-            "row_format",
-            "row_materialization_profile",
-            "table_name",
-        )
-        if key in document
-    }
+    selected = {key: value for key, value in document.items() if key != "row_file_refs"}
     paths: set[str] = set()
     normalized = normalize_json(selected, path="$snapshot_table", masked_paths=paths)
     payloads = [
@@ -420,7 +407,7 @@ def snapshot_table_summary(root: Path, ref: dict[str, Any]) -> dict[str, Any]:
         if isinstance(row_ref, dict)
     ]
     return {
-        "descriptor": normalized,
+        "document": normalized,
         "raw_content_digest": descriptor.get("raw_content_digest"),
         "row_content": parquet_content_summary(payloads),
         "mask_paths": sorted(paths),
@@ -483,6 +470,11 @@ def _side_label(
 ) -> str:
     if raw_label in {"BASELINE", "INITIAL", "MODIFIED"}:
         return raw_label
+    if operation_role == "history":
+        for submit_role in ("v1", "v2"):
+            submit = run.state.get(f"{submit_role}-submit", {})
+            if isinstance(submit, dict) and submit.get("repository_commit_id") == raw_label:
+                return f"repository-{submit_role}"
     identity = document.get("repository_identity")
     resolved_commit = identity.get("resolved_commit_hash") if isinstance(identity, dict) else None
     for submit_role in ("v1", "v2"):
@@ -665,15 +657,15 @@ def compare_snapshot_descriptions(
         right_payloads = rside["table_artifacts"]
         for table_name in sorted(set(left_payloads) & set(right_payloads)):
             shared_table_payload_count += 1
-            if left_payloads[table_name]["descriptor"] != right_payloads[table_name]["descriptor"]:
+            if left_payloads[table_name]["document"] != right_payloads[table_name]["document"]:
                 differences.append(
                     {
                         "role": list(role),
                         "table_name": table_name,
                         "reason": "table-artifact-descriptor",
                         "fields": changed_paths(
-                            left_payloads[table_name]["descriptor"],
-                            right_payloads[table_name]["descriptor"],
+                            left_payloads[table_name]["document"],
+                            right_payloads[table_name]["document"],
                         ),
                     }
                 )
@@ -890,13 +882,13 @@ def compare_canonical_tables(
         for table_name in sorted(set(left[role]["tables"]) & set(right[role]["tables"])):
             compared += 1
             ltable, rtable = left[role]["tables"][table_name], right[role]["tables"][table_name]
-            if ltable["descriptor"] != rtable["descriptor"]:
+            if ltable["document"] != rtable["document"]:
                 differences.append(
                     {
                         "role": role,
                         "table_name": table_name,
                         "reason": "descriptor",
-                        "fields": changed_paths(ltable["descriptor"], rtable["descriptor"]),
+                        "fields": changed_paths(ltable["document"], rtable["document"]),
                     }
                 )
             if ltable["row_content"] != rtable["row_content"]:

@@ -284,7 +284,10 @@ def test_unchanged_ordered_early_exit_matches_full_facts_without_running_diff() 
         actual = _table(_facts(optimized_plan))
 
     for field in fields(ComparisonTableFact):
-        assert getattr(actual, field.name) == getattr(oracle, field.name), field.name
+        assert getattr(actual, field.name) == getattr(oracle, field.name), (
+            field.name,
+            actual.diagnostics,
+        )
     full_diff.assert_not_called()
     lis.assert_not_called()
     single_side.assert_not_called()

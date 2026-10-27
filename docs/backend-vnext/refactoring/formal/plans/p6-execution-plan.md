@@ -54,6 +54,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
   3. Submit 表级跳过与 `ADAPTIVE_PATCH`（§4.3）：T1 冻结 policy、prepare checkpoint 绑定 parent manifest digest、parent 行按 manifest 校验、有序表资格、阈值 1,000 行 / 1%；行级修改按批渲染（DC57：先用合成表预检 Dolt 语句形式，再复测）；阈值复测后冻结阈值与 INSERT、UPDATE、DELETE 的批量规则（DC55 第 5 项、DC57）。
   4. Contract 修订（设计 §14 中标注 S1a 的行）与 golden（storage-projection、mutation、导入包，设计 §4.6）。
   5. worker step 归因（§4.4）：每项 step 间隔与残差的来源、削减方案、处理阶段与 owner，写入 handoff。
+  6. Repository Service 读取诊断（owner 2026-10-27 追加授权）：`versioned_read/arrow_bridge.py` 的 bridge worker 捕获异常时记录异常类型与消息（不记录行数据），补 focused 测试；最终门禁照常重建 repository-service 镜像。起因：S1a 测量中，回放工具以 root 身份在 RS 正在服务的 Dolt 仓库中写入，使 `.dolt/noms/manifest` 等文件变为 root 所有，RS 的后续读取一启动即失败，而 worker 吞掉了异常，日志只有“stream aborted”。测量工具改为在仓库副本上回放；被污染的 t4 栈停止并保留至清理，不再用于测量。
 - 验收：
   - 设计 §16.2 中基线读取、比较派发与 Submit 的计数断言在 focused 测试中按公式成立（含手算示例），t4 旅程中记录；
   - 新旧路径在 t4 v2 上的 Dolt 表哈希相同；

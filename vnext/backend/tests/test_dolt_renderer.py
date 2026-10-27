@@ -415,40 +415,18 @@ def _value_size_for_statement(
     target_size: int,
     row_count: int,
 ) -> int:
-    first = _mutation_with_text_value(operation, index=1, value_size=32)
-    low = 0
-    high = target_size * 2
-    while low <= high:
-        candidate_size = (low + high) // 2
-        if row_count == 1:
-            mutations = (
-                _mutation_with_text_value(
-                    operation,
-                    index=1,
-                    value_size=candidate_size,
-                ),
-            )
-        else:
-            mutations = (
-                first,
-                *(
-                    _mutation_with_text_value(
-                        operation,
-                        index=index,
-                        value_size=candidate_size,
-                    )
-                    for index in range(2, row_count + 1)
-                ),
-            )
-        sizes = _rendered_statement_sizes(tuple(mutations))
-        assert len(sizes) == 1
-        if sizes[0] == target_size:
-            return candidate_size
-        if sizes[0] < target_size:
-            low = candidate_size + 1
-        else:
-            high = candidate_size - 1
-    raise AssertionError(f"no payload size renders a {target_size}-byte statement")
+    assert row_count in {1, 2}
+    if row_count == 1:
+        mutations = (_mutation_with_text_value(operation, index=1, value_size=0),)
+    else:
+        mutations = (
+            _mutation_with_text_value(operation, index=1, value_size=32),
+            _mutation_with_text_value(operation, index=2, value_size=0),
+        )
+    baseline_size = _rendered_statement_sizes(mutations)[0]
+    payload_size = target_size - baseline_size
+    assert payload_size >= 0
+    return payload_size
 
 
 @pytest.mark.parametrize(

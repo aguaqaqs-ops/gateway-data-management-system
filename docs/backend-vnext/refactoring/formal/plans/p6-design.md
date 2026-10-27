@@ -125,13 +125,14 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 
 ## 4. S1a：摘要与存储 Contract
 
-### 4.1 表摘要保值统一（DC39、DC55 第 1 项）
+### 4.1 表摘要统一与快照身份（DC39、DC55 第 1 项、DC58）
 
 - **表摘要（D）：** 每表唯一的表摘要 = 现有 `raw_content_digest`，与行顺序无关，Dolt 读回能重算出同一个值。它只代表行内容；凡需要表身份的地方都与 schema digest 等一起使用（§4.2、§5.2）。
 - **manifest（D）：** `CanonicalizationManifestTable` 的内容摘要字段改为表摘要；`STORAGE_PROJECTION_VERSION` 从 `"2"` 升到 `"3"`（`capabilities/table_rules/contracts.py`）。投影版本不同的 parent 一律按“全部变化”处理；不做兼容，本地 control DB 与 Dolt 测试数据重建（AGENTS 项目前提）。
 - **未变化 ordered 表的 facts（D，DC55 第 1 项）：** Ordered Diff 定义的 ordered 逻辑摘要与空白区间 occupancy 摘要定义不变。满足“未变化”完整条件（§4.2）的 ordered 表，两侧内容相同，facts 用当前侧的行、按本次受理冻结的有效 pair 策略（含两侧共有列）计算，两侧取同一值；不读基线侧，不运行完整比较算法（LIS、记录生成）。manifest 不新增 ordered 字段。
 - **`ordering_digest`（P）：** 删除，包括 storage_projection 内部的计算与自校验，以及 `import_publication.py` 中的传递；统一表摘要覆盖全部规范列（含 `no` 与伪 gid），顺序变化即内容变化。它与 ordered 逻辑摘要是两回事，不合并。
-- **`fast_row_digest`（P）：** 保留。它进入 snapshot 身份；若以后要删除，须重开 owner 决定与 Contract，并重建基准，不作为普通优化（审核意见）。
+- **快照身份（D，DC58）：** snapshot digest 的每表输入只用不读行即可得到的表级事实：表名、比较 schema 摘要、业务 schema 摘要、比较键、行数与表摘要。仓库侧未变化的表由目录与 commit manifest 的表级身份生成描述，不读行，与读行得到的描述逐字段相同；Preview 基线、History 两侧与上传侧用同一算法，不以提交元数据中记录的摘要代替计算。
+- **`fast_row_digest`（D，DC58）：** 删除，包括投影中的计算、表描述字段、checkpoint 序列化、manifest 与 Contract 条文。原始状态摘要（`raw_state_digest_of`）去掉它之后，若与规范状态摘要重复且没有独立的使用方，一并删除；有独立使用方时保留并列明。
 - **去掉重复计算（D）：** 投影时同一份数据不再编码 3–4 次。
 - **commit 元数据（D）：** `CommitCanonicalMetadataPort` 返回的 manifest 带每表表摘要、schema digest 与存储视图，作为结构性过滤的输入（ADR 0019 的端口形态不变，语义说明补充）。
 
@@ -143,9 +144,14 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 | manifest 每表内容摘要 | **变化** | 改为表摘要的值 |
 | `ordering_digest` | **删除** | |
 | manifest digest | **变化** | 随以上字段变化；体现在 PreviewResult、Submission 记录与 checkpoint 中 |
-| ordered 逻辑摘要、occupancy 摘要、comparison / surface / bundle digest | 保值 | 未变化 ordered 表的单侧计算与现算逐字节相同；S1b 才因 DC40、DC41 变化 |
-| snapshot digest、规范状态摘要、`fast_row_digest`、HTTP DTO | 保值 | |
+| ordered 逻辑摘要、occupancy 摘要 | 保值 | 未变化 ordered 表的单侧计算与现算逐字节相同 |
+| snapshot digest、原始状态摘要 | **变化** | 去掉 `fast_row_digest`（DC58） |
+| comparison / surface / bundle digest | **变化** | 随 snapshot digest 变化；屏蔽摘要字段后输出逐字节不变（见下方核对方式）；S1b 再因 DC40、DC41 变化 |
+| `fast_row_digest` | **删除** | DC58 |
+| 规范状态摘要、HTTP DTO 形状 | 保值 | 规范状态摘要本来不含 `fast_row_digest` |
 | 导入包与 `replay.sql` | **变化** | 只写变化（§4.3） |
+
+**核对方式（DC58）：** 摘要值改变的产物，以“屏蔽摘要字段后与改动前逐字节相同”核对，覆盖比较记录、facts、风险、surface、bundle 内容与 HTTP DTO；另以测试证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
 
 **golden 生命周期：** 见 §4.6。
 
@@ -166,7 +172,7 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 - **parent 行：** 变化表的 parent 行经 RS 读取（S1a），读取结果按 parent manifest 的表摘要校验，不一致时稳定失败；S2b 起优先读规范表存储中该 commit 的副本。正确性前提为 expected-parent CAS、parent 行按 manifest 校验与受信 Repository（DC45 第 6 项）；生产 Dolt 路径不加条件 DML、affected-row 检查或提交后读回（§14 的 ADR 0014 修订）。
 - **实现：** S1a 用现有 Python 规划器与渲染器（`capabilities/mutation_planning/`）；导入路径不再为未变化的表构造变化集。渲染器把同一表的逐行 UPDATE 与 DELETE 合并为按批语句（DC57）：形式先在固定 Dolt 版本上用合成表预检，须语法可执行、按主键查找、Dolt 表哈希与逐行形式相同；逻辑变更与 §16.2 计数不变。逐行变化集对象与无消费方摘要的去除、渲染直通在 S4，S4 对同一输入逐字节回归 S1a 的按批产物。
 - **checkpoint 与 T1：** T1 冻结的 `builder_mutation_policy` 改为 `ADAPTIVE_PATCH`；prepare checkpoint 增加 parent manifest digest 的绑定，恢复时核对。
-- **阈值与批量规则冻结（D，DC55 第 5 项）：** S1a 用实际渲染器与 RS 回放路径，对 t4 v2 的变化表实测逐行与重建的耗时，确认 1% 不比重建慢；阈值与 INSERT 批量规则（现为每条最多 256 行、4 MiB），以及 UPDATE、DELETE 的批量上限（DC57）在 S1a 冻结。首次实测（逐行渲染）在 1% 样本上比重建慢约 17.7%，按 DC57 改为按批渲染后复测；仍慢时按实测盈亏点降低比例阈值，交 owner 确认。S4 只做逐字节回归；若必须调整阈值，作为例外交 owner，并在 S4 更新包 golden。
+- **阈值与批量规则冻结（D，DC55 第 5 项）：** S1a 用实际渲染器与 RS 回放路径，对 t4 v2 的变化表实测逐行与重建的耗时，确认 1% 不比重建慢；阈值与 INSERT 批量规则（现为每条最多 256 行、4 MiB），以及 UPDATE、DELETE 的批量上限（DC57）在 S1a 冻结。按批渲染后仍慢于重建时，按实测盈亏点降低比例阈值，交 owner 确认（DC57 第 4 项）。S4 只做逐字节回归；若必须调整阈值，作为例外交 owner，并在 S4 更新包 golden。
 - **验证：** 新旧路径在 t4 v2 上得到的 Dolt 表哈希相同（V7 已在一次性回放中证明，S1a 用产品路径复核）。
 
 ### 4.4 worker step 归因与残差处理（DC53 第 2 项）
@@ -188,10 +194,10 @@ handoff 对每项给出：来源、处理方案、处理阶段与 owner。仍无
 | --- | --- | --- |
 | storage-projection、mutation、导入包 | S1a | 冻结；S4 只回归，调整须 owner 例外（DC55 第 5 项） |
 | storage-projection 中的规则集文档与 manifest（例外） | S1b | DC56 的补键与 BROWSE_ONLY 名单改变规则集（版本提升）与受影响表的规范键，在 S1b 更新一次后冻结；mutation 与导入包 golden 只在其输入含受影响表时随之更新 |
-| comparison、risk、surface、bundle | S1b | 冻结；S3 的分歧点只把现行行为写进 Contract，不改语义；若必须改语义，作为例外交 owner 并在重建基准前完成 |
+| comparison、risk、surface、bundle | S1b（S1a 只随 DC58 更新其中的摘要值） | 冻结；S3 的分歧点只把现行行为写进 Contract，不改语义；若必须改语义，作为例外交 owner 并在重建基准前完成 |
 | table-access（参照解析器修复与语义） | S1b | 冻结；S2a 的 Rust 实现以其为基准 |
 | shared-kernel 编码向量（FLOAT 直接舍入） | S1b | 冻结 |
-| snapshot-materialization | 不变 | 保值 |
+| snapshot-materialization | S1a | 去掉 `fast_row_digest` 后更新一次（DC58），之后冻结 |
 | canonical-row-hash | S2a 删除 | — |
 
 重建对照基准（§6）在 S1b 之后进行，此后各 golden 作为逐字节回归基准。
@@ -269,7 +275,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ### 8.1 数据路径合并（DC46）
 
-- 解析 → 业务列与检查（伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（保留列、规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要与 `fast_row_digest` 在 Rust 中依次完成，数据始终是 Arrow；三个 capability 各自拥有语义与诊断，模块依赖不变。上传路径不预计算 ordered 逻辑摘要与 occupancy 摘要：它们依赖本次 pair 策略，只在 assemble 中按 pair 计算一次（§4.2，S3 起由 Rust 计算）。
+- 解析 → 业务列与检查（伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（保留列、规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要在 Rust 中依次完成，数据始终是 Arrow；三个 capability 各自拥有语义与诊断，模块依赖不变。上传路径不预计算 ordered 逻辑摘要与 occupancy 摘要：它们依赖本次 pair 策略，只在 assemble 中按 pair 计算一次（§4.2，S3 起由 Rust 计算）。
 - composite signal 留在 Python：在 Arrow 上先按特殊设备过滤 `device` 与 5 张特殊点表，只把命中行转成 Python。
 - Rust 输出规范表的 IPC 字节，由 Python ArtifactStore 写入（Rust safety policy §4）。
 - **上传侧原始表不再写 Parquet（设计核对项，S2b kickoff 前完成）：** 逐一核对 materialize 与 assemble 的 checkpoint、FULL 双侧、composite、bundle、T1 与恢复路径中的读取者；未完成前不进入 S2b 切换。
@@ -363,6 +369,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | Storage Mutation §2/§3：生产默认 `REBUILD_ALWAYS`；有序表不可 patch；阈值 5% | 生产默认 `ADAPTIVE_PATCH`；有序表可 patch；阈值 1,000 行 / 1%；§4 计数口径不变 | Storage Mutation | S1a | mutation |
 | ADR 0014 与 Storage Mutation 中的条件 DML、affected-row、readback 要求 | 生产 Dolt 路径以 expected-parent CAS、parent 行按 manifest 校验与受信 Repository 为前提，不适用这些要求；外部目标保留 | Storage Mutation / ADR 0014 | S1a | — |
 | Ordered Diff：逻辑摘要与 occupancy 摘要按比较计算；伪 gid 起点 20 亿 | 定义不变；对两侧内容相同的表，可用当前侧的行按本次有效 pair 策略计算并作为两侧的值；伪 gid 范围以 Canonical Storage G8 为准 | Comparison | S1a | ordered 测试 |
+| Snapshot Materialization（`capabilities/snapshot-materialization.md`）与 Canonical Storage 中的快照身份、`fast_row_digest` | 快照身份只用不读行即可得到的表级事实；仓库侧未变化表的表描述不读行；删除 `fast_row_digest` | Snapshot Materialization | S1a | snapshot-materialization |
 | ADR 0019 | manifest 每表字段作为结构性过滤输入；T1 冻结产物的恢复边界（§8.2） | ADR 0019 | S1a、S2b | — |
 | Comparison：schema 变化即 `SCHEMA_CHANGED`；整表新增/删除逐行记录 | schema 演进分类与只增列；整表新增/删除不产逐行记录；`NO_CANONICAL_CHANGE` 说明 | Comparison | S1b | comparison |
 | Comparison「Cache」：第一版只做 pair 级缓存，不做 table 级 facts 缓存 | 单表纯函数结果可按完整任务输入键缓存；pair 上限与表名在汇总绑定 | Comparison | S3（单次去重）、S5（跨操作） | 去重与缓存测试 |
@@ -508,7 +515,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 1. S1a 的归因（§4.4）无法解释 step 间隔或约 175 s 残差的来源；
 2. S2b 的 W2 检查点判定为停止（§16.1 的判定式）；
 3. 任一 Rust kernel 与参照实现出现无法归入“参照实现不符合 Contract”的差异；
-4. 阈值复测显示 1% 仍比整表重建慢（2026-10-26 已触发一次，按 DC57 改为按批渲染后复测；再次触发时按 DC57 第 4 项交 owner），或 S4 实测要求调整 S1a 冻结的阈值或批量规则；
+4. 阈值复测显示 1% 仍比整表重建慢（按 DC57 第 4 项交 owner），或 S4 实测要求调整 S1a 冻结的阈值或批量规则；
 5. 规范表存储的磁盘估算超出参考节点容量；
 6. 逐行记录必须改变产物格式（DC54 第 4 项）；
 7. 某阶段的门槛在设计手段用尽后仍不能达到。
@@ -517,7 +524,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 | 项 | 本设计提案 | 节 |
 | --- | --- | --- |
-| `ordering_digest`、`fast_row_digest` | 删除前者（含跨模块传递）；保留后者，删除须重开决定 | §4.1 |
+| `ordering_digest`、`fast_row_digest` | 均删除（前者含跨模块传递；后者见 DC58） | §4.1 |
 | 上传超时错误码 | `UPLOAD_STREAM_TIMEOUT`，HTTP 408，两种超时共用并附原因 | §5.4 |
 | 参照解析器的 P 项语义 | §5.5 表中各项；深层 JSON 有界拒绝 | §5.5 |
 | Arrow 列映射 v1 | §8.1 | §8.1 |

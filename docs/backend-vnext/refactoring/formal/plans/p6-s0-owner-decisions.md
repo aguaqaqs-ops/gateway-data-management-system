@@ -46,6 +46,7 @@ implementation_authorized: no
 | DC55 | 独立文档审核后的决议修订（F1–F5） | — | — |
 | DC56 | keyless 表的自然键与处理角色（DC50 业务评估） | — | — |
 | DC57 | 行级修改按批渲染（S1a 阈值停止后的处理） | — | — |
+| DC58 | 快照身份不含逐行快速摘要；删除 `fast_row_digest` | — | — |
 
 ## 2. 决议详情
 
@@ -87,7 +88,7 @@ implementation_authorized: no
   3. Preview 用基线 commit 的每表摘要过滤，只读、只比变化表；未变化的 ordered 表同样不读、不比，`before/current_ordered_digest` 改为取自表摘要或 manifest 并去掉表名。**（DC55 第 1 项修订：ordered 逻辑摘要与 occupancy 摘要定义不变；未变化的 ordered 表用当前侧的行按本次有效 pair 策略计算，不读基线侧，manifest 不新增字段。）**
   4. 不采用 BLAKE3。只有在 Rust 化之后哈希实测占比明显时才重新考虑，且只用于新的、带算法标签的摘要类型。
   5. 规范状态摘要、snapshot 与 bundle digest、HTTP DTO 与真实数据的规范状态摘要基准都不变；变化的是 manifest digest（随之体现在 PreviewResult、Submission 记录与 checkpoint 中）。
-- **设计阶段待定**：ordered 表的统一口径（现 manifest 摘要不含结构列，`raw_content_digest` 含全部规范列与伪 gid）；是否保留 `ordering_digest`；是否删除 `fast_row_digest`（删除会改变 snapshot digest）。
+- **设计阶段待定**：ordered 表的统一口径（现 manifest 摘要不含结构列，`raw_content_digest` 含全部规范列与伪 gid）；是否保留 `ordering_digest`；是否删除 `fast_row_digest`（删除会改变 snapshot digest）。（`fast_row_digest`：由 DC58 决定删除，快照身份改为只用不读行即可得到的表级事实。）
 - **落点**：Canonical Storage §4（内容摘要定义与 projection version）、ADR 0019 的 commit 元数据端口、相关 golden（storage-projection、mutation）；DC50 的 S1a。
 
 ### DC40 只增列的 schema 变化按共有字段判定
@@ -326,11 +327,22 @@ implementation_authorized: no
   5. **阶段归属：** 语句合批从 S4 的“渲染直通”提前到 S1a；mutation 组 golden 随之在 S1a 更新（属于 S1a 组）。S4 的渲染直通对同一输入逐字节回归 S1a 的按批产物。
 - **落点**：[详细设计](p6-design.md) §4.3、§17；[执行计划](p6-execution-plan.md) §2 S1a 第 3 项。
 
+### DC58 快照身份不含逐行快速摘要；删除 `fast_row_digest`
+
+- **来源**：[S1a handoff](p6-s1a-handoff.md)（S1a 第二次停止）。04 门禁中 History Compose 测试发现 comparison digest 不保值。原因是设计层面的冲突：仓库侧快照的 snapshot digest 对每张表都包含 `fast_row_digest`，它只能读出整表的行才算得出来；而 §4.2 要求 Preview 基线与 History 旧侧不读未变化表的行。实现以提交元数据中记录的 snapshot digest（Submit 时按上传侧计算，物化阶段不同）代替，导致摘要不同，并使同一身份有两种算法。规范状态摘要本来不含 `fast_row_digest`，代码注明它只用于诊断；snapshot digest 的其余每表输入都可以从目录与 manifest 得到。
+- **决议**（repository owner，2026-10-27，选择 B；修订 DC39 中“是否删除 `fast_row_digest`”的结论）：
+  1. **快照身份：** snapshot digest 的每表输入只用不读行即可得到的表级事实：表名、比较 schema 摘要、业务 schema 摘要、比较键、行数与表摘要。仓库侧未变化的表由目录与 commit manifest 生成表描述，不读行，须与读行得到的描述逐字段相同。Preview 基线、History 两侧与上传侧用同一算法；删除以提交元数据摘要代替计算的做法。
+  2. **删除 `fast_row_digest`：** 计算、表描述字段、checkpoint 序列化、manifest 与 Contract 条文一并删除。原始状态摘要去掉它后，若与规范状态摘要重复且没有独立使用方，一并删除；有独立使用方时保留并列明。
+  3. **摘要值一次性改变：** snapshot digest、原始状态摘要，以及包含它们的 comparison、surface、bundle digest 在 S1a 改变一次，是设计 §4.1 保值清单与 §4.6 golden 生命周期的例外；snapshot-materialization golden 与上述组中的摘要值在 S1a 更新。规范状态摘要、ordered 逻辑摘要、occupancy 摘要与 HTTP DTO 形状保值。没有兼容要求，不保留旧摘要算法或双算。
+  4. **核对方式：** 摘要值改变的产物，以“屏蔽摘要字段后与改动前逐字节相同”核对；另证明仓库侧不读行的表描述与读行描述逐字段相同、规范状态摘要不变。
+  5. **证据范围：** 设计与 Contract 直接写目标形态，被取代的机制与其测试一并删除（AGENTS 项目前提）。S1a 全部验收在最终候选上重新运行，不沿用此前候选的阈值、表哈希与旅程结果。
+- **落点**：[详细设计](p6-design.md) §4.1、§4.6、§14、§17；[执行计划](p6-execution-plan.md) §2 S1a；DC39 对应条目注明由本决议取代。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |
 | --- | --- | --- |
-| ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39 | Phase 6 设计 |
+| ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39、DC58 | 已定：统一为表摘要，删除 `ordering_digest`（设计 §4.1）；删除 `fast_row_digest`（DC58） |
 | W1–W4 目标数值定稿 | DC35 | 已定稿（DC53） |
 | 记录写后回读：Rust 重算摘要或删除 | DC54 | Phase 6 设计 |
 | H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |

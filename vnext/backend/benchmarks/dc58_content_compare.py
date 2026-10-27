@@ -16,7 +16,7 @@ import re
 import sqlite3
 import subprocess
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal

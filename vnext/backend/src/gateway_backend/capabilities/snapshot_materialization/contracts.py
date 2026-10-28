@@ -23,6 +23,7 @@ from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_d
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.composite_signal.contracts import CompositeLogicSource
 from gateway_backend.capabilities.table_access.contracts import (
     ParseResult,
@@ -39,8 +40,6 @@ DIGEST_CONTRACT_VERSION = 1
 SCALAR_ENCODING_VERSION = 1
 SUMMARY_CONTRACT_VERSION = 1
 SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION = 1
-PARQUET_WRITER_CONTRACT_VERSION = 1
-SNAPSHOT_EXPORT_CACHE_TTL_SECONDS = 86_400
 BATCH_READER_CONTRACT_VERSION = 1
 BATCH_SCHEMA_METADATA_VERSION = 1
 COMPARISON_PROJECTION_CONTRACT_VERSION = "backend-vnext/comparison-projection/v1"
@@ -51,7 +50,6 @@ ROW_FORMAT_PARQUET = "parquet"
 EXPORT_FORMAT_PARQUET = "PARQUET"
 ARTIFACT_COMPRESSION_ZSTD = "zstd"
 ROW_ORDER_CONTRACT_INSERT = "INSERT_ORDER"
-PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 MANIFEST_MEDIA_TYPE = "application/json"
 GID_REAL_MIN = 1
 GID_REAL_MAX = 3_999_999_999
@@ -947,52 +945,6 @@ class SnapshotTableArtifact:
             raise ValueError("manifest must be SnapshotTableArtifactManifest")
         if type(self.row_layout_digest) is not DigestRef:
             raise ValueError("row_layout_digest must be DigestRef")
-
-
-@dataclass(frozen=True, slots=True)
-class SnapshotTableArtifactCacheKey:
-    row_layout_digest: DigestRef
-    repository_id: str | None = None
-    scalar_encoding_version: int = SCALAR_ENCODING_VERSION
-    snapshot_table_artifact_contract_version: int = SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION
-    export_format: str = EXPORT_FORMAT_PARQUET
-    sort_or_row_order_contract: str = ROW_ORDER_CONTRACT_INSERT
-    parquet_writer_contract_version: int = PARQUET_WRITER_CONTRACT_VERSION
-
-    def __post_init__(self) -> None:
-        if type(self.row_layout_digest) is not DigestRef:
-            raise ValueError("row_layout_digest must be DigestRef")
-        if self.repository_id is not None:
-            _require_opaque_id(self.repository_id, "repository_id")
-        if self.scalar_encoding_version != SCALAR_ENCODING_VERSION:
-            raise ValueError("scalar_encoding_version must be 1")
-        if self.snapshot_table_artifact_contract_version != (
-            SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION
-        ):
-            raise ValueError("snapshot_table_artifact_contract_version must be 1")
-        if self.export_format != EXPORT_FORMAT_PARQUET:
-            raise ValueError("export_format must be PARQUET")
-        if self.sort_or_row_order_contract != ROW_ORDER_CONTRACT_INSERT:
-            raise ValueError("sort_or_row_order_contract must be INSERT_ORDER")
-        if self.parquet_writer_contract_version != PARQUET_WRITER_CONTRACT_VERSION:
-            raise ValueError("parquet_writer_contract_version must be 1")
-
-
-class SnapshotTableExportCachePort(Protocol):
-    def lookup_many(
-        self,
-        keys: tuple[SnapshotTableArtifactCacheKey, ...],
-    ) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
-        """Return unexpired row-file refs for exact repository/layout/writer keys."""
-
-    def store_many(
-        self,
-        entries: tuple[tuple[SnapshotTableArtifactCacheKey, ArtifactRef], ...],
-    ) -> None:
-        """Register row-file refs and extend their bounded cache protection."""
-
-    def discard_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
-        """Remove stale cache entries and release their cache protection."""
 
 
 @dataclass(frozen=True, slots=True)

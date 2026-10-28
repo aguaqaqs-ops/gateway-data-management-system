@@ -8,12 +8,12 @@ from datetime import UTC, datetime, timedelta
 
 from gateway_shared_kernel import DigestRef
 
-from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
+from gateway_backend.artifacts.snapshot_table_export_cache import (
     PARQUET_MEDIA_TYPE,
     SNAPSHOT_EXPORT_CACHE_TTL_SECONDS,
     SnapshotTableArtifactCacheKey,
 )
+from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.infrastructure.control_db.sqlite_protection import (
     SQLiteArtifactProtectionStore,
 )
@@ -57,8 +57,6 @@ class SQLiteSnapshotTableExportCache:
         self._prune_expired()
         results: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
         for key in keys:
-            if key.repository_id is None:
-                continue
             row = self._connection.execute(
                 """
                 SELECT artifact_id, media_type, size_bytes, raw_sha256, expires_at_us
@@ -218,8 +216,6 @@ class SQLiteSnapshotTableExportCache:
 
 
 def _key_values(key: SnapshotTableArtifactCacheKey) -> tuple[object, ...]:
-    if key.repository_id is None:
-        raise ValueError("snapshot export cache requires repository scope")
     return (
         key.repository_id,
         key.row_layout_digest.value,

@@ -12,12 +12,13 @@ from gateway_backend.capabilities.snapshot_materialization._reader import (
     BoundSnapshotTableReader,
 )
 
-import gateway_backend.capabilities.snapshot_materialization.contracts as snapshot_contracts
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, put_with_built_ref
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
+from gateway_backend.artifacts.snapshot_table_export_cache import (
     PARQUET_MEDIA_TYPE,
-    SnapshotTable,
     SnapshotTableArtifactCacheKey,
+)
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    SnapshotTable,
 )
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     open_snapshot_table_artifact,
@@ -123,7 +124,6 @@ def test_row_layout_cache_identity_includes_enum_labels() -> None:
 
 def test_export_cache_writer_version_is_part_of_the_exact_key(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     db_path = tmp_path / "control.sqlite"
     initialize_control_db(db_path)
@@ -132,7 +132,6 @@ def test_export_cache_writer_version_is_part_of_the_exact_key(
     with _uow(db_path) as unit_of_work:
         unit_of_work.snapshot_table_export_cache.store_many(((version_one, cached_ref),))
 
-    monkeypatch.setattr(snapshot_contracts, "PARQUET_WRITER_CONTRACT_VERSION", 2)
     version_two = SnapshotTableArtifactCacheKey(
         row_layout_digest=version_one.row_layout_digest,
         repository_id=version_one.repository_id,

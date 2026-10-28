@@ -799,7 +799,6 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
     harness.runtime._run_claim(
         work,
         lambda: False,
-        lambda _timeout: False,
         claim_anchor=time.monotonic(),
     )
 

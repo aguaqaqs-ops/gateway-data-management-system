@@ -725,7 +725,6 @@ def test_await_import_finalize_commits_lease_acknowledgment_via_worker_runtime(
     seed_harness.runtime._run_claim(
         work,
         lambda: False,
-        lambda timeout: False,
         claim_anchor=time.monotonic(),
     )
     with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:
@@ -805,7 +804,6 @@ def test_await_import_finalize_response_loss_after_terminal_commit_before_worker
             seed_harness.runtime._run_claim(
                 work,
                 lambda: False,
-                lambda timeout: False,
                 claim_anchor=time.monotonic(),
             )
     finally:
@@ -957,7 +955,6 @@ def test_await_import_result_consumes_matching_terminal_after_repository_restart
         harness.runtime._run_claim(
             await_work,
             lambda: False,
-            lambda timeout: False,
             claim_anchor=time.monotonic(),
         )
     finally:
@@ -1036,7 +1033,6 @@ def test_await_import_stable_abort_completes_via_worker_runtime(
     seed_harness.runtime._run_claim(
         work,
         lambda: False,
-        lambda timeout: False,
         claim_anchor=time.monotonic(),
     )
     with ControlDbUnitOfWork(seed_harness.db_path, read_only=True) as unit_of_work:

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import ContextManager
 
 from gateway_backend.artifacts.types import ArtifactRef
-from gateway_backend.capabilities.snapshot_materialization.contracts import (
+from gateway_backend.artifacts.snapshot_table_export_cache import (
     SnapshotTableArtifactCacheKey,
     SnapshotTableExportCachePort,
 )

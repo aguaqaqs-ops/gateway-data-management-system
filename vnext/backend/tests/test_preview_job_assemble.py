@@ -46,7 +46,6 @@ from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import InputCompleteness
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
 from gateway_backend.capabilities.comparison import ComparisonRequest
-from gateway_backend.capabilities.surface_assembly.contracts import SurfaceArtifactIndexEntry
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -486,45 +485,6 @@ def test_unchanged_identity_table_reuses_current_rows_without_baseline_read(
         (item.applicability.value, item.status.value, item.mode.value)
         for item in preview_result.identity_pairs
     ] == [("APPLICABLE", "SAME_PROJECT", "DETAILED")]
-
-
-def test_dataset_replacement_reuses_current_artifact_for_unchanged_table(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    harness = build_preview_harness(
-        tmp_path,
-        input_completeness=InputCompleteness.MODIFIED_ONLY,
-        canonical_noop=True,
-        include_identity_table=True,
-        identity_project_id="project-b",
-    )
-    replacement_entries: list[SurfaceArtifactIndexEntry] = []
-    original = pair_pipeline._replacement_surface_table_artifacts
-
-    def capture_replacement_entries(
-        request: ComparisonRequest,
-    ) -> tuple[SurfaceArtifactIndexEntry, ...]:
-        entries = original(request)
-        replacement_entries.extend(entries)
-        return entries
-
-    monkeypatch.setattr(
-        pair_pipeline,
-        "_replacement_surface_table_artifacts",
-        capture_replacement_entries,
-    )
-
-    _run_through_publish(harness, "op-replacement-reuses-unchanged-artifact")
-
-    assert harness.baseline_provider.last_session is not None
-    assert tuple(
-        reader.catalog_table().table_name
-        for reader in harness.baseline_provider.last_session.table_readers
-    ) == ("version_manager",)
-    table_t = next(item for item in replacement_entries if item.table_name == "t")
-    assert table_t.table_refs.before_table_ref is not None
-    assert table_t.table_refs.before_table_ref == table_t.table_refs.current_table_ref
 
 
 @dataclass

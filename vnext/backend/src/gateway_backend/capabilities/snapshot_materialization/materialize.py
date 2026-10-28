@@ -18,6 +18,7 @@ from gateway_shared_kernel import (
 )
 
 from gateway_backend.capabilities.composite_signal.contracts import COMPOSITE_SIGNAL_CONTRACT_VERSION
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     encode_cell_frame,
@@ -63,7 +64,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTable,
     SnapshotTableDescriptor,
     SnapshotTableSet,
-    SnapshotTableExportCachePort,
     SnapshotTableOrderedMetadata,
     GID_PSEUDO_MAX,
     GID_PSEUDO_MIN,

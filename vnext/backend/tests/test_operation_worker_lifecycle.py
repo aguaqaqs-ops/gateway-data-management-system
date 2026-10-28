@@ -9,7 +9,6 @@ import pytest
 from pydantic import ValidationError
 
 import gateway_backend.bootstrap.operation_worker as operation_worker_bootstrap
-import gateway_backend.operations.worker_runtime as worker_runtime_module
 from gateway_backend.bootstrap.operation_worker import _StartupBudget, _StartupObserver
 from gateway_backend.operations.worker import (
     ClaimedWork,
@@ -31,6 +30,7 @@ from tests.support.runtime_settings import make_operation_worker_settings
 from tests.test_operation_worker_scheduler import (
     FakeClock,
     FakeStartup,
+    InjectedWakeEvent,
     RuntimeStore,
     RuntimeUowFactory,
     ThreadFactory,
@@ -244,9 +244,7 @@ def test_timeout_is_one_way_and_does_not_release_executor_or_cancel() -> None:
         lifecycle.mark_stopping()
 
 
-def test_runtime_timeout_is_worker_fatal_without_worker_exit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_runtime_timeout_is_worker_fatal_without_worker_exit() -> None:
     operation, step = _active_records()
     store = RuntimeStore(operation, step)
     factory = RuntimeUowFactory(store)
@@ -256,23 +254,10 @@ def test_runtime_timeout_is_worker_fatal_without_worker_exit(
     clock = FakeClock()
     lifecycle = WorkerLifecycleController(monotonic=clock, drain_timeout=1.0)
 
-    class CompletionProbe:
-        def __init__(self) -> None:
-            self.completed = False
-
-        def is_set(self) -> bool:
-            return self.completed
-
-        def set(self) -> None:
-            self.completed = True
-
-        def wait(self, timeout: float) -> bool:
-            clock.value += timeout
-            threads.threads[0].run()
-            return self.completed
-
-    completion = CompletionProbe()
-    monkeypatch.setattr(getattr(worker_runtime_module, "threading"), "Event", lambda: completion)
+    def timeout_wait(timeout: float, event: InjectedWakeEvent) -> bool:
+        clock.value += timeout
+        threads.threads[0].run()
+        return event.is_set()
 
     with pytest.raises(RuntimeError, match="drain timed out"):
         _runtime(
@@ -282,6 +267,7 @@ def test_runtime_timeout_is_worker_fatal_without_worker_exit(
             clock=clock,
             lifecycle=lifecycle,
             thread_factory=threads,
+            wake_event_factory=lambda: InjectedWakeEvent(timeout_wait),
         ).run(
             drain_requested=lambda: bool(threads.threads and threads.threads[0].started),
             wait=lambda _timeout: False,

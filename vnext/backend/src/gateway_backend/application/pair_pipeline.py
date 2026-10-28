@@ -334,12 +334,6 @@ def _run_comparison_risk_surface(
     )
 
 
-def _replacement_surface_table_artifacts(
-    request: ComparisonRequest,
-) -> tuple[SurfaceArtifactIndexEntry, ...]:
-    return _surface_table_artifacts(request, include_all_before=True)
-
-
 def _surface_table_artifacts(
     request: ComparisonRequest,
     *,

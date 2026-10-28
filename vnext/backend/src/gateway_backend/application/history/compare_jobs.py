@@ -64,6 +64,7 @@ from gateway_backend.application.preview_jobs import (
 )
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.bundle_assembly import (
@@ -92,7 +93,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
     SnapshotTableSet,
-    SnapshotTableExportCachePort,
     snapshot_from_document,
     snapshot_summary_from_document,
     snapshot_summary_to_document,

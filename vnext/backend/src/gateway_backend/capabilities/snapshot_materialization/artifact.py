@@ -21,6 +21,11 @@ from gateway_backend.artifacts import (
     build_artifact_id,
     put_with_built_ref,
 )
+from gateway_backend.artifacts.snapshot_table_export_cache import (
+    PARQUET_MEDIA_TYPE,
+    SnapshotTableArtifactCacheKey,
+    SnapshotTableExportCachePort,
+)
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     raw_content_digest_of,
     row_content_hash,
@@ -40,7 +45,6 @@ from gateway_backend.capabilities.snapshot_materialization.batch import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ARTIFACT_COMPRESSION_ZSTD,
     MANIFEST_MEDIA_TYPE,
-    PARQUET_MEDIA_TYPE,
     ROW_FORMAT_PARQUET,
     ROW_MATERIALIZATION_PROFILE,
     SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
@@ -53,8 +57,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableBatchMetadata,
     SnapshotTable,
     SnapshotTableArtifact,
-    SnapshotTableArtifactCacheKey,
-    SnapshotTableExportCachePort,
     SnapshotTableArtifactManifest,
     SnapshotTableDescriptor,
     SnapshotTableOrderedMetadata,

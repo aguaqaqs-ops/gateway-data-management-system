@@ -336,8 +336,12 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     baseline_session = harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session
     current_session = harness.providers["commit-b"].last_session
     assert baseline_session is not None and current_session is not None
-    assert baseline_session.table_readers == []
-    assert current_session.table_readers == []
+    assert tuple(
+        reader.catalog_table().table_name for reader in baseline_session.table_readers
+    ) == ("t",)
+    assert tuple(
+        reader.catalog_table().table_name for reader in current_session.table_readers
+    ) == ("t",)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
@@ -443,7 +447,7 @@ def test_deleted_history_table_reads_only_the_old_pair_side(tmp_path: Path) -> N
     )
 
 
-def test_unchanged_ordered_history_reads_current_side_and_preserves_facts(
+def test_unchanged_ordered_history_bundles_both_sides_and_preserves_facts(
     tmp_path: Path,
 ) -> None:
     before_commit = BASELINE_HEAD.business_baseline_commit_id
@@ -479,7 +483,9 @@ def test_unchanged_ordered_history_reads_current_side_and_preserves_facts(
     before_session = providers[before_commit].last_session
     current_session = providers[current_commit].last_session
     assert before_session is not None and current_session is not None
-    assert before_session.table_readers == []
+    assert tuple(reader.catalog_table().table_name for reader in before_session.table_readers) == (
+        ORDERED_SYX_TABLE,
+    )
     assert tuple(reader.catalog_table().table_name for reader in current_session.table_readers) == (
         ORDERED_SYX_TABLE,
     )

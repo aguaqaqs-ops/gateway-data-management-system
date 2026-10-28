@@ -280,6 +280,7 @@ def _cell_mutator(
         labels = column.enum_or_set_labels
         if all(isinstance(cell, (SqlSetValue, NullScalar)) for cell in cells):
             def mutate_set(cell: SourceCell) -> bytes:
+                current: tuple[str, ...]
                 if isinstance(cell, NullScalar):
                     current = ()
                 else:

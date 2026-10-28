@@ -641,13 +641,13 @@ def _fresh_values(
             candidates = range(0, min(maximum + 1, len(occupied) + 2))
         for candidate in candidates:
             value = str(candidate)
-            scalar = (
+            numeric_scalar = (
                 UnsignedIntegerScalar(value)
                 if kind is DeclaredTypeKind.UNSIGNED_INTEGER
                 else SignedIntegerScalar(value)
             )
-            if scalar not in occupied:
-                yield scalar
+            if numeric_scalar not in occupied:
+                yield numeric_scalar
     elif kind is DeclaredTypeKind.STRING and column.logical_type in {
         SqlLogicalType.STANDARD,
         SqlLogicalType.ENUM,

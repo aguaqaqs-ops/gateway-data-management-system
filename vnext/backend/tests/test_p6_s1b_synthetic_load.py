@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from gateway_shared_kernel.types import SignedIntegerScalar, UnsignedIntegerScalar
 import pytest
 
 from benchmarks.p6_s1b_synthetic_load import _json_depth, _make_w4, _parse_input
@@ -94,7 +95,11 @@ def test_w4_generates_unique_keys_and_counted_changes(
         "after": 1,
     }
     parsed = _parse_input(output.read_bytes())
-    record_keys = tuple(row[0].decimal for row in parsed.rows["records"])
+    record_keys: list[str] = []
+    for row in parsed.rows["records"]:
+        key = row[0]
+        assert isinstance(key, (SignedIntegerScalar, UnsignedIntegerScalar))
+        record_keys.append(key.decimal)
     assert len(record_keys) == len(set(record_keys)) == 3
     assert len(parsed.rows["empty"]) == 1
     assert output.stat().st_mode & 0o777 == 0o600

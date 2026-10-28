@@ -305,13 +305,6 @@ def test_repository_export_cache_hit_skips_table_read_and_miss_falls_back_and_re
         ),
         repository_id=catalog.repository_id,
     )
-    invalid_cached_ref = put_with_built_ref(
-        store,
-        b"not parquet",
-        artifact_id="snapshot-rows-invalid-early-cache",
-        media_type=PARQUET_MEDIA_TYPE,
-    )
-    cache.entries[uncached_cache_key] = invalid_cached_ref
     seed_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     seeded = materialize_ref(
         seed_provider,
@@ -341,7 +334,7 @@ def test_repository_export_cache_hit_skips_table_read_and_miss_falls_back_and_re
     ) == ("uncached_items",)
     assert tuple(reader.stream_count for reader in provider.last_session.table_readers) == (1,)
     assert len(cache.entries) == 2
-    assert cache.entries[uncached_cache_key] != invalid_cached_ref
+    assert uncached_cache_key in cache.entries
 
 
 def test_invalid_cached_parquet_falls_back_to_canonical_source_export() -> None:

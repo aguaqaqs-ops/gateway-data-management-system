@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 
 from gateway_shared_kernel import CanonicalEncodingError, canonicalize_identifier
 
+from gateway_backend.artifacts import ArtifactRef, ArtifactStorePort, ManifestVerificationError
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableArtifactCacheKey
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     encode_cell_frame,
@@ -22,8 +24,10 @@ from gateway_backend.capabilities.snapshot_materialization._reader import BoundS
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     ArtifactPublishError,
     artifact_error_diagnostic,
+    open_cached_snapshot_table,
     publish_ready_tables,
     require_artifact_store,
+    row_layout_digest_of,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ROW_MATERIALIZATION_PROFILE,
@@ -64,6 +68,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     MaterializedTableReader,
     PARSER_VERSION,
     ParserInvocationContext,
+    SourceColumnDescriptor,
     SourceRow,
     SourceTableDescriptor,
 )
@@ -218,6 +223,55 @@ def _materialize_open_session(
                 MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
                 "canonical metadata is required for tables excluded from row materialization",
             )
+    cache_candidates: dict[
+        str,
+        tuple[
+            SnapshotTableDescriptor,
+            tuple[SourceColumnDescriptor, ...],
+            SnapshotTableOrderedMetadata | None,
+            SnapshotTableArtifactCacheKey,
+        ],
+    ] = {}
+    cached_row_refs: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
+    cache_store: ArtifactStorePort | None = None
+    if (
+        request.policy is MaterializationPolicy.READERS_REQUIRED
+        and request.export_cache is not None
+        and request.artifact_store is not None
+    ):
+        cache_store = require_artifact_store(request.artifact_store)
+        for name in sorted(selected_set, key=lambda item: item.encode("utf-8")):
+            identity = identities.get(name)
+            if identity is None:
+                continue
+            catalog_table = indexed[name]
+            storage_view = binding_by_name[name]
+            descriptor = _describe_without_rows(request, catalog_table, identity, stage)
+            source_columns = tuple(
+                map_repository_column(column).source for column in catalog_table.columns
+            )
+            ordered_metadata = _ordered_metadata(storage_view)
+            cache_key = SnapshotTableArtifactCacheKey(
+                row_layout_digest=row_layout_digest_of(
+                    descriptor,
+                    source_columns,
+                    ordered_metadata,
+                ),
+                repository_id=request.repository_ref.repository_id,
+            )
+            cache_candidates[name] = (
+                descriptor,
+                source_columns,
+                ordered_metadata,
+                cache_key,
+            )
+        if cache_candidates:
+            try:
+                cached_row_refs = request.export_cache.lookup_many(
+                    tuple(item[3] for item in cache_candidates.values())
+                )
+            except Exception:
+                cached_row_refs = {}
     diagnostics: list[MaterializationDiagnostic] = []
     published: list[SnapshotTable] = []
     descriptors: list[SnapshotTableDescriptor] = []
@@ -226,14 +280,39 @@ def _materialize_open_session(
         catalog_table = indexed[name]
         storage_view = binding_by_name[name]
         if name in selected_set:
-            descriptor, table, table_diagnostics = _read_and_materialize_table(
-                request,
-                session,
-                catalog_table,
-                storage_view,
-                stage,
-                keep_rows=request.policy is MaterializationPolicy.READERS_REQUIRED,
+            cache_candidate = cache_candidates.get(name)
+            cached_row_ref = (
+                None if cache_candidate is None else cached_row_refs.get(cache_candidate[3])
             )
+            table = None
+            if cached_row_ref is not None and cache_candidate is not None and cache_store is not None:
+                descriptor, source_columns, ordered_metadata, cache_key = cache_candidate
+                try:
+                    table = open_cached_snapshot_table(
+                        cached_row_ref,
+                        descriptor=descriptor,
+                        source_columns=source_columns,
+                        ordered_metadata=ordered_metadata,
+                        effective_key_columns=descriptor.compare_key_columns,
+                        store=cache_store,
+                    )
+                except (ArtifactPublishError, ManifestVerificationError):
+                    try:
+                        request.export_cache.discard_many((cache_key,))
+                    except Exception:
+                        pass
+            if table is None:
+                descriptor, table, table_diagnostics = _read_and_materialize_table(
+                    request,
+                    session,
+                    catalog_table,
+                    storage_view,
+                    stage,
+                    keep_rows=request.policy is MaterializationPolicy.READERS_REQUIRED,
+                )
+            else:
+                descriptor = table.descriptor
+                table_diagnostics = table.diagnostics
             identity = identities.get(name)
             if identity is not None and (
                 descriptor.row_count != identity.row_count
@@ -535,11 +614,7 @@ def _read_and_materialize_table(
     if not keep_rows:
         return descriptor, None, tuple(diagnostics)
     source_reader = MaterializedTableReader(source_descriptor, tuple(encoded_rows))
-    ordered_metadata = None
-    if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1:
-        ordered_metadata = SnapshotTableOrderedMetadata(
-            blank_provenance=BlankRowProvenance.CANONICAL_PSEUDO_GID
-        )
+    ordered_metadata = _ordered_metadata(storage_view)
     return (
         descriptor,
         SnapshotTable(
@@ -549,6 +624,14 @@ def _read_and_materialize_table(
             ordered_metadata=ordered_metadata,
         ),
         tuple(diagnostics),
+    )
+
+
+def _ordered_metadata(storage_view: StorageRuleView) -> SnapshotTableOrderedMetadata | None:
+    if storage_view.ordered_policy is not OrderedPolicy.GID_NO_V1:
+        return None
+    return SnapshotTableOrderedMetadata(
+        blank_provenance=BlankRowProvenance.CANONICAL_PSEUDO_GID
     )
 
 

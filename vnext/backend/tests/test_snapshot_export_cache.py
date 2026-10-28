@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -18,6 +19,9 @@ from gateway_backend.artifacts.snapshot_table_export_cache import (
     SnapshotTableArtifactCacheKey,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    CanonicalTableIdentity,
+    MaterializationPolicy,
+    SnapshotMaterializationStatus,
     SnapshotTable,
 )
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
@@ -29,6 +33,15 @@ from gateway_backend.capabilities.snapshot_materialization.artifact import (
 from gateway_backend.infrastructure.control_db.database import (
     ControlDbUnitOfWork,
     initialize_control_db,
+)
+from tests.support.repository_ref_materialization import (
+    FakeRepositoryTableAccessProvider,
+    canonical_binding_for_catalog,
+    catalog_table,
+    int_id_column,
+    make_catalog,
+    materialize_ref,
+    text_column,
 )
 from gateway_backend.capabilities.table_access.contracts import (
     NeverCancel,
@@ -220,6 +233,115 @@ def test_repeated_parquet_export_uses_the_protected_cached_row_file() -> None:
     assert artifact is not None
     assert artifact.manifest.row_file_refs == cached.manifest.row_file_refs
     assert cache.stored == ((cache_key, cached.manifest.row_file_refs[0]),)
+
+
+def test_repository_export_cache_hit_skips_table_read_and_miss_falls_back_and_refills() -> None:
+    cached_table = catalog_table(
+        "cached_items",
+        (int_id_column(), text_column("value", 1)),
+        primary_key=("id",),
+    )
+    uncached_table = catalog_table(
+        "uncached_items",
+        (int_id_column(), text_column("value", 1)),
+        primary_key=("id",),
+    )
+    catalog = make_catalog((cached_table, uncached_table))
+    rows = {
+        "cached_items": ((1, "cached"),),
+        "uncached_items": ((2, "uncached"),),
+    }
+    metadata_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
+    metadata = materialize_ref(
+        metadata_provider,
+        policy=MaterializationPolicy.READERS_REQUIRED,
+    )
+    assert metadata.status is SnapshotMaterializationStatus.COMPLETE
+    assert metadata.summary is not None
+    assert metadata.table_set is not None
+    identities = tuple(
+        CanonicalTableIdentity(
+            canonical_table=descriptor.table_name,
+            row_count=descriptor.row_count,
+            source_schema_digest=descriptor.business_schema_digest,
+            canonical_schema_digest=descriptor.business_schema_digest,
+            raw_content_digest=descriptor.raw_content_digest,
+        )
+        for descriptor in metadata.summary.tables
+        if descriptor.raw_content_digest is not None
+    )
+    binding = replace(canonical_binding_for_catalog(catalog), table_identities=identities)
+    store = InMemoryArtifactStore()
+
+    class Cache:
+        entries: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
+
+        def lookup_many(
+            self,
+            keys: tuple[SnapshotTableArtifactCacheKey, ...],
+        ) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
+            return {key: self.entries[key] for key in keys if key in self.entries}
+
+        def store_many(
+            self,
+            entries: tuple[tuple[SnapshotTableArtifactCacheKey, ArtifactRef], ...],
+        ) -> None:
+            self.entries.update(entries)
+
+        def discard_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
+            for key in keys:
+                self.entries.pop(key, None)
+
+    cache = Cache()
+    uncached_snapshot_table = next(
+        table for table in metadata.table_set.tables if table.descriptor.table_name == "uncached_items"
+    )
+    assert isinstance(uncached_snapshot_table.reader, BoundSnapshotTableReader)
+    uncached_cache_key = SnapshotTableArtifactCacheKey(
+        row_layout_digest=row_layout_digest_of(
+            uncached_snapshot_table.descriptor,
+            uncached_snapshot_table.reader.source_descriptor().columns,
+            uncached_snapshot_table.ordered_metadata,
+        ),
+        repository_id=catalog.repository_id,
+    )
+    invalid_cached_ref = put_with_built_ref(
+        store,
+        b"not parquet",
+        artifact_id="snapshot-rows-invalid-early-cache",
+        media_type=PARQUET_MEDIA_TYPE,
+    )
+    cache.entries[uncached_cache_key] = invalid_cached_ref
+    seed_provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
+    seeded = materialize_ref(
+        seed_provider,
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        requested_tables=("cached_items",),
+        canonical_binding=binding,
+        artifact_store=store,
+        export_cache=cache,
+    )
+    assert seeded.status is SnapshotMaterializationStatus.COMPLETE
+    assert len(cache.entries) == 2
+
+    provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
+    result = materialize_ref(
+        provider,
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        requested_tables=("cached_items", "uncached_items"),
+        canonical_binding=binding,
+        artifact_store=store,
+        export_cache=cache,
+    )
+
+    assert result.status is SnapshotMaterializationStatus.COMPLETE
+    assert provider.last_session is not None
+    assert tuple(
+        reader.catalog_table().table_name for reader in provider.last_session.table_readers
+    ) == ("uncached_items",)
+    assert tuple(reader.stream_count for reader in provider.last_session.table_readers) == (1,)
+    assert len(cache.entries) == 2
+    assert cache.entries[uncached_cache_key] != invalid_cached_ref
 
 
 def test_invalid_cached_parquet_falls_back_to_canonical_source_export() -> None:

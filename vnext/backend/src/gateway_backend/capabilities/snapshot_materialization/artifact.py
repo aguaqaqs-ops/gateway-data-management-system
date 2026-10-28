@@ -6,6 +6,7 @@ import json
 import secrets
 import time
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,6 +28,7 @@ from gateway_backend.artifacts.snapshot_table_export_cache import (
     SnapshotTableExportCachePort,
 )
 from gateway_backend.capabilities.snapshot_materialization._digest import (
+    encode_cell_frame,
     raw_content_digest_of,
     row_content_hash,
 )
@@ -413,6 +415,99 @@ def open_snapshot_table_artifact(
                 ),
             ),
             ordered_metadata=manifest.ordered_metadata,
+    )
+
+
+def open_cached_snapshot_table(
+    row_file_ref: ArtifactRef,
+    *,
+    descriptor: SnapshotTableDescriptor,
+    source_columns: tuple[SourceColumnDescriptor, ...],
+    ordered_metadata: SnapshotTableOrderedMetadata | None,
+    effective_key_columns: tuple[str, ...] = (),
+    store: ArtifactStorePort,
+) -> SnapshotTable:
+    """Open and validate a cached row file against the current repository descriptor."""
+
+    table_name = descriptor.table_name
+    if row_file_ref.media_type != PARQUET_MEDIA_TYPE:
+        raise ArtifactPublishError(
+            MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
+            "cached snapshot row file has an unsupported media type",
+            table=table_name,
+        )
+    try:
+        parquet_bytes = store.locate(row_file_ref)
+    except ManifestVerificationError as exc:
+        raise ArtifactPublishError(
+            _map_open_error(exc),
+            str(exc) or "cached snapshot row file is missing or corrupt",
+            table=table_name,
+        ) from exc
+    validated_columns, rows = _validate_parquet_against_descriptor(
+        parquet_bytes,
+        descriptor,
+        source_columns,
+        table_name,
+    )
+    if effective_key_columns:
+        column_indexes = {column.canonical_name: index for index, column in enumerate(source_columns)}
+        if any(name not in column_indexes for name in effective_key_columns):
+            raise ArtifactPublishError(
+                MaterializationDiagnosticCode.ARTIFACT_SCHEMA_MISMATCH,
+                "cached row file does not contain the effective comparison key",
+                table=table_name,
+            )
+        key_indexes = tuple(column_indexes[name] for name in effective_key_columns)
+        seen_keys: set[tuple[bytes, ...]] = set()
+        duplicate_key = False
+        for row in rows:
+            key = tuple(
+                encode_cell_frame(source_columns[index], row[index])
+                for index in key_indexes
+            )
+            if key in seen_keys:
+                duplicate_key = True
+                break
+            seen_keys.add(key)
+        if duplicate_key:
+            diagnostic = MaterializationDiagnostic(
+                code=MaterializationDiagnosticCode.DUPLICATE_EFFECTIVE_KEY,
+                severity=DiagnosticSeverity.WARNING,
+                message="duplicate effective key rows were preserved",
+                table=table_name,
+            )
+            descriptor = replace(
+                descriptor,
+                degraded_reason=DegradedReason.DUPLICATE_EFFECTIVE_KEY,
+                diagnostics=(*descriptor.diagnostics, diagnostic),
+            )
+    source = source_descriptor_for(
+        table_name,
+        descriptor.display_table_name,
+        validated_columns,
+        descriptor.primary_key_columns,
+    )
+    batch_metadata = SnapshotTableBatchMetadata(
+        blank_provenance=(
+            BlankRowProvenance.NONE
+            if ordered_metadata is None
+            else ordered_metadata.blank_provenance
+        )
+    )
+    return SnapshotTable(
+        descriptor=descriptor,
+        reader=BoundSnapshotTableReader(
+            descriptor,
+            ParquetBytesReader(source, parquet_bytes, rows),
+        ),
+        diagnostics=descriptor.diagnostics,
+        batch_reader=ParquetSnapshotTableBatchReader(
+            descriptor,
+            parquet_bytes,
+            metadata=batch_metadata,
+        ),
+        ordered_metadata=ordered_metadata,
     )
 
 

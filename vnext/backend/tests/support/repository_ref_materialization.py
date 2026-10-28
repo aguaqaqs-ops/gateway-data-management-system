@@ -22,6 +22,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationResult,
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import materialize_repository_ref
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.contracts import (
@@ -402,6 +403,7 @@ def make_request(
     ruleset: TableRulesetSnapshot | None = None,
     canonical_binding: CanonicalBinding | None = None,
     artifact_store: object | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> RepositoryRefMaterializationRequest:
     active_ruleset = _complete_ruleset(ruleset or default_ruleset())
     return RepositoryRefMaterializationRequest(
@@ -420,6 +422,7 @@ def make_request(
         requested_tables=requested_tables,
         parser_version=parser_version,
         artifact_store=artifact_store,
+        export_cache=export_cache,
     )
 
 
@@ -435,6 +438,7 @@ def materialize_ref(
     ruleset: TableRulesetSnapshot | None = None,
     canonical_binding: CanonicalBinding | None = None,
     artifact_store: object | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> SnapshotMaterializationResult:
     return materialize_repository_ref(
         make_request(
@@ -448,6 +452,7 @@ def materialize_ref(
             ruleset=ruleset,
             canonical_binding=canonical_binding,
             artifact_store=artifact_store,
+            export_cache=export_cache,
         )
     )
 

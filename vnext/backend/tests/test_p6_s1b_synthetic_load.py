@@ -38,13 +38,14 @@ def test_synthetic_parser_tracks_rows_when_tables_have_different_widths(tmp_path
         "`id` INT NOT NULL, `value` VARCHAR(20) NOT NULL, `optional` VARCHAR(20), "
         "PRIMARY KEY (`id`));\n"
         "CREATE TABLE `other` (`id` INT NOT NULL, PRIMARY KEY (`id`));\n"
-        "INSERT INTO `records` VALUES (1, 'a', 'x');\n"
+        "INSERT INTO `records` VALUES (1, 'a', 'x'), (3, 'b', 'y');\n"
         "INSERT INTO `other` VALUES (2);\n",
         encoding="utf-8",
     )
 
     parsed = _parse_input(source.read_bytes())
-    assert len(parsed.rows_by_table["records"]) == 1
+    assert len(parsed.rows_by_table["records"]) == 2
     assert len(parsed.rows_by_table["other"]) == 1
+    assert tuple(row.row_index for row in parsed.rows_by_table["records"]) == (0, 1)
     assert len(parsed.rows_by_table["records"][0].cells) == 3
     assert len(parsed.rows_by_table["other"][0].cells) == 1

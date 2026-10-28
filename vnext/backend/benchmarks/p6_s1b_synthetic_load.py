@@ -175,8 +175,12 @@ def _parse_input(raw: bytes) -> ParsedInput:
         if not cursor.try_keyword("values", runtime):
             raise ValueError(f"INSERT table {table_name} has no VALUES clause")
         statement_rows: list[RowTuple] = []
+        has_previous_row = False
         while True:
             cursor.skip_ws_and_comments(runtime)
+            if has_previous_row and cursor.peek() == ord(","):
+                cursor.pos += 1
+                cursor.skip_ws_and_comments(runtime)
             if cursor.peek() != ord("("):
                 break
             tuple_start, tuple_end = cursor.take_balanced_paren(runtime)
@@ -210,6 +214,7 @@ def _parse_input(raw: bytes) -> ParsedInput:
             statement_rows.append(row_tuple)
             grouped[table_name].append(row_tuple)
             table_row_indexes[table_name] += 1
+            has_previous_row = True
         statements.append(InsertStatement(table_name, span, tuple(statement_rows)))
     for table_name, table_rows in rows.items():
         if table_row_indexes[table_name] != len(table_rows):

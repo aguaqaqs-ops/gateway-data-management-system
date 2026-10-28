@@ -890,7 +890,9 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     }
     assert len(snapshot_entries) == 1
     assert snapshot_entries[0]["shared"] is True
-    assert len(snapshot_entries[0]["table_bindings"]) == 4
+    table_bindings = snapshot_entries[0]["table_bindings"]
+    assert isinstance(table_bindings, list)
+    assert len(table_bindings) == 4
 
 
 def test_repository_row_count_mismatch_fails_history_compare(tmp_path: Path) -> None:

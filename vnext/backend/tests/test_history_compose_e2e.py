@@ -606,7 +606,9 @@ def test_compose_history_compare_journey_zero_write_restart(
             pair_initial_a = compare_three_body["result"]["pairs"][0]
             assert pair_initial_a["before_commit"] == initial_commit_id
             assert pair_initial_a["current_commit"] == main_after_a
-            assert int(pair_initial_a["record_count"]) == 1
+            # Whole-table additions are browseable through the bundle and do not
+            # expand into one comparison record per row.
+            assert int(pair_initial_a["record_count"]) == 0
             zero_table_comparison_digest = str(pair_initial_a["comparison_digest"])
             bundle_digest = str(compare_three_body["result"]["bundle_digest"])
             zero_table_bundle_digest = bundle_digest

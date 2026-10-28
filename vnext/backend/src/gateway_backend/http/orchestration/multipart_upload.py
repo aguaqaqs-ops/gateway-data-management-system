@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 from datetime import datetime
@@ -51,8 +52,8 @@ async def accept_multipart_upload(
     now: datetime,
 ) -> UploadRevisionResponse:
     del workspace_repository
-    try:
-        return await anyio.to_thread.run_sync(
+    acceptance = asyncio.create_task(
+        anyio.to_thread.run_sync(
             lambda: _accept_staged_upload(
                 context=context,
                 workspace_id=workspace_id,
@@ -65,6 +66,25 @@ async def accept_multipart_upload(
             ),
             abandon_on_cancel=False,
         )
+    )
+    try:
+        return await asyncio.shield(acceptance)
+    except asyncio.CancelledError as cancellation:
+        # asyncio.Task.cancel() is not masked by AnyIO's CancelScope shielding.
+        # Keep the staged inputs and request admission slot alive until the
+        # synchronous acceptance transaction has actually finished.
+        while not acceptance.done():
+            try:
+                await asyncio.shield(acceptance)
+            except asyncio.CancelledError:
+                continue
+            except BaseException:
+                break
+        try:
+            acceptance.result()
+        except BaseException:
+            pass
+        raise cancellation
     finally:
         shutil.rmtree(parsed.staging_dir, ignore_errors=True)
 

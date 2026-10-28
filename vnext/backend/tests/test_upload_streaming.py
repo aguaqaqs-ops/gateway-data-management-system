@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 import shutil
+import threading
 import time
 from collections.abc import AsyncIterator, Awaitable
 from io import BytesIO
@@ -17,7 +18,10 @@ from starlette.datastructures import Headers
 
 from gateway_backend.http.errors import ApiError
 import gateway_backend.http.routes.upload_revisions as upload_revisions
+import gateway_backend.http.orchestration.multipart_upload as multipart_upload
 from gateway_backend.http.orchestration.multipart_stream import (
+    ParsedMultipartUpload,
+    StagedUploadPart,
     iter_file_chunks,
     parse_streaming_multipart,
 )
@@ -153,14 +157,19 @@ def test_idle_stream_timeout_maps_to_http_408_with_reason(
     monkeypatch.setattr(upload_revisions, "parse_streaming_multipart", timeout)
 
     class Gate:
+        in_flight = 0
+        release_count = 0
+
         def try_acquire(self) -> bool:
+            self.in_flight += 1
             return True
 
         def allows_new_work(self) -> bool:
             return True
 
         def release(self) -> None:
-            return None
+            self.in_flight -= 1
+            self.release_count += 1
 
     async def receive() -> dict[str, object]:
         return {"type": "http.request", "body": b"", "more_body": False}
@@ -180,7 +189,8 @@ def test_idle_stream_timeout_maps_to_http_408_with_reason(
         },
         receive,
     )
-    deps = SimpleNamespace(admission_gate=Gate())
+    gate = Gate()
+    deps = SimpleNamespace(admission_gate=gate)
     identity = IdentityContext(
         actor_id="actor-1",
         gateway_device_external_key="device-1",
@@ -194,6 +204,120 @@ def test_idle_stream_timeout_maps_to_http_408_with_reason(
         assert caught.value.status_code == 408
         assert caught.value.code == "UPLOAD_STREAM_TIMEOUT"
         assert caught.value.details == {"reason": "IDLE"}
+        assert gate.in_flight == 0
+        assert gate.release_count == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.serial
+def test_direct_task_cancellation_waits_for_upload_acceptance_before_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging_dir = tmp_path / "staged-upload"
+    staging_dir.mkdir()
+    staged_path = staging_dir / "part-1"
+    staged_path.write_bytes(b"transaction-input")
+    parsed = ParsedMultipartUpload(
+        manifest_bytes=b"{}",
+        file_parts={"modified": StagedUploadPart("modified", staged_path, 17)},
+        staging_dir=staging_dir,
+    )
+    started = threading.Event()
+    finish_transaction = threading.Event()
+    committed: list[bytes] = []
+
+    class Gate:
+        in_flight = 0
+        release_count = 0
+
+        def try_acquire(self) -> bool:
+            self.in_flight += 1
+            return True
+
+        def allows_new_work(self) -> bool:
+            return True
+
+        def release(self) -> None:
+            self.in_flight -= 1
+            self.release_count += 1
+
+    gate = Gate()
+
+    async def parsed_upload(**_kwargs: object) -> ParsedMultipartUpload:
+        return parsed
+
+    def accept_transaction(**kwargs: object) -> object:
+        upload = kwargs["parsed"]
+        assert isinstance(upload, ParsedMultipartUpload)
+        assert upload.file_parts["modified"].path.read_bytes() == b"transaction-input"
+        started.set()
+        assert finish_transaction.wait(timeout=5)
+        committed.append(upload.file_parts["modified"].path.read_bytes())
+        return object()
+
+    monkeypatch.setattr(upload_revisions, "parse_streaming_multipart", parsed_upload)
+    monkeypatch.setattr(multipart_upload, "_accept_staged_upload", accept_transaction)
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/workspaces/workspace-1/upload-revisions",
+            "raw_path": b"/v1/workspaces/workspace-1/upload-revisions",
+            "query_string": b"",
+            "headers": [
+                (b"idempotency-key", b"upload-cancel"),
+                (b"content-type", b"multipart/form-data; boundary=test"),
+            ],
+            "server": ("test", 80),
+            "client": ("test", 1234),
+        },
+        receive,
+    )
+    identity = IdentityContext(
+        actor_id="actor-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        permissions=frozenset(),
+    )
+    deps = SimpleNamespace(
+        admission_gate=gate,
+        scope_resolution=None,
+        workspace_repository=None,
+        submit_unit_of_work_factory=None,
+        artifact_store=None,
+        now=lambda: None,
+    )
+
+    async def run() -> None:
+        task = asyncio.create_task(
+            accept_upload_route("workspace-1", request, deps, identity)  # type: ignore[arg-type]
+        )
+        assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=5)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert staging_dir.is_dir()
+        assert staged_path.read_bytes() == b"transaction-input"
+        assert gate.in_flight == 1
+        assert gate.release_count == 0
+
+        finish_transaction.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert committed == [b"transaction-input"]
+        assert not staging_dir.exists()
+        assert not staged_path.exists()
+        assert gate.in_flight == 0
+        assert gate.release_count == 1
 
     asyncio.run(run())
 

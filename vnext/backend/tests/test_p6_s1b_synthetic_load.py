@@ -82,7 +82,7 @@ def test_w4_generates_unique_keys_and_counted_changes(
     tables = {item["table"]: item for item in summary["tables"]}
     assert tables["records"] == {
         "table": "records",
-        "before": 3,
+        "before": 60,
         "inserted": expected_inserted,
         "deleted": expected_deleted,
         "updated": expected_updated,

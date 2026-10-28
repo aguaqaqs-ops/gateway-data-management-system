@@ -291,6 +291,50 @@ def test_additive_schema_alone_stays_summary_only_and_keeps_added_names_private(
     assert projected.schema_summary.current_only_columns == ()
 
 
+def test_added_column_excluded_value_swap_is_summary_only_and_visible_as_updated() -> None:
+    facts = _facts(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.UNCHANGED,
+            schema_changes=ComparisonSchemaChanges(
+                current_only_columns=("note",),
+                schema_evolution=SchemaEvolution.COLUMNS_ADDED,
+            ),
+            content_changed=True,
+        )
+    )
+
+    result = assemble_surface(_request(facts))
+
+    assert result.surface is not None
+    projected = result.surface.tables[0]
+    _assert_s1b_surface_golden("added_column_excluded_values_swapped", projected)
+    assert result.surface.summary.changed_table_count == 1
+    assert projected.change_kind is SurfaceChangeKind.UPDATED
+    assert projected.display.strategy is SurfaceDisplayStrategy.SUMMARY_ONLY
+    assert projected.content_changed is True
+
+
+def test_incompatible_enum_label_change_projects_schema_changed() -> None:
+    facts = _facts(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.SCHEMA_CHANGED,
+            schema_changes=ComparisonSchemaChanges(
+                incompatible_columns=("state",),
+                schema_evolution=SchemaEvolution.INCOMPATIBLE,
+            ),
+        )
+    )
+
+    result = assemble_surface(_request(facts))
+
+    assert result.surface is not None
+    projected = result.surface.tables[0]
+    _assert_s1b_surface_golden("incompatible_enum_label_change", projected)
+    assert projected.change_kind is SurfaceChangeKind.SCHEMA_CHANGED
+
+
 @pytest.mark.parametrize(
     ("status", "expected_kind"),
     (

@@ -569,8 +569,13 @@ def _compare_keyless(
             diagnostics=diagnostics,
             records=(_schema_record(table_name, diagnostics, schema.selected),),
         )
-    before_counts = Counter(_row_digest(row, schema.selected).value for row in before_rows)
-    current_counts = Counter(_row_digest(row, schema.selected).value for row in current_rows)
+    row_columns = schema.selected
+    if _is_columns_added(schema):
+        row_columns = tuple(
+            column for column in schema.selected if column not in policy.compare_excluded_columns
+        )
+    before_counts = Counter(_row_digest(row, row_columns).value for row in before_rows)
+    current_counts = Counter(_row_digest(row, row_columns).value for row in current_rows)
     added_counts = current_counts - before_counts
     deleted_counts = before_counts - current_counts
     added = [
@@ -678,9 +683,12 @@ def _ignored_shared_values_changed(
         return False
     before_names = {column.name for column in before_descriptor.columns}
     current_names = {column.name for column in current_descriptor.columns}
-    columns = tuple(sorted(set(policy.compare_excluded_columns) & before_names & current_names))
-    if not columns:
+    excluded_columns = set(policy.compare_excluded_columns) & before_names & current_names
+    if not excluded_columns:
         return False
+    # Compare complete shared row projections as a multiset. Comparing only the
+    # excluded values loses their association with the row they came from.
+    columns = tuple(sorted(before_names & current_names))
     if before_rows is None:
         before_rows = _read_rows(before_table, before_descriptor, columns)
     if current_rows is None:

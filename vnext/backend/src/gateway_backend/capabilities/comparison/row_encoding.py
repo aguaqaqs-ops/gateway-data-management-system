@@ -407,8 +407,21 @@ def _column_map(descriptor: SnapshotTableDescriptor) -> dict[str, SnapshotColumn
     return result
 
 
-def _column_signature(column: SnapshotColumnDescriptor) -> tuple[str | None, bool]:
-    return (None if column.scalar_type is None else column.scalar_type.upper(), column.nullable)
+def _column_signature(
+    column: SnapshotColumnDescriptor,
+) -> tuple[str | tuple[str, tuple[str, ...]] | None, bool]:
+    scalar_type = column.scalar_type
+    if scalar_type is None:
+        return None, column.nullable
+    try:
+        enum_set = enum_set_labels_for_sql_spelling(scalar_type)
+    except ValueError:
+        enum_set = None
+    if enum_set is not None:
+        # The type keyword is normalized by the parser, while label strings
+        # retain their original case and spelling.
+        return enum_set, column.nullable
+    return scalar_type.upper(), column.nullable
 
 
 def _column_signatures_compatible(

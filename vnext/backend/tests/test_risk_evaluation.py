@@ -232,6 +232,27 @@ def test_added_columns_do_not_emit_schema_change_risk() -> None:
     _assert_s1b_risk_golden("added_columns_only", result, InMemoryArtifactStore())
 
 
+def test_incompatible_enum_label_change_emits_schema_change_risk() -> None:
+    store = InMemoryArtifactStore()
+    result = _evaluate(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.SCHEMA_CHANGED,
+            schema_changes=ComparisonSchemaChanges(
+                incompatible_columns=("state",),
+                schema_evolution=SchemaEvolution.INCOMPATIBLE,
+            ),
+        ),
+        store=store,
+    )
+
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.SCHEMA_CHANGED,)
+    _assert_s1b_risk_golden("incompatible_enum_set_label_change", result, store)
+
+
 def test_standard_rows_are_row_targeted_and_digest_is_stable() -> None:
     records = (
         ComparisonRecord(

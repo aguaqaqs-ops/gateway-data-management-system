@@ -21,6 +21,13 @@
       "risk_levels": [],
       "reason_codes": [],
       "annotation_count": 0
+    },
+    "incompatible_enum_set_label_change": {
+      "status": "READY",
+      "risk_level": "MEDIUM_HIGH",
+      "risk_levels": ["MEDIUM_HIGH"],
+      "reason_codes": ["SCHEMA_CHANGED"],
+      "annotation_count": 1
     }
   }
 }

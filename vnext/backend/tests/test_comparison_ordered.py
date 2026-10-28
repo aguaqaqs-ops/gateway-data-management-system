@@ -241,11 +241,11 @@ def test_ordered_compare_excluded_change_is_visible_without_row_change() -> None
 def test_ordered_added_column_compares_shared_excluded_values() -> None:
     before = """
         CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
-        INSERT INTO t VALUES (1, 1, 'a');
+        INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b');
     """
     current = """
         CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL, note TEXT NULL);
-        INSERT INTO t VALUES (1, 1, 'z', 'new');
+        INSERT INTO t VALUES (2, 2, 'a', 'new'), (1, 1, 'b', 'new');
     """
 
     table = _table(_facts(_plan(before, current, compare_excluded_columns=("value",))))
@@ -253,6 +253,24 @@ def test_ordered_added_column_compares_shared_excluded_values() -> None:
     assert table.status is ComparisonTableStatus.UNCHANGED
     assert table.content_changed is True
     assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.records == ()
+
+
+def test_ordered_added_column_and_physical_row_reorder_remain_unchanged() -> None:
+    before = """
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
+        INSERT INTO t VALUES (1, 1, 'a'), (2, 2, 'b');
+    """
+    current = """
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL, note TEXT NULL);
+        INSERT INTO t VALUES (2, 2, 'b', 'new'), (1, 1, 'a', 'new');
+    """
+
+    table = _table(_facts(_plan(before, current, compare_excluded_columns=("value",))))
+
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.content_changed is False
     assert table.records == ()
 
 

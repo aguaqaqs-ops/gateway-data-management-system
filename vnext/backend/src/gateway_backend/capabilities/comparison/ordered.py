@@ -700,9 +700,12 @@ def _ignored_shared_content_changed(
         return False
     before_names = {column.name for column in before_descriptor.columns}
     current_names = {column.name for column in current_descriptor.columns}
-    columns = tuple(sorted(set(policy.compare_excluded_columns) & before_names & current_names))
-    if not columns:
+    excluded_columns = set(policy.compare_excluded_columns) & before_names & current_names
+    if not excluded_columns:
         return False
+    # Keep each excluded value attached to its shared row while ignoring the
+    # newly added columns; a value-only multiset misses swaps between rows.
+    columns = tuple(sorted(before_names & current_names))
     before_content = Counter(_row_digest(row.encoded, columns).value for row in before_rows)
     current_content = Counter(_row_digest(row.encoded, columns).value for row in current_rows)
     return before_content != current_content

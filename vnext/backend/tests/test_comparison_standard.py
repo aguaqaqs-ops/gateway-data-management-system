@@ -50,7 +50,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 )
 from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from tests.support.snapshot_materialization import materialize_sql
-from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
+from tests.support.table_rules import comparison_ruleset_for, fallback_record, standard_rule_record
 
 pytestmark = pytest.mark.unit
 _S1B_GOLDEN = (
@@ -60,6 +60,36 @@ _S1B_GOLDEN = (
     / "comparison"
     / "s1b"
     / "semantic-results.json"
+)
+_ADDED_COLUMN_ROW_ASSOCIATION_CASES = (
+    pytest.param(True, id="keyed"),
+    pytest.param(False, id="keyless"),
+)
+_ENUM_SET_SCHEMA_EVOLUTION_CASES = (
+    pytest.param(
+        "ENUM", "'a', 'b'", "'A', 'b'", "'b'", True, SchemaEvolution.INCOMPATIBLE,
+        "enum_label_case_changed_with_added_column", id="enum-case-with-added-column",
+    ),
+    pytest.param(
+        "SET", "'x', 'y'", "'x', 'z'", "'x'", True, SchemaEvolution.INCOMPATIBLE,
+        "set_member_renamed_with_added_column", id="set-rename-with-added-column",
+    ),
+    pytest.param(
+        "ENUM", "'a', 'b'", "'A', 'b'", "'b'", False, SchemaEvolution.INCOMPATIBLE,
+        "enum_label_case_changed", id="enum-case-without-added-column",
+    ),
+    pytest.param(
+        "SET", "'x', 'y'", "'x', 'z'", "'x'", False, SchemaEvolution.INCOMPATIBLE,
+        "set_member_renamed", id="set-rename-without-added-column",
+    ),
+    pytest.param(
+        "ENUM", "'a', 'c'", "'a', 'b', 'c'", "'c'", True, SchemaEvolution.COLUMNS_ADDED,
+        "enum_member_added_between_existing_labels", id="enum-add-in-middle",
+    ),
+    pytest.param(
+        "SET", "'x', 'z'", "'x', 'y', 'z'", "'x'", True, SchemaEvolution.COLUMNS_ADDED,
+        "set_member_added_between_existing_members", id="set-add-in-middle",
+    ),
 )
 
 
@@ -291,6 +321,62 @@ def test_added_column_keeps_shared_excluded_value_changes_summary_only() -> None
     assert table.records == ()
 
 
+@pytest.mark.parametrize("has_primary_key", _ADDED_COLUMN_ROW_ASSOCIATION_CASES)
+def test_added_column_preserves_excluded_values_row_association(
+    has_primary_key: bool,
+) -> None:
+    primary_key = " PRIMARY KEY" if has_primary_key else ""
+    before = (
+        f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL); "
+        "INSERT INTO t VALUES (1, 'a'), (2, 'b');"
+    )
+    current = (
+        f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL, note TEXT NULL); "
+        "INSERT INTO t VALUES (1, 'b', 'new'), (2, 'a', 'new');"
+    )
+    record = (
+        standard_rule_record("t", compare_excluded_columns=("aux",))
+        if has_primary_key
+        else replace(fallback_record(), compare_excluded_columns=("aux",))
+    )
+
+    table = _one_table(_facts(_plan(before, current, rule_set=comparison_ruleset_for(record))))
+
+    _assert_s1b_fact_golden("added_columns_excluded_values_swapped", table)
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.content_changed is True
+    assert table.row_modified_count == 0
+    assert table.records == ()
+
+
+@pytest.mark.parametrize("has_primary_key", _ADDED_COLUMN_ROW_ASSOCIATION_CASES)
+def test_added_column_and_physical_row_reorder_remain_unchanged(
+    has_primary_key: bool,
+) -> None:
+    primary_key = " PRIMARY KEY" if has_primary_key else ""
+    before = (
+        f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL); "
+        "INSERT INTO t VALUES (1, 'a'), (2, 'b');"
+    )
+    current = (
+        f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL, note TEXT NULL); "
+        "INSERT INTO t VALUES (2, 'b', 'new'), (1, 'a', 'new');"
+    )
+    record = (
+        standard_rule_record("t", compare_excluded_columns=("aux",))
+        if has_primary_key
+        else replace(fallback_record(), compare_excluded_columns=("aux",))
+    )
+
+    table = _one_table(_facts(_plan(before, current, rule_set=comparison_ruleset_for(record))))
+
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.content_changed is False
+    assert table.records == ()
+
+
 def test_enum_and_set_member_additions_are_columns_added() -> None:
     before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, e ENUM('a', 'b') NULL, s SET('x', 'y') NULL); INSERT INTO t VALUES (1, 'a', 'x');"
     current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, e ENUM('a', 'c', 'b') NULL, s SET('x', 'y', 'z') NULL); INSERT INTO t VALUES (1, 'a', 'x');"
@@ -301,6 +387,62 @@ def test_enum_and_set_member_additions_are_columns_added() -> None:
     assert table.status is ComparisonTableStatus.UNCHANGED
     assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
     assert table.records == ()
+
+
+@pytest.mark.parametrize(
+    ("type_keyword", "before_labels", "current_labels", "row_value", "add_note", "expected", "golden_case"),
+    _ENUM_SET_SCHEMA_EVOLUTION_CASES,
+)
+def test_enum_and_set_schema_evolution_preserves_exact_label_spelling(
+    type_keyword: str,
+    before_labels: str,
+    current_labels: str,
+    row_value: str,
+    add_note: bool,
+    expected: SchemaEvolution,
+    golden_case: str,
+) -> None:
+    note_column = ", note TEXT NULL" if add_note else ""
+    note_value = ", 'new'" if add_note else ""
+    before = (
+        f"CREATE TABLE t (id INT NOT NULL PRIMARY KEY, state {type_keyword}({before_labels}) NULL); "
+        f"INSERT INTO t VALUES (1, {row_value});"
+    )
+    current = (
+        f"CREATE TABLE t (id INT NOT NULL PRIMARY KEY, state {type_keyword}({current_labels}) NULL"
+        f"{note_column}); INSERT INTO t VALUES (1, {row_value}{note_value});"
+    )
+
+    facts = _facts(_plan(before, current))
+    table = _one_table(facts)
+    _assert_s1b_fact_golden(golden_case, table)
+
+    assert table.schema_changes.schema_evolution is expected
+    if expected is SchemaEvolution.INCOMPATIBLE:
+        assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
+        assert table.schema_changes.incompatible_columns == ("state",)
+        assert table.schema_changes.current_only_columns == (("note",) if add_note else ())
+    else:
+        assert table.status is ComparisonTableStatus.UNCHANGED
+        assert table.schema_changes.incompatible_columns == ()
+        assert table.schema_changes.current_only_columns == ("note",)
+
+    risk = evaluate_risk(
+        RiskEvaluationInput(
+            comparison_facts=facts,
+            risk_ruleset=RiskRulesetSnapshot(rules=V1_RISK_RULE_SPECS),
+            risk_options=RiskOptions(),
+        ),
+        artifact_store=InMemoryArtifactStore(),
+    )
+    assert risk.status is RiskEvaluationStatus.READY
+    if expected is SchemaEvolution.INCOMPATIBLE:
+        assert risk.risk_report is not None
+        assert RiskReasonCode.SCHEMA_CHANGED in risk.risk_report.tables[0].reason_codes
+        assert risk.risk_report.tables[0].risk_level.value == "MEDIUM_HIGH"
+    else:
+        assert risk.risk_report is not None
+        assert risk.risk_report.tables == ()
 
 
 def test_removed_column_is_classified_separately_from_incompatible_schema() -> None:

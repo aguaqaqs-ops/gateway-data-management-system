@@ -106,7 +106,7 @@ Risk 仅生成 comparison/view-level `HIGH`，reason codes 为：
 
 ## Surface、表浏览和业务 projection
 
-当前锁步 contract 为 `backend-vnext/comparison/v2`、`backend-vnext/comparison-surface/v2`、`backend-vnext/comparison-bundle/v2`、`backend-vnext/business-projection/v2`、`backend-vnext/risk-report/v2`，upload delivery 使用 `preview-bundle/v3`、`preview-index/v3`、`preview-strategy-manifest/v3` 和 `diff-summary/v3`。Reader 只接受这些当前字段语义；旧产物必须重新上传生成。
+当前锁步 contract 为 `backend-vnext/comparison/v3`、`backend-vnext/comparison-surface/v3`、`backend-vnext/comparison-bundle/v3`、`backend-vnext/business-projection/v2`、`backend-vnext/risk/v2`，upload delivery 使用 `preview-bundle/v3`、`preview-index/v3`、`preview-strategy-manifest/v3` 和 `diff-summary/v3`。Reader 只接受这些当前字段语义；旧产物必须重新上传生成。
 
 replacement surface 发布：
 

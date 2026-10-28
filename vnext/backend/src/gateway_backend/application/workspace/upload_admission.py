@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from enum import StrEnum
 from typing import BinaryIO
 
 from gateway_backend.capabilities.source_package_staging import (
@@ -21,6 +22,19 @@ _SUPPORTED_MEDIA_TYPES = frozenset({"application/gzip", "application/x-gzip"})
 
 class UploadLimitExceededError(Exception):
     """Raised when upload exceeds bounded budgets."""
+
+
+class UploadStreamTimeoutReason(StrEnum):
+    IDLE = "IDLE"
+    TOTAL = "TOTAL"
+
+
+class UploadStreamTimeoutError(Exception):
+    def __init__(self, reason: UploadStreamTimeoutReason) -> None:
+        if type(reason) is not UploadStreamTimeoutReason:
+            raise ValueError("reason must be UploadStreamTimeoutReason")
+        self.reason = reason
+        super().__init__(reason.value)
 
 
 class UploadMediaUnsupportedError(Exception):

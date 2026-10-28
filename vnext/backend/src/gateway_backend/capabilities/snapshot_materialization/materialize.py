@@ -63,6 +63,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTable,
     SnapshotTableDescriptor,
     SnapshotTableSet,
+    SnapshotTableExportCachePort,
     SnapshotTableOrderedMetadata,
     GID_PSEUDO_MAX,
     GID_PSEUDO_MIN,
@@ -136,6 +137,8 @@ def materialize_projected_snapshot(
     *,
     artifact_store: object,
     context: ParserInvocationContext,
+    export_cache: SnapshotTableExportCachePort | None = None,
+    repository_id: str | None = None,
 ) -> SnapshotMaterializationResult:
     """Build and publish a Snapshot from tables produced by a canonical projection."""
     if type(source_snapshot) is not Snapshot:
@@ -222,6 +225,8 @@ def materialize_projected_snapshot(
             snapshot_digest=snapshot_digest,
             store=store,
             context=context,
+            export_cache=export_cache,
+            repository_id=repository_id,
         )
         table_set = SnapshotTableSet(
             snapshot_id=snapshot_id,

@@ -1,0 +1,36 @@
+{
+  "contract_version": "backend-vnext/comparison-surface/v3",
+  "cases": {
+    "added_columns_only": {
+      "table_status": "UNCHANGED",
+      "change_kind": "UNCHANGED",
+      "display_strategy": "SUMMARY_ONLY",
+      "schema_evolution": "COLUMNS_ADDED",
+      "before_only_columns": [],
+      "current_only_columns": [],
+      "records_ref_present": false
+    },
+    "whole_table_added": {
+      "table_status": "ADDED_TABLE",
+      "change_kind": "ADDED",
+      "display_strategy": "TABLE_BROWSE",
+      "before_table_ref_present": false,
+      "current_table_ref_present": true,
+      "row_count_before": null,
+      "row_count_current": 3,
+      "row_added_count": 0,
+      "records_ref_present": false
+    },
+    "whole_table_deleted": {
+      "table_status": "DELETED_TABLE",
+      "change_kind": "DELETED",
+      "display_strategy": "TABLE_BROWSE",
+      "before_table_ref_present": true,
+      "current_table_ref_present": false,
+      "row_count_before": 3,
+      "row_count_current": null,
+      "row_deleted_count": 0,
+      "records_ref_present": false
+    }
+  }
+}

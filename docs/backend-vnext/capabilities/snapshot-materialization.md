@@ -324,7 +324,7 @@ SnapshotMaterializationResult:
 - `table_ruleset_version` 应与实际使用的 `table_rule_registry` 保持一致。
 - snapshot materialization 只消费共享规则派生出的分类和 key 决策，不再维护独立规则真源。
 - Snapshot digest 只使用表级身份事实；provenance / diagnostics 信息只用于 traceability / replay / debug，不进入 `raw_content_digest` 的语义定义，也不作为 row file / export IO cache 的主判据。
-- upload / export build 阶段应使用 `row_layout_digest` 作为物理 row file 复用键；它由 canonical raw content digest 和 canonical export schema content 组合而成，不应再把 `table_name` 或 `compare_schema_digest` 混进去。这只减少物理文件数量，不改变 canonical digest 或 summary 语义。
+- upload / export build 阶段应使用 `row_layout_digest` 作为物理 row file 复用键；它由 canonical raw content digest、完整源列编码 schema 与 ordered row metadata 组合而成，不应把 `table_name` 或 `compare_schema_digest` 混进去。跨 operation export cache 另外以 repository scope 与 Parquet writer contract version 限定命中。这只减少物理文件数量，不改变 canonical digest 或 summary 语义。
 - upload / preview 允许先完成 `provisional summary + lightweight reader_init`，canonical digest validation、final summary 和 cache 生成可以在异步阶段完成，不要求同一同步调用里一次做完。
 
 ## repository_ref_materialization
@@ -575,7 +575,7 @@ sort_or_row_order_contract
 - 支持同 `repository_id` 内跨 commit/ref 复用。
 - 不支持跨 project/repository_id 复用。
 - Cache key 不包含业务流程 ID、table name 或 host path。
-- `row_layout_digest` 由 canonical raw content digest 和 canonical export schema content 组合而成；字段顺序、row order 或 table name 变化不应改变 cache key。
+- `row_layout_digest` 由 canonical raw content digest、完整源列编码 schema 与 ordered row metadata 组合而成；table name 不进入 digest。源列类型、ENUM/SET 标签、nullability 或 Parquet 字段布局变化会改变 layout。Repository scope 与 Parquet writer contract version 是 export cache 的独立键字段。
 - `validation_status_policy=PROVISIONAL_ONLY` 时只能写入 `PROVISIONAL` candidate。
 - 调用方允许读取 `PROVISIONAL` candidate 时，必须重新校验 source binding、descriptor 和 digest，并具备 fallback recompute 路径。
 - Repository/readback 或等价权威校验通过后，cache entry 才能 promote 为 `COMMIT_VALIDATED`。

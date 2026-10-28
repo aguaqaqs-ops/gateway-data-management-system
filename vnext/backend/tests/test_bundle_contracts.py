@@ -1,4 +1,4 @@
-"""ComparisonBundle v2 public contract tests."""
+"""ComparisonBundle v3 public contract tests."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleInput,
     BundlePairInput,
     BundleProfile,
+    BundleTableBinding,
+    BundleTableSide,
     validate_logical_path,
 )
 from gateway_backend.capabilities.surface_assembly import SurfaceAssemblyResult, SurfaceAssemblyStatus
@@ -85,6 +87,37 @@ def test_closure_rejects_duplicate_source_ref_and_path() -> None:
         BundleArtifactClosure(entries=(first, second))
 
 
+def test_snapshot_closure_keeps_all_table_side_bindings_for_shared_source() -> None:
+    raw = b"parquet rows"
+    ref = ArtifactRef(
+        "same-snapshot-table",
+        "application/vnd.apache.parquet",
+        len(raw),
+        raw_blob_digest(raw),
+    )
+    before = BundleArtifactBinding(
+        source_ref=ref,
+        logical_path="pairs/pair/tables/before/items/rows/000000.parquet",
+        kind=BundleArtifactKind.SNAPSHOT_TABLE,
+        pair_id="pair",
+        table_name="items",
+    )
+    current = BundleArtifactBinding(
+        source_ref=ref,
+        logical_path="pairs/pair/tables/current/items/rows/000000.parquet",
+        kind=BundleArtifactKind.SNAPSHOT_TABLE,
+        pair_id="pair",
+        table_name="items",
+    )
+
+    closure = BundleArtifactClosure(entries=(before, current))
+
+    assert tuple(item.table_bindings for item in closure.entries) == (
+        (BundleTableBinding("pair", "items", BundleTableSide.BEFORE),),
+        (BundleTableBinding("pair", "items", BundleTableSide.CURRENT),),
+    )
+
+
 def test_failed_result_cannot_publish_bundle_refs() -> None:
     with pytest.raises(ValueError, match="must not publish"):
         BundleAssemblyResult(
@@ -93,6 +126,6 @@ def test_failed_result_cannot_publish_bundle_refs() -> None:
         )
 
 
-def test_bundle_contract_version_is_v2() -> None:
-    assert BUNDLE_CONTRACT_VERSION == "backend-vnext/comparison-bundle/v2"
+def test_bundle_contract_version_is_v3() -> None:
+    assert BUNDLE_CONTRACT_VERSION == "backend-vnext/comparison-bundle/v3"
     assert isinstance(DigestRef("sha256:" + "00" * 32), DigestRef)

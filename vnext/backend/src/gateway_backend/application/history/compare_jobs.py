@@ -79,7 +79,7 @@ from gateway_backend.capabilities.bundle_assembly import (
 )
 from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet, OrderedPolicy
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
@@ -92,6 +92,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
     SnapshotTableSet,
+    SnapshotTableExportCachePort,
     snapshot_from_document,
     snapshot_summary_from_document,
     snapshot_summary_to_document,
@@ -194,6 +195,7 @@ class HistoryCompareRuntimeDependencies:
     artifact_store: ArtifactStorePort
     repository_provider_factory: RepositoryProviderFactory
     control_transaction_factory: HistoryCompareControlTransactionFactory
+    snapshot_export_cache: SnapshotTableExportCachePort | None = None
 
 
 def history_compare_job_definitions() -> tuple[JobDefinition, ...]:
@@ -314,6 +316,7 @@ def history_compare_composition_bundle(
         control_transaction_factory=bind_history_compare_transaction_factory(
             deps.control_transaction_factory
         ),
+        snapshot_export_cache=deps.snapshot_export_cache,
     )
     return (
         history_compare_job_definitions(),
@@ -744,7 +747,6 @@ def _materialize_distinct_commits(
         binding = canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
         bindings[commit_id] = binding
 
-    requested_by_commit = _history_requested_tables(payload, bindings)
     for commit_id in distinct_commits:
         bound = _materialize_commit(
             repository_id=payload.repository_id,
@@ -753,53 +755,11 @@ def _materialize_distinct_commits(
             store=deps.artifact_store,
             canonical_binding=bindings[commit_id],
             ruleset=runtime_ruleset,
-            requested_tables=requested_by_commit[commit_id],
+            export_cache=deps.snapshot_export_cache,
         )
         sides[commit_id] = bound
 
     return sides
-
-
-def _history_requested_tables(
-    payload: HistoryCompareJobPayload,
-    bindings: dict[str, CanonicalBinding],
-) -> dict[str, tuple[str, ...]]:
-    requested: dict[str, set[str]] = {commit_id: set() for commit_id in bindings}
-    for index in range(len(payload.nodes) - 1):
-        before_commit = payload.nodes[index].commit_id
-        current_commit = payload.nodes[index + 1].commit_id
-        before = bindings[before_commit]
-        current = bindings[current_commit]
-        before_views = {view.canonical_table: view for view in before.tables}
-        current_views = {view.canonical_table: view for view in current.tables}
-        before_identities = {item.canonical_table: item for item in before.table_identities}
-        current_identities = {item.canonical_table: item for item in current.table_identities}
-        for name in before_views.keys() | current_views.keys():
-            before_view = before_views.get(name)
-            current_view = current_views.get(name)
-            before_identity = before_identities.get(name)
-            current_identity = current_identities.get(name)
-            unchanged = (
-                before_view is not None
-                and current_view is not None
-                and before_identity is not None
-                and current_identity is not None
-                and before.storage_projection_version == current.storage_projection_version
-                and before_view == current_view
-                and before_identity == current_identity
-            )
-            if unchanged:
-                if current_view is not None and current_view.ordered_policy is OrderedPolicy.GID_NO_V1:
-                    requested[current_commit].add(name)
-                continue
-            if before_view is not None:
-                requested[before_commit].add(name)
-            if current_view is not None:
-                requested[current_commit].add(name)
-    return {
-        commit_id: tuple(sorted(names, key=lambda item: item.encode("utf-8")))
-        for commit_id, names in requested.items()
-    }
 
 
 def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:
@@ -823,6 +783,7 @@ def _materialize_commit(
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
     requested_tables: tuple[str, ...] | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
@@ -835,6 +796,7 @@ def _materialize_commit(
         context=ParserInvocationContext(NeverCancel()),
         requested_tables=requested_tables,
         artifact_store=store,
+        export_cache=export_cache,
     )
     result = materialize_repository_ref(request)
     if result.status is not SnapshotMaterializationStatus.COMPLETE:
@@ -912,6 +874,9 @@ def _assemble_comparison(
                     pair_state.surface_result.surface,
                     pair_id,
                     pair_state.records_closure,
+                    before=before,
+                    current=current,
+                    include_all_tables=True,
                 ),
             )
         )

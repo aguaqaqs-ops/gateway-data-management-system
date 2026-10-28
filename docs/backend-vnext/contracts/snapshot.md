@@ -160,7 +160,7 @@ SnapshotTableDescriptor:
 - `materialization_stage=FINAL` 时，`raw_content_digest` 必须存在。
 - `compare_schema_digest` 只表达 canonical 字段集合和 compare key 选择，不表达字段顺序。
 - `raw_content_digest` 表达 canonicalized raw rows，row order 和 field order 不应改变结果。
-- `row_layout_digest` 是 row file / export IO cache 的物理复用键，基于 canonical raw content digest 和 canonical export schema content 组合而成；它不应混入 table name 或 compare schema 语义。
+- `row_layout_digest` 是 row file / export IO cache 的物理复用键，基于 canonical raw content digest、完整源列编码 schema 与 ordered row metadata 组合而成；它不混入 table name 或 compare schema 语义。Parquet writer contract version 与 repository scope 是 export cache 的独立键字段。
 - Descriptor 不包含 full rows。
 - Descriptor 可以包含可选的 `projection_digests` 派生摘要；它属于该真实 logical table 的 compare-ready projection summary，不是独立 summary table row，不增加 `SnapshotSummary.table_count` 或 `row_count_total`。缺失该字段表示没有预计算 projection 摘要，comparison 必须回退正常 projection 路径。
 - Descriptor 不包含 artifact path、cache key、operation id 或 host path。

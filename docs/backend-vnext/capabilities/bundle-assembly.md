@@ -1,6 +1,6 @@
 # Bundle Assembly Capability
 
-本文定义并记录 comparison bundle v2 的实现。Contract 见 `../contracts/comparison-bundle.md`。
+本文定义并记录 comparison bundle v3 的实现。Contract 见 `../contracts/comparison-bundle.md`。
 
 Bundle assembly 是 flow-neutral capability。它把一个或多个 `ComparisonSurface` 及其 artifacts 闭合为可交付 bundle root 或 bundle artifact；flow 可以在外层加 preview/history/archive envelope，但 bundle core 不理解业务状态机。
 
@@ -216,9 +216,9 @@ Integration：
 - cache-restored records/risk artifacts -> bundle-relative closure。
 - ordered unsupported surface -> bundle READY。
 
-## v2 实现状态
+## v3 实现状态
 
-- public contract version：`backend-vnext/comparison-bundle/v2`。
+- public contract version：`backend-vnext/comparison-bundle/v3`。
 - public entrypoints：`assemble_bundle`、`validate_bundle`、bundle digest/ref helpers。
 - Bundle 只允许使用 Surface public API/contracts、artifact port 和 shared kernel；不导入 comparison、risk、Repository、flow 或 runtime。
 - Bundle cache、GC/retention、flow envelope、Docker/Compose、Rust 和 runtime integration 仍 deferred。

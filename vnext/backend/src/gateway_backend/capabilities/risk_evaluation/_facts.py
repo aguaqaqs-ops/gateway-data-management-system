@@ -10,6 +10,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordKind,
     ComparisonTableFact,
     ComparisonTableStatus,
+    SchemaEvolution,
     OrderedRecordKind,
     OrderedStatus,
 )
@@ -107,12 +108,11 @@ def extract_risk_facts(
 
 def has_visible_change(item: ExtractedRiskFacts) -> bool:
     table = item.table_fact
+    schema_evolution = table.schema_changes.schema_evolution
     return bool(
         table.status
         not in {ComparisonTableStatus.UNCHANGED, ComparisonTableStatus.BUSINESS_EQUIVALENT}
-        or table.schema_changes.before_only_columns
-        or table.schema_changes.current_only_columns
-        or table.schema_changes.incompatible_columns
+        or schema_evolution in {SchemaEvolution.COLUMNS_REMOVED, SchemaEvolution.INCOMPATIBLE}
         or table.schema_changes.effective_compare_key_changed
         or table.row_added_count
         or table.row_deleted_count

@@ -83,7 +83,7 @@ def _facts() -> ComparisonFacts:
     return ComparisonFacts(
         comparison_digest=_DIGEST,
         facts_core_digest=_OTHER_DIGEST,
-        comparison_contract_version="backend-vnext/comparison/v2",
+        comparison_contract_version="backend-vnext/comparison/v3",
         projection_contract_version="backend-vnext/comparison-projection/v1",
         scalar_encoding_version=1,
         before_snapshot_digest=raw_blob_digest(b"before"),

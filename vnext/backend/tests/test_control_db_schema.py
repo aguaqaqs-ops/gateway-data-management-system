@@ -39,6 +39,7 @@ EXPECTED_TABLES = frozenset(
         "review_idempotency_records",
         "review_projection_records",
         "step_records",
+        "snapshot_table_export_cache",
         "submission_records",
         "submit_attempt_records",
         "submit_idempotency_records",

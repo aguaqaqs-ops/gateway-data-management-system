@@ -76,6 +76,8 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput,
     BundleProfile,
     BundleRefScope,
+    BundleTableBinding,
+    BundleTableSide,
     assemble_bundle,
     collect_surface_refs,
 )
@@ -112,6 +114,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotMaterializationResult,
     SnapshotMaterializationStatus,
     SnapshotTableSet,
+    SnapshotTableExportCachePort,
     SnapshotTableDescriptor,
     SnapshotColumnDescriptor,
     canonical_state_digest_of,
@@ -325,6 +328,7 @@ class PreviewRuntimeDependencies:
     repository_provider_factory: RepositoryProviderFactory
     baseline_head_read: BaselineHeadReadPort
     control_transaction_factory: PreviewControlTransactionFactory
+    snapshot_export_cache: SnapshotTableExportCachePort | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -512,6 +516,7 @@ def preview_composition_bundle(
         control_transaction_factory=bind_control_transaction_factory(
             deps.control_transaction_factory
         ),
+        snapshot_export_cache=deps.snapshot_export_cache,
     )
     return (
         preview_job_definitions(),
@@ -1100,6 +1105,8 @@ def _materialize_all_sides(
                 binding,
                 deps.artifact_store,
                 runtime_ruleset,
+                repository_id=payload.repository_id,
+                export_cache=deps.snapshot_export_cache,
                 side=side,
             )
         except PreviewJobError as exc:
@@ -1157,6 +1164,7 @@ def _materialize_all_sides(
         deps.artifact_store,
         canonical_binding=canonical_binding,
         ruleset=runtime_ruleset,
+        export_cache=deps.snapshot_export_cache,
         requested_tables=requested_baseline_tables,
     )
     sides[_SIDE_BASELINE] = baseline
@@ -1196,6 +1204,7 @@ def _materialize_baseline_commit(
     store: ArtifactStorePort,
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
+    export_cache: SnapshotTableExportCachePort | None = None,
     requested_tables: tuple[str, ...] | None = None,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
@@ -1209,6 +1218,7 @@ def _materialize_baseline_commit(
         context=ParserInvocationContext(NeverCancel()),
         requested_tables=requested_tables,
         artifact_store=store,
+        export_cache=export_cache,
     )
     result = materialize_repository_ref(request)
     return _bound_from_materialization(
@@ -1225,6 +1235,7 @@ def _materialize_baseline(
     *,
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
+    export_cache: SnapshotTableExportCachePort | None = None,
     requested_tables: tuple[str, ...] | None = None,
 ) -> BoundSnapshotInput:
     return _materialize_baseline_commit(
@@ -1234,6 +1245,7 @@ def _materialize_baseline(
         store=store,
         canonical_binding=canonical_binding,
         ruleset=ruleset,
+        export_cache=export_cache,
         requested_tables=requested_tables,
     )
 
@@ -1367,6 +1379,8 @@ def _materialize_uploaded_side(
     store: ArtifactStorePort,
     ruleset: TableRulesetSnapshot,
     *,
+    repository_id: str,
+    export_cache: SnapshotTableExportCachePort | None,
     side: OperationDiagnosticSide,
 ) -> tuple[BoundSnapshotInput, ArtifactRef, DigestRef]:
     artifact_ref = _artifact_ref_from_binding(binding)
@@ -1486,6 +1500,8 @@ def _materialize_uploaded_side(
             projected.tables,
             artifact_store=store,
             context=ParserInvocationContext(NeverCancel()),
+            export_cache=export_cache,
+            repository_id=repository_id,
         )
     finally:
         for table in projected.tables:
@@ -1516,11 +1532,13 @@ def surface_artifact_closure(
     *,
     before: BoundSnapshotInput | None = None,
     current: BoundSnapshotInput | None = None,
+    include_all_tables: bool = False,
 ) -> BundleArtifactClosure:
     if surface is None:
         raise PreviewJobError("surface assembly did not produce a surface for bundle closure")
     bindings: list[BundleArtifactBinding] = []
     added_refs: set[ArtifactRef] = set()
+    snapshot_bindings: dict[BundleTableBinding, ArtifactRef] = {}
     prefix = f"pairs/{pair_id}"
 
     def add(
@@ -1532,7 +1550,24 @@ def surface_artifact_closure(
     ) -> None:
         if ref is None:
             return
-        if ref in added_refs:
+        table_binding: BundleTableBinding | None = None
+        if kind is BundleArtifactKind.SNAPSHOT_TABLE:
+            if table_name is None:
+                raise PreviewJobError("snapshot table ref is missing its table name")
+            parts = logical_path.split("/")
+            try:
+                table_index = parts.index("tables")
+                side = BundleTableSide(parts[table_index + 1])
+            except (ValueError, IndexError) as exc:
+                raise PreviewJobError("snapshot table ref path is missing its side") from exc
+            table_binding = BundleTableBinding(pair_id, table_name, side)
+            previous_ref = snapshot_bindings.get(table_binding)
+            if previous_ref is not None:
+                if previous_ref != ref:
+                    raise PreviewJobError("snapshot table binding points to multiple artifacts")
+                return
+            snapshot_bindings[table_binding] = ref
+        if ref in added_refs and kind is not BundleArtifactKind.SNAPSHOT_TABLE:
             return
         added_refs.add(ref)
         bindings.append(
@@ -1566,19 +1601,19 @@ def surface_artifact_closure(
         table_name = table.table_name
         add(
             table.table_refs.before_table_ref,
-            f"{prefix}/tables/before/{table_name}/manifest.json",
+            f"{prefix}/tables/before/{table_name}.parquet",
             BundleArtifactKind.SNAPSHOT_TABLE,
             table_name=table_name,
         )
         add(
             table.table_refs.current_table_ref,
-            f"{prefix}/tables/current/{table_name}/manifest.json",
+            f"{prefix}/tables/current/{table_name}.parquet",
             BundleArtifactKind.SNAPSHOT_TABLE,
             table_name=table_name,
         )
         add(
             table.table_refs.browse_table_ref,
-            f"{prefix}/tables/browse/{table_name}/manifest.json",
+            f"{prefix}/tables/browse/{table_name}.parquet",
             BundleArtifactKind.SNAPSHOT_TABLE,
             table_name=table_name,
         )
@@ -1688,6 +1723,29 @@ def surface_artifact_closure(
                     add(
                         ref,
                         f"{prefix}/tables/{role}/{table_name}/rows/{index:06d}.parquet",
+                        BundleArtifactKind.SNAPSHOT_TABLE,
+                        table_name=table_name,
+                    )
+    if include_all_tables:
+        if before is None or current is None:
+            raise PreviewJobError("complete table bundle requires both canonical table sets")
+        for role, side, bound in (
+            ("before", "before", before),
+            ("current", "current", current),
+        ):
+            if bound.table_set is None:
+                raise PreviewJobError("complete table bundle is missing a canonical table set")
+            for snapshot_table in bound.table_set.tables:
+                artifact = snapshot_table.artifact
+                if artifact is None:
+                    raise PreviewJobError(
+                        f"{role} table {snapshot_table.descriptor.table_name} is missing its artifact"
+                    )
+                table_name = snapshot_table.descriptor.table_name
+                for index, ref in enumerate(artifact.manifest.row_file_refs):
+                    add(
+                        ref,
+                        f"{prefix}/tables/{side}/{table_name}/rows/{index:06d}.parquet",
                         BundleArtifactKind.SNAPSHOT_TABLE,
                         table_name=table_name,
                     )

@@ -637,6 +637,8 @@ def _with_artifacts(
         snapshot_digest=result.snapshot.snapshot_digest,
         store=store,
         context=request.context,
+        export_cache=request.export_cache,
+        repository_id=request.repository_ref.repository_id,
     )
     table_set = SnapshotTableSet(
         snapshot_id=result.table_set.snapshot_id,

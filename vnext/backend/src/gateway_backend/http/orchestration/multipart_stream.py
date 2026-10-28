@@ -17,10 +17,15 @@ from python_multipart.multipart import parse_options_header
 from starlette.datastructures import Headers
 
 from gateway_backend.http.errors import ApiError
-from gateway_backend.http.orchestration.source_package_admission import UploadLimitExceededError
+from gateway_backend.http.orchestration.source_package_admission import (
+    UploadLimitExceededError,
+    UploadStreamTimeoutError,
+    UploadStreamTimeoutReason,
+)
 from gateway_backend.application.workspace.contracts import (
     FIXED_UPLOAD_MAX_COMPRESSED_BYTES,
-    FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
+    FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS,
+    FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS,
 )
 
 _STREAM_CHUNK_SIZE = 64 * 1024
@@ -66,11 +71,20 @@ def _multipart_validation_error(message: str) -> ApiError:
 
 
 class _StreamingMultipartParser:
-    def __init__(self, *, staging_dir: Path, max_compressed: int, timeout_seconds: float) -> None:
+    def __init__(
+        self,
+        *,
+        staging_dir: Path,
+        max_compressed: int,
+        idle_timeout_seconds: float,
+        total_timeout_seconds: float,
+    ) -> None:
         self._staging_dir = staging_dir
         self._max_compressed = max_compressed
-        self._timeout_seconds = timeout_seconds
+        self._idle_timeout_seconds = idle_timeout_seconds
+        self._total_timeout_seconds = total_timeout_seconds
         self._started = time.monotonic()
+        self._last_activity = self._started
         self._current = _ActivePart(name="", is_manifest=False)
         self._header_name = b""
         self._header_value = b""
@@ -169,8 +183,29 @@ class _StreamingMultipartParser:
         return None
 
     def check_timeout(self) -> None:
-        if time.monotonic() - self._started > self._timeout_seconds:
-            raise UploadLimitExceededError("upload stream timed out")
+        now = time.monotonic()
+        total_deadline = self._started + self._total_timeout_seconds
+        idle_deadline = self._last_activity + self._idle_timeout_seconds
+        if now >= min(total_deadline, idle_deadline):
+            raise self.timeout_error()
+
+    def timeout_error(self) -> UploadStreamTimeoutError:
+        total_deadline = self._started + self._total_timeout_seconds
+        idle_deadline = self._last_activity + self._idle_timeout_seconds
+        reason = (
+            UploadStreamTimeoutReason.TOTAL
+            if total_deadline <= idle_deadline
+            else UploadStreamTimeoutReason.IDLE
+        )
+        return UploadStreamTimeoutError(reason)
+
+    def record_data(self) -> None:
+        self._last_activity = time.monotonic()
+
+    def timeout_after(self, now: float) -> float:
+        total_deadline = self._started + self._total_timeout_seconds
+        idle_deadline = self._last_activity + self._idle_timeout_seconds
+        return min(total_deadline, idle_deadline) - now
 
     def result(self) -> ParsedMultipartUpload:
         if self._manifest is None:
@@ -200,7 +235,8 @@ async def parse_streaming_multipart(
     headers: Headers,
     stream: AsyncIterator[bytes],
     max_compressed: int = FIXED_UPLOAD_MAX_COMPRESSED_BYTES,
-    timeout_seconds: float = FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
+    idle_timeout_seconds: float = FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS,
+    total_timeout_seconds: float = FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS,
 ) -> ParsedMultipartUpload:
     content_type = headers.get("content-type")
     if content_type is None:
@@ -215,7 +251,8 @@ async def parse_streaming_multipart(
     parser_state = _StreamingMultipartParser(
         staging_dir=staging_dir,
         max_compressed=max_compressed,
-        timeout_seconds=timeout_seconds,
+        idle_timeout_seconds=idle_timeout_seconds,
+        total_timeout_seconds=total_timeout_seconds,
     )
     callbacks = {
         "on_part_begin": parser_state.on_part_begin,
@@ -229,20 +266,22 @@ async def parse_streaming_multipart(
     }
     parser = multipart.MultipartParser(boundary, cast(Any, callbacks))
     iterator = stream.__aiter__()
-    deadline = time.monotonic() + timeout_seconds
     try:
         while True:
-            remaining = deadline - time.monotonic()
+            now = time.monotonic()
+            remaining = parser_state.timeout_after(now)
             if remaining <= 0:
-                raise UploadLimitExceededError("upload stream timed out")
+                parser_state.check_timeout()
             try:
                 chunk = await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
             except StopAsyncIteration:
+                parser_state.check_timeout()
                 break
             except TimeoutError:
-                raise UploadLimitExceededError("upload stream timed out") from None
+                raise parser_state.timeout_error() from None
             parser_state.check_timeout()
             if chunk:
+                parser_state.record_data()
                 parser.write(chunk)
         parser.finalize()
         return parser_state.result()

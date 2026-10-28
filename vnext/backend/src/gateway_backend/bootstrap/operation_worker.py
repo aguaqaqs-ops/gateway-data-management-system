@@ -65,6 +65,9 @@ from gateway_backend.infrastructure.control_db.sqlite_mapping import (
     ProvisionedBaselineHeadRead,
     seed_provisioned_mappings,
 )
+from gateway_backend.infrastructure.control_db.snapshot_export_cache import (
+    ControlDbSnapshotTableExportCache,
+)
 from gateway_backend.infrastructure.repository_read import (
     build_http_repository_provider_factory,
     HttpRepositoryParentCatalogPort,
@@ -178,6 +181,8 @@ def build_production_preview_dependencies(
             canonicalization_manifest_reader=manifest_reader,
         )
 
+    snapshot_export_cache = ControlDbSnapshotTableExportCache(control_transaction_factory)
+
     preview_deps = PreviewRuntimeDependencies(
         artifact_store=artifact_store,
         repository_provider_factory=cast(
@@ -190,6 +195,7 @@ def build_production_preview_dependencies(
         ),
         baseline_head_read=ProvisionedBaselineHeadRead(settings.control_db_path),
         control_transaction_factory=control_transaction_factory,
+        snapshot_export_cache=snapshot_export_cache,
     )
     write_uow_factory = build_worker_write_uow_factory(control_transaction_factory)
     return preview_deps, write_uow_factory
@@ -378,12 +384,13 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
     """Run the worker process and return zero only after a clean local drain."""
 
     stop_requested = threading.Event()
+    stop_wakeup_callbacks: list[Callable[[], None]] = []
     previous_handlers: tuple[object, object] | None = None
     try:
         try:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
-            previous_handlers = _install_signal_handlers(stop_requested)
+            previous_handlers = _install_signal_handlers(stop_requested, stop_wakeup_callbacks)
             from gateway_backend.bootstrap.composition import (
                 assert_workspace_registry_ready,
                 build_workspace_job_registry,
@@ -399,6 +406,7 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
                     HistoryCompareControlTransactionFactory,
                     submit_write_uow_factory,
                 ),
+                snapshot_export_cache=preview_deps.snapshot_export_cache,
             )
             preview_definitions, preview_handlers, preview_decoders = preview_composition_bundle(
                 preview_deps
@@ -422,6 +430,9 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
                 submit_recovery=build_submit_recovery_port(bound_submit_deps),
                 write_uow_factory=write_uow_factory,
             )
+            stop_wakeup_callbacks.append(runtime.notify_stop_signal)
+            if stop_requested.is_set():
+                runtime.notify_stop_signal()
         except ValidationError:
             _LOGGER.error("operation_worker_failed category=settings_invalid")
             return 1
@@ -687,6 +698,7 @@ class _R4WorkerStartup(WorkerStartup):
 
 def _install_signal_handlers(
     stop_requested: threading.Event,
+    stop_wakeup_callbacks: list[Callable[[], None]] | None = None,
 ) -> tuple[object, object]:
     if threading.current_thread() is not threading.main_thread():
         raise RuntimeError("operation worker signal handlers require the main thread")
@@ -694,6 +706,9 @@ def _install_signal_handlers(
     def request_drain(signum: int, frame: FrameType | None) -> None:
         del signum, frame
         stop_requested.set()
+        if stop_wakeup_callbacks is not None:
+            for wake in stop_wakeup_callbacks:
+                wake()
 
     previous_term = signal.signal(Signals.SIGTERM, request_drain)
     try:

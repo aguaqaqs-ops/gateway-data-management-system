@@ -26,8 +26,8 @@ from gateway_backend.capabilities.snapshot_materialization._digest import (
     row_content_hash,
 )
 from gateway_backend.capabilities.snapshot_materialization._parquet import (
+    encode_source_columns,
     encoding_columns_from_table,
-    export_schema_payload,
     iter_decoded_rows,
     read_parquet_table,
     source_descriptor_for,
@@ -53,6 +53,8 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableBatchMetadata,
     SnapshotTable,
     SnapshotTableArtifact,
+    SnapshotTableArtifactCacheKey,
+    SnapshotTableExportCachePort,
     SnapshotTableArtifactManifest,
     SnapshotTableDescriptor,
     SnapshotTableOrderedMetadata,
@@ -67,7 +69,7 @@ from gateway_backend.capabilities.table_access.contracts import (
 )
 
 _ARTIFACT_CONTENT_KIND = "artifact-content"
-_ROW_LAYOUT_KIND = "row-layout"
+_ROW_LAYOUT_KIND = "row-layout/v2"
 
 
 class ArtifactPublishError(Exception):
@@ -125,7 +127,26 @@ def publish_snapshot_table_artifact(
     snapshot_digest: DigestRef,
     store: ArtifactStorePort,
     context: ParserInvocationContext,
+    cached_row_ref: ArtifactRef | None = None,
 ) -> SnapshotTableArtifact:
+    artifact, _published_table = _publish_snapshot_table_artifact(
+        table,
+        snapshot_digest=snapshot_digest,
+        store=store,
+        context=context,
+        cached_row_ref=cached_row_ref,
+    )
+    return artifact
+
+
+def _publish_snapshot_table_artifact(
+    table: SnapshotTable,
+    *,
+    snapshot_digest: DigestRef,
+    store: ArtifactStorePort,
+    context: ParserInvocationContext,
+    cached_row_ref: ArtifactRef | None = None,
+) -> tuple[SnapshotTableArtifact, SnapshotTable]:
     if type(table) is not SnapshotTable:
         raise ValueError("table must be SnapshotTable")
     if table.descriptor.degraded_reason is DegradedReason.TABLE_FAILED:
@@ -142,47 +163,73 @@ def publish_snapshot_table_artifact(
         )
     _checkpoint(context, table.descriptor.table_name)
     source_columns = _source_columns(table)
-    rows = _consume_rows(table.reader, context, table.descriptor.table_name)
+    row_ref = None
+    stored_parquet: bytes | None = None
+    validated_columns: tuple[SourceColumnDescriptor, ...] | None = None
+    validated_rows: tuple[SourceRow, ...] | None = None
+    if cached_row_ref is not None and cached_row_ref.media_type == PARQUET_MEDIA_TYPE:
+        try:
+            candidate = store.locate(cached_row_ref)
+            validated_columns, validated_rows = _validate_parquet_against_descriptor(
+                candidate,
+                table.descriptor,
+                source_columns,
+                table.descriptor.table_name,
+            )
+            row_ref = cached_row_ref
+            stored_parquet = candidate
+        except (ArtifactPublishError, ManifestVerificationError):
+            # Cache contents are derived and recoverable. A corrupt or mismatched
+            # cached row file behaves like a miss; the canonical reader remains
+            # the authority for the new export.
+            row_ref = None
+            stored_parquet = None
+            validated_columns = None
+            validated_rows = None
+    if row_ref is None:
+        rows = _consume_rows(table.reader, context, table.descriptor.table_name)
+        try:
+            parquet_bytes = write_parquet_rows(
+                source_columns,
+                rows,
+                SnapshotTableBatchMetadata(
+                    blank_provenance=(
+                        BlankRowProvenance.NONE
+                        if table.ordered_metadata is None
+                        else table.ordered_metadata.blank_provenance
+                    )
+                ),
+            )
+        except ValueError as exc:
+            raise ArtifactPublishError(
+                MaterializationDiagnosticCode.ARTIFACT_PUBLISH_FAILED,
+                str(exc) or "parquet encode failed",
+                table=table.descriptor.table_name,
+            ) from exc
+        _checkpoint(context, table.descriptor.table_name)
+        try:
+            row_ref = put_with_built_ref(
+                store,
+                parquet_bytes,
+                artifact_id=_opaque_id("sta-rows"),
+                media_type=PARQUET_MEDIA_TYPE,
+            )
+        except ManifestVerificationError as exc:
+            raise ArtifactPublishError(
+                MaterializationDiagnosticCode.ARTIFACT_PUBLISH_FAILED,
+                str(exc) or "parquet store write failed",
+                table=table.descriptor.table_name,
+            ) from exc
+    assert row_ref is not None
     try:
-        parquet_bytes = write_parquet_rows(
-            source_columns,
-            rows,
-            SnapshotTableBatchMetadata(
-                blank_provenance=(
-                    BlankRowProvenance.NONE
-                    if table.ordered_metadata is None
-                    else table.ordered_metadata.blank_provenance
-                )
-            ),
-        )
-    except ValueError as exc:
-        raise ArtifactPublishError(
-            MaterializationDiagnosticCode.ARTIFACT_PUBLISH_FAILED,
-            str(exc) or "parquet encode failed",
-            table=table.descriptor.table_name,
-        ) from exc
-    _checkpoint(context, table.descriptor.table_name)
-    try:
-        row_ref = put_with_built_ref(
-            store,
-            parquet_bytes,
-            artifact_id=_opaque_id("sta-rows"),
-            media_type=PARQUET_MEDIA_TYPE,
-        )
-    except ManifestVerificationError as exc:
-        raise ArtifactPublishError(
-            MaterializationDiagnosticCode.ARTIFACT_PUBLISH_FAILED,
-            str(exc) or "parquet store write failed",
-            table=table.descriptor.table_name,
-        ) from exc
-    try:
-        stored_parquet = store.locate(row_ref)
-        _validate_parquet_against_descriptor(
-            stored_parquet,
-            table.descriptor,
-            source_columns,
-            table.descriptor.table_name,
-        )
+        if stored_parquet is None:
+            stored_parquet = store.locate(row_ref)
+            validated_columns, validated_rows = _validate_parquet_against_descriptor(
+                stored_parquet,
+                table.descriptor,
+                source_columns,
+                table.descriptor.table_name,
+            )
     except ArtifactPublishError:
         raise
     except (ManifestVerificationError, ValueError) as exc:
@@ -191,12 +238,21 @@ def publish_snapshot_table_artifact(
             str(exc) or "published parquet failed validation",
             table=table.descriptor.table_name,
         ) from exc
+    assert (
+        stored_parquet is not None
+        and validated_columns is not None
+        and validated_rows is not None
+    )
     created_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     artifact_digest = artifact_content_digest_of(
         row_file_refs=(row_ref,),
         descriptor=table.descriptor,
     )
-    layout = row_layout_digest_of(table.descriptor, source_columns)
+    layout = row_layout_digest_of(
+        table.descriptor,
+        source_columns,
+        table.ordered_metadata,
+    )
     manifest = SnapshotTableArtifactManifest(
         artifact_contract_version=SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
         snapshot_digest=snapshot_digest,
@@ -234,11 +290,39 @@ def publish_snapshot_table_artifact(
             str(exc) or "manifest store write failed",
             table=table.descriptor.table_name,
         ) from exc
-    return SnapshotTableArtifact(
+    artifact = SnapshotTableArtifact(
         manifest_ref=manifest_ref,
         manifest=manifest,
         row_layout_digest=layout,
     )
+    source = source_descriptor_for(
+        table.descriptor.table_name,
+        table.descriptor.display_table_name,
+        validated_columns,
+        table.descriptor.primary_key_columns,
+    )
+    published_table = SnapshotTable(
+        descriptor=table.descriptor,
+        reader=BoundSnapshotTableReader(
+            table.descriptor,
+            ParquetBytesReader(source, stored_parquet, validated_rows),
+        ),
+        diagnostics=table.diagnostics,
+        artifact=artifact,
+        batch_reader=ParquetSnapshotTableBatchReader(
+            table.descriptor,
+            stored_parquet,
+            metadata=SnapshotTableBatchMetadata(
+                blank_provenance=(
+                    BlankRowProvenance.NONE
+                    if table.ordered_metadata is None
+                    else table.ordered_metadata.blank_provenance
+                )
+            ),
+        ),
+        ordered_metadata=table.ordered_metadata,
+    )
+    return artifact, published_table
 
 
 def open_snapshot_table_artifact(
@@ -290,7 +374,11 @@ def open_snapshot_table_artifact(
             "artifact_content_digest does not match physical files",
             table=manifest.table_name,
         )
-    layout = row_layout_digest_of(manifest.descriptor, source_columns)
+    layout = row_layout_digest_of(
+        manifest.descriptor,
+        source_columns,
+        manifest.ordered_metadata,
+    )
     artifact = SnapshotTableArtifact(
         manifest_ref=manifest_ref,
         manifest=manifest,
@@ -359,29 +447,61 @@ def publish_ready_tables(
     snapshot_digest: DigestRef,
     store: ArtifactStorePort,
     context: ParserInvocationContext,
+    export_cache: SnapshotTableExportCachePort | None = None,
+    repository_id: str | None = None,
 ) -> tuple[SnapshotTable, ...]:
+    ready = tuple(
+        table
+        for table in tables
+        if table.descriptor.degraded_reason is not DegradedReason.TABLE_FAILED
+        and table.reader is not None
+    )
+    cache_keys: dict[str, SnapshotTableArtifactCacheKey] = {}
+    if export_cache is not None and repository_id is not None:
+        cache_keys = {
+            table.descriptor.table_name: SnapshotTableArtifactCacheKey(
+                row_layout_digest=row_layout_digest_of(
+                    table.descriptor,
+                    _source_columns(table),
+                    table.ordered_metadata,
+                ),
+                repository_id=repository_id,
+            )
+            for table in ready
+            if table.descriptor.raw_content_digest is not None
+        }
+    cached: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
+    if cache_keys:
+        try:
+            cached = export_cache.lookup_many(tuple(cache_keys.values()))
+        except Exception:
+            cached = {}
     published: list[SnapshotTable] = []
+    cache_entries: list[tuple[SnapshotTableArtifactCacheKey, ArtifactRef]] = []
     for table in tables:
         if table.descriptor.degraded_reason is DegradedReason.TABLE_FAILED or table.reader is None:
             published.append(table)
             continue
-        artifact = publish_snapshot_table_artifact(
+        artifact, published_table = _publish_snapshot_table_artifact(
             table,
             snapshot_digest=snapshot_digest,
             store=store,
             context=context,
+            cached_row_ref=(
+                cached.get(cache_keys[table.descriptor.table_name])
+                if table.descriptor.table_name in cache_keys
+                else None
+            ),
         )
-        opened = open_snapshot_table_artifact(store, artifact.manifest_ref)
-        published.append(
-            SnapshotTable(
-                descriptor=table.descriptor,
-                reader=opened.reader,
-                diagnostics=table.diagnostics,
-                artifact=artifact,
-                batch_reader=opened.batch_reader,
-                ordered_metadata=table.ordered_metadata,
-            )
-        )
+        cache_key = cache_keys.get(table.descriptor.table_name)
+        if cache_key is not None:
+            cache_entries.append((cache_key, artifact.manifest.row_file_refs[0]))
+        published.append(published_table)
+    if export_cache is not None and cache_entries:
+        try:
+            export_cache.store_many(tuple(cache_entries))
+        except Exception:
+            pass
     return tuple(published)
 
 
@@ -445,11 +565,16 @@ def artifact_content_digest_of(
 def row_layout_digest_of(
     descriptor: SnapshotTableDescriptor,
     source_columns: tuple[SourceColumnDescriptor, ...],
+    ordered_metadata: SnapshotTableOrderedMetadata | None = None,
 ) -> DigestRef:
     payload = {
         "kind": _ROW_LAYOUT_KIND,
         "raw_content_digest": _digest_value(descriptor.raw_content_digest),
-        "export_schema": export_schema_payload(source_columns),
+        # Include the complete source encoding schema, including SQL type details
+        # and ENUM/SET labels. Physical Arrow columns alone cannot distinguish
+        # schemas that share the same Parquet representation.
+        "source_schema_digest": raw_blob_digest(encode_source_columns(source_columns)).value,
+        "ordered_metadata": _ordered_metadata_payload(ordered_metadata),
         "scalar_encoding_version": descriptor.scalar_encoding_version,
         "artifact_contract_version": SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
     }

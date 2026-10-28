@@ -1,5 +1,7 @@
 # Risk Contract
 
+> 当前实现合同为 `backend-vnext/risk/v2`：schema-only additions 不产生 schema-change 风险，整表新增/删除风险证据带表行数。
+
 本文定义 backend vNext 第一版 risk engine contract。Risk 只消费 `ComparisonFacts` 和可选 records artifacts，输出 flow-neutral `RiskEvaluation`、`RiskReport` 和可选 annotation artifacts。
 
 S2 已实现 bounded Python reference evaluator、canonical annotation artifacts 和 immutable
@@ -421,8 +423,8 @@ ComparisonFacts + optional records access + RiskRulesetSnapshot
 
 | Rule | 输入 | 默认风险 |
 | --- | --- | --- |
-| `TABLE_ADDED` | `ADDED_TABLE` | `MEDIUM_LOW` |
-| `TABLE_DELETED` | `DELETED_TABLE` | `MEDIUM_HIGH` |
+| `TABLE_ADDED` | `ADDED_TABLE`；证据 `row_count` 为新增表行数 | `MEDIUM_LOW` |
+| `TABLE_DELETED` | `DELETED_TABLE`；证据 `row_count` 为删除表行数 | `MEDIUM_HIGH` |
 | `SCHEMA_CHANGED` | schema changes | `MEDIUM_HIGH` |
 | `ROW_ADDED` | added rows | `MEDIUM_LOW` |
 | `ROW_DELETED` | deleted rows | `MEDIUM_LOW` |
@@ -434,6 +436,7 @@ ComparisonFacts + optional records access + RiskRulesetSnapshot
 规则：
 
 - 默认风险等级可由 `RiskRulesetSnapshot` 调整。
+- `schema_evolution=COLUMNS_ADDED` 不产生 `SCHEMA_CHANGED` 风险；`COLUMNS_REMOVED` 与 `INCOMPATIBLE` 按 schema-change 规则评估。
 - `ORDERED_DIFF_UNSUPPORTED` 的默认 reason code 建议为 `ORDERED_DIFF_UNSUPPORTED_REVIEW_REQUIRED`。
 - ignored columns 不直接产生 row risk；可作为 diagnostics 或 LOW notice。
 

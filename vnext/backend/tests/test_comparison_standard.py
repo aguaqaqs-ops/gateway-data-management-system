@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -19,6 +21,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonTableStatus,
     DetailedFactsResult,
     ComparisonStorageFacts,
+    SchemaEvolution,
     compare_plan,
     plan_comparison,
 )
@@ -50,6 +53,47 @@ from tests.support.snapshot_materialization import materialize_sql
 from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
 
 pytestmark = pytest.mark.unit
+_S1B_GOLDEN = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "golden"
+    / "comparison"
+    / "s1b"
+    / "semantic-results.json"
+)
+
+
+def _s1b_golden_case(name: str) -> dict[str, object]:
+    document = json.loads(_S1B_GOLDEN.read_text(encoding="utf-8"))
+    return document["cases"][name]
+
+
+def _s1b_fact_projection(table: ComparisonTableFact) -> dict[str, object]:
+    return {
+        "status": table.status.value,
+        "schema_evolution": table.schema_changes.schema_evolution.value,
+        "before_only_columns": list(table.schema_changes.before_only_columns),
+        "current_only_columns": list(table.schema_changes.current_only_columns),
+        "selected_columns": list(table.schema_changes.selected_columns),
+        "row_count_before": table.row_count_before,
+        "row_count_current": table.row_count_current,
+        "row_added_count": table.row_added_count,
+        "row_deleted_count": table.row_deleted_count,
+        "row_modified_count": table.row_modified_count,
+        "content_changed": table.content_changed,
+        "record_kinds": [record.record_kind.value for record in table.records],
+        "changed_columns": [
+            list(record.changed_columns)
+            for record in table.records
+            if record.record_kind is ComparisonRecordKind.ROW_MODIFIED
+        ],
+    }
+
+
+def _assert_s1b_fact_golden(name: str, table: ComparisonTableFact) -> None:
+    expected = _s1b_golden_case(name)
+    actual = _s1b_fact_projection(table)
+    assert {key: actual[key] for key in expected} == expected
 
 
 class _CountingReader:
@@ -187,7 +231,7 @@ def test_modified_null_value_is_retained_as_typed_null_in_field_change() -> None
     assert isinstance(table.records[0].field_changes[0].current_value, NullScalar)
 
 
-def test_schema_alignment_uses_intersection_and_reports_current_only_columns() -> None:
+def test_added_columns_compare_common_columns_without_schema_status_or_record() -> None:
     before = """
         CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL);
         INSERT INTO t VALUES (1, 'a');
@@ -202,11 +246,51 @@ def test_schema_alignment_uses_intersection_and_reports_current_only_columns() -
     """
 
     table = _one_table(_facts(_plan(before, current)))
-    assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
+    _assert_s1b_fact_golden("added_columns_unchanged", table)
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
     assert table.schema_changes.selected_columns == ("id", "name")
     assert table.schema_changes.current_only_columns == ("note",)
     assert table.row_modified_count == 0
-    assert [record.record_kind for record in table.records] == [ComparisonRecordKind.SCHEMA_CHANGE]
+    assert table.records == ()
+    assert table.content_changed is False
+
+
+def test_added_column_does_not_hide_changes_in_shared_columns() -> None:
+    before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL); INSERT INTO t VALUES (1, 'before');"
+    current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL, note TEXT NULL); INSERT INTO t VALUES (1, 'after', 'new');"
+
+    table = _one_table(_facts(_plan(before, current)))
+    _assert_s1b_fact_golden("added_columns_common_value_changed", table)
+
+    assert table.status is ComparisonTableStatus.MODIFIED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.row_modified_count == 1
+    assert table.records[0].changed_columns == ("name",)
+    assert all(record.record_kind is not ComparisonRecordKind.SCHEMA_CHANGE for record in table.records)
+
+
+def test_enum_and_set_member_additions_are_columns_added() -> None:
+    before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, e ENUM('a', 'b') NULL, s SET('x', 'y') NULL); INSERT INTO t VALUES (1, 'a', 'x');"
+    current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, e ENUM('a', 'c', 'b') NULL, s SET('x', 'y', 'z') NULL); INSERT INTO t VALUES (1, 'a', 'x');"
+
+    table = _one_table(_facts(_plan(before, current)))
+    _assert_s1b_fact_golden("enum_set_members_added", table)
+
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.records == ()
+
+
+def test_removed_column_is_classified_separately_from_incompatible_schema() -> None:
+    before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL, note TEXT NULL); INSERT INTO t VALUES (1, 'same', 'old');"
+    current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL); INSERT INTO t VALUES (1, 'same');"
+
+    table = _one_table(_facts(_plan(before, current)))
+    _assert_s1b_fact_golden("columns_removed", table)
+
+    assert table.status is ComparisonTableStatus.SCHEMA_CHANGED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_REMOVED
 
 
 def test_compare_excluded_only_change_is_visible_without_row_records() -> None:
@@ -328,23 +412,33 @@ def test_raw_primary_key_fallback_compares_keyless_rows_as_a_multiset() -> None:
     assert RiskReasonCode.KEY_DEGRADED not in risk.risk_report.tables[0].reason_codes
 
 
-def test_keyless_fallback_table_addition_keeps_duplicate_row_occurrences() -> None:
+def test_keyless_table_addition_is_table_level_without_row_records() -> None:
     current = _bound_with_fallback_facts(
         "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('same'), ('same');",
         b"source-without-key",
     )
 
     table = _one_table(_facts(_plan_from_bounds(_bound(""), current)))
-    added_records = tuple(
-        record
-        for record in table.records
-        if record.record_kind is ComparisonRecordKind.ROW_ADDED
+    _assert_s1b_fact_golden("whole_table_added", table)
+    assert table.status is ComparisonTableStatus.ADDED_TABLE
+    assert table.row_added_count == 0
+    assert table.row_count_current == 2
+    assert table.records == ()
+
+
+def test_whole_table_deletion_is_table_level_without_row_records() -> None:
+    before = _bound_with_fallback_facts(
+        "CREATE TABLE t (value VARCHAR(8) NULL); INSERT INTO t VALUES ('same'), ('same');",
+        b"source-deleted-table",
     )
 
-    assert table.status is ComparisonTableStatus.ADDED_TABLE
-    assert table.row_added_count == 2
-    assert len(added_records) == 2
-    assert len({record.row_identity for record in added_records}) == 2
+    table = _one_table(_facts(_plan_from_bounds(before, _bound(""))))
+
+    _assert_s1b_fact_golden("whole_table_deleted", table)
+    assert table.status is ComparisonTableStatus.DELETED_TABLE
+    assert table.row_deleted_count == 0
+    assert table.row_count_before == 2
+    assert table.records == ()
 
 
 @pytest.mark.parametrize("primary_key_appears", (True, False), ids=("appears", "disappears"))

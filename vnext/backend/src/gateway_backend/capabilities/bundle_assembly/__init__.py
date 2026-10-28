@@ -42,6 +42,8 @@ from gateway_backend.capabilities.bundle_assembly.contracts import (
     BundleProfile,
     BundleRefScope,
     BundleSummary,
+    BundleTableBinding,
+    BundleTableSide,
     ComparisonBundle,
     validate_logical_path,
 )
@@ -73,6 +75,8 @@ __all__ = [
     "BundleProfile",
     "BundleRefScope",
     "BundleSummary",
+    "BundleTableBinding",
+    "BundleTableSide",
     "ComparisonBundle",
     "assemble_bundle",
     "closure_digest",

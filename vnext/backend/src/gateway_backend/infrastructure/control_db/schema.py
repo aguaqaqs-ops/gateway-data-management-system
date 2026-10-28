@@ -889,7 +889,31 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(intent) = 'text' AND length(intent) BETWEEN 1 AND 128),
         recorded_at_us INTEGER NOT NULL
             CHECK (typeof(recorded_at_us) = 'integer'),
+        expires_at_us INTEGER
+            CHECK (expires_at_us IS NULL OR typeof(expires_at_us) = 'integer'),
         PRIMARY KEY (artifact_id, owner_kind, owner_id)
+    )
+    """,
+
+    """
+    CREATE TABLE snapshot_table_export_cache (
+        repository_id TEXT NOT NULL
+            CHECK (typeof(repository_id) = 'text' AND length(CAST(repository_id AS BLOB)) BETWEEN 1 AND 255),
+        row_layout_digest TEXT NOT NULL
+            CHECK (typeof(row_layout_digest) = 'text' AND length(CAST(row_layout_digest AS BLOB)) BETWEEN 1 AND 255),
+        parquet_writer_contract_version INTEGER NOT NULL
+            CHECK (typeof(parquet_writer_contract_version) = 'integer' AND parquet_writer_contract_version >= 1),
+        artifact_id TEXT NOT NULL
+            CHECK (typeof(artifact_id) = 'text' AND length(artifact_id) BETWEEN 1 AND 255),
+        media_type TEXT NOT NULL
+            CHECK (typeof(media_type) = 'text' AND length(CAST(media_type AS BLOB)) BETWEEN 1 AND 255),
+        size_bytes INTEGER NOT NULL
+            CHECK (typeof(size_bytes) = 'integer' AND size_bytes >= 0),
+        raw_sha256 TEXT NOT NULL
+            CHECK (typeof(raw_sha256) = 'text' AND length(CAST(raw_sha256 AS BLOB)) BETWEEN 1 AND 255),
+        expires_at_us INTEGER NOT NULL
+            CHECK (typeof(expires_at_us) = 'integer'),
+        PRIMARY KEY (repository_id, row_layout_digest, parquet_writer_contract_version)
     )
     """,
 )

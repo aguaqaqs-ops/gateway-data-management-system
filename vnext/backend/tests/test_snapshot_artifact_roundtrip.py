@@ -84,6 +84,28 @@ def test_two_publishes_of_the_same_table_share_artifact_digest() -> None:
     assert first.row_layout_digest == second.row_layout_digest
 
 
+def test_s1b_sql_spellings_round_trip_through_snapshot_parquet() -> None:
+    fixture = "sql/valid/s1b-parser-semantics/input.sql"
+    expected = first_ready_table(fixture)
+    assert expected.reader is not None
+    expected_rows = tuple(expected.reader.reopen().iter_rows())
+    store = InMemoryArtifactStore()
+
+    result = materialize_sql(
+        parse_fixture(fixture),
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        artifact_store=store,
+    )
+
+    assert result.status is SnapshotMaterializationStatus.COMPLETE
+    assert result.table_set is not None
+    assert len(result.table_set.tables) == 1
+    published = result.table_set.tables[0]
+    assert published.artifact is not None
+    assert published.reader is not None
+    assert tuple(published.reader.iter_rows()) == expected_rows
+
+
 def test_ordered_blank_provenance_round_trips_through_artifact_and_batch() -> None:
     store = InMemoryArtifactStore()
     source = first_ready_table("sql/valid/s2-null-and-types/input.sql")

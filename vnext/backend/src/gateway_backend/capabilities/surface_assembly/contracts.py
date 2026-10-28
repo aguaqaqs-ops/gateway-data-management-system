@@ -16,6 +16,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonMode,
     ComparisonRecordsClosure,
     ComparisonSchemaChanges,
+    SchemaEvolution,
     ComparisonTableStatus,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import (
@@ -26,7 +27,7 @@ from gateway_backend.capabilities.risk_evaluation.contracts import (
 )
 
 
-SURFACE_CONTRACT_VERSION = "backend-vnext/comparison-surface/v2"
+SURFACE_CONTRACT_VERSION = "backend-vnext/comparison-surface/v3"
 SURFACE_JSON_MEDIA_TYPE = "application/json"
 MAX_SURFACE_JSON_BYTES = 16 * 1024 * 1024
 MAX_SURFACE_WALL_TIME_SECONDS = 120.0
@@ -224,6 +225,7 @@ class SurfaceSchemaSummary:
     effective_compare_key_current: tuple[str, ...] = ()
     effective_compare_key_changed: bool = False
     incompatible_columns: tuple[str, ...] = ()
+    schema_evolution: SchemaEvolution = SchemaEvolution.NONE
 
     def __post_init__(self) -> None:
         for label in (
@@ -237,6 +239,8 @@ class SurfaceSchemaSummary:
             object.__setattr__(self, label, _require_unique_identifiers_in_order(getattr(self, label), label))
         if type(self.effective_compare_key_changed) is not bool:
             raise ValueError("effective_compare_key_changed must be bool")
+        if type(self.schema_evolution) is not SchemaEvolution:
+            raise ValueError("schema_evolution must be SchemaEvolution")
 
     @classmethod
     def from_comparison(cls, value: ComparisonSchemaChanges) -> "SurfaceSchemaSummary":
@@ -244,12 +248,17 @@ class SurfaceSchemaSummary:
             raise TypeError("value must be ComparisonSchemaChanges")
         return cls(
             before_only_columns=value.before_only_columns,
-            current_only_columns=value.current_only_columns,
+            current_only_columns=(
+                ()
+                if value.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+                else value.current_only_columns
+            ),
             selected_columns=value.selected_columns,
             effective_compare_key_before=value.effective_compare_key_before,
             effective_compare_key_current=value.effective_compare_key_current,
             effective_compare_key_changed=value.effective_compare_key_changed,
             incompatible_columns=value.incompatible_columns,
+            schema_evolution=value.schema_evolution,
         )
 
     def to_document(self) -> dict[str, object]:
@@ -261,6 +270,7 @@ class SurfaceSchemaSummary:
             "effective_compare_key_current": list(self.effective_compare_key_current),
             "incompatible_columns": list(self.incompatible_columns),
             "selected_columns": list(self.selected_columns),
+            "schema_evolution": self.schema_evolution.value,
         }
 
 

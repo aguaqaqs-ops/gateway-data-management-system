@@ -42,6 +42,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonSummary,
     ComparisonTableFact,
     _ComparisonTablePolicy,
+    SchemaEvolution,
     SchemaChangeSource,
     ComparisonStorageFacts,
     ComparisonTableStatus,
@@ -55,6 +56,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotColumnDescriptor,
     SnapshotTable,
     SnapshotTableDescriptor,
+    enum_set_labels_for_sql_spelling,
 )
 
 _TYPED_SCALAR_TYPES = (
@@ -98,6 +100,7 @@ class _SchemaView:
     key_changed: bool
     source_key_changed: bool
     key_invalid: bool
+    enum_set_added: bool
 
 def _schema_view(
     before: SnapshotTableDescriptor,
@@ -114,7 +117,11 @@ def _schema_view(
     incompatible = tuple(
         column
         for column in selected
-        if _column_signature(before_columns[column]) != _column_signature(current_columns[column])
+        if not _column_signatures_compatible(before_columns[column], current_columns[column])
+    )
+    enum_set_added = any(
+        _enum_set_addition(before_columns[column], current_columns[column])
+        for column in selected
     )
     before_key = policy.effective_key_before
     current_key = policy.effective_key_current
@@ -150,6 +157,7 @@ def _schema_view(
         key_changed=before_key != current_key and not source_key_changed,
         source_key_changed=source_key_changed,
         key_invalid=key_invalid,
+        enum_set_added=enum_set_added,
     )
 
 
@@ -157,7 +165,7 @@ def _schema_diagnostics(schema: _SchemaView, policy: _ComparisonTablePolicy) -> 
     diagnostics: list[str] = []
     if schema.before_only:
         diagnostics.append("BEFORE_ONLY_COLUMNS")
-    if schema.current_only:
+    if schema.current_only and not _is_columns_added(schema):
         diagnostics.append("CURRENT_ONLY_COLUMNS")
     if schema.incompatible:
         diagnostics.append("INCOMPATIBLE_SELECTED_COLUMNS")
@@ -403,6 +411,61 @@ def _column_signature(column: SnapshotColumnDescriptor) -> tuple[str | None, boo
     return (None if column.scalar_type is None else column.scalar_type.upper(), column.nullable)
 
 
+def _column_signatures_compatible(
+    before: SnapshotColumnDescriptor,
+    current: SnapshotColumnDescriptor,
+) -> bool:
+    if before.nullable != current.nullable:
+        return False
+    if _column_signature(before) == _column_signature(current):
+        return True
+    addition = _enum_set_addition(before, current)
+    return addition
+
+
+def _enum_set_addition(
+    before: SnapshotColumnDescriptor,
+    current: SnapshotColumnDescriptor,
+) -> bool:
+    if before.nullable != current.nullable:
+        return False
+    if not before.scalar_type or not current.scalar_type:
+        return False
+    try:
+        before_decl = enum_set_labels_for_sql_spelling(before.scalar_type)
+        current_decl = enum_set_labels_for_sql_spelling(current.scalar_type)
+    except ValueError:
+        return False
+    if before_decl is None or current_decl is None or before_decl[0] != current_decl[0]:
+        return False
+    before_labels = before_decl[1]
+    current_labels = current_decl[1]
+    return set(before_labels) < set(current_labels)
+
+
+def _is_columns_added(schema: _SchemaView) -> bool:
+    return (
+        bool(schema.current_only or schema.enum_set_added)
+        and not schema.before_only
+        and not schema.incompatible
+        and not schema.key_changed
+        and not schema.source_key_changed
+        and not schema.key_invalid
+    )
+
+
+def _schema_evolution(schema: _SchemaView) -> SchemaEvolution:
+    if _is_columns_added(schema):
+        return SchemaEvolution.COLUMNS_ADDED
+    if schema.before_only and not schema.current_only and not schema.incompatible and not (
+        schema.key_changed or schema.source_key_changed or schema.key_invalid
+    ):
+        return SchemaEvolution.COLUMNS_REMOVED
+    if schema.before_only or schema.current_only or schema.incompatible or schema.key_changed or schema.source_key_changed or schema.key_invalid or schema.enum_set_added:
+        return SchemaEvolution.INCOMPATIBLE
+    return SchemaEvolution.NONE
+
+
 def _can_table_early_exit(
     before: SnapshotTableDescriptor,
     current: SnapshotTableDescriptor,
@@ -450,6 +513,7 @@ def _schema_changes_from_view(
     schema: _SchemaView,
     policy: _ComparisonTablePolicy | None = None,
 ) -> ComparisonSchemaChanges:
+    evolution = _schema_evolution(schema)
     change_source = _schema_change_source(
         has_schema_changes=bool(
             schema.before_only
@@ -457,6 +521,7 @@ def _schema_changes_from_view(
             or schema.incompatible
             or schema.key_changed
             or schema.source_key_changed
+            or schema.enum_set_added
         ),
         policy=policy,
     )
@@ -469,6 +534,7 @@ def _schema_changes_from_view(
         effective_compare_key_changed=schema.key_changed,
         incompatible_columns=schema.incompatible,
         change_source=change_source,
+        schema_evolution=evolution,
     )
 
 
@@ -547,6 +613,7 @@ def _table_digest_payload(fact: ComparisonTableFact) -> dict[str, object]:
                 if fact.schema_changes.change_source is None
                 else fact.schema_changes.change_source.value
             ),
+            "schema_evolution": fact.schema_changes.schema_evolution.value,
         },
         "row_count_before": fact.row_count_before,
         "row_count_current": fact.row_count_current,

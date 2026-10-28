@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -12,12 +14,14 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonFacts,
     ComparisonMode,
     ComparisonRecordsClosure,
+    ComparisonSchemaChanges,
     ComparisonSummary,
     ComparisonTableFact,
     ComparisonTableStatus,
     PairResultStatus,
     RecordsArtifactFamily,
     RecordsClosureEntry,
+    SchemaEvolution,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import (
     RISK_CONTRACT_VERSION,
@@ -32,7 +36,9 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotColumnDescriptor,
     SnapshotTableDescriptor,
 )
+from gateway_backend.capabilities.surface_assembly.contracts import SurfaceTable
 from gateway_backend.capabilities.surface_assembly import (
+    SURFACE_CONTRACT_VERSION,
     SurfaceArtifactIndexEntry,
     SurfaceAssemblyContext,
     SurfaceAssemblyInput,
@@ -50,6 +56,49 @@ from gateway_backend.capabilities.surface_assembly import (
     rewrite_surface_refs,
     validate_surface,
 )
+
+_S1B_GOLDEN = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "golden"
+    / "surface"
+    / "s1b"
+    / "table-presentation.json"
+)
+
+
+def _s1b_surface_golden_case(name: str) -> dict[str, object]:
+    document = json.loads(_S1B_GOLDEN.read_text(encoding="utf-8"))
+    assert document["contract_version"] == SURFACE_CONTRACT_VERSION
+    return document["cases"][name]
+
+
+def _s1b_surface_projection(table: SurfaceTable) -> dict[str, object]:
+    schema = table.schema_summary
+    stats = table.row_change_stats
+    refs = table.table_refs
+    records = table.records_refs
+    return {
+        "table_status": table.table_status.value,
+        "change_kind": table.change_kind.value,
+        "display_strategy": table.display.strategy.value,
+        "schema_evolution": None if schema is None else schema.schema_evolution.value,
+        "before_only_columns": [] if schema is None else list(schema.before_only_columns),
+        "current_only_columns": [] if schema is None else list(schema.current_only_columns),
+        "before_table_ref_present": refs.before_table_ref is not None,
+        "current_table_ref_present": refs.current_table_ref is not None,
+        "row_count_before": stats.row_count_before,
+        "row_count_current": stats.row_count_current,
+        "row_added_count": stats.row_added_count,
+        "row_deleted_count": stats.row_deleted_count,
+        "records_ref_present": records.records_ref is not None,
+    }
+
+
+def _assert_s1b_surface_golden(name: str, table: SurfaceTable) -> None:
+    expected = _s1b_surface_golden_case(name)
+    actual = _s1b_surface_projection(table)
+    assert {key: actual[key] for key in expected} == expected
 
 
 def _digest(seed: str) -> DigestRef:
@@ -118,7 +167,7 @@ def _facts(
     return ComparisonFacts(
         comparison_digest=_digest("comparison"),
         facts_core_digest=_digest("facts-core"),
-        comparison_contract_version="backend-vnext/comparison/v2",
+        comparison_contract_version="backend-vnext/comparison/v3",
         projection_contract_version="backend-vnext/comparison-projection/v1",
         scalar_encoding_version=1,
         before_snapshot_digest=_digest("before"),
@@ -210,6 +259,33 @@ def test_table_content_fact_is_visible_and_counts_as_changed() -> None:
     assert result.surface.tables[0].to_document()["content_changed"] is True
 
 
+def test_additive_schema_alone_stays_summary_only_and_keeps_added_names_private() -> None:
+    facts = _facts(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.UNCHANGED,
+            schema_changes=ComparisonSchemaChanges(
+                current_only_columns=("new_value",),
+                schema_evolution=SchemaEvolution.COLUMNS_ADDED,
+            ),
+            content_changed=False,
+        )
+    )
+
+    result = assemble_surface(_request(facts))
+
+    assert result.status is SurfaceAssemblyStatus.READY
+    assert result.surface is not None
+    assert result.surface.summary.changed_table_count == 0
+    projected = result.surface.tables[0]
+    _assert_s1b_surface_golden("added_columns_only", projected)
+    assert projected.change_kind is SurfaceChangeKind.UNCHANGED
+    assert projected.display.strategy is SurfaceDisplayStrategy.SUMMARY_ONLY
+    assert projected.schema is not None
+    assert projected.schema.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert projected.schema.current_only_columns == ()
+
+
 @pytest.mark.parametrize(
     ("status", "expected_kind"),
     (
@@ -231,6 +307,48 @@ def test_table_status_projection_is_deterministic(
     assert result.status is SurfaceAssemblyStatus.READY
     assert result.surface is not None
     assert result.surface.tables[0].change_kind is expected_kind
+
+
+@pytest.mark.parametrize(
+    ("status", "refs", "expected_strategy"),
+    (
+        (
+            ComparisonTableStatus.ADDED_TABLE,
+            SurfaceTableRefs(current_table_ref=_ref("current-orders", "application/vnd.apache.parquet")),
+            SurfaceDisplayStrategy.TABLE_BROWSE,
+        ),
+        (
+            ComparisonTableStatus.DELETED_TABLE,
+            SurfaceTableRefs(before_table_ref=_ref("before-orders", "application/vnd.apache.parquet")),
+            SurfaceDisplayStrategy.TABLE_BROWSE,
+        ),
+    ),
+)
+def test_added_and_deleted_tables_are_browsable_without_row_records(
+    status: ComparisonTableStatus,
+    refs: SurfaceTableRefs,
+    expected_strategy: SurfaceDisplayStrategy,
+) -> None:
+    table = ComparisonTableFact(
+        table_name="orders",
+        status=status,
+        row_count_current=3 if status is ComparisonTableStatus.ADDED_TABLE else None,
+        row_count_before=3 if status is ComparisonTableStatus.DELETED_TABLE else None,
+    )
+
+    result = assemble_surface(_request(_facts(table), table_refs=refs))
+
+    assert result.status is SurfaceAssemblyStatus.READY
+    assert result.surface is not None
+    projected = result.surface.tables[0]
+    _assert_s1b_surface_golden(
+        "whole_table_added"
+        if status is ComparisonTableStatus.ADDED_TABLE
+        else "whole_table_deleted",
+        projected,
+    )
+    assert projected.display.strategy is expected_strategy
+    assert projected.records_refs.records_ref is None
 
 
 def test_changed_table_requires_records_closure_when_row_targets_exist() -> None:

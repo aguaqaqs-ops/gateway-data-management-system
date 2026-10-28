@@ -20,7 +20,8 @@ from gateway_backend.domain.workspace.models import (
 from gateway_backend.capabilities.table_rules.contracts import RULESET_VERSION
 from gateway_backend.application.workspace.upload_limits import (
     FIXED_UPLOAD_MAX_COMPRESSED_BYTES,  # noqa: F401
-    FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,  # noqa: F401
+    FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS,  # noqa: F401
+    FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS,  # noqa: F401
 )
 from gateway_shared_kernel import raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
@@ -137,7 +138,8 @@ __all__ = [
     "AcceptUploadResult",
     "CreateOrGetWorkspaceResult",
     "FIXED_UPLOAD_MAX_COMPRESSED_BYTES",
-    "FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS",
+    "FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS",
+    "FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS",
     "PREVIEW_FROZEN_RULESET_VERSION",
     "PreviewReadState",
     "StartPreviewCommand",

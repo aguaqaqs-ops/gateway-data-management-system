@@ -14,6 +14,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonRequest,
     ComparisonFacts,
     ComparisonTableFact,
+    ComparisonTableStatus,
     ComparisonPlan,
     ComparisonStorageFacts,
     DetailedFactsResult,
@@ -23,6 +24,7 @@ from gateway_backend.capabilities.comparison import (
     compare_plan,
     plan_comparison,
 )
+from gateway_backend.capabilities.comparison.contracts import SchemaEvolution
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
@@ -234,6 +236,24 @@ def test_ordered_compare_excluded_change_is_visible_without_row_change() -> None
     assert table.status.value == "UNCHANGED"
     assert table.ordered_extension is not None
     assert table.ordered_extension.records == ()
+
+
+def test_ordered_added_column_compares_shared_excluded_values() -> None:
+    before = """
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL);
+        INSERT INTO t VALUES (1, 1, 'a');
+    """
+    current = """
+        CREATE TABLE t (gid BIGINT NULL, no INT NULL, value VARCHAR(8) NULL, note TEXT NULL);
+        INSERT INTO t VALUES (1, 1, 'z', 'new');
+    """
+
+    table = _table(_facts(_plan(before, current, compare_excluded_columns=("value",))))
+
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.content_changed is True
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.records == ()
 
 
 @pytest.mark.parametrize(

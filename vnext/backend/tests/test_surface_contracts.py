@@ -14,6 +14,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableFact,
     ComparisonTableStatus,
     PairResultStatus,
+    SchemaEvolution,
 )
 from gateway_backend.capabilities.surface_assembly import (
     SURFACE_CONTRACT_VERSION,
@@ -71,7 +72,7 @@ def _facts() -> ComparisonFacts:
     return ComparisonFacts(
         comparison_digest=_digest("comparison"),
         facts_core_digest=_digest("facts-core"),
-        comparison_contract_version="backend-vnext/comparison/v2",
+        comparison_contract_version="backend-vnext/comparison/v3",
         projection_contract_version="backend-vnext/comparison-projection/v1",
         scalar_encoding_version=1,
         before_snapshot_digest=_digest("before"),
@@ -104,7 +105,7 @@ def test_surface_contract_is_v2_and_does_not_inline_rows() -> None:
         compare=SurfaceCompare(None, (), (), ()),
         diagnostics=SurfaceDiagnostics(),
     )
-    assert SURFACE_CONTRACT_VERSION.endswith("/v2")
+    assert SURFACE_CONTRACT_VERSION.endswith("/v3")
     document = table.to_document()
     assert "before_values" not in str(document)
     assert "current_values" not in str(document)
@@ -135,3 +136,15 @@ def test_surface_schema_summary_preserves_composite_compare_key_order() -> None:
     )
 
     assert schema.effective_compare_key_current == ("source_table", "point_gid")
+
+
+def test_surface_schema_summary_hides_only_added_column_names() -> None:
+    schema = SurfaceSchemaSummary.from_comparison(
+        ComparisonSchemaChanges(
+            current_only_columns=("new_value",),
+            schema_evolution=SchemaEvolution.COLUMNS_ADDED,
+        )
+    )
+
+    assert schema.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert schema.current_only_columns == ()

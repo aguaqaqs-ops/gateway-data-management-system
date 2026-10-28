@@ -1,6 +1,6 @@
 # Comparison Contract
 
-> v2 增加 `comparison_mode`、project identity assessment digest 和 `REPLACED` table status。formal upload 在 `DIFFERENT_PROJECT` 时使用 `DATASET_REPLACEMENT`，不生成 records closure；完整规则见 `../capabilities/project-identity-and-dataset-replacement.md`。
+> v2 增加 `comparison_mode`、project identity assessment digest 和 `REPLACED` table status。v3 定义 schema 演进分类与整表新增/删除不生成逐行记录。formal upload 在 `DIFFERENT_PROJECT` 时使用 `DATASET_REPLACEMENT`，不生成 records closure；完整规则见 `../capabilities/project-identity-and-dataset-replacement.md`。
 
 本文定义 backend vNext 第一版 directed comparison contract。Comparison 只消费已经物化的 Snapshot/Summary/Table access，不解析 SourcePackage，不执行 repository import，不生成风险结论或前端 surface。
 
@@ -418,15 +418,20 @@ SchemaChanges:
   effective_compare_key_before optional
   effective_compare_key_current optional
   effective_compare_key_changed: true | false
+  schema_evolution: NONE | COLUMNS_ADDED | COLUMNS_REMOVED | INCOMPATIBLE
 ```
 
 规则：
 
 - 新增表输出 `ADDED_TABLE`。
 - 删除表输出 `DELETED_TABLE`。
+- 仅对 before/current 都存在的表分类 schema 演进。字段只增、ENUM 只增标签（标签位置不限）、SET 只增成员且共有字段兼容时为 `COLUMNS_ADDED`；字段只删且共有字段兼容时为 `COLUMNS_REMOVED`；其余 schema 变化为 `INCOMPATIBLE`。有效比较键变化、键无效或共有字段不兼容时不得归类为只增列。
+- `COLUMNS_ADDED` 按共有列计算行变化，不改变 table status、不降级，也不产生 schema-change record。新增列名保留在内部 comparison facts 中；surface 不发布新增列列表，Submission/History 面向用户的结果不列出新增列。
+- `COLUMNS_REMOVED` 保持 `SCHEMA_CHANGED`；`INCOMPATIBLE` 保持现行 schema-change/degraded 规则。
 - key 不变时，row diff 只比较 selected columns。
 - before-only/current-only columns 不进入 row diff。
 - key 变化时，不做复杂 row identity 映射；输出全表变化或 `DEGRADED`。
+- 整表新增/删除只输出表级 fact 与 row count，不生成 `ROW_ADDED` / `ROW_DELETED` 记录。
 - 降级表不阻塞其他表比较。
 
 ## ComparisonRecords

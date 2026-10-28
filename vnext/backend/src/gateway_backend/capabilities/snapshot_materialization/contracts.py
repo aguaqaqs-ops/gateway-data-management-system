@@ -39,6 +39,8 @@ DIGEST_CONTRACT_VERSION = 1
 SCALAR_ENCODING_VERSION = 1
 SUMMARY_CONTRACT_VERSION = 1
 SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION = 1
+PARQUET_WRITER_CONTRACT_VERSION = 1
+SNAPSHOT_EXPORT_CACHE_TTL_SECONDS = 86_400
 BATCH_READER_CONTRACT_VERSION = 1
 BATCH_SCHEMA_METADATA_VERSION = 1
 COMPARISON_PROJECTION_CONTRACT_VERSION = "backend-vnext/comparison-projection/v1"
@@ -955,6 +957,7 @@ class SnapshotTableArtifactCacheKey:
     snapshot_table_artifact_contract_version: int = SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION
     export_format: str = EXPORT_FORMAT_PARQUET
     sort_or_row_order_contract: str = ROW_ORDER_CONTRACT_INSERT
+    parquet_writer_contract_version: int = PARQUET_WRITER_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
         if type(self.row_layout_digest) is not DigestRef:
@@ -971,6 +974,25 @@ class SnapshotTableArtifactCacheKey:
             raise ValueError("export_format must be PARQUET")
         if self.sort_or_row_order_contract != ROW_ORDER_CONTRACT_INSERT:
             raise ValueError("sort_or_row_order_contract must be INSERT_ORDER")
+        if self.parquet_writer_contract_version != PARQUET_WRITER_CONTRACT_VERSION:
+            raise ValueError("parquet_writer_contract_version must be 1")
+
+
+class SnapshotTableExportCachePort(Protocol):
+    def lookup_many(
+        self,
+        keys: tuple[SnapshotTableArtifactCacheKey, ...],
+    ) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
+        """Return unexpired row-file refs for exact repository/layout/writer keys."""
+
+    def store_many(
+        self,
+        entries: tuple[tuple[SnapshotTableArtifactCacheKey, ArtifactRef], ...],
+    ) -> None:
+        """Register row-file refs and extend their bounded cache protection."""
+
+    def discard_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
+        """Remove stale cache entries and release their cache protection."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1420,6 +1442,7 @@ class RepositoryRefMaterializationRequest:
     snapshot_materialization_contract_version: int = SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION
     parser_version: int | None = None
     artifact_store: object | None = None
+    export_cache: SnapshotTableExportCachePort | None = None
 
     def __post_init__(self) -> None:
         if type(self.repository_ref) is not RepositoryRef:
@@ -1453,6 +1476,11 @@ class RepositoryRefMaterializationRequest:
         ):
             raise ValueError("parser_version must be a positive int or None")
         _require_optional_store(self.artifact_store)
+        if self.export_cache is not None and any(
+            not callable(getattr(self.export_cache, name, None))
+            for name in ("lookup_many", "store_many", "discard_many")
+        ):
+            raise ValueError("export_cache must implement SnapshotTableExportCachePort")
         if self.requested_tables is None:
             return
         if type(self.requested_tables) is not tuple:

@@ -29,6 +29,9 @@ if TYPE_CHECKING:
     from gateway_backend.domain.workspace.ports import WorkspaceRepository
     from gateway_backend.infrastructure.control_db.sqlite_review import SQLiteReviewRepository
     from gateway_backend.infrastructure.control_db.sqlite_submission import SQLiteSubmissionRepository
+    from gateway_backend.infrastructure.control_db.sqlite_snapshot_export_cache import (
+        SQLiteSnapshotTableExportCache,
+    )
 
 from gateway_backend.infrastructure.control_db.control_db_connect import (
     BUSY_TIMEOUT_MS,
@@ -117,6 +120,7 @@ class ControlDbUnitOfWork:
         self._baseline: BaselineRepository | None = None
         self._archive: ArchiveRepository | None = None
         self._history_compare: SQLiteHistoryCompareRepository | None = None
+        self._snapshot_table_export_cache: SQLiteSnapshotTableExportCache | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -157,6 +161,12 @@ class ControlDbUnitOfWork:
         if self._protection is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._protection
+
+    @property
+    def snapshot_table_export_cache(self) -> SQLiteSnapshotTableExportCache:
+        if self._snapshot_table_export_cache is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._snapshot_table_export_cache
 
     @property
     def review(self) -> SQLiteReviewRepository:
@@ -318,6 +328,7 @@ class ControlDbUnitOfWork:
             self._protection = SQLiteArtifactProtectionStore(
                 connection,
                 read_only=self._read_only,
+                now=transaction_now,
             )
             self._submission = SQLiteSubmissionRepository(
                 connection,
@@ -340,6 +351,17 @@ class ControlDbUnitOfWork:
             )
             self._history_compare = SQLiteHistoryCompareRepository(
                 connection,
+                read_only=self._read_only,
+            )
+            from gateway_backend.infrastructure.control_db.sqlite_snapshot_export_cache import (
+                SQLiteSnapshotTableExportCache,
+            )
+
+            assert self._protection is not None
+            self._snapshot_table_export_cache = SQLiteSnapshotTableExportCache(
+                connection,
+                protection=self._protection,
+                now=transaction_now,
                 read_only=self._read_only,
             )
         except sqlite3.OperationalError as exc:
@@ -373,6 +395,7 @@ class ControlDbUnitOfWork:
         self._baseline = None
         self._archive = None
         self._history_compare = None
+        self._snapshot_table_export_cache = None
         self._transaction_now = None
         if connection is None:
             return

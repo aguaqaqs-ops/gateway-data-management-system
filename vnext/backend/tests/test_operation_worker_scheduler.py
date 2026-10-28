@@ -44,7 +44,6 @@ from gateway_backend.operations.worker import (
 from gateway_backend.operations.worker_lifecycle import WorkerLifecycleController
 from gateway_backend.operations.worker_runtime import WorkerRuntime
 from gateway_backend.operations.worker_startup import WorkerStartup
-import gateway_backend.operations.worker_runtime as worker_runtime_module
 
 pytestmark = pytest.mark.unit
 
@@ -295,6 +294,29 @@ class ThreadFactory:
         return thread
 
 
+class InjectedWakeEvent:
+    def __init__(self, on_wait: Callable[[float, InjectedWakeEvent], bool]) -> None:
+        self._event = Event()
+        self.on_wait = on_wait
+        self.wait_calls: list[float] = []
+
+    def clear(self) -> None:
+        self._event.clear()
+
+    def is_set(self) -> bool:
+        return self._event.is_set()
+
+    def set(self) -> None:
+        self._event.set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        resolved = 0.0 if timeout is None else timeout
+        self.wait_calls.append(resolved)
+        if self._event.is_set():
+            return True
+        return self.on_wait(resolved, self)
+
+
 class FakeClock:
     def __init__(self) -> None:
         self.value = 0.0
@@ -338,9 +360,21 @@ def _runtime(
     thread_factory: ThreadFactory | None = None,
     jitter: Callable[[float, float], float] | None = None,
     lifecycle: WorkerLifecycleController | None = None,
+    wake_event_factory: Callable[[], InjectedWakeEvent] | None = None,
 ) -> WorkerRuntime:
     def observe(event: WorkerEvent) -> None:
         events.append(event)
+
+    active_threads = thread_factory or ThreadFactory()
+
+    def default_wake_event() -> InjectedWakeEvent:
+        def run_executor(_timeout: float, event: InjectedWakeEvent) -> bool:
+            if isinstance(active_threads, ThreadFactory) and active_threads.threads:
+                active_threads.threads[-1].run()
+                return event.is_set()
+            return event._event.wait(_timeout)
+
+        return InjectedWakeEvent(run_executor)
 
     return WorkerRuntime(
         startup=cast(WorkerStartup, startup),
@@ -348,7 +382,8 @@ def _runtime(
         observer=observe,
         lifecycle=lifecycle,
         monotonic=clock or FakeClock(),
-        thread_factory=thread_factory or ThreadFactory(),
+        thread_factory=active_threads,
+        wake_event_factory=wake_event_factory or default_wake_event,
         jitter=jitter or (lambda lower, _upper: lower),
     )
 
@@ -406,62 +441,163 @@ def test_one_claim_has_one_non_daemon_executor_and_no_overlap() -> None:
     assert any(event.code is WorkerEventCode.SAFE_HANDOFF for event in events)
 
 
-def test_active_drain_latches_executor_wait_without_polling_spin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_short_executor_completion_wakes_before_heartbeat() -> None:
     operation, step = _active_records()
     store = RuntimeStore(operation, step)
     factory = RuntimeUowFactory(store)
     stop = [False]
-    work = ClaimedWork(operation, step, _checkpoint_then_handoff(stop))
-    startup = FakeStartup([work])
+
+    def short_executor(
+        _operation: OperationRecord,
+        _step: StepRecord,
+        _control: ExecutionControl,
+        session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
+        generation = session.publish_checkpoint(
+            lambda _, current, now: dataclasses.replace(
+                current,
+                updated_at=now,
+                optimistic_version=current.optimistic_version + 1,
+            )
+        )
+        return session.acknowledge_safe_handoff(generation)
+
+    work = ClaimedWork(operation, step, cast(ClaimedExecutor, short_executor))
+    startup = FakeStartup([work, None])
     events: list[WorkerEvent] = []
     threads = ThreadFactory()
+    clock = FakeClock()
+    event_waits: list[float] = []
+    idle_waits: list[float] = []
 
-    class CompletionProbe:
-        def __init__(self) -> None:
-            self.completed = False
-            self.wait_calls: list[float] = []
+    def wake_wait(timeout: float, event: InjectedWakeEvent) -> bool:
+        event_waits.append(timeout)
+        threads.threads[0].run()
+        return event.is_set()
 
-        def is_set(self) -> bool:
-            return self.completed
-
-        def set(self) -> None:
-            self.completed = True
-
-        def wait(self, timeout: float) -> bool:
-            self.wait_calls.append(timeout)
-            threads.threads[0].run()
-            return self.completed
-
-    completion = CompletionProbe()
-    monkeypatch.setattr(getattr(worker_runtime_module, "threading"), "Event", lambda: completion)
-    drain_calls = 0
-
-    def drain_requested() -> bool:
-        nonlocal drain_calls
-        if not threads.threads or not threads.threads[0].started:
-            return False
-        drain_calls += 1
-        if drain_calls > 4:
-            raise AssertionError("active drain was polled instead of waiting for completion")
-        return True
-
-    def wait(_timeout: float) -> bool:
-        raise AssertionError("pending drain must wait on executor completion")
+    def idle_wait(timeout: float) -> bool:
+        idle_waits.append(timeout)
+        stop[0] = True
+        return False
 
     _runtime(
         startup,
         factory,
         events,
+        clock=clock,
         thread_factory=threads,
+        wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
     ).run(
-        drain_requested=drain_requested,
-        wait=wait,
+        drain_requested=lambda: stop[0],
+        wait=idle_wait,
     )
 
-    assert completion.wait_calls == [10.0]
-    assert drain_calls <= 4
+    assert event_waits == [10.0]
+    assert idle_waits == [1.0]
+    assert startup.claim_calls == 2
+    assert clock.value == 0.0
+    assert not any(event.code is WorkerEventCode.HEARTBEAT_SUCCEEDED for event in events)
+    assert threads.threads[0].joined
+
+
+def test_stop_signal_during_executor_wakes_supervisor_and_enters_drain() -> None:
+    operation, step = _active_records()
+    store = RuntimeStore(operation, step)
+    factory = RuntimeUowFactory(store)
+    stop = [False]
+    events: list[WorkerEvent] = []
+    threads = ThreadFactory()
+    clock = FakeClock()
+    lifecycle = WorkerLifecycleController(monotonic=clock)
+    runtime_holder: list[WorkerRuntime] = []
+    wake_event: InjectedWakeEvent | None = None
+    signal_woke_executor: list[bool] = []
+
+    def executor(
+        current_operation: OperationRecord,
+        current_step: StepRecord,
+        _control: ExecutionControl,
+        session: LeaseSession,
+    ) -> ExecutorAcknowledgment:
+        stop[0] = True
+        runtime_holder[0].notify_stop_signal()
+        assert wake_event is not None
+        signal_woke_executor.append(wake_event.is_set())
+        generation = session.publish_checkpoint(
+            lambda _, current, now: dataclasses.replace(
+                current,
+                updated_at=now,
+                optimistic_version=current.optimistic_version + 1,
+            )
+        )
+        return session.acknowledge_safe_handoff(generation)
+
+    def wake_wait(_timeout: float, event: InjectedWakeEvent) -> bool:
+        threads.threads[0].run()
+        return event.is_set()
+
+    def make_wake_event() -> InjectedWakeEvent:
+        nonlocal wake_event
+        wake_event = InjectedWakeEvent(wake_wait)
+        return wake_event
+
+    startup = FakeStartup(
+        [ClaimedWork(operation, step, cast(ClaimedExecutor, executor))]
+    )
+    runtime = _runtime(
+        startup,
+        factory,
+        events,
+        clock=clock,
+        thread_factory=threads,
+        lifecycle=lifecycle,
+        wake_event_factory=make_wake_event,
+    )
+    runtime_holder.append(runtime)
+    runtime.run(drain_requested=lambda: stop[0], wait=lambda _timeout: False)
+
+    assert signal_woke_executor == [True]
+    assert lifecycle.state is WorkerLifecycle.EXITED
+    assert any(event.code is WorkerEventCode.DRAIN_STARTED for event in events)
+    assert threads.threads[0].joined
+
+
+def test_long_executor_continues_heartbeating_at_the_configured_interval() -> None:
+    operation, step = _active_records()
+    store = RuntimeStore(operation, step)
+    factory = RuntimeUowFactory(store)
+    stop = [False]
+    startup = FakeStartup(
+        [ClaimedWork(operation, step, _checkpoint_then_handoff(stop))]
+    )
+    events: list[WorkerEvent] = []
+    threads = ThreadFactory()
+    clock = FakeClock()
+    event_waits: list[float] = []
+
+    def wake_wait(timeout: float, event: InjectedWakeEvent) -> bool:
+        event_waits.append(timeout)
+        if len(event_waits) == 1:
+            clock.value += timeout
+            return False
+        threads.threads[0].run()
+        return event.is_set()
+
+    _runtime(
+        startup,
+        factory,
+        events,
+        clock=clock,
+        thread_factory=threads,
+        wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
+    ).run(
+        drain_requested=lambda: stop[0],
+        wait=lambda _timeout: False,
+    )
+
+    assert event_waits == [10.0, 10.0]
+    assert clock.value == 10.0
+    assert [event.code for event in events].count(WorkerEventCode.HEARTBEAT_SUCCEEDED) == 1
     assert threads.threads[0].joined
 
 
@@ -477,16 +613,17 @@ def test_heartbeat_serializes_with_publication_and_propagates_cancel() -> None:
     threads = ThreadFactory()
     clock = FakeClock()
     lifecycle = WorkerLifecycleController(monotonic=clock)
-    waits: list[float] = []
+    event_waits: list[float] = []
 
-    def wait(timeout: float) -> bool:
-        waits.append(timeout)
+    def wake_wait(timeout: float, event: InjectedWakeEvent) -> bool:
+        event_waits.append(timeout)
         clock.value += timeout
-        if len(waits) == 1:
+        if len(event_waits) == 1:
             store.operation = dataclasses.replace(store.operation, cancel_requested=True)
             store.step = dataclasses.replace(store.step, cancel_requested=True)
-        elif len(waits) == 2:
+        elif len(event_waits) == 2:
             threads.threads[0].run()
+            return event.is_set()
         return False
 
     _runtime(
@@ -496,12 +633,13 @@ def test_heartbeat_serializes_with_publication_and_propagates_cancel() -> None:
         clock=clock,
         thread_factory=threads,
         lifecycle=lifecycle,
+        wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
     ).run(
         drain_requested=lambda: stop[0],
-        wait=wait,
+        wait=lambda _timeout: False,
     )
 
-    assert waits[:2] == [10.0, 10.0]
+    assert event_waits == [10.0, 10.0]
     assert observed_cancel == [True]
     assert store.max_active_transactions == 1
     assert any(event.code is WorkerEventCode.HEARTBEAT_SUCCEEDED for event in events)
@@ -570,15 +708,11 @@ def test_committed_terminal_operation_is_not_heartbeat_lease_loss(
     events: list[WorkerEvent] = []
     draining = [False]
 
-    def wait(timeout: float) -> bool:
-        if timeout == 10.0:
-            if not terminal_published.wait(timeout=5):
-                raise AssertionError("executor did not commit the terminal operation")
-            clock.value += timeout
-            return False
-        assert timeout == 1.0
-        draining[0] = True
-        return True
+    def wake_wait(timeout: float, _event: InjectedWakeEvent) -> bool:
+        if not terminal_published.wait(timeout=5):
+            raise AssertionError("executor did not commit the terminal operation")
+        clock.value += timeout
+        return False
 
     _runtime(
         startup,
@@ -586,9 +720,10 @@ def test_committed_terminal_operation_is_not_heartbeat_lease_loss(
         events,
         clock=clock,
         thread_factory=cast(ThreadFactory, lambda target: Thread(target=target)),
+        wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
     ).run(
         drain_requested=lambda: draining[0],
-        wait=wait,
+        wait=lambda timeout: (draining.__setitem__(0, True) or timeout == 1.0),
     )
 
     assert heartbeat_attempted.is_set()
@@ -607,7 +742,7 @@ def test_heartbeat_stale_write_before_terminal_commit_still_loses_worker_lease()
     )
     events: list[WorkerEvent] = []
 
-    def wait(timeout: float) -> bool:
+    def wake_wait(timeout: float, _event: InjectedWakeEvent) -> bool:
         assert timeout == 10.0
         store.step = dataclasses.replace(
             store.step,
@@ -618,9 +753,15 @@ def test_heartbeat_stale_write_before_terminal_commit_still_loses_worker_lease()
         return False
 
     with pytest.raises(StaleWrite, match="worker or token no longer matches"):
-        _runtime(startup, factory, events, clock=clock).run(
+        _runtime(
+            startup,
+            factory,
+            events,
+            clock=clock,
+            wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
+        ).run(
             drain_requested=lambda: False,
-            wait=wait,
+            wait=lambda _timeout: False,
         )
 
     assert any(event.code is WorkerEventCode.LEASE_LOST for event in events)
@@ -662,15 +803,22 @@ def test_heartbeat_busy_budget_fences_lease_and_joins_executor() -> None:
     clock = FakeClock()
     waits: list[float] = []
 
-    def wait(timeout: float) -> bool:
+    def wake_wait(timeout: float, _event: InjectedWakeEvent) -> bool:
         waits.append(timeout)
         clock.value += timeout
         return False
 
     with pytest.raises(StoreBusy, match="retry budget"):
-        _runtime(startup, factory, events, clock=clock, thread_factory=threads).run(
+        _runtime(
+            startup,
+            factory,
+            events,
+            clock=clock,
+            thread_factory=threads,
+            wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
+        ).run(
             drain_requested=lambda: False,
-            wait=wait,
+            wait=lambda _timeout: False,
         )
 
     assert threads.threads[0].joined
@@ -695,7 +843,7 @@ def test_heartbeat_budget_includes_claim_and_observer_elapsed_time() -> None:
             clock.value += 25.0
             store.busy_heartbeat = True
 
-    def wait(timeout: float) -> bool:
+    def wake_wait(timeout: float, _event: InjectedWakeEvent) -> bool:
         waits.append(timeout)
         clock.value += timeout
         return False
@@ -706,10 +854,11 @@ def test_heartbeat_budget_includes_claim_and_observer_elapsed_time() -> None:
         observer=observe,
         monotonic=clock,
         thread_factory=threads,
+        wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
         jitter=lambda lower, _upper: lower,
     )
     with pytest.raises(StoreBusy, match="retry budget"):
-        runtime.run(drain_requested=lambda: False, wait=wait)
+        runtime.run(drain_requested=lambda: False, wait=lambda _timeout: False)
 
     assert waits[0] == 10.0
     assert clock.value == 40.0

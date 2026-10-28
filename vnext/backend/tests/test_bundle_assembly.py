@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from gateway_shared_kernel import raw_blob_digest
@@ -28,6 +29,8 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput,
     BundleProfile,
     BundleRefScope,
+    BundleTableBinding,
+    BundleTableSide,
     assemble_bundle,
     validate_bundle,
 )
@@ -53,6 +56,14 @@ from gateway_backend.capabilities.surface_assembly import (
 from tests.test_surface_assembly import _facts, _request as _surface_request
 
 pytestmark = pytest.mark.unit
+_S1B_GOLDEN = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "golden"
+    / "bundle"
+    / "s1b"
+    / "snapshot-table-bindings.json"
+)
 
 
 class _TamperStore(InMemoryArtifactStore):
@@ -82,8 +93,10 @@ def _raw_ref(name: str, raw: bytes, media_type: str = "application/json") -> Art
     return ArtifactRef(name, media_type, len(raw), raw_blob_digest(raw))
 
 
-def _surface_result(*, root_ref: ArtifactRef | None = None) -> SurfaceAssemblyResult:
-    facts = _facts(ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.UNCHANGED))
+def _surface_result(
+    *, root_ref: ArtifactRef | None = None, table_name: str = "orders"
+) -> SurfaceAssemblyResult:
+    facts = _facts(ComparisonTableFact(table_name=table_name, status=ComparisonTableStatus.UNCHANGED))
     result = assemble_surface(_surface_request(facts))
     assert result.surface is not None
     if root_ref is None:
@@ -158,21 +171,23 @@ def test_input_order_changes_do_not_change_bundle_document_or_digest() -> None:
 
 def test_multi_pair_shared_snapshot_is_published_once() -> None:
     raw = b"snapshot rows"
-    snapshot_ref = _raw_ref("snapshot-source", raw, "application/octet-stream")
-    snapshot_ref_two = _raw_ref("snapshot-source-two", raw, "application/octet-stream")
-    first = _surface_result(root_ref=snapshot_ref)
-    second = _surface_result(root_ref=snapshot_ref_two)
+    snapshot_ref = _raw_ref("snapshot-source", raw, "application/vnd.apache.parquet")
+    snapshot_ref_two = _raw_ref("snapshot-source-two", raw, "application/vnd.apache.parquet")
+    first = _surface_result(root_ref=snapshot_ref, table_name="orders")
+    second = _surface_result(root_ref=snapshot_ref_two, table_name="settings")
     binding_one = BundleArtifactBinding(
         snapshot_ref,
         "pairs/left_to_middle/tables/current/orders.parquet",
         BundleArtifactKind.SNAPSHOT_TABLE,
         pair_id="left_to_middle",
+        table_name="orders",
     )
     binding_two = BundleArtifactBinding(
         snapshot_ref_two,
-        "pairs/middle_to_right/tables/current/orders.parquet",
+        "pairs/middle_to_right/tables/current/settings.parquet",
         BundleArtifactKind.SNAPSHOT_TABLE,
         pair_id="middle_to_right",
+        table_name="settings",
     )
     source = InMemoryArtifactStore()
     source.put(raw, snapshot_ref)
@@ -200,8 +215,67 @@ def test_multi_pair_shared_snapshot_is_published_once() -> None:
     snapshot_entries = [
         item for item in closure["closure_entries"] if item["kind"] == BundleArtifactKind.SNAPSHOT_TABLE
     ]
+    golden = json.loads(_S1B_GOLDEN.read_text(encoding="utf-8"))
+    assert golden["contract_version"] == BUNDLE_CONTRACT_VERSION
+    expected = golden["cases"]["identical_snapshot_rows_across_pairs"]
+    actual = {
+        "binding_count": len(snapshot_entries),
+        "entries": [
+            {
+                key: item[key]
+                for key in ("kind", "logical_path", "shared", "table_bindings")
+            }
+            for item in snapshot_entries
+        ],
+    }
+    assert actual == expected
+
+
+def test_snapshot_table_reference_shared_between_sides_keeps_both_bindings() -> None:
+    raw = b"same rows on both sides"
+    snapshot_ref = _raw_ref("same-snapshot", raw, "application/vnd.apache.parquet")
+    source = InMemoryArtifactStore()
+    source.put(raw, snapshot_ref)
+    surface = _surface_result()
+    closure = BundleArtifactClosure(
+        (
+            BundleArtifactBinding(
+                snapshot_ref,
+                "pairs/pair/tables/before/items/rows/000000.parquet",
+                BundleArtifactKind.SNAPSHOT_TABLE,
+                pair_id="pair",
+                table_name="items",
+            ),
+            BundleArtifactBinding(
+                snapshot_ref,
+                "pairs/pair/tables/current/items/rows/000000.parquet",
+                BundleArtifactKind.SNAPSHOT_TABLE,
+                pair_id="pair",
+                table_name="items",
+            ),
+        )
+    )
+
+    result = assemble_bundle(
+        _request((BundlePairInput("pair", 0, 1, surface, closure),)),
+        source_store=source,
+    )
+
+    assert result.status is BundleAssemblyStatus.READY
+    assert result.bundle is not None
+    closure_document = json.loads(source.locate(result.bundle.artifact_closure_ref))
+    snapshot_entries = [
+        item
+        for item in closure_document["closure_entries"]
+        if item["kind"] == BundleArtifactKind.SNAPSHOT_TABLE.value
+    ]
     assert len(snapshot_entries) == 1
+    assert snapshot_entries[0]["shared"] is True
     assert snapshot_entries[0]["logical_path"].startswith("shared/snapshot-tables/")
+    assert snapshot_entries[0]["table_bindings"] == [
+        {"pair_id": "pair", "side": "before", "table_name": "items"},
+        {"pair_id": "pair", "side": "current", "table_name": "items"},
+    ]
 
 
 def test_multi_pair_identical_artifact_refs_are_shared() -> None:

@@ -1,0 +1,1 @@
+CREATE TABLE t (`v` VARCHAR(8) NOT NULL); INSERT INTO t VALUES (_binary 'x');

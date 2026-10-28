@@ -137,55 +137,53 @@ EXPECTED_PAIRINGS = {
 }
 S2B_DATASET_BASELINE = {
     "rd-t1-a-v1": {
-        "preview_changed": 124,
         "preview_table_count": 124,
         "catalog_table_count": 124,
         "catalog_row_count_total": 3_729,
     },
     "rd-t1-a-v2": {
-        "preview_changed": 4,
         "preview_table_count": 124,
         "catalog_table_count": 124,
         "catalog_row_count_total": 3_727,
     },
     "rd-t2-b-v1": {
-        "preview_changed": 208,
         "preview_table_count": 208,
         "catalog_table_count": 208,
         "catalog_row_count_total": 73_648,
     },
     "rd-t2-b-v2": {
-        "preview_changed": 57,
         "preview_table_count": 219,
         "catalog_table_count": 208,
         "catalog_row_count_total": 68_864,
     },
     "rd-t3-c-v1": {
-        "preview_changed": 191,
         "preview_table_count": 191,
         "catalog_table_count": 191,
         "catalog_row_count_total": 122_251,
     },
     "rd-t3-c-v2": {
-        "preview_changed": 54,
         "preview_table_count": 192,
         "catalog_table_count": 192,
         "catalog_row_count_total": 122_257,
     },
     "rd-t4-d-v1": {
-        "preview_changed": 311,
         "preview_table_count": 311,
         "catalog_table_count": 311,
         "catalog_row_count_total": 246_359,
     },
     "rd-t4-d-v2": {
-        "preview_changed": 26,
         "preview_table_count": 311,
         "catalog_table_count": 311,
         "catalog_row_count_total": 246_439,
     },
 }
-S2B_HISTORY_RECORD_COUNTS = {"t1": 12, "t2": 11_511, "t3": 744, "t4": 168}
+S1B_V2_PREVIEW_CHANGED_COUNTS = {
+    "rd-t1-a-v2": 4,
+    "rd-t2-b-v2": 57,
+    "rd-t3-c-v2": 23,
+    "rd-t4-d-v2": 26,
+}
+S1B_HISTORY_RECORD_COUNTS = {"t1": 12, "t2": 1_147, "t3": 744, "t4": 168}
 TERMINAL_OPERATION_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 INITIAL_OPERATION_TIMEOUT_SECONDS = 3_600
 MINIMUM_OPERATION_TIMEOUT_SECONDS = 300
@@ -1725,7 +1723,7 @@ def _assert_identity_pair(
     }
 
 
-def _assert_s3_preview_summary(
+def _assert_s1b_preview_summary(
     summary: Mapping[str, int],
     *,
     dataset_id: str,
@@ -1738,7 +1736,7 @@ def _assert_s3_preview_summary(
         or summary.get("degraded_table_count") != 0
         or summary.get("failed_table_count") != 0
     ):
-        raise JourneyFailure(f"{dataset_id}: Preview summary differs from the S2b plus composite expectation")
+        raise JourneyFailure(f"{dataset_id}: Preview summary differs from the S1b plus composite expectation")
 
 
 def _assert_s3_catalog_summary(
@@ -1757,15 +1755,15 @@ def _assert_s3_catalog_summary(
         raise JourneyFailure(f"{dataset_id}: non-composite Repository row count differs from S2b")
 
 
-def _assert_s3_history_count(
+def _assert_s1b_history_count(
     *,
     tier: str,
     actual_record_count: int,
     composite_record_count: int,
 ) -> None:
-    expected = S2B_HISTORY_RECORD_COUNTS[tier] + composite_record_count
+    expected = S1B_HISTORY_RECORD_COUNTS[tier] + composite_record_count
     if actual_record_count != expected:
-        raise JourneyFailure(f"{tier}: History record count differs from S2b plus composite records")
+        raise JourneyFailure(f"{tier}: History record count differs from the S1b baseline plus composite records")
 
 
 def _submit(
@@ -2736,7 +2734,7 @@ def _run_tier(
                 manifest,
                 unchanged=False,
             )
-            _assert_s3_preview_summary(
+            _assert_s1b_preview_summary(
                 summary,
                 dataset_id=v1_id,
                 expected_changed=S2B_DATASET_BASELINE[v1_id]["preview_table_count"] + 1,
@@ -2898,10 +2896,8 @@ def _run_tier(
                     collect_timing=collect_timing,
                 )
                 summary = _assert_preview_summaries(manifest, unchanged=False)
-                expected_changed = S2B_DATASET_BASELINE[v2_id]["preview_changed"] + int(
-                    composite_changed
-                )
-                _assert_s3_preview_summary(
+                expected_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
+                _assert_s1b_preview_summary(
                     summary,
                     dataset_id=v2_id,
                     expected_changed=expected_changed,
@@ -2998,7 +2994,7 @@ def _run_tier(
                 manifest,
                 unchanged=True,
             )
-            _assert_s3_preview_summary(
+            _assert_s1b_preview_summary(
                 summary,
                 dataset_id=v1_id,
                 expected_changed=0,
@@ -3079,10 +3075,8 @@ def _run_tier(
                 manifest,
                 unchanged=False,
             )
-            expected_v2_changed = S2B_DATASET_BASELINE[v2_id]["preview_changed"] + int(
-                composite_changed
-            )
-            _assert_s3_preview_summary(
+            expected_v2_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
+            _assert_s1b_preview_summary(
                 summary,
                 dataset_id=v2_id,
                 expected_changed=expected_v2_changed,
@@ -3214,7 +3208,7 @@ def _run_tier(
     if api_record_count < 0:
         raise JourneyFailure("History HTTP record_count must be non-negative")
     composite_record_count = int(composite_counts["history_record_count"])
-    _assert_s3_history_count(
+    _assert_s1b_history_count(
         tier=tier,
         actual_record_count=api_record_count,
         composite_record_count=composite_record_count,
@@ -3274,7 +3268,7 @@ def _run_tier(
         },
         "history": {
             "record_count": api_record_count,
-            "s2b_record_count": S2B_HISTORY_RECORD_COUNTS[tier],
+            "s1b_record_count": S1B_HISTORY_RECORD_COUNTS[tier],
             "composite_record_count": composite_record_count,
             "composite_signal_point": composite_counts,
             "bundle_digest": history_result.get("bundle_digest"),
@@ -3361,7 +3355,7 @@ def _run_cross_project(
                 heartbeat_monitor=heartbeat_monitor,
             )
             summary = _assert_preview_summaries(manifest, unchanged=False)
-            _assert_s3_preview_summary(
+            _assert_s1b_preview_summary(
                 summary,
                 dataset_id=source_id,
                 expected_changed=S2B_DATASET_BASELINE[source_id]["preview_table_count"] + 1,

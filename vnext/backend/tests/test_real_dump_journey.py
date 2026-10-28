@@ -25,8 +25,8 @@ from benchmarks.real_dump_journey import (
     JourneyStepRunner,
     _assert_identity_pair,
     _assert_s3_catalog_summary,
-    _assert_s3_history_count,
-    _assert_s3_preview_summary,
+    _assert_s1b_history_count,
+    _assert_s1b_preview_summary,
     _assert_preview_summaries,
     _canonical_state_digest_from_submission,
     _history_surface_ref,
@@ -195,7 +195,7 @@ IDENTITY_ASSESSMENT_CASES = (
     ),
 )
 
-S3_PREVIEW_SUMMARY_CASES = (
+S1B_PREVIEW_SUMMARY_CASES = (
     ("composite unchanged", {"table_count": 125, "changed_table_count": 4, "degraded_table_count": 0, "failed_table_count": 0}, 4, True),
     ("composite changed", {"table_count": 125, "changed_table_count": 5, "degraded_table_count": 0, "failed_table_count": 0}, 5, True),
     ("unexpected changed count", {"table_count": 125, "changed_table_count": 6, "degraded_table_count": 0, "failed_table_count": 0}, 5, False),
@@ -1112,10 +1112,10 @@ def test_preview_summary_rejects_incomplete_degradation_or_change(
 
 @pytest.mark.parametrize(
     ("case", "summary", "expected_changed", "valid"),
-    S3_PREVIEW_SUMMARY_CASES,
-    ids=[case for case, _summary, _changed, _valid in S3_PREVIEW_SUMMARY_CASES],
+    S1B_PREVIEW_SUMMARY_CASES,
+    ids=[case for case, _summary, _changed, _valid in S1B_PREVIEW_SUMMARY_CASES],
 )
-def test_s3_preview_summary_matches_s2b_plus_composite(
+def test_preview_summary_matches_s1b_baseline_plus_composite(
     case: str,
     summary: dict[str, int],
     expected_changed: int,
@@ -1123,14 +1123,14 @@ def test_s3_preview_summary_matches_s2b_plus_composite(
 ) -> None:
     del case
     if valid:
-        _assert_s3_preview_summary(
+        _assert_s1b_preview_summary(
             summary,
             dataset_id="rd-t1-a-v2",
             expected_changed=expected_changed,
         )
     else:
         with pytest.raises(JourneyFailure):
-            _assert_s3_preview_summary(
+            _assert_s1b_preview_summary(
                 summary,
                 dataset_id="rd-t1-a-v2",
                 expected_changed=expected_changed,
@@ -1160,10 +1160,26 @@ def test_s3_catalog_reconciles_composite_rows_with_s2b_total() -> None:
         )
 
 
-def test_s3_history_count_adds_production_composite_records() -> None:
-    _assert_s3_history_count(tier="t1", actual_record_count=14, composite_record_count=2)
+def test_history_count_matches_s1b_baseline_and_adds_composite_records() -> None:
+    _assert_s1b_history_count(tier="t1", actual_record_count=14, composite_record_count=2)
     with pytest.raises(JourneyFailure):
-        _assert_s3_history_count(tier="t1", actual_record_count=15, composite_record_count=2)
+        _assert_s1b_history_count(tier="t1", actual_record_count=15, composite_record_count=2)
+    _assert_s1b_history_count(tier="t2", actual_record_count=1_147, composite_record_count=0)
+    with pytest.raises(JourneyFailure):
+        _assert_s1b_history_count(tier="t2", actual_record_count=11_511, composite_record_count=0)
+
+
+def test_additive_column_preview_uses_s1b_changed_table_count() -> None:
+    _assert_s1b_preview_summary(
+        {
+            "table_count": 193,
+            "changed_table_count": 23,
+            "degraded_table_count": 0,
+            "failed_table_count": 0,
+        },
+        dataset_id="rd-t3-c-v2",
+        expected_changed=23,
+    )
 
 
 def test_keyless_fallback_candidates_come_from_census_unresolved_tables() -> None:

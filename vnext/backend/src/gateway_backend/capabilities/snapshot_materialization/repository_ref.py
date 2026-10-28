@@ -223,6 +223,7 @@ def _materialize_open_session(
                 MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
                 "canonical metadata is required for tables excluded from row materialization",
             )
+    export_cache = request.export_cache
     cache_candidates: dict[
         str,
         tuple[
@@ -236,7 +237,7 @@ def _materialize_open_session(
     cache_store: ArtifactStorePort | None = None
     if (
         request.policy is MaterializationPolicy.READERS_REQUIRED
-        and request.export_cache is not None
+        and export_cache is not None
         and request.artifact_store is not None
     ):
         cache_store = require_artifact_store(request.artifact_store)
@@ -267,7 +268,7 @@ def _materialize_open_session(
             )
         if cache_candidates:
             try:
-                cached_row_refs = request.export_cache.lookup_many(
+                cached_row_refs = export_cache.lookup_many(
                     tuple(item[3] for item in cache_candidates.values())
                 )
             except Exception:
@@ -297,10 +298,11 @@ def _materialize_open_session(
                         store=cache_store,
                     )
                 except (ArtifactPublishError, ManifestVerificationError):
-                    try:
-                        request.export_cache.discard_many((cache_key,))
-                    except Exception:
-                        pass
+                    if export_cache is not None:
+                        try:
+                            export_cache.discard_many((cache_key,))
+                        except Exception:
+                            pass
             if table is None:
                 descriptor, table, table_diagnostics = _read_and_materialize_table(
                     request,

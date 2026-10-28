@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.p6_s1b_synthetic_load import _json_depth, _parse_input
+from benchmarks.p6_s1b_synthetic_load import _json_depth, _make_w4, _parse_input
 
 pytestmark = pytest.mark.unit
 
@@ -49,3 +49,52 @@ def test_synthetic_parser_tracks_rows_when_tables_have_different_widths(tmp_path
     assert tuple(row.row_index for row in parsed.rows_by_table["records"]) == (0, 1)
     assert len(parsed.rows_by_table["records"][0].cells) == 3
     assert len(parsed.rows_by_table["other"][0].cells) == 1
+
+
+@pytest.mark.parametrize(
+    ("rate", "expected_inserted", "expected_deleted", "expected_updated"),
+    ((0.1, 0, 0, 1), (1.0, 1, 1, 1)),
+)
+def test_w4_generates_unique_keys_and_counted_changes(
+    tmp_path: Path,
+    rate: float,
+    expected_inserted: int,
+    expected_deleted: int,
+    expected_updated: int,
+) -> None:
+    source = tmp_path / "w4-source.sql"
+    output = tmp_path / "w4-output.sql"
+    source.write_text(
+        "CREATE TABLE `records` (`id` INT NOT NULL PRIMARY KEY, `value` INT NOT NULL);\n"
+        "INSERT INTO `records` VALUES (1, 10), (2, 20), (3, 30);\n"
+        "CREATE TABLE `empty` (`id` INT NOT NULL PRIMARY KEY);\n",
+        encoding="utf-8",
+    )
+
+    summary = _make_w4(source, output, rate)
+
+    assert summary["table_count"] == 2
+    assert summary["before_row_count"] == 3
+    assert summary["after_row_count"] == 4
+    tables = {item["table"]: item for item in summary["tables"]}
+    assert tables["records"] == {
+        "table": "records",
+        "before": 3,
+        "inserted": expected_inserted,
+        "deleted": expected_deleted,
+        "updated": expected_updated,
+        "after": 3,
+    }
+    assert tables["empty"] == {
+        "table": "empty",
+        "before": 0,
+        "inserted": 1,
+        "deleted": 0,
+        "updated": 0,
+        "after": 1,
+    }
+    parsed = _parse_input(output.read_bytes())
+    record_keys = tuple(row[0].decimal for row in parsed.rows["records"])
+    assert len(record_keys) == len(set(record_keys)) == 3
+    assert len(parsed.rows["empty"]) == 1
+    assert output.stat().st_mode & 0o777 == 0o600

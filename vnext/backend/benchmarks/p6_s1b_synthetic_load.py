@@ -593,51 +593,33 @@ def make_2x(source: Path, output: Path, suffix: str) -> dict[str, Any]:
 
 def _fresh_key_replacement(
     descriptor: SourceTableDescriptor,
-    rows: tuple[SourceRow, ...],
     row: SourceRow,
-) -> tuple[int, bytes, SourceCell | None]:
-    snapshot = migrated_table_ruleset_snapshot()
-    resolved = resolve_table_rule(
-        snapshot,
-        descriptor.canonical_name,
-        primary_key_columns=descriptor.primary_key_canonical_names,
-    )
-    key_names = resolved.decision.compare_key_columns or descriptor.primary_key_canonical_names
-    if not key_names:
-        index, literal = _require_mutable_for_keyless(descriptor, rows, row)
-        return index, literal, None
-    indexes = {column.canonical_name: column.ordinal for column in descriptor.columns}
-    key_indexes = tuple(indexes[name] for name in key_names if name in indexes)
-    if len(key_indexes) != len(key_names):
-        raise ValueError(f"table {descriptor.canonical_name} has an unresolved synthetic key")
-    occupied = {tuple(values[index] for index in key_indexes) for values in rows}
+    *,
+    key_indexes: tuple[int, ...],
+    occupied_keys: set[tuple[SourceCell, ...]],
+    occupied_values_by_index: dict[int, set[SourceCell]],
+) -> tuple[int, bytes, SourceCell]:
+    if not key_indexes:
+        raise ValueError(f"table {descriptor.canonical_name} has no synthetic key")
     old_key = tuple(row[index] for index in key_indexes)
     for key_index in key_indexes:
         column = descriptor.columns[key_index]
-        for candidate in _fresh_values(column, (values[key_index] for values in rows)):
+        for candidate in _fresh_values(column, occupied_values_by_index[key_index]):
             candidate_key = tuple(candidate if index == key_index else value for index, value in zip(key_indexes, old_key, strict=True))
-            if candidate_key not in occupied:
+            if candidate_key not in occupied_keys:
                 return key_index, _sql_literal_for_fresh(column, candidate), candidate
     raise ValueError(f"table {descriptor.canonical_name} has no safe fresh key")
-
-
-def _require_mutable_for_keyless(
-    descriptor: SourceTableDescriptor,
-    rows: tuple[SourceRow, ...],
-    row: SourceRow,
-) -> tuple[int, bytes]:
-    chosen = _mutator_for(descriptor, rows)
-    if chosen is None:
-        raise ValueError(f"table {descriptor.canonical_name} has no safe keyless row change")
-    index, mutate = chosen
-    return index, mutate(row[index])
 
 
 def _fresh_values(
     column: SourceColumnDescriptor,
     occupied_values: Iterable[SourceCell],
 ) -> Iterator[SourceCell]:
-    occupied = set(occupied_values)
+    occupied = (
+        occupied_values
+        if isinstance(occupied_values, set)
+        else set(occupied_values)
+    )
     declared_type = column.declared_type
     kind = None if declared_type is None else declared_type.kind
     if kind in {DeclaredTypeKind.SIGNED_INTEGER, DeclaredTypeKind.UNSIGNED_INTEGER}:
@@ -659,12 +641,13 @@ def _fresh_values(
             candidates = range(0, min(maximum + 1, len(occupied) + 2))
         for candidate in candidates:
             value = str(candidate)
-            if not any(getattr(item, "decimal", None) == value for item in occupied):
-                yield (
-                    UnsignedIntegerScalar(value)
-                    if kind is DeclaredTypeKind.UNSIGNED_INTEGER
-                    else SignedIntegerScalar(value)
-                )
+            scalar = (
+                UnsignedIntegerScalar(value)
+                if kind is DeclaredTypeKind.UNSIGNED_INTEGER
+                else SignedIntegerScalar(value)
+            )
+            if scalar not in occupied:
+                yield scalar
     elif kind is DeclaredTypeKind.STRING and column.logical_type in {
         SqlLogicalType.STANDARD,
         SqlLogicalType.ENUM,
@@ -758,6 +741,7 @@ def _validate_output(raw: bytes) -> None:
 def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
     raw = source.read_bytes()
     parsed = _parse_input(raw)
+    ruleset = migrated_table_ruleset_snapshot()
     replacements: dict[str, dict[int, dict[int, bytes]]] = {}
     deleted: dict[str, set[int]] = {}
     appended: dict[str, dict[int, tuple[bytes, ...]]] = {}
@@ -786,6 +770,29 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
         if mutation is None:
             raise ValueError(f"table {table_name} has no safe non-key field for W4")
         mutation_column, mutate = mutation
+        resolved_rule = resolve_table_rule(
+            ruleset,
+            descriptor.canonical_name,
+            primary_key_columns=descriptor.primary_key_canonical_names,
+        )
+        key_names = (
+            resolved_rule.decision.compare_key_columns
+            or descriptor.primary_key_canonical_names
+        )
+        column_indexes = {
+            column.canonical_name: column.ordinal for column in descriptor.columns
+        }
+        key_indexes = tuple(
+            column_indexes[name] for name in key_names if name in column_indexes
+        )
+        if len(key_indexes) != len(key_names):
+            raise ValueError(f"table {table_name} has an unresolved synthetic key")
+        occupied_keys = {
+            tuple(row[index] for index in key_indexes) for row in rows
+        }
+        occupied_values_by_index = {
+            index: {row[index] for row in rows} for index in key_indexes
+        }
         operation_count = min(len(rows), max(1, math.ceil(len(rows) * rate)))
         insert_count = operation_count // 3
         delete_count = operation_count // 3
@@ -802,11 +809,7 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
         for row_index in update_indexes:
             row = rows[row_index]
             table_replacements[row_index] = {mutation_column: mutate(row[mutation_column])}
-        ordered_rule = resolve_table_rule(
-            migrated_table_ruleset_snapshot(),
-            descriptor.canonical_name,
-            primary_key_columns=descriptor.primary_key_canonical_names,
-        ).record
+        ordered_rule = resolved_rule.record
         position_index: int | None = None
         next_position: int | None = None
         if ordered_rule.position_column is not None and update_indexes:
@@ -840,24 +843,27 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
             if len(positions) != len(rows):
                 raise ValueError(f"ordered table {table_name} has a non-numeric position")
             next_position = max(positions, default=0) + 1
-        working_rows = list(rows)
         by_row_index = {item.row_index: item for item in indexed_rows}
         for source_index in insert_sources:
             source_row = rows[source_index]
             source_tuple = by_row_index[source_index]
             clone = _replace_cells(raw, source_tuple, {})
             clone_changes: dict[int, bytes] = {}
-            key_index, key_literal, fresh_key = _fresh_key_replacement(
-                descriptor,
-                tuple(working_rows),
-                source_row,
-            )
-            if key_index >= 0:
+            if key_indexes:
+                key_index, key_literal, fresh_key = _fresh_key_replacement(
+                    descriptor,
+                    source_row,
+                    key_indexes=key_indexes,
+                    occupied_keys=occupied_keys,
+                    occupied_values_by_index=occupied_values_by_index,
+                )
                 clone_changes[key_index] = key_literal
-                if fresh_key is not None:
-                    synthetic_row = list(source_row)
-                    synthetic_row[key_index] = fresh_key
-                    working_rows.append(tuple(synthetic_row))
+                synthetic_key = tuple(
+                    fresh_key if index == key_index else source_row[index]
+                    for index in key_indexes
+                )
+                occupied_keys.add(synthetic_key)
+                occupied_values_by_index[key_index].add(fresh_key)
             clone_changes[mutation_column] = mutate(source_row[mutation_column])
             if position_index is not None:
                 assert next_position is not None

@@ -12,7 +12,7 @@ _CASES = load_canonical_cases()
 
 
 def test_canonical_case_set_is_exact_and_nonempty() -> None:
-    assert len(_CASES) == 128
+    assert len(_CASES) == 129
     assert len({case["case_id"] for case in _CASES}) == len(_CASES)
 
 

@@ -315,7 +315,8 @@ def test_repository_export_cache_hit_skips_table_read_and_miss_falls_back_and_re
         export_cache=cache,
     )
     assert seeded.status is SnapshotMaterializationStatus.COMPLETE
-    assert len(cache.entries) == 2
+    assert len(cache.entries) == 1
+    assert uncached_cache_key not in cache.entries
 
     provider = FakeRepositoryTableAccessProvider(catalog=catalog, rows=rows)
     result = materialize_ref(

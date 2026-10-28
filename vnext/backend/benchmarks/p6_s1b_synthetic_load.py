@@ -213,7 +213,10 @@ def _parse_input(raw: bytes) -> ParsedInput:
         statements.append(InsertStatement(table_name, span, tuple(statement_rows)))
     for table_name, table_rows in rows.items():
         if table_row_indexes[table_name] != len(table_rows):
-            raise ValueError(f"INSERT rows for table {table_name} could not be located")
+            raise ValueError(
+                f"INSERT rows for table {table_name} could not be located "
+                f"(statement_rows={table_row_indexes[table_name]}, parsed_rows={len(table_rows)})"
+            )
     return ParsedInput(
         raw=raw,
         descriptors=descriptors,

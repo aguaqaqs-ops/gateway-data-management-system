@@ -246,6 +246,9 @@ bundle-root/
   parquet_writer_contract_version` 精确命中；缓存引用经 artifact protection intent 登记并按 TTL 过期。
   schema/export layout 不同不得命中；`fast_candidate_key` 只用于同次 dedupe、shared ref
   rewrite 和 dry-run/估算，不得作为持久 cache identity。
+- Repository-ref materialization 先用 canonical identity 的 `raw_content_digest`、目录 schema、ordered
+  row metadata、repository scope 与 writer version 计算 key 并查询缓存。命中时校验并使用缓存行文件，
+  不打开 Dolt 表 reader；未命中或缓存文件校验失败时才读取规范表、导出并回填。
 - Snapshot Parquet cache hit 恢复到 bundle 时必须复制为当前 bundle 的 bundle-relative
   Parquet artifact ref，并进入统一 artifact closure；cache-local artifact ref 不得出现在
   surface、preview index 或 bundle manifest 中。

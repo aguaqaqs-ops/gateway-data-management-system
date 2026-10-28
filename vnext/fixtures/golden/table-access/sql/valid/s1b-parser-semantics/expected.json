@@ -1,0 +1,137 @@
+{
+  "case_id": "s1b-parser-semantics",
+  "status": "COMPLETE",
+  "tables": [
+    {
+      "display_name": "semantics",
+      "canonical_name": "semantics",
+      "reader_ready": true,
+      "primary_key_canonical_names": [
+        "id"
+      ],
+      "columns": [
+        {
+          "display_name": "id",
+          "canonical_name": "id",
+          "sql_type": "INT",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "signed-integer",
+            "bits": 32
+          },
+          "nullable": false
+        },
+        {
+          "display_name": "decimal_bit",
+          "canonical_name": "decimal_bit",
+          "sql_type": "BIT(8)",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "bit",
+            "bit_width": 8
+          },
+          "nullable": false
+        },
+        {
+          "display_name": "binary_bit",
+          "canonical_name": "binary_bit",
+          "sql_type": "BIT(8)",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "bit",
+            "bit_width": 8
+          },
+          "nullable": false
+        },
+        {
+          "display_name": "string_bytes",
+          "canonical_name": "string_bytes",
+          "sql_type": "BLOB",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "binary"
+          },
+          "nullable": false
+        },
+        {
+          "display_name": "hex_bytes",
+          "canonical_name": "hex_bytes",
+          "sql_type": "BLOB",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "binary"
+          },
+          "nullable": false
+        },
+        {
+          "display_name": "escaped",
+          "canonical_name": "escaped",
+          "sql_type": "VARCHAR(64)",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "string"
+          },
+          "nullable": false
+        },
+        {
+          "display_name": "doc",
+          "canonical_name": "doc",
+          "sql_type": "JSON",
+          "logical_type": "json",
+          "declared_type": {
+            "kind": "string"
+          },
+          "nullable": false
+        },
+        {
+          "display_name": "commented",
+          "canonical_name": "commented",
+          "sql_type": "INT",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "signed-integer",
+            "bits": 32
+          },
+          "nullable": true
+        }
+      ],
+      "rows": [
+        [
+          {
+            "kind": "signed-integer",
+            "decimal": "1"
+          },
+          {
+            "kind": "bit",
+            "hex": "0a"
+          },
+          {
+            "kind": "bit",
+            "hex": "0a"
+          },
+          {
+            "kind": "binary",
+            "hex": "6279746573"
+          },
+          {
+            "kind": "binary",
+            "hex": "0001ff"
+          },
+          {
+            "kind": "string",
+            "text": "keep\\% and \\_"
+          },
+          {
+            "kind": "string",
+            "text": "{\"depth\":[1,{\"ok\":true}]}"
+          },
+          {
+            "kind": "signed-integer",
+            "decimal": "7"
+          }
+        ]
+      ]
+    }
+  ],
+  "diagnostics": []
+}

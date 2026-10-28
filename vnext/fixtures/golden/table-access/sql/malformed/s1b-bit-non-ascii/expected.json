@@ -1,0 +1,14 @@
+{
+  "case_id": "s1b-bit-non-ascii",
+  "status": "FAILED",
+  "tables": [],
+  "diagnostics": [
+    {
+      "code": "MALFORMED_SQL",
+      "severity": "ERROR",
+      "source": "sql",
+      "byte_offset": 60,
+      "message": "bit literal must contain ASCII digits"
+    }
+  ]
+}

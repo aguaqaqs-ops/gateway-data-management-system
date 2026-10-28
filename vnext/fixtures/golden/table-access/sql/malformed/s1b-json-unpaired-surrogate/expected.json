@@ -1,0 +1,35 @@
+{
+  "case_id": "s1b-json-unpaired-surrogate",
+  "status": "FAILED",
+  "tables": [
+    {
+      "display_name": "t",
+      "canonical_name": "t",
+      "reader_ready": false,
+      "primary_key_canonical_names": [],
+      "columns": [
+        {
+          "display_name": "v",
+          "canonical_name": "v",
+          "sql_type": "JSON",
+          "logical_type": "json",
+          "declared_type": {
+            "kind": "string"
+          },
+          "nullable": false
+        }
+      ],
+      "rows": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "SQL_VALUE_ILLEGAL",
+      "severity": "ERROR",
+      "source": "sql",
+      "byte_offset": 57,
+      "message": "JSON value contains an unpaired surrogate",
+      "table": "t"
+    }
+  ]
+}

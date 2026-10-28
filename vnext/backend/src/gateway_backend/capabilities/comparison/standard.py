@@ -58,6 +58,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
     _digest_from_key,
     _empty_schema_changes,
     _ignored_values_changed,
+    _is_columns_added,
     _key_index,
     _read_rows,
     _record_sort_key,

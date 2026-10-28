@@ -22,7 +22,7 @@
     "incompatible_enum_label_change": {
       "table_status": "SCHEMA_CHANGED",
       "change_kind": "SCHEMA_CHANGED",
-      "display_strategy": "SUMMARY_ONLY",
+      "display_strategy": "DEGRADED_NOTICE",
       "schema_evolution": "INCOMPATIBLE",
       "before_only_columns": [],
       "current_only_columns": [],

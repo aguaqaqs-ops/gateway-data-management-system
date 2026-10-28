@@ -326,21 +326,30 @@ def test_added_column_preserves_excluded_values_row_association(
     has_primary_key: bool,
 ) -> None:
     primary_key = " PRIMARY KEY" if has_primary_key else ""
-    before = (
+    before_sql = (
         f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL); "
         "INSERT INTO t VALUES (1, 'a'), (2, 'b');"
     )
-    current = (
+    current_sql = (
         f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL, note TEXT NULL); "
         "INSERT INTO t VALUES (1, 'b', 'new'), (2, 'a', 'new');"
     )
-    record = (
-        standard_rule_record("t", compare_excluded_columns=("aux",))
-        if has_primary_key
-        else replace(fallback_record(), compare_excluded_columns=("aux",))
+    record = standard_rule_record("t", compare_excluded_columns=("aux",))
+    before_bound = _bound(before_sql)
+    current_bound = _bound(current_sql)
+    if not has_primary_key:
+        record = replace(fallback_record(), compare_excluded_columns=("aux",))
+        before_bound = _bound_with_fallback_facts(before_sql, b"added-column-source-schema")
+        current_bound = _bound_with_fallback_facts(current_sql, b"added-column-source-schema")
+    table = _one_table(
+        _facts(
+            _plan_from_bounds(
+                before_bound,
+                current_bound,
+                rule_set=comparison_ruleset_for(record),
+            )
+        )
     )
-
-    table = _one_table(_facts(_plan(before, current, rule_set=comparison_ruleset_for(record))))
 
     _assert_s1b_fact_golden("added_columns_excluded_values_swapped", table)
     assert table.status is ComparisonTableStatus.UNCHANGED
@@ -355,21 +364,30 @@ def test_added_column_and_physical_row_reorder_remain_unchanged(
     has_primary_key: bool,
 ) -> None:
     primary_key = " PRIMARY KEY" if has_primary_key else ""
-    before = (
+    before_sql = (
         f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL); "
         "INSERT INTO t VALUES (1, 'a'), (2, 'b');"
     )
-    current = (
+    current_sql = (
         f"CREATE TABLE t (id INT NOT NULL{primary_key}, aux VARCHAR(8) NULL, note TEXT NULL); "
         "INSERT INTO t VALUES (2, 'b', 'new'), (1, 'a', 'new');"
     )
-    record = (
-        standard_rule_record("t", compare_excluded_columns=("aux",))
-        if has_primary_key
-        else replace(fallback_record(), compare_excluded_columns=("aux",))
+    record = standard_rule_record("t", compare_excluded_columns=("aux",))
+    before_bound = _bound(before_sql)
+    current_bound = _bound(current_sql)
+    if not has_primary_key:
+        record = replace(fallback_record(), compare_excluded_columns=("aux",))
+        before_bound = _bound_with_fallback_facts(before_sql, b"added-column-source-schema")
+        current_bound = _bound_with_fallback_facts(current_sql, b"added-column-source-schema")
+    table = _one_table(
+        _facts(
+            _plan_from_bounds(
+                before_bound,
+                current_bound,
+                rule_set=comparison_ruleset_for(record),
+            )
+        )
     )
-
-    table = _one_table(_facts(_plan(before, current, rule_set=comparison_ruleset_for(record))))
 
     assert table.status is ComparisonTableStatus.UNCHANGED
     assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
@@ -781,13 +799,18 @@ def test_facts_digest_is_deterministic_and_directional() -> None:
     assert _one_table(first).row_deleted_count == _one_table(reverse).row_added_count
 
 
-def _plan_from_bounds(before: BoundSnapshotInput, current: BoundSnapshotInput) -> ComparisonPlan:
+def _plan_from_bounds(
+    before: BoundSnapshotInput,
+    current: BoundSnapshotInput,
+    *,
+    rule_set: ComparisonRuleSet | None = None,
+) -> ComparisonPlan:
     plan = plan_comparison(
         ComparisonRequest(
             pair_id="standard-pair",
             before=before,
             current=current,
-            rule_set=comparison_ruleset_for(),
+            rule_set=rule_set or comparison_ruleset_for(),
         )
     )
     assert isinstance(plan, ComparisonPlan)

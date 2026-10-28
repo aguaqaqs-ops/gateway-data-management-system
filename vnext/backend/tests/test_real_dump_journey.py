@@ -1167,6 +1167,9 @@ def test_history_count_matches_s1b_baseline_and_adds_composite_records() -> None
     _assert_s1b_history_count(tier="t2", actual_record_count=1_147, composite_record_count=0)
     with pytest.raises(JourneyFailure):
         _assert_s1b_history_count(tier="t2", actual_record_count=11_511, composite_record_count=0)
+    _assert_s1b_history_count(tier="t3", actual_record_count=711, composite_record_count=0)
+    with pytest.raises(JourneyFailure):
+        _assert_s1b_history_count(tier="t3", actual_record_count=744, composite_record_count=0)
 
 
 def test_additive_column_preview_uses_s1b_changed_table_count() -> None:

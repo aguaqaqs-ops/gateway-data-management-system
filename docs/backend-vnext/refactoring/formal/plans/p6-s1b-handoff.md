@@ -1,8 +1,80 @@
 # Phase 6 S1b handoff
 
-状态：实施与验收完成，交独立会话审核。
+状态：审核后定向修订及验收完成，交独立会话复审。当前候选与证据见下方“审核后修订”节；后续“初次候选记录”仅是 H=705b17c1 的历史 handoff。
 
-## 范围与候选
+## 审核后修订与复审证据
+
+### 候选与提交
+
+- 本轮最终代码候选 V/H：`afbfaea8e2154326e25c29091f34ffb3c12cd8ab`。同一代码提交用于最终 backend/repository_service 权威 runner 和 t1–t4 真实数据旅程；其后的 handoff 文档提交只更新本文件，不改变代码候选或上述证据绑定。
+- 实施分支仍为 `p6-s1b-impl`；在 H 上追加审核修订提交，没有推送、打 tag、改写已审核提交，也没有修改 p6-design、执行计划或 owner 决议记录。
+- 修订按主题提交：`7e591debd4` 上传取消等待；`e1146910dd` 共有行关联与 ENUM/SET 标签比较，`688888e721` 补齐 keyless additive 行语义；`383c829aaf` cache hit 跳过 Dolt 行读取，`be64f6fcd4`、`b5acb3d797`、`91401f0146` 补 miss/失效回退证据，`e876986db8` 恢复 History 按需物化，`bae1eb1944`、`afbfaea8e2` 对齐 History 读取断言；`fb2b507588` 更新 owning Contract。
+
+### F1–F4 修订与关闭证据
+
+- **F1 上传取消生命周期**：取消时 shield 等待受理子 task 结束后再传播原始 asyncio cancellation；staging 清理位于该等待之后，route 的 `acquire_new_work` 名额也随请求生命周期保留到线程完成或异常结束。没有新增 durable 状态。权威测试 owner 为 backend upload streaming：使用 `threading.Event` 暂停真实同步受理工作，对外层 asyncio task 直接 `cancel()`；验证线程运行期间暂存文件可读、线程结束后才清理并释放准入名额，且成功/失败事务结果保持原语义。日志 `05-focused-F1-F4-afbfaea8.log`，其中该用例属于 serial。
+- **F2 只增列的共有行关联**：keyed、keyless、ordered 都按共有列投影完整行 multiset 比较，忽略新增列及物理顺序，但不拆散排除列值与共有行的关系。关闭用例覆盖 t(id PK, aux 排除列) 的两行交换 aux 值并新增 note，结果为 `content_changed=True`、SUMMARY_ONLY；仅新增列或物理行重排不报告内容变化。keyless additive 专项也已收敛覆盖。权威 comparison/surface/risk 测试在同一 focused 日志中通过。
+- **F3 ENUM/SET 标签大小写**：先解析类型关键字与原始标签，只规范化类型关键字，标签按精确字符串比较。模块级共享参数表覆盖 ENUM 与 SET：标签改大小写或改名（新增列和不新增列两种）均为 INCOMPATIBLE 并产生 schema 风险；只增标签/成员（含中间插入）仍为 COLUMNS_ADDED。权威 row-encoding/comparison/risk/surface 测试通过。
+- **F4 导出缓存命中不读取 Dolt 行**：repository materialization 先用 canonical identity 的 raw_content_digest、目录 schema、精确源类型/ENUM/SET 标签、ordered metadata、scalar encoding 与 writer/artifact contract 生成 row-layout cache key 并 lookup；通过现有完整性规则校验的命中直接复用缓存 Parquet，不调用表 reader；未命中或缓存无效时回退读表并回填。ordered metadata 可由 ruleset 得出时不因 metadata 单独读表；仍按 S1a demand 规则为行比较和单侧摘要读取。History 恢复按需选择变化侧/表，不再读取每节点全表。权威 bundle/export-cache 测试用调用计数证明 hit 不读、miss 回退并回填，并保留 schema、ENUM 标签、writer 版本变化不误命中用例；History 测试证明未选中表不创建 reader。详见 focused 与最终 backend runner 日志。
+
+### Golden 与 Contract diff
+
+- 仅三个受影响的 S1b comparison/risk/surface golden 有 diff：`comparison/s1b/semantic-results.json` 对应 F2 交换排除值后共有行投影变化及 F3 标签大小写/改名由兼容改为不兼容；`risk/s1b/structural-risk.json` 对应不兼容 ENUM/SET 标签现在产生 schema 风险；`surface/s1b/table-presentation.json` 对应 additive 内容变化的 summary-only 与不兼容 schema 分类展示。没有其他 golden 变化。
+- Contract 只修订实现原先未遵守的语义：`comparison.md` 明确 ENUM/SET 标签精确比较；`comparison-bundle.md` 和 `snapshot.md` 明确 row-layout cache hit 不读取 Dolt 表行。Contract 文本其余目标语义已覆盖，无额外扩展。
+
+### Focused、静态检查、逐包 runner 与镜像
+
+- CT05 hostname `gw-dms-test-05` 上，最终候选 focused F1–F4 为 132 passed、1 warning，exit 0；日志 `/home/dev/gdds-p6-logs/s1b/05-focused-F1-F4-afbfaea8.log`。五个 Python 包 Ruff 与 mypy 全过；日志 `/home/dev/gdds-p6-logs/s1b/05-static-python-afbfaea8.log`。
+- 在 CT04 同一 worktree 对来源 runner V= `91401f014699cf99feba05675762cada2847e459` 做逐包 manifest compare。来源是 clean worktree 上实际成功的权威 runner `/home/dev/gdds-p6-logs/s1b/04-runner-final-91401f0146.log`。rust、shared_kernel、repository_contracts、repository_client 可沿用；backend 与 repository_service 因 package/backend 与完整 Docker context 变化而在新候选运行。比较日志 `/home/dev/gdds-p6-logs/s1b/04-compare-afbfaea8-to-914-final.log`。
+
+| 包 | 当前候选总摘要 | 判定与来源 |
+| --- | --- | --- |
+| rust | `290aabfc2a9f011aabcd539912331ccd2694c4a59546d91e1b7e85212564f590` | 沿用来源 V=914 runner |
+| shared_kernel | `4e3980c00e6f8abbb6f652447f6f40fdec40078a1c4230f1267b3f66a8776bee` | 沿用来源 V=914 runner |
+| repository_contracts | `75784176323e50dd3d5484f48295f71a5c5841e781b7a3fa465df177338d7209` | 沿用来源 V=914 runner |
+| repository_client | `ecfecc332d51d649e0c1499bbbd2f6027be7d728762842df3626d422d675eed7` | 沿用来源 V=914 runner |
+| backend | `cadf6f682d81de8694cbdee725ba219d448575f41328435a58877363a661bd91` | 在 V/H=afb runner；parallel 3061 passed，serial 41 passed |
+| repository_service | `c831d1aa7de6a68595ca48cc74c5b5af76d46a38428cf8edb9bd2233eca9e22a` | 在 V/H=afb runner；parallel 1741 passed、1 skipped，serial 207 passed |
+
+- CT04 最终 runner `/home/dev/gdds-p6-logs/s1b/04-runner-final-afbfaea8.log`，hostname `gw-dms-test-04`，2026-10-28 18:16:11–18:36:27Z，起止 HEAD 均为 afb，runner exit 0。按 manifest compare 选择 backend 与 repository_service；其余四包直接引用上表实际通过的来源 V，不引用沿用结果。Rust build input 未变。CT04 `gateway-repository-service:local` image ID 为 `sha256:5cae950cc93b5f053ff9959e7273db28e0b3c351ef85a6e7c43144bc655c133e`，build-input revision `4158ea39d48157081c24d03a294c5a7eb3f866a0`、source-tree `sha256:1d23f369fef72e559fa35e09240d09e15e9eeb4d9fe8e5bc0a035b879bae8e00`、lock SHA `6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11`；source-tree/build-input 与候选所要求的 repository-service 输入相同，按标签 carried。真实旅程各 backend/worker image ID 与 Compose project labels 在对应旅程日志的 compose_image_ids 中；repository-service 在 CT05 的 image ID 为 `sha256:642b9ff31c6b862266087cfc1b6033ff85439242fc3727860da0c06725191b56`，CT108 为 `sha256:3007cb250a25aa95b597141200c0f3d8292084cc8e5e84d8c3c1aa062b4f97ba`，两节点均有上述相同 build-input/source-tree/lock 标签。节点间 image ID 不作相等判定。镜像运行依据与构建均使用本机预置/批准 LAN 缓存；缓存来源类别与端点标识为 approved LAN artifact cache、`192.168.233.180:18080`，不记录凭据。
+
+### 最终候选 t1–t4 真实数据旅程
+
+四档均在 clean worktree 的最终代码候选 afb 上完成，旅程 exit 0、无 degraded/failed 表；t1–t3 在 CT05，t4 在 `ct108-gw-dms`。完整 stdout、节点 hostname、UTC 起止时间、起止 HEAD 与 exit code 均在外部日志中。
+
+| 档位 | 节点；UTC 起止；旅程日志 | offline composite；v1 Preview / repeat / v2；History |
+| --- | --- | --- |
+| t1 | CT05 `gw-dms-test-05`；18:22:21–18:26:02Z；`05-t1-final-afbfaea8.log` | 4 行 unchanged（11.304s）；125/125、0/125、4/125；12 records。 |
+| t2 | CT05 `gw-dms-test-05`；18:26:29–18:52:41Z；`05-t2-final-afbfaea8.log` | 45 行 unchanged（146.537s）；209/209、0/209、57/220；1147 records。 |
+| t3 | CT05 `gw-dms-test-05`；18:53:27–19:49:18Z；`05-t3-final-afbfaea8.log` | 201 行 unchanged（443.874s）；192/192、0/192、23/193；711 records。 |
+| t4 | CT108 `gw-dms-test`；18:37:01–19:45:30Z；`ct108-t4-final-afbfaea8.log` | 435 行 unchanged（655.204s）；312/312、0/312、26/312；168 records。 |
+
+四份日志中的 API 阶段耗时（秒）：t1 Preview v1/repeat/v2 `30.114/20.077/20.078`，Submit v1/v2 `34.160/28.131`，History `6.025`；t2 `210.749/174.618/281.004`，Submit `176.784/337.468`，History `128.383`；t3 `511.800/437.553/690.430`，Submit `335.481/549.448`，History `274.801`；t4 `796.214/687.653/800.258`，Submit `553.766/271.838`，History `162.472`。对应 stop 日志：`05-t1-stack-stop-afbfaea8.log`、`05-t2-stack-stop-afbfaea8.log`、`05-t3-stack-stop-final-afbfaea8.log`、`ct108-t4-stack-stop-final-afbfaea8.log`；服务已停止，volume 保留。
+
+- 最终 v2 Preview 的只读 surface 核对：11 张显式键表的 key 列均无 mismatch；非空配置表按前后行数均符合原 Contract。BROWSE_ONLY 状态分别为 t1 `10 unchanged/7 absent`、t2 `11/6`、t3 `12/5`、t4 `15/2`，四档均无 compare key、无 annotation。t2 有 11 张整表新增（337 行）及 11 张整表删除（5563 行）；t3 有 1 张整表新增（comm_user_data，1 行）。step 间隔每档均为 6 个 operation、18 个成功 step、12 个间隔；最大 gap t1 `0.031s`、t2 `0.182s`、t3 `0.397s`、t4 `0.427s`，均无超过 1s 的 gap。证据日志：`05-final-surface-step-audit-afbfaea8.log`、`ct108-final-surface-step-audit-afbfaea8.log`。
+- t3 v2 共 193 张表，其中 33 张 COLUMNS_ADDED：**33 张 COLUMNS_ADDED = 原始 32 张只增列 + 2 张 ENUM 只增标签 − device_model_table（属 DEFAULT_SKIPPED_TABLE_NAMES）**。无 SCHEMA_CHANGE 风险、degraded 或 failed 表；v1/v2 Submit 均有 repository commit。核对来自最终候选的 surface/step 日志和旅程输出。
+
+### N1 证据与处置
+
+- **N1-1 checkpoint-read 与 bundle 子段对照**：不加产品插桩。最终 t4 control DB 的现有 step 汇总为：v1 `materialize_inputs 726.789 / assemble_preview 67.483 / publish_preview 0.765s`；repeat Preview `611.013 / 74.329 / 0.304s`；v2 Preview `684.088 / 112.399 / 0.383s`；History `materialize_inputs 78.822 / assemble_comparison 81.536 / publish_result 0.029s`。当前可观察到 repeat Preview API `687.653s`、History API `162.472s`。相较旧 H=705，repeat Preview 为 `693.751s` / `materialize_inputs 616.207s`，History 为 `744.135s` / `materialize_inputs 595.122s`；相较 S1a，repeat Preview API `872.580s`、History API `312.889s`。S1a 另有内部 checkpoint-read v1/v2 `45.110/58.656s`、bundle v1/v2 `51.393/2.442s`，但它们不是当前 step schema 可独立复算的子段。当前仅有 materialize 与 assemble/publish 聚合，没有 checkpoint-read 或 bundle 子段的独立 timestamp，因此不能给出同口径的本轮子段数值；该限制和现有对照已提供，最终性能子段处置待 owner 决定。证据：`ct108-final-surface-step-audit-afbfaea8.log` 与 `ct108-t4-final-afbfaea8.log`。
+- **N1-2 重复导出 cache 复用**：按审核 b §3 方法，在最终真实数据 artifact volumes 扫描 table artifact manifests 的 row_file_refs；只输出 counts，不输出 artifact/row-file IDs 或 row data。control SQLite 使用 `mode=ro&immutable=1`，不触碰 `-shm`。按 miss 会 mint 新 sta-rows ID、相同 row-file ID 被多个 manifest 引用即表示跨导出复用计数：
+
+| 卷 | table manifests | distinct row files | 被多个 manifest 引用的 row files | cache rows | 同时有 protection intent 与 manifest 引用 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| t1 | 395 | 135 | 106 | 111 | 111 |
+| t2 | 819 | 297 | 146 | 164 | 164 |
+| t3 | 785 | 282 | 169 | 191 | 191 |
+| t4 | 1149 | 415 | 166 | 185 | 185 |
+
+  每档全部 cache rows 都有 protection intent 且被 table manifest 引用；四卷合计 cache rows `651/651`。只读计数日志：`05-N1-2-row-cache-counts-afbfaea8.log`、`ct108-N1-2-row-cache-counts-afbfaea8.log`。N1-2 计数证据已补；N1-1 的子段解释由 owner 最终处置。
+
+### 保留与清理清单
+
+- 尚未清理任何 worktree、bundle、volume、真实数据 scratch、Docker image、manifest 或日志。保留实施 worktree `/home/dev/gdds-p6-logs/s1b/impl-wt`、CT04 `/home/dev/gdds-p6-logs/s1b/04-wt`、CT05 `/home/dev/gdds-p6-logs/s1b/05-bae1eb1944-wt`、CT108 `/home/dev/gdds-p6-logs/s1b/ct108-wt`；候选 bundle `/home/dev/gdds-p6-logs/s1b/impl-final-afbfaea8.bundle`（SHA-256 `1d2681e3cfdfcb03341dae5d5e0291ed4196a7ca7c40215c1dd4f0b335a60ed7`）。
+- 保留 t1–t4 final project 的 backend-control、backend-artifacts、repository-data、repository-service-data volumes，项目分别为 `s1bfinalt1afbfaea8`、`s1bfinalt2afbfaea8`、`s1bfinalt3afbfaea8`、`s1bfinalt4afbfaea8`；亦保留首次审核 H=705 与来源 V=914 的历史 volumes。最终旅程 stack 已停止。
+- 保留 `/home/dev/gdds-p6-logs/s1b/` 下 runner、manifest、journey、stack-stop、cache-count、surface/step audit 日志及真实数据 scratch；保留批准 LAN cache 目录 `/home/dev/gdds-p6-logs/s1b/dev-cache` 与其日志。LAN HTTP cache service 已在旅程和构建完成后停止，目录和日志未删。所有清理留给 owner 在独立审核与阶段 exit 合入后执行。
+
+## 初次候选记录（历史，已由审核后修订节覆盖）
 
 - 基线：`ae3301d6d8`（`p6-s1a-exit` 为 `1d6a8d03fe`）。实施分支：`p6-s1b-impl`，未推送、未打 tag，未在主 checkout 工作或提交。
 - 权威门禁候选 V：`80ce756619290d0ec95515ab73470241ce56a311`。

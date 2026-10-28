@@ -1389,6 +1389,7 @@ class RepositoryRefMaterializationRequest:
     context: ParserInvocationContext
     timeout_policy: RepositoryRefTimeoutPolicy | None = None
     requested_tables: tuple[str, ...] | None = None
+    export_tables: tuple[str, ...] | None = None
     digest_contract_version: int = DIGEST_CONTRACT_VERSION
     scalar_encoding_version: int = SCALAR_ENCODING_VERSION
     snapshot_materialization_contract_version: int = SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION
@@ -1434,15 +1435,24 @@ class RepositoryRefMaterializationRequest:
         ):
             raise ValueError("export_cache must implement SnapshotTableExportCachePort")
         if self.requested_tables is None:
-            return
-        if type(self.requested_tables) is not tuple:
+            requested: tuple[str, ...] = ()
+        elif type(self.requested_tables) is not tuple:
             raise ValueError("requested_tables must be a tuple or None")
-        seen: set[str] = set()
-        for name in self.requested_tables:
-            _require_non_empty(name, "requested table")
-            if name in seen:
-                raise ValueError("requested_tables must not contain duplicates")
-            seen.add(name)
+        else:
+            requested = self.requested_tables
+        if self.export_tables is None:
+            exported: tuple[str, ...] = ()
+        elif type(self.export_tables) is not tuple:
+            raise ValueError("export_tables must be a tuple or None")
+        else:
+            exported = self.export_tables
+        for label, names in (("requested table", requested), ("export table", exported)):
+            seen: set[str] = set()
+            for name in names:
+                _require_non_empty(name, label)
+                if name in seen:
+                    raise ValueError(f"{label}s must not contain duplicates")
+                seen.add(name)
 
 
 @dataclass(frozen=True, slots=True)

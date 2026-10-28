@@ -216,6 +216,8 @@ def _materialize_open_session(
         )
     selected_names = _selected_names(request, binding_by_name)
     selected_set = set(selected_names)
+    export_set = _export_names(request, binding_by_name)
+    materialized_set = selected_set | export_set
     identities = {item.canonical_table: item for item in binding.table_identities}
     if request.requested_tables is not None and set(binding_by_name) - selected_set:
         if set(identities) != set(binding_by_name):
@@ -241,7 +243,7 @@ def _materialize_open_session(
         and request.artifact_store is not None
     ):
         cache_store = require_artifact_store(request.artifact_store)
-        for name in sorted(selected_set, key=lambda item: item.encode("utf-8")):
+        for name in sorted(materialized_set, key=lambda item: item.encode("utf-8")):
             identity = identities.get(name)
             if identity is None:
                 continue
@@ -280,7 +282,7 @@ def _materialize_open_session(
         _checkpoint(request.context)
         catalog_table = indexed[name]
         storage_view = binding_by_name[name]
-        if name in selected_set:
+        if name in materialized_set:
             cache_candidate = cache_candidates.get(name)
             cached_row_ref = (
                 None if cache_candidate is None else cached_row_refs.get(cache_candidate[3])
@@ -682,6 +684,27 @@ def _selected_names(
             f"requested table {missing[0]!r} is not in canonical metadata",
         )
     return selected
+
+
+def _export_names(
+    request: RepositoryRefMaterializationRequest,
+    binding_by_name: dict[str, StorageRuleView],
+) -> set[str]:
+    if request.export_tables is None:
+        return set()
+    selected = tuple(canonicalize_identifier(name) for name in request.export_tables)
+    if len(set(selected)) != len(selected):
+        raise _Halt(
+            MaterializationDiagnosticCode.REQUESTED_TABLE_MISSING,
+            "export tables must not contain duplicates",
+        )
+    missing = tuple(name for name in selected if name not in binding_by_name)
+    if missing:
+        raise _Halt(
+            MaterializationDiagnosticCode.REQUESTED_TABLE_MISSING,
+            f"export table {missing[0]!r} is not in canonical metadata",
+        )
+    return set(selected)
 
 
 def _ruleset_mismatch(

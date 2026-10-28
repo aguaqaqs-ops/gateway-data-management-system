@@ -750,6 +750,8 @@ def _materialize_distinct_commits(
 
     requested_by_commit = _history_requested_tables(payload, bindings)
     for commit_id in distinct_commits:
+        # Comparison rows and full History bundle exports are independent demands.
+        export_tables = tuple(view.canonical_table for view in bindings[commit_id].tables)
         bound = _materialize_commit(
             repository_id=payload.repository_id,
             commit_id=commit_id,
@@ -758,6 +760,7 @@ def _materialize_distinct_commits(
             canonical_binding=bindings[commit_id],
             ruleset=runtime_ruleset,
             requested_tables=requested_by_commit[commit_id],
+            export_tables=export_tables,
             export_cache=deps.snapshot_export_cache,
         )
         sides[commit_id] = bound
@@ -830,6 +833,7 @@ def _materialize_commit(
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
     requested_tables: tuple[str, ...] | None = None,
+    export_tables: tuple[str, ...] | None = None,
     export_cache: SnapshotTableExportCachePort | None = None,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
@@ -842,6 +846,7 @@ def _materialize_commit(
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
         requested_tables=requested_tables,
+        export_tables=export_tables,
         artifact_store=store,
         export_cache=export_cache,
     )

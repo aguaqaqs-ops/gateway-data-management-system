@@ -25,6 +25,21 @@ LOCK_ROOT="${GATEWAY_VNEXT_LOCK_ROOT:-${SCRIPT_ROOT}}"
 source "${SCRIPT_ROOT}/scripts/lib/gateway-index-env.sh"
 UV_CONSUME="${GATEWAY_UV_CONSUME:-${SCRIPT_ROOT}/scripts/uv-consume.sh}"
 REPO_ROOT="$(cd "${SCRIPT_ROOT}/.." && pwd)"
+LOCK_SNAPSHOT=""
+cleanup_lock_snapshot() {
+  local exit_code=$?
+  local cleanup_code=0
+  trap - EXIT
+  if [[ -n "${LOCK_SNAPSHOT}" ]]; then
+    rm -f -- "${LOCK_SNAPSHOT}" || cleanup_code=$?
+    LOCK_SNAPSHOT=""
+  fi
+  if [[ "${exit_code}" -eq 0 && "${cleanup_code}" -ne 0 ]]; then
+    exit_code="${cleanup_code}"
+  fi
+  exit "${exit_code}"
+}
+trap cleanup_lock_snapshot EXIT
 LOCK_SNAPSHOT="$(mktemp)"
 gateway_snapshot_lockfile_sha256 "${LOCK_ROOT}" >"${LOCK_SNAPSHOT}"
 IMAGE_TAG="${GATEWAY_REPOSITORY_SERVICE_IMAGE:-gateway-repository-service:local}"
@@ -149,7 +164,6 @@ else
 fi
 
 if ! "${UV_CONSUME}" -C "${SCRIPT_ROOT}/repository_service" lock-check; then
-  rm -f "${LOCK_SNAPSHOT}"
   exit 1
 fi
 
@@ -167,8 +181,6 @@ lock_ec=0
 if ! gateway_assert_lockfiles_unchanged "${LOCK_ROOT}" "${LOCK_SNAPSHOT}"; then
   lock_ec=1
 fi
-rm -f "${LOCK_SNAPSHOT}"
-
 if [[ "${lock_ec}" -ne 0 ]]; then
   if [[ "${build_exit}" -eq 0 ]]; then
     exit 1

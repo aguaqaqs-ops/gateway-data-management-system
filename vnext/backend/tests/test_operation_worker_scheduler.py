@@ -915,18 +915,19 @@ def test_observer_failure_is_not_recovered_as_success() -> None:
         if event.code is WorkerEventCode.EXECUTOR_FAILED:
             raise RuntimeError("observer failed")
 
-    def wait(_timeout: float) -> bool:
+    def wake_wait(_timeout: float, event: InjectedWakeEvent) -> bool:
         threads.threads[0].run()
-        return False
+        return event.is_set()
 
     runtime = WorkerRuntime(
         startup=cast(WorkerStartup, startup),
         write_uow_factory=cast(Callable[[], OperationUnitOfWork], factory),
         observer=observer,
         thread_factory=threads,
+        wake_event_factory=lambda: InjectedWakeEvent(wake_wait),
     )
     with pytest.raises(RuntimeError, match="observer failed"):
-        runtime.run(drain_requested=lambda: False, wait=wait)
+        runtime.run(drain_requested=lambda: False, wait=lambda _timeout: False)
 
 
 def test_daemon_executor_is_rejected() -> None:

@@ -509,8 +509,8 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
     pair_id = f"{harness.operation_id}-p0"
     assert rows_by_binding == {
-        (pair_id, "before", "t"): [{"id": 1}],
-        (pair_id, "current", "t"): [{"id": 1}],
+        (pair_id, "before", "t"): [{"id": "1"}],
+        (pair_id, "current", "t"): [{"id": "1"}],
     }
     assert len(snapshot_entries) == 1
     assert snapshot_entries[0]["shared"] is True
@@ -598,15 +598,15 @@ def test_history_full_table_export_uses_cold_and_warm_cache_entries(tmp_path: Pa
     cold_rows, cold_entries = _history_snapshot_bundle_data(cold)
     cold_pair_id = f"{cold.operation_id}-p0"
     assert cold_rows == {
-        (cold_pair_id, "before", "t"): [{"id": 1}],
-        (cold_pair_id, "current", "t"): [{"id": 1}],
+        (cold_pair_id, "before", "t"): [{"id": "1"}],
+        (cold_pair_id, "current", "t"): [{"id": "1"}],
         (cold_pair_id, "before", ORDERED_SYX_TABLE): [
-            {"gid": 1, "no": 1, "value": "a"},
-            {"gid": 2, "no": 2, "value": "b"},
+            {"gid": "1", "no": "1", "value": "a"},
+            {"gid": "2", "no": "2", "value": "b"},
         ],
         (cold_pair_id, "current", ORDERED_SYX_TABLE): [
-            {"gid": 1, "no": 1, "value": "a"},
-            {"gid": 2, "no": 2, "value": "b"},
+            {"gid": "1", "no": "1", "value": "a"},
+            {"gid": "2", "no": "2", "value": "b"},
         ],
     }
     assert len(cold_entries) == 2
@@ -747,8 +747,8 @@ def test_history_bundle_preserves_changed_added_and_deleted_table_bindings(tmp_p
     rows_by_binding, _snapshot_entries = _history_snapshot_bundle_data(harness)
     pair_id = f"{harness.operation_id}-p0"
     assert rows_by_binding == {
-        (pair_id, "before", "t"): [{"id": 1}],
-        (pair_id, "current", "t"): [{"id": 2}],
+        (pair_id, "before", "t"): [{"id": "1"}],
+        (pair_id, "current", "t"): [{"id": "2"}],
         (pair_id, "before", "gone"): [{"value": "old"}],
         (pair_id, "current", "added"): [{"value": "new"}],
     }
@@ -818,9 +818,9 @@ def test_unchanged_ordered_history_bundles_both_sides_and_preserves_facts(
     rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
     pair_id = f"{harness.operation_id}-p0"
     expected_rows = [
-        {"gid": 1, "no": 1, "value": "a"},
-        {"gid": 4_000_000_000, "no": 2, "value": "blank"},
-        {"gid": 2, "no": 3, "value": "b"},
+        {"gid": "1", "no": "1", "value": "a"},
+        {"gid": "4000000000", "no": "2", "value": "blank"},
+        {"gid": "2", "no": "3", "value": "b"},
     ]
     assert rows_by_binding == {
         (pair_id, "before", ORDERED_SYX_TABLE): expected_rows,
@@ -884,7 +884,7 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
     pair_ids = (f"{harness.operation_id}-p0", f"{harness.operation_id}-p1")
     assert rows_by_binding == {
-        (pair_id, side, "t"): [{"id": 1}]
+        (pair_id, side, "t"): [{"id": "1"}]
         for pair_id in pair_ids
         for side in ("before", "current")
     }

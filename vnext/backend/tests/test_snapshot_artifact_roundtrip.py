@@ -31,7 +31,13 @@ from gateway_backend.capabilities.table_access.contracts import (
 from tests.support.artifact_staging import assert_minimal_ref_has_no_host_path
 from tests.support.repository_ref_materialization import materialize_ref, minimal_fixture
 from tests.support.snapshot_artifact import first_ready_table, publish_first_table
-from tests.support.snapshot_materialization import load_sql, materialize_business, materialize_sql, parse_fixture
+from tests.support.snapshot_materialization import (
+    load_sql,
+    materialize_business,
+    materialize_sql,
+    parse_fixture,
+)
+from tests.support.table_access_fixtures import load_text as load_table_access_sql
 
 
 def test_parquet_round_trip_preserves_descriptor_rows_and_digests(
@@ -86,13 +92,17 @@ def test_two_publishes_of_the_same_table_share_artifact_digest() -> None:
 
 def test_s1b_sql_spellings_round_trip_through_snapshot_parquet() -> None:
     fixture = "sql/valid/s1b-parser-semantics/input.sql"
-    expected = first_ready_table(fixture)
+    sql = load_table_access_sql(fixture)
+    expected_result = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
+    assert expected_result.table_set is not None
+    assert len(expected_result.table_set.tables) == 1
+    expected = expected_result.table_set.tables[0]
     assert expected.reader is not None
     expected_rows = tuple(expected.reader.reopen().iter_rows())
     store = InMemoryArtifactStore()
 
     result = materialize_sql(
-        parse_fixture(fixture),
+        sql,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         artifact_store=store,
     )

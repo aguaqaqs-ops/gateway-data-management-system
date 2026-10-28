@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import ContextManager, cast
+from typing import ContextManager
 
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -25,10 +25,7 @@ class ControlDbSnapshotTableExportCache(SnapshotTableExportCachePort):
         keys: tuple[SnapshotTableArtifactCacheKey, ...],
     ) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
         with self._unit_of_work_factory() as unit_of_work:
-            return cast(
-                dict[SnapshotTableArtifactCacheKey, ArtifactRef],
-                unit_of_work.snapshot_table_export_cache.lookup_many(keys),
-            )
+            return unit_of_work.snapshot_table_export_cache.lookup_many(keys)
 
     def store_many(
         self,

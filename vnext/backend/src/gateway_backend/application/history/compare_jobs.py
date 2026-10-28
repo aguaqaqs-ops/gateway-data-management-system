@@ -103,6 +103,7 @@ from gateway_backend.capabilities.snapshot_materialization import (
 )
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules.contracts import (
+    OrderedPolicy,
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
 )
@@ -747,6 +748,7 @@ def _materialize_distinct_commits(
         binding = canonical_binding_for_commit(metadata, runtime_ruleset=runtime_ruleset)
         bindings[commit_id] = binding
 
+    requested_by_commit = _history_requested_tables(payload, bindings)
     for commit_id in distinct_commits:
         bound = _materialize_commit(
             repository_id=payload.repository_id,
@@ -755,11 +757,56 @@ def _materialize_distinct_commits(
             store=deps.artifact_store,
             canonical_binding=bindings[commit_id],
             ruleset=runtime_ruleset,
+            requested_tables=requested_by_commit[commit_id],
             export_cache=deps.snapshot_export_cache,
         )
         sides[commit_id] = bound
 
     return sides
+
+
+def _history_requested_tables(
+    payload: HistoryCompareJobPayload,
+    bindings: dict[str, CanonicalBinding],
+) -> dict[str, tuple[str, ...]]:
+    """Select table rows needed for History comparisons from commit metadata."""
+
+    requested: dict[str, set[str]] = {commit_id: set() for commit_id in bindings}
+    for index in range(len(payload.nodes) - 1):
+        before_commit = payload.nodes[index].commit_id
+        current_commit = payload.nodes[index + 1].commit_id
+        before = bindings[before_commit]
+        current = bindings[current_commit]
+        before_views = {view.canonical_table: view for view in before.tables}
+        current_views = {view.canonical_table: view for view in current.tables}
+        before_identities = {item.canonical_table: item for item in before.table_identities}
+        current_identities = {item.canonical_table: item for item in current.table_identities}
+        for name in before_views.keys() | current_views.keys():
+            before_view = before_views.get(name)
+            current_view = current_views.get(name)
+            before_identity = before_identities.get(name)
+            current_identity = current_identities.get(name)
+            unchanged = (
+                before_view is not None
+                and current_view is not None
+                and before_identity is not None
+                and current_identity is not None
+                and before.storage_projection_version == current.storage_projection_version
+                and before_view == current_view
+                and before_identity == current_identity
+            )
+            if unchanged:
+                if current_view is not None and current_view.ordered_policy is OrderedPolicy.GID_NO_V1:
+                    requested[current_commit].add(name)
+                continue
+            if before_view is not None:
+                requested[before_commit].add(name)
+            if current_view is not None:
+                requested[current_commit].add(name)
+    return {
+        commit_id: tuple(sorted(names, key=lambda item: item.encode("utf-8")))
+        for commit_id, names in requested.items()
+    }
 
 
 def _assert_runtime_ruleset(payload: HistoryCompareJobPayload) -> ComparisonRuleSet:

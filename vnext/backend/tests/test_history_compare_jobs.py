@@ -9,12 +9,16 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, raw_blob_digest
 import gateway_backend.application.history.compare_jobs as compare_jobs
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history.contracts import HistoryCompareDiagnosticCode
+from gateway_backend.application.history.contracts import (
+    HistoryCompareDiagnosticCode,
+    HistoryCompareNodeBinding,
+    HistoryNodeRefKind,
+)
 from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_ASSEMBLE_HANDLER,
     HISTORY_COMPARE_MATERIALIZE_HANDLER,
@@ -22,8 +26,10 @@ from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
-    history_compare_assemble_state_from_checkpoint,
+    HistoryCompareJobPayload,
+    _history_requested_tables,
     _sides_from_materialize_checkpoint,
+    history_compare_assemble_state_from_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.capabilities.comparison import (
@@ -52,8 +58,15 @@ from tests.support.history_compare_job_harness import (
 )
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    CanonicalBinding,
+    CanonicalTableIdentity,
     RepositoryCatalogTable,
     RepositoryColumn,
+)
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    OrderedPolicy,
+    StorageRuleView,
 )
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
@@ -153,6 +166,83 @@ def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     assert set(sides) == {BASELINE_HEAD.business_baseline_commit_id}
     assert set(envelope.job_state) == {"materialized_sides_ref"}
 
+
+def test_history_materialization_selects_changed_commit_tables() -> None:
+    def binding(
+        tables: tuple[tuple[str, bytes, bytes, bool], ...],
+    ) -> CanonicalBinding:
+        views: list[StorageRuleView] = []
+        identities: list[CanonicalTableIdentity] = []
+        for name, schema_bytes, content_bytes, ordered in tables:
+            views.append(
+                StorageRuleView(
+                    canonical_table=name,
+                    canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+                    ordered_policy=OrderedPolicy.GID_NO_V1 if ordered else OrderedPolicy.NONE,
+                    structural_columns=("no",) if ordered else (),
+                    retained_columns=("gid", "no") if ordered else (),
+                )
+            )
+            schema_digest = raw_blob_digest(schema_bytes)
+            identities.append(
+                CanonicalTableIdentity(
+                    canonical_table=name,
+                    row_count=1,
+                    source_schema_digest=schema_digest,
+                    canonical_schema_digest=schema_digest,
+                    raw_content_digest=raw_blob_digest(content_bytes),
+                )
+            )
+        return CanonicalBinding(
+            storage_projection_version="storage-projection/v3",
+            ruleset_id="history-test-rules",
+            ruleset_version="v4",
+            ruleset_digest=raw_blob_digest(b"history-test-ruleset"),
+            tables=tuple(sorted(views, key=lambda item: item.canonical_table.encode("utf-8"))),
+            table_identities=tuple(
+                sorted(identities, key=lambda item: item.canonical_table.encode("utf-8"))
+            ),
+        )
+
+    before = binding(
+        (
+            ("unchanged", b"schema", b"same", False),
+            ("changed_content", b"schema", b"before", False),
+            ("changed_schema", b"schema-before", b"same", False),
+            ("removed", b"schema", b"removed", False),
+            ("ordered", b"ordered-schema", b"same", True),
+        )
+    )
+    current = binding(
+        (
+            ("unchanged", b"schema", b"same", False),
+            ("changed_content", b"schema", b"current", False),
+            ("changed_schema", b"schema-current", b"same", False),
+            ("added", b"schema", b"added", False),
+            ("ordered", b"ordered-schema", b"same", True),
+        )
+    )
+    payload = HistoryCompareJobPayload(
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        repository_id=REPOSITORY_ID,
+        acceptance_id="acceptance-1",
+        idempotency_key="history-materialize-selection",
+        request_fingerprint="fingerprint-1",
+        comparison_ruleset_digest="sha256:" + "a" * 64,
+        comparison_contract_version="backend-vnext/comparison/v3",
+        view_kind="HISTORY",
+        pair_count=1,
+        nodes=(
+            HistoryCompareNodeBinding(HistoryNodeRefKind.BASELINE_NODE, "node-a", "commit-a"),
+            HistoryCompareNodeBinding(HistoryNodeRefKind.SUBMISSION, "node-b", "commit-b"),
+        ),
+    )
+
+    assert _history_requested_tables(payload, {"commit-a": before, "commit-b": current}) == {
+        "commit-a": ("changed_content", "changed_schema", "removed"),
+        "commit-b": ("added", "changed_content", "changed_schema", "ordered"),
+    }
 
 def test_assemble_resumes_from_materialized_sides_with_runtime_ruleset(tmp_path: Path) -> None:
     harness = build_history_compare_harness(tmp_path, idempotency_key="history-compare-resume")

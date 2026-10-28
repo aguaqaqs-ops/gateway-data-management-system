@@ -53,6 +53,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
     SqlSourceInput,
     SourceColumnDescriptor,
+    SourceCell,
     SourceRow,
     SourceTableDescriptor,
     SqlLogicalType,
@@ -156,20 +157,20 @@ def _parse_input(raw: bytes) -> ParsedInput:
         if not cursor.try_keyword("into", runtime):
             raise ValueError("unsupported INSERT shape")
         _display, table_name = cursor.parse_table_name(runtime)
-        descriptor = descriptors.get(table_name)
-        if descriptor is None:
+        insert_descriptor = descriptors.get(table_name)
+        if insert_descriptor is None:
             raise ValueError(f"INSERT table {table_name} has no CREATE TABLE")
         build = TableBuild(
-            display_name=descriptor.display_name,
-            canonical_name=descriptor.canonical_name,
-            columns=list(descriptor.columns),
-            pk=list(descriptor.primary_key_canonical_names),
+            display_name=insert_descriptor.display_name,
+            canonical_name=insert_descriptor.canonical_name,
+            columns=list(insert_descriptor.columns),
+            pk=list(insert_descriptor.primary_key_canonical_names),
         )
         cursor.skip_ws_and_comments(runtime)
         ordinals = (
             _parse_insert_columns(cursor, runtime, build)
             if cursor.peek() == ord("(")
-            else tuple(range(len(descriptor.columns)))
+            else tuple(range(len(insert_descriptor.columns)))
         )
         if not cursor.try_keyword("values", runtime):
             raise ValueError(f"INSERT table {table_name} has no VALUES clause")
@@ -247,7 +248,7 @@ def _protected_columns(descriptor: SourceTableDescriptor) -> tuple[str, ...]:
 def _mutator_for(
     descriptor: SourceTableDescriptor,
     rows: tuple[SourceRow, ...],
-) -> tuple[int, Callable[[object], bytes]] | None:
+) -> tuple[int, Callable[[SourceCell], bytes]] | None:
     protected = set(_protected_columns(descriptor))
     for index, column in enumerate(descriptor.columns):
         if column.canonical_name in protected:
@@ -260,13 +261,17 @@ def _mutator_for(
 
 def _cell_mutator(
     column: SourceColumnDescriptor,
-    cells: tuple[object, ...],
-) -> Callable[[object], bytes] | None:
+    cells: tuple[SourceCell, ...],
+) -> Callable[[SourceCell], bytes] | None:
     if column.logical_type is SqlLogicalType.ENUM and len(column.enum_or_set_labels or ()) > 1:
         labels = column.enum_or_set_labels or ()
         if all(isinstance(cell, (StringScalar, NullScalar)) for cell in cells):
-            def mutate_enum(cell: object) -> bytes:
-                current = cell.text if isinstance(cell, StringScalar) else None
+            def mutate_enum(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    current = None
+                else:
+                    assert isinstance(cell, StringScalar)
+                    current = cell.text
                 selected = next((label for label in labels if label != current), labels[0])
                 return _sql_string_literal(selected)
 
@@ -274,8 +279,12 @@ def _cell_mutator(
     if column.logical_type is SqlLogicalType.SET and column.enum_or_set_labels:
         labels = column.enum_or_set_labels
         if all(isinstance(cell, (SqlSetValue, NullScalar)) for cell in cells):
-            def mutate_set(cell: object) -> bytes:
-                current = cell.members if isinstance(cell, SqlSetValue) else ()
+            def mutate_set(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    current = ()
+                else:
+                    assert isinstance(cell, SqlSetValue)
+                    current = cell.members
                 selected = () if current else labels
                 return _sql_string_literal(",".join(selected))
 
@@ -283,9 +292,10 @@ def _cell_mutator(
     if column.logical_type is SqlLogicalType.JSON and all(
         isinstance(cell, (StringScalar, NullScalar)) for cell in cells
     ):
-        def mutate_json(cell: object) -> bytes:
+        def mutate_json(cell: SourceCell) -> bytes:
             if isinstance(cell, NullScalar):
                 return _sql_string_literal("false")
+            assert isinstance(cell, StringScalar)
             value = json.loads(cell.text)
             return _sql_string_literal("false" if value is None else "null")
 
@@ -296,74 +306,121 @@ def _cell_mutator(
             length = _LENGTH.search(column.sql_type)
             if length is None or int(length.group(1)) >= 1:
                 if all(isinstance(cell, (StringScalar, NullScalar)) for cell in cells):
-                    return lambda cell: (
-                        _sql_string_literal("x")
-                        if isinstance(cell, NullScalar)
-                        or isinstance(cell, StringScalar) and cell.text == ""
-                        else b"''"
-                    )
+                    def mutate_string(cell: SourceCell) -> bytes:
+                        if isinstance(cell, NullScalar):
+                            return _sql_string_literal("x")
+                        assert isinstance(cell, StringScalar)
+                        return _sql_string_literal("x") if cell.text == "" else b"''"
+
+                    return mutate_string
         if kind in {DeclaredTypeKind.SIGNED_INTEGER, DeclaredTypeKind.UNSIGNED_INTEGER}:
             if all(
                 isinstance(cell, (SignedIntegerScalar, UnsignedIntegerScalar, NullScalar))
                 for cell in cells
             ):
-                return lambda cell: (
-                    b"1"
-                    if isinstance(cell, NullScalar) or int(cell.decimal) == 0
-                    else b"0"
-                )
+                def mutate_integer(cell: SourceCell) -> bytes:
+                    if isinstance(cell, NullScalar):
+                        return b"1"
+                    assert isinstance(cell, (SignedIntegerScalar, UnsignedIntegerScalar))
+                    return b"1" if int(cell.decimal) == 0 else b"0"
+
+                return mutate_integer
         if kind is DeclaredTypeKind.BOOLEAN and all(
             isinstance(cell, (BooleanScalar, NullScalar)) for cell in cells
         ):
-            return lambda cell: (
-                b"TRUE" if isinstance(cell, NullScalar) or not cell.value else b"FALSE"
-            )
+            def mutate_boolean(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return b"TRUE"
+                assert isinstance(cell, BooleanScalar)
+                return b"TRUE" if not cell.value else b"FALSE"
+
+            return mutate_boolean
         if kind is DeclaredTypeKind.DECIMAL and all(
             isinstance(cell, (DecimalScalar, NullScalar)) for cell in cells
         ):
             scale = column.declared_type.scale or 0
             one = b"0." + b"0" * (scale - 1) + b"1" if scale > 0 else b"1"
-            return lambda cell: one if isinstance(cell, NullScalar) or cell.decimal == "0" else b"0"
+            def mutate_decimal(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return one
+                assert isinstance(cell, DecimalScalar)
+                return one if cell.decimal == "0" else b"0"
+
+            return mutate_decimal
         if kind is DeclaredTypeKind.FLOAT32 and all(
             isinstance(cell, (Float32Scalar, NullScalar)) for cell in cells
         ):
-            return lambda cell: b"1" if isinstance(cell, NullScalar) or cell.bits_hex == "00000000" else b"0"
+            def mutate_float32(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return b"1"
+                assert isinstance(cell, Float32Scalar)
+                return b"1" if cell.bits_hex == "00000000" else b"0"
+
+            return mutate_float32
         if kind is DeclaredTypeKind.FLOAT64 and all(
             isinstance(cell, (Float64Scalar, NullScalar)) for cell in cells
         ):
-            return lambda cell: b"1" if isinstance(cell, NullScalar) or cell.bits_hex == "0000000000000000" else b"0"
+            def mutate_float64(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return b"1"
+                assert isinstance(cell, Float64Scalar)
+                return b"1" if cell.bits_hex == "0000000000000000" else b"0"
+
+            return mutate_float64
         if kind is DeclaredTypeKind.BIT and all(
             isinstance(cell, (BitScalar, NullScalar)) for cell in cells
         ):
-            return lambda cell: b"1" if isinstance(cell, NullScalar) or not any(cell.raw_bytes) else b"0"
+            def mutate_bit(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return b"1"
+                assert isinstance(cell, BitScalar)
+                return b"1" if not any(cell.raw_bytes) else b"0"
+
+            return mutate_bit
         if kind is DeclaredTypeKind.BINARY and _BINARY_TYPE.search(column.sql_type):
             if all(isinstance(cell, (BinaryScalar, NullScalar)) for cell in cells):
-                return lambda cell: b"x'00'" if isinstance(cell, NullScalar) or not cell.raw_bytes else b"x''"
+                def mutate_binary(cell: SourceCell) -> bytes:
+                    if isinstance(cell, NullScalar):
+                        return b"x'00'"
+                    assert isinstance(cell, BinaryScalar)
+                    return b"x'00'" if not cell.raw_bytes else b"x''"
+
+                return mutate_binary
         if kind is DeclaredTypeKind.DATE and all(
             isinstance(cell, (DateScalar, NullScalar)) for cell in cells
         ):
-            return lambda cell: (
-                b"'2000-01-01'"
-                if isinstance(cell, NullScalar) or cell.text != "2000-01-01"
-                else b"'2000-01-02'"
-            )
+            def mutate_date(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return b"'2000-01-01'"
+                assert isinstance(cell, DateScalar)
+                return b"'2000-01-01'" if cell.text != "2000-01-01" else b"'2000-01-02'"
+
+            return mutate_date
         if kind in {DeclaredTypeKind.DATETIME, DeclaredTypeKind.TIMESTAMP} and all(
             isinstance(cell, (DateTimeScalar, TimestampScalar, NullScalar))
             for cell in cells
         ):
-            return lambda cell: (
-                b"'2000-01-02 00:00:00'"
-                if isinstance(cell, NullScalar) or not cell.text.startswith("2000-01-02T")
-                else b"'2000-01-01 00:00:00'"
-            )
+            def mutate_datetime(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return b"'2000-01-02 00:00:00'"
+                assert isinstance(cell, (DateTimeScalar, TimestampScalar))
+                return (
+                    b"'2000-01-02 00:00:00'"
+                    if not cell.text.startswith("2000-01-02T")
+                    else b"'2000-01-01 00:00:00'"
+                )
+
+            return mutate_datetime
         if kind is DeclaredTypeKind.TIME_DURATION and all(
             isinstance(cell, (TimeDurationScalar, NullScalar)) for cell in cells
         ):
-            return lambda cell: (
-                b"'00:00:01'"
-                if isinstance(cell, NullScalar) or cell.text != "00:00:01"
-                else b"'00:00:02'"
-            )
+            def mutate_time(cell: SourceCell) -> bytes:
+                if isinstance(cell, NullScalar):
+                    return b"'00:00:01'"
+                assert isinstance(cell, TimeDurationScalar)
+                return b"'00:00:01'" if cell.text != "00:00:01" else b"'00:00:02'"
+
+            return mutate_time
     return None
 
 
@@ -529,7 +586,7 @@ def _fresh_key_replacement(
     descriptor: SourceTableDescriptor,
     rows: tuple[SourceRow, ...],
     row: SourceRow,
-) -> tuple[int, bytes, object | None]:
+) -> tuple[int, bytes, SourceCell | None]:
     snapshot = migrated_table_ruleset_snapshot()
     resolved = resolve_table_rule(
         snapshot,
@@ -569,8 +626,8 @@ def _require_mutable_for_keyless(
 
 def _fresh_values(
     column: SourceColumnDescriptor,
-    occupied_values: Iterable[object],
-) -> Iterator[object]:
+    occupied_values: Iterable[SourceCell],
+) -> Iterator[SourceCell]:
     occupied = set(occupied_values)
     declared_type = column.declared_type
     kind = None if declared_type is None else declared_type.kind
@@ -609,40 +666,40 @@ def _fresh_values(
                 if scalar not in occupied:
                     yield scalar
             return
-        maximum = _LENGTH.search(column.sql_type)
-        width = 64 if maximum is None else max(1, int(maximum.group(1)))
+        length_match = _LENGTH.search(column.sql_type)
+        width = 64 if length_match is None else max(1, int(length_match.group(1)))
         for length in range(1, min(width, 8) + 1):
             for value in _base62_values(length):
-                scalar = StringScalar(value)
-                if scalar not in occupied:
-                    yield scalar
+                candidate_scalar = StringScalar(value)
+                if candidate_scalar not in occupied:
+                    yield candidate_scalar
     elif kind is DeclaredTypeKind.BIT:
         assert declared_type is not None
         width = declared_type.bit_width or 1
         byte_width = (width + 7) // 8
-        for value in range(min(1 << width, len(occupied) + 2)):
-            scalar = BitScalar(value.to_bytes(byte_width, "big"))
-            if scalar not in occupied:
-                yield scalar
+        for bit_value in range(min(1 << width, len(occupied) + 2)):
+            bit_scalar = BitScalar(bit_value.to_bytes(byte_width, "big"))
+            if bit_scalar not in occupied:
+                yield bit_scalar
     elif kind is DeclaredTypeKind.BINARY:
         fixed = re.search(r"\bBINARY\s*\(\s*(\d+)\s*\)", column.sql_type, re.IGNORECASE)
-        maximum = _LENGTH.search(column.sql_type)
+        length_match = _LENGTH.search(column.sql_type)
         max_bytes = (
             int(fixed.group(1))
             if fixed is not None
-            else 64 if maximum is None else max(1, int(maximum.group(1)))
+            else 64 if length_match is None else max(1, int(length_match.group(1)))
         )
-        for value in range(len(occupied) + 2):
-            minimum_width = max(1, (value.bit_length() + 7) // 8)
+        for binary_value in range(len(occupied) + 2):
+            minimum_width = max(1, (binary_value.bit_length() + 7) // 8)
             if minimum_width > max_bytes:
                 break
-            raw = value.to_bytes(
+            raw = binary_value.to_bytes(
                 max_bytes if fixed is not None else minimum_width,
                 "big",
             )
-            scalar = BinaryScalar(raw)
-            if scalar not in occupied:
-                yield scalar
+            binary_scalar = BinaryScalar(raw)
+            if binary_scalar not in occupied:
+                yield binary_scalar
 
 
 def _base62_values(length: int) -> Iterator[str]:

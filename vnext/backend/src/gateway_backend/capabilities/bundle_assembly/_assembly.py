@@ -795,8 +795,11 @@ def _entries_from_document(document: dict[str, object]) -> tuple[BundleClosureEn
             "shared",
             "size_bytes",
         }
+        raw_kind = raw_entry.get("kind")
+        if type(raw_kind) is not str:
+            raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID")
         try:
-            kind = BundleArtifactKind(raw_entry.get("kind"))
+            kind = BundleArtifactKind(raw_kind)
         except (TypeError, ValueError) as exc:
             raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID") from exc
         expected_keys = (

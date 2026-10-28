@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -64,7 +65,11 @@ def _s1b_risk_golden_case(name: str) -> dict[str, object]:
     document = json.loads(_S1B_GOLDEN.read_text(encoding="utf-8"))
     assert document["contract_version"] == RISK_CONTRACT_VERSION
     assert document["model_version"] == RISK_MODEL_VERSION
-    return document["cases"][name]
+    cases = document["cases"]
+    assert type(cases) is dict
+    case = cases[name]
+    assert type(case) is dict
+    return cast(dict[str, object], case)
 
 
 def _s1b_risk_projection(

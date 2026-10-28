@@ -516,6 +516,8 @@ def _snapshot_package(
             binding,
             store,
             ruleset,
+            repository_id=dataset_id,
+            export_cache=None,
             side=OperationDiagnosticSide.MODIFIED,
         )
     recorder.stages.append(

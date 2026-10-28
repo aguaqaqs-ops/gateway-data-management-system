@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pytest
 from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, raw_blob_digest
+from gateway_backend.capabilities.snapshot_materialization._reader import (
+    BoundSnapshotTableReader,
+)
 
 import gateway_backend.capabilities.snapshot_materialization.contracts as snapshot_contracts
 from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore, put_with_built_ref
@@ -158,6 +162,7 @@ def test_repeated_parquet_export_uses_the_protected_cached_row_file() -> None:
     store = InMemoryArtifactStore()
     original = first_ready_table()
     assert original.reader is not None
+    original_reader = original.reader
     snapshot_digest = raw_blob_digest(b"snapshot")
     cached = publish_snapshot_table_artifact(
         original,
@@ -172,7 +177,7 @@ def test_repeated_parquet_export_uses_the_protected_cached_row_file() -> None:
 
     class UnreadableSourceReader:
         def source_columns(self) -> tuple[object, ...]:
-            return original.reader.source_descriptor().columns
+            return cast(BoundSnapshotTableReader, original_reader).source_descriptor().columns
 
         def reopen(self) -> object:
             raise AssertionError("cache hit must not read or re-export source rows")

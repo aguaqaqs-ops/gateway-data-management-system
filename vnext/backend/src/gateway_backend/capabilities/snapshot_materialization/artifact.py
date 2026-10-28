@@ -471,7 +471,7 @@ def publish_ready_tables(
             if table.descriptor.raw_content_digest is not None
         }
     cached: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
-    if cache_keys:
+    if cache_keys and export_cache is not None:
         try:
             cached = export_cache.lookup_many(tuple(cache_keys.values()))
         except Exception:

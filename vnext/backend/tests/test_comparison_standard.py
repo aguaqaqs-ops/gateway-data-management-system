@@ -65,7 +65,11 @@ _S1B_GOLDEN = (
 
 def _s1b_golden_case(name: str) -> dict[str, object]:
     document = json.loads(_S1B_GOLDEN.read_text(encoding="utf-8"))
-    return document["cases"][name]
+    cases = document["cases"]
+    assert type(cases) is dict
+    case = cases[name]
+    assert type(case) is dict
+    return cast(dict[str, object], case)
 
 
 def _s1b_fact_projection(table: ComparisonTableFact) -> dict[str, object]:

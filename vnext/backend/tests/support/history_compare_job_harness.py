@@ -32,6 +32,7 @@ from gateway_backend.application.history.contracts import (
 )
 from gateway_backend.application.job_definitions import build_job_worker_composition
 from gateway_backend.artifacts import ArtifactStorePort, InMemoryArtifactStore
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.bootstrap.operation_worker import bootstrap_control_database
 from gateway_backend.application.history.compare import build_history_compare_job_payload
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -245,6 +246,7 @@ def build_history_compare_harness(
     *,
     db_path: Path | None = None,
     artifact_store: ArtifactStorePort | None = None,
+    snapshot_export_cache: SnapshotTableExportCachePort | None = None,
     node_specs: tuple[tuple[str, str], ...] = (
         (BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.business_baseline_commit_id),
         ("bn-b", "commit-b"),
@@ -301,6 +303,7 @@ def build_history_compare_harness(
             HistoryCompareControlTransactionFactory,
             control_transaction_factory,
         ),
+        snapshot_export_cache=snapshot_export_cache,
     )
     definitions, handlers, decoders, bound_deps = history_compare_composition_bundle(deps)
     publication_uow_factory = bound_deps.control_transaction_factory

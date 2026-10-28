@@ -45,7 +45,6 @@ from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.domain.workspace.models import InputCompleteness
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
-from gateway_backend.capabilities.comparison import ComparisonRequest
 from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork

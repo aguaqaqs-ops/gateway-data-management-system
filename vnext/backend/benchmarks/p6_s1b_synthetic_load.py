@@ -903,7 +903,7 @@ def _contains_unpaired_surrogate(value: object) -> bool:
 def _json_depth(source: Path) -> dict[str, object]:
     raw = source.read_bytes()
     runtime = _runtime()
-    create_statements = b"\n".join(
+    create_statements = b";\n".join(
         raw[span.start : span.end]
         for span in iter_statements(raw, runtime)
         if classify_statement(ByteCursor(raw, span.start, span.end), runtime) == "create"

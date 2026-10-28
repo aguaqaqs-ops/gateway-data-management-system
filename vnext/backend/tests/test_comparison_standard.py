@@ -270,6 +270,23 @@ def test_added_column_does_not_hide_changes_in_shared_columns() -> None:
     assert all(record.record_kind is not ComparisonRecordKind.SCHEMA_CHANGE for record in table.records)
 
 
+def test_added_column_keeps_shared_excluded_value_changes_summary_only() -> None:
+    before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, aux VARCHAR(8) NULL); INSERT INTO t VALUES (1, 'before');"
+    current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, aux VARCHAR(8) NULL, note TEXT NULL); INSERT INTO t VALUES (1, 'after', 'new');"
+    rules = comparison_ruleset_for(standard_rule_record("t", compare_excluded_columns=("aux",)))
+
+    table = _one_table(_facts(_plan(before, current, rule_set=rules)))
+
+    _assert_s1b_fact_golden("added_columns_common_excluded_value_changed", table)
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert table.schema_changes.selected_columns == ("aux", "id")
+    assert table.schema_changes.current_only_columns == ("note",)
+    assert table.content_changed is True
+    assert table.row_modified_count == 0
+    assert table.records == ()
+
+
 def test_enum_and_set_member_additions_are_columns_added() -> None:
     before = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, e ENUM('a', 'b') NULL, s SET('x', 'y') NULL); INSERT INTO t VALUES (1, 'a', 'x');"
     current = "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, e ENUM('a', 'c', 'b') NULL, s SET('x', 'y', 'z') NULL); INSERT INTO t VALUES (1, 'a', 'x');"

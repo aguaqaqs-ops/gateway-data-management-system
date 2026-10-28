@@ -678,7 +678,7 @@ def _ignored_shared_values_changed(
         return False
     before_names = {column.name for column in before_descriptor.columns}
     current_names = {column.name for column in current_descriptor.columns}
-    columns = tuple(sorted(policy.compare_excluded_columns & before_names & current_names))
+    columns = tuple(sorted(set(policy.compare_excluded_columns) & before_names & current_names))
     if not columns:
         return False
     if before_rows is None:

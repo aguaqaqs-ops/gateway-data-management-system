@@ -281,9 +281,9 @@ def test_additive_schema_alone_stays_summary_only_and_keeps_added_names_private(
     _assert_s1b_surface_golden("added_columns_only", projected)
     assert projected.change_kind is SurfaceChangeKind.UNCHANGED
     assert projected.display.strategy is SurfaceDisplayStrategy.SUMMARY_ONLY
-    assert projected.schema is not None
-    assert projected.schema.schema_evolution is SchemaEvolution.COLUMNS_ADDED
-    assert projected.schema.current_only_columns == ()
+    assert projected.schema_summary is not None
+    assert projected.schema_summary.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+    assert projected.schema_summary.current_only_columns == ()
 
 
 @pytest.mark.parametrize(

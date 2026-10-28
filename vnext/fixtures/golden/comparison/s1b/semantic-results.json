@@ -24,6 +24,21 @@
       "record_kinds": ["ROW_MODIFIED"],
       "changed_columns": [["name"]]
     },
+    "added_columns_common_excluded_value_changed": {
+      "status": "UNCHANGED",
+      "schema_evolution": "COLUMNS_ADDED",
+      "before_only_columns": [],
+      "current_only_columns": ["note"],
+      "selected_columns": ["aux", "id"],
+      "row_count_before": 1,
+      "row_count_current": 1,
+      "row_added_count": 0,
+      "row_deleted_count": 0,
+      "row_modified_count": 0,
+      "content_changed": true,
+      "record_kinds": [],
+      "changed_columns": []
+    },
     "enum_set_members_added": {
       "status": "UNCHANGED",
       "schema_evolution": "COLUMNS_ADDED",

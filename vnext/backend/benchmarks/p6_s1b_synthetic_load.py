@@ -1001,10 +1001,17 @@ def _json_depth(source: Path) -> dict[str, object]:
         )
         if not cursor.try_keyword("values", runtime):
             raise ValueError(f"INSERT table {table_name} has no VALUES clause")
+        first_tuple = True
         while True:
             cursor.skip_ws_and_comments(runtime)
+            if not first_tuple:
+                if cursor.peek() != ord(","):
+                    break
+                cursor.pos += 1
+                cursor.skip_ws_and_comments(runtime)
             if cursor.peek() != ord("("):
                 break
+            first_tuple = False
             tuple_start, tuple_end = cursor.take_balanced_paren(runtime)
             parts = _split_top_level(raw, tuple_start + 1, tuple_end - 1, runtime)
             if len(parts) != len(ordinals):

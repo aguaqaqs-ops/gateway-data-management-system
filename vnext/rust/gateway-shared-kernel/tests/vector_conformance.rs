@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use support::dispatch::dispatch_case;
 
 const CASE_FILES: &[&str] = &["digest.jsonl", "invalid.jsonl", "jcs.jsonl", "scalar.jsonl"];
-const EXPECTED_CASE_COUNT: usize = 128;
+const EXPECTED_CASE_COUNT: usize = 129;
 
 #[test]
 fn rust_canonical_cases_match_shared_kernel() -> Result<(), String> {

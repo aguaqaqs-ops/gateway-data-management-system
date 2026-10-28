@@ -13,6 +13,7 @@ import os
 import re
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -597,14 +598,14 @@ def _fresh_key_replacement(
     *,
     key_indexes: tuple[int, ...],
     occupied_keys: set[tuple[SourceCell, ...]],
-    occupied_values_by_index: dict[int, set[SourceCell]],
+    candidate_values_by_index: dict[int, Iterator[SourceCell]],
 ) -> tuple[int, bytes, SourceCell]:
     if not key_indexes:
         raise ValueError(f"table {descriptor.canonical_name} has no synthetic key")
     old_key = tuple(row[index] for index in key_indexes)
     for key_index in key_indexes:
         column = descriptor.columns[key_index]
-        for candidate in _fresh_values(column, occupied_values_by_index[key_index]):
+        for candidate in candidate_values_by_index[key_index]:
             candidate_key = tuple(candidate if index == key_index else value for index, value in zip(key_indexes, old_key, strict=True))
             if candidate_key not in occupied_keys:
                 return key_index, _sql_literal_for_fresh(column, candidate), candidate
@@ -614,12 +615,16 @@ def _fresh_key_replacement(
 def _fresh_values(
     column: SourceColumnDescriptor,
     occupied_values: Iterable[SourceCell],
+    *,
+    candidate_limit: int,
 ) -> Iterator[SourceCell]:
     occupied = (
         occupied_values
         if isinstance(occupied_values, set)
         else set(occupied_values)
     )
+    if candidate_limit < 1:
+        raise ValueError("candidate limit must be positive")
     declared_type = column.declared_type
     kind = None if declared_type is None else declared_type.kind
     if kind in {DeclaredTypeKind.SIGNED_INTEGER, DeclaredTypeKind.UNSIGNED_INTEGER}:
@@ -628,17 +633,13 @@ def _fresh_values(
         limit = 1 << bits
         if kind is DeclaredTypeKind.SIGNED_INTEGER:
             minimum, maximum = -(limit // 2), limit // 2 - 1
-            candidates: Iterable[int] = range(
-                0,
-                min(maximum + 1, len(occupied) + 2),
-            )
-            candidates = (
-                *candidates,
-                *range(-1, max(minimum - 1, -len(occupied) - 2), -1),
+            candidates: Iterable[int] = chain(
+                range(0, min(maximum + 1, candidate_limit)),
+                range(-1, max(minimum - 1, -candidate_limit), -1),
             )
         else:
             maximum = limit - 1
-            candidates = range(0, min(maximum + 1, len(occupied) + 2))
+            candidates = range(0, min(maximum + 1, candidate_limit))
         for candidate in candidates:
             value = str(candidate)
             numeric_scalar = (
@@ -669,7 +670,7 @@ def _fresh_values(
         assert declared_type is not None
         width = declared_type.bit_width or 1
         byte_width = (width + 7) // 8
-        for bit_value in range(min(1 << width, len(occupied) + 2)):
+        for bit_value in range(min(1 << width, candidate_limit)):
             bit_scalar = BitScalar(bit_value.to_bytes(byte_width, "big"))
             if bit_scalar not in occupied:
                 yield bit_scalar
@@ -681,7 +682,8 @@ def _fresh_values(
             if fixed is not None
             else 64 if length_match is None else max(1, int(length_match.group(1)))
         )
-        for binary_value in range(len(occupied) + 2):
+        max_values = 1 << (max_bytes * 8)
+        for binary_value in range(min(max_values, candidate_limit)):
             minimum_width = max(1, (binary_value.bit_length() + 7) // 8)
             if minimum_width > max_bytes:
                 break
@@ -797,6 +799,18 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
         insert_count = operation_count // 3
         delete_count = operation_count // 3
         update_count = operation_count - insert_count - delete_count
+        candidate_values_by_index = {
+            index: iter(
+                _fresh_values(
+                    descriptor.columns[index],
+                    occupied_values_by_index[index],
+                    candidate_limit=(
+                        len(occupied_values_by_index[index]) + insert_count + 1
+                    ),
+                )
+            )
+            for index in key_indexes
+        }
         order = tuple(range(len(rows)))
         deleted_indexes = set(order[:delete_count])
         update_indexes = set(order[delete_count : delete_count + update_count])
@@ -855,7 +869,7 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
                     source_row,
                     key_indexes=key_indexes,
                     occupied_keys=occupied_keys,
-                    occupied_values_by_index=occupied_values_by_index,
+                    candidate_values_by_index=candidate_values_by_index,
                 )
                 clone_changes[key_index] = key_literal
                 synthetic_key = tuple(

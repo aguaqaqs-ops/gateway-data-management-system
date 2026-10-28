@@ -54,7 +54,7 @@ def test_synthetic_parser_tracks_rows_when_tables_have_different_widths(tmp_path
 
 @pytest.mark.parametrize(
     ("rate", "expected_inserted", "expected_deleted", "expected_updated"),
-    ((0.1, 0, 0, 1), (1.0, 1, 1, 1)),
+    ((0.1, 2, 2, 2), (1.0, 20, 20, 20)),
 )
 def test_w4_generates_unique_keys_and_counted_changes(
     tmp_path: Path,
@@ -67,7 +67,9 @@ def test_w4_generates_unique_keys_and_counted_changes(
     output = tmp_path / "w4-output.sql"
     source.write_text(
         "CREATE TABLE `records` (`id` INT NOT NULL PRIMARY KEY, `value` INT NOT NULL);\n"
-        "INSERT INTO `records` VALUES (1, 10), (2, 20), (3, 30);\n"
+        "INSERT INTO `records` VALUES "
+        + ", ".join(f"({index}, {index * 10})" for index in range(1, 61))
+        + ";\n"
         "CREATE TABLE `empty` (`id` INT NOT NULL PRIMARY KEY);\n",
         encoding="utf-8",
     )
@@ -75,8 +77,8 @@ def test_w4_generates_unique_keys_and_counted_changes(
     summary = _make_w4(source, output, rate)
 
     assert summary["table_count"] == 2
-    assert summary["before_row_count"] == 3
-    assert summary["after_row_count"] == 4
+    assert summary["before_row_count"] == 60
+    assert summary["after_row_count"] == 61
     tables = {item["table"]: item for item in summary["tables"]}
     assert tables["records"] == {
         "table": "records",
@@ -84,7 +86,7 @@ def test_w4_generates_unique_keys_and_counted_changes(
         "inserted": expected_inserted,
         "deleted": expected_deleted,
         "updated": expected_updated,
-        "after": 3,
+        "after": 60,
     }
     assert tables["empty"] == {
         "table": "empty",
@@ -100,6 +102,6 @@ def test_w4_generates_unique_keys_and_counted_changes(
         key = row[0]
         assert isinstance(key, (SignedIntegerScalar, UnsignedIntegerScalar))
         record_keys.append(key.decimal)
-    assert len(record_keys) == len(set(record_keys)) == 3
+    assert len(record_keys) == len(set(record_keys)) == 60
     assert len(parsed.rows["empty"]) == 1
     assert output.stat().st_mode & 0o777 == 0o600

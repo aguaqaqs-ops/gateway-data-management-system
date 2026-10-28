@@ -91,7 +91,7 @@ class RowTuple:
     statement: SqlStatementSpan
     start: int
     end: int
-    cells: tuple[CellSpan | None, ...]
+    cells: tuple[CellSpan, ...]
     values: SourceRow
 
 
@@ -196,13 +196,15 @@ def _parse_input(raw: bytes) -> ParsedInput:
                 value_end = cell_cursor.pos
                 column_index = ordinals[value_index]
                 cell_spans[column_index] = CellSpan(value_start, value_end)
+            if any(item is None for item in cell_spans):
+                raise ValueError(f"INSERT table {table_name} does not cover every column")
             row_tuple = RowTuple(
                 table_name=table_name,
                 row_index=row_index,
                 statement=span,
                 start=tuple_start,
                 end=tuple_end,
-                cells=tuple(cell_spans),
+                cells=tuple(item for item in cell_spans if item is not None),
                 values=values,
             )
             statement_rows.append(row_tuple)
@@ -246,28 +248,15 @@ def _protected_columns(descriptor: SourceTableDescriptor) -> tuple[str, ...]:
 def _mutator_for(
     descriptor: SourceTableDescriptor,
     rows: tuple[SourceRow, ...],
-    *,
-    available_columns: set[int] | None = None,
 ) -> tuple[int, Callable[[SourceCell], bytes]] | None:
     protected = set(_protected_columns(descriptor))
     for index, column in enumerate(descriptor.columns):
-        if available_columns is not None and index not in available_columns:
-            continue
         if column.canonical_name in protected:
             continue
         mutator = _cell_mutator(column, tuple(row[index] for row in rows))
         if mutator is not None:
             return index, mutator
     return None
-
-
-def _common_cell_indexes(rows: tuple[RowTuple, ...], column_count: int) -> set[int]:
-    common = set(range(column_count))
-    for row in rows:
-        common.intersection_update(
-            index for index, span in enumerate(row.cells) if span is not None
-        )
-    return common
 
 
 def _cell_mutator(
@@ -444,21 +433,10 @@ def _sql_string_literal(value: str) -> bytes:
 def _replace_cells(raw: bytes, row: RowTuple, replacements: dict[int, bytes]) -> bytes:
     base = row.start
     out = bytearray(raw[row.start : row.end])
-    for index, value in sorted(
-        replacements.items(),
-        key=lambda item: _required_cell_span(row, item[0]).start,
-        reverse=True,
-    ):
-        span = _required_cell_span(row, index)
+    for index, value in sorted(replacements.items(), key=lambda item: row.cells[item[0]].start, reverse=True):
+        span = row.cells[index]
         out[span.start - base : span.end - base] = value
     return bytes(out)
-
-
-def _required_cell_span(row: RowTuple, index: int) -> CellSpan:
-    span = row.cells[index]
-    if span is None:
-        raise ValueError("synthetic edit targets an omitted INSERT column")
-    return span
 
 
 def _apply_statement_rows(
@@ -578,14 +556,7 @@ def make_2x(source: Path, output: Path, suffix: str) -> dict[str, Any]:
         if not rows:
             empty_tables += 1
             continue
-        chosen = _mutator_for(
-            descriptor,
-            rows,
-            available_columns=_common_cell_indexes(
-                parsed.rows_by_table[table_name],
-                len(descriptor.columns),
-            ),
-        )
+        chosen = _mutator_for(descriptor, rows)
         if chosen is None:
             raise ValueError(f"table {table_name} has no safe non-key field to perturb")
         column_index, mutate = chosen
@@ -803,11 +774,7 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
                 {"table": table_name, "before": 0, "inserted": 1, "deleted": 0, "updated": 0, "after": 1}
             )
             continue
-        mutation = _mutator_for(
-            descriptor,
-            rows,
-            available_columns=_common_cell_indexes(indexed_rows, len(descriptor.columns)),
-        )
+        mutation = _mutator_for(descriptor, rows)
         if mutation is None:
             raise ValueError(f"table {table_name} has no safe non-key field for W4")
         mutation_column, mutate = mutation
@@ -834,18 +801,12 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
         ).record
         position_index: int | None = None
         next_position: int | None = None
-        if ordered_rule.position_column is not None:
-            candidate_position_index = next(
+        if ordered_rule.position_column is not None and update_indexes:
+            position_index = next(
                 column.ordinal
                 for column in descriptor.columns
                 if column.canonical_name == ordered_rule.position_column
             )
-            if candidate_position_index in _common_cell_indexes(
-                indexed_rows,
-                len(descriptor.columns),
-            ):
-                position_index = candidate_position_index
-        if position_index is not None and update_indexes:
             positions = [
                 int(getattr(row[position_index], "decimal"))
                 for row in rows
@@ -857,7 +818,12 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
             moved_row = min(update_indexes)
             table_replacements.setdefault(moved_row, {})[position_index] = str(next_position).encode("ascii")
             next_position += 1
-        elif position_index is not None:
+        elif ordered_rule.position_column is not None:
+            position_index = next(
+                column.ordinal
+                for column in descriptor.columns
+                if column.canonical_name == ordered_rule.position_column
+            )
             positions = [
                 int(getattr(row[position_index], "decimal"))
                 for row in rows
@@ -866,23 +832,8 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
             if len(positions) != len(rows):
                 raise ValueError(f"ordered table {table_name} has a non-numeric position")
             next_position = max(positions, default=0) + 1
-        by_row_index = {item.row_index: item for item in indexed_rows}
-        insert_sources = tuple(
-            index
-            for index in insert_sources
-            if position_index is None or by_row_index[index].cells[position_index] is not None
-        )
-        if len(insert_sources) < insert_count:
-            selected = set(insert_sources)
-            extra_sources = tuple(
-                index
-                for index in reversed(order)
-                if index not in deleted_indexes
-                and index not in selected
-                and (position_index is None or by_row_index[index].cells[position_index] is not None)
-            )
-            insert_sources += extra_sources[: insert_count - len(insert_sources)]
         working_rows = list(rows)
+        by_row_index = {item.row_index: item for item in indexed_rows}
         for source_index in insert_sources:
             source_row = rows[source_index]
             source_tuple = by_row_index[source_index]
@@ -893,23 +844,23 @@ def _make_w4(source: Path, output: Path, rate: float) -> dict[str, Any]:
                 tuple(working_rows),
                 source_row,
             )
-            if key_index >= 0 and source_tuple.cells[key_index] is not None:
+            if key_index >= 0:
                 clone_changes[key_index] = key_literal
                 if fresh_key is not None:
                     synthetic_row = list(source_row)
                     synthetic_row[key_index] = fresh_key
                     working_rows.append(tuple(synthetic_row))
             clone_changes[mutation_column] = mutate(source_row[mutation_column])
-            if position_index is not None and source_tuple.cells[position_index] is not None:
+            if position_index is not None:
                 assert next_position is not None
                 clone_changes[position_index] = str(next_position).encode("ascii")
                 next_position += 1
             for index, value in sorted(
                 clone_changes.items(),
-                key=lambda item: _required_cell_span(source_tuple, item[0]).start,
+                key=lambda item: source_tuple.cells[item[0]].start,
                 reverse=True,
             ):
-                span = _required_cell_span(source_tuple, index)
+                span = source_tuple.cells[index]
                 local_start = span.start - source_tuple.start
                 local_end = span.end - source_tuple.start
                 clone = clone[:local_start] + value + clone[local_end:]

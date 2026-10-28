@@ -23,7 +23,6 @@ from gateway_backend.http.orchestration.multipart_stream import (
 )
 import gateway_backend.http.orchestration.multipart_stream as multipart_stream
 from gateway_backend.http.orchestration.source_package_admission import (
-    UploadLimitExceededError,
     UploadStreamTimeoutError,
     UploadStreamTimeoutReason,
     validate_source_package_archive,

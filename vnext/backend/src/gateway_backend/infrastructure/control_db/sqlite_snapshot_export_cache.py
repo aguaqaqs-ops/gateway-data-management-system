@@ -13,7 +13,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     PARQUET_MEDIA_TYPE,
     SNAPSHOT_EXPORT_CACHE_TTL_SECONDS,
     SnapshotTableArtifactCacheKey,
-    SnapshotTableExportCachePort,
 )
 from gateway_backend.infrastructure.control_db.sqlite_protection import (
     SQLiteArtifactProtectionStore,

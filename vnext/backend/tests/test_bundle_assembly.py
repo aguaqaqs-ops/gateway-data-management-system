@@ -29,8 +29,6 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput,
     BundleProfile,
     BundleRefScope,
-    BundleTableBinding,
-    BundleTableSide,
     assemble_bundle,
     validate_bundle,
 )

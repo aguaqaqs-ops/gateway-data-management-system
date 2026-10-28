@@ -876,6 +876,30 @@ def _json_text_nesting_depth(text: str) -> int:
     return maximum
 
 
+def _contains_unpaired_surrogate(value: object) -> bool:
+    pending: list[object] = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, str):
+            index = 0
+            while index < len(current):
+                codepoint = ord(current[index])
+                if 0xD800 <= codepoint <= 0xDBFF:
+                    if index + 1 >= len(current) or not 0xDC00 <= ord(current[index + 1]) <= 0xDFFF:
+                        return True
+                    index += 2
+                    continue
+                if 0xDC00 <= codepoint <= 0xDFFF:
+                    return True
+                index += 1
+        elif isinstance(current, dict):
+            pending.extend(current.keys())
+            pending.extend(current.values())
+        elif isinstance(current, list):
+            pending.extend(current)
+    return False
+
+
 def _json_depth(source: Path) -> dict[str, object]:
     raw = source.read_bytes()
     runtime = _runtime()

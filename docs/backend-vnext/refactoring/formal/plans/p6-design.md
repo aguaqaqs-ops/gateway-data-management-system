@@ -219,7 +219,7 @@ S1a 归因结论：step 间隔来自 worker supervisor 在 executor 结束后仍
 - Preview 的 bundle 包含上传侧全部表与删除表的基线侧数据；History 每个节点包含全部表；同内容的表按内容地址共享（`shared/snapshot-tables/`），每个节点或当前侧对表名的绑定保留在 bundle 清单中，不因共享丢失。
 - 表文件为 Parquet。**导出缓存**以现有 row-layout 身份（行内容 + 导出 schema + repository scope，Snapshot Table Access 的 `row_layout_digest`）加 Parquet writer 版本为键，条目经现有保护表登记引用、按 TTL 管理（ADR 0012）；未命中时从规范表读取并导出、回填。
 - S1b 中规范表来自现有 snapshot artifact 与 Dolt 读取；S2b 起来自规范表存储。
-- 避免整表反复读取与校验；assemble 约 100 s 的固定开销按 §4.4 归因后在此处理。
+- 避免整表反复读取与校验；assemble 约 100 s 的固定开销按 §4.4 归因后在此处理：S1a 分解为 checkpoint 读取 45–59 s 与 bundle 约 51 s。不设门槛，handoff 记录改造后 t4 的这两段耗时并与 S1a 对比，未消除部分转 S2b（DC59 第 2 项、DC62 第 4 项）。
 - 修订 Comparison Bundle 契约（整表打包、导出缓存按 row-layout 身份命中）。
 
 ### 5.3 整表新增或删除改为整表浏览（DC41 第 3 项）
@@ -231,7 +231,7 @@ S1a 归因结论：step 间隔来自 worker supervisor 在 executor 结束后仍
 ### 5.4 慢速上传（DC49）
 
 - 上传改为**空闲超时**（连续 60 s 没有收到数据）加**总上限**（最大压缩包 ÷ 1 Mbps，256 MiB 约 36 min）；常量仍在 `application/workspace/upload_limits.py`，总上限由最大包推出。
-- 两种超时共用一个错误码（P：`UPLOAD_STREAM_TIMEOUT`，HTTP 408），附有界的原因字段；413 只用于大小与资源限制。修订 P5-5A 上传设计中的错误码表。
+- 两种超时共用一个错误码 `UPLOAD_STREAM_TIMEOUT`（HTTP 408），原因字段取值为 `IDLE` 或 `TOTAL`（DC62 第 3 项）；413 只用于大小与资源限制。修订 P5-5A 上传设计中的错误码表。
 - 受理中的同步工作（解压校验、artifact 写入、control DB 事务）移到线程池；保留解压预算、断连释放，以及线程池中操作的完成与取消边界。
 
 ### 5.5 参照解析器的缺陷与语义定稿（DC50 S1b、DC55 第 4 项）
@@ -239,16 +239,17 @@ S1a 归因结论：step 间隔来自 worker supervisor 在 executor 结束后仍
 | 项 | 处理 |
 | --- | --- |
 | BIT 负数、超宽 BIT、非 ASCII `b'..'` 的未捕获异常 | 修复为确定的诊断（D），补 golden |
-| 深层嵌套 JSON 的未捕获异常 | 修复为确定的结果（D）；P：设嵌套上限并以 `SQL_VALUE_ILLEGAL` 有界拒绝（V6 原型现为迭代接受，S2a 按定稿调整）；JSON 孤立代理的策略一并定稿 |
+| 深层嵌套 JSON 的未捕获异常 | 嵌套深度上限 100（与 MySQL 相同），超过为 `SQL_VALUE_ILLEGAL`，检查不递归（V6 原型现为迭代接受，S2a 按定稿调整） |
+| JSON 孤立代理（如 `"\ud800"`） | 拒绝，`SQL_VALUE_ILLEGAL` |
 | FLOAT 两次舍入 | 按 Shared Canonical Encoding 直接舍入到 binary32，修复位于 Shared Kernel `scalar.py`（D，DC55 第 4 项） |
 | 零日期、零日期时间 | **维持拒绝**（D，DC55 第 4 项） |
-| BIT 列的十进制数字字面量 | P：按 MySQL 以十进制解释 |
-| `_binary` 前缀 | P：接受，按二进制值解析 |
-| `\%`、`\_` 转义 | P：按 MySQL 保留反斜杠 |
-| 列类型中夹注释 | P：忽略注释 |
-| JSON 接受 `NaN` / `Infinity` | P：拒绝（与 MySQL 一致） |
+| BIT 列的十进制数字字面量 | 按 MySQL 以十进制解释（`10` 得 `0x0a`）；超出声明宽度为 `SQL_VALUE_ILLEGAL` |
+| `_binary` 前缀 | 接受，后接字符串或十六进制字面量，按二进制值解析；只用于二进制类列（BINARY、VARBINARY、BLOB 系列），其他列为 `SQL_VALUE_ILLEGAL`；其他字符集前缀仍为 `MALFORMED_SQL` |
+| `\%`、`\_` 转义 | 按 MySQL 保留反斜杠 |
+| 列类型中夹注释 | 忽略注释 |
+| JSON 接受 `NaN` / `Infinity` | 拒绝，`SQL_VALUE_ILLEGAL`（与 MySQL 一致） |
 
-P 项在 S1b kickoff 时由 owner 逐项确认。语义改动在 S1b 定稿并冻结 golden（§4.6），S2a 不同时改语义和换实现。真实数据 t1–t4 中均无受影响的值，新增接受的值用合成用例验证往返。
+以上语义由 owner 在 S1b kickoff 确认（DC62 第 2 项）。语义改动在 S1b 定稿并冻结 golden（§4.6），S2a 不同时改语义和换实现。真实数据 t1–t4 中均无受影响的值，新增接受的值用合成用例验证往返。
 
 ### 5.6 测量负载
 
@@ -534,8 +535,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 项 | 本设计提案 | 节 |
 | --- | --- | --- |
 | `ordering_digest`、`fast_row_digest` | 均删除（前者含跨模块传递；后者见 DC58） | §4.1 |
-| 上传超时错误码 | `UPLOAD_STREAM_TIMEOUT`，HTTP 408，两种超时共用并附原因 | §5.4 |
-| 参照解析器的 P 项语义 | §5.5 表中各项；深层 JSON 有界拒绝 | §5.5 |
+| 上传超时错误码 | 已定（DC62）：`UPLOAD_STREAM_TIMEOUT`，HTTP 408，原因 `IDLE`/`TOTAL` | §5.4 |
+| 参照解析器的 P 项语义 | 已定（DC62）：§5.5 表中各项；JSON 嵌套上限 100 | §5.5 |
 | Arrow 列映射 v1 | §8.1 | §8.1 |
 | 上传侧原始表的使用方、磁盘估算 | 设计核对项，S2b kickoff 前完成 | §8.1、§8.2 |
 | 重要 keyless 表的自然键 | 已定（DC56）：11 张表补显式键，17 张表加入 BROWSE_ONLY，存储保持 keyless；规则改动在 S1b，与比较类 golden 一起冻结；`forwardtable_*` 保持 SNAPSHOT_ONLY，空点行调查已完成，不另行立项（DC56 第 4 项结论） | §4.6 |

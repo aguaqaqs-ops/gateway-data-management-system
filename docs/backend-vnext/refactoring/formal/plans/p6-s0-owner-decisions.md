@@ -50,6 +50,7 @@ implementation_authorized: no
 | DC59 | S1a 归因的验收粒度 | — | — |
 | DC60 | S1a 初审修订：语句字节规则与重跑范围 | — | — |
 | DC61 | worker 在 step 完成后立即唤醒；镜像构建脚本的锁快照清理 | — | — |
+| DC62 | S1b kickoff 确认：选择器形式、解析器语义、上传超时错误码、诊断项、真实数据范围与授权 | — | — |
 
 ## 2. 决议详情
 
@@ -309,7 +310,7 @@ implementation_authorized: no
 
 - **来源**：[keyless 候选键普查](p6-keyless-candidate-census.md)（t1–t4 的 v1、v2 共 8 份数据，35 张 keyless 表，只含计数与列名）与[规则讨论稿](p6-keyless-candidate-rules-review.md)；S0 讨论会话审核意见。普查没有发现 DC29 清单以外的新表。
 - **决议**（repository owner，2026-10-26）：
-  1. **逐表显式键（11 张表）：** `comm_user_data` 用 `data_key`；`forwardtbl_lst_*` 系列（cs、dz、qt、yc、yk、ym、yt、yx 共 8 张）用 `tbname`；`mms_rp_cdc_index` 用 `idx`；`out_time_cfg` 用 `(board, link_no)`。这些表由 keyless 改为 keyed，比较给出字段级变化，Submit 可走行级修改。显式键是严格规则：之后数据中键列出现重复或 NULL 时，该表投影稳定失败，不回退 keyless。`out_time_cfg` 与 4 个 `forwardtbl_lst_*` 系列在现有数据中均为空表，键按业务语义指定，不是数据验证的结果。`forwardtbl_lst_*` 的选择器形式（8 个精确名或系列正则）在 S1b kickoff 确认。
+  1. **逐表显式键（11 张表）：** `comm_user_data` 用 `data_key`；`forwardtbl_lst_*` 系列（cs、dz、qt、yc、yk、ym、yt、yx 共 8 张）用 `tbname`；`mms_rp_cdc_index` 用 `idx`；`out_time_cfg` 用 `(board, link_no)`。这些表由 keyless 改为 keyed，比较给出字段级变化，Submit 可走行级修改。显式键是严格规则：之后数据中键列出现重复或 NULL 时，该表投影稳定失败，不回退 keyless。`out_time_cfg` 与 4 个 `forwardtbl_lst_*` 系列在现有数据中均为空表，键按业务语义指定，不是数据验证的结果。`forwardtbl_lst_*` 的选择器形式在 S1b kickoff 定为 8 个精确名（DC62 第 1 项）。
   2. **18 张含 `(no, page_no)` 的表按 BROWSE_ONLY 处理，存储保持 keyless：** `cnt_manage_cfg`、`dev104_cfg`、`iec101_cfg`、`iec104_cfg`、`iec104gw_cfg`、`iec61850c_cfg`、`jdxx_cfg`、`nbridge_cfg`、`nr103d_cfg`、`nr103ht_cfg`、`sc_cfg`、`scada_cfg`、`sg_manage_cfg`、`sntp_cfg`、`vqc_cfg`、`wave_cfg`、`wf_cfg` 新加入 BROWSE_ONLY 名单，`project` 已在名单中。不为 BROWSE_ONLY 增加存储键，不拆分存储键与比较键，Contract 不变。owner 接受业务后果：这些表变化时不再产生逐行记录与风险，只有表级变化事实（DC16）与整表浏览。
   3. **列存在兜底暂不实施：** 按列集合自动选键、校验失败回退 keyless 及额外处理调用，Phase 6 不实施，也不预留接口。DC29 的 keyless 兜底继续处理新表；需要键的新表按规则激活补显式规则。**重开条件：** 出现新的 keyless 表，且业务上需要字段级比较。
   4. **`forwardtable_*` 保持现状并做一次专项调查：** 6 张 `forwardtable_*` 继续命中 SNAPSHOT_ONLY、keyless 存储、不做比较；不引入 `KEYLESS_ORDERED`。由实施者做一次专项调查（只输出计数与列状态分类，不输出单元格值），确认：完全相同的重复行是否都是空点行；非空点行的 `gid` 是否唯一；源数据中的行顺序是否与 `gid` 顺序一致。结论由 owner 确认；若发现重复行不全是空点行，或行顺序有业务含义且无法由 `gid` 恢复，作为 Phase 6 之外的单独立项。
@@ -371,6 +372,26 @@ implementation_authorized: no
   5. **锁快照清理：** `build-repository-service-image.sh` 用 EXIT trap 删除锁快照，覆盖全部退出路径；其测试把 TMPDIR 设为测试临时目录，并断言错误路径不留文件。该脚本属于镜像构建脚本，按 AGENTS 是强制重建项，S1b 最终候选照常重建并运行容器门禁。
   6. **阶段：** 两项均在 S1b 实施（owner 2026-10-28）。
 - **落点**：[详细设计](p6-design.md) §4.4、§5.7、§16 的 j 行；[执行计划](p6-execution-plan.md) §2 S1b 第 7、8 项与 §3 路径预算。
+
+### DC62 S1b kickoff 确认
+
+- **来源**：S1b kickoff 确认项（DC56 第 1 项的选择器形式；设计 §5.4、§5.5 的 P 项；DC59 第 2 项；DC33 真实数据范围；执行计划 §2 S0 的分阶段授权）。解析器各项的证据见 [V6 报告](p6-v6-parser-prototype-report.md)“需要澄清的语义”；真实数据 t1–t4 中均无受影响的值。
+- **决议**（repository owner，2026-10-28）：
+  1. **`forwardtbl_lst_*` 选择器：** 8 个精确表名（`forwardtbl_lst_cs`、`_dz`、`_qt`、`_yc`、`_yk`、`_ym`、`_yt`、`_yx`），与其他显式键表同为 `STANDARD_EXACT`，不用系列正则。理由：显式键是严格规则，正则会让将来新出现、缺 `tbname` 列的同前缀表直接投影失败；精确名之外的表照常走默认规则。与 `forwardtable_*` 的 SNAPSHOT_ONLY 正则不重叠。
+  2. **参照解析器语义（设计 §5.5）：**
+     - a. BIT 列的十进制数字字面量按 MySQL 以十进制解释（`10` 得 `0x0a`）；超出声明宽度为 `SQL_VALUE_ILLEGAL`。
+     - b. `_binary` 前缀：接受，后接字符串或十六进制字面量，按二进制值解析；只用于二进制类列（BINARY、VARBINARY、BLOB 系列），用于其他列为 `SQL_VALUE_ILLEGAL`；其他字符集前缀（如 `_utf8mb4`）仍为 `MALFORMED_SQL`。
+     - c. 字符串中的 `\%`、`\_` 按 MySQL 保留反斜杠（各为两个字符）。
+     - d. 列类型中夹的注释忽略，与 MySQL 一致。
+     - e. JSON 中的 `NaN`、`Infinity` 拒绝，`SQL_VALUE_ILLEGAL`（表级）。
+     - f. JSON 中的孤立代理（如 `"\ud800"`）拒绝，`SQL_VALUE_ILLEGAL`（表级）。
+     - g. JSON 嵌套深度上限 100（与 MySQL JSON 最大深度相同），超过为 `SQL_VALUE_ILLEGAL`，检查不得递归；实施者以只出计数的方式确认 t1–t4 中 JSON 的最大深度远低于上限。
+     - 已定项不变：BIT 负数、超宽 BIT、非 ASCII `b'..'` 改为确定诊断；FLOAT 直接舍入；零日期维持拒绝（DC55 第 4 项）。新增接受的写法用合成用例验证往返。
+  3. **上传超时错误码（设计 §5.4）：** 两种超时共用 `UPLOAD_STREAM_TIMEOUT`，HTTP 408；原因字段取值只有 `IDLE`（连续 60 s 未收到数据）与 `TOTAL`（超过总上限）；413 只用于大小与资源限制。
+  4. **DC59 第 2 项在 S1b 的处理：** 不设性能门槛。§5.2 改造 bundle 路径（补齐整表与导出缓存）后，handoff 记录 t4 的 checkpoint 读取与 bundle 段耗时，与 S1a 对比并说明差距是否消除；未消除部分转 S2b（规范表存储接管数据来源）。不在产品中加计时插桩，耗时由现有旅程输出与 step 时间戳计算。
+  5. **真实数据范围（DC33）：** t1–t4 完整旅程（t1–t3 在 05，t4 在 ct108；t3 覆盖只增列）。另核对：t1–t4 的 step 间隔（DC61）；补键 11 张表的比较结果（重点为有数据的 4 张 `forwardtbl_lst_*`、`comm_user_data`、`mms_rp_cdc_index`）；新增 BROWSE_ONLY 的 17 张表的处理结果；重复导出命中导出缓存。
+  6. **实施授权：** 授权 S1b，范围为设计 §5.1–§5.8 及对应的 Contract 与 golden 修订（含 DC56 规则改动、DC61）。
+- **落点**：[详细设计](p6-design.md) §5.2、§5.4、§5.5、§17 开放项表；[执行计划](p6-execution-plan.md) §2 S1b；DC56 第 1 项注明选择器形式。
 
 ## 3. 设计阶段待定项
 

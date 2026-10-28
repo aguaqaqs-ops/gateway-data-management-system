@@ -72,8 +72,8 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
   1. 只增列（§5.1）；
   2. bundle 补齐整表与导出缓存（§5.2）；整表新增或删除改为整表浏览（§5.3）；
   3. 慢速上传：空闲超时、总上限、新错误码、受理移到线程池（§5.4）；
-  4. 参照解析器的缺陷修复与语义定稿（§5.5；kickoff 时 owner 逐项确认 P 项）；零日期维持拒绝；FLOAT 直接舍入在 Shared Kernel 修复（DC55 第 4 项）；
-  4a. 按 DC56 改规则：11 张表补显式键，17 张表加入 BROWSE_ONLY 名单（规则集版本随之提升）；storage-projection 中的规则集与 manifest golden 按设计 §4.6 的例外行在本阶段更新一次，与比较类 golden 一起冻结；
+  4. 参照解析器的缺陷修复与语义定稿（§5.5；P 项已由 owner 在 kickoff 确认，DC62 第 2 项）；零日期维持拒绝；FLOAT 直接舍入在 Shared Kernel 修复（DC55 第 4 项）；
+  4a. 按 DC56 改规则：11 张表补显式键（`forwardtbl_lst_*` 用 8 个精确名，DC62 第 1 项），17 张表加入 BROWSE_ONLY 名单（规则集版本随之提升）；storage-projection 中的规则集与 manifest golden 按设计 §4.6 的例外行在本阶段更新一次，与比较类 golden 一起冻结；
   5. 合成 2× t4 与 W4 生成工具、测量 runbook（§5.6）；
   6. Contract 修订（设计 §14 中标注 S1b 的行）与 golden（comparison、risk、surface、bundle、table-access、shared-kernel 编码向量，设计 §4.6）；
   7. worker 在 step 完成后立即唤醒（设计 §5.7，DC61 第 1–4 项）；
@@ -85,7 +85,8 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
   - 参照解析器对 V6 列出的输入给出确定诊断，不抛未捕获异常；新增接受的值有合成往返用例；
   - t1–t4 旅程的 step 间隔不再出现接近 heartbeat 周期的等待，超过 1 s 的在 handoff 中逐项说明（DC61）；权威 runner 后节点 TMPDIR 不留锁快照文件；
   - 权威 runner 与容器门禁。
-- 真实数据：t1–t4 完整旅程；t3 覆盖只增列（即原 testdata1）。
+- 真实数据：t1–t4 完整旅程；t3 覆盖只增列（即原 testdata1）。另核对 step 间隔（DC61）、补键 11 张表的比较结果、新增 BROWSE_ONLY 17 张表的处理、重复导出命中导出缓存；t4 的 checkpoint 读取与 bundle 段耗时与 S1a 对比，不设门槛（DC62 第 4、5 项）。
+- **kickoff 确认与授权（repository owner，2026-10-28）：** DC62；授权 S1b，范围为设计 §5.1–§5.8 及对应的 Contract 与 golden 修订。
 
 ### 重建对照基准
 

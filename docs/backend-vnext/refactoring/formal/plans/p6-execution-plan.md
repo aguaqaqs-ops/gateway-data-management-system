@@ -19,7 +19,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
  -> S1a 摘要与存储 Contract（DC39、DC45 表级跳过与阈值）+ worker step 归因
  -> S1b 业务语义 Contract（DC40、DC41、DC49、参照解析器修复与语义定稿）+ 合成负载
  -> 重建对照基准（Python）
- -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展
+ -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展    ‖ S1c Submit 等待预算修订（DC65，与 S2a 并行）
  -> S2b 上传侧数据路径与规范表存储（切换生产）
  -> S3  比较与逐行记录（Rust）
  -> S4  Submit 渲染直通
@@ -97,6 +97,15 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 节点：`ct108-gw-dms` 独占。
 - **授权（repository owner，2026-10-29）：** 授权重建对照基准，范围为设计 §6、§16.3 验收矩阵的全部场景与 DC63 第 1 项的子段拆分；只扩展测量工具，不改产品代码与 golden。同时授权 S1b exit 的推送、三节点同步与清理。
 
+### S1c — Submit 等待预算修订（DC65）
+
+- 目标：Submit 的 `await_import_result` 在 Repository Service 健康运行时持续对账，不因单次 60 s 轮询到期而消耗恢复会话；总等待上界与 Repository Service 导入上限对齐（DC65 方案 B）。
+- 前置：重建对照基准已完成。与 S2a 改动面不重叠，可用各自的短期分支并行。
+- 内容：`operations/recovery.py` 与 `application/submit_jobs.py` 的会话计数规则；P4 R5 设计 §6、P5-5B 设计 §13.1 的条款；权威测试（健康等待不消耗会话；超出上界转人工恢复；崩溃、lease 丢失与结果未知仍计数；drain 在单次轮询内响应；safe handoff 后的重新领取不增加 `attempt_count`）。
+- 验收：权威测试与五包静态检查；权威 runner 与容器门禁；2× t4 的 v1 Submit 在 ct108 上无人工干预完成，Submit 结果与基准一致（DC64 第 4 项）。
+- 真实数据：在 kickoff 写明、退出前由 owner 确认（DC33）。
+- **授权（repository owner，2026-10-29）：** DC65。
+
 ### S2a — SQL 解析器
 
 - 目标：设计 §7。
@@ -108,7 +117,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S2b — 上传侧数据路径与规范表存储
 
 - 目标：设计 §8。
-- 前置：S2a exit；设计核对项（上传侧原始表的使用方、磁盘估算）已完成。
+- 前置：S2a exit；S1c exit（DC65）；设计核对项（上传侧原始表的使用方、磁盘估算）已完成。
 - 内容：数据路径合并 kernel；Arrow 列映射 v1；规范表存储（内容地址、IPC、读取校验、BaselineHead 正式引用与 TTL）；N/M 准入与 pyarrow 线程池；feature flag 切换生产；Canonical Storage §5 修订。
 - 验收：t1–t4 端到端摘要与基准一致；存储读取校验、Dolt 兜底与冻结产物四种状态的权威测试；计数断言；W1–W3 测量（ct108）；**W2 可达性检查点**（设计 §16.1：剩余成本不能在 30 s 内闭合时停止，交 owner）；权威 runner 与容器门禁。
 - 真实数据：t1–t4 端到端摘要一致；测本阶段相关负载。

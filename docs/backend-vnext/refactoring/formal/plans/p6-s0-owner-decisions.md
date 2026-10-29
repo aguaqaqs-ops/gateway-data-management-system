@@ -53,6 +53,7 @@ implementation_authorized: no
 | DC62 | S1b kickoff 确认：选择器形式、解析器语义、上传超时错误码、诊断项、真实数据范围与授权 | — | — |
 | DC63 | S1b exit：N1-1 测量限制的处置与真实数据范围确认 | — | — |
 | DC64 | 审核先行、证据后补；真实数据按受影响步骤重跑；结果一致的口径 | — | — |
+| DC65 | Submit 等待 Repository 导入：健康等待不消耗恢复会话（S1c） | — | — |
 
 ## 2. 决议详情
 
@@ -430,6 +431,42 @@ implementation_authorized: no
      - c. 屏蔽清单在对照工具中显式列出，工具输出实际被规范化的字段路径（不含值）。清单的任何增减都须在 handoff 中写明来源与理由。
      - d. 出现新的、无法从产物结构确定是运行实例标识的差异字段时，按不一致处理并停止，交 owner 判定。
 - **落点**：[执行计划](p6-execution-plan.md) §8.2、§8.4；第 4 项落在重建对照基准的对照工具、runbook 与 handoff。AGENTS.md「主线开发与阶段边界」与 testing-conventions 由负责这两份文件的会话同步；主 checkout 中这两份文件另有未提交的修改，本次不改。
+
+### DC65 Submit 等待 Repository 导入：健康等待不消耗恢复会话
+
+- **来源**：重建对照基准在 ct108 上做 2× t4 warmup 时，v1 Submit 的 `await_import_result` 共进行 3 次 60 s 轮询（18:37:45、18:38:46、18:39:48，2026-10-29 UTC），Repository Service 每次都返回运行中；18:40:48 按 R5 转为 `MANUAL_RECOVERY_REQUIRED`。Repository Service 导入随后成功，用时约 3–5 min（诊断目录 ct108 `/home/dev/gdds-p6-logs/baseline/scenarios/compose/s4-stall-20261029T184249318055Z`）。
+  - 规则出处：P4 R5 设计 §6（每个 step 最多 3 个恢复会话，单个会话内轮询 ≤ 60 s）；P5-5B 设计 §13.1（Submit 的 `SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = 60.0`，每次轮询超时结束一个恢复会话，第三次进入人工恢复）。代码为 `operations/recovery.py` 的 `MAX_RECOVERY_SESSIONS = 3`、`RECONCILE_SESSION_BUDGET_SECONDS = 60.0`。
+  - 余量此前已偏小：P5 退出审核记录 t4 的导入为 79/83 s，分别用了 2/3 个会话。
+  - 问题实质：Repository Service 健康地返回“运行中”时，单次轮询到期被计为一次恢复会话，于是总等待上限固定在约 3 min，与导入规模无关。这一上限也短于 Repository Service 自身的导入上限（`import_timeout_seconds` 默认 3600 s）。在 Phase 6 目标规模下，Submit 无法自动完成，§16.3 的 S1/S3/S4 门槛（完成，main 前移）无法达到。
+  - 与 Contract 不一致：[External Effect and Recovery Contract](../contracts/external-effect-and-recovery.md) §4 规定 timeout 不等于 Repository operation 失败，`MANUAL_RECOVERY_REQUIRED` 表示 commit/ref/artifact 证据矛盾。而当前规则会在没有任何证据矛盾、Repository Service 仍健康运行时进入人工恢复。
+- **临时做法**（已下发，不依赖本决议）：重建对照基准不改产品，在 Repository Service 已成功时用现有的 `RESUME_RECONCILE` 人工恢复命令完成 Submit。S1/S3/S4 的完成时间只作报告，结果指纹照常记录。
+- **方案**：
+  - **A. 只放大数值。** 提高 Submit 等待的单次轮询上限，或提高会话上限，使总等待覆盖目标规模。
+    - 改动：常量，以及 P4 R5 §6 与 P5-5B §13.1 的数值。
+    - 优点：改动最小。
+    - 缺点：会话数同时也是崩溃与结果未知时的重试次数，提高它等于允许更多次失败重试；拉长单次轮询会让 drain 与停机等得更久；仍是固定值，规模再大时会再次触发，而且与 Repository Service 自身的上限不对齐。
+  - **B. 区分健康等待与恢复会话**（推荐）。
+    - 规则：Repository Service 明确返回 QUEUED/RUNNING（HTTP 成功、operation 身份与请求指纹匹配）时，单次 60 s 轮询到期不计入恢复会话；写入 checkpoint，经现有 safe handoff 让出 lease，之后重新领取继续对账。
+    - 只有以下情况计入 3 个恢复会话：崩溃或 lease 丢失、传输错误或结果未知、身份或指纹不符。
+    - 总等待上界与 Repository Service 自身的导入上限对齐（导入上限加服务启动时间，backend 侧为有名常量）；超过即进入人工恢复。单次轮询仍为 60 s，drain 与停机响应不变。
+    - 改动：`recovery.py` / `submit_jobs.py` 的计数规则，P4 R5 §6 与 P5-5B §13.1 的条款（涉及 Operation Lifecycle Contract 时一并修订）。权威测试覆盖四点：健康等待不消耗会话；超出上界转人工恢复；崩溃与结果未知仍计数；drain 在单次轮询内响应。实施时须核对 safe handoff 之后的重新领取不增加 `attempt_count`。
+    - 优点：与规模无关；符合 R5 “恢复预算只计失败”的原意；不新增机制。
+    - 缺点：触及恢复核心路径，属于强验证区域，需要独立审核。
+  - **C. Submit 不在 worker 内等待。** 改为 Repository Service 完成回调，或单独的异步对账。
+    - 缺点：新增 IPC/回调机制，按比例化保障政策须先修订 Contract/ADR。不推荐。
+  - **D. 不改产品。** 把人工恢复当作大规模 Submit 的常规路径。
+    - 只适合作为基准阶段的临时做法；达不到 S1/S3/S4 门槛，不推荐作为长期方案。
+- **阶段安排（与方案独立选择）**：
+  - **甲（推荐）**：重建对照基准完成后、S2b kickoff 之前，作为独立小修阶段完成，流程按 DC64（审核先行、证据后补）。改动面（operations、submission）与 S2a（解析器）不重叠，可以和 S2a 用各自的短期分支并行。
+  - **乙**：并入 S2b。
+  - **丙**：并入 S4（Submit）。S2b 的 W2 实测需要先提交 2× t4 基线，选乙或丙时，S2b 至 S3 都要继续使用人工恢复的临时做法。
+- **对基准的影响**：方案 A 与 B 只改变等待与计数，不改变提交内容，预期 Submit 结果指纹不变。修订阶段按 DC64 第 4 项用基准对照工具核对 S1/S3 的结果一致；S1/S3/S4 的完成时间在 S4 与 S6 取证时实测。若改变诊断码或 checkpoint 载荷，按 AGENTS 直接改到目标形态，并同步 golden 与测试。
+- **决议**（repository owner，2026-10-29）：采用**方案 B**与**阶段安排甲**。
+  1. 新增阶段 **S1c — Submit 等待预算修订**：前置为重建对照基准已完成；可与 S2a 用各自的短期分支并行；S2b 的前置增加 S1c exit。阶段边界 tag 为 `p6-s1c-exit`，流程按 DC64（审核先行、证据后补）。
+  2. 实现范围只限方案 B：健康等待不计入恢复会话；总等待上界与 Repository Service 导入上限对齐；崩溃、lease 丢失、传输错误或结果未知、身份或指纹不符仍计入 3 个恢复会话；单次轮询仍为 60 s。不新增 IPC、回调、状态机或 durable 字段；如必须新增 checkpoint 字段，先交 owner。
+  3. 同步修订：P4 R5 设计 §6、P5-5B 设计 §13.1；External Effect and Recovery Contract 只核对一致性，不改语义；涉及 Operation Lifecycle Contract 的条款一并修订。
+  4. 基准：重建对照基准维持 p6-s1b-exit 的产品与人工恢复临时做法，不因 S1c 重测。S1c 用基准对照工具核对 Submit 结果与基准一致（DC64 第 4 项）。
+- **落点**：[执行计划](p6-execution-plan.md) §1、§2（S1c、S2b 前置）。
 
 ## 3. 设计阶段待定项
 

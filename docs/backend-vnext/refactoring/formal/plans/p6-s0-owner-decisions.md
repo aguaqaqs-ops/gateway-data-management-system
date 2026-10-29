@@ -52,7 +52,7 @@ implementation_authorized: no
 | DC61 | worker 在 step 完成后立即唤醒；镜像构建脚本的锁快照清理 | — | — |
 | DC62 | S1b kickoff 确认：选择器形式、解析器语义、上传超时错误码、诊断项、真实数据范围与授权 | — | — |
 | DC63 | S1b exit：N1-1 测量限制的处置与真实数据范围确认 | — | — |
-| DC64 | 审核先行、证据后补；真实数据按受影响步骤重跑 | — | — |
+| DC64 | 审核先行、证据后补；真实数据按受影响步骤重跑；结果一致的口径 | — | — |
 
 ## 2. 决议详情
 
@@ -423,7 +423,13 @@ implementation_authorized: no
      - f. **范围**：阶段 exit 可按本项绑定证据；S6 最终取证、Phase 6 退出与发布门禁须在最终 HEAD 上完整运行，与 AGENTS“镜像身份等价”的例外一致。
      - g. **工具**：`real_dump_journey.py` 在取证模式下保存步骤状态，并支持以新镜像在保留卷的副本上从指定步骤续跑。这属于 benchmarks 改动，按 DC30 第一部分第 3 项处理；该能力就绪之前，本项不适用。
   3. **不变项**：DC30 的调试与取证分开、DC33 的按包沿用与 kickoff 定范围、DC36 节点分工、AGENTS 的镜像身份等价与停止规则均不变。本决议不放宽任何验收项，只改变证据运行的时点与重跑范围。
-- **落点**：[执行计划](p6-execution-plan.md) §8.2、§8.4。AGENTS.md「主线开发与阶段边界」与 testing-conventions 由负责这两份文件的会话同步；主 checkout 中这两份文件另有未提交的修改，本次不改。
+  4. **补充：结果一致的口径**（repository owner，2026-10-29；细化 DC50 第 1 项的“逐字节一致”）：
+     - 来源：重建对照基准阶段在 05 上做续跑验证时，来源运行与续跑的 History bundle 指纹不同。逐字段核对后，两份 History Surface 只有 `surface_id` 与 `view_id` 不同，两者都由 History operation ID 派生；其余内容（全部表、记录、风险、Parquet 绑定与行数）相同（05 `/home/dev/gdds-p6-logs/baseline/owner-h1-closure-attribution.log`）。
+     - a. 产物内嵌运行实例标识时，“结果一致”指把这些标识替换为规范化占位（例如按序编号的 pair key）后逐字节相同。运行实例标识包括 operation、pair、surface/view、submission 与 artifact 的 ID，以及由它们派生的路径。
+     - b. 屏蔽只限运行实例标识。业务内容与业务摘要字段不屏蔽；二进制产物（records rows、risk annotations、Parquet）、Dolt 表哈希与 canonical state 原样比较。
+     - c. 屏蔽清单在对照工具中显式列出，工具输出实际被规范化的字段路径（不含值）。清单的任何增减都须在 handoff 中写明来源与理由。
+     - d. 出现新的、无法从产物结构确定是运行实例标识的差异字段时，按不一致处理并停止，交 owner 判定。
+- **落点**：[执行计划](p6-execution-plan.md) §8.2、§8.4；第 4 项落在重建对照基准的对照工具、runbook 与 handoff。AGENTS.md「主线开发与阶段边界」与 testing-conventions 由负责这两份文件的会话同步；主 checkout 中这两份文件另有未提交的修改，本次不改。
 
 ## 3. 设计阶段待定项
 

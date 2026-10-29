@@ -1,0 +1,36 @@
+{
+  "case_id": "s1b-bit-negative",
+  "status": "FAILED",
+  "tables": [
+    {
+      "display_name": "t",
+      "canonical_name": "t",
+      "reader_ready": false,
+      "primary_key_canonical_names": [],
+      "columns": [
+        {
+          "display_name": "v",
+          "canonical_name": "v",
+          "sql_type": "BIT(8)",
+          "logical_type": "standard",
+          "declared_type": {
+            "kind": "bit",
+            "bit_width": 8
+          },
+          "nullable": false
+        }
+      ],
+      "rows": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "SQL_VALUE_ILLEGAL",
+      "severity": "ERROR",
+      "source": "sql",
+      "byte_offset": 59,
+      "message": "BIT literal is outside the declared width",
+      "table": "t"
+    }
+  ]
+}

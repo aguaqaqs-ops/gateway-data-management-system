@@ -108,7 +108,63 @@ def test_migrated_keyless_fallback_policy_preserves_strict_and_explicit_rules() 
                 canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
             )
         )
-    assert RULESET_VERSION == "v3"
+    assert RULESET_VERSION == "v4"
+
+
+def test_dc56_explicit_keys_are_exact_standard_rules_and_browse_list_is_named() -> None:
+    records = migrated_table_rule_records()
+    by_selector = {
+        (record.selector.kind, record.selector.value): record
+        for record in records
+    }
+    expected_keys = {
+        "comm_user_data": ("data_key",),
+        "forwardtbl_lst_cs": ("tbname",),
+        "forwardtbl_lst_dz": ("tbname",),
+        "forwardtbl_lst_qt": ("tbname",),
+        "forwardtbl_lst_yc": ("tbname",),
+        "forwardtbl_lst_yk": ("tbname",),
+        "forwardtbl_lst_ym": ("tbname",),
+        "forwardtbl_lst_yt": ("tbname",),
+        "forwardtbl_lst_yx": ("tbname",),
+        "mms_rp_cdc_index": ("idx",),
+        "out_time_cfg": ("board", "link_no"),
+    }
+
+    assert len(expected_keys) == 11
+    for table_name, columns in expected_keys.items():
+        record = by_selector[(TableRuleSelectorKind.EXACT, table_name)]
+        assert record.precedence_class is SelectorPrecedenceClass.STANDARD_EXACT
+        assert record.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
+        assert record.compare_key_columns == columns
+
+    added_browse_names = {
+        "cnt_manage_cfg",
+        "dev104_cfg",
+        "iec101_cfg",
+        "iec104_cfg",
+        "iec104gw_cfg",
+        "iec61850c_cfg",
+        "jdxx_cfg",
+        "nbridge_cfg",
+        "nr103d_cfg",
+        "nr103ht_cfg",
+        "sc_cfg",
+        "scada_cfg",
+        "sg_manage_cfg",
+        "sntp_cfg",
+        "vqc_cfg",
+        "wave_cfg",
+        "wf_cfg",
+    }
+    assert len(added_browse_names) == 17
+    assert added_browse_names <= set(DEFAULT_BROWSE_ONLY_TABLE_NAMES)
+    assert len(DEFAULT_BROWSE_ONLY_TABLE_NAMES) == 30
+    assert all(
+        by_selector[(TableRuleSelectorKind.EXACT, name)].precedence_class
+        is SelectorPrecedenceClass.BROWSE_ONLY
+        for name in added_browse_names
+    )
 
 
 def test_composite_signal_rule_matches_canonical_storage_and_comparison_contracts() -> None:

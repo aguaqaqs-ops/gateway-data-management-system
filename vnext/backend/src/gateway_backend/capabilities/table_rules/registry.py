@@ -52,6 +52,33 @@ DEFAULT_BROWSE_ONLY_TABLE_NAMES: tuple[str, ...] = (
     "rule_61850dev_praser_cfg",
     "rule_61850dev_praser_default_cfg",
     "rule_61850point_praser_cfg",
+    "cnt_manage_cfg",
+    "dev104_cfg",
+    "iec101_cfg",
+    "iec104_cfg",
+    "iec104gw_cfg",
+    "iec61850c_cfg",
+    "jdxx_cfg",
+    "nbridge_cfg",
+    "nr103d_cfg",
+    "nr103ht_cfg",
+    "sc_cfg",
+    "scada_cfg",
+    "sg_manage_cfg",
+    "sntp_cfg",
+    "vqc_cfg",
+    "wave_cfg",
+    "wf_cfg",
+)
+FORWARDTBL_LIST_KEY_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("forwardtbl_lst_cs", ("tbname",)),
+    ("forwardtbl_lst_dz", ("tbname",)),
+    ("forwardtbl_lst_qt", ("tbname",)),
+    ("forwardtbl_lst_yc", ("tbname",)),
+    ("forwardtbl_lst_yk", ("tbname",)),
+    ("forwardtbl_lst_ym", ("tbname",)),
+    ("forwardtbl_lst_yt", ("tbname",)),
+    ("forwardtbl_lst_yx", ("tbname",)),
 )
 DEVICE_POINT_UPDATE_ONLY_TABLE_NAMES: tuple[str, ...] = (
     "device_st",
@@ -229,6 +256,13 @@ def _standard_exact_records() -> tuple[TableRuleRecord, ...]:
         _explicit_standard_record("scdmod_para", key_columns=("ied_model",), ignored_columns=("no",)),
         _explicit_standard_record("app_cfg", key_columns=("app_name",)),
         _explicit_standard_record("rdb_cfg", key_columns=("no",)),
+        _explicit_standard_record("comm_user_data", key_columns=("data_key",)),
+        *(
+            _explicit_standard_record(name, key_columns=columns)
+            for name, columns in FORWARDTBL_LIST_KEY_COLUMNS
+        ),
+        _explicit_standard_record("mms_rp_cdc_index", key_columns=("idx",)),
+        _explicit_standard_record("out_time_cfg", key_columns=("board", "link_no")),
     )
 
 

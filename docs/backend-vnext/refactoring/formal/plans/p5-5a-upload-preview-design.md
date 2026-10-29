@@ -213,6 +213,7 @@ bounded且脱敏。每个具体use case拥有自己的code，以下family不得�
 | `403` | `SCOPE_FORBIDDEN` | 已允许披露的对象上permission/scope拒绝 |
 | `404` | `RESOURCE_NOT_FOUND` | 对象缺失或按policy隐藏 |
 | `409` | `IDEMPOTENCY_CONFLICT`, `WORKSPACE_VERSION_CONFLICT`, `PREVIEW_BINDING_CONFLICT` | same-key/different-fingerprint、stale CAS或frozen binding冲突 |
+| `408` | `UPLOAD_STREAM_TIMEOUT` | multipart上传空闲超时或超过最大包速率推导的总时限；details.reason为`IDLE`或`TOTAL` |
 | `413` | `UPLOAD_LIMIT_EXCEEDED` | compressed/expanded/entry/resource预算超限 |
 | `415` | `UPLOAD_MEDIA_UNSUPPORTED` | media或archive格式不支持 |
 | `422` | `REQUEST_VALIDATION_FAILED`, `UPLOAD_CLOSURE_INVALID` | closed DTO、path/link/file/role或语义校验失败 |

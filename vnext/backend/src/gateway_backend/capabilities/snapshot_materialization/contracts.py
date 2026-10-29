@@ -23,6 +23,7 @@ from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_d
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.composite_signal.contracts import CompositeLogicSource
 from gateway_backend.capabilities.table_access.contracts import (
     ParseResult,
@@ -49,7 +50,6 @@ ROW_FORMAT_PARQUET = "parquet"
 EXPORT_FORMAT_PARQUET = "PARQUET"
 ARTIFACT_COMPRESSION_ZSTD = "zstd"
 ROW_ORDER_CONTRACT_INSERT = "INSERT_ORDER"
-PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
 MANIFEST_MEDIA_TYPE = "application/json"
 GID_REAL_MIN = 1
 GID_REAL_MAX = 3_999_999_999
@@ -948,32 +948,6 @@ class SnapshotTableArtifact:
 
 
 @dataclass(frozen=True, slots=True)
-class SnapshotTableArtifactCacheKey:
-    row_layout_digest: DigestRef
-    repository_id: str | None = None
-    scalar_encoding_version: int = SCALAR_ENCODING_VERSION
-    snapshot_table_artifact_contract_version: int = SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION
-    export_format: str = EXPORT_FORMAT_PARQUET
-    sort_or_row_order_contract: str = ROW_ORDER_CONTRACT_INSERT
-
-    def __post_init__(self) -> None:
-        if type(self.row_layout_digest) is not DigestRef:
-            raise ValueError("row_layout_digest must be DigestRef")
-        if self.repository_id is not None:
-            _require_opaque_id(self.repository_id, "repository_id")
-        if self.scalar_encoding_version != SCALAR_ENCODING_VERSION:
-            raise ValueError("scalar_encoding_version must be 1")
-        if self.snapshot_table_artifact_contract_version != (
-            SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION
-        ):
-            raise ValueError("snapshot_table_artifact_contract_version must be 1")
-        if self.export_format != EXPORT_FORMAT_PARQUET:
-            raise ValueError("export_format must be PARQUET")
-        if self.sort_or_row_order_contract != ROW_ORDER_CONTRACT_INSERT:
-            raise ValueError("sort_or_row_order_contract must be INSERT_ORDER")
-
-
-@dataclass(frozen=True, slots=True)
 class ArtifactSourceBinding:
     snapshot_digest: DigestRef
     descriptor: SnapshotTableDescriptor
@@ -1415,11 +1389,13 @@ class RepositoryRefMaterializationRequest:
     context: ParserInvocationContext
     timeout_policy: RepositoryRefTimeoutPolicy | None = None
     requested_tables: tuple[str, ...] | None = None
+    export_tables: tuple[str, ...] | None = None
     digest_contract_version: int = DIGEST_CONTRACT_VERSION
     scalar_encoding_version: int = SCALAR_ENCODING_VERSION
     snapshot_materialization_contract_version: int = SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION
     parser_version: int | None = None
     artifact_store: object | None = None
+    export_cache: SnapshotTableExportCachePort | None = None
 
     def __post_init__(self) -> None:
         if type(self.repository_ref) is not RepositoryRef:
@@ -1453,16 +1429,30 @@ class RepositoryRefMaterializationRequest:
         ):
             raise ValueError("parser_version must be a positive int or None")
         _require_optional_store(self.artifact_store)
+        if self.export_cache is not None and any(
+            not callable(getattr(self.export_cache, name, None))
+            for name in ("lookup_many", "store_many", "discard_many")
+        ):
+            raise ValueError("export_cache must implement SnapshotTableExportCachePort")
         if self.requested_tables is None:
-            return
-        if type(self.requested_tables) is not tuple:
+            requested: tuple[str, ...] = ()
+        elif type(self.requested_tables) is not tuple:
             raise ValueError("requested_tables must be a tuple or None")
-        seen: set[str] = set()
-        for name in self.requested_tables:
-            _require_non_empty(name, "requested table")
-            if name in seen:
-                raise ValueError("requested_tables must not contain duplicates")
-            seen.add(name)
+        else:
+            requested = self.requested_tables
+        if self.export_tables is None:
+            exported: tuple[str, ...] = ()
+        elif type(self.export_tables) is not tuple:
+            raise ValueError("export_tables must be a tuple or None")
+        else:
+            exported = self.export_tables
+        for label, names in (("requested table", requested), ("export table", exported)):
+            seen: set[str] = set()
+            for name in names:
+                _require_non_empty(name, label)
+                if name in seen:
+                    raise ValueError(f"{label}s must not contain duplicates")
+                seen.add(name)
 
 
 @dataclass(frozen=True, slots=True)

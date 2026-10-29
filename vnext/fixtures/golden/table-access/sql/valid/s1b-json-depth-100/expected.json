@@ -1,0 +1,33 @@
+{
+  "case_id": "s1b-json-depth-100",
+  "status": "COMPLETE",
+  "tables": [
+    {
+      "display_name": "t",
+      "canonical_name": "t",
+      "reader_ready": true,
+      "primary_key_canonical_names": [],
+      "columns": [
+        {
+          "display_name": "v",
+          "canonical_name": "v",
+          "sql_type": "JSON",
+          "logical_type": "json",
+          "declared_type": {
+            "kind": "string"
+          },
+          "nullable": false
+        }
+      ],
+      "rows": [
+        [
+          {
+            "kind": "string",
+            "text": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[0]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
+          }
+        ]
+      ]
+    }
+  ],
+  "diagnostics": []
+}

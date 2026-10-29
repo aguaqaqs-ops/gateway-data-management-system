@@ -156,11 +156,24 @@ sort_or_row_order_contract
 - 支持同 `repository_id` 内跨 commit/ref 复用。
 - 不支持跨 project/repository_id 复用。
 - Cache key 不包含 flow ID、operation ID、preview ID、workspace ID、table name 或 host path。
-- `row_layout_digest` 由 canonical raw content digest 和 canonical export schema content 组合而成；字段顺序、row order 或 table name 变化不应改变 cache key。
+- `row_layout_digest` 由 canonical raw content digest、完整源列编码 schema 与 ordered row metadata 组合而成；table name 不进入 digest。源列类型、ENUM/SET 标签、nullability 或 Parquet 字段布局变化会改变 layout。Repository scope 与 Parquet writer contract version 是 export cache 的独立键字段。
 - `PROVISIONAL` candidate 只能作为候选加速输入，不能作为业务事实。
 - 调用方允许读取 `PROVISIONAL` candidate 时，必须重新校验 source binding、descriptor 和 digest，并具备 fallback recompute 路径。
 - Repository/readback 或等价权威校验通过后，cache entry 才能 promote 为 `COMMIT_VALIDATED`。
 - `READ_COMMIT_VALIDATED_ONLY` lookup policy 只读取 `COMMIT_VALIDATED` 或 repository readback 产生的 cache。
+
+S1b 的 Parquet export cache 是独立的可重建 IO cache：精确键为 repository scope、`row_layout_digest` 与
+`parquet_writer_contract_version`。layout digest 覆盖完整源列编码 schema 和 ordered row metadata；layout 或 writer 版本不同不得命中。
+命中行文件经 `artifact_protection_intents` 登记并按 TTL 延长/释放保护，过期清理由有界 prune 完成；
+cache miss、损坏引用或 Parquet 校验失败时回退到规范表读取与导出。Cache ref 不进入 surface 或 bundle，
+对外产物仍需闭合为当前 operation 或 bundle 的相对引用。
+
+## SQL Reference Parser Semantics
+
+参照解析器拒绝 BIT 负数、超宽值与非 ASCII `b'..'`，并以确定诊断报告；BIT 数字字面量按十进制解释。
+`_binary` 后接字符串或十六进制字面量，只能写入 BINARY、VARBINARY、BLOB 系列列；`\%` 与
+`\_` 保留反斜杠。列类型中的 SQL 注释被忽略。JSON 拒绝 `NaN`、`Infinity`、孤立代理与超过
+100 层嵌套的值，深度检查以迭代方式完成。零日期与零日期时间保持拒绝。
 
 ## Projection Table Boundary
 

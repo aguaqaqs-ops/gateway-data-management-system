@@ -10,6 +10,17 @@ from tests.support.table_access_sql import consumed_rows, parse_text
 SQL_GOLDEN_CASES = (
     "sql/valid/s1-minimal-create-insert",
     "sql/valid/s2-dump-boilerplate",
+    "sql/valid/s1b-parser-semantics",
+    "sql/valid/s1b-json-depth-100",
+    "sql/malformed/s1b-bit-negative",
+    "sql/malformed/s1b-bit-too-wide",
+    "sql/malformed/s1b-bit-non-ascii",
+    "sql/malformed/s1b-binary-text-column",
+    "sql/malformed/s1b-json-nan",
+    "sql/malformed/s1b-json-infinity",
+    "sql/malformed/s1b-json-unpaired-surrogate",
+    "sql/malformed/s1b-json-depth-101",
+    "sql/malformed/s1b-zero-date",
     "sql/malformed/s1-unsupported-replace",
     "sql/malformed/s2-incomplete-insert",
 )

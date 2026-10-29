@@ -32,7 +32,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 )
 
 COMPARISON_BATCH_PORT_VERSION = 1
-COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v2"
+COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison/v3"
 RECORDS_ARTIFACT_CONTRACT_VERSION = "backend-vnext/comparison-records/v1"
 RECORDS_CLOSURE_CONTRACT_VERSION = "backend-vnext/comparison-records-closure/v1"
 RECORDS_PARQUET_FORMAT = "PARQUET"
@@ -94,6 +94,13 @@ class SchemaChangeSource(StrEnum):
     SOURCE_SCHEMA = "SOURCE_SCHEMA"
     STORAGE_PROJECTION_POLICY = "STORAGE_PROJECTION_POLICY"
     BOTH = "BOTH"
+
+
+class SchemaEvolution(StrEnum):
+    NONE = "NONE"
+    COLUMNS_ADDED = "COLUMNS_ADDED"
+    COLUMNS_REMOVED = "COLUMNS_REMOVED"
+    INCOMPATIBLE = "INCOMPATIBLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -649,6 +656,7 @@ class ComparisonSchemaChanges:
     effective_compare_key_changed: bool = False
     incompatible_columns: tuple[str, ...] = ()
     change_source: SchemaChangeSource | None = None
+    schema_evolution: SchemaEvolution = SchemaEvolution.NONE
 
     def __post_init__(self) -> None:
         for label in (
@@ -670,6 +678,8 @@ class ComparisonSchemaChanges:
             raise ValueError("effective_compare_key_changed must be bool")
         if self.change_source is not None and type(self.change_source) is not SchemaChangeSource:
             raise ValueError("change_source must be SchemaChangeSource or None")
+        if type(self.schema_evolution) is not SchemaEvolution:
+            raise ValueError("schema_evolution must be SchemaEvolution")
 
 
 @dataclass(frozen=True, slots=True)

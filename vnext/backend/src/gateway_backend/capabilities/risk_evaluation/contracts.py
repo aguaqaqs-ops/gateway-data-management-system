@@ -22,9 +22,9 @@ from gateway_backend.capabilities.comparison.contracts import (
 )
 
 
-RISK_CONTRACT_VERSION = "backend-vnext/risk/v1"
+RISK_CONTRACT_VERSION = "backend-vnext/risk/v2"
 RISK_RULESET_CONTRACT_VERSION = "backend-vnext/risk-ruleset/v1"
-RISK_MODEL_VERSION = "backend-vnext/risk-model/v2"
+RISK_MODEL_VERSION = "backend-vnext/risk-model/v3"
 RISK_ANNOTATION_CONTRACT_VERSION = "backend-vnext/risk-annotations/v1"
 RISK_ANNOTATION_MEDIA_TYPE = "application/vnd.gateway.risk-annotations+json"
 RISK_ANNOTATION_MANIFEST_MEDIA_TYPE = (
@@ -36,8 +36,8 @@ RISK_ANNOTATION_CLOSURE_MEDIA_TYPE = (
 RISK_CACHE_POLICY_VERSION = "backend-vnext/risk-cache/v1"
 RISK_EXECUTION_POLICY_VERSION = "backend-vnext/risk-execution/v1"
 RISK_RULESET_ID = "backend-vnext/comparison-risk"
-RISK_RULESET_VERSION = "v2"
-RISK_RULE_VERSION = "v2"
+RISK_RULESET_VERSION = "v3"
+RISK_RULE_VERSION = "v3"
 
 
 RiskOptionValue: TypeAlias = str | int | bool | None
@@ -1272,6 +1272,7 @@ def _schema_changes_document(changes: ComparisonSchemaChanges) -> dict[str, obje
         "effective_compare_key_current": list(changes.effective_compare_key_current),
         "incompatible_columns": list(changes.incompatible_columns),
         "selected_columns": list(changes.selected_columns),
+        "schema_evolution": changes.schema_evolution.value,
     }
 
 

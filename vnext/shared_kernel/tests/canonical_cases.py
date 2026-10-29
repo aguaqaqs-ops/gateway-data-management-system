@@ -15,7 +15,7 @@ CORPUS_ROOT = (
     / "v1"
 )
 CASE_FILES = ("digest.jsonl", "invalid.jsonl", "jcs.jsonl", "scalar.jsonl")
-EXPECTED_CASE_COUNT = 128
+EXPECTED_CASE_COUNT = 129
 
 
 def _reject_json_constant(value: str) -> None:

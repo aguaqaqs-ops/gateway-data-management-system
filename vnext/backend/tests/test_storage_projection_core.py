@@ -76,6 +76,19 @@ _NET_CFG_ROWS = (
     as_row(varchar_cell("eth0"), int_cell(1), int_cell(10)),
     as_row(varchar_cell("eth1"), int_cell(2), int_cell(20)),
 )
+DC56_EXPLICIT_KEY_TABLES = (
+    ("comm_user_data", ("data_key",)),
+    ("forwardtbl_lst_cs", ("tbname",)),
+    ("forwardtbl_lst_dz", ("tbname",)),
+    ("forwardtbl_lst_qt", ("tbname",)),
+    ("forwardtbl_lst_yc", ("tbname",)),
+    ("forwardtbl_lst_yk", ("tbname",)),
+    ("forwardtbl_lst_ym", ("tbname",)),
+    ("forwardtbl_lst_yt", ("tbname",)),
+    ("forwardtbl_lst_yx", ("tbname",)),
+    ("mms_rp_cdc_index", ("idx",)),
+    ("out_time_cfg", ("board", "link_no")),
+)
 TableInput = tuple[FakeSnapshotTableReader, ArtifactSourceBinding]
 
 
@@ -133,6 +146,28 @@ def _net_cfg_input(
         degraded_reason=degraded_reason,
         iter_error=iter_error,
         row_count=row_count,
+    )
+
+
+def _dc56_explicit_key_input(
+    table_name: str,
+    key_columns: tuple[str, ...],
+    *,
+    duplicate: bool,
+    null_index: int = 0,
+) -> TableInput:
+    columns = tuple(varchar_column(name, nullable=True) for name in key_columns)
+    values = tuple(varchar_cell("same") for _ in key_columns)
+    first = as_row(*values)
+    null_row = as_row(
+        *(null_cell() if index == null_index else value for index, value in enumerate(values))
+    )
+    rows = (first, first) if duplicate else (null_row,)
+    return table_input(
+        table_name,
+        columns=columns,
+        primary_key_columns=(),
+        rows=rows,
     )
 
 
@@ -508,6 +543,43 @@ def test_keyed_projection_rejects_invalid_keys(
     assert result.manifest is None
     assert result.import_input is None
     assert code in _codes(result)
+
+
+@pytest.mark.parametrize(
+    ("table_name", "key_columns"),
+    DC56_EXPLICIT_KEY_TABLES,
+    ids=[item[0] for item in DC56_EXPLICIT_KEY_TABLES],
+)
+@pytest.mark.parametrize(
+    ("fault", "expected_code"),
+    (
+        ("duplicate", ProjectionDiagnosticCode.KEY_DUPLICATE),
+        ("null", ProjectionDiagnosticCode.KEY_NULL),
+    ),
+)
+def test_dc56_explicit_key_tables_fail_closed_on_duplicate_or_null(
+    table_name: str,
+    key_columns: tuple[str, ...],
+    fault: str,
+    expected_code: ProjectionDiagnosticCode,
+) -> None:
+    null_indexes = (0,) if fault == "duplicate" else tuple(range(len(key_columns)))
+    for null_index in null_indexes:
+        result = project_storage(
+            _request(
+                _dc56_explicit_key_input(
+                    table_name,
+                    key_columns,
+                    duplicate=fault == "duplicate",
+                    null_index=null_index,
+                )
+            )
+        )
+
+        assert result.status is ProjectionStatus.FAILED
+        assert result.manifest is None
+        assert result.import_input is None
+        assert expected_code in _codes(result)
 
 
 ROW_FAULTS = (

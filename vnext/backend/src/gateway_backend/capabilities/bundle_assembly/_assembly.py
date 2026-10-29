@@ -48,6 +48,8 @@ from gateway_backend.capabilities.bundle_assembly.contracts import (
     BundlePairFailure,
     BundlePairInput,
     BundleProfile,
+    BundleTableBinding,
+    BundleTableSide,
     BundleSummary,
     ComparisonBundle,
 )
@@ -449,6 +451,7 @@ def _promote_binding_to_shared(binding: BundleArtifactBinding) -> BundleArtifact
         binding,
         logical_path=_shared_logical_path_for_binding(binding),
         pair_id=None,
+        table_name=None if binding.kind is BundleArtifactKind.SNAPSHOT_TABLE else binding.table_name,
         shared=True,
     )
 
@@ -481,6 +484,22 @@ def _collect_bindings(
                 continue
             if previous_source.kind is not binding.kind:
                 raise BundleAssemblyError("DUPLICATE_SOURCE_ARTIFACT_REF")
+            if binding.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+                table_bindings = _merge_table_bindings(
+                    previous_source.table_bindings,
+                    binding.table_bindings,
+                )
+                if previous_source.shared and binding.shared:
+                    shared_binding = replace(previous_source, table_bindings=table_bindings)
+                else:
+                    if not previous_source.shared:
+                        by_path.pop(previous_source.logical_path, None)
+                    shared_binding = _promote_binding_to_shared(
+                        replace(previous_source, table_bindings=table_bindings)
+                    )
+                by_source[binding.source_ref] = shared_binding
+                by_path[shared_binding.logical_path] = shared_binding
+                continue
             shared_binding = (
                 previous_source
                 if previous_source.shared
@@ -505,11 +524,16 @@ def _collect_bindings(
         if len(source_refs) < 2:
             continue
         first = by_source[source_refs[0]]
+        table_bindings = _merge_table_bindings(
+            *(by_source[source_ref].table_bindings for source_ref in source_refs)
+        )
         shared_binding = replace(
             first,
             logical_path=f"shared/snapshot-tables/{source_refs[0].raw_sha256.value.removeprefix('sha256:')}.parquet",
             pair_id=None,
+            table_name=None,
             shared=True,
+            table_bindings=table_bindings,
         )
         for source_ref in source_refs:
             by_source[source_ref] = replace(shared_binding, source_ref=source_ref)
@@ -519,6 +543,13 @@ def _collect_bindings(
             key=lambda item: (item.logical_path, item.kind.value, item.source_ref.artifact_id),
         )
     )
+
+
+def _merge_table_bindings(
+    *groups: tuple[BundleTableBinding, ...],
+) -> tuple[BundleTableBinding, ...]:
+    merged = {item for group in groups for item in group}
+    return tuple(sorted(merged, key=lambda item: (item.pair_id, item.side.value, item.table_name)))
 
 
 def _plan_artifacts(
@@ -633,6 +664,7 @@ def _closure_manifest(generated: Iterable[_PlannedArtifact]) -> BundleArtifactMa
             pair_id=item.binding.pair_id,
             table_name=item.binding.table_name,
             shared=item.binding.shared,
+            table_bindings=item.binding.table_bindings,
         )
         for item in generated
     )
@@ -755,24 +787,48 @@ def _entries_from_document(document: dict[str, object]) -> tuple[BundleClosureEn
     for raw_entry in raw_entries:
         if type(raw_entry) is not dict:
             raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID")
-        if set(raw_entry) != {
+        common_keys = {
             "artifact_ref",
             "kind",
             "logical_path",
-            "pair_id",
             "raw_sha256",
             "shared",
             "size_bytes",
-            "table_name",
-        }:
+        }
+        raw_kind = raw_entry.get("kind")
+        if type(raw_kind) is not str:
+            raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID")
+        try:
+            kind = BundleArtifactKind(raw_kind)
+        except (TypeError, ValueError) as exc:
+            raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID") from exc
+        expected_keys = (
+            common_keys | {"table_bindings"}
+            if kind is BundleArtifactKind.SNAPSHOT_TABLE
+            else common_keys | {"pair_id", "table_name"}
+        )
+        if set(raw_entry) != expected_keys:
             raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID")
         ref_payload = raw_entry.get("artifact_ref")
         if type(ref_payload) is not dict:
             raise BundleAssemblyError("BUNDLE_CLOSURE_REF_INVALID")
         try:
             ref = artifact_ref_from_dict(ref_payload)
-            kind = BundleArtifactKind(raw_entry["kind"])
             raw_sha256 = DigestRef(raw_entry["raw_sha256"])
+            raw_bindings = raw_entry.get("table_bindings", [])
+            if type(raw_bindings) is not list:
+                raise ValueError("table_bindings must be a list")
+            table_bindings: list[BundleTableBinding] = []
+            for item in raw_bindings:
+                if type(item) is not dict or set(item) != {"pair_id", "side", "table_name"}:
+                    raise ValueError("table binding shape is invalid")
+                table_bindings.append(
+                    BundleTableBinding(
+                        pair_id=item["pair_id"],
+                        side=BundleTableSide(item["side"]),
+                        table_name=item["table_name"],
+                    )
+                )
             result.append(
                 BundleClosureEntry(
                     logical_path=raw_entry["logical_path"],
@@ -783,6 +839,7 @@ def _entries_from_document(document: dict[str, object]) -> tuple[BundleClosureEn
                     pair_id=raw_entry.get("pair_id"),
                     table_name=raw_entry.get("table_name"),
                     shared=raw_entry["shared"],
+                    table_bindings=tuple(table_bindings),
                 )
             )
         except Exception as exc:

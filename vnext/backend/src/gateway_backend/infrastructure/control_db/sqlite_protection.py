@@ -20,11 +20,15 @@ class SQLiteArtifactProtectionStore:
         connection: sqlite3.Connection,
         *,
         read_only: bool = False,
+        now: datetime | None = None,
     ) -> None:
         if not connection.in_transaction:
             raise RuntimeError("SQLiteArtifactProtectionStore requires an active transaction")
         self._connection = connection
         self._read_only = read_only
+        if now is not None:
+            _datetime_to_epoch_us(now)
+        self._now = now
 
     def set_protection(
         self,
@@ -76,9 +80,16 @@ class SQLiteArtifactProtectionStore:
         return int(cursor.rowcount)
 
     def is_protected(self, artifact_id: str) -> bool:
+        now_us = _datetime_to_epoch_us(
+            datetime.now(UTC) if self._now is None else self._now
+        )
         row = self._connection.execute(
-            "SELECT 1 FROM artifact_protection_intents WHERE artifact_id = ? LIMIT 1",
-            (artifact_id,),
+            """
+            SELECT 1 FROM artifact_protection_intents
+            WHERE artifact_id = ? AND (expires_at_us IS NULL OR expires_at_us > ?)
+            LIMIT 1
+            """,
+            (artifact_id, now_us),
         ).fetchone()
         return row is not None
 

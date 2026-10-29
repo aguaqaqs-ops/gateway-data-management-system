@@ -9,12 +9,16 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
-from gateway_shared_kernel import DigestRef
+from gateway_shared_kernel import DigestRef, raw_blob_digest
 import gateway_backend.application.history.compare_jobs as compare_jobs
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.history.contracts import HistoryCompareDiagnosticCode
+from gateway_backend.application.history.contracts import (
+    HistoryCompareDiagnosticCode,
+    HistoryCompareNodeBinding,
+    HistoryNodeRefKind,
+)
 from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_ASSEMBLE_HANDLER,
     HISTORY_COMPARE_MATERIALIZE_HANDLER,
@@ -22,8 +26,10 @@ from gateway_backend.application.history.compare_jobs import (
     HISTORY_COMPARE_STEP_ASSEMBLE,
     HISTORY_COMPARE_STEP_MATERIALIZE,
     HISTORY_COMPARE_STEP_PUBLISH,
-    history_compare_assemble_state_from_checkpoint,
+    HistoryCompareJobPayload,
+    _history_requested_tables,
     _sides_from_materialize_checkpoint,
+    history_compare_assemble_state_from_checkpoint,
     history_compare_step_id,
 )
 from gateway_backend.capabilities.comparison import (
@@ -46,14 +52,22 @@ from tests.support.history_compare_job_harness import (
     history_compare_ordered_provider,
     history_compare_provider,
     insert_history_compare_operation,
+    ordered_syx_catalog_table,
     run_claimed_handler,
     run_full_history_compare_job,
     run_through_step,
 )
 from tests.support.table_rules import _runtime_comparison_ruleset_digest
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    CanonicalBinding,
+    CanonicalTableIdentity,
     RepositoryCatalogTable,
     RepositoryColumn,
+)
+from gateway_backend.capabilities.table_rules.contracts import (
+    CanonicalKeyPolicy,
+    OrderedPolicy,
+    StorageRuleView,
 )
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
@@ -125,6 +139,68 @@ def _history_assemble_state(
     return assemble_state
 
 
+def _history_snapshot_bundle_data(
+    harness: HistoryCompareJobHarness,
+) -> tuple[
+    dict[tuple[str, str, str], list[dict[str, object]]],
+    tuple[dict[str, object], ...],
+]:
+    from gateway_backend.artifacts.serialize import artifact_ref_from_dict
+    from gateway_backend.capabilities.bundle_assembly import BUNDLE_MANIFEST_MEDIA_TYPE
+    from gateway_backend.capabilities.snapshot_materialization._parquet import read_parquet_table
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assemble_step = unit_of_work.operations.get_step(
+            history_compare_step_id(harness.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+        )
+    assert assemble_step.checkpoint_ref is not None
+    envelope = load_checkpoint_envelope(harness.artifact_store, assemble_step.checkpoint_ref)
+    assemble_state = _history_assemble_state(harness, envelope.job_state)
+    required_refs = assemble_state["required_refs"]
+    assert isinstance(required_refs, list)
+    bundle_manifest_refs = [
+        artifact_ref_from_dict(cast(dict[str, object], item))
+        for item in required_refs
+        if isinstance(item, dict)
+        and artifact_ref_from_dict(cast(dict[str, object], item)).media_type
+        == BUNDLE_MANIFEST_MEDIA_TYPE
+    ]
+    assert len(bundle_manifest_refs) == 1
+    manifest = json.loads(harness.artifact_store.locate(bundle_manifest_refs[0]).decode("utf-8"))
+    assert isinstance(manifest, dict)
+    raw_entries = manifest.get("closure_entries")
+    assert isinstance(raw_entries, list)
+    snapshot_entries = tuple(
+        cast(dict[str, object], entry)
+        for entry in raw_entries
+        if isinstance(entry, dict) and entry.get("kind") == "SNAPSHOT_TABLE"
+    )
+    rows_by_binding: dict[tuple[str, str, str], list[dict[str, object]]] = {}
+    for entry in snapshot_entries:
+        artifact_ref_raw = entry.get("artifact_ref")
+        table_bindings_raw = entry.get("table_bindings")
+        assert isinstance(artifact_ref_raw, dict)
+        assert isinstance(table_bindings_raw, list)
+        row_data = cast(
+            list[dict[str, object]],
+            read_parquet_table(
+                harness.artifact_store.locate(
+                    artifact_ref_from_dict(cast(dict[str, object], artifact_ref_raw))
+                )
+            ).to_pylist(),
+        )
+        for binding_raw in table_bindings_raw:
+            assert isinstance(binding_raw, dict)
+            key = (
+                str(binding_raw["pair_id"]),
+                str(binding_raw["side"]),
+                str(binding_raw["table_name"]),
+            )
+            assert key not in rows_by_binding
+            rows_by_binding[key] = row_data
+    return rows_by_binding, snapshot_entries
+
+
 def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     harness = build_history_compare_harness(
         tmp_path,
@@ -153,6 +229,83 @@ def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     assert set(sides) == {BASELINE_HEAD.business_baseline_commit_id}
     assert set(envelope.job_state) == {"materialized_sides_ref"}
 
+
+def test_history_materialization_selects_changed_commit_tables() -> None:
+    def binding(
+        tables: tuple[tuple[str, bytes, bytes, bool], ...],
+    ) -> CanonicalBinding:
+        views: list[StorageRuleView] = []
+        identities: list[CanonicalTableIdentity] = []
+        for name, schema_bytes, content_bytes, ordered in tables:
+            views.append(
+                StorageRuleView(
+                    canonical_table=name,
+                    canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS,
+                    ordered_policy=OrderedPolicy.GID_NO_V1 if ordered else OrderedPolicy.NONE,
+                    structural_columns=("no",) if ordered else (),
+                    retained_columns=("gid", "no") if ordered else (),
+                )
+            )
+            schema_digest = raw_blob_digest(schema_bytes)
+            identities.append(
+                CanonicalTableIdentity(
+                    canonical_table=name,
+                    row_count=1,
+                    source_schema_digest=schema_digest,
+                    canonical_schema_digest=schema_digest,
+                    raw_content_digest=raw_blob_digest(content_bytes),
+                )
+            )
+        return CanonicalBinding(
+            storage_projection_version="storage-projection/v3",
+            ruleset_id="history-test-rules",
+            ruleset_version="v4",
+            ruleset_digest=raw_blob_digest(b"history-test-ruleset"),
+            tables=tuple(sorted(views, key=lambda item: item.canonical_table.encode("utf-8"))),
+            table_identities=tuple(
+                sorted(identities, key=lambda item: item.canonical_table.encode("utf-8"))
+            ),
+        )
+
+    before = binding(
+        (
+            ("unchanged", b"schema", b"same", False),
+            ("changed_content", b"schema", b"before", False),
+            ("changed_schema", b"schema-before", b"same", False),
+            ("removed", b"schema", b"removed", False),
+            ("ordered", b"ordered-schema", b"same", True),
+        )
+    )
+    current = binding(
+        (
+            ("unchanged", b"schema", b"same", False),
+            ("changed_content", b"schema", b"current", False),
+            ("changed_schema", b"schema-current", b"same", False),
+            ("added", b"schema", b"added", False),
+            ("ordered", b"ordered-schema", b"same", True),
+        )
+    )
+    payload = HistoryCompareJobPayload(
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        repository_id=REPOSITORY_ID,
+        acceptance_id="acceptance-1",
+        idempotency_key="history-materialize-selection",
+        request_fingerprint="fingerprint-1",
+        comparison_ruleset_digest="sha256:" + "a" * 64,
+        comparison_contract_version="backend-vnext/comparison/v3",
+        view_kind="HISTORY",
+        pair_count=1,
+        nodes=(
+            HistoryCompareNodeBinding(HistoryNodeRefKind.BASELINE_NODE, "node-a", "commit-a"),
+            HistoryCompareNodeBinding(HistoryNodeRefKind.SUBMISSION, "node-b", "commit-b"),
+        ),
+    )
+
+    assert _history_requested_tables(payload, {"commit-a": before, "commit-b": current}) == {
+        "commit-a": ("changed_content", "changed_schema", "removed"),
+        "commit-b": ("added", "changed_content", "changed_schema", "ordered"),
+    }
 
 def test_assemble_resumes_from_materialized_sides_with_runtime_ruleset(tmp_path: Path) -> None:
     harness = build_history_compare_harness(tmp_path, idempotency_key="history-compare-resume")
@@ -336,8 +489,14 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     baseline_session = harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session
     current_session = harness.providers["commit-b"].last_session
     assert baseline_session is not None and current_session is not None
-    assert baseline_session.table_readers == []
-    assert current_session.table_readers == []
+    baseline_reader_names = tuple(
+        reader.catalog_table().table_name for reader in baseline_session.table_readers
+    )
+    assert baseline_reader_names == ("t",)
+    current_reader_names = tuple(
+        reader.catalog_table().table_name for reader in current_session.table_readers
+    )
+    assert current_reader_names == ("t",)
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
@@ -347,6 +506,148 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     assert operation.status is OperationStatus.SUCCEEDED
     assert publish_step.status is StepStatus.SUCCEEDED
     assert operation.ready_closure_ref is not None
+    rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
+    pair_id = f"{harness.operation_id}-p0"
+    assert rows_by_binding == {
+        (pair_id, "before", "t"): [{"id": "1"}],
+        (pair_id, "current", "t"): [{"id": "1"}],
+    }
+    assert len(snapshot_entries) == 1
+    assert snapshot_entries[0]["shared"] is True
+
+
+def test_history_full_table_export_uses_cold_and_warm_cache_entries(tmp_path: Path) -> None:
+    from gateway_backend.artifacts import ArtifactRef
+    from gateway_backend.artifacts.snapshot_table_export_cache import (
+        SnapshotTableArtifactCacheKey,
+    )
+
+    class ExportCache:
+        def __init__(self) -> None:
+            self.entries: dict[SnapshotTableArtifactCacheKey, ArtifactRef] = {}
+
+        def lookup_many(
+            self,
+            keys: tuple[SnapshotTableArtifactCacheKey, ...],
+        ) -> dict[SnapshotTableArtifactCacheKey, ArtifactRef]:
+            return {key: self.entries[key] for key in keys if key in self.entries}
+
+        def store_many(
+            self,
+            entries: tuple[tuple[SnapshotTableArtifactCacheKey, ArtifactRef], ...],
+        ) -> None:
+            self.entries.update(entries)
+
+        def discard_many(self, keys: tuple[SnapshotTableArtifactCacheKey, ...]) -> None:
+            for key in keys:
+                self.entries.pop(key, None)
+
+    before_commit = BASELINE_HEAD.business_baseline_commit_id
+    current_commit = "commit-export-cache-current"
+    table_rows: RepositoryRows = {
+        "t": ((1,),),
+        ORDERED_SYX_TABLE: ((1, 1, "a"), (2, 2, "b")),
+    }
+
+    def provider(commit_id: str) -> FakeRepositoryTableAccessProvider:
+        catalog = make_catalog(
+            (
+                catalog_table("t", (int_id_column(),), primary_key=("id",), row_count=1),
+                ordered_syx_catalog_table(),
+            ),
+            repository_id=REPOSITORY_ID,
+            ref=commit_id,
+            commit=commit_id,
+        )
+        return FakeRepositoryTableAccessProvider(
+            catalog=catalog,
+            rows=table_rows,
+            declared_rows=table_rows,
+            current_commit=commit_id,
+        )
+
+    store = InMemoryArtifactStore()
+    cache = ExportCache()
+    cold_providers = {
+        before_commit: provider(before_commit),
+        current_commit: provider(current_commit),
+    }
+    cold = build_history_compare_harness(
+        tmp_path / "cold",
+        artifact_store=store,
+        snapshot_export_cache=cache,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, before_commit),
+            ("bn-export-cache-current", current_commit),
+        ),
+        custom_providers=cold_providers,
+        idempotency_key="history-full-export-cache-cold",
+    )
+    run_full_history_compare_job(cold)
+
+    cold_before = cold_providers[before_commit].last_session
+    cold_current = cold_providers[current_commit].last_session
+    assert cold_before is not None and cold_current is not None
+    expected_reader_names = tuple(sorted(("t", ORDERED_SYX_TABLE)))
+    cold_reader_names = tuple(
+        reader.catalog_table().table_name for reader in cold_before.table_readers
+    )
+    assert cold_reader_names == expected_reader_names
+    assert cold_current.table_readers == []
+    assert len(cache.entries) == 2
+    cold_rows, cold_entries = _history_snapshot_bundle_data(cold)
+    cold_pair_id = f"{cold.operation_id}-p0"
+    assert cold_rows == {
+        (cold_pair_id, "before", "t"): [{"id": "1"}],
+        (cold_pair_id, "current", "t"): [{"id": "1"}],
+        (cold_pair_id, "before", ORDERED_SYX_TABLE): [
+            {"gid": "1", "no": "1", "value": "a"},
+            {"gid": "2", "no": "2", "value": "b"},
+        ],
+        (cold_pair_id, "current", ORDERED_SYX_TABLE): [
+            {"gid": "1", "no": "1", "value": "a"},
+            {"gid": "2", "no": "2", "value": "b"},
+        ],
+    }
+    assert len(cold_entries) == 2
+
+    warm_providers = {
+        before_commit: provider(before_commit),
+        current_commit: provider(current_commit),
+    }
+    warm = build_history_compare_harness(
+        tmp_path / "warm",
+        artifact_store=store,
+        snapshot_export_cache=cache,
+        node_specs=(
+            (BASELINE_HEAD.business_baseline_node_id, before_commit),
+            ("bn-export-cache-current", current_commit),
+        ),
+        custom_providers=warm_providers,
+        idempotency_key="history-full-export-cache-warm",
+    )
+    run_full_history_compare_job(warm)
+
+    assert all(
+        provider_item.last_session is not None
+        and provider_item.last_session.table_readers == []
+        for provider_item in warm_providers.values()
+    )
+    warm_rows, warm_entries = _history_snapshot_bundle_data(warm)
+    warm_pair_id = f"{warm.operation_id}-p0"
+    assert set(warm_rows) == {
+        (warm_pair_id, side, table)
+        for side in ("before", "current")
+        for table in ("t", ORDERED_SYX_TABLE)
+    }
+    assert {
+        (side, table): rows
+        for (_pair_id, side, table), rows in warm_rows.items()
+    } == {
+        (side, table): rows
+        for (_pair_id, side, table), rows in cold_rows.items()
+    }
+    assert len(warm_entries) == 2
 
 
 def test_changed_history_table_reads_both_pair_sides(tmp_path: Path) -> None:
@@ -379,21 +680,24 @@ def test_changed_history_table_reads_both_pair_sides(tmp_path: Path) -> None:
         assert tuple(reader.catalog_table().table_name for reader in session.table_readers) == ("t",)
 
 
-def test_deleted_history_table_reads_only_the_old_pair_side(tmp_path: Path) -> None:
+def test_history_bundle_preserves_changed_added_and_deleted_table_bindings(tmp_path: Path) -> None:
     before_commit = BASELINE_HEAD.business_baseline_commit_id
-    current_commit = "commit-with-deleted-table"
+    current_commit = "commit-with-added-table"
     before_tables = (
         catalog_table("t", (int_id_column(),), primary_key=("id",), row_count=1),
         catalog_table(
-            "version_manager",
-            (text_column("project_id", 0),),
+            "gone",
+            (text_column("value", 0),),
             primary_key=(),
             row_count=1,
         ),
     )
-    current_tables = (catalog_table("t", (int_id_column(),), primary_key=("id",), row_count=1),)
-    before_rows: RepositoryRows = {"t": ((1,),), "version_manager": (("project-1",),)}
-    current_rows: RepositoryRows = {"t": ((2,),)}
+    current_tables = (
+        catalog_table("t", (int_id_column(),), primary_key=("id",), row_count=1),
+        catalog_table("added", (text_column("value", 0),), primary_key=(), row_count=1),
+    )
+    before_rows: RepositoryRows = {"t": ((1,),), "gone": (("old",),)}
+    current_rows: RepositoryRows = {"t": ((2,),), "added": (("new",),)}
 
     def _provider(
         commit_id: str,
@@ -425,25 +729,32 @@ def test_deleted_history_table_reads_only_the_old_pair_side(tmp_path: Path) -> N
             ("bn-deleted-table", current_commit),
         ),
         custom_providers=providers,
-        idempotency_key="history-compare-deleted-table-old-side-read",
+        idempotency_key="history-compare-added-and-deleted-table-bundle",
     )
-    insert_history_compare_operation(harness)
-
-    run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
+    run_full_history_compare_job(harness)
 
     before_session = providers[before_commit].last_session
     current_session = providers[current_commit].last_session
     assert before_session is not None and current_session is not None
     assert tuple(reader.catalog_table().table_name for reader in before_session.table_readers) == (
+        "gone",
         "t",
-        "version_manager",
     )
     assert tuple(reader.catalog_table().table_name for reader in current_session.table_readers) == (
+        "added",
         "t",
     )
+    rows_by_binding, _snapshot_entries = _history_snapshot_bundle_data(harness)
+    pair_id = f"{harness.operation_id}-p0"
+    assert rows_by_binding == {
+        (pair_id, "before", "t"): [{"id": "1"}],
+        (pair_id, "current", "t"): [{"id": "2"}],
+        (pair_id, "before", "gone"): [{"value": "old"}],
+        (pair_id, "current", "added"): [{"value": "new"}],
+    }
 
 
-def test_unchanged_ordered_history_reads_current_side_and_preserves_facts(
+def test_unchanged_ordered_history_bundles_both_sides_and_preserves_facts(
     tmp_path: Path,
 ) -> None:
     before_commit = BASELINE_HEAD.business_baseline_commit_id
@@ -479,7 +790,9 @@ def test_unchanged_ordered_history_reads_current_side_and_preserves_facts(
     before_session = providers[before_commit].last_session
     current_session = providers[current_commit].last_session
     assert before_session is not None and current_session is not None
-    assert before_session.table_readers == []
+    assert tuple(reader.catalog_table().table_name for reader in before_session.table_readers) == (
+        ORDERED_SYX_TABLE,
+    )
     assert tuple(reader.catalog_table().table_name for reader in current_session.table_readers) == (
         ORDERED_SYX_TABLE,
     )
@@ -502,6 +815,19 @@ def test_unchanged_ordered_history_reads_current_side_and_preserves_facts(
         current_commit=current_commit,
         artifact_store=harness.artifact_store,
     )
+    rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
+    pair_id = f"{harness.operation_id}-p0"
+    expected_rows = [
+        {"gid": "1", "no": "1", "value": "a"},
+        {"gid": "4000000000", "no": "2", "value": "blank"},
+        {"gid": "2", "no": "3", "value": "b"},
+    ]
+    assert rows_by_binding == {
+        (pair_id, "before", ORDERED_SYX_TABLE): expected_rows,
+        (pair_id, "current", ORDERED_SYX_TABLE): expected_rows,
+    }
+    assert len(snapshot_entries) == 1
+    assert snapshot_entries[0]["shared"] is True
 
 
 def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
@@ -555,6 +881,18 @@ def test_three_node_compare_job_uses_multi_pair_bundle(tmp_path: Path) -> None:
     inputs = manifest["inputs"]
     assert [item["display_name"] for item in inputs] == ["node-0", "node-1", "node-2"]
     assert [item["role"] for item in inputs] == [node_a, node_b, node_c]
+    rows_by_binding, snapshot_entries = _history_snapshot_bundle_data(harness)
+    pair_ids = (f"{harness.operation_id}-p0", f"{harness.operation_id}-p1")
+    assert rows_by_binding == {
+        (pair_id, side, "t"): [{"id": "1"}]
+        for pair_id in pair_ids
+        for side in ("before", "current")
+    }
+    assert len(snapshot_entries) == 1
+    assert snapshot_entries[0]["shared"] is True
+    table_bindings = snapshot_entries[0]["table_bindings"]
+    assert isinstance(table_bindings, list)
+    assert len(table_bindings) == 4
 
 
 def test_repository_row_count_mismatch_fails_history_compare(tmp_path: Path) -> None:

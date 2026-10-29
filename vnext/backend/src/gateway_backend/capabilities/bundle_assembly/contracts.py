@@ -15,7 +15,7 @@ from gateway_backend.capabilities.surface_assembly.contracts import (
     SurfaceAssemblyResult,
 )
 
-BUNDLE_CONTRACT_VERSION = "backend-vnext/comparison-bundle/v2"
+BUNDLE_CONTRACT_VERSION = "backend-vnext/comparison-bundle/v3"
 BUNDLE_MANIFEST_MEDIA_TYPE = "application/vnd.gateway.comparison-bundle.manifest+json"
 BUNDLE_CLOSURE_MEDIA_TYPE = "application/vnd.gateway.comparison-bundle.closure+json"
 MAX_BUNDLE_MANIFEST_JSON_BYTES = 16 * 1024 * 1024
@@ -58,6 +58,41 @@ class BundleArtifactKind(StrEnum):
     PROJECTION = "PROJECTION"
     DIAGNOSTICS = "DIAGNOSTICS"
     OTHER = "OTHER"
+
+
+class BundleTableSide(StrEnum):
+    BEFORE = "before"
+    CURRENT = "current"
+    BROWSE = "browse"
+
+
+@dataclass(frozen=True, slots=True)
+class BundleTableBinding:
+    pair_id: str
+    table_name: str
+    side: BundleTableSide
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "pair_id", _identifier(self.pair_id, "pair_id"))
+        object.__setattr__(self, "table_name", _identifier(self.table_name, "table_name"))
+        if type(self.side) is not BundleTableSide:
+            raise ValueError("side must be BundleTableSide")
+
+    def to_document(self) -> dict[str, object]:
+        return {
+            "pair_id": self.pair_id,
+            "side": self.side.value,
+            "table_name": self.table_name,
+        }
+
+
+def _binding_side_from_path(logical_path: str) -> BundleTableSide:
+    parts = logical_path.split("/")
+    try:
+        table_index = parts.index("tables")
+        return BundleTableSide(parts[table_index + 1])
+    except (ValueError, IndexError) as exc:
+        raise ValueError("snapshot table binding path must identify before/current/browse side") from exc
 
 
 def _text(value: object, label: str) -> str:
@@ -208,6 +243,7 @@ class BundleArtifactBinding:
     pair_id: str | None = None
     table_name: str | None = None
     shared: bool = False
+    table_bindings: tuple[BundleTableBinding, ...] = ()
 
     def __post_init__(self) -> None:
         _ref(self.source_ref, "source_ref")
@@ -222,6 +258,28 @@ class BundleArtifactBinding:
             raise ValueError("shared must be bool")
         if self.shared and self.pair_id is not None:
             raise ValueError("shared artifact must not be pair-scoped")
+        if type(self.table_bindings) is not tuple or any(
+            type(item) is not BundleTableBinding for item in self.table_bindings
+        ):
+            raise ValueError("table_bindings must contain BundleTableBinding")
+        if self.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+            bindings = self.table_bindings
+            if not bindings:
+                if self.pair_id is None or self.table_name is None:
+                    raise ValueError("snapshot table artifact requires an explicit table binding")
+                bindings = (
+                    BundleTableBinding(
+                        pair_id=self.pair_id,
+                        table_name=self.table_name,
+                        side=_binding_side_from_path(self.logical_path),
+                    ),
+                )
+            ordered = tuple(
+                sorted(set(bindings), key=lambda item: (item.pair_id, item.side.value, item.table_name))
+            )
+            object.__setattr__(self, "table_bindings", ordered)
+        elif self.table_bindings:
+            raise ValueError("only snapshot table artifacts may carry table_bindings")
 
     def to_document(self, *, include_source_ref: bool = True) -> dict[str, object]:
         document: dict[str, object] = {
@@ -231,6 +289,8 @@ class BundleArtifactBinding:
             "shared": self.shared,
             "table_name": self.table_name,
         }
+        if self.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+            document["table_bindings"] = [item.to_document() for item in self.table_bindings]
         if include_source_ref:
             document["source_ref"] = artifact_ref_to_dict(self.source_ref)
         return document
@@ -248,7 +308,9 @@ class BundleArtifactClosure:
         ordered = tuple(sorted(self.entries, key=lambda item: (item.logical_path, item.kind.value)))
         if len({item.logical_path for item in ordered}) != len(ordered):
             raise ValueError("closure logical paths must be unique")
-        if len({item.source_ref for item in ordered}) != len(ordered):
+        if len({item.source_ref for item in ordered if item.kind is not BundleArtifactKind.SNAPSHOT_TABLE}) != len(
+            tuple(item for item in ordered if item.kind is not BundleArtifactKind.SNAPSHOT_TABLE)
+        ):
             raise ValueError("closure source refs must be unique")
         object.__setattr__(self, "entries", ordered)
 
@@ -309,6 +371,7 @@ class BundleClosureEntry:
     pair_id: str | None = None
     table_name: str | None = None
     shared: bool = False
+    table_bindings: tuple[BundleTableBinding, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "logical_path", validate_logical_path(self.logical_path))
@@ -327,18 +390,35 @@ class BundleClosureEntry:
             object.__setattr__(self, "table_name", _identifier(self.table_name, "table_name"))
         if type(self.shared) is not bool:
             raise ValueError("shared must be bool")
+        if type(self.table_bindings) is not tuple or any(
+            type(item) is not BundleTableBinding for item in self.table_bindings
+        ):
+            raise ValueError("table_bindings must contain BundleTableBinding")
+        if self.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+            if not self.table_bindings:
+                raise ValueError("snapshot table closure entry requires table bindings")
+            ordered = tuple(
+                sorted(set(self.table_bindings), key=lambda item: (item.pair_id, item.side.value, item.table_name))
+            )
+            object.__setattr__(self, "table_bindings", ordered)
+        elif self.table_bindings:
+            raise ValueError("only snapshot table closure entries may carry table_bindings")
 
     def to_document(self) -> dict[str, object]:
-        return {
+        document: dict[str, object] = {
             "artifact_ref": artifact_ref_to_dict(self.artifact_ref),
             "kind": self.kind.value,
             "logical_path": self.logical_path,
-            "pair_id": self.pair_id,
             "raw_sha256": self.raw_sha256.value,
             "shared": self.shared,
             "size_bytes": self.size_bytes,
-            "table_name": self.table_name,
         }
+        if self.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+            document["table_bindings"] = [item.to_document() for item in self.table_bindings]
+        else:
+            document["pair_id"] = self.pair_id
+            document["table_name"] = self.table_name
+        return document
 
 
 @dataclass(frozen=True, slots=True)

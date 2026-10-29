@@ -226,8 +226,141 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
     logical_paths = {
         item["logical_path"] for item in closure_document["closure_entries"]
     }
-    assert f"pairs/{pair_id}/tables/before/version_manager/manifest.json" in logical_paths
-    assert f"pairs/{pair_id}/tables/current/version_manager/manifest.json" in logical_paths
-    assert f"pairs/{pair_id}/tables/before/version_manager/rows/000000.parquet" in logical_paths
-    assert f"pairs/{pair_id}/tables/current/version_manager/rows/000000.parquet" in logical_paths
+    assert f"pairs/{pair_id}/tables/before/version_manager.parquet" in logical_paths
+    assert f"pairs/{pair_id}/tables/current/version_manager.parquet" in logical_paths
+
+
+def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> None:
+    store = InMemoryArtifactStore()
+
+    def bound(sql: str) -> BoundSnapshotInput:
+        result = materialize_sql(
+            sql,
+            policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+            artifact_store=store,
+        )
+        assert result.snapshot is not None
+        assert result.summary is not None
+        assert result.table_set is not None
+        return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+
+    before = bound(
+        "CREATE TABLE first_table (id INT NOT NULL PRIMARY KEY, value VARCHAR(8)); "
+        "INSERT INTO first_table VALUES (1, 'same'); "
+        "CREATE TABLE second_table (id INT NOT NULL PRIMARY KEY, value VARCHAR(8)); "
+        "INSERT INTO second_table VALUES (1, 'same');"
+    )
+    current = bound(
+        "CREATE TABLE first_table (id INT NOT NULL PRIMARY KEY, value VARCHAR(8)); "
+        "INSERT INTO first_table VALUES (1, 'same'); "
+        "CREATE TABLE second_table (id INT NOT NULL PRIMARY KEY, value VARCHAR(8)); "
+        "INSERT INTO second_table VALUES (1, 'same');"
+    )
+    pair_id = "history-pair"
+    pair = run_preview_pair_pipeline(
+        pair_id=pair_id,
+        before=before,
+        current=current,
+        store=store,
+        control=ExecutionControl(),
+        on_cancel=lambda: None,
+    )
+    surface = pair.surface_result.surface
+    assert surface is not None
+
+    closure = surface_artifact_closure(
+        surface,
+        pair_id,
+        pair.records_closure,
+        before=before,
+        current=current,
+        include_all_tables=True,
+    )
+    result = assemble_bundle(
+        BundleAssemblyInput(
+            bundle_contract_version=BUNDLE_CONTRACT_VERSION,
+            bundle_profile=BundleProfile.SINGLE_PAIR,
+            inputs=(
+                BundleInput(0, "before", "Before", snapshot_digest=before.snapshot.snapshot_digest),
+                BundleInput(1, "current", "Current", snapshot_digest=current.snapshot.snapshot_digest),
+            ),
+            pairs=(BundlePairInput(pair_id, 0, 1, pair.surface_result, closure),),
+            ref_scope=BundleRefScope.BUNDLE_RELATIVE,
+        ),
+        source_store=store,
+    )
+
+    assert result.status is BundleAssemblyStatus.READY
+    assert result.bundle is not None
+    assert result.bundle.artifact_closure_ref is not None
+    closure_document = json.loads(store.locate(result.bundle.artifact_closure_ref))
+    snapshot_entries = [
+        item
+        for item in closure_document["closure_entries"]
+        if item["kind"] == "SNAPSHOT_TABLE"
+    ]
+    assert len(snapshot_entries) == 1
+    assert snapshot_entries[0]["shared"] is True
+    assert snapshot_entries[0]["table_bindings"] == [
+        {"pair_id": pair_id, "side": side, "table_name": table_name}
+        for side in ("before", "current")
+        for table_name in ("first_table", "second_table")
+    ]
+
+
+def test_preview_bundle_contains_all_uploaded_tables_and_deleted_baseline_table() -> None:
+    store = InMemoryArtifactStore()
+
+    def bound(sql: str) -> BoundSnapshotInput:
+        result = materialize_sql(
+            sql,
+            policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+            artifact_store=store,
+        )
+        assert result.snapshot is not None
+        assert result.summary is not None
+        assert result.table_set is not None
+        return BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+
+    before = bound(
+        "CREATE TABLE shared_table (id INT NOT NULL PRIMARY KEY); "
+        "INSERT INTO shared_table VALUES (1); "
+        "CREATE TABLE deleted_table (id INT NOT NULL PRIMARY KEY); "
+        "INSERT INTO deleted_table VALUES (2);"
+    )
+    current = bound(
+        "CREATE TABLE shared_table (id INT NOT NULL PRIMARY KEY); "
+        "INSERT INTO shared_table VALUES (3); "
+        "CREATE TABLE uploaded_table (id INT NOT NULL PRIMARY KEY); "
+        "INSERT INTO uploaded_table VALUES (4);"
+    )
+    pair_id = "preview-pair"
+    pair = run_preview_pair_pipeline(
+        pair_id=pair_id,
+        before=before,
+        current=current,
+        store=store,
+        control=ExecutionControl(),
+        on_cancel=lambda: None,
+    )
+    surface = pair.surface_result.surface
+    assert surface is not None
+
+    closure = surface_artifact_closure(
+        surface,
+        pair_id,
+        pair.records_closure,
+        before=before,
+        current=current,
+    )
+
+    assert {
+        (binding.table_name, binding.logical_path.split("/tables/")[1].split("/")[0])
+        for binding in closure.entries
+        if binding.kind.value == "SNAPSHOT_TABLE"
+    } == {
+        ("deleted_table", "before"),
+        ("shared_table", "current"),
+        ("uploaded_table", "current"),
+    }
 

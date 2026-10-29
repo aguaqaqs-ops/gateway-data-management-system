@@ -34,6 +34,8 @@ _STRING_ESCAPES = {
     ord("0"): b"\x00",
     ord("Z"): b"\x1a",
     ord("b"): b"\b",
+    ord("%"): b"\\%",
+    ord("_"): b"\\_",
 }
 
 
@@ -43,6 +45,7 @@ class SqlLiteral:
     text: str | None = None
     raw: bytes | None = None
     is_number: bool = False
+    binary_prefix: bool = False
 
 
 class LiteralError(Exception):
@@ -59,6 +62,36 @@ def parse_literal(cursor: ByteCursor, runtime: ParserRuntime) -> SqlLiteral:
     byte = cursor.peek()
     if byte is None:
         raise LiteralError(ParserDiagnosticCode.MALFORMED_SQL, "expected literal", start)
+    if byte == ord("_") and cursor.try_keyword("_binary", runtime):
+        cursor.skip_ws_and_comments(runtime)
+        next_byte = cursor.peek()
+        if next_byte == ord("'"):
+            return SqlLiteral(
+                raw=_parse_quoted_bytes(cursor, runtime, hex_mode=False),
+                binary_prefix=True,
+            )
+        if (
+            next_byte in {ord("x"), ord("X")}
+            and cursor.pos + 1 < cursor.end
+            and cursor.data[cursor.pos + 1] == ord("'")
+        ):
+            cursor.pos += 1
+            return SqlLiteral(
+                raw=_parse_quoted_bytes(cursor, runtime, hex_mode=True),
+                binary_prefix=True,
+            )
+        if (
+            next_byte == ord("0")
+            and _hex_or_bit_prefix(cursor)
+            and cursor.data[cursor.pos + 1] in {ord("x"), ord("X")}
+        ):
+            literal = _parse_quoted_or_prefixed(cursor, runtime)
+            return SqlLiteral(raw=literal.raw, binary_prefix=True)
+        raise LiteralError(
+            ParserDiagnosticCode.MALFORMED_SQL,
+            "_binary must precede a string or hexadecimal literal",
+            start,
+        )
     if _try_keyword_literal(cursor, runtime, "null"):
         return SqlLiteral(is_null=True)
     if _try_keyword_literal(cursor, runtime, "true"):
@@ -90,6 +123,15 @@ def literal_to_cell(
     runtime: ParserRuntime,
     byte_offset: int,
 ) -> SourceCell:
+    if literal.binary_prefix and (
+        column.declared_type is None
+        or column.declared_type.kind is not DeclaredTypeKind.BINARY
+    ):
+        raise LiteralError(
+            ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
+            "_binary literal requires a binary column",
+            byte_offset,
+        )
     if literal.is_null:
         if not column.nullable:
             raise LiteralError(
@@ -110,14 +152,26 @@ def literal_to_cell(
         return _enum_value(literal, column, byte_offset)
     if column.logical_type is SqlLogicalType.JSON:
         text = _require_text(literal, byte_offset)
+        if _json_nesting_exceeds(text, 100):
+            raise LiteralError(
+                ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
+                "JSON nesting depth exceeds 100",
+                byte_offset,
+            )
         try:
-            json.loads(text)
-        except (TypeError, ValueError) as exc:
+            value = json.loads(text, parse_constant=_reject_json_constant)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
             raise LiteralError(
                 ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
                 "JSON value is not well-formed",
                 byte_offset,
             ) from exc
+        if _contains_unpaired_surrogate(value):
+            raise LiteralError(
+                ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
+                "JSON value contains an unpaired surrogate",
+                byte_offset,
+            )
         return _normalize_text(column, text, byte_offset)
     declared = column.declared_type
     if declared.kind is DeclaredTypeKind.BINARY:
@@ -246,29 +300,83 @@ def _require_bytes(literal: SqlLiteral, byte_offset: int) -> bytes:
 def _bit_bytes(literal: SqlLiteral, bit_width: int, byte_offset: int) -> bytes:
     expected = (bit_width + 7) // 8
     if literal.raw is not None and not literal.is_number:
-        raw = literal.raw
-        if len(raw) == expected:
-            return raw
-        value = int.from_bytes(raw, "big")
-        return value.to_bytes(expected, "big")
-    text = _require_text(literal, byte_offset)
-    if all(ch in "01" for ch in text) and text != "":
-        value = int(text, 2)
+        value = int.from_bytes(literal.raw, "big")
     else:
+        text = _require_text(literal, byte_offset)
         try:
             value = int(text, 10)
         except ValueError as exc:
             raise LiteralError(
                 ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
-                "BIT literal is not convertible",
+                "BIT literal is not a decimal integer",
                 byte_offset,
             ) from exc
+    if value < 0 or value >= 1 << bit_width:
+        raise LiteralError(
+            ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
+            "BIT literal is outside the declared width",
+            byte_offset,
+        )
     return value.to_bytes(expected, "big")
 
 
 def _check_field_bytes(payload: bytes, runtime: ParserRuntime, byte_offset: int) -> None:
     if len(payload) > runtime.budgets.max_field_bytes:
         runtime.resource_exceeded("max_field_bytes", byte_offset)
+
+
+def _json_nesting_exceeds(text: str, maximum: int) -> bool:
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > maximum:
+                return True
+        elif character in "]}" and depth > 0:
+            depth -= 1
+    return False
+
+
+def _reject_json_constant(value: str) -> object:
+    raise ValueError(f"JSON does not allow {value}")
+
+
+def _contains_unpaired_surrogate(value: object) -> bool:
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, str):
+            index = 0
+            while index < len(current):
+                codepoint = ord(current[index])
+                if 0xD800 <= codepoint <= 0xDBFF:
+                    if index + 1 >= len(current) or not (
+                        0xDC00 <= ord(current[index + 1]) <= 0xDFFF
+                    ):
+                        return True
+                    index += 2
+                    continue
+                if 0xDC00 <= codepoint <= 0xDFFF:
+                    return True
+                index += 1
+        elif isinstance(current, dict):
+            pending.extend(current.keys())
+            pending.extend(current.values())
+        elif isinstance(current, list):
+            pending.extend(current)
+    return False
 
 
 def _try_keyword_literal(cursor: ByteCursor, runtime: ParserRuntime, keyword: str) -> bool:
@@ -342,7 +450,14 @@ def _parse_quoted_or_prefixed(cursor: ByteCursor, runtime: ParserRuntime) -> Sql
     if byte in {ord("b"), ord("B")} and cursor.pos + 1 < cursor.end and cursor.data[cursor.pos + 1] == ord("'"):
         cursor.pos += 1
         body = _parse_quoted_bytes(cursor, runtime, hex_mode=False)
-        bits = body.decode("ascii")
+        try:
+            bits = body.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise LiteralError(
+                ParserDiagnosticCode.MALFORMED_SQL,
+                "bit literal must contain ASCII digits",
+                start,
+            ) from exc
         if bits and not all(ch in "01" for ch in bits):
             raise LiteralError(ParserDiagnosticCode.MALFORMED_SQL, "malformed bit literal", start)
         return SqlLiteral(text=bits, raw=_bit_string_to_bytes(bits))

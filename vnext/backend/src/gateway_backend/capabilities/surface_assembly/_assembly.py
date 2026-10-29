@@ -442,7 +442,7 @@ def _display_projection(
         ComparisonTableStatus.UNCHANGED: (SurfaceChangeKind.UNCHANGED, SurfaceDisplayStrategy.SUMMARY_ONLY),
         ComparisonTableStatus.BUSINESS_EQUIVALENT: (SurfaceChangeKind.BUSINESS_EQUIVALENT, SurfaceDisplayStrategy.SUMMARY_ONLY),
         ComparisonTableStatus.ADDED_TABLE: (SurfaceChangeKind.ADDED, SurfaceDisplayStrategy.TABLE_BROWSE if refs.current_table_ref else SurfaceDisplayStrategy.SUMMARY_ONLY),
-        ComparisonTableStatus.DELETED_TABLE: (SurfaceChangeKind.DELETED, SurfaceDisplayStrategy.RECORDS_ONLY if records.records_ref else SurfaceDisplayStrategy.SUMMARY_ONLY),
+        ComparisonTableStatus.DELETED_TABLE: (SurfaceChangeKind.DELETED, SurfaceDisplayStrategy.TABLE_BROWSE if refs.before_table_ref else SurfaceDisplayStrategy.SUMMARY_ONLY),
         ComparisonTableStatus.MODIFIED: (SurfaceChangeKind.UPDATED, SurfaceDisplayStrategy.CURRENT_WITH_RECORDS if refs.current_table_ref and records.records_ref else SurfaceDisplayStrategy.TABLE_BROWSE if refs.current_table_ref else SurfaceDisplayStrategy.RECORDS_ONLY if records.records_ref else SurfaceDisplayStrategy.SUMMARY_ONLY),
         ComparisonTableStatus.SCHEMA_CHANGED: (SurfaceChangeKind.SCHEMA_CHANGED, SurfaceDisplayStrategy.RECORDS_ONLY if records.records_ref else SurfaceDisplayStrategy.DEGRADED_NOTICE),
         ComparisonTableStatus.SCHEMA_ONLY_CHANGED: (SurfaceChangeKind.SCHEMA_CHANGED, SurfaceDisplayStrategy.RECORDS_ONLY if records.records_ref else SurfaceDisplayStrategy.DEGRADED_NOTICE),

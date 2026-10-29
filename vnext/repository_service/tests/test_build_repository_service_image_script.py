@@ -212,6 +212,9 @@ def _run_build_script(
         uv_consume_script = _fake_uv_consume_script(lock_check_exit=0)
     _write_executable(bin_dir / "uv-consume.sh", uv_consume_script)
     env = _base_env(bin_dir)
+    isolated_tmp = tmp_path / "isolated-tmp"
+    isolated_tmp.mkdir()
+    env["TMPDIR"] = str(isolated_tmp)
     env["GATEWAY_UV_CONSUME"] = str(bin_dir / "uv-consume.sh")
     if lock_root is not None:
         env["GATEWAY_VNEXT_LOCK_ROOT"] = str(lock_root)
@@ -225,6 +228,7 @@ def _run_build_script(
         env=env,
         cwd=VNEXT_ROOT,
     )
+    assert list(isolated_tmp.iterdir()) == [], "lock snapshot leaked from build script"
     return completed, argv_file
 
 

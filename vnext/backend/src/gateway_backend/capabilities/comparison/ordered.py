@@ -8,6 +8,7 @@ as a cross-snapshot business identity.
 from __future__ import annotations
 
 import bisect
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +38,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonTableFact,
     _ComparisonTablePolicy,
     ComparisonTableStatus,
+    SchemaEvolution,
     SchemaChangeSource,
     FieldChange,
     GID_PSEUDO_MAX,
@@ -242,21 +244,22 @@ def _compare_single_side(
         raise OrderedComparisonError("TABLE_DESCRIPTOR_MISSING")
     assert policy.ordered_policy is not None
     schema_changes = _single_side_schema_changes(descriptor, added=added, policy=policy)
-    selected = schema_changes.selected_columns
-    rows = _read_ordered_rows(table, descriptor, selected, policy.ordered_policy)
-    empty: tuple[_OrderedRow, ...] = ()
-    return _build_fact(
+    if table is None or table.reader is None:
+        return _degraded_fact(
+            task,
+            None if added else descriptor,
+            descriptor if added else None,
+            schema_changes,
+            ("TABLE_READER_UNAVAILABLE",),
+        )
+    return ComparisonTableFact(
         table_name=task.table_name,
+        status=ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE,
         before_descriptor=None if added else descriptor,
         current_descriptor=descriptor if added else None,
-        before_rows=empty if added else rows,
-        current_rows=rows if added else empty,
-        selected=selected,
-        policy=policy,
-        ordered_policy=policy.ordered_policy,
-        artifact_scope=task.artifact_scope,
         schema_changes=schema_changes,
-        schema_diagnostics=(),
+        row_count_before=None if added else descriptor.row_count,
+        row_count_current=descriptor.row_count if added else None,
     )
 
 
@@ -618,6 +621,7 @@ def _build_fact(
         before_descriptor is not None
         and current_descriptor is not None
         and before_descriptor.business_schema_digest != current_descriptor.business_schema_digest
+        and schema_changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED
     )
     status = ComparisonTableStatus.MODIFIED if ordered_changed or blank_changed else (
         ComparisonTableStatus.SCHEMA_ONLY_CHANGED if schema_changed else ComparisonTableStatus.UNCHANGED
@@ -652,7 +656,17 @@ def _build_fact(
         status is ComparisonTableStatus.UNCHANGED
         and before_descriptor is not None
         and current_descriptor is not None
-        and _ignored_values_changed(before_descriptor, current_descriptor, policy)
+        and (
+            _ignored_shared_content_changed(
+                before_descriptor,
+                current_descriptor,
+                before_rows,
+                current_rows,
+                policy,
+            )
+            if schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
+            else _ignored_values_changed(before_descriptor, current_descriptor, policy)
+        )
     )
     return ComparisonTableFact(
         table_name=table_name,
@@ -673,6 +687,28 @@ def _build_fact(
         ordered_extension=ordered_extension,
         blank_extension=blank_extension,
     )
+
+
+def _ignored_shared_content_changed(
+    before_descriptor: SnapshotTableDescriptor,
+    current_descriptor: SnapshotTableDescriptor,
+    before_rows: tuple[_OrderedRow, ...],
+    current_rows: tuple[_OrderedRow, ...],
+    policy: _ComparisonTablePolicy,
+) -> bool:
+    if not policy.compare_excluded_columns:
+        return False
+    before_names = {column.name for column in before_descriptor.columns}
+    current_names = {column.name for column in current_descriptor.columns}
+    excluded_columns = set(policy.compare_excluded_columns) & before_names & current_names
+    if not excluded_columns:
+        return False
+    # Keep each excluded value attached to its shared row while ignoring the
+    # newly added columns; a value-only multiset misses swaps between rows.
+    columns = tuple(sorted(before_names & current_names))
+    before_content = Counter(_row_digest(row.encoded, columns).value for row in before_rows)
+    current_content = Counter(_row_digest(row.encoded, columns).value for row in current_rows)
+    return before_content != current_content
 
 
 def _standard_row_record(

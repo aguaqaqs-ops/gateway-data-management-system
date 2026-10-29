@@ -11,6 +11,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordKind,
     ComparisonRecordsClosure,
     ComparisonTableStatus,
+    SchemaEvolution,
 )
 from gateway_backend.capabilities.risk_evaluation._artifacts import (
     RiskArtifactError,
@@ -248,9 +249,17 @@ def _evaluate_table(
         )
     else:
         if item.table_fact.status is ComparisonTableStatus.ADDED_TABLE:
-            emit(RiskRuleId.TABLE_ADDED, table_target)
+            emit(
+                RiskRuleId.TABLE_ADDED,
+                table_target,
+                (("row_count", item.table_fact.row_count_current),),
+            )
         if item.table_fact.status is ComparisonTableStatus.DELETED_TABLE:
-            emit(RiskRuleId.TABLE_DELETED, table_target)
+            emit(
+                RiskRuleId.TABLE_DELETED,
+                table_target,
+                (("row_count", item.table_fact.row_count_before),),
+            )
         if item.table_fact.status in {
             ComparisonTableStatus.SCHEMA_CHANGED,
             ComparisonTableStatus.SCHEMA_ONLY_CHANGED,
@@ -619,9 +628,7 @@ def _counts_evidence(item: ExtractedRiskFacts) -> tuple[tuple[str, str | int | b
 def _has_schema_changes(item: ExtractedRiskFacts) -> bool:
     changes = item.table_fact.schema_changes
     return bool(
-        changes.before_only_columns
-        or changes.current_only_columns
-        or changes.incompatible_columns
+        changes.schema_evolution in {SchemaEvolution.COLUMNS_REMOVED, SchemaEvolution.INCOMPATIBLE}
         or changes.effective_compare_key_changed
     )
 

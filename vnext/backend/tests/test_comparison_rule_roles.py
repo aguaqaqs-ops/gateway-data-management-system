@@ -14,6 +14,7 @@ from gateway_backend.capabilities.comparison import (
     compare_plan,
     plan_comparison,
 )
+from gateway_backend.capabilities.comparison.contracts import SchemaEvolution
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
@@ -126,12 +127,43 @@ def test_non_record_roles_keep_table_existence_facts_without_row_records(
 def test_non_record_roles_keep_schema_facts_visible(
     role: TableStaticRole,
 ) -> None:
-    before = _bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT);")
-    current = _bound("CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT, note VARCHAR(8));")
+    before = _bound(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); "
+        "INSERT INTO t VALUES (1, 10);"
+    )
+    current = _bound(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT, note VARCHAR(8)); "
+        "INSERT INTO t VALUES (1, 10, 'x');"
+    )
 
     table = _fact(before, current, role)
 
-    assert table.status is ComparisonTableStatus.SCHEMA_ONLY_CHANGED
-    assert table.content_changed is True
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.content_changed is False
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
     assert table.schema_changes.current_only_columns == ("note",)
+    assert table.records == ()
+
+
+@pytest.mark.parametrize(
+    "role",
+    (TableStaticRole.BROWSE_ONLY, TableStaticRole.SNAPSHOT_ONLY),
+)
+def test_non_record_roles_still_show_shared_data_changes_with_added_column(
+    role: TableStaticRole,
+) -> None:
+    before = _bound(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT); "
+        "INSERT INTO t VALUES (1, 10);"
+    )
+    current = _bound(
+        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, value INT, note VARCHAR(8)); "
+        "INSERT INTO t VALUES (1, 11, 'x');"
+    )
+
+    table = _fact(before, current, role)
+
+    assert table.status is ComparisonTableStatus.UNCHANGED
+    assert table.content_changed is True
+    assert table.schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED
     assert table.records == ()

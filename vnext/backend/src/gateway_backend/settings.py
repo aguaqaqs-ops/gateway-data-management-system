@@ -10,7 +10,8 @@ from gateway_backend.application.workspace.upload_limits import (
     FIXED_UPLOAD_MAX_ENTRIES,
     FIXED_UPLOAD_MAX_EXPANDED_BYTES,
     FIXED_UPLOAD_MAX_PATH_BYTES,
-    FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
+    FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS,
+    FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS,
 )
 
 _MIB = 1024 * 1024
@@ -74,7 +75,8 @@ class BackendSettings(BaseSettings):
     upload_max_expanded_bytes: int = FIXED_UPLOAD_MAX_EXPANDED_BYTES
     upload_max_entries: int = FIXED_UPLOAD_MAX_ENTRIES
     upload_max_path_bytes: int = FIXED_UPLOAD_MAX_PATH_BYTES
-    upload_stream_timeout_seconds: float = FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS
+    upload_idle_timeout_seconds: float = FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS
+    upload_total_timeout_seconds: int = FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS
     http_new_work_limit: int = FIXED_HTTP_NEW_WORK_LIMIT
     cleanup_unpinned_ttl_seconds: int = FIXED_CLEANUP_UNPINNED_TTL_SECONDS
     cleanup_sweep_batch_size: int = FIXED_CLEANUP_SWEEP_BATCH_SIZE
@@ -125,7 +127,8 @@ class BackendSettings(BaseSettings):
                 "upload_max_expanded_bytes": FIXED_UPLOAD_MAX_EXPANDED_BYTES,
                 "upload_max_entries": FIXED_UPLOAD_MAX_ENTRIES,
                 "upload_max_path_bytes": FIXED_UPLOAD_MAX_PATH_BYTES,
-                "upload_stream_timeout_seconds": FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS,
+                "upload_idle_timeout_seconds": FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS,
+                "upload_total_timeout_seconds": FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS,
                 "http_new_work_limit": FIXED_HTTP_NEW_WORK_LIMIT,
                 "cleanup_unpinned_ttl_seconds": FIXED_CLEANUP_UNPINNED_TTL_SECONDS,
                 "cleanup_sweep_batch_size": FIXED_CLEANUP_SWEEP_BATCH_SIZE,
@@ -221,7 +224,8 @@ __all__ = [
     "FIXED_UPLOAD_MAX_ENTRIES",
     "FIXED_UPLOAD_MAX_EXPANDED_BYTES",
     "FIXED_UPLOAD_MAX_PATH_BYTES",
-    "FIXED_UPLOAD_STREAM_TIMEOUT_SECONDS",
+    "FIXED_UPLOAD_IDLE_TIMEOUT_SECONDS",
+    "FIXED_UPLOAD_TOTAL_TIMEOUT_SECONDS",
     "OperationWorkerSettings",
     "require_absolute_path",
     "require_http_url",

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
+from typing import cast
 
 import pytest
 from gateway_shared_kernel import DigestRef, raw_blob_digest
@@ -17,14 +19,18 @@ from gateway_backend.capabilities.comparison.contracts import (
     ComparisonRecordKind,
     ComparisonRecordsClosure,
     ComparisonSummary,
+    ComparisonSchemaChanges,
     ComparisonTableFact,
     ComparisonTableStatus,
     OrderedRecord,
     PairResultStatus,
+    SchemaEvolution,
 )
 from gateway_backend.capabilities.risk_evaluation import (
     AnnotationDetailPolicy,
     RISK_ANNOTATION_CONTRACT_VERSION,
+    RISK_CONTRACT_VERSION,
+    RISK_MODEL_VERSION,
     RiskAnnotationClosure,
     RiskEvaluationInput,
     RiskEvaluationStatus,
@@ -45,6 +51,57 @@ from gateway_backend.capabilities.risk_evaluation import (
 
 _COMPARISON_DIGEST = raw_blob_digest(b"risk-s2-comparison")
 _FACTS_DIGEST = raw_blob_digest(b"risk-s2-facts")
+_S1B_GOLDEN = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "golden"
+    / "risk"
+    / "s1b"
+    / "structural-risk.json"
+)
+
+
+def _s1b_risk_golden_case(name: str) -> dict[str, object]:
+    document = json.loads(_S1B_GOLDEN.read_text(encoding="utf-8"))
+    assert document["contract_version"] == RISK_CONTRACT_VERSION
+    assert document["model_version"] == RISK_MODEL_VERSION
+    cases = document["cases"]
+    assert type(cases) is dict
+    case = cases[name]
+    assert type(case) is dict
+    return cast(dict[str, object], case)
+
+
+def _s1b_risk_projection(
+    result: RiskEvaluationResult,
+    store: InMemoryArtifactStore,
+) -> dict[str, object]:
+    report = result.risk_report
+    table_risks = () if report is None else report.tables
+    evidence: object = []
+    if result.annotation_artifacts:
+        payload = json.loads(store.locate(result.annotation_artifacts[0].content_ref))
+        evidence = payload["annotations"][0]["reasons"][0]["evidence"]
+    return {
+        "status": result.status.value,
+        "risk_level": None if not table_risks else table_risks[0].risk_level.value,
+        "risk_levels": [item.risk_level.value for item in table_risks],
+        "reason_codes": (
+            [] if not table_risks else [item.value for item in table_risks[0].reason_codes]
+        ),
+        "annotation_count": len(result.annotation_artifacts),
+        "evidence": evidence,
+    }
+
+
+def _assert_s1b_risk_golden(
+    name: str,
+    result: RiskEvaluationResult,
+    store: InMemoryArtifactStore,
+) -> None:
+    expected = _s1b_risk_golden_case(name)
+    actual = _s1b_risk_projection(result, store)
+    assert {key: actual[key] for key in expected} == expected
 
 
 def _ruleset() -> RiskRulesetSnapshot:
@@ -59,7 +116,7 @@ def _facts(
     return ComparisonFacts(
         comparison_digest=_COMPARISON_DIGEST,
         facts_core_digest=_FACTS_DIGEST,
-        comparison_contract_version="backend-vnext/comparison/v2",
+        comparison_contract_version="backend-vnext/comparison/v3",
         projection_contract_version="backend-vnext/comparison-projection/v1",
         scalar_encoding_version=1,
         before_snapshot_digest=raw_blob_digest(b"risk-s2-before"),
@@ -116,7 +173,11 @@ def _evaluate(
 def test_structural_risk_publishes_annotation_and_valid_closure() -> None:
     store = InMemoryArtifactStore()
     result = _evaluate(
-        ComparisonTableFact(table_name="orders", status=ComparisonTableStatus.ADDED_TABLE),
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.ADDED_TABLE,
+            row_count_current=3,
+        ),
         store=store,
     )
 
@@ -127,7 +188,69 @@ def test_structural_risk_publishes_annotation_and_valid_closure() -> None:
     assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_LOW
     assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.TABLE_ADDED,)
     assert len(result.annotation_artifacts) == 1
+    _assert_s1b_risk_golden("whole_table_added", result, store)
+    annotation_payload = json.loads(store.locate(result.annotation_artifacts[0].content_ref))
+    assert annotation_payload["annotations"][0]["reasons"][0]["evidence"] == [["row_count", 3]]
     validate_risk_annotation_closure(result.risk_closure, store)
+
+
+def test_deleted_table_risk_evidence_includes_table_row_count() -> None:
+    store = InMemoryArtifactStore()
+    result = _evaluate(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.DELETED_TABLE,
+            row_count_before=5,
+        ),
+        store=store,
+    )
+
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.TABLE_DELETED,)
+    assert len(result.annotation_artifacts) == 1
+    _assert_s1b_risk_golden("whole_table_deleted", result, store)
+    annotation_payload = json.loads(store.locate(result.annotation_artifacts[0].content_ref))
+    assert annotation_payload["annotations"][0]["reasons"][0]["evidence"] == [["row_count", 5]]
+
+
+def test_added_columns_do_not_emit_schema_change_risk() -> None:
+    table = ComparisonTableFact(
+        table_name="orders",
+        status=ComparisonTableStatus.UNCHANGED,
+        schema_changes=ComparisonSchemaChanges(
+            current_only_columns=("note",),
+            schema_evolution=SchemaEvolution.COLUMNS_ADDED,
+        ),
+    )
+
+    result = _evaluate(table, store=InMemoryArtifactStore())
+
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables == ()
+    assert result.annotation_artifacts == ()
+    _assert_s1b_risk_golden("added_columns_only", result, InMemoryArtifactStore())
+
+
+def test_incompatible_enum_label_change_emits_schema_change_risk() -> None:
+    store = InMemoryArtifactStore()
+    result = _evaluate(
+        ComparisonTableFact(
+            table_name="orders",
+            status=ComparisonTableStatus.SCHEMA_CHANGED,
+            schema_changes=ComparisonSchemaChanges(
+                incompatible_columns=("state",),
+                schema_evolution=SchemaEvolution.INCOMPATIBLE,
+            ),
+        ),
+        store=store,
+    )
+
+    assert result.status is RiskEvaluationStatus.READY
+    assert result.risk_report is not None
+    assert result.risk_report.tables[0].risk_level is RiskLevel.MEDIUM_HIGH
+    assert result.risk_report.tables[0].reason_codes == (RiskReasonCode.SCHEMA_CHANGED,)
+    _assert_s1b_risk_golden("incompatible_enum_set_label_change", result, store)
 
 
 def test_standard_rows_are_row_targeted_and_digest_is_stable() -> None:

@@ -439,13 +439,58 @@ def _parse_column_type(cursor: ByteCursor, runtime: ParserRuntime) -> str:
             continue
         cursor.pos = saved
         break
-    raw = cursor.data[start:cursor.pos]
+    raw = _strip_sql_comments(cursor.data[start:cursor.pos])
     try:
         return raw.decode("utf-8").strip()
     except UnicodeDecodeError as exc:
         raise ParserHalt(
             ParserDiagnosticCode.MALFORMED_SQL, "column type is not UTF-8", start
         ) from exc
+
+
+def _strip_sql_comments(raw: bytes) -> bytes:
+    output = bytearray()
+    index = 0
+    quote: int | None = None
+    while index < len(raw):
+        byte = raw[index]
+        if quote is not None:
+            output.append(byte)
+            if byte == ord("\\") and quote == ord("'") and index + 1 < len(raw):
+                index += 1
+                output.append(raw[index])
+            elif byte == quote:
+                if index + 1 < len(raw) and raw[index + 1] == quote:
+                    index += 1
+                    output.append(raw[index])
+                else:
+                    quote = None
+            index += 1
+            continue
+        if byte in {ord("'"), ord('"'), ord("`")}:
+            quote = byte
+            output.append(byte)
+            index += 1
+            continue
+        if raw.startswith(b"/*", index):
+            end = raw.find(b"*/", index + 2)
+            if end < 0:
+                output.extend(raw[index:])
+                break
+            output.append(ord(" "))
+            index = end + 2
+            continue
+        if byte == ord("#") or (
+            raw.startswith(b"--", index)
+            and (index + 2 == len(raw) or raw[index + 2] in b" \t\r\n\x00")
+        ):
+            output.append(ord(" "))
+            while index < len(raw) and raw[index] not in {ord("\n"), ord("\r")}:
+                index += 1
+            continue
+        output.append(byte)
+        index += 1
+    return bytes(output)
 
 
 def _consume_type_name(cursor: ByteCursor, runtime: ParserRuntime) -> None:

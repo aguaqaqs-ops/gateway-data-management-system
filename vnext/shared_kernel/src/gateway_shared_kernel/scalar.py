@@ -6,6 +6,7 @@ import math
 import re
 import struct
 from collections.abc import Callable, Mapping
+from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from gateway_shared_kernel.base64url import decode_base64url_strict
@@ -440,6 +441,8 @@ def _normalize_float_literal(text: str, *, width: int) -> str:
             CanonicalErrorCode.CANONICAL_TYPE_MISMATCH,
             "float literal exceeds lexical length budget",
         )
+    if width == 32:
+        return _float32_bits_from_decimal(text)
     try:
         value = float(text)
     except ValueError as exc:
@@ -448,6 +451,71 @@ def _normalize_float_literal(text: str, *, width: int) -> str:
             "float literal is not numeric",
         ) from exc
     return _float_bits_hex(value, width=width)
+
+
+def _float32_bits_from_decimal(text: str) -> str:
+    try:
+        decimal = Decimal(text)
+    except InvalidOperation as exc:
+        raise CanonicalEncodingError(
+            CanonicalErrorCode.CANONICAL_TYPE_MISMATCH,
+            "float literal is not numeric",
+        ) from exc
+    if not decimal.is_finite():
+        raise CanonicalEncodingError(
+            CanonicalErrorCode.CANONICAL_FLOAT_NON_FINITE,
+            "float must be finite",
+        )
+    if decimal.is_zero():
+        return "00000000"
+    adjusted = decimal.copy_abs().adjusted()
+    if adjusted > 38:
+        raise CanonicalEncodingError(
+            CanonicalErrorCode.CANONICAL_FLOAT_NON_FINITE,
+            "float32 packing produced non-finite",
+        )
+    if adjusted < -46:
+        return "00000000"
+
+    numerator, denominator = decimal.copy_abs().as_integer_ratio()
+    exponent = numerator.bit_length() - denominator.bit_length()
+    if exponent >= 0:
+        if numerator < denominator << exponent:
+            exponent -= 1
+    elif numerator << -exponent < denominator:
+        exponent -= 1
+
+    if exponent < -126:
+        significand = _round_ratio_ties_to_even(numerator << 149, denominator)
+        bits = min(significand, 1 << 23)
+    else:
+        shift = 23 - exponent
+        if shift >= 0:
+            significand = _round_ratio_ties_to_even(numerator << shift, denominator)
+        else:
+            significand = _round_ratio_ties_to_even(numerator, denominator << -shift)
+        if significand == 1 << 24:
+            exponent += 1
+            significand >>= 1
+        if exponent > 127:
+            raise CanonicalEncodingError(
+                CanonicalErrorCode.CANONICAL_FLOAT_NON_FINITE,
+                "float32 packing produced non-finite",
+            )
+        bits = ((exponent + 127) << 23) | (significand - (1 << 23))
+    if decimal.is_signed() and bits != 0:
+        bits |= 1 << 31
+    return f"{bits:08x}"
+
+
+def _round_ratio_ties_to_even(numerator: int, denominator: int) -> int:
+    quotient, remainder = divmod(numerator, denominator)
+    doubled_remainder = remainder << 1
+    if doubled_remainder > denominator or (
+        doubled_remainder == denominator and quotient & 1
+    ):
+        return quotient + 1
+    return quotient
 
 
 def _float_bits_hex(value: float, *, width: int) -> str:

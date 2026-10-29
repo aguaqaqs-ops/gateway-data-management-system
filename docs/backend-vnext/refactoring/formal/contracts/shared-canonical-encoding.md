@@ -64,7 +64,7 @@ unassigned 0x00..=0x7F  -> CANONICAL_SCALAR_TAG_RESERVED
 
 其余 tag 在 v1 不得自行占用；实现不得发明未登记分区。
 
-Integer 由 column schema 校验 width/signedness；`+`、leading zero 和 `-0` 归一为同一数值，越界失败。Decimal 禁止 exponent/`+`，删除冗余整数 leading zero 和小数 trailing zero，小于 1 时补整数 `0`，负零为 `0`；precision/scale 属于 schema digest，不进入 value payload。Float 按声明宽度 round-to-nearest ties-to-even；float32 先舍入为 binary32；负零变正零，subnormal 保留，NaN/Infinity 失败。
+Integer 由 column schema 校验 width/signedness；`+`、leading zero 和 `-0` 归一为同一数值，越界失败。Decimal 禁止 exponent/`+`，删除冗余整数 leading zero 和小数 trailing zero，小于 1 时补整数 `0`，负零为 `0`；precision/scale 属于 schema digest，不进入 value payload。Float 按声明宽度 round-to-nearest ties-to-even；float32 从十进制字面量直接舍入为 binary32，不经过 binary64 中间值；负零变正零，subnormal 保留，NaN/Infinity 失败。
 
 v1 owner-declared numeric width固定为：signed/unsigned integer `8 | 16 | 24 | 32 | 64` bits；MySQL decimal precision `1..=65`、scale `0..=30`且`scale <= precision`；`BIT(n)` width `1..=64`。范围依据[MySQL DECIMAL characteristics](https://dev.mysql.com/doc/refman/8.4/en/precision-math-decimal-characteristics.html)与[MySQL numeric type syntax](https://dev.mysql.com/doc/refman/8.4/en/numeric-type-syntax.html)。这些是logical declared-type校验边界；Arrow provider可表达的更宽物理类型不会自动扩大canonical logical range。
 

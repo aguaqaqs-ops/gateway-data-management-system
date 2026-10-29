@@ -3,24 +3,36 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import shutil
+import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from fastapi import Request
 from starlette.datastructures import Headers
 
 from gateway_backend.http.errors import ApiError
+import gateway_backend.http.routes.upload_revisions as upload_revisions
+import gateway_backend.http.orchestration.multipart_upload as multipart_upload
 from gateway_backend.http.orchestration.multipart_stream import (
+    ParsedMultipartUpload,
+    StagedUploadPart,
     iter_file_chunks,
     parse_streaming_multipart,
 )
+import gateway_backend.http.orchestration.multipart_stream as multipart_stream
 from gateway_backend.http.orchestration.source_package_admission import (
-    UploadLimitExceededError,
+    UploadStreamTimeoutError,
+    UploadStreamTimeoutReason,
     validate_source_package_archive,
 )
+from gateway_backend.domain.workspace.models import IdentityContext
+from gateway_backend.http.routes.upload_revisions import accept_upload_route
 from tests.support.upload_http_packages import INITIAL_BYTES
 
 pytestmark = pytest.mark.unit
@@ -51,16 +63,263 @@ def test_stalled_body_times_out_while_waiting_for_next_chunk() -> None:
         await asyncio.sleep(0.15)
 
     async def run() -> None:
-        with pytest.raises(UploadLimitExceededError, match="timed out"):
+        with pytest.raises(UploadStreamTimeoutError) as caught:
             await parse_streaming_multipart(
                 headers=Headers({"content-type": f"multipart/form-data; boundary={_BOUNDARY}"}),
                 stream=stalled_stream(),
-                timeout_seconds=0.01,
+                idle_timeout_seconds=0.01,
             )
+        assert caught.value.reason is UploadStreamTimeoutReason.IDLE
 
     started = time.monotonic()
     asyncio.run(run())
     assert time.monotonic() - started < 0.12
+
+
+@pytest.mark.serial
+def test_total_stream_timeout_has_total_reason() -> None:
+    async def stalled_stream() -> AsyncIterator[bytes]:
+        await asyncio.sleep(0.1)
+        yield b""
+
+    async def run() -> None:
+        with pytest.raises(UploadStreamTimeoutError) as caught:
+            await parse_streaming_multipart(
+                headers=Headers({"content-type": f"multipart/form-data; boundary={_BOUNDARY}"}),
+                stream=stalled_stream(),
+                idle_timeout_seconds=1.0,
+                total_timeout_seconds=0.01,
+            )
+        assert caught.value.reason is UploadStreamTimeoutReason.TOTAL
+
+    asyncio.run(run())
+
+
+def test_low_rate_stream_within_size_derived_total_budget_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    maximum = 32 * 1024 * 1024
+    payload = _multipart_body(
+        [("manifest", b"{}"), ("modified", b"x" * (256 * 1024))]
+    )
+
+    class Clock:
+        now = 0.0
+
+    clock = Clock()
+
+    async def advance_per_chunk(awaitable: Awaitable[bytes], *, timeout: float) -> bytes:
+        assert timeout > 0
+        try:
+            result = await awaitable
+        except StopAsyncIteration:
+            raise
+        clock.now += 30.0
+        return result
+
+    async def slow_stream() -> AsyncIterator[bytes]:
+        for offset in range(0, len(payload), 64 * 1024):
+            yield payload[offset : offset + 64 * 1024]
+
+    async def run() -> None:
+        monkeypatch.setattr(
+            multipart_stream,
+            "time",
+            SimpleNamespace(monotonic=lambda: clock.now),
+        )
+        monkeypatch.setattr(
+            multipart_stream,
+            "asyncio",
+            SimpleNamespace(wait_for=advance_per_chunk),
+        )
+        parsed = await parse_streaming_multipart(
+            headers=Headers({"content-type": f"multipart/form-data; boundary={_BOUNDARY}"}),
+            stream=slow_stream(),
+            max_compressed=maximum,
+            idle_timeout_seconds=60.0,
+            total_timeout_seconds=math.ceil(maximum * 8 / 1_000_000),
+        )
+        try:
+            assert parsed.file_parts["modified"].size_bytes == 256 * 1024
+            assert clock.now > 60.0
+        finally:
+            shutil.rmtree(parsed.staging_dir, ignore_errors=True)
+
+    asyncio.run(run())
+
+
+def test_idle_stream_timeout_maps_to_http_408_with_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def timeout(**_kwargs: object) -> object:
+        raise UploadStreamTimeoutError(UploadStreamTimeoutReason.IDLE)
+
+    monkeypatch.setattr(upload_revisions, "parse_streaming_multipart", timeout)
+
+    class Gate:
+        in_flight = 0
+        release_count = 0
+
+        def try_acquire(self) -> bool:
+            self.in_flight += 1
+            return True
+
+        def allows_new_work(self) -> bool:
+            return True
+
+        def release(self) -> None:
+            self.in_flight -= 1
+            self.release_count += 1
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/workspaces/workspace-1/upload-revisions",
+            "raw_path": b"/v1/workspaces/workspace-1/upload-revisions",
+            "query_string": b"",
+            "headers": [(b"idempotency-key", b"upload-1")],
+            "server": ("test", 80),
+            "client": ("test", 1234),
+        },
+        receive,
+    )
+    gate = Gate()
+    deps = SimpleNamespace(admission_gate=gate)
+    identity = IdentityContext(
+        actor_id="actor-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        permissions=frozenset(),
+    )
+
+    async def run() -> None:
+        with pytest.raises(ApiError) as caught:
+            await accept_upload_route("workspace-1", request, deps, identity)  # type: ignore[arg-type]
+        assert caught.value.status_code == 408
+        assert caught.value.code == "UPLOAD_STREAM_TIMEOUT"
+        assert caught.value.details == {"reason": "IDLE"}
+        assert gate.in_flight == 0
+        assert gate.release_count == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.serial
+def test_direct_task_cancellation_waits_for_upload_acceptance_before_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    staging_dir = tmp_path / "staged-upload"
+    staging_dir.mkdir()
+    staged_path = staging_dir / "part-1"
+    staged_path.write_bytes(b"transaction-input")
+    parsed = ParsedMultipartUpload(
+        manifest_bytes=b"{}",
+        file_parts={"modified": StagedUploadPart("modified", staged_path, 17)},
+        staging_dir=staging_dir,
+    )
+    started = threading.Event()
+    finish_transaction = threading.Event()
+    committed: list[bytes] = []
+
+    class Gate:
+        in_flight = 0
+        release_count = 0
+
+        def try_acquire(self) -> bool:
+            self.in_flight += 1
+            return True
+
+        def allows_new_work(self) -> bool:
+            return True
+
+        def release(self) -> None:
+            self.in_flight -= 1
+            self.release_count += 1
+
+    gate = Gate()
+
+    async def parsed_upload(**_kwargs: object) -> ParsedMultipartUpload:
+        return parsed
+
+    def accept_transaction(**kwargs: object) -> object:
+        upload = kwargs["parsed"]
+        assert isinstance(upload, ParsedMultipartUpload)
+        assert upload.file_parts["modified"].path.read_bytes() == b"transaction-input"
+        started.set()
+        assert finish_transaction.wait(timeout=5)
+        committed.append(upload.file_parts["modified"].path.read_bytes())
+        return object()
+
+    monkeypatch.setattr(upload_revisions, "parse_streaming_multipart", parsed_upload)
+    monkeypatch.setattr(multipart_upload, "_accept_staged_upload", accept_transaction)
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/workspaces/workspace-1/upload-revisions",
+            "raw_path": b"/v1/workspaces/workspace-1/upload-revisions",
+            "query_string": b"",
+            "headers": [
+                (b"idempotency-key", b"upload-cancel"),
+                (b"content-type", b"multipart/form-data; boundary=test"),
+            ],
+            "server": ("test", 80),
+            "client": ("test", 1234),
+        },
+        receive,
+    )
+    identity = IdentityContext(
+        actor_id="actor-1",
+        gateway_device_external_key="device-1",
+        business_project_id="project-1",
+        permissions=frozenset(),
+    )
+    deps = SimpleNamespace(
+        admission_gate=gate,
+        scope_resolution=None,
+        workspace_repository=None,
+        submit_unit_of_work_factory=None,
+        artifact_store=None,
+        now=lambda: None,
+    )
+
+    async def run() -> None:
+        task = asyncio.create_task(
+            accept_upload_route("workspace-1", request, deps, identity)  # type: ignore[arg-type]
+        )
+        assert await asyncio.wait_for(asyncio.to_thread(started.wait), timeout=5)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert staging_dir.is_dir()
+        assert staged_path.read_bytes() == b"transaction-input"
+        assert gate.in_flight == 1
+        assert gate.release_count == 0
+
+        finish_transaction.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert committed == [b"transaction-input"]
+        assert not staging_dir.exists()
+        assert not staged_path.exists()
+        assert gate.in_flight == 0
+        assert gate.release_count == 1
+
+    asyncio.run(run())
 
 
 def test_non_multipart_content_type_is_rejected_before_parsing_body() -> None:

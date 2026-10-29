@@ -21,7 +21,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 TABLE_RULESET_VERSION = 1
 RULESET_ID = "backend-vnext/table-ruleset"
-RULESET_VERSION = "v3"
+RULESET_VERSION = "v4"
 TABLE_RULESET_CONTRACT_VERSION = "gateway-vnext.table-ruleset:v1"
 STORAGE_PROJECTION_VERSION = "3"
 FALLBACK_SELECTOR_VALUE = "*"

@@ -161,6 +161,7 @@ def run_preview_pair_pipeline(
             assessment_ref=assessment_ref,
         ),
         show_keyless_fallback_hint=True,
+        include_all_before_tables=False,
     )
     records_closure = surface.published.records_closure
     if (
@@ -203,6 +204,7 @@ def run_history_pair_pipeline(
         store=store,
         control=control,
         on_cancel=on_cancel,
+        include_all_before_tables=True,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -245,6 +247,7 @@ def _run_comparison_risk_surface(
     on_cancel: Callable[[], None],
     identity_annotation: SurfaceIdentityAnnotation | None = None,
     show_keyless_fallback_hint: bool = False,
+    include_all_before_tables: bool = False,
 ) -> _ComparisonRiskSurfaceResult:
     plan = plan_comparison(request)
     if isinstance(plan, FailedResult):
@@ -297,9 +300,13 @@ def _run_comparison_risk_surface(
             risk_report=risk.risk_report,
             risk_annotation_closure=risk.risk_closure,
             table_artifacts=(
-                _replacement_surface_table_artifacts(request)
-                if request.mode is ComparisonMode.DATASET_REPLACEMENT
-                else ()
+                _surface_table_artifacts(
+                    request,
+                    include_all_before=(
+                        include_all_before_tables
+                        or request.mode is ComparisonMode.DATASET_REPLACEMENT
+                    ),
+                )
             ),
             keyless_fallback_tables=(
                 _keyless_fallback_table_names(request)
@@ -327,23 +334,32 @@ def _run_comparison_risk_surface(
     )
 
 
-def _replacement_surface_table_artifacts(
+def _surface_table_artifacts(
     request: ComparisonRequest,
+    *,
+    include_all_before: bool,
 ) -> tuple[SurfaceArtifactIndexEntry, ...]:
     def table_map(bound: BoundSnapshotInput) -> dict[str, ArtifactRef]:
         if bound.table_set is None:
-            raise PairPipelineError("replacement surface requires canonical table artifacts")
+            raise PairPipelineError("surface bundle requires canonical table artifacts")
         artifacts: dict[str, ArtifactRef] = {}
         for table in bound.table_set.tables:
             if table.artifact is None:
                 raise PairPipelineError(
-                    f"replacement surface table {table.descriptor.table_name} is missing its artifact"
+                    f"surface table {table.descriptor.table_name} is missing its artifact"
                 )
-            artifacts[table.descriptor.table_name] = table.artifact.manifest_ref
+            row_refs = table.artifact.manifest.row_file_refs
+            if len(row_refs) != 1:
+                raise PairPipelineError(
+                    f"surface table {table.descriptor.table_name} must have one Parquet row file"
+                )
+            artifacts[table.descriptor.table_name] = row_refs[0]
         return artifacts
 
     before = table_map(request.before)
     current = table_map(request.current)
+    if not include_all_before:
+        before = {name: ref for name, ref in before.items() if name not in current}
     return tuple(
         SurfaceArtifactIndexEntry(
             table_name=table_name,

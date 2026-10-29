@@ -48,6 +48,7 @@ from gateway_backend.capabilities.comparison.contracts import (
     FieldChange,
     KeylessPolicy,
     PairResultStatus,
+    SchemaEvolution,
 )
 from gateway_backend.capabilities.comparison.errors import StandardComparisonError
 from gateway_backend.capabilities.comparison.row_encoding import (
@@ -57,6 +58,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
     _digest_from_key,
     _empty_schema_changes,
     _ignored_values_changed,
+    _is_columns_added,
     _key_index,
     _read_rows,
     _record_sort_key,
@@ -248,6 +250,23 @@ def _compare_task(task: Any) -> ComparisonTableFact:
             ),
             diagnostics=tuple(schema_diagnostics),
         )
+    if not schema.selected and schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED:
+        return ComparisonTableFact(
+            table_name=task.table_name,
+            status=ComparisonTableStatus.UNCHANGED,
+            before_descriptor=before_descriptor,
+            current_descriptor=current_descriptor,
+            schema_changes=schema_changes,
+            row_count_before=before_descriptor.row_count,
+            row_count_current=current_descriptor.row_count,
+            content_changed=_ignored_shared_values_changed(
+                task.before_table,
+                before_descriptor,
+                task.current_table,
+                current_descriptor,
+                policy,
+            ),
+        )
     if not schema.selected:
         return _schema_only_fact(
             task.table_name,
@@ -264,7 +283,9 @@ def _compare_task(task: Any) -> ComparisonTableFact:
     ):
         fact = _compare_keyless(
             task.table_name,
+            task.before_table,
             before_descriptor,
+            task.current_table,
             current_descriptor,
             before_rows,
             current_rows,
@@ -276,7 +297,9 @@ def _compare_task(task: Any) -> ComparisonTableFact:
     else:
         fact = _compare_keyed(
             task.table_name,
+            task.before_table,
             before_descriptor,
+            task.current_table,
             current_descriptor,
             before_rows,
             current_rows,
@@ -320,31 +343,6 @@ def _compare_single_side(
             row_count_current=descriptor.row_count if added else None,
             diagnostics=("TABLE_READER_UNAVAILABLE",),
         )
-    rows = _read_rows(table, descriptor, selected)
-    records: list[ComparisonRecord] = []
-    kind = ComparisonRecordKind.ROW_ADDED if added else ComparisonRecordKind.ROW_DELETED
-    key_columns = policy.effective_key_current if added else policy.effective_key_before
-    identity_columns = key_columns or selected
-    if not key_columns:
-        rows = tuple(sorted(rows, key=lambda row: _row_digest(row, identity_columns).value))
-    occurrence_counts: Counter[str] = Counter()
-    for row in rows:
-        row_identity = _row_digest(row, identity_columns)
-        occurrence = occurrence_counts[row_identity.value]
-        occurrence_counts[row_identity.value] += 1
-        if not key_columns:
-            row_identity = _row_occurrence_digest(row_identity, occurrence)
-        record = ComparisonRecord(
-            table_name=table_name,
-            record_kind=kind,
-            row_identity=row_identity,
-            before_values=()
-            if added
-            else tuple(sorted(row.value_map().items())),
-            current_values=tuple(sorted(row.value_map().items())) if added else (),
-        )
-        if artifact_scope is ArtifactScope.ALL_CHANGES:
-            records.append(record)
     return ComparisonTableFact(
         table_name=table_name,
         status=ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE,
@@ -353,11 +351,8 @@ def _compare_single_side(
         schema_changes=schema_changes,
         row_count_before=None if added else descriptor.row_count,
         row_count_current=descriptor.row_count if added else None,
-        row_added_count=len(rows) if added else 0,
-        row_deleted_count=0 if added else len(rows),
-        suppressed_added_count=len(rows) if added and artifact_scope is ArtifactScope.UPDATE_ONLY else 0,
-        suppressed_deleted_count=len(rows) if not added and artifact_scope is ArtifactScope.UPDATE_ONLY else 0,
-        records=tuple(records),
+        row_added_count=0,
+        row_deleted_count=0,
     )
 
 
@@ -389,12 +384,25 @@ def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> Compa
         )
 
     schema = _schema_view(before, current, policy)
-    schema_changed = before.business_schema_digest != current.business_schema_digest
+    schema_changes = _schema_changes_from_view(schema, policy)
+    schema_changed = (
+        before.business_schema_digest != current.business_schema_digest
+        and schema_changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED
+    )
     content_changed = (
         schema_changed
         or before.row_count != current.row_count
-        or before.raw_content_digest != current.raw_content_digest
+        or (
+            schema_changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED
+            and before.raw_content_digest != current.raw_content_digest
+        )
     )
+    if schema_changes.schema_evolution is SchemaEvolution.COLUMNS_ADDED:
+        before_rows = _read_rows(task.before_table, before, schema.selected)
+        current_rows = _read_rows(task.current_table, current, schema.selected)
+        before_content = Counter(_row_digest(row, schema.selected).value for row in before_rows)
+        current_content = Counter(_row_digest(row, schema.selected).value for row in current_rows)
+        content_changed = before_content != current_content
     return ComparisonTableFact(
         table_name=task.table_name,
         status=(
@@ -404,7 +412,7 @@ def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> Compa
         ),
         before_descriptor=before,
         current_descriptor=current,
-        schema_changes=_schema_changes_from_view(schema, policy),
+        schema_changes=schema_changes,
         row_count_before=before.row_count,
         row_count_current=current.row_count,
         diagnostics=("BUSINESS_SCHEMA_CHANGED",) if schema_changed else (),
@@ -414,7 +422,9 @@ def _compare_non_record_role(task: Any, policy: _ComparisonTablePolicy) -> Compa
 
 def _compare_keyed(
     table_name: str,
+    before_table: SnapshotTable | None,
     before_descriptor: SnapshotTableDescriptor,
+    current_table: SnapshotTable | None,
     current_descriptor: SnapshotTableDescriptor,
     before_rows: tuple[_EncodedRow, ...],
     current_rows: tuple[_EncodedRow, ...],
@@ -502,7 +512,16 @@ def _compare_keyed(
     content_changed = (
         not records
         and not schema_diagnostics
-        and _ignored_values_changed(before_descriptor, current_descriptor, policy)
+        and _ignored_content_changed(
+            before_table,
+            before_descriptor,
+            current_table,
+            current_descriptor,
+            _schema_changes_from_view(schema, policy),
+            policy,
+            before_rows=before_rows,
+            current_rows=current_rows,
+        )
     )
     if not records and not schema_diagnostics:
         status = ComparisonTableStatus.UNCHANGED
@@ -527,7 +546,9 @@ def _compare_keyed(
 
 def _compare_keyless(
     table_name: str,
+    before_table: SnapshotTable | None,
     before_descriptor: SnapshotTableDescriptor,
+    current_table: SnapshotTable | None,
     current_descriptor: SnapshotTableDescriptor,
     before_rows: tuple[_EncodedRow, ...],
     current_rows: tuple[_EncodedRow, ...],
@@ -549,8 +570,13 @@ def _compare_keyless(
             diagnostics=diagnostics,
             records=(_schema_record(table_name, diagnostics, schema.selected),),
         )
-    before_counts = Counter(_row_digest(row, schema.selected).value for row in before_rows)
-    current_counts = Counter(_row_digest(row, schema.selected).value for row in current_rows)
+    row_columns = schema.selected
+    if _is_columns_added(schema):
+        row_columns = tuple(
+            column for column in schema.selected if column not in policy.compare_excluded_columns
+        )
+    before_counts = Counter(_row_digest(row, row_columns).value for row in before_rows)
+    current_counts = Counter(_row_digest(row, row_columns).value for row in current_rows)
     added_counts = current_counts - before_counts
     deleted_counts = before_counts - current_counts
     added = [
@@ -589,7 +615,16 @@ def _compare_keyless(
         not added
         and not deleted
         and not schema_diagnostics
-        and _ignored_values_changed(before_descriptor, current_descriptor, policy)
+        and _ignored_content_changed(
+            before_table,
+            before_descriptor,
+            current_table,
+            current_descriptor,
+            _schema_changes_from_view(schema, policy),
+            policy,
+            before_rows=before_rows,
+            current_rows=current_rows,
+        )
     )
     if schema_diagnostics:
         status = ComparisonTableStatus.SCHEMA_CHANGED
@@ -598,7 +633,7 @@ def _compare_keyless(
         status=status,
         before_descriptor=before_descriptor,
         current_descriptor=current_descriptor,
-            schema_changes=_schema_changes_from_view(schema, policy),
+        schema_changes=_schema_changes_from_view(schema, policy),
         row_count_before=before_descriptor.row_count,
         row_count_current=current_descriptor.row_count,
         row_added_count=len(added),
@@ -609,6 +644,59 @@ def _compare_keyless(
         diagnostics=tuple(schema_diagnostics),
         content_changed=content_changed,
     )
+
+
+def _ignored_content_changed(
+    before_table: SnapshotTable | None,
+    before_descriptor: SnapshotTableDescriptor,
+    current_table: SnapshotTable | None,
+    current_descriptor: SnapshotTableDescriptor,
+    schema_changes: ComparisonSchemaChanges,
+    policy: _ComparisonTablePolicy,
+    *,
+    before_rows: tuple[_EncodedRow, ...] | None = None,
+    current_rows: tuple[_EncodedRow, ...] | None = None,
+) -> bool:
+    if schema_changes.schema_evolution is not SchemaEvolution.COLUMNS_ADDED:
+        return _ignored_values_changed(before_descriptor, current_descriptor, policy)
+    return _ignored_shared_values_changed(
+        before_table,
+        before_descriptor,
+        current_table,
+        current_descriptor,
+        policy,
+        before_rows=before_rows,
+        current_rows=current_rows,
+    )
+
+
+def _ignored_shared_values_changed(
+    before_table: SnapshotTable | None,
+    before_descriptor: SnapshotTableDescriptor,
+    current_table: SnapshotTable | None,
+    current_descriptor: SnapshotTableDescriptor,
+    policy: _ComparisonTablePolicy,
+    *,
+    before_rows: tuple[_EncodedRow, ...] | None = None,
+    current_rows: tuple[_EncodedRow, ...] | None = None,
+) -> bool:
+    if not policy.compare_excluded_columns:
+        return False
+    before_names = {column.name for column in before_descriptor.columns}
+    current_names = {column.name for column in current_descriptor.columns}
+    excluded_columns = set(policy.compare_excluded_columns) & before_names & current_names
+    if not excluded_columns:
+        return False
+    # Compare complete shared row projections as a multiset. Comparing only the
+    # excluded values loses their association with the row they came from.
+    columns = tuple(sorted(before_names & current_names))
+    if before_rows is None:
+        before_rows = _read_rows(before_table, before_descriptor, columns)
+    if current_rows is None:
+        current_rows = _read_rows(current_table, current_descriptor, columns)
+    before_content = Counter(_row_digest(row, columns).value for row in before_rows)
+    current_content = Counter(_row_digest(row, columns).value for row in current_rows)
+    return before_content != current_content
 
 
 def _build_facts(plan: ComparisonPlan, tables: tuple[ComparisonTableFact, ...]) -> ComparisonFacts:

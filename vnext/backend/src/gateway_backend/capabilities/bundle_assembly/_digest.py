@@ -9,8 +9,10 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.capabilities.bundle_assembly.contracts import (
     BUNDLE_CONTRACT_VERSION,
+    BundleArtifactKind,
     BundleArtifactManifest,
     BundleAssemblyStatus,
+    BundleClosureEntry,
     BundleInput,
     BundlePair,
     BundlePairFailure,
@@ -28,18 +30,23 @@ def integrity_payload(ref: object) -> dict[str, object]:
 
 def closure_semantic_payload(closure: BundleArtifactManifest) -> dict[str, object]:
     return {
-        "entries": [
-            {
-                "integrity": integrity_payload(item.artifact_ref),
-                "kind": item.kind.value,
-                "logical_path": item.logical_path,
-                "pair_id": item.pair_id,
-                "shared": item.shared,
-                "table_name": item.table_name,
-            }
-            for item in closure.entries
-        ]
+        "entries": [_closure_entry_payload(item) for item in closure.entries]
     }
+
+
+def _closure_entry_payload(item: BundleClosureEntry) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "integrity": integrity_payload(item.artifact_ref),
+        "kind": item.kind.value,
+        "logical_path": item.logical_path,
+        "shared": item.shared,
+    }
+    if item.kind is BundleArtifactKind.SNAPSHOT_TABLE:
+        payload["table_bindings"] = [binding.to_document() for binding in item.table_bindings]
+    else:
+        payload["pair_id"] = item.pair_id
+        payload["table_name"] = item.table_name
+    return payload
 
 
 def manifest_semantic_payload(

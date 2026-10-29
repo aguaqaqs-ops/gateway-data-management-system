@@ -64,6 +64,7 @@ from gateway_backend.application.preview_jobs import (
 )
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.bundle_assembly import (
@@ -79,7 +80,7 @@ from gateway_backend.capabilities.bundle_assembly import (
 )
 from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
-from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet, OrderedPolicy
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
 from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
@@ -102,6 +103,7 @@ from gateway_backend.capabilities.snapshot_materialization import (
 )
 from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
 from gateway_backend.capabilities.table_rules.contracts import (
+    OrderedPolicy,
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
 )
@@ -194,6 +196,7 @@ class HistoryCompareRuntimeDependencies:
     artifact_store: ArtifactStorePort
     repository_provider_factory: RepositoryProviderFactory
     control_transaction_factory: HistoryCompareControlTransactionFactory
+    snapshot_export_cache: SnapshotTableExportCachePort | None = None
 
 
 def history_compare_job_definitions() -> tuple[JobDefinition, ...]:
@@ -314,6 +317,7 @@ def history_compare_composition_bundle(
         control_transaction_factory=bind_history_compare_transaction_factory(
             deps.control_transaction_factory
         ),
+        snapshot_export_cache=deps.snapshot_export_cache,
     )
     return (
         history_compare_job_definitions(),
@@ -746,6 +750,8 @@ def _materialize_distinct_commits(
 
     requested_by_commit = _history_requested_tables(payload, bindings)
     for commit_id in distinct_commits:
+        # Comparison rows and full History bundle exports are independent demands.
+        export_tables = tuple(view.canonical_table for view in bindings[commit_id].tables)
         bound = _materialize_commit(
             repository_id=payload.repository_id,
             commit_id=commit_id,
@@ -754,6 +760,8 @@ def _materialize_distinct_commits(
             canonical_binding=bindings[commit_id],
             ruleset=runtime_ruleset,
             requested_tables=requested_by_commit[commit_id],
+            export_tables=export_tables,
+            export_cache=deps.snapshot_export_cache,
         )
         sides[commit_id] = bound
 
@@ -764,6 +772,8 @@ def _history_requested_tables(
     payload: HistoryCompareJobPayload,
     bindings: dict[str, CanonicalBinding],
 ) -> dict[str, tuple[str, ...]]:
+    """Select table rows needed for History comparisons from commit metadata."""
+
     requested: dict[str, set[str]] = {commit_id: set() for commit_id in bindings}
     for index in range(len(payload.nodes) - 1):
         before_commit = payload.nodes[index].commit_id
@@ -823,6 +833,8 @@ def _materialize_commit(
     canonical_binding: CanonicalBinding,
     ruleset: TableRulesetSnapshot,
     requested_tables: tuple[str, ...] | None = None,
+    export_tables: tuple[str, ...] | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> BoundSnapshotInput:
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
@@ -834,7 +846,9 @@ def _materialize_commit(
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
         context=ParserInvocationContext(NeverCancel()),
         requested_tables=requested_tables,
+        export_tables=export_tables,
         artifact_store=store,
+        export_cache=export_cache,
     )
     result = materialize_repository_ref(request)
     if result.status is not SnapshotMaterializationStatus.COMPLETE:
@@ -912,6 +926,9 @@ def _assemble_comparison(
                     pair_state.surface_result.surface,
                     pair_id,
                     pair_state.records_closure,
+                    before=before,
+                    current=current,
+                    include_all_tables=True,
                 ),
             )
         )

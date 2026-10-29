@@ -1,6 +1,6 @@
 # Comparison Bundle Contract
 
-> comparison-bundle v2 / preview-bundle v3 加入逐 pair identity assessment artifact、顶层 assessment-set digest 与 replacement confirmation requirement。只支持当前合同；历史产物需重新生成。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
+> comparison-bundle v2 / preview-bundle v3 加入逐 pair identity assessment artifact、顶层 assessment-set digest 与 replacement confirmation requirement。comparison-bundle v3 将 Preview/History 的完整表数据闭合为 Parquet 并按 layout 与 writer 版本复用导出。只支持当前合同；历史产物需重新生成。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
 
 本文定义 backend vNext 第一版 comparison bundle contract。Bundle 是一个或多个 `ComparisonSurface` 及其 artifacts 的闭合交付单元，可用于前端加载或下载。
 
@@ -214,17 +214,19 @@ bundle-root/
 - Snapshot/input table artifacts 可以跨 pair 复用。
 - 跨 pair 复用的 snapshot table artifact 使用 `shared/snapshot-tables/...` bundle-root ref；bundle
   pair ref rewrite 不得再次把这类 ref 改写到 `pairs/<pair_id>/shared/...`。
-- MULTI_PAIR 闭包中若出现**相同 `source_ref` 且相同 artifact kind** 的重复 binding（原本会触发
-  `DUPLICATE_SOURCE_ARTIFACT_REF`），assembler 将其提升为 `shared/{kind-segment}/{digest-suffix}/artifact`
-  （`kind-segment` 为 kind 小写；`SNAPSHOT_TABLE` 仍使用 `shared/snapshot-tables/{digest}.parquet`）。
-  该提升仅作用于重复 ref 场景；无重复 ref 的合法 bundle 布局与 digest 不变。提升后 `pair_id=None`、
-  `shared=true`，`table_name` 保留首个 binding 的值。`bundle_contract_version`
-  `backend-vnext/comparison-bundle/v2` 不因此 bump。
+- 相同内容的 snapshot table rows 使用一个 `shared/snapshot-tables/{digest}.parquet` 文件。
+  对应 closure entry 的 `table_bindings` 保留每个 pair、`before | current | browse` side 和
+  `table_name` 的绑定；共享文件不得丢弃其中任一绑定。普通 pair-scoped snapshot entry 也使用
+  单元素 `table_bindings`，不再用单个 `pair_id` / `table_name` 表示 snapshot binding。
+- MULTI_PAIR 闭包中若出现相同 `source_ref` 且相同 artifact kind 的非 snapshot binding，assembler
+  将其提升为 `shared/{kind-segment}/{digest-suffix}/artifact`。Snapshot table binding 使用上面的
+  `table_bindings` 合并规则。该结构属于 Bundle v3 Contract。
 - Upload preview 的 `before_table_ref`、`current_table_ref` 和 `browse_table_ref` 若非空，必须直接指向
   可读取的 Parquet snapshot rows；不得以 JSON descriptor 或 metadata envelope 占位。
 - Upload preview 默认只发布单侧 snapshot：current 侧存在时只发布 `current_table_ref`（包括
   unchanged、modified、schema changed 和 degraded）；仅 current 不可用且 before 存在时发布
   `before_table_ref`。两侧均不可用时不发布 row ref。
+- Preview bundle 闭合上传侧全部表以及被删除表的基线侧数据；History 每个节点闭合全部表。bundle 清单为每个 pair/node 保留表名到 Parquet ref 的绑定。相同内容的 Parquet rows 按内容地址共享，不合并或丢弃绑定。
 - `records_ref` 若非空同样必须闭合为 bundle 内 Parquet diff rows，并与其 manifest ref 一起发布。
   Bundle assembler 不得自动生成 descriptor、diff envelope 或其他 metadata 来替代这些 row artifacts。
 - Bundle artifact closure 必须覆盖最终 rewritten surface 引用的 snapshot parquet、standard/ordered
@@ -240,9 +242,13 @@ bundle-root/
   去重、cross-pair shared ref rewrite 和 Parquet export helper。三节点 history compare 中相同内容的
   snapshot rows 可以跨 `left_to_middle` / `middle_to_right` pair 共享为 `shared/snapshot-tables/...`。
 - Upload preview 和 history compare 使用同一套 snapshot Parquet cache/export capability。
-  跨 operation 持久 cache 只允许使用 `SnapshotTableDescriptor.row_layout_digest +
-  parquet_writer_contract_version` 精确命中；`fast_candidate_key` 只用于同次 dedupe、shared ref
+  跨 operation 持久 cache 只允许使用 repository scope、`SnapshotTableDescriptor.row_layout_digest +
+  parquet_writer_contract_version` 精确命中；缓存引用经 artifact protection intent 登记并按 TTL 过期。
+  schema/export layout 不同不得命中；`fast_candidate_key` 只用于同次 dedupe、shared ref
   rewrite 和 dry-run/估算，不得作为持久 cache identity。
+- Repository-ref materialization 先用 canonical identity 的 `raw_content_digest`、目录 schema、ordered
+  row metadata、repository scope 与 writer version 计算 key 并查询缓存。命中时校验并使用缓存行文件，
+  不打开 Dolt 表 reader；未命中或缓存文件校验失败时才读取规范表、导出并回填。
 - Snapshot Parquet cache hit 恢复到 bundle 时必须复制为当前 bundle 的 bundle-relative
   Parquet artifact ref，并进入统一 artifact closure；cache-local artifact ref 不得出现在
   surface、preview index 或 bundle manifest 中。
@@ -293,8 +299,10 @@ ComparisonBundleArtifactClosure:
   shared_snapshot_artifacts optional
 ```
 
-Bundle v2 的 closure entry 至少包含 `logical_path`、final `artifact_ref`、kind、size/raw digest
-和 pair/shared scope。Bundle assembler 会对 JSON closure 中嵌套的 ArtifactRef 做确定性 rewrite，
+Bundle v3 的 closure entry 至少包含 `logical_path`、final `artifact_ref`、kind、size/raw digest
+和 pair/shared scope。`SNAPSHOT_TABLE` entry 使用按 `(pair_id, side, table_name)` 排序的非空
+`table_bindings`；同一内容文件可绑定到多个 pair/table。其他 kind 使用 `pair_id` / `table_name`
+表达单一 scope。Bundle assembler 会对 JSON closure 中嵌套的 ArtifactRef 做确定性 rewrite，
 拒绝未声明 ref、重复 entry、环依赖、非法 path 或 integrity mismatch。写入 manifest、closure
 和所有 referenced artifacts 并完成回读校验前，不返回 READY/DEGRADED public result。
 

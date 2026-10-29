@@ -41,7 +41,18 @@ class _ExecutorThread(Protocol):
     def join(self) -> None: ...
 
 
+class _WakeEvent(Protocol):
+    def clear(self) -> None: ...
+
+    def is_set(self) -> bool: ...
+
+    def set(self) -> None: ...
+
+    def wait(self, timeout: float | None = None) -> bool: ...
+
+
 ThreadFactory = Callable[[Callable[[], None]], _ExecutorThread]
+WakeEventFactory = Callable[[], _WakeEvent]
 Wait = Callable[[float], bool]
 DrainRequested = Callable[[], bool]
 Jitter = Callable[[float, float], float]
@@ -78,6 +89,7 @@ class WorkerRuntime:
         "_monotonic",
         "_lifecycle",
         "_thread_factory",
+        "_wake_event",
         "_jitter",
         "_heartbeat_interval",
         "_lease_duration",
@@ -95,6 +107,7 @@ class WorkerRuntime:
         lifecycle: WorkerLifecycleController | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         thread_factory: ThreadFactory = _new_executor_thread,
+        wake_event_factory: WakeEventFactory = threading.Event,
         jitter: Jitter = _default_jitter,
         heartbeat_interval: float = _DEFAULT_HEARTBEAT_INTERVAL,
         lease_duration: float = LEASE_DURATION.total_seconds(),
@@ -114,6 +127,8 @@ class WorkerRuntime:
             raise ValueError("monotonic must be callable")
         if not callable(thread_factory):
             raise ValueError("thread_factory must be callable")
+        if not callable(wake_event_factory):
+            raise ValueError("wake_event_factory must be callable")
         if not callable(jitter):
             raise ValueError("jitter must be callable")
         for value, label in (
@@ -135,12 +150,18 @@ class WorkerRuntime:
         self._monotonic = monotonic
         self._lifecycle = lifecycle or WorkerLifecycleController(monotonic=monotonic)
         self._thread_factory = thread_factory
+        self._wake_event = wake_event_factory()
         self._jitter = jitter
         self._heartbeat_interval = float(heartbeat_interval)
         self._lease_duration = float(lease_duration)
         self._idle_poll = float(idle_poll)
         self._busy_backoff_min = float(busy_backoff_min)
         self._busy_backoff_max = float(busy_backoff_max)
+
+    def notify_stop_signal(self) -> None:
+        """Wake an active executor supervisor after the process stop event is set."""
+
+        self._wake_event.set()
 
     def run(self, drain_requested: DrainRequested, wait: Wait) -> None:
         """Run until clean drain, timeout supervision, or a worker-fatal condition."""
@@ -191,7 +212,7 @@ class WorkerRuntime:
                 self._wait_interruptibly(self._idle_poll, drain_requested, wait)
                 continue
 
-            self._run_claim(work, drain_requested, wait, claim_anchor=claim_anchor)
+            self._run_claim(work, drain_requested, claim_anchor=claim_anchor)
             state: WorkerLifecycle = self._lifecycle.state
             if state is WorkerLifecycle.QUIESCED:
                 self._finish_clean_drain()
@@ -203,7 +224,6 @@ class WorkerRuntime:
         self,
         work: ClaimedWork,
         drain_requested: DrainRequested,
-        wait: Wait,
         *,
         claim_anchor: float,
     ) -> None:
@@ -214,6 +234,7 @@ class WorkerRuntime:
         if not isinstance(lease_token, str) or not lease_token:
             raise ValueError("claimed step must have a lease_token")
 
+        self._wake_event.clear()
         control = ExecutionControl()
         session = LeaseSession(
             worker_id=worker_id,
@@ -247,6 +268,7 @@ class WorkerRuntime:
                 outcome.error = error
             finally:
                 completed.set()
+                self._wake_event.set()
 
         thread = self._thread_factory(execute)
         if thread.daemon:
@@ -254,6 +276,8 @@ class WorkerRuntime:
         thread.start()
 
         pending_drain = self._lifecycle.state is WorkerLifecycle.DRAINING
+        if pending_drain or drain_requested():
+            self._wake_event.set()
         next_heartbeat = claim_anchor + self._heartbeat_interval
 
         try:
@@ -273,7 +297,6 @@ class WorkerRuntime:
                         pending_drain=pending_drain,
                         lease_deadline=lease_deadline,
                         drain_requested=drain_requested,
-                        wait=wait,
                     )
                     if heartbeat_succeeded:
                         assert renewal_anchor is not None
@@ -290,11 +313,8 @@ class WorkerRuntime:
                 ):
                     timeout = min(timeout, max(0.0, drain_deadline - now))
 
-                if pending_drain:
-                    completed.wait(timeout)
-                elif self._wait_interruptibly(timeout, drain_requested, wait):
-                    pending_drain = True
-                    self._observe_drain_intent(drain_requested, control)
+                self._wake_event.wait(timeout)
+                self._wake_event.clear()
         except BaseException:
             thread.join()
             raise
@@ -316,7 +336,6 @@ class WorkerRuntime:
         pending_drain: bool,
         lease_deadline: float,
         drain_requested: DrainRequested,
-        wait: Wait,
     ) -> tuple[bool, bool, float | None]:
         retry_attempt = 0
         while True:
@@ -350,11 +369,10 @@ class WorkerRuntime:
                 delay = self._backoff_delay(retry_attempt)
                 if delay > remaining:
                     delay = remaining
-                if pending_drain:
-                    completed.wait(delay)
-                elif self._wait_interruptibly(delay, drain_requested, wait):
-                    pending_drain = True
-                    self._observe_drain_intent(drain_requested, control)
+                self._wake_event.wait(delay)
+                self._wake_event.clear()
+                self._observe_drain_intent(drain_requested, control)
+                pending_drain = pending_drain or self._lifecycle.state is WorkerLifecycle.DRAINING
                 continue
             except (StaleWrite, LeaseExpired):
                 if session.completion_acknowledgment() is not None:

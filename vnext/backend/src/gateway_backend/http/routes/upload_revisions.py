@@ -18,6 +18,7 @@ from gateway_backend.http.orchestration.source_package_admission import (
     UploadClosureInvalidError,
     UploadLimitExceededError,
     UploadMediaUnsupportedError,
+    UploadStreamTimeoutError,
 )
 from gateway_backend.http.schemas.upload import UploadRevisionResponse
 
@@ -34,6 +35,7 @@ router = APIRouter(tags=["upload"])
         404: {"description": "RESOURCE_NOT_FOUND"},
         409: {"description": "IDEMPOTENCY_CONFLICT or WORKSPACE_VERSION_CONFLICT"},
         413: {"description": "UPLOAD_LIMIT_EXCEEDED"},
+        408: {"description": "UPLOAD_STREAM_TIMEOUT"},
         415: {"description": "UPLOAD_MEDIA_UNSUPPORTED"},
         422: {"description": "REQUEST_VALIDATION_FAILED or UPLOAD_CLOSURE_INVALID"},
         429: {"description": "ADMISSION_LIMIT_REACHED"},
@@ -74,6 +76,13 @@ async def accept_upload_route(
                 artifact_store=deps.artifact_store,
                 now=deps.now(),
             )
+        except UploadStreamTimeoutError as exc:
+            raise ApiError(
+                code="UPLOAD_STREAM_TIMEOUT",
+                message="upload stream timed out",
+                status_code=408,
+                details={"reason": exc.reason.value},
+            ) from exc
         except UploadLimitExceededError as exc:
             raise ApiError(
                 code="UPLOAD_LIMIT_EXCEEDED",

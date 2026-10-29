@@ -1,6 +1,6 @@
 # Comparison Surface Contract
 
-> v2 增加 Dataset Replacement surface：`comparison_mode`、identity assessment ref/digest、`REPLACED`、`DATASET_REPLACEMENT` processing mode 与 `REPLACEMENT_SIDE_BY_SIDE`。两侧 snapshot 必须独立浏览，禁止构造 row pair。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
+> v2 增加 Dataset Replacement surface：`comparison_mode`、identity assessment ref/digest、`REPLACED`、`DATASET_REPLACEMENT` processing mode 与 `REPLACEMENT_SIDE_BY_SIDE`。v3 增加 `schema_evolution` 并定义整表新增/删除浏览。两侧 snapshot 必须独立浏览，禁止构造 row pair。详见 `../capabilities/project-identity-and-dataset-replacement.md`。
 
 本文定义 backend vNext 第一版 `ComparisonSurface` contract。Surface 是面向前端和 Workbench 的 flow-neutral 展示结构：它消费 comparison/risk 的已完成事实和 artifact refs，不计算 diff，不计算 risk，不承载 upload、submit 或 history compare 的业务绑定语义。
 
@@ -161,6 +161,20 @@ SurfaceTable:
   ordered_extension optional
 ```
 
+`schema_summary`：
+
+```text
+SchemaSummary:
+  before_only_columns
+  current_only_columns
+  selected_columns
+  effective_compare_key_before
+  effective_compare_key_current
+  effective_compare_key_changed
+  incompatible_columns
+  schema_evolution: NONE | COLUMNS_ADDED | COLUMNS_REMOVED | INCOMPATIBLE
+```
+
 `SurfaceProjectionRef`：
 
 ```text
@@ -199,6 +213,8 @@ FAILED
 - Business identity 如 `dev_addr`、`gid`、`board/link` 属于 projection artifact；compare key 属于 comparison/table rules 和 diagnostics。
 - `BUSINESS_EQUIVALENT` 可展示为业务无变化，但 diagnostics 必须保留 raw/projection basis。
 - `FAILED` 或 `DEGRADED` 表必须保留 review/diagnostics 入口。
+- `ADDED_TABLE` 使用 `TABLE_BROWSE` 并通过 `current_table_ref` 浏览新增表；`DELETED_TABLE` 使用 `TABLE_BROWSE` 并通过 `before_table_ref` 浏览删除表。两者不依赖逐行 records。
+- `schema_evolution=COLUMNS_ADDED` 保留分类，但 `current_only_columns` 为空，surface 不向 Preview、Submission 或 History 展示新增列清单。
 - 第一版不为 ordered table 生成 move/interval 展示，只表达 degraded/unsupported 或普通表结果。
 
 ## Refs
@@ -230,7 +246,8 @@ diagnostics:
 - 所有 `*_ref` 必须是 operation-relative 或 bundle-relative logical ref。
 - 不允许 host path、cache-local path、repository ref、commit hash 或 Dolt internal path。
 - `records_ref` 不进入 `comparison_digest`；surface/bundle restore 可以重写。
-- `row_layout_digest` 是跨 operation snapshot parquet cache 的唯一持久命中 identity；
+- 跨 operation snapshot Parquet export cache 的键为 repository scope、`row_layout_digest` 与
+  Parquet writer contract version；
   `fast_candidate_key` 不得出现在 surface refs 中，也不得作为持久 cache identity。它只服务于
   同次 snapshot ref dedupe、cross-pair shared refs 和性能估算。
 - 如果 surface 暴露 records/risk refs，operation READY 前必须有完整 artifact closure。
@@ -362,7 +379,7 @@ ordered_extension:
 
 ## S4 reference contract realization
 
-当前 Python contract realization 使用 `backend-vnext/comparison-surface/v2`，公共类型位于
+当前 Python contract realization 使用 `backend-vnext/comparison-surface/v3`，公共类型位于
 `gateway_backend.capabilities.surface_assembly.contracts`。`SurfaceAssemblyInput` 只接受
 `ComparisonFacts`、可选 `ComparisonRecordsClosure`、可选 `RiskReport`/annotation closure
 以及显式 artifact index；`SurfaceAssemblyResult` 在 `READY` 以外的 terminal status 不携带

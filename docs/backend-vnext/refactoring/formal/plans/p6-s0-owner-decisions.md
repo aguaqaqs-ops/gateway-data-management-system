@@ -51,6 +51,7 @@ implementation_authorized: no
 | DC60 | S1a 初审修订：语句字节规则与重跑范围 | — | — |
 | DC61 | worker 在 step 完成后立即唤醒；镜像构建脚本的锁快照清理 | — | — |
 | DC62 | S1b kickoff 确认：选择器形式、解析器语义、上传超时错误码、诊断项、真实数据范围与授权 | — | — |
+| DC63 | S1b exit：N1-1 测量限制的处置与真实数据范围确认 | — | — |
 
 ## 2. 决议详情
 
@@ -392,6 +393,15 @@ implementation_authorized: no
   5. **真实数据范围（DC33）：** t1–t4 完整旅程（t1–t3 在 05，t4 在 ct108；t3 覆盖只增列）。另核对：t1–t4 的 step 间隔（DC61）；补键 11 张表的比较结果（重点为有数据的 4 张 `forwardtbl_lst_*`、`comm_user_data`、`mms_rp_cdc_index`）；新增 BROWSE_ONLY 的 17 张表的处理结果；重复导出命中导出缓存。
   6. **实施授权：** 授权 S1b，范围为设计 §5.1–§5.8 及对应的 Contract 与 golden 修订（含 DC56 规则改动、DC61）。
 - **落点**：[详细设计](p6-design.md) §5.2、§5.4、§5.5、§17 开放项表；[执行计划](p6-execution-plan.md) §2 S1b；DC56 第 1 项注明选择器形式。
+
+### DC63 S1b exit：N1-1 处置与真实数据范围确认
+
+- **来源**：[S1b 终审](p6-s1b-final-review.md) §4。DC62 第 4 项要求 handoff 记录 t4 的 checkpoint 读取与 bundle 段耗时并与 S1a 对比，但限定只用现有旅程输出与 step 时间戳、不在产品中加计时插桩；S1a 的子段数值来自不进入候选的诊断分支（DC59），而 S1b 把 Parquet 导出移入 `materialize_inputs`，step 级数值无法与 S1a 的子段一一对应（审核 N1-1）。
+- **决议**（repository owner，2026-10-29）：
+  1. **N1-1：** 接受测量限制。S1b handoff 的 step 级记录视为满足 DC62 第 4 项在给定手段下可达的范围：t4 History API 312.889 s（S1a）→ 361.051 s（`materialize_inputs` 216.440 s、assemble 142.544 s），增加部分对应两节点各 312 张表整表导出与绑定的新 Contract 成本。checkpoint 读取与 bundle 子段的拆分转交“重建对照基准”，在 ct108 独占测量中以不进入候选的诊断计时完成；仍未消除的差距按 DC62 第 4 项转 S2b kickoff。S1b 不再为此修改产品代码。
+  2. **真实数据范围（DC33）：** 确认 DC62 第 5 项的范围为 S1b 的真实数据证据：代码候选 `020deda2fd` 上的 t1–t4 完整旅程（t1–t3 在 05，t4 在 ct108），以及 step 间隔、补键 11 张表、BROWSE_ONLY 17 张表与重复导出命中缓存的核对（handoff 与终审 §3.2）。
+  3. **不阻塞遗留项（终审 §4.3）：** 登记，不在本决议中定处置：O1（`bootstrap/operation_worker.py` 信号处理在主线程调用 `Event.set` 的窄自锁窗口，S1b 前已存在）列入 worker runtime 后续维护；O2（JSON `1e400` 经 `json.loads` 得到 inf，绕过 DC62 第 2 项 e 的非有限值拒绝）作为语义确认项列入 S2a kickoff。
+- **落点**：[执行计划](p6-execution-plan.md) §2 S1b 状态与“重建对照基准”内容；[S1b handoff](p6-s1b-handoff.md) 状态。
 
 ## 3. 设计阶段待定项
 

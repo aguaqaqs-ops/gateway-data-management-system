@@ -87,11 +87,13 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
   - 权威 runner 与容器门禁。
 - 真实数据：t1–t4 完整旅程；t3 覆盖只增列（即原 testdata1）。另核对 step 间隔（DC61）、补键 11 张表的比较结果、新增 BROWSE_ONLY 17 张表的处理、重复导出命中导出缓存；t4 的 checkpoint 读取与 bundle 段耗时与 S1a 对比，不设门槛（DC62 第 4、5 项）。
 - **kickoff 确认与授权（repository owner，2026-10-28）：** DC62；授权 S1b，范围为设计 §5.1–§5.8 及对应的 Contract 与 golden 修订。
+- **状态：已通过（repository owner，2026-10-29）。** 代码候选 `020deda2fd`，handoff `1b3449c00a`（[S1b handoff](p6-s1b-handoff.md)）；[首次审核](p6-s1b-independent-review.md)与[第二审核人报告](p6-s1b-independent-review-b.md)结论为定向修订（F1–F4、N1），[第 1 次复审](p6-s1b-independent-rereview-1.md)新增 F5，[第 2 次复审](p6-s1b-independent-rereview-2.md)通过，[终审](p6-s1b-final-review.md)判定具备 exit 条件。验收证据均绑定 `020deda2fd`：04 权威 runner（backend 与 repository_service 运行，其余四包沿用 V=`91401f0146`，RS 镜像按 label carried）、05 t1–t3、ct108 t4 与最终卷只读审计；N1-1 按 DC63 第 1 项接受测量限制，真实数据范围按 DC63 第 2 项确认（DC33）。合入（`321f3b8523`）后在 04 原门禁 worktree 对 exit 提交做 carried，附注 tag `p6-s1b-exit`。
 
 ### 重建对照基准
 
 - 前置：S1b exit。
 - 内容：设计 §6，覆盖设计 §16.3 验收矩阵中的全部场景；记录写入基准 handoff，作为 S2a–S6 的对照。
+- 另含：t4 checkpoint 读取与 bundle 子段的拆分，用不进入候选的诊断计时完成，与 S1a 子段对照；未消除的差距转 S2b kickoff（DC63 第 1 项）。
 - 节点：`ct108-gw-dms` 独占。
 
 ### S2a — SQL 解析器

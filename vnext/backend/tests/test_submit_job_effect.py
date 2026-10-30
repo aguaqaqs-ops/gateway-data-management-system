@@ -22,7 +22,9 @@ from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
 from gateway_backend.application.payloads import CheckpointDecodeError
 from gateway_backend.application.recovery import (
+    DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+    DIAGNOSTIC_RECONCILE_TIMEOUT,
     RecoveryOutcomeDisposition,
 )
 import gateway_backend.application.submit_jobs as submit_jobs
@@ -341,6 +343,7 @@ class _ImmediatePollTimeout:
 class _ImmediatePollTransportError:
     def __init__(self, delegate: object) -> None:
         self._delegate = delegate
+        self.deadlines: list[float | None] = []
 
     def __getattr__(self, name: str) -> object:
         return getattr(self._delegate, name)
@@ -352,7 +355,8 @@ class _ImmediatePollTransportError:
         operation_id: str,
         deadline_seconds: float | None = None,
     ) -> RepositoryImportOperation:
-        del repository_id, operation_id, deadline_seconds
+        del repository_id, operation_id
+        self.deadlines.append(deadline_seconds)
         raise RepositoryWriteTransportError("simulated unknown poll result")
 
 
@@ -766,6 +770,225 @@ def test_healthy_wait_past_repository_bound_requires_manual_recovery(tmp_path: P
 
 
 @pytest.mark.serial
+def test_resume_reconcile_after_wait_upper_bound_accepts_succeeded_operation(
+    tmp_path: Path,
+) -> None:
+    control_clock = {"value": datetime.now(UTC)}
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(default_repository_handler),
+        control_clock=control_clock,
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    _, manual_step = _timeout_await_step_until_manual_recovery(
+        harness,
+        await_work,
+        operation_id,
+    )
+    started_at = manual_step.started_at
+    assert started_at is not None
+    control_clock["value"] = started_at + timedelta(
+        seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS + 1
+    )
+    resumed_work = _resume_manual_await_and_claim(harness, operation_id)
+
+    manifest_digest = _prepare_manifest_digest(harness, operation_id)
+    clock = _InjectedPollClock(control_clock["value"])
+    transport = RecordingTransport(_operation_poll_handler(manifest_digest))
+    write_client = replace(
+        cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write),
+        transport=transport,
+        clock=clock.monotonic,
+        sleeper=clock.sleep,
+    )
+    poll_client = _RecordingPollClient(write_client)
+    deps = replace(
+        harness.submit_deps,
+        repository_write=cast(RepositoryWritePort, poll_client),
+        now_factory=clock.now,
+    )
+    worker_id, lease_token = _await_lease_identity(resumed_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation_id,
+        step_id=resumed_work.step.step_id,
+    )
+
+    assert (
+        build_await_import_result_handler(deps)(
+            resumed_work.operation,
+            resumed_work.step,
+            control,
+            session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+        attempt = unit_of_work.submission.get_submit_attempt(
+            next(ref.value for ref in operation.business_refs if ref.kind == "submit_attempt")
+        )
+    assert poll_client.deadlines == [5.0]
+    assert operation.status is OperationStatus.SUCCEEDED
+    assert step.status is StepStatus.SUCCEEDED
+    assert attempt is not None
+    assert attempt.state is SubmitAttemptState.FINALIZED
+
+
+@pytest.mark.serial
+def test_terminal_operation_returned_at_wait_upper_bound_completes_submit(
+    tmp_path: Path,
+) -> None:
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(default_repository_handler),
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    started_at = await_work.step.started_at
+    assert started_at is not None
+    clock = _InjectedPollClock(
+        started_at
+        + timedelta(seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS - 5.0)
+    )
+    manifest_digest = _prepare_manifest_digest(harness, operation_id)
+    write_client = replace(
+        cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write),
+        transport=RecordingTransport(_operation_poll_handler(manifest_digest)),
+        clock=clock.monotonic,
+        sleeper=clock.sleep,
+    )
+
+    class _TerminalAtPollDeadline:
+        def __init__(self, delegate: HttpRepositoryWriteClient) -> None:
+            self._delegate = delegate
+            self.deadlines: list[float | None] = []
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._delegate, name)
+
+        def wait_operation(
+            self,
+            *,
+            repository_id: str,
+            operation_id: str,
+            deadline_seconds: float | None = None,
+        ) -> RepositoryImportOperation:
+            self.deadlines.append(deadline_seconds)
+            result = self._delegate.wait_operation(
+                repository_id=repository_id,
+                operation_id=operation_id,
+                deadline_seconds=deadline_seconds,
+            )
+            clock.advance_wall(deadline_seconds or 0.0)
+            return result
+
+    poll_client = _TerminalAtPollDeadline(write_client)
+    deps = replace(
+        harness.submit_deps,
+        repository_write=cast(RepositoryWritePort, poll_client),
+        now_factory=clock.now,
+    )
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation_id,
+        step_id=await_work.step.step_id,
+    )
+
+    assert (
+        build_await_import_result_handler(deps)(
+            await_work.operation,
+            await_work.step,
+            control,
+            session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+    assert poll_client.deadlines == [5.0]
+    assert clock.now() == started_at + timedelta(
+        seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS
+    )
+    assert operation.status is OperationStatus.SUCCEEDED
+    assert step.status is StepStatus.SUCCEEDED
+
+
+@pytest.mark.serial
+@pytest.mark.parametrize("failure_kind", ("timeout", "transport"))
+def test_poll_failure_after_wait_upper_bound_requires_manual_recovery(
+    tmp_path: Path,
+    failure_kind: str,
+) -> None:
+    control_clock = {"value": datetime.now(UTC)}
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=RecordingTransport(default_repository_handler),
+        control_clock=control_clock,
+    )
+    await_work, operation_id = _run_submit_to_await_claim(harness)
+    started_at = await_work.step.started_at
+    assert started_at is not None
+    clock = _InjectedPollClock(
+        started_at + timedelta(seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS + 1)
+    )
+    failure_client = (
+        _ImmediatePollTimeout(harness.submit_deps.repository_write)
+        if failure_kind == "timeout"
+        else _ImmediatePollTransportError(harness.submit_deps.repository_write)
+    )
+    deps = replace(
+        harness.submit_deps,
+        repository_write=cast(RepositoryWritePort, failure_client),
+        now_factory=clock.now,
+    )
+    worker_id, lease_token = _await_lease_identity(await_work)
+    control, session = _lease_session(
+        harness,
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=operation_id,
+        step_id=await_work.step.step_id,
+    )
+
+    assert (
+        build_await_import_result_handler(deps)(
+            await_work.operation,
+            await_work.step,
+            control,
+            session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        operation = unit_of_work.operations.get_operation(operation_id)
+        step = unit_of_work.operations.get_step(
+            submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
+        )
+    assert failure_client.deadlines == [5.0]
+    assert operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
+    assert step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
+    assert step.diagnostic is not None
+    assert step.diagnostic.code == DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED.upper()
+
+
+@pytest.mark.serial
 def test_drain_and_shutdown_handoff_after_one_bounded_poll(tmp_path: Path) -> None:
     control_clock = {"value": datetime.now(UTC)}
     harness = build_submit_worker_harness(
@@ -839,33 +1062,19 @@ def test_drain_and_shutdown_handoff_after_one_bounded_poll(tmp_path: Path) -> No
     assert step.attempt_count == 1
 
 
-COUNTED_POLL_FAILURE_CLIENTS: tuple[str, ...] = (
-    "transport_error",
-    "operation_identity_mismatch",
-)
-
-
 @pytest.mark.serial
-@pytest.mark.parametrize("failure_kind", COUNTED_POLL_FAILURE_CLIENTS)
-def test_transport_and_identity_failures_exhaust_three_reconcile_sessions(
-    tmp_path: Path,
-    failure_kind: str,
-) -> None:
+def test_transport_failures_exhaust_three_reconcile_sessions(tmp_path: Path) -> None:
     harness = build_submit_worker_harness(
         tmp_path,
         repository_base_url="http://repository.test",
         transport=RecordingTransport(default_repository_handler),
     )
     await_work, operation_id = _run_submit_to_await_claim(harness)
-    client_type = {
-        "transport_error": _ImmediatePollTransportError,
-        "operation_identity_mismatch": _ImmediateOperationIdentityMismatch,
-    }[failure_kind]
     deps = replace(
         harness.submit_deps,
         repository_write=cast(
             RepositoryWritePort,
-            client_type(harness.submit_deps.repository_write),
+            _ImmediatePollTransportError(harness.submit_deps.repository_write),
         ),
     )
     handler = build_await_import_result_handler(deps)
@@ -1242,9 +1451,21 @@ def test_await_import_result_disallowed_failure_marks_manual_recovery(tmp_path: 
     assert workspace_occupancy is not None
 
 
-@pytest.mark.parametrize("failure_kind", ("transport", "request_fingerprint"))
-def test_transport_and_request_fingerprint_failures_are_counted_reconcile_outcomes(
+@pytest.mark.parametrize(
+    ("failure_kind", "expected_disposition", "expected_diagnostic"),
+    (
+        ("transport", RecoveryOutcomeDisposition.RECONCILE_PENDING, DIAGNOSTIC_RECONCILE_TIMEOUT),
+        (
+            "request_fingerprint",
+            RecoveryOutcomeDisposition.MANUAL_RECOVERY,
+            DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
+        ),
+    ),
+)
+def test_submit_recovery_classifies_transport_and_identity_mismatch(
     failure_kind: str,
+    expected_disposition: RecoveryOutcomeDisposition,
+    expected_diagnostic: str,
 ) -> None:
     error: BaseException
     if failure_kind == "transport":
@@ -1256,7 +1477,8 @@ def test_transport_and_request_fingerprint_failures_are_counted_reconcile_outcom
         )
     outcome = submit_jobs._map_handler_failure_to_recovery_outcome(error)
     assert outcome is not None
-    assert outcome.disposition is RecoveryOutcomeDisposition.RECONCILE_PENDING
+    assert outcome.disposition is expected_disposition
+    assert outcome.diagnostic_code == expected_diagnostic
 
 
 def _run_await_binding_mismatch_case(
@@ -1332,11 +1554,11 @@ def test_await_import_rejects_mismatched_repository_operation_id(tmp_path: Path)
         tmp_path,
         operation_id_override="00000000-0000-0000-0000-000000000099",
     )
-    assert operation_status is OperationStatus.RUNNING
+    assert operation_status is OperationStatus.MANUAL_RECOVERY_REQUIRED
     assert attempt_state is SubmitAttemptState.EFFECT_PENDING
-    assert step_status is StepStatus.RETRY_WAIT
+    assert step_status is StepStatus.MANUAL_RECOVERY_REQUIRED
     assert attempt_count == 1
-    assert diagnostic_code == "R5.EFFECT_IDENTITY_MISMATCH"
+    assert diagnostic_code == DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH.upper()
 
 
 def test_await_import_rejects_mismatched_expected_commit_id(tmp_path: Path) -> None:
@@ -1476,6 +1698,156 @@ def test_submit_import_aborts_before_effect_pending_on_upload_metadata_mismatch(
     assert attempt is not None
     assert attempt.state is SubmitAttemptState.PREPARED
     assert attempt.repository_artifact_ref is None
+
+
+@pytest.mark.serial
+def test_submit_import_recovery_counts_transport_failure_and_reuses_idempotency_key(
+    tmp_path: Path,
+) -> None:
+    control_clock = {"value": datetime.now(UTC)}
+    import_attempts = 0
+    operation_creations = 0
+    operations_by_key: dict[str, str] = {}
+    idempotency_keys: list[str] = []
+    repository_operation_id = "018f0f3e-7b0a-7c17-8a9e-2e4b9f4d2c11"
+
+    def _repository_with_lost_import_responses(request: httpx.Request) -> httpx.Response:
+        nonlocal import_attempts, operation_creations
+        if request.url.path.endswith("/versioned/imports") and request.method == "POST":
+            import_attempts += 1
+            idempotency_key = request.headers["Idempotency-Key"]
+            idempotency_keys.append(idempotency_key)
+            if idempotency_key not in operations_by_key:
+                operations_by_key[idempotency_key] = repository_operation_id
+                operation_creations += 1
+            if import_attempts <= 6:
+                raise httpx.ConnectError("response lost after Repository accepted the import")
+            return httpx.Response(
+                202,
+                json={"operation_id": operations_by_key[idempotency_key]},
+                headers={"X-Request-ID": "req-import-replayed"},
+            )
+        return default_repository_handler(request)
+
+    transport = RecordingTransport(_repository_with_lost_import_responses)
+    harness = build_submit_worker_harness(
+        tmp_path,
+        repository_base_url="http://repository.test",
+        transport=transport,
+        control_clock=control_clock,
+    )
+    gateway_operation_id = _accept_prepared_operation(
+        harness.db_path,
+        harness.artifact_store,
+        repository_id=_HANDLER_REPOSITORY_UUID,
+    )
+    _run_prepare_handler(
+        harness.db_path,
+        harness.artifact_store,
+        gateway_operation_id,
+        control_now=harness.submit_deps.now_factory,
+    )
+    startup = harness.runtime._startup
+    assert startup.startup() is StartupDisposition.READY
+    first_work = startup.claim_one()
+    assert first_work is not None
+    first_control, first_session = _lease_session(
+        harness,
+        worker_id=first_work.step.worker_id or "",
+        lease_token=first_work.step.lease_token or "",
+        operation_id=gateway_operation_id,
+        step_id=first_work.step.step_id,
+    )
+
+    with pytest.raises(RepositoryWriteTransportError):
+        first_work.executor(
+            first_work.operation,
+            first_work.step,
+            first_control,
+            first_session,
+        )
+
+    assert import_attempts == 3
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        failed_step = unit_of_work.operations.get_step(
+            submit_step_id(gateway_operation_id, SUBMIT_STEP_SUBMIT)
+        )
+    assert failed_step.checkpoint_ref is not None
+    assert failed_step.attempt_count == 1
+    assert failed_step.lease_expires_at is not None
+    control_clock["value"] = failed_step.lease_expires_at + timedelta(seconds=1)
+    assert startup.startup() is StartupDisposition.RETRYABLE_BLOCK
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        startup_retry = unit_of_work.operations.get_step(
+            submit_step_id(gateway_operation_id, SUBMIT_STEP_SUBMIT)
+        )
+    assert startup_retry.status is StepStatus.RETRY_WAIT
+    assert startup_retry.retry_not_before is not None
+    control_clock["value"] = startup_retry.retry_not_before
+    assert startup.startup() is StartupDisposition.READY
+    second_work = startup.claim_one()
+    assert second_work is not None
+    assert second_work.step.attempt_count == 2
+    second_control, second_session = _lease_session(
+        harness,
+        worker_id=second_work.step.worker_id or "",
+        lease_token=second_work.step.lease_token or "",
+        operation_id=gateway_operation_id,
+        step_id=second_work.step.step_id,
+    )
+    assert second_work.executor(
+        second_work.operation,
+        second_work.step,
+        second_control,
+        second_session,
+    ) is ExecutorAcknowledgment.PUBLISHED
+
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        counted_retry = unit_of_work.operations.get_step(
+            submit_step_id(gateway_operation_id, SUBMIT_STEP_SUBMIT)
+        )
+    assert import_attempts == 6
+    assert counted_retry.status is StepStatus.RETRY_WAIT
+    assert counted_retry.attempt_count == 2
+    assert counted_retry.retry_not_before is not None
+    control_clock["value"] = counted_retry.retry_not_before
+    third_work = startup.claim_one()
+    assert third_work is not None
+    assert third_work.step.attempt_count == 3
+    third_control, third_session = _lease_session(
+        harness,
+        worker_id=third_work.step.worker_id or "",
+        lease_token=third_work.step.lease_token or "",
+        operation_id=gateway_operation_id,
+        step_id=third_work.step.step_id,
+    )
+
+    assert (
+        third_work.executor(
+            third_work.operation,
+            third_work.step,
+            third_control,
+            third_session,
+        )
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+
+    assert import_attempts == 7
+    assert operation_creations == 1
+    assert len(idempotency_keys) == 7
+    assert len(set(idempotency_keys)) == 1
+    assert idempotency_keys[0]
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        completed_step = unit_of_work.operations.get_step(
+            submit_step_id(gateway_operation_id, SUBMIT_STEP_SUBMIT)
+        )
+        await_step = unit_of_work.operations.get_step(
+            submit_step_id(gateway_operation_id, SUBMIT_STEP_AWAIT)
+        )
+    assert completed_step.status is StepStatus.SUCCEEDED
+    assert completed_step.attempt_count == 3
+    assert await_step.status is StepStatus.PENDING
 
 
 def test_await_import_pins_checkpoint_and_evidence_protection(

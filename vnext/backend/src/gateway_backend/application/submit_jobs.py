@@ -863,15 +863,9 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
             )
             now = _submit_now(deps)
             remaining_wait_seconds = (wait_upper_bound_at - now).total_seconds()
-            if remaining_wait_seconds <= 0:
-                return _publish_wait_upper_bound_exceeded(
-                    step=step,
-                    lease_session=lease_session,
-                    now=now,
-                )
             poll_deadline_seconds = min(
                 SUBMIT_IMPORT_POLL_DEADLINE_SECONDS,
-                remaining_wait_seconds,
+                max(remaining_wait_seconds, 5.0),
             )
             try:
                 repository_operation = deps.repository_write.wait_operation(
@@ -905,20 +899,26 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 )
 
             now = _submit_now(deps)
-            if now >= wait_upper_bound_at:
-                return _publish_wait_upper_bound_exceeded(
-                    step=step,
-                    lease_session=lease_session,
-                    now=now,
-                )
             if repository_operation.operation_id != submit_state.repository_operation_id:
-                return _publish_counted_reconcile_pending(
+                return _publish_manual_recovery(
                     step=step,
-                    control=control,
                     lease_session=lease_session,
                     now=now,
                     diagnostic_code=DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
                     reason="Repository operation identity does not match the Submit checkpoint",
+                )
+            if (
+                repository_operation.status
+                in {
+                    RepositoryOperationStatus.QUEUED,
+                    RepositoryOperationStatus.RUNNING,
+                }
+                and now >= wait_upper_bound_at
+            ):
+                return _publish_wait_upper_bound_exceeded(
+                    step=step,
+                    lease_session=lease_session,
+                    now=now,
                 )
 
         if repository_operation.status in {
@@ -1371,6 +1371,23 @@ def _publish_wait_upper_bound_exceeded(
     lease_session: LeaseSession,
     now: datetime,
 ) -> ExecutorAcknowledgment:
+    return _publish_manual_recovery(
+        step=step,
+        lease_session=lease_session,
+        now=now,
+        diagnostic_code=DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED,
+        reason="Repository import wait exceeded its upper bound (超出等待上界)",
+    )
+
+
+def _publish_manual_recovery(
+    *,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    now: datetime,
+    diagnostic_code: str,
+    reason: str,
+) -> ExecutorAcknowledgment:
     intent = transition_for_outcome(
         RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
         capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
@@ -1380,10 +1397,7 @@ def _publish_wait_upper_bound_exceeded(
         now=now,
         jitter=lambda base, _cap: base,
     )
-    diagnostic = OperationDiagnostic(
-        code=DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED.upper(),
-        message="Repository import wait exceeded its upper bound (超出等待上界)",
-    )
+    diagnostic = OperationDiagnostic(code=diagnostic_code.upper(), message=reason)
     return lease_session.publish_recovery_release(intent, diagnostic=diagnostic)
 
 
@@ -1395,7 +1409,7 @@ def _map_handler_failure_to_recovery_outcome(
         and exc.code == _EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE
     ):
         return RecoveryOutcome(
-            disposition=RecoveryOutcomeDisposition.RECONCILE_PENDING,
+            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
             diagnostic_code=DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
             reason=str(exc),
         )

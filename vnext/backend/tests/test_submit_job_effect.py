@@ -220,6 +220,13 @@ def test_submit_upload_and_import_wire_mapping_against_live_repository(
 _HANDLER_REPOSITORY_UUID = "018f0f3e-7b0a-7c15-8a9e-2e4b9f4d2c11"
 
 
+def _harness_control_db_uow(harness: SubmitWorkerHarness) -> ControlDbUnitOfWork:
+    control_now = harness.submit_deps.now_factory
+    if control_now is None:
+        return ControlDbUnitOfWork(harness.db_path)
+    return ControlDbUnitOfWork(harness.db_path, now=control_now)
+
+
 def _lease_session(
     harness: SubmitWorkerHarness,
     *,
@@ -229,10 +236,7 @@ def _lease_session(
     step_id: str,
 ) -> tuple[ExecutionControl, LeaseSession]:
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(
-            harness.db_path,
-            now=harness.submit_deps.now_factory,
-        )
+        return _harness_control_db_uow(harness)
 
     control = ExecutionControl()
     session = LeaseSession(
@@ -257,10 +261,7 @@ def _await_lease_identity(await_work: ClaimedWork) -> tuple[str, str]:
 
 def _worker_write_uow_factory(harness: SubmitWorkerHarness) -> WriteUnitOfWorkFactory:
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(
-            harness.db_path,
-            now=harness.submit_deps.now_factory,
-        )
+        return _harness_control_db_uow(harness)
 
     return build_worker_write_uow_factory(control_transaction_factory)
 

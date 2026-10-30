@@ -12,6 +12,7 @@ import pytest
 from gateway_repository_client import (
     RepositoryClient,
     RepositoryClientTimeoutError,
+    RepositoryProtocolError,
 )
 from gateway_repository_contracts import OperationStatus
 

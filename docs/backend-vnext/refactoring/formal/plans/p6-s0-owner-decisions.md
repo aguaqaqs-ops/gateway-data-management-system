@@ -487,6 +487,10 @@ implementation_authorized: no
     3. **基准**：重建对照基准的全部正式测量改在 p6-s1c-exit 的产品上进行，替代原第 4 项。此前在 p6-s1b-exit 上的 warmup 与 05 工具验证只作诊断。
     4. **S1c 的 Submit 结果核对**：基准此时尚未建立，改为与 `p6b2xwarmr5fix1030b` 保留卷对照。该卷中 Repository Service 已在 p6-s1b-exit 上导入成功 2× t4 v1，核对 Dolt 表哈希与 canonical state（DC64 第 4 项口径）。保留卷与 v1-submit checkpoint 在 S1c exit 前不得清理。
   - 落点：[执行计划](p6-execution-plan.md) §1、§2（重建对照基准、S1c）。
+- **澄清**（repository owner，2026-10-30；来自 [S1c 独立审核](p6-s1c-independent-review.md) F3）：决议第 2 项“身份或指纹不符……仍计入 3 个恢复会话”的原意是“这类观测不算健康等待”，不是把证据矛盾改为可重试。
+  - 身份或指纹不符（本地 checkpoint 与 payload 不符、Repository 返回的 operation identity 与 checkpoint 不符）维持基线行为：立即进入 `MANUAL_RECOVERY_REQUIRED`，使用能区分原因的诊断码，不使用 `r5.reconcile_timeout`。依据：External Effect and Recovery Contract §4，人工恢复表示证据矛盾。
+  - 计入 3 个恢复会话的只有：崩溃或 lease 丢失、传输错误、结果未知（没有拿到成功的观测）。
+  - P4 R5 设计 §6 失败矩阵与 S1c handoff 的调用方盘点按此修订。
 
 ### DC66 缩短测量与取证耗时
 

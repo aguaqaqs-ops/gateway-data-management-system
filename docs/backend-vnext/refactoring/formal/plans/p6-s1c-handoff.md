@@ -5,8 +5,11 @@
 F1–F4 定向修订代码候选已通过复审（报告为本地 `main` 提交 `7d85b38d9b` 中的
 `p6-s1c-independent-rereview-1.md`）。基线为已推送的 `main` / `43c1d4d513`；代码候选
 V=`3008d578cf2ee0eaf9236f01e33b5008d65ef36c`，包含合并 `main` 的提交 `5bc5a22605`。
-本轮 04 runner 在依赖缓存缺少 `maturin==1.14.1` 时 exit 1；按 DC67 停止，未运行 05 t1 或后续取证。
-失败细节与待补缓存项见“DC64 第 1 项 c 取证运行记录”。此前的 focused、五包静态检查、backend 与
+本轮 04 runner 的首次尝试 exit 1；最初归因为 `maturin==1.14.1` 缓存缺失，owner 后续核实该归因不正确：
+04 已有 maturin，失败原因是未启用离线模式时 uv 刷新 PyPI 索引。owner 在 04 以
+`UV_OFFLINE=1 CARGO_NET_OFFLINE=true` 验证 backend 环境与 Rust 扩展可离线构建。按 DC67，随后已在开发节点
+从 V 构建并传输 backend/worker 镜像；04 预检发现 Docker inspect image ID 与开发节点不同，故停止，未重新运行
+04 runner 或 05 t1。详情见“DC67 镜像预构建与 04 就绪预检”。此前的 focused、五包静态检查、backend 与
 repository_client 预检仍见下文。handoff 单独提交；不推送、不打 tag。
 
 F1–F4 主题提交：backend 实现/测试 `34e348c0d1`，Repository client 实现/测试 `8f9da6b788`，
@@ -134,10 +137,11 @@ uv bootstrap 失败层，构建报 `uv: not found`（日志
   `GATEWAY_TEST_PACKAGES`，选取全部六包；runner exit code **1**。日志：
   `/home/dev/gdds-p6-logs/s1c/04-runner-3008d578cf.log`，SHA256
   `b45ccd7428fe1e44ae86f8924eeb9dd2e6c54c03625d7debaf551a4ce74ac8c2`。
-- 失败发生在 backend 的 locked 环境同步：构建 `gateway-compute-python` 需要 `maturin==1.14.1`，uv 缓存未命中，
-  随后对 canonical PyPI `https://pypi.org/simple/maturin/` 的请求因测试节点网络不可达失败。没有配置或使用代理，
-  `GATEWAY_P2R1_CACHE_URL` 未设置。runner 未进入测试阶段，六包状态均标为 failed；没有生成包 manifest，
-  没有运行 Compose，也没有构建 V 对应的 Repository Service 镜像。
+- 失败发生在 backend 的 locked 环境同步：uv 在未设置 `UV_OFFLINE=1` 时刷新 canonical PyPI 索引，
+  对 `https://pypi.org/simple/maturin/` 的请求因测试节点网络不可达失败。最初 runner 日志被误读为
+  maturin 缓存缺失；owner 随后确认 04 本地缓存已有 maturin，并以离线环境同步成功，见下方 DC67 记录。
+  原运行没有配置或使用代理，`GATEWAY_P2R1_CACHE_URL` 未设置。runner 未进入测试阶段，六包状态均标为 failed；
+  没有生成包 manifest，没有运行 Compose，也没有构建 V 对应的 Repository Service 镜像。
 - 失败时观察到的 `gateway-repository-service:local` 是旧缓存镜像，ID
   `sha256:b66c7fef0b8dd6c6b6d66e0463862e109f1d44cd8614e96fe93564bd8a2a4dd9`，label revision=`020deda2fd`；
   它不是 V 的镜像身份或本次门禁结果。
@@ -145,19 +149,23 @@ uv bootstrap 失败层，构建报 `uv: not found`（日志
   `PATH=/home/dev/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`、
   `umask=0022`、`TMPDIR=/home/dev/gdds-test-tmp`；`GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT`、
   `GATEWAY_TEST_PACKAGES`、`GATEWAY_TEST_WORKERS`、`GATEWAY_DOCKER_BUILD_NETWORK`、`CARGO_HOME`、
-  `RUSTUP_HOME` 与 HTTP/HTTPS/ALL proxy 变量均未设置。Docker server `29.9.1`，Compose `v5.6.0`；
+  `RUSTUP_HOME`、`UV_OFFLINE`、`CARGO_NET_OFFLINE`、`GATEWAY_COMPOSE_GATE_PREBUILT`、
+  `GATEWAY_COMPOSE_GATE_PROJECT_NAME` 与 HTTP/HTTPS/ALL proxy 变量均未设置。Docker server `29.9.1`，Compose `v5.6.0`；
   Rust toolchain `1.97.0`，uv `0.11.28`。
 - 按 DC67 与 AGENTS 的 runner exit 规则停止后续验收；失败后 worktree 仍 clean，无运行容器、Dolt 进程或 8000
-  端口监听。需 owner 安排把 `maturin==1.14.1` 及构建所需制品预填充到 04 的获准缓存，然后从头重跑六包 runner。
+  端口监听。原“需预填充 maturin”的归因已由 owner 更正；下一次 runner 应设置 `UV_OFFLINE=1` 与
+  `CARGO_NET_OFFLINE=true`，但须先满足 DC67 backend/worker image ID 预检。
 
 ### 05 t1 与后续取证
 
-- 本轮未运行 t1：04 runner 非零退出后停止后续取证。CT05 当时无 benchmark/journey 进程，真实数据包目录
-  `/home/dev/gateway-real-dumps/packages` 存在；未启动旅程、未创建 V 的 05 worktree。
-- 另核对到 V 内的 `real_dump_journey.py` 尚无 DC66 第 3 项的逐计时步骤 volume checkpoint/resume 实现；该工具能力
-  位于 `p6-baseline` 的工具改动，不在 V。正式 t1 运行前需确认采用的已审核工具提交与工作树方式，仍保证产品代码为 V、
-  每个计时步骤前保存 checkpoint。基准工具会话完成并在 05 验证后，再按 DC66 第 4 项安排 2× t4 Submit。
-- 本 handoff 没有本轮 t1、逐包 manifest、V 镜像身份或真实数据结果；也未启动 2× t4 Submit、取证合并提交或对照。
+- 本轮未运行 t1：原 04 runner 非零退出后停止了该轮后续取证；DC67 镜像预检后续又因 image ID 不匹配而停止。
+  05 在 16:32:57 UTC 的运行前清点显示无 benchmark/journey 进程、容器、Dolt 或 8000 端口监听，真实数据包目录
+  存在；清点日志见 DC67 记录。尚未创建 V 的 05 worktree 或启动旅程。
+- DC67 已更正 t1 要求：V 的 `real_dump_journey.py` 直接运行 t1 完整旅程即可，本项不保存 DC66 第 3 项的
+  逐计时步骤 checkpoint；该 checkpoint/resume 要求只约束正式测量。本次因为 04 预检停止而未运行 t1。
+  05 如需 backend/worker 镜像，应加载 DC67 第 1 项预构建镜像。基准工具就绪后，再按 DC66 第 4 项安排 2× t4 Submit。
+- 本 handoff 没有本轮 t1、逐包 manifest、runner 记录中的 V 镜像身份或真实数据结果；开发节点预构建镜像的身份与
+  04 inspect ID 差异见 DC67 记录。也未启动 2× t4 Submit、取证合并提交或对照。
 
 ## 阶段取证计划（DC66 修订）
 
@@ -172,17 +180,84 @@ uv bootstrap 失败层，构建报 `uv: not found`（日志
 - 取证合并提交仅在节点上生成，包含 S1c 候选与基准工具提交；确认相对 S1c 候选仅改
   `vnext/backend/benchmarks`、相应测试与 docs，handoff 记录双亲和 `diff --stat`；不合入、不推送。
 - 权威 runner 在 04；每包记录实际运行或沿用、来源 V 与来源日志、manifest 和镜像身份。
-- 每条运行日志记录节点、HEAD、起止时间、exit code 与日志路径；真实数据各步骤 checkpoint 来源和失败续行
-  按 DC66 规则记录。
+- 每条运行日志记录节点、HEAD、起止时间、exit code 与日志路径。正式测量的计时步骤 checkpoint 与失败续行
+  按 DC66 规则记录；t1 冒烟不要求该 checkpoint/resume 能力。
+
+## DC67 镜像预构建与 04 就绪预检（2026-10-30；按 main `604e28cb5b`）
+
+### 开发节点预构建与传输
+
+- 在开发节点 `heavy-dev-01` 的 clean detached worktree `/home/dev/gdds-p6-s1c-v-3008-dev`、HEAD
+  `3008d578cf2ee0eaf9236f01e33b5008d65ef36c`，使用 V 的 `vnext/backend/Dockerfile` 和 `vnext` context，
+  以 `--network=host` 构建；未在开发节点运行测试或 Compose。构建使用 project
+  `s1c-v-3008`，产出 `s1c-v-3008-backend:latest` 与 `s1c-v-3008-worker:latest`（符合
+  `compose_gate_harness` 的 `GATEWAY_COMPOSE_GATE_PREBUILT` 命名；后续 runner 需设置
+  `GATEWAY_COMPOSE_GATE_PROJECT_NAME=s1c-v-3008`、`GATEWAY_COMPOSE_GATE_PREBUILT=1`）。
+- 构建时间 `2026-10-30T15:50:07Z`–`2026-10-30T17:14:36Z`，build/save exit 0。构建日志
+  `/home/dev/gdds-p6-logs/s1c/dev-build-backend-worker-v-3008-retry2.log`，SHA256
+  `bcf4a83b5df3324daadc82e1133c2b1bf76f4d526fffe83f50ab346d62a520f1`。开发节点 inspect ID 为
+  `sha256:b1f3c7b619aeb2d24a086ba7ddd6a5f5a64c49940da3292853b0cfc423512049`；两 tag 指向该 ID。
+- `docker save` 文件 `/home/dev/gdds-p6-logs/s1c/backend-worker-s1c-v-3008.tar`，379 MB，SHA256
+  `37e8b5afd2f04e37916d3fa80c71b5975c2245a48c59b0e41c089795c81091b8`。Cargo 本地缓存准备日志
+  `dev-cargo-cache-seed.log`（SHA256 `40a82a39f36733597f8591d4d8a40ab26c85b0c31d2dd82a3df887898f4f0923`）
+  与锁定依赖 fetch 日志 `dev-cargo-fetch-locked.log`（SHA256
+  `7935b794954b84199b42c966a9b11741870cc298cf3c357f521da41d9e041a2c`）记录构建缓存准备；代理环境未设置。
+- 文件经 LAN 于 `17:15:15Z`–`17:15:19Z` 传至 `ct108-gw-dms-04` 并 `docker load` 成功，远端 tar SHA256
+  与源文件相同。传输/load 日志 `/home/dev/gdds-p6-logs/s1c/04-image-load-transfer.log`，SHA256
+  `5253aee36d5e58ecf8cf2971933bb8f744c156073ea77d57f3408bf085135bc9`；04 镜像清点日志
+  `/home/dev/gdds-p6-logs/s1c/04-image-load.log`，SHA256
+  `1fa95d70b58221b4120824008ddaf569835a913e9e719dab2553c2199efecd44`。
+
+### 04 就绪预检与停止原因
+
+- 节点 `ct108-gw-dms-04`（hostname `gw-dms-test-04`），V worktree clean，预检时无容器、Dolt 进程或 8000
+  端口占用。backend/worker 两个 tag 均已加载，但 04 的 Docker inspect ID 均为
+  `sha256:0c61307c7e64c7cf1dc6c55ad1b73ce74d161215ea946b4ad124c22d24cee478`，不等于开发节点 inspect ID
+  `sha256:b1f3c7b619aeb2d24a086ba7ddd6a5f5a64c49940da3292853b0cfc423512049`。DC67 明确要求 ID 与开发节点一致，
+  因此该项未通过并停止；没有启动 04 runner。
+- 追加对照显示两端 inspect 的 Created timestamp 相同，15 个 RootFS DiffID 完全相同；两端 `docker save`
+  中的 config digest 均为 `sha256:b1f3c7b619aeb2d24a086ba7ddd6a5f5a64c49940da3292853b0cfc423512049`。
+  layer-path aggregate SHA256 则不同（开发端 `606018379a45a3058f22bb02a1ffbed2161af812c63d30fc94bab72caf67a563`；
+  04 端 `115d99995f9100f6d9b469de426d2ce8ae342509697cc0fff0f5764d297a0150`）。现有证据不足以替代 DC67 的
+  inspect ID 相等条件，需 owner 决定可接受的等价口径或安排修复后重新预检。开发端 Docker 为
+  `26.1.5+dfsg1`/`overlay2`，04 为 `29.9.1`/containerd `overlayfs` snapshotter；仅记录为环境差异，不据此推定
+  ID 差异原因。完整对照日志 `/home/dev/gdds-p6-logs/s1c/04-image-id-comparison.log`，SHA256
+  `0d01c98ed7b0eedcc1a4691f77ea377430eee983833a412cc221235da36b84be`。
+- Repository Service 镜像按 V 的 build-input revision、source-tree SHA256 与 uv lock SHA256 核验：V 的
+  revision=`4158ea39d48157081c24d03a294c5a7eb3f866a0`、source-tree SHA256=`sha256:1d23f369fef72e559fa35e09240d09e15e9eeb4d9fe8e5bc0a035b879bae8e00`、
+  uv lock SHA256=`6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11`；当前
+  `gateway-repository-service:local` 的标签满足 V 身份，不需重建。`gateway-repository-client-e2e:local` 的 client
+  uv lock label=`6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954` 与 V 一致，不需重建。两者使用的依赖基础镜像也已存在：Repository Service
+  `gateway-p2r1-repository:lock-6dc9659f0aee`，client e2e `gateway-repository-client-e2e-base:local`。故本次无需
+  触发预置依赖模式离线重建，也未删除 client e2e 镜像。
+- Owner 对先前 runner 失败的更正证据：04 上 `UV_OFFLINE=1 CARGO_NET_OFFLINE=true` 的 backend locked sync 与
+  Rust 扩展离线构建成功，日志 `/home/dev/gdds-p6-logs/s1c/owner-04-offline-sync-probe.log`，SHA256
+  `da15ba9e151034246fe4f0346aef209b653e55802fcb20f3e09565c4d241f580`。故此前“04 缺少 maturin 缓存”的判断
+  已撤回；下一次 runner 环境还须启用 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`，以及 prebuilt 和所需 project
+  开关，并按新运行记录实际环境。
+
+### 05 t1 状态
+
+- `ct108-gw-dms-05` 在 `2026-10-30T16:32:57Z` 清点时 hostname=`gw-dms-test-05`，原 worktree
+  `/home/dev/gdds-p6-s1c-05` clean 但 HEAD 为 `d95430ee486bb396cc954b51b95c1547818dbf9d`，不等于 V；无容器、Dolt、
+  journey/benchmark/pytest/runner 进程，8000 端口空闲。清点日志
+  `/home/dev/gdds-p6-logs/s1c/05-pre-t1-inventory.log`，SHA256
+  `b0b548e7e4d0f047261834d29efed9d17e3fc1768d1747b9c114dcf83bcd7f4c`。
+- 没有在 05 创建 V worktree、加载镜像或运行 t1。DC67 更正要求为：后续直接使用 V 自带
+  `real_dump_journey.py` 执行 t1，不保存逐步骤 checkpoint；如构建 backend/worker 则加载上述预构建 tar。
+  由于 04 预检停止，本轮没有继续执行 05 项。
+
+当前停止点：04 backend/worker inspect ID 一致性预检未通过。04 runner、05 t1、ct108 2× t4 Submit 均未在本轮
+新取证中启动；也未创建取证合并提交。1030b 保留卷与 v1-submit checkpoint 未改动。
 
 ## 偏差与清理
 
-F1–F4 复审已通过。04 runner 因 `maturin==1.14.1` 缓存缺失 exit 1，按 DC67 等 owner 预填获准缓存后从头重跑；
-runner 成功前不继续真实数据。随后在采用已审核 DC66 checkpoint 工具的 clean worktree 中完成 CT05 t1，
-确认基准工具提交已在 05 验证后，再按 DC66 执行 ct108 2× t4 Submit 续跑、结果对照与证据复核。取证合并提交、
-runner 来源 V、真实数据结果与比较结果尚未产生。
+F1–F4 复审已通过。此前 04 runner 失败原因已由 owner 更正为 uv 刷新 PyPI 索引，离线 sync probe 已通过；本次
+development-node backend/worker 构建和传输成功，但 04 inspect image ID 与开发节点不一致，触发 DC67 停止条件。
+runner 未重跑，05 t1 未运行；t1 后续无需 DC66 计时 checkpoint。需 owner 确认跨 Docker image store 的可接受
+身份口径或安排重新加载/预检后，方可继续 04 runner 与 05 t1。ct108 2× t4 Submit 仍等待基准续跑工具就绪。
+取证合并提交、runner 来源 V、真实数据结果与比较结果尚未产生。
 
-本轮没有启用代理。CT201 的 Compose 镜像构建曾因 uv bootstrap 制品不可用而停止，未生成候选镜像；
-构建日志见上节。04 本次 runner 未启动 Compose；新启动的 `pve-registry-http` BuildKit builder 已停止。
-04 V worktree 与同步 bundle 保留，worktree clean。CT05 未启动 journey。1030b 保留卷和 v1-submit checkpoint
-不动，在 S1c exit 后由 owner 安排清理。
+开发节点镜像构建未启用代理；04 offline-sync probe 及本轮 image preflight 也未使用代理。CT201 先前的 Compose
+镜像构建未生成候选镜像，详见上节；本次成功镜像来自开发节点 V 构建。04 因预检未通过而未启动 runner/Compose；
+CT05 未启动 journey。1030b 保留卷和 v1-submit checkpoint 不动，在 S1c exit 后由 owner 安排清理。

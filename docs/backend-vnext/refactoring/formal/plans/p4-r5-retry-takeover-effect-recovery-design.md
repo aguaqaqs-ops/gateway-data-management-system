@@ -99,8 +99,8 @@ checkpoint bytes. An external-effect handler must inspect its checkpoint and:
 
 - reuse the original idempotency key before request acceptance;
 - poll only the original operation identity after request acceptance;
-- count a confirmed identity or request-fingerprint mismatch as a reconcile failure; do not
-  treat it as a healthy wait;
+- treat a confirmed identity or request-fingerprint mismatch as immediate manual recovery; do not
+  count it as a retryable reconcile failure or treat it as a healthy wait;
 - never generate a new key during takeover or reconcile.
 
 ## 5. State and transition policy
@@ -116,7 +116,7 @@ unreadable checkpoint/artifact:
   RUNNING/RETRY_WAIT -> MANUAL_RECOVERY_REQUIRED
 
 confirmed Repository identity/fingerprint disagreement:
-  RUNNING -> RETRY_WAIT (counted reconcile) -> MANUAL_RECOVERY_REQUIRED when exhausted
+  RUNNING -> MANUAL_RECOVERY_REQUIRED (identity-mismatch diagnostic)
 ```
 
 Operation remains `RUNNING` while its active Step is `RETRY_WAIT`; R1 has no operation-level
@@ -134,7 +134,7 @@ re-executed. Successor publication remains R4's static single-successor/terminal
 | deterministic pure compute failure with a valid checkpoint | retry until three sessions, then `FAILED` |
 | external request not accepted | retry with the same idempotency key |
 | request accepted or outcome unknown | reconcile only; never blind replay |
-| Repository identity or request-fingerprint mismatch | count as reconcile failure; never healthy wait |
+| Local checkpoint/payload identity or fingerprint mismatch, or Repository operation identity mismatch | immediate `MANUAL_RECOVERY_REQUIRED` with an identity-mismatch diagnostic |
 | 3 个恢复会话用尽 | `MANUAL_RECOVERY_REQUIRED`, occupancy retained |
 | checkpoint/artifact unreadable | immediate manual recovery; do not recreate bytes |
 | explicit application permanent failure | `FAILED` |
@@ -144,17 +144,25 @@ re-executed. Successor publication remains R4's static single-successor/terminal
 
 Defaults are three counted recovery sessions per Step, backoff `1s -> 2s -> 4s` capped at `10s`,
 bounded jitter with injectable clock/wait/jitter sources, and a 60-second maximum poll duration
-within one active reconcile session. A lease loss/crash, transport error, unknown result, or
-identity/request-fingerprint disagreement consumes a session. A Submit `await_import_result` poll
-that successfully reads the matching Repository operation and sees `QUEUED` or `RUNNING` records
-that health observation in the existing Step diagnostic and reuses the existing checkpoint when
-handing off its lease; it does not consume a session, and reclaim preserves `attempt_count`. Its
-total wait is bounded by `started_at` plus
-Repository Service `import_timeout_seconds + server_start_timeout_seconds` (currently 3630 seconds).
-Exceeding that bound enters `MANUAL_RECOVERY_REQUIRED` with `r5.wait_upper_bound_exceeded`.
+within one active reconcile session. A lease loss/crash, transport error, or unknown result before
+the total wait upper bound consumes a session. Confirmed identity or request-fingerprint mismatch
+enters manual recovery immediately and does not consume a retry session. A Submit
+`await_import_result` poll that successfully reads the matching Repository operation and sees
+`QUEUED` or `RUNNING` records that health observation in the existing Step diagnostic and reuses
+the existing checkpoint when handing off its lease; it does not consume a session, and reclaim
+preserves `attempt_count`. Its continued healthy wait is bounded by `started_at` plus Repository
+Service `import_timeout_seconds + server_start_timeout_seconds` (currently 3630 seconds). Each
+claim performs one observation before applying that bound, with a poll deadline of
+`min(60s, max(remaining budget, 5s))`; the bound never skips an observation. A matching terminal
+`SUCCEEDED` or `FAILED` result is processed even when the poll reaches or passes the bound. A
+matching `QUEUED`/`RUNNING` result, or a transport error/timeout/unknown result, at or after the bound enters
+`MANUAL_RECOVERY_REQUIRED` with `r5.wait_upper_bound_exceeded`. A mismatched operation identity
+instead enters manual recovery with the identity-mismatch diagnostic. The final observation can
+extend a poll up to five seconds beyond the nominal bound. This count-free requeue is selected only
+by Submit after the matching healthy observation; other safe-handoff callers retain their existing
+behavior. Submit does not persist `reconcile_started_at`.
 This count-free requeue is selected only by Submit after the matching healthy observation; other
-safe-handoff callers retain their existing behavior. Polls without a successful health observation
-retain the normal three-session rule. Submit does not persist `reconcile_started_at`.
+safe-handoff callers retain their existing behavior.
 
 ## 7. Identity, diagnostics and operator recovery
 

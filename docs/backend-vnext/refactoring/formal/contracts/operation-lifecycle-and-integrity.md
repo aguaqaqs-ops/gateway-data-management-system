@@ -148,6 +148,12 @@ Operation 与 Step persisted document 均为 closed object；`to_document()` 发
   `MANUAL_RECOVERY_REQUIRED`。
 - Step：`PENDING`, `RUNNING`, `RETRY_WAIT`, `SUCCEEDED`, `FAILED`, `CANCELLED`,
   `MANUAL_RECOVERY_REQUIRED`。
+- `RETRY_WAIT` 上的既有 diagnostic 标记控制下一次 claim 的恢复会话计数：
+  `R5.HEALTHY_WAIT_HANDOFF` 表示已确认的健康等待让出，claim 保持 `attempt_count`；
+  `R5.HEALTHY_WAIT_HANDOFF_OPERATOR` 表示 operator 授权会话中的健康等待让出，claim 同样保持
+  `attempt_count` 并恢复 `R5.OPERATOR_RECOVERY_SESSION`；`R5.RECOVERY_AUTHORIZED` 表示 operator 命令
+  已授权一个新恢复会话，claim 恰好增加一次 `attempt_count` 并转为
+  `R5.OPERATOR_RECOVERY_SESSION`。这些标记复用现有 diagnostic 字段，不增加状态或 durable 字段。
 - RUNNING Step 的 `diagnostic` 通常为 null；仅 operator 已授权并由 worker claim 的会话可使用
   `R5.OPERATOR_RECOVERY_SESSION`。该既有诊断标记保留到该会话终止、失败或健康让出，不改变 lease、
   status 或 optimistic-version 规则；其他 RUNNING Step diagnostic 仍拒绝。

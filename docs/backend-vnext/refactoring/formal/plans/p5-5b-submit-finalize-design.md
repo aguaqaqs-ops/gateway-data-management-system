@@ -774,12 +774,17 @@ secret-file bearer、bounded request timeout、session/mapping file。Submit 的
 Repository poll 的上限。Repository 对原 operation identity 成功返回 `QUEUED`/`RUNNING` 时，
 该 poll 到期通过既有 checkpoint 与 safe handoff 让出 lease；重新领取不增加 `attempt_count`，并以
 同一身份继续对账。此例外只适用于 HTTP 成功、身份与本地请求 fingerprint 均匹配的显式健康观测。
-崩溃或 lease 丢失、传输错误、无成功观测的 timeout、结果未知或身份/fingerprint 不符继续消耗
-最多三个恢复会话；耗尽后保留 occupancy 并进入 `MANUAL_RECOVERY_REQUIRED`。Submit 总等待上界
-以 Step `started_at` 为起点，与 Repository Service 的 `import_timeout_seconds` 加
-`server_start_timeout_seconds` 对齐（当前 3630 秒）；超出后转人工恢复并写明“超出等待上界”。
-单次 poll 仍为 60 秒；仅此显式健康观测使用不计会话的 safe handoff，drain/SIGTERM 在这次
-bounded poll 返回最后一次成功的健康观测后安全让出。其他 safe handoff 保留原行为。
+崩溃或 lease 丢失、传输错误与结果未知在总等待上界前消耗最多三个恢复会话；达到第三次后保留
+occupancy 并进入 `MANUAL_RECOVERY_REQUIRED`。本地 checkpoint 与payload的identity/request
+fingerprint不符，或Repository operation identity不符，立即进入带identity-mismatch诊断的人工恢复，
+不计恢复会话。Submit 总等待上界以 Step `started_at` 为起点，与 Repository Service 的
+`import_timeout_seconds` 加 `server_start_timeout_seconds` 对齐（当前 3630 秒）。每次 claim 都先观察
+原 operation；poll deadline 为 `min(60s, max(剩余预算, 5s))`。匹配的 `SUCCEEDED` 或 `FAILED` 即使
+poll 到达或超过上界也按终态处理；只有匹配的 `QUEUED`/`RUNNING` 在上界到达或超过后才因
+`r5.wait_upper_bound_exceeded` 转人工恢复。超界后的传输错误或结果未知也转人工恢复。单次 poll
+仍以 60 秒为最大值，最后一次观测可在名义上界后最多延长 5 秒；仅显式健康观测使用不计会话的
+safe handoff，drain/SIGTERM 在这次 bounded poll 返回最后一次成功的健康观测后安全让出。其他
+safe handoff 保留原行为。
 Submit checkpoint 不保存 `reconcile_started_at`。target/policy/mutation mode 不是 setting，固定在
 job contract。
 

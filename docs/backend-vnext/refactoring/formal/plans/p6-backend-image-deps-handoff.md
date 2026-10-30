@@ -65,6 +65,7 @@
   - `shared_kernel`、`repository_contracts`、`repository_client`、`backend`、`repository_service` 五包 `ruff check .` 和 `mypy` 均通过。
   - 日志：`/home/dev/gdds-p6-logs/p6-backend-image-deps-642f2d3-05-focused.log`，SHA256 `0bfe5eb5eda54beabda42b7cbb31594af8056e14dbd6dbd6ff2c243a524303f2`，exit code 0。
 - CT201（hostname `heavy-dev-01`）调试构建冒烟，2026-10-30 23:38:08–23:41:55 UTC；只运行 `docker build` 与 dependency-base build script，没有运行测试或启动 Compose：
+  - 为遵守不调用 Compose 的要求，直接用 Docker build 输入映射配置：`GATEWAY_DOCKER_BUILD_NETWORK=none` 对应 `--network=none`；`GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1` 与 dependency-base tag 对应 build args `USE_PRELOADED_DEPENDENCIES=1`、`DEPENDENCY_BASE_IMAGE=<lock-tag>`。默认构建对应 `USE_PRELOADED_DEPENDENCIES=0` 与 `rust:1.97.0-bookworm`。
   - 默认模式 backend/worker 构建通过，两个临时 tag 对应 image ID `sha256:f39037df173892a4c06a8daa0660d85798b3afe9dca58d005b4c6b3c2d468d47`。
   - dependency-base `gateway-backend-deps:lock-c668cef8e47e` 构建通过；完整输入摘要 `c668cef8e47ea2f75934f23a27b153662ac66ed546faf145ff903448bebea290`，构建时 image ID `sha256:a8d9d1ac7140bd2025080649a95146833f7ae8c2fb0e429a8f8e3856a0d9307d`。
   - 预置模式 backend/worker 在 Docker `--network=none` 下构建通过，两个临时 tag 对应 image ID `sha256:3d11bfe173de83df9cc8c239329bffa8a459568c88f07ee93dfbba5fef888764`。

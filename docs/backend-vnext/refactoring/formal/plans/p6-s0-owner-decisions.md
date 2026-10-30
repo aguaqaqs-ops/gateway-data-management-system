@@ -563,6 +563,20 @@ implementation_authorized: no
      - 不改依赖的阶段（如 S1c）沿用节点已有缓存。
   5. **不变项**：AGENTS 的测试节点与网络约束、DC36 节点分工、`uv-consume.sh` 的锁定与 lock source 约束、Cargo `--offline`。
 - **落点**：本记录；AGENTS.md 与 testing-conventions 的网络与缓存一节由负责这两份文件的会话同步（主 checkout 中这两份文件另有未提交的修改，本次不改）。
+- **补充**（repository owner，2026-10-30；来自 S1c 取证首次运行）：
+  - 来源：S1c 在 04 的六包 runner（V=`3008d578cf`，2026-10-30 14:44:31–14:44:38 UTC，日志 04 `/home/dev/gdds-p6-logs/s1c/04-runner-3008d578cf.log`，SHA256 `b45ccd74…`）同步 backend 环境时 exit 1：解析 build-system 依赖 `maturin==1.14.1` 时连接 PyPI 失败。
+  - 核对结果一（owner 在 04 临时 worktree 中验证）：04 的 uv 本地缓存已有 maturin，失败原因是非离线模式下 uv 刷新索引；设置 `UV_OFFLINE=1` 与 `CARGO_NET_OFFLINE=true` 后，backend 环境与 Rust 扩展离线构建成功（04 `/home/dev/gdds-p6-logs/s1c/owner-04-offline-sync-probe.log`）。
+  - 核对结果二：backend Dockerfile 在安装 Python、依赖与 Rust crates 之前复制 `rust`、`shared_kernel`、`repository_client`、`repository_contracts`。这些目录或 backend 锁文件一旦变化，其后的层都要联网重建，测试节点无法离线完成。Repository Service 与 client e2e 镜像有预置依赖模式，所需 dependency-base 镜像已在节点上。
+  1. **runner 环境**：测试节点上的权威 runner 与环境同步设置 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`，写入日志开头与 handoff。
+  2. **backend/worker 镜像预构建**：上述依赖层输入变化时，
+     - 在开发节点（CT201）从候选提交的 clean worktree 构建 backend/worker 镜像，只构建，不运行测试或 Compose；
+     - 经 `docker save`/`docker load` 通过局域网传到需要的节点；
+     - runner 以 `GATEWAY_COMPOSE_GATE_PREBUILT=1` 运行；
+     - handoff 记录构建提交、image ID、传输文件 SHA256、构建日志与起止时间。
+     这属于本决议第 1 项的预填充。
+  3. **Repository Service 与 client e2e 镜像**：在节点上以预置依赖模式离线构建；dependency-base 镜像缺失时按第 1 项预填充。
+  4. **就绪预检**：权威 runner 之前先在节点核对镜像与缓存就绪（不运行测试）；缺失即停止，不进入 runner。
+  5. **遗留**：调整 backend Dockerfile，使依赖层只取决于锁文件，测试节点即可离线自建镜像。建议在 S2a 之前作为独立小改完成（S2a 会改 `rust`），由 owner 另行安排；完成前按第 2 项执行。
 
 ## 3. 设计阶段待定项
 

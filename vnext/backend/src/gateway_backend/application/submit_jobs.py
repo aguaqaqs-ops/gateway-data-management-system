@@ -1407,8 +1407,8 @@ def _map_handler_failure_to_recovery_outcome(
         )
     if isinstance(exc, RepositoryWriteTransportError):
         return RecoveryOutcome(
-            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
-            diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+            disposition=RecoveryOutcomeDisposition.RECONCILE_PENDING,
+            diagnostic_code=DIAGNOSTIC_RECONCILE_TIMEOUT,
             reason=str(exc),
         )
     if isinstance(exc, RepositoryUploadMetadataMismatch):

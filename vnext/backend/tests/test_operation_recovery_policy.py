@@ -65,6 +65,7 @@ from gateway_backend.operations.state import (
     DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
     DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED,
     DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
+    TransitionDisposition,
     claim_attempt_count,
     claim_diagnostic,
 )
@@ -75,7 +76,6 @@ from gateway_backend.operations.worker import (
     ExecutorAcknowledgment,
     LeaseSession,
 )
-from gateway_backend.operations.state import TransitionDisposition
 
 pytestmark = pytest.mark.unit
 

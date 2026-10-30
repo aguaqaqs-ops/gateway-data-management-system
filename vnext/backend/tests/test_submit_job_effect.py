@@ -274,7 +274,12 @@ def _run_submit_to_await_claim(
         harness.artifact_store,
         repository_id=_HANDLER_REPOSITORY_UUID,
     )
-    _run_prepare_handler(harness.db_path, harness.artifact_store, operation_id)
+    _run_prepare_handler(
+        harness.db_path,
+        harness.artifact_store,
+        operation_id,
+        control_now=harness.submit_deps.now_factory,
+    )
     startup = harness.runtime._startup
     assert startup.startup() is StartupDisposition.READY
     submit_work = startup.claim_one()

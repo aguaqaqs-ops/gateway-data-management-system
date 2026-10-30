@@ -17,8 +17,8 @@ from gateway_backend.operations.contracts import (
 
 _IJSON_MAX_SAFE_INTEGER = (2**53) - 1
 
-# These bounded diagnostic codes carry the one-claim decisions in the existing Step field.
-# They add no operation state or persistence column.
+# These bounded diagnostic codes carry handoff and pending authorization decisions in the
+# existing Step field. They add no operation state or persistence column.
 DIAGNOSTIC_HEALTHY_WAIT_HANDOFF = "R5.HEALTHY_WAIT_HANDOFF"
 DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR = "R5.HEALTHY_WAIT_HANDOFF_OPERATOR"
 DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED = "R5.RECOVERY_AUTHORIZED"

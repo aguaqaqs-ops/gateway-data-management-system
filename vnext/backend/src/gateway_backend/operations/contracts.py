@@ -34,6 +34,7 @@ _MAX_JSON_KEY_BYTES = 128
 _MAX_JSON_STRING_BYTES = 16 * 1024
 _MAX_REFS_PER_RECORD = 64
 _MAX_BUSINESS_REFS = 64
+_OPERATOR_RECOVERY_SESSION_DIAGNOSTIC_CODE = "R5.OPERATOR_RECOVERY_SESSION"
 
 _REGISTRY_NAME_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 _DIAGNOSTIC_CODE_RE = re.compile(r"^[A-Z][A-Z0-9_.:-]{0,127}$")
@@ -597,12 +598,19 @@ def _validate_step_status_fields(record: StepRecord) -> None:
         assert record.lease_expires_at is not None
         if record.lease_expires_at <= record.updated_at:
             raise ValueError("lease_expires_at must be later than updated_at for RUNNING step")
+        if (
+            record.diagnostic is not None
+            and record.diagnostic.code != _OPERATOR_RECOVERY_SESSION_DIAGNOSTIC_CODE
+        ):
+            raise ValueError(
+                "RUNNING step diagnostic is only allowed for an operator recovery session"
+            )
     elif any(field is not None for field in lease_fields):
         raise ValueError("lease identity fields are forbidden outside RUNNING step status")
     if status in {StepStatus.RETRY_WAIT, StepStatus.FAILED, StepStatus.MANUAL_RECOVERY_REQUIRED}:
         if record.diagnostic is None:
             raise ValueError("diagnostic is required for this step status")
-    elif status is not StepStatus.CANCELLED:
+    elif status not in {StepStatus.CANCELLED, StepStatus.RUNNING}:
         if record.diagnostic is not None:
             raise ValueError("diagnostic is forbidden for this step status")
     if status.is_final_terminal():

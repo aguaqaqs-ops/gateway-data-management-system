@@ -29,6 +29,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 from gateway_backend.infrastructure.control_db import ControlDbUnitOfWork, initialize_control_db
 from gateway_backend.operations import (
     OPERATION_RUNTIME_CONTRACT_VERSION,
+    OperationDiagnostic,
     OperationStatus,
     StepStatus,
     TransitionDisposition,
@@ -755,6 +756,8 @@ def test_manual_recovery_commands_are_claimable_by_running_worker(
     assert work is not None
     assert work.step.status is StepStatus.RUNNING
     assert work.step.attempt_count == step.attempt_count + 1
+    assert work.step.diagnostic is not None
+    assert work.step.diagnostic.code == "R5.OPERATOR_RECOVERY_SESSION"
     worker_id = work.step.worker_id
     lease_token = work.step.lease_token
     assert worker_id is not None and lease_token is not None
@@ -799,6 +802,35 @@ def test_operator_recovery_command_remains_claimable_after_worker_restart(
     assert work.step.attempt_count == step.attempt_count + 1
     assert work.step.diagnostic is not None
     assert work.step.diagnostic.code == "R5.OPERATOR_RECOVERY_SESSION"
+
+
+def test_running_step_allows_only_operator_recovery_session_diagnostic(
+    tmp_path: Path,
+) -> None:
+    harness = _make_harness(
+        tmp_path,
+        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+    )
+    _operation, step = harness.seed_claimed_running()
+
+    with pytest.raises(ValueError, match="only allowed for an operator recovery session"):
+        dataclasses.replace(
+            step,
+            diagnostic=OperationDiagnostic(
+                code="R5.RETRY_SCHEDULED",
+                message="ordinary running step diagnostic",
+            ),
+        )
+
+    operator_session_step = dataclasses.replace(
+        step,
+        diagnostic=OperationDiagnostic(
+            code="R5.OPERATOR_RECOVERY_SESSION",
+            message=OPERATOR_REASON,
+        ),
+    )
+    assert operator_session_step.diagnostic is not None
+    assert operator_session_step.diagnostic.code == "R5.OPERATOR_RECOVERY_SESSION"
 
 
 def test_operator_recovery_session_lease_loss_returns_manual_without_blocking_startup(

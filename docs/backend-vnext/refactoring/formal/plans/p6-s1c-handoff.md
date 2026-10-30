@@ -2,13 +2,12 @@
 
 ## 状态
 
-F1–F4 定向修订代码候选，等待同一审核会话复审。基线为已推送的 `main` / `43c1d4d513`；
-审核报告为 `main:docs/backend-vnext/refactoring/formal/plans/p6-s1c-independent-review.md`。
-工作分支为 `p6-s1c-impl`，代码候选 V=`3008d578cf2ee0eaf9236f01e33b5008d65ef36c`。
-该候选包含合并 `main` 的提交 `5bc5a22605`。focused、五包静态检查、backend 与
-repository_client 预检均通过；Compose 镜像预检因构建缓存缺少 uv bootstrap 制品未完成，详见验证与偏差。
-验证运行在其父提交 `d95430ee486bb396cc954b51b95c1547818dbf9d`；V 仅额外修订了设计/Contract 中诊断码的
-准确名称，没有改生产代码、测试或依赖。尚未运行 04 权威 runner 或真实数据。handoff 单独提交；不推送、不打 tag。
+F1–F4 定向修订代码候选已通过复审（报告为本地 `main` 提交 `7d85b38d9b` 中的
+`p6-s1c-independent-rereview-1.md`）。基线为已推送的 `main` / `43c1d4d513`；代码候选
+V=`3008d578cf2ee0eaf9236f01e33b5008d65ef36c`，包含合并 `main` 的提交 `5bc5a22605`。
+本轮 04 runner 在依赖缓存缺少 `maturin==1.14.1` 时 exit 1；按 DC67 停止，未运行 05 t1 或后续取证。
+失败细节与待补缓存项见“DC64 第 1 项 c 取证运行记录”。此前的 focused、五包静态检查、backend 与
+repository_client 预检仍见下文。handoff 单独提交；不推送、不打 tag。
 
 F1–F4 主题提交：backend 实现/测试 `34e348c0d1`，Repository client 实现/测试 `8f9da6b788`，
 设计与 Contract `6a4a127c50`、诊断码文档澄清 `3008d578cf`；测试夹具修订 `b41206aa49`、
@@ -125,10 +124,45 @@ uv bootstrap 失败层，构建报 `uv: not found`（日志
 候选镜像。`pve-registry-http` builder 已恢复为 stopped；CT05 worktree clean，无运行中的容器、Dolt 进程或
 8000 端口占用。当前代码与包级预检可供复审；Compose 预检的缓存缺口需在需要该项时补齐，不用代理绕过。
 
+## DC64 第 1 项 c 取证运行记录（2026-10-30）
+
+### 04 权威 runner 尝试
+
+- 节点 `ct108-gw-dms-04`（hostname `gw-dms-test-04`）；worktree `/home/dev/gdds-p6-s1c-v-3008-04`，detached HEAD
+  起止均为 V=`3008d578cf2ee0eaf9236f01e33b5008d65ef36c`，`legacy` 指向节点主 checkout；起止 worktree clean。
+- 起止时间：`2026-10-30T14:44:31Z`–`2026-10-30T14:44:38Z`；命令 `./vnext/scripts/run-tests.sh`，未设置
+  `GATEWAY_TEST_PACKAGES`，选取全部六包；runner exit code **1**。日志：
+  `/home/dev/gdds-p6-logs/s1c/04-runner-3008d578cf.log`，SHA256
+  `b45ccd7428fe1e44ae86f8924eeb9dd2e6c54c03625d7debaf551a4ce74ac8c2`。
+- 失败发生在 backend 的 locked 环境同步：构建 `gateway-compute-python` 需要 `maturin==1.14.1`，uv 缓存未命中，
+  随后对 canonical PyPI `https://pypi.org/simple/maturin/` 的请求因测试节点网络不可达失败。没有配置或使用代理，
+  `GATEWAY_P2R1_CACHE_URL` 未设置。runner 未进入测试阶段，六包状态均标为 failed；没有生成包 manifest，
+  没有运行 Compose，也没有构建 V 对应的 Repository Service 镜像。
+- 失败时观察到的 `gateway-repository-service:local` 是旧缓存镜像，ID
+  `sha256:b66c7fef0b8dd6c6b6d66e0463862e109f1d44cd8614e96fe93564bd8a2a4dd9`，label revision=`020deda2fd`；
+  它不是 V 的镜像身份或本次门禁结果。
+- runner 的有效环境：`LANG=C`、`LC_ALL=C.UTF-8`、`HOME=/root`、
+  `PATH=/home/dev/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`、
+  `umask=0022`、`TMPDIR=/home/dev/gdds-test-tmp`；`GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT`、
+  `GATEWAY_TEST_PACKAGES`、`GATEWAY_TEST_WORKERS`、`GATEWAY_DOCKER_BUILD_NETWORK`、`CARGO_HOME`、
+  `RUSTUP_HOME` 与 HTTP/HTTPS/ALL proxy 变量均未设置。Docker server `29.9.1`，Compose `v5.6.0`；
+  Rust toolchain `1.97.0`，uv `0.11.28`。
+- 按 DC67 与 AGENTS 的 runner exit 规则停止后续验收；失败后 worktree 仍 clean，无运行容器、Dolt 进程或 8000
+  端口监听。需 owner 安排把 `maturin==1.14.1` 及构建所需制品预填充到 04 的获准缓存，然后从头重跑六包 runner。
+
+### 05 t1 与后续取证
+
+- 本轮未运行 t1：04 runner 非零退出后停止后续取证。CT05 当时无 benchmark/journey 进程，真实数据包目录
+  `/home/dev/gateway-real-dumps/packages` 存在；未启动旅程、未创建 V 的 05 worktree。
+- 另核对到 V 内的 `real_dump_journey.py` 尚无 DC66 第 3 项的逐计时步骤 volume checkpoint/resume 实现；该工具能力
+  位于 `p6-baseline` 的工具改动，不在 V。正式 t1 运行前需确认采用的已审核工具提交与工作树方式，仍保证产品代码为 V、
+  每个计时步骤前保存 checkpoint。基准工具会话完成并在 05 验证后，再按 DC66 第 4 项安排 2× t4 Submit。
+- 本 handoff 没有本轮 t1、逐包 manifest、V 镜像身份或真实数据结果；也未启动 2× t4 Submit、取证合并提交或对照。
+
 ## 阶段取证计划（DC66 修订）
 
 证据前提：本阶段不改 control DB schema、checkpoint payload 或 Repository Service；若最终候选不满足，
-停止并改为 2× t4 整档运行。本 handoff 尚无权威 runner 与真实数据取证结果。
+停止并改为 2× t4 整档运行。本 handoff 尚无成功的权威 runner 与真实数据取证结果。
 
 - 05：t1 完整旅程（冒烟）。
 - `ct108-gw-dms`：不跑 t4 完整旅程；在该节点空闲并确认后，用 S1c 最终候选镜像，从
@@ -143,11 +177,12 @@ uv bootstrap 失败层，构建报 `uv: not found`（日志
 
 ## 偏差与清理
 
-等待同一审核会话复审 F1–F4。复审通过前不运行 04 权威 runner 或真实数据；之后按 DC66 执行 CT05 t1
-冒烟、ct108 从 1030b v1-submit checkpoint 副本续跑 2× t4 Submit、结果对照与证据复核。取证合并提交、
+F1–F4 复审已通过。04 runner 因 `maturin==1.14.1` 缓存缺失 exit 1，按 DC67 等 owner 预填获准缓存后从头重跑；
+runner 成功前不继续真实数据。随后在采用已审核 DC66 checkpoint 工具的 clean worktree 中完成 CT05 t1，
+确认基准工具提交已在 05 验证后，再按 DC66 执行 ct108 2× t4 Submit 续跑、结果对照与证据复核。取证合并提交、
 runner 来源 V、真实数据结果与比较结果尚未产生。
 
-本轮没有启用代理。CT201 的 Compose 镜像构建因 uv bootstrap 制品不可用而停止，未生成候选镜像；
-构建日志见上节。新启动的 `pve-registry-http` BuildKit builder 已停止，未创建容器栈或占用测试端口。
-CT05 最终 worktree clean，Hypothesis 临时目录与 S1c bundle 临时文件已清理。1030b 保留卷和
-v1-submit checkpoint 不动，在 S1c exit 后由 owner 安排清理。
+本轮没有启用代理。CT201 的 Compose 镜像构建曾因 uv bootstrap 制品不可用而停止，未生成候选镜像；
+构建日志见上节。04 本次 runner 未启动 Compose；新启动的 `pve-registry-http` BuildKit builder 已停止。
+04 V worktree 与同步 bundle 保留，worktree clean。CT05 未启动 journey。1030b 保留卷和 v1-submit checkpoint
+不动，在 S1c exit 后由 owner 安排清理。

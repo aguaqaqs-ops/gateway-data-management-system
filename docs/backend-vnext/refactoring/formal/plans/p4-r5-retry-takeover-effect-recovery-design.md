@@ -188,10 +188,12 @@ authorization wiring; R5 adds no principal.
 `RESUME_RECONCILE` and `RETRY_FROM_CHECKPOINT` move a manual Step to the existing claimable
 `RETRY_WAIT` state, move its Operation to `RUNNING`, clear lease ownership, and set immediate
 eligibility. The next worker claim consumes exactly one session. The existing diagnostic field
-carries the authorization through that claim and any confirmed healthy-wait handoff; a counted
-failure in that authorized session returns the pair to `MANUAL_RECOVERY_REQUIRED`. A restart before
-claim leaves the due `RETRY_WAIT` claimable and does not spend a session. If the claimed session's
-lease expires, startup marks it manual and remains ready.
+carries authorization from `r5.recovery_authorized` to `r5.operator_recovery_session` through that
+claim and any confirmed healthy-wait handoff; this is the sole diagnostic allowed on a `RUNNING`
+Step. A counted failure in that authorized session returns the pair to
+`MANUAL_RECOVERY_REQUIRED`. A restart before claim leaves the due `RETRY_WAIT` claimable and does
+not spend a session. If the claimed session's lease expires, startup marks it manual and remains
+ready.
 
 ## 8. Lifecycle, startup and deployment
 
@@ -200,8 +202,8 @@ records to `RETRY_WAIT`, schedule external reconcile, or mark irrecoverable reco
 does not perform unbounded Repository polling before `READY`; manual records do not block readiness.
 After an operator resume/retry accepted but before the next claim, the Step is already due
 `RETRY_WAIT`, so startup leaves it claimable and does not apply the exhausted-session rule. If that
-authorized session was claimed and its lease later expires, startup marks it manual but remains
-`READY`.
+authorized session was claimed, its `r5.operator_recovery_session` diagnostic identifies the live
+session; if its lease later expires, startup marks it manual but remains `READY`.
 
 Drain stops new claims, lets the current executor heartbeat/checkpoint or safely hand off, and
 does not convert drain into cancellation. A bounded Submit Repository poll returns its last

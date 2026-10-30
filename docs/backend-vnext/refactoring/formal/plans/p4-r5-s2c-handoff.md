@@ -80,10 +80,12 @@ two resume commands use the existing claimable state so a live worker can contin
 | `RETRY_FROM_CHECKPOINT` | `PURE_RECOMPUTE` | same claimable transition; next worker claim grants one session |
 | `ABORT_CONFIRMED_FAILURE` | unchanged | paired `MANUAL` → `FAILED` with operator reason in diagnostic |
 
-The command no longer owns a worker lease. Its authorization is carried in the existing diagnostic
-field through the claim and any confirmed healthy-wait handoff; a counted failure in that session
-returns to `MANUAL_RECOVERY_REQUIRED`. The HTTP response, capability guard, and optimistic-version
-semantics remain as specified in P5-5B §5.4.
+The command no longer owns a worker lease. `r5.recovery_authorized` is stored while the Step is
+claimable; the worker claim consumes exactly one session and changes the existing diagnostic to
+`r5.operator_recovery_session`. This is the only diagnostic allowed on a `RUNNING` Step. A confirmed
+healthy-wait handoff uses the operator-specific marker and preserves that same attempt; a counted
+failure or lease loss returns the pair to `MANUAL_RECOVERY_REQUIRED`. The HTTP response, capability
+guard, and optimistic-version semantics remain as specified in P5-5B §5.4.
 
 At S2c, `RUNNING` resume cleared persisted diagnostics and preserved `attempt_count` and
 `started_at` through the direct resume. S1c replaces that resume path: the command leaves the count

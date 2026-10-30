@@ -148,6 +148,9 @@ Operation 与 Step persisted document 均为 closed object；`to_document()` 发
   `MANUAL_RECOVERY_REQUIRED`。
 - Step：`PENDING`, `RUNNING`, `RETRY_WAIT`, `SUCCEEDED`, `FAILED`, `CANCELLED`,
   `MANUAL_RECOVERY_REQUIRED`。
+- RUNNING Step 的 `diagnostic` 通常为 null；仅 operator 已授权并由 worker claim 的会话可使用
+  `R5.OPERATOR_RECOVERY_SESSION`。该既有诊断标记保留到该会话终止、失败或健康让出，不改变 lease、
+  status 或 optimistic-version 规则；其他 RUNNING Step diagnostic 仍拒绝。
 - `SUCCEEDED | FAILED | CANCELLED | SUPERSEDED` 为 final terminal。
   `MANUAL_RECOVERY_REQUIRED` 为 attention state：不可自动 claim，不释放业务占用；仅
   authorized recovery 可将 Step 置为现有可领取的 `RETRY_WAIT` 并将 Operation 恢复为

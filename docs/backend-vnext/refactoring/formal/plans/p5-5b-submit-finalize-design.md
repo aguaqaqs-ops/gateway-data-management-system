@@ -416,6 +416,11 @@ path或private ref。HTTP/auth/capability rejection的唯一test owner由executi
 不会消耗会话，也不会因该 Step 阻断启动。已离开 MANUAL source 后重复命令仍按本节返回 `409`，HTTP
 响应与授权、capability、optimistic-version 语义不变。
 
+Step 在 `RETRY_WAIT` 中以 `r5.recovery_authorized` 表示待 worker 授予的会话；claim 按现有规则
+只增加一次 `attempt_count`，并将该标记转换为 `r5.operator_recovery_session`。这是唯一允许在
+`RUNNING` Step 上出现的 diagnostic，用于让该授权会话的计数型失败或 lease 丢失回到人工恢复。
+健康 handoff 使用 operator 专用 healthy marker 保留这次 `attempt_count`，后续 claim 不重复计数。
+
 ## 6. AcceptSubmit ordering, idempotency and T1
 
 ### 6.1 Pre-transaction ordering
@@ -777,6 +782,9 @@ Repository poll 的上限。Repository 对原 operation identity 成功返回 `Q
 bounded poll 返回最后一次成功的健康观测后安全让出。其他 safe handoff 保留原行为。
 Submit checkpoint 不保存 `reconcile_started_at`。target/policy/mutation mode 不是 setting，固定在
 job contract。
+
+如果这次健康等待属于 operator 授权会话，使用 operator 专用 healthy marker 并保留该会话的
+`attempt_count`；重新领取继续原会话，计数型失败仍回到 `MANUAL_RECOVERY_REQUIRED`。
 
 Backend与worker必须从同一composition factory获得Submit definitions/decoders/handler identity；
 HTTP T1使用同一immutable registry snapshot做preflight。Repository client不得记录bearer、body、

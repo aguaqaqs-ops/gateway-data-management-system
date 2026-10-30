@@ -90,7 +90,7 @@ Repository Operation只公开`QUEUED | RUNNING | SUCCEEDED | FAILED`。
   Service 导入预算对齐的总等待上界；需要operator且不得释放 business occupancy；
 - 本地Submit checkpoint与payload的identity/request fingerprint不符，或Repository返回的
   operation identity与checkpoint不符，均立即进入`MANUAL_RECOVERY_REQUIRED`并保留identity-mismatch
-  诊断；不计入恢复会话。只有崩溃或lease丢失、传输错误、结果未知计入三个恢复会话；
+  诊断`r5.effect_identity_mismatch`；不计入恢复会话。只有崩溃或lease丢失、传输错误、结果未知计入三个恢复会话；
 - Submit 只有在已校验本地request fingerprint、并对原operation identity收到HTTP成功的
   `QUEUED`/`RUNNING`时，才把这次健康等待排除在恢复会话计数之外；沿用已存在的checkpoint与safe
   handoff 的健康等待路径。其他safe handoff不据此改变恢复会话计数。该operation的总等待从Step

@@ -160,9 +160,8 @@ matching `QUEUED`/`RUNNING` result, or a transport error/timeout/unknown result,
 instead enters manual recovery with the identity-mismatch diagnostic. The final observation can
 extend a poll up to five seconds beyond the nominal bound. This count-free requeue is selected only
 by Submit after the matching healthy observation; other safe-handoff callers retain their existing
-behavior. Submit does not persist `reconcile_started_at`.
-This count-free requeue is selected only by Submit after the matching healthy observation; other
-safe-handoff callers retain their existing behavior.
+behavior. Before the total bound, polls without a successful health observation retain the normal
+three-session rule. Submit does not persist `reconcile_started_at`.
 
 ## 7. Identity, diagnostics and operator recovery
 
@@ -180,6 +179,7 @@ r5.lease_expired
 r5.retry_scheduled
 r5.reconcile_started
 r5.reconcile_timeout
+r5.effect_identity_mismatch
 r5.manual_recovery_required
 r5.recovery_authorized
 r5.operator_recovery_session

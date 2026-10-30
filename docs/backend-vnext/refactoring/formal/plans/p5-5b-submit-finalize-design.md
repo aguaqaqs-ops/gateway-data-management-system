@@ -776,7 +776,7 @@ Repository poll 的上限。Repository 对原 operation identity 成功返回 `Q
 同一身份继续对账。此例外只适用于 HTTP 成功、身份与本地请求 fingerprint 均匹配的显式健康观测。
 崩溃或 lease 丢失、传输错误与结果未知在总等待上界前消耗最多三个恢复会话；达到第三次后保留
 occupancy 并进入 `MANUAL_RECOVERY_REQUIRED`。本地 checkpoint 与payload的identity/request
-fingerprint不符，或Repository operation identity不符，立即进入带identity-mismatch诊断的人工恢复，
+fingerprint不符，或Repository operation identity不符，立即以`r5.effect_identity_mismatch`诊断进入人工恢复，
 不计恢复会话。Submit 总等待上界以 Step `started_at` 为起点，与 Repository Service 的
 `import_timeout_seconds` 加 `server_start_timeout_seconds` 对齐（当前 3630 秒）。每次 claim 都先观察
 原 operation；poll deadline 为 `min(60s, max(剩余预算, 5s))`。匹配的 `SUCCEEDED` 或 `FAILED` 即使

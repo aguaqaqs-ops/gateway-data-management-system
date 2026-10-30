@@ -523,6 +523,7 @@ implementation_authorized: no
        - 来源运行是 p6-s1b-exit，续跑使用 S1c 最终候选的镜像；
        - 这是 DC64 第 2 项 c 的例外，前提是 S1c 没有改变 control DB schema、checkpoint 载荷与 Repository Service（DC65 已禁止新增 durable 或 checkpoint 字段）；
        - 前提不成立时改为整档运行。
+       - 1030b 的状态文件没有写完结束时间与 exit code，这是第 3 项要求修正的已知工具缺口。对这一次运行，三项事实取自其运行日志 ct108 `/home/dev/gdds-p6-logs/baseline/p6b2xwarmr5fix1030b.log`（SHA256 `737b8005fd130ce2e934f63f0d7b4a8b88a179e6cc48c29f8fae86a9aafca27f`）：exit_code=1、ended_utc=2026-10-30T09:56:47Z、失败步骤 v1-submit。handoff 引用该日志，视为满足第 3 项；原状态文件不改写。
      - 05 的 t1 冒烟保留。
   5. **测量工具修正的常设授权**：
      - 授权范围：`vnext/backend/benchmarks/` 及其测试、runbook 与基准 handoff 内的工具缺陷，实施者可直接修正，不等 owner。

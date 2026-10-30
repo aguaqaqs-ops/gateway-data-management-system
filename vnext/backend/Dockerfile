@@ -17,14 +17,14 @@ COPY rust/gateway-compute-python/Cargo.toml /build/rust/gateway-compute-python/C
 COPY rust/gateway-shared-kernel/Cargo.toml /build/rust/gateway-shared-kernel/Cargo.toml
 
 RUN if [ "${USE_PRELOADED_DEPENDENCIES}" = "1" ]; then \
-      python3 -c 'import hashlib,json,sys; from pathlib import Path; root=Path("/usr/local/share/gateway-backend-dependency-base"); raw=(root/"inputs.json").read_bytes(); inputs=json.loads(raw); digest=hashlib.sha256(raw).hexdigest(); expected={"backend/pyproject.toml":Path("/build/backend/pyproject.toml"),"backend/uv.lock":Path("/build/backend/uv.lock"),"backend/.python-version":Path("/build/backend/.python-version"),"rust/Cargo.lock":Path("/build/rust/Cargo.lock"),"rust/rust-toolchain.toml":Path("/build/rust/rust-toolchain.toml")}; assert (root/"input-sha256").read_text(encoding="ascii").strip()==digest, "dependency-base digest file is inconsistent"; assert len(sys.argv)==2 and sys.argv[1].rsplit(":lock-",1)[-1]==digest[:12], "dependency-base tag does not match its input digest"; assert all(inputs["files"].get(name)==hashlib.sha256(path.read_bytes()).hexdigest() for name,path in expected.items()), "dependency-base lock inputs do not match this source tree"' "${DEPENDENCY_BASE_IMAGE}"; \
+      python3 -c 'import hashlib,json,sys; from pathlib import Path; root=Path("/usr/local/share/gateway-backend-dependency-base"); raw=(root/"inputs.json").read_bytes(); payload=json.loads(raw); inputs=payload["tag_inputs"]; canonical=json.dumps(inputs,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); digest=hashlib.sha256(canonical).hexdigest(); expected={"backend/pyproject.toml":Path("/build/backend/pyproject.toml"),"backend/uv.lock":Path("/build/backend/uv.lock"),"backend/.python-version":Path("/build/backend/.python-version"),"rust/Cargo.lock":Path("/build/rust/Cargo.lock"),"rust/rust-toolchain.toml":Path("/build/rust/rust-toolchain.toml")}; assert (root/"input-sha256").read_text(encoding="ascii").strip()==digest, "dependency-base digest file is inconsistent"; assert len(sys.argv)==2 and sys.argv[1].rsplit(":lock-",1)[-1]==digest[:12], "dependency-base tag does not match its input digest"; assert payload.get("base_image_id"), "dependency-base base image metadata is missing"; assert all(inputs["files"].get(name)==hashlib.sha256(path.read_bytes()).hexdigest() for name,path in expected.items()), "dependency-base lock inputs do not match this source tree"' "${DEPENDENCY_BASE_IMAGE}"; \
     else \
       curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" -o /tmp/uv-install.sh \
       && sh /tmp/uv-install.sh \
       && rm -f /tmp/uv-install.sh \
       && uv python install "$(cat .python-version)" \
       && ln -sfn "$(uv python find "$(cat .python-version)")" /usr/local/bin/python3 \
-      && uv sync --locked --no-install-local --no-install-project \
+      && uv sync --frozen --no-install-local --no-install-project \
       && uv pip install \
           --python "$(uv python find "$(cat .python-version)")" \
           "uv==${UV_VERSION}" \
@@ -64,11 +64,11 @@ ARG UV_BOOTSTRAP_INDEX_URL=https://pypi.org/simple
 ARG UV_BOOTSTRAP_TRUSTED_HOST
 WORKDIR /app/backend
 
-COPY --from=dependency-base /root/.local/bin/uv /usr/local/bin/uv
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version backend/README.md ./
-RUN --mount=type=bind,from=dependency-base,source=/root/.cache/uv,target=/root/.cache/uv \
+RUN --mount=type=bind,from=dependency-base,source=/root/.cache/uv,target=/root/.cache/uv,rw \
+    --mount=type=bind,from=dependency-base,source=/root/.local/bin/uv,target=/tmp/dependency-base-uv,ro \
     if [ "${USE_PRELOADED_DEPENDENCIES}" = "1" ]; then \
-      uv pip install --system --offline "uv==${UV_VERSION}"; \
+      /tmp/dependency-base-uv pip install --system --offline "uv==${UV_VERSION}"; \
     elif [ -n "${UV_BOOTSTRAP_TRUSTED_HOST}" ]; then \
       pip install --no-cache-dir --index-url="${UV_BOOTSTRAP_INDEX_URL}" --trusted-host "${UV_BOOTSTRAP_TRUSTED_HOST}" "uv==${UV_VERSION}"; \
     else \
@@ -86,7 +86,7 @@ COPY shared_kernel /app/shared_kernel
 COPY repository_client /app/repository_client
 COPY repository_contracts /app/repository_contracts
 COPY backend/src ./src
-RUN --mount=type=bind,from=builder,source=/build/wheels,target=/tmp/backend-wheels \
+RUN --mount=type=bind,from=builder,source=/build/wheels,target=/tmp/backend-wheels,ro \
     UV_OFFLINE=1 uv sync \
         --frozen \
         --no-install-project \

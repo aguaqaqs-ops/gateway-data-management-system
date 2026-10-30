@@ -39,6 +39,17 @@ def test_backend_dockerfile_runtime_env_is_application_only() -> None:
 @pytest.mark.unit
 def test_preloaded_dependency_layers_are_source_ordered_and_offline_after_source_copy() -> None:
     dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    dependency_base = DEPENDENCY_BASE_DOCKERFILE.read_text(encoding="utf-8")
+    before_builder = dockerfile.split("FROM dependency-base AS builder", maxsplit=1)[0]
+    assert "uv sync --frozen --no-install-local --no-install-project" in before_builder
+    assert "uv sync --locked" not in before_builder
+    assert dockerfile.index("uv sync --frozen") < dockerfile.index("COPY rust /build/rust")
+    assert "uv sync --frozen --no-install-local --no-install-project" in dependency_base
+    assert "COPY rust /build/rust" not in dependency_base
+    assert "COPY shared_kernel" not in dependency_base
+    assert "COPY repository_client" not in dependency_base
+    assert "COPY repository_contracts" not in dependency_base
+
     builder = dockerfile.split("FROM dependency-base AS builder", maxsplit=1)[1].split(
         "FROM python:3.14.6-slim-bookworm AS runtime", maxsplit=1
     )[0]
@@ -48,10 +59,15 @@ def test_preloaded_dependency_layers_are_source_ordered_and_offline_after_source
     assert "COPY repository_client /build/repository_client" in builder_after_source
     assert "COPY repository_contracts /build/repository_contracts" in builder_after_source
     assert "UV_OFFLINE=1 uv sync" in builder_after_source
+    assert "UV_OFFLINE=1 uv sync --locked" in builder_after_source
     assert "CARGO_NET_OFFLINE=true" in builder_after_source
     assert re.search(r"\bcurl\b|cargo fetch|uv python install", builder_after_source) is None
 
     runtime = dockerfile.split("FROM python:3.14.6-slim-bookworm AS runtime", maxsplit=1)[1]
+    assert "source=/root/.cache/uv,target=/root/.cache/uv,rw" in runtime
+    assert "source=/root/.local/bin/uv,target=/tmp/dependency-base-uv,ro" in runtime
+    assert "COPY --from=dependency-base /root/.local/bin/uv /usr/local/bin/uv" not in dockerfile
+    assert "/tmp/dependency-base-uv pip install --system --offline" in runtime
     runtime_source = runtime.index("COPY rust /app/rust")
     runtime_after_source = runtime[runtime_source:]
     assert "COPY shared_kernel /app/shared_kernel" in runtime_after_source
@@ -60,7 +76,7 @@ def test_preloaded_dependency_layers_are_source_ordered_and_offline_after_source
     assert "COPY backend/src ./src" in runtime_after_source
     assert "UV_OFFLINE=1 uv sync" in runtime_after_source
     assert "UV_OFFLINE=1 uv pip install" in runtime_after_source
-    assert "source=/build/wheels,target=/tmp/backend-wheels" in runtime_after_source
+    assert "source=/build/wheels,target=/tmp/backend-wheels,ro" in runtime_after_source
     assert "/tmp/backend-wheels/*.whl" in runtime_after_source
     assert re.search(r"\bcurl\b|cargo fetch|uv python install|pip install --no-cache-dir", runtime_after_source) is None
     assert "COPY --from=builder /root/.cache/uv" not in dockerfile
@@ -74,8 +90,12 @@ def test_dependency_base_label_is_bound_to_canonical_input_payload() -> None:
         encoding="utf-8"
     )
     assert 'LABEL gateway.backend.dependency-input-sha256="${DEPENDENCY_INPUT_SHA256}"' in dockerfile
+    assert 'LABEL gateway.backend.base-image-inspect-id="${BASE_IMAGE_ID}"' in dockerfile
     assert '"gateway.backend.dependency-input-sha256"' in script
-    assert "sha256sum /usr/local/share/gateway-backend-dependency-base/inputs.json" in dockerfile
+    assert 'payload["tag_inputs"]' in dockerfile
+    assert '"base_image_id"' in dockerfile
+    assert '"config_digest"' in script
+    assert '"diff_ids"' in script
     assert 'IMAGE_TAG="gateway-backend-deps:lock-${INPUT_SHA256:0:12}"' in script
 
 

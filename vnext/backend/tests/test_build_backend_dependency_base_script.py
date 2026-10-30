@@ -13,6 +13,10 @@ VNEXT_ROOT = Path(__file__).resolve().parents[2]
 BUILD_SCRIPT = VNEXT_ROOT / "scripts" / "build-backend-dependency-base.sh"
 BASE_IMAGE_ID = "sha256:" + "a" * 64
 BUILT_IMAGE_ID = "sha256:" + "b" * 64
+BASE_DIFF_ID = "c" * 64
+OTHER_BASE_DIFF_ID = "d" * 64
+BASE_CONFIG_BLOB = f'{{"rootfs":{{"diff_ids":["sha256:{BASE_DIFF_ID}"]}}}}'.encode()
+BASE_CONFIG_DIGEST = "sha256:" + hashlib.sha256(BASE_CONFIG_BLOB).hexdigest()
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -22,11 +26,25 @@ def _write_executable(path: Path, content: str) -> None:
 
 def _fake_docker(path: Path) -> str:
     state = path / "backend-dependency-base-label"
+    base_state = path / "backend-dependency-base-base-image-id"
     argv = path / "docker-build.argv"
     return f"""#!/usr/bin/env bash
 set -euo pipefail
 STATE={str(state)!r}
+BASE_STATE={str(base_state)!r}
 ARGV={str(argv)!r}
+if [[ "$1" == "image" && "$2" == "save" ]]; then
+  output=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--output" ]]; then output="$2"; shift 2; else shift; fi
+  done
+  temp_dir="$(mktemp -d "${{TMPDIR:-/tmp}}/fake-base-image.XXXXXX")"
+  printf '{{"rootfs":{{"diff_ids":["sha256:%s"]}}}}' "${{FAKE_BASE_DIFF_ID:-{BASE_DIFF_ID}}}" > "$temp_dir/config.json"
+  printf '[{{"Config":"config.json"}}]' > "$temp_dir/manifest.json"
+  tar -C "$temp_dir" -cf "$output" manifest.json config.json
+  rm -rf -- "$temp_dir"
+  exit 0
+fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
   reference="${{@:$#}}"
   format=""
@@ -39,7 +57,7 @@ if [[ "$1" == "image" && "$2" == "inspect" ]]; then
     fi
   done
   if [[ "$reference" == rust:* ]]; then
-    [[ "$format" == *".Id"* ]] && echo "{BASE_IMAGE_ID}" || exit 0
+    [[ "$format" == *".Id"* ]] && echo "${{FAKE_BASE_IMAGE_ID:-{BASE_IMAGE_ID}}}" || exit 0
     exit 0
   fi
   if [[ "$reference" == gateway-backend-deps:lock-* ]]; then
@@ -90,7 +108,7 @@ def _run_script(
     extra_env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path]:
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir(exist_ok=True)
+    bin_dir.mkdir(parents=True, exist_ok=True)
     docker = bin_dir / "docker"
     _write_executable(docker, _fake_docker(tmp_path))
     env = os.environ.copy()
@@ -118,22 +136,57 @@ def test_dependency_base_input_summary_hashes_locked_inputs_and_base_identity(
     assert completed.returncode == 0, completed.stderr
     summary = json.loads(completed.stdout)
     inputs = summary["inputs"]
+    tag_inputs = inputs["tag_inputs"]
     expected_digest = hashlib.sha256(
-        json.dumps(inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(tag_inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert summary["input_sha256"] == expected_digest
     assert summary["image"] == f"gateway-backend-deps:lock-{expected_digest[:12]}"
-    assert inputs["files"].keys() == {
+    assert tag_inputs["files"].keys() == {
         "backend/pyproject.toml",
         "backend/uv.lock",
         "backend/.python-version",
         "rust/Cargo.lock",
         "rust/rust-toolchain.toml",
     }
-    assert inputs["base_image"] == "rust:1.97.0-bookworm"
+    assert tag_inputs["base_image"] == "rust:1.97.0-bookworm"
     assert inputs["base_image_id"] == BASE_IMAGE_ID
-    assert inputs["python_version"] == "3.14.6"
-    assert inputs["uv_version"] == "0.11.28"
+    assert tag_inputs["base_image_identity"] == {
+        "config_digest": BASE_CONFIG_DIGEST,
+        "diff_ids": [f"sha256:{BASE_DIFF_ID}"],
+    }
+    assert tag_inputs["python_version"] == "3.14.6"
+    assert tag_inputs["uv_version"] == "0.11.28"
+
+
+@pytest.mark.unit
+def test_dependency_base_tag_ignores_store_specific_inspect_id_but_tracks_image_contents(
+    tmp_path: Path,
+) -> None:
+    first, _, _ = _run_script(
+        tmp_path / "first",
+        "--print-input",
+        extra_env={"FAKE_BASE_IMAGE_ID": "sha256:" + "e" * 64},
+    )
+    second, _, _ = _run_script(
+        tmp_path / "second",
+        "--print-input",
+        extra_env={"FAKE_BASE_IMAGE_ID": "sha256:" + "f" * 64},
+    )
+    changed_base, _, _ = _run_script(
+        tmp_path / "changed-base",
+        "--print-input",
+        extra_env={"FAKE_BASE_DIFF_ID": OTHER_BASE_DIFF_ID},
+    )
+
+    assert first.returncode == second.returncode == changed_base.returncode == 0
+    first_summary = json.loads(first.stdout)
+    second_summary = json.loads(second.stdout)
+    changed_summary = json.loads(changed_base.stdout)
+    assert first_summary["inputs"]["base_image_id"] != second_summary["inputs"]["base_image_id"]
+    assert first_summary["input_sha256"] == second_summary["input_sha256"]
+    assert first_summary["image"] == second_summary["image"]
+    assert changed_summary["input_sha256"] != first_summary["input_sha256"]
 
 
 @pytest.mark.unit
@@ -156,6 +209,7 @@ def test_dependency_base_build_verifies_label_and_exports_archive_sha256(
     assert "--pull=false" in argv
     assert "--file" in argv and "Dockerfile.dependency-base" in argv
     assert f"DEPENDENCY_INPUT_SHA256={digest}" in argv
+    assert f"BASE_IMAGE_ID={BASE_IMAGE_ID}" in argv
 
 
 @pytest.mark.unit

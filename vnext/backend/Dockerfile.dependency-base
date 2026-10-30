@@ -33,7 +33,8 @@ RUN set -eu; \
     mkdir -p /usr/local/share/gateway-backend-dependency-base; \
     printf '%s' "${DEPENDENCY_INPUTS_BASE64}" | base64 -d > /usr/local/share/gateway-backend-dependency-base/inputs.json; \
     printf '%s\n' "${DEPENDENCY_INPUT_SHA256}" > /usr/local/share/gateway-backend-dependency-base/input-sha256; \
-    test "$(sha256sum /usr/local/share/gateway-backend-dependency-base/inputs.json | awk '{print $1}')" = "${DEPENDENCY_INPUT_SHA256}"; \
+    python3 -c 'import hashlib,json,sys; payload=json.loads(open(sys.argv[1], encoding="utf-8").read()); canonical=json.dumps(payload["tag_inputs"],ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); assert hashlib.sha256(canonical).hexdigest()==sys.argv[2], "dependency-base tag inputs do not match their digest"; assert payload.get("base_image_id")==sys.argv[3], "dependency-base inspect ID metadata does not match its build input"' \
+      /usr/local/share/gateway-backend-dependency-base/inputs.json "${DEPENDENCY_INPUT_SHA256}" "${BASE_IMAGE_ID}"; \
     test "$(rustc --version | awk '{print $2}')" = "${RUSTUP_TOOLCHAIN}"; \
     test "$(cat .python-version)" = "${PYTHON_VERSION}"; \
     test "${BASE_IMAGE_ID}" != ""
@@ -43,7 +44,7 @@ RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" -o /tmp/uv-instal
     && rm -f /tmp/uv-install.sh
 RUN uv python install "${PYTHON_VERSION}" \
     && ln -sfn "$(uv python find "${PYTHON_VERSION}")" /usr/local/bin/python3
-RUN uv sync --locked --no-install-local --no-install-project
+RUN uv sync --frozen --no-install-local --no-install-project
 RUN uv pip install \
     --python "$(uv python find "${PYTHON_VERSION}")" \
     "uv==${UV_VERSION}"
@@ -63,3 +64,4 @@ RUN for crate in gateway-architecture-check gateway-compute-core gateway-compute
     && cargo fetch --locked --manifest-path /build/rust/Cargo.toml
 
 LABEL gateway.backend.dependency-input-sha256="${DEPENDENCY_INPUT_SHA256}"
+LABEL gateway.backend.base-image-inspect-id="${BASE_IMAGE_ID}"

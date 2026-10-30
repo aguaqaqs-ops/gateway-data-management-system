@@ -795,6 +795,7 @@ def test_drain_and_shutdown_handoff_after_one_bounded_poll(tmp_path: Path) -> No
                     "result": None,
                 }
             },
+            headers={"X-Request-ID": "req-operation"},
         )
 
     transport = RecordingTransport(_drain_during_poll)

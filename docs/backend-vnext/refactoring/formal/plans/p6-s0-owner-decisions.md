@@ -577,6 +577,14 @@ implementation_authorized: no
   3. **Repository Service 与 client e2e 镜像**：在节点上以预置依赖模式离线构建；dependency-base 镜像缺失时按第 1 项预填充。
   4. **就绪预检**：权威 runner 之前先在节点核对镜像与缓存就绪（不运行测试）；缺失即停止，不进入 runner。
   5. **遗留**：调整 backend Dockerfile，使依赖层只取决于锁文件，测试节点即可离线自建镜像。建议在 S2a 之前作为独立小改完成（S2a 会改 `rust`），由 owner 另行安排；完成前按第 2 项执行。已安排（2026-10-30）：见[执行计划](p6-execution-plan.md) §2“backend 镜像依赖层调整”，S2a 前置。
+- **澄清**（repository owner，2026-10-30；来自 S1c 04 镜像就绪预检停止，[S1c 取证复核 1](p6-s1c-evidence-check-1.md)）：
+  - 来源：开发节点构建的 backend/worker 镜像经 `docker save`/`docker load` 传到 04 后，04 的 `docker image inspect` ID 与开发节点不同，实施者按取证提示词中的“ID 一致”要求停止。核对结果：两端 config digest 相同（`sha256:b1f3c7b6…`），15 个 RootFS DiffID 逐项相同。ID 不同的原因是两端 image store 不同：开发节点为 classic store，inspect ID 即 config digest；测试节点为 containerd store，inspect ID 是本机生成的 manifest digest。
+  1. **跨节点镜像身份**：经 `docker save`/`docker load` 或其他方式在节点间传输的镜像，以“config digest + 全部 RootFS DiffID 逐项相同”判定身份，不比较 inspect ID。
+     - 取值：classic store 上 config digest 即 inspect ID；containerd store 上在本机 `docker save` 后读取归档 `manifest.json` 的 `Config`。DiffID 取自 `docker image inspect` 的 `.RootFS.Layers`。
+     - handoff 记录两端的 config digest、DiffID 列表与比较结果；两端 inspect ID 照记，仅供参考。
+  2. **适用范围**：本决议第 2 项的 backend/worker 预构建镜像（04、05、ct108），backend 镜像依赖层调整中的 dependency-base 传输，以及其后所有跨节点镜像预填充。
+  3. **不变项**：同一节点内的闭包 manifest 与 carried 判定继续使用本机 image ID（同一 worktree、同一 image store），与 AGENTS“镜像身份等价”和 DC34 一致。
+  4. **S1c 本次结果**：04 已加载的 `s1c-v-3008-backend:latest`、`s1c-v-3008-worker:latest` 按第 1 项与开发节点构建结果一致，04 就绪预检视为通过，不重做。
 
 ## 3. 设计阶段待定项
 

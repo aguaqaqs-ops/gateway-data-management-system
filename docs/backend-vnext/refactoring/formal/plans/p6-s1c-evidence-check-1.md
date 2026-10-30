@@ -1,6 +1,6 @@
 # Phase 6 S1c 取证复核 1（04 镜像就绪预检停止）
 
-状态：**停止原因已查明，不是镜像差异。** 按第 3 节的身份口径，04 预检通过，04 权威 runner 可以启动。05 t1 需要先做一处测量工具修正（第 4 节）。ct108 2× t4 Submit 仍等待基准续跑工具。
+状态：**停止原因已查明，不是镜像差异。** 第 3 节口径已由 owner 确认，记为 DC67 澄清（2026-10-30）；04 预检通过，04 权威 runner 可以启动。05 t1 需要先做一处测量工具修正（第 4 节）。ct108 2× t4 Submit 仍等待基准续跑工具。
 
 ## 1. 复核对象
 
@@ -21,7 +21,7 @@
 - layer 路径聚合摘要不同，原因是两种 store 导出时 layer blob 的编码与命名不同。DiffID 是解压后层内容的摘要，已经相同，因此这一差异不影响身份判断。
 - 结论：实施者按提示词停下是正确的。提示词口径有误，镜像本身没有问题。
 
-## 3. 建议口径（待 owner 确认，记为 DC67 澄清）
+## 3. 身份口径（owner 已确认，见 DC67 澄清）
 
 跨节点传输的镜像以“config digest + 全部 RootFS DiffID”判定身份，不比较 `docker image inspect` 的 ID。
 
@@ -55,7 +55,7 @@
 
 | 项 | 判定 |
 |---|---|
-| 04 六包权威 runner（V） | owner 确认第 3 节口径后即可启动；环境为 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`GATEWAY_COMPOSE_GATE_PREBUILT=1`、`GATEWAY_COMPOSE_GATE_PROJECT_NAME=s1c-v-3008` |
+| 04 六包权威 runner（V） | 可以启动；环境为 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`GATEWAY_COMPOSE_GATE_PREBUILT=1`、`GATEWAY_COMPOSE_GATE_PROJECT_NAME=s1c-v-3008` |
 | 05 t1 冒烟 | 先完成第 4 节的工具提交 T（05 focused 测试与五包静态检查通过），再加载预构建镜像，按第 3 节口径核对后运行；可与 04 runner 并行 |
 | ct108 2× t4 Submit | 继续等待基准续跑工具（DC66 第 3 项），并需要第 4 节的同类修正 |
 | 停止条件 | 不变：任一步缓存缺失或身份不符即停止，不经代理 |

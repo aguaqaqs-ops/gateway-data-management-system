@@ -576,7 +576,7 @@ implementation_authorized: no
      这属于本决议第 1 项的预填充。
   3. **Repository Service 与 client e2e 镜像**：在节点上以预置依赖模式离线构建；dependency-base 镜像缺失时按第 1 项预填充。
   4. **就绪预检**：权威 runner 之前先在节点核对镜像与缓存就绪（不运行测试）；缺失即停止，不进入 runner。
-  5. **遗留**：调整 backend Dockerfile，使依赖层只取决于锁文件，测试节点即可离线自建镜像。建议在 S2a 之前作为独立小改完成（S2a 会改 `rust`），由 owner 另行安排；完成前按第 2 项执行。
+  5. **遗留**：调整 backend Dockerfile，使依赖层只取决于锁文件，测试节点即可离线自建镜像。建议在 S2a 之前作为独立小改完成（S2a 会改 `rust`），由 owner 另行安排；完成前按第 2 项执行。已安排（2026-10-30）：见[执行计划](p6-execution-plan.md) §2“backend 镜像依赖层调整”，S2a 前置。
 
 ## 3. 设计阶段待定项
 

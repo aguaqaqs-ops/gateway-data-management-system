@@ -20,6 +20,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
  -> S1b 业务语义 Contract（DC40、DC41、DC49、参照解析器修复与语义定稿）+ 合成负载
  -> S1c Submit 等待预算与人工恢复续行修订（DC65，修订 2026-10-30）
  -> 重建对照基准（Python；工具开发可与 S1c 并行，正式测量在 S1c exit 之后）
+    ‖ backend 镜像依赖层调整（DC67 补充第 5 项；可与 S1c、重建对照基准并行，S2a 之前完成）
  -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展
  -> S2b 上传侧数据路径与规范表存储（切换生产）
  -> S3  比较与逐行记录（Rust）
@@ -127,10 +128,29 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 真实数据（DC66 第 4 项）：05 的 t1 冒烟；ct108 的 2× t4 Submit 从 `p6b2xwarmr5fix1030b` 的 v1-submit checkpoint 副本续跑；不做 ct108 的 t4 完整旅程。kickoff 写明，退出前由 owner 确认（DC33）。
 - **授权（repository owner，2026-10-29；修订 2026-10-30）：** DC65 及其修订；DC66。
 
+### backend 镜像依赖层调整（DC67 补充第 5 项）
+
+- 目标：backend/worker 镜像可在测试节点离线构建。新增按锁定输入打 tag 的 backend dependency-base 镜像与预置依赖开关（参照 Repository Service 与 client e2e 的做法）；Dockerfile 的依赖层只取决于锁定输入，本地源码在其后复制，此后的步骤不再联网；最终运行镜像与现状等价。完成后，DC67 补充第 2 项（在开发节点预构建整镜像）改为“锁定输入变化时在开发节点预构建 dependency-base，节点离线自建 backend/worker 镜像”，在本任务 exit 时记录。
+- 前置：无（基于 main `26738ae5c4`）。可与 S1c、重建对照基准并行；取证需独占 04，与 S1c 协调，不并用节点。S1c 先合入时，合并 main 后再取证。
+- 内容：
+  - backend Dockerfile、新增 dependency-base Dockerfile 与构建脚本 `vnext/scripts/build-backend-dependency-base.sh`；
+  - compose.yaml 的 build 参数与预置开关（默认保持现有行为）；
+  - test_input_closure.py 中 backend 闭包记录 dependency-base 镜像、本机 image ID 与开关；
+  - 对应测试（test_backend_dockerfile_contract.py、脚本测试、test_test_input_closure.py）。
+  - 不改应用代码、Contract、golden 与依赖锁。AGENTS.md 与 testing-conventions 的条文建议写入 handoff，由维护这两份文件的会话同步。
+- 验收（DC64 流程）：
+  - focused 测试与五包静态检查；
+  - 04 上以 `GATEWAY_DOCKER_BUILD_NETWORK=none`、预置模式构建候选镜像成功；对 repository_client 与 rust 源码做无害改动后离线重建成功（改动不进入候选）；
+  - 与 main `26738ae5c4` 现有 Dockerfile 构建的镜像做等价核对（已安装包集合、应用源码、runtime ENV 与 CMD）；
+  - 04 权威 runner 与容器门禁（Dockerfile、Compose 变化），环境按 DC67 补充（UV_OFFLINE=1、CARGO_NET_OFFLINE=true、backend 预置开关）。
+- 真实数据：不改应用代码，不跑；镜像等价核对出现构建产物以外的差异时交 owner 决定是否补 t1 冒烟（DC33）。
+- 分支：短期分支 `p6-backend-image-deps`；handoff 为 `p6-backend-image-deps-handoff.md`；exit 由 owner 确认后合入，附注 tag `p6-backend-image-exit`。
+- **授权（repository owner，2026-10-30）：** DC67 补充第 5 项；本节安排。
+
 ### S2a — SQL 解析器
 
 - 目标：设计 §7。
-- 前置：S1b exit（语义已定稿）；重建对照基准已完成。
+- 前置：S1b exit（语义已定稿）；重建对照基准已完成；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。
 - 内容：补齐诊断与语料；PyO3 adapter；worker 级共享线程池；feature flag 之后接入（只差分）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
 - 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；新扩展的构建输入检查、`rust` 包排除的去除与 `import_rules` 基线同步核对；权威 runner 与容器门禁（Dockerfile 变化）。
 - 真实数据：只做第 ④ 层逐值差分（05；t4 也可在 05，DC50 补充）。

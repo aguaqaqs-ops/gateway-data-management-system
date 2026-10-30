@@ -72,6 +72,10 @@ def _fixture_repo(tmp_path: Path) -> Path:
         else:
             path.mkdir(parents=True, exist_ok=True)
             (path / "fixture.txt").write_text(f"fixture for {relative}\n", encoding="utf-8")
+    (repo_root / "vnext" / "rust" / "rust-toolchain.toml").write_text(
+        '[toolchain]\nchannel = "1.97.0"\nprofile = "minimal"\ncomponents = ["rustfmt", "clippy"]\n',
+        encoding="utf-8",
+    )
     for package in PYTHON_PACKAGES:
         environment = repo_root / "vnext" / package / ".venv"
         site_packages = environment / "lib" / "python3.14" / "site-packages"
@@ -386,6 +390,8 @@ def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_finge
         "GATEWAY_REPOSITORY_BASE_IMAGE": "fixture/python:custom",
         "GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE": "fixture/repository-deps:custom",
         "GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE": "fixture/client-deps:custom",
+        "GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE": "fixture/backend-deps:custom",
+        "GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES": "1",
         "GATEWAY_P2R1_IMAGE": "fixture/p2r1:custom",
         "GATEWAY_COMPOSE_GATE_PREBUILT": "true",
         "COMPOSE_FILE": "vnext/deploy/compose.yaml",
@@ -422,7 +428,9 @@ def test_docker_build_inputs_capture_selected_images_and_sensitive_setting_finge
         assert "gateway-repository-client-e2e:local" not in image_ids
         assert "gateway-repository-client-e2e:local" not in inspected
     if package == "backend":
-        assert "rust:1.97.0-bookworm" in inspected
+        assert selections["backend_dependency_base_image"] == "fixture/backend-deps:custom"
+        assert selections["backend_use_preloaded_dependencies"] == "1"
+        assert "fixture/backend-deps:custom" in inspected
     proxy_fingerprint = inputs["setting_fingerprints"]["HTTP_PROXY"]
     assert proxy_fingerprint == {
         "set": True,
@@ -506,6 +514,13 @@ DOCKER_IMAGE_ID_MANIFEST_CASES = (
         {},
         True,
         id="rust-base",
+    ),
+    pytest.param(
+        "backend",
+        "fixture/backend-deps:custom",
+        {"GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE": "fixture/backend-deps:custom"},
+        True,
+        id="backend-dependency-base",
     ),
 )
 
@@ -592,6 +607,64 @@ def test_changed_docker_build_inputs_require_package_rerun(
     assert [change["component"] for change in result["changed_components"]] == [
         "environment:runtime-and-docker-build"
     ]
+
+
+@pytest.mark.unit
+def test_backend_dependency_base_identity_or_preloaded_switch_requires_rerun(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    current_image_id = "sha256:backend-deps-first"
+    monkeypatch.setitem(
+        CLOSURE_GLOBALS,
+        "_docker_image_id",
+        lambda _root, reference: (
+            current_image_id
+            if reference == "fixture/backend-deps:custom"
+            else f"sha256:{reference}"
+        ),
+    )
+    monkeypatch.setitem(CLOSURE_GLOBALS, "_docker_image_inventory", lambda _root: [])
+    selected = {
+        "GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE": "fixture/backend-deps:custom",
+        "GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES": "1",
+    }
+
+    def manifest(environment_overrides: dict[str, str]) -> dict[str, Any]:
+        docker_inputs = CLOSURE["_docker_build_inputs"](
+            repo_root,
+            "backend",
+            environ=environment_overrides,
+        )
+        environment = dict(FAKE_ENVIRONMENT)
+        environment["docker_build_inputs"] = json.dumps(
+            docker_inputs,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return cast(
+            dict[str, Any],
+            CLOSURE["build_manifest"](
+                repo_root,
+                "backend",
+                environment=environment,
+            ),
+        )
+
+    source = manifest(selected)
+    current_image_id = "sha256:backend-deps-second"
+    image_changed = manifest(selected)
+    assert CLOSURE["compare_manifests"](source, image_changed)["status"] == "运行"
+
+    current_image_id = "sha256:backend-deps-first"
+    switch_changed = manifest(
+        {
+            "GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE": "fixture/backend-deps:custom",
+            "GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES": "0",
+        }
+    )
+    assert CLOSURE["compare_manifests"](source, switch_changed)["status"] == "运行"
 
 
 @pytest.mark.unit

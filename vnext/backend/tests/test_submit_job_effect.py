@@ -229,7 +229,10 @@ def _lease_session(
     step_id: str,
 ) -> tuple[ExecutionControl, LeaseSession]:
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(harness.db_path)
+        return ControlDbUnitOfWork(
+            harness.db_path,
+            now=harness.submit_deps.now_factory,
+        )
 
     control = ExecutionControl()
     session = LeaseSession(
@@ -254,7 +257,10 @@ def _await_lease_identity(await_work: ClaimedWork) -> tuple[str, str]:
 
 def _worker_write_uow_factory(harness: SubmitWorkerHarness) -> WriteUnitOfWorkFactory:
     def control_transaction_factory() -> ControlDbUnitOfWork:
-        return ControlDbUnitOfWork(harness.db_path)
+        return ControlDbUnitOfWork(
+            harness.db_path,
+            now=harness.submit_deps.now_factory,
+        )
 
     return build_worker_write_uow_factory(control_transaction_factory)
 

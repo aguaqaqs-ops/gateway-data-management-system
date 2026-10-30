@@ -47,7 +47,7 @@ def test_preloaded_dependency_layers_are_source_ordered_and_offline_after_source
     assert "COPY shared_kernel /build/shared_kernel" in builder_after_source
     assert "COPY repository_client /build/repository_client" in builder_after_source
     assert "COPY repository_contracts /build/repository_contracts" in builder_after_source
-    assert "--offline" in builder_after_source
+    assert "UV_OFFLINE=1 uv sync" in builder_after_source
     assert "CARGO_NET_OFFLINE=true" in builder_after_source
     assert re.search(r"\bcurl\b|cargo fetch|uv python install", builder_after_source) is None
 

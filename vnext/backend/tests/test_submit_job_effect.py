@@ -773,12 +773,10 @@ def test_healthy_wait_past_repository_bound_requires_manual_recovery(tmp_path: P
 def test_resume_reconcile_after_wait_upper_bound_accepts_succeeded_operation(
     tmp_path: Path,
 ) -> None:
-    control_clock = {"value": datetime.now(UTC)}
     harness = build_submit_worker_harness(
         tmp_path,
         repository_base_url="http://repository.test",
         transport=RecordingTransport(default_repository_handler),
-        control_clock=control_clock,
     )
     await_work, operation_id = _run_submit_to_await_claim(harness)
     _, manual_step = _timeout_await_step_until_manual_recovery(
@@ -788,13 +786,12 @@ def test_resume_reconcile_after_wait_upper_bound_accepts_succeeded_operation(
     )
     started_at = manual_step.started_at
     assert started_at is not None
-    control_clock["value"] = started_at + timedelta(
-        seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS + 1
+    clock = _InjectedPollClock(
+        started_at + timedelta(seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS + 1)
     )
     resumed_work = _resume_manual_await_and_claim(harness, operation_id)
 
     manifest_digest = _prepare_manifest_digest(harness, operation_id)
-    clock = _InjectedPollClock(control_clock["value"])
     transport = RecordingTransport(_operation_poll_handler(manifest_digest))
     write_client = replace(
         cast(HttpRepositoryWriteClient, harness.submit_deps.repository_write),

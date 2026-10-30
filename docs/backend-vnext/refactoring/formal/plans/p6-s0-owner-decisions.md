@@ -55,6 +55,7 @@ implementation_authorized: no
 | DC64 | 审核先行、证据后补；真实数据按受影响步骤重跑；结果一致的口径 | — | — |
 | DC65 | Submit 等待 Repository 导入：健康等待不消耗恢复会话；人工恢复命令后的续行（S1c，修订 2026-10-30） | — | — |
 | DC66 | 缩短测量与取证耗时：基准单次测量、预检查复用、失败从 checkpoint 续跑、S1c 证据收窄、工具修正常设授权 | — | — |
+| DC67 | 测试节点依赖获取：取证运行只用预填充缓存，代理仅限 05 调试构建 | — | — |
 
 ## 2. 决议详情
 
@@ -487,6 +488,10 @@ implementation_authorized: no
     3. **基准**：重建对照基准的全部正式测量改在 p6-s1c-exit 的产品上进行，替代原第 4 项。此前在 p6-s1b-exit 上的 warmup 与 05 工具验证只作诊断。
     4. **S1c 的 Submit 结果核对**：基准此时尚未建立，改为与 `p6b2xwarmr5fix1030b` 保留卷对照。该卷中 Repository Service 已在 p6-s1b-exit 上导入成功 2× t4 v1，核对 Dolt 表哈希与 canonical state（DC64 第 4 项口径）。保留卷与 v1-submit checkpoint 在 S1c exit 前不得清理。
   - 落点：[执行计划](p6-execution-plan.md) §1、§2（重建对照基准、S1c）。
+- **澄清**（repository owner，2026-10-30；来自 [S1c 独立审核](p6-s1c-independent-review.md) F3）：决议第 2 项“身份或指纹不符……仍计入 3 个恢复会话”的原意是“这类观测不算健康等待”，不是把证据矛盾改为可重试。
+  - 身份或指纹不符（本地 checkpoint 与 payload 不符、Repository 返回的 operation identity 与 checkpoint 不符）维持基线行为：立即进入 `MANUAL_RECOVERY_REQUIRED`，使用能区分原因的诊断码，不使用 `r5.reconcile_timeout`。依据：External Effect and Recovery Contract §4，人工恢复表示证据矛盾。
+  - 计入 3 个恢复会话的只有：崩溃或 lease 丢失、传输错误、结果未知（没有拿到成功的观测）。
+  - P4 R5 设计 §6 失败矩阵与 S1c handoff 的调用方盘点按此修订。
 
 ### DC66 缩短测量与取证耗时
 
@@ -538,6 +543,26 @@ implementation_authorized: no
        - 节点不可用。
 - **不变项**：调试与取证分开（DC30）、审核先行与证据后补（DC64 第 1 项）、结果一致的口径（DC64 第 4 项）、节点分工（DC36）、AGENTS 的停止规则。
 - **落点**：[执行计划](p6-execution-plan.md) §2（重建对照基准、S1c）；测量工具与基准 runbook。
+
+### DC67 测试节点依赖获取：预填充为主，代理仅限调试
+
+- **来源**：S1c 代码候选在 05 构建 Compose 镜像时，经开发节点 `heavy-dev-01` 上的受限转发代理（只放行 CT05 客户端与 PyPI 文件、GitHub release 主机）取依赖，并临时替换后恢复了 `rust:1.97.0-bookworm`（[S1c handoff](p6-s1c-handoff.md)，[S1c 独立审核](p6-s1c-independent-review.md) §5）。首次经代理构建因下载失败/超时没有成功。AGENTS 允许测试 CT 经局域网取用获准的依赖、镜像与制品缓存，但“不表示获准任意公网访问”；转发代理实质上是限定范围的公网访问，规则此前没有写明是否允许。
+- **决议**（repository owner，2026-10-30）：
+  1. **默认预填充**：
+     - 依赖、锁文件或基础镜像变化时，先在开发节点（CT201）取得所需制品（uv 缓存/wheel、Cargo crates、Docker 基础镜像与构建层），经获准的局域网方式传到实际使用的节点，再在节点上离线构建与测试。
+     - 预填充的来源、内容摘要与时间记入当期 handoff，不记录凭据。
+  2. **取证运行不经代理**：04 权威 runner、carried、ct108 的测量与各节点的真实数据取证，不得经转发代理取依赖。缓存缺失时停止该次运行，先补预填充，再从头运行。
+  3. **调试例外**：05 上的调试构建可以临时使用受限转发代理。条件：
+     - 只放行所需主机；
+     - 不传递凭据；
+     - 用完即停；
+     - handoff 记录放行的主机范围、起止时间与用途。
+     调试结果不作为证据。
+  4. **阶段安排**：
+     - S2a、S2b 等预计新增依赖的阶段，在 kickoff 中列出一次预填充步骤（新增的 crates、wheel 与镜像，以及目标节点）。
+     - 不改依赖的阶段（如 S1c）沿用节点已有缓存。
+  5. **不变项**：AGENTS 的测试节点与网络约束、DC36 节点分工、`uv-consume.sh` 的锁定与 lock source 约束、Cargo `--offline`。
+- **落点**：本记录；AGENTS.md 与 testing-conventions 的网络与缓存一节由负责这两份文件的会话同步（主 checkout 中这两份文件另有未提交的修改，本次不改）。
 
 ## 3. 设计阶段待定项
 

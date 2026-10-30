@@ -8,6 +8,7 @@ from typing import TypeAlias
 
 from gateway_repository_contracts import OperationStatus, VersionedOperation
 from gateway_repository_client.deadline import MonotonicDeadline
+from gateway_repository_client.errors import RepositoryClientTimeoutError
 from gateway_repository_client.retry import Sleeper
 
 Clock: TypeAlias = Callable[[], float]
@@ -66,9 +67,13 @@ async def wait_for_operation_or_last_observed(
             if last_observed is not None:
                 return last_observed
             monotonic_deadline.check()
-        operation = await fetch_operation()
+        try:
+            operation = await fetch_operation()
+        except RepositoryClientTimeoutError:
+            if monotonic_deadline.remaining() <= 0 and last_observed is not None:
+                return last_observed
+            raise
         if operation.status in _TERMINAL_STATUSES:
-            monotonic_deadline.check()
             return operation
         last_observed = operation
         if monotonic_deadline.remaining() <= 0:

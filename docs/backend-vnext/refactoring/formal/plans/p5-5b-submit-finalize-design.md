@@ -409,6 +409,13 @@ Error/details和response不得暴露internal bearer、lease token、checkpoint�
 path或private ref。HTTP/auth/capability rejection的唯一test owner由execution plan §4冻结；command
 到business terminal/occupancy的integration owner仍是Submit recovery tests。
 
+`RESUME_RECONCILE` 与 `RETRY_FROM_CHECKPOINT` 被接受后，P4 将 Step 置为立即可领取的现有
+`RETRY_WAIT`，Operation 回到 `RUNNING`，并清除 operator lease；实际 lease 由 worker claim 授予。
+这次 claim 消耗且只消耗一次恢复会话。命令会话可以经过不计数的、已确认健康的 Repository
+等待；任何 counted failure 都回到 `MANUAL_RECOVERY_REQUIRED`。命令被接受后、首次 claim 前重启
+不会消耗会话，也不会因该 Step 阻断启动。已离开 MANUAL source 后重复命令仍按本节返回 `409`，HTTP
+响应与授权、capability、optimistic-version 语义不变。
+
 ## 6. AcceptSubmit ordering, idempotency and T1
 
 ### 6.1 Pre-transaction ordering
@@ -757,14 +764,19 @@ disabled不取消已接受worker effect，但阻止新Accept和所有未授权re
 ### 13.1 Settings and composition
 
 复用现有Backend/worker settings owner：absolute control DB/artifact root、Repository base URL、
-secret-file bearer、bounded request timeout、session/mapping file。5B新增的语义配置只允许是bounded
-Repository poll/reconcile/admission参数；P4的60s reconcile session、lease/backoff/drain contract不
-由5B改变。Submit 的 `await_import_result` 使用有名的
-`SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = 60.0` 作为每次 Repository poll 的上限。每次 poll timeout
-结束当前 R5 recovery session；最多三次 session（每次至多 60 秒），前三次中的前两次可重试，第三次
-进入 `MANUAL_RECOVERY_REQUIRED` 并保留 occupancy。R5 对账上限统一按最多三个恢复会话计算；每个
-会话的 60 秒是单次 Repository poll 上限，不跨 checkpoint 累计。Submit checkpoint 不保存无用途的
-`reconcile_started_at`。target/policy/mutation mode不是setting，固定在job contract。
+secret-file bearer、bounded request timeout、session/mapping file。Submit 的
+`await_import_result` 使用有名的 `SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = 60.0` 作为每次
+Repository poll 的上限。Repository 对原 operation identity 成功返回 `QUEUED`/`RUNNING` 时，
+该 poll 到期通过既有 checkpoint 与 safe handoff 让出 lease；重新领取不增加 `attempt_count`，并以
+同一身份继续对账。此例外只适用于 HTTP 成功、身份与本地请求 fingerprint 均匹配的显式健康观测。
+崩溃或 lease 丢失、传输错误、无成功观测的 timeout、结果未知或身份/fingerprint 不符继续消耗
+最多三个恢复会话；耗尽后保留 occupancy 并进入 `MANUAL_RECOVERY_REQUIRED`。Submit 总等待上界
+以 Step `started_at` 为起点，与 Repository Service 的 `import_timeout_seconds` 加
+`server_start_timeout_seconds` 对齐（当前 3630 秒）；超出后转人工恢复并写明“超出等待上界”。
+单次 poll 仍为 60 秒；仅此显式健康观测使用不计会话的 safe handoff，drain/SIGTERM 在这次
+bounded poll 返回最后一次成功的健康观测后安全让出。其他 safe handoff 保留原行为。
+Submit checkpoint 不保存 `reconcile_started_at`。target/policy/mutation mode 不是 setting，固定在
+job contract。
 
 Backend与worker必须从同一composition factory获得Submit definitions/decoders/handler identity；
 HTTP T1使用同一immutable registry snapshot做preflight。Repository client不得记录bearer、body、

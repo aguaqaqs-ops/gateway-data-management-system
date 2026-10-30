@@ -69,17 +69,34 @@ Command semantics (R1 matrix aligned):
 | `RETRY_FROM_CHECKPOINT` | `PURE_RECOMPUTE` | same authorized `MANUAL` → `RUNNING` resume |
 | `ABORT_CONFIRMED_FAILURE` | any (from `MANUAL`; terminal replay from `FAILED`) | paired `MANUAL` → `FAILED` with operator reason in diagnostic |
 
-`RUNNING` resume clears persisted diagnostics per R1 contract bounds; operator reason is
-persisted on `ABORT_CONFIRMED_FAILURE`. `attempt_count` and `started_at` are preserved on
-resume/retry. No HTTP, auth principal, migration, force-terminal escape hatch or application
-import was introduced.
+### S1c lifecycle amendment (DC65, 2026-10-30)
+
+The table above records the S2c implementation as delivered. For the S1c product candidate, the
+two resume commands use the existing claimable state so a live worker can continue the Step:
+
+| Command | Capability guard | S1c transition and session rule |
+|---|---|---|
+| `RESUME_RECONCILE` | `EXTERNAL_EFFECT` | `MANUAL_RECOVERY_REQUIRED` Step → immediate `RETRY_WAIT`, Operation → `RUNNING`; next worker claim grants one session |
+| `RETRY_FROM_CHECKPOINT` | `PURE_RECOMPUTE` | same claimable transition; next worker claim grants one session |
+| `ABORT_CONFIRMED_FAILURE` | unchanged | paired `MANUAL` → `FAILED` with operator reason in diagnostic |
+
+The command no longer owns a worker lease. Its authorization is carried in the existing diagnostic
+field through the claim and any confirmed healthy-wait handoff; a counted failure in that session
+returns to `MANUAL_RECOVERY_REQUIRED`. The HTTP response, capability guard, and optimistic-version
+semantics remain as specified in P5-5B §5.4.
+
+At S2c, `RUNNING` resume cleared persisted diagnostics and preserved `attempt_count` and
+`started_at` through the direct resume. S1c replaces that resume path: the command leaves the count
+unchanged while queuing the Step, and the worker claim increments it once; `started_at` remains
+unchanged. Operator reason remains persisted on `ABORT_CONFIRMED_FAILURE`. No HTTP, auth principal,
+migration, force-terminal escape hatch or application import was introduced at S2c.
 
 ## 2. Diff review
 
 - `gateway_backend.operations` does not import `gateway_backend.application`.
 - No R1/R2 schema, migration, new status, CAS contract or shared error taxonomy change.
-- No `MANUAL` → `RETRY_WAIT` edge added; resume uses authorized `MANUAL` → `RUNNING` with
-  bounded `OPERATOR_RECOVERY_WORKER_ID` lease for S3 execution wiring.
+- At S2c, no `MANUAL` → `RETRY_WAIT` edge was added; S1c supersedes that transition for
+  `RESUME_RECONCILE` and `RETRY_FROM_CHECKPOINT` as described above.
 - Manual records remain non-claimable via `list_claim_candidates`; occupancy is not released
   through `CANCELLED`/`SUCCEEDED` shortcuts.
 

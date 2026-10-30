@@ -150,7 +150,8 @@ Operation 与 Step persisted document 均为 closed object；`to_document()` 发
   `MANUAL_RECOVERY_REQUIRED`。
 - `SUCCEEDED | FAILED | CANCELLED | SUPERSEDED` 为 final terminal。
   `MANUAL_RECOVERY_REQUIRED` 为 attention state：不可自动 claim，不释放业务占用；仅
-  authorized recovery 可产生允许的 `RUNNING` 或终局。
+  authorized recovery 可将 Step 置为现有可领取的 `RETRY_WAIT` 并将 Operation 恢复为
+  `RUNNING`，或产生允许的终局；实际 lease 仅由 worker claim 授予。
 - 结构状态矩阵、lease identity、diagnostic/completion/timestamp 交叉字段规则与 stale-write
   precondition 由 `gateway_backend.operations` 在 R1-S2a/S2b 证明；R2 负责数据库原子 CAS，
   不得把先读后验当作持久化实现。

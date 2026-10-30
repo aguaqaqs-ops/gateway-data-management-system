@@ -25,6 +25,8 @@ from gateway_backend.operations import (
 )
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
 from gateway_backend.operations.recovery import (
+    DIAGNOSTIC_RECOVERY_SESSION_ACTIVE,
+    DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED,
     DIAGNOSTIC_LEASE_EXPIRED,
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
     DIAGNOSTIC_RECONCILE_STARTED,
@@ -56,6 +58,14 @@ from gateway_backend.operations.recovery import (
     build_recovery_routed_executor,
     transition_for_decision,
     transition_for_outcome,
+)
+from gateway_backend.operations.state import (
+    DIAGNOSTIC_HEALTHY_WAIT_HANDOFF,
+    DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
+    DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED,
+    DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
+    claim_attempt_count,
+    claim_diagnostic,
 )
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
@@ -333,7 +343,12 @@ def _noop_lease_session() -> LeaseSession:
         def publish_operation(self, builder) -> object:  # type: ignore[no-untyped-def]
             raise AssertionError("not used")
 
-        def acknowledge_safe_handoff(self, generation) -> ExecutorAcknowledgment:  # type: ignore[no-untyped-def]
+        def acknowledge_safe_handoff(
+            self,
+            generation,
+            *,
+            healthy_external_operation_wait: bool = False,
+        ) -> ExecutorAcknowledgment:  # type: ignore[no-untyped-def]
             raise AssertionError("not used")
 
         def completion_acknowledgment(self) -> ExecutorAcknowledgment | None:
@@ -365,6 +380,10 @@ def test_recovery_diagnostic_codes_exact() -> None:
             "r5.reconcile_timeout",
             DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
             DIAGNOSTIC_RECOVERY_AUTHORIZED,
+            DIAGNOSTIC_RECOVERY_SESSION_ACTIVE,
+            DIAGNOSTIC_HEALTHY_WAIT_HANDOFF.lower(),
+            DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR.lower(),
+            DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED,
         }
     )
 
@@ -381,6 +400,46 @@ BACKOFF_BASE_CASES: tuple[tuple[int, float], ...] = (
 @pytest.mark.parametrize(("session_index", "expected_base"), BACKOFF_BASE_CASES)
 def test_recovery_backoff_base_seconds(session_index: int, expected_base: float) -> None:
     assert recovery_backoff_base_seconds(session_index) == expected_base
+
+
+HEALTHY_WAIT_RECLAIM_CASES: tuple[tuple[int, str, int, str | None], ...] = (
+    (1, DIAGNOSTIC_HEALTHY_WAIT_HANDOFF, 1, None),
+    (3, DIAGNOSTIC_HEALTHY_WAIT_HANDOFF, 3, None),
+    (3, DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR, 3, DIAGNOSTIC_OPERATOR_RECOVERY_SESSION),
+    (3, DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED, 4, DIAGNOSTIC_OPERATOR_RECOVERY_SESSION),
+)
+
+
+@pytest.mark.parametrize(
+    ("attempt_count", "diagnostic_code", "expected_attempt_count", "expected_claim_diagnostic"),
+    HEALTHY_WAIT_RECLAIM_CASES,
+)
+def test_confirmed_healthy_wait_reclaim_keeps_attempt_count(
+    attempt_count: int,
+    diagnostic_code: str,
+    expected_attempt_count: int,
+    expected_claim_diagnostic: str | None,
+) -> None:
+    step = dataclasses.replace(
+        _step_record(),
+        status=StepStatus.RETRY_WAIT,
+        attempt_count=attempt_count,
+        started_at=BASE_TIME,
+        diagnostic=OperationDiagnostic(
+            code=diagnostic_code,
+            message="Repository operation is still QUEUED or RUNNING",
+        ),
+        retry_not_before=BASE_TIME,
+        worker_id=None,
+        lease_token=None,
+        lease_expires_at=None,
+        completed_at=None,
+    )
+
+    assert claim_attempt_count(step) == expected_attempt_count
+    assert (claim_diagnostic(step).code if claim_diagnostic(step) else None) == (
+        expected_claim_diagnostic
+    )
 
 
 def test_compute_retry_not_before_uses_bounded_jitter() -> None:
@@ -452,6 +511,31 @@ def test_reconcile_pending_uses_three_recovery_sessions(
     assert intent.retain_occupancy is (
         expected_step_status is StepStatus.MANUAL_RECOVERY_REQUIRED
     )
+
+
+@pytest.mark.parametrize(
+    "failure_disposition",
+    (
+        RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE,
+        RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
+    ),
+)
+def test_counted_failure_in_operator_session_returns_to_manual_recovery(
+    failure_disposition: RecoveryPolicyOutcomeDisposition,
+) -> None:
+    intent = transition_for_outcome(
+        failure_disposition,
+        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        attempt_count=2,
+        effect_boundary_crossed=True,
+        cancel_requested=False,
+        now=BASE_TIME,
+        jitter=_deterministic_jitter,
+        operator_recovery_session=True,
+    )
+    assert intent.step_target is StepStatus.MANUAL_RECOVERY_REQUIRED
+    assert intent.operation_target is OperationStatus.MANUAL_RECOVERY_REQUIRED
+    assert intent.retain_occupancy is True
 
 
 def _policy_decision_to_application(decision: RecoveryPolicyDecision) -> RecoveryDecision:
@@ -944,6 +1028,16 @@ OUTCOME_TRANSITION_MATRIX: tuple[
     ("published", RecoveryPolicyOutcomeDisposition.PUBLISHED, 1, False, False, StepStatus.SUCCEEDED, OperationStatus.SUCCEEDED, False),
     ("retryable_with_budget", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 1, False, False, StepStatus.RETRY_WAIT, None, False),
     ("retryable_exhausted", RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE, 3, False, False, StepStatus.FAILED, OperationStatus.FAILED, False),
+    (
+        "operator_session_failure",
+        RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE,
+        4,
+        False,
+        False,
+        StepStatus.MANUAL_RECOVERY_REQUIRED,
+        OperationStatus.MANUAL_RECOVERY_REQUIRED,
+        True,
+    ),
     ("reconcile_pending", RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING, 1, False, False, StepStatus.RETRY_WAIT, None, False),
     (
         "reconcile_pending_session_exhausted",
@@ -1122,13 +1216,13 @@ OPERATOR_TRANSITION_INTENT_MATRIX: tuple[
 ] = (
     (
         OperatorRecoveryCommand.RESUME_RECONCILE,
-        StepStatus.RUNNING,
+        StepStatus.RETRY_WAIT,
         OperationStatus.RUNNING,
         True,
     ),
     (
         OperatorRecoveryCommand.RETRY_FROM_CHECKPOINT,
-        StepStatus.RUNNING,
+        StepStatus.RETRY_WAIT,
         OperationStatus.RUNNING,
         True,
     ),
@@ -1249,10 +1343,20 @@ def test_operator_recovery_transition_intents_subset_of_allowed_transitions() ->
                     if intent.step_target is StepStatus.RUNNING
                     else None
                 ),
-                diagnostic=MANUAL_DIAGNOSTIC if intent.step_target in {
-                    StepStatus.FAILED,
-                    StepStatus.MANUAL_RECOVERY_REQUIRED,
-                } else None,
+                diagnostic=(
+                    OperationDiagnostic(
+                        code=DIAGNOSTIC_RECOVERY_AUTHORIZED.upper(),
+                        message=VALID_REASON,
+                    )
+                    if intent.step_target is StepStatus.RETRY_WAIT
+                    else MANUAL_DIAGNOSTIC
+                    if intent.step_target
+                    in {StepStatus.FAILED, StepStatus.MANUAL_RECOVERY_REQUIRED}
+                    else None
+                ),
+                retry_not_before=(
+                    BASE_TIME if intent.step_target is StepStatus.RETRY_WAIT else None
+                ),
                 completed_at=BASE_TIME if intent.step_target.is_final_terminal() else None,
                 optimistic_version=current_step.optimistic_version + 1,
             )

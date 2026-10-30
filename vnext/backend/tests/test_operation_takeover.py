@@ -42,7 +42,6 @@ from gateway_backend.operations.recovery import (
     RECOVERY_BACKOFF_CAP_SECONDS,
     OperatorRecoveryCommand,
     OperatorRecoveryRequest,
-    OPERATOR_RECOVERY_WORKER_ID,
     RecoveryCapabilityValue,
     StartupRecovery,
     AuthorizedOperatorRecovery,
@@ -594,14 +593,16 @@ def test_operator_resume_reconcile_applies_authorized_cas(tmp_path: Path) -> Non
         store = unit_of_work.operations
         persisted_step = store.get_step(step.step_id)
         persisted_operation = store.get_operation(operation.operation_id)
-    assert persisted_step.status is StepStatus.RUNNING
+    assert persisted_step.status is StepStatus.RETRY_WAIT
     assert persisted_operation.status is OperationStatus.RUNNING
     assert persisted_step.started_at == original_started_at
     assert persisted_step.attempt_count == step.attempt_count
-    assert persisted_step.worker_id == OPERATOR_RECOVERY_WORKER_ID
-    assert persisted_step.lease_token == f"operator-{step.step_id}"
-    assert persisted_step.lease_expires_at is not None
-    assert persisted_step.diagnostic is None
+    assert persisted_step.worker_id is None
+    assert persisted_step.lease_token is None
+    assert persisted_step.lease_expires_at is None
+    assert persisted_step.retry_not_before == harness.clock()
+    assert persisted_step.diagnostic is not None
+    assert persisted_step.diagnostic.code == "R5.RECOVERY_AUTHORIZED"
     assert persisted_operation.diagnostic is None
 
 
@@ -623,10 +624,11 @@ def test_operator_retry_from_checkpoint_applies_authorized_cas(tmp_path: Path) -
     with harness.read_uow() as unit_of_work:
         persisted_step = unit_of_work.operations.get_step(step.step_id)
         persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
-    assert persisted_step.status is StepStatus.RUNNING
+    assert persisted_step.status is StepStatus.RETRY_WAIT
     assert persisted_operation.status is OperationStatus.RUNNING
     assert persisted_step.started_at == original_started_at
-    assert persisted_step.worker_id == OPERATOR_RECOVERY_WORKER_ID
+    assert persisted_step.worker_id is None
+    assert persisted_step.attempt_count == step.attempt_count
 
 
 def test_operator_abort_confirmed_failure_applies_paired_failed_cas(tmp_path: Path) -> None:
@@ -712,12 +714,25 @@ def test_operator_abort_idempotent_replay(tmp_path: Path) -> None:
     assert port.execute(replay_request) is TransitionDisposition.IDEMPOTENT
 
 
-def test_manual_recovery_retains_occupancy_and_excludes_claim(tmp_path: Path) -> None:
+OPERATOR_RECOVERY_CLAIM_CASES = (
+    (OperatorRecoveryCommand.RESUME_RECONCILE, RecoveryCapabilityValue.EXTERNAL_EFFECT),
+    (OperatorRecoveryCommand.RETRY_FROM_CHECKPOINT, RecoveryCapabilityValue.PURE_RECOMPUTE),
+)
+
+
+@pytest.mark.parametrize(("command", "capability"), OPERATOR_RECOVERY_CLAIM_CASES)
+def test_manual_recovery_commands_are_claimable_by_running_worker(
+    tmp_path: Path,
+    command: OperatorRecoveryCommand,
+    capability: RecoveryCapabilityValue,
+) -> None:
     harness = _make_harness(
         tmp_path,
-        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        capability=capability,
     )
     operation, step = harness.seed_manual_recovery()
+    startup = harness.worker_startup(worker_id="worker-already-running")
+    assert startup.startup() is StartupDisposition.READY
     with harness.read_uow() as unit_of_work:
         store = unit_of_work.operations
         assert store.list_claim_candidates(harness.clock())[0] == ()
@@ -726,16 +741,94 @@ def test_manual_recovery_retains_occupancy_and_excludes_claim(tmp_path: Path) ->
 
     port = harness.operator_recovery()
     port.execute(
-        harness.operator_request(OperatorRecoveryCommand.RESUME_RECONCILE, operation, step)
+        harness.operator_request(command, operation, step)
     )
     with harness.read_uow() as unit_of_work:
         store = unit_of_work.operations
-        assert store.list_claim_candidates(harness.clock())[0] == ()
+        candidates, _ = store.list_claim_candidates(harness.clock())
+        assert len(candidates) == 1
         persisted_operation = store.get_operation(operation.operation_id)
         persisted_step = store.get_step(step.step_id)
     assert persisted_operation.status is OperationStatus.RUNNING
-    assert persisted_step.status is StepStatus.RUNNING
-    assert not persisted_operation.status.is_final_terminal()
+    assert persisted_step.status is StepStatus.RETRY_WAIT
+    work = startup.claim_one()
+    assert work is not None
+    assert work.step.status is StepStatus.RUNNING
+    assert work.step.attempt_count == step.attempt_count + 1
+    worker_id = work.step.worker_id
+    lease_token = work.step.lease_token
+    assert worker_id is not None and lease_token is not None
+    control = ExecutionControl()
+    session = LeaseSession(
+        worker_id=worker_id,
+        lease_token=lease_token,
+        operation_id=work.operation.operation_id,
+        step_id=work.step.step_id,
+        write_uow_factory=harness.write_uow,
+        control=control,
+        observer=lambda _event: None,
+    )
+    assert (
+        work.executor(work.operation, work.step, control, session)
+        is ExecutorAcknowledgment.PUBLISHED
+    )
+    with harness.read_uow() as unit_of_work:
+        assert (
+            unit_of_work.operations.get_operation(operation.operation_id).status
+            is OperationStatus.SUCCEEDED
+        )
+        assert unit_of_work.operations.get_step(step.step_id).status is StepStatus.SUCCEEDED
+
+
+def test_operator_recovery_command_remains_claimable_after_worker_restart(
+    tmp_path: Path,
+) -> None:
+    harness = _make_harness(
+        tmp_path,
+        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+    )
+    operation, step = harness.seed_manual_recovery()
+    harness.operator_recovery().execute(
+        harness.operator_request(OperatorRecoveryCommand.RESUME_RECONCILE, operation, step)
+    )
+
+    restarted = harness.worker_startup(worker_id="worker-after-operator-recovery")
+    assert restarted.startup() is StartupDisposition.READY
+    work = restarted.claim_one()
+    assert work is not None
+    assert work.step.attempt_count == step.attempt_count + 1
+    assert work.step.diagnostic is not None
+    assert work.step.diagnostic.code == "R5.OPERATOR_RECOVERY_SESSION"
+
+
+def test_operator_recovery_session_lease_loss_returns_manual_without_blocking_startup(
+    tmp_path: Path,
+) -> None:
+    harness = _make_harness(
+        tmp_path,
+        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+    )
+    operation, step = harness.seed_manual_recovery()
+    harness.operator_recovery().execute(
+        harness.operator_request(OperatorRecoveryCommand.RESUME_RECONCILE, operation, step)
+    )
+    startup = harness.worker_startup(worker_id="worker-recovery-session")
+    assert startup.startup() is StartupDisposition.READY
+    work = startup.claim_one()
+    assert work is not None
+    assert work.step.attempt_count == 4
+    assert work.step.diagnostic is not None
+    assert work.step.diagnostic.code == "R5.OPERATOR_RECOVERY_SESSION"
+    harness.advance_past_lease(work.step)
+
+    restarted = harness.worker_startup(worker_id="worker-after-session-loss")
+    assert restarted.startup() is StartupDisposition.READY
+    with harness.read_uow() as unit_of_work:
+        persisted_operation = unit_of_work.operations.get_operation(operation.operation_id)
+        persisted_step = unit_of_work.operations.get_step(step.step_id)
+    assert persisted_operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
+    assert persisted_step.status is StepStatus.MANUAL_RECOVERY_REQUIRED
+    assert persisted_step.attempt_count == 4
 
 
 @pytest.mark.unit

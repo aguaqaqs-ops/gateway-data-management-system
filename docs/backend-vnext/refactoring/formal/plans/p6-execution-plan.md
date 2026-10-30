@@ -18,8 +18,9 @@ B=`vnext/backend/src/gateway_backend/`，T=`vnext/backend/tests/`，R=`vnext/rus
 S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划、独立文档审核、kickoff 小修、keyless 自然键评估
  -> S1a 摘要与存储 Contract（DC39、DC45 表级跳过与阈值）+ worker step 归因
  -> S1b 业务语义 Contract（DC40、DC41、DC49、参照解析器修复与语义定稿）+ 合成负载
- -> 重建对照基准（Python）
- -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展    ‖ S1c Submit 等待预算修订（DC65，与 S2a 并行）
+ -> S1c Submit 等待预算与人工恢复续行修订（DC65，修订 2026-10-30）
+ -> 重建对照基准（Python；工具开发可与 S1c 并行，正式测量在 S1c exit 之后）
+ -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展
  -> S2b 上传侧数据路径与规范表存储（切换生产）
  -> S3  比较与逐行记录（Rust）
  -> S4  Submit 渲染直通
@@ -91,20 +92,35 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### 重建对照基准
 
-- 前置：S1b exit。
+- 前置：S1b exit。正式测量（ct108 场景与 04 最终 runner）另以 S1c exit 为前置，在 p6-s1c-exit 的产品上进行；工具开发与 05 验证可先行（DC65 修订第 1、3 项）。
 - 内容：设计 §6，覆盖设计 §16.3 验收矩阵中的全部场景；记录写入基准 handoff，作为 S2a–S6 的对照。
 - 另含：t4 checkpoint 读取与 bundle 子段的拆分，用不进入候选的诊断计时完成，与 S1a 子段对照；未消除的差距转 S2b kickoff（DC63 第 1 项）。
 - 节点：`ct108-gw-dms` 独占。
 - **授权（repository owner，2026-10-29）：** 授权重建对照基准，范围为设计 §6、§16.3 验收矩阵的全部场景与 DC63 第 1 项的子段拆分；只扩展测量工具，不改产品代码与 golden。同时授权 S1b exit 的推送、三节点同步与清理。
 
-### S1c — Submit 等待预算修订（DC65）
+### S1c — Submit 等待预算与人工恢复续行修订（DC65）
 
-- 目标：Submit 的 `await_import_result` 在 Repository Service 健康运行时持续对账，不因单次 60 s 轮询到期而消耗恢复会话；总等待上界与 Repository Service 导入上限对齐（DC65 方案 B）。
-- 前置：重建对照基准已完成。与 S2a 改动面不重叠，可用各自的短期分支并行。
-- 内容：`operations/recovery.py` 与 `application/submit_jobs.py` 的会话计数规则；P4 R5 设计 §6、P5-5B 设计 §13.1 的条款；权威测试（健康等待不消耗会话；超出上界转人工恢复；崩溃、lease 丢失与结果未知仍计数；drain 在单次轮询内响应；safe handoff 后的重新领取不增加 `attempt_count`）。
-- 验收：权威测试与五包静态检查；权威 runner 与容器门禁；2× t4 的 v1 Submit 在 ct108 上无人工干预完成，Submit 结果与基准一致（DC64 第 4 项）。
+- 目标：
+  - Submit 的 `await_import_result` 在 Repository Service 健康运行时持续对账，不因单次 60 s 轮询到期而消耗恢复会话；总等待上界与 Repository Service 导入上限对齐（DC65 方案 B）。
+  - 人工恢复命令（`RESUME_RECONCILE`、`RETRY_FROM_CHECKPOINT`）被接受后，step 由运行中的 worker 继续执行，每条命令授予一次恢复会话（DC65 修订第 2 项）。
+- 前置：S1b exit。在重建对照基准的正式测量之前完成；需要 ct108 取证时，与基准会话协调，不并用。
+- 内容：
+  - `operations/recovery.py` 与 `application/submit_jobs.py` 的会话计数规则；
+  - 人工恢复命令的状态转换与领取；
+  - P4 R5 设计 §6–§7、P5-5B 设计 §13.1 与 operator recovery 条款；
+  - 权威测试：
+    - 健康等待不消耗会话；超出上界转人工恢复；
+    - 崩溃、lease 丢失与结果未知仍计数；
+    - drain 在单次轮询内响应；
+    - safe handoff 后的重新领取不增加 `attempt_count`；
+    - 恢复命令后无需重启即被领取并完成；命令授予的会话再次失败时回到人工恢复；
+    - 命令后重启 worker 不判为会话用尽。
+- 验收：
+  - 权威测试与五包静态检查；权威 runner 与容器门禁；
+  - 2× t4 的 v1 Submit 在 ct108 上无人工干预完成；
+  - Submit 结果与 `p6b2xwarmr5fix1030b` 保留卷的 Dolt 表哈希、canonical state 一致（DC65 修订第 4 项，DC64 第 4 项口径）。
 - 真实数据：在 kickoff 写明、退出前由 owner 确认（DC33）。
-- **授权（repository owner，2026-10-29）：** DC65。
+- **授权（repository owner，2026-10-29；修订 2026-10-30）：** DC65 及其修订。
 
 ### S2a — SQL 解析器
 

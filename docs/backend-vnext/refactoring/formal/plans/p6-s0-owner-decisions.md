@@ -53,7 +53,7 @@ implementation_authorized: no
 | DC62 | S1b kickoff 确认：选择器形式、解析器语义、上传超时错误码、诊断项、真实数据范围与授权 | — | — |
 | DC63 | S1b exit：N1-1 测量限制的处置与真实数据范围确认 | — | — |
 | DC64 | 审核先行、证据后补；真实数据按受影响步骤重跑；结果一致的口径 | — | — |
-| DC65 | Submit 等待 Repository 导入：健康等待不消耗恢复会话（S1c） | — | — |
+| DC65 | Submit 等待 Repository 导入：健康等待不消耗恢复会话；人工恢复命令后的续行（S1c，修订 2026-10-30） | — | — |
 
 ## 2. 决议详情
 
@@ -467,6 +467,25 @@ implementation_authorized: no
   3. 同步修订：P4 R5 设计 §6、P5-5B 设计 §13.1；External Effect and Recovery Contract 只核对一致性，不改语义；涉及 Operation Lifecycle Contract 的条款一并修订。
   4. 基准：重建对照基准维持 p6-s1b-exit 的产品与人工恢复临时做法，不因 S1c 重测。S1c 用基准对照工具核对 Submit 结果与基准一致（DC64 第 4 项）。
 - **落点**：[执行计划](p6-execution-plan.md) §1、§2（S1c、S2b 前置）。
+- **修订**（repository owner，2026-10-30；替代上文决议第 1 项的前置与第 4 项）：
+  - 来源：按临时做法修正测量工具后，ct108 的 2× t4 warmup（`p6b2xwarmr5fix1030b`，工具提交 `fc9ba62412`，产品 p6-s1b-exit）在 v1 Submit 上走完了人工恢复流程：09:54:24 转 `MANUAL_RECOVERY_REQUIRED`；09:54:40 Repository Service 返回 SUCCEEDED；同一秒 `RESUME_RECONCILE` 被接受（APPLY）。此后 Submit 一直没有完成，09:56:41 被监视器判为 worker 静默。证据见 ct108 `/home/dev/gdds-p6-logs/baseline/compose/r5-recovery-p6b2xwarmr5fix1030b-v1-560a8a0e/` 与 `/home/dev/gdds-p6-logs/baseline/s4-stall-20261030T095641241998Z/`。
+  - 归因（产品缺陷，owner 核对代码与 control DB）：
+    - `RESUME_RECONCILE` 与 `RETRY_FROM_CHECKPOINT` 只把 step 与 operation 置为 RUNNING，并以 `operator-recovery` 身份持有 30 s lease（`operations/recovery.py` `build_operator_recovery_candidates`）。
+    - 运行中的 worker 只领取 PENDING/RETRY_WAIT 的 step（`sqlite_operations.py` `list_claim_candidates`）。lease 过期的 RUNNING step 只在 worker 启动时处理。启动时 `attempt_count` 已为 3，于是判定会话用尽，step 被打回 `MANUAL_RECOVERY_REQUIRED`，该次启动报阻断。
+    - 结果是：人工恢复命令被接受后，step 在运行期无人执行，重启后又回到人工恢复。现有测试（`test_operation_takeover.py` 的 `test_manual_recovery_retains_occupancy_and_excludes_claim`）把“命令后不可领取”断言为正确行为。P4 R5 设计 §7 与 P5-5B 设计都没有规定命令之后由谁继续执行。
+    - 因此临时做法在 p6-s1b-exit 上不可行，2× t4 的基准无法越过 v1 Submit。正式测量尚未完成任何一组三次，改变基准所依据的产品版本，损失只有等待时间。
+  - 修订内容：
+    1. **顺序**：S1c 移到重建对照基准的正式测量之前，前置改为 S1b exit。重建对照基准的工具开发与 05 上的验证可以继续；正式测量（ct108 与 04 最终 runner）以 S1c exit 为前置。
+    2. **范围增加**（在方案 B 之外）：人工恢复命令之后的续行。
+       - `RESUME_RECONCILE` 与 `RETRY_FROM_CHECKPOINT` 被接受后，运行中的 worker 无需重启即领取并执行该 step。
+       - 每条命令授予且只授予一次恢复会话：该会话再次计数失败时回到 `MANUAL_RECOVERY_REQUIRED`；健康等待按方案 B 不计数。
+       - 命令之后 worker 重启，不得把该 step 判为会话用尽。
+       - 只使用现有状态与字段，不新增状态、durable 字段或机制；须新增时先交 owner。
+       - 同步修订 P4 R5 设计中的 operator 命令条款，以及 P5-5B 设计中 operator recovery 的条款。
+       - 替换上述测试中“命令后不可领取”的断言。
+    3. **基准**：重建对照基准的全部正式测量改在 p6-s1c-exit 的产品上进行，替代原第 4 项。此前在 p6-s1b-exit 上的 warmup 与 05 工具验证只作诊断。
+    4. **S1c 的 Submit 结果核对**：基准此时尚未建立，改为与 `p6b2xwarmr5fix1030b` 保留卷对照。该卷中 Repository Service 已在 p6-s1b-exit 上导入成功 2× t4 v1，核对 Dolt 表哈希与 canonical state（DC64 第 4 项口径）。保留卷与 v1-submit checkpoint 在 S1c exit 前不得清理。
+  - 落点：[执行计划](p6-execution-plan.md) §1、§2（重建对照基准、S1c）。
 
 ## 3. 设计阶段待定项
 

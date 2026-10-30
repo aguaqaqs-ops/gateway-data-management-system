@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,7 +20,11 @@ from gateway_repository_contracts import (
 )
 from gateway_backend.domain.submission.models import RepositoryArtifactRef
 from gateway_backend.application.checkpoints import load_checkpoint_envelope
-from gateway_backend.application.recovery import DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED
+from gateway_backend.application.payloads import CheckpointDecodeError
+from gateway_backend.application.recovery import (
+    DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+    RecoveryOutcomeDisposition,
+)
 import gateway_backend.application.submit_jobs as submit_jobs
 from gateway_backend.application.submit_jobs import (
     SUBMIT_IMPORT_POLL_DEADLINE_SECONDS,
@@ -50,6 +55,7 @@ from gateway_backend.infrastructure.repository_write.http import HttpRepositoryW
 from gateway_backend.application.submission.ports import (
     RepositoryAbortEvidencePort,
     RepositoryWritePort,
+    SubmitControlTransaction,
 )
 from gateway_backend.operations import (
     OperationStatus,
@@ -71,6 +77,7 @@ from gateway_backend.operations.worker import (
     ExecutionControl,
     ExecutorAcknowledgment,
     StartupDisposition,
+    WriteUnitOfWorkFactory,
 )
 from tests.support.submit_job_harness import (
     RecordingTransport,
@@ -243,6 +250,20 @@ def _await_lease_identity(await_work: ClaimedWork) -> tuple[str, str]:
     if worker_id is None or lease_token is None:
         raise AssertionError("await step lease identity is missing")
     return worker_id, lease_token
+
+
+def _worker_write_uow_factory(harness: SubmitWorkerHarness) -> WriteUnitOfWorkFactory:
+    def control_transaction_factory() -> ControlDbUnitOfWork:
+        return ControlDbUnitOfWork(harness.db_path)
+
+    return build_worker_write_uow_factory(control_transaction_factory)
+
+
+def _unused_submit_control_uow_factory(
+    *, read_only: bool = False
+) -> AbstractContextManager[SubmitControlTransaction]:
+    del read_only
+    raise AssertionError("Submit abort recovery is not exercised by this test")
 
 
 def _run_submit_to_await_claim(
@@ -476,11 +497,9 @@ def _resume_manual_await_and_claim(harness: SubmitWorkerHarness, operation_id: s
             submit_step_id(operation_id, SUBMIT_STEP_AWAIT)
         )
     operator = build_submit_operator_recovery_port(
-        write_uow_factory=build_worker_write_uow_factory(
-            harness.submit_deps.control_transaction_factory
-        ),
+        write_uow_factory=_worker_write_uow_factory(harness),
         capability_lookup=lambda _job_kind, _step_name: RecoveryCapabilityValue.EXTERNAL_EFFECT,
-        submit_control_uow_factory=harness.submit_deps.control_transaction_factory,
+        submit_control_uow_factory=_unused_submit_control_uow_factory,
         abort_evidence=cast(RepositoryAbortEvidencePort, object()),
         submit_deps=harness.submit_deps,
     )
@@ -496,7 +515,7 @@ def _resume_manual_await_and_claim(harness: SubmitWorkerHarness, operation_id: s
     # _run_submit_to_await_claim already started this worker; it claims the resumed
     # step without constructing or restarting the worker runtime.
     startup = harness.runtime._startup
-    work = startup.claim_one()
+    work = cast(ClaimedWork | None, startup.claim_one())
     assert work is not None
     assert work.step.step_name == SUBMIT_STEP_AWAIT
     assert work.step.attempt_count == 4
@@ -787,9 +806,7 @@ def test_drain_and_shutdown_handoff_after_one_bounded_poll(tmp_path: Path) -> No
         lease_token=lease_token,
         operation_id=operation_id,
         step_id=await_work.step.step_id,
-        write_uow_factory=build_worker_write_uow_factory(
-            harness.submit_deps.control_transaction_factory
-        ),
+        write_uow_factory=_worker_write_uow_factory(harness),
         control=control,
         observer=lambda _event: None,
     )
@@ -1220,13 +1237,13 @@ def test_transport_and_request_fingerprint_failures_are_counted_reconcile_outcom
     if failure_kind == "transport":
         error = RepositoryWriteTransportError("Repository operation result is unknown")
     else:
-        error = submit_jobs.CheckpointDecodeError(
+        error = CheckpointDecodeError(
             "submit checkpoint request_fingerprint does not match payload semantics",
             code=submit_jobs._EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
         )
     outcome = submit_jobs._map_handler_failure_to_recovery_outcome(error)
     assert outcome is not None
-    assert outcome.disposition is submit_jobs.RecoveryOutcomeDisposition.RECONCILE_PENDING
+    assert outcome.disposition is RecoveryOutcomeDisposition.RECONCILE_PENDING
 
 
 def _run_await_binding_mismatch_case(

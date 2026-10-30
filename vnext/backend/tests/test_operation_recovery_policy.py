@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -69,10 +70,12 @@ from gateway_backend.operations.state import (
 )
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
+    CheckpointGeneration,
     ExecutionControl,
     ExecutorAcknowledgment,
     LeaseSession,
 )
+from gateway_backend.operations.state import TransitionDisposition
 
 pytestmark = pytest.mark.unit
 
@@ -334,21 +337,34 @@ def _noop_lease_session() -> LeaseSession:
         def heartbeat(self) -> StepRecord:
             return _step_record()
 
-        def publish_checkpoint(self, builder) -> object:  # type: ignore[no-untyped-def]
+        def publish_checkpoint(
+            self,
+            builder: Callable[[OperationRecord, StepRecord, datetime], StepRecord],
+        ) -> CheckpointGeneration:
             raise AssertionError("not used")
 
-        def publish_successor(self, builder) -> object:  # type: ignore[no-untyped-def]
+        def publish_successor(
+            self,
+            builder: Callable[
+                [OperationRecord, StepRecord, datetime], tuple[StepRecord, StepRecord]
+            ],
+        ) -> tuple[TransitionDisposition, TransitionDisposition]:
             raise AssertionError("not used")
 
-        def publish_operation(self, builder) -> object:  # type: ignore[no-untyped-def]
+        def publish_operation(
+            self,
+            builder: Callable[
+                [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
+            ],
+        ) -> tuple[TransitionDisposition, TransitionDisposition]:
             raise AssertionError("not used")
 
         def acknowledge_safe_handoff(
             self,
-            generation,
+            generation: CheckpointGeneration,
             *,
             healthy_external_operation_wait: bool = False,
-        ) -> ExecutorAcknowledgment:  # type: ignore[no-untyped-def]
+        ) -> ExecutorAcknowledgment:
             raise AssertionError("not used")
 
         def completion_acknowledgment(self) -> ExecutorAcknowledgment | None:
@@ -437,9 +453,8 @@ def test_confirmed_healthy_wait_reclaim_keeps_attempt_count(
     )
 
     assert claim_attempt_count(step) == expected_attempt_count
-    assert (claim_diagnostic(step).code if claim_diagnostic(step) else None) == (
-        expected_claim_diagnostic
-    )
+    diagnostic = claim_diagnostic(step)
+    assert (diagnostic.code if diagnostic is not None else None) == expected_claim_diagnostic
 
 
 def test_compute_retry_not_before_uses_bounded_jitter() -> None:

@@ -461,6 +461,7 @@ def submit_composition_bundle(
             deps.control_transaction_factory
         ),
         submission_id_factory=deps.submission_id_factory,
+        now_factory=deps.now_factory,
     )
     return (
         submit_job_definitions(),

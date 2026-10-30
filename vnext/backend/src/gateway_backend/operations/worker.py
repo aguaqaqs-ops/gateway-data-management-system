@@ -205,8 +205,10 @@ class LeaseSession(Protocol):
     def acknowledge_safe_handoff(
         self,
         generation: CheckpointGeneration,
+        *,
+        healthy_external_operation_wait: bool = False,
     ) -> ExecutorAcknowledgment:
-        """Acknowledge handoff only for a checkpoint committed by this session."""
+        """Acknowledge a committed handoff; optionally requeue confirmed healthy polling."""
 
     def publish_recovery_release(
         self,

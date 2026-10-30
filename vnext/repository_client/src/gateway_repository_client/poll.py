@@ -45,5 +45,37 @@ async def wait_for_operation(
         delay = min(delay * 2, max_delay_seconds)
 
 
+async def wait_for_operation_or_last_observed(
+    fetch_operation: OperationFetcher,
+    *,
+    deadline_at: float,
+    base_delay_seconds: float = DEFAULT_POLL_BASE_DELAY_SECONDS,
+    max_delay_seconds: float = DEFAULT_POLL_MAX_DELAY_SECONDS,
+    clock: Clock | None = None,
+    sleeper: Sleeper | None = None,
+) -> VersionedOperation:
+    """Return the last successful operation observation when it remains nonterminal."""
+
+    monotonic_deadline = MonotonicDeadline.at(deadline_at, clock=clock)
+    sleep = sleeper or _default_sleeper
+    delay = base_delay_seconds
+    last_observed: VersionedOperation | None = None
+
+    while True:
+        if monotonic_deadline.remaining() <= 0:
+            if last_observed is not None:
+                return last_observed
+            monotonic_deadline.check()
+        operation = await fetch_operation()
+        if operation.status in _TERMINAL_STATUSES:
+            monotonic_deadline.check()
+            return operation
+        last_observed = operation
+        if monotonic_deadline.remaining() <= 0:
+            return operation
+        await monotonic_deadline.sleep_bounded(sleep, min(delay, max_delay_seconds))
+        delay = min(delay * 2, max_delay_seconds)
+
+
 async def _default_sleeper(seconds: float) -> None:
     await asyncio.sleep(seconds)

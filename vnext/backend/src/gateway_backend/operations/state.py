@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from gateway_backend.operations.contracts import (
+    OperationDiagnostic,
     OperationRecord,
     OperationStatus,
     StepRecord,
@@ -15,6 +16,13 @@ from gateway_backend.operations.contracts import (
 )
 
 _IJSON_MAX_SAFE_INTEGER = (2**53) - 1
+
+# These bounded diagnostic codes carry the one-claim decisions in the existing Step field.
+# They add no operation state or persistence column.
+DIAGNOSTIC_HEALTHY_WAIT_HANDOFF = "R5.HEALTHY_WAIT_HANDOFF"
+DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR = "R5.HEALTHY_WAIT_HANDOFF_OPERATOR"
+DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED = "R5.RECOVERY_AUTHORIZED"
+DIAGNOSTIC_OPERATOR_RECOVERY_SESSION = "R5.OPERATOR_RECOVERY_SESSION"
 
 _OPERATION_ALLOWED_TRANSITIONS: dict[OperationStatus, frozenset[OperationStatus]] = {
     OperationStatus.QUEUED: frozenset(
@@ -57,6 +65,7 @@ _STEP_ALLOWED_TRANSITIONS: dict[StepStatus, frozenset[StepStatus]] = {
     StepStatus.MANUAL_RECOVERY_REQUIRED: frozenset(
         {
             StepStatus.RUNNING,
+            StepStatus.RETRY_WAIT,
             StepStatus.SUCCEEDED,
             StepStatus.FAILED,
         }
@@ -240,9 +249,10 @@ def _validate_step_attempt_and_lease(current: StepRecord, candidate: StepRecord)
     leaving_running = current.status is StepStatus.RUNNING
 
     if from_pending_or_retry and entering_running:
-        if candidate.attempt_count != current.attempt_count + 1:
+        expected_attempt_count = claim_attempt_count(current)
+        if candidate.attempt_count != expected_attempt_count:
             raise ValueError(
-                "attempt_count must increment when entering RUNNING from PENDING or RETRY_WAIT"
+                "attempt_count does not match the claim session transition"
             )
     elif candidate.attempt_count != current.attempt_count:
         raise ValueError(
@@ -272,6 +282,49 @@ def _validate_step_attempt_and_lease(current: StepRecord, candidate: StepRecord)
         or candidate.lease_expires_at is not None
     ):
         raise ValueError("lease identity fields are forbidden outside RUNNING step status")
+
+
+def claim_attempt_count(step: StepRecord) -> int:
+    """Return the attempt count for a claim, preserving confirmed healthy wait handoffs."""
+
+    if type(step) is not StepRecord:
+        raise ValueError("step must be StepRecord")
+    if (
+        step.status is StepStatus.RETRY_WAIT
+        and step.diagnostic is not None
+        and step.diagnostic.code
+        in {
+            DIAGNOSTIC_HEALTHY_WAIT_HANDOFF,
+            DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
+        }
+    ):
+        return step.attempt_count
+    return step.attempt_count + 1
+
+
+def claim_diagnostic(step: StepRecord) -> OperationDiagnostic | None:
+    """Carry an authorized recovery session through claims and healthy handoffs."""
+
+    if type(step) is not StepRecord or step.diagnostic is None:
+        return None
+    if step.diagnostic.code in {
+        DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED,
+        DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
+        DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
+    }:
+        return OperationDiagnostic(
+            code=DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
+            message=step.diagnostic.message,
+        )
+    return None
+
+
+def operator_recovery_session_active(step: StepRecord) -> bool:
+    return (
+        type(step) is StepRecord
+        and step.diagnostic is not None
+        and step.diagnostic.code == DIAGNOSTIC_OPERATOR_RECOVERY_SESSION
+    )
 
 
 def _require_updated_at_monotonic(current_updated_at: datetime, candidate_updated_at: datetime) -> None:

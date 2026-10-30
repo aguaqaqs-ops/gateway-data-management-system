@@ -12,7 +12,12 @@ from gateway_backend.operations.contracts import (
     StepStatus,
     _validate_opaque_id,
 )
-from gateway_backend.operations.state import TransitionDisposition, WritePrecondition
+from gateway_backend.operations.state import (
+    TransitionDisposition,
+    WritePrecondition,
+    claim_diagnostic,
+    claim_attempt_count,
+)
 from gateway_backend.operations.store import OperationStore
 
 LEASE_DURATION = timedelta(seconds=30)
@@ -69,12 +74,12 @@ class OperationLifecycleActions:
         step_after = dataclasses.replace(
             step,
             status=StepStatus.RUNNING,
-            attempt_count=step.attempt_count + 1,
+            attempt_count=claim_attempt_count(step),
+            diagnostic=claim_diagnostic(step),
             updated_at=self._transaction_now,
             started_at=(
                 self._transaction_now if step.started_at is None else step.started_at
             ),
-            diagnostic=None,
             retry_not_before=None,
             worker_id=worker_id,
             lease_token=lease_token,

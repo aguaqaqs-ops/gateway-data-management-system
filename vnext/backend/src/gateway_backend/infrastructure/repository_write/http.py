@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import cast
 from uuid import UUID
@@ -40,6 +41,8 @@ class HttpRepositoryWriteClient:
     timeout_seconds: float = 30.0
     poll_deadline_seconds: float = 60.0
     transport: httpx.AsyncBaseTransport | None = None
+    sleeper: Callable[[float], Awaitable[None]] | None = None
+    clock: Callable[[], float] | None = None
 
     def upload_artifact(
         self,
@@ -152,7 +155,7 @@ class HttpRepositoryWriteClient:
             operation = cast(
                 VersionedOperation,
                 _run(
-                    self._client().wait_operation(
+                    self._client().wait_operation_or_last_observed(
                         repository_id=_as_uuid(repository_id),
                         operation_id=_as_uuid(operation_id),
                         deadline_seconds=deadline_seconds,
@@ -170,6 +173,8 @@ class HttpRepositoryWriteClient:
             timeout_seconds=self.timeout_seconds,
             poll_deadline_seconds=self.poll_deadline_seconds,
             transport=self.transport,
+            sleeper=self.sleeper,
+            clock=self.clock,
         )
 
 

@@ -103,6 +103,7 @@ def _terminal_executor(
             dataclasses.replace(
                 current_step,
                 status=StepStatus.SUCCEEDED,
+                diagnostic=None,
                 updated_at=now,
                 completed_at=now,
                 worker_id=None,

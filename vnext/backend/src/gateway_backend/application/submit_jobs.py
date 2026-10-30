@@ -2491,6 +2491,7 @@ def _terminal_step(step: StepRecord, transaction_now: datetime, *, status: StepS
     return dataclasses.replace(
         step,
         status=status,
+        diagnostic=None,
         worker_id=None,
         lease_token=None,
         lease_expires_at=None,
@@ -2592,6 +2593,7 @@ def _make_finalize_success_builder(
         terminal_step = dataclasses.replace(
             step,
             status=StepStatus.SUCCEEDED,
+            diagnostic=None,
             worker_id=None,
             lease_token=None,
             lease_expires_at=None,

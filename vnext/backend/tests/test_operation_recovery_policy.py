@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -668,7 +669,9 @@ def test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostic
         assert calls == 2
 
 
-def test_unexpected_pure_recompute_handler_exception_fails_operation_without_exiting_worker() -> None:
+def test_unexpected_pure_recompute_handler_exception_is_logged_without_exiting_worker(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     def handler(
         _operation: OperationRecord,
         _step: StepRecord,
@@ -686,12 +689,13 @@ def test_unexpected_pure_recompute_handler_exception_fails_operation_without_exi
     )
     session = _RecoveryReleaseSession()
 
-    acknowledgment = execute(
-        _operation_record(),
-        _step_record(),
-        ExecutionControl(),
-        cast(LeaseSession, session),
-    )
+    with caplog.at_level(logging.ERROR, logger="gateway_backend.operations.recovery"):
+        acknowledgment = execute(
+            _operation_record(),
+            _step_record(),
+            ExecutionControl(),
+            cast(LeaseSession, session),
+        )
 
     assert acknowledgment is ExecutorAcknowledgment.SAFE_HANDOFF
     assert session.intent is not None
@@ -700,6 +704,9 @@ def test_unexpected_pure_recompute_handler_exception_fails_operation_without_exi
     assert session.diagnostic is not None
     assert session.diagnostic.code == "OPERATION.PURE_RECOMPUTE_FAILED"
     assert session.diagnostic.message == "pure-recompute handler raised RuntimeError"
+    assert "Traceback (most recent call last)" in caplog.text
+    assert "internal handler detail" in caplog.text
+    assert "internal handler detail" not in session.diagnostic.message
 
 
 EXPIRED_LEASE_MATRIX: tuple[

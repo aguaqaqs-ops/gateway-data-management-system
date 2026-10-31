@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -36,6 +37,8 @@ from gateway_backend.operations.worker import (
     StartupDisposition,
     WriteUnitOfWorkFactory,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 MAX_RECOVERY_SESSIONS = 3
 RECOVERY_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
@@ -773,6 +776,7 @@ def build_recovery_routed_executor(
         except Exception as exc:
             if capability is not RecoveryCapabilityValue.PURE_RECOMPUTE:
                 raise
+            _LOGGER.exception("unexpected exception from PURE_RECOMPUTE handler")
             # Pure recompute has no external effect to reconcile. Fail this operation
             # with a bounded diagnostic and keep the worker available for later work.
             reason = f"pure-recompute handler raised {type(exc).__name__}"

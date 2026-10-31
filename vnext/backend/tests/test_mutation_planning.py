@@ -20,12 +20,18 @@ from gateway_backend.capabilities.mutation_planning import (
     change_set_closure_document,
     plan_storage_mutation,
     validate_published_change_set_closure,
+    validate_change_set_ordering,
 )
 from gateway_backend.capabilities.mutation_planning import _artifacts as mutation_artifacts
+from gateway_backend.capabilities.mutation_planning._changeset import (
+    TableMutationDecision,
+    build_change_set_closure,
+)
 from gateway_backend.capabilities.mutation_planning._planner import _patch_eligible
 from gateway_backend.capabilities.mutation_planning._digest import key_bytes_for_ordering
 from gateway_backend.capabilities.mutation_planning.contracts import (
     ChangeSetArtifact,
+    ChangeSetMutation,
     CanonicalStorageKey,
     MutationKeyedRow,
     MutationPlanningRequest,
@@ -34,6 +40,9 @@ from gateway_backend.capabilities.mutation_planning.contracts import (
     MutationTableSnapshot,
     PersistedRowImage,
     RowMutationOperation,
+    StorageMutationPlan,
+    TableMutationSummary,
+    compute_mutation_plan_identity_digest,
 )
 from gateway_backend.capabilities.mutation_planning._digest import row_digest_from_image
 from gateway_backend.capabilities.mutation_planning._repository_replay_renderer import (
@@ -690,6 +699,107 @@ def test_mixed_plan_closure_manifest_keeps_noop_table_summary() -> None:
         "orders",
     ]
     assert {item.canonical_table for item in result.change_set_closure.mutations} == {"orders"}
+
+
+def test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase() -> None:
+    before_rows_by_number = {
+        number: keyed_row(board=str(number), link_no="0")
+        for number in range(400)
+    }
+    after_rows_by_number = {
+        number: keyed_row(
+            board=str(number),
+            link_no="0",
+            status="1" if number in {0, 1} else "9",
+        )
+        for number in range(399)
+    }
+    after_rows_by_number[400] = keyed_row(board="400", link_no="0")
+    before = table_snapshot(
+        rows=tuple(
+            sorted(
+                before_rows_by_number.values(),
+                key=lambda row: key_bytes_for_ordering(row.key),
+            )
+        )
+    )
+    after = table_snapshot(
+        rows=tuple(
+            sorted(
+                after_rows_by_number.values(),
+                key=lambda row: key_bytes_for_ordering(row.key),
+            )
+        ),
+        content_digest=raw_blob_digest(b"mixed update delete insert patch"),
+    )
+    request = planning_request(
+        policy=MutationPolicy.ADAPTIVE_PATCH,
+        before_tables=(before,),
+        after_tables=(after,),
+    )
+    summary = TableMutationSummary(
+        canonical_table="orders",
+        operation=TableMutationKind.PATCH_DML,
+        changed_row_count=4,
+        before_row_count=400,
+        after_row_count=400,
+    )
+    plan = StorageMutationPlan(
+        mutation_plan_identity_digest=compute_mutation_plan_identity_digest(
+            request.planning_input
+        ),
+        plan_status=MutationPlanStatus.READY,
+        table_summaries=(summary,),
+        planning_input=request.planning_input,
+    )
+    decision = TableMutationDecision(
+        canonical_table="orders",
+        operation=TableMutationKind.PATCH_DML,
+        summary=summary,
+        before_snapshot=before,
+        after_snapshot=after,
+    )
+
+    closure = build_change_set_closure(plan, request, (decision,))
+    validate_change_set_ordering(closure.mutations)
+    assert [item.operation for item in closure.mutations] == [
+        RowMutationOperation.DELETE,
+        RowMutationOperation.UPDATE,
+        RowMutationOperation.UPDATE,
+        RowMutationOperation.INSERT,
+    ]
+
+    def board_number(mutation: ChangeSetMutation) -> int:
+        assert mutation.canonical_storage_key.columns[0][0] == "board"
+        return int(cast(str, mutation.canonical_storage_key.columns[0][1]["decimal"]))
+
+    delete, *remaining = closure.mutations
+    updates = remaining[:2]
+    insert = remaining[2]
+    assert [board_number(item) for item in (delete, *updates, insert)] == [399, 0, 1, 400]
+    assert delete.before_row_digest == before_rows_by_number[399].row_digest
+    assert delete.after_image is None
+    assert [item.before_row_digest for item in updates] == [
+        before_rows_by_number[number].row_digest for number in (0, 1)
+    ]
+    assert [item.after_image for item in updates] == [
+        after_rows_by_number[number].image for number in (0, 1)
+    ]
+    assert insert.before_row_digest is None
+    assert insert.after_image == after_rows_by_number[400].image
+
+    rendered = render_change_set_replay(closure)
+    assert rendered.status == "READY"
+    assert rendered.sql_bytes is not None
+    statements = rendered.sql_bytes.decode().splitlines()
+    assert [statement.split(" ", maxsplit=1)[0] for statement in statements] == [
+        "DELETE",
+        "UPDATE",
+        "INSERT",
+    ]
+    assert "399" in statements[0]
+    assert "0" in statements[1] and "1" in statements[1]
+    assert "400" in statements[2]
 
 
 def test_cancellation_fails_closed() -> None:

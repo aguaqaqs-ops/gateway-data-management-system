@@ -276,8 +276,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 ## 7. S2a：SQL 解析器
 
 - **范围：** 在 V6 原型（`gateway-compute-core/src/table_access/`）基础上补齐：完整诊断（消息文本、同一张表多处错误、行预算按元组计数的偏移）、第 ③ 层负例与预算语料、第 ② 层 Hypothesis 差分、现有解析器测试改为双实现参数化（讨论稿 §6.3）；`Utf8`/`Binary` 超过 2 GiB 时改用 large 变体或分批输出；按 §5.5 的定稿调整（例如深层 JSON 有界拒绝）。
-- **PyO3 adapter（新）：** 长调用 `py.detach`；取消标志与截止时间接到 `ParserRuntime`；输出经 Arrow C Stream 交给 Python；panic 在 core 入口与 adapter 两层转为诊断；native abort 或被内存不足终止不伪装成诊断，由 Operation Runtime 的既有租约接管处理（Rust policy §3）。线程池改为 worker 级共享（DC47 第 5 项）。
-- **接入：** feature flag 之后，只用于差分，不切生产。
+- **PyO3 adapter（新）：** 长调用 `py.detach`；取消标志与截止时间接到 `ParserRuntime`；输出经 Arrow C Stream 交给 Python；panic 在 core 入口与 adapter 两层转为诊断；native abort 或被内存不足终止不伪装成诊断，由 Operation Runtime 的既有租约接管处理（Rust policy §3）。线程池改为共享（DC47 第 5 项）：S2a 在 adapter 中实现进程内共享的有界池，worker 启动接线与部署配置 N、M 在 S2b 完成（DC72 第 6 项）。
+- **接入：** 只用于差分，不切生产。S2a 只在测试支持层提供双实现入口，生产 `parse_sql()` 继续走 Python；生产 feature flag 在 S2b 引入（DC72 第 3 项）。
 - **旧扩展删除（DC52）：** 删除 `capabilities/canonical_row_hash`、core 中的旧 pipeline、旧 adapter 入口、`canonical-row-hash` golden、Canonical Row Hash Compute Boundary Contract、`native_kernel_component.sh` 及引用它们的测试与架构基线条目；`rust` 包去掉对两个旧 crate 的 `cargo test` 排除；backend Dockerfile 的 maturin 构建改为新 adapter；新扩展的 `__build_input__` 与 `check-rust-extension-build-input.sh`、依赖与架构检查、`import_rules` 基线同步核对。
 - **验收：** 五层语料全部通过，t1–t4 逐值差异 0，并行确定。
 
@@ -312,7 +312,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ### 8.3 并发与资源（DC47）
 
-- 每个 worker 进程一个固定 N 的 Rayon 池，启动时建好，所有 kernel 共用；pyarrow 的 CPU 与 I/O 线程池按 N 设定；测试默认 N=1。
+- 每个 worker 进程一个固定 N 的 Rayon 池，启动时建好，所有 kernel 共用；pyarrow 的 CPU 与 I/O 线程池按 N 设定；测试默认 N=1。S2a 已在 adapter 中提供进程内共享池，S2b 完成 worker 启动接线（DC72 第 6 项）。
 - **内存预算 M：** 准入估算包含常驻输入（上传侧与已读取的基线表）、输出（Arrow 结果、记录、IPC 缓冲）与每线程的临时内存，不能只按活动表的平均列宽；运行中任务的预估总和 ≤ M；单表超过 M 时以资源预算诊断稳定失败。V6、V1 实测内存随线程数增长（V1：16 线程约 1.2 GB）。
 - **RS 读取：** operation 内并发 ≤ min(N, RS 有效容量)（容量为 RS 配置，默认 8）；503 作为背压退避重试，重试次数有界并继承 operation 的取消与截止时间。
 - 所有长 kernel 复用同一套取消与失败边界；预算拒绝返回可诊断的失败，native crash 由 Operation Runtime 恢复。
@@ -320,7 +320,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ### 8.4 切换
 
-- feature flag 切换上传侧到 Rust 路径；Python 路径保留至 S6（DC37 第 4 项）。
+- 引入生产 feature flag（含 S2a 的 Rust parser，DC72 第 3 项），切换上传侧到 Rust 路径；Python 路径保留至 S6（DC37 第 4 项）。
 - 验收：t1–t4 端到端摘要与 §6 的基准一致；存储读取校验与 Dolt 兜底、冻结产物四种状态的权威测试；W2 可达性检查（§16.1）。
 
 ## 9. S3：比较与逐行记录

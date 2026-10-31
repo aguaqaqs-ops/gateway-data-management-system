@@ -60,6 +60,7 @@ implementation_authorized: no
 | DC69 | S1c 并入 mutation planner 变更集排序缺陷的修复；ct108 改为 2× t4 三节点完整旅程 | — | — |
 | DC70 | S2a 开发与重建对照基准的正式测量并行；S2a exit 在基准 exit 之后（补充 2026-10-31：节点占用标记） | — | — |
 | DC71 | S1c exit：真实数据范围确认；DC70 的 S2a 起点澄清；startup 阻断遗留的登记 | — | — |
+| DC72 | S2a kickoff 确认：O2 非有限 JSON 数值拒绝、旧实现删除范围、test-only 差分入口（生产 flag 移到 S2b）、parser 表内分块、adapter 命名、线程池分步 | — | — |
 
 ## 2. 决议详情
 
@@ -703,6 +704,19 @@ implementation_authorized: no
   2. **DC70 起点澄清：** `p6-s1c-exit` 打在 S1c 分支的最终 HEAD `9f288ad504` 上，早于 `p6-backend-image-exit`，不含 backend 镜像依赖层改动。`p6-s2a` 改为基于把 `p6-s1c-exit` 合入 main 的 merge commit `49d0846d86`，它同时包含两者。重建对照基准仍测量 `p6-s1c-exit` 这个提交本身。DC70 其余内容不变。
   3. **遗留登记：** 非 operator 会话中，会话已用尽、lease 过期的 RUNNING step 在 startup 转人工恢复并阻断该次启动（`BLOCK_STARTUP_FATAL`），与 P4 R5 §8“人工恢复记录不阻断 readiness”的表述有出入。这是 S1c 之前的基线行为。列入 worker runtime 后续维护（与 DC63 第 3 项的 O1 同一归属），不阻塞 exit，不并入基准或 S2a。
 - **落点**：本记录；DC70 第 1 项；[执行计划](p6-execution-plan.md) S1c 状态与 S2a 前置。
+
+### DC72 S2a kickoff 确认
+
+- **来源**：[S2a kickoff](p6-s2a-kickoff.md)（`p6-s2a` 提交 `30de9c1cae`）与 [kickoff 审核](p6-s2a-kickoff-review.md)。
+- **决议**（repository owner，2026-10-31，按审核建议）：
+  1. **O2：** JSON 数值解码后非有限（包括 `1e400` 这类溢出为 inf 的值）按表级 `SQL_VALUE_ILLEGAL` 拒绝。这是 DC62 第 2 项 e 的一致性修正，不是新语义。先在 Python 参照实现中单独提交修正（复用现有 reject 参数表），再由 Rust 实现对齐；第 ④ 层差分记录真实数据中这类值的出现次数。
+  2. **旧实现删除范围：** 按 kickoff §3 确认（DC52）。AGENTS.md 与 testing-conventions.md 由治理会话维护，S2a 在 handoff 中写出建议条文；执行计划路径清单的修改在 handoff 中提出，exit 时更新。设计 §2.2 的事实描述、被删除的 Contract 与 ADR 链接由 S2a 修改。
+  3. **差分入口与生产 flag（设计 §7 澄清）：** S2a 只在测试支持层提供双实现入口，生产 `parse_sql()` 与 worker 路由继续走 Python，不引入部署 flag，不做 shadow 执行。生产 feature flag 改在 S2b 随上传侧数据路径合并（DC46）引入并用于切换生产；S6 删除不变。
+  4. **parser 表内分块（DC47 第 4 项的 L3）：** 保留 V6 已实现并验证的 INSERT 元组分块，作为 SQL parser 专属的 L3。条件：只用同一个共享池，不嵌套建池；row-budget 偏移、同表多处错误的诊断顺序在不同分块大小下必须相同，纳入第 ③ 层与 Rust 确定性测试；不在其他 kernel 扩大 L3。
+  5. **adapter 命名：** 新的单一 adapter 沿用 distribution 与 crate 名 `gateway-compute-python`；删除 `gateway-compute-python-impl`。Python 模块对外为全新的 parser 接口，不保留任何旧 API 符号。
+  6. **线程池分步（DC47 第 5、7 项）：** S2a 在 adapter 中实现进程内共享的有界池（一次创建、固定 N、所有调用复用，N 由调用方传入；测试默认 N=1，一致性测试比较 1 与 N）。worker 启动时的接线与部署配置 N、M 在 S2b 完成；相应的 owner 测试分别在 S2a（adapter 层池复用）与 S2b（worker 启动接线）。
+  7. **其余按 kickoff 确认：** 真实数据范围只做第 ④ 层逐值差分，t1–t4 的 v1/v2 与 testdata1 均在 05，testdata1 按输入 digest 与 t3 去重（DC33、DC50 第 4 项及补充）；审核由原 S1c 审核会话负责；节点按 DC70 及其补充；exit 在基准 exit 之后。
+- **落点**：本记录；设计 §7、§8.3、§8.4；执行计划 S2a、S2b 内容。
 
 ## 3. 设计阶段待定项
 

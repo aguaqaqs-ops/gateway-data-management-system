@@ -155,7 +155,8 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 - 目标：设计 §7。
 - 前置：S1b exit（语义已定稿）；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。开发在 S1c exit 合入后开始，与重建对照基准的正式测量并行，分支 `p6-s2a`，基于 merge commit `49d0846d86`（DC71 第 2 项）；ct108 在基准测量期间不使用，04 由基准的最终 runner 优先；exit 在基准 exit 之后办理（DC70）。
-- 内容：补齐诊断与语料；PyO3 adapter；worker 级共享线程池；feature flag 之后接入（只差分）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
+- 内容：补齐诊断与语料；PyO3 adapter；adapter 内进程共享线程池（worker 启动接线在 S2b）；test-only 双实现差分入口，生产仍走 Python（DC72 第 3、6 项）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
+- **kickoff 确认（repository owner，2026-10-31）：** [kickoff](p6-s2a-kickoff.md) 与[审核](p6-s2a-kickoff-review.md)，DC72。
 - 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；新扩展的构建输入检查、`rust` 包排除的去除与 `import_rules` 基线同步核对；权威 runner 与容器门禁（Dockerfile 变化）。
 - 真实数据：只做第 ④ 层逐值差分（05；t4 也可在 05，DC50 补充）。
 
@@ -163,7 +164,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 - 目标：设计 §8。
 - 前置：S2a exit；S1c exit（DC65）；设计核对项（上传侧原始表的使用方、磁盘估算）已完成。
-- 内容：数据路径合并 kernel；Arrow 列映射 v1；规范表存储（内容地址、IPC、读取校验、BaselineHead 正式引用与 TTL）；N/M 准入与 pyarrow 线程池；feature flag 切换生产；Canonical Storage §5 修订。
+- 内容：数据路径合并 kernel；Arrow 列映射 v1；规范表存储（内容地址、IPC、读取校验、BaselineHead 正式引用与 TTL）；N/M 准入、worker 级共享线程池接线与 pyarrow 线程池；引入生产 feature flag 并切换生产（DC72 第 3、6 项）；Canonical Storage §5 修订。
 - 验收：t1–t4 端到端摘要与基准一致；存储读取校验、Dolt 兜底与冻结产物四种状态的权威测试；计数断言；W1–W3 测量（ct108）；**W2 可达性检查点**（设计 §16.1：剩余成本不能在 30 s 内闭合时停止，交 owner）；权威 runner 与容器门禁。
 - 真实数据：t1–t4 端到端摘要一致；测本阶段相关负载。
 

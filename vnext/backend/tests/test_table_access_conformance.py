@@ -24,7 +24,6 @@ from tests.support.table_access_fixtures import (
 )
 from tests.support.table_access_sql import (
     current_sql_implementation,
-    dual_sql_implementation,
     parse_request_result,
     parse_text,
     sql_request,

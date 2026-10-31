@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from threading import Event
+from typing import cast
 
 import pyarrow as pa
 import pytest
@@ -19,11 +20,14 @@ def _native_result(
     cancel_probe: object | None = None,
     deadline_monotonic: float | None = None,
 ) -> dict[str, object]:
-    return _parse_sql_native(
-        sql,
-        cancel_probe or NeverCancel(),
-        deadline_monotonic,
-        1,
+    return cast(
+        dict[str, object],
+        _parse_sql_native(
+            sql,
+            cancel_probe or NeverCancel(),
+            deadline_monotonic,
+            1,
+        ),
     )
 
 

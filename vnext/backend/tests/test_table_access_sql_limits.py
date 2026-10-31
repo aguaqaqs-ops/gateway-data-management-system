@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from gateway_backend.capabilities.table_access.contracts import ParseStatus, ParserDiagnosticCode
-from tests.support.table_access_sql import dual_sql_implementation, parse_text, tiny_budgets
+from tests.support.table_access_sql import parse_text, tiny_budgets
 
 
 @pytest.fixture(autouse=True)

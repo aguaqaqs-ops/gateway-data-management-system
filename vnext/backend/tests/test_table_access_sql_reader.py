@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from typing import Protocol, cast
 
 import pytest
 from gateway_backend.capabilities.table_access.contracts import (
@@ -11,14 +12,18 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserDiagnosticCode,
     ParserInvocationContext,
     TableAccessError,
+    TableReader,
 )
 from gateway_shared_kernel import SignedIntegerScalar, StringScalar
 from tests.support.table_access_sql import (
-    dual_sql_implementation,
     parse_request_result,
     parse_text,
     sql_request,
 )
+
+
+class ReopenableTableReader(Protocol):
+    def reopen(self) -> TableReader: ...
 
 
 @pytest.fixture(autouse=True)
@@ -63,7 +68,7 @@ def test_reader_single_consumer_reopen_and_close() -> None:
     assert ids == ["1", "2", "3"]
     with pytest.raises(ValueError, match="single-consumer"):
         tuple(reader.iter_rows())
-    reopened = reader.reopen()
+    reopened = cast(ReopenableTableReader, reader).reopen()
     reader.close()
     with pytest.raises(TableAccessError) as closed:
         reader.descriptor()

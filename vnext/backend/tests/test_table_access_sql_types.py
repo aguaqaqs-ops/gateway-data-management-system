@@ -13,7 +13,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlLogicalType,
 )
 from gateway_shared_kernel import DeclaredType, DeclaredTypeKind
-from tests.support.table_access_sql import dual_sql_implementation, parse_text
+from tests.support.table_access_sql import parse_text
 
 VECTOR_ROOT = (
     Path(__file__).resolve().parents[2] / "fixtures" / "vectors" / "table-access" / "sql-known-types" / "v1"

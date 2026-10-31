@@ -10,7 +10,6 @@ from gateway_backend.capabilities.table_access.contracts import ParseStatus, Par
 from gateway_shared_kernel import canonicalize_identifier
 from tests.support.table_access_sql import (
     current_sql_implementation,
-    dual_sql_implementation,
     parse_text,
 )
 

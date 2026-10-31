@@ -8,7 +8,6 @@ from tests.support.table_access_fixtures import load_expected, load_text, parse_
 from tests.support.table_access_sql import (
     consumed_rows,
     current_sql_implementation,
-    dual_sql_implementation,
     parse_text,
 )
 

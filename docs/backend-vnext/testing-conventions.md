@@ -26,6 +26,27 @@ focused 测试、Rust 编译、解析器差分测试与真实数据 t1–t3；�
 设置磁盘上的 `TMPDIR=/home/dev/gdds-test-tmp`，避免复用其他用户拥有的
 `/tmp/pytest-of-root`；不需要 pytest tmpfs 时保持 `GATEWAY_TEST_BASETEMP` 未设置，以保留默认批次与 Compose 路径。
 
+### 测试节点网络与缓存（owner 2026-10-28）
+
+CT201 是联网开发节点，不用于运行测试。专用测试 CT 禁止直接访问公网，但可经局域网访问 CT201 或指定的公共缓存 CT 提供的获准缓存。该访问只用于依赖、镜像和构建制品，不开通任意公网出口。测试代码通过获准的局域网 Git/文件传输方式同步到各自的 clean、已提交 worktree；测试、Compose 与真实数据旅程仍在指定测试 CT 上执行。
+
+缓存按节点分别准备，不能假设一个节点的 cache、image 或 build layer 已存在于其他节点：
+
+- **Python：**测试节点的权威 runner 与环境同步设置 `UV_OFFLINE=1`，使用已填充的 uv 缓存/环境。`prepare-dev-dependencies.sh` 的 `GATEWAY_DEV_OFFLINE=1` 只约束准备步骤，不代替 runner 的 `UV_OFFLINE=1`。保留 lockfile 中的 canonical registry identity，不得通过机器级 index 配置改写 lock source。
+- **Rust：**测试节点的权威 runner 设置 `CARGO_NET_OFFLINE=true`；对应 rustup toolchain 与 crates 必须预先齐全。root SSH 环境的 `PATH` 以 `/home/dev/.cargo/bin` 开头，不设置 `RUSTUP_TOOLCHAIN`、`RUSTUP_HOME` 或 `CARGO_HOME`；在 `vnext/rust` 下用仓库 selector 检查 `rustc` 版本，并确认 `cargo`、`rustfmt` 与 `clippy-driver` 使用同一工具链。不可依赖测试节点联网安装工具链。
+- **DC67 预填充与代理：**依赖、锁文件或基础镜像变化时，先在 CT201 取得制品，经获准的局域网预填充到实际使用的节点；handoff 记录来源节点/提交、制品摘要与预填充时间。04 权威 runner、carried、ct108 测量与各节点真实数据取证不经任何转发代理；缓存缺失即停止，完成预填充后从头运行。仅 05 调试构建可临时使用受限转发代理：只放行所需主机、不传凭据、用完即停；handoff 记录放行主机范围、起止时间与用途，调试结果不作证据。
+- **Docker/Compose：** 基础镜像须已在节点本地或可从批准的 LAN registry/cache 获取。Dockerfile 下载的 uv、Python、Dolt 与 Python 包须命中现有构建层、预置依赖镜像或 LAN 制品缓存。`build-repository-service-image.sh` 的 `GATEWAY_P2R1_CACHE_URL` 必须设置为该节点实际可达的缓存地址；默认 `172.17.0.1:18080` 是本机 Docker bridge gateway 的假设，不是通用 CT 地址。
+- **backend/worker dependency-base（自 `p6-backend-image-exit` 起）：** `vnext/backend/pyproject.toml`、`vnext/backend/uv.lock`、`vnext/backend/.python-version`、`vnext/rust/Cargo.lock`、`vnext/rust/rust-toolchain.toml` 或 Rust 基础镜像变化时，在 CT201 的 clean worktree 执行 `vnext/scripts/build-backend-dependency-base.sh --save <归档>`，构建 `gateway-backend-deps:lock-<12>`。通过获准 LAN 传到实际使用的测试节点后执行 `docker load`。handoff 记录来源提交、完整输入摘要、tag、config digest、全部 RootFS DiffID、归档 SHA256、构建/传输起止时间与缓存来源类别/端点标识，不记录凭据；inspect ID 仅作参考。
+  - backend/worker 特有的 build 设置为 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=<lock-tag>`、`GATEWAY_DOCKER_BUILD_NETWORK=none`。保留 Compose build，由节点在无构建网络时本机实际构建 backend/worker；不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。
+  - 例外：`p6-backend-image-exit` 之前的产品提交（包括 S1c 候选 V 与 `p6-s1c-exit`）仍使用旧 Dockerfile，按 DC67 补充第 2 项由 CT201 预构建并传输完整 backend/worker 镜像。
+- **跨节点镜像身份：**传输镜像用 config digest 与全部 RootFS DiffID 逐项比较，不比较 `docker inspect` ID；containerd store 的 inspect ID 是本机生成的 manifest digest。同节点闭包 manifest 与按包 carried 判定使用本机 image ID；这不改变下文容器门禁镜像等价规则。
+- **Repository Service 与 client e2e：**继续使用各自的预置依赖模式。若 client e2e 镜像的 revision label 与当前 HEAD 不同，门禁会在本机重建，这是正常行为；不要手工执行 `docker rmi`。
+- **本地运行依赖：** Dolt、Compose 本地网络、真实数据文件、Docker daemon 和测试端口仍须在各测试节点就绪；断公网不应影响节点 loopback、容器间网络或获准 LAN 缓存连接。
+
+启动 runner 或容器门禁前，确认本次闭包涉及的缓存端点可达，且依赖、基础镜像和必需构建层可从本机或获准 LAN 缓存取得。若发生 cache miss 且缓存不可达，停止验收并补齐缓存/恢复端点，不得回退到 CT201 执行测试。handoff 记录 cache 来源类别/端点标识与使用方式；runner 和 carried 证据仍按原规则记录 hostname、起止 HEAD、exit code，凭据不得写入日志。proxy/cache URL 的 manifest 指纹只作闭包判定，不应反推出或打印凭据。
+
+DC68 允许对未触及被测对象的操作错误重做一次：失败须由自身命令、脚本或参数错误，或属于 DC66 第 5 项范围内的工具缺陷引起，且被测对象尚未运行、没有副作用。保留失败日志与 SHA256，修正后从该步骤开头重做一次，并在 handoff 记录原因、修正和结果。重做再次失败、缓存缺失、镜像身份不符、结果不一致或原因无法归类时停止交 owner；runner 已开始测试后 exit 非 0 仍必须先处理该失败，不可按 DC68 继续。
+
 权威 runner 将 backend 与 `repository_service` 分成并行主体和 serial 两遍：
 `-m "(not serial) or parallel_safe" -n "$TEST_WORKERS"` 后接
 `-m "serial and not parallel_safe" -n 0`。其余三个包单进程运行。G11 kickoff base
@@ -110,7 +131,7 @@ runner 开始时为每个待运行包写出一份 JSON 闭包 manifest，可单�
 Git 组成部分使用当前提交对应路径的 tree/blob object id，`legacy/` 使用排序后的相对路径与文件内容摘要，
 环境部分记录每包 Python `-VV`、Dolt、uv、rustc 版本；每包还对有效 Hypothesis storage directory
 （`HYPOTHESIS_STORAGE_DIRECTORY` 或包目录下 `.hypothesis`）及包内 `.pytest_cache` 的路径、内容和权限做摘要，涵盖可能参与输入生成或被测试工具读取的缓存。摘要规则不变；权威 runner 会把有效 storage path 指向 worktree 外的固定包专属目录，并在 manifest 前后清理。backend 与 `repository_service` 还记录 Docker/
-Compose 工具与 daemon 身份、有效 build 环境变量指纹、基础/服务/dependency-base 镜像 tag 和本机 image ID；
+Compose 工具与 daemon 身份、有效 build 环境变量指纹、基础/服务/dependency-base 镜像 tag 和本机 image ID；backend 另记录所选 dependency-base 名称与 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES` 开关；
 backend 的 prebuilt Compose 选项启用时，manifest 还摘要本机镜像清单。proxy/cache URL 等可能含凭据的值只记录 SHA-256，
 不将原值写入 manifest。每包闭包包括自身与传递路径依赖、fixtures、全部五个 lockfile、
 runner/wrapper 脚本、workspace 配置、deployment 输入和共享 rust-toolchain selector。backend 的 Rust
@@ -118,7 +139,7 @@ runner/wrapper 脚本、workspace 配置、deployment 输入和共享 rust-toolc
 `repository_service` 还包括 Compose 镜像使用的完整 `vnext/` build context、相关 Compose 与 Dockerfile。
 repository_service 的 context 因而包含 `repository_client` 及 e2e/dependency-base Dockerfile。manifest 记录
 本机 base image ID、repository-service 与 dependency-base ID、client e2e 与 client dependency-base ID，以及
-会影响 build 的环境设置指纹。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
+会影响 build 的环境设置指纹。backend 所选 dependency-base 名称、本机 image ID 或预置开关任一变化，都要求 backend 重新运行。`compare --source <来源-manifest.json> --current <当前-manifest.json>`
 逐项比较并输出“运行”或“可沿用”及变化的组成部分。
 
 `rust` 包的闭包（schema version 9 起）：`package:rust` 为 `vnext/rust` 的 Git tree（未跟踪的 `target/` 不在其中），
@@ -302,7 +323,7 @@ handoff、评审报告或普通文档的提交不必重跑Compose，而不是放
 
 1. **门禁运行合格**：`V`是已提交的clean worktree；全量或容器门禁由权威入口执行；日志记录
    开始与结束时的`git rev-parse HEAD`和明确的exit code；运行期间未写worktree，也未提交或
-   重建镜像。在dirty worktree或临时index tree上的运行不能作为`V`。
+   重建其他镜像。若client e2e镜像revision label与HEAD不符，允许门禁在本机正常重建该镜像并更新本机tag；实施者不得手工`docker rmi`。在dirty worktree或临时index tree上的运行不能作为`V`。
 2. **diff不触及容器边界**：`git diff --name-only V HEAD`中没有上文“必须重建”前五项所列的
    内容，也没有Docker/Compose e2e测试、container harness或其support模块。
 3. **镜像身份相等**，逐个镜像核对：

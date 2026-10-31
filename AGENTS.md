@@ -35,6 +35,19 @@
 | `ct108-gw-dms-05` | 调试：focused 测试、Rust 编译、解析器差分测试、真实数据 t1–t3 |
 | `ct108-gw-dms` | 参考与取证：Phase 6 性能测量（测量期间独占）、真实数据 t4 |
 
+网络与缓存约束（owner 2026-10-28）：CT201 是可访问互联网的开发节点，不作为测试节点；测试 CT 禁止直接连接公网，但可以通过局域网访问 CT201 或指定的公共缓存 CT 上获准的依赖、镜像与制品缓存。该许可只用于取回构建和测试所需缓存，不表示测试 CT 获准进行任意公网访问，也不改变测试必须在专用测试节点执行的要求。测试源码须通过获准的局域网 Git/文件传输方式到达节点，并仍以 clean、已提交 worktree 运行。
+
+- 每个测试节点分别准备其实际使用的 Python uv 缓存/环境、Rust toolchain 与 Cargo registry、Docker 基础镜像与构建层，以及 Dolt 和真实数据文件；缓存不跨节点共享。执行前确认所需 LAN 缓存端点可达。缓存端点地址由节点环境配置提供，不能假定 `172.17.0.1:18080` 在每台机器上都指向公共缓存。
+- **Python：**测试节点的权威 runner 与环境同步设置 `UV_OFFLINE=1`，使用已填充的 uv 缓存/环境。`prepare-dev-dependencies.sh` 的 `GATEWAY_DEV_OFFLINE=1` 只约束准备步骤，不代替 runner 的 `UV_OFFLINE=1`。保留 lockfile 的 canonical registry identity，不得通过机器级 index 配置改写 lock source。
+- **Rust：**测试节点的权威 runner 设置 `CARGO_NET_OFFLINE=true`，所需工具链与 crates 必须已预填充。root SSH 环境的 `PATH` 以 `/home/dev/.cargo/bin` 开头，且不设置 `RUSTUP_TOOLCHAIN`、`RUSTUP_HOME` 或 `CARGO_HOME`。在 `vnext/rust` 下按仓库 selector 检查 `rustc` 版本，并确认 `cargo`、`rustfmt` 与 `clippy-driver` 解析到同一工具链。
+- **DC67 缓存与代理：**依赖、锁文件或基础镜像变化时，先在 CT201 取得制品，经获准的局域网预填充到实际使用的节点，并在 handoff 记录来源节点/提交、制品摘要与预填充时间。04 权威 runner、carried、ct108 测量和各节点真实数据取证不经任何转发代理；缓存缺失即停止，补齐预填充后从头运行。只有 05 调试构建可临时使用受限转发代理：只放行所需主机、不传凭据、用完即停，handoff 记录放行主机范围、起止时间与用途，调试结果不作证据。
+- Docker build 使用的 base image 必须已在该节点本机，或可从获准的 LAN registry/cache 获取。Dockerfile 中的 Python、uv、Dolt 与包制品也须由现有构建层、预置依赖镜像或可达的 LAN 缓存提供；不能依赖测试 CT 直接下载公网 URL。Repository Service 构建使用 `GATEWAY_P2R1_CACHE_URL` 时，应指向该节点实际可达的获准缓存，或使用已校验的依赖基础镜像。
+- **backend/worker（自 `p6-backend-image-exit` 起）：** `vnext/backend/pyproject.toml`、`vnext/backend/uv.lock`、`vnext/backend/.python-version`、`vnext/rust/Cargo.lock`、`vnext/rust/rust-toolchain.toml` 或 Rust 基础镜像变化时，在 CT201 的 clean worktree 运行 `vnext/scripts/build-backend-dependency-base.sh --save <归档>`，构建 `gateway-backend-deps:lock-<12>`，再经获准的局域网传至目标节点并 `docker load`。handoff 记录来源提交、完整输入摘要、tag、config digest、全部 RootFS DiffID、归档 SHA256 与构建/传输起止时间；`docker inspect` ID 仅供参考，不记录凭据。backend/worker 特有的 build 设置为 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=<lock-tag>`、`GATEWAY_DOCKER_BUILD_NETWORK=none`；保留 Compose build，让节点本机离线构建 backend/worker，不设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。在 `p6-backend-image-exit` 之前的产品提交（如 S1c 的 V、`p6-s1c-exit`）仍使用 DC67 补充第 2 项的开发节点整镜像预构建流程。
+- **镜像身份：**跨节点传输一律比较 config digest 与全部 RootFS DiffID，不比较 `docker inspect` ID；containerd image store 的 inspect ID 是本机生成的 manifest digest。同节点闭包 manifest 与按包 carried 判定使用本机 image ID；这不改变下文容器门禁镜像等价规则。Repository Service 与 client e2e 继续使用各自的预置依赖模式；client e2e 镜像 revision 与当前 HEAD 不符时由门禁在本机重建，这是正常行为，不手工运行 `docker rmi`。
+- Compose 服务间的本机网络仍按原测试运行；公网隔离不应关闭本机 Docker 网络、loopback、测试端口或获准的 LAN 缓存访问。若必需制品缓存未命中或 LAN 缓存不可达，应停止该次验收并先补齐缓存/修复端点，不得改在 CT201 上运行测试。
+- runner、carried 与真实数据日志继续记录测试节点 hostname 和起止时间；handoff 另记缓存来源类别/端点标识及是否使用预置缓存，不记录凭据。manifest 对有效 proxy/cache 设置只保存摘要，不得输出 URL 凭据。
+- **DC68 取证操作错误：**若失败是尚未触及被测对象的自身命令、脚本或参数错误，或属于 DC66 第 5 项范围内的工具缺陷，且没有副作用，保留失败日志与 SHA256，修正后从该步骤开头重做一次，并在 handoff 记录原因、修正和结果。重做再次失败、被测对象已运行后的失败、缓存缺失或身份不符均停止交 owner；权威 runner 已开始测试后 exit 非 0 时仍按 runner 停止规则处理。
+
 开始前用 `ssh -o BatchMode=yes <别名> 'echo OK'` 确认连接；在该节点的 clean、已提交 worktree 中运行。
 下列 Dolt、Compose、端口和日志前提在每台节点上分别满足：同一节点整机单飞，不同节点之间可以并行。
 carried 必须与来源 V 在同一节点、同一 worktree 计算；闭包 manifest 不记录节点身份，跨节点的结果不得用于判定。
@@ -85,7 +98,7 @@ uv 环境、Hypothesis 与 pytest 缓存，总摘要由 `vnext/rust` 的 Git tre
 clean、日志记录起止 HEAD、该包通过、整次 runner exit 0；只跑部分包的 runner 也可作为来源。若当前 V
 的包闭包有变化，该包必须在当前 V 实际运行并通过。backend 与 `repository_service` 的环境组件还记录
 Docker/Compose 工具和 daemon 身份、有效 build 环境变量的指纹、选择的基础/服务/dependency-base 镜像 tag
-与本机 image ID（RS 还包括 client e2e/dependency-base）；backend 的 prebuilt 选项启用时摘要本机镜像清单。含凭据的 proxy/cache URL 只记录摘要，
+与本机 image ID（backend 另记录所选 dependency-base 名称与预置开关；RS 还包括 client e2e/dependency-base）；backend 的 prebuilt 选项启用时摘要本机镜像清单。backend 的 dependency-base 名称、本机 image ID 或预置开关任一变化，都要求 backend 重新运行。含凭据的 proxy/cache URL 只记录摘要，
 不输出原值。handoff 逐包记录总摘要、运行或沿用、来源 V 与来源日志；
 链式沿用始终直接引用最初实际运行该包的 V，不引用沿用结果。详细规则见
 [testing-conventions.md](docs/backend-vnext/testing-conventions.md)。
@@ -98,7 +111,7 @@ manifest 闭包摘要规则不变，因此 carried 必须使用与来源 V runne
 
 - 在已提交的 clean worktree 上运行。`repository_service` 的 Compose 用例经
   `require_clean_worktree()` 计算 image identity，worktree 有未提交改动时这些用例必然失败。
-- 运行期间不写 worktree、不提交、不重建或重新 tag 镜像。
+- 运行期间不写 worktree、不提交、不重建或重新 tag 镜像；例外是 client e2e 镜像 revision 与 HEAD 不符时，由门禁在本机正常重建并更新其本机 tag，实施者不得手工 `docker rmi`。
 - linked worktree（含审核用的 detached worktree）要先建本地参考目录的符号链接：`ln -s /home/dev/gateway-data-management-system/legacy <worktree>/legacy`
   （`legacy/` 不在任何提交里，由 `.git/info/exclude` 忽略）。缺它时 `test_table_rules_resolver.py` 的 58 个用例失败，权威 runner 随之失败。
 - 同一主机上不并行运行其他 Dolt 进程或 Compose 栈：残留检查扫描整机 `/proc` 中的 dolt

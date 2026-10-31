@@ -121,12 +121,14 @@ def _patch_mutations(
         if after is None
         else {key_bytes_for_ordering(row.key): row for row in after.rows}
     )
-    mutations: list[ChangeSetMutation] = []
+    deletes: list[ChangeSetMutation] = []
+    updates: list[ChangeSetMutation] = []
+    inserts: list[ChangeSetMutation] = []
     for key in sorted(before_rows.keys()):
         before_row = before_rows[key]
         after_row = after_rows.get(key)
         if after_row is None:
-            mutations.append(
+            deletes.append(
                 ChangeSetMutation(
                     canonical_table=table,
                     operation=RowMutationOperation.DELETE,
@@ -136,7 +138,7 @@ def _patch_mutations(
             )
             continue
         if before_row.row_digest != after_row.row_digest:
-            mutations.append(
+            updates.append(
                 ChangeSetMutation(
                     canonical_table=table,
                     operation=RowMutationOperation.UPDATE,
@@ -148,7 +150,7 @@ def _patch_mutations(
     for key in sorted(after_rows.keys()):
         if key not in before_rows:
             after_row = after_rows[key]
-            mutations.append(
+            inserts.append(
                 ChangeSetMutation(
                     canonical_table=table,
                     operation=RowMutationOperation.INSERT,
@@ -156,4 +158,4 @@ def _patch_mutations(
                     after_image=after_row.image,
                 )
             )
-    return tuple(mutations)
+    return tuple((*deletes, *updates, *inserts))

@@ -17,7 +17,14 @@ from gateway_backend.operations.contracts import (
 )
 from gateway_backend.operations.persistence import LEASE_DURATION, OperationLifecycleActions
 from gateway_backend.operations.recovery import RecoveryTransitionIntent
-from gateway_backend.operations.state import TransitionDisposition, WritePrecondition, validate_step_transition
+from gateway_backend.operations.state import (
+    DIAGNOSTIC_HEALTHY_WAIT_HANDOFF,
+    DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
+    DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
+    TransitionDisposition,
+    WritePrecondition,
+    validate_step_transition,
+)
 from gateway_backend.operations.store import (
     LeaseExpired,
     OperationUnitOfWork,
@@ -247,15 +254,61 @@ class LeaseSession:
     def acknowledge_safe_handoff(
         self,
         generation: CheckpointGeneration,
+        *,
+        healthy_external_operation_wait: bool = False,
     ) -> ExecutorAcknowledgment:
-        """Close the session only after its exact checkpoint generation committed."""
+        """Acknowledge a checkpointed handoff, requeueing only confirmed healthy waits."""
 
         with self._mutation_lock:
             self._ensure_open()
             if type(generation) is not CheckpointGeneration:
                 raise ValueError("generation must be CheckpointGeneration")
+            if type(healthy_external_operation_wait) is not bool:
+                raise ValueError("healthy_external_operation_wait must be bool")
             if generation != self._last_checkpoint_generation:
                 raise ValueError("safe handoff requires the latest committed checkpoint")
+            if healthy_external_operation_wait:
+                try:
+                    with self._write_uow_factory() as unit_of_work:
+                        _operation, current_step = self._load_live_records(unit_of_work)
+                        transaction_now = unit_of_work.operations.transaction_now
+                        operator_session_active = (
+                            current_step.diagnostic is not None
+                            and current_step.diagnostic.code
+                            == DIAGNOSTIC_OPERATOR_RECOVERY_SESSION
+                        )
+                        diagnostic = OperationDiagnostic(
+                            code=(
+                                DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR
+                                if operator_session_active
+                                else DIAGNOSTIC_HEALTHY_WAIT_HANDOFF
+                            ),
+                            message="Repository operation is still QUEUED or RUNNING",
+                        )
+                        candidate = dataclasses.replace(
+                            current_step,
+                            status=StepStatus.RETRY_WAIT,
+                            diagnostic=diagnostic,
+                            retry_not_before=transaction_now,
+                            updated_at=transaction_now,
+                            worker_id=None,
+                            lease_token=None,
+                            lease_expires_at=None,
+                            completed_at=None,
+                            optimistic_version=current_step.optimistic_version + 1,
+                        )
+                        self._validate_retry_wait_release_candidate(
+                            current_step,
+                            candidate,
+                            transaction_now,
+                        )
+                        self._actions(unit_of_work).mutate_live_step(
+                            candidate,
+                            self._step_precondition(current_step),
+                        )
+                except (StaleWrite, LeaseExpired) as exc:
+                    self._lose_lease(exc)
+                    raise
             self._closed = True
             self._completion_acknowledgment = ExecutorAcknowledgment.SAFE_HANDOFF
             self._emit(

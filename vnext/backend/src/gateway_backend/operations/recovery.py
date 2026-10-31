@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,8 +19,15 @@ from gateway_backend.operations.contracts import (
     StepStatus,
     _validate_opaque_id,
 )
-from gateway_backend.operations.persistence import LEASE_DURATION
-from gateway_backend.operations.state import TransitionDisposition, WritePrecondition
+from gateway_backend.operations.state import (
+    DIAGNOSTIC_HEALTHY_WAIT_HANDOFF,
+    DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR,
+    DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED,
+    DIAGNOSTIC_OPERATOR_RECOVERY_SESSION,
+    TransitionDisposition,
+    WritePrecondition,
+    operator_recovery_session_active,
+)
 from gateway_backend.operations.store import LeaseExpired, OperationStore, StaleWrite, StoreBusy
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
@@ -30,7 +38,7 @@ from gateway_backend.operations.worker import (
     WriteUnitOfWorkFactory,
 )
 
-OPERATOR_RECOVERY_WORKER_ID = "operator-recovery"
+_LOGGER = logging.getLogger(__name__)
 
 MAX_RECOVERY_SESSIONS = 3
 RECOVERY_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
@@ -43,7 +51,9 @@ DIAGNOSTIC_RETRY_SCHEDULED = "r5.retry_scheduled"
 DIAGNOSTIC_RECONCILE_STARTED = "r5.reconcile_started"
 DIAGNOSTIC_RECONCILE_TIMEOUT = "r5.reconcile_timeout"
 DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED = "r5.manual_recovery_required"
-DIAGNOSTIC_RECOVERY_AUTHORIZED = "r5.recovery_authorized"
+DIAGNOSTIC_RECOVERY_AUTHORIZED = DIAGNOSTIC_OPERATOR_RECOVERY_AUTHORIZED.lower()
+DIAGNOSTIC_RECOVERY_SESSION_ACTIVE = DIAGNOSTIC_OPERATOR_RECOVERY_SESSION.lower()
+DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED = "r5.wait_upper_bound_exceeded"
 
 RECOVERY_DIAGNOSTIC_CODES = frozenset(
     {
@@ -53,6 +63,10 @@ RECOVERY_DIAGNOSTIC_CODES = frozenset(
         DIAGNOSTIC_RECONCILE_TIMEOUT,
         DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
         DIAGNOSTIC_RECOVERY_AUTHORIZED,
+        DIAGNOSTIC_RECOVERY_SESSION_ACTIVE,
+        DIAGNOSTIC_HEALTHY_WAIT_HANDOFF.lower(),
+        DIAGNOSTIC_HEALTHY_WAIT_HANDOFF_OPERATOR.lower(),
+        DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED,
     }
 )
 
@@ -260,6 +274,7 @@ def classify_startup(
     lease_expired: bool,
     now: datetime,
     jitter: Jitter,
+    operator_recovery_session: bool = False,
 ) -> RecoveryPolicyDecision:
     if (
         operation.status is OperationStatus.MANUAL_RECOVERY_REQUIRED
@@ -277,6 +292,11 @@ def classify_startup(
             diagnostic_code=DIAGNOSTIC_RETRY_SCHEDULED,
             retry_not_before=None,
             reason="active lease requires no startup recovery action",
+        )
+    if operator_recovery_session:
+        return _manual_recovery_decision(
+            diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+            reason="operator recovery session lease expired",
         )
     if capability is RecoveryCapabilityValue.NON_RETRYABLE:
         return RecoveryPolicyDecision(
@@ -428,6 +448,7 @@ def transition_for_outcome(
     now: datetime,
     jitter: Jitter,
     evidence_ambiguous: bool = False,
+    operator_recovery_session: bool = False,
     step_source: StepStatus = StepStatus.RUNNING,
     operation_source: OperationStatus = OperationStatus.RUNNING,
 ) -> RecoveryTransitionIntent:
@@ -459,6 +480,19 @@ def transition_for_outcome(
             increment_attempt_on_claim=False,
         )
     if outcome_disposition is RecoveryPolicyOutcomeDisposition.RETRYABLE_FAILURE:
+        if operator_recovery_session or attempt_count > MAX_RECOVERY_SESSIONS:
+            return transition_for_outcome(
+                RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
+                capability=capability,
+                attempt_count=attempt_count,
+                effect_boundary_crossed=effect_boundary_crossed,
+                cancel_requested=False,
+                now=now,
+                jitter=jitter,
+                evidence_ambiguous=evidence_ambiguous,
+                step_source=step_source,
+                operation_source=operation_source,
+            )
         if recovery_sessions_exhausted(attempt_count):
             return transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
@@ -482,7 +516,7 @@ def transition_for_outcome(
             increment_attempt_on_claim=True,
         )
     if outcome_disposition is RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING:
-        if recovery_sessions_exhausted(attempt_count):
+        if operator_recovery_session or recovery_sessions_exhausted(attempt_count):
             return transition_for_outcome(
                 RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
                 capability=capability,
@@ -664,6 +698,7 @@ def finalize_handler_recovery(
         cancel_requested=False,
         now=now,
         jitter=jitter,
+        operator_recovery_session=operator_recovery_session_active(step),
     )
     decision = _recovery_decision_for_claim_outcome(result, intent)
     diagnostic = policy_diagnostic_to_operation_diagnostic(decision)
@@ -741,6 +776,7 @@ def build_recovery_routed_executor(
         except Exception as exc:
             if capability is not RecoveryCapabilityValue.PURE_RECOMPUTE:
                 raise
+            _LOGGER.exception("unexpected exception from PURE_RECOMPUTE handler")
             # Pure recompute has no external effect to reconcile. Fail this operation
             # with a bounded diagnostic and keep the worker available for later work.
             reason = f"pure-recompute handler raised {type(exc).__name__}"
@@ -930,6 +966,7 @@ class StartupRecovery:
                     fresh_operation.job_kind,
                     fresh_step.step_name,
                 )
+                operator_session_lease_loss = operator_recovery_session_active(fresh_step)
                 decision = classify_startup(
                     operation=fresh_operation,
                     step=fresh_step,
@@ -937,6 +974,7 @@ class StartupRecovery:
                     lease_expired=True,
                     now=transaction_now,
                     jitter=self.jitter,
+                    operator_recovery_session=operator_session_lease_loss,
                 )
                 if decision.disposition is RecoveryPolicyDecisionDisposition.NO_ACTION:
                     return StartupDisposition.READY
@@ -960,11 +998,14 @@ class StartupRecovery:
         except (StaleWrite, StoreBusy):
             return StartupDisposition.RETRYABLE_BLOCK
 
-        return startup_disposition_after_recovery(
+        startup_disposition = startup_disposition_after_recovery(
             decision,
             retry_not_before=retry_not_before,
             transaction_now=transaction_now,
         )
+        if operator_session_lease_loss:
+            return StartupDisposition.READY
+        return startup_disposition
 
     def _capability_lookup(self, job_kind: str, step_name: str) -> RecoveryCapabilityValue:
         capability = self.capability_lookup(job_kind, step_name)
@@ -1078,12 +1119,12 @@ def transition_for_operator_command(
     }:
         return RecoveryTransitionIntent(
             step_source=step_source,
-            step_target=StepStatus.RUNNING,
+            step_target=StepStatus.RETRY_WAIT,
             operation_source=operation_source,
             operation_target=OperationStatus.RUNNING,
             set_retry_not_before=None,
             retain_occupancy=True,
-            increment_attempt_on_claim=False,
+            increment_attempt_on_claim=True,
         )
     raise ValueError("unsupported operator recovery command")
 
@@ -1092,12 +1133,6 @@ def _operator_diagnostic(diagnostic_code: str, reason: str) -> OperationDiagnost
     _validate_namespaced_diagnostic_code(diagnostic_code)
     _validate_bounded_diagnostic_message(reason)
     return OperationDiagnostic(code=diagnostic_code.upper(), message=reason)
-
-
-def _operator_lease_token(step_id: str) -> str:
-    token = f"operator-{step_id}"
-    _validate_opaque_id(token, "lease_token")
-    return token
 
 
 def build_operator_recovery_candidates(
@@ -1141,25 +1176,21 @@ def build_operator_recovery_candidates(
         )
         return step_candidate, operation_candidate
 
-    if step_target is not StepStatus.RUNNING:
-        raise ValueError("operator recovery only supports RUNNING or FAILED targets")
+    if step_target is not StepStatus.RETRY_WAIT:
+        raise ValueError("operator recovery only supports RETRY_WAIT or FAILED targets")
     if intent.operation_target is not OperationStatus.RUNNING:
         raise ValueError("resume/retry requires operation RUNNING transition")
 
-    lease_token = _operator_lease_token(step.step_id)
-    lease_expires_at = transaction_now + LEASE_DURATION
-    if lease_expires_at <= transaction_now:
-        raise ValueError("lease_expires_at must be later than updated_at for RUNNING step")
-
+    diagnostic = _operator_diagnostic(DIAGNOSTIC_RECOVERY_AUTHORIZED, reason)
     step_candidate = dataclasses.replace(
         step,
-        status=StepStatus.RUNNING,
-        diagnostic=None,
-        retry_not_before=None,
+        status=StepStatus.RETRY_WAIT,
+        diagnostic=diagnostic,
+        retry_not_before=transaction_now,
         updated_at=transaction_now,
-        worker_id=OPERATOR_RECOVERY_WORKER_ID,
-        lease_token=lease_token,
-        lease_expires_at=lease_expires_at,
+        worker_id=None,
+        lease_token=None,
+        lease_expires_at=None,
         completed_at=None,
         optimistic_version=step.optimistic_version + 1,
     )
@@ -1383,7 +1414,9 @@ __all__ = [
     "DIAGNOSTIC_RECONCILE_STARTED",
     "DIAGNOSTIC_RECONCILE_TIMEOUT",
     "DIAGNOSTIC_RECOVERY_AUTHORIZED",
+    "DIAGNOSTIC_RECOVERY_SESSION_ACTIVE",
     "DIAGNOSTIC_RETRY_SCHEDULED",
+    "DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED",
     "ExternalEffectPhase",
     "HandlerFailureKind",
     "HandlerRecoveryCallback",
@@ -1392,7 +1425,6 @@ __all__ = [
     "Jitter",
     "MAX_RECOVERY_SESSIONS",
     "NowFactory",
-    "OPERATOR_RECOVERY_WORKER_ID",
     "OperatorRecoveryCommand",
     "OperatorRecoveryRequest",
     "RECONCILE_SESSION_BUDGET_SECONDS",

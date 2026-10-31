@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.external-effect-and-recovery`
 
 Owner：Submit Application（业务 execution）；Operations（通用执行）；Repository Service（effect evidence）
 
-Semantic version：`4.0.0`
+Semantic version：`4.1.0`
 
 2026-08-02收口：Repository Service effect遵循ADR 0009和Repository Service
 Contract的caller-selected verification、stable failure code与minimal recovery。旧
@@ -18,6 +18,9 @@ effect taxonomy不再约束当前实现；Phase 0–1错误表达由owner-owned 
 2026-09-06 amendment：当前没有integration-event consumer，T1/T3不创建outbox，删除
 dispatcher与`after_business_finalize_before_outbox_delivery`故障点。Archive直接把既有
 Submission commit提升为业务Baseline，不产生Repository写effect，因此不属于本文。
+
+2026-10-30 amendment：Submit健康Repository等待、bounded total wait与人工恢复命令续行按Phase 6
+S1c/DC65修订；不改变Repository operation四态、T1/T2/T3原子边界或未知结果不得blind replay的规则。
 
 ## 1. 目的与 owner 分界
 
@@ -83,8 +86,18 @@ Repository Operation只公开`QUEUED | RUNNING | SUCCEEDED | FAILED`。
 - SUCCEEDED返回matching CommitId和target ref；
 - FAILED返回Repository-owned stable code；普通未发布失败只限`IMPORT_REJECTED`、
   `EXPECTED_COMMIT_MISMATCH`或`VERIFICATION_FAILED_NOT_PUBLISHED`；
-- `MANUAL_RECOVERY_REQUIRED`表示commit/ref/artifact证据矛盾，需要operator且不得释放
-  business occupancy；
+- `MANUAL_RECOVERY_REQUIRED`表示commit/ref/artifact证据矛盾，或 Submit 超出与 Repository
+  Service 导入预算对齐的总等待上界；需要operator且不得释放 business occupancy；
+- 本地Submit checkpoint与payload的identity/request fingerprint不符，或Repository返回的
+  operation identity与checkpoint不符，均立即进入`MANUAL_RECOVERY_REQUIRED`并保留identity-mismatch
+  诊断`r5.effect_identity_mismatch`；不计入恢复会话。只有崩溃或lease丢失、传输错误、结果未知计入三个恢复会话；
+- Submit 只有在已校验本地request fingerprint、并对原operation identity收到HTTP成功的
+  `QUEUED`/`RUNNING`时，才把这次健康等待排除在恢复会话计数之外；沿用已存在的checkpoint与safe
+  handoff 的健康等待路径。其他safe handoff不据此改变恢复会话计数。该operation的总等待从Step
+  `started_at`起，以Repository Service的import与server start预算之和作为继续健康等待的上界。每次
+  claim先观察一次原operation；poll deadline为`min(60s, max(剩余预算, 5s))`。匹配的`SUCCEEDED`或
+  `FAILED`无论poll是否到达上界都按终态处理；匹配的`QUEUED`/`RUNNING`在上界到达或超过后转人工恢复。
+  上界后的传输错误或结果未知也转人工恢复；上界前的这些错误仍按三个恢复会话计数；
 - timeout、连接中断或worker failure不等于Repository operation失败；
 - 业务侧先检查本地Finalize结果，再以原operation identity查询Repository。
 

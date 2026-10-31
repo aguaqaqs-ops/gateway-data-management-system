@@ -37,6 +37,7 @@ from gateway_repository_client.poll import (
     DEFAULT_POLL_DEADLINE_SECONDS,
     Clock,
     wait_for_operation,
+    wait_for_operation_or_last_observed,
 )
 from gateway_repository_client.protocol import parse_json_response
 from gateway_repository_client.retry import (
@@ -269,6 +270,37 @@ class RepositoryClient:
             return response.operation
 
         return await wait_for_operation(
+            _fetch,
+            deadline_at=deadline_at,
+            clock=self._clock,
+            sleeper=self._sleeper,
+        )
+
+    async def wait_operation_or_last_observed(
+        self,
+        *,
+        repository_id: UUID,
+        operation_id: UUID,
+        deadline_seconds: float | None = None,
+    ) -> VersionedOperation:
+        """Return a successful QUEUED/RUNNING observation at the poll deadline."""
+
+        resolved_deadline = (
+            self._poll_deadline_seconds if deadline_seconds is None else deadline_seconds
+        )
+        validate_deadline_seconds(resolved_deadline)
+        now = self._clock or time.monotonic
+        deadline_at = now() + resolved_deadline
+
+        async def _fetch() -> VersionedOperation:
+            response = await self.get_operation(
+                repository_id=repository_id,
+                operation_id=operation_id,
+                deadline_at=deadline_at,
+            )
+            return response.operation
+
+        return await wait_for_operation_or_last_observed(
             _fetch,
             deadline_at=deadline_at,
             clock=self._clock,

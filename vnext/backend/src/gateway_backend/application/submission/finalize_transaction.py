@@ -141,6 +141,7 @@ def finalize_submit_transaction(
         terminal_step = replace(
             await_step,
             status=StepStatus.SUCCEEDED,
+            diagnostic=None,
             completed_at=transaction_now,
             updated_at=transaction_now,
             worker_id=None,

@@ -587,6 +587,7 @@ def build_submit_worker_harness(
         terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=control_transaction_factory,
         submission_id_factory=lambda: "sub-test-1",
+        now_factory=control_now,
     )
     submit_definitions, submit_handlers, submit_decoders, bound_submit_deps = (
         submit_composition_bundle(submit_deps)

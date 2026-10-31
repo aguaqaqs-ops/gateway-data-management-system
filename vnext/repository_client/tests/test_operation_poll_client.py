@@ -12,6 +12,7 @@ import pytest
 from gateway_repository_client import (
     RepositoryClient,
     RepositoryClientTimeoutError,
+    RepositoryProtocolError,
 )
 from gateway_repository_contracts import OperationStatus
 
@@ -75,6 +76,234 @@ async def test_wait_operation_returns_terminal_on_first_query_without_sleep() ->
     assert operation.status == OperationStatus.FAILED
     assert operation.error is not None
     assert operation.error.code == "IMPORT_REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_last_observed_wait_returns_health_when_request_times_out_at_deadline() -> None:
+    attempts = {"count": 0}
+    current_time = {"value": 0.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    async def sleeper(_seconds: float) -> None:
+        current_time["value"] = 4.9
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(
+                200,
+                json={"operation": _operation(status="RUNNING")},
+                headers={"X-Request-ID": "req-running"},
+            )
+        current_time["value"] = 5.0
+        raise asyncio.TimeoutError
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+        clock=clock,
+    )
+
+    operation = await client.wait_operation_or_last_observed(
+        repository_id=REPO_ID,
+        operation_id=OP_ID,
+        deadline_seconds=5.0,
+    )
+
+    assert attempts["count"] == 2
+    assert operation.status is OperationStatus.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_last_observed_wait_raises_deadline_timeout_without_successful_observation() -> None:
+    attempts = {"count": 0}
+    current_time = {"value": 0.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        current_time["value"] = 5.0
+        raise asyncio.TimeoutError
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        clock=clock,
+    )
+
+    with pytest.raises(RepositoryClientTimeoutError):
+        await client.wait_operation_or_last_observed(
+            repository_id=REPO_ID,
+            operation_id=OP_ID,
+            deadline_seconds=5.0,
+        )
+
+    assert attempts["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_last_observed_wait_keeps_terminal_result_at_deadline() -> None:
+    current_time = {"value": 0.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        current_time["value"] = 5.0
+        return httpx.Response(
+            200,
+            json={"operation": _operation(status="SUCCEEDED")},
+            headers={"X-Request-ID": "req-succeeded"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        clock=clock,
+    )
+
+    operation = await client.wait_operation_or_last_observed(
+        repository_id=REPO_ID,
+        operation_id=OP_ID,
+        deadline_seconds=5.0,
+    )
+
+    assert operation.status is OperationStatus.SUCCEEDED
+
+
+@pytest.mark.asyncio
+async def test_last_observed_wait_returns_terminal_before_deadline() -> None:
+    current_time = {"value": 0.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        current_time["value"] = 4.9
+        return httpx.Response(
+            200,
+            json={"operation": _operation(status="SUCCEEDED")},
+            headers={"X-Request-ID": "req-succeeded-before-deadline"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        clock=clock,
+    )
+
+    operation = await client.wait_operation_or_last_observed(
+        repository_id=REPO_ID,
+        operation_id=OP_ID,
+        deadline_seconds=5.0,
+    )
+
+    assert operation.status is OperationStatus.SUCCEEDED
+    assert clock() < 5.0
+
+
+@pytest.mark.asyncio
+async def test_last_observed_wait_returns_health_when_retry_backoff_reaches_deadline() -> None:
+    attempts = {"count": 0}
+    current_time = {"value": 0.0}
+    sleep_count = {"value": 0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    async def sleeper(_seconds: float) -> None:
+        sleep_count["value"] += 1
+        current_time["value"] = 4.9 if sleep_count["value"] == 1 else 5.0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(
+                200,
+                json={"operation": _operation(status="RUNNING")},
+                headers={"X-Request-ID": "req-running"},
+            )
+        return httpx.Response(
+            503,
+            json={"code": "SERVICE_NOT_READY", "message": "not ready"},
+            headers={"X-Request-ID": "req-retry"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+        clock=clock,
+    )
+
+    operation = await client.wait_operation_or_last_observed(
+        repository_id=REPO_ID,
+        operation_id=OP_ID,
+        deadline_seconds=5.0,
+    )
+
+    assert attempts["count"] == 2
+    assert sleep_count["value"] == 2
+    assert operation.status is OperationStatus.RUNNING
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_kind", ("transport", "protocol"))
+async def test_last_observed_wait_propagates_transport_and_protocol_errors(
+    failure_kind: str,
+) -> None:
+    attempts = {"count": 0}
+    current_time = {"value": 0.0}
+
+    def clock() -> float:
+        return current_time["value"]
+
+    async def sleeper(_seconds: float) -> None:
+        current_time["value"] += _seconds
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            return httpx.Response(
+                200,
+                json={"operation": _operation(status="RUNNING")},
+                headers={"X-Request-ID": "req-running"},
+            )
+        if failure_kind == "transport":
+            raise httpx.ConnectError("connection failed")
+        return httpx.Response(
+            200,
+            content=b"not-json",
+            headers={"X-Request-ID": "req-invalid", "Content-Type": "application/json"},
+        )
+
+    client = RepositoryClient(
+        base_url="http://repository.test",
+        bearer_token="token",
+        transport=httpx.MockTransport(handler),
+        sleeper=sleeper,
+        clock=clock,
+    )
+
+    expected_error = httpx.ConnectError if failure_kind == "transport" else RepositoryProtocolError
+    with pytest.raises(expected_error):
+        await client.wait_operation_or_last_observed(
+            repository_id=REPO_ID,
+            operation_id=OP_ID,
+            deadline_seconds=5.0,
+        )
+
+    assert attempts["count"] == (4 if failure_kind == "transport" else 2)
 
 
 @pytest.mark.asyncio

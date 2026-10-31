@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 
@@ -36,6 +36,7 @@ from gateway_backend.application.payloads import (
     load_job_payload_bytes,
 )
 from gateway_backend.application.recovery import (
+    DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
     DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
     DIAGNOSTIC_RECONCILE_TIMEOUT,
     JOB_STATE_IDEMPOTENCY_KEY,
@@ -144,6 +145,7 @@ from gateway_backend.operations.contracts import (
 )
 from gateway_backend.operations.recovery import (
     DIAGNOSTIC_RETRY_SCHEDULED,
+    DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED,
     RECONCILE_SESSION_BUDGET_SECONDS,
     OperatorRecoveryCommand,
     OperatorRecoveryRequest,
@@ -153,7 +155,10 @@ from gateway_backend.operations.recovery import (
     build_authorized_operator_recovery,
     transition_for_outcome,
 )
-from gateway_backend.operations.state import TransitionDisposition
+from gateway_backend.operations.state import (
+    TransitionDisposition,
+    operator_recovery_session_active,
+)
 from gateway_backend.operations.worker import (
     ClaimedExecutor,
     ExecutionControl,
@@ -169,6 +174,10 @@ from gateway_backend.application.submission.errors import (
 SUBMIT_IMPORT_CHECKPOINT_SCHEMA = "backend-vnext/submit/submit-import-checkpoint/v2"
 AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA = "backend-vnext/submit/await-import-result-checkpoint/v2"
 SUBMIT_IMPORT_POLL_DEADLINE_SECONDS = RECONCILE_SESSION_BUDGET_SECONDS
+# Coupled to Repository Service Settings.import_timeout_seconds (3600 s) plus
+# Settings.server_start_timeout_seconds (30 s); keep this aligned with that owner.
+SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS = 3_600.0 + 30.0
+_EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE = "EXTERNAL_EFFECT_IDENTITY_MISMATCH"
 _MAX_PREPARE_PROJECTION_MESSAGE_BYTES = 4 * 1024
 
 _JCS_MEDIA_TYPE = "application/jcs"
@@ -271,6 +280,7 @@ class SubmitRuntimeDependencies:
     terminal_evidence_decode: RepositoryTerminalEvidenceDecodePort
     control_transaction_factory: SubmitControlTransactionFactory
     submission_id_factory: Callable[[], str]
+    now_factory: Callable[[], datetime] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,6 +461,7 @@ def submit_composition_bundle(
             deps.control_transaction_factory
         ),
         submission_id_factory=deps.submission_id_factory,
+        now_factory=deps.now_factory,
     )
     return (
         submit_job_definitions(),
@@ -845,38 +856,69 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                 expected_status=await_checkpoint_state.last_observed_repository_status,
             )
         else:
+            if step.started_at is None:
+                raise SubmitJobError("await_import_result is missing started_at")
+            wait_upper_bound_at = step.started_at + timedelta(
+                seconds=SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS
+            )
+            now = _submit_now(deps)
+            remaining_wait_seconds = (wait_upper_bound_at - now).total_seconds()
+            poll_deadline_seconds = min(
+                SUBMIT_IMPORT_POLL_DEADLINE_SECONDS,
+                max(remaining_wait_seconds, 5.0),
+            )
             try:
                 repository_operation = deps.repository_write.wait_operation(
                     repository_id=payload.repository_id,
                     operation_id=submit_state.repository_operation_id,
-                    deadline_seconds=SUBMIT_IMPORT_POLL_DEADLINE_SECONDS,
+                    deadline_seconds=poll_deadline_seconds,
                 )
-            except (TimeoutError, RepositoryWriteTimeoutError):
-                now = datetime.now(UTC)
-                # One bounded Submit import poll session does not prove the Repository operation
-                # failed. R5 allows three claimed recovery sessions, each with one bounded poll.
-                intent = transition_for_outcome(
-                    RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
-                    capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
-                    attempt_count=step.attempt_count,
-                    effect_boundary_crossed=True,
-                    cancel_requested=control.cancel_requested,
+            except (
+                TimeoutError,
+                RepositoryWriteTimeoutError,
+                RepositoryWriteTransportError,
+            ) as exc:
+                now = _submit_now(deps)
+                if now >= wait_upper_bound_at:
+                    return _publish_wait_upper_bound_exceeded(
+                        step=step,
+                        lease_session=lease_session,
+                        now=now,
+                    )
+                return _publish_counted_reconcile_pending(
+                    step=step,
+                    control=control,
+                    lease_session=lease_session,
                     now=now,
-                    jitter=lambda base, _cap: base,
+                    diagnostic_code=DIAGNOSTIC_RETRY_SCHEDULED,
+                    reason=(
+                        "repository import poll transport failed; outcome remains unknown"
+                        if isinstance(exc, RepositoryWriteTransportError)
+                        else "repository import poll timed out; outcome remains unknown"
+                    ),
                 )
-                if intent.step_target is StepStatus.RETRY_WAIT:
-                    diagnostic = OperationDiagnostic(
-                        code=DIAGNOSTIC_RETRY_SCHEDULED.upper(),
-                        message="repository import poll timed out; reconcile retry scheduled",
-                    )
-                else:
-                    diagnostic = OperationDiagnostic(
-                        code=DIAGNOSTIC_RECONCILE_TIMEOUT.upper(),
-                        message="repository import reconcile session budget exhausted",
-                    )
-                return lease_session.publish_recovery_release(
-                    intent,
-                    diagnostic=diagnostic,
+
+            now = _submit_now(deps)
+            if repository_operation.operation_id != submit_state.repository_operation_id:
+                return _publish_manual_recovery(
+                    step=step,
+                    lease_session=lease_session,
+                    now=now,
+                    diagnostic_code=DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
+                    reason="Repository operation identity does not match the Submit checkpoint",
+                )
+            if (
+                repository_operation.status
+                in {
+                    RepositoryOperationStatus.QUEUED,
+                    RepositoryOperationStatus.RUNNING,
+                }
+                and now >= wait_upper_bound_at
+            ):
+                return _publish_wait_upper_bound_exceeded(
+                    step=step,
+                    lease_session=lease_session,
+                    now=now,
                 )
 
         if repository_operation.status in {
@@ -896,7 +938,10 @@ def build_await_import_result_handler(deps: SubmitRuntimeDependencies) -> Claime
                     intent="await-import-reconcile-checkpoint",
                 )
             )
-            return lease_session.acknowledge_safe_handoff(checkpoint_generation)
+            return lease_session.acknowledge_safe_handoff(
+                checkpoint_generation,
+                healthy_external_operation_wait=True,
+            )
 
         if (
             await_checkpoint_state is not None
@@ -1284,9 +1329,90 @@ def _submit_may_invoke_handler_without_checkpoint(
     return False
 
 
+def _submit_now(deps: SubmitRuntimeDependencies) -> datetime:
+    now = deps.now_factory() if deps.now_factory is not None else datetime.now(UTC)
+    if type(now) is not datetime or now.tzinfo is None or now.utcoffset() != UTC.utcoffset(now):
+        raise ValueError("Submit clock must return a timezone-aware UTC datetime")
+    return now
+
+
+def _publish_counted_reconcile_pending(
+    *,
+    step: StepRecord,
+    control: ExecutionControl,
+    lease_session: LeaseSession,
+    now: datetime,
+    diagnostic_code: str,
+    reason: str,
+) -> ExecutorAcknowledgment:
+    intent = transition_for_outcome(
+        RecoveryPolicyOutcomeDisposition.RECONCILE_PENDING,
+        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        attempt_count=step.attempt_count,
+        effect_boundary_crossed=True,
+        cancel_requested=control.cancel_requested,
+        now=now,
+        jitter=lambda base, _cap: base,
+        operator_recovery_session=operator_recovery_session_active(step),
+    )
+    if intent.step_target is StepStatus.RETRY_WAIT:
+        diagnostic = OperationDiagnostic(code=diagnostic_code.upper(), message=reason)
+    else:
+        diagnostic = OperationDiagnostic(
+            code=DIAGNOSTIC_RECONCILE_TIMEOUT.upper(),
+            message=f"recovery session budget exhausted: {reason}",
+        )
+    return lease_session.publish_recovery_release(intent, diagnostic=diagnostic)
+
+
+def _publish_wait_upper_bound_exceeded(
+    *,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    now: datetime,
+) -> ExecutorAcknowledgment:
+    return _publish_manual_recovery(
+        step=step,
+        lease_session=lease_session,
+        now=now,
+        diagnostic_code=DIAGNOSTIC_WAIT_UPPER_BOUND_EXCEEDED,
+        reason="Repository import wait exceeded its upper bound (超出等待上界)",
+    )
+
+
+def _publish_manual_recovery(
+    *,
+    step: StepRecord,
+    lease_session: LeaseSession,
+    now: datetime,
+    diagnostic_code: str,
+    reason: str,
+) -> ExecutorAcknowledgment:
+    intent = transition_for_outcome(
+        RecoveryPolicyOutcomeDisposition.MANUAL_RECOVERY,
+        capability=RecoveryCapabilityValue.EXTERNAL_EFFECT,
+        attempt_count=step.attempt_count,
+        effect_boundary_crossed=True,
+        cancel_requested=False,
+        now=now,
+        jitter=lambda base, _cap: base,
+    )
+    diagnostic = OperationDiagnostic(code=diagnostic_code.upper(), message=reason)
+    return lease_session.publish_recovery_release(intent, diagnostic=diagnostic)
+
+
 def _map_handler_failure_to_recovery_outcome(
     exc: BaseException,
 ) -> RecoveryOutcome | None:
+    if (
+        isinstance(exc, CheckpointDecodeError)
+        and exc.code == _EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE
+    ):
+        return RecoveryOutcome(
+            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
+            diagnostic_code=DIAGNOSTIC_EFFECT_IDENTITY_MISMATCH,
+            reason=str(exc),
+        )
     if isinstance(exc, (RepositoryWriteTimeoutError, TimeoutError)):
         return RecoveryOutcome(
             disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
@@ -1295,8 +1421,8 @@ def _map_handler_failure_to_recovery_outcome(
         )
     if isinstance(exc, RepositoryWriteTransportError):
         return RecoveryOutcome(
-            disposition=RecoveryOutcomeDisposition.MANUAL_RECOVERY,
-            diagnostic_code=DIAGNOSTIC_MANUAL_RECOVERY_REQUIRED,
+            disposition=RecoveryOutcomeDisposition.RECONCILE_PENDING,
+            diagnostic_code=DIAGNOSTIC_RECONCILE_TIMEOUT,
             reason=str(exc),
         )
     if isinstance(exc, RepositoryUploadMetadataMismatch):
@@ -2069,13 +2195,13 @@ def _submit_state_from_job_state(
     if upload_key != expected_payload.repository_upload_idempotency_key:
         raise CheckpointDecodeError(
             "submit checkpoint upload_idempotency_key does not match payload",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+            code=_EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
         )
     import_key = job_state.get(_JOB_STATE_IMPORT_KEY)
     if import_key != expected_payload.repository_import_idempotency_key:
         raise CheckpointDecodeError(
             "submit checkpoint import_idempotency_key does not match payload",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+            code=_EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
         )
     request_artifact_id = _require_non_empty_str_value(
         job_state.get(_JOB_STATE_REQUEST_ARTIFACT_ID),
@@ -2087,7 +2213,7 @@ def _submit_state_from_job_state(
     if request_artifact_ref.artifact_id != request_artifact_id:
         raise CheckpointDecodeError(
             "submit checkpoint request_artifact_id does not match request_artifact_ref",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+            code=_EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
         )
     request_bytes = store.locate(request_artifact_ref)
     expected_request_bytes = repository_write.canonical_import_request_bytes(
@@ -2098,7 +2224,7 @@ def _submit_state_from_job_state(
     if request_bytes != expected_request_bytes:
         raise CheckpointDecodeError(
             "submit checkpoint request bytes do not match payload semantics",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+            code=_EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
         )
     if job_state.get(JOB_STATE_REQUEST_SENT) is True:
         expected_operation_identity = _require_non_empty_str_value(
@@ -2117,14 +2243,14 @@ def _submit_state_from_job_state(
         if job_state.get(JOB_STATE_REQUEST_SENT) is True:
             raise CheckpointDecodeError(
                 identity_result.reason or "submit checkpoint identity mismatch",
-                code="CHECKPOINT_JOB_STATE_MISMATCH",
+                code=_EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
             )
     request_fingerprint = compute_request_fingerprint(request_bytes)
     stored_fingerprint = job_state.get(JOB_STATE_REQUEST_FINGERPRINT)
     if type(stored_fingerprint) is not str or stored_fingerprint != request_fingerprint:
         raise CheckpointDecodeError(
             "submit checkpoint request_fingerprint does not match payload semantics",
-            code="CHECKPOINT_JOB_STATE_MISMATCH",
+            code=_EXTERNAL_EFFECT_IDENTITY_MISMATCH_CHECKPOINT_CODE,
         )
     repository_operation_id = None
     if request_sent:
@@ -2380,6 +2506,7 @@ def _terminal_step(step: StepRecord, transaction_now: datetime, *, status: StepS
     return dataclasses.replace(
         step,
         status=status,
+        diagnostic=None,
         worker_id=None,
         lease_token=None,
         lease_expires_at=None,
@@ -2481,6 +2608,7 @@ def _make_finalize_success_builder(
         terminal_step = dataclasses.replace(
             step,
             status=StepStatus.SUCCEEDED,
+            diagnostic=None,
             worker_id=None,
             lease_token=None,
             lease_expires_at=None,
@@ -2920,6 +3048,7 @@ __all__ = [
     "AWAIT_IMPORT_RESULT_CHECKPOINT_SCHEMA",
     "OperatorRecoveryApplicationPort",
     "SUBMIT_IMPORT_POLL_DEADLINE_SECONDS",
+    "SUBMIT_IMPORT_WAIT_UPPER_BOUND_SECONDS",
     "SUBMIT_IMPORT_CHECKPOINT_SCHEMA",
     "SubmitJobPayload",
     "SubmitRepositoryPolicy",

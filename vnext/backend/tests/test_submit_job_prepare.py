@@ -286,6 +286,7 @@ def _submit_runtime_dependencies(
         terminal_evidence_decode=WireRepositoryTerminalEvidenceDecodePort(),
         control_transaction_factory=_bound_control_transaction_factory(db_path, control_now, store),
         submission_id_factory=lambda: "sub-test-1",
+        now_factory=control_now,
     )
 
 

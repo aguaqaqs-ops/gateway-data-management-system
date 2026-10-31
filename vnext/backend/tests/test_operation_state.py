@@ -78,6 +78,7 @@ EXPECTED_STEP_ALLOWED_TRANSITIONS = {
     StepStatus.MANUAL_RECOVERY_REQUIRED: frozenset(
         {
             StepStatus.RUNNING,
+            StepStatus.RETRY_WAIT,
             StepStatus.SUCCEEDED,
             StepStatus.FAILED,
         }
@@ -450,6 +451,7 @@ MANUAL_OPERATION_RECOVERY_DENIED_CASES: tuple[
 
 MANUAL_STEP_RECOVERY_DENIED_CASES: tuple[tuple[str, StepStatus, str], ...] = (
     ("manual-to-running", StepStatus.RUNNING, "recovery authorization is required"),
+    ("manual-to-retry-wait", StepStatus.RETRY_WAIT, "recovery authorization is required"),
     ("manual-to-succeeded", StepStatus.SUCCEEDED, "recovery authorization is required"),
     ("manual-to-failed", StepStatus.FAILED, "recovery authorization is required"),
 )

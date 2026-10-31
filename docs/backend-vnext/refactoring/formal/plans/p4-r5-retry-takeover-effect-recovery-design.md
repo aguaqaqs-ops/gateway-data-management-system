@@ -99,7 +99,8 @@ checkpoint bytes. An external-effect handler must inspect its checkpoint and:
 
 - reuse the original idempotency key before request acceptance;
 - poll only the original operation identity after request acceptance;
-- reject identity or request-fingerprint mismatch as manual recovery;
+- treat a confirmed identity or request-fingerprint mismatch as immediate manual recovery; do not
+  count it as a retryable reconcile failure or treat it as a healthy wait;
 - never generate a new key during takeover or reconcile.
 
 ## 5. State and transition policy
@@ -111,8 +112,11 @@ safe retry:
 external unknown:
   RUNNING -> RETRY_WAIT (reconcile session) -> SUCCEEDED | FAILED | MANUAL_RECOVERY_REQUIRED
 
-checkpoint or identity fault:
+unreadable checkpoint/artifact:
   RUNNING/RETRY_WAIT -> MANUAL_RECOVERY_REQUIRED
+
+confirmed Repository identity/fingerprint disagreement:
+  RUNNING -> MANUAL_RECOVERY_REQUIRED (identity-mismatch diagnostic)
 ```
 
 Operation remains `RUNNING` while its active Step is `RETRY_WAIT`; R1 has no operation-level
@@ -130,6 +134,7 @@ re-executed. Successor publication remains R4's static single-successor/terminal
 | deterministic pure compute failure with a valid checkpoint | retry until three sessions, then `FAILED` |
 | external request not accepted | retry with the same idempotency key |
 | request accepted or outcome unknown | reconcile only; never blind replay |
+| Local checkpoint/payload identity or fingerprint mismatch, or Repository operation identity mismatch | immediate `MANUAL_RECOVERY_REQUIRED` with an identity-mismatch diagnostic |
 | 3 个恢复会话用尽 | `MANUAL_RECOVERY_REQUIRED`, occupancy retained |
 | checkpoint/artifact unreadable | immediate manual recovery; do not recreate bytes |
 | explicit application permanent failure | `FAILED` |
@@ -137,13 +142,26 @@ re-executed. Successor publication remains R4's static single-successor/terminal
 | cancel before irreversible effect | `CANCELLED` |
 | cancel after request/effect boundary | continue reconcile; no synthetic `CANCELLED` |
 
-Defaults are three recovery sessions per Step, backoff `1s -> 2s -> 4s` capped at `10s`, bounded
-jitter with injectable clock/wait/jitter sources, and a 60-second maximum poll duration within
-one active reconcile session. Polls inside one session do not increment `attempt_count`; a
-crashed session does. A timeout retries while fewer than three recovery sessions have run; the
-third exhausted session moves to `MANUAL_RECOVERY_REQUIRED`. Submit's `await_import_result` uses
-the bounded Repository poll parameter documented in the 5B design and does not persist
-`reconcile_started_at`, because the timestamp does not participate in the session-count budget.
+Defaults are three counted recovery sessions per Step, backoff `1s -> 2s -> 4s` capped at `10s`,
+bounded jitter with injectable clock/wait/jitter sources, and a 60-second maximum poll duration
+within one active reconcile session. A lease loss/crash, transport error, or unknown result before
+the total wait upper bound consumes a session. Confirmed identity or request-fingerprint mismatch
+enters manual recovery immediately and does not consume a retry session. A Submit
+`await_import_result` poll that successfully reads the matching Repository operation and sees
+`QUEUED` or `RUNNING` records that health observation in the existing Step diagnostic and reuses
+the existing checkpoint when handing off its lease; it does not consume a session, and reclaim
+preserves `attempt_count`. Its continued healthy wait is bounded by `started_at` plus Repository
+Service `import_timeout_seconds + server_start_timeout_seconds` (currently 3630 seconds). Each
+claim performs one observation before applying that bound, with a poll deadline of
+`min(60s, max(remaining budget, 5s))`; the bound never skips an observation. A matching terminal
+`SUCCEEDED` or `FAILED` result is processed even when the poll reaches or passes the bound. A
+matching `QUEUED`/`RUNNING` result, or a transport error/timeout/unknown result, at or after the bound enters
+`MANUAL_RECOVERY_REQUIRED` with `r5.wait_upper_bound_exceeded`. A mismatched operation identity
+instead enters manual recovery with the identity-mismatch diagnostic. The final observation can
+extend a poll up to five seconds beyond the nominal bound. This count-free requeue is selected only
+by Submit after the matching healthy observation; other safe-handoff callers retain their existing
+behavior. Before the total bound, polls without a successful health observation retain the normal
+three-session rule. Submit does not persist `reconcile_started_at`.
 
 ## 7. Identity, diagnostics and operator recovery
 
@@ -161,8 +179,13 @@ r5.lease_expired
 r5.retry_scheduled
 r5.reconcile_started
 r5.reconcile_timeout
+r5.effect_identity_mismatch
 r5.manual_recovery_required
 r5.recovery_authorized
+r5.operator_recovery_session
+r5.healthy_wait_handoff
+r5.healthy_wait_handoff_operator
+r5.wait_upper_bound_exceeded
 ```
 
 No shared error registry or new stable R3 event enum is introduced. The internal recovery port
@@ -170,16 +193,32 @@ accepts only `RESUME_RECONCILE`, `RETRY_FROM_CHECKPOINT` and `ABORT_CONFIRMED_FA
 operation/step identity, expected optimistic version and operator reason. P5 owns HTTP and
 authorization wiring; R5 adds no principal.
 
+`RESUME_RECONCILE` and `RETRY_FROM_CHECKPOINT` move a manual Step to the existing claimable
+`RETRY_WAIT` state, move its Operation to `RUNNING`, clear lease ownership, and set immediate
+eligibility. The next worker claim consumes exactly one session. The existing diagnostic field
+carries authorization from `r5.recovery_authorized` to `r5.operator_recovery_session` through that
+claim and any confirmed healthy-wait handoff; this is the sole diagnostic allowed on a `RUNNING`
+Step. A counted failure in that authorized session returns the pair to
+`MANUAL_RECOVERY_REQUIRED`. A restart before claim leaves the due `RETRY_WAIT` claimable and does
+not spend a session. If the claimed session's lease expires, startup marks it manual and remains
+ready.
+
 ## 8. Lifecycle, startup and deployment
 
 Startup performs a bounded classification pass before readiness. It may move expired safe-retry
 records to `RETRY_WAIT`, schedule external reconcile, or mark irrecoverable records manual. It
 does not perform unbounded Repository polling before `READY`; manual records do not block readiness.
+After an operator resume/retry accepted but before the next claim, the Step is already due
+`RETRY_WAIT`, so startup leaves it claimable and does not apply the exhausted-session rule. If that
+authorized session was claimed, its `r5.operator_recovery_session` diagnostic identifies the live
+session; if its lease later expires, startup marks it manual but remains `READY`.
 
 Drain stops new claims, lets the current executor heartbeat/checkpoint or safely hand off, and
-does not convert drain into cancellation. The deployment remains single-host, single-worker,
-SQLite/WAL. R5's final worker/runtime candidate requires a current-HEAD backend image rebuild and
-container smoke; a stub result is never production Repository validation.
+does not convert drain into cancellation. A bounded Submit Repository poll returns its last
+successful `QUEUED`/`RUNNING` observation at the 60-second poll deadline, allowing drain or
+SIGTERM to finish through that poll's safe handoff. The deployment remains single-host,
+single-worker, SQLite/WAL. R5's final worker/runtime candidate requires a current-HEAD backend
+image rebuild and container smoke; a stub result is never production Repository validation.
 
 ## 9. Reopen conditions and exclusions
 

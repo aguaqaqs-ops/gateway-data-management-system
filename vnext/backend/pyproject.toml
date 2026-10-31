@@ -72,7 +72,7 @@ files = ["src", "tests"]
 [[tool.mypy.overrides]]
 module = [
     "gateway_compute",
-    "gateway_compute.exceptions",
+    "gateway_compute._native",
     "pyarrow",
     "pyarrow.ipc",
     "gateway_repository_client",

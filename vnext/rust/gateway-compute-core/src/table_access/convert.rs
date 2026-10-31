@@ -14,7 +14,7 @@ use gateway_shared_kernel::{
 use super::columns::ColumnBuilder;
 use super::cursor::python_strip;
 use super::errors::{Fault, ParserDiagnosticCode as Code};
-use super::json_check::python_json_loads_accepts;
+use super::json_check::valid_json_value;
 use super::literal::Lit;
 use super::model::{ColumnPlan, ValueKind};
 
@@ -63,7 +63,7 @@ pub(crate) fn convert_value(
         }
         ValueKind::Json => {
             let text = require_text(lit, offset)?;
-            if !python_json_loads_accepts(&text) {
+            if !valid_json_value(&text) {
                 return Err(illegal(offset, "JSON value is not well-formed"));
             }
             check_unicode(&text, offset)?;

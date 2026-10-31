@@ -94,7 +94,7 @@ DC48 Rust 测试入门禁（已实施）；DC49 慢速上传；DC50 阶段结构
 7. **上传**：固定 60 s 总时限（`application/workspace/upload_limits.py`，超时转为 `UploadLimitExceeded`，返回 413）；async 路由直接调用同步的受理 helper，在事件循环上解压校验（`http/orchestration/multipart_upload.py`）（DC49）。
 8. **参照解析器的输入边界缺陷**：BIT 负数、超宽 BIT、非 ASCII 的 `b'..'`、深层嵌套 JSON 抛出未捕获的异常越过 `parse_sql`（`capabilities/table_access/_sql_values.py`）；FLOAT 两次舍入的实现位于 Shared Kernel 的 `scalar.py`。零日期由 Shared Kernel 的日期规范化拒绝，RS 的 Arrow 映射固定 DATE=`date32`、DATETIME=`timestamp[us]`，也不能表示零日期。
 9. **RS 逐表读取许可池**：容量为可配置项，默认 8（`repository_service/settings.py`），超出以 503 立即拒绝（`versioned_read/http_service.py`）；读取期间累积 defunct `dolt` 进程（V7 观察，未复现，根因未明）。
-10. **Rust**：V6（`gateway-compute-core/src/table_access/`）与 V1（`src/comparison/ordered.rs`）原型已合入，未接入生产；旧扩展 `gateway-compute-python` 与 `canonical_row_hash` 生产中不可达（DC52）。权威 runner 已含 `rust` 包，排除两个旧 adapter crate 的 `cargo test`，强制重装扩展并核对构建输入（DC48）。
+10. **Rust**：V6（`gateway-compute-core/src/table_access/`）与 V1（`src/comparison/ordered.rs`）原型已合入。S2a 候选沿用 `gateway-compute-python` distribution/crate 名称承载全新的 Table Access parser adapter，并删除旧 row-hash pipeline、capability 与 `gateway-compute-python-impl`；parser 只由测试支持层显式调用，生产 `parse_sql()` 与 worker 路由仍用 Python。`rust` 包现对完整 workspace 执行 `cargo test`；backend runner 强制重装新 adapter 并核对其 Rust tree build input。
 
 ### 2.3 原型实测（E）
 
@@ -276,9 +276,9 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 ## 7. S2a：SQL 解析器
 
 - **范围：** 在 V6 原型（`gateway-compute-core/src/table_access/`）基础上补齐：完整诊断（消息文本、同一张表多处错误、行预算按元组计数的偏移）、第 ③ 层负例与预算语料、第 ② 层 Hypothesis 差分、现有解析器测试改为双实现参数化（讨论稿 §6.3）；`Utf8`/`Binary` 超过 2 GiB 时改用 large 变体或分批输出；按 §5.5 的定稿调整（例如深层 JSON 有界拒绝）。
-- **PyO3 adapter（新）：** 长调用 `py.detach`；取消标志与截止时间接到 `ParserRuntime`；输出经 Arrow C Stream 交给 Python；panic 在 core 入口与 adapter 两层转为诊断；native abort 或被内存不足终止不伪装成诊断，由 Operation Runtime 的既有租约接管处理（Rust policy §3）。线程池改为 worker 级共享（DC47 第 5 项）。
-- **接入：** feature flag 之后，只用于差分，不切生产。
-- **旧扩展删除（DC52）：** 删除 `capabilities/canonical_row_hash`、core 中的旧 pipeline、旧 adapter 入口、`canonical-row-hash` golden、Canonical Row Hash Compute Boundary Contract、`native_kernel_component.sh` 及引用它们的测试与架构基线条目；`rust` 包去掉对两个旧 crate 的 `cargo test` 排除；backend Dockerfile 的 maturin 构建改为新 adapter；新扩展的 `__build_input__` 与 `check-rust-extension-build-input.sh`、依赖与架构检查、`import_rules` 基线同步核对。
+- **PyO3 adapter（新）：** 长调用 `py.detach`；取消标志与截止时间传入 Rust core 并在解析检查点读取；输出经 Arrow C Stream 交给 Python；core panic 转为 parser 诊断，adapter FFI panic 转为稳定 error envelope；native abort 或被内存不足终止不伪装成诊断，由 Operation Runtime 的既有租约接管处理（Rust policy §3）。按 DC72，S2a adapter 实现进程内一次创建、固定 N 并复用的有界线程池；测试默认 N=1，Rust parser 一致性测试比较 N=1 与 N。worker 启动接线以及部署配置 N、M 留给 S2b。
+- **接入：** 只在测试支持层以 `implementation="python" | "rust"` 做显式差分；backend 公共 `parse_sql()` 与 worker 生产路由固定 Python。不加生产 feature flag、部署环境变量或 shadow 执行。
+- **旧扩展删除（DC52、DC72）：** 删除 `capabilities/canonical_row_hash`、core 中的旧 pipeline、旧 adapter 入口、`canonical-row-hash` golden、Canonical Row Hash Compute Boundary Contract、`native_kernel_component.sh` 及引用它们的测试与架构基线条目；删除 `gateway-compute-python-impl`，复用 `gateway-compute-python` distribution/crate 名称但仅提供新的 parser adapter API；`rust` 包去掉对旧 adapter crate 的 `cargo test` 排除；backend Dockerfile 的 maturin 构建改为新 adapter；新扩展的 `__build_input__` 与 `check-rust-extension-build-input.sh`、依赖与架构检查、`import_rules` 基线同步核对。
 - **验收：** 五层语料全部通过，t1–t4 逐值差异 0，并行确定。
 
 ## 8. S2b：上传侧数据路径与规范表存储
@@ -411,7 +411,10 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 保护转移（BaselineHead 正式引用随 finalize 同事务移动） | finalize 事务测试 | — |
 | RS 503 退避有界、继承取消与截止时间 | repository read 客户端测试 | — |
 | native crash 由 runtime 接管 | 既有 worker 恢复测试 | — |
-| Rust 与 Python 逐值 / 逐字节一致；1 与 N 线程相同 | 各 kernel 的差分与确定性测试 | 真实数据取证 |
+| Table Access parser 的诊断码、table、offset 与类型化值和 Python 参照一致 | backend 现有 parser、reject、limits、reader 与 conformance 测试的双实现参数化 | 第④层真实数据逐值差分 |
+| parser 输出不随线程数与 INSERT chunk size 改变 | `gateway-compute-core` 的 `table_access` 确定性测试 | adapter pytest 做解析 smoke |
+| adapter detach、Arrow C Stream、取消/截止时间与 FFI panic 边界 | backend `test_table_access_rust_adapter.py` | Rust core panic 边界由 core 单元测试覆盖 |
+| adapter 进程池一次创建、固定 N 并跨调用复用 | backend `test_table_access_rust_adapter.py` 的 pool reuse 测试 | Rust 测试覆盖不同池大小下的解析确定性 |
 | 去重开关不改结果；缓存只缓存纯函数结果 | comparison 去重与缓存测试 | — |
 
 ## 16. 性能测量与验收

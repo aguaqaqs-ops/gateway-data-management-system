@@ -177,7 +177,7 @@ Normative outputs 由 [Business Lifecycle](../contracts/business-lifecycle-and-s
 > formal gate matrix、exact-commit identity和full semantic artifact reopen均不再是
 > 现行要求。现行D01设计由[ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)、
 > [Correctness Golden Contract](../contracts/fixture-oracle-and-conformance.md)、
-> [Canonical Row Hash Boundary](../contracts/canonical-row-hash-compute-boundary.md)和
+> 已删除的 Canonical Row Hash Boundary Contract（Phase 6 S2a）和
 > [Rust Policy](../policies/rust-safety-and-performance-policy.md)拥有。代码清理须等DX
 > 完成；不得以本历史节恢复已删除设计。
 
@@ -195,7 +195,6 @@ Normative owner文档：
 
 - [Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) 与 [Canonical Encoding Normative Vector Schema](../contracts/canonical-encoding-normative-vector-schema.md)。
 - [Fixture Oracle and Conformance](../contracts/fixture-oracle-and-conformance.md)。
-- [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)。
 - [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)。
 
 WP0–WP2的package/crate拓扑、依赖接入时点、candidate-to-normative发布流程和可执行gate

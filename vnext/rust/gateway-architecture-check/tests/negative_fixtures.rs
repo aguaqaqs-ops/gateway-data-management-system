@@ -70,36 +70,6 @@ fn rejects_first_party_unsafe_in_member() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_compute_python_impl_to_pylist_pattern() -> Result<(), String> {
-    let root = tempfile::tempdir().map_err(|error| error.to_string())?;
-    let impl_src = root
-        .path()
-        .join("rust/gateway-compute-python-impl/src/lib.rs");
-    if let Some(parent) = impl_src.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    fs::write(&impl_src, "fn demo() { let _ = values.to_pylist(); }\n")
-        .map_err(|error| error.to_string())?;
-
-    let config = CheckConfig {
-        rust_workspace_root: root.path().join("rust"),
-        vnext_root: root.path().to_path_buf(),
-    };
-
-    match run_checks(&config) {
-        Err(violations)
-            if violations
-                .iter()
-                .any(|violation| violation.contains("to_pylist")) =>
-        {
-            Ok(())
-        }
-        Ok(()) => Err("expected compute-python-impl to_pylist violation".to_string()),
-        Err(violations) => Err(format!("unexpected violations: {violations:?}")),
-    }
-}
-
-#[test]
 fn rejects_forbidden_hook_extension_workspace_member() -> Result<(), String> {
     let root = tempfile::tempdir().map_err(|error| error.to_string())?;
     let rust_root = root.path().join("rust");
@@ -215,7 +185,7 @@ fn rejects_compute_adapter_dep_on_renamed_hook_crate() -> Result<(), String> {
 
     let violations = gateway_architecture_check::check_production_release_inventory(&rust_root);
     if violations.iter().any(|violation| {
-        violation.contains("gateway-compute-python-impl")
+        violation.contains("gateway-compute-python")
             && violation.contains("gateway-compute-fault-inject")
     }) {
         Ok(())
@@ -249,7 +219,7 @@ fn rejects_extra_hook_cdylib_target_in_compute_python_manifest() -> Result<(), S
 fn write_hooked_compute_workspace(rust_root: &Path) -> Result<(), String> {
     fs::create_dir_all(rust_root.join("gateway-compute-fault-inject/src"))
         .map_err(|error| error.to_string())?;
-    fs::create_dir_all(rust_root.join("gateway-compute-python-impl/src"))
+    fs::create_dir_all(rust_root.join("gateway-compute-python/src"))
         .map_err(|error| error.to_string())?;
     fs::create_dir_all(rust_root.join("gateway-compute-core/src"))
         .map_err(|error| error.to_string())?;
@@ -259,7 +229,7 @@ fn write_hooked_compute_workspace(rust_root: &Path) -> Result<(), String> {
         r#"[workspace]
 members = [
     "gateway-compute-core",
-    "gateway-compute-python-impl",
+    "gateway-compute-python",
     "gateway-compute-fault-inject",
 ]
 resolver = "3"
@@ -289,7 +259,7 @@ dbg_macro = "deny"
         ("gateway-compute-core", ""),
         ("gateway-compute-fault-inject", ""),
         (
-            "gateway-compute-python-impl",
+            "gateway-compute-python",
             "gateway-compute-core = { path = \"../gateway-compute-core\" }\ngateway-compute-fault-inject = { path = \"../gateway-compute-fault-inject\" }\n",
         ),
     ] {
@@ -322,8 +292,6 @@ workspace = true
 fn write_compute_python_with_extra_hook_cdylib(rust_root: &Path) -> Result<(), String> {
     fs::create_dir_all(rust_root.join("gateway-compute-python/src"))
         .map_err(|error| error.to_string())?;
-    fs::create_dir_all(rust_root.join("gateway-compute-python-impl/src"))
-        .map_err(|error| error.to_string())?;
     fs::create_dir_all(rust_root.join("gateway-compute-core/src"))
         .map_err(|error| error.to_string())?;
 
@@ -332,7 +300,6 @@ fn write_compute_python_with_extra_hook_cdylib(rust_root: &Path) -> Result<(), S
         r#"[workspace]
 members = [
     "gateway-compute-core",
-    "gateway-compute-python-impl",
     "gateway-compute-python",
 ]
 resolver = "3"
@@ -371,20 +338,6 @@ workspace = true
 "#,
         ),
         (
-            "gateway-compute-python-impl",
-            r#"[package]
-name = "gateway-compute-python-impl"
-version = "0.1.0"
-edition = "2024"
-
-[lints]
-workspace = true
-
-[dependencies]
-gateway-compute-core = { path = "../gateway-compute-core" }
-"#,
-        ),
-        (
             "gateway-compute-python",
             r#"[package]
 name = "gateway-compute-python"
@@ -395,7 +348,7 @@ edition = "2024"
 workspace = true
 
 [lib]
-name = "gateway_compute"
+name = "gateway_compute_native"
 crate-type = ["cdylib", "rlib"]
 
 [[test]]
@@ -404,7 +357,7 @@ path = "tests/hooks.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-gateway-compute-python-impl = { path = "../gateway-compute-python-impl" }
+gateway-compute-core = { path = "../gateway-compute-core" }
 "#,
         ),
     ] {
@@ -631,13 +584,13 @@ fn diagnostic_parser_ignores_non_json_lines() -> Result<(), String> {
 fn rejects_renamed_compute_hook_feature() -> Result<(), String> {
     let root = tempfile::tempdir().map_err(|error| error.to_string())?;
     let rust_root = root.path().join("rust");
-    let manifest = rust_root.join("gateway-compute-python-impl/Cargo.toml");
+    let manifest = rust_root.join("gateway-compute-python/Cargo.toml");
     fs::create_dir_all(manifest.parent().ok_or("missing parent")?)
         .map_err(|error| error.to_string())?;
     fs::write(
         &manifest,
         r#"[package]
-name = "gateway-compute-python-impl"
+name = "gateway-compute-python"
 version = "0.1.0"
 edition = "2021"
 

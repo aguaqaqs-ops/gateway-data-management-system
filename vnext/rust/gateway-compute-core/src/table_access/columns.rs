@@ -1,16 +1,16 @@
 //! Column builders for parsed values and their Arrow conversion.
 //!
-//! Prototype Arrow mapping (not the final DC46 item 6 mapping): signed and
-//! unsigned integers as Int64 / UInt64, BOOLEAN as Boolean, FLOAT / DOUBLE as
-//! Float32 / Float64 (negative zero already normalized), BINARY and BIT as
-//! Binary, and every other type as Utf8 holding the canonical scalar text
-//! (DECIMAL, temporal types, ENUM, JSON, and SET members joined with `,`).
+//! Table Access Arrow mapping: signed and unsigned integers as Int64 / UInt64,
+//! BOOLEAN as Boolean, FLOAT / DOUBLE as Float32 / Float64 (negative zero is
+//! normalized), BINARY and BIT as Binary, and other values as Utf8 holding
+//! canonical scalar text. Utf8/Binary builders switch to large offsets when
+//! required; SET members are joined with `,` in declaration order.
 
 use std::sync::Arc;
 
 use arrow_array::{
-    ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int64Array, StringArray,
-    UInt64Array,
+    ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int64Array, LargeBinaryArray,
+    LargeStringArray, StringArray, UInt64Array,
 };
 use arrow_buffer::{BooleanBuffer, Buffer, NullBuffer, OffsetBuffer, ScalarBuffer};
 
@@ -214,20 +214,46 @@ impl ColumnBuilder {
                 Arc::new(Float64Array::try_new(ScalarBuffer::from(v), nulls).map_err(arrow_error)?)
             }
             Values::Bytes { ends, data } => {
-                let mut offsets: Vec<i32> = Vec::with_capacity(ends.len() + 1);
-                offsets.push(0);
-                for end in ends {
-                    offsets.push(
-                        i32::try_from(end)
-                            .map_err(|_| Fault::resource("arrow utf8/binary column offsets", 0))?,
-                    );
-                }
-                let offsets = OffsetBuffer::new(ScalarBuffer::from(offsets));
-                let values = Buffer::from_vec(data);
-                if self.layout == Layout::Binary {
-                    Arc::new(BinaryArray::try_new(offsets, values, nulls).map_err(arrow_error)?)
+                if !requires_large_offsets(data.len()) {
+                    let mut offsets: Vec<i32> = Vec::with_capacity(ends.len() + 1);
+                    offsets.push(0);
+                    for end in ends {
+                        offsets.push(i32::try_from(end).map_err(|_| {
+                            Fault::new(Code::ParserInternalError, 0, "invalid small Arrow offset")
+                        })?);
+                    }
+                    let offsets = OffsetBuffer::new(ScalarBuffer::from(offsets));
+                    let values = Buffer::from_vec(data);
+                    if self.layout == Layout::Binary {
+                        Arc::new(
+                            BinaryArray::try_new(offsets, values, nulls).map_err(arrow_error)?,
+                        )
+                    } else {
+                        Arc::new(
+                            StringArray::try_new(offsets, values, nulls).map_err(arrow_error)?,
+                        )
+                    }
                 } else {
-                    Arc::new(StringArray::try_new(offsets, values, nulls).map_err(arrow_error)?)
+                    let mut offsets: Vec<i64> = Vec::with_capacity(ends.len() + 1);
+                    offsets.push(0);
+                    for end in ends {
+                        offsets.push(i64::try_from(end).map_err(|_| {
+                            Fault::resource("large_arrow_utf8_binary_column_offsets", 0)
+                        })?);
+                    }
+                    let offsets = OffsetBuffer::new(ScalarBuffer::from(offsets));
+                    let values = Buffer::from_vec(data);
+                    if self.layout == Layout::Binary {
+                        Arc::new(
+                            LargeBinaryArray::try_new(offsets, values, nulls)
+                                .map_err(arrow_error)?,
+                        )
+                    } else {
+                        Arc::new(
+                            LargeStringArray::try_new(offsets, values, nulls)
+                                .map_err(arrow_error)?,
+                        )
+                    }
                 }
             }
         };
@@ -239,10 +265,25 @@ fn layout_mismatch() -> Fault {
     Fault::new(Code::ParserInternalError, 0, "column layout mismatch")
 }
 
+fn requires_large_offsets(data_bytes: usize) -> bool {
+    data_bytes > i32::MAX as usize
+}
+
 fn arrow_error(error: arrow_schema::ArrowError) -> Fault {
     Fault::new(
         Code::ParserInternalError,
         0,
         format!("arrow array construction failed: {error}"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::requires_large_offsets;
+
+    #[test]
+    fn switches_to_large_arrow_offsets_above_i32_capacity() {
+        assert!(!requires_large_offsets(i32::MAX as usize));
+        assert!(requires_large_offsets(i32::MAX as usize + 1));
+    }
 }

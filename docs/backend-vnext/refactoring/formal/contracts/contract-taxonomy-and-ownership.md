@@ -421,8 +421,6 @@ Owner：对应 infrastructure adapter。
 | Cache registry/envelope | Cache module | Capability provider、Operations |
 | Cache payload schema | Payload-producing capability | Cache module、consumer capability |
 | Canonical/business golden expected content | 对应 Domain/Application/Capability owner | Python/Rust ordinary tests |
-| `CanonicalTableRequest/Result`、Arrow mapping、minimal failure | Canonical Row Hash capability | Python facade、Rust provider |
-| `CanonicalRowHashesArtifact` content schema/semantic digest | Canonical Row Hash capability | ArtifactStore、later data capabilities |
 | Benchmark question/workload/result | 产生性能声明的Capability/Application owner | Runbook、architecture review |
 
 新增对象时必须先加入 ownership matrix 或在对应正式 contract 中声明 owner，不能通过放入 `shared` 目录回避归属决策。
@@ -564,7 +562,6 @@ compatibility_window
 | Version axis | Owner | 主要影响 |
 | --- | --- | --- |
 | `canonical_encoding_version` | Shared Kernel | JCS/scalar/frame/digest bytes |
-| Canonical-row-hash boundary/Arrow mapping versions | Canonical Row Hash capability | PyO3 boundary and artifact content |
 | Golden-bound semantic contract version | 对应 semantic owner | Expected business meaning |
 | `storage_projection_version` + ruleset digest | Storage Projection/Table Rules | Canonical Dolt schema/content |
 | Repository HTTP API version | Repository Service | Import/operation/catalog/stream wire |

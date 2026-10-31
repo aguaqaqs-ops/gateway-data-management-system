@@ -8,7 +8,17 @@ from pathlib import Path
 import pytest
 from gateway_backend.capabilities.table_access.contracts import ParseStatus, ParserDiagnosticCode
 from gateway_shared_kernel import canonicalize_identifier
-from tests.support.table_access_sql import parse_text
+from tests.support.table_access_sql import (
+    current_sql_implementation,
+    dual_sql_implementation,
+    parse_text,
+)
+
+
+@pytest.fixture(autouse=True)
+def _run_both_sql_implementations(dual_sql_implementation: None) -> None:
+    pass
+
 
 SQL_STATEMENT_REJECTS = (
     ("REPLACE INTO `t` VALUES (1);", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "REPLACE"),
@@ -84,7 +94,8 @@ def test_unsupported_statements_fail_document(sql: str, code: ParserDiagnosticCo
     assert result.status is ParseStatus.FAILED
     assert result.tables == ()
     assert result.diagnostics[0].code is code
-    assert needle in result.diagnostics[0].message
+    if current_sql_implementation() == "python":
+        assert needle in result.diagnostics[0].message
 
 
 @pytest.mark.parametrize("sql_type", SQL_TYPE_MALFORMED_SHAPES)
@@ -109,7 +120,13 @@ def test_illegal_values_invalidate_table(sql: str, code: ParserDiagnosticCode, n
     result = parse_text(sql)
     assert result.status is ParseStatus.FAILED
     assert result.tables[0].reader is None
-    assert any(item.code is code and needle.lower() in item.message.lower() for item in result.diagnostics)
+    if current_sql_implementation() == "python":
+        assert any(
+            item.code is code and needle.lower() in item.message.lower()
+            for item in result.diagnostics
+        )
+    else:
+        assert any(item.code is code for item in result.diagnostics)
 
 
 def test_duplicate_table_and_if_not_exists_still_errors() -> None:

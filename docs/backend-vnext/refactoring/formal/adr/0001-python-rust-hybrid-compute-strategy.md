@@ -246,6 +246,5 @@ Rust进入标准保持“稳定、批量、可验证的数据面能力”，而�
 - [Architecture and Refactoring Plan](../architecture/architecture-and-refactoring-plan.md)
 - [Implementation Stages](../plans/implementation-stages.md)
 - [Contract Taxonomy and Ownership](../contracts/contract-taxonomy-and-ownership.md)
-- [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)
 - [Canonical Encoding Vector Schema — Historical](../contracts/canonical-encoding-normative-vector-schema.md)
 - [Rust Safety and Performance Policy](../policies/rust-safety-and-performance-policy.md)

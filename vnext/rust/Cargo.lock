@@ -481,20 +481,9 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "gateway-compute-core",
- "gateway-compute-python-impl",
  "pyo3",
  "pyo3-arrow",
-]
-
-[[package]]
-name = "gateway-compute-python-impl"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "gateway-compute-core",
- "pyo3",
- "pyo3-arrow",
+ "rayon",
 ]
 
 [[package]]

@@ -69,6 +69,18 @@ fn first_code(output: &SqlParseOutput) -> Option<ParserDiagnosticCode> {
     output.diagnostics.first().map(|d| d.code)
 }
 
+#[test]
+#[allow(clippy::panic)]
+fn parser_panic_boundary_returns_a_stable_internal_fault() -> Result<(), String> {
+    let Err(fault) = super::catch_parser_panic::<()>(|| panic!("injected parser panic")) else {
+        return Err("panic should be caught at the core boundary".to_string());
+    };
+    assert_eq!(fault.code, ParserDiagnosticCode::ParserInternalError);
+    assert_eq!(fault.offset, 0);
+    assert_eq!(fault.message.as_ref(), "parser panicked");
+    Ok(())
+}
+
 const BOILERPLATE: &str = "/*!40101 SET NAMES utf8mb4 */;\n\
 SET FOREIGN_KEY_CHECKS=0;\n\
 DROP TABLE IF EXISTS `t`;\n\
@@ -331,6 +343,89 @@ fn field_budget_counts_only_while_the_table_is_still_valid() {
     let output = parse_sql_dump(gated.as_bytes(), &options, &pool);
     assert_eq!(output.status, ParseStatus::Failed);
     assert_eq!(output.tables.len(), 1);
+}
+
+#[test]
+fn row_budget_fault_uses_the_exact_over_limit_tuple_across_chunks() {
+    let sql = "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES (1), (2), (3);";
+    let expected_offset = sql.find("(2)").unwrap_or(0);
+    let options = SqlParseOptions {
+        budgets: ParserBudgets {
+            max_rows_per_table: 1,
+            ..ParserBudgets::default()
+        },
+        ..SqlParseOptions::default()
+    };
+    for threads in [1, 4] {
+        for chunk_bytes in [1, 8, 1024, usize::MAX] {
+            let output = parse_sql_dump(
+                sql.as_bytes(),
+                &SqlParseOptions {
+                    chunk_bytes,
+                    ..options.clone()
+                },
+                &pool(threads),
+            );
+            let fault = output.document_failure();
+            assert_eq!(fault.map(|item| item.code), Some(ParserDiagnosticCode::ResourceLimitExceeded));
+            assert_eq!(fault.map(|item| item.byte_offset), Some(expected_offset));
+        }
+    }
+}
+
+#[test]
+fn structural_diagnostics_continue_after_a_table_conversion_failure() {
+    let sql = "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES ('bad'), (1, 2), (3), (4, 5);";
+    let expected = [
+        (ParserDiagnosticCode::SqlValueIllegal, sql.find("('bad')").unwrap_or(0)),
+        (ParserDiagnosticCode::RowShapeMismatch, sql.find("(1, 2)").unwrap_or(0)),
+        (ParserDiagnosticCode::RowShapeMismatch, sql.find("(4, 5)").unwrap_or(0)),
+    ];
+    for chunk_bytes in [1, 16, usize::MAX] {
+        let output = parse_with(sql, 3, chunk_bytes);
+        let actual: Vec<_> = output
+            .diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.code, diagnostic.byte_offset))
+            .collect();
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn diagnostic_budget_keeps_a_truncation_marker() {
+    let sql = "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES (1,2),(3,4),(5,6),(7,8);";
+    let output = parse_sql_dump(
+        sql.as_bytes(),
+        &SqlParseOptions {
+            budgets: ParserBudgets {
+                max_diagnostics: 2,
+                ..ParserBudgets::default()
+            },
+            chunk_bytes: 1,
+            ..SqlParseOptions::default()
+        },
+        &pool(2),
+    );
+    assert_eq!(output.diagnostics.len(), 2);
+    assert_eq!(output.diagnostics[0].code, ParserDiagnosticCode::RowShapeMismatch);
+    assert_eq!(
+        output.diagnostics[1].code,
+        ParserDiagnosticCode::ParserDiagnosticsTruncated
+    );
+    assert!(output.diagnostics[1].message.len() <= 4 * 1024);
+}
+
+#[test]
+fn json_overflow_to_non_finite_is_a_table_value_error() {
+    let sql = "CREATE TABLE t (doc JSON NOT NULL); INSERT INTO t VALUES ('{\"nested\":[1e400]}');";
+    let output = parse(sql);
+    assert_eq!(output.status, ParseStatus::Failed);
+    assert_eq!(output.tables.len(), 1);
+    assert!(!output.tables[0].descriptor.reader_ready);
+    assert_eq!(output.diagnostics.len(), 1);
+    assert_eq!(output.diagnostics[0].code, ParserDiagnosticCode::SqlValueIllegal);
+    assert_eq!(output.diagnostics[0].table.as_deref(), Some("t"));
 }
 
 fn big_dump(rows: usize) -> String {

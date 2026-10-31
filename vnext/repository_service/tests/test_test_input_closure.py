@@ -847,7 +847,7 @@ def test_hypothesis_gzip_cache_hashes_decoded_payload_not_temporary_filename(
                 "vnext/shared_kernel",
                 "vnext/repository_client",
                 "vnext/repository_contracts",
-                "vnext/rust/gateway-compute-python-impl",
+                "vnext/rust/gateway-compute-python",
                 "vnext/rust/gateway-compute-core",
                 "vnext/rust/gateway-shared-kernel",
             },

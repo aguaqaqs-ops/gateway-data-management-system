@@ -41,13 +41,21 @@ pub(crate) enum DocErrorKind {
     Conversion,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TableErrorKind {
+    /// Lexical and row-shape errors are reported for every tuple, even after
+    /// an earlier tuple has already invalidated the table.
+    Structural,
+    /// Value conversion stops after the first table error in source order.
+    Conversion,
+}
+
 #[derive(Debug)]
 pub(crate) struct ChunkOutcome {
     pub table: usize,
     pub columns: Vec<ColumnBuilder>,
-    pub rows: usize,
-    pub first_row_offset: Option<usize>,
-    pub table_error: Option<Fault>,
+    pub row_offsets: Vec<usize>,
+    pub table_errors: Vec<(Fault, TableErrorKind)>,
     pub doc_error: Option<(Fault, DocErrorKind)>,
 }
 
@@ -93,9 +101,8 @@ pub(crate) fn parse_chunk(context: &ChunkContext<'_>, spec: ChunkSpec) -> ChunkO
             .iter()
             .map(|plan| ColumnBuilder::new(plan.kind.layout()))
             .collect(),
-        rows: 0,
-        first_row_offset: None,
-        table_error: None,
+        row_offsets: Vec::new(),
+        table_errors: Vec::new(),
         doc_error: None,
     };
     if let Some(fault) = context.interrupted(spec.start) {
@@ -145,7 +152,7 @@ fn parse_tuples(
                 let mut skip = Cursor::new(context.data, tuple_start, spec.end);
                 let (_, end) = skip.take_balanced_paren().map_err(syntax)?;
                 cursor.pos = end;
-                record_table_error(outcome, fault);
+                record_table_error(outcome, fault, TableErrorKind::Structural);
                 convert = false;
                 (end, false)
             }
@@ -165,16 +172,16 @@ fn parse_tuples(
                         tuple_start,
                         "INSERT tuple width does not match columns",
                     ),
+                    TableErrorKind::Structural,
                 );
                 convert = false;
             } else if convert {
                 match convert_row(context, plans, ordinals, &values, outcome, tuple_start) {
                     Ok(()) => {
-                        outcome.rows += 1;
-                        outcome.first_row_offset.get_or_insert(tuple_start);
+                        outcome.row_offsets.push(tuple_start);
                     }
                     Err(ConvError::Table(fault)) => {
-                        record_table_error(outcome, fault);
+                        record_table_error(outcome, fault, TableErrorKind::Conversion);
                         convert = false;
                     }
                     Err(ConvError::Document(fault)) => {
@@ -199,10 +206,8 @@ fn parse_tuples(
     expect_end(&mut cursor).map_err(syntax)
 }
 
-fn record_table_error(outcome: &mut ChunkOutcome, fault: Fault) {
-    if outcome.table_error.is_none() {
-        outcome.table_error = Some(fault);
-    }
+fn record_table_error(outcome: &mut ChunkOutcome, fault: Fault, kind: TableErrorKind) {
+    outcome.table_errors.push((fault, kind));
 }
 
 /// `(` literal (`,` literal)* `)` with the reference's empty-tuple and

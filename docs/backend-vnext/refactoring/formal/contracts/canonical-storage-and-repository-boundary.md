@@ -135,7 +135,7 @@ SET 非 null 单元格 = sequence_frame 本身，不再外包 scalar tag
 ```
 
 空 SET 是长度为 0 的 `sequence_frame`，不得写成 null。不使用 Shared Kernel `encode_row`，
-不改变 Canonical Row Hash Arrow mapping v1，不升 `canonical_encoding_version`。ordinal、
+不升 `canonical_encoding_version`。ordinal、
 dictionary index 与未规范化的 SET 输入顺序不得进入 row preimage。Repository 任一 verification
 level 都不重算这些业务 digest。
 

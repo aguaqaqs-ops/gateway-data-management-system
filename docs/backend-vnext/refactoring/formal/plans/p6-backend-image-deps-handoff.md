@@ -2,6 +2,15 @@
 
 ## 状态
 
+**已 exit（repository owner 授权，2026-10-31）。** 附注 tag `p6-backend-image-exit` 打在本 exit 记录提交上，随后合入 main。
+- 代码审核：[独立审核](p6-backend-image-deps-independent-review.md)（F1–F4）→ [复审 1](p6-backend-image-deps-independent-rereview-1.md) 通过。
+- 证据：[证据复核 1](p6-backend-image-deps-evidence-check-1.md)（E1–E3，只改测试）→ [短复审](p6-backend-image-deps-evidence-check-1-rereview.md) 通过 → [证据复核 2](p6-backend-image-deps-evidence-check-2.md) 通过。
+- 最终代码候选 `861ab2467329c9784f1d64c70855d50c84dc36f6`；04 六包权威 runner exit 0（日志 SHA256 `5c530729…`）。
+- `gateway-repository-client-e2e:local` 的重建经证据复核 2 §3 判定为 Repository Service 门禁的正常行为，无需处置。
+- 合入后，DC67 补充第 2 项的 backend/worker 整镜像预构建由本任务的 dependency-base 预填充与节点离线构建替代（记录见 main 上的 DC67）。AGENTS 与 testing-conventions 的同步文字见“待同步文档”，交负责这两份文件的会话。
+
+以下为 exit 前的过程记录。
+
 - 来源基线：`26738ae5c4b8b15676d9822b28a64fd3dad1b009`
 - 分支：`p6-backend-image-deps`
 - 镜像代码候选 `642f2d3ac7fdf76045f3e64434e882661a5bfafa` 未修改；原代码修订 `642f2d3ac7` 与 handoff 提交 `815a898155` 均未改写。

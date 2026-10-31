@@ -225,13 +225,9 @@ impl ColumnBuilder {
                     let offsets = OffsetBuffer::new(ScalarBuffer::from(offsets));
                     let values = Buffer::from_vec(data);
                     if self.layout == Layout::Binary {
-                        Arc::new(
-                            BinaryArray::try_new(offsets, values, nulls).map_err(arrow_error)?,
-                        )
+                        Arc::new(BinaryArray::try_new(offsets, values, nulls).map_err(arrow_error)?)
                     } else {
-                        Arc::new(
-                            StringArray::try_new(offsets, values, nulls).map_err(arrow_error)?,
-                        )
+                        Arc::new(StringArray::try_new(offsets, values, nulls).map_err(arrow_error)?)
                     }
                 } else {
                     let mut offsets: Vec<i64> = Vec::with_capacity(ends.len() + 1);

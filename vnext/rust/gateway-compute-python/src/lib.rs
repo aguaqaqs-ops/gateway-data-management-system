@@ -139,9 +139,8 @@ fn shared_parser_pool(threads: usize) -> PyResult<&'static ThreadPool> {
             gateway_compute_core::table_access::MAX_PARSER_THREADS
         )));
     }
-    let result = PARSER_POOL.get_or_init(|| {
-        build_parser_pool(threads).map_err(|error| error.to_string())
-    });
+    let result =
+        PARSER_POOL.get_or_init(|| build_parser_pool(threads).map_err(|error| error.to_string()));
     let pool = result.as_ref().map_err(|error| {
         PyRuntimeError::new_err(format!("parser thread pool unavailable: {error}"))
     })?;
@@ -191,19 +190,63 @@ fn parser_budgets(py: Python<'_>, object: Option<&Py<PyAny>>) -> PyResult<Parser
     };
     let object = object.bind(py);
     Ok(ParserBudgets {
-        max_sql_source_bytes: budget_value(object, "max_sql_source_bytes", defaults.max_sql_source_bytes)?,
-        max_statement_bytes: budget_value(object, "max_statement_bytes", defaults.max_statement_bytes)?,
-        max_tables_per_source: budget_value(object, "max_tables_per_source", defaults.max_tables_per_source)?,
-        max_columns_per_table: budget_value(object, "max_columns_per_table", defaults.max_columns_per_table)?,
-        max_identifier_code_points: budget_value(object, "max_identifier_code_points", defaults.max_identifier_code_points)?,
-        max_rows_per_table: budget_value(object, "max_rows_per_table", defaults.max_rows_per_table)?,
-        max_rows_per_source: budget_value(object, "max_rows_per_source", defaults.max_rows_per_source)?,
+        max_sql_source_bytes: budget_value(
+            object,
+            "max_sql_source_bytes",
+            defaults.max_sql_source_bytes,
+        )?,
+        max_statement_bytes: budget_value(
+            object,
+            "max_statement_bytes",
+            defaults.max_statement_bytes,
+        )?,
+        max_tables_per_source: budget_value(
+            object,
+            "max_tables_per_source",
+            defaults.max_tables_per_source,
+        )?,
+        max_columns_per_table: budget_value(
+            object,
+            "max_columns_per_table",
+            defaults.max_columns_per_table,
+        )?,
+        max_identifier_code_points: budget_value(
+            object,
+            "max_identifier_code_points",
+            defaults.max_identifier_code_points,
+        )?,
+        max_rows_per_table: budget_value(
+            object,
+            "max_rows_per_table",
+            defaults.max_rows_per_table,
+        )?,
+        max_rows_per_source: budget_value(
+            object,
+            "max_rows_per_source",
+            defaults.max_rows_per_source,
+        )?,
         max_field_bytes: budget_value(object, "max_field_bytes", defaults.max_field_bytes)?,
-        max_insert_tuple_bytes: budget_value(object, "max_insert_tuple_bytes", defaults.max_insert_tuple_bytes)?,
-        max_enum_set_sql_type_bytes: budget_value(object, "max_enum_set_sql_type_bytes", defaults.max_enum_set_sql_type_bytes)?,
+        max_insert_tuple_bytes: budget_value(
+            object,
+            "max_insert_tuple_bytes",
+            defaults.max_insert_tuple_bytes,
+        )?,
+        max_enum_set_sql_type_bytes: budget_value(
+            object,
+            "max_enum_set_sql_type_bytes",
+            defaults.max_enum_set_sql_type_bytes,
+        )?,
         max_diagnostics: budget_value(object, "max_diagnostics", defaults.max_diagnostics)?,
-        max_diagnostic_message_bytes: budget_value(object, "max_diagnostic_message_bytes", defaults.max_diagnostic_message_bytes)?,
-        max_diagnostics_total_bytes: budget_value(object, "max_diagnostics_total_bytes", defaults.max_diagnostics_total_bytes)?,
+        max_diagnostic_message_bytes: budget_value(
+            object,
+            "max_diagnostic_message_bytes",
+            defaults.max_diagnostic_message_bytes,
+        )?,
+        max_diagnostics_total_bytes: budget_value(
+            object,
+            "max_diagnostics_total_bytes",
+            defaults.max_diagnostics_total_bytes,
+        )?,
     })
 }
 
@@ -260,8 +303,9 @@ fn table_stream(py: Python<'_>, table: &ParsedTable) -> PyResult<Option<Py<PyAny
         })
         .collect::<Vec<_>>();
     let schema = Arc::new(Schema::new(fields));
-    let batch = RecordBatch::try_new(Arc::clone(&schema), arrays.clone())
-        .map_err(|error| PyRuntimeError::new_err(format!("parser Arrow output is invalid: {error}")))?;
+    let batch = RecordBatch::try_new(Arc::clone(&schema), arrays.clone()).map_err(|error| {
+        PyRuntimeError::new_err(format!("parser Arrow output is invalid: {error}"))
+    })?;
     let reader = SingleBatchReader {
         schema,
         batch: Some(batch),
@@ -271,7 +315,11 @@ fn table_stream(py: Python<'_>, table: &ParsedTable) -> PyResult<Option<Py<PyAny
         .map(|stream| Some(stream.unbind()))
 }
 
-fn add_column(py: Python<'_>, target: &Bound<'_, PyList>, column: &ColumnDescriptor) -> PyResult<()> {
+fn add_column(
+    py: Python<'_>,
+    target: &Bound<'_, PyList>,
+    column: &ColumnDescriptor,
+) -> PyResult<()> {
     let value = PyDict::new(py);
     value.set_item("display_name", column.display_name.as_str())?;
     value.set_item("canonical_name", column.canonical_name.as_str())?;

@@ -256,7 +256,8 @@ fn finish_diagnostics(
         if diagnostic.code == ParserDiagnosticCode::ParserDiagnosticsTruncated {
             continue;
         }
-        diagnostic.message = clip_message(&diagnostic.message, budgets.max_diagnostic_message_bytes);
+        diagnostic.message =
+            clip_message(&diagnostic.message, budgets.max_diagnostic_message_bytes);
         let size = diagnostic.message.len();
         if kept.len() >= budgets.max_diagnostics
             || total_bytes.saturating_add(size) > budgets.max_diagnostics_total_bytes
@@ -485,7 +486,11 @@ fn parse_document(
             table
                 .diagnostics
                 .push(fault.clone().into_diagnostic(Some(name), None));
-            table.failed_at = Some(table.failed_at.map_or(fault.offset, |at| at.min(fault.offset)));
+            table.failed_at = Some(
+                table
+                    .failed_at
+                    .map_or(fault.offset, |at| at.min(fault.offset)),
+            );
             failed_before = true;
         }
     }
@@ -597,11 +602,15 @@ fn rows_budget_fault(
         .iter()
         .flat_map(|outcome| {
             let failed_at = tables.get(outcome.table).and_then(|table| table.failed_at);
-            outcome.row_offsets.iter().copied().filter_map(move |offset| {
-                failed_at
-                    .is_none_or(|failed_at| offset < failed_at)
-                    .then_some((offset, outcome.table))
-            })
+            outcome
+                .row_offsets
+                .iter()
+                .copied()
+                .filter_map(move |offset| {
+                    failed_at
+                        .is_none_or(|failed_at| offset < failed_at)
+                        .then_some((offset, outcome.table))
+                })
         })
         .collect();
     row_offsets.sort_by_key(|(offset, _)| *offset);

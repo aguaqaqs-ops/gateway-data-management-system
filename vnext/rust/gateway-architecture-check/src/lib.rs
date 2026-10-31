@@ -335,9 +335,7 @@ fn check_crate_dependency_boundaries(rust_workspace_root: &Path) -> Vec<String> 
             .unwrap_or_default();
 
         match member.name.as_str() {
-            "gateway-compute-core"
-            | "gateway-compute-python"
-            | "gateway-shared-kernel" => {
+            "gateway-compute-core" | "gateway-compute-python" | "gateway-shared-kernel" => {
                 for dependency in &dependencies {
                     if let Some(violation) =
                         forbidden_dependency_violation(&member.name, dependency)
@@ -742,10 +740,7 @@ fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<
         "gateway-compute-core" => {
             if matches!(
                 dependency,
-                "pyo3"
-                    | "pyo3-arrow"
-                    | "gateway-compute-python"
-                    | "gateway-artifact-store"
+                "pyo3" | "pyo3-arrow" | "gateway-compute-python" | "gateway-artifact-store"
             ) {
                 return Some(format!("{crate_name} must not depend on {dependency}"));
             }
@@ -766,8 +761,7 @@ fn forbidden_dependency_violation(crate_name: &str, dependency: &str) -> Option<
             if dependency.starts_with("arrow-")
                 || dependency.starts_with("pyo3")
                 || dependency == "gateway-compute-core"
-                || dependency == "gateway-compute-python"
-                =>
+                || dependency == "gateway-compute-python" =>
         {
             return Some(format!(
                 "gateway-shared-kernel must not depend on {dependency}"
@@ -1108,11 +1102,8 @@ mod tests {
     #[test]
     fn compute_core_must_not_depend_on_compute_python() -> Result<(), String> {
         assert!(
-            super::forbidden_dependency_violation(
-                "gateway-compute-core",
-                "gateway-compute-python"
-            )
-            .is_some()
+            super::forbidden_dependency_violation("gateway-compute-core", "gateway-compute-python")
+                .is_some()
         );
         Ok(())
     }

@@ -364,7 +364,10 @@ fn row_budget_fault_uses_the_exact_over_limit_tuple_across_chunks() {
                 &pool(threads),
             );
             let fault = output.document_failure();
-            assert_eq!(fault.map(|item| item.code), Some(ParserDiagnosticCode::ResourceLimitExceeded));
+            assert_eq!(
+                fault.map(|item| item.code),
+                Some(ParserDiagnosticCode::ResourceLimitExceeded)
+            );
             assert_eq!(fault.map(|item| item.byte_offset), Some(expected_offset));
         }
     }
@@ -372,11 +375,21 @@ fn row_budget_fault_uses_the_exact_over_limit_tuple_across_chunks() {
 
 #[test]
 fn structural_diagnostics_continue_after_a_table_conversion_failure() {
-    let sql = "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES ('bad'), (1, 2), (3), (4, 5);";
+    let sql =
+        "CREATE TABLE t (id INT NOT NULL); INSERT INTO t VALUES ('bad'), (1, 2), (3), (4, 5);";
     let expected = [
-        (ParserDiagnosticCode::SqlValueIllegal, sql.find("('bad')").unwrap_or(0)),
-        (ParserDiagnosticCode::RowShapeMismatch, sql.find("(1, 2)").unwrap_or(0)),
-        (ParserDiagnosticCode::RowShapeMismatch, sql.find("(4, 5)").unwrap_or(0)),
+        (
+            ParserDiagnosticCode::SqlValueIllegal,
+            sql.find("('bad')").unwrap_or(0),
+        ),
+        (
+            ParserDiagnosticCode::RowShapeMismatch,
+            sql.find("(1, 2)").unwrap_or(0),
+        ),
+        (
+            ParserDiagnosticCode::RowShapeMismatch,
+            sql.find("(4, 5)").unwrap_or(0),
+        ),
     ];
     for chunk_bytes in [1, 16, usize::MAX] {
         let output = parse_with(sql, 3, chunk_bytes);
@@ -405,7 +418,10 @@ fn diagnostic_budget_keeps_a_truncation_marker() {
         &pool(2),
     );
     assert_eq!(output.diagnostics.len(), 2);
-    assert_eq!(output.diagnostics[0].code, ParserDiagnosticCode::RowShapeMismatch);
+    assert_eq!(
+        output.diagnostics[0].code,
+        ParserDiagnosticCode::RowShapeMismatch
+    );
     assert_eq!(
         output.diagnostics[1].code,
         ParserDiagnosticCode::ParserDiagnosticsTruncated
@@ -421,7 +437,10 @@ fn json_overflow_to_non_finite_is_a_table_value_error() {
     assert_eq!(output.tables.len(), 1);
     assert!(!output.tables[0].descriptor.reader_ready);
     assert_eq!(output.diagnostics.len(), 1);
-    assert_eq!(output.diagnostics[0].code, ParserDiagnosticCode::SqlValueIllegal);
+    assert_eq!(
+        output.diagnostics[0].code,
+        ParserDiagnosticCode::SqlValueIllegal
+    );
     assert_eq!(output.diagnostics[0].table.as_deref(), Some("t"));
 }
 

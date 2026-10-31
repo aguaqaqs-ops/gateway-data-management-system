@@ -589,6 +589,12 @@ implementation_authorized: no
   3. **Repository Service 与 client e2e 镜像**：在节点上以预置依赖模式离线构建；dependency-base 镜像缺失时按第 1 项预填充。
   4. **就绪预检**：权威 runner 之前先在节点核对镜像与缓存就绪（不运行测试）；缺失即停止，不进入 runner。
   5. **遗留**：调整 backend Dockerfile，使依赖层只取决于锁文件，测试节点即可离线自建镜像。建议在 S2a 之前作为独立小改完成（S2a 会改 `rust`），由 owner 另行安排；完成前按第 2 项执行。已安排（2026-10-30）：见[执行计划](p6-execution-plan.md) §2“backend 镜像依赖层调整”，S2a 前置。
+  6. **第 2、5 项的落实**（repository owner，2026-10-31；backend 镜像依赖层调整 exit，tag `p6-backend-image-exit`，证据见[证据复核 2](p6-backend-image-deps-evidence-check-2.md)）：自此替代第 2 项的整镜像预构建：
+     - backend 锁文件（`pyproject.toml`、`uv.lock`、`.python-version`）、`rust/Cargo.lock`、`rust/rust-toolchain.toml` 或 Rust 基础镜像变化时，在开发节点（CT201）从 clean worktree 运行 `vnext/scripts/build-backend-dependency-base.sh --save <归档>`，只构建 dependency-base `gateway-backend-deps:lock-<12>`；经局域网传到需要的节点后 `docker load`，按本决议澄清以 config digest 与全部 DiffID 核对身份。
+     - 节点上的权威 runner 与旅程设置 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=<tag>`、`GATEWAY_DOCKER_BUILD_NETWORK=none`，backend/worker 在节点本机离线构建，不再设置 `GATEWAY_COMPOSE_GATE_PREBUILT`。
+     - 只改源码（含 `rust`、`shared_kernel`、`repository_client`、`repository_contracts`）时不需要新的 dependency-base。
+     - 例外：`p6-backend-image-exit` 之前的产品提交（S1c 候选 V、`p6-s1c-exit`）沿用旧 Dockerfile，仍按第 2 项使用开发节点预构建的整镜像。
+     - 当前 dependency-base：`gateway-backend-deps:lock-c668cef8e47e`（输入摘要 `c668cef8…`，config digest `sha256:a8d9d1ac…`），已在 04 加载；05、ct108 需要时按上述方式传输。
 - **澄清**（repository owner，2026-10-30；来自 S1c 04 镜像就绪预检停止，[S1c 取证复核 1](p6-s1c-evidence-check-1.md)）：
   - 来源：开发节点构建的 backend/worker 镜像经 `docker save`/`docker load` 传到 04 后，04 的 `docker image inspect` ID 与开发节点不同，实施者按取证提示词中的“ID 一致”要求停止。核对结果：两端 config digest 相同（`sha256:b1f3c7b6…`），15 个 RootFS DiffID 逐项相同。ID 不同的原因是两端 image store 不同：开发节点为 classic store，inspect ID 即 config digest；测试节点为 containerd store，inspect ID 是本机生成的 manifest digest。
   1. **跨节点镜像身份**：经 `docker save`/`docker load` 或其他方式在节点间传输的镜像，以“config digest + 全部 RootFS DiffID 逐项相同”判定身份，不比较 inspect ID。

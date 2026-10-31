@@ -20,7 +20,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
  -> S1b 业务语义 Contract（DC40、DC41、DC49、参照解析器修复与语义定稿）+ 合成负载
  -> S1c Submit 等待预算与人工恢复续行修订（DC65，修订 2026-10-30）
  -> 重建对照基准（Python；工具开发可与 S1c 并行，正式测量在 S1c exit 之后）
-    ‖ backend 镜像依赖层调整（DC67 补充第 5 项；可与 S1c、重建对照基准并行，S2a 之前完成）
+    ‖ backend 镜像依赖层调整（DC67 补充第 5 项；已完成 2026-10-31，tag `p6-backend-image-exit`）
  -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展
  -> S2b 上传侧数据路径与规范表存储（切换生产）
  -> S3  比较与逐行记录（Rust）
@@ -130,6 +130,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### backend 镜像依赖层调整（DC67 补充第 5 项）
 
+- **状态：已完成（2026-10-31）。** 附注 tag `p6-backend-image-exit`（`72dd45a47b`），合入 main；证据见 [handoff](p6-backend-image-deps-handoff.md) 与 [证据复核 2](p6-backend-image-deps-evidence-check-2.md)。DC67 补充第 2 项的替代记录见 DC67。S2a 的这一前置已满足。
 - 目标：backend/worker 镜像可在测试节点离线构建。新增按锁定输入打 tag 的 backend dependency-base 镜像与预置依赖开关（参照 Repository Service 与 client e2e 的做法）；Dockerfile 的依赖层只取决于锁定输入，本地源码在其后复制，此后的步骤不再联网；最终运行镜像与现状等价。完成后，DC67 补充第 2 项（在开发节点预构建整镜像）改为“锁定输入变化时在开发节点预构建 dependency-base，节点离线自建 backend/worker 镜像”，在本任务 exit 时记录。
 - 前置：无（基于 main `26738ae5c4`）。可与 S1c、重建对照基准并行；取证需独占 04，与 S1c 协调，不并用节点。S1c 先合入时，合并 main 后再取证。
 - 内容：

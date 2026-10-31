@@ -1,0 +1,67 @@
+ARG BASE_IMAGE=rust:1.97.0-bookworm
+FROM ${BASE_IMAGE}
+
+ARG BASE_IMAGE
+ARG BASE_IMAGE_ID
+ARG DEPENDENCY_INPUT_SHA256
+ARG DEPENDENCY_INPUTS_BASE64
+ARG BACKEND_PYPROJECT_SHA256
+ARG BACKEND_UV_LOCK_SHA256
+ARG BACKEND_PYTHON_VERSION_SHA256
+ARG RUST_CARGO_LOCK_SHA256
+ARG RUST_TOOLCHAIN_SHA256
+ARG PYTHON_VERSION=3.14.6
+ARG UV_VERSION=0.11.28
+ARG RUSTUP_TOOLCHAIN=1.97.0
+ENV PATH="/root/.local/bin:${PATH}" RUSTUP_TOOLCHAIN=${RUSTUP_TOOLCHAIN}
+WORKDIR /build/backend
+
+COPY backend/pyproject.toml backend/uv.lock backend/.python-version backend/README.md ./
+COPY rust/Cargo.toml rust/Cargo.lock rust/rust-toolchain.toml /build/rust/
+COPY rust/gateway-architecture-check/Cargo.toml /build/rust/gateway-architecture-check/Cargo.toml
+COPY rust/gateway-compute-core/Cargo.toml /build/rust/gateway-compute-core/Cargo.toml
+COPY rust/gateway-compute-python-impl/Cargo.toml /build/rust/gateway-compute-python-impl/Cargo.toml
+COPY rust/gateway-compute-python/Cargo.toml /build/rust/gateway-compute-python/Cargo.toml
+COPY rust/gateway-shared-kernel/Cargo.toml /build/rust/gateway-shared-kernel/Cargo.toml
+
+RUN set -eu; \
+    test "$(sha256sum pyproject.toml | awk '{print $1}')" = "${BACKEND_PYPROJECT_SHA256}"; \
+    test "$(sha256sum uv.lock | awk '{print $1}')" = "${BACKEND_UV_LOCK_SHA256}"; \
+    test "$(sha256sum .python-version | awk '{print $1}')" = "${BACKEND_PYTHON_VERSION_SHA256}"; \
+    test "$(sha256sum /build/rust/Cargo.lock | awk '{print $1}')" = "${RUST_CARGO_LOCK_SHA256}"; \
+    test "$(sha256sum /build/rust/rust-toolchain.toml | awk '{print $1}')" = "${RUST_TOOLCHAIN_SHA256}"; \
+    mkdir -p /usr/local/share/gateway-backend-dependency-base; \
+    printf '%s' "${DEPENDENCY_INPUTS_BASE64}" | base64 -d > /usr/local/share/gateway-backend-dependency-base/inputs.json; \
+    printf '%s\n' "${DEPENDENCY_INPUT_SHA256}" > /usr/local/share/gateway-backend-dependency-base/input-sha256; \
+    python3 -c 'import hashlib,json,sys; payload=json.loads(open(sys.argv[1], encoding="utf-8").read()); canonical=json.dumps(payload["tag_inputs"],ensure_ascii=False,sort_keys=True,separators=(",",":")).encode(); assert hashlib.sha256(canonical).hexdigest()==sys.argv[2], "dependency-base tag inputs do not match their digest"; assert payload.get("base_image_id")==sys.argv[3], "dependency-base inspect ID metadata does not match its build input"' \
+      /usr/local/share/gateway-backend-dependency-base/inputs.json "${DEPENDENCY_INPUT_SHA256}" "${BASE_IMAGE_ID}"; \
+    test "$(rustc --version | awk '{print $2}')" = "${RUSTUP_TOOLCHAIN}"; \
+    test "$(cat .python-version)" = "${PYTHON_VERSION}"; \
+    test "${BASE_IMAGE_ID}" != ""
+
+RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" -o /tmp/uv-install.sh \
+    && sh /tmp/uv-install.sh \
+    && rm -f /tmp/uv-install.sh
+RUN uv python install "${PYTHON_VERSION}" \
+    && ln -sfn "$(uv python find "${PYTHON_VERSION}")" /usr/local/bin/python3
+RUN uv sync --frozen --no-install-local --no-install-project
+RUN uv pip install \
+    --python "$(uv python find "${PYTHON_VERSION}")" \
+    "uv==${UV_VERSION}"
+RUN test "$(uv --version | awk '{print $2}')" = "${UV_VERSION}" \
+    && test "$(python3 --version | awk '{print $2}')" = "${PYTHON_VERSION}" \
+    && test "${BASE_IMAGE}" = "rust:${RUSTUP_TOOLCHAIN}-bookworm"
+RUN for crate in gateway-architecture-check gateway-compute-core gateway-compute-python-impl gateway-compute-python gateway-shared-kernel; do \
+      mkdir -p "/build/rust/${crate}/src"; \
+    done \
+    && touch \
+      /build/rust/gateway-architecture-check/src/main.rs \
+      /build/rust/gateway-architecture-check/src/lib.rs \
+      /build/rust/gateway-compute-core/src/lib.rs \
+      /build/rust/gateway-compute-python-impl/src/lib.rs \
+      /build/rust/gateway-compute-python/src/lib.rs \
+      /build/rust/gateway-shared-kernel/src/lib.rs \
+    && cargo fetch --locked --manifest-path /build/rust/Cargo.toml
+
+LABEL gateway.backend.dependency-input-sha256="${DEPENDENCY_INPUT_SHA256}"
+LABEL gateway.backend.base-image-inspect-id="${BASE_IMAGE_ID}"

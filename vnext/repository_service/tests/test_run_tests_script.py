@@ -59,6 +59,7 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "fixtures/.keep",
         "deploy/compose.yaml",
         "backend/Dockerfile",
+        "backend/Dockerfile.dependency-base",
         "repository_service/Dockerfile",
         "repository_client/tests/Dockerfile",
         "repository_client/tests/Dockerfile.dependency-base",
@@ -72,6 +73,10 @@ def _runner_fixture(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
         "rust/gateway-architecture-check/Cargo.toml",
     ):
         _seed_repo_file(vnext_root, relative)
+    shutil.copy2(
+        VNEXT_ROOT / "rust" / "rust-toolchain.toml",
+        vnext_root / "rust" / "rust-toolchain.toml",
+    )
 
     scripts = vnext_root / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)

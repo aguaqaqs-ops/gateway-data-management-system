@@ -14,12 +14,13 @@ import shutil
 import stat
 import subprocess
 import sys
+import tomllib
 import zlib
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA = "gateway.vnext.test-input-closure"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 MAX_GZIP_JSON_PAYLOAD_BYTES = 64 * 1024 * 1024
 RUST_PACKAGE = "rust"
 PYTHON_PACKAGES = (
@@ -146,6 +147,11 @@ PACKAGE_DOCKER_INPUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "Backend and worker images are built from this Dockerfile.",
         ),
         (
+            "dockerfile:backend-dependency-base",
+            "vnext/backend/Dockerfile.dependency-base",
+            "The retained backend dependency-base image is built from this Dockerfile.",
+        ),
+        (
             "dockerfile:repository-service",
             "vnext/repository_service/Dockerfile",
             "Backend Compose journeys build the repository-service image from this Dockerfile.",
@@ -190,6 +196,8 @@ DOCKER_INPUT_ENVIRONMENT: dict[str, tuple[str, ...]] = {
         "DOCKER_TLS_VERIFY",
         "GATEWAY_BACKEND_UV_BOOTSTRAP_INDEX_URL",
         "GATEWAY_BACKEND_UV_BOOTSTRAP_TRUSTED_HOST",
+        "GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE",
+        "GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES",
         "GATEWAY_COMPOSE_GATE_PREBUILT",
         "GATEWAY_COMPOSE_GATE_PROJECT_NAME",
         "GATEWAY_COMPOSE_GATE_SESSION",
@@ -781,7 +789,23 @@ def _docker_build_inputs(
         dependency_base_image,
     }
     if package == "backend":
-        image_references.add("rust:1.97.0-bookworm")
+        toolchain_selector = tomllib.loads(
+            (repo_root / "vnext" / "rust" / "rust-toolchain.toml").read_text(
+                encoding="utf-8"
+            )
+        )["toolchain"]
+        default_backend_dependency_base_image = (
+            f"rust:{toolchain_selector['channel']}-bookworm"
+        )
+        backend_dependency_base_image = (
+            environment.get("GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE")
+            or default_backend_dependency_base_image
+        )
+        selections["backend_dependency_base_image"] = backend_dependency_base_image
+        selections["backend_use_preloaded_dependencies"] = (
+            environment.get("GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES") or "0"
+        )
+        image_references.add(backend_dependency_base_image)
     else:
         client_dependency_base_image = (
             environment.get("GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE")

@@ -57,6 +57,7 @@ implementation_authorized: no
 | DC66 | 缩短测量与取证耗时：基准单次测量、预检查复用、失败从 checkpoint 续跑、S1c 证据收窄、工具修正常设授权（修订 2026-10-31：S1c ct108 改为 2× t4 完整旅程） | — | — |
 | DC67 | 测试节点依赖获取：取证运行只用预填充缓存，代理仅限 05 调试构建 | — | — |
 | DC68 | 取证中的操作失误：未触及被测对象的命令、脚本或工具错误可修正后重做一次 | — | — |
+| DC69 | S1c 并入 mutation planner 变更集排序缺陷的修复；ct108 改为 2× t4 三节点完整旅程 | — | — |
 
 ## 2. 决议详情
 
@@ -631,6 +632,36 @@ implementation_authorized: no
   4. **适用范围**：各阶段的取证与预检步骤（04 runner 及其前置、真实数据旅程、ct108 测量、镜像构建与传输核对）。不改变 AGENTS 的 runner 停止规则：runner 已开始运行测试后 exit 非 0，仍先停下处理。
 - **不变项**：DC30 调试与取证分开；DC64 审核先行与重跑范围；DC66 第 5 项常设授权；DC67 取证不经代理与停止条件；AGENTS 的节点约束。
 - **落点**：本记录。此后的取证提示词把停止条件写成“DC68 第 1 项的失败修正后重做一次，其余停止”。
+
+### DC69 S1c 并入变更集排序缺陷的修复
+
+- **来源**：
+  - ct108 的 2× t4 三节点旅程（取证合并提交 `47832ee94d`）中，v1、v2 Submit 均无人工干预完成，1030b 对照一致。
+  - v3 Submit 以 v2 为基线重新上传 v1 的包，失败在 `prepare_import`，诊断为 `OPERATION.PURE_RECOMPUTE_FAILED`（见 [S1c 取证复核 4](p6-s1c-evidence-check-4.md)）。
+  - 诊断与审核（[v3 诊断审核](p6-s1c-v3-diagnosis-review.md)）确认了根因：`_changeset.py` 的 `_patch_mutations` 按主键顺序交错输出 DELETE 与 UPDATE，而 `validate_change_set_ordering` 要求同表内按 DELETE → UPDATE → INSERT 分阶段。
+  - 任何 PATCH_DML 表，只要某个 UPDATE 的主键小于某个 DELETE 的主键就会触发。该缺陷自 P3-R7（`e09ff32cc3`）起存在，不是 S1c 引入的。
+  - 失败发生在纯计算阶段，没有数据损坏，表现为 Submit 稳定失败。
+  - 三节点场景原不在 S1c 的约定取证范围内（DC66 修订），是复核 3 的 checkpoint 清单把它带进了运行。
+- **决议**（repository owner，2026-10-31，采纳方案甲）：
+  1. **范围**：修复并入 S1c，作为 `p6-s1c-impl` 上的追加提交，形成新的代码候选 V'，内容为：
+     - `_patch_mutations` 先分别收集 DELETE、UPDATE、INSERT，各组内保持主键顺序，再按 DELETE → UPDATE → INSERT 输出；
+     - 补一个按业务行为命名的权威测试，相关 golden 与 digest 直接更新到新形态；
+     - `recovery.py` 的 PURE_RECOMPUTE 兜底分支用日志记录异常堆栈，只写 worker 日志，不进入 diagnostic 与 API。
+     修复由审核会话做针对性复审。
+  2. **取证**（替代 DC66 修订中 S1c 的 ct108 项）：
+     - V' 早于 `p6-backend-image-exit`，backend/worker 仍按 DC67 补充第 2 项在开发节点整镜像预构建；
+     - 04：V' 上的六包权威 runner；
+     - 05：t1；
+     - ct108：一次 2× t4 三节点完整旅程（冷 History，五个 checkpoint，保留卷），exit 0。
+     - 之后只读对照两项：v1 Submit commit 与 1030b 保留卷的表哈希与 canonical state；v3 commit 与同次运行 v1 commit 的表哈希，后者应全部一致。
+  3. **基准起点不变**：重建对照基准仍以 `p6-s1c-exit` 为起点，DC65 修订不变。H2-三节点场景随之可以测量。
+  4. **保留**：`s1c-v-3008-rerun-fb534_*`、`s1c-v-3008-rerun-20e634_*`、1030b 卷，以及各次运行的日志，保留到 S1c exit 合入之后。
+  5. **停止条件**：
+     - DC68 第 1 项的失败修正后重做一次；
+     - 测量工具缺陷按 DC66 第 5 项修正；
+     - 产品失败、缓存缺失、身份不符，或任一对照不一致时停止，交 owner。
+- **不变项**：DC30；DC64；DC65 的 Submit 恢复设计；DC66 第 5 项；DC67 取证不经代理；DC68。
+- **落点**：本记录；执行计划 S1c 的真实数据项。
 
 ## 3. 设计阶段待定项
 

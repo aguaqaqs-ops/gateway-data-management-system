@@ -21,7 +21,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
  -> S1c Submit 等待预算与人工恢复续行修订（DC65，修订 2026-10-30）
  -> 重建对照基准（Python；工具开发可与 S1c 并行，正式测量在 S1c exit 之后）
     ‖ backend 镜像依赖层调整（DC67 补充第 5 项；已完成 2026-10-31，tag `p6-backend-image-exit`）
- -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展
+ -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展（DC70：开发与基准正式测量并行，exit 在基准 exit 之后）
  -> S2b 上传侧数据路径与规范表存储（切换生产）
  -> S3  比较与逐行记录（Rust）
  -> S4  Submit 渲染直通
@@ -153,7 +153,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S2a — SQL 解析器
 
 - 目标：设计 §7。
-- 前置：S1b exit（语义已定稿）；重建对照基准已完成；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。
+- 前置：S1b exit（语义已定稿）；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。开发在 S1c exit 合入后开始，与重建对照基准的正式测量并行，分支 `p6-s2a`；ct108 在基准测量期间不使用，04 由基准的最终 runner 优先；exit 在基准 exit 之后办理（DC70）。
 - 内容：补齐诊断与语料；PyO3 adapter；worker 级共享线程池；feature flag 之后接入（只差分）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
 - 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；新扩展的构建输入检查、`rust` 包排除的去除与 `import_rules` 基线同步核对；权威 runner 与容器门禁（Dockerfile 变化）。
 - 真实数据：只做第 ④ 层逐值差分（05；t4 也可在 05，DC50 补充）。

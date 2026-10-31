@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from pathlib import Path
 from typing import Any, cast
@@ -128,14 +129,21 @@ def _compose_env(tmp_path: Path) -> dict[str, str]:
         ),
         encoding="utf-8",
     )
-    return {
-        "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix="ordered-compare"),
-        "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(bearer),
-        "GATEWAY_BACKEND_SESSION_FILE": str(session),
-        "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping),
-        "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(internal_bearer),
-        "GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE": str(bearer),
-    }
+    env = os.environ.copy()
+    env.update(
+        {
+            "COMPOSE_PROJECT_NAME": compose_project_name(
+                tmp_path,
+                default_prefix="ordered-compare",
+            ),
+            "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(bearer),
+            "GATEWAY_BACKEND_SESSION_FILE": str(session),
+            "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping),
+            "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(internal_bearer),
+            "GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE": str(bearer),
+        }
+    )
+    return env
 
 
 def _approve_submission(client: httpx.Client, submission_id: str, *, idempotency_key: str) -> None:

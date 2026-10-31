@@ -333,7 +333,11 @@ def test_build_script_honors_docker_build_network_override(tmp_path: Path) -> No
 
 
 @pytest.mark.unit
-def test_build_script_defaults_docker_build_network_to_host(tmp_path: Path) -> None:
+def test_build_script_defaults_docker_build_network_to_host(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GATEWAY_DOCKER_BUILD_NETWORK", raising=False)
     completed, argv_file = _run_build_script(
         tmp_path,
         timeout_script='#!/usr/bin/env bash\nshift\nexec "$@"\n',

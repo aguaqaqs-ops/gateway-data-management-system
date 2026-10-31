@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -107,14 +108,18 @@ def _compose_env(tmp_path: Path, *, prefix: str) -> dict[str, str]:
         ),
         encoding="utf-8",
     )
-    return {
-        "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix=prefix),
-        "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(bearer),
-        "GATEWAY_BACKEND_SESSION_FILE": str(session),
-        "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping),
-        "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(internal_bearer),
-        "GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE": str(bearer),
-    }
+    env = os.environ.copy()
+    env.update(
+        {
+            "COMPOSE_PROJECT_NAME": compose_project_name(tmp_path, default_prefix=prefix),
+            "GATEWAY_P2R2_BEARER_TOKEN_FILE": str(bearer),
+            "GATEWAY_BACKEND_SESSION_FILE": str(session),
+            "GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE": str(mapping),
+            "GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE": str(internal_bearer),
+            "GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE": str(bearer),
+        }
+    )
+    return env
 
 
 def _t3_decimal_upload_files(expected_version: int = 0) -> dict[str, tuple[str, bytes, str]]:

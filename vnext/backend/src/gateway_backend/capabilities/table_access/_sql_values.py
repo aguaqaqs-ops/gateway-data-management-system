@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 
 from gateway_shared_kernel import (
@@ -166,6 +167,12 @@ def literal_to_cell(
                 "JSON value is not well-formed",
                 byte_offset,
             ) from exc
+        if _contains_non_finite_json_number(value):
+            raise LiteralError(
+                ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
+                "JSON value is not well-formed",
+                byte_offset,
+            )
         if _contains_unpaired_surrogate(value):
             raise LiteralError(
                 ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
@@ -351,6 +358,20 @@ def _json_nesting_exceeds(text: str, maximum: int) -> bool:
 
 def _reject_json_constant(value: str) -> object:
     raise ValueError(f"JSON does not allow {value}")
+
+
+def _contains_non_finite_json_number(value: object) -> bool:
+    pending = [value]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, float):
+            if not math.isfinite(current):
+                return True
+        elif isinstance(current, dict):
+            pending.extend(current.values())
+        elif isinstance(current, list):
+            pending.extend(current)
+    return False
 
 
 def _contains_unpaired_surrogate(value: object) -> bool:

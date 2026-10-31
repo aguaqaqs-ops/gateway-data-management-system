@@ -61,6 +61,11 @@ SQL_VALUE_ILLEGAL_SHAPES = (
         ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
         "integer",
     ),
+    (
+        """CREATE TABLE t (doc JSON NOT NULL); INSERT INTO t VALUES ('{"value":1e400}');""",
+        ParserDiagnosticCode.SQL_VALUE_ILLEGAL,
+        "JSON",
+    ),
 )
 
 IDENTIFIER_VECTOR_ROOT = (

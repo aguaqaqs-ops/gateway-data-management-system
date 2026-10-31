@@ -762,6 +762,13 @@ def test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase() ->
 
     closure = build_change_set_closure(plan, request, (decision,))
     validate_change_set_ordering(closure.mutations)
+    assert closure.manifest.change_set_digest.value == (
+        "sha256:c12e643cae74a0603d2e30f4fe97ff19f8573a56f98ac67e37b123401b04974d"
+    )
+    assert closure.closure_digest is not None
+    assert closure.closure_digest.value == (
+        "sha256:d1525a4822ff2d9215b21044aa1c87befd2d655682871349e2a0f6e50e4ca2bc"
+    )
     assert [item.operation for item in closure.mutations] == [
         RowMutationOperation.DELETE,
         RowMutationOperation.UPDATE,

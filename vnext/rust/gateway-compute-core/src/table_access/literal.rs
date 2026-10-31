@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(lex("'abc'"), Ok(Lit::Str(Cow::Borrowed(&b"abc"[..]))));
         assert_eq!(
             lex(r"'a\nb\'c''d\%\_'"),
-            Ok(Lit::Str(Cow::Owned(b"a\nb'c'd\%\_".to_vec())))
+            Ok(Lit::Str(Cow::Owned(b"a\nb'c'd\\%\\_".to_vec())))
         );
         assert_eq!(
             lex(r"'\0\Z\b\t\r\\'"),

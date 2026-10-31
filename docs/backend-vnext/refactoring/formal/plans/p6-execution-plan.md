@@ -106,6 +106,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S1c — Submit 等待预算与人工恢复续行修订（DC65）
 
+- **状态：已通过（repository owner，2026-10-31）。** 代码候选 V'=`ebd1b60a3f`，最终 HEAD `9f288ad504`（[S1c handoff](p6-s1c-handoff.md)）；[首次审核](p6-s1c-independent-review.md)为定向修订（F1–F4），[复审 1](p6-s1c-independent-rereview-1.md)通过；取证中发现的变更集排序缺陷按 DC69 并入，[DC69 修复复审](p6-s1c-dc69-rereview.md)通过，[取证复核 5](p6-s1c-evidence-check-5.md)证据通过，[终审](p6-s1c-final-review.md)判定具备 exit 条件。证据绑定 V'：04 六包权威 runner（含 backend Compose 旅程，backend/worker 为开发节点预构建镜像，RS 镜像 label 指向 V'）、05 t1、ct108 2× t4 三节点完整旅程与两项只读对照；真实数据范围按 DC71 第 1 项确认（DC33）。在 04 原门禁 worktree 对 `9f288ad504` 做 carried（六包可沿用，RS label 一致），附注 tag `p6-s1c-exit` 打在 `9f288ad504`，合入 main（`49d0846d86`）。
 - 目标：
   - Submit 的 `await_import_result` 在 Repository Service 健康运行时持续对账，不因单次 60 s 轮询到期而消耗恢复会话；总等待上界与 Repository Service 导入上限对齐（DC65 方案 B）。
   - 人工恢复命令（`RESUME_RECONCILE`、`RETRY_FROM_CHECKPOINT`）被接受后，step 由运行中的 worker 继续执行，每条命令授予一次恢复会话（DC65 修订第 2 项）。
@@ -153,7 +154,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S2a — SQL 解析器
 
 - 目标：设计 §7。
-- 前置：S1b exit（语义已定稿）；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。开发在 S1c exit 合入后开始，与重建对照基准的正式测量并行，分支 `p6-s2a`；ct108 在基准测量期间不使用，04 由基准的最终 runner 优先；exit 在基准 exit 之后办理（DC70）。
+- 前置：S1b exit（语义已定稿）；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。开发在 S1c exit 合入后开始，与重建对照基准的正式测量并行，分支 `p6-s2a`，基于 merge commit `49d0846d86`（DC71 第 2 项）；ct108 在基准测量期间不使用，04 由基准的最终 runner 优先；exit 在基准 exit 之后办理（DC70）。
 - 内容：补齐诊断与语料；PyO3 adapter；worker 级共享线程池；feature flag 之后接入（只差分）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
 - 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；新扩展的构建输入检查、`rust` 包排除的去除与 `import_rules` 基线同步核对；权威 runner 与容器门禁（Dockerfile 变化）。
 - 真实数据：只做第 ④ 层逐值差分（05；t4 也可在 05，DC50 补充）。

@@ -93,3 +93,9 @@ DC66 修订与 DC69 第 2 项写明的范围是：05 t1；ct108 一次 2× t4 �
 - 开发节点只读 git 与文档。节点上只做了只读检查：04 门禁 worktree 状态与来源 runner 日志、ct108 卷清单。没有运行测试，没有写入任何 worktree、卷或镜像。
 - 镜像：本次只提交审核文档，不触发重建。H 的容器证据取自 V' 的 04 runner 与 RS label，在第 5 节第 2 步确认沿用。
 - 没有推送、打 tag 或合入。
+
+## 7. exit 办理记录（2026-10-31）
+
+- owner 按本报告建议授权 exit，第 4 节处置记为 DC71。
+- carried：H 经 bundle 传到 04，在 `/home/dev/gdds-p6-s1c-dc69-vprime-04` 检出 H，按来源 runner 的环境计算六包 manifest 并与 `04-runner-vprime-ebd1-retry.log`（`a77654a1…`）中的 manifest 逐项 compare：六包全部“可沿用”，changed 为空，total digest 相同。RS 构建身份在 H 上重算，build-input `4158ea39…`、source-tree `sha256:1d23f369…` 与 04 本机 RS 镜像（`sha256:adb2aa7e…`）的 label 一致。日志 `gw-dms-test-04:/home/dev/gdds-p6-logs/s1c/exit-carried-9f288ad504.log`，SHA256 `d6abb4ab9685606983bcbe2587e062396e16f64f60339d8a88ce60b5f679b9d9`；结束时 worktree 位于 H，clean。
+- 附注 tag `p6-s1c-exit` → `9f288ad504`；`p6-s1c-impl` 以 `--no-ff` 合入 main，merge commit `49d0846d86`。

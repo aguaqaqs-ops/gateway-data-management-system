@@ -59,6 +59,7 @@ implementation_authorized: no
 | DC68 | 取证中的操作失误：未触及被测对象的命令、脚本或工具错误可修正后重做一次 | — | — |
 | DC69 | S1c 并入 mutation planner 变更集排序缺陷的修复；ct108 改为 2× t4 三节点完整旅程 | — | — |
 | DC70 | S2a 开发与重建对照基准的正式测量并行；S2a exit 在基准 exit 之后 | — | — |
+| DC71 | S1c exit：真实数据范围确认；DC70 的 S2a 起点澄清；startup 阻断遗留的登记 | — | — |
 
 ## 2. 决议详情
 
@@ -672,7 +673,7 @@ implementation_authorized: no
   - 基准测量的对象是 `p6-s1c-exit` 这个固定提交，S2a 的改动不影响它。
 - **决议**（repository owner，2026-10-31）：
   1. **开始时点**：S1c exit 合入 main 后，S2a 的 kickoff、设计核对、编码、focused 测试与审核即可开始，与基准正式测量并行。
-     - S2a 在短期分支 `p6-s2a` 上开发，基于 `p6-s1c-exit`，exit 时合入 main。
+     - S2a 在短期分支 `p6-s2a` 上开发，基于 `p6-s1c-exit`，exit 时合入 main。（2026-10-31 澄清见 DC71 第 2 项：基于把 `p6-s1c-exit` 合入 main 的 merge commit。）
      - kickoff 提示词随 S1c exit 一并给出。
   2. **节点**：
      - ct108 在基准测量期间由基准独占，S2a 不使用；
@@ -686,6 +687,15 @@ implementation_authorized: no
   5. **审核**：两条线分开审核。基准由新开的审核对话负责；S2a 的审核会话在 kickoff 时指定。
 - **不变项**：基准只改测量工具、不改产品代码与 golden（执行计划“重建对照基准”的授权）；DC30；DC66–DC68；S2a 的范围与验收（设计 §7）。
 - **落点**：本记录；执行计划 §1 与 S2a 的前置。
+
+### DC71 S1c exit：真实数据范围确认、DC70 起点澄清与遗留登记
+
+- **来源**：[S1c 终审](p6-s1c-final-review.md) §4。
+- **决议**（repository owner，2026-10-31，按终审建议）：
+  1. **真实数据范围（DC33）：** 确认 DC66 修订与 DC69 第 2 项的范围为 S1c 的真实数据证据：05 t1；ct108 一次 2× t4 三节点完整旅程（冷 History、五个 checkpoint、保留卷，取证合并提交 `b96fe8e4cc`）；v1 Submit 对 1030b 保留卷、v3 对同次 v1 的只读对照（均 631/631 一致）。见 [取证复核 5](p6-s1c-evidence-check-5.md)。
+  2. **DC70 起点澄清：** `p6-s1c-exit` 打在 S1c 分支的最终 HEAD `9f288ad504` 上，早于 `p6-backend-image-exit`，不含 backend 镜像依赖层改动。`p6-s2a` 改为基于把 `p6-s1c-exit` 合入 main 的 merge commit `49d0846d86`，它同时包含两者。重建对照基准仍测量 `p6-s1c-exit` 这个提交本身。DC70 其余内容不变。
+  3. **遗留登记：** 非 operator 会话中，会话已用尽、lease 过期的 RUNNING step 在 startup 转人工恢复并阻断该次启动（`BLOCK_STARTUP_FATAL`），与 P4 R5 §8“人工恢复记录不阻断 readiness”的表述有出入。这是 S1c 之前的基线行为。列入 worker runtime 后续维护（与 DC63 第 3 项的 O1 同一归属），不阻塞 exit，不并入基准或 S2a。
+- **落点**：本记录；DC70 第 1 项；[执行计划](p6-execution-plan.md) S1c 状态与 S2a 前置。
 
 ## 3. 设计阶段待定项
 

@@ -2,6 +2,8 @@
 
 ## 状态
 
+**已通过（repository owner，2026-10-31，DC71）**，附注 tag `p6-s1c-exit`（`9f288ad504`），合入 main `49d0846d86`；审核链见[终审](p6-s1c-final-review.md)。最终代码候选为 V'=`ebd1b60a3f`，证据见“DC69 最终取证”与“DC69 取证补记”两节；第 3 个 RootFS DiffID 的正确值以终审 §3.1 为准。以下状态段落为各轮历史记录。
+
 F1–F4 定向修订代码候选已通过复审（报告为本地 `main` 提交 `7d85b38d9b` 中的
 `p6-s1c-independent-rereview-1.md`）。基线为已推送的 `main` / `43c1d4d513`；代码候选
 V=`3008d578cf2ee0eaf9236f01e33b5008d65ef36c`，包含合并 `main` 的提交 `5bc5a22605`。

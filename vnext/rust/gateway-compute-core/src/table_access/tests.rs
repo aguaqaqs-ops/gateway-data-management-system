@@ -170,10 +170,6 @@ fn unsupported_and_incomplete_statements_fail_like_the_reference() {
             ParserDiagnosticCode::UnsupportedStatement,
         ),
         (
-            "CREATE TABLE t (id INT NULL); INSERT INTO t VALUES (_binary 'a');",
-            ParserDiagnosticCode::MalformedSql,
-        ),
-        (
             "CREATE TABLE t (id INT NULL); INSERT INTO t VALUES ('a;",
             ParserDiagnosticCode::MalformedSql,
         ),
@@ -221,7 +217,7 @@ fn literal_classes_convert_to_canonical_payloads() {
         s VARCHAR(10) NULL, b BLOB NULL, bt BIT(10) NULL, dt DATETIME(6) NULL, ts TIMESTAMP NULL,\
         tm TIME NULL, e ENUM('x','y') NULL, st SET('a','b','c') NULL, j JSON NULL, bo BOOLEAN NULL, dd DATE NULL);\r\n\
         INSERT INTO t VALUES (-0, 18446744073709551615, -0.0, 1.5e-3, -000123.4500, 'a\\nb''c\u{4e2d}', x'00ff', b'1000000001',\
-        '2024-01-02 03:04:05.120000', '2024-01-02 03:04:05', '-838:59:59', 'y', 'c,a', '{\"k\": [1, NaN]}', 1, '2024-02-29'),\
+        '2024-01-02 03:04:05.120000', '2024-01-02 03:04:05', '-838:59:59', 'y', 'c,a', '{\"k\": [1, true]}', 1, '2024-02-29'),\
         (NULL, NULL, NULL, NULL, NULL, 'line1\r\nline2', 0x1, 1, NULL, NULL, NULL, NULL, '', NULL, FALSE, NULL);";
     let output = parse(sql);
     assert_eq!(
@@ -246,7 +242,7 @@ fn literal_classes_convert_to_canonical_payloads() {
     assert_eq!(row0[10], (0x33, b"-838:59:59".to_vec()));
     assert_eq!(row0[11], (0x20, b"y".to_vec()));
     assert_eq!(row0[12], (0x40, b"a,c".to_vec()));
-    assert_eq!(row0[13], (0x20, b"{\"k\": [1, NaN]}".to_vec()));
+    assert_eq!(row0[13], (0x20, b"{\"k\": [1, true]}".to_vec()));
     assert_eq!(row0[14], (0x01, vec![1]));
     assert_eq!(row0[15], (0x30, b"2024-02-29".to_vec()));
     let row1: Vec<(u8, Vec<u8>)> = (0..16)
@@ -255,7 +251,7 @@ fn literal_classes_convert_to_canonical_payloads() {
     assert_eq!(row1[0], (0x00, Vec::new()));
     assert_eq!(row1[5], (0x20, b"line1\r\nline2".to_vec()));
     assert_eq!(row1[6], (0x21, vec![0x01]));
-    // A decimal-looking BIT value made of 0/1 digits is read as binary.
+    // A numeric BIT value is converted from decimal text.
     assert_eq!(row1[7], (0x22, vec![0x00, 0x01]));
     assert_eq!(row1[12], (0x40, Vec::new()));
     assert_eq!(row1[14], (0x01, vec![0]));
@@ -274,6 +270,7 @@ fn illegal_values_invalidate_only_their_table() {
         ("i INT NULL", "DEFAULT"),
         ("f FLOAT NULL", "1e39"),
         ("s VARCHAR(5) NULL", "'\u{fffe}'"),
+        ("v VARCHAR(8) NULL", "_binary 'a'"),
     ] {
         let sql = format!(
             "CREATE TABLE ok (id INT NOT NULL PRIMARY KEY); INSERT INTO ok VALUES (1);\

@@ -326,7 +326,13 @@ fn parse_quoted_bytes<'a>(
                 "unclosed string",
             ));
         }
-        buffer.push(escape_byte(data[cursor.pos]));
+        let escaped = data[cursor.pos];
+        if matches!(escaped, b'%' | b'_') {
+            buffer.push(b'\\');
+            buffer.push(escaped);
+        } else {
+            buffer.push(escape_byte(escaped));
+        }
         cursor.pos += 1;
         piece_start = cursor.pos;
     }
@@ -417,8 +423,8 @@ mod tests {
     fn strings_borrow_without_escapes_and_decode_escapes() {
         assert_eq!(lex("'abc'"), Ok(Lit::Str(Cow::Borrowed(&b"abc"[..]))));
         assert_eq!(
-            lex(r"'a\nb\'c''d\%'"),
-            Ok(Lit::Str(Cow::Owned(b"a\nb'c'd%".to_vec())))
+            lex(r"'a\nb\'c''d\%\_'"),
+            Ok(Lit::Str(Cow::Owned(b"a\nb'c'd\%\_".to_vec())))
         );
         assert_eq!(
             lex(r"'\0\Z\b\t\r\\'"),

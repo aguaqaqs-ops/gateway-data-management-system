@@ -396,3 +396,29 @@ CT108 2× t4 Submit、取证合并提交及 1030b 对照尚未执行；独立 `p
   运行一次 2× t4 三节点完整旅程（冷 History、`--three-node-history`、新 project、保留卷及既定 checkpoint）。
   随后只读核对 v1 Submit 对 1030b 的 Dolt 表哈希与 canonical state，以及 v3 与同轮 v1 的表哈希。
 - `fb534`、`20e634` 两次既有运行的卷与日志及 1030b 保留卷均未修改，仍须保留至 S1c exit 合入后。
+
+## DC69 取证尝试：04 runner 环境错误后停止
+
+- 同一审核会话在 main `0f5e4f02c9` 的 `p6-s1c-dc69-rereview.md` 判定 V' / H 通过，授权开始 DC69 第 2 项。代码候选 V'=`ebd1b60a3f7ad962bf1348d166a7ff18969d06c0`、handoff H=`0d032ff13b4d6481671e7abb7c86bd05a713a309` 均未改写或推送。
+- 开发节点 `heavy-dev-01` 从 V' 的 clean detached worktree `/home/dev/gdds-p6-s1c-dc69-vprime` 构建 backend 镜像，仅执行 `docker build`，未运行测试或 Compose。project/tag 前缀为 `s1c-vprime-ebd1`；backend 与 worker tag 指向相同镜像。构建于 `2026-10-31T14:18:36Z`–`14:18:41Z`，exit 0。构建日志 `/home/dev/gdds-p6-logs/s1c/dev-build-backend-worker-vprime-ebd1.log` SHA256 `da9e200552b70a04649e8cd042fb223d869923adacd9363b9ca580b172e4dcbd`。
+- 归档 `/home/dev/gdds-p6-logs/s1c/backend-worker-s1c-vprime-ebd1.tar`，SHA256 `5c691d1d86a564bd35d3c3d953576b63ac13833609e35677f597c64891df61ae`。从归档 `manifest.json` 的 Config 得到 config digest `sha256:6d0aab7e18caea0b157c401612cfd7acdb0fca1bbfd6ef7f2b57b7d5f3f588f1`；全部 15 个 RootFS DiffID 在开发节点与 04、05、ct108 加载后逐项一致。inspect ID 只作参考，未用于跨节点身份判定。传输日志 `/home/dev/gdds-p6-logs/s1c/dev-transfer-vprime-ebd1.log` SHA256 `12d4b01ea7414cd5de3176c62cd8ee67c48ace515d07a2f51126bd6dd4da3686`；三节点逐项身份日志均为 `/home/dev/gdds-p6-logs/s1c/image-load-identity-vprime-ebd1.log`，04 SHA256 `57d9ef533db97f4db4a128916cf5cfa16e56750e1ffe86b9a8ec97e01ecc063f`，05 `3bd8a13d168c4745b16874c1cd698c1b01a1852a46230cb5d4496313eefd2214`，ct108 `f33912d708d8b096c0b103e9d46d44a3665ead06b8d37e2263cf9a77505fc9cc`。bundle SHA256 `8ea782152d12d929d7994fc187af81c9f0dc14f4a3585045355ded76ef63ccbd`。
+- 04 `gateway-repository-service:local` 原 build-input label `861ab246...`，不匹配 V'。使用已预置的 `gateway-p2r1-repository:lock-6dc9659f0aee`（image ID `sha256:63b7e79899d4379f24a1d58f0e22e1960847733a76e684dd170b8e631e00367f`、lock label 与当前 RS lock 匹配），在 V' worktree 以 `GATEWAY_DOCKER_BUILD_NETWORK=none` 离线重建成功；新 label 为 build-input `4158ea39d48157081c24d03a294c5a7eb3f866a0`、source-tree `sha256:1d23f369fef72e559fa35e09240d09e15e9eeb4d9fe8e5bc0a035b879bae8e00`，image ID `sha256:adb2aa7eb04578c5289c876f179042264ab4433b9527d60bf1f99f54347140c0`。日志 `/home/dev/gdds-p6-logs/s1c/04-rs-offline-preflight-vprime-ebd1.log` SHA256 `15cc5319b6ab6ccf5f77a06d0ee48015a6f111dd3cd8a66188773f7dae771648`。
+- 04 client e2e tag 的 candidate label 也旧于 V'；用 lock 匹配的预置 `gateway-repository-client-e2e-base:local`（ID `sha256:ba6c64db44f5f5b7f573fb1df6295c11a5c9e20d9c188189921e717a623ff38c`）和 `GATEWAY_DOCKER_BUILD_NETWORK=none` 重建成功。client lock SHA256 `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954`，新 candidate label 为 V'。旧 image ID `sha256:c8c3984339bc187ef6ef5d5f424c645b5bbd0cb689704a62921ef51e3408b68a`，新 ID `sha256:928599451874c0bd2ca3ad9fa86a84f9026e3fd54331ff13921ea0b1ddd3de5e`。日志 `/home/dev/gdds-p6-logs/s1c/04-client-e2e-offline-prebuild-vprime-ebd1.log` SHA256 `4684544b17d2252103bd7948201e48015a6f11179af90a21f84513c22611a028`。
+
+### 04 六包 runner
+
+- 节点 `ct108-gw-dms-04` / `gw-dms-test-04`，clean detached worktree `/home/dev/gdds-p6-s1c-dc69-vprime-04`，legacy 链接存在，起止 HEAD 均为 V'。`2026-10-31T14:26:20Z` 开始，`14:47:05Z` 结束，runner exit 1。未设置 `GATEWAY_TEST_PACKAGES`，六包均选中；`rust`、`shared_kernel`、`repository_contracts`、`repository_client`、`backend` 通过。逐包 manifest total digest：
+
+  | 包 | total digest | 结果 |
+  |---|---|---|
+  | rust | `143a9a6947aea4e69e3ad40356c3ca80d93b780c15ed6245e0da231a1f707e52` | passed |
+  | shared_kernel | `b02c08098dce1ad76841dede8a6e7dcdf97871970b90703692fc0bc1d433a0af` | 243 passed |
+  | repository_contracts | `fa2e010bbc4c48f7580c21aeca7291458b40c4cb962e5d291dd5b8ce716db7fe` | 152 passed |
+  | repository_client | `cbe107032d58cf33d6a378252701434238600a4f58c9e78a726bd192c836b1b0` | 161 passed |
+  | backend | `3adc20d57f7cbd830e8dd869c3c5ff326a5c2ca1433cbbbfa25d397b5f66c9ea` | 3077 parallel + 51 serial passed |
+  | repository_service | `23a6fcf824592415742043174748fcf49ec7dbb441b34f002e48b5fbba5fdd9a` | 1740 passed, 1 skipped, 1 failed parallel; 207 serial passed |
+
+- 唯一失败为 `repository_service/tests/test_build_repository_service_image_script.py::test_build_script_defaults_docker_build_network_to_host`：runner 环境显式设置 `GATEWAY_DOCKER_BUILD_NETWORK=none`，测试验证变量未设置时脚本默认值为 `host`，实际读到 `none`。这是本次执行者传入的环境参数错误，不是产品或缓存缺陷；重跑候选环境应从 runner 环境中移除该变量。`none` 仅用于先前 RS 与 client 镜像预构建，不需保留在权威 runner 环境。
+- 但该失败发生在 runner 已启动并执行测试之后，不满足 DC68 §1“被测对象尚未运行”的自动重做条件；按 DC68 §3 及权威 runner 非零停止规则，先停下交 owner 决定，不运行 05 t1 或 ct108 旅程/只读对照。不得将本次 runner 记作通过，也不在没有该决定前重跑。
+- runner 环境：`HOME=/root`、`LANG=C`、`LC_ALL=C.UTF-8`、`PATH=/home/dev/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`、umask `022`、`TMPDIR=/home/dev/gdds-test-tmp`、`UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`GATEWAY_COMPOSE_GATE_PREBUILT=1`、project `s1c-vprime-ebd1`、预置 RS/client dependency-base 已选择、所有 proxy 变量 unset。唯一错误设置是把 `GATEWAY_DOCKER_BUILD_NETWORK=none` 继承进 runner。
+- runner 日志 `/home/dev/gdds-p6-logs/s1c/04-runner-vprime-ebd1.log` SHA256 `0012957eb26d9b4dc60a0d1b7fb3747b7dc01c66ac1b52e7194c491f87f779be`。postflight `/home/dev/gdds-p6-logs/s1c/04-runner-postflight-vprime-ebd1.log` SHA256 `38f742eb6a457a90599bc194dc6712595549a6c2b9b57016a0f6ea08bd6981d9`：worktree clean，运行/全部容器为空，8000 无监听，无 Dolt、pytest、uv 进程，本轮命名卷为空。V' backend/worker、RS 与 client e2e 镜像仍已加载；05 与 ct108 未启动旅程，fb534、20e634 既有运行卷及日志、1030b 保留卷与 checkpoint 均未写入。

@@ -289,9 +289,8 @@ fn set_value(lit: &Lit<'_>, plan: &ColumnPlan, offset: usize) -> Result<String, 
     Ok(ordered.join(","))
 }
 
-/// `_bit_bytes`: raw literals keep their bytes (re-padded to the width);
-/// numbers and keywords are read as binary digits when they only contain
-/// `0`/`1`, otherwise as decimal.
+/// `_bit_bytes`: raw literals keep their integer value; numbers and keywords
+/// follow Python's `int(text, 10)` conversion.
 fn bit_bytes(lit: &Lit<'_>, width: u8, offset: usize) -> Result<Vec<u8>, ConvError> {
     let expected = usize::from(width).div_ceil(8);
     let raw = match lit {
@@ -320,19 +319,7 @@ fn bit_bytes(lit: &Lit<'_>, width: u8, offset: usize) -> Result<Vec<u8>, ConvErr
         return Ok(out);
     }
     let text = require_text(lit, offset)?;
-    let value: u128 = if !text.is_empty() && text.bytes().all(|b| b == b'0' || b == b'1') {
-        let digits = text.trim_start_matches('0');
-        if digits.len() > 128 {
-            return Err(illegal(
-                offset,
-                "BIT literal does not fit the declared width",
-            ));
-        }
-        u128::from_str_radix(if digits.is_empty() { "0" } else { digits }, 2)
-            .map_err(|_| illegal(offset, "BIT literal is not convertible"))?
-    } else {
-        parse_python_int10(&text, offset)?
-    };
+    let value = parse_python_int10(&text, offset)?;
     let bytes = value.to_be_bytes();
     let significant = bytes
         .iter()

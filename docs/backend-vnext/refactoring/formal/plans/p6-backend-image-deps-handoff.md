@@ -4,10 +4,10 @@
 
 - 来源基线：`26738ae5c4b8b15676d9822b28a64fd3dad1b009`
 - 分支：`p6-backend-image-deps`
-- 原代码候选 `98181d7d192138d85db746132f78700c0252bd1e` 保持不变；定向修订代码提交：`642f2d3ac7fdf76045f3e64434e882661a5bfafa`。
-- F1–F4 定向修订复审已通过。代码候选未修改；本 handoff 在分支上单独提交。
-- 04 取证第 1–4 步已完成；第 5 步六包权威 runner exit 1，已按停止条件停止。证据为部分完成，等待证据复核与 owner 对 runner 失败的处置决定。
-- 本任务不改应用代码、Contract、golden 或五个 Python/Rust 锁文件；未运行真实数据旅程。
+- 镜像代码候选 `642f2d3ac7fdf76045f3e64434e882661a5bfafa` 未修改；原代码修订 `642f2d3ac7` 与 handoff 提交 `815a898155` 均未改写。
+- 依据复核 1（main `1a009ed102`）追加测试修订：E1–E3 提交 `9600b339272cbb6d0f95811f7e992e73e05893e9`；修复首次测试暴露的 selector fixture 内容后续提交 `861ab2467329c9784f1d64c70855d50c84dc36f6`。本 handoff 随后单独提交。
+- 05 定向验证已通过。04 第 1–4 步沿用；新候选的 04 六包权威 runner 等短复审通过后运行，尚未运行。
+- 本任务只改测试与文档；不改应用代码、Contract、golden 或五个 Python/Rust 锁文件；未运行真实数据旅程。
 - 主 checkout 的 `AGENTS.md` 与 `testing-conventions.md` 保持原样。
 
 ## 改动清单
@@ -112,11 +112,24 @@
 - 启动前确认 runner/Dolt/容器/8000 均空闲；preflight 日志 SHA256 `d65f76c5eff41a8bc0c56d18aad57bf82989bb0dc87d166511f64813ba11ae3c`。root SSH 环境中仓库 selector 的 Rust 工具链通过显式 PATH、`RUSTUP_HOME=/root/.rustup`、`RUSTUP_TOOLCHAIN=1.97.0` 与 `CARGO_HOME=/root/.cargo` 解析；工具链确认日志 `04-rust-toolchain-path-confirmation.log` SHA256 `eadc00671080b1fdedafd60e102f8a701c541d87716fb9b38ebe6f0b37954f37`。
 - 节点 `gw-dms-test-04`；worktree `/home/dev/gdds-p6-backend-deps-evidence-642-04`；起止 HEAD 均为 `642f2d3ac7fdf76045f3e64434e882661a5bfafa`，起止 worktree clean。时间 `2026-10-31T01:23:21Z–01:41:35Z`。环境：`UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、backend preloaded=1、dependency-base tag `gateway-backend-deps:lock-c668cef8e47e`、`GATEWAY_DOCKER_BUILD_NETWORK=none`、`TMPDIR=/home/dev/gdds-test-tmp`；未设置 `GATEWAY_TEST_PACKAGES`（默认全六包），未设置 `GATEWAY_COMPOSE_GATE_PREBUILT`，proxy variables 均 unset。日志开头记录 hostname、HEAD、时间和环境。
 - 六包均在当前 V 实际运行，无包沿用、无合格来源 V：rust manifest `7819702339c5e97d6b43969c04b206d82f6477811152affbe32f4ba317fffd2a` passed；shared_kernel `731ad04baa2855fdf12010c80918866e82c1fd9ac02a77b670e439b5a6eef607` passed；repository_contracts `f90ef879c998c1a22f2c9db451c21af11b03bdc48841518811cbcb383067f45d` passed；repository_client `796960d8be2a8a424e44614aaedcec66ef4eed45749cb33a89491dac0e3652cc` passed；backend `bc5c51b4313ab60bb1037e2b88cfd93c450fb65d5185198ebe87e41172a7c7fa` failed；repository_service `225f784335f8aa3a8d15abd4b81360f09a10d3ff1de485423d0b9af81265e69d` failed。manifest 与完整逐包日志见 `04-authoritative-runner-642.log`，SHA256 `f3c4bd57bc8f2a7edffb621e4c6d90a36c01861f6a9d72d6f4149b702dbd3927`。
-- backend 并行批次 3069 passed；serial 批次 38 passed、3 failed：`test_ordered_history_compare_compose_journey`、`test_ordered_submit_bisect_control_cases`、`test_preview_worker_restart_takes_over_expired_running_operation`。失败 Compose 测试 helper 构造的环境字典没有传入 backend preloaded 与 dependency-base 变量，Compose 因而使用默认 `USE_PRELOADED_DEPENDENCIES=0` 并尝试 `curl https://astral.sh/...`；04 无公网连接，构建失败。此前第 2–3 步在同一节点的预置离线 Compose build 已成功。这次 runner 失败暴露的测试 helper 环境传递问题未在本任务中修改。
-- repository_service 并行批次 1736 passed、1 skipped、7 failed；serial 批次 207 passed。7 个并行失败中，`test_build_script_defaults_docker_build_network_to_host` 读到 runner 必需环境的 `GATEWAY_DOCKER_BUILD_NETWORK=none`，未得到测试期望的默认 `host`；5 个 `test_run_tests_script.py` 用例返回 `fatal: Needed a single revision`；另 1 个 Hypothesis storage 清理用例因实际 manifest event 列表少了预期项而失败。后 6 个用例的共同根因未确认，记录为未决，不推测。
+- backend 并行批次 3069 passed；serial 批次 38 passed、3 failed：`test_ordered_history_compare_compose_journey`、`test_ordered_submit_bisect_control_cases`、`test_preview_worker_restart_takes_over_expired_running_operation`。失败 Compose 测试 helper 构造的环境字典没有传入 backend preloaded 与 dependency-base 变量，Compose 因而使用默认 `USE_PRELOADED_DEPENDENCIES=0` 并尝试 `curl https://astral.sh/...`；04 无公网连接，构建失败。此前第 2–3 步在同一节点的预置离线 Compose build 已成功。测试 helper 环境传递已由 E1 修复；新候选的 04 runner 待短复审后运行。
+- repository_service 并行批次 1736 passed、1 skipped、7 failed；serial 批次 207 passed。复核 1 确认 7 个失败分三组：`test_build_script_defaults_docker_build_network_to_host` 继承 `GATEWAY_DOCKER_BUILD_NETWORK=none`；6 个 `test_run_tests_script.py` backend 选择用例的临时仓库缺少 `backend/Dockerfile.dependency-base`，导致 `fatal: Needed a single revision`，其中 Hypothesis storage 用例缺少 manifest event 是同一根因。对应 E2/E3 修订与 05 验证见下一节。
 - runner pipeline exit 1（tee exit 0），按停止条件不继续验收、不重跑。日志末尾记录 runner exit code、结束 HEAD 和 worktree clean。post-runner 检查确认无 runner/Dolt/容器/8000 占用，Cargo target 与包专属 Hypothesis storage 已清理；日志 `04-post-runner-state.log` SHA256 `0ddc2d985837e333b40e4a185d14068647d17fa05705f199d10f020a8a337ab0`。
 
-本任务不运行真实数据。runner 非零前已完成的第 1–4 步结果保留供证据复核；没有宣称权威 runner 通过或当前候选已完成全部容器门禁。
+本任务不运行真实数据。642 候选的 runner exit 1；新候选尚无 04 runner 通过结果。
+
+## 证据复核 1 定向修订与 05 验证
+
+- 复核依据：main `1a009ed102` 的 `p6-backend-image-deps-evidence-check-1.md`。仅修订测试：
+  - **E1**：`test_ordered_compare_compose.py` 与 `test_ordered_submit_bisect_compose.py` 的 `_compose_env` 改为复制 `os.environ` 后覆盖 Compose 项目名和临时密钥路径，保留离线预置构建参数。
+  - **E2**：`test_run_tests_script.py::_runner_fixture` 清单加入 `backend/Dockerfile.dependency-base`。第一次运行继续暴露 synthetic repo 中 `rust-toolchain.toml` 也是无效 TOML 占位文本；依据 DC68 只修复并重跑这项测试一次，fixture 改为复制实际锁定 selector 文件。该补充仍只改测试夹具。
+  - **E3**：默认网络测试通过 `monkeypatch.delenv("GATEWAY_DOCKER_BUILD_NETWORK", raising=False)` 与 runner 环境隔离。
+- 提交：E1–E3 与 E2 新 Dockerfile 输入 `9600b339272cbb6d0f95811f7e992e73e05893e9`；fixture selector 补充 `861ab2467329c9784f1d64c70855d50c84dc36f6`。两次均为新提交，没有改写 `642f2d3ac7` 或已有 handoff 提交。
+- 05 clean detached worktree：`/home/dev/gdds-p6-backend-image-deps-evidence-check1-retry-861ab246-05`，`HEAD=861ab2467329c9784f1d64c70855d50c84dc36f6`，有指向 `/home/dev/gateway-data-management-system/legacy` 的符号链接。hostname `gw-dms-test-05`。环境：`PATH=/home/dev/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`、`UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp`；proxy unset。没有运行 Compose。
+- 首次 `test_run_tests_script.py` 执行 `2026-10-31T03:05:55Z–03:06:01Z`，15 passed、6 failed，失败为占位 `rust-toolchain.toml` 的 TOML 解析错误。日志 `/home/dev/gdds-p6-logs/p6-backend-image-deps-evidence-check1-9600-05.log`，SHA256 `54bf95dd44056ed4f058488d72a75107070a24b9cc9dec167aa6ca458aa4d1bd`。修正 selector fixture 后按 DC68 重跑一次，`03:06:36Z–03:06:42Z`，21 passed，exit 0；日志 `/home/dev/gdds-p6-logs/p6-backend-image-deps-evidence-check1-retry-861ab246-05.log`，SHA256 `8b7bf06b0962af4faf4e4f889fa2287a34dc3997138cc0e02c19caa0cae26bbd`。
+- 其余指定验证于 `2026-10-31T03:06:54Z–03:07:56Z` 完成，exit 0：`test_build_repository_service_image_script.py` 20 passed；`test_test_input_closure.py -m unit` 37 passed；两个 E1 文件 collect-only 为 3 tests collected；未执行这些 integration/serial 测试。shared_kernel、repository_contracts、repository_client、backend、repository_service 五包的 `ruff check .` 与 `mypy` 均通过（mypy 分别检查 34、15、26、492、200 个 source files）。日志 `/home/dev/gdds-p6-logs/p6-backend-image-deps-evidence-check1-861ab246-validation.log`，SHA256 `1c4fcf0a37599695c11411a19f08d94208d4b638388780c3f8f5a2798b5fbd88`。
+- E1–E3 代码修订相对 642 只涉及 `vnext/backend/tests/` 与 `vnext/repository_service/tests/`；包括 selector fixture 补充在内，测试代码变更为 4 个文件、39 insertions、17 deletions。完整 `642..861ab246` 路径还包括既有/更新的 handoff 文档；最终路径核对限于上述测试目录及 `docs/`。
+- 05 验证后 worktree clean，未发现 runner、Dolt、容器或 8000 端口占用。失败初试、修复后重跑与剩余验证分别保留日志与 SHA256，不清理复核所需制品。
 
 ## 待同步文档
 
@@ -129,10 +142,10 @@
 
 ## 偏差、未决与清理
 
-- 本轮代码候选未改动。05 focused/闭包测试及五包 ruff/mypy 的既有通过结果见上文；CT201 冒烟仅作调试记录。04 第 1–4 步通过；六包权威 runner exit 1，因此阶段证据未完成，停止于此，backend 与 repository_service 的失败待 owner 评估。未运行真实数据。
-- 第 3 步第一次直接 Docker build 的 context 错误、恢复与 Compose 重做均有记录；第 4 步第一次 collector 因 `set -u` 声明顺序在任何 `docker run` 前失败，修正后只读重试成功。两次失败及修正均未写入候选镜像。第 5 步 runner 非零是停止条件，不做本任务范围外的修复或重跑。
+- 镜像/Docker 候选 642 与应用代码保持不变；当前测试修订候选为 861ab24673。05 定向测试与五包 ruff/mypy 通过。CT201 冒烟仅作调试记录；04 第 1–4 步沿用。642 上六包 runner exit 1 的三组测试问题已按 E1–E3 修订，新候选的权威 runner 需短复审通过后重跑。未运行真实数据。
+- 第 3 步第一次直接 Docker build 的 context 错误、恢复与 Compose 重做均有记录；第 4 步第一次 collector 因 `set -u` 声明顺序在任何 `docker run` 前失败，修正后只读重试成功。两次失败及修正均未写入候选镜像。642 上第 5 步 runner 非零后先停止；本轮只做复核授权范围内的测试修订与 05 验证，04 新候选 runner 尚未启动。
 - CT201 临时基线 worktree 已删除；CT04 `p6-backend-deps-srcchk-642` worktree 和临时 backend/worker tags 已删除，源码恢复且 SHA 已核对。CT201 与 CT04 上 dependency-base、基线和候选证据镜像/tag、两个传输归档及日志保留供复核。
 - 保留 `/home/dev/gdds-p6-s1c-v-3008-04`、`/home/dev/gdds-p6-baseline-04`、S1c 镜像与 client e2e 镜像；没有全局 prune，也没有删除 client e2e 镜像。04 runner 后无容器、Dolt、runner 或 8000 端口占用。
 - 临时构建内容清理记录：`04-srcchk-cleanup.log`（SHA256 `19aeba22f9631b5f2e462cd952b3802b8439278b232661daf93b9b0f5edea7e0`）、`ct201-baseline-worktree-cleanup.log`（SHA256 `427e933442233672371520905509d41546f5b1fa25ae71a08a5d176000db007e`）及 `04-post-runner-state.log`（SHA256 `0ddc2d985837e333b40e4a185d14068647d17fa05705f199d10f020a8a337ab0`）。
 - 依赖基础镜像和基线归档分别保留在 `/home/dev/gdds-p6-logs/p6-backend-image-deps-evidence/backend-dependency-base-642f2d3.tar` 与 `/home/dev/gdds-p6-logs/p6-backend-image-deps-evidence/backend-baseline-26738.tar`；SHA256 与身份记录见 §5。复核完成前不删除这些证据文件或用于镜像比较的 tags。
-- 主工作区未提交的治理文档修改未纳入本分支。handoff 之后生成审核 bundle；不推送、不打 tag。
+- 主工作区未提交的治理文档修改未纳入本分支。新的 handoff commit 与审核 bundle 完成后交短复审；不推送、不打 tag。

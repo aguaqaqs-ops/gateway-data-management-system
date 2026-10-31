@@ -39,6 +39,15 @@ pub(crate) fn convert_value(
     max_field_bytes: usize,
     offset: usize,
 ) -> Result<(), ConvError> {
+    if matches!(lit, Lit::BinaryPrefix(_))
+        && !matches!(plan.declared.as_ref(), Some(DeclaredType::Binary))
+    {
+        return Err(illegal(offset, "_binary literal requires a binary column"));
+    }
+    if let Lit::BinaryPrefix(raw) = lit {
+        check_field_bytes(raw.len(), max_field_bytes, offset)?;
+        return out.push_bytes(raw).map_err(ConvError::Table);
+    }
     if matches!(lit, Lit::Null) {
         if !plan.nullable {
             return Err(illegal(offset, "NULL is not allowed for a NOT NULL column"));
@@ -199,6 +208,9 @@ fn require_text<'b>(lit: &'b Lit<'_>, offset: usize) -> Result<Cow<'b, str>, Con
         Lit::Keyword(text) => return Ok(Cow::Borrowed(text)),
         Lit::Number(text) => text,
         Lit::Str(raw) => raw,
+        Lit::BinaryPrefix(_) => {
+            return Err(illegal(offset, "_binary literal requires a binary column"));
+        }
         Lit::Bits { text, .. } => text,
         Lit::Hex(raw) => {
             return std::str::from_utf8(raw)
@@ -215,6 +227,7 @@ fn require_text<'b>(lit: &'b Lit<'_>, offset: usize) -> Result<Cow<'b, str>, Con
 fn require_bytes<'b>(lit: &'b Lit<'_>) -> Cow<'b, [u8]> {
     match lit {
         Lit::Str(raw) => Cow::Borrowed(raw),
+        Lit::BinaryPrefix(raw) => Cow::Borrowed(raw),
         Lit::Hex(raw) => Cow::Borrowed(raw),
         Lit::Bits { raw, .. } => Cow::Borrowed(raw),
         Lit::Keyword(text) => Cow::Borrowed(text.as_bytes()),

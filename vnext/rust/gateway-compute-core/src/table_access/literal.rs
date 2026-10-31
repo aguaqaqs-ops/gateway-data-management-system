@@ -16,6 +16,8 @@ pub(crate) enum Lit<'a> {
     Number(&'a [u8]),
     /// `'...'` body after unescaping. Always valid UTF-8 for UTF-8 input.
     Str(Cow<'a, [u8]>),
+    /// `_binary` string or hexadecimal literal, preserving the declared prefix.
+    BinaryPrefix(Cow<'a, [u8]>),
     /// `X'..'` or `0x..`.
     Hex(Vec<u8>),
     /// `B'..'` or `0b..`: the bit text and its packed bytes.
@@ -66,6 +68,9 @@ pub(crate) fn parse_literal<'a>(cursor: &mut Cursor<'a>) -> Result<Lit<'a>, LexE
             "expected literal",
         ));
     };
+    if byte == b'_' && cursor.try_keyword(b"_binary").map_err(halt)? {
+        return parse_binary_prefix(cursor, start);
+    }
     if byte.is_ascii_alphabetic() {
         for (keyword, value) in [
             (&b"null"[..], None),
@@ -104,6 +109,28 @@ pub(crate) fn parse_literal<'a>(cursor: &mut Cursor<'a>) -> Result<Lit<'a>, LexE
         start,
         "unsupported SQL value expression",
     ))
+}
+
+fn parse_binary_prefix<'a>(cursor: &mut Cursor<'a>, start: usize) -> Result<Lit<'a>, LexError> {
+    cursor.skip_ws_and_comments().map_err(halt)?;
+    match (cursor.peek(), cursor.peek_at(1)) {
+        (Some(b'\''), _) => parse_quoted_bytes(cursor, true).map(Lit::BinaryPrefix),
+        (Some(b'x' | b'X'), Some(b'\'')) | (Some(b'0'), Some(b'x' | b'X')) => {
+            match parse_quoted_or_prefixed(cursor)? {
+                Lit::Hex(raw) => Ok(Lit::BinaryPrefix(Cow::Owned(raw))),
+                _ => Err(LexError::literal(
+                    Code::MalformedSql,
+                    start,
+                    "_binary must precede a string or hexadecimal literal",
+                )),
+            }
+        }
+        _ => Err(LexError::literal(
+            Code::MalformedSql,
+            start,
+            "_binary must precede a string or hexadecimal literal",
+        )),
+    }
 }
 
 fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<Lit<'a>, LexError> {
@@ -442,9 +469,22 @@ mod tests {
         assert!(
             matches!(lex("DEFAULT"), Err(LexError::Literal(f)) if f.code == Code::IncompleteInsert)
         );
-        assert!(
-            matches!(lex("_binary 'a'"), Err(LexError::Literal(f)) if f.code == Code::MalformedSql)
+        assert_eq!(
+            lex("_binary 'a'"),
+            Ok(Lit::BinaryPrefix(Cow::Borrowed(&b"a"[..])))
         );
+        assert_eq!(
+            lex("_binary x'4142'"),
+            Ok(Lit::BinaryPrefix(Cow::Owned(b"AB".to_vec())))
+        );
+        assert_eq!(
+            lex("_binary 0x4142"),
+            Ok(Lit::BinaryPrefix(Cow::Owned(b"AB".to_vec())))
+        );
+        assert!(matches!(
+            lex("_binary b'10'"),
+            Err(LexError::Literal(f)) if f.code == Code::MalformedSql
+        ));
         assert!(matches!(lex("1e"), Err(LexError::Literal(_))));
         assert!(matches!(lex("-"), Err(LexError::Literal(_))));
         assert!(matches!(lex("/*!40000 1 */"), Err(LexError::Halt(_))));

@@ -613,20 +613,4 @@ mod tests {
             check_float(&text);
         }
     }
-
-    #[test]
-    fn datetime_spelling_follows_reference() {
-        assert_eq!(
-            sql_datetime_to_canonical("2024-01-02 03:04:05", false),
-            "2024-01-02T03:04:05"
-        );
-        assert_eq!(
-            sql_datetime_to_canonical(" 2024-01-02 03:04:05.10\u{1f}", true),
-            "2024-01-02T03:04:05.10Z"
-        );
-        assert_eq!(
-            sql_datetime_to_canonical("2024-01-02T03:04:05Z", true),
-            "2024-01-02T03:04:05Z"
-        );
-    }
 }

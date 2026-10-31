@@ -99,3 +99,11 @@ DC66 修订与 DC69 第 2 项写明的范围是：05 t1；ct108 一次 2× t4 �
 - owner 按本报告建议授权 exit，第 4 节处置记为 DC71。
 - carried：H 经 bundle 传到 04，在 `/home/dev/gdds-p6-s1c-dc69-vprime-04` 检出 H，按来源 runner 的环境计算六包 manifest 并与 `04-runner-vprime-ebd1-retry.log`（`a77654a1…`）中的 manifest 逐项 compare：六包全部“可沿用”，changed 为空，total digest 相同。RS 构建身份在 H 上重算，build-input `4158ea39…`、source-tree `sha256:1d23f369…` 与 04 本机 RS 镜像（`sha256:adb2aa7e…`）的 label 一致。日志 `gw-dms-test-04:/home/dev/gdds-p6-logs/s1c/exit-carried-9f288ad504.log`，SHA256 `d6abb4ab9685606983bcbe2587e062396e16f64f60339d8a88ce60b5f679b9d9`；结束时 worktree 位于 H，clean。
 - 附注 tag `p6-s1c-exit` → `9f288ad504`；`p6-s1c-impl` 以 `--no-ff` 合入 main，merge commit `49d0846d86`。
+- 清理（合入后，owner 授权）：
+  - 开发节点：删除 S1c 的五个 worktree 与分支 `p6-s1c-impl`、`p6-s1c-t1-prebuilt`（后者未合入，归档为 `refs/archive/p6-s1c/t1-prebuilt-469a154963`）；删除 V 镜像与归档、旧 bundle。
+  - 取证合并提交只存在于节点，已归档到开发节点 `refs/archive/p6-s1c/evidence-{929bf18664,78d8cf6727,47832ee94d,b96fe8e4cc}`。
+  - ct108：删除四个 S1c worktree 与五个 S1c 分支；删除卷 `s1c-v-3008_*`、`s1c-v-3008-rerun-fb534_*`、`s1c-v-3008-rerun-20e634_*`、`p6b2xwarmr5fix1030b_*` 及对应镜像；删除 S1c 的 cargo target、1030b 临时副本、归档、bundle，以及 fb534 运行的 checkpoint（state 与日志保留）。日志 `exit-cleanup-gw-dms-test.log`。
+  - 04：删除门禁 worktree（exit 已合入，DC51）与 V worktree、V 镜像、归档、bundle。日志 `exit-cleanup-gw-dms-test-04.log`。
+  - 05：删除五个 S1c worktree 与两个 S1c 分支、S1c 调试镜像与 cargo target、归档、bundle；V 镜像的层仍被基准会话的 `p6resume-*` 标签引用，只去掉了 S1c 标签。日志 `exit-cleanup-gw-dms-test-05.log`。
+  - **保留到基准 exit：** ct108 卷 `s1c-vprime-ebd1_*` 与证据目录 `evidence/ct108-vprime-b96fe8e4cc`（含五个 checkpoint）；V' 镜像 `s1c-vprime-ebd1-{backend,worker}` 在开发节点与三节点均已加载，开发节点保留归档 `backend-worker-s1c-vprime-ebd1.tar`。V' 与 `p6-s1c-exit` 的 Docker context（`vnext/`）相同，基准可直接使用这组镜像。
+  - 各节点 `/home/dev/gdds-p6-logs/s1c/` 的日志保留。基准会话的 worktree、分支、目录与镜像未触碰。

@@ -332,3 +332,67 @@ F1–F4 复审已通过。04 的首次 uv 索引失败与初次 inspect-ID 身�
 修订取代；六包 runner 已通过，CT05 的 T 与 t1 也已通过。开发节点镜像构建、LAN 传输和 CT05 旅程均未使用代理。
 CT108 2× t4 Submit、取证合并提交及 1030b 对照尚未执行；独立 `p6-baseline` 工具候选的 focused 环境失败后按 DC67
 停止，五包静态检查尚未运行。1030b 保留卷与 v1-submit checkpoint 未改动；S1c exit 后由 owner 安排清理。
+
+## DC69 mutation planner 修复代码候选
+
+- 原候选 `V=3008d578cf2ee0eaf9236f01e33b5008d65ef36c`；新代码候选
+  `V'=ebd1b60a3f7ad962bf1348d166a7ff18969d06c0`，位于 `p6-s1c-impl`，未推送、未打 tag，未改写已有提交。
+  主题提交：`19727b1502e3b8e3a0bbda6b89da94c68e01638d`（patch mutation 分相排序与 PURE_RECOMPUTE 异常日志）、
+  `ebd1b60a3f7ad962bf1348d166a7ff18969d06c0`（固定新 change-set/closure digest）。
+- `V..V'` 代码差异为 4 个文件、142 insertions、12 deletions：
+  `vnext/backend/src/gateway_backend/capabilities/mutation_planning/_changeset.py`、
+  `vnext/backend/src/gateway_backend/operations/recovery.py`、
+  `vnext/backend/tests/test_mutation_planning.py`、
+  `vnext/backend/tests/test_operation_recovery_policy.py`。根因是 patch planner 按主键混排 UPDATE 与 DELETE，
+  违反 change-set 的 DELETE → UPDATE → INSERT 顺序契约；`_patch_mutations` 现分别收集三组并保留组内主键顺序，
+  `_rebuild_mutations` 未改。更新后的业务行为测试固定 change-set digest
+  `sha256:c12e643cae74a0603d2e30f4fe97ff19f8573a56f98ac67e37b123401b04974d` 与 closure digest
+  `sha256:d1525a4822ff2d9215b21044aa1c87befd2d655682871349e2a0f6e50e4ca2bc`，没有兼容路径。
+- `test_patch_mutation_closure_orders_mixed_row_changes_by_operation_phase` 是 mutation ordering 的唯一权威测试，
+  经 `build_change_set_closure` 覆盖低主键 UPDATE、高主键 DELETE 与 INSERT，断言 closure ordering validation、
+  各操作的 row image / row digest、组间与组内次序，以及渲染 DML 顺序。没有增加第二个同义测试或 Hypothesis 属性测试。
+- PURE_RECOMPUTE handler 未预期异常现在用 worker logger 记录 traceback；异常仍映射为既有的
+  `OPERATION.PURE_RECOMPUTE_FAILED` bounded diagnostic，不把异常正文放入 diagnostic/API。权威行为测试
+  `test_unexpected_pure_recompute_handler_exception_is_logged_without_exiting_worker` 验证日志有 traceback，
+  而 diagnostic 不含内部异常正文。
+
+### CT05 focused、静态检查与最小复现
+
+- 节点 `ct108-gw-dms-05`，hostname `gw-dms-test-05`；clean detached worktree
+  `/home/dev/gdds-p6-s1c-dc69-05`，HEAD 起止均为 V'。focused 测试于
+  `2026-10-31T13:40:18Z`–`13:40:24Z` 运行，167 passed，exit 0；覆盖 mutation planning、import replay/publication、
+  submit job prepare 与 operation recovery policy。日志
+  `/home/dev/gdds-p6-s1c-logs/dc69-focused-05.log`，SHA256
+  `c7b9436f040ac0ab14ef9d38496be6372cf922921badd8ab608d0da28d2db632`。
+- 同一 worktree 的五包 `ruff check .` 与 `mypy` 全通过：`shared_kernel`、`repository_contracts`、
+  `repository_client`、`backend`、`repository_service`。运行于 `2026-10-31T13:40:36Z`–`13:41:01Z`，exit 0。
+  日志 `/home/dev/gdds-p6-s1c-logs/dc69-static-five-packages-05.log`，SHA256
+  `31e08b4810beadacc7b50746d2295ae5b703fa24c861510c8ef4e92010f7e5ab`。
+- 修复后的最小复现脚本在 CT05 通过，结果为
+  `DELETE(399), UPDATE(0,1), INSERT(400)`，change-set digest 与权威测试一致，渲染 DML 顺序为
+  DELETE → UPDATE → INSERT。脚本 `/home/dev/gdds-p6-s1c-logs/dc69-fixed-minimal-repro.py`，SHA256
+  `28fc5cf0eb03cb824609cde400c7273991cc56474455163b06bb3a4349775a2b`；运行日志
+  `/home/dev/gdds-p6-s1c-logs/dc69-fixed-minimal-repro-05.log`，SHA256
+  `5619028376c968ac824ec96d18f87260fede0fd99e383ab16bef8ff34804a24b`。
+- backend 环境在 CT05 以 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp` 和
+  仓库 Rust toolchain PATH 同步成功；预检显示 Rust/Cargo 1.97.0，活动工具链由
+  `vnext/rust/rust-toolchain.toml` 覆盖。成功同步日志
+  `/home/dev/gdds-p6-s1c-logs/dc69-backend-sync-05-retry.log`，SHA256
+  `880a02b12b8581b70866fa3eb3b94af472e2b21c0c4ada1cfdba0e8a169c7b6a`；工具链日志
+  `/home/dev/gdds-p6-s1c-logs/dc69-rust-toolchain-precheck-05.log`，SHA256
+  `6e5407bdfe5df84056926d430177fd4e22eee71ccc6f5a4a264b5499f2109719`。初次环境同步因命令 PATH 未含 Rust 工具链
+  而退出，未运行测试；按 DC68 修正 PATH 后以离线模式重试通过。初次同步日志保留于
+  `/home/dev/gdds-p6-s1c-logs/dc69-backend-sync-05.log`，SHA256
+  `005ad6e19ffba4cd77e62f951fd7238f74e3901910f4a5456d5ffd452032e360`。
+- focused 日志中附带的 Rust 版本探测在 worktree 根目录触发了 rustup “no default toolchain” 提示；该探测不属于
+  pytest 命令，正式版本预检已在 `vnext/rust` 执行并记录于上述工具链日志。focused 测试、静态检查与最小复现
+  均在离线环境运行，未使用代理。worktree 外的任务 Cargo target（448 MiB）已按约定清理。
+
+### 复审与后续取证
+
+- 本候选等待同一审核会话针对性复审。复审通过前不启动 04 六包 runner、05 t1 或 CT108 真实旅程。
+- 复审通过后按 DC69 构建 V' backend/worker 镜像并以 config digest 与完整 RootFS DiffID 核验后传至 04、05、
+  CT108；04 运行六包权威 runner，05 用 V' 与已复核基准工具取证合并提交运行 t1，CT108 用对应取证合并提交
+  运行一次 2× t4 三节点完整旅程（冷 History、`--three-node-history`、新 project、保留卷及既定 checkpoint）。
+  随后只读核对 v1 Submit 对 1030b 的 Dolt 表哈希与 canonical state，以及 v3 与同轮 v1 的表哈希。
+- `fb534`、`20e634` 两次既有运行的卷与日志及 1030b 保留卷均未修改，仍须保留至 S1c exit 合入后。

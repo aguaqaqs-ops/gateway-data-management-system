@@ -54,7 +54,7 @@ implementation_authorized: no
 | DC63 | S1b exit：N1-1 测量限制的处置与真实数据范围确认 | — | — |
 | DC64 | 审核先行、证据后补；真实数据按受影响步骤重跑；结果一致的口径 | — | — |
 | DC65 | Submit 等待 Repository 导入：健康等待不消耗恢复会话；人工恢复命令后的续行（S1c，修订 2026-10-30） | — | — |
-| DC66 | 缩短测量与取证耗时：基准单次测量、预检查复用、失败从 checkpoint 续跑、S1c 证据收窄、工具修正常设授权 | — | — |
+| DC66 | 缩短测量与取证耗时：基准单次测量、预检查复用、失败从 checkpoint 续跑、S1c 证据收窄、工具修正常设授权（修订 2026-10-31：S1c ct108 改为 2× t4 完整旅程） | — | — |
 | DC67 | 测试节点依赖获取：取证运行只用预填充缓存，代理仅限 05 调试构建 | — | — |
 
 ## 2. 决议详情
@@ -486,7 +486,7 @@ implementation_authorized: no
        - 同步修订 P4 R5 设计中的 operator 命令条款，以及 P5-5B 设计中 operator recovery 的条款。
        - 替换上述测试中“命令后不可领取”的断言。
     3. **基准**：重建对照基准的全部正式测量改在 p6-s1c-exit 的产品上进行，替代原第 4 项。此前在 p6-s1b-exit 上的 warmup 与 05 工具验证只作诊断。
-    4. **S1c 的 Submit 结果核对**：基准此时尚未建立，改为与 `p6b2xwarmr5fix1030b` 保留卷对照。该卷中 Repository Service 已在 p6-s1b-exit 上导入成功 2× t4 v1，核对 Dolt 表哈希与 canonical state（DC64 第 4 项口径）。保留卷与 v1-submit checkpoint 在 S1c exit 前不得清理。
+    4. **S1c 的 Submit 结果核对**：基准此时尚未建立，改为与 `p6b2xwarmr5fix1030b` 保留卷对照。该卷中 Repository Service 已在 p6-s1b-exit 上导入成功 2× t4 v1，核对 Dolt 表哈希与 canonical state（DC64 第 4 项口径）。保留卷与 v1-submit checkpoint 在 S1c exit 前不得清理。（S1c 结果的产生方式见 DC66 修订：由 ct108 的 2× t4 完整旅程产生，不再从 v1-submit checkpoint 续跑；对照口径不变。）
   - 落点：[执行计划](p6-execution-plan.md) §1、§2（重建对照基准、S1c）。
 - **澄清**（repository owner，2026-10-30；来自 [S1c 独立审核](p6-s1c-independent-review.md) F3）：决议第 2 项“身份或指纹不符……仍计入 3 个恢复会话”的原意是“这类观测不算健康等待”，不是把证据矛盾改为可重试。
   - 身份或指纹不符（本地 checkpoint 与 payload 不符、Repository 返回的 operation identity 与 checkpoint 不符）维持基线行为：立即进入 `MANUAL_RECOVERY_REQUIRED`，使用能区分原因的诊断码，不使用 `r5.reconcile_timeout`。依据：External Effect and Recovery Contract §4，人工恢复表示证据矛盾。
@@ -543,6 +543,17 @@ implementation_authorized: no
        - 节点不可用。
 - **不变项**：调试与取证分开（DC30）、审核先行与证据后补（DC64 第 1 项）、结果一致的口径（DC64 第 4 项）、节点分工（DC36）、AGENTS 的停止规则。
 - **落点**：[执行计划](p6-execution-plan.md) §2（重建对照基准、S1c）；测量工具与基准 runbook。
+- **修订**（repository owner，2026-10-31；第 4 项中 S1c 在 ct108 的核对方式）：
+  - 来源：第 3 项“从失败运行的 checkpoint 续跑”尚未实现，基准会话估计还需约一个工作日实现与验证。第 4 项原定从 1030b 的 v1-submit checkpoint 续跑 2× t4 Submit，依赖这项能力，S1c exit 因此要等待。04 权威 runner 与 05 t1 已通过（[S1c 取证复核 2](p6-s1c-evidence-check-2.md)）。1030b 的 checkpoint 位于 v1 Submit 开始之前，从它续跑的 Submit 与完整旅程中的 v1 Submit 走同一条代码路径。
+  1. **S1c 的 ct108 核对改为一次 2× t4 完整旅程**，替代从 1030b checkpoint 续跑 Submit：
+     - 产品为 S1c 最终候选 V。backend/worker 使用 DC67 补充第 2 项的预构建镜像，按 DC67 澄清以 config digest 与全部 DiffID 核对。
+     - 测量工具为已在 05 验证的 `p6-baseline` 提交。取证合并提交只在节点上生成，相对 V 只改 `vnext/backend/benchmarks/`、相应测试与 docs，handoff 记录双亲与 `diff --stat`；不合入、不推送。
+     - 保留该次运行的卷。旅程结束并停止容器后，以只读方式把 v1 Submit 后 Repository Service 的 Dolt 表哈希与 canonical state 和 `p6b2xwarmr5fix1030b` 保留卷对照（DC65 修订第 4 项，DC64 第 4 项口径）。不得以 root 写入任一 Dolt 仓库。
+     - 验收：2× t4 v1 Submit 无人工干预完成；全旅程各步骤核对通过，exit 0；对照一致。对照不一致时停止，交 owner。
+     - 该次运行只作为 S1c 证据，不作为基准测量。
+  2. 第 4 项中“去掉 ct108 的 t4 完整旅程”、DC64 第 2 项 c 的例外，以及 1030b 状态文件从日志取值的安排，不再用于 S1c。1030b 保留卷与 v1-submit checkpoint 作为对照来源，继续保留到 S1c exit 合入之后。
+  3. 第 3 项不变：续跑能力继续实现，作为正式测量的前提，不再是 S1c exit 的前提。
+  4. 不变：05 t1 冒烟与 04 权威 runner（均已完成）、第 5 项常设授权、DC67 的取证不经代理。
 
 ### DC67 测试节点依赖获取：预填充为主，代理仅限调试
 

@@ -125,8 +125,8 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
   - 权威测试与五包静态检查；权威 runner 与容器门禁；
   - 2× t4 的 v1 Submit 在 ct108 上无人工干预完成；
   - Submit 结果与 `p6b2xwarmr5fix1030b` 保留卷的 Dolt 表哈希、canonical state 一致（DC65 修订第 4 项，DC64 第 4 项口径）。
-- 真实数据（DC66 第 4 项）：05 的 t1 冒烟；ct108 的 2× t4 Submit 从 `p6b2xwarmr5fix1030b` 的 v1-submit checkpoint 副本续跑；不做 ct108 的 t4 完整旅程。kickoff 写明，退出前由 owner 确认（DC33）。
-- **授权（repository owner，2026-10-29；修订 2026-10-30）：** DC65 及其修订；DC66。
+- 真实数据（DC66 第 4 项及其 2026-10-31 修订）：05 的 t1 冒烟；ct108 的 2× t4 完整旅程一次（预构建 V 镜像，保留卷），v1 Submit 结果与 `p6b2xwarmr5fix1030b` 保留卷只读对照。kickoff 写明，退出前由 owner 确认（DC33）。
+- **授权（repository owner，2026-10-29；修订 2026-10-30、2026-10-31）：** DC65 及其修订；DC66 及其修订。
 
 ### backend 镜像依赖层调整（DC67 补充第 5 项）
 

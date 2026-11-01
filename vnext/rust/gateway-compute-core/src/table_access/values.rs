@@ -250,6 +250,12 @@ fn parse_tuple_values<'a>(
                 cursor.pos += 1;
                 return Ok(());
             }
+            None => {
+                return Err(LexError::Halt(Fault::malformed(
+                    tuple_start,
+                    "unclosed parenthesis",
+                )));
+            }
             _ => {
                 return Err(LexError::Halt(Fault::malformed(
                     cursor.pos,

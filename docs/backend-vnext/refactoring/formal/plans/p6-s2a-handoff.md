@@ -1,6 +1,6 @@
 # Phase 6 S2a implementation handoff
 
-状态：**F1–F5 定向修订已完成，待原 S1c 审核会话针对性复审**。本文件只绑定 focused/debug 结果；完整权威 runner、Docker/Compose 门禁与第 ④ 层正式真实数据差分按 DC64 在代码审核通过后执行。
+状态：**F1–F5 定向复审 1 已通过（main `797f499b92`）；DC64 证据收集已尝试，04 权威 runner exit 1，第 ④ 层正式差分按停止规则未运行；本证据 handoff 待原 S1c 审核会话复核**。证据运行与停止原因见 §10。
 
 日期：2026-11-01
 
@@ -39,7 +39,7 @@
 | ① 既有 parser/reject/limits/types/reader/conformance 用例双实现 | F1 指定的三个 Rust 输出读取器生命周期测试仅跑 Python；列清单重排、启动前超时与取消三项仍双实现。其他 parser/reject/limits/types/conformance 测试双实现。当前 focused suite 通过。 |
 | ② Hypothesis 生成的语法、literal 与 S1b 边界差分 | 128 个通用样例覆盖类型化值、整数与 DECIMAL 边界、多表/列清单/注释、嵌套转义 JSON 与 `1e400`；64 个变异样例覆盖截断和未闭合字符串，比较 status 与 diagnostic 三元组。两项均保持 `database=None`、`derandomize=True`。当前 focused suite 通过；这是调试验证，不宣称完整随机样本/CI gate。 |
 | ③ 负例、资源预算、诊断截断及超限元组 offset | F5 两个错误路径参数表在 Rust 分支比较 Python 同输入结果的 status 与 diagnostic 三元组；parser/core 现有资源预算与截断测试仍是各自不变量的权威 owner。focused suite 与 gateway-compute-core focused tests 通过。 |
-| ④ t1–t4 v1/v2 与 testdata1 真实值逐项差分 | **未运行**。依 DC50/DC72，审核通过后全部在 05 运行；testdata1 与 t3 按输入 digest 去重并保留覆盖记录。只解析差分，不跑完整业务旅程或性能测量。 |
+| ④ t1–t4 v1/v2 与 testdata1 真实值逐项差分 | **未运行**。04 权威 runner 在 repository_service 并行批次失败后按停止规则结束；因此没有在 05 启动正式差分，也没有生成逐份输入 digest、表/值计数或差异结果。 |
 | ⑤ G2 census 覆盖到的 SQL 格式类别 | 下方新增完整映射表；测试读取 aggregate census JSON 校验 SQL type 类别闭合，并以双实现 synthetic 样本覆盖缺少直接 owner 的 statement-boundary 形式。当前 focused suite 通过。 |
 
 N=1/N 及不同 chunk size 的逐字节确定性由 core/adapter focused 测试覆盖。V6 原型的吞吐数据不是 S2a 当前候选证据。
@@ -162,12 +162,12 @@ sha256:c338f3f88c37281e775f0b6dfdfa4c079858214cf04733e88f0bda4e4ca4a1f0
 3. **`p6-execution-plan.md` S2a path list：** 将 `gateway-compute-python*` 写成“复用 `gateway-compute-python` 新 adapter、删除 `gateway-compute-python-impl`”；把 `capabilities/table_access/` 标为测试支持层双实现，不写成生产 flag 接入；保留 `capabilities/canonical_row_hash/`、旧 adapter crate 与 `native_kernel_component.sh` 的删除项；记录 runner 取消旧 crate 排除和 Docker/build-input 更新。
 4. **旧文档状态核对：** `internal-build-environment-handoff.md` 是 2026-09-13 已 PASS 的历史 handoff，保留其当时 `native_kernel_component.sh` 的证据内容即可；`uv-lockfile-canonical-guard-pending.md` 顶部仍称待独立审核/host-container gate，但后段记录 `2da4d71f` 实现及 gate pass，建议治理会话将其标为已完成/历史，避免其旧操作表被读作当前入口。不要机械改写 P5/P6 历史决议、review 与 handoff 中当时真实的旧实现记录。`implementation-stages.md` 的 canonical row-hash Phase 1/旧 P5 生产链叙述按其历史计划属性由治理会话判定是否加 superseded 注记。
 
-## 8. 审核后待完成事项
+## 8. 审核后状态与待办
 
-1. 原 S1c 审核会话对 `c7fc18e..30d67140d4` 的 F1–F5 修订、未闭合 tuple offset 对齐、测试归属表与本 handoff 做针对性复审；审核发现再追加新提交，不改写既有提交。
-2. 复审通过后，在最终候选 `30d67140d4` 按 DC64 跑完整六包权威 runner。Dockerfile 已变，且 Cargo.lock 变化：在 04 空闲且不占用基准最终 runner 时，本机使用 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa`、`GATEWAY_DOCKER_BUILD_NETWORK=none` 重建 backend/worker 并执行 Compose 门禁；保留 Compose build，不设 `GATEWAY_COMPOSE_GATE_PREBUILT`。缺少基础镜像或依赖缓存时先停下预填充。
-3. 在同一最终候选上于 05 做第 ④ 层 t1–t4 v1/v2 与 testdata1 逐值差分；按输入 digest 记录 testdata1/t3 去重。t1–t4 全在 05；不使用 ct108，不跑完整业务旅程，不让真实 SQL/值进入 Git 或日志。
-4. 04/05/CT201 按各自用途单飞；所有节点先确认连接和 busy marker。正式 runner/真实数据证据不经代理。审核先行、证据后补；runner exit 非 0、缓存缺失或身份不符时按 AGENTS 停止规则处理。
+1. 原 S1c 审核会话的针对性复审 1 已通过，记录为 main 本地提交 `797f499b92`。候选代码为 `30d67140d4`，本轮证据 handoff 交同一会话复核。
+2. 已在 04 按 DC64 尝试完整六包权威 runner；其最终 exit 为 1，具体日志、逐包 manifest 与失败测试见 §10。没有重跑 runner，也没有修改代码。
+3. 依停止规则，第 ④ 层正式差分没有启动。修复 repository_service 中对已删除旧 crate 路径的断言并重新审核前，不继续正式差分。
+4. 重新启动证据收集时仍使用 04/05 单飞、基准最终 runner 优先、全程离线且不经代理；第 ④ 层仍限于 05，不使用 `ct108-gw-dms`。t1–t4 与 testdata1 按输入 digest 去重，不跑完整业务旅程，也不将真实 SQL/值写入 Git 或日志。
 5. S2a exit tag 与合入 main 等基准 exit 后由 owner 办理。
 
 ## 9. F1–F5 定向复审候选与验证
@@ -188,3 +188,52 @@ F2 的有效文档策略固定 `max_examples=128`、`database=None`、`derandomi
 调试迭代发现并收敛了生成器与诊断边界问题：FLOAT32 样本边界收窄到可由两个实现共同表示；移除了并非 unsupported 的 `SET @OLD_CHARACTER_SET_CLIENT` 假设；非法变异稳定为末尾 tuple 截断与未闭合字符串；截断输入暴露 Rust EOF offset 与 Python tuple 起始 offset 不一致，Rust core 已对齐到 tuple 起点；生成的裸 `0x` 样本限制为非空，空二进制由 `x''` 覆盖。最终通过结果取自上述最终 HEAD。失败迭代日志保留于节点 `/home/dev/gdds-p6-logs/s2a/`，包括 `focused-review-f1-f5-bd1b789541-attempt1-failed.log`（SHA256 `006ef4562ef6727865c7632a23ffc1784df779c9388feb149ceeb022d3f82d3c`）、`focused-review-f1-f5-5fba4d7e46-05.log`（SHA256 `d44e3d72889ede2e2c2c8a023adabe64fc80727fffc76832c77c04256d49d501`）与 `focused-review-f1-f5-21dd69f607-05.log`（SHA256 `e59dd59cf5ebe4c777ebf56583c16c0fa1a35d770632f5809d0cdb29f41439be`）。第一次尝试的日志文件后来被重试覆盖，不作为独立证据。一次缺少 Cargo bin 路径的早期构建在 pytest 前失败，随后以正确 toolchain PATH 离线重做；该次失败不计入最终结果。
 
 这轮只运行了 focused pytest、Rust fmt/clippy、core focused cargo test 与五包静态检查；**没有**运行完整权威 runner、`cargo test --workspace`、Compose 门禁或第 ④ 层正式真实数据差分。审核通过后按 §8 继续。
+
+## 10. DC64 最终候选证据尝试与停止记录
+
+候选为代码提交 `30d67140d499383e855e361378bf5ef70a946edd`，Rust tree `61a76caa0e789aef1eea53a8c98d4c4c3cbb2af4`。runner 在 `ct108-gw-dms-04`（hostname `gw-dms-test-04`）的 clean detached worktree `/home/dev/gdds-p6-s2a-runner-30d` 运行；开始与结束 HEAD 均为候选提交，运行时 worktree clean。节点 busy marker 会话 `p6-s2a-impl` 于 `2026-11-01T01:20:19Z` 建立，runner 与后续清理完成后于 `01:50:55Z` 删除。全过程未使用代理。
+
+### 04 依赖镜像准备
+
+CT201 上由提交 `132fc621d5711ae39ac8f1dc66f4349b2f6fe428` 构建的归档经 LAN 传输到 04。归档 tag 为 `gateway-backend-deps:lock-d054366c02fa`，完整输入摘要 `d054366c02fa2a284948610e47b1c07bbdba98684b847846ca922d7da3d57aad`，归档 SHA256 `3fd859201de06757c8ce5af6dd4ad6e26d99b7439bc2edabb59035b5dd0c9ce6`，大小 `2,292,455,936` 字节。传输从 `2026-11-01T01:20:35Z` 至 `01:20:55Z`，exit 0；04 于 `01:21:31Z–01:21:48Z` `docker load`，exit 0。
+
+机器从归档生成的期望身份 JSON SHA256 为 `b187cbf62c3e06e87d866e572d9f614ca4af2329a7b7c288930d359bad242a33`。04 比较结果为 `MATCH`：config digest `sha256:b5b5422411de38e5ba08243343edb32c39cb01dc7cfcb1564bcb4b4d55e4b92a` 与全部 19 个 RootFS DiffID 均一致；DiffID 全表见 §6。未用 `docker inspect` ID 作跨节点身份比较。
+
+04 保留 Compose build，并在本机离线构建 backend/worker，设置 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa`、`GATEWAY_DOCKER_BUILD_NETWORK=none`，未设置 `GATEWAY_COMPOSE_GATE_PREBUILT`；构建于 `01:23:19Z–01:24:08Z` exit 0。Repository Service 使用 `GATEWAY_REPOSITORY_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee` 离线构建，于 `01:24:18Z–01:24:24Z` exit 0。client e2e 镜像使用 `GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE=gateway-repository-client-e2e-base:local` 离线重建，于 `01:24:33Z–01:24:38Z` exit 0，镜像 label revision 为候选 `30d67140d499383e855e361378bf5ef70a946edd`，锁摘要 `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954`。runner 前的只读预检确认 RS/client label 指向候选；RS build-input revision 为 `132fc621d5711ae39ac8f1dc66f4349b2f6fe428`，source-tree SHA256 为 `bfa33180295b685cb4e920449dd1087f67244ee5a296b710cd781c457f2def2a`。
+
+成功的离线环境预检于 `01:26:27Z–01:26:55Z` exit 0：五个 Python 环境均以 `UV_OFFLINE=1` 同步；Rust selector 解析到同一 Rust 1.97.0 toolchain；backend 扩展安装 build input 与 Rust tree 均为 `61a76caa0e789aef1eea53a8c98d4c4c3cbb2af4`。此前两个只读预检命令分别因 `PATH` 未含 Cargo bin、及未在 `vnext/rust` selector 目录执行检查而失败，均发生在测试开始前且无副作用，修正后预检通过；失败日志与 SHA256 保留在 CT201 `/home/dev/gdds-p6-logs/s2a/`，遵循 DC68 补充的只读预检重试规则。
+
+### 04 六包权威 runner
+
+runner 于 `2026-11-01T01:28:14Z` 启动，结束于 `01:50:26Z`，起止 HEAD 均为 `30d67140d499383e855e361378bf5ef70a946edd`，最终 exit **1**。运行设置 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp`；没有设置 `GATEWAY_TEST_PACKAGES`，因此选择六包。代理变量、`GATEWAY_DOCKER_BUILD_NETWORK`、`GATEWAY_COMPOSE_GATE_PREBUILT` 均未传入 runner；dependency-base 预置变量保留，Compose 在节点本机离线构建。runner 自动删除 Cargo target 与 Hypothesis storage；结束预检确认它们均不存在，worktree clean、无活动 Dolt、无 Compose 项目且 port 8000 空闲，随后释放节点 marker。
+
+runner 日志在 04：`/home/dev/gdds-p6-logs/s2a/authoritative-runner-04-30d67140d4.log`，SHA256 `7a2c5ba3374f9b8faedc5a1d449cc7934890ea824045018733d2a91c56f62d20`。每个 package manifest 的 `total_digest`：
+
+| package | manifest `total_digest` | runner 结果 |
+| --- | --- | --- |
+| rust | `94e1a069bfe912f3521cbf5351da0b19a0de0d989aed13eb2835b315786a173f` | fmt、clippy、cargo test 全通过；workspace cargo test 共 152 passed。 |
+| shared_kernel | `015d9342f3dc96c274c1cb4786cdedb4ad923299a2119455f671ce12c8f26091` | 243 passed。 |
+| repository_contracts | `cc345ccad74864294058549c7ed0378704379ad07985bbc1c1f07bd6edb2e97b` | 152 passed。 |
+| repository_client | `0ca12ede1d473cb56cbc526dacaac860edc25580ecf397dbbd5c4b5312d27f5a` | 161 passed。 |
+| backend | `63bbeffa7d25c068b2451faf7cdd0f502e7bdab8b7a40c362898b2fabea672e2` | 并行 3,235 passed；串行 52 passed。 |
+| repository_service | `20c89d5de3858d09682a62d52bf083e678aedd786277050dada67ffc8510c81e` | 并行 1,742 passed、1 skipped、1 failed；串行 207 passed。 |
+
+唯一失败为 `repository_service/tests/test_uv_consume_script.py::test_uv_consume_allows_component_pytest_invocation_pattern`：测试仍断言已删除路径 `vnext/rust/gateway-compute-python/tests/test_v1.py` 存在。权威 runner 记录 `repository_service status=failed` 与 `runner_exit=1`。串行批次是同一 runner 已排定的后续步骤，完整结束且通过；没有在失败后启动新的 runner。按停止规则没有继续 05 第 ④ 层差分；因此本次未提取或记录任何 t1–t4/testdata1 输入 digest、表/值数量或差分计数，也没有真实数据内容进入日志。
+
+### 可复核日志
+
+以下构建和预检日志位于 CT201 `/home/dev/gdds-p6-logs/s2a/`，各自记录主机、HEAD、起止 UTC 时间与 exit；runner 主日志保存在 04：
+
+| 步骤 | 日志 SHA256 |
+| --- | --- |
+| dependency-base 与源码 LAN 传输 | `b618846bd2ceaa193ddc17353e7e8a51d8fe4ba5c1f35f3b4f33ea2e372b5385` |
+| 04 docker load | `8bb0812b94d310594acdd974ada1e0fdf49a77694f114601b55b349ed88edb6b` |
+| 04 config digest 与 19 个 DiffID 身份校验 | `dd3d401c0ada342e056906370f7bf03f672130e456073250f82b551d8839bcb0` |
+| backend/worker 离线 Compose build | `f6b6d2f0bb5911100be7a3a4f82b4999ddfe9c41eadd05d337e7d11fb507f697` |
+| Repository Service 离线镜像 build | `fa64c27b775de994300318698584770f5802e17a40ad6ff00c093a83f6f4bdf0` |
+| client e2e 离线镜像 build | `b6cb4247acdc98cbcffbbb77a1b1ce330efe0c06786d55705cadd16703960820` |
+| 成功离线环境预检 | `a40c5d94fd8885b789255cae21b193e8207d87c50b92d0e5dc283e3699d263a4` |
+
+## 11. 审核与后续
+
+请原 S1c 审核会话复核 §10 的镜像身份、runner manifest/失败原因、停止规则执行与本 handoff 记录。当前没有通过完整六包权威 runner，且第 ④ 层差分未执行；owner 决定处理 repository_service 旧路径断言并完成相应代码审核前，不宣称 S2a 证据完成或办理阶段 exit。

@@ -278,7 +278,7 @@ def _mutate_invalid(sql: str, mutation: str) -> str:
     if mutation == "truncate-final-tuple":
         final_tuple_close = sql.rfind(");")
         assert final_tuple_close >= 0
-        return sql[:final_tuple_close] + ";\n"
+        return sql[:final_tuple_close]
     if mutation == "unterminated-string":
         return sql + "INSERT INTO `t0` (`signed_value`) VALUES ('unterminated;\n"
     raise AssertionError(f"unknown SQL mutation: {mutation}")

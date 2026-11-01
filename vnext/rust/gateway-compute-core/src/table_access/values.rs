@@ -216,6 +216,7 @@ fn parse_tuple_values<'a>(
     cursor: &mut Cursor<'a>,
     values: &mut Vec<Lit<'a>>,
 ) -> Result<(), LexError> {
+    let tuple_start = cursor.pos;
     if cursor.peek() != Some(b'(') {
         return Err(LexError::Halt(Fault::malformed(cursor.pos, "expected '('")));
     }
@@ -235,7 +236,7 @@ fn parse_tuple_values<'a>(
             }
             None => {
                 return Err(LexError::Halt(Fault::malformed(
-                    cursor.pos,
+                    tuple_start,
                     "unclosed parenthesis",
                 )));
             }

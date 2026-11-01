@@ -274,16 +274,26 @@ def test_generated_typed_mysqldump_fragments_match_reference(
     assert _signature(rust_result) == _signature(python_result)
 
 
-def _mutate_invalid(sql: str) -> str:
-    return sql + "INSERT INTO `t0` (`signed_value`) VALUES ('unterminated;\n"
+def _mutate_invalid(sql: str, mutation: str) -> str:
+    if mutation == "truncate-final-tuple":
+        final_tuple_close = sql.rfind(");")
+        assert final_tuple_close >= 0
+        return sql[:final_tuple_close] + ";\n"
+    if mutation == "unterminated-string":
+        return sql + "INSERT INTO `t0` (`signed_value`) VALUES ('unterminated;\n"
+    raise AssertionError(f"unknown SQL mutation: {mutation}")
 
 
 @settings(max_examples=64, deadline=None, database=None, derandomize=True)
-@given(document=_documents(include_json_overflow=False))
-def test_quote_damaged_dumps_match_status_and_diagnostics(
+@given(
+    document=_documents(include_json_overflow=False),
+    mutation=st.sampled_from(("truncate-final-tuple", "unterminated-string")),
+)
+def test_mutated_invalid_dumps_match_status_and_diagnostics(
     document: tuple[list[list[dict[str, str]]], list[tuple[str, str]]],
+    mutation: str,
 ) -> None:
-    sql = _mutate_invalid(_render_document(document))
+    sql = _mutate_invalid(_render_document(document), mutation)
     python_result = parse_text(sql, implementation="python")
     rust_result = parse_text(sql, implementation="rust")
     assert python_result.status in (ParseStatus.FAILED, ParseStatus.PARTIAL)

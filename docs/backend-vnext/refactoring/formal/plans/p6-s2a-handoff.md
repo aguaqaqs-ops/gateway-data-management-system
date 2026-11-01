@@ -1,14 +1,14 @@
 # Phase 6 S2a implementation handoff
 
-状态：**代码候选待原 S1c 审核会话审核**。本文件只绑定 focused/debug 结果；完整权威 runner、Docker/Compose 门禁与第 ④ 层正式真实数据差分按 DC64 在代码审核通过后执行。
+状态：**F1–F5 定向修订已完成，待原 S1c 审核会话针对性复审**。本文件只绑定 focused/debug 结果；完整权威 runner、Docker/Compose 门禁与第 ④ 层正式真实数据差分按 DC64 在代码审核通过后执行。
 
-日期：2026-10-31
+日期：2026-11-01
 
 ## 1. 候选与授权边界
 
-- 分支：`p6-s2a`；起点为合入 S1c 与 backend image 任务的 merge commit `49d0846d8625a8a928735c4fa0ea5126cf7ab741`。审核范围为该提交到代码候选 `c7fc18ecd20bb8455a8a54ba3a090e468a42d785`。
+- 分支：`p6-s2a`；起点为合入 S1c 与 backend image 任务的 merge commit `49d0846d8625a8a928735c4fa0ea5126cf7ab741`。原代码候选 `c7fc18ecd20bb8455a8a54ba3a090e468a42d785` 经 main 本地审核提交 `41844c4958554f0d8c68e41702783b86469d526a`（`p6-s2a-code-review.md`）给出 F1–F5 定向修订；当前候选为 `30d67140d499383e855e361378bf5ef70a946edd`。
 - Kickoff 初稿 `30de9c1cae` 未改写；按审核意见与 DC72 追加确认提交 `e9b3e04de98769faf6a66e93bcdde0b3e7958979`。
-- O2 是首个产品提交 `229845a6c97786c4c8384607733bff2363b4a62f`，只修改 Python 参照实现和现有 reject 参数表；之后实现 Rust parser/adapter。代码候选包含 parser parity 修订至 `c7fc18e`。
+- O2 是首个产品提交 `229845a6c97786c4c8384607733bff2363b4a62f`，只修改 Python 参照实现和现有 reject 参数表；之后实现 Rust parser/adapter。原实现候选为 `c7fc18e`；本次追加 F1–F5 测试修订及未闭合 INSERT 元组诊断偏移对齐，最终代码候选为 `30d67140d4`。所有修订均追加提交，没有改写审核引用的提交。
 - Owner 已在 main `0749edb8e6` 以 DC72 确认 kickoff。没有推送、打 tag 或改写已审核提交。S2a exit 与合入 main 等基准 exit 后办理。
 - `backend.parse_sql()` 与 worker 生产路由仍使用 Python。`implementation="python" | "rust"` 只存在于测试支持层；没有 production flag、部署配置或 shadow 执行。
 
@@ -19,14 +19,15 @@
 3. **线程池：** adapter 中一次创建、进程内共享、固定 N 并跨调用复用有界 pool；调用方传入 N。首次初始化后不另建或嵌套 pool；不一致的后续 N 被拒绝。adapter pool reuse 测试默认 N=1；一致性测试分别比较 N=1 与 N。worker 启动接线及部署配置 N、M 留给 S2b。
 4. **旧实现删除：** 删除 `capabilities/canonical_row_hash`、旧 Rust row-hash pipeline/专属模块与重复语义测试、旧 adapter/impl crate 与旧扩展测试、canonical row-hash golden/schema/vector、旧 Contract、`native_kernel_component.sh` 及相关架构基线条目。保留通用 ArtifactStore/ArtifactRef、comparison 与 Table Access Contract 测试。完整逐项来源/调用方和删除清单见已确认的 [kickoff §3](p6-s2a-kickoff.md#3-旧实现调用方与清理范围dc52)。
 5. backend Dockerfile 的 maturin 构建目标改为新 adapter，并以 `49d0846d86` 中 `p6-backend-image-exit` 的新 Dockerfile 为基线；dependency-base、Cargo workspace、extension build-input 校验、runner 与输入闭包同步更新。Cargo workspace 删除旧 crate 后，candidate 中 runner 的 `cargo test --workspace --locked --offline` 不再排除旧 crate。
+6. F2 的截断变异在首次调试中暴露了 Rust 对未闭合 INSERT 元组报告 EOF 偏移、Python 参照报告元组起点的差异。Rust core 现对元组结束于输入边界的情况报告元组起点，与 Python 对齐；未修改 Python 参照语义。生成的 `0x` VARBINARY 样本至少含一个字节，空二进制由 `x''` 覆盖，确保非法变异作用于有效基础文档。
 
 ### 测试归属
 
 | 不变量 | 唯一权威 owner | 本候选的职责边界 |
 | --- | --- | --- |
-| Table Access SQL 对外语义、typed values、诊断 code/table/offset 与双实现差分 | backend 现有 parser/reject/limits/conformance 测试 | Python/Rust 通过同一测试支持参数化；Rust unit 不另建业务语义 oracle。 |
+| Table Access SQL 对外语义、typed values、诊断 code/table/offset 与双实现差分 | backend parser/reject/limits/conformance/property/census tests | Python/Rust 使用同一测试支持参数化；F1 三项生命周期测试在 S2a 仅运行 Python，其他三项读取器测试保持双实现。 |
 | Rust parser 有界、诊断排序、row-budget offset、chunk/线程确定性 | `gateway-compute-core::table_access` 测试 | Rust core 测内部边界；backend 测已安装 adapter。 |
-| detach、Arrow C Stream、取消/deadline、adapter panic envelope、build input 与共享 pool 复用 | backend `test_table_access_rust_adapter.py` | Rust adapter crate 只测 FFI panic 边界；worker 接线归 S2b。 |
+| detach、Arrow C Stream、取消/deadline、adapter panic envelope 与共享 pool 复用 | backend `test_table_access_rust_adapter.py` | Rust adapter crate 只测 FFI panic 边界；build input 的权威 owner 是 runner 调用的 `vnext/scripts/check-rust-extension-build-input.sh`；worker 接线归 S2b。 |
 | core/adapter 依赖方向、unsafe 与 Python row materialization 禁止项、extension 形状 | `gateway-architecture-check` / backend architecture owner | 不在 feature flag 或差分测试中重复证明。 |
 
 ## 3. 五层差分状态
@@ -35,13 +36,38 @@
 
 | 层 | 候选状态 |
 | --- | --- |
-| ① 既有 parser/reject/limits/types/reader/conformance 用例双实现 | 代码已参数化；05 focused suite 中对应测试通过。 |
-| ② Hypothesis 生成的语法、literal 与 S1b 边界差分 | property module 已加入 focused suite 并通过；本次结果仅是调试验证，不宣称完整随机样本/CI gate。 |
-| ③ 负例、资源预算、诊断截断及超限元组 offset | focused suite 与 Rust core 内部边界测试通过；审核后完整 runner 再绑定正式结果。 |
+| ① 既有 parser/reject/limits/types/reader/conformance 用例双实现 | F1 指定的三个 Rust 输出读取器生命周期测试仅跑 Python；列清单重排、启动前超时与取消三项仍双实现。其他 parser/reject/limits/types/conformance 测试双实现。当前 focused suite 通过。 |
+| ② Hypothesis 生成的语法、literal 与 S1b 边界差分 | 128 个通用样例覆盖类型化值、整数与 DECIMAL 边界、多表/列清单/注释、嵌套转义 JSON 与 `1e400`；64 个变异样例覆盖截断和未闭合字符串，比较 status 与 diagnostic 三元组。两项均保持 `database=None`、`derandomize=True`。当前 focused suite 通过；这是调试验证，不宣称完整随机样本/CI gate。 |
+| ③ 负例、资源预算、诊断截断及超限元组 offset | F5 两个错误路径参数表在 Rust 分支比较 Python 同输入结果的 status 与 diagnostic 三元组；parser/core 现有资源预算与截断测试仍是各自不变量的权威 owner。focused suite 与 gateway-compute-core focused tests 通过。 |
 | ④ t1–t4 v1/v2 与 testdata1 真实值逐项差分 | **未运行**。依 DC50/DC72，审核通过后全部在 05 运行；testdata1 与 t3 按输入 digest 去重并保留覆盖记录。只解析差分，不跑完整业务旅程或性能测量。 |
-| ⑤ G2 census 覆盖到的 SQL 格式类别 | 本 handoff 不将 focused 结果升级为独立验收；审核与审核后完整验证时逐项核对语料映射。 |
+| ⑤ G2 census 覆盖到的 SQL 格式类别 | 下方新增完整映射表；测试读取 aggregate census JSON 校验 SQL type 类别闭合，并以双实现 synthetic 样本覆盖缺少直接 owner 的 statement-boundary 形式。当前 focused suite 通过。 |
 
 N=1/N 及不同 chunk size 的逐字节确定性由 core/adapter focused 测试覆盖。V6 原型的吞吐数据不是 S2a 当前候选证据。
+
+### 第 ⑤ 层 G2 census 格式映射
+
+G2 census 类别清单取自 `docs/backend-vnext/refactoring/formal/plans/p5-arch-closure-s1-census.json` 的 `datasets[*].storage_column_type_counts` 与 `datasets[*].version_manager_saved_time_type`。类型集合为 `DATETIME`、`ENUM`、`FLOAT`、`INT`、`INT UNSIGNED`、`SET`、`SMALLINT UNSIGNED`、`TEXT`、`TINYINT`、`TINYINT UNSIGNED`、`VARCHAR`，另有 manager 时间列 `VARCHAR(128)`。该 JSON 是 aggregate-only（`contains_row_data=false`），没有 JSON 列，也没有 unknown SQL type。
+
+SET 语句类别根据 G2 handoff §2.4 与 §8.7 的接受/保留失败结论整理；mysqldump boilerplate 与条件注释类别由 G2 handoff §2.4 和 V6 原型报告 §7 补充。census 不保存 t3-c-v1 的原始 SQL，因此该失败类别映射到既有双实现 unsupported-user-variable 参数用例；测试不复制真实 SQL。表中每个 owner 都由同一 Python/Rust 参数化测试执行。
+
+| G2/V6 格式类别 | 双实现 owner | 覆盖方式 |
+| --- | --- | --- |
+| SQL type DATETIME | `test_sql_parser_type_descriptors_match_the_type_mapper[DATETIME]` | 既有第 ① 层类型参数用例。 |
+| SQL type ENUM | `test_sql_parser_type_descriptors_match_the_type_mapper[ENUM('a','b')]` | 既有第 ① 层类型参数用例。 |
+| SQL type FLOAT | `test_sql_parser_type_descriptors_match_the_type_mapper[FLOAT]` | 既有第 ① 层类型参数用例。 |
+| SQL type INT | `test_sql_parser_type_descriptors_match_the_type_mapper[INT]` | census 对应类型参数新增到第 ① 层表。 |
+| SQL type INT UNSIGNED | `test_sql_parser_type_descriptors_match_the_type_mapper[INT UNSIGNED]` | 既有第 ① 层类型参数用例。 |
+| SQL type SET | `test_sql_parser_type_descriptors_match_the_type_mapper[SET('x','y')]` | 既有第 ① 层类型参数用例。 |
+| SQL type SMALLINT UNSIGNED | `test_sql_parser_type_descriptors_match_the_type_mapper[SMALLINT UNSIGNED]` | census 对应类型参数新增到第 ① 层表。 |
+| SQL type TEXT | `test_sql_parser_type_descriptors_match_the_type_mapper[TEXT]` | census 对应类型参数新增到第 ① 层表。 |
+| SQL type TINYINT | `test_sql_parser_type_descriptors_match_the_type_mapper[TINYINT]` | census 对应类型参数新增到第 ① 层表。 |
+| SQL type TINYINT UNSIGNED | `test_sql_parser_type_descriptors_match_the_type_mapper[TINYINT UNSIGNED]` | census 对应类型参数新增到第 ① 层表。 |
+| SQL type VARCHAR | `test_sql_parser_type_descriptors_match_the_type_mapper[VARCHAR(16)]` | census 的聚合类别映射到已有 VARCHAR descriptor 参数。 |
+| Version manager saved-time type VARCHAR(128) | `test_sql_parser_type_descriptors_match_the_type_mapper[VARCHAR(128)]` | census 中直接记录的完整类型参数，新增到第 ① 层表。 |
+| 条件注释中的允许项 `SET @saved_cs_client` | `test_mysqldump_session_setup_statements_are_accepted` | 既有第 ① 层 mysqldump SET 参数表。 |
+| t3-c-v1 保留的 unsupported bare SET 类别 | `test_unsupported_statements_fail_document` | 既有第 ① 层 synthetic user-variable 拒绝参数（`SET @other_client = 1;`）；不把 census 失败记录当作可重放 SQL fixture。 |
+| mysqldump SET/DROP/CREATE/LOCK/ALTER KEYS/INSERT/UNLOCK boilerplate | `test_sql_golden_parser_matches_expected[sql/valid/s2-dump-boilerplate]` | 既有第 ① 层双实现 golden。 |
+| 行注释、块注释、条件注释与 CRLF 语句边界 | `test_synthetic_census_format_sample_matches_reference` | 第 ① 层没有单项直接 owner，补充一个双实现 synthetic 样本。 |
 
 ## 4. 05 编码前合入组合基线
 
@@ -55,9 +81,9 @@ N=1/N 及不同 chunk size 的逐字节确定性由 core/adapter focused 测试�
 
 首次失败日志未覆盖。按用户指定，该基线是调试运行，不适用 DC68 的取证重做次数限制。
 
-## 5. 当前候选 focused 与静态结果
+## 5. 原候选 c7fc18e 的 focused 与静态结果（历史记录）
 
-所有结果均在 05 的 clean、已提交 worktree `/home/dev/gdds-p6-s2a-impl-05`，HEAD `c7fc18ecd20bb8455a8a54ba3a090e468a42d785`，`vnext/rust` tree `2ef56a15b038481fe13395fc248061e014d376d1`。环境使用 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp`、worktree 外 `CARGO_TARGET_DIR=/home/dev/gdds-test-tmp/p6-s2a-impl-cargo-target`；未用转发代理。日志均在节点 `/home/dev/gdds-p6-logs/s2a/`，下表给出 SHA256。
+本节记录原代码候选 `c7fc18e` 的审核前运行，不能替代 §9 的 F1–F5 最终候选验证。所有结果均在 05 的 clean、已提交 worktree `/home/dev/gdds-p6-s2a-impl-05`，HEAD `c7fc18ecd20bb8455a8a54ba3a090e468a42d785`，`vnext/rust` tree `2ef56a15b038481fe13395fc248061e014d376d1`。环境使用 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp`、worktree 外 `CARGO_TARGET_DIR=/home/dev/gdds-test-tmp/p6-s2a-impl-cargo-target`；未用转发代理。日志均在节点 `/home/dev/gdds-p6-logs/s2a/`，下表给出 SHA256。
 
 | 检查 | 结果 | 日志 SHA256 |
 | --- | --- | --- |
@@ -123,7 +149,9 @@ sha256:c338f3f88c37281e775f0b6dfdfa4c079858214cf04733e88f0bda4e4ca4a1f0
 
 一次身份解析命令的引号错误日志 `/home/dev/gdds-p6-logs/s2a/dependency-base-05-identity-command-failure.log` 记录在 23:07:48 UTC，SHA256 `19818595ca347ddc41b9f770e44b690b8194704dca99dc4ea29e224459b13a24`；失败发生在比较前，只留下临时 `loaded-deps-check.tar`，随后移除并用独立 helper 完成上述身份检查。该失败不影响原 archive 或镜像。
 
-05 当前 focused worktree 保留在 clean HEAD `c7fc18e`，供审核通过后的第 ④ 层使用。Cargo target 已移除；节点占用标记已释放。清理日志 `/home/dev/gdds-p6-logs/s2a/node-cleanup-c7fc18ecd20b-05.log` SHA256 `0d2d41205f79ee130cd3d6fc977a5e574000e8b0bfb3e7bc094afd4bd0fd1260`。一次 `pgrep` 自匹配造成的只读清理预检误报无副作用，失败输出保存在开发节点 `/home/dev/gdds-p6-logs/s2a/node-cleanup-preflight-failure-20261031T233048Z.log`，SHA256 `2578b7debbdea8ffb5d2ed23348356886d4705bd8a8d224b22ddf119a4a8db02`；修正后从预检起重做并成功释放锁。
+今后的 dependency-base 局域网传输要在 handoff 记录传输起始与结束 UTC 时间；本次旧记录只留有目标节点加载/身份校验时间，未留单独传输起点。
+
+原 focused worktree 的清理记录仍指向 c7fc18e。当前用于 F1–F5 的 05 worktree 与最终状态见 §9。
 
 ## 7. 治理文档 handoff（由治理会话同步）
 
@@ -136,8 +164,27 @@ sha256:c338f3f88c37281e775f0b6dfdfa4c079858214cf04733e88f0bda4e4ca4a1f0
 
 ## 8. 审核后待完成事项
 
-1. 原 S1c 审核会话审核 `49d0846d86..c7fc18e` 的代码、测试归属与本 handoff；审核发现修订追加新提交，不改写既有提交。
-2. 审核通过后，在最终候选按 DC64 跑完整六包权威 runner。Dockerfile 已变，且 Cargo.lock 变化：在 04 空闲且不占用基准最终 runner 时，本机使用 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa`、`GATEWAY_DOCKER_BUILD_NETWORK=none` 重建 backend/worker 并执行 Compose 门禁；保留 Compose build，不设 `GATEWAY_COMPOSE_GATE_PREBUILT`。缺少基础镜像或依赖缓存时先停下预填充。
+1. 原 S1c 审核会话对 `c7fc18e..30d67140d4` 的 F1–F5 修订、未闭合 tuple offset 对齐、测试归属表与本 handoff 做针对性复审；审核发现再追加新提交，不改写既有提交。
+2. 复审通过后，在最终候选 `30d67140d4` 按 DC64 跑完整六包权威 runner。Dockerfile 已变，且 Cargo.lock 变化：在 04 空闲且不占用基准最终 runner 时，本机使用 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa`、`GATEWAY_DOCKER_BUILD_NETWORK=none` 重建 backend/worker 并执行 Compose 门禁；保留 Compose build，不设 `GATEWAY_COMPOSE_GATE_PREBUILT`。缺少基础镜像或依赖缓存时先停下预填充。
 3. 在同一最终候选上于 05 做第 ④ 层 t1–t4 v1/v2 与 testdata1 逐值差分；按输入 digest 记录 testdata1/t3 去重。t1–t4 全在 05；不使用 ct108，不跑完整业务旅程，不让真实 SQL/值进入 Git 或日志。
 4. 04/05/CT201 按各自用途单飞；所有节点先确认连接和 busy marker。正式 runner/真实数据证据不经代理。审核先行、证据后补；runner exit 非 0、缓存缺失或身份不符时按 AGENTS 停止规则处理。
 5. S2a exit tag 与合入 main 等基准 exit 后由 owner 办理。
+
+## 9. F1–F5 定向复审候选与验证
+
+本次定向修订范围为 `c7fc18ecd20b..30d67140d499`，最终代码 HEAD `30d67140d499383e855e361378bf5ef70a946edd`，Rust tree `61a76caa0e789aef1eea53a8c98d4c4c3cbb2af4`。所有验证均在节点 `ct108-gw-dms-05`（hostname `gw-dms-test-05`）的 clean、已提交 detached worktree `/home/dev/gdds-p6-s2a-review-05` 运行；开始与结束 HEAD 均为该候选。会话 `p6-s2a-impl` 于 `2026-11-01T00:35:48Z` 建立节点占用标记，验证期间持有，清理后已删除；复核时 marker 不存在。未使用代理；Python 与 Cargo 离线，Rust toolchain 1.97.0，`CARGO_TARGET_DIR=/home/dev/gdds-test-tmp/p6-s2a-f1-f5-30d67140d4-cargo-target` 在 worktree 外并于结束清理。
+
+| 检查 | 时间（UTC）与结果 | 日志及 SHA256 |
+| --- | --- | --- |
+| backend Rust extension 离线同步及 build-input 检查 | 00:42:41–00:43:08；exit 0，安装 build input 与 `vnext/rust` tree 均为 `61a76caa…` | `rust-extension-sync-30d67140d4-05.log` — `a4af6745e86ebc112c640cb690a172c0cc1769741b438b1cc92bffe294052b42` |
+| F1–F5 相关 backend focused pytest | 00:43:08–00:43:14；**284 passed**，exit 0 | `focused-review-f1-f5-30d67140d4-05.log` — `c15f263459a3962a7febb659c874a1ffe8288b3af2c9359197d8b3263d381c93` |
+| Rust fmt、workspace clippy 与 core focused tests | 00:43:14–00:43:45；fmt 与 clippy exit 0；`gateway-compute-core` **29 passed**，exit 0 | `rust-focused-f1-f5-30d67140d4-05.log` — `200f833453246773273be2e661a923a1b4fb46cb831276b2b05c23bb863cc8e6` |
+| 五个 Python 包 Ruff 与 mypy | 00:43:45–00:43:46；backend、shared_kernel、repository_contracts、repository_client、repository_service 均通过 | `python-static-f1-f5-30d67140d4-05.log` — `2ab3ced569a0bbb5099cda3c497c34bab5d55f864af9e0cc02d79112f588cc09` |
+
+focused pytest 覆盖 reader、property、census、rejects、types、parser、Rust adapter、conformance 与 SQL limits 测试模块。F1 中 `test_reader_single_consumer_reopen_and_close`、`test_reader_stream_error_invalidates_reader_instance`、`test_reader_checks_cancellation_at_successful_eof_commit_point` 仅以 Python 参数运行；`test_insert_column_list_permutes_to_descriptor_order`、`test_expired_deadline_fails_without_reader`、`test_cancel_probe_fails_without_reader` 继续双实现。测试支持层 `_ArrowSqlTableReader` 只将 Arrow 值转成标量，不再模拟 `ParserRuntime`。
+
+F2 的有效文档策略固定 `max_examples=128`、`database=None`、`derandomize=True`，非法输入策略固定 `max_examples=64` 且保持相同数据库与确定性设置。差分比较完整解析结果或非法结果的 status 与 `(code, table, byte_offset)`。F3 census 映射见 §3；F4 build input 的唯一 owner 是 `vnext/scripts/check-rust-extension-build-input.sh`；F5 两个 reject 参数表对 Python 与 Rust 的同一 SQL 输入比较 status 及诊断三元组。
+
+调试迭代发现并收敛了生成器与诊断边界问题：FLOAT32 样本边界收窄到可由两个实现共同表示；移除了并非 unsupported 的 `SET @OLD_CHARACTER_SET_CLIENT` 假设；非法变异稳定为末尾 tuple 截断与未闭合字符串；截断输入暴露 Rust EOF offset 与 Python tuple 起始 offset 不一致，Rust core 已对齐到 tuple 起点；生成的裸 `0x` 样本限制为非空，空二进制由 `x''` 覆盖。最终通过结果取自上述最终 HEAD。失败迭代日志保留于节点 `/home/dev/gdds-p6-logs/s2a/`，包括 `focused-review-f1-f5-bd1b789541-attempt1-failed.log`（SHA256 `006ef4562ef6727865c7632a23ffc1784df779c9388feb149ceeb022d3f82d3c`）、`focused-review-f1-f5-5fba4d7e46-05.log`（SHA256 `d44e3d72889ede2e2c2c8a023adabe64fc80727fffc76832c77c04256d49d501`）与 `focused-review-f1-f5-21dd69f607-05.log`（SHA256 `e59dd59cf5ebe4c777ebf56583c16c0fa1a35d770632f5809d0cdb29f41439be`）。第一次尝试的日志文件后来被重试覆盖，不作为独立证据。一次缺少 Cargo bin 路径的早期构建在 pytest 前失败，随后以正确 toolchain PATH 离线重做；该次失败不计入最终结果。
+
+这轮只运行了 focused pytest、Rust fmt/clippy、core focused cargo test 与五包静态检查；**没有**运行完整权威 runner、`cargo test --workspace`、Compose 门禁或第 ④ 层正式真实数据差分。审核通过后按 §8 继续。

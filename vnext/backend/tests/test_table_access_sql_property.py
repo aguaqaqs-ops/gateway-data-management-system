@@ -169,7 +169,9 @@ def _row_strategy(include_json_overflow: bool) -> SearchStrategy[dict[str, str]]
         st.integers(min_value=0, max_value=65535),
     )
     fixed_binary = binary_bytes.map(lambda value: "x'" + value.hex() + "'")
-    variable_binary = binary_bytes.map(lambda value: "0x" + value.hex())
+    variable_binary = st.binary(min_size=1, max_size=8).map(
+        lambda value: "0x" + value.hex()
+    )
     fields: dict[str, SearchStrategy[str]] = {
         "signed_value": signed,
         "unsigned_value": unsigned,

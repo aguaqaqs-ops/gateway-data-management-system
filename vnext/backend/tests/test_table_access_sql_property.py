@@ -126,10 +126,10 @@ def _row_strategy(include_json_overflow: bool) -> SearchStrategy[dict[str, str]]
         ),
     ).map(lambda value: format(value, "f"))
     float32 = st.one_of(
-        st.sampled_from((-1e30, -1.0, 0.0, 1.0, 1e30)),
+        st.sampled_from((-1.0000000150474662e30, -1.0, 0.0, 1.0, 1.0000000150474662e30)),
         st.floats(
-            min_value=-1e30,
-            max_value=1e30,
+            min_value=-1.0000000150474662e30,
+            max_value=1.0000000150474662e30,
             width=32,
             allow_nan=False,
             allow_infinity=False,

@@ -53,7 +53,7 @@ G2_CENSUS_FORMAT_COVERAGE = (
         "test_mysqldump_session_setup_statements_are_accepted",
     ),
     (
-        "G2 rejected bare SET @OLD_CHARACTER_SET_CLIENT from rd-t3-c-v1",
+        "G2 rd-t3-c-v1 retained an unsupported bare SET statement",
         "test_unsupported_statements_fail_document",
     ),
     (

@@ -1,14 +1,14 @@
 # Phase 6 S2a implementation handoff
 
-状态：**F1–F5 定向复审 1 已通过（main `797f499b92`）；DC64 证据收集已尝试，04 权威 runner exit 1，第 ④ 层正式差分按停止规则未运行；本证据 handoff 待原 S1c 审核会话复核**。证据运行与停止原因见 §10。
+状态：**F1–F5 定向复审 1 已通过（main `797f499b92`）；证据复核 1 的旧 runner 缺陷已在 `3b3d9c97bc` 修订；05 定向验证、第 ④ 层正式差分与 04 六包权威 runner 均已通过；证据复核 2 待原 S1c 会话复核**。历史失败见 §10，本轮证据见 §11。
 
 日期：2026-11-01
 
 ## 1. 候选与授权边界
 
-- 分支：`p6-s2a`；起点为合入 S1c 与 backend image 任务的 merge commit `49d0846d8625a8a928735c4fa0ea5126cf7ab741`。原代码候选 `c7fc18ecd20bb8455a8a54ba3a090e468a42d785` 经 main 本地审核提交 `41844c4958554f0d8c68e41702783b86469d526a`（`p6-s2a-code-review.md`）给出 F1–F5 定向修订；当前候选为 `30d67140d499383e855e361378bf5ef70a946edd`。
+- 分支：`p6-s2a`；起点为合入 S1c 与 backend image 任务的 merge commit `49d0846d8625a8a928735c4fa0ea5126cf7ab741`。原代码候选 `c7fc18ecd20bb8455a8a54ba3a090e468a42d785` 经 main 本地审核提交 `41844c4958554f0d8c68e41702783b86469d526a`（`p6-s2a-code-review.md`）给出 F1–F5 定向修订；证据复核 1 通过的候选为 `30d67140d499383e855e361378bf5ef70a946edd`；删除过时 repository_service 测试后的当前代码候选为 `3b3d9c97bcb6d79d6c087099fbe6353f170bf68f`。
 - Kickoff 初稿 `30de9c1cae` 未改写；按审核意见与 DC72 追加确认提交 `e9b3e04de98769faf6a66e93bcdde0b3e7958979`。
-- O2 是首个产品提交 `229845a6c97786c4c8384607733bff2363b4a62f`，只修改 Python 参照实现和现有 reject 参数表；之后实现 Rust parser/adapter。原实现候选为 `c7fc18e`；本次追加 F1–F5 测试修订及未闭合 INSERT 元组诊断偏移对齐，最终代码候选为 `30d67140d4`。所有修订均追加提交，没有改写审核引用的提交。
+- O2 是首个产品提交 `229845a6c97786c4c8384607733bff2363b4a62f`，只修改 Python 参照实现和现有 reject 参数表；之后实现 Rust parser/adapter。原实现候选为 `c7fc18e`；本次追加 F1–F5 测试修订及未闭合 INSERT 元组诊断偏移对齐，证据复核 1 候选为 `30d67140d4`；随后仅删除 `test_uv_consume_allows_component_pytest_invocation_pattern` 的测试提交 `3b3d9c97bc`。没有改产品代码，所有修订均追加提交。
 - Owner 已在 main `0749edb8e6` 以 DC72 确认 kickoff。没有推送、打 tag 或改写已审核提交。S2a exit 与合入 main 等基准 exit 后办理。
 - `backend.parse_sql()` 与 worker 生产路由仍使用 Python。`implementation="python" | "rust"` 只存在于测试支持层；没有 production flag、部署配置或 shadow 执行。
 
@@ -39,7 +39,7 @@
 | ① 既有 parser/reject/limits/types/reader/conformance 用例双实现 | F1 指定的三个 Rust 输出读取器生命周期测试仅跑 Python；列清单重排、启动前超时与取消三项仍双实现。其他 parser/reject/limits/types/conformance 测试双实现。当前 focused suite 通过。 |
 | ② Hypothesis 生成的语法、literal 与 S1b 边界差分 | 128 个通用样例覆盖类型化值、整数与 DECIMAL 边界、多表/列清单/注释、嵌套转义 JSON 与 `1e400`；64 个变异样例覆盖截断和未闭合字符串，比较 status 与 diagnostic 三元组。两项均保持 `database=None`、`derandomize=True`。当前 focused suite 通过；这是调试验证，不宣称完整随机样本/CI gate。 |
 | ③ 负例、资源预算、诊断截断及超限元组 offset | F5 两个错误路径参数表在 Rust 分支比较 Python 同输入结果的 status 与 diagnostic 三元组；parser/core 现有资源预算与截断测试仍是各自不变量的权威 owner。focused suite 与 gateway-compute-core focused tests 通过。 |
-| ④ t1–t4 v1/v2 与 testdata1 真实值逐项差分 | **未运行**。04 权威 runner 在 repository_service 并行批次失败后按停止规则结束；因此没有在 05 启动正式差分，也没有生成逐份输入 digest、表/值计数或差异结果。 |
+| ④ t1–t4 v1/v2 与 testdata1 真实值逐项差分 | **05 已通过**。候选 `3b3d9c97bc` 上覆盖 10 个输入别名、按 SHA256 去重为 8 个唯一 SQL 输入；8 份均为逐值差异 0、诊断差异 0，testdata1 两份分别命中 t3 v1/v2。逐份计数与摘要见 §11。 |
 | ⑤ G2 census 覆盖到的 SQL 格式类别 | 下方新增完整映射表；测试读取 aggregate census JSON 校验 SQL type 类别闭合，并以双实现 synthetic 样本覆盖缺少直接 owner 的 statement-boundary 形式。当前 focused suite 通过。 |
 
 N=1/N 及不同 chunk size 的逐字节确定性由 core/adapter focused 测试覆盖。V6 原型的吞吐数据不是 S2a 当前候选证据。
@@ -164,10 +164,10 @@ sha256:c338f3f88c37281e775f0b6dfdfa4c079858214cf04733e88f0bda4e4ca4a1f0
 
 ## 8. 审核后状态与待办
 
-1. 原 S1c 审核会话的针对性复审 1 已通过，记录为 main 本地提交 `797f499b92`。候选代码为 `30d67140d4`，本轮证据 handoff 交同一会话复核。
-2. 已在 04 按 DC64 尝试完整六包权威 runner；其最终 exit 为 1，具体日志、逐包 manifest 与失败测试见 §10。没有重跑 runner，也没有修改代码。
-3. 依停止规则，第 ④ 层正式差分没有启动。修复 repository_service 中对已删除旧 crate 路径的断言并重新审核前，不继续正式差分。
-4. 重新启动证据收集时仍使用 04/05 单飞、基准最终 runner 优先、全程离线且不经代理；第 ④ 层仍限于 05，不使用 `ct108-gw-dms`。t1–t4 与 testdata1 按输入 digest 去重，不跑完整业务旅程，也不将真实 SQL/值写入 Git 或日志。
+1. 原 S1c 审核会话的针对性复审 1 已通过，记录为 main 本地提交 `797f499b92`。证据复核 1 的测试缺陷按报告修订并追加提交 `3b3d9c97bc`。
+2. 新候选在 05 的 repository_service 定向文件、unit、Ruff 与 mypy 均通过，第 ④ 层 t1–t4 与 testdata1 正式逐值差分也通过；证据和日志见 §11。
+3. 基准会话释放 04 后，S2a 在该节点按本机离线依赖与镜像策略完成候选 `3b3d9c97bc` 的 backend/worker、RS、client e2e 构建及六包权威 runner；完整结果、逐包 manifest 与日志 SHA 见 §11。
+4. 本候选 04 runner exit 0，05 第④层正式逐值差分全部为零差异。两项正式证据均不经代理；runner 未设置包过滤，完整运行六包。运行与停止历史见 §10、§11。
 5. S2a exit tag 与合入 main 等基准 exit 后由 owner 办理。
 
 ## 9. F1–F5 定向复审候选与验证
@@ -234,6 +234,69 @@ runner 日志在 04：`/home/dev/gdds-p6-logs/s2a/authoritative-runner-04-30d671
 | client e2e 离线镜像 build | `b6cb4247acdc98cbcffbbb77a1b1ce330efe0c06786d55705cadd16703960820` |
 | 成功离线环境预检 | `a40c5d94fd8885b789255cae21b193e8207d87c50b92d0e5dc283e3699d263a4` |
 
-## 11. 审核与后续
+## 11. S2a 证据复核 2（05 与 04 完成）
 
-请原 S1c 审核会话复核 §10 的镜像身份、runner manifest/失败原因、停止规则执行与本 handoff 记录。当前没有通过完整六包权威 runner，且第 ④ 层差分未执行；owner 决定处理 repository_service 旧路径断言并完成相应代码审核前，不宣称 S2a 证据完成或办理阶段 exit。
+### 测试缺陷修订与定向验证
+
+新增代码提交 `3b3d9c97bcb6d79d6c087099fbe6353f170bf68f`，只删除 `vnext/repository_service/tests/test_uv_consume_script.py::test_uv_consume_allows_component_pytest_invocation_pattern`。该用例断言的旧 `gateway-compute-python/tests/test_v1.py` 路径随 `native_kernel_component.sh` 和旧 crate 一并删除；一般的外部 pytest 路径调用由保留的 `test_uv_consume_allows_pytest_external_test_path` 覆盖。没有修改产品代码或其他测试；该提交与 evidence handoff 一起由证据复核 2 审查。
+
+以下检查均在 05（hostname `gw-dms-test-05`）clean detached worktree `/home/dev/gdds-p6-s2a-evidence2-05`、HEAD `3b3d9c97bcb6d79d6c087099fbe6353f170bf68f` 上执行。`legacy` 链接有效；Python/Rust 离线，PATH 以 `/home/dev/.cargo/bin` 开头，Cargo target 在 worktree 外；未使用代理。
+
+| 检查 | 时间 UTC 与结果 | 日志 SHA256 |
+| --- | --- | --- |
+| `tests/test_uv_consume_script.py` | 02:04:02–02:04:06；**18 passed**，exit 0 | `repository-service-targeted-file-3b3d9c97bc-retry1-05.log` — `ea4a96d163cb62410eb9475adb629de41e2eafe908e252d3d18990e94a3adce8` |
+| `repository_service -m unit` | 02:04:06–02:04:45；**1,553 passed, 1 skipped**，exit 0 | `repository-service-unit-3b3d9c97bc-retry1-05.log` — `62105e484ccd595d5550847c2fbe5fcc1f0389ba7092aedad8e005eec82cd552` |
+| Repository Service Ruff | 02:04:45；通过，exit 0 | `repository-service-ruff-3b3d9c97bc-retry1-05.log` — `46c306805550e68d7b6a43c9bdb1f236cda95464b4fad3f5fdfd65eed25dbee3` |
+| Repository Service mypy | 02:04:45；200 source files 无问题，exit 0 | `repository-service-mypy-3b3d9c97bc-retry1-05.log` — `18ae36b4a4214abade0a2f16d8383b1b8904d085c5c90b815e896c03ba594e60` |
+
+首次 `repository_service -m unit` focused 运行发生于 `02:02:32–02:03:11Z`，1 项失败：`test_prepare_preserves_all_lockfiles` 的子进程缺少 Cargo bin PATH，maturin 转入 Rust bootstrap 并失败。该次没有代码改动；日志 `repository-service-unit-3b3d9c97bc-05.log` SHA256 `ff7c25d9ee71e4ee833351698ff1f74aebff908fc0cdf4fd3bf458a5c8240e8c` 保留。按正确 PATH 修正环境后重跑，unit 与其他指定检查全部通过。重跑使用的外部 Cargo target `/home/dev/gdds-test-tmp/p6-s2a-reviewfix-unit-cargo-target` 已清理。
+
+正式差分前在 05 以 `UV_OFFLINE=1` 经 `uv-consume.sh` 同步 backend，exit 0，build input 与 Rust tree 为 `61a76caa0e789aef1eea53a8c98d4c4c3cbb2af4`；日志 `backend-offline-sync-3b3d9c97bc-05.log` SHA256 `9e8d398e0c40edf31fab035e4559f239c869750618bbe97bf110d624d2f99060`。Rust parser binary 由 05 在 `CARGO_NET_OFFLINE=true` 下用 `cargo build --locked --offline --release --example table_access_parse` 构建，`CARGO_TARGET_DIR=/home/dev/gdds-test-tmp/p6-s2a-evidence2-rust-target`；exit 0，日志 SHA256 `efcca3a8d2716b647683c37fb657b41bcc4e094d8e2c978126106f9433f2c704`。backend 与 Rust 构建 target 均在差分结束后清理。
+
+### 第 ④ 层正式真实数据差分
+
+工作节点 marker 会话 `p6-s2a-impl` 从 `2026-11-01T02:01:31Z` 持有至 `02:29:33Z`；开始与结束 worktree 均 clean，HEAD 固定为新候选。全程 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、未设置代理；未运行完整业务旅程或基准性能测量。比较使用 `p6_v6_parser_diff.py real`，threads `1,8`、chunk bytes `1048576,65536`，每份有 4 个 Rust 配置且 `rust_deterministic=true`。
+
+testdata1 的两份 `sql/dbcfg.sql` 由 CT201 `heavy-dev-01` 经 LAN 传到 05 的真实数据目录；传输时间 `02:08:09–02:08:10Z`，exit 0。源与目标 SHA256 完全相同：data1 `78bcb5ff4a37be4856120fee00e5d92f42d7c30dd7081d4c983e0641f96b682f`（49,323,598 bytes），data2 `f039dd6f03a492c3f9f4fcaebf798108457d719efacbdcb1ca2c02e838f1b70b`（49,981,672 bytes）。差分前按输入 SHA256 去重，data1 映射到 t3 v1，data2 映射到 t3 v2；保留两项 testdata1 覆盖记录，只对 8 个唯一 digest 运行解析器。
+
+| 唯一输入 | SQL bytes | 输入 SHA256 | 表数 | 行数 | 值数 | 逐值差异 / 诊断差异 |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| t1 v1 | 1,296,177 | `f8da5b9608981f91ba4cef66e593a6e2299386871d53af71ba203802140748f5` | 132 | 6,093 | 151,751 | 0 / 0 |
+| t1 v2 | 1,296,079 | `8fdbd3d207b81e933da9a4812b97239737541e574e7be4777dffa4f0c80ec059` | 132 | 6,091 | 151,737 | 0 / 0 |
+| t2 v1 | 14,956,886 | `7e858ce1eb9c070814b29e9799548695ee71537f812373a021c5ca9681dce027` | 216 | 97,095 | 2,134,693 | 0 / 0 |
+| t2 v2 | 14,668,224 | `5ef7cc963ad5546fac73cee943a8d8c94f669ca875b4e7315527743a0480eabe` | 216 | 93,109 | 2,103,570 | 0 / 0 |
+| t3 v1 | 49,323,598 | `78bcb5ff4a37be4856120fee00e5d92f42d7c30dd7081d4c983e0641f96b682f` | 199 | 268,460 | 5,922,515 | 0 / 0 |
+| t3 v2 | 49,981,672 | `f039dd6f03a492c3f9f4fcaebf798108457d719efacbdcb1ca2c02e838f1b70b` | 200 | 268,466 | 6,062,168 | 0 / 0 |
+| t4 v1 | 79,446,967 | `b3089d8a734651eb6dd439f11951699d176b7c1b3794bb55142d4532e8d721e8` | 319 | 436,714 | 8,683,933 | 0 / 0 |
+| t4 v2 | 79,269,322 | `65358db2cfba310f145446698d6d20b580ba3b805d520bd3ff9ae33a12ad01af` | 319 | 436,794 | 8,684,781 | 0 / 0 |
+
+覆盖别名：testdata1 data1 SHA 等于 t3 v1；testdata1 data2 SHA 等于 t3 v2。10 个覆盖输入由 8 个唯一 SHA 完成。所有解析均为 `status=COMPLETE`、`parser_exit=0`；日志仅含 alias、SHA、计数与比较状态，没有 SQL、行值或表/列名称。
+
+差分日志在 05：`/home/dev/gdds-p6-logs/s2a/layer4-formal-diff-3b3d9c97bc-05.log`，SHA256 `da4be0d15e903016b1c74f0d093641f6b36de69d3f6d1a7f958e1259dad339bc`；用于提取、去重和摘要的 wrapper SHA256 `a9be5e67226a33d8c4a30c3d20e6e339b7e2a816ea10c216621e3ab30528e2c8`。本次抽取的临时 SQL 与 canonical 文件已删除；作为输入来源保留在 05 数据目录的两份 testdata1 SQL 不在 worktree/log 中。worktree clean，Rust targets 清理，Dolt/Compose/port 8000 均空闲，05 marker 已释放。
+
+一次只读输入预检 wrapper 最初使用了错误的 archive 根路径并有 heredoc 结束符错误；只留下空的 mode-0700 临时目录，没有读取或提取 SQL、没有启动 parser。改用 `packages/rd-t*-*.tar.gz` 后重做成功。DC68 记录 `/home/dev/gdds-p6-logs/s2a/layer4-input-preflight-error.log`，SHA256 `9ce395aab3f24e54449e0f03555521e2cffb4ef5918e7f18e72990f8fa5b9973`。
+
+### 04 六包权威 runner
+
+基准会话释放 04 后，在 marker `p6-s2a-impl` 下运行新候选 `3b3d9c97bcb6d79d6c087099fbe6353f170bf68f`。候选 bundle 经 LAN 传输到 04，SHA256 `30277bd6d8cc81fc2b193a1f4a010153856e38de8a15817f1dcfc95c2a28842f`；传输记录在 CT201 `/home/dev/gdds-p6-logs/s2a/source-bundle-transfer-04-3b3d9c97bc.log`，SHA256 `527683809b338d97135ce596398222eb72e0820a17432f2d4d4b8f51dd7ccae9`。clean detached worktree 为 `/home/dev/gdds-p6-s2a-runner-3b3d9c97bc-04`，`legacy` 链接有效。起止 HEAD 均为候选提交。
+
+04 未重新传输 dependency-base。`gateway-backend-deps:lock-d054366c02fa` 的本机 image ID 为 `sha256:d363b45a33be8d0034f49f156998753086d09c4c171e75896f1e4beab4ff49ff`，与前次加载校验后的记录一致。backend/worker 使用该镜像并保留 Compose build，在 04 离线构建；RS 用 `gateway-p2r1-repository:lock-6dc9659f0aee`，client e2e 用 `gateway-repository-client-e2e-base:local` 离线重建。三次 build 分别在 `02:43:07–02:43:08Z`、`02:43:15–02:43:20Z`、`02:43:27–02:43:31Z` 完成，均 exit 0。RS image label revision/build-input revision 均为候选提交，source-tree SHA256 为 `sha256:ee92f50f55fd9a134ddc1684aabc64fff32a32bffba680f5139cb9e692fe4015`；client image label revision 为候选提交、uv lock SHA256 为 `6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954`。构建日志分别为：backend/worker `backend-worker-offline-build-04-3b3d9c97bc.log` — `1bfc2da836298a1ea7c062ab58ab5211d0553d7ee8a62f6cf42232235b4f086c`；RS `repository-service-offline-build-04-3b3d9c97bc.log` — `3626dc6d8229ebe4815a041daeef5c1bf67f979275e608ae8792b06ebea4ae31`；client e2e `client-e2e-offline-build-04-3b3d9c97bc.log` — `ffddd69bd5c59435fef604d9b5f0a6728c4e77fc19d030e46f262552e1476734`。镜像标签与候选的只读核验日志 SHA256 `1f975ae24c719310e730bdb4046b6008dde98e575b559f3c401684fbd3c87b55`。
+
+离线环境预检于 `02:44:08–02:44:36Z` 通过：五个 Python 包经 `uv-consume.sh` 同步，Rust selector 下 `rustc`、`cargo`、`rustfmt`、`clippy-driver` 均解析到 Rust 1.97.0；backend 扩展 build-input 与当前 `vnext/rust` tree `61a76caa0e789aef1eea53a8c98d4c4c3cbb2af4` 一致。预检日志 `offline-env-preflight-04-3b3d9c97bc.log` SHA256 `619041ce1621d916cabff32508c97974b226ebe910b3a3dec5bc28a48856ec42`。此前两个只读预检命令封装错误：一处本地 SSH 命令引号不匹配、未触达远端；另一处远端没有 `rg` 可执行文件，仅读命令停止。均无副作用，改用正确引用和可用命令后完成预检/核验；记录在 CT201 `preflight-shell-quote-error-04-3b3d9c97bc.log`（SHA256 `9fa27fe6fdab586f5e72e1d96fff6f0de6ab30285ccd574b2344ea9d1b42fe22`）与 `preflight-missing-rg-04-3b3d9c97bc.log`（SHA256 `785c26232211cc343aca8cc1fc40a6b5f8c38ccd6442da84cfbffbaa59ab41fe`）。04 的 image build、image identity 与环境预检日志均位于 `/home/dev/gdds-p6-logs/s2a/`。
+
+六包权威 runner 在 hostname `gw-dms-test-04` 的上述 clean worktree 中于 `2026-11-01T02:45:07Z–03:06:41Z` 运行，起止 HEAD 均为候选，exit **0**。环境为 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、`TMPDIR=/home/dev/gdds-test-tmp`；未设置 `GATEWAY_TEST_PACKAGES`，全六包运行。代理、`GATEWAY_DOCKER_BUILD_NETWORK` 与 `GATEWAY_COMPOSE_GATE_PREBUILT` 均未传入；backend/worker dependency-base 预置选择保留。逐包 manifest `total_digest` 与结果如下：
+
+| package | manifest `total_digest` | 权威 runner 结果 |
+| --- | --- | --- |
+| rust | `94e1a069bfe912f3521cbf5351da0b19a0de0d989aed13eb2835b315786a173f` | fmt、clippy 通过；workspace cargo test 152 passed。 |
+| shared_kernel | `d04e73f382d2be7b83f6237c7eb47672621c4302019fee9a5e92c2c8637ae05a` | 243 passed。 |
+| repository_contracts | `a9e4f8cb96755d2068229d90d3f8fe72b4f9e607905a0e33f443d99a4dd7f521` | 152 passed。 |
+| repository_client | `f84540586d6f4fbc6ef0c5a223b52a9da78d32355edc2dd9915ec4a8a00d41b0` | 161 passed。 |
+| backend | `502d92b4dfa6b6cc5ebb8a6a1132e72e674aa5ce2a325f8ea975588b75109de3` | 并行 3,235 passed；串行 52 passed。 |
+| repository_service | `fabf123f17dbcd258cae61d8f40f7c3ed0eb1d163234ceff018af9ade0d67ad4` | 并行 1,742 passed、1 skipped；串行 207 passed。 |
+
+完整 runner 日志在 04 `/home/dev/gdds-p6-logs/s2a/authoritative-runner-04-3b3d9c97bc.log`，SHA256 `e39675de73554a9908d2c9b1b8c3485f8278cef80c04bd40a9452dffba986ce5`。完成后 worktree clean、无活动 Dolt/Compose、port 8000 空闲；Cargo target 与五个 Hypothesis storage 路径均清理。marker 从 `02:40:49Z` 持有至 `03:07:39Z` 后释放。清理记录在 CT201 `/home/dev/gdds-p6-logs/s2a/runner-04-cleanup-and-release-3b3d9c97bc.log`，SHA256 `2c9b7791e2651cdadab6db8c8a87361c8cab35968b328c054220b9a06ff6b4dd`。
+
+## 12. 审核与后续
+
+请原 S1c 审核会话复核 §11 的 04 六包权威 runner、第 ④ 层正式差分、`3b3d9c97bc` 测试删除 diff、停止规则与日志 SHA。S2a 的两项正式证据均已完成；证据复核 2 通过后再办理阶段 exit，仍待基准 exit 后执行。

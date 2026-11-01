@@ -6,7 +6,11 @@ import json
 from pathlib import Path
 
 import pytest
-from gateway_backend.capabilities.table_access.contracts import ParseStatus, ParserDiagnosticCode
+from gateway_backend.capabilities.table_access.contracts import (
+    ParseResult,
+    ParseStatus,
+    ParserDiagnosticCode,
+)
 from gateway_shared_kernel import canonicalize_identifier
 from tests.support.table_access_sql import (
     current_sql_implementation,
@@ -17,6 +21,15 @@ from tests.support.table_access_sql import (
 @pytest.fixture(autouse=True)
 def _run_both_sql_implementations(dual_sql_implementation: None) -> None:
     pass
+
+
+def _diagnostic_signature(
+    result: ParseResult,
+) -> tuple[tuple[ParserDiagnosticCode, str | None, int], ...]:
+    return tuple(
+        (item.code, item.table, item.byte_offset)
+        for item in result.diagnostics
+    )
 
 
 SQL_STATEMENT_REJECTS = (
@@ -37,6 +50,11 @@ SQL_STATEMENT_REJECTS = (
         "@@saved_cs_client",
     ),
     ("SET @other_client = 1;", ParserDiagnosticCode.UNSUPPORTED_STATEMENT, "@other_client"),
+    (
+        "SET @OLD_CHARACTER_SET_CLIENT = @@CHARACTER_SET_CLIENT;",
+        ParserDiagnosticCode.UNSUPPORTED_STATEMENT,
+        "@OLD_CHARACTER_SET_CLIENT",
+    ),
 )
 
 SQL_TYPE_MALFORMED_SHAPES = (
@@ -95,6 +113,10 @@ def test_unsupported_statements_fail_document(sql: str, code: ParserDiagnosticCo
     assert result.diagnostics[0].code is code
     if current_sql_implementation() == "python":
         assert needle in result.diagnostics[0].message
+    else:
+        python_result = parse_text(sql, implementation="python")
+        assert result.status is python_result.status
+        assert _diagnostic_signature(result) == _diagnostic_signature(python_result)
 
 
 @pytest.mark.parametrize("sql_type", SQL_TYPE_MALFORMED_SHAPES)
@@ -125,7 +147,9 @@ def test_illegal_values_invalidate_table(sql: str, code: ParserDiagnosticCode, n
             for item in result.diagnostics
         )
     else:
-        assert any(item.code is code for item in result.diagnostics)
+        python_result = parse_text(sql, implementation="python")
+        assert result.status is python_result.status
+        assert _diagnostic_signature(result) == _diagnostic_signature(python_result)
 
 
 def test_duplicate_table_and_if_not_exists_still_errors() -> None:

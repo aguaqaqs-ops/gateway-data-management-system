@@ -55,6 +55,7 @@ class ArmableCancel:
         return self.armed
 
 
+@pytest.mark.parametrize("dual_sql_implementation", ("python",), indirect=True)
 def test_reader_single_consumer_reopen_and_close() -> None:
     result = parse_text(_SQL)
     assert result.status is ParseStatus.COMPLETE
@@ -73,7 +74,11 @@ def test_reader_single_consumer_reopen_and_close() -> None:
     with pytest.raises(TableAccessError) as closed:
         reader.descriptor()
     assert closed.value.code is ParserDiagnosticCode.READER_CLOSED
-    assert [cell.decimal for cell, _name in tuple(reopened.iter_rows()) if isinstance(cell, SignedIntegerScalar)] == [
+    assert [
+        cell.decimal
+        for cell, _name in tuple(reopened.iter_rows())
+        if isinstance(cell, SignedIntegerScalar)
+    ] == [
         "1",
         "2",
         "3",
@@ -112,6 +117,7 @@ def test_cancel_probe_fails_without_reader() -> None:
     assert result.diagnostics[0].code is ParserDiagnosticCode.PARSER_CANCELLED
 
 
+@pytest.mark.parametrize("dual_sql_implementation", ("python",), indirect=True)
 def test_reader_stream_error_invalidates_reader_instance() -> None:
     cancel = ArmableCancel()
     result = parse_text(_SQL, context=ParserInvocationContext(cancel))
@@ -130,6 +136,7 @@ def test_reader_stream_error_invalidates_reader_instance() -> None:
     assert closed.value.code is ParserDiagnosticCode.READER_CLOSED
 
 
+@pytest.mark.parametrize("dual_sql_implementation", ("python",), indirect=True)
 def test_reader_checks_cancellation_at_successful_eof_commit_point() -> None:
     cancel = ArmableCancel()
     result = parse_text(

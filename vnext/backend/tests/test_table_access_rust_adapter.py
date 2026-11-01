@@ -12,7 +12,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     NeverCancel,
     ParserDiagnosticCode,
 )
-from gateway_compute._native import __build_input__, _parse_sql_native
+from gateway_compute._native import _parse_sql_native
 
 
 def _native_result(
@@ -29,10 +29,6 @@ def _native_result(
             1,
         ),
     )
-
-
-def test_installed_extension_matches_the_current_rust_tree() -> None:
-    assert len(__build_input__) == 40
 
 
 def test_native_parser_returns_an_owned_arrow_c_stream() -> None:

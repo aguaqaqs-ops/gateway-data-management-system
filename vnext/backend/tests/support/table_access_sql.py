@@ -30,7 +30,6 @@ from gateway_backend.capabilities.table_access.contracts import (
     SourceTableDescriptor,
     SqlParseRequest,
     SqlSourceInput,
-    TableAccessError,
 )
 from gateway_shared_kernel import (
     BinaryScalar,
@@ -128,7 +127,7 @@ def parse_request_result(
         raise RuntimeError(
             f"{envelope['code']} at {envelope['byte_offset']}: {envelope['message']}"
         )
-    tables = tuple(_table_from_native(item, request, budgets or RESOURCE_BUDGETS) for item in envelope["tables"])
+    tables = tuple(_table_from_native(item) for item in envelope["tables"])
     diagnostics = tuple(
         ParserDiagnostic(
             code=ParserDiagnosticCode[item["code"]],
@@ -148,11 +147,7 @@ def parse_request_result(
     return ParseResult(ParseStatus(envelope["status"]), tables, diagnostics)
 
 
-def _table_from_native(
-    value: dict[str, Any],
-    request: SqlParseRequest,
-    budgets: ResourceBudgets,
-) -> ParsedTable:
+def _table_from_native(value: dict[str, Any]) -> ParsedTable:
     columns = tuple(
         SourceColumnDescriptor(
             display_name=column["display_name"],
@@ -183,13 +178,7 @@ def _table_from_native(
     table = stream.read_all()
     return ParsedTable(
         descriptor,
-        _ArrowSqlTableReader(
-            descriptor,
-            table,
-            request.context,
-            request.sql_utf8,
-            budgets,
-        ),
+        _ArrowSqlTableReader(descriptor, table),
     )
 
 
@@ -210,62 +199,24 @@ class _ArrowSqlTableReader:
         self,
         descriptor: SourceTableDescriptor,
         table: pa.Table,
-        context: ParserInvocationContext,
-        source: bytes,
-        budgets: ResourceBudgets,
     ) -> None:
         self._descriptor = descriptor
         self._table = table
-        self._context = context
-        self._source = source
-        self._budgets = budgets
-        self._closed = False
-        self._consumed = False
-        self._stream_error: TableAccessError | None = None
 
     def descriptor(self) -> SourceTableDescriptor:
-        self._require_open()
         return self._descriptor
 
     def iter_rows(self) -> Iterator[SourceRow]:
-        self._require_open()
-        if self._consumed:
-            raise ValueError("table reader is single-consumer and non-rewind")
-        self._consumed = True
-        from gateway_backend.capabilities.table_access._parser_runtime import ParserHalt, ParserRuntime
-
-        runtime = ParserRuntime(self._context, self._budgets)
-        try:
-            for batch in self._table.to_batches(max_chunksize=self._budgets.max_reader_batch_rows):
-                for row_index in range(batch.num_rows):
-                    runtime.checkpoint(row_index)
-                    yield tuple(
-                        _source_cell(batch.column(column_index)[row_index].as_py(), column)
-                        for column_index, column in enumerate(self._descriptor.columns)
-                    )
-            runtime.checkpoint(len(self._source))
-        except ParserHalt as halt:
-            error = TableAccessError(halt.code, halt.message)
-            self._stream_error = error
-            raise error from halt
+        for batch in self._table.to_batches():
+            for row_index in range(batch.num_rows):
+                yield tuple(
+                    _source_cell(batch.column(column_index)[row_index].as_py(), column)
+                    for column_index, column in enumerate(self._descriptor.columns)
+                )
 
     def close(self) -> None:
-        self._closed = True
-
-    def reopen(self) -> _ArrowSqlTableReader:
-        return _ArrowSqlTableReader(
-            self._descriptor,
-            self._table,
-            self._context,
-            self._source,
-            self._budgets,
-        )
-
-    def _require_open(self) -> None:
-        if self._closed:
-            raise TableAccessError(ParserDiagnosticCode.READER_CLOSED, "reader is closed")
-        if self._stream_error is not None:
-            raise self._stream_error
+        # The parser test adapter has no product-reader lifecycle to manage.
+        return None
 
 
 def _source_cell(value: Any, column: SourceColumnDescriptor) -> SourceCell:

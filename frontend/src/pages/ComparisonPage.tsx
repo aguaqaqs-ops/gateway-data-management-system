@@ -150,6 +150,7 @@ export function ComparisonPage() {
   const [onlyInteresting, setOnlyInteresting] = useState(runtime.snapshot.state.onlyInteresting);
   const [debug, setDebug] = useState(runtime.snapshot.state.debug);
   const loadingKey = useRef<string | null>(null);
+  const loadedRequest = useRef<{ requestPath: string; bundleDigest: string } | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const selectedNavRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -168,7 +169,9 @@ export function ComparisonPage() {
     if (!requestPath.startsWith("/v1/")) {
       setError({ code: "BUNDLE_REQUEST_INVALID", details: "比较结果地址无效。" }); return;
     }
-    const requestKey = (browse.bundleDigest ?? "new") + "|" + requestPath;
+    if (loadedRequest.current?.requestPath === requestPath
+      && (!browse.bundleDigest || browse.bundleDigest === loadedRequest.current.bundleDigest)) return;
+    const requestKey = requestPath;
     if (loadingKey.current === requestKey) return;
     loadingKey.current = requestKey;
     setError(null); setBundle(null); setPairs([]);
@@ -177,6 +180,7 @@ export function ComparisonPage() {
       const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest: browse.bundleDigest ?? undefined,
         fetchBundle: () => API(requestPath, { headers: { Accept: "application/x-tar" } }),
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
+      loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest };
       const pairSummaries = loaded.manifest.pairs.filter((value): value is PairSummary => Boolean(value && typeof value === "object" && typeof (value as PairSummary).pair_id === "string"));
       const loadedPairs = await Promise.all(pairSummaries.map(async (pair) => ({ pair, presentation: await loadComparisonPresentation(loaded, pair.pair_id) })));
       setBundle(loaded); setPairs(loadedPairs); setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });

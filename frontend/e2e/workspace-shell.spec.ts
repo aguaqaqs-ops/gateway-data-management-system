@@ -171,8 +171,10 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.getByRole("tab", { name: "节点 2 → 节点 3" }).click();
   await expect(page).toHaveURL(/pair=node_2_to_node_3/);
 
+  const previewRequestsBeforeReturn = requests.get("preview-full") ?? 0;
   await page.getByRole("button", { name: "上传预览", exact: true }).click();
   await waitForBrowse(page);
+  expect(requests.get("preview-full")).toBe(previewRequestsBeforeReturn + 1);
   await page.locator(".table-heading__actions button").click();
   const formula = page.getByRole("dialog", { name: "公式查看" });
   await expect(formula).toBeVisible();

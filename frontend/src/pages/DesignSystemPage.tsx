@@ -18,6 +18,18 @@ export function DesignSystemPage() {
         <Button variant="primary" icon={<FolderOpen size={16} />}>打开本地 bundle</Button>
       </section>
 
+      <section className="showcase-card showcase-card--wide semantic-token-card" aria-labelledby="semantic-token-title">
+        <div className="card-heading"><div><span className="section-kicker">S4 · SEMANTIC TOKENS</span><h3 id="semantic-token-title">风险五级语义色</h3></div><span className="subtle-label">整行底色 + 左侧 4px 色条；变更文字和改动格取同级色加深</span></div>
+        <div className="semantic-token-grid">{[
+          { key: "high", label: "高风险", bg: "--risk-high-bg", rail: "--risk-high-rail", text: "--risk-high-text", cell: "--risk-high-cell" },
+          { key: "medium-high", label: "中高风险", bg: "--risk-medium-high-bg", rail: "--risk-medium-high-rail", text: "--risk-medium-high-text", cell: "--risk-medium-high-cell" },
+          { key: "medium-low", label: "中低风险", bg: "--risk-medium-low-bg", rail: "--risk-medium-low-rail", text: "--risk-medium-low-text", cell: "--risk-medium-low-cell" },
+          { key: "low", label: "低风险", bg: "--risk-low-bg", rail: "--risk-low-rail", text: "--risk-low-text", cell: "--risk-low-cell" },
+          { key: "unknown", label: "未知风险", bg: "--risk-unknown-bg", rail: "--risk-unknown-rail", text: "--risk-unknown-text", cell: "--risk-unknown-cell" },
+        ].map((token) => <article className="semantic-token" key={token.key}><div className="semantic-token__sample" style={{ background: `var(${token.bg})`, color: `var(${token.text})`, borderLeft: `4px solid var(${token.rail})` }}><strong>{token.label}</strong><b style={{ background: `var(${token.cell})` }}>改动格</b></div><small>底色 <code>{token.bg}</code></small><small>色条 <code>{token.rail}</code></small><small>文字 <code>{token.text}</code></small><small>改动格 <code>{token.cell}</code></small></article>)}</div>
+        <div className="semantic-token-neutrals"><span>差异：中性符号与文字 <b>+ 新增　− 删除　↔ 修改</b></span><span>焦点：<button className="focus-token">当前变更</button></span><span>分布条：<i className="distribution-token-mark distribution-token-mark--high" /><i className="distribution-token-mark distribution-token-mark--medium-high" /><i className="distribution-token-mark distribution-token-mark--medium-low" /><i className="distribution-token-mark distribution-token-mark--low" /><i className="distribution-token-mark distribution-token-mark--unknown" /></span></div>
+      </section>
+
       <div className="component-grid">
         <section className="showcase-card showcase-card--wide">
           <div className="card-heading"><div><span className="section-kicker">P1 · BUTTONS</span><h3>操作层级</h3></div><span className="subtle-label">每个操作区至多一个主要按钮</span></div>

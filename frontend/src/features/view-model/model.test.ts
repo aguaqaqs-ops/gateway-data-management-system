@@ -55,7 +55,7 @@ describe("bundle view model", () => {
     expect(result.tables.find((table) => table.tableName === "device_ext")?.riskLevel).toBeNull();
   });
 
-  it("summarizes filtered tabs from scoped facts and preserves backend diagnostics", () => {
+  it("summarizes filtered tabs from scoped facts without reading inline diagnostics", () => {
     const navigation: BusinessNavigation = {
       groups: [{ group_key: "SECONDARY_DEVICES", label: "二次装置列表", items: [{
         item_key: "device:addr:1", item_kind: "DEVICE", label: "装置一", tabs: [
@@ -63,7 +63,6 @@ describe("bundle view model", () => {
           { tab_key: "whole", label: "装置整表", table_id: "device_ext", row_filter: null },
         ],
       }] }],
-      diagnostics: [{ code: "NAVIGATION_FALLBACK", message: "装置身份计数未知" }, "OTHER_TABLES_ADDED"],
     };
     const result = deriveBundleView({
       surface,
@@ -73,7 +72,7 @@ describe("bundle view model", () => {
 
     expect(result.groups[0]?.items[0]?.changeKinds).toEqual(["ADDED", "UNCHANGED"]);
     expect(result.groups[0]?.items[0]?.riskLevels).toEqual(["HIGH"]);
-    expect(result.diagnostics).toEqual(["NAVIGATION_FALLBACK: 装置身份计数未知", "OTHER_TABLES_ADDED"]);
+    expect(result.diagnostics).toEqual([]);
   });
 
   it("does not synthesize unknown risk when the RiskReport has no table entry", () => {
@@ -109,6 +108,15 @@ describe("bundle view model", () => {
     expect(applyNavigationRowFilter(records, { column: "record_kind", value: "ROW_DELETED" })).toHaveLength(1);
   });
 
+  it("does not search binary row identities or structural kind fields", () => {
+    const rows = [
+      { row_identity: Uint8Array.from([0x12, 0x34]), kind: "string", record_kind: "ROW_ADDED", value: "继电器" },
+    ];
+    expect(filterChangedRows(rows, { search: "12" })).toEqual([]);
+    expect(filterChangedRows(rows, { search: "string" })).toEqual([]);
+    expect(filterChangedRows(rows, { search: "继电器" })).toHaveLength(1);
+  });
+
   it("shows only the uploaded formula during a changed Preview and both sides in History", () => {
     const before = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "old", formula_ast_json: { op: "add", args: [1, 2] } }];
     const current = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "new", formula_ast_json: { op: "add", args: [1, 3] } }];
@@ -116,7 +124,7 @@ describe("bundle view model", () => {
     const preview = deriveFormulaDisplays({ mode: "PREVIEW", before, current, beforeDevices: devices, currentDevices: devices });
     expect(preview[0]).toMatchObject({ beforeFormula: null, currentFormula: current[0]?.formula_ast_json, formulaChanged: true, label: "公式已改", currentDeviceName: "复合信号装置" });
     const history = deriveFormulaDisplays({ mode: "HISTORY", before, current, beforeDevices: [{ dev_addr: 65532, description: "改前名称" }], currentDevices: devices });
-    expect(history[0]).toMatchObject({ beforeFormula: before[0]?.formula_ast_json, currentFormula: current[0]?.formula_ast_json, formulaChanged: false, label: null, beforeDeviceName: "改前名称", currentDeviceName: "复合信号装置" });
+    expect(history[0]).toMatchObject({ beforeFormula: before[0]?.formula_ast_json, currentFormula: current[0]?.formula_ast_json, changed: true, formulaChanged: false, label: null, beforeDeviceName: "改前名称", currentDeviceName: "复合信号装置" });
     const deletedPreview = deriveFormulaDisplays({ mode: "PREVIEW", before, current: [], beforeDevices: devices, deletedPointKeys: new Set(["composite_signal_point:8"]) });
     expect(deletedPreview[0]?.beforeFormula).toEqual(before[0]?.formula_ast_json);
   });

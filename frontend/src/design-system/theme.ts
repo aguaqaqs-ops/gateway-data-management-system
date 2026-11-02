@@ -27,6 +27,7 @@ export function createTableTheme(readToken: CssTokenReader = readComputedToken):
   const fontSizeXs = requiredToken(readToken, "--font-size-xs");
   const surfaceMuted = requiredToken(readToken, "--color-surface-muted");
   const border = requiredToken(readToken, "--color-border");
+  const rowSeparator = requiredToken(readToken, "--color-row-separator");
 
   return {
     accentColor: requiredToken(readToken, "--color-accent"),
@@ -49,7 +50,7 @@ export function createTableTheme(readToken: CssTokenReader = readComputedToken):
     bgBubble: surfaceMuted,
     bgBubbleSelected: requiredToken(readToken, "--color-accent-soft"),
     bgSearchResult: requiredToken(readToken, "--color-search-result"),
-    borderColor: border,
+    borderColor: rowSeparator,
     drilldownBorder: border,
     linkColor: requiredToken(readToken, "--color-accent"),
     cellHorizontalPadding: numericToken(readToken, "--space-2"),

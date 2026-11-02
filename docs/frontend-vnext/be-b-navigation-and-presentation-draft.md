@@ -140,6 +140,16 @@ Tab:
 | 转发通道分组信息 | 暂不输出 | 后续要扩展的功能（owner 2026-11-02）；当前没有数据来源，不输出空组。按 §4.6 的扩展约定在后续版本加入 |
 | 未解析表 | SIMPLIFY | 改为 `OTHER_TABLES`，界面名“其他表” |
 
+**转发通道项的两侧判定**（设计会话 2026-11-02，沿用 legacy）：
+
+- **转发通道条件：** `net_cfg` 中该通道行的 `exe` 为 `iec104`，且 `tab_num` 大于 0。
+- **通道集合：** 取两侧 `net_cfg` 的并集，按通道键 `b{board}_n{link_no}` 对齐。
+- **满足条件：** 通道在任一侧满足转发通道条件，且 surface 中至少有一张该通道的 9 类转发表或 `sg_cfg` 时，生成一个转发通道项，并认领该通道的这些表。
+  - 页签是否显示（§4.5）不影响认领。
+  - 项没有可显示的页签时，由后端省略该项，但它的表仍算已认领，不进入“其他表”。
+- **两侧不同：** 例如基线侧满足、上传侧把 `tab_num` 改成 0，或者反过来，仍然生成项，不输出导航诊断。`net_cfg` 行的变化由比较与风险表达，导航不重复。
+- **都不满足：** 通道在两侧都不满足条件（包括两侧 `net_cfg` 都没有该通道）时，不生成项，该通道的表进入“其他表”，并输出 `CHANNEL_TABLE_UNCLAIMED`（§4.7）。
+
 ### 4.4 复合信号虚装置（SIMPLIFY；Preview 基线侧补齐，owner 2026-11-02）
 
 - 保留为二次装置组中的特殊项（`COMPOSITE_SIGNAL_DEVICE`），页签按 `dev_addr=65532` 过滤各测点表，与普通装置相同。
@@ -170,7 +180,7 @@ Tab:
 - 表 `b{board}_n{link_no}_sg_cfg` 作为同一通道转发通道项的页签，排在 9 类转发表页签之后。
 - 页签名取该表注释（当前为“定值”）；注释缺失时用“定值”。9 类转发表页签沿用固定中文名，不取注释（注释为“遥测引用表”等较长名称）。
 - 两侧都为 0 行时不显示该页签；任一侧有行（包括整表删除前有行）时显示。
-- 只挂到已存在的转发通道项（`exe=iec104` 且 `tab_num>0`）。所属通道没有转发通道项时，留在“其他表”，并输出诊断 `CHANNEL_TABLE_UNCLAIMED`（§4.7）。
+- 只挂到转发通道项，项的生成按 §4.3 的两侧判定。所属通道在两侧都不满足转发通道条件时，表留在“其他表”，并输出诊断 `CHANNEL_TABLE_UNCLAIMED`（§4.7）。
 - 由转发通道认领后，不再进入“其他表”。
 
 ### 4.6 分组的扩展约定
@@ -231,12 +241,14 @@ Diagnostic:
 | `DEVICE_GID_DUPLICATE` | 某侧 `device` 表中 `gid` 重复 | `SECONDARY_DEVICES`，`table_id=device` | 有 | `gid` | {侧}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确 | `DUPLICATE_DEVICE_GID` |
 | `DEVICE_TAB_COUNT_UNKNOWN` | 测点表在某侧存在，但无法按身份列统计计数；页签保留（§4.2） | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column` | {侧}{表}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空 | `SECONDARY_TAB_AVAILABILITY_UNKNOWN` |
 | `DEVICE_ROWS_UNASSIGNED` | 测点表中有行的身份值在两侧装置总表中都不存在，在任何装置页签中都看不到 | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column`、`row_count`、`changed_row_count` | {侧}{表}有 {row_count} 行不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表 | 无，新增（owner 2026-11-02 确认） |
-| `CHANNEL_TABLE_UNCLAIMED` | 9 类转发表或 `sg_cfg` 按名称属于某个通道，但该通道没有转发通道项 | `OTHER_TABLES`，`table:<表名>`，`table_id` | null | `board`、`link_no` | {表}属于通道 b{board}_n{link_no}，但该通道不是 IEC104 转发通道，已放入“其他表” | 无（§4.5；范围扩大到 9 类转发表，legacy 中这些表直接进入“未解析表”） |
+| `CHANNEL_TABLE_UNCLAIMED` | 9 类转发表或 `sg_cfg` 按名称属于某个通道，但该通道在两侧都不满足转发通道条件，包括两侧 `net_cfg` 都没有该通道（§4.3） | `OTHER_TABLES`，`table:<表名>`，`table_id` | null（两侧合并判定） | `board`、`link_no` | {表}按名称属于通道 b{board}_n{link_no}，但网口配置表中没有该通道，或该通道不满足转发通道条件（规约为 IEC104 且 tab_num 大于 0），已放入“其他表” | 无（§4.5；范围扩大到 9 类转发表，legacy 中这些表直接进入“未解析表”） |
 | `PROTOCOL_EXE_MISSING` | 某侧 `net_cfg` 通道的 `exe` 为空 | `COMMUNICATION_PROTOCOLS`，`protocol:b{board}_n{link_no}` | 有 | `board`、`link_no` | {侧}通道 b{board}_n{link_no} 未配置规约，无法确定规约表 | `MISSING_PROTOCOL_EXE` |
 | `PROTOCOL_TABLE_NOT_FOUND` | `exe` 有值，但候选规约表都不存在 | 同上 | 有 | `board`、`link_no`、`protocol`、`expected_tables` | {侧}通道 b{board}_n{link_no} 的规约 {protocol} 没有对应的规约表（{expected_tables}） | `CANDIDATE_TABLE_NOT_FOUND` |
 | `APP_TABLE_CFG_MISSING` | 某侧 `app_cfg` 行的 `table_cfg` 为空 | `GLOBAL_PARAMETERS`，`app_cfg` 整表项，`table_id=app_cfg` | 有 | `app_name` | {侧}全局参数 {app_name} 未指定参数表 | `MISSING_TABLE_CFG` |
 | `APP_TABLE_CFG_DUPLICATE` | 多行 `table_cfg` 指向同一张表 | 同上 | 有 | `app_name`、`table_cfg` | {侧}全局参数 {app_name} 指向的参数表 {table_cfg} 已被其他行使用，只显示一次 | `DUPLICATE_TABLE_CFG` |
 | `APP_TABLE_NOT_FOUND` | `table_cfg` 指向的表不存在 | 同上 | 有 | `app_name`、`table_cfg` | {侧}全局参数 {app_name} 指向的参数表 {table_cfg} 不存在 | `TARGET_TABLE_NOT_FOUND` |
+
+`CHANNEL_TABLE_UNCLAIMED` 的文案不区分原因：两侧的原因可能不同，例如一侧没有该通道、另一侧 `exe` 不是 IEC104。用户可以在“通讯规约列表”的网口配置表中查看该通道两侧的 `exe` 与 `tab_num`。`exe` 为空时，同一通道还会按侧输出 `PROTOCOL_EXE_MISSING`。
 
 `params` 的类型：`dev_addr`、`gid`、`board`、`link_no`、`row_count` 和 `changed_row_count` 为 int；`app_name` 可为 null；`expected_tables` 为 string 列表；其余为 string。
 

@@ -196,7 +196,7 @@ FE0 逐项核对 vnext 来源并标注 KEEP / SIMPLIFY / REMOVE；“简化”�
 | 项 | 需要的决定 | 阶段 |
 | --- | --- | --- |
 | FD7 规则写入 AGENTS 与 testing-conventions | 治理会话执行 | FE0 首次运行测试前 |
-| UI 草图中的占位文案（节点状态、Diff Kind、Change Group） | 按 vnext 实际枚举定稿，FE2 前回填 UI 优化方向 | FE1 |
+| UI 草图中的占位文案（节点状态、Diff Kind、Change Group） | 按 vnext 实际枚举定稿。提案见 [FE2 kickoff §4](fe2-kickoff.md#4-界面文案定稿回填前端-kickoff-9-第-2-项)，待 owner 确认 | FE2 开始前 |
 | 侧栏导航层级是否精简 | BE-b 分组设计后讨论 | BE-b 设计 |
 | 导航诊断的结构与编码（FE1 审核 D1） | 已答复：[BE-b 草案 §4.7](be-b-navigation-and-presentation-draft.md#47-导航诊断设计会话-2026-11-02答复-fe1-审核-d1)。诊断放在 `SurfaceProjectionRef.diagnostics_ref` 指向的独立产物中，不带 message，前端按 code 映射中文文案。FE2 按此修改 `model.ts` 的过渡处理并补测试；新增编码 `DEVICE_ROWS_UNASSIGNED` 已由 owner 确认（2026-11-02） | FE2 |
 | surface `diagnostics_summary` 中的自由文本 | 少数条目是自由文本而不是编码（如风险引擎的 `max_annotations_per_pair exceeded`、比较失败的异常文本）。收敛为编码是后端清理项，不属于 BE-b，时机由 owner 安排；在此之前前端显示通用文案，原文放进 Debug | 后端，不阻塞 |

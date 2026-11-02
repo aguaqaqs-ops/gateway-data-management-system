@@ -1,0 +1,257 @@
+# FE2 kickoff：页面
+
+- **状态：** 草案，待 owner 确认（§9 列出需要确认的事项）。
+- **日期：** 2026-11-02。
+- **起点：** `fe-fe1-exit`（`a42139222f`），main 合入提交 `abbe6e8777`。
+- **依据：** [前端 kickoff](frontend-kickoff.md)（FD1–FD8、§4、§6、§7）、
+  [UI 优化方向](ui-optimization-direction.md)（S1–S4 草图与 P3、P4 条目）、
+  [BE-b 设计草案](be-b-navigation-and-presentation-draft.md)（§4.2–§4.7）、
+  [FE1 证据核对](reviews/fe1-evidence-check-1.md) §6、AGENTS“前端测试（FD7）”。
+- **会话分工：** 与前端 kickoff §10 相同。本文由设计会话维护；实施会话按本文实施，遇到本文未覆盖的设计问题时停下交设计会话。
+
+## 1. 目标
+
+用模拟接口完成全部业务旅程的页面，落实 UI 优化方向 P3、P4 条目，并按截图通过验收（前端 kickoff §7 FE2 一行）。
+真实 backend 对接、OpenAPI 运行时比对与 t1 真实数据属于 FE3，不在本阶段。
+
+## 2. 阶段划分（建议，待 owner 确认）
+
+FE2 的页面量约为 FE1 的三倍。FE1 一轮审核加两轮复审，范围只有功能层与设计系统。
+建议拆成两个子阶段，各自走完整的审核、04 取证和 tag，审核范围保持可控：
+
+| 子阶段 | 内容 | 带入项 | 草图 | 退出 tag |
+| --- | --- | --- | --- | --- |
+| FE2a 差异浏览 | 差异浏览工作台（三种模式共用）：两行顶栏、侧栏 A、tab、表格（S4 全部呈现规则）、变更定位与分布条、仅看差异折叠行、表级状态（新增/删除整表、结构变化、降级、比较失败）、ordered 与 blank 记录、数据集替换双侧浏览、复合信号公式查看、导航与 surface 诊断、Debug 模式、加载骨架与错误页（T2、T3）；URL 状态 | R4、N4、N6、行分隔色、导航诊断改为 `diagnostics_ref`、ViewKind 改为后端视图 ID（§5.6） | S3、S4 | `fe-fe2a-exit` |
+| FE2b 工作台与写操作 | 正式工作台：组态树、上下文工具栏、详情面板、上传步骤卡与页面锁定、比较托盘、历史比较结果抽屉；上传与 Preview 进度（T1）、提交（含身份确认）、审核通过/退回/撤回、归档主线（A1、A2）；页面之间的路由 | N1、N2 | S1、S2，以及 S3 的三种顶栏 | `fe-fe2b-exit` |
+
+顺序为先 FE2a 后 FE2b。理由：差异浏览是数据最复杂、草图最细的部分，FE1 带入的大多数事项也在这里；
+FE2b 的写操作依赖 N1、N2，可以在 FE2a 审核期间准备。两个子阶段都在 `fe-vnext` 上进行，审核范围分别为
+`fe-fe1-exit..<FE2a 候选>`、`fe-fe2a-exit..<FE2b 候选>`。
+
+若 owner 选择不拆分，则本文 §3–§8 合并为一个 FE2，退出 tag 为 `fe-fe2-exit`。
+
+## 3. FE1 带入项
+
+| ID | 内容 | 子阶段 | 完成标准 |
+| --- | --- | --- | --- |
+| N1 | 幂等 key 按用户意图复用：用户确认一次操作时生成 key，同一意图的重试（含网络中断后的重试按钮）复用该 key；旅程函数按步骤接收 key，不在 client 内部生成 | FE2b | 单测：重试复用同一 key，新的意图用新 key；e2e：模拟第一次请求超时、重试，模拟接口按 key 回放第一次结果 |
+| N2 | 轮询：超时只表示“仍在运行”，不判为失败；界面显示已等待时长，可继续等待或离开页面（后端操作继续）。临时错误（网络错误、5xx、429）按有上限的退避重试，超过上限后显示“连接中断”并提供重试，不判定操作失败。`operation_id` 写入 URL，刷新后继续轮询 | FE2b | 单测覆盖超时、临时错误重试与上限、终态（含 `SUPERSEDED`、`MANUAL_RECOVERY_REQUIRED`）；e2e 覆盖“仍在运行”与刷新后继续 |
+| N4 | 已缓存的表不在每次读取时重算整个文件的摘要：写入时校验一次；之后在每个浏览会话中首次读取某表时校验一次，结果在会话内记住；读取或解析失败时清除该 bundle 缓存并重新下载 | FE2a | 单测：同一会话第二次打开同一表不再计算摘要；摘要不符时触发重新下载 |
+| N6 | 应用代码的 tsconfig 不含 Node 类型；测试与脚本用单独的 tsconfig | FE2a | 应用代码中使用 `Buffer` 时 typecheck 失败（可用一次性探针验证，结果写进 handoff） |
+| R4 | 本地搜索跳过二进制值（`ArrayBuffer`/`ArrayBufferView`），只匹配展示文本，不匹配值结构中的 `kind` 等结构字段 | FE2a | 单测：搜索“12”不命中只在行标识字节中含 12 的行；搜索“string”不命中全部记录 |
+| — | token 补行分隔色 `#EEF1F4`（S4） | FE2a | 截图验收 |
+| D1 | 导航诊断按 BE-b §4.7：从 `SurfaceProjectionRef.diagnostics_ref` 读取单独产物，去掉 `business-navigation.json` 中的内联 `diagnostics` 与 `model.ts` 的 `diagnosticText`；按 code 映射中文文案 | FE2a | 单测：v1 全部 code 都有文案，文案占位符与 params 一致；未知 code 显示“导航提示（{code}）”；`diagnostics_ref` 为 null 时没有诊断 |
+
+## 4. 界面文案定稿（回填前端 kickoff §9 第 2 项）
+
+前端 kickoff §9 要求 FE2 之前按 vnext 实际枚举确定草图中的占位文案。下表是设计会话的提案，owner 确认后作为 FE2 的权威文案；
+UI 优化方向 §7 草图中对应的占位文案以本节为准，草图不重画。原始枚举值一律放进悬停提示或 Debug（C6）。
+
+### 4.1 组态树节点
+
+节点类型用图标与形状表示（F7），状态用圆点加文字。类型和状态来自 `GET /v1/history` 的节点字段与 `head`，以及 `GET /v1/workspaces` 的工作区。
+
+| 来源 | 类型文字 | 状态文字 |
+| --- | --- | --- |
+| 工作区（`WorkspaceResponse`） | 工作区 | 没有上传：“未上传”；有上传但没有 Preview 结果：“已上传”；有 Preview 结果：“可提交”；有进行中的操作：进度指示（F7） |
+| `BASELINE_NODE` + `INITIAL` | 初始基线 | 是 `head` 时加“当前基线” |
+| `BASELINE_NODE` + `ARCHIVED_SUBMISSION` | 归档基线 | 是 `head` 时加“当前基线” |
+| `SUBMISSION` | 提交 | `review_status`：`PENDING` 待审核、`APPROVED` 已通过、`REJECTED` 已退回、`WITHDRAWN` 已撤回。有 `archive_disposition` 时以它为准：`ARCHIVED_BASELINE` 已归档、`CLOSED_NOT_ARCHIVED` 未归档关闭 |
+| `SYSTEM_MIGRATION` | 规则迁移 | 无 |
+
+附加标记（不占状态位，放在节点行尾的小标签与悬停提示中）：
+
+- `eligibility_note = NOT_CANDIDATE_BASE_ADVANCED`：“基线已更新”，悬停提示“该提交所基于的基线已不是当前基线，不能归档”；
+- `identity_exception = true`：“项目身份例外”。
+
+`RETURNED_FOR_REVISION` 在 BE-a 之前仍可能出现在快照类型中，按 FE1 的处理映射为“已退回”，不出现单独入口。
+
+### 4.2 差异浏览：视图与比较对
+
+视图 ID 取 bundle 中 surface 的视图 ID，不写死枚举（§5.6）：
+
+| 视图 ID | 文字 |
+| --- | --- |
+| `baseline_to_initial` | 原始组态视图（已归档数据 → 原始组态备份） |
+| `initial_to_modified` | 本次组态视图（原始组态备份 → 本次归档组态）；只上传本次归档组态时为“当前基线 → 本次归档组态” |
+| History 比较对 | “节点 1 → 节点 2”，序号与比较托盘一致；三节点时为两个相邻比较对（F6） |
+
+括号里的说明放在分段控件的悬停提示中，控件上只显示前半部分。
+
+### 4.3 表级状态（导航徽章与当前表信息行）
+
+| `SurfaceChangeKind` | 文字 | 导航徽章 |
+| --- | --- | --- |
+| `UNCHANGED` | 未变化 | 无 |
+| `BUSINESS_EQUIVALENT` | 业务等价 | 无；悬停提示说明“内容写法不同，业务含义相同” |
+| `ADDED` | 新增表 | 新增 |
+| `DELETED` | 删除表 | 删除（条目文字加删除线） |
+| `UPDATED` | 有修改 | 更新 |
+| `SCHEMA_CHANGED` | 结构变化 | 更新；信息行说明新增或删除的列 |
+| `DEGRADED` | 降级比较 | 更新；信息行显示降级原因（来自诊断） |
+| `FAILED` | 比较失败 | 失败（中性图标加文字）；表格区域显示错误说明，不显示数据 |
+| `REPLACED` | 数据集替换 | 替换；进入双侧浏览 |
+
+有风险时导航徽章只显示风险等级（W3，S3 取舍），完整的状态加风险等级在信息行与悬停提示中显示。
+
+### 4.4 行级记录（S4 的 Diff Kind、Row Role、Change Group）
+
+User 模式下以符号、连线和文字表示（S4），不显示原始编码：
+
+| 记录类型 | 文字 | 呈现 |
+| --- | --- | --- |
+| `ROW_ADDED`、`ORDERED_ROW_ADDED` | 新增 | `+` |
+| `ROW_DELETED`、`ORDERED_ROW_DELETED` | 删除 | `−`，删除线 |
+| `ROW_MODIFIED`、`ORDERED_ROW_MODIFIED` | 修改 | 成对两行加连线（W9） |
+| `ORDERED_ROW_MOVED` | 移动 | 移动图标，悬停提示“第 a 行 → 第 b 行”（取 `before_position`、`current_position`） |
+| `BLANK_DELETE_INTERVAL`、`BLANK_INSERT_INTERVAL` | 删除空行区间、插入空行区间 | 一行摘要“第 a–b 行：删除（插入）n 个空行” |
+| `SCHEMA_CHANGE`、`TABLE_DEGRADED`、`ORDERED_TABLE_DEGRADED` | — | 表级，不进入行，在信息行显示 |
+
+Debug 模式的元数据列：
+
+- **Diff Kind：** 显示原始 `record_kind`；
+- **Row Role：** 改为“前/后”，只对修改记录的成对两行显示，由前端从记录推导；
+- **Change Group：** vnext 没有对应事实，删除该列；ordered 记录改为显示 `semantic_kind` 与前后位置。
+
+### 4.5 风险等级与操作状态
+
+- **风险等级：** `HIGH` 高、`MEDIUM_HIGH` 中高、`MEDIUM_LOW` 中低、`LOW` 低、`UNKNOWN` 未知（与 FE1 token 一致）。
+- **操作状态**（`OperationStatus`）：
+  - `QUEUED` 排队中、`RUNNING` 执行中、`SUCCEEDED` 已完成、`FAILED` 失败、`CANCELLED` 已取消；
+  - `SUPERSEDED` 显示“已被新的操作取代”；
+  - `MANUAL_RECOVERY_REQUIRED` 显示“需要管理员处理”，同时显示操作 ID（可复制），不提供重试。
+
+## 5. FE2a：差异浏览
+
+### 5.1 范围
+
+- 一个工作台承载三种模式（W10）：上传（Preview bundle）、审核（History bundle，基线节点 → 待审提交，沿用 FE1 的 B2 修复）、历史比较（History bundle，2–3 节点）。
+  FE2a 只做浏览：顶栏模式操作区留出位置，写操作按钮由 FE2b 接入；S3 三种顶栏的截图在 FE2b 验收；FE2a 的 S3 整页截图中模式操作区为空，属于已知差异，不算偏差。
+- 两行顶栏（W2、S3）、侧栏方案 A（FD5、W3、W5）、tab 与溢出（W6）、变更定位与分布条（W4）、表格呈现（S4、W9）、仅看差异（W2）、可读化（W7）、复制（W8）、焦点样式（X5）。
+- 数据集替换（`REPLACED`、`REPLACEMENT_SIDE_BY_SIDE`）：左右两侧各自浏览整表，显示 `identity_pairs` 的结论，不拼成普通差异。确认操作属于 FE2b。
+- 复合信号公式查看：见 §5.4。
+- 加载骨架（T2）与错误页（T3）：bundle 下载与校验的进度、失败与重试。
+
+### 5.2 侧栏（FD5）
+
+- 整个侧栏一个滚动区；组标题吸顶；展开、收起只影响本组；当前节点自动滚到可见。
+- 搜索匹配组名、节点名与页签名；“只看变化/风险”过滤与搜索可叠加。
+- 宽度与各组展开状态按 X6 记在本地（`localStorage`，读写失败时用默认值）。
+- 折叠后保留窄栏，含展开、搜索与当前位置三个入口（W5）。
+- 分组来自业务导航产物（BE-b §4.2）；没有该产物时按前端 kickoff §4.5 回退为单一组。两种情形都要有截图。
+
+### 5.3 表格
+
+- 继续使用 glide-data-grid。风险整行底色与左侧 4px 色条、修改行连线、改动单元格加深底色、旧值弱化等按 S4 与 7.4 的取舍实现。
+- 修改行的两行因排序、筛选或搜索不再相邻时，不画连线，退回显示符号（S4 取舍）。
+- 仅看差异：只显示有变化或有风险的行，连续的未变更行折叠为一行“… n 行未变更”，可展开，`#` 列保留原始行号。
+- 风险只来自 `RiskReport` 与 annotation（前端 kickoff §3.2）；未变更但有风险的行在仅看差异下也显示。
+- 列名与宽度：BE-b 之前用原始列名，宽度按内容计算（前端 kickoff §4.5）。
+
+### 5.4 复合信号公式查看
+
+- 对 `composite_signal_point` 表，公式列的单元格提供“查看公式”入口，在右侧抽屉中显示由 `formula_ast_json` 渲染的公式；装置名称按 BE-b §4.4 从同侧 `device` 表映射。
+- History 与审核模式：两侧公式并列，改动部分标出。
+- Preview：BE-b 实现前只有上传侧，公式有变化的测点标“公式已改”，抽屉中只显示上传侧，并说明“改前公式在 BE-b 实现后提供”（前端 kickoff §8）。
+- 本项没有草图，按 §7.3 的“无草图页面”处理。
+
+### 5.5 诊断
+
+- **导航诊断：** 按 BE-b §4.7 显示在目标节点上（组、节点、页签或表），提示样式，不使用风险色。
+- **surface `diagnostics_summary`：** 已知编码（如 `KEYLESS_FALLBACK`、`ORDERED_DIFF_UNSUPPORTED`、`DATASET_REPLACEMENT`、`PROJECT_IDENTITY_UNVERIFIABLE`、`BUSINESS_SCHEMA_CHANGED`）按文案表显示；其余条目显示通用文案“比较过程有提示”，原文放 Debug（前端 kickoff §9 自由文本一项）。
+- 两份文案表放在同一模块，测试覆盖全部已知编码。
+
+### 5.6 视图 ID 与 URL 状态
+
+- FE1 的 `ViewKind`（`INITIAL_TO_MODIFIED`、`BASELINE_TO_SUBMISSION`、`BEFORE_TO_CURRENT`）不是后端的视图 ID。改为直接使用 bundle 中的视图 ID 字符串；URL 中视图 ID 不在当前 bundle 内时回到 bundle 的默认视图。
+- 命令层（UI 优化方向 §5.1）执行后的浏览状态写入 URL：bundle 摘要、视图、节点、页签、变更序号、仅看差异、Debug、搜索。刷新或分享链接后回到同一画面（本地已有 bundle 时不重新下载）。
+- “agent 操作中”指示与外部驱动通道仍不实现（§5.1 第 5 项）。
+
+## 6. FE2b：工作台与写操作
+
+### 6.1 范围
+
+- 正式工作台（S1）：组态树为主区域（四列、搜索、列排序与调宽，F8），详情面板 400px 可折叠，视口 ≤1440px 默认折叠（F1）；上下文工具栏按节点类型显示操作（F2）；禁用操作都给出原因（F4）；状态字段用简短标签，长原因折叠（F9）。
+- 上传步骤卡（S2、F3）：目录选择、浏览器端打包（Source Package Contract：必需 `/sql/dbcfg.sql`，可选 `/comps/logic/logics.xml`）、逐步校验与错误列表（X2）；上传与 Preview 期间页面遮罩锁定，进度时间线在步骤卡中（T1）。
+- 比较托盘（S2、F5）与历史比较结果抽屉（S1、F6）。
+- 提交：`submit-attempts`；identity 结论需要确认时（`DIFFERENT_PROJECT`、`UNVERIFIABLE`、数据集替换），先在对话框中逐项确认，再携带 `identity_confirmations` 提交。
+- 审核：通过（主按钮）、退回（危险按钮，必填理由，X3）、撤回（危险按钮，二次确认，X4）。审核前先下载 History bundle，在审核模式的差异浏览中执行（W1、S3 审核顶栏）。
+- 归档主线：`archive-candidates` → `archive-plan-preview` → 异常处理（`archive-anomaly-resolutions`）→ 确认（`archive-confirmations`）→ `archives`。最终确认在对话框内完成，展示“确认后的影响”摘要（A1），不使用 `window.confirm`。
+- 页面路由：工作台 ↔ 差异浏览（含返回工作台），URL 可直接打开任一页面与节点。
+
+### 6.2 权限与错误
+
+- 前端在调用前不知道当前身份的权限（vnext 没有会话查询接口），因此按钮按业务状态启用；后端返回权限拒绝时就地显示“当前身份没有该操作的权限”，并显示错误码（T3、C6）。
+- 版本冲突（预期版本不符）时提示“数据已被更新”，并提供刷新；不自动重放写操作。
+- 模拟会话：开发与 e2e 通过开发环境的身份选择注入 token（前端 kickoff §4.3），覆盖提交人、审核人、归档确认人与无权限身份。生产构建中不出现身份选择，也不出现模拟接口代码（§7.2 检查）。
+
+## 7. 测试、fixture 与证据
+
+### 7.1 fixture
+
+沿用 FE1 B1 的原则：bundle fixture 一律由 `frontend/scripts/generate-backend-bundle-fixture.py` 调用后端生产代码产出，可逐字节复现；不手写 bundle。
+FE2a 开始时扩展生成器，产出以下 bundle（每个都进入跨实现摘要测试）：
+
+| fixture | 来源 | 覆盖 |
+| --- | --- | --- |
+| Preview FULL | `run_preview_pair_pipeline`，两个视图 | 三类行记录；新增表、删除表、结构变化；keyless 回退；ordered 表（含移动）与 blank 区间；五级风险加未变更行上的风险；`composite_signal_point` 公式变化 |
+| Preview MODIFIED_ONLY | 同上，一个视图 | 只有本次归档组态时的视图文字 |
+| Preview 数据集替换 | 同上，替换模式 | `REPLACED`、双侧浏览、`identity_pairs` |
+| History 三节点 | `run_history_pair_pipeline` 加 `MULTI_PAIR` 组装 | 两个比较对；审核模式（两节点）复用其中一对 |
+
+- 业务导航产物与导航诊断产物仍由前端按 BE-b §4.2、§4.7 构造（后端尚无该能力），通过生成器注入 `SurfaceProjectionRef`，并进入 closure 与摘要。BE-b 实现后换成后端产出（FE4）。
+- 表名、列名与数据尽量接近草图中的示例（如 `device`、转发通道表），便于截图对照。
+- 某类 fixture 用后端生产代码无法在不启动 Dolt/Compose 的前提下产出时，停下交设计会话，不改用手写。
+
+### 7.2 测试
+
+- 单测：§3 各项的完成标准；§4 文案表的完整性（每个已知枚举都有文案）；视图模型新增的推导（折叠行、连线配对、变更分布、侧栏过滤）。
+- e2e（模拟接口，Playwright 路由拦截提供 API 响应与 bundle tar）：
+  - FE2a：三种模式的浏览、侧栏与搜索、仅看差异、变更定位、公式查看、数据集替换浏览、下载截断后重新下载、刷新后按 URL 恢复；
+  - FE2b：全部写操作旅程，含权限拒绝、版本冲突、轮询超时与刷新后继续、幂等重试。
+- 生产构建检查：构建产物中不含模拟接口模块与身份选择（例如对 `dist/` 做字符串检查），由 runner 执行。
+- runner 仍是 `frontend/scripts/run-tests.sh`；新增截图输出参数，截图写到 worktree 外的证据目录。
+
+### 7.3 截图验收（前端 kickoff §6）
+
+- 每张草图对应的页面与状态在 1280 与 1920 两种宽度下各截一张，使用 §7.1 的固定 fixture；文件名与草图对应，例如 `s3-workbench-upload-1920.png`。
+- **无草图页面：** 公式查看、数据集替换浏览与确认、归档对话框各步骤、退回与撤回对话框、加载骨架、错误页、“仍在运行”、需要管理员处理、侧栏无导航产物时的回退。审核会话按 UI 优化方向的原则（token、语义色、按钮层级、禁用原因、焦点）核对；handoff 单列清单，交 owner 看图确认。
+- 审核会话逐张对照，不做像素比对；与草图不符处修正，或作为偏差写入 handoff 交 owner 确认（AGENTS FD7）。
+- 截图与运行日志放在证据目录，记录 SHA256；04 取证时重拍一次全套。
+
+### 7.4 节点与证据
+
+与 FE1 相同：调试在 05，阶段退出在 04 的 clean detached worktree 上完整运行一次权威入口（含 e2e 与截图）；
+工具链镜像与 npm 缓存沿用现有预填充，依赖不变时不重新传输。依赖若有变化（例如新增 Playwright 以外的测试依赖），按 DC67 在 CT201 取得并预填充，handoff 记录来源与摘要。
+
+## 8. 不在 FE2 范围
+
+- 真实 backend 对接、OpenAPI 运行时比对、t1 真实数据（FE3）；BE-a 刷新快照后去掉 `RETURNED_FOR_REVISION` 的映射（FE3）。
+- BE-b 的分组与列展示正式数据、Preview 改前公式（FE4）。
+- 外部驱动通道与 agent 操作指示（UI 优化方向 §5.1 第 5 项）。
+- 深色主题（C5）。
+
+## 9. 待 owner 确认
+
+| # | 事项 | 建议 |
+| --- | --- | --- |
+| Q1 | 是否拆分为 FE2a、FE2b（§2） | 拆分，先 FE2a |
+| Q2 | §4 的界面文案是否作为权威文案；UI 优化方向 §7 中的占位文案以此为准，不重画草图 | 同意；前端 kickoff §9 第 2 项随之关闭 |
+| Q3 | Debug 模式删除 Change Group 列，ordered 记录改显示 `semantic_kind` 与位置（§4.4） | 同意；vnext 没有对应事实 |
+| Q4 | **“历史初始备份”节点：** legacy 的组态树在归档基线下有“历史初始备份”节点（随归档提交上传的原始组态备份），可以查看差异、加入比较（F2、F5）。vnext 的 History 只有基线、提交与规则迁移三类节点，History 比较的输入也只接受基线节点与提交，没有对应的节点与比较入口 | 见下 |
+| Q5 | 无草图页面按 §7.3 由审核会话按原则核对、owner 看截图确认，不先补草图 | 同意 |
+
+**Q4 说明：** 这是 vnext 后端的能力差异，前端无法单独补齐。可选做法：
+
+- **甲（建议）：** FE2 只呈现 vnext 已有的节点，F2、F5 中“历史初始备份”的操作暂不实现，在前端 kickoff §3.3 登记为缺口。是否需要在 History 中保留原始组态备份，由 owner 另行决定；若需要，作为后端任务（类似 BE-b）单独立项。
+  理由：原始组态备份在 Preview 中已经通过“原始组态视图”浏览，归档后再次查看的需求是否存在，需要业务确认。
+- **乙：** 先把该能力定为后端任务，FE2b 留出节点类型与操作入口，后端补齐后接入。
+
+## 10. 实施会话的停止条件
+
+除 AGENTS 与前端 kickoff 已有的规则外：
+
+- fixture 无法由后端生产代码产出（§7.1）；
+- 草图与后端事实冲突，且本文没有给出取舍；
+- 需要后端新增字段或接口（FD3：不新增按 artifact 读取的接口）；
+- 截图与草图有不能修正的偏差，需要 owner 判断。

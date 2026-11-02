@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
 import { loadComparisonPresentation } from "../bundle/presentation";
 import { installedFixtureBundle } from "../../test/helpers";
 import { TableFailureNotice, tableStatusText } from "./table-state";

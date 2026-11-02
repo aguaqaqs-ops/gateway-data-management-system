@@ -1,0 +1,27 @@
+{
+  "contract_version": "backend-vnext/business-navigation/v1",
+  "groups": [
+    {
+      "group_key": "SECONDARY_DEVICES",
+      "label": "二次装置列表",
+      "items": [
+        {
+          "item_key": "device:addr:3",
+          "item_kind": "DEVICE",
+          "label": "直流屏",
+          "attributes": { "dev_addr": 3 },
+          "tabs": [
+            {
+              "tab_key": "device",
+              "label": "装置表",
+              "table_id": "device",
+              "row_filter": { "column": "dev_addr", "value": 3 },
+              "facts": { "change_kind": "ADDED", "risk_level": "MEDIUM_LOW", "before_row_count": 0, "current_row_count": 1 }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

@@ -8,7 +8,7 @@
     "generate:api-types": "openapi-typescript openapi.json -o src/features/api/generated/openapi.d.ts",
     "typecheck": "tsc -b",
     "lint": "eslint .",
-    "test:unit": "vitest run --passWithNoTests",
+    "test:unit": "node scripts/build-golden-bundle-fixture.mjs && vitest run",
     "test:e2e": "playwright test",
     "build": "tsc -b && vite build",
     "preview": "vite preview"

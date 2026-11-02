@@ -24,6 +24,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/coverage/
 frontend/.vite/
+frontend/src/test/fixtures/generated/
 frontend/playwright-report/
 frontend/test-results/
 vnext/rust/gateway-compute-python/python/**/*.so

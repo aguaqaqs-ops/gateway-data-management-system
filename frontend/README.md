@@ -3,8 +3,10 @@
 This is the new React/TypeScript frontend. `src/features/` contains functional
 logic and generated API types, `src/design-system/` contains shared visual
 tokens and components, and `src/pages/` contains routed page composition.
-The current FE0 page is only a workspace shell; business flows are implemented
-in later frontend stages.
+FE1 supplies the authenticated OpenAPI client, operation and journey data
+flows, verified local tar bundle storage, lazy Parquet access, view-model and
+URL command layers, and reusable P1/P2 design-system components. The sample
+page is a component preview; full business screens follow in FE2.
 
 Dependencies are pinned exactly in `package.json` and `package-lock.json`.
 Generate API types after updating the checked-in `openapi.json` snapshot with:

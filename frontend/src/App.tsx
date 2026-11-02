@@ -1,5 +1,5 @@
-import { WorkspacePage } from "./pages/WorkspacePage";
+import { DesignSystemPage } from "./pages/DesignSystemPage";
 
 export function App() {
-  return <WorkspacePage />;
+  return <DesignSystemPage />;
 }

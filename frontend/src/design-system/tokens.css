@@ -1,0 +1,53 @@
+:root {
+  color-scheme: light;
+  font-family: "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --color-page: #f5f7fa;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f6f8fa;
+  --color-border: #d9e0e8;
+  --color-text: #202833;
+  --color-text-muted: #596779;
+  --color-accent: #1f5efb;
+  --color-focus-ring: #1f5efb;
+
+  --risk-high-bg: #fad4cf;
+  --risk-high-rail: #b42318;
+  --risk-high-text: #a11f12;
+  --risk-high-cell: #f3b34c;
+  --risk-medium-high-bg: #ffe4c7;
+  --risk-medium-high-rail: #ea580c;
+  --risk-medium-high-text: #9a3412;
+  --risk-medium-high-cell: #fccb97;
+  --risk-medium-low-bg: #e0f2fe;
+  --risk-medium-low-rail: #0ea5e9;
+  --risk-medium-low-text: #075985;
+  --risk-medium-low-cell: #bae3fb;
+  --risk-low-bg: #e2f3e7;
+  --risk-low-rail: #2f9e59;
+  --risk-low-text: #1f6b3d;
+  --risk-low-cell: #c4e6cf;
+  --risk-unknown-bg: #eee9f8;
+  --risk-unknown-rail: #7c6bb0;
+  --risk-unknown-text: #5b4b91;
+  --risk-unknown-cell: #dcd2f1;
+
+  --font-size-caption: 12px;
+  --font-size-table: 13px;
+  --font-size-body: 14px;
+  --font-size-section: 16px;
+  --font-size-title: 20px;
+  --font-size-code: 13px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --radius-control: 6px;
+  --radius-panel: 8px;
+  --shadow-panel: 0 8px 24px rgb(25 39 57 / 12%);
+}

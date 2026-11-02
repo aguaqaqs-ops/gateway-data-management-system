@@ -1,0 +1,40 @@
+{
+  "name": "gateway-data-management-frontend-vnext",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "generate:api-types": "openapi-typescript openapi.json -o src/features/api/generated/openapi.d.ts",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "test:unit": "vitest run --passWithNoTests",
+    "test:e2e": "playwright test",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@glideapps/glide-data-grid": "6.0.3",
+    "hyparquet": "1.32.0",
+    "hyparquet-compressors": "1.1.2",
+    "lucide-react": "1.66.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.1",
+    "@types/node": "24.19.2",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "6.2.0",
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
+    "jsdom": "30.1.3",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

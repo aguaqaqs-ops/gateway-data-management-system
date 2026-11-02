@@ -20,6 +20,12 @@ gate-logs/
 .vscode/
 .coverage
 htmlcov/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+frontend/playwright-report/
+frontend/test-results/
 vnext/rust/gateway-compute-python/python/**/*.so
 vnext/backend/.phase-exit-build/
 vnext/backend/tests/support/.last_compose_gate_provenance.json

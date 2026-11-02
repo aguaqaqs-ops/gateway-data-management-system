@@ -11,9 +11,9 @@
 
 ## 测试状态与等待项
 
-owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，包含 AGENTS.md 与 `docs/backend-vnext/testing-conventions.md` 两处规则，本分支已 rebase 到该提交之上。此前尚未在 05/04 运行类型检查、lint、单元测试、构建、E2E 或容器内 `npm ci --offline`；也未在开发主机运行这些操作。测试运行结果和日志将在 FE0 节点验证后补入本 handoff。
+owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，包含 AGENTS.md 与 `docs/backend-vnext/testing-conventions.md` 两处规则，本分支已 rebase 到该提交之上。此后尝试准备 05 clean worktree 时，两次克隆命令均在 Git ownership 检查阶段失败；FE0 runner、类型检查、lint、单元测试、构建、E2E 和容器内 `npm ci --offline` 均未启动，开发主机也未运行这些检查。失败证据与 DC68 停止原因见下文。
 
-工具链镜像与 npm 缓存已预填充至 05；此前仅做制品传输和身份核验。收到规则已落地的通知后，按 kickoff §6 在 05 执行 FE0 入口，并按要求留存运行日志。04 的阶段退出运行尚未进行。
+工具链镜像与 npm 缓存已预填充至 05；此前仅做制品传输和身份核验。05 的阶段运行尚未进行；04 的阶段退出运行也尚未进行。
 
 ## 工具链与缓存来源
 
@@ -112,6 +112,15 @@ CT201 使用 Node `v24.20.0`、npm `11.19.0` 执行 `npm install --cache /home/d
 2. `docs/backend-vnext/frontend-surface-simplification.md` 开头提及临时 legacy compatibility layer，与 AGENTS、FD1 和 kickoff 的“新建前端、legacy 只作参考、不建设兼容层”方向冲突。FE0 没有实现或引入兼容层。请设计/owner 确认该文档表述是否为过期内容。
 3. 公式查看器应从每侧 `composite_signal_point` snapshot 加设备表映射构建，还是依赖独立 `composite_signal_*` pair artifacts？当前源码能确认 snapshot 字段，不能确认后者已实现。请设计会话明确 FE1/FE2 的数据来源与显示范围。
 4. OpenAPI 快照来自 BE-a 前的 backend，仍含 `RETURN_FOR_REVISION`；FE0 记录此来源，前端遵从 FD4，不把旧动作作为产品操作。BE-a 后刷新快照属于后续同步工作。
-5. FE0 的节点验证未执行。继续条件是治理会话将 FD7 前端规则写入 AGENTS.md 与 testing-conventions，并通知实施会话；随后在 05 的 clean、已提交 worktree 中运行入口及容器内 `npm ci --offline`。若发现缓存缺失、节点不可用或超出 DC68 的操作错误，按既定停止条件交 owner。
+5. FE0 的节点验证尚未执行。FD7 已由 `f0ad2461ac` 落地；目前因下方 DC68 worktree 准备步骤两次失败而停止，需 owner 处理节点 source worktree 的 Git ownership/传输前提后再继续。
 
 当前没有需要修改 `vnext/` 或后端行为的实施项；上述文档冲突与公式数据来源作为设计问题交 owner，不在 FE0 自行改写 FD 或后端事实。
+
+## FD7 恢复尝试与 DC68 停止记录
+
+- 规则提交：`f0ad2461accf173354cb4fa45a0f132dc4d568e7`。FE 分支已 rebase 到该提交之上；待测候选 HEAD 为 `c87741db0de3b416eba658509ae8b6d800b13291`。
+- 05 预检：`ssh -o BatchMode=yes ct108-gw-dms-05 'echo OK'` 成功，节点为 `gw-dms-test-05.lan`。工具链 tag 存在；已加载归档元数据中的 config digest 和七个 DiffID 与 CT201 来源相同，当前 daemon 的 RootFS layer 列表也相同。`docker inspect` 本机 ID 不作为跨节点身份。npm cacache 存在且为 603 MB；节点占用标记不存在。
+- 候选源码 bundle 由 CT201 创建并传至 05，源 HEAD 起止均为 `c87741db0de3b416eba658509ae8b6d800b13291`，以 `b7d6e4540677d38117adde2885682ad5a4f4ce09` 为 bundle prerequisite；本地与节点 SHA256 均为 `6dde3db829a15afe4672b453f991ef59763b762e2e58669370f5b7073bca97c2`。传输日志 `frontend-source-transfer.log` SHA256：`09b6b69c54760fc8b2c9f8ef5dd96af3c149c605d5f7a1bf6e402c3ae41ffbd3`，时间 `08:24:51Z`，exit code `0`。
+- 第一次 worktree setup 于 `2026-11-02 08:25:08Z` 在 05 失败，exit code `128`。root 执行 `git clone --shared --no-checkout /home/dev/gateway-data-management-system /home/dev/gdds-fe-test` 时，Git 因源仓库由 `dev` 拥有而报 `detected dubious ownership`。失败日志 `/home/dev/gdds-fe-logs/fe0/frontend-test-worktree-setup.log` SHA256：`e088cbe18e6bf91a488ff695198d785fcd350d3ad39853508ef09b6e0254d087`。
+- 确认目标目录不存在、节点 main worktree 干净且未改全局 `safe.directory` 后，按 DC68 从准备步骤开头重做一次，于 `08:25:38Z` 将 clone 命令改为传入 `-c safe.directory=/home/dev/gateway-data-management-system/.git`。本地 clone 子进程仍报相同 ownership 错误，exit code `128`；重做日志 `/home/dev/gdds-fe-logs/fe0/frontend-test-worktree-setup-redo.log` SHA256：`7874a1c5bb2f2e3c2c5bde91a0e920a7ad533cfa4c102c4b54aa4d066ba8dfff`。重做后目标目录仍不存在，未改全局配置或 main worktree。
+- 这是尚未触及前端被测对象的克隆命令错误；首次失败已保留日志，修正后从头重做仍失败。依 AGENTS.md 与 testing-conventions 的 DC68 规则，停止后续操作并交 owner。没有启动 `frontend/scripts/run-tests.sh` 或任何测试/构建/离线安装命令。

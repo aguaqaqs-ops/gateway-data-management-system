@@ -262,7 +262,7 @@ async function readArtifact(
   transaction: BundleWriteTransaction,
   progress: (bytes: number) => void,
   contentLength: number,
-): Promise<number> {
+): Promise<void> {
   const size = entry.integrity.size_bytes;
   if (!Number.isSafeInteger(size) || size < 0 || size > ARTIFACT_LIMIT) throw new BundleIntegrityError("产物大小超出允许范围");
   const sinkValue = await transaction.openArtifact(entry.logical_path);
@@ -271,7 +271,6 @@ async function readArtifact(
     : sinkValue as ArtifactSink;
   const hasher = new Sha256();
   let remaining = size;
-  let received = reader.consumedBytes;
   try {
     while (remaining > 0) {
       const block = await reader.readExactly(Math.min(1024 * 1024, remaining));
@@ -279,9 +278,8 @@ async function readArtifact(
       hasher.update(block);
       await sink.write(block);
       remaining -= block.byteLength;
-      received = reader.consumedBytes;
-      progress(received);
-      if (received > contentLength) throw new BundleIntegrityError("bundle 实际长度超过 Content-Length");
+      progress(reader.consumedBytes);
+      if (reader.consumedBytes > contentLength) throw new BundleIntegrityError("bundle 实际长度超过 Content-Length");
     }
     if (normalizeSha256(hasher.digest()) !== normalizeSha256(entry.integrity.raw_sha256)) {
       throw new BundleIntegrityError(`产物摘要不匹配：${entry.logical_path}`);
@@ -292,7 +290,6 @@ async function readArtifact(
     throw error;
   }
   await discardPadding(reader, size);
-  return received;
 }
 
 function writerSink(writer: WritableStreamDefaultWriter<Uint8Array>): ArtifactSink {
@@ -359,7 +356,6 @@ export async function installBundleTar(options: {
   if (!options.etag) throw new BundleIntegrityError("响应缺少 ETag");
   const transaction = await options.store.begin(normalizeSha256(options.expectedBundleDigest));
   const reader = new StreamReader(options.body);
-  let received = 0;
   let pendingPaxPath: string | null = null;
   try {
     let manifest: BundleManifest | null = null;
@@ -410,7 +406,7 @@ export async function installBundleTar(options: {
       if (!entry) throw new BundleIntegrityError(`tar 中存在未声明成员：${path}`);
       if (path !== entry.logical_path) throw new BundleIntegrityError(`tar 成员顺序或路径不匹配：预期 ${entry.logical_path}，收到 ${path}`);
       if (parsed.size !== entry.integrity.size_bytes) throw new BundleIntegrityError(`tar 成员大小与 closure 不符：${path}`);
-      received = await readArtifact(reader, entry, transaction, (receivedBytes) => options.onProgress?.({ receivedBytes, contentLength }), contentLength);
+      await readArtifact(reader, entry, transaction, (receivedBytes) => options.onProgress?.({ receivedBytes, contentLength }), contentLength);
       entryIndex += 1;
     }
 
@@ -419,7 +415,7 @@ export async function installBundleTar(options: {
     let hasNonZeroTrailer = false;
     await reader.readToEnd((chunk) => { if (chunk.some((byte) => byte !== 0)) hasNonZeroTrailer = true; });
     if (hasNonZeroTrailer) throw new BundleIntegrityError("tar 结束块之后存在额外数据");
-    received = reader.consumedBytes;
+    const received = reader.consumedBytes;
     if (received !== contentLength) throw new BundleIntegrityError(`Content-Length 不匹配：声明 ${contentLength}，收到 ${received}`);
     options.onProgress?.({ receivedBytes: received, contentLength });
     await transaction.commit(manifest, closure);

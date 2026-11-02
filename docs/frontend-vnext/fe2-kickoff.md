@@ -192,7 +192,7 @@ FE2a 开始时扩展生成器，产出以下 bundle（每个都进入跨实现�
 
 | fixture | 来源 | 覆盖 |
 | --- | --- | --- |
-| Preview FULL | `run_preview_pair_pipeline`，两个视图 | 三类行记录；新增表、删除表、结构变化；keyless 回退；ordered 表（含移动）与 blank 区间；五级风险加未变更行上的风险；`composite_signal_point` 公式变化 |
+| Preview FULL | `run_preview_pair_pipeline`，两个视图 | 三类行记录；新增表、删除表、结构变化；keyless 回退；ordered 表（含移动）与 blank 区间；v1 风险规则可产出的全部等级（见下文“风险覆盖”）；`composite_signal_point` 公式变化 |
 | Preview MODIFIED_ONLY | 同上，一个视图 | 只有本次归档组态时的视图文字 |
 | Preview 数据集替换 | 同上，替换模式 | `REPLACED`、双侧浏览、`identity_pairs` |
 | History 三节点 | `run_history_pair_pipeline` 加 `MULTI_PAIR` 组装 | 两个比较对；审核模式（两节点）复用其中一对 |
@@ -200,6 +200,22 @@ FE2a 开始时扩展生成器，产出以下 bundle（每个都进入跨实现�
 - 业务导航产物与导航诊断产物仍由前端按 BE-b §4.2、§4.7 构造（后端尚无该能力），通过生成器注入 `SurfaceProjectionRef`，并进入 closure 与摘要。BE-b 实现后换成后端产出（FE4）。
 - 表名、列名与数据尽量接近草图中的示例（如 `device`、转发通道表），便于截图对照。
 - 某类 fixture 用后端生产代码无法在不启动 Dolt/Compose 的前提下产出时，停下交设计会话，不改用手写。
+
+**风险覆盖（设计会话 2026-11-02，答复 FE2a 实施停止）：** 生产入口固定使用 `V1_RISK_RULE_SPECS`。
+v1 不产出 `LOW`；行级风险只落在有变化的行上（新增、删除为中低，修改为中高）；
+表级与比较对级可产出高（项目身份不符、比较失败）、中高、中低、未知。
+未变更行上的风险、行级的高与未知、`LOW`，是 Contract 允许、v1 规则不产出的情形。
+
+- **bundle fixture：** 覆盖 v1 在该输入下能产出的等级，不为凑齐等级而注入或改写风险产物。
+  各 fixture 实际产出的等级列表写进 handoff。
+- **其余情形：** 由渲染层的单元或组件测试覆盖，前端仍须完整支持 Contract 中的五个等级与任意目标行。
+  测试输入取自后端 fixture 解析出的标注对象：复制后只改等级或目标行标识，不手写对象结构。
+  这些对象只用于测试渲染映射，不写入 bundle，也不进入摘要测试。
+- **截图：**
+  - 五个等级的颜色由设计系统页的语义色截图验收，对应 S4 `semantic-tokens`；
+  - S4 `grid-main` 的截图只含 v1 产出的等级，与草图相比缺少的等级属于已知差异，不算偏差。
+- **同类情形：** §7.1 中其他情形如果同样属于 v1 生产代码不会产出的，按同一原则处理，在 handoff 中列明，不需要停下。
+  若能产出、只是必须启动 Dolt/Compose，仍按上一条停下。
 
 ### 7.2 测试
 

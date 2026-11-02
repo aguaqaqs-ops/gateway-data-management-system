@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { MemoryBundleStore } from "../features/bundle/local-bundle";
 import { installBundleTar } from "../features/bundle/posix-tar";
 
@@ -9,8 +9,12 @@ export function bytesBlob(bytes: Uint8Array): Blob {
   return new Blob([buffer]);
 }
 
+export async function readFixture(relativePath: string): Promise<Uint8Array> {
+  return new Uint8Array(await readFile(resolve(process.cwd(), relativePath)));
+}
+
 export async function readGoldenBundle(): Promise<Uint8Array> {
-  return new Uint8Array(await readFile(fileURLToPath(new URL("./fixtures/generated/golden-bundle.tar", import.meta.url))));
+  return readFixture("src/test/fixtures/generated/golden-bundle.tar");
 }
 
 export async function installedGoldenBundle() {

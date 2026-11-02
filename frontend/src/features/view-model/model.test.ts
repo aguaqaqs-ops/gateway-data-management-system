@@ -52,7 +52,7 @@ describe("bundle view model", () => {
     const locations = deriveChangeLocations(records, [{ row_identity: new Uint8Array([2]), risk_level: "HIGH" }]);
     expect(locations).toEqual([{ index: 1, rowIdentity: "02", recordKind: "UPDATED", riskLevel: "HIGH" }]);
     expect(filterChangedRows(records, { onlyInteresting: true, rowIdentityColumn: "row_identity", rowRisk: new Map([["03", "LOW"]]) })).toHaveLength(2);
-    expect(filterChangedRows(records, { search: "changed" })).toHaveLength(1);
+    expect(filterChangedRows(records, { search: "changed row" })).toHaveLength(1);
     expect(applyNavigationRowFilter(records, { column: "record_kind", value: "UPDATED" })).toHaveLength(1);
   });
 

@@ -1,10 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { ensureLocalBundle, MemoryBundleStore } from "./local-bundle";
 import { BundleIntegrityError, installBundleTar } from "./posix-tar";
-import { bytesBlob, installedGoldenBundle, responseForTar } from "../../test/helpers";
+import { bytesBlob, installedGoldenBundle, readFixture, responseForTar } from "../../test/helpers";
 
 describe("POSIX tar bundle installation", () => {
   it("installs a golden bundle in closure order and supports long pax paths", async () => {
@@ -32,7 +30,7 @@ describe("POSIX tar bundle installation", () => {
     await expect(installBundleTar({ body: bytesBlob(tar.slice(0, tar.byteLength - 700)).stream(), store: truncatedStore, expectedBundleDigest: key, etag: key, contentLength: String(tar.byteLength) })).rejects.toBeInstanceOf(BundleIntegrityError);
     expect(await truncatedStore.has(key)).toBe(false);
 
-    const records = new Uint8Array(await readFile(fileURLToPath(new URL("../../test/fixtures/source/parquet/device.records.parquet", import.meta.url))));
+    const records = await readFixture("src/test/fixtures/source/parquet/device.records.parquet");
     const corrupt = tar.slice();
     const offset = Buffer.from(corrupt).indexOf(Buffer.from(records));
     expect(offset).toBeGreaterThan(0);
@@ -44,7 +42,7 @@ describe("POSIX tar bundle installation", () => {
 
   it("drops a bad local copy and requests the bundle again once", async () => {
     const { tar, manifest } = await installedGoldenBundle();
-    const records = new Uint8Array(await readFile(fileURLToPath(new URL("../../test/fixtures/source/parquet/device.records.parquet", import.meta.url))));
+    const records = await readFixture("src/test/fixtures/source/parquet/device.records.parquet");
     const corrupt = tar.slice();
     const offset = Buffer.from(corrupt).indexOf(Buffer.from(records));
     corrupt[offset + 96] = (corrupt[offset + 96] ?? 0) ^ 0x01;

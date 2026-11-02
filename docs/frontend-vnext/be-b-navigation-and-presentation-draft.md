@@ -1,6 +1,6 @@
 # BE-b 设计草案（第一步）：业务导航与表格展示
 
-- **状态：** 第一步已确认（owner，2026-11-02，§6）；作为 BE-b 的业务与数据结构依据。
+- **状态：** 第一步已确认（owner，2026-11-02，§6）；作为 BE-b 的业务与数据结构依据。§4.7 导航诊断为设计会话对 FE1 审核 D1 的答复（2026-11-02），其中新增编码 `DEVICE_ROWS_UNASSIGNED` 待 owner 确认。
 - **日期：** 2026-11-02。
 - **范围：** [前端 kickoff](frontend-kickoff.md) FD6、FD8 与 §5 BE-b 的第一步：数据结构与业务规则。实现层面的设计（在哪个 step 计算、缓存、计时预算、golden 组织、History 侧的持久化方式）在 P6 S5 接近完成时定稿（第二步）；实现在 P6 退出后、Phase 8 前进行。
 - **依据：** `legacy/backend_vnext/capabilities/{business_projection,table_presentation}/`、`legacy/backend_vnext/flows/business_projection.py`、`legacy/frontend/src/workbench/`（`legacy/` 不在 Git 中）；[Comparison Surface](../backend-vnext/contracts/comparison-surface.md)；[Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md)；[Frontend Surface Simplification](../backend-vnext/frontend-surface-simplification.md)；ADR 0018、ADR 0019。
@@ -91,7 +91,7 @@ SurfaceColumn.display_order  新增，int；业务列序
 BusinessNavigation:
   contract_version            backend-vnext/business-navigation/v1
   groups: [Group]             按后端给出的顺序展示，见 4.3；空组保留，前端可隐藏
-  diagnostics: [Diagnostic]
+                              诊断不在本产物内，见 §4.7
 
 Group:
   group_key                   当前取值：FORWARD_CHANNELS | SECONDARY_DEVICES | COMMUNICATION_PROTOCOLS
@@ -127,6 +127,7 @@ Tab:
 - **风险归属：** 风险标注按其行身份连接到逐行记录，再按记录两侧的身份值归属到装置；同一页签内去重，保持输入顺序。
 - **数据集替换模式**（`DATASET_REPLACEMENT`）：两侧分别生成，不跨侧连接。
 - **History 三节点：** 每个 pair 一份。
+- **诊断：** 放在 `SurfaceProjectionRef.diagnostics_ref` 指向的独立产物中，结构与编码见 §4.7。
 
 ### 4.3 分组规则
 
@@ -169,7 +170,7 @@ Tab:
 - 表 `b{board}_n{link_no}_sg_cfg` 作为同一通道转发通道项的页签，排在 9 类转发表页签之后。
 - 页签名取该表注释（当前为“定值”）；注释缺失时用“定值”。9 类转发表页签沿用固定中文名，不取注释（注释为“遥测引用表”等较长名称）。
 - 两侧都为 0 行时不显示该页签；任一侧有行（包括整表删除前有行）时显示。
-- 只挂到已存在的转发通道项（`exe=iec104` 且 `tab_num>0`）。所属通道没有转发通道项时，留在“其他表”，并输出诊断 `CHANNEL_TABLE_UNCLAIMED`。
+- 只挂到已存在的转发通道项（`exe=iec104` 且 `tab_num>0`）。所属通道没有转发通道项时，留在“其他表”，并输出诊断 `CHANNEL_TABLE_UNCLAIMED`（§4.7）。
 - 由转发通道认领后，不再进入“其他表”。
 
 ### 4.6 分组的扩展约定
@@ -181,6 +182,98 @@ Tab:
 - 新分组认领的表从“其他表”中移出，仍满足“每张表最多被一个分组认领”。
 - 前端的推导、筛选与命令层（UI 优化方向 §5.1）按 `group_key` 与 `item_key` 寻址，不依赖分组位置。
 
+### 4.7 导航诊断（设计会话 2026-11-02，答复 FE1 审核 D1）
+
+**位置：** 诊断不放在 `BusinessNavigation` 内，而是放进 `SurfaceProjectionRef.diagnostics_ref` 指向的独立产物。这个字段现在已经存在。
+
+原因：按 [Comparison Surface](../backend-vnext/contracts/comparison-surface.md) 的现行规则，`surface_digest` 不含诊断。表级和根级诊断都排除在外，`SurfaceProjectionRef.diagnostics_ref` 在摘要中也置空。如果诊断写进导航产物，就会经 `projection_ref` 的完整性进入 surface 摘要，与现行规则不一致。
+
+诊断产物属于 bundle 闭包（`bundle_assembly/_refs.py` 已闭合 `projection.diagnostics_ref`），因此进入 bundle 摘要。没有诊断时 `diagnostics_ref` 为 null，不产出该产物。
+
+```text
+BusinessNavigationDiagnostics:
+  contract_version            backend-vnext/business-navigation/v1（与导航产物同一 Contract）
+  diagnostics: [Diagnostic]   非空
+
+Diagnostic:
+  code                        取值见下表；大写字母、数字、下划线
+  target:                     定位，四个键都必须出现，值可为 null
+    group_key                 null | 分组键
+    item_key                  null | 项键
+    tab_key                   null | 页签键；非空时 item_key 必须非空
+    table_id                  null | surface 表 id
+  side                        null | BEFORE | CURRENT；只与一侧数据有关时给出
+  params                      对象；键集合按 code 固定（见下表），值为 string、int、null 或 string 列表
+```
+
+**规则：**
+
+- **文案由前端维护（C6）：** 诊断不带 `message`，前端按 `code` 映射中文文案，把 `params` 代入。
+  - User 模式显示中文文案；Debug 模式显示 `code`、`target`、`side`、`params` 原值。
+  - 后端不给文案，原因有两点：界面统一用中文，而后端 Contract 文本是英文；改文案不应改变产物字节和 bundle 摘要。
+  - 前端维护“编码 → 文案”表，同一张表也覆盖 surface `diagnostics_summary` 中的编码。单元测试检查 v1 的全部编码都有文案，且文案的占位符与该编码的 `params` 键一致（测试 owner：view-model）。
+- **不分级：** 导航诊断只表示导航不完整或不精确，不阻断提交与审核，数据仍可在 bundle 中查看。前端用提示样式展示，不使用风险色。将来需要分级时，按 §4.6 的方式提升次版本号并加字段。
+- **定位：**
+  - `target` 指向能定位到的最具体节点。前端在该节点（页签、项或分组）上就地提示，在分组头汇总个数；四个键全为 null 时提示显示在侧栏顶部。
+  - `target` 中非空的键必须存在于同一 pair 的导航产物或 surface 中，由后端校验。
+  - 表留在“其他表”时，`item_key` 为 `table:<表名>`。
+- **排序与去重：** 每条诊断按 JCS 规范化；按规范化字节序排序，完全相同的条目只保留一条；产物以 JCS 编码写出。
+- **未知编码：** 前端显示通用文案“导航提示（{code}）”，原值放进 Debug，不报错。新编码随 Contract 次版本号加入，与 §4.6 相同。
+- **数据集替换模式：** 两侧分别生成，诊断带对应的 `side`。
+
+**v1 编码：**
+
+`{侧}` 按 `side` 取“改前侧”或“改后侧”，`side` 为 null 时省略。`{表}` 由前端按 `table_id` 取 surface 的 `display_name`。
+
+| code | 产生条件 | target | side | params | 中文文案（初稿，前端可调整） | legacy |
+| --- | --- | --- | --- | --- | --- | --- |
+| `DEVICE_ADDRESS_DUPLICATE` | 某侧 `device` 表中 `dev_addr` 重复 | `SECONDARY_DEVICES`，`device:addr:{dev_addr}` | 有 | `dev_addr` | {侧}装置总表中装置地址 {dev_addr} 重复 | `DUPLICATE_DEVICE_ADDRESS` |
+| `DEVICE_GID_DUPLICATE` | 某侧 `device` 表中 `gid` 重复 | `SECONDARY_DEVICES`，`table_id=device` | 有 | `gid` | {侧}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确 | `DUPLICATE_DEVICE_GID` |
+| `DEVICE_TAB_COUNT_UNKNOWN` | 测点表在某侧存在，但无法按身份列统计计数；页签保留（§4.2） | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column` | {侧}{表}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空 | `SECONDARY_TAB_AVAILABILITY_UNKNOWN` |
+| `DEVICE_ROWS_UNASSIGNED` | 测点表中有行的身份值在两侧装置总表中都不存在，在任何装置页签中都看不到 | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column`、`row_count`、`changed_row_count` | {侧}{表}有 {row_count} 行不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表 | 无，新增，待 owner 确认 |
+| `CHANNEL_TABLE_UNCLAIMED` | 9 类转发表或 `sg_cfg` 按名称属于某个通道，但该通道没有转发通道项 | `OTHER_TABLES`，`table:<表名>`，`table_id` | null | `board`、`link_no` | {表}属于通道 b{board}_n{link_no}，但该通道不是 IEC104 转发通道，已放入“其他表” | 无（§4.5；范围扩大到 9 类转发表，legacy 中这些表直接进入“未解析表”） |
+| `PROTOCOL_EXE_MISSING` | 某侧 `net_cfg` 通道的 `exe` 为空 | `COMMUNICATION_PROTOCOLS`，`protocol:b{board}_n{link_no}` | 有 | `board`、`link_no` | {侧}通道 b{board}_n{link_no} 未配置规约，无法确定规约表 | `MISSING_PROTOCOL_EXE` |
+| `PROTOCOL_TABLE_NOT_FOUND` | `exe` 有值，但候选规约表都不存在 | 同上 | 有 | `board`、`link_no`、`protocol`、`expected_tables` | {侧}通道 b{board}_n{link_no} 的规约 {protocol} 没有对应的规约表（{expected_tables}） | `CANDIDATE_TABLE_NOT_FOUND` |
+| `APP_TABLE_CFG_MISSING` | 某侧 `app_cfg` 行的 `table_cfg` 为空 | `GLOBAL_PARAMETERS`，`app_cfg` 整表项，`table_id=app_cfg` | 有 | `app_name` | {侧}全局参数 {app_name} 未指定参数表 | `MISSING_TABLE_CFG` |
+| `APP_TABLE_CFG_DUPLICATE` | 多行 `table_cfg` 指向同一张表 | 同上 | 有 | `app_name`、`table_cfg` | {侧}全局参数 {app_name} 指向的参数表 {table_cfg} 已被其他行使用，只显示一次 | `DUPLICATE_TABLE_CFG` |
+| `APP_TABLE_NOT_FOUND` | `table_cfg` 指向的表不存在 | 同上 | 有 | `app_name`、`table_cfg` | {侧}全局参数 {app_name} 指向的参数表 {table_cfg} 不存在 | `TARGET_TABLE_NOT_FOUND` |
+
+`params` 的类型：`dev_addr`、`gid`、`board`、`link_no`、`row_count` 和 `changed_row_count` 为 int；`app_name` 可为 null；`expected_tables` 为 string 列表；其余为 string。
+
+`DEVICE_ROWS_UNASSIGNED` 是新增编码。按 §4.2 的规则，共享测点表只能经装置页签浏览；身份值不对应任何装置的行在导航里无法到达，审核时可能漏看其中的变化。
+
+前端在该提示上提供“查看整表”：按 `table_id` 在本地打开 `row_filter = null` 的整表视图。这不改变“每张表最多被一个分组认领”的规则。计数遵守 §5 的 DC39 约束：表未变化时只用当前侧计数，`changed_row_count` 取自该表的逐行记录。
+
+**不保留的 legacy 编码：**
+
+- `PROJECTION_PARTIAL`：有诊断就说明导航不完整，不需要单独的汇总标记。
+- `TARGET_TABLE_FILTERED`、`CANDIDATE_TABLE_FILTERED`：vnext 的 surface 包含 pair 的全部表，不存在“表存在但不在 surface 中”的情况。
+- `REPLACEMENT_PROJECTION_SIDE_FAILED`：数据异常都由上表的编码表达；组装过程的其他异常按所在步骤失败处理，不降级成诊断。第二步结合计算位置确认。
+- `COMPOSITE_SIGNAL_CHANGE_REVIEW_REQUIRED`：这是风险 reason code，不是导航诊断。
+
+**不作为诊断：**
+
+- 注释缺失：回退到标识符是既定规则（§4.1）。按列提示会产生大量无用提示，Debug 模式可直接显示标识符。
+- 表进入“其他表”：这是正常分组。只有按名称应该归属某组、却无法归属时（`CHANNEL_TABLE_UNCLAIMED`）才提示。
+
+**与 surface `diagnostics_summary` 的关系：** 保持不变，不属于 BE-b 范围。两者的产出方和事实都不同：surface 记录比较与风险过程中的降级，导航诊断记录导航构造中的数据问题。导航诊断不复制进 surface 的 `diagnostics_summary`，同一事实只有一处。
+
+两者在前端的文案层统一，共用一张“编码 → 文案”表。surface 中少数条目是自由文本而不是编码，例如风险引擎的 `max_annotations_per_pair exceeded`，以及比较失败时的异常文本。前端对这类未知字符串显示通用文案“比较提示”，原文放进 Debug。把这些自由文本收敛为编码是另一个后端清理项（kickoff §9），不阻塞前端。
+
+**占位 fixture 示例**（前端可直接使用）：
+
+```json
+{
+  "contract_version": "backend-vnext/business-navigation/v1",
+  "diagnostics": [
+    {"code": "CHANNEL_TABLE_UNCLAIMED", "params": {"board": 2, "link_no": 1}, "side": null,
+     "target": {"group_key": "OTHER_TABLES", "item_key": "table:b2_n1_sg_cfg", "tab_key": null, "table_id": "b2_n1_sg_cfg"}},
+    {"code": "DEVICE_ADDRESS_DUPLICATE", "params": {"dev_addr": 49}, "side": "CURRENT",
+     "target": {"group_key": "SECONDARY_DEVICES", "item_key": "device:addr:49", "tab_key": null, "table_id": null}}
+  ]
+}
+```
+
 ## 5. 留给第二步的约束
 
 第二步在 P6 S5 接近完成时定稿，以下约束现在先固定：
@@ -191,6 +284,7 @@ Tab:
 - **计入计时预算：** 导航在 Preview 与 History 的组装路径上计算，其耗时计入 W1–W4、H1–H3；放在哪个 step、是否缓存在第二步决定。
 - **History 的注释来源：** History 节点来自 Repository，需要为历史 commit 保存注释。候选：随 `CanonicalizationManifest` 保存展示元数据（不计入规范摘要），或写入 Dolt DDL 的 `COMMENT`。倾向前者：写入 Dolt DDL 会让只改注释的上传变成 Dolt schema 变化，与“注释不产生差异”冲突，并改变 S1a 冻结的导入包字节。第二步定稿。
 - **解析器：** S2a 冻结的解析语义不在 P6 内改动；注释捕获在 BE-b 实现时同时加入 Rust 解析器与 Python 参照，并补差分用例。
+- **导航诊断：** 与导航在同一遍计算中产生，不另外扫描；`DEVICE_TAB_COUNT_UNKNOWN` 的具体触发情形随计数的计算位置确定，编码与形状按 §4.7 固定。
 
 ## 6. owner 决定（2026-11-02）
 
@@ -202,8 +296,9 @@ Tab:
 | Q4 | 列展示精简 | 同意：保留后端的业务列序规则（只迁移与 DDL 顺序不同的规则）；列宽、对齐由前端计算；取消隐藏；固定列按 §4.1 的规则 |
 | Q5 | 复合信号虚装置 | 同意 §4.4：保留特殊项，不再产出 points/formulas 产物，由前端在本地组装。补充（2026-11-02，FE0 审核 D1）：提交人需要在提交前看到改前公式，Preview bundle 为 `composite_signal_point`、`device` 在表有变化时补齐基线侧整表，并入 BE-b |
 | Q6 | 转发通道的范围 | 同意：保留 legacy 规则（`exe=iec104` 且 `tab_num>0`） |
+| Q7 | 导航诊断的结构与编码（FE1 审核 D1） | 设计会话答复（2026-11-02），见 §4.7；新增编码 `DEVICE_ROWS_UNASSIGNED` 待 owner 确认 |
 
 ## 7. 后续
 
 - §6 确认后，前端占位数据按 §4 的结构构造（kickoff §4.5）。
-- 第二步定稿时，同步替换 §3 列出的四份过时文档，以及 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) 中描述 points/formulas 产物的部分（§Secondary-device Projection 的产物引用、§Frontend 与 §Dataset Replacement 中对这两份产物的依赖）；修订 Comparison Surface（`projection_kind`、`SurfaceColumn.pinned`、`SurfaceColumn.display_order`）与 Comparison Bundle Contract（Preview 双侧浏览表的闭包规则，§4.4）。在此之前，前端以本草案为准。
+- 第二步定稿时，同步替换 §3 列出的四份过时文档，以及 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) 中描述 points/formulas 产物的部分（§Secondary-device Projection 的产物引用、§Frontend 与 §Dataset Replacement 中对这两份产物的依赖）；修订 Comparison Surface（`projection_kind`、`SurfaceColumn.pinned`、`SurfaceColumn.display_order`；导航诊断使用已有的 `SurfaceProjectionRef.diagnostics_ref`，不改结构）与 Comparison Bundle Contract（Preview 双侧浏览表的闭包规则，§4.4）。在此之前，前端以本草案为准。

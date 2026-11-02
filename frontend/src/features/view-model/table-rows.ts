@@ -154,6 +154,13 @@ function recordValues(value: unknown): Record<string, unknown> {
   return result;
 }
 
+function positionNumber(value: unknown): number | null {
+  if (typeof value !== "number" && typeof value !== "bigint" && typeof value !== "string") return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function displayValue(value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "bigint") return value.toString();
@@ -268,8 +275,8 @@ export function buildBrowseRows(input: {
       riskLevel: identity ? risks.get(identity) ?? null : null,
       recordKind: typeof record?.record_kind === "string" ? record.record_kind : null,
       semanticKind: typeof record?.semantic_kind === "string" ? record.semantic_kind : null,
-      beforePosition: typeof record?.before_position === "number" ? record.before_position : typeof interval.before_start === "number" ? interval.before_start : null,
-      currentPosition: typeof record?.current_position === "number" ? record.current_position : typeof interval.current_start === "number" ? interval.current_start : null,
+      beforePosition: positionNumber(record?.before_position) ?? positionNumber(interval.before_start),
+      currentPosition: positionNumber(record?.current_position) ?? positionNumber(interval.current_start),
       changedColumns: Array.isArray(record?.changed_columns) ? record.changed_columns : [],
       values: { ...(args.values ?? args.source), ...(record?.interval ? { interval: record.interval } : {}) },
       pairKey: args.pairKey ?? null,
@@ -305,7 +312,7 @@ export function buildBrowseRows(input: {
     const candidate = (identity ? byIdentity.get(identity)?.find((record) => !consumed.has(record) && rowRecords.includes(String(record.record_kind))) : undefined)
       ?? input.records.find((record) => !consumed.has(record)
         && ["ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"].includes(String(record.record_kind))
-        && record.current_position === index + 1);
+        && positionNumber(record.current_position) === index + 1);
     if (!candidate) {
       rows.push(makeRow({ key: `current:${index + 1}`, kind: "unchanged", source, rowNumber: index + 1, identity }));
       return;
@@ -318,13 +325,13 @@ export function buildBrowseRows(input: {
       const before = beforeIndex >= 0 ? input.beforeRows[beforeIndex] ?? { ...source, ...beforeValues } : { ...source, ...beforeValues };
       const after = source;
       const pairKey = `pair:${identity}`;
-      const beforeNumber = beforeIndex >= 0 ? beforeIndex + 1 : typeof candidate.before_position === "number" ? candidate.before_position : index + 1;
-      const currentNumber = typeof candidate.current_position === "number" ? candidate.current_position : index + 1;
+      const beforeNumber = beforeIndex >= 0 ? beforeIndex + 1 : positionNumber(candidate.before_position) ?? index + 1;
+      const currentNumber = positionNumber(candidate.current_position) ?? index + 1;
       rows.push(makeRow({ key: `${pairKey}:before`, kind: "modified-before", source: before, rowNumber: beforeNumber, identity, record: candidate, pairKey, values: before }));
       rows.push(makeRow({ key: `${pairKey}:after`, kind: "modified-after", source: after, rowNumber: currentNumber, identity, record: candidate, pairKey, values: after }));
     } else {
       rows.push(makeRow({ key: `record:${identity ?? index + 1}`, kind: recordKind === "ORDERED_ROW_MOVED" ? "ordered" : "added",
-        source, rowNumber: typeof candidate.current_position === "number" ? candidate.current_position : index + 1, identity, record: candidate }));
+        source, rowNumber: positionNumber(candidate.current_position) ?? index + 1, identity, record: candidate }));
     }
   });
 
@@ -335,14 +342,15 @@ export function buildBrowseRows(input: {
       const identity = normalizeRowIdentity(record.row_identity);
       const beforeIndex = identity ? beforeIdentities.findIndex((value) => value === identity) : -1;
       const source = beforeIndex >= 0 ? input.beforeRows[beforeIndex] : undefined;
-      rows.push(makeRow({ key: `deleted:${identity ?? rows.length}`, kind: "deleted", source: source ?? recordValues(record.before_values), rowNumber: typeof record.before_position === "number" ? record.before_position : beforeIndex >= 0 ? beforeIndex + 1 : input.beforeRows.length + rows.length + 1, identity, record, values: source ?? recordValues(record.before_values) }));
+      rows.push(makeRow({ key: `deleted:${identity ?? rows.length}`, kind: "deleted", source: source ?? recordValues(record.before_values), rowNumber: positionNumber(record.before_position) ?? (beforeIndex >= 0 ? beforeIndex + 1 : input.beforeRows.length + rows.length + 1), identity, record, values: source ?? recordValues(record.before_values) }));
       consumed.add(record);
     } else if (kind.startsWith("BLANK_")) {
       const interval = record.interval && typeof record.interval === "object" ? record.interval as Record<string, unknown> : {};
-      const position = typeof record.before_position === "number" ? record.before_position
-        : typeof interval.before_start === "number" ? interval.before_start
-          : typeof record.current_position === "number" ? record.current_position
-            : typeof interval.current_start === "number" ? interval.current_start : input.currentRows.length + rows.length + 1;
+      const position = positionNumber(record.before_position)
+        ?? positionNumber(interval.before_start)
+        ?? positionNumber(record.current_position)
+        ?? positionNumber(interval.current_start)
+        ?? input.currentRows.length + rows.length + 1;
       rows.push(makeRow({ key: `blank:${rows.length}`, kind: "blank", source: {}, rowNumber: position, record, values: {} }));
       consumed.add(record);
     }

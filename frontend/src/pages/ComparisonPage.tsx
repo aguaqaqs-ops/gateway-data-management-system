@@ -177,7 +177,7 @@ export function ComparisonPage() {
     setError(null); setBundle(null); setPairs([]);
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
-      const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest: browse.bundleDigest ?? undefined,
+      const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest: browse.bundleDigest || undefined,
         fetchBundle: () => API(requestPath, { headers: { Accept: "application/x-tar" } }),
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
       loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest };

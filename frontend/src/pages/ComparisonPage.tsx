@@ -93,7 +93,7 @@ function rowLabel(row: BrowseRow): string {
 }
 
 function columnWidth(name: string, values: unknown[]): number {
-  const longest = values.reduce((length, value) => Math.max(length, Array.from(normalizeDisplayScalar(value)).length), Array.from(name).length);
+  const longest = values.reduce<number>((length, value) => Math.max(length, Array.from(normalizeDisplayScalar(value)).length), Array.from(name).length);
   return Math.min(360, Math.max(112, longest * 8 + 38));
 }
 
@@ -466,25 +466,26 @@ function GridTable({ rows, table, annotations, debug, highlightedIdentity, onVis
   }, [highlightedIdentity, rows]);
   const getCellContent = useCallback(([columnIndex, rowIndex]: readonly [number, number]): GridCell => {
     const row = rows[rowIndex]; const column = columns[columnIndex];
-    if (!row || !column) return { kind: GridCellKind.Loading, allowOverlay: false };
+    if (!row || !column || typeof column.id !== "string") return { kind: GridCellKind.Loading, allowOverlay: false };
+    const columnId = column.id;
     const pair = row.pairKey ? pairRows.get(row.pairKey) : undefined;
     const detached = pair && (pair.length !== 2 || Math.abs((pair[0] ?? 0) - (pair[1] ?? 0)) > 1);
     let value: unknown;
-    if (column.id === "__number") value = row.rowNumber;
-    else if (column.id === "__diff") value = row.kind === "collapsed" ? rowLabel(row) : rowLabel(row) + (detached ? " ↔" : "");
-    else if (column.id === "__kind") value = row.recordKind ?? "—";
-    else if (column.id === "__role") value = row.kind === "modified-before" ? "前" : row.kind === "modified-after" ? "后" : "—";
-    else if (column.id === "__semantic") value = row.semanticKind ? row.semanticKind + " · " + (row.beforePosition ?? "—") + " → " + (row.currentPosition ?? "—") : "—";
-    else value = row.values[column.id];
+    if (columnId === "__number") value = row.rowNumber;
+    else if (columnId === "__diff") value = row.kind === "collapsed" ? rowLabel(row) : rowLabel(row) + (detached ? " ↔" : "");
+    else if (columnId === "__kind") value = row.recordKind ?? "—";
+    else if (columnId === "__role") value = row.kind === "modified-before" ? "前" : row.kind === "modified-after" ? "后" : "—";
+    else if (columnId === "__semantic") value = row.semanticKind ? row.semanticKind + " · " + (row.beforePosition ?? "—") + " → " + (row.currentPosition ?? "—") : "—";
+    else value = row.values[columnId];
     const risk = row.riskLevel ? riskTokens(row.riskLevel) : null;
-    const changed = row.changedColumns.includes(column.id);
+    const changed = row.changedColumns.includes(columnId);
     const boldStyle = row.kind === "modified-after" && changed ? `600 ${theme.baseFontStyle}` : undefined;
     const cellTheme = risk
       ? { bgCell: changed ? risk.cell : risk.bg, textDark: row.kind === "modified-before" || row.kind === "deleted" ? "#535D69" : risk.text, ...(boldStyle ? { baseFontStyle: boldStyle } : {}) }
       : changed ? { bgCell: "#E6E9ED", textDark: "#1B2229", ...(boldStyle ? { baseFontStyle: boldStyle } : {}) } : undefined;
     return { kind: GridCellKind.Text, data: normalizeDisplayScalar(value), displayData: normalizeDisplayScalar(value), allowOverlay: row.kind === "collapsed",
       style: row.kind === "modified-before" || row.kind === "deleted" ? "faded" : "normal",
-      themeOverride: column.id === "__number" ? undefined : cellTheme };
+      themeOverride: columnId === "__number" ? undefined : cellTheme };
   }, [columns, pairRows, rows]);
   const getRowThemeOverride = useCallback((row: number): Partial<Theme> | undefined => { const value = rows[row]; if (!value?.riskLevel) return undefined; const risk = riskTokens(value.riskLevel); return { bgCell: risk.bg, textDark: risk.text }; }, [rows]);
   const drawCell = useCallback((args: Parameters<NonNullable<ComponentProps<typeof DataEditor>["drawCell"]>>[0], drawContent: () => void) => {
@@ -511,13 +512,14 @@ function GridTable({ rows, table, annotations, debug, highlightedIdentity, onVis
   const hoverPair = hoverRow?.pairKey ? pairRows.get(hoverRow.pairKey) : undefined;
   const hoverBefore = hoverPair?.length === 2 ? rows[hoverPair.find((index) => rows[index]?.kind === "modified-before") ?? -1] : undefined;
   const hoverAfter = hoverPair?.length === 2 ? rows[hoverPair.find((index) => rows[index]?.kind === "modified-after") ?? -1] : undefined;
-  const hoverChanged = Boolean(hoverRow && hoverColumn && hoverRow.changedColumns.includes(hoverColumn.id));
-  const hoverAnnotation = hoverRow?.rowIdentity ? annotations.find((annotation) => annotation.target.target_type === "ROW" && [annotation.target.row_identity, annotation.target.before_row_identity, annotation.target.current_row_identity].some((identity) => normalizeRowIdentity(identity ?? undefined) === hoverRow.rowIdentity)) : undefined;
+  const hoverColumnId = typeof hoverColumn?.id === "string" ? hoverColumn.id : null;
+  const hoverChanged = Boolean(hoverRow && hoverColumnId && hoverRow.changedColumns.includes(hoverColumnId));
+  const hoverAnnotation = hoverRow?.rowIdentity ? annotations.find((annotation) => annotation.target.target_type === "ROW" && [annotation.target.row_identity, annotation.target.before_row_identity, annotation.target.current_row_identity].some((identity) => identity !== null && normalizeRowIdentity(identity) === hoverRow.rowIdentity)) : undefined;
   const showHoverDetail = Boolean(hoverRow && (hoverChanged || hoverRow.riskLevel));
   const fieldTitle = table.columns?.find((column) => column.name === hoverColumn?.id)?.display_name ?? hoverColumn?.id ?? "";
   return <div className="grid-frame" aria-label="比较表格"><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellActivated={activate} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={38} rowHeight={38} theme={theme} width="100%" height={Math.max(300, Math.min(600, rows.length * 38 + 40))} smoothScrollX smoothScrollY verticalBorder={false} />
     {showHoverDetail && hoverRow && <div className="grid-hover-detail" role="tooltip">
-      {hoverChanged && hoverColumn && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumn.id])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumn.id])}</code></div></section>}
+      {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId])}</code></div></section>}
       {hoverRow.riskLevel && <section className="grid-hover-detail__risk"><strong>风险信息 <RiskBadge level={hoverRow.riskLevel} /></strong>{hoverAnnotation?.reasons.map((reason) => <span key={reason.reason_code + reason.rule_id} title={debug ? `reason_code=${reason.reason_code} · rule_id=${reason.rule_id}` : undefined}>{describeRiskReason(reason.reason_code)}{debug && <code>{reason.reason_code} · {reason.rule_id}</code>}</span>)}<small>原始规则编码在 Debug 模式中查看</small></section>}
     </div>}
   </div>;

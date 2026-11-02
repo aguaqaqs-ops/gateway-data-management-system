@@ -5,6 +5,6 @@
     "types": ["vite/client", "vitest/globals", "node"],
     "composite": true
   },
-  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test"],
+  "include": ["src"],
   "exclude": []
 }

@@ -13,7 +13,7 @@
 
 owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，包含 AGENTS.md 与 `docs/backend-vnext/testing-conventions.md` 两处规则，本分支已 rebase 到该提交之上。此前的两次 clone 错误按 DC68 保留；设计会话随后指定从 05 共享仓库 fetch 的新方式，重新从准备步骤开始后成功。
 
-05 detached worktree HEAD `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2` 上，在工具链容器的临时副本中单独执行 `npm ci --offline` 成功；随后 `frontend/scripts/run-tests.sh` 默认流程 exit `0`。类型检查、lint、构建均成功；Vitest 正常退出，但当前没有单元测试文件。未运行 `--e2e`。两个运行的节点、时间、HEAD、exit code 与日志 SHA256 见“05 测试日志”。
+FE0 初始候选的运行结果与本次定向修复结果分别记录在下方相应日志小节。本次定向修复已在代码提交 `d62eb3603747d3dceed2269c3cfc74be100b73e3` 上完成 standalone `npm ci --offline`、默认入口和 `--e2e`。
 
 工具链镜像与 npm 缓存已预填充至 05。FE0 的 05 调试运行完成；04 阶段退出运行尚未进行。
 
@@ -49,7 +49,7 @@ owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，�
 
 ### npm 缓存
 
-- 依赖与锁文件来源提交：`62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4`；CT201 缓存 registry host：`192.168.233.184:4873`（未记录凭据）。
+- 原始缓存生成时依赖/锁文件提交为 rebase 前的 `62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4`，registry host 为 `192.168.233.184:4873`（未记录凭据）。N7 核对确认它与分支提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5` 的 `package.json`、`package-lock.json` blob 相同。B1 只改 lockfile 的 resolved source；本次被验证的新锁文件来源提交为 `d62eb3603747d3dceed2269c3cfc74be100b73e3`。
 - CT201 的 npm cacache 为 603 MB；归档 `npm-cacache-fe0.tar.gz` 为 100 MB，SHA256：`0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`。
 - 归档与传输日志记录时间为 `2026-11-02 08:14:24–08:14:41 UTC`；05 解包并校验 `08:14:49–08:14:51 UTC`。05 解包后的 cacache 同为 603 MB，归档 SHA 校验通过。随后 05 工具链容器中 `npm ci --offline` 成功，详情见“05 测试日志”。
 - 日志 SHA256：`npm-cache-package.log` `22b6abd65da891c0be51bd722db0ab3aa65d3d96585fada89be20b334d343f0b`；`npm-cache-transfer.log` `185404dc867f081cd8abeca27a6d7abf1c995d40545aef00bd919d99c44110ea`；05 `npm-cache-prefill.log` `d845b4249d1283f8d310cdce97b6af30b4b3ff63677e927ca0751392617410b4`。
@@ -138,3 +138,58 @@ CT201 使用 Node `v24.20.0`、npm `11.19.0` 执行 `npm install --cache /home/d
 | `frontend/scripts/run-tests.sh`（`run_e2e=0`） | `gw-dms-test-05.lan` | `08:35:35–08:35:44` | `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2` → 同一 HEAD | `0` | `22ced6a030176ab2f5f6a3466c4f6fb78b17f6c616bece939d7886cd1137a77b` |
 
 日志分别为 `/home/dev/gdds-fe-logs/fe0/npm-ci-offline-20261102T083518Z.log` 与 `/home/dev/gdds-fe-logs/fe0/frontend-tests-20261102T083535Z.log`。权威入口内也再次完成一次离线安装。Vitest 显示 `No test files found`，由配置的 `--passWithNoTests` 正常 exit `0`；因此当前验证覆盖工程检查和构建，不包含业务单元测试断言。测试后确认 detached worktree 仍 clean、HEAD 未变；05 main 仍在原 HEAD。
+
+## FE0 定向修复
+
+### 提交与范围
+
+- 代码修复提交：`d62eb3603747d3dceed2269c3cfc74be100b73e3`，复审范围为 `6c5dbcb1c41fb34bce0bf7a635d90135e860bd3e..` 后续 handoff 提交。05 三次成功运行均绑定到代码修复提交 `d62eb3603747d3dceed2269c3cfc74be100b73e3`；测试后只修改本 handoff，并单独提交。
+- 改动仅在 `frontend/`；未修改 `package.json`、`.gitignore`、`vnext/`、AGENTS、kickoff、UI 优化方向或复审报告。
+
+### B1：lockfile registry 身份（`d62eb3603747d3dceed2269c3cfc74be100b73e3`）
+
+- 将 305 处 `resolved` 主机改为 `https://registry.npmjs.org/`，保留原 tarball 路径。lockfile SHA256：`811fa3dfbf22233738906335b35ec3e2abf0846f510a157cb69ff18db71f0f7c`。
+- 与修复前锁文件逐项静态比较：305 个 integrity 值全部不变、305 个 tarball 路径全部不变、package 条目集合不变；`frontend/package.json` 未改。修复前锁文件快照 SHA256：`64e87a373bbded64d1d1cc63da179556895e2fe9fba6f8a6e51f1bd9a83b760b`。
+- `run-tests.sh` 运行前检查 lockfile 的每个 `resolved` 必须使用官方 HTTPS 源；缺失或出现其他 source 时以 exit `2` 拒绝。README 说明 CT201 局域网 registry 只用于取包，lock source 保持官方。
+- 使用既有 CT201 缓存，未重新预填充。缓存原始生成提交为 `62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4`；其 `package.json` 与 `package-lock.json` blob 和分支 `a2fb4a027a6f62218109783674cfc37bd64e14a5` 相同。新锁文件提交为 `d62eb3603747d3dceed2269c3cfc74be100b73e3`，05 离线安装证明旧缓存可用于新官方 lock source。归档 SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`，CT201→05 原预填充时间 `2026-11-02 08:14:24–08:14:51 UTC`；本次未重新传输缓存。
+
+### B2：Playwright 冒烟（`d62eb3603747d3dceed2269c3cfc74be100b73e3`）
+
+- 新增 `frontend/e2e/workspace-shell.spec.ts`，用例名“打开应用显示工作台骨架页”，启动 Vite dev server 并断言一级标题“网关数据工作台”可见；不连接 backend。
+- Playwright `reuseExistingServer` 固定为 `false`。未使用 `--pass-with-no-tests` 或其他空跑选项；`--e2e` 日志确认 `1 passed`。
+
+### N2–N6 与 N7
+
+| 项 | 修复 | 对应提交 |
+| --- | --- | --- |
+| N2 | runner 日志记录并校验工具链镜像 RootFS DiffID 列表；记录 npm 缓存来源归档 SHA256。 | `d62eb3603747d3dceed2269c3cfc74be100b73e3` |
+| N3 | 容器仅接收 `git archive HEAD frontend` 生成的 tracked source tar，忽略工作区被 Git 忽略的文件。 | `d62eb3603747d3dceed2269c3cfc74be100b73e3` |
+| N4 | Playwright 不复用已有 dev server。 | `d62eb3603747d3dceed2269c3cfc74be100b73e3` |
+| N5 | README 说明默认 `none` 仅适用于模拟接口；FE3 真实 backend e2e 需 host network 或可达的显式地址，并配置对应环境变量。 | `d62eb3603747d3dceed2269c3cfc74be100b73e3` |
+| N6 | 日志、npm cache、cache archive 的默认路径均与阶段无关；可通过环境变量覆盖。 | `d62eb3603747d3dceed2269c3cfc74be100b73e3` |
+| N7 | B1 后当前 lockfile 来源提交记录为 `d62eb3603747d3dceed2269c3cfc74be100b73e3`。B1 前分支提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5` 与旧 `62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4` 的 `package.json`、`package-lock.json` blob 相同。依 FD7 治理提交 `f0ad2461ac`，前端测试入口保持独立，不并入 `vnext` runner。 | 本 handoff 单独提交 |
+
+N1 按要求保留到 FE1 再处理。D1 的复合信号公式来源和 §8 对应判定没有更改，等待设计会话答复；04 阶段退出取证等复审通过后执行。
+
+### 05 源码传输与 worktree
+
+- CT201 以 05 已有祖先 `b7d6e4540677d38117adde2885682ad5a4f4ce09` 创建新 bundle `fe-vnext-d62eb36037.bundle`，候选 `d62eb3603747d3dceed2269c3cfc74be100b73e3`；SHA256：`a7310943b3dd58091a7ab4f7c26c2f3c2792f7dbfaa486e504b029f4fd99450e`。使用了新 bundle，未使用旧 `fe-vnext-test.bundle`。
+- CT201 创建/传输日志 `/home/dev/gdds-fe-logs/fe0/fix1/source-bundle-d62eb.log`，SHA256 `659677191c92d65eca51c28956da725cf34c19dadb22edf752206d1f8fdd9dba`，时间 `09:50:32Z`，exit `0`。
+- 05 在共享主仓库 verify/fetch 后，`FETCH_HEAD` 精确等于候选 `d62eb3603747d3dceed2269c3cfc74be100b73e3`；未移动 main、未创建分支。05 main 保持 `0d9ff6d5cd8d59509955c7ccf6ac9dddffa0b93c`。fetch 日志 `/home/dev/gdds-fe-logs/fe0/fix1/bundle-fetch.log`，SHA256 `78aef8c8e9f3dff80fe84a0acc3ce2190da0327d5b706d59dc659a4eeb8a2b6d`，时间 `09:50:40Z`，exit `0`。
+- detached worktree `/home/dev/gdds-fe-fe0-fix1` 链接 `legacy`；HEAD 精确等于候选且 clean。worktree 日志 `/home/dev/gdds-fe-logs/fe0/fix1/worktree-add.log`，SHA256 `5096be15b810361d28de6edc03f8968bd65d6b5f0714beb6b596ef59e04e25b0`，时间 `09:50:50Z`，exit `0`。
+
+### 05 三次运行日志
+
+每份日志均记录 `gw-dms-test-05.lan`、UTC 起止时间、起止 HEAD、exit code；runner 日志另记录 DiffID、缓存归档 SHA 和 source archive SHA。三次均在 `network=none` 下运行，起止 HEAD 均为 `d62eb3603747d3dceed2269c3cfc74be100b73e3`。
+
+| 运行 | 日志路径 | 起止时间（UTC） | exit code | 日志 SHA256 |
+| --- | --- | --- | --- | --- |
+| 工具链容器 standalone `npm ci --offline` | `/home/dev/gdds-fe-logs/fe0/fix1/npm-ci-offline-retry-20261102T095156Z.log` | `09:51:56–09:52:02` | `0` | `28a5d7fafde27b111b908c2287657d83b721921128afd11044231626f8e59b1b` |
+| `frontend/scripts/run-tests.sh` 默认流程 | `/home/dev/gdds-fe-logs/fe0/fix1/frontend-tests-20261102T095215Z.log` | `09:52:15–09:52:25` | `0` | `6fa00b245f23364ac2e73c77bccdc26638d107869c5c8f136c18672854b96ee7` |
+| `frontend/scripts/run-tests.sh --e2e` | `/home/dev/gdds-fe-logs/fe0/fix1/frontend-tests-20261102T095233Z.log` | `09:52:33–09:52:44` | `0` | `26ccf12bea16563928214ac219d91f7cc17906ff1462130d6bd92cebc90c753f` |
+
+standalone 与 runner 内的离线安装均安装 280 个包。默认流程的 typecheck、lint、build 通过；Vitest 仍显示没有单元测试文件，并按保留的 N1 配置正常退出。E2E 运行实际执行冒烟用例并报告 `1 passed`。运行后确认测试 worktree clean 且 HEAD 未变。
+
+### DC68 本轮操作参数错误
+
+首次 standalone 命令的日志 `/home/dev/gdds-fe-logs/fe0/fix1/npm-ci-offline-20261102T095125Z.log` SHA256 为 `5cefa7d4da25556ab4483aff4b565199c2788080c16ffc137481b717c0fb5ba9`，起止时间 `09:51:25Z`、exit `2`。原因是预检脚本中的候选变量少录末位，导致 HEAD 对比失败；容器未启动、npm 未运行，也未改变 worktree。按 DC68 保留失败日志，从该步骤开头重做一次，候选改由 05 的 `FETCH_HEAD` 读取，standalone 安装成功。缓存 SHA 和镜像 DiffID 在失败预检中均匹配，没有缓存 miss 或镜像身份不符。

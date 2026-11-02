@@ -267,13 +267,11 @@ export interface DerivedBundleView {
   diagnostics: string[];
 }
 
-function rowCount(table: SurfaceTable, key: string): number | null {
-  const candidates = key === "before" ? ["row_count_before", "before_row_count"] : ["row_count_current", "current_row_count"];
-  for (const candidate of candidates) {
-    const value = table.row_change_stats?.[candidate];
-    if (typeof value === "number") return value;
-  }
-  return null;
+function rowCount(table: SurfaceTable, side: "before" | "current"): number | null {
+  const value = side === "before"
+    ? table.row_change_stats?.row_count_before
+    : table.row_change_stats?.row_count_current;
+  return typeof value === "number" ? value : null;
 }
 
 function tableProjection(surface: ComparisonSurface, risk?: RiskReport): Map<string, DerivedTable> {

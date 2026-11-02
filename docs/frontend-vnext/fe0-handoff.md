@@ -1,4 +1,4 @@
-# FE0 handoff（05 验证完成）
+# FE0 handoff（04 阶段退出取证完成，待证据复核）
 
 ## 完成状态
 
@@ -7,7 +7,7 @@
 - 在 `frontend/` 初始化 React、TypeScript、Vite、glide-data-grid、hyparquet、lucide 工程；依赖在 `package.json` 中精确钉版本，已生成并提交 `package-lock.json`。功能、设计系统、页面分别落在 `src/features/`、`src/design-system/`、`src/pages/`。
 - `frontend/scripts/run-tests.sh` 提供类型检查、lint、单元测试、构建入口和 `--e2e` 接口；已在 05 默认流程运行通过。
 - 已提交 OpenAPI 快照 `frontend/openapi.json` 和生成类型 `frontend/src/features/api/generated/openapi.d.ts`。
-- FE0 工程、缓存预填充和 05 默认入口验证均完成，候选已提交，可交独立审核。此次默认流程未带 `--e2e`；04 阶段退出运行尚未进行。
+- FE0 工程、缓存预填充、05 调试验证和 04 阶段退出取证均已完成。代码候选仍为 `e22f510a82a143ccee76a1b3b3b6c854aa755129`；04 证据待审核会话核对。
 
 ## 测试状态与等待项
 
@@ -15,7 +15,7 @@ owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，�
 
 FE0 初始候选的运行结果与本次定向修复结果分别记录在下方相应日志小节。本次定向修复已在代码提交 `d62eb3603747d3dceed2269c3cfc74be100b73e3` 上完成 standalone `npm ci --offline`、默认入口和 `--e2e`。
 
-工具链镜像与 npm 缓存已预填充至 05。FE0 的 05 调试运行完成；04 阶段退出运行尚未进行。
+工具链镜像与 npm 缓存已预填充至 05 和 04。05 调试运行与 04 阶段退出运行均已完成；04 的日志与摘要见“04 阶段退出取证”。
 
 ## 工具链与缓存来源
 
@@ -82,7 +82,7 @@ CT201 使用 Node `v24.20.0`、npm `11.19.0` 执行 `npm install --cache /home/d
 
 **结论：当前 backend 的 snapshot Parquet 表路径会携带 `composite_signal_point`，其数据 schema 包含 `formula_ast_json`；静态核对支持“bundle 闭包包含该表及字段”。** `snapshot_materialization/compose.py` 组装该字段；`table_rules/registry.py` 将 AST 排除在比较列之外，但没有从物化表删除它。Comparison Bundle Contract 要求 Preview 闭合上传侧全部表，History 在提供 snapshot table set 时闭合可浏览 snapshot；相应组装/roundtrip 测试源码也断言该表存在。以上是源码与契约核对，不是本会话运行测试所得。
 
-公式内容的语义比较应依据 `formula_digest`；`formula_ast_json` 是展示/绑定数据。另一个尚需设计确认的点是，现有后端实现没有检索到文档所述的独立 `composite_signal_points` / `composite_signal_formulas` pair artifacts 与设备名映射投影。因此，当前确认的是 bundle snapshot 表字段，不据此断言 legacy 公式查看器的双侧公式解释与名称映射已经完整提供。
+公式内容的语义比较应依据 `formula_digest`；`formula_ast_json` 是展示/绑定数据。当前后端没有独立的 `composite_signal_points` / `composite_signal_formulas` pair artifacts 与设备名映射投影；设计会话已在 main `bb6a09252a` 定下呈现范围：History 与 Preview 都提供改前、改后对照，BE-b 在表有变化时为 Preview 补齐 `composite_signal_point` 与 `device` 的基线侧整表；补齐前，Preview 中公式有变化的测点只显示上传侧公式并标“公式已改”。该结论与数据来源、名称映射见 kickoff §8 和 BE-b 设计草案 §4.4。
 
 ## §8 legacy 能力判定
 
@@ -97,7 +97,7 @@ CT201 使用 Node `v24.20.0`、npm `11.19.0` 执行 `npm install --cache /home/d
 | 风险浏览与提示 | KEEP | 保留 RiskReport、annotation 原因及可用定位；不从 records 自行推断风险。 |
 | 业务分组、节点、页签 | SIMPLIFY | FD6 占位为单一组、表为节点、无装置页签；保留全部表名、状态、统计、风险和数据访问，不推断尚未提供的业务分组。 |
 | 列展示 | SIMPLIFY | 暂用原始列名和内容计算宽度；保留原始 schema/值，不虚构缺失的显示名、顺序、隐藏、固定或键列配置。 |
-| 复合信号表与公式查看 | KEEP | 保留复合信号表及 AST 展示数据；相等性依据 formula digest。双侧公式和设备名映射来源需设计确认，见下文。 |
+| 复合信号表与公式查看 | KEEP | History 与 Preview 都提供改前、改后对照。BE-b 在表有变化时，为 Preview 补齐 `composite_signal_point` 与 `device` 的基线侧整表；补齐前，Preview 中公式有变化的测点只显示上传侧公式并标“公式已改”。依据 owner 2026-11-02 确认的 main `bb6a09252a`（kickoff §8 与 BE-b 设计草案 §4.4）。 |
 | 数据集替换双侧浏览与确认 | KEEP | 两侧 snapshot 独立浏览，保留 `identity_pairs` 与显式 `identity_confirmations`，不拼成普通 diff。 |
 | 提交 | KEEP | 保留 submit attempt、幂等 key、预期版本和身份确认事实。 |
 | 审核通过、退回、撤回 | SIMPLIFY | 保留审核人、决定、原因、时间和结果状态；“退回”映射 `REJECT`，移除 `START_REVIEW` 与 `RETURN_FOR_REVISION`。 |
@@ -112,11 +112,11 @@ CT201 使用 Node `v24.20.0`、npm `11.19.0` 执行 `npm install --cache /home/d
 
 1. kickoff §3 标注核对时的 main 为 `b7d6e45406`，本实施会话按用户要求从创建 worktree 时的当前 `main` 起步，实际起点是 `7c339bff460254e19f36e81cb75028ca3a2702b1`。OpenAPI 来源和 worktree 基线均使用实际起点，未修改 `vnext/`。
 2. `docs/backend-vnext/frontend-surface-simplification.md` 开头提及临时 legacy compatibility layer，与 AGENTS、FD1 和 kickoff 的“新建前端、legacy 只作参考、不建设兼容层”方向冲突。FE0 没有实现或引入兼容层。请设计/owner 确认该文档表述是否为过期内容。
-3. 公式查看器应从每侧 `composite_signal_point` snapshot 加设备表映射构建，还是依赖独立 `composite_signal_*` pair artifacts？当前源码能确认 snapshot 字段，不能确认后者已实现。请设计会话明确 FE1/FE2 的数据来源与显示范围。
+3. 公式查看器数据来源已由 owner 于 2026-11-02 在设计会话通过 main `bb6a09252a` 确认：History 与 Preview 都提供改前、改后对照；BE-b 在表有变化时，为 Preview 补齐 `composite_signal_point` 与 `device` 的基线侧整表；补齐前，Preview 中公式有变化的测点只显示上传侧公式并标“公式已改”。详见 kickoff §8 与 BE-b 设计草案 §4.4。
 4. OpenAPI 快照来自 BE-a 前的 backend，仍含 `RETURN_FOR_REVISION`；FE0 记录此来源，前端遵从 FD4，不把旧动作作为产品操作。BE-a 后刷新快照属于后续同步工作。
-5. FE0 在 05 的默认权威入口及独立离线安装验证通过；04 阶段退出运行依 kickoff §6 留待阶段退出。
+5. FE0 在 05 的默认权威入口及独立离线安装验证通过；04 阶段退出取证已按 kickoff §6 完成，见本 handoff 的“04 阶段退出取证”。
 
-当前没有需要修改 `vnext/` 或后端行为的实施项；上述文档冲突与公式数据来源作为设计问题交 owner，不在 FE0 自行改写 FD 或后端事实。
+当前没有需要修改 `vnext/` 或后端行为的实施项；第 2 项文档表述冲突交 owner 处理，D1 公式数据来源已按上述设计结论记录，不在 FE0 自行改写 FD 或后端事实。
 
 ## FD7 恢复、DC68 记录与 05 测试日志
 
@@ -169,7 +169,7 @@ CT201 使用 Node `v24.20.0`、npm `11.19.0` 执行 `npm install --cache /home/d
 | N6 | 日志、npm cache、cache archive 的默认路径均与阶段无关；可通过环境变量覆盖。 | `d62eb3603747d3dceed2269c3cfc74be100b73e3` |
 | N7 | B1 后当前 lockfile 来源提交记录为 `d62eb3603747d3dceed2269c3cfc74be100b73e3`。B1 前分支提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5` 与旧 `62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4` 的 `package.json`、`package-lock.json` blob 相同。依 FD7 治理提交 `f0ad2461ac`，前端测试入口保持独立，不并入 `vnext` runner。 | 本 handoff 单独提交 |
 
-N1 按要求保留到 FE1 再处理。D1 的复合信号公式来源和 §8 对应判定没有更改，等待设计会话答复；04 阶段退出取证等复审通过后执行。
+N1 按要求保留到 FE1 再处理。D1 已由 owner 于 2026-11-02 在设计会话通过 main `bb6a09252a`（kickoff §8 与 BE-b 设计草案 §4.4）定为 KEEP：BE-b 在表有变化时，为 Preview 补齐 `composite_signal_point` 与 `device` 的基线侧整表；补齐前，Preview 中公式有变化的测点只显示上传侧公式并标“公式已改”。04 阶段退出取证已完成，见下节。
 
 ### 05 源码传输与 worktree
 
@@ -193,3 +193,37 @@ standalone 与 runner 内的离线安装均安装 280 个包。默认流程的 t
 ### DC68 本轮操作参数错误
 
 首次 standalone 命令的日志 `/home/dev/gdds-fe-logs/fe0/fix1/npm-ci-offline-20261102T095125Z.log` SHA256 为 `5cefa7d4da25556ab4483aff4b565199c2788080c16ffc137481b717c0fb5ba9`，起止时间 `09:51:25Z`、exit `2`。原因是预检脚本中的候选变量少录末位，导致 HEAD 对比失败；容器未启动、npm 未运行，也未改变 worktree。按 DC68 保留失败日志，从该步骤开头重做一次，候选改由 05 的 `FETCH_HEAD` 读取，standalone 安装成功。缓存 SHA 和镜像 DiffID 在失败预检中均匹配，没有缓存 miss 或镜像身份不符。
+
+## 04 阶段退出取证
+
+- **取证对象：** `ct108-gw-dms-04` 上的 detached worktree `/home/dev/gdds-fe-fe0-exit-04`，HEAD 为 `e22f510a82a143ccee76a1b3b3b6c854aa755129`，`frontend/` tree 为 `47e901a8485de1655142df89544f24f1a7e3402a`。取证期间 HEAD 与 worktree 状态未变化。
+- **预检：** CT201 为 `heavy-dev-01.lan`，fe-vnext 在 `e22f510a82a143ccee76a1b3b3b6c854aa755129`，主工作区 HEAD 为 `26d3c6542be24a31b04748e7c6ea8f3ca3220a04`；日志 `/home/dev/gdds-fe-logs/fe0/exit-04/ct201-preflight.log`，SHA256 `6626bb0570510defa6e68ad9e958a8793e5da485388f65d6ce2d01afb7b38a7d`。04 为 `gw-dms-test-04.lan`，10:26:06Z 检查时 `/home/dev/gdds-node-busy.d` 不存在，主仓库 HEAD 为 `bb6a09252aabf2f4409eec4049e7e204a914e637`，目标镜像 tag 与默认 npm cache 目录均不存在；日志 `/home/dev/gdds-fe-logs/fe0/exit-04/04-preflight.log`，SHA256 `876aa3c18fa0560f9d2b526cbbce0159c5bfc24ce010cdc91e45d16344a64f5a`。
+- **工具链镜像：** 04 原先没有 `mcr.microsoft.com/playwright:v1.64.1-noble`，因此从 CT201 新传归档。CT201 归档与 04 收件归档均为 SHA256 `5babfc35ed51468126d75d5996e4f744a4e58f5442a2a3bb0135630379be163c`；传输时间 `10:26:52–10:27:20Z`，04 加载时间 `10:28:01–10:28:19Z`。加载后按 05 使用的归档元数据方法导出并核对，config digest 为 `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`，与 handoff 一致；没有比较 `docker inspect` ID。
+
+  RootFS DiffID 顺序与全部七项均匹配：
+
+  1. `sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278`
+  2. `sha256:1590c449306a9032a32c49afeac5e4c7cae86197c4a7dd95c095c3ae220a7f07`
+  3. `sha256:c8a795d9cdbc02d20daf1ecac5377667d61d63392fbe5bdbba94cc79a4cf3fe9`
+  4. `sha256:89e210c351d8ddaa3c7a6132e19a5aaf27ec837371dd94f0698dfa4c1e5aef3d`
+  5. `sha256:ea03ac3d8e487159afdc9d45b9a8d3f4035418655881b896cc34fa2e464c27fc`
+  6. `sha256:16f77d0178dafdf603cd05f8464e39df636665b2b028e18e0b95bfbee5ecacd5`
+  7. `sha256:d8597d6a5431eca9c1082ade19c2b7cdef69fbaaae43f0b67fbbd25f3a35c2bb`
+
+  传输日志 `/home/dev/gdds-fe-logs/fe0/exit-04/toolchain-transfer-04.log` SHA256 `93d314362eefeac2d88c60d31fcd2ce9aa9068df759a30b3922e2d377ac94ef8`；04 加载和身份核对日志 `/home/dev/gdds-fe-logs/fe0/exit-04/toolchain-load-verify.log` SHA256 `2e61565f17e36cf926dab717a3688d5cae1d062c069ded8b2b7a5a6a8e796e77`。
+- **npm 缓存：** CT201 归档 `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz` 的 SHA256 为 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`；04 传输时间 `10:29:01–10:29:02Z`，解包到默认目录 `/home/dev/gdds-fe-cache/frontend/npm-cache` 的时间 `10:29:20–10:29:22Z`，大小 `603M`。缓存最初生成于 `62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4`；其 `package.json` 和 `package-lock.json` blob 与 `a2fb4a027a6f62218109783674cfc37bd64e14a5` 相同，因此按 R1 在 runner 中填写 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`。传输日志 `/home/dev/gdds-fe-logs/fe0/exit-04/npm-cache-transfer-04.log` SHA256 `db2a8b1bacb0a3fa07ffe15b4d2f03c679dfb887b9e05cce8560dc5aaba33a7b`；解包及校验日志 `/home/dev/gdds-fe-logs/fe0/exit-04/npm-cache-prefill.log` SHA256 `d16855abe31d46e55ffb5d3eb23f4d02b646d9cff87ef9351a40985b524ca08d`。
+- **源码 bundle 与 worktree：** CT201 创建 bundle 前再次确认 fe-vnext 为目标 HEAD、frontend tree 为 `47e901a8485de1655142df89544f24f1a7e3402a`；以 04 已有祖先 `f0ad2461accf173354cb4fa45a0f132dc4d568e7` 为基点创建 bundle，SHA256 `9d4375f8d9450a565bae97c1eef144a0e05dc1d81eccc163cd77a416ae25171c`。CT201 创建/校验日志 `/home/dev/gdds-fe-logs/fe0/exit-04/source-bundle-ct201.log` SHA256 `8d4afef61b3b2175526c2cf81453efc0a8bfa8cedca5ea34c78e2cd280719359`，时间 `10:29:35Z`；传输时间 `10:29:41Z`，传输日志 `/home/dev/gdds-fe-logs/fe0/exit-04/source-bundle-transfer-04.log` SHA256 `156f625bf36fdd966cd74e888b08ba7b5ac2451346f83986ca7c41192a19003b`。04 `git bundle verify`、fetch 后 `FETCH_HEAD` 精确等于目标 HEAD；日志 `/home/dev/gdds-fe-logs/fe0/exit-04/bundle-fetch.log` SHA256 `0ec47e0146a7c26ebac73f3e2194acd71d4f1afd68b09c24e1b1a4b1c7cd57e9`，时间 `10:30:56Z`。worktree 已建立 `legacy` 符号链接，HEAD 精确、clean；日志 `/home/dev/gdds-fe-logs/fe0/exit-04/worktree-add.log` SHA256 `2b6de37a18fb81cacdbd70022fba3929c2cf464174fe379022297ce4a370758a`，时间 `10:31:16Z`。
+- **04 main 状态：** 本会话没有更新 04 的 `main`。预检后、bundle fetch 前，`main` 已由外部 `git pull --ff-only` 从 `bb6a09252aabf2f4409eec4049e7e204a914e637` 推进到 `17cc76174ba04d3a97eb1a1ca343a86cef7bc805`（reflog 时间 `10:28:10Z`）。fetch 和 runner 的前后检查均保持 `17cc76174ba04d3a97eb1a1ca343a86cef7bc805`；变更记录 `/home/dev/gdds-fe-logs/fe0/exit-04/main-movement-investigation.log` SHA256 `bcd454785e222b57c1128ecdf6c724869ec41f285ab678336e6c21b022c509c0`。
+
+### 04 权威运行
+
+| 节点 | 运行（UTC） | HEAD（起→止） | exit code | 日志路径与 SHA256 | 结果 |
+| --- | --- | --- | --- | --- | --- |
+| `gw-dms-test-04.lan` | `2026-11-02 10:32:34–10:32:45` | `e22f510a82a143ccee76a1b3b3b6c854aa755129` → 同 | `0` | `/home/dev/gdds-fe-logs/fe0/exit-04/frontend-tests-20261102T103234Z.log`；`31c8e57c458570e00b2ea6ad6004f958a599985b1da9cabc818a78b8b2f9083b` | typecheck、lint、build 通过；Vitest 未发现单测文件并按配置 exit `0`；E2E `1 passed` |
+
+runner 使用默认 npm cache 路径和 `docker_network=none`。日志记录 `package_lock_resolved_count=305`、缓存归档 SHA256 `0d861824…0089f4`、缓存来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5` 与七个 DiffID。运行前检查日志 `/home/dev/gdds-fe-logs/fe0/exit-04/runner-precheck.log` SHA256 `107646f70a374843e97164dc3d759f4ff9d5f82843d78d0e296bd8d65a78aa55`；运行包装日志 `/home/dev/gdds-fe-logs/fe0/exit-04/runner-invocation.meta.log` SHA256 `096b95f31a1e3548cc3ff6c2755ff40c67b9502ece2d15c10b104ec30a878a06`。运行后 worktree 仍 clean，HEAD 与 frontend tree 均未变化。
+
+### 04 DC68 操作错误记录
+
+- bundle fetch 的首次保护检查在 `10:29:51Z` 发现 `main` 已从预检 HEAD 前进，因此在 `bundle verify` 和 fetch 前停止，观察到 exit `21`，没有副作用。失败日志 `/home/dev/gdds-fe-logs/fe0/exit-04/bundle-fetch-attempt-1.failed.log` SHA256 `57ec36755ed2f1e81e0c2be98d5bd924b3903eeb1e7b4a82bb9cd221153cd15c`；保护检查记录和 main reflog 分别见 `bundle-fetch-attempt-1-preservation.log`（SHA256 `dc38b4c0c26cf09e5c5791f8efd4c16b85cbd29373541f87a21a05208ba3fa71`）与 `main-movement-investigation.log`。当时的日志包装在函数内使用 `exit`，未写入结束标记；保留原日志后改用函数返回码并补齐 footer，从 bundle verify 开始重做，`bundle-fetch.log` exit `0`、`FETCH_HEAD` 精确匹配。
+- 运行后一次只读证据查询误用 04 未安装的 `rg`，两个子命令返回 `127`，SSH 包装命令因后续读取成功而总体返回 `0`；没有改动取证对象或日志。错误记录 `/home/dev/gdds-fe-logs/fe0/exit-04/postrun-evidence-query-attempt-1.failed.log` SHA256 `0d4bf2920ce80724d0b566573b9d2de4b9b83c2cceaee867e57e4c07d9a3eab7`；修正为 `grep` 后的证据核对日志 `/home/dev/gdds-fe-logs/fe0/exit-04/postrun-evidence-check.log` SHA256 `12a9ecc4afdbd62e45ac847ceb24dce185535a2b84b96f69b34d542be6c3d2ee`。权威 runner 只运行了一次。

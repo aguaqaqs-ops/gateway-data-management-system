@@ -1,0 +1,4056 @@
+{
+  "components": {
+    "schemas": {
+      "AcceptSubmitOptions": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "AcceptSubmitOptions",
+        "type": "object"
+      },
+      "AcceptSubmitRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Baseline Head Version",
+            "type": "integer"
+          },
+          "expected_baseline_node_id": {
+            "title": "Expected Baseline Node Id",
+            "type": "string"
+          },
+          "expected_workspace_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Workspace Version",
+            "type": "integer"
+          },
+          "generation": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "identity_confirmations": {
+            "items": {
+              "$ref": "#/components/schemas/SubmitIdentityConfirmationRequest"
+            },
+            "maxItems": 2,
+            "title": "Identity Confirmations",
+            "type": "array"
+          },
+          "options": {
+            "$ref": "#/components/schemas/AcceptSubmitOptions"
+          },
+          "preview_result_id": {
+            "title": "Preview Result Id",
+            "type": "string"
+          },
+          "upload_revision_id": {
+            "title": "Upload Revision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_workspace_version",
+          "preview_result_id",
+          "upload_revision_id",
+          "generation",
+          "expected_baseline_node_id",
+          "expected_baseline_head_version"
+        ],
+        "title": "AcceptSubmitRequest",
+        "type": "object"
+      },
+      "AppendArchiveAnomalyResolutionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "ACKNOWLEDGE_EXCLUSION",
+              "ACKNOWLEDGE_IDENTITY_EXCEPTION",
+              "REVOKE"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "candidate_set_digest": {
+            "title": "Candidate Set Digest",
+            "type": "string"
+          },
+          "expected_baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Baseline Head Version",
+            "type": "integer"
+          },
+          "expected_baseline_node_id": {
+            "title": "Expected Baseline Node Id",
+            "type": "string"
+          },
+          "expected_sequence": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Sequence",
+            "type": "integer"
+          },
+          "issue_code": {
+            "title": "Issue Code",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "selected": {
+            "$ref": "#/components/schemas/ArchiveSelectedRefRequest"
+          },
+          "subject_digest": {
+            "title": "Subject Digest",
+            "type": "string"
+          },
+          "subject_kind": {
+            "enum": [
+              "APPROVED_SIBLING_EXCLUDED",
+              "PROJECT_IDENTITY_EXCEPTION"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          },
+          "target_candidate_digest": {
+            "title": "Target Candidate Digest",
+            "type": "string"
+          },
+          "target_submission_id": {
+            "title": "Target Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_baseline_node_id",
+          "expected_baseline_head_version",
+          "selected",
+          "candidate_set_digest",
+          "subject_digest",
+          "expected_sequence",
+          "action",
+          "reason",
+          "subject_kind",
+          "issue_code",
+          "target_submission_id",
+          "target_candidate_digest"
+        ],
+        "title": "AppendArchiveAnomalyResolutionRequest",
+        "type": "object"
+      },
+      "AppendArchiveConfirmationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "CONFIRM",
+              "REVOKE"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "candidate_set_digest": {
+            "title": "Candidate Set Digest",
+            "type": "string"
+          },
+          "expected_baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Baseline Head Version",
+            "type": "integer"
+          },
+          "expected_baseline_node_id": {
+            "title": "Expected Baseline Node Id",
+            "type": "string"
+          },
+          "expected_sequence": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Sequence",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "selected": {
+            "$ref": "#/components/schemas/ArchiveSelectedRefRequest"
+          },
+          "subject_digest": {
+            "title": "Subject Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_baseline_node_id",
+          "expected_baseline_head_version",
+          "selected",
+          "candidate_set_digest",
+          "subject_digest",
+          "expected_sequence",
+          "action"
+        ],
+        "title": "AppendArchiveConfirmationRequest",
+        "type": "object"
+      },
+      "ApplyReviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "APPROVE",
+              "REJECT",
+              "RETURN_FOR_REVISION",
+              "WITHDRAW"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_review_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Review Version",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "expected_review_version",
+          "action"
+        ],
+        "title": "ApplyReviewRequest",
+        "type": "object"
+      },
+      "ArchiveAuditAppendResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "event_id",
+          "sequence"
+        ],
+        "title": "ArchiveAuditAppendResponse",
+        "type": "object"
+      },
+      "ArchiveAuditEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "issue_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issue Code"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "subject_digest": {
+            "title": "Subject Digest",
+            "type": "string"
+          },
+          "subject_kind": {
+            "enum": [
+              "CONFIRM_SELECTION",
+              "APPROVED_SIBLING_EXCLUDED",
+              "PROJECT_IDENTITY_EXCEPTION"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          },
+          "target_candidate_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Candidate Digest"
+          },
+          "target_submission_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Submission Id"
+          }
+        },
+        "required": [
+          "event_id",
+          "subject_kind",
+          "subject_digest",
+          "sequence",
+          "action",
+          "actor_id",
+          "occurred_at"
+        ],
+        "title": "ArchiveAuditEventResponse",
+        "type": "object"
+      },
+      "ArchiveAuditEventsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveAuditEventResponse"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "next_after_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next After Sequence"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "ArchiveAuditEventsResponse",
+        "type": "object"
+      },
+      "ArchiveAuditReferenceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "sequence": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "subject_digest": {
+            "title": "Subject Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_digest",
+          "sequence"
+        ],
+        "title": "ArchiveAuditReferenceRequest",
+        "type": "object"
+      },
+      "ArchiveAuditReferenceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "subject_digest": {
+            "title": "Subject Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_digest",
+          "sequence"
+        ],
+        "title": "ArchiveAuditReferenceResponse",
+        "type": "object"
+      },
+      "ArchiveCandidateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_candidate_digest": {
+            "title": "Expected Candidate Digest",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "expected_candidate_digest"
+        ],
+        "title": "ArchiveCandidateResponse",
+        "type": "object"
+      },
+      "ArchiveCandidatesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "candidate_set_digest": {
+            "title": "Candidate Set Digest",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveCandidateResponse"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "head": {
+            "$ref": "#/components/schemas/BaselineHeadResponse"
+          }
+        },
+        "required": [
+          "head",
+          "candidates",
+          "candidate_set_digest",
+          "blockers"
+        ],
+        "title": "ArchiveCandidatesResponse",
+        "type": "object"
+      },
+      "ArchiveDispositionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "enum": [
+              "ARCHIVED_BASELINE",
+              "CLOSED_NOT_ARCHIVED"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "disposition"
+        ],
+        "title": "ArchiveDispositionResponse",
+        "type": "object"
+      },
+      "ArchivePreviewAnomalyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "issue_code": {
+            "title": "Issue Code",
+            "type": "string"
+          },
+          "subject_digest": {
+            "title": "Subject Digest",
+            "type": "string"
+          },
+          "subject_kind": {
+            "enum": [
+              "APPROVED_SIBLING_EXCLUDED",
+              "PROJECT_IDENTITY_EXCEPTION"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          },
+          "target_candidate_digest": {
+            "title": "Target Candidate Digest",
+            "type": "string"
+          },
+          "target_submission_id": {
+            "title": "Target Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject_kind",
+          "issue_code",
+          "target_submission_id",
+          "target_candidate_digest",
+          "subject_digest"
+        ],
+        "title": "ArchivePreviewAnomalyResponse",
+        "type": "object"
+      },
+      "ArchivePreviewDispositionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "enum": [
+              "ARCHIVED_BASELINE",
+              "CLOSED_NOT_ARCHIVED"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "disposition"
+        ],
+        "title": "ArchivePreviewDispositionResponse",
+        "type": "object"
+      },
+      "ArchivePreviewWorkspaceReleaseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "submission_id"
+        ],
+        "title": "ArchivePreviewWorkspaceReleaseResponse",
+        "type": "object"
+      },
+      "ArchiveResultResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "anomaly_resolution_refs": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveAuditReferenceResponse"
+            },
+            "title": "Anomaly Resolution Refs",
+            "type": "array"
+          },
+          "archive_plan_id": {
+            "title": "Archive Plan Id",
+            "type": "string"
+          },
+          "archive_result_id": {
+            "title": "Archive Result Id",
+            "type": "string"
+          },
+          "archived_at": {
+            "format": "date-time",
+            "title": "Archived At",
+            "type": "string"
+          },
+          "archived_by": {
+            "title": "Archived By",
+            "type": "string"
+          },
+          "baseline_commit_id": {
+            "title": "Baseline Commit Id",
+            "type": "string"
+          },
+          "baseline_head_version": {
+            "title": "Baseline Head Version",
+            "type": "integer"
+          },
+          "baseline_node_id": {
+            "title": "Baseline Node Id",
+            "type": "string"
+          },
+          "candidate_set_digest": {
+            "title": "Candidate Set Digest",
+            "type": "string"
+          },
+          "confirmation_refs": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveAuditReferenceResponse"
+            },
+            "title": "Confirmation Refs",
+            "type": "array"
+          },
+          "dispositions": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveDispositionResponse"
+            },
+            "title": "Dispositions",
+            "type": "array"
+          },
+          "selected_repository_commit_id": {
+            "title": "Selected Repository Commit Id",
+            "type": "string"
+          },
+          "selected_submission_id": {
+            "title": "Selected Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "archive_result_id",
+          "archive_plan_id",
+          "baseline_node_id",
+          "baseline_commit_id",
+          "baseline_head_version",
+          "selected_submission_id",
+          "selected_repository_commit_id",
+          "candidate_set_digest",
+          "confirmation_refs",
+          "anomaly_resolution_refs",
+          "dispositions",
+          "archived_by",
+          "archived_at"
+        ],
+        "title": "ArchiveResultResponse",
+        "type": "object"
+      },
+      "ArchiveSelectedRefRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_candidate_digest": {
+            "title": "Expected Candidate Digest",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "expected_candidate_digest"
+        ],
+        "title": "ArchiveSelectedRefRequest",
+        "type": "object"
+      },
+      "ArchiveStartedResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "archive_plan_id": {
+            "title": "Archive Plan Id",
+            "type": "string"
+          },
+          "archive_result_id": {
+            "title": "Archive Result Id",
+            "type": "string"
+          },
+          "archived_at": {
+            "format": "date-time",
+            "title": "Archived At",
+            "type": "string"
+          },
+          "archived_by": {
+            "title": "Archived By",
+            "type": "string"
+          },
+          "baseline_commit_id": {
+            "title": "Baseline Commit Id",
+            "type": "string"
+          },
+          "baseline_head_version": {
+            "title": "Baseline Head Version",
+            "type": "integer"
+          },
+          "baseline_node_id": {
+            "title": "Baseline Node Id",
+            "type": "string"
+          },
+          "dispositions": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveDispositionResponse"
+            },
+            "title": "Dispositions",
+            "type": "array"
+          },
+          "released_workspace_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Released Workspace Ids",
+            "type": "array"
+          },
+          "selected_submission_id": {
+            "title": "Selected Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "archive_plan_id",
+          "archive_result_id",
+          "baseline_node_id",
+          "baseline_commit_id",
+          "baseline_head_version",
+          "selected_submission_id",
+          "dispositions",
+          "released_workspace_ids",
+          "archived_by",
+          "archived_at"
+        ],
+        "title": "ArchiveStartedResponse",
+        "type": "object"
+      },
+      "BaselineHeadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Baseline Head Version",
+            "type": "integer"
+          },
+          "business_baseline_commit_id": {
+            "title": "Business Baseline Commit Id",
+            "type": "string"
+          },
+          "business_baseline_node_id": {
+            "title": "Business Baseline Node Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_baseline_node_id",
+          "business_baseline_commit_id",
+          "baseline_head_version"
+        ],
+        "title": "BaselineHeadResponse",
+        "type": "object"
+      },
+      "CreateWorkspaceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "business_project_id": {
+            "title": "Business Project Id",
+            "type": "string"
+          },
+          "gateway_device_external_key": {
+            "title": "Gateway Device External Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gateway_device_external_key",
+          "business_project_id"
+        ],
+        "title": "CreateWorkspaceRequest",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryCompareAcceptRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryCompareNodeRequest"
+            },
+            "maxItems": 3,
+            "minItems": 2,
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "nodes"
+        ],
+        "title": "HistoryCompareAcceptRequest",
+        "type": "object"
+      },
+      "HistoryCompareAcceptResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "status",
+          "replayed"
+        ],
+        "title": "HistoryCompareAcceptResponse",
+        "type": "object"
+      },
+      "HistoryCompareDiagnosticResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OperationDiagnosticDetailResponse"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "omitted_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Omitted Count"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "HistoryCompareDiagnosticResponse",
+        "type": "object"
+      },
+      "HistoryCompareNodeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ref_id": {
+            "title": "Ref Id",
+            "type": "string"
+          },
+          "ref_kind": {
+            "enum": [
+              "baseline_node",
+              "submission"
+            ],
+            "title": "Ref Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref_kind",
+          "ref_id"
+        ],
+        "title": "HistoryCompareNodeRequest",
+        "type": "object"
+      },
+      "HistoryComparePairResultResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "before_commit": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Before Commit",
+            "type": "string"
+          },
+          "before_ref": {
+            "$ref": "#/components/schemas/HistoryNodeRefResponse"
+          },
+          "comparison_digest": {
+            "title": "Comparison Digest",
+            "type": "string"
+          },
+          "current_commit": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Current Commit",
+            "type": "string"
+          },
+          "current_ref": {
+            "$ref": "#/components/schemas/HistoryNodeRefResponse"
+          },
+          "pair_id": {
+            "title": "Pair Id",
+            "type": "string"
+          },
+          "record_count": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Record Count",
+            "type": "integer"
+          },
+          "risk_digest": {
+            "title": "Risk Digest",
+            "type": "string"
+          },
+          "surface_digest": {
+            "title": "Surface Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pair_id",
+          "before_ref",
+          "before_commit",
+          "current_ref",
+          "current_commit",
+          "comparison_digest",
+          "risk_digest",
+          "surface_digest",
+          "record_count"
+        ],
+        "title": "HistoryComparePairResultResponse",
+        "type": "object"
+      },
+      "HistoryCompareResultInputResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "bundle_digest": {
+            "title": "Bundle Digest",
+            "type": "string"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "input": {
+            "additionalProperties": true,
+            "title": "Input",
+            "type": "object"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryComparePairResultResponse"
+            },
+            "title": "Pairs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "input",
+          "pairs",
+          "bundle_digest"
+        ],
+        "title": "HistoryCompareResultInputResponse",
+        "type": "object"
+      },
+      "HistoryCompareResultResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "diagnostic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryCompareDiagnosticResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryCompareResultInputResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED",
+              "CANCELLED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "status"
+        ],
+        "title": "HistoryCompareResultResponse",
+        "type": "object"
+      },
+      "HistoryHeadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "commit_id": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Commit Id",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id",
+          "commit_id",
+          "version"
+        ],
+        "title": "HistoryHeadResponse",
+        "type": "object"
+      },
+      "HistoryListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "head": {
+            "$ref": "#/components/schemas/HistoryHeadResponse"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryNodeResponse"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "head",
+          "nodes"
+        ],
+        "title": "HistoryListResponse",
+        "type": "object"
+      },
+      "HistoryNodeRefResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ref_id": {
+            "title": "Ref Id",
+            "type": "string"
+          },
+          "ref_kind": {
+            "enum": [
+              "baseline_node",
+              "submission"
+            ],
+            "title": "Ref Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref_kind",
+          "ref_id"
+        ],
+        "title": "HistoryNodeRefResponse",
+        "type": "object"
+      },
+      "HistoryNodeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "archive_disposition": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ARCHIVED_BASELINE",
+                  "CLOSED_NOT_ARCHIVED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Disposition"
+          },
+          "baseline_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "INITIAL",
+                  "ARCHIVED_SUBMISSION"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Kind"
+          },
+          "commit_id": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Commit Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "eligibility_note": {
+            "anyOf": [
+              {
+                "const": "NOT_CANDIDATE_BASE_ADVANCED",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligibility Note"
+          },
+          "identity_exception": {
+            "default": false,
+            "title": "Identity Exception",
+            "type": "boolean"
+          },
+          "node_kind": {
+            "enum": [
+              "BASELINE_NODE",
+              "SUBMISSION",
+              "SYSTEM_MIGRATION"
+            ],
+            "title": "Node Kind",
+            "type": "string"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HistoryNodeRefResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "promoted_baseline_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promoted Baseline Node Id"
+          },
+          "ref_id": {
+            "title": "Ref Id",
+            "type": "string"
+          },
+          "ref_kind": {
+            "enum": [
+              "baseline_node",
+              "submission"
+            ],
+            "title": "Ref Kind",
+            "type": "string"
+          },
+          "review_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PENDING",
+                  "APPROVED",
+                  "REJECTED",
+                  "RETURNED_FOR_REVISION",
+                  "WITHDRAWN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Status"
+          }
+        },
+        "required": [
+          "ref_kind",
+          "ref_id",
+          "node_kind",
+          "commit_id",
+          "created_at"
+        ],
+        "title": "HistoryNodeResponse",
+        "type": "object"
+      },
+      "OperationAcceptedResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "QUEUED",
+            "title": "Status",
+            "type": "string"
+          },
+          "upload_revision_id": {
+            "title": "Upload Revision Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "workspace_id",
+          "upload_revision_id",
+          "generation",
+          "status"
+        ],
+        "title": "OperationAcceptedResponse",
+        "type": "object"
+      },
+      "OperationDiagnosticDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Z][A-Z0-9_.:-]*$",
+            "title": "Code",
+            "type": "string"
+          },
+          "column_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column Name"
+          },
+          "side": {
+            "enum": [
+              "INITIAL",
+              "MODIFIED"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "table_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Name"
+          }
+        },
+        "required": [
+          "code",
+          "side",
+          "table_name",
+          "column_name"
+        ],
+        "title": "OperationDiagnosticDetailResponse",
+        "type": "object"
+      },
+      "OperationDiagnosticResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/OperationDiagnosticDetailResponse"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "omitted_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Omitted Count"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "OperationDiagnosticResponse",
+        "type": "object"
+      },
+      "OperationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OperationDiagnosticResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job_kind": {
+            "title": "Job Kind",
+            "type": "string"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "optimistic_version": {
+            "title": "Optimistic Version",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "job_kind",
+          "status",
+          "optimistic_version",
+          "created_at"
+        ],
+        "title": "OperationResponse",
+        "type": "object"
+      },
+      "OperatorRecoveryRequestBody": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "enum": [
+              "RESUME_RECONCILE",
+              "RETRY_FROM_CHECKPOINT",
+              "ABORT_CONFIRMED_FAILURE"
+            ],
+            "title": "Command",
+            "type": "string"
+          },
+          "expected_operation_optimistic_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Operation Optimistic Version",
+            "type": "integer"
+          },
+          "expected_step_optimistic_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Step Optimistic Version",
+            "type": "integer"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "step_id",
+          "command",
+          "expected_operation_optimistic_version",
+          "expected_step_optimistic_version",
+          "reason"
+        ],
+        "title": "OperatorRecoveryRequestBody",
+        "type": "object"
+      },
+      "OperatorRecoveryResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "enum": [
+              "RESUME_RECONCILE",
+              "RETRY_FROM_CHECKPOINT",
+              "ABORT_CONFIRMED_FAILURE"
+            ],
+            "title": "Command",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "APPLY",
+              "IDEMPOTENT"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "step_id",
+          "command",
+          "disposition"
+        ],
+        "title": "OperatorRecoveryResponse",
+        "type": "object"
+      },
+      "PreviewArchivePlanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "selected": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveSelectedRefRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "PreviewArchivePlanRequest",
+        "type": "object"
+      },
+      "PreviewArchivePlanResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "anomalies": {
+            "items": {
+              "$ref": "#/components/schemas/ArchivePreviewAnomalyResponse"
+            },
+            "title": "Anomalies",
+            "type": "array"
+          },
+          "audit_validity": {
+            "title": "Audit Validity",
+            "type": "boolean"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "can_start": {
+            "title": "Can Start",
+            "type": "boolean"
+          },
+          "candidate_set_digest": {
+            "title": "Candidate Set Digest",
+            "type": "string"
+          },
+          "confirmation_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Confirmation Requirements",
+            "type": "array"
+          },
+          "dispositions": {
+            "items": {
+              "$ref": "#/components/schemas/ArchivePreviewDispositionResponse"
+            },
+            "title": "Dispositions",
+            "type": "array"
+          },
+          "head": {
+            "$ref": "#/components/schemas/BaselineHeadResponse"
+          },
+          "selected": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ArchiveSelectedRefRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "selection_subject_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selection Subject Digest"
+          },
+          "workspace_releases": {
+            "items": {
+              "$ref": "#/components/schemas/ArchivePreviewWorkspaceReleaseResponse"
+            },
+            "title": "Workspace Releases",
+            "type": "array"
+          }
+        },
+        "required": [
+          "head",
+          "candidate_set_digest",
+          "confirmation_requirements",
+          "anomalies",
+          "audit_validity",
+          "dispositions",
+          "workspace_releases",
+          "can_start",
+          "blockers"
+        ],
+        "title": "PreviewArchivePlanResponse",
+        "type": "object"
+      },
+      "PreviewArtifactRefResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "raw_sha256": {
+            "title": "Raw Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "media_type",
+          "size_bytes",
+          "raw_sha256"
+        ],
+        "title": "PreviewArtifactRefResponse",
+        "type": "object"
+      },
+      "PreviewIdentityPairResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "applicability": {
+            "enum": [
+              "APPLICABLE",
+              "NOT_APPLICABLE"
+            ],
+            "title": "Applicability",
+            "type": "string"
+          },
+          "assessment_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Digest"
+          },
+          "assessment_ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviewArtifactRefResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "enum": [
+              "DETAILED",
+              "DATASET_REPLACEMENT"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "pair_id": {
+            "title": "Pair Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "SAME_PROJECT",
+              "DIFFERENT_PROJECT",
+              "UNVERIFIABLE",
+              "NOT_APPLICABLE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pair_id",
+          "applicability",
+          "status",
+          "mode",
+          "assessment_ref",
+          "assessment_digest"
+        ],
+        "title": "PreviewIdentityPairResponse",
+        "type": "object"
+      },
+      "PreviewResultResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "bundle_digest": {
+            "title": "Bundle Digest",
+            "type": "string"
+          },
+          "business_baseline_commit_id": {
+            "title": "Business Baseline Commit Id",
+            "type": "string"
+          },
+          "business_baseline_node_id": {
+            "title": "Business Baseline Node Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "derived_stale": {
+            "title": "Derived Stale",
+            "type": "boolean"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "identity_assessment_set_digest": {
+            "title": "Identity Assessment Set Digest",
+            "type": "string"
+          },
+          "identity_pairs": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewIdentityPairResponse"
+            },
+            "title": "Identity Pairs",
+            "type": "array"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "preview_result_id": {
+            "title": "Preview Result Id",
+            "type": "string"
+          },
+          "upload_revision_id": {
+            "title": "Upload Revision Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "preview_result_id",
+          "workspace_id",
+          "upload_revision_id",
+          "generation",
+          "operation_id",
+          "business_baseline_node_id",
+          "business_baseline_commit_id",
+          "derived_stale",
+          "bundle_digest",
+          "identity_assessment_set_digest",
+          "identity_pairs",
+          "created_at"
+        ],
+        "title": "PreviewResultResponse",
+        "type": "object"
+      },
+      "ReviewAppliedResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/ReviewEventResponse"
+          },
+          "review_version": {
+            "title": "Review Version",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "RETURNED_FOR_REVISION",
+              "WITHDRAWN"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "status",
+          "review_version",
+          "event"
+        ],
+        "title": "ReviewAppliedResponse",
+        "type": "object"
+      },
+      "ReviewEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "event_kind": {
+            "enum": [
+              "SUBMISSION_FINALIZED",
+              "APPROVED",
+              "REJECTED",
+              "RETURNED_FOR_REVISION",
+              "WITHDRAWN"
+            ],
+            "title": "Event Kind",
+            "type": "string"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PENDING",
+                  "APPROVED",
+                  "REJECTED",
+                  "RETURNED_FOR_REVISION",
+                  "WITHDRAWN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "to_status": {
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "RETURNED_FOR_REVISION",
+              "WITHDRAWN"
+            ],
+            "title": "To Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "event_kind",
+          "to_status",
+          "actor_id",
+          "occurred_at"
+        ],
+        "title": "ReviewEventResponse",
+        "type": "object"
+      },
+      "ReviewFactsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewEventResponse"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "identity_confirmations": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewIdentityConfirmationResponse"
+            },
+            "title": "Identity Confirmations",
+            "type": "array"
+          },
+          "identity_exception": {
+            "title": "Identity Exception",
+            "type": "boolean"
+          },
+          "review_version": {
+            "title": "Review Version",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "RETURNED_FOR_REVISION",
+              "WITHDRAWN"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "updated_by": {
+            "title": "Updated By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "status",
+          "review_version",
+          "updated_by",
+          "updated_at",
+          "identity_exception"
+        ],
+        "title": "ReviewFactsResponse",
+        "type": "object"
+      },
+      "ReviewIdentityConfirmationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "ACCEPT_DATASET_REPLACEMENT",
+              "ACCEPT_UNVERIFIABLE_DETAILED_RESULT"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "assessment_set_digest": {
+            "title": "Assessment Set Digest",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "format": "date-time",
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "assessment_set_digest",
+          "reason",
+          "actor_id",
+          "confirmed_at"
+        ],
+        "title": "ReviewIdentityConfirmationResponse",
+        "type": "object"
+      },
+      "SourceArtifactResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "raw_sha256": {
+            "title": "Raw Sha256",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "media_type",
+          "size_bytes",
+          "raw_sha256"
+        ],
+        "title": "SourceArtifactResponse",
+        "type": "object"
+      },
+      "StartArchiveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "anomaly_resolution_refs": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveAuditReferenceRequest"
+            },
+            "maxItems": 200,
+            "title": "Anomaly Resolution Refs",
+            "type": "array"
+          },
+          "candidate_set_digest": {
+            "title": "Candidate Set Digest",
+            "type": "string"
+          },
+          "confirmation_refs": {
+            "items": {
+              "$ref": "#/components/schemas/ArchiveAuditReferenceRequest"
+            },
+            "maxItems": 200,
+            "title": "Confirmation Refs",
+            "type": "array"
+          },
+          "expected_baseline_head_version": {
+            "maximum": 9007199254740991.0,
+            "minimum": 0.0,
+            "title": "Expected Baseline Head Version",
+            "type": "integer"
+          },
+          "expected_baseline_node_id": {
+            "title": "Expected Baseline Node Id",
+            "type": "string"
+          },
+          "selected": {
+            "$ref": "#/components/schemas/ArchiveSelectedRefRequest"
+          }
+        },
+        "required": [
+          "expected_baseline_node_id",
+          "expected_baseline_head_version",
+          "candidate_set_digest",
+          "selected"
+        ],
+        "title": "StartArchiveRequest",
+        "type": "object"
+      },
+      "StartPreviewOptions": {
+        "additionalProperties": false,
+        "properties": {},
+        "title": "StartPreviewOptions",
+        "type": "object"
+      },
+      "StartPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_baseline_head_version": {
+            "minimum": 0.0,
+            "title": "Expected Baseline Head Version",
+            "type": "integer"
+          },
+          "expected_baseline_node_id": {
+            "title": "Expected Baseline Node Id",
+            "type": "string"
+          },
+          "expected_workspace_version": {
+            "minimum": 0.0,
+            "title": "Expected Workspace Version",
+            "type": "integer"
+          },
+          "generation": {
+            "minimum": 0.0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "options": {
+            "$ref": "#/components/schemas/StartPreviewOptions"
+          },
+          "upload_revision_id": {
+            "title": "Upload Revision Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_workspace_version",
+          "upload_revision_id",
+          "generation",
+          "expected_baseline_node_id",
+          "expected_baseline_head_version"
+        ],
+        "title": "StartPreviewRequest",
+        "type": "object"
+      },
+      "SubmissionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "based_on_baseline_node_id": {
+            "title": "Based On Baseline Node Id",
+            "type": "string"
+          },
+          "business_baseline_commit_id": {
+            "title": "Business Baseline Commit Id",
+            "type": "string"
+          },
+          "canonical_business_digest": {
+            "title": "Canonical Business Digest",
+            "type": "string"
+          },
+          "canonicalization_manifest_digest": {
+            "title": "Canonicalization Manifest Digest",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "preview_result_id": {
+            "title": "Preview Result Id",
+            "type": "string"
+          },
+          "repository_commit_id": {
+            "title": "Repository Commit Id",
+            "type": "string"
+          },
+          "repository_id": {
+            "title": "Repository Id",
+            "type": "string"
+          },
+          "submission_id": {
+            "title": "Submission Id",
+            "type": "string"
+          },
+          "submit_attempt_id": {
+            "title": "Submit Attempt Id",
+            "type": "string"
+          },
+          "upload_revision_id": {
+            "title": "Upload Revision Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submission_id",
+          "submit_attempt_id",
+          "workspace_id",
+          "upload_revision_id",
+          "preview_result_id",
+          "generation",
+          "repository_id",
+          "based_on_baseline_node_id",
+          "business_baseline_commit_id",
+          "repository_commit_id",
+          "canonical_business_digest",
+          "canonicalization_manifest_digest",
+          "created_by",
+          "created_at"
+        ],
+        "title": "SubmissionResponse",
+        "type": "object"
+      },
+      "SubmitAcceptedResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "preview_result_id": {
+            "title": "Preview Result Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "PREPARED",
+              "EFFECT_PENDING",
+              "FINALIZED",
+              "ABORTED"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submit_attempt_id": {
+            "title": "Submit Attempt Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submit_attempt_id",
+          "operation_id",
+          "workspace_id",
+          "preview_result_id",
+          "generation",
+          "state"
+        ],
+        "title": "SubmitAcceptedResponse",
+        "type": "object"
+      },
+      "SubmitAttemptResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "abort_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abort Code"
+          },
+          "aborted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aborted At"
+          },
+          "business_baseline_commit_id": {
+            "title": "Business Baseline Commit Id",
+            "type": "string"
+          },
+          "business_baseline_node_id": {
+            "title": "Business Baseline Node Id",
+            "type": "string"
+          },
+          "canonical_business_digest": {
+            "title": "Canonical Business Digest",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "effect_pending_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect Pending At"
+          },
+          "finalized_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finalized At"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "preview_result_id": {
+            "title": "Preview Result Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "PREPARED",
+              "EFFECT_PENDING",
+              "FINALIZED",
+              "ABORTED"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "submission_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submission Id"
+          },
+          "submit_attempt_id": {
+            "title": "Submit Attempt Id",
+            "type": "string"
+          },
+          "upload_revision_id": {
+            "title": "Upload Revision Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "submit_attempt_id",
+          "workspace_id",
+          "upload_revision_id",
+          "preview_result_id",
+          "generation",
+          "operation_id",
+          "state",
+          "business_baseline_node_id",
+          "business_baseline_commit_id",
+          "canonical_business_digest",
+          "created_at"
+        ],
+        "title": "SubmitAttemptResponse",
+        "type": "object"
+      },
+      "SubmitIdentityConfirmationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "ACCEPT_DATASET_REPLACEMENT",
+              "ACCEPT_UNVERIFIABLE_DETAILED_RESULT"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "assessment_set_digest": {
+            "title": "Assessment Set Digest",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "assessment_set_digest",
+          "reason"
+        ],
+        "title": "SubmitIdentityConfirmationRequest",
+        "type": "object"
+      },
+      "UploadRevisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "input_completeness": {
+            "title": "Input Completeness",
+            "type": "string"
+          },
+          "optimistic_version": {
+            "title": "Optimistic Version",
+            "type": "integer"
+          },
+          "source_artifacts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SourceArtifactResponse"
+            },
+            "title": "Source Artifacts",
+            "type": "object"
+          },
+          "upload_revision_id": {
+            "title": "Upload Revision Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_revision_id",
+          "workspace_id",
+          "generation",
+          "input_completeness",
+          "source_artifacts",
+          "optimistic_version",
+          "created_at"
+        ],
+        "title": "UploadRevisionResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkspaceResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "business_project_id": {
+            "title": "Business Project Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_preview_result_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Preview Result Id"
+          },
+          "current_upload_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Upload Revision Id"
+          },
+          "gateway_device_external_key": {
+            "title": "Gateway Device External Key",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "optimistic_version": {
+            "title": "Optimistic Version",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "gateway_device_external_key",
+          "business_project_id",
+          "state",
+          "generation",
+          "optimistic_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WorkspaceResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Gateway Backend vNext",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Healthz Healthz Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz"
+      }
+    },
+    "/internal/v1/operations/{operation_id}/steps/{step_id}/recovery": {
+      "post": {
+        "operationId": "operator_recovery_route_internal_v1_operations__operation_id__steps__step_id__recovery_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "title": "Operation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "step_id",
+            "required": true,
+            "schema": {
+              "title": "Step Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorRecoveryRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorRecoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "404": {
+            "description": "RECOVERY_TARGET_NOT_FOUND"
+          },
+          "409": {
+            "description": "RECOVERY_IDENTITY_CONFLICT, OPERATION_VERSION_CONFLICT, STEP_VERSION_CONFLICT, RECOVERY_STATE_CONFLICT, RECOVERY_CAPABILITY_CONFLICT, ABORT_PROOF_NOT_SATISFIED"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "Operator Recovery Route",
+        "tags": [
+          "operator-recovery"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readyz"
+      }
+    },
+    "/v1/archive-anomaly-resolutions": {
+      "post": {
+        "operationId": "append_archive_anomaly_resolution_route_v1_archive_anomaly_resolutions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendArchiveAnomalyResolutionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveAuditAppendResponse"
+                }
+              }
+            },
+            "description": "Idempotent replay"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveAuditAppendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, CANDIDATE_SET_CONFLICT, CANDIDATE_BINDING_CONFLICT, ARCHIVE_AUDIT_VERSION_CONFLICT"
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "Append Archive Anomaly Resolution Route",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/v1/archive-audit-events": {
+      "get": {
+        "operationId": "list_archive_audit_events_route_v1_archive_audit_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subject_kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "CONFIRM_SELECTION",
+                "APPROVED_SIBLING_EXCLUDED",
+                "PROJECT_IDENTITY_EXCEPTION"
+              ],
+              "title": "Subject Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subject_digest",
+            "required": true,
+            "schema": {
+              "title": "Subject Digest",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_sequence",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After Sequence",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveAuditEventsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "List Archive Audit Events Route",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/v1/archive-candidates": {
+      "get": {
+        "operationId": "list_archive_candidates_route_v1_archive_candidates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveCandidatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "409": {
+            "description": "ARCHIVE_SCOPE_LIMIT_EXCEEDED"
+          },
+          "503": {
+            "description": "ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "List Archive Candidates Route",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/v1/archive-confirmations": {
+      "post": {
+        "operationId": "append_archive_confirmation_route_v1_archive_confirmations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendArchiveConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveAuditAppendResponse"
+                }
+              }
+            },
+            "description": "Idempotent replay"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveAuditAppendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, CANDIDATE_SET_CONFLICT, CANDIDATE_BINDING_CONFLICT, ARCHIVE_AUDIT_VERSION_CONFLICT"
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "Append Archive Confirmation Route",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/v1/archive-plan-preview": {
+      "post": {
+        "operationId": "preview_archive_plan_route_v1_archive_plan_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewArchivePlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewArchivePlanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "409": {
+            "description": "CANDIDATE_BINDING_CONFLICT, ARCHIVE_SCOPE_LIMIT_EXCEEDED"
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "503": {
+            "description": "ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "Preview Archive Plan Route",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/v1/archives": {
+      "post": {
+        "operationId": "start_archive_route_v1_archives_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartArchiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveStartedResponse"
+                }
+              }
+            },
+            "description": "Idempotent replay"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveStartedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, BASELINE_VERSION_CONFLICT, CANDIDATE_SET_CONFLICT, CANDIDATE_BINDING_CONFLICT, ARCHIVE_CONFIRMATION_REQUIRED, ARCHIVE_ANOMALY_UNRESOLVED, ARCHIVE_AUDIT_VERSION_CONFLICT, ACTIVE_SUBMIT_ATTEMPT, ARCHIVE_SCOPE_LIMIT_EXCEEDED, WORKSPACE_OCCUPANCY_CONFLICT"
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "ARCHIVE_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "Start Archive Route",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/v1/archives/{archive_result_id}": {
+      "get": {
+        "operationId": "get_archive_result_route_v1_archives__archive_result_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "archive_result_id",
+            "required": true,
+            "schema": {
+              "title": "Archive Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "Get Archive Result Route",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/v1/history": {
+      "get": {
+        "operationId": "list_history_route_v1_history_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 500,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "503": {
+            "description": "HISTORY_INTEGRITY_FAILURE, DEPENDENCY_UNAVAILABLE"
+          }
+        },
+        "summary": "List History Route",
+        "tags": [
+          "history"
+        ]
+      }
+    },
+    "/v1/history-compares": {
+      "post": {
+        "operationId": "accept_history_compare_route_v1_history_compares_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryCompareAcceptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryCompareAcceptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, ADMISSION_CONFLICT"
+          },
+          "413": {
+            "description": "REQUEST_TOO_LARGE"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Accept History Compare Route",
+        "tags": [
+          "history"
+        ]
+      }
+    },
+    "/v1/history-compares/{operation_id}": {
+      "get": {
+        "operationId": "get_history_compare_route_v1_history_compares__operation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryCompareResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "HISTORY_INTEGRITY_FAILURE"
+          }
+        },
+        "summary": "Get History Compare Route",
+        "tags": [
+          "history"
+        ]
+      }
+    },
+    "/v1/history-compares/{operation_id}/bundle": {
+      "get": {
+        "operationId": "get_history_compare_bundle_route_v1_history_compares__operation_id__bundle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND, ARTIFACT_UNAVAILABLE"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get History Compare Bundle Route",
+        "tags": [
+          "history"
+        ]
+      }
+    },
+    "/v1/operations/{operation_id}": {
+      "get": {
+        "operationId": "get_operation_route_v1_operations__operation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Get Operation Route",
+        "tags": [
+          "operations"
+        ]
+      }
+    },
+    "/v1/submissions/{submission_id}/review": {
+      "get": {
+        "operationId": "get_review_facts_route_v1_submissions__submission_id__review_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewFactsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE, SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Get Review Facts Route",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/v1/submissions/{submission_id}/review-events": {
+      "post": {
+        "operationId": "apply_review_route_v1_submissions__submission_id__review_events_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewAppliedResponse"
+                }
+              }
+            },
+            "description": "Idempotent replay"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewAppliedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, REVIEW_VERSION_CONFLICT, REVIEW_TRANSITION_CONFLICT, WORKSPACE_OCCUPANCY_CONFLICT"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "DEPENDENCY_UNAVAILABLE, SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Apply Review Route",
+        "tags": [
+          "reviews"
+        ]
+      }
+    },
+    "/v1/workspaces": {
+      "post": {
+        "operationId": "create_or_get_workspace_route_v1_workspaces_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Create Or Get Workspace Route",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/preview-operations": {
+      "post": {
+        "operationId": "start_preview_route_v1_workspaces__workspace_id__preview_operations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, WORKSPACE_VERSION_CONFLICT, PREVIEW_BINDING_CONFLICT"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Start Preview Route",
+        "tags": [
+          "preview"
+        ]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}": {
+      "get": {
+        "operationId": "get_preview_result_route_v1_workspaces__workspace_id__preview_results__preview_result_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "preview_result_id",
+            "required": true,
+            "schema": {
+              "title": "Preview Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Get Preview Result Route",
+        "tags": [
+          "preview-results"
+        ]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle": {
+      "get": {
+        "operationId": "read_preview_bundle_route_v1_workspaces__workspace_id__preview_results__preview_result_id__bundle_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "preview_result_id",
+            "required": true,
+            "schema": {
+              "title": "Preview Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/octet-stream": {}
+            },
+            "description": "Preview bundle. Per-table surface diagnostics_summary may contain the informational KEYLESS_FALLBACK hint; it does not affect risk or submission eligibility."
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Read Preview Bundle Route",
+        "tags": [
+          "preview-results"
+        ]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/submissions/{submission_id}": {
+      "get": {
+        "operationId": "get_submission_route_v1_workspaces__workspace_id__submissions__submission_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "submission_id",
+            "required": true,
+            "schema": {
+              "title": "Submission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Get Submission Route",
+        "tags": [
+          "submissions"
+        ]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/submit-attempts": {
+      "post": {
+        "operationId": "accept_submit_route_v1_workspaces__workspace_id__submit_attempts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT, WORKSPACE_VERSION_CONFLICT, PREVIEW_BINDING_CONFLICT, PREVIEW_DERIVED_STALE, BASELINE_VERSION_CONFLICT, SUBMIT_OCCUPANCY_CONFLICT, NO_CANONICAL_CHANGE, PROJECT_IDENTITY_CONFIRMATION_REQUIRED, PROJECT_IDENTITY_CONFIRMATION_MISMATCH"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "ARTIFACT_UNAVAILABLE, DEPENDENCY_UNAVAILABLE, SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Accept Submit Route",
+        "tags": [
+          "submit"
+        ]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/submit-attempts/{submit_attempt_id}": {
+      "get": {
+        "operationId": "get_submit_attempt_route_v1_workspaces__workspace_id__submit_attempts__submit_attempt_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "submit_attempt_id",
+            "required": true,
+            "schema": {
+              "title": "Submit Attempt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmitAttemptResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Get Submit Attempt Route",
+        "tags": [
+          "submit"
+        ]
+      }
+    },
+    "/v1/workspaces/{workspace_id}/upload-revisions": {
+      "post": {
+        "operationId": "accept_upload_route_v1_workspaces__workspace_id__upload_revisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadRevisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "AUTHENTICATION_REQUIRED"
+          },
+          "403": {
+            "description": "SCOPE_FORBIDDEN"
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND"
+          },
+          "408": {
+            "description": "UPLOAD_STREAM_TIMEOUT"
+          },
+          "409": {
+            "description": "IDEMPOTENCY_CONFLICT or WORKSPACE_VERSION_CONFLICT"
+          },
+          "413": {
+            "description": "UPLOAD_LIMIT_EXCEEDED"
+          },
+          "415": {
+            "description": "UPLOAD_MEDIA_UNSUPPORTED"
+          },
+          "422": {
+            "description": "REQUEST_VALIDATION_FAILED or UPLOAD_CLOSURE_INVALID"
+          },
+          "429": {
+            "description": "ADMISSION_LIMIT_REACHED"
+          },
+          "503": {
+            "description": "SERVICE_NOT_READY"
+          }
+        },
+        "summary": "Accept Upload Route",
+        "tags": [
+          "upload"
+        ]
+      }
+    }
+  }
+}

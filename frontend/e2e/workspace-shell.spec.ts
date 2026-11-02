@@ -65,7 +65,11 @@ async function waitForBrowse(page: Page) {
   await expect(page.getByRole("heading", { name: "差异浏览", level: 1 })).toBeVisible();
   await page.locator(".grid-frame, .compare-error").first().waitFor({ state: "visible", timeout: 15000 });
   const error = page.locator(".compare-error");
-  if (await error.isVisible()) throw new Error(`browse failed at ${page.url()}: ${await error.innerText()}`);
+  if (await error.isVisible()) {
+    const code = await error.locator("p code").innerText();
+    const details = await error.locator("details pre").textContent();
+    throw new Error(`browse failed at ${page.url()}: ${code}: ${details ?? "no details"}`);
+  }
   await expect(page.locator(".grid-frame").first()).toBeVisible();
 }
 

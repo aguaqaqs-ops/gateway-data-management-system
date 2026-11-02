@@ -396,7 +396,7 @@ export async function installBundleTar(options: {
         if (manifest.closure_manifest_digest !== await hashJson({ entries: manifest.closure })) throw new BundleIntegrityError("closure manifest 摘要不匹配");
         const semanticDigest = await hashJson(manifestSemanticPayload(manifest));
         if (closure.bundle_manifest_digest !== semanticDigest) throw new BundleIntegrityError("manifest 语义摘要不匹配");
-        if (normalizeSha256(manifest.bundle_digest) !== semanticDigest) throw new BundleIntegrityError("bundle 语义摘要不匹配");
+        if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(semanticDigest)) throw new BundleIntegrityError("bundle 语义摘要不匹配");
         if (verified.manifest !== manifest) throw new BundleIntegrityError("manifest 验证失败");
         await discardPadding(reader, parsed.size);
         options.onProgress?.({ receivedBytes: reader.consumedBytes, contentLength });

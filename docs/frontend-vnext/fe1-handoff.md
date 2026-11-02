@@ -1,6 +1,6 @@
-# FE1 handoff（定向修复候选的 CT05 验证未通过）
+# FE1 handoff（补充修复候选的 CT05 验证通过）
 
-> 原 FE1 候选 `b67da4795fd22afcab1365f4138b131ab4c736d1` 的 04 阶段退出运行保留为历史记录；因定向修复失效，待复审后重做。当前修复候选为 `be430b9d98e8a31c676bfd8cd0136e893a7950d2`，其 CT05 权威 runner exit code 为 1，详情见文末“FE1 定向修复”。
+> 原 FE1 候选 `b67da4795fd22afcab1365f4138b131ab4c736d1` 的 04 阶段退出运行保留为历史记录；因定向修复失效，待复审后重做。首个修复候选 `be430b9d98e8a31c676bfd8cd0136e893a7950d2` 的失败日志也保留。当前候选为 `b54dd08f37e27db9387aa9c248f7e0f692c57804`，CT05 完整 runner exit code 为 0；本 handoff 提交是本轮审核范围终点。
 
 ## 初始候选与范围（历史记录）
 
@@ -111,7 +111,7 @@ npm 缓存沿用 FE0 预填充，归档 SHA256 为 `0d861824f807b9d72de3cfff26e3
 - 保留最终 05 worktree `/home/dev/gdds-fe-fe1-b67da4795f-05` 与 04 阶段证据 worktree `/home/dev/gdds-fe-fe1-exit-04`，供独立审核核对。05 和 04 的共享 main 均保持 `14ea5e8e89d5ffec3104fc1741376534acef5e7e`；04 运行前后 main 未移动。
 - 不推送、不打 tag、不合入 main。等待独立 FE1 审核。
 
-## FE1 定向修复
+## FE1 定向修复（首个修复候选的失败记录）
 
 ### 候选与修复项
 
@@ -192,3 +192,43 @@ CT05 runner 已启动且 exit 非零；按停止规则未重跑。失败后只�
 - **本轮 CT05 预检命令错误：** 首次误用不存在的 `/home/dev/gdds-fe`，日志 `preflight-05-owner-retry.log` SHA256 `27cfab1ad1256ec409c666e822f6addb4eb08d4b199f00cd318f5267d0c9221c`；改用实际共享仓库路径 `/home/dev/gateway-data-management-system`，从预检开头重做成功，结果见上表。
 - **本轮 bundle 创建命令错误：** 首次误选 `c1a76…` 作为 CT05 main 的前置祖先，创建步骤停止；失败日志 `source-bundle-create-be430b9d98.log` SHA256 `c4961751de1a2053a6b58b692bfe6d90a9ccb9d172ec49ff58027ee20bd14c26`。确认共同祖先为 `36047efe…` 后，从创建步骤开头重做，成功生成并传输/verify/fetch。
 - 本节引用的 CT05 远端日志 SHA256 为日志关闭后重算的最终文件摘要；对应 `.sha256` sidecar 已同步修正。任何镜像身份不符均未发生；后续唯一 runner 已开始且非零退出，因此按停止规则未重跑。
+
+## FE1 补充修复：后端三类行记录
+
+### 候选与数据
+
+- 在 `6949ffcb45b6189f57a99de5872f7598e443d2b3` 之后追加代码提交 `b54dd08f37e27db9387aa9c248f7e0f692c57804`，未改写 `be430b9d98`。本轮代码候选 `frontend/` tree 为 `90a37284c3724df1db4ea5dc7bf20cdcd084a125`。最终复审范围从 `c1a76ea345..<本 handoff 提交 HEAD>`。
+- `generate-backend-bundle-fixture.py` 的固定 SQL 现在生成：基线设备 1、2、4；当前设备 1 不变、2 的 description 改为“测控装置（升级）”、新增设备 3、删除设备 4。后端产物包含 `ROW_ADDED`、`ROW_DELETED`、`ROW_MODIFIED` 各一条。
+- `parquet-reader.test.ts` 两个浏览用例都断言三种 record kind；首个用例还检查修改记录的 before/current description。同步更新基线/当前行数、当前设备 2 文案，以及 surface 的表级风险断言。后端实际结果为 before 3 行、current 3 行、表级风险 `MEDIUM_HIGH`、风险 annotation 数 3；导航 fixture 中新增设备 3 的单项风险仍为 `MEDIUM_LOW`。
+- 新 bundle digest 为 `sha256:a34e85601da5bbb2b818f7307273fd6844e81d62ef0ad576e2ee9b285f5f4538`；`closure_manifest_digest=sha256:db3dec9c8329634a2e6a0c7863159619cd5e9cbe0c7f885da56af4cdd40e7b5e`；`bundle_manifest_digest` 与 `bundle_digest` 相同。POSIX tar 为 64,512 bytes，SHA256 `df9f91279dc01cb3c70016910e267ef0de1d04b23537a92e2cfdd8ffd85e4735`。
+- fixture 来源、后端代码和依赖镜像身份保持不变：来源提交 `c1a76ea345f3b183cc9b04a2e90d3f58257626d7`，`vnext/` tree `2791d3ff3dd62ff454d7e9cac43885d39da8bf96`，镜像 `gateway-backend-deps:lock-d054366c02fa`。沿用 CT201 与 CT05 已核对的 config digest `sha256:b5b5422411de38e5ba08243343edb32c39cb01dc7cfcb1564bcb4b4d55e4b92a` 及 19 个 DiffID；本轮没有重新加载镜像，CT05 上的既有身份证据为 `/home/dev/gdds-fe-logs/fe1/fix1/backend-image-identity-ct05.log`，SHA256 `d46d1602ff63f7c5411c6e6f9f6a7eff42684fcfc3d3efe8423957d0fb5993bc`。
+- 在 CT201 用 `--network none`、只读挂载 `vnext/` 的同一后端镜像运行生成器两次。生成日志：`backend-fixture-generation-1.log` SHA256 `6c48d127a921cdcd8bb24755a42e35614110f2984dd510dd8c0cafea340291da`；`backend-fixture-generation-2.log` SHA256 `c71714db67701cd3c7b382914e0dac11f5d6f31cb788c0f35f147ac40e0bc306`；逐字节比较日志 `backend-fixture-reproducibility.log` SHA256 `a39c867ea90ee9fcd807b39966d73580b5e3026c2cf3ad99ce8e977d5db2cae4`，结果 `byte_identical=true`。生成器脚本 SHA256 `f2ac7c839a22feca4dc77497d36e99799539e615ec19c287e998e7c0d58f579b`。
+- 新后端产物 SHA256：
+
+  | 产物 | SHA256 |
+  | --- | --- |
+  | `manifest.json` | `bc22965d44ea8d0ba2e81cb88faf437ad220704429a59cc798ff5511b235dc27` |
+  | `artifact-closure.json` | `e8da236d3010e1eeab949b71d872b8c1f0db8f728e3443ab10bc99151203ad17` |
+  | surface | `6918d64a8cd24e81ed7b9e3ca6692e0074df0bb7fb464751f222df41ecd90e3d` |
+  | records closure | `dd7a394e8cbeac552b966cea75d6de995d3d1f24ade8a4cdf5efa8629b457103` |
+  | records manifest | `e20664ffb01a4e6baae0299f61054b2a334306afbec586c5701d90a489e48273` |
+  | records Parquet (`rows.bin`) | `e5b21354c259475020a33fe63ca25b8010607086ff2c6c198621c619f4f2ffc0` |
+  | business navigation projection | `36e72e4e0bbd3f461889fe5266bdfb10e208e416777fa924d8d47a7590a2a97c` |
+  | risk annotations | `6bc85a9204eb02f0836f2d8178de75622255496076a74d3f5d2f4c0d6ad757ef` |
+  | risk annotations manifest | `56d9bef475e920b6f22e4636b9dafb4706dbf139a73afec423d37b2373834124` |
+  | before snapshot Parquet | `8cc5ec8b54a4ca3117c51138367f8465aac2009336ef3cbb88737627213ea1d5` |
+  | current snapshot Parquet | `55b3a45dead4436a47c3ab5ffae9fd4c9a9fa618d502a764a3def8798d678f14` |
+
+### CT05 完整运行
+
+| 步骤 | 节点/时间（UTC） | 结果与日志 SHA256 |
+| --- | --- | --- |
+| 预检 | `gw-dms-test-05.lan`，15:15:23–15:15:25 | SSH OK、busy 标记不存在；共享 main `0e0d14f1d19779a5ff49c8e3c79f6aba323dd0bf`；缓存、Playwright 和 backend 镜像在。预检日志 `preflight-05-b54dd08f37.log` SHA256 `c9e9455551d71cb77982f741aa40a60d8aa543a24e82395239ba476cc858f7f0` |
+| bundle 创建 | CT201，15:15:32–15:15:33 | bundle SHA256 `e64a51a4fe43c96668758ce43a32f80b858d2ccb8e1ffdf81c3f31dbc94136a8`。日志 `source-bundle-create-b54dd08f37.log` SHA256 `15d3246aaa532a6a7adeff0b74164cd9bb339df8ad6ee8d199ac7642005f5c2e` |
+| bundle LAN 传输 | CT201→CT05，15:15:43 | 两端 SHA256 相同。日志 `source-bundle-transfer-05-b54dd08f37.log` SHA256 `d2f14059d7d8c0dc7126bb3f1be4e3e2c4480afe226fccb666a2addebf001e72` |
+| CT05 verify/fetch | 15:15:52 | `FETCH_HEAD` 精确为 `b54dd08f37e27db9387aa9c248f7e0f692c57804`；main 前后不变。日志 `bundle-fetch-05-b54dd08f37.log` SHA256 `2d2e25be8dcd224d2bf7d67c9c1d178f44f9a0b69d723cda80ed6b10b13cc156` |
+| detached worktree | CT05，15:16:01 | `/home/dev/gdds-fe-fe1-fix2-05`，HEAD/tree 精确匹配，legacy 链接已建，status clean。日志 `worktree-add-05-b54dd08f37.log` SHA256 `ca77bbc8dfcc63ba1388a9847c4738b9cc5f833b0b6ba531d82119a7c7857be3` |
+| runner 前检 | CT05，15:16:18 | busy 标记不存在；worktree clean；toolchain、npm cache 和 305 个 lock resolved 项符合要求。日志 `runner-preflight-05-b54dd08f37.log` SHA256 `cfaf9f39e5aece47c040684385071c9de447da995817eb9a8b512ade40e4b1cf` |
+| 权威 runner | CT05，15:16:22–15:16:35 | 完整 `./frontend/scripts/run-tests.sh --e2e`；HEAD/tree 起止一致，`docker_network=none`，exit `0`。typecheck、lint 通过；Vitest 9 文件、38 项全通过（含跨实现摘要测试与三类 records 测试）；build 成功；Playwright `3 passed`，覆盖 OPFS 安装、Parquet 浏览与缓存命中。runner 日志 `/home/dev/gdds-fe-logs/fe1/fix2/frontend-tests-20261102T151622Z.log` SHA256 `89cd1ffd39985514400aa1971c689c4d7a9ff949383ba83b7d1bb8e007638e4b` |
+
+修复前失败日志保留：`/home/dev/gdds-fe-logs/fe1/fix1/frontend-tests-20261102T143633Z.log`，SHA256 `4a89d3ab6733d5924de3d6457bb190bd7cfe7ae17ba6b35b22b6e023fa9dc676`。修复后完整运行通过；05 worktree 仍 clean，main 仍为 `0e0d14f1d19779a5ff49c8e3c79f6aba323dd0bf`。本轮尚未重做 04 取证；按流程等待独立复审通过后再进行。

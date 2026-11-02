@@ -13,8 +13,8 @@ describe("local Parquet browsing", () => {
 
     const rows = await readParquetTable(bundle, current?.logical_path ?? "", { columns: ["dev_addr", "description"], rowStart: 0, rowEnd: 2 });
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ dev_addr: 1, description: "线路保护装置 A" });
-    expect(rows[1]).toMatchObject({ dev_addr: 2, description: "测控装置" });
+    expect(rows[0]).toMatchObject({ dev_addr: 1n, description: "线路保护装置 A" });
+    expect(rows[1]).toMatchObject({ dev_addr: 2n, description: "测控装置" });
 
     const diffs = await readParquetTable(bundle, records?.logical_path ?? "", { columns: ["record_kind"] });
     expect(diffs.map((row) => row.record_kind).sort()).toEqual(["ADDED", "DELETED", "UPDATED"]);

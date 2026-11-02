@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { describe, expect, it, vi } from "vitest";
 import { ensureLocalBundle, MemoryBundleStore } from "./local-bundle";
 import { BundleIntegrityError, installBundleTar } from "./posix-tar";
-import { bytesBlob, installedGoldenBundle, readFixture, responseForTar } from "../../test/helpers";
+import { bytesStream, installedGoldenBundle, readFixture, responseForTar } from "../../test/helpers";
 
 describe("POSIX tar bundle installation", () => {
   it("installs a golden bundle in closure order and supports long pax paths", async () => {
@@ -19,15 +19,15 @@ describe("POSIX tar bundle installation", () => {
     const key = manifest.bundle_digest;
 
     const wrongEtagStore = makeStore();
-    await expect(installBundleTar({ body: bytesBlob(tar).stream(), store: wrongEtagStore, expectedBundleDigest: key, etag: `"${"0".repeat(64)}"`, contentLength: String(tar.byteLength) })).rejects.toBeInstanceOf(BundleIntegrityError);
+    await expect(installBundleTar({ body: bytesStream(tar), store: wrongEtagStore, expectedBundleDigest: key, etag: `"${"0".repeat(64)}"`, contentLength: String(tar.byteLength) })).rejects.toBeInstanceOf(BundleIntegrityError);
     expect(await wrongEtagStore.has(key)).toBe(false);
 
     const wrongLengthStore = makeStore();
-    await expect(installBundleTar({ body: bytesBlob(tar).stream(), store: wrongLengthStore, expectedBundleDigest: key, etag: key, contentLength: String(tar.byteLength + 1) })).rejects.toThrow("Content-Length");
+    await expect(installBundleTar({ body: bytesStream(tar), store: wrongLengthStore, expectedBundleDigest: key, etag: key, contentLength: String(tar.byteLength + 1) })).rejects.toThrow("Content-Length");
     expect(await wrongLengthStore.has(key)).toBe(false);
 
     const truncatedStore = makeStore();
-    await expect(installBundleTar({ body: bytesBlob(tar.slice(0, tar.byteLength - 700)).stream(), store: truncatedStore, expectedBundleDigest: key, etag: key, contentLength: String(tar.byteLength) })).rejects.toBeInstanceOf(BundleIntegrityError);
+    await expect(installBundleTar({ body: bytesStream(tar.slice(0, tar.byteLength - 700)), store: truncatedStore, expectedBundleDigest: key, etag: key, contentLength: String(tar.byteLength) })).rejects.toBeInstanceOf(BundleIntegrityError);
     expect(await truncatedStore.has(key)).toBe(false);
 
     const records = await readFixture("src/test/fixtures/source/parquet/device.records.parquet");
@@ -36,7 +36,7 @@ describe("POSIX tar bundle installation", () => {
     expect(offset).toBeGreaterThan(0);
     corrupt[offset + 140] = (corrupt[offset + 140] ?? 0) ^ 0xff;
     const corruptStore = makeStore();
-    await expect(installBundleTar({ body: bytesBlob(corrupt).stream(), store: corruptStore, expectedBundleDigest: key, etag: key, contentLength: String(corrupt.byteLength) })).rejects.toThrow("产物摘要不匹配");
+    await expect(installBundleTar({ body: bytesStream(corrupt), store: corruptStore, expectedBundleDigest: key, etag: key, contentLength: String(corrupt.byteLength) })).rejects.toThrow("产物摘要不匹配");
     expect(await corruptStore.has(key)).toBe(false);
   });
 

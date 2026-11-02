@@ -1,12 +1,17 @@
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { MemoryBundleStore } from "../features/bundle/local-bundle";
 import { installBundleTar } from "../features/bundle/posix-tar";
 
-export function bytesBlob(bytes: Uint8Array): Blob {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return new Blob([buffer]);
+export function bytesStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new NodeReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
 }
 
 export async function readFixture(relativePath: string): Promise<Uint8Array> {
@@ -23,7 +28,7 @@ export async function installedGoldenBundle() {
   const manifest = JSON.parse(new TextDecoder().decode(tar.slice(512, 512 + manifestSize))) as { bundle_digest?: string };
   const store = new MemoryBundleStore();
   const result = await installBundleTar({
-    body: bytesBlob(tar).stream(),
+    body: bytesStream(tar),
     store,
     expectedBundleDigest: manifest.bundle_digest ?? "",
     etag: manifest.bundle_digest ?? null,
@@ -35,7 +40,7 @@ export async function installedGoldenBundle() {
 }
 
 export function responseForTar(tar: Uint8Array, etag: string, contentLength = tar.byteLength): Response {
-  return new Response(bytesBlob(tar), {
+  return new Response(Buffer.from(tar), {
     status: 200,
     headers: { "Content-Type": "application/x-tar", ETag: etag, "Content-Length": String(contentLength) },
   });

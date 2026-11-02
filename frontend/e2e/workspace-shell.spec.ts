@@ -120,6 +120,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await search.fill("直流屏");
   await expect(page.getByRole("button", { name: /直流屏/ })).toBeVisible();
   await page.locator(".sidebar-toolbar button").click();
+  await expect(page).not.toHaveURL(/changed=1/);
+  await page.locator(".sidebar-toolbar button").click();
   await expect(page).toHaveURL(/changed=1/);
   await page.getByRole("button", { name: "下一个变更" }).click();
   await expect(page).toHaveURL(/change=1/);

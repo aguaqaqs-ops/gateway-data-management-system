@@ -45,9 +45,9 @@ describe("bundle view model", () => {
 
   it("locates changed records and filters locally by change, risk and search", () => {
     const records = [
-      { record_kind: "UNCHANGED", row_identity: new Uint8Array([1]), label: "keep" },
-      { record_kind: "UPDATED", row_identity: new Uint8Array([2]), label: "changed row" },
-      { record_kind: "UNCHANGED", row_identity: new Uint8Array([3]), label: "risk only" },
+      { table_name: "device", record_kind: "UNCHANGED", row_identity: new Uint8Array([1]), label: "keep" },
+      { table_name: "device", record_kind: "UPDATED", row_identity: new Uint8Array([2]), label: "changed row" },
+      { table_name: "device", record_kind: "UNCHANGED", row_identity: new Uint8Array([3]), label: "risk only" },
     ];
     const locations = deriveChangeLocations(records, [{ row_identity: new Uint8Array([2]), risk_level: "HIGH" }]);
     expect(locations).toEqual([{ index: 1, rowIdentity: "02", recordKind: "UPDATED", riskLevel: "HIGH" }]);

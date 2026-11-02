@@ -3,7 +3,6 @@ import { BundleIntegrityError, installBundleTar, type BundleClosure, type Bundle
 
 const ROOT_NAME = "gateway-comparison-bundles-v1";
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
 
 export interface InstalledBundle {
   manifest: BundleManifest;
@@ -17,6 +16,10 @@ export interface ReadableBundleStore extends BundleStore {
 
 interface StorageManagerWithOpfs extends StorageManager {
   getDirectory(): Promise<FileSystemDirectoryHandle>;
+}
+
+interface AsyncDirectoryHandle extends FileSystemDirectoryHandle {
+  entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
 }
 
 function validateKey(value: string): string {
@@ -145,7 +148,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
         return {
           write: async (chunk) => writer.write(arrayBufferFromBytes(chunk)),
           close: async () => { await writer.close(); writers.delete(writer); },
-          abort: async (reason) => { try { await writer.abort(reason); } finally { writers.delete(writer); } },
+          abort: async (reason?: unknown) => { try { await writer.abort(reason); } finally { writers.delete(writer); } },
         };
       },
       commit: async (manifest, closure) => {
@@ -173,7 +176,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
     if (currentBytes > this.maxBytes) throw new Error("bundle 超过本地缓存容量");
     const entries: Array<{ name: string; lastUsed: number; bytes: number }> = [];
     let total = 0;
-    for await (const [name, handle] of root.entries()) {
+    for await (const [name, handle] of (root as AsyncDirectoryHandle).entries()) {
       if (handle.kind !== "directory") continue;
       try {
         const bundle = handle as FileSystemDirectoryHandle;
@@ -208,7 +211,7 @@ function estimateBytes(manifest: BundleManifest, closure: BundleClosure): number
 
 async function estimateDirectoryBytes(root: FileSystemDirectoryHandle): Promise<number> {
   let total = 0;
-  for await (const [, handle] of root.entries()) {
+  for await (const [, handle] of (root as AsyncDirectoryHandle).entries()) {
     if (handle.kind === "file") total += (await (handle as FileSystemFileHandle).getFile()).size;
     else total += await estimateDirectoryBytes(handle as FileSystemDirectoryHandle);
   }

@@ -1,6 +1,6 @@
 # BE-b 设计草案（第一步）：业务导航与表格展示
 
-- **状态：** 草案，待 owner 确认 §6 各项；确认后作为 BE-b 的业务与数据结构依据。
+- **状态：** 第一步已确认（owner，2026-11-02，§6）；作为 BE-b 的业务与数据结构依据。
 - **日期：** 2026-11-02。
 - **范围：** [前端 kickoff](frontend-kickoff.md) FD6、FD8 与 §5 BE-b 的第一步：数据结构与业务规则。实现层面的设计（在哪个 step 计算、缓存、计时预算、golden 组织、History 侧的持久化方式）在 P6 S5 接近完成时定稿（第二步）；实现在 P6 退出后、Phase 8 前进行。
 - **依据：** `legacy/backend_vnext/capabilities/{business_projection,table_presentation}/`、`legacy/backend_vnext/flows/business_projection.py`、`legacy/frontend/src/workbench/`（`legacy/` 不在 Git 中）；[Comparison Surface](../backend-vnext/contracts/comparison-surface.md)；[Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md)；[Frontend Surface Simplification](../backend-vnext/frontend-surface-simplification.md)；ADR 0018、ADR 0019。
@@ -24,7 +24,7 @@
 
 | 前端分组 | 投影 | 项（item） | 项的页签 | 数据依赖 |
 | --- | --- | --- | --- | --- |
-| 转发通道 | `FORWARD_CHANNELS` | `net_cfg` 中 `exe=iec104` 且 `tab_num>0` 的通道，键 `b{board}_n{link_no}`，名称取 `channel_desc` | 9 类转发表 `b{board}_n{link_no}_iec104_{syx,dyx,yc,syk,dyk,yt,ym,sc,yp}_list`，固定中文页签名（单点遥信、双点遥信、遥测等），只列存在的表 | `net_cfg` 两侧行 |
+| 转发通道 | `FORWARD_CHANNELS` | `net_cfg` 中 `exe=iec104` 且 `tab_num>0` 的通道，键 `b{board}_n{link_no}`，名称取 `channel_desc` | 9 类转发表 `b{board}_n{link_no}_iec104_{syx,dyx,yc,syk,dyk,yt,ym,sc,yp}_list`，固定中文页签名（单点遥信、双点遥信、遥测等），只列存在的表；表注释为“遥测引用表”等较长名称，legacy 不使用 | `net_cfg` 两侧行 |
 | 二次装置列表 | `SECONDARY_DEVICES` | ① `装置总表`（`device` 整表）；② 复合信号虚装置（`dev_addr=65532`）；③ 其余装置按 `dev_addr` 排序，名称取 `description` | 11 类测点表（`device_st` 状态类 … `device_disturb` 扰动数据按 `dev_addr`，`device_cfg` 按 `gid`）；同一张共享表按装置身份过滤行；两侧计数完整且为 0 且无变化时省略该页签 | `device` 两侧行；各测点表按身份列的两侧计数；逐行记录与风险标注按身份归属 |
 | 通讯规约列表 | `COMMUNICATION_PROTOCOLS` | ① `网口配置表`（`net_cfg` 整表）；② 每个通道，名称取 `channel_desc` + `protocol_name` | 候选表 `{通道键}_{规约段}_cfg`、`{通道键}_{规约段}_dev_cfg`；规约段取 `exe` 小写，`dev103` 映射为 `nr103d` | `net_cfg` 两侧行 |
 | 全局参数 | `GLOBAL_PARAMETERS` | `project`、`prot_list` 固定项；`app_cfg` 整表；`app_cfg` 每行 `table_cfg` 指向的表，名称取 `app_name` | 各一个整表页签 | `app_cfg` 两侧行 |
@@ -36,7 +36,7 @@
 - 各投影输出诊断（重复 `dev_addr`/`gid`、规约候选表缺失、`app_cfg.table_cfg` 缺失或重复等），整体有诊断时加 `PROJECTION_PARTIAL`。
 - 二次装置的页签与装置带变化类型与风险汇总；其他分组的页签由前端从表级事实读取。
 - legacy preview bundle 的 `sidebar_trees` 只是把全部表平铺进“转发通道”的回退形态；正式工作台使用上述投影。
-- 示例数据（t1 `small-1`）中每个通道还有一张 `b{board}_n{link_no}_sg_cfg`，不被任何规则认领，落入“未解析表”。
+- 每个 IEC104 转发通道还有一张 `b{board}_n{link_no}_sg_cfg`（表注释“定值”），legacy 不认领，落入“未解析表”。t1 `small-1`/`small-2`、t3、t4 中，含 `sg_cfg` 的通道与 IEC104 转发通道完全一致。
 
 ### 2.2 复合信号虚装置
 
@@ -78,7 +78,7 @@ SurfaceColumn.display_order  新增，int；业务列序
 规则：
 
 - 注释只用于展示：不进入 snapshot、规范状态、comparison、risk 的身份与摘要，注释变化不产生差异与风险，也不影响 `NO_CANONICAL_CHANGE`。它们进入 surface 摘要（surface 的展示负载本来就计入摘要）。
-- 固定列（候选规则，待 §6 Q4 确认）：表中存在 `no` 时固定 `no`；存在 `name` 时固定 `name`，否则存在 `description` 时固定 `description`。
+- 固定列（§6 Q4）：表中存在 `no` 时固定 `no`；存在 `name` 时固定 `name`，否则存在 `description` 时固定 `description`。
 - 列序：有业务列序规则的表按规则（规则中不存在的列忽略，未列出的列按 DDL 顺序追加），其余按 DDL 顺序；以 `display_order` 表达，不改变 `columns` 的现有顺序语义。列序规则由后端随规则集版本维护，迁移 legacy 中与 DDL 顺序不同的规则。
 - 列宽与对齐由前端按类型与内容计算；不提供隐藏。
 - 键列沿用 surface 现有比较键信息，不重复。
@@ -90,12 +90,13 @@ SurfaceColumn.display_order  新增，int；业务列序
 ```text
 BusinessNavigation:
   contract_version            backend-vnext/business-navigation/v1
-  groups: [Group]             固定顺序，见 4.3；空组保留，前端可隐藏
+  groups: [Group]             按后端给出的顺序展示，见 4.3；空组保留，前端可隐藏
   diagnostics: [Diagnostic]
 
 Group:
-  group_key                   FORWARD_CHANNELS | SECONDARY_DEVICES | COMMUNICATION_PROTOCOLS
-                              | GLOBAL_PARAMETERS | OTHER_TABLES
+  group_key                   当前取值：FORWARD_CHANNELS | SECONDARY_DEVICES | COMMUNICATION_PROTOCOLS
+                              | GLOBAL_PARAMETERS | OTHER_TABLES；可扩展（§4.6）
+  label                       分组显示名，由后端给出
   items: [Item]
 
 Item:
@@ -131,19 +132,36 @@ Tab:
 
 | 分组 | 处理 | 说明 |
 | --- | --- | --- |
-| 转发通道 | KEEP | 规则同 §2.1 |
+| 转发通道 | KEEP，增加“定值”页签 | 规则同 §2.1；另见 §4.5 |
 | 二次装置列表 | KEEP | 装置总表在首位，其次复合信号虚装置，再按 `dev_addr` 排序的装置 |
 | 通讯规约列表 | KEEP | 网口配置表在首位 |
 | 全局参数 | KEEP | — |
-| 转发通道分组信息 | REMOVE（待确认） | legacy 中恒为空，没有数据来源 |
-| 未解析表 | SIMPLIFY（待确认） | 改为 `OTHER_TABLES`，界面名“其他表”；“未解析”容易被理解为解析失败 |
+| 转发通道分组信息 | 暂不输出 | 后续要扩展的功能（owner 2026-11-02）；当前没有数据来源，不输出空组。按 §4.6 的扩展约定在后续版本加入 |
+| 未解析表 | SIMPLIFY | 改为 `OTHER_TABLES`，界面名“其他表” |
 
-### 4.4 复合信号虚装置（SIMPLIFY，待确认）
+### 4.4 复合信号虚装置（SIMPLIFY）
 
 - 保留为二次装置组中的特殊项（`COMPOSITE_SIGNAL_DEVICE`），页签按 `dev_addr=65532` 过滤各测点表，与普通装置相同。
 - 不再产出 points/formulas 两份产物：bundle 已含 `composite_signal_point` 与 `device` 的整表数据及逐行记录，前端在本地按 `(source_table, point_gid)` 关联公式，从 `device` 表组装装置名称映射。
 - `composite_signal_point` 由该特殊项认领，不进入“其他表”。
 - 公式查看器的展示规则沿用 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) §Frontend。
+
+### 4.5 转发通道的“定值”页签（owner 2026-11-02）
+
+- 表 `b{board}_n{link_no}_sg_cfg` 作为同一通道转发通道项的页签，排在 9 类转发表页签之后。
+- 页签名取该表注释（当前为“定值”）；注释缺失时用“定值”。9 类转发表页签沿用固定中文名，不取注释（注释为“遥测引用表”等较长名称）。
+- 两侧都为 0 行时不显示该页签；任一侧有行（包括整表删除前有行）时显示。
+- 只挂到已存在的转发通道项（`exe=iec104` 且 `tab_num>0`）。所属通道没有转发通道项时，留在“其他表”，并输出诊断 `CHANNEL_TABLE_UNCLAIMED`。
+- 由转发通道认领后，不再进入“其他表”。
+
+### 4.6 分组的扩展约定
+
+为“转发通道分组信息”等后续分组预留：
+
+- `group_key` 是可扩展的取值集合。新增分组只在产物中增加一个 Group，提升 `business-navigation` Contract 的次版本号；已有分组与项的结构不变。
+- 分组名与顺序都由后端给出。前端按 `groups` 列表通用渲染，不写死分组槽位或分组名；遇到未知 `group_key` 时按通用分组显示，不报错。
+- 新分组认领的表从“其他表”中移出，仍满足“每张表最多被一个分组认领”。
+- 前端的推导、筛选与命令层（UI 优化方向 §5.1）按 `group_key` 与 `item_key` 寻址，不依赖分组位置。
 
 ## 5. 留给第二步的约束
 
@@ -153,19 +171,19 @@ Tab:
 - **不破坏结构性过滤（DC39）：** 未变化的表两侧计数相同，只用当前侧计算，不为导航读取基线行；只有变化的表需要两侧计数。
 - **线性复杂度：** 沿用 legacy 的一次性索引要求，禁止“装置 × 变化 × 标注”的交叉扫描。
 - **计入计时预算：** 导航在 Preview 与 History 的组装路径上计算，其耗时计入 W1–W4、H1–H3；放在哪个 step、是否缓存在第二步决定。
-- **History 的注释来源：** History 节点来自 Repository，需要为历史 commit 保存注释。候选：随 `CanonicalizationManifest` 保存展示元数据，或写入 Dolt DDL 的 `COMMENT`。第二步决定，但取决于 §6 Q3 的方向。
+- **History 的注释来源：** History 节点来自 Repository，需要为历史 commit 保存注释。候选：随 `CanonicalizationManifest` 保存展示元数据（不计入规范摘要），或写入 Dolt DDL 的 `COMMENT`。倾向前者：写入 Dolt DDL 会让只改注释的上传变成 Dolt schema 变化，与“注释不产生差异”冲突，并改变 S1a 冻结的导入包字节。第二步定稿。
 - **解析器：** S2a 冻结的解析语义不在 P6 内改动；注释捕获在 BE-b 实现时同时加入 Rust 解析器与 Python 参照，并补差分用例。
 
-## 6. 待 owner 确认
+## 6. owner 决定（2026-11-02）
 
-| ID | 问题 | 建议 |
+| ID | 问题 | 决定 |
 | --- | --- | --- |
-| Q1 | 分组集合 | 保留转发通道、二次装置列表、通讯规约列表、全局参数；删除“转发通道分组信息”；“未解析表”改名“其他表” |
-| Q2 | 每个通道的 `sg_cfg` 等未被认领的通道表，是否应归到对应转发通道或规约项下 | 需要业务说明这类表的含义；未确认前留在“其他表” |
-| Q3 | 中文表名与列名的来源 | **A（建议）：** 取自上传 SQL 的 `COMMENT`，与 legacy 相同，以数据本身为准；代价是解析器、快照描述与 History 持久化都要改动。**B：** 后端静态字典，从真实数据生成，随规则集版本发布；改动小，但网关软件版本不同、注释不同时会不一致 |
-| Q4 | 列展示精简 | 保留后端的业务列序规则（只迁移与 DDL 顺序不同的规则）；列宽、对齐由前端计算；取消隐藏；固定列按 §4.1 的候选规则 |
-| Q5 | 复合信号虚装置 | 按 §4.4 简化：保留特殊项，不再产出 points/formulas 产物，由前端在本地组装 |
-| Q6 | 转发通道只认 IEC104 且 `tab_num>0` 的通道 | 保留 legacy 规则；如果其他规约也有转发表，请说明 |
+| Q1 | 分组集合 | 保留转发通道、二次装置列表、通讯规约列表、全局参数；“转发通道分组信息”是后续要扩展的功能，当前不输出，按 §4.6 保证可扩展；“未解析表”改名“其他表” |
+| Q2 | 通道的 `sg_cfg` | 作为转发通道项的“定值”页签，规则见 §4.5 |
+| Q3 | 中文表名与列名的来源 | A：取自上传 SQL 的 `COMMENT`；History 侧的保存方式在第二步定稿（§5） |
+| Q4 | 列展示精简 | 同意：保留后端的业务列序规则（只迁移与 DDL 顺序不同的规则）；列宽、对齐由前端计算；取消隐藏；固定列按 §4.1 的规则 |
+| Q5 | 复合信号虚装置 | 同意 §4.4：保留特殊项，不再产出 points/formulas 产物，由前端在本地组装 |
+| Q6 | 转发通道的范围 | 同意：保留 legacy 规则（`exe=iec104` 且 `tab_num>0`） |
 
 ## 7. 后续
 

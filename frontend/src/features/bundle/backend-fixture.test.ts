@@ -37,13 +37,13 @@ describe("backend generated comparison bundle fixture", () => {
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     expect(presentation.view.groups[0]?.groupKey).toBe("SECONDARY_DEVICES");
     expect(presentation.view.groups[0]?.items[0]?.riskLevels).toContain("MEDIUM_LOW");
-    expect(presentation.view.tables[0]?.riskLevel).toBe("MEDIUM_LOW");
+    expect(presentation.view.tables[0]?.riskLevel).toBe("MEDIUM_HIGH");
 
     const beforeRows = await readLocalTable(bundle, presentation, "device", "before", { columns: ["dev_addr"] });
     const currentRows = await readLocalTable(bundle, presentation, "device", "current", { columns: ["dev_addr"] });
     const records = await readLocalChangeRecords(bundle, presentation, "device", { columns: ["record_kind"] });
-    expect(beforeRows).toHaveLength(2);
+    expect(beforeRows).toHaveLength(3);
     expect(currentRows).toHaveLength(3);
-    expect(records.map((row) => row.record_kind)).toEqual(["ROW_ADDED"]);
+    expect(records.map((row) => row.record_kind).sort()).toEqual(["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"]);
   });
 });

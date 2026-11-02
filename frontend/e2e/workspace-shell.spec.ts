@@ -73,7 +73,7 @@ test("下载 golden tar 到 OPFS 后从本地懒读 Parquet 且缓存命中不�
 
     expect(rows.rows).toEqual([
       { dev_addr: "1", description: "线路保护装置 A" },
-      { dev_addr: "2", description: "测控装置" },
+      { dev_addr: "2", description: "测控装置（升级）" },
     ]);
     expect(rows.cachedDigest).toBe(manifest.bundle_digest);
     expect(downloadCount).toBe(1);

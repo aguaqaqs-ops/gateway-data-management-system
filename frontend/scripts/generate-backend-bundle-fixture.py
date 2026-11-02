@@ -63,16 +63,16 @@ BEFORE_SQL = """CREATE TABLE device (
 );
 INSERT INTO device VALUES (1, '线路保护装置 A');
 INSERT INTO device VALUES (2, '测控装置');
+INSERT INTO device VALUES (4, '故障录波装置');
 """
 CURRENT_SQL = """CREATE TABLE device (
   dev_addr INT NOT NULL,
   description VARCHAR(128),
-  model VARCHAR(64),
   PRIMARY KEY (dev_addr)
 );
-INSERT INTO device VALUES (1, '线路保护装置 A', '保护装置');
-INSERT INTO device VALUES (2, '测控装置', '测控装置');
-INSERT INTO device VALUES (3, '直流屏', '电源设备');
+INSERT INTO device VALUES (1, '线路保护装置 A');
+INSERT INTO device VALUES (2, '测控装置（升级）');
+INSERT INTO device VALUES (3, '直流屏');
 """
 
 

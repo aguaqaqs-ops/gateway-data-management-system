@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps,
 import { createAuthenticatedFetch } from "../features/api/authenticated-fetch";
 import { ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
-import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, type DerivedNavigationGroup, type DerivedTable, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
+import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
 import { buildBrowseRows, normalizeDisplayScalar, snapshotRowIdentity, type BrowseRow } from "../features/view-model/table-rows";
 import { formatNavigationDiagnostic, formatSurfaceDiagnostic } from "../features/view-model/diagnostics";
 import { describeRiskReason } from "../features/view-model/risk-copy";

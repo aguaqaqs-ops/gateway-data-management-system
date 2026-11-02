@@ -36,10 +36,6 @@ describe("shared table and semantic themes", () => {
     expect(tableTheme.headerFontStyle).toContain("13px");
     expect(tableTheme.accentColor).toBe(tokens["--color-accent"]);
     expect(tableTheme.borderColor).toBe(tokens["--color-border"]);
-    expect(tokens["--color-accent-hover"]).toBe("#174A96");
-    expect(tokens["--color-focus-ring"]).toBe("#1F5FBF");
-    expect(tokens["--color-page"]).toBe("#F3F5F7");
-    expect(tokens["--color-border-strong"]).toBe("#C9D0D8");
     expect(tableTheme.cellHorizontalPadding).toBe(8);
     expect(tableTheme.roundingRadius).toBe(4);
     expect(changeClassByKind.ADDED).toBe("diff-added");

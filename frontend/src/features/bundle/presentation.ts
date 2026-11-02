@@ -1,7 +1,7 @@
 import type { InstalledBundle } from "./local-bundle";
 import { readJsonArtifact, readParquetTable, type ParquetReadRequest } from "./parquet-reader";
 import type { BundleArtifactEntry } from "./posix-tar";
-import { deriveBundleView, type BusinessNavigation, type ComparisonSurface, type DerivedBundleView, type RiskReport, type SurfaceTable } from "../view-model/model";
+import { deriveBundleView, type BusinessNavigation, type ComparisonSurface, type DerivedBundleView, type RiskAnnotation, type RiskAnnotationDocument, type RiskReport, type RowDiffRecord, type SurfaceTable } from "../view-model/model";
 
 export type SnapshotSide = "before" | "current" | "browse";
 
@@ -10,6 +10,7 @@ export interface TableArtifactPaths {
   current: string | null;
   browse: string | null;
   records: string | null;
+  annotations: string | null;
 }
 
 export interface LocalComparisonPresentation {
@@ -49,6 +50,7 @@ function resolveTableArtifactPaths(bundle: InstalledBundle, pairId: string, tabl
     current: bySide("current"),
     browse: bySide("browse"),
     records: entryPathByArtifactId(bundle, table.records_refs?.records_ref),
+    annotations: entryPathByArtifactId(bundle, table.risk_refs?.annotation_ref),
   };
 }
 
@@ -57,11 +59,10 @@ export async function loadComparisonPresentation(bundle: InstalledBundle, pairId
   const surfaceEntry = pairArtifact(bundle, "SURFACE", pairId);
   if (!surfaceEntry) throw new Error(`bundle 缺少比较 surface：${pairId}`);
   const surface = await readJsonArtifact<ComparisonSurface>(bundle, surfaceEntry.logical_path);
-  const rootRefs = (surface as unknown as { refs?: Record<string, unknown> }).refs;
-  const reportPath = entryPathByArtifactId(bundle, rootRefs?.risk_report_ref)
+  const reportPath = entryPathByArtifactId(bundle, surface.refs?.risk_report_ref)
     ?? pairArtifact(bundle, "RISK_REPORT", pairId)?.logical_path;
   const riskReport = reportPath ? await readJsonArtifact<RiskReport>(bundle, reportPath) : undefined;
-  const projectionRefs = (surface as ComparisonSurface & { projections?: Array<Record<string, unknown>> }).projections ?? [];
+  const projectionRefs = surface.projections ?? [];
   const navigationRef = projectionRefs.find((projection) => projection.projection_kind === "BUSINESS_NAVIGATION")?.projection_ref;
   const navigationPath = entryPathByArtifactId(bundle, navigationRef);
   const navigation = navigationPath ? await readJsonArtifact<BusinessNavigation>(bundle, navigationPath) : undefined;
@@ -89,8 +90,24 @@ export async function readLocalChangeRecords(
   presentation: LocalComparisonPresentation,
   tableName: string,
   request: ParquetReadRequest = {},
-) {
+): Promise<RowDiffRecord[]> {
   const path = presentation.tableArtifacts.get(tableName)?.records;
   if (!path) return [];
-  return readParquetTable(bundle, path, request);
+  return (await readParquetTable(bundle, path, request)).map((row) => row as unknown as RowDiffRecord);
+}
+
+/** Reads the table-scoped annotation document from the installed local bundle only. */
+export async function readLocalRiskAnnotations(
+  bundle: InstalledBundle,
+  presentation: LocalComparisonPresentation,
+  tableName: string,
+): Promise<RiskAnnotation[]> {
+  const paths = presentation.tableArtifacts.get(tableName);
+  if (!paths) throw new Error(`surface 中没有表 ${tableName}`);
+  if (!paths.annotations) return [];
+  const document = await readJsonArtifact<RiskAnnotationDocument>(bundle, paths.annotations);
+  if (document.table_name !== tableName || !Array.isArray(document.annotations)) {
+    throw new Error(`单表风险标注产物与表 ${tableName} 不匹配`);
+  }
+  return document.annotations;
 }

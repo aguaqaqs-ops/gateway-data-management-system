@@ -241,7 +241,7 @@ async function downloadLocalBundle(options: EnsureBundleOptions): Promise<Instal
       const contentEncoding = response.headers.get("Content-Encoding");
       if (contentEncoding && contentEncoding.toLowerCase() !== "identity") throw new Error("bundle tar 不得使用 HTTP 压缩");
       if (!response.body) throw new Error("bundle 响应没有流式 body");
-      const expectedBundleDigest = options.expectedBundleDigest ?? response.headers.get("ETag")?.replace(/^W\//, "").replace(/^\"|\"$/g, "");
+      const expectedBundleDigest = options.expectedBundleDigest ?? response.headers.get("ETag")?.replace(/^W\//, "").replace(/^"|"$/g, "");
       if (!expectedBundleDigest) throw new Error("bundle 响应缺少 ETag 摘要");
       await installBundleTar({
         body: response.body,

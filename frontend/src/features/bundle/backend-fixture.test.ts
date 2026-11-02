@@ -69,7 +69,8 @@ describe("backend-generated FE2a bundle fixtures", () => {
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     expect(presentation.surface.comparison_mode).toBe("DATASET_REPLACEMENT");
     expect(presentation.surface.tables.some((table) => table.table_name === "device" && table.table_refs?.before_table_ref && table.table_refs?.current_table_ref)).toBe(true);
-    const levels = new Set((presentation.riskReport?.overall.risk_level ? [presentation.riskReport.overall.risk_level] : []));
+    const level = presentation.surface.view?.risk_level;
+    const levels = new Set(typeof level === "string" ? [level] : []);
     expect(levels).toEqual(new Set(["HIGH"]));
     expect(await readLocalTable(bundle, presentation, "device", "before")).toHaveLength(1);
     expect(await readLocalTable(bundle, presentation, "device", "current")).toHaveLength(1);

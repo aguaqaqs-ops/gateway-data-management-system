@@ -11,13 +11,12 @@ describe("table row presentation", () => {
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     const surface = presentation.surface.tables.find((item) => item.table_name === "keyless_demo");
     if (!surface) throw new Error("backend fixture has no keyless_demo surface");
-    const [before, current, records, annotations] = await Promise.all([
-      readLocalTable(bundle, presentation, "keyless_demo", "before") as Promise<Record<string, unknown>[]>,
+    const [current, records, annotations] = await Promise.all([
       readLocalTable(bundle, presentation, "keyless_demo", "current") as Promise<Record<string, unknown>[]>,
       readLocalChangeRecords(bundle, presentation, "keyless_demo"),
       readLocalRiskAnnotations(bundle, presentation, "keyless_demo"),
     ]);
-    const rows = buildBrowseRows({ table: surface, beforeRows: before, currentRows: current, records, annotations });
+    const rows = buildBrowseRows({ table: surface, beforeRows: [], currentRows: current, records, annotations });
     expect(rows.filter((row) => row.kind === "added" || row.kind === "deleted").map((row) => row.kind).sort()).toEqual(["added", "deleted"]);
   });
 
@@ -27,8 +26,7 @@ describe("table row presentation", () => {
     const presentation = await loadComparisonPresentation(bundle, pairId);
     const surface = presentation.surface.tables.find((item) => item.table_name === "device");
     if (!surface) throw new Error("backend fixture has no device surface");
-    const [before, current, records, annotations] = await Promise.all([
-      readLocalTable(bundle, presentation, "device", "before") as Promise<Record<string, unknown>[]>,
+    const [current, records, annotations] = await Promise.all([
       readLocalTable(bundle, presentation, "device", "current") as Promise<Record<string, unknown>[]>,
       readLocalChangeRecords(bundle, presentation, "device"),
       readLocalRiskAnnotations(bundle, presentation, "device"),
@@ -39,11 +37,11 @@ describe("table row presentation", () => {
       .map((identity) => normalizeRowIdentity(identity ?? undefined))
       .find((identity): identity is string => Boolean(identity));
     if (!sourceIdentity) throw new Error("backend fixture row annotation has no row identity");
-    const fixtureRows = buildBrowseRows({ table: surface, beforeRows: before, currentRows: current, records, annotations });
+    const fixtureRows = buildBrowseRows({ table: surface, beforeRows: [], currentRows: current, records, annotations });
     if (!fixtureRows.some((row) => row.rowIdentity === sourceIdentity)) throw new Error("backend row annotation does not resolve to a fixture row");
     for (const level of ["LOW", "HIGH", "UNKNOWN"] as const) {
       const annotation = { ...source, risk_level: level };
-      const result = buildBrowseRows({ table: surface, beforeRows: before, currentRows: current, records,
+      const result = buildBrowseRows({ table: surface, beforeRows: [], currentRows: current, records,
         annotations: [annotation], onlyInteresting: true });
       expect(result.find((row) => row.rowIdentity === sourceIdentity)?.riskLevel).toBe(level);
     }
@@ -55,20 +53,22 @@ describe("table row presentation", () => {
     const presentation = await loadComparisonPresentation(bundle, pairId);
     const surface = presentation.surface.tables.find((item) => item.table_name === "device");
     if (!surface) throw new Error("backend fixture has no device surface");
-    const [before, current, records, annotations] = await Promise.all([
-      readLocalTable(bundle, presentation, "device", "before") as Promise<Record<string, unknown>[]>,
+    const [current, records, annotations] = await Promise.all([
       readLocalTable(bundle, presentation, "device", "current") as Promise<Record<string, unknown>[]>,
       readLocalChangeRecords(bundle, presentation, "device"),
       readLocalRiskAnnotations(bundle, presentation, "device"),
     ]);
     const source = annotations.find((annotation) => annotation.target.target_type === "ROW");
-    const beforeRow = before.find((row) => String(row.dev_addr) === "1");
-    const currentRow = current.find((row) => String(row.dev_addr) === "1");
-    if (!source || !beforeRow || !currentRow) throw new Error("backend fixture lacks source annotation or unchanged device row");
+    const currentRow = current.find((row) => {
+      const identity = normalizeRowIdentity(snapshotRowIdentity(row, surface) ?? undefined);
+      return Boolean(identity && !records.some((record) => normalizeRowIdentity(record.row_identity) === identity
+        && ["ROW_ADDED", "ROW_MODIFIED", "ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"].includes(String(record.record_kind))));
+    });
+    if (!source || !currentRow) throw new Error("backend fixture lacks source annotation or unchanged device row");
     const identity = normalizeRowIdentity(snapshotRowIdentity(currentRow, surface) ?? undefined);
-    if (!identity || snapshotRowIdentity(beforeRow, surface) !== identity) throw new Error("fixture row is not unchanged across both sides");
+    if (!identity) throw new Error("fixture unchanged row has no identity");
     const annotation = { ...source, target: { ...source.target, row_identity: identity, before_row_identity: identity, current_row_identity: identity } };
-    const result = buildBrowseRows({ table: surface, beforeRows: before, currentRows: current, records,
+    const result = buildBrowseRows({ table: surface, beforeRows: [], currentRows: current, records,
       annotations: [annotation], onlyInteresting: true });
     const row = result.find((value) => value.rowIdentity === identity);
     expect(row?.kind).toBe("unchanged");
@@ -81,13 +81,12 @@ describe("table row presentation", () => {
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     const surface = presentation.surface.tables.find((item) => item.table_name === "b1_n1_iec104_syx_list");
     if (!surface) throw new Error("backend fixture has no ordered table surface");
-    const [before, current, records, annotations] = await Promise.all([
-      readLocalTable(bundle, presentation, surface.table_name, "before") as Promise<Record<string, unknown>[]>,
+    const [current, records, annotations] = await Promise.all([
       readLocalTable(bundle, presentation, surface.table_name, "current") as Promise<Record<string, unknown>[]>,
       readLocalChangeRecords(bundle, presentation, surface.table_name),
       readLocalRiskAnnotations(bundle, presentation, surface.table_name),
     ]);
-    const rows = buildBrowseRows({ table: surface, beforeRows: before, currentRows: current, records, annotations });
+    const rows = buildBrowseRows({ table: surface, beforeRows: [], currentRows: current, records, annotations });
     const moved = rows.find((row) => row.recordKind === "ORDERED_ROW_MOVED");
     const blankRecord = records.find((record) => String(record.record_kind).startsWith("BLANK_"));
     const blank = rows.find((row) => row.recordKind === blankRecord?.record_kind);
@@ -107,13 +106,12 @@ describe("table row presentation", () => {
     const presentation = await loadComparisonPresentation(bundle, pairId);
     const surface = presentation.surface.tables.find((item) => item.table_name === "device");
     if (!surface) throw new Error("backend fixture has no device surface");
-    const [before, current, records, annotations] = await Promise.all([
-      readLocalTable(bundle, presentation, "device", "before") as Promise<Record<string, unknown>[]>,
+    const [current, records, annotations] = await Promise.all([
       readLocalTable(bundle, presentation, "device", "current") as Promise<Record<string, unknown>[]>,
       readLocalChangeRecords(bundle, presentation, "device"),
       readLocalRiskAnnotations(bundle, presentation, "device"),
     ]);
-    const result = buildBrowseRows({ table: surface, beforeRows: before, currentRows: current, records, annotations, onlyInteresting: true });
+    const result = buildBrowseRows({ table: surface, beforeRows: [], currentRows: current, records, annotations, onlyInteresting: true });
     expect(result.filter((row) => row.kind === "modified-before" || row.kind === "modified-after")).toHaveLength(2);
     expect(result.some((row) => row.kind === "collapsed")).toBe(true);
   });

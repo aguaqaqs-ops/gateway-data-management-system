@@ -243,7 +243,17 @@ export function ComparisonPage() {
         setBeforeRows(before as Record<string, unknown>[]); setCurrentRows(current as Record<string, unknown>[]); setRows([]); setRecords([]); setAnnotations([]); return;
       }
       const [before, current, rowRecords, risks] = await Promise.all([beforePromise, currentPromise, readLocalChangeRecords(bundle, presentation, selectedTab.tableName), readLocalRiskAnnotations(bundle, presentation, selectedTab.tableName)]);
-      const filterRows = (source: Record<string, unknown>[]) => selectedTab.rowFilter ? source.filter((row) => String(row[selectedTab.rowFilter?.column ?? ""] ?? "") === String(selectedTab.rowFilter?.value ?? "")) : source;
+      const filterRows = (source: Record<string, unknown>[]) => selectedTab.rowFilter ? source.filter((row) => {
+        const filter = selectedTab.rowFilter;
+        if (!filter) return true;
+        const expected = String(filter.value);
+        if (normalizeDisplayScalar(row[filter.column]) === expected) return true;
+        return [row.before_values, row.current_values].some((values) => Array.isArray(values) && values.some((item) => {
+          if (!item || typeof item !== "object") return false;
+          const value = item as { column_name?: unknown; value?: unknown };
+          return value.column_name === filter.column && normalizeDisplayScalar(value.value) === expected;
+        }));
+      }) : source;
       const beforeFiltered = filterRows(before as Record<string, unknown>[]); const currentFiltered = filterRows(current as Record<string, unknown>[]);
       const recordsFiltered = filterRows(rowRecords as RowDiffRecord[]);
       setBeforeRows(beforeFiltered); setCurrentRows(currentFiltered); setRecords(recordsFiltered); setAnnotations(risks);

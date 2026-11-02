@@ -28,6 +28,7 @@ describe("shared table and semantic themes", () => {
       "--color-search-result": "#fff3cd",
       "--color-border": "#DDE2E7",
       "--color-border-strong": "#C9D0D8",
+      "--color-row-separator": "#EEF1F4",
     };
     const readToken: CssTokenReader = (name) => tokens[name] ?? "";
     const tableTheme = createTableTheme(readToken);

@@ -112,6 +112,7 @@ export function encodeBrowseState(state: BrowseState): string {
   if (state.onlyInteresting) params.set("changed", "1");
   if (state.debug) params.set("debug", "1");
   if (state.search) params.set("q", state.search);
+  for (const group of state.expandedGroups) params.append("group", group);
   for (const ref of state.comparisonNodeRefs) params.append("compare", ref);
   return params.toString();
 }
@@ -136,7 +137,7 @@ export function decodeBrowseState(search: string): BrowseState {
     nodeKey: params.get("node"),
     tabKey: params.get("tab"),
     changeIndex: Number.isFinite(change) ? change : 0,
-    expandedGroups: [],
+    expandedGroups: params.getAll("group"),
     onlyInteresting: params.get("changed") === "1",
     debug: params.get("debug") === "1",
     search: params.get("q") ?? "",

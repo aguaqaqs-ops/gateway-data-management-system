@@ -11,6 +11,8 @@ export interface TableArtifactPaths {
   current: string | null;
   browse: string | null;
   records: string | null;
+  orderedRecords: string | null;
+  blankRecords: string[];
   annotations: string | null;
 }
 
@@ -54,6 +56,10 @@ function resolveTableArtifactPaths(bundle: InstalledBundle, pairId: string, tabl
     current: bySide("current"),
     browse: bySide("browse"),
     records: entryPathByArtifactId(bundle, table.records_refs?.records_ref),
+    orderedRecords: entryPathByArtifactId(bundle, table.ordered_extension?.ordered_records_ref),
+    blankRecords: physicalEntries(bundle)
+      .filter((entry) => entry.kind === "RECORDS" && entry.pair_id === pairId && entry.table_name === table.table_name && entry.logical_path.includes("/blank/"))
+      .map((entry) => entry.logical_path),
     annotations: entryPathByArtifactId(bundle, table.risk_refs?.annotation_ref),
   };
 }
@@ -117,9 +123,12 @@ export async function readLocalChangeRecords(
   tableName: string,
   request: ParquetReadRequest = {},
 ): Promise<RowDiffRecord[]> {
-  const path = presentation.tableArtifacts.get(tableName)?.records;
-  if (!path) return [];
-  return (await readParquetTable(bundle, path, request)).map((row) => row as unknown as RowDiffRecord);
+  const paths = presentation.tableArtifacts.get(tableName);
+  if (!paths) return [];
+  const records = await Promise.all([paths.records, paths.orderedRecords, ...paths.blankRecords]
+    .filter((path): path is string => Boolean(path))
+    .map((path) => readParquetTable(bundle, path, request)));
+  return records.flat().map((row) => row as unknown as RowDiffRecord);
 }
 
 /** Reads the table-scoped annotation document from the installed local bundle only. */

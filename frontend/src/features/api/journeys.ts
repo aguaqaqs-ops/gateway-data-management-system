@@ -79,6 +79,8 @@ export async function runPreviewJourney(api: GatewayApi, store: ReadableBundleSt
   const previewResultId = refreshedWorkspace.current_preview_result_id;
   if (!previewResultId) throw new Error("预览操作完成后工作区没有当前 Preview 结果");
   const preview = await api.getPreviewResult(workspace.workspace_id, previewResultId);
+  if (preview.operation_id !== accepted.operation_id) throw new Error("Preview 结果不属于本次预览操作");
+  if (preview.upload_revision_id !== upload.upload_revision_id) throw new Error("Preview 结果不属于本次上传版本");
   const bundle = await ensureLocalBundle({
     store,
     expectedBundleDigest: preview.bundle_digest,
@@ -157,8 +159,12 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
 /** Review compares the baseline node to the submission and always downloads the History bundle. */
 export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, options: PollOptions = {}): Promise<ReviewHistoryJourneyResult> {
   const [reviewFacts, history] = await Promise.all([api.getReviewFacts(submissionId), api.listHistory()]);
+  const submissionNodes = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === submissionId);
+  if (submissionNodes.length !== 1) throw new Error(`History 中找不到唯一提交节点：${submissionId}`);
+  const parent = submissionNodes[0]?.parent;
+  if (!parent) throw new Error(`History 提交节点没有基线 parent：${submissionId}`);
   const comparison = await runHistoryComparison(api, store, [
-    { ref_kind: "baseline_node", ref_id: history.head.node_id },
+    { ref_kind: parent.ref_kind, ref_id: parent.ref_id },
     { ref_kind: "submission", ref_id: submissionId },
   ], options);
   return { reviewFacts, ...comparison };

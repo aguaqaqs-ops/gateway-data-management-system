@@ -122,11 +122,6 @@ export interface DerivedBundleView {
   diagnostics: string[];
 }
 
-function riskSummary(risk: RiskReport | undefined, tableName: string): { level: RiskLevel | null; count: number } {
-  const report = risk?.tables.find((item) => item.table_name === tableName);
-  return { level: report?.risk_level ?? null, count: report?.annotation_count ?? 0 };
-}
-
 function rowCount(table: SurfaceTable, key: string): number | null {
   const candidates = key === "before" ? ["row_count_before", "before_row_count"] : ["row_count_current", "current_row_count"];
   for (const candidate of candidates) {
@@ -140,13 +135,13 @@ function tableProjection(surface: ComparisonSurface, risk?: RiskReport): Map<str
   const result = new Map<string, DerivedTable>();
   for (const table of surface.tables) {
     const name = table.table_name;
-    const riskResult = riskSummary(risk, name);
+    const riskReport = risk?.tables.find((item) => item.table_name === name);
     result.set(name, {
       tableName: name,
       label: table.display_name || name,
       changeKind: table.change_kind ?? table.table_status ?? "UNCHANGED",
-      riskLevel: riskResult.level,
-      annotationCount: riskResult.count,
+      riskLevel: riskReport?.risk_level ?? table.risk_refs?.risk_level ?? null,
+      annotationCount: riskReport?.annotation_count ?? table.risk_refs?.annotation_count ?? 0,
       columns: [...(table.columns ?? [])].sort((left, right) => (left.display_order ?? Number.MAX_SAFE_INTEGER) - (right.display_order ?? Number.MAX_SAFE_INTEGER)),
       rowCounts: { before: rowCount(table, "before"), current: rowCount(table, "current") },
       hasRecords: table.records_refs?.records_format === "PARQUET" || table.records_refs?.records_ref != null,

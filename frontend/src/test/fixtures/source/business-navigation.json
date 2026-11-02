@@ -6,17 +6,17 @@
       "label": "二次装置列表",
       "items": [
         {
-          "item_key": "device:addr:1",
+          "item_key": "device:addr:3",
           "item_kind": "DEVICE",
-          "label": "线路保护装置 A",
-          "attributes": { "dev_addr": 1 },
+          "label": "直流屏",
+          "attributes": { "dev_addr": 3 },
           "tabs": [
             {
               "tab_key": "device",
               "label": "装置表",
               "table_id": "device",
-              "row_filter": { "column": "dev_addr", "value": 1 },
-              "facts": { "change_kind": "UPDATED", "risk_level": "MEDIUM_HIGH", "before_row_count": 1, "current_row_count": 1 }
+              "row_filter": { "column": "dev_addr", "value": 3 },
+              "facts": { "change_kind": "ADDED", "risk_level": "MEDIUM_LOW", "before_row_count": 0, "current_row_count": 1 }
             }
           ]
         }

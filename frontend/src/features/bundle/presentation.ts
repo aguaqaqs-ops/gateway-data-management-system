@@ -22,7 +22,7 @@ export interface LocalComparisonPresentation {
 }
 
 function physicalEntries(bundle: InstalledBundle): BundleArtifactEntry[] {
-  return bundle.manifest.closure_entries;
+  return bundle.closure.closure_entries;
 }
 
 function entryPathByArtifactId(bundle: InstalledBundle, artifact: unknown): string | null {

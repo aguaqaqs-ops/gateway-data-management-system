@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 
 interface FixtureManifest {
   bundle_digest: string;
-  closure: Array<{
-    kind: string;
-    logical_path: string;
-    table_bindings?: Array<{ side: string; table_name: string }>;
-  }>;
+  closure: {
+    entries: Array<{
+      kind: string;
+      logical_path: string;
+      table_bindings?: Array<{ side: string; table_name: string }>;
+    }>;
+  };
 }
 
 test("打开应用显示 FE1 工作台基础与组件预览", async ({ page }) => {
@@ -42,7 +44,7 @@ test("下载 golden tar 到 OPFS 后从本地懒读 Parquet 且缓存命中不�
   const tar = await readFile("src/test/fixtures/generated/golden-bundle.tar");
   const manifestSize = Number.parseInt(tar.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(), 8);
   const manifest = JSON.parse(tar.subarray(512, 512 + manifestSize).toString("utf8")) as FixtureManifest;
-  const currentTable = manifest.closure.find((entry) => entry.kind === "SNAPSHOT_TABLE" && entry.table_bindings?.some((binding) => binding.side === "current"));
+  const currentTable = manifest.closure.entries.find((entry) => entry.kind === "SNAPSHOT_TABLE" && entry.table_bindings?.some((binding) => binding.side === "current"));
   if (!currentTable) throw new Error("golden tar 缺少 current 侧 Parquet 表");
   let downloadCount = 0;
   await page.route("**/fixtures/golden-bundle.tar", async (route) => {

@@ -153,8 +153,21 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
       return { ...result, status: safeReviewStatus(result.status), event: safeReviewEvent(result.event) };
     },
     async listHistory() {
-      const result = await json<Schemas["HistoryListResponse"]>(await request(route("/v1/history")));
-      return { ...result, nodes: result.nodes.map((node) => ({ ...node, review_status: node.review_status == null ? null : safeReviewStatus(node.review_status) })) };
+      const nodes: SafeHistoryList["nodes"] = [];
+      const seenCursors = new Set<string>();
+      let cursor: string | undefined;
+      let firstPage: Schemas["HistoryListResponse"] | undefined;
+      for (;;) {
+        const path = `${route("/v1/history")}${cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`}`;
+        const page = await json<Schemas["HistoryListResponse"]>(await request(path));
+        firstPage ??= page;
+        nodes.push(...page.nodes.map((node) => ({ ...node, review_status: node.review_status == null ? null : safeReviewStatus(node.review_status) })));
+        const next = page.next_cursor ?? null;
+        if (next === null) return { ...firstPage, nodes, next_cursor: null };
+        if (!next || seenCursors.has(next)) throw new Error("History 分页游标无效或重复");
+        seenCursors.add(next);
+        cursor = next;
+      }
     },
     startHistoryCompare: (body, key) => sendJson<Schemas["HistoryCompareAcceptResponse"]>(route("/v1/history-compares"), body, idempotencyKey(key)),
     getHistoryCompare: async (operationId) => json<Schemas["HistoryCompareResultResponse"]>(await request(route("/v1/history-compares/{operation_id}").replace("{operation_id}", encodeURIComponent(operationId)))),

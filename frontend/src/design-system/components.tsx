@@ -24,7 +24,7 @@ export function Button({ variant = "secondary", icon, disabledReason, children, 
 }
 
 export function RiskBadge({ level }: { level: "HIGH" | "MEDIUM_HIGH" | "MEDIUM_LOW" | "LOW" | "UNKNOWN" }) {
-  const labels = { HIGH: "高风险", MEDIUM_HIGH: "较高风险", MEDIUM_LOW: "较低风险", LOW: "低风险", UNKNOWN: "未知风险" };
+  const labels = { HIGH: "高风险", MEDIUM_HIGH: "中高风险", MEDIUM_LOW: "中低风险", LOW: "低风险", UNKNOWN: "未知风险" };
   return <span className={`risk-badge risk-${level.toLowerCase().replace("_", "-")}`} aria-label={labels[level]}>{labels[level]}</span>;
 }
 
@@ -47,6 +47,7 @@ export function Dialog({ open, title, description, onClose, children, actions }:
   const dialogRef = useRef<HTMLDivElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
   const closeHandler = useRef(onClose);
+  const id = useId();
 
   useEffect(() => { closeHandler.current = onClose; }, [onClose]);
 
@@ -76,9 +77,9 @@ export function Dialog({ open, title, description, onClose, children, actions }:
   if (!open) return null;
   return (
     <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby={description ? "dialog-description" : undefined}>
+      <section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={`dialog-title-${id}`} aria-describedby={description ? `dialog-description-${id}` : undefined}>
         <header className="dialog__header">
-          <div><h2 id="dialog-title">{title}</h2>{description && <p id="dialog-description">{description}</p>}</div>
+          <div><h2 id={`dialog-title-${id}`}>{title}</h2>{description && <p id={`dialog-description-${id}`}>{description}</p>}</div>
           <button className="icon-button" aria-label="关闭对话框" onClick={onClose}><X size={18} /></button>
         </header>
         <div className="dialog__body">{children}</div>

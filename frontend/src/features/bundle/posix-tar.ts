@@ -21,6 +21,10 @@ export interface BundleSemanticEntry {
   table_name?: string;
 }
 
+export interface BundleSemanticClosure {
+  entries: BundleSemanticEntry[];
+}
+
 export interface BundleArtifactEntry {
   artifact_ref: { artifact_id: string; media_type: string; raw_sha256: string; size_bytes: number };
   kind: string;
@@ -41,7 +45,7 @@ export interface BundleManifest {
   pairs: unknown[];
   failed_pairs: unknown[];
   diagnostics: string[];
-  closure: BundleSemanticEntry[];
+  closure: BundleSemanticClosure;
   closure_entries: BundleArtifactEntry[];
   bundle_digest: string;
   closure_manifest_digest: string;
@@ -316,19 +320,20 @@ function verifyEntry(entry: BundleSemanticEntry, physical: BundleArtifactEntry):
 function validateManifests(manifestValue: unknown, closureValue: unknown, etag: string, expectedDigest: string): { manifest: BundleManifest; closure: BundleClosure } {
   const manifest = object(manifestValue, "bundle manifest") as unknown as BundleManifest;
   const closure = object(closureValue, "bundle closure") as unknown as BundleClosure;
-  if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.closure_entries) || !Array.isArray(closure.entries) || !Array.isArray(closure.closure_entries)) {
+  const semanticClosure = object(manifest.closure, "bundle manifest closure") as unknown as BundleSemanticClosure;
+  if (!Array.isArray(semanticClosure.entries) || !Array.isArray(manifest.closure_entries) || !Array.isArray(closure.entries) || !Array.isArray(closure.closure_entries)) {
     throw new BundleIntegrityError("bundle closure 列表缺失");
   }
   if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(closure.bundle_digest) || normalizeSha256(manifest.bundle_digest) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("bundle 摘要不一致");
   if (manifest.bundle_contract_version !== closure.bundle_contract_version) throw new BundleIntegrityError("bundle contract version 不一致");
   if (normalizeSha256(etag) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("ETag 与预期 bundle 摘要不一致");
-  if (!sameCanonical(manifest.closure, closure.entries) || !sameCanonical(manifest.closure_entries, closure.closure_entries)) {
+  if (!sameCanonical(semanticClosure.entries, closure.entries) || !sameCanonical(manifest.closure_entries, closure.closure_entries)) {
     throw new BundleIntegrityError("manifest 与 closure 内容不一致");
   }
-  if (manifest.closure.length !== manifest.closure_entries.length) throw new BundleIntegrityError("closure 引用数量不一致");
+  if (semanticClosure.entries.length !== manifest.closure_entries.length) throw new BundleIntegrityError("closure 引用数量不一致");
   const paths = new Set<string>();
-  for (let index = 0; index < manifest.closure.length; index += 1) {
-    const entry = manifest.closure[index];
+  for (let index = 0; index < semanticClosure.entries.length; index += 1) {
+    const entry = semanticClosure.entries[index];
     const physical = manifest.closure_entries[index];
     if (!entry || !physical) throw new BundleIntegrityError("closure entry 缺失");
     verifyEntry(entry, physical);
@@ -344,7 +349,7 @@ function validateManifests(manifestValue: unknown, closureValue: unknown, etag: 
 export async function verifyBundleMetadata(manifestValue: unknown, closureValue: unknown, expectedDigest: string, etag = expectedDigest): Promise<{ manifest: BundleManifest; closure: BundleClosure }> {
   const verified = validateManifests(manifestValue, closureValue, etag, expectedDigest);
   const { manifest, closure } = verified;
-  if (manifest.closure_manifest_digest !== await hashJson({ entries: manifest.closure })) throw new BundleIntegrityError("closure manifest 摘要不匹配");
+  if (manifest.closure_manifest_digest !== await hashJson(manifest.closure)) throw new BundleIntegrityError("closure manifest 摘要不匹配");
   const semanticDigest = await hashJson(manifestSemanticPayload(manifest));
   if (closure.bundle_manifest_digest !== semanticDigest) throw new BundleIntegrityError("manifest 语义摘要不匹配");
   if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(semanticDigest)) throw new BundleIntegrityError("bundle 语义摘要不匹配");
@@ -406,7 +411,7 @@ export async function installBundleTar(options: {
         options.onProgress?.({ receivedBytes: reader.consumedBytes, contentLength });
         continue;
       }
-      const entry = manifest.closure[entryIndex];
+      const entry = manifest.closure.entries[entryIndex];
       if (!entry) throw new BundleIntegrityError(`tar 中存在未声明成员：${path}`);
       if (path !== entry.logical_path) throw new BundleIntegrityError(`tar 成员顺序或路径不匹配：预期 ${entry.logical_path}，收到 ${path}`);
       if (parsed.size !== entry.integrity.size_bytes) throw new BundleIntegrityError(`tar 成员大小与 closure 不符：${path}`);
@@ -415,7 +420,7 @@ export async function installBundleTar(options: {
     }
 
     if (!manifest || !closure) throw new BundleIntegrityError("tar 缺少 bundle manifest 或 closure");
-    if (entryIndex !== manifest.closure.length) throw new BundleIntegrityError("tar 未包含全部 closure 产物");
+    if (entryIndex !== manifest.closure.entries.length) throw new BundleIntegrityError("tar 未包含全部 closure 产物");
     let hasNonZeroTrailer = false;
     await reader.readToEnd((chunk) => { if (chunk.some((byte) => byte !== 0)) hasNonZeroTrailer = true; });
     if (hasNonZeroTrailer) throw new BundleIntegrityError("tar 结束块之后存在额外数据");

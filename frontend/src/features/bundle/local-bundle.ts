@@ -105,7 +105,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
       const manifestValue: unknown = JSON.parse(await readText(bundleDir, "manifest.json"));
       const closureValue: unknown = JSON.parse(await readText(bundleDir, "artifact-closure.json"));
       const { manifest, closure } = await verifyBundleMetadata(manifestValue, closureValue, key);
-      for (const entry of manifest.closure) {
+      for (const entry of manifest.closure.entries) {
         const parts = validatePath(entry.logical_path);
         const parent = await directory(bundleDir, parts.slice(0, -1).join("/"), false);
         await parent.getFileHandle(parts[parts.length - 1] ?? "");
@@ -117,7 +117,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
           const parts = validatePath(path);
           const parent = await directory(bundleDir, parts.slice(0, -1).join("/"), false);
           const file = await (await parent.getFileHandle(parts[parts.length - 1] ?? "")).getFile();
-          const expected = manifest.closure.find((entry) => entry.logical_path === path)?.integrity.raw_sha256;
+          const expected = manifest.closure.entries.find((entry) => entry.logical_path === path)?.integrity.raw_sha256;
           if (!expected || normalizeSha256(await hashBlob(file)) !== normalizeSha256(expected)) {
             await removeEntry(root, key);
             throw new Error(`本地 bundle 产物校验失败：${path}`);
@@ -207,7 +207,7 @@ async function writeFile(root: FileSystemDirectoryHandle, filename: string, byte
 }
 
 function estimateBytes(manifest: BundleManifest, closure: BundleClosure): number {
-  return manifest.closure.reduce((total, entry) => total + entry.integrity.size_bytes, textEncoder.encode(JSON.stringify(manifest)).byteLength + textEncoder.encode(JSON.stringify(closure)).byteLength);
+  return manifest.closure.entries.reduce((total, entry) => total + entry.integrity.size_bytes, textEncoder.encode(JSON.stringify(manifest)).byteLength + textEncoder.encode(JSON.stringify(closure)).byteLength);
 }
 
 async function estimateDirectoryBytes(root: FileSystemDirectoryHandle): Promise<number> {
@@ -296,7 +296,7 @@ export class MemoryBundleStore implements ReadableBundleStore {
       readArtifact: async (path) => {
         const bytes = bundle.files.get(path);
         if (!bytes) throw new Error(`本地 bundle 产物不存在：${path}`);
-        const expected = bundle.manifest.closure.find((entry) => entry.logical_path === path)?.integrity.raw_sha256;
+        const expected = bundle.manifest.closure.entries.find((entry) => entry.logical_path === path)?.integrity.raw_sha256;
         const hasher = new Sha256().update(bytes);
         if (!expected || normalizeSha256(hasher.digest()) !== normalizeSha256(expected)) throw new Error(`本地 bundle 产物校验失败：${path}`);
         return blobFromBytes(bytes);

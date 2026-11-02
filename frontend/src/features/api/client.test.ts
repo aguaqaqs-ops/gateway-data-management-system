@@ -51,6 +51,32 @@ describe("authenticated OpenAPI client", () => {
     expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get("Idempotency-Key")).toBe("review-key");
   });
 
+  it("follows every History cursor page and returns the complete node list", async () => {
+    const firstPage = {
+      head: { node_id: "baseline-2", commit_id: "commit-b", version: 9 },
+      nodes: [{ ref_kind: "baseline_node", ref_id: "baseline-2", node_kind: "BASELINE_NODE", commit_id: "commit-b", created_at: "2026-11-02T12:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, identity_exception: false, review_status: null }],
+      next_cursor: "cursor/next",
+    };
+    const secondPage = {
+      head: firstPage.head,
+      nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-02T12:01:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: false, review_status: "PENDING" }],
+      next_cursor: null,
+    };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(firstPage), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(secondPage), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const api = createGatewayApi({ baseUrl: "http://gateway.test", token: () => null, fetcher });
+
+    const result = await api.listHistory();
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0]?.[0]).toEqual(new URL("http://gateway.test/v1/history"));
+    expect(fetcher.mock.calls[1]?.[0]).toEqual(new URL("http://gateway.test/v1/history?cursor=cursor%2Fnext"));
+    expect(result.nodes.map((node) => node.ref_id)).toEqual(["baseline-2", "submission-1"]);
+    expect(result.nodes[1]?.eligibility_note).toBe("NOT_CANDIDATE_BASE_ADVANCED");
+    expect(result.next_cursor).toBeNull();
+  });
+
   it("hashes uploaded files and builds the multipart manifest with the expected workspace version", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ upload_revision_id: "upload-2", workspace_id: "ws-1", generation: 2, input_completeness: "FULL", source_artifacts: {}, optimistic_version: 11, created_at: "2026-11-02T12:00:00Z" }), { status: 201, headers: { "Content-Type": "application/json" } }));
     const api = createGatewayApi({ baseUrl: "http://gateway.test", token: () => null, fetcher });

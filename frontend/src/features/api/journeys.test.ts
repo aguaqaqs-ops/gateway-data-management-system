@@ -54,6 +54,29 @@ describe("simulated user journey data flows", () => {
     expect(api.uploadRevision).toHaveBeenCalledWith("ws-1", expect.objectContaining({ inputCompleteness: "MODIFIED_ONLY" }));
   });
 
+  it.each([
+    ["operation", { operation_id: "other-operation", upload_revision_id: "upload-1" }, "不属于本次预览操作"],
+    ["upload revision", { operation_id: "op-1", upload_revision_id: "other-upload" }, "不属于本次上传版本"],
+  ])("rejects a Preview result tied to a different %s", async (_label, identities, message) => {
+    const api = {
+      createWorkspace: vi.fn().mockResolvedValue({ workspace_id: "ws-1", gateway_device_external_key: "device-1", business_project_id: "project-1", state: "ACTIVE", generation: 4, optimistic_version: 10, created_at: "2026-11-02T12:00:00Z", updated_at: "2026-11-02T12:00:00Z", current_preview_result_id: "preview-1" }),
+      uploadRevision: vi.fn().mockResolvedValue(upload),
+      startPreview: vi.fn().mockResolvedValue({ operation_id: "op-1", workspace_id: "ws-1", upload_revision_id: "upload-1", generation: 4, status: "QUEUED" }),
+      getOperation: vi.fn().mockResolvedValue(operation),
+      getPreviewResult: vi.fn().mockResolvedValue({ preview_result_id: "preview-1", workspace_id: "ws-1", ...identities, generation: 4, business_baseline_node_id: "baseline-1", business_baseline_commit_id: "commit-a", derived_stale: false, bundle_digest: "sha256:bundle", identity_assessment_set_digest: "sha256:identity", identity_pairs: [], created_at: "2026-11-02T12:00:00Z" }),
+      getPreviewBundle: vi.fn(),
+    } as unknown as GatewayApi;
+
+    await expect(runPreviewJourney(api, new MemoryBundleStore(), {
+      workspaceRequest: { gateway_device_external_key: "device-1", business_project_id: "project-1" },
+      upload: { inputCompleteness: "MODIFIED_ONLY", modified: { partName: "modified", mediaType: "application/zip", file: new File(["modified"], "modified.zip") } },
+      baselineNodeId: "baseline-1",
+      baselineHeadVersion: 12,
+      poll: { intervalMs: 0, wait: async () => undefined },
+    })).rejects.toThrow(message);
+    expect(api.getPreviewBundle).not.toHaveBeenCalled();
+  });
+
   it("submits with expected versions, polls, and resolves the finalized submission", async () => {
     const api = {
       acceptSubmit: vi.fn().mockResolvedValue(acceptedSubmit),
@@ -66,13 +89,17 @@ describe("simulated user journey data flows", () => {
     expect(result.submission.submission_id).toBe("submission-1");
   });
 
-  it("loads a review History bundle from baseline to submission and never asks for Preview", async () => {
+  it("compares a submission from its parent when History head has advanced", async () => {
     const fixture = await installedGoldenBundle();
     const getHistoryBundle = vi.fn().mockResolvedValue(responseForTar(fixture.tar, fixture.manifest.bundle_digest));
     const getPreviewBundle = vi.fn();
     const api = {
       getReviewFacts: vi.fn().mockResolvedValue({ submission_id: "submission-1", status: "PENDING", review_version: 5, updated_by: "reviewer", updated_at: "2026-11-02T12:00:00Z", identity_exception: false, events: [] }),
-      listHistory: vi.fn().mockResolvedValue({ head: { node_id: "baseline-2", commit_id: "commit-a", version: 17 }, nodes: [] }),
+      listHistory: vi.fn().mockResolvedValue({
+        head: { node_id: "baseline-2", commit_id: "commit-b", version: 18 },
+        nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-02T12:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, eligibility_note: "NOT_CANDIDATE_BASE_ADVANCED", identity_exception: false, review_status: "PENDING" }],
+        next_cursor: null,
+      }),
       startHistoryCompare: vi.fn().mockResolvedValue({ operation_id: "history-op", status: "QUEUED", replayed: false }),
       getOperation: vi.fn().mockResolvedValue({ ...operation, operation_id: "history-op", job_kind: "HISTORY_COMPARE" }),
       getHistoryCompare: vi.fn().mockResolvedValue({ operation_id: "history-op", status: "SUCCEEDED", result: { bundle_digest: fixture.manifest.bundle_digest, input: {}, pairs: [] } }),
@@ -80,10 +107,32 @@ describe("simulated user journey data flows", () => {
       getPreviewBundle,
     } as unknown as GatewayApi;
     const result = await runReviewHistoryJourney(api, new MemoryBundleStore(), "submission-1", { intervalMs: 0, wait: async () => undefined });
-    expect(api.startHistoryCompare).toHaveBeenCalledWith({ nodes: [{ ref_kind: "baseline_node", ref_id: "baseline-2" }, { ref_kind: "submission", ref_id: "submission-1" }] });
+    expect(api.startHistoryCompare).toHaveBeenCalledWith({ nodes: [{ ref_kind: "baseline_node", ref_id: "baseline-1" }, { ref_kind: "submission", ref_id: "submission-1" }] });
     expect(getHistoryBundle).toHaveBeenCalledTimes(1);
     expect(getPreviewBundle).not.toHaveBeenCalled();
     expect(result.bundle.manifest.bundle_digest).toBe(fixture.manifest.bundle_digest);
+  });
+
+  it("reports when the reviewed submission is missing from History", async () => {
+    const api = {
+      getReviewFacts: vi.fn().mockResolvedValue({ submission_id: "submission-1", status: "PENDING", review_version: 5, updated_by: "reviewer", updated_at: "2026-11-02T12:00:00Z", identity_exception: false, events: [] }),
+      listHistory: vi.fn().mockResolvedValue({ head: { node_id: "baseline-2", commit_id: "commit-b", version: 18 }, nodes: [], next_cursor: null }),
+      startHistoryCompare: vi.fn(),
+    } as unknown as GatewayApi;
+
+    await expect(runReviewHistoryJourney(api, new MemoryBundleStore(), "submission-1")).rejects.toThrow("History 中找不到唯一提交节点");
+    expect(api.startHistoryCompare).not.toHaveBeenCalled();
+  });
+
+  it("reports when the reviewed History submission has no parent", async () => {
+    const api = {
+      getReviewFacts: vi.fn().mockResolvedValue({ submission_id: "submission-1", status: "PENDING", review_version: 5, updated_by: "reviewer", updated_at: "2026-11-02T12:00:00Z", identity_exception: false, events: [] }),
+      listHistory: vi.fn().mockResolvedValue({ head: { node_id: "baseline-2", commit_id: "commit-b", version: 18 }, nodes: [{ ref_kind: "submission", ref_id: "submission-1", node_kind: "SUBMISSION", commit_id: "commit-c", created_at: "2026-11-02T12:00:00Z", parent: null, eligibility_note: null, identity_exception: false, review_status: "PENDING" }], next_cursor: null }),
+      startHistoryCompare: vi.fn(),
+    } as unknown as GatewayApi;
+
+    await expect(runReviewHistoryJourney(api, new MemoryBundleStore(), "submission-1")).rejects.toThrow("History 提交节点没有基线 parent");
+    expect(api.startHistoryCompare).not.toHaveBeenCalled();
   });
 
   it("uses the current review version for approve/reject and requires a rejection reason", async () => {

@@ -4,7 +4,7 @@ import { changeClassByKind, createTableTheme, riskClassByLevel, type CssTokenRea
 describe("shared table and semantic themes", () => {
   it("uses the application font, sizing and neutral change versus risk classes", () => {
     const tokens: Record<string, string> = {
-      "--font-family-ui": '"Noto Sans CJK SC", sans-serif',
+      "--font-family-ui": "'IBM Plex Sans', 'PingFang SC', 'Noto Sans SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif",
       "--font-size-xs": "12px",
       "--font-size-sm": "13px",
       "--font-size-md": "14px",
@@ -13,25 +13,33 @@ describe("shared table and semantic themes", () => {
       "--space-2": "8px",
       "--size-icon-header": "18px",
       "--radius-sm": "4px",
-      "--color-accent": "#1f5efb",
+      "--color-accent": "#1F5FBF",
+      "--color-accent-hover": "#174A96",
+      "--color-focus-ring": "#1F5FBF",
       "--color-text-on-accent": "#ffffff",
-      "--color-accent-soft": "#e8efff",
-      "--color-text": "#202833",
-      "--color-text-muted": "#596779",
-      "--color-text-subtle": "#748195",
+      "--color-accent-soft": "#E9F0FB",
+      "--color-page": "#F3F5F7",
+      "--color-text": "#1B2229",
+      "--color-text-muted": "#5F6B78",
+      "--color-text-subtle": "#4A5563",
       "--color-surface": "#ffffff",
-      "--color-surface-muted": "#f6f8fa",
-      "--color-surface-hover": "#edf1f6",
+      "--color-surface-muted": "#F7F9FB",
+      "--color-surface-hover": "#F7F9FB",
       "--color-search-result": "#fff3cd",
-      "--color-border": "#d9e0e8",
+      "--color-border": "#DDE2E7",
+      "--color-border-strong": "#C9D0D8",
     };
     const readToken: CssTokenReader = (name) => tokens[name] ?? "";
     const tableTheme = createTableTheme(readToken);
-    expect(tableTheme.fontFamily).toContain("Noto Sans CJK SC");
+    expect(tableTheme.fontFamily).toContain("IBM Plex Sans");
     expect(tableTheme.baseFontStyle).toContain("13px");
     expect(tableTheme.headerFontStyle).toContain("13px");
     expect(tableTheme.accentColor).toBe(tokens["--color-accent"]);
     expect(tableTheme.borderColor).toBe(tokens["--color-border"]);
+    expect(tokens["--color-accent-hover"]).toBe("#174A96");
+    expect(tokens["--color-focus-ring"]).toBe("#1F5FBF");
+    expect(tokens["--color-page"]).toBe("#F3F5F7");
+    expect(tokens["--color-border-strong"]).toBe("#C9D0D8");
     expect(tableTheme.cellHorizontalPadding).toBe(8);
     expect(tableTheme.roundingRadius).toBe(4);
     expect(changeClassByKind.ADDED).toBe("diff-added");

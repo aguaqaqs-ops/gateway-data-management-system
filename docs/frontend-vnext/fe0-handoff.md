@@ -1,19 +1,21 @@
-# FE0 handoff（待节点验证）
+# FE0 handoff（05 验证完成）
 
 ## 完成状态
 
 - 已从当前 `main` 创建 `/home/dev/gdds-fe` worktree 和 `fe-vnext` 分支，代码起点为 `7c339bff460254e19f36e81cb75028ca3a2702b1`；已建立 `legacy` 符号链接。治理规则提交 `f0ad2461accf173354cb4fa45a0f132dc4d568e7` 已成为分支祖先，规则文件在本分支没有额外改动。
 - 前端代码提交：`a2fb4a027a6f62218109783674cfc37bd64e14a5`（`feat(frontend): scaffold vnext frontend`）；handoff 独立提交。
 - 在 `frontend/` 初始化 React、TypeScript、Vite、glide-data-grid、hyparquet、lucide 工程；依赖在 `package.json` 中精确钉版本，已生成并提交 `package-lock.json`。功能、设计系统、页面分别落在 `src/features/`、`src/design-system/`、`src/pages/`。
-- `frontend/scripts/run-tests.sh` 提供类型检查、lint、单元测试、构建入口和 `--e2e` 接口。此脚本尚未运行。
+- `frontend/scripts/run-tests.sh` 提供类型检查、lint、单元测试、构建入口和 `--e2e` 接口；已在 05 默认流程运行通过。
 - 已提交 OpenAPI 快照 `frontend/openapi.json` 和生成类型 `frontend/src/features/api/generated/openapi.d.ts`。
-- FE0 的非测试工作完成；FE0 尚未退出，因为节点运行和离线安装验证待治理规则落地。
+- FE0 工程、缓存预填充和 05 默认入口验证均完成，候选已提交，可交独立审核。此次默认流程未带 `--e2e`；04 阶段退出运行尚未进行。
 
 ## 测试状态与等待项
 
-owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，包含 AGENTS.md 与 `docs/backend-vnext/testing-conventions.md` 两处规则，本分支已 rebase 到该提交之上。此后尝试准备 05 clean worktree 时，两次克隆命令均在 Git ownership 检查阶段失败；FE0 runner、类型检查、lint、单元测试、构建、E2E 和容器内 `npm ci --offline` 均未启动，开发主机也未运行这些检查。失败证据与 DC68 停止原因见下文。
+owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，包含 AGENTS.md 与 `docs/backend-vnext/testing-conventions.md` 两处规则，本分支已 rebase 到该提交之上。此前的两次 clone 错误按 DC68 保留；设计会话随后指定从 05 共享仓库 fetch 的新方式，重新从准备步骤开始后成功。
 
-工具链镜像与 npm 缓存已预填充至 05；此前仅做制品传输和身份核验。05 的阶段运行尚未进行；04 的阶段退出运行也尚未进行。
+05 detached worktree HEAD `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2` 上，在工具链容器的临时副本中单独执行 `npm ci --offline` 成功；随后 `frontend/scripts/run-tests.sh` 默认流程 exit `0`。类型检查、lint、构建均成功；Vitest 正常退出，但当前没有单元测试文件。未运行 `--e2e`。两个运行的节点、时间、HEAD、exit code 与日志 SHA256 见“05 测试日志”。
+
+工具链镜像与 npm 缓存已预填充至 05。FE0 的 05 调试运行完成；04 阶段退出运行尚未进行。
 
 ## 工具链与缓存来源
 
@@ -49,7 +51,7 @@ owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，�
 
 - 依赖与锁文件来源提交：`62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4`；CT201 缓存 registry host：`192.168.233.184:4873`（未记录凭据）。
 - CT201 的 npm cacache 为 603 MB；归档 `npm-cacache-fe0.tar.gz` 为 100 MB，SHA256：`0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`。
-- 归档与传输日志记录时间为 `2026-11-02 08:14:24–08:14:41 UTC`；05 解包并校验 `08:14:49–08:14:51 UTC`。05 解包后的 cacache 同为 603 MB，归档 SHA 校验通过。缓存尚未在容器内用于 `npm ci --offline`。
+- 归档与传输日志记录时间为 `2026-11-02 08:14:24–08:14:41 UTC`；05 解包并校验 `08:14:49–08:14:51 UTC`。05 解包后的 cacache 同为 603 MB，归档 SHA 校验通过。随后 05 工具链容器中 `npm ci --offline` 成功，详情见“05 测试日志”。
 - 日志 SHA256：`npm-cache-package.log` `22b6abd65da891c0be51bd722db0ab3aa65d3d96585fada89be20b334d343f0b`；`npm-cache-transfer.log` `185404dc867f081cd8abeca27a6d7abf1c995d40545aef00bd919d99c44110ea`；05 `npm-cache-prefill.log` `d845b4249d1283f8d310cdce97b6af30b4b3ff63677e927ca0751392617410b4`。
 
 ### 开发机依赖安装
@@ -112,15 +114,27 @@ CT201 使用 Node `v24.20.0`、npm `11.19.0` 执行 `npm install --cache /home/d
 2. `docs/backend-vnext/frontend-surface-simplification.md` 开头提及临时 legacy compatibility layer，与 AGENTS、FD1 和 kickoff 的“新建前端、legacy 只作参考、不建设兼容层”方向冲突。FE0 没有实现或引入兼容层。请设计/owner 确认该文档表述是否为过期内容。
 3. 公式查看器应从每侧 `composite_signal_point` snapshot 加设备表映射构建，还是依赖独立 `composite_signal_*` pair artifacts？当前源码能确认 snapshot 字段，不能确认后者已实现。请设计会话明确 FE1/FE2 的数据来源与显示范围。
 4. OpenAPI 快照来自 BE-a 前的 backend，仍含 `RETURN_FOR_REVISION`；FE0 记录此来源，前端遵从 FD4，不把旧动作作为产品操作。BE-a 后刷新快照属于后续同步工作。
-5. FE0 的节点验证尚未执行。FD7 已由 `f0ad2461ac` 落地；目前因下方 DC68 worktree 准备步骤两次失败而停止，需 owner 处理节点 source worktree 的 Git ownership/传输前提后再继续。
+5. FE0 在 05 的默认权威入口及独立离线安装验证通过；04 阶段退出运行依 kickoff §6 留待阶段退出。
 
 当前没有需要修改 `vnext/` 或后端行为的实施项；上述文档冲突与公式数据来源作为设计问题交 owner，不在 FE0 自行改写 FD 或后端事实。
 
-## FD7 恢复尝试与 DC68 停止记录
+## FD7 恢复、DC68 记录与 05 测试日志
 
-- 规则提交：`f0ad2461accf173354cb4fa45a0f132dc4d568e7`。FE 分支已 rebase 到该提交之上；待测候选 HEAD 为 `c87741db0de3b416eba658509ae8b6d800b13291`。
+- 规则提交：`f0ad2461accf173354cb4fa45a0f132dc4d568e7`。FE 分支已 rebase 到该提交之上；本次实际测试候选 HEAD 为 `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2`。测试后只更新了本 handoff。
 - 05 预检：`ssh -o BatchMode=yes ct108-gw-dms-05 'echo OK'` 成功，节点为 `gw-dms-test-05.lan`。工具链 tag 存在；已加载归档元数据中的 config digest 和七个 DiffID 与 CT201 来源相同，当前 daemon 的 RootFS layer 列表也相同。`docker inspect` 本机 ID 不作为跨节点身份。npm cacache 存在且为 603 MB；节点占用标记不存在。
-- 候选源码 bundle 由 CT201 创建并传至 05，源 HEAD 起止均为 `c87741db0de3b416eba658509ae8b6d800b13291`，以 `b7d6e4540677d38117adde2885682ad5a4f4ce09` 为 bundle prerequisite；本地与节点 SHA256 均为 `6dde3db829a15afe4672b453f991ef59763b762e2e58669370f5b7073bca97c2`。传输日志 `frontend-source-transfer.log` SHA256：`09b6b69c54760fc8b2c9f8ef5dd96af3c149c605d5f7a1bf6e402c3ae41ffbd3`，时间 `08:24:51Z`，exit code `0`。
+- 先前按错误方式尝试克隆的旧候选 bundle `fe-vnext-test.bundle` 对应 `c87741db0de3b416eba658509ae8b6d800b13291`，本轮没有使用。它的 CT201 传输日志 SHA256 为 `09b6b69c54760fc8b2c9f8ef5dd96af3c149c605d5f7a1bf6e402c3ae41ffbd3`，旧 bundle SHA256 为 `6dde3db829a15afe4672b453f991ef59763b762e2e58669370f5b7073bca97c2`。
 - 第一次 worktree setup 于 `2026-11-02 08:25:08Z` 在 05 失败，exit code `128`。root 执行 `git clone --shared --no-checkout /home/dev/gateway-data-management-system /home/dev/gdds-fe-test` 时，Git 因源仓库由 `dev` 拥有而报 `detected dubious ownership`。失败日志 `/home/dev/gdds-fe-logs/fe0/frontend-test-worktree-setup.log` SHA256：`e088cbe18e6bf91a488ff695198d785fcd350d3ad39853508ef09b6e0254d087`。
 - 确认目标目录不存在、节点 main worktree 干净且未改全局 `safe.directory` 后，按 DC68 从准备步骤开头重做一次，于 `08:25:38Z` 将 clone 命令改为传入 `-c safe.directory=/home/dev/gateway-data-management-system/.git`。本地 clone 子进程仍报相同 ownership 错误，exit code `128`；重做日志 `/home/dev/gdds-fe-logs/fe0/frontend-test-worktree-setup-redo.log` SHA256：`7874a1c5bb2f2e3c2c5bde91a0e920a7ad533cfa4c102c4b54aa4d066ba8dfff`。重做后目标目录仍不存在，未改全局配置或 main worktree。
-- 这是尚未触及前端被测对象的克隆命令错误；首次失败已保留日志，修正后从头重做仍失败。依 AGENTS.md 与 testing-conventions 的 DC68 规则，停止后续操作并交 owner。没有启动 `frontend/scripts/run-tests.sh` 或任何测试/构建/离线安装命令。
+- 以上两次失败均未创建目标 worktree、未改全局 Git 配置或 main worktree，也没有触及被测对象；日志按 DC68 保留。设计会话确认原因是克隆方式不匹配 05 现有安全目录设置，并指定新的 bundle/fetch/worktree 流程。这次按指定流程从步骤 1 重新开始，不作为第三次 DC68 重做。
+- 新 bundle：CT201 以 `b7d6e4540677d38117adde2885682ad5a4f4ce09..fe-vnext` 创建，候选为 `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2`；`fe-vnext-09730.bundle` SHA256 为 `d36a38782b4af00a99de16bfe6371435d6f0e01b495e1d82c900cf0ff4edafaa`。创建/传输日志 `source-bundle-09730.log` SHA256：`8a1940f4619d5b191e0df8c61a174b9cf1af6baf594bb8cb0c73abe80a173d7f`，时间 `08:34:10Z`，exit `0`。
+- 05 在 `/home/dev/gateway-data-management-system` 对新 bundle 执行 `git bundle verify` 和 `git fetch <bundle> fe-vnext`；`FETCH_HEAD` 精确为 `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2`，main 仍为 `b7d6e4540677d38117adde2885682ad5a4f4ce09`，未移动 main、未创建分支。日志 `frontend-bundle-fetch.log` SHA256：`20254225c5ed8bec01c75f70fe1a76077fdf71dd26179c15a5b00b9987e030d7`，时间 `08:34:21Z`，exit `0`。
+- 05 创建 `/home/dev/gdds-fe-fe0-05` detached worktree 并链接 `legacy`。worktree HEAD 与候选一致，状态 clean；日志 `frontend-test-worktree-add.log` SHA256：`b060ce493a5ae4ada2a615786aa766074a461b9ba634f56020691429972ad0fb`，时间 `08:34:47Z`，exit `0`。
+
+### 05 测试日志
+
+| 运行 | 节点 | 起止时间（UTC） | 起止 HEAD | exit code | 日志 SHA256 |
+| --- | --- | --- | --- | --- | --- |
+| 容器临时副本 `npm ci --offline`（network none） | `gw-dms-test-05.lan` | `08:35:18–08:35:24` | `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2` → 同一 HEAD | `0` | `5dd123972c3b10834ddbd74728771f2829a0bfd5ae8a5e3eab3a4753a8ee37e3` |
+| `frontend/scripts/run-tests.sh`（`run_e2e=0`） | `gw-dms-test-05.lan` | `08:35:35–08:35:44` | `09730a57ffa99a07cc53c3b05c6dca0f1314b8e2` → 同一 HEAD | `0` | `22ced6a030176ab2f5f6a3466c4f6fb78b17f6c616bece939d7886cd1137a77b` |
+
+日志分别为 `/home/dev/gdds-fe-logs/fe0/npm-ci-offline-20261102T083518Z.log` 与 `/home/dev/gdds-fe-logs/fe0/frontend-tests-20261102T083535Z.log`。权威入口内也再次完成一次离线安装。Vitest 显示 `No test files found`，由配置的 `--passWithNoTests` 正常 exit `0`；因此当前验证覆盖工程检查和构建，不包含业务单元测试断言。测试后确认 detached worktree 仍 clean、HEAD 未变；05 main 仍在原 HEAD。

@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const frontendRoot = dirname(dirname(scriptPath));
-const sourceRoot = join(frontendRoot, "src/test/fixtures/source/backend");
+const sourceRoot = join(frontendRoot, "src/test/fixtures/source/backend/fe2a");
+const fixtureNames = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-no-navigation"];
 
 const sha256 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 
@@ -62,9 +63,10 @@ function createTar(members) {
   return Buffer.concat(chunks);
 }
 
-async function readBackendBundle() {
-  const manifestBytes = await readFile(join(sourceRoot, "manifest.json"));
-  const closureBytes = await readFile(join(sourceRoot, "artifact-closure.json"));
+async function readBackendBundle(fixtureName) {
+  const fixtureRoot = join(sourceRoot, fixtureName);
+  const manifestBytes = await readFile(join(fixtureRoot, "manifest.json"));
+  const closureBytes = await readFile(join(fixtureRoot, "artifact-closure.json"));
   const manifest = JSON.parse(manifestBytes.toString("utf8"));
   const closure = JSON.parse(closureBytes.toString("utf8"));
   const entries = manifest?.closure?.entries;
@@ -87,7 +89,7 @@ async function readBackendBundle() {
     if (typeof logicalPath !== "string" || logicalPath.startsWith("/") || logicalPath.includes("\\") || logicalPath.split("/").some((part) => !part || part === "." || part === "..")) {
       throw new Error(`backend emitted an invalid logical path: ${logicalPath}`);
     }
-    const artifactBytes = await readFile(join(sourceRoot, ...logicalPath.split("/")));
+    const artifactBytes = await readFile(join(fixtureRoot, ...logicalPath.split("/")));
     if (artifactBytes.byteLength !== entry.integrity.size_bytes || sha256(artifactBytes) !== entry.integrity.raw_sha256) {
       throw new Error(`backend artifact bytes do not match closure integrity: ${logicalPath}`);
     }
@@ -97,18 +99,23 @@ async function readBackendBundle() {
 }
 
 export async function buildGoldenBundleTar() {
-  const bundle = await readBackendBundle();
+  const bundle = await readBackendBundle("preview-full");
   return { ...bundle, bytes: createTar(bundle.members) };
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
-  const result = await buildGoldenBundleTar();
-  const output = join(frontendRoot, "src/test/fixtures/generated/golden-bundle.tar");
-  await mkdir(dirname(output), { recursive: true });
-  await writeFile(output, result.bytes);
-  process.stdout.write(`fixture_bundle_digest=${result.manifest.bundle_digest}\n`);
-  process.stdout.write(`fixture_closure_manifest_digest=${result.manifest.closure_manifest_digest}\n`);
-  process.stdout.write(`fixture_bundle_manifest_digest=${result.closure.bundle_manifest_digest}\n`);
-  process.stdout.write(`fixture_tar_bytes=${result.bytes.byteLength}\n`);
-  process.stdout.write(`fixture_tar_sha256=${sha256(result.bytes)}\n`);
+  const outputRoot = join(frontendRoot, "src/test/fixtures/generated");
+  await mkdir(outputRoot, { recursive: true });
+  for (const fixtureName of fixtureNames) {
+    const bundle = await readBackendBundle(fixtureName);
+    const bytes = createTar(bundle.members);
+    await writeFile(join(outputRoot, fixtureName + ".tar"), bytes);
+    process.stdout.write("fixture=" + fixtureName + "\n");
+    process.stdout.write("fixture_bundle_digest=" + bundle.manifest.bundle_digest + "\n");
+    process.stdout.write("fixture_closure_manifest_digest=" + bundle.manifest.closure_manifest_digest + "\n");
+    process.stdout.write("fixture_bundle_manifest_digest=" + bundle.closure.bundle_manifest_digest + "\n");
+    process.stdout.write("fixture_tar_bytes=" + bytes.byteLength + "\n");
+    process.stdout.write("fixture_tar_sha256=" + sha256(bytes) + "\n");
+    if (fixtureName === "preview-full") await writeFile(join(outputRoot, "golden-bundle.tar"), bytes);
+  }
 }

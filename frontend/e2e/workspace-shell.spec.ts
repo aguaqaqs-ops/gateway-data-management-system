@@ -136,8 +136,9 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const requestCountBeforeReload = requests.get("preview-full") ?? 0;
   await page.reload();
   await waitForBrowse(page);
-  await page.getByRole("button", { name: "展开导航" }).click();
-  await expect(page.getByRole("textbox", { name: "搜索组、节点或页签" })).toHaveValue("直流屏");
+  const reloadedSearch = page.getByRole("textbox", { name: "搜索组、节点或页签" });
+  if (!(await reloadedSearch.isVisible())) await page.getByRole("button", { name: "展开导航" }).click();
+  await expect(reloadedSearch).toHaveValue("直流屏");
   await expect(page.getByRole("button", { name: "Debug" })).toHaveClass(/is-active/);
   expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
   expect(new URL(page.url()).searchParams.get("change")).toBe("1");

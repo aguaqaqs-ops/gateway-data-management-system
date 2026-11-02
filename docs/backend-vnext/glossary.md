@@ -152,7 +152,6 @@
 | ComparisonBundle | 比较 bundle | 一个或多个 ComparisonSurface 及其 artifacts 的闭合交付单元。 |
 | BundlePair | Bundle pair | ComparisonBundle 中的一段 directed comparison surface，例如 `left_to_right`。 |
 | FlowEnvelope | 流程 envelope | Flow 在 bundle core 外包裹的业务 metadata，例如权限、TTL、operation/download 信息。 |
-| WorkbenchBundleAdapter | Workbench bundle adapter | 为 Workbench 只读加载生成的 UI adapter，不替代 ComparisonBundle。 |
 | RiskEvaluationInput | 风险评估输入 | `ComparisonFacts`、可选 records access、`RiskRulesetSnapshot`、版本和 options 的组合。 |
 | RiskRulesetSnapshot | 风险规则集快照 | Flow 选择并传入 risk capability 的版本化规则集，包含 ruleset digest。 |
 | RiskFacts | 风险事实 | risk capability 从 ComparisonFacts 派生出的表级风险输入。 |

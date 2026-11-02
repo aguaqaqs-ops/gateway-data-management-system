@@ -153,10 +153,9 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.locator(".overflow-menu").getByRole("button", { name: /b1_n1_iec104_syx_list/ }).click();
   await expect(page.locator(".table-heading h2")).toHaveText("b1_n1_iec104_syx_list");
   expect(new URL(page.url()).searchParams.get("tab")).toBe("b1_n1_iec104_syx_list");
-  await page.getByRole("tab", { name: "装置总表" }).click();
-
-  await page.getByRole("button", { name: "审核", exact: true }).click();
+  await page.goto(browseUrl("REVIEW", reviewPath, { pair: "node_1_to_node_2" }));
   await waitForBrowse(page);
+  expect(new URL(page.url()).searchParams.get("mode")).toBe("REVIEW");
   await expect(page.getByRole("button", { name: "审核", exact: true })).toHaveClass(/is-active/);
   await screenshotHeader(page, "s3-header-review", 1920);
   await screenshotHeader(page, "s3-header-review", 1280);

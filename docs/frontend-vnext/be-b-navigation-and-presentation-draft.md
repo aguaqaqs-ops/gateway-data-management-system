@@ -1,6 +1,6 @@
 # BE-b 设计草案（第一步）：业务导航与表格展示
 
-- **状态：** 第一步已确认（owner，2026-11-02，§6）；作为 BE-b 的业务与数据结构依据。§4.7 导航诊断为设计会话对 FE1 审核 D1 的答复（2026-11-02），其中新增编码 `DEVICE_ROWS_UNASSIGNED` 待 owner 确认。
+- **状态：** 第一步已确认（owner，2026-11-02，§6）；作为 BE-b 的业务与数据结构依据。§4.7 导航诊断为设计会话对 FE1 审核 D1 的答复（2026-11-02），新增编码 `DEVICE_ROWS_UNASSIGNED` 已由 owner 确认（2026-11-02）。
 - **日期：** 2026-11-02。
 - **范围：** [前端 kickoff](frontend-kickoff.md) FD6、FD8 与 §5 BE-b 的第一步：数据结构与业务规则。实现层面的设计（在哪个 step 计算、缓存、计时预算、golden 组织、History 侧的持久化方式）在 P6 S5 接近完成时定稿（第二步）；实现在 P6 退出后、Phase 8 前进行。
 - **依据：** `legacy/backend_vnext/capabilities/{business_projection,table_presentation}/`、`legacy/backend_vnext/flows/business_projection.py`、`legacy/frontend/src/workbench/`（`legacy/` 不在 Git 中）；[Comparison Surface](../backend-vnext/contracts/comparison-surface.md)；[Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md)；[Frontend Surface Simplification](../backend-vnext/frontend-surface-simplification.md)；ADR 0018、ADR 0019。
@@ -230,7 +230,7 @@ Diagnostic:
 | `DEVICE_ADDRESS_DUPLICATE` | 某侧 `device` 表中 `dev_addr` 重复 | `SECONDARY_DEVICES`，`device:addr:{dev_addr}` | 有 | `dev_addr` | {侧}装置总表中装置地址 {dev_addr} 重复 | `DUPLICATE_DEVICE_ADDRESS` |
 | `DEVICE_GID_DUPLICATE` | 某侧 `device` 表中 `gid` 重复 | `SECONDARY_DEVICES`，`table_id=device` | 有 | `gid` | {侧}装置总表中 gid {gid} 重复，按 gid 筛选的页签可能不准确 | `DUPLICATE_DEVICE_GID` |
 | `DEVICE_TAB_COUNT_UNKNOWN` | 测点表在某侧存在，但无法按身份列统计计数；页签保留（§4.2） | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column` | {侧}{表}无法按 {identity_column} 统计行数，装置页签已保留，内容可能为空 | `SECONDARY_TAB_AVAILABILITY_UNKNOWN` |
-| `DEVICE_ROWS_UNASSIGNED` | 测点表中有行的身份值在两侧装置总表中都不存在，在任何装置页签中都看不到 | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column`、`row_count`、`changed_row_count` | {侧}{表}有 {row_count} 行不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表 | 无，新增，待 owner 确认 |
+| `DEVICE_ROWS_UNASSIGNED` | 测点表中有行的身份值在两侧装置总表中都不存在，在任何装置页签中都看不到 | `SECONDARY_DEVICES`，`table_id` | 有 | `identity_column`、`row_count`、`changed_row_count` | {侧}{表}有 {row_count} 行不属于任何装置（其中 {changed_row_count} 行有变化），可查看整表 | 无，新增（owner 2026-11-02 确认） |
 | `CHANNEL_TABLE_UNCLAIMED` | 9 类转发表或 `sg_cfg` 按名称属于某个通道，但该通道没有转发通道项 | `OTHER_TABLES`，`table:<表名>`，`table_id` | null | `board`、`link_no` | {表}属于通道 b{board}_n{link_no}，但该通道不是 IEC104 转发通道，已放入“其他表” | 无（§4.5；范围扩大到 9 类转发表，legacy 中这些表直接进入“未解析表”） |
 | `PROTOCOL_EXE_MISSING` | 某侧 `net_cfg` 通道的 `exe` 为空 | `COMMUNICATION_PROTOCOLS`，`protocol:b{board}_n{link_no}` | 有 | `board`、`link_no` | {侧}通道 b{board}_n{link_no} 未配置规约，无法确定规约表 | `MISSING_PROTOCOL_EXE` |
 | `PROTOCOL_TABLE_NOT_FOUND` | `exe` 有值，但候选规约表都不存在 | 同上 | 有 | `board`、`link_no`、`protocol`、`expected_tables` | {侧}通道 b{board}_n{link_no} 的规约 {protocol} 没有对应的规约表（{expected_tables}） | `CANDIDATE_TABLE_NOT_FOUND` |
@@ -240,7 +240,7 @@ Diagnostic:
 
 `params` 的类型：`dev_addr`、`gid`、`board`、`link_no`、`row_count` 和 `changed_row_count` 为 int；`app_name` 可为 null；`expected_tables` 为 string 列表；其余为 string。
 
-`DEVICE_ROWS_UNASSIGNED` 是新增编码。按 §4.2 的规则，共享测点表只能经装置页签浏览；身份值不对应任何装置的行在导航里无法到达，审核时可能漏看其中的变化。
+`DEVICE_ROWS_UNASSIGNED` 是新增编码（owner 2026-11-02 确认）。按 §4.2 的规则，共享测点表只能经装置页签浏览；身份值不对应任何装置的行在导航里无法到达，审核时可能漏看其中的变化。
 
 前端在该提示上提供“查看整表”：按 `table_id` 在本地打开 `row_filter = null` 的整表视图。这不改变“每张表最多被一个分组认领”的规则。计数遵守 §5 的 DC39 约束：表未变化时只用当前侧计数，`changed_row_count` 取自该表的逐行记录。
 
@@ -296,7 +296,7 @@ Diagnostic:
 | Q4 | 列展示精简 | 同意：保留后端的业务列序规则（只迁移与 DDL 顺序不同的规则）；列宽、对齐由前端计算；取消隐藏；固定列按 §4.1 的规则 |
 | Q5 | 复合信号虚装置 | 同意 §4.4：保留特殊项，不再产出 points/formulas 产物，由前端在本地组装。补充（2026-11-02，FE0 审核 D1）：提交人需要在提交前看到改前公式，Preview bundle 为 `composite_signal_point`、`device` 在表有变化时补齐基线侧整表，并入 BE-b |
 | Q6 | 转发通道的范围 | 同意：保留 legacy 规则（`exe=iec104` 且 `tab_num>0`） |
-| Q7 | 导航诊断的结构与编码（FE1 审核 D1） | 设计会话答复（2026-11-02），见 §4.7；新增编码 `DEVICE_ROWS_UNASSIGNED` 待 owner 确认 |
+| Q7 | 导航诊断的结构与编码（FE1 审核 D1） | 设计会话答复（2026-11-02），见 §4.7；新增编码 `DEVICE_ROWS_UNASSIGNED` 由 owner 确认（2026-11-02） |
 
 ## 7. 后续
 

@@ -124,7 +124,7 @@ OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并�
 | ID | 内容 | 影响面 | 时机 |
 | --- | --- | --- | --- |
 | BE-a | 删除 `RETURN_FOR_REVISION`：domain 动作、`RETURNED_FOR_REVISION` 状态与事件、HTTP literal、history 状态 literal、control DB schema 约束（直接改基线，本地 DB 删除重建，DC6）、测试与 Contract（Business Lifecycle、P5-5C 设计中的状态机表）。当前约 18 个文件引用 | HTTP DTO、control DB schema；无镜像边界外的部署变化 | 不阻塞 FE0–FE2；S2a 合入 main 之后作为小任务进行，避免与 P6 分支冲突（owner 已确认） |
-| BE-b | 补回业务分组与列展示：capability、bundle/surface 中的产物形态、Contract 与 golden。迁移时精简：列宽交前端自动计算，后端只给显示名、顺序、隐藏、固定与键列；分组项逐一与业务方确认是否保留 | bundle 结构与摘要；Preview/History 计时路径增加计算 | FD8：现在立项设计并先给出数据结构草案；实现排在 P6 退出之后、Phase 8 之前。理由：P6 对照基准已在 S1b 后重建、bundle golden 已冻结，P6 中加入会改变 bundle 摘要并影响 W1–W4、H1–H3 的计时 |
+| BE-b | 补回业务分组与列展示：capability、bundle/surface 中的产物形态、Contract 与 golden；注释来源；Preview bundle 为 `composite_signal_point`、`device` 补齐基线侧整表（owner 2026-11-02）。范围与数据结构见 [BE-b 设计草案](be-b-navigation-and-presentation-draft.md) | bundle 结构与摘要；Preview/History 计时路径增加计算 | FD8：现在立项设计并先给出数据结构草案；实现排在 P6 退出之后、Phase 8 之前。理由：P6 对照基准已在 S1b 后重建、bundle golden 已冻结，P6 中加入会改变 bundle 摘要并影响 W1–W4、H1–H3 的计时 |
 | BE-c | 在 P6 测量中记录 t4 与 2× t4 的 bundle 体积（只报告） | 无 | 随 P6 测量；用于评估 1 Mbps（DC49）下的下载时长 |
 
 ## 6. 测试与证据（FD7）
@@ -170,10 +170,10 @@ FE0 逐项核对 vnext 来源并标注 KEEP / SIMPLIFY / REMOVE；“简化”�
 | 风险浏览与提示 | `formalRiskUiModel.ts`、`previewRiskSummary.ts` | `RiskReport`、annotation | KEEP，按 W7、S4 重做 |
 | 业务分组、节点、页签 | `workbenchModel.ts`、`localWorkbenchBundle.ts` | 缺（BE-b） | 占位 |
 | 列展示 | `grid/columns.ts` | 缺（BE-b） | 占位 |
-| 复合信号表与公式查看 | `CompositeSignalGridPanel.tsx`、`CompositeFormulaViewer.tsx` | `composite_signal_point` | 待核对 |
+| 复合信号表与公式查看 | `CompositeSignalGridPanel.tsx`、`CompositeFormulaViewer.tsx` | 各侧的 `composite_signal_point`（含 `formula_ast_json`）与 `device` 整表；Preview 的基线侧由 BE-b 补齐 | KEEP（owner 2026-11-02）：History 与 Preview 都提供改前、改后对照。BE-b 实现前，Preview 中公式有变化的测点只显示上传侧公式并标“公式已改”。数据来源与名称映射见 [BE-b 设计草案](be-b-navigation-and-presentation-draft.md) §4.4 |
 | 数据集替换双侧浏览与确认 | `replacement-preview/`、`projectIdentityNotice.ts` | `DATASET_REPLACEMENT`、`identity_pairs`、`identity_confirmations` | KEEP |
 | 提交 | `workspaceApi.ts` | `submit-attempts` | KEEP |
-| 审核通过、退回、撤回 | `workspaceApi.ts` | `review-events` | KEEP；`START_REVIEW` 取消 |
+| 审核通过、退回、撤回 | `workspaceApi.ts` | `review-events`；审核浏览用 History 比较 bundle | KEEP；`START_REVIEW` 取消。审核人读不到提交人的 Preview（工作区范围含所有人，`assert_exact_scope`），审核模式加载 History 比较（基线节点 → 待审提交）的 bundle |
 | 归档主线（预检、异常处理、确认） | `ArchiveMainlineReviewPanel.tsx`、`archiveMainlineReviewModel.ts` | `archive-*` | KEEP，按新接口重排，A1 去除原生确认 |
 | 历史比较（2/3 节点、比较对切换） | `historyComparisonPolling.ts` | `history-compares` + bundle | KEEP，按 F5/F6 重做 |
 | diagnostics 与 KEYLESS_FALLBACK 提示 | `localWorkbenchBundle.ts` | surface diagnostics | KEEP |

@@ -139,12 +139,30 @@ Tab:
 | 转发通道分组信息 | 暂不输出 | 后续要扩展的功能（owner 2026-11-02）；当前没有数据来源，不输出空组。按 §4.6 的扩展约定在后续版本加入 |
 | 未解析表 | SIMPLIFY | 改为 `OTHER_TABLES`，界面名“其他表” |
 
-### 4.4 复合信号虚装置（SIMPLIFY）
+### 4.4 复合信号虚装置（SIMPLIFY；Preview 基线侧补齐，owner 2026-11-02）
 
 - 保留为二次装置组中的特殊项（`COMPOSITE_SIGNAL_DEVICE`），页签按 `dev_addr=65532` 过滤各测点表，与普通装置相同。
-- 不再产出 points/formulas 两份产物：bundle 已含 `composite_signal_point` 与 `device` 的整表数据及逐行记录，前端在本地按 `(source_table, point_gid)` 关联公式，从 `device` 表组装装置名称映射。
+- 不再产出 points/formulas 两份产物，前端在本地按 `(source_table, point_gid)` 从 `composite_signal_point` 取公式（`formula_ast_json`），从同侧 `device` 表组装装置名称映射。
 - `composite_signal_point` 由该特殊项认领，不进入“其他表”。
-- 公式查看器的展示规则沿用 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) §Frontend。
+- 公式查看器的展示规则沿用 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) §Frontend 中的公式展示与名称映射规则；该文档中 points/formulas 产物的描述已过时（§7）。
+
+**各侧数据的可得性**（2026-11-02 核对；此前版本称“bundle 已含两表整表”，对 Preview 不成立，已更正）：
+
+| 场景 | 改后侧 | 改前侧 |
+| --- | --- | --- |
+| History（含审核） | 节点整表 | 节点整表 |
+| Preview，表未变化 | 上传侧整表 | 与上传侧相同，用上传侧整表 |
+| Preview，表有变化 | 上传侧整表 | **当前 bundle 没有。** 修改行的记录只带参与比较的列：`formula_ast_json` 被排除在比较之外，只有 `formula_digest` 的前后值；删除行带基线侧的选中列 |
+
+**BE-b 补齐（owner 2026-11-02：提交人需要在提交前看到改前公式）：**
+
+- Preview bundle 对“双侧浏览表”在表有变化时同时闭合基线侧整表，作为该 pair 改前侧的表绑定。双侧浏览表当前为 `composite_signal_point`（改前公式）与 `device`（改前侧装置名称）。
+- 只在表有变化时附带：有变化的表本来就要读基线侧做比较，不为此额外读取未变化的表，不影响结构性过滤（DC39）。
+- 这会改变 Comparison Bundle 的闭包规则（[comparison-bundle.md](../backend-vnext/contracts/comparison-bundle.md) 中“Preview bundle 闭合上传侧全部表以及被删除表的基线侧数据”一条）与 bundle 摘要，随 BE-b 在 P6 退出后实现。
+
+**名称映射：** 每一侧只用本侧的 `device` 表，`dev_addr` 唯一且装置描述非空时映射，否则显示原文 `Device N:测点`。
+
+**BE-b 实现前的前端行为：** Preview 中公式有变化的测点只显示上传侧公式，以 `formula_digest` 前后值不同标示“公式已改”；删除的测点显示删除记录中的基线侧内容；History 完整对照。BE-b 落地后，Preview 改为与 History 相同的改前、改后对照。
 
 ### 4.5 转发通道的“定值”页签（owner 2026-11-02）
 
@@ -182,10 +200,10 @@ Tab:
 | Q2 | 通道的 `sg_cfg` | 作为转发通道项的“定值”页签，规则见 §4.5 |
 | Q3 | 中文表名与列名的来源 | A：取自上传 SQL 的 `COMMENT`；History 侧的保存方式在第二步定稿（§5） |
 | Q4 | 列展示精简 | 同意：保留后端的业务列序规则（只迁移与 DDL 顺序不同的规则）；列宽、对齐由前端计算；取消隐藏；固定列按 §4.1 的规则 |
-| Q5 | 复合信号虚装置 | 同意 §4.4：保留特殊项，不再产出 points/formulas 产物，由前端在本地组装 |
+| Q5 | 复合信号虚装置 | 同意 §4.4：保留特殊项，不再产出 points/formulas 产物，由前端在本地组装。补充（2026-11-02，FE0 审核 D1）：提交人需要在提交前看到改前公式，Preview bundle 为 `composite_signal_point`、`device` 在表有变化时补齐基线侧整表，并入 BE-b |
 | Q6 | 转发通道的范围 | 同意：保留 legacy 规则（`exe=iec104` 且 `tab_num>0`） |
 
 ## 7. 后续
 
 - §6 确认后，前端占位数据按 §4 的结构构造（kickoff §4.5）。
-- 第二步定稿时，同步替换 §3 列出的四份过时文档，并修订 Comparison Surface（`projection_kind`、`SurfaceColumn.pinned`、`SurfaceColumn.display_order`）与 Comparison Bundle Contract。
+- 第二步定稿时，同步替换 §3 列出的四份过时文档，以及 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) 中描述 points/formulas 产物的部分（§Secondary-device Projection 的产物引用、§Frontend 与 §Dataset Replacement 中对这两份产物的依赖）；修订 Comparison Surface（`projection_kind`、`SurfaceColumn.pinned`、`SurfaceColumn.display_order`）与 Comparison Bundle Contract（Preview 双侧浏览表的闭包规则，§4.4）。在此之前，前端以本草案为准。

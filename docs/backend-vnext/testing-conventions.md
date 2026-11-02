@@ -3,8 +3,10 @@
 状态：2026-08-07 建立；2026-08-09 增补P2后半段container gate合并规则；
 2026-08-13 冻结Docker/Compose触发式重建、评审记录、全局风险验证与artifact cleanup规则
 2026-10-25 增加 `rust` 包、backend Rust 扩展强制重装与构建输入一致性检查（DC48），门禁 worktree 保留规则（DC51）
+2026-11-02 增加前端测试规则（FD7）
 
-本文规定 vNext 各包（五个 Python 包与 `rust` 包）的测试分层、执行入口与性能约束。Fixture 材料语义由
+本文规定 vNext 各包（五个 Python 包与 `rust` 包）的测试分层、执行入口与性能约束；前端（`frontend/`）的运行位置、
+工具链与证据见“前端测试（FD7）”一节。Fixture 材料语义由
 [Testing Fixtures](testing-fixtures.md) 拥有，本文不重复。
 
 ## 执行入口
@@ -382,6 +384,65 @@ Required execution point: <本轮结束 | 阶段最终候选 | S3 ready前 | 发
 检查理由是否确实不依赖容器边界。无论中间轮次如何决定，阶段最终候选都必须让容器门禁结果
 绑定到最终HEAD：要么在最终HEAD执行权威Compose/production gate，要么在阶段退出、S3 ready
 节点满足上文镜像身份等价并记为`carried`。
+
+## 前端测试（FD7）
+
+来源：[前端 kickoff §6](../frontend-vnext/frontend-kickoff.md#6-测试与证据fd7)（owner 2026-11-02 确认，FD7）。
+本节只规定前端测试的运行位置、工具链与证据；前端测试分层见 kickoff §4.2。
+
+### 位置与入口
+
+前端工程位于仓库根目录 `frontend/`，不在 `vnext/` 下。backend 与 `repository_service` 的闭包和镜像身份以整个
+`vnext/` 为 Docker context，前端不进入后端测试闭包，前端提交不影响后端按包沿用与 carried 判定。前端权威入口为
+`frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。
+
+### 节点
+
+与后端相同，前端测试不在开发主机上运行：
+
+| 用途 | 节点 | 内容 |
+| --- | --- | --- |
+| 调试 | `ct108-gw-dms-05` | 类型检查、lint、单元测试、构建、模拟接口 e2e、连真实 backend 的 e2e |
+| 证据 | `ct108-gw-dms-04` | 阶段退出时在 clean、已提交 worktree 上用权威入口完整运行一次 |
+| — | `ct108-gw-dms` | 前端不使用 |
+
+### 工具链镜像
+
+测试节点宿主机不安装 Node.js。前端测试在固定版本的工具链镜像中运行，镜像包含 Node.js、浏览器与所需系统库：
+
+1. 在 CT201 取得镜像，经 `docker save`/`docker load` 通过获准的局域网传到实际使用的节点（05、04）。
+2. 跨节点身份比较 config digest 与全部 RootFS DiffID（同 DC67），不比较 `docker inspect` ID。身份不符即停止。
+3. 镜像版本变化时按同一流程重新取得与传输。
+
+### npm 依赖缓存（DC67）
+
+在 CT201 依 `package-lock.json` 取得 npm 缓存，经获准的局域网预填充到实际使用的节点；运行时把缓存挂载进工具链
+容器，在容器中执行 `npm ci --offline`。缓存缺失即停止，补齐预填充后从头运行。DC67 关于转发代理的限制同样适用：
+04 证据运行不经任何转发代理。
+
+### 节点协调（DC70 补充）
+
+- 类型检查、lint、单元测试、构建和模拟接口 e2e 不涉及 Dolt 与 Compose，不获取节点占用标记，可与后端调试并行。
+- 连真实 backend 的 e2e 要起 Compose 栈（共享 host 端口 8000），按 DC70 补充获取整机占用：
+  `mkdir /home/dev/gdds-node-busy.d` 原子获取，失败即等待、不抢占；获取后写入会话名、用途与开始时间（UTC）；
+  运行与清理完成、确认无本次容器与进程后删除。仍须满足 AGENTS 的整机单飞与运行前残留检查。
+- 某节点占用标记的用途写明为计时测量时，前端在该节点上的任何运行（含不需要占用标记的项目）都等待其释放。
+
+### 日志与 handoff
+
+与后端相同：日志写到 worktree 外，开头记录 `hostname`、起止时间、起止 `git rev-parse HEAD` 与入口自身的 exit
+code（经 `tee` 时用 `set -o pipefail` 或 `${PIPESTATUS[0]}`），并记录日志 SHA256。handoff 另记：
+
+- 每次运行所在节点；
+- 工具链镜像 tag、config digest 与全部 RootFS DiffID；
+- npm 缓存来源：来源节点/提交、缓存摘要与预填充时间；不记录凭据。
+
+### 截图验收
+
+FE2 起，在 1280 与 1920 两种宽度下对 [UI 优化方向](../frontend-vnext/ui-optimization-direction.md) §7 草图清单中的每个页面与状态截图（模拟接口，固定示例数据）。截图与运行日志
+存于 worktree 外的证据目录并记录 SHA256。审核会话逐张对照 `docs/frontend-vnext/sketches` 核对布局、层级、
+语义色、按钮层级、禁用原因与焦点样式，不做像素级比对（示例数据不同）。与草图不符处要么修正，要么作为偏差列入
+handoff 交 owner 确认。
 
 ## Marker 分层
 

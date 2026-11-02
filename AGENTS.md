@@ -180,6 +180,32 @@ Docker 镜像构建可通过 `GATEWAY_DOCKER_BUILD_NETWORK` 控制 build 网络�
 Docker `host` 网络；可通过 `GATEWAY_DOCKER_BUILD_NETWORK=default` 覆盖。该设置只影响镜像
 构建，不改变 production Compose 服务网络边界。
 
+## 前端测试（FD7）
+
+依据 [前端 kickoff §6](docs/frontend-vnext/frontend-kickoff.md#6-测试与证据fd7)（owner 2026-11-02 确认）；
+细节见 [testing-conventions.md](docs/backend-vnext/testing-conventions.md) “前端测试”一节。
+
+- **位置与入口：**前端工程位于仓库根目录 `frontend/`，不在 `vnext/` 下，不进入后端测试闭包与 Docker context。
+  权威入口为 `frontend/scripts/run-tests.sh`，与 `vnext/scripts/run-tests.sh` 相互独立。
+- **节点：**与后端相同，不在开发主机上运行。调试（类型检查、lint、单元测试、构建、e2e）在 `ct108-gw-dms-05`；
+  阶段退出时在 `ct108-gw-dms-04` 的 clean、已提交 worktree 上用权威入口完整运行一次作为证据。前端不使用
+  `ct108-gw-dms`。
+- **工具链镜像：**测试节点宿主机不安装 Node.js。前端测试在固定版本的工具链镜像中运行（含 Node.js、浏览器与
+  系统库）：在 CT201 取得，经 `docker save`/`docker load` 传到节点；跨节点身份比较 config digest 与全部
+  RootFS DiffID，不比较 `docker inspect` ID。镜像版本变化时按同一流程重新取得与传输。
+- **npm 缓存：**按 DC67 在 CT201 依 `package-lock.json` 取得缓存，经获准的局域网预填充到实际使用的节点，挂载进
+  工具链容器，在容器中 `npm ci --offline`。缓存缺失即停止，补齐后从头运行。
+- **节点协调：**类型检查、lint、单元测试、构建和模拟接口 e2e 不获取节点占用标记，可与后端调试并行。连真实
+  backend 的 e2e 要起 Compose 栈（共享 8000 端口），按 DC70 补充用 `mkdir /home/dev/gdds-node-busy.d` 获取整机
+  占用并写入会话名、用途与开始时间，运行与清理完成后删除。某节点占用标记的用途写明为计时测量时，前端在该节点上的
+  任何运行（含不需要占用标记的项目）都等待其释放。
+- **日志：**与后端相同，写到 worktree 外，记录 `hostname`、起止时间、起止 HEAD、exit code 与日志 SHA256；
+  handoff 另记工具链镜像 tag 与身份（config digest、全部 RootFS DiffID）、npm 缓存来源（来源提交、缓存摘要、
+  预填充时间）与运行节点。
+- **截图验收：**FE2 起在 1280 与 1920 两种宽度下截图，截图存于 worktree 外的证据目录并记录 SHA256。审核会话对照
+  `docs/frontend-vnext/sketches` 核对布局、层级、语义色、按钮层级、禁用原因与焦点样式，不做像素级比对；不符处
+  修正或作为偏差列入 handoff 交 owner 确认。
+
 ## 写测试
 
 `repository_service` 的四个 marker 已声明，`--strict-markers` 生效，拼错会导致收集失败。

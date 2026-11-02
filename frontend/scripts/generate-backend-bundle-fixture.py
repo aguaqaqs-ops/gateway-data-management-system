@@ -432,8 +432,8 @@ def _write_bundle(
     for logical_path, data in written:
         if logical_path.endswith(".json") and not logical_path.endswith("/business-navigation.json") and not logical_path.endswith("/business-navigation-diagnostics.json"):
             try:
-                levels.update(_risk_levels(json.loads(data)))
-            except json.JSONDecodeError:
+                levels.update(_risk_levels(json.loads(data.decode("utf-8"))))
+            except (UnicodeDecodeError, json.JSONDecodeError):
                 pass
     print("fixture=" + name)
     print("bundle_digest=" + manifest["bundle_digest"])

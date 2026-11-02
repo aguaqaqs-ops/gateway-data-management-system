@@ -1,6 +1,6 @@
-# FE1 handoff（补充修复候选的 CT05 验证通过）
+# FE1 handoff（B4 定向修复的 CT05 验证通过）
 
-> 原 FE1 候选 `b67da4795fd22afcab1365f4138b131ab4c736d1` 的 04 阶段退出运行保留为历史记录；因定向修复失效，待复审后重做。首个修复候选 `be430b9d98e8a31c676bfd8cd0136e893a7950d2` 的失败日志也保留。当前候选为 `b54dd08f37e27db9387aa9c248f7e0f692c57804`，CT05 完整 runner exit code 为 0；本 handoff 提交是本轮审核范围终点。
+> 原 FE1 候选 `b67da4795fd22afcab1365f4138b131ab4c736d1` 的 04 阶段退出运行保留为历史记录；因定向修复失效，待复审后重做。首个修复候选 `be430b9d98e8a31c676bfd8cd0136e893a7950d2` 的失败日志也保留。当前代码候选为 `c5ee9a06bc8f2502f8b5299d2b8cd657441797de`，B4 补充修复后的 CT05 完整 runner exit code 为 0；04 取证仍待复审第 2 轮通过后进行。本 handoff 提交是复审范围终点。
 
 ## 初始候选与范围（历史记录）
 
@@ -11,7 +11,9 @@
 - `frontend/scripts/run-tests.sh` 记录 `frontend_tree_start` 与 `frontend_tree_end`（R2）。runner 日志中的 `tracked_frontend_archive_sha256` 是各自提交的输入摘要，不跨提交比较。
 - 开发主工作区 `/home/dev/gateway-data-management-system` clean，HEAD 为 `36047efe5acca90c08acb95796c58c5b4cea33a3`。`/home/dev/gdds-fe` 在代码候选时 clean，分支 `fe-vnext`。
 
-## 完成情况
+## 完成情况（原 FE1 候选摘要）
+
+> 本节记录 B4 复审发现前的 FE1 完成情况摘要。行风险与行变更定位已在文末“FE1 补充修复：行风险与行变更定位（B4）”按后端产物修正；bundle fixture 的当前来源和摘要也以该节为准。
 
 ### A：功能层
 
@@ -31,7 +33,9 @@
 - 组件预览覆盖禁用原因、已选目录、进度阶段、骨架屏、错误恢复和确认对话框；lucide 图标随前端本地打包。
 - UI 优化方向 P1、P2 的预览条目已落地。正式工作台与差异浏览页面、截图验收属于 FE2。
 
-### 本地 bundle fixture
+### 本地 bundle fixture（历史记录，已被后端 fixture 取代）
+
+> 本节仅记录最初候选曾使用的手写 JSON、PyArrow Parquet 和旧摘要 `sha256:c108ea2c…`。这些文件和路径已删除，不是当前 fixture；当前唯一 fixture 是下文“FE1 补充修复：后端三类行记录”中的后端生成产物，当前摘要为 `sha256:a34e8560…`。导航占位 JSON 仍是唯一手写的业务产物。
 
 由于当前后端 `/bundle` 只返回 manifest，按 owner 2026-11-02 决定，FE1 未依赖该响应。`frontend/scripts/build-golden-bundle-fixture.mjs` 在本地拼装 `manifest.json`、`artifact-closure.json` 与 closure 产物，输出符合 §4.4 的 tar；unit runner 生成文件，不把产物 tar 提交进 Git。Playwright 通过模拟接口返回此 fixture，不连接真实 backend。
 
@@ -232,3 +236,41 @@ CT05 runner 已启动且 exit 非零；按停止规则未重跑。失败后只�
 | 权威 runner | CT05，15:16:22–15:16:35 | 完整 `./frontend/scripts/run-tests.sh --e2e`；HEAD/tree 起止一致，`docker_network=none`，exit `0`。typecheck、lint 通过；Vitest 9 文件、38 项全通过（含跨实现摘要测试与三类 records 测试）；build 成功；Playwright `3 passed`，覆盖 OPFS 安装、Parquet 浏览与缓存命中。runner 日志 `/home/dev/gdds-fe-logs/fe1/fix2/frontend-tests-20261102T151622Z.log` SHA256 `89cd1ffd39985514400aa1971c689c4d7a9ff949383ba83b7d1bb8e007638e4b` |
 
 修复前失败日志保留：`/home/dev/gdds-fe-logs/fe1/fix1/frontend-tests-20261102T143633Z.log`，SHA256 `4a89d3ab6733d5924de3d6457bb190bd7cfe7ae17ba6b35b22b6e023fa9dc676`。修复后完整运行通过；05 worktree 仍 clean，main 仍为 `0e0d14f1d19779a5ff49c8e3c79f6aba323dd0bf`。本轮尚未重做 04 取证；按流程等待独立复审通过后再进行。
+
+## FE1 补充修复：行风险与行变更定位（B4）
+
+### 候选与修复
+
+- 复审基线为 `918282218eb00d7d1128a3da9e31924c7db6ad3c`。先追加 B4 代码提交 `b55a64db8b8e823efcd070252d079933e90f77ec`（`frontend/` tree `b4b0f8378613743f9fa9dbc987f805f2b5dfdc75`）；其 CT05 首次完整 runner 在 typecheck 失败。随后不改写该提交，再追加行数字段修正提交 `c5ee9a06bc8f2502f8b5299d2b8cd657441797de`（最终 `frontend/` tree `8e553cbf49cced19c686b136f14ec79407c5e14d`）。复审范围为 `918282218e..<本 handoff 提交>`。
+- **B4 行标注与 identity：** `RiskAnnotation` 采用后端 annotations 文档的 `annotation_id`、`risk_level`、`reasons`、`diagnostics`、`target` 结构；`RiskReport`、`RiskTableReport`、`SurfaceTable`、`RowDiffRecord` 也改用后端 report、surface 和 records 的字段名及嵌套形状。records 的 binary row identity 和 annotation 的 `sha256:<hex>` 都归一成 `sha256:<hex>`；只有 `target.target_type === "ROW"` 的 annotation 进入行风险 Map。
+- **B4 本地读取：** `presentation.ts` 按每个 surface 表的 `risk_refs.annotation_ref` 在 bundle closure 中定位 annotation 文件，并由已安装 bundle 的本地读取接口解析；没有后端请求路径。`readLocalChangeRecords` 返回后端 records 字段形状。
+- **B4 record kind：** 行定位只接收 ComparisonRecordKind 与 OrderedRecordKind 的行级成员。`SCHEMA_CHANGE`、`TABLE_DEGRADED`、`ORDERED_TABLE_DEGRADED` 不会进入行定位；前端自造的 `UNCHANGED`、`UNCHANGED_RANGE` record 判断已删除。`filterChangedRows.changeKinds` 明确使用 records 的 row record kind，不使用表级 `ADDED`/`UPDATED`。搜索递归读取后端 `before_values`、`current_values` 的嵌套 scalar 字段。
+- **B4 唯一测试 owner：** `model.test.ts` 的“maps backend row records to their local annotations and filters row changes”从本地安装的后端 bundle 读取 records 与 annotations，依序断言 `ROW_ADDED/MEDIUM_LOW`、`ROW_DELETED/MEDIUM_LOW`、`ROW_MODIFIED/MEDIUM_HIGH`；同一用例加入 TABLE annotation 和 `SCHEMA_CHANGE` 记录，验证二者分别不覆盖行风险、不产生行定位。筛选与搜索也使用后端 Parquet 字段形状。
+- **typecheck 修正：** 首个 B4 提交的 `rowCount` 仍以字符串索引 surface 行数对象，并包含后端不存在的 `before_row_count`、`current_row_count` 候选名。追加的 `c5ee9a06bc` 将其改为直接读取 `row_count_before`、`row_count_current`。
+- **R1：** 删除 `theme.test.ts` 中将测试内颜色常量与自身比较的四条断言。
+- **R2：** 原“完成情况”已标为原候选摘要，并指向本节；旧“本地 bundle fixture”明确标为历史记录，注明旧手写 JSON、PyArrow 文件及 `c108ea2c…` 摘要已被后端 fixture 取代。
+
+### 后端 fixture
+
+- fixture 未改、未重生成。仍使用后端来源提交 `c1a76ea345f3b183cc9b04a2e90d3f58257626d7`、依赖镜像 `gateway-backend-deps:lock-d054366c02fa`；当前 `bundle_digest=sha256:a34e85601da5bbb2b818f7307273fd6844e81d62ef0ad576e2ee9b285f5f4538`，tar SHA256 `df9f91279dc01cb3c70016910e267ef0de1d04b23537a92e2cfdd8ffd85e4735`。此前的两次生成和逐字节复现日志见上文“FE1 补充修复：后端三类行记录”。
+
+### CT05 验证
+
+| 运行 | 时间（UTC） | HEAD / `frontend/` tree | 结果与日志 SHA256 |
+| --- | --- | --- | --- |
+| 首次 B4 候选 | `2026-11-02 15:50:16–15:50:23` | `b55a64db8b8e823efcd070252d079933e90f77ec` / `b4b0f8378613743f9fa9dbc987f805f2b5dfdc75`，起止相同 | runner exit `2`；`npm ci` 后 typecheck 在 `model.ts:273` 报 TS7053（行数对象以 string 索引）。未运行 Vitest、build、e2e。失败日志 `/home/dev/gdds-fe-logs/fe1/fix3/frontend-tests-20261102T155016Z.log`，SHA256 `0c11ece34fae8f98491a09a8e7c1994c077db701af34657be12b9828c4fac062` |
+| 修正后的完整 runner | `2026-11-02 15:55:01–15:55:14` | `c5ee9a06bc8f2502f8b5299d2b8cd657441797de` / `8e553cbf49cced19c686b136f14ec79407c5e14d`，起止相同 | `./frontend/scripts/run-tests.sh --e2e` exit `0`；typecheck、lint、build 通过；Vitest 9 文件、38 项通过；Playwright e2e `3 passed`。fixture bundle digest 为上述 `sha256:a34e8560…`。日志 `/home/dev/gdds-fe-logs/fe1/fix3/frontend-tests-20261102T155501Z.log`，SHA256 `f5083ca2e8619345c91c55867a54167b716b90fa51f752fc1048f2a907d47705` |
+
+两次 runner 均在 `gw-dms-test-05.lan` 的 clean、detached worktree 上执行；05 的 `main` 前后均为 `0e0d14f1d19779a5ff49c8e3c79f6aba323dd0bf`。沿用 Playwright 镜像七个已核对 DiffID、npm cache `/home/dev/gdds-fe-cache/fe0/npm-cache` 和归档 SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`；缓存来源提交记录为 `a2fb4a027a6f62218109783674cfc37bd64e14a5`，resolved 数为 305。
+
+源码传输证据：以 `36047efe5acca90c08acb95796c58c5b4cea33a3` 为 bundle 前置，候选 `c5ee9a06bc` bundle SHA256 `de2526516921f98848f94e96877defd964f09cc26a75092c3096b777de4dded7`；创建日志 `source-bundle-create-c5ee9a06bc.log` SHA256 `faba6642627df167b90e5d2e9a4ed1b3cf3c3693d42e37ec4568e788c955a1d4`，LAN 两端校验日志 `source-bundle-transfer-05-c5ee9a06bc.log` SHA256 `b7ad2fb4981d67a06b9f5b87c95cd8d19a4307f972f6b6f140593dc9bcd5cced`，05 verify/fetch 日志 `bundle-fetch-05-c5ee9a06bc.log` SHA256 `f6e94fd36d4a3983368f1a62d294086ea65cf8a89d6d6cc5cbc908b94173bf31`，worktree 日志 `worktree-add-05-c5ee9a06bc.log` SHA256 `ada7b161fb03b2803c3ceab1088ae123ef67a79e1309bb8c316687b10ead86f9`。worktree 为 `/home/dev/gdds-fe-fe1-fix3-retry-05`，运行前后 HEAD/tree 未变且 clean，`legacy` 链接已创建。
+
+### DC68 前置操作错误
+
+以下三次错误均发生在被测 runner 启动前，分别保留失败日志与 SHA256，并从步骤开头修正重做；未发生缓存缺失或镜像身份不符。
+
+1. 05 初次预检使用无效的 Docker `--format "{{.Config.Image}}"` 字段，命令失败；失败日志 `/home/dev/gdds-fe-logs/fe1/fix3/preflight-05-fail-docker-inspect-template.log`，SHA256 `b1d465aada9f2057eb5e7f0591f7fccf9b28334e326076c1db78c62388958574`。改用镜像存在性检查和 runner 使用的 RootFS DiffID 字段，从预检开头重做通过；日志 `preflight-05.log` SHA256 `7885b4aaef0e50dcfae5dcbc0c84bbea909f35dabfd41784d9408429019f7f0a`。
+2. 为 b55 候选创建 bundle 时误将 05 的 `main`（`0e0d14f1d1`）当作候选祖先；失败日志 `/home/dev/gdds-fe-logs/fe1/fix3/source-bundle-create-b55a64db8b.log`，SHA256 `dc3fcc05ee2981f81f03f612fd65aef49d188892a2b37f88ab2ce9ceb0b35d7f`。确认实际 merge-base 为 `36047efe5acca90c08acb95796c58c5b4cea33a3` 后从 bundle 创建开头重做，日志 `source-bundle-create-b55a64db8b-retry-1.log` SHA256 `ea3604cbb18afe31cde95fc2acf80c8409155dff8ac3a66ab86276fcc834013d`，bundle SHA256 `f41dba291bd98e750b80cd478fbba0b2a1517c64697fe642544ac06d2f640da7`。
+3. 检查 npm cache 时误查默认路径，未找到文件；失败日志 `/home/dev/gdds-fe-logs/fe1/fix3/preflight-05-cache-path-probe-fail.log`，SHA256 `aa42bd02c4c35b875344afdf669f2fb7e225f642a3d66095749b7825cfda2d30`。按既有 runner 日志确认实际 cache 目录及归档路径后，从预检开头重做通过；日志 `preflight-runner-05.log` SHA256 `4f0768617e9601cde2054896df057cdccc0c4b4311247c59bc48651bdd9203a9`。
+
+本轮未进行 04 阶段退出取证；等待 FE1 复审第 2 轮结论后再按流程执行。

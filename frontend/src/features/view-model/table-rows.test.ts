@@ -100,7 +100,7 @@ describe("table row presentation", () => {
     expect(moved?.beforePosition).toEqual(expect.any(Number));
     expect(moved?.currentPosition).toEqual(expect.any(Number));
     expect(blank?.kind).toBe("blank");
-    expect(blank?.rowNumber).toBe(backendPosition);
+    expect(blank?.rowNumber).toBe(Number(backendPosition));
   });
 
   it("keeps modified rows paired and collapses only ordinary unchanged runs", async () => {

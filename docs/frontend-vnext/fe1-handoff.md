@@ -1,6 +1,6 @@
-# FE1 handoff（B4 定向修复的 CT05 验证通过）
+# FE1 handoff（04 取证完成，待证据核对）
 
-> 原 FE1 候选 `b67da4795fd22afcab1365f4138b131ab4c736d1` 的 04 阶段退出运行保留为历史记录；因定向修复失效，待复审后重做。首个修复候选 `be430b9d98e8a31c676bfd8cd0136e893a7950d2` 的失败日志也保留。当前代码候选为 `c5ee9a06bc8f2502f8b5299d2b8cd657441797de`，B4 补充修复后的 CT05 完整 runner exit code 为 0；04 取证仍待复审第 2 轮通过后进行。本 handoff 提交是复审范围终点。
+> FE1 独立复审第 2 轮已通过。原候选 `b67da4795fd22afcab1365f4138b131ab4c736d1` 的 04 运行仅作为历史记录；本次对代码候选 `c5ee9a06bc8f2502f8b5299d2b8cd657441797de` 的 04 权威 runner exit code 为 0，现待审核会话核对证据。来源 handoff 提交为 `7732c4140e6c60570c7fe4ea2c806e436e44ac9a`，其 `frontend/` tree 与代码候选相同。本提交只更新 handoff。
 
 ## 初始候选与范围（历史记录）
 
@@ -273,4 +273,40 @@ CT05 runner 已启动且 exit 非零；按停止规则未重跑。失败后只�
 2. 为 b55 候选创建 bundle 时误将 05 的 `main`（`0e0d14f1d1`）当作候选祖先；失败日志 `/home/dev/gdds-fe-logs/fe1/fix3/source-bundle-create-b55a64db8b.log`，SHA256 `dc3fcc05ee2981f81f03f612fd65aef49d188892a2b37f88ab2ce9ceb0b35d7f`。确认实际 merge-base 为 `36047efe5acca90c08acb95796c58c5b4cea33a3` 后从 bundle 创建开头重做，日志 `source-bundle-create-b55a64db8b-retry-1.log` SHA256 `ea3604cbb18afe31cde95fc2acf80c8409155dff8ac3a66ab86276fcc834013d`，bundle SHA256 `f41dba291bd98e750b80cd478fbba0b2a1517c64697fe642544ac06d2f640da7`。
 3. 检查 npm cache 时误查默认路径，未找到文件；失败日志 `/home/dev/gdds-fe-logs/fe1/fix3/preflight-05-cache-path-probe-fail.log`，SHA256 `aa42bd02c4c35b875344afdf669f2fb7e225f642a3d66095749b7825cfda2d30`。按既有 runner 日志确认实际 cache 目录及归档路径后，从预检开头重做通过；日志 `preflight-runner-05.log` SHA256 `4f0768617e9601cde2054896df057cdccc0c4b4311247c59bc48651bdd9203a9`。
 
-本轮未进行 04 阶段退出取证；等待 FE1 复审第 2 轮结论后再按流程执行。
+B4 修复提交阶段未进行 04 取证；复审第 2 轮通过后的阶段退出运行记录见下文。
+
+## FE1 阶段退出取证（04）
+
+### 被测提交与预检
+
+- 独立复审第 2 轮 PASS 报告位于 main `24934e2919992fcde403aea56cdfaf09cbeb875d`。被测代码候选为 `c5ee9a06bc8f2502f8b5299d2b8cd657441797de`，`frontend/` tree 为 `8e553cbf49cced19c686b136f14ec79407c5e14d`。源码从 `fe-vnext` handoff HEAD `7732c4140e6c60570c7fe4ea2c806e436e44ac9a` 传输；该提交只在候选后更新 handoff，`frontend/` tree 未变。04 worktree 检出的是代码候选 `c5ee9a06bc`，没有检出 handoff 提交。
+- 04 预检时间 `2026-11-02T16:07:03Z`，节点 `gw-dms-test-04.lan`：`ssh -o BatchMode=yes ... 'echo OK'` 成功；`/home/dev/gdds-node-busy.d` 不存在；共享 main 为 `0e0d14f1d19779a5ff49c8e3c79f6aba323dd0bf`；宿主机没有 Node.js。原 worktree `/home/dev/gdds-fe-fe1-exit-04`（HEAD `b67da4795f`）仍在，本次未复用。新路径 `/home/dev/gdds-fe-fe1-exit2-04` 当时不存在。预检日志 `/home/dev/gdds-fe-logs/fe1/exit-04/preflight-04.log`，SHA256 `1a45da0836719ec25ae8d15748c7580d86711590848915b11bc2c811929ec6ba`。
+
+### 镜像与缓存身份
+
+- 工具链镜像 `mcr.microsoft.com/playwright:v1.64.1-noble` 已存在。使用代码候选中的 `frontend/scripts/docker-save-image-identity.py` 对 04 上 `docker save` 归档导出身份；解析器 SHA256 `c205c3c044d388ce7a75f36eb4d02ef209b4487ef4d2f39229d4abc98f179a45`，config digest 为 `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`。config 内容摘要与 Config 路径一致、manifest 为单镜像、Layers 和 DiffID 数均为 7；未比较 inspect ID。
+- 导出的 RootFS DiffID（顺序与 runner 固定值一致）：
+
+  1. `sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278`
+  2. `sha256:1590c449306a9032a32c49afeac5e4c7cae86197c4a7dd95c095c3ae220a7f07`
+  3. `sha256:c8a795d9cdbc02d20daf1ecac5377667d61d63392fbe5bdbba94cc79a4cf3fe9`
+  4. `sha256:89e210c351d8ddaa3c7a6132e19a5aaf27ec837371dd94f0698dfa4c1e5aef3d`
+  5. `sha256:ea03ac3d8e487159afdc9d45b9a8d3f4035418655881b896cc34fa2e464c27fc`
+  6. `sha256:16f77d0178dafdf603cd05f8464e39df636665b2b028e18e0b95bfbee5ecacd5`
+  7. `sha256:d8597d6a5431eca9c1082ade19c2b7cdef69fbaaae43f0b67fbbd25f3a35c2bb`
+
+- 镜像身份日志 `/home/dev/gdds-fe-logs/fe1/exit-04/toolchain-image-identity-04.log`，SHA256 `6eb1b8158980a29afad271367a983d73e975c198c4081a1fe9b63130ef8048df`；导出 JSON `/home/dev/gdds-fe-logs/fe1/exit-04/toolchain-image-identity-04.json`，SHA256 `4961e044044f603d9e088b02ab556af4faa4f41b3b4cbae9e4759fa13f87dcfc`。解析脚本经 CT201→04 传输，两端 SHA256 均为 `c205c3c044d388ce7a75f36eb4d02ef209b4487ef4d2f39229d4abc98f179a45`；传输日志 `/home/dev/gdds-fe-logs/fe1/exit-04/image-identity-script-transfer.log`，SHA256 `5aeeb0acb0bb310f535b607e11359807890584ed928b673ef98fbd6b57414052`。
+- npm cache 沿用默认目录 `/home/dev/gdds-fe-cache/frontend/npm-cache`；归档 `/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz` 的 SHA256 为 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`，与预期相同。来源提交按 R1 记录为 `a2fb4a027a6f62218109783674cfc37bd64e14a5`；lockfile 有 305 个 resolved 项。
+
+### 源码传输与 worktree
+
+- CT201 `heavy-dev-01.lan` 于 `2026-11-02T16:08:25Z` 创建 `fe-vnext` bundle，前置为 04 已有的祖先提交 `36047efe5acca90c08acb95796c58c5b4cea33a3`。bundle SHA256 `f09109ce27dc9e10b69fb248d0a223bc69a524730192aef1e05c875b369f176e`；创建/verify 日志 `/home/dev/gdds-fe-logs/fe1/exit-04/source-bundle-create-7732c4140e.log`，SHA256 `313afe94560d81cabc0d2f80e58da3213944e20654150e1e15b9e1aaed2c4f23`。
+- CT201→04 局域网传输时间 `16:08:31–16:08:32Z`，两端 bundle SHA256 都是 `f09109ce27dc9e10b69fb248d0a223bc69a524730192aef1e05c875b369f176e`。传输日志（CT201）`/home/dev/gdds-fe-logs/fe1/exit-04/source-bundle-transfer-04-7732c4140e.log`，SHA256 `3189cd7b261d0c7b268d5ecb892f89f3427b0b45760169d1cacbf73663596444`。
+- 04 于 `16:08:40Z` 完成 bundle verify/fetch；`FETCH_HEAD=7732c4140e6c60570c7fe4ea2c806e436e44ac9a`，main 前后均为 `0e0d14f1d19779a5ff49c8e3c79f6aba323dd0bf`，未建分支、未移动 main。日志 `/home/dev/gdds-fe-logs/fe1/exit-04/bundle-fetch-04-7732c4140e.log`，SHA256 `52788c272f6c4b8641acd59f9b447bcaa4c3b5dc3072f1e63b5424b7ce7d5477`。
+- 04 于 `16:08:46–16:08:47Z` 新建 detached worktree `/home/dev/gdds-fe-fe1-exit2-04`，HEAD 为代码候选 `c5ee9a06bc8f2502f8b5299d2b8cd657441797de`，`frontend/` tree 为 `8e553cbf49cced19c686b136f14ec79407c5e14d`，legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`，`git status --porcelain --untracked-files=all` 为空。日志 `/home/dev/gdds-fe-logs/fe1/exit-04/worktree-add-04-c5ee9a06bc.log`，SHA256 `c16b663d65d0aaebc8b04fc092588991c85498557b10cc3d13e453e8508ae2ab`。
+
+### 04 权威运行
+
+- 在上述 worktree 只运行一次完整 `./frontend/scripts/run-tests.sh --e2e`，时间 `2026-11-02T16:08:55Z–16:09:10Z`。hostname `gw-dms-test-04.lan`；`head_start` 与 `head_end` 都是代码候选 `c5ee9a06bc8f2502f8b5299d2b8cd657441797de`；`frontend_tree_start` 与 `frontend_tree_end` 都是 `8e553cbf49cced19c686b136f14ec79407c5e14d`；exit code `0`。typecheck、lint、build 均通过；Vitest 9 个文件、38 项通过；e2e `3 passed`。runner 记录 `fixture_bundle_digest=sha256:a34e85601da5bbb2b818f7307273fd6844e81d62ef0ad576e2ee9b285f5f4538`。
+- runner 日志 `/home/dev/gdds-fe-logs/fe1/exit-04/frontend-tests-20261102T160855Z.log`，SHA256 `c1df171de4339e5a64b5bd5ad8e9b6e06ef7af63ef932519894bfebd4b481655`。运行后新 worktree 仍 clean，HEAD/tree 未变；04 main 仍为 `0e0d14f1d19779a5ff49c8e3c79f6aba323dd0bf`。本次成功运行取代原候选 `b67da4795f` 的 04 运行，后者仅作为历史记录保留。
+- 本轮没有 DC68 重做。测试未在开发主机运行；`/home/dev/gdds-fe` 与开发主工作区均 clean。未推送、未打 tag、未合入 main。本 handoff 提交后，状态为“04 取证完成，待证据核对”。

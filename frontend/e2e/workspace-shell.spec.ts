@@ -63,6 +63,9 @@ function browseUrl(mode: "PREVIEW" | "REVIEW" | "HISTORY", requestPath: string, 
 
 async function waitForBrowse(page: Page) {
   await expect(page.getByRole("heading", { name: "差异浏览", level: 1 })).toBeVisible();
+  await page.locator(".grid-frame, .compare-error").first().waitFor({ state: "visible", timeout: 15000 });
+  const error = page.locator(".compare-error");
+  if (await error.isVisible()) throw new Error(`browse failed at ${page.url()}: ${await error.innerText()}`);
   await expect(page.locator(".grid-frame").first()).toBeVisible();
 }
 

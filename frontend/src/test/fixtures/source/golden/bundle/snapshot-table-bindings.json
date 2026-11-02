@@ -1,0 +1,19 @@
+{
+  "contract_version": "backend-vnext/comparison-bundle/v3",
+  "cases": {
+    "identical_snapshot_rows_across_pairs": {
+      "binding_count": 1,
+      "entries": [
+        {
+          "kind": "SNAPSHOT_TABLE",
+          "logical_path": "shared/snapshot-tables/025206ec6b3f703281d8d93ab09e5133662180472fc8e435301df712f4083160.parquet",
+          "shared": true,
+          "table_bindings": [
+            {"pair_id": "left_to_middle", "side": "current", "table_name": "orders"},
+            {"pair_id": "middle_to_right", "side": "current", "table_name": "settings"}
+          ]
+        }
+      ]
+    }
+  }
+}

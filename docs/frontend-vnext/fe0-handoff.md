@@ -2,8 +2,8 @@
 
 ## 完成状态
 
-- 已从当前 `main` 创建 `/home/dev/gdds-fe` worktree 和 `fe-vnext` 分支，起点为 `7c339bff460254e19f36e81cb75028ca3a2702b1`；已建立 `legacy` 符号链接。
-- 前端代码提交：`62cd5d5641fce9447c1c6422dfd42ff8a28b5ac4`（`feat(frontend): scaffold vnext frontend`）；handoff 独立提交。
+- 已从当前 `main` 创建 `/home/dev/gdds-fe` worktree 和 `fe-vnext` 分支，代码起点为 `7c339bff460254e19f36e81cb75028ca3a2702b1`；已建立 `legacy` 符号链接。治理规则提交 `f0ad2461accf173354cb4fa45a0f132dc4d568e7` 已成为分支祖先，规则文件在本分支没有额外改动。
+- 前端代码提交：`a2fb4a027a6f62218109783674cfc37bd64e14a5`（`feat(frontend): scaffold vnext frontend`）；handoff 独立提交。
 - 在 `frontend/` 初始化 React、TypeScript、Vite、glide-data-grid、hyparquet、lucide 工程；依赖在 `package.json` 中精确钉版本，已生成并提交 `package-lock.json`。功能、设计系统、页面分别落在 `src/features/`、`src/design-system/`、`src/pages/`。
 - `frontend/scripts/run-tests.sh` 提供类型检查、lint、单元测试、构建入口和 `--e2e` 接口。此脚本尚未运行。
 - 已提交 OpenAPI 快照 `frontend/openapi.json` 和生成类型 `frontend/src/features/api/generated/openapi.d.ts`。
@@ -11,9 +11,9 @@
 
 ## 测试状态与等待项
 
-截至本 handoff，AGENTS.md 与 `docs/backend-vnext/testing-conventions.md` 尚未写入 FD7 前端测试规则。遵从 owner 澄清，尚未在 05/04 运行类型检查、lint、单元测试、构建、E2E 或容器内 `npm ci --offline`；也未在开发主机运行这些操作。因没有测试运行，不存在可报告的测试节点运行日志、测试 HEAD、测试 exit code 或测试日志 SHA256。
+owner 已将 FD7 规则提交为 `f0ad2461accf173354cb4fa45a0f132dc4d568e7`，包含 AGENTS.md 与 `docs/backend-vnext/testing-conventions.md` 两处规则，本分支已 rebase 到该提交之上。此前尚未在 05/04 运行类型检查、lint、单元测试、构建、E2E 或容器内 `npm ci --offline`；也未在开发主机运行这些操作。测试运行结果和日志将在 FE0 节点验证后补入本 handoff。
 
-工具链镜像与 npm 缓存已预填充至 05；这只是制品传输和身份核验，不是测试。收到规则已落地的通知后，再按 kickoff §6 在 05 执行 FE0 入口，并按要求留存运行日志。04 的阶段退出运行尚未进行。
+工具链镜像与 npm 缓存已预填充至 05；此前仅做制品传输和身份核验。收到规则已落地的通知后，按 kickoff §6 在 05 执行 FE0 入口，并按要求留存运行日志。04 的阶段退出运行尚未进行。
 
 ## 工具链与缓存来源
 

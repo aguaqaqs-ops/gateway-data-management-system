@@ -24,6 +24,7 @@ describe("navigation and surface diagnostic copy", () => {
     for (const code of SURFACE_DIAGNOSTIC_CODES) {
       expect(formatSurfaceDiagnostic(code).message).not.toBe("比较过程有提示");
     }
+    expect(formatSurfaceDiagnostic("DEGRADE_NO_COMPARE_KEY")).toEqual({ message: "比较过程有提示", raw: "DEGRADE_NO_COMPARE_KEY" });
     expect(formatSurfaceDiagnostic("FUTURE_SURFACE_CODE").message).toBe("比较过程有提示");
   });
 

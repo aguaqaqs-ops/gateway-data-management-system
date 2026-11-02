@@ -301,7 +301,11 @@ export function buildBrowseRows(input: {
 
   input.currentRows.forEach((source, index) => {
     const identity = currentIdentities[index] ?? null;
-    const candidate = identity ? byIdentity.get(identity)?.find((record) => !consumed.has(record) && ["ROW_ADDED", "ROW_MODIFIED", "ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"].includes(String(record.record_kind))) : undefined;
+    const rowRecords = ["ROW_ADDED", "ROW_MODIFIED", "ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"];
+    const candidate = (identity ? byIdentity.get(identity)?.find((record) => !consumed.has(record) && rowRecords.includes(String(record.record_kind))) : undefined)
+      ?? input.records.find((record) => !consumed.has(record)
+        && ["ORDERED_ROW_ADDED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"].includes(String(record.record_kind))
+        && record.current_position === index + 1);
     if (!candidate) {
       rows.push(makeRow({ key: `current:${index + 1}`, kind: "unchanged", source, rowNumber: index + 1, identity }));
       return;
@@ -319,7 +323,8 @@ export function buildBrowseRows(input: {
       rows.push(makeRow({ key: `${pairKey}:before`, kind: "modified-before", source: before, rowNumber: beforeNumber, identity, record: candidate, pairKey, values: before }));
       rows.push(makeRow({ key: `${pairKey}:after`, kind: "modified-after", source: after, rowNumber: currentNumber, identity, record: candidate, pairKey, values: after }));
     } else {
-      rows.push(makeRow({ key: `record:${identity}`, kind: recordKind === "ORDERED_ROW_MOVED" ? "ordered" : "added", source, rowNumber: index + 1, identity, record: candidate }));
+      rows.push(makeRow({ key: `record:${identity ?? index + 1}`, kind: recordKind === "ORDERED_ROW_MOVED" ? "ordered" : "added",
+        source, rowNumber: typeof candidate.current_position === "number" ? candidate.current_position : index + 1, identity, record: candidate }));
     }
   });
 

@@ -5,7 +5,7 @@ import { normalizeRowIdentity } from "./model";
 import { buildBrowseRows, snapshotRowIdentity } from "./table-rows";
 
 describe("table row presentation", () => {
-  it("matches keyless duplicate occurrences to their backend add and delete records", async () => {
+  it("keeps the backend's degraded keyless comparison from inventing row changes", async () => {
     const { bundle, manifest } = await installedFixtureBundle("preview-full");
     const pair = manifest.pairs.find((value) => (value as { pair_id: string }).pair_id === "baseline_to_initial") as { pair_id: string };
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
@@ -17,7 +17,10 @@ describe("table row presentation", () => {
       readLocalRiskAnnotations(bundle, presentation, "keyless_demo"),
     ]);
     const rows = buildBrowseRows({ table: surface, beforeRows: [], currentRows: current, records, annotations });
-    expect(rows.filter((row) => row.kind === "added" || row.kind === "deleted").map((row) => row.kind).sort()).toEqual(["added", "deleted"]);
+    expect(surface.change_kind).toBe("DEGRADED");
+    expect(surface.diagnostics?.diagnostics_summary).toContain("DEGRADE_NO_COMPARE_KEY");
+    expect(records.some((record) => ["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"].includes(String(record.record_kind)))).toBe(false);
+    expect(rows.some((row) => row.kind === "added" || row.kind === "deleted" || row.kind === "modified-before" || row.kind === "modified-after")).toBe(false);
   });
 
   it("maps supported row risk levels without changing the fixture target", async () => {

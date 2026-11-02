@@ -56,7 +56,7 @@ describe("backend-generated FE2a bundle fixtures", () => {
     const ordered = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_syx_list");
     expect(ordered.some((row) => row.record_kind === "ORDERED_ROW_MOVED")).toBe(true);
     expect(ordered.some((row) => row.record_kind === "BLANK_DELETE_INTERVAL" || row.record_kind === "BLANK_INSERT_INTERVAL")).toBe(true);
-    expect(presentation.surface.tables.some((table) => table.table_name === "keyless_demo" && table.diagnostics?.diagnostics_summary?.includes("KEYLESS_FALLBACK"))).toBe(true);
+    expect(presentation.surface.tables.some((table) => table.table_name === "keyless_demo" && table.diagnostics?.diagnostics_summary?.includes("DEGRADE_NO_COMPARE_KEY"))).toBe(true);
     const formulas = await readLocalChangeRecords(bundle, presentation, "composite_signal_point");
     expect(formulas.some((row) => row.record_kind === "ROW_MODIFIED")).toBe(true);
     const annotations = await readLocalRiskAnnotations(bundle, presentation, "device");

@@ -71,6 +71,7 @@ vnext bundle 是精简的表索引（`ComparisonSurface`）加 artifact 闭包�
 | 业务分组（转发通道、二次装置列表、通讯规约列表、全局参数、转发通道分组信息、未解析表）、组内节点、二次装置页签 | `legacy/backend_vnext/capabilities/business_projection/`、`flows/business_projection.py`（约 2,000 行；需读 `net_cfg`、`app_cfg` 等表的行数据、身份计数与风险汇总） | P5 收口时作为“无使用方的占位”删除（ADR 0018 第 7 项、P5 arch closure design §10）；当时前端尚未接入 | BE-b |
 | 列展示（显示名、顺序、宽度、隐藏、固定、键列） | `legacy/backend_vnext/capabilities/table_presentation/`（约 2,600 行，多为按表名正则的列宽规则） | 代码未迁移；`contracts/table-presentation.md`、`capabilities/table-presentation.md`、`capabilities/business-projection.md` 仍为现行文档，与代码不一致 | BE-b |
 | 复合信号公式查看 | legacy formulas artifact | vnext 有 `composite_signal_point` 派生表（含 `formula_ast_json`），bundle 是否完整携带待核对 | FE0 核对 |
+| 历史初始备份节点（随归档提交上传的原始组态备份，可查看差异、加入比较） | `FormalWorkspaceTree.tsx`、`formalWorkspaceState.ts` | History 只有基线、提交与规则迁移节点；History 比较只接受基线节点与提交 | owner 2026-11-02（FE2 kickoff Q4 甲）：FE2 不实现；是否需要由 owner 另定，需要时作为后端任务单独立项 |
 
 ## 4. 工程与架构
 
@@ -161,7 +162,7 @@ AGENTS 的“专用测试节点”规则同样适用于前端：不在开发主�
 | --- | --- | --- | --- |
 | FE0 骨架 | 工程初始化、工具链镜像与 npm 缓存预填充、测试入口与节点规则落地、OpenAPI 快照与类型生成、§3.3 复合信号核对、legacy 能力清单（§8）逐项确认 | kickoff 确认 | 05 上入口可运行；清单无“未判定”项 |
 | FE1 A/B 并行 | A：认证封装、API 客户端、轮询与幂等、bundle 本地化与解析、视图模型推导、命令层；B：token、组件、表格主题、对话框 | FE0 | A 用 golden bundle 与模拟接口覆盖全部旅程的数据流；B 覆盖 UI 优化方向 P1、P2 条目 |
-| FE2 页面 | 正式工作台（树、上下文工具栏、上传步骤卡、比较托盘、结果抽屉）、差异浏览（两行顶栏、侧栏 A、tab、表格、变更定位）、审核与撤回、归档、历史比较、数据集替换浏览与确认 | FE1 | 用模拟接口完成全部旅程；UI 优化方向 P3、P4 条目落地；截图验收通过（§6） |
+| FE2 页面 | 正式工作台（树、上下文工具栏、上传步骤卡、比较托盘、结果抽屉）、差异浏览（两行顶栏、侧栏 A、tab、表格、变更定位）、审核与撤回、归档、历史比较、数据集替换浏览与确认。分为 FE2a 差异浏览、FE2b 工作台与写操作，各自审核、取证与打 tag（[FE2 kickoff](fe2-kickoff.md) §2，owner 2026-11-02） | FE1 | 用模拟接口完成全部旅程；UI 优化方向 P3、P4 条目落地；截图验收通过（§6） |
 | FE3 对接 | 对接 Compose 中的真实 backend；OpenAPI 快照一致性；真实数据 t1 完整旅程 | FE2、BE-a、BE-d | e2e 全部旅程通过；t1 旅程通过 |
 | FE4 收口 | 接入 BE-b 的分组与列展示，移除占位数据（保留回退行为）；04 上取证 | BE-b | 04 证据；owner 退出审核 |
 
@@ -196,7 +197,7 @@ FE0 逐项核对 vnext 来源并标注 KEEP / SIMPLIFY / REMOVE；“简化”�
 | 项 | 需要的决定 | 阶段 |
 | --- | --- | --- |
 | FD7 规则写入 AGENTS 与 testing-conventions | 治理会话执行 | FE0 首次运行测试前 |
-| UI 草图中的占位文案（节点状态、Diff Kind、Change Group） | 按 vnext 实际枚举定稿。提案见 [FE2 kickoff §4](fe2-kickoff.md#4-界面文案定稿回填前端-kickoff-9-第-2-项)，待 owner 确认 | FE2 开始前 |
+| UI 草图中的占位文案（节点状态、Diff Kind、Change Group） | 已关闭：按 vnext 实际枚举定稿，见 [FE2 kickoff §4](fe2-kickoff.md#4-界面文案定稿回填前端-kickoff-9-第-2-项)（owner 2026-11-02）；Change Group 列删除 | — |
 | 侧栏导航层级是否精简 | BE-b 分组设计后讨论 | BE-b 设计 |
 | 导航诊断的结构与编码（FE1 审核 D1） | 已答复：[BE-b 草案 §4.7](be-b-navigation-and-presentation-draft.md#47-导航诊断设计会话-2026-11-02答复-fe1-审核-d1)。诊断放在 `SurfaceProjectionRef.diagnostics_ref` 指向的独立产物中，不带 message，前端按 code 映射中文文案。FE2 按此修改 `model.ts` 的过渡处理并补测试；新增编码 `DEVICE_ROWS_UNASSIGNED` 已由 owner 确认（2026-11-02） | FE2 |
 | surface `diagnostics_summary` 中的自由文本 | 少数条目是自由文本而不是编码（如风险引擎的 `max_annotations_per_pair exceeded`、比较失败的异常文本）。收敛为编码是后端清理项，不属于 BE-b，时机由 owner 安排；在此之前前端显示通用文案，原文放进 Debug | 后端，不阻塞 |

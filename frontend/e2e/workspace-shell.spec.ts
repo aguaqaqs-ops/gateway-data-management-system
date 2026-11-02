@@ -95,7 +95,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const mainGrid = page.locator(".grid-frame").first();
   const gridBounds = await mainGrid.boundingBox();
   if (!gridBounds) throw new Error("comparison grid has no bounding box");
-  await page.mouse.move(gridBounds.x + 410, gridBounds.y + 133);
+  await page.mouse.move(gridBounds.x + 300, gridBounds.y + 133);
   await expect(page.getByRole("tooltip")).toContainText("字段变更");
   await expect(page.getByRole("tooltip")).toContainText("测控装置（升级）");
   await screenshot(page, "s4-grid-hover", 1920);

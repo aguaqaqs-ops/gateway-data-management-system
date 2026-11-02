@@ -110,11 +110,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "收起导航" }).click();
   await screenshot(page, "s4-grid-debug", 1280);
-
-  await page.goto(browseUrl("PREVIEW", previewPath, { pair: "baseline_to_initial", changed: "1" }));
-  await waitForBrowse(page);
-  await page.getByRole("button", { name: "查看整表" }).click();
-  await page.getByRole("button", { name: "收起导航" }).click();
+  await page.getByRole("button", { name: "Debug" }).click();
   await screenshot(page, "s3-workbench-upload", 1280);
   await screenshotHeader(page, "s3-header-upload", 1280);
   await screenshot(page, "s4-grid-main", 1280);

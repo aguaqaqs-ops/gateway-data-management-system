@@ -11,7 +11,7 @@ export function bytesStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
       controller.enqueue(bytes);
       controller.close();
     },
-  });
+  }) as unknown as ReadableStream<Uint8Array>;
 }
 
 export async function readFixture(relativePath: string): Promise<Uint8Array> {

@@ -1,40 +1,69 @@
 import type { Theme } from "@glideapps/glide-data-grid";
 
-export const tableTheme: Theme = {
-  accentColor: "#1f5efb",
-  accentFg: "#ffffff",
-  accentLight: "#e8efff",
-  textDark: "#202833",
-  textMedium: "#596779",
-  textLight: "#748195",
-  textBubble: "#202833",
-  bgIconHeader: "#596779",
-  fgIconHeader: "#ffffff",
-  textHeader: "#596779",
-  textGroupHeader: "#202833",
-  textHeaderSelected: "#202833",
-  bgCell: "#ffffff",
-  bgCellMedium: "#f6f8fa",
-  bgHeader: "#f6f8fa",
-  bgHeaderHasFocus: "#e8efff",
-  bgHeaderHovered: "#edf1f6",
-  bgBubble: "#f6f8fa",
-  bgBubbleSelected: "#e8efff",
-  bgSearchResult: "#fff3cd",
-  borderColor: "#d9e0e8",
-  drilldownBorder: "#d9e0e8",
-  linkColor: "#1f5efb",
-  cellHorizontalPadding: 8,
-  cellVerticalPadding: 4,
-  headerFontStyle: "600 13px \"Noto Sans CJK SC\", sans-serif",
-  headerIconSize: 18,
-  baseFontStyle: "13px \"Noto Sans CJK SC\", sans-serif",
-  markerFontStyle: "12px \"Noto Sans CJK SC\", sans-serif",
-  fontFamily: "\"Noto Sans CJK SC\", sans-serif",
-  editorFontSize: "14px",
-  lineHeight: 1.45,
-  roundingRadius: 4,
-};
+export type CssTokenReader = (name: string) => string;
+
+function readComputedToken(name: string): string {
+  if (typeof document === "undefined") throw new Error("表格主题需要浏览器中的设计 token");
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function requiredToken(readToken: CssTokenReader, name: string): string {
+  const value = readToken(name).trim();
+  if (!value) throw new Error(`缺少设计 token：${name}`);
+  return value;
+}
+
+function numericToken(readToken: CssTokenReader, name: string): number {
+  const value = Number.parseFloat(requiredToken(readToken, name));
+  if (!Number.isFinite(value)) throw new Error(`设计 token 不是有效数值：${name}`);
+  return value;
+}
+
+/** Read the same CSS tokens used by page components when a grid is created. */
+export function createTableTheme(readToken: CssTokenReader = readComputedToken): Theme {
+  const fontFamily = requiredToken(readToken, "--font-family-ui");
+  const fontSizeSm = requiredToken(readToken, "--font-size-sm");
+  const fontSizeMd = requiredToken(readToken, "--font-size-md");
+  const fontSizeXs = requiredToken(readToken, "--font-size-xs");
+  const surfaceMuted = requiredToken(readToken, "--color-surface-muted");
+  const border = requiredToken(readToken, "--color-border");
+
+  return {
+    accentColor: requiredToken(readToken, "--color-accent"),
+    accentFg: requiredToken(readToken, "--color-text-on-accent"),
+    accentLight: requiredToken(readToken, "--color-accent-soft"),
+    textDark: requiredToken(readToken, "--color-text"),
+    textMedium: requiredToken(readToken, "--color-text-muted"),
+    textLight: requiredToken(readToken, "--color-text-subtle"),
+    textBubble: requiredToken(readToken, "--color-text"),
+    bgIconHeader: requiredToken(readToken, "--color-text-muted"),
+    fgIconHeader: requiredToken(readToken, "--color-text-on-accent"),
+    textHeader: requiredToken(readToken, "--color-text-muted"),
+    textGroupHeader: requiredToken(readToken, "--color-text"),
+    textHeaderSelected: requiredToken(readToken, "--color-text"),
+    bgCell: requiredToken(readToken, "--color-surface"),
+    bgCellMedium: surfaceMuted,
+    bgHeader: surfaceMuted,
+    bgHeaderHasFocus: requiredToken(readToken, "--color-accent-soft"),
+    bgHeaderHovered: requiredToken(readToken, "--color-surface-hover"),
+    bgBubble: surfaceMuted,
+    bgBubbleSelected: requiredToken(readToken, "--color-accent-soft"),
+    bgSearchResult: requiredToken(readToken, "--color-search-result"),
+    borderColor: border,
+    drilldownBorder: border,
+    linkColor: requiredToken(readToken, "--color-accent"),
+    cellHorizontalPadding: numericToken(readToken, "--space-2"),
+    cellVerticalPadding: numericToken(readToken, "--space-1"),
+    headerFontStyle: `600 ${fontSizeSm} ${fontFamily}`,
+    headerIconSize: numericToken(readToken, "--size-icon-header"),
+    baseFontStyle: `${fontSizeSm} ${fontFamily}`,
+    markerFontStyle: `${fontSizeXs} ${fontFamily}`,
+    fontFamily,
+    editorFontSize: fontSizeMd,
+    lineHeight: numericToken(readToken, "--line-height-body"),
+    roundingRadius: numericToken(readToken, "--radius-sm"),
+  };
+}
 
 export const riskClassByLevel = {
   HIGH: "risk-high",

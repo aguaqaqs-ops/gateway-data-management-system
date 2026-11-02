@@ -201,7 +201,20 @@ function normalizeNavigation(navigation: BusinessNavigation | undefined, tables:
       tabs: [{ tab_key: table.tableName, label: table.label, table_id: table.tableName, row_filter: null }],
     })));
   }
-  return { value: { ...navigation, groups }, diagnostics: [] };
+  const diagnostics = Array.isArray(navigation.diagnostics) ? navigation.diagnostics.map(diagnosticText) : [];
+  return { value: { ...navigation, groups }, diagnostics };
+}
+
+function diagnosticText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const item = value as Record<string, unknown>;
+    const code = typeof item.code === "string" ? item.code : null;
+    const message = typeof item.message === "string" ? item.message : null;
+    if (code && message) return `${code}: ${message}`;
+    if (message) return message;
+  }
+  try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
 }
 
 export function deriveBundleView(input: {
@@ -231,8 +244,8 @@ export function deriveBundleView(input: {
         attributes: item.attributes,
         tabs,
         showTabs: tabs.length > 1,
-        changeKinds: [...new Set(tabs.map((tab) => tab.table?.changeKind ?? tab.facts?.change_kind).filter((value): value is ChangeKind => Boolean(value)))],
-        riskLevels: [...new Set(tabs.map((tab) => tab.table?.riskLevel ?? tab.facts?.risk_level).filter((value): value is RiskLevel => Boolean(value)))],
+        changeKinds: [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.changeKind : tab.facts?.change_kind).filter((value): value is ChangeKind => Boolean(value)))],
+        riskLevels: [...new Set(tabs.map((tab) => tab.rowFilter === null ? tab.table?.riskLevel : tab.facts?.risk_level).filter((value): value is RiskLevel => Boolean(value)))],
       };
     }),
   }));

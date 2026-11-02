@@ -30,7 +30,8 @@ export function RiskBadge({ level }: { level: "HIGH" | "MEDIUM_HIGH" | "MEDIUM_L
 
 export function ChangeBadge({ kind }: { kind: "ADDED" | "DELETED" | "UPDATED" | "UNCHANGED" }) {
   const labels = { ADDED: "新增", DELETED: "删除", UPDATED: "更新", UNCHANGED: "未变更" };
-  return <span className={`change-badge diff-${kind.toLowerCase()}`}>{labels[kind]}</span>;
+  const symbols = { ADDED: "+", DELETED: "−", UPDATED: "↔", UNCHANGED: "=" };
+  return <span className={`change-badge diff-${kind.toLowerCase()}`} aria-label={labels[kind]}><span aria-hidden="true">{symbols[kind]}</span><span className="change-badge__label">{labels[kind]}</span></span>;
 }
 
 export interface DialogProps {

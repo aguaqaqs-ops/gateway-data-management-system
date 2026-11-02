@@ -32,7 +32,7 @@ export function DesignSystemPage() {
 
         <section className="showcase-card">
           <div className="card-heading"><div><span className="section-kicker">P1 · SEMANTIC COLOR</span><h3>差异与风险分开表达</h3></div></div>
-          <div className="badge-stack"><div><ChangeBadge kind="ADDED" /><ChangeBadge kind="DELETED" /><ChangeBadge kind="UPDATED" /></div><div><RiskBadge level="HIGH" /><RiskBadge level="MEDIUM_HIGH" /><RiskBadge level="MEDIUM_LOW" /><RiskBadge level="LOW" /></div></div>
+          <div className="badge-stack"><div><ChangeBadge kind="ADDED" /><ChangeBadge kind="DELETED" /><ChangeBadge kind="UPDATED" /><ChangeBadge kind="UNCHANGED" /></div><div><RiskBadge level="HIGH" /><RiskBadge level="MEDIUM_HIGH" /><RiskBadge level="MEDIUM_LOW" /><RiskBadge level="LOW" /><RiskBadge level="UNKNOWN" /></div></div>
           <InfoNote>差异徽章说明变化类型；风险颜色只表示 RiskReport 的评估结果。</InfoNote>
         </section>
 

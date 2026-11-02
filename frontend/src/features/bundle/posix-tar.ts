@@ -3,7 +3,6 @@ import { canonicalJson, normalizeSha256, Sha256 } from "./sha256";
 const BLOCK = 512;
 const METADATA_LIMIT = 16 * 1024 * 1024;
 const PAX_LIMIT = 1024 * 1024;
-const ARTIFACT_LIMIT = 1024 * 1024 * 1024;
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
 export interface BundleIntegrity {
@@ -264,7 +263,7 @@ async function readArtifact(
   contentLength: number,
 ): Promise<void> {
   const size = entry.integrity.size_bytes;
-  if (!Number.isSafeInteger(size) || size < 0 || size > ARTIFACT_LIMIT) throw new BundleIntegrityError("产物大小超出允许范围");
+  if (!Number.isSafeInteger(size) || size < 0) throw new BundleIntegrityError("产物大小超出允许范围");
   const sinkValue = await transaction.openArtifact(entry.logical_path);
   const sink: ArtifactSink = typeof (sinkValue as WritableStream<Uint8Array>).getWriter === "function"
     ? writerSink((sinkValue as WritableStream<Uint8Array>).getWriter())
@@ -320,7 +319,7 @@ function validateManifests(manifestValue: unknown, closureValue: unknown, etag: 
   if (!Array.isArray(manifest.closure) || !Array.isArray(manifest.closure_entries) || !Array.isArray(closure.entries) || !Array.isArray(closure.closure_entries)) {
     throw new BundleIntegrityError("bundle closure 列表缺失");
   }
-  if (manifest.bundle_digest !== closure.bundle_digest || manifest.bundle_digest !== expectedDigest) throw new BundleIntegrityError("bundle 摘要不一致");
+  if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(closure.bundle_digest) || normalizeSha256(manifest.bundle_digest) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("bundle 摘要不一致");
   if (manifest.bundle_contract_version !== closure.bundle_contract_version) throw new BundleIntegrityError("bundle contract version 不一致");
   if (normalizeSha256(etag) !== normalizeSha256(expectedDigest)) throw new BundleIntegrityError("ETag 与预期 bundle 摘要不一致");
   if (!sameCanonical(manifest.closure, closure.entries) || !sameCanonical(manifest.closure_entries, closure.closure_entries)) {
@@ -340,6 +339,16 @@ function validateManifests(manifestValue: unknown, closureValue: unknown, etag: 
     paths.add(entry.logical_path);
   }
   return { manifest, closure };
+}
+
+export async function verifyBundleMetadata(manifestValue: unknown, closureValue: unknown, expectedDigest: string, etag = expectedDigest): Promise<{ manifest: BundleManifest; closure: BundleClosure }> {
+  const verified = validateManifests(manifestValue, closureValue, etag, expectedDigest);
+  const { manifest, closure } = verified;
+  if (manifest.closure_manifest_digest !== await hashJson({ entries: manifest.closure })) throw new BundleIntegrityError("closure manifest 摘要不匹配");
+  const semanticDigest = await hashJson(manifestSemanticPayload(manifest));
+  if (closure.bundle_manifest_digest !== semanticDigest) throw new BundleIntegrityError("manifest 语义摘要不匹配");
+  if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(semanticDigest)) throw new BundleIntegrityError("bundle 语义摘要不匹配");
+  return verified;
 }
 
 /** Reads the agreed uncompressed tar format and installs only a fully verified bundle. */
@@ -392,12 +401,7 @@ export async function installBundleTar(options: {
         if (path !== "artifact-closure.json") throw new BundleIntegrityError("tar 第二个成员必须是 artifact-closure.json");
         const bytes = await readMemberBytes(reader, parsed.size, "bundle closure");
         closure = parseJson<BundleClosure>(bytes, "bundle closure");
-        const verified = validateManifests(manifest, closure, options.etag, options.expectedBundleDigest);
-        if (manifest.closure_manifest_digest !== await hashJson({ entries: manifest.closure })) throw new BundleIntegrityError("closure manifest 摘要不匹配");
-        const semanticDigest = await hashJson(manifestSemanticPayload(manifest));
-        if (closure.bundle_manifest_digest !== semanticDigest) throw new BundleIntegrityError("manifest 语义摘要不匹配");
-        if (normalizeSha256(manifest.bundle_digest) !== normalizeSha256(semanticDigest)) throw new BundleIntegrityError("bundle 语义摘要不匹配");
-        if (verified.manifest !== manifest) throw new BundleIntegrityError("manifest 验证失败");
+        await verifyBundleMetadata(manifest, closure, options.expectedBundleDigest, options.etag);
         await discardPadding(reader, parsed.size);
         options.onProgress?.({ receivedBytes: reader.consumedBytes, contentLength });
         continue;

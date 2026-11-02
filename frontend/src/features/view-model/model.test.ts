@@ -37,6 +37,27 @@ describe("bundle view model", () => {
     expect(result.tables.find((table) => table.tableName === "device_ext")?.riskLevel).toBeNull();
   });
 
+  it("summarizes filtered tabs from scoped facts and preserves backend diagnostics", () => {
+    const navigation: BusinessNavigation = {
+      groups: [{ group_key: "SECONDARY_DEVICES", label: "二次装置列表", items: [{
+        item_key: "device:addr:1", item_kind: "DEVICE", label: "装置一", tabs: [
+          { tab_key: "filtered", label: "装置一的表", table_id: "device", row_filter: { column: "dev_addr", value: 1 }, facts: { change_kind: "ADDED", risk_level: "HIGH" } },
+          { tab_key: "whole", label: "装置整表", table_id: "device_ext", row_filter: null },
+        ],
+      }] }],
+      diagnostics: [{ code: "NAVIGATION_FALLBACK", message: "装置身份计数未知" }, "OTHER_TABLES_ADDED"],
+    };
+    const result = deriveBundleView({
+      surface,
+      navigation,
+      riskReport: { tables: [{ table_name: "device", risk_level: "MEDIUM_LOW" }] },
+    });
+
+    expect(result.groups[0]?.items[0]?.changeKinds).toEqual(["ADDED", "UNCHANGED"]);
+    expect(result.groups[0]?.items[0]?.riskLevels).toEqual(["HIGH"]);
+    expect(result.diagnostics).toEqual(["NAVIGATION_FALLBACK: 装置身份计数未知", "OTHER_TABLES_ADDED"]);
+  });
+
   it("does not synthesize unknown risk when the RiskReport has no table entry", () => {
     const result = deriveBundleView({ surface, riskReport: { tables: [] } });
     expect(result.tables.map((table) => table.riskLevel)).toEqual([null, null]);

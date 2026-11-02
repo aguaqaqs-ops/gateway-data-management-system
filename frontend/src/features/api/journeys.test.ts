@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayApi } from "./client";
-import { runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
+import { applyReviewAction, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
 import { MemoryBundleStore } from "../bundle/local-bundle";
 import { installedGoldenBundle, responseForTar } from "../../test/helpers";
 
@@ -84,6 +84,18 @@ describe("simulated user journey data flows", () => {
     expect(getHistoryBundle).toHaveBeenCalledTimes(1);
     expect(getPreviewBundle).not.toHaveBeenCalled();
     expect(result.bundle.manifest.bundle_digest).toBe(fixture.manifest.bundle_digest);
+  });
+
+  it("uses the current review version for approve/reject and requires a rejection reason", async () => {
+    const api = {
+      getReviewFacts: vi.fn().mockResolvedValue({ submission_id: "submission-1", status: "PENDING", review_version: 8, updated_by: "reviewer", updated_at: "2026-11-02T12:00:00Z", identity_exception: false, events: [] }),
+      applyReview: vi.fn().mockResolvedValue({ submission_id: "submission-1", status: "APPROVED", review_version: 9, event: { sequence: 2, event_kind: "APPROVED", to_status: "APPROVED", actor_id: "reviewer", occurred_at: "2026-11-02T12:00:00Z" } }),
+    } as unknown as GatewayApi;
+
+    await expect(applyReviewAction(api, "submission-1", "REJECT", "  ")).rejects.toThrow("退回时必须填写理由");
+    expect(api.applyReview).not.toHaveBeenCalled();
+    await applyReviewAction(api, "submission-1", "APPROVE");
+    expect(api.applyReview).toHaveBeenCalledWith("submission-1", { expected_review_version: 8, action: "APPROVE" });
   });
 
   it("previews the archive plan and applies the candidate snapshot with current versions", async () => {

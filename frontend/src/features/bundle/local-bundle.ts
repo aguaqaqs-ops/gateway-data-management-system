@@ -1,5 +1,5 @@
 import { Sha256, normalizeSha256 } from "./sha256";
-import { BundleIntegrityError, installBundleTar, type BundleClosure, type BundleManifest, type BundleStore, type BundleWriteTransaction } from "./posix-tar";
+import { BundleIntegrityError, installBundleTar, verifyBundleMetadata, type BundleClosure, type BundleManifest, type BundleStore, type BundleWriteTransaction } from "./posix-tar";
 
 const ROOT_NAME = "gateway-comparison-bundles-v1";
 const textEncoder = new TextEncoder();
@@ -101,10 +101,10 @@ export class OpfsBundleStore implements ReadableBundleStore {
     try { bundleDir = await root.getDirectoryHandle(key); } catch { return null; }
     try {
       const marker = JSON.parse(await readText(bundleDir, ".complete.json")) as { bundle_digest?: string };
-      if (marker.bundle_digest !== key) return null;
-      const manifest = JSON.parse(await readText(bundleDir, "manifest.json")) as BundleManifest;
-      const closure = JSON.parse(await readText(bundleDir, "artifact-closure.json")) as BundleClosure;
-      if (normalizeSha256(manifest.bundle_digest) !== key || normalizeSha256(closure.bundle_digest) !== key) return null;
+      if (marker.bundle_digest !== key) throw new BundleIntegrityError("本地 bundle 缓存标记不匹配");
+      const manifestValue: unknown = JSON.parse(await readText(bundleDir, "manifest.json"));
+      const closureValue: unknown = JSON.parse(await readText(bundleDir, "artifact-closure.json"));
+      const { manifest, closure } = await verifyBundleMetadata(manifestValue, closureValue, key);
       for (const entry of manifest.closure) {
         const parts = validatePath(entry.logical_path);
         const parent = await directory(bundleDir, parts.slice(0, -1).join("/"), false);
@@ -127,6 +127,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
         },
       };
     } catch {
+      await removeEntry(root, key).catch(() => undefined);
       return null;
     }
   }

@@ -102,7 +102,18 @@ OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并�
 
 ### 4.4 Bundle 本地化（FD3）
 
-- 流式下载并写入 OPFS，显示进度，不在内存中攒整包；完成后按 bundle 摘要校验。
+**传输格式（owner 2026-11-02；后端由 BE-d 实现）：**
+
+- `GET .../preview-results/{id}/bundle` 与 `GET /v1/history-compares/{operation_id}/bundle` 返回一个流式、不压缩的 POSIX tar（`application/x-tar`，长路径用 pax 扩展头）。
+- 成员顺序：bundle manifest、bundle closure，然后按 closure 条目顺序放每个产物，路径为条目的 `logical_path`（bundle 内相对路径）。按内容寻址共享的文件只出现一次。不加其他元数据成员。
+- 不压缩：Parquet 自带压缩。
+- 后端在发送响应头前确认 closure 中全部产物可读，缺失时返回稳定错误码，不发送残缺包；响应带 `Content-Length`（由各产物大小算出）与 `ETag`（bundle 摘要）。
+- 发送过程中出错时中断连接；前端以 tar 截断或摘要不符判定失败，丢弃本地副本后重新下载。
+- 整包一次请求、下载完成后才开始浏览；不提供按 artifact 读取的接口。
+
+**前端处理：**
+
+- 流式下载并写入 OPFS，按 `Content-Length` 显示进度，不在内存中攒整包；逐个成员按 closure 中的摘要校验。
 - 先读索引并渲染导航；每张表在打开时才从本地解析 Parquet（本地懒加载，不访问后端）。
 - 按 bundle 摘要缓存在本地，同一 Preview/History 再次打开不重新下载；淘汰策略按本地容量，读写失败时退回重新下载。
 - 后端数据有 TTL，本地副本是浏览依据；浏览期间后端清理不影响已下载内容。
@@ -126,6 +137,7 @@ OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并�
 | BE-a | 删除 `RETURN_FOR_REVISION`：domain 动作、`RETURNED_FOR_REVISION` 状态与事件、HTTP literal、history 状态 literal、control DB schema 约束（直接改基线，本地 DB 删除重建，DC6）、测试与 Contract（Business Lifecycle、P5-5C 设计中的状态机表）。当前约 18 个文件引用 | HTTP DTO、control DB schema；无镜像边界外的部署变化 | 不阻塞 FE0–FE2；S2a 合入 main 之后作为小任务进行，避免与 P6 分支冲突（owner 已确认） |
 | BE-b | 补回业务分组与列展示：capability、bundle/surface 中的产物形态、Contract 与 golden；注释来源；Preview bundle 为 `composite_signal_point`、`device` 补齐基线侧整表（owner 2026-11-02）。范围与数据结构见 [BE-b 设计草案](be-b-navigation-and-presentation-draft.md) | bundle 结构与摘要；Preview/History 计时路径增加计算 | FD8：现在立项设计并先给出数据结构草案；实现排在 P6 退出之后、Phase 8 之前。理由：P6 对照基准已在 S1b 后重建、bundle golden 已冻结，P6 中加入会改变 bundle 摘要并影响 W1–W4、H1–H3 的计时 |
 | BE-c | 在 P6 测量中记录 t4 与 2× t4 的 bundle 体积（只报告） | 无 | 随 P6 测量；用于评估 1 Mbps（DC49）下的下载时长 |
+| BE-d | 闭合 bundle 传输（owner 2026-11-02）：`/bundle` 现在只返回 manifest JSON（`LocalArtifactBundleReader` 按 manifest ID 读单个 artifact），closure 引用的产物不在响应中，与 FD3 冲突。改为 §4.4 的流式 tar；Comparison Bundle Contract 补“传输格式”一节并同步 OpenAPI；路由测试验证 tar 成员与 closure 一致；`benchmarks/real_dump_journey.py` 改为解析 tar 中的 manifest，并记录下载耗时与体积（只报告） | HTTP 响应格式与 OpenAPI；不涉及 Dockerfile 与镜像 | S2a 合入 main 之后、FE3 之前（与 BE-a 同类）；FE1、FE2 用本地按该格式拼装的 tar fixture 开发 |
 
 ## 6. 测试与证据（FD7）
 
@@ -150,7 +162,7 @@ AGENTS 的“专用测试节点”规则同样适用于前端：不在开发主�
 | FE0 骨架 | 工程初始化、工具链镜像与 npm 缓存预填充、测试入口与节点规则落地、OpenAPI 快照与类型生成、§3.3 复合信号核对、legacy 能力清单（§8）逐项确认 | kickoff 确认 | 05 上入口可运行；清单无“未判定”项 |
 | FE1 A/B 并行 | A：认证封装、API 客户端、轮询与幂等、bundle 本地化与解析、视图模型推导、命令层；B：token、组件、表格主题、对话框 | FE0 | A 用 golden bundle 与模拟接口覆盖全部旅程的数据流；B 覆盖 UI 优化方向 P1、P2 条目 |
 | FE2 页面 | 正式工作台（树、上下文工具栏、上传步骤卡、比较托盘、结果抽屉）、差异浏览（两行顶栏、侧栏 A、tab、表格、变更定位）、审核与撤回、归档、历史比较、数据集替换浏览与确认 | FE1 | 用模拟接口完成全部旅程；UI 优化方向 P3、P4 条目落地；截图验收通过（§6） |
-| FE3 对接 | 对接 Compose 中的真实 backend；OpenAPI 快照一致性；真实数据 t1 完整旅程 | FE2、BE-a | e2e 全部旅程通过；t1 旅程通过 |
+| FE3 对接 | 对接 Compose 中的真实 backend；OpenAPI 快照一致性；真实数据 t1 完整旅程 | FE2、BE-a、BE-d | e2e 全部旅程通过；t1 旅程通过 |
 | FE4 收口 | 接入 BE-b 的分组与列展示，移除占位数据（保留回退行为）；04 上取证 | BE-b | 04 证据；owner 退出审核 |
 
 FE0–FE2 不依赖后端剩余工作；FE4 依赖 BE-b，按 FD8 排在 P6 退出之后。
@@ -187,6 +199,7 @@ FE0 逐项核对 vnext 来源并标注 KEEP / SIMPLIFY / REMOVE；“简化”�
 | UI 草图中的占位文案（节点状态、Diff Kind、Change Group） | 按 vnext 实际枚举定稿，FE2 前回填 UI 优化方向 | FE1 |
 | 侧栏导航层级是否精简 | BE-b 分组设计后讨论 | BE-b 设计 |
 | 正式部署形态与正式 SSO | Phase 8/9 前单独设计 | — |
+| P6 计时是否包含整包传输 | P6 的“用户可见时间”只计到结果可读，不含 bundle 打包与下载；是否把下载耗时作为只报告项，由 P6 设计会话或 owner 决定（与 BE-c 一并考虑） | P6 |
 
 ## 10. 会话分工
 

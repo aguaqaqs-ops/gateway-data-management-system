@@ -30,7 +30,7 @@ describe("simulated user journey data flows", () => {
     });
     expect(api.uploadRevision).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expectedWorkspaceVersion: 10 }));
     expect(api.startPreview).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 9, expected_baseline_head_version: 12 }));
-    expect(api.getOperation).toHaveBeenCalledWith("op-1", undefined);
+    expect(api.getOperation).toHaveBeenCalledWith("op-1", expect.any(AbortSignal));
     expect(getPreviewBundle).toHaveBeenCalledTimes(1);
     expect(result.bundle.manifest.bundle_digest).toBe(fixture.manifest.bundle_digest);
   });

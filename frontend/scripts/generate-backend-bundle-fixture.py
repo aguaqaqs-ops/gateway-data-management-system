@@ -508,26 +508,26 @@ def _workbench_telemetry_sql(*, modified: bool) -> str:
     deleted = {9, 22, 37, 54, 68, 83}
     inserted_after = {7, 21, 36, 53, 67, 82}
     changed = {5, 19, 35, 51, 70, 90}
-    rows: list[tuple[int, int, str, str]] = []
+    rows: list[tuple[int, int, str, int]] = []
     if not modified:
         for gid in range(1, 91):
-            rows.append((gid, gid, f"测点-{gid:03d}", f"{(gid * 1.37):.2f}"))
+            rows.append((gid, gid, f"测点-{gid:03d}", gid * 137))
     else:
         position = 0
         for gid in range(1, 91):
             if gid not in deleted:
                 position += 1
-                value = (gid * 1.37) + (4.25 if gid in changed else 0)
-                rows.append((gid, position, f"测点-{gid:03d}", f"{value:.2f}"))
+                value = gid * 137 + (425 if gid in changed else 0)
+                rows.append((gid, position, f"测点-{gid:03d}", value))
             if gid in inserted_after:
                 position += 1
                 new_gid = 100 + gid
-                rows.append((new_gid, position, f"新增测点-{gid:03d}", f"{(new_gid * 1.13):.2f}"))
+                rows.append((new_gid, position, f"新增测点-{gid:03d}", new_gid * 113))
     values = ",\n".join(
         f"({gid}, {position}, '{name}', {value})"
         for gid, position, name, value in rows
     )
-    return "CREATE TABLE b1_n1_iec104_yc_list (gid INT NOT NULL, no INT NOT NULL, point_name VARCHAR(64) NOT NULL, value DECIMAL(8,2) NULL);\nINSERT INTO b1_n1_iec104_yc_list VALUES\n" + values + ";\n"
+    return "CREATE TABLE b1_n1_iec104_yc_list (gid INT NOT NULL, no INT NOT NULL, point_name VARCHAR(64) NOT NULL, value BIGINT NOT NULL);\nINSERT INTO b1_n1_iec104_yc_list VALUES\n" + values + ";\n"
 
 
 def _generate_workbench_fixture(output_root: Path, navigation_path: Path) -> None:

@@ -16,7 +16,7 @@ describe("formal workbench tree and contextual actions", () => {
     const workspace = rows.find((row) => row.kind === "workspace");
     const pending = rows.find((row) => row.refId === "fe2a-history-ref-2");
     expect(head).toMatchObject({ status: "当前基线", refId: "fe2a-history-ref-1" });
-    expect(workspace).toMatchObject({ kind: "workspace", status: "可提交", previewResultId: "preview-full", uploadRevisionId: "upload-fe2b-3", depth: 1 });
+    expect(workspace).toMatchObject({ kind: "workspace", status: "可提交", previewResultId: "preview-full", uploadRevisionId: "upload-fe2b-3", depth: 2 });
     expect(pending).toMatchObject({ label: "提交 2", status: "待审核", parentRef: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" } });
     expect(rows.find((row) => row.eligibilityNote === "NOT_CANDIDATE_BASE_ADVANCED")).toMatchObject({ status: "已通过", identityException: true });
     expect(rows.some((row) => row.label.includes("历史初始备份"))).toBe(false);

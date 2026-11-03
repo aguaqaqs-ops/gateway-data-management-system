@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ARCHIVE_PLAN_NEEDS_CONFIRMATION, HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_STATUS_SCENARIOS, MANUAL_RECOVERY_TO_FAILED,
@@ -11,7 +12,7 @@ import { WORKSPACE_STATE_COPY } from "../view-model/workspace-state-copy";
 
 describe("simulated HTTP response contracts", () => {
   it("uses only error codes documented for each route and status", async () => {
-    const openapi = JSON.parse(await readFile(new URL("../../../openapi.json", import.meta.url), "utf8")) as {
+    const openapi = JSON.parse(await readFile(resolve(process.cwd(), "openapi.json"), "utf8")) as {
       paths: Record<string, Record<string, { responses?: Record<string, { description?: string }> }>>;
     };
     for (const scenario of SIMULATED_ERROR_RESPONSES) {
@@ -25,7 +26,7 @@ describe("simulated HTTP response contracts", () => {
   });
 
   it("covers every public v1 write route and its success, permission, version, and idempotency outcomes", async () => {
-    const openapi = JSON.parse(await readFile(new URL("../../../openapi.json", import.meta.url), "utf8")) as {
+    const openapi = JSON.parse(await readFile(resolve(process.cwd(), "openapi.json"), "utf8")) as {
       paths: Record<string, Record<string, { responses?: Record<string, { description?: string }> }>>;
     };
     const writes = Object.entries(openapi.paths).filter(([route, methods]) => route.startsWith("/v1/") && methods.post).map(([route]) => route).sort();

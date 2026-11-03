@@ -454,7 +454,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("提交");
   await expect(page.locator(".workspace-table tbody tr")).toHaveCount(3);
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("");
-  await page.getByRole("button", { name: "提交时间" }).click();
+  await page.getByRole("button", { name: "提交时间", exact: true }).click();
   const widthBefore = await page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width));
   const resize = page.getByRole("button", { name: "调整节点 / 描述列宽" });
   const resizeBounds = await resize.boundingBox();
@@ -620,7 +620,7 @@ test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断
   await expect(page.locator(".diagnostic-note")).toHaveCount(0);
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(0);
   await expect(page.locator(".table-heading__diagnostics")).toHaveCount(0);
-  await expect(page.locator(".table-heading h2")).toHaveText("b1_n1_iec104_yc_list");
+  await expect(page.locator(".table-heading h2")).toHaveText("遥测量");
   await screenshot(page, "s3-workbench-normal", 1920);
   await waitForGridPaint(page, "telemetry");
   await screenshot(page, "s4-grid-normal-main", 1920);

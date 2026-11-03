@@ -1,6 +1,6 @@
 # FE2b handoff — 工作台、路由与历史比较
 
-**状态：FE2b 实现及 CT05 调试证据完成，待审核与复审。** 本文替代此前的停止报告。未在 CT04 取证，未创建 `fe-fe2b-exit` tag，未推送。
+**状态：FE2b 实现与 04 阶段退出取证完成，等待审核会话核对证据。** 本文替代此前的停止报告。未创建 `fe-fe2b-exit` tag，未推送。
 
 ## 候选与审核范围
 
@@ -9,7 +9,7 @@
 - 定向修复源码候选：`5d1749675621a020a052690b95d55111af5509f9`，frontend tree `a0f8ce750b053d83907435f9c0ba1357603c5472`。
 - 修复提交：`548cd290a2`、`aed2ccfac0`、`b49f584ab7`、`de0ef51337`、`9dde8f0101`、`5d17496756`。均在 `fe-vnext` 后续提交，未推送、未改写已有提交。
 - 源码审核范围：`fe-fe2a-exit..5d1749675621a020a052690b95d55111af5509f9`。复审范围：`bf4942e0a8..<本 handoff 文档提交>`；本文件作为单独文档提交，不改 frontend 树。
-- 状态：B1–B9 已定向修复，05 完整 runner 与截图已绑定源码候选；等待审核会话复审。未在 CT04 取证，未创建 `fe-fe2b-exit` tag，未推送。
+- 状态：B1–B9 已定向修复；05 调试与 04 权威退出取证均已完成，当前等待审核会话核对 04 证据。未创建 `fe-fe2b-exit` tag，未推送。
 - 05 全量运行日志：`/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T154941Z.log`，SHA256 `01951df3f663ba8476533ccf9d1d064f3ae0af97c1b1a8e3541e60944039c862`；截图目录 `/home/dev/gdds-fe-evidence/fe2b/5d174967-05/`.
 
 ## 1. 范围完成情况
@@ -65,7 +65,7 @@ frontend/scripts/generate-backend-bundle-fixtures.sh \
   --log-dir /home/dev/gdds-fe-logs/fe2b
 ```
 
-成功生成日志：`/home/dev/gdds-fe-logs/fe2b/backend-fixtures-3736d21854-20261103T135340Z-822046.log`，SHA256 `617bac0537e5240bb4de58f572045efac4a3cc9effb589b2be88988c36291917`。节点 `gw-dms-test-05.lan`，2026-11-03 13:53:40Z 至 13:54:07Z，HEAD `3736d218545947ec7dc3e380d49c5ecbfc3d96fc`，exit 0。两次各 226 个文件，目录树 SHA256 都为 `5aaf509380e5efb52ef4d7103da1fbdf0c9483720c4666a676d46b7c2b2b9a9a`，`byte_identical=true`。`generate()` 两次成功，没有遇到生产代码无法生成场景的情况。 复审方随后在最终源码候选上独立调用该脚本两次：均为 226 个文件，与已提交 fixture 逐字节一致（见 main 本地审核记录 `9868069a66`）。本轮生成器及其输入 JSON 未变，因此实施阶段没有再次生成 fixture。
+成功生成日志：`/home/dev/gdds-fe-logs/fe2b/backend-fixtures-3736d21854-20261103T135340Z-822046.log`，SHA256 `617bac0537e5240bb4de58f572045efac4a3cc9effb589b2be88988c36291917`。节点 `gw-dms-test-05.lan`，2026-11-03 13:53:40Z 至 13:54:07Z，HEAD `3736d218545947ec7dc3e380d49c5ecbfc3d96fc`，exit 0。两次各 226 个文件，目录树 SHA256 都为 `5aaf509380e5efb52ef4d7103da1fbdf0c9483720c4666a676d46b7c2b2b9a9a`，`byte_identical=true`。`generate()` 两次成功，没有遇到生产代码无法生成场景的情况。复审报告（main 本地提交 `b9574f2558`）更正了复现位置：复审方是在代码候选 `5ac704c6` / handoff `bf4942e0a8` 上重新生成两次，各 226 个文件并与已提交 fixture 逐字节一致，不是在 `5d174967` 上执行。此后至 handoff `7682297b72`，fixture 生成器、输入 JSON 与 `vnext/` 均未改动，因此该复现结果适用于当前代码候选。实施会话没有再次生成 fixture。
 
 ### 生成输入与镜像身份
 
@@ -211,9 +211,18 @@ B1 探针在断言失败后的测试 teardown 另输出一条未处理异步 `wi
 
 最终候选另有一次完整 runner 在 npm 缓存来源提交参数有误时通过，但该次不作为证据；保留日志 `/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T154807Z.log` SHA256 `b44c13b82bb7f34be801ff10a0ed34fb96c458c17260395104e463d3a34baf21`，wrapper `/home/dev/gdds-fe-logs/fe2b/targeted-full-run-5d174967-05-wrapper.log` SHA256 `19e3696b40ae048a571fb6080146caa96a7c59084fa4095382dfdac9f9a68807`。按 DC68 校正来源提交参数后，从完整入口起点重跑，使用本节列出的 15:49 运行作为候选证据。
 
+### CT04 退出权威运行
+
+- 节点：`ct108-gw-dms-04`，hostname `gw-dms-test-04.lan`。clean detached worktree `/home/dev/gdds-fe-fe2b-5d174967-04`；legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；运行前无占用标记。
+- 唯一一次入口：`./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2b/5d174967-04`。runner 于 `2026-11-03T16:28:07Z` 开始、`2026-11-03T16:28:47Z` 结束，exit 0。起止 HEAD 均为 `5d1749675621a020a052690b95d55111af5509f9`，起止 frontend tree 均为 `a0f8ce750b053d83907435f9c0ba1357603c5472`，运行后 worktree clean。
+- 结果：typecheck、lint、24 个单测文件/107 tests、生产 build、R2 正向生产检查、15/15 e2e 和 screenshots 全部通过。
+- 权威日志在 CT04：`/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T162807Z.log`，SHA256 `25f3295dc943bd61d1c72e83e18e617a952550ce984dcb7a107bc07a92665c1a`。外层 wrapper `/home/dev/gdds-fe-logs/fe2b/runner-wrapper-fe2b-exit-04-5d174967.log`，SHA256 `be36d79eb09d4bc20d3365d8986feb1286e9bfca5f0319af44a3b640a5df783a`。运行前核对记录 `/home/dev/gdds-fe-logs/fe2b/preflight-fe2b-exit-04-5d174967.log`，SHA256 `bb7a114eb83a0877c5c8a05044581b82e07beac42f797dd4cc99bdad527be406`。
+- 工具链沿用 04 的 FE0 预填充：`mcr.microsoft.com/playwright:v1.64.1-noble`，config digest `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`；7 个 RootFS DiffID 为 `sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278`、`sha256:1590c449306a9032a32c49afeac5e4c7cae86197c4a7dd95c095c3ae220a7f07`、`sha256:c8a795d9cdbc02d20daf1ecac5377667d61d63392fbe5bdbba94cc79a4cf3fe9`、`sha256:89e210c351d8ddaa3c7a6132e19a5aaf27ec837371dd94f0698dfa4c1e5aef3d`、`sha256:ea03ac3d8e487159afdc9d45b9a8d3f4035418655881b896cc34fa2e464c27fc`、`sha256:16f77d0178dafdf603cd05f8464e39df636665b2b028e18e0b95bfbee5ecacd5`、`sha256:d8597d6a5431eca9c1082ade19c2b7cdef69fbaaae43f0b67fbbd25f3a35c2bb`。身份按 config digest 与全部 DiffID 核对。
+- npm 使用默认预填路径 `/home/dev/gdds-fe-cache/frontend/npm-cache` 和归档 `/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz`；归档 SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`，来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`。未使用节点自行打包的缓存副本，也未使用转发代理。
+
 ## 6. 截图清单与视觉偏差
 
-截图由 CT05 的 `--screenshots` 权威入口产出，节点 `ct108-gw-dms-05`（hostname `gw-dms-test-05.lan`）；共 50 张，目录 `/home/dev/gdds-fe-evidence/fe2b/5d174967-05/`。SHA256 清单 `/home/dev/gdds-fe-logs/fe2b/screenshot-sha256-5d174967-05.txt`，SHA256 `a5fdc5e02a0b8e42342ca2f3a14198ed0cfb8ee02ab194adcef136bcf52868fa`。
+CT05 调试截图共 50 张，目录 `/home/dev/gdds-fe-evidence/fe2b/5d174967-05/`；其清单在 CT05，SHA256 `a5fdc5e02a0b8e42342ca2f3a14198ed0cfb8ee02ab194adcef136bcf52868fa`。退出取证以 CT04 的 50 张截图为准：目录 `/home/dev/gdds-fe-evidence/fe2b/5d174967-04/`；清单 `/home/dev/gdds-fe-logs/fe2b/screenshot-sha256-5d174967-04.txt` 存在 CT04，SHA256 `bea5e1b49c163a6275c59a3e84a01e0116c7663522b4e0951f3caeebe8f9960d`。
 
 | 文件 | SHA256 |
 | --- | --- |
@@ -314,13 +323,24 @@ owner 基于 FE2 kickoff §7.1、Q14（本地 main `7ac79ab53c` 已含）确认�
 
 上述均为无副作用的只读取证或测试参数元数据错误，保留日志及摘要并按 DC68 修正；更正后的查询/完整运行成功。没有缓存缺失、镜像身份不符、测试节点不符或生成器 `generate()` 内失败。
 
+### 04 退出取证期间的 DC68 记录
+
+| 操作错误 | 记录与修正 |
+| --- | --- |
+| 开发主机用原始 commit SHA 创建 bundle 被 Git 拒绝为空 bundle ref | 开发主机日志 `/home/dev/gdds-fe-logs/fe2b/dc68-fe04-bundle-by-sha-error.log`，SHA256 `921358ae34a0dc42efbca3f063fd74e30c4bad574b7af97af1c03e21b39662bd`。未创建 worktree、未运行测试；改用命名 ref `refs/heads/fe-vnext` 创建 bundle，校验后继续。 |
+| CT04 在仓库外运行 `git bundle verify` | CT04 日志 `/home/dev/gdds-fe-logs/fe2b/dc68-04-bundle-verify-context-error.log`，SHA256 `39555f3baf05719da054cc3a3656b101c3f7cb453b7cd8f542cb9eaf1abc91c1`。Git 要求在仓库上下文校验；`set -e` 使 fetch 与 worktree 添加未执行。改在共享仓库上下文校验后，fetch 与 clean detached worktree 创建成功。 |
+| handoff 更新脚本的清理清单锚点不匹配 | 开发主机日志 `/home/dev/gdds-fe-logs/fe2b/dc68-handoff-cleanup-anchor-error.log`，SHA256 `6c9d7250be87ebd397614a4969fd566413e1d9e2d2aa58bbcc148b5256636893`。脚本在写文件前停止；改为追加清单小节后成功。 |
+
+以上均为无副作用的 bundle 参数、命令上下文或文档编辑错误；保留日志和 SHA256，并按 DC68 修正一次。CT04 权威入口唯一一次运行 exit 0。
+
 ## 8. 已知差异与待处理事项
 
-- **待 owner 决定：**比较结果抽屉目前只显示每个比较对的节点序号与差异记录数；没有逐比较对的表数和变更表摘要。当前 `HistoryComparePairResultResponse` schema 只有 `record_count`，实现没有额外读取已下载 bundle 来填充该摘要。对应草图 S2 `compare-1920` / B7-B8，请 owner 决定是否接受或要求后续补齐。
-- **M10 fixture 说明：**后端生成的 S1 bundle 另包含 `composite_signal_point` 当前快照表，摘要为 0→0，并在侧栏归入“其他表”。主转发通道遥测表仍为前后各 90 行，新增/删除/修改各 6 行；manifest 的 diagnostics 为空。保留生产生成数据，不在前端过滤。
-- B1–B9 均已修复；M1–M9、M11 已修复并在第 2 节列证据。其余 S1/S2/S3 布局按截图核对无额外偏差。
-- Q14 的 `pyproject.toml` 与 `Cargo.lock` 差异由 owner 决议接受，见第 3 节。没有需要后端新增字段/接口（FD3）的事项，也没有发现 FE2b 范围外设计问题。
-- 复审前不运行 CT04。复审通过后，在最终 handoff HEAD 的 CT04 clean detached worktree 完整运行权威入口并完成截图取证；退出 tag 由设计会话创建。
+以下两项按复审报告 §4 交 owner 看图并决定：
+
+1. **History 比较抽屉缺少各比较对摘要。** 草图 `compare-1920` 展示每对的表数、变更表数、降级表数，以及逐表的增删改计数；当前抽屉显示节点、`节点 i → 节点 i+1` 和差异记录数。现有 response schema 只有 `record_count`，摘要可在后续从已下载 bundle 解析。请 owner 决定接受现状或要求 FE2c 补齐。
+2. **M10：** S1 fixture 含一张 `composite_signal_point` 0→0 行快照表，出现在“其他表”组。它由后端生成器固定生成；请 owner 确认接受该表现。
+
+B1–B9 已修复；M1–M9、M11 已修复并在第 2 节列证据。Q14 的 `pyproject.toml` 与 `Cargo.lock` 差异由 owner 决议接受，见第 3 节。没有需要后端新增字段/接口（FD3）的事项，也没有发现其他 FE2b 范围外设计问题。04 权威 runner 与截图已完成；复审会话核对证据后，退出 tag 由设计会话创建。
 
 ## 9. 本阶段 worktree 与传输文件清单（供退出后清理）
 
@@ -337,3 +357,15 @@ owner 基于 FE2 kickoff §7.1、Q14（本地 main `7ac79ab53c` 已含）确认�
 本次源码与探针传输 bundle 位于两端 `/home/dev/gdds-fe-logs/fe2b/`：`fe2b-targeted-fix-5d174967.bundle` SHA256 `675835d75a66f3daa2fc5552fc1384bb72866718dc676b5498bbf3a904c9eb96`；`probe-b1-5d174967.bundle` SHA256 `5b9e95a8e9566a0ae3c102ca045c60728bb0a75093c70763e2bd7b2e29f23064`；`probe-b3-5d174967.bundle` SHA256 `1aa79fbe07991752d129a4dce7e3e68a50a2ed8f8bc6f966051a0e88a4d20bd0`；`probe-b5-5d174967.bundle` SHA256 `64eb23bc9efa04851d7be5dbfbbd40ac7f9d7c71683337d6ac6359fbbe1d4e72`。探针 runner 日志、wrapper 日志、最终运行日志和截图清单见第 5、6、7 节。
 
 生成输出目录、测试日志与截图目录均位于 worktree 外，见第 3、5、6 节。审核/复审及 04 阶段取证完成前保留；退出清理时再删除本节列出的临时 worktree、bundle 和生成输出.
+
+### CT04 退出取证 worktree 与文件
+
+- CT04 clean detached worktree：`/home/dev/gdds-fe-fe2b-5d174967-04`；位于共享仓库 `/home/dev/gateway-data-management-system`，legacy 链接已创建。退出清理时同时删除共享仓库临时 fetch ref `refs/codex/fe2b-exit-evidence-7682297b`。
+- 开发主机 bundle `fe2b-exit-5d174967-branch.bundle` 与 CT04 bundle `/home/dev/gdds-fe-logs/fe2b/fe2b-exit-5d174967.bundle` SHA256 均为 `46ebd6a79f25129a362603f932a40b9fe1e259fdc7857d8f34b5766b2406f78b`。传输及 clean worktree 记录 `/home/dev/gdds-fe-logs/fe2b/worktree-transfer-fe2b-exit-04-5d174967.log`（CT04），SHA256 `2744bbf6811988f35d1156568cb8063420079db7294af0ac7fc6a885fd3a42cb`。
+- 本节列出的 worktree、临时 ref、bundle、日志与截图均在审核会话核对完成及 FE2b 退出后再清理。
+
+## 10. FE2c 带入事项（复审报告 §3）
+
+- **N2（等待时长）：**当前由 `started_at` 计算；模拟时间固定为 `2026-11-03T09:00:01Z`，所以截图秒数随拍摄时间变化，长时间直接显示秒数也难读。FE2c 建议超过一分钟改为时/分/秒，并在 e2e 用 Playwright `page.clock` 固定时间或生成相对测试时间的模拟时间。
+- **N3（构建模块清单）：**生产检查使用的 `dist/.vite/rollup-modules.json` 会随构建产物发布且包含源码路径。FE2c 将其移到 `dist` 之外，或检查完成后删除。
+- **N4（测试超时配置）：**`window.__gatewayTestConfig` 在生产构建也生效，可由页面脚本缩短请求超时。FE2c 将其限制为开发构建读取，或改由模拟会话注入。

@@ -4,7 +4,7 @@ import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnota
 import { normalizeRowIdentity, type RiskAnnotation, type RowDiffRecord, type SurfaceTable } from "./model";
 import { buildBrowseRows, displayRowSearchText, normalizeDisplayScalar, snapshotRowIdentity, type BrowseRow } from "./table-rows";
 
-const FIXTURES = ["preview-full", "preview-modified-only", "preview-replacement", "preview-no-navigation", "history-three-nodes"];
+const FIXTURES = ["preview-full", "preview-modified-only", "preview-replacement", "preview-no-navigation", "history-three-nodes", "preview-workbench-normal"];
 const ADDED = new Set(["ROW_ADDED", "ORDERED_ROW_ADDED"]);
 const DELETED = new Set(["ROW_DELETED", "ORDERED_ROW_DELETED"]);
 const MODIFIED = new Set(["ROW_MODIFIED", "ORDERED_ROW_MODIFIED", "ORDERED_ROW_MOVED"]);

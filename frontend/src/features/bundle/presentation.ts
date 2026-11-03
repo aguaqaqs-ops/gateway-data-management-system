@@ -125,10 +125,18 @@ export async function readLocalChangeRecords(
 ): Promise<RowDiffRecord[]> {
   const paths = presentation.tableArtifacts.get(tableName);
   if (!paths) return [];
-  const records = await Promise.all([paths.records, paths.orderedRecords, ...paths.blankRecords]
-    .filter((path): path is string => Boolean(path))
-    .map((path) => readParquetTable(bundle, path, request)));
-  return records.flat().map((row) => row as unknown as RowDiffRecord);
+  const [standardRows, orderedRows, ...blankRows] = await Promise.all([
+    paths.records ? readParquetTable(bundle, paths.records, request) : Promise.resolve([]),
+    paths.orderedRecords ? readParquetTable(bundle, paths.orderedRecords, request) : Promise.resolve([]),
+    ...paths.blankRecords.map((path) => readParquetTable(bundle, path, request)),
+  ]);
+  const hasStandardRowRecords = standardRows.some((row) =>
+    typeof row.record_kind === "string" && /^(ROW_ADDED|ROW_DELETED|ROW_MODIFIED)$/.test(row.record_kind));
+  // Some bundles carry the same changed rows in both artifacts. Keep ordered rows as the
+  // fallback when standard row records are absent, so duplicate identities do not invalidate
+  // location mapping for the whole table.
+  const selectedRows = [...standardRows, ...(hasStandardRowRecords ? [] : orderedRows), ...blankRows.flat()];
+  return selectedRows.map((row) => row as unknown as RowDiffRecord);
 }
 
 /** Reads the table-scoped annotation document from the installed local bundle only. */

@@ -234,6 +234,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await waitForBrowse(page);
   await page.getByRole("button", { name: "复合信号虚装置" }).click();
   await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
+  await waitForGridPaint(page, "composite_signal_point");
   await clickFormulaCell(page);
   const formula = page.getByRole("dialog", { name: "公式查看" });
   await expect(formula).toBeVisible();
@@ -249,6 +250,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("HISTORY", historyPath, { pair: "fe2a-history-fixture-p0", node: "device:composite", tab: "composite_signal_point" }));
   await waitForBrowse(page);
+  await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
+  await waitForGridPaint(page, "composite_signal_point");
   await clickFormulaCell(page);
   await expect(page.getByRole("dialog", { name: "公式查看" }).getByText("改前公式", { exact: true })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "公式查看" }).getByText("改后公式", { exact: true })).toBeVisible();

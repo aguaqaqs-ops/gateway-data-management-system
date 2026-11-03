@@ -160,6 +160,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
 
   await page.goto(browseUrl("PREVIEW", previewPath, { pair: "baseline_to_initial", changed: "1", debug: "1" }));
   await waitForBrowse(page);
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("baseline_to_initial");
   await page.getByRole("button", { name: "查看整表" }).click();
   await waitForGridPaint(page, "__whole__:device");
   await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");

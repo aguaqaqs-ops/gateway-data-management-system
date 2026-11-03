@@ -219,7 +219,7 @@ export function ComparisonPage() {
       const currentState = runtime.snapshot.state;
       if (currentState.bundleDigest !== loaded.manifest.bundle_digest || currentState.requestPath !== requestPath) runtime.execute({ name: "set-bundle", mode: currentState.mode, bundleDigest: loaded.manifest.bundle_digest, requestPath }, "external");
       const selected = loadedPairs.find(({ pair }) => pair.pair_id === currentState.pairId) ?? loadedPairs[0];
-      if (selected && currentState.pairId !== selected.pair.pair_id) runtime.execute({ name: "select-pair", pairId: selected.pair.pair_id }, "external");
+      if (selected && runtime.snapshot.state.pairId !== selected.pair.pair_id) runtime.execute({ name: "select-pair", pairId: selected.pair.pair_id }, "external");
     } catch (cause) {
       const details = cause instanceof Error ? cause.message : String(cause);
       setError({ code: bundleLoadErrorCode(cause), details });

@@ -49,6 +49,8 @@ describe("backend-generated FE2a bundle fixtures", () => {
 
   it("browses the Preview FULL row kinds, ordered moves, blank intervals, keyless fallback and formula records", async () => {
     const { manifest, bundle } = await installFixture("preview-full");
+    expect((manifest.inputs as Array<{ role: string; display_name: string }>).map(({ role, display_name }) => [role, display_name]))
+      .toEqual([["baseline", "Baseline"], ["initial", "Initial"], ["modified", "Modified"]]);
     const pair = manifest.pairs.find((value) => (value as { pair_id: string }).pair_id === "baseline_to_initial") as { pair_id: string };
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     const deviceRecords = await readLocalChangeRecords(bundle, presentation, "device");
@@ -79,7 +81,9 @@ describe("backend-generated FE2a bundle fixtures", () => {
   it("contains three History inputs and two adjacent pair surfaces", async () => {
     const { manifest, bundle } = await installFixture("history-three-nodes");
     expect(manifest.inputs).toHaveLength(3);
-    expect(manifest.pairs.map((pair) => (pair as { pair_id: string }).pair_id)).toEqual(["node_1_to_node_2", "node_2_to_node_3"]);
+    expect((manifest.inputs as Array<{ role: string; display_name: string }>).map(({ role, display_name }) => [role, display_name]))
+      .toEqual([["fe2a-history-ref-0", "node-0"], ["fe2a-history-ref-1", "node-1"], ["fe2a-history-ref-2", "node-2"]]);
+    expect(manifest.pairs.map((pair) => (pair as { pair_id: string }).pair_id)).toEqual(["fe2a-history-fixture-p0", "fe2a-history-fixture-p1"]);
     const paths = bundle.closure.closure_entries.filter((entry) => entry.kind === "SURFACE");
     expect(paths).toHaveLength(2);
   });

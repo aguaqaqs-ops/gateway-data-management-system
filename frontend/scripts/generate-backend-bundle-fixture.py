@@ -11,7 +11,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from gateway_backend.application.pair_pipeline import run_history_pair_pipeline, run_preview_pair_pipeline
-from gateway_backend.application.preview_jobs import surface_artifact_closure
+from gateway_backend.application.preview_jobs import (
+    _PAIR_BASELINE_TO_INITIAL,
+    _PAIR_INITIAL_TO_MODIFIED,
+    _unchanged_baseline_identity_table_set,
+    surface_artifact_closure,
+)
 from gateway_backend.artifacts import InMemoryArtifactStore, artifact_ref_from_dict, put_with_built_ref
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION,
@@ -23,11 +28,13 @@ from gateway_backend.capabilities.bundle_assembly import (
     assemble_bundle,
 )
 from gateway_backend.capabilities.comparison import BoundSnapshotInput
+from gateway_backend.capabilities.composite_signal import present_composite_logic_source
 from gateway_backend.capabilities.snapshot_materialization import (
+    BusinessSnapshotMaterializationRequest,
     MaterializationPolicy,
     MaterializationStage,
     SqlSnapshotMaterializationRequest,
-    materialize_sql_snapshot,
+    materialize_business_snapshot,
 )
 from gateway_backend.capabilities.surface_assembly import (
     compute_surface_digest,
@@ -37,10 +44,14 @@ from gateway_backend.capabilities.surface_assembly import (
 from gateway_backend.capabilities.surface_assembly.contracts import SurfaceProjectionRef
 from gateway_backend.capabilities.table_access.contracts import (
     NeverCancel,
+    PARSER_INPUT_CONTRACT_VERSION,
     ParserInvocationContext,
     SqlParseRequest,
     SqlSourceInput,
+    XmlParseRequest,
+    XmlSourceInput,
 )
+from gateway_backend.capabilities.table_access import parse_xml
 from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_backend.capabilities.table_rules import (
     TABLE_RULESET_VERSION,
@@ -54,11 +65,14 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 BASELINE_SQL = """\
 CREATE TABLE device (
+  gid INT NOT NULL,
   dev_addr INT NOT NULL,
   description VARCHAR(128),
   PRIMARY KEY (dev_addr)
 );
-INSERT INTO device VALUES (1, '线路保护装置 A'), (2, '测控装置'), (4, '故障录波装置');
+INSERT INTO device VALUES (1, 1, '线路保护装置 A'), (2, 2, '测控装置'), (4, 4, '故障录波装置'), (65532, 65532, '复合信号虚装置');
+CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
+INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
 CREATE TABLE keyless_demo (value VARCHAR(64) NULL);
 INSERT INTO keyless_demo VALUES ('保留'), ('删除'), ('删除');
 CREATE TABLE retired_table (id INT NOT NULL PRIMARY KEY, label VARCHAR(32));
@@ -69,26 +83,20 @@ CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR
 INSERT INTO b1_n1_iec104_syx_list VALUES (1, 1, '遥信 A'), (NULL, 2, NULL), (2, 3, '遥信 B'), (NULL, 4, NULL);
 CREATE TABLE b1_n1_iec104_yc_list (no INT NOT NULL, value VARCHAR(32) NULL);
 INSERT INTO b1_n1_iec104_yc_list VALUES (1, '无稳定 gid');
-CREATE TABLE composite_signal_point (
-  source_table VARCHAR(64) NOT NULL,
-  point_gid INT NOT NULL,
-  dev_addr INT NOT NULL,
-  formula_digest VARCHAR(64) NULL,
-  formula_ast_json TEXT NULL,
-  PRIMARY KEY (source_table, point_gid)
-);
-INSERT INTO composite_signal_point VALUES ('device', 8, 65532, 'formula-old', '{"kind":"ADD","args":[1,2]}');
 CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
 INSERT INTO version_manager VALUES ('project-a', 'build-1', 1);
 """
 
 INITIAL_SQL = """\
 CREATE TABLE device (
+  gid INT NOT NULL,
   dev_addr INT NOT NULL,
   description VARCHAR(128),
   PRIMARY KEY (dev_addr)
 );
-INSERT INTO device VALUES (1, '线路保护装置 A'), (2, '测控装置（升级）'), (3, '直流屏');
+INSERT INTO device VALUES (1, 1, '线路保护装置 A'), (2, 2, '测控装置（升级）'), (3, 3, '直流屏'), (65532, 65532, '复合信号虚装置');
+CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
+INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
 CREATE TABLE keyless_demo (value VARCHAR(64) NULL);
 INSERT INTO keyless_demo VALUES ('保留'), ('删除'), ('新增');
 CREATE TABLE retired_table (id INT NOT NULL PRIMARY KEY, label VARCHAR(32));
@@ -99,26 +107,20 @@ CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR
 INSERT INTO b1_n1_iec104_syx_list VALUES (2, 1, '遥信 B'), (1, 2, '遥信 A'), (NULL, 3, NULL);
 CREATE TABLE b1_n1_iec104_yc_list (no INT NOT NULL, value VARCHAR(32) NULL);
 INSERT INTO b1_n1_iec104_yc_list VALUES (1, '无稳定 gid');
-CREATE TABLE composite_signal_point (
-  source_table VARCHAR(64) NOT NULL,
-  point_gid INT NOT NULL,
-  dev_addr INT NOT NULL,
-  formula_digest VARCHAR(64) NULL,
-  formula_ast_json TEXT NULL,
-  PRIMARY KEY (source_table, point_gid)
-);
-INSERT INTO composite_signal_point VALUES ('device', 8, 65532, 'formula-mid', '{"kind":"ADD","args":[1,3]}');
 CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
 INSERT INTO version_manager VALUES ('project-a', 'build-1', 1);
 """
 
 MODIFIED_SQL = """\
 CREATE TABLE device (
+  gid INT NOT NULL,
   dev_addr INT NOT NULL,
   description VARCHAR(128),
   PRIMARY KEY (dev_addr)
 );
-INSERT INTO device VALUES (1, '线路保护装置 A'), (2, '测控装置（再次升级）'), (3, '直流屏');
+INSERT INTO device VALUES (1, 1, '线路保护装置 A'), (2, 2, '测控装置（再次升级）'), (3, 3, '直流屏'), (65532, 65532, '复合信号虚装置');
+CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
+INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
 CREATE TABLE keyless_demo (value VARCHAR(64) NULL);
 INSERT INTO keyless_demo VALUES ('保留'), ('新增'), ('新增');
 CREATE TABLE schema_demo (id INT NOT NULL PRIMARY KEY, label VARCHAR(32), enabled TINYINT NULL, source VARCHAR(12) NULL);
@@ -129,32 +131,64 @@ CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR
 INSERT INTO b1_n1_iec104_syx_list VALUES (2, 1, '遥信 B'), (1, 2, '遥信 A'), (NULL, 3, NULL);
 CREATE TABLE b1_n1_iec104_yc_list (no INT NOT NULL, value VARCHAR(32) NULL);
 INSERT INTO b1_n1_iec104_yc_list VALUES (1, '无稳定 gid');
-CREATE TABLE composite_signal_point (
-  source_table VARCHAR(64) NOT NULL,
-  point_gid INT NOT NULL,
-  dev_addr INT NOT NULL,
-  formula_digest VARCHAR(64) NULL,
-  formula_ast_json TEXT NULL,
-  PRIMARY KEY (source_table, point_gid)
-);
-INSERT INTO composite_signal_point VALUES ('device', 8, 65532, 'formula-new', '{"kind":"ADD","args":[1,4]}');
 CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
 INSERT INTO version_manager VALUES ('project-a', 'build-1', 1);
 """
 
 REPLACEMENT_BEFORE_SQL = """\
+CREATE TABLE device (gid INT NOT NULL, dev_addr INT NOT NULL PRIMARY KEY, description VARCHAR(64));
+INSERT INTO device VALUES (1, 1, '替换前装置'), (65532, 65532, '复合信号虚装置');
+CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
+INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
 CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
 INSERT INTO version_manager VALUES ('project-a', 'build-a', 1);
-CREATE TABLE device (dev_addr INT NOT NULL PRIMARY KEY, description VARCHAR(64));
-INSERT INTO device VALUES (1, '替换前装置');
 """
 
 REPLACEMENT_CURRENT_SQL = """\
+CREATE TABLE device (gid INT NOT NULL, dev_addr INT NOT NULL PRIMARY KEY, description VARCHAR(64));
+INSERT INTO device VALUES (2, 2, '替换后装置'), (65532, 65532, '复合信号虚装置');
+CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
+INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
 CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
 INSERT INTO version_manager VALUES ('project-b', 'build-b', 1);
-CREATE TABLE device (dev_addr INT NOT NULL PRIMARY KEY, description VARCHAR(64));
-INSERT INTO device VALUES (2, '替换后装置');
 """
+HISTORY_OPERATION_ID = "fe2a-history-fixture"
+HISTORY_REF_IDS = ("fe2a-history-ref-0", "fe2a-history-ref-1", "fe2a-history-ref-2")
+
+
+def _composite_logic(primary_value: str) -> str:
+    return f"""<Logic_Set>
+  <Express Name="Device 65532:复合测点" Operator_Type="|">
+    <Express Name="嵌套命名表达式" Operator_Type="+">
+      <Express Operator_Type="+">
+        <Point Name="Device 1:线路电流"/>
+        <Digital value="{primary_value}"/>
+        <Express Operator_Type="+">
+          <Digital value="2"/>
+          <Point Name="Device 2:测量电压"/>
+        </Express>
+      </Express>
+      <Express Operator_Type="*">
+        <Digital value="3"/>
+        <Express Operator_Type="*">
+          <Point Name="Device 2:测量电压"/>
+          <Digital value="4"/>
+        </Express>
+      </Express>
+    </Express>
+    <Express Operator_Type="|">
+      <Point Name="Device 999:未映射测点"/>
+      <Digital value="5"/>
+    </Express>
+    <Express Operator_Type=""><Digital value="6"/></Express>
+    <Express Operator_Type="-"><Point Name="Device 1:线路电流"/></Express>
+  </Express>
+</Logic_Set>"""
+
+
+LOGIC_BASELINE = _composite_logic("1")
+LOGIC_INITIAL = _composite_logic("2")
+LOGIC_MODIFIED = _composite_logic("3")
 
 
 @dataclass(frozen=True)
@@ -166,9 +200,10 @@ class PairFixture:
     current: BoundSnapshotInput
     result: Any
     history: bool = False
+    replacement: bool = False
 
 
-def _materialize(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:
+def _materialize(sql: str, store: InMemoryArtifactStore, logic_xml: str) -> BoundSnapshotInput:
     raw = sql.encode("utf-8")
     digest = raw_blob_digest(raw)
     context = ParserInvocationContext(NeverCancel())
@@ -177,7 +212,7 @@ def _materialize(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:
             source=SqlSourceInput(
                 document_content_digest=digest,
                 sql_source_digest=digest,
-                parser_input_contract_version=1,
+                parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION,
                 encoding="utf-8",
                 source_size_bytes=len(raw),
             ),
@@ -186,16 +221,35 @@ def _materialize(sql: str, store: InMemoryArtifactStore) -> BoundSnapshotInput:
         )
     )
     ruleset = migrated_table_ruleset_snapshot()
-    result = materialize_sql_snapshot(
-        SqlSnapshotMaterializationRequest(
-            parse_result=parsed,
-            sql_source_digest=digest,
-            ruleset=ruleset,
-            table_ruleset_version=TABLE_RULESET_VERSION,
-            materialization_stage=MaterializationStage.FINAL,
-            policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-            context=context,
-            artifact_store=store,
+    sql_request = SqlSnapshotMaterializationRequest(
+        parse_result=parsed,
+        sql_source_digest=digest,
+        ruleset=ruleset,
+        table_ruleset_version=TABLE_RULESET_VERSION,
+        materialization_stage=MaterializationStage.FINAL,
+        policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
+        context=context,
+        artifact_store=store,
+    )
+    xml_raw = logic_xml.encode("utf-8")
+    xml_digest = raw_blob_digest(xml_raw)
+    xml_request = XmlParseRequest(
+        source=XmlSourceInput(
+            document_content_digest=xml_digest,
+            xml_source_digest=xml_digest,
+            parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION,
+            encoding="utf-8",
+            source_size_bytes=len(xml_raw),
+        ),
+        xml_utf8=xml_raw,
+        context=context,
+    )
+    logic = present_composite_logic_source(xml_raw)
+    result = materialize_business_snapshot(
+        BusinessSnapshotMaterializationRequest(
+            sql=sql_request,
+            logic=logic,
+            xml=parse_xml(xml_request),
         )
     )
     if result.status.value != "COMPLETE" or result.snapshot is None or result.summary is None or result.table_set is None:
@@ -213,6 +267,9 @@ def _pair(
     store: InMemoryArtifactStore,
     *,
     history: bool = False,
+    assess_identity: bool = True,
+    identity_before_table_set=None,
+    replacement: bool = False,
 ):
     ruleset = migrated_table_ruleset_snapshot()
     if history:
@@ -235,8 +292,10 @@ def _pair(
             on_cancel=lambda: None,
             view_id=view_id,
             rule_set=comparison_rule_set(ruleset),
+            assess_identity=assess_identity,
+            identity_before_table_set=identity_before_table_set,
         )
-    return PairFixture(pair_id, before_index, current_index, before, current, result, history)
+    return PairFixture(pair_id, before_index, current_index, before, current, result, history, replacement)
 
 
 def _attach_frontend_projections(
@@ -360,7 +419,7 @@ def _pair_projection_documents(
                             "before_row_count": 1,
                             "current_row_count": 1,
                         }
-    if fixture.pair_id == "replacement_pair":
+    if fixture.replacement:
         for group in projected_navigation.get("groups", []):
             group["items"] = [item for item in group["items"] if item.get("item_key") == "device:table"]
             for item in group["items"]:
@@ -453,78 +512,134 @@ def generate(output_root: Path, navigation_path: Path, diagnostics_path: Path) -
     diagnostics = json.loads(diagnostics_path.read_bytes())
 
     full_store = InMemoryArtifactStore()
-    baseline = _materialize(BASELINE_SQL, full_store)
-    initial = _materialize(INITIAL_SQL, full_store)
-    modified = _materialize(MODIFIED_SQL, full_store)
+    baseline = _materialize(BASELINE_SQL, full_store, LOGIC_BASELINE)
+    initial = _materialize(INITIAL_SQL, full_store, LOGIC_INITIAL)
+    modified = _materialize(MODIFIED_SQL, full_store, LOGIC_MODIFIED)
     full_fixtures = [
-        _pair("baseline_to_initial", "baseline_to_initial", 0, 1, baseline, initial, full_store),
-        _pair("initial_to_modified", "initial_to_modified", 1, 2, initial, modified, full_store),
+        _pair(
+            _PAIR_BASELINE_TO_INITIAL,
+            _PAIR_INITIAL_TO_MODIFIED,
+            0,
+            1,
+            baseline,
+            initial,
+            full_store,
+            assess_identity=True,
+            identity_before_table_set=_unchanged_baseline_identity_table_set(baseline, initial),
+        ),
+        _pair(
+            _PAIR_INITIAL_TO_MODIFIED,
+            _PAIR_INITIAL_TO_MODIFIED,
+            1,
+            2,
+            initial,
+            modified,
+            full_store,
+            assess_identity=True,
+        ),
     ]
     _write_bundle(
         output_root,
         "preview-full",
         full_store,
-        [("BASELINE", "原始基线", baseline), ("INITIAL", "原始组态备份", initial), ("CURRENT", "本次归档组态", modified)],
+        [("baseline", "Baseline", baseline), ("initial", "Initial", initial), ("modified", "Modified", modified)],
         full_fixtures,
         navigation,
         diagnostics,
     )
 
     modified_store = InMemoryArtifactStore()
-    modified_before = _materialize(INITIAL_SQL, modified_store)
-    modified_current = _materialize(MODIFIED_SQL, modified_store)
+    modified_before = _materialize(BASELINE_SQL, modified_store, LOGIC_BASELINE)
+    modified_current = _materialize(MODIFIED_SQL, modified_store, LOGIC_MODIFIED)
     _write_bundle(
         output_root,
         "preview-modified-only",
         modified_store,
-        [("BASELINE", "当前基线", modified_before), ("CURRENT", "本次归档组态", modified_current)],
-        [_pair("initial_to_modified", "initial_to_modified", 0, 1, modified_before, modified_current, modified_store)],
+        [("baseline", "Baseline", modified_before), ("modified", "Modified", modified_current)],
+        [
+            _pair(
+                _PAIR_INITIAL_TO_MODIFIED,
+                _PAIR_INITIAL_TO_MODIFIED,
+                0,
+                1,
+                modified_before,
+                modified_current,
+                modified_store,
+                assess_identity=True,
+                identity_before_table_set=_unchanged_baseline_identity_table_set(modified_before, modified_current),
+            )
+        ],
         navigation,
         diagnostics,
     )
 
     replacement_store = InMemoryArtifactStore()
-    replacement_before = _materialize(REPLACEMENT_BEFORE_SQL, replacement_store)
-    replacement_current = _materialize(REPLACEMENT_CURRENT_SQL, replacement_store)
+    replacement_before = _materialize(REPLACEMENT_BEFORE_SQL, replacement_store, LOGIC_BASELINE)
+    replacement_current = _materialize(REPLACEMENT_CURRENT_SQL, replacement_store, LOGIC_MODIFIED)
     _write_bundle(
         output_root,
         "preview-replacement",
         replacement_store,
-        [("BASELINE", "替换前数据集", replacement_before), ("CURRENT", "替换后数据集", replacement_current)],
-        [_pair("replacement_pair", "replacement_pair", 0, 1, replacement_before, replacement_current, replacement_store)],
+        [("baseline", "Baseline", replacement_before), ("modified", "Modified", replacement_current)],
+        [
+            _pair(
+                _PAIR_INITIAL_TO_MODIFIED,
+                _PAIR_INITIAL_TO_MODIFIED,
+                0,
+                1,
+                replacement_before,
+                replacement_current,
+                replacement_store,
+                assess_identity=True,
+                identity_before_table_set=_unchanged_baseline_identity_table_set(replacement_before, replacement_current),
+                replacement=True,
+            )
+        ],
         navigation,
         diagnostics,
     )
 
     history_store = InMemoryArtifactStore()
     history_nodes = [
-        _materialize(BASELINE_SQL, history_store),
-        _materialize(INITIAL_SQL, history_store),
-        _materialize(MODIFIED_SQL, history_store),
+        _materialize(BASELINE_SQL, history_store, LOGIC_BASELINE),
+        _materialize(INITIAL_SQL, history_store, LOGIC_INITIAL),
+        _materialize(MODIFIED_SQL, history_store, LOGIC_MODIFIED),
     ]
     history_fixtures = [
-        _pair("node_1_to_node_2", "node_1_to_node_2", 0, 1, history_nodes[0], history_nodes[1], history_store, history=True),
-        _pair("node_2_to_node_3", "node_2_to_node_3", 1, 2, history_nodes[1], history_nodes[2], history_store, history=True),
+        _pair(f"{HISTORY_OPERATION_ID}-p0", "", 0, 1, history_nodes[0], history_nodes[1], history_store, history=True),
+        _pair(f"{HISTORY_OPERATION_ID}-p1", "", 1, 2, history_nodes[1], history_nodes[2], history_store, history=True),
     ]
     _write_bundle(
         output_root,
         "history-three-nodes",
         history_store,
-        [("BASELINE_NODE", "节点 1", history_nodes[0]), ("SUBMISSION", "节点 2", history_nodes[1]), ("SUBMISSION", "节点 3", history_nodes[2])],
+        [(ref_id, f"node-{index}", node) for index, (ref_id, node) in enumerate(zip(HISTORY_REF_IDS, history_nodes, strict=True))],
         history_fixtures,
         navigation,
         diagnostics,
     )
 
     fallback_store = InMemoryArtifactStore()
-    fallback_before = _materialize(INITIAL_SQL, fallback_store)
-    fallback_current = _materialize(MODIFIED_SQL, fallback_store)
+    fallback_before = _materialize(BASELINE_SQL, fallback_store, LOGIC_BASELINE)
+    fallback_current = _materialize(MODIFIED_SQL, fallback_store, LOGIC_MODIFIED)
     _write_bundle(
         output_root,
         "preview-no-navigation",
         fallback_store,
-        [("BASELINE", "当前基线", fallback_before), ("CURRENT", "本次归档组态", fallback_current)],
-        [_pair("initial_to_modified", "initial_to_modified", 0, 1, fallback_before, fallback_current, fallback_store)],
+        [("baseline", "Baseline", fallback_before), ("modified", "Modified", fallback_current)],
+        [
+            _pair(
+                _PAIR_INITIAL_TO_MODIFIED,
+                _PAIR_INITIAL_TO_MODIFIED,
+                0,
+                1,
+                fallback_before,
+                fallback_current,
+                fallback_store,
+                assess_identity=True,
+                identity_before_table_set=_unchanged_baseline_identity_table_set(fallback_before, fallback_current),
+            )
+        ],
         None,
         None,
     )

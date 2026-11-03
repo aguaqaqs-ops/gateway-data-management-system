@@ -4,6 +4,10 @@ import { BundleIntegrityError, installBundleTar, verifyBundleMetadata, type Bund
 const ROOT_NAME = "gateway-comparison-bundles-v1";
 const textEncoder = new TextEncoder();
 
+export function bundleLoadErrorCode(error: unknown): "BUNDLE_INTEGRITY_MISMATCH" | "BUNDLE_LOAD_FAILED" {
+  return error instanceof BundleIntegrityError ? "BUNDLE_INTEGRITY_MISMATCH" : "BUNDLE_LOAD_FAILED";
+}
+
 export interface InstalledBundle {
   manifest: BundleManifest;
   closure: BundleClosure;

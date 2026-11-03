@@ -6,7 +6,6 @@ export interface BrowseState {
   requestPath?: string;
   modeRequests?: Partial<Record<BrowseMode, string>>;
   pairId: string | null;
-  viewId: string;
   nodeKey: string | null;
   tabKey: string | null;
   changeIndex: number;
@@ -22,7 +21,6 @@ export const initialBrowseState: BrowseState = {
   bundleDigest: null,
   modeRequests: {},
   pairId: null,
-  viewId: "",
   nodeKey: null,
   tabKey: null,
   changeIndex: 0,
@@ -34,8 +32,6 @@ export const initialBrowseState: BrowseState = {
 };
 
 export type BrowseCommand =
-  | { name: "set-mode"; mode: BrowseMode }
-  | { name: "set-view"; viewId: string }
   | { name: "select-pair"; pairId: string }
   | { name: "set-bundle"; mode: BrowseMode; bundleDigest: string; requestPath?: string }
   | { name: "select-node"; nodeKey: string }
@@ -68,10 +64,8 @@ function normalizeState(state: BrowseState): BrowseState {
 export function executeBrowseCommand(state: BrowseState, command: BrowseCommand): BrowseState {
   let next = state;
   switch (command.name) {
-    case "set-mode": next = { ...state, mode: command.mode }; break;
-    case "set-view": next = { ...state, viewId: command.viewId, changeIndex: 0 }; break;
     case "select-pair": next = { ...state, pairId: command.pairId, changeIndex: 0 }; break;
-    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, requestPath: command.requestPath ?? state.requestPath, pairId: null, viewId: "", nodeKey: null, tabKey: null, changeIndex: 0 }; break;
+    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, requestPath: command.requestPath ?? state.requestPath, pairId: null, nodeKey: null, tabKey: null, changeIndex: 0 }; break;
     case "select-node": next = { ...state, nodeKey: command.nodeKey }; break;
     case "select-tab": next = { ...state, tabKey: command.tabKey }; break;
     case "jump-to-change": next = { ...state, changeIndex: Math.max(0, Math.floor(command.index)) }; break;
@@ -100,7 +94,6 @@ export function encodeBrowseState(state: BrowseState): string {
   params.set("mode", state.mode);
   if (state.bundleDigest) params.set("bundle", state.bundleDigest);
   if (state.pairId) params.set("pair", state.pairId);
-  if (state.viewId) params.set("view", state.viewId);
   if (state.requestPath) params.set("request", state.requestPath);
   for (const mode of ["PREVIEW", "REVIEW", "HISTORY"] as const) {
     const request = state.modeRequests?.[mode];
@@ -120,7 +113,6 @@ export function encodeBrowseState(state: BrowseState): string {
 export function decodeBrowseState(search: string): BrowseState {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const mode = params.get("mode");
-  const viewId = params.get("view") ?? "";
   const change = Number.parseInt(params.get("change") ?? "0", 10);
   return normalizeState({
     ...initialBrowseState,
@@ -132,7 +124,6 @@ export function decodeBrowseState(search: string): BrowseState {
       ...(params.get("historyRequest") ? { HISTORY: params.get("historyRequest") as string } : {}),
     },
     pairId: params.get("pair"),
-    viewId,
     requestPath: params.get("request") ?? undefined,
     nodeKey: params.get("node"),
     tabKey: params.get("tab"),

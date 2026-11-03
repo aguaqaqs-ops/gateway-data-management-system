@@ -71,13 +71,38 @@ async function waitForBrowse(page: Page) {
     throw new Error(`browse failed at ${page.url()}: ${code}: ${details ?? "no details"}`);
   }
   await expect(page.locator(".grid-frame").first()).toBeVisible();
+  const appGrid = page.locator(".grid-frame[data-rendered]").first();
+  if (await appGrid.count()) {
+    await expect(appGrid).toHaveAttribute("data-rendered", "true");
+    await expect(appGrid).toHaveAttribute("data-first-cell-content", /.+/);
+  } else {
+    await expect(page.locator(".grid-frame canvas").first()).toBeVisible();
+  }
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 async function screenshot(page: Page, name: string, width: number) {
   if (!outputDirectory) return;
   await page.setViewportSize({ width, height: 1080 });
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const appGrid = page.locator(".grid-frame[data-rendered]").first();
+  if (await appGrid.count()) {
+    await expect(appGrid).toHaveAttribute("data-rendered", "true");
+    await expect(appGrid).toHaveAttribute("data-first-cell-content", /.+/);
+    await expect(appGrid.locator("canvas").first()).toBeVisible();
+  }
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await mkdir(outputDirectory, { recursive: true });
   await page.screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), fullPage: true, animations: "disabled" });
+}
+
+async function waitForGridPaint(page: Page, tabKey: string) {
+  const appGrid = page.locator(`.grid-frame[data-tab-key="${tabKey}"]`);
+  await expect(appGrid).toHaveCount(1);
+  await expect(appGrid).toHaveAttribute("data-rendered", "true");
+  await expect(appGrid).toHaveAttribute("data-first-cell-content", /.+/);
+  await expect(appGrid.locator("canvas").first()).toBeVisible();
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 async function screenshotHeader(page: Page, name: string, width: number) {
@@ -87,15 +112,38 @@ async function screenshotHeader(page: Page, name: string, width: number) {
   await page.locator(".compare-header").screenshot({ path: join(outputDirectory, name + "-" + width + ".png"), animations: "disabled" });
 }
 
+async function clickFormulaCell(page: Page) {
+  const grid = page.locator(".grid-frame[data-formula-column-offset]").first();
+  const bounds = await grid.boundingBox();
+  const offset = Number(await grid.getAttribute("data-formula-column-offset"));
+  const width = Number(await grid.getAttribute("data-formula-column-width"));
+  if (!bounds || !Number.isFinite(offset) || !Number.isFinite(width)) throw new Error("formula column has no grid bounds");
+  await page.mouse.click(bounds.x + offset + width / 2, bounds.y + 38 + 19);
+}
+
 test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面", async ({ page }) => {
   const requests = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", previewPath, { pair: "baseline_to_initial", changed: "1" }));
   await waitForBrowse(page);
 
-  await expect(page.getByRole("button", { name: "上传预览" })).toHaveClass(/is-active/);
+  await expect(page.locator(".mode-tag")).toHaveText("上传");
+  await expect(page.getByRole("navigation", { name: "位置" })).toContainText("原始组态视图");
+  await expect(page.locator(".mode-tabs")).toHaveCount(0);
+  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("tab", { name: /原始组态视图/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /本次组态视图/ })).toBeVisible();
+  await page.getByRole("tab", { name: /本次组态视图/ }).click();
+  await expect(page).toHaveURL(/pair=initial_to_modified/);
+  expect(new URL(page.url()).searchParams.get("view")).toBeNull();
+  await page.reload();
+  await waitForBrowse(page);
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("initial_to_modified");
+  await page.getByRole("tab", { name: /原始组态视图/ }).click();
+  await expect(page).toHaveURL(/pair=baseline_to_initial/);
   await expect(page.locator(".distribution-strip")).toBeVisible();
   await page.getByRole("button", { name: "查看整表" }).click();
+  await waitForGridPaint(page, "__whole__:device");
   await screenshot(page, "s3-workbench-upload", 1920);
   await screenshotHeader(page, "s3-header-upload", 1920);
   await screenshot(page, "s4-grid-main", 1920);
@@ -112,12 +160,15 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.goto(browseUrl("PREVIEW", previewPath, { pair: "baseline_to_initial", changed: "1", debug: "1" }));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "查看整表" }).click();
-  await expect(page.getByRole("button", { name: "Debug" })).toHaveClass(/is-active/);
+  await waitForGridPaint(page, "__whole__:device");
+  await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
   await screenshot(page, "s4-grid-debug", 1920);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("button", { name: "收起导航" }).click();
   await screenshot(page, "s4-grid-debug", 1280);
-  await page.getByRole("button", { name: "Debug" }).click();
+  await page.getByRole("radio", { name: "User" }).click();
+  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "true");
   await screenshot(page, "s3-workbench-upload", 1280);
   await screenshotHeader(page, "s3-header-upload", 1280);
   await screenshot(page, "s4-grid-main", 1280);
@@ -132,10 +183,10 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page).toHaveURL(/changed=1/);
   await page.getByRole("button", { name: "下一个变更" }).click();
   await expect(page).toHaveURL(/change=1/);
-  await page.getByRole("button", { name: "Debug" }).click();
+  await page.getByRole("radio", { name: "Debug" }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("直流屏");
   const stateBeforeReload = new URL(page.url());
-  expect(stateBeforeReload.searchParams.get("view")).toBe("baseline_to_initial");
+  expect(stateBeforeReload.searchParams.get("view")).toBeNull();
   expect(stateBeforeReload.searchParams.get("pair")).toBe("baseline_to_initial");
   expect(stateBeforeReload.searchParams.get("tab")).toBe("__whole__:device");
   expect(stateBeforeReload.searchParams.get("changed")).toBe("1");
@@ -146,7 +197,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   const reloadedSearch = page.getByRole("textbox", { name: "搜索组、节点或页签" });
   if (!(await reloadedSearch.isVisible())) await page.getByRole("button", { name: "展开导航" }).click();
   await expect(reloadedSearch).toHaveValue("直流屏");
-  await expect(page.getByRole("button", { name: "Debug" })).toHaveClass(/is-active/);
+  await expect(page.getByRole("radio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: "User" })).toHaveAttribute("aria-checked", "false");
   expect(new URL(page.url()).searchParams.get("node")).toBe(stateBeforeReload.searchParams.get("node"));
   expect(new URL(page.url()).searchParams.get("change")).toBe("1");
   expect(requests.get("preview-full")).toBe(requestCountBeforeReload);
@@ -160,36 +212,44 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.locator(".overflow-menu").getByRole("button", { name: /b1_n1_iec104_syx_list/ }).click();
   await expect(page.locator(".table-heading h2")).toHaveText("b1_n1_iec104_syx_list");
   expect(new URL(page.url()).searchParams.get("tab")).toBe("b1_n1_iec104_syx_list");
-  await page.goto(browseUrl("REVIEW", reviewPath, { pair: "node_1_to_node_2" }));
+  await page.goto(browseUrl("REVIEW", reviewPath, { pair: "fe2a-history-fixture-p0" }));
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("mode")).toBe("REVIEW");
-  await expect(page.getByRole("button", { name: "审核", exact: true })).toHaveClass(/is-active/);
+  await expect(page.locator(".mode-tag")).toHaveText("审核");
   await screenshotHeader(page, "s3-header-review", 1920);
   await screenshotHeader(page, "s3-header-review", 1280);
 
-  await page.getByRole("button", { name: "历史比较", exact: true }).click();
-  await expect(page.getByRole("button", { name: "历史比较", exact: true })).toHaveClass(/is-active/);
+  await page.goto(browseUrl("HISTORY", historyPath, { pair: "fe2a-history-fixture-p0" }));
+  await waitForBrowse(page);
+  await expect(page.locator(".mode-tag")).toHaveText("历史比较 · 只读");
   await expect(page.getByRole("tab", { name: "节点 2 → 节点 3" })).toBeVisible();
   await screenshotHeader(page, "s3-header-history", 1920);
   await screenshotHeader(page, "s3-header-history", 1280);
   await page.getByRole("tab", { name: "节点 2 → 节点 3" }).click();
-  await expect(page).toHaveURL(/pair=node_2_to_node_3/);
+  await expect(page).toHaveURL(/pair=fe2a-history-fixture-p1/);
 
-  const previewRequestsBeforeReturn = requests.get("preview-full") ?? 0;
-  await page.getByRole("button", { name: "上传预览", exact: true }).click();
+  await page.goto(browseUrl("PREVIEW", previewPath, { pair: "initial_to_modified" }));
   await waitForBrowse(page);
-  expect(requests.get("preview-full")).toBe(previewRequestsBeforeReturn + 1);
-  await page.locator(".table-heading__actions button").click();
+  await page.getByRole("button", { name: "复合信号虚装置" }).click();
+  await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
+  await clickFormulaCell(page);
   const formula = page.getByRole("dialog", { name: "公式查看" });
   await expect(formula).toBeVisible();
-  await expect(formula.getByText("改前公式在 BE-b 实现后提供。", { exact: false })).toBeVisible();
+  await expect(formula.getByText("改前公式在 BE-b 实现后提供", { exact: true })).toBeVisible();
+  await expect(formula).toContainText("公式已改");
+  await expect(formula).toContainText("| 嵌套命名表达式 =");
+  await expect(formula).toContainText("线路保护装置 A:线路电流");
+  await expect(formula).toContainText("Device 999:未映射测点");
+  await expect(formula).not.toContainText("kind:");
   await screenshot(page, "formula-preview", 1920);
   await screenshot(page, "formula-preview", 1280);
   await formula.getByRole("button", { name: "关闭公式" }).click();
-  await page.getByRole("button", { name: "历史比较", exact: true }).click();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto(browseUrl("HISTORY", historyPath, { pair: "fe2a-history-fixture-p0", node: "device:composite", tab: "composite_signal_point" }));
   await waitForBrowse(page);
-  await page.locator(".table-heading__actions button").click();
+  await clickFormulaCell(page);
   await expect(page.getByRole("dialog", { name: "公式查看" }).getByText("改前公式", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "公式查看" }).getByText("改后公式", { exact: true })).toBeVisible();
   await screenshot(page, "formula-history", 1920);
   await screenshot(page, "formula-history", 1280);
 });
@@ -197,8 +257,9 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
 test("数据集替换显示身份结论与两侧表，缺失导航使用单组占位回退", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto(browseUrl("PREVIEW", "/v1/fe2a-fixture/preview-replacement", { pair: "replacement_pair" }));
+  await page.goto(browseUrl("PREVIEW", "/v1/fe2a-fixture/preview-replacement", { pair: "initial_to_modified" }));
   await waitForBrowse(page);
+  await expect(page.locator(".view-tabs")).toContainText("高风险");
   await expect(page.getByText("身份结论：不同项目")).toBeVisible();
   await expect(page.getByRole("heading", { name: /替换前/ })).toBeVisible();
   await expect(page.getByRole("heading", { name: /替换后/ })).toBeVisible();

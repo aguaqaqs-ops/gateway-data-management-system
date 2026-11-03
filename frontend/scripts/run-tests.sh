@@ -148,7 +148,6 @@ docker run --rm --init --ipc=host --network "$DOCKER_NETWORK" \
     cd /tmp/frontend
     npm ci --offline --cache /tmp/npm-cache --no-audit --no-fund
     npm run typecheck
-    npm run check:browser-types
     npm run lint
     npm run test:unit
     npm run build

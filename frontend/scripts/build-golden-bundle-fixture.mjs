@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const frontendRoot = dirname(dirname(scriptPath));
-const sourceRoot = join(frontendRoot, "src/test/fixtures/source/backend/fe2a");
-const fixtureNames = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-no-navigation"];
+const sourceRoot = join(frontendRoot, "src/test/fixtures/source/backend");
+const fixtureNames = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-no-navigation", "preview-workbench-normal"];
 
 const sha256 = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 
@@ -64,7 +64,8 @@ function createTar(members) {
 }
 
 async function readBackendBundle(fixtureName) {
-  const fixtureRoot = join(sourceRoot, fixtureName);
+  const fixturePhase = fixtureName === "preview-workbench-normal" ? "fe2b" : "fe2a";
+  const fixtureRoot = join(sourceRoot, fixturePhase, fixtureName);
   const manifestBytes = await readFile(join(fixtureRoot, "manifest.json"));
   const closureBytes = await readFile(join(fixtureRoot, "artifact-closure.json"));
   const manifest = JSON.parse(manifestBytes.toString("utf8"));

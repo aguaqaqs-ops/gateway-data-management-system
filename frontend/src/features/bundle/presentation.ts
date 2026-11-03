@@ -125,10 +125,33 @@ export async function readLocalChangeRecords(
 ): Promise<RowDiffRecord[]> {
   const paths = presentation.tableArtifacts.get(tableName);
   if (!paths) return [];
-  const records = await Promise.all([paths.records, paths.orderedRecords, ...paths.blankRecords]
-    .filter((path): path is string => Boolean(path))
-    .map((path) => readParquetTable(bundle, path, request)));
-  return records.flat().map((row) => row as unknown as RowDiffRecord);
+  const [standardRows, orderedRows, ...blankRows] = await Promise.all([
+    paths.records ? readParquetTable(bundle, paths.records, request) : Promise.resolve([]),
+    paths.orderedRecords ? readParquetTable(bundle, paths.orderedRecords, request) : Promise.resolve([]),
+    ...paths.blankRecords.map((path) => readParquetTable(bundle, path, request)),
+  ]);
+  const surfaceTable = presentation.surface.tables.find((table) => table.table_name === tableName);
+  const hasComparisonKeys = (surfaceTable?.compare?.compare_key_columns?.length ?? 0) > 0;
+  const selectedRows = [...selectChangeRecordRows(standardRows, orderedRows, hasComparisonKeys), ...blankRows.flat()];
+  return selectedRows.map((row) => row as unknown as RowDiffRecord);
+}
+
+export function selectChangeRecordRows(
+  standardRows: RowDiffRecord[],
+  orderedRows: RowDiffRecord[],
+  hasComparisonKeys: boolean,
+): RowDiffRecord[] {
+  const hasStandardRowRecords = standardRows.some((row) =>
+    typeof row.record_kind === "string" && /^(ROW_ADDED|ROW_DELETED|ROW_MODIFIED)$/.test(row.record_kind));
+  const orderedRecords = orderedRows.filter((row) => typeof row.record_kind === "string" && row.record_kind.startsWith("ORDERED_ROW_"));
+  const useOrderedRows = orderedRecords.length > 0 && (!hasStandardRowRecords || !hasComparisonKeys);
+  if (useOrderedRows) return orderedRows;
+  // Standard identities avoid duplicate rows; keep ordered movement records because they
+  // carry a distinct positional change that standard row records cannot represent.
+  const movements = hasStandardRowRecords && hasComparisonKeys
+    ? orderedRecords.filter((row) => row.record_kind === "ORDERED_ROW_MOVED")
+    : [];
+  return [...standardRows, ...movements];
 }
 
 /** Reads the table-scoped annotation document from the installed local bundle only. */

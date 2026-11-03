@@ -1,0 +1,1 @@
+{"contract_version":"backend-vnext/business-navigation/v1","groups":[{"group_key":"FORWARD_CHANNELS","items":[{"attributes":{"board":1,"link_no":1,"protocol":"IEC104"},"item_key":"forward-channel:b1_n1","item_kind":"CHANNEL","label":"IEC 104 转发通道 b1_n1","tabs":[{"label":"遥测量","row_filter":null,"tab_key":"telemetry","table_id":"b1_n1_iec104_yc_list"}]}],"label":"转发通道"}]}

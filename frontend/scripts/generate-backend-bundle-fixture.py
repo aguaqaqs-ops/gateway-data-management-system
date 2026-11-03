@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate deterministic FE2a bundles through backend production code."""
+"""Generate deterministic FE2 bundles through backend production code."""
 
 from __future__ import annotations
 
@@ -504,7 +504,59 @@ def _write_bundle(
         print("artifact_sha256=" + logical_path + " sha256:" + hashlib.sha256(data).hexdigest())
 
 
-def generate(output_root: Path, navigation_path: Path, diagnostics_path: Path) -> None:
+def _workbench_telemetry_sql(*, modified: bool) -> str:
+    deleted = {9, 22, 37, 54, 68, 83}
+    inserted_after = {7, 21, 36, 53, 67, 82}
+    changed = {5, 19, 35, 51, 70, 90}
+    rows: list[tuple[int, int, str, int]] = []
+    if not modified:
+        for gid in range(1, 91):
+            rows.append((gid, gid, f"测点-{gid:03d}", gid * 137))
+    else:
+        position = 0
+        for gid in range(1, 91):
+            if gid not in deleted:
+                position += 1
+                value = gid * 137 + (425 if gid in changed else 0)
+                rows.append((gid, position, f"测点-{gid:03d}", value))
+            if gid in inserted_after:
+                position += 1
+                new_gid = 100 + gid
+                rows.append((new_gid, position, f"新增测点-{gid:03d}", new_gid * 113))
+    values = ",\n".join(
+        f"({gid}, {position}, '{name}', {value})"
+        for gid, position, name, value in rows
+    )
+    return "CREATE TABLE b1_n1_iec104_yc_list (gid INT NOT NULL, no INT NOT NULL, point_name VARCHAR(64) NOT NULL, value BIGINT NOT NULL);\nINSERT INTO b1_n1_iec104_yc_list VALUES\n" + values + ";\n"
+
+
+def _generate_workbench_fixture(output_root: Path, navigation_path: Path) -> None:
+    navigation = json.loads(navigation_path.read_bytes())
+    store = InMemoryArtifactStore()
+    before = _materialize(_workbench_telemetry_sql(modified=False), store, "<Logic_Set />")
+    current = _materialize(_workbench_telemetry_sql(modified=True), store, "<Logic_Set />")
+    fixture = _pair(
+        _PAIR_INITIAL_TO_MODIFIED,
+        _PAIR_INITIAL_TO_MODIFIED,
+        0,
+        1,
+        before,
+        current,
+        store,
+        assess_identity=False,
+    )
+    _write_bundle(
+        output_root,
+        "preview-workbench-normal",
+        store,
+        [("baseline", "当前基线", before), ("modified", "上传组态", current)],
+        [fixture],
+        navigation,
+        None,
+    )
+
+
+def generate(output_root: Path, navigation_path: Path, diagnostics_path: Path, workbench_navigation_path: Path | None = None) -> None:
     if output_root.exists() and any(output_root.iterdir()):
         raise ValueError("output directory must be empty: " + str(output_root))
     output_root.mkdir(parents=True, exist_ok=True)
@@ -644,14 +696,18 @@ def generate(output_root: Path, navigation_path: Path, diagnostics_path: Path) -
         None,
     )
 
+    if workbench_navigation_path is not None:
+        _generate_workbench_fixture(output_root, workbench_navigation_path)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--navigation", type=Path, required=True)
     parser.add_argument("--navigation-diagnostics", type=Path, required=True)
+    parser.add_argument("--workbench-navigation", type=Path)
     arguments = parser.parse_args()
-    generate(arguments.output_root, arguments.navigation, arguments.navigation_diagnostics)
+    generate(arguments.output_root, arguments.navigation, arguments.navigation_diagnostics, arguments.workbench_navigation)
 
 
 if __name__ == "__main__":

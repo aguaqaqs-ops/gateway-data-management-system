@@ -28,12 +28,22 @@ describe("composite signal formula rendering", () => {
       ["expression", "* Device 999:未映射测点"],
       ["expression", "* 5"],
       ["expression", "| 6"],
-      ["group", "| （- 分组）"],
-      ["expression", "- 线路保护装置 A:线路电流"],
+      ["expression", "| - 线路保护装置 A:线路电流"],
     ]);
+    expect(lines.at(-1)).toMatchObject({ kind: "expression", text: "| - 线路保护装置 A:线路电流", depth: 0 });
+    expect(lines.some((line) => line.text.includes("- 分组"))).toBe(false);
     const productGroup = lines.find((line) => line.text === "+ （* 分组）");
     expect(productGroup).toMatchObject({ kind: "group", depth: 1 });
     expect(lines.filter((line) => line.text.startsWith("* ")).map((line) => line.depth)).toEqual([2, 2, 2]);
+  });
+
+  it("renders unary minus as the first child without an outer operator prefix", () => {
+    const lines = renderFormulaLines({
+      kind: "EXPRESS", operator: "", children: [
+        { kind: "EXPRESS", operator: "-", children: [{ kind: "POINT", name: "Device 1:X" }] },
+      ],
+    });
+    expect(lines.map((line) => line.text)).toEqual(["- Device 1:X"]);
   });
 
   it("keeps the fixture's mixed-operator group and its History rows aligned", () => {
@@ -66,14 +76,18 @@ describe("composite signal formula rendering", () => {
         { kind: "EXPRESS", operator: "-", children: [{ kind: "POINT", name: "Device 1:线路电流" }] },
       ],
     });
-    const before = renderFormulaLines(ast("3"));
-    const current = renderFormulaLines(ast("5"));
+    const devices = [{ dev_addr: 1, description: "线路保护装置 A" }, { dev_addr: 2, description: "测控装置" }];
+    const before = renderFormulaLines(ast("3"), devices);
+    const current = renderFormulaLines(ast("5"), devices);
     const aligned = alignFormulaLines(before, current);
     expect(aligned.find((line) => line.before?.text === "+ （* 分组）")).toMatchObject({
       state: "same", before: { kind: "group", depth: 1 }, current: { kind: "group", depth: 1 },
     });
     expect(aligned.find((line) => line.before?.text === "* 3")).toMatchObject({
       state: "changed", before: { text: "* 3", depth: 2 }, current: { text: "* 5", depth: 2 },
+    });
+    expect(aligned.find((line) => line.before?.text.includes("| - 线路保护装置 A:线路电流"))).toMatchObject({
+      state: "same", before: { kind: "expression", depth: 0 }, current: { kind: "expression", depth: 0 },
     });
   });
 

@@ -89,15 +89,16 @@ export function renderFormulaLines(value: unknown, devices: readonly FormulaSour
       visit(node.children[0], depth, prefix, parentOperator);
       return;
     }
+    if (node.children.length === 1) {
+      const unaryPrefix = `${prefix}${node.operator} `;
+      visit(node.children[0], depth, unaryPrefix, node.operator);
+      return;
+    }
     if (!node.name && parentOperator && node.operator !== parentOperator) {
       const groupPrefix = prefix || parentOperator + " ";
       const groupText = groupPrefix + "（" + node.operator + " 分组）";
       append("group", groupText, groupText, depth);
       visitChildren(node.children, node.operator, depth + 1, node.operator + " ");
-      return;
-    }
-    if (node.children.length === 1) {
-      visit(node.children[0], depth, `${prefix}${node.operator} `, node.operator);
       return;
     }
     const operationPrefix = parentOperator && parentOperator !== node.operator ? `${node.operator} ` : prefix;

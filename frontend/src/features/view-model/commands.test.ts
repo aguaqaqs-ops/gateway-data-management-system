@@ -7,9 +7,9 @@ describe("read-only browsing commands and URL state", () => {
   beforeEach(() => window.history.replaceState(null, "", "/"));
 
   it("round-trips pair, navigation, filters, search and comparison refs through the URL", () => {
-    const bundled = { ...executeBrowseCommand(initialBrowseState, { name: "set-bundle", mode: "REVIEW", bundleDigest: "sha256:abc", requestPath: "/v1/history/bundle" }),
-      modeRequests: { PREVIEW: "/v1/preview/bundle", REVIEW: "/v1/review/bundle", HISTORY: "/v1/history/bundle" } };
-    const pair = executeBrowseCommand(bundled, { name: "select-pair", pairId: "node-a_to_node-b" });
+    const bundled = executeBrowseCommand(initialBrowseState, { name: "set-bundle", mode: "REVIEW", bundleDigest: "sha256:abc" });
+    const withRoute = { ...bundled, workspaceId: "workspace-1", submissionId: "submission-1", operationId: "history-op-1", operationKind: "history-compare" as const, workbenchNodeKey: "submission:s1" };
+    const pair = executeBrowseCommand(withRoute, { name: "select-pair", pairId: "node-a_to_node-b" });
     const state = executeBrowseCommand(pair, { name: "select-node", nodeKey: "device:addr:1" });
     const withTab = executeBrowseCommand(state, { name: "select-tab", tabKey: "measurements" });
     const filtered = executeBrowseCommand(withTab, { name: "set-only-interesting", enabled: true });
@@ -19,7 +19,11 @@ describe("read-only browsing commands and URL state", () => {
     expect(decodeBrowseState(encoded)).toEqual(compared);
     expect(new URLSearchParams(encoded).has("view")).toBe(false);
     expect(new URLSearchParams(encoded).get("pair")).toBe("node-a_to_node-b");
-    expect(new URLSearchParams(encoded).get("reviewRequest")).toBe("/v1/review/bundle");
+    expect(new URLSearchParams(encoded).get("workspaceId")).toBe("workspace-1");
+    expect(new URLSearchParams(encoded).get("submissionId")).toBe("submission-1");
+    expect(new URLSearchParams(encoded).get("operationId")).toBe("history-op-1");
+    expect(new URLSearchParams(encoded).get("workbenchNode")).toBe("submission:s1");
+    for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"]) expect(new URLSearchParams(encoded).has(legacy)).toBe(false);
   });
 
   it("falls back to Preview for unknown modes and retains pair identity", () => {
@@ -31,6 +35,12 @@ describe("read-only browsing commands and URL state", () => {
   it("restores Review and History as separate browsing contexts", () => {
     expect(decodeBrowseState("?mode=REVIEW").mode).toBe("REVIEW");
     expect(decodeBrowseState("?mode=HISTORY").mode).toBe("HISTORY");
+  });
+
+  it("restores a direct resource route from identifiers rather than request paths", () => {
+    const decoded = decodeBrowseState("?page=compare&mode=PREVIEW&workspaceId=workspace-1&previewResultId=preview-1&node=device%3A1&tab=telemetry");
+    expect(decoded).toMatchObject({ mode: "PREVIEW", workspaceId: "workspace-1", previewResultId: "preview-1", nodeKey: "device:1", tabKey: "telemetry" });
+    expect(encodeBrowseState(decoded)).not.toContain("Request");
   });
 
   it("switches and restores Preview views by pair_id when both surface view_id values are equal", async () => {

@@ -4,13 +4,17 @@ import { MemoryBundleStore } from "./local-bundle";
 import { installBundleTar, verifyBundleMetadata, type BundleClosure, type BundleManifest } from "./posix-tar";
 import { bytesStream, readFixture } from "../../test/helpers";
 
-const FIXTURE_NAMES = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-no-navigation"];
+const FIXTURE_NAMES = ["preview-full", "preview-modified-only", "preview-replacement", "history-three-nodes", "preview-no-navigation", "preview-workbench-normal"];
+
+function fixturePhase(name: string): "fe2a" | "fe2b" {
+  return name === "preview-workbench-normal" ? "fe2b" : "fe2a";
+}
 
 async function installFixture(name: string) {
   const [tar, manifestBytes, closureBytes] = await Promise.all([
     readFixture("src/test/fixtures/generated/" + name + ".tar"),
-    readFixture("src/test/fixtures/source/backend/fe2a/" + name + "/manifest.json"),
-    readFixture("src/test/fixtures/source/backend/fe2a/" + name + "/artifact-closure.json"),
+    readFixture("src/test/fixtures/source/backend/" + fixturePhase(name) + "/" + name + "/manifest.json"),
+    readFixture("src/test/fixtures/source/backend/" + fixturePhase(name) + "/" + name + "/artifact-closure.json"),
   ]);
   const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as BundleManifest;
   const closure = JSON.parse(new TextDecoder().decode(closureBytes)) as BundleClosure;
@@ -26,7 +30,7 @@ async function installFixture(name: string) {
   return { tar, manifest, closure, bundle };
 }
 
-describe("backend-generated FE2a bundle fixtures", () => {
+describe("backend-generated FE2 bundle fixtures", () => {
   it.each(FIXTURE_NAMES)("matches backend summaries and installs every product for %s", async (name) => {
     const { manifest, bundle } = await installFixture(name);
     expect(bundle.manifest.bundle_digest).toBe(manifest.bundle_digest);
@@ -41,10 +45,42 @@ describe("backend-generated FE2a bundle fixtures", () => {
         expect(presentation.view.groups[0]?.groupKey).toBe("ALL_TABLES");
       } else {
         expect(presentation.navigation).toBeDefined();
-        expect(presentation.navigationDiagnostics.length).toBe(name === "preview-replacement" ? 0 : 2);
+        expect(presentation.navigationDiagnostics.length).toBe(name === "preview-replacement" || name === "preview-workbench-normal" ? 0 : 2);
         expect(presentation.navigation).not.toHaveProperty("diagnostics");
       }
     }
+  });
+
+  it("matches the backend summary for the normal transfer-channel telemetry browse", async () => {
+    const { manifest, bundle } = await installFixture("preview-workbench-normal");
+    expect(manifest.pairs).toHaveLength(1);
+    const pair = manifest.pairs[0] as { pair_id: string; summary: Record<string, unknown> };
+    const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
+    expect(presentation.navigation?.groups.map((group) => group.label)).toEqual(["转发通道"]);
+    expect(presentation.navigationDiagnostics).toEqual([]);
+    const table = presentation.surface.tables.find((value) => value.table_name === "b1_n1_iec104_yc_list");
+    expect(table?.diagnostics?.diagnostics_summary ?? []).toEqual([]);
+    expect(table?.row_change_stats).toMatchObject({ row_count_before: 90, row_count_current: 90 });
+    const tables = presentation.surface.tables;
+    const diagnosticsCount = presentation.surfaceDiagnostics.length + presentation.navigationDiagnostics.length
+      + tables.reduce((total, value) => total + (value.diagnostics?.diagnostics_summary?.length ?? 0), 0);
+    const rowTotal = (key: "row_added_count" | "row_deleted_count" | "row_modified_count") =>
+      tables.reduce((total, value) => total + (value.row_change_stats?.[key] ?? 0), 0);
+    expect({
+      table_count: tables.length,
+      changed_table_count: tables.filter((value) => value.change_kind !== "UNCHANGED").length,
+      degraded_table_count: tables.filter((value) => value.change_kind === "DEGRADED").length,
+      failed_table_count: tables.filter((value) => value.change_kind === "FAILED").length,
+      diagnostics_count: diagnosticsCount,
+      row_added_count: rowTotal("row_added_count"),
+      row_deleted_count: rowTotal("row_deleted_count"),
+      row_modified_count: rowTotal("row_modified_count"),
+    }).toEqual(Object.fromEntries(Object.entries(pair.summary).map(([key, value]) => [key, Number(value)])));
+    const records = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_yc_list");
+    expect(records.some((record) => record.record_kind?.includes("ADDED"))).toBe(true);
+    expect(records.some((record) => record.record_kind?.includes("DELETED"))).toBe(true);
+    expect(records.some((record) => record.record_kind?.includes("MODIFIED"))).toBe(true);
+    expect(new Set(records.map((record) => record.record_kind)).size).toBeGreaterThan(1);
   });
 
   it("browses the Preview FULL row kinds, ordered moves, blank intervals, keyless fallback and formula records", async () => {

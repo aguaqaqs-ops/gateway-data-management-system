@@ -3,10 +3,14 @@ export type BrowseMode = "PREVIEW" | "REVIEW" | "HISTORY";
 export interface BrowseState {
   mode: BrowseMode;
   bundleDigest: string | null;
-  requestPath?: string;
-  modeRequests?: Partial<Record<BrowseMode, string>>;
+  workspaceId: string | null;
+  previewResultId: string | null;
+  submissionId: string | null;
+  operationId: string | null;
+  operationKind: "history-compare" | "operation" | null;
   pairId: string | null;
   nodeKey: string | null;
+  workbenchNodeKey: string | null;
   tabKey: string | null;
   changeIndex: number;
   expandedGroups: string[];
@@ -19,9 +23,14 @@ export interface BrowseState {
 export const initialBrowseState: BrowseState = {
   mode: "PREVIEW",
   bundleDigest: null,
-  modeRequests: {},
+  workspaceId: null,
+  previewResultId: null,
+  submissionId: null,
+  operationId: null,
+  operationKind: null,
   pairId: null,
   nodeKey: null,
+  workbenchNodeKey: null,
   tabKey: null,
   changeIndex: 0,
   expandedGroups: [],
@@ -33,7 +42,8 @@ export const initialBrowseState: BrowseState = {
 
 export type BrowseCommand =
   | { name: "select-pair"; pairId: string }
-  | { name: "set-bundle"; mode: BrowseMode; bundleDigest: string; requestPath?: string }
+  | { name: "set-bundle"; mode: BrowseMode; bundleDigest: string }
+  | { name: "set-operation"; operationId: string | null; operationKind: "history-compare" | "operation" | null }
   | { name: "select-node"; nodeKey: string }
   | { name: "select-tab"; tabKey: string }
   | { name: "jump-to-change"; index: number }
@@ -65,7 +75,8 @@ export function executeBrowseCommand(state: BrowseState, command: BrowseCommand)
   let next = state;
   switch (command.name) {
     case "select-pair": next = { ...state, pairId: command.pairId, changeIndex: 0 }; break;
-    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, requestPath: command.requestPath ?? state.requestPath, pairId: null, nodeKey: null, tabKey: null, changeIndex: 0 }; break;
+    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, pairId: null, nodeKey: null, tabKey: null, changeIndex: 0 }; break;
+    case "set-operation": next = { ...state, operationId: command.operationId, operationKind: command.operationKind }; break;
     case "select-node": next = { ...state, nodeKey: command.nodeKey }; break;
     case "select-tab": next = { ...state, tabKey: command.tabKey }; break;
     case "jump-to-change": next = { ...state, changeIndex: Math.max(0, Math.floor(command.index)) }; break;
@@ -91,15 +102,17 @@ export function executeBrowseCommand(state: BrowseState, command: BrowseCommand)
 
 export function encodeBrowseState(state: BrowseState): string {
   const params = new URLSearchParams();
+  params.set("page", "compare");
   params.set("mode", state.mode);
   if (state.bundleDigest) params.set("bundle", state.bundleDigest);
+  if (state.workspaceId) params.set("workspaceId", state.workspaceId);
+  if (state.previewResultId) params.set("previewResultId", state.previewResultId);
+  if (state.submissionId) params.set("submissionId", state.submissionId);
+  if (state.operationId) params.set("operationId", state.operationId);
+  if (state.operationKind) params.set("operationKind", state.operationKind);
   if (state.pairId) params.set("pair", state.pairId);
-  if (state.requestPath) params.set("request", state.requestPath);
-  for (const mode of ["PREVIEW", "REVIEW", "HISTORY"] as const) {
-    const request = state.modeRequests?.[mode];
-    if (request) params.set(mode === "PREVIEW" ? "previewRequest" : mode === "REVIEW" ? "reviewRequest" : "historyRequest", request);
-  }
   if (state.nodeKey) params.set("node", state.nodeKey);
+  if (state.workbenchNodeKey) params.set("workbenchNode", state.workbenchNodeKey);
   if (state.tabKey) params.set("tab", state.tabKey);
   if (state.changeIndex > 0) params.set("change", String(state.changeIndex));
   if (state.onlyInteresting) params.set("changed", "1");
@@ -118,14 +131,14 @@ export function decodeBrowseState(search: string): BrowseState {
     ...initialBrowseState,
     mode: mode === "REVIEW" || mode === "HISTORY" ? mode : "PREVIEW",
     bundleDigest: params.get("bundle"),
-    modeRequests: {
-      ...(params.get("previewRequest") ? { PREVIEW: params.get("previewRequest") as string } : {}),
-      ...(params.get("reviewRequest") ? { REVIEW: params.get("reviewRequest") as string } : {}),
-      ...(params.get("historyRequest") ? { HISTORY: params.get("historyRequest") as string } : {}),
-    },
+    workspaceId: params.get("workspaceId"),
+    previewResultId: params.get("previewResultId"),
+    submissionId: params.get("submissionId"),
+    operationId: params.get("operationId"),
+    operationKind: params.get("operationKind") === "history-compare" || params.get("operationKind") === "operation" ? params.get("operationKind") as "history-compare" | "operation" : null,
     pairId: params.get("pair"),
-    requestPath: params.get("request") ?? undefined,
     nodeKey: params.get("node"),
+    workbenchNodeKey: params.get("workbenchNode"),
     tabKey: params.get("tab"),
     changeIndex: Number.isFinite(change) ? change : 0,
     expandedGroups: params.getAll("group"),

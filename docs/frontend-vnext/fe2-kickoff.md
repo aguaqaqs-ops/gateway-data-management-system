@@ -8,7 +8,9 @@
   2026-11-03 按审核会话核对更正 §3 N2、§4.5、§7.5：`MANUAL_RECOVERY_REQUIRED` 不是终态；补充 `POST /v1/workspaces` 的状态码、按 route 声明的错误覆盖、FE1 测试数据的取值更正。
   2026-11-03 FE2b fixture 生成停止后，§7.1 新增“生成入口”：只通过提交的脚本生成，继续使用现有依赖镜像（§9 Q14）。
   2026-11-03 FE2b 复审第 1 轮通过：新增 §6.4 FE2b 带入 FE2c 的事项（§9 Q15）。
-- **FE2b：** 起点为 `fe-fe2a-exit`（main 合入提交 `a7c6160447`），审核范围为 `fe-fe2a-exit..<候选>`。复审第 1 轮通过（代码候选 `5d17496756`），下一步在 04 上取证。
+  2026-11-03 FE2b 退出（§2）。
+- **FE2b：** 已退出（2026-11-03，§2）。
+- **FE2c：** 可以开始。起点为 `fe-fe2b-exit`（main 合入提交 `e96a057442`），审核范围为 `fe-fe2b-exit..<候选>`；带入项见 §6.4。
 - **日期：** 2026-11-02。
 - **起点：** `fe-fe1-exit`（`a42139222f`），main 合入提交 `abbe6e8777`。
 - **依据：** [前端 kickoff](frontend-kickoff.md)（FD1–FD8、§4、§6、§7）、
@@ -46,6 +48,22 @@ FE2b 的写操作依赖 N1、N2，可以在 FE2a 审核期间准备。两个子�
 - owner 决定（§9 Q10）：FE2a 不再修复。无草图页面的截图（公式抽屉、数据集替换双侧浏览、加载骨架、错误页、导航回退；
   04 证据目录 `/home/dev/gdds-fe-evidence/fe2a/a80a2e93af-04/`）按现状接受；R7 与正常业务场景的截图带入 FE2b（§6.3）。
 - FE2b 以 `fe-fe2a-exit` 为起点。
+
+**FE2b 已退出（2026-11-03）：**
+
+- 附注 tag `fe-fe2b-exit`（tag 对象 `6eb89e2c82`）指向 handoff 提交 `31f4310ff8`；
+  被测代码为 `5d17496756`，两者 `frontend/` 树相同，都是 `a0f8ce750b`；`vnext/` 树 `2791d3ff3d` 未改动。
+- 04 权威运行：`/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T162807Z.log`（SHA256 `25f3295d…2665c1a`），exit 0；
+  截图 50 张在 04 的 `/home/dev/gdds-fe-evidence/fe2b/5d174967-04/`，清单 `screenshot-sha256-5d174967-04.txt`（SHA256 `bea5e1b4…f9960d`）。
+- 合入 main 的合并提交为 `e96a057442`，只带入 `frontend/` 与 `docs/frontend-vnext/fe2b-handoff.md`。
+- 依据：[审核](reviews/fe2b-review.md)、[复审第 1 轮](reviews/fe2b-rereview-1.md)（PASS）、
+  [证据核对第 1 轮](reviews/fe2b-evidence-check-1.md)（PASS）。
+- owner 决定（§9 Q15）：截图已确认；历史比较结果抽屉的各比较对摘要与 N2–N4 带入 FE2c（§6.4），M10 接受现状。
+- **handoff 勘误**（证据核对第 1 轮 §3；不改 handoff，不另提交）：
+  - handoff §6 的逐张表是 05 截图的 SHA256，其中 `manual-recovery-required-1280/1920`、`workspace-error-no-connected-1280`
+    与 04 不同；04 截图以清单 `bea5e1b4…` 为准；
+  - handoff §8 的“请 owner 决定”已由 §9 Q15 决定。
+- FE2c 以 `fe-fe2b-exit` 为起点，审核范围为 `fe-fe2b-exit..<FE2c 候选>`。
 
 **FE2b 拆分（owner 2026-11-03 确认，§9 Q12）：**
 原 FE2b 包括 §6.1 全部页面与写操作，加 §6.3 的带入项，体量大于 FE2a；FE2a 一轮审核加两轮复审才通过。

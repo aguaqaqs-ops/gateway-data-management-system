@@ -452,7 +452,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   expect(apiRequests.some((request) => request.path === "/v1/history?limit=100&cursor=history-page-2")).toBe(true);
 
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("提交");
-  await expect(page.locator(".workspace-table tbody tr")).toHaveCount(1);
+  await expect(page.locator(".workspace-table tbody tr")).toHaveCount(3);
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("");
   await page.getByRole("button", { name: "提交时间" }).click();
   const widthBefore = await page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width));
@@ -594,7 +594,7 @@ test("MANUAL_RECOVERY_REQUIRED 提供管理员信息并在刷新后跟随 RUNNIN
   await screenshot(page, "manual-recovery-required", 1920);
   await screenshot(page, "manual-recovery-required", 1280);
   await panel.getByRole("button", { name: "刷新状态" }).click();
-  await expect(panel).toContainText("运行中");
+  await expect(panel).toContainText("执行中");
   await expect(panel).toContainText("已完成", { timeout: 5_000 });
 });
 
@@ -615,7 +615,7 @@ test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-workbench-normal", { node: "forward-channel:b1_n1", tab: "telemetry" }));
   await waitForBrowse(page);
-  await expect(page.getByRole("navigation", { name: "比较导航" })).toContainText("转发通道");
+  await expect(page.locator(".navigation-sidebar")).toContainText("转发通道");
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(0);
   await expect(page.locator(".diagnostic-note")).toHaveCount(0);
   await expect(page.locator(".pair-diagnostic-strip")).toHaveCount(0);

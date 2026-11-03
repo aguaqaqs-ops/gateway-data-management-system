@@ -1,6 +1,6 @@
 # BE-b 设计草案（第一步）：业务导航与表格展示
 
-- **状态：** 第一步已确认（owner，2026-11-02，§6）；作为 BE-b 的业务与数据结构依据。§4.7 导航诊断为设计会话对 FE1 审核 D1 的答复（2026-11-02），新增编码 `DEVICE_ROWS_UNASSIGNED` 已由 owner 确认（2026-11-02）。
+- **状态：** 第一步已确认（owner，2026-11-02，§6）；作为 BE-b 的业务与数据结构依据。§4.7 导航诊断为设计会话对 FE1 审核 D1 的答复（2026-11-02），新增编码 `DEVICE_ROWS_UNASSIGNED` 已由 owner 确认（2026-11-02）。§4.8–§4.10 为设计会话对 FE2a 审核 D1–D3 的答复，owner 确认（2026-11-03）。
 - **日期：** 2026-11-02。
 - **范围：** [前端 kickoff](frontend-kickoff.md) FD6、FD8 与 §5 BE-b 的第一步：数据结构与业务规则。实现层面的设计（在哪个 step 计算、缓存、计时预算、golden 组织、History 侧的持久化方式）在 P6 S5 接近完成时定稿（第二步）；实现在 P6 退出后、Phase 8 前进行。
 - **依据：** `legacy/backend_vnext/capabilities/{business_projection,table_presentation}/`、`legacy/backend_vnext/flows/business_projection.py`、`legacy/frontend/src/workbench/`（`legacy/` 不在 Git 中）；[Comparison Surface](../backend-vnext/contracts/comparison-surface.md)；[Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md)；[Frontend Surface Simplification](../backend-vnext/frontend-surface-simplification.md)；ADR 0018、ADR 0019。
@@ -286,6 +286,53 @@ Diagnostic:
 }
 ```
 
+### 4.8 行定位产物（FE2a 审核 D1，owner 2026-11-03）
+
+**问题：** 普通表（非有序表）的 `ComparisonRecord.row_identity` 与风险标注的行标识，是后端用比较键的规范标量编码算出的摘要。
+bundle 中的快照 Parquet 存的是原始单元格，前端要把记录放到表格的行上，只能在浏览器里重做值的规范化和摘要计算。
+这两部分都是后端内部实现，没有 Contract（Comparison Surface Contract 只规定缺少行标识或位置时展示表级风险）。
+
+**约束：** Snapshot Contract 规定行顺序不影响快照摘要，所以行位置不能写进 `ComparisonRecord`、`comparison_digest` 或 records 的内容摘要，
+否则相同内容、不同行序的两次比较会得到不同结果。行位置只属于 bundle 中具体的那份快照产物，是展示辅助数据。
+
+**结构：** 每个比较对中有行级记录的普通表，发布一份行定位产物：
+
+```text
+RowLocator（Parquet，每条行级记录一行，按 row_identity 排序）:
+  row_identity        binary(32)，与 records 中的 row_identity 逐字节相同
+  before_row_index    int64 nullable，在该表改前侧快照产物行文件中的 0 起行号
+  current_row_index   int64 nullable，在改后侧快照产物行文件中的 0 起行号
+```
+
+- 新增记录只有 `current_row_index`，删除记录只有 `before_row_index`，修改记录两者都有。keyless 回退表的出现序号标识同样适用。
+- 行号针对该 `SurfaceTable` 的 `before_table_ref` / `current_table_ref` 在本 bundle 中指向的快照产物计算（含 `shared/` 去重后的产物），不针对比较时读取的其他副本。
+- ref 放在 `SurfaceTable` 的 records refs 中（如 `row_locator_ref`），与 `diagnostics_ref` 一样不进入 surface 摘要，进入 bundle closure 并按 SHA-256 校验。
+- 有序表不发布：其记录带序号列的值，前端按序号定位。
+- 没有行级记录、或超过记录发布上限的表，ref 为 null，前端退回表级展示。
+- 风险标注不另设定位：前端按 `row_identity` 把标注对应到记录，再经本产物落到行。
+
+**计算：** 在后端用比较时同一套行编码计算（唯一实现），线性复杂度；耗时计入 Preview 与 History 的计时预算，计算位置与是否复用比较时已读入的行在第二步定稿。
+
+**测试：** 一个唯一的 owner 测试：每条行级记录恰好对应各侧一行，且行内容与记录一致；把快照产物行文件打乱顺序后，行号随之变化而 comparison 与 surface 摘要不变。
+
+**前端：** FE2a 至 FE3 使用 FE2 kickoff §5.3 的自校验浏览器匹配；FE4 改用本产物并删除浏览器中的计算。
+
+### 4.9 视图 ID 与比较对 ID（FE2a 审核 D3，owner 2026-11-03）
+
+- **现状：** 生产 Preview 作业给两个比较对都传 `view_id=initial_to_modified`（`application/preview_jobs.py` 的 `_run_pair_pipeline`），
+  违反 Comparison Surface Contract“同一 bundle 内 `view_id` 唯一”；History 的比较对 ID 为 `<operation_id>-p<i>`（`application/history/compare_jobs.py`），
+  与 Contract 中 `left_to_right`、`left_to_middle`、`middle_to_right` 的约定不符。
+- **修复：** Preview 的 `view_id` 取各自的比较对 ID（`baseline_to_initial`、`initial_to_modified`）；History 的比较对 ID 与 `view_id` 按 Contract 改为
+  `left_to_right` 等，或在第二步论证后修订 Contract，二者择一，不保留两套取值。
+- **排期：** 会改变 surface 与 bundle 摘要，P6 期间 golden 冻结，因此随 BE-b 在 P6 退出后进行，同步更新 golden。
+- **前端：** 按 `pair_id` 区分视图，History 按顺序显示“节点 1 → 节点 2”，修复前后都不受影响（FE2 kickoff §4.2）。
+
+### 4.10 诊断的稳定编码（FE2a 审核 D2 的后续，owner 2026-11-03）
+
+surface 诊断中有三类条目不是稳定编码：比较异常时写入的 Python 异常类名（`_compare_task_safely`）、风险引擎的英文短句
+（如 `max_annotations_per_pair exceeded`、`risk diagnostics truncated`），以及带表名参数的 `DUPLICATE_EFFECTIVE_KEY:<表名>`。
+BE-b 实现时改为稳定编码（参数放入结构化字段或去掉），并同步 FE2 kickoff §5.5 的文案表。不阻塞前端：在此之前前端按 §5.5 的匹配顺序处理。
+
 ## 5. 留给第二步的约束
 
 第二步在 P6 S5 接近完成时定稿，以下约束现在先固定：
@@ -298,7 +345,7 @@ Diagnostic:
 - **解析器：** S2a 冻结的解析语义不在 P6 内改动；注释捕获在 BE-b 实现时同时加入 Rust 解析器与 Python 参照，并补差分用例。
 - **导航诊断：** 与导航在同一遍计算中产生，不另外扫描；`DEVICE_TAB_COUNT_UNKNOWN` 的具体触发情形随计数的计算位置确定，编码与形状按 §4.7 固定。
 
-## 6. owner 决定（2026-11-02）
+## 6. owner 决定（2026-11-02、2026-11-03）
 
 | ID | 问题 | 决定 |
 | --- | --- | --- |
@@ -309,8 +356,11 @@ Diagnostic:
 | Q5 | 复合信号虚装置 | 同意 §4.4：保留特殊项，不再产出 points/formulas 产物，由前端在本地组装。补充（2026-11-02，FE0 审核 D1）：提交人需要在提交前看到改前公式，Preview bundle 为 `composite_signal_point`、`device` 在表有变化时补齐基线侧整表，并入 BE-b |
 | Q6 | 转发通道的范围 | 同意：保留 legacy 规则（`exe=iec104` 且 `tab_num>0`） |
 | Q7 | 导航诊断的结构与编码（FE1 审核 D1） | 设计会话答复（2026-11-02），见 §4.7；新增编码 `DEVICE_ROWS_UNASSIGNED` 由 owner 确认（2026-11-02） |
+| Q8 | 行定位（FE2a 审核 D1） | 后端提供行定位产物，并入 BE-b，见 §4.8（owner 2026-11-03） |
+| Q9 | 视图 ID 与比较对 ID（FE2a 审核 D3） | 后端缺陷，随 BE-b 修复，见 §4.9（owner 2026-11-03） |
+| Q10 | 诊断的稳定编码（FE2a 审核 D2 后续） | 随 BE-b 改为稳定编码，见 §4.10（owner 2026-11-03） |
 
 ## 7. 后续
 
 - §6 确认后，前端占位数据按 §4 的结构构造（kickoff §4.5）。
-- 第二步定稿时，同步替换 §3 列出的四份过时文档，以及 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) 中描述 points/formulas 产物的部分（§Secondary-device Projection 的产物引用、§Frontend 与 §Dataset Replacement 中对这两份产物的依赖）；修订 Comparison Surface（`projection_kind`、`SurfaceColumn.pinned`、`SurfaceColumn.display_order`；导航诊断使用已有的 `SurfaceProjectionRef.diagnostics_ref`，不改结构）与 Comparison Bundle Contract（Preview 双侧浏览表的闭包规则，§4.4）。在此之前，前端以本草案为准。
+- 第二步定稿时，同步替换 §3 列出的四份过时文档，以及 [Composite Signal Device](../backend-vnext/capabilities/composite-signal-device.md) 中描述 points/formulas 产物的部分（§Secondary-device Projection 的产物引用、§Frontend 与 §Dataset Replacement 中对这两份产物的依赖）；修订 Comparison Surface（`projection_kind`、`SurfaceColumn.pinned`、`SurfaceColumn.display_order`；导航诊断使用已有的 `SurfaceProjectionRef.diagnostics_ref`，不改结构）与 Comparison Bundle Contract（Preview 双侧浏览表的闭包规则，§4.4）；Comparison Surface 另加行定位 ref（§4.8）与视图 ID 规则（§4.9）。在此之前，前端以本草案为准。

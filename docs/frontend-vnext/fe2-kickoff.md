@@ -1,6 +1,7 @@
 # FE2 kickoff：页面
 
 - **状态：** 已确认（owner，2026-11-02，§9 Q1–Q5 均按建议）；FE2a 可以开始。
+  2026-11-03 按 FE2a 审核的设计问题修订 §4.2、§4.3、§5.1、§5.3、§5.5、§5.6（owner 确认，§9 Q6–Q9）。
 - **日期：** 2026-11-02。
 - **起点：** `fe-fe1-exit`（`a42139222f`），main 合入提交 `abbe6e8777`。
 - **依据：** [前端 kickoff](frontend-kickoff.md)（FD1–FD8、§4、§6、§7）、
@@ -21,7 +22,7 @@ FE2 的页面量约为 FE1 的三倍。FE1 一轮审核加两轮复审，范围�
 
 | 子阶段 | 内容 | 带入项 | 草图 | 退出 tag |
 | --- | --- | --- | --- | --- |
-| FE2a 差异浏览 | 差异浏览工作台（三种模式共用）：两行顶栏、侧栏 A、tab、表格（S4 全部呈现规则）、变更定位与分布条、仅看差异折叠行、表级状态（新增/删除整表、结构变化、降级、比较失败）、ordered 与 blank 记录、数据集替换双侧浏览、复合信号公式查看、导航与 surface 诊断、Debug 模式、加载骨架与错误页（T2、T3）；URL 状态 | R4、N4、N6、行分隔色、导航诊断改为 `diagnostics_ref`、ViewKind 改为后端视图 ID（§5.6） | S3、S4 | `fe-fe2a-exit` |
+| FE2a 差异浏览 | 差异浏览工作台（三种模式共用）：两行顶栏、侧栏 A、tab、表格（S4 全部呈现规则）、变更定位与分布条、仅看差异折叠行、表级状态（新增/删除整表、结构变化、降级、比较失败）、ordered 与 blank 记录、数据集替换双侧浏览、复合信号公式查看、导航与 surface 诊断、Debug 模式、加载骨架与错误页（T2、T3）；URL 状态 | R4、N4、N6、行分隔色、导航诊断改为 `diagnostics_ref`、ViewKind 删除、视图按比较对区分（§5.6） | S3、S4 | `fe-fe2a-exit` |
 | FE2b 工作台与写操作 | 正式工作台：组态树、上下文工具栏、详情面板、上传步骤卡与页面锁定、比较托盘、历史比较结果抽屉；上传与 Preview 进度（T1）、提交（含身份确认）、审核通过/退回/撤回、归档主线（A1、A2）；页面之间的路由 | N1、N2 | S1、S2，以及 S3 的三种顶栏 | `fe-fe2b-exit` |
 
 顺序为先 FE2a 后 FE2b。理由：差异浏览是数据最复杂、草图最细的部分，FE1 带入的大多数事项也在这里；
@@ -66,13 +67,17 @@ UI 优化方向 §7 草图中对应的占位文案以本节为准，草图不重
 
 ### 4.2 差异浏览：视图与比较对
 
-视图 ID 取 bundle 中 surface 的视图 ID，不写死枚举（§5.6）：
+视图按 bundle 的比较对 ID（`pair_id`）区分，不按 surface 的 `view_id`，也不写死枚举（§5.6，Q8）：
 
-| 视图 ID | 文字 |
+| 比较对 | 文字 |
 | --- | --- |
-| `baseline_to_initial` | 原始组态视图（已归档数据 → 原始组态备份） |
-| `initial_to_modified` | 本次组态视图（原始组态备份 → 本次归档组态）；只上传本次归档组态时为“当前基线 → 本次归档组态” |
-| History 比较对 | “节点 1 → 节点 2”，序号与比较托盘一致；三节点时为两个相邻比较对（F6） |
+| Preview `baseline_to_initial` | 原始组态视图（已归档数据 → 原始组态备份） |
+| Preview `initial_to_modified` | 本次组态视图（原始组态备份 → 本次归档组态）；只上传本次归档组态时为“当前基线 → 本次归档组态” |
+| History 比较对 | 按比较对在 bundle 中的顺序显示“节点 1 → 节点 2”，序号与比较托盘一致；三节点时为两个相邻比较对（F6）。不依赖 `pair_id` 的具体取值 |
+
+后端现状（FE2a 审核 D3）：生产 Preview 给两个比较对都传 `view_id=initial_to_modified`，History 的比较对 ID 为 `<operation_id>-p<i>`，
+都与 Comparison Surface Contract（同一 bundle 内 `view_id` 唯一；History 用 `left_to_right` 等）不符。这是后端缺陷，随 BE-b 修复（BE-b 草案 §4.9）；
+前端按上表处理，修复前后都能正确显示。
 
 括号里的说明放在分段控件的悬停提示中，控件上只显示前半部分。
 
@@ -86,7 +91,7 @@ UI 优化方向 §7 草图中对应的占位文案以本节为准，草图不重
 | `DELETED` | 删除表 | 删除（条目文字加删除线） |
 | `UPDATED` | 有修改 | 更新 |
 | `SCHEMA_CHANGED` | 结构变化 | 更新；信息行说明新增或删除的列 |
-| `DEGRADED` | 降级比较 | 更新；信息行显示降级原因（来自诊断） |
+| `DEGRADED` | 降级比较 | 更新；信息行显示降级原因（来自诊断，按 §5.5 文案表的顺序取第一条；没有可识别的原因时显示“降级原因未提供”） |
 | `FAILED` | 比较失败 | 失败（中性图标加文字）；表格区域显示错误说明，不显示数据 |
 | `REPLACED` | 数据集替换 | 替换；进入双侧浏览 |
 
@@ -124,6 +129,7 @@ Debug 模式的元数据列：
 ### 5.1 范围
 
 - 一个工作台承载三种模式（W10）：上传（Preview bundle）、审核（History bundle，基线节点 → 待审提交，沿用 FE1 的 B2 修复）、历史比较（History bundle，2–3 节点）。
+  模式由入口决定，差异浏览页不提供模式页签（草图中没有，Q9）：FE2a 由 URL 参数进入（测试脚手架），FE2b 由工作台进入。
   FE2a 只做浏览：顶栏模式操作区留出位置，写操作按钮由 FE2b 接入；S3 三种顶栏的截图在 FE2b 验收；FE2a 的 S3 整页截图中模式操作区为空，属于已知差异，不算偏差。
 - 两行顶栏（W2、S3）、侧栏方案 A（FD5、W3、W5）、tab 与溢出（W6）、变更定位与分布条（W4）、表格呈现（S4、W9）、仅看差异（W2）、可读化（W7）、复制（W8）、焦点样式（X5）。
 - 数据集替换（`REPLACED`、`REPLACEMENT_SIDE_BY_SIDE`）：左右两侧各自浏览整表，显示 `identity_pairs` 的结论，不拼成普通差异。确认操作属于 FE2b。
@@ -145,6 +151,17 @@ Debug 模式的元数据列：
 - 仅看差异：只显示有变化或有风险的行，连续的未变更行折叠为一行“… n 行未变更”，可展开，`#` 列保留原始行号。
 - 风险只来自 `RiskReport` 与 annotation（前端 kickoff §3.2）；未变更但有风险的行在仅看差异下也显示。
 - 列名与宽度：BE-b 之前用原始列名，宽度按内容计算（前端 kickoff §4.5）。
+- **行定位（Q6，FE2a 审核 D1）：** 普通表的行级记录与风险标注只带后端算出的行标识摘要，快照 Parquet 中没有对应字段；
+  摘要的算法与快照值的规范化都是后端内部实现，没有 Contract。BE-b 在 bundle 中提供行定位产物（BE-b 草案 §4.8），FE4 接入。在此之前：
+  - 风险标注按后端写入的行标识与记录逐字节对应，前端不为标注重算。
+  - 前端可以在浏览器中为快照行计算行标识，用来把记录放到行上，但结果必须自校验：一张表的每条行级记录都要在对应一侧恰好匹配一行
+    （修改记录两侧各一行），不同记录不得落到同一行，同一侧不得有两行算出相同的标识。
+  - 任一条件不满足时，整张表不显示行级样式，退回表级风险与状态，信息行提示“本表的变更行无法定位，已显示表级结果”
+    （Comparison Surface Contract：缺少行标识或位置时展示表级风险，不得伪造行级样式）。
+  - 浏览器算错只会导致对不上并退回，不会标错行，因此这段计算不写进 Contract，也不要求跨实现向量；暂不支持的类型（如 SET、BIT）直接退回。
+  - 有序表的记录带序号列的值（`before_position`、`current_position`），按序号定位，不受本项影响。
+  - 测试：一个唯一的 owner 用例，断言五个后端 fixture 中每条行级记录都定位到恰好一行；另有一个用例，改动一条记录的行标识后该表退回表级。
+  - FE4 改用行定位产物，删除浏览器中的计算。
 
 ### 5.4 复合信号公式查看
 
@@ -156,12 +173,52 @@ Debug 模式的元数据列：
 ### 5.5 诊断
 
 - **导航诊断：** 按 BE-b §4.7 显示在目标节点上（组、节点、页签或表），提示样式，不使用风险色。
-- **surface `diagnostics_summary`：** 已知编码（如 `KEYLESS_FALLBACK`、`ORDERED_DIFF_UNSUPPORTED`、`DATASET_REPLACEMENT`、`PROJECT_IDENTITY_UNVERIFIABLE`、`BUSINESS_SCHEMA_CHANGED`）按文案表显示；其余条目显示通用文案“比较过程有提示”，原文放 Debug（前端 kickoff §9 自由文本一项）。
-- 两份文案表放在同一模块，测试覆盖全部已知编码。
+- **表诊断（Q7）：** 当前表的 `SurfaceTable.diagnostics.diagnostics_summary` 只显示在该表的信息行，不显示在其他表上。
+- **比较对诊断（Q7）：** 视图的 `diagnostics_summary` 是各表诊断的合并（去掉了表名），另加比较对自己的诊断。前端只显示其中不属于任何表的条目
+  （视图汇总减去本视图全部表诊断的并集），放在顶栏下方的提示条中，有内容时才出现；视图页签的悬停提示写“n 张表有比较提示”。
+- **文案原则：** 诊断文案只说原因；后果由 §4.3 的表状态文字表达（例如“降级比较”）。原始编码只在 Debug 中显示。
+- **匹配顺序：** 先按完整编码匹配；再按冒号前的部分匹配（如 `DUPLICATE_EFFECTIVE_KEY:<表名>`）；形如 Python 异常类名（以 `Error`、`Exception` 结尾）的归入“内部错误”；
+  仍无文案的显示“比较过程有提示”。
+- **文案表：** 下表是 v1 可能写入 surface 诊断的全部编码，整理自 main `d1fad3e4a6` 的 `capabilities/comparison/`（`standard.py`、`row_encoding.py`、`ordered.py`、`replacement.py`）、
+  `capabilities/risk_evaluation/_engine.py` 与 `capabilities/surface_assembly/_assembly.py`。行的顺序即 `DEGRADED` 信息行取原因的优先级。
+  风险引擎的英文短句与异常类名以后改为稳定编码（BE-b 草案 §4.10），届时同步本表。
+
+| 组 | 编码 | 文案 |
+| --- | --- | --- |
+| 键 | `DEGRADE_NO_COMPARE_KEY` | 本表没有可用的比较键 |
+| 键 | `EFFECTIVE_KEY_CHANGED` | 两侧的比较键不同 |
+| 键 | `DUPLICATE_EFFECTIVE_KEY`（前缀） | 比较键有重复值 |
+| 键 | `EFFECTIVE_KEY_IGNORED` | 比较键中有列被比较规则忽略 |
+| 键 | `SOURCE_PRIMARY_KEY_CHANGED` | 两侧的源表主键定义不同 |
+| 有序表 | `ORDERED_REQUIRED_COLUMN_MISSING` | 有序表缺少排序或行标识所需的列 |
+| 有序表 | `ROW_IDENTITY_MISSING` | 有序表缺少行标识列 |
+| 有序表 | `ROW_IDENTITY_DUPLICATE` | 有序表的行标识有重复值 |
+| 有序表 | `ORDER_KEY_UNSUPPORTED`、`ROW_IDENTITY_UNSUPPORTED` | 有序表的排序键或行标识配置暂不支持 |
+| 有序表 | `ORDER_KEY_MISSING`、`ORDER_KEY_INVALID`、`ORDER_KEY_DUPLICATE`、`ORDERED_INTEGER_INVALID` | 有序表的序号缺失、无效或重复 |
+| 有序表 | `SOURCE_GID_INVALID`、`SOURCE_RESERVED_PSEUDO_GID`、`CANONICAL_GID_INVALID`、`BLANK_PROVENANCE_MISSING`、`BLANK_PROVENANCE_INVALID`、`CANONICAL_BLANK_PROVENANCE_INVALID` | 有序表的 gid 或空行标记无效 |
+| 有序表 | `ORDERED_DIFF_UNSUPPORTED` | 该有序表无法生成可靠差异，建议打开整表核对 |
+| 列与结构 | `BEFORE_ONLY_COLUMNS` | 部分列只在改前侧存在，未参与行比较 |
+| 列与结构 | `CURRENT_ONLY_COLUMNS` | 部分列只在改后侧存在，未参与行比较 |
+| 列与结构 | `INCOMPATIBLE_SELECTED_COLUMNS` | 部分共有列两侧类型不兼容 |
+| 列与结构 | `NO_SELECTED_COLUMNS` | 两侧没有可比较的共有列 |
+| 列与结构 | `BUSINESS_SCHEMA_CHANGED` | 表结构有业务变化 |
+| 列与结构 | `KEYLESS_FALLBACK` | 没有可用主键，已按整行内容比较（只识别新增与删除） |
+| 数据 | `SET_VALUE_INVALID`、`SCALAR_VALUE_INVALID`、`SCALAR_TYPE_MISMATCH`、`SCALAR_TYPE_UNKNOWN`、`CANONICAL_COLUMN_COLLISION`、`ROW_SHAPE_MISMATCH` | 本表数据无法按列类型解析 |
+| 内部 | `TABLE_READER_UNAVAILABLE`、`TABLE_DESCRIPTOR_MISSING`、`TABLE_TASK_INVALID`、`TABLE_TASK_HAS_NO_SIDE`、`TABLE_POLICY_MISSING`、`ORDERED_POLICY_MISSING`、异常类名 | 比较时发生内部错误 |
+| 风险 | `risk table budget exceeded`、`risk diagnostics truncated`、`annotation artifact budget exceeded` | 风险标注不完整（超出上限），请打开整表核对 |
+| 比较对 | `PROJECT_IDENTITY_UNVERIFIABLE` | 项目身份无法验证，提交前需要人工确认 |
+| 比较对 | `DATASET_REPLACEMENT` | 识别为不同数据集，已切换为双侧浏览 |
+| 比较对 | `max_annotations_per_pair exceeded` | 风险标注数量超出上限，部分行没有标注 |
+| 比较对 | `max_risk_tables_per_pair exceeded`、`max_risk_pair_wall_time_seconds exceeded` | 风险评估超出上限，未完成 |
+| 比较对 | `COMPARISON_MODE_NOT_DETAILED`、`COMPARISON_RULESET_DIGEST_MISSING` | 比较未能完成（内部错误） |
+
+- **测试：** 以本表为后端可能产出的编码集合：每个编码都有非通用文案；五个后端 fixture 中出现的全部诊断都得到非通用文案；
+  `device` 等无诊断的表不显示比较对诊断；匹配顺序各有一个用例。导航诊断与表诊断两份文案表放在同一模块。
 
 ### 5.6 视图 ID 与 URL 状态
 
-- FE1 的 `ViewKind`（`INITIAL_TO_MODIFIED`、`BASELINE_TO_SUBMISSION`、`BEFORE_TO_CURRENT`）不是后端的视图 ID。改为直接使用 bundle 中的视图 ID 字符串；URL 中视图 ID 不在当前 bundle 内时回到 bundle 的默认视图。
+- FE1 的 `ViewKind`（`INITIAL_TO_MODIFIED`、`BASELINE_TO_SUBMISSION`、`BEFORE_TO_CURRENT`）不是后端的视图 ID，已删除。视图按 bundle 的 `pair_id` 区分（§4.2、Q8）；URL 记录 `pair_id`，不在当前 bundle 内时回到 bundle 的默认视图。
+  后端 `view_id` 目前不唯一（D3），前端不用它区分视图；fixture 跟随生产作业的实际取值，包括两个 Preview 比较对相同的 `view_id`，并有一个用例覆盖这种形状。
 - 命令层（UI 优化方向 §5.1）执行后的浏览状态写入 URL：bundle 摘要、视图、节点、页签、变更序号、仅看差异、Debug、搜索。刷新或分享链接后回到同一画面（本地已有 bundle 时不重新下载）。
 - “agent 操作中”指示与外部驱动通道仍不实现（§5.1 第 5 项）。
 
@@ -241,13 +298,13 @@ v1 不产出 `LOW`；行级风险只落在有变化的行上（新增、删除�
 ## 8. 不在 FE2 范围
 
 - 真实 backend 对接、OpenAPI 运行时比对、t1 真实数据（FE3）；BE-a 刷新快照后去掉 `RETURNED_FOR_REVISION` 的映射（FE3）。
-- BE-b 的分组与列展示正式数据、Preview 改前公式（FE4）。
+- BE-b 的分组与列展示正式数据、Preview 改前公式、行定位产物（FE4）。
 - 外部驱动通道与 agent 操作指示（UI 优化方向 §5.1 第 5 项）。
 - 深色主题（C5）。
 
-## 9. owner 决定（2026-11-02）
+## 9. owner 决定（2026-11-02、2026-11-03）
 
-Q1–Q5 均按建议确认。
+Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认。
 
 | # | 事项 | 决定 |
 | --- | --- | --- |
@@ -256,6 +313,10 @@ Q1–Q5 均按建议确认。
 | Q3 | Debug 模式删除 Change Group 列，ordered 记录改显示 `semantic_kind` 与位置（§4.4） | 同意；vnext 没有对应事实 |
 | Q4 | **“历史初始备份”节点：** legacy 的组态树在归档基线下有“历史初始备份”节点（随归档提交上传的原始组态备份），可以查看差异、加入比较（F2、F5）。vnext 的 History 只有基线、提交与规则迁移三类节点，History 比较的输入也只接受基线节点与提交，没有对应的节点与比较入口 | 甲（见下） |
 | Q5 | 无草图页面按 §7.3 由审核会话按原则核对、owner 看截图确认，不先补草图 | 同意 |
+| Q6 | 行定位（FE2a 审核 D1，2026-11-03） | 长期由后端提供行定位产物，并入 BE-b（草案 §4.8），FE4 接入；之前用 §5.3 的自校验浏览器匹配，对不上整表退回表级。不把行摘要算法写进 Contract |
+| Q7 | 诊断的显示位置与文案（FE2a 审核 D2，2026-11-03） | 按 §5.5：表诊断只在该表，比较对诊断放顶栏下方提示条；文案只说原因；文案表按 §5.5 |
+| Q8 | 视图 ID（FE2a 审核 D3，2026-11-03） | 后端缺陷，随 BE-b 修复（草案 §4.9）；前端按 `pair_id` 区分视图（§4.2、§5.6） |
+| Q9 | 差异浏览页的模式页签（FE2a 审核 B8，2026-11-03） | 删除；模式由入口决定（§5.1），R1 随之消失 |
 
 **Q4 说明：** 这是 vnext 后端的能力差异，前端无法单独补齐。owner 选择甲；乙作为备选记录在此。
 

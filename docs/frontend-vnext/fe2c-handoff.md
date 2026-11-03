@@ -2,8 +2,8 @@
 
 ## 候选与审核范围
 
-- 分支 `fe-vnext`，FE2c 代码候选 `a2bcaf866a678eb02a15d58a8388759572b76299`（frontend tree `4ce344205cd6dceadb4e3334b1757a0b6af633f6`），父提交 `84c3d91a1a`（FE2b exit 后 main 文档合并）。handoff 文档提交在本文件落库后生成；`fe-fe2c-exit` 指向该 handoff 提交。
-- 审核范围 `fe-fe2b-exit..<FE2c handoff 提交>`；代码候选仍为 `a2bcaf866a`。`31f4310ff8`（`fe-fe2b-exit` 指向的 handoff 提交）是候选的祖先。
+- 分支 `fe-vnext`，FE2c 代码候选 `48f4e0203d1aecdd1a1a899c16a92eb3394a0c4a`（frontend tree `bdf3ee01130b7869a5652659ab1826de60822b7e`），父提交 `35ece6f996`（含 FE2c handoff 文档与代码提交）。handoff 文档提交在本文件落库后生成；`fe-fe2c-exit` 指向该 handoff 提交。
+- 审核范围 `fe-fe2b-exit..<FE2c handoff 提交>`；代码候选仍为 `48f4e0203d`。`31f4310ff8`（`fe-fe2b-exit` 指向的 handoff 提交）是候选的祖先。
 - 本阶段未改写既有提交、未推送；`fe-fe2c-exit` 由设计会话在本 handoff 提交上创建。04 权威运行之后只追加了本 handoff 文档，frontend tree 未变化。
 
 ## 1. 范围完成情况
@@ -62,29 +62,29 @@
 
 ### 最终源码候选完整运行
 
-- 节点：`ct108-gw-dms-05`；调试 worktree `/home/dev/gdds-fe2c-debug`，与候选 `a2bcaf86...` 的 frontend 内容一致（rsync 自开发 worktree；无 `.git`，最终证据以 04 为准）。
-- 2026-11-03 17:37Z 完整运行：typecheck、lint、27 个单测文件/120 tests、生产 build、`check:production-build`、21/21 e2e 全部通过。
+- 节点：`ct108-gw-dms-05`；调试 worktree `/home/dev/gdds-fe2c-debug`，与候选 `48f4e020...` 的 frontend 内容一致（rsync 自开发 worktree；无 `.git`，最终证据以 04 为准）。
+- 2026-11-03 17:54Z 完整检查：typecheck、lint、27 个单测文件/120 tests、生产 build、`check:production-build` 通过；上传 e2e 于 17:53Z 定向通过，17:55Z 的 04 运行覆盖 21/21 e2e。
 - 生产检查输出：`production dist contains no simulated API, identity selection, or mock data modules`。
 
 ### N3 生产构建负向探针
 
 - 在 CT05 的候选副本 `/home/dev/gdds-fe2c-probe` 的 `App.tsx` 加 `import "./features/dev/simulated-api";`（未提交、未进入候选）。
 - 在固定工具链容器中执行 `npm run build` 后运行 `node scripts/check-production-build.mjs`，预期 exit 1：`production dist includes development-only modules: /src/src/features/dev/mock-data.ts`、`/src/src/features/dev/simulated-api.ts`。
-- 日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`，SHA256 `79b79fb1936ce7d388b2c1ddc53392f00311d5d2d951c6844d34ff21c21f6140`。
+- 日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`，SHA256 `8312e7b52dd98cf8484b8957aedba80829b5d2aee9314447888426d8a299a3c2`。
 
 ### CT04 退出权威运行
 
-- 节点：`ct108-gw-dms-04`，hostname `gw-dms-test-04.lan`。clean detached worktree `/home/dev/gdds-fe2c-gate`，HEAD `a2bcaf866a678eb02a15d58a8388759572b76299`，frontend tree `4ce344205cd6dceadb4e3334b1757a0b6af633f6`；legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；运行前无占用标记。
-- 唯一作为证据的入口：`./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2c/a2bcaf86-04`，环境变量 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`。runner 于 `2026-11-03T17:47:48Z` 开始、`2026-11-03T17:48:26Z` 结束，exit 0。起止 HEAD 与 frontend tree 一致，运行后 worktree clean。
+- 节点：`ct108-gw-dms-04`，hostname `gw-dms-test-04.lan`。clean detached worktree `/home/dev/gdds-fe2c-gate`，HEAD `48f4e0203d1aecdd1a1a899c16a92eb3394a0c4a`，frontend tree `bdf3ee01130b7869a5652659ab1826de60822b7e`；legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；运行前无占用标记。
+- 唯一作为证据的入口：`./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2c/48f4e020-04`，环境变量 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`。runner 于 `2026-11-03T17:55:57Z` 开始、`2026-11-03T17:56:35Z` 结束，exit 0。起止 HEAD 与 frontend tree 一致，运行后 worktree clean。
 - 结果：typecheck、lint、27 个单测文件/120 tests、生产 build、R2 正向生产检查、21/21 模拟接口 e2e 与 61 张截图全部通过。R2 输出同 05。
-- 权威日志（CT04）：`/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T174748Z.log`，SHA256 `c6e3c97350da7a7aea7a3d35747cc5daf389b5eb47c024d0f8e0fa6361da0043`。外层 wrapper `/home/dev/gdds-fe-logs/frontend/fe2c-exit-a2bcaf86-04-wrapper.log`，SHA256 `d39c48b03854c6d24c4bc082199c51053b6da8bd5d6593def9dca6d8fd4ffde2`。
+- 权威日志（CT04）：`/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T175557Z.log`，SHA256 `02da3a6b444410778c859573fc6fb40154632a2a1d53484a20c5b2cfe4b2cd7f`。外层 wrapper `/home/dev/gdds-fe-logs/frontend/fe2c-exit-48f4e020-04-wrapper.log`，SHA256 `3e672da68a8bf6e687930cf4c2be5d421dd9d0ea37b2fd027a5582fae4506817`。
 - 工具链镜像：`mcr.microsoft.com/playwright:v1.64.1-noble`；config digest `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`；7 个 RootFS DiffID 与 `frontend/scripts/run-tests.sh` 中固定值一致（identity 按 config digest 与全部 DiffID 核对）。
 - npm 缓存：`/home/dev/gdds-fe-cache/frontend/npm-cache` 与 `/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz`；归档 SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`，来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`，`package-lock.json` 解析项 305 个。未使用转发代理，Docker network `none`。
-- 更早一次同入口运行（17:45:29Z，日志 `frontend-tests-20261103T174529Z.log`）也 exit 0，但 `npm_cache_source_commit=unknown`，不作为证据；补上缓存来源参数后从入口起点重跑，以上 17:47:48Z 运行为准。
+- 17:45/17:47 的两次同入口运行均基于早期代码提交 `a2bcaf86`，已被 17:55 运行取代，不作为最终证据。
 
 ## 6. 截图清单与视觉偏差
 
-CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/a2bcaf86-04/`；清单（文件名与 SHA256）`/home/dev/gdds-fe-logs/frontend/fe2c-exit-a2bcaf86-04-screenshots.txt`，清单 SHA256 `51e982edb5e747b33046ef880e1167bfab88fdda6245fddf555cfd89c5440e23`。全部截图：
+CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/48f4e020-04/`；清单（文件名与 SHA256）`/home/dev/gdds-fe-logs/frontend/fe2c-exit-48f4e020-04-screenshots.txt`，清单 SHA256 `404092d0472d1cf423c3bfe83f51822a56a78682e262941970464151342e4ae6`。全部截图：
 
 | 文件 | SHA256 |
 | --- | --- |
@@ -103,12 +103,12 @@ CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/a2bcaf86-04/`；清
 | `header-review-1920.png` | `8075e94c635de8845f2c41adaebf57184dbf87a01e281f037c4fd27cf02650cb` |
 | `history-compare-connection-interrupted-1280.png` | `9e5feedc510a78a2571130769648c1ea60e6ac120f7d7be0a6667822b640fd80` |
 | `history-compare-connection-interrupted-1920.png` | `e9cbca6945517973bbbba2df523be847acb474230410790f02a83c601555741b` |
-| `history-compare-result-drawer-1280.png` | `40a4c0b22832a45f99b44cd44c668fb99883ae001277e1b422dd7f5d254360e0` |
+| `history-compare-result-drawer-1280.png` | `cfb41db55d765e28a26fa7b77a3570e7261a4bc84480c200f599871b44031837` |
 | `history-compare-result-drawer-1920.png` | `7364eddc869b494ded0d4cf44c8c004707e6eb41d2f068285545c5412f6913a4` |
 | `history-compare-running-1280.png` | `19aec68efd5576f35f44282614cf5af6f29f50d7e0b4c7db7d3142b5d1b6d82f` |
 | `history-compare-running-1920.png` | `ec709620f7314f2165e931423278d4c10018fb8cc6d0a1729d7a95fc80eb6b5d` |
 | `loading-skeleton-1280.png` | `6cbdf791f1130167d343a0557776cd780859533ea6d7b9e6eeda1b806796ba88` |
-| `loading-skeleton-1920.png` | `bd889713e17225dad97c926856eb813c7f3497df8966b67fe9bd8cc6979331c8` |
+| `loading-skeleton-1920.png` | `f153ede7d1d1c81b970a9d01f5bd95f311b08cf8446db3e021e2729b927add47` |
 | `manual-recovery-required-1280.png` | `762f9b129cd47c55215ea52f31fe59cad1f757e3fe1cd19a0d5d1b23f1695df8` |
 | `manual-recovery-required-1920.png` | `aacb3c5478259ba34282e340caa1f54c6944c09bbf960242cc8a5251b6b5c1c7` |
 | `navigation-fallback-1280.png` | `d91097cf850ef654f75a577e2c8c9771b0727a7f55c67229857b3c2b4c65e4e4` |
@@ -116,7 +116,7 @@ CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/a2bcaf86-04/`；清
 | `s1-workbench-1280.png` | `206fc6eb8be094c2a1ca6c2395e2e2a9ff17bf8b8d7c845bc2682ab3c6fa0b9d` |
 | `s1-workbench-1920.png` | `3fe487a8153615934efc111671b6da79bf36304c7f1ae1dfba441bee9ecfe2df` |
 | `s2-compare-tray-1280.png` | `3a6d9da0501087b204bdf64eb802b48172c645c8dc355879f3428dcdbd96950b` |
-| `s2-compare-tray-1920.png` | `2831e2c3cf8af2f1dc0aa84ffa3004131717ae4caf69d8d4a17c3cccb7bee238` |
+| `s2-compare-tray-1920.png` | `56219821b6e646a9cb9b3dbe05862239d90018d67b5e5aebab3b65783a8c4123` |
 | `s3-header-history-1280.png` | `22ef7766e9f1e6fa8b45c460622f1867ebd2649edea977bd4040d3ae741b4b6f` |
 | `s3-header-history-1920.png` | `14dcc76039dd7edbf8b603c4dc09812c21163e2721869c057c978ebf81cde847` |
 | `s3-header-upload-1280.png` | `bdc4b17c807dfe3f66d63d967dbc167a55889f620587ad929891946f5c2752e0` |
@@ -139,13 +139,13 @@ CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/a2bcaf86-04/`；清
 | `s4-grid-normal-main-1920.png` | `5daa18c8a823068b691d300d1f51f2eb626f06847ec9d822bc26149f95018d1f` |
 | `s4-semantic-tokens-1280.png` | `116f9cbb8991ace7deef04e4f5029a211ff933c38aee5e3348f5cba63bcd8b2c` |
 | `s4-semantic-tokens-1920.png` | `15fe88e318ed59410b184631888681262349d9220dda26a5f49ac6f12c16dcba` |
-| `submit-identity-confirmation-1280.png` | `578c51eb8b6c01c72ae8cfd54991565591a47b47028c5264bc8a584d0c0b46d1` |
+| `submit-identity-confirmation-1280.png` | `3ccc4793ecbf722a50ccfaddc8b994334354e8ca62dfce658c2a8e3c40b393df` |
 | `submit-identity-confirmation-1920.png` | `651a17063877fdefa5cc638b300070ed54d1e746f4b3c4f2bf669ff5f7dc3f5b` |
 | `tab-overflow-1280.png` | `c66810efccf1809ff40c57c1095849bffd279b83325faad4483557bc46368465` |
 | `tab-overflow-1920.png` | `ec0dfd53f2316d4a24447b6c1c41816e8b9742d2bf1cd9457b80e1d56881f136` |
 | `upload-invalid-1280.png` | `4d532fa95da7790be2a481e5fe9c9cd8128d3d26377718a016e1f3e32580994e` |
 | `upload-invalid-1920.png` | `ab7e55584cd9e6295c35e233c8315f31fcccf9b8ee3be0437bf9a3fda5e5227f` |
-| `upload-locked-1280.png` | `dbcb3bb4286235fc0a3f179b91b4ad8a9478365e31211b88ef01f7570cba54dc` |
+| `upload-locked-1280.png` | `203fe45712759d0f2363a445021e4af1a8d07c2a320cd104cc481fd7eb32ab6c` |
 | `upload-selected-1920.png` | `ab3076d08525c376ea98641a2ad42f9b34276db01c3111b12f5e0d859c904f52` |
 | `workspace-error-no-connected-1280.png` | `730d6a537152013846170dead716d90b9e85235cbcbe6f7deffc7ffc65e47ec9` |
 | `workspace-error-no-connected-1920.png` | `4acd5f25b89efa2b25cddbd06644cf070ac2f3cd509b59753d77155dbb86fd69` |
@@ -170,12 +170,12 @@ CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/a2bcaf86-04/`；清
 
 ## 9. 本阶段 worktree 与传输文件清单（供退出后清理）
 
-- 开发 worktree：`/home/dev/gdds-fe`（`fe-vnext`，候选提交 `a2bcaf866a`）。
+- 开发 worktree：`/home/dev/gdds-fe`（`fe-vnext`，候选提交 `48f4e0203d`）。
 - CT05 调试目录：`/home/dev/gdds-fe2c-debug`（rsync 副本，无 `.git`）；N3 探针副本 `/home/dev/gdds-fe2c-probe`。
-- CT04 取证 worktree：`/home/dev/gdds-fe2c-gate`（detached HEAD `a2bcaf866a`），legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；共享仓库临时分支 `refs/heads/fe-vnext` 被本次 fetch 更新到 `a2bcaf866a`（该分支原本不存在）。
-- 源码 bundle：开发主机 `/tmp/fe2c.bundle`，CT04 `/home/dev/fe2c.bundle`；内容为 `fe-vnext` 相对 `31f4310ff8` 的增量。
-- 运行日志：CT04 `/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T174748Z.log` 与 `fe2c-exit-a2bcaf86-04-wrapper.log`；截图清单 `/home/dev/gdds-fe-logs/frontend/fe2c-exit-a2bcaf86-04-screenshots.txt`；CT05 探针日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`。
-- 截图：CT04 `/home/dev/gdds-fe-evidence/fe2c/a2bcaf86-04/`；05 调试副本 `/home/dev/gdds-fe-evidence/fe2c-all/`、`/home/dev/gdds-fe-evidence/fe2c-debug/`。
+- CT04 取证 worktree：`/home/dev/gdds-fe2c-gate`（detached HEAD `48f4e0203d`），legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；共享仓库临时分支 `refs/heads/fe-vnext` 被本次 fetch 更新到最终 FE2c handoff 提交（该分支原本不存在）。
+- 源码 bundle：早期 `/tmp/fe2c.bundle` → CT04 `/home/dev/fe2c.bundle`；最终增量 `/tmp/fe2c-final.bundle` → CT04 `/home/dev/fe2c-final.bundle`（`fe-vnext` 相对 `a2bcaf86`）。
+- 运行日志：CT04 `/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T175557Z.log` 与 `fe2c-exit-48f4e020-04-wrapper.log`；截图清单 `/home/dev/gdds-fe-logs/frontend/fe2c-exit-48f4e020-04-screenshots.txt`；CT05 探针日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`。
+- 截图：CT04 `/home/dev/gdds-fe-evidence/fe2c/48f4e020-04/`；05 调试副本 `/home/dev/gdds-fe-evidence/fe2c-all/`、`/home/dev/gdds-fe-evidence/fe2c-debug/`。
 - 证据保留到审核会话核对完成、`fe-fe2c-exit` 创建后再清理。
 
 ## 10. FE2c 带入事项（给后续阶段）

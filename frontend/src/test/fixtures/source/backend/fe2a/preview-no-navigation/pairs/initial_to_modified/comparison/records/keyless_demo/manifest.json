@@ -1,0 +1,1 @@
+{"content_digest":"sha256:d8899bbd87a3923aa32893ef136203acb5964cb8c2e9412db583ef55f262da9e","contract_version":"backend-vnext/comparison-records/v1","family":"STANDARD","record_count":1,"record_format":"PARQUET","row_diff_detail_policy":"FULL_BEFORE_AFTER_VALUES","schema_version":"standard-records/v1","table_name":"keyless_demo"}

@@ -1,0 +1,1 @@
+{"content_digest":"sha256:32ba0cf9d54691b337c0c09306865f66028be090e8032245bf6f328bbf584b81","contract_version":"backend-vnext/comparison-records/v1","family":"STANDARD","record_count":1,"record_format":"PARQUET","row_diff_detail_policy":"FULL_BEFORE_AFTER_VALUES","schema_version":"standard-records/v1","table_name":"composite_signal_point"}

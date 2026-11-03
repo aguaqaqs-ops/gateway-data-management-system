@@ -4,10 +4,15 @@ import { BundleIntegrityError, installBundleTar, verifyBundleMetadata, type Bund
 const ROOT_NAME = "gateway-comparison-bundles-v1";
 const textEncoder = new TextEncoder();
 
+export function bundleLoadErrorCode(error: unknown): "BUNDLE_INTEGRITY_MISMATCH" | "BUNDLE_LOAD_FAILED" {
+  return error instanceof BundleIntegrityError ? "BUNDLE_INTEGRITY_MISMATCH" : "BUNDLE_LOAD_FAILED";
+}
+
 export interface InstalledBundle {
   manifest: BundleManifest;
   closure: BundleClosure;
   readArtifact(path: string): Promise<Blob>;
+  readWithRetry?<T>(operation: (bundle: InstalledBundle) => Promise<T>): Promise<T>;
 }
 
 export interface ReadableBundleStore extends BundleStore {
@@ -99,6 +104,7 @@ export class OpfsBundleStore implements ReadableBundleStore {
     const root = await opfsRoot();
     let bundleDir: FileSystemDirectoryHandle;
     try { bundleDir = await root.getDirectoryHandle(key); } catch { return null; }
+    const verifiedArtifacts = new Set<string>();
     try {
       const marker = JSON.parse(await readText(bundleDir, ".complete.json")) as { bundle_digest?: string };
       if (marker.bundle_digest !== key) throw new BundleIntegrityError("本地 bundle 缓存标记不匹配");
@@ -118,10 +124,12 @@ export class OpfsBundleStore implements ReadableBundleStore {
           const parent = await directory(bundleDir, parts.slice(0, -1).join("/"), false);
           const file = await (await parent.getFileHandle(parts[parts.length - 1] ?? "")).getFile();
           const expected = manifest.closure.entries.find((entry) => entry.logical_path === path)?.integrity.raw_sha256;
-          if (!expected || normalizeSha256(await hashBlob(file)) !== normalizeSha256(expected)) {
+          if (!expected) throw new Error(`bundle manifest 缺少产物摘要：${path}`);
+          if (!verifiedArtifacts.has(path) && normalizeSha256(await hashBlob(file)) !== normalizeSha256(expected)) {
             await removeEntry(root, key);
             throw new Error(`本地 bundle 产物校验失败：${path}`);
           }
+          verifiedArtifacts.add(path);
           await this.touch(bundleDir);
           return file;
         },
@@ -221,7 +229,7 @@ async function estimateDirectoryBytes(root: FileSystemDirectoryHandle): Promise<
 
 type EnsureBundleOptions = {
   store: ReadableBundleStore;
-  expectedBundleDigest: string;
+  expectedBundleDigest?: string;
   fetchBundle: () => Promise<Response>;
   onProgress?: Parameters<typeof installBundleTar>[0]["onProgress"];
 };
@@ -229,55 +237,61 @@ type EnsureBundleOptions = {
 async function downloadLocalBundle(options: EnsureBundleOptions): Promise<InstalledBundle> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await options.fetchBundle();
-    if (!response.ok) throw new Error(`bundle 下载失败（HTTP ${response.status}）`);
-    const contentType = response.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
-    if (contentType !== "application/x-tar") throw new Error("bundle 响应类型必须是 application/x-tar");
-    const contentEncoding = response.headers.get("Content-Encoding");
-    if (contentEncoding && contentEncoding.toLowerCase() !== "identity") throw new Error("bundle tar 不得使用 HTTP 压缩");
-    if (!response.body) throw new Error("bundle 响应没有流式 body");
     try {
+      const response = await options.fetchBundle();
+      if (!response.ok) throw new Error(`bundle 下载失败（HTTP ${response.status}）`);
+      const contentType = response.headers.get("Content-Type")?.split(";", 1)[0]?.trim().toLowerCase();
+      if (contentType !== "application/x-tar") throw new Error("bundle 响应类型必须是 application/x-tar");
+      const contentEncoding = response.headers.get("Content-Encoding");
+      if (contentEncoding && contentEncoding.toLowerCase() !== "identity") throw new Error("bundle tar 不得使用 HTTP 压缩");
+      if (!response.body) throw new Error("bundle 响应没有流式 body");
+      const expectedBundleDigest = options.expectedBundleDigest ?? response.headers.get("ETag")?.replace(/^W\//, "").replace(/^"|"$/g, "");
+      if (!expectedBundleDigest) throw new Error("bundle 响应缺少 ETag 摘要");
       await installBundleTar({
         body: response.body,
         store: options.store,
-        expectedBundleDigest: options.expectedBundleDigest,
+        expectedBundleDigest,
         etag: response.headers.get("ETag"),
         contentLength: response.headers.get("Content-Length"),
         onProgress: options.onProgress,
       });
-      const installed = await options.store.open(options.expectedBundleDigest);
+      const installed = await options.store.open(expectedBundleDigest);
       if (!installed) throw new Error("bundle 已验证但无法从本地缓存打开");
       return installed;
     } catch (error) {
       lastError = error;
-      if (attempt === 1 || !(error instanceof BundleIntegrityError)) throw error;
+      if (attempt === 1 || (!(error instanceof BundleIntegrityError) && !(error instanceof TypeError))) throw error;
     }
   }
   throw lastError;
 }
 
 function withLocalReadRetry(bundle: InstalledBundle, options: EnsureBundleOptions, retried: boolean): InstalledBundle {
-  return {
+  const wrapped: InstalledBundle = {
     manifest: bundle.manifest,
     closure: bundle.closure,
-    async readArtifact(path) {
+    readArtifact: (path) => bundle.readArtifact(path),
+    async readWithRetry<T>(operation: (current: InstalledBundle) => Promise<T>): Promise<T> {
       try {
-        return await bundle.readArtifact(path);
+        return await operation(wrapped);
       } catch (error) {
         if (retried) throw error;
         const refreshed = await downloadLocalBundle(options);
-        return withLocalReadRetry(refreshed, options, true).readArtifact(path);
+        return withLocalReadRetry(refreshed, options, true).readWithRetry!(operation);
       }
     },
   };
+  return wrapped;
 }
 
 export async function ensureLocalBundle(options: EnsureBundleOptions): Promise<InstalledBundle> {
-  try {
-    const cached = await options.store.open(options.expectedBundleDigest);
-    if (cached) return withLocalReadRetry(cached, options, false);
-  } catch {
-    // The local copy may be unavailable or unreadable; fetch a verified copy below.
+  if (options.expectedBundleDigest) {
+    try {
+      const cached = await options.store.open(options.expectedBundleDigest);
+      if (cached) return withLocalReadRetry(cached, options, false);
+    } catch {
+      // The local copy may be unavailable or unreadable; fetch a verified copy below.
+    }
   }
   return withLocalReadRetry(await downloadLocalBundle(options), options, false);
 }
@@ -290,6 +304,7 @@ export class MemoryBundleStore implements ReadableBundleStore {
   async open(bundleDigest: string): Promise<InstalledBundle | null> {
     const bundle = this.bundles.get(validateKey(bundleDigest));
     if (!bundle) return null;
+    const verifiedArtifacts = new Set<string>();
     return {
       manifest: bundle.manifest,
       closure: bundle.closure,
@@ -297,8 +312,12 @@ export class MemoryBundleStore implements ReadableBundleStore {
         const bytes = bundle.files.get(path);
         if (!bytes) throw new Error(`本地 bundle 产物不存在：${path}`);
         const expected = bundle.manifest.closure.entries.find((entry) => entry.logical_path === path)?.integrity.raw_sha256;
-        const hasher = new Sha256().update(bytes);
-        if (!expected || normalizeSha256(hasher.digest()) !== normalizeSha256(expected)) throw new Error(`本地 bundle 产物校验失败：${path}`);
+        if (!expected) throw new Error(`bundle manifest 缺少产物摘要：${path}`);
+        if (!verifiedArtifacts.has(path)) {
+          const hasher = new Sha256().update(bytes);
+          if (normalizeSha256(hasher.digest()) !== normalizeSha256(expected)) throw new Error(`本地 bundle 产物校验失败：${path}`);
+          verifiedArtifacts.add(path);
+        }
         return blobFromBytes(bytes);
       },
     };

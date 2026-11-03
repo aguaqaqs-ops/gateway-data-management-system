@@ -2,6 +2,7 @@ import type { InstalledBundle } from "./local-bundle";
 import { readJsonArtifact, readParquetTable, type ParquetReadRequest } from "./parquet-reader";
 import type { BundleArtifactEntry } from "./posix-tar";
 import { deriveBundleView, type BusinessNavigation, type ComparisonSurface, type DerivedBundleView, type RiskAnnotation, type RiskAnnotationDocument, type RiskReport, type RowDiffRecord, type SurfaceTable } from "../view-model/model";
+import type { NavigationDiagnostic, NavigationDiagnosticsDocument } from "../view-model/diagnostics";
 
 export type SnapshotSide = "before" | "current" | "browse";
 
@@ -10,6 +11,8 @@ export interface TableArtifactPaths {
   current: string | null;
   browse: string | null;
   records: string | null;
+  orderedRecords: string | null;
+  blankRecords: string[];
   annotations: string | null;
 }
 
@@ -17,7 +20,10 @@ export interface LocalComparisonPresentation {
   pairId: string;
   surface: ComparisonSurface;
   navigation?: BusinessNavigation;
+  navigationDiagnostics: NavigationDiagnostic[];
+  surfaceDiagnostics: string[];
   riskReport?: RiskReport;
+  projectIdentityAssessment?: Record<string, unknown>;
   view: DerivedBundleView;
   tableArtifacts: Map<string, TableArtifactPaths>;
 }
@@ -50,6 +56,10 @@ function resolveTableArtifactPaths(bundle: InstalledBundle, pairId: string, tabl
     current: bySide("current"),
     browse: bySide("browse"),
     records: entryPathByArtifactId(bundle, table.records_refs?.records_ref),
+    orderedRecords: entryPathByArtifactId(bundle, table.ordered_extension?.ordered_records_ref),
+    blankRecords: physicalEntries(bundle)
+      .filter((entry) => entry.kind === "RECORDS" && entry.pair_id === pairId && entry.table_name === table.table_name && entry.logical_path.includes("/blank/"))
+      .map((entry) => entry.logical_path),
     annotations: entryPathByArtifactId(bundle, table.risk_refs?.annotation_ref),
   };
 }
@@ -62,12 +72,34 @@ export async function loadComparisonPresentation(bundle: InstalledBundle, pairId
   const reportPath = entryPathByArtifactId(bundle, surface.refs?.risk_report_ref)
     ?? pairArtifact(bundle, "RISK_REPORT", pairId)?.logical_path;
   const riskReport = reportPath ? await readJsonArtifact<RiskReport>(bundle, reportPath) : undefined;
+  const identityPath = entryPathByArtifactId(bundle, surface.refs?.project_identity_assessment_ref);
+  const projectIdentityAssessment = identityPath ? await readJsonArtifact<Record<string, unknown>>(bundle, identityPath) : undefined;
   const projectionRefs = surface.projections ?? [];
-  const navigationRef = projectionRefs.find((projection) => projection.projection_kind === "BUSINESS_NAVIGATION")?.projection_ref;
-  const navigationPath = entryPathByArtifactId(bundle, navigationRef);
+  const navigationProjection = projectionRefs.find((projection) => projection.projection_kind === "BUSINESS_NAVIGATION");
+  const navigationPath = entryPathByArtifactId(bundle, navigationProjection?.projection_ref);
   const navigation = navigationPath ? await readJsonArtifact<BusinessNavigation>(bundle, navigationPath) : undefined;
+  const diagnosticsPath = entryPathByArtifactId(bundle, navigationProjection?.diagnostics_ref);
+  const navigationDiagnosticsDocument = diagnosticsPath
+    ? await readJsonArtifact<NavigationDiagnosticsDocument>(bundle, diagnosticsPath)
+    : undefined;
+  const viewDiagnostics = surface.view && typeof surface.view === "object"
+    ? (surface.view as Record<string, unknown>).diagnostics_summary
+    : undefined;
+  const surfaceDiagnostics = Array.isArray(surface.diagnostics?.diagnostics_summary)
+    ? surface.diagnostics.diagnostics_summary
+    : Array.isArray(viewDiagnostics) ? viewDiagnostics.filter((value): value is string => typeof value === "string") : [];
   const tableArtifacts = new Map(surface.tables.map((table) => [table.table_name, resolveTableArtifactPaths(bundle, pairId, table)]));
-  return { pairId, surface, navigation, riskReport, view: deriveBundleView({ surface, navigation, riskReport }), tableArtifacts };
+  return {
+    pairId,
+    surface,
+    navigation,
+    navigationDiagnostics: navigationDiagnosticsDocument?.diagnostics ?? [],
+    surfaceDiagnostics,
+    riskReport,
+    projectIdentityAssessment,
+    view: deriveBundleView({ surface, navigation, riskReport }),
+    tableArtifacts,
+  };
 }
 
 /** Opens a selected table from OPFS; no backend request is possible through this path. */
@@ -91,9 +123,12 @@ export async function readLocalChangeRecords(
   tableName: string,
   request: ParquetReadRequest = {},
 ): Promise<RowDiffRecord[]> {
-  const path = presentation.tableArtifacts.get(tableName)?.records;
-  if (!path) return [];
-  return (await readParquetTable(bundle, path, request)).map((row) => row as unknown as RowDiffRecord);
+  const paths = presentation.tableArtifacts.get(tableName);
+  if (!paths) return [];
+  const records = await Promise.all([paths.records, paths.orderedRecords, ...paths.blankRecords]
+    .filter((path): path is string => Boolean(path))
+    .map((path) => readParquetTable(bundle, path, request)));
+  return records.flat().map((row) => row as unknown as RowDiffRecord);
 }
 
 /** Reads the table-scoped annotation document from the installed local bundle only. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readLocalChangeRecords, readLocalRiskAnnotations, loadComparisonPresentation } from "../bundle/presentation";
 import { installedGoldenBundle } from "../../test/helpers";
-import { applyNavigationRowFilter, deriveBundleView, deriveChangeLocations, deriveFormulaDisplays, filterChangedRows, type BusinessNavigation, type ComparisonSurface, type RiskReport, type RiskTableReport } from "./model";
+import { deriveBundleView, deriveChangeLocations, deriveFormulaDisplays, type BusinessNavigation, type ComparisonSurface, type RiskReport, type RiskTableReport } from "./model";
 
 const surface: ComparisonSurface = {
   tables: [
@@ -55,7 +55,7 @@ describe("bundle view model", () => {
     expect(result.tables.find((table) => table.tableName === "device_ext")?.riskLevel).toBeNull();
   });
 
-  it("summarizes filtered tabs from scoped facts and preserves backend diagnostics", () => {
+  it("summarizes filtered tabs from scoped facts without reading inline diagnostics", () => {
     const navigation: BusinessNavigation = {
       groups: [{ group_key: "SECONDARY_DEVICES", label: "二次装置列表", items: [{
         item_key: "device:addr:1", item_kind: "DEVICE", label: "装置一", tabs: [
@@ -63,7 +63,6 @@ describe("bundle view model", () => {
           { tab_key: "whole", label: "装置整表", table_id: "device_ext", row_filter: null },
         ],
       }] }],
-      diagnostics: [{ code: "NAVIGATION_FALLBACK", message: "装置身份计数未知" }, "OTHER_TABLES_ADDED"],
     };
     const result = deriveBundleView({
       surface,
@@ -73,7 +72,7 @@ describe("bundle view model", () => {
 
     expect(result.groups[0]?.items[0]?.changeKinds).toEqual(["ADDED", "UNCHANGED"]);
     expect(result.groups[0]?.items[0]?.riskLevels).toEqual(["HIGH"]);
-    expect(result.diagnostics).toEqual(["NAVIGATION_FALLBACK: 装置身份计数未知", "OTHER_TABLES_ADDED"]);
+    expect(result.diagnostics).toEqual([]);
   });
 
   it("does not synthesize unknown risk when the RiskReport has no table entry", () => {
@@ -82,7 +81,7 @@ describe("bundle view model", () => {
     expect(result.tables[0]?.annotationCount).toBe(0);
   });
 
-  it("maps backend row records to their local annotations and filters row changes", async () => {
+  it("maps backend row records to their local annotations", async () => {
     const { bundle, manifest } = await installedGoldenBundle();
     const pair = manifest.pairs[0] as { pair_id: string };
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
@@ -102,22 +101,19 @@ describe("bundle view model", () => {
       ["ROW_MODIFIED", "MEDIUM_HIGH"],
     ]);
     expect(locations.map(({ index }) => index)).toEqual([1, 2, 3]);
-
-    const rowRisk = new Map(locations.flatMap(({ rowIdentity, riskLevel }) => rowIdentity && riskLevel ? [[rowIdentity, riskLevel] as const] : []));
-    expect(filterChangedRows(records, { onlyInteresting: true, rowIdentityColumn: "row_identity", rowRisk })).toHaveLength(3);
-    expect(filterChangedRows(records, { changeKinds: new Set(["ROW_MODIFIED"]), search: "测控装置（升级）" })).toHaveLength(1);
-    expect(applyNavigationRowFilter(records, { column: "record_kind", value: "ROW_DELETED" })).toHaveLength(1);
   });
 
   it("shows only the uploaded formula during a changed Preview and both sides in History", () => {
-    const before = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "old", formula_ast_json: { op: "add", args: [1, 2] } }];
-    const current = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "new", formula_ast_json: { op: "add", args: [1, 3] } }];
+    const beforeAst = { kind: "EXPRESS", operator: "+", children: [{ kind: "DIGITAL", value: "1" }, { kind: "POINT", name: "Device 1:温度" }] };
+    const currentAst = { kind: "EXPRESS", operator: "+", children: [{ kind: "DIGITAL", value: "1" }, { kind: "POINT", name: "Device 1:温度" }, { kind: "DIGITAL", value: "3" }] };
+    const before = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "old", formula_ast_json: beforeAst }];
+    const current = [{ source_table: "composite_signal_point", point_gid: 8, dev_addr: 65532, formula_digest: "new", formula_ast_json: currentAst }];
     const devices = [{ dev_addr: 65532, description: "复合信号装置" }];
     const preview = deriveFormulaDisplays({ mode: "PREVIEW", before, current, beforeDevices: devices, currentDevices: devices });
-    expect(preview[0]).toMatchObject({ beforeFormula: null, currentFormula: current[0]?.formula_ast_json, formulaChanged: true, label: "公式已改", currentDeviceName: "复合信号装置" });
+    expect(preview[0]).toMatchObject({ beforeFormula: null, currentFormula: currentAst, formulaChanged: true, label: "公式已改", currentDeviceName: "复合信号装置" });
     const history = deriveFormulaDisplays({ mode: "HISTORY", before, current, beforeDevices: [{ dev_addr: 65532, description: "改前名称" }], currentDevices: devices });
-    expect(history[0]).toMatchObject({ beforeFormula: before[0]?.formula_ast_json, currentFormula: current[0]?.formula_ast_json, formulaChanged: false, label: null, beforeDeviceName: "改前名称", currentDeviceName: "复合信号装置" });
+    expect(history[0]).toMatchObject({ beforeFormula: beforeAst, currentFormula: currentAst, changed: true, formulaChanged: false, label: null, beforeDeviceName: "改前名称", currentDeviceName: "复合信号装置" });
     const deletedPreview = deriveFormulaDisplays({ mode: "PREVIEW", before, current: [], beforeDevices: devices, deletedPointKeys: new Set(["composite_signal_point:8"]) });
-    expect(deletedPreview[0]?.beforeFormula).toEqual(before[0]?.formula_ast_json);
+    expect(deletedPreview[0]).toMatchObject({ beforeFormula: null, currentFormula: beforeAst, deleted: true });
   });
 });

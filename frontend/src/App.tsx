@@ -1,5 +1,8 @@
 import { DesignSystemPage } from "./pages/DesignSystemPage";
+import { ComparisonPage } from "./pages/ComparisonPage";
 
 export function App() {
-  return <DesignSystemPage />;
+  return new URLSearchParams(window.location.search).has("design-system")
+    ? <DesignSystemPage />
+    : <ComparisonPage />;
 }

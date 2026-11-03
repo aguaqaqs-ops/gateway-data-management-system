@@ -1,4 +1,4 @@
-export type ComparisonMode = "PREVIEW" | "HISTORY" | "DATASET_REPLACEMENT";
+export type ComparisonMode = "PREVIEW" | "REVIEW" | "HISTORY" | "DATASET_REPLACEMENT";
 /** Surface change kinds summarize a table, not an individual records row. */
 export type ChangeKind = "UNCHANGED" | "ADDED" | "DELETED" | "UPDATED" | "SCHEMA_CHANGED" | string;
 export type RiskLevel = "HIGH" | "MEDIUM_HIGH" | "MEDIUM_LOW" | "LOW" | "UNKNOWN";
@@ -12,7 +12,8 @@ export type RowRecordKind =
   | "ORDERED_ROW_MODIFIED"
   | "ORDERED_ROW_MOVED";
 export type TableRecordKind = "SCHEMA_CHANGE" | "TABLE_DEGRADED" | "ORDERED_TABLE_DEGRADED";
-export type RecordKind = RowRecordKind | TableRecordKind;
+export type BlankRecordKind = "BLANK_DELETE_INTERVAL" | "BLANK_INSERT_INTERVAL";
+export type RecordKind = RowRecordKind | TableRecordKind | BlankRecordKind;
 
 const ROW_RECORD_KINDS: ReadonlySet<string> = new Set([
   "ROW_ADDED",
@@ -28,7 +29,6 @@ const TABLE_RECORD_KINDS: ReadonlySet<string> = new Set([
   "TABLE_DEGRADED",
   "ORDERED_TABLE_DEGRADED",
 ]);
-
 function isRowRecordKind(value: unknown): value is RowRecordKind {
   return typeof value === "string" && ROW_RECORD_KINDS.has(value) && !TABLE_RECORD_KINDS.has(value);
 }
@@ -164,7 +164,6 @@ export interface NavigationGroup {
 export interface BusinessNavigation {
   contract_version?: string;
   groups: NavigationGroup[];
-  diagnostics?: unknown[];
 }
 
 export interface RiskReason {
@@ -339,20 +338,7 @@ function normalizeNavigation(navigation: BusinessNavigation | undefined, tables:
       tabs: [{ tab_key: table.tableName, label: table.label, table_id: table.tableName, row_filter: null }],
     })));
   }
-  const diagnostics = Array.isArray(navigation.diagnostics) ? navigation.diagnostics.map(diagnosticText) : [];
-  return { value: { ...navigation, groups }, diagnostics };
-}
-
-function diagnosticText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const item = value as Record<string, unknown>;
-    const code = typeof item.code === "string" ? item.code : null;
-    const message = typeof item.message === "string" ? item.message : null;
-    if (code && message) return `${code}: ${message}`;
-    if (message) return message;
-  }
-  try { return JSON.stringify(value) ?? String(value); } catch { return String(value); }
+  return { value: { ...navigation, groups }, diagnostics: [] };
 }
 
 export function deriveBundleView(input: {
@@ -422,6 +408,7 @@ export interface ChangeLocation {
   rowIdentity: string | null;
   recordKind: RowRecordKind;
   riskLevel: RiskLevel | null;
+  position: number | null;
 }
 
 function identityKey(identity: RowIdentity | undefined): string | null {
@@ -440,42 +427,36 @@ function identityKey(identity: RowIdentity | undefined): string | null {
 }
 
 export function deriveChangeLocations(records: RowDiffRecord[], annotations: RiskAnnotation[] = []): ChangeLocation[] {
-  const risks = new Map(annotations
-    .filter((annotation) => annotation.target.target_type === "ROW")
-    .map((annotation) => [identityKey(annotation.target.row_identity), annotation.risk_level]));
+  const risks = new Map<string, RiskLevel>();
+  for (const annotation of annotations) {
+    for (const identity of riskAnnotationRowIdentities(annotation)) risks.set(identity, annotation.risk_level);
+  }
   const rowRecords = records.filter((record): record is RowDiffRecord & { record_kind: RowRecordKind } => isRowRecordKind(record.record_kind));
   return rowRecords.map((record, index) => {
     const rowIdentity = identityKey(record.row_identity);
-    return { index: index + 1, rowIdentity, recordKind: record.record_kind, riskLevel: risks.get(rowIdentity) ?? null };
+    return {
+      index: index + 1,
+      rowIdentity,
+      recordKind: record.record_kind,
+      riskLevel: rowIdentity ? risks.get(rowIdentity) ?? null : null,
+      position: typeof record.current_position === "number" ? record.current_position
+        : typeof record.before_position === "number" ? record.before_position : null,
+    };
   });
 }
 
-export function filterChangedRows<T extends Record<string, unknown>>(rows: T[], criteria: {
-  onlyInteresting?: boolean;
-  search?: string;
-  /** Values are ComparisonRecordKind/OrderedRecordKind, not table-level SurfaceChangeKind. */
-  changeKinds?: Set<RowRecordKind>;
-  rowRisk?: ReadonlyMap<string, RiskLevel>;
-  rowIdentityColumn?: string;
-}): T[] {
-  const query = criteria.search?.trim().toLocaleLowerCase();
-  return rows.filter((row) => {
-    const changed = isRowRecordKind(row.record_kind);
-    const identity = criteria.rowIdentityColumn ? identityKey(row[criteria.rowIdentityColumn] as RowIdentity | undefined) : null;
-    const risky = identity !== null && criteria.rowRisk?.has(identity);
-    if (criteria.onlyInteresting && !changed && !risky) return false;
-    if (criteria.changeKinds?.size && (!isRowRecordKind(row.record_kind) || !criteria.changeKinds.has(row.record_kind))) return false;
-    return !query || Object.values(row).some((value) => containsSearchText(value, query));
-  });
+export function normalizeRowIdentity(identity: RowIdentity | undefined): string | null {
+  return identityKey(identity);
 }
 
-function containsSearchText(value: unknown, query: string): boolean {
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value).toLocaleLowerCase().includes(query);
-  }
-  if (Array.isArray(value)) return value.some((item) => containsSearchText(item, query));
-  if (value && typeof value === "object") return Object.values(value).some((item) => containsSearchText(item, query));
-  return false;
+export function riskAnnotationRowIdentities(annotation: RiskAnnotation): string[] {
+  const identities = annotation.target.target_type === "ROW"
+    ? [annotation.target.row_identity]
+    : annotation.target.target_type === "ROW_PAIR"
+      ? [annotation.target.before_row_identity, annotation.target.current_row_identity]
+      : [];
+  return identities.map((identity) => normalizeRowIdentity(identity ?? undefined))
+    .filter((identity): identity is string => identity !== null);
 }
 
 export interface FormulaSourceRow {
@@ -489,10 +470,15 @@ export interface FormulaSourceRow {
 
 export interface FormulaDisplay {
   pointKey: string;
+  pointLabel: string;
   beforeDeviceName: string | null;
   currentDeviceName: string | null;
+  beforeDevices: FormulaSourceRow[];
+  currentDevices: FormulaSourceRow[];
   beforeFormula: unknown | null;
   currentFormula: unknown | null;
+  changed: boolean;
+  deleted: boolean;
   formulaChanged: boolean;
   label: string | null;
 }
@@ -512,7 +498,6 @@ export function deriveFormulaDisplays(input: {
   current: FormulaSourceRow[];
   beforeDevices?: FormulaSourceRow[];
   currentDevices?: FormulaSourceRow[];
-  changedPointKeys?: Set<string>;
   deletedPointKeys?: Set<string>;
 }): FormulaDisplay[] {
   const keyOf = (row: FormulaSourceRow) => `${String(row.source_table ?? "")}:${String(row.point_gid ?? "")}`;
@@ -522,22 +507,23 @@ export function deriveFormulaDisplays(input: {
   return [...keys].sort().map((key) => {
     const oldRow = before.get(key);
     const newRow = current.get(key);
+    const pointId = newRow?.point_gid ?? oldRow?.point_gid ?? "?";
     const deleted = input.deletedPointKeys?.has(key) ?? (!newRow && Boolean(oldRow));
-    const changed = input.changedPointKeys?.has(key) ?? Boolean(oldRow && newRow && oldRow.formula_digest !== newRow.formula_digest);
+    const changed = Boolean(oldRow && newRow && oldRow.formula_digest !== newRow.formula_digest);
     const isPreviewChanged = input.mode === "PREVIEW" && changed && !deleted;
     return {
       pointKey: key,
+      pointLabel: `测点 ${String(pointId)}`,
       beforeDeviceName: oldRow ? deviceName(oldRow.dev_addr, input.beforeDevices ?? []) : null,
       currentDeviceName: newRow ? deviceName(newRow.dev_addr, input.currentDevices ?? []) : null,
-      beforeFormula: input.mode === "HISTORY" || deleted ? oldRow?.formula_ast_json ?? null : null,
-      currentFormula: newRow?.formula_ast_json ?? null,
+      beforeDevices: input.beforeDevices ?? [],
+      currentDevices: input.currentDevices ?? [],
+      beforeFormula: input.mode === "HISTORY" ? oldRow?.formula_ast_json ?? null : null,
+      currentFormula: newRow?.formula_ast_json ?? (input.mode === "PREVIEW" && deleted ? oldRow?.formula_ast_json ?? null : null),
+      changed: changed && !deleted,
+      deleted,
       formulaChanged: isPreviewChanged,
       label: isPreviewChanged ? "公式已改" : null,
     };
   });
-}
-
-export function applyNavigationRowFilter<T extends Record<string, unknown>>(rows: T[], rowFilter: NavigationTab["row_filter"]): T[] {
-  if (!rowFilter) return rows;
-  return rows.filter((row) => String(row[rowFilter.column] ?? "") === String(rowFilter.value));
 }

@@ -6,22 +6,46 @@
       "label": "二次装置列表",
       "items": [
         {
+          "item_key": "device:table",
+          "item_kind": "TABLE",
+          "label": "装置总表",
+          "attributes": {},
+          "tabs": [
+            { "tab_key": "device:table", "label": "装置总表", "table_id": "device", "row_filter": null }
+          ]
+        },
+        {
+          "item_key": "device:composite",
+          "item_kind": "COMPOSITE_SIGNAL_DEVICE",
+          "label": "复合信号虚装置",
+          "attributes": { "dev_addr": 65532 },
+          "tabs": [
+            { "tab_key": "composite_signal_point", "label": "复合信号测点", "table_id": "composite_signal_point", "row_filter": { "column": "dev_addr", "value": 65532 } }
+          ]
+        },
+        {
           "item_key": "device:addr:3",
           "item_kind": "DEVICE",
           "label": "直流屏",
           "attributes": { "dev_addr": 3 },
           "tabs": [
-            {
-              "tab_key": "device",
-              "label": "装置表",
-              "table_id": "device",
-              "row_filter": { "column": "dev_addr", "value": 3 },
-              "facts": { "change_kind": "ADDED", "risk_level": "MEDIUM_LOW", "before_row_count": 0, "current_row_count": 1 }
-            }
+            { "tab_key": "device", "label": "装置表", "table_id": "device", "row_filter": { "column": "dev_addr", "value": 3 }, "facts": { "change_kind": "ADDED", "before_row_count": 0, "current_row_count": 1 } }
           ]
         }
       ]
+    },
+    {
+      "group_key": "OTHER_TABLES",
+      "label": "其他表",
+      "items": [
+        { "item_key": "table:keyless_demo", "item_kind": "TABLE", "label": "keyless_demo", "attributes": {}, "tabs": [{ "tab_key": "keyless_demo", "label": "keyless_demo", "table_id": "keyless_demo", "row_filter": null }] },
+        { "item_key": "table:retired_table", "item_kind": "TABLE", "label": "retired_table", "attributes": {}, "tabs": [{ "tab_key": "retired_table", "label": "retired_table", "table_id": "retired_table", "row_filter": null }] },
+        { "item_key": "table:schema_demo", "item_kind": "TABLE", "label": "schema_demo", "attributes": {}, "tabs": [{ "tab_key": "schema_demo", "label": "schema_demo", "table_id": "schema_demo", "row_filter": null }] },
+        { "item_key": "table:b1_n1_iec104_syx_list", "item_kind": "TABLE", "label": "b1_n1_iec104_syx_list", "attributes": {}, "tabs": [{ "tab_key": "b1_n1_iec104_syx_list", "label": "b1_n1_iec104_syx_list", "table_id": "b1_n1_iec104_syx_list", "row_filter": null }] },
+        { "item_key": "table:b1_n1_iec104_yc_list", "item_kind": "TABLE", "label": "b1_n1_iec104_yc_list", "attributes": {}, "tabs": [{ "tab_key": "b1_n1_iec104_yc_list", "label": "b1_n1_iec104_yc_list", "table_id": "b1_n1_iec104_yc_list", "row_filter": null }] },
+        { "item_key": "table:version_manager", "item_kind": "TABLE", "label": "version_manager", "attributes": {}, "tabs": [{ "tab_key": "version_manager", "label": "version_manager", "table_id": "version_manager", "row_filter": null }] },
+        { "item_key": "table:added_table", "item_kind": "TABLE", "label": "added_table", "attributes": {}, "tabs": [{ "tab_key": "added_table", "label": "added_table", "table_id": "added_table", "row_filter": null }] }
+      ]
     }
-  ],
-  "diagnostics": []
+  ]
 }

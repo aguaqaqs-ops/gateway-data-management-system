@@ -1,0 +1,27 @@
+{
+  "contract_version": "backend-vnext/business-navigation/v1",
+  "diagnostics": [
+    {
+      "code": "CHANNEL_TABLE_UNCLAIMED",
+      "target": {
+        "group_key": "OTHER_TABLES",
+        "item_key": "table:b1_n1_iec104_yc_list",
+        "tab_key": "b1_n1_iec104_yc_list",
+        "table_id": "b1_n1_iec104_yc_list"
+      },
+      "side": null,
+      "params": { "board": 1, "link_no": 1 }
+    },
+    {
+      "code": "DEVICE_ROWS_UNASSIGNED",
+      "target": {
+        "group_key": "SECONDARY_DEVICES",
+        "item_key": null,
+        "tab_key": null,
+        "table_id": "device"
+      },
+      "side": "CURRENT",
+      "params": { "identity_column": "dev_addr", "row_count": 2, "changed_row_count": 1 }
+    }
+  ]
+}

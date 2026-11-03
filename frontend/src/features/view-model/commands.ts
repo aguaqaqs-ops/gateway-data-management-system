@@ -1,9 +1,11 @@
-export type BrowseMode = "PREVIEW" | "HISTORY" | "DATASET_REPLACEMENT";
-export type ViewKind = "INITIAL_TO_MODIFIED" | "BASELINE_TO_SUBMISSION" | "BEFORE_TO_CURRENT";
+export type BrowseMode = "PREVIEW" | "REVIEW" | "HISTORY";
 
 export interface BrowseState {
   mode: BrowseMode;
-  view: ViewKind;
+  bundleDigest: string | null;
+  requestPath?: string;
+  modeRequests?: Partial<Record<BrowseMode, string>>;
+  pairId: string | null;
   nodeKey: string | null;
   tabKey: string | null;
   changeIndex: number;
@@ -16,7 +18,9 @@ export interface BrowseState {
 
 export const initialBrowseState: BrowseState = {
   mode: "PREVIEW",
-  view: "INITIAL_TO_MODIFIED",
+  bundleDigest: null,
+  modeRequests: {},
+  pairId: null,
   nodeKey: null,
   tabKey: null,
   changeIndex: 0,
@@ -28,7 +32,8 @@ export const initialBrowseState: BrowseState = {
 };
 
 export type BrowseCommand =
-  | { name: "set-view"; view: ViewKind }
+  | { name: "select-pair"; pairId: string }
+  | { name: "set-bundle"; mode: BrowseMode; bundleDigest: string; requestPath?: string }
   | { name: "select-node"; nodeKey: string }
   | { name: "select-tab"; tabKey: string }
   | { name: "jump-to-change"; index: number }
@@ -59,7 +64,8 @@ function normalizeState(state: BrowseState): BrowseState {
 export function executeBrowseCommand(state: BrowseState, command: BrowseCommand): BrowseState {
   let next = state;
   switch (command.name) {
-    case "set-view": next = { ...state, view: command.view, changeIndex: 0 }; break;
+    case "select-pair": next = { ...state, pairId: command.pairId, changeIndex: 0 }; break;
+    case "set-bundle": next = { ...state, mode: command.mode, bundleDigest: command.bundleDigest, requestPath: command.requestPath ?? state.requestPath, pairId: null, nodeKey: null, tabKey: null, changeIndex: 0 }; break;
     case "select-node": next = { ...state, nodeKey: command.nodeKey }; break;
     case "select-tab": next = { ...state, tabKey: command.tabKey }; break;
     case "jump-to-change": next = { ...state, changeIndex: Math.max(0, Math.floor(command.index)) }; break;
@@ -86,14 +92,20 @@ export function executeBrowseCommand(state: BrowseState, command: BrowseCommand)
 export function encodeBrowseState(state: BrowseState): string {
   const params = new URLSearchParams();
   params.set("mode", state.mode);
-  params.set("view", state.view);
+  if (state.bundleDigest) params.set("bundle", state.bundleDigest);
+  if (state.pairId) params.set("pair", state.pairId);
+  if (state.requestPath) params.set("request", state.requestPath);
+  for (const mode of ["PREVIEW", "REVIEW", "HISTORY"] as const) {
+    const request = state.modeRequests?.[mode];
+    if (request) params.set(mode === "PREVIEW" ? "previewRequest" : mode === "REVIEW" ? "reviewRequest" : "historyRequest", request);
+  }
   if (state.nodeKey) params.set("node", state.nodeKey);
   if (state.tabKey) params.set("tab", state.tabKey);
   if (state.changeIndex > 0) params.set("change", String(state.changeIndex));
-  if (state.expandedGroups.length) params.set("groups", state.expandedGroups.join(","));
   if (state.onlyInteresting) params.set("changed", "1");
   if (state.debug) params.set("debug", "1");
   if (state.search) params.set("q", state.search);
+  for (const group of state.expandedGroups) params.append("group", group);
   for (const ref of state.comparisonNodeRefs) params.append("compare", ref);
   return params.toString();
 }
@@ -101,16 +113,22 @@ export function encodeBrowseState(state: BrowseState): string {
 export function decodeBrowseState(search: string): BrowseState {
   const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
   const mode = params.get("mode");
-  const view = params.get("view");
   const change = Number.parseInt(params.get("change") ?? "0", 10);
   return normalizeState({
     ...initialBrowseState,
-    mode: mode === "HISTORY" || mode === "DATASET_REPLACEMENT" ? mode : "PREVIEW",
-    view: view === "BASELINE_TO_SUBMISSION" || view === "BEFORE_TO_CURRENT" ? view : "INITIAL_TO_MODIFIED",
+    mode: mode === "REVIEW" || mode === "HISTORY" ? mode : "PREVIEW",
+    bundleDigest: params.get("bundle"),
+    modeRequests: {
+      ...(params.get("previewRequest") ? { PREVIEW: params.get("previewRequest") as string } : {}),
+      ...(params.get("reviewRequest") ? { REVIEW: params.get("reviewRequest") as string } : {}),
+      ...(params.get("historyRequest") ? { HISTORY: params.get("historyRequest") as string } : {}),
+    },
+    pairId: params.get("pair"),
+    requestPath: params.get("request") ?? undefined,
     nodeKey: params.get("node"),
     tabKey: params.get("tab"),
     changeIndex: Number.isFinite(change) ? change : 0,
-    expandedGroups: (params.get("groups") ?? "").split(",").filter(Boolean),
+    expandedGroups: params.getAll("group"),
     onlyInteresting: params.get("changed") === "1",
     debug: params.get("debug") === "1",
     search: params.get("q") ?? "",

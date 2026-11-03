@@ -23,7 +23,11 @@ export async function readGoldenBundle(): Promise<Uint8Array> {
 }
 
 export async function installedGoldenBundle() {
-  const tar = await readGoldenBundle();
+  return installedFixtureBundle("golden-bundle");
+}
+
+export async function installedFixtureBundle(fixtureName: string) {
+  const tar = await readFixture(`src/test/fixtures/generated/${fixtureName}.tar`);
   const manifestSize = Number.parseInt(new TextDecoder().decode(tar.slice(124, 136)).replace(/\0.*$/, "").trim(), 8);
   const manifest = JSON.parse(new TextDecoder().decode(tar.slice(512, 512 + manifestSize))) as { bundle_digest?: string };
   const store = new MemoryBundleStore();

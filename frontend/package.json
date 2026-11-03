@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "test:unit": "node scripts/build-golden-bundle-fixture.mjs && vitest run",
     "test:e2e": "playwright test",
+    "check:production-build": "node scripts/check-production-build.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

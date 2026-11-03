@@ -4,6 +4,7 @@
   2026-11-03 按 FE2a 审核的设计问题修订 §4.2、§4.3、§5.1、§5.3、§5.5、§5.6（owner 确认，§9 Q6–Q9）。
   2026-11-03 FE2a 退出（§2），新增 §6.3 FE2a 带入项（§9 Q10、Q11）。
   2026-11-03 新增 §7.5 模拟接口响应规则；FE2b 拆分为 FE2b、FE2c（§2，§9 Q12）；更正 §4.1 工作区的来源。
+  2026-11-03 §7.5 取值表补充 `eligibility_note`、审计事件 `issue_code`、`abort_code` 及其界面取舍。
   2026-11-03 按审核会话核对更正 §3 N2、§4.5、§7.5：`MANUAL_RECOVERY_REQUIRED` 不是终态；补充 `POST /v1/workspaces` 的状态码、按 route 声明的错误覆盖、FE1 测试数据的取值更正。
 - **FE2b：** 可以开始。起点为 `fe-fe2a-exit`（main 合入提交 `a7c6160447`），审核范围为 `fe-fe2a-exit..<候选>`。
 - **日期：** 2026-11-02。
@@ -405,12 +406,18 @@ bundle 仍按 §7.1 由生成器产出，本节只管 JSON 响应。
   | `ArchivePreviewAnomalyResponse.issue_code`、`AppendArchiveAnomalyResolutionRequest.issue_code` | `APPROVED_SIBLING_EXCLUDED`、`PROJECT_IDENTITY_EXCEPTION` | `application/archive/queries.py` 的 `*_ISSUE` 常量 |
   | `PreviewArchivePlanResponse.blockers`、`ArchiveCandidatesResponse.blockers` | `ACTIVE_SUBMIT_ATTEMPT`、`ARCHIVE_INTEGRITY_FAILURE` | `application/archive/snapshot.py` 的 `collect_repository_submit_blockers` |
   | `ArchiveAuditEventResponse.action` | `CONFIRM`、`REVOKE`、`ACKNOWLEDGE_EXCLUSION`、`ACKNOWLEDGE_IDENTITY_EXCEPTION` | `domain/archive/models.py` 的 `ArchiveConfirmationAction`、`ArchiveAnomalyResolutionAction` |
+  | `ArchiveAuditEventResponse.issue_code` | 可为 `null`；非空时同上方 `issue_code` 两项。确认类事件（`subject_kind = CONFIRM_SELECTION`）为 `null` | 同上方 `issue_code` |
+  | `HistoryNodeResponse.eligibility_note` | `NOT_CANDIDATE_BASE_ADVANCED` 或 `null`；§4.1 的“基线已更新”按此显示（FE2b 工作台） | `application/history/contracts.py` 的 `HistoryEligibilityNote`（OpenAPI 中为 `const`，生成类型也约束） |
+  | `SubmitAttemptResponse.abort_code`（FE2c） | 不是封闭集合：`application/submission/abort.py` 的 `ALLOWED_ABORT_CODES`（`IMPORT_REJECTED`、`EXPECTED_COMMIT_MISMATCH`、`VERIFICATION_FAILED_NOT_PUBLISHED`），另外 `application/submit_jobs.py` 在准备步骤失败时写入诊断码。模拟数据只用前三个值 | 同左 |
+
+  **`abort_code` 的界面（设计会话 2026-11-03）：** 提交尝试为 `ABORTED` 时显示通用文案“提交未完成”，原始码按 C6 放在悬停提示与 Debug 中（可复制）；
+  不按值逐一给文案，前端也不判断码属于哪一类。
 
   `PreviewArchivePlanResponse.confirmation_requirements` 不是代码，而是待确认的选择 subject digest（`application/archive/queries.py`
   中的 `selection_subject_digest`），模拟数据中取与该场景其他摘要一致的字符串。
 
   OpenAPI 中有枚举的字段（如 `review_status`、`SubmitAttemptResponse.state`、`HistoryCompareResultResponse.status`）由生成类型约束，
-  不进这张表。其他只是字符串、界面又要按值区分的字段，先在源码中找到枚举并加入这张表；找不到就停下交设计会话。
+  不进这张表。其余只是字符串的可空字段（`reason`、各 `*_id`、`*_digest`）是自由文本或标识，不需要取值表。其他只是字符串、界面又要按值区分的字段，先在源码中找到枚举并加入这张表；找不到就停下交设计会话。
 - **适用于全部模拟数据：** 生成类型约束、取值表与错误码单测覆盖前端仓库中的全部模拟数据，包括 FE1、FE2a 已有的单测与组件测试，
   不只是 FE2b 新增的场景。已有测试中直接写成对象字面量、没有类型约束的模拟响应，FE2b 改为带生成类型。已知需要改正的值
   （`frontend/src/features/api/journeys.test.ts`）：

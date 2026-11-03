@@ -220,7 +220,7 @@ FETCH_HEAD 与 worktree HEAD 均核对为 7b41aceaee05f280e09c070efaa58b008241fe
 
 两次生成和逐字节比较均在 CT05（gw-dms-test-05.lan）的 clean detached worktree 执行，生成器来源为 ce0efc3c22，frontend tree 45747bb23bf5942c27e33fbefe8a81d58a487bf3；后续 fc8dd49a84 将这些生产输出更新进候选。使用已预填充 gateway-backend-deps 镜像、Docker network none。没有启动 Dolt、Compose 或访问公网。两次生成各 213 个文件，bundle 输出逐字节一致。
 
-- 第一次生成日志：/home/dev/gdds-fe-logs/fe2a/fixture-generation-ce0efc3c22-run-1-05.log；SHA256 f7d374c4a8acdfe3cf929f1dafacb2d2a351f129b708d919e2f915514fffd8。
+- 第一次生成日志：/home/dev/gdds-fe-logs/fe2a/fixture-generation-ce0efc3c22-run-1-05.log；SHA256 f7d374c4a8acdfe3cf929f1dafacb2d2a351f129b708d919e9f2e915514fffd8。
 - 第二次生成日志：/home/dev/gdds-fe-logs/fe2a/fixture-generation-ce0efc3c22-run-2-05.log；SHA256 dc6c77bd4539bead488a92e05b7970d2010b241c516d0385cab9e903fe07270b。
 - 逐字节复现日志：/home/dev/gdds-fe-logs/fe2a/fixture-reproduction-ce0efc3c22-05.log；SHA256 311c21096e17a3a07c80fdee8455b173390d5d35579f295c8386b376c3f6bade；byte_identical=true，213 files each，exit 0。
 - 两份生成摘要日志 SHA256 均为 6f858c2a20fad3bde26990b0eda3b4c87c09aeda96e78012f5a53d1b3e408aef；摘要纠正后使用 grep 查询。首次试图调用未安装在 CT05 的 rg，操作日志 SHA256 504f40400e1cfe09019c290a5a46b45b3eba6857c9c82bed03359fe0f1cbaa1f；生成器已 exit 0，未触及被测对象，该步骤改用 grep 后完成，作为 DC68 命令环境修正记录。
@@ -229,7 +229,7 @@ FETCH_HEAD 与 worktree HEAD 均核对为 7b41aceaee05f280e09c070efaa58b008241fe
 | --- | --- | --- | --- |
 | Preview FULL | 09562cbb7bb6d26c2d5e922c43c81148732f66e4c0d77b05a4abe268911f5bf0 | 997403f2ca2b8141976be46ad382f2e84a5d13dfecfa81083377920887562bee | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
 | Preview MODIFIED_ONLY | fcc4deb6f9215fe4948343379b00ad1e40110e7d4e4149d72ce91141a94cf177 | e9ab96623fcd8798c7c0456b13172aba48f92cee5366f132b8d6de34fc21e2d1 | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
-| Preview 数据集替换 | f60eb9d2e4cf1c8d85e35fecbd5214335ddf11d4eaece37293c13cc329c43830 | a29400b56b0de2ce17d1ebbc5affe336927ccf965c1fd463104cbfee18060cc | HIGH |
+| Preview 数据集替换 | f60eb9d2e4cf1c8d85e35fecbd5214335ddf11d4eaece37293c13cc329c43830 | a29400b56b0bde2ce17d1ebbc5affe336927ccf965c1fd463104cbfee18060cc | HIGH |
 | History 三节点 | 5d22992d518dfd1e95cd8d7174a91fb2dad70e04a869757bf304e438f5b60b2c | 96d252ae1d8af6018f92add47112cb709d35be835651f5f980a9474c71391470 | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
 | Preview 无导航产物 | 22bb6fdf8e54e5eb4154aa83ac4e7db21d9894e8db417e6e01c43160445f7878 | e2bf17830b216f6a7ed9ea7c88608fdf1e15267a7a3c242167337db9e6b5d974 | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
 
@@ -282,3 +282,61 @@ CT05 的 30 张截图保存在 worktree 外的 /home/dev/gdds-fe-evidence/fe2a/2
 - 请 owner 审核本节截图，尤其确认列出的无草图页面。除此之外没有待定的 B1–B9 修复偏差。
 - R2 按范围留给 FE2b；Preview 改前公式仍按计划等待 BE-b 能力，本轮没有改造后端接口。
 - 复审通过前未在 CT04 运行或取证；CT04 不作为本轮验收证据。
+
+## 9. 定向修复第 2 轮
+
+### 候选与修复
+
+- 代码候选：a80a2e93af663cda6f4f972a0840df5142df4cea；frontend/ tree：f1c238248acc72b8be33fd50bb893e7539ff4caa。
+- 审核范围：c1abe10cf8f5d83e3f6ab1b0c570c60744a1515c..<本节所在 handoff 提交>。handoff 独立提交；本节所在提交只改本文件，frontend tree 不变。
+- 代码提交：bd6a666be3（N1、N2 实现与 owner 用例）、813da6cd61（公式 History 测试形状修订）、a80a2e93af（测试 AST 补全为生产 fixture 根结构）。
+- 本轮只改 frontend/ 与本 handoff 文件；未改依赖、锁文件、后端或 fixture 生成器；未推送、打 tag、合入 main，也未在 CT04 取证。
+
+| 项目 | 修复方式 | 测试 owner |
+| --- | --- | --- |
+| N1 公式分组 | 无名 EXPRESS 子节点运算符不同于父链时新增分组行，分组行沿用父链运算符并标出子运算符，组内行按自身运算符展开并缩进一层。选择的格式为“+ （* 分组）”，组内显示“* 3”“* 测控装置:测量电压”“* 4”。公式对齐按原 POINT 名称计算；History 两侧同一分组行仍对齐，变化的操作数行成对标变更。 | frontend/src/features/view-model/formula-view.test.ts：生产 fixture AST 检查分组运算符和 depth；History 用例检查分组行及组内变化操作数的对齐。frontend/e2e/workspace-shell.spec.ts 检查公式抽屉显示分组行。 |
+| N2 视图状态 | 视图状态只看 changed_table_count：无变化表显示“一致”，有变化表显示“更新”。风险徽章保持不变。悬停提示按顺序列出降级表数、失败表数和有比较提示的表数，不再把表级“降级比较/比较失败/有修改”用作视图状态。 | frontend/src/features/view-model/view-status.test.ts 覆盖一致、更新、仅有降级、仅有失败及合并提示；frontend/e2e/workspace-shell.spec.ts 检查真实 Preview 页签显示“更新”，并有“2 张表降级比较”和“3 张表有比较提示”的提示。 |
+| R6 handoff 勘误 | 修正本文件第 8 节的第一次 fixture 生成日志 SHA256 与 Preview 数据集替换 closure digest；下面记录的值为完整正确值。 | 复核人可直接对照第 05 节点保留日志及当前 bundle closure。 |
+| R5 连接状态 | 留给 FE2b；本轮仍保留当前连接状态呈现。 | 非阻塞，按复审报告留待后续阶段处理。 |
+
+### fixture 与 R6 更正
+
+fixture 输入和生产生成器均未变化，按要求没有重新运行 backend fixture 生成；完整 runner 内部重建的五个 golden bundle tar 与第 8 节的 bundle/closure digest 一致。R6 两个正确值如下：
+
+- fixture-generation-ce0efc3c22-run-1-05.log SHA256：f7d374c4a8acdfe3cf929f1dafacb2d2a351f129b708d919e9f2e915514fffd8。
+- Preview 数据集替换 closure：a29400b56b0bde2ce17d1ebbc5affe336927ccf965c1fd463104cbfee18060cc。
+
+### CT05 完整 runner 与失败记录
+
+- 最终运行节点：gw-dms-test-05.lan；clean detached worktree：/home/dev/gdds-fe-rereview2-fe2a-a80a2e93-05，含 legacy 符号链接。执行 ./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2a/rereview2-a80a2e93-05。
+- 开始：2026-11-03T09:05:19Z；结束：2026-11-03T09:05:43Z。起止 HEAD 均为 a80a2e93af663cda6f4f972a0840df5142df4cea；起止 frontend tree 均为 f1c238248acc72b8be33fd50bb893e7539ff4caa；exit 0。
+- 17 个 Vitest 文件、72 项单测、4 个 Playwright 用例通过；typecheck、lint、production build 和 production dist 检查通过。
+- runner 日志：/home/dev/gdds-fe-logs/fe2a/rereview-2/frontend-tests-20261103T090519Z.log；SHA256 17a76a49e96578082ba0d4a347ae0437824bf0baa5fdeaa41cbedb544e2d39ca。
+- 测试期间 frontend tree、HEAD 均未变化。npm cache 沿用 FE0 预填充，来源提交 a2fb4a027a6f62218109783674cfc37bd64e14a5，归档 SHA256 91ccf6149337b4f5a9f1c690a45ac04e8b685d224e37ef595059af7fdc979991；Playwright 镜像沿用第 4 节身份，config digest 和 7 个 RootFS DiffID 均与锁定值一致；Docker network none。没有在 CT04 测试。
+- 中间完整 runner 日志均保留于 /home/dev/gdds-fe-logs/fe2a/rereview-2/。候选 bd6a666be3，09:01:10–09:01:23Z，exit 1，formula-view.test.ts 的 History 用例预期分组 depth 1，测试 AST 只保留一个根子节点，实际走了单子节点展开路径；日志 SHA256 281d2562d414a51f37b5075d902c6e0200ba53f9359a197b7bf22ea61a0e9940。
+- 候选 813da6cd61，09:03:29–09:03:42Z，exit 1，同一用例仍失败：首次修正补了运算符链，但测试 AST 根仍只有一个子节点。日志 SHA256 8be09f14f3b11f015d34f5a8e9b334456fa29972f26b8f4697350c76cb6c68ec。a80a2e93af 将根节点补成生产 fixture 的多分支形状（命名表达式、| 链、空操作符和一元操作符），之后从全新 worktree 从头运行并通过。两次失败均为测试 AST 形状不完整；实现未改成近似编码，runner 没有沿用旧通过结果。
+- 前置缓存预检曾误用 runner 的默认 cache 路径；失败发生在测试启动之前，没有副作用。修正为本节点的 FE0 预填充路径后重新预检通过。操作日志 /home/dev/gdds-fe-logs/fe2a/rereview-2/preflight-cache-path-failure.log，SHA256 e32683e3c11acf9428eab6cc7356c5aadac3a4771b536c0df0eee89d15934181。
+
+### 新截图与外观核对
+
+最终候选在 CT05 新生成 30 张截图，均存于 worktree 外的 /home/dev/gdds-fe-evidence/fe2a/rereview2-a80a2e93-05。1280 与 1920 两种宽度的公式 History/Preview 和 S3 页签均已核对：公式抽屉中父链“+”分组标题与内缩的乘法链可区分；视图小字为“一致/更新”，风险徽章保留。B8 其余页面重新截图，未改动项的文件摘要与上一轮相同。
+
+| 状态 | 1280 SHA256 | 1920 SHA256 |
+| --- | --- | --- |
+| bundle-error | 0526a467d679cbc3e05f55e9f3b9d2e19d972420a5695568dcc451a8ea87380f | f9589c5ca9a738662c7b13700177e7dbf9b3f0a8d815beeabe65867600f4ba3e |
+| dataset-replacement-browse | fe14edb359aa77086b75a6d1e7fd3be64a83ceda81ba8c6f5dc43ce6ce513eec | 974fd1e2aae8782dc837217e3471b4e88c2c6fd4ba0aea178157b40e747520c7 |
+| formula-history | 47b892650a54d8ee47b3366dd551e5b58daec7b73bfde5a840bd84882add3cb5 | 831532993e2c7a9fad8ffb0c8728be7221ca6231bb5502958bac6b053b865318 |
+| formula-preview | d6aa19d3a5a1df731d3d25a93db8886ac79ccb2c90f2eef6ef46690cf087efb4 | 266f59b66390ca31a4db7fd7f5d414b2d5d7b7b463153753f440bf754d525018 |
+| loading-skeleton | 4ff0390c8d74470c46102d4703ac698d16594c8b699ca38ef352dfa41565b603 | 3bbfa585429f136ae8864109f4aafc8529e115611623290091b7ea62c61f7fde |
+| navigation-fallback | c3b1fec89fd5b4a28e5ab2b7a3a94d51821a99a0c614496308050e8559b5d418 | b28dcd7e18679ed185aed9a82813ddda1e9707d886143d64b85bda3d7febd17c |
+| s3-header-history | 76a2bf4f77191aa8cd427b960dd58fe1ab7d7eef19295150f7bb953e2f11ce3e | a235950cd378d78cd2ecfa69587ccd3d87b67d35aa6372ad4e6c7fde5cd84802 |
+| s3-header-review | 2ce4bccabf5b238d3a92eab14967a5c2b8651facfdb379dc5fd9034e2cf0b045 | e6633ca1e2bd52f579e59e871b5c36a5b3e1bf9dfe7c12d5a89933020dad1309 |
+| s3-header-upload | 18537557e768e5ac5d5fbc534eab791817f37916fb7c5a3d1c541a74e8c5e519 | 482ba0237a0312f363669fb505812077d3e4fa3513e4037cdca64f405e04fa66 |
+| s3-workbench-upload | 5e5f68fbf68138da68e35192dee76be216ab6c85d693e27a372aeef4b31c0e6b | b639723b2f7f767988de0c0a86bf52381223acfc49f15a200eacc9433245b0b1 |
+| s4-grid-debug | d8750bb38d6945571e2ce69b24fb656e3f30409e2ec48708456060f4437ca161 | 2130a48593f6720983d1f4fe1aebc8e1107451ab6a7025a5563dfb1c4d103d42 |
+| s4-grid-hover | fdca73df8306966bcf43d05b78fc8c2a1ebc068ce35e0b3297eebdd1f391ba67 | a27bf6e83c0337b2d78d4343ae9dd3989c2ecae89b4dad5306f6cca3fee75e8b |
+| s4-grid-main | dd33f14bed6d2177ec3bd3033318f8105d6560ffc305cc5ecb0a1360e5d8af4b | 2bb60444b983e0b33811bd09d1dc5e731220fda82c313376a43e7f5d251e992f |
+| s4-semantic-tokens | 0a409d3fbe7f395d73cd6053c5997ed0af1305f11811f3e319d3f4d2f8b6d78c | 896b281e0a6f218648b497655a1702c5f109532cb38087b168e168c4a19a2cf6 |
+| tab-overflow | fabd29f6f1d990621b856e098ebe1d4cb4d042962615daa1d5a5ceb4dc177f5f | adde66af41ef8fa657a7eed466e3be0da60d58683a7b514710ce1e047e9858af |
+
+本轮无新增设计决策事项；R5 留待 FE2b。截图与测试证据交复审会话核对。

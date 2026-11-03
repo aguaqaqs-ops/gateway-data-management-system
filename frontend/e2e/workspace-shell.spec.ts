@@ -104,6 +104,9 @@ async function installFixtureRoutes(page: Page, options: {
   });
 
   await page.route("**/v1/history-compares/*/bundle", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
     const fixture = await loadFixture("history-three-nodes");
     return fulfillBundle(route, fixture.tar, fixture.manifest, false);
   });
@@ -589,6 +592,12 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   await page.reload();
   await expect(page.locator(".history-result-drawer")).toContainText("已完成");
   await screenshot(page, "history-compare-result-drawer", 1280);
+  expect(new URL(page.url()).searchParams.get("operationId")).toBe("history-compare-fe2b-1");
+  expect(apiRequests.some((request) => request.method === "GET"
+    && request.path === "/v1/history-compares/history-compare-fe2b-1/bundle")).toBe(true);
+  await page.locator(".history-result-drawer").getByRole("button", { name: "打开差异工作台" }).click();
+  await expect(page).toHaveURL(/page=compare.*mode=HISTORY/);
+  await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("operationId")).toBe("history-compare-fe2b-1");
 });
 

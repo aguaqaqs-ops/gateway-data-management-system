@@ -37,7 +37,7 @@ async function installFixtureRoutes(page: Page, options: {
   timeoutFirstCompare?: boolean;
   historyCompareForbidden?: boolean;
   historyBundleDelayMs?: number;
-  failFirstHistoryBundle?: boolean;
+  failHistoryBundleAttempts?: number;
   historyCompareErrors?: number;
   historyCompareStatus?: (operationId: string, index: number) => Schemas["HistoryCompareResultResponse"];
   operationStatus?: (operationId: string, index: number) => Schemas["OperationResponse"];
@@ -119,7 +119,7 @@ async function installFixtureRoutes(page: Page, options: {
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
     historyBundleCalls += 1;
-    if (options.failFirstHistoryBundle && historyBundleCalls === 1) return route.abort();
+    if (historyBundleCalls <= (options.failHistoryBundleAttempts ?? 0)) return route.abort();
     if (options.historyBundleDelayMs) await new Promise((resolve) => setTimeout(resolve, options.historyBundleDelayMs));
     const fixture = await loadFixture("history-three-nodes");
     return fulfillBundle(route, fixture.tar, fixture.manifest, false);
@@ -507,7 +507,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   expect(apiRequests.some((request) => request.path === "/v1/history?limit=100&cursor=history-page-2")).toBe(true);
 
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("提交");
-  await expect(page.locator(".workspace-table tbody tr")).toHaveCount(3);
+  await expect(page.locator(".workspace-table tbody tr")).toHaveCount(5);
   await page.getByRole("textbox", { name: "搜索工作区与 History 节点" }).fill("");
   await page.getByRole("button", { name: "提交时间", exact: true }).click();
   const widthBefore = await page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width));
@@ -634,7 +634,7 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
 test("历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重试", async ({ page }) => {
   const { manifest } = await loadFixture("history-three-nodes");
   await installFixtureRoutes(page, {
-    failFirstHistoryBundle: true,
+    failHistoryBundleAttempts: 2,
     historyCompareStatus: (operationId) => ({ ...testHistoryCompareSucceeded(manifest.bundle_digest), operation_id: operationId }),
   });
   await page.setViewportSize({ width: 1920, height: 1080 });

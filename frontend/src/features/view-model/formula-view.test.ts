@@ -58,6 +58,12 @@ describe("composite signal formula rendering", () => {
             ] },
           ] },
         ] },
+        { kind: "EXPRESS", operator: "|", children: [
+          { kind: "POINT", name: "Device 999:未映射测点" },
+          { kind: "DIGITAL", value: "5" },
+        ] },
+        { kind: "EXPRESS", operator: "", children: [{ kind: "DIGITAL", value: "6" }] },
+        { kind: "EXPRESS", operator: "-", children: [{ kind: "POINT", name: "Device 1:线路电流" }] },
       ],
     });
     const before = renderFormulaLines(ast("3"));

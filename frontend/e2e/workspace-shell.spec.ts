@@ -250,6 +250,8 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("HISTORY", historyPath, { pair: "fe2a-history-fixture-p0", node: "device:composite", tab: "composite_signal_point" }));
   await waitForBrowse(page);
+  expect(new URL(page.url()).searchParams.get("pair")).toBe("fe2a-history-fixture-p0");
+  expect(new URL(page.url()).searchParams.get("tab")).toBe("composite_signal_point");
   await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
   await waitForGridPaint(page, "composite_signal_point");
   await clickFormulaCell(page);

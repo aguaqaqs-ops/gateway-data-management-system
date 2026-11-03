@@ -217,9 +217,12 @@ export function ComparisonPage() {
       const loadedPairs = await Promise.all(pairSummaries.map(async (pair) => ({ pair, presentation: await loadComparisonPresentation(loaded, pair.pair_id) })));
       setBundle(loaded); setPairs(loadedPairs); setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
       const currentState = runtime.snapshot.state;
+      const initialBundleLoad = currentState.bundleDigest === null;
       if (currentState.bundleDigest !== loaded.manifest.bundle_digest || currentState.requestPath !== requestPath) runtime.execute({ name: "set-bundle", mode: currentState.mode, bundleDigest: loaded.manifest.bundle_digest, requestPath }, "external");
       const selected = loadedPairs.find(({ pair }) => pair.pair_id === currentState.pairId) ?? loadedPairs[0];
       if (selected && runtime.snapshot.state.pairId !== selected.pair.pair_id) runtime.execute({ name: "select-pair", pairId: selected.pair.pair_id }, "external");
+      if (initialBundleLoad && currentState.nodeKey && runtime.snapshot.state.nodeKey !== currentState.nodeKey) runtime.execute({ name: "select-node", nodeKey: currentState.nodeKey }, "external");
+      if (initialBundleLoad && currentState.tabKey && runtime.snapshot.state.tabKey !== currentState.tabKey) runtime.execute({ name: "select-tab", tabKey: currentState.tabKey }, "external");
     } catch (cause) {
       const details = cause instanceof Error ? cause.message : String(cause);
       setError({ code: bundleLoadErrorCode(cause), details });

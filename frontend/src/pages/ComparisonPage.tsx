@@ -200,7 +200,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   useEffect(() => { try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* defaults remain in memory */ } }, [settings]);
 
   const loadBundle = useCallback(async () => {
-    let current = runtime.snapshot.state;
+    const current = runtime.snapshot.state;
     if (current.mode === "REVIEW" && current.submissionId && !current.operationId) {
       try {
         setLoading({ phase: "读取待审提交并准备审核比较", received: 0, total: 0 });

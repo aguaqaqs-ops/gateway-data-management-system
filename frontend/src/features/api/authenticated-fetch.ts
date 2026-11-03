@@ -33,12 +33,7 @@ export function createAuthenticatedFetch({ baseUrl, token, fetcher = fetch, trac
     headers.set("Accept", headers.get("Accept") ?? "application/json");
     if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
     else headers.delete("Authorization");
-    let response: Response;
-    try {
-      response = await fetcher(new URL(path, `${root}/`), { ...init, headers });
-    } catch (cause) {
-      throw cause;
-    }
+    const response = await fetcher(new URL(path, `${root}/`), { ...init, headers });
     if (response.ok) {
       if (trackConnection) reportConnectionStatus("connected");
       return response;

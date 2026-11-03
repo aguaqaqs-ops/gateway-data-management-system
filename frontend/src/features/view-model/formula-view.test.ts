@@ -67,8 +67,9 @@ describe("composite signal formula rendering", () => {
         { kind: "EXPRESS", operator: "-", children: [{ kind: "POINT", name: "Device 1:线路电流" }] },
       ],
     });
-    const before = renderFormulaLines(ast("3"));
-    const current = renderFormulaLines(ast("5"));
+    const devices = [{ dev_addr: 1, description: "线路保护装置 A" }, { dev_addr: 2, description: "测控装置" }];
+    const before = renderFormulaLines(ast("3"), devices);
+    const current = renderFormulaLines(ast("5"), devices);
     const aligned = alignFormulaLines(before, current);
     expect(aligned.find((line) => line.before?.text === "+ （* 分组）")).toMatchObject({
       state: "same", before: { kind: "group", depth: 1 }, current: { kind: "group", depth: 1 },

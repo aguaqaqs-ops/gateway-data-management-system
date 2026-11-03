@@ -263,13 +263,16 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   { route: "/v1/archive-plan-preview", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有预检归档方案的权限" } },
   { route: "/v1/archive-plan-preview", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "CANDIDATE_BINDING_CONFLICT", message: "所选提交与候选快照不匹配" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有确认归档的权限" } },
+  { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
   { route: "/v1/archive-confirmations", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同确认" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有处理归档异常的权限" } },
+  { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
   { route: "/v1/archive-anomaly-resolutions", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同异常处理" } },
   { route: "/v1/archives", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有归档主线的权限" } },
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "BASELINE_VERSION_CONFLICT", message: "当前基线已更新" } },
+  { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "ARCHIVE_AUDIT_VERSION_CONFLICT", message: "归档审计序号已更新" } },
   { route: "/v1/archives", method: "POST", status: 409, schema: "ErrorResponse", body: { code: "IDEMPOTENCY_CONFLICT", message: "相同幂等键对应了不同归档请求" } },
   { route: "/v1/history-compares/{operation_id}", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "HISTORY_INTEGRITY_FAILURE", message: "历史比较状态暂时不可用" } },
   { route: "/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle", method: "GET", status: 503, schema: "ErrorResponse", body: { code: "SERVICE_NOT_READY", message: "比较结果暂时不可用" } },
@@ -283,9 +286,9 @@ export const WRITE_SCENARIO_COVERAGE = [
   { method: "POST", route: "/v1/submissions/{submission_id}/review-events", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:REVIEW_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
   { method: "POST", route: "/v1/history-compares", outcomes: ["success:202", "replay:200", "403:SCOPE_FORBIDDEN", "409:IDEMPOTENCY_CONFLICT", "409:ADMISSION_CONFLICT", "429:ADMISSION_LIMIT_REACHED"] },
   { method: "POST", route: "/v1/archive-plan-preview", outcomes: ["success:200", "403:SCOPE_FORBIDDEN", "409:CANDIDATE_BINDING_CONFLICT"] },
-  { method: "POST", route: "/v1/archive-confirmations", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/archive-anomaly-resolutions", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
-  { method: "POST", route: "/v1/archives", outcomes: ["success:202", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  { method: "POST", route: "/v1/archive-confirmations", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  { method: "POST", route: "/v1/archive-anomaly-resolutions", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
+  { method: "POST", route: "/v1/archives", outcomes: ["success:201", "403:SCOPE_FORBIDDEN", "409:BASELINE_VERSION_CONFLICT", "409:ARCHIVE_AUDIT_VERSION_CONFLICT", "409:IDEMPOTENCY_CONFLICT"] },
 ] as const;
 
 export const TEST_OPERATION_SUCCEEDED = {
@@ -476,7 +479,7 @@ export const COMPLETE_RESPONSE_SCENARIOS = [
   { name: "Archive plan preview", method: "POST", route: "/v1/archive-plan-preview", status: 200, schema: "PreviewArchivePlanResponse", body: ARCHIVE_PLAN_READY },
   { name: "Archive confirmation", method: "POST", route: "/v1/archive-confirmations", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_CONFIRM_APPEND },
   { name: "Archive anomaly resolution", method: "POST", route: "/v1/archive-anomaly-resolutions", status: 201, schema: "ArchiveAuditAppendResponse", body: TEST_ARCHIVE_RESOLUTION_APPEND },
-  { name: "Archive started", method: "POST", route: "/v1/archives", status: 202, schema: "ArchiveStartedResponse", body: TEST_ARCHIVE_STARTED },
+  { name: "Archive started", method: "POST", route: "/v1/archives", status: 201, schema: "ArchiveStartedResponse", body: TEST_ARCHIVE_STARTED },
 ] as const;
 
 export const RESPONSE_SCENARIO_STRING_SOURCE = "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";

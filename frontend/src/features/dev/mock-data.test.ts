@@ -52,6 +52,19 @@ describe("simulated HTTP response contracts", () => {
     }
   });
 
+  it("uses OpenAPI success statuses, with only the documented backend timing exceptions", async () => {
+    const openapi = JSON.parse(await readFile(resolve(process.cwd(), "openapi.json"), "utf8")) as {
+      paths: Record<string, Record<string, { responses?: Record<string, unknown> }>>;
+    };
+    for (const scenario of COMPLETE_RESPONSE_SCENARIOS) {
+      const route = scenario.route.split("?")[0] ?? scenario.route;
+      const declared = openapi.paths[route]?.[scenario.method.toLowerCase()]?.responses?.[String(scenario.status)];
+      const backendTimingException = (scenario.status === 201 && route === "/v1/workspaces")
+        || (scenario.status === 202 && route === "/v1/history-compares");
+      expect(declared !== undefined || backendTimingException, `${scenario.method} ${route} ${scenario.status}`).toBe(true);
+    }
+  });
+
   it("keeps OpenAPI string fields within backend source values", () => {
     const operationValues = [TEST_OPERATION_RUNNING, TEST_OPERATION_SUCCEEDED, ...Object.values(OPERATION_TERMINAL_RESPONSES), ...MANUAL_RECOVERY_TO_SUCCESS, ...MANUAL_RECOVERY_TO_FAILED];
     for (const operation of operationValues) {

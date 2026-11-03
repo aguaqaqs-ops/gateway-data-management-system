@@ -305,6 +305,9 @@ RowLocator（Parquet，每条行级记录一行，按 row_identity 排序）:
 ```
 
 - 新增记录只有 `current_row_index`，删除记录只有 `before_row_index`，修改记录两者都有。keyless 回退表的出现序号标识同样适用。
+- 只对 bundle 中有快照的一侧给出行号；该侧快照不在 bundle 中时对应字段为 null。Preview 中有变化的表只闭合上传侧（§4.4），
+  因此 `before_row_index` 全为 null，删除行与修改行的“前”行由前端用记录中的值组成（FE2 kickoff §5.3）；
+  `composite_signal_point`、`device` 按 §4.4 补齐基线侧后，这两张表的 `before_row_index` 随之给出。是否为其他表补齐改前侧不在本项范围（影响 bundle 体积，参考 BE-c 的测量）。
 - 行号针对该 `SurfaceTable` 的 `before_table_ref` / `current_table_ref` 在本 bundle 中指向的快照产物计算（含 `shared/` 去重后的产物），不针对比较时读取的其他副本。
 - ref 放在 `SurfaceTable` 的 records refs 中（如 `row_locator_ref`），与 `diagnostics_ref` 一样不进入 surface 摘要，进入 bundle closure 并按 SHA-256 校验。
 - 有序表不发布：其记录带序号列的值，前端按序号定位。
@@ -313,7 +316,7 @@ RowLocator（Parquet，每条行级记录一行，按 row_identity 排序）:
 
 **计算：** 在后端用比较时同一套行编码计算（唯一实现），线性复杂度；耗时计入 Preview 与 History 的计时预算，计算位置与是否复用比较时已读入的行在第二步定稿。
 
-**测试：** 一个唯一的 owner 测试：每条行级记录恰好对应各侧一行，且行内容与记录一致；把快照产物行文件打乱顺序后，行号随之变化而 comparison 与 surface 摘要不变。
+**测试：** 一个唯一的 owner 测试：每条行级记录在 bundle 中有快照的每一侧恰好对应一行，且行内容与记录一致，没有快照的一侧为 null；把快照产物行文件打乱顺序后，行号随之变化而 comparison 与 surface 摘要不变。
 
 **前端：** FE2a 至 FE3 使用 FE2 kickoff §5.3 的自校验浏览器匹配；FE4 改用本产物并删除浏览器中的计算。
 

@@ -4,41 +4,52 @@
 
 ## 候选与审核范围
 
-- 分支：`fe-vnext`
-- 上一阶段 tag：`fe-fe2a-exit`，提交 `e301cc0f88427b390bbeef009e2b2f7058bddc0a`
-- FE2b 源码候选：`5ac704c6038fc3078cc70117b7e8d2c7443c22d1`，frontend tree `7ba49223ea9cbc69a34eb2c6a8ccb3418c3361b5`
-- 源码审核范围：`fe-fe2a-exit..5ac704c6038fc3078cc70117b7e8d2c7443c22d1`
-- handoff 作为单独文档提交紧接源码候选之后；最终审核 HEAD 为该文档提交。文档提交不改变 `frontend/`，05 权威运行绑定到上述源码候选。
-- 代码候选完整运行日志：`/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T144106Z.log`，SHA256 `f04ec8f1749ef2bd53ed3a558bc8174b9ca23999e55f02471b5f0ab1f4b4cc59`
-- 完整证据截图：`/home/dev/gdds-fe-evidence/fe2b/5ac704c6-05/`
+- 分支：`fe-vnext`；上一阶段 tag `fe-fe2a-exit`，提交 `e301cc0f88427b390bbeef009e2b2f7058bddc0a`。
+- 原 FE2b 审核候选：`5ac704c6038fc3078cc70117b7e8d2c7443c22d1`；审核报告来自 main 本地提交 `9868069a66e38b9b47743ecce17167f6a9d0601e`，文件 `/home/dev/gateway-data-management-system/docs/frontend-vnext/reviews/fe2b-review.md`。
+- 定向修复源码候选：`5d1749675621a020a052690b95d55111af5509f9`，frontend tree `a0f8ce750b053d83907435f9c0ba1357603c5472`。
+- 修复提交：`548cd290a2`、`aed2ccfac0`、`b49f584ab7`、`de0ef51337`、`9dde8f0101`、`5d17496756`。均在 `fe-vnext` 后续提交，未推送、未改写已有提交。
+- 源码审核范围：`fe-fe2a-exit..5d1749675621a020a052690b95d55111af5509f9`。复审范围：`bf4942e0a8..<本 handoff 文档提交>`；本文件作为单独文档提交，不改 frontend 树。
+- 状态：B1–B9 已定向修复，05 完整 runner 与截图已绑定源码候选；等待审核会话复审。未在 CT04 取证，未创建 `fe-fe2b-exit` tag，未推送。
+- 05 全量运行日志：`/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T154941Z.log`，SHA256 `01951df3f663ba8476533ccf9d1d064f3ae0af97c1b1a8e3541e60944039c862`；截图目录 `/home/dev/gdds-fe-evidence/fe2b/5d174967-05/`.
 
 ## 1. 范围完成情况
 
 | 要求 | 状态与证据 |
 | --- | --- |
-| §6.3 N1、N2、R2、R5、R7、S1、S2（甲） | 完成。S2 仅有验收截图，没有演示截图。各项对应测试和探针见第 2、5 节。 |
-| 模拟会话与身份 | 完成。开发环境提供提交人、审核人、归档确认人、无权限身份；请求带当前身份 token。`check:production-build` 正向和负向探针分别通过及按预期失败。 |
-| 工作台组态树与 History | 完成。工作区经 `POST /v1/workspaces` CreateOrGet，参数取当前会话 `business_project_id` 和 `gateway_device_external_key`，不发送 `Idempotency-Key`；客户端接受 201/200。History 从 `GET /v1/history` 以 `limit/cursor` 分页获取。没有工作区列表接口。 |
-| 当前会话操作与基线状态 | 完成。“进行中的操作”限定为本会话发起并以 URL `operationId` 标识的操作；基线状态按 History `eligibility_note` 展示。 |
-| 正式工作台布局 | 完成。四列、搜索、排序、调宽；详情面板 400px，≤1440px 默认折叠，1920px 默认展开；状态短标签和长原因折叠。未实现 Q4“历史初始备份”。 |
-| 上下文工具栏 | 完成。视图模型列出全部操作、启用条件和禁用原因并有单测。FE2c 写操作没有在 e2e 中点击；History 比较属于本阶段并有完整 e2e。 |
-| 比较托盘与结果抽屉 | 完成。History 比较最多选择 3 个节点，POST 首次 202、同 key 回放 200；轮询完成后下载 bundle 并可打开 History 差异浏览。新增 e2e 已验证 bundle GET 和打开差异页。 |
-| Preview、History、审核三种入口 | 完成。Preview 使用工作区 `current_preview_result_id`；History 使用比较托盘；待审提交由“基线节点 → 提交”进入只读审核，读取 `GET /v1/submissions/{submission_id}/review`。审核写操作留给 FE2c。 |
-| URL 路由 | 完成。工作台与差异浏览可从 URL 直达，节点、比较、模式和 operation id 保留；`request`、`previewRequest`、`reviewRequest`、`historyRequest` 不再作为参数。 |
-| FE2c 边界 | 上传步骤卡在 FE2c；审核/提交/归档写操作未接入点击流程；没有审核顶栏；不提供初始备份入口。 |
+| §6.3 N1、N2、R2、R5、R7、S1、S2（甲） | 完成。S2 只有验收截图，没有演示截图；对应测试与探针见第 2、5 节。 |
+| 模拟会话与身份 | 完成。开发环境提供提交人、审核人、归档确认人、无权限身份；请求携带所选身份 token。R2 生产产物检查覆盖模拟 API、身份选择和 `src/features/dev/` 模块。 |
+| 工作台组态树与 History | 完成。工作区经 `POST /v1/workspaces` CreateOrGet，参数来自会话 `business_project_id` 和 `gateway_device_external_key`，不发送 `Idempotency-Key`；接受后端行为 201/200。History 由 `GET /v1/history` 以 `limit/cursor` 分页获取；没有工作区列表接口。 |
+| 当前会话操作与基线状态 | 完成。“进行中的操作”只指本会话发起且 operation id 在 URL 中的操作；基线状态按 `eligibility_note` 展示。 |
+| 正式工作台 | 完成。四列、搜索、列排序与调宽；详情面板 400px，视口 ≤1440px 默认折叠，1920px 默认展开；短状态标签与折叠的长原因。没有实现 Q4“历史初始备份”。 |
+| 上下文工具栏 | 完成。视图模型列出全部操作、业务启用条件及禁用原因并有单测。原始组态备份/本次归档组态是 OPEN 工作区的目录快捷入口，FE2c 接入点击；Preview 留在详情面板。归档主线根据审核及 `eligibility_note` 条件启用。FE2c 写操作未由 e2e 点击。 |
+| 比较托盘与结果抽屉 | 完成。History 比较最多选 3 节点，首次 POST 202、同 key 回放 200；按 operation id 轮询，完成后下载 bundle 并打开 History 差异浏览。托盘在比较/下载期间锁定，下载失败可重试。逐比较对的表数和变更表摘要尚未展示，作为偏差列于第 8 节。 |
+| Preview、History、审核三种入口 | 完成。Preview 使用工作区 `current_preview_result_id`；History 从比较托盘进入；待审提交由“基线节点 → 提交”发起 History 比较并只读读取 `GET /v1/submissions/{submission_id}/review`。审核写操作留给 FE2c。 |
+| URL 路由 | 完成。工作台与差异浏览可从 URL 直达；节点、比较、模式和 operation id 可寻址；`request`、`previewRequest`、`reviewRequest`、`historyRequest` 不再作为参数。 |
+| FE2c 边界 | 上传步骤停在 FE2c；目录入口暂不执行写操作；审核、提交与归档写操作未接入；不提供历史初始备份入口；没有审核顶栏或演示截图。 |
 
 ## 2. 带入项完成标准
 
 | 带入项 | 完成情况与验证 |
 | --- | --- |
-| N1 幂等意图 | `frontend/src/features/api/idempotency.test.ts`：`reuses a key for retrying one intent and creates a new key for another`。e2e `History 比较超时重试复用同一幂等键，刷新后按 URL 中 operation_id 续查` 让第一次 POST 在客户端超时，重试沿用 key；模拟接口按 key 返回首次响应，记录 202 后 200。相同意图复用 key，新意图创建新 key。 |
-| N2 轮询 | `frontend/src/features/api/polling.test.ts`：状态请求超时仍为运行中；网络、5xx、429 有上限退避后转为连接中断；History 比较限于 QUEUED、RUNNING、SUCCEEDED、FAILED、CANCELLED。e2e 覆盖运行中、连接中断、URL operation id 刷新续查。 |
-| MANUAL_RECOVERY_REQUIRED | `polling.test.ts` 覆盖 MANUAL_RECOVERY_REQUIRED → RUNNING → SUCCEEDED 及 MANUAL_RECOVERY_REQUIRED → FAILED；进入该状态后轮询间隔为 30 秒。e2e 核对“需要管理员处理”、显示并复制 operation id、不显示重试按钮，并通过“刷新状态”观察状态变化。该状态不是终态；终态仅 SUCCEEDED、FAILED、CANCELLED、SUPERSEDED。 |
-| R2 生产构建 | 正向：候选完整 runner 输出 `production dist contains no simulated API or identity selection code`。负向：临时 probe commit `9afa58ba39a8c5dec3146f8c8efec27a2ab678bf` 在 `App.tsx` 静态导入模拟接口模块，生产构建探针以 exit 1 检出 `index-DgeDlAPd.js: /simulated[-_ ]api/i`。probe 不在 `fe-vnext` 分支。日志见第 5 节。 |
-| R5 连接状态 | `frontend/src/features/api/connection-status.test.ts`：已连接、连接中断、首次请求前不显示均有单测；error page 隐藏已连接状态。e2e `所选模拟身份携带对应 token；无权限错误页不显示已连接` 检查错误页中“已连接”数为 0。 |
-| R7 公式 | `frontend/src/features/view-model/formula-view.test.ts` 恢复一元减号前缀断言（表达式行以 `- 线路保护装置 A:线路电流` 开始）；重拍 `formula-preview` 与 `formula-history` 两个视口。 |
-| S1 正常业务场景 | `preview-workbench-normal` 是一个转发通道的遥测表，前后各 90 行，新增/删除/修改各 6 行；正常导航；导航和表诊断均为空。`backend-fixture.test.ts` 的 `matches the backend summary for the normal transfer-channel telemetry browse` 对照后端摘要，e2e 普通页签打开主表并拍 S3/S4 主表、悬停、Debug。产出风险：view `MEDIUM_HIGH`；annotation `MEDIUM_HIGH`、`MEDIUM_LOW`。 |
-| S2（甲） | 比较托盘部分截图展示 2/3 个节点；上传步骤仍留在 FE2c。没有演示截图。 |
+| N1 幂等意图 | `frontend/src/features/api/idempotency.test.ts` 的 `reuses the stored key after a timeout and creates a key when the selected nodes change` 测试产品 helper：timeout 后从 sessionStorage 恢复同一 key，节点改变时生成新 key。e2e `History 比较超时重试复用同一幂等键，刷新后按 URL 中 operation_id 续查` 和 `查看差异超时后的重试复用同一幂等意图` 覆盖两条入口；模拟接口按 key 回放首次结果。 |
+| N2 轮询 | `frontend/src/features/api/polling.test.ts` 覆盖状态请求超时仍运行、网络/5xx/429 有上限退避，以及 history-compares 五种状态；e2e 覆盖运行中、连接中断、刷新后按 URL operation id 续查。 |
+| MANUAL_RECOVERY_REQUIRED | 单测覆盖 `MANUAL_RECOVERY_REQUIRED → RUNNING → SUCCEEDED` 与 `MANUAL_RECOVERY_REQUIRED → FAILED`，30 秒轮询；e2e 检查“需要管理员处理”、可复制操作 ID、无重试按钮、“刷新状态”以及状态变化。此状态不是终态；操作终态为 `SUCCEEDED`、`FAILED`、`CANCELLED`、`SUPERSEDED`。 |
+| R2 生产构建 | 正向：最终 runner 的生产构建探针输出 `production dist contains no simulated API, identity selection, or mock data modules`。B3 负向探针在 `App.tsx` 直接导入并使用 `mock-data`，生产检查按预期 exit 1，详见第 5 节。身份选择只随开发模拟会话提供。 |
+| R5 连接状态 | `frontend/src/features/api/connection-status.test.ts` 覆盖已连接、连接中断、未请求前隐藏；错误页隐藏已连接状态。e2e `所选模拟身份携带对应 token；无权限错误页不显示已连接` 核对错误页不出现“已连接”。 |
+| R7 公式 | `frontend/src/features/view-model/formula-view.test.ts` 恢复第 1 轮前缀断言 `| - 线路保护装置 A:线路电流`，并覆盖一元减号为首个子节点时输出 `- Device 1:X`。公式抽屉内容可随高度滚动，重拍 `formula-preview-*` 与 `formula-history-*`。 |
+| S1 正常业务场景 | `preview-workbench-normal` 是一个转发通道遥测表；前后各 90 行，新增/删除/修改各 6 行，导航、pair 与主表诊断为空。`backend-fixture.test.ts` 的 `matches the backend summary for the normal transfer-channel telemetry browse` 对照后端摘要；e2e 普通页签打开主表并拍 S3/S4 主表、悬停、Debug。产出风险：view `MEDIUM_HIGH`；annotations `MEDIUM_HIGH`、`MEDIUM_LOW`。另含 `composite_signal_point` 0→0 表，见第 8 节。 |
+| S2（甲） | 比较托盘截图展示 2/3 节点；上传步骤仍留 FE2c，没有演示截图。 |
+| B1 | `formula-view.test.ts` 的 `renders production EXPRESS, POINT and DIGITAL ASTs as mapped formula lines` 与 `renders unary minus as the first child without an outer operator prefix` 恢复父级 `|` 并覆盖首子节点一元减号；公式截图见第 6 节，去前缀变异探针见第 5 节。 |
+| B2 | `mock-data.test.ts` 的 `keeps every simulated History node within the backend node rules` 遍历全部模拟 History 节点，对照 `vnext/backend/src/gateway_backend/application/history/contracts.py:108-113`。 |
+| B3 | `check-production-build.mjs` 检查 Vite rendered module 清单；直接导入 mock-data 的负向探针按预期失败，见第 5 节。 |
+| B4 | e2e `所选模拟身份携带对应 token；无权限错误页不显示已连接` 与 `无权限身份发起历史比较时托盘显示统一权限提示和错误码`。 |
+| B5 | `idempotency.test.ts` 的 `reuses the stored key after a timeout and creates a key when the selected nodes change` 测试产品 helper；两条入口的超时重试 e2e 与换新 key 变异探针见第 5 节。 |
+| B6 | `workspace.test.ts` 的 `formal workbench tree and contextual actions` 覆盖动作视图模型；e2e `正式工作台呈现 History、四列表格、操作说明与 1280/1920 详情面板`。 |
+| B7 | e2e `历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重试` 与 `History 比较仍在运行和连接中断状态清晰显示`；逐比较对表数/变更摘要列为第 8 节偏差。 |
+| B8 | `workspace.test.ts` 树模型测试及 e2e `正式工作台呈现 History、四列表格、操作说明与 1280/1920 详情面板` 覆盖同层基线、子节点、比较标记、排序与折叠。 |
+| B9 | e2e `FE2b 正常业务场景以普通页签打开主表且无导航或表诊断` 移开鼠标并等待 tooltip 消失后拍主表，再重新悬停拍图。 |
+| M1–M9、M11 | 已随本轮修正：状态标记分离、History 状态文案、权限/404 不误报连接中断、节点 URL 语义、审核状态文案、基于服务端时间计算已等待时长、有限轮询断言、转移来源核对、无任务时隐藏任务指示、ordered move 保留测试。对应覆盖见 `workspace.test.ts`、`OperationStatusPanel.test.ts`、`polling.test.ts`、`mock-data.test.ts`、`presentation.test.ts` 与 e2e。 |
+| M10 | 记录为 fixture 事实：生成摘要还包含 `composite_signal_point` 0→0 的快照表，在导航中归入“其他表”；主遥测表及导航、pair、表诊断均符合场景标准。 |
 
 ## 3. Fixture 生成与复现
 
@@ -54,7 +65,7 @@ frontend/scripts/generate-backend-bundle-fixtures.sh \
   --log-dir /home/dev/gdds-fe-logs/fe2b
 ```
 
-成功生成日志：`/home/dev/gdds-fe-logs/fe2b/backend-fixtures-3736d21854-20261103T135340Z-822046.log`，SHA256 `617bac0537e5240bb4de58f572045efac4a3cc9effb589b2be88988c36291917`。节点 `gw-dms-test-05.lan`，2026-11-03 13:53:40Z 至 13:54:07Z，HEAD `3736d218545947ec7dc3e380d49c5ecbfc3d96fc`，exit 0。两次各 226 个文件，目录树 SHA256 都为 `5aaf509380e5efb52ef4d7103da1fbdf0c9483720c4666a676d46b7c2b2b9a9a`，`byte_identical=true`。`generate()` 两次成功，没有遇到生产代码无法生成场景的情况。
+成功生成日志：`/home/dev/gdds-fe-logs/fe2b/backend-fixtures-3736d21854-20261103T135340Z-822046.log`，SHA256 `617bac0537e5240bb4de58f572045efac4a3cc9effb589b2be88988c36291917`。节点 `gw-dms-test-05.lan`，2026-11-03 13:53:40Z 至 13:54:07Z，HEAD `3736d218545947ec7dc3e380d49c5ecbfc3d96fc`，exit 0。两次各 226 个文件，目录树 SHA256 都为 `5aaf509380e5efb52ef4d7103da1fbdf0c9483720c4666a676d46b7c2b2b9a9a`，`byte_identical=true`。`generate()` 两次成功，没有遇到生产代码无法生成场景的情况。 复审方随后在最终源码候选上独立调用该脚本两次：均为 226 个文件，与已提交 fixture 逐字节一致（见 main 本地审核记录 `9868069a66`）。本轮生成器及其输入 JSON 未变，因此实施阶段没有再次生成 fixture。
 
 ### 生成输入与镜像身份
 
@@ -161,55 +172,48 @@ FE2b S1 fixture 已由上述生成器产出并提交。文件位于 `frontend/sr
 
 ## 5. 05 测试与运行证据
 
-### 最终候选完整运行
+### 最终源码候选完整运行
 
-- 节点：`ct108-gw-dms-05`，hostname `gw-dms-test-05.lan`
-- clean detached worktree：`/home/dev/gdds-fe-fe2b-5ac704c6-05`，HEAD `5ac704c6038fc3078cc70117b7e8d2c7443c22d1`，frontend tree `7ba49223ea9cbc69a34eb2c6a8ccb3418c3361b5`
-- 运行时间：2026-11-03 14:41:06Z 至 14:41:39Z；exit 0；worktree 起止 HEAD/tree 一致。
-- 权威入口：`frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2b/5ac704c6-05`
-- 完整入口日志：`/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T144106Z.log`，SHA256 `f04ec8f1749ef2bd53ed3a558bc8174b9ca23999e55f02471b5f0ab1f4b4cc59`
-- wrapper 日志：`/home/dev/gdds-fe-logs/fe2b/full-runner-5ac704c6-05-wrapper.log`，SHA256 `912f971174c6bb16b48980affa88e5e582647f40172e5309e15edf9fa6a7da71`
-- 结果：typecheck、lint、22 个单测文件/99 tests、生产 build、正向 R2 检查通过；11/11 模拟接口 e2e 通过。History e2e 验证首次超时/同 key 回放、operation id 刷新续查、状态运行时的结果抽屉、bundle GET、点击打开 History 差异浏览。
-- npm 缓存：`/home/dev/gdds-fe-cache/fe0/npm-cache`；来源归档 `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz`，SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`；来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`；package-lock 解析项 305 个。使用预填缓存，未用代理。
-- 工具链镜像：`mcr.microsoft.com/playwright:v1.64.1-noble`，config digest `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`；RootFS DiffID：
-  `sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278`,
-  `sha256:1590c449306a9032a32c49afeac5e4c7cae86197c4a7dd95c095c3ae220a7f07`,
-  `sha256:c8a795d9cdbc02d20daf1ecac5377667d61d63392fbe5bdbba94cc79a4cf3fe9`,
-  `sha256:89e210c351d8ddaa3c7a6132e19a5aaf27ec837371dd94f0698dfa4c1e5aef3d`,
-  `sha256:ea03ac3d8e487159afdc9d45b9a8d3f4035418655881b896cc34fa2e464c27fc`,
-  `sha256:16f77d0178dafdf603cd05f8464e39df636665b2b028e18e0b95bfbee5ecacd5`,
-  `sha256:d8597d6a5431eca9c1082ade19c2b7cdef69fbaaae43f0b67fbbd25f3a35c2bb`。
+- 节点：`ct108-gw-dms-05`，hostname `gw-dms-test-05.lan`；未占用节点计时标记。
+- clean detached worktree：`/home/dev/gdds-fe-fe2b-5d174967-05`，HEAD `5d1749675621a020a052690b95d55111af5509f9`，frontend tree `a0f8ce750b053d83907435f9c0ba1357603c5472`；起止 HEAD/tree 一致。
+- runner：2026-11-03T15:49:41Z 至 2026-11-03T15:50:15Z，exit 0。完整入口 `frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2b/5d174967-05`。
+- 完整运行日志 `/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T154941Z.log`，SHA256 `01951df3f663ba8476533ccf9d1d064f3ae0af97c1b1a8e3541e60944039c862`；wrapper `/home/dev/gdds-fe-logs/fe2b/targeted-full-run-5d174967-05-corrected-cache-source-wrapper.log`，SHA256 `d024b18c78521a64402992aae26e160b593feff8d48e881ce3fd9795071ad571`。
+- 结果：typecheck、lint、24 个单测文件/107 tests、生产 build、R2 正向生产检查、15/15 模拟接口 e2e 与 `--screenshots` 全部通过。R2 输出：`production dist contains no simulated API, identity selection, or mock data modules`。
+- 工具链镜像：`mcr.microsoft.com/playwright:v1.64.1-noble`；config digest `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`。RootFS DiffID：`sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278`、`sha256:1590c449306a9032a32c49afeac5e4c7cae86197c4a7dd95c095c3ae220a7f07`、`sha256:c8a795d9cdbc02d20daf1ecac5377667d61d63392fbe5bdbba94cc79a4cf3fe9`、`sha256:89e210c351d8ddaa3c7a6132e19a5aaf27ec837371dd94f0698dfa4c1e5aef3d`、`sha256:ea03ac3d8e487159afdc9d45b9a8d3f4035418655881b896cc34fa2e464c27fc`、`sha256:16f77d0178dafdf603cd05f8464e39df636665b2b028e18e0b95bfbee5ecacd5`、`sha256:d8597d6a5431eca9c1082ade19c2b7cdef69fbaaae43f0b67fbbd25f3a35c2bb`。
+- npm 缓存：`/home/dev/gdds-fe-cache/fe0/npm-cache`，预填充缓存；来源归档 `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz`，SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`；来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`，package-lock 解析项 305 个。未使用转发代理。
 
-### R2 负向生产构建探针
+### B3 生产构建负向探针
 
-- 临时探针 commit：`9afa58ba39a8c5dec3146f8c8efec27a2ab678bf`，父提交为最终源码候选 `5ac704c6038fc3078cc70117b7e8d2c7443c22d1`；仅在临时 detached worktree 的 `frontend/src/App.tsx` 加静态 import `./features/dev/simulated-api`。
-- CT05 worktree：`/home/dev/gdds-fe-fe2b-r2-negative-probe-5ac704c6-05`，frontend tree `81043903c56b2d14c8ad099940de299ce3731fa9`，clean detached。
-- 生产检查按预期 exit 1，错误定位到 `index-DgeDlAPd.js: /simulated[-_ ]api/i`。类型检查、lint、单测和 build 均在探针失败前通过。
-- 运行日志：`/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T144315Z.log`，SHA256 `a08974d381f2ff6a6198e697d20b72a13e83b3d07ac87aff546d169292cec8d6`；wrapper `/home/dev/gdds-fe-logs/fe2b/r2-negative-probe-5ac704c6-05-wrapper.log`，SHA256 `594401b35946476c30a00a5d468b2bc0c286bb63e63b452ba961806dfc77394b`。该 exit 1 是负向探针预期结果。
+- 临时 commit `9991da34aecf7f00dc1402a66bd981f3fe15c249`，frontend tree `d7015e72c8f6ac4cdd8f17b78ad346459c678110`；在 `App.tsx` 直接导入并使用 `./features/dev/mock-data`。
+- CT05 clean detached worktree：`/home/dev/gdds-fe-fe2b-probe-b3-5d174967-05`。生产检查按预期 exit 1：`production dist includes development-only modules: /tmp/frontend/src/features/dev/mock-data.ts`。
+- runner log `/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T155510Z.log`，SHA256 `23329e270523306f4fb3a3a40084595c020c6ae967eedbfe7c9251be0990d3b0`；wrapper `/home/dev/gdds-fe-logs/fe2b/probe-b3-runner-5d174967-05-wrapper.log`，SHA256 `d18ac783885441bbcbced8b8fc8f2930f7a2f16fdc7405fbc051c4e517af7891`。类型检查、lint、单测和 build 在预期的探针失败前通过。
 
-### 调试阶段失败与修正提交
+### B1 与 B5 单测变异探针
 
-所有测试失败均发生在 CT05 的 clean detached worktree，保留原始日志和 SHA；最终候选完整 runner exit 0。下表列出失败点与后续修正提交。
+| 探针 | 临时改动与结果 | 运行日志及 SHA256 |
+| --- | --- | --- |
+| B1 去掉公式上层前缀 | 临时 commit `73349f65a2ac97fcdff8b2a52384081293d13396`，frontend tree `80c7eff702c63bc0165acedb6fe91744a0aa4045`；公式单测按预期失败，检出 `| -` 前缀丢失，runner exit 1。 | `/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T155323Z.log` `b70ea9add277b4d15ce30acd028205f2cf2945f7a201730f678c44c6a3efdf38`；wrapper `/home/dev/gdds-fe-logs/fe2b/probe-b1-runner-5d174967-05-wrapper.log` `7b3711ea058aea6d757bcac8c55c3368dcb7e317d9cbf27323debccb69508c2c`。 |
+| B5 重试生成新 key | 临时 commit `9afb7a59a70e87fb69f64e29c5110c16aca91a6a`，frontend tree `f1f835c8dd1653ea108c1be011540dca03bc7bbe`；单测预期失败，断言捕获 `intent-key-1` 被错误换成 `intent-key-2`，106/107 通过，runner exit 1。 | `/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T155420Z.log` `94282f1bec8373bb1ed2f43b8614c80884d0da11aa2c489fe73e562225d5f9bc`；wrapper `/home/dev/gdds-fe-logs/fe2b/probe-b5-runner-5d174967-05-wrapper.log` `6292a62b930c4b39c8f8f25c70d682b00c05fa8cc6c583d2909156d4252150c8`。 |
 
-| 候选 | 失败 | 日志 SHA256 | 后续修正 |
+B1 探针在断言失败后的测试 teardown 另输出一条未处理异步 `window is not defined` 警告；公式断言已明确因前缀变异失败，探针退出码为 1。该现象只发生在故意破坏测试期望的临时 worktree 中。
+
+### 定向修复调试记录
+
+以下是在 05 clean detached worktree 调试源码时的失败；按用户指示修复后重跑。每次运行都保留日志，最终 5d174967 候选完整入口 exit 0。
+
+| 候选 | 失败 | 日志 SHA256 | 修正提交 |
 | --- | --- | --- | --- |
-| `32fa827` | typecheck | `8e6eebff6c41e6f071f43565d8d288e21ef813e00aea3d7c248a62d47de25f9e` | `57d5203` 类型修正 |
-| `57d5203` | lint | `adca30f018f20b4aae962ae56c79dac00d244ac401afa8350257534b1d58362f` | `6e6c2d1` lint 修正 |
-| `6e6c2d1` | 单测 91/98 | `6bdb1091b333db1d79ef377b02c1b7e10c81f036ffb2b7c3a88a90d4134ebf97` | `1970c355` fixture/模拟数据更新，随后继续补足场景 |
-| `1970c355` | 单测 2 项 | `466c975ad2f161506d80c8a913ad0d4d24db2ba75869cc5bea6d6da65e6318d3` | `5d7d7d5` 及其后 fixture 修正 |
-| `5d7d7d5` | e2e collection：Node 环境 `import.meta.env` 未定义 | `9d204ccb2ed4108f511faced9bef4713bf2d23d7eff9295b76b8dcda9e29338c` | `e9e8a4b` 测试环境修正 |
-| `e9e8a4b` | e2e 8/11：搜索期待、人工恢复文案、侧栏语义 | `1a43b0ba000b7e7c31cf59049654670045c7eb2653dbd97351d670963e3dff2b` | `84a7dc2` |
-| `84a7dc2` | e2e 9/11：精确标题/选择器 | `eb25dee894dc2c82777aca93426091c4523fcfcc96f0395d06b6143126567b14` | `e8afa41` |
-| `e8afa41` | e2e 10/11：悬停选错列 | `c32e6dd3ae1440ae738eb19ebbe736927a06e084de074bb63e404c59cf560c6b` | `005aabe5` |
-| `005aabe5` | e2e 10/11：悬停 tooltip 未触发 | `4a687d10a7afaf2ffcde4b617a260dd69161cf6ee0e715414c8d241fd27c1ebd` | `83d0962a` |
-| `83d0962a` | e2e 10/11：整表位置无效导致 changed-cell 扫描找不到 tooltip | `914282448941eed786730addcafdc519fa6dde340e561ac84bd3f7537cdc7650` | `e3b147f6`、`911016f7` |
-| `e3b147f6` | 单测发现标准/ordered 记录重复与无公开 compare key 时的定位问题 | `5e6df9139223a5643f9ce48428f13727955fc8b1a35dc864eb9e575454ef58ff` | `911016f7` 改为无显式 key 时使用 ordered positional records |
+| `548cd290a2` | typecheck：Rollup `ModuleInfo.isIncluded` 类型不可用 | `17d853c8070836bd03156977522c8e197e3b32a39b3970beb4bc4e583e07a50a` | `aed2ccfac0` 改为检查 rendered module 清单 |
+| `aed2ccfac0` | 新的一元负号用例期望文本不含实际设备名 | `b520f69cfe8f3894fe90a7dfec256c488f9a40ea7c92cdff43bfa632ab581638` | `b49f584ab7` 修正测试标签 |
+| `b49f584ab7` | e2e 搜索数量预期过时；bundle 中断场景实际会自动重试一次 | `fa2e36f322908776d37b77dc638d8311fdcea4cdc8163a43e1a40e2de1091284` | `de0ef51337` 修正断言与场景 |
+| `de0ef51337` | e2e 对比较抽屉期望两条 pair，但响应 fixture 只提供一条 | `75a5af05dc13f2f1cf111a7c4daa746269d74d33f6acdf1cac042de8fc90e0f2` | `9dde8f0101` 修正为该场景一条 pair |
+| `9dde8f0101` | runner 通过；人工查看公式截图发现最后一行被裁切 | `3b92efa6e1939b986d02be817de3b85d75153b8be3bfbb5b7326829357a648ec` | `5d17496756` 让公式内容区占满抽屉并可滚动；其后 15:49 完整运行通过 |
 
-`911016f7`、`d3ef4105` 和 `78c06533` 的完整 runner 均通过；之后分别增加跨实现摘要核对、调整 1280 截图先后顺序。最终在 `5ac704c6` 对全部新断言与截图重新运行完整入口并通过。对应通过日志分别为 `frontend-tests-20261103T142240Z.log` SHA256 `65464df2519a0a058c5ae37440d7d463b3027e5edd9882963eb4dcfc13e3c37a`、`frontend-tests-20261103T142441Z.log` SHA256 `9346c23e3b5d336c004a4f64691e2ae83497227d40e94ddca66ec4ef33f15c5e`、`frontend-tests-20261103T142843Z.log` SHA256 `5ac53ea6efc96560acd8a16bc7c2c80aa9525924bf8d08fb4fd7ec921d8e1aba`。
+最终候选另有一次完整 runner 在 npm 缓存来源提交参数有误时通过，但该次不作为证据；保留日志 `/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T154807Z.log` SHA256 `b44c13b82bb7f34be801ff10a0ed34fb96c458c17260395104e463d3a34baf21`，wrapper `/home/dev/gdds-fe-logs/fe2b/targeted-full-run-5d174967-05-wrapper.log` SHA256 `19e3696b40ae048a571fb6080146caa96a7c59084fa4095382dfdac9f9a68807`。按 DC68 校正来源提交参数后，从完整入口起点重跑，使用本节列出的 15:49 运行作为候选证据。
 
 ## 6. 截图清单与视觉偏差
 
-截图目录：`/home/dev/gdds-fe-evidence/fe2b/5ac704c6-05/`。共 50 张。SHA256 清单文件：`/home/dev/gdds-fe-logs/fe2b/screenshot-sha256-5ac704c6-05.txt`，SHA256 `1261b0dc99bfaa5aefa7d760afa364cdbe44c9530cc218e8f4d16f685cbca7d4`。已人工对照草图检查布局、层级、语义色、禁用原因和焦点呈现；未做像素比对。
+截图由 CT05 的 `--screenshots` 权威入口产出，节点 `ct108-gw-dms-05`（hostname `gw-dms-test-05.lan`）；共 50 张，目录 `/home/dev/gdds-fe-evidence/fe2b/5d174967-05/`。SHA256 清单 `/home/dev/gdds-fe-logs/fe2b/screenshot-sha256-5d174967-05.txt`，SHA256 `a5fdc5e02a0b8e42342ca2f3a14198ed0cfb8ee02ab194adcef136bcf52868fa`。
 
 | 文件 | SHA256 |
 | --- | --- |
@@ -217,31 +221,31 @@ FE2b S1 fixture 已由上述生成器产出并提交。文件位于 `frontend/sr
 | `bundle-error-1920.png` | `fb5c3dd88c95655ddc89f0ca0b1a1a4e6d0a3158a70cd760c74caef1f592430f` |
 | `dataset-replacement-browse-1280.png` | `cc78cb9509090b9fa570ea5a04b7b049c63d29e897c370e0117841631e4e9c4e` |
 | `dataset-replacement-browse-1920.png` | `6c2c94f4f69e0d22ef0276714eee54ec69fb735889c9ab0a810836d59d4e5465` |
-| `formula-history-1280.png` | `6477d79e18d9d9eb6e2b03f54e1da3b91d68b20081b0bfc774f7b61b529ecb80` |
-| `formula-history-1920.png` | `09c127358d8b9e268101f9d1f0579bc22fb0c7c59bf1fecee818eda4fc1c6825` |
-| `formula-preview-1280.png` | `56d218ab3df1dbf21300323acfb91f0e3683ef20410a1818d5a668874358d959` |
-| `formula-preview-1920.png` | `5dac6bf104ab0b723eef7071919bc0894ac4335cc9b958d9027e5f86fa14f77f` |
-| `history-compare-connection-interrupted-1280.png` | `d97092d382775d1bcee4b1eea74247c41e108f79d9ea09e54743c21a2e1712b9` |
-| `history-compare-connection-interrupted-1920.png` | `c57103d104aaa8a2b0c0f84d15590d185f52cba6d37b0214fd2799d258e3327b` |
-| `history-compare-result-drawer-1280.png` | `c8f9ce8b665140172fcddbea192a831119a30542bc8a2bebbd82cfe3baf33178` |
-| `history-compare-result-drawer-1920.png` | `0230bf9c3d866e6f899ff151f80ab2893a192afa7a7e58fdf65e2771bf5a3877` |
-| `history-compare-running-1280.png` | `22ae554b785c180108b74076f56100cc94f9f630953d519605bd19718fe0c7c0` |
-| `history-compare-running-1920.png` | `9efea8cfc491e561679e9785ec9ff1b83408c62c0f70c2f45bce75d5dce847ea` |
+| `formula-history-1280.png` | `8dcf32cde558446a768c297cc37f8d0dd6bbb7f951e9c1c679de142ba0466e4a` |
+| `formula-history-1920.png` | `98dc6ae986a0b53ec09543a24ce0e6a1ee1182a646a29a00d626b8b2ec878f25` |
+| `formula-preview-1280.png` | `aadb7db014e12ee7e31267e48c867fc93d27e488020bbbcaaf2c3d1487a20dd3` |
+| `formula-preview-1920.png` | `2cc21db1eb53f730c0bb366acc7fbdda695b0a441824deab1c8db4b11ebb66b7` |
+| `history-compare-connection-interrupted-1280.png` | `9e5feedc510a78a2571130769648c1ea60e6ac120f7d7be0a6667822b640fd80` |
+| `history-compare-connection-interrupted-1920.png` | `e9cbca6945517973bbbba2df523be847acb474230410790f02a83c601555741b` |
+| `history-compare-result-drawer-1280.png` | `46d103e9d62649ddf9a4c988311f6f243764d2116c9000a799ce011aaea40ee3` |
+| `history-compare-result-drawer-1920.png` | `826c72b795d2d3ff155c91c4abd5c713ffa05779912f3ef4219248af24c21454` |
+| `history-compare-running-1280.png` | `bac9a75d4760d47498e9518bcdcebf1ad15fce96bb2f6a1adc613e021d44fd47` |
+| `history-compare-running-1920.png` | `9d1d27f63c0058ed2be3ce3f2409e38edd5504cdc9e36ad1cb29628e92d2b1ec` |
 | `loading-skeleton-1280.png` | `1a09a7bb84166539b7f4e58673a61be0e658b8937e04da7253750e946108b83c` |
 | `loading-skeleton-1920.png` | `4a401678b2edd8331ddc279078aaa44b609a7ff3c9dcd3f839f99207708179a0` |
-| `manual-recovery-required-1280.png` | `65cea88f65023b71ecbe341aefcca6f89ed12a0d7b0b435b6e3d1921f3a2985f` |
-| `manual-recovery-required-1920.png` | `9480dfcab83e6e863652c792a2a8714aa6e9bc4a5804014dce96b20ebb58cd27` |
+| `manual-recovery-required-1280.png` | `4335c774570f098f93967b9e91589d342fbf299475a37f21bc54c0a3232e5437` |
+| `manual-recovery-required-1920.png` | `879e4258417a927c69cc1cea20f14359cfa9d3d9e1d71bbeee97c65f1935883b` |
 | `navigation-fallback-1280.png` | `a84ba53eafa2c86726b5df494cbbac7f778b7255631c8c0204efe54184df9a72` |
 | `navigation-fallback-1920.png` | `e6da1ad3759e2458c5dd11ad7f6f290d44eff353ad9bae5c46f0844e7ebdf848` |
-| `s1-workbench-1280.png` | `7d7fb7d5299b9d8df3e77cadb16e1d3623435d81b279fc610d1fa355c892b7a8` |
-| `s1-workbench-1920.png` | `b777e9fa5b93c662292259d67de2534165f6a853bcbec987e8be73f4b5dae41b` |
-| `s2-compare-tray-1280.png` | `2db4f9fc9d8f9c3f34dcd35151ab4cdbd05f496f37c4c5ef5171ee356acee3af` |
-| `s2-compare-tray-1920.png` | `4d3586b6b56725aec044b8ea4e1d94f115c52f94958ec46e6031783baf86299b` |
+| `s1-workbench-1280.png` | `206fc6eb8be094c2a1ca6c2395e2e2a9ff17bf8b8d7c845bc2682ab3c6fa0b9d` |
+| `s1-workbench-1920.png` | `bcd4ed3a728e735e902803d176e8403d247dc90a0912365128b6f953c202f475` |
+| `s2-compare-tray-1280.png` | `3a6d9da0501087b204bdf64eb802b48172c645c8dc355879f3428dcdbd96950b` |
+| `s2-compare-tray-1920.png` | `2831e2c3cf8af2f1dc0aa84ffa3004131717ae4caf69d8d4a17c3cccb7bee238` |
 | `s3-header-history-1280.png` | `22ef7766e9f1e6fa8b45c460622f1867ebd2649edea977bd4040d3ae741b4b6f` |
 | `s3-header-history-1920.png` | `14dcc76039dd7edbf8b603c4dc09812c21163e2721869c057c978ebf81cde847` |
 | `s3-header-upload-1280.png` | `ff82e1426d90c4c5e39864fe9628c9675bbe3e77a8d669f13701268edff622d4` |
 | `s3-header-upload-1920.png` | `a46f7e9a6859ed3ef29fa68dee2fb1a86668fda53184c8e38c3f3c00b769eb97` |
-| `s3-workbench-normal-1280.png` | `722414b84f5089351f254fc1179521f2f3e77096d324ac7eb66dd490254df2e0` |
+| `s3-workbench-normal-1280.png` | `fe83b6c8f5dd83ab26dad57e4a421388bba2749a55646ef4da3c1650c464bd5f` |
 | `s3-workbench-normal-1920.png` | `78511e8edbb57b51c54b6c3cde3e3b6a53b746084edb38c3f4b5f490b6304685` |
 | `s3-workbench-upload-1280.png` | `2e34e78e2525a83292d2000efb6dbf8a87ddef874b615b9a9f019518a35f3339` |
 | `s3-workbench-upload-1920.png` | `d4e4b908e65c17adb509a3cef60a986735f5e2b38b81e76ca1f59a83d06844f4` |
@@ -255,20 +259,20 @@ FE2b S1 fixture 已由上述生成器产出并提交。文件位于 `frontend/sr
 | `s4-grid-normal-debug-1920.png` | `03eb9f633e4742ff29c48e2f4bae09c743efa42d9e41ffaad9173e1a04973ede` |
 | `s4-grid-normal-hover-1280.png` | `722414b84f5089351f254fc1179521f2f3e77096d324ac7eb66dd490254df2e0` |
 | `s4-grid-normal-hover-1920.png` | `94ffb3e1434f31f7fd00c4cd1d2186cb5d1cfce1f6b91e4dd0bf54d834a53a0b` |
-| `s4-grid-normal-main-1280.png` | `722414b84f5089351f254fc1179521f2f3e77096d324ac7eb66dd490254df2e0` |
+| `s4-grid-normal-main-1280.png` | `fe83b6c8f5dd83ab26dad57e4a421388bba2749a55646ef4da3c1650c464bd5f` |
 | `s4-grid-normal-main-1920.png` | `78511e8edbb57b51c54b6c3cde3e3b6a53b746084edb38c3f4b5f490b6304685` |
 | `s4-semantic-tokens-1280.png` | `116f9cbb8991ace7deef04e4f5029a211ff933c38aee5e3348f5cba63bcd8b2c` |
 | `s4-semantic-tokens-1920.png` | `15fe88e318ed59410b184631888681262349d9220dda26a5f49ac6f12c16dcba` |
 | `tab-overflow-1280.png` | `f89e42e99af51028d3cc69eff3212e06ef88f89912d93b7387b5fb44892dab87` |
 | `tab-overflow-1920.png` | `f33c88bacfcc4cf0842cc5fe8ea7ce11ec6a9e401e4d30e80b48bd1e447e2ca1` |
-| `workspace-error-no-connected-1280.png` | `a61f2f31d097a82815811bd5a2bb4130736548d661a48a5e7a1a6df0ca843307` |
-| `workspace-error-no-connected-1920.png` | `5a6d0b614fb801b6b475d5e3f9942a33ab3287e39a42a36f3286513523f7b97d` |
+| `workspace-error-no-connected-1280.png` | `2cec217a60b77863b056a2fcd2e08a100732597ce420d920a61b1d43f6edc233` |
+| `workspace-error-no-connected-1920.png` | `4acd5f25b89efa2b25cddbd06644cf070ac2f3cd509b59753d77155dbb86fd69` |
 
-草图对应：S1 为 `s1-workbench-*`（1280 折叠、1920 展开）；S2 为 `s2-compare-tray-*`（2/3 节点，上传流程仍在 FE2c）；S3 Preview/History 顶栏分别为 `s3-header-upload-*` / `s3-header-history-*`，审核顶栏留在 FE2c。正常业务场景使用普通页签拍 `s3-workbench-normal-*`、`s4-grid-normal-main-*`、`s4-grid-normal-hover-*`、`s4-grid-normal-debug-*`。`formula-preview-*`、`formula-history-*` 与 `s4-semantic-tokens-*` 已重拍。
+草图对应：S1 为 `s1-workbench-*`（1280 详情折叠、1920 展开）；S2 为 `s2-compare-tray-*`（2/3 节点，上传步骤留 FE2c）；S3 Preview/History 顶栏为 `s3-header-upload-*` / `s3-header-history-*`，审核顶栏留 FE2c。普通页签正常场景拍了 `s3-workbench-normal-*`、`s4-grid-normal-main-*`、`s4-grid-normal-hover-*`、`s4-grid-normal-debug-*`。主表 1280 与悬停图哈希不同；e2e 移开鼠标并断言 tooltip 消失后拍主表，再重新悬停拍 hover。公式两组与 `s4-semantic-tokens-*` 已重拍。
 
-无草图页面，单列交 owner 看图：`history-compare-running-*`、`manual-recovery-required-*`、`history-compare-connection-interrupted-*`、`navigation-fallback-*`、`workspace-error-no-connected-*`。错误页截图没有“已连接”。现有边界截图继续保留：`bundle-error-*`、`loading-skeleton-*`、`dataset-replacement-browse-*`、`tab-overflow-*`。
+无草图页面，单列交 owner 看图：`history-compare-running-*`、`manual-recovery-required-*`、`history-compare-connection-interrupted-*`、`navigation-fallback-*`、`workspace-error-no-connected-*`。错误页没有“已连接”。保留异常和边界截图：`bundle-error-*`、`loading-skeleton-*`、`dataset-replacement-browse-*`、`tab-overflow-*`。
 
-草图与后端事实没有发现需要改 Contract 或后端字段/接口的冲突。视觉差异：无需升级 owner 决策的偏差。审核期间请 owner 对照草图复核上述成组证据。
+草图核对：S1 树同层展示基线、工作区/提交挂在所属基线下，支持折叠、比较序号及状态圆点；排序限于同一父节点。S2 运行中锁定托盘；S3 Preview/History 顶栏齐全。尚未展示逐比较对的表数和变更表摘要，列为第 8 节偏差。没有像素比对。
 
 ## 7. 停止与 DC68 记录
 
@@ -297,11 +301,26 @@ owner 基于 FE2 kickoff §7.1、Q14（本地 main `7ac79ab53c` 已含）确认�
 
 上述新命令错误均为被测对象运行前后的只读证据查询、无产品/worktree 副作用，已修正并记录。无缓存缺失、镜像身份不符、测试节点不符或需要后端新增接口/字段的情况。最终代码候选完整 runner 成功；R2 负向 exit 1 为预期探针结果。
 
+### 定向修复阶段的 DC68 记录
+
+| 操作错误 | 记录与修正 |
+| --- | --- |
+| fixture archive 检查猜错 tar 路径 | `/home/dev/gdds-fe-logs/fe2b/dc68-fixture-tar-inspection.log`，SHA256 `a13d12f674b6f2d4eca978b0387d0b6db43da00156a35cda4d64d3672e7de9ed`。只读 `find` 找到实际 `generated/golden-bundle.tar` 后读取成功，没有访问被测运行。 |
+| 在开发主机读取实际位于 CT05 的 runner log | `/home/dev/gdds-fe-logs/fe2b/dc68-local-run-log-query-error.log`，SHA256 `63a8990f07c0c2077556753046c3f3beebac08f71c8cf63498af25b9b65e6caa`。改用 SSH 在 `ct108-gw-dms-05` 读取，日志和 SHA256 核实成功。 |
+| CT05 上使用未安装的 `rg` 查询 runner log | `/home/dev/gdds-fe-logs/fe2b/dc68-node-rg-query-error.log`，SHA256 `969d7bac2dd8c655b89976da92a35d8e12039f2e1b96a89c39c2623ffcd3a3c9`。改用已安装的 `grep -E`，成功读取运行时间、结果与日志摘要。 |
+| OpenAPI schema 查询指向不存在的生成类型文件 | `/home/dev/gdds-fe-logs/fe2b/dc68-openapi-path-query-error.log`，SHA256 `6e0b48a9047fa51ed790b4f69c62be38f473b29da5d777ea2188d4abd9677374`。改查 canonical `frontend/openapi.json` 与 `WorkbenchPage.tsx`，确认 pair schema 仅有 `record_count`。 |
+| handoff 文档编辑脚本的 DC68 段落锚点不匹配 | `/home/dev/gdds-fe-logs/fe2b/dc68-handoff-edit-anchor-error.log`，SHA256 `39e30cfeaf8a6ac39c3686d3f96cd8763f330176149d3d5894badb5680793b4a`。脚本在写文件前停止，无文档变化；改用段落前缀定位后成功。 |
+| 最终候选首次 runner 的缓存来源提交参数写错 | 首次日志 `/home/dev/gdds-fe-logs/fe2b/frontend-tests-20261103T154807Z.log` SHA256 `b44c13b82bb7f34be801ff10a0ed34fb96c458c17260395104e463d3a34baf21`，wrapper SHA256 `19e3696b40ae048a571fb6080146caa96a7c59084fa4095382dfdac9f9a68807`。无产品副作用；修正为缓存来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`，从完整 runner 起点重跑并通过；有效证据见第 5 节。 |
+
+上述均为无副作用的只读取证或测试参数元数据错误，保留日志及摘要并按 DC68 修正；更正后的查询/完整运行成功。没有缓存缺失、镜像身份不符、测试节点不符或生成器 `generate()` 内失败。
+
 ## 8. 已知差异与待处理事项
 
-- Q14 的 pyproject.toml 与 Cargo.lock 差异如第 3 节记录，已由 owner 决议接受；无待 owner 决定项。
-- 没有发现需要后端新增字段/接口（FD3）的事项，也没有 FE2b 范围外的设计问题。
-- Review/re-review 前不运行 CT04；审核通过后，按阶段流程在最终 handoff HEAD 的 04 clean detached worktree 运行一次权威入口并完成全套截图取证。tag 由设计会话创建。
+- **待 owner 决定：**比较结果抽屉目前只显示每个比较对的节点序号与差异记录数；没有逐比较对的表数和变更表摘要。当前 `HistoryComparePairResultResponse` schema 只有 `record_count`，实现没有额外读取已下载 bundle 来填充该摘要。对应草图 S2 `compare-1920` / B7-B8，请 owner 决定是否接受或要求后续补齐。
+- **M10 fixture 说明：**后端生成的 S1 bundle 另包含 `composite_signal_point` 当前快照表，摘要为 0→0，并在侧栏归入“其他表”。主转发通道遥测表仍为前后各 90 行，新增/删除/修改各 6 行；manifest 的 diagnostics 为空。保留生产生成数据，不在前端过滤。
+- B1–B9 均已修复；M1–M9、M11 已修复并在第 2 节列证据。其余 S1/S2/S3 布局按截图核对无额外偏差。
+- Q14 的 `pyproject.toml` 与 `Cargo.lock` 差异由 owner 决议接受，见第 3 节。没有需要后端新增字段/接口（FD3）的事项，也没有发现 FE2b 范围外设计问题。
+- 复审前不运行 CT04。复审通过后，在最终 handoff HEAD 的 CT04 clean detached worktree 完整运行权威入口并完成截图取证；退出 tag 由设计会话创建。
 
 ## 9. 本阶段 worktree 与传输文件清单（供退出后清理）
 
@@ -313,4 +332,8 @@ owner 基于 FE2 kickoff §7.1、Q14（本地 main `7ac79ab53c` 已含）确认�
 
 本轮最新源码 bundle SHA256 `444ff4994e45a5fc515342ed9e4bb03327e44e6a17cfaf3af6c82bcb77d39e0c`；传输与 worktree 建立日志 `/home/dev/gdds-fe-logs/fe2b/bundle-transfer-worktree-5ac704c6-05.log` SHA256 `5c8b0120fa750d310ddd1e9cd417ee3b01c84b2589008a5e67c5dc8cb02d9ac3`。最新 R2 临时 probe bundle SHA256 `7260cdab7a2788e958531d31dbbdd91f609726f9b8a63f2693391cd2a8a06e21`；其 worktree 建立日志 `/home/dev/gdds-fe-logs/fe2b/bundle-transfer-worktree-r2-negative-5ac704c6-05.log` SHA256 `aaed8e31887ea1c4975cd07505f0b713459ffa9e49b8b70c446cf5c259a71063`。
 
-生成输出目录、测试日志与截图目录均位于 worktree 外，见第 3、5、6 节。审核/复审及 04 阶段取证完成前保留；退出清理时再删除本节列出的临时 worktree、bundle 和生成输出。
+本次定向修复新增 CT05 clean detached worktree：`/home/dev/gdds-fe-fe2b-5d174967-05`、`/home/dev/gdds-fe-fe2b-probe-b1-5d174967-05`、`/home/dev/gdds-fe-fe2b-probe-b3-5d174967-05`、`/home/dev/gdds-fe-fe2b-probe-b5-5d174967-05`；均有指向 `/home/dev/gateway-data-management-system/legacy` 的本地链接。开发仓库临时源码 worktree/分支：`/home/dev/gdds-fe-fe2b-probe-b1-src-5d174967` (`fe2b-probe-b1-5d174967`)、`/home/dev/gdds-fe-fe2b-probe-b3-src-5d174967` (`fe2b-probe-b3-5d174967`)、`/home/dev/gdds-fe-fe2b-probe-b5-src-5d174967` (`fe2b-probe-b5-5d174967`)。
+
+本次源码与探针传输 bundle 位于两端 `/home/dev/gdds-fe-logs/fe2b/`：`fe2b-targeted-fix-5d174967.bundle` SHA256 `675835d75a66f3daa2fc5552fc1384bb72866718dc676b5498bbf3a904c9eb96`；`probe-b1-5d174967.bundle` SHA256 `5b9e95a8e9566a0ae3c102ca045c60728bb0a75093c70763e2bd7b2e29f23064`；`probe-b3-5d174967.bundle` SHA256 `1aa79fbe07991752d129a4dce7e3e68a50a2ed8f8bc6f966051a0e88a4d20bd0`；`probe-b5-5d174967.bundle` SHA256 `64eb23bc9efa04851d7be5dbfbbd40ac7f9d7c71683337d6ac6359fbbe1d4e72`。探针 runner 日志、wrapper 日志、最终运行日志和截图清单见第 5、6、7 节。
+
+生成输出目录、测试日志与截图目录均位于 worktree 外，见第 3、5、6 节。审核/复审及 04 阶段取证完成前保留；退出清理时再删除本节列出的临时 worktree、bundle 和生成输出.

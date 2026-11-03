@@ -603,10 +603,12 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     if (row.kind === "deleted" && args.col >= (debug ? 5 : 2)) { args.ctx.strokeStyle = "#535D69"; args.ctx.lineWidth = 1; args.ctx.beginPath(); const y = args.rect.y + args.rect.height / 2; args.ctx.moveTo(args.rect.x + 8, y); args.ctx.lineTo(args.rect.x + args.rect.width - 8, y); args.ctx.stroke(); }
     if (highlightedIdentity && row.rowIdentity === highlightedIdentity) { args.ctx.strokeStyle = "#1F5FBF"; args.ctx.lineWidth = 1; args.ctx.beginPath(); args.ctx.moveTo(args.rect.x, args.rect.y + .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + .5); args.ctx.moveTo(args.rect.x, args.rect.y + args.rect.height - .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + args.rect.height - .5); if (args.col === 0) { args.ctx.moveTo(args.rect.x + .5, args.rect.y); args.ctx.lineTo(args.rect.x + .5, args.rect.y + args.rect.height); } if (args.col === columns.length - 1) { args.ctx.moveTo(args.rect.x + args.rect.width - .5, args.rect.y); args.ctx.lineTo(args.rect.x + args.rect.width - .5, args.rect.y + args.rect.height); } args.ctx.stroke(); }
   }, [columns.length, debug, highlightedIdentity, markPainted, pairRows, rows]);
+  const click = useCallback(([column]: readonly [number, number]) => {
+    if (table.table_name === "composite_signal_point" && columns[column]?.id === "formula_ast_json") onOpenFormula();
+  }, [columns, onOpenFormula, table.table_name]);
   const activate = useCallback(([column, row]: readonly [number, number]) => {
-    if (table.table_name === "composite_signal_point" && columns[column]?.id === "formula_ast_json") { onOpenFormula(); return; }
     if (columns[column]?.id === "__diff" && rows[row]?.kind === "collapsed") onExpand(rows[row] as BrowseRow);
-  }, [columns, onExpand, onOpenFormula, rows, table.table_name]);
+  }, [columns, onExpand, rows]);
   const onMouseMove = useCallback((event: Parameters<NonNullable<ComponentProps<typeof DataEditor>["onMouseMove"]>>[0]) => {
     const next = event.kind === "cell" ? event.location : null;
     setHoveredCell((previous) => previous?.[0] === next?.[0] && previous?.[1] === next?.[1] ? previous : next);
@@ -633,7 +635,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const fieldTitle = table.columns?.find((column) => column.name === hoverColumn?.id)?.display_name ?? hoverColumn?.id ?? "";
   const firstColumn = table.columns?.[0];
   const firstCellContent = rows[0] && firstColumn ? normalizeDisplayScalar(rows[0].values[firstColumn.name]) : "空表";
-  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellActivated={activate} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={38} rowHeight={38} theme={theme} width="100%" height={Math.max(300, Math.min(600, rows.length * 38 + 40))} smoothScrollX smoothScrollY verticalBorder={false} />
+  return <div ref={frameRef} className="grid-frame" aria-label="比较表格" data-tab-key={tabKey} data-rendered={rendered ? "true" : "false"} data-first-cell-content={firstCellContent} data-formula-column-offset={formulaColumnOffset} data-formula-column-width={formulaColumnWidth}><DataEditor ref={gridRef} columns={columns} rows={rows.length} getCellContent={getCellContent} getRowThemeOverride={getRowThemeOverride} drawCell={drawCell} onCellClicked={click} onCellActivated={activate} onMouseMove={onMouseMove} onVisibleRegionChanged={onVisibleRegionChanged} headerHeight={38} rowHeight={38} theme={theme} width="100%" height={Math.max(300, Math.min(600, rows.length * 38 + 40))} smoothScrollX smoothScrollY verticalBorder={false} />
     {showHoverDetail && hoverRow && <div className="grid-hover-detail" role="tooltip">
       {missingSnapshotHint && <section><strong>行来源</strong><span>{missingSnapshotHint}</span></section>}
       {hoverChanged && hoverColumnId && hoverBefore && hoverAfter && <section><strong>字段变更</strong><div><span>{fieldTitle}</span><code>{normalizeDisplayScalar(hoverBefore.values[hoverColumnId])}</code><span aria-hidden="true">→</span><code className="grid-hover-detail__new">{normalizeDisplayScalar(hoverAfter.values[hoverColumnId])}</code></div></section>}

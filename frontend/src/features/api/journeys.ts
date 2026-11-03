@@ -1,6 +1,7 @@
 import type { components } from "./generated/openapi";
 import type { GatewayApi, ReviewAction, UploadRevisionInput } from "./client";
 import { ensureLocalBundle, type InstalledBundle, type ReadableBundleStore } from "../bundle/local-bundle";
+import { reportConnectionStatus } from "./connection-status";
 
 type Schemas = components["schemas"];
 
@@ -11,12 +12,22 @@ export class OperationFailedError extends Error {
   }
 }
 
+export class PollingConnectionLostError extends Error {
+  constructor(readonly operationId: string, readonly attempts: number) {
+    super(`操作 ${operationId} 暂时无法连接，请重试查询`);
+    this.name = "PollingConnectionLostError";
+  }
+}
+
 export interface PollOptions {
   intervalMs?: number;
-  timeoutMs?: number;
+  requestTimeoutMs?: number;
+  maxTransientRetries?: number;
   signal?: AbortSignal;
   wait?: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
+  onWait?: (milliseconds: number) => void;
   onUpdate?: (operation: Schemas["OperationResponse"]) => void;
+  onConnectionStatus?: (status: "connected" | "interrupted") => void;
 }
 
 function abortableWait(milliseconds: number, signal?: AbortSignal): Promise<void> {
@@ -32,18 +43,115 @@ function abortableWait(milliseconds: number, signal?: AbortSignal): Promise<void
 
 export async function pollOperation(api: GatewayApi, operationId: string, options: PollOptions = {}): Promise<Schemas["OperationResponse"]> {
   const intervalMs = options.intervalMs ?? 1_000;
-  const timeoutMs = options.timeoutMs ?? 5 * 60_000;
+  const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+  const maxTransientRetries = options.maxTransientRetries ?? 4;
   const wait = options.wait ?? abortableWait;
-  const deadline = Date.now() + timeoutMs;
+  let transientRetries = 0;
+  let lastStatus: Schemas["OperationResponse"]["status"] | null = null;
   for (;;) {
     if (options.signal?.aborted) throw options.signal.reason ?? new DOMException("已取消", "AbortError");
-    const operation = await api.getOperation(operationId, options.signal);
-    options.onUpdate?.(operation);
-    if (operation.status === "SUCCEEDED") return operation;
-    if (operation.status === "FAILED" || operation.status === "CANCELLED") throw new OperationFailedError(operationId, operation.diagnostic);
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) throw new Error(`操作 ${operationId} 等待超时`);
-    await wait(Math.min(intervalMs, remaining), options.signal);
+    const request = new AbortController();
+    const timeout = setTimeout(() => request.abort(new DOMException("状态请求超时", "TimeoutError")), requestTimeoutMs);
+    const abortParent = () => request.abort(options.signal?.reason ?? new DOMException("查询已取消", "AbortError"));
+    options.signal?.addEventListener("abort", abortParent, { once: true });
+    try {
+      const operation = await api.getOperation(operationId, request.signal);
+      lastStatus = operation.status;
+      transientRetries = 0;
+      options.onConnectionStatus?.("connected");
+      reportConnectionStatus("connected");
+      options.onUpdate?.(operation);
+      if (operation.status === "SUCCEEDED") return operation;
+      if (operation.status === "FAILED" || operation.status === "CANCELLED" || operation.status === "SUPERSEDED") {
+        throw new OperationFailedError(operationId, operation.diagnostic);
+      }
+    } catch (cause) {
+      if (cause instanceof OperationFailedError) throw cause;
+      if (options.signal?.aborted) throw options.signal.reason ?? cause;
+      if (isRequestTimeout(cause, request.signal)) {
+        // A slow status request says nothing about the operation's outcome.
+      } else if (isTransientRequestError(cause)) {
+        transientRetries += 1;
+        if (transientRetries > maxTransientRetries) {
+          options.onConnectionStatus?.("interrupted");
+          reportConnectionStatus("interrupted");
+          throw new PollingConnectionLostError(operationId, transientRetries);
+        }
+        const baseIntervalMs = lastStatus === "MANUAL_RECOVERY_REQUIRED" ? 30_000 : intervalMs;
+        const delay = Math.min(baseIntervalMs * 2 ** (transientRetries - 1), 30_000);
+        options.onWait?.(delay);
+        await wait(delay, options.signal);
+        continue;
+      } else {
+        throw cause;
+      }
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortParent);
+    }
+    const delay = lastStatus === "MANUAL_RECOVERY_REQUIRED" ? 30_000 : intervalMs;
+    options.onWait?.(delay);
+    await wait(delay, options.signal);
+  }
+}
+
+function isRequestTimeout(cause: unknown, signal: AbortSignal): boolean {
+  return signal.aborted || (cause instanceof DOMException && (cause.name === "TimeoutError" || cause.name === "AbortError"));
+}
+
+function isTransientRequestError(cause: unknown): boolean {
+  if (cause instanceof TypeError) return true;
+  return typeof cause === "object" && cause !== null && "status" in cause
+    && (Number((cause as { status: unknown }).status) >= 500 || Number((cause as { status: unknown }).status) === 429);
+}
+
+export async function pollHistoryCompare(
+  api: GatewayApi,
+  operationId: string,
+  options: Omit<PollOptions, "onUpdate"> & { onUpdate?: (status: Schemas["HistoryCompareResultResponse"]) => void } = {},
+): Promise<Schemas["HistoryCompareResultResponse"]> {
+  const intervalMs = options.intervalMs ?? 1_000;
+  const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+  const maxTransientRetries = options.maxTransientRetries ?? 4;
+  const wait = options.wait ?? abortableWait;
+  let transientRetries = 0;
+  for (;;) {
+    if (options.signal?.aborted) throw options.signal.reason ?? new DOMException("已取消", "AbortError");
+    const request = new AbortController();
+    const timeout = setTimeout(() => request.abort(new DOMException("状态请求超时", "TimeoutError")), requestTimeoutMs);
+    const abortParent = () => request.abort(options.signal?.reason ?? new DOMException("查询已取消", "AbortError"));
+    options.signal?.addEventListener("abort", abortParent, { once: true });
+    try {
+      const result = await api.getHistoryCompare(operationId, request.signal);
+      transientRetries = 0;
+      options.onConnectionStatus?.("connected");
+      reportConnectionStatus("connected");
+      options.onUpdate?.(result);
+      if (result.status === "SUCCEEDED" || result.status === "FAILED" || result.status === "CANCELLED") return result;
+    } catch (cause) {
+      if (options.signal?.aborted) throw options.signal.reason ?? cause;
+      if (isRequestTimeout(cause, request.signal)) {
+        // Continue polling; an HTTP timeout is not a failed history comparison.
+      } else if (isTransientRequestError(cause)) {
+        transientRetries += 1;
+        if (transientRetries > maxTransientRetries) {
+          options.onConnectionStatus?.("interrupted");
+          reportConnectionStatus("interrupted");
+          throw new PollingConnectionLostError(operationId, transientRetries);
+        }
+        const delay = Math.min(intervalMs * 2 ** (transientRetries - 1), 30_000);
+        options.onWait?.(delay);
+        await wait(delay, options.signal);
+        continue;
+      } else {
+        throw cause;
+      }
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", abortParent);
+    }
+    options.onWait?.(intervalMs);
+    await wait(intervalMs, options.signal);
   }
 }
 
@@ -134,30 +242,28 @@ export interface ReviewHistoryJourneyResult {
 
 export interface HistoryComparisonJourneyResult {
   accepted: Schemas["HistoryCompareAcceptResponse"];
-  operation: Schemas["OperationResponse"];
   result: Schemas["HistoryCompareResultResponse"];
   bundle: InstalledBundle;
 }
 
-export async function runHistoryComparison(api: GatewayApi, store: ReadableBundleStore, nodes: Schemas["HistoryCompareNodeRequest"][], options: PollOptions = {}): Promise<HistoryComparisonJourneyResult> {
+export async function runHistoryComparison(api: GatewayApi, store: ReadableBundleStore, nodes: Schemas["HistoryCompareNodeRequest"][], idempotencyKey: string, options: PollOptions = {}): Promise<HistoryComparisonJourneyResult> {
   if (nodes.length < 2 || nodes.length > 3) throw new Error("历史比较需要两到三个节点");
   if (nodes.some((node) => node.ref_kind === "submission" && !node.ref_id)) throw new Error("历史提交节点缺少标识");
   const accepted = await api.startHistoryCompare({
     nodes,
-  });
-  const operation = await pollOperation(api, accepted.operation_id, options);
-  const result = await api.getHistoryCompare(accepted.operation_id);
+  }, idempotencyKey);
+  const result = await pollHistoryCompare(api, accepted.operation_id, options);
   if (result.status !== "SUCCEEDED" || !result.result) throw new Error(result.diagnostic?.message ?? "历史比较没有成功结果");
   const bundle = await ensureLocalBundle({
     store,
     expectedBundleDigest: result.result.bundle_digest,
     fetchBundle: () => api.getHistoryBundle(accepted.operation_id),
   });
-  return { accepted, operation, result, bundle };
+  return { accepted, result, bundle };
 }
 
 /** Review compares the baseline node to the submission and always downloads the History bundle. */
-export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, options: PollOptions = {}): Promise<ReviewHistoryJourneyResult> {
+export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, idempotencyKey: string, options: PollOptions = {}): Promise<ReviewHistoryJourneyResult> {
   const [reviewFacts, history] = await Promise.all([api.getReviewFacts(submissionId), api.listHistory()]);
   const submissionNodes = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === submissionId);
   if (submissionNodes.length !== 1) throw new Error(`History 中找不到唯一提交节点：${submissionId}`);
@@ -166,7 +272,7 @@ export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBu
   const comparison = await runHistoryComparison(api, store, [
     { ref_kind: parent.ref_kind, ref_id: parent.ref_id },
     { ref_kind: "submission", ref_id: submissionId },
-  ], options);
+  ], idempotencyKey, options);
   return { reviewFacts, ...comparison };
 }
 

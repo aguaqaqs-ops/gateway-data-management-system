@@ -6,7 +6,9 @@ const files = await readdir(assets);
 const forbidden = [
   /fe2a-fixture/i,
   /simulated[-_ ]api/i,
+  /GatewaySimulatedApiModule/,
   /identity[-_ ]selector/i,
+  /模拟身份|dev-token-(?:submitter|reviewer|archive-confirmer|no-permission)/,
   /mock[-_ ]identity/i,
 ];
 const violations = [];

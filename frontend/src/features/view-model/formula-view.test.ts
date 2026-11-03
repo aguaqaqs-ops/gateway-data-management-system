@@ -28,9 +28,10 @@ describe("composite signal formula rendering", () => {
       ["expression", "* Device 999:未映射测点"],
       ["expression", "* 5"],
       ["expression", "| 6"],
-      ["group", "| （- 分组）"],
       ["expression", "- 线路保护装置 A:线路电流"],
     ]);
+    expect(lines.at(-1)).toMatchObject({ kind: "expression", text: "- 线路保护装置 A:线路电流", depth: 0 });
+    expect(lines.some((line) => line.text.includes("- 分组"))).toBe(false);
     const productGroup = lines.find((line) => line.text === "+ （* 分组）");
     expect(productGroup).toMatchObject({ kind: "group", depth: 1 });
     expect(lines.filter((line) => line.text.startsWith("* ")).map((line) => line.depth)).toEqual([2, 2, 2]);
@@ -74,6 +75,9 @@ describe("composite signal formula rendering", () => {
     });
     expect(aligned.find((line) => line.before?.text === "* 3")).toMatchObject({
       state: "changed", before: { text: "* 3", depth: 2 }, current: { text: "* 5", depth: 2 },
+    });
+    expect(aligned.find((line) => line.before?.text.includes("- 线路保护装置 A:线路电流"))).toMatchObject({
+      state: "same", before: { kind: "expression", depth: 0 }, current: { kind: "expression", depth: 0 },
     });
   });
 

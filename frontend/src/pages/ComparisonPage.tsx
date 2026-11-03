@@ -1,8 +1,10 @@
 import { DataEditor, GridCellKind, type DataEditorRef, type GridCell, type GridColumn, type Theme } from "@glideapps/glide-data-grid";
 import "@glideapps/glide-data-grid/dist/index.css";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Code2, Copy, Search, Table2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
-import { createAuthenticatedFetch } from "../features/api/authenticated-fetch";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import type { components } from "../features/api/generated/openapi";
+import { gatewayApi, fetchBundle } from "../features/api/application-api";
+import { pollHistoryCompare } from "../features/api/journeys";
 import { bundleLoadErrorCode, ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { loadComparisonPresentation, readLocalChangeRecords, readLocalRiskAnnotations, readLocalTable, type LocalComparisonPresentation } from "../features/bundle/presentation";
 import { deriveChangeLocations, deriveFormulaDisplays, normalizeRowIdentity, riskAnnotationRowIdentities, type DerivedNavigationGroup, type RiskAnnotation, type RiskLevel, type RowDiffRecord, type SurfaceTable } from "../features/view-model/model";
@@ -16,12 +18,12 @@ import { presentViewStatus } from "../features/view-model/view-status";
 import { BrowseCommandRuntime, decodeBrowseState, type BrowseState } from "../features/view-model/commands";
 import { createTableTheme } from "../design-system/theme";
 import { ErrorState, LoadingSkeleton, RiskBadge, formatBytes } from "../design-system/components";
+import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
 
 type PairSummary = { pair_id: string };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
 type SizedGridColumn = GridColumn & { width: number };
 type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
-const API = createAuthenticatedFetch({ baseUrl: window.location.origin, token: () => null });
 const SETTINGS_KEY = "gateway-comparison-sidebar-v1";
 const DEFAULT_SETTINGS: Settings = { sidebarWidth: 288, sidebarCollapsed: false, collapsedGroups: [] };
 
@@ -146,17 +148,26 @@ function matchesItem(item: DerivedNavigationGroup["items"][number], query: strin
     .some((label) => label.toLocaleLowerCase().includes(value));
 }
 
-function requestForMode(mode: BrowseState["mode"], state: BrowseState): string | undefined {
-  return state.modeRequests?.[mode] ?? state.requestPath;
+function bundlePathForState(state: BrowseState): string | null {
+  if (state.mode === "PREVIEW" && state.workspaceId && state.previewResultId) {
+    return `/v1/workspaces/${encodeURIComponent(state.workspaceId)}/preview-results/${encodeURIComponent(state.previewResultId)}/bundle`;
+  }
+  if ((state.mode === "HISTORY" || state.mode === "REVIEW") && state.operationId) {
+    return `/v1/history-compares/${encodeURIComponent(state.operationId)}/bundle`;
+  }
+  return null;
 }
 
-export function ComparisonPage() {
+export function ComparisonPage({ identityControl }: { identityControl?: ReactNode }) {
   const runtime = useMemo(() => new BrowseCommandRuntime(decodeBrowseState(window.location.search)), []);
   const [browse, setBrowse] = useState<BrowseState>(runtime.snapshot.state);
   const [bundle, setBundle] = useState<InstalledBundle | null>(null);
   const [pairs, setPairs] = useState<PairPresentation[]>([]);
   const [loading, setLoading] = useState({ phase: "准备比较结果", received: 0, total: 0 });
   const [error, setError] = useState<{ code: string; details: string } | null>(null);
+  const [historyCompareStatus, setHistoryCompareStatus] = useState<components["schemas"]["HistoryCompareResultResponse"]["status"] | null>(null);
+  const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
+  const [reviewFacts, setReviewFacts] = useState<components["schemas"]["ReviewFactsResponse"] | null>(null);
   const [settings, setSettings] = useState<Settings>(readSettings);
   const collapsed = settings.sidebarCollapsed;
   const [overflow, setOverflow] = useState(false);
@@ -189,21 +200,57 @@ export function ComparisonPage() {
   useEffect(() => { try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* defaults remain in memory */ } }, [settings]);
 
   const loadBundle = useCallback(async () => {
-    const params = new URLSearchParams(window.location.search);
-    const requestPath = browse.requestPath ?? requestForMode(browse.mode, browse) ?? params.get("request") ?? "";
-    if (!requestPath.startsWith("/v1/")) {
-      setError({ code: "BUNDLE_REQUEST_INVALID", details: "比较结果地址无效。" }); return;
+    let current = runtime.snapshot.state;
+    if (current.mode === "REVIEW" && current.submissionId && !current.operationId) {
+      try {
+        setLoading({ phase: "读取待审提交并准备审核比较", received: 0, total: 0 });
+        const [facts, history] = await Promise.all([gatewayApi.getReviewFacts(current.submissionId), gatewayApi.listHistory()]);
+        setReviewFacts(facts);
+        const matches = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === current.submissionId);
+        if (matches.length !== 1 || !matches[0]?.parent) throw new Error("History 中找不到唯一待审提交及其基线节点");
+        const keyName = `gateway-review-history-key:${current.submissionId}`;
+        let idempotencyKey = window.sessionStorage.getItem(keyName);
+        if (!idempotencyKey) { idempotencyKey = crypto.randomUUID(); window.sessionStorage.setItem(keyName, idempotencyKey); }
+        const accepted = await gatewayApi.startHistoryCompare({ nodes: [
+          { ref_kind: matches[0].parent.ref_kind, ref_id: matches[0].parent.ref_id },
+          { ref_kind: "submission", ref_id: current.submissionId },
+        ] }, idempotencyKey);
+        window.sessionStorage.removeItem(keyName);
+        runtime.execute({ name: "set-operation", operationId: accepted.operation_id, operationKind: "history-compare" }, "external");
+        return;
+      } catch (cause) {
+        const details = cause instanceof Error ? cause.message : String(cause);
+        setError({ code: bundleLoadErrorCode(cause), details });
+        return;
+      }
     }
+    const requestPath = bundlePathForState(current);
+    if (!requestPath) { setError({ code: "BUNDLE_RESOURCE_MISSING", details: "工作区、Preview 结果或历史比较操作 ID 不完整。" }); return; }
     if (loadedRequest.current?.requestPath === requestPath
-      && (!browse.bundleDigest || browse.bundleDigest === loadedRequest.current.bundleDigest)) return;
+      && (!current.bundleDigest || current.bundleDigest === loadedRequest.current.bundleDigest)) return;
     const requestKey = requestPath;
     if (loadingKey.current === requestKey) return;
     loadingKey.current = requestKey;
-    setError(null); setBundle(null); setPairs([]);
+    setError(null); setBundle(null); setPairs([]); setHistoryCompareStatus(null);
     setLoading({ phase: "下载并校验比较结果", received: 0, total: 0 });
     try {
-      const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest: browse.bundleDigest || undefined,
-        fetchBundle: () => API(requestPath, { headers: { Accept: "application/x-tar" } }),
+      let expectedBundleDigest = current.bundleDigest || undefined;
+      if (current.mode === "REVIEW" && current.submissionId) setReviewFacts(await gatewayApi.getReviewFacts(current.submissionId));
+      if (current.mode === "HISTORY" || current.mode === "REVIEW") {
+        if (!current.operationId) throw new Error("历史比较操作 ID 缺失");
+        const startedAt = Date.now();
+        const compareResult = await pollHistoryCompare(gatewayApi, current.operationId, {
+          onUpdate: (value) => {
+            setHistoryCompareStatus(value.status);
+            if (value.status === "QUEUED" || value.status === "RUNNING") setLoading({ phase: "历史比较仍在运行", received: Math.floor((Date.now() - startedAt) / 1_000), total: 0 });
+          },
+          onWait: () => setHistoryCompareWaited(Math.floor((Date.now() - startedAt) / 1_000)),
+        });
+        if (compareResult.status !== "SUCCEEDED" || !compareResult.result) throw new Error(compareResult.diagnostic?.message ?? "历史比较未能完成");
+        expectedBundleDigest = compareResult.result.bundle_digest;
+      }
+      const loaded = await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest,
+        fetchBundle: () => fetchBundle(requestPath, { headers: { Accept: "application/x-tar" } }),
         onProgress: ({ receivedBytes, contentLength }) => setLoading({ phase: "下载并校验比较结果", received: receivedBytes, total: contentLength }) });
       loadedRequest.current = { requestPath, bundleDigest: loaded.manifest.bundle_digest };
       const pairSummaries = loaded.manifest.pairs.filter((value): value is PairSummary => Boolean(value && typeof value === "object" && typeof (value as PairSummary).pair_id === "string"));
@@ -211,7 +258,7 @@ export function ComparisonPage() {
       setBundle(loaded); setPairs(loadedPairs); setLoading({ phase: "比较结果已就绪", received: 0, total: 0 });
       const currentState = runtime.snapshot.state;
       const initialBundleLoad = currentState.bundleDigest === null;
-      if (currentState.bundleDigest !== loaded.manifest.bundle_digest || currentState.requestPath !== requestPath) runtime.execute({ name: "set-bundle", mode: currentState.mode, bundleDigest: loaded.manifest.bundle_digest, requestPath }, "external");
+      if (currentState.bundleDigest !== loaded.manifest.bundle_digest) runtime.execute({ name: "set-bundle", mode: currentState.mode, bundleDigest: loaded.manifest.bundle_digest }, "external");
       const selected = loadedPairs.find(({ pair }) => pair.pair_id === currentState.pairId) ?? loadedPairs[0];
       if (selected && runtime.snapshot.state.pairId !== selected.pair.pair_id) runtime.execute({ name: "select-pair", pairId: selected.pair.pair_id }, "external");
       if (initialBundleLoad && currentState.nodeKey && runtime.snapshot.state.nodeKey !== currentState.nodeKey) runtime.execute({ name: "select-node", nodeKey: currentState.nodeKey }, "external");
@@ -222,7 +269,7 @@ export function ComparisonPage() {
     } finally {
       if (loadingKey.current === requestKey) loadingKey.current = null;
     }
-  }, [browse.bundleDigest, browse.mode, browse.modeRequests, browse.requestPath, runtime]);
+  }, [browse.bundleDigest, browse.mode, browse.operationId, browse.previewResultId, browse.submissionId, browse.workspaceId, runtime]);
   useEffect(() => { void loadBundle(); }, [loadBundle]);
 
   const activePair = pairs.find(({ pair }) => pair.pair_id === browse.pairId) ?? pairs[0];
@@ -374,15 +421,22 @@ export function ComparisonPage() {
     selectedEntry?.item.label ?? null,
     selectedTab?.label ?? null,
   ].filter((item): item is string => Boolean(item));
+  const returnToWorkbench = () => {
+    const params = new URLSearchParams({ page: "workspace" });
+    if (browse.operationId) params.set("operationId", browse.operationId);
+    if (browse.operationKind) params.set("operationKind", browse.operationKind);
+    for (const ref of browse.comparisonNodeRefs) params.append("compare", ref);
+    window.location.assign(`/?${params.toString()}`);
+  };
 
   return <main className="comparison-page">
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <div className="compare-header__top">
-        <button className="back-link" aria-label="返回工作台">‹ <span>返回工作台</span></button>
+        <button className="back-link" aria-label="返回工作台" onClick={returnToWorkbench}><ChevronLeft size={15} /><span>返回工作台</span></button>
         <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
         <div className="compare-header__mode"><span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span></div>
-        <div className="compare-status"><span className="compare-status__dot" />已连接 <span className="compare-status__divider" />{bundle ? "比较结果已就绪" : "读取比较结果"}</div>
+        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `仍在运行 · 已等待 ${historyCompareWaited} 秒` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewFacts.status === "PENDING" ? "待审核" : reviewFacts.status}</span>}{identityControl}</div>
       </div>
       <div className="compare-header__bottom">
         <div className="view-tabs" role="tablist" aria-label="比较视图">{(browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs).map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const status = presentViewStatus(pair.presentation.surface.view, diagnostics.tableCount); const risk = viewRiskLevel(pair); return <button role="tab" aria-selected={activePair?.pair.pair_id === pair.pair.pair_id} className={activePair?.pair.pair_id === pair.pair.pair_id ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), risk ? riskLevelText(risk) : null, ...status.tooltipItems].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span><small>{status.text}</small>{risk && <RiskBadge level={risk} />}</button>; })}</div>

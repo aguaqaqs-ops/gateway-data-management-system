@@ -58,7 +58,7 @@ export interface GatewayApi {
   applyReview(submissionId: string, body: { expected_review_version: number; action: ReviewAction; reason?: string | null }, idempotencyKey?: string): Promise<SafeReviewApplied>;
   listHistory(): Promise<SafeHistoryList>;
   startHistoryCompare(body: Schemas["HistoryCompareAcceptRequest"], idempotencyKey?: string): Promise<Schemas["HistoryCompareAcceptResponse"]>;
-  getHistoryCompare(operationId: string): Promise<Schemas["HistoryCompareResultResponse"]>;
+  getHistoryCompare(operationId: string, signal?: AbortSignal): Promise<Schemas["HistoryCompareResultResponse"]>;
   getHistoryBundle(operationId: string, signal?: AbortSignal): Promise<Response>;
   listArchiveCandidates(): Promise<Schemas["ArchiveCandidatesResponse"]>;
   listArchiveEvents(afterSequence?: number): Promise<Schemas["ArchiveAuditEventsResponse"]>;
@@ -67,10 +67,6 @@ export interface GatewayApi {
   appendArchiveAnomalyResolution(body: Schemas["AppendArchiveAnomalyResolutionRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveAuditAppendResponse"]>;
   startArchive(body: Schemas["StartArchiveRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveStartedResponse"]>;
   getArchiveResult(archiveResultId: string): Promise<Schemas["ArchiveResultResponse"]>;
-}
-
-function idempotencyKey(value?: string): string {
-  return value ?? crypto.randomUUID();
 }
 
 async function json<T>(response: Response): Promise<T> {
@@ -133,15 +129,16 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
       form.append("manifest", JSON.stringify({ expected_workspace_version: input.expectedWorkspaceVersion, input_completeness: input.inputCompleteness, artifacts }));
       if (input.initial) form.append(input.initial.partName, input.initial.file, input.initial.file.name);
       form.append(input.modified.partName, input.modified.file, input.modified.file.name);
-      const headers = new Headers({ "Idempotency-Key": idempotencyKey(input.idempotencyKey) });
+      const headers = new Headers();
+      if (input.idempotencyKey) headers.set("Idempotency-Key", input.idempotencyKey);
       const response = await request(route("/v1/workspaces/{workspace_id}/upload-revisions").replace("{workspace_id}", encodeURIComponent(workspaceId)), { method: "POST", headers, body: form });
       return json<Schemas["UploadRevisionResponse"]>(response);
     },
-    startPreview: (workspaceId, body, key) => sendJson<Schemas["OperationAcceptedResponse"]>(route("/v1/workspaces/{workspace_id}/preview-operations").replace("{workspace_id}", encodeURIComponent(workspaceId)), body, idempotencyKey(key)),
+    startPreview: (workspaceId, body, key) => sendJson<Schemas["OperationAcceptedResponse"]>(route("/v1/workspaces/{workspace_id}/preview-operations").replace("{workspace_id}", encodeURIComponent(workspaceId)), body, key),
     getOperation: async (operationId, signal) => json<Schemas["OperationResponse"]>(await request(route("/v1/operations/{operation_id}").replace("{operation_id}", encodeURIComponent(operationId)), { signal })),
     getPreviewResult: async (workspaceId, previewResultId) => json<Schemas["PreviewResultResponse"]>(await request(route("/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}").replace("{workspace_id}", encodeURIComponent(workspaceId)).replace("{preview_result_id}", encodeURIComponent(previewResultId)))),
     getPreviewBundle: (workspaceId, previewResultId, signal) => request(route("/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle").replace("{workspace_id}", encodeURIComponent(workspaceId)).replace("{preview_result_id}", encodeURIComponent(previewResultId)), { signal, headers: { Accept: "application/x-tar" } }),
-    acceptSubmit: (workspaceId, body, key) => sendJson<Schemas["SubmitAcceptedResponse"]>(route("/v1/workspaces/{workspace_id}/submit-attempts").replace("{workspace_id}", encodeURIComponent(workspaceId)), body, idempotencyKey(key)),
+    acceptSubmit: (workspaceId, body, key) => sendJson<Schemas["SubmitAcceptedResponse"]>(route("/v1/workspaces/{workspace_id}/submit-attempts").replace("{workspace_id}", encodeURIComponent(workspaceId)), body, key),
     getSubmitAttempt: async (workspaceId, attemptId) => json<Schemas["SubmitAttemptResponse"]>(await request(route("/v1/workspaces/{workspace_id}/submit-attempts/{submit_attempt_id}").replace("{workspace_id}", encodeURIComponent(workspaceId)).replace("{submit_attempt_id}", encodeURIComponent(attemptId)))),
     getSubmission: async (workspaceId, submissionId) => json<Schemas["SubmissionResponse"]>(await request(route("/v1/workspaces/{workspace_id}/submissions/{submission_id}").replace("{workspace_id}", encodeURIComponent(workspaceId)).replace("{submission_id}", encodeURIComponent(submissionId)))),
     async getReviewFacts(submissionId) {
@@ -149,7 +146,7 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
       return { ...result, status: safeReviewStatus(result.status), events: (result.events ?? []).map(safeReviewEvent) };
     },
     async applyReview(submissionId, body, key) {
-      const result = await sendJson<Schemas["ReviewAppliedResponse"]>(route("/v1/submissions/{submission_id}/review-events").replace("{submission_id}", encodeURIComponent(submissionId)), body, idempotencyKey(key));
+      const result = await sendJson<Schemas["ReviewAppliedResponse"]>(route("/v1/submissions/{submission_id}/review-events").replace("{submission_id}", encodeURIComponent(submissionId)), body, key);
       return { ...result, status: safeReviewStatus(result.status), event: safeReviewEvent(result.event) };
     },
     async listHistory() {
@@ -158,7 +155,9 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
       let cursor: string | undefined;
       let firstPage: Schemas["HistoryListResponse"] | undefined;
       for (;;) {
-        const path = `${route("/v1/history")}${cursor === undefined ? "" : `?cursor=${encodeURIComponent(cursor)}`}`;
+        const query = new URLSearchParams({ limit: "100" });
+        if (cursor !== undefined) query.set("cursor", cursor);
+        const path = `${route("/v1/history")}?${query.toString()}`;
         const page = await json<Schemas["HistoryListResponse"]>(await request(path));
         firstPage ??= page;
         nodes.push(...page.nodes.map((node) => ({ ...node, review_status: node.review_status == null ? null : safeReviewStatus(node.review_status) })));
@@ -169,15 +168,15 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
         cursor = next;
       }
     },
-    startHistoryCompare: (body, key) => sendJson<Schemas["HistoryCompareAcceptResponse"]>(route("/v1/history-compares"), body, idempotencyKey(key)),
-    getHistoryCompare: async (operationId) => json<Schemas["HistoryCompareResultResponse"]>(await request(route("/v1/history-compares/{operation_id}").replace("{operation_id}", encodeURIComponent(operationId)))),
+    startHistoryCompare: (body, key) => sendJson<Schemas["HistoryCompareAcceptResponse"]>(route("/v1/history-compares"), body, key),
+    getHistoryCompare: async (operationId, signal) => json<Schemas["HistoryCompareResultResponse"]>(await request(route("/v1/history-compares/{operation_id}").replace("{operation_id}", encodeURIComponent(operationId)), { signal })),
     getHistoryBundle: (operationId, signal) => request(route("/v1/history-compares/{operation_id}/bundle").replace("{operation_id}", encodeURIComponent(operationId)), { signal, headers: { Accept: "application/x-tar" } }),
     listArchiveCandidates: async () => json<Schemas["ArchiveCandidatesResponse"]>(await request(route("/v1/archive-candidates"))),
     listArchiveEvents: async (afterSequence) => json<Schemas["ArchiveAuditEventsResponse"]>(await request(`/v1/archive-audit-events${afterSequence === undefined ? "" : `?after_sequence=${encodeURIComponent(String(afterSequence))}`}`)),
     previewArchive: (body) => sendJson<Schemas["PreviewArchivePlanResponse"]>(route("/v1/archive-plan-preview"), body),
-    appendArchiveConfirmation: (body, key) => sendJson<Schemas["ArchiveAuditAppendResponse"]>(route("/v1/archive-confirmations"), body, idempotencyKey(key)),
-    appendArchiveAnomalyResolution: (body, key) => sendJson<Schemas["ArchiveAuditAppendResponse"]>(route("/v1/archive-anomaly-resolutions"), body, idempotencyKey(key)),
-    startArchive: (body, key) => sendJson<Schemas["ArchiveStartedResponse"]>(route("/v1/archives"), body, idempotencyKey(key)),
+    appendArchiveConfirmation: (body, key) => sendJson<Schemas["ArchiveAuditAppendResponse"]>(route("/v1/archive-confirmations"), body, key),
+    appendArchiveAnomalyResolution: (body, key) => sendJson<Schemas["ArchiveAuditAppendResponse"]>(route("/v1/archive-anomaly-resolutions"), body, key),
+    startArchive: (body, key) => sendJson<Schemas["ArchiveStartedResponse"]>(route("/v1/archives"), body, key),
     getArchiveResult: async (archiveResultId) => json<Schemas["ArchiveResultResponse"]>(await request(route("/v1/archives/{archive_result_id}").replace("{archive_result_id}", encodeURIComponent(archiveResultId)))),
   };
 }

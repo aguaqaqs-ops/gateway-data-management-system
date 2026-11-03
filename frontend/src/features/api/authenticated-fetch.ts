@@ -1,3 +1,5 @@
+import { reportConnectionStatus } from "./connection-status";
+
 export type AccessTokenProvider = () => string | null | Promise<string | null>;
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -19,10 +21,11 @@ export interface AuthenticatedFetchOptions {
   baseUrl: string;
   token: AccessTokenProvider;
   fetcher?: FetchLike;
+  trackConnection?: boolean;
 }
 
 /** Adds the current bearer token to every API call without persisting credentials in browser storage. */
-export function createAuthenticatedFetch({ baseUrl, token, fetcher = fetch }: AuthenticatedFetchOptions) {
+export function createAuthenticatedFetch({ baseUrl, token, fetcher = fetch, trackConnection = true }: AuthenticatedFetchOptions) {
   const root = baseUrl.replace(/\/$/, "");
   return async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
     const accessToken = await token();
@@ -30,8 +33,16 @@ export function createAuthenticatedFetch({ baseUrl, token, fetcher = fetch }: Au
     headers.set("Accept", headers.get("Accept") ?? "application/json");
     if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
     else headers.delete("Authorization");
-    const response = await fetcher(new URL(path, `${root}/`), { ...init, headers });
-    if (response.ok) return response;
+    let response: Response;
+    try {
+      response = await fetcher(new URL(path, `${root}/`), { ...init, headers });
+    } catch (cause) {
+      throw cause;
+    }
+    if (response.ok) {
+      if (trackConnection) reportConnectionStatus("connected");
+      return response;
+    }
 
     let body: unknown;
     try {

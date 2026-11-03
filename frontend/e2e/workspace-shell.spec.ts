@@ -75,6 +75,7 @@ async function waitForBrowse(page: Page) {
   if (await appGrid.count()) {
     await expect(appGrid).toHaveAttribute("data-rendered", "true");
     await expect(appGrid).toHaveAttribute("data-first-cell-content", /.+/);
+    await expect(appGrid.locator("canvas").first()).toBeVisible();
   } else {
     await expect(page.locator(".grid-frame canvas").first()).toBeVisible();
   }

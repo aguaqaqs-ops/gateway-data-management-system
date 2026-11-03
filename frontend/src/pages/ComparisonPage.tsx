@@ -524,7 +524,7 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   const gridRef = useRef<DataEditorRef>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const [frameWidth, setFrameWidth] = useState(0);
-  const [rendered, setRendered] = useState(false);
+  const [paintedToken, setPaintedToken] = useState<object | null>(null);
   const [hoveredCell, setHoveredCell] = useState<readonly [number, number] | null>(null);
   useEffect(() => {
     const frame = frameRef.current;
@@ -544,10 +544,20 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     const extra = dataColumns.length > 0 ? Math.max(0, (available - naturalWidth) / dataColumns.length) : 0;
     return [...meta, ...dataColumns.map((column) => ({ ...column, width: Math.floor(column.width + extra) }))];
   }, [debug, frameWidth, rows, table.columns]);
+  const paintToken = useMemo(() => ({}), [columns, rows]);
+  const rendered = paintedToken === paintToken;
+  const markPainted = useCallback(() => {
+    setPaintedToken((previous) => previous === paintToken ? previous : paintToken);
+  }, [paintToken]);
+  useEffect(() => {
+    if (rows.length !== 0) return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => { secondFrame = requestAnimationFrame(markPainted); });
+    return () => { cancelAnimationFrame(firstFrame); if (secondFrame) cancelAnimationFrame(secondFrame); };
+  }, [markPainted, rows.length]);
   const formulaColumnIndex = columns.findIndex((column) => column.id === "formula_ast_json");
   const formulaColumnOffset = formulaColumnIndex < 0 ? undefined : columns.slice(0, formulaColumnIndex).reduce((width, column) => width + column.width, 0);
   const formulaColumnWidth = formulaColumnIndex < 0 ? undefined : columns[formulaColumnIndex]?.width;
-  useEffect(() => { setRendered(false); }, [rows, columns]);
   const theme = useMemo(() => createTableTheme(), []);
   const pairRows = useMemo(() => { const result = new Map<string, number[]>(); rows.forEach((row, index) => { if (row.pairKey) result.set(row.pairKey, [...(result.get(row.pairKey) ?? []), index]); }); return result; }, [rows]);
   useEffect(() => {
@@ -585,12 +595,14 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
   }, [columns, pairRows, rows, table.table_name, theme.baseFontStyle]);
   const getRowThemeOverride = useCallback((row: number): Partial<Theme> | undefined => { const value = rows[row]; if (!value?.riskLevel) return undefined; const risk = riskTokens(value.riskLevel); return { bgCell: risk.bg, textDark: risk.text }; }, [rows]);
   const drawCell = useCallback((args: Parameters<NonNullable<ComponentProps<typeof DataEditor>["drawCell"]>>[0], drawContent: () => void) => {
-    drawContent(); const row = rows[args.row]; if (!row) return;
+    drawContent();
+    if (args.col === 0 && args.row === 0) markPainted();
+    const row = rows[args.row]; if (!row) return;
     if (args.col === 0 && row.riskLevel) { args.ctx.fillStyle = riskTokens(row.riskLevel).rail; args.ctx.fillRect(args.rect.x, args.rect.y, 4, args.rect.height); }
     if (args.col === 1 && row.pairKey) { const pair = pairRows.get(row.pairKey) ?? []; const at = pair.indexOf(args.row); if (pair.length === 2 && Math.abs((pair[0] ?? 0) - (pair[1] ?? 0)) === 1) { args.ctx.strokeStyle = "#68798A"; args.ctx.lineWidth = 1.5; args.ctx.beginPath(); const x = args.rect.x + 14; const center = args.rect.y + args.rect.height / 2; args.ctx.moveTo(x, at === 0 ? center : args.rect.y); args.ctx.lineTo(x, at === 0 ? args.rect.y + args.rect.height : center); args.ctx.stroke(); } }
     if (row.kind === "deleted" && args.col >= (debug ? 5 : 2)) { args.ctx.strokeStyle = "#535D69"; args.ctx.lineWidth = 1; args.ctx.beginPath(); const y = args.rect.y + args.rect.height / 2; args.ctx.moveTo(args.rect.x + 8, y); args.ctx.lineTo(args.rect.x + args.rect.width - 8, y); args.ctx.stroke(); }
     if (highlightedIdentity && row.rowIdentity === highlightedIdentity) { args.ctx.strokeStyle = "#1F5FBF"; args.ctx.lineWidth = 1; args.ctx.beginPath(); args.ctx.moveTo(args.rect.x, args.rect.y + .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + .5); args.ctx.moveTo(args.rect.x, args.rect.y + args.rect.height - .5); args.ctx.lineTo(args.rect.x + args.rect.width, args.rect.y + args.rect.height - .5); if (args.col === 0) { args.ctx.moveTo(args.rect.x + .5, args.rect.y); args.ctx.lineTo(args.rect.x + .5, args.rect.y + args.rect.height); } if (args.col === columns.length - 1) { args.ctx.moveTo(args.rect.x + args.rect.width - .5, args.rect.y); args.ctx.lineTo(args.rect.x + args.rect.width - .5, args.rect.y + args.rect.height); } args.ctx.stroke(); }
-  }, [columns.length, debug, highlightedIdentity, pairRows, rows]);
+  }, [columns.length, debug, highlightedIdentity, markPainted, pairRows, rows]);
   const activate = useCallback(([column, row]: readonly [number, number]) => {
     if (table.table_name === "composite_signal_point" && columns[column]?.id === "formula_ast_json") { onOpenFormula(); return; }
     if (columns[column]?.id === "__diff" && rows[row]?.kind === "collapsed") onExpand(rows[row] as BrowseRow);
@@ -605,9 +617,9 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     if (!first || !last) return;
     const start = first.rowNumber ?? first.currentPosition ?? 1;
     const end = last.collapsedRows?.at(-1)?.rowNumber ?? last.rowNumber ?? last.currentPosition ?? start;
-    setRendered(true);
+    markPainted();
     onVisibleRows({ start, end });
-  }, [onVisibleRows, rows]);
+  }, [markPainted, onVisibleRows, rows]);
   const hoverRow = hoveredCell ? rows[hoveredCell[1]] : undefined;
   const hoverColumn = hoveredCell ? columns[hoveredCell[0]] : undefined;
   const hoverPair = hoverRow?.pairKey ? pairRows.get(hoverRow.pairKey) : undefined;

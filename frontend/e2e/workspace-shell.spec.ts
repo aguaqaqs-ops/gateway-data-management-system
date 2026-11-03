@@ -128,6 +128,10 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await page.goto(browseUrl("PREVIEW", previewPath, { pair: "baseline_to_initial", changed: "1" }));
   await waitForBrowse(page);
 
+  await expect(page.locator(".view-tabs small")).toHaveText(["更新", "更新"]);
+  const firstPreviewView = page.locator(".view-tabs [role=tab]").first();
+  await expect(firstPreviewView).toHaveAttribute("title", /2 张表降级比较/);
+  await expect(firstPreviewView).toHaveAttribute("title", /3 张表有比较提示/);
   await expect(page.locator(".mode-tag")).toHaveText("上传");
   await expect(page.getByRole("navigation", { name: "位置" })).toContainText("原始组态视图");
   await expect(page.locator(".mode-tabs")).toHaveCount(0);
@@ -241,6 +245,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(formula.getByText("改前公式在 BE-b 实现后提供", { exact: true })).toBeVisible();
   await expect(formula).toContainText("公式已改");
   await expect(formula).toContainText("| 嵌套命名表达式 =");
+  await expect(formula).toContainText("+ （* 分组）");
   await expect(formula).toContainText("线路保护装置 A:线路电流");
   await expect(formula).toContainText("Device 999:未映射测点");
   await expect(formula).not.toContainText("kind:");

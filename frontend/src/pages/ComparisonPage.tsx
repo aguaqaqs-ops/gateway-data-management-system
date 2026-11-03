@@ -12,6 +12,7 @@ import { firstDegradedDiagnostic, formatNavigationDiagnostic, formatSurfaceDiagn
 import { describeRiskReason } from "../features/view-model/risk-copy";
 import { identityStatusText } from "../features/view-model/identity-copy";
 import { SurfaceChangeBadge, TableFailureNotice, surfaceChangePresentation, tableStatusText } from "../features/view-model/table-state";
+import { presentViewStatus } from "../features/view-model/view-status";
 import { BrowseCommandRuntime, decodeBrowseState, type BrowseState } from "../features/view-model/commands";
 import { createTableTheme } from "../design-system/theme";
 import { ErrorState, LoadingSkeleton, RiskBadge, formatBytes } from "../design-system/components";
@@ -55,14 +56,6 @@ function viewTitle(pair: PairPresentation, index: number, total: number, mode: B
 function viewRiskLevel(pair: PairPresentation): RiskLevel | null {
   const risk = pair.presentation.surface.view?.risk_level;
   return risk === "HIGH" || risk === "MEDIUM_HIGH" || risk === "MEDIUM_LOW" || risk === "LOW" || risk === "UNKNOWN" ? risk : null;
-}
-
-function viewStatusText(pair: PairPresentation): string {
-  const view = pair.presentation.surface.view ?? {};
-  const failures = Number(view.failed_table_count ?? 0);
-  const degraded = Number(view.degraded_table_count ?? 0);
-  const changed = Number(view.changed_table_count ?? 0);
-  return tableStatusText({ changeKind: failures > 0 ? "FAILED" : degraded > 0 ? "DEGRADED" : changed > 0 ? "UPDATED" : "UNCHANGED" });
 }
 
 function pairDiagnosticDetails(pair: PairPresentation): { codes: string[]; tableCount: number } {
@@ -392,7 +385,7 @@ export function ComparisonPage() {
         <div className="compare-status"><span className="compare-status__dot" />已连接 <span className="compare-status__divider" />{bundle ? "比较结果已就绪" : "读取比较结果"}</div>
       </div>
       <div className="compare-header__bottom">
-        <div className="view-tabs" role="tablist" aria-label="比较视图">{(browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs).map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const risk = viewRiskLevel(pair); return <button role="tab" aria-selected={activePair?.pair.pair_id === pair.pair.pair_id} className={activePair?.pair.pair_id === pair.pair.pair_id ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), risk ? riskLevelText(risk) : null, diagnostics.tableCount ? `${diagnostics.tableCount} 张表有比较提示` : null].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span><small>{viewStatusText(pair)}</small>{risk && <RiskBadge level={risk} />}</button>; })}</div>
+        <div className="view-tabs" role="tablist" aria-label="比较视图">{(browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs).map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const status = presentViewStatus(pair.presentation.surface.view, diagnostics.tableCount); const risk = viewRiskLevel(pair); return <button role="tab" aria-selected={activePair?.pair.pair_id === pair.pair.pair_id} className={activePair?.pair.pair_id === pair.pair.pair_id ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), risk ? riskLevelText(risk) : null, ...status.tooltipItems].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span><small>{status.text}</small>{risk && <RiskBadge level={risk} />}</button>; })}</div>
         <div className="header-tools"><div className="scope-toggle" role="group" aria-label="表格范围"><button className={!onlyInteresting ? "is-active" : ""} aria-pressed={!onlyInteresting} onClick={() => runtime.execute({ name: "set-only-interesting", enabled: false })}>全部</button><button className={onlyInteresting ? "is-active" : ""} aria-pressed={onlyInteresting} onClick={() => runtime.execute({ name: "set-only-interesting", enabled: true })}>仅看差异</button></div>{import.meta.env.DEV && <div className="display-mode"><span>开发环境</span><div role="radiogroup" aria-label="显示模式"><button role="radio" aria-checked={!debug} className={!debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: false })}>User</button><button role="radio" aria-checked={debug} className={debug ? "is-active" : ""} onClick={() => runtime.execute({ name: "set-debug", enabled: true })}><Code2 size={13} /> Debug</button></div></div>}</div>
       </div>
     </header>

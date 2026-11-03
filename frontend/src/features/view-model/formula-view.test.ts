@@ -23,12 +23,43 @@ describe("composite signal formula rendering", () => {
       ["expression", "+ 2"],
       ["expression", "+ 3"],
       ["expression", "+ 测控装置:测量电压"],
+      ["group", "+ （* 分组）"],
       ["expression", "* 4"],
       ["expression", "* Device 999:未映射测点"],
       ["expression", "* 5"],
       ["expression", "| 6"],
-      ["expression", "| - 线路保护装置 A:线路电流"],
+      ["group", "| （- 分组）"],
+      ["expression", "- 线路保护装置 A:线路电流"],
     ]);
+    const productGroup = lines.find((line) => line.text === "+ （* 分组）");
+    expect(productGroup).toMatchObject({ kind: "group", depth: 1 });
+    expect(lines.filter((line) => line.text.startsWith("* ")).map((line) => line.depth)).toEqual([2, 2, 2]);
+  });
+
+  it("keeps the fixture's mixed-operator group and its History rows aligned", () => {
+    const ast = (firstValue: string) => ({
+      kind: "EXPRESS", operator: "|", children: [
+        { kind: "EXPRESS", operator: "+", name: "嵌套命名表达式", children: [
+          { kind: "EXPRESS", operator: "+", children: [
+            { kind: "POINT", name: "Device 1:线路电流" },
+            { kind: "EXPRESS", operator: "*", children: [
+              { kind: "DIGITAL", value: firstValue },
+              { kind: "POINT", name: "Device 2:测量电压" },
+              { kind: "DIGITAL", value: "4" },
+            ] },
+          ] },
+        ] },
+      ],
+    });
+    const before = renderFormulaLines(ast("3"));
+    const current = renderFormulaLines(ast("5"));
+    const aligned = alignFormulaLines(before, current);
+    expect(aligned.find((line) => line.before?.text === "+ （* 分组）")).toMatchObject({
+      state: "same", before: { kind: "group", depth: 1 }, current: { kind: "group", depth: 1 },
+    });
+    expect(aligned.find((line) => line.before?.text === "* 3")).toMatchObject({
+      state: "changed", before: { text: "* 3", depth: 2 }, current: { text: "* 5", depth: 2 },
+    });
   });
 
   it("aligns changed, added and removed formula rows", () => {

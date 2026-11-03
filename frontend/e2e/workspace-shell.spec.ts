@@ -1058,7 +1058,7 @@ test("FE2c 提交前要求确认项目身份差异并进入审核", async ({ pag
 });
 
 test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
-  await installFixtureRoutes(page, { submitForbidden: true });
+  const first = await installFixtureRoutes(page, { submitForbidden: true });
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
@@ -1066,11 +1066,20 @@ test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByText("当前身份没有该操作的权限")).toBeVisible();
   await expect(dialog.getByText("SCOPE_FORBIDDEN")).toBeVisible();
-  await dialog.getByRole("button", { name: "取消" }).click();
+  const firstKey = first.apiRequests.find((request) => request.path.endsWith("/submit-attempts"))?.idempotencyKey;
+
+  await page.unrouteAll();
+  const retry = await installFixtureRoutes(page, {});
+  await dialog.getByRole("button", { name: "确认提交" }).click();
+  await expect(page).toHaveURL(/mode=REVIEW.*submissionId=submission-1/, { timeout: 30000 });
+  const retriedKey = retry.apiRequests.find((request) => request.path.endsWith("/submit-attempts"))?.idempotencyKey;
+  expect(firstKey).toBeTruthy();
+  expect(retriedKey).toBeTruthy();
+  expect(retriedKey).not.toBe(firstKey);
 
   await page.unrouteAll();
   await installFixtureRoutes(page, { submitConflict: "WORKSPACE_VERSION_CONFLICT" });
-  await page.reload();
+  await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
   const conflictDialog = page.getByRole("dialog", { name: "提交本次组态" });

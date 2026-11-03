@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { components } from "../api/generated/openapi";
 import { gatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
-import { runSubmitJourney, SubmitAbortedError } from "../api/journeys";
+import { PollingConnectionLostError, runSubmitJourney, SubmitAbortedError } from "../api/journeys";
 import { currentGatewaySession } from "../api/session";
 import { Button, Dialog } from "../../design-system/components";
 import { formatWaitDuration } from "./wait-duration";
@@ -54,6 +54,15 @@ function describeSubmitError(cause: unknown): { title: string; code: string; ret
   }
   return { title: cause instanceof Error ? cause.message : "提交失败", code: "SUBMIT_FAILED", retryable: true };
 }
+
+function retainsIdempotencyKey(cause: unknown): boolean {
+  if (cause instanceof ApiError) return cause.status >= 500 || cause.status === 429;
+  if (cause instanceof SubmitAbortedError) return false;
+  if (cause instanceof DOMException && cause.name === "TimeoutError") return true;
+  if (cause instanceof PollingConnectionLostError) return true;
+  return cause instanceof TypeError;
+}
+
 
 interface SubmitDialogProps {
   open: boolean;
@@ -123,6 +132,8 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
     setAborted(null);
     setElapsed(0);
     startedAt.current = Date.now();
+    const key = idempotencyKey.current ?? crypto.randomUUID();
+    idempotencyKey.current = key;
     try {
       const result = await runSubmitJourney(gatewayApi, {
         workspaceId,
@@ -132,7 +143,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         expectedWorkspaceVersion: workspaceVersion,
         baselineNodeId: preview.business_baseline_node_id,
         baselineHeadVersion: head.version,
-        idempotencyKey: idempotencyKey.current ?? undefined,
+        idempotencyKey: key,
         identityConfirmations: requiredPairs.map((pair) => ({
           action: CONFIRMATION_ACTION[pair.status],
           assessmentSetDigest: preview.identity_assessment_set_digest,
@@ -141,12 +152,16 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
       });
       onSubmitted(result.submission.submission_id);
     } catch (cause) {
+      // 已确定失败（4xx/ABORTED）时换新键，否则重试会重放同一个失败结果；
+      // 超时、连接中断与 5xx 结果不确定，沿用原键避免重复提交。
+      if (!retainsIdempotencyKey(cause)) idempotencyKey.current = null;
       if (cause instanceof SubmitAbortedError) {
         setAborted(cause.abortCode);
-        setFailure({ title: "提交未完成", code: cause.abortCode, retryable: true });
+        setFailure({ title: "提交未完成", code: cause.abortCode, retryable: false });
       } else {
         setFailure(describeSubmitError(cause));
       }
+
     } finally {
       setSubmitting(false);
     }

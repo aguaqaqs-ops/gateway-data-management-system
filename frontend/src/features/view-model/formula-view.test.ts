@@ -41,11 +41,20 @@ describe("composite signal formula rendering", () => {
       kind: "EXPRESS", operator: "|", children: [
         { kind: "EXPRESS", operator: "+", name: "嵌套命名表达式", children: [
           { kind: "EXPRESS", operator: "+", children: [
-            { kind: "POINT", name: "Device 1:线路电流" },
+            { kind: "EXPRESS", operator: "+", children: [
+              { kind: "POINT", name: "Device 1:线路电流" },
+              { kind: "DIGITAL", value: "1" },
+              { kind: "EXPRESS", operator: "+", children: [
+                { kind: "DIGITAL", value: "2" },
+                { kind: "POINT", name: "Device 2:测量电压" },
+              ] },
+            ] },
             { kind: "EXPRESS", operator: "*", children: [
               { kind: "DIGITAL", value: firstValue },
-              { kind: "POINT", name: "Device 2:测量电压" },
-              { kind: "DIGITAL", value: "4" },
+              { kind: "EXPRESS", operator: "*", children: [
+                { kind: "POINT", name: "Device 2:测量电压" },
+                { kind: "DIGITAL", value: "4" },
+              ] },
             ] },
           ] },
         ] },

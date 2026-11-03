@@ -18,6 +18,7 @@ import { ErrorState, LoadingSkeleton, RiskBadge, formatBytes } from "../design-s
 
 type PairSummary = { pair_id: string };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
+type SizedGridColumn = GridColumn & { width: number };
 type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGroups: string[] };
 const API = createAuthenticatedFetch({ baseUrl: window.location.origin, token: () => null });
 const SETTINGS_KEY = "gateway-comparison-sidebar-v1";
@@ -150,11 +151,6 @@ function matchesItem(item: DerivedNavigationGroup["items"][number], query: strin
   const value = query.trim().toLocaleLowerCase();
   return !value || [item.label, ...item.tabs.map((tab) => tab.label)]
     .some((label) => label.toLocaleLowerCase().includes(value));
-}
-
-function tabHasSignal(tab: DerivedNavigationGroup["items"][number]["tabs"][number]): boolean {
-  if (tab.rowFilter === null) return Boolean(tab.table && (tab.table.changeKind !== "UNCHANGED" || tab.table.riskLevel));
-  return Boolean((tab.facts?.change_kind && tab.facts.change_kind !== "UNCHANGED") || tab.facts?.risk_level);
 }
 
 function requestForMode(mode: BrowseState["mode"], state: BrowseState): string | undefined {
@@ -538,11 +534,11 @@ function GridTable({ rows, table, tabKey, annotations, debug, highlightedIdentit
     setFrameWidth(frame.clientWidth);
     return () => observer.disconnect();
   }, []);
-  const columns = useMemo<GridColumn[]>(() => {
-    const meta: GridColumn[] = [{ id: "__number", title: "#", width: 54 }, { id: "__diff", title: "变更", width: 180 }];
+  const columns = useMemo<SizedGridColumn[]>(() => {
+    const meta: SizedGridColumn[] = [{ id: "__number", title: "#", width: 54 }, { id: "__diff", title: "变更", width: 180 }];
     if (debug) meta.push({ id: "__kind", title: "Diff Kind", width: 210 }, { id: "__role", title: "Row Role", width: 84 }, { id: "__semantic", title: "Ordered Semantic / Position", width: 260 });
     const sample = rows.slice(0, 200);
-    const dataColumns = (table.columns ?? []).map((column) => ({ id: column.name, title: column.name, width: columnWidth(column.name, sample.map((row) => row.values[column.name])) }));
+    const dataColumns: SizedGridColumn[] = (table.columns ?? []).map((column) => ({ id: column.name, title: column.name, width: columnWidth(column.name, sample.map((row) => row.values[column.name])) }));
     const naturalWidth = dataColumns.reduce((total, column) => total + column.width, 0);
     const available = Math.max(0, frameWidth - meta.reduce((total, column) => total + column.width, 0) - 24);
     const extra = dataColumns.length > 0 ? Math.max(0, (available - naturalWidth) / dataColumns.length) : 0;

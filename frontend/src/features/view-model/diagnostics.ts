@@ -169,7 +169,7 @@ export function formatSurfaceDiagnostic(value: string): { message: string; raw: 
 }
 
 export function firstDegradedDiagnostic(codes: readonly string[]): string {
-  const priority = new Map(SURFACE_DIAGNOSTIC_CODES.map((code, index) => [code, index]));
+  const priority = new Map<string, number>(SURFACE_DIAGNOSTIC_CODES.map((code, index): [string, number] => [code, index]));
   const known = codes.map((code) => ({ code, match: priority.has(code) ? code : code.split(":", 1)[0] ?? code }))
     .filter((item) => formatSurfaceDiagnostic(item.code).message !== "比较过程有提示")
     .sort((left, right) => (priority.get(left.match) ?? Number.MAX_SAFE_INTEGER) - (priority.get(right.match) ?? Number.MAX_SAFE_INTEGER));

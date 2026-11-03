@@ -35,7 +35,7 @@ describe("navigation and surface diagnostic copy", () => {
     const surface = {
       view: { diagnostics_summary: ["DUPLICATE_EFFECTIVE_KEY", "PROJECT_IDENTITY_UNVERIFIABLE"] },
       tables: [{ diagnostics: { diagnostics_summary: ["DUPLICATE_EFFECTIVE_KEY:device"] } }],
-    } as Parameters<typeof pairSurfaceDiagnosticCodes>[0];
+    } as unknown as Parameters<typeof pairSurfaceDiagnosticCodes>[0];
     expect(pairSurfaceDiagnosticCodes(surface)).toEqual(["PROJECT_IDENTITY_UNVERIFIABLE"]);
   });
 

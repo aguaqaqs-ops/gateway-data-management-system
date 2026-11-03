@@ -9,10 +9,14 @@ const backendOrigin = process.env.GATEWAY_FRONTEND_BACKEND_ORIGIN ?? "http://127
 const productionModuleManifest: Plugin = {
   name: "production-module-manifest",
   apply: "build" as const,
-  async writeBundle() {
-    const modules = [...this.getModuleIds()]
-      .filter((id) => this.getModuleInfo(id)?.isIncluded)
-      .map((id) => id.replaceAll("\\", "/"));
+  async writeBundle(_options, bundle) {
+    const modules = [...new Set(Object.values(bundle).flatMap((output) =>
+      output.type === "chunk"
+        ? Object.entries(output.modules)
+            .filter(([, module]) => module.renderedLength > 0)
+            .map(([id]) => id.replaceAll("\\", "/"))
+        : []
+    ))];
     const directory = resolve(process.cwd(), "dist", ".vite");
     await mkdir(directory, { recursive: true });
     await writeFile(resolve(directory, "rollup-modules.json"), JSON.stringify(modules, null, 2) + "\n");

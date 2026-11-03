@@ -239,6 +239,28 @@ async function clickFormulaCell(page: Page) {
   await page.mouse.click(bounds.x + offset + width / 2, bounds.y + 38 + 19);
 }
 
+async function hoverChangedTelemetryValue(page: Page) {
+  const grid = page.locator('.grid-frame[data-tab-key="telemetry"]');
+  const bounds = await grid.boundingBox();
+  if (!bounds) throw new Error("workbench telemetry grid has no bounds");
+  const tooltip = page.getByRole("tooltip");
+  const rowsVisible = Math.max(1, Math.floor((bounds.height - 38) / 38));
+  const valueColumnCandidates = [50, 100, 150, 200, 250, 300];
+  for (let row = 0; row < rowsVisible; row += 1) {
+    const y = bounds.y + 38 + row * 38 + 19;
+    for (const fromRight of valueColumnCandidates) {
+      await page.mouse.move(bounds.x + bounds.width - fromRight, y);
+      try {
+        await expect(tooltip).toContainText("字段变更", { timeout: 100 });
+        return;
+      } catch {
+        // Keep scanning visible telemetry cells until the fixture's changed value is hovered.
+      }
+    }
+  }
+  throw new Error("could not hover a changed value in the visible telemetry rows");
+}
+
 test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面", async ({ page }) => {
   const { requests } = await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -624,14 +646,12 @@ test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断
   await screenshot(page, "s3-workbench-normal", 1920);
   await waitForGridPaint(page, "telemetry");
   await screenshot(page, "s4-grid-normal-main", 1920);
-  const grid = page.locator('.grid-frame[data-tab-key="telemetry"]');
-  const bounds = await grid.boundingBox();
-  if (!bounds) throw new Error("workbench telemetry grid has no bounds");
-  await page.mouse.move(bounds.x + bounds.width - 150, bounds.y + 38 + 4 * 38 + 19);
-  await expect(page.getByRole("tooltip")).toContainText("字段变更");
+  await hoverChangedTelemetryValue(page);
   await screenshot(page, "s4-grid-normal-hover", 1920);
   await screenshot(page, "s3-workbench-normal", 1280);
   await screenshot(page, "s4-grid-normal-main", 1280);
+  await hoverChangedTelemetryValue(page);
+  await expect(page.getByRole("tooltip")).toContainText("字段变更");
   await screenshot(page, "s4-grid-normal-hover", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.getByRole("radio", { name: "Debug" }).click();

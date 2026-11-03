@@ -29,14 +29,6 @@ const emptySlot: DirectorySlot = { name: "", directory: null, errors: [] };
 
 type UploadPhase = "idle" | "packaging" | "uploading" | "previewing" | "downloading" | "writing" | "failed" | "done";
 
-const PHASE_LABELS: Record<Exclude<UploadPhase, "idle" | "failed" | "done">, string> = {
-  packaging: "正在打包目录",
-  uploading: "正在上传组态包",
-  previewing: "正在生成 Preview",
-  downloading: "正在下载预览结果",
-  writing: "正在写入本地",
-};
-
 function errorMessage(cause: unknown): { message: string; code: string | null; retryable: boolean } {
   if (cause instanceof ApiError) {
     if (cause.code === "SCOPE_FORBIDDEN" || cause.status === 403) {
@@ -218,10 +210,16 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   }));
 
   const elapsed = operation ? operationElapsedSeconds(operation, now) : null;
+  const uploadStatus: OperationPhase["status"] = ["previewing", "downloading", "writing", "done"].includes(phase)
+    ? "complete"
+    : busy && (phase === "packaging" || phase === "uploading")
+      ? "active"
+      : phase === "failed" ? "failed" : "pending";
+  const uploadDuration = phaseDurations.uploading !== undefined ? `${phaseDurations.uploading} 秒` : undefined;
   const phases: OperationPhase[] = [
-    { name: "上传组态包", status: busy && (phase === "packaging" || phase === "uploading") ? "active" : phase === "failed" ? "failed" : phase === "idle" ? "pending" : "complete", duration: phaseDurations.uploading !== undefined ? `${phaseDurations.uploading} 秒` : undefined },
-    { name: "生成 Preview", status: phase === "previewing" ? "active" : ["downloading", "writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
-    { name: "下载预览结果", status: phase === "downloading" ? "active" : ["writing", "done"].includes(phase) ? "complete" : "pending" },
+    ...(initial.directory ? [{ name: "上传原始组态备份", status: uploadStatus, duration: uploadDuration }] : []),
+    { name: "上传本次归档组态", status: uploadStatus, duration: uploadDuration },
+    { name: "生成并下载 Preview", status: phase === "previewing" ? "active" : ["downloading", "writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
     { name: "写入本地", status: phase === "writing" ? "active" : phase === "done" ? "complete" : "pending" },
     { name: "完成，进入差异浏览", status: phase === "done" ? "complete" : "pending" },
   ];
@@ -246,7 +244,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
           <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => initialInput.current?.click()}>选择目录</Button>
           <p className="upload-step__summary">{slotSummary(initial)}</p>
           {initial.directory && !busy && <DirectorySummary directoryName={initial.directory.rootName} fileCount={initial.directory.files.length} sizeBytes={initial.directory.totalBytes} mainFile={initial.directory.mainFile} />}
-          {initial.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>原始组态备份未通过校验</strong><ul>{initial.errors.map((item) => <li key={item}>{item}</li>)}</ul></div></div>}
+          {initial.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>原始组态备份未通过校验</strong><ul>{initial.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(initial.errors.join("\n"))}>复制错误信息</button></div></div>}
         </div>
       </li>
       <li className="upload-step">
@@ -272,7 +270,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       <ul><li>只包含一个根目录</li><li>根目录下恰好一个 .pmc 文件</li><li>包含 sql/ 目录和 sql/dbcfg.sql</li><li>不超过 5000 个文件，总大小不超过 1GB</li></ul>
     </details>}
     {busy && <div className="upload-progress">
-      <OperationStatus title={PHASE_LABELS[phase as keyof typeof PHASE_LABELS] ?? "上传中"} phases={phases} />
+      <OperationStatus title="上传中" phases={phases} />
       {operation && <p className="upload-progress__wait">已等待 {formatWaitDuration(elapsed ?? 0)}</p>}
       <p className="upload-progress__lock">处理中不可关闭，页面其余操作已锁定。完成后自动进入差异浏览；失败时在此显示失败步骤，可直接重试。</p>
     </div>}

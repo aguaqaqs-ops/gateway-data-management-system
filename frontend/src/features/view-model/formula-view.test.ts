@@ -43,7 +43,7 @@ describe("composite signal formula rendering", () => {
         { kind: "EXPRESS", operator: "-", children: [{ kind: "POINT", name: "Device 1:X" }] },
       ],
     });
-    expect(lines.map((line) => line.text)).toEqual(["- X"]);
+    expect(lines.map((line) => line.text)).toEqual(["- Device 1:X"]);
   });
 
   it("keeps the fixture's mixed-operator group and its History rows aligned", () => {

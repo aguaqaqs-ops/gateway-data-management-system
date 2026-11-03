@@ -4,6 +4,7 @@
   2026-11-03 按 FE2a 审核的设计问题修订 §4.2、§4.3、§5.1、§5.3、§5.5、§5.6（owner 确认，§9 Q6–Q9）。
   2026-11-03 FE2a 退出（§2），新增 §6.3 FE2a 带入项（§9 Q10、Q11）。
   2026-11-03 新增 §7.5 模拟接口响应规则；FE2b 拆分为 FE2b、FE2c（§2，§9 Q12）；更正 §4.1 工作区的来源。
+  2026-11-03 按审核会话核对更正 §3 N2、§4.5、§7.5：`MANUAL_RECOVERY_REQUIRED` 不是终态；补充 `POST /v1/workspaces` 的状态码、按 route 声明的错误覆盖、FE1 测试数据的取值更正。
 - **FE2b：** 可以开始。起点为 `fe-fe2a-exit`（main 合入提交 `a7c6160447`），审核范围为 `fe-fe2a-exit..<候选>`。
 - **日期：** 2026-11-02。
 - **起点：** `fe-fe1-exit`（`a42139222f`），main 合入提交 `abbe6e8777`。
@@ -64,7 +65,7 @@ FE2b 的写操作依赖 N1、N2，可以在 FE2a 审核期间准备。两个子�
 | ID | 内容 | 子阶段 | 完成标准 |
 | --- | --- | --- | --- |
 | N1 | 幂等 key 按用户意图复用：用户确认一次操作时生成 key，同一意图的重试（含网络中断后的重试按钮）复用该 key；旅程函数按步骤接收 key，不在 client 内部生成 | FE2b | 单测：重试复用同一 key，新的意图用新 key；e2e：模拟第一次请求超时、重试，模拟接口按 key 回放第一次结果 |
-| N2 | 轮询：超时只表示“仍在运行”，不判为失败；界面显示已等待时长，可继续等待或离开页面（后端操作继续）。临时错误（网络错误、5xx、429）按有上限的退避重试，超过上限后显示“连接中断”并提供重试，不判定操作失败。`operation_id` 写入 URL，刷新后继续轮询 | FE2b | 单测覆盖超时、临时错误重试与上限、终态（含 `SUPERSEDED`、`MANUAL_RECOVERY_REQUIRED`）；e2e 覆盖“仍在运行”与刷新后继续 |
+| N2 | 轮询：超时只表示“仍在运行”，不判为失败；界面显示已等待时长，可继续等待或离开页面（后端操作继续）。临时错误（网络错误、5xx、429）按有上限的退避重试，超过上限后显示“连接中断”并提供重试，不判定操作失败。`operation_id` 写入 URL，刷新后继续轮询 | FE2b | 单测覆盖超时、临时错误重试与上限、终态（`SUCCEEDED`、`FAILED`、`CANCELLED`、`SUPERSEDED`），以及 `MANUAL_RECOVERY_REQUIRED` 之后继续轮询并按后续状态更新（§4.5）；e2e 覆盖“仍在运行”与刷新后继续 |
 | N4 | 已缓存的表不在每次读取时重算整个文件的摘要：写入时校验一次；之后在每个浏览会话中首次读取某表时校验一次，结果在会话内记住；读取或解析失败时清除该 bundle 缓存并重新下载 | FE2a | 单测：同一会话第二次打开同一表不再计算摘要；摘要不符时触发重新下载 |
 | N6 | 应用代码的 tsconfig 不含 Node 类型；测试与脚本用单独的 tsconfig | FE2a | 应用代码中使用 `Buffer` 时 typecheck 失败（可用一次性探针验证，结果写进 handoff） |
 | R4 | 本地搜索跳过二进制值（`ArrayBuffer`/`ArrayBufferView`），只匹配展示文本，不匹配值结构中的 `kind` 等结构字段 | FE2a | 单测：搜索“12”不命中只在行标识字节中含 12 的行；搜索“string”不命中全部记录 |
@@ -153,7 +154,11 @@ Debug 模式的元数据列：
 - **操作状态**（`OperationStatus`）：
   - `QUEUED` 排队中、`RUNNING` 执行中、`SUCCEEDED` 已完成、`FAILED` 失败、`CANCELLED` 已取消；
   - `SUPERSEDED` 显示“已被新的操作取代”；
-  - `MANUAL_RECOVERY_REQUIRED` 显示“需要管理员处理”，同时显示操作 ID（可复制），不提供重试。
+  - `MANUAL_RECOVERY_REQUIRED` 显示“需要管理员处理”，同时显示操作 ID（可复制），不提供重试。它不是终态：
+    管理员恢复后，操作可以转到 `RUNNING`、`SUCCEEDED` 或 `FAILED`（`operations/state.py` 的 `_OPERATION_ALLOWED_TRANSITIONS`；
+    终态只有 `SUCCEEDED`、`FAILED`、`CANCELLED`、`SUPERSEDED`，见 `operations/contracts.py` 的 `_OPERATION_FINAL_TERMINAL`）。
+    因此进入该状态后轮询继续，间隔放宽到 30 秒，同时提供“刷新状态”按钮立即查询一次；用户可以离开页面，`operation_id` 仍在 URL 中（N2）。
+    状态变化后按新状态更新界面：回到 `RUNNING` 显示进度，转到 `SUCCEEDED`、`FAILED` 按对应终态处理。
 
 ## 5. FE2a：差异浏览
 
@@ -397,23 +402,45 @@ bundle 仍按 §7.1 由生成器产出，本节只管 JSON 响应。
   | `OperationResponse.job_kind` | `backend-vnext/preview`、`backend-vnext/submit`、`backend-vnext/history-compare` | `application/preview_jobs.py`、`application/submission/job_payload.py`、`application/history/contracts.py` |
   | `WorkspaceResponse.state` | `OPEN`、`CLOSED` | `domain/workspace/models.py` `WorkspaceState` |
   | `UploadRevisionResponse.input_completeness` | `FULL`、`MODIFIED_ONLY` | 同上 `InputCompleteness` |
+  | `ArchivePreviewAnomalyResponse.issue_code`、`AppendArchiveAnomalyResolutionRequest.issue_code` | `APPROVED_SIBLING_EXCLUDED`、`PROJECT_IDENTITY_EXCEPTION` | `application/archive/queries.py` 的 `*_ISSUE` 常量 |
+  | `PreviewArchivePlanResponse.blockers`、`ArchiveCandidatesResponse.blockers` | `ACTIVE_SUBMIT_ATTEMPT`、`ARCHIVE_INTEGRITY_FAILURE` | `application/archive/snapshot.py` 的 `collect_repository_submit_blockers` |
+  | `ArchiveAuditEventResponse.action` | `CONFIRM`、`REVOKE`、`ACKNOWLEDGE_EXCLUSION`、`ACKNOWLEDGE_IDENTITY_EXCEPTION` | `domain/archive/models.py` 的 `ArchiveConfirmationAction`、`ArchiveAnomalyResolutionAction` |
+
+  `PreviewArchivePlanResponse.confirmation_requirements` 不是代码，而是待确认的选择 subject digest（`application/archive/queries.py`
+  中的 `selection_subject_digest`），模拟数据中取与该场景其他摘要一致的字符串。
 
   OpenAPI 中有枚举的字段（如 `review_status`、`SubmitAttemptResponse.state`、`HistoryCompareResultResponse.status`）由生成类型约束，
   不进这张表。其他只是字符串、界面又要按值区分的字段，先在源码中找到枚举并加入这张表；找不到就停下交设计会话。
+- **适用于全部模拟数据：** 生成类型约束、取值表与错误码单测覆盖前端仓库中的全部模拟数据，包括 FE1、FE2a 已有的单测与组件测试，
+  不只是 FE2b 新增的场景。已有测试中直接写成对象字面量、没有类型约束的模拟响应，FE2b 改为带生成类型。已知需要改正的值
+  （`frontend/src/features/api/journeys.test.ts`）：
+  - `job_kind` 的 `"PREVIEW"`、`"SUBMIT"`、`"HISTORY_COMPARE"`，应为 `backend-vnext/preview` 等（取值表）；
+  - 工作区 `state: "ACTIVE"`，应为 `OPEN` 或 `CLOSED`；
+  - `SubmitAcceptedResponse.state: "ACCEPTED"`，应为 `PREPARED`、`EFFECT_PENDING`、`FINALIZED`、`ABORTED` 之一；
+  - 归档审计事件 `subject_kind: "SELECTION"`，应为 `CONFIRM_SELECTION`；
+  - 异常 `issue_code: "IDENTITY_UNVERIFIABLE"`、`confirmation_requirements: ["SELECTION_CONFIRMATION"]`、`blockers: ["AUDIT_CONFIRMATION_REQUIRED"]`，按取值表与上文 `confirmation_requirements` 的说明改正。
+  `client.test.ts` 中的 `RETURNED_FOR_REVISION` 只用于检验 §4.2 的映射，可以保留，场景数据中不用。
 - **不用的值：** `RETURN_FOR_REVISION` 动作与 `RETURNED_FOR_REVISION` 状态由 BE-a 删除（前端 kickoff §5），模拟响应不使用，界面不提供入口（§4.2 的映射保留）。
 - **状态序列：** 轮询与多步场景中依次返回的状态，按后端的状态转移取：操作状态见 `operations/state.py`，审核见
   `domain/submission/review.py` 的 `_ALLOWED_TRANSITIONS`，提交尝试为 `PREPARED → EFFECT_PENDING → FINALIZED` 或 `ABORTED`。
-  每个场景注明所依据的转移。轮询终态的覆盖：`GET /v1/operations/{operation_id}` 覆盖 `SUCCEEDED`、`FAILED`、`CANCELLED`、
-  `SUPERSEDED`、`MANUAL_RECOVERY_REQUIRED`；`GET /v1/history-compares/{operation_id}` 的 `status` 只有五个值，没有后两个。
+  每个场景注明所依据的转移。`GET /v1/operations/{operation_id}` 的轮询覆盖四个终态 `SUCCEEDED`、`FAILED`、`CANCELLED`、`SUPERSEDED`，
+  以及非终态 `MANUAL_RECOVERY_REQUIRED` 之后的恢复：至少包含 `MANUAL_RECOVERY_REQUIRED → RUNNING → SUCCEEDED` 与
+  `MANUAL_RECOVERY_REQUIRED → FAILED` 两个场景（§4.5）。`GET /v1/history-compares/{operation_id}` 的 `status` 只有五个值，
+  没有 `SUPERSEDED` 与 `MANUAL_RECOVERY_REQUIRED`。
 - **幂等回放（N1）：** 同一 key 的重试返回第一次的响应体。状态码按后端 route：`review-events`、`archive-anomaly-resolutions`、
-  `archive-confirmations`、`archives` 第一次 201、回放 200；上传始终 201；Preview 与提交始终 202；`POST /v1/history-compares` 第一次 202、回放 200
-  （`http/routes/history.py`）。最后一项与 OpenAPI 不符：快照只声明了 200，模拟按后端行为返回 202，响应体用 200 的类型约束，
-  客户端两者都接受；OpenAPI 的声明由 BE-a 补齐（§9 Q13）。同一 key、不同请求内容返回 409 `IDEMPOTENCY_CONFLICT`。
+  `archive-confirmations`、`archives` 第一次 201、回放 200；上传始终 201；Preview 与提交始终 202；
+  `POST /v1/history-compares` 第一次 202、回放 200（`http/routes/history.py`）；`POST /v1/workspaces` 新建 201、已存在 200
+  （`http/routes/workspaces.py`），不接受 `Idempotency-Key`（带上时 422 `REQUEST_VALIDATION_FAILED`），也不在 N1 的范围内。
+  后两项与 OpenAPI 不符：快照都只声明了 200。模拟按后端行为返回，响应体用 200 的类型约束，客户端都接受；
+  OpenAPI 的声明由 BE-a 补齐（§9 Q13）。同一 key、不同请求内容返回 409 `IDEMPOTENCY_CONFLICT`。
 - **标识前后一致：** 场景内各响应引用的 ID 相互一致（例如工作区的 `current_preview_result_id` 等于 Preview 结果的 ID，
   该结果的 bundle 是 §7.1 的某个 fixture）。ID 是不透明字符串，前端不解析其格式。
 - **注明来源：** 每个场景注明 route、方法、状态码、schema 名，以及上述取值所依据的源码位置；handoff 列出全部场景。
-- **覆盖：** 每个写操作至少覆盖成功、403 权限拒绝、对应的版本冲突与幂等冲突；N1 的超时后重试回放、N2 的“仍在运行”、
-  临时错误重试与上限、刷新后继续，以及上述轮询终态。
+- **覆盖：** 每个写操作至少覆盖成功、403 权限拒绝，以及该 route 在 OpenAPI 中声明了的版本冲突与幂等冲突；没有声明的不模拟。
+  例如 `POST /v1/history-compares` 的 409 只有 `IDEMPOTENCY_CONFLICT`、`ADMISSION_CONFLICT`，没有版本冲突；
+  `POST /v1/archive-plan-preview` 的 409 只有 `CANDIDATE_BINDING_CONFLICT`、`ARCHIVE_SCOPE_LIMIT_EXCEEDED`，没有幂等冲突；
+  `POST /v1/workspaces` 两者都没有。另外覆盖 N1 的超时后重试回放、N2 的“仍在运行”、临时错误重试与上限、刷新后继续，
+  以及上述终态与恢复场景。
 
 **为什么不由后端产出响应样例：** bundle 必须由后端生成，因为它的内部产物不在 OpenAPI 中；JSON 响应的形状 OpenAPI 已经完整描述，
 可以在编译期约束。剩下的风险是只是字符串的字段、错误码与状态序列，由上面的取值表、错误码单测与源码注明覆盖。
@@ -445,7 +472,7 @@ Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11
 | Q10 | FE2a 退出（证据核对第 1 轮 §6，2026-11-03） | FE2a 不再修复；无草图页面的截图按现状接受；R7 与正常业务场景截图带入 FE2b（§2、§6.3） |
 | Q11 | 行级高风险与低风险的截图（§6.3 S2） | 甲：五个等级只在设计系统页的语义色截图上验收，不做演示截图 |
 | Q12 | FE2b 是否拆分（§2） | 拆成 FE2b（工作台、路由与历史比较）、FE2c（写操作旅程），tag 与审核范围见 §2 |
-| Q13 | `POST /v1/history-compares` 的 OpenAPI 只声明 200，后端第一次返回 202（§7.5） | 并入 BE-a（同为 S2a 合入后、FE3 之前的 HTTP DTO 小改动）：补齐 202，并把 200 标为幂等回放 |
+| Q13 | `POST /v1/history-compares` 的 OpenAPI 只声明 200，后端第一次返回 202；`POST /v1/workspaces` 同类（§7.5） | 并入 BE-a（同为 S2a 合入后、FE3 之前的 HTTP DTO 小改动）：补齐 202，并把 200 标为幂等回放；`POST /v1/workspaces` 同样补齐 201（新建）与 200（已存在）的声明（审核会话核对，2026-11-03） |
 
 **Q4 说明：** 这是 vnext 后端的能力差异，前端无法单独补齐。owner 选择甲；乙作为备选记录在此。
 

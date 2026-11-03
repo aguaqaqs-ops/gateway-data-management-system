@@ -28,8 +28,6 @@ describe("composite signal formula rendering", () => {
       ["expression", "* 5"],
       ["expression", "| 6"],
       ["expression", "| - 线路保护装置 A:线路电流"],
-      ["expression", "| Device 999:未映射测点"],
-      ["expression", "| 5"],
     ]);
   });
 

@@ -454,6 +454,28 @@ export function buildBrowseRows(input: {
       }
     });
 
+    if (!hasCurrentSnapshot && hasBeforeSnapshot) {
+      input.beforeRows.forEach((source, index) => {
+        const identity = beforeIdentities[index] ?? null;
+        const record = records.find((candidate) => {
+          const kind = String(candidate.record_kind);
+          if (!DELETED_KINDS.has(kind) && !MODIFIED_KINDS.has(kind)) return false;
+          return kind.startsWith("ORDERED_")
+            ? positionNumber(candidate.before_position) === index + 1
+            : identity !== null && sideIdentity(candidate, "before") === identity;
+        });
+        if (!record) {
+          rows.push(makeRow({ key: `before-only:${index + 1}`, kind: "unchanged", source, rowNumber: index + 1, identity }));
+          return;
+        }
+        consumed.add(record);
+        const kind = String(record.record_kind);
+        const rowKind = DELETED_KINDS.has(kind) ? "deleted" : "modified-before";
+        const pairKey = rowKind === "modified-before" ? `pair:${identity ?? index + 1}` : null;
+        rows.push(makeRow({ key: `${rowKind}:${identity ?? index + 1}`, kind: rowKind, source, rowNumber: positionNumber(record.before_position) ?? index + 1, identity, record, pairKey }));
+      });
+    }
+
     for (const record of records) {
       if (consumed.has(record)) continue;
       const kind = String(record.record_kind);
@@ -485,7 +507,7 @@ export function buildBrowseRows(input: {
       if (leftDeleted !== rightDeleted) return leftDeleted - rightDeleted;
       const position = (row: BrowseRow) => {
         if (row.kind === "deleted") return hasBeforeSnapshot ? row.rowNumber ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
-        if (row.kind === "modified-before" && row.pairKey) return afterPositionByPair.get(row.pairKey) ?? row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
+        if (row.kind === "modified-before" && row.pairKey) return afterPositionByPair.get(row.pairKey) ?? (!hasCurrentSnapshot ? row.beforePosition ?? row.rowNumber : row.currentPosition ?? row.rowNumber) ?? Number.MAX_SAFE_INTEGER;
         return row.currentPosition ?? row.rowNumber ?? Number.MAX_SAFE_INTEGER;
       };
       return position(left) - position(right);

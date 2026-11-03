@@ -86,19 +86,20 @@ export function renderFormulaLines(value: unknown, devices: readonly FormulaSour
       return;
     }
     if (!node.operator && node.children.length === 1) {
-      visit(node.children[0], depth, prefix);
+      visit(node.children[0], depth, prefix, parentOperator);
       return;
     }
     if (node.children.length === 1) {
-      visit(node.children[0], depth, `${prefix}${node.operator} `);
+      visit(node.children[0], depth, `${prefix}${node.operator} `, node.operator);
       return;
     }
-    visitChildren(node.children, node.operator, depth, prefix);
+    const operationPrefix = parentOperator && parentOperator !== node.operator ? `${node.operator} ` : prefix;
+    visitChildren(node.children, node.operator, depth, operationPrefix);
   };
 
   const visitChildren = (children: unknown[], operator: string, depth: number, leadingPrefix = ""): void => {
     if (!operator && children.length === 1) {
-      visit(children[0], depth, leadingPrefix);
+      visit(children[0], depth, leadingPrefix, operator);
       return;
     }
     const terms = ["|", "+", "*"].includes(operator) ? flattenChildren(children, operator) : children;
@@ -110,7 +111,7 @@ export function renderFormulaLines(value: unknown, devices: readonly FormulaSour
         return;
       }
       const prefix = index === 0 ? leadingPrefix : `${operator ? operator + " " : ""}`;
-      visit(child, depth, prefix);
+      visit(child, depth, prefix, operator);
     });
   };
 

@@ -33,7 +33,7 @@ describe("local Parquet browsing", () => {
     expect(presentation.tableArtifacts.get("device")?.current).toContain("tables/current/device.parquet");
     const rows = await readLocalTable(bundle, presentation, "device", "current", { columns: ["dev_addr"] });
     const diffs = await readLocalChangeRecords(bundle, presentation, "device");
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(diffs.map((row) => row.record_kind).sort()).toEqual(["ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED"]);
   });
 

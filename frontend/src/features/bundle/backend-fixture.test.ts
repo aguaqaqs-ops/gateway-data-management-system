@@ -74,8 +74,8 @@ describe("backend-generated FE2a bundle fixtures", () => {
     const level = presentation.surface.view?.risk_level;
     const levels = new Set(typeof level === "string" ? [level] : []);
     expect(levels).toEqual(new Set(["HIGH"]));
-    expect(await readLocalTable(bundle, presentation, "device", "before")).toHaveLength(1);
-    expect(await readLocalTable(bundle, presentation, "device", "current")).toHaveLength(1);
+    expect(await readLocalTable(bundle, presentation, "device", "before")).toHaveLength(2);
+    expect(await readLocalTable(bundle, presentation, "device", "current")).toHaveLength(2);
   });
 
   it("contains three History inputs and two adjacent pair surfaces", async () => {

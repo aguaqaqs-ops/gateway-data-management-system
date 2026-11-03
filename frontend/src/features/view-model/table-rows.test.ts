@@ -17,8 +17,9 @@ function recordIdentity(record: RowDiffRecord, side: "before" | "current"): stri
 function matchingIndexes(rows: Record<string, unknown>[], table: SurfaceTable, record: RowDiffRecord, side: "before" | "current"): number[] {
   const kind = String(record.record_kind ?? "");
   if (kind.startsWith("ORDERED_")) {
-    const position = record[side === "before" ? "before_position" : "current_position"];
-    return typeof position === "number" && Number.isInteger(position) && position > 0 && position <= rows.length ? [position - 1] : [];
+    const rawPosition = record[side === "before" ? "before_position" : "current_position"];
+    const position = typeof rawPosition === "number" || typeof rawPosition === "bigint" || typeof rawPosition === "string" ? Number(rawPosition) : NaN;
+    return Number.isSafeInteger(position) && position > 0 && position <= rows.length ? [position - 1] : [];
   }
   const identity = recordIdentity(record, side);
   if (!identity) return [];
@@ -183,7 +184,7 @@ describe("table row presentation", () => {
     const presentation = await loadComparisonPresentation(bundle, (manifest.pairs[0] as { pair_id: string }).pair_id);
     const source = await loadTable(bundle, presentation, "device");
     const result = buildBrowseRows({ table: source.surface, beforeRows: source.before, currentRows: source.current,
-      records: source.records, annotations: source.annotations, hasBeforeSnapshot: true, hasCurrentSnapshot: true,
+      records: source.records, annotations: source.annotations, hasBeforeSnapshot: Boolean(source.paths?.before), hasCurrentSnapshot: Boolean(source.paths?.current),
       rowFilter: { column: "dev_addr", value: 1 } });
     expect(result.locationValid).toBe(true);
     expect(result.rows.every((row) => normalizeDisplayScalar(row.values.dev_addr) === "1")).toBe(true);

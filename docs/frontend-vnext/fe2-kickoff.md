@@ -6,6 +6,7 @@
   2026-11-03 新增 §7.5 模拟接口响应规则；FE2b 拆分为 FE2b、FE2c（§2，§9 Q12）；更正 §4.1 工作区的来源。
   2026-11-03 §7.5 取值表补充 `eligibility_note`、审计事件 `issue_code`、`abort_code` 及其界面取舍。
   2026-11-03 按审核会话核对更正 §3 N2、§4.5、§7.5：`MANUAL_RECOVERY_REQUIRED` 不是终态；补充 `POST /v1/workspaces` 的状态码、按 route 声明的错误覆盖、FE1 测试数据的取值更正。
+  2026-11-03 FE2b fixture 生成停止后，§7.1 新增“生成入口”：只通过提交的脚本生成，继续使用现有依赖镜像（§9 Q14）。
 - **FE2b：** 可以开始。起点为 `fe-fe2a-exit`（main 合入提交 `a7c6160447`），审核范围为 `fe-fe2a-exit..<候选>`。
 - **日期：** 2026-11-02。
 - **起点：** `fe-fe1-exit`（`a42139222f`），main 合入提交 `abbe6e8777`。
@@ -356,6 +357,26 @@ v1 不产出 `LOW`；行级风险只落在有变化的行上（新增、删除�
 - **同类情形：** §7.1 中其他情形如果同样属于 v1 生产代码不会产出的，按同一原则处理，在 handoff 中列明，不需要停下。
   若能产出、只是必须启动 Dolt/Compose，仍按上一条停下。
 
+**生成入口（owner 2026-11-03，答复 FE2b 生成停止，§9 Q14）：** FE2b 第一次生成没有产出：生成命令每次在节点上手工拼接，
+这次用了镜像中的系统 `python3`，而不是装有依赖的虚拟环境（FE2a 的第一次预检也因同类问题失败）。此后生成只通过提交在
+`frontend/scripts/` 下的脚本运行，不再手工拼接命令。脚本：
+
+- 使用依赖镜像 `gateway-backend-deps:lock-d054366c02fa`，Docker network none，不启动 Dolt/Compose；
+- 只读挂载源码树，输出目录在 worktree 外，运行前须为空；
+- 解释器为镜像内的 `/build/backend/.venv/bin/python`，后端本地包从挂载的源码树导入（与 FE2a 预检的源码目录相同）；
+- 运行前核对候选的 `vnext/backend/uv.lock`、`vnext/backend/.python-version` 与镜像记录的输入，不一致即停止；
+  `vnext/backend/pyproject.toml`、`vnext/rust/Cargo.lock` 的差异只记录，不停止（见下一条）；
+- 日志记录 hostname、起止时间、HEAD、frontend 与 vnext tree、镜像 tag、config digest 与全部 RootFS DiffID、各输入的 SHA256、exit code；
+- 生成两次，写入两个空目录，逐字节比较。
+
+**依赖镜像：** `lock-d054366c02fa` 的 `pyproject.toml` 与 `Cargo.lock` 取自 `p6-s2a` 分支，与 main 不同；`uv.lock` 与
+`.python-version` 相同。镜像只按 `uv.lock` 安装第三方包，不安装本地包；`pyproject.toml` 只差一条 mypy 配置；
+`Cargo.lock` 只用于 `cargo fetch`，生成器不编译 Rust。这两项差异不进入生成时的运行环境，因此继续使用该镜像
+（FE1、FE2a 的 fixture 也由它生成），差异写进日志与 handoff。`uv.lock` 或 `.python-version` 变化时，按 DC67 重建镜像。
+
+**DC68 计数：** FE2b 之前的三次失败（编排脚本语法错误、核对范围过宽、使用系统 `python3`）及其日志保留在 handoff。
+脚本提交后，从生成的第一步重新开始，按 DC68 重新计一次重做。
+
 ### 7.2 测试
 
 - 单测：§3 各项的完成标准；§4 文案表的完整性（每个已知枚举都有文案）；视图模型新增的推导（折叠行、连线配对、变更分布、侧栏过滤）。
@@ -463,7 +484,7 @@ bundle 仍按 §7.1 由生成器产出，本节只管 JSON 响应。
 
 ## 9. owner 决定（2026-11-02、2026-11-03）
 
-Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11 为 owner 2026-11-03 的 FE2a 退出决定；Q12、Q13 于 2026-11-03 按建议确认。
+Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11 为 owner 2026-11-03 的 FE2a 退出决定；Q12、Q13 于 2026-11-03 按建议确认；Q14 为 owner 2026-11-03 答复 FE2b 生成停止的决定。
 
 | # | 事项 | 决定 |
 | --- | --- | --- |
@@ -480,6 +501,7 @@ Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11
 | Q11 | 行级高风险与低风险的截图（§6.3 S2） | 甲：五个等级只在设计系统页的语义色截图上验收，不做演示截图 |
 | Q12 | FE2b 是否拆分（§2） | 拆成 FE2b（工作台、路由与历史比较）、FE2c（写操作旅程），tag 与审核范围见 §2 |
 | Q13 | `POST /v1/history-compares` 的 OpenAPI 只声明 200，后端第一次返回 202；`POST /v1/workspaces` 同类（§7.5） | 并入 BE-a（同为 S2a 合入后、FE3 之前的 HTTP DTO 小改动）：补齐 202，并把 200 标为幂等回放；`POST /v1/workspaces` 同样补齐 201（新建）与 200（已存在）的声明（审核会话核对，2026-11-03） |
+| Q14 | FE2b fixture 生成停止：生成命令手工拼接、使用了系统 `python3`；依赖镜像的 `pyproject.toml`、`Cargo.lock` 与候选不同（§7.1） | 由原实施会话继续：在 `frontend/scripts/` 提交生成脚本后从头生成，DC68 重新计一次；继续使用 `lock-d054366c02fa`，只核对 `uv.lock` 与 `.python-version`，另两项差异记录（§7.1“生成入口”） |
 
 **Q4 说明：** 这是 vnext 后端的能力差异，前端无法单独补齐。owner 选择甲；乙作为备选记录在此。
 

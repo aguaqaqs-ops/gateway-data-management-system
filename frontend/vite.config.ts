@@ -17,9 +17,9 @@ const productionModuleManifest: Plugin = {
             .map(([id]) => id.replaceAll("\\", "/"))
         : []
     ))];
-    const directory = resolve(process.cwd(), "dist", ".vite");
+    const directory = resolve(process.cwd(), "node_modules", ".cache", "frontend-build");
     await mkdir(directory, { recursive: true });
-    await writeFile(resolve(directory, "rollup-modules.json"), JSON.stringify(modules, null, 2) + "\n");
+    await writeFile(resolve(directory, "production-modules.json"), JSON.stringify(modules, null, 2) + "\n");
   },
 };
 

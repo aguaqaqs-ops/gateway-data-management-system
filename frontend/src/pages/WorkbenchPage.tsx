@@ -7,10 +7,14 @@ import { ApiError } from "../features/api/authenticated-fetch";
 import { reportConnectionStatus } from "../features/api/connection-status";
 import { PollingConnectionLostError, pollHistoryCompare } from "../features/api/journeys";
 import { currentGatewaySession, historyCompareRequestTimeoutMs } from "../features/api/session";
-import { ensureLocalBundle, OpfsBundleStore } from "../features/bundle/local-bundle";
+import { ensureLocalBundle, OpfsBundleStore, type InstalledBundle } from "../features/bundle/local-bundle";
 import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
 import { ErrorState, LoadingSkeleton } from "../design-system/components";
 import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
+import { UploadStepCard, type UploadStepCardHandle } from "../features/workbench/UploadStepCard";
+import { ArchiveMainlineDialog } from "../features/workbench/ArchiveMainlineDialog";
+import { formatWaitDuration } from "../features/workbench/wait-duration";
+import { summarizeHistoryPair, type HistoryPairSummary } from "../features/workbench/history-summary";
 import { buildWorkspaceTree, deriveWorkbenchActions, sortWorkspaceTreeRows, type WorkbenchActionId, type WorkspaceTreeRow } from "../features/view-model/workspace";
 import { WORKSPACE_STATE_COPY } from "../features/view-model/workspace-state-copy";
 
@@ -84,6 +88,15 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const [compareElapsed, setCompareElapsed] = useState(0);
   const [bundleStatus, setBundleStatus] = useState<"idle" | "downloading" | "ready" | "failed">("idle");
   const [downloadRevision, setDownloadRevision] = useState(0);
+  const [historyBundle, setHistoryBundle] = useState<InstalledBundle | null>(null);
+  const [pairSummaries, setPairSummaries] = useState<Record<string, HistoryPairSummary>>({});
+  const [pairSummaryError, setPairSummaryError] = useState<string | null>(null);
+  const uploadRef = useRef<UploadStepCardHandle>(null);
+  const [pendingUploadAction, setPendingUploadAction] = useState<"initial" | "modified" | "start" | null>(null);
+  const [uploadLocked, setUploadLocked] = useState(false);
+  const [uploadReady, setUploadReady] = useState(false);
+  const [uploadBlockedReason, setUploadBlockedReason] = useState<string | null>(null);
+  const [archiveSubmissionId, setArchiveSubmissionId] = useState<string | null>(null);
   const operationId = new URLSearchParams(window.location.search).get("operationId");
   const operationKind = new URLSearchParams(window.location.search).get("operationKind");
   const historyCompareOperationId = operationKind === "history-compare" ? operationId : null;
@@ -266,10 +279,11 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
       }
       setBundleStatus("downloading");
       try {
-        await ensureLocalBundle({
+        const installed = await ensureLocalBundle({
           store: new OpfsBundleStore(), expectedBundleDigest: result.result.bundle_digest,
           fetchBundle: () => gatewayApi.getHistoryBundle(historyCompareOperationId, controller.signal),
         });
+        setHistoryBundle(installed);
         setCompareError(null);
         setBundleStatus("ready");
       } catch (cause) {
@@ -312,8 +326,49 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
           startOrRetryCompare({ nodes: [{ ref_kind: selected.parentRef.ref_kind, ref_id: selected.parentRef.ref_id }, currentRef] });
         }
       }
+    } else if (id === "archive-mainline" && selected?.kind === "submission" && selected.refId) {
+      setArchiveSubmissionId(selected.refId);
+    } else if (id === "original-backup" || id === "current-archive" || id === "upload") {
+      setDetailExpanded(true);
+      setPendingUploadAction(id === "original-backup" ? "initial" : id === "current-archive" ? "modified" : "start");
     }
   };
+
+  useEffect(() => {
+    if (!pendingUploadAction) return;
+    if (selected?.kind !== "workspace") {
+      const workspaceRow = rows.find((row) => row.kind === "workspace");
+      if (workspaceRow) setSelectedKey(workspaceRow.key);
+      return;
+    }
+    setDetailExpanded(true);
+    const frame = window.requestAnimationFrame(() => {
+      const handle = uploadRef.current;
+      if (!handle) return;
+      if (pendingUploadAction === "initial") handle.chooseInitial();
+      else if (pendingUploadAction === "modified") handle.chooseModified();
+      else handle.start();
+      setPendingUploadAction(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingUploadAction, selected?.kind, rows]);
+
+  useEffect(() => {
+    if (!historyBundle || compareState?.status !== "SUCCEEDED" || !compareState.result) {
+      setPairSummaries({});
+      return;
+    }
+    let cancelled = false;
+    setPairSummaryError(null);
+    void Promise.all(compareState.result.pairs.map(async (pair) => [pair.pair_id, await summarizeHistoryPair(historyBundle, pair.pair_id)] as const))
+      .then((entries) => { if (!cancelled) setPairSummaries(Object.fromEntries(entries)); })
+      .catch((cause: unknown) => { if (!cancelled) setPairSummaryError(cause instanceof Error ? cause.message : String(cause)); });
+    return () => { cancelled = true; };
+  }, [historyBundle, compareState]);
+
+  const effectiveActions = actions.map((action) => action.id === "upload"
+    ? { ...action, enabled: action.enabled && uploadReady, reason: uploadBlockedReason ?? action.reason }
+    : action);
 
   const showHistoryDrawer = Boolean(historyCompareOperationId);
   const showOperationStatus = operationId && operationKind === "operation";
@@ -323,7 +378,8 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
 
   const compareLabels = compareRefs.map((ref) => rows.find((row) => row.key === refKey(ref))?.label ?? ref.ref_id);
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
-  return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}`}>
+  return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
+    {uploadLocked && <div className="page-lock-overlay" role="presentation"><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar">
       <div className="workspace-brand"><strong>网关数据工作台</strong><span>{data.workspace.gateway_device_external_key}</span></div>
       <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}<ConnectionStatusIndicator />{identityControl}</div>
@@ -336,7 +392,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         {showOperationStatus && <OperationStatusPanel operationId={operationId} />}
         <div className="workspace-context-bar" aria-label="上下文工具栏">
           <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>
-          <div className="workspace-actions">{actions.map((action) => <div className="workspace-action" key={action.id}>
+          <div className="workspace-actions">{effectiveActions.map((action) => <div className="workspace-action" key={action.id}>
             <button className={`button ${action.id === "archive-mainline" ? "button--primary" : "button--secondary"}`} disabled={!action.enabled} title={action.reason ?? undefined} onClick={() => runAction(action.id)}>
               {action.id === "join-compare" ? <Plus size={14} /> : action.id === "remove-compare" ? <X size={14} /> : null}{action.label}
             </button>
@@ -375,7 +431,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
           </div>
         </div>
         {showHistoryDrawer && <section className="history-result-drawer" aria-label="历史比较结果抽屉">
-          <div className="history-result-drawer__heading"><div><GitBranch size={16} /><strong>历史比较</strong><span className={`status-tag status-tag--${compareState?.status === "SUCCEEDED" ? "success" : compareState?.status === "FAILED" ? "warning" : "info"}`}>{compareConnectionLost ? "连接中断" : compareState?.status === "QUEUED" ? "排队中" : compareState?.status === "RUNNING" ? "执行中" : compareState?.status === "SUCCEEDED" ? "已完成" : compareState?.status === "FAILED" ? "失败" : compareState?.status === "CANCELLED" ? "已取消" : "查询中"}</span><small>已等待 {compareElapsed} 秒</small></div>
+          <div className="history-result-drawer__heading"><div><GitBranch size={16} /><strong>历史比较</strong><span className={`status-tag status-tag--${compareState?.status === "SUCCEEDED" ? "success" : compareState?.status === "FAILED" ? "warning" : "info"}`}>{compareConnectionLost ? "连接中断" : compareState?.status === "QUEUED" ? "排队中" : compareState?.status === "RUNNING" ? "执行中" : compareState?.status === "SUCCEEDED" ? "已完成" : compareState?.status === "FAILED" ? "失败" : compareState?.status === "CANCELLED" ? "已取消" : "查询中"}</span><small>已等待 {formatWaitDuration(compareElapsed)}</small></div>
             <div className="history-result-drawer__buttons">{compareConnectionLost && <button className="button button--secondary" onClick={() => setRefreshCompare((value) => value + 1)}><RefreshCw size={14} />重试查询</button>}
               {bundleStatus === "failed" && <button className="button button--secondary" onClick={() => { setCompareError(null); setDownloadRevision((value) => value + 1); }}><RefreshCw size={14} />重试下载</button>}
               {bundleStatus === "ready" && <button className="button button--primary" onClick={() => window.location.assign(pageUrl("compare", { mode: "HISTORY", operationId: historyCompareOperationId, operationKind: "history-compare", workbenchNode: selectedKey }, compareRefs))}>打开差异工作台</button>}
@@ -385,7 +441,17 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
           {compareError && <p role="alert" className="history-result-drawer__error">{compareError}</p>}
           {compareState?.status === "SUCCEEDED" && <div className="history-result-drawer__body">
             <div className="history-result-drawer__nodes">{compareRefs.map((node, index) => <article key={refKey(node)}><span>{index + 1}</span><div><strong>{rows.find((row) => row.key === refKey(node))?.label ?? node.ref_id}</strong><small>{node.ref_kind === "baseline_node" ? "基线" : "提交"}</small></div><Check size={15} /></article>)}</div>
-            <div className="history-result-drawer__pairs">{compareState.result?.pairs.map((pair, index) => <div key={pair.pair_id}><span>比较对 {index + 1}</span><strong title={pair.pair_id}>节点 {index + 1} → 节点 {index + 2}</strong><small>{pair.record_count} 条差异记录</small></div>)}</div>
+            <div className="history-result-drawer__pairs">{compareState.result?.pairs.map((pair, index) => {
+              const summary = pairSummaries[pair.pair_id];
+              return <div key={pair.pair_id} className="history-pair-summary"><span>比较对 {index + 1}</span><strong title={pair.pair_id}>节点 {index + 1} → 节点 {index + 2}</strong><small>{pair.record_count} 条差异记录</small>
+                {summary && <div className="history-pair-summary__counts">
+                  <span>表 {summary.tableCount}</span><span>变更 {summary.changedTableCount}</span><span className={summary.degradedTableCount > 0 ? "is-warning" : ""}>降级 {summary.degradedTableCount}</span>
+                </div>}
+                {summary && summary.tables.length > 0 && <details className="history-pair-summary__tables"><summary>每张表的新增 / 删除 / 修改行数</summary><table><thead><tr><th>表</th><th>新增</th><th>删除</th><th>修改</th></tr></thead><tbody>{summary.tables.map((table) => <tr key={table.tableName}><td title={table.tableName}>{table.displayName}</td><td>+{table.added}</td><td>−{table.deleted}</td><td>~{table.modified}</td></tr>)}</tbody></table></details>}
+                {!summary && bundleStatus === "ready" && <small>正在读取本地 bundle 中的比较事实…</small>}
+              </div>;
+            })}</div>
+            {pairSummaryError && <p role="alert" className="history-result-drawer__error">无法读取本地比较事实：{pairSummaryError}</p>}
             <p>{bundleStatus === "downloading" || bundleStatus === "idle" ? "下载中：正在校验 bundle。" : bundleStatus === "ready" ? "已就绪：bundle 已下载并校验。" : "下载失败，可重试。"}</p>
           </div>}
         </section>}
@@ -399,11 +465,14 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
             <dl className="details-list"><div><dt>网关设备</dt><dd>{data.workspace.gateway_device_external_key}</dd></div><div><dt>业务项目</dt><dd>{data.workspace.business_project_id}</dd></div><div><dt>工作区状态</dt><dd>{WORKSPACE_STATE_COPY[data.workspace.state as keyof typeof WORKSPACE_STATE_COPY] ?? "状态未知"}</dd></div><div><dt>组态代次</dt><dd>{data.workspace.generation}</dd></div><div><dt>当前 Preview</dt><dd>{data.workspace.current_preview_result_id ?? "—"}</dd></div></dl>
             <button className="button button--secondary workspace-details__action" disabled={!data.workspace.current_preview_result_id} title={data.workspace.current_preview_result_id ? undefined : "当前工作区还没有 Preview 结果"} onClick={() => openPreview("initial_to_modified")}>查看本次组态差异</button>
             {!data.workspace.current_preview_result_id && <p className="disabled-reason">当前工作区还没有 Preview 结果</p>}
+            <UploadStepCard ref={uploadRef} head={data.history.head} onUploadStateChange={setUploadLocked} onReadyChange={(ready, reason) => { setUploadReady(ready); setUploadBlockedReason(reason); }}
+              onComplete={(workspaceId, previewResultId) => window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId, previewResultId, workbenchNode: selectedKey }, compareRefs))} />
           </>}
           {selected?.kind !== "workspace" && selected && <dl className="details-list"><div><dt>节点类型</dt><dd>{selected.kind === "baseline" ? selected.baselineKind === "INITIAL" ? "初始基线" : "归档基线" : selected.kind === "submission" ? "提交" : "规则迁移"}</dd></div><div><dt>状态</dt><dd>{selected.status || "—"}</dd></div><div><dt>节点 ID</dt><dd>{selected.refId}</dd></div><div><dt>组态生成时间</dt><dd>{selected.createdAt ?? "—"}</dd></div>{selected.submitAt && <div><dt>提交时间</dt><dd>{selected.submitAt}</dd></div>}{selected.eligibilityNote && <div className="details-list__long"><dt>归档原因</dt><dd><details><summary>展开原因</summary>该提交所基于的基线已不是当前基线，不能归档</details></dd></div>}{selected.identityException && <div><dt>身份说明</dt><dd>项目身份例外</dd></div>}</dl>}
           {selectedReviewFacts && <p className="subtle-copy">{selectedReviewFacts}</p>}
         </div> : <div className="workspace-details__collapsed"><span>详情</span></div>}
       </aside>
     </div>
+    <ArchiveMainlineDialog open={archiveSubmissionId !== null} submissionId={archiveSubmissionId} onClose={() => setArchiveSubmissionId(null)} onArchived={() => window.location.assign(pageUrl("workspace", {}, compareRefs))} />
   </main>;
 }

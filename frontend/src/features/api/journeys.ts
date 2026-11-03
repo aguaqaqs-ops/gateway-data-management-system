@@ -202,6 +202,13 @@ export async function runPreviewJourney(api: GatewayApi, store: ReadableBundleSt
   return { workspace: refreshedWorkspace, upload, operation, preview, bundle };
 }
 
+export class SubmitAbortedError extends Error {
+  constructor(readonly abortCode: string) {
+    super("提交未完成");
+    this.name = "SubmitAbortedError";
+  }
+}
+
 export interface SubmitJourneyInput {
   workspaceId: string;
   previewResultId: string;
@@ -210,6 +217,12 @@ export interface SubmitJourneyInput {
   expectedWorkspaceVersion: number;
   baselineNodeId: string;
   baselineHeadVersion: number;
+  identityConfirmations?: Array<{
+    action: "ACCEPT_DATASET_REPLACEMENT" | "ACCEPT_UNVERIFIABLE_DETAILED_RESULT";
+    assessmentSetDigest: string;
+    reason: string;
+  }>;
+  idempotencyKey?: string;
   poll?: PollOptions;
 }
 
@@ -221,17 +234,26 @@ export interface SubmitJourneyResult {
 }
 
 export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInput): Promise<SubmitJourneyResult> {
-  const accepted = await api.acceptSubmit(input.workspaceId, {
+  const body = {
     expected_workspace_version: input.expectedWorkspaceVersion,
     preview_result_id: input.previewResultId,
     upload_revision_id: input.uploadRevisionId,
     generation: input.generation,
     expected_baseline_node_id: input.baselineNodeId,
     expected_baseline_head_version: input.baselineHeadVersion,
-  });
+    identity_confirmations: input.identityConfirmations?.map((confirmation) => ({
+      action: confirmation.action,
+      assessment_set_digest: confirmation.assessmentSetDigest,
+      reason: confirmation.reason,
+    })),
+  };
+  const accepted = input.idempotencyKey
+    ? await api.acceptSubmit(input.workspaceId, body, input.idempotencyKey)
+    : await api.acceptSubmit(input.workspaceId, body);
   const operation = await pollOperation(api, accepted.operation_id, input.poll);
   const attempt = await api.getSubmitAttempt(input.workspaceId, accepted.submit_attempt_id);
-  if (!attempt.submission_id) throw new Error("提交操作完成后没有生成 submission");
+  if (attempt.state === "ABORTED") throw new SubmitAbortedError(attempt.abort_code ?? "ABORTED");
+  if (!attempt.submission_id) throw new SubmitAbortedError(attempt.abort_code ?? "ABORTED");
   const submission = await api.getSubmission(input.workspaceId, attempt.submission_id);
   return { accepted, operation, attempt, submission };
 }
@@ -279,14 +301,15 @@ export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBu
   return { reviewFacts, ...comparison };
 }
 
-export async function applyReviewAction(api: GatewayApi, submissionId: string, action: ReviewAction, reason?: string): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {
+export async function applyReviewAction(api: GatewayApi, submissionId: string, action: ReviewAction, reason?: string, idempotencyKey?: string): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {
   if (action === "REJECT" && !reason?.trim()) throw new Error("退回时必须填写理由");
   const facts = await api.getReviewFacts(submissionId);
-  return api.applyReview(submissionId, {
+  const body = {
     expected_review_version: facts.review_version,
     action,
     ...(reason === undefined ? {} : { reason }),
-  });
+  };
+  return idempotencyKey ? api.applyReview(submissionId, body, idempotencyKey) : api.applyReview(submissionId, body);
 }
 
 export interface ArchiveJourneyInput {

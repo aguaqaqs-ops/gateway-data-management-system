@@ -5,6 +5,7 @@ import { gatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
 import { OperationFailedError, PollingConnectionLostError, pollOperation } from "../api/journeys";
 import { OPERATION_STATUS_COPY } from "../view-model/operation-status-copy";
+import { formatWaitDuration } from "./wait-duration";
 
 type Operation = components["schemas"]["OperationResponse"];
 
@@ -57,7 +58,7 @@ export function OperationStatusPanel({ operationId }: { operationId: string }) {
   const manualRecovery = status === "MANUAL_RECOVERY_REQUIRED";
   const elapsedSeconds = operationElapsedSeconds(operation) ?? elapsed;
   return <section className={`operation-status-card${manualRecovery ? " operation-status-card--manual" : ""}`} aria-live="polite" aria-label="操作状态">
-    <div className="operation-status-card__heading"><strong>{connectionLost ? "连接中断" : queryError ? "无法查询状态" : OPERATION_STATUS_COPY[status as keyof typeof OPERATION_STATUS_COPY] ?? "查询状态"}</strong><span>已等待 {elapsedSeconds} 秒</span></div>
+    <div className="operation-status-card__heading"><strong>{connectionLost ? "连接中断" : queryError ? "无法查询状态" : OPERATION_STATUS_COPY[status as keyof typeof OPERATION_STATUS_COPY] ?? "查询状态"}</strong><span>已等待 {formatWaitDuration(elapsedSeconds)}</span></div>
     <p>{manualRecovery ? "操作需要管理员处理。系统仍在查询状态，操作 ID 可提供给管理员。" : queryError ? `${queryError.message}（${queryError.code}）` : status === "RUNNING" || status === "QUEUED" ? "操作仍在运行，可以继续等待或离开此页面。" : operation?.diagnostic?.message ?? "状态已更新。"}</p>
     {manualRecovery && <div className="operation-status-card__id"><span>操作 ID</span><code>{operationId}</code><button className="button button--ghost" onClick={() => void navigator.clipboard?.writeText(operationId)}><Copy size={14} />复制 ID</button></div>}
     {connectionLost && !manualRecovery && <button className="button button--secondary" onClick={() => setRefreshRevision((value) => value + 1)}><RefreshCw size={14} />重试查询</button>}

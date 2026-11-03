@@ -19,6 +19,11 @@ import { BrowseCommandRuntime, decodeBrowseState, type BrowseState } from "../fe
 import { createTableTheme } from "../design-system/theme";
 import { ErrorState, LoadingSkeleton, RiskBadge, formatBytes } from "../design-system/components";
 import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndicator";
+import { Button } from "../design-system/components";
+import { formatWaitDuration } from "../features/workbench/wait-duration";
+import { SubmitDialog } from "../features/workbench/SubmitDialog";
+import { ReviewActions } from "../features/workbench/ReviewActions";
+import type { SafeReviewFacts } from "../features/api/client";
 
 type PairSummary = { pair_id: string };
 type PairPresentation = { pair: PairSummary; presentation: LocalComparisonPresentation };
@@ -174,7 +179,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [error, setError] = useState<{ code: string; details: string } | null>(null);
   const [historyCompareStatus, setHistoryCompareStatus] = useState<components["schemas"]["HistoryCompareResultResponse"]["status"] | null>(null);
   const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
-  const [reviewFacts, setReviewFacts] = useState<components["schemas"]["ReviewFactsResponse"] | null>(null);
+  const [reviewFacts, setReviewFacts] = useState<SafeReviewFacts | null>(null);
+  const [submitOpen, setSubmitOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(readSettings);
   const collapsed = settings.sidebarCollapsed;
   const [overflow, setOverflow] = useState(false);
@@ -444,7 +450,10 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         <button className="back-link" aria-label="返回工作台" onClick={returnToWorkbench}><ChevronLeft size={15} /><span>返回工作台</span></button>
         <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
         <div className="compare-header__mode"><span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span></div>
-        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${historyCompareWaited} 秒` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{identityControl}</div>
+        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${formatWaitDuration(historyCompareWaited)}` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{identityControl}
+          {browse.mode === "PREVIEW" && <span className="compare-actions"><Button variant="primary" onClick={() => setSubmitOpen(true)} disabled={!bundle} disabledReason={!bundle ? "请等待差异结果加载完成" : undefined}>提交</Button></span>}
+          {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} />}
+        </div>
       </div>
       <div className="compare-header__bottom">
         <div className="view-tabs" role="tablist" aria-label="比较视图">{(browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs).map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const status = presentViewStatus(pair.presentation.surface.view, diagnostics.tableCount); const risk = viewRiskLevel(pair); return <button role="tab" aria-selected={activePair?.pair.pair_id === pair.pair.pair_id} className={activePair?.pair.pair_id === pair.pair.pair_id ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), risk ? riskLevelText(risk) : null, ...status.tooltipItems].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span><small>{status.text}</small>{risk && <RiskBadge level={risk} />}</button>; })}</div>
@@ -505,6 +514,12 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
             </>}</> : <div className="empty-table">请选择一个导航页签。</div>}
       </section>
     </div>}
+    {browse.mode === "PREVIEW" && browse.workspaceId && browse.previewResultId && <SubmitDialog open={submitOpen} workspaceId={browse.workspaceId} previewResultId={browse.previewResultId} onClose={() => setSubmitOpen(false)} onSubmitted={(submissionId) => {
+      const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId });
+      if (browse.workbenchNodeKey) params.set("workbenchNode", browse.workbenchNodeKey);
+      for (const ref of browse.comparisonNodeRefs) params.append("compare", ref);
+      window.location.assign(`/?${params.toString()}`);
+    }} />}
     {formulaOpen && <div className="formula-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setFormulaOpen(false); }}><aside className="formula-drawer" role="dialog" aria-modal="true" aria-labelledby="formula-title"><header><div><span className="section-kicker">复合信号公式</span><h2 id="formula-title">公式查看</h2></div><button className="icon-button" aria-label="关闭公式" onClick={() => setFormulaOpen(false)}><X size={18} /></button></header><div className="formula-drawer__body">{browse.mode === "PREVIEW" && <p className="formula-note">改前公式在 BE-b 实现后提供</p>}{formulas.map((formula) => <FormulaCard key={formula.pointKey} formula={formula} preview={browse.mode === "PREVIEW"} />)}</div></aside></div>}
   </main>;
 }

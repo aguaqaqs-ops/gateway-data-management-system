@@ -241,7 +241,7 @@ FETCH_HEAD 与 worktree HEAD 均核对为 7b41aceaee05f280e09c070efaa58b008241fe
 - runner 日志：/home/dev/gdds-fe-logs/fe2a/frontend-tests-20261103T081521Z.log；SHA256 271de5f1d486683af2634a94c5a36d59b5e4c6d9c9931eb2e1b0b8c2082274ce。
 - 外层 wrapper 日志：/home/dev/gdds-fe-logs/fe2a/full-runner-2b62bf21a0-05-wrapper.log；SHA256 d440899ef691a5c9f0c4ee8000ccb03fd1eea271687a8acd1110d8fe80aad9b5。
 - 最终候选 focused Playwright 日志：/home/dev/gdds-fe-logs/fe2a/focused-e2e-2b62bf21a0-05.log；SHA256 68f6647f71945813298bd438f9c849faba450fba3b80ad9abe2262e38914cae4；4 项通过。
-- 复审通过前没有在 CT04 取证；第 4 节的上一轮 CT04 运行只作为历史记录。本轮未改 npm/Rust/backend 依赖或锁文件，沿用第 4 节记录的 Playwright 镜像、npm cache 和 gateway-backend-deps 预填充及身份。
+- 复审通过前没有在 CT04 取证；第 4 节的上一轮 CT04 运行只作为历史记录。本轮未改 npm/Rust/backend 依赖或锁文件，沿用第 4 节记录的 Playwright 镜像、npm cache 和 gateway-backend-deps 预填充及身份。第 05 节点本地重新打包的 npm cache 副本（SHA256 `91ccf6149337b4f5a9f1c690a45ac04e8b685d224e37ef595059af7fdc979991`）不是 FE0 来源归档；解包内容与 FE0 原始归档相同，来源勘误见本文件第 9 节。
 
 ### 中间非零运行与修正
 
@@ -312,7 +312,7 @@ fixture 输入和生产生成器均未变化，按要求没有重新运行 backe
 - 开始：2026-11-03T09:05:19Z；结束：2026-11-03T09:05:43Z。起止 HEAD 均为 a80a2e93af663cda6f4f972a0840df5142df4cea；起止 frontend tree 均为 f1c238248acc72b8be33fd50bb893e7539ff4caa；exit 0。
 - 17 个 Vitest 文件、72 项单测、4 个 Playwright 用例通过；typecheck、lint、production build 和 production dist 检查通过。
 - runner 日志：/home/dev/gdds-fe-logs/fe2a/rereview-2/frontend-tests-20261103T090519Z.log；SHA256 17a76a49e96578082ba0d4a347ae0437824bf0baa5fdeaa41cbedb544e2d39ca。
-- 测试期间 frontend tree、HEAD 均未变化。npm cache 沿用 FE0 预填充，来源提交 a2fb4a027a6f62218109783674cfc37bd64e14a5，归档 SHA256 91ccf6149337b4f5a9f1c690a45ac04e8b685d224e37ef595059af7fdc979991；Playwright 镜像沿用第 4 节身份，config digest 和 7 个 RootFS DiffID 均与锁定值一致；Docker network none。没有在 CT04 测试。
+- 测试期间 frontend tree、HEAD 均未变化。CT05 runner 使用的文件 `/home/dev/gdds-fe-logs/fe2a/npm-cache-prefilled-a2fb4a02-05.tar.gz`（SHA256 `91ccf6149337b4f5a9f1c690a45ac04e8b685d224e37ef595059af7fdc979991`）是 05 上节点本地重新打包的副本，不是 FE0 来源归档；复审已逐文件确认解包内容与 FE0 原始归档相同。权威来源仍为 CT201 的 FE0 预填充，来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`，原始归档 SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`。Playwright 镜像沿用第 4 节身份，config digest 和 7 个 RootFS DiffID 均与锁定值一致；Docker network none。没有在 CT04 测试。
 - 中间完整 runner 日志均保留于 /home/dev/gdds-fe-logs/fe2a/rereview-2/。候选 bd6a666be3，09:01:10–09:01:23Z，exit 1，formula-view.test.ts 的 History 用例预期分组 depth 1，测试 AST 只保留一个根子节点，实际走了单子节点展开路径；日志 SHA256 281d2562d414a51f37b5075d902c6e0200ba53f9359a197b7bf22ea61a0e9940。
 - 候选 813da6cd61，09:03:29–09:03:42Z，exit 1，同一用例仍失败：首次修正补了运算符链，但测试 AST 根仍只有一个子节点。日志 SHA256 8be09f14f3b11f015d34f5a8e9b334456fa29972f26b8f4697350c76cb6c68ec。a80a2e93af 将根节点补成生产 fixture 的多分支形状（命名表达式、| 链、空操作符和一元操作符），之后从全新 worktree 从头运行并通过。两次失败均为测试 AST 形状不完整；实现未改成近似编码，runner 没有沿用旧通过结果。
 - 前置缓存预检曾误用 runner 的默认 cache 路径；失败发生在测试启动之前，没有副作用。修正为本节点的 FE0 预填充路径后重新预检通过。操作日志 /home/dev/gdds-fe-logs/fe2a/rereview-2/preflight-cache-path-failure.log，SHA256 e32683e3c11acf9428eab6cc7356c5aadac3a4771b536c0df0eee89d15934181。
@@ -340,3 +340,69 @@ fixture 输入和生产生成器均未变化，按要求没有重新运行 backe
 | tab-overflow | fabd29f6f1d990621b856e098ebe1d4cb4d042962615daa1d5a5ceb4dc177f5f | adde66af41ef8fa657a7eed466e3be0da60d58683a7b514710ce1e047e9858af |
 
 本轮无新增设计决策事项；R5 留待 FE2b。截图与测试证据交复审会话核对。
+
+## 10. 04 阶段退出取证
+
+### 源码传输与运行前核对
+
+- 源码从 `/home/dev/gdds-fe` 的 `fe-vnext` 生成完整历史 bundle，文件为 `/home/dev/gdds-fe-logs/fe2a/exit-04/src-fe-vnext-c1b8fc81.bundle`，SHA256 `f6222aa9835989c6d4c1c0b86b6f99bb5eb573aaf1f34a0d4a24cf64fc41625f`。传至 CT04 `/home/dev/gdds-test-tmp/src-fe-vnext-c1b8fc81.bundle` 后，在共享仓库 `/home/dev/gateway-data-management-system` 验证并 fetch；`FETCH_HEAD` 为 `c1b8fc818a129c7b367234132621d91138fe6468`，且包含代码候选 `a80a2e93af663cda6f4f972a0840df5142df4cea`。CT04 `main` 起止均为 `c18b9b0993ef09f21f21e44b3f143156999b6bdf`。
+- 传输与 worktree 操作记录：
+
+  ```bash
+  git -C /home/dev/gdds-fe bundle create \
+    /home/dev/gdds-fe-logs/fe2a/exit-04/src-fe-vnext-c1b8fc81.bundle \
+    refs/heads/fe-vnext
+  sha256sum /home/dev/gdds-fe-logs/fe2a/exit-04/src-fe-vnext-c1b8fc81.bundle
+  scp /home/dev/gdds-fe-logs/fe2a/exit-04/src-fe-vnext-c1b8fc81.bundle \
+    ct108-gw-dms-04:/home/dev/gdds-test-tmp/src-fe-vnext-c1b8fc81.bundle
+  git -C /home/dev/gateway-data-management-system bundle verify \
+    /home/dev/gdds-test-tmp/src-fe-vnext-c1b8fc81.bundle
+  git -C /home/dev/gateway-data-management-system fetch \
+    /home/dev/gdds-test-tmp/src-fe-vnext-c1b8fc81.bundle refs/heads/fe-vnext
+  git -C /home/dev/gateway-data-management-system worktree add --detach \
+    /home/dev/gdds-fe-fe2a-a80a2e93af-04 a80a2e93af663cda6f4f972a0840df5142df4cea
+  ln -s /home/dev/gateway-data-management-system/legacy \
+    /home/dev/gdds-fe-fe2a-a80a2e93af-04/legacy
+  ```
+
+- 测试 worktree 为 `/home/dev/gdds-fe-fe2a-a80a2e93af-04`，新建 detached worktree，带 `legacy` 符号链接。runner 前后均 clean；没有复用现有 worktree。测量用途占用标记不存在。
+- npm cache 使用 CT201 的 FE0 预填充，来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`。CT04 默认目录 `/home/dev/gdds-fe-cache/frontend/npm-cache`，来源归档 `/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz`，SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`；04 预填充时间为 2026-11-02 10:29:01–10:29:22 UTC。本次未设置 `GATEWAY_FRONTEND_NPM_CACHE_ARCHIVE`，未使用节点重新打包副本。
+- Playwright 工具链镜像 `mcr.microsoft.com/playwright:v1.64.1-noble`：config digest `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`；7 个 RootFS DiffID 为：
+  1. `sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278`
+  2. `sha256:1590c449306a9032a32c49afeac5e4c7cae86197c4a7dd95c095c3ae220a7f07`
+  3. `sha256:c8a795d9cdbc02d20daf1ecac5377667d61d63392fbe5bdbba94cc79a4cf3fe9`
+  4. `sha256:89e210c351d8ddaa3c7a6132e19a5aaf27ec837371dd94f0698dfa4c1e5aef3d`
+  5. `sha256:ea03ac3d8e487159afdc9d45b9a8d3f4035418655881b896cc34fa2e464c27fc`
+  6. `sha256:16f77d0178dafdf603cd05f8464e39df636665b2b028e18e0b95bfbee5ecacd5`
+  7. `sha256:d8597d6a5431eca9c1082ade19c2b7cdef69fbaaae43f0b67fbbd25f3a35c2bb`
+- 前置记录：`/home/dev/gdds-fe-logs/fe2a/exit-04/preflight-04.log`，SHA256 `ad26c6851f57e69b8af5935caeaa42f8d60fb9146e40ce6827a5c9aaea273cf5`。
+
+### CT04 完整 runner
+
+- 节点 `gw-dms-test-04.lan`；worktree `/home/dev/gdds-fe-fe2a-a80a2e93af-04`。执行命令：`./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2a/a80a2e93af-04`。
+- runner 起止时间：2026-11-03T09:20:14Z–2026-11-03T09:20:39Z；起止 HEAD 均为 `a80a2e93af663cda6f4f972a0840df5142df4cea`；起止 frontend tree 均为 `f1c238248acc72b8be33fd50bb893e7539ff4caa`；exit code 0。17 个 Vitest 文件、72 项单测通过；4 个 Playwright e2e 通过；typecheck、lint、production build 和 production dist 检查通过。
+- runner 日志 `/home/dev/gdds-fe-logs/fe2a/exit-04/frontend-tests-20261103T092014Z.log`，SHA256 `1fd6443994825992aace3e729eee424ab03cd557cab1e0fa6d8c87fc009ab105`。
+- 外层 wrapper 起止时间：2026-11-03T09:19:51Z–2026-11-03T09:20:39Z。日志 `/home/dev/gdds-fe-logs/fe2a/exit-04/runner-wrapper-04.log`，SHA256 `16f3846ccedf1f2d23f0a6a7d5110f7c47cc67f9d0ce9a7005afd0bb49c08dbe`。日志记录的起止 HEAD/tree 与 runner 一致，exit code 0。
+- 运行后 worktree 仍 clean，HEAD 与 frontend tree 未变化。
+
+### CT04 截图
+
+30 张截图位于 worktree 外目录 `/home/dev/gdds-fe-evidence/fe2a/a80a2e93af-04`，覆盖 1280 与 1920 两种宽度：
+
+| 状态 | 文件名（1280 / 1920） | 1280 SHA256 | 1920 SHA256 |
+| --- | --- | --- | --- |
+| bundle-error | `bundle-error-1280.png` / `bundle-error-1920.png` | `b21a4a2240bf2719c462e002116cb5e81da72d4e618ed50c398123b63a6a34a7` | `f9589c5ca9a738662c7b13700177e7dbf9b3f0a8d815beeabe65867600f4ba3e` |
+| dataset-replacement-browse | `dataset-replacement-browse-1280.png` / `dataset-replacement-browse-1920.png` | `fe14edb359aa77086b75a6d1e7fd3be64a83ceda81ba8c6f5dc43ce6ce513eec` | `974fd1e2aae8782dc837217e3471b4e88c2c6fd4ba0aea178157b40e747520c7` |
+| formula-history | `formula-history-1280.png` / `formula-history-1920.png` | `47b892650a54d8ee47b3366dd551e5b58daec7b73bfde5a840bd84882add3cb5` | `831532993e2c7a9fad8ffb0c8728be7221ca6231bb5502958bac6b053b865318` |
+| formula-preview | `formula-preview-1280.png` / `formula-preview-1920.png` | `d6aa19d3a5a1df731d3d25a93db8886ac79ccb2c90f2eef6ef46690cf087efb4` | `266f59b66390ca31a4db7fd7f5d414b2d5d7b7b463153753f440bf754d525018` |
+| loading-skeleton | `loading-skeleton-1280.png` / `loading-skeleton-1920.png` | `4ff0390c8d74470c46102d4703ac698d16594c8b699ca38ef352dfa41565b603` | `3bbfa585429f136ae8864109f4aafc8529e115611623290091b7ea62c61f7fde` |
+| navigation-fallback | `navigation-fallback-1280.png` / `navigation-fallback-1920.png` | `c3b1fec89fd5b4a28e5ab2b7a3a94d51821a99a0c614496308050e8559b5d418` | `b28dcd7e18679ed185aed9a82813ddda1e9707d886143d64b85bda3d7febd17c` |
+| s3-header-history | `s3-header-history-1280.png` / `s3-header-history-1920.png` | `76a2bf4f77191aa8cd427b960dd58fe1ab7d7eef19295150f7bb953e2f11ce3e` | `a235950cd378d78cd2ecfa69587ccd3d87b67d35aa6372ad4e6c7fde5cd84802` |
+| s3-header-review | `s3-header-review-1280.png` / `s3-header-review-1920.png` | `2ce4bccabf5b238d3a92eab14967a5c2b8651facfdb379dc5fd9034e2cf0b045` | `e6633ca1e2bd52f579e59e871b5c36a5b3e1bf9dfe7c12d5a89933020dad1309` |
+| s3-header-upload | `s3-header-upload-1280.png` / `s3-header-upload-1920.png` | `18537557e768e5ac5d5fbc534eab791817f37916fb7c5a3d1c541a74e8c5e519` | `482ba0237a0312f363669fb505812077d3e4fa3513e4037cdca64f405e04fa66` |
+| s3-workbench-upload | `s3-workbench-upload-1280.png` / `s3-workbench-upload-1920.png` | `5e5f68fbf68138da68e35192dee76be216ab6c85d693e27a372aeef4b31c0e6b` | `b639723b2f7f767988de0c0a86bf52381223acfc49f15a200eacc9433245b0b1` |
+| s4-grid-debug | `s4-grid-debug-1280.png` / `s4-grid-debug-1920.png` | `d8750bb38d6945571e2ce69b24fb656e3f30409e2ec48708456060f4437ca161` | `2130a48593f6720983d1f4fe1aebc8e1107451ab6a7025a5563dfb1c4d103d42` |
+| s4-grid-hover | `s4-grid-hover-1280.png` / `s4-grid-hover-1920.png` | `fdca73df8306966bcf43d05b78fc8c2a1ebc068ce35e0b3297eebdd1f391ba67` | `a27bf6e83c0337b2d78d4343ae9dd3989c2ecae89b4dad5306f6cca3fee75e8b` |
+| s4-grid-main | `s4-grid-main-1280.png` / `s4-grid-main-1920.png` | `dd33f14bed6d2177ec3bd3033318f8105d6560ffc305cc5ecb0a1360e5d8af4b` | `2bb60444b983e0b33811bd09d1dc5e731220fda82c313376a43e7f5d251e992f` |
+| s4-semantic-tokens | `s4-semantic-tokens-1280.png` / `s4-semantic-tokens-1920.png` | `0a409d3fbe7f395d73cd6053c5997ed0af1305f11811f3e319d3f4d2f8b6d78c` | `896b281e0a6f218648b497655a1702c5f109532cb38087b168e168c4a19a2cf6` |
+| tab-overflow | `tab-overflow-1280.png` / `tab-overflow-1920.png` | `fabd29f6f1d990621b856e098ebe1d4cb4d042962615daa1d5a5ceb4dc177f5f` | `adde66af41ef8fa657a7eed466e3be0da60d58683a7b514710ce1e047e9858af` |

@@ -627,7 +627,7 @@ test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断
   const grid = page.locator('.grid-frame[data-tab-key="telemetry"]');
   const bounds = await grid.boundingBox();
   if (!bounds) throw new Error("workbench telemetry grid has no bounds");
-  await page.mouse.move(bounds.x + 565, bounds.y + 38 + 4 * 38 + 19);
+  await page.mouse.move(bounds.x + bounds.width - 150, bounds.y + 38 + 4 * 38 + 19);
   await expect(page.getByRole("tooltip")).toContainText("字段变更");
   await screenshot(page, "s4-grid-normal-hover", 1920);
   await screenshot(page, "s3-workbench-normal", 1280);

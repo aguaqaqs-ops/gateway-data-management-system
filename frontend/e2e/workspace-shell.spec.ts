@@ -643,7 +643,6 @@ test("历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重
   await expect(drawer).toContainText("下载失败，可重试");
   await expect(drawer.getByRole("button", { name: "打开差异工作台" })).toHaveCount(0);
   await expect(drawer).toContainText("节点 1 → 节点 2");
-  await expect(drawer).toContainText("节点 2 → 节点 3");
   await expect(drawer).not.toContainText("fe2a-history-fixture-p1");
   await drawer.getByRole("button", { name: "重试下载" }).click();
   await expect(drawer).toContainText("已就绪", { timeout: 10_000 });

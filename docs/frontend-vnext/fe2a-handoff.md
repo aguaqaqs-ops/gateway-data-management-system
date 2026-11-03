@@ -189,3 +189,96 @@
     git worktree add --detach /home/dev/gdds-fe-fe2a-7b41aceaee-05 7b41aceaee05f280e09c070efaa58b008241feaf
 
 FETCH_HEAD 与 worktree HEAD 均核对为 7b41aceaee05f280e09c070efaa58b008241feaf；完成后删除节点上的传输 bundle。
+
+## 8. 定向修复第 1 轮
+
+### 候选与边界
+
+- 本轮开始前，/home/dev/gdds-fe 的本地 main 已 fast-forward 到 2e7428a5e5；按 FE2 kickoff 当前版本的 §4.2、§4.3、§5.1、§5.3、§5.5、§5.6 和设计答复执行。fe-vnext 没有合入这些文档提交。
+- 代码候选：2b62bf21a09f9cde69528eb520cdc5f6296a9486；frontend/ tree：26003bda196bdc16f17ff22767943f0b4f94d153。
+- 审核范围：57e77505f6c79752a7abd5f8df5deeb7080b19a0..<本节所在 handoff 提交>。代码候选提交至 handoff 提交之间只有本文件变化；handoff 单独提交，frontend tree 保持不变。
+- 本轮只修改 frontend/ 和本 handoff 文件；未改 vnext/、AGENTS、kickoff、UI 优化方向或审核报告；未推送、打 tag 或合入 main。
+- 修复提交：ce0efc3c22、fc8dd49a84、cdda7d6fc8、6d2d338ab8、789070db2a、a3233b91fe、11fa9c5b22、26ceed468e、83ce1d53fb、29010385a8、9ba9ecf70c、2b62bf21a0。
+
+### B1–B9 与 R 项
+
+| 项目 | 修复方式 | 代码提交 | 测试 owner |
+| --- | --- | --- | --- |
+| B1 生产 fixture | composite_signal_point 通过生产 materialize_business_snapshot，以输入 SQL 和 logics.xml 合成；公式使用真实 EXPRESS/POINT/DIGITAL AST，覆盖嵌套命名表达式、连续同类或运算链与乘运算链、单子节点空操作符、一元操作符、可映射与不可映射 POINT 名称及公式变化。Preview 按生产 pair_specs、BundleInput、身份评估及 identity_before_table_set 取值；两个 pair 的 view_id 均为 initial_to_modified。History 使用固定 operation_id fe2a-history-fixture、pair_id 后缀 -p0/-p1、生产 BundleInput 节点标签及 include_all_tables。替换场景使用 Preview 生产 pair，不再造 replacement_pair。 | ce0efc3c22、fc8dd49a84 | 生成 fixture 的跨摘要 owner 为 frontend/src/features/bundle/backend-fixture.test.ts；相同 view_id 下按 pair_id 切换并从 URL 恢复由 frontend/src/features/view-model/commands.test.ts 负责。 |
+| B2 公式查看 | 以可读公式行显示 AST；连续同类或运算链与乘运算链压平、空操作符单子节点展开、POINT/DIGITAL 保留原值、一元运算符前缀显示；命名表达式标题带父运算符；POINT 以同侧 device 表映射，未映射保留输入值。差异行使用底色和左边框。History/审核对照两侧并对齐变化行；Preview 仅展示上传侧并标公式已改，注明改前公式在 BE-b 实现后提供；删除测点显示记录中的基线值。入口只在 composite_signal_point 公式列单元格。 | ce0efc3c22、6d2d338ab8、26ceed468e、29010385a8、9ba9ecf70c | frontend/src/features/view-model/formula-view.test.ts 与 frontend/e2e/workspace-shell.spec.ts；E2E 检查公式文本、单元格入口和 Preview/History 抽屉。 |
+| B3 行定位 | 自校验按实际快照侧逐侧验证新增、删除、修改记录，拒绝重复行身份和重复归属；任何行级定位失效或不支持的类型使整表回退表级。ROW 与 ROW_PAIR 风险标注按身份字节对应；修改记录的 ROW 标注也按 row_identity 定位。Preview 无改前快照时，删除行取 before_values；修改前行只填比较键和 before_values，其他值为空；缺失侧行号留空并说明原因。删除行置于表末，按有序表位置定位。 | ce0efc3c22、6d2d338ab8、789070db2a、a3233b91fe、11fa9c5b22 | frontend/src/features/view-model/table-rows.test.ts 的唯一 fixture owner 覆盖五个 fixture、每条行级记录的快照侧、Preview 删除/改前行、篡改身份退回、未变更 ROW 标注匹配与失败退回。 |
+| B4 整表新增 | 整表新增/删除直接按 table-level 状态构造，不再把新增表内容重复走逐行新增逻辑。 | ce0efc3c22 | frontend/src/features/view-model/table-rows.test.ts：added_table fixture 是整表新增行数及类型的唯一 owner。 |
+| B5 诊断 | 表诊断只进入该表信息行；pair 提示按 view 汇总减去本 view 全部表诊断的并集，置于顶栏提示条；无提示时不显示。页签悬停使用“n 张表有比较提示”。文案按 §5.5 完整映射；匹配按完整编码、冒号前缀、异常类名归内部错误、通用提示排序。DEGRADED 取文案顺序第一条，空原因显示“降级原因未提供”。 | ce0efc3c22 | frontend/src/features/view-model/diagnostics.test.ts：文案编码集合、五个 fixture 的非通用文案、无诊断 device 表、匹配优先级及表诊断不泄漏到 pair 提示；移除 DEGRADE_NO_COMPARE_KEY 通用文案断言。 |
+| B6 视图风险与身份 | 页签从 surface.view.risk_level 展示风险和 S3 状态；缺失身份评估显示“项目身份评估不可用”，不再默认不同项目。 | ce0efc3c22、fc8dd49a84 | 数据集替换 HIGH 风险可见和身份结论由 frontend/e2e/workspace-shell.spec.ts 负责；缺失身份 copy 由 frontend/src/features/view-model/identity-copy.test.ts 负责。 |
+| B7 变更文案 | 导航徽章、信息行及悬停提示共用 §4.3 的 SurfaceChangeKind 映射，覆盖新增、删除（数据值删除线）、更新、失败、替换；业务等价不显示徽章，悬停为“内容写法不同，业务含义相同”。导航回退侧栏复用同一映射。 | ce0efc3c22 | frontend/src/features/view-model/table-state.test.tsx 的九种 SurfaceChangeKind 单一映射用例。 |
+| B8 截图与草图 | 移除模式页签，保留 URL 模式入口；删除“切回 Preview 请求数加 1”断言。截图前等待网格首格内容、canvas 与绘制标记可见，公式截图也等待表格完成绘制；重新生成完整 30 张双宽度截图。 | ce0efc3c22、26ceed468e、83ce1d53fb、29010385a8、9ba9ecf70c、2b62bf21a0 | frontend/e2e/workspace-shell.spec.ts 的 4 个 Playwright 用例；本节截图表及审核会话逐项对照。 |
+| B9 死代码与 R4 | 删除应用未调用的 filterChangedRows、applyNavigationRowFilter 和对应旧用例。R4 改为通过 buildBrowseRows 的 displayRowSearchText 搜索路径验证：包含 0x0c 的行标识搜索“12”不命中，二进制值搜索“二进制”不命中。删除 check-browser-types.sh 和 runner/package 对应步骤；N6 以审核报告 §3.3 的类型探针结论为依据。buildBrowseRows 仍保留实际导航 row_filter 所需的行过滤。 | ce0efc3c22 | frontend/src/features/view-model/table-rows.test.ts；N6 探针参考审核报告 §3.3。 |
+| R3 错误分类 | loadBundle 根据 BundleIntegrityError 类型归类完整性失败，不再正则匹配错误消息。 | ce0efc3c22 | frontend/src/features/bundle/local-bundle.test.ts。 |
+| R2 | 按用户要求留给 FE2b，本轮未处理。 | — | — |
+
+### 生产 fixture 生成与复现
+
+两次生成和逐字节比较均在 CT05（gw-dms-test-05.lan）的 clean detached worktree 执行，生成器来源为 ce0efc3c22，frontend tree 45747bb23bf5942c27e33fbefe8a81d58a487bf3；后续 fc8dd49a84 将这些生产输出更新进候选。使用已预填充 gateway-backend-deps 镜像、Docker network none。没有启动 Dolt、Compose 或访问公网。两次生成各 213 个文件，bundle 输出逐字节一致。
+
+- 第一次生成日志：/home/dev/gdds-fe-logs/fe2a/fixture-generation-ce0efc3c22-run-1-05.log；SHA256 f7d374c4a8acdfe3cf929f1dafacb2d2a351f129b708d919e2f915514fffd8。
+- 第二次生成日志：/home/dev/gdds-fe-logs/fe2a/fixture-generation-ce0efc3c22-run-2-05.log；SHA256 dc6c77bd4539bead488a92e05b7970d2010b241c516d0385cab9e903fe07270b。
+- 逐字节复现日志：/home/dev/gdds-fe-logs/fe2a/fixture-reproduction-ce0efc3c22-05.log；SHA256 311c21096e17a3a07c80fdee8455b173390d5d35579f295c8386b376c3f6bade；byte_identical=true，213 files each，exit 0。
+- 两份生成摘要日志 SHA256 均为 6f858c2a20fad3bde26990b0eda3b4c87c09aeda96e78012f5a53d1b3e408aef；摘要纠正后使用 grep 查询。首次试图调用未安装在 CT05 的 rg，操作日志 SHA256 504f40400e1cfe09019c290a5a46b45b3eba6857c9c82bed03359fe0f1cbaa1f；生成器已 exit 0，未触及被测对象，该步骤改用 grep 后完成，作为 DC68 命令环境修正记录。
+
+| Bundle | bundle SHA256 | closure SHA256 | 实际 view 风险等级 |
+| --- | --- | --- | --- |
+| Preview FULL | 09562cbb7bb6d26c2d5e922c43c81148732f66e4c0d77b05a4abe268911f5bf0 | 997403f2ca2b8141976be46ad382f2e84a5d13dfecfa81083377920887562bee | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
+| Preview MODIFIED_ONLY | fcc4deb6f9215fe4948343379b00ad1e40110e7d4e4149d72ce91141a94cf177 | e9ab96623fcd8798c7c0456b13172aba48f92cee5366f132b8d6de34fc21e2d1 | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
+| Preview 数据集替换 | f60eb9d2e4cf1c8d85e35fecbd5214335ddf11d4eaece37293c13cc329c43830 | a29400b56b0de2ce17d1ebbc5affe336927ccf965c1fd463104cbfee18060cc | HIGH |
+| History 三节点 | 5d22992d518dfd1e95cd8d7174a91fb2dad70e04a869757bf304e438f5b60b2c | 96d252ae1d8af6018f92add47112cb709d35be835651f5f980a9474c71391470 | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
+| Preview 无导航产物 | 22bb6fdf8e54e5eb4154aa83ac4e7db21d9894e8db417e6e01c43160445f7878 | e2bf17830b216f6a7ed9ea7c88608fdf1e15267a7a3c242167337db9e6b5d974 | MEDIUM_HIGH、MEDIUM_LOW、UNKNOWN |
+
+### CT05 权威 runner
+
+- 节点：gw-dms-test-05.lan。测试 worktree：/home/dev/gdds-fe-fe2a-2b62bf21a0-05，clean detached，含 legacy 符号链接。完整命令为 ./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2a/2b62bf21a0-05。
+- 开始：2026-11-03T08:15:21Z；结束：2026-11-03T08:15:45Z。起止 HEAD 均为 2b62bf21a09f9cde69528eb520cdc5f6296a9486；起止 frontend tree 均为 26003bda196bdc16f17ff22767943f0b4f94d153；exit 0。
+- 16 个 Vitest 文件、70 个单测通过；typecheck、lint、build、production build 检查通过；4 个 Playwright 用例通过。
+- runner 日志：/home/dev/gdds-fe-logs/fe2a/frontend-tests-20261103T081521Z.log；SHA256 271de5f1d486683af2634a94c5a36d59b5e4c6d9c9931eb2e1b0b8c2082274ce。
+- 外层 wrapper 日志：/home/dev/gdds-fe-logs/fe2a/full-runner-2b62bf21a0-05-wrapper.log；SHA256 d440899ef691a5c9f0c4ee8000ccb03fd1eea271687a8acd1110d8fe80aad9b5。
+- 最终候选 focused Playwright 日志：/home/dev/gdds-fe-logs/fe2a/focused-e2e-2b62bf21a0-05.log；SHA256 68f6647f71945813298bd438f9c849faba450fba3b80ad9abe2262e38914cae4；4 项通过。
+- 复审通过前没有在 CT04 取证；第 4 节的上一轮 CT04 运行只作为历史记录。本轮未改 npm/Rust/backend 依赖或锁文件，沿用第 4 节记录的 Playwright 镜像、npm cache 和 gateway-backend-deps 预填充及身份。
+
+### 中间非零运行与修正
+
+权威 runner 的失败日志保留于 /home/dev/gdds-fe-logs/fe2a/，每次修复后从头运行；最终证据只取上列最终候选成功结果。
+
+- 候选 fc8dd49a84，2026-11-03T07:50:09Z，exit 2，TypeScript 错误。runner 日志 SHA256 ecdd88939d07bd91d9bbe6cd1ceaafc91e9917c54c7b14df80c61371373da6ad；wrapper SHA256 73f6f585ad2b93dce962ba9f6d3b2f90c8b21670b02326753f408152d479d158。之后由 cdda7d6fc8 修正。
+- 候选 cdda7d6fc8，2026-11-03T07:52:18Z，exit 1，Vitest 有 6 项 fixture 行数、公式预期和有序行定位失败。runner 日志 SHA256 2281557a50f5a713190ee2436c830df1f83dbbb19eab5592c7970b60f775cd15；wrapper SHA256 778e06eaac8ac6acb018db611a19a70162792d962dcec84d3758a7eb1acfcfeb。之后由 6d2d338ab8、789070db2a、a3233b91fe、11fa9c5b22 修正。
+- 候选 11fa9c5b22，2026-11-03T08:03:31Z，exit 1，Vitest 与 build 通过，但 Playwright 有 3/4 项因网格首格尚未绘制失败。runner 日志 SHA256 0e920f82f1efc40126eddb671db19eae70ec204230a6097d0053100c067b4350；wrapper SHA256 bfedf74bfff320b50b532d37d565e66b7814f352b281c4aa2d4976290b14531b。26ceed468e 增加绘制等待。
+- 后续 focused Playwright 发现 Preview 直接 bundle URL 的 pair 未恢复（日志 SHA256 2d3381dac7937ea297b80564c83784530e2734d08ebace0049e9f2ae12570829），公式单击入口未打开抽屉（日志 SHA256 69854e0c4c8b61de06d314d444db057ee742c1078827e8c60f404faa9caec134；随后公式表绘制等待日志 SHA256 fd945e7926bbe724d2a68915e6cd356307d57107c5f0daf8820ac29243e169fb），并发现 History 深链接的 node/tab 丢失。依次由 83ce1d53fb、29010385a8、9ba9ecf70c、2b62bf21a0 修复；9ba9 的 focused 日志 SHA256 8a970fa728c6de56c9fe6adeaa340d87fc9911c04f7704f6ef73db3468ad6c64。最终候选的完整 runner 与 focused Playwright 均通过。
+
+### 截图、草图偏差与无草图页面
+
+CT05 的 30 张截图保存在 worktree 外的 /home/dev/gdds-fe-evidence/fe2a/2b62bf21a0-05。审核对照时已检查两个宽度下的 S3 顶栏/工作台、S4 主表/悬停/Debug、公式抽屉、数据集替换、加载、错误及导航回退代表图。B8 表中检查项均已修正：面包屑和模式标签、视图分段控件与“全部/仅看差异”、页签行数和徽章、信息行层级、竖向分布条、表格列宽、当前变更整行边框、数据列删除线、折叠行“展开”提示、Debug 诊断 JSON 布局。未发现尚待修正的草图偏差。
+
+| 状态 | 1280 SHA256 | 1920 SHA256 |
+| --- | --- | --- |
+| bundle-error | 0526a467d679cbc3e05f55e9f3b9d2e19d972420a5695568dcc451a8ea87380f | f9589c5ca9a738662c7b13700177e7dbf9b3f0a8d815beeabe65867600f4ba3e |
+| dataset-replacement-browse | 50a14262070d162cfd4434816d455841b8216d0f6e314355fd3586593f2ec38d | 7b9c036fa054cea329b98ddb56f481a59da395e16da551a98e9a9a4181089b4c |
+| formula-history | d1d73555cb00f54c108a52b672f2222232667c389165f9e656c94bca1f5796cf | 24eeca90faf1a5920f41e6ca395b6098b39955b212af5339455ee5f60f2bb2dc |
+| formula-preview | 6291dad532eb39a42fc556b38b73d30920e570e904e87b7f4908fce9b25af4ce | fd2782831fff05675291c2f8f9f8cae5568205534f52983e0f8e97bc57924dfb |
+| loading-skeleton | 4ff0390c8d74470c46102d4703ac698d16594c8b699ca38ef352dfa41565b603 | 3bbfa585429f136ae8864109f4aafc8529e115611623290091b7ea62c61f7fde |
+| navigation-fallback | 59660b7a2b273b2f4ad30a479c2169a09d7d778c70227df744dd4f804f0cff43 | 4d3f27539505a647d9fca7667369c8b9699e5e92e60256eaa91ed8b83301aea7 |
+| s3-header-history | a07b53c4c61a1efbe7e06e74fe7fe7bcec3ca58fec0eba28dbed1294db600f4f | b36fddebbc44476a5dfd17ca419404882edfff79dce1821f0509ccf4ced0529c |
+| s3-header-review | 0266026dc4a4fc6e5a8b3589a3141e8a5a5a31ab24d449b0efcaba0969ce06c2 | 22a22f25ad2d6957fdf43aab5596b1d80f3f31e82367ec25f3aa9b5745c9868d |
+| s3-header-upload | 1c3cde7e8b09259022bf5a5e65dd0effcfb3485f95ecd55ce6dfb9bd2ee69458 | badd21872bcafdcd3111a020d63c4e2c96ebf68b7787535f70775b2e37cbc62c |
+| s3-workbench-upload | eb3bf6a53317be3c72f6425cdd7a6fda103c82e7b9db8b47ba68bdb61ca0a6c5 | a7e6fcd0b8308d0c1bde7ddbdf922577afa71aa50bf3a51d9d3986610d63b0ad |
+| s4-grid-debug | 75a5024130ba34e310a56c47af454d28c4a8ffb957a2946320f3bda6316dc3c3 | abe1fc85a56053f0d94e93064eacda53ba03ab50c1f973b59563937fbd196aa6 |
+| s4-grid-hover | 5ac0c068325e552c74c14a69a2efd9e556d3ea3144bbef00e961d176bad5e047 | 7d9d6547c5dd441ab2877143e34557630c4b7585ce382e38ce8f957e97a375d8 |
+| s4-grid-main | 595985cd0e7b10523344b1f162c717e296445e9045dfe0856fa62a8e52e5dad9 | 464d645ca8ca10d97ab770679081376fe5df5c9bc476fd638bfbdb6737ace4b2 |
+| s4-semantic-tokens | 0a409d3fbe7f395d73cd6053c5997ed0af1305f11811f3e319d3f4d2f8b6d78c | 896b281e0a6f218648b497655a1702c5f109532cb38087b168e168c4a19a2cf6 |
+| tab-overflow | 70279675eaf0e6d78b01aba575b27231094b2d2fce72d223172a776a7109e1e0 | e6d6e6e184508f146b410d11e7feb766161274c69bd7f095cb68ba47cd6162f6 |
+
+另列无专属草图的页面，交 owner 看图确认：公式抽屉 Preview/History（formula-preview、formula-history）、数据集替换双侧浏览（dataset-replacement-browse）、加载骨架（loading-skeleton）、错误页（bundle-error）、导航回退（navigation-fallback）；每项截图均有上表中的 1280 和 1920 两种宽度与 SHA256。数据集替换确认流程属于 FE2b，未纳入本轮。S3 模式操作区留空按 §5.1 的 FE2a/FE2b 边界执行；Preview 改前公式按 §5.4 等待 BE-b；这些是设计已说明的边界，不作为本轮偏差。请审核会话独立核对截图并由 owner 确认无草图页面。
+
+### 仍需 owner / 设计会话处理
+
+- 本轮没有触发 kickoff §10 停止条件：生产后端代码可在无 Dolt/Compose 的条件下产出确定性 fixture；不需要新增后端字段或接口；公式输入与后端 AST 契约一致。
+- 请 owner 审核本节截图，尤其确认列出的无草图页面。除此之外没有待定的 B1–B9 修复偏差。
+- R2 按范围留给 FE2b；Preview 改前公式仍按计划等待 BE-b 能力，本轮没有改造后端接口。
+- 复审通过前未在 CT04 运行或取证；CT04 不作为本轮验收证据。

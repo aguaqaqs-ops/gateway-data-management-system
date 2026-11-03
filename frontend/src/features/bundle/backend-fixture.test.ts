@@ -51,16 +51,31 @@ describe("backend-generated FE2 bundle fixtures", () => {
     }
   });
 
-  it("generates the normal transfer-channel telemetry browse without diagnostics", async () => {
+  it("matches the backend summary for the normal transfer-channel telemetry browse", async () => {
     const { manifest, bundle } = await installFixture("preview-workbench-normal");
     expect(manifest.pairs).toHaveLength(1);
-    const pair = manifest.pairs[0] as { pair_id: string };
+    const pair = manifest.pairs[0] as { pair_id: string; summary: Record<string, unknown> };
     const presentation = await loadComparisonPresentation(bundle, pair.pair_id);
     expect(presentation.navigation?.groups.map((group) => group.label)).toEqual(["转发通道"]);
     expect(presentation.navigationDiagnostics).toEqual([]);
     const table = presentation.surface.tables.find((value) => value.table_name === "b1_n1_iec104_yc_list");
     expect(table?.diagnostics?.diagnostics_summary ?? []).toEqual([]);
     expect(table?.row_change_stats).toMatchObject({ row_count_before: 90, row_count_current: 90 });
+    const tables = presentation.surface.tables;
+    const diagnosticsCount = presentation.surfaceDiagnostics.length + presentation.navigationDiagnostics.length
+      + tables.reduce((total, value) => total + (value.diagnostics?.diagnostics_summary?.length ?? 0), 0);
+    const rowTotal = (key: "row_added_count" | "row_deleted_count" | "row_modified_count") =>
+      tables.reduce((total, value) => total + (value.row_change_stats?.[key] ?? 0), 0);
+    expect({
+      table_count: tables.length,
+      changed_table_count: tables.filter((value) => value.change_kind !== "UNCHANGED").length,
+      degraded_table_count: tables.filter((value) => value.change_kind === "DEGRADED").length,
+      failed_table_count: tables.filter((value) => value.change_kind === "FAILED").length,
+      diagnostics_count: diagnosticsCount,
+      row_added_count: rowTotal("row_added_count"),
+      row_deleted_count: rowTotal("row_deleted_count"),
+      row_modified_count: rowTotal("row_modified_count"),
+    }).toEqual(Object.fromEntries(Object.entries(pair.summary).map(([key, value]) => [key, Number(value)])));
     const records = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_yc_list");
     expect(records.some((record) => record.record_kind?.includes("ADDED"))).toBe(true);
     expect(records.some((record) => record.record_kind?.includes("DELETED"))).toBe(true);

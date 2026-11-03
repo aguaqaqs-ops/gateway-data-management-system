@@ -424,7 +424,7 @@ export const TEST_OPERATION_SUBMIT_SUCCEEDED = {
 } satisfies Schemas["OperationResponse"];
 
 export function testUploadRevision(inputCompleteness: Schemas["UploadRevisionResponse"]["input_completeness"]): Schemas["UploadRevisionResponse"] {
-  return { ...TEST_UPLOAD_FULL, input_completeness } satisfies Schemas["UploadRevisionResponse"];
+  return { ...TEST_UPLOAD_FULL, input_completeness: inputCompleteness } satisfies Schemas["UploadRevisionResponse"];
 }
 
 export function testHistoryCompareAcceptance(operationId: string): Schemas["HistoryCompareAcceptResponse"] {

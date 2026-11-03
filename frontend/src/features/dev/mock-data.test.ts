@@ -78,7 +78,7 @@ describe("simulated HTTP response contracts", () => {
       expect(SIMULATED_STRING_VALUES["ArchiveAuditEventResponse.issue_code"].values).toContain(event.issue_code ?? null);
     }
     for (const node of [...HISTORY_PAGE_ONE.nodes, ...HISTORY_PAGE_TWO.nodes]) {
-      expect(SIMULATED_STRING_VALUES["HistoryNodeResponse.eligibility_note"].values).toContain(node.eligibility_note ?? null);
+      expect(SIMULATED_STRING_VALUES["HistoryNodeResponse.eligibility_note"].values).toContain("eligibility_note" in node ? node.eligibility_note : null);
     }
     for (const response of Object.values(HISTORY_COMPARE_STATUS_SCENARIOS)) {
       expect(SIMULATED_STRING_VALUES["HistoryCompareResultResponse.status"].values).toContain(response.status);

@@ -62,9 +62,9 @@ describe("backend-generated FE2 bundle fixtures", () => {
     expect(table?.diagnostics?.diagnostics_summary ?? []).toEqual([]);
     expect(table?.row_change_stats).toMatchObject({ row_count_before: 90, row_count_current: 90 });
     const records = await readLocalChangeRecords(bundle, presentation, "b1_n1_iec104_yc_list");
-    expect(records.some((record) => record.record_kind.includes("ADDED"))).toBe(true);
-    expect(records.some((record) => record.record_kind.includes("DELETED"))).toBe(true);
-    expect(records.some((record) => record.record_kind.includes("MODIFIED"))).toBe(true);
+    expect(records.some((record) => record.record_kind?.includes("ADDED"))).toBe(true);
+    expect(records.some((record) => record.record_kind?.includes("DELETED"))).toBe(true);
+    expect(records.some((record) => record.record_kind?.includes("MODIFIED"))).toBe(true);
     expect(new Set(records.map((record) => record.record_kind)).size).toBeGreaterThan(1);
   });
 

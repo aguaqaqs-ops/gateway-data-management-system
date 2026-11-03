@@ -30,6 +30,10 @@ export interface PollOptions {
   onConnectionStatus?: (status: "connected" | "interrupted") => void;
 }
 
+export type HistoryComparePollOptions = Omit<PollOptions, "onUpdate"> & {
+  onUpdate?: (result: Schemas["HistoryCompareResultResponse"]) => void;
+};
+
 function abortableWait(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason ?? new DOMException("已取消", "AbortError"));
@@ -108,7 +112,7 @@ function isTransientRequestError(cause: unknown): boolean {
 export async function pollHistoryCompare(
   api: GatewayApi,
   operationId: string,
-  options: Omit<PollOptions, "onUpdate"> & { onUpdate?: (status: Schemas["HistoryCompareResultResponse"]) => void } = {},
+  options: HistoryComparePollOptions = {},
 ): Promise<Schemas["HistoryCompareResultResponse"]> {
   const intervalMs = options.intervalMs ?? 1_000;
   const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
@@ -235,7 +239,6 @@ export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInpu
 export interface ReviewHistoryJourneyResult {
   reviewFacts: Awaited<ReturnType<GatewayApi["getReviewFacts"]>>;
   accepted: Schemas["HistoryCompareAcceptResponse"];
-  operation: Schemas["OperationResponse"];
   result: Schemas["HistoryCompareResultResponse"];
   bundle: InstalledBundle;
 }
@@ -246,7 +249,7 @@ export interface HistoryComparisonJourneyResult {
   bundle: InstalledBundle;
 }
 
-export async function runHistoryComparison(api: GatewayApi, store: ReadableBundleStore, nodes: Schemas["HistoryCompareNodeRequest"][], idempotencyKey: string, options: PollOptions = {}): Promise<HistoryComparisonJourneyResult> {
+export async function runHistoryComparison(api: GatewayApi, store: ReadableBundleStore, nodes: Schemas["HistoryCompareNodeRequest"][], idempotencyKey: string, options: HistoryComparePollOptions = {}): Promise<HistoryComparisonJourneyResult> {
   if (nodes.length < 2 || nodes.length > 3) throw new Error("历史比较需要两到三个节点");
   if (nodes.some((node) => node.ref_kind === "submission" && !node.ref_id)) throw new Error("历史提交节点缺少标识");
   const accepted = await api.startHistoryCompare({
@@ -263,7 +266,7 @@ export async function runHistoryComparison(api: GatewayApi, store: ReadableBundl
 }
 
 /** Review compares the baseline node to the submission and always downloads the History bundle. */
-export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, idempotencyKey: string, options: PollOptions = {}): Promise<ReviewHistoryJourneyResult> {
+export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBundleStore, submissionId: string, idempotencyKey: string, options: HistoryComparePollOptions = {}): Promise<ReviewHistoryJourneyResult> {
   const [reviewFacts, history] = await Promise.all([api.getReviewFacts(submissionId), api.listHistory()]);
   const submissionNodes = history.nodes.filter((node) => node.ref_kind === "submission" && node.ref_id === submissionId);
   if (submissionNodes.length !== 1) throw new Error(`History 中找不到唯一提交节点：${submissionId}`);

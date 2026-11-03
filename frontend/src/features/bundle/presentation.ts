@@ -132,10 +132,15 @@ export async function readLocalChangeRecords(
   ]);
   const hasStandardRowRecords = standardRows.some((row) =>
     typeof row.record_kind === "string" && /^(ROW_ADDED|ROW_DELETED|ROW_MODIFIED)$/.test(row.record_kind));
-  // Some bundles carry the same changed rows in both artifacts. Keep ordered rows as the
-  // fallback when standard row records are absent, so duplicate identities do not invalidate
-  // location mapping for the whole table.
-  const selectedRows = [...standardRows, ...(hasStandardRowRecords ? [] : orderedRows), ...blankRows.flat()];
+  const surfaceTable = presentation.surface.tables.find((table) => table.table_name === tableName);
+  const hasComparisonKeys = (surfaceTable?.compare?.compare_key_columns?.length ?? 0) > 0;
+  const hasOrderedRowRecords = orderedRows.some((row) =>
+    typeof row.record_kind === "string" && row.record_kind.startsWith("ORDERED_ROW_"));
+  // Ordered records carry positional locations for tables without exposed comparison keys.
+  // When keys are available, standard and ordered artifacts can describe the same rows; use
+  // the standard records once instead of submitting duplicate row identities to the view model.
+  const useOrderedRows = hasOrderedRowRecords && (!hasStandardRowRecords || !hasComparisonKeys);
+  const selectedRows = [...(useOrderedRows ? [] : standardRows), ...(useOrderedRows ? orderedRows : []), ...blankRows.flat()];
   return selectedRows.map((row) => row as unknown as RowDiffRecord);
 }
 

@@ -2,8 +2,8 @@
 
 ## 候选与审核范围
 
-- 分支 `fe-vnext`，FE2c 代码候选 `48f4e0203d1aecdd1a1a899c16a92eb3394a0c4a`（frontend tree `bdf3ee01130b7869a5652659ab1826de60822b7e`），父提交 `35ece6f996`（含 FE2c handoff 文档与代码提交）。handoff 文档提交在本文件落库后生成；`fe-fe2c-exit` 指向该 handoff 提交。
-- 审核范围 `fe-fe2b-exit..<FE2c handoff 提交>`；代码候选仍为 `48f4e0203d`。`31f4310ff8`（`fe-fe2b-exit` 指向的 handoff 提交）是候选的祖先。
+- 分支 `fe-vnext`，FE2c 代码候选 `dfe0ed52ba7eb6110a4555b34a78a01d5d1aec34`（frontend tree `12dbec1bc10ed35858ef02615d531c87c2749097`），父提交 `48f4e0203d`（上传时间线对齐提交）。handoff 文档提交在本文件落库后生成；`fe-fe2c-exit` 指向该 handoff 提交。
+- 审核范围 `fe-fe2b-exit..<FE2c handoff 提交>`；代码候选仍为 `dfe0ed52ba`。`31f4310ff8`（`fe-fe2b-exit` 指向的 handoff 提交）是候选的祖先。
 - 本阶段未改写既有提交、未推送；`fe-fe2c-exit` 由设计会话在本 handoff 提交上创建。04 权威运行之后只追加了本 handoff 文档，frontend tree 未变化。
 
 ## 1. 范围完成情况
@@ -62,93 +62,93 @@
 
 ### 最终源码候选完整运行
 
-- 节点：`ct108-gw-dms-05`；调试 worktree `/home/dev/gdds-fe2c-debug`，与候选 `48f4e020...` 的 frontend 内容一致（rsync 自开发 worktree；无 `.git`，最终证据以 04 为准）。
-- 2026-11-03 17:54Z 完整检查：typecheck、lint、27 个单测文件/120 tests、生产 build、`check:production-build` 通过；上传 e2e 于 17:53Z 定向通过，17:55Z 的 04 运行覆盖 21/21 e2e。
+- 节点：`ct108-gw-dms-05`；调试 worktree `/home/dev/gdds-fe2c-debug`，与候选 `dfe0ed52...` 的 frontend 内容一致（rsync 自开发 worktree；无 `.git`，最终证据以 04 为准）。
+- 2026-11-03 18:03Z 完整检查：typecheck、lint、27 个单测文件/120 tests、生产 build、`check:production-build` 通过；提交重试键 e2e 于 18:04Z 定向通过，18:05Z 的 04 运行覆盖 21/21 e2e。
 - 生产检查输出：`production dist contains no simulated API, identity selection, or mock data modules`。
 
 ### N3 生产构建负向探针
 
 - 在 CT05 的候选副本 `/home/dev/gdds-fe2c-probe` 的 `App.tsx` 加 `import "./features/dev/simulated-api";`（未提交、未进入候选）。
 - 在固定工具链容器中执行 `npm run build` 后运行 `node scripts/check-production-build.mjs`，预期 exit 1：`production dist includes development-only modules: /src/src/features/dev/mock-data.ts`、`/src/src/features/dev/simulated-api.ts`。
-- 日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`，SHA256 `8312e7b52dd98cf8484b8957aedba80829b5d2aee9314447888426d8a299a3c2`。
+- 日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`，SHA256 `98d919f293ce34e0b7c3a5aa3fbbf2191d918523913166367d3b9473bd0430a4`。
 
 ### CT04 退出权威运行
 
-- 节点：`ct108-gw-dms-04`，hostname `gw-dms-test-04.lan`。clean detached worktree `/home/dev/gdds-fe2c-gate`，HEAD `48f4e0203d1aecdd1a1a899c16a92eb3394a0c4a`，frontend tree `bdf3ee01130b7869a5652659ab1826de60822b7e`；legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；运行前无占用标记。
-- 唯一作为证据的入口：`./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2c/48f4e020-04`，环境变量 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`。runner 于 `2026-11-03T17:55:57Z` 开始、`2026-11-03T17:56:35Z` 结束，exit 0。起止 HEAD 与 frontend tree 一致，运行后 worktree clean。
+- 节点：`ct108-gw-dms-04`，hostname `gw-dms-test-04.lan`。clean detached worktree `/home/dev/gdds-fe2c-gate`，HEAD `dfe0ed52ba7eb6110a4555b34a78a01d5d1aec34`，frontend tree `12dbec1bc10ed35858ef02615d531c87c2749097`；legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；运行前无占用标记。
+- 唯一作为证据的入口：`./frontend/scripts/run-tests.sh --screenshots /home/dev/gdds-fe-evidence/fe2c/dfe0ed52-04`，环境变量 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`。runner 于 `2026-11-03T18:05:13Z` 开始、`2026-11-03T18:05:48Z` 结束，exit 0。起止 HEAD 与 frontend tree 一致，运行后 worktree clean。
 - 结果：typecheck、lint、27 个单测文件/120 tests、生产 build、R2 正向生产检查、21/21 模拟接口 e2e 与 61 张截图全部通过。R2 输出同 05。
-- 权威日志（CT04）：`/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T175557Z.log`，SHA256 `02da3a6b444410778c859573fc6fb40154632a2a1d53484a20c5b2cfe4b2cd7f`。外层 wrapper `/home/dev/gdds-fe-logs/frontend/fe2c-exit-48f4e020-04-wrapper.log`，SHA256 `3e672da68a8bf6e687930cf4c2be5d421dd9d0ea37b2fd027a5582fae4506817`。
+- 权威日志（CT04）：`/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T180513Z.log`，SHA256 `d91323348e8594b0bf8fbfd416cf2274a1781d719dabe345985d6f517a446883`。外层 wrapper `/home/dev/gdds-fe-logs/frontend/fe2c-exit-dfe0ed52-04-wrapper.log`，SHA256 `addf1fd2bf006b29c376f5f1d643c526848031de5eb6b6969c5983d869619371`。
 - 工具链镜像：`mcr.microsoft.com/playwright:v1.64.1-noble`；config digest `sha256:a0d7b2b49ffa0e99787a00b7ec2af46eca58020082713f002ca9f0f1cfd1a017`；7 个 RootFS DiffID 与 `frontend/scripts/run-tests.sh` 中固定值一致（identity 按 config digest 与全部 DiffID 核对）。
 - npm 缓存：`/home/dev/gdds-fe-cache/frontend/npm-cache` 与 `/home/dev/gdds-fe-cache/frontend/npm-cacache.tar.gz`；归档 SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`，来源提交 `a2fb4a027a6f62218109783674cfc37bd64e14a5`，`package-lock.json` 解析项 305 个。未使用转发代理，Docker network `none`。
-- 17:45/17:47 的两次同入口运行均基于早期代码提交 `a2bcaf86`，已被 17:55 运行取代，不作为最终证据。
+- 17:45/17:47 的两次同入口运行均基于早期代码提交 `a2bcaf86`，已被 18:05 运行取代，不作为最终证据。
 
 ## 6. 截图清单与视觉偏差
 
-CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/48f4e020-04/`；清单（文件名与 SHA256）`/home/dev/gdds-fe-logs/frontend/fe2c-exit-48f4e020-04-screenshots.txt`，清单 SHA256 `404092d0472d1cf423c3bfe83f51822a56a78682e262941970464151342e4ae6`。全部截图：
+CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/dfe0ed52-04/`；清单（文件名与 SHA256）`/home/dev/gdds-fe-logs/frontend/fe2c-exit-dfe0ed52-04-screenshots.txt`，清单 SHA256 `68a9f422f4802985d3875b997658a353b3354b57ca85d868e6a2ba6f5892d8e7`。全部截图：
 
 | 文件 | SHA256 |
 | --- | --- |
-| `archive-mainline-1280.png` | `c99e1a2643ed754ccdc9fff48f40eaca91f8a5b43242b737458b9af9fc996b5b` |
-| `archive-mainline-1920.png` | `f1d3d4dab8e5a854762651420d7c7e50912aa9eadbe01763fd279b81a6cd9e8f` |
-| `archive-mainline-result-1920.png` | `b723ff55aae1511b2f90cd79daa5b7b22c2fad08702827ab4798f98041d2746b` |
-| `bundle-error-1280.png` | `59f4e9d60e5664b4d2231d9028d6b1557974876cf44d3195cc7761b60163eb18` |
-| `bundle-error-1920.png` | `20494b3816ec43025b4b9355cf70b3ce9450262c6cacdb9f33baf84606fb216a` |
-| `dataset-replacement-browse-1280.png` | `b0edfd14181cd04ad171a86f044e8784a0c6389dc545c47d3edfb8fcd79435f5` |
-| `dataset-replacement-browse-1920.png` | `6bec4feb143177864c95917ccca2317df4a2688d5c4edd70b07fa7f5a6fd6fb0` |
-| `formula-history-1280.png` | `8dcf32cde558446a768c297cc37f8d0dd6bbb7f951e9c1c679de142ba0466e4a` |
-| `formula-history-1920.png` | `98dc6ae986a0b53ec09543a24ce0e6a1ee1182a646a29a00d626b8b2ec878f25` |
-| `formula-preview-1280.png` | `abfd1c18d9033531190457d4c9e88a09a50cbc8bd784b4d290ebbb5f3b44f6cd` |
-| `formula-preview-1920.png` | `bcef8f49363b6fb443aa50cc95f831cba83c94f6eb875dcdea304836215c0c2c` |
-| `header-review-1280.png` | `b2cc3b92475a9b1be6c71c75e9ce0f7fb57d0611b2c523adbabf52f12f34acef` |
-| `header-review-1920.png` | `8075e94c635de8845f2c41adaebf57184dbf87a01e281f037c4fd27cf02650cb` |
-| `history-compare-connection-interrupted-1280.png` | `9e5feedc510a78a2571130769648c1ea60e6ac120f7d7be0a6667822b640fd80` |
-| `history-compare-connection-interrupted-1920.png` | `e9cbca6945517973bbbba2df523be847acb474230410790f02a83c601555741b` |
-| `history-compare-result-drawer-1280.png` | `cfb41db55d765e28a26fa7b77a3570e7261a4bc84480c200f599871b44031837` |
-| `history-compare-result-drawer-1920.png` | `7364eddc869b494ded0d4cf44c8c004707e6eb41d2f068285545c5412f6913a4` |
-| `history-compare-running-1280.png` | `19aec68efd5576f35f44282614cf5af6f29f50d7e0b4c7db7d3142b5d1b6d82f` |
-| `history-compare-running-1920.png` | `ec709620f7314f2165e931423278d4c10018fb8cc6d0a1729d7a95fc80eb6b5d` |
-| `loading-skeleton-1280.png` | `6cbdf791f1130167d343a0557776cd780859533ea6d7b9e6eeda1b806796ba88` |
-| `loading-skeleton-1920.png` | `f153ede7d1d1c81b970a9d01f5bd95f311b08cf8446db3e021e2729b927add47` |
-| `manual-recovery-required-1280.png` | `762f9b129cd47c55215ea52f31fe59cad1f757e3fe1cd19a0d5d1b23f1695df8` |
-| `manual-recovery-required-1920.png` | `aacb3c5478259ba34282e340caa1f54c6944c09bbf960242cc8a5251b6b5c1c7` |
-| `navigation-fallback-1280.png` | `d91097cf850ef654f75a577e2c8c9771b0727a7f55c67229857b3c2b4c65e4e4` |
-| `navigation-fallback-1920.png` | `7d7fa558ad9f9aca05881bbbe906c2f62c1dbe05e18229f38d62e7c37337cffe` |
-| `s1-workbench-1280.png` | `206fc6eb8be094c2a1ca6c2395e2e2a9ff17bf8b8d7c845bc2682ab3c6fa0b9d` |
-| `s1-workbench-1920.png` | `3fe487a8153615934efc111671b6da79bf36304c7f1ae1dfba441bee9ecfe2df` |
-| `s2-compare-tray-1280.png` | `3a6d9da0501087b204bdf64eb802b48172c645c8dc355879f3428dcdbd96950b` |
-| `s2-compare-tray-1920.png` | `56219821b6e646a9cb9b3dbe05862239d90018d67b5e5aebab3b65783a8c4123` |
-| `s3-header-history-1280.png` | `22ef7766e9f1e6fa8b45c460622f1867ebd2649edea977bd4040d3ae741b4b6f` |
-| `s3-header-history-1920.png` | `14dcc76039dd7edbf8b603c4dc09812c21163e2721869c057c978ebf81cde847` |
-| `s3-header-upload-1280.png` | `bdc4b17c807dfe3f66d63d967dbc167a55889f620587ad929891946f5c2752e0` |
-| `s3-header-upload-1920.png` | `a6d60e45fc3ea208fdd2131be99b21732b68961bb2b74f8d9abed1347a9002c8` |
-| `s3-workbench-normal-1280.png` | `7ca5fe081ffc641693aa67828ffc756e4dcd3e2c04401de070d6b1f85bf71d9c` |
-| `s3-workbench-normal-1920.png` | `5daa18c8a823068b691d300d1f51f2eb626f06847ec9d822bc26149f95018d1f` |
-| `s3-workbench-upload-1280.png` | `1087705dc5122e5b855fa4a57c0a61edc295a12012a5b53827775d14ae4bf615` |
-| `s3-workbench-upload-1920.png` | `0190d27d4263f9e4d4792820c98a785255410aafe068a0db352f877fd3d26f3d` |
-| `s4-grid-debug-1280.png` | `96e20e014176e6e82a291927d6e0f86071e3de566724ba1fb34d7ecc66eea650` |
-| `s4-grid-debug-1920.png` | `93961d36d83013e4b328126f23764598f836529e3efeb37bbaa979160592d2d8` |
-| `s4-grid-hover-1280.png` | `40e83937b9591c22768f650c29ac3e1e9c13e46d67701b336119bd0cef139848` |
-| `s4-grid-hover-1920.png` | `ceb1a6f828ad2b026574a68d714490e2a5672890e857ea5850701e4a9dd5eee4` |
-| `s4-grid-main-1280.png` | `1087705dc5122e5b855fa4a57c0a61edc295a12012a5b53827775d14ae4bf615` |
-| `s4-grid-main-1920.png` | `6caf2660092c371414bf93ba74d6f6898236df46a3b07c92446ab878c91cd35c` |
-| `s4-grid-normal-debug-1280.png` | `0e30bea87b3fb481f5fb0c930c2815a88c5f897ded665e5aea28bc46dfc63cd6` |
-| `s4-grid-normal-debug-1920.png` | `c2aa4070f0ec44a9d6cab0b73ee79fa9f0d796db0701a0ff925e1118337fa04b` |
-| `s4-grid-normal-hover-1280.png` | `8e10187802d9797021c693cb1da7efec8472b54f20df98262f09ac25764853a8` |
-| `s4-grid-normal-hover-1920.png` | `899cef79da21068e025b7b9fa5a36a4aac0c205844b19db5260b8fa3e04dbc48` |
-| `s4-grid-normal-main-1280.png` | `7ca5fe081ffc641693aa67828ffc756e4dcd3e2c04401de070d6b1f85bf71d9c` |
-| `s4-grid-normal-main-1920.png` | `5daa18c8a823068b691d300d1f51f2eb626f06847ec9d822bc26149f95018d1f` |
-| `s4-semantic-tokens-1280.png` | `116f9cbb8991ace7deef04e4f5029a211ff933c38aee5e3348f5cba63bcd8b2c` |
-| `s4-semantic-tokens-1920.png` | `15fe88e318ed59410b184631888681262349d9220dda26a5f49ac6f12c16dcba` |
-| `submit-identity-confirmation-1280.png` | `3ccc4793ecbf722a50ccfaddc8b994334354e8ca62dfce658c2a8e3c40b393df` |
-| `submit-identity-confirmation-1920.png` | `651a17063877fdefa5cc638b300070ed54d1e746f4b3c4f2bf669ff5f7dc3f5b` |
-| `tab-overflow-1280.png` | `c66810efccf1809ff40c57c1095849bffd279b83325faad4483557bc46368465` |
-| `tab-overflow-1920.png` | `ec0dfd53f2316d4a24447b6c1c41816e8b9742d2bf1cd9457b80e1d56881f136` |
-| `upload-invalid-1280.png` | `4d532fa95da7790be2a481e5fe9c9cd8128d3d26377718a016e1f3e32580994e` |
-| `upload-invalid-1920.png` | `ab7e55584cd9e6295c35e233c8315f31fcccf9b8ee3be0437bf9a3fda5e5227f` |
-| `upload-locked-1280.png` | `203fe45712759d0f2363a445021e4af1a8d07c2a320cd104cc481fd7eb32ab6c` |
-| `upload-selected-1920.png` | `ab3076d08525c376ea98641a2ad42f9b34276db01c3111b12f5e0d859c904f52` |
-| `workspace-error-no-connected-1280.png` | `730d6a537152013846170dead716d90b9e85235cbcbe6f7deffc7ffc65e47ec9` |
-| `workspace-error-no-connected-1920.png` | `4acd5f25b89efa2b25cddbd06644cf070ac2f3cd509b59753d77155dbb86fd69` |
+| archive-mainline-1280.png | `c99e1a2643ed754ccdc9fff48f40eaca91f8a5b43242b737458b9af9fc996b5b` |
+| archive-mainline-1920.png | `f1d3d4dab8e5a854762651420d7c7e50912aa9eadbe01763fd279b81a6cd9e8f` |
+| archive-mainline-result-1920.png | `b723ff55aae1511b2f90cd79daa5b7b22c2fad08702827ab4798f98041d2746b` |
+| bundle-error-1280.png | `59f4e9d60e5664b4d2231d9028d6b1557974876cf44d3195cc7761b60163eb18` |
+| bundle-error-1920.png | `20494b3816ec43025b4b9355cf70b3ce9450262c6cacdb9f33baf84606fb216a` |
+| dataset-replacement-browse-1280.png | `b0edfd14181cd04ad171a86f044e8784a0c6389dc545c47d3edfb8fcd79435f5` |
+| dataset-replacement-browse-1920.png | `6bec4feb143177864c95917ccca2317df4a2688d5c4edd70b07fa7f5a6fd6fb0` |
+| formula-history-1280.png | `8dcf32cde558446a768c297cc37f8d0dd6bbb7f951e9c1c679de142ba0466e4a` |
+| formula-history-1920.png | `98dc6ae986a0b53ec09543a24ce0e6a1ee1182a646a29a00d626b8b2ec878f25` |
+| formula-preview-1280.png | `abfd1c18d9033531190457d4c9e88a09a50cbc8bd784b4d290ebbb5f3b44f6cd` |
+| formula-preview-1920.png | `bcef8f49363b6fb443aa50cc95f831cba83c94f6eb875dcdea304836215c0c2c` |
+| header-review-1280.png | `b2cc3b92475a9b1be6c71c75e9ce0f7fb57d0611b2c523adbabf52f12f34acef` |
+| header-review-1920.png | `8075e94c635de8845f2c41adaebf57184dbf87a01e281f037c4fd27cf02650cb` |
+| history-compare-connection-interrupted-1280.png | `9e5feedc510a78a2571130769648c1ea60e6ac120f7d7be0a6667822b640fd80` |
+| history-compare-connection-interrupted-1920.png | `e9cbca6945517973bbbba2df523be847acb474230410790f02a83c601555741b` |
+| history-compare-result-drawer-1280.png | `40a4c0b22832a45f99b44cd44c668fb99883ae001277e1b422dd7f5d254360e0` |
+| history-compare-result-drawer-1920.png | `7364eddc869b494ded0d4cf44c8c004707e6eb41d2f068285545c5412f6913a4` |
+| history-compare-running-1280.png | `19aec68efd5576f35f44282614cf5af6f29f50d7e0b4c7db7d3142b5d1b6d82f` |
+| history-compare-running-1920.png | `ec709620f7314f2165e931423278d4c10018fb8cc6d0a1729d7a95fc80eb6b5d` |
+| loading-skeleton-1280.png | `6cbdf791f1130167d343a0557776cd780859533ea6d7b9e6eeda1b806796ba88` |
+| loading-skeleton-1920.png | `bd889713e17225dad97c926856eb813c7f3497df8966b67fe9bd8cc6979331c8` |
+| manual-recovery-required-1280.png | `762f9b129cd47c55215ea52f31fe59cad1f757e3fe1cd19a0d5d1b23f1695df8` |
+| manual-recovery-required-1920.png | `aacb3c5478259ba34282e340caa1f54c6944c09bbf960242cc8a5251b6b5c1c7` |
+| navigation-fallback-1280.png | `d91097cf850ef654f75a577e2c8c9771b0727a7f55c67229857b3c2b4c65e4e4` |
+| navigation-fallback-1920.png | `7d7fa558ad9f9aca05881bbbe906c2f62c1dbe05e18229f38d62e7c37337cffe` |
+| s1-workbench-1280.png | `206fc6eb8be094c2a1ca6c2395e2e2a9ff17bf8b8d7c845bc2682ab3c6fa0b9d` |
+| s1-workbench-1920.png | `3fe487a8153615934efc111671b6da79bf36304c7f1ae1dfba441bee9ecfe2df` |
+| s2-compare-tray-1280.png | `3a6d9da0501087b204bdf64eb802b48172c645c8dc355879f3428dcdbd96950b` |
+| s2-compare-tray-1920.png | `2831e2c3cf8af2f1dc0aa84ffa3004131717ae4caf69d8d4a17c3cccb7bee238` |
+| s3-header-history-1280.png | `22ef7766e9f1e6fa8b45c460622f1867ebd2649edea977bd4040d3ae741b4b6f` |
+| s3-header-history-1920.png | `14dcc76039dd7edbf8b603c4dc09812c21163e2721869c057c978ebf81cde847` |
+| s3-header-upload-1280.png | `bdc4b17c807dfe3f66d63d967dbc167a55889f620587ad929891946f5c2752e0` |
+| s3-header-upload-1920.png | `a6d60e45fc3ea208fdd2131be99b21732b68961bb2b74f8d9abed1347a9002c8` |
+| s3-workbench-normal-1280.png | `7ca5fe081ffc641693aa67828ffc756e4dcd3e2c04401de070d6b1f85bf71d9c` |
+| s3-workbench-normal-1920.png | `5daa18c8a823068b691d300d1f51f2eb626f06847ec9d822bc26149f95018d1f` |
+| s3-workbench-upload-1280.png | `1087705dc5122e5b855fa4a57c0a61edc295a12012a5b53827775d14ae4bf615` |
+| s3-workbench-upload-1920.png | `0190d27d4263f9e4d4792820c98a785255410aafe068a0db352f877fd3d26f3d` |
+| s4-grid-debug-1280.png | `96e20e014176e6e82a291927d6e0f86071e3de566724ba1fb34d7ecc66eea650` |
+| s4-grid-debug-1920.png | `93961d36d83013e4b328126f23764598f836529e3efeb37bbaa979160592d2d8` |
+| s4-grid-hover-1280.png | `40e83937b9591c22768f650c29ac3e1e9c13e46d67701b336119bd0cef139848` |
+| s4-grid-hover-1920.png | `ceb1a6f828ad2b026574a68d714490e2a5672890e857ea5850701e4a9dd5eee4` |
+| s4-grid-main-1280.png | `1087705dc5122e5b855fa4a57c0a61edc295a12012a5b53827775d14ae4bf615` |
+| s4-grid-main-1920.png | `6caf2660092c371414bf93ba74d6f6898236df46a3b07c92446ab878c91cd35c` |
+| s4-grid-normal-debug-1280.png | `0e30bea87b3fb481f5fb0c930c2815a88c5f897ded665e5aea28bc46dfc63cd6` |
+| s4-grid-normal-debug-1920.png | `c2aa4070f0ec44a9d6cab0b73ee79fa9f0d796db0701a0ff925e1118337fa04b` |
+| s4-grid-normal-hover-1280.png | `8e10187802d9797021c693cb1da7efec8472b54f20df98262f09ac25764853a8` |
+| s4-grid-normal-hover-1920.png | `899cef79da21068e025b7b9fa5a36a4aac0c205844b19db5260b8fa3e04dbc48` |
+| s4-grid-normal-main-1280.png | `7ca5fe081ffc641693aa67828ffc756e4dcd3e2c04401de070d6b1f85bf71d9c` |
+| s4-grid-normal-main-1920.png | `5daa18c8a823068b691d300d1f51f2eb626f06847ec9d822bc26149f95018d1f` |
+| s4-semantic-tokens-1280.png | `116f9cbb8991ace7deef04e4f5029a211ff933c38aee5e3348f5cba63bcd8b2c` |
+| s4-semantic-tokens-1920.png | `15fe88e318ed59410b184631888681262349d9220dda26a5f49ac6f12c16dcba` |
+| submit-identity-confirmation-1280.png | `578c51eb8b6c01c72ae8cfd54991565591a47b47028c5264bc8a584d0c0b46d1` |
+| submit-identity-confirmation-1920.png | `651a17063877fdefa5cc638b300070ed54d1e746f4b3c4f2bf669ff5f7dc3f5b` |
+| tab-overflow-1280.png | `c66810efccf1809ff40c57c1095849bffd279b83325faad4483557bc46368465` |
+| tab-overflow-1920.png | `ec0dfd53f2316d4a24447b6c1c41816e8b9742d2bf1cd9457b80e1d56881f136` |
+| upload-invalid-1280.png | `4d532fa95da7790be2a481e5fe9c9cd8128d3d26377718a016e1f3e32580994e` |
+| upload-invalid-1920.png | `ab7e55584cd9e6295c35e233c8315f31fcccf9b8ee3be0437bf9a3fda5e5227f` |
+| upload-locked-1280.png | `203fe45712759d0f2363a445021e4af1a8d07c2a320cd104cc481fd7eb32ab6c` |
+| upload-selected-1920.png | `ab3076d08525c376ea98641a2ad42f9b34276db01c3111b12f5e0d859c904f52` |
+| workspace-error-no-connected-1280.png | `2cec217a60b77863b056a2fcd2e08a100732597ce420d920a61b1d43f6edc233` |
+| workspace-error-no-connected-1920.png | `4acd5f25b89efa2b25cddbd06644cf070ac2f3cd509b59753d77155dbb86fd69` |
 
 视觉核对结论：
 
@@ -170,12 +170,12 @@ CT04 截图 61 张，目录 `/home/dev/gdds-fe-evidence/fe2c/48f4e020-04/`；清
 
 ## 9. 本阶段 worktree 与传输文件清单（供退出后清理）
 
-- 开发 worktree：`/home/dev/gdds-fe`（`fe-vnext`，候选提交 `48f4e0203d`）。
+- 开发 worktree：`/home/dev/gdds-fe`（`fe-vnext`，候选提交 `dfe0ed52ba`）。
 - CT05 调试目录：`/home/dev/gdds-fe2c-debug`（rsync 副本，无 `.git`）；N3 探针副本 `/home/dev/gdds-fe2c-probe`。
-- CT04 取证 worktree：`/home/dev/gdds-fe2c-gate`（detached HEAD `48f4e0203d`），legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；共享仓库临时分支 `refs/heads/fe-vnext` 被本次 fetch 更新到最终 FE2c handoff 提交（该分支原本不存在）。
-- 源码 bundle：早期 `/tmp/fe2c.bundle` → CT04 `/home/dev/fe2c.bundle`；最终增量 `/tmp/fe2c-final.bundle` → CT04 `/home/dev/fe2c-final.bundle`（`fe-vnext` 相对 `a2bcaf86`）。
-- 运行日志：CT04 `/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T175557Z.log` 与 `fe2c-exit-48f4e020-04-wrapper.log`；截图清单 `/home/dev/gdds-fe-logs/frontend/fe2c-exit-48f4e020-04-screenshots.txt`；CT05 探针日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`。
-- 截图：CT04 `/home/dev/gdds-fe-evidence/fe2c/48f4e020-04/`；05 调试副本 `/home/dev/gdds-fe-evidence/fe2c-all/`、`/home/dev/gdds-fe-evidence/fe2c-debug/`。
+- CT04 取证 worktree：`/home/dev/gdds-fe2c-gate`（detached HEAD `dfe0ed52ba`），legacy 链接指向 `/home/dev/gateway-data-management-system/legacy`；共享仓库临时分支 `refs/heads/fe-vnext` 被本次 fetch 更新到最终 FE2c handoff 提交（该分支原本不存在）。
+- 源码 bundle：`/tmp/fe2c.bundle`（首轮 `a2bcaf86`）、`/tmp/fe2c-final.bundle`（`48f4e020` 相对 `a2bcaf86`）、`/tmp/fe2c-final2.bundle`（最终门禁 `dfe0ed52` 相对 `48f4e020`）、`/tmp/fe2c-handoff.bundle`（handoff 文档提交相对 `dfe0ed52`），均传至 CT04 同名文件。
+- 运行日志：CT04 `/home/dev/gdds-fe-logs/frontend/frontend-tests-20261103T180513Z.log` 与 `fe2c-exit-dfe0ed52-04-wrapper.log`；截图清单 `/home/dev/gdds-fe-logs/frontend/fe2c-exit-dfe0ed52-04-screenshots.txt`；CT05 探针日志 `/home/dev/gdds-fe-logs/fe2c/probe-b3-05.log`。
+- 截图：CT04 `/home/dev/gdds-fe-evidence/fe2c/dfe0ed52-04/`；05 调试副本 `/home/dev/gdds-fe-evidence/fe2c-all/`、`/home/dev/gdds-fe-evidence/fe2c-debug/`。
 - 证据保留到审核会话核对完成、`fe-fe2c-exit` 创建后再清理。
 
 ## 10. FE2c 带入事项（给后续阶段）

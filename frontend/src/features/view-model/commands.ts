@@ -10,6 +10,7 @@ export interface BrowseState {
   operationKind: "history-compare" | "operation" | null;
   pairId: string | null;
   nodeKey: string | null;
+  workbenchNodeKey: string | null;
   tabKey: string | null;
   changeIndex: number;
   expandedGroups: string[];
@@ -29,6 +30,7 @@ export const initialBrowseState: BrowseState = {
   operationKind: null,
   pairId: null,
   nodeKey: null,
+  workbenchNodeKey: null,
   tabKey: null,
   changeIndex: 0,
   expandedGroups: [],
@@ -110,6 +112,7 @@ export function encodeBrowseState(state: BrowseState): string {
   if (state.operationKind) params.set("operationKind", state.operationKind);
   if (state.pairId) params.set("pair", state.pairId);
   if (state.nodeKey) params.set("node", state.nodeKey);
+  if (state.workbenchNodeKey) params.set("workbenchNode", state.workbenchNodeKey);
   if (state.tabKey) params.set("tab", state.tabKey);
   if (state.changeIndex > 0) params.set("change", String(state.changeIndex));
   if (state.onlyInteresting) params.set("changed", "1");
@@ -135,6 +138,7 @@ export function decodeBrowseState(search: string): BrowseState {
     operationKind: params.get("operationKind") === "history-compare" || params.get("operationKind") === "operation" ? params.get("operationKind") as "history-compare" | "operation" : null,
     pairId: params.get("pair"),
     nodeKey: params.get("node"),
+    workbenchNodeKey: params.get("workbenchNode"),
     tabKey: params.get("tab"),
     changeIndex: Number.isFinite(change) ? change : 0,
     expandedGroups: params.getAll("group"),

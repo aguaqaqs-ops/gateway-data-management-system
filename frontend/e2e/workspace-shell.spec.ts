@@ -35,14 +35,19 @@ async function installFixtureRoutes(page: Page, options: {
   slowPreview?: boolean;
   noPermission?: boolean;
   timeoutFirstCompare?: boolean;
+  historyCompareForbidden?: boolean;
+  historyBundleDelayMs?: number;
+  failFirstHistoryBundle?: boolean;
   historyCompareErrors?: number;
   historyCompareStatus?: (operationId: string, index: number) => Schemas["HistoryCompareResultResponse"];
   operationStatus?: (operationId: string, index: number) => Schemas["OperationResponse"];
+  operationStatusForbidden?: boolean;
 } = {}) {
   const requests = new Map<string, number>();
   const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
   const apiResponses: Array<{ method: string; path: string; status: number; body: string }> = [];
   const historyCompareCounts = new Map<string, number>();
+  let historyBundleCalls = 0;
   const operationCounts = new Map<string, number>();
   const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
   let workspaceCallCount = 0;
@@ -86,6 +91,12 @@ async function installFixtureRoutes(page: Page, options: {
     const key = request.headers()["idempotency-key"] ?? "missing-key";
     const requestBody = request.postData() ?? "";
     apiRequests.push({ method: "POST", path: "/v1/history-compares", token: request.headers()["authorization"] ?? null, idempotencyKey: key, body: requestBody });
+    if (options.historyCompareForbidden) {
+      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/history-compares" && item.method === "POST" && item.status === 403);
+      if (!error) throw new Error("POST /v1/history-compares SCOPE_FORBIDDEN fixture missing");
+      apiResponses.push({ method: "POST", path: "/v1/history-compares", status: error.status, body: JSON.stringify(error.body) });
+      return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+    }
     const previous = idempotentResponses.get(key);
     if (previous) {
       if (previous.requestBody !== requestBody) throw new Error("same Idempotency-Key was reused for another request body");
@@ -107,6 +118,9 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: request.method(), path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    historyBundleCalls += 1;
+    if (options.failFirstHistoryBundle && historyBundleCalls === 1) return route.abort();
+    if (options.historyBundleDelayMs) await new Promise((resolve) => setTimeout(resolve, options.historyBundleDelayMs));
     const fixture = await loadFixture("history-three-nodes");
     return fulfillBundle(route, fixture.tar, fixture.manifest, false);
   });
@@ -136,6 +150,12 @@ async function installFixtureRoutes(page: Page, options: {
     const count = (operationCounts.get(operationId) ?? 0) + 1;
     operationCounts.set(operationId, count);
     apiRequests.push({ method: "GET", path: new URL(request.url()).pathname, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    if (options.operationStatusForbidden) {
+      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/operations/{operation_id}" && item.method === "GET" && item.status === 403);
+      if (!error) throw new Error("GET /v1/operations/{operation_id} SCOPE_FORBIDDEN fixture missing");
+      apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: error.status, body: JSON.stringify(error.body) });
+      return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+    }
     const result = options.operationStatus?.(operationId, count) ?? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId };
     apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: 200, body: JSON.stringify(result) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(result) });
@@ -388,6 +408,7 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(formula).toContainText("+ （* 分组）");
   await expect(formula).toContainText("线路保护装置 A:线路电流");
   await expect(formula).toContainText("Device 999:未映射测点");
+  await expect(formula.locator(".formula-line").filter({ hasText: "| - 线路保护装置 A:线路电流" }).last()).toBeInViewport();
   await expect(formula).not.toContainText("kind:");
   await screenshot(page, "formula-preview", 1920);
   await screenshot(page, "formula-preview", 1280);
@@ -400,8 +421,10 @@ test("Preview、审核与历史浏览保留 URL 状态，并覆盖 S3/S4 页面"
   await expect(page.locator(".table-heading h2")).toHaveText("复合信号测点");
   await waitForGridPaint(page, "composite_signal_point");
   await clickFormulaCell(page);
-  await expect(page.getByRole("dialog", { name: "公式查看" }).getByText("改前公式", { exact: true })).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "公式查看" }).getByText("改后公式", { exact: true })).toBeVisible();
+  const historyFormula = page.getByRole("dialog", { name: "公式查看" });
+  await expect(historyFormula.getByText("改前公式", { exact: true })).toBeVisible();
+  await expect(historyFormula.getByText("改后公式", { exact: true })).toBeVisible();
+  await expect(historyFormula.locator(".formula-line").filter({ hasText: "| - 线路保护装置 A:线路电流" }).last()).toBeInViewport();
   await screenshot(page, "formula-history", 1920);
   await screenshot(page, "formula-history", 1280);
 });
@@ -504,6 +527,8 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   await expect(page.locator(".workspace-context-bar")).toContainText("提交尚未审核通过");
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await expect(page.locator(".compare-tray")).toContainText("2 / 3");
+  await expect(page.locator(".workspace-table")).toContainText("比较 1");
+  await expect(page.locator(".workspace-table")).toContainText("比较 2");
   await screenshot(page, "s2-compare-tray", 1920);
 
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -525,17 +550,19 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
 
   await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "原始组态备份" }).click();
+  expect(new URL(page.url()).searchParams.get("page")).not.toBe("compare");
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  await page.locator(".workspace-details").getByRole("button", { name: "查看本次组态差异" }).click();
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("workspaceId")).toBe("workspace-fe2b");
   expect(new URL(page.url()).searchParams.get("previewResultId")).toBe("preview-full");
-  expect(new URL(page.url()).searchParams.get("pair")).toBe("baseline_to_initial");
-  for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"]) expect(new URL(page.url()).searchParams.has(legacy)).toBe(false);
-  await page.goBack();
-  await expect(page.locator(".workspace-table")).toBeVisible();
-  await page.getByRole("button", { name: "工作区 gateway-17", exact: true }).click();
-  await page.locator(".workspace-context-bar").getByRole("button", { name: "本次归档组态" }).click();
-  await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("pair")).toBe("initial_to_modified");
+  expect(new URL(page.url()).searchParams.get("workbenchNode")).toBe("workspace:workspace-fe2b");
+  for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"]) expect(new URL(page.url()).searchParams.has(legacy)).toBe(false);
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await expect(page.locator(".workspace-table")).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("workbenchNode")).toBe("workspace:workspace-fe2b");
+  expect(new URL(page.url()).searchParams.get("workbenchNode")).toBe("workspace:workspace-fe2b");
 });
 
 test("待审提交从工作台进入只读审核模式并比较其基线到提交", async ({ page }) => {
@@ -565,6 +592,7 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
       ? { ...HISTORY_COMPARE_RUNNING, operation_id: operationId }
       : { ...testHistoryCompareSucceeded(fixture.manifest.bundle_digest), operation_id: operationId },
   });
+  await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("button", { name: "归档基线", exact: true }).click();
@@ -582,7 +610,9 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   expect(comparePosts[0]?.idempotencyKey).toBe(comparePosts[1]?.idempotencyKey);
   expect(comparePosts[0]?.body).toBe(comparePosts[1]?.body);
   expect(apiResponses.filter((response) => response.method === "POST" && response.path === "/v1/history-compares").map((response) => response.status)).toEqual([202, 200]);
-  await expect(page.locator(".history-result-drawer")).toContainText("仍在运行");
+  await expect(page.locator(".history-result-drawer")).toContainText("执行中");
+  await expect(page.locator(".compare-tray").getByRole("button", { name: "比较中" })).toBeDisabled();
+  await expect(page.locator(".compare-chip").first().getByRole("button")).toBeDisabled();
   await page.reload();
   await expect(page.locator(".history-result-drawer")).toBeVisible();
   await expect(page.locator(".history-result-drawer")).toContainText("已完成");
@@ -601,11 +631,30 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   expect(new URL(page.url()).searchParams.get("operationId")).toBe("history-compare-fe2b-1");
 });
 
+test("历史比较抽屉在 bundle 就绪前隐藏打开入口并允许下载重试", async ({ page }) => {
+  const { manifest } = await loadFixture("history-three-nodes");
+  await installFixtureRoutes(page, {
+    failFirstHistoryBundle: true,
+    historyCompareStatus: (operationId) => ({ ...testHistoryCompareSucceeded(manifest.bundle_digest), operation_id: operationId }),
+  });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/?page=workspace&operationId=history-compare-download&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
+  const drawer = page.locator(".history-result-drawer");
+  await expect(drawer).toContainText("下载失败，可重试");
+  await expect(drawer.getByRole("button", { name: "打开差异工作台" })).toHaveCount(0);
+  await expect(drawer).toContainText("节点 1 → 节点 2");
+  await expect(drawer).toContainText("节点 2 → 节点 3");
+  await expect(drawer).not.toContainText("fe2a-history-fixture-p1");
+  await drawer.getByRole("button", { name: "重试下载" }).click();
+  await expect(drawer).toContainText("已就绪", { timeout: 10_000 });
+  await expect(drawer.getByRole("button", { name: "打开差异工作台" })).toBeVisible();
+});
+
 test("History 比较仍在运行和连接中断状态清晰显示", async ({ page }) => {
   await installFixtureRoutes(page, { historyCompareStatus: (operationId) => ({ ...HISTORY_COMPARE_RUNNING, operation_id: operationId }) });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/?page=workspace&operationId=history-compare-running&operationKind=history-compare&compare=baseline_node%3Afe2a-history-ref-1&compare=submission%3Afe2a-history-ref-2");
-  await expect(page.locator(".history-result-drawer")).toContainText("仍在运行");
+  await expect(page.locator(".history-result-drawer")).toContainText("执行中");
   await screenshot(page, "history-compare-running", 1920);
   await screenshot(page, "history-compare-running", 1280);
 
@@ -635,22 +684,72 @@ test("MANUAL_RECOVERY_REQUIRED 提供管理员信息并在刷新后跟随 RUNNIN
   await expect(panel).toContainText("已完成", { timeout: 5_000 });
 });
 
+test("操作状态查询收到权限拒绝时显示错误码而不伪装成连接中断", async ({ page }) => {
+  await installFixtureRoutes(page, { operationStatusForbidden: true });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/?operationId=operation-forbidden&operationKind=operation");
+  const panel = page.getByRole("region", { name: "操作状态" });
+  await expect(panel).toContainText("当前身份没有该操作的权限");
+  await expect(panel).toContainText("SCOPE_FORBIDDEN");
+  await expect(panel).not.toContainText("连接中断");
+  await expect(panel.getByRole("button", { name: "重试查询" })).toHaveCount(0);
+});
+
 test("所选模拟身份携带对应 token；无权限错误页不显示已连接", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page, { noPermission: true });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("SCOPE_FORBIDDEN");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("no-permission");
+  await expect(page.getByRole("heading", { name: "当前身份没有该操作的权限" })).toBeVisible();
   await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/workspaces" && request.token === "Bearer dev-token-no-permission").length).toBeGreaterThan(0);
   await expect(page.getByText("已连接", { exact: true })).toHaveCount(0);
   await screenshot(page, "workspace-error-no-connected", 1920);
   await screenshot(page, "workspace-error-no-connected", 1280);
 });
 
+test("无权限身份发起历史比较时托盘显示统一权限提示和错误码", async ({ page }) => {
+  const { apiRequests } = await installFixtureRoutes(page, { historyCompareForbidden: true });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/");
+  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("no-permission");
+  await page.getByRole("button", { name: "归档基线", exact: true }).click();
+  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.getByRole("button", { name: "提交 2", exact: true }).click();
+  await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
+  await page.locator(".compare-tray").getByRole("button", { name: "历史比较" }).click();
+  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("当前身份没有该操作的权限");
+  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("SCOPE_FORBIDDEN");
+  await expect(page.getByRole("button", { name: "复制比较错误详情" })).toBeVisible();
+  expect(apiRequests.some((request) => request.method === "POST" && request.path === "/v1/history-compares" && request.token === "Bearer dev-token-no-permission")).toBe(true);
+});
+
+test("查看差异超时后的重试复用同一幂等意图", async ({ page }) => {
+  const { apiRequests } = await installFixtureRoutes(page, { timeoutFirstCompare: true });
+  await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "提交 1", exact: true }).click();
+  await page.locator(".workspace-context-bar").getByRole("button", { name: "查看差异" }).click();
+  await expect(page.locator(".compare-tray").getByRole("alert")).toContainText("请求超时");
+  await page.locator(".compare-tray").getByRole("button", { name: "重试发起比较" }).click();
+  await expect(page).toHaveURL(/operationId=history-compare-fe2b-1/);
+  await expect.poll(() => apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/history-compares").length).toBe(2);
+  const requests = apiRequests.filter((request) => request.method === "POST" && request.path === "/v1/history-compares");
+  expect(requests[0]?.idempotencyKey).toBeTruthy();
+  expect(requests[0]?.idempotencyKey).toBe(requests[1]?.idempotencyKey);
+  expect(requests[0]?.body).toBe(requests[1]?.body);
+  expect(JSON.parse(requests[0]?.body ?? "{}")).toEqual({ nodes: [
+    { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
+    { ref_kind: "submission", ref_id: "fe2a-history-ref-old" },
+  ] });
+});
+
 test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断", async ({ page }) => {
   await installFixtureRoutes(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto(browseUrl("PREVIEW", "preview-workbench-normal", { node: "forward-channel:b1_n1", tab: "telemetry" }));
+  await expect(page.locator(".task-indicator")).toHaveCount(0);
   await waitForBrowse(page);
   await expect(page.locator(".navigation-sidebar")).toContainText("转发通道");
   await expect(page.locator(".nav-group__diagnostic-count")).toHaveCount(0);
@@ -663,6 +762,8 @@ test("FE2b 正常业务场景以普通页签打开主表且无导航或表诊断
   await screenshot(page, "s4-grid-normal-main", 1920);
   await hoverChangedTelemetryValue(page);
   await screenshot(page, "s4-grid-normal-hover", 1920);
+  await page.mouse.move(1, 1);
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await screenshot(page, "s3-workbench-normal", 1280);
   await screenshot(page, "s4-grid-normal-main", 1280);
   await hoverChangedTelemetryValue(page);

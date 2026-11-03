@@ -95,7 +95,7 @@ export const HISTORY_PAGE_ONE = {
     {
       ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1", node_kind: "BASELINE_NODE", baseline_kind: "ARCHIVED_SUBMISSION",
       commit_id: "commit-baseline-1", created_at: "2026-11-01T13:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
-      archive_disposition: "ARCHIVED_BASELINE", identity_exception: false, review_status: null,
+      identity_exception: false,
     },
     {
       ref_kind: "submission", ref_id: "fe2a-history-ref-2", node_kind: "SUBMISSION", commit_id: "commit-submission-2",
@@ -112,7 +112,7 @@ export const HISTORY_PAGE_TWO = {
     {
       ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0", node_kind: "BASELINE_NODE", baseline_kind: "INITIAL",
       commit_id: "commit-baseline-0", created_at: "2026-10-30T09:00:00Z", parent: null,
-      identity_exception: false, review_status: null,
+      identity_exception: false,
     },
     {
       ref_kind: "submission", ref_id: "fe2a-history-ref-old", node_kind: "SUBMISSION", commit_id: "commit-submission-old",
@@ -240,6 +240,7 @@ export const SIMULATED_ERROR_RESPONSES: ReadonlyArray<{
   body: ApiErrorResponse;
 }> = [
   { route: "/v1/history", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有历史读取权限" } },
+  { route: "/v1/operations/{operation_id}", method: "GET", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有操作读取权限" } },
   { route: "/v1/workspaces", method: "POST", status: 403, schema: "ErrorResponse", body: { code: "SCOPE_FORBIDDEN", message: "当前身份没有创建工作区的权限" } },
   { route: "/v1/workspaces", method: "POST", status: 422, schema: "ErrorResponse", body: { code: "REQUEST_VALIDATION_FAILED", message: "工作区参数无效" } },
   { route: "/v1/workspaces", method: "POST", status: 503, schema: "ErrorResponse", body: { code: "SERVICE_NOT_READY", message: "工作区服务暂时不可用" } },
@@ -444,7 +445,7 @@ export function testArchiveResultWithRefs(): Schemas["ArchiveResultResponse"] {
 
 export const TEST_HISTORY_CURSOR_FIRST = {
   head: { node_id: "baseline-2", commit_id: "commit-b", version: 9 },
-  nodes: [{ ref_kind: "baseline_node", ref_id: "baseline-2", node_kind: "BASELINE_NODE", commit_id: "commit-b", created_at: "2026-11-03T09:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, identity_exception: false, review_status: null }],
+  nodes: [{ ref_kind: "baseline_node", ref_id: "baseline-2", node_kind: "BASELINE_NODE", baseline_kind: "ARCHIVED_SUBMISSION", commit_id: "commit-b", created_at: "2026-11-03T09:00:00Z", parent: { ref_kind: "baseline_node", ref_id: "baseline-1" }, identity_exception: false }],
   next_cursor: "cursor/next",
 } satisfies Schemas["HistoryListResponse"];
 

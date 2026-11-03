@@ -1,10 +1,26 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 const backendOrigin = process.env.GATEWAY_FRONTEND_BACKEND_ORIGIN ?? "http://127.0.0.1:8000";
 
+const productionModuleManifest: Plugin = {
+  name: "production-module-manifest",
+  apply: "build" as const,
+  async writeBundle() {
+    const modules = [...this.getModuleIds()]
+      .filter((id) => this.getModuleInfo(id)?.isIncluded)
+      .map((id) => id.replaceAll("\\", "/"));
+    const directory = resolve(process.cwd(), "dist", ".vite");
+    await mkdir(directory, { recursive: true });
+    await writeFile(resolve(directory, "rollup-modules.json"), JSON.stringify(modules, null, 2) + "\n");
+  },
+};
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), productionModuleManifest],
   server: {
     host: "127.0.0.1",
     proxy: {

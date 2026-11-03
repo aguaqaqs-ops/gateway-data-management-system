@@ -135,11 +135,11 @@ export function LoadingSkeleton({ label = "正在加载比较结果" }: { label?
   </section>;
 }
 
-export function ErrorState({ code, details, onRetry }: { code: string; details: string; onRetry: () => void }) {
+export function ErrorState({ code, details, onRetry, title = "暂时无法显示结果" }: { code: string; details: string; onRetry: () => void; title?: string }) {
   const copyDetails = async () => navigator.clipboard?.writeText(`${code}\n${details}`);
   return <section className="error-state" role="alert">
     <div className="error-state__icon"><AlertCircle size={22} /></div>
-    <div className="error-state__content"><h3>暂时无法显示结果</h3><p>错误代码：<code>{code}</code></p>
+    <div className="error-state__content"><h3>{title}</h3><p>错误代码：<code title={code}>{code}</code></p>
       <details><summary>错误详情</summary><pre>{details}</pre></details>
       <div className="button-row"><Button variant="primary" onClick={onRetry}>重试</Button><Button variant="ghost" icon={<Copy size={15} />} onClick={() => void copyDetails()}>复制详情</Button></div>
     </div>

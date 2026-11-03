@@ -1,26 +1,40 @@
 import { describe, expect, it, vi } from "vitest";
 import type { components } from "./generated/openapi";
-import { createIdempotentIntent } from "./idempotency";
-import { testHistoryCompareAcceptance } from "../dev/mock-data";
+import { readHistoryCompareIntent, requestWithTimeout, resolveHistoryCompareIntent } from "./idempotency";
 
-describe("idempotency keys follow user intent", () => {
-  it("reuses a key for retrying one intent and creates a new key for another", async () => {
+type Request = components["schemas"]["HistoryCompareAcceptRequest"];
+
+describe("History comparison intent keys", () => {
+  it("reuses the stored key after a timeout and creates a key when the selected nodes change", async () => {
     const createKey = vi.fn().mockReturnValueOnce("intent-key-1").mockReturnValueOnce("intent-key-2");
-    const firstRequest = { nodes: [
-      { ref_kind: "baseline_node", ref_id: "baseline-a" },
-      { ref_kind: "submission", ref_id: "submission-a" },
-    ] } satisfies components["schemas"]["HistoryCompareAcceptRequest"];
-    const secondRequest = { nodes: [
-      { ref_kind: "baseline_node", ref_id: "baseline-b" },
-      { ref_kind: "submission", ref_id: "submission-b" },
-    ] } satisfies components["schemas"]["HistoryCompareAcceptRequest"];
-    const firstIntent = createIdempotentIntent(firstRequest, createKey);
-    const start = vi.fn().mockRejectedValueOnce(new TypeError("request timed out")).mockResolvedValueOnce(testHistoryCompareAcceptance("operation-a"));
-    await expect(start(firstIntent.request, firstIntent.key)).rejects.toThrow("request timed out");
-    await expect(start(firstIntent.request, firstIntent.key)).resolves.toEqual(testHistoryCompareAcceptance("operation-a"));
-    const secondIntent = createIdempotentIntent(secondRequest, createKey);
-    await start(secondIntent.request, secondIntent.key);
-    expect(start.mock.calls.map((call) => call[1])).toEqual(["intent-key-1", "intent-key-1", "intent-key-2"]);
+    const viewDiffRequest = { nodes: [
+      { ref_kind: "baseline_node", ref_id: "baseline-parent" },
+      { ref_kind: "submission", ref_id: "submission-current" },
+    ] } satisfies Request;
+    const otherRequest = { nodes: [
+      { ref_kind: "baseline_node", ref_id: "baseline-other" },
+      { ref_kind: "submission", ref_id: "submission-other" },
+    ] } satisfies Request;
+    const first = resolveHistoryCompareIntent(null, viewDiffRequest, createKey);
+    const start = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => window.setTimeout(() => resolve({ operation_id: "op-1" }), 30)))
+      .mockResolvedValueOnce({ operation_id: "op-1" });
+
+    await expect(requestWithTimeout(start(first.request, first.key), 2)).rejects.toMatchObject({ name: "TimeoutError" });
+    const restored = readHistoryCompareIntent(JSON.stringify(first));
+    const retry = resolveHistoryCompareIntent(restored, viewDiffRequest, createKey);
+    await expect(requestWithTimeout(start(retry.request, retry.key), 100)).resolves.toEqual({ operation_id: "op-1" });
+
+    expect(retry.key).toBe(first.key);
+    expect(start.mock.calls.map((call) => call[1])).toEqual([first.key, first.key]);
+    const changed = resolveHistoryCompareIntent(retry, otherRequest, createKey);
+    expect(changed.key).not.toBe(first.key);
+    expect(changed.request).toEqual(otherRequest);
     expect(createKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects malformed saved intents instead of retrying an unrelated request", () => {
+    expect(readHistoryCompareIntent("not json")).toBeNull();
+    expect(readHistoryCompareIntent(JSON.stringify({ key: "x", request: { nodes: [] } }))).toBeNull();
   });
 });

@@ -5,7 +5,7 @@ import {
   ARCHIVE_PLAN_NEEDS_CONFIRMATION, HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_STATUS_SCENARIOS, MANUAL_RECOVERY_TO_FAILED,
   MANUAL_RECOVERY_TO_SUCCESS, SIMULATED_ERROR_RESPONSES, SIMULATED_STRING_VALUES, TEST_ARCHIVE_ANOMALY_EVENT, TEST_ARCHIVE_CONFIRM_EVENT,
   ARCHIVE_PLAN_READY, COMPLETE_RESPONSE_SCENARIOS, OPERATION_TERMINAL_RESPONSES, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CANDIDATES_BLOCKED,
-  TEST_OPERATION_RUNNING, TEST_OPERATION_SUCCEEDED, TEST_SUBMIT_ACCEPTED, TEST_UPLOAD_FULL, TEST_WORKSPACE, WRITE_SCENARIO_COVERAGE,
+  TEST_HISTORY_CURSOR_FIRST, TEST_HISTORY_CURSOR_SECOND, TEST_OPERATION_RUNNING, TEST_OPERATION_SUCCEEDED, TEST_SUBMIT_ACCEPTED, TEST_UPLOAD_FULL, TEST_WORKSPACE, WRITE_SCENARIO_COVERAGE,
 } from "./simulated-api";
 import { OPERATION_STATUS_COPY } from "../view-model/operation-status-copy";
 import { WORKSPACE_STATE_COPY } from "../view-model/workspace-state-copy";
@@ -103,5 +103,23 @@ describe("simulated HTTP response contracts", () => {
   it("keeps operation and workspace labels aligned with the sourced values", () => {
     expect(Object.keys(OPERATION_STATUS_COPY).sort()).toEqual([...SIMULATED_STRING_VALUES["OperationResponse.status"].values].sort());
     expect(Object.keys(WORKSPACE_STATE_COPY).sort()).toEqual([...SIMULATED_STRING_VALUES["WorkspaceResponse.state"].values].sort());
+  });
+
+  it("keeps every simulated History node within the backend node rules", () => {
+    // Contract source: vnext/backend/src/gateway_backend/application/history/contracts.py:108-113.
+    const pages = [HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, TEST_HISTORY_CURSOR_FIRST, TEST_HISTORY_CURSOR_SECOND];
+    for (const page of pages) {
+      for (const node of page.nodes) {
+        if (node.node_kind === "BASELINE_NODE") {
+          expect(node.baseline_kind, `${node.ref_id} baseline_kind`).toBeDefined();
+          expect(node).not.toHaveProperty("review_status");
+          expect(node).not.toHaveProperty("archive_disposition");
+          expect(node.identity_exception).not.toBe(true);
+        } else if (node.node_kind === "SUBMISSION") {
+          expect(node.review_status, `${node.ref_id} review_status`).toBeDefined();
+          expect(node).not.toHaveProperty("baseline_kind");
+        }
+      }
+    }
   });
 });

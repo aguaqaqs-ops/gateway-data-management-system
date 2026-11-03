@@ -2,6 +2,13 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const assets = join(process.cwd(), "dist", "assets");
+const moduleManifestPath = join(process.cwd(), "dist", ".vite", "rollup-modules.json");
+const moduleManifest = JSON.parse(await readFile(moduleManifestPath, "utf8"));
+const developmentModules = moduleManifest.filter((id) => /\/src\/features\/dev\//.test(id.replaceAll("\\", "/")));
+if (developmentModules.length) {
+  process.stderr.write("production dist includes development-only modules:\n" + developmentModules.join("\n") + "\n");
+  process.exit(1);
+}
 const files = await readdir(assets);
 const forbidden = [
   /fe2a-fixture/i,
@@ -20,4 +27,4 @@ if (violations.length) {
   process.stderr.write("production dist contains development simulation code:\n" + violations.join("\n") + "\n");
   process.exit(1);
 }
-process.stdout.write("production dist contains no simulated API or identity selection code\n");
+process.stdout.write("production dist contains no simulated API, identity selection, or mock data modules\n");

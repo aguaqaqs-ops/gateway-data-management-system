@@ -8,7 +8,7 @@ describe("read-only browsing commands and URL state", () => {
 
   it("round-trips pair, navigation, filters, search and comparison refs through the URL", () => {
     const bundled = executeBrowseCommand(initialBrowseState, { name: "set-bundle", mode: "REVIEW", bundleDigest: "sha256:abc" });
-    const withRoute = { ...bundled, workspaceId: "workspace-1", submissionId: "submission-1", operationId: "history-op-1", operationKind: "history-compare" as const };
+    const withRoute = { ...bundled, workspaceId: "workspace-1", submissionId: "submission-1", operationId: "history-op-1", operationKind: "history-compare" as const, workbenchNodeKey: "submission:s1" };
     const pair = executeBrowseCommand(withRoute, { name: "select-pair", pairId: "node-a_to_node-b" });
     const state = executeBrowseCommand(pair, { name: "select-node", nodeKey: "device:addr:1" });
     const withTab = executeBrowseCommand(state, { name: "select-tab", tabKey: "measurements" });
@@ -22,6 +22,7 @@ describe("read-only browsing commands and URL state", () => {
     expect(new URLSearchParams(encoded).get("workspaceId")).toBe("workspace-1");
     expect(new URLSearchParams(encoded).get("submissionId")).toBe("submission-1");
     expect(new URLSearchParams(encoded).get("operationId")).toBe("history-op-1");
+    expect(new URLSearchParams(encoded).get("workbenchNode")).toBe("submission:s1");
     for (const legacy of ["request", "previewRequest", "reviewRequest", "historyRequest"]) expect(new URLSearchParams(encoded).has(legacy)).toBe(false);
   });
 

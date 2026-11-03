@@ -90,7 +90,7 @@ export function renderFormulaLines(value: unknown, devices: readonly FormulaSour
       return;
     }
     if (node.children.length === 1) {
-      const unaryPrefix = node.operator === "-" ? `${node.operator} ` : `${prefix}${node.operator} `;
+      const unaryPrefix = `${prefix}${node.operator} `;
       visit(node.children[0], depth, unaryPrefix, node.operator);
       return;
     }

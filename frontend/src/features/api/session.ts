@@ -7,6 +7,7 @@ export interface GatewaySession {
 declare global {
   interface Window {
     __gatewaySession?: GatewaySession;
+    __gatewayTestConfig?: { historyCompareTimeoutMs?: number };
   }
 }
 
@@ -22,4 +23,9 @@ export function currentGatewaySession(): GatewaySession {
 
 export function currentAccessToken(): string | null {
   return currentGatewaySession().accessToken;
+}
+
+export function historyCompareRequestTimeoutMs(): number {
+  const configured = window.__gatewayTestConfig?.historyCompareTimeoutMs;
+  return typeof configured === "number" && Number.isFinite(configured) && configured > 0 ? configured : 30_000;
 }

@@ -27,6 +27,13 @@ type Settings = { sidebarWidth: number; sidebarCollapsed: boolean; collapsedGrou
 const SETTINGS_KEY = "gateway-comparison-sidebar-v1";
 const DEFAULT_SETTINGS: Settings = { sidebarWidth: 288, sidebarCollapsed: false, collapsedGroups: [] };
 
+function reviewStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    PENDING: "待审核", APPROVED: "已通过", REJECTED: "已拒绝", RETURNED_FOR_REVISION: "需修改", WITHDRAWN: "已撤回",
+  };
+  return labels[status] ?? "状态未知";
+}
+
 function readSettings(): Settings {
   try {
     const value = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? "null") as Partial<Settings> | null;
@@ -242,7 +249,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         const compareResult = await pollHistoryCompare(gatewayApi, current.operationId, {
           onUpdate: (value) => {
             setHistoryCompareStatus(value.status);
-            if (value.status === "QUEUED" || value.status === "RUNNING") setLoading({ phase: "历史比较仍在运行", received: Math.floor((Date.now() - startedAt) / 1_000), total: 0 });
+            if (value.status === "QUEUED" || value.status === "RUNNING") setLoading({ phase: "历史比较执行中", received: Math.floor((Date.now() - startedAt) / 1_000), total: 0 });
           },
           onWait: () => setHistoryCompareWaited(Math.floor((Date.now() - startedAt) / 1_000)),
         });
@@ -425,6 +432,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
     const params = new URLSearchParams({ page: "workspace" });
     if (browse.operationId) params.set("operationId", browse.operationId);
     if (browse.operationKind) params.set("operationKind", browse.operationKind);
+    if (browse.workbenchNodeKey) params.set("workbenchNode", browse.workbenchNodeKey);
     for (const ref of browse.comparisonNodeRefs) params.append("compare", ref);
     window.location.assign(`/?${params.toString()}`);
   };
@@ -436,7 +444,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         <button className="back-link" aria-label="返回工作台" onClick={returnToWorkbench}><ChevronLeft size={15} /><span>返回工作台</span></button>
         <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
         <div className="compare-header__mode"><span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span></div>
-        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `仍在运行 · 已等待 ${historyCompareWaited} 秒` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewFacts.status === "PENDING" ? "待审核" : reviewFacts.status}</span>}{identityControl}</div>
+        <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${historyCompareWaited} 秒` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{identityControl}</div>
       </div>
       <div className="compare-header__bottom">
         <div className="view-tabs" role="tablist" aria-label="比较视图">{(browse.mode === "REVIEW" ? (activePair ? [activePair] : []) : pairs).map((pair) => { const index = pairs.findIndex(({ pair: item }) => item.pair_id === pair.pair.pair_id); const diagnostics = pairDiagnosticDetails(pair); const status = presentViewStatus(pair.presentation.surface.view, diagnostics.tableCount); const risk = viewRiskLevel(pair); return <button role="tab" aria-selected={activePair?.pair.pair_id === pair.pair.pair_id} className={activePair?.pair.pair_id === pair.pair.pair_id ? "is-active" : ""} key={pair.pair.pair_id} onClick={() => choosePair(pair)} title={[viewTitle(pair, index, pairs.length, browse.mode), risk ? riskLevelText(risk) : null, ...status.tooltipItems].filter(Boolean).join(" · ")}><span>{viewLabel(pair, index, pairs.length, browse.mode)}</span><small>{status.text}</small>{risk && <RiskBadge level={risk} />}</button>; })}</div>

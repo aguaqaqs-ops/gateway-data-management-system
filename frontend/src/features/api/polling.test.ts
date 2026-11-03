@@ -66,28 +66,28 @@ describe("operation polling", () => {
 
   it.each(["FAILED", "CANCELLED", "SUPERSEDED"] as const)("recognizes %s as a final operation status", async (status) => {
     const response = OPERATION_TERMINAL_RESPONSES[status];
-    const api = { getOperation: vi.fn().mockResolvedValue(response) } as unknown as GatewayApi;
+    const api = { getOperation: vi.fn().mockResolvedValueOnce(response) } as unknown as GatewayApi;
     await expect(pollOperation(api, response.operation_id, { wait: async () => undefined })).rejects.toBeInstanceOf(OperationFailedError);
     expect(api.getOperation).toHaveBeenCalledTimes(1);
   });
 
   it("polls history-compares through only its five contract statuses", async () => {
-    const statuses: HistoryCompare["status"][] = ["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"];
-    expect(statuses).toEqual(["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]);
+    const statuses: HistoryCompare["status"][] = [];
     const api = { getHistoryCompare: vi.fn()
       .mockResolvedValueOnce(HISTORY_COMPARE_STATUS_SCENARIOS.QUEUED)
       .mockResolvedValueOnce(HISTORY_COMPARE_STATUS_SCENARIOS.RUNNING)
       .mockResolvedValueOnce(HISTORY_COMPARE_STATUS_SCENARIOS.SUCCEEDED) } as unknown as GatewayApi;
     const wait = vi.fn(async () => undefined);
-    const result = await pollHistoryCompare(api, HISTORY_COMPARE_STATUS_SCENARIOS.QUEUED.operation_id, { intervalMs: 4, wait });
+    const result = await pollHistoryCompare(api, HISTORY_COMPARE_STATUS_SCENARIOS.QUEUED.operation_id, { intervalMs: 4, wait, onUpdate: (value) => statuses.push(value.status) });
     expect(api.getHistoryCompare).toHaveBeenCalledTimes(3);
+    expect(statuses).toEqual(["QUEUED", "RUNNING", "SUCCEEDED"]);
     expect(wait).toHaveBeenCalledTimes(2);
     expect(result.status).toBe("SUCCEEDED");
   });
 
   it.each(["SUCCEEDED", "FAILED", "CANCELLED"] as const)("returns terminal history-compare status %s", async (status) => {
     const response = HISTORY_COMPARE_STATUS_SCENARIOS[status];
-    const api = { getHistoryCompare: vi.fn().mockResolvedValue(response) } as unknown as GatewayApi;
+    const api = { getHistoryCompare: vi.fn().mockResolvedValueOnce(response) } as unknown as GatewayApi;
     const result = await pollHistoryCompare(api, response.operation_id, { wait: async () => undefined });
     expect(api.getHistoryCompare).toHaveBeenCalledTimes(1);
     expect(result.status).toBe(status);

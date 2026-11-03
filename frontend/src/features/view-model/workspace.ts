@@ -7,7 +7,11 @@ export type WorkspaceTreeRow = {
   kind: "workspace" | "baseline" | "submission" | "migration";
   label: string;
   status: string;
+  statusTone: "success" | "info" | "pending" | "warning" | "neutral";
   depth: number;
+  parentKey: string | null;
+  hasChildren: boolean;
+  compareOrder?: number;
   createdAt: string | null;
   submitAt: string | null;
   reviewAt: string | null;
@@ -16,23 +20,17 @@ export type WorkspaceTreeRow = {
   parentRef?: Schemas["HistoryNodeRefResponse"] | null;
   baselineKind?: Schemas["HistoryNodeResponse"]["baseline_kind"];
   reviewStatus?: Schemas["HistoryNodeResponse"]["review_status"];
-  archiveDisposition?: Schemas["HistoryNodeResponse"]["archive_disposition"];
   eligibilityNote?: Schemas["HistoryNodeResponse"]["eligibility_note"];
   identityException?: boolean;
   isHead?: boolean;
   previewResultId?: string | null;
   uploadRevisionId?: string | null;
+  workspaceState?: Schemas["WorkspaceResponse"]["state"];
 };
 
 function historyStatus(node: Schemas["HistoryNodeResponse"], isHead: boolean): string {
-  if (isHead && node.node_kind === "BASELINE_NODE") return "当前基线";
-  if (node.archive_disposition === "ARCHIVED_BASELINE") return "已归档";
-  if (node.archive_disposition === "CLOSED_NOT_ARCHIVED") return "未归档关闭";
-  if (node.node_kind === "BASELINE_NODE") {
-    if (isHead) return "当前基线";
-    return node.baseline_kind === "INITIAL" ? "初始基线" : "已归档";
-  }
-  if (node.node_kind === "SYSTEM_MIGRATION") return "已迁移";
+  if (node.node_kind === "BASELINE_NODE") return isHead ? "当前基线" : "";
+  if (node.node_kind === "SYSTEM_MIGRATION") return "";
   switch (node.review_status) {
     case "PENDING": return "待审核";
     case "APPROVED": return "已通过";
@@ -40,6 +38,18 @@ function historyStatus(node: Schemas["HistoryNodeResponse"], isHead: boolean): s
     case "RETURNED_FOR_REVISION": return "已退回";
     case "WITHDRAWN": return "已撤回";
     default: return "状态未知";
+  }
+}
+
+function historyStatusTone(node: Schemas["HistoryNodeResponse"], isHead: boolean): WorkspaceTreeRow["statusTone"] {
+  if (node.node_kind === "BASELINE_NODE") return isHead ? "info" : "neutral";
+  if (node.node_kind === "SYSTEM_MIGRATION") return "neutral";
+  switch (node.review_status) {
+    case "PENDING": return "pending";
+    case "APPROVED": return "success";
+    case "REJECTED":
+    case "RETURNED_FOR_REVISION": return "warning";
+    default: return "neutral";
   }
 }
 
@@ -63,40 +73,46 @@ function workspaceStatus(workspace: Schemas["WorkspaceResponse"]): string {
 export function buildWorkspaceTree(
   workspace: Schemas["WorkspaceResponse"],
   history: Schemas["HistoryListResponse"],
+  comparisonRefs: Schemas["HistoryCompareNodeRequest"][] = [],
 ): WorkspaceTreeRow[] {
   const rows: WorkspaceTreeRow[] = [];
   const byRef = new Map(history.nodes.map((node) => [nodeKey(node.ref_kind, node.ref_id), node]));
+  const compareOrder = new Map(comparisonRefs.map((node, index) => [nodeKey(node.ref_kind, node.ref_id), index + 1]));
   const submissionLabels = new Map(history.nodes
     .filter((node) => node.node_kind === "SUBMISSION")
     .sort((left, right) => left.created_at.localeCompare(right.created_at))
     .map((node, index) => [nodeKey(node.ref_kind, node.ref_id), `提交 ${index + 1}`]));
-  const children = new Map<string, Schemas["HistoryNodeResponse"][]>();
-  const roots: Schemas["HistoryNodeResponse"][] = [];
-  for (const node of history.nodes) {
-    const parent = node.parent ? byRef.get(nodeKey(node.parent.ref_kind, node.parent.ref_id)) : undefined;
-    if (!parent) roots.push(node);
-    else {
-      const key = nodeKey(parent.ref_kind, parent.ref_id);
-      const values = children.get(key) ?? [];
-      values.push(node);
-      children.set(key, values);
+  const isHead = (node: Schemas["HistoryNodeResponse"]) => node.node_kind === "BASELINE_NODE" && node.ref_id === history.head.node_id;
+  const baselines = history.nodes.filter((node) => node.node_kind === "BASELINE_NODE")
+    .sort((left, right) => Number(isHead(right)) - Number(isHead(left)) || right.created_at.localeCompare(left.created_at));
+  const baselineOwner = (node: Schemas["HistoryNodeResponse"]): Schemas["HistoryNodeResponse"] | null => {
+    let parentRef = node.parent;
+    const visited = new Set<string>();
+    while (parentRef) {
+      const key = nodeKey(parentRef.ref_kind, parentRef.ref_id);
+      if (visited.has(key)) return null;
+      visited.add(key);
+      const parent = byRef.get(key);
+      if (!parent) return null;
+      if (parent.node_kind === "BASELINE_NODE") return parent;
+      parentRef = parent.parent;
     }
-  }
-  roots.sort((left, right) => Number(right.ref_id === history.head.node_id) - Number(left.ref_id === history.head.node_id));
-  const visited = new Set<string>();
-  const append = (node: Schemas["HistoryNodeResponse"], depth: number): void => {
+    return null;
+  };
+  const appendNode = (node: Schemas["HistoryNodeResponse"], parentKey: string | null, depth: number): void => {
     const key = nodeKey(node.ref_kind, node.ref_id);
-    if (visited.has(key)) return;
-    visited.add(key);
-    const isHead = node.ref_id === history.head.node_id;
+    const current = isHead(node);
     rows.push({
       key,
       kind: historyKind(node),
       label: node.node_kind === "BASELINE_NODE"
         ? (node.baseline_kind === "INITIAL" ? "初始基线" : "归档基线")
         : node.node_kind === "SYSTEM_MIGRATION" ? "规则迁移" : submissionLabels.get(key) ?? "提交",
-      status: historyStatus(node, isHead),
+      status: historyStatus(node, current),
+      statusTone: historyStatusTone(node, current),
       depth,
+      parentKey,
+      hasChildren: false,
       createdAt: node.created_at,
       submitAt: node.node_kind === "SUBMISSION" ? node.created_at : null,
       reviewAt: null,
@@ -105,38 +121,96 @@ export function buildWorkspaceTree(
       parentRef: node.parent,
       baselineKind: node.baseline_kind,
       reviewStatus: node.review_status,
-      archiveDisposition: node.archive_disposition,
       eligibilityNote: node.eligibility_note,
       identityException: node.identity_exception,
-      isHead,
+      isHead: current,
+      compareOrder: compareOrder.get(key),
     });
-    if (isHead) {
+  };
+
+  const appended = new Set<string>();
+  for (const baseline of baselines) {
+    const key = nodeKey(baseline.ref_kind, baseline.ref_id);
+    appendNode(baseline, null, 0);
+    appended.add(key);
+    if (isHead(baseline)) {
       rows.push({
         key: `workspace:${workspace.workspace_id}`,
         kind: "workspace",
         label: `工作区 ${workspace.gateway_device_external_key}`,
         status: workspaceStatus(workspace),
-        depth: depth + 1,
+        statusTone: workspace.state === "CLOSED" ? "neutral" : workspace.current_preview_result_id ? "success" : workspace.current_upload_revision_id ? "info" : "neutral",
+        depth: 1,
+        parentKey: key,
+        hasChildren: false,
         createdAt: workspace.created_at,
         submitAt: null,
         reviewAt: null,
         previewResultId: workspace.current_preview_result_id,
         uploadRevisionId: workspace.current_upload_revision_id,
+        workspaceState: workspace.state,
       });
     }
-    const orderedChildren = [...(children.get(key) ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
-    for (const child of orderedChildren) append(child, depth + 1);
-  };
-  for (const root of roots) append(root, 0);
-  for (const node of history.nodes) if (!visited.has(nodeKey(node.ref_kind, node.ref_id))) append(node, 0);
+    const descendants = history.nodes.filter((node) => node.node_kind !== "BASELINE_NODE" && baselineOwner(node)?.ref_id === baseline.ref_id)
+      .sort((left, right) => left.created_at.localeCompare(right.created_at));
+    for (const node of descendants) {
+      const childKey = nodeKey(node.ref_kind, node.ref_id);
+      if (appended.has(childKey)) continue;
+      appendNode(node, key, 1);
+      appended.add(childKey);
+    }
+  }
+  for (const node of history.nodes) {
+    const key = nodeKey(node.ref_kind, node.ref_id);
+    if (appended.has(key)) continue;
+    appendNode(node, null, 0);
+    appended.add(key);
+  }
+
+  const parentKeys = new Set(rows.flatMap((row) => row.parentKey ? [row.parentKey] : []));
+  for (const row of rows) row.hasChildren = parentKeys.has(row.key);
   if (!rows.some((row) => row.kind === "workspace")) {
     rows.unshift({
-      key: `workspace:${workspace.workspace_id}`, kind: "workspace", label: `工作区 ${workspace.gateway_device_external_key}`,
-      status: workspaceStatus(workspace), depth: 0, createdAt: workspace.created_at,
-      submitAt: null, reviewAt: null, previewResultId: workspace.current_preview_result_id, uploadRevisionId: workspace.current_upload_revision_id,
+      key: `workspace:${workspace.workspace_id}`,
+      kind: "workspace",
+      label: `工作区 ${workspace.gateway_device_external_key}`,
+      status: workspaceStatus(workspace),
+      statusTone: "neutral",
+      depth: 0,
+      parentKey: null,
+      hasChildren: false,
+      createdAt: workspace.created_at,
+      submitAt: null,
+      reviewAt: null,
+      previewResultId: workspace.current_preview_result_id,
+      uploadRevisionId: workspace.current_upload_revision_id,
+      workspaceState: workspace.state,
     });
   }
   return rows;
+}
+
+export function sortWorkspaceTreeRows<T extends WorkspaceTreeRow>(
+  rows: T[],
+  sort: { column: "label" | "createdAt" | "submitAt" | "reviewAt"; direction: 1 | -1 } | null,
+): T[] {
+  if (!sort) return rows;
+  const children = new Map<string | null, T[]>();
+  for (const row of rows) {
+    const group = children.get(row.parentKey) ?? [];
+    group.push(row);
+    children.set(row.parentKey, group);
+  }
+  const compare = (left: T, right: T) => String(left[sort.column] ?? "").localeCompare(String(right[sort.column] ?? ""), "zh-CN") * sort.direction;
+  const result: T[] = [];
+  const visit = (parentKey: string | null): void => {
+    for (const row of [...(children.get(parentKey) ?? [])].sort(compare)) {
+      result.push(row);
+      visit(row.key);
+    }
+  };
+  visit(null);
+  return result;
 }
 
 export type WorkbenchActionId = "original-backup" | "current-archive" | "upload" | "view-diff" | "join-compare" | "remove-compare" | "archive-mainline";
@@ -148,30 +222,36 @@ export interface WorkbenchAction {
   reason: string | null;
 }
 
-export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonCount: number, isCompared: boolean): WorkbenchAction[] {
+export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonCount: number, isCompared: boolean, comparisonLocked = false): WorkbenchAction[] {
   if (!row) return [];
   const blocked = (id: WorkbenchActionId, label: string, reason: string): WorkbenchAction => ({ id, label, enabled: false, reason });
   const enabled = (id: WorkbenchActionId, label: string): WorkbenchAction => ({ id, label, enabled: true, reason: null });
-  if (row.kind === "workspace") return [
-    row.previewResultId ? enabled("original-backup", "原始组态备份") : blocked("original-backup", "原始组态备份", "当前工作区还没有 Preview 结果"),
-    row.previewResultId ? enabled("current-archive", "本次归档组态") : blocked("current-archive", "本次归档组态", "当前工作区还没有 Preview 结果"),
-    blocked("upload", "上传", "需先选择本次归档组态目录"),
-  ];
-  const compareAction = isCompared
-    ? enabled("remove-compare", "移出比较")
-    : comparisonCount >= 3
-      ? blocked("join-compare", "加入比较", "比较托盘最多选择 3 个节点")
-      : enabled("join-compare", "加入比较");
+  if (row.kind === "workspace") {
+    const open = row.workspaceState === "OPEN";
+    return [
+      open ? enabled("original-backup", "原始组态备份") : blocked("original-backup", "原始组态备份", "工作区已关闭，不能选择原始组态备份目录"),
+      open ? enabled("current-archive", "本次归档组态") : blocked("current-archive", "本次归档组态", "工作区已关闭，不能选择本次归档组态目录"),
+      blocked("upload", "上传", "需先选择本次归档组态目录"),
+    ];
+  }
+  const compareAction = comparisonLocked
+    ? blocked(isCompared ? "remove-compare" : "join-compare", isCompared ? "移出比较" : "加入比较", "历史比较执行中，暂不能调整比较节点")
+    : isCompared
+      ? enabled("remove-compare", "移出比较")
+      : comparisonCount >= 3
+        ? blocked("join-compare", "加入比较", "比较托盘最多选择 3 个节点")
+        : enabled("join-compare", "加入比较");
   if (row.kind === "baseline") return [compareAction];
   if (row.kind === "submission") {
-    const reviewReady = row.reviewStatus === "PENDING";
     const archiveReady = row.reviewStatus === "APPROVED" && row.eligibilityNote == null;
     return [
-      row.parentRef ? enabled("view-diff", "查看差异") : blocked("view-diff", "查看差异", "提交缺少基线节点"),
+      comparisonLocked
+        ? blocked("view-diff", "查看差异", "历史比较执行中，暂不能发起新比较")
+        : row.parentRef ? enabled("view-diff", "查看差异") : blocked("view-diff", "查看差异", "提交缺少基线节点"),
       compareAction,
       archiveReady
-        ? blocked("archive-mainline", "归档主线", "归档主线操作在 FE2c 接入")
-        : blocked("archive-mainline", "归档主线", row.eligibilityNote ? "该提交所基于的基线已不是当前基线，不能归档" : reviewReady ? "提交尚未审核通过" : "当前提交不符合归档条件"),
+        ? enabled("archive-mainline", "归档主线")
+        : blocked("archive-mainline", "归档主线", row.eligibilityNote ? "该提交所基于的基线已不是当前基线，不能归档" : row.reviewStatus === "PENDING" ? "提交尚未审核通过" : "当前提交不符合归档条件"),
     ];
   }
   return [];

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../api/generated/openapi";
 import { HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, WORKSPACE_RESPONSE } from "../dev/mock-data";
-import { buildWorkspaceTree, deriveWorkbenchActions } from "./workspace";
+import { buildWorkspaceTree, deriveWorkbenchActions, sortWorkspaceTreeRows } from "./workspace";
 
 describe("formal workbench tree and contextual actions", () => {
   const history = {
@@ -16,10 +16,13 @@ describe("formal workbench tree and contextual actions", () => {
     const workspace = rows.find((row) => row.kind === "workspace");
     const pending = rows.find((row) => row.refId === "fe2a-history-ref-2");
     expect(head).toMatchObject({ status: "当前基线", refId: "fe2a-history-ref-1" });
-    expect(workspace).toMatchObject({ kind: "workspace", status: "可提交", previewResultId: "preview-full", uploadRevisionId: "upload-fe2b-3", depth: 2 });
-    expect(pending).toMatchObject({ label: "提交 2", status: "待审核", parentRef: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" } });
+    expect(workspace).toMatchObject({ kind: "workspace", status: "可提交", previewResultId: "preview-full", uploadRevisionId: "upload-fe2b-3", depth: 1, parentKey: "baseline_node:fe2a-history-ref-1" });
+    expect(pending).toMatchObject({ label: "提交 2", status: "待审核", depth: 1, parentKey: "baseline_node:fe2a-history-ref-1", parentRef: { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-1" } });
     expect(rows.find((row) => row.eligibilityNote === "NOT_CANDIDATE_BASE_ADVANCED")).toMatchObject({ status: "已通过", identityException: true });
     expect(rows.some((row) => row.label.includes("历史初始备份"))).toBe(false);
+    expect(rows.filter((row) => row.kind === "baseline").map((row) => row.depth)).toEqual([0, 0]);
+    expect(rows.find((row) => row.refId === "fe2a-history-ref-0")?.status).toBe("");
+    expect(rows.find((row) => row.refId === "fe2a-history-ref-1")?.hasChildren).toBe(true);
   });
 
   it("shows workspace actions and keeps upload disabled with its prerequisite", () => {
@@ -31,7 +34,9 @@ describe("formal workbench tree and contextual actions", () => {
     ]);
     const beforePreview = buildWorkspaceTree({ ...WORKSPACE_RESPONSE, current_preview_result_id: null }, history).find((row) => row.kind === "workspace") ?? null;
     expect(beforePreview?.status).toBe("已上传");
-    expect(deriveWorkbenchActions(beforePreview, 0, false).slice(0, 2).every((action) => !action.enabled && action.reason === "当前工作区还没有 Preview 结果")).toBe(true);
+    expect(deriveWorkbenchActions(beforePreview, 0, false).slice(0, 2).every((action) => action.enabled)).toBe(true);
+    const closed = buildWorkspaceTree({ ...WORKSPACE_RESPONSE, state: "CLOSED" }, history).find((row) => row.kind === "workspace") ?? null;
+    expect(deriveWorkbenchActions(closed, 0, false).slice(0, 2).every((action) => !action.enabled && action.reason?.includes("工作区已关闭"))).toBe(true);
   });
 
   it("offers compare on baselines and caps it at three selected nodes", () => {
@@ -57,6 +62,21 @@ describe("formal workbench tree and contextual actions", () => {
       .toMatchObject({ enabled: false, reason: "该提交所基于的基线已不是当前基线，不能归档" });
     const eligible = { ...pending!, reviewStatus: "APPROVED" as const, eligibilityNote: null };
     expect(deriveWorkbenchActions(eligible, 0, false).find((action) => action.id === "archive-mainline"))
-      .toMatchObject({ enabled: false, reason: "归档主线操作在 FE2c 接入" });
+      .toMatchObject({ enabled: true, reason: null });
+  });
+
+  it("keeps tree children attached to their parent while sorting siblings", () => {
+    const rows = buildWorkspaceTree(WORKSPACE_RESPONSE, history, [
+      { ref_kind: "baseline_node", ref_id: "fe2a-history-ref-0" },
+      { ref_kind: "submission", ref_id: "fe2a-history-ref-2" },
+    ]);
+    const sorted = sortWorkspaceTreeRows(rows, { column: "label", direction: -1 });
+    expect(sorted.find((row) => row.refId === "fe2a-history-ref-2")).toMatchObject({ depth: 1, parentKey: "baseline_node:fe2a-history-ref-1", compareOrder: 2 });
+    expect(sorted.find((row) => row.refId === "fe2a-history-ref-0")).toMatchObject({ depth: 0, compareOrder: 1 });
+    const currentIndex = sorted.findIndex((row) => row.refId === "fe2a-history-ref-1");
+    const oldIndex = sorted.findIndex((row) => row.refId === "fe2a-history-ref-0");
+    expect(currentIndex).toBeGreaterThan(-1);
+    expect(oldIndex).toBeGreaterThan(-1);
+    expect(sorted.find((row) => row.key === "workspace:workspace-fe2b")?.parentKey).toBe("baseline_node:fe2a-history-ref-1");
   });
 });

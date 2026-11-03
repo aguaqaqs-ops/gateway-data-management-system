@@ -120,8 +120,8 @@ function rowLabel(row: BrowseRow): string {
   }
   if (row.kind === "added") return "+ 新增";
   if (row.kind === "deleted") return "− 删除";
+  if (row.recordKind === "ORDERED_ROW_MOVED" || row.kind === "ordered") return "↕ 移动 · " + (row.beforePosition ?? "—") + " → " + (row.currentPosition ?? "—");
   if (row.kind === "modified-before" || row.kind === "modified-after") return "↔ 修改";
-  if (row.kind === "ordered") return "↕ 移动 · " + (row.beforePosition ?? "—") + " → " + (row.currentPosition ?? "—");
   if (row.kind === "blank") return "空行区间";
   return "";
 }

@@ -410,7 +410,7 @@ export function buildBrowseRows(input: {
       }
       consumed.add(candidate);
       const kind = String(candidate.record_kind);
-      if (kind === "ORDERED_ROW_MOVED") {
+      if (kind === "ORDERED_ROW_MOVED" && hasBeforeSnapshot && hasCurrentSnapshot) {
         rows.push(makeRow({ key: `record:moved:${index + 1}`, kind: "ordered", source,
           rowNumber: positionNumber(candidate.current_position) ?? index + 1, identity, record: candidate }));
         return;

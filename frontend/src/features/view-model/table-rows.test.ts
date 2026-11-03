@@ -97,7 +97,7 @@ describe("table row presentation", () => {
             }
             for (const record of modifiedRecords) {
               const identity = recordIdentity(record, "current");
-              const orderedPosition = kind.startsWith("ORDERED_") ? Number(record.current_position) : null;
+              const orderedPosition = String(record.record_kind).startsWith("ORDERED_") ? Number(record.current_position) : null;
               const after = built.rows.find((candidate) => candidate.kind === "modified-after"
                 && (orderedPosition !== null ? candidate.rowNumber === orderedPosition : candidate.rowIdentity === identity));
               const before = built.rows.find((candidate) => candidate.kind === "modified-before" && candidate.pairKey === after?.pairKey);

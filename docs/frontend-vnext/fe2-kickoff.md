@@ -3,6 +3,8 @@
 - **状态：** 已确认（owner，2026-11-02，§9 Q1–Q5 均按建议）；FE2a 可以开始。
   2026-11-03 按 FE2a 审核的设计问题修订 §4.2、§4.3、§5.1、§5.3、§5.5、§5.6（owner 确认，§9 Q6–Q9）。
   2026-11-03 FE2a 退出（§2），新增 §6.3 FE2a 带入项（§9 Q10、Q11）。
+  2026-11-03 新增 §7.5 模拟接口响应规则；FE2b 拆分为 FE2b、FE2c（§2，§9 Q12）；更正 §4.1 工作区的来源。
+- **FE2b：** 可以开始。起点为 `fe-fe2a-exit`（main 合入提交 `a7c6160447`），审核范围为 `fe-fe2a-exit..<候选>`。
 - **日期：** 2026-11-02。
 - **起点：** `fe-fe1-exit`（`a42139222f`），main 合入提交 `abbe6e8777`。
 - **依据：** [前端 kickoff](frontend-kickoff.md)（FD1–FD8、§4、§6、§7）、
@@ -41,6 +43,22 @@ FE2b 的写操作依赖 N1、N2，可以在 FE2a 审核期间准备。两个子�
   04 证据目录 `/home/dev/gdds-fe-evidence/fe2a/a80a2e93af-04/`）按现状接受；R7 与正常业务场景的截图带入 FE2b（§6.3）。
 - FE2b 以 `fe-fe2a-exit` 为起点。
 
+**FE2b 拆分（owner 2026-11-03 确认，§9 Q12）：**
+原 FE2b 包括 §6.1 全部页面与写操作，加 §6.3 的带入项，体量大于 FE2a；FE2a 一轮审核加两轮复审才通过。
+因此拆成两段，各自走完整的审核、04 取证与 tag。上方表中“FE2b 工作台与写操作”一行由下表取代：
+
+| 子阶段 | 内容 | 截图 | 退出 tag | 审核范围 |
+| --- | --- | --- | --- | --- |
+| FE2b 工作台、路由与历史比较 | §6.3 全部带入项（N1、N2、R2、R5、R7、S1、S2）；模拟会话与身份选择、模拟接口层（§6.2 第 3 条、§7.5）；正式工作台（组态树、详情面板、上下文工具栏，F1、F2、F4、F7–F9）；比较托盘与历史比较结果抽屉（`history-compares` 发起、轮询、打开 History 差异浏览）；页面路由，取代 FE2a 的 URL 脚手架（Preview 入口打开工作区当前的 Preview 结果） | 草图 S1；草图 S2 的比较托盘部分；S3 的 Preview、History 两种顶栏；§6.3 S1 正常业务截图；无草图页面中的“仍在运行”与侧栏回退 | `fe-fe2b-exit` | `fe-fe2a-exit..<FE2b 候选>` |
+| FE2c 写操作旅程 | 上传步骤卡、浏览器端打包与校验、页面锁定与进度（S2、F3、T1）；Preview 发起；提交（含身份确认）；审核通过、退回、撤回，审核模式入口；归档主线（A1、A2）；全部写操作的权限拒绝与版本冲突（§6.2）；需要管理员处理 | 草图 S2 的上传步骤卡部分；S3 的审核顶栏；无草图页面中的数据集替换确认、归档对话框各步骤、退回与撤回对话框、需要管理员处理 | `fe-fe2c-exit` | `fe-fe2b-exit..<FE2c 候选>` |
+
+- **切分依据：** 第一段只有一个异步写操作（历史比较），不改变业务状态，用它先把 N1、N2、模拟会话与模拟接口层做实；
+  第二段的写操作都复用这些基础，审核集中在业务规则与错误路径。
+- **工具栏：** FE2b 中上下文工具栏按 F2、F4 显示全部操作及其启用条件与禁用原因（纯视图模型，有单测）；
+  写操作的点击流程在 FE2c 接入。FE2b 审核不把未接入的点击算作缺陷，e2e 也不点击这些按钮。
+- **截图确认：** 草图 S1 的工作台在 FE2b 交 owner 确认；FE2c 只重拍工具栏的写操作状态有变化的截图。
+- **§6、§7 中的“FE2b”：** 指原 FE2b 的范围，按上表分属 FE2b、FE2c；§6.3 带入项都在 FE2b 完成，§7.5 对两段都适用。
+
 ## 3. FE1 带入项
 
 | ID | 内容 | 子阶段 | 完成标准 |
@@ -60,11 +78,12 @@ UI 优化方向 §7 草图中对应的占位文案以本节为准，草图不重
 
 ### 4.1 组态树节点
 
-节点类型用图标与形状表示（F7），状态用圆点加文字。类型和状态来自 `GET /v1/history` 的节点字段与 `head`，以及 `GET /v1/workspaces` 的工作区。
+节点类型用图标与形状表示（F7），状态用圆点加文字。类型和状态来自 `GET /v1/history` 的节点字段与 `head`，以及 `POST /v1/workspaces`（CreateOrGet，
+请求参数为会话对应的 `business_project_id` 与 `gateway_device_external_key`，前端 kickoff §4.3）返回的工作区。vnext 没有列出工作区的接口。
 
 | 来源 | 类型文字 | 状态文字 |
 | --- | --- | --- |
-| 工作区（`WorkspaceResponse`） | 工作区 | 没有上传：“未上传”；有上传但没有 Preview 结果：“已上传”；有 Preview 结果：“可提交”；有进行中的操作：进度指示（F7） |
+| 工作区（`WorkspaceResponse`） | 工作区 | 没有上传：“未上传”；有上传但没有 Preview 结果：“已上传”；有 Preview 结果：“可提交”；有进行中的操作：进度指示（F7）。`WorkspaceResponse` 不含进行中的操作，进度指示只针对本会话发起、`operation_id` 记录在 URL 中的操作（N2） |
 | `BASELINE_NODE` + `INITIAL` | 初始基线 | 是 `head` 时加“当前基线” |
 | `BASELINE_NODE` + `ARCHIVED_SUBMISSION` | 归档基线 | 是 `head` 时加“当前基线” |
 | `SUBMISSION` | 提交 | `review_status`：`PENDING` 待审核、`APPROVED` 已通过、`REJECTED` 已退回、`WITHDRAWN` 已撤回。有 `archive_disposition` 时以它为准：`ARCHIVED_BASELINE` 已归档、`CLOSED_NOT_ARCHIVED` 未归档关闭 |
@@ -293,7 +312,8 @@ Debug 模式的元数据列：
 - **乙（未选，记录备查）：** 增加一张演示截图 `demo-s4-row-risk-levels`：数据取自渲染测试中改过等级的标注对象，不进入 bundle，页面上显示“演示数据”标记。
   需要一个只在开发构建中存在的渲染入口，并纳入生产构建检查的禁止模式。
 
-**截图确认：** 带入项 S1 的截图在 FE2b 截图验收时，与草图 S1、S2 以及草图 S3 的三种顶栏一起交 owner 看图确认（§7.3）。
+**截图确认：** 带入项 S1 的截图在 FE2b 截图验收时，与草图 S1、草图 S2 的比较托盘部分、草图 S3 的 Preview 与 History 顶栏一起交 owner 看图确认（§7.3）；
+草图 S2 的上传步骤卡部分与 S3 的审核顶栏在 FE2c 确认（§2）。
 本节的 S1、S2 是带入项编号，与草图编号无关。
 
 ## 7. 测试、fixture 与证据
@@ -351,6 +371,55 @@ v1 不产出 `LOW`；行级风险只落在有变化的行上（新增、删除�
 与 FE1 相同：调试在 05，阶段退出在 04 的 clean detached worktree 上完整运行一次权威入口（含 e2e 与截图）；
 工具链镜像与 npm 缓存沿用现有预填充，依赖不变时不重新传输。依赖若有变化（例如新增 Playwright 以外的测试依赖），按 DC67 在 CT201 取得并预填充，handoff 记录来源与摘要。
 
+### 7.5 模拟接口响应（FE2b 起，设计会话 2026-11-03）
+
+FE2b 的 e2e 与组件测试依赖模拟的工作区、History、操作状态、上传、Preview、提交、审核、归档等 HTTP 响应。
+FE1 审核 B4 与 FE2a 审核 B1 的问题都是前端自造了后端不会产出的取值，本节规定这些响应怎样构造。
+bundle 仍按 §7.1 由生成器产出，本节只管 JSON 响应。
+
+- **一处定义：** 模拟响应集中在一个只供测试与开发构建使用的模块中，e2e 的路由拦截和组件测试都从这里取；
+  按场景组织（例如“提交需要身份确认”），每个场景列出依次返回的响应。生产构建检查（§7.2、§6.3 R2）禁止该模块。
+- **编译期约束：** 每个成功响应体用 `frontend/src/features/api/generated/openapi.d.ts` 中该 route、方法与状态码对应的类型约束
+  （`satisfies`，对象字面量多出的字段编译失败）；状态码只能是 OpenAPI 为该 route 列出的状态码。请求体同样按生成类型检查。
+  生成类型来自 `frontend/openapi.json`，该快照在 `a2fb4a027a` 之后后端 HTTP 层没有改动；与运行中 backend 的比对属于 FE3。
+- **错误响应体：** OpenAPI 中错误状态只有描述，没有响应体 schema。前端用一个类型对应后端 `ErrorResponse`
+  （`vnext/backend/src/gateway_backend/http/schemas/errors.py`：`code`、`message`、可选 `details`，不允许其他字段）。
+  `code` 只能取 `frontend/openapi.json` 中该 route、该状态码的描述里列出的值（如 `submit-attempts` 的 409 列出 9 个）。
+  由一个单测解析 `openapi.json` 的描述，逐个核对全部模拟错误的（route、状态码、code），不用手工清单。
+  权限拒绝是 403 `SCOPE_FORBIDDEN`；版本冲突按 route 分别为 `WORKSPACE_VERSION_CONFLICT`、`BASELINE_VERSION_CONFLICT`、
+  `REVIEW_VERSION_CONFLICT`、`ARCHIVE_AUDIT_VERSION_CONFLICT`。
+- **OpenAPI 中只是字符串的字段：** 以下字段在 OpenAPI 中是 `string`，取值以后端源码为准。前端维护一张取值表，每项注明源码位置，
+  模拟响应与界面文案映射都从这张表取；单测核对模拟响应中这些字段的值都在表内：
+
+  | 字段 | 取值 | 后端来源 |
+  | --- | --- | --- |
+  | `OperationResponse.status` | `QUEUED`、`RUNNING`、`SUCCEEDED`、`FAILED`、`CANCELLED`、`SUPERSEDED`、`MANUAL_RECOVERY_REQUIRED` | `operations/contracts.py` `OperationStatus` |
+  | `OperationResponse.job_kind` | `backend-vnext/preview`、`backend-vnext/submit`、`backend-vnext/history-compare` | `application/preview_jobs.py`、`application/submission/job_payload.py`、`application/history/contracts.py` |
+  | `WorkspaceResponse.state` | `OPEN`、`CLOSED` | `domain/workspace/models.py` `WorkspaceState` |
+  | `UploadRevisionResponse.input_completeness` | `FULL`、`MODIFIED_ONLY` | 同上 `InputCompleteness` |
+
+  OpenAPI 中有枚举的字段（如 `review_status`、`SubmitAttemptResponse.state`、`HistoryCompareResultResponse.status`）由生成类型约束，
+  不进这张表。其他只是字符串、界面又要按值区分的字段，先在源码中找到枚举并加入这张表；找不到就停下交设计会话。
+- **不用的值：** `RETURN_FOR_REVISION` 动作与 `RETURNED_FOR_REVISION` 状态由 BE-a 删除（前端 kickoff §5），模拟响应不使用，界面不提供入口（§4.2 的映射保留）。
+- **状态序列：** 轮询与多步场景中依次返回的状态，按后端的状态转移取：操作状态见 `operations/state.py`，审核见
+  `domain/submission/review.py` 的 `_ALLOWED_TRANSITIONS`，提交尝试为 `PREPARED → EFFECT_PENDING → FINALIZED` 或 `ABORTED`。
+  每个场景注明所依据的转移。轮询终态的覆盖：`GET /v1/operations/{operation_id}` 覆盖 `SUCCEEDED`、`FAILED`、`CANCELLED`、
+  `SUPERSEDED`、`MANUAL_RECOVERY_REQUIRED`；`GET /v1/history-compares/{operation_id}` 的 `status` 只有五个值，没有后两个。
+- **幂等回放（N1）：** 同一 key 的重试返回第一次的响应体。状态码按后端 route：`review-events`、`archive-anomaly-resolutions`、
+  `archive-confirmations`、`archives` 第一次 201、回放 200；上传始终 201；Preview 与提交始终 202；`POST /v1/history-compares` 第一次 202、回放 200
+  （`http/routes/history.py`）。最后一项与 OpenAPI 不符：快照只声明了 200，模拟按后端行为返回 202，响应体用 200 的类型约束，
+  客户端两者都接受；OpenAPI 的声明由 BE-a 补齐（§9 Q13）。同一 key、不同请求内容返回 409 `IDEMPOTENCY_CONFLICT`。
+- **标识前后一致：** 场景内各响应引用的 ID 相互一致（例如工作区的 `current_preview_result_id` 等于 Preview 结果的 ID，
+  该结果的 bundle 是 §7.1 的某个 fixture）。ID 是不透明字符串，前端不解析其格式。
+- **注明来源：** 每个场景注明 route、方法、状态码、schema 名，以及上述取值所依据的源码位置；handoff 列出全部场景。
+- **覆盖：** 每个写操作至少覆盖成功、403 权限拒绝、对应的版本冲突与幂等冲突；N1 的超时后重试回放、N2 的“仍在运行”、
+  临时错误重试与上限、刷新后继续，以及上述轮询终态。
+
+**为什么不由后端产出响应样例：** bundle 必须由后端生成，因为它的内部产物不在 OpenAPI 中；JSON 响应的形状 OpenAPI 已经完整描述，
+可以在编译期约束。剩下的风险是只是字符串的字段、错误码与状态序列，由上面的取值表、错误码单测与源码注明覆盖。
+由后端路由测试产出样例，需要为上传、Preview、提交、归档准备 Repository Service 与 Dolt，或者大量替身，替身数据仍是手造的；
+后端的真实行为由 FE3 的真实 backend e2e 验证。因此 FE2b 不由后端产出响应样例。
+
 ## 8. 不在 FE2 范围
 
 - 真实 backend 对接、OpenAPI 运行时比对、t1 真实数据（FE3）；BE-a 刷新快照后去掉 `RETURNED_FOR_REVISION` 的映射（FE3）。
@@ -360,7 +429,7 @@ v1 不产出 `LOW`；行级风险只落在有变化的行上（新增、删除�
 
 ## 9. owner 决定（2026-11-02、2026-11-03）
 
-Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11 为 owner 2026-11-03 的 FE2a 退出决定。
+Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11 为 owner 2026-11-03 的 FE2a 退出决定；Q12、Q13 于 2026-11-03 按建议确认。
 
 | # | 事项 | 决定 |
 | --- | --- | --- |
@@ -375,6 +444,8 @@ Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11
 | Q9 | 差异浏览页的模式页签（FE2a 审核 B8，2026-11-03） | 删除；模式由入口决定（§5.1），R1 随之消失 |
 | Q10 | FE2a 退出（证据核对第 1 轮 §6，2026-11-03） | FE2a 不再修复；无草图页面的截图按现状接受；R7 与正常业务场景截图带入 FE2b（§2、§6.3） |
 | Q11 | 行级高风险与低风险的截图（§6.3 S2） | 甲：五个等级只在设计系统页的语义色截图上验收，不做演示截图 |
+| Q12 | FE2b 是否拆分（§2） | 拆成 FE2b（工作台、路由与历史比较）、FE2c（写操作旅程），tag 与审核范围见 §2 |
+| Q13 | `POST /v1/history-compares` 的 OpenAPI 只声明 200，后端第一次返回 202（§7.5） | 并入 BE-a（同为 S2a 合入后、FE3 之前的 HTTP DTO 小改动）：补齐 202，并把 200 标为幂等回放 |
 
 **Q4 说明：** 这是 vnext 后端的能力差异，前端无法单独补齐。owner 选择甲；乙作为备选记录在此。
 

@@ -1,83 +1,144 @@
-# FE2c 定向修复 handoff — B1–B11 / M1–M7
+# FE2c 定向修复 handoff（第 2 轮）— N1–N9 / M1、M8–M10
 
-- 修复范围：`5830bc73c4..4c096d49`（05 detached worktree `/home/dev/gdds-fe2c-fix-05`，11 个提交）。
-- 审核报告：`/tmp/fe2c-review.md`（结论定向修复，B1–B11 + M1–M7，复审范围 `5830bc73c4..4c096d49`）。
-- 运行：05 完整 runner（含 `--e2e --screenshots`）exit 0，27 单测文件/125 tests + 21 e2e + 64 截图。04 取证待复审通过后一次运行。
+- 候选提交：`943feb20fa77a90ac2f407698330d919538a526f`，`frontend/` tree `0f15710a954bea1834b6117ade36ba754048c03c`。
+- 复审范围：`680b643f39d9c83f85c8496627be03c4894c26cf..<本 handoff 提交>`；05 detached worktree `/home/dev/gdds-fe-fix2-72a4011d-05`，运行和 handoff 前均为已提交 clean 状态。
+- 依据：`docs/frontend-vnext/reviews/fe2c-rereview-1.md`（N1–N9、M1–M10）、`docs/frontend-vnext/reviews/fe2c-review.md`（B1–B11）、`docs/frontend-vnext/fe2-kickoff.md` §7.1/§7.5（Q16、Q17）、AGENTS“前端测试（FD7）”。
+- 05 完整 runner：exit 0，130 unit tests + 30 e2e，95 张截图；后端上传包校验脚本：exit 0，4/4 package 符合预期。04 取证待复审通过后一次运行。
+- bundle：`/home/dev/gdds-test-tmp/fe2c-fix2-943feb20.bundle`，SHA256 `1daf3c947d08eaedc224a5df552095b3e9300659dcea053f2809b513eecd302a`。
+
 ## 1. 05 提交清单
 
-| 提交 | 内容 |
-| --- | --- |
-| `4c1a916a` | B1–B8/B10–B11 首批：tar size、per-subject key、blocked 拆分、URL resume、dialog key、uploadReady、错误码、单测间歇修复、上传阶段名 |
-| `87fa333d` | B7 空目录提示（`需先选择本次归档组态目录`） |
-| `04d5307f` | B3/D1：archive 422 桩 + `NEEDS_CONFIRMATION(audit_validity:false)` + D1 fixture 单测 |
-| `5480f51b` | e2e 补 import `ARCHIVE_PLAN_NEEDS_CONFIRMATION` |
-| `c5d2e3ec` | B3 对话框确认键不再被初始 `can_start=false` 阻塞（journey 追加确认后重预检） |
-| `b97b6ba7` | docs：上一版 handoff（`c5d2e3ec` runner exit 0） |
-| `5c29b8d1` | B3/B6 探针靶点单测：`NEEDS_CONFIRMATION` 后端规则 + 对话框 key/界面版本 |
-| `008cd90a` | e2e 补缺失双宽度截图（`upload-selected-1280`、`upload-locked-1920`、`archive-mainline-result-1280`） |
-| `73c70ed2` | docs：handoff 绑定 `73c70ed2` 确认运行（125 tests + 21 e2e + 64 png） |
-| `cd40b409` | docs：handoff 绑定 `cd40b409` 确认运行（125 tests + 21 e2e + 64 png） |
-| `4c096d49` | docs：本 handoff（`4c096d49` runner exit 0，125 tests + 21 e2e + 64 png） |
-`git -C /home/dev/gdds-fe2c-fix-05 diff 5830bc73c4..HEAD --stat`：19 文件，354+/254-。
+`git log --oneline 680b643f..HEAD`（39 行；包含 main 合入的 docs 提交）：
 
-## 2. B1–B11 修复对照
+```text
+943feb20fa test(frontend): guard the entry limit before packaging (M1)
+b5a8e795d1 test(frontend): cover the explicit empty-baseline upload state (N8)
+eb76ec0c00 test(frontend): use the recorded requests in the retry test
+a5a2843742 test(frontend): wait for the workbench before upload retry
+abd16b37d0 test(frontend): cover upload failure and retry (N9)
+cd38fdffa3 fix(frontend): serialize inert as an empty attribute for React 18
+dd19d0bef5 fix(frontend): lock keyboard focus to the upload overlay (M10)
+daee3017d1 test(frontend): record member sizes in the upload manifest
+e59ae70b32 fix(frontend): compare upload members with backend-normalized paths
+e59f22b285 fix(frontend): expose workspace packages to the upload validator
+ce1fd53eae fix(frontend): expose operation failure to the resuming page
+a0202dbe7d fix(frontend): keep the page locked while a refreshed preview settles
+0ecdb2766f test(frontend): expect the shared permission copy
+175a28094c test(frontend): restore desktop viewport before upload retry
+4afd6b975d test(frontend): capture the missing FE2c error and dialog screenshots
+31f635b277 test(frontend): match upload conflict copy and running stage
+cf19346db5 test(frontend): open the detail panel before driving upload
+d994d5cc32 test(frontend): follow submit result screen and upload card markup
+6a93562a02 test(frontend): align journey expectations with per-action keys
+f87f1e3df3 test(frontend): drop unused archive audit URL variable
+658b41893d fix(frontend): type request validator and archive dialog error path
+72a4011d83 fix(frontend): FE2c round-2 write-step keys, reachable states and error surfaces
+8da5cc235c docs(frontend-vnext): design FE2c round-2 write-step keys and resume
+31bff353b0 Merge main 7d9521d04b into fe-vnext (FE2c fix round 2 base)
+7d9521d04b docs(frontend-vnext): define FE2c rereview-1 minor items M8-M10
+9c58f6ff57 docs(frontend-vnext): FE2c rereview-1 (targeted fixes)
+b7794f5bb4 docs(frontend-vnext): plan FE3 upload-mode withdraw after DC75
+680f9a60f0 docs(p6): record BE-a kickoff review and clarify replay test owners
+fcbfb4c1a0 docs(p6): review BE-a kickoff scope expansion
+f20f08bea9 docs(p6): define BE-a workspace pointers and self-withdraw permission
+d0a8143d80 docs(p6): approve corrected H2 launch commands for owner release
+f8d4a3c354 docs(p6): record pending corrected launcher review
+55e6c0083c docs(frontend-vnext): record FE2c review decisions Q16, Q17
+a5ddaf14b7 docs(p6): review H2 launcher stop and recovery prerequisites
+7c5cc2a49e docs(p6): review S2a final runner and parser evidence
+dc6d1fbb2a docs(p6): prepare S2b inputs and BE-a BE-d kickoff drafts
+ebb0047383 docs(p6): record DC73 backend design/review session split and handoff
+4ea3099478 docs(frontend-vnext): FE2c review (targeted fixes)
+c9f8dca39f docs(p6): review baseline W4 v2 preview KEY_EMPTY stop
+```
 
-| ID | 修复 | 文件 |
-| --- | --- | --- |
-| B1 | `tarHeader(path, content.byteLength)` + `writeOctal(124,12,size)`；单测读回内容 + prefix 分段；预留 M1 字节/条目上限 | `upload-package.ts`、`upload-package.test.ts` |
-| B2 | Preview/确认/异常处理/开始归档按步骤收 key；缺 key 桩返回 422 `REQUEST_VALIDATION_FAILED`（preview/archive-confirmations/anomaly-resolutions/archives） | `journeys.ts`、e2e spec |
-| B3 | `blocked = blockers.length>0`；`needsConfirmation` 只做提示；确认键可用性只看缺失项（不看初始 `can_start`）；桩首检用 `NEEDS_CONFIRMATION(can_start:false, audit_validity:false)`；单测按后端规则锁死该语义（探针靶点） | `ArchiveMainlineDialog.tsx`、`mock-data.ts`、e2e、`mock-data.test.ts` |
-| B4 | `listArchiveEvents({subjectKind, subjectDigest, afterSequence?})` 必填；每 subject 取最新 sequence（无记录 0）；单测断言 CONFIRM 0 / ANOMALY 7；桩缺参数 422 | `client.ts`、`journeys.ts`、`journeys.test.ts`、e2e |
-| B5 | `onOperationAccepted(operation_id)` → URL 写 `operationId+operationKind=operation`；MANUAL 显示可复制 ID + 刷新跟随；`showOperationStatus` 覆盖 `operationId!=null && (kind null/operation)` | `journeys.ts`、`UploadStepCard.tsx`、`SubmitDialog.tsx`、`WorkbenchPage.tsx` |
-| B6 | 对话框 key：打开生成、确认复用、4xx 换新；`applyReviewAction(api, submissionId, reviewVersion, …)` 发界面版本；单测断言不重读版本 + 复用传入 key（探针靶点） | `ReviewActions.tsx`、`journeys.ts`、`journeys.test.ts` |
-| B7 | 空目录 `uploadReady=false` + 提示；有效目录 `enabled`；Preview 顶栏仍无上传快捷入口（偏差，见 §5） | `workspace.ts`、`workspace.test.ts`、`WorkbenchPage.tsx`、`UploadStepCard.tsx` |
-| B8 | 错误码全构建可见 + 复制；版本冲突刷新：工作区（`window.location.reload`）、归档（刷新预检）；`ABORTED` 显示原始码 | `SubmitDialog`、`ReviewActions`、`ArchiveMainlineDialog` |
-| B9 | 集中 `mock-data.ts`（`SIMULATED_ERROR_RESPONSES` + `WRITE_SCENARIO_COVERAGE`）+ `mock-data.test.ts` openapi 校验；e2e 补 422（preview/archive/audit）+ 复用 403/409；B1–B4 单测按后端规则 | 各文件 |
-| B10 | `globalThis.setTimeout/clearTimeout` + 单测 `globalThis.setTimeout` | `idempotency.ts`、`.test.ts` |
-| B11 | 阶段名：`下载预览结果 / 写入本地 / 完成，进入差异浏览`；清除按钮、`校验通过`、`FileList\|File[]\|null`；IDEMPOTENCY_CONFLICT 换 key | `UploadStepCard.tsx` |
+## 2. 逐项对照
 
-## 3. M1–M7
+| ID | 提交 | 测试 / 用例 | 截图 | 状态 |
+| --- | --- | --- | --- | --- |
+| N1 归档每条确认/异常/开始各用 key，重试不重发 | `72a4011d`、`6a93562a` | `journeys.test.ts`：`gives each anomaly resolution its own key and expected sequence`、`resumes archive retries after a failed start without resending audit events`；探针：改回共用 key 后首条失败 | `archive-mainline-*` | 完成 |
+| N2（Q17）上传包后端校验 + 请求侧约束一处实现 | `72a4011d`、`e59f22b2`、`e59ae70b`、`daee3017` | `frontend/scripts/validate-upload-package.sh`（4 包：with/without logics、missing dbcfg → `UPLOAD_CLOSURE_INVALID`、>100B 路径；成员路径/摘要比较）；`mock-data.test.ts`：`enforces the request-side constraints for every write route in one place (Q17)`；e2e 桩统一调用 `validateSimulatedRequest`，内联 422 检查已删除 | 脚本日志（§3） | 完成 |
+| N3 确认后预检可达状态 | `72a4011d`、`6a93562a` | `mock-data.test.ts`：`keeps the needs-confirmation archive plan within backend preview rules (B3 probe target)`、`keeps every archive preview state consistent with the Q17 start rules`；探针：`confirmation_requirements=[]` 后两条失败 | `archive-mainline-*` | 完成 |
+| N4 刷新恢复锁定、Preview 续接、提交结果、管理员信息、URL 清理 | `a0202dbe`、`ce1fd53e`、`dd19d0be` | e2e：`FE2c 执行中刷新后恢复页面锁定并继续到差异浏览`、`FE2c 提交对话框显示需要管理员处理并可跟随到成功` | `upload-locked-*`、`manual-recovery-required-*`、`submit-manual-recovery-*`、`submit-result-*` | 完成 |
+| N5 上传续做 | `72a4011d` | e2e：`FE2c 提交超时重试复用同一幂等键并回放同一提交`、`FE2c 审核 403、版本冲突与超时重试复用同一幂等键`；探针：Preview 失败后单次重试成功且 upload 仅一次 | — | 完成 |
+| N6 错误码就地显示/复制、审核刷新、生产构建可见 | `72a4011d`、`4afd6b97` | e2e：上传 403/版本冲突、审核 403/版本冲突、归档 403/审计冲突、提交 ABORTED；`check:production-build` 要求产物含“错误代码：/复制错误代码/操作 ID” | `upload-version-conflict-*`、`upload-permission-denied-*`、`review-version-conflict-*`、`review-permission-denied-*`、`submit-aborted-*`、`archive-audit-conflict-*`、`archive-permission-denied-*` | 完成 |
+| N7 写操作场景补全 | `72a4011d` | e2e：`FE2c 提交被中止时显示原始错误代码`、`FE2c 归档 403、审计冲突与阻断项`、上传/审核 403 与版本冲突；`WORKBENCH_WRITE_SCENARIOS`/`WRITE_SCENARIO_COVERAGE` 集中声明来源；审核 token 为审核人、归档 token 为归档人 | `archive-blocked-*`、`submit-aborted-*`、`review-permission-denied-*` | 完成 |
+| N8 阶段名、空基线禁用、摘要/目录卡二选一 | `943feb20`、`b5a8e795` | e2e：`FE2c 首批空基线禁用原始组态备份`、`FE2c 上传步骤卡校验目录并锁定页面`（MODIFIED_ONLY 显示“解析预览”） | `upload-empty-baseline-*`、`upload-running-modified-only-*` | 完成 |
+| N9 截图补齐 | `4afd6b97`、`175a2809`、`b5a8e795` | 95 png，1280/1920 双宽度 | 目录见 §5 | 完成 |
+| M1 条目上限在打包前检查 | `943feb20` | `upload-package.test.ts`：`rejects an over-limit directory before packaging` | — | 完成 |
+| M8 fixture 修正与断言 | `72a4011d` | `mock-data.test.ts`：确认事件仅含确认；`TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION` 名称与内容一致；B3 断言按 subject/digest | — | 完成 |
+| M9 工具栏上传 e2e | `4afd6b97` | e2e：`FE2c 上传步骤卡校验目录并锁定页面` 由顶栏“上传”按钮发起 | `upload-empty-*`、`upload-selected-*`、`upload-locked-*` | 完成 |
+| M10 锁定区域 inert | `dd19d0be`、`cd38fdff` | e2e：`FE2c 执行中刷新后恢复页面锁定并继续到差异浏览` 断言 `.workspace-topbar`/`.workspace-layout` 的 `inert` 为 true | `upload-locked-*` | 完成 |
 
-- M1：`MAX_ARCHIVE_BYTES=256MiB`、`MAX_ARCHIVE_ENTRIES=8192`，超限抛 413 提示（流式打包未做，偏差）。
-- M2：`page-lock-overlay` 加 `inert`（TS `as object` 透传）。
-- M3：运行中标题 `已用时（页面计时）`，与操作 `started_at` 的“已等待”区分。
-- M4：提交对话框注明“后端按动作只保留最后一条理由”。
-- M5：本次 05 运行 3 次失败 + 1 次通过均记录（`04d5307f` 进口、`5480f51b` 确认键、`c5d2e3ec` 通过）；bundle 在 `/home/dev/gdds-test-tmp`；worktree 均为已提交 detached；日志在 `/home/dev/gdds-fe-logs/fe2c/`。
-- M6：§4 场景来源修正（`mock-data.ts` + e2e 桩）；“上传/审核/归档同类分支”已有测试覆盖（§2）。
-- M7：未改（提交摘要仍为原始 ID；取用 History 标签需跨页数据，偏差）。
+## 3. 05 运行清单
 
-## 4. 05 权威运行证据
+全部在 `gw-dms-test-05.lan` 的已提交 clean worktree 运行；日志目录 `/home/dev/gdds-fe-logs/fe2c/fix-2`。
 
-- 命令：`bash frontend/scripts/run-tests.sh --e2e --screenshots /home/dev/gdds-fe-evidence/fe2c/fix-4c096d49-05`（05 detached `4c096d49`，clean；`GATEWAY_FRONTEND_NPM_CACHE=/home/dev/gdds-fe-cache/fe0/npm-cache`，archive `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz`，`GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`）。
-- 日志：`/home/dev/gdds-fe-logs/frontend/frontend-tests-20261104T081709Z.log`，SHA256 `8010bc7c396120618fcc48d877a6637f78c5b8e7e8f0b13c6626b4590e547460`；`started_at=2026-11-04T08:17:09Z`，`ended_at=2026-11-04T08:17:43Z`，`hostname=gw-dms-test-05.lan`，`head_start=head_end=4c096d49`，`frontend_tree=46ed8248…`，`exit_code=0`。
-- 结果：typecheck 0；lint 0；27 单测文件 125 tests 通过；21/21 e2e 通过；生产构建检查通过（`production dist contains no simulated API…`）。
-- 工具链/npm 缓存：`mcr.microsoft.com/playwright:v1.64.1-noble`（config `sha256:a0d7b2b4…`，7 DiffID 与既有值一致），`docker_network=none`，npm cache `source_commit=a2fb4a02`，`package_lock_resolved_count=305`，archive SHA `0d861824…`，tracked archive `cfb5ba72…`（handoff 为 docs-only 增补引起变化，未改测试输入）。
-- 证据目录：`/home/dev/gdds-fe-evidence/fe2c/fix-4c096d49-05/`，64 png（逐文件 SHA 总和 `719a3b6a…`；SHA 待 04 取证时重算）。
-- 失败过程（M5 要求记录）：`04d5307f`（缺 import，20/21）、`5480f51b`（B3 桩变严后确认键被初始 can_start 阻塞，20/21）、`c5d2e3ec` 通过（61 png）、`008cd90a` 通过（64 png）、`cd40b409`/`73c70ed2`/`41081b87`/`ec34b134` 通过（64 png）；本轮 `4c096d49` 通过（64 png）。首次直连默认缓存路径失败（`npm cache is missing or empty: /home/dev/gdds-fe-cache/frontend/npm-cache`），改用既有 fe0 缓存 env 后重跑通过。
-## 5. 探针（§9 要求，结果进 handoff）
+| HEAD | 开始（UTC） | exit | 日志 | SHA256 |
+| --- | --- | --- | --- | --- |
+| `72a4011d` | 2026-11-04T10:22:11Z | 2 | `frontend-tests-20261104T102211Z.log` | `e44f319daaca8d43300e07a35093aec708c6f55f57b2ee6942e39376b3f990cd` |
+| `658b4189` | 2026-11-04T10:23:19Z | 1 | `frontend-tests-20261104T102319Z.log` | `d3c103699f1ac85194e6611ad792bc9150a4be4b2072bf941ee6339a1295f259` |
+| `f87f1e3d` | 2026-11-04T10:24:11Z | 1 | `frontend-tests-20261104T102411Z.log` | `e8f3ed4dff76021594f04997fc0a5bd899c8dba0c65bfc18e1dd05429d40eb7b` |
+| `6a93562a` | 2026-11-04T10:25:18Z | 0 | `frontend-tests-20261104T102518Z.log` | `db1783ef9abd84243b5d1080e81ffec8bc5f66d6e842dd04f6f000bd36dece14` |
+| `6a93562a` | 2026-11-04T10:26:04Z | 1 | `frontend-tests-20261104T102604Z.log` | `7ba272902a2272a73faf730b013101e725ba0e6f65916754a4c1355bd05ab712` |
+| `d994d5cc` | 2026-11-04T10:27:52Z | 1 | `frontend-tests-20261104T102752Z.log` | `5451f21e587014a171e418b145fe2c2157ca71bea1800352d8a72b6f4b4cdd1d` |
+| `cf19346d` | 2026-11-04T10:29:34Z | 1 | `frontend-tests-20261104T102934Z.log` | `774030015b030fe07fafbd368c8d4235874024f41e729d824a7b36978840218e` |
+| `31f635b2` | 2026-11-04T10:32:05Z | 1 | `frontend-tests-20261104T103205Z.log` | `6ddf6db9468febbaaea78849ae83d969f925097eb46a64ff3bd54ffe9ed32431` |
+| `4afd6b97` | 2026-11-04T10:34:15Z | 1 | `frontend-tests-20261104T103415Z.log` | `871d69034c5f57db766c5339fe2706cb9e48762453489f1527bd4f7c541a7b44` |
+| `175a2809` | 2026-11-04T10:35:50Z | 1 | `frontend-tests-20261104T103550Z.log` | `57cc935cbed2674f3b68143b5dc265fe853efd2cee2a1cd75078f2a396cc9ee0` |
+| `0ecdb276` | 2026-11-04T10:37:39Z | 1 | `frontend-tests-20261104T103739Z.log` | `235c3d09cfd03fb8a71da9044be21defd76f02836e9ca1c70cba6e64dc263c4c` |
+| `a0202dbe` | 2026-11-04T10:39:49Z | 2 | `frontend-tests-20261104T103949Z.log` | `7850f66d54c09077bb1abf1ed60871dd1ecc933804d621e06b2a115ff21edd6f` |
+| `ce1fd53e` | 2026-11-04T10:40:54Z | 0 | `frontend-tests-20261104T104054Z.log` | `74c9483a0b1f230ffe95745db243e7497432986d6dede64f4b2bf5cd406c5f38` |
+| `dd19d0be` | 2026-11-04T10:52:52Z | 1 | `frontend-tests-20261104T105252Z.log` | `cc4d325086dc3b14522a86754a7a688a93cb536442d407e8cfffa90ca84b7e6e` |
+| `cd38fdff` | 2026-11-04T10:54:51Z | 0 | `frontend-tests-20261104T105451Z.log` | `c74cda21a768b1875d38a2b5d115e645713015daa0d503cb0f9a5dd44666cff3` |
+| `abd16b37` | 2026-11-04T10:57:57Z | 1 | `frontend-tests-20261104T105757Z.log` | `00ad0c3267554863c4ac08b1e2ee82741fe6c63331e516c34fb28081b41d80e1` |
+| `a5a28437` | 2026-11-04T10:59:57Z | 1 | `frontend-tests-20261104T105957Z.log` | `8aea34d2cb61f227eb1b82ebf80a1e5602a8b14c4c95c06a6574e67a3631f160` |
+| `eb76ec0c` | 2026-11-04T11:01:57Z | 0 | `frontend-tests-20261104T110157Z.log` | `2ee03cfe6839fc03897416f972ecdd27e5e7b7af26eb3c77dfd0de967ffb635d` |
+| `943feb20` | 2026-11-04T11:04:57Z | 0 | `frontend-tests-20261104T110457Z.log` | `b1bfb993049e5846ff14bbb07108b273576458f4caab12ddc62e772c9b8286b5` |
 
-- 本轮新增探针靶点单测（均在 05 已提交，`5c29b8d1`；本地反向验证已通过，未污染证据 HEAD）：
-  - B1：`upload-package.test.ts` 去掉 size 写入 → 读回单测失败（2 failed / 9；`size` 0 ≠ 内容长）；后端 `validate_source_package_archive` 复用报告 P1/P2 结论（前端产物拒收 `UPLOAD_CLOSURE_INVALID`，Python 对照通过）。
-  - B2：去掉任一步 key → 对应 422 桩使上传/归档 e2e 失败（报告 P3 已证；本轮桩保留 422 回归）。
-  - B3：`NEEDS_CONFIRMATION`  fixture 改 `can_start:true` → 新增单测失败（1 failed / 7：`audit_validity:false` 与 `can_start:false` 必须同现）。
-  - B6：`applyReviewAction` 内重读版本/换新 key → 新增单测失败（2 failed / 12：必须发送界面版本 + 复用传入 key，不重读 `getReviewFacts`）。
-- B10：本地 `vitest run` 27/125 通过 + 本轮 05 runner 通过；报告 P4/P6 的间歇背景已由 `globalThis` 修复覆盖，更长连续次数待 04 取证时补。
-## 6. 截图（64 张，`fix-4c096d49-05/`）
+后端校验脚本运行：
 
-`archive-mainline-1280/1920`、`archive-mainline-result-1280/1920`、`bundle-error-*`、`dataset-replacement-browse-*`、`formula-history/preview-*`、`header-review-*`、`history-compare-connection-interrupted/running/result-drawer-*`、`loading-skeleton-*`、`manual-recovery-required-*`、`navigation-fallback-*`、`s1-workbench-*`、`s2-compare-tray-*`、`s3-header-history/upload-*`、`s3-workbench-normal/upload-*`、`s4-grid-*`、`s4-semantic-tokens-*`、`submit-identity-confirmation-*`、`tab-overflow-*`、`upload-invalid-*`、`upload-locked-1280/1920`、`upload-selected-1280/1920`、`workspace-error-no-connected-*`。
+| HEAD | 开始（UTC） | exit | 日志 | SHA256 |
+| --- | --- | --- | --- | --- |
+| `ce1fd53e` | 2026-11-04T10:41:58Z | 1（`ModuleNotFoundError`；初跑仅 stdout） | `upload-validator-ce1fd53e-recheck.log`（复核） | `310611b33f67c5a034a4b21b0b7221c35c06e83249d7561f914ddb1b56e49fa4` |
+| `e59f22b2` | 2026-11-04T10:42:18Z | 1（3/4 成员比较失败；初跑仅 stdout） | `upload-validator-e59f22b2-recheck.log`（复核） | `2d4e9db84cc0faf77a5bf03891c88901f2b18d1431c14dd5d2b66c0f0f4e66aa` |
+| `daee3017` | 2026-11-04T10:43:29Z | 0 | `upload-validator-daee3017.log` | `a3d5ff6a62aa377fcbe6c300dfd3b0fe989890c114a2d3864c901bb360c5bc07` |
+| `cd38fdff` | 2026-11-04T10:55:56Z | 0 | `upload-validator-cd38fdff.log` | `4f823a977a5c36e103021d36565da2c3fa731728dfd0a87d4b3d2e408c5d6900` |
+| `eb76ec0c` | 2026-11-04T11:02:58Z | 0 | `upload-validator-eb76ec0c.log` | `b9b44c77d9038f8ce23b8127129901f79b92c34437a70e396c06ff559fae6cfe` |
+| `943feb20` | 2026-11-04T11:05:58Z | 0 | `upload-validator-943feb20.log` | `f7d401bf6d564d153dda410d7fc127b70cf73f8bdc453eb241607ed4a3e1e654` |
 
-缺少（偏差，沿用报告 §8，相对上一轮已补 3 张）：退回/撤回对话框、上传空状态/运行中卡片/失败重试、`ABORTED`、归档被阻断、写操作 403/409 单独截图。改动涉及的截图已重拍（archive-mainline、upload 阶段、submit 进度）。
-## 7. 已知偏差（不能按草图修正，交 owner）
+## 4. 探针
 
-1. PREVIEW 顶栏无上传快捷入口（B7 后半）。
-2. 上传打包非流式（M1 后半，大目录内存 2x）。
-3. 提交摘要仍为原始 ID（M7）。
-4. 截图缺项见 §6；`history-compare-result-drawer` 布局仍为小字 + 全表（未按 compare-1920 四卡片改）。
-5. 上传模式“撤回”缺失（原 handoff §8.1，后端无字段，属 §10 停止条件）。
+均在一次性的已提交 detached worktree `/home/dev/gdds-fe-probe-fix2-05`（基于 `daee3017`）中做完后删除；日志 `/home/dev/gdds-fe-logs/fe2c/probes`。
+
+| 探针 | 做法 | 结果 | 日志 / SHA256 |
+| --- | --- | --- | --- |
+| N1 共用 key | `resolveAuditProgress` 的 key 固定为 `shared-key` | exit 1；`gives each anomaly resolution its own key and expected sequence` 失败 | `frontend-tests-20261104T104554Z.log` / `f35f26164c4900cf034a8bf8bb56565d4305db949d2614e8c174084cf3cf5dc2` |
+| N3 空 requirements | `ARCHIVE_PLAN_READY.confirmation_requirements = []` | exit 1；B3 与 Q17 两条预检规则测试失败 | `frontend-tests-20261104T104641Z.log` / `cfdcdcf2e25c8a01fc94d552b41515232025c1e2277e30649bf291a05d992ab6` |
+| N2 去掉一条请求侧检查 | 从 `REQUIRED_IDEMPOTENCY_KEY_ROUTES` 删除 submit-attempts | exit 1；Q17 路由逐条测试失败 | `frontend-tests-20261104T104739Z.log` / `06a5668da0f5b65463b5821ce75c353e1920dd643402ad8f7dc0c0bf30a9068f` |
+| N2 去掉 tar size 写入 | `writeOctal(header,124,12,0)` | 脚本 exit 1；3 个应接受的包被后端判 `UPLOAD_CLOSURE_INVALID` | `upload-validator-no-size.log` / `aa09a3fe6f397ca528945aec9dfe77fd53a34694419806c69c7e3da46d2b89d7` |
+| N5 Preview 失败后重试 | 上传成功、`startPreview` 首次失败，第二次用同一 progress | 130 tests 通过；`uploadRevision` 仅 1 次、`startPreview` 2 次；先一次断言 `createWorkspace` 次数写错导致失败，修正后通过 | 失败 `...T104951Z.log` / `c2d714ec66040a5445fba9d94634043b65125637d319fc84a92c4a7a02efe9af`；通过 `...T105044Z.log` / `5229f33de89543af9ead893489e3b9a1c84386a22058e6d132288c47a005ba93` |
+
+## 5. 截图
+
+- 目录：`/home/dev/gdds-fe-evidence/fe2c/fix-2-943feb20-05/`，95 png；`sha256sum *.png | sort -k2 | sha256sum` = `f37e859849300ec9d0eb8a2f3dc1a304dacdf492dccb7bd73f2ee1bd96e9f720`。
+- 本轮新增/重拍的状态（均 1280 与 1920）：`upload-version-conflict`、`upload-permission-denied`、`upload-empty`、`upload-empty-baseline`、`upload-failure-retry`、`upload-running-modified-only`、`review-permission-denied`、`review-version-conflict`、`review-reject-dialog`、`review-withdraw-dialog`、`submit-aborted`、`submit-manual-recovery`、`submit-result`、`archive-permission-denied`、`archive-audit-conflict`、`archive-blocked`、`archive-mainline`、`archive-mainline-result`、`upload-selected`、`upload-invalid`、`upload-locked`。
+- 其余既有状态（`bundle-error`、`dataset-replacement-browse`、`formula-*`、`header-review`、`history-compare-*`、`loading-skeleton`、`manual-recovery-required`、`navigation-fallback`、`s1-workbench`、`s2-compare-tray`、`s3-*`、`s4-*`、`tab-overflow`、`workspace-error-no-connected`）同时覆盖 1280/1920。
+
+## 6. 偏差
+
+无。上传模式撤回按 Q16 决定不提供，不再列为偏差；M7（提交摘要原始 ID）不在本轮范围。
+
+## 7. 复现与证据环境
+
+- runner：`GATEWAY_FE_LOG_DIR=/home/dev/gdds-fe-logs/fe2c/fix-2 GATEWAY_FRONTEND_NPM_CACHE=/home/dev/gdds-fe-cache/fe0/npm-cache GATEWAY_FRONTEND_NPM_CACHE_ARCHIVE=/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5 ./frontend/scripts/run-tests.sh --e2e --screenshots /home/dev/gdds-fe-evidence/fe2c/fix-2-943feb20-05`
+- 工具链：`mcr.microsoft.com/playwright:v1.64.1-noble`，config digest `sha256:739bf253655693b5976ce9e90acb62a38bf813487d86ec1a591bb54a063000ac`，7 个 RootFS DiffID；`docker_network=none`；npm 缓存来源提交 `a2fb4a027a`，archive SHA256 `0d861824f807b9d72de3cfff26e3c41bdfae502cdaf39036f38f4fa32c0089f4`。
+- 后端校验镜像：`gateway-backend-deps:lock-d054366c02fa`，config digest `sha256:d363b45a33be8d0034f49f156998753086d09c4c171e75896f1e4beab4ff49ff`；只读挂载源码、`network none`、`/build/backend/.venv/bin/python`。
 
 ## 8. 复审与 04 取证
 
-- 复审范围：`5830bc73c4..4c096d49`（以 05 为准；本地 `fe-vnext` 仍在 `5830bc73c4` + dirty 文件，未提交，勿作证据；本 handoff 为 docs-only，测试输入与 runner 一致）。
+- 复审范围：`680b643f39..<本 handoff 提交>`；05 worktree `/home/dev/gdds-fe-fix2-72a4011d-05`。
+- 04 权威运行：待复审通过后在 `ct108-gw-dms-04` 的 clean、已提交 worktree 上完整运行一次；本轮未在 04 运行，也未在开发主机运行测试。
 
 ## 9. 写操作步骤与 key 规则（N1、N5 设计）
 

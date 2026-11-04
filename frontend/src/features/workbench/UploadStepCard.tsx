@@ -57,7 +57,7 @@ function errorMessage(cause: unknown, phase: UploadPhase): { message: string; co
   if (cause instanceof DOMException && cause.name === "TimeoutError") {
     return { message: "请求超时，请重试", code: "REQUEST_TIMEOUT", retryable: true, refresh: false };
   }
-  return { message: cause instanceof Error ? cause.message : String(cause), code: null, retryable: true };
+  return { message: "上传或预览未完成，请重试", code: null, retryable: true, refresh: false };
 }
 
 function slotFrom(input: FileList | File[] | null): DirectorySlot | null {

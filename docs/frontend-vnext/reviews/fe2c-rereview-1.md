@@ -43,6 +43,13 @@
 - M5：见 §4。
 - M6：handoff §2 的 B9 一行仍不准确，见 §4。
 - M7：写为偏差，可以接受。
+- M8（新）：测试补充：
+  - B4 补“确认后撤销”与“没有记录时 `REVOKE` 返回 `ARCHIVE_AUDIT_VERSION_CONFLICT`”两种情形；
+  - `TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION` 改名或改内容，使名字与内容一致；
+  - D1 单测补逐表增删改的断言；
+  - 删除 `history-summary.test.ts` 中恒为真的 `summarizeHistoryPair ? … : …` 判断。
+- M9（新）：补 e2e：点击工具栏“上传”走完一次上传。
+- M10（新）：`inert` 改加在被锁定的区域（顶栏、树、详情、托盘），遮罩本身不需要；键盘 Tab 不能再到达这些区域的按钮。
 
 **D1（§6.4 带入项）：** 新单测用 History 三节点 fixture 的两个比较对，断言表数、变更表数、降级表数，数值与 fixture 中后端写入的 `summary` 一致（p0：9/6/2；p1：10/7/2）。后端的 `changed_table_count` 本来就包含降级表，原审核 §3 说“变更表把 `DEGRADED` 算进去”是我的误判，以后端为准。逐表增删改没有断言（M8）。抽屉布局与草图不同，已列为偏差交 owner。**通过。**
 

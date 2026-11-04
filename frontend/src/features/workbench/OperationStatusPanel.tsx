@@ -23,6 +23,8 @@ export function OperationStatusPanel({ operationId, onSucceeded, onFailed }: { o
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const finished = useRef(false);
+  const callbacks = useRef({ onSucceeded, onFailed });
+  useEffect(() => { callbacks.current = { onSucceeded, onFailed }; }, [onSucceeded, onFailed]);
 
   useEffect(() => {
     const started = Date.now();
@@ -47,8 +49,8 @@ export function OperationStatusPanel({ operationId, onSucceeded, onFailed }: { o
             url.searchParams.delete("operationKind");
             window.history.replaceState(null, "", url);
           } catch { /* URL 不可用时忽略 */ }
-          if (value.status === "SUCCEEDED") onSucceeded?.(value.operation_id);
-          else onFailed?.(value.operation_id);
+          if (value.status === "SUCCEEDED") callbacks.current.onSucceeded?.(value.operation_id);
+          else callbacks.current.onFailed?.(value.operation_id);
         }
       },
       onConnectionStatus: (status) => setConnectionLost(status === "interrupted"),
@@ -60,14 +62,14 @@ export function OperationStatusPanel({ operationId, onSucceeded, onFailed }: { o
         setConnectionLost(false);
         setQueryError(cause.status === 403 || cause.code === "SCOPE_FORBIDDEN"
           ? { code: "SCOPE_FORBIDDEN", message: "当前身份没有该操作的权限" }
-          : { code: cause.code ?? `HTTP_${cause.status}`, message: cause.message });
+          : { code: cause.code ?? `HTTP_${cause.status}`, message: "无法查询操作状态，请稍后重试" });
       } else {
         setConnectionLost(false);
-        setQueryError({ code: cause instanceof Error ? cause.name : "REQUEST_FAILED", message: cause instanceof Error ? cause.message : String(cause) });
+        setQueryError({ code: cause instanceof Error ? cause.name : "REQUEST_FAILED", message: "无法查询操作状态，请稍后重试" });
       }
     });
     return () => controller.abort(new DOMException("状态查询已停止", "AbortError"));
-  }, [operationId, refreshRevision, onSucceeded, onFailed]);
+  }, [operationId, refreshRevision]);
 
   const status = operation?.status ?? "QUEUED";
   const manualRecovery = status === "MANUAL_RECOVERY_REQUIRED";

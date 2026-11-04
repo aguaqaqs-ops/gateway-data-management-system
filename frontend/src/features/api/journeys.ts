@@ -276,6 +276,7 @@ export interface SubmitJourneyInput {
   idempotencyKey?: string;
   poll?: PollOptions;
   onOperationAccepted?: (operationId: string) => void;
+  onAccepted?: (accepted: Schemas["SubmitAcceptedResponse"]) => void;
 }
 
 export interface SubmitJourneyResult {
@@ -303,6 +304,7 @@ export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInpu
     ? await api.acceptSubmit(input.workspaceId, body, input.idempotencyKey)
     : await api.acceptSubmit(input.workspaceId, body);
   input.onOperationAccepted?.(accepted.operation_id);
+  input.onAccepted?.(accepted);
   const operation = await pollOperation(api, accepted.operation_id, input.poll);
   const attempt = await api.getSubmitAttempt(input.workspaceId, accepted.submit_attempt_id);
   if (attempt.state === "ABORTED") throw new SubmitAbortedError(attempt.abort_code ?? "ABORTED");

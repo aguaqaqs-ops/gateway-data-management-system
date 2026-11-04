@@ -63,7 +63,14 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
 
   function renderError() {
     if (!error) return null;
-    return <p role="alert" className="form-error" title={`错误代码：${error.code}`}>{error.title}<code> {error.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(error.code)}>复制错误代码</button>{error.code === "REVIEW_VERSION_CONFLICT" && <button className="link-button" onClick={() => void refreshFacts()}>刷新审核信息</button>}</p>;
+    return <div role="alert" className="form-error" title={`错误代码：${error.code}`}>
+      <span>{error.title}</span>
+      <span>错误代码：<code>{error.code}</code></span>
+      <span className="form-error__actions">
+        <button className="link-button" onClick={() => void navigator.clipboard?.writeText(error.code)}>复制错误代码</button>
+        {error.code === "REVIEW_VERSION_CONFLICT" && <button className="link-button" onClick={() => void refreshFacts()}>刷新审核信息</button>}
+      </span>
+    </div>;
   }
 
   async function confirm() {

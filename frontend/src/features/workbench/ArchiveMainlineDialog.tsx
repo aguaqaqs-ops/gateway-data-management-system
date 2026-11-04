@@ -187,7 +187,11 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
       </section>
 
       {running && <p role="status" className="submit-progress">归档执行中，请勿关闭页面。</p>}
-      {failure && <div role="alert" className="form-error"> {failure.title}<code> {failure.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{failure.refresh && <Button variant="secondary" onClick={refresh}>刷新预检</Button>}</div>}
+      {failure && <div role="alert" className="form-error">
+        <span>{failure.title}</span>
+        <span>错误代码：<code>{failure.code}</code></span>
+        <span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{failure.refresh && <Button variant="secondary" onClick={refresh}>刷新预检</Button>}</span>
+      </div>}
     </>}
     {result && <section className="archive-step" aria-label="归档结果">
       <h2>归档完成</h2>

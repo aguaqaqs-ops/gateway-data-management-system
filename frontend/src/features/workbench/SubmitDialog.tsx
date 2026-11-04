@@ -163,11 +163,19 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         onOperationAccepted: (operationId) => {
           setOperationId(operationId);
           try {
+            sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId, workspaceId, submitAttemptId: "" }));
+          } catch { /* sessionStorage 不可用时忽略 */ }
+          try {
             const url = new URL(window.location.href);
             url.searchParams.set("operationId", operationId);
             url.searchParams.set("operationKind", "operation");
             window.history.replaceState(null, "", url);
           } catch { /* URL 不可用时仍继续轮询 */ }
+        },
+        onAccepted: (accepted) => {
+          try {
+            sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: accepted.operation_id, workspaceId, submitAttemptId: accepted.submit_attempt_id }));
+          } catch { /* sessionStorage 不可用时忽略 */ }
         },
         identityConfirmations: requiredPairs.map((pair) => ({
           action: CONFIRMATION_ACTION[pair.status],
@@ -225,8 +233,16 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
       {requiredPairs.length === 0 && <p className="subtle-copy">项目身份均已确认一致，无需额外确认。</p>}
       {submitting && manualRecovery && <p role="alert" className="submit-progress submit-progress--manual">需要管理员处理。操作 ID <code>{operationId}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operationId ?? "")}>复制 ID</button>系统仍在查询状态；刷新页面后会继续跟随。</p>}
       {submitting && !manualRecovery && <p role="status" className="submit-progress">提交执行中 · 已等待 {formatWaitDuration(elapsed)}，请勿关闭页面。操作 ID 已写入地址栏，刷新后会继续跟随。</p>}
-      {aborted && <p role="alert" className="form-error" title={`原始错误代码：${aborted}`}>提交未完成，请检查上传与 Preview 后重试。<code> {aborted}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(aborted)}>复制错误代码</button></p>}
-      {failure && !aborted && <p role="alert" className="form-error" title={`错误代码：${failure.code}`}>{failure.title}<code> {failure.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{(failure.code === "WORKSPACE_VERSION_CONFLICT" || failure.code === "BASELINE_VERSION_CONFLICT") && <button className="link-button" onClick={() => window.location.reload()}>刷新后重试</button>}</p>}
+      {aborted && <div role="alert" className="form-error" title={`原始错误代码：${aborted}`}>
+        <span>提交未完成，请检查上传与 Preview 后重试。</span>
+        <span>错误代码：<code>{aborted}</code></span>
+        <span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(aborted)}>复制错误代码</button></span>
+      </div>}
+      {failure && !aborted && <div role="alert" className="form-error" title={`错误代码：${failure.code}`}>
+        <span>{failure.title}</span>
+        <span>错误代码：<code>{failure.code}</code></span>
+        <span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{(failure.code === "WORKSPACE_VERSION_CONFLICT" || failure.code === "BASELINE_VERSION_CONFLICT") && <button className="link-button" onClick={() => window.location.reload()}>刷新后重试</button>}</span>
+      </div>}
     </>}
   </Dialog>;
 }

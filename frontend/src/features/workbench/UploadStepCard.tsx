@@ -29,24 +29,33 @@ const emptySlot: DirectorySlot = { name: "", directory: null, errors: [] };
 
 type UploadPhase = "idle" | "packaging" | "uploading" | "previewing" | "downloading" | "writing" | "failed" | "done";
 
-function errorMessage(cause: unknown): { message: string; code: string | null; retryable: boolean } {
+function errorMessage(cause: unknown, phase: UploadPhase): { message: string; code: string | null; retryable: boolean; refresh: boolean } {
   if (cause instanceof ApiError) {
     if (cause.code === "SCOPE_FORBIDDEN" || cause.status === 403) {
-      return { message: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN", retryable: false };
+      return { message: "当前身份没有该操作的权限", code: "SCOPE_FORBIDDEN", retryable: false, refresh: false };
     }
-    if (cause.code === "WORKSPACE_VERSION_CONFLICT" || cause.code === "BASELINE_VERSION_CONFLICT") {
-      return { message: "工作区或基线已被更新，请刷新后重试", code: cause.code, retryable: true };
+    if (cause.code === "WORKSPACE_VERSION_CONFLICT" || cause.code === "BASELINE_VERSION_CONFLICT" || cause.code === "PREVIEW_BINDING_CONFLICT") {
+      return { message: "工作区或基线已被更新，请刷新后重新上传", code: cause.code, retryable: false, refresh: true };
     }
     if (cause.code === "IDEMPOTENCY_CONFLICT") {
-      return { message: "本次上传与服务器记录不一致，请重新开始上传", code: cause.code, retryable: true };
+      return { message: "本次上传与服务器记录不一致，请重新开始上传", code: cause.code, retryable: true, refresh: false };
     }
-    return { message: cause.message, code: cause.code ?? `HTTP_${cause.status}`, retryable: cause.status >= 500 || cause.status === 429 };
+    if (cause.code === "UPLOAD_STREAM_TIMEOUT" || cause.status === 408) {
+      return { message: "上传超时，结果尚不确定，请重试", code: cause.code ?? "UPLOAD_STREAM_TIMEOUT", retryable: true, refresh: false };
+    }
+    if (cause.code === "ADMISSION_LIMIT_REACHED" || cause.status === 429) {
+      return { message: "当前请求较多，请稍后重试", code: cause.code ?? "ADMISSION_LIMIT_REACHED", retryable: true, refresh: false };
+    }
+    if (phase === "downloading" && cause.status >= 500) {
+      return { message: "预览已生成，但下载比较结果失败，请重试", code: cause.code ?? `HTTP_${cause.status}`, retryable: true, refresh: false };
+    }
+    return { message: cause.status >= 500 ? "服务暂时不可用，请稍后重试" : "上传或预览未完成，请重试", code: cause.code ?? `HTTP_${cause.status}`, retryable: cause.status >= 500 || cause.status === 429, refresh: false };
   }
   if (cause instanceof PollingConnectionLostError) {
-    return { message: "连接中断，预览可能仍在执行。请刷新工作区查询结果。", code: "CONNECTION_LOST", retryable: true };
+    return { message: "连接中断，预览可能仍在执行。请刷新工作区查询结果。", code: "CONNECTION_LOST", retryable: true, refresh: false };
   }
   if (cause instanceof DOMException && cause.name === "TimeoutError") {
-    return { message: "请求超时，请重试", code: "REQUEST_TIMEOUT", retryable: true };
+    return { message: "请求超时，请重试", code: "REQUEST_TIMEOUT", retryable: true, refresh: false };
   }
   return { message: cause instanceof Error ? cause.message : String(cause), code: null, retryable: true };
 }
@@ -65,18 +74,18 @@ function slotSummary(slot: DirectorySlot): string {
 
 export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   head: HistoryHead;
-  emptyBaseline?: boolean;
+  onReloadHead: () => Promise<HistoryHead | null>;
   onUploadStateChange: (active: boolean) => void;
   onReadyChange: (ready: boolean, reason: string | null) => void;
   onComplete: (workspaceId: string, previewResultId: string) => void;
-}>(function UploadStepCard({ head, emptyBaseline = false, onUploadStateChange, onReadyChange, onComplete }, ref) {
+}>(function UploadStepCard({ head, onReloadHead, onUploadStateChange, onReadyChange, onComplete }, ref) {
   const initialInput = useRef<HTMLInputElement>(null);
   const modifiedInput = useRef<HTMLInputElement>(null);
   const progress = useRef(createPreviewJourneyProgress());
   const [initial, setInitial] = useState<DirectorySlot>(emptySlot);
   const [modified, setModified] = useState<DirectorySlot>(emptySlot);
   const [phase, setPhase] = useState<UploadPhase>("idle");
-  const [error, setError] = useState<{ message: string; code: string | null; retryable: boolean } | null>(null);
+  const [error, setError] = useState<{ message: string; code: string | null; retryable: boolean; refresh: boolean } | null>(null);
   const [operation, setOperation] = useState<components["schemas"]["OperationResponse"] | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [phaseDurations, setPhaseDurations] = useState<Partial<Record<UploadPhase, number>>>({});
@@ -112,8 +121,17 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     begin(next);
   }
 
+  function clearOperationUrl() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("operationId");
+      url.searchParams.delete("operationKind");
+      window.history.replaceState(null, "", url);
+    } catch { /* URL 不可用时忽略 */ }
+  }
+
   function markFailed(cause: unknown) {
-    const info = errorMessage(cause);
+    const info = errorMessage(cause, phaseRef.current);
     setError(info);
     const started = phaseStartRef.current;
     const previous = phaseRef.current;
@@ -172,11 +190,11 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   async function start() {
     if (busy) return;
     if (!modified.directory) {
-      setError({ message: "本次归档组态未通过校验，不能上传", code: null, retryable: false });
+      setError({ message: "本次归档组态未通过校验，不能上传", code: null, retryable: false, refresh: false });
       return;
     }
     if (initial.name && !initial.directory) {
-      setError({ message: "原始组态备份未通过校验，不能上传", code: null, retryable: false });
+      setError({ message: "原始组态备份未通过校验，不能上传", code: null, retryable: false, refresh: false });
       return;
     }
     const session = currentGatewaySession();
@@ -225,9 +243,19 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       progress.current = createPreviewJourneyProgress();
     } catch (cause) {
       sessionStorage.removeItem("gateway-preview-operation");
-      if (cause instanceof ApiError && cause.code === "IDEMPOTENCY_CONFLICT") progress.current = createPreviewJourneyProgress();
+      clearOperationUrl();
+      const definite = cause instanceof ApiError && cause.status >= 400 && cause.status < 500 && cause.status !== 408 && cause.status !== 429;
+      if (definite) progress.current = createPreviewJourneyProgress();
       markFailed(cause);
     }
+  }
+
+  async function refreshAfterConflict() {
+    setError(null);
+    setPhase("idle");
+    progress.current = createPreviewJourneyProgress();
+    const next = await onReloadHead();
+    if (!next) setError({ message: "刷新失败，请检查连接后重试", code: "REFRESH_FAILED", retryable: true, refresh: false });
   }
 
   useImperativeHandle(ref, () => ({
@@ -267,10 +295,9 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       <div><dt>上传方式</dt><dd>{initial.directory ? "原始备份 + 本次归档" : "仅本次归档"}</dd></div>
     </dl> : <ol className="upload-steps">
       <li className="upload-step">
-        <div className="upload-step__title"><span className="upload-step__index">1</span><strong>原始组态备份</strong><span className="upload-step__optional">{emptyBaseline ? "首批空基线不可选" : "可选"}</span>{initial.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
+        <div className="upload-step__title"><span className="upload-step__index">1</span><strong>原始组态备份</strong><span className="upload-step__optional">可选</span>{initial.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
         <div className="upload-step__body">
-          <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy || emptyBaseline} disabledReason={emptyBaseline ? "当前是首批空基线，没有可选的原始组态备份" : busy ? "上传进行中" : undefined} onClick={() => initialInput.current?.click()}>选择目录</Button>
-          {emptyBaseline && <p className="disabled-reason">当前基线是首批空基线：没有原始组态备份可选择，只能上传本次归档组态，因此第 ① 步不可用。</p>}
+          <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => initialInput.current?.click()}>选择目录</Button>
           {initial.name && <button className="link-button" onClick={() => selectInitial(null)}>清除</button>}
           {!initial.directory && <p className="upload-step__summary">{slotSummary(initial)}</p>}
           {initial.directory && !busy && <DirectorySummary directoryName={initial.directory.rootName} fileCount={initial.directory.files.length} sizeBytes={initial.directory.totalBytes} mainFile={initial.directory.mainFile} />}
@@ -309,7 +336,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     {phase === "failed" && error && <div className="upload-error" role="alert">
       <AlertCircle size={17} />
       <div><strong>{error.message}</strong>{error.code && <p>错误代码：<code>{error.code}</code></p>}
-        <div className="button-row"><Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void start()}>重试</Button>{error.code === "SCOPE_FORBIDDEN" && <span className="upload-error__hint">切换身份后重试，或联系管理员授予权限。</span>}</div>
+        <div className="button-row">{error.refresh ? <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void refreshAfterConflict()}>刷新</Button> : <Button variant="secondary" icon={<RefreshCw size={15} />} onClick={() => void start()}>重试</Button>}{error.code === "SCOPE_FORBIDDEN" && <span className="upload-error__hint">切换身份后重试，或联系管理员授予权限。</span>}</div>
       </div>
     </div>}
     {phase === "done" && <p className="upload-done" role="status"><CheckCircle2 size={16} />已完成，正在进入差异浏览…</p>}

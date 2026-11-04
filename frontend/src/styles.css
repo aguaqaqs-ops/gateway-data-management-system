@@ -584,7 +584,8 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .confirm-checkbox { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; font-size: var(--font-size-xs); }
 .confirm-reason { display: grid; gap: 4px; margin-top: 8px; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .confirm-reason textarea { min-height: 56px; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); font-size: var(--font-size-sm); resize: vertical; }
-.form-error { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--color-danger); border-radius: var(--radius-control); background: var(--color-danger-soft); color: var(--color-danger); font-size: var(--font-size-sm); }
+.form-error { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--color-danger); border-radius: var(--radius-control); background: var(--color-danger-soft); color: var(--color-danger); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.form-error__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .form-warning { margin: 8px 0; padding: 8px 10px; border-radius: var(--radius-control); background: var(--color-warning-soft, var(--color-surface-muted)); font-size: var(--font-size-xs); }
 .submit-progress { margin: 8px 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 

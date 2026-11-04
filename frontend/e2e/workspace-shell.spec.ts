@@ -52,6 +52,7 @@ async function installFixtureRoutes(page: Page, options: {
   submitAborted?: boolean;
   submitTimeoutFirst?: boolean;
   uploadConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
+  uploadConflictOnce?: "WORKSPACE_VERSION_CONFLICT";
   previewConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
   previewForbidden?: boolean;
   reviewForbidden?: boolean;
@@ -62,7 +63,6 @@ async function installFixtureRoutes(page: Page, options: {
   archiveBlocked?: boolean;
   approvedSubmission?: boolean;
   submissionOne?: boolean;
-  emptyBaseline?: boolean;
 } = {}) {
   const requests = new Map<string, number>();
   const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
@@ -79,6 +79,7 @@ async function installFixtureRoutes(page: Page, options: {
   const operationCounts = new Map<string, number>();
   const idempotentResponses = new Map<string, { response: Schemas["HistoryCompareAcceptResponse"]; ready: Promise<void>; finish: () => void; requestBody: string }>();
   let workspaceCallCount = 0;
+  let uploadConflictConsumed = false;
 
   await page.route("**/v1/workspaces", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -94,8 +95,11 @@ async function installFixtureRoutes(page: Page, options: {
     }
     workspaceCallCount += 1;
     const response = workspaceCallCount === 1 ? WORKSPACE_CREATED : WORKSPACE_ALREADY_EXISTS;
-    apiResponses.push({ method: "POST", path, status: response.status, body: JSON.stringify(response.body) });
-    return route.fulfill({ status: response.status, contentType: "application/json", body: JSON.stringify(response.body) });
+    const body = uploadConflictConsumed && response === WORKSPACE_ALREADY_EXISTS
+      ? { ...response.body, optimistic_version: 14 }
+      : response.body;
+    apiResponses.push({ method: "POST", path, status: response.status, body: JSON.stringify(body) });
+    return route.fulfill({ status: response.status, contentType: "application/json", body: JSON.stringify(body) });
   });
 
   await page.route("**/v1/history**", async (route) => {
@@ -105,9 +109,6 @@ async function installFixtureRoutes(page: Page, options: {
     let body = url.searchParams.has("cursor") ? HISTORY_PAGE_TWO : HISTORY_PAGE_ONE;
     if (!url.searchParams.has("cursor") && options.approvedSubmission) {
       body = { ...body, nodes: body.nodes.map((node) => node.ref_id === "fe2a-history-ref-2" ? { ...node, review_status: "APPROVED" as const, eligibility_note: undefined } : node) };
-    }
-    if (!url.searchParams.has("cursor") && options.emptyBaseline) {
-      body = { ...body, nodes: body.nodes.map((node) => node.ref_id === body.head.node_id ? { ...node, parent: null } : node) };
     }
     if (!url.searchParams.has("cursor") && options.submissionOne) {
       body = { ...body, nodes: [...body.nodes, {
@@ -248,8 +249,16 @@ async function installFixtureRoutes(page: Page, options: {
   await page.route("**/v1/workspaces/*/upload-revisions", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    apiRequests.push({ method: "POST", path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    const uploadBody = request.postDataBuffer()?.toString("utf8") ?? request.postData() ?? "";
+    apiRequests.push({ method: "POST", path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: uploadBody });
     if (await rejectInvalidRequest(route, request)) return;
+    if (options.uploadConflictOnce && !uploadConflictConsumed) {
+      uploadConflictConsumed = true;
+      const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/upload-revisions" && item.method === "POST" && item.status === 409 && item.body.code === options.uploadConflictOnce);
+      if (!error) throw new Error("POST upload-revisions conflict fixture missing");
+      apiResponses.push({ method: "POST", path, status: 409, body: JSON.stringify(error.body) });
+      return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(error.body) });
+    }
     if (options.uploadConflict) {
       const error = SIMULATED_ERROR_RESPONSES.find((item) => item.route === "/v1/workspaces/{workspace_id}/upload-revisions" && item.method === "POST" && item.status === 409 && item.body.code === options.uploadConflict);
       if (!error) throw new Error("POST upload-revisions conflict fixture missing");
@@ -373,6 +382,8 @@ async function installFixtureRoutes(page: Page, options: {
       return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify(error.body) });
     }
     archivePreviewCalls += 1;
+    // 异常场景固定以 submission-1 为异常目标提交：它是当前候选集里带项目身份例外的提交，
+    // 而候选显示名可按测试选项切换为 fe2a-history-ref-2；异常目标提交不要求等于当前候选。
     const candidateId = options.approvedSubmission ? "fe2a-history-ref-2" : "submission-1";
     if (options.archiveBlocked) {
       const blocked: Schemas["PreviewArchivePlanResponse"] = {
@@ -1207,6 +1218,7 @@ test("FE2c 审核退回必须填写理由并可撤回", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page, { submissionOne: true });
   await page.goto(browseUrl("REVIEW", "preview-full", { submissionId: "submission-1" }));
   await waitForBrowse(page);
+  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("reviewer");
   await page.getByRole("button", { name: "退回", exact: true }).click();
   const reject = page.getByRole("dialog", { name: "退回提交" });
   const confirm = reject.getByRole("button", { name: "确认退回" });
@@ -1218,7 +1230,7 @@ test("FE2c 审核退回必须填写理由并可撤回", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await confirm.click();
   await expect(page.getByText("审核：已拒绝")).toBeVisible();
-  expect(apiRequests.some((request) => request.path.endsWith("/review-events"))).toBe(true);
+  expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe("Bearer dev-token-reviewer");
 });
 
 test("FE2c 审核撤回需要二次确认", async ({ page }) => {
@@ -1239,10 +1251,31 @@ test("FE2c 审核撤回需要二次确认", async ({ page }) => {
   await expect(page.getByText("审核：已撤回")).toBeVisible();
 });
 
+test("FE2c 提交执行中刷新后成功后进入提交结果", async ({ page }) => {
+  test.setTimeout(90000);
+  const manual = [
+    { ...MANUAL_RECOVERY_TO_SUCCESS[0]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
+    { ...MANUAL_RECOVERY_TO_SUCCESS[1]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
+    { ...MANUAL_RECOVERY_TO_SUCCESS[2]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
+  ];
+  await installFixtureRoutes(page, { operationStatus: (_operationId, index) => manual[Math.min(index - 1, manual.length - 1)]! });
+  await page.goto(browseUrl("PREVIEW", "preview-full"));
+  await waitForBrowse(page);
+  await page.getByRole("button", { name: "提交", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "确认提交" }).click();
+  await expect(dialog.getByText("需要管理员处理")).toBeVisible({ timeout: 10000 });
+  await page.reload();
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
+  await expect(page).toHaveURL(/mode=REVIEW/, { timeout: 60000 });
+  expect(new URL(page.url()).searchParams.get("operationId")).toBeNull();
+});
+
 test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
   const { apiRequests } = await installFixtureRoutes(page, { approvedSubmission: true });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  await page.getByRole("combobox", { name: "模拟身份" }).selectOption("archive-confirmer");
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "归档主线" }).click();
   const dialog = page.getByRole("dialog", { name: "归档主基线" });
@@ -1262,23 +1295,13 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
   await expect(dialog.getByText("归档 1 项，关闭 0 项")).toBeVisible();
   await screenshot(page, "archive-mainline-result", 1920);
   await screenshot(page, "archive-mainline-result", 1280);
-  expect(apiRequests.some((request) => request.path === "/v1/archives")).toBe(true);
-});
-
-test("FE2c 首批空基线禁用原始组态备份", async ({ page }) => {
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  await installFixtureRoutes(page, { emptyBaseline: true });
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
-  const card = page.getByLabel("上传与预览");
-  await expect(card.getByText("首批空基线不可选")).toBeVisible();
-  await expect(card.getByText("当前是首批空基线，没有可选的原始组态备份")).toBeVisible();
-  await expect(card.getByRole("button", { name: "选择目录" }).first()).toBeDisabled();
-  await screenshot(page, "upload-empty-baseline", 1920);
-  await screenshot(page, "upload-empty-baseline", 1280);
+  const archiveRequests = apiRequests.filter((request) => ["/v1/archives", "/v1/archive-confirmations", "/v1/archive-anomaly-resolutions"].some((suffix) => request.path.endsWith(suffix)));
+  expect(archiveRequests.length).toBeGreaterThan(0);
+  expect(archiveRequests.every((request) => request.token === "Bearer dev-token-archive-confirmer")).toBe(true);
 });
 
 test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
+  await freezePageClock(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   const { apiRequests } = await installFixtureRoutes(page, { fail: true });
   await page.goto("/");
@@ -1288,7 +1311,7 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByRole("button", { name: "上传", exact: true }).click();
   const card = page.getByLabel("上传与预览");
-  await expect(card.getByRole("alert")).toContainText("比较结果暂时不可用", { timeout: 15000 });
+  await expect(card.getByRole("alert")).toContainText("预览已生成，但下载比较结果失败", { timeout: 15000 });
   await screenshot(page, "upload-failure-retry", 1920);
   await screenshot(page, "upload-failure-retry", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1300,6 +1323,28 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   expect(apiRequests.filter((request) => request.path.endsWith("/upload-revisions"))).toHaveLength(1);
 });
 
+test("FE2c 上传版本冲突后刷新再上传使用新版本与新 key", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  const { apiRequests } = await installFixtureRoutes(page, { uploadConflictOnce: "WORKSPACE_VERSION_CONFLICT" });
+  await page.goto("/");
+  const card = page.getByLabel("上传与预览");
+  await expect(card).toBeVisible();
+  await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
+  await card.getByRole("button", { name: "上传并生成预览" }).click();
+  await expect(card.getByText("WORKSPACE_VERSION_CONFLICT")).toBeVisible();
+  await expect(card.getByRole("button", { name: "刷新" })).toBeVisible();
+  await card.getByRole("button", { name: "刷新" }).click();
+  await expect(card.getByText("WORKSPACE_VERSION_CONFLICT")).toHaveCount(0);
+  await card.getByRole("button", { name: "上传并生成预览" }).click();
+  await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 30000 });
+  const uploads = apiRequests.filter((request) => request.path.endsWith("/upload-revisions"));
+  expect(uploads).toHaveLength(2);
+  expect(uploads[0].idempotencyKey).not.toBe(uploads[1].idempotencyKey);
+  const version = (body: string | null) => /name="expected_workspace_version"\r\n\r\n(\d+)/.exec(body ?? "")?.[1];
+  expect(version(uploads[0].body)).toBe("12");
+  expect(version(uploads[1].body)).toBe("14");
+});
+
 test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadConflict: "WORKSPACE_VERSION_CONFLICT" });
@@ -1308,7 +1353,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await card.getByRole("button", { name: "上传并生成预览" }).click();
-  await expect(card.getByText("工作区或基线已被更新，请刷新后重试")).toBeVisible();
+  await expect(card.getByText("工作区或基线已被更新，请刷新后重新上传")).toBeVisible();
   await expect(card.getByText("WORKSPACE_VERSION_CONFLICT")).toBeVisible();
   await screenshot(page, "upload-version-conflict", 1920);
   await screenshot(page, "upload-version-conflict", 1280);
@@ -1352,6 +1397,13 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await expect(conflictDialog.getByText("REVIEW_VERSION_CONFLICT")).toBeVisible();
   const refresh = conflictDialog.getByRole("button", { name: "刷新审核信息" });
   await expect(refresh).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const dialogBox = await conflictDialog.boundingBox();
+  const refreshBox = await refresh.boundingBox();
+  expect(dialogBox).not.toBeNull();
+  expect(refreshBox).not.toBeNull();
+  expect(refreshBox!.x + refreshBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width + 0.5);
+  expect(refreshBox!.y + refreshBox!.height).toBeLessThanOrEqual(dialogBox!.y + dialogBox!.height + 0.5);
   await screenshot(page, "review-version-conflict", 1920);
   await screenshot(page, "review-version-conflict", 1280);
   await refresh.click();

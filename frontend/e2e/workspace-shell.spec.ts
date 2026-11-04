@@ -1253,9 +1253,11 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
 });
 
 test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadConflict: "WORKSPACE_VERSION_CONFLICT" });
   await page.goto("/");
   const card = page.getByLabel("上传与预览");
+  await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await card.getByRole("button", { name: "上传并生成预览" }).click();
   await expect(card.getByText("数据已被更新，请刷新后重试")).toBeVisible();
@@ -1382,6 +1384,7 @@ test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
 });
 
 test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadHoldPolls: 8 });
   await page.goto("/");
   const card = page.getByLabel("上传与预览");

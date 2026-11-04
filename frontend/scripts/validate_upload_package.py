@@ -19,13 +19,12 @@ from gateway_backend.capabilities.source_package_staging import (
 from gateway_backend.capabilities.source_package_staging import RESOURCE_BUDGETS
 
 
-def members(payload: bytes) -> dict[str, str]:
+def members(payload: bytes) -> dict[str, tuple[int, str | None]]:
     counter = ExpansionCounter(compressed_bytes=len(payload), expanded_bytes=0, entry_count=0)
-    result: dict[str, str] = {}
+    result: dict[str, tuple[int, str | None]] = {}
     for member in iter_members(PackageKind.TAR_GZ, payload, None, RESOURCE_BUDGETS, counter):
-        if member.content is None:
-            continue
-        result[member.normalized_path] = hashlib.sha256(member.content).hexdigest()
+        digest = hashlib.sha256(member.content).hexdigest() if member.content is not None else None
+        result[member.normalized_path.lstrip("/")] = (member.size_bytes, digest)
     return result
 
 
@@ -46,9 +45,15 @@ def main() -> int:
             continue
         if code == "accepted":
             actual = members(payload)
-            expected = {entry["path"]: entry["sha256"] for entry in item["members"]}
-            if actual != expected:
-                print(f"PACKAGE {item['name']} FAIL members differ: expected={sorted(expected)} actual={sorted(actual)}")
+            expected = {entry["path"]: (entry["size"], entry["sha256"]) for entry in item["members"]}
+            if sorted(actual) != sorted(expected):
+                print(f"PACKAGE {item['name']} FAIL paths differ: expected={sorted(expected)} actual={sorted(actual)}")
+                failures += 1
+                continue
+            mismatch = [path for path, (size, digest) in actual.items()
+                        if size != expected[path][0] or (digest is not None and digest != expected[path][1])]
+            if mismatch:
+                print(f"PACKAGE {item['name']} FAIL member digests differ: {sorted(mismatch)}")
                 failures += 1
                 continue
             print(f"PACKAGE {item['name']} OK members={len(actual)}")

@@ -1,8 +1,10 @@
 # BE-a / BE-d 任务提示词草案
 
-状态：DRAFT；2026-11-04，p6-backend-design。两任务尚未发出；须先经后端审核会话审核，再经 owner 确认，并在 S2a exit 合入 main 后、FE3 前执行。
+状态：DRAFT；2026-11-04，p6-backend-design。DC75 的 BE-a 扩项方向已由 owner 于 2026-11-04 确认，详细设计和验收待审核。两任务实施提示词尚未发出；须先经后端审核会话审核，再经 owner 确认，并在 S2a exit 合入 main 后、FE3 前执行。
 
 引用基线：`ebb0047383300a3754a4be6a6a78f72286600c83` 的 [前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、[后端交接 §2.3](p6-backend-session-handoff.md)、DC64/DC67/DC70/DC73。任务业务范围来自已确认的前端决议；本页新增的安排与验收仍待审核确认。BE-b 设计与实现不并入这两项。
+
+补充引用：本人撤回与 Workspace 指针以 main `d0a8143d804e158e16b0712cc5f2aa007066f9cb` 为源码基线，依据 [DC75](p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限) 和 [BE-a 设计补充](p6-be-a-design.md)；前端 Q16 来源为 `55e6c0083c`。BE-d 与 DC74 待决项不因本次扩项改变。
 
 ## 1. 发出前填写
 
@@ -10,20 +12,24 @@
 
 ## 2. BE-a 实施提示词（草案，勿提前发出）
 
-你是 BE-a 后端实施会话。先读 AGENTS、本文、前端 kickoff §5（引用上方提交）、Business Lifecycle、P5-5C 状态机设计、DC64/DC73。按已填写的 main 起点工作。
+你是 BE-a 后端实施会话。先读 AGENTS、本文、[BE-a 设计补充](p6-be-a-design.md)、前端 kickoff §5（引用上方提交）、Business Lifecycle、P5-5C 状态机设计、DC64/DC73/DC75。按已填写的 main 起点工作。
 
 范围：
 
 1. 完全删除 `RETURN_FOR_REVISION` 动作、`RETURNED_FOR_REVISION` 状态和事件：domain/application、HTTP review/history literal、control DB 基线 CHECK、读写映射、Contract 与测试。没有兼容/迁移要求；删除旧路径，不保留别名。不得误删其他审核、撤回或拒绝语义。
 2. 修正 `POST /v1/history-compares` OpenAPI：首次 202、幂等回放 200；`POST /v1/workspaces`：新建 201、已存在 200。让 schema 声明与实际响应吻合，保持现有运行时业务行为。
 3. 当前源码起点涉及 `domain/submission/review.py`、`application/submission/review.py`、`http/schemas/{review,history}.py`、`infrastructure/control_db/schema.py` 与两创建路由。先盘点所有枚举使用者、持久序列化、拼接字符串与测试，handoff 给全量清单，不以历史“约 18 文件”作完成判据。
-4. 前端 OpenAPI 快照在 FE3 由前端刷新；不编辑 `frontend/`、前端设计文档、AGENTS 或 testing-conventions。
+4. 按设计补充 §2 为 WorkspaceResponse 增加 active_submit_attempt_id/active_submission_id（required nullable），在新建/已有工作区路径一致返回；应用查询必须同事务快照读取 Workspace、占用与版本，不新增持久字段。
+5. 按设计补充 §3–§4 新增 withdraw_own_submission，覆盖本人 GET review、POST WITHDRAW、当前权限及归属下的幂等回放；保留 reviewer 能力与状态/事务屏障。同步 session 示例与独立 self-only 测试身份。此项是授权语义修改，不归为纯 DTO 修改。
+6. 同步 P5-5C 授权/回放/HTTP 条款、Business Lifecycle 与 Workspace HTTP 说明；具体条款和实现路径见设计补充 §5。
+7. 前端 OpenAPI 快照在 FE3 由前端刷新；不编辑 `frontend/`、前端设计文档、AGENTS 或 testing-conventions。
 
 程序验收：
 
 - 通过公开 HTTP 输入验证旧动作拒绝且无业务写入；剩余动作的合法/非法状态转换、权限、幂等与并发条件仍成立。domain 测试负责状态机不变量，HTTP 测试负责边界，不复制两套证明。
 - 新基线 DB 不能写入被删状态/事件；合法状态写入与 History 映射正常。既有 schema 不匹配按现有启动拒绝机制；不增加迁移器。
 - 实际路由与 OpenAPI 同时断言两组首次/回放或已存在响应的 status、response schema；被删枚举不出现在生成的 OpenAPI 中。
+- 逐项完成设计补充 §6 的程序验收：新权限 GET/POST/replay；本人/他人/跨 scope；权限撤销；终态回放；指针全生命周期与同快照；self-only 用户的真实 wiring Compose 旅程。不得用 reviewer 全权限身份代替 self-only 验证。
 - 静态检索区分历史文档记录与活动实现/Contract；历史 DC 不改写。focused 集合含 RS `-m unit`，防止跨包过时断言遗漏。
 
 按 §4 共用流程执行。真实数据建议为 05 t1 一次完整旅程（schema/持久状态改变，不沿用旧 DB）；审核动作使用合成 HTTP/Compose 旅程补全 t1 未覆盖的状态；04 权威 runner 与当前 HEAD 容器门禁。真实数据范围先在 kickoff 确认，exit 前再次由 owner 确认。完成交代码候选与 handoff，由 owner 转后端审核会话，不自行宣布 exit。
@@ -68,4 +74,4 @@
 
 ## 5. 确认记录
 
-kickoff 审核：待 owner 转交。owner 确认：未确认。S2a main 合入提交：待填。BE-a/BE-d 提示词发出：均未发出。
+kickoff 审核：待 owner 转交。owner 方向确认：2026-11-04 同意 DC75 扩项；kickoff 细则审核后实施确认：待记录。S2a main 合入提交：待填。BE-a/BE-d 提示词发出：均未发出。

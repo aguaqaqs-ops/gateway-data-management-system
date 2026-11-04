@@ -203,7 +203,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### 前端对接前的后端小任务 BE-a / BE-d（安排草案）
 
 - 业务范围依据 `ebb004738330` 的前端 kickoff §5；[任务提示词草案](p6-be-a-d-kickoff.md)待审核和 owner 确认，S2a exit 合入 main 后、FE3 前发出。建议 BE-a 后 BE-d；并行 S2b 时明确文件归属。
-- BE-a 删除退回修改状态/动作/事件及基线 schema 约束，并补两创建接口的成功状态 OpenAPI。BE-d 闭合 Preview/History 的整包 tar 下载并同步旅程工具；不引入 BE-b 导航产物。
+- BE-a 删除退回修改状态/动作/事件及基线 schema 约束，并补两创建接口的成功状态 OpenAPI；按 DC75 增加 Workspace 占用指针的一致查询投影及 withdraw_own_submission 权限（含本人 GET review、WITHDRAW 与 replay）。方向由 owner 2026-11-04 确认，详细条款/验收见 [BE-a 设计补充](p6-be-a-design.md)，kickoff 仍须审核；这包含授权语义变更，不是纯 DTO 小修。BE-d 闭合 Preview/History 的整包 tar 下载并同步旅程工具；不引入 BE-b 导航产物。
 - 本行是计划正文，不记录实施审核结果或 exit 状态。两任务验收、真实数据建议和停止规则见草案。
 
 ## 3. 路径预算（主要改动面）

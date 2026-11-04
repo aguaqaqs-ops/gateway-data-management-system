@@ -63,6 +63,7 @@ implementation_authorized: no
 | DC72 | S2a kickoff 确认：O2 非有限 JSON 数值拒绝、旧实现删除范围、test-only 差分入口（生产 flag 移到 S2b）、parser 表内分块、adapter 命名、线程池分步 | — | — |
 | DC73 | 后端会话分为设计与审核两个角色 | — | — |
 | DC74（草案） | BE-c 体积报告放在 S6；整包下载单列只报告，不改 P6 门槛 | — | — |
+| DC75 | BE-a 扩项：Workspace 占用指针与本人撤回权限；方向已确认，kickoff 细则待审核 | — | — |
 
 ## 2. 决议详情
 
@@ -775,7 +776,7 @@ implementation_authorized: no
 
 ### DC74（草案）BE-c 的落点与整包传输计时
 
-- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。下一个可分配编号为 DC75。
+- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影；下一个可分配编号为 DC76。
 - **来源**：`ebb0047383300a3754a4be6a6a78f72286600c83` 的[后端交接 §2.3](p6-backend-session-handoff.md)、[前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、本记录 DC38/DC41/DC53/DC64/DC66；设计 §16.1 的 i 段已计入 READY 前 bundle 组装与导出成本。
 - **需 owner 定的两项及建议**：
   1. **BE-c 放在基准还是 S6？建议 S6。** 基准产品固定为 `p6-s1c-exit`，当前 GET `/bundle` 只返回 manifest JSON；基准体积不能冒称 BE-d 后完整 tar 的线传字节。完整报告随 S6 已有 t4、2× t4 旅程采集，不为体积另跑一轮完整旅程。BE-d 实施后即可随已授权运行先记实际字节供 FE3 参考；如 owner 要提前从保留闭包估算，也须标“闭包逻辑大小/理论 tar 大小”，不作网络实测，不扩充当前基准必跑场景。
@@ -787,6 +788,20 @@ implementation_authorized: no
   - 若另报“受理到本地可浏览”，须有客户端校验/解析结束的独立锚，不能简单把不同运行的 READY 与 GET 时间相加冒充实测。该客户端指标不在本次后端任务新增硬门槛。
 - **安排与落点（草案）**：BE-d 按[任务草案](p6-be-a-d-kickoff.md)修改旅程工具；设计 §12/§16.4 与执行计划 S6 标记待决事项。owner 确认后，由 owner 转前端设计会话更新其 §9，后端设计会话不编辑前端文档。基准当前授权、DC66 单次测量例外、S6 统计方法均不改变。
 - **确认记录**：审核提交待填；owner 未确认。
+
+### DC75 BE-a：工作区占用指针与本人撤回权限
+
+- **来源**：`55e6c0083c` 的前端 FE2 kickoff Q16 与 frontend-kickoff §3.3；后端设计会话以 main `d0a8143d804e158e16b0712cc5f2aa007066f9cb` 核对源码及 P5-5C §4.3/§5。owner 在 2026-11-04 同意“新增本人撤回能力、保留审核人权限，与 Workspace 指针一起扩入 BE-a”，并要求补充订正及各方提示词。
+- **决定（方向已确认，实施前仍需 kickoff 审核）**：
+  1. WorkspaceResponse 增加必需但可为 null 的 `active_submit_attempt_id`、`active_submission_id`，投影当前占用，至多一个非空；不表示最近提交或可撤回状态。与 Workspace/optimistic_version 同一事务快照读取，无新持久字段。新建/已有工作区响应均覆盖。
+  2. 新增 exact permission `withdraw_own_submission`：scope 内 `context.actor_id == Submission.created_by` 的本人提交可读 review facts；只有 PENDING、未关闭且版本/占用条件成立时可执行新 WITHDRAW。不隐含授予 APPROVE/REJECT 或项目 History 权限。session 显式发放，不由上传权限或本人身份自动授予。
+  3. `review_submission` 保持跨 actor 的现有能力；双权限取并集，不给 reviewer 加本人限制。新增权限必须接入 GET、POST 与 replay，不只改 route 或前端按钮。
+  4. 权限在对象读取前按动作检查；仅本人权限的请求在读取目标绑定后检查本人关系，不存在、非本人及跨 scope 统一 404。返回审核事实之前完成授权。当前授权、幂等完整性、review CAS、归档屏障、精确占用与原子释放均保持；成功后的合法 replay 不重新要求 PENDING/占用存在。
+  5. 不改 actor-independent 的幂等 namespace/fingerprint；合法跨 actor 回放只返回原事件 actor。任何路径不得通过幂等键泄露他人事实或回放无权执行的动作。
+  6. 占用受理/finalize/abort/审核释放/归档释放时按现有事务递增工作区版本；APPROVE 不改变工作区版本。撤回仍使用独立 `expected_review_version`。撤回后清空当前输入与 Preview，可重新上传；历史提交与 Repository commit 保留。
+  7. 并入 BE-a，S2a exit 合入 main 后、FE3 前；原删除 RETURN_FOR_REVISION 及两创建接口 OpenAPI 订正继续执行。权限修订本身不新增 schema；原 BE-a 的旧状态删除仍直接改基线。BE-d/BE-b 和当前 P6 基准范围不变。
+- **详细设计与验收**：[BE-a 设计补充](p6-be-a-design.md)、[kickoff §2](p6-be-a-d-kickoff.md)。实施时同步 owning Contract、P5-5C 及 Workspace HTTP 文档正文、OpenAPI、示例 session 配置和测试；前端快照由 FE3 更新。本文不声明产品已实现。
+- **确认记录**：owner 方向确认 2026-11-04；kickoff 细则审核待转交，审核后 owner 实施确认待记录，S2a 合入提交待填。DC74 不因本次同意而变为已确认。
 
 ## 3. 设计阶段待定项
 

@@ -16,7 +16,7 @@ export function operationElapsedSeconds(operation: Operation | null, now = Date.
   return Number.isFinite(started) ? Math.max(0, Math.floor((now - started) / 1_000)) : null;
 }
 
-export function OperationStatusPanel({ operationId, onSucceeded }: { operationId: string; onSucceeded?: (operationId: string) => void }) {
+export function OperationStatusPanel({ operationId, onSucceeded, onFailed }: { operationId: string; onSucceeded?: (operationId: string) => void; onFailed?: (operationId: string) => void }) {
   const [operation, setOperation] = useState<Operation | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
   const [queryError, setQueryError] = useState<{ code: string; message: string } | null>(null);
@@ -48,6 +48,7 @@ export function OperationStatusPanel({ operationId, onSucceeded }: { operationId
             window.history.replaceState(null, "", url);
           } catch { /* URL 不可用时忽略 */ }
           if (value.status === "SUCCEEDED") onSucceeded?.(value.operation_id);
+          else onFailed?.(value.operation_id);
         }
       },
       onConnectionStatus: (status) => setConnectionLost(status === "interrupted"),
@@ -66,7 +67,7 @@ export function OperationStatusPanel({ operationId, onSucceeded }: { operationId
       }
     });
     return () => controller.abort(new DOMException("状态查询已停止", "AbortError"));
-  }, [operationId, refreshRevision, onSucceeded]);
+  }, [operationId, refreshRevision, onSucceeded, onFailed]);
 
   const status = operation?.status ?? "QUEUED";
   const manualRecovery = status === "MANUAL_RECOVERY_REQUIRED";

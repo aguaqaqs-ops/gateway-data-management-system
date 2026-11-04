@@ -1260,7 +1260,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await card.getByRole("button", { name: "上传并生成预览" }).click();
-  await expect(card.getByText("数据已被更新，请刷新后重试")).toBeVisible();
+  await expect(card.getByText("工作区或基线已被更新，请刷新后重试")).toBeVisible();
   await expect(card.getByText("WORKSPACE_VERSION_CONFLICT")).toBeVisible();
   await expect(card.getByRole("button", { name: "复制错误代码" })).toBeVisible();
 
@@ -1390,9 +1390,9 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
-  await expect(card.getByText("解析预览")).toBeVisible();
   await card.getByRole("button", { name: "上传并生成预览" }).click();
   await expect(page.locator(".page-lock-overlay")).toBeVisible();
+  await expect(card.getByText("解析预览")).toBeVisible();
   await expect(page).toHaveURL(/operationId=preview-op-1/);
   await screenshot(page, "upload-running-modified-only", 1920);
   await page.reload();

@@ -399,8 +399,6 @@ async function installFixtureRoutes(page: Page, options: {
   });
   await page.route("**/v1/archive-audit-events**", async (route) => {
     const request = route.request();
-    const url = new URL(request.url());
-    // Backend rule: subject_kind + subject_digest are required query params; missing → 422.
     if (await rejectInvalidRequest(route, request)) return;
     apiResponses.push({ method: "GET", path: "/v1/archive-audit-events", status: 200, body: JSON.stringify({ events: [], next_after_sequence: null }) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ events: [], next_after_sequence: null }) });

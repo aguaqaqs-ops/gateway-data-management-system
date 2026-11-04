@@ -1,8 +1,10 @@
 # S2b kickoff 设计输入（准备稿）
 
-状态：DRAFT；2026-11-04，p6-backend-design。尚未提交 kickoff 审核、未获 owner 确认、未发实施提示词。
+状态：DRAFT；2026-11-04，p6-backend-design。尚未提交 kickoff 审核、整体 kickoff 未获 owner 确认、未发实施提示词。DC76 的 UTC/输入范围已获 owner 确认，映射细则已形成设计候选，仍待审核。
 
 引用基线：main `ebb0047383300a3754a4be6a6a78f72286600c83`。本文的源码事实、[交接 §1/§2.3](p6-backend-session-handoff.md)、[DC37–DC73](p6-s0-owner-decisions.md)、[设计](p6-design.md)、[执行计划](p6-execution-plan.md) 均指此提交；不是对 S2a 候选或证据的审核。S2a exit 尚未出现在本次 main 中，正式 kickoff 前必须在合入后的提交重核路径。
+
+映射补充单独引用 main `580f57fd01d1` 与 S2a 候选 `3b3d9c97bc`，见[映射设计 §1–§6](p6-s2b-arrow-mapping-design.md)；不把本文旧路径盘点冒充合入后的最终核对。
 
 ## 1. 开工边界与待补输入
 
@@ -13,7 +15,8 @@ S2a exit、S1c exit、原始表使用方核对和磁盘估算完成，kickoff �
 | 原始表使用方 | §2 给出当前 main 调用链与替代来源 | S2a 合入后按新 HEAD 重核，包括 FULL 与恢复 |
 | 规范存储磁盘 | §3 给出计算口径；缺映射后的实际字节与当前可用容量 | 由获安排的设计输入普查在专用节点输出数字，不在开发机运行产品 |
 | DC63 第 1 项 | §4 登记待基准交付，未宣称差距消除 | owner 转交基准 handoff 的提交和子段清单 |
-| DC72 第 3、6 项 | §5 给出 flag、池与 N/M 的接线边界 | 定 N/M 配置范围、默认值与 Arrow v1；再交 kickoff 审核 |
+| Arrow 映射 / DC76 输入 | 独立设计候选已写，UTC 与少数约 100 MB 输入已确认 | 核对转换、metadata/版本与确定性，技术审核后纳入 kickoff |
+| DC72 第 3、6 项 | §5 给出 flag、池与 N/M 的接线边界 | 定 N/M 配置范围、默认值与恢复绑定；再交 kickoff 审核 |
 | W2 检查点 | §6 给出程序判定要求 | S2b 实测，按设计 §16.1 停止规则 |
 
 ## 2. 上传侧数据使用方
@@ -38,6 +41,8 @@ S2a exit、S1c exit、原始表使用方核对和磁盘估算完成，kickoff �
 验收按真实调用路径参数化覆盖：MODIFIED_ONLY、FULL、DATASET_REPLACEMENT；首次/原样/少量/几乎全变；keyed/keyless/ordered、BROWSE_ONLY/SNAPSHOT_ONLY、空表、composite；正常执行与 checkpoint 恢复。用程序检查顶层及逐表状态、表集合、摘要、closure 引用闭合和诊断，不只检查一张表或进程 exit 0。每个不变量复用一个权威 owner，不做所有维度的笛卡尔积。
 
 ## 3. 磁盘估算输入与公式
+
+DC76：输入保证 UTC 导出，来源/类型保持现有范围；约 100 MB SQL 是已知少数大输入，不是上限。普查按[映射设计 §5](p6-s2b-arrow-mapping-design.md#5-验收与容量输入)区分总量增长与少数大表增长，记录文件/字段/语句/行数预算。现有约 158.7 MB 的 V6 合成解析记录不代表完整上传路径或大表分布已验证；不要求 owner 立即提供新样本，不扩大当前基准测量。
 
 估算对象是**未压缩规范 IPC**，不是 SQL 压缩包大小，也不是 V6 峰值 RSS。先确定设计 §8.1 的 Arrow 映射 v1，再由节点普查逐表给出：行数、各固定宽度 buffer、validity bitmap、变长 offsets（large 类型用 8 字节）、实际值字节、IPC schema/metadata/alignment。按内容地址对物理文件去重；不能只拿平均行宽乘行数，也不能把不同 schema 的同内容表误去重。
 
@@ -79,6 +84,7 @@ O1 与 `BLOCK_STARTUP_FATAL` 留在 worker runtime 维护，不并入本阶段�
 | --- | --- | --- |
 | 业务结果保值 | t1–t4 所有生产路径的表集合/业务摘要/records/risk 一致；仅按 DC64 第 4 项显式归一实例字段 | 端到端 comparator |
 | IPC 读取/引用 | raw SHA 校验；头前移与正式引用同事务；共享保护与 TTL；四种恢复状态分别断言精确来源/终态/main | 存储与 Submit 各自语义测试 |
+| Arrow 映射 | 映射设计 §5 的声明/值往返、SET/JSON/BIT/时间边界、两计算分支及线程/chunk 确定性；不以物理 SHA 替代业务摘要 | 映射 owner，复用既有标量向量 |
 | 结构性过滤 | 设计 §16.2 全部适用于本阶段的公式；W2 基线行读取/行比较为 0，规范内容命中不重写 | capability/application 计数测试 |
 | 完整生产接线 | 两 flag 的上述路径；实际 worker/Compose 使用指定 N/M；不经 Python 逐行往返；取消/预算拒绝 | worker 接线与数据路径测试 |
 | W2 可达性 | 下式、样本完整性及逐段归因均由程序给出 | benchmarks |
@@ -97,7 +103,7 @@ W2 按设计 §16.3 的 1 次预热 + 3 次测量、中位数及范围，受理�
 ## 7. 确认记录
 
 - kickoff 审核：待 owner 转交，引用审核提交后记录。
-- owner 确认：未确认。
+- owner 确认：DC76 输入约定与设计准备已确认；整体 kickoff 未确认，映射技术审核待办。
 - 实施提示词：未发；S2a exit 前只准备。
 
 ## 8. 本次文档提交检查（不是阶段取证）

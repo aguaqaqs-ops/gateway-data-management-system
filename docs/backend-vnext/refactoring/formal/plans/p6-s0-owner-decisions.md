@@ -64,6 +64,7 @@ implementation_authorized: no
 | DC73 | 后端会话分为设计与审核两个角色 | — | — |
 | DC74（草案） | BE-c 体积报告放在 S6；整包下载单列只报告，不改 P6 门槛 | — | — |
 | DC75 | BE-a 扩项：Workspace 占用指针与本人撤回权限；方向已确认，kickoff 审核通过、待实施确认 | — | — |
+| DC76 | S2b 输入约定与映射准备：UTC 导出、来源/类型不变，纳入少数约 100 MB SQL；映射细则待审核 | — | — |
 
 ## 2. 决议详情
 
@@ -776,7 +777,7 @@ implementation_authorized: no
 
 ### DC74（草案）BE-c 的落点与整包传输计时
 
-- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影；下一个可分配编号为 DC76。
+- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影，DC76 用于 S2b 输入约定；下一个可分配编号为 DC77。
 - **来源**：`ebb0047383300a3754a4be6a6a78f72286600c83` 的[后端交接 §2.3](p6-backend-session-handoff.md)、[前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、本记录 DC38/DC41/DC53/DC64/DC66；设计 §16.1 的 i 段已计入 READY 前 bundle 组装与导出成本。
 - **需 owner 定的两项及建议**：
   1. **BE-c 放在基准还是 S6？建议 S6。** 基准产品固定为 `p6-s1c-exit`，当前 GET `/bundle` 只返回 manifest JSON；基准体积不能冒称 BE-d 后完整 tar 的线传字节。完整报告随 S6 已有 t4、2× t4 旅程采集，不为体积另跑一轮完整旅程。BE-d 实施后即可随已授权运行先记实际字节供 FE3 参考；如 owner 要提前从保留闭包估算，也须标“闭包逻辑大小/理论 tar 大小”，不作网络实测，不扩充当前基准必跑场景。
@@ -803,6 +804,13 @@ implementation_authorized: no
 - **详细设计与验收**：[BE-a 设计补充](p6-be-a-design.md)、[kickoff §2](p6-be-a-d-kickoff.md)。实施时同步 owning Contract、P5-5C 及 Workspace HTTP 文档正文、OpenAPI、示例 session 配置和测试；前端快照由 FE3 更新。本文不声明产品已实现。
 - **确认记录**：owner 方向确认 2026-11-04；kickoff 细则审核通过、无阻塞项（[报告](p6-be-a-kickoff-review.md) @ `fcbfb4c1a0`，候选 `f20f08bea919`）；非阻塞建议已采纳：replay 权限与披露归公开 HTTP 测试，事务测试归完整性/CAS/原子释放。owner 实施确认待记录，S2a 合入提交待填。DC74 不因本次同意而变为已确认。
 
+### DC76 S2b 输入约定与映射准备
+
+- **来源**：2026-11-04，owner 在设计会话 `01a1a628-e59a-7981-aad5-6bf31e919d38` 确认：“保证按 UTC 导出设计”；来源与类型先按现有数据，约 70 MB 大样本之外已有约 100 MB SQL，属于极少数；随后授权按需落成映射方案并继续讨论下一部分。
+- **已确认的设计输入**：输入按 UTC 导出；来源、类型及冻结业务规则不变；约 100 MB 作为容量场景，不能据少见而忽略，也不设置新的 100 MB 上限。不改变现有 parser 各项预算或当前基准输入/测量口径。
+- **方案落点**：[S2b Arrow 映射 v1](p6-s2b-arrow-mapping-design.md)、设计 §8.1 与 S2b kickoff。细则以独立内部映射表达，业务摘要与 Repository wire 保持原 Contract；后续补容量/N/M 与 flag。真实约 100 MB 文件当前不是必需交付，现有样本分布不足时再协调。
+- **授权与状态**：允许设计准备和文档修订；映射技术细则尚待独立审核，S2b kickoff 未确认、未发实施提示词。本文不判定产品支持容量，不要求重做 S2a 已通过证据，不授权推送。
+
 ## 3. 设计阶段待定项
 
 | 项 | 所属决议 | 何时定 |
@@ -812,7 +820,7 @@ implementation_authorized: no
 | 记录写后回读：Rust 重算摘要或删除 | DC54 | Phase 6 设计 |
 | H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |
 | 行级修改的阈值定稿 | DC45、DC57 | S1a 按批渲染后复测并冻结（含 UPDATE、DELETE 批量上限；不达标时按 DC57 第 4 项交 owner）；S4 只做回归，须调整时作为例外交 owner（DC55 第 5 项） |
-| Arrow 列映射 | DC46 | Phase 6 设计，结合 V1、V6 |
+| Arrow 列映射 | DC46、DC76 | 设计候选已落成，UTC/输入范围已确认；技术细则待审核并纳入 S2b kickoff |
 | 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
 | ordered 比较是否进 Rust | DC44 | 已定（V1）：S3 进入 Rust |
 | `ordered-diff.md` 中伪 gid 起点（20 亿）与 Canonical Storage G8（40 亿–4,294,967,295）的冲突 | DC39、DC44 | S1a 修订 Contract 时明确以 G8 为准（实现已按 G8） |

@@ -9,8 +9,10 @@
   2026-11-03 FE2b fixture 生成停止后，§7.1 新增“生成入口”：只通过提交的脚本生成，继续使用现有依赖镜像（§9 Q14）。
   2026-11-03 FE2b 复审第 1 轮通过：新增 §6.4 FE2b 带入 FE2c 的事项（§9 Q15）。
   2026-11-03 FE2b 退出（§2）。
+  2026-11-04 FE2c 审核结论为定向修复：上传模式不提供撤回（§9 Q16）；§7.1 新增上传包的后端校验，§7.5 新增请求侧约束与后端可达状态（§9 Q17）。
 - **FE2b：** 已退出（2026-11-03，§2）。
-- **FE2c：** 可以开始。起点为 `fe-fe2b-exit`（main 合入提交 `e96a057442`），审核范围为 `fe-fe2b-exit..<候选>`；带入项见 §6.4。
+- **FE2c：** 审核结论为定向修复（2026-11-04，[审核报告](reviews/fe2c-review.md)）；复审第 1 轮仍为定向修复（[复审报告](reviews/fe2c-rereview-1.md)），第 2 轮范围为 `680b643f..<新 handoff 提交>`。
+  起点为 `fe-fe2b-exit`（main 合入提交 `e96a057442`）；带入项见 §6.4。
 - **日期：** 2026-11-02。
 - **起点：** `fe-fe1-exit`（`a42139222f`），main 合入提交 `abbe6e8777`。
 - **依据：** [前端 kickoff](frontend-kickoff.md)（FD1–FD8、§4、§6、§7）、
@@ -412,6 +414,23 @@ v1 不产出 `LOW`；行级风险只落在有变化的行上（新增、删除�
 **DC68 计数：** FE2b 之前的三次失败（编排脚本语法错误、核对范围过宽、使用系统 `python3`）及其日志保留在 handoff。
 脚本提交后，从生成的第一步重新开始，按 DC68 重新计一次重做。
 
+**上传包的后端校验（owner 2026-11-04，§9 Q17）：** FE2c 审核 B1 中，浏览器打出的 tar 被后端上传校验拒收，前端单测与 e2e 都没有发现。
+因此浏览器打包产物除前端读回单测外，还要交给后端 `validate_source_package_archive`
+（`vnext/backend/src/gateway_backend/application/workspace/upload_admission.py`）校验：
+
+- 由提交在 `frontend/scripts/` 下的脚本完成，不手工拼接命令。分两步：
+  1. 在前端工具链镜像中，用 `buildSourcePackage` 打包已提交的上传测试目录（与 e2e 使用的相同），写入 worktree 外的空目录；
+  2. 在依赖镜像中逐个校验，约束同上文“生成入口”（network none、只读挂载源码树、镜像内 `/build/backend/.venv/bin/python`、
+     核对 `uv.lock` 与 `.python-version`）。
+- 覆盖：
+  - 符合 Source Package Contract 的包通过，`/comps/logic/logics.xml` 有、无各一个；
+  - 缺 `/sql/dbcfg.sql` 的包被拒收，结果为 `UPLOAD_CLOSURE_INVALID`；
+  - 含一个路径长于 100 字节的成员（ustar `prefix` 分段）；
+  - 脚本比较后端读到的成员路径与内容摘要，与打包输入一致。
+- 不进入 `frontend/scripts/run-tests.sh`：前端 runner 不依赖后端镜像（AGENTS FD7）。05 调试时运行；04 取证时在取证 worktree 再运行一次。
+- 日志字段同“生成入口”，日志 SHA256 与各包结果写入 handoff。
+- 脚本自身的错误按 DC68 重做一次。后端拒收前端产物是前端缺陷：修复前端，不改脚本的期望。
+
 ### 7.2 测试
 
 - 单测：§3 各项的完成标准；§4 文案表的完整性（每个已知枚举都有文案）；视图模型新增的推导（折叠行、连线配对、变更分布、侧栏过滤）。
@@ -444,6 +463,17 @@ bundle 仍按 §7.1 由生成器产出，本节只管 JSON 响应。
 - **编译期约束：** 每个成功响应体用 `frontend/src/features/api/generated/openapi.d.ts` 中该 route、方法与状态码对应的类型约束
   （`satisfies`，对象字面量多出的字段编译失败）；状态码只能是 OpenAPI 为该 route 列出的状态码。请求体同样按生成类型检查。
   生成类型来自 `frontend/openapi.json`，该快照在 `a2fb4a027a` 之后后端 HTTP 层没有改动；与运行中 backend 的比对属于 FE3。
+- **请求侧约束（owner 2026-11-04，§9 Q17）：** OpenAPI 没有声明 `Idempotency-Key` 请求头，生成类型约束不到；
+  必填查询参数虽有声明，路由桩照样可以不检查。FE2c 审核 B2、B4 的请求都不合后端要求，路由桩却返回了成功。因此：
+  - 路由桩按后端 route 源码核对必需的请求头与必填参数，缺少或为空时返回 422 `REQUEST_VALIDATION_FAILED`（`ErrorResponse`），与后端相同；
+  - 必须带 `Idempotency-Key` 的路由：
+    - `POST .../upload-revisions`、`.../preview-operations`、`.../submit-attempts`（`http/routes/` 下同名文件）；
+    - `POST /v1/submissions/{submission_id}/review-events`（`routes/reviews.py`，经 `orchestration/review.py`）；
+    - `POST /v1/history-compares`（`routes/history.py`）；
+    - `POST /v1/archive-confirmations`、`/v1/archive-anomaly-resolutions`、`/v1/archives`（`routes/archives.py`，经 `orchestration/archive.py`）；
+  - `POST /v1/workspaces` 相反，带上该请求头时返回 422（见下文“幂等回放”）；
+  - `GET /v1/archive-audit-events` 的 `subject_kind`、`subject_digest` 必填（`routes/archives.py`）；
+  - 这些检查在模拟模块中只实现一处，e2e 与组件测试共用；由一个单测逐条路由核对缺少时返回 422。
 - **错误响应体：** OpenAPI 中错误状态只有描述，没有响应体 schema。前端用一个类型对应后端 `ErrorResponse`
   （`vnext/backend/src/gateway_backend/http/schemas/errors.py`：`code`、`message`、可选 `details`，不允许其他字段）。
   `code` 只能取 `frontend/openapi.json` 中该 route、该状态码的描述里列出的值（如 `submit-attempts` 的 409 列出 9 个）。
@@ -490,6 +520,20 @@ bundle 仍按 §7.1 由生成器产出，本节只管 JSON 响应。
   以及非终态 `MANUAL_RECOVERY_REQUIRED` 之后的恢复：至少包含 `MANUAL_RECOVERY_REQUIRED → RUNNING → SUCCEEDED` 与
   `MANUAL_RECOVERY_REQUIRED → FAILED` 两个场景（§4.5）。`GET /v1/history-compares/{operation_id}` 的 `status` 只有五个值，
   没有 `SUPERSEDED` 与 `MANUAL_RECOVERY_REQUIRED`。
+- **后端可达状态（owner 2026-11-04，§9 Q17）：** 多步写操作中，响应之间的关系也按后端规则构造，不能只看单个响应的类型与取值。
+  FE2c 审核 B3 的归档桩在未确认时给出了 `can_start: true`，后端不会产出这种状态。归档主线的规则
+  （`application/archive/queries.py` 的 `preview_archive_plan`、`_validate_audit_for_start`，`application/archive/audit.py`）：
+  - 选中候选后，`confirmation_requirements` 总是包含该选择的 `selection_subject_digest`，确认之后仍然包含；
+    前端不能以它是否为空来判断是否已确认；
+  - `audit_validity` 只在该选择最新一条确认为肯定、且每个异常最新一条处理为肯定时为 `true`；
+  - `can_start` = 已选中、`blockers` 为空且 `audit_validity`。因此首次预检（确认与异常处理之前）为 `can_start: false`、
+    `audit_validity: false`、`blockers` 为空，界面显示为“待确认”，不是阻断；
+  - 追加确认或异常处理时，`expected_sequence` 等于该 subject 的最新序号，没有记录时为 0；选择确认与每个异常各自按
+    `subject_digest` 计数（`get_latest_confirmation_sequence`、`get_latest_resolution_sequence`）；
+    没有确认记录时 `REVOKE` 返回 `ARCHIVE_AUDIT_VERSION_CONFLICT`。
+
+  模拟模块从场景中的审计事件推导这些字段，或由一个单测按上述规则核对每个场景的预检响应。其他多步写操作有同类跨响应关系时同样处理，
+  handoff 列出所依据的源码位置。
 - **幂等回放（N1）：** 同一 key 的重试返回第一次的响应体。状态码按后端 route：`review-events`、`archive-anomaly-resolutions`、
   `archive-confirmations`、`archives` 第一次 201、回放 200；上传始终 201；Preview 与提交始终 202；
   `POST /v1/history-compares` 第一次 202、回放 200（`http/routes/history.py`）；`POST /v1/workspaces` 新建 201、已存在 200
@@ -519,7 +563,7 @@ bundle 仍按 §7.1 由生成器产出，本节只管 JSON 响应。
 
 ## 9. owner 决定（2026-11-02、2026-11-03）
 
-Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11 为 owner 2026-11-03 的 FE2a 退出决定；Q12、Q13 于 2026-11-03 按建议确认；Q14 为 owner 2026-11-03 答复 FE2b 生成停止的决定；Q15 于 2026-11-03 按建议确认。
+Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11 为 owner 2026-11-03 的 FE2a 退出决定；Q12、Q13 于 2026-11-03 按建议确认；Q14 为 owner 2026-11-03 答复 FE2b 生成停止的决定；Q15 于 2026-11-03 按建议确认；Q16、Q17 于 2026-11-04 按建议确认（FE2c 审核）。
 
 | # | 事项 | 决定 |
 | --- | --- | --- |
@@ -538,6 +582,8 @@ Q1–Q5（2026-11-02）与 Q6–Q9（2026-11-03）均按建议确认；Q10、Q11
 | Q13 | `POST /v1/history-compares` 的 OpenAPI 只声明 200，后端第一次返回 202；`POST /v1/workspaces` 同类（§7.5） | 并入 BE-a（同为 S2a 合入后、FE3 之前的 HTTP DTO 小改动）：补齐 202，并把 200 标为幂等回放；`POST /v1/workspaces` 同样补齐 201（新建）与 200（已存在）的声明（审核会话核对，2026-11-03） |
 | Q14 | FE2b fixture 生成停止：生成命令手工拼接、使用了系统 `python3`；依赖镜像的 `pyproject.toml`、`Cargo.lock` 与候选不同（§7.1） | 由原实施会话继续：在 `frontend/scripts/` 提交生成脚本后从头生成，DC68 重新计一次；继续使用 `lock-d054366c02fa`，只核对 `uv.lock` 与 `.python-version`，另两项差异记录（§7.1“生成入口”） |
 | Q15 | FE2b 复审第 1 轮交 owner 的两项偏差与次要问题：历史比较结果抽屉缺少各比较对的摘要（D1）；S1 fixture 中 0 → 0 行的 `composite_signal_point`（M10）；等待时长显示（N2）、生产模块清单的位置（N3）、生产构建读取测试配置（N4） | D1 选甲，带入 FE2c，从本地 bundle 读取，FE2b 不需要新候选；M10 接受现状；N2–N4 带入 FE2c。完成标准见 §6.4。截图仍以 FE2b 的 04 取证为准，交 owner 看图确认 |
+| Q16 | 上传模式顶栏的“撤回”（FE2c 审核 §7）：草图 `header-upload` 有该按钮，但 `WorkspaceResponse` 没有指向当前提交的字段，属于 §10 停止条件 | 甲：FE2 只在审核顶栏提供撤回（已实现），上传模式不提供；缺口登记在前端 kickoff §3.3，是否在 `WorkspaceResponse` 加入当前提交由 BE-a 或后续后端任务决定。FE2c 不等待后端。乙（备选，未选）：先补后端字段，FE2c 等待后接回。后续（2026-11-04）：owner 确认后端 DC75 方向，占用指针与本人撤回权限并入 BE-a，FE3 接回（前端 kickoff §3.3、§7.1）；FE2 仍按甲，不等待 |
+| Q17 | FE2c 审核 B1–B4：浏览器打包产物被后端拒收、请求缺必需的请求头与参数、归档桩给出后端不会产出的状态，路由桩都没有发现 | §7.5 新增“请求侧约束”与“后端可达状态”；§7.1 新增“上传包的后端校验”，用提交的独立脚本在依赖镜像中校验，不进入前端 runner，结果写入 handoff |
 
 **Q4 说明：** 这是 vnext 后端的能力差异，前端无法单独补齐。owner 选择甲；乙作为备选记录在此。
 

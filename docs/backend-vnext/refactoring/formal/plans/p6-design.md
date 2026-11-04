@@ -283,6 +283,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 8. S2b：上传侧数据路径与规范表存储
 
+准备材料（2026-11-04，待审核）：[S2b kickoff 设计输入](p6-s2b-kickoff.md)，源码/交接引用基线 `ebb004738330`。该页列出原始表使用方、磁盘估算缺项、DC63 子段交接、flag 与池接线和 W2 程序判定；未确认项不改变本设计的生效状态。S2a exit 前不发实施提示词。
+
 ### 8.1 数据路径合并（DC46）
 
 - 解析 → 业务列与检查（伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（保留列、规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要在 Rust 中依次完成，数据始终是 Arrow；三个 capability 各自拥有语义与诊断，模块依赖不变。上传路径不预计算 ordered 逻辑摘要与 occupancy 摘要：它们依赖本次 pair 策略，只在 assemble 中按 pair 计算一次（§4.2，S3 起由 Rust 计算）。
@@ -368,6 +370,12 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 | 部署配置 | N、M（可修改、有范围校验） | S2b |
 | 镜像 | backend Dockerfile：新 adapter 的 maturin 构建、Rust 依赖；强制重建项 | S2a 起 |
 | Repository Service | 无 Contract 变化（零日期维持拒绝）；defunct 进程问题交 RS owner（可并入 kickoff 小修或 S1a，修复可能涉及 Dockerfile/Compose） | — |
+
+### 13.1 BE-a 前端对接补充（DC75）
+
+owner 2026-11-04 同意在 S2a 合入后、FE3 前将工作区占用指针及本人撤回权限并入 BE-a；详细设计和验收见 [BE-a 设计补充](p6-be-a-design.md)，kickoff 审核已通过（`fcbfb4c1a0`），待 owner 确认实施。WorkspaceResponse 同快照投影 active_submit_attempt_id/active_submission_id；withdraw_own_submission 只开放 scope 内本人 review facts 与合法 WITHDRAW，review_submission 保持现有能力。工作区版本与审核版本分离，幂等回放每次重验当前授权；状态、占用释放和 Repository 语义保持。
+
+本项不改变 §16 的性能矩阵或固定基准产品，不重做 S2a parser 差分；BE-a 自身门禁与真实数据范围按 kickoff。Owning Contract、P5-5C 和 HTTP 文档在实施提交同步目标条款，不把本页设计方向表述为已实现接口。
 
 ## 14. Contract 修订清单
 
@@ -515,6 +523,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 每个负载 1 次预热加 3 次测量取中位数并报告范围；失败运行不计入；门槛只在取证运行中判定（DC35 第 8 项）。
 
 ### 16.4 runbook
+
+**待决提案（DC74 草案，未生效）：** BE-c 的 t4/2× t4 完整 tar 体积报告随 S6；BE-d 后先采样。GET `/bundle` 的传输耗时单列只报告，不改既有 READY/完成门槛；READY 前的组装与导出仍计入原指标。字段与程序核验见 [DC74](p6-s0-owner-decisions.md#dc74草案be-c-的落点与整包传输计时)。
 
 测量在 `ct108-gw-dms` 独占；日志开头记录 hostname、起止时间与 HEAD；W1、W4 冷启动（存储中只有已提交基线的条目），W2、W3 允许命中上一次 Preview 的临时条目并写明；清空派生缓存模拟 H2；合成负载规则见 §5.6。
 

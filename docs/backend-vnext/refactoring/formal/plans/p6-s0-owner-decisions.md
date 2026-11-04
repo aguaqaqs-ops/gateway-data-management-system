@@ -61,6 +61,9 @@ implementation_authorized: no
 | DC70 | S2a 开发与重建对照基准的正式测量并行；S2a exit 在基准 exit 之后（补充 2026-10-31：节点占用标记） | — | — |
 | DC71 | S1c exit：真实数据范围确认；DC70 的 S2a 起点澄清；startup 阻断遗留的登记 | — | — |
 | DC72 | S2a kickoff 确认：O2 非有限 JSON 数值拒绝、旧实现删除范围、test-only 差分入口（生产 flag 移到 S2b）、parser 表内分块、adapter 命名、线程池分步 | — | — |
+| DC73 | 后端会话分为设计与审核两个角色 | — | — |
+| DC74（草案） | BE-c 体积报告放在 S6；整包下载单列只报告，不改 P6 门槛 | — | — |
+| DC75 | BE-a 扩项：Workspace 占用指针与本人撤回权限；方向已确认，kickoff 审核通过、待实施确认 | — | — |
 
 ## 2. 决议详情
 
@@ -741,6 +744,64 @@ implementation_authorized: no
   6. **线程池分步（DC47 第 5、7 项）：** S2a 在 adapter 中实现进程内共享的有界池（一次创建、固定 N、所有调用复用，N 由调用方传入；测试默认 N=1，一致性测试比较 1 与 N）。worker 启动时的接线与部署配置 N、M 在 S2b 完成；相应的 owner 测试分别在 S2a（adapter 层池复用）与 S2b（worker 启动接线）。
   7. **其余按 kickoff 确认：** 真实数据范围只做第 ④ 层逐值差分，t1–t4 的 v1/v2 与 testdata1 均在 05，testdata1 按输入 digest 与 t3 去重（DC33、DC50 第 4 项及补充）；审核由原 S1c 审核会话负责；节点按 DC70 及其补充；exit 在基准 exit 之后。
 - **落点**：本记录；设计 §7、§8.3、§8.4；执行计划 S2a、S2b 内容。
+
+### DC73 后端会话分为设计与审核两个角色
+
+- **来源**：
+  - 到 2026-11-03，后端由同一个审核会话兼做两类工作：一是审核与停止复核；二是 DC 记录、设计与执行计划修订、kickoff 确认。两条线（重建对照基准、S2a）并行后，单一会话的工作量与上下文都过大。
+  - 同一会话既提出验收条件又审核执行结果，缺少独立核对。例如 [W4 KEY_EMPTY 停止复核](p6-baseline-stop-check-w4-key-empty.md) §3：审核方建议的验收范围不足，直到产品运行才暴露。
+  - 前端已按设计、实施、审核分设会话（[前端 kickoff](../../../../frontend-vnext/frontend-kickoff.md) §10），运行正常。
+- **决议**（repository owner，2026-11-04）：
+  1. **两个常设会话：**后端后续工作由新开的设计会话（`p6-backend-design`）与审核会话（`p6-backend-review`）分担。原审核会话交接后退出。交接内容见 [后端会话交接](p6-backend-session-handoff.md)。
+  2. **设计会话：**
+     - 负责：DC 的起草、编号与记录（下一个编号 DC74）；详细设计与执行计划的修订；各阶段 kickoff 与实施提示词；kickoff 确认记录；答复实施中的设计问题；后端任务 BE-a、BE-d 的安排；从后端可行性角度核对 BE-b 草案（BE-b 设计仍由前端设计会话负责）。
+     - 不做：不写产品代码；不审核实施结果；不判定证据。
+  3. **审核会话：**
+     - 负责：kickoff 审核、代码审核与复审、证据复核；停止复核，包括 DC66 第 5 项范围内工具修正的处置建议；阶段终审与 exit 办理（tag、合入、清理，推送须经授权）；exit 时执行计划阶段状态行的更新；审核 worktree 与节点遗留的清理。
+     - 不做：不写产品代码；不起草或修改 DC、设计与执行计划正文。
+  4. **交接面：**
+     - 审核结论若需要新决议、修订设计或计划、扩大授权，报告中写明建议并标注“交设计会话”，由 owner 转交。
+     - 设计会话起草的 kickoff、设计修订与验收条件，交审核会话做 kickoff 审核后再由 owner 确认。
+     - 两会话不直接通信，经 owner 转交提示词；引用对方文档时注明提交号。
+  5. **仓库与推送：**
+     - 两会话都在主工作区的 `main` 上提交。提交前看 `git status`，只按显式路径提交本角色的文件，不暂存其他会话的改动。
+     - 推送须 owner 的消息中含“推送”。推送前列出远端之后的全部本地提交（包括其他会话的），在回复中说明。
+     - 推送后由执行推送的会话用 bundle 同步三台节点。节点的占用标记用途为计时测量时跳过该节点，记为待同步。
+  6. **不变：**
+     - AGENTS.md 与 testing-conventions 仍由治理会话维护。
+     - 前端各会话、基准测量会话 `p6-baseline-measure` 与 S2a 实施会话照旧。
+     - DC70 第 5 项中的基准审核与 S2a 审核由审核会话承接，包括基准终审。
+     - DC66 第 5 项的常设工具修正授权、DC68 与停止规则不变。
+- **落点**：本记录；执行计划 §8.2；[后端会话交接](p6-backend-session-handoff.md)。
+
+### DC74（草案）BE-c 的落点与整包传输计时
+
+- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影；下一个可分配编号为 DC76。
+- **来源**：`ebb0047383300a3754a4be6a6a78f72286600c83` 的[后端交接 §2.3](p6-backend-session-handoff.md)、[前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、本记录 DC38/DC41/DC53/DC64/DC66；设计 §16.1 的 i 段已计入 READY 前 bundle 组装与导出成本。
+- **需 owner 定的两项及建议**：
+  1. **BE-c 放在基准还是 S6？建议 S6。** 基准产品固定为 `p6-s1c-exit`，当前 GET `/bundle` 只返回 manifest JSON；基准体积不能冒称 BE-d 后完整 tar 的线传字节。完整报告随 S6 已有 t4、2× t4 旅程采集，不为体积另跑一轮完整旅程。BE-d 实施后即可随已授权运行先记实际字节供 FE3 参考；如 owner 要提前从保留闭包估算，也须标“闭包逻辑大小/理论 tar 大小”，不作网络实测，不扩充当前基准必跑场景。
+  2. **整包下载是否计入 P6 门槛？建议不改既定门槛，新增只报告项。** W/H 仍按受理到 READY、完成时间按原定义，Submit 仍受理到 main 前移。READY 前已发生的表导出、manifest/closure 组装全部保留计时；GET `/bundle` 时的预检、tar 封装与发送进入独立的 download 时间。前端 kickoff §9 的“不含 bundle 打包”须澄清为“不含下载请求中的传输封装”，不能从 worker 路径扣掉既有工作。
+- **建议采集口径**：
+  - 对 t4 与 2× t4，每个已有 Preview/History 场景记录模式、节点数、bundle digest、实际收到的 tar 字节数、Content-Length、GET 发起到完整读取结束的单调时钟耗时、完整性核验状态和软硬件/网络条件；覆盖 MODIFIED_ONLY、FULL、DATASET_REPLACEMENT 的已有场景及两/三节点 History，不另造超出阶段授权的计时场景。没有该模式样本时明列缺项及后续归属，不写已覆盖。
+  - 成员覆盖与校验通过才计为成功下载。Content-Length 与实收字节由程序比较；不能只读取 manifest 后停止计时。缺字段、下载失败或校验失败不写成 0 字节/0 秒成功样本。
+  - 1 Mbps 的理想下载下限由程序算 `8 * tar_bytes / 1_000_000` 秒（十进制 Mbps），只报告；不含协议开销与浏览器解析，不作为 1 Mbps 实测。
+  - 若另报“受理到本地可浏览”，须有客户端校验/解析结束的独立锚，不能简单把不同运行的 READY 与 GET 时间相加冒充实测。该客户端指标不在本次后端任务新增硬门槛。
+- **安排与落点（草案）**：BE-d 按[任务草案](p6-be-a-d-kickoff.md)修改旅程工具；设计 §12/§16.4 与执行计划 S6 标记待决事项。owner 确认后，由 owner 转前端设计会话更新其 §9，后端设计会话不编辑前端文档。基准当前授权、DC66 单次测量例外、S6 统计方法均不改变。
+- **确认记录**：审核提交待填；owner 未确认。
+
+### DC75 BE-a：工作区占用指针与本人撤回权限
+
+- **来源**：`55e6c0083c` 的前端 FE2 kickoff Q16 与 frontend-kickoff §3.3；后端设计会话以 main `d0a8143d804e158e16b0712cc5f2aa007066f9cb` 核对源码及 P5-5C §4.3/§5。owner 在 2026-11-04 同意“新增本人撤回能力、保留审核人权限，与 Workspace 指针一起扩入 BE-a”，并要求补充订正及各方提示词。
+- **决定（方向已确认，kickoff 审核通过，待 owner 实施确认）**：
+  1. WorkspaceResponse 增加必需但可为 null 的 `active_submit_attempt_id`、`active_submission_id`，投影当前占用，至多一个非空；不表示最近提交或可撤回状态。与 Workspace/optimistic_version 同一事务快照读取，无新持久字段。新建/已有工作区响应均覆盖。
+  2. 新增 exact permission `withdraw_own_submission`：scope 内 `context.actor_id == Submission.created_by` 的本人提交可读 review facts；只有 PENDING、未关闭且版本/占用条件成立时可执行新 WITHDRAW。不隐含授予 APPROVE/REJECT 或项目 History 权限。session 显式发放，不由上传权限或本人身份自动授予。
+  3. `review_submission` 保持跨 actor 的现有能力；双权限取并集，不给 reviewer 加本人限制。新增权限必须接入 GET、POST 与 replay，不只改 route 或前端按钮。
+  4. 权限在对象读取前按动作检查；仅本人权限的请求在读取目标绑定后检查本人关系，不存在、非本人及跨 scope 统一 404。返回审核事实之前完成授权。当前授权、幂等完整性、review CAS、归档屏障、精确占用与原子释放均保持；成功后的合法 replay 不重新要求 PENDING/占用存在。
+  5. 不改 actor-independent 的幂等 namespace/fingerprint；合法跨 actor 回放只返回原事件 actor。任何路径不得通过幂等键泄露他人事实或回放无权执行的动作。
+  6. 占用受理/finalize/abort/审核释放/归档释放时按现有事务递增工作区版本；APPROVE 不改变工作区版本。撤回仍使用独立 `expected_review_version`。撤回后清空当前输入与 Preview，可重新上传；历史提交与 Repository commit 保留。
+  7. 并入 BE-a，S2a exit 合入 main 后、FE3 前；原删除 RETURN_FOR_REVISION 及两创建接口 OpenAPI 订正继续执行。权限修订本身不新增 schema；原 BE-a 的旧状态删除仍直接改基线。BE-d/BE-b 和当前 P6 基准范围不变。
+- **详细设计与验收**：[BE-a 设计补充](p6-be-a-design.md)、[kickoff §2](p6-be-a-d-kickoff.md)。实施时同步 owning Contract、P5-5C 及 Workspace HTTP 文档正文、OpenAPI、示例 session 配置和测试；前端快照由 FE3 更新。本文不声明产品已实现。
+- **确认记录**：owner 方向确认 2026-11-04；kickoff 细则审核通过、无阻塞项（[报告](p6-be-a-kickoff-review.md) @ `fcbfb4c1a0`，候选 `f20f08bea919`）；非阻塞建议已采纳：replay 权限与披露归公开 HTTP 测试，事务测试归完整性/CAS/原子释放。owner 实施确认待记录，S2a 合入提交待填。DC74 不因本次同意而变为已确认。
 
 ## 3. 设计阶段待定项
 

@@ -98,6 +98,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     const id = params.get("operationId");
     return Boolean(id && params.get("operationKind") !== "history-compare" && sessionStorage.getItem("gateway-preview-operation") === id);
   });
+  const resumePending = useRef(resumePreviewOperation);
   const [uploadLocked, setUploadLocked] = useState(resumePreviewOperation);
   const [uploadReady, setUploadReady] = useState(false);
   const [uploadBlockedReason, setUploadBlockedReason] = useState<string | null>(null);
@@ -117,9 +118,11 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
       if (!previewResultId) { setUploadLocked(false); return; }
       const preview = await gatewayApi.getPreviewResult(workspace.workspace_id, previewResultId);
       await ensureLocalBundle({ store: new OpfsBundleStore(), expectedBundleDigest: preview.bundle_digest, fetchBundle: () => gatewayApi.getPreviewBundle(workspace.workspace_id, previewResultId) });
+      resumePending.current = false;
       sessionStorage.removeItem("gateway-preview-operation");
       window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId: workspace.workspace_id, previewResultId, workbenchNode: selectedKey }, compareRefs));
     } catch {
+      resumePending.current = false;
       sessionStorage.removeItem("gateway-preview-operation");
       setUploadLocked(false);
     }
@@ -411,7 +414,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
         <div className="workspace-tree-heading"><h1>组态树</h1><label className="workspace-search"><Search size={15} /><input ref={searchRef} aria-label="搜索工作区与 History 节点" placeholder="搜索节点" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} /></label><span className="workspace-tree-heading__spacer" />
           <label className="workspace-checkbox"><input type="checkbox" checked={currentBaselineOnly} onChange={(event) => setCurrentBaselineOnly(event.currentTarget.checked)} />只显示当前基线</label>
         </div>
-        {showOperationStatus && <OperationStatusPanel operationId={operationId} onSucceeded={resumePreviewOperation ? (id) => void resumePreviewFromOperation(id) : undefined} />}
+        {showOperationStatus && <OperationStatusPanel operationId={operationId} onSucceeded={resumePreviewOperation ? (id) => void resumePreviewFromOperation(id) : undefined} onFailed={resumePreviewOperation ? () => { resumePending.current = false; sessionStorage.removeItem("gateway-preview-operation"); setUploadLocked(false); } : undefined} />}
         <div className="workspace-context-bar" aria-label="上下文工具栏">
           <div className="workspace-context-bar__selection"><span className="node-type-icon">{selected?.kind === "workspace" ? <Folder size={16} /> : selected?.kind === "baseline" ? <Layers size={16} /> : <GitCommitHorizontal size={16} />}</span><strong>{selected?.label ?? "未选择节点"}</strong>{selected?.status && <span className={statusClass(selected.statusTone)}><i aria-hidden="true" />{selected.status}</span>}{selected?.eligibilityNote && <span className="status-tag status-tag--warning">基线已更新</span>}{selected?.identityException && <span className="status-tag status-tag--neutral">项目身份例外</span>}</div>
           <div className="workspace-actions">{effectiveActions.map((action) => <div className="workspace-action" key={action.id}>
@@ -487,7 +490,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
             <dl className="details-list"><div><dt>网关设备</dt><dd>{data.workspace.gateway_device_external_key}</dd></div><div><dt>业务项目</dt><dd>{data.workspace.business_project_id}</dd></div><div><dt>工作区状态</dt><dd>{WORKSPACE_STATE_COPY[data.workspace.state as keyof typeof WORKSPACE_STATE_COPY] ?? "状态未知"}</dd></div><div><dt>组态代次</dt><dd>{data.workspace.generation}</dd></div><div><dt>当前 Preview</dt><dd>{data.workspace.current_preview_result_id ?? "—"}</dd></div></dl>
             <button className="button button--secondary workspace-details__action" disabled={!data.workspace.current_preview_result_id} title={data.workspace.current_preview_result_id ? undefined : "当前工作区还没有 Preview 结果"} onClick={() => openPreview("initial_to_modified")}>查看本次组态差异</button>
             {!data.workspace.current_preview_result_id && <p className="disabled-reason">当前工作区还没有 Preview 结果</p>}
-            <UploadStepCard ref={uploadRef} head={data.history.head} emptyBaseline={data.history.nodes.some((node) => node.ref_id === data.history.head.node_id && node.parent === null)} onUploadStateChange={setUploadLocked} onReadyChange={(ready, reason) => { setUploadReady(ready); setUploadBlockedReason(reason); }}
+            <UploadStepCard ref={uploadRef} head={data.history.head} emptyBaseline={data.history.nodes.some((node) => node.ref_id === data.history.head.node_id && node.parent === null)} onUploadStateChange={(active) => { if (active) resumePending.current = false; if (active || !resumePending.current) setUploadLocked(active); }} onReadyChange={(ready, reason) => { setUploadReady(ready); setUploadBlockedReason(reason); }}
               onComplete={(workspaceId, previewResultId) => window.location.assign(pageUrl("compare", { mode: "PREVIEW", workspaceId, previewResultId, workbenchNode: selectedKey }, compareRefs))} />
           </>}
           {selected?.kind !== "workspace" && selected && <dl className="details-list"><div><dt>节点类型</dt><dd>{selected.kind === "baseline" ? selected.baselineKind === "INITIAL" ? "初始基线" : "归档基线" : selected.kind === "submission" ? "提交" : "规则迁移"}</dd></div><div><dt>状态</dt><dd>{selected.status || "—"}</dd></div><div><dt>节点 ID</dt><dd>{selected.refId}</dd></div><div><dt>组态生成时间</dt><dd>{selected.createdAt ?? "—"}</dd></div>{selected.submitAt && <div><dt>提交时间</dt><dd>{selected.submitAt}</dd></div>}{selected.eligibilityNote && <div className="details-list__long"><dt>归档原因</dt><dd><details><summary>展开原因</summary>该提交所基于的基线已不是当前基线，不能归档</details></dd></div>}{selected.identityException && <div><dt>身份说明</dt><dd>项目身份例外</dd></div>}</dl>}

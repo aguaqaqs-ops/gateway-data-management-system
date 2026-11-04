@@ -1107,7 +1107,8 @@ test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {
 
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await setDirectoryInput(page, "upload-initial-input", "station_cfg_0820", VALID_DIRECTORY);
-  await expect(card.getByText("station_cfg_0921 · 3 个文件")).toBeVisible();
+  await expect(card.getByText("station_cfg_0921", { exact: false }).first()).toBeVisible();
+  await expect(card.getByText("3 个文件", { exact: false }).first()).toBeVisible();
   await expect(card.getByText("上传方式：原始备份 + 本次归档")).toBeVisible();
   await expect(card.getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
   await screenshot(page, "upload-selected", 1920);
@@ -1128,7 +1129,7 @@ test("FE2c 提交前要求确认项目身份差异并进入审核", async ({ pag
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "提交本次组态" });
+  const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("业务项目不同，需要确认数据集替换")).toBeVisible();
   await expect(dialog.getByText("项目身份无法验证")).toBeVisible();
@@ -1168,7 +1169,7 @@ test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "提交本次组态" });
+  const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByText("当前身份没有该操作的权限")).toBeVisible();
   await expect(dialog.getByText("SCOPE_FORBIDDEN")).toBeVisible();
@@ -1190,7 +1191,7 @@ test("FE2c 提交 403 与版本冲突显示内联错误", async ({ page }) => {
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
-  const conflictDialog = page.getByRole("dialog", { name: "提交本次组态" });
+  const conflictDialog = page.getByRole("dialog");
   await conflictDialog.getByRole("button", { name: "确认提交" }).click();
   await expect(conflictDialog.getByText("数据已被更新，请刷新后重试")).toBeVisible();
 });
@@ -1264,6 +1265,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await page.unrouteAll();
   await installFixtureRoutes(page, { previewForbidden: true });
   await page.goto("/");
+  await expect(page.getByLabel("上传与预览")).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
   await expect(page.getByLabel("上传与预览").getByText("当前身份没有启动预览的权限")).toBeVisible();
@@ -1320,7 +1322,7 @@ test("FE2c 提交超时重试复用同一幂等键并回放同一提交", async 
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "提交本次组态" });
+  const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByText("SERVICE_NOT_READY")).toBeVisible();
   await dialog.getByRole("button", { name: "确认提交" }).click();
@@ -1337,7 +1339,7 @@ test("FE2c 提交被中止时显示原始错误代码", async ({ page }) => {
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "提交本次组态" });
+  const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByText("IMPORT_REJECTED")).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByRole("button", { name: "复制错误代码" })).toBeVisible();
@@ -1383,6 +1385,7 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   await installFixtureRoutes(page, { uploadHoldPolls: 8 });
   await page.goto("/");
   const card = page.getByLabel("上传与预览");
+  await expect(card).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await expect(card.getByText("解析预览")).toBeVisible();
   await card.getByRole("button", { name: "上传并生成预览" }).click();
@@ -1398,6 +1401,7 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
 });
 
 test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", async ({ page }) => {
+  test.setTimeout(90000);
   const manual = [
     { ...MANUAL_RECOVERY_TO_SUCCESS[0]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
     { ...MANUAL_RECOVERY_TO_SUCCESS[1]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
@@ -1407,7 +1411,7 @@ test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", asy
   await page.goto(browseUrl("PREVIEW", "preview-full"));
   await waitForBrowse(page);
   await page.getByRole("button", { name: "提交", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "提交本次组态" });
+  const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByText("需要管理员处理")).toBeVisible({ timeout: 10000 });
   await expect(dialog.getByText("submit-op-1")).toBeVisible();

@@ -45,3 +45,9 @@ runbook 只把最初 source preflight 输出改为 `/home/dev/gdds-p6-logs/basel
 本轮不触发产品镜像重建，冻结产品仍为 `p6-s1c-exit` 的 S1c V′；最后接受的 backend/worker config digest 为 `sha256:6d0aab7e18caea0b157c401612cfd7acdb0fca1bbfd6ef7f2b57b7d5f3f588f1`，全部 15 个 DiffID 仍须启动前程序比较。工具 HEAD 不作为新产品 image revision；本报告不宣称当前候选容器门禁或 carried。
 
 新失败继续适用 DC66/DC68、缓存/身份与 runner 停止规则；预计剩余超过 48 小时仍停交 owner。H3 结果须后续证据复核，基准终审与最终 04 runner 尚未完成；S2a exit 仍等基准 exit。未推送、未办理 tag/合入/阶段 exit。
+
+## 4. handoff 摘要勘误关闭
+
+补核提交 `45c65f10ba2363791762b59a690162fa20112355`：在 clean detached worktree `/home/dev/gdds-p6-h3-errata-45c65f10` 程序确认相对 `322b7b5315` 仅改 handoff 一行，`vnext` tree 完全相同；从 Git blob 重算初审版 `379c50dc2f` 与补核版 `460e9b7ad1` 的 SHA256，均与更正后的对应值相符。§2 非阻塞摘要归属勘误关闭。该勘误由本复审 §2 指出，初审报告 §5 是此前的 handoff 证据补核；不影响已正确记录的两组提交与摘要。
+
+**最终结论：通过，可按 §3 和原授权继续缓存准备，既定验证通过后执行正式 H3。** 无需再次等待审核确认；不新增授权范围，不预判运行结果。此次仅文档补核，未访问测试节点或重复运行验证。

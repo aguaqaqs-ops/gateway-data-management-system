@@ -143,6 +143,12 @@ describe("buildTar", () => {
     await expect(buildTar(directory)).rejects.toThrow("目录中的文件路径不安全");
   });
 
+  it("rejects an over-limit directory before packaging", async () => {
+    const files = Array.from({ length: 8193 }, (_, index) => ({ path: `f${index}.txt`, file: new File(["x"], `f${index}.txt`) }));
+    const directory: LocalDirectory = { rootName: "too-many", totalBytes: files.length, mainFile: "station.pmc", files };
+    await expect(buildSourcePackage(directory)).rejects.toThrow("8192");
+  });
+
   it("gzip packages the archive with the directory name", async () => {
     const directory = collectLocalDirectory(validInput()).directory;
     const pkg = await buildSourcePackage(directory as LocalDirectory);

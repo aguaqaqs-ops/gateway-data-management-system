@@ -1281,7 +1281,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await expect(page.getByLabel("上传与预览")).toBeVisible();
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
-  await expect(page.getByLabel("上传与预览").getByText("当前身份没有启动预览的权限")).toBeVisible();
+  await expect(page.getByLabel("上传与预览").getByText("当前身份没有该操作的权限")).toBeVisible();
   await expect(page.getByLabel("上传与预览").getByText("SCOPE_FORBIDDEN")).toBeVisible();
   await page.setViewportSize({ width: 1920, height: 1080 });
   await screenshot(page, "upload-permission-denied", 1920);

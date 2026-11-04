@@ -1040,10 +1040,11 @@ test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {
   await expect(card.getByText("上传方式：原始备份 + 本次归档")).toBeVisible();
   await expect(card.getByRole("button", { name: "上传并生成预览" })).toBeEnabled();
   await screenshot(page, "upload-selected", 1920);
-
+  await screenshot(page, "upload-selected", 1280);
   await card.getByRole("button", { name: "上传并生成预览" }).click();
   await expect(page.locator(".page-lock-overlay")).toBeVisible();
   await expect(page.getByText("上传与预览执行中，页面其余操作已锁定")).toBeVisible();
+  await screenshot(page, "upload-locked", 1920);
   await screenshot(page, "upload-locked", 1280);
   await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 30000 });
   await waitForBrowse(page);
@@ -1171,5 +1172,6 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
   await expect(dialog.getByText("归档完成")).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByText("归档 1 项，关闭 0 项")).toBeVisible();
   await screenshot(page, "archive-mainline-result", 1920);
+  await screenshot(page, "archive-mainline-result", 1280);
   expect(apiRequests.some((request) => request.path === "/v1/archives")).toBe(true);
 });

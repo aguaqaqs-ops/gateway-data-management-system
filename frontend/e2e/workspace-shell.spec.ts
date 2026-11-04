@@ -1311,7 +1311,7 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByRole("button", { name: "上传", exact: true }).click();
   const card = page.getByLabel("上传与预览");
-  await expect(card.getByRole("alert")).toContainText("预览已生成，但下载比较结果失败", { timeout: 15000 });
+  await expect(card.getByRole("alert")).toContainText("服务暂时不可用，请稍后重试", { timeout: 15000 });
   await screenshot(page, "upload-failure-retry", 1920);
   await screenshot(page, "upload-failure-retry", 1280);
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -1340,7 +1340,7 @@ test("FE2c 上传版本冲突后刷新再上传使用新版本与新 key", async
   const uploads = apiRequests.filter((request) => request.path.endsWith("/upload-revisions"));
   expect(uploads).toHaveLength(2);
   expect(uploads[0].idempotencyKey).not.toBe(uploads[1].idempotencyKey);
-  const version = (body: string | null) => /name="expected_workspace_version"\r\n\r\n(\d+)/.exec(body ?? "")?.[1];
+  const version = (body: string | null) => /\"expected_workspace_version\":(\d+)/.exec(body ?? "")?.[1];
   expect(version(uploads[0].body)).toBe("12");
   expect(version(uploads[1].body)).toBe("14");
 });

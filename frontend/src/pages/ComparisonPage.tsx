@@ -22,6 +22,7 @@ import { ConnectionStatusIndicator } from "../design-system/ConnectionStatusIndi
 import { Button } from "../design-system/components";
 import { formatWaitDuration } from "../features/workbench/wait-duration";
 import { SubmitDialog } from "../features/workbench/SubmitDialog";
+import { OperationStatusPanel } from "../features/workbench/OperationStatusPanel";
 import { ReviewActions } from "../features/workbench/ReviewActions";
 import type { SafeReviewFacts } from "../features/api/client";
 
@@ -181,6 +182,26 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   const [historyCompareWaited, setHistoryCompareWaited] = useState(0);
   const [reviewFacts, setReviewFacts] = useState<SafeReviewFacts | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
+  const [submitResume] = useState<{ operationId: string; workspaceId: string; submitAttemptId: string } | null>(() => {
+    if (browse.mode !== "PREVIEW" || !browse.operationId) return null;
+    try {
+      const marker = JSON.parse(sessionStorage.getItem("gateway-submit-operation") ?? "null") as { operationId?: string; workspaceId?: string; submitAttemptId?: string } | null;
+      if (marker?.operationId !== browse.operationId || !marker.workspaceId || !marker.submitAttemptId) return null;
+      return { operationId: browse.operationId, workspaceId: marker.workspaceId, submitAttemptId: marker.submitAttemptId };
+    } catch { return null; }
+  });
+  const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
+    if (!submitResume || submitResume.operationId !== finishedOperationId) return;
+    try {
+      const attempt = await gatewayApi.getSubmitAttempt(submitResume.workspaceId, submitResume.submitAttemptId);
+      sessionStorage.removeItem("gateway-submit-operation");
+      if (!attempt.submission_id) return;
+      const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: attempt.submission_id });
+      window.location.assign(`/?${params.toString()}`);
+    } catch {
+      sessionStorage.removeItem("gateway-submit-operation");
+    }
+  }, [submitResume]);
   const [settings, setSettings] = useState<Settings>(readSettings);
   const collapsed = settings.sidebarCollapsed;
   const [overflow, setOverflow] = useState(false);
@@ -444,6 +465,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
 
   return <main className="comparison-page">
+    {submitResume && <div className="comparison-resume"><OperationStatusPanel operationId={submitResume.operationId} onSucceeded={(id) => void resumeSubmitFromOperation(id)} onFailed={() => sessionStorage.removeItem("gateway-submit-operation")} /></div>}
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <div className="compare-header__top">

@@ -72,6 +72,7 @@ vnext bundle 是精简的表索引（`ComparisonSurface`）加 artifact 闭包�
 | 列展示（显示名、顺序、宽度、隐藏、固定、键列） | `legacy/backend_vnext/capabilities/table_presentation/`（约 2,600 行，多为按表名正则的列宽规则） | 代码未迁移；`contracts/table-presentation.md`、`capabilities/table-presentation.md`、`capabilities/business-projection.md` 仍为现行文档，与代码不一致 | BE-b |
 | 复合信号公式查看 | legacy formulas artifact | vnext 有 `composite_signal_point` 派生表（含 `formula_ast_json`），bundle 是否完整携带待核对 | FE0 核对 |
 | 历史初始备份节点（随归档提交上传的原始组态备份，可查看差异、加入比较） | `FormalWorkspaceTree.tsx`、`formalWorkspaceState.ts` | History 只有基线、提交与规则迁移节点；History 比较只接受基线节点与提交 | owner 2026-11-02（FE2 kickoff Q4 甲）：FE2 不实现；是否需要由 owner 另定，需要时作为后端任务单独立项 |
+| 上传模式顶栏的“撤回”（草图 `header-upload`） | legacy 工作区顶栏 | `WorkspaceResponse` 只有 `current_upload_revision_id`、`current_preview_result_id`，没有指向当前提交的字段，工作台无法确定可撤回的提交；审核顶栏的撤回按 `submission_id` 进行，不受影响 | owner 2026-11-04（FE2 kickoff Q16 甲）：FE2 只在审核顶栏提供撤回；是否在 `WorkspaceResponse` 加入当前提交，由 BE-a 或后续后端任务决定，加入后由前端接回 |
 
 ## 4. 工程与架构
 

@@ -21,7 +21,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
  -> S1c Submit 等待预算与人工恢复续行修订（DC65，修订 2026-10-30）
  -> 重建对照基准（Python；工具开发可与 S1c 并行，正式测量在 S1c exit 之后）
     ‖ backend 镜像依赖层调整（DC67 补充第 5 项；已完成 2026-10-31，tag `p6-backend-image-exit`）
- -> S2a SQL 解析器（Rust，flag 之后）+ 删除旧扩展（DC70：开发与基准正式测量并行，exit 在基准 exit 之后）
+ -> S2a SQL 解析器（Rust，test-only 差分）+ 删除旧扩展（DC70：开发与基准正式测量并行，exit 在基准 exit 之后）
  -> S2b 上传侧数据路径与规范表存储（切换生产）
  -> S3  比较与逐行记录（Rust）
  -> S4  Submit 渲染直通
@@ -163,13 +163,13 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 ### S2b — 上传侧数据路径与规范表存储
 
 - **准备中，未授权开工（2026-11-04）：** [kickoff 设计输入](p6-s2b-kickoff.md)，引用基线 `ebb004738330`。磁盘数值与 DC63 基准子段尚待交付；正式 kickoff 须在 S2a exit 后重核，交审核再由 owner 确认。
-- **设计输入补充（DC76）：** UTC 导出与既有来源/类型由 owner 确认；少数约 100 MB SQL 纳入容量准备。[映射设计候选](p6-s2b-arrow-mapping-design.md)已形成，技术细则待审核；按映射→容量普查→N/M/flag→kickoff 收口推进，不改变当前基准范围。
+- **设计输入补充（DC76）：** UTC 导出与既有来源/类型由 owner 确认；少数约 100 MB SQL 纳入容量准备。[映射设计候选](p6-s2b-arrow-mapping-design.md)已形成，技术细则待审核；按映射→容量普查→N/M/唯一 Rust 路径与清理→kickoff 收口推进，不改变当前基准范围。
 - **容量输入补充（DC77）：** 首版/长期仓库数为 1,000/10,000，年均每仓库 6–12 次提交；单项目 5 版/日为尚未发生的假设压力，500 仓库同日上传为跨仓库极端场景，不默认组合。S2b 先测单位物理成本并参数化外推，区分 head、durable 历史与临时/TTL；不新增规模门禁或 Phase 7 并发/横向扩展实现。
 
 - **容量方案确认（owner，2026-11-04）：** DC77 容量分层、独立突发场景、测量后外推与 Phase 7 扩展方向已确认；尚未指定硬件数量、磁盘规格、N/M 数值或完成时限，不替代整体 kickoff 审核及开工确认。
 - 目标：设计 §8。
 - 前置：S2a exit；S1c exit（DC65）；设计核对项（上传侧原始表的使用方、磁盘估算）已完成。
-- 内容：数据路径合并 kernel；Arrow 列映射 v1；规范表存储（内容地址、IPC、读取校验、BaselineHead 正式引用与 TTL）；N/M 准入、worker 级共享线程池接线与 pyarrow 线程池；引入生产 feature flag 并切换生产（DC72 第 3、6 项）；Canonical Storage §5 修订。
+- 内容：数据路径合并 kernel；Arrow 列映射 v1；规范表存储（内容地址、IPC、读取校验、BaselineHead 正式引用与 TTL）；N/M 准入、worker 级共享线程池接线与 pyarrow 线程池；直接接入唯一 Rust 生产路径并验证后清理被替代 Python 算法/临时差分入口（DC78；池接线仍按 DC72 第 6 项）；Canonical Storage §5 修订。
 - 验收：t1–t4 端到端摘要与基准一致；存储读取校验、Dolt 兜底与冻结产物四种状态的权威测试；计数断言；W1–W3 测量（ct108）；**W2 可达性检查点**（设计 §16.1：剩余成本不能在 30 s 内闭合时停止，交 owner）；权威 runner 与容器门禁。
 - 真实数据：t1–t4 端到端摘要一致；测本阶段相关负载。
 
@@ -177,13 +177,14 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 - 目标：设计 §9。
 - 前置：S2b exit。
-- 内容：共用比较内核（standard、keyless、ordered）；逐行记录 Arrow 与 `content_digest`；记录写入改为 pyarrow 由 Arrow batch 写，删除发布后回读（保留读取校验）；风险按 Arrow 分批消费；单次操作内去重（键含规则与版本）；Comparison 与 Risk 的缓存条款修订（设计 §14）；分歧点按现行行为写进 Contract；feature flag 接入。
+- 内容：共用比较内核（standard、keyless、ordered）；逐行记录 Arrow 与 `content_digest`；记录写入改为 pyarrow 由 Arrow batch 写，删除发布后回读（保留读取校验）；风险按 Arrow 分批消费；单次操作内去重（键含规则与版本）；Comparison 与 Risk 的缓存条款修订（设计 §14）；分歧点按现行行为写进 Contract；替换期差分后验证唯一 Rust 路径，删除被替代 Python 算法和重复测试（DC78）。
 - 验收：差分（语料、随机、t1–t4）逐字节一致；记录 golden 逐字节一致；去重开关不改结果；W3、W4（含 FULL 一次与 100% 压力档，只报告）测量，W4 中不存在未计入的逐行 Python 转换；权威 runner 与容器门禁。
 
 ### S4 — Submit
 
 - 目标：设计 §10。
 - 前置：S3 exit。
+- 清理：Rust 渲染与存储 diff 接入验证后删除被替代 Python 算法及重复测试（DC78）；DC45 的通用规划器等独立职责继续保留，不按语言盲删。
 - 内容：渲染直通；存储 diff 共用内核；用最终渲染器复测 S1a 冻结的阈值与批量规则（须调整时作为例外交 owner）。S1a 终审登记（2026-10-27）：UPDATE、DELETE 分批时每加一行重渲染整批（`_render_limited_mutation_batches`），渲染量随批大小平方增长；整表重建对 parent 每行生成逐键 DELETE，代价随重建表行数放大。t4 未见可测回退，S4 改为按增量累计完整语句字节分批，批次划分与 SQL 字节不变。
 - 验收：同一输入的 `replay.sql` 与 S1a 产物逐字节一致；设计 §16.2 的 Submit 计数；S1–S4 完成时间（main 前移）；权威 runner 与容器门禁（Submit Compose 旅程）。
 
@@ -199,7 +200,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - **待决提案：** DC74 草案建议在本阶段随现有旅程完成 BE-c（t4/2× t4 的完整 bundle 体积），整包下载另列只报告。未确认前不改变既定验收矩阵。
 
 - 目标：设计 §12。
-- 内容：加速曲线定 N；删除生产 feature flag；按设计 §16.3 验收矩阵完成全部场景取证；存储报告；门禁时长重新剖析；Phase 6 退出。
+- 内容：加速曲线定 N；核对各阶段旧算法与临时差分设施已清理（DC78）；按设计 §16.3 验收矩阵完成全部场景取证；存储报告；门禁时长重新剖析；Phase 6 退出。
 - 验收：设计 §16.3 全部场景（门槛项达标、只报告项有记录）与 §16.2 全部计数断言；最终提交上完整运行权威 runner（六个包）与容器门禁各一次；Phase 6 退出审核。
 - 真实数据：2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。
 
@@ -215,12 +216,12 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 | --- | --- |
 | S1a | B`capabilities/storage_projection/`（`_digest.py`、`project.py`、`publish.py`、`contracts.py`、`package.py`、`import_replay.py`）、B`capabilities/table_rules/contracts.py`、B`capabilities/mutation_planning/`、B`capabilities/comparison/standard.py` 与 `ordered.py`、B`application/preview_jobs.py`、B`application/history/compare_jobs.py`、B`application/submission/import_builder.py`、B`infrastructure/repository_write/import_publication.py`、B`application/submit_jobs.py`；golden：storage-projection、mutation |
 | S1b | `vnext/shared_kernel/src/gateway_shared_kernel/scalar.py`（FLOAT 直接舍入）与 shared-kernel 编码向量 golden、B`capabilities/comparison/`（`row_encoding.py`、`contracts.py`、`artifacts.py`）、B`capabilities/risk_evaluation/`、B`capabilities/surface_assembly/`、B`capabilities/bundle_assembly/`、B`application/pair_pipeline.py`、B`http/orchestration/`（`multipart_stream.py`、`multipart_upload.py`）、B`application/workspace/upload_limits.py`、B`capabilities/table_access/`（参照解析器修复）、B`capabilities/table_rules/`（DC56 规则改动）与 storage-projection 规则集、manifest golden、`vnext/backend/benchmarks/`（合成负载）；control DB 基线 schema（导出缓存 owner）；B`operations/worker_runtime.py`、B`bootstrap/operation_worker.py`（DC61）；`vnext/scripts/build-repository-service-image.sh` 与其测试（DC61） |
-| S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python*`（新 adapter，删除旧 crate 内容）、B`capabilities/table_access/`（flag 接入）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/check-rust-extension-build-input.sh`（核对新扩展）、`vnext/scripts/native_kernel_component.sh`（删除）、T`architecture_baseline.py` 与 `import_rules` 基线 |
+| S2a | R`gateway-compute-core/src/table_access/`、R`gateway-compute-python*`（新 adapter，删除旧 crate 内容）、B`capabilities/table_access/`（test-only 差分）、B`capabilities/canonical_row_hash/`（删除）、`vnext/backend/Dockerfile`、`vnext/scripts/run-tests.sh`（去掉排除）、`vnext/scripts/check-rust-extension-build-input.sh`（核对新扩展）、`vnext/scripts/native_kernel_component.sh`（删除）、T`architecture_baseline.py` 与 `import_rules` 基线 |
 | S2b | R`gateway-compute-core/src/`（物化、投影、摘要模块）、B`capabilities/snapshot_materialization/`、B`capabilities/storage_projection/`、B`artifacts/` 与 B`infrastructure/artifact_store/`、control DB 基线 schema（BaselineHead owner）、B`settings.py`（N、M）、B`bootstrap/operation_worker.py`（线程池） |
 | S3 | R`gateway-compute-core/src/comparison/`、B`capabilities/comparison/`、B`capabilities/risk_evaluation/`（接口） |
 | S4 | R`gateway-compute-core/src/`（渲染）、B`capabilities/mutation_planning/`、B`infrastructure/repository_write/import_publication.py` |
 | S5 | B`application/history/`、B`capabilities/comparison/`（缓存接口）、B`application/submission/finalize*.py`、B`infrastructure/repository_read/`（并发与 503 退避）、control DB 基线 schema（缓存 owner） |
-| S6 | feature flag 删除涉及的全部入口；测量 runbook |
+| S6 | 唯一生产路径与各阶段旧算法清理核对；测量 runbook |
 
 每阶段 kickoff 时对照当前 HEAD 复核路径预算，偏离先修订设计再开工。
 
@@ -291,4 +292,4 @@ GATEWAY_TEST_WORKERS=48 ./vnext/scripts/run-tests.sh
 
 ### 8.5 提示词与审核报告模板
 
-沿用 [P5 执行计划 §8.7、§8.8](p5-arch-closure-execution-plan.md) 的结构；Phase 6 的提示词另须写明：节点分工与空闲确认、短期分支与 bundle 同步、feature flag 约定、不改写参照实现（差分阶段）、不绕过 auto-mode 分类器的拒绝。
+沿用 [P5 执行计划 §8.7、§8.8](p5-arch-closure-execution-plan.md) 的结构；Phase 6 的提示词另须写明：节点分工与空闲确认、短期分支与 bundle 同步、DC78 的唯一生产路径与旧算法清理约定、不改写临时参照实现（替换期差分）、不绕过 auto-mode 分类器的拒绝。

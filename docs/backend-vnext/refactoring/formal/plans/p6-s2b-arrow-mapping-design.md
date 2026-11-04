@@ -45,8 +45,8 @@ Utf8/Binary 的 small/large 选择按规范化后整列 payload 字节数确定�
 
 - 不压缩 IPC，Rust 编码、Python ArtifactStore 落盘；mmap 读取、raw SHA 校验及临时文件原子 rename 沿用设计。读取校验保留，写后回读删除。
 - keyed 按既有规范键排序，ordered 物理存放按 gid、业务顺序仍按 no；keyless 按既有行哈希排序并保留全部重复行。排序实现不能用 SQL 插入顺序、worker 完成顺序或 Arrow 默认比较规则替代 owning Contract。
-- 同一实现版本固定列/metadata 顺序、batch 划分、writer 选项及 null buffer 的规范输出；排除时间戳等不稳定字段。相同规范输入在 Python/Rust 路径、N=1/N 及不同 parser chunk 下生成相同规范 IPC。reader/writer 使用同一个版本化 profile；影响持久物理表示的规则变化同步修订映射版本及测试，不把依赖版本加入业务摘要。
-- 未经确认不增加第二种持久格式。生产 flag 选择计算路径，两路径共用规范 IPC 与引用/恢复语义；T1、BaselineHead、TTL 和缺失后的四种恢复状态不在映射层重定义。
+- 同一实现版本固定列/metadata 顺序、batch 划分、writer 选项及 null buffer 的规范输出；排除时间戳等不稳定字段。相同规范输入在 Rust 路径的 N=1/N 及不同 parser chunk 下生成相同规范 IPC；固定向量校验声明、值及字节布局。替换期可借 Python 冻结结果验证语义，不为新 IPC 格式建设第二套 Python 算法（DC78）。reader/writer 使用同一个版本化 profile；影响持久物理表示的规则变化同步修订映射版本及测试，不把依赖版本加入业务摘要。
+- 未经确认不增加第二种持久格式。唯一 Rust 生产路径使用规范 IPC 与既有引用/恢复语义，不建设 Python 回退或双格式兼容（DC78）；T1、BaselineHead、TTL 和缺失后的四种恢复状态不在映射层重定义。
 
 ## 5. 验收与容量输入
 
@@ -55,13 +55,13 @@ Utf8/Binary 的 small/large 选择按规范化后整列 payload 字节数确定�
 - 整数/DECIMAL 边界、FLOAT 舍入、NULL/空值、BIT 非整字节位宽、ENUM/SET、UTC 时间与负/长 TIME、JSON 文本保值、空表与全 NULL 列。
 - parser descriptor → 规范 IPC → 读取/既有导出路径的声明和值一致，业务摘要、行数和重复行保值；错误 metadata/物理类型组合拒绝。RS 映射验收仍由原 owner 负责。
 - small/large 阈值用纯边界测试，实际转换用适当大小的数据覆盖；不为阈值分支强制分配数 GiB 的普通单元测试。
-- 不同线程、chunk 和两计算分支的确定性归映射 owner；真实数据端到端结果仍由现有 comparator 判定。容量与 W2 不由映射测试冒充。
+- 不同线程、chunk 和固定向量的确定性归映射 owner；真实数据端到端结果仍由现有 comparator 判定。容量与 W2 不由映射测试冒充。
 
 容量普查应分别记录总输入、最大表、最大列 payload、最长字段/语句、行数分布、规范 IPC、导出副本、临时高水位和峰值内存。已有 V6 158.7 MB 合成输入增加的是表，不能据此断言少数大表的完整路径已验证。优先复用现有样本，在获安排的 05 设计输入普查中补充保持类型与业务约束的大表分布；实际 100 MB 样本只在分布代表性不足时再协调。任何生成规则与取证范围先写入普查方案；不修改当前基准输入、golden 或正式测量口径。
 
 ## 6. 状态与下一步
 
-owner 已确认 UTC、来源/类型不变及少数约 100 MB 输入，并允许落成方案。本文技术细则待审核；S2a exit、原始表使用方核对、磁盘预算、N/M/flag 细则及正式 kickoff 仍是各自待办。下一步先形成容量普查和 N/M 方案，不把文件大小上限当作内存可承受承诺，不因极端输入少见而跳过预算拒绝与无部分写入的既有边界。
+owner 已确认 UTC、来源/类型不变及少数约 100 MB 输入，并允许落成方案。本文技术细则待审核；S2a exit、原始表使用方核对、磁盘预算、N/M、唯一 Rust 路径与旧算法清理细则及正式 kickoff 仍是各自待办。下一步先形成容量普查和 N/M 方案，不把文件大小上限当作内存可承受承诺，不因极端输入少见而跳过预算拒绝与无部分写入的既有边界。
 
 ## 7. 本次文档提交检查
 

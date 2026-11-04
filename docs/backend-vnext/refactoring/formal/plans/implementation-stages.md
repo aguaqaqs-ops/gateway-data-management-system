@@ -667,23 +667,23 @@ gateway-compute-worker     artifact-based worker/CLI（按需，当前不建）
 - 同步路径使用 PyO3 + Arrow 粗粒度调用；长调用释放 GIL，并响应取消与截止时间。
 - Rust core 不写文件，只产出 Arrow 结果或 IPC 字节，由 Python ArtifactStore 落盘（Rust safety policy §4）。
 - 每个 worker 进程一个固定 N 的 Rayon 池；pyarrow 线程池按同一 N 设定；不引入 Polars。
-- Python 保留 domain、application、Operation Runtime、ruleset selection、业务 policy 与风险规则。
+- Python 当前保留 domain、application、Operation Runtime、ruleset selection、业务 policy 与风险规则；这是当前取舍，不是永久语言限制（DC78）。未来按业务与实测瓶颈另行设计 Rust 编排；纯计算 core 仍独立于 PyO3、I/O 和 workflow，可经适配层供 Python 或 AI 工具调用，本阶段不新增 MCP 服务。
 
 ### 进入条件
 
 - 满足 Performance Measurement §5 的优化进入条件；对照基准为 S5（DC32）的测量记录，Contract 阶段之后重建。
 - 目标阶段有独立 profile（S5 与 V5 提供）。
-- Python reference oracle 与跨语言差分验证就绪（讨论稿 §6.3、DC44、DC46）。
+- 替换期的冻结参照与跨语言差分验证就绪（讨论稿 §6.3、DC44、DC46、DC78）；不要求为新能力先建设完整 Python 算法。
 - Arrow 映射与 scalar/digest Contract 已版本化（表摘要由 DC39 收口，Arrow 列映射在设计阶段定稿）。
 - Rust 构建已接入 backend 镜像；Rust 测试已进入权威门禁，Python 测试使用当前扩展（DC48）。
 
 ### 退出条件
 
 - DC35 与 DC38 的业务目标在参考环境与单任务上限 N 下达到；结构性计数断言通过；分段下界分析只作报告。
-- Rust 与 Python reference 的 facts、records、排序和 digest 一致；1 个线程与 N 个线程的输出逐字节相同。
+- 替换期 Rust 与冻结参照的 facts、records、排序和 digest 一致；删除旧实现后由独立固定向量、Contract 与性质测试回归；1 个线程与 N 个线程的输出逐字节相同（DC78）。
 - Panic、超时、取消、内存不足和 native crash 有明确失败边界；单表超出内存预算时稳定失败。
 - 按 Performance Measurement §6 报告存储变化（规范表存储为新增的持久化派生数据）。
-- 各 Rust 路径接入期间的 feature flag 已删除，生产不保留双路径；Python 实现降为测试用参照（差分测试与小数据 oracle）。
+- 各 Rust 路径接入验证后已在所属阶段删除被替代 Python 算法及临时差分设施；不建设生产回退开关、不长期保留完整旧算法作 oracle。保留仍有实际消费者的 Python 编排/适配与关键恢复测试（DC78）。
 
 ### 本阶段不做
 

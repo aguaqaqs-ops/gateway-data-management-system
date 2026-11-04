@@ -66,6 +66,7 @@ implementation_authorized: no
 | DC75 | BE-a 扩项：Workspace 占用指针与本人撤回权限；方向已确认，kickoff 审核通过、待实施确认 | — | — |
 | DC76 | S2b 输入约定与映射准备：UTC 导出、来源/类型不变，纳入少数约 100 MB SQL；映射细则待审核 | — | — |
 | DC77 | 容量设计输入：首版 1,000、长期 10,000 个独立设备仓库；年均每仓库 6–12 版；补充单项目 5 版/日假设压力与 500 仓库同日上传场景 | — | — |
+| DC78 | Rust 替换验证后删除旧 Python 算法；无生产回退/双路径；语言按业务取舍，core 可复用，测试转为契约与固定向量 | — | — |
 
 ## 2. 决议详情
 
@@ -76,7 +77,7 @@ implementation_authorized: no
   1. **Phase 6 管单个 operation 的延迟**，以 DC35、DC38 的目标与结构性计数断言为退出条件。手段包括 operation 内部的表级与数据级并行、operation 内并发读取 Dolt（受单任务上限 N 约束），以及自身目标需要的缓存。缓存机制只用内容寻址、现有保护表、TTL、ADR 0012 的协作清理与读取时校验。
   2. **Phase 7 管多个 operation 的吞吐与资源**：槽位上限 K、公平调度、排队状态、多项目扩展测量、多 worker（重新设计启动租约判定）、跨 operation 的 RS 资源队列与单 repository writer、其他共享瓶颈、按容量淘汰与多项目缓存治理、统一并发预算与背压。按容量淘汰只在 Measurement Contract §6 的存储测量显示需要时才做。
   3. **Phase 6 含一个 Contract 阶段**（DC50 的 S1a、S1b）。其中的业务语义修正不是性能工作；按 Measurement Contract §5，前后结果不作为性能收益比较。
-  4. **feature flag**：各 Rust 路径接入期间保留，可退回 Python 参照实现；Phase 6 退出时删除生产开关，Python 降为测试用参照（差分测试与小数据 oracle），生产不保留双路径。
+  4. **Rust 替换（2026-11-04 由 DC78 修订）**：不建设 Python 生产回退或双路径开关；替换期可临时差分验证，Rust 完成生产接入与验证后，在对应阶段删除被替代 Python 算法及重复测试，不长期保留完整旧实现作为测试参照。
   5. **阶段改名**：Phase 6 为“单任务性能与 Rust 接入”，Phase 7 为“多项目并发与容量”。
 - **修订**：implementation-stages §9 中“Phase 3 首批 Rust provider 已通过真实纵切验证”“Slice 5B 已产生 accepted vNext baseline”两条进入条件，以及“Rust provider 可通过 feature flag 回退”的退出条件，由本决议取代。
 - **落点**：implementation-stages §2、§9、§10，按讨论稿 §4.2 的改写要点修改，随本记录同期提交。
@@ -167,7 +168,7 @@ implementation_authorized: no
 - **决议**：
   1. 用 Rust 加 arrow-rs，不引入 Polars。
   2. 先做 standard 与 keyless；ordered 待前置验证 V1 的结论。**V1 结论（owner 2026-10-25 确认）：ordered 在 S3 与 standard、keyless 一起进入 Rust，** 共用规范编码、共有列投影、行身份、记录排序、资源上限与 facts 管线，ordered 专属的 LIS 主干、绝对 `no` 位置与空白区间规则留在 ordered 模块内（[V1 报告](p6-v1-ordered-prototype-report.md)）。
-  3. Python 实现作为参照实现，按 §6.3 的差分分层验证；分歧点（浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则）先写进 Contract。
+  3. Python 实现在替换期作为临时参照，按 §6.3 的差分分层验证；分歧点（浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则）先写进 Contract。DC78 修订后续生命周期：接入验证后删除被替代算法，Contract 与独立固定向量继续拥有语义。
   4. 列式实现须同时满足 DC40 的语义。
 - **落点**：Comparison Contract；DC50 的 S3。
 
@@ -252,7 +253,7 @@ implementation_authorized: no
      - **S3 比较**：DC44；DC43 的单次操作内去重；DC54 的逐行记录由 Rust 生成。
      - **S4 Submit**：DC45 的渲染直通与列式存储 diff；按 V7 定稿阈值。
      - **S5 History 与跨操作缓存**：DC43 的跨操作缓存；History 按表拼接；Dolt 按表并发读取。
-     - **S6 收尾**：加速曲线定 N；删除生产 feature flag；2× t4 全部负载取证（W1–W4、H1–H3、S1–S4、计数断言）；存储报告（Measurement Contract §6）；Phase 6 退出。
+     - **S6 收尾**：加速曲线定 N；按 DC78 核对各阶段被替代算法及临时差分设施已清理，不新建生产回退开关；2× t4 全部负载取证（W1–W4、H1–H3、S1–S4、计数断言）；存储报告（Measurement Contract §6）；Phase 6 退出。
      - 测试基础设施阶段按 DC48 第 3 项可选插入。
   4. **真实数据（DC33：kickoff 写明，退出时 owner 确认）**：S1a、S1b 为 t1–t4 与 testdata1 完整旅程；S2a 只做解析结果逐值差分；S2b 至 S5 为 t1–t4 与 testdata1 端到端摘要与基准一致，并测本阶段相关负载；S6 为 2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。t1–t3 与 testdata1 在 `ct108-gw-dms-05`，t4 与测量在 `ct108-gw-dms`。
      - **补充（owner，2026-10-25）：** 允许在 `ct108-gw-dms-05` 上使用 t4，用于正确性对照（例如 V6 的逐值差分）。05 上自克隆起就有 t4 的两个数据包（`/home/dev/gateway-real-dumps/packages/`），DC36 生效记录写的是“05 保留 t1–t3”，与实际不符，以此为准。性能测量与 t4 的完整旅程取证仍在 `ct108-gw-dms`。
@@ -740,7 +741,7 @@ implementation_authorized: no
 - **决议**（repository owner，2026-10-31，按审核建议）：
   1. **O2：** JSON 数值解码后非有限（包括 `1e400` 这类溢出为 inf 的值）按表级 `SQL_VALUE_ILLEGAL` 拒绝。这是 DC62 第 2 项 e 的一致性修正，不是新语义。先在 Python 参照实现中单独提交修正（复用现有 reject 参数表），再由 Rust 实现对齐；第 ④ 层差分记录真实数据中这类值的出现次数。
   2. **旧实现删除范围：** 按 kickoff §3 确认（DC52）。AGENTS.md 与 testing-conventions.md 由治理会话维护，S2a 在 handoff 中写出建议条文；执行计划路径清单的修改在 handoff 中提出，exit 时更新。设计 §2.2 的事实描述、被删除的 Contract 与 ADR 链接由 S2a 修改。
-  3. **差分入口与生产 flag（设计 §7 澄清）：** S2a 只在测试支持层提供双实现入口，生产 `parse_sql()` 与 worker 路由继续走 Python，不引入部署 flag，不做 shadow 执行。生产 feature flag 改在 S2b 随上传侧数据路径合并（DC46）引入并用于切换生产；S6 删除不变。
+  3. **差分入口与接入（设计 §7 澄清，后续由 DC78 修订）：** S2a 只在测试支持层提供双实现入口，生产 `parse_sql()` 与 worker 路由继续走 Python，不引入部署 flag，不做 shadow 执行。S2b 随上传侧数据路径合并（DC46）直接接入 Rust，验证后删除被替代 Python 路径；不再引入原拟的生产 feature flag。S2a 已引用证据及范围不追溯更改。
   4. **parser 表内分块（DC47 第 4 项的 L3）：** 保留 V6 已实现并验证的 INSERT 元组分块，作为 SQL parser 专属的 L3。条件：只用同一个共享池，不嵌套建池；row-budget 偏移、同表多处错误的诊断顺序在不同分块大小下必须相同，纳入第 ③ 层与 Rust 确定性测试；不在其他 kernel 扩大 L3。
   5. **adapter 命名：** 新的单一 adapter 沿用 distribution 与 crate 名 `gateway-compute-python`；删除 `gateway-compute-python-impl`。Python 模块对外为全新的 parser 接口，不保留任何旧 API 符号。
   6. **线程池分步（DC47 第 5、7 项）：** S2a 在 adapter 中实现进程内共享的有界池（一次创建、固定 N、所有调用复用，N 由调用方传入；测试默认 N=1，一致性测试比较 1 与 N）。worker 启动时的接线与部署配置 N、M 在 S2b 完成；相应的 owner 测试分别在 S2a（adapter 层池复用）与 S2b（worker 启动接线）。
@@ -778,7 +779,7 @@ implementation_authorized: no
 
 ### DC74（草案）BE-c 的落点与整包传输计时
 
-- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影，DC76/DC77 用于 S2b 输入与容量约定；下一个可分配编号为 DC78。
+- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影，DC76/DC77 用于 S2b 输入与容量约定；DC78 用于 Rust 单实现与清理约定，下一个可分配编号为 DC79。
 - **来源**：`ebb0047383300a3754a4be6a6a78f72286600c83` 的[后端交接 §2.3](p6-backend-session-handoff.md)、[前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、本记录 DC38/DC41/DC53/DC64/DC66；设计 §16.1 的 i 段已计入 READY 前 bundle 组装与导出成本。
 - **需 owner 定的两项及建议**：
   1. **BE-c 放在基准还是 S6？建议 S6。** 基准产品固定为 `p6-s1c-exit`，当前 GET `/bundle` 只返回 manifest JSON；基准体积不能冒称 BE-d 后完整 tar 的线传字节。完整报告随 S6 已有 t4、2× t4 旅程采集，不为体积另跑一轮完整旅程。BE-d 实施后即可随已授权运行先记实际字节供 FE3 参考；如 owner 要提前从保留闭包估算，也须标“闭包逻辑大小/理论 tar 大小”，不作网络实测，不扩充当前基准必跑场景。
@@ -822,6 +823,17 @@ implementation_authorized: no
 - **扩展方向（owner 已确认，具体选型待 Phase 7）**：利用仓库独立性，在 Phase 7 评估按项目/仓库归属分配执行与存储资源、有限槽位排队和横向增加服务分区；同仓库写入与 CAS/幂等保持原约束。现有单 executor、启动租约判定、RS root 所有权和共享 control DB/artifact 边界须先评估，不能直接把增加副本当作已具备的跨机扩展能力。S2b 不提前引入分片、分布式调度或共享存储改造。
 - **方案确认（owner，2026-11-04）**：同意上述容量分层、两个独立突发场景、单位成本测量后外推，以及 Phase 7 评估横向扩展的设计方向，授权落成方案并继续下一部分。此确认不指定机器数量、磁盘规格、N/M 数值或任务完成时限；这些仍按测量和后续设计确定。
 - **未决输入**：日内到达分布与完成时限、实际大小与变更量分布、单位物理存储和运行峰值仍需核对；不将这些未知量默认为零或均匀分布。单任务准备可继续，部署容量/峰值吞吐尚未通过验证。本文确认业务规模输入，不替代 kickoff 审核或实施授权。
+
+### DC78 无兼容负担下的 Rust 替换、模块边界与测试生命周期
+
+- **来源与状态**：owner 于 2026-11-04 在设计会话 `01a1a628-e59a-7981-aad5-6bf31e919d38` 明确：项目没有历史包袱或兼容要求；Rust 重构并验证后可完全删除被替代 Python 实现，不作为回退。此方向已确认；技术落点纳入相应 kickoff 审核，非新的实施开工或推送授权。
+- **替换规则**：取代 DC37 第 4 项、DC44 第 3 项的永久参照解释、DC50 的 S6 开关安排及 DC72 第 3 项的未来生产 flag 安排。不增加 Python/Rust 部署开关、自动/人工算法回退或为选择引擎新增的 operation 持久字段。开发期间可以临时差分；完成实际调用链接入与验证后，在该阶段删除旧算法、仅服务旧算法的依赖/mock/重复测试及临时双实现入口。不把完整旧算法改名为 oracle 后长期维护。
+- **阶段衔接**：当前 S2a 是 test-only parser；生产仍用的 Python parser 尚未被完整替换，S2b 承接接入、验证及清理。比较与 Submit 等模块在各自替换阶段执行相同规则；S6 只做剩余项核对，不统一延期清理。冻结基准、既有 S2a 证据、停止规则和 exit 次序不变；历史提交保留原证据，不为删除旧算法改写已引用提交。
+- **测试规则**：删除的是旧实现及重复执行，不是它承担的业务断言。先把语义预期收敛到经核实的语言中立 fixtures/golden、Contract 边界与性质测试，再移交到 Rust 权威 owner；关键预期不能由当前 Rust 输出无审查地自生成。Python 侧保留实际编排/适配/错误传播/端到端恢复测试；取消、预算、租约、事务/CAS、冻结产物与跨 scope 边界照常验证。测试脚本使用 Python 不等于保留 Python 热点算法；其他仍有独立生产消费者的 Python 能力不得误删。
+- **语言取舍**：Python 当前适合轻载编排和快速业务验证，但不是永久语言边界。新功能可先用 Python 验证，也可按真实需要直接用 Rust；编排若出现经测量的瓶颈，也可单独设计 Rust 替换。没有本次全量重写编排或移动业务状态所有权的授权。
+- **可复用边界**：Rust core 保持稳定输入/输出、错误、取消/截止和资源预算接口，独立于 PyO3 与调用方。未来 Python、CLI 或 AI 工具/MCP 可通过适配层复用同一 core；本轮不新建 MCP server、网络计算服务或通用插件框架。AI 发起业务操作仍经过服务的认证授权、scope、幂等和事务边界，不直接获得数据库/文件系统写入口。未来 Rust 编排可置于相应应用层，不因此让纯计算 core 承担 I/O 或业务 workflow。
+- **收益口径**：预期减少双实现差分、重复算法用例与旧依赖维护，并让使用热点的新路径测试加速；不能承诺整个 runner 按 kernel 倍数缩短。Compose/Dolt、进程恢复、I/O、等待及 Rust 编译成本另计；按已有 V8 方法在替换后重新剖析，不因预期收益削减关键覆盖。
+- **文档归属**：本轮同步 DC、设计、执行计划、S2b kickoff 与映射候选。ADR 0001 §1/§2/§5/Required Verification、ADR 0010 的 reference 定位、Rust policy §8/§9 及相关 owning Contract 中强制长期双实现的文字，须由对应文档 owner 按本决议定向同步；不改 Safe Rust、失败边界或现有 core 依赖方向。本角色不越权修改 ADR/policy/测试治理。新决议优先于冲突旧文字，技术实施前在 kickoff 列清同步项。
 
 ## 3. 设计阶段待定项
 

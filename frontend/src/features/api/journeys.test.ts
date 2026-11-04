@@ -3,7 +3,7 @@ import type { GatewayApi } from "./client";
 import { applyReviewAction, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
 import { MemoryBundleStore } from "../bundle/local-bundle";
 import { installedFixtureBundle, installedGoldenBundle, responseForTar } from "../../test/helpers";
-import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_REVIEW_HISTORY, TEST_REVIEW_HISTORY_EMPTY, TEST_REVIEW_HISTORY_NO_PARENT, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testHistoryCompareAcceptance, testHistoryCompareSucceeded, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED } from "../dev/mock-data";
+import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_ANOMALY_EVENT, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_REVIEW_HISTORY, TEST_REVIEW_HISTORY_EMPTY, TEST_REVIEW_HISTORY_NO_PARENT, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testHistoryCompareAcceptance, testHistoryCompareSucceeded, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED } from "../dev/mock-data";
 
 const operation = TEST_OPERATION_SUCCEEDED;
 const upload = TEST_UPLOAD_FULL;
@@ -29,7 +29,7 @@ describe("simulated user journey data flows", () => {
       poll: { intervalMs: 0, wait: async () => undefined },
     });
     expect(api.uploadRevision).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expectedWorkspaceVersion: 10 }));
-    expect(api.startPreview).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 9, expected_baseline_head_version: 12 }), undefined);
+    expect(api.startPreview).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 9, expected_baseline_head_version: 12 }), expect.any(String));
     expect(api.getOperation).toHaveBeenCalledWith("op-1", expect.any(AbortSignal));
     expect(getPreviewBundle).toHaveBeenCalledTimes(1);
     expect(result.bundle.manifest.bundle_digest).toBe(fixture.manifest.bundle_digest);
@@ -173,7 +173,9 @@ describe("simulated user journey data flows", () => {
     const listArchiveCandidates = vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES);
     const api = {
       listArchiveCandidates,
-      listArchiveEvents: vi.fn(async (query: { subjectKind: string; subjectDigest: string }) => query.subjectDigest === "sha256:selection-subject" ? TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION : TEST_ARCHIVE_EVENTS_EMPTY),
+      listArchiveEvents: vi.fn(async (query: { subjectKind: string; subjectDigest: string }) => query.subjectDigest === "sha256:selection-subject"
+        ? TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION
+        : query.subjectDigest === "sha256:anomaly" ? { events: [TEST_ARCHIVE_ANOMALY_EVENT], next_after_sequence: null } : TEST_ARCHIVE_EVENTS_EMPTY),
       previewArchive: vi.fn().mockResolvedValueOnce(firstPlan).mockResolvedValueOnce(readyPlan),
       appendArchiveConfirmation: vi.fn().mockResolvedValue(TEST_ARCHIVE_CONFIRM_APPEND),
       appendArchiveAnomalyResolution: vi.fn().mockResolvedValue(TEST_ARCHIVE_RESOLUTION_APPEND),

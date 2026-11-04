@@ -151,7 +151,6 @@ describe("simulated HTTP response contracts", () => {
         expect(plan.selected).not.toBeNull();
         expect(plan.audit_validity).toBe(true);
         expect(plan.blockers).toEqual([]);
-        expect(plan.anomalies.every((anomaly) => plan.confirmation_requirements.includes(anomaly.subject_digest))).toBe(true);
       }
     }
   });

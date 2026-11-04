@@ -373,7 +373,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ### 13.1 BE-a 前端对接补充（DC75）
 
-owner 2026-11-04 同意在 S2a 合入后、FE3 前将工作区占用指针及本人撤回权限并入 BE-a；详细设计和验收见 [BE-a 设计补充](p6-be-a-design.md)，待 kickoff 审核后确认实施。WorkspaceResponse 同快照投影 active_submit_attempt_id/active_submission_id；withdraw_own_submission 只开放 scope 内本人 review facts 与合法 WITHDRAW，review_submission 保持现有能力。工作区版本与审核版本分离，幂等回放每次重验当前授权；状态、占用释放和 Repository 语义保持。
+owner 2026-11-04 同意在 S2a 合入后、FE3 前将工作区占用指针及本人撤回权限并入 BE-a；详细设计和验收见 [BE-a 设计补充](p6-be-a-design.md)，kickoff 审核已通过（`fcbfb4c1a0`），待 owner 确认实施。WorkspaceResponse 同快照投影 active_submit_attempt_id/active_submission_id；withdraw_own_submission 只开放 scope 内本人 review facts 与合法 WITHDRAW，review_submission 保持现有能力。工作区版本与审核版本分离，幂等回放每次重验当前授权；状态、占用释放和 Repository 语义保持。
 
 本项不改变 §16 的性能矩阵或固定基准产品，不重做 S2a parser 差分；BE-a 自身门禁与真实数据范围按 kickoff。Owning Contract、P5-5C 和 HTTP 文档在实施提交同步目标条款，不把本页设计方向表述为已实现接口。
 

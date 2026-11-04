@@ -1,6 +1,6 @@
 # BE-a 设计补充：工作区占用指针与本人撤回（DC75）
 
-状态：2026-11-04，owner 已同意方案及并入 BE-a；详细条款与验收待 kickoff 审核，审核后由 owner 确认实施。本文不是当前已部署接口或实施结果。
+状态：2026-11-04，owner 已同意方案及并入 BE-a；kickoff 审核已通过（报告提交 `fcbfb4c1a0`），待 owner 确认实施。本文不是当前已部署接口或实施结果。
 
 引用基线：main `d0a8143d804e158e16b0712cc5f2aa007066f9cb`。以下源码事实及文档均指此提交；前端问题来源为 `55e6c0083c` 的 [FE2 kickoff Q16](../../../../frontend-vnext/fe2-kickoff.md) 与 [前端 kickoff §3.3](../../../../frontend-vnext/frontend-kickoff.md)。本轮不改产品代码、前端文件、审核报告及治理文件。
 
@@ -94,11 +94,14 @@ HTTP 请求体不新增 caller identity；生成 OpenAPI 中两个指针为 requ
 | --- | --- | --- |
 | 权限和披露 | reviewer、self-only、双权限、均无；本人/他人/跨 scope/不存在；GET 与三种目标动作；未授权不返回事实 | HTTP 授权测试，参数表复用 |
 | 查询与命令共享规则 | self-only GET 本人的 PENDING/APPROVED/终态；非本人 404；仅上传权限 403；POST 不可越权 | 上述 HTTP owner，应用层只验证必要接线 |
-| 幂等 | 同键回放（释放后也成功）、新键终态拒绝、跨 actor 合法 WITHDRAW 回放、另一提交的 key 冲突不泄露、权限撤销后拒绝、不同动作不可回放、损坏记录维持完整性错误 | review transaction/replay 测试 |
+| replay 权限、披露与公开响应 | 当前 session 撤权后拒绝、self-only 动作限制/非本人 404、跨 actor 合法 WITHDRAW 回放、另一提交的 key 冲突不泄露、释放后同键返回原响应、新键终态拒绝 | `tests/test_review_http.py`（公开 HTTP，沿用 P5-5C §12 的唯一 owner） |
+| replay 完整性 | 幂等记录的 project/Submission/event sequence/fingerprint 闭包；损坏记录保持完整性错误，不能伪装成普通 conflict | review transaction/replay 测试；不重复 HTTP 权限矩阵 |
 | 事务与竞争 | WITHDRAW/APPROVE/REJECT 与归档现有合法竞争；事件/CAS/指针释放原子性，失败无部分写入 | 既有 review/archive transaction 测试，补新权限入口 |
 | 指针投影 | create/get 两响应；受理、等待恢复、ABORTED、finalize、通过、撤回/拒绝、归档释放；显式 null、互斥与对应版本；并发读取不能混合快照 | Workspace 查询投影测试；生命周期 owner 提供状态构造 |
 | 公开生产路径 | self-only 提交人上传→Preview→Submit→查 Workspace→查 review→撤回→刷新指针→再次上传；reviewer 原旅程回归 | 真实 wiring HTTP/Compose |
 | OpenAPI | required nullable 字段；两创建接口成功码；旧动作/状态移除 | OpenAPI 测试 |
+
+上述归属按 kickoff 审核 `fcbfb4c1a0` §3 的非阻塞建议订正：HTTP owner 负责 replay 权限与披露；事务 owner 负责完整性、CAS、原子释放及失败无部分写入。复用现有参数表，不将公开边界降为应用直调测试，也不把整个矩阵重复跑 Compose。
 
 测试以业务行为命名，不枚举内部执行步骤；同构输入使用参数表。不能仅测试 reviewer 同时有全部权限的身份来宣称本人撤回通过。
 
@@ -109,10 +112,12 @@ P6 基准仍测固定 p6-s1c-exit，不因本项重新测量；不重做 S2a par
 ## 7. 确认与交接
 
 - owner 2026-11-04：同意上述方向，要求补充订正并给出各方提示词。
-- kickoff 详细设计/验收审核：待 owner 转交；报告不得由设计会话代写。
+- kickoff 详细设计/验收审核：[报告](p6-be-a-kickoff-review.md)（提交 `fcbfb4c1a0`，审核候选 `f20f08bea919`），通过、无阻塞项；§3 非阻塞测试归属建议已在本文 §6 采纳。本记录仅引用审核结论，不评价实施结果。
 - 审核后 owner 实施确认、S2a exit 合入提交：待记录；当前不授权提前执行。
 - 顺序：后端审核会话审核 → owner 确认 → S2a 合入后实施 BE-a；前端设计可现在更新缺口登记，FE3 刷新快照并接回入口。BE-d 范围不变。
 
 ## 8. 本次文档检查
 
 仅修改设计/计划文档，不触发镜像重建，不宣称新权限已通过产品测试。提交前在 05 clean checkout `55e6c0083c6e3a05dc97dad86974afd645d89a8e`（与引用基线相同 vnext tree：`2791d3ff3dd62ff454d7e9cac43885d39da8bf96`）运行五包 ruff/mypy，使用已有缓存、受控 uv wrapper、UV_OFFLINE=1、CARGO_NET_OFFLINE=true、no-sync；2026-11-04T02:46:25Z–02:46:26Z，exit 0。日志为 05 `/home/dev/gdds-test-tmp/p6-be-a-design-static-20261104T024625Z.log`，SHA256 `9278890e81be494ddbc2dfad448151101dcb00d34ce14ca81e34c2e6d50ba9a3`。节点占用已释放；不是阶段取证或 carried 判定。
+
+2026-11-04 审核后订正仅改变测试归属说明与审核记录；`vnext/` tree 仍为上述值，沿用本节已通过的同源码静态检查，不重复运行产品检查，不作为新权限的验收证据。

@@ -1,6 +1,6 @@
 # BE-a / BE-d 任务提示词草案
 
-状态：DRAFT；2026-11-04，p6-backend-design。DC75 的 BE-a 扩项方向已由 owner 于 2026-11-04 确认，详细设计和验收待审核。两任务实施提示词尚未发出；须先经后端审核会话审核，再经 owner 确认，并在 S2a exit 合入 main 后、FE3 前执行。
+状态：DRAFT；2026-11-04，p6-backend-design。DC75 的 BE-a 扩项方向已由 owner 于 2026-11-04 确认，BE-a 详细设计与验收已通过审核（`fcbfb4c1a0`），非阻塞归属建议已采纳，待 owner 实施确认；BE-d 审核仍待安排。两任务实施提示词尚未发出；须各自完成审核及 owner 确认，并在 S2a exit 合入 main 后、FE3 前执行。
 
 引用基线：`ebb0047383300a3754a4be6a6a78f72286600c83` 的 [前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、[后端交接 §2.3](p6-backend-session-handoff.md)、DC64/DC67/DC70/DC73。任务业务范围来自已确认的前端决议；本页新增的安排与验收仍待审核确认。BE-b 设计与实现不并入这两项。
 
@@ -29,7 +29,7 @@
 - 通过公开 HTTP 输入验证旧动作拒绝且无业务写入；剩余动作的合法/非法状态转换、权限、幂等与并发条件仍成立。domain 测试负责状态机不变量，HTTP 测试负责边界，不复制两套证明。
 - 新基线 DB 不能写入被删状态/事件；合法状态写入与 History 映射正常。既有 schema 不匹配按现有启动拒绝机制；不增加迁移器。
 - 实际路由与 OpenAPI 同时断言两组首次/回放或已存在响应的 status、response schema；被删枚举不出现在生成的 OpenAPI 中。
-- 逐项完成设计补充 §6 的程序验收：新权限 GET/POST/replay；本人/他人/跨 scope；权限撤销；终态回放；指针全生命周期与同快照；self-only 用户的真实 wiring Compose 旅程。不得用 reviewer 全权限身份代替 self-only 验证。
+- 逐项完成设计补充 §6 的程序验收：新权限 GET/POST/replay；本人/他人/跨 scope；权限撤销；终态回放；指针全生命周期与同快照；self-only 用户的真实 wiring Compose 旅程。不得用 reviewer 全权限身份代替 self-only 验证。replay 权限与披露由 `tests/test_review_http.py` 的公开 HTTP 测试负责；事务测试负责完整性、CAS、原子释放与失败无部分写入，不重复整套权限矩阵。
 - 静态检索区分历史文档记录与活动实现/Contract；历史 DC 不改写。focused 集合含 RS `-m unit`，防止跨包过时断言遗漏。
 
 按 §4 共用流程执行。真实数据建议为 05 t1 一次完整旅程（schema/持久状态改变，不沿用旧 DB）；审核动作使用合成 HTTP/Compose 旅程补全 t1 未覆盖的状态；04 权威 runner 与当前 HEAD 容器门禁。真实数据范围先在 kickoff 确认，exit 前再次由 owner 确认。完成交代码候选与 handoff，由 owner 转后端审核会话，不自行宣布 exit。
@@ -74,4 +74,4 @@
 
 ## 5. 确认记录
 
-kickoff 审核：待 owner 转交。owner 方向确认：2026-11-04 同意 DC75 扩项；kickoff 细则审核后实施确认：待记录。S2a main 合入提交：待填。BE-a/BE-d 提示词发出：均未发出。
+BE-a kickoff 审核：通过、无阻塞项，报告 `p6-be-a-kickoff-review.md` @ `fcbfb4c1a0`；非阻塞测试归属建议已采纳。BE-d kickoff 审核：待安排。owner 方向确认：2026-11-04 同意 DC75 扩项；kickoff 细则审核后实施确认：待记录。S2a main 合入提交：待填。BE-a/BE-d 提示词发出：均未发出。

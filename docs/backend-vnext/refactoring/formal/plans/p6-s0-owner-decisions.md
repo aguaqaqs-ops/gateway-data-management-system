@@ -63,7 +63,7 @@ implementation_authorized: no
 | DC72 | S2a kickoff 确认：O2 非有限 JSON 数值拒绝、旧实现删除范围、test-only 差分入口（生产 flag 移到 S2b）、parser 表内分块、adapter 命名、线程池分步 | — | — |
 | DC73 | 后端会话分为设计与审核两个角色 | — | — |
 | DC74（草案） | BE-c 体积报告放在 S6；整包下载单列只报告，不改 P6 门槛 | — | — |
-| DC75 | BE-a 扩项：Workspace 占用指针与本人撤回权限；方向已确认，kickoff 细则待审核 | — | — |
+| DC75 | BE-a 扩项：Workspace 占用指针与本人撤回权限；方向已确认，kickoff 审核通过、待实施确认 | — | — |
 
 ## 2. 决议详情
 
@@ -792,7 +792,7 @@ implementation_authorized: no
 ### DC75 BE-a：工作区占用指针与本人撤回权限
 
 - **来源**：`55e6c0083c` 的前端 FE2 kickoff Q16 与 frontend-kickoff §3.3；后端设计会话以 main `d0a8143d804e158e16b0712cc5f2aa007066f9cb` 核对源码及 P5-5C §4.3/§5。owner 在 2026-11-04 同意“新增本人撤回能力、保留审核人权限，与 Workspace 指针一起扩入 BE-a”，并要求补充订正及各方提示词。
-- **决定（方向已确认，实施前仍需 kickoff 审核）**：
+- **决定（方向已确认，kickoff 审核通过，待 owner 实施确认）**：
   1. WorkspaceResponse 增加必需但可为 null 的 `active_submit_attempt_id`、`active_submission_id`，投影当前占用，至多一个非空；不表示最近提交或可撤回状态。与 Workspace/optimistic_version 同一事务快照读取，无新持久字段。新建/已有工作区响应均覆盖。
   2. 新增 exact permission `withdraw_own_submission`：scope 内 `context.actor_id == Submission.created_by` 的本人提交可读 review facts；只有 PENDING、未关闭且版本/占用条件成立时可执行新 WITHDRAW。不隐含授予 APPROVE/REJECT 或项目 History 权限。session 显式发放，不由上传权限或本人身份自动授予。
   3. `review_submission` 保持跨 actor 的现有能力；双权限取并集，不给 reviewer 加本人限制。新增权限必须接入 GET、POST 与 replay，不只改 route 或前端按钮。
@@ -801,7 +801,7 @@ implementation_authorized: no
   6. 占用受理/finalize/abort/审核释放/归档释放时按现有事务递增工作区版本；APPROVE 不改变工作区版本。撤回仍使用独立 `expected_review_version`。撤回后清空当前输入与 Preview，可重新上传；历史提交与 Repository commit 保留。
   7. 并入 BE-a，S2a exit 合入 main 后、FE3 前；原删除 RETURN_FOR_REVISION 及两创建接口 OpenAPI 订正继续执行。权限修订本身不新增 schema；原 BE-a 的旧状态删除仍直接改基线。BE-d/BE-b 和当前 P6 基准范围不变。
 - **详细设计与验收**：[BE-a 设计补充](p6-be-a-design.md)、[kickoff §2](p6-be-a-d-kickoff.md)。实施时同步 owning Contract、P5-5C 及 Workspace HTTP 文档正文、OpenAPI、示例 session 配置和测试；前端快照由 FE3 更新。本文不声明产品已实现。
-- **确认记录**：owner 方向确认 2026-11-04；kickoff 细则审核待转交，审核后 owner 实施确认待记录，S2a 合入提交待填。DC74 不因本次同意而变为已确认。
+- **确认记录**：owner 方向确认 2026-11-04；kickoff 细则审核通过、无阻塞项（[报告](p6-be-a-kickoff-review.md) @ `fcbfb4c1a0`，候选 `f20f08bea919`）；非阻塞建议已采纳：replay 权限与披露归公开 HTTP 测试，事务测试归完整性/CAS/原子释放。owner 实施确认待记录，S2a 合入提交待填。DC74 不因本次同意而变为已确认。
 
 ## 3. 设计阶段待定项
 

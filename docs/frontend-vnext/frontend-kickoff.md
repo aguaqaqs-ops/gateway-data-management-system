@@ -74,6 +74,7 @@ vnext bundle 是精简的表索引（`ComparisonSurface`）加 artifact 闭包�
 | 复合信号公式查看 | legacy formulas artifact | vnext 有 `composite_signal_point` 派生表（含 `formula_ast_json`），bundle 是否完整携带待核对 | FE0 核对 |
 | 历史初始备份节点（随归档提交上传的原始组态备份，可查看差异、加入比较） | `FormalWorkspaceTree.tsx`、`formalWorkspaceState.ts` | History 只有基线、提交与规则迁移节点；History 比较只接受基线节点与提交 | owner 2026-11-02（FE2 kickoff Q4 甲）：FE2 不实现；是否需要由 owner 另定，需要时作为后端任务单独立项 |
 | 上传模式顶栏的“撤回”（草图 `header-upload`） | legacy 工作区顶栏 | `WorkspaceResponse` 只有 `current_upload_revision_id`、`current_preview_result_id`，没有指向当前提交的字段，工作台无法确定可撤回的提交；审核顶栏的撤回按 `submission_id` 进行，不受影响 | owner 2026-11-04（FE2 kickoff Q16 甲）：FE2 只在审核顶栏提供撤回；是否在 `WorkspaceResponse` 加入当前提交，由 BE-a 或后续后端任务决定，加入后由前端接回。后续（owner 2026-11-04 确认方向，[DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)）：占用指针与本人撤回权限并入 BE-a（§5），FE3 接回（§7.1）；BE-a 实施前此缺口仍然存在，FE2 继续按 Q16 甲 |
+| 首批空基线时禁用上传第 ① 步（UI 优化方向 §7.2） | legacy 上传步骤卡 | History 没有“基线为空”的事实；`INITIAL` 基线的提交来自部署映射（`infrastructure/control_db/sqlite_mapping.py`），可以有内容，后端不拒绝在其上做 FULL 上传 | FE2 不禁用（FE2 kickoff §9 Q18，owner 2026-11-04）；后端在 History 中提供该事实后再接入 |
 
 ## 4. 工程与架构
 

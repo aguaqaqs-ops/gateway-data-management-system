@@ -85,8 +85,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
 
   const busy = phase === "packaging" || phase === "uploading" || phase === "previewing" || phase === "downloading" || phase === "writing";
   const ready = Boolean(modified.directory) && (!initial.name || Boolean(initial.directory));
-  const blockedReason = modified.name && !modified.directory ? "本次归档组态未通过校验" : initial.name && !initial.directory ? "原始组态备份未通过校验" : null;
-
+  const blockedReason = modified.name && !modified.directory ? "本次归档组态未通过校验" : initial.name && !initial.directory ? "原始组态备份未通过校验" : modified.directory ? null : "需先选择本次归档组态目录";
   useEffect(() => {
     if (!busy) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);

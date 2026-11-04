@@ -62,6 +62,7 @@ async function installFixtureRoutes(page: Page, options: {
   archiveBlocked?: boolean;
   approvedSubmission?: boolean;
   submissionOne?: boolean;
+  emptyBaseline?: boolean;
 } = {}) {
   const requests = new Map<string, number>();
   const apiRequests: Array<{ method: string; path: string; token: string | null; idempotencyKey: string | null; body: string }> = [];
@@ -104,6 +105,9 @@ async function installFixtureRoutes(page: Page, options: {
     let body = url.searchParams.has("cursor") ? HISTORY_PAGE_TWO : HISTORY_PAGE_ONE;
     if (!url.searchParams.has("cursor") && options.approvedSubmission) {
       body = { ...body, nodes: body.nodes.map((node) => node.ref_id === "fe2a-history-ref-2" ? { ...node, review_status: "APPROVED" as const, eligibility_note: undefined } : node) };
+    }
+    if (!url.searchParams.has("cursor") && options.emptyBaseline) {
+      body = { ...body, nodes: body.nodes.map((node) => node.ref_id === body.head.node_id ? { ...node, parent: null } : node) };
     }
     if (!url.searchParams.has("cursor") && options.submissionOne) {
       body = { ...body, nodes: [...body.nodes, {
@@ -1259,6 +1263,19 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
   await screenshot(page, "archive-mainline-result", 1920);
   await screenshot(page, "archive-mainline-result", 1280);
   expect(apiRequests.some((request) => request.path === "/v1/archives")).toBe(true);
+});
+
+test("FE2c 首批空基线禁用原始组态备份", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await installFixtureRoutes(page, { emptyBaseline: true });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  const card = page.getByLabel("上传与预览");
+  await expect(card.getByText("首批空基线不可选")).toBeVisible();
+  await expect(card.getByText("当前是首批空基线，没有可选的原始组态备份")).toBeVisible();
+  await expect(card.getByRole("button", { name: "选择目录" }).first()).toBeDisabled();
+  await screenshot(page, "upload-empty-baseline", 1920);
+  await screenshot(page, "upload-empty-baseline", 1280);
 });
 
 test("FE2c 上传失败后重试不重复上传", async ({ page }) => {

@@ -522,7 +522,7 @@ export function validateSimulatedRequest(input: {
   method: string;
   url: URL;
   headers: Record<string, string | undefined>;
-}): Schemas["ErrorResponse"] | null {
+}): { code: string; message: string } | null {
   const method = input.method.toUpperCase();
   const path = input.url.pathname;
   const idempotencyKey = headerValue(input.headers, "idempotency-key");

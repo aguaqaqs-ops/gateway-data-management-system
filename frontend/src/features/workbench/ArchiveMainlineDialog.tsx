@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { components } from "../api/generated/openapi";
 import { ApiError } from "../api/authenticated-fetch";
 import { gatewayApi } from "../api/application-api";
-import { ApiError } from "../api/authenticated-fetch";
 import { createArchiveJourneyProgress, runArchiveJourney } from "../api/journeys";
 import { Button, Dialog } from "../../design-system/components";
 
@@ -136,7 +135,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
   function refresh() {
     progress.current = createArchiveJourneyProgress();
     setResult(null);
-    void load(submissionId);
+    if (submissionId) void load(submissionId);
   }
 
   const archivedCount = result?.dispositions.filter((item) => item.disposition === "ARCHIVED_BASELINE").length ?? 0;

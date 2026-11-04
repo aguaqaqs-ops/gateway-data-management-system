@@ -379,7 +379,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const compareLabels = compareRefs.map((ref) => rows.find((row) => row.key === refKey(ref))?.label ?? ref.ref_id);
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
   return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
-    {uploadLocked && <div className="page-lock-overlay" role="presentation"><p>上传与预览执行中，页面其余操作已锁定</p></div>}
+    {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: true } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
     <header className="workspace-topbar">
       <div className="workspace-brand"><strong>网关数据工作台</strong><span>{data.workspace.gateway_device_external_key}</span></div>
       <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}<ConnectionStatusIndicator />{identityControl}</div>

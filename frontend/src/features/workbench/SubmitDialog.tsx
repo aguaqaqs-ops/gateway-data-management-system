@@ -185,7 +185,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         <div><dt>业务基线</dt><dd>{preview.business_baseline_node_id}</dd></div>
         <div><dt>代次</dt><dd>{preview.generation}</dd></div>
       </dl>
-      <p className="confirm-impact">提交后将生成待审核提交，审核通过后才能归档为新的基线。提交前请确认差异结果与项目身份。</p>
+      <p className="confirm-impact">提交后将生成待审核提交，审核通过后才能归档为新的基线。提交前请确认差异结果与项目身份。后端按动作只保留最后一条理由，同一动作只需填写一次。</p>
       {stale && <p className="form-warning">Preview 结果已基于旧基线，请返回工作区重新上传并生成 Preview。</p>}
       {requiredPairs.map((pair) => {
         const copy = confirmationCopy(pair);

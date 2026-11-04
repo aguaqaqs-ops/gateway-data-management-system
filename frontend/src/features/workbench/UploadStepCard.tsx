@@ -244,14 +244,14 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   const phases: OperationPhase[] = [
     ...(initial.directory ? [{ name: "上传原始组态备份" as const, status: uploadStatus, duration: uploadDuration }] : []),
     { name: "上传本次归档组态", status: uploadStatus, duration: uploadDuration },
-    { name: initial.directory ? "生成并下载 Preview" : "解析预览", status: phase === "previewing" ? "active" : ["downloading", "writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
+    { name: "下载预览结果", status: phase === "previewing" || phase === "downloading" ? "active" : ["writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
     { name: "写入本地", status: phase === "writing" ? "active" : phase === "done" ? "complete" : "pending" },
     { name: "完成，进入差异浏览", status: phase === "done" ? "complete" : "pending" },
   ];
   return <section className="upload-card" aria-label="上传与预览">
     <div className="upload-card__heading">
       <div><p className="eyebrow">上传</p><h3>{busy ? "上传中" : "上传组态目录"}</h3></div>
-      {busy && <span className="status-tag status-tag--info">已用时 {formatWaitDuration(totalStartRef.current ? Math.floor((now - totalStartRef.current) / 1_000) : 0)}</span>}
+      {busy && <span className="status-tag status-tag--info">已用时 {formatWaitDuration(totalStartRef.current ? Math.floor((now - totalStartRef.current) / 1_000) : 0)}（页面计时）</span>}
     </div>
     <input ref={initialInput} type="file" className="sr-only" aria-label="选择原始组态备份目录" data-testid="upload-initial-input"
       {...{ webkitdirectory: "", directory: "" }} onChange={(event) => selectInitial(event.target.files)} />

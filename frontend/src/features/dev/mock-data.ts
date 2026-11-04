@@ -376,7 +376,7 @@ export const ARCHIVE_PLAN_READY = {
 export const ARCHIVE_PLAN_NEEDS_CONFIRMATION = {
   ...ARCHIVE_PLAN_READY, confirmation_requirements: ["sha256:selection-subject"],
   anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
-  can_start: false, blockers: [],
+  can_start: false, blockers: [], audit_validity: false,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const TEST_ARCHIVE_CANDIDATES = {

@@ -13,6 +13,8 @@ export const MAX_DIRECTORY_FILES = 5_000;
 export const MAX_DIRECTORY_BYTES = 1024 * 1024 * 1024;
 export const REQUIRED_SQL_PATH = "sql/dbcfg.sql";
 export const OPTIONAL_XML_PATH = "comps/logic/logics.xml";
+export const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
+export const MAX_ARCHIVE_ENTRIES = 8_192;
 
 export interface LocalDirectoryFile {
   path: string;
@@ -168,5 +170,7 @@ export async function buildSourcePackage(directory: LocalDirectory): Promise<Fil
   });
   const compressed = source.pipeThrough(new CompressionStream("gzip") as unknown as TransformStream<Uint8Array, Uint8Array>);
   const bytes = await new Response(compressed).arrayBuffer();
+  if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new Error("压缩后超过 256 MiB，后端将返回 413");
+  if (directory.files.length > MAX_ARCHIVE_ENTRIES) throw new Error("条目超过 8192，后端将返回 413");
   return new File([bytes], `${directory.rootName}.tar.gz`, { type: "application/gzip" });
 }

@@ -227,6 +227,11 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: "POST", path, token: request.headers()["authorization"] ?? null, idempotencyKey: request.headers()["idempotency-key"] ?? null, body: request.postData() ?? "" });
+    if (!request.headers()["idempotency-key"]) {
+      const body = { code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" };
+      apiResponses.push({ method: "POST", path, status: 422, body: JSON.stringify(body) });
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(body) });
+    }
     const response = { operation_id: "preview-op-1", workspace_id: "workspace-fe2b", upload_revision_id: "upload-1", generation: 3, status: "QUEUED" as const };
     apiResponses.push({ method: "POST", path, status: 202, body: JSON.stringify(response) });
     return route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(response) });
@@ -304,7 +309,9 @@ async function installFixtureRoutes(page: Page, options: {
       dispositions: [{ submission_id: "submission-1", disposition: "ARCHIVED_BASELINE" }],
       workspace_releases: [{ submission_id: "submission-1", workspace_id: "workspace-fe2b" }],
     } : {
-      ...ARCHIVE_PLAN_READY,
+      // Backend rule (application/archive/queries.py:132): before any confirmation is appended,
+      // confirmation_requirements is non-empty and audit is invalid, so can_start must be false.
+      ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
       confirmation_requirements: ["sha256:selection-subject"],
       anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
       dispositions: [{ submission_id: "submission-1", disposition: "ARCHIVED_BASELINE" }],
@@ -313,21 +320,46 @@ async function installFixtureRoutes(page: Page, options: {
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
   });
   await page.route("**/v1/archive-audit-events**", async (route) => {
+    const url = new URL(route.request().url());
+    // Backend rule: subject_kind + subject_digest are required query params; missing → 422.
+    if (!url.searchParams.get("subject_kind") || !url.searchParams.get("subject_digest")) {
+      const body = { code: "REQUEST_VALIDATION_FAILED", message: "缺少归档审计查询参数" };
+      apiResponses.push({ method: "GET", path: "/v1/archive-audit-events", status: 422, body: JSON.stringify(body) });
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(body) });
+    }
     apiResponses.push({ method: "GET", path: "/v1/archive-audit-events", status: 200, body: JSON.stringify({ events: [], next_after_sequence: null }) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ events: [], next_after_sequence: null }) });
   });
   await page.route("**/v1/archive-confirmations", async (route) => {
     apiRequests.push({ method: "POST", path: "/v1/archive-confirmations", token: route.request().headers()["authorization"] ?? null, idempotencyKey: route.request().headers()["idempotency-key"] ?? null, body: route.request().postData() ?? "" });
+    // Backend rule (http/routes/archives.py:116): missing Idempotency-Key → 422.
+    if (!route.request().headers()["idempotency-key"]) {
+      const body = { code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" };
+      apiResponses.push({ method: "POST", path: "/v1/archive-confirmations", status: 422, body: JSON.stringify(body) });
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(body) });
+    }
     apiResponses.push({ method: "POST", path: "/v1/archive-confirmations", status: 201, body: JSON.stringify(TEST_ARCHIVE_CONFIRM_APPEND) });
     return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(TEST_ARCHIVE_CONFIRM_APPEND) });
   });
   await page.route("**/v1/archive-anomaly-resolutions", async (route) => {
     apiRequests.push({ method: "POST", path: "/v1/archive-anomaly-resolutions", token: route.request().headers()["authorization"] ?? null, idempotencyKey: route.request().headers()["idempotency-key"] ?? null, body: route.request().postData() ?? "" });
+    // Backend rule (http/routes/archives.py:159): missing Idempotency-Key → 422.
+    if (!route.request().headers()["idempotency-key"]) {
+      const body = { code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" };
+      apiResponses.push({ method: "POST", path: "/v1/archive-anomaly-resolutions", status: 422, body: JSON.stringify(body) });
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(body) });
+    }
     apiResponses.push({ method: "POST", path: "/v1/archive-anomaly-resolutions", status: 201, body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND) });
     return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(TEST_ARCHIVE_RESOLUTION_APPEND) });
   });
   await page.route("**/v1/archives", async (route) => {
     apiRequests.push({ method: "POST", path: "/v1/archives", token: route.request().headers()["authorization"] ?? null, idempotencyKey: route.request().headers()["idempotency-key"] ?? null, body: route.request().postData() ?? "" });
+    // Backend rule (http/routes/archives.py:232): missing Idempotency-Key → 422.
+    if (!route.request().headers()["idempotency-key"]) {
+      const body = { code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" };
+      apiResponses.push({ method: "POST", path: "/v1/archives", status: 422, body: JSON.stringify(body) });
+      return route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify(body) });
+    }
     apiResponses.push({ method: "POST", path: "/v1/archives", status: 201, body: JSON.stringify(TEST_ARCHIVE_STARTED) });
     return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(TEST_ARCHIVE_STARTED) });
   });

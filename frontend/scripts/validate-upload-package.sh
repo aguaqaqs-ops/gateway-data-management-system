@@ -27,7 +27,7 @@ docker run --rm --network none \
 
 docker run --rm --network none \
   -v "$ROOT:/src:ro" -v "$OUT:/out:ro" -w /src \
-  -e PYTHONPATH=/src/vnext/backend/src \
+  -e PYTHONPATH=/src/vnext/backend/src:/src/vnext/shared_kernel/src:/src/vnext/repository_contracts/src:/src/vnext/repository_client/src \
   "$BACKEND_IMAGE" /build/backend/.venv/bin/python frontend/scripts/validate_upload_package.py /out
 
 sha256sum "$OUT"/*.tar.gz

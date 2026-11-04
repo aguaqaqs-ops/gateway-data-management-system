@@ -142,6 +142,18 @@ describe("simulated user journey data flows", () => {
     await applyReviewAction(api, "fe2a-history-ref-2", TEST_REVIEW_FACTS.review_version, "APPROVE");
     expect(api.applyReview).toHaveBeenCalledWith("fe2a-history-ref-2", { expected_review_version: TEST_REVIEW_FACTS.review_version, action: "APPROVE" });
   });
+  it("sends the on-screen review version with the dialog key (B6 probe target)", async () => {
+    // Contract: §6.2 + journeys applyReviewAction must send facts.review_version (the version the
+    // reviewer saw) with the per-dialog idempotency key. Negative probe (§9 B6): re-reading the
+    // version inside applyReviewAction or minting a fresh key per click must fail here.
+    const api = {
+      getReviewFacts: vi.fn().mockResolvedValue({ ...TEST_REVIEW_FACTS, review_version: 999 }),
+      applyReview: vi.fn().mockResolvedValue(TEST_REVIEW_APPLIED),
+    } as unknown as GatewayApi;
+    await applyReviewAction(api, "fe2a-history-ref-2", TEST_REVIEW_FACTS.review_version, "APPROVE", undefined, "dialog-key-1");
+    expect(api.getReviewFacts).not.toHaveBeenCalled();
+    expect(api.applyReview).toHaveBeenCalledWith("fe2a-history-ref-2", { expected_review_version: TEST_REVIEW_FACTS.review_version, action: "APPROVE" }, "dialog-key-1");
+  });
   it("previews the archive plan and applies the candidate snapshot with current versions", async () => {
     const api = {
       listArchiveCandidates: vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES),

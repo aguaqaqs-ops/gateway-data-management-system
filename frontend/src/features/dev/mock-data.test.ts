@@ -122,4 +122,17 @@ describe("simulated HTTP response contracts", () => {
       }
     }
   });
+
+  it("keeps the needs-confirmation archive plan within backend preview rules (B3 probe target)", () => {
+    // Contract source: vnext/backend/src/gateway_backend/application/archive/queries.py:136-200:
+    // can_start = selected && !blockers && audit_valid; before any confirmation is appended,
+    // confirmation_requirements is non-empty and audit is invalid, so can_start must be false.
+    // Negative probe (§9 B3): restoring can_start:true on this fixture must fail here.
+    expect(ARCHIVE_PLAN_NEEDS_CONFIRMATION.confirmation_requirements.length + ARCHIVE_PLAN_NEEDS_CONFIRMATION.anomalies.length).toBeGreaterThan(0);
+    expect(ARCHIVE_PLAN_NEEDS_CONFIRMATION.audit_validity).toBe(false);
+    expect(ARCHIVE_PLAN_NEEDS_CONFIRMATION.can_start).toBe(false);
+    expect(ARCHIVE_PLAN_NEEDS_CONFIRMATION.blockers).toEqual([]);
+    expect(ARCHIVE_PLAN_READY.can_start).toBe(true);
+    expect(ARCHIVE_PLAN_READY.audit_validity).toBe(true);
+  });
 });

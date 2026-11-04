@@ -1275,6 +1275,7 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await screenshot(page, "upload-version-conflict", 1280);
 
   await page.unrouteAll();
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { previewForbidden: true });
   await page.goto("/");
   await expect(page.getByLabel("上传与预览")).toBeVisible();

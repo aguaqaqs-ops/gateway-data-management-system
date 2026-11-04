@@ -1425,6 +1425,7 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   expect(refreshBox!.x + refreshBox!.width).toBeLessThanOrEqual(dialogBox!.x + dialogBox!.width + 0.5);
   expect(refreshBox!.y + refreshBox!.height).toBeLessThanOrEqual(dialogBox!.y + dialogBox!.height + 0.5);
   await screenshot(page, "review-version-conflict", 1920);
+  await expect(refresh).toBeInViewport();
   await screenshot(page, "review-version-conflict", 1280);
   await expect(refresh).toBeInViewport();
   await refresh.click();
@@ -1476,6 +1477,7 @@ test("FE2c 提交被中止时显示原始错误代码", async ({ page }) => {
   await expect(dialog.getByText("IMPORT_REJECTED")).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByRole("button", { name: "复制错误代码" })).toBeVisible();
   await screenshot(page, "submit-aborted", 1920);
+  await expect(dialog.getByText("IMPORT_REJECTED")).toBeInViewport();
   await screenshot(page, "submit-aborted", 1280);
   await expect(dialog.getByText("IMPORT_REJECTED")).toBeInViewport();
 });
@@ -1510,6 +1512,8 @@ test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await expect(refreshPreflight).toBeInViewport();
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeInViewport();
   await screenshot(page, "archive-audit-conflict", 1920);
+  await expect(refreshPreflight).toBeInViewport();
+  await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeInViewport();
   await screenshot(page, "archive-audit-conflict", 1280);
   await expect(refreshPreflight).toBeInViewport();
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeInViewport();
@@ -1568,6 +1572,7 @@ test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", asy
   await expect(dialog.getByText("submit-op-1")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "复制 ID" })).toBeVisible();
   await screenshot(page, "submit-manual-recovery", 1920);
+  await expect(dialog.getByText("需要管理员处理")).toBeInViewport();
   await screenshot(page, "submit-manual-recovery", 1280);
   await expect(dialog.getByText("需要管理员处理")).toBeInViewport();
   await expect(dialog.getByRole("status", { name: "提交结果" })).toBeVisible({ timeout: 60000 });

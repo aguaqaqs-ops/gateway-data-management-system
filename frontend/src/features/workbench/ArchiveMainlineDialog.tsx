@@ -142,7 +142,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
     <Button variant="primary" onClick={onArchived}>完成</Button>
   </> : <>
     <Button variant="secondary" onClick={refresh} disabled={loading || running}>重新预检</Button>
-    <Button variant="primary" onClick={() => void start()} disabled={!canStart} disabledReason={blocked ? "当前预检存在阻断项" : missingConfirmation ? "请确认归档选择" : missingAnomaly ? "请处理全部异常项" : needsConfirmation ? "请先完成确认与异常处理，重新预检后再归档" : !plan ? "正在预检" : undefined}>{running ? "归档中…" : "确认归档"}</Button>
+    <Button variant="primary" onClick={() => void start()} disabled={!canStart} disabledReason={blocked ? "当前预检存在阻断项" : missingConfirmation ? "请确认归档选择" : missingAnomaly ? "请处理全部异常项" : !plan ? "正在预检" : undefined}>{running ? "归档中…" : "确认归档"}</Button>
   </>}>
     {loading && <p className="subtle-copy">正在读取归档候选并预检…</p>}
     {loadError && <p role="alert" className="form-error">{loadError}</p>}

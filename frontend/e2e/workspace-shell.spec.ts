@@ -1263,7 +1263,7 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
 
 test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await installFixtureRoutes(page, { fail: true });
+  const { apiRequests } = await installFixtureRoutes(page, { fail: true });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   await expect(page.getByLabel("上传与预览")).toBeVisible();

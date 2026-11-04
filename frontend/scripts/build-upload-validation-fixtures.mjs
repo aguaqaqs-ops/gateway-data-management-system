@@ -37,7 +37,7 @@ for (const item of cases) {
   manifest.push({
     name: item.name,
     expect: item.expect,
-    members: item.files.map(([path, content]) => ({ path, sha256: createHash("sha256").update(content).digest("hex") })).sort((left, right) => left.path.localeCompare(right.path)),
+    members: item.files.map(([path, content]) => ({ path, size: Buffer.byteLength(content), sha256: createHash("sha256").update(content).digest("hex") })).sort((left, right) => left.path.localeCompare(right.path)),
   });
 }
 await writeFile(join(output, "manifest.json"), `${JSON.stringify({ packages: manifest }, null, 2)}\n`);

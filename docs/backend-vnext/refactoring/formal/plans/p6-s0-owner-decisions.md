@@ -833,7 +833,7 @@ implementation_authorized: no
 - **语言取舍**：Python 当前适合轻载编排和快速业务验证，但不是永久语言边界。新功能可先用 Python 验证，也可按真实需要直接用 Rust；编排若出现经测量的瓶颈，也可单独设计 Rust 替换。没有本次全量重写编排或移动业务状态所有权的授权。
 - **可复用边界**：Rust core 保持稳定输入/输出、错误、取消/截止和资源预算接口，独立于 PyO3 与调用方。未来 Python、CLI 或 AI 工具/MCP 可通过适配层复用同一 core；本轮不新建 MCP server、网络计算服务或通用插件框架。AI 发起业务操作仍经过服务的认证授权、scope、幂等和事务边界，不直接获得数据库/文件系统写入口。未来 Rust 编排可置于相应应用层，不因此让纯计算 core 承担 I/O 或业务 workflow。
 - **收益口径**：预期减少双实现差分、重复算法用例与旧依赖维护，并让使用热点的新路径测试加速；不能承诺整个 runner 按 kernel 倍数缩短。Compose/Dolt、进程恢复、I/O、等待及 Rust 编译成本另计；按已有 V8 方法在替换后重新剖析，不因预期收益削减关键覆盖。
-- **文档归属**：本轮同步 DC、设计、执行计划、S2b kickoff 与映射候选。ADR 0001 §1/§2/§5/Required Verification、ADR 0010 的 reference 定位、Rust policy §8/§9 及相关 owning Contract 中强制长期双实现的文字，须由对应文档 owner 按本决议定向同步；不改 Safe Rust、失败边界或现有 core 依赖方向。本角色不越权修改 ADR/policy/测试治理。新决议优先于冲突旧文字，技术实施前在 kickoff 列清同步项。
+- **文档同步与后续授权**：owner 随后于同日同意并授权按需修改设计文档、提交和推送。本次据此定向同步 ADR 0001、ADR 0010 和 Rust policy 的 reference 生命周期、无回退与语言取舍文字；不改 Safe Rust、失败边界、core 依赖方向或测试治理。相关 owning Contract 的实际消费者与覆盖移交仍由各替换阶段核对；新决议优先于冲突旧文字。不因本次文档推送授权改变阶段开工、审核、取证或 exit 条件。
 
 ## 3. 设计阶段待定项
 

@@ -16,7 +16,7 @@ S2a exit、S1c exit、原始表使用方核对和磁盘估算完成，kickoff �
 | 规范存储磁盘 | §3 给出计算口径；缺映射后的实际字节与当前可用容量 | 由获安排的设计输入普查在专用节点输出数字，不在开发机运行产品 |
 | DC63 第 1 项 | §4 登记待基准交付，未宣称差距消除 | owner 转交基准 handoff 的提交和子段清单 |
 | Arrow 映射 / DC76 输入 | 独立设计候选已写，UTC 与少数约 100 MB 输入已确认 | 核对转换、metadata/版本与确定性，技术审核后纳入 kickoff |
-| DC72 第 6 项 / DC78 | §5 给出唯一 Rust 路径、清理、池与 N/M 接线边界 | 定 N/M 数值与恢复验收；同步 ADR/reference 定位；交 kickoff 审核 |
+| DC72 第 6 项 / DC78 | §5 给出唯一 Rust 路径、清理、池与 N/M 接线边界；ADR/reference 定位已同步 | 定 N/M 数值、消费者/覆盖移交清单与恢复验收；交 kickoff 审核 |
 | W2 检查点 | §6 给出程序判定要求 | S2b 实测，按设计 §16.1 停止规则 |
 
 ## 2. 上传侧数据使用方
@@ -106,7 +106,7 @@ O1 与 `BLOCK_STARTUP_FATAL` 留在 worker runtime 维护，不并入本阶段�
 
 - DC78 取消生产回退与双路径开关；Rust 接入覆盖“解析→业务物化/检查→规范投影→表摘要”的整条上传路径，不能只换 parser 再逐行转 Python。S2a test-only 入口只在替换验证期间使用；S2b 完成接入、差分和唯一生产路径验收后删除被替代 Python 算法及临时入口，不延期到 S6。
 - MODIFIED_ONLY 与 FULL 两侧均走 Rust，采用单一规范 IPC/引用语义及输出 Contract。重启读取现有 checkpoint 与规范产物，失败沿用取消、重试与稳定诊断，不改走 Python；不新增引擎选择字段或双格式兼容。T1 后冻结边界不变。替换期 Python 参照计算语义冻结；不得为了差分通过改语义。
-- 删除前将关键预期落实为经核实的固定向量与 Contract/性质测试，不能由当前 Rust 输出直接生成期待值后自证。删除仅为旧实现存在的依赖、mock 和重复算法用例，保留实际 Python 编排、PyO3/Arrow 适配、错误传播和端到端恢复测试；逐项核对其他生产消费者，避免误删共享能力。ADR 0001、ADR 0010、Rust policy 的长期 reference 要求由对应 owner 按 DC78 同步，列为 kickoff 技术闭合项。
+- 删除前将关键预期落实为经核实的固定向量与 Contract/性质测试，不能由当前 Rust 输出直接生成期待值后自证。删除仅为旧实现存在的依赖、mock 和重复算法用例，保留实际 Python 编排、PyO3/Arrow 适配、错误传播和端到端恢复测试；逐项核对其他生产消费者，避免误删共享能力。ADR 0001、ADR 0010、Rust policy 的长期 reference 要求已按 owner 后续授权同步；实际消费者与覆盖移交清单仍是 kickoff 技术闭合项。
 - 复用 S2a adapter 的进程共享有界 Rayon 池；worker startup 在任何 kernel 调用前固定 N；pyarrow CPU/I/O 池同时按 N 配置。不得每调用、每表或 FULL 每侧建池，parser L3 继续使用同池。worker 接线测试归 S2b，adapter 复用测试仍归 S2a。
 - 测试默认 N=1；测量起点 N=4 是预算假设，整条路径加速曲线之后暂定、S6 定稿。N/M 默认值、单位、上下界、部署 env 名称在 kickoff 定稿，当前不冒填 M。M 覆盖整份驻留输入、输出与 IPC 缓冲、每线程临时内存；并行任务估算总和不得越界，单表超额稳定失败。
 - 无效配置启动即拒绝；所有 kernel 释放 GIL、检查取消/截止时间；预算拒绝为稳定诊断。N=1/N、parser 分块大小做确定性比较；替换期差分与最终单实现回归分别记录，不保留两 flag 测试矩阵。
@@ -177,3 +177,9 @@ W2 按设计 §16.3 的 1 次预热 + 3 次测量、中位数及范围，受理�
 本轮只修改 DC、设计、计划正文与 kickoff/映射候选；检查时 main 为 `e03c46fd6b9418d0cc84c961921d8cb35576d7a9`，未改产品、ADR/policy、测试治理或审核报告，不触发镜像重建。05 clean checkout 起止 HEAD 为 `55e6c0083c6e3a05dc97dad86974afd645d89a8e`，与 main 的 `vnext` tree 同为 `2791d3ff3dd62ff454d7e9cac43885d39da8bf96`。2026-11-04T14:59:19Z–14:59:20Z，取得节点占用后以受控 uv wrapper、offline/no-sync、本地预填充环境完成五包 ruff/mypy，exit 0，无代理/下载，完成后释放占用。此为文档提交检查，不是 Rust 替换验收、性能收益或 carried 结论。
 
 日志：05 `/home/dev/gdds-test-tmp/p6-dc78-static-20261104T145919Z.log`；SHA256 `67143a9e9fc410725a1bf601903230403139f44a26f373a7f34f5373cfca8adc`。
+
+### 8.5 DC78 架构文字同步的提交检查
+
+owner 授权按需修改设计文档及提交/推送后，定向同步 ADR 0001、ADR 0010、Rust policy 与相关计划中的 reference 生命周期。检查起点 main `4bdc1b03fc90bb68dc29830ce22fec0d917b3ca9`；纯设计文字，不触发镜像重建，不改变产品或测试治理。05 使用 §8.4 同一 clean checkout 和相同 `vnext` tree，2026-11-04T15:05:43Z–15:05:44Z，持有本会话节点占用，以受控 uv wrapper、offline/no-sync、本地预填充环境运行五包 ruff/mypy，exit 0；无代理/下载，起止 HEAD 相同，完成后释放占用。不作实现证据或性能结论。
+
+日志：05 `/home/dev/gdds-test-tmp/p6-dc78-architecture-static-20261104T150543Z.log`；SHA256 `1624779e770e496d9afad9e59acddd7ace41c6659163027f66ef8c4ce62e096f`。

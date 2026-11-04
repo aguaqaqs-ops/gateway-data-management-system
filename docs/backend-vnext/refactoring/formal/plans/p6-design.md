@@ -78,7 +78,7 @@ DC48 Rust 测试入门禁（已实施）；DC49 慢速上传；DC50 阶段结构
 
 Python 编排是当前业务取舍，新功能可先用 Python 验证，也可直接用 Rust；编排出现实测瓶颈时可另行设计替换。Rust core 与 PyO3 解耦，未来由 Python、CLI 或 AI/MCP 适配层复用；当前不新增工具服务。业务工具调用仍走授权、scope、幂等与事务边界。未来 Rust 编排放在应用层，纯计算 core 的无 I/O、无 workflow 约束不变。
 
-本修订不改变冻结基准、已引用的 S2a 证据及 exit 次序。ADR 0001、ADR 0010 和 Rust policy 中长期双实现定位的定向同步由对应 owner 完成，列入 kickoff；技术细则仍按阶段审核。
+本修订不改变冻结基准、已引用的 S2a 证据及 exit 次序。owner 随后授权定向修改设计文档，ADR 0001、ADR 0010 和 Rust policy 的长期双实现定位已同步；实际消费者清单、测试覆盖移交与技术细则仍按阶段审核。
 
 ## 2. 当前事实（E）
 

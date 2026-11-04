@@ -8,7 +8,7 @@ Policy ID：`gateway-vnext.rust-safety-and-performance-policy`
 
 Owner：Backend vNext Architecture
 
-Policy version：`2`
+Policy version：`3`（2026-11-04：按 owner DC78 修订 reference 生命周期；Safe Rust 与失败边界不变）
 
 适用阶段：Phase 1–9
 
@@ -156,14 +156,14 @@ bundle。普通command失败直接阻塞对应变更。
 - 降低unsafe/panic lint；
 - 引入nightly、manual FFI、allocator、SIMD或新thread runtime；
 - 把Rust扩展到高变化business/domain/application代码；
-- 改变Python reference与Rust production provider定位。
+- 改变计算实现或临时参照的定位；DC78 已批准无 Python 回退、Rust 接入验证后删除被替代算法，具体执行按对应阶段 kickoff，不重复请求原则确认。
 
 验收：
 
 - 所有first-party target的unsafe编译失败；
 - Production failure通过typed result传播；
 - Core与adapter依赖方向保持；
-- Python/Rust对保留golden产生相同canonical结果；
+- 实际消费者对保留 golden 产生相同 canonical 结果；替换期差分，替换后删除旧算法、保留独立向量与性质测试，不要求永久双实现；
 - Native path使用粗粒度Arrow并在compute期间释放GIL；
 - 性能优化有真实业务或measurement依据。
 

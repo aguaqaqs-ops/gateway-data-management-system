@@ -11,6 +11,8 @@
 依赖决策：
 [ADR 0009](0009-proportional-assurance-and-trusted-internal-repository.md)
 
+2026-11-04 amendment（owner，[DC78](../plans/p6-s0-owner-decisions.md#dc78-无兼容负担下的-rust-替换模块边界与测试生命周期)）：以下长期 reference/双实现要求改为按实际消费者保留；Rust 接入验证后删除被替代 Python 算法。原决定的 golden、artifact 与普通 CI 原则不变。
+
 ## Context
 
 Phase 0–1已经固定canonical encoding bytes并建立Python/Rust核心、一个真实
@@ -31,11 +33,10 @@ Phase 0–1。
 ### 1. Canonical correctness
 
 保留Shared Canonical Encoding v1的JCS、typed scalar、identifier、row/collection
-framing和domain-separated digest bytes。保留Python与Rust两份独立实现、当前128个
-canonical valid/invalid case及稳定canonical failure code。
+framing和domain-separated digest bytes。保留已有 canonical valid/invalid case及稳定canonical failure code；实现按实际生产消费者保留，不要求永久维护 Python/Rust 两份算法。
 
 测试材料继续位于repository-level `vnext/fixtures/`，但只作为普通只读golden数据。
-Python与Rust使用各自的薄loader直接逐case比较完整bytes/digest/error code；不再
+仍有实际消费者的实现使用各自薄loader直接逐case比较完整bytes/digest/error code；已被替代的 Python 算法及其专属 loader 随替换阶段删除。不再
 使用`vector-set.json`、closure digest、candidate generator、JSON Schema或
 Repository第三consumer。
 
@@ -45,9 +46,7 @@ manifest、generic runner/harness、profile matrix、RunEvidence或bless framewo
 
 ### 2. Python/Rust compute boundary
 
-Python继续拥有小规模reference oracle，用于golden、property test和诊断；Rust是
-正式批量production provider。Python reference不承担生产容量，不作为自动fallback，
-也不与Rust作为两套同等production实现演进。
+Rust 是正式批量 production provider。替换期间可临时使用冻结 Python 参照；接入验证后删除旧算法，不保留永久完整 oracle 或生产 fallback。长期回归由独立 golden、Contract 与性质测试承担；Python 编排/适配及仍有生产消费者的能力按实际职责保留。
 
 跨语言边界继续使用一个Arrow C Stream加小型JCS DTO。DTO最小字段为：
 
@@ -186,7 +185,7 @@ binding、digest owner、package依赖、ordinary CI和`S02-C1..C5`清理顺序�
 
 ## Consequences
 
-- Canonical业务结果和Python/Rust核心保持，测试与交付外围显著缩小。
+- Canonical 业务结果保持；按 DC78 清理被替代算法，测试与交付外围保持最小。
 - Repository不再依赖Shared Kernel conformance extra，也不充当canonical实现。
 - 普通CI失败直接作为工程失败处理，不生成waiver或第二套evidence result。
 - Artifact semantic metadata回到capability owner，生命周期回到store/business owner。
@@ -195,7 +194,7 @@ binding、digest owner、package依赖、ordinary CI和`S02-C1..C5`清理顺序�
 
 ## Required verification
 
-- Python/Rust对当前128个canonical case逐bytes/digest/error-code一致，zero skip。
+- 实际消费者对保留 canonical case 逐 bytes/digest/error-code 一致，不跳过适用用例；替换期完成差分，之后不要求已删除实现继续执行。
 - mixed-scalar sorted row hashes、row count、table schema digest和raw content digest
   与清理前一致。
 - Release wheel、Arrow C Stream、GIL、artifact round-trip和container native smoke通过。

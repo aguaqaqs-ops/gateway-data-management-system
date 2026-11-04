@@ -1,7 +1,7 @@
 # FE2c 定向修复 handoff — B1–B11 / M1–M7
 
-- 修复范围：`5830bc73c4..cd40b409`（05 detached worktree `/home/dev/gdds-fe2c-fix-05`，10 个提交）。
-- 审核报告：`/tmp/fe2c-review.md`（结论定向修复，B1–B11 + M1–M7，复审范围 `5830bc73c4..cd40b409`）。
+- 修复范围：`5830bc73c4..4c096d49`（05 detached worktree `/home/dev/gdds-fe2c-fix-05`，11 个提交）。
+- 审核报告：`/tmp/fe2c-review.md`（结论定向修复，B1–B11 + M1–M7，复审范围 `5830bc73c4..4c096d49`）。
 - 运行：05 完整 runner（含 `--e2e --screenshots`）exit 0，27 单测文件/125 tests + 21 e2e + 64 截图。04 取证待复审通过后一次运行。
 ## 1. 05 提交清单
 
@@ -16,7 +16,8 @@
 | `5c29b8d1` | B3/B6 探针靶点单测：`NEEDS_CONFIRMATION` 后端规则 + 对话框 key/界面版本 |
 | `008cd90a` | e2e 补缺失双宽度截图（`upload-selected-1280`、`upload-locked-1920`、`archive-mainline-result-1280`） |
 | `73c70ed2` | docs：handoff 绑定 `73c70ed2` 确认运行（125 tests + 21 e2e + 64 png） |
-| `cd40b409` | docs：本 handoff（`cd40b409` runner exit 0，125 tests + 21 e2e + 64 png） |
+| `cd40b409` | docs：handoff 绑定 `cd40b409` 确认运行（125 tests + 21 e2e + 64 png） |
+| `4c096d49` | docs：本 handoff（`4c096d49` runner exit 0，125 tests + 21 e2e + 64 png） |
 `git -C /home/dev/gdds-fe2c-fix-05 diff 5830bc73c4..HEAD --stat`：19 文件，354+/254-。
 
 ## 2. B1–B11 修复对照
@@ -47,12 +48,12 @@
 
 ## 4. 05 权威运行证据
 
-- 命令：`bash frontend/scripts/run-tests.sh --e2e --screenshots /home/dev/gdds-fe-evidence/fe2c/fix-cd40b409-05`（05 detached `cd40b409`，clean；`GATEWAY_FRONTEND_NPM_CACHE=/home/dev/gdds-fe-cache/fe0/npm-cache`，archive `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz`，`GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`）。
-- 日志：`/home/dev/gdds-fe-logs/frontend/frontend-tests-20261104T081446Z.log`，SHA256 `d4aa891fe7a6b807b385884b958b2cf9e6e6d0dfd847318c03e92d24f3734f18`；`started_at=2026-11-04T08:14:46Z`，`ended_at=2026-11-04T08:15:21Z`，`hostname=gw-dms-test-05.lan`，`head_start=head_end=cd40b409`，`frontend_tree=46ed8248…`，`exit_code=0`。
+- 命令：`bash frontend/scripts/run-tests.sh --e2e --screenshots /home/dev/gdds-fe-evidence/fe2c/fix-4c096d49-05`（05 detached `4c096d49`，clean；`GATEWAY_FRONTEND_NPM_CACHE=/home/dev/gdds-fe-cache/fe0/npm-cache`，archive `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz`，`GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a6f62218109783674cfc37bd64e14a5`）。
+- 日志：`/home/dev/gdds-fe-logs/frontend/frontend-tests-20261104T081709Z.log`，SHA256 `8010bc7c396120618fcc48d877a6637f78c5b8e7e8f0b13c6626b4590e547460`；`started_at=2026-11-04T08:17:09Z`，`ended_at=2026-11-04T08:17:43Z`，`hostname=gw-dms-test-05.lan`，`head_start=head_end=4c096d49`，`frontend_tree=46ed8248…`，`exit_code=0`。
 - 结果：typecheck 0；lint 0；27 单测文件 125 tests 通过；21/21 e2e 通过；生产构建检查通过（`production dist contains no simulated API…`）。
-- 工具链/npm 缓存：`mcr.microsoft.com/playwright:v1.64.1-noble`（config `sha256:a0d7b2b4…`，7 DiffID 与既有值一致），`docker_network=none`，npm cache `source_commit=a2fb4a02`，`package_lock_resolved_count=305`，archive SHA `0d861824…`，tracked archive `0d63303d…`（handoff 为 docs-only 增补引起变化，未改测试输入）。
-- 证据目录：`/home/dev/gdds-fe-evidence/fe2c/fix-cd40b409-05/`，64 png（逐文件 SHA 总和 `578a37dd…`；SHA 待 04 取证时重算）。
-- 失败过程（M5 要求记录）：`04d5307f`（缺 import，20/21）、`5480f51b`（B3 桩变严后确认键被初始 can_start 阻塞，20/21）、`c5d2e3ec` 通过（61 png）、`008cd90a` 通过（64 png）、`73c70ed2`/`41081b87`/`ec34b134` 通过（64 png）；本轮 `cd40b409` 通过（64 png）。首次直连默认缓存路径失败（`npm cache is missing or empty: /home/dev/gdds-fe-cache/frontend/npm-cache`），改用既有 fe0 缓存 env 后重跑通过。
+- 工具链/npm 缓存：`mcr.microsoft.com/playwright:v1.64.1-noble`（config `sha256:a0d7b2b4…`，7 DiffID 与既有值一致），`docker_network=none`，npm cache `source_commit=a2fb4a02`，`package_lock_resolved_count=305`，archive SHA `0d861824…`，tracked archive `cfb5ba72…`（handoff 为 docs-only 增补引起变化，未改测试输入）。
+- 证据目录：`/home/dev/gdds-fe-evidence/fe2c/fix-4c096d49-05/`，64 png（逐文件 SHA 总和 `719a3b6a…`；SHA 待 04 取证时重算）。
+- 失败过程（M5 要求记录）：`04d5307f`（缺 import，20/21）、`5480f51b`（B3 桩变严后确认键被初始 can_start 阻塞，20/21）、`c5d2e3ec` 通过（61 png）、`008cd90a` 通过（64 png）、`cd40b409`/`73c70ed2`/`41081b87`/`ec34b134` 通过（64 png）；本轮 `4c096d49` 通过（64 png）。首次直连默认缓存路径失败（`npm cache is missing or empty: /home/dev/gdds-fe-cache/frontend/npm-cache`），改用既有 fe0 缓存 env 后重跑通过。
 ## 5. 探针（§9 要求，结果进 handoff）
 
 - 本轮新增探针靶点单测（均在 05 已提交，`5c29b8d1`；本地反向验证已通过，未污染证据 HEAD）：
@@ -61,7 +62,7 @@
   - B3：`NEEDS_CONFIRMATION`  fixture 改 `can_start:true` → 新增单测失败（1 failed / 7：`audit_validity:false` 与 `can_start:false` 必须同现）。
   - B6：`applyReviewAction` 内重读版本/换新 key → 新增单测失败（2 failed / 12：必须发送界面版本 + 复用传入 key，不重读 `getReviewFacts`）。
 - B10：本地 `vitest run` 27/125 通过 + 本轮 05 runner 通过；报告 P4/P6 的间歇背景已由 `globalThis` 修复覆盖，更长连续次数待 04 取证时补。
-## 6. 截图（64 张，`fix-cd40b409-05/`）
+## 6. 截图（64 张，`fix-4c096d49-05/`）
 
 `archive-mainline-1280/1920`、`archive-mainline-result-1280/1920`、`bundle-error-*`、`dataset-replacement-browse-*`、`formula-history/preview-*`、`header-review-*`、`history-compare-connection-interrupted/running/result-drawer-*`、`loading-skeleton-*`、`manual-recovery-required-*`、`navigation-fallback-*`、`s1-workbench-*`、`s2-compare-tray-*`、`s3-header-history/upload-*`、`s3-workbench-normal/upload-*`、`s4-grid-*`、`s4-semantic-tokens-*`、`submit-identity-confirmation-*`、`tab-overflow-*`、`upload-invalid-*`、`upload-locked-1280/1920`、`upload-selected-1280/1920`、`workspace-error-no-connected-*`。
 
@@ -76,4 +77,4 @@
 
 ## 8. 复审与 04 取证
 
-- 复审范围：`5830bc73c4..cd40b409`（以 05 为准；本地 `fe-vnext` 仍在 `5830bc73c4` + dirty 文件，未提交，勿作证据；本 handoff 为 docs-only，测试输入与 runner 一致）。
+- 复审范围：`5830bc73c4..4c096d49`（以 05 为准；本地 `fe-vnext` 仍在 `5830bc73c4` + dirty 文件，未提交，勿作证据；本 handoff 为 docs-only，测试输入与 runner 一致）。

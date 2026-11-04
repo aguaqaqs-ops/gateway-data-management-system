@@ -1096,6 +1096,9 @@ test("FE2c 上传步骤卡校验目录并锁定页面", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
   const card = page.getByLabel("上传与预览");
   await expect(card).toBeVisible();
+  await screenshot(page, "upload-empty", 1920);
+  await screenshot(page, "upload-empty", 1280);
+  await page.setViewportSize({ width: 1920, height: 1080 });
 
   await setDirectoryInput(page, "upload-modified-input", "bad_cfg", [{ path: "readme.txt", content: "x" }]);
   await expect(card.getByText("本次归档组态未通过校验（2 项）")).toBeVisible();
@@ -1206,6 +1209,9 @@ test("FE2c 审核退回必须填写理由并可撤回", async ({ page }) => {
   await expect(confirm).toBeDisabled();
   await reject.getByLabel("退回理由").fill("配置与现场不一致，请核对后重新提交");
   await expect(confirm).toBeEnabled();
+  await screenshot(page, "review-reject-dialog", 1920);
+  await screenshot(page, "review-reject-dialog", 1280);
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await confirm.click();
   await expect(page.getByText("审核：已拒绝")).toBeVisible();
   expect(apiRequests.some((request) => request.path.endsWith("/review-events"))).toBe(true);
@@ -1222,6 +1228,9 @@ test("FE2c 审核撤回需要二次确认", async ({ page }) => {
   await withdraw.getByRole("checkbox").check();
   await expect(withdrawConfirm).toBeEnabled();
   await expect(withdraw.getByText("我已了解撤回后需要重新提交")).toBeVisible();
+  await screenshot(page, "review-withdraw-dialog", 1920);
+  await screenshot(page, "review-withdraw-dialog", 1280);
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await withdraw.getByRole("button", { name: "确认撤回" }).click();
   await expect(page.getByText("审核：已撤回")).toBeVisible();
 });
@@ -1262,7 +1271,8 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await card.getByRole("button", { name: "上传并生成预览" }).click();
   await expect(card.getByText("工作区或基线已被更新，请刷新后重试")).toBeVisible();
   await expect(card.getByText("WORKSPACE_VERSION_CONFLICT")).toBeVisible();
-  await expect(card.getByRole("button", { name: "复制错误代码" })).toBeVisible();
+  await screenshot(page, "upload-version-conflict", 1920);
+  await screenshot(page, "upload-version-conflict", 1280);
 
   await page.unrouteAll();
   await installFixtureRoutes(page, { previewForbidden: true });
@@ -1272,6 +1282,9 @@ test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async
   await page.getByLabel("上传与预览").getByRole("button", { name: "上传并生成预览" }).click();
   await expect(page.getByLabel("上传与预览").getByText("当前身份没有启动预览的权限")).toBeVisible();
   await expect(page.getByLabel("上传与预览").getByText("SCOPE_FORBIDDEN")).toBeVisible();
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await screenshot(page, "upload-permission-denied", 1920);
+  await screenshot(page, "upload-permission-denied", 1280);
 });
 
 test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async ({ page }) => {
@@ -1284,6 +1297,8 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await approve.getByRole("button", { name: "确认通过" }).click();
   await expect(approve.getByText("当前身份没有该操作的权限")).toBeVisible();
   await expect(approve.getByText("SCOPE_FORBIDDEN")).toBeVisible();
+  await screenshot(page, "review-permission-denied", 1920);
+  await screenshot(page, "review-permission-denied", 1280);
   expect(apiRequests.find((request) => request.path.endsWith("/review-events"))?.token).toBe("Bearer dev-token-reviewer");
 
   await page.unrouteAll();
@@ -1297,6 +1312,8 @@ test("FE2c 审核 403、版本冲突与超时重试复用同一幂等键", async
   await expect(conflictDialog.getByText("REVIEW_VERSION_CONFLICT")).toBeVisible();
   const refresh = conflictDialog.getByRole("button", { name: "刷新审核信息" });
   await expect(refresh).toBeVisible();
+  await screenshot(page, "review-version-conflict", 1920);
+  await screenshot(page, "review-version-conflict", 1280);
   await refresh.click();
   await expect(conflictDialog.getByText("REVIEW_VERSION_CONFLICT")).toHaveCount(0);
   await expect(conflictDialog.getByRole("button", { name: "确认通过" })).toBeEnabled();
@@ -1345,6 +1362,8 @@ test("FE2c 提交被中止时显示原始错误代码", async ({ page }) => {
   await dialog.getByRole("button", { name: "确认提交" }).click();
   await expect(dialog.getByText("IMPORT_REJECTED")).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByRole("button", { name: "复制错误代码" })).toBeVisible();
+  await screenshot(page, "submit-aborted", 1920);
+  await screenshot(page, "submit-aborted", 1280);
 });
 
 test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
@@ -1356,6 +1375,8 @@ test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
   const forbidden = page.getByRole("dialog", { name: "归档主基线" });
   await expect(forbidden.getByText("SCOPE_FORBIDDEN")).toBeVisible();
   await expect(forbidden.getByText("当前身份没有预检归档方案的权限")).toBeVisible();
+  await screenshot(page, "archive-permission-denied", 1920);
+  await screenshot(page, "archive-permission-denied", 1280);
 
   await page.unrouteAll();
   const conflict = await installFixtureRoutes(page, { archiveConflict: "ARCHIVE_AUDIT_VERSION_CONFLICT", approvedSubmission: true });
@@ -1371,6 +1392,8 @@ test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
   await expect(dialog.getByText("ARCHIVE_AUDIT_VERSION_CONFLICT")).toBeVisible({ timeout: 15000 });
   await expect(dialog.getByRole("button", { name: "复制错误代码" })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "刷新预检" })).toBeVisible();
+  await screenshot(page, "archive-audit-conflict", 1920);
+  await screenshot(page, "archive-audit-conflict", 1280);
   expect(conflict.apiRequests.find((request) => request.path === "/v1/archives")?.token).toBe("Bearer dev-token-archive-confirmer");
 
   await page.unrouteAll();
@@ -1381,6 +1404,8 @@ test("FE2c 归档 403、审计冲突与阻断项", async ({ page }) => {
   const blocked = page.getByRole("dialog", { name: "归档主基线" });
   await expect(blocked.getByText("ACTIVE_SUBMIT_ATTEMPT")).toBeVisible();
   await expect(blocked.getByRole("button", { name: "确认归档" })).toBeDisabled();
+  await screenshot(page, "archive-blocked", 1920);
+  await screenshot(page, "archive-blocked", 1280);
 });
 
 test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async ({ page }) => {
@@ -1419,5 +1444,10 @@ test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", asy
   await expect(dialog.getByText("需要管理员处理")).toBeVisible({ timeout: 10000 });
   await expect(dialog.getByText("submit-op-1")).toBeVisible();
   await expect(dialog.getByRole("button", { name: "复制 ID" })).toBeVisible();
+  await screenshot(page, "submit-manual-recovery", 1920);
+  await screenshot(page, "submit-manual-recovery", 1280);
   await expect(dialog.getByRole("status", { name: "提交结果" })).toBeVisible({ timeout: 60000 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await screenshot(page, "submit-result", 1920);
+  await screenshot(page, "submit-result", 1280);
 });

@@ -55,6 +55,15 @@ function describeSubmitError(cause: unknown): { title: string; code: string; ret
   return { title: cause instanceof Error ? cause.message : "提交失败", code: "SUBMIT_FAILED", retryable: true };
 }
 
+function clearOperationUrl(): void {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("operationId");
+    url.searchParams.delete("operationKind");
+    window.history.replaceState(null, "", url);
+  } catch { /* URL 不可用时忽略 */ }
+}
+
 function retainsIdempotencyKey(cause: unknown): boolean {
   if (cause instanceof ApiError) return cause.status >= 500 || cause.status === 429;
   if (cause instanceof SubmitAbortedError) return false;
@@ -83,6 +92,9 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
   const [elapsed, setElapsed] = useState(0);
   const [failure, setFailure] = useState<{ title: string; code: string; retryable: boolean } | null>(null);
   const [aborted, setAborted] = useState<string | null>(null);
+  const [operationId, setOperationId] = useState<string | null>(null);
+  const [operation, setOperation] = useState<Schemas["OperationResponse"] | null>(null);
+  const [submitted, setSubmitted] = useState<string | null>(null);
   const idempotencyKey = useRef<string | null>(null);
   const startedAt = useRef<number | null>(null);
 
@@ -93,6 +105,9 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
     setLoadError(null);
     setFailure(null);
     setAborted(null);
+    setOperationId(null);
+    setOperation(null);
+    setSubmitted(null);
     setConfirmations({});
     setPreview(null);
     setWorkspaceVersion(null);
@@ -144,7 +159,9 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         baselineNodeId: preview.business_baseline_node_id,
         baselineHeadVersion: head.version,
         idempotencyKey: key,
+        poll: { onUpdate: setOperation },
         onOperationAccepted: (operationId) => {
+          setOperationId(operationId);
           try {
             const url = new URL(window.location.href);
             url.searchParams.set("operationId", operationId);
@@ -158,8 +175,10 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
           reason: confirmations[pair.pair_id]?.reason.trim() ?? "",
         })),
       });
-      onSubmitted(result.submission.submission_id);
+      clearOperationUrl();
+      setSubmitted(result.submission.submission_id);
     } catch (cause) {
+      clearOperationUrl();
       // 已确定失败（4xx/ABORTED）时换新键，否则重试会重放同一个失败结果；
       // 超时、连接中断与 5xx 结果不确定，沿用原键避免重复提交。
       if (!retainsIdempotencyKey(cause)) idempotencyKey.current = null;
@@ -175,10 +194,16 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
     }
   }
 
-  return <Dialog open={open} title="提交本次组态" onClose={() => { if (!submitting) onClose(); }} actions={<><Button variant="secondary" onClick={onClose} disabled={submitting}>取消</Button><Button variant="primary" onClick={() => void submit()} disabled={!canSubmit} disabledReason={stale ? "Preview 结果已过期" : missing ? "请确认全部项目身份差异并填写原因" : undefined}>{submitting ? "提交中…" : "确认提交"}</Button></>}>
+  const manualRecovery = operation?.status === "MANUAL_RECOVERY_REQUIRED";
+  return <Dialog open={open} title={submitted ? "提交已完成" : "提交本次组态"} onClose={() => { if (!submitting) onClose(); }} actions={submitted ? <><Button variant="secondary" onClick={onClose}>关闭</Button><Button variant="primary" onClick={() => onSubmitted(submitted)}>查看提交</Button></> : <><Button variant="secondary" onClick={onClose} disabled={submitting}>取消</Button><Button variant="primary" onClick={() => void submit()} disabled={!canSubmit} disabledReason={stale ? "Preview 结果已过期" : missing ? "请确认全部项目身份差异并填写原因" : undefined}>{submitting ? "提交中…" : "确认提交"}</Button></>}>
+    {submitted && <section className="submit-result" role="status" aria-label="提交结果">
+      <p><strong>提交成功，已生成待审核提交。</strong></p>
+      <p>提交 ID：<code>{submitted}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(submitted)}>复制 ID</button></p>
+      <p className="subtle-copy">审核通过后才会成为新的基线。点“查看提交”打开审核页。</p>
+    </section>}
     {loading && <p className="subtle-copy">正在加载 Preview 信息…</p>}
     {loadError && <p role="alert" className="form-error">无法加载 Preview：{loadError}</p>}
-    {!loading && !loadError && preview && <>
+    {!loading && !loadError && preview && !submitted && <>
       <dl className="confirm-summary">
         <div><dt>工作区</dt><dd>{preview.workspace_id}</dd></div>
         <div><dt>Preview</dt><dd>{preview.preview_result_id}</dd></div>
@@ -198,7 +223,8 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         </section>;
       })}
       {requiredPairs.length === 0 && <p className="subtle-copy">项目身份均已确认一致，无需额外确认。</p>}
-      {submitting && <p role="status" className="submit-progress">提交执行中 · 已等待 {formatWaitDuration(elapsed)}，请勿关闭页面。操作 ID 已写入地址栏，刷新后会继续跟随。</p>}
+      {submitting && manualRecovery && <p role="alert" className="submit-progress submit-progress--manual">需要管理员处理。操作 ID <code>{operationId}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operationId ?? "")}>复制 ID</button>系统仍在查询状态；刷新页面后会继续跟随。</p>}
+      {submitting && !manualRecovery && <p role="status" className="submit-progress">提交执行中 · 已等待 {formatWaitDuration(elapsed)}，请勿关闭页面。操作 ID 已写入地址栏，刷新后会继续跟随。</p>}
       {aborted && <p role="alert" className="form-error" title={`原始错误代码：${aborted}`}>提交未完成，请检查上传与 Preview 后重试。<code> {aborted}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(aborted)}>复制错误代码</button></p>}
       {failure && !aborted && <p role="alert" className="form-error" title={`错误代码：${failure.code}`}>{failure.title}<code> {failure.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{(failure.code === "WORKSPACE_VERSION_CONFLICT" || failure.code === "BASELINE_VERSION_CONFLICT") && <button className="link-button" onClick={() => window.location.reload()}>刷新后重试</button>}</p>}
     </>}

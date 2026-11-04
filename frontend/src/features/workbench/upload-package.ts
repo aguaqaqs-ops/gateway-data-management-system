@@ -161,6 +161,7 @@ export async function buildTar(directory: LocalDirectory): Promise<Uint8Array> {
 
 /** Packages one selected directory as a deterministic gzip-compressed tar artifact. */
 export async function buildSourcePackage(directory: LocalDirectory): Promise<File> {
+  if (directory.files.length > MAX_ARCHIVE_ENTRIES) throw new Error("条目超过 8192，后端将返回 413");
   const tar = await buildTar(directory);
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -171,6 +172,5 @@ export async function buildSourcePackage(directory: LocalDirectory): Promise<Fil
   const compressed = source.pipeThrough(new CompressionStream("gzip") as unknown as TransformStream<Uint8Array, Uint8Array>);
   const bytes = await new Response(compressed).arrayBuffer();
   if (bytes.byteLength > MAX_ARCHIVE_BYTES) throw new Error("压缩后超过 256 MiB，后端将返回 413");
-  if (directory.files.length > MAX_ARCHIVE_ENTRIES) throw new Error("条目超过 8192，后端将返回 413");
   return new File([bytes], `${directory.rootName}.tar.gz`, { type: "application/gzip" });
 }

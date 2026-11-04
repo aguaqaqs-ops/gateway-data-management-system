@@ -5,7 +5,7 @@ import {
   ARCHIVE_PLAN_NEEDS_CONFIRMATION, HISTORY_PAGE_ONE, HISTORY_PAGE_TWO, HISTORY_COMPARE_STATUS_SCENARIOS, MANUAL_RECOVERY_TO_FAILED,
   MANUAL_RECOVERY_TO_SUCCESS, SIMULATED_ERROR_RESPONSES, SIMULATED_STRING_VALUES, TEST_ARCHIVE_ANOMALY_EVENT, TEST_ARCHIVE_CONFIRM_EVENT,
   ARCHIVE_PLAN_READY, COMPLETE_RESPONSE_SCENARIOS, OPERATION_TERMINAL_RESPONSES, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CANDIDATES_BLOCKED,
-  TEST_HISTORY_CURSOR_FIRST, TEST_HISTORY_CURSOR_SECOND, TEST_OPERATION_RUNNING, TEST_OPERATION_SUCCEEDED, TEST_SUBMIT_ACCEPTED, TEST_UPLOAD_FULL, TEST_WORKSPACE, WRITE_SCENARIO_COVERAGE,
+  TEST_HISTORY_CURSOR_FIRST, TEST_HISTORY_CURSOR_SECOND, TEST_OPERATION_RUNNING, TEST_OPERATION_SUCCEEDED, TEST_SUBMIT_ACCEPTED, TEST_UPLOAD_FULL, TEST_WORKSPACE, WRITE_SCENARIO_COVERAGE, validateSimulatedRequest,
 } from "./simulated-api";
 import { OPERATION_STATUS_COPY } from "../view-model/operation-status-copy";
 import { WORKSPACE_STATE_COPY } from "../view-model/workspace-state-copy";
@@ -134,5 +134,52 @@ describe("simulated HTTP response contracts", () => {
     expect(ARCHIVE_PLAN_NEEDS_CONFIRMATION.blockers).toEqual([]);
     expect(ARCHIVE_PLAN_READY.can_start).toBe(true);
     expect(ARCHIVE_PLAN_READY.audit_validity).toBe(true);
+    // Q17: a confirmed preview keeps the selection, digest, requirements, and every anomaly.
+    expect(ARCHIVE_PLAN_READY.selected).not.toBeNull();
+    expect(ARCHIVE_PLAN_READY.selection_subject_digest).toBe("sha256:selection-subject");
+    expect(ARCHIVE_PLAN_READY.confirmation_requirements[0]).toBe(ARCHIVE_PLAN_READY.selection_subject_digest);
+    expect(ARCHIVE_PLAN_READY.anomalies.map((anomaly) => anomaly.subject_digest)).toEqual(["sha256:anomaly"]);
+    // Negative probe (§5 N3): replacing confirmation_requirements with [] must fail here.
+  });
+  it("keeps every archive preview state consistent with the Q17 start rules", () => {
+    const blockedPlan = { ...ARCHIVE_PLAN_NEEDS_CONFIRMATION, blockers: ["ACTIVE_SUBMIT_ATTEMPT"] };
+    const plans = [ARCHIVE_PLAN_READY, ARCHIVE_PLAN_NEEDS_CONFIRMATION, blockedPlan];
+    for (const plan of plans) {
+      if (plan.selection_subject_digest) expect(plan.confirmation_requirements).toContain(plan.selection_subject_digest);
+      if (!plan.audit_validity) expect(plan.can_start).toBe(false);
+      if (plan.can_start) {
+        expect(plan.selected).not.toBeNull();
+        expect(plan.audit_validity).toBe(true);
+        expect(plan.blockers).toEqual([]);
+        expect(plan.anomalies.every((anomaly) => plan.confirmation_requirements.includes(anomaly.subject_digest))).toBe(true);
+      }
+    }
+  });
+  it("enforces the request-side constraints for every write route in one place (Q17)", () => {
+    const keyRoutes = [
+      "/v1/workspaces/workspace-fe2b/upload-revisions",
+      "/v1/workspaces/workspace-fe2b/preview-operations",
+      "/v1/workspaces/workspace-fe2b/submit-attempts",
+      "/v1/submissions/submission-1/review-events",
+      "/v1/history-compares",
+      "/v1/archive-confirmations",
+      "/v1/archive-anomaly-resolutions",
+      "/v1/archives",
+    ];
+    for (const path of keyRoutes) {
+      expect(validateSimulatedRequest({ method: "POST", url: new URL("http://local" + path), headers: {} }), path)
+        .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" });
+      expect(validateSimulatedRequest({ method: "POST", url: new URL("http://local" + path), headers: { "Idempotency-Key": "key-1" } }), path).toBeNull();
+    }
+    const workspaces = new URL("http://local/v1/workspaces");
+    expect(validateSimulatedRequest({ method: "POST", url: workspaces, headers: { "idempotency-key": "key-1" } }))
+      .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "POST /v1/workspaces 不接受 Idempotency-Key" });
+    expect(validateSimulatedRequest({ method: "POST", url: workspaces, headers: {} })).toBeNull();
+    const audit = new URL("http://local/v1/archive-audit-events?subject_kind=CONFIRM_SELECTION&subject_digest=sha256:selection-subject");
+    expect(validateSimulatedRequest({ method: "GET", url: audit, headers: {} })).toBeNull();
+    expect(validateSimulatedRequest({ method: "GET", url: new URL("http://local/v1/archive-audit-events?subject_kind=CONFIRM_SELECTION"), headers: {} }))
+      .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "缺少 subject_kind 或 subject_digest" });
+    expect(validateSimulatedRequest({ method: "GET", url: new URL("http://local/v1/archive-audit-events?subject_digest=sha256:selection-subject"), headers: {} }))
+      .toEqual({ code: "REQUEST_VALIDATION_FAILED", message: "缺少 subject_kind 或 subject_digest" });
   });
 });

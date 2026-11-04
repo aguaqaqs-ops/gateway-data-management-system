@@ -48,6 +48,24 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     dialogKey.current = crypto.randomUUID();
   }
 
+  async function refreshFacts() {
+    setBusy(true);
+    try {
+      onFactsChanged(await gatewayApi.getReviewFacts(submissionId));
+      setError(null);
+      dialogKey.current = null;
+    } catch (cause) {
+      setError(actionError(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function renderError() {
+    if (!error) return null;
+    return <p role="alert" className="form-error" title={`错误代码：${error.code}`}>{error.title}<code> {error.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(error.code)}>复制错误代码</button>{error.code === "REVIEW_VERSION_CONFLICT" && <button className="link-button" onClick={() => void refreshFacts()}>刷新审核信息</button>}</p>;
+  }
+
   async function confirm() {
     if (!dialog) return;
     if (dialog === "reject" && !reason.trim()) return;
@@ -81,7 +99,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
       <Button variant="primary" onClick={() => void confirm()} disabled={confirmDisabled}>确认通过</Button>
     </>}>
       <p className="confirm-impact">通过后该提交成为已通过提交，可以归档为新的业务基线；审核记录会保留。</p>
-      {error && <p role="alert" className="form-error" title={`错误代码：${error.code}`}>{error.title}<code> {error.code}</code></p>}
+      {renderError()}
     </Dialog>
 
     <Dialog open={dialog === "reject"} title="退回提交" onClose={() => { if (!busy) setDialog(null); }} actions={<>
@@ -90,7 +108,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     </>}>
       <p className="confirm-impact">退回后该提交不会成为归档候选，提交人需要重新上传并提交；退回理由会保留在审核记录中。</p>
       <label className="confirm-reason">退回理由<textarea aria-label="退回理由" value={reason} onChange={(event) => setReason(event.currentTarget.value)} placeholder="说明退回原因（必填）" /></label>
-      {error && <p role="alert" className="form-error" title={`错误代码：${error.code}`}>{error.title}<code> {error.code}</code></p>}
+      {renderError()}
     </Dialog>
 
     <Dialog open={dialog === "withdraw"} title="撤回提交" onClose={() => { if (!busy) setDialog(null); }} actions={<>
@@ -99,7 +117,7 @@ export function ReviewActions({ submissionId, facts, bundleReady, onFactsChanged
     </>}>
       <p className="confirm-impact">撤回后该提交不再进入归档候选，也无法继续审核；提交人需要重新上传并提交。此操作不可撤销。</p>
       <label className="confirm-checkbox"><input type="checkbox" checked={understood} onChange={(event) => setUnderstood(event.currentTarget.checked)} />我已了解撤回后需要重新提交，并确认继续</label>
-      {error && <p role="alert" className="form-error" title={`错误代码：${error.code}`}>{error.title}<code> {error.code}</code></p>}
+      {renderError()}
     </Dialog>
   </div>;
 }

@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, FolderOpen, RefreshCw, Upload } from "lucide
 import type { components } from "../api/generated/openapi";
 import { gatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
-import { PollingConnectionLostError, runPreviewJourney } from "../api/journeys";
+import { PollingConnectionLostError, createPreviewJourneyProgress, runPreviewJourney } from "../api/journeys";
 import { currentGatewaySession } from "../api/session";
 import { OpfsBundleStore } from "../bundle/local-bundle";
 import { Button, DirectorySummary, OperationStatus, formatBytes, type OperationPhase } from "../../design-system/components";
@@ -65,13 +65,14 @@ function slotSummary(slot: DirectorySlot): string {
 
 export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   head: HistoryHead;
+  emptyBaseline?: boolean;
   onUploadStateChange: (active: boolean) => void;
   onReadyChange: (ready: boolean, reason: string | null) => void;
   onComplete: (workspaceId: string, previewResultId: string) => void;
-}>(function UploadStepCard({ head, onUploadStateChange, onReadyChange, onComplete }, ref) {
+}>(function UploadStepCard({ head, emptyBaseline = false, onUploadStateChange, onReadyChange, onComplete }, ref) {
   const initialInput = useRef<HTMLInputElement>(null);
   const modifiedInput = useRef<HTMLInputElement>(null);
-  const idempotencyKey = useRef<string | null>(null);
+  const progress = useRef(createPreviewJourneyProgress());
   const [initial, setInitial] = useState<DirectorySlot>(emptySlot);
   const [modified, setModified] = useState<DirectorySlot>(emptySlot);
   const [phase, setPhase] = useState<UploadPhase>("idle");
@@ -127,7 +128,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   const selectInitial = (files: FileList | File[] | null) => {
     if (!files || files.length === 0) {
       setInitial(emptySlot);
-      idempotencyKey.current = null;
+      progress.current = createPreviewJourneyProgress();
       setError(null);
       setPhase("idle");
       setPhaseDurations({});
@@ -137,7 +138,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       const next = slotFrom(files);
       if (!next) return;
       setInitial(next);
-      idempotencyKey.current = null;
+      progress.current = createPreviewJourneyProgress();
       setError(null);
       setPhase("idle");
       setPhaseDurations({});
@@ -149,7 +150,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
   const selectModified = (files: FileList | File[] | null) => {
     if (!files || files.length === 0) {
       setModified(emptySlot);
-      idempotencyKey.current = null;
+      progress.current = createPreviewJourneyProgress();
       setError(null);
       setPhase("idle");
       setPhaseDurations({});
@@ -159,7 +160,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       const next = slotFrom(files);
       if (!next) return;
       setModified(next);
-      idempotencyKey.current = null;
+      progress.current = createPreviewJourneyProgress();
       setError(null);
       setPhase("idle");
       setPhaseDurations({});
@@ -182,7 +183,6 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     setError(null);
     setPhaseDurations({});
     setOperation(null);
-    if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
     totalStartRef.current = Date.now();
     begin("packaging");
     try {
@@ -195,13 +195,12 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
           inputCompleteness: initialPackage ? "FULL" : "MODIFIED_ONLY",
           initial: initialPackage ? { partName: "INITIAL", mediaType: "application/gzip", file: initialPackage } : undefined,
           modified: { partName: "MODIFIED", mediaType: "application/gzip", file: modifiedPackage },
-          idempotencyKey: idempotencyKey.current ?? undefined,
         },
-        previewIdempotencyKey: idempotencyKey.current ?? undefined,
         baselineNodeId: head.node_id,
         baselineHeadVersion: head.version,
         onOperationAccepted: (operationId) => {
           try {
+            sessionStorage.setItem("gateway-preview-operation", operationId);
             const url = new URL(window.location.href);
             url.searchParams.set("operationId", operationId);
             url.searchParams.set("operationKind", "operation");
@@ -217,13 +216,16 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
         onDownloadProgress: () => {
           if (phaseRef.current === "previewing") advance("downloading");
         },
-      });
+      }, progress.current);
       advance("writing");
       phaseRef.current = "done";
       setPhase("done");
+      sessionStorage.removeItem("gateway-preview-operation");
       onComplete(result.workspace.workspace_id, result.preview.preview_result_id);
+      progress.current = createPreviewJourneyProgress();
     } catch (cause) {
-      if (cause instanceof ApiError && cause.code === "IDEMPOTENCY_CONFLICT") idempotencyKey.current = null;
+      sessionStorage.removeItem("gateway-preview-operation");
+      if (cause instanceof ApiError && cause.code === "IDEMPOTENCY_CONFLICT") progress.current = createPreviewJourneyProgress();
       markFailed(cause);
     }
   }
@@ -241,10 +243,12 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       ? "active"
       : phase === "failed" ? "failed" : "pending";
   const uploadDuration = phaseDurations.uploading !== undefined ? `${phaseDurations.uploading} 秒` : undefined;
+  const modifiedOnly = !initial.directory;
   const phases: OperationPhase[] = [
     ...(initial.directory ? [{ name: "上传原始组态备份" as const, status: uploadStatus, duration: uploadDuration }] : []),
     { name: "上传本次归档组态", status: uploadStatus, duration: uploadDuration },
-    { name: "下载预览结果", status: phase === "previewing" || phase === "downloading" ? "active" : ["writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
+    ...(modifiedOnly ? [{ name: "解析预览" as const, status: phase === "previewing" ? "active" as const : ["downloading", "writing", "done"].includes(phase) ? "complete" as const : "pending" as const }] : []),
+    { name: "下载预览结果", status: modifiedOnly ? (phase === "downloading" ? "active" : ["writing", "done"].includes(phase) ? "complete" : "pending") : phase === "previewing" || phase === "downloading" ? "active" : ["writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
     { name: "写入本地", status: phase === "writing" ? "active" : phase === "done" ? "complete" : "pending" },
     { name: "完成，进入差异浏览", status: phase === "done" ? "complete" : "pending" },
   ];
@@ -263,11 +267,12 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       <div><dt>上传方式</dt><dd>{initial.directory ? "原始备份 + 本次归档" : "仅本次归档"}</dd></div>
     </dl> : <ol className="upload-steps">
       <li className="upload-step">
-        <div className="upload-step__title"><span className="upload-step__index">1</span><strong>原始组态备份</strong><span className="upload-step__optional">可选</span>{initial.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
+        <div className="upload-step__title"><span className="upload-step__index">1</span><strong>原始组态备份</strong><span className="upload-step__optional">{emptyBaseline ? "首批空基线不可选" : "可选"}</span>{initial.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
         <div className="upload-step__body">
-          <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => initialInput.current?.click()}>选择目录</Button>
+          <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy || emptyBaseline} disabledReason={emptyBaseline ? "当前是首批空基线，没有可选的原始组态备份" : busy ? "上传进行中" : undefined} onClick={() => initialInput.current?.click()}>选择目录</Button>
+          {emptyBaseline && <p className="disabled-reason">当前基线是首批空基线：没有原始组态备份可选择，只能上传本次归档组态，因此第 ① 步不可用。</p>}
           {initial.name && <button className="link-button" onClick={() => selectInitial(null)}>清除</button>}
-          <p className="upload-step__summary">{slotSummary(initial)}</p>
+          {!initial.directory && <p className="upload-step__summary">{slotSummary(initial)}</p>}
           {initial.directory && !busy && <DirectorySummary directoryName={initial.directory.rootName} fileCount={initial.directory.files.length} sizeBytes={initial.directory.totalBytes} mainFile={initial.directory.mainFile} />}
           {initial.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>原始组态备份未通过校验</strong><ul>{initial.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(initial.errors.join("\n"))}>复制错误信息</button></div></div>}
         </div>
@@ -277,7 +282,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
         <div className="upload-step__body">
           <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => modifiedInput.current?.click()}>选择目录</Button>
           {modified.name && <button className="link-button" onClick={() => selectModified(null)}>清除</button>}
-          <p className="upload-step__summary">{slotSummary(modified)}</p>
+          {!modified.directory && <p className="upload-step__summary">{slotSummary(modified)}</p>}
           {modified.directory && !busy && <DirectorySummary directoryName={modified.directory.rootName} fileCount={modified.directory.files.length} sizeBytes={modified.directory.totalBytes} mainFile={modified.directory.mainFile} />}
           {modified.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>本次归档组态未通过校验（{modified.errors.length} 项）</strong><ul>{modified.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(modified.errors.join("\n"))}>复制错误信息</button></div></div>}
         </div>

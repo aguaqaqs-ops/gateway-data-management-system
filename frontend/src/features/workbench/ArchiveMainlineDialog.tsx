@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { components } from "../api/generated/openapi";
+import { ApiError } from "../api/authenticated-fetch";
 import { gatewayApi } from "../api/application-api";
 import { ApiError } from "../api/authenticated-fetch";
-import { runArchiveJourney } from "../api/journeys";
+import { createArchiveJourneyProgress, runArchiveJourney } from "../api/journeys";
 import { Button, Dialog } from "../../design-system/components";
 
 type Schemas = components["schemas"];
@@ -53,9 +54,10 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
   const [running, setRunning] = useState(false);
   const [failure, setFailure] = useState<{ title: string; code: string; refresh: boolean } | null>(null);
   const [result, setResult] = useState<Result | null>(null);
-  const idempotencyKey = useRef<string | null>(null);
+  const progress = useRef(createArchiveJourneyProgress());
 
   const load = useCallback(async (target: string) => {
+    progress.current = createArchiveJourneyProgress();
     setLoading(true);
     setLoadError(null);
     setFailure(null);
@@ -78,7 +80,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
       setConfirmations({});
       setAnomalyResolutions({});
     } catch (cause) {
-      setLoadError(cause instanceof Error ? cause.message : String(cause));
+      setLoadError(cause instanceof ApiError ? `${cause.message}（${cause.code ?? `HTTP_${cause.status}`}）` : cause instanceof Error ? cause.message : String(cause));
       setPlan(null);
     } finally {
       setLoading(false);
@@ -90,7 +92,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
     setPlan(null);
     setResult(null);
     setFailure(null);
-    idempotencyKey.current = crypto.randomUUID();
+    progress.current = createArchiveJourneyProgress();
     void load(submissionId);
   }, [open, submissionId, load]);
 
@@ -117,9 +119,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
           action: anomalyAction(anomaly),
           reason: anomalyResolutions[anomaly.subject_digest]?.reason.trim() ?? "",
         })),
-        idempotencyKey: idempotencyKey.current ?? undefined,
-        startIdempotencyKey: idempotencyKey.current ?? undefined,
-      });
+      }, progress.current);
       setResult(outcome.result);
     } catch (cause) {
       setFailure(archiveError(cause));
@@ -128,9 +128,13 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
     }
   }
 
+  function resetUnsentAnomalyKey(subjectDigest: string) {
+    const entry = progress.current.anomalyResolutions.get(subjectDigest);
+    if (entry && entry.sequence === undefined) progress.current.anomalyResolutions.delete(subjectDigest);
+  }
+
   function refresh() {
-    if (!submissionId) return;
-    idempotencyKey.current = crypto.randomUUID();
+    progress.current = createArchiveJourneyProgress();
     setResult(null);
     void load(submissionId);
   }
@@ -170,8 +174,8 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
           return <div className="archive-anomaly" key={anomaly.subject_digest}>
             <strong>{ISSUE_COPY[anomaly.issue_code] ?? anomaly.issue_code}<code title={anomaly.issue_code}>{anomaly.issue_code}</code></strong>
             <p>目标提交 {anomaly.target_submission_id}，需要说明处理原因。</p>
-            <label className="confirm-checkbox"><input type="checkbox" checked={value.acknowledged} onChange={(event) => { const acknowledged = event.currentTarget.checked; setAnomalyResolutions((current) => ({ ...current, [anomaly.subject_digest]: { ...value, acknowledged } })); }} />我已核对该异常并确认继续归档</label>
-            <label className="confirm-reason">处理原因<textarea aria-label={`${anomaly.issue_code} 的处理原因`} value={value.reason} onChange={(event) => { const reason = event.currentTarget.value; setAnomalyResolutions((current) => ({ ...current, [anomaly.subject_digest]: { ...value, reason } })); }} placeholder="说明为什么可以忽略或继续归档" /></label>
+            <label className="confirm-checkbox"><input type="checkbox" checked={value.acknowledged} onChange={(event) => { const acknowledged = event.currentTarget.checked; resetUnsentAnomalyKey(anomaly.subject_digest); setAnomalyResolutions((current) => ({ ...current, [anomaly.subject_digest]: { ...value, acknowledged } })); }} />我已核对该异常并确认继续归档</label>
+            <label className="confirm-reason">处理原因<textarea aria-label={`${anomaly.issue_code} 的处理原因`} value={value.reason} onChange={(event) => { const reason = event.currentTarget.value; resetUnsentAnomalyKey(anomaly.subject_digest); setAnomalyResolutions((current) => ({ ...current, [anomaly.subject_digest]: { ...value, reason } })); }} placeholder="说明为什么可以忽略或继续归档" /></label>
           </div>;
         })}
       </section>}
@@ -184,7 +188,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
       </section>
 
       {running && <p role="status" className="submit-progress">归档执行中，请勿关闭页面。</p>}
-      {failure && <div role="alert" className="form-error" title={`错误代码：${failure.code}`}>{failure.title}{failure.refresh && <Button variant="secondary" onClick={refresh}>刷新预检</Button>}</div>}
+      {failure && <div role="alert" className="form-error"> {failure.title}<code> {failure.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{failure.refresh && <Button variant="secondary" onClick={refresh}>刷新预检</Button>}</div>}
     </>}
     {result && <section className="archive-step" aria-label="归档结果">
       <h2>归档完成</h2>

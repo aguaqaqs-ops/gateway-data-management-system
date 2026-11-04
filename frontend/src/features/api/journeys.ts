@@ -178,28 +178,76 @@ export interface PreviewJourneyInput {
   onOperationAccepted?: (operationId: string) => void;
 }
 
-export async function runPreviewJourney(api: GatewayApi, store: ReadableBundleStore, input: PreviewJourneyInput): Promise<BundleJourneyResult> {
-  const workspace = await api.createWorkspace(input.workspaceRequest);
-  const upload = await api.uploadRevision(workspace.workspace_id, { ...input.upload, expectedWorkspaceVersion: workspace.optimistic_version });
-  const accepted = await api.startPreview(workspace.workspace_id, {
-    expected_workspace_version: upload.optimistic_version,
-    upload_revision_id: upload.upload_revision_id,
-    generation: upload.generation,
-    expected_baseline_node_id: input.baselineNodeId,
-    expected_baseline_head_version: input.baselineHeadVersion,
-  }, input.previewIdempotencyKey);
-  input.onOperationAccepted?.(accepted.operation_id);
-  const operation = await pollOperation(api, accepted.operation_id, input.poll);
+export interface PreviewJourneyProgress {
+  workspaceId?: string;
+  uploadExpectedVersion?: number;
+  uploadKey?: string;
+  upload?: Schemas["UploadRevisionResponse"];
+  previewKey?: string;
+  operationId?: string;
+}
+
+export function createPreviewJourneyProgress(): PreviewJourneyProgress {
+  return {};
+}
+
+export async function runPreviewJourney(
+  api: GatewayApi,
+  store: ReadableBundleStore,
+  input: PreviewJourneyInput,
+  progress: PreviewJourneyProgress = createPreviewJourneyProgress(),
+): Promise<BundleJourneyResult> {
+  let upload = progress.upload;
+  if (!upload) {
+    if (!progress.workspaceId) {
+      const workspace = await api.createWorkspace(input.workspaceRequest);
+      progress.workspaceId = workspace.workspace_id;
+      progress.uploadExpectedVersion = workspace.optimistic_version;
+    }
+    if (progress.uploadExpectedVersion === undefined) throw new Error("上传失败：缺少工作区版本");
+    progress.uploadKey ??= crypto.randomUUID();
+    upload = await api.uploadRevision(progress.workspaceId, {
+      ...input.upload,
+      expectedWorkspaceVersion: progress.uploadExpectedVersion,
+      idempotencyKey: progress.uploadKey,
+    });
+    progress.upload = upload;
+  }
+  const workspaceId = progress.workspaceId;
+  if (!workspaceId) throw new Error("上传失败：缺少工作区标识");
+  if (!progress.operationId) {
+    progress.previewKey ??= input.previewIdempotencyKey ?? crypto.randomUUID();
+    const accepted = await api.startPreview(workspaceId, {
+      expected_workspace_version: upload.optimistic_version,
+      upload_revision_id: upload.upload_revision_id,
+      generation: upload.generation,
+      expected_baseline_node_id: input.baselineNodeId,
+      expected_baseline_head_version: input.baselineHeadVersion,
+    }, progress.previewKey);
+    progress.operationId = accepted.operation_id;
+    input.onOperationAccepted?.(accepted.operation_id);
+  }
+  const operationId = progress.operationId;
+  let operation: Schemas["OperationResponse"];
+  try {
+    operation = await pollOperation(api, operationId, input.poll);
+  } catch (cause) {
+    if (cause instanceof OperationFailedError) {
+      delete progress.operationId;
+      delete progress.previewKey;
+    }
+    throw cause;
+  }
   const refreshedWorkspace = await api.createWorkspace(input.workspaceRequest);
   const previewResultId = refreshedWorkspace.current_preview_result_id;
   if (!previewResultId) throw new Error("预览操作完成后工作区没有当前 Preview 结果");
-  const preview = await api.getPreviewResult(workspace.workspace_id, previewResultId);
-  if (preview.operation_id !== accepted.operation_id) throw new Error("Preview 结果不属于本次预览操作");
+  const preview = await api.getPreviewResult(workspaceId, previewResultId);
+  if (preview.operation_id !== operationId) throw new Error("Preview 结果不属于本次预览操作");
   if (preview.upload_revision_id !== upload.upload_revision_id) throw new Error("Preview 结果不属于本次上传版本");
   const bundle = await ensureLocalBundle({
     store,
     expectedBundleDigest: preview.bundle_digest,
-    fetchBundle: () => api.getPreviewBundle(workspace.workspace_id, preview.preview_result_id),
+    fetchBundle: () => api.getPreviewBundle(workspaceId, preview.preview_result_id),
     onProgress: input.onDownloadProgress,
   });
   return { workspace: refreshedWorkspace, upload, operation, preview, bundle };
@@ -324,6 +372,25 @@ export interface ArchiveJourneyInput {
   idempotencyKey?: string;
 }
 
+export interface ArchiveAuditSubjectProgress {
+  key: string;
+  expectedSequence: number;
+  sequence?: number;
+}
+
+/** In-memory progress of one archive intent; reuse it across retries of the same dialog. */
+export interface ArchiveJourneyProgress {
+  confirmations: Map<string, ArchiveAuditSubjectProgress>;
+  anomalyResolutions: Map<string, ArchiveAuditSubjectProgress>;
+  startKey?: string;
+  started?: Schemas["ArchiveStartedResponse"];
+  result?: Schemas["ArchiveResultResponse"];
+}
+
+export function createArchiveJourneyProgress(): ArchiveJourneyProgress {
+  return { confirmations: new Map(), anomalyResolutions: new Map() };
+}
+
 export type ArchiveSubjectKind = "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION";
 
 async function listSubjectEvents(api: GatewayApi, subjectKind: ArchiveSubjectKind, subjectDigest: string): Promise<Schemas["ArchiveAuditEventResponse"][]> {
@@ -343,61 +410,95 @@ async function getLatestSubjectSequence(api: GatewayApi, subjectKind: ArchiveSub
   return events.reduce((max, event) => Math.max(max, event.sequence), 0);
 }
 
-export async function runArchiveJourney(api: GatewayApi, input: ArchiveJourneyInput): Promise<{ plan: Schemas["PreviewArchivePlanResponse"]; started: Schemas["ArchiveStartedResponse"]; result: Schemas["ArchiveResultResponse"] }> {
+export async function runArchiveJourney(
+  api: GatewayApi,
+  input: ArchiveJourneyInput,
+  progress: ArchiveJourneyProgress = createArchiveJourneyProgress(),
+): Promise<{ plan: Schemas["PreviewArchivePlanResponse"]; started: Schemas["ArchiveStartedResponse"]; result: Schemas["ArchiveResultResponse"] }> {
   const candidates = await api.listArchiveCandidates();
   let plan = await api.previewArchive({ selected: input.selected });
   if (candidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");
   const confirmationRefs: Schemas["ArchiveAuditReferenceRequest"][] = [];
   const anomalyResolutionRefs: Schemas["ArchiveAuditReferenceRequest"][] = [];
-  const fallbackArchiveKey = input.idempotencyKey;
+  let appended = false;
   for (const confirmation of input.confirmations ?? []) {
-    const expectedSequence = await getLatestSubjectSequence(api, "CONFIRM_SELECTION", confirmation.subjectDigest);
-    const appended = await api.appendArchiveConfirmation({
-      expected_baseline_node_id: plan.head.business_baseline_node_id,
-      expected_baseline_head_version: plan.head.baseline_head_version,
-      selected: input.selected,
-      candidate_set_digest: plan.candidate_set_digest,
-      subject_digest: confirmation.subjectDigest,
-      expected_sequence: expectedSequence,
-      action: confirmation.action,
-      reason: confirmation.reason,
-    }, confirmation.idempotencyKey ?? fallbackArchiveKey);
-    confirmationRefs.push({ subject_digest: confirmation.subjectDigest, sequence: appended.sequence });
+    const entry = resolveAuditProgress(progress.confirmations, confirmation.subjectDigest, confirmation.idempotencyKey, () =>
+      getLatestSubjectSequence(api, "CONFIRM_SELECTION", confirmation.subjectDigest));
+    const resolved = await entry;
+    if (resolved.sequence === undefined) {
+      const response = await api.appendArchiveConfirmation({
+        expected_baseline_node_id: plan.head.business_baseline_node_id,
+        expected_baseline_head_version: plan.head.baseline_head_version,
+        selected: input.selected,
+        candidate_set_digest: plan.candidate_set_digest,
+        subject_digest: confirmation.subjectDigest,
+        expected_sequence: resolved.expectedSequence,
+        action: confirmation.action,
+        reason: confirmation.reason,
+      }, resolved.key);
+      resolved.sequence = response.sequence;
+      appended = true;
+    }
+    confirmationRefs.push({ subject_digest: confirmation.subjectDigest, sequence: resolved.sequence });
   }
   for (const resolution of input.anomalyResolutions ?? []) {
+    const existing = progress.anomalyResolutions.get(resolution.subjectDigest);
+    if (existing?.sequence !== undefined) {
+      anomalyResolutionRefs.push({ subject_digest: resolution.subjectDigest, sequence: existing.sequence });
+      continue;
+    }
     const anomaly = plan.anomalies.find((item) => item.subject_digest === resolution.subjectDigest);
     if (!anomaly) throw new Error(`归档方案中没有对应的异常：${resolution.subjectDigest}`);
-    const expectedSequence = await getLatestSubjectSequence(api, anomaly.subject_kind, anomaly.subject_digest);
-    const appended = await api.appendArchiveAnomalyResolution({
-      expected_baseline_node_id: plan.head.business_baseline_node_id,
-      expected_baseline_head_version: plan.head.baseline_head_version,
-      selected: input.selected,
-      candidate_set_digest: plan.candidate_set_digest,
-      expected_sequence: expectedSequence,
-      subject_digest: anomaly.subject_digest,
-      subject_kind: anomaly.subject_kind,
-      issue_code: anomaly.issue_code,
-      target_submission_id: anomaly.target_submission_id,
-      target_candidate_digest: anomaly.target_candidate_digest,
-      action: resolution.action,
-      reason: resolution.reason,
-    }, resolution.idempotencyKey ?? fallbackArchiveKey);
-    anomalyResolutionRefs.push({ subject_digest: anomaly.subject_digest, sequence: appended.sequence });
+    const resolved = await resolveAuditProgress(progress.anomalyResolutions, anomaly.subject_digest, resolution.idempotencyKey, () =>
+      getLatestSubjectSequence(api, anomaly.subject_kind, anomaly.subject_digest));
+    if (resolved.sequence === undefined) {
+      const response = await api.appendArchiveAnomalyResolution({
+        expected_baseline_node_id: plan.head.business_baseline_node_id,
+        expected_baseline_head_version: plan.head.baseline_head_version,
+        selected: input.selected,
+        candidate_set_digest: plan.candidate_set_digest,
+        expected_sequence: resolved.expectedSequence,
+        subject_digest: anomaly.subject_digest,
+        subject_kind: anomaly.subject_kind,
+        issue_code: anomaly.issue_code,
+        target_submission_id: anomaly.target_submission_id,
+        target_candidate_digest: anomaly.target_candidate_digest,
+        action: resolution.action,
+        reason: resolution.reason,
+      }, resolved.key);
+      resolved.sequence = response.sequence;
+      appended = true;
+    }
+    anomalyResolutionRefs.push({ subject_digest: anomaly.subject_digest, sequence: resolved.sequence });
   }
-  if (confirmationRefs.length || anomalyResolutionRefs.length) plan = await api.previewArchive({ selected: input.selected });
+  if (appended) plan = await api.previewArchive({ selected: input.selected });
   const latestCandidates = await api.listArchiveCandidates();
   if (latestCandidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");
   if (!plan.can_start) throw new Error(`归档被阻止：${plan.blockers.join("、")}`);
-  const started = await api.startArchive({
+  progress.startKey ??= input.startIdempotencyKey ?? input.idempotencyKey ?? crypto.randomUUID();
+  progress.started ??= await api.startArchive({
     expected_baseline_node_id: plan.head.business_baseline_node_id,
     expected_baseline_head_version: plan.head.baseline_head_version,
     candidate_set_digest: plan.candidate_set_digest,
     selected: input.selected,
     confirmation_refs: confirmationRefs,
     anomaly_resolution_refs: anomalyResolutionRefs,
-  }, input.startIdempotencyKey ?? input.idempotencyKey);
-  const result = await api.getArchiveResult(started.archive_result_id);
-  return { plan, started, result };
+  }, progress.startKey);
+  progress.result ??= await api.getArchiveResult(progress.started.archive_result_id);
+  return { plan, started: progress.started, result: progress.result };
+}
+
+async function resolveAuditProgress(
+  entries: Map<string, ArchiveAuditSubjectProgress>,
+  subjectDigest: string,
+  suppliedKey: string | undefined,
+  latestSequence: () => Promise<number>,
+): Promise<ArchiveAuditSubjectProgress> {
+  const existing = entries.get(subjectDigest);
+  if (existing) return existing;
+  const entry = { key: suppliedKey ?? crypto.randomUUID(), expectedSequence: await latestSequence() };
+  entries.set(subjectDigest, entry);
+  return entry;
 }
 
 /** Dataset replacement uses the same local Preview bundle path with MODIFIED_ONLY upload input. */

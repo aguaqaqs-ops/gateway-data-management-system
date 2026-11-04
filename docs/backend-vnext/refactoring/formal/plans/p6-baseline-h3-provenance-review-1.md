@@ -55,3 +55,11 @@ ct108 指定 worktree `/home/dev/gdds-p6-baseline-measure-h3-ct108` 当前 HEAD 
 本轮只改基准工具及测试/文档，不触发产品镜像重建；冻结产品仍为 S1c V′，来源 backend config digest 为 `sha256:6d0aab7e18caea0b157c401612cfd7acdb0fca1bbfd6ef7f2b57b7d5f3f588f1`，记录有全部 15 个 DiffID。实际 prime/H3 启动前仍按 runbook 对 V′ 做完整程序比较。本报告不把工具 HEAD 当作新的产品 image revision，也不作当前候选容器门禁或 carried 声明；基准最终 04 runner/终审仍待完成。
 
 维持缓存准备和 H3 暂停。F1 修正并经定向复审通过后，按已获授权的原范围推进，不扩大场景、不自动重跑已完成 H2；新失败继续遵守 DC66/DC68 与输入/身份/缓存停止规则。剩余超过 48 小时停止交 owner。S2a exit 仍等基准 exit（DC70）。本次不推送、不办理 tag/合入/阶段 exit。
+
+## 5. handoff 更新补核：9bf9b02701
+
+实施方随后将审核终点更新为 `9bf9b02701252ad9ba0b8c31440e14c01070703b`。在 clean detached worktree `/home/dev/gdds-p6-h3-review-9bf9b027` 程序核对：相对代码候选 `95b1d4b1c4122747a08fffd31d8fbea7688a83b9` 仅修改 baseline handoff，`vnext` Git tree 完全相同；`git diff --check` 通过。因此本报告覆盖的累计区间更新为 `25e95c35f0e19380f3f53079f1a3b418b472fc36..9bf9b02701252ad9ba0b8c31440e14c01070703b`，代码审核不重复。
+
+handoff 已补齐代码候选、验证路径/SHA、来源原 manifest 与目标关系、失败调试说明及剩余 `14–30 小时` 估计，关闭 §3 的“验证结果待填写”记录项。新增 05 preflight、postflight 与 ct108 source-check-execution 三份日志实际 SHA 程序比较均符合 handoff；最后一份记录 hostname `gw-dms-test`、2026-11-04T12:19:52Z–12:19:55Z、候选 start HEAD、exit 0，与已核对的 source MATCH 对应。未重新运行任何测试或测量。
+
+**结论仍为需修订，F1 未关闭。** handoff 将 `95b1d4b1c4` 描述为修正 fixture、不改拒绝规则，恰好意味着 §1 的错误跨启动卷判等仍在。记录补齐、164 项测试与 source MATCH 均不能解除该代码阻塞。继续暂停缓存准备与 H3，待 F1 修正后的新候选复审；本补核不评价尚未产生的运行结果。

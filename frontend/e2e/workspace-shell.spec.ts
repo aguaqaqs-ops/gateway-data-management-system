@@ -1265,6 +1265,8 @@ test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { fail: true });
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+  await expect(page.getByLabel("上传与预览")).toBeVisible();
   await setDirectoryInput(page, "upload-initial-input", "original_cfg", VALID_DIRECTORY);
   await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
   await page.getByRole("button", { name: "上传", exact: true }).click();

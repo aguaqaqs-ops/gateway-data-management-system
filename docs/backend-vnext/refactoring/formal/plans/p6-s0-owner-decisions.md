@@ -62,6 +62,7 @@ implementation_authorized: no
 | DC71 | S1c exit：真实数据范围确认；DC70 的 S2a 起点澄清；startup 阻断遗留的登记 | — | — |
 | DC72 | S2a kickoff 确认：O2 非有限 JSON 数值拒绝、旧实现删除范围、test-only 差分入口（生产 flag 移到 S2b）、parser 表内分块、adapter 命名、线程池分步 | — | — |
 | DC73 | 后端会话分为设计与审核两个角色 | — | — |
+| DC74（草案） | BE-c 体积报告放在 S6；整包下载单列只报告，不改 P6 门槛 | — | — |
 
 ## 2. 决议详情
 
@@ -771,6 +772,21 @@ implementation_authorized: no
      - DC70 第 5 项中的基准审核与 S2a 审核由审核会话承接，包括基准终审。
      - DC66 第 5 项的常设工具修正授权、DC68 与停止规则不变。
 - **落点**：本记录；执行计划 §8.2；[后端会话交接](p6-backend-session-handoff.md)。
+
+### DC74（草案）BE-c 的落点与整包传输计时
+
+- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。下一个可分配编号为 DC75。
+- **来源**：`ebb0047383300a3754a4be6a6a78f72286600c83` 的[后端交接 §2.3](p6-backend-session-handoff.md)、[前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、本记录 DC38/DC41/DC53/DC64/DC66；设计 §16.1 的 i 段已计入 READY 前 bundle 组装与导出成本。
+- **需 owner 定的两项及建议**：
+  1. **BE-c 放在基准还是 S6？建议 S6。** 基准产品固定为 `p6-s1c-exit`，当前 GET `/bundle` 只返回 manifest JSON；基准体积不能冒称 BE-d 后完整 tar 的线传字节。完整报告随 S6 已有 t4、2× t4 旅程采集，不为体积另跑一轮完整旅程。BE-d 实施后即可随已授权运行先记实际字节供 FE3 参考；如 owner 要提前从保留闭包估算，也须标“闭包逻辑大小/理论 tar 大小”，不作网络实测，不扩充当前基准必跑场景。
+  2. **整包下载是否计入 P6 门槛？建议不改既定门槛，新增只报告项。** W/H 仍按受理到 READY、完成时间按原定义，Submit 仍受理到 main 前移。READY 前已发生的表导出、manifest/closure 组装全部保留计时；GET `/bundle` 时的预检、tar 封装与发送进入独立的 download 时间。前端 kickoff §9 的“不含 bundle 打包”须澄清为“不含下载请求中的传输封装”，不能从 worker 路径扣掉既有工作。
+- **建议采集口径**：
+  - 对 t4 与 2× t4，每个已有 Preview/History 场景记录模式、节点数、bundle digest、实际收到的 tar 字节数、Content-Length、GET 发起到完整读取结束的单调时钟耗时、完整性核验状态和软硬件/网络条件；覆盖 MODIFIED_ONLY、FULL、DATASET_REPLACEMENT 的已有场景及两/三节点 History，不另造超出阶段授权的计时场景。没有该模式样本时明列缺项及后续归属，不写已覆盖。
+  - 成员覆盖与校验通过才计为成功下载。Content-Length 与实收字节由程序比较；不能只读取 manifest 后停止计时。缺字段、下载失败或校验失败不写成 0 字节/0 秒成功样本。
+  - 1 Mbps 的理想下载下限由程序算 `8 * tar_bytes / 1_000_000` 秒（十进制 Mbps），只报告；不含协议开销与浏览器解析，不作为 1 Mbps 实测。
+  - 若另报“受理到本地可浏览”，须有客户端校验/解析结束的独立锚，不能简单把不同运行的 READY 与 GET 时间相加冒充实测。该客户端指标不在本次后端任务新增硬门槛。
+- **安排与落点（草案）**：BE-d 按[任务草案](p6-be-a-d-kickoff.md)修改旅程工具；设计 §12/§16.4 与执行计划 S6 标记待决事项。owner 确认后，由 owner 转前端设计会话更新其 §9，后端设计会话不编辑前端文档。基准当前授权、DC66 单次测量例外、S6 统计方法均不改变。
+- **确认记录**：审核提交待填；owner 未确认。
 
 ## 3. 设计阶段待定项
 

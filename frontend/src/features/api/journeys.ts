@@ -174,6 +174,7 @@ export interface PreviewJourneyInput {
   baselineNodeId: string;
   baselineHeadVersion: number;
   poll?: PollOptions;
+  onDownloadStart?: () => void;
   onDownloadProgress?: Parameters<typeof ensureLocalBundle>[0]["onProgress"];
   onOperationAccepted?: (operationId: string) => void;
 }
@@ -244,6 +245,7 @@ export async function runPreviewJourney(
   const preview = await api.getPreviewResult(workspaceId, previewResultId);
   if (preview.operation_id !== operationId) throw new Error("Preview 结果不属于本次预览操作");
   if (preview.upload_revision_id !== upload.upload_revision_id) throw new Error("Preview 结果不属于本次上传版本");
+  input.onDownloadStart?.();
   const bundle = await ensureLocalBundle({
     store,
     expectedBundleDigest: preview.bundle_digest,

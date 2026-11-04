@@ -190,16 +190,24 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       return { operationId: browse.operationId, workspaceId: marker.workspaceId, submitAttemptId: marker.submitAttemptId };
     } catch { return null; }
   });
+  const [submitResumeActive, setSubmitResumeActive] = useState(submitResume !== null);
+  const [submitResumeError, setSubmitResumeError] = useState<{ title: string; code: string | null } | null>(null);
   const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
     if (!submitResume || submitResume.operationId !== finishedOperationId) return;
     try {
       const attempt = await gatewayApi.getSubmitAttempt(submitResume.workspaceId, submitResume.submitAttemptId);
       sessionStorage.removeItem("gateway-submit-operation");
-      if (!attempt.submission_id) return;
+      if (attempt.state === "ABORTED" || !attempt.submission_id) {
+        setSubmitResumeActive(false);
+        setSubmitResumeError({ title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null });
+        return;
+      }
       const params = new URLSearchParams({ page: "compare", mode: "REVIEW", submissionId: attempt.submission_id });
       window.location.assign(`/?${params.toString()}`);
     } catch {
       sessionStorage.removeItem("gateway-submit-operation");
+      setSubmitResumeActive(false);
+      setSubmitResumeError({ title: "无法读取提交结果，请刷新后重试", code: null });
     }
   }, [submitResume]);
   const [settings, setSettings] = useState<Settings>(readSettings);
@@ -465,7 +473,8 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
 
   return <main className="comparison-page">
-    {submitResume && <div className="comparison-resume"><OperationStatusPanel operationId={submitResume.operationId} onSucceeded={(id) => void resumeSubmitFromOperation(id)} onFailed={() => sessionStorage.removeItem("gateway-submit-operation")} /></div>}
+    {submitResume && <div className="comparison-resume"><OperationStatusPanel operationId={submitResume.operationId} onSucceeded={(id) => void resumeSubmitFromOperation(id)} onFailed={() => { setSubmitResumeActive(false); setSubmitResumeError({ title: "提交未完成，请检查上传与 Preview 后重试", code: null }); sessionStorage.removeItem("gateway-submit-operation"); }} /></div>}
+    {submitResumeError && <div role="alert" className="form-error"><span>{submitResumeError.title}</span>{submitResumeError.code && <span>错误代码：<code>{submitResumeError.code}</code></span>}<span className="form-error__actions"><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>
       <div className="compare-header__top">
@@ -473,7 +482,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
         <nav className="breadcrumb" aria-label="位置">{breadcrumbItems.map((item, index) => <span key={item + index}>{index > 0 && <span aria-hidden="true">›</span>}{item}</span>)}</nav>
         <div className="compare-header__mode"><span className="mode-tag">{browse.mode === "PREVIEW" ? "上传" : browse.mode === "REVIEW" ? "审核" : "历史比较 · 只读"}</span></div>
         <div className="compare-status"><ConnectionStatusIndicator hideConnected={Boolean(error)} />{historyCompareStatus && <><span className="compare-status__divider" /><span>{historyCompareStatus === "QUEUED" ? "排队中" : historyCompareStatus === "RUNNING" ? `执行中 · 已等待 ${formatWaitDuration(historyCompareWaited)}` : historyCompareStatus === "SUCCEEDED" ? "比较已完成" : historyCompareStatus === "FAILED" ? "比较失败" : "已取消"}</span></>}{reviewFacts && <span className="review-facts-status">审核：{reviewStatusLabel(reviewFacts.status)}</span>}{identityControl}
-          {browse.mode === "PREVIEW" && <span className="compare-actions"><Button variant="primary" onClick={() => setSubmitOpen(true)} disabled={!bundle} disabledReason={!bundle ? "请等待差异结果加载完成" : undefined}>提交</Button></span>}
+          {browse.mode === "PREVIEW" && <span className="compare-actions"><Button variant="primary" onClick={() => setSubmitOpen(true)} disabled={!bundle || submitResumeActive} disabledReason={!bundle ? "请等待差异结果加载完成" : submitResumeActive ? "提交结果确认中，请稍候" : undefined}>提交</Button></span>}
           {browse.mode === "REVIEW" && reviewFacts && browse.submissionId && <ReviewActions submissionId={browse.submissionId} facts={reviewFacts} bundleReady={Boolean(bundle)} onFactsChanged={setReviewFacts} />}
         </div>
       </div>

@@ -41,9 +41,10 @@ export interface DialogProps {
   onClose: () => void;
   children: ReactNode;
   actions?: ReactNode;
+  alert?: ReactNode;
 }
 
-export function Dialog({ open, title, description, onClose, children, actions }: DialogProps) {
+export function Dialog({ open, title, description, onClose, children, actions, alert }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
   const closeHandler = useRef(onClose);
@@ -83,6 +84,7 @@ export function Dialog({ open, title, description, onClose, children, actions }:
           <button className="icon-button" aria-label="关闭对话框" onClick={onClose}><X size={18} /></button>
         </header>
         <div className="dialog__body">{children}</div>
+        {alert && <div className="dialog__alert">{alert}</div>}
         {actions && <footer className="dialog__actions">{actions}</footer>}
       </section>
     </div>

@@ -47,7 +47,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
   const [plan, setPlan] = useState<Plan | null>(null);
   const [selectedDigest, setSelectedDigest] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<{ message: string; code: string | null } | null>(null);
   const [confirmations, setConfirmations] = useState<Record<string, boolean>>({});
   const [anomalyResolutions, setAnomalyResolutions] = useState<Record<string, { acknowledged: boolean; reason: string }>>({});
   const [running, setRunning] = useState(false);
@@ -64,13 +64,13 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
       const candidates = await gatewayApi.listArchiveCandidates();
       const candidate = candidates.candidates.find((item) => item.submission_id === target);
       if (!candidate) {
-        setLoadError("所选提交不在当前归档候选集合中，请刷新归档候选。");
+        setLoadError({ message: "所选提交不在当前归档候选集合中，请刷新归档候选。", code: null });
         setPlan(null);
         return;
       }
       const loaded = await gatewayApi.previewArchive({ selected: candidate });
       if (loaded.selected && loaded.selected.submission_id !== target) {
-        setLoadError("归档预检返回了其他提交，请刷新后重试。");
+        setLoadError({ message: "归档预检返回了其他提交，请刷新后重试。", code: null });
         setPlan(null);
         return;
       }
@@ -79,7 +79,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
       setConfirmations({});
       setAnomalyResolutions({});
     } catch (cause) {
-      setLoadError(cause instanceof ApiError ? `${cause.message}（${cause.code ?? `HTTP_${cause.status}`}）` : cause instanceof Error ? cause.message : String(cause));
+      setLoadError(cause instanceof ApiError ? { message: cause.message, code: cause.code ?? `HTTP_${cause.status}` } : { message: cause instanceof Error ? cause.message : String(cause), code: null });
       setPlan(null);
     } finally {
       setLoading(false);
@@ -141,14 +141,14 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
   const archivedCount = result?.dispositions.filter((item) => item.disposition === "ARCHIVED_BASELINE").length ?? 0;
   const closedCount = result?.dispositions.filter((item) => item.disposition === "CLOSED_NOT_ARCHIVED").length ?? 0;
 
-  return <Dialog open={open} title="归档主基线" description="确认候选、异常处理与归档后的影响，完成后生成新的业务基线。" onClose={() => { if (!running) onClose(); }} actions={result ? <>
+  return <Dialog open={open} title="归档主基线" description="确认候选、异常处理与归档后的影响，完成后生成新的业务基线。" onClose={() => { if (!running) onClose(); }} alert={failure ? <div role="alert" className="form-error"><span>{failure.title}</span><span>错误代码：<code>{failure.code}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{failure.refresh && <Button variant="secondary" onClick={refresh}>刷新预检</Button>}</span></div> : null} actions={result ? <>
     <Button variant="primary" onClick={onArchived}>完成</Button>
   </> : <>
     <Button variant="secondary" onClick={refresh} disabled={loading || running}>重新预检</Button>
-    <Button variant="primary" onClick={() => void start()} disabled={!canStart} disabledReason={blocked ? "当前预检存在阻断项" : missingConfirmation ? "请确认归档选择" : missingAnomaly ? "请处理全部异常项" : !plan ? "正在预检" : undefined}>{running ? "归档中…" : "确认归档"}</Button>
+    <Button variant="primary" onClick={() => void start()} disabled={!canStart} disabledReason={blocked ? "当前预检存在阻断项" : missingConfirmation ? "请确认归档选择" : missingAnomaly ? "请处理全部异常项" : loading ? "正在预检" : loadError ? (loadError.code === "SCOPE_FORBIDDEN" ? "当前身份没有归档权限" : "预检失败，请先处理错误") : !plan ? "预检失败，请先处理错误" : undefined}>{running ? "归档中…" : "确认归档"}</Button>
   </>}>
     {loading && <p className="subtle-copy">正在读取归档候选并预检…</p>}
-    {loadError && <p role="alert" className="form-error">{loadError}</p>}
+    {loadError && <div role="alert" className="form-error"><span>{loadError.message}</span>{loadError.code && <><span>错误代码：<code>{loadError.code}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(loadError.code ?? "")}>复制错误代码</button></span></>}</div>}
     {!loading && !result && plan && <>
       <section className="archive-step" aria-label="预检状态">
         <h3>预检状态</h3>
@@ -187,11 +187,6 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
       </section>
 
       {running && <p role="status" className="submit-progress">归档执行中，请勿关闭页面。</p>}
-      {failure && <div role="alert" className="form-error">
-        <span>{failure.title}</span>
-        <span>错误代码：<code>{failure.code}</code></span>
-        <span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{failure.refresh && <Button variant="secondary" onClick={refresh}>刷新预检</Button>}</span>
-      </div>}
     </>}
     {result && <section className="archive-step" aria-label="归档结果">
       <h2>归档完成</h2>

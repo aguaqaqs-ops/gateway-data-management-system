@@ -231,6 +231,9 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
             if (phaseRef.current === "uploading") advance("previewing");
           },
         },
+        onDownloadStart: () => {
+          if (phaseRef.current === "previewing") advance("downloading");
+        },
         onDownloadProgress: () => {
           if (phaseRef.current === "previewing") advance("downloading");
         },
@@ -255,7 +258,12 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     setPhase("idle");
     progress.current = createPreviewJourneyProgress();
     const next = await onReloadHead();
-    if (!next) setError({ message: "刷新失败，请检查连接后重试", code: "REFRESH_FAILED", retryable: true, refresh: false });
+    if (!next) {
+      setError({ message: "刷新失败，请检查连接后重试", code: "REFRESH_FAILED", retryable: true, refresh: false });
+      phaseRef.current = "failed";
+      phaseStartRef.current = null;
+      setPhase("failed");
+    }
   }
 
   useImperativeHandle(ref, () => ({

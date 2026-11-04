@@ -456,7 +456,7 @@ export const TEST_HISTORY_CURSOR_SECOND = {
 } satisfies Schemas["HistoryListResponse"];
 
 export const TEST_ARCHIVE_EVENTS_EMPTY = { events: [], next_after_sequence: null } satisfies Schemas["ArchiveAuditEventsResponse"];
-export const TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION = { events: [TEST_ARCHIVE_CONFIRM_EVENT], next_after_sequence: null } satisfies Schemas["ArchiveAuditEventsResponse"];
+export const TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION = { events: [TEST_ARCHIVE_ANOMALY_EVENT], next_after_sequence: null } satisfies Schemas["ArchiveAuditEventsResponse"];
 
 export const COMPLETE_RESPONSE_SCENARIOS = [
   { name: "CreateOrGet new workspace", method: "POST", route: "/v1/workspaces", status: 201, schema: "WorkspaceResponse", body: WORKSPACE_CREATED.body },

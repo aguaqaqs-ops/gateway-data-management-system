@@ -371,7 +371,7 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
     : action);
 
   const showHistoryDrawer = Boolean(historyCompareOperationId);
-  const showOperationStatus = operationId && operationKind === "operation";
+  const showOperationStatus = operationId !== null && (operationKind === null || operationKind === "operation");
 
   if (loading) return <main className="workspace-page"><LoadingSkeleton label="加载工作区与 History" /></main>;
   if (loadError || !data) return <main className="workspace-page workspace-page--error"><ErrorState code={loadError?.code ?? "WORKSPACE_LOAD_FAILED"} title={loadError?.code === "SCOPE_FORBIDDEN" ? "当前身份没有该操作的权限" : undefined} details={loadError?.message ?? "工作区加载失败"} onRetry={() => void load()} /><ConnectionStatusIndicator hideConnected />{identityControl}</main>;

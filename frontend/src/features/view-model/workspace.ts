@@ -231,7 +231,7 @@ export function deriveWorkbenchActions(row: WorkspaceTreeRow | null, comparisonC
     return [
       open ? enabled("original-backup", "原始组态备份") : blocked("original-backup", "原始组态备份", "工作区已关闭，不能选择原始组态备份目录"),
       open ? enabled("current-archive", "本次归档组态") : blocked("current-archive", "本次归档组态", "工作区已关闭，不能选择本次归档组态目录"),
-      blocked("upload", "上传", "需先选择本次归档组态目录"),
+      open ? enabled("upload", "上传") : blocked("upload", "上传", "工作区已关闭，不能上传"),
     ];
   }
   const compareAction = comparisonLocked

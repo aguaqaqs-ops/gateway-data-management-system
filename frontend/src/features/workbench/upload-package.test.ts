@@ -59,6 +59,29 @@ describe("collectLocalDirectory", () => {
 });
 
 describe("buildTar", () => {
+  function parseSizeField(header: Uint8Array): number {
+    const raw = new TextDecoder().decode(header.subarray(124, 136)).replace(/\0.*$/, "").trim();
+    return Number.parseInt(raw, 8);
+  }
+
+  function readMembers(archive: Uint8Array): Array<{ path: string; size: number; content: Uint8Array }> {
+    const members: Array<{ path: string; size: number; content: Uint8Array }> = [];
+    let offset = 0;
+    for (;;) {
+      const header = archive.subarray(offset, offset + 512);
+      if (header.byteLength < 512) throw new Error("tar 被截断");
+      if (header.every((byte) => byte === 0)) break;
+      const name = new TextDecoder().decode(header.subarray(0, 100)).replace(/\0.*$/, "");
+      const prefix = new TextDecoder().decode(header.subarray(345, 500)).replace(/\0.*$/, "");
+      const path = prefix ? `${prefix}/${name}` : name;
+      const size = parseSizeField(header);
+      const content = archive.slice(offset + 512, offset + 512 + size);
+      members.push({ path, size, content });
+      offset += 512 + Math.ceil(size / 512) * 512;
+    }
+    return members;
+  }
+
   it("writes deterministic ustar headers in path order", async () => {
     const directory = collectLocalDirectory(validInput()).directory;
     expect(directory).not.toBeNull();
@@ -71,6 +94,43 @@ describe("buildTar", () => {
     expect(mode).toBe("0000644\0");
     const mtime = new TextDecoder().decode(first.subarray(136, 148));
     expect(mtime).toBe("00000000000\0");
+  });
+
+  it("writes each member size and round-trips content in path order", async () => {
+    const directory = collectLocalDirectory(validInput()).directory;
+    expect(directory).not.toBeNull();
+    const archive = await buildTar(directory as LocalDirectory);
+    const members = readMembers(archive);
+    expect(members.map((member) => member.path)).toEqual([
+      "comps/logic/logics.xml",
+      "sql/dbcfg.sql",
+      "station.pmc",
+    ]);
+    const expected = new Map([
+      ["comps/logic/logics.xml", "xml"],
+      ["sql/dbcfg.sql", "sql"],
+      ["station.pmc", "pmc"],
+    ]);
+    for (const member of members) {
+      const text = new TextDecoder().decode(member.content);
+      expect(text).toBe(expected.get(member.path));
+      expect(member.size).toBe(new TextEncoder().encode(expected.get(member.path) ?? "").byteLength);
+    }
+  });
+
+  it("splits paths longer than 100 bytes into prefix and name", async () => {
+    const longDir = `${"a".repeat(60)}/${"b".repeat(60)}`;
+    const directory: LocalDirectory = {
+      rootName: "station",
+      totalBytes: 1,
+      mainFile: "station.pmc",
+      files: [{ path: `${longDir}/file.txt`, file: new File(["hello"], "file.txt") }],
+    };
+    const archive = await buildTar(directory);
+    const members = readMembers(archive);
+    expect(members).toHaveLength(1);
+    expect(members[0]?.path).toBe(`${longDir}/file.txt`);
+    expect(new TextDecoder().decode(members[0]?.content ?? new Uint8Array())).toBe("hello");
   });
 
   it("refuses paths that escape the archive root", async () => {

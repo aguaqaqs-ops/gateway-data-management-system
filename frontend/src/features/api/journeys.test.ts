@@ -29,7 +29,7 @@ describe("simulated user journey data flows", () => {
       poll: { intervalMs: 0, wait: async () => undefined },
     });
     expect(api.uploadRevision).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expectedWorkspaceVersion: 10 }));
-    expect(api.startPreview).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 9, expected_baseline_head_version: 12 }));
+    expect(api.startPreview).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 9, expected_baseline_head_version: 12 }), undefined);
     expect(api.getOperation).toHaveBeenCalledWith("op-1", expect.any(AbortSignal));
     expect(getPreviewBundle).toHaveBeenCalledTimes(1);
     expect(result.bundle.manifest.bundle_digest).toBe(fixture.manifest.bundle_digest);
@@ -137,12 +137,11 @@ describe("simulated user journey data flows", () => {
       applyReview: vi.fn().mockResolvedValue(TEST_REVIEW_APPLIED),
     } as unknown as GatewayApi;
 
-    await expect(applyReviewAction(api, "fe2a-history-ref-2", "REJECT", "  ")).rejects.toThrow("退回时必须填写理由");
+    await expect(applyReviewAction(api, "fe2a-history-ref-2", TEST_REVIEW_FACTS.review_version, "REJECT", "  ")).rejects.toThrow("退回时必须填写理由");
     expect(api.applyReview).not.toHaveBeenCalled();
-    await applyReviewAction(api, "fe2a-history-ref-2", "APPROVE");
-    expect(api.applyReview).toHaveBeenCalledWith("fe2a-history-ref-2", { expected_review_version: 5, action: "APPROVE" });
+    await applyReviewAction(api, "fe2a-history-ref-2", TEST_REVIEW_FACTS.review_version, "APPROVE");
+    expect(api.applyReview).toHaveBeenCalledWith("fe2a-history-ref-2", { expected_review_version: TEST_REVIEW_FACTS.review_version, action: "APPROVE" });
   });
-
   it("previews the archive plan and applies the candidate snapshot with current versions", async () => {
     const api = {
       listArchiveCandidates: vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES),
@@ -162,7 +161,7 @@ describe("simulated user journey data flows", () => {
     const listArchiveCandidates = vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES);
     const api = {
       listArchiveCandidates,
-      listArchiveEvents: vi.fn().mockResolvedValue(TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION),
+      listArchiveEvents: vi.fn(async (query: { subjectKind: string; subjectDigest: string }) => query.subjectDigest === "sha256:selection-subject" ? TEST_ARCHIVE_EVENTS_EMPTY : TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION),
       previewArchive: vi.fn().mockResolvedValueOnce(firstPlan).mockResolvedValueOnce(readyPlan),
       appendArchiveConfirmation: vi.fn().mockResolvedValue(TEST_ARCHIVE_CONFIRM_APPEND),
       appendArchiveAnomalyResolution: vi.fn().mockResolvedValue(TEST_ARCHIVE_RESOLUTION_APPEND),
@@ -174,8 +173,10 @@ describe("simulated user journey data flows", () => {
       confirmations: [{ subjectDigest: "sha256:selection-subject", action: "CONFIRM", reason: "已核对" }],
       anomalyResolutions: [{ subjectDigest: "sha256:anomaly", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", reason: "已人工确认" }],
     });
-    expect(api.appendArchiveConfirmation).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 6, expected_baseline_head_version: 21 }));
-    expect(api.appendArchiveAnomalyResolution).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 7, issue_code: "PROJECT_IDENTITY_EXCEPTION", subject_kind: "PROJECT_IDENTITY_EXCEPTION" }));
+    expect(api.listArchiveEvents).toHaveBeenCalledWith(expect.objectContaining({ subjectKind: "CONFIRM_SELECTION", subjectDigest: "sha256:selection-subject", afterSequence: 0 }));
+    expect(api.appendArchiveConfirmation).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 0, expected_baseline_head_version: 21 }), undefined);
+    expect(api.listArchiveEvents).toHaveBeenCalledWith(expect.objectContaining({ subjectKind: "PROJECT_IDENTITY_EXCEPTION", subjectDigest: "sha256:anomaly", afterSequence: 0 }));
+    expect(api.appendArchiveAnomalyResolution).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 7, issue_code: "PROJECT_IDENTITY_EXCEPTION", subject_kind: "PROJECT_IDENTITY_EXCEPTION" }), undefined);
     expect(api.startArchive).toHaveBeenCalledWith(expect.objectContaining({ confirmation_refs: [{ subject_digest: "sha256:selection-subject", sequence: 6 }], anomaly_resolution_refs: [{ subject_digest: "sha256:anomaly", sequence: 7 }] }), undefined);
   });
 });

@@ -100,7 +100,8 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
     const value = anomalyResolutions[anomaly.subject_digest];
     return !value?.acknowledged || !value.reason.trim();
   });
-  const blocked = Boolean(plan && (plan.blockers.length > 0 || !plan.can_start));
+  const blocked = Boolean(plan && plan.blockers.length > 0);
+  const needsConfirmation = Boolean(plan && !plan.can_start && plan.blockers.length === 0);
   const canStart = Boolean(plan && selectedDigest && !blocked && !missingConfirmation && !missingAnomaly && !loading && !running);
 
   async function start() {
@@ -117,6 +118,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
           reason: anomalyResolutions[anomaly.subject_digest]?.reason.trim() ?? "",
         })),
         idempotencyKey: idempotencyKey.current ?? undefined,
+        startIdempotencyKey: idempotencyKey.current ?? undefined,
       });
       setResult(outcome.result);
     } catch (cause) {
@@ -140,7 +142,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
     <Button variant="primary" onClick={onArchived}>完成</Button>
   </> : <>
     <Button variant="secondary" onClick={refresh} disabled={loading || running}>重新预检</Button>
-    <Button variant="primary" onClick={() => void start()} disabled={!canStart} disabledReason={blocked ? "当前预检存在阻断项" : missingConfirmation ? "请确认归档选择" : missingAnomaly ? "请处理全部异常项" : !plan ? "正在预检" : undefined}>{running ? "归档中…" : "确认归档"}</Button>
+    <Button variant="primary" onClick={() => void start()} disabled={!canStart} disabledReason={blocked ? "当前预检存在阻断项" : missingConfirmation ? "请确认归档选择" : missingAnomaly ? "请处理全部异常项" : needsConfirmation ? "请先完成确认与异常处理，重新预检后再归档" : !plan ? "正在预检" : undefined}>{running ? "归档中…" : "确认归档"}</Button>
   </>}>
     {loading && <p className="subtle-copy">正在读取归档候选并预检…</p>}
     {loadError && <p role="alert" className="form-error">{loadError}</p>}
@@ -153,6 +155,7 @@ export function ArchiveMainlineDialog({ open, submissionId, onClose, onArchived 
           <div><dt>候选集合摘要</dt><dd><code>{plan.candidate_set_digest.slice(0, 20)}…</code></dd></div>
         </dl>
         {blocked && <div role="alert" className="archive-blockers"><strong>归档被阻止</strong><ul>{plan.blockers.map((code) => <li key={code}>{ISSUE_COPY[code] ?? code}<code>{code}</code></li>)}</ul></div>}
+        {needsConfirmation && <p className="subtle-copy">首次预检待确认：完成下方确认与异常处理后，重新预检再归档。</p>}
       </section>
 
       {requiredConfirmations.length > 0 && <section className="archive-step" aria-label="需逐一确认项">

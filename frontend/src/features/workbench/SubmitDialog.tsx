@@ -144,6 +144,14 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         baselineNodeId: preview.business_baseline_node_id,
         baselineHeadVersion: head.version,
         idempotencyKey: key,
+        onOperationAccepted: (operationId) => {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set("operationId", operationId);
+            url.searchParams.set("operationKind", "operation");
+            window.history.replaceState(null, "", url);
+          } catch { /* URL 不可用时仍继续轮询 */ }
+        },
         identityConfirmations: requiredPairs.map((pair) => ({
           action: CONFIRMATION_ACTION[pair.status],
           assessmentSetDigest: preview.identity_assessment_set_digest,
@@ -190,9 +198,9 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
         </section>;
       })}
       {requiredPairs.length === 0 && <p className="subtle-copy">项目身份均已确认一致，无需额外确认。</p>}
-      {submitting && <p role="status" className="submit-progress">提交执行中 · 已等待 {formatWaitDuration(elapsed)}，请勿关闭页面。</p>}
-      {aborted && <p role="alert" className="form-error" title={`原始错误代码：${aborted}`}>提交未完成，请检查上传与 Preview 后重试。{import.meta.env.DEV && <code> {aborted}</code>}</p>}
-      {failure && !aborted && <p role="alert" className="form-error" title={`错误代码：${failure.code}`}>{failure.title}{import.meta.env.DEV && <code> {failure.code}</code>}</p>}
+      {submitting && <p role="status" className="submit-progress">提交执行中 · 已等待 {formatWaitDuration(elapsed)}，请勿关闭页面。操作 ID 已写入地址栏，刷新后会继续跟随。</p>}
+      {aborted && <p role="alert" className="form-error" title={`原始错误代码：${aborted}`}>提交未完成，请检查上传与 Preview 后重试。<code> {aborted}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(aborted)}>复制错误代码</button></p>}
+      {failure && !aborted && <p role="alert" className="form-error" title={`错误代码：${failure.code}`}>{failure.title}<code> {failure.code}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(failure.code)}>复制错误代码</button>{(failure.code === "WORKSPACE_VERSION_CONFLICT" || failure.code === "BASELINE_VERSION_CONFLICT") && <button className="link-button" onClick={() => window.location.reload()}>刷新后重试</button>}</p>}
     </>}
   </Dialog>;
 }

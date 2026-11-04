@@ -61,7 +61,7 @@ export interface GatewayApi {
   getHistoryCompare(operationId: string, signal?: AbortSignal): Promise<Schemas["HistoryCompareResultResponse"]>;
   getHistoryBundle(operationId: string, signal?: AbortSignal): Promise<Response>;
   listArchiveCandidates(): Promise<Schemas["ArchiveCandidatesResponse"]>;
-  listArchiveEvents(afterSequence?: number): Promise<Schemas["ArchiveAuditEventsResponse"]>;
+  listArchiveEvents(query: { subjectKind: "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION"; subjectDigest: string; afterSequence?: number; limit?: number }): Promise<Schemas["ArchiveAuditEventsResponse"]>;
   previewArchive(body: Schemas["PreviewArchivePlanRequest"]): Promise<Schemas["PreviewArchivePlanResponse"]>;
   appendArchiveConfirmation(body: Schemas["AppendArchiveConfirmationRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveAuditAppendResponse"]>;
   appendArchiveAnomalyResolution(body: Schemas["AppendArchiveAnomalyResolutionRequest"], idempotencyKey?: string): Promise<Schemas["ArchiveAuditAppendResponse"]>;
@@ -172,7 +172,12 @@ export function createGatewayApi(options: GatewayApiOptions): GatewayApi {
     getHistoryCompare: async (operationId, signal) => json<Schemas["HistoryCompareResultResponse"]>(await request(route("/v1/history-compares/{operation_id}").replace("{operation_id}", encodeURIComponent(operationId)), { signal })),
     getHistoryBundle: (operationId, signal) => request(route("/v1/history-compares/{operation_id}/bundle").replace("{operation_id}", encodeURIComponent(operationId)), { signal, headers: { Accept: "application/x-tar" } }),
     listArchiveCandidates: async () => json<Schemas["ArchiveCandidatesResponse"]>(await request(route("/v1/archive-candidates"))),
-    listArchiveEvents: async (afterSequence) => json<Schemas["ArchiveAuditEventsResponse"]>(await request(`/v1/archive-audit-events${afterSequence === undefined ? "" : `?after_sequence=${encodeURIComponent(String(afterSequence))}`}`)),
+    listArchiveEvents: async (query) => {
+      const params = new URLSearchParams({ subject_kind: query.subjectKind, subject_digest: query.subjectDigest });
+      if (query.afterSequence !== undefined) params.set("after_sequence", String(query.afterSequence));
+      if (query.limit !== undefined) params.set("limit", String(query.limit));
+      return json<Schemas["ArchiveAuditEventsResponse"]>(await request(`/v1/archive-audit-events?${params.toString()}`));
+    },
     previewArchive: (body) => sendJson<Schemas["PreviewArchivePlanResponse"]>(route("/v1/archive-plan-preview"), body),
     appendArchiveConfirmation: (body, key) => sendJson<Schemas["ArchiveAuditAppendResponse"]>(route("/v1/archive-confirmations"), body, key),
     appendArchiveAnomalyResolution: (body, key) => sendJson<Schemas["ArchiveAuditAppendResponse"]>(route("/v1/archive-anomaly-resolutions"), body, key),

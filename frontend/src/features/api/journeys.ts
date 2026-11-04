@@ -170,10 +170,12 @@ export interface BundleJourneyResult {
 export interface PreviewJourneyInput {
   workspaceRequest: Schemas["CreateWorkspaceRequest"];
   upload: Omit<UploadRevisionInput, "expectedWorkspaceVersion">;
+  previewIdempotencyKey?: string;
   baselineNodeId: string;
   baselineHeadVersion: number;
   poll?: PollOptions;
   onDownloadProgress?: Parameters<typeof ensureLocalBundle>[0]["onProgress"];
+  onOperationAccepted?: (operationId: string) => void;
 }
 
 export async function runPreviewJourney(api: GatewayApi, store: ReadableBundleStore, input: PreviewJourneyInput): Promise<BundleJourneyResult> {
@@ -185,7 +187,8 @@ export async function runPreviewJourney(api: GatewayApi, store: ReadableBundleSt
     generation: upload.generation,
     expected_baseline_node_id: input.baselineNodeId,
     expected_baseline_head_version: input.baselineHeadVersion,
-  });
+  }, input.previewIdempotencyKey);
+  input.onOperationAccepted?.(accepted.operation_id);
   const operation = await pollOperation(api, accepted.operation_id, input.poll);
   const refreshedWorkspace = await api.createWorkspace(input.workspaceRequest);
   const previewResultId = refreshedWorkspace.current_preview_result_id;
@@ -224,6 +227,7 @@ export interface SubmitJourneyInput {
   }>;
   idempotencyKey?: string;
   poll?: PollOptions;
+  onOperationAccepted?: (operationId: string) => void;
 }
 
 export interface SubmitJourneyResult {
@@ -250,6 +254,7 @@ export async function runSubmitJourney(api: GatewayApi, input: SubmitJourneyInpu
   const accepted = input.idempotencyKey
     ? await api.acceptSubmit(input.workspaceId, body, input.idempotencyKey)
     : await api.acceptSubmit(input.workspaceId, body);
+  input.onOperationAccepted?.(accepted.operation_id);
   const operation = await pollOperation(api, accepted.operation_id, input.poll);
   const attempt = await api.getSubmitAttempt(input.workspaceId, accepted.submit_attempt_id);
   if (attempt.state === "ABORTED") throw new SubmitAbortedError(attempt.abort_code ?? "ABORTED");
@@ -301,11 +306,10 @@ export async function runReviewHistoryJourney(api: GatewayApi, store: ReadableBu
   return { reviewFacts, ...comparison };
 }
 
-export async function applyReviewAction(api: GatewayApi, submissionId: string, action: ReviewAction, reason?: string, idempotencyKey?: string): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {
+export async function applyReviewAction(api: GatewayApi, submissionId: string, reviewVersion: number, action: ReviewAction, reason?: string, idempotencyKey?: string): Promise<Awaited<ReturnType<GatewayApi["applyReview"]>>> {
   if (action === "REJECT" && !reason?.trim()) throw new Error("退回时必须填写理由");
-  const facts = await api.getReviewFacts(submissionId);
   const body = {
-    expected_review_version: facts.review_version,
+    expected_review_version: reviewVersion,
     action,
     ...(reason === undefined ? {} : { reason }),
   };
@@ -314,16 +318,19 @@ export async function applyReviewAction(api: GatewayApi, submissionId: string, a
 
 export interface ArchiveJourneyInput {
   selected: Schemas["ArchiveSelectedRefRequest"];
-  confirmations?: Array<{ subjectDigest: string; action: "CONFIRM" | "REVOKE"; reason?: string | null }>;
-  anomalyResolutions?: Array<{ subjectDigest: string; action: "ACKNOWLEDGE_EXCLUSION" | "ACKNOWLEDGE_IDENTITY_EXCEPTION" | "REVOKE"; reason: string }>;
+  confirmations?: Array<{ subjectDigest: string; action: "CONFIRM" | "REVOKE"; reason?: string | null; idempotencyKey?: string }>;
+  anomalyResolutions?: Array<{ subjectDigest: string; action: "ACKNOWLEDGE_EXCLUSION" | "ACKNOWLEDGE_IDENTITY_EXCEPTION" | "REVOKE"; reason: string; idempotencyKey?: string }>;
+  startIdempotencyKey?: string;
   idempotencyKey?: string;
 }
 
-async function listAllArchiveEvents(api: GatewayApi): Promise<Schemas["ArchiveAuditEventResponse"][]> {
+export type ArchiveSubjectKind = "CONFIRM_SELECTION" | "APPROVED_SIBLING_EXCLUDED" | "PROJECT_IDENTITY_EXCEPTION";
+
+async function listSubjectEvents(api: GatewayApi, subjectKind: ArchiveSubjectKind, subjectDigest: string): Promise<Schemas["ArchiveAuditEventResponse"][]> {
   const events: Schemas["ArchiveAuditEventResponse"][] = [];
   let afterSequence = 0;
   for (;;) {
-    const page = await api.listArchiveEvents(afterSequence);
+    const page = await api.listArchiveEvents({ subjectKind, subjectDigest, afterSequence });
     events.push(...page.events);
     const next = page.next_after_sequence;
     if (next == null || next <= afterSequence) return events;
@@ -331,15 +338,20 @@ async function listAllArchiveEvents(api: GatewayApi): Promise<Schemas["ArchiveAu
   }
 }
 
+async function getLatestSubjectSequence(api: GatewayApi, subjectKind: ArchiveSubjectKind, subjectDigest: string): Promise<number> {
+  const events = await listSubjectEvents(api, subjectKind, subjectDigest);
+  return events.reduce((max, event) => Math.max(max, event.sequence), 0);
+}
+
 export async function runArchiveJourney(api: GatewayApi, input: ArchiveJourneyInput): Promise<{ plan: Schemas["PreviewArchivePlanResponse"]; started: Schemas["ArchiveStartedResponse"]; result: Schemas["ArchiveResultResponse"] }> {
   const candidates = await api.listArchiveCandidates();
   let plan = await api.previewArchive({ selected: input.selected });
   if (candidates.candidate_set_digest !== plan.candidate_set_digest) throw new Error("归档候选列表已变化，请重新确认");
-  const events = await listAllArchiveEvents(api);
-  let expectedSequence = events.reduce((max, event) => Math.max(max, event.sequence), 0) + 1;
   const confirmationRefs: Schemas["ArchiveAuditReferenceRequest"][] = [];
   const anomalyResolutionRefs: Schemas["ArchiveAuditReferenceRequest"][] = [];
+  const fallbackArchiveKey = input.idempotencyKey;
   for (const confirmation of input.confirmations ?? []) {
+    const expectedSequence = await getLatestSubjectSequence(api, "CONFIRM_SELECTION", confirmation.subjectDigest);
     const appended = await api.appendArchiveConfirmation({
       expected_baseline_node_id: plan.head.business_baseline_node_id,
       expected_baseline_head_version: plan.head.baseline_head_version,
@@ -349,29 +361,28 @@ export async function runArchiveJourney(api: GatewayApi, input: ArchiveJourneyIn
       expected_sequence: expectedSequence,
       action: confirmation.action,
       reason: confirmation.reason,
-    });
+    }, confirmation.idempotencyKey ?? fallbackArchiveKey);
     confirmationRefs.push({ subject_digest: confirmation.subjectDigest, sequence: appended.sequence });
-    expectedSequence = appended.sequence + 1;
   }
   for (const resolution of input.anomalyResolutions ?? []) {
     const anomaly = plan.anomalies.find((item) => item.subject_digest === resolution.subjectDigest);
     if (!anomaly) throw new Error(`归档方案中没有对应的异常：${resolution.subjectDigest}`);
+    const expectedSequence = await getLatestSubjectSequence(api, anomaly.subject_kind, anomaly.subject_digest);
     const appended = await api.appendArchiveAnomalyResolution({
       expected_baseline_node_id: plan.head.business_baseline_node_id,
       expected_baseline_head_version: plan.head.baseline_head_version,
       selected: input.selected,
       candidate_set_digest: plan.candidate_set_digest,
-      subject_digest: anomaly.subject_digest,
       expected_sequence: expectedSequence,
-      action: resolution.action,
-      reason: resolution.reason,
+      subject_digest: anomaly.subject_digest,
       subject_kind: anomaly.subject_kind,
       issue_code: anomaly.issue_code,
       target_submission_id: anomaly.target_submission_id,
       target_candidate_digest: anomaly.target_candidate_digest,
-    });
+      action: resolution.action,
+      reason: resolution.reason,
+    }, resolution.idempotencyKey ?? fallbackArchiveKey);
     anomalyResolutionRefs.push({ subject_digest: anomaly.subject_digest, sequence: appended.sequence });
-    expectedSequence = appended.sequence + 1;
   }
   if (confirmationRefs.length || anomalyResolutionRefs.length) plan = await api.previewArchive({ selected: input.selected });
   const latestCandidates = await api.listArchiveCandidates();
@@ -384,7 +395,7 @@ export async function runArchiveJourney(api: GatewayApi, input: ArchiveJourneyIn
     selected: input.selected,
     confirmation_refs: confirmationRefs,
     anomaly_resolution_refs: anomalyResolutionRefs,
-  }, input.idempotencyKey);
+  }, input.startIdempotencyKey ?? input.idempotencyKey);
   const result = await api.getArchiveResult(started.archive_result_id);
   return { plan, started, result };
 }

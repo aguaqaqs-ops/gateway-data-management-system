@@ -97,7 +97,7 @@ function fits(text: string, limit: number): boolean {
 }
 
 /** ustar header with deterministic metadata (mtime 0, uid/gid 0, mode 0644). */
-function tarHeader(path: string): Uint8Array {
+function tarHeader(path: string, size: number): Uint8Array {
   const header = new Uint8Array(BLOCK_SIZE);
   let name = path;
   let prefix = "";
@@ -118,7 +118,7 @@ function tarHeader(path: string): Uint8Array {
   writeString(header, 100, 8, "0000644\0");
   writeString(header, 108, 8, "0000000\0");
   writeString(header, 116, 8, "0000000\0");
-  writeOctal(header, 124, 12, 0);
+  writeOctal(header, 124, 12, size);
   writeOctal(header, 136, 12, 0);
   header.fill(0x20, 148, 156);
   writeString(header, 156, 1, "0");
@@ -144,7 +144,7 @@ export async function buildTar(directory: LocalDirectory): Promise<Uint8Array> {
       throw new Error(`目录中的文件路径不安全：${entry.path}`);
     }
     const content = new Uint8Array(await entry.file.arrayBuffer());
-    blocks.push(tarHeader(entry.path), content, pad(content.byteLength));
+    blocks.push(tarHeader(entry.path, content.byteLength), content, pad(content.byteLength));
   }
   blocks.push(new Uint8Array(BLOCK_SIZE * 2));
   const total = blocks.reduce((sum, block) => sum + block.byteLength, 0);

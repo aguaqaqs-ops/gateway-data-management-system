@@ -125,10 +125,18 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     setPhase("failed");
   }
 
-  const selectInitial = (files: FileList | null) => {
+  const selectInitial = (files: FileList | File[] | null) => {
+    if (!files || files.length === 0) {
+      setInitial(emptySlot);
+      idempotencyKey.current = null;
+      setError(null);
+      setPhase("idle");
+      setPhaseDurations({});
+      return;
+    }
     try {
       const next = slotFrom(files);
-      if(!next) return;
+      if (!next) return;
       setInitial(next);
       idempotencyKey.current = null;
       setError(null);
@@ -139,10 +147,18 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     }
   };
 
-  const selectModified = (files: FileList | null) => {
+  const selectModified = (files: FileList | File[] | null) => {
+    if (!files || files.length === 0) {
+      setModified(emptySlot);
+      idempotencyKey.current = null;
+      setError(null);
+      setPhase("idle");
+      setPhaseDurations({});
+      return;
+    }
     try {
       const next = slotFrom(files);
-      if(!next) return;
+      if (!next) return;
       setModified(next);
       idempotencyKey.current = null;
       setError(null);
@@ -167,7 +183,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     setError(null);
     setPhaseDurations({});
     setOperation(null);
-    idempotencyKey.current ??= crypto.randomUUID();
+    if (!idempotencyKey.current) idempotencyKey.current = crypto.randomUUID();
     totalStartRef.current = Date.now();
     begin("packaging");
     try {
@@ -180,10 +196,19 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
           inputCompleteness: initialPackage ? "FULL" : "MODIFIED_ONLY",
           initial: initialPackage ? { partName: "INITIAL", mediaType: "application/gzip", file: initialPackage } : undefined,
           modified: { partName: "MODIFIED", mediaType: "application/gzip", file: modifiedPackage },
-          idempotencyKey: idempotencyKey.current,
+          idempotencyKey: idempotencyKey.current ?? undefined,
         },
+        previewIdempotencyKey: idempotencyKey.current ?? undefined,
         baselineNodeId: head.node_id,
         baselineHeadVersion: head.version,
+        onOperationAccepted: (operationId) => {
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set("operationId", operationId);
+            url.searchParams.set("operationKind", "operation");
+            window.history.replaceState(null, "", url);
+          } catch { /* URL 不可用时仍继续轮询 */ }
+        },
         poll: {
           onUpdate: (value) => {
             setOperation(value);
@@ -199,6 +224,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       setPhase("done");
       onComplete(result.workspace.workspace_id, result.preview.preview_result_id);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.code === "IDEMPOTENCY_CONFLICT") idempotencyKey.current = null;
       markFailed(cause);
     }
   }
@@ -217,13 +243,12 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       : phase === "failed" ? "failed" : "pending";
   const uploadDuration = phaseDurations.uploading !== undefined ? `${phaseDurations.uploading} 秒` : undefined;
   const phases: OperationPhase[] = [
-    ...(initial.directory ? [{ name: "上传原始组态备份", status: uploadStatus, duration: uploadDuration }] : []),
+    ...(initial.directory ? [{ name: "上传原始组态备份" as const, status: uploadStatus, duration: uploadDuration }] : []),
     { name: "上传本次归档组态", status: uploadStatus, duration: uploadDuration },
-    { name: "生成并下载 Preview", status: phase === "previewing" ? "active" : ["downloading", "writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
+    { name: initial.directory ? "生成并下载 Preview" : "解析预览", status: phase === "previewing" ? "active" : ["downloading", "writing", "done"].includes(phase) ? "complete" : "pending", duration: phaseDurations.previewing !== undefined ? `${phaseDurations.previewing} 秒` : undefined },
     { name: "写入本地", status: phase === "writing" ? "active" : phase === "done" ? "complete" : "pending" },
     { name: "完成，进入差异浏览", status: phase === "done" ? "complete" : "pending" },
   ];
-
   return <section className="upload-card" aria-label="上传与预览">
     <div className="upload-card__heading">
       <div><p className="eyebrow">上传</p><h3>{busy ? "上传中" : "上传组态目录"}</h3></div>
@@ -239,18 +264,20 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
       <div><dt>上传方式</dt><dd>{initial.directory ? "原始备份 + 本次归档" : "仅本次归档"}</dd></div>
     </dl> : <ol className="upload-steps">
       <li className="upload-step">
-        <div className="upload-step__title"><span className="upload-step__index">1</span><strong>原始组态备份</strong><span className="upload-step__optional">可选</span></div>
+        <div className="upload-step__title"><span className="upload-step__index">1</span><strong>原始组态备份</strong><span className="upload-step__optional">可选</span>{initial.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
         <div className="upload-step__body">
           <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => initialInput.current?.click()}>选择目录</Button>
+          {initial.name && <button className="link-button" onClick={() => selectInitial(null)}>清除</button>}
           <p className="upload-step__summary">{slotSummary(initial)}</p>
           {initial.directory && !busy && <DirectorySummary directoryName={initial.directory.rootName} fileCount={initial.directory.files.length} sizeBytes={initial.directory.totalBytes} mainFile={initial.directory.mainFile} />}
           {initial.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>原始组态备份未通过校验</strong><ul>{initial.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(initial.errors.join("\n"))}>复制错误信息</button></div></div>}
         </div>
       </li>
       <li className="upload-step">
-        <div className="upload-step__title"><span className="upload-step__index">2</span><strong>本次归档组态</strong><span className="upload-step__required">必选</span></div>
+        <div className="upload-step__title"><span className="upload-step__index">2</span><strong>本次归档组态</strong><span className="upload-step__required">必选</span>{modified.directory && !busy && <span className="status-tag status-tag--success">校验通过</span>}</div>
         <div className="upload-step__body">
           <Button variant="secondary" icon={<FolderOpen size={15} />} disabled={busy} disabledReason={busy ? "上传进行中" : undefined} onClick={() => modifiedInput.current?.click()}>选择目录</Button>
+          {modified.name && <button className="link-button" onClick={() => selectModified(null)}>清除</button>}
           <p className="upload-step__summary">{slotSummary(modified)}</p>
           {modified.directory && !busy && <DirectorySummary directoryName={modified.directory.rootName} fileCount={modified.directory.files.length} sizeBytes={modified.directory.totalBytes} mainFile={modified.directory.mainFile} />}
           {modified.errors.length > 0 && <div className="upload-step__error" role="alert"><AlertCircle size={15} /><div><strong>本次归档组态未通过校验（{modified.errors.length} 项）</strong><ul>{modified.errors.map((item) => <li key={item}>{item}</li>)}</ul><button className="link-button" onClick={() => void navigator.clipboard?.writeText(modified.errors.join("\n"))}>复制错误信息</button></div></div>}
@@ -271,7 +298,8 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     </details>}
     {busy && <div className="upload-progress">
       <OperationStatus title="上传中" phases={phases} />
-      {operation && <p className="upload-progress__wait">已等待 {formatWaitDuration(elapsed ?? 0)}</p>}
+      {operation?.status === "MANUAL_RECOVERY_REQUIRED" && <p role="alert" className="upload-progress__manual">操作需要管理员处理。操作 ID <code>{operation.operation_id}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operation.operation_id)}>复制 ID</button>系统仍在查询状态，刷新页面后会继续跟随。</p>}
+      {operation && operation.status !== "MANUAL_RECOVERY_REQUIRED" && <p className="upload-progress__wait">已等待 {formatWaitDuration(elapsed ?? 0)}</p>}
       <p className="upload-progress__lock">处理中不可关闭，页面其余操作已锁定。完成后自动进入差异浏览；失败时在此显示失败步骤，可直接重试。</p>
     </div>}
     {phase === "failed" && error && <div className="upload-error" role="alert">

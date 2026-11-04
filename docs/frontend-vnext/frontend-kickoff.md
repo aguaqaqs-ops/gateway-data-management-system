@@ -2,6 +2,7 @@
 
 - **状态：** 已确认（owner，2026-11-02）；FE0 可以开始。
 - **日期：** 2026-11-02。
+- **修订：** 2026-11-04 按后端 [DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)（方向经 owner 确认，后端设计 main `f20f08bea9`）更新 §3.3、§4.3、§5 BE-a 与 §7 FE3；BE-a 尚未实施。
 - **会话分工：** 本设计会话负责 kickoff、决定记录与设计问题答复；实施与审核各由独立会话负责（§10）。
 - **范围：** 新建前端工程，对接 vnext 后端；`legacy/frontend/` 只作行为与问题来源。
 - **依据：**
@@ -72,7 +73,7 @@ vnext bundle 是精简的表索引（`ComparisonSurface`）加 artifact 闭包�
 | 列展示（显示名、顺序、宽度、隐藏、固定、键列） | `legacy/backend_vnext/capabilities/table_presentation/`（约 2,600 行，多为按表名正则的列宽规则） | 代码未迁移；`contracts/table-presentation.md`、`capabilities/table-presentation.md`、`capabilities/business-projection.md` 仍为现行文档，与代码不一致 | BE-b |
 | 复合信号公式查看 | legacy formulas artifact | vnext 有 `composite_signal_point` 派生表（含 `formula_ast_json`），bundle 是否完整携带待核对 | FE0 核对 |
 | 历史初始备份节点（随归档提交上传的原始组态备份，可查看差异、加入比较） | `FormalWorkspaceTree.tsx`、`formalWorkspaceState.ts` | History 只有基线、提交与规则迁移节点；History 比较只接受基线节点与提交 | owner 2026-11-02（FE2 kickoff Q4 甲）：FE2 不实现；是否需要由 owner 另定，需要时作为后端任务单独立项 |
-| 上传模式顶栏的“撤回”（草图 `header-upload`） | legacy 工作区顶栏 | `WorkspaceResponse` 只有 `current_upload_revision_id`、`current_preview_result_id`，没有指向当前提交的字段，工作台无法确定可撤回的提交；审核顶栏的撤回按 `submission_id` 进行，不受影响 | owner 2026-11-04（FE2 kickoff Q16 甲）：FE2 只在审核顶栏提供撤回；是否在 `WorkspaceResponse` 加入当前提交，由 BE-a 或后续后端任务决定，加入后由前端接回 |
+| 上传模式顶栏的“撤回”（草图 `header-upload`） | legacy 工作区顶栏 | `WorkspaceResponse` 只有 `current_upload_revision_id`、`current_preview_result_id`，没有指向当前提交的字段，工作台无法确定可撤回的提交；审核顶栏的撤回按 `submission_id` 进行，不受影响 | owner 2026-11-04（FE2 kickoff Q16 甲）：FE2 只在审核顶栏提供撤回；是否在 `WorkspaceResponse` 加入当前提交，由 BE-a 或后续后端任务决定，加入后由前端接回。后续（owner 2026-11-04 确认方向，[DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)）：占用指针与本人撤回权限并入 BE-a（§5），FE3 接回（§7.1）；BE-a 实施前此缺口仍然存在，FE2 继续按 Q16 甲 |
 
 ## 4. 工程与架构
 
@@ -99,6 +100,7 @@ OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并�
 
 - 所有请求经同一个认证 fetch 封装。bundle 下载也用 fetch（流式写入本地），不用 `<a href>`，以便正式 SSO 采用 header 或 cookie 时只改一处。
 - 测试 control plane 写入多个身份：提交人、审核人、归档确认人，以及缺少相应权限的身份，覆盖审核、归档与权限拒绝路径。
+  BE-a 之后（DC75），FE3 另设只持 `withdraw_own_submission` 的提交人身份，与持 `review_submission` 的审核人分开；验证本人撤回时不用审核人或全权限身份代替。
 - 一个会话对应一个网关设备与业务项目。legacy README 中的“设备选择/SSO 入口”不作为前端页面，切换设备即切换会话。
 - token 不写入构建产物；开发与 e2e 通过 dev server 代理或仅开发环境出现的身份选择注入。
 
@@ -136,7 +138,7 @@ OpenAPI 快照：在仓库中提交 `frontend/` 下的 `openapi.json` 快照并�
 
 | ID | 内容 | 影响面 | 时机 |
 | --- | --- | --- | --- |
-| BE-a | 删除 `RETURN_FOR_REVISION`：domain 动作、`RETURNED_FOR_REVISION` 状态与事件、HTTP literal、history 状态 literal、control DB schema 约束（直接改基线，本地 DB 删除重建，DC6）、测试与 Contract（Business Lifecycle、P5-5C 设计中的状态机表）。当前约 18 个文件引用。另外（owner 2026-11-03，FE2 kickoff §9 Q13）：`POST /v1/history-compares` 第一次返回 202、回放 200，OpenAPI 只声明了 200，补齐 202 并把 200 标为幂等回放；`POST /v1/workspaces` 新建返回 201、已存在返回 200，OpenAPI 同样只声明了 200，一并补齐；同步 OpenAPI 测试；前端快照在 FE3 刷新 | HTTP DTO、control DB schema；无镜像边界外的部署变化 | 不阻塞 FE0–FE2；S2a 合入 main 之后作为小任务进行，避免与 P6 分支冲突（owner 已确认） |
+| BE-a | 删除 `RETURN_FOR_REVISION`：domain 动作、`RETURNED_FOR_REVISION` 状态与事件、HTTP literal、history 状态 literal、control DB schema 约束（直接改基线，本地 DB 删除重建，DC6）、测试与 Contract（Business Lifecycle、P5-5C 设计中的状态机表）。当前约 18 个文件引用。另外（owner 2026-11-03，FE2 kickoff §9 Q13）：`POST /v1/history-compares` 第一次返回 202、回放 200，OpenAPI 只声明了 200，补齐 202 并把 200 标为幂等回放；`POST /v1/workspaces` 新建返回 201、已存在返回 200，OpenAPI 同样只声明了 200，一并补齐；同步 OpenAPI 测试；前端快照在 FE3 刷新。另外（owner 2026-11-04 确认方向，[DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)，[BE-a 设计补充](../backend-vnext/refactoring/formal/plans/p6-be-a-design.md)，后端设计 main `f20f08bea9`；后端 kickoff 审核通过 `fcbfb4c1a0`，待 owner 实施确认；以下尚未实现）：① `WorkspaceResponse` 增加 required nullable 的 `active_submit_attempt_id`、`active_submission_id`，投影当前提交占用，至多一个非空，新建（201）与已存在（200）两条路径都返回；指针只表示当前占用，不表示可撤回，通过后仍保留到归档开始；② 新增权限 `withdraw_own_submission`：可读本人提交的 review facts（`GET .../review`，含终态），可对本人 `PENDING` 提交执行合法的 `WITHDRAW`；不含通过、退回与项目 History；他人、跨 scope 与不存在统一 404，无任一审核权限 403；③ `review_submission` 保留审核人现有能力，两者同时持有取并集；④ 撤回的 `expected_review_version` 取 `GET .../review` 返回的 `review_version`，不使用 `Workspace.optimistic_version`（APPROVE 不改变工作区版本）；⑤ 撤回或退回后指针、当前上传与 Preview 清空，工作区可重新上传 | HTTP DTO、control DB schema、审核授权语义（新权限）；无镜像边界外的部署变化 | 不阻塞 FE0–FE2；S2a 合入 main 之后作为小任务进行，避免与 P6 分支冲突（owner 已确认） |
 | BE-b | 补回业务分组与列展示：capability、bundle/surface 中的产物形态、Contract 与 golden；注释来源；Preview bundle 为 `composite_signal_point`、`device` 补齐基线侧整表（owner 2026-11-02）；行定位产物、视图 ID 修复与诊断稳定编码（owner 2026-11-03，FE2a 审核 D1–D3，BE-b 草案 §4.8–§4.10）。范围与数据结构见 [BE-b 设计草案](be-b-navigation-and-presentation-draft.md) | bundle 结构与摘要；Preview/History 计时路径增加计算 | FD8：现在立项设计并先给出数据结构草案；实现排在 P6 退出之后、Phase 8 之前。理由：P6 对照基准已在 S1b 后重建、bundle golden 已冻结，P6 中加入会改变 bundle 摘要并影响 W1–W4、H1–H3 的计时 |
 | BE-c | 在 P6 测量中记录 t4 与 2× t4 的 bundle 体积（只报告） | 无 | 随 P6 测量；用于评估 1 Mbps（DC49）下的下载时长 |
 | BE-d | 闭合 bundle 传输（owner 2026-11-02）：`/bundle` 现在只返回 manifest JSON（`LocalArtifactBundleReader` 按 manifest ID 读单个 artifact），closure 引用的产物不在响应中，与 FD3 冲突。改为 §4.4 的流式 tar；Comparison Bundle Contract 补“传输格式”一节并同步 OpenAPI；路由测试验证 tar 成员与 closure 一致；`benchmarks/real_dump_journey.py` 改为解析 tar 中的 manifest，并记录下载耗时与体积（只报告） | HTTP 响应格式与 OpenAPI；不涉及 Dockerfile 与镜像 | S2a 合入 main 之后、FE3 之前（与 BE-a 同类）；FE1、FE2 用本地按该格式拼装的 tar fixture 开发 |
@@ -164,10 +166,26 @@ AGENTS 的“专用测试节点”规则同样适用于前端：不在开发主�
 | FE0 骨架 | 工程初始化、工具链镜像与 npm 缓存预填充、测试入口与节点规则落地、OpenAPI 快照与类型生成、§3.3 复合信号核对、legacy 能力清单（§8）逐项确认 | kickoff 确认 | 05 上入口可运行；清单无“未判定”项 |
 | FE1 A/B 并行 | A：认证封装、API 客户端、轮询与幂等、bundle 本地化与解析、视图模型推导、命令层；B：token、组件、表格主题、对话框 | FE0 | A 用 golden bundle 与模拟接口覆盖全部旅程的数据流；B 覆盖 UI 优化方向 P1、P2 条目 |
 | FE2 页面 | 正式工作台（树、上下文工具栏、上传步骤卡、比较托盘、结果抽屉）、差异浏览（两行顶栏、侧栏 A、tab、表格、变更定位）、审核与撤回、归档、历史比较、数据集替换浏览与确认。分为 FE2a 差异浏览、FE2b 工作台、路由与历史比较、FE2c 写操作旅程，各自审核、取证与打 tag（[FE2 kickoff](fe2-kickoff.md) §2，owner 2026-11-02、2026-11-03） | FE1 | 用模拟接口完成全部旅程；UI 优化方向 P3、P4 条目落地；截图验收通过（§6） |
-| FE3 对接 | 对接 Compose 中的真实 backend；OpenAPI 快照一致性；真实数据 t1 完整旅程 | FE2、BE-a、BE-d | e2e 全部旅程通过；t1 旅程通过 |
+| FE3 对接 | 对接 Compose 中的真实 backend；刷新 OpenAPI 快照并做一致性比对；接回上传模式顶栏撤回（§7.1）；真实数据 t1 完整旅程 | FE2、BE-a、BE-d | e2e 全部旅程通过（含 §7.1 场景）；t1 旅程通过 |
 | FE4 收口 | 接入 BE-b 的分组与列展示与行定位产物，移除占位数据与浏览器中的行标识计算（保留回退行为）；04 上取证 | BE-b | 04 证据；owner 退出审核 |
 
 FE0–FE2 不依赖后端剩余工作；FE4 依赖 BE-b，按 FD8 排在 P6 退出之后。
+
+### 7.1 FE3：接回上传模式顶栏撤回（[DC75](../backend-vnext/refactoring/formal/plans/p6-s0-owner-decisions.md#dc75-be-a工作区占用指针与本人撤回权限)）
+
+依据后端设计 main `f20f08bea9` 的 [BE-a 设计补充](../backend-vnext/refactoring/formal/plans/p6-be-a-design.md) §2–§4。BE-a 尚未实施：FE3 开始前核对 BE-a 已合入 main，以合入后的 OpenAPI 为准；与本节不符时停下交设计会话，不按本节自行假设接口。FE2 不实现本节内容。
+
+- **数据来源：** 工作区的 `active_submission_id` 非空时，调用 `GET /v1/submissions/{id}/review` 取 `status` 与 `review_version`。指针只表示当前占用，撤回是否可用以 review 查询结果和服务器响应为准；前端不按 actor 推断权限，也不把指针非空当作可撤回。
+- **撤回请求：** `expected_review_version` 取上一步的 `review_version`；不使用 `Workspace.optimistic_version`。沿用审核顶栏撤回的幂等 key、二次确认（X4）与危险按钮样式。
+- **必测场景：** 模拟接口与真实 backend e2e 都覆盖下列场景，本人撤回用 §4.3 的仅本人权限身份：
+  - 无权限：只有上传权限的身份，review 查询返回 403，不提供撤回；
+  - 已通过：`APPROVED` 时指针仍非空（保留到归档开始），不可撤回；
+  - 冲突刷新：审核版本冲突时重新查询 review 与工作区后再判断，不自动重发写请求；
+  - 撤回后重新上传：指针、当前上传与 Preview 为空，回到上传步骤，重新上传、Preview 与提交；
+  - 回归：审核人在审核顶栏的撤回保持原行为。
+- **刷新恢复：** `active_submit_attempt_id` 可辅助刷新后找回进行中的提交尝试（经已有的 attempt 查询取得 `operation_id`），不替代 FE2c 的 `operation_id` 写入 URL 方案。
+- **文案与状态：** 无权限、已通过等禁用原因的文案在 FE3 kickoff 定稿。
+- **提示词：** FE3 的实施与审核提示词由设计会话在 FE3 kickoff 时给出，引用后端设计 `f20f08bea9` 与 BE-a 实施的合入提交。
 
 ## 8. legacy 能力清单
 

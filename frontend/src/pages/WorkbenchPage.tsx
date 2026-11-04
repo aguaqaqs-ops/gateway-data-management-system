@@ -405,11 +405,11 @@ export function WorkbenchPage({ identityControl }: { identityControl?: ReactNode
   const selectedReviewFacts = selected?.kind === "submission" && compareState?.status === "SUCCEEDED" ? "审核信息按只读模式加载" : null;
   return <main className={`workspace-page${detailExpanded ? " details-open" : " details-collapsed"}${uploadLocked ? " workspace-page--uploading" : ""}`}>
     {uploadLocked && <div className="page-lock-overlay" role="presentation" {...{ inert: true } as object}><p>上传与预览执行中，页面其余操作已锁定</p></div>}
-    <header className="workspace-topbar">
+    <header className="workspace-topbar" {...(uploadLocked ? { inert: true } as object : {})}>
       <div className="workspace-brand"><strong>网关数据工作台</strong><span>{data.workspace.gateway_device_external_key}</span></div>
       <div className="workspace-topbar__right">{(showHistoryDrawer || showOperationStatus) && <span className="task-indicator"><RefreshCw size={13} />{showHistoryDrawer ? "历史比较" : "操作状态"}</span>}<ConnectionStatusIndicator />{identityControl}</div>
     </header>
-    <div className="workspace-layout">
+    <div className="workspace-layout" {...(uploadLocked ? { inert: true } as object : {})}>
       <section className="workspace-main" aria-label="组态树工作台">
         <div className="workspace-tree-heading"><h1>组态树</h1><label className="workspace-search"><Search size={15} /><input ref={searchRef} aria-label="搜索工作区与 History 节点" placeholder="搜索节点" value={filter} onChange={(event) => setFilter(event.currentTarget.value)} /></label><span className="workspace-tree-heading__spacer" />
           <label className="workspace-checkbox"><input type="checkbox" checked={currentBaselineOnly} onChange={(event) => setCurrentBaselineOnly(event.currentTarget.checked)} />只显示当前基线</label>

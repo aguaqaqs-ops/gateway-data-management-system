@@ -1423,6 +1423,8 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   await screenshot(page, "upload-running-modified-only", 1920);
   await page.reload();
   await expect(page.locator(".page-lock-overlay")).toBeVisible();
+  await expect(page.locator(".workspace-topbar")).toHaveJSProperty("inert", true);
+  await expect(page.locator(".workspace-layout")).toHaveJSProperty("inert", true);
   await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
   await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 60000 });
   await waitForBrowse(page);

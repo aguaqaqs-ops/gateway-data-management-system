@@ -1261,6 +1261,26 @@ test("FE2c 归档主线确认预检、异常与影响", async ({ page }) => {
   expect(apiRequests.some((request) => request.path === "/v1/archives")).toBe(true);
 });
 
+test("FE2c 上传失败后重试不重复上传", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await installFixtureRoutes(page, { fail: true });
+  await page.goto("/");
+  await setDirectoryInput(page, "upload-initial-input", "original_cfg", VALID_DIRECTORY);
+  await setDirectoryInput(page, "upload-modified-input", "station_cfg_0921", VALID_DIRECTORY);
+  await page.getByRole("button", { name: "上传", exact: true }).click();
+  const card = page.getByLabel("上传与预览");
+  await expect(card.getByRole("alert")).toContainText("比较结果暂时不可用", { timeout: 15000 });
+  await screenshot(page, "upload-failure-retry", 1920);
+  await screenshot(page, "upload-failure-retry", 1280);
+  await page.setViewportSize({ width: 1920, height: 1080 });
+
+  await page.unrouteAll();
+  await installFixtureRoutes(page);
+  await card.getByRole("button", { name: "重试" }).click();
+  await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 30000 });
+  expect(apiRequests.filter((request) => request.path.endsWith("/upload-revisions"))).toHaveLength(1);
+});
+
 test("FE2c 上传与 Preview 的 403、版本冲突就地显示错误码", async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await installFixtureRoutes(page, { uploadConflict: "WORKSPACE_VERSION_CONFLICT" });

@@ -13,10 +13,21 @@ describe("generated API types match the OpenAPI snapshot (§5.4)", () => {
   it("regenerates openapi.d.ts byte for byte", async () => {
     const workdir = await mkdtemp(join(tmpdir(), "fe3a-api-types-"));
     try {
+      // N3: derive the CLI invocation from the npm script instead of
+      // duplicating its arguments here; only the output path is redirected.
+      const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
+        scripts: Record<string, string>;
+      };
+      const [command, ...args] = packageJson.scripts["generate:api-types"].trim().split(/\s+/);
+      if (!command || (!args.includes("--output") && !args.includes("-o"))) {
+        throw new Error("generate:api-types script must name openapi-typescript and an output flag");
+      }
+      const outputFlag = args.includes("--output") ? "--output" : "-o";
+      args[args.indexOf(outputFlag) + 1] = join(workdir, "openapi.d.ts");
       await new Promise<void>((resolve, reject) => {
         execFile(
-          "npx",
-          ["openapi-typescript", "openapi.json", "--output", join(workdir, "openapi.d.ts")],
+          command,
+          args,
           { cwd: process.cwd() },
           (error, stdout, stderr) => {
             if (error) {

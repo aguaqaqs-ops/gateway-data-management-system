@@ -423,6 +423,12 @@ UPLOAD_DEVICE="fe3a-device-upload-preview"
 UPLOAD_PROJECT="fe3a-project-upload-preview"
 PERMISSION_DEVICE="fe3a-device-permission-denied"
 PERMISSION_PROJECT="fe3a-project-permission-denied"
+INPUT_SCOPE_SLUGS=(input-a input-b-mod input-c input-d input-b-full)
+INPUT_SCOPE_NAMES=("A" "B-mod" "C" "D" "B-full")
+INPUT_TOKENS=()
+for input_slug in "${INPUT_SCOPE_SLUGS[@]}"; do
+  INPUT_TOKENS+=("fe3a-${input_slug}-$(openssl rand -hex 16)")
+done
 
 cat > "$RUN_ROOT/session.json" <<EOF
 {"sessions": [
@@ -433,6 +439,28 @@ cat > "$RUN_ROOT/session.json" <<EOF
   {"token": "$NOPERM_TOKEN", "actor_id": "fe3a-permission-denied-noperm", "gateway_device_external_key": "$PERMISSION_DEVICE", "business_project_id": "$PERMISSION_PROJECT", "permissions": ["workspace_read", "read_project_history"]}
 ]}
 EOF
+# Input-scope identities: one upload/preview submitter per independent scope.
+python3 -I - "$RUN_ROOT/session.json" "${INPUT_SCOPE_SLUGS[@]}" "${INPUT_TOKENS[@]}" <<'PY'
+import json
+import sys
+
+path, *rest = sys.argv[1:]
+slugs = rest[: len(rest) // 2]
+tokens = rest[len(rest) // 2 :]
+with open(path, encoding="utf-8") as handle:
+    data = json.load(handle)
+for slug, token in zip(slugs, tokens, strict=True):
+    data["sessions"].append({
+        "token": token,
+        "actor_id": f"fe3a-{slug}-submitter",
+        "gateway_device_external_key": f"fe3a-device-{slug}",
+        "business_project_id": f"fe3a-project-{slug}",
+        "permissions": ["workspace_read", "read_project_history", "upload_submit_workspace", "preview_workspace"],
+    })
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+PY
 printf '%s\n' "$RS_BEARER" > "$RUN_ROOT/repository-bearer-token"
 printf '%s\n' "$INTERNAL_BEARER" > "$RUN_ROOT/internal-bearer-token"
 chmod 0644 "$RUN_ROOT/session.json" "$RUN_ROOT/repository-bearer-token" "$RUN_ROOT/internal-bearer-token"
@@ -449,6 +477,9 @@ log "identity=reviewer scope=upload-preview permissions=workspace_read,read_proj
 log "identity=archiver scope=upload-preview permissions=workspace_read,read_project_history,archive_submission"
 log "identity=no-preview scope=permission-denied permissions=workspace_read,read_project_history,upload_submit_workspace"
 log "identity=noperm scope=permission-denied permissions=workspace_read,read_project_history"
+for input_slug in "${INPUT_SCOPE_SLUGS[@]}"; do
+  log "identity=${input_slug} scope=${input_slug} permissions=workspace_read,read_project_history,upload_submit_workspace,preview_workspace"
+done
 
 # 1. build backend+worker images (offline, preloaded deps).
 if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" build backend worker 2>&1 | tee -a "$LOG_FILE"; then
@@ -477,17 +508,22 @@ if [[ "$RS_READY_OK" != "1" ]]; then
 fi
 log "repository_service_ready=ok"
 
-SCOPE_SLUGS=(upload-preview permission-denied)
-SCOPE_NAMES=("上传与预览" "权限拒绝")
+SCOPE_SLUGS=(upload-preview permission-denied "${INPUT_SCOPE_SLUGS[@]}")
+SCOPE_NAMES=("上传与预览" "权限拒绝" "${INPUT_SCOPE_NAMES[@]}")
 SCOPE_ROWS=()
 for index in "${!SCOPE_SLUGS[@]}"; do
   scope="${SCOPE_SLUGS[$index]}"
   scope_name="${SCOPE_NAMES[$index]}"
-  if [[ "$scope" == "upload-preview" ]]; then
-    device_key="$UPLOAD_DEVICE"; business_project="$UPLOAD_PROJECT"
-  else
-    device_key="$PERMISSION_DEVICE"; business_project="$PERMISSION_PROJECT"
-  fi
+  case "$scope" in
+    upload-preview)
+      device_key="$UPLOAD_DEVICE"; business_project="$UPLOAD_PROJECT" ;;
+    permission-denied)
+      device_key="$PERMISSION_DEVICE"; business_project="$PERMISSION_PROJECT" ;;
+    input-*)
+      device_key="fe3a-device-${scope}"; business_project="fe3a-project-${scope}" ;;
+    *)
+      log "error=unknown scope $scope"; exit 2 ;;
+  esac
   baseline_node="fe3a-baseline-${scope}"
   seed_key="fe3a-seed-${SUBPHASE}-${scope}-${STAMP}-${SESSION}"
   if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "
@@ -568,13 +604,29 @@ log "compose_network_id=$(docker network inspect "${PROJECT_NAME}_default" --for
 # 4. Smoke input directory. These committed fixtures are the FE3a smoke
 # upload; the four FE3b upload sequences and their real inputs are still
 # pending the design-session record (review B10).
-SMOKE_INPUT="$RUN_ROOT/smoke-input"
-mkdir -p -- "$SMOKE_INPUT/sql" "$SMOKE_INPUT/comps/logic"
-printf 'fe3a-smoke-v1\n' > "$SMOKE_INPUT/smoke.pmc"
-cp -- "$FRONTEND_DIR/e2e-real/fixtures/real-sql.sql" "$SMOKE_INPUT/sql/dbcfg.sql"
-cp -- "$FRONTEND_DIR/e2e-real/fixtures/real-logics.xml" "$SMOKE_INPUT/comps/logic/logics.xml"
+# Q10 upload inputs: five independent directories, one per input scope.
+# SQL files are the committed derived inputs; logics come from the shared
+# source fixtures without copying them into the worktree.
+SMOKE_INPUT="$RUN_ROOT/inputs"
+INPUT_FIXTURES="$FRONTEND_DIR/e2e-real/fixtures/upload-inputs"
+SHARED_INPUTS="$FRONTEND_DIR/src/test/fixtures/source/upload-inputs"
+mkdir -p -- "$SMOKE_INPUT"/{a,b,c,d}/{sql,comps/logic}
+for input_name in a b c d; do
+  printf 'fe3a-input-%s\n' "$input_name" > "$SMOKE_INPUT/$input_name/input.pmc"
+done
+cp -- "$INPUT_FIXTURES/sql-baseline.sql" "$SMOKE_INPUT/a/sql/dbcfg.sql"
+cp -- "$INPUT_FIXTURES/sql-initial.sql" "$SMOKE_INPUT/b/sql/dbcfg.sql"
+cp -- "$INPUT_FIXTURES/sql-modified.sql" "$SMOKE_INPUT/c/sql/dbcfg.sql"
+cp -- "$SHARED_INPUTS/sql-replacement-current.sql" "$SMOKE_INPUT/d/sql/dbcfg.sql"
+cp -- "$SHARED_INPUTS/logics-1.xml" "$SMOKE_INPUT/a/comps/logic/logics.xml"
+cp -- "$SHARED_INPUTS/logics-2.xml" "$SMOKE_INPUT/b/comps/logic/logics.xml"
+cp -- "$SHARED_INPUTS/logics-3.xml" "$SMOKE_INPUT/c/comps/logic/logics.xml"
+cp -- "$SHARED_INPUTS/logics-3.xml" "$SMOKE_INPUT/d/comps/logic/logics.xml"
 chmod -R a+rX -- "$SMOKE_INPUT"
 log "smoke_input=$SMOKE_INPUT"
+for input_name in a b c d; do
+  log "smoke_input_scope=${input_name} sql_sha256=$(sha256sum "$SMOKE_INPUT/$input_name/sql/dbcfg.sql" | cut -d' ' -f1) logics_sha256=$(sha256sum "$SMOKE_INPUT/$input_name/comps/logic/logics.xml" | cut -d' ' -f1)"
+done
 
 # 5. Toolchain container on the compose network, production build from a
 # git archive (never the live worktree), input mounted read-only.
@@ -682,6 +734,28 @@ cat > "$RUN_ROOT/identities.json" <<EOF
  {"name": "noperm", "token": "$NOPERM_TOKEN", "actorId": "fe3a-permission-denied-noperm", "businessProjectId": "$PERMISSION_PROJECT", "gatewayDeviceExternalKey": "$PERMISSION_DEVICE", "scope": "permission-denied"},
  {"name": "no-preview", "token": "$NOPREVIEW_TOKEN", "actorId": "fe3a-permission-denied-no-preview", "businessProjectId": "$PERMISSION_PROJECT", "gatewayDeviceExternalKey": "$PERMISSION_DEVICE", "scope": "permission-denied"}]
 EOF
+python3 -I - "$RUN_ROOT/identities.json" "${INPUT_SCOPE_SLUGS[@]}" "${INPUT_TOKENS[@]}" <<'PY'
+import json
+import sys
+
+path, *rest = sys.argv[1:]
+slugs = rest[: len(rest) // 2]
+tokens = rest[len(rest) // 2 :]
+with open(path, encoding="utf-8") as handle:
+    data = json.load(handle)
+for slug, token in zip(slugs, tokens, strict=True):
+    data.append({
+        "name": slug,
+        "token": token,
+        "actorId": f"fe3a-{slug}-submitter",
+        "businessProjectId": f"fe3a-project-{slug}",
+        "gatewayDeviceExternalKey": f"fe3a-device-{slug}",
+        "scope": slug,
+    })
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+PY
 chmod 0600 "$RUN_ROOT/identities.json"
 docker cp "$RUN_ROOT/identities.json" "$TOOLCHAIN_CONTAINER:/tmp/identities.json"
 
@@ -696,6 +770,7 @@ docker exec \
   --env "GATEWAY_FE_SUITE=$SUITE" \
   --env "GATEWAY_FE_SMOKE_INPUT_ROOT=/input" \
   --env "GATEWAY_FE_RESULTS_FILE=/results/results.json" \
+  --env "GATEWAY_FE_RESULTS_DIR=/results" \
   --env "GATEWAY_FRONTEND_BACKEND_ORIGIN=http://backend:8000" \
   "$TOOLCHAIN_CONTAINER" bash -euo pipefail -c '
   cd /tmp/frontend
@@ -762,5 +837,29 @@ PY
 )"
 cat "$LOG_DIR/suite-summary.txt" | tee -a "$LOG_FILE"
 log "results_file=$RESULTS_FILE"
+# Q10: per-scope bundle-manifest facts recorded by the smoke suite.
+if [[ -f "$LOG_DIR/input-scope-results.json" ]]; then
+  python3 -I - "$LOG_DIR/input-scope-results.json" <<'PY' | tee -a "$LOG_FILE"
+import json
+import sys
+
+for record in json.load(open(sys.argv[1], encoding="utf-8")):
+    pairs = ";".join(
+        f"{pair['before_input_index']}->{pair['current_input_index']}:"
+        f"changed={pair['changed_table_count']},degraded={pair['degraded_table_count']},"
+        f"failed={pair['failed_table_count']},rows={pair['table_count']}"
+        for pair in record["pairs"]
+    )
+    identities = ",".join(f"{item['pair_id']}={item['status']}" for item in record["identity_pairs"])
+    print(
+        f"input_scope={record['scope']} identity={record['identity']} "
+        f"upload_status={record['upload_status']} operation_id={record['operation_id']} "
+        f"preview_result_id={record['preview_result_id']} bundle_id={record['bundle_id']} "
+        f"failed_pairs={record['failed_pairs']} pairs={pairs} identity_pairs={identities}"
+    )
+PY
+else
+  log "input_scope_results=missing"
+fi
 log "suite_exit=$SUITE_EXIT"
 exit "$SUITE_EXIT"

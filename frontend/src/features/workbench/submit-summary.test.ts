@@ -102,4 +102,19 @@ describe("submit summary display names (M7)", () => {
       raw: "fe2a-history-ref-1",
     });
   });
+  it("numbers archived baselines with the shared tree rule (Q11)", () => {
+    const initial = HISTORY_PAGE_TWO.nodes.find((node) => node.baseline_kind === "INITIAL")!;
+    const archived = HISTORY_PAGE_ONE.nodes.find((node) => node.node_kind === "BASELINE_NODE")!;
+    const tied = { ...archived, ref_id: "fe2a-history-ref-a", created_at: "2026-11-02T10:00:00Z" };
+    const later = { ...archived, ref_id: "fe2a-history-ref-b", created_at: "2026-11-02T10:00:00Z" };
+    const customHistory = {
+      ...history,
+      head: { ...history.head, node_id: "fe2a-history-ref-a" },
+      nodes: [initial, later, tied],
+    } satisfies typeof history;
+    expect(baselineDisplayName(customHistory, "fe2a-history-ref-a")).toBe("当前基线（归档基线 1）");
+    expect(baselineDisplayName(customHistory, "fe2a-history-ref-b")).toBe("归档基线 2");
+    expect(baselineDisplayName(customHistory, "fe2a-history-ref-0")).toBe("初始基线");
+  });
+
 });

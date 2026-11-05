@@ -1,4 +1,5 @@
 import type { components } from "../api/generated/openapi";
+import { baselineDisplayLabel } from "./baseline-labels";
 
 type Schemas = components["schemas"];
 
@@ -106,7 +107,7 @@ export function buildWorkspaceTree(
       key,
       kind: historyKind(node),
       label: node.node_kind === "BASELINE_NODE"
-        ? (node.baseline_kind === "INITIAL" ? "初始基线" : "归档基线")
+        ? baselineDisplayLabel(history, node)
         : node.node_kind === "SYSTEM_MIGRATION" ? "规则迁移" : submissionLabels.get(key) ?? "提交",
       status: historyStatus(node, current),
       statusTone: historyStatusTone(node, current),

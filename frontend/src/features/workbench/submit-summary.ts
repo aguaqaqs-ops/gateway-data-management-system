@@ -1,4 +1,5 @@
 import type { components } from "../api/generated/openapi";
+import { baselineDisplayLabelFor } from "../view-model/baseline-labels";
 
 type Schemas = components["schemas"];
 type HistoryNode = Schemas["HistoryNodeResponse"];
@@ -42,15 +43,8 @@ export function baselineDisplayName(
     (item) => item.node_kind === "BASELINE_NODE" && item.ref_id === refId,
   );
   if (!node) return null;
-  const kindLabel =
-    node.baseline_kind === "INITIAL"
-      ? "初始基线"
-      : `归档基线 ${
-        history.nodes
-          .filter((item) => item.baseline_kind === "ARCHIVED_SUBMISSION")
-          .sort((left, right) => left.created_at.localeCompare(right.created_at))
-          .findIndex((item) => item.ref_id === refId) + 1
-      }`;
+  const kindLabel = baselineDisplayLabelFor(history, refId);
+  if (!kindLabel) return null;
   const isHead = node.ref_id === history.head.node_id;
   return isHead ? `当前基线（${kindLabel}）` : kindLabel;
 }

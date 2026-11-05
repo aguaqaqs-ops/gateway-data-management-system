@@ -47,7 +47,8 @@ interface OperationBody {
 }
 
 interface BundleBody {
-  bundle_id: string;
+  bundle_id?: string;
+  manifest_ref?: { artifact_id?: string };
   failed_pairs: unknown[];
   inputs: Array<{ input_index: number; role: string; display_name: string }>;
   pairs: Array<{
@@ -258,7 +259,7 @@ async function runInputScope(
     upload_status: 201,
     operation_id: acceptedBody.operation_id,
     preview_result_id: preview.preview_result_id,
-    bundle_id: bundle.bundle_id,
+    bundle_id: bundle.bundle_id ?? bundle.manifest_ref?.artifact_id ?? "",
     failed_pairs: bundle.failed_pairs.length,
     pairs,
     identity_pairs: preview.identity_pairs,

@@ -809,6 +809,7 @@ else:
             for suite in suites or []:
                 for spec in suite.get("specs") or []:
                     for test in spec.get("tests") or []:
+                        title = test.get("title") or spec.get("title") or ""
                         for result in test.get("results") or []:
                             start = result.get("startTime") or ""
                             duration = result.get("duration") or 0
@@ -819,7 +820,7 @@ else:
                                 end = ""
                             lines.append(
                                 f"test_start={start} test_end={end} "
-                                f"test_status={result.get('status')} test_title={test.get('title')}"
+                                f"test_status={result.get('status')} test_title={title}"
                             )
                 walk(suite.get("suites"))
         walk(data.get("suites"))
@@ -854,7 +855,7 @@ for record in json.load(open(sys.argv[1], encoding="utf-8")):
     print(
         f"input_scope={record['scope']} identity={record['identity']} "
         f"upload_status={record['upload_status']} operation_id={record['operation_id']} "
-        f"preview_result_id={record['preview_result_id']} bundle_id={record['bundle_id']} "
+        f"preview_result_id={record['preview_result_id']} bundle_id={record.get('bundle_id', '')} "
         f"failed_pairs={record['failed_pairs']} pairs={pairs} identity_pairs={identities}"
     )
 PY

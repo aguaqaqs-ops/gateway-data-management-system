@@ -1162,6 +1162,10 @@ test("FE2c 提交前要求确认项目身份差异并进入审核", async ({ pag
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("业务项目不同，需要确认数据集替换")).toBeVisible();
   await expect(dialog.getByText("项目身份无法验证")).toBeVisible();
+  // M7 Q11: the workspace row shows the tree display name, not the raw ID.
+  await expect(dialog.getByText("工作区").locator("xpath=following-sibling::dd")).toHaveText("gateway-17");
+  await screenshot(page, "submit-summary-workspace", 1920);
+  await screenshot(page, "submit-summary-workspace", 1280);
   const confirm = dialog.getByRole("button", { name: "确认提交" });
   await expect(confirm).toBeDisabled();
 

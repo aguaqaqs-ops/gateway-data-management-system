@@ -58,6 +58,7 @@ function failOnPageError(page: Page): void {
 test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL", async ({ browser }) => {
   const context = await contextWithIdentity(browser, byName("submitter"));
   const page = await context.newPage();
+  await page.setViewportSize({ width: 1920, height: 1080 });
   failOnPageError(page);
 
   const created = page.waitForResponse(
@@ -75,6 +76,7 @@ test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL"
 test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught error", async ({ browser }) => {
   const context = await contextWithIdentity(browser, byName("submitter"));
   const page = await context.newPage();
+  await page.setViewportSize({ width: 1920, height: 1080 });
   failOnPageError(page);
   await gotoWorkbench(page);
 
@@ -115,6 +117,7 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
 test("smoke: no-permission upload returns 403 copy", async ({ browser }) => {
   const context = await contextWithIdentity(browser, byName("noperm"));
   const page = await context.newPage();
+  await page.setViewportSize({ width: 1920, height: 1080 });
   failOnPageError(page);
   await gotoWorkbench(page);
 
@@ -129,6 +132,7 @@ test("smoke: no-permission upload returns 403 copy", async ({ browser }) => {
 test("smoke: upload-only identity gets 403 on preview start", async ({ browser }) => {
   const context = await contextWithIdentity(browser, byName("no-preview"));
   const page = await context.newPage();
+  await page.setViewportSize({ width: 1920, height: 1080 });
   failOnPageError(page);
   await gotoWorkbench(page);
 

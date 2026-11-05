@@ -222,6 +222,7 @@ log "run_root=$RUN_ROOT"
 
 # Random per-run tokens (never logged, never in build products).
 SUBMITTER_TOKEN="fe3a-submitter-$(openssl rand -hex 16)"
+NOPREVIEW_TOKEN="fe3a-nopreview-$(openssl rand -hex 16)"
 REVIEWER_TOKEN="fe3a-reviewer-$(openssl rand -hex 16)"
 ARCHIVER_TOKEN="fe3a-archiver-$(openssl rand -hex 16)"
 NOPERM_TOKEN="fe3a-noperm-$(openssl rand -hex 16)"
@@ -236,10 +237,10 @@ SCOPE_NAME="smoke"
 cat > "$RUN_ROOT/session.json" <<EOF
 {"sessions": [
   {"token": "$SUBMITTER_TOKEN", "actor_id": "$SESSION_ACTOR", "gateway_device_external_key": "$DEVICE_KEY", "business_project_id": "$BUSINESS_PROJECT", "permissions": ["workspace_read", "upload_submit_workspace", "preview_workspace"]},
+  {"token": "$NOPREVIEW_TOKEN", "actor_id": "fe3a-no-preview", "gateway_device_external_key": "$DEVICE_KEY", "business_project_id": "$BUSINESS_PROJECT", "permissions": ["workspace_read", "upload_submit_workspace"]},
   {"token": "$REVIEWER_TOKEN", "actor_id": "fe3a-reviewer", "gateway_device_external_key": "$DEVICE_KEY", "business_project_id": "$BUSINESS_PROJECT", "permissions": ["workspace_read", "read_project_history", "review_submission"]},
   {"token": "$ARCHIVER_TOKEN", "actor_id": "fe3a-archiver", "gateway_device_external_key": "$DEVICE_KEY", "business_project_id": "$BUSINESS_PROJECT", "permissions": ["workspace_read", "read_project_history", "archive_submission"]},
   {"token": "$NOPERM_TOKEN", "actor_id": "fe3a-noperm", "gateway_device_external_key": "$DEVICE_KEY", "business_project_id": "$BUSINESS_PROJECT", "permissions": []}
-]}
 EOF
 printf '%s\n' "$RS_BEARER" > "$RUN_ROOT/repository-bearer-token"
 printf '%s\n' "$INTERNAL_BEARER" > "$RUN_ROOT/internal-bearer-token"
@@ -322,7 +323,7 @@ docker run -d --rm --init --name "$TOOLCHAIN_CONTAINER" --label "com.docker.comp
   --network "${PROJECT_NAME}_default" \
   --volume "$REPO_DIR/frontend:/frontend-source.tar:ro" \
   --volume "$NPM_CACHE_DIR:/npm-cache:ro" \
-  --env "GATEWAY_FRONTEND_BACKEND_ORIGIN=http://backend:8000" \
+  ${SMOKE_INPUT:+--volume "$SMOKE_INPUT:/input:ro"} \
   --env "GATEWAY_FE_SUITE=$SUITE" \
   "$TOOLCHAIN_IMAGE" sleep infinity >/dev/null 2>&1
 log "toolchain_container=$TOOLCHAIN_CONTAINER"
@@ -337,14 +338,42 @@ docker exec "$TOOLCHAIN_CONTAINER" bash -euo pipefail -c "
   npm run build
 " 2>&1 | tee -a "$LOG_FILE"
 
+# Smoke input directory from the shared upload files (kickoff §4.6):
+# one placeholder .pmc + sql/dbcfg.sql + logics.xml, written outside the
+# worktree and mounted read-only into the toolchain container at /input.
+SMOKE_INPUT="$RUN_ROOT/smoke-input"
+if [[ "$SUITE" == "smoke" ]]; then
+  mkdir -p -- "$SMOKE_INPUT/sql" "$SMOKE_INPUT/comps/logic"
+  printf 'fe3a-smoke-v1\n' > "$SMOKE_INPUT/smoke.pmc"
+  cp -- "$REPO_DIR/frontend/src/test/fixtures/source/upload-inputs/sql-modified.sql" "$SMOKE_INPUT/sql/dbcfg.sql"
+  cp -- "$REPO_DIR/frontend/src/test/fixtures/source/upload-inputs/logics-3.xml" "$SMOKE_INPUT/comps/logic/logics.xml"
+  chmod -R a+rX -- "$SMOKE_INPUT"
+  log "smoke_input=$SMOKE_INPUT"
+fi
+
+# Identities JSON for per-context injection (owner Q5). Tokens are random
+# per run; the file stays outside the worktree and is mounted read-only.
+cat > "$RUN_ROOT/identities.json" <<EOF
+[{"name": "submitter", "token": "$SUBMITTER_TOKEN", "actorId": "$SESSION_ACTOR", "businessProjectId": "$BUSINESS_PROJECT", "gatewayDeviceExternalKey": "$DEVICE_KEY"},
+ {"name": "reviewer", "token": "$REVIEWER_TOKEN", "actorId": "fe3a-reviewer", "businessProjectId": "$BUSINESS_PROJECT", "gatewayDeviceExternalKey": "$DEVICE_KEY"},
+ {"name": "archiver", "token": "$ARCHIVER_TOKEN", "actorId": "fe3a-archiver", "businessProjectId": "$BUSINESS_PROJECT", "gatewayDeviceExternalKey": "$DEVICE_KEY"},
+ {"name": "noperm", "token": "$NOPERM_TOKEN", "actorId": "fe3a-noperm", "businessProjectId": "$BUSINESS_PROJECT", "gatewayDeviceExternalKey": "$DEVICE_KEY"},
+ {"name": "no-preview", "token": "$NOPREVIEW_TOKEN", "actorId": "fe3a-no-preview", "businessProjectId": "$BUSINESS_PROJECT", "gatewayDeviceExternalKey": "$DEVICE_KEY"}]
+EOF
+chmod 0600 "$RUN_ROOT/identities.json"
+IDENTITIES_JSON="$(cat "$RUN_ROOT/identities.json")"
+log "identities_written=5 scopes(submitter/no-preview/reviewer/archiver/noperm)"
+
 # Identities: one browser context each via addInitScript (kickoff §4.5).
 RUN_STAGE="suite"
 log "suite_start=$SUITE"
 set +e
-docker exec --env "GATEWAY_FE_SUITE=$SUITE" "$TOOLCHAIN_CONTAINER" bash -euo pipefail -c "
+docker cp "$RUN_ROOT/identities.json" "$TOOLCHAIN_CONTAINER:/tmp/identities.json"
+docker exec --env "GATEWAY_FE_SUITE=$SUITE" --env "GATEWAY_FE_SMOKE_INPUT_ROOT=/input" "$TOOLCHAIN_CONTAINER" bash -euo pipefail -c '
   cd /tmp/frontend
+  export GATEWAY_FE_IDENTITIES="$(cat /tmp/identities.json)"
   GATEWAY_M1_INPUT_ROOT= GATEWAY_M1_MODE= npx playwright test --config playwright.real.config.ts
-" 2>&1 | tee -a "$LOG_FILE"
+' 2>&1 | tee -a "$LOG_FILE"
 SUITE_EXIT="${PIPESTATUS[0]}"
 set -e
 log "suite_exit=$SUITE_EXIT"

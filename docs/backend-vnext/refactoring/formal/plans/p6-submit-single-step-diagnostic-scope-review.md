@@ -134,3 +134,13 @@ metadata 日志的 `inputs.manifest.expected_sha256` 错填为 accepted document
 **最终 helper 扩展已静态通过。** 固定唯一 05 落点为 `/home/dev/gdds-p6-logs/submit-diag-preflight-20261105/ct05-tools/`；helper SHA256 `02985d19c373980ab411242c17a019a3d7ce165bfa413c068b331f8d97440e22`，materializer SHA256 `69fcaafcaea37c6ae785e8660c444d1a6205444195de7c04747fe04a2c6192ec`。新增 `require_node_lock(token,purpose)` 和 `preflight_transport(journey)` 核对运输占用、解释器/HEAD、固定工具/expected image 摘要、源/目标精确路径与卷名空闲、同文件系统、启动容量以及已有镜像身份；materializer 入口新增同 token/purpose 校验。F2 修复及原来源校验保持，未调用 Compose、同步或业务测试。已通知 launcher 同步新 pin/路径。外层 transport 仍须在流复制前调用该 preflight，持续持有同一锁到物化收束；helper 本身通过不替代外层命令审核。
 
 **launcher 最终接线已闭合。** 当前固定 `launch.sh` SHA256 `e0075f7253b7b8b84ba3e633dd931226080eb6d14bb946c9d4bb31ea3de554c6`、Python 入口 SHA256 `17ba08615f8dc5181ca7677fdf9207fa0d576258dd63a3740046fb1360185c2c`、README SHA256 `37eca1f3a053c77df6f069054c471c6794fe89d88744b4ee6e985dcfbcab572c`，接口文件 SHA256 `fdff3ed4fe60c2bddc4119d9673ef57a0566a502dc702f55ed30c3b3efcb49ee`。本轮将 helper 路径/pin、shell 入口 pin 及 `umask 077` 反向替换后，可精确恢复前次两个脚本的完整 SHA，确认没有额外算法变化。唯一落点及新 helper 摘要已一致，静态审核通过，不需要重测；旧 `fb043c…/a6574d…` 不再作为启动候选。实际 POST 仍以运输/物化结果及既定启动前提通过为前置，尚未执行。
+
+## 11. 外层运输候选的 F3/F4（尚不执行）
+
+按设计委托，直接审核已落盘的 `transport_source_to_ct05.py`，固定 SHA256 `ba1fdd78941df0f6a65e670598c2c2003c57a3fb98d1e6a5bd2464094f2f435c`，不等待 handoff 排版。当前有两个需修正的实质项，已直接通知原实施者及设计；未执行运输。
+
+**F3：metadata 读取和释放命令存在确定性错误。** `build_transfer_plan` 对整份 `ct108-source-metadata-confirmed.json` 使用 `json.loads`，但第 8 节已确认该文件是 JSON 首行加 RESULT/ssh_exit 行，必然报 extra data。随后 `accepted_paths` 循环还从 `inputs` 下读取不存在的 run/state/launch/cache/accepted 字段；实际 accepted 为 `accepted_document`，cache 在 `cache.matches`，源 run/state/log 使用既定固定路径即可。应按已保存日志的实际结构读取、保持固定来源摘要和路径，不重新取证。`release_lock` 的 raw Python 代码使用双反斜线 n，匹配的是字面反斜线而非 owner 文件的换行；远端断言失败还因未检查 returncode 被吞掉。须修正字符串并明确检查释放结果，不能将空 stdout 记作成功释放。
+
+**F4：远端状态未知时不得释放占用。** `main` 在 finally 无条件释放锁，但流传输或远端 materializer 超时/控制端中断时，本地 SSH 结束不能证明远端复制/物化已退出。最小修正为不确定收束的失败保留自身 owner，记录需检查原因，确认本次活动停止后再释放；成功路径检查远端退出及释放标志。不需要新增监控框架或故障矩阵。执行入口还应固定校验已审核 helper/materializer/expected-image 的摘要，而非仅复制后动态记录当时内容；可由脚本常量或已审调用命令落实。
+
+其余运输方向符合已批准范围：精确列举三份 checkpoint 及必要输入/元数据/cache，PAX 流经局域网到新 staging，不读取失败后的 live volumes、不落完整 tar 临时归档；计划在复制前检查 05 锁/容量/路径、再使用已审核物化入口，原来源保持不改，失败保留副本。F3/F4 修正后只复核对应差异，不重开 helper、launcher 或 canary。

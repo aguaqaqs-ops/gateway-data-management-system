@@ -414,6 +414,10 @@ if [[ "$READYZ_OK" != "1" ]]; then
   exit 2
 fi
 log "backend_readyz=ok"
+for svc in backend worker; do
+  cid=$(docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" ps -q "$svc")
+  log "${svc}_image_id=$(docker inspect --format '{{.Image}}' "$cid")"
+done
 log "compose_network_id=$(docker network inspect "${PROJECT_NAME}_default" --format '{{.Id}}' 2>/dev/null || echo unknown)"
 
 # 4. Runtime OpenAPI comparison (Python-normalized, kickoff §5.2).

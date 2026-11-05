@@ -825,7 +825,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   await page.mouse.up();
   await expect.poll(() => page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width))).toBeGreaterThan(widthBefore);
 
-  await page.getByRole("button", { name: "归档基线", exact: true }).click();
+  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await expect(page.locator(".workspace-context-bar")).toContainText("待审核");
@@ -900,7 +900,7 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
-  await page.getByRole("button", { name: "归档基线", exact: true }).click();
+  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
@@ -1018,7 +1018,7 @@ test("无权限身份发起历史比较时托盘显示统一权限提示和错�
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("no-permission");
-  await page.getByRole("button", { name: "归档基线", exact: true }).click();
+  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();

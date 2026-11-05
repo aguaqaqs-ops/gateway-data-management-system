@@ -37,9 +37,10 @@ describe("submit summary display names (M7)", () => {
         generation: 3,
       },
       history,
+      "gateway-17",
     );
     expect(rows).toEqual([
-      { term: "工作区", display: "workspace-fe2b", raw: "workspace-fe2b" },
+      { term: "工作区", display: "gateway-17", raw: "workspace-fe2b" },
       { term: "Preview", display: "本次预览", raw: "preview-full" },
       {
         term: "业务基线",
@@ -70,6 +71,20 @@ describe("submit summary display names (M7)", () => {
       display: "missing-baseline",
       raw: "missing-baseline",
     });
+  });
+
+  it("falls back to the raw workspace ID when no display name is available", () => {
+    const rows = describeSubmitSummary(
+      {
+        workspace_id: "workspace-fe2b",
+        preview_result_id: "preview-full",
+        business_baseline_node_id: "fe2a-history-ref-1",
+        generation: 3,
+      },
+      history,
+      null,
+    );
+    expect(rows[0]).toEqual({ term: "工作区", display: "workspace-fe2b", raw: "workspace-fe2b" });
   });
 
   it("falls back to raw baseline ID when history is unavailable", () => {

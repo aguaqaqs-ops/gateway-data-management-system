@@ -44,6 +44,7 @@ async function installFixtureRoutes(page: Page, options: {
   historyCompareErrors?: number;
   historyCompareStatus?: (operationId: string, index: number) => Schemas["HistoryCompareResultResponse"];
   operationStatus?: (operationId: string, index: number) => Schemas["OperationResponse"];
+  operationHold?: { operationId: string; onHold?: () => void; release: Promise<void> };
   operationStatusForbidden?: boolean;
   uploadHoldPolls?: number;
   submitIdentity?: "confirm";
@@ -238,6 +239,10 @@ async function installFixtureRoutes(page: Page, options: {
       if (!error) throw new Error("GET /v1/operations/{operation_id} SCOPE_FORBIDDEN fixture missing");
       apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: error.status, body: JSON.stringify(error.body) });
       return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
+    }
+    if (options.operationHold && operationId === options.operationHold.operationId) {
+      options.operationHold.onHold?.();
+      await options.operationHold.release;
     }
     const result = options.operationStatus?.(operationId, count)
       ?? (options.uploadHoldPolls && operationId.startsWith("preview-op") && count <= options.uploadHoldPolls
@@ -1561,8 +1566,15 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   expect(new URL(page.url()).searchParams.get("operationId")).toBeNull();
 });
 
-test("FE3a 提交续做时 ABORTED 显示提示且提交按钮禁用并说明原因", async ({ page }) => {
-  await installFixtureRoutes(page, { submitAborted: true });
+test("FE3a 提交续做时 ABORTED 后提交恢复可用", async ({ page }) => {
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  await installFixtureRoutes(page, {
+    submitAborted: true,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+  });
   await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
   await page.evaluate(() => {
     sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
@@ -1570,15 +1582,25 @@ test("FE3a 提交续做时 ABORTED 显示提示且提交按钮禁用并说明原
   await page.reload();
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
+  await held;
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
   await expect(submit).toBeDisabled();
   await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
-  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
+  releaseOperation();
   await expect(page.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
+  await expect(submit).toBeEnabled();
 });
 
-test("FE3a 提交续做时读取失败显示提示且提交按钮禁用并说明原因", async ({ page }) => {
-  await installFixtureRoutes(page, { submitAttemptReadFails: true });
+test("FE3a 提交续做时读取失败后提交恢复可用", async ({ page }) => {
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  await installFixtureRoutes(page, {
+    submitAttemptReadFails: true,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+  });
   await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
   await page.evaluate(() => {
     sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
@@ -1586,10 +1608,13 @@ test("FE3a 提交续做时读取失败显示提示且提交按钮禁用并说明
   await page.reload();
   await waitForBrowse(page);
   const submit = page.getByRole("button", { name: "提交", exact: true });
+  await held;
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
   await expect(submit).toBeDisabled();
   await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
-  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
+  releaseOperation();
   await expect(page.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(submit).toBeEnabled();
 });
 
 test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", async ({ page }) => {

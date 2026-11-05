@@ -190,7 +190,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       return { operationId: browse.operationId, workspaceId: marker.workspaceId, submitAttemptId: marker.submitAttemptId };
     } catch { return null; }
   });
-  const [submitResumeActive] = useState(submitResume !== null);
+  const [submitResumeActive, setSubmitResumeActive] = useState(submitResume !== null);
   const [submitResumeError, setSubmitResumeError] = useState<{ title: string; code: string | null } | null>(null);
   const resumeSubmitFromOperation = useCallback(async (finishedOperationId: string) => {
     if (!submitResume || submitResume.operationId !== finishedOperationId) return;
@@ -198,6 +198,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       const attempt = await gatewayApi.getSubmitAttempt(submitResume.workspaceId, submitResume.submitAttemptId);
       sessionStorage.removeItem("gateway-submit-operation");
       if (attempt.state === "ABORTED" || !attempt.submission_id) {
+        setSubmitResumeActive(false);
         setSubmitResumeError({ title: "提交未完成，请检查上传与 Preview 后重试", code: attempt.abort_code ?? null });
         return;
       }
@@ -205,6 +206,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
       window.location.assign(`/?${params.toString()}`);
     } catch {
       sessionStorage.removeItem("gateway-submit-operation");
+      setSubmitResumeActive(false);
       setSubmitResumeError({ title: "无法读取提交结果，请刷新后重试", code: null });
     }
   }, [submitResume]);
@@ -471,7 +473,7 @@ export function ComparisonPage({ identityControl }: { identityControl?: ReactNod
   };
 
   return <main className="comparison-page">
-    {submitResume && <div className="comparison-resume"><OperationStatusPanel operationId={submitResume.operationId} onSucceeded={(id) => void resumeSubmitFromOperation(id)} onFailed={() => { setSubmitResumeError({ title: "提交未完成，请检查上传与 Preview 后重试", code: null }); sessionStorage.removeItem("gateway-submit-operation"); }} /></div>}
+    {submitResume && <div className="comparison-resume"><OperationStatusPanel operationId={submitResume.operationId} onSucceeded={(id) => void resumeSubmitFromOperation(id)} onFailed={() => { setSubmitResumeActive(false); setSubmitResumeError({ title: "提交未完成，请检查上传与 Preview 后重试", code: null }); sessionStorage.removeItem("gateway-submit-operation"); }} /></div>}
     {submitResumeError && <div role="alert" className="form-error"><span>{submitResumeError.title}</span>{submitResumeError.code && <span>错误代码：<code>{submitResumeError.code}</code></span>}<span className="form-error__actions"><button className="link-button" onClick={() => window.location.reload()}>刷新页面</button></span></div>}
     <header className="compare-header">
       <h1 className="sr-only">差异浏览</h1>

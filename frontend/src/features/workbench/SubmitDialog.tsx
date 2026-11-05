@@ -84,6 +84,7 @@ interface SubmitDialogProps {
 export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSubmitted }: SubmitDialogProps) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [workspaceVersion, setWorkspaceVersion] = useState<number | null>(null);
+  const [workspaceDevice, setWorkspaceDevice] = useState<string | null>(null);
   const [head, setHead] = useState<Schemas["HistoryListResponse"]["head"] | null>(null);
   const [historyNodes, setHistoryNodes] = useState<Schemas["HistoryListResponse"]["nodes"]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -112,6 +113,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
     setConfirmations({});
     setPreview(null);
     setWorkspaceVersion(null);
+    setWorkspaceDevice(null);
     setHead(null);
     setHistoryNodes([]);
     idempotencyKey.current = crypto.randomUUID();
@@ -124,6 +126,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
       if (cancelled) return;
       setPreview(loadedPreview);
       setWorkspaceVersion(workspace.optimistic_version);
+      setWorkspaceDevice(workspace.gateway_device_external_key);
       setHead(history.head);
       setHistoryNodes(history.nodes);
     }).catch((cause: unknown) => {
@@ -141,7 +144,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
   const requiredPairs = (preview?.identity_pairs ?? []).filter((pair): pair is RequiredPair => pair.status === "DIFFERENT_PROJECT" || pair.status === "UNVERIFIABLE");
   const missing = requiredPairs.some((pair) => !confirmations[pair.pair_id]?.confirmed || !confirmations[pair.pair_id]?.reason.trim());
   const stale = Boolean(preview?.derived_stale);
-  const summary = preview && head ? describeSubmitSummary(preview, { head, nodes: historyNodes }) : [];
+  const summary = preview && head ? describeSubmitSummary(preview, { head, nodes: historyNodes }, workspaceDevice) : [];
   const canSubmit = Boolean(preview && workspaceVersion !== null && head && !stale && !missing && !loading && !submitting);
 
   async function submit() {
@@ -208,7 +211,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
 
   const manualRecovery = operation?.status === "MANUAL_RECOVERY_REQUIRED";
   return <Dialog open={open} title={submitted ? "提交已完成" : "提交本次组态"} onClose={() => { if (!submitting) onClose(); }} alert={(submitting && manualRecovery) || aborted || failure ? <div>
-    {submitting && manualRecovery && <div role="alert" className="form-error" title={operationId ? `操作 ID：${operationId}` : undefined}><span>需要管理员处理。</span><span>操作 ID：<code>{operationId}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operationId ?? "")}>复制 ID</button></span><span>系统仍在查询状态；刷新页面后会继续跟随。</span></div>}
+    {submitting && manualRecovery && <div role="alert" className="form-warning form-warning--stacked" title={operationId ? `操作 ID：${operationId}` : undefined}><span>需要管理员处理。</span><span>操作 ID：<code>{operationId}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operationId ?? "")}>复制 ID</button></span><span>系统仍在查询状态；刷新页面后会继续跟随。</span></div>}
     {aborted && <div role="alert" className="form-error" title={`原始错误代码：${aborted}`}>
       <span>提交未完成，请检查上传与 Preview 后重试。</span>
       <span>错误代码：<code>{aborted}</code></span>

@@ -68,12 +68,14 @@ export function describeSubmitSummary(
     "workspace_id" | "preview_result_id" | "business_baseline_node_id" | "generation"
   >,
   history: Pick<HistoryList, "head" | "nodes"> | null,
+  workspaceDisplayName?: string | null,
 ): SubmitSummaryRow[] {
   const baselineLabel =
     (history ? baselineDisplayName(history, preview.business_baseline_node_id) : null) ??
     preview.business_baseline_node_id;
+  const workspaceLabel = workspaceDisplayName?.trim() || preview.workspace_id;
   return [
-    { term: "工作区", display: preview.workspace_id, raw: preview.workspace_id },
+    { term: "工作区", display: workspaceLabel, raw: preview.workspace_id },
     { term: "Preview", display: "本次预览", raw: preview.preview_result_id },
     {
       term: "业务基线",

@@ -588,6 +588,7 @@ code, pre { font-family: var(--font-family-mono); font-size: var(--font-size-sm)
 .form-error { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--color-danger); border-radius: var(--radius-control); background: var(--color-danger-soft); color: var(--color-danger); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .form-error__actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .form-warning { margin: 8px 0; padding: 8px 10px; border-radius: var(--radius-control); background: var(--color-warning-soft, var(--color-surface-muted)); font-size: var(--font-size-xs); }
+.form-warning--stacked { display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .submit-progress { margin: 8px 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 
 .history-pair-summary { display: grid; gap: 4px; padding: 8px; border-radius: var(--radius-control); background: var(--color-surface); border: 1px solid var(--color-border); }

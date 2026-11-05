@@ -95,3 +95,18 @@
 实施者随后落盘的实际完整命令 `environment-sync-ct05-e798-attempt3.remote.sh`，SHA256 `a9e73d53ea31d9d8cbda6aa6fc3a39913f7a066c8377b4259f1cd100abfa9a39`，已静态核对：Rust 检查 cwd 为 `vnext/rust`，PATH 以 `/home/dev/.cargo/bin` 开头，未设置 RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME；受控 wrapper 自动加 locked，调用只传 `sync --offline --reinstall-package gateway-compute-python`；UV/Cargo offline、当前 Rust tree 与 worktree 外 target 均保持。此为事后命令复核，不补称事前审核通过。
 
 修正后的只读 probe `environment-import-probe-corrected.py`，SHA256 `13d7095d014211cfaf718031fe1741ae35c72734573b4d8c3cdf805d7d130edd`，静态审核通过。已按设计 DC80 最小工具修正通知实施者：在自有 05 占用下，仅以 e798 的绝对 `.venv/bin/python -I -B <probe绝对路径>` 执行一次，核对源码导入归属、native build-input、已审核 wrapper/observer 的路径与摘要；小工具文件落点须与 probe 一致。三份原日志保留，不再把连续错误描述成 DC68 的一次重试。不重新 sync/编译，不增加业务测试/canary，不搬 CT108 数据，不启动 Compose/POST。probe 结果与其余启动材料仍待接续审核。
+
+## 8. 本地环境、精确清单与容量证据闭项
+
+第 7 节获准 probe 在 05 于 22:20:03Z exit 0。`environment-import-probe-05.log` SHA256 `42b276e12cb3623df24970860b106795b5a252f51ab16f42142a4a6a243bbc65`，审核核对文件摘要及完整输出：字面解释器为 e798 本地 `.venv/bin/python`；两个 benchmarks 与四个 Python 源码包均从该 worktree 导入；native 位于本地 `.venv`，build-input 为当前 Rust tree；外置 wrapper、资源 observer 的路径、摘要与必填 `data_filesystem` 签名正确。起止 HEAD 均 e798、tracked clean。此前工具小文件缺失已由此次成功导入闭合；无需再同步环境或重复 canary。
+
+同目录 `ct108-source-metadata-confirmed.json` 实际为 JSON 首行加结果行的取证日志，SHA256 `9f28af49357b5d9e83be5174c2d5fd7d0d74a93b66d44e3ba673a6b610b3a866`；`ct05-four-way-post-env.log` SHA256 `5204c85922ef0b4c09c08ae4c50c60de9317b786b1b04aeff988ab8f852e1950`。审核核对本地完整日志与摘要，没有重扫/重哈希 CT108 快照或业务输入。精确 metadata 给出：
+
+- checkpoint 为 b 的 Submit 前快照，completed_through=v2-preview，三卷后缀依次为 `backend-artifacts`、`backend-control`、`repository-service-data`；内容 bytes 分别为 861,914,708、3,608,576、75,222,091，总 `C=940,745,375`。这些是原记录值，不代表运输后的内容校验已经完成。
+- 必要输入及来源 run/state/log 合计 `I=38,874,215` bytes，唯一 composite cache entry 为 `496d3fefee7557f388434733449cd633590ebcff8aa854624ad9ea835ae3f1a0.json`，`R=689` bytes；审核按源码算法重算 cache key 与所列两包/比较器摘要匹配。流式运输不额外落 tar 归档时，`3C+I+R+10GiB=13,598,529,269` bytes，与报告一致。
+- 05 的 22:17:55Z 只读记录为 MemAvailable 65,985,872 KiB、可用空间 224,879,476,736 bytes；日志/TMPDIR/Docker 根/volumes 均 st_dev 64526，可用一个真实宿主目录覆盖当前相关数据文件系统。启动前仍按既定门槛检查实时值，不需重新测量或扫描文件树。
+- RS 期望/实际标签相等：build-input `4158ea39d48157081c24d03a294c5a7eb3f866a0`，source-tree `sha256:1d23f369fef72e559fa35e09240d09e15e9eeb4d9fe8e5bc0a035b879bae8e00`；本机 image ID 为 `sha256:642b9ff31c6b862266087cfc1b6033ff85439242fc3727860da0c06725191b56`，仅用于本机绑定，不是跨节点比较。最终命令仍须明确采用该已检查镜像的实际 tag。各来源/输入目标路径记录为 ABSENT，尚未运输；卷名碰撞仍由运输前精确检查拒绝。
+
+metadata 日志的 `inputs.manifest.expected_sha256` 错填为 accepted document 摘要 `6b63cf…`；该 manifest 的 `actual_sha256=4c5638df32973282507937c1232c09117b40023f8b03f3d94caf7c160f87aac7` 与先前固定值一致。已要求最终运输清单使用正确固定值并标明展示错误，原日志保留；不把该错误列当运输期望值，不为修正文案重读/重哈希 CT108。
+
+这些证据关闭环境准备与清单/容量不明确项，不新增测试要求。尚待交付的是具体运输/完整源名卷物化与新版 launcher 命令，绑定第 6 节 observer、宿主数据目录、固定 RS tag、实时门槛和既定失败停止；`9da69886` 中的旧命令不能代替该最终版本。可按先运输/物化校验、后一次 POST 的边界接续审核，无需重开已通过前置。

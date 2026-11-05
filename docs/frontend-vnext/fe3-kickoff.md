@@ -1,10 +1,15 @@
 # FE3 kickoff：对接真实 backend
 
-- **状态：** 已确认（owner，2026-11-05，§11 Q1–Q9）；FE3a 可以开始，FE3b 的前置条件见 §3.2。
+- **状态：** 已确认（owner，2026-11-05，§11 Q1–Q9；FE3a 审核后补充 Q10–Q12）；FE3a 可以开始，FE3b 的前置条件见 §3.2。
   - 初稿 `5c360bfb1b` 经 [kickoff 审核](reviews/fe3-kickoff-review.md)（`920f068da4`），结论为定向修订；
     修订 1 `de9cd5cb6f` 处理 B1–B4 与采纳的非阻塞意见（逐条见 §15）；
     [定向复审第 1 轮](reviews/fe3-kickoff-rereview-1.md)（`e91d9db6eb`）通过。
-  - 本次修订（确认记录）改正复审 §3 的 R1–R4，并按复审 §4 登记基线已前移的已通过提交永久占用工作区的后端缺口（§2.1、§6.1、§12）。
+  - 确认记录 `3d3373e7fa` 改正复审 §3 的 R1–R4，并按复审 §4 登记基线已前移的已通过提交永久占用工作区的后端缺口（§2.1、§6.1、§12）。
+  - 2026-11-05 按 [FE3a 审核](reviews/fe3a-review.md)（`a0b9604ddd`）中交设计会话的事项修订：
+    - §4.6 补记真实 e2e 上传输入的方案（§11 Q10）；
+    - §7 M7 规定组态树的基线显示序号（§11 Q11）；
+    - §8.4 记录 M1 的结论（§11 Q12）。
+    - 逐项处理见 §15.1。
 - **日期：** 2026-11-05。
 - **起点：** `fe-fe2c-exit`（tag 对象 `86901e038d` → `749f219d5f`，测试提交 `220325da37`，`frontend/` 树 `960ab1f6a1`），
   main 合入提交 `0430e0e738`；`fe-vnext` 在 `749f219d5f`。本文以 main `2c79d0947f` 为准核对。
@@ -283,16 +288,59 @@ FE3b 的候选与审核仍在两项都合入后进行，不为单项另设 tag�
   - 每个 scope 的 `business_baseline_node_id` 互不相同；
   - 全部映射在 backend 启动前写好。
 - **scope 隔离：** 每个互相独立的旅程用自己的 scope（一条映射、一个仓库、一组身份），失败不连带其他旅程。用例单 worker 串行（`workers: 1`，不重试）。
-- **上传输入（FE3a）：** 不另写 SQL。把 bundle fixture 生成器（`frontend/scripts/generate-backend-bundle-fixture.py`）中的输入移到提交的文件，生成器与真实 e2e 共用：
+- **共用上传输入（FE3a）：** 把 bundle fixture 生成器（`frontend/scripts/generate-backend-bundle-fixture.py`）中的输入移到提交的文件
+  `frontend/src/test/fixtures/source/upload-inputs/`：
   - SQL 常量移到 `.sql` 文件；`_composite_logic()` 生成的 `logics.xml` 也移到文件；由程序生成的 `_workbench_telemetry_sql()` 留在生成器中；
-  - 文件内容与原字符串逐字节相同（含结尾换行）。移动后重新生成全部 fixture，与已提交的逐字节相同，跨实现摘要测试照常通过；
-  - 真实 e2e 由这些文件组成上传目录（根目录一个占位 `.pmc`、`sql/dbcfg.sql`、按场景的 `comps/logic/logics.xml`），写在 worktree 外的本次运行目录；
-  - **上传顺序：** 每个 scope 内，每次提交都必须相对当时的基线有规范变化，否则提交返回 409 `NO_CANONICAL_CHANGE`。实施会话写出每个 scope 的上传序列，并在 handoff 列出。至少覆盖：
-    - 第一次 MODIFIED_ONLY 上传（基于空的 `INITIAL`）；
-    - 归档后的 FULL 上传（① 原始组态备份 + ② 本次归档组态）；
-    - 之后再一次 MODIFIED_ONLY 上传，内容与上一次不同；
-    - 用 `REPLACEMENT_CURRENT_SQL`（`project-b`）做一次 MODIFIED_ONLY 上传，在真实 backend 上产生 `DIFFERENT_PROJECT`，覆盖提交时的身份确认（R4）；
-  - 这些输入此前只经过进程内物化，没有经过 Repository import（Dolt）。FE3a 调试开始时先在 05 上走一遍。真实 backend 拒收或无法 Preview 时停下交设计会话，不改写输入去迁就。
+  - 文件内容与原字符串逐字节相同（含结尾换行）。移动后重新生成全部 fixture，与已提交的逐字节相同，跨实现摘要测试照常通过。此后这些文件继续保持逐字节不变。
+- **真实 e2e 的上传输入（owner 2026-11-05，§11 Q10）：**
+  - **与模拟 fixture 分开的理由：** 共用的 `sql-baseline.sql`、`sql-initial.sql`、`sql-modified.sql` 都含没有 `gid` 列的有序表 `b1_n1_iec104_yc_list`。
+    这是有意的设计，用来产生模拟 fixture 中的有序表诊断；真实 Preview 对它返回 `KEY_MISSING`（FE3a 调试，`0712368347`）。
+    改共用文件会改变全部已提交的 bundle fixture 与诊断场景，所以真实 e2e 另备输入，模拟 fixture 不动。
+  - **来源规则：** 从共用文件派生，只补真实 backend 接受所需的最少列，不改数据本身：
+    - 派生文件放在 `frontend/e2e-real/fixtures/upload-inputs/`，与共用文件同名：`sql-baseline.sql`、`sql-initial.sql`、`sql-modified.sql`；
+    - 三份文件都只改 `b1_n1_iec104_yc_list` 的两行：表定义加 `gid INT NULL` 作为第一列（`(gid INT NULL, no INT NOT NULL, value VARCHAR(32) NULL)`），
+      `INSERT` 的那一行补 `gid = 1`（`VALUES (1, 1, '无稳定 gid')`），其余逐字节相同。FE3a 已有的 `real-sql.sql` 就是派生后的 `sql-modified.sql`，改名后移入该目录；
+    - 不需要改的文件（`sql-replacement-current.sql`、`logics-1.xml`、`logics-2.xml`、`logics-3.xml`）由运行脚本直接从共用目录读取，不复制。删除 `real-logics.xml`（与 `logics-3.xml` 相同）；
+    - 单测（进入 `run-tests.sh`）核对：两行替换文本在共用文件中各出现一次；对共用文件做这两行替换后，得到的结果与派生文件逐字节相同；
+    - 以后若要再补列（例如别的 key 列），按同一规则扩展替换表与单测；无法只靠补列让 backend 接受时，停下交设计会话。
+  - **`logics.xml` 配对：** 与生成器相同：`sql-baseline` ↔ `logics-1`，`sql-initial` ↔ `logics-2`，`sql-modified` ↔ `logics-3`，`sql-replacement-current` ↔ `logics-3`。
+  - **上传目录：** 每个上传目录包括：根目录一个占位 `.pmc`、`sql/dbcfg.sql`、`comps/logic/logics.xml`。目录写在 worktree 外的本次运行目录；FULL 的 ① 与 ② 各用一个目录。
+- **四类上传（下表“派生”指上面的派生文件，“共用”指共用目录中的文件）：**
+
+  | 输入 | 用途 | ② 本次归档组态 | ① 原始组态备份（只 FULL） | 相对当时基线的规范变化 |
+  | --- | --- | --- | --- | --- |
+  | A | 第一次 MODIFIED_ONLY（基于空 `INITIAL`） | 派生 `sql-baseline` + `logics-1` | — | 全部表都是新增 |
+  | B | 归档 A 后的 FULL | 派生 `sql-initial` + `logics-2` | 与 A 相同 | 相对 A：`device` 改一行、删一行、增一行；`keyless_demo` 内容；`schema_demo` 结构与值；`b1_n1_iec104_syx_list` 移动与空行；`logics.xml` |
+  | C | 归档 B 后再一次 MODIFIED_ONLY | 派生 `sql-modified` + `logics-3` | — | 相对 B：`device` 改一行；`keyless_demo`；删除表 `retired_table`、新增表 `added_table`；`schema_demo` 加列与值；`logics.xml`（`b1_n1_iec104_syx_list` 不变） |
+  | D | `DIFFERENT_PROJECT`（R4 的身份确认） | 共用 `sql-replacement-current` + `logics-3` | — | `version_manager` 为 `project-b`，而 A、B、C 都是 `project-a`；表集合也不同 |
+
+  - **上传顺序：** 每个 scope 内，每次提交都必须相对当时的基线有规范变化，否则提交返回 409 `NO_CANONICAL_CHANGE`。实施会话按上表写出每个 scope 的上传序列，并在 handoff 列出：
+    - A → B → C 依次归档时，每一步的规范变化见上表；
+    - 被退回或撤回后重新上传，可以用同一输入：规范变化是相对基线计算的，不是相对上一次上传；
+    - 已归档某输入后，再上传同一输入会得到 `NO_CANONICAL_CHANGE`，序列中不要这样排；
+    - D 必须在至少归档过 A、B、C 之一的 scope 上进行。在空 `INITIAL` 上，基线一侧没有 `version_manager`，产生不了 `DIFFERENT_PROJECT`。
+  - 至少覆盖：A（第一次 MODIFIED_ONLY）；B（归档后的 FULL，① + ②）；C（内容与上一次不同的再一次 MODIFIED_ONLY）；D（`DIFFERENT_PROJECT`）。
+- **FE3a 的核对（真实 backend，05 调试，04 随冒烟取证）：**
+  - **组成：** 并入 `--suite smoke`。每次上传用一个独立 scope，都基于空 `INITIAL`，共 5 个：
+    - A、B 的 ②（派生 `sql-initial` + `logics-2`）、C、D 各做一次 MODIFIED_ONLY；
+    - B 做一次 FULL（① = A，② = B 的 ②）。
+    - 其中一个可以与冒烟已有的提交人 scope 合并。
+  - **判据（每个 scope）：**
+    - 上传 201；Preview 轮询到 `SUCCEEDED`；`GET .../preview-results/{id}` 返回 200；
+    - 测试侧用该身份经代理读取 bundle 端点。当前 backend 上它返回 bundle manifest JSON（§3.3），断言 `failed_pairs` 为空；
+    - 每个比较对的 `summary.failed_table_count = 0`，② 一侧所在比较对的 `summary.changed_table_count ≥ 1`。降级的表允许出现，例如 `keyless_demo` 的整行比较；
+    - 运行时 JSON 的字段名与此不符时，停下交设计会话，不自行另选判据。
+  - **只记录、不断言：** D 的 `identity_pairs[].status`（空 `INITIAL` 上预期不是 `DIFFERENT_PROJECT`）；FULL 两个比较对各自的 `changed_table_count`。
+  - **FULL 在空 `INITIAL` 上不能走到 `SUCCEEDED` 时：**
+    - 后端不拒绝在 `INITIAL` 上做 FULL（FE2 kickoff §9 Q18），所以这属于意外，保留日志与 trace，停下交设计会话；
+    - 设计会话判断为预期行为时，B 的 FULL 留到 FE3b 归档 A 之后首次验证，FE3a 不因此阻塞退出。B 的 ② 已由 MODIFIED_ONLY 核对过 import；
+    - 设计会话判断为后端缺陷时，按 §10 转后端设计会话。
+  - **FE3a 证实不了、留给 FE3b 的（都需要归档）：**
+    - B 的 FULL 中，基线 → ① 比较对 `changed_table_count = 0`（① 与已归档的 A 相同；不为 0 时停下交设计会话），① → ② 比较对 ≥ 1；
+    - C 相对 B 有变化；D 的身份对为 `DIFFERENT_PROJECT`；
+    - A、B、C、D 的提交都不返回 `NO_CANONICAL_CHANGE`。
+  - BE-d 合入后，bundle 端点改为 tar。FE3b 按 BE-d 的格式读取同一组 summary。
+- 真实 e2e 以外，模拟接口 e2e 与 fixture 生成器只用共用目录；派生文件不进入 fixture 生成器。
 - 真实数据只在 t1 套件中使用（§8）。
 
 ### 4.7 场景
@@ -482,7 +530,7 @@ REJECTED、WITHDRAWN 两行按“读取工作区之后被退回或撤回”的�
 
 | ID | 子阶段 | 内容与完成标准 |
 | --- | --- | --- |
-| M7 | FE3a | 提交对话框的摘要不显示原始 ID：History 节点用组态树中的显示名（由前端从 History 推导，例如“当前基线（归档基线 2）”“提交 2”）；Preview 结果显示“本次预览”。拿不到显示名时才显示 ID。原始 ID 放悬停提示与 Debug（C6）。单测覆盖有、无显示名两种情况；重拍提交对话框截图（`submit-*` 中显示摘要的各张） |
+| M7 | FE3a | 提交对话框的摘要不显示原始 ID：History 节点用组态树中的显示名（由前端从 History 推导，例如“当前基线（归档基线 2）”“提交 2”）；Preview 结果显示“本次预览”。拿不到显示名时才显示 ID。原始 ID 放悬停提示与 Debug（C6）。单测覆盖有、无显示名两种情况；重拍提交对话框截图（`submit-*` 中显示摘要的各张）。**基线序号（§11 Q11）：** 组态树与摘要共用同一个标签函数（`view-model/workspace.ts` 中的规则移出，`submit-summary.ts` 不再复制）。`ARCHIVED_SUBMISSION` 基线在树上也显示为“归档基线 n”：n 按 `created_at` 升序从 1 编号，同时刻时按 `ref_id`，与“提交 n”的编号方式相同；`INITIAL` 仍为“初始基线”，不编号。“当前基线”仍是状态标签，摘要写成“当前基线（归档基线 n）”或“当前基线（初始基线）”。单测覆盖多个归档基线的编号；组态树截图随之变化，审核对照草图（草图本来就带序号） |
 | n3 | FE3a | e2e（模拟接口）覆盖续做时 `ABORTED` 与读取失败的提示，以及续做期间“提交”按钮禁用并显示原因。FE3b 删除 `sessionStorage` 标记后，这些用例改为基于指针，覆盖不减 |
 | n8 | FE3a | “需要管理员处理”一行：ID、“复制 ID”与正文分开排版，使用同一区域其他提示的提示样式；重拍 `submit-manual-recovery-1280/1920` |
 | M1 | FE3a 测量；FE3b 复测，需要时改流式 | 见 §8.4 |
@@ -562,6 +610,17 @@ REJECTED、WITHDRAWN 两行按“读取工作区之后被退回或撤回”的�
   - 按目录大小线性外推到前端上限 1 GB 时不超过 3 GiB。
 
   任一不满足即在 FE3b 改为流式打包（逐文件读取、边打包边压缩，不在内存中攒整包），FE2 kickoff §7.1 的后端校验继续接受产物，改后重测。
+- **FE3a 的结论（owner 2026-11-05，§11 Q12）：**
+  - **判定：** 只看 renderer。t4 v1 renderer 峰值增量最大 676.3 MiB（审核复测 668.2 MiB），线性外推到 1 GB 约 2.08 GiB，两项都满足。
+    FE3b 不改流式，除非 FE3b 复测时 renderer 不满足上面的标准。
+  - **浏览器主进程：** 作为报告项，不参与判定。FE3a 实测：MODIFIED 时增加约 200 MiB，FULL 时约 420 MiB，约为每读一遍目录 0.65 倍目录大小。两进程合计外推到 1 GB 约 3.4 GiB。
+  - **理由：**
+    - renderer 是持有 `ArrayBuffer`、内存不足时崩溃的进程；
+    - 64 位桌面版 Chromium 的浏览器主进程 Blob 存储在内存中最多 2 GiB，超过后写入磁盘（`storage/browser/blob/blob_memory_controller.cc`）；
+    - 主进程的增量远大于压缩包（约 20 MB），更可能来自读取文件，改流式打包未必能降低它，因此不宜用它决定是否改流式；
+    - 用户机器内存按 16 GB 及以上估计（owner），合计约 3.4 GiB 的峰值可以接受。
+  - **FE3b 复测补充：** 打包期间约每 100 ms 采样一次各进程 `/proc/<pid>/status` 的 `RssAnon`、`RssFile`、`RssShmem`，报告各项最大值，以确认主进程的增量是否属于可回收的文件页；
+    只报告、不作判定。`VmHWM` 增量的方法不变。
 
 ## 9. 证据
 
@@ -613,6 +672,14 @@ Q1–Q9 均由 owner 于 2026-11-05 确认，按下表的建议执行。Q1–Q7 
 | Q7 | 上传模式顶栏撤回的显示（§6.1） | 始终显示，不可用时禁用并给原因（与 F4 一致）；文案按 §6.1 |
 | Q8 | 目录传输晚于 FE3a 其余工作时，FE3a 能否先退出（审核报告 O1） | **已决定（owner 2026-11-05）：** M1 测完才能退出 FE3a；传输迟迟不能完成时，由 owner 另行决定是否把 M1 移到 FE3b（§3.2） |
 | Q9 | 工作区被占用时是否禁用上传（审核报告 D2，§6.1） | 任一指针非空时禁用“上传”与“提交”，原因按 §6.1 的表。否则待审核时上传会使撤回与审核都返回 409，已通过时上传的内容会在开始归档时被清空 |
+
+Q10–Q12 来自 FE3a 审核（`a0b9604ddd`），由 owner 于 2026-11-05 确认（§15.1）。
+
+| # | 事项 | 决定 |
+| --- | --- | --- |
+| Q10 | 真实 e2e 的上传输入（审核报告 §6、B10）：共用 SQL 含没有 `gid` 列的 `b1_n1_iec104_yc_list`，真实 Preview 返回 `KEY_MISSING` | FE3a 调试中（2026-11-05，`0712368347` 之后），实施会话按 §10 停下，owner 直接答复实施方：新增真实 e2e 专用的合法输入，模拟 fixture 不动。当时没有书面记录，本次补记。来源规则、四类上传与 FE3a 的核对按 §4.6 |
+| Q11 | 组态树的基线是否显示序号（审核报告 N2） | 甲：树也显示“归档基线 n”，与摘要共用同一个标签函数，在 FE3a 做（§7 M7） |
+| Q12 | M1 的判定是否只看 renderer（审核报告 §5） | 只看 renderer，FE3a 满足，FE3b 不改流式；浏览器主进程只报告，FE3b 复测时补记 `RssAnon`、`RssFile`、`RssShmem`。用户机器内存按 16 GB 及以上估计（§8.4） |
 
 ## 12. 开放项
 
@@ -698,7 +765,8 @@ Q1–Q9 均由 owner 于 2026-11-05 确认，按下表的建议执行。Q1–Q7 
 >   2. §6 上传模式撤回，含工作区被占用时禁用“提交”与“上传”、§6.2 的刷新恢复与 `job_kind`、删除 `sessionStorage` 提交标记；
 >   3. `--suite journeys` 的 R1–R11（§4.7），身份按 §4.6 补 `withdraw_own_submission`；
 >   4. §8 t1 旅程；
->   5. M1 复测，按 FE3a 的结论决定是否改流式打包。
+>   5. M1 复测（§8.4，含 `RssAnon`、`RssFile`、`RssShmem` 采样）；只有 renderer 不满足标准时才改流式打包（§11 Q12）。
+>   6. 真实旅程的上传按 §4.6 的 A–D，写出每个 scope 的上传序列，并证实 §4.6 中“留给 FE3b”的各项。
 > - **先核对接口：** 运行时 OpenAPI 与 §2.3、§6 的预期一致，tar 成员与 closure 的对应符合 BE-d 的结论；不一致按 §10 停止，交设计会话。
 > - **节点：**
 >   - 真实 e2e 调试与 t1 都在 05，均按 §4.2 获取占用（会话名 `fe3b-impl`）；
@@ -783,3 +851,13 @@ Q1–Q9 均由 owner 于 2026-11-05 确认，按下表的建议执行。Q1–Q7 
 | 复审 §2.2 占用绑定适用于通过与退回 | 补入 | §6.1 |
 | 复审 §4 基线已前移的已通过提交 | 交后端设计会话；§6.1 增加暂定的一行；列为 FE3b 前置条件 | §2.1、§3.2、§6.1、§12 |
 | 复审 N1 补充 | 写明 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT` | §2.2 |
+
+### 15.1 FE3a 审核中交设计会话事项的处理（`a0b9604ddd`）
+
+| 意见 | 处理 | 位置 |
+| --- | --- | --- |
+| §6、B10 真实 e2e 的上传输入 | 补记 owner 当时的决定；写明分开的理由、派生规则与目录、`logics.xml` 配对、A–D 四类上传及其规范变化、FE3a 的核对与判据、FULL 在空 `INITIAL` 上失败时的处理、留给 FE3b 的项 | §4.6、§11 Q10 |
+| N2 基线序号 | 甲：树也显示“归档基线 n”，与摘要共用同一个标签函数，在 FE3a 做 | §7 M7、§11 Q11 |
+| §5 M1 的判定 | 只看 renderer；浏览器主进程只报告，FE3b 补记 RSS 拆分 | §8.4、§11 Q12、§13.3 |
+| B7 续做读取失败后“提交”是否保持禁用 | 实施方按审核意见恢复 FE2c 行为时不需要设计会话处理；如果实施方认为应保持禁用而停下，设计会话按 §6.1 的文案原则定文案 | 待实施方提出 |
+| N6 AGENTS 建议条文 | 不在设计会话范围，由 owner 转治理会话 | — |

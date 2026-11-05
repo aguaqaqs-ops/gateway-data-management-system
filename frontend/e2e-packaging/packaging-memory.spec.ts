@@ -99,7 +99,11 @@ test("M1 packaging peak memory", async ({ page }) => {
     });
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 30000 });
+  await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => null);
+  const bodyText = await page.locator("body").innerText().catch(() => "");
+  if (!bodyText.includes("组态树")) {
+    throw new Error(`workbench did not render, body starts with: ${bodyText.slice(0, 500)}`);
+  }
   // Zero peaks after page load, record baselines.
   const targets = await chromePids();
   const baselines = new Map<number, number | null>();

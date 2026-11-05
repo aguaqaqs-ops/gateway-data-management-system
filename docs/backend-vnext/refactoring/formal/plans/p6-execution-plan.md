@@ -104,6 +104,8 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 节点：`ct108-gw-dms` 独占。
 - **授权（repository owner，2026-10-29）：** 授权重建对照基准，范围为设计 §6、§16.3 验收矩阵的全部场景与 DC63 第 1 项的子段拆分；只扩展测量工具，不改产品代码与 golden。同时授权 S1b exit 的推送、三节点同步与清理。
 
+- **输入准备工具并行完善（owner，2026-11-05，DC79）：** 按[独立工具 kickoff](p6-baseline-input-preparation-kickoff.md)补实际表形态小样本预检及生成/验收分段复用；独立 worktree、05 focused 验证，当前 CT108 生成不中断。工具候选经定向审核后协调后续使用，不改本轮完整验收、停止规则或已通过场景，不为采用新工具重复大生成。
+
 ### S1c — Submit 等待预算与人工恢复续行修订（DC65）
 
 - **状态：已通过（repository owner，2026-10-31）。** 代码候选 V'=`ebd1b60a3f`，最终 HEAD `9f288ad504`（[S1c handoff](p6-s1c-handoff.md)）；[首次审核](p6-s1c-independent-review.md)为定向修订（F1–F4），[复审 1](p6-s1c-independent-rereview-1.md)通过；取证中发现的变更集排序缺陷按 DC69 并入，[DC69 修复复审](p6-s1c-dc69-rereview.md)通过，[取证复核 5](p6-s1c-evidence-check-5.md)证据通过，[终审](p6-s1c-final-review.md)判定具备 exit 条件。证据绑定 V'：04 六包权威 runner（含 backend Compose 旅程，backend/worker 为开发节点预构建镜像，RS 镜像 label 指向 V'）、05 t1、ct108 2× t4 三节点完整旅程与两项只读对照；真实数据范围按 DC71 第 1 项确认（DC33）。在 04 原门禁 worktree 对 `9f288ad504` 做 carried（六包可沿用，RS label 一致），附注 tag `p6-s1c-exit` 打在 `9f288ad504`，合入 main（`49d0846d86`）。

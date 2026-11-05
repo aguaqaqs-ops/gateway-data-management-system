@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
+import type { GatewaySession } from "../src/features/api/session";
 
 const execFileAsync = promisify(execFile);
 
@@ -31,7 +32,7 @@ async function dirStats(root: string): Promise<{ files: number; bytes: number }>
       if (entry.isDirectory()) await walk(full);
       else if (entry.isFile()) {
         files += 1;
-        bytes += (await stat(full)).st_size;
+        bytes += Number((await stat(full)).size);
       }
     }
   }
@@ -58,17 +59,17 @@ async function chromePids(): Promise<number[]> {
   return [];
 }
 
-test("M1 packaging peak memory", async ({ page }) => {
+test("M1 packaging peak memory", async ({ browser }) => {
+  const context = await browser.newContext();
   const inputRoot = process.env.GATEWAY_M1_INPUT_ROOT;
   const mode = process.env.GATEWAY_M1_MODE ?? "modified";
   const reportPath = process.env.GATEWAY_M1_REPORT;
   if (!inputRoot || !reportPath || (mode !== "modified" && mode !== "full")) {
-    throw new Error("GATEWAY_M1_INPUT_ROOT / GATEWAY_M1_MODE=modified|full / GATEWAY_M1_REPORT are required");
   }
   const runs = Number(process.env.GATEWAY_M1_RUNS ?? "3");
   const { files: fileCount, bytes: dirBytes } = await dirStats(inputRoot);
 
-  await page.route("**/v1/workspaces", async (route) => {
+  await context.route("**/v1/workspaces", async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     return route.fulfill({
       status: 200,
@@ -82,7 +83,7 @@ test("M1 packaging peak memory", async ({ page }) => {
       }),
     });
   });
-  await page.route("**/v1/history*", async (route) => {
+  await context.route("**/v1/history*", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     return route.fulfill({
       status: 200,
@@ -98,6 +99,10 @@ test("M1 packaging peak memory", async ({ page }) => {
       }),
     });
   });
+  await context.addInitScript(() => {
+    (window as unknown as { __gatewaySession: GatewaySession }).__gatewaySession = { accessToken: "Bearer m1-probe", businessProjectId: "m1-project", gatewayDeviceExternalKey: "m1-device" };
+  });
+  const page = await context.newPage();
   await page.goto("/");
   await page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => null);
   const bodyText = await page.locator("body").innerText().catch(() => "");

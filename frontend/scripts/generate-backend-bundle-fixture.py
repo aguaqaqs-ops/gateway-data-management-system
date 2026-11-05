@@ -62,134 +62,23 @@ from gateway_backend.operations.worker import ExecutionControl
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+INPUT_DIR = Path(__file__).resolve().parent.parent / "src" / "test" / "fixtures" / "source" / "upload-inputs"
 
-BASELINE_SQL = """\
-CREATE TABLE device (
-  gid INT NOT NULL,
-  dev_addr INT NOT NULL,
-  description VARCHAR(128),
-  PRIMARY KEY (dev_addr)
-);
-INSERT INTO device VALUES (1, 1, '线路保护装置 A'), (2, 2, '测控装置'), (4, 4, '故障录波装置'), (65532, 65532, '复合信号虚装置');
-CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
-INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
-CREATE TABLE keyless_demo (value VARCHAR(64) NULL);
-INSERT INTO keyless_demo VALUES ('保留'), ('删除'), ('删除');
-CREATE TABLE retired_table (id INT NOT NULL PRIMARY KEY, label VARCHAR(32));
-INSERT INTO retired_table VALUES (1, '旧表');
-CREATE TABLE schema_demo (id INT NOT NULL PRIMARY KEY, label VARCHAR(16));
-INSERT INTO schema_demo VALUES (1, '原值');
-CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR(32) NULL);
-INSERT INTO b1_n1_iec104_syx_list VALUES (1, 1, '遥信 A'), (NULL, 2, NULL), (2, 3, '遥信 B'), (NULL, 4, NULL);
-CREATE TABLE b1_n1_iec104_yc_list (no INT NOT NULL, value VARCHAR(32) NULL);
-INSERT INTO b1_n1_iec104_yc_list VALUES (1, '无稳定 gid');
-CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
-INSERT INTO version_manager VALUES ('project-a', 'build-1', 1);
-"""
 
-INITIAL_SQL = """\
-CREATE TABLE device (
-  gid INT NOT NULL,
-  dev_addr INT NOT NULL,
-  description VARCHAR(128),
-  PRIMARY KEY (dev_addr)
-);
-INSERT INTO device VALUES (1, 1, '线路保护装置 A'), (2, 2, '测控装置（升级）'), (3, 3, '直流屏'), (65532, 65532, '复合信号虚装置');
-CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
-INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
-CREATE TABLE keyless_demo (value VARCHAR(64) NULL);
-INSERT INTO keyless_demo VALUES ('保留'), ('删除'), ('新增');
-CREATE TABLE retired_table (id INT NOT NULL PRIMARY KEY, label VARCHAR(32));
-INSERT INTO retired_table VALUES (1, '旧表');
-CREATE TABLE schema_demo (id INT NOT NULL PRIMARY KEY, label VARCHAR(32), enabled TINYINT NULL);
-INSERT INTO schema_demo VALUES (1, '初始值', 0);
-CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR(32) NULL);
-INSERT INTO b1_n1_iec104_syx_list VALUES (2, 1, '遥信 B'), (1, 2, '遥信 A'), (NULL, 3, NULL);
-CREATE TABLE b1_n1_iec104_yc_list (no INT NOT NULL, value VARCHAR(32) NULL);
-INSERT INTO b1_n1_iec104_yc_list VALUES (1, '无稳定 gid');
-CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
-INSERT INTO version_manager VALUES ('project-a', 'build-1', 1);
-"""
+def _read_upload_input(name: str) -> str:
+    return (INPUT_DIR / name).read_text(encoding="utf-8")
 
-MODIFIED_SQL = """\
-CREATE TABLE device (
-  gid INT NOT NULL,
-  dev_addr INT NOT NULL,
-  description VARCHAR(128),
-  PRIMARY KEY (dev_addr)
-);
-INSERT INTO device VALUES (1, 1, '线路保护装置 A'), (2, 2, '测控装置（再次升级）'), (3, 3, '直流屏'), (65532, 65532, '复合信号虚装置');
-CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
-INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
-CREATE TABLE keyless_demo (value VARCHAR(64) NULL);
-INSERT INTO keyless_demo VALUES ('保留'), ('新增'), ('新增');
-CREATE TABLE schema_demo (id INT NOT NULL PRIMARY KEY, label VARCHAR(32), enabled TINYINT NULL, source VARCHAR(12) NULL);
-INSERT INTO schema_demo VALUES (1, '最终值', 1, 'upload');
-CREATE TABLE added_table (id INT NOT NULL PRIMARY KEY, label VARCHAR(32));
-INSERT INTO added_table VALUES (9, '新表');
-CREATE TABLE b1_n1_iec104_syx_list (gid INT NULL, no INT NOT NULL, value VARCHAR(32) NULL);
-INSERT INTO b1_n1_iec104_syx_list VALUES (2, 1, '遥信 B'), (1, 2, '遥信 A'), (NULL, 3, NULL);
-CREATE TABLE b1_n1_iec104_yc_list (no INT NOT NULL, value VARCHAR(32) NULL);
-INSERT INTO b1_n1_iec104_yc_list VALUES (1, '无稳定 gid');
-CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
-INSERT INTO version_manager VALUES ('project-a', 'build-1', 1);
-"""
 
-REPLACEMENT_BEFORE_SQL = """\
-CREATE TABLE device (gid INT NOT NULL, dev_addr INT NOT NULL PRIMARY KEY, description VARCHAR(64));
-INSERT INTO device VALUES (1, 1, '替换前装置'), (65532, 65532, '复合信号虚装置');
-CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
-INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
-CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
-INSERT INTO version_manager VALUES ('project-a', 'build-a', 1);
-"""
-
-REPLACEMENT_CURRENT_SQL = """\
-CREATE TABLE device (gid INT NOT NULL, dev_addr INT NOT NULL PRIMARY KEY, description VARCHAR(64));
-INSERT INTO device VALUES (2, 2, '替换后装置'), (65532, 65532, '复合信号虚装置');
-CREATE TABLE device_st (gid INT NOT NULL PRIMARY KEY, name VARCHAR(128) NOT NULL, dev_addr INT NOT NULL);
-INSERT INTO device_st VALUES (8, 'Device 65532:复合测点', 65532);
-CREATE TABLE version_manager (project_id VARCHAR(32) NOT NULL PRIMARY KEY, build VARCHAR(32), no INT);
-INSERT INTO version_manager VALUES ('project-b', 'build-b', 1);
-"""
+BASELINE_SQL = _read_upload_input("sql-baseline.sql")
+INITIAL_SQL = _read_upload_input("sql-initial.sql")
+MODIFIED_SQL = _read_upload_input("sql-modified.sql")
+REPLACEMENT_BEFORE_SQL = _read_upload_input("sql-replacement-before.sql")
+REPLACEMENT_CURRENT_SQL = _read_upload_input("sql-replacement-current.sql")
+LOGIC_BASELINE = _read_upload_input("logics-1.xml")
+LOGIC_INITIAL = _read_upload_input("logics-2.xml")
+LOGIC_MODIFIED = _read_upload_input("logics-3.xml")
 HISTORY_OPERATION_ID = "fe2a-history-fixture"
 HISTORY_REF_IDS = ("fe2a-history-ref-0", "fe2a-history-ref-1", "fe2a-history-ref-2")
-
-
-def _composite_logic(primary_value: str) -> str:
-    return f"""<Logic_Set>
-  <Express Name="Device 65532:复合测点" Operator_Type="|">
-    <Express Name="嵌套命名表达式" Operator_Type="+">
-      <Express Operator_Type="+">
-        <Point Name="Device 1:线路电流"/>
-        <Digital value="{primary_value}"/>
-        <Express Operator_Type="+">
-          <Digital value="2"/>
-          <Point Name="Device 2:测量电压"/>
-        </Express>
-      </Express>
-      <Express Operator_Type="*">
-        <Digital value="3"/>
-        <Express Operator_Type="*">
-          <Point Name="Device 2:测量电压"/>
-          <Digital value="4"/>
-        </Express>
-      </Express>
-    </Express>
-    <Express Operator_Type="|">
-      <Point Name="Device 999:未映射测点"/>
-      <Digital value="5"/>
-    </Express>
-    <Express Operator_Type=""><Digital value="6"/></Express>
-    <Express Operator_Type="-"><Point Name="Device 1:线路电流"/></Express>
-  </Express>
-</Logic_Set>"""
-
-
-LOGIC_BASELINE = _composite_logic("1")
-LOGIC_INITIAL = _composite_logic("2")
-LOGIC_MODIFIED = _composite_logic("3")
-
 
 @dataclass(frozen=True)
 class PairFixture:

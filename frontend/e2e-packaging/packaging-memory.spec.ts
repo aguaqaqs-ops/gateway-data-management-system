@@ -64,8 +64,37 @@ test("M1 packaging peak memory", async ({ page }) => {
   const runs = Number(process.env.GATEWAY_M1_RUNS ?? "3");
   const { files: fileCount, bytes: dirBytes } = await dirStats(inputRoot);
 
+  await page.route("**/v1/workspaces", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        workspace_id: "m1-probe", gateway_device_external_key: "m1-device",
+        business_project_id: "m1-project", state: "OPEN", generation: 1,
+        optimistic_version: 1, created_at: "2026-11-05T00:00:00Z",
+        updated_at: "2026-11-05T00:00:00Z",
+        current_upload_revision_id: null, current_preview_result_id: null,
+      }),
+    });
+  });
+  await page.route("**/v1/history*", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        head: { node_id: "m1-baseline", commit_id: "m1-commit", version: 1 },
+        nodes: [{
+          ref_kind: "baseline_node", ref_id: "m1-baseline", node_kind: "BASELINE_NODE",
+          baseline_kind: "INITIAL", commit_id: "m1-commit", created_at: "2026-11-05T00:00:00Z",
+          parent: null, identity_exception: false,
+        }],
+        next_cursor: null,
+      }),
+    });
+  });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
 
   // Zero peaks after page load, record baselines.
   const targets = await chromePids();

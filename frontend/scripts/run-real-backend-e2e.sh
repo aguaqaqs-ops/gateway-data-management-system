@@ -268,9 +268,19 @@ if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" 
   log "error=repository-service up failed"
   exit 2
 fi
+# Wait for repository-service readiness inside its container (harness parity).
+RS_READY_OK=0
+for _ in $(seq 1 90); do
+  if docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=5.0)" >/dev/null 2>&1; then RS_READY_OK=1; break; fi
+  sleep 2
+done
+if [[ "$RS_READY_OK" != "1" ]]; then
+  log "error=repository-service never became ready"
+  exit 2
+fi
+log "repository_service_ready=ok"
 SEED_KEY="fe3a-seed-${HEAD_START:0:12}-smoke"
 SEED_JSON="$(docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" exec -T repository-service python -c "
-import json, urllib.request
 req = urllib.request.Request('http://127.0.0.1:8000/v1/repositories', method='POST', headers={'Authorization': 'Bearer $RS_BEARER', 'Idempotency-Key': '$SEED_KEY'})
 print(urllib.request.urlopen(req, timeout=30.0).read().decode())" 2>&1 | tee -a "$LOG_FILE" | tail -1)"
 REPO_ID="$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['repository_id'])" "$SEED_JSON")"

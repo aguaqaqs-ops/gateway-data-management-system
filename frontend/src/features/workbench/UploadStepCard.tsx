@@ -57,6 +57,9 @@ function errorMessage(cause: unknown, phase: UploadPhase): { message: string; co
   if (cause instanceof DOMException && cause.name === "TimeoutError") {
     return { message: "请求超时，请重试", code: "REQUEST_TIMEOUT", retryable: true, refresh: false };
   }
+  if (phase === "downloading" || phase === "writing") {
+    return { message: "预览已生成，但下载比较结果失败，请重试", code: null, retryable: true, refresh: false };
+  }
   return { message: "上传或预览未完成，请重试", code: null, retryable: true, refresh: false };
 }
 

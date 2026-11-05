@@ -120,10 +120,16 @@ test("M1 packaging peak memory", async ({ browser }) => {
   expect(baselines.size).toBeGreaterThan(0);
 
   // Select directory: FULL uses the same dir as both ① and ②.
-  if (mode === "full") {
-    await page.locator('[data-testid="upload-initial-input"]').setInputFiles(inputRoot);
+  // The file inputs are sr-only (visually hidden); unhide them for setInputFiles.
+  async function revealAndSelect(testId: string): Promise<void> {
+    const locator = page.locator(`[data-testid="${testId}"]`);
+    await locator.evaluate((el) => el.classList.remove("sr-only"));
+    await locator.setInputFiles(inputRoot);
   }
-  await page.locator('[data-testid="upload-modified-input"]').setInputFiles(inputRoot);
+  if (mode === "full") {
+    await revealAndSelect("upload-initial-input");
+  }
+  await revealAndSelect("upload-modified-input");
 
   // Intercept the upload: packaging is done when the request fires.
   let manifestMultipartBytes: number | null = null;
@@ -164,9 +170,9 @@ test("M1 packaging peak memory", async ({ browser }) => {
       await page.reload();
       await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
       if (mode === "full") {
-        await page.locator('[data-testid="upload-initial-input"]').setInputFiles(inputRoot);
+        await revealAndSelect("upload-initial-input");
       }
-      await page.locator('[data-testid="upload-modified-input"]').setInputFiles(inputRoot);
+      await revealAndSelect("upload-modified-input");
       for (const pid of baselines.keys()) {
         await writeProc(`/proc/${pid}/clear_refs`, "5").catch(() => null);
         baselines.set(pid, await readVmHWM(pid));

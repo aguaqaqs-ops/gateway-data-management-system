@@ -125,7 +125,6 @@ cleanup() {
   fi
   local cleanup_status="ok"
   [[ "$cleanup_failed" == "0" ]] || cleanup_status="failed"
-  log "cleanup_status=$cleanup_status"
 
   # 5. release flock, then delete the busy marker (kickoff §4.2 order).
   if [[ "$HAVE_FLOCK" == "1" ]]; then
@@ -135,11 +134,19 @@ cleanup() {
   if [[ "$HAVE_BUSY" == "1" ]]; then
     if [[ "$cleanup_failed" == "0" ]]; then
       rm -f -- "$BUSY_DIR/$SESSION_NAME" 2>/dev/null || true
+      if ! rmdir -- "$BUSY_DIR" 2>/dev/null; then
+        cleanup_failed=1
+        log "cleanup_busy_dir=remove_failed"
+        printf 'purpose=cleanup-failed (%s)\n' "$SESSION_NAME" > "$BUSY_DIR/$SESSION_NAME" 2>/dev/null || true
+      fi
       HAVE_BUSY=0
     else
       printf 'purpose=cleanup-failed (%s)\n' "$SESSION_NAME" > "$BUSY_DIR/$SESSION_NAME" 2>/dev/null || true
     fi
   fi
+
+  [[ "$cleanup_failed" == "0" ]] || cleanup_status="failed"
+  log "cleanup_status=$cleanup_status"
 
   # 6. remove per-run secrets and inputs.
   [[ -n "$RUN_ROOT" ]] && rm -rf -- "$RUN_ROOT" || true

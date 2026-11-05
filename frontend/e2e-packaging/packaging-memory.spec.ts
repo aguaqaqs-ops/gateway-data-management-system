@@ -103,7 +103,8 @@ test("M1 packaging peak memory", async ({ browser }) => {
   await context.addInitScript(() => {
     (window as unknown as { __gatewaySession: GatewaySession }).__gatewaySession = { accessToken: "Bearer m1-probe", businessProjectId: "m1-project", gatewayDeviceExternalKey: "m1-device" };
   });
-  const page = await context.newPage({ viewport: { width: 1920, height: 1080 } });
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 30000 });
   await expect(page.getByLabel("上传与预览")).toBeVisible({ timeout: 30000 });

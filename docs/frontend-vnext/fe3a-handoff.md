@@ -72,6 +72,8 @@
 | SIGTERM | 同时间点向脚本进程 PID 发 SIGTERM | rc=143；`signal_received=TERM`、`signal_exit_code=143`、`cleanup_status=ok`；无残留。日志 `…/term/log/real-backend-e2e-smoke-probe-term-ee064f11cc-20261105T095503Z-1359335.log`，SHA256 `faf74ca5e8570022b8faa5ba040f68f6974c63200e7805b122084f7150bf2d3a` |
 | 他人占用 8000 | 先起 `fe3a-probe-occupier`（`-p 8000:4173`），不建 busy 目录，再运行脚本 | exit 3，日志 `error=port 8000 is already published` 并列出占用容器；节点无 marker；他人容器保持运行（探针后手动删除）。日志 SHA256 `73466a391dda96a36bf31deab313f9e61a9c435251688ebf714186206d567d7a` |
 
+- DC68 记录：第一次 INT 探针用 bash 的 `setsid ... &` 启动，后台作业继承了被忽略的 SIGINT，脚本收到的是正常退出路径（rc=2，`exit_code=2`，清理仍为 ok），未产生 `signal_received` 行。这是探针自身的启动方式错误，未触及被测对象；保留失败日志 `…/int/log/real-backend-e2e-smoke-probe-int-ee064f11cc-20261105T095149Z-1347413.log`（SHA256 `147f1892f9d5d3b032cb90498a7d9d46094ba1d5681a6c8a0f201e740632fe62`），改用 Python `Popen(..., start_new_session=True)` + `os.killpg` 后重做一次，得到上表的 rc=130。表内 INT 行引用的是重做后的日志。
+
 探针只在 05 的一次性 worktree `/home/dev/gdds-fe-probe-wt`（detached `ee064f11cc`）中运行，未改候选 worktree；探针脚本 `/home/dev/gdds-fe-probe.py` 与 worktree 用后删除。
 
 ## 1. 改动清单与完成标准的逐条对应
@@ -265,7 +267,7 @@ sha256:0786de6e3e245c59c77a485e08af84aacca7e3614e199891f0b630637357df35
 判断（按 §8.4）：
 
 - t4 v1 renderer 峰值增量最大 670.62 MiB，≤ 1 GiB，满足“单次 1 GB 目录不超过 1 GiB”的当前档要求。
-- 按目录大小线性外推到 1 GB：`703,197,184 × 1,000,000,000 / 317,343,632 ≈ 2.22 GB ≈ 2.06 GiB`（FULL 外推约 2.06 GiB），≤ 3 GiB。
+- 按目录大小线性外推到 1 GB：`703,197,184 × 1,000,000,000 / 317,343,632 ≈ 2.22 GB ≈ 2.06 GiB`（FULL 外推约 2.05 GiB），≤ 3 GiB。
 - 浏览器主进程增量只作报告：t1 约 2–3 MiB，t4 MODIFIED 约 202 MiB，t4 FULL 约 420 MiB；FULL 的 renderer+浏览器主进程合计约 1.08 GiB，但 §8.4 的判据只看 renderer，不据此判失败。
 - 结论：FE3a 不需要改流式；M1 测量已完成。FE3b 的旅程上传与 M1 复测仍按 kickoff 执行。
 

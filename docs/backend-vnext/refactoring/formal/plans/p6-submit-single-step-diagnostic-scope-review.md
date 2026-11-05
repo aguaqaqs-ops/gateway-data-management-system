@@ -120,3 +120,5 @@ metadata 日志的 `inputs.manifest.expected_sha256` 错填为 accepted document
 两脚本其余主体暂未发现阻塞问题：固定 source/input/checkpoint 常量与第 8 节一致，manifest 期望 SHA 已正确使用 `4c5638…`；先核 staging 文件/目录摘要，拒绝 project-label 卷和无 label 的精确同名卷，移动到原绝对路径后保留 manifest，按新建源名卷 labels、空卷、同文件系统检查再 `cp -a`，复制后重算原 digest，失败保存结果且不删除副本。该物化脚本本身不启动 Compose/Submit。
 
 物化脚本依赖尚待交付的外层 transport wrapper：必须在任何复制/移动前取得 05 自有占用并执行实时资源门槛、精确目标路径/名称检查，不能用物化末尾的容量检查替代启动前检查。`ct05-tools/diagnostic_preflight.py` 的实际落点/摘要也须由该 wrapper 固定。本轮接受物化主体的静态方向，不等于外层运输已放行；F2 影响后续镜像校验，修复交回即可定向闭项，不重开此前前置。
+
+**F2 已关闭。** 随后交付的 `diagnostic_preflight.py` SHA256 `364ec3c5ca4885820c796661782bdcc56edc6cf79e50ba8e347e05c9a221a93d` 已删除自写 tar 流解析，改用 `verify_image_project_identity(journey, project, expected_path=...)` 调用 e798 的 `_compose_backend_worker_image_metadata`，比较固定 config digest 与全部 15 个 DiffID，不比较 image ID。静态复核通过，无需镜像重建或重复业务测试；materializer 摘要不变。已通知两实施方更新调用接口及固定摘要，不能继续调用已删除的 `verify_image_archive_identity`。外层 transport/launcher 仍单独审核，闭合 F2 不自动放行执行。

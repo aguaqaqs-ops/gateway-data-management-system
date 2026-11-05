@@ -110,6 +110,20 @@ test("smoke: workspace CreateOrGet returns 201 or 200 and history shows INITIAL"
   // History has only the INITIAL baseline: the tree shows the initial node.
   await expect(page.getByText("初始基线").first()).toBeVisible({ timeout: 60000 });
   expect(await workspaceFromPage(page, identity)).toMatchObject({ workspace_id: expect.any(String) });
+  const history = await page.evaluate(async (token: string) => {
+    const response = await fetch("/v1/history?limit=100", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) throw new Error(`GET /v1/history returned ${response.status}`);
+    return (await response.json()) as {
+      head: { node_id: string };
+      nodes: Array<{ node_id: string; baseline_kind?: string | null }>;
+    };
+  }, identity.token);
+  // The history contains exactly one node, the INITIAL baseline (B5).
+  expect(history.nodes).toHaveLength(1);
+  expect(history.nodes[0]?.baseline_kind).toBe("INITIAL");
+  expect(history.head.node_id).toBe(history.nodes[0]?.node_id);
   expect(pageErrors).toEqual([]);
   await context.close();
 });
@@ -130,13 +144,19 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
     if (request.method() === "POST" && /\/v1\/workspaces\/[^/]+\/upload-revisions$/.test(path)) {
       uploadResponses.push(response.status());
     }
-    if (request.method() === "GET" && path.includes("/preview-results/") && response.status() === 200) {
+    if (request.method() === "GET" && /\/preview-results\/[^/]+$/.test(path) && response.status() === 200) {
       void response.json().then((body) => previewResults.push(body as PreviewResultBody)).catch(() => undefined);
     }
     if (request.method() === "GET" && /\/v1\/operations\/[^/]+$/.test(path) && response.status() === 200) {
       void response.json().then((body) => operationStates.push((body as { status: string }).status)).catch(() => undefined);
     }
   });
+
+  const bundleResponse = page.waitForResponse(
+    (response) => response.request().method() === "GET"
+      && /\/preview-results\/[^/]+\/bundle$/.test(new URL(response.url()).pathname),
+    { timeout: 120000 },
+  );
 
   await gotoWorkbench(page);
   await selectModifiedAndUpload(page);
@@ -154,8 +174,10 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
   expect(previewBody.preview_result_id).toBe(workspace.current_preview_result_id);
   expect(previewBody.workspace_id).toBe(workspace.workspace_id);
 
-  // Bundle download still fails on the current backend (BE-d pending); the
-  // page must not raise an uncaught error, and that failure is not asserted.
+  // Preview success auto-enters compare; wait for the bundle request and the
+  // stable download-failure state before asserting no uncaught page error (B5).
+  await bundleResponse;
+  await expect(page.getByText("暂时无法显示结果")).toBeVisible({ timeout: 120000 });
   expect(pageErrors).toEqual([]);
   await context.close();
 });

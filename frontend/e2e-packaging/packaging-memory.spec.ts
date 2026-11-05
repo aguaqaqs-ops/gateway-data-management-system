@@ -99,7 +99,7 @@ async function baselineProcesses(browser: Browser): Promise<Map<number, ProcessS
   expect(procs.length).toBeGreaterThan(0);
   const baselines = new Map<number, ProcessSnapshot>();
   for (const { pid, kind } of procs) {
-    await writeFile(`/proc/${pid}/clear_refs`, "5").catch(() => undefined);
+    await writeFile(`/proc/${pid}/clear_refs`, "5");
     const status = await readProcStatus(pid);
     baselines.set(pid, {
       pid,
@@ -265,7 +265,7 @@ test("M1 packaging peak memory", async () => {
         const initial = page.locator('[data-testid="upload-initial-input"]');
         await initial.evaluate((el) => el.classList.remove("sr-only"));
         await initial.setInputFiles(inputRoot);
-        await expect(page.getByText("原始备份 + 本次归档", { exact: false })).toBeVisible({ timeout: 30000 }).catch(() => undefined);
+        await expect(page.getByText("原始备份 + 本次归档", { exact: false })).toBeVisible({ timeout: 30000 });
       }
       const modified = page.locator('[data-testid="upload-modified-input"]');
       await modified.evaluate((el) => el.classList.remove("sr-only"));

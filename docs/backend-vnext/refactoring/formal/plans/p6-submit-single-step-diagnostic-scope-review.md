@@ -215,3 +215,5 @@ run 记录三个目标数据卷保留，无 retained-volume listing error；审�
 **需最小修正：** 嵌套 `observed_parser` 的记录异常分支赋值 `logging_failed=True`，但该函数没有 `global logging_failed`，实际产生局部变量，可能漏报观测记录不完整。已通知设计转工具任务增加该声明并交新摘要，不要求新测试矩阵。最终 harness 还须把 `commit_matches=false` 或 `instrumentation_incomplete=true` 判为诊断不通过；client 当前 SUCCESS 仅表示 RepositoryClient 返回，不能单独当成父 catalog 语义通过。除该修正和外层判定接线外未发现阻塞 client 的实质项；完整执行 harness 仍待审核，本节不放行复制或运行。
 
 **同节点镜像轻量核对可接受。** 冷 catalog 复用已在同一 CT05 验证的现存镜像，无需调用会重新 docker save 的 helper。worker 用第 14 节 CT05 诊断 run 的本机 image ID `sha256:26cc11f61544ae07b7006ccd6bf9270b52bc69338b245fc52972646dc08ac64c` 绑定当前源 tag，再核完整 RootFS DiffID；不能取 CT108 来源 run 的本机 ID。RS 用第 8 节 CT05 四向记录的本机 ID `sha256:642b9ff31c6b862266087cfc1b6033ff85439242fc3727860da0c06725191b56`，并核既定 build-input/source-tree 标签。此前 config digest 与全部 DiffID 的验证继续作为来源证据；本轮 ID 只用于同节点现存对象核对，不作为新跨节点等价证明。若本机对象已变或字段无既有记录，停止并说明，不能反填旧记录。具体 harness 须固定这些小记录/摘要并落实检查。
+
+**client 修正已关闭。** 最终 client SHA256 `74bfa2b56eb7f4465caf7b5e69b7661e3494c74f99e87c0d275df963267ed864` 加入嵌套函数的 global 声明，并在返回 commit 不匹配或记录不完整时 exit 2。反向替换这两处后精确恢复首版 `82bce3a5…` 完整摘要，确认无额外改动。静态通过，无需新测试；controller 仍待固定版本及镜像身份小记录复核，尚未放行执行。

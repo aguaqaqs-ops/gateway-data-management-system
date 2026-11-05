@@ -139,3 +139,11 @@ v3 日志绑定目标 census SHA `04952cb5523b9b6d44530654994bcad2a692a132697cac
 预算记录另有不足：v2 用 65,536 bytes 作为首轮预留，但首轮已读取的 closure payload 自身为 149,748 bytes，故记录的累计 5,015,645 bytes 不能作为完整实际累计。无需再读制品即可给保守上界：v2 此轮完整计量为 `5,015,645−2,751,483=2,264,162` bytes；v1 在首个 STA 前停止且所用 Ref 与 v2 相同，读取集合为成功轮前缀，保守也按整个 v2 量计算。因此此前读取及两轮合计 **不超过 `2,685,947+2×2,264,162=7,214,271` bytes**，仍低于 16 MiB。保留原日志并补注即可，不要求追加取证；这不是新的根因诊断关卡。
 
 shape 统计和预算上界支持继续选择有代表性的最小诊断，不授权 631 表重放、25GB 放大实验或恢复。当前不 GO 的原因仍为租约失效根因未定位，与上述累计记录笔误无关。仅追加审核报告，未运行测试、未改产品或证据、未推送。
+
+## 9. 停止 handoff 与既存 status 字段
+
+已核对 `p6-baseline@97702280c3bd5b8adda756fbf8546bb441ef23dd`：仅追加 handoff，记录 W4 Submit 不 GO、统计口径、7,214,271-byte 保守上界、CT201 脚本/日志经 SSH stdin 执行的来源、原始输出 0600 和 B2 仅为独立有界诊断，未宣布恢复。补充记录与本报告结论一致，不修改既有 H2 结果。
+
+直接读取 CT108 已保存诊断文件的白名单字段，未读取现场 `/proc` 或重新运行 Docker inspect。`worker-pid-985828/thread-1183413/status.txt` SHA `84f93361fd8b7fb332f47757f285c8956006f36bc46119496d48f6c4c7523500`：VmRSS 23,996,624 kB、VmSwap 0 kB、Threads 53、CPU allowed list 与 handoff 一致。`docker-inspect-worker.json` SHA `afe3daa22567288a77720c7462bc2cb4e1fc330ca275ff06117b522ac91970e1`：Running=true、OOMKilled=false，Memory/MemorySwap/NanoCpus/CpuQuota/CpuPeriod 均为 0。实施者的路径修正日志 SHA `703c134da882f29f721764e0e3ebb5e7c88e217dbe793fd313c83ada749f5df4` 与所选原文件相符；首次顶层未命中的日志 `ca529637e622388d6936762b5938beab9208c6e316a0707aab89d671ddf81be8` 保留为路径误报。
+
+这些值只描述停滞捕获时的该进程状态及未设置的 Docker 配额，不能证明宿主无压力、全程无 swap 或定位 GIL/调度根因。没有新增现场采集、测试或大规模诊断；当前不 GO 不变。

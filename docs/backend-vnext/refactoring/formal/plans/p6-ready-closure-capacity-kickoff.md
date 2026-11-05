@@ -1,6 +1,6 @@
 # Phase 6 READY 闭包容量修正与限定续跑
 
-状态：2026-11-05，owner 已要求继续排查解决并主动处置后续暂停，授权来源见 DC80。范围已通过[独立审核](p6-ready-closure-capacity-kickoff-review.md)（`fcfd19b946`）；本次补充容量候选待定向补审，补审通过后进入实现，不是原样重试或跳过门禁的指令。
+状态：2026-11-05，owner 已要求继续排查解决并主动处置后续暂停，授权来源见 DC80。范围与容量定值已通过[独立审核](p6-ready-closure-capacity-kickoff-review.md)（范围 `fcfd19b946`，定值 `f1d860580e`、顺序澄清 `6ecfb6a36d`）。READY 上限定为 32,768，已交独立产品任务实施；本结论不代表产品修复或快照恢复已通过门禁。
 
 ## 1. 问题与结果目标
 
@@ -16,9 +16,9 @@ W4/S4/H1 场景 `p6bw4s4h120261105a` 在 `v2-preview` 报 `operation.pure_recomp
 
 ## 3. 容量与证明
 
-先核对失败输入的引用构成、去重后实际数量及引用文档字节规模，并对剩余 W4-FULL、W4-STRESS 与已批准多节点 History 说明覆盖范围。若某项实际状态没有落盘，明确标注推导上界与假设，不伪造实际计数。新上限取能够覆盖这些场景的明确有限值，不能简单去掉限制或按全机器内存无界放大；数值确定后补入本节再交实现。
+先核对失败输入的引用构成、去重后实际数量及引用文档字节规模，并对剩余 W4-FULL、W4-STRESS 与已批准多节点 History 说明覆盖范围。若某项实际状态没有落盘，明确标注推导上界与假设，不伪造实际计数。新上限取能够覆盖这些场景的明确有限值，不能简单去掉限制或按全机器内存无界放大；具体定值与独立审核依据见下文。
 
-容量候选为 **32,768 个 READY output refs**，仅扩大该数量边界。依据当前生产结构，令 `T_side` 为某侧实际物化表数，`T_pair` 为某 pair 的 Surface 表集合数量（两侧表集合的并集，不直接等于任一侧表数），`P_pair` 为 projection 数量：
+容量定值为 **32,768 个 READY output refs**，仅扩大该数量边界。依据当前生产结构，令 `T_side` 为某侧实际物化表数，`T_pair` 为某 pair 的 Surface 表集合数量（两侧表集合的并集，不直接等于任一侧表数），`P_pair` 为 projection 数量：
 
 - Preview 保守界：`4 + 2 × ΣT_side + Σpair(5 + 11 × T_pair + 3 × P_pair)`。固定部分最多 4 项；每侧每表为 manifest 与单 rowfile 两项；每 pair 最多 5 个全局 ref，每表最多 9 个普通 ref 与 2 个 ordered ref，每 projection 最多 3 项。去重只会减少数量。
 - History 保守界：`1 + Σpair(5 + 11 × T_pair + 3 × P_pair)`。
@@ -27,7 +27,7 @@ W4/S4/H1 场景 `p6bw4s4h120261105a` 在 `v2-preview` 报 `operation.pure_recomp
 
 字节预算限定当前 producer 的固定 ASCII media type（保守按不超过 64 字节）、ArtifactRef 既有 ASCII ID 上限 128 字节、I-JSON size 上限的 16 位十进制整数、两份各 71 字节 DigestRef（`sha256:` 前缀加 64 位 hex），以及当前固定 job contract version。按现有 entry JSON shape，每项最多 477 字节；计入分隔逗号、32,768 项和宽松 1,024 字节文档头，预算为 **15,664,128 字节（约 14.938 MiB）**。这是当前获准路径的序列化预算，须核实实际 producer/media 来源；不是任意 ArtifactRef 的通用字节上界，不新增 media type 限制或 READY 字节 cap，也不等同于解析/JCS 的峰值内存。既有成功闭包的实际 bytes 仅作对照样本。独立的 surface/bundle 16 MiB 限制保持不变，不与 READY 文档混用。
 
-定值补审只需核实上述输入/单 rowfile/producer 前提和日志出处，不要求重扫全部历史卷或精确还原未落盘的失败集合。前提与预算通过后以 32,768 实施；如任一前提不成立，先修正本节的容量推导。
+定值补审只需核实上述输入/单 rowfile/producer 前提和日志出处，不要求重扫全部历史卷或精确还原未落盘的失败集合。前提与预算已在审核报告 §4 核实，按 32,768 实施。诊断日志为 `/home/dev/gdds-p6-logs/baseline/monitor/w4-ready-closure-capacity-20261105c.log`，SHA256 为 `df571d860d8ac6220c37884bd228067c06fd3a031d06520b32dc124f3aed670c`；原始初稿的取值/比较问题、旧作废 census 和末行 checkpoint 时点笔误保留在日志并由 handoff 解释，校正与来源复核见审核报告。如后续新增输入使任一前提不成立，先修正本节的容量推导。
 
 保持 read/write 同一容量规则；既有版本、closed shape、排序、唯一 ref、size/digest、missing/corrupt 和 set-once/CAS 检查继续有效。用有界 fixtures 验证旧上限以内的规范字节不变、超过旧上限但在新上限内的合法闭包可 round-trip、恰达新边界与超限拒绝。复用已有不变量测试，不复制全量业务矩阵，不增加新的持久恢复机制。
 

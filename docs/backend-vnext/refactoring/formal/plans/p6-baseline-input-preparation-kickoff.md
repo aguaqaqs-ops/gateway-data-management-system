@@ -1,6 +1,6 @@
 # Phase 6 基准输入准备工具并行改进
 
-状态：2026-11-05，owner 已授权并行完善；kickoff 候选 `7ba9912e87` 经[定向审核](p6-baseline-input-preparation-kickoff-review.md)通过（`464cc6436b`），两项非阻塞建议已纳入下文。工具候选及实施定向审核待交付。设计会话 `01a1a628-e59a-7981-aad5-6bf31e919d38`；基准实施会话 `01a193fa-ecf4-7782-b6e1-430856f414ea`；审核会话 `01a1a44e-9dfe-7971-9a7f-4b2bc6614c44`。
+状态：2026-11-05，owner 已授权并行完善；kickoff 候选 `7ba9912e87` 经[定向审核](p6-baseline-input-preparation-kickoff-review.md)通过（`464cc6436b`），两项非阻塞建议已纳入下文。工具代码 `249c09d082`、handoff `9deb891532` 经[代码复审](p6-baseline-input-preparation-code-rereview-1.md)及[证据复核](p6-baseline-input-preparation-evidence-check-1.md)通过（`d2ec2cdd5e`），可协调合入并在后续需要时采用；不切换当前 CT108 运行，不表示新 W4 输入已接受或基准 exit。设计会话 `01a1a628-e59a-7981-aad5-6bf31e919d38`；基准实施会话 `01a193fa-ecf4-7782-b6e1-430856f414ea`；审核会话 `01a1a44e-9dfe-7971-9a7f-4b2bc6614c44`。
 
 ## 1. 问题与授权
 

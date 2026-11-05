@@ -207,3 +207,9 @@ run 记录三个目标数据卷保留，无 retained-volume listing error；审�
 **接受最小方案方向，尚未放行复制或运行。** 工具任务拟用独立项目 `p6catalogdiag20261105a`，仅从 05 已核、停止且无 writer 的源 RS 数据卷复制到新同 logical 卷（75,222,091 bytes），只起原 Compose 的 RS 服务，readyz 不预读 catalog。以已核原 worker 镜像在该项目网络内运行无产品卷的单次 `RepositoryClient.get_versioned_catalog`，绑定上述精确父引用，保留原 30 秒 HTTP timeout 与最多三次内部重试。冷仅指新 RS 进程缓存，OS 页缓存未知，不作冷磁盘性能测量。薄 hooks/parser finally 记录脱敏类型、status/error code、受限 request_id、耗时及实际读取大小，原 parser/重试不变，不预读或输出 body、业务行、token 或异常 details。
 
 建议分段上限为复制 60 秒、健康等待 120 秒、client 容器启动起 180 秒、收束 90 秒。client 成功/失败或预算到期均须及时停止独立 RS；不能只结束客户端而让服务端请求继续运行。日志采集也有界，确认复制进程、两个自有容器及网络均收束后才释放自有锁，保留新卷和全部失败证据。具体脚本/命令及摘要待审核，重点核对观察逻辑不覆盖原始异常、headers 到达不冒充完整响应完成、无 response 时不编造状态/大小以及未知远端活动不提前释放锁。既有启动/资源门槛保持，不新增产品机制或验证矩阵。
+
+## 16. 冷 catalog client 首版静态审核
+
+读取外部 `cold-catalog-candidate/client.py`，SHA256 `82bce3a5adf025012eda13bdb864663426d0e93a2528fb0df580cad27c8fb034`，未执行。一次 `ObservedClient.get_versioned_catalog` 的固定引用正确；`super()._json_client()` 仅加事件 hooks，原 transport/env/timeout 保持。实际模块的 parser alias 由薄 finally 包装，原 parser 参数、返回、重抛和关闭语义保持，不预读 body；headers 与 parse-finished 分别记录，无 response 时不编造 HTTP 状态和大小。只输出受限错误类型/code/request_id、计时及数量，不输出异常文本、响应体或凭据。
+
+**需最小修正：** 嵌套 `observed_parser` 的记录异常分支赋值 `logging_failed=True`，但该函数没有 `global logging_failed`，实际产生局部变量，可能漏报观测记录不完整。已通知设计转工具任务增加该声明并交新摘要，不要求新测试矩阵。最终 harness 还须把 `commit_matches=false` 或 `instrumentation_incomplete=true` 判为诊断不通过；client 当前 SUCCESS 仅表示 RepositoryClient 返回，不能单独当成父 catalog 语义通过。除该修正和外层判定接线外未发现阻塞 client 的实质项；完整执行 harness 仍待审核，本节不放行复制或运行。

@@ -4,6 +4,8 @@
 
 日期：2026-10-26（r4）；r1–r3 为 2026-10-26
 
+2026-11-04 补充：DC78 的无回退、替换后清理与语言取舍方向由 owner 确认；本文同步设计，技术细则随对应 kickoff 审核，不追溯更改 S0/S2a 审核结论。
+
 Owner：Backend vNext Architecture（Phase 6 牵头）；各项语义归属见 §14
 
 入口：[S0 Owner 决议记录](p6-s0-owner-decisions.md)（DC37–DC55）→ 本文 → [执行计划](p6-execution-plan.md)
@@ -56,7 +58,7 @@ ADR [0001](../adr/0001-python-rust-hybrid-compute-strategy.md)、[0009](../adr/0
 
 ### 1.2 决定索引（D）
 
-DC37 边界与 feature flag；DC38 Submit 与 History 目标；DC39 表摘要保值统一与结构性过滤；DC40 只增列；DC41 bundle 整表与整表浏览；DC42 规范表存储；
+DC37 阶段边界（生产回退安排由 DC78 取代）；DC38 Submit 与 History 目标；DC39 表摘要保值统一与结构性过滤；DC40 只增列；DC41 bundle 整表与整表浏览；DC42 规范表存储；
 DC43 计算去重与跨操作缓存；DC44 比较列式化（ordered 一并进入 Rust）；DC45 Submit 只写变化；DC46 解析器主线与数据路径合并；DC47 Rust 范围、并发与技术栈；
 DC48 Rust 测试入门禁（已实施）；DC49 慢速上传；DC50 阶段结构；DC51 门禁 worktree 保留；DC52 旧扩展过时；DC53 W1–W4 定稿；DC54 逐行记录进入 Rust；
 **DC55 审核后的决议修订**（未变化 ordered 表用当前侧按本次有效 pair 策略计算 facts、完整表身份、冻结产物恢复边界、零日期维持拒绝、计数口径与字节冻结）。
@@ -69,6 +71,14 @@ DC48 Rust 测试入门禁（已实施）；DC49 慢速上传；DC50 阶段结构
 - 产品插桩：除非 S1a 的归因（§4.4）仍无法解释残差并由 owner 另行决定。
 - 测试基础设施阶段：S2b 之后按 V8 方法重新剖析再决定（DC48 第 3 项）。
 - 跨节点拆分门禁、AGENTS 与 testing-conventions 的规则变化（归负责 DC36 的会话）。
+
+### 1.4 替换与语言边界（DC78，2026-11-04）
+
+本项目无历史数据兼容或迁移要求。Rust 完成实际生产调用链接入并验证后，在对应阶段删除被替代的 Python 算法、临时双实现入口和重复测试；不建设生产回退开关，不增加引擎选择持久字段，也不把完整旧算法长期保留为 oracle。替换期差分使用冻结参照，结束后由 Contract、独立固定向量和性质测试拥有回归预期；保留 Python 编排、适配与端到端恢复测试，其他独立生产消费者仍需要的 Python 能力不在删除范围。
+
+Python 编排是当前业务取舍，新功能可先用 Python 验证，也可直接用 Rust；编排出现实测瓶颈时可另行设计替换。Rust core 与 PyO3 解耦，未来由 Python、CLI 或 AI/MCP 适配层复用；当前不新增工具服务。业务工具调用仍走授权、scope、幂等与事务边界。未来 Rust 编排放在应用层，纯计算 core 的无 I/O、无 workflow 约束不变。
+
+本修订不改变冻结基准、已引用的 S2a 证据及 exit 次序。owner 随后授权定向修改设计文档，ADR 0001、ADR 0010 和 Rust policy 的长期双实现定位已同步；实际消费者清单、测试覆盖移交与技术细则仍按阶段审核。
 
 ## 2. 当前事实（E）
 
@@ -277,7 +287,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 - **范围：** 在 V6 原型（`gateway-compute-core/src/table_access/`）基础上补齐：完整诊断（消息文本、同一张表多处错误、行预算按元组计数的偏移）、第 ③ 层负例与预算语料、第 ② 层 Hypothesis 差分、现有解析器测试改为双实现参数化（讨论稿 §6.3）；`Utf8`/`Binary` 超过 2 GiB 时改用 large 变体或分批输出；按 §5.5 的定稿调整（例如深层 JSON 有界拒绝）。
 - **PyO3 adapter（新）：** 长调用 `py.detach`；取消标志与截止时间接到 `ParserRuntime`；输出经 Arrow C Stream 交给 Python；panic 在 core 入口与 adapter 两层转为诊断；native abort 或被内存不足终止不伪装成诊断，由 Operation Runtime 的既有租约接管处理（Rust policy §3）。线程池改为共享（DC47 第 5 项）：S2a 在 adapter 中实现进程内共享的有界池，worker 启动接线与部署配置 N、M 在 S2b 完成（DC72 第 6 项）。
-- **接入：** 只用于差分，不切生产。S2a 只在测试支持层提供双实现入口，生产 `parse_sql()` 继续走 Python；生产 feature flag 在 S2b 引入（DC72 第 3 项）。
+- **接入：** S2a 只用于差分，不切生产；生产 `parse_sql()` 继续走 Python。S2b 完成整条上传路径接入与验证后删除被替代 Python parser 和临时差分入口，不引入生产 feature flag（DC78 修订 DC72 第 3 项）。
 - **旧扩展删除（DC52）：** 删除 `capabilities/canonical_row_hash`、core 中的旧 pipeline、旧 adapter 入口、`canonical-row-hash` golden、Canonical Row Hash Compute Boundary Contract、`native_kernel_component.sh` 及引用它们的测试与架构基线条目；`rust` 包去掉对两个旧 crate 的 `cargo test` 排除；backend Dockerfile 的 maturin 构建改为新 adapter；新扩展的 `__build_input__` 与 `check-rust-extension-build-input.sh`、依赖与架构检查、`import_rules` 基线同步核对。
 - **验收：** 五层语料全部通过，t1–t4 逐值差异 0，并行确定。
 
@@ -292,6 +302,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 - Rust 输出规范表的 IPC 字节，由 Python ArtifactStore 写入（Rust safety policy §4）。
 - **上传侧原始表不再写 Parquet（设计核对项，S2b kickoff 前完成）：** 逐一核对 materialize 与 assemble 的 checkpoint、FULL 双侧、composite、bundle、T1 与恢复路径中的读取者；未完成前不进入 S2b 切换。
 - **Arrow 列映射 v1（P，backend 内部映射，不改 RS wire 映射）：** 整数 `Int64`/`UInt64`、布尔 `Boolean`、浮点 `Float32`/`Float64`（-0 归一）、二进制 `Binary`、BIT `FixedSizeBinary(⌈n/8⌉)`；DECIMAL、日期时间、ENUM、JSON、字符串用 `Utf8` 规范文本；SET 用按声明顺序以 `,` 连接的文本，与成员序列的互转规则写入映射；所有列可空性按规范 schema，NULL 用 Arrow validity；字段 metadata 记录声明类型与映射版本；超过 2 GiB offsets 时使用 large 变体。映射单独加版本号并进入规范表存储的内容地址；表摘要按规范标量编码计算，与 Arrow 物理类型无关。
+- **映射细化候选（DC76，待审核）：** [规范表 Arrow 映射 v1](p6-s2b-arrow-mapping-design.md)明确 parser→存储→RS 的边界、SET sequence 摘要、JSON 文本保值、schema/metadata、确定性及 small/large 规则。owner 已确认输入按 UTC 导出，来源/类型不变，容量需覆盖少数约 100 MB SQL；不新增时区转换、类型支持或硬门槛。该输入确认不等于 S2b kickoff 或实施通过，磁盘/N/M 仍待补齐。
 
 ### 8.2 规范表存储（DC42、DC55 第 3 项）
 
@@ -310,7 +321,10 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 - **同步写入：** Preview 中同步写入；T1 照旧冻结 MODIFIED 侧闭包与 manifest，闭包条目指向内容寻址的文件（ADR 0019 与 P5 收口设计 §4.6 的结构不变）。
 - **基线读取：** Preview、Submit 与 History 读取已提交表时优先从存储 mmap 读取，未命中或校验失败由 Dolt 兜底并回填。
 - **磁盘估算（设计核对项，S2b kickoff 前完成）：** 每个项目的 head、活跃 Preview 与 Attempt 的冻结表、TTL 内的旧表、导出缓存副本与临时高水位；与参考节点磁盘容量对照；超出预算时评估 LZ4，不引入按容量淘汰（Phase 7）。
+- **容量业务输入（DC77）：** 首版 1,000、长期 10,000 个独立设备仓库，年均每仓库 6–12 次提交；峰值分别考虑单项目 5 版/日的未发生假设压力，以及 500 仓库同日上传。按 [kickoff §3.1](p6-s2b-kickoff.md#31-仓库规模与长期容量dc77设计输入已确认)分别计算 head 常驻、durable 历史增量与临时/TTL 高水位；低频不解除当前 head 保护。单位成本尚待测量，本条不宣称生产总容量或峰值吞吐通过，多项目验证及横向扩展设计仍归 Phase 7。
 - **比例化保障：** 不新增状态机、证据机制或 helper；已提交表副本的丢失或损坏只影响性能；冻结产物沿用现有保护与稳定失败规则。
+
+容量分层与扩展方向已获 owner 确认（DC77，2026-11-04）：先测单位成本，再外推规模和突发场景；Phase 7 评估按仓库归属分配资源。硬件数量、磁盘规格与吞吐承诺仍待测量和具体设计，本确认不解除 S2b 的数值核对项。
 
 ### 8.3 并发与资源（DC47）
 
@@ -322,7 +336,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ### 8.4 切换
 
-- 引入生产 feature flag（含 S2a 的 Rust parser，DC72 第 3 项），切换上传侧到 Rust 路径；Python 路径保留至 S6（DC37 第 4 项）。
+- 直接接入 Rust 上传路径（含 S2a parser），不增加生产 feature flag。替换期完成差分，再验证唯一 Rust 生产路径及恢复；S2b 退出候选删除已替代 Python 算法和仅服务其差分的入口、mock、依赖与重复测试（DC78）。未迁移的其他生产消费者先明确边界，不盲删共享能力。
 - 验收：t1–t4 端到端摘要与 §6 的基准一致；存储读取校验与 Dolt 兜底、冻结产物四种状态的权威测试；W2 可达性检查（§16.1）。
 
 ## 9. S3：比较与逐行记录
@@ -333,7 +347,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 - **记录的读取校验：** 只发生在从存储读取 closure 时（History 命中 diff/risk 缓存、bundle 组装）：raw、content 与 schema 校验由 Rust 对读出的 Arrow 重算 JCS `content_digest`，计入 H1、H3 与 bundle 的预算（§16.1）。
 - **单次操作内去重（DC43）：** 缓存键为“去掉表名与显示名之后的单表任务输入”的摘要，包含比较与风险规则主体及其版本、两侧有效键与存储规则、schema digest、行数、算法与记录格式版本、artifact scope；表名、显示名、标注编号、pair 上限与组合信号表在汇总步骤绑定。权威测试：开启与关闭去重，facts 与 records 摘要相同。
 - **分歧点：** 浮点 -0.0、NULL、字符串按字节排序、记录输出顺序、ordered 并列规则，按现行行为写进 Contract，不改语义（§4.6）。
-- **接入：** feature flag 之后；差分覆盖第 ① 层语料、随机差分与 t1–t4。
+- **接入：** 替换期差分覆盖第 ① 层语料、随机差分与 t1–t4；接入验证后删除被替代 Python 比较算法，保留独立语义向量、性质与生产边界测试，不新增回退开关（DC78）。
 
 ## 10. S4：Submit
 
@@ -341,6 +355,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 - **存储 diff：** 与 S3 共用比较内核，按存储键比较全部保留列。
 - **阈值与批量规则：** 沿用 S1a 冻结值；S4 用最终渲染器与 RS 回放路径复测确认。须调整时作为例外交 owner（DC55 第 5 项）。
 - **通用规划器与 ChangeSet Contract 保留**，作为 ADR 0014 外部目标的 owner（DC45 第 5 项）。
+- **旧实现清理（DC78）**：Rust 渲染与存储 diff 接入验证后删除被替代算法及仅服务它们的重复测试；上述仍有独立职责的通用规划器不因使用 Python 而删除。保留冻结 replay SQL 向量、CAS、恢复和实际适配测试。
 - **验收：** 同一输入的 `replay.sql` 与 S1a 逐字节一致；§16.2 的 Submit 计数；S1–S4 完成时间。
 
 ## 11. S5：History 与跨操作缓存
@@ -354,7 +369,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 ## 12. S6：收尾
 
 - 加速曲线定 N（DC35 第 5 项：1、2、4、8、16、32 线程，取并行效率约 60–70% 以上的最大值）。
-- 删除生产 feature flag，Python 实现降为测试用参照（差分测试与小数据 oracle）。
+- 核对各替换阶段的旧 Python 算法、临时差分入口及重复测试已删除；不新建生产回退开关，不长期保留完整 Python 热点算法作参照（DC78）。固定向量、Contract 与恢复/适配测试继续保留。
 - 按 §16.3 验收矩阵完成全部场景的取证与计数断言；存储报告（Performance Measurement §6）。
 - 最终提交上运行完整权威 runner 与容器门禁，运行真实数据 t1–t4 一次。
 - 结合 V8 方法重新剖析门禁时长（DC48 第 3 项）；Phase 6 退出审核。

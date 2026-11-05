@@ -15,6 +15,8 @@ golden、property test和诊断；Rust是正式批量production provider。Pytho
 使用真实consumer、容量目标或普通production-path measurement，不再依赖formal
 baseline capture/evidence framework。
 
+2026-11-04 amendment（owner，DC78）：项目无历史兼容负担。Rust 替换接入并验证后删除旧 Python 算法，不保留生产回退或永久完整 reference；Python 编排是当前取舍，不是语言硬约束。以下正文已定向同步。依据：[DC78](../plans/p6-s0-owner-decisions.md#dc78-无兼容负担下的-rust-替换模块边界与测试生命周期)。
+
 ## Context
 
 Backend vNext 同时包含两类变化特征不同的代码：
@@ -30,7 +32,7 @@ Backend vNext 同时包含两类变化特征不同的代码：
 
 ## Decision
 
-采用 Python 控制面、Rust 数据面的混合架构：
+当前采用 Python 控制面、Rust 数据面的混合架构；未来按业务、性能与维护成本调整，不要求所有编排永久使用 Python：
 
 ```text
 Python control plane
@@ -58,7 +60,7 @@ Arrow/Parquet 是批量数据的主要语言边界；小型 options、facts meta
 
 ### 1. 首版实现策略
 
-不要求所有性能 capability 先有完整 Python 生产实现。满足进入条件的稳定热点，在 Phase 3 可以直接使用 Rust 作为 production provider，同时提供只面向小数据的 Python reference oracle。
+不要求所有性能 capability 先有完整 Python 生产实现。满足进入条件的稳定热点，在 Phase 3 可以直接使用 Rust 作为 production provider，不要求为新能力另建完整 Python reference。对既有实现的替换可在验证期间使用临时差分参照。
 
 第一批直接 Rust 候选：
 
@@ -79,18 +81,11 @@ large-scale risk facts extraction
 SQL streaming parser
 ```
 
-### 2. Python Reference 的定位
+### 2. 替换期参照与单实现回归
 
-Python reference implementation 用于：
+Python 旧算法只在实际替换前作为现有实现、替换验证期作为冻结参照。Rust 完成生产接入与验证后，在对应阶段删除旧算法、临时双实现入口及仅服务它们的依赖、mock 和重复测试，不保留人工或自动 Python 生产回退，也不改名为 oracle 长期维护。
 
-- 小规模 golden fixtures。
-- Property-based/differential tests。
-- 边界 case 和语义解释。
-- Rust provider诊断；需要fallback时由具体capability显式设计和验收。
-
-Python reference不需要满足生产数据规模、吞吐和内存目标，也不进入默认production
-runtime或automatic fallback。正式语义由capability contract和直接golden拥有，
-不由任一语言实现拥有。
+正式语义由 capability Contract、经核实的语言中立 golden 和性质测试拥有。删除旧实现前移交其业务断言；不能直接用当前 Rust 输出自动生成预期并自证。Python 测试脚本、实际编排/适配与关键恢复测试继续保留，仍有独立生产消费者的 Python 能力不因语言而删除。
 
 ### 3. 保留 Python 的范围
 
@@ -107,7 +102,7 @@ frequently changing risk/business policies
 small metadata/surface/response assembly
 ```
 
-Risk 拆分为大规模 facts extraction 与业务规则决策：前者在证明为热点后可使用 Rust，后者优先保留 Python。
+Risk 拆分为大规模 facts extraction 与业务规则决策：前者在证明为热点后可使用 Rust，后者当前优先保留 Python。新功能可先用 Python 快速验证，也可直接选 Rust；编排或规则出现实测瓶颈时，单独设计 Rust 替换，不借此授权当前全量重写。
 
 ### 4. 调用和部署边界
 
@@ -128,7 +123,7 @@ Python capability facade
 - Panic、timeout、cancel、out-of-memory 和 native failure 映射为稳定 capability error/diagnostics。
 - Operation 只持久化 artifact/checkpoint，不持久化 Rust 内存对象。
 
-大型异步任务后续可以由 `gateway-compute-worker`/CLI 消费 Arrow/Parquet artifact，但不在第一阶段额外引入 Compute 网络微服务。PyO3 和 worker 必须复用同一个 Rust core crate。
+大型异步任务后续可以由 `gateway-compute-worker`/CLI 消费 Arrow/Parquet artifact，但不在第一阶段额外引入 Compute 网络微服务。PyO3 和 worker 必须复用同一个 Rust core crate。未来 AI 工具/MCP 也可通过适配层复用该 core；当前不建设 MCP server。业务工具入口仍执行服务认证授权、scope、幂等与事务约束。未来 Rust 编排位于应用层，纯计算 core 的无 I/O、无 workflow 边界不变。
 
 建议 Rust workspace：
 
@@ -148,8 +143,7 @@ gateway-compute-worker     optional artifact-based worker/CLI
 - 算法相对稳定，不是仍在高频试错的业务规则。
 - Component profile、算法复杂度或 materialization evidence 表明它是明确的数据面热点；不使用 legacy performance benchmark 作为进入依据。
 - CI 能构建和测试目标平台 wheel/image。
-- 具有Python reference和明确失败映射；若声明fallback，必须有真实consumer与独立
-  验收。
+- 具有独立 Contract/golden、性质验证和明确失败映射；替换既有算法时完成临时差分，不要求永久 Python reference，不设置生产 fallback。
 
 不满足条件时，先用 Python/Polars 验证语义和瓶颈，不为语言统一强行使用 Rust。第一条正确 production path 可以本身包含满足上述 contract、fixture 和 component evidence 的初始 Rust provider；这不需要先建立一个完整 Python production route。
 
@@ -170,7 +164,7 @@ CPU/wall time and peak memory
 materialization count
 input scale/distribution
 expected kernel/end-to-end gain
-fallback and maintenance cost
+integration and maintenance cost
 ```
 
 收益门槛由对应 capability measurement memo 在同一可比 vNext series 内固定；如果端到端收益不足以覆盖维护、构建和部署成本，保留当前 production provider。
@@ -215,7 +209,7 @@ Rust进入标准保持“稳定、批量、可验证的数据面能力”，而�
 - Python 继续承载高变化业务代码。
 - Capability contract 对语言实现保持中立。
 - Arrow/Parquet 降低逐对象 FFI 和重复 materialization。
-- Python reference 为跨语言正确性提供可解释 oracle。
+- 替换期差分辅助验证；独立 Contract/golden 与性质测试承担单实现长期回归。
 - First-party Safe Rust硬门禁减少FFI/data-plane中的未验证内存安全义务。
 
 成本和风险：
@@ -224,14 +218,14 @@ Rust进入标准保持“稳定、批量、可验证的数据面能力”，而�
 - Native crash 可能终止 Python worker，需要 Operation Runtime 接管和重试。
 - Scalar、NULL、Decimal、datetime、ordering 和 digest 语义必须跨语言逐字节一致。
 - Polars、Rayon、Python executor 和 Operation worker 可能造成线程超卖。
-- 滚动升级期间需要管理boundary/schema兼容；production不自动fallback到Python。
+- 当前没有历史数据兼容或迁移要求，直接修改到目标 boundary/schema，不引入兼容层；Rust 失败按明确诊断与恢复边界处理，不回退 Python。
 - Workspace lint、dependency review和无panic production path增加前期工程约束，但换取更可预测的failure与维护成本。
 
 ## Required Verification
 
-- Python/Rust shared scalar and digest golden tests。
+- 每个仍有实际消费者的 canonical 实现直接消费共享 scalar/digest golden；已替代算法删除，不为凑双语言矩阵保留。
 - Arrow schema/FFI round-trip tests。
-- Rust/Python differential and property-based tests。
+- 替换期间 Rust/Python differential；替换完成后保留独立 golden 和 property-based tests。
 - Serial/parallel determinism tests。
 - Panic、timeout、cancel、native crash 和 worker takeover tests。
 - Wheel/image platform matrix tests。

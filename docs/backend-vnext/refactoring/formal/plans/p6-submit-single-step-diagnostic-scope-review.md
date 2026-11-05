@@ -161,3 +161,17 @@ F3 已按原日志三行结构修正，并固定原 metadata 摘要 `9f28af49…
 helper 的 `02985d… → 762b640b…` 差异已另外核对：source run 的 manifest 类型/path/census 绑定加强，保留卷名改为集合比较（重复已由原 source loader 拒绝）。将这些变更反向替换后可精确恢复旧摘要，确认没有其他逻辑改动；materializer 保持不变。执行前固定校验 helper/materializer/image，不再只作动态事后记录。审核未运行候选或业务测试，既有 canary、镜像与环境证据继续有效。
 
 该 GO 的范围是脚本列明的 13 个源路径（含三个 checkpoint 目录）、固定新 staging、完整源名卷副本及原摘要核对；门槛/身份/路径/复制校验任一失败即停止，保留原始来源、已复制内容和日志，不自动重试。未知远端状态先保留自身占用，确认活动结束再处置；不得为了新开发会话提前释放占用。成功后提交 transport log、plan、materialize result 的完整结果与 SHA，以及节点锁/本次活动状态，再核实际 Submit 资格。DC81 允许后续开发不改变本次 W4/S4/H1 的冻结对象、停止条件或正式基准 exit 状态。
+
+## 13. 运输结果闭合与一次 Submit 诊断 GO
+
+**明确 GO：允许原实施者在 CT05 执行一次固定 e798 的 v2-submit 诊断。** 已直接通知原实施者及设计，不需再次等待 owner 确认。本审核只读核验材料，没有运行测试、重复扫描卷、启动 Compose 或 POST。
+
+运输日志 `transport-source-to-ct05-20261105a.log` SHA256 为 `0e0ecdc1a14ccadae4bc3870abdff9fdaf6e496c4ac3a3612d30d89dc5eacc17`，计划 `transport-plan-20261105a.json` 为 `6ab845d97c3e58ab17cdc7c992790ce275a1384ca2e15780f8461d0cc5e4fef0`。日志记录控制端 23:09:45–23:10:18Z，13 项流式运输两端 exit 0，materializer exit 0、MATCH，随后 NODE_LOCK_RELEASED、整体 exit 0。CT05 结果中的本机结束时间为 23:10:19Z；保留各节点原时间，不将跨节点秒级差异推算为子段耗时。
+
+审核经 BatchMode SSH 独立读取 CT05 `transport-materialize-result-20261105a.json` 并核对 SHA256 `cf8eb1c58a7944247b91f356b659042937150656740691d2c82035e1e1b3035a`，与控制端日志一致。source/state/input MATCH，census COMPLETE，固定 source/target project 与 e798 相符；checkpoint 总量 940,745,375 bytes，源卷和相关输入/cache/日志/TMPDIR 均 st_dev 64526。物化后 MemAvailable 67,311,659,008 bytes、可用空间 222,692,999,168 bytes，超过 48 GiB 与剩余 11,678,163,615 bytes 门槛；目标卷 ABSENT、相关运行容器 NONE。另只读确认当前 e798 worktree clean、节点锁不存在、Docker 无运行容器。启动时仍由既有 launcher 重核实时前提。
+
+最终 `launcher-candidate/submit_diagnostic_launcher.py` SHA256 `544bfc0e4e53ad6ef16d90e1787e406985794bad2dd7c124c0b4231380db396e`，`launch.sh` SHA256 `692868fc9267050ba7a29db8f246cb92df990a3ed343b72a093b30470e6c4cc5`。分别反向替换唯一 helper pin 和入口 pin 后，精确恢复第 10 节的 `17ba0861…` 和 `e0075f72…` 完整摘要，确认没有其他脚本改动；helper 使用第 12 节的 `762b640b…`。README SHA256 `8aaf0000242db2da62f01afc643277ac574d442e07b55d96a42fe2f69ff64228`，interface SHA256 `2d9f422a12b1cf59b01369ada3f36f969c8fa5f2eafd20c19d4080964138977e`。
+
+实施者报告此前只读回读命令因 shell 引用错误 exit 2，尚未运行远端 Python；失败日志 `postcheck-result-read-20261105a.failure.log` 及 SHA256 `5b94ce75df1523fa5f64db12e5727b830231cdb98c535728b4e91a22a98d6312` 已保留。修正回读没有重复物化；本审核独立 SSH 回读成功。该命令错误不改写运输成功证据，也不需新测试。
+
+执行范围为 README 的外层自有节点锁、必要的已审小脚本同步及摘要核对，然后仅运行一次 `bash /home/dev/gdds-p6-logs/submit-diag-preflight-20261105/launcher-candidate/launch.sh`。冻结产品、普通 resume、单次 POST、有效业务栈前提、45 分钟预算、资源阈值及 F1 提前关闭 observer 均保持。任何前置或运行失败均停止、保留证据，不自动重试；确认自身容器、observer/guardian 和日志输出结束后才释放自身锁，保留所有数据卷与副本。后续交回实际 exit、独立诊断结果、原 journey/finalization、observer/资源日志、结束 HEAD、日志摘要和收束状态。此 GO 不表示 Submit 已成功、完整旅程 PASS、正式测量恢复或 benchmark exit。

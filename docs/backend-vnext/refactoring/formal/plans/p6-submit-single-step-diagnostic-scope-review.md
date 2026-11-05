@@ -175,3 +175,23 @@ helper 的 `02985d… → 762b640b…` 差异已另外核对：source run 的 ma
 实施者报告此前只读回读命令因 shell 引用错误 exit 2，尚未运行远端 Python；失败日志 `postcheck-result-read-20261105a.failure.log` 及 SHA256 `5b94ce75df1523fa5f64db12e5727b830231cdb98c535728b4e91a22a98d6312` 已保留。修正回读没有重复物化；本审核独立 SSH 回读成功。该命令错误不改写运输成功证据，也不需新测试。
 
 执行范围为 README 的外层自有节点锁、必要的已审小脚本同步及摘要核对，然后仅运行一次 `bash /home/dev/gdds-p6-logs/submit-diag-preflight-20261105/launcher-candidate/launch.sh`。冻结产品、普通 resume、单次 POST、有效业务栈前提、45 分钟预算、资源阈值及 F1 提前关闭 observer 均保持。任何前置或运行失败均停止、保留证据，不自动重试；确认自身容器、observer/guardian 和日志输出结束后才释放自身锁，保留所有数据卷与副本。后续交回实际 exit、独立诊断结果、原 journey/finalization、observer/资源日志、结束 HEAD、日志摘要和收束状态。此 GO 不表示 Submit 已成功、完整旅程 PASS、正式测量恢复或 benchmark exit。
+
+## 14. 实际单次诊断失败分类（保持 STOP）
+
+**本次确实执行了一次 Submit，并收到业务 operation 的 FAILED；不是成功后的 DiagnosticComplete 截断，也不是观察器或资源预算停止。** 第 13 节的一次执行授权已消耗，不授权自动重试或后续业务步骤。已通知设计与原实施者继续只读取证、保留卷及原始日志；当前材料不能认定纯工具问题，也不能将此次失败等同于 CT108 原 `lease_lost` 的根因。
+
+审核经只读 SSH 读取 CT05 `/home/dev/gdds-p6-logs/baseline/scenarios/p6bws4submitdiag20261105a/` 的 launcher、launch、独立结果、run、observer 及 Compose 日志。launcher 于 23:19:34Z 开始，sampler 于 23:22:14.832Z exit 1，起止 HEAD 均 e798；preflight MATCH。独立结果 `post_count=1`、`submit_completed=false`、`status=STOPPED`、`exception_type=JourneyFailure`；Compose 中仅一次 Submit POST 于 23:20:35.466Z 返回 202，operation 为 `op-906304d3bc614a5f2abfafac`。23:22:10.158Z 轮询观察到 FAILED / STORAGE_PROJECTION_FAILED，v2-submit step 记录 97.363 秒，后续业务步骤未执行。该时间是失败路径的 step 时间，不是成功 Submit 性能数字。
+
+实际 observer preflight 有效，7 次离散 dump 全部 exit 0、valid，无 timeout、stop 或资源指标不可读；采样 worker RSS 最大 132,300,800 bytes、宿主 MemAvailable 最低 66,681,286,656 bytes、数据文件系统 free 最低 221,584,683,008 bytes，均未越线。Compose 中有 9 次 heartbeat_succeeded，没有此次租约失效证据。最后一次栈仍在 `parent_catalog.py:31 get_table_names` → `submit_jobs.py:1607` 读取冻结父提交 catalog；该 adapter 会把 Repository 读取异常转换为投影失败诊断，但尚须完整 diagnostic.message 判断具体失败分支，不能仅凭约 97 秒猜测超时，更不能据此提高产品 timeout 重跑。
+
+| CT05 证据（上述目录内） | SHA256 |
+| --- | --- |
+| `launcher.log` | `da4af0bacdcff7d210ba4c4d3bb024af12ef7ee2fbaac5722586c261faf4ee2a` |
+| `launch.log` | `d06e79855d31087944ce0d0432f3efbf2b39d0c8af0a349315d904dcfcae213e` |
+| `submit-diagnostic-result.json` | `33e41ac3004eaa43450b06b5219433e2922b1ffb96aa05a27a5fd04331f0f490` |
+| `evidence/run.json` | `95ccbf7dcd5ab7646e140bef033397428b9c9173436b3a71dfd7ba92a4afd9ac` |
+| `evidence/state.json` | `ca3a7d0ca6e85dca2bcb36ac97f6db249575eeaedfbf65a8b37126433b9b26c3` |
+| `evidence/observer/observer-events.jsonl` | `13a118a423e1cb190e75cdf8628e6787694e57cc067666e1a09385c62294e116` |
+| `compose/real-dump-t4-20261105T232210648526Z.compose.log` | `7be25ecd289e423b8b1359adc0de833efa155c3e6c18ce84bc4ebdd8fc40d16d` |
+
+run 记录三个目标数据卷保留，无 retained-volume listing error；审核另外查询本项目全部状态容器与网络，均无残留。observer/guardian/runner 收束及自身 token 释放由原实施者完成并交回；不需为等待报告继续占用已确认空闲的节点。完整诊断消息与最终收束材料待接续补记，不启动服务取证、不重复运输或重开全套前置。

@@ -2,7 +2,8 @@
 
 - **分支：** `fe-vnext`，范围 `fe-fe2c-exit (749f219d5f)..<候选>`。
 - **起点合并：** 本地 main `8983fe86a6` 已用 `--no-ff` 合入 `fe-vnext`，合并提交 `a3834a977c`；本轮又用 `--no-ff` 合入 main `550ddbcede`（FE3 kickoff Q10–Q12），合并提交 `417408d41d035f52ef1c2155ff9959f4a1eefce3`。两次合并带入的都是 `docs/`；合并后 `git rev-parse HEAD:vnext` 与 `550ddbcede:vnext` 都是 `2791d3ff3dd62ff454d7e9cac43885d39da8bf96`。相对 `550ddbcede`，`git diff --name-only` 只含 `frontend/` 与本文件。
-- **当前代码候选：** `ee064f11cc66632a4832d62df082840f56bad7b8`，`frontend/` 树 `0875c46387bea4b6297983b94ae62a068582d477`。本文件提交只改 `docs/`，不改变 frontend 树。
+- **当前代码候选（复审第 1 轮修复后）：** `09715b22057fb67798428319a330136fb93bef81`，`frontend/` 树 `8a9f11c84f1797ab4e2b9553b74824b9a4e2a728`。本轮只改 `frontend/scripts/run-real-backend-e2e.sh` 与 `frontend/e2e-real/smoke.spec.ts`，随后本文件提交只改 `docs/`，不改变 frontend 树。
+- **上一代码候选：** `ee064f11cc66632a4832d62df082840f56bad7b8`，`frontend/` 树 `0875c46387bea4b6297983b94ae62a068582d477`；其 05 记录保留在 §0.2/§0.3。
 - **上一候选：** `bd320eaee5`（本文件 §3.3/§6 中标为“修复前”的记录属于它）；两轮之间的差异见 §0。
 - **vnext：** 未改动。
 
@@ -40,13 +41,13 @@
 非阻塞项：
 
 - **N1 采纳：** `packaging-memory.spec.ts` 的 `clear_refs` 写入失败与 FULL 文案等待失败不再吞异常，直接失败。
-- **N2 不采纳：** 两处“归档基线”标签规则已由 §7 Q11 统一到 `baseline-labels.ts`，无需再建重复规则检查。
+- **N2 采纳：** 归档基线标签规则已按 Q11 抽出共用函数 `baseline-labels.ts`，树与摘要共用，不再各写一份。
 - **N3 采纳：** `generated-types.test.ts` 从 `package.json` 的 `generate:api-types` 读取参数，只替换输出路径，不再复制 CLI 参数。
 - **N4 采纳并记录：** 节点运行设 `TMPDIR=/home/dev/gdds-test-tmp`；Compose secret 文件仍为 `0644`（服务用户可读），只写在 worktree 外运行目录。
 - **N5 采纳：** 05 上 `gateway-repository-service:fe-2061d9c5a498`、`/tmp/gateway-fe3a-e2e.VN4aBy`、`gdds-fe-fe3a-*` 旧 worktree 在本轮结束时清理。
 - **N6 不采纳：** AGENTS/testing-conventions 条文由 owner 决定，本轮只保留 §8 的建议。
 
-### 0.2 本轮 05 运行（最终候选）
+### 0.2 上一候选 05 运行（`ee064f11cc`，保留记录）
 
 | 运行 | 节点/起止（UTC） | HEAD | 结果 | 日志 |
 | --- | --- | --- | --- | --- |
@@ -75,6 +76,43 @@
 - DC68 记录：第一次 INT 探针用 bash 的 `setsid ... &` 启动，后台作业继承了被忽略的 SIGINT，脚本收到的是正常退出路径（rc=2，`exit_code=2`，清理仍为 ok），未产生 `signal_received` 行。这是探针自身的启动方式错误，未触及被测对象；保留失败日志 `…/int/log/real-backend-e2e-smoke-probe-int-ee064f11cc-20261105T095149Z-1347413.log`（SHA256 `147f1892f9d5d3b032cb90498a7d9d46094ba1d5681a6c8a0f201e740632fe62`），改用 Python `Popen(..., start_new_session=True)` + `os.killpg` 后重做一次，得到上表的 rc=130。表内 INT 行引用的是重做后的日志。
 
 探针只在 05 的一次性 worktree `/home/dev/gdds-fe-probe-wt`（detached `ee064f11cc`）中运行，未改候选 worktree；探针脚本 `/home/dev/gdds-fe-probe.py` 与 worktree 用后删除。
+
+### 0.4 复审第 1 轮 R1/R2（第 2 轮候选，`76cce6814f..本文件所在提交`）
+
+复审报告：`docs/frontend-vnext/reviews/fe3a-rereview-1.md`（main 本地 `9cbf6912c4`，未推送）。结论：B1–B11 通过，只剩 R1（套件判定同时检查 Playwright 退出码与结果文件）与 R2（FULL 必须证明用了 ①）。本轮不改产品/打包代码，不重测 M1。
+
+| 提交 | 内容 |
+| --- | --- |
+| `09715b2205` | R1 套件判定；R2 按上传方式断言比较对；N1 `Identity.scope`/`pair_id`；N3 删除过时注释；N4 宿主机 `python3 -I`；记录 `bundle_digest` |
+| 本文件所在提交 | handoff：§0.4 新增本轮记录；N6 修正 §6 提交号、§9 第 5 项引用、N2 措辞；N7 清理 05 旧 worktree |
+
+**R1：** `run-real-backend-e2e.sh` 的套件判定现在把 `PLAYWRIGHT_EXIT`、结果文件存在/可解析、`stats.unexpected/flaky/skipped`、顶层 `errors`、`stats.expected` 一起检查；任一项不满足则非 0 退出，并逐项写 `suite_fail_reason=<项>`。探针在 smoke 运行中从容器内对 Playwright 发 SIGINT：脚本 rc=1，`playwright_process_exit=130`，`suite_stats_expected=1`、`skipped=8`，日志同时给出 `suite_fail_reason=skipped=8` 与 `suite_fail_reason=playwright_exit=130`，`cleanup_status=ok`，节点无本次容器/卷/网络/RS tag/占用标记。这正是 R1 要覆盖的“Playwright 130 但结果文件看似通过”场景。
+
+**R2：** `runInputScope` 增加 `mode: "modified" | "full"`。MODIFIED_ONLY 断言恰好一个比较对且为 0→1；FULL 断言恰好两个且为 0→1、1→2，并在点击上传前等待页面显示“原始备份 + 本次归档”。断言消息带 `pair.pair_id`。本轮 smoke 的 A/B/C/D 四个 MODIFIED_ONLY scope 与 B FULL scope 均通过；FULL 记录到两个比较对（0→1 changed=9；1→2 changed=5）。
+
+**N1–N7：** N1 已补 `Identity.scope` 并在映射对中保留 `pair_id`；N3 删除 `run-real-backend-e2e.sh` 第 604–606 行过时注释；N4 宿主机 `python3` 全部改为 `python3 -I`；N6 已按复审要求修正 handoff（§6 提交号 `ee064f11cc66632a4832d62df082840f56bad7b8`、§9 第 5 项引用 §8.4、N2 改为“已按 Q11 抽出共用函数”）；N7 已删除 05 上 `/home/dev/gdds-fe-m1-05` 与 `/home/dev/gdds-fe-smoke-05`，复审用 worktree `gdds-fe-fe3a-review`/`gdds-fe-fe3a-rereview` 未动。N2（运行时 manifest 无 `bundle_id`）不改判据，改记录 Preview 的 `bundle_digest`（本轮 A/B②/C/D/FULL 均已记录）。
+
+**本轮 05 运行（均在新候选 `09715b2205` 上；节点 `gw-dms-test-05.lan`）：**
+
+| 运行 | 起止（UTC） | 结果 | 日志/证据 |
+| --- | --- | --- | --- |
+| 全量前端 runner（typecheck、lint、单测、构建、e2e） | 11:18:58–11:19:52 | exit 0；30 个单测文件 143 项、34 e2e、截图在 `/home/dev/gdds-fe-evidence/fe3a-r2/screens` | `/home/dev/gdds-fe-logs/frontend-r2/frontend-tests-20261105T111858Z.log`，SHA256 `328a284b68cdd2654bdb3c6953254f7511a27e7b6e18bc7a84a491523e06bd26` |
+| 真实 smoke（`--session fe3a-impl`） | 11:20:12–11:21:52 | exit 0；9 passed；`suite_stats_expected=9 unexpected=0 skipped=0 flaky=0 errors=0`；`cleanup_status=ok` | `/home/dev/gdds-fe-logs/fe3a/real-smoke-r2/real-backend-e2e-smoke-fe3a-impl-09715b2205-20261105T112012Z-1388946.log`，SHA256 `b22559065501df762befbc4e4c6736298894ea0f27e3b4d9eac542b2909a5bce` |
+| R1 容器内 Playwright 中断探针（`--session fe3a-probe-int`） | 11:22:00–11:23:20 | 脚本 rc=1（预期失败）；`playwright_process_exit=130`；失败原因 `skipped=8`、`playwright_exit=130`；`cleanup_status=ok`；无残留 | `/home/dev/gdds-fe-logs/fe3a/probes-r2/log/real-backend-e2e-smoke-fe3a-probe-int-09715b2205-20261105T112200Z-1395813.log`，SHA256 `ca6a60995213d0941bb586eb08a66b8328974a3cbf6e9b0676b48cdeb69a4917` |
+
+占用记录：
+
+- runner 由外层 wrapper 手工获取：marker `session=fe3a-impl; purpose=fe3a-fix-runner; started_at=2026-11-05T11:18:58Z; hostname=gw-dms-test-05.lan; worktree=/home/dev/gdds-fe-fe3a-r2; head=09715b22057f…`；运行结束删除 marker 并 `rmdir`，释放时间 11:19:52Z。该 marker 不由脚本记录，时间取 runner 日志起止。
+- smoke 由脚本获取：`session=fe3a-impl;purpose=fe3a-real-backend-e2e-smoke;started_at=2026-11-05T11:20:12Z;hostname=gw-dms-test-05.lan;worktree=/home/dev/gdds-fe-fe3a-r2;head=09715b22057f…;`，`occupancy_acquired_at=11:20:12Z`、`flock_acquired_at=11:20:12Z`；`flock_released_at=11:21:52Z`、`occupancy_released_at=11:21:52Z`。Compose 项目 `gdds-fe-fe3a-09715b22057f-20261105t112054z`。
+- R1 探针由脚本获取：`session=fe3a-probe-int;purpose=fe3a-real-backend-e2e-smoke;started_at=2026-11-05T11:22:00Z;hostname=gw-dms-test-05.lan;worktree=/home/dev/gdds-fe-probe-r2;head=09715b22057f…;`，`occupancy_acquired_at=11:22:00Z`、`flock_acquired_at=11:22:00Z`；`flock_released_at=11:23:20Z`、`occupancy_released_at=11:23:20Z`。Compose 项目 `gdds-fe-fe3a-09715b22057f-20261105t112238z`。
+- 探针后手工核对：`docker ps -a --filter name=gdds-fe-fe3a-`、卷、网络均为空；RS tag `gateway-repository-service:fe-09715b22057f` 不存在；`/home/dev/gdds-node-busy.d` 不存在；8000 与 dolt 均空闲。
+
+5 个输入 scope 的比较对（smoke 记录）：A `0→1 changed=9`；B② `0→1 changed=9`；C `0→1 changed=9`；D `0→1 changed=4`；B FULL `0→1 changed=9` 与 `1→2 changed=5`，`initial_to_modified=SAME_PROJECT`。每个 scope `failed_pairs=0`、每对 `failed_table_count=0`；D 的 `identity_pairs=NOT_APPLICABLE`；各 scope 的 `bundle_digest` 已写进日志（A `sha256:bc32f00b…`、B② `sha256:5a172289…`、C `sha256:3fd46faa…`、D `sha256:6b922249…`、FULL `sha256:de213182…`）。
+
+R1 探针做法：Python `Popen(..., start_new_session=True)` 启动脚本；等日志出现 `suite_start=smoke` 后，用 `docker exec gdds-fe-fe3a-09715b22057f-20261105t112238z-toolchain pkill -INT -f "playwright test"` 中断容器内的 Playwright，再等脚本退出。脚本自身 rc=1，说明它不再把“部分用例 + Playwright 130”误判为通过。
+
+失败运行记录：R1 探针本身就是“预期失败”的验证运行（脚本 rc=1，原因如上），不是脚本缺陷；无 DC68 重做。runner 与 smoke 均一次通过。工具链镜像、npm 缓存、依赖镜像与 §0.2 相同；本轮日志记录了 `RootFS.Layers`、镜像 ID 与缓存归档 SHA256。
+
 
 ## 1. 改动清单与完成标准的逐条对应
 
@@ -249,7 +287,7 @@ sha256:0786de6e3e245c59c77a485e08af84aacca7e3614e199891f0b630637357df35
 
 ## 6. M1 打包测量（§8.4，最终候选）
 
-- 节点：05；提交：`ee064f11cc66632a4832df082840f56bad7b8` 的 frontend 树；方法：生产构建、Playwright Chromium、每次新 browser、`clear_refs=5` + `VmHWM` 增量、主指标 renderer、包大小取 manifest `size_bytes`、打包耗时取 `data-phase` 的 `packaging`→`uploading`。只走模拟 API。
+- 节点：05；提交：`ee064f11cc66632a4832d62df082840f56bad7b8` 的 frontend 树；方法：生产构建、Playwright Chromium、每次新 browser、`clear_refs=5` + `VmHWM` 增量、主指标 renderer、包大小取 manifest `size_bytes`、打包耗时取 `data-phase` 的 `packaging`→`uploading`。只走模拟 API。
 - 报告目录：`/home/dev/gdds-fe-evidence/fe3a/m1-ee064f11cc66/`；日志目录：`/home/dev/gdds-fe-logs/fe3a/m1-ee064f11cc66-*`。
 
 | 场景 | 输入 | 3 次 renderer 峰值增量（MiB） | 中位数 | 最大值 | 3 次浏览器主进程增量（MiB） | 3 次打包耗时（ms） | 包大小 |
@@ -304,7 +342,7 @@ sha256:0786de6e3e245c59c77a485e08af84aacca7e3614e199891f0b630637357df35
 2. **套件范围：** FE3a 只实现并验证 `--suite smoke`；`journeys`、`t1` 与 `--input-root` 明确 exit 2，留待 FE3b。真实旅程、t1 旅程、归档/审核/撤回的真实 e2e 未在 FE3a 运行。
 3. **FULL 与 D 的规范语义：** 空 INITIAL 上只能证明被接受、可比较、无失败表；FULL 的“① 原始 + ② 归档”与 D 的 `DIFFERENT_PROJECT` 身份确认要在 FE3b 归档后才能完全证实，属已知留项。
 4. **04 取证未执行：** 按要求 04 取证在审核通过后进行；本 handoff 只包含 05 的调试证据。审核通过后需在 04 clean detached worktree 上运行 `run-tests.sh --e2e --screenshots` 与 `run-real-backend-e2e.sh --suite smoke`。
-5. **M1 的运行环境：** 按 §8.4 用模拟接口（stub）测量，不连真实 backend；测量的是前端打包内存，不受 backend 影响。偏差：用生产构建而非开发构建测量；这是 §4.1 的明确要求，但与“开发构建”口径不同，已在 §6 与本节记录。
+5. **M1 的运行环境：** 按 §8.4 用模拟接口（stub）测量，不连真实 backend；测量的是前端打包内存，不受 backend 影响。偏差：用生产构建而非开发构建测量；这是 §8.4 的明确要求，但与“开发构建”口径不同，已在 §6 与本节记录。
 6. **M1 指标范围：** 按 owner Q12 只看 renderer；浏览器主进程增量仅报告。`RssAnon/RssFile/RssShmem` 拆分留 FE3b，不在本轮判据内。
 7. **n3 的失败分支**由模拟接口 e2e 覆盖（操作查询停在 RUNNING 后放行），未在真实 backend 上重放；当前 backend 还没有对应接口状态。
 8. **05 占用等待：** 07:35Z–07:43Z 05 被 owner 的 `p6-four-workers-exit-fix` 占用，早期 smoke 等待其释放；本轮 09:48Z 之后无等待。

@@ -184,7 +184,7 @@ if ! docker image inspect "$DEPENDENCY_TAG" >/dev/null 2>&1; then
   log "error=dependency-base image missing locally: $DEPENDENCY_TAG (cache miss, stop)"
   exit 2
 fi
-DEP_LABEL="$(docker image inspect "$DEPENDENCY_TAG" --format '{{index .Config.Labels "gateway.backend.dependency-input-sha256}}')"
+DEP_LABEL="$(docker image inspect "$DEPENDENCY_TAG" --format '{{index .Config.Labels "gateway.backend.dependency-input-sha256"}}')"
 log "dependency_input_label=$DEP_LABEL"
 
 # RS dependency tag + label check (kickoff §4.3).
@@ -196,7 +196,7 @@ if ! docker image inspect "$RS_DEP_TAG" >/dev/null 2>&1; then
   log "error=RS dependency image missing: $RS_DEP_TAG (cache miss, stop)"
   exit 2
 fi
-RS_LABEL="$(docker image inspect "$RS_DEP_TAG" --format '{{index .Config.Labels "gateway.p2r1.uv-lock-sha256}}')"
+RS_LABEL="$(docker image inspect "$RS_DEP_TAG" --format '{{index .Config.Labels "gateway.p2r1.uv-lock-sha256"}}')"
 if [[ "$RS_LABEL" != "$RS_UV_SHA" ]]; then
   log "error=RS dependency label mismatch: $RS_LABEL != $RS_UV_SHA"
   exit 2

@@ -50,8 +50,12 @@ async function readVmHWM(pid: number): Promise<number | null> {
 }
 
 async function chromePids(): Promise<number[]> {
-  const { stdout } = await execFileAsync("pgrep", ["-f", "chrome"]).catch(() => ({ stdout: "" }));
-  return stdout.split("\n").map((s) => Number(s.trim())).filter(Boolean);
+  for (const pattern of ["chrome", "headless", "playwright"]) {
+    const { stdout } = await execFileAsync("pgrep", ["-f", pattern]).catch(() => ({ stdout: "" }));
+    const pids = stdout.split("\n").map((s) => Number(s.trim())).filter(Boolean);
+    if (pids.length > 0) return pids;
+  }
+  return [];
 }
 
 test("M1 packaging peak memory", async ({ page }) => {

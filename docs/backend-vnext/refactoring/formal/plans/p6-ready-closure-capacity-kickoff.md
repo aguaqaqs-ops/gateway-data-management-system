@@ -25,7 +25,7 @@ W4/S4/H1 场景 `p6bw4s4h120261105a` 在 `v2-preview` 报 `operation.pure_recomp
 - 当前获准场景至多三侧、两 pair，当前 builder 的 `projections=()`；各侧最多 639 表时，可直接取 `T_pair ≤ 1,278`，不依赖各侧表名相同。FULL Preview 上界为 **31,964**，两 pair History 上界为 **28,127**，分别低于候选上限 804 和 4,641 项。W4-STRESS 只增行数、不增表数；单 rowfile 前提须包括 baseline 导入侧。新增表、分片 rowfile、projection 或更多节点必须重算，不能把本次容量证明泛化到任意输入。
 - 实施者已报告 W4 10%/100% summary 各 638 表、t4 v1/v2 census 各 639 表，以及原成功 v1 闭包 2,528/910 refs。失败 assemble state 未持久化，实际失败数量不可恢复，只能确定超过 4,096。上述报告值须绑定诊断日志及 SHA，由审核者独立复核；不为取得失败精确值重跑 Preview。
 
-字节预算限定当前 producer 的固定 ASCII media type（保守按不超过 64 字节）、ArtifactRef 既有 ASCII ID 上限 128 字节、I-JSON size 上限的 16 位十进制整数、两份各 64 字节 SHA，以及当前固定 job contract version。按现有 entry JSON shape，每项最多 463 字节；计入分隔逗号、32,768 项和宽松 1,024 字节文档头，预算为 **15,205,376 字节（约 14.501 MiB）**。这是当前获准路径的序列化预算，须核实实际 producer/media 来源；不是任意 ArtifactRef 的通用字节上界，不新增 media type 限制或 READY 字节 cap，也不等同于解析/JCS 的峰值内存。既有成功闭包的实际 bytes 仅作对照样本。独立的 surface/bundle 16 MiB 限制保持不变，不与 READY 文档混用。
+字节预算限定当前 producer 的固定 ASCII media type（保守按不超过 64 字节）、ArtifactRef 既有 ASCII ID 上限 128 字节、I-JSON size 上限的 16 位十进制整数、两份各 71 字节 DigestRef（`sha256:` 前缀加 64 位 hex），以及当前固定 job contract version。按现有 entry JSON shape，每项最多 477 字节；计入分隔逗号、32,768 项和宽松 1,024 字节文档头，预算为 **15,664,128 字节（约 14.938 MiB）**。这是当前获准路径的序列化预算，须核实实际 producer/media 来源；不是任意 ArtifactRef 的通用字节上界，不新增 media type 限制或 READY 字节 cap，也不等同于解析/JCS 的峰值内存。既有成功闭包的实际 bytes 仅作对照样本。独立的 surface/bundle 16 MiB 限制保持不变，不与 READY 文档混用。
 
 定值补审只需核实上述输入/单 rowfile/producer 前提和日志出处，不要求重扫全部历史卷或精确还原未落盘的失败集合。前提与预算通过后以 32,768 实施；如任一前提不成立，先修正本节的容量推导。
 

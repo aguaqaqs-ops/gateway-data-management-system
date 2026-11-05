@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayApi } from "./client";
-import { applyReviewAction, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
+import { applyReviewAction, createArchiveJourneyProgress, runArchiveJourney, runDatasetReplacementPreview, runPreviewJourney, runReviewHistoryJourney, runSubmitJourney } from "./journeys";
 import { MemoryBundleStore } from "../bundle/local-bundle";
 import { installedFixtureBundle, installedGoldenBundle, responseForTar } from "../../test/helpers";
-import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_REVIEW_HISTORY, TEST_REVIEW_HISTORY_EMPTY, TEST_REVIEW_HISTORY_NO_PARENT, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testHistoryCompareAcceptance, testHistoryCompareSucceeded, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED } from "../dev/mock-data";
+import { ARCHIVE_PLAN_NEEDS_CONFIRMATION, ARCHIVE_PLAN_READY, TEST_ARCHIVE_CANDIDATES, TEST_ARCHIVE_CONFIRM_APPEND, TEST_ARCHIVE_EVENTS_EMPTY, TEST_ARCHIVE_ANOMALY_EVENT, TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION, TEST_ARCHIVE_RESOLUTION_APPEND, TEST_ARCHIVE_RESULT, TEST_ARCHIVE_STARTED, TEST_OPERATION_ACCEPTED, TEST_OPERATION_SUBMIT_SUCCEEDED, TEST_OPERATION_SUCCEEDED, TEST_PREVIEW_RESULT_OTHER_OPERATION, TEST_PREVIEW_RESULT_OTHER_UPLOAD, TEST_REVIEW_FACTS, TEST_REVIEW_HISTORY, TEST_REVIEW_HISTORY_EMPTY, TEST_REVIEW_HISTORY_NO_PARENT, TEST_SUBMISSION, TEST_SUBMIT_ACCEPTED, TEST_SUBMIT_ATTEMPT_FINALIZED, TEST_UPLOAD_FULL, TEST_WORKSPACE, testArchiveResultWithRefs, testHistoryCompareAcceptance, testHistoryCompareSucceeded, testPreviewResult, testUploadRevision, TEST_REVIEW_APPLIED } from "../dev/mock-data";
 
 const operation = TEST_OPERATION_SUCCEEDED;
 const upload = TEST_UPLOAD_FULL;
@@ -29,7 +29,7 @@ describe("simulated user journey data flows", () => {
       poll: { intervalMs: 0, wait: async () => undefined },
     });
     expect(api.uploadRevision).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expectedWorkspaceVersion: 10 }));
-    expect(api.startPreview).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 9, expected_baseline_head_version: 12 }));
+    expect(api.startPreview).toHaveBeenCalledWith("ws-1", expect.objectContaining({ expected_workspace_version: 9, expected_baseline_head_version: 12 }), expect.any(String));
     expect(api.getOperation).toHaveBeenCalledWith("op-1", expect.any(AbortSignal));
     expect(getPreviewBundle).toHaveBeenCalledTimes(1);
     expect(result.bundle.manifest.bundle_digest).toBe(fixture.manifest.bundle_digest);
@@ -137,12 +137,23 @@ describe("simulated user journey data flows", () => {
       applyReview: vi.fn().mockResolvedValue(TEST_REVIEW_APPLIED),
     } as unknown as GatewayApi;
 
-    await expect(applyReviewAction(api, "fe2a-history-ref-2", "REJECT", "  ")).rejects.toThrow("退回时必须填写理由");
+    await expect(applyReviewAction(api, "fe2a-history-ref-2", TEST_REVIEW_FACTS.review_version, "REJECT", "  ")).rejects.toThrow("退回时必须填写理由");
     expect(api.applyReview).not.toHaveBeenCalled();
-    await applyReviewAction(api, "fe2a-history-ref-2", "APPROVE");
-    expect(api.applyReview).toHaveBeenCalledWith("fe2a-history-ref-2", { expected_review_version: 5, action: "APPROVE" });
+    await applyReviewAction(api, "fe2a-history-ref-2", TEST_REVIEW_FACTS.review_version, "APPROVE");
+    expect(api.applyReview).toHaveBeenCalledWith("fe2a-history-ref-2", { expected_review_version: TEST_REVIEW_FACTS.review_version, action: "APPROVE" });
   });
-
+  it("sends the on-screen review version with the dialog key (B6 probe target)", async () => {
+    // Contract: §6.2 + journeys applyReviewAction must send facts.review_version (the version the
+    // reviewer saw) with the per-dialog idempotency key. Negative probe (§9 B6): re-reading the
+    // version inside applyReviewAction or minting a fresh key per click must fail here.
+    const api = {
+      getReviewFacts: vi.fn().mockResolvedValue({ ...TEST_REVIEW_FACTS, review_version: 999 }),
+      applyReview: vi.fn().mockResolvedValue(TEST_REVIEW_APPLIED),
+    } as unknown as GatewayApi;
+    await applyReviewAction(api, "fe2a-history-ref-2", TEST_REVIEW_FACTS.review_version, "APPROVE", undefined, "dialog-key-1");
+    expect(api.getReviewFacts).not.toHaveBeenCalled();
+    expect(api.applyReview).toHaveBeenCalledWith("fe2a-history-ref-2", { expected_review_version: TEST_REVIEW_FACTS.review_version, action: "APPROVE" }, "dialog-key-1");
+  });
   it("previews the archive plan and applies the candidate snapshot with current versions", async () => {
     const api = {
       listArchiveCandidates: vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES),
@@ -162,7 +173,9 @@ describe("simulated user journey data flows", () => {
     const listArchiveCandidates = vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES);
     const api = {
       listArchiveCandidates,
-      listArchiveEvents: vi.fn().mockResolvedValue(TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION),
+      listArchiveEvents: vi.fn(async (query: { subjectKind: string; subjectDigest: string }) => query.subjectDigest === "sha256:selection-subject"
+        ? TEST_ARCHIVE_EVENTS_WITH_CONFIRMATION
+        : query.subjectDigest === "sha256:anomaly" ? { events: [TEST_ARCHIVE_ANOMALY_EVENT], next_after_sequence: null } : TEST_ARCHIVE_EVENTS_EMPTY),
       previewArchive: vi.fn().mockResolvedValueOnce(firstPlan).mockResolvedValueOnce(readyPlan),
       appendArchiveConfirmation: vi.fn().mockResolvedValue(TEST_ARCHIVE_CONFIRM_APPEND),
       appendArchiveAnomalyResolution: vi.fn().mockResolvedValue(TEST_ARCHIVE_RESOLUTION_APPEND),
@@ -174,8 +187,72 @@ describe("simulated user journey data flows", () => {
       confirmations: [{ subjectDigest: "sha256:selection-subject", action: "CONFIRM", reason: "已核对" }],
       anomalyResolutions: [{ subjectDigest: "sha256:anomaly", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", reason: "已人工确认" }],
     });
-    expect(api.appendArchiveConfirmation).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 6, expected_baseline_head_version: 21 }));
-    expect(api.appendArchiveAnomalyResolution).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 7, issue_code: "PROJECT_IDENTITY_EXCEPTION", subject_kind: "PROJECT_IDENTITY_EXCEPTION" }));
-    expect(api.startArchive).toHaveBeenCalledWith(expect.objectContaining({ confirmation_refs: [{ subject_digest: "sha256:selection-subject", sequence: 6 }], anomaly_resolution_refs: [{ subject_digest: "sha256:anomaly", sequence: 7 }] }), undefined);
+    expect(api.listArchiveEvents).toHaveBeenCalledWith(expect.objectContaining({ subjectKind: "CONFIRM_SELECTION", subjectDigest: "sha256:selection-subject", afterSequence: 0 }));
+    expect(api.appendArchiveConfirmation).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 5, expected_baseline_head_version: 21 }), expect.any(String));
+    expect(api.listArchiveEvents).toHaveBeenCalledWith(expect.objectContaining({ subjectKind: "PROJECT_IDENTITY_EXCEPTION", subjectDigest: "sha256:anomaly", afterSequence: 0 }));
+    expect(api.appendArchiveAnomalyResolution).toHaveBeenCalledWith(expect.objectContaining({ expected_sequence: 7, issue_code: "PROJECT_IDENTITY_EXCEPTION", subject_kind: "PROJECT_IDENTITY_EXCEPTION" }), expect.any(String));
+    expect(api.startArchive).toHaveBeenCalledWith(expect.objectContaining({ confirmation_refs: [{ subject_digest: "sha256:selection-subject", sequence: 6 }], anomaly_resolution_refs: [{ subject_digest: "sha256:anomaly", sequence: 7 }] }), expect.any(String));
+  });
+
+  it("gives each anomaly resolution its own key and expected sequence", async () => {
+    const firstAnomaly = ARCHIVE_PLAN_NEEDS_CONFIRMATION.anomalies[0]!;
+    const twoAnomaliesPlan = {
+      ...ARCHIVE_PLAN_NEEDS_CONFIRMATION,
+      confirmation_requirements: [],
+      anomalies: [firstAnomaly, { ...firstAnomaly, subject_digest: "sha256:anomaly-2", target_submission_id: "submission-2" }],
+    };
+    const api = {
+      listArchiveCandidates: vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES),
+      listArchiveEvents: vi.fn().mockResolvedValue(TEST_ARCHIVE_EVENTS_EMPTY),
+      previewArchive: vi.fn().mockResolvedValueOnce(twoAnomaliesPlan).mockResolvedValue(ARCHIVE_PLAN_READY),
+      appendArchiveAnomalyResolution: vi.fn(async (body: { subject_digest: string }) =>
+        body.subject_digest === "sha256:anomaly" ? TEST_ARCHIVE_RESOLUTION_APPEND : { event_id: "event-8", sequence: 8 }),
+      startArchive: vi.fn().mockResolvedValue(TEST_ARCHIVE_STARTED),
+      getArchiveResult: vi.fn().mockResolvedValue(testArchiveResultWithRefs()),
+    } as unknown as GatewayApi;
+    await runArchiveJourney(api, {
+      selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
+      anomalyResolutions: [
+        { subjectDigest: "sha256:anomaly", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", reason: "已人工确认" },
+        { subjectDigest: "sha256:anomaly-2", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION", reason: "已人工确认" },
+      ],
+    });
+    const calls = vi.mocked(api.appendArchiveAnomalyResolution).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[1]).toEqual(expect.any(String));
+    expect(calls[0]?.[1]).not.toBe(calls[1]?.[1]);
+    expect(calls.map(([body]) => body.expected_sequence)).toEqual([0, 0]);
+    expect(vi.mocked(api.startArchive).mock.calls[0]?.[0].anomaly_resolution_refs).toEqual([
+      { subject_digest: "sha256:anomaly", sequence: 7 },
+      { subject_digest: "sha256:anomaly-2", sequence: 8 },
+    ]);
+  });
+
+  it("resumes archive retries after a failed start without resending audit events", async () => {
+    const progress = createArchiveJourneyProgress();
+    const api = {
+      listArchiveCandidates: vi.fn().mockResolvedValue(TEST_ARCHIVE_CANDIDATES),
+      listArchiveEvents: vi.fn().mockResolvedValue(TEST_ARCHIVE_EVENTS_EMPTY),
+      previewArchive: vi.fn().mockResolvedValueOnce(ARCHIVE_PLAN_NEEDS_CONFIRMATION).mockResolvedValue(ARCHIVE_PLAN_READY),
+      appendArchiveConfirmation: vi.fn().mockResolvedValue(TEST_ARCHIVE_CONFIRM_APPEND),
+      appendArchiveAnomalyResolution: vi.fn().mockResolvedValue(TEST_ARCHIVE_RESOLUTION_APPEND),
+      startArchive: vi.fn().mockRejectedValueOnce(new Error("start unavailable")).mockResolvedValue(TEST_ARCHIVE_STARTED),
+      getArchiveResult: vi.fn().mockResolvedValue(testArchiveResultWithRefs()),
+    } as unknown as GatewayApi;
+    const input = {
+      selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
+      confirmations: [{ subjectDigest: "sha256:selection-subject", action: "CONFIRM" as const, reason: "已核对" }],
+      anomalyResolutions: [{ subjectDigest: "sha256:anomaly", action: "ACKNOWLEDGE_IDENTITY_EXCEPTION" as const, reason: "已人工确认" }],
+    };
+    await expect(runArchiveJourney(api, input, progress)).rejects.toThrow("start unavailable");
+    await runArchiveJourney(api, input, progress);
+    expect(api.appendArchiveConfirmation).toHaveBeenCalledTimes(1);
+    expect(api.appendArchiveAnomalyResolution).toHaveBeenCalledTimes(1);
+    const startCalls = vi.mocked(api.startArchive).mock.calls;
+    expect(startCalls).toHaveLength(2);
+    expect(startCalls[0]?.[1]).toEqual(expect.any(String));
+    expect(startCalls[0]?.[1]).toBe(startCalls[1]?.[1]);
+    expect(startCalls[1]?.[0].confirmation_refs).toEqual([{ subject_digest: "sha256:selection-subject", sequence: 6 }]);
+    expect(api.getArchiveResult).toHaveBeenCalledTimes(1);
   });
 });

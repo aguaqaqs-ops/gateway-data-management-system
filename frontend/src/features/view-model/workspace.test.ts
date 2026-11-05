@@ -25,12 +25,12 @@ describe("formal workbench tree and contextual actions", () => {
     expect(rows.find((row) => row.refId === "fe2a-history-ref-1")?.hasChildren).toBe(true);
   });
 
-  it("shows workspace actions and keeps upload disabled with its prerequisite", () => {
+  it("shows workspace actions and gates upload on card readiness", () => {
     const workspace = buildWorkspaceTree(WORKSPACE_RESPONSE, history).find((row) => row.kind === "workspace") ?? null;
     expect(deriveWorkbenchActions(workspace, 0, false)).toEqual([
       { id: "original-backup", label: "原始组态备份", enabled: true, reason: null },
       { id: "current-archive", label: "本次归档组态", enabled: true, reason: null },
-      { id: "upload", label: "上传", enabled: false, reason: "需先选择本次归档组态目录" },
+      { id: "upload", label: "上传", enabled: true, reason: null },
     ]);
     const beforePreview = buildWorkspaceTree({ ...WORKSPACE_RESPONSE, current_preview_result_id: null }, history).find((row) => row.kind === "workspace") ?? null;
     expect(beforePreview?.status).toBe("已上传");

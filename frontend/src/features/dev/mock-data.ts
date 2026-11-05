@@ -369,14 +369,18 @@ export const TEST_REVIEW_APPLIED = {
 
 export const ARCHIVE_PLAN_READY = {
   head: { business_baseline_node_id: "baseline-4", business_baseline_commit_id: "commit-a", baseline_head_version: 21 },
-  candidate_set_digest: "sha256:candidates", confirmation_requirements: [], anomalies: [], audit_validity: true,
+  selected: { submission_id: "submission-1", expected_candidate_digest: "sha256:candidate" },
+  selection_subject_digest: "sha256:selection-subject",
+  candidate_set_digest: "sha256:candidates", confirmation_requirements: ["sha256:selection-subject"],
+  anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
+  audit_validity: true,
   dispositions: [], workspace_releases: [], can_start: true, blockers: [],
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const ARCHIVE_PLAN_NEEDS_CONFIRMATION = {
   ...ARCHIVE_PLAN_READY, confirmation_requirements: ["sha256:selection-subject"],
   anomalies: [{ subject_kind: "PROJECT_IDENTITY_EXCEPTION", issue_code: "PROJECT_IDENTITY_EXCEPTION", target_submission_id: "submission-1", target_candidate_digest: "sha256:candidate", subject_digest: "sha256:anomaly" }],
-  can_start: false, blockers: [],
+  can_start: false, blockers: [], audit_validity: false,
 } satisfies Schemas["PreviewArchivePlanResponse"];
 
 export const TEST_ARCHIVE_CANDIDATES = {
@@ -387,7 +391,7 @@ export const TEST_ARCHIVE_CANDIDATES_BLOCKED = {
 } satisfies Schemas["ArchiveCandidatesResponse"];
 
 export const TEST_ARCHIVE_CONFIRM_EVENT = {
-  event_id: "event-5", subject_kind: "CONFIRM_SELECTION", subject_digest: "sha256:old-selection-subject", sequence: 5,
+  event_id: "event-5", subject_kind: "CONFIRM_SELECTION", subject_digest: "sha256:selection-subject", sequence: 5,
   action: "CONFIRM", issue_code: null, actor_id: "owner", occurred_at: "2026-11-03T09:00:00Z",
 } satisfies Schemas["ArchiveAuditEventResponse"];
 
@@ -497,3 +501,45 @@ export function testHistoryCompareSucceeded(bundleDigest: string): Schemas["Hist
 }
 
 export const RESPONSE_SOURCE_TABLE = "frontend/src/features/dev/mock-data.ts:SIMULATED_STRING_VALUES";
+
+const REQUIRED_IDEMPOTENCY_KEY_ROUTES: ReadonlyArray<{ name: string; pattern: RegExp }> = [
+  { name: "upload revision", pattern: /^\/v1\/workspaces\/[^/]+\/upload-revisions$/ },
+  { name: "preview operation", pattern: /^\/v1\/workspaces\/[^/]+\/preview-operations$/ },
+  { name: "submit attempt", pattern: /^\/v1\/workspaces\/[^/]+\/submit-attempts$/ },
+  { name: "review event", pattern: /^\/v1\/submissions\/[^/]+\/review-events$/ },
+  { name: "history compare", pattern: /^\/v1\/history-compares$/ },
+  { name: "archive confirmation", pattern: /^\/v1\/archive-confirmations$/ },
+  { name: "archive anomaly resolution", pattern: /^\/v1\/archive-anomaly-resolutions$/ },
+  { name: "archive start", pattern: /^\/v1\/archives$/ },
+];
+
+/**
+ * Request-side constraints shared by the e2e route stubs and unit tests (kickoff §7.5).
+ * The backend returns 422 REQUEST_VALIDATION_FAILED before the handler runs; mirroring it here
+ * keeps a missing header or query parameter from silently succeeding in the simulated API.
+ */
+export function validateSimulatedRequest(input: {
+  method: string;
+  url: URL;
+  headers: Record<string, string | undefined>;
+}): { code: string; message: string } | null {
+  const method = input.method.toUpperCase();
+  const path = input.url.pathname;
+  const idempotencyKey = headerValue(input.headers, "idempotency-key");
+  if (method === "POST" && path === "/v1/workspaces" && idempotencyKey) {
+    return { code: "REQUEST_VALIDATION_FAILED", message: "POST /v1/workspaces 不接受 Idempotency-Key" };
+  }
+  if (method === "GET" && path === "/v1/archive-audit-events"
+    && (!input.url.searchParams.get("subject_kind") || !input.url.searchParams.get("subject_digest"))) {
+    return { code: "REQUEST_VALIDATION_FAILED", message: "缺少 subject_kind 或 subject_digest" };
+  }
+  if (method === "POST" && REQUIRED_IDEMPOTENCY_KEY_ROUTES.some((route) => route.pattern.test(path)) && !idempotencyKey) {
+    return { code: "REQUEST_VALIDATION_FAILED", message: "缺少 Idempotency-Key" };
+  }
+  return null;
+}
+
+function headerValue(headers: Record<string, string | undefined>, name: string): string | undefined {
+  const key = Object.keys(headers).find((item) => item.toLowerCase() === name);
+  return key ? headers[key] : undefined;
+}

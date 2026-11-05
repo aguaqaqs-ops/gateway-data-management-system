@@ -17,10 +17,13 @@ describe("History comparison intent keys", () => {
     ] } satisfies Request;
     const first = resolveHistoryCompareIntent(null, viewDiffRequest, createKey);
     const start = vi.fn()
-      .mockImplementationOnce(() => new Promise((resolve) => window.setTimeout(() => resolve({ operation_id: "op-1" }), 30)))
+      .mockImplementationOnce(() => new Promise((resolve) => globalThis.setTimeout(() => resolve({ operation_id: "op-1" }), 30)))
       .mockResolvedValueOnce({ operation_id: "op-1" });
+    const firstRequest = start(first.request, first.key);
 
-    await expect(requestWithTimeout(start(first.request, first.key), 2)).rejects.toMatchObject({ name: "TimeoutError" });
+    const timeoutPromise = requestWithTimeout(firstRequest, 2);
+    await expect(timeoutPromise).rejects.toMatchObject({ name: "TimeoutError" });
+    await firstRequest.catch(() => undefined);
     const restored = readHistoryCompareIntent(JSON.stringify(first));
     const retry = resolveHistoryCompareIntent(restored, viewDiffRequest, createKey);
     await expect(requestWithTimeout(start(retry.request, retry.key), 100)).resolves.toEqual({ operation_id: "op-1" });

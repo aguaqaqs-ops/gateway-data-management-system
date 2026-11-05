@@ -45,7 +45,7 @@ export function resolveHistoryCompareIntent(
 
 export function requestWithTimeout<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new DOMException("历史比较请求仍在处理", "TimeoutError")), timeoutMs);
-    request.then((value) => { window.clearTimeout(timer); resolve(value); }, (cause: unknown) => { window.clearTimeout(timer); reject(cause); });
+    const timer = globalThis.setTimeout(() => reject(new DOMException("历史比较请求仍在处理", "TimeoutError")), timeoutMs);
+    request.then((value) => { globalThis.clearTimeout(timer); resolve(value); }, (cause: unknown) => { globalThis.clearTimeout(timer); reject(cause); });
   });
 }

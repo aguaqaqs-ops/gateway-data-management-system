@@ -6,6 +6,7 @@ import { PollingConnectionLostError, runSubmitJourney, SubmitAbortedError } from
 import { currentGatewaySession } from "../api/session";
 import { Button, Dialog } from "../../design-system/components";
 import { formatWaitDuration } from "./wait-duration";
+import { describeSubmitSummary } from "./submit-summary";
 
 type Schemas = components["schemas"];
 type Preview = Schemas["PreviewResultResponse"];
@@ -72,7 +73,6 @@ function retainsIdempotencyKey(cause: unknown): boolean {
   return cause instanceof TypeError;
 }
 
-
 interface SubmitDialogProps {
   open: boolean;
   workspaceId: string;
@@ -85,6 +85,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
   const [preview, setPreview] = useState<Preview | null>(null);
   const [workspaceVersion, setWorkspaceVersion] = useState<number | null>(null);
   const [head, setHead] = useState<Schemas["HistoryListResponse"]["head"] | null>(null);
+  const [historyNodes, setHistoryNodes] = useState<Schemas["HistoryListResponse"]["nodes"]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirmations, setConfirmations] = useState<Record<string, { confirmed: boolean; reason: string }>>({});
@@ -112,6 +113,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
     setPreview(null);
     setWorkspaceVersion(null);
     setHead(null);
+    setHistoryNodes([]);
     idempotencyKey.current = crypto.randomUUID();
     const session = currentGatewaySession();
     void Promise.all([
@@ -123,6 +125,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
       setPreview(loadedPreview);
       setWorkspaceVersion(workspace.optimistic_version);
       setHead(history.head);
+      setHistoryNodes(history.nodes);
     }).catch((cause: unknown) => {
       if (!cancelled) setLoadError(cause instanceof Error ? cause.message : String(cause));
     }).finally(() => { if (!cancelled) setLoading(false); });
@@ -138,6 +141,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
   const requiredPairs = (preview?.identity_pairs ?? []).filter((pair): pair is RequiredPair => pair.status === "DIFFERENT_PROJECT" || pair.status === "UNVERIFIABLE");
   const missing = requiredPairs.some((pair) => !confirmations[pair.pair_id]?.confirmed || !confirmations[pair.pair_id]?.reason.trim());
   const stale = Boolean(preview?.derived_stale);
+  const summary = preview && head ? describeSubmitSummary(preview, { head, nodes: historyNodes }) : [];
   const canSubmit = Boolean(preview && workspaceVersion !== null && head && !stale && !missing && !loading && !submitting);
 
   async function submit() {
@@ -204,7 +208,7 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
 
   const manualRecovery = operation?.status === "MANUAL_RECOVERY_REQUIRED";
   return <Dialog open={open} title={submitted ? "提交已完成" : "提交本次组态"} onClose={() => { if (!submitting) onClose(); }} alert={(submitting && manualRecovery) || aborted || failure ? <div>
-    {submitting && manualRecovery && <p role="alert" className="submit-progress submit-progress--manual">需要管理员处理。操作 ID <code>{operationId}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operationId ?? "")}>复制 ID</button>系统仍在查询状态；刷新页面后会继续跟随。</p>}
+    {submitting && manualRecovery && <div role="alert" className="form-error" title={operationId ? `操作 ID：${operationId}` : undefined}><span>需要管理员处理。</span><span>操作 ID：<code>{operationId}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operationId ?? "")}>复制 ID</button></span><span>系统仍在查询状态；刷新页面后会继续跟随。</span></div>}
     {aborted && <div role="alert" className="form-error" title={`原始错误代码：${aborted}`}>
       <span>提交未完成，请检查上传与 Preview 后重试。</span>
       <span>错误代码：<code>{aborted}</code></span>
@@ -225,10 +229,12 @@ export function SubmitDialog({ open, workspaceId, previewResultId, onClose, onSu
     {loadError && <p role="alert" className="form-error">无法加载 Preview：{loadError}</p>}
     {!loading && !loadError && preview && !submitted && <>
       <dl className="confirm-summary">
-        <div><dt>工作区</dt><dd>{preview.workspace_id}</dd></div>
-        <div><dt>Preview</dt><dd>{preview.preview_result_id}</dd></div>
-        <div><dt>业务基线</dt><dd>{preview.business_baseline_node_id}</dd></div>
-        <div><dt>代次</dt><dd>{preview.generation}</dd></div>
+        {summary.map((row) => (
+          <div key={row.term}>
+            <dt>{row.term}</dt>
+            <dd title={typeof row.raw === "string" && row.raw !== row.display ? `原始 ID：${row.raw}` : undefined}>{row.display}</dd>
+          </div>
+        ))}
       </dl>
       <p className="confirm-impact">提交后将生成待审核提交，审核通过后才能归档为新的基线。提交前请确认差异结果与项目身份。后端按动作只保留最后一条理由，同一动作只需填写一次。</p>
       {stale && <p className="form-warning">Preview 结果已基于旧基线，请返回工作区重新上传并生成 Preview。</p>}

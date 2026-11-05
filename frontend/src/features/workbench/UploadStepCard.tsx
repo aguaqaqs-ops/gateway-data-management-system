@@ -337,7 +337,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     </details>}
     {busy && <div className="upload-progress">
       <OperationStatus title="上传中" phases={phases} />
-      {operation?.status === "MANUAL_RECOVERY_REQUIRED" && <p role="alert" className="upload-progress__manual">操作需要管理员处理。操作 ID <code>{operation.operation_id}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operation.operation_id)}>复制 ID</button>系统仍在查询状态，刷新页面后会继续跟随。</p>}
+      {operation?.status === "MANUAL_RECOVERY_REQUIRED" && <div role="alert" className="form-error" title={`操作 ID：${operation.operation_id}`}><span>操作需要管理员处理。</span><span>操作 ID：<code>{operation.operation_id}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operation.operation_id)}>复制 ID</button></span><span>系统仍在查询状态，刷新页面后会继续跟随。</span></div>}
       {operation && operation.status !== "MANUAL_RECOVERY_REQUIRED" && <p className="upload-progress__wait">已等待 {formatWaitDuration(elapsed ?? 0)}</p>}
       <p className="upload-progress__lock">处理中不可关闭，页面其余操作已锁定。完成后自动进入差异浏览；失败时在此显示失败步骤，可直接重试。</p>
     </div>}

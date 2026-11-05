@@ -49,6 +49,7 @@ async function installFixtureRoutes(page: Page, options: {
   submitIdentity?: "confirm";
   submitForbidden?: boolean;
   submitConflict?: "WORKSPACE_VERSION_CONFLICT";
+  submitAttemptReadFails?: boolean;
   submitAborted?: boolean;
   submitTimeoutFirst?: boolean;
   uploadConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
@@ -351,9 +352,12 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    if (options.submitAttemptReadFails) {
+      const error = { code: "SERVICE_NOT_READY", message: "提交服务暂时不可用" };
+      apiResponses.push({ method: "GET", path, status: 503, body: JSON.stringify(error) });
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(error) });
+    }
     const response = options.submitAborted
-      ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "ABORTED" as const, submission_id: null, abort_code: "IMPORT_REJECTED" as const }
-      : { ...TEST_SUBMIT_ATTEMPT_FINALIZED, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
     apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(response) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
   });
@@ -1555,8 +1559,38 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   expect(new URL(page.url()).searchParams.get("operationId")).toBeNull();
 });
 
-test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", async ({ page }) => {
-  test.setTimeout(90000);
+test("FE3a 提交续做时 ABORTED 显示提示且提交按钮禁用并说明原因", async ({ page }) => {
+  await installFixtureRoutes(page, { submitAborted: true });
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.evaluate(() => {
+    sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
+  });
+  await page.reload();
+  await waitForBrowse(page);
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  await expect(submit).toBeDisabled();
+  await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
+  await expect(page.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
+});
+
+test("FE3a 提交续做时读取失败显示提示且提交按钮禁用并说明原因", async ({ page }) => {
+  await installFixtureRoutes(page, { submitAttemptReadFails: true });
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.evaluate(() => {
+    sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
+  });
+  await page.reload();
+  await waitForBrowse(page);
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  await expect(submit).toBeDisabled();
+  await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
+  await expect(page.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+});
+
+
   const manual = [
     { ...MANUAL_RECOVERY_TO_SUCCESS[0]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
     { ...MANUAL_RECOVERY_TO_SUCCESS[1]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },

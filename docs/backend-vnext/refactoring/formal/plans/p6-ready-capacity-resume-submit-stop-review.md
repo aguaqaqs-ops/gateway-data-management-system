@@ -100,3 +100,19 @@
 实施者随后报告：停止后只读查询得到 schema 43、DB 3,608,576 bytes/WAL 0/SHM 32,768 bytes、无 writer；operation/step checkpoint_ref 均 NULL、prior_output_refs 为空、attempt PREPARED、prepare 输出与 Repository 绑定相关字段 NULL，operation 仅保留四个原输入/Preview artifact 引用。**这些新增字段为实施者报告，本轮未独立核验。** 实施者明确查询通过内联 SSH heredoc 执行，未保存查询脚本、结果日志及摘要，也未记录 DB/WAL/SHM 前后身份；只有实施线程工具输出与读前 stat/NO_WRITER_CHECK，不能声称已经核验源文件前后不变。
 
 该限制不影响第 2 节已经直接核验的自动 selected rows 和停止结论。若这些补充字段准确，也仅支持 control DB 未登记 prepare 输出/checkpoint；候选执行顺序为 publication 制品写入及 reader 关闭、checkpoint 制品生成、保护引用、lease checkpoint 发布，NULL 不能定位此前哪个步骤尚未完成，也不能排除 artifact store 中的孤儿文件。未扫描 store 或重查数据库，不为补日志要求重复取证，不补造历史记录。已把此限制通知设计及实施者；后续获准计数应从执行时保留原始命令、输出与摘要。当前不 GO 保持不变。
+
+## 7. 已保存的有限输入 metadata 核对
+
+三份脚本及日志已在 CT108 证据根的 `shape-metadata/` 中保存，本轮直接读取并重算 SHA，与交付一致；未重新执行脚本。v1 读取 input summary、expected manifest 及其引用的三个 census；v2 读取 expected manifest 引用的 dataset manifest；v3 限定目标 W4 10% census。脚本没有调用业务、数据库、Parquet/SQL 解析或扫描 artifact store，日志均 exit 0，分别记录 20:37:04Z、20:39:59Z、20:42:14Z 起止时间。
+
+v3 日志绑定目标 census SHA `04952cb5523b9b6d44530654994bcad2a692a132697cacc2f157a7e8c66eea67` 与 expected manifest SHA `4c5638df32973282507937c1232c09117b40023f8b03f3d94caf7c160f87aac7`。八个 dataset 的已输出物化/复合阶段状态均 COMPLETE；t4 v1/v2 的总行数为 873,863/873,160，各 639 表。各自 `ordered_projection.tables` 仅覆盖 144 表，其中前三项均为 9,822 行；这不是全部 639 表的行数前三名。v1 将多个 census 混合排序所得 9,828 不能替代目标 v3 计数。dataset manifest 身份 MATCH，但无表级 stats；现有输出没有列数、类型分布或行宽，不能将缺失项视为零或足以决定完整规模 probe。
+
+读取量存在可直接从脚本核算的非阻塞遗漏：v2 在有界读取后再次 `read_bytes()` 计算 dataset SHA，未累计 2,991 bytes；v3 同样再次读取 census，未累计 314,389 bytes。日志累计 2,368,567 bytes，应加上两次重复读取，实际 JSON 读取总量为 **2,685,947 bytes**，仍低于 16,777,216-byte 许可上限。已通知实施者与设计如实补注，不重跑或改写原日志；不将计数器描述为覆盖全部实际读取的硬上限。此处未核验新的 canonical artifact descriptor 或新增 DB 查询。
+
+| 文件 | 脚本 SHA256 | 日志 SHA256 |
+| --- | --- | --- |
+| `read-submit-shape-metadata`（`.py` / `.log`） | `0c7819619e27c7a2998e74e0a158674f56ab41a1fe04b8f9e770971e638ff3f3` | `574ef32841050c2535d850c9e2d2f49b71267b842f34b516dea224fdab761636` |
+| `read-dataset-manifest-shape-v2` | `e61c7db71accd1a14be8b620cb88930ab217258b85c2a934d279310c17e60b5c` | `ab59a2c608ce3be08b23ddf887ab01bc5a883746085788097d755190a0984420` |
+| `read-w4-10pct-census-shape-v3` | `21129955ffd7459c2b386832349d7f03d0f9c9f101ae999b2e584a581653213b` | `82798ebd7e08a3dee3580cb57ab8934bb56fb9931fc73e05be7a67b676085156` |
+
+诊断记录及上述限定解释可接受；它们不定位停滞根因、不证明 publication 进度，也不放行扩大实验或恢复。当前不 GO 不变。本轮仅追加本文，未运行测试、未改产品或证据、未推送。

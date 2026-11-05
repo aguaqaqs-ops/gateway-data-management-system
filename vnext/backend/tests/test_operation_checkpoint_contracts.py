@@ -343,19 +343,59 @@ def test_ready_closure_document_sorts_outputs_by_artifact_id() -> None:
         "artifact-b",
     ]
     raw = document.to_canonical_bytes()
+    # Frozen v1 wire vector: capacity expansion does not alter old bytes/digests.
+    expected = (
+        b'{"closure_contract_version":"backend-vnext/operation-ready-closure/v1",'
+        b'"document_type":"ready-closure",'
+        b'"job_contract_version":"backend-vnext/synthetic/pure-compute/v1","outputs":['
+        b'{"artifact_ref":{"artifact_id":"artifact-a","media_type":"application/octet-stream",'
+        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
+        b'"size_bytes":3},'
+        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
+        b'"size_bytes":3},'
+        b'{"artifact_ref":{"artifact_id":"artifact-b","media_type":"application/octet-stream",'
+        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
+        b'"size_bytes":3},'
+        b'"raw_sha256":"sha256:762069bc07a6e1b5df123a5ae7bd91c10daa04694fbaa17fba0cd6a8dcce8f22",'
+        b'"size_bytes":3}]}'
+    )
+    assert raw == expected
+    assert raw_blob_digest(raw).value == (
+        "sha256:7fa7de2bba9d11b98082ffee1e3d67ed41ab4c7a595de5498a8d06a9f3b74a99"
+    )
     restored = ReadyClosureDocument.from_canonical_bytes(raw)
     assert restored == document
+    assert restored.to_canonical_bytes() == expected
 
 
 @pytest.mark.unit
-def test_ready_closure_retains_bounded_large_snapshot_artifact_sets() -> None:
-    refs = tuple(_artifact_ref(f"artifact-{index:04d}") for index in range(4_096))
+@pytest.mark.parametrize("ref_count", (4_096, 4_097, 32_768))
+def test_ready_closure_retains_bounded_large_snapshot_artifact_sets(ref_count: int) -> None:
+    refs = tuple(_artifact_ref(f"artifact-{index:05d}") for index in range(ref_count))
     document = ReadyClosureDocument.build(refs, VERSION_V1)
-    assert len(document.outputs) == 4_096
-    restored = ReadyClosureDocument.from_canonical_bytes(document.to_canonical_bytes())
+    assert len(document.outputs) == ref_count
+    raw = document.to_canonical_bytes()
+    restored = ReadyClosureDocument.from_canonical_bytes(raw)
     assert restored == document
+    assert restored.artifact_refs() == refs
+    assert restored.to_canonical_bytes() == raw
+
+
+def test_ready_closure_rejects_over_capacity_on_build_construction_and_decode() -> None:
+    refs = tuple(_artifact_ref(f"artifact-{index:05d}") for index in range(32_769))
     with pytest.raises(ValueError, match="output_refs exceeds bounded document size"):
-        ReadyClosureDocument.build((*refs, _artifact_ref("artifact-over-limit")), VERSION_V1)
+        ReadyClosureDocument.build(refs, VERSION_V1)
+    entries = tuple(ReadyClosureEntry(artifact_ref=ref) for ref in refs)
+    with pytest.raises(ValueError, match="outputs exceeds bounded document size"):
+        ReadyClosureDocument(job_contract_version=VERSION_V1, outputs=entries)
+    payload = {
+        "closure_contract_version": "backend-vnext/operation-ready-closure/v1",
+        "document_type": "ready-closure",
+        "job_contract_version": VERSION_V1,
+        "outputs": [entry.to_document() for entry in entries],
+    }
+    with pytest.raises(ValueError, match="outputs exceeds bounded document size"):
+        ReadyClosureDocument.from_canonical_bytes(canonicalize_json_value(payload))
 
 
 @pytest.mark.unit

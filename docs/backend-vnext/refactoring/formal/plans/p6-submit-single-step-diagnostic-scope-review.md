@@ -144,3 +144,20 @@ metadata 日志的 `inputs.manifest.expected_sha256` 错填为 accepted document
 **F4：远端状态未知时不得释放占用。** `main` 在 finally 无条件释放锁，但流传输或远端 materializer 超时/控制端中断时，本地 SSH 结束不能证明远端复制/物化已退出。最小修正为不确定收束的失败保留自身 owner，记录需检查原因，确认本次活动停止后再释放；成功路径检查远端退出及释放标志。不需要新增监控框架或故障矩阵。执行入口还应固定校验已审核 helper/materializer/expected-image 的摘要，而非仅复制后动态记录当时内容；可由脚本常量或已审调用命令落实。
 
 其余运输方向符合已批准范围：精确列举三份 checkpoint 及必要输入/元数据/cache，PAX 流经局域网到新 staging，不读取失败后的 live volumes、不落完整 tar 临时归档；计划在复制前检查 05 锁/容量/路径、再使用已审核物化入口，原来源保持不改，失败保留副本。F3/F4 修正后只复核对应差异，不重开 helper、launcher 或 canary。
+
+## 12. F3/F4 关闭与一次运输/物化 GO
+
+**明确 GO：允许原实施者执行一次固定 CT108 → CT05 运输及 source-name checkpoint 物化；不包含 Compose 或真实 Submit。** 已将结论直接通知原实施者与设计，不需要再次等待 owner 确认。运行入口为 CT201 上的 `python3 -I -B /home/dev/gdds-p6-logs/submit-diag-preflight-20261105/transport_source_to_ct05.py`，执行前核对以下固定摘要，不使用仍在修改的字节：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `transport_source_to_ct05.py` | `f435f1f623e7992bbe7c66e4579d5971d29af916098dee6f08631fc10728c329` |
+| `diagnostic_preflight.py` | `762b640b4cdaf9f89390834c1b1fcd793dc81f32696ed2ed1bbb9e5b6c328dec` |
+| `materialize_ct05.py` | `69fcaafcaea37c6ae785e8660c444d1a6205444195de7c04747fe04a2c6192ec` |
+| `expected-image.json` | `09b0924196c4cbefa2fd64e3cb284f999771f69c5dba7c08e6de68345f052e95` |
+
+F3 已按原日志三行结构修正，并固定原 metadata 摘要 `9f28af49…`；输入路径使用真实字段，源 run/state/log 从固定路径列举，三个上传步骤与两份唯一 package 分别绑定。释放代码按真实 owner 行解析，检查准确 session/purpose/token、远端 returncode 与唯一 `NODE_LOCK_RELEASED` 输出，不再吞掉释放失败。F4 在流传输/物化启动前标记远端动作未确认；timeout、中断或 SSH 255 不会将其当作已收束，保留锁并记录 `PRESERVED_UNCERTAIN_REMOTE_ACTION`。成功释放未获确认时整体不能 exit 0。控制端管道收尾也改为有界 communicate，不增监控机制。
+
+helper 的 `02985d… → 762b640b…` 差异已另外核对：source run 的 manifest 类型/path/census 绑定加强，保留卷名改为集合比较（重复已由原 source loader 拒绝）。将这些变更反向替换后可精确恢复旧摘要，确认没有其他逻辑改动；materializer 保持不变。执行前固定校验 helper/materializer/image，不再只作动态事后记录。审核未运行候选或业务测试，既有 canary、镜像与环境证据继续有效。
+
+该 GO 的范围是脚本列明的 13 个源路径（含三个 checkpoint 目录）、固定新 staging、完整源名卷副本及原摘要核对；门槛/身份/路径/复制校验任一失败即停止，保留原始来源、已复制内容和日志，不自动重试。未知远端状态先保留自身占用，确认活动结束再处置；不得为了新开发会话提前释放占用。成功后提交 transport log、plan、materialize result 的完整结果与 SHA，以及节点锁/本次活动状态，再核实际 Submit 资格。DC81 允许后续开发不改变本次 W4/S4/H1 的冻结对象、停止条件或正式基准 exit 状态。

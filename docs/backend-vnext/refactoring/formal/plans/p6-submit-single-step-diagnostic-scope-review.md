@@ -57,3 +57,17 @@
 七个 fake 边界/独立 watchdog 检查在 `boundaries-fixed.log` 中通过；同一日志随后因 real-runner 测试 fake CPU 字典缺键而 exit 1，不能称整份日志成功。修正 fake 后 `real-runner-fixed.log` exit 0，证明未改动的 e798 runner 复用前一步、持久化目标步骤后停止。canary 早于父进程关系/EOF guard 调整，该调整由 focused 检查覆盖；不宣称最终所有字节均再次经过 live canary。F1 后只增加上述定向生命周期检查。
 
 独立报告的 `SUBMIT_DIAGNOSTIC_COMPLETE` 只表示目标步骤完成；原 journey 因有意的 `DiagnosticComplete` 提前结束可记录 FAILED，不能改称完整旅程 PASS。后续结果审核仍须读取原证据中的 finalization errors、stack 停止与卷保留结果；工具前置通过不预先证明实际收束成功。05 postflight 记录 clean e798 与自有节点锁释放。此补充仅审核文档，不触发产品镜像重建，不新增正式门禁结果，不推送、不打 tag。
+
+## 5. 运输与 launcher 候选静态审核（`p6-baseline@9da69886869cdf17f8cf3bbf91cf2892c9067955`）
+
+**跨节点 checkpoint 复现方式可接受；这份候选尚不具备直接启动条件。** 以下裁定基于只读检查 e798 的原恢复路径，不要求产品补丁或改写来源 manifest。设计随后授权实施者仅补精确 metadata、05 资源/镜像/解释器身份，尚未授权数据复制或真实 POST。
+
+1. 在 05 将已绑定且校验通过的三个 checkpoint 完整物化为源名 Docker 卷，再由原 resume 克隆独立诊断目标卷，符合此次隔离诊断。逐卷名称取自 checkpoint，保留源 project/逻辑卷 labels；任何已存在同名卷（包括没有 project label 的卷）或源 project 运行容器均停止，不覆盖、不接管。它们是 05 的 checkpoint 副本，不是 CT108 失败后 live volumes。原 `_clone_project_volumes` 对失败来源只检查源名集合，实际复制仍从 checkpoint 路径读取并核对原摘要，再核对目标卷摘要。因此不能用空占位卷代替完整物化，也无需改变产品恢复分支。源 run/state/log、checkpoint 与 manifest 的绝对路径和内容保持原样，在独立运输记录中注明来源节点与副本性质。
+2. 原卷摘要包含路径、类型、权限、uid/gid、mtime_ns、大小及文件内容。运输和物化必须保留相关属性，最终以原校验结果为准，不能通过重写摘要消除差异。容量按 staging、源名副本、目标卷共 `3C`，加尚未落盘输入/cache/临时归档和余量计算；不假定旧的 211 GiB 足够，不重新扫描无关 live volumes。
+3. prebuilt 恢复路径只检查 Repository Service 镜像存在，不会调用其自动 identity/build helper。启动前应固定 `GATEWAY_REPOSITORY_SERVICE_IMAGE`，以 e798 的 `vnext/repository_service/tests/support/build_context_digest.py identity` 重算 build-input/source-tree，与实际镜像标签核对。该 helper 不消费 dependency-base 镜像；若完整 RS 镜像已在本机且身份匹配、此次不构建，未使用的 dependency-base 缺失不另设阻塞。缺少所需完整镜像或身份不符则停止，另行安排获准预填充，不在此命令中隐式构建/下载。backend/worker 沿用第 4 节身份，在 05 增加新 project tag，原 tag 不改。
+4. launcher 的 sampler 与 child 使用同一 manifest/census/evidence 变量，child 的字面解释器为指定 worktree 的绝对 `.venv/bin/python`；静态接线通过。`python -c` 后的 `--` 参数由 sampler 检查，child 实际用 options/env；目前两者值一致，不必为形式重写。实际 `.venv` 是否存在、是否为所需已预填充环境仍须核对，不能把前次借用其他 worktree 的 canary 解释器当成该路径已经可用。wrapper/observer 的 CT05 实际落点也须与命令一致并核对已接受摘要。
+5. 来源选择固定为 b 的 `v2-submit` 前 checkpoint，普通 resume、e798、全 t4、单次新幂等键；未启用 capacity-fix/final-state/debug 路径。wrapper 仍将成功后的业务步骤截断。输入最小集可按清单搬运，不需复制其他变体；但唯一 composite cache entry 的存在和身份必须在调用前显式检查，因为原 journey 在条目缺失时会执行重新计算，不能靠其默认行为实现候选声明的“缺失即停止”。
+
+**资源边界已由设计明确，具体接线待交付。** 依据 `main@5af1aca75d` 的[诊断设计](p6-submit-single-step-diagnostic-plan.md)，启动前 `MemAvailable ≥ 48 GiB`；相关文件系统可用空间覆盖尚需落盘的 `3C + I + R + 归档临时量 + 10 GiB`，已占空间不重复扣、跨文件系统分别核算。POST 执行期间每 5 秒轻量采样，worker RSS ≥ 40 GiB、宿主 MemAvailable < 8 GiB、相关数据文件系统 free < 10 GiB 或资源指标不可读，均停止此次诊断并记录原因，不能称为产品失败。沿用外置 observer 的中断与目标步骤结束即关闭机制，不改 Docker 配额、产品 timeout/lease/stall，不扫描文件树或新增测试矩阵。现有 `p6_baseline_resources` 只记录资源，不实现这些阈值；不能把使用 sampler 或 45 分钟 POST deadline 当作资源停止已接入。
+
+目前待闭合的是上述轻量 metadata/本机身份与容量结果、资源停止最小补丁及最终 launcher 绑定；已通过的 canary 与一次 POST 边界不重开。此次只读静态审核没有访问 CT108、复制数据、运行测试或启动 Compose。

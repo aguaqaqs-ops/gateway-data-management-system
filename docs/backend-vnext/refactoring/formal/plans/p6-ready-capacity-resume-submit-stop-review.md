@@ -121,7 +121,7 @@ v3 日志绑定目标 census SHA `04952cb5523b9b6d44530654994bcad2a692a132697cac
 
 新增诊断从本次 W4 Submit 的精确 operation ID 读取 canonical closure/manifest 完整 Ref，再按已核对的 local_store 确定性路径读取 JSON descriptor；不查真实行、Parquet 或 SQL，不扫描 artifact store。读取器使用 SQLite `mode=ro`、`query_only`，拒绝非空 WAL，检查 DB size/mtime 与 WAL 大小前后相等；artifact 读取验证 sidecar Ref、长度与 raw SHA，缓存已读 Ref，closure 与 canonical manifest 表集合相等且无重复。此次独立保存的脚本/日志不补造第 6 节未保存查询的历史证据。
 
-本轮审核读取的是 CT201 `/home/dev/gdds-p6-logs/baseline/submit-shape-20261105b/` 中实际存在的脚本和源日志。源日志记录 `hostname=gw-dms-test`、20:54:32Z、精确 operation ID、RESULT=MATCH；实施者曾把文件路径称为 CT108 路径，但审核在 CT108 按该路径取脚本时返回不存在，已请其澄清执行与落盘位置。本报告不宣称比对了 CT108 磁盘副本。原源日志为 0600，本轮仅程序读取必要字段和计算摘要，未输出或转发 ENUM/SET 定义值或完整 DDL。
+本轮审核读取的是 CT201 `/home/dev/gdds-p6-logs/baseline/submit-shape-20261105b/` 中实际存在的脚本和源日志。源日志记录 `hostname=gw-dms-test`、20:54:32Z、精确 operation ID、RESULT=MATCH；实施者曾把文件路径称为 CT108 路径，审核在 CT108 按该路径取脚本时返回不存在；随后实施者明确脚本仅保存在 CT201，以 `cat "$SCRIPT" | ssh ct108-gw-dms 'python3 -I -'` 送入远端执行，SSH 输出由 CT201 的 `tee "$LOG"` 落盘，未向 CT108 复制脚本。本报告不宣称比对了 CT108 磁盘副本。原源日志为 0600，本轮仅程序读取必要字段和计算摘要，未输出或转发 ENUM/SET 定义值或完整 DDL。
 
 源日志 SHA `d7e3c94e6119f5631594f5e13ef0fb070586fb083fff76251f9570a03798a41d`、读取脚本 SHA `3b4938184517d4395929cfbd1c8c15157a7a06df6a6233b90f92bb91f35c83bc` 均与 sanitized 文件绑定相等。程序将源类型值归并为类型族，汇总与 sanitized 完全一致，合计 7,538 列；其余聚合字段逐项相等。sanitized 文件 `canonical-sta-metadata-sanitized-v2.log` SHA 为 `005dbb31497c1408328e91e3808b63c5e6d2ff998f7efd97480048873160f396`。
 

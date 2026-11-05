@@ -1,6 +1,6 @@
 # Phase 6 READY 容量限定恢复接线审核
 
-- **结论：修订后的实现范围与静态逻辑通过，未见剩余阻塞 Finding；05 focused/五包静态证据待补，尚不是完整代码验收或恢复放行。**
+- **最新结论：`cd9b75ce887d737327d0ee6611017b475040f856` 工具代码及 05 focused/五包静态证据通过，无剩余阻塞项，可推进最终 H 的新镜像与 04 门禁；不是 CT108 恢复放行。** 追加复审及证据见第 4 节。
 - 日期：2026-11-05；审核会话：`p6-backend-review`（DC73）。
 - 初版：`a1f7c27d0df15dc1e8441ca64d65e4ec2007a754`；复审：`41383218046bcd6a398ee1a7feeb6a60cc57e83d`。
 - 工具改动基线：`8132f1bfa6c657d2baa75ea5c51c1f86bc23c5ff`，为已审产品容量修正在 baseline 上的提交。
@@ -37,3 +37,30 @@
 待实施者提交固定候选的 05 focused 与五包静态日志、起止 HEAD/exit、SHA 和收束记录后完成证据补核。若代码再变，仅复审差异；不要求重审容量产品或重跑原失败 Preview。
 
 本轮未构建新镜像，没有实际恢复候选的 image revision/source-tree 或容器结果可宣称。完整代码验收后仍须最终 H 的 04 backend/容器门禁、固定目标机读身份、镜像传输校验、源快照与输入及步骤来源复核，才能按 DC80 执行恢复。未推送、未改产品或设计正文，未作恢复 GO。
+
+## 4. cd9b75 复审与 05 证据补核（2026-11-05）
+
+本节关闭第 3 节的 05 待补事项。候选为 `cd9b75ce887d737327d0ee6611017b475040f856`，审核在 `/home/dev/gdds-p6-capacity-evidence-cd9b75ce` clean detached worktree 进行，完整 HEAD、detached 和清洁状态均程序核对。
+
+相对已静态审核的 413832，仅两项变化：CLI 默认参数期望补上 `capacity_fix_resume=False`；组装目标产品 provenance 时对 Optional run_status 加 None 分支，消除 mypy 错误。公开 run_journey 路径仍传递实际状态字典，正常来源记录不改变；身份、产品差异、输入、镜像和快照拒绝条件均未放宽。产品文件与已审容量提交字节相同，差异范围及 whitespace 检查通过。
+
+05 节点原始验证日志 `/home/dev/gdds-p6-logs/baseline/ct05-capacity-resume-cd9b75-validation-20261105.log`，SHA256 独立重算为 `9d14de877898ff43d5e815fe37028ed77a5755ec211fe885947b19c16df67e00`，匹配交付。日志时间 16:09:51Z–16:10:29Z、hostname 为 gw-dms-test-05，起止 HEAD 均为 cd9b75，159 passed in 1.83s、五包 Ruff/mypy 均通过、exit 0。扩展 expected/installed build-input 均为 `58436908aee9dd449f4d3e0542a6a8c1920b6d5e`，与候选 Rust tree 程序比较相等。
+
+实际测试 worktree 为 `/home/dev/gdds-p6-baseline-capacity-resume-972c12-05`，目录名不代表当前提交；已只读核对其当前 HEAD 为 cd9b75 且 clean。原日志 `worktree=` 字段误接 PATH 行，pytest rootdir/toolchain 行和补充记录明确实际路径，不修改原日志。
+
+收束记录 `ct05-capacity-resume-cd9b75-postflight-20261105b.log` 位于同目录，重算 SHA256 为 `65c1b6359fc0bf6e2d1ab34c5f22fbe6ea7c933f2f43471374580ff827c7c3f6`，记录 16:15:13Z PASS。记录包含 worktree/venv Python/uv wrapper 的绝对路径、prepare、扩展重装及身份检查、focused 和五包静态的受控命令；`UV_OFFLINE=1`、`GATEWAY_DEV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、PATH 前缀 `/home/dev/.cargo/bin` 与外置 TMPDIR。五个 uv.lock 的工作树 SHA 与 HEAD 均 MATCH，Cargo target 清理、工作区 clean、节点锁 FREE。审核时也只读确认该节点标记不存在；未获取标记或干预其他工作。
+
+此前失败日志保留，均独立重算 SHA，不作成功证据：
+
+| 同目录日志 | 失败及修正 | SHA256 |
+| --- | --- | --- |
+| ct05-capacity-resume-413832-validation.log | 初始扩展不可导入，测试尚未启动 | `4c9bbe55c6ca77b00dfc49a9e7a41cdb88458b87335a66ac052715a63ee58712` |
+| ct05-capacity-resume-413832-validation-retry-20261105a.log | 扩展 build-input 为空；按当前 Rust tree 重装后身份通过 | `15d12658f567ac3c03ebf41cc6444e7e10e8d12efc52ed2c2394b423fb5793e6` |
+| ct05-capacity-resume-413832-validation-retry-20261105b.log | 158 passed/1 failed：CLI 期望未包含新增默认参数；972c12 修正 | `ee1b169a48826c3f20fd5b084170b37c2a8653e0b4488e42e4786fd2c32e47a9` |
+| ct05-capacity-resume-972c12-validation-20261105.log | maturin 启用临时 Rust 安装路径并尝试下载，网络不可达，构建失败；后续固定本地 PATH/toolchain。此轮不称为成功离线验证 | `5ac8dc716b9c77b7384c1f5f411b886e73f5d931f80e5c907d4dabf997cb552d` |
+| ct05-capacity-resume-972c12-validation-retry-20261105b.log | 159 passed，mypy 报 Optional run_status.get；cd9b75 修正 | `66c17dc82c4c7feda010d306215df424a9b9311e69f2fc5fdd1d75bd4a1cefb1` |
+| ct05-capacity-resume-cd9b75-postflight-20261105.log | 补充记录误用节点未安装的 rg，保留失败记录后用 Python 重做；未重跑测试 | `e5c7a2cb5b25d703a0c50569d63a9c2121ca337c8783e64bbdb6ebc7eb0ba53e` |
+
+上述为独立调试/环境准备失败，未被合并包装为一次成功 runner，也未用于宣称 CT108 产品恢复成功。依 DC80 主动修正后，最终完整 focused/静态结果独立绑定 cd9b75；不要求再重复这些已通过检查。实施 handoff 应保留失败、修正和最终证据关系。
+
+工具代码验收通过后，原实施者可继续固定最终 H、准备新镜像和 04 backend 权威包/容器门禁，生成并提交精确目标身份记录。实际镜像及恢复条件尚未审核，本次不作恢复 GO。审核只修改本报告，无推送；自身 detached worktree 用后清理。

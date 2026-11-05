@@ -134,7 +134,7 @@ test("smoke: upload accepted, preview SUCCEEDED, pointer matches, no uncaught er
       void response.json().then((body) => previewResults.push(body as PreviewResultBody)).catch(() => undefined);
     }
     if (request.method() === "GET" && /\/v1\/operations\/[^/]+$/.test(path) && response.status() === 200) {
-      void response.json().then((body) => operationStates.push((body as { state: string }).state)).catch(() => undefined);
+      void response.json().then((body) => operationStates.push((body as { status: string }).status)).catch(() => undefined);
     }
   });
 

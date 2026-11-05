@@ -71,3 +71,11 @@
 **资源边界已由设计明确，具体接线待交付。** 依据 `main@5af1aca75d` 的[诊断设计](p6-submit-single-step-diagnostic-plan.md)，启动前 `MemAvailable ≥ 48 GiB`；相关文件系统可用空间覆盖尚需落盘的 `3C + I + R + 归档临时量 + 10 GiB`，已占空间不重复扣、跨文件系统分别核算。POST 执行期间每 5 秒轻量采样，worker RSS ≥ 40 GiB、宿主 MemAvailable < 8 GiB、相关数据文件系统 free < 10 GiB 或资源指标不可读，均停止此次诊断并记录原因，不能称为产品失败。沿用外置 observer 的中断与目标步骤结束即关闭机制，不改 Docker 配额、产品 timeout/lease/stall，不扫描文件树或新增测试矩阵。现有 `p6_baseline_resources` 只记录资源，不实现这些阈值；不能把使用 sampler 或 45 分钟 POST deadline 当作资源停止已接入。
 
 目前待闭合的是上述轻量 metadata/本机身份与容量结果、资源停止最小补丁及最终 launcher 绑定；已通过的 canary 与一次 POST 边界不重开。此次只读静态审核没有访问 CT108、复制数据、运行测试或启动 Compose。
+
+## 6. 资源守卫补丁复核（2026-11-05）
+
+**资源守卫实现通过，启动绑定仍待完成。** 接受 `/home/dev/gdds-p6-logs/submit-diag-preflight-20261105/resources/submit_observer.py`，SHA256 `4912e9542e11c273c0deee332c7d79aebf7ff81c40c8d54b3b94157cb370a662`；wrapper 保持第 4 节的 `8f4cb3fb…` 不变。审核读取完整改动及四个定向测试，本地 SHA256SUMS 全部通过，经只读 SSH 核对 05 原件脚本/测试/日志摘要相等。`focused.log` SHA256 `36c2535e82c3e977c82997e622e557a39f697ca1f12f40397ec43e9678f6a65f`，记录 clean e798、05、21:53:07Z、4 passed、0.005 秒、exit 0；postflight 记录自有锁释放。本审核没有运行测试。
+
+补丁在既有独立 guardian 内增加 POST arm 后立即及每 5 秒的轻量资源读取，按第 5 节三个准确阈值或不可读停止，日志分类为 `diagnostic_resource_stop`，沿已有 SIGINT 收束。绑定 worker PID starttime 与宿主数据目录的 st_dev；没有新增扫描、哈希、Docker 配额或服务。stop 消息处理先于到期采样，F1 的目标 step finally 先 close 顺序保持。定向检查覆盖阈值边界、实际轻量读取及身份不符、不可读/超限停止、到期时先 close 并回收 dump；足以覆盖此次差异，不要求重跑已通过业务栈 canary。采样仍不是连续硬资源上限。
+
+新 `observer_factory` 必须传入 `data_filesystem=`，为已存在的真实宿主数据文件系统目录；最终 launcher 须确认所有相关数据卷/路径位于该文件系统，不能随意传 scratch 或容器内路径。若实际跨文件系统，此单目录版本不足以覆盖全部路径，须先补齐对应范围。启动时 48 GiB 内存及按文件系统计算的空间门槛仍由 launcher 执行。第 5 节原命令尚未传新参数，不能原样运行；需绑定本节脚本实际路径/摘要及数据目录，再与运输/镜像/解释器/容量结果一起复核启动条件。

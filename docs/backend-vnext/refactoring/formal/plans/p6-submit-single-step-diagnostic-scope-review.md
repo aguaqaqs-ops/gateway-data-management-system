@@ -79,3 +79,19 @@
 补丁在既有独立 guardian 内增加 POST arm 后立即及每 5 秒的轻量资源读取，按第 5 节三个准确阈值或不可读停止，日志分类为 `diagnostic_resource_stop`，沿已有 SIGINT 收束。绑定 worker PID starttime 与宿主数据目录的 st_dev；没有新增扫描、哈希、Docker 配额或服务。stop 消息处理先于到期采样，F1 的目标 step finally 先 close 顺序保持。定向检查覆盖阈值边界、实际轻量读取及身份不符、不可读/超限停止、到期时先 close 并回收 dump；足以覆盖此次差异，不要求重跑已通过业务栈 canary。采样仍不是连续硬资源上限。
 
 新 `observer_factory` 必须传入 `data_filesystem=`，为已存在的真实宿主数据文件系统目录；最终 launcher 须确认所有相关数据卷/路径位于该文件系统，不能随意传 scratch 或容器内路径。若实际跨文件系统，此单目录版本不足以覆盖全部路径，须先补齐对应范围。启动时 48 GiB 内存及按文件系统计算的空间门槛仍由 launcher 执行。第 5 节原命令尚未传新参数，不能原样运行；需绑定本节脚本实际路径/摘要及数据目录，再与运输/镜像/解释器/容量结果一起复核启动条件。
+
+## 7. e798 本地环境准备与检查命令修正
+
+此前 focused 实际借用 413832 worktree 的环境并显式插入 e798 源码路径，不能证明第 5 节所指定的 e798 本地 `.venv` 已可用。设计因此明确授权实施者在 05 自有占用下，通过已有缓存、受控 locked/offline 入口准备 clean e798 的本地 backend 环境，重装扩展并核对当前 Rust tree；不跑业务测试，缺缓存即停。以下文件均位于 `/home/dev/gdds-p6-logs/submit-diag-preflight-20261105/`。
+
+| 执行记录 | SHA256 | 实际结果 |
+| --- | --- | --- |
+| `environment-sync-ct05-e798.log` | `b79bcffe273791f07b2ebefa6180f64881b801a6ff8101b61fbcbfe8069d5b4c` | 22:08:19Z，仓库根目录未命中 Rust selector，exit 1，未调用同步 |
+| `environment-sync-ct05-e798-retry.log` | `34849b7ef594fc4dc63cb92159c02c9016a31c96ff024a5fa81af4f07f78dc87` | 22:09:34Z，工具链检查正确；uv 因重复 `--locked` 在参数解析阶段 exit 2，未进入依赖同步 |
+| `environment-sync-ct05-e798-final.log` | `057490a18069eb5863c69c7eed7ef10c76562cb3d4ba5fb105119dae70711369` | 22:11:04–22:11:32Z，同步/扩展构建成功，随后导入检查错误导致整体 exit 1 |
+
+第三次在“先交完整命令”提醒到达前已启动。审核没有重复执行或中断回滚；读取最终日志确认创建的是 `/home/dev/gdds-prepare-import-e798-05/vnext/backend/.venv`，Python 3.14.6，workspace 包来源均为 e798，官方扩展检查 expected/installed 均为 `58436908aee9dd449f4d3e0542a6a8c1920b6d5e`。失败点是后续 probe 误用分发包名称 `gateway_compute_python`，实际导入模块为 `gateway_compute.gateway_compute`。不能将整个 enclosing command 宣称 exit 0，也不需因该导入错误重新同步或编译。审核另外只读 SSH 确认 clean e798、本地解释器存在、节点标记已释放。
+
+实施者随后落盘的实际完整命令 `environment-sync-ct05-e798-attempt3.remote.sh`，SHA256 `a9e73d53ea31d9d8cbda6aa6fc3a39913f7a066c8377b4259f1cd100abfa9a39`，已静态核对：Rust 检查 cwd 为 `vnext/rust`，PATH 以 `/home/dev/.cargo/bin` 开头，未设置 RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME；受控 wrapper 自动加 locked，调用只传 `sync --offline --reinstall-package gateway-compute-python`；UV/Cargo offline、当前 Rust tree 与 worktree 外 target 均保持。此为事后命令复核，不补称事前审核通过。
+
+修正后的只读 probe `environment-import-probe-corrected.py`，SHA256 `13d7095d014211cfaf718031fe1741ae35c72734573b4d8c3cdf805d7d130edd`，静态审核通过。已按设计 DC80 最小工具修正通知实施者：在自有 05 占用下，仅以 e798 的绝对 `.venv/bin/python -I -B <probe绝对路径>` 执行一次，核对源码导入归属、native build-input、已审核 wrapper/observer 的路径与摘要；小工具文件落点须与 probe 一致。三份原日志保留，不再把连续错误描述成 DC68 的一次重试。不重新 sync/编译，不增加业务测试/canary，不搬 CT108 数据，不启动 Compose/POST。probe 结果与其余启动材料仍待接续审核。

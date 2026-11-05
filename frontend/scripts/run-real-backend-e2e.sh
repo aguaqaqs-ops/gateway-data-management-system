@@ -155,6 +155,11 @@ if pgrep -f dolt >/dev/null 2>&1; then
   log "error=dolt processes are running"
   exit 3
 fi
+if [[ -n "$(docker ps -a --filter name=gdds-fe3a- --format '{{.Names}}' 2>/dev/null)" ]]; then
+  log "error=previous fe3a compose/TOOLCHAIN leftovers exist"
+  docker ps -a --filter name=gdds-fe3a- --format '{{.Names}}' | tee -a "$LOG_FILE"
+  exit 3
+fi
 
 # Toolchain + npm cache preconditions (same as run-tests.sh).
 RUN_STAGE="preconditions"

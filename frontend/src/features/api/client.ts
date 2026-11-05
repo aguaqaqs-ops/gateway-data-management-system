@@ -85,7 +85,7 @@ async function sha256(file: File): Promise<string> {
   } finally {
     reader.releaseLock();
   }
-  return digest.digest();
+  return `sha256:${digest.digest()}`;
 }
 
 function safeReviewStatus(value: string): ReviewStatus {

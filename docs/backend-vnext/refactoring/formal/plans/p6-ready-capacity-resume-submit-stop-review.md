@@ -116,3 +116,26 @@ v3 日志绑定目标 census SHA `04952cb5523b9b6d44530654994bcad2a692a132697cac
 | `read-w4-10pct-census-shape-v3` | `21129955ffd7459c2b386832349d7f03d0f9c9f101ae999b2e584a581653213b` | `82798ebd7e08a3dee3580cb57ab8934bb56fb9931fc73e05be7a67b676085156` |
 
 诊断记录及上述限定解释可接受；它们不定位停滞根因、不证明 publication 进度，也不放行扩大实验或恢复。当前不 GO 不变。本轮仅追加本文，未运行测试、未改产品或证据、未推送。
+
+## 8. Canonical / STA descriptor 聚合核对
+
+新增诊断从本次 W4 Submit 的精确 operation ID 读取 canonical closure/manifest 完整 Ref，再按已核对的 local_store 确定性路径读取 JSON descriptor；不查真实行、Parquet 或 SQL，不扫描 artifact store。读取器使用 SQLite `mode=ro`、`query_only`，拒绝非空 WAL，检查 DB size/mtime 与 WAL 大小前后相等；artifact 读取验证 sidecar Ref、长度与 raw SHA，缓存已读 Ref，closure 与 canonical manifest 表集合相等且无重复。此次独立保存的脚本/日志不补造第 6 节未保存查询的历史证据。
+
+本轮审核读取的是 CT201 `/home/dev/gdds-p6-logs/baseline/submit-shape-20261105b/` 中实际存在的脚本和源日志。源日志记录 `hostname=gw-dms-test`、20:54:32Z、精确 operation ID、RESULT=MATCH；实施者曾把文件路径称为 CT108 路径，但审核在 CT108 按该路径取脚本时返回不存在，已请其澄清执行与落盘位置。本报告不宣称比对了 CT108 磁盘副本。原源日志为 0600，本轮仅程序读取必要字段和计算摘要，未输出或转发 ENUM/SET 定义值或完整 DDL。
+
+源日志 SHA `d7e3c94e6119f5631594f5e13ef0fb070586fb083fff76251f9570a03798a41d`、读取脚本 SHA `3b4938184517d4395929cfbd1c8c15157a7a06df6a6233b90f92bb91f35c83bc` 均与 sanitized 文件绑定相等。程序将源类型值归并为类型族，汇总与 sanitized 完全一致，合计 7,538 列；其余聚合字段逐项相等。sanitized 文件 `canonical-sta-metadata-sanitized-v2.log` SHA 为 `005dbb31497c1408328e91e3808b63c5e6d2ff998f7efd97480048873160f396`。
+
+| 聚合项 | 已核日志结果 |
+| --- | --- |
+| canonical / STA 表数 | 两者均 631 |
+| descriptor 总行数 / 总列数 / nullable 列数 | 682,805 / 7,538 / 6,785 |
+| 按行数前三的实际行×列配对 | 92,428×5；84,285×33；54,150×43 |
+| 按列数前三的实际列×行配对 | 97×5；97×5；51×14,790 |
+
+不能混拼不属于同一张表的最大行数与最大列数。descriptor 行数也不等于第 7 节 source census 的 873,863/873,160 行；两者处于不同物化/投影口径。此处证明已有元数据的规模与类型族聚合，不独立验证每行内容，不证明 prepare publication 完成，不把 W4 Submit 误写为 H2 失败。
+
+首次读取器错误要求 closure 内嵌的 STA Ref 也出现在 operation 顶层 artifact_refs，在读取首个 STA 前以 `TABLE_MANIFEST_REF_NOT_BOUND` 停止。v2 删除这个额外要求，仍验证 operation 绑定的 closure/manifest、每个内嵌精确 Ref 的 sidecar/内容身份，并新增 canonical 名称重复拒绝；这是限定诊断读取器修正，没有改变产品验证。
+
+预算记录另有不足：v2 用 65,536 bytes 作为首轮预留，但首轮已读取的 closure payload 自身为 149,748 bytes，故记录的累计 5,015,645 bytes 不能作为完整实际累计。无需再读制品即可给保守上界：v2 此轮完整计量为 `5,015,645−2,751,483=2,264,162` bytes；v1 在首个 STA 前停止且所用 Ref 与 v2 相同，读取集合为成功轮前缀，保守也按整个 v2 量计算。因此此前读取及两轮合计 **不超过 `2,685,947+2×2,264,162=7,214,271` bytes**，仍低于 16 MiB。保留原日志并补注即可，不要求追加取证；这不是新的根因诊断关卡。
+
+shape 统计和预算上界支持继续选择有代表性的最小诊断，不授权 631 表重放、25GB 放大实验或恢复。当前不 GO 的原因仍为租约失效根因未定位，与上述累计记录笔误无关。仅追加审核报告，未运行测试、未改产品或证据、未推送。

@@ -22,6 +22,9 @@ describe("submit summary display names (M7)", () => {
   it("resolves a submission by creation order", () => {
     expect(
       submissionDisplayName(history, "submission", "fe2a-history-ref-2"),
+    ).toBe("提交 2");
+    expect(
+      submissionDisplayName(history, "submission", "fe2a-history-ref-old"),
     ).toBe("提交 1");
   });
 

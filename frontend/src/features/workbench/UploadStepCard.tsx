@@ -288,7 +288,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     { name: "写入本地", status: phase === "writing" ? "active" : phase === "done" ? "complete" : "pending" },
     { name: "完成，进入差异浏览", status: phase === "done" ? "complete" : "pending" },
   ];
-  return <section className="upload-card" aria-label="上传与预览">
+  return <section className="upload-card" aria-label="上传与预览" data-phase={phase}>
     <div className="upload-card__heading">
       <div><p className="eyebrow">上传</p><h3>{busy ? "上传中" : "上传组态目录"}</h3></div>
       {busy && <span className="status-tag status-tag--info">已用时 {formatWaitDuration(totalStartRef.current ? Math.floor((now - totalStartRef.current) / 1_000) : 0)}（页面计时）</span>}

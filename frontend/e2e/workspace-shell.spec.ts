@@ -358,6 +358,8 @@ async function installFixtureRoutes(page: Page, options: {
       return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(error) });
     }
     const response = options.submitAborted
+      ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "ABORTED" as const, submission_id: null, abort_code: "IMPORT_REJECTED" as const }
+      : { ...TEST_SUBMIT_ATTEMPT_FINALIZED, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
     apiResponses.push({ method: "GET", path, status: 200, body: JSON.stringify(response) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) });
   });
@@ -1590,7 +1592,8 @@ test("FE3a 提交续做时读取失败显示提示且提交按钮禁用并说明
   await expect(page.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
 });
 
-
+test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", async ({ page }) => {
+  test.setTimeout(90000);
   const manual = [
     { ...MANUAL_RECOVERY_TO_SUCCESS[0]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },
     { ...MANUAL_RECOVERY_TO_SUCCESS[1]!, operation_id: "submit-op-1", job_kind: "backend-vnext/submit" as const },

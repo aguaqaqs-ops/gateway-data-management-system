@@ -68,7 +68,8 @@ LOG_FILE="$LOG_DIR/packaging-measure-$(git -C "$REPO_DIR" rev-parse --short HEAD
 : > "$LOG_FILE"
 
 SOURCE_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/gateway-frontend-source.XXXXXX.tar")"
-cleanup() { rm -f -- "$SOURCE_ARCHIVE"; }
+TOOLCHAIN_IDENTITY_ARCHIVE=""
+cleanup() { rm -f -- "$SOURCE_ARCHIVE"; if [[ -n "$TOOLCHAIN_IDENTITY_ARCHIVE" ]]; then rm -f -- "$TOOLCHAIN_IDENTITY_ARCHIVE"; fi; }
 trap cleanup EXIT
 
 finish() {
@@ -81,6 +82,7 @@ finish() {
     printf 'exit_code=%s\n' "$exit_code"
   } >> "$LOG_FILE" 2>/dev/null || true
   rm -f -- "$SOURCE_ARCHIVE"
+  if [[ -n "$TOOLCHAIN_IDENTITY_ARCHIVE" ]]; then rm -f -- "$TOOLCHAIN_IDENTITY_ARCHIVE"; fi
   sha256sum "$LOG_FILE" > "$LOG_FILE.sha256" 2>/dev/null || true
   printf 'log_file=%s\n' "$LOG_FILE"
   cat "$LOG_FILE.sha256" 2>/dev/null || true
@@ -108,7 +110,11 @@ if ! git -C "$REPO_DIR" archive --format=tar HEAD frontend > "$SOURCE_ARCHIVE"; 
   echo "could not archive tracked frontend files from HEAD" >&2
   exit 2
 fi
-
+TOOLCHAIN_IDENTITY_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/gateway-fe3a-toolchain.XXXXXX.tar")"
+docker image save --output "$TOOLCHAIN_IDENTITY_ARCHIVE" "$TOOLCHAIN_IMAGE"
+TOOLCHAIN_IDENTITY="$(python3 "$FRONTEND_DIR/scripts/docker-save-image-identity.py" "$TOOLCHAIN_IDENTITY_ARCHIVE")"
+rm -f -- "$TOOLCHAIN_IDENTITY_ARCHIVE"
+TOOLCHAIN_IDENTITY_ARCHIVE=""
 REPORT_DIR="$(dirname -- "$REPORT")"
 {
   printf 'hostname=%s\n' "$(hostname -f 2>/dev/null || hostname)"
@@ -116,6 +122,8 @@ REPORT_DIR="$(dirname -- "$REPORT")"
   printf 'head_start=%s\n' "$HEAD_START"
   printf 'frontend_tree_start=%s\n' "$(git -C "$REPO_DIR" rev-parse HEAD:frontend)"
   printf 'toolchain_image=%s\n' "$TOOLCHAIN_IMAGE"
+  printf 'toolchain_identity=%s\n' "$TOOLCHAIN_IDENTITY"
+  printf 'docker_version=%s\n' "$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo unknown)"
   printf 'npm_cache=%s\n' "$NPM_CACHE_DIR"
   printf 'npm_cache_source_archive=%s\n' "$NPM_CACHE_ARCHIVE"
   printf 'npm_cache_source_archive_sha256=%s\n' "$(sha256sum "$NPM_CACHE_ARCHIVE" | awk '{print $1}')"

@@ -94,3 +94,9 @@
 | `postflight.log` | `ee3c6ed854497244a736f201183f7399fcbd509f706738140e00c91f515e548e` |
 
 本次追加只更新审核报告，不改产品、设计或既有证据，不构建镜像，不推送、不打 tag。
+
+## 6. 后续小 DB 查询的证据限制
+
+实施者随后报告：停止后只读查询得到 schema 43、DB 3,608,576 bytes/WAL 0/SHM 32,768 bytes、无 writer；operation/step checkpoint_ref 均 NULL、prior_output_refs 为空、attempt PREPARED、prepare 输出与 Repository 绑定相关字段 NULL，operation 仅保留四个原输入/Preview artifact 引用。**这些新增字段为实施者报告，本轮未独立核验。** 实施者明确查询通过内联 SSH heredoc 执行，未保存查询脚本、结果日志及摘要，也未记录 DB/WAL/SHM 前后身份；只有实施线程工具输出与读前 stat/NO_WRITER_CHECK，不能声称已经核验源文件前后不变。
+
+该限制不影响第 2 节已经直接核验的自动 selected rows 和停止结论。若这些补充字段准确，也仅支持 control DB 未登记 prepare 输出/checkpoint；候选执行顺序为 publication 制品写入及 reader 关闭、checkpoint 制品生成、保护引用、lease checkpoint 发布，NULL 不能定位此前哪个步骤尚未完成，也不能排除 artifact store 中的孤儿文件。未扫描 store 或重查数据库，不为补日志要求重复取证，不补造历史记录。已把此限制通知设计及实施者；后续获准计数应从执行时保留原始命令、输出与摘要。当前不 GO 保持不变。

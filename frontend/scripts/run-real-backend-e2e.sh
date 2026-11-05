@@ -173,7 +173,7 @@ fi
 
 # Dependency input tag (kickoff §4.3): never build the dep image here.
 RUN_STAGE="dependency-input"
-DEPENDENCY_TAG="$(vnext/scripts/build-backend-dependency-base.sh --print-input 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["image"])')"
+DEPENDENCY_TAG="$("$REPO_DIR/vnext/scripts/build-backend-dependency-base.sh" --print-input 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["image"])')"
 log "dependency_base_image=$DEPENDENCY_TAG"
 if ! docker image inspect "$DEPENDENCY_TAG" >/dev/null 2>&1; then
   log "error=dependency-base image missing locally: $DEPENDENCY_TAG (cache miss, stop)"
@@ -201,13 +201,11 @@ log "rs_dependency_label=$RS_LABEL"
 RUN_STAGE="rs-build"
 RS_TAG="gateway-repository-service:fe-${HEAD_START:0:12}"
 log "rs_image_tag=$RS_TAG"
-if ! GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE="$RS_DEP_TAG" GATEWAY_DOCKER_BUILD_NETWORK=none \
+if ! GATEWAY_REPOSITORY_SERVICE_IMAGE="$RS_TAG" GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE="$RS_DEP_TAG" GATEWAY_DOCKER_BUILD_NETWORK=none \
   "$REPO_DIR/vnext/scripts/build-repository-service-image.sh" 2>&1 | tee -a "$LOG_FILE"; then
   log "error=RS image build failed (cache miss or network needed, stop)"
   exit 2
 fi
-# The build script tags gateway-repository-service:local; retag to the run tag.
-docker tag gateway-repository-service:local "$RS_TAG" 2>&1 | tee -a "$LOG_FILE"
 log "rs_image_built=$RS_TAG"
 
 # Project + secrets (outside the worktree, container-readable).
@@ -253,7 +251,6 @@ export GATEWAY_REPOSITORY_SERVICE_BEARER_TOKEN_FILE="$RUN_ROOT/repository-bearer
 export GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1
 export GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE="$DEPENDENCY_TAG"
 export GATEWAY_DOCKER_BUILD_NETWORK=none
-export GATEWAY_REPOSITORY_SERVICE_IMAGE="$RS_TAG"
 log "identity_scopes=smoke(submitter/reviewer/archiver/noperm)"
 
 # 1. build backend+worker images (offline, preloaded deps).

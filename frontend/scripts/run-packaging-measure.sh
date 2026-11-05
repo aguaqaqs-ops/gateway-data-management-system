@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # FE3a M1: packaging peak-memory measurement (frontend kickoff §8.4).
 #
-# Runs the M1 probe (scripts/measure-packaging-memory.mjs) inside the fixed
-# toolchain container against the production build, with the source
-# directory read-only mounted. No backend needed; no occupancy marker.
+# Runs the Playwright M1 probe (e2e-packaging/packaging-memory.spec.ts) inside the fixed
+# toolchain container against the production build, with the source directory read-only mounted.
 #
 # Usage:
 #   frontend/scripts/run-packaging-measure.sh \

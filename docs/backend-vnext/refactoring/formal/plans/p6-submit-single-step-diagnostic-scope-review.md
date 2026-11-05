@@ -122,3 +122,11 @@ metadata 日志的 `inputs.manifest.expected_sha256` 错填为 accepted document
 物化脚本依赖尚待交付的外层 transport wrapper：必须在任何复制/移动前取得 05 自有占用并执行实时资源门槛、精确目标路径/名称检查，不能用物化末尾的容量检查替代启动前检查。`ct05-tools/diagnostic_preflight.py` 的实际落点/摘要也须由该 wrapper 固定。本轮接受物化主体的静态方向，不等于外层运输已放行；F2 影响后续镜像校验，修复交回即可定向闭项，不重开此前前置。
 
 **F2 已关闭。** 随后交付的 `diagnostic_preflight.py` SHA256 `364ec3c5ca4885820c796661782bdcc56edc6cf79e50ba8e347e05c9a221a93d` 已删除自写 tar 流解析，改用 `verify_image_project_identity(journey, project, expected_path=...)` 调用 e798 的 `_compose_backend_worker_image_metadata`，比较固定 config digest 与全部 15 个 DiffID，不比较 image ID。静态复核通过，无需镜像重建或重复业务测试；materializer 摘要不变。已通知两实施方更新调用接口及固定摘要，不能继续调用已删除的 `verify_image_archive_identity`。外层 transport/launcher 仍单独审核，闭合 F2 不自动放行执行。
+
+## 10. 单步 launcher 独立静态审核
+
+已读取 `launcher-candidate/launch.sh`（SHA256 `fb043c7ba9a6a52dc70f4f9732a5fae3d71f443ed11e4e29852b616e6e90af04`）、`submit_diagnostic_launcher.py`（SHA256 `a6574d38c2ad28cb204fe3d3ed29a49093f64234435d1a5d423437f284a6f0a6`）及 README（SHA256 `288b5959a038c4c1742d203d9a438fd433456ffdbb1c508bd26f89f20396b75c`）。**单步行为和收束接线静态通过；helper 最终版本/路径需与运输任务对齐后固定。** 没有执行候选、测试、Compose 或 POST。
+
+脚本拒绝既有输出目录，校验自有诊断 owner 的 session/purpose/token；不获取或释放节点锁，由外层实施者按 README 原子 mkdir 并在运行资源全部结束后仅释放自身 token。它固定 clean e798、本地 `.venv`、native tree、F1 wrapper/资源 observer/py-spy 摘要、普通 resume 选项与 RS tag；sampler 与 child 的 manifest/census/evidence 参数精确一致，仅调用一次 sampler，无自动重试。物化 MATCH 后仍核对来源 checkpoint/源名卷、输入/cache、镜像；剩余空间按目标卷 `C+10GiB`，内存仍 48GiB。目标服务启动后、POST 前只核目标卷完整名称/labels及 mountpoint st_dev，不错误地把已运行卷内容要求为原 checkpoint 摘要；随后接入已接受 observer。F1 的目标步骤结束前关闭 guardian 保持，原 journey 保存与清理路径不改。现有目标镜像仅在缺失时从已验证源 tag 增加新 tag，已有不匹配镜像停止。
+
+两任务在审核期间仍修改候选：launcher 固定 helper `364ec3…` 于 `ct05-tools-20261105a/`，运输侧新 helper 增加锁/运输前置后摘要已变化，而 materializer 仍引用 `ct05-tools/`。已通知统一一个最终版本目录及摘要，并更新 shell 对入口文件的 pin；不能把旧 launcher 搭配新 helper 直接执行。另建议 shell 保留既有 `umask 077`，确保输出日志私有。以上是最终接线收敛，不要求新测试矩阵或重新验证已通过 canary。运输外层仍单独审核，不因 launcher 静态通过自动获得执行许可。

@@ -39,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --input-root) [[ -z "$INPUT_ROOT" && $# -ge 2 ]] || { usage >&2; exit 2; }; INPUT_ROOT="$2"; shift 2 ;;
     --mode) [[ -z "$MODE" && $# -ge 2 ]] || { usage >&2; exit 2; }; MODE="$2"; shift 2 ;;
     --runs) [[ $# -ge 2 ]] || { usage >&2; exit 2; }; RUNS="$2"; shift 2 ;;
+    --report) [[ -z "$REPORT" && $# -ge 2 ]] || { usage >&2; exit 2; }; REPORT="$2"; shift 2 ;;
     --log-dir) [[ -z "$LOG_DIR" && $# -ge 2 ]] || { usage >&2; exit 2; }; LOG_DIR="$2"; shift 2 ;;
     --help) usage; exit 0 ;;
     *) usage >&2; exit 2 ;;

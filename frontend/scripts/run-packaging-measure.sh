@@ -140,7 +140,7 @@ docker run --rm --init --ipc=host --network none \
     cd /tmp/frontend
     npm ci --offline --cache /tmp/npm-cache --no-audit --no-fund
     npm run build
-    node scripts/measure-packaging-memory.mjs --input-root /input --mode "'"$MODE"'" --runs "'"$RUNS"'" --output /report/'"$(basename -- "$REPORT")"'
+    GATEWAY_M1_INPUT_ROOT=/input GATEWAY_M1_MODE="'"$MODE"'" GATEWAY_M1_RUNS="'"$RUNS"'" GATEWAY_M1_REPORT="/report/'"$(basename -- "$REPORT")"'" npx playwright test --config playwright.packaging.config.ts
   ' 2>&1 | tee -a "$LOG_FILE"
 RUN_EXIT_CODE=${PIPESTATUS[0]}
 set -e

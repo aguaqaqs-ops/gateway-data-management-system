@@ -1,6 +1,6 @@
 # FE3 kickoff：对接真实 backend
 
-- **状态：** 已确认（owner，2026-11-05，§11 Q1–Q9；FE3a 审核后补充 Q10–Q12）；FE3a 可以开始，FE3b 的前置条件见 §3.2。
+- **状态：** 已确认（owner，2026-11-05，§11 Q1–Q9；FE3a 审核后补充 Q10–Q12）。**FE3a 已退出（2026-11-05，§3.2）**；FE3b 的前置条件见 §3.2，尚未满足。
   - 初稿 `5c360bfb1b` 经 [kickoff 审核](reviews/fe3-kickoff-review.md)（`920f068da4`），结论为定向修订；
     修订 1 `de9cd5cb6f` 处理 B1–B4 与采纳的非阻塞意见（逐条见 §15）；
     [定向复审第 1 轮](reviews/fe3-kickoff-rereview-1.md)（`e91d9db6eb`）通过。
@@ -136,6 +136,42 @@ BE-d 还需先完成 kickoff 审核。按此估计，两者合入 main 约在 S2
   - `git rev-parse <候选>:vnext` 与 `git rev-parse <main>:vnext` 相等；
   - `git diff --name-only <main> <候选>` 只含 `frontend/` 与 `docs/frontend-vnext/` 下的路径。
 - 审核范围中来自 main 的提交（文档与 `vnext/`）不在前端审核范围内；`vnext/` 由后端审核负责。
+
+**FE3a 已退出（2026-11-05）：**
+
+- **tag 与范围：**
+  - 附注 tag `fe-fe3a-exit`（tag 对象 `8dd0f765b3`）指向证据 handoff 提交 `0e7caf66f4`，审核范围 `fe-fe2c-exit..0e7caf66f4`；
+  - 04 运行的提交为 `58c6c9e29f`，代码候选为 `09715b2205`，tag 目标与它们只差 `docs/frontend-vnext/fe3a-handoff.md`；
+  - 三者 `frontend/` 树相同，都是 `8a9f11c84f`；`vnext/` 树 `2791d3ff3d` 未改动。
+- **04 权威运行**（都在 clean detached worktree `/home/dev/gdds-fe-fe3a-evidence` 上）：
+
+  | 运行 | 结果 | 日志 | SHA256 |
+  | --- | --- | --- | --- |
+  | 模拟接口全量 runner | exit 0 | `/home/dev/gdds-fe-logs/frontend-fe3a-evidence/frontend-tests-20261105T114845Z.log` | `3383d9a2…4dfa4b72b` |
+  | 真实 backend 冒烟 | exit 0，9 个用例通过 | `/home/dev/gdds-fe-logs/fe3a-04/smoke/real-backend-e2e-smoke-fe3a-evidence-58c6c9e2-20261105T114950Z-1558148.log` | `98768dfd…7c14355` |
+  | 上传包的后端校验 | exit 0，由审核会话补跑（[证据核对](reviews/fe3a-evidence-check-1.md) §2） | `/home/dev/gdds-fe-logs/fe3a-04/upload-validation/upload-validator-58c6c9e29f-20261105T120740Z-1568674.log` | `395d0f3b…5a1a963` |
+
+- **截图：** 96 张（1280、1920），在 04 的 `/home/dev/gdds-fe-evidence/fe3a-04/screens/`。
+  - 聚合 SHA256 `15e316d3…fc0fb1e065e9`，公式 `cd <目录> && sha256sum *.png | sort -k2 | sha256sum`；
+  - owner 已看图确认，以后可能微调符号与字体，不需要大改。
+- **M1：** 在 05 上测量，t4 v1 的 renderer 峰值增量最大 670.62 MiB，外推到 1 GB 约 2.06 GiB。按 Q12 满足，FE3b 不改流式。
+  owner 接受“用生产构建测量”这一偏差（§8.4 写的是开发构建）。
+- **合入 main：** 合并提交带入 `frontend/` 与 `docs/frontend-vnext/fe3a-handoff.md`。
+- **依据：**
+  - [审核](reviews/fe3a-review.md)：定向修复；
+  - [复审第 1 轮](reviews/fe3a-rereview-1.md)：定向修复；
+  - [第 2 轮](reviews/fe3a-rereview-2.md)：通过；
+  - [证据核对第 1 次](reviews/fe3a-evidence-check-1.md)：通过。
+- **handoff 勘误**（不改 handoff）：
+  - §9 第 5 项：接受偏差的是 owner，不是实施方；
+  - §9 第 4 项：“04 取证未执行”已过时；
+  - §0.5 标题：标题写“复审通过前”，实际上 04 取证是在复审第 2 轮通过之后进行的；
+  - 漏项：handoff 没有记录上传包的后端校验。
+- **交 owner：** handoff §8 中给 AGENTS 与 testing-conventions 的建议条文，由 owner 转治理会话（§12）。
+- **FE3b 的起点：** `fe-fe3a-exit`。前置条件仍是：
+  - S2a、BE-a、BE-d 合入 main；
+  - 后端定下“基线已前移后才通过的提交”的处理方式（§12）；
+  - BE-d kickoff 审核确认 tar 成员与 closure 的对应关系（§2.3）。
 
 **FE3b 的提前调试：** BE-a、BE-d 先后合入时，实施会话可以在先合入的一项上开始在 05 调试相关旅程，例如 BE-d 合入后先调差异浏览。
 FE3b 的候选与审核仍在两项都合入后进行，不为单项另设 tag。

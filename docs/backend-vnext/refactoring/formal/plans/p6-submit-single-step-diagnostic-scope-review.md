@@ -110,3 +110,13 @@
 metadata 日志的 `inputs.manifest.expected_sha256` 错填为 accepted document 摘要 `6b63cf…`；该 manifest 的 `actual_sha256=4c5638df32973282507937c1232c09117b40023f8b03f3d94caf7c160f87aac7` 与先前固定值一致。已要求最终运输清单使用正确固定值并标明展示错误，原日志保留；不把该错误列当运输期望值，不为修正文案重读/重哈希 CT108。
 
 这些证据关闭环境准备与清单/容量不明确项，不新增测试要求。尚待交付的是具体运输/完整源名卷物化与新版 launcher 命令，绑定第 6 节 observer、宿主数据目录、固定 RS tag、实时门槛和既定失败停止；`9da69886` 中的旧命令不能代替该最终版本。可按先运输/物化校验、后一次 POST 的边界接续审核，无需重开已通过前置。
+
+## 9. 首批运输工具静态审核与 F2
+
+已先行审核 `diagnostic_preflight.py`（SHA256 `eef3e6babecc46318a5e4bb2cde46ed38571704f22670ea2a25eba031f122d79`）及 `materialize_ct05.py`（SHA256 `3a919f94294c6270d4514ca14b7a0b24fe477ca7593b85b15bbac26a77448644`），均在上述外部证据目录；不等待完整 handoff 排版。审核只读脚本及对应 e798 helper，没有执行脚本或测试。
+
+**F2：镜像 tar 读取依赖成员顺序，会拒绝现有合法镜像。** preflight 的 `verify_image_archive_identity` 用 `tarfile` 流式 `r|` 读取，仅在已见 `manifest.json` 后才把其 Config 路径加入接收集合；位于 manifest 之前的 config 被跳过，之后报 requested tag/config 缺失。只读既有 `backend-worker-p6bw4s4h120261105b.tar` 的 header 元数据确认：config header offset 为 368,442,880，manifest 为 397,079,552，实际就是 config 在前。该核对没有提取镜像或重算归档 SHA。最小修复是复用 e798 已有 journey 镜像 metadata/config-digest 读取 helper，再比较固定 config digest 和全部 DiffID，删除此次新建的顺序敏感解析器；不需镜像重建、业务测试或新的解析框架。已即时通知实施者及设计，由既有任务修正后交摘要复核。
+
+两脚本其余主体暂未发现阻塞问题：固定 source/input/checkpoint 常量与第 8 节一致，manifest 期望 SHA 已正确使用 `4c5638…`；先核 staging 文件/目录摘要，拒绝 project-label 卷和无 label 的精确同名卷，移动到原绝对路径后保留 manifest，按新建源名卷 labels、空卷、同文件系统检查再 `cp -a`，复制后重算原 digest，失败保存结果且不删除副本。该物化脚本本身不启动 Compose/Submit。
+
+物化脚本依赖尚待交付的外层 transport wrapper：必须在任何复制/移动前取得 05 自有占用并执行实时资源门槛、精确目标路径/名称检查，不能用物化末尾的容量检查替代启动前检查。`ct05-tools/diagnostic_preflight.py` 的实际落点/摘要也须由该 wrapper 固定。本轮接受物化主体的静态方向，不等于外层运输已放行；F2 影响后续镜像校验，修复交回即可定向闭项，不重开此前前置。

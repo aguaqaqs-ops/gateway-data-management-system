@@ -63,3 +63,34 @@
 | `node-lock-release.log` | `2af305965535153c01ce77cacf12e0c536627c3632928b438d41d34226fe3f09` |
 
 本轮报告基于 main `e89dc0db35bd5d921096e2380c33adb59b19a399`，只新增本文，不触发镜像重建，不改变上次已审 H 镜像身份及 04 结果；也不增加任何容器门禁或恢复成功声明。未推送、未打 tag。
+
+## 5. B：INITIAL 小样本同步段诊断核对
+
+2026-11-05 设计授权的 B probe 诊断事实与解释范围通过；**不改变不 GO 结论**。审核只读核对 05 原文件与 CT201 副本，未执行 probe 或追加矩阵。证据副本位于 `/home/dev/gdds-p6-logs/prepare-import-B-20261105/`；05 原日志目录为 `/home/dev/gdds-test-tmp/prepare-import-B-20261105/`，脚本为其外的 `prepare-import-B-probe.py`、`prepare-import-B-run.sh`。
+
+实际代码取自 clean detached `/home/dev/gdds-prepare-import-e798-05`，起止 HEAD 均为 e798，五锁前后摘要相等。解释器复用 `/home/dev/gdds-p6-baseline-capacity-resume-413832-05/vnext/backend/.venv/bin/python`，probe 显式把 e798 的 backend/shared_kernel/contracts/client 源码置入 sys.path；日志确认 fixture/product 模块来自 e798，native build-input 为 `58436908aee9dd449f4d3e0542a6a8c1920b6d5e`，与 e798 Rust tree 匹配。这是有记录的诊断环境复用，不表述为最终候选完整环境门禁。
+
+外置脚本使用现有 pure fixture、InMemoryArtifactStore 和 INITIAL parent，每档一张 12 列表、1k/10k 行；调用 publication adapter，没有启动 Dolt、Compose、数据库服务、网络调用或读取真实输入。wrapper 设置离线并清除代理；子进程监督器以 50ms 周期读取 RSS，设置合计 120s 与单子进程采样 RSS 2GiB 停止条件。两个子进程均 exit 0、stop_reason=null，总耗时 14.550407s，2026-11-05 20:19:49Z–20:20:03Z；postflight 20:20:26Z 记录占用释放。审核时该 worktree clean、节点占用标记不存在。
+
+| 指标 | 1k | 10k |
+| --- | --- | --- |
+| publication wall / process CPU | 0.867190s / 0.873297s | 9.008104s / 9.033012s |
+| plan_import_mutation wall | 0.541260s | 5.978178s |
+| 累计最大 tick 间隙 | 36.347ms | 169.784ms |
+| 子进程采样 RSS 峰值 | 178,663,424 bytes | 379,035,648 bytes |
+| 返回/read-back/显式 cleanup 后累计 tick | 36.347ms | 169.784ms |
+
+各过程 CPU 包含同进程其他线程；tick 最大值从启动起累计，不能当作各段独立 stall 时长，更不能直接归因 GIL。Parquet helper 的 wrapper 因生产代码已导入 alias，没有直接记录；`_open_projection_inputs` 耗时不能拆成单独 Arrow primitive。15s faulthandler 定时器未触发，两份 stacks 文件为空，不能当作有用户态栈定位。RSS 是 50ms 子进程采样，不含监督器、不是连续硬限额或完整生产服务内存曲线。
+
+本结果仅说明这个 INITIAL 小样本没有重现几十秒心跳调度间隙。它不覆盖非 INITIAL parent 差分、真实 25.5GB 资源规模、持久制品存储、control DB/LeaseSession 心跳或 checkpoint 发布路径；不能排除这些条件下的 GIL/调度/锁问题，也不能把约 10 倍耗时变化外推为完整规模模型。下一步按设计从既有小元数据判断原运行是否完成 publication、是否进入 checkpoint 发布，再选择最小诊断，不增加无依据矩阵。
+
+| 文件 | 本轮在 05 原文件与 CT201 副本均核对的 SHA256 |
+| --- | --- |
+| `run.log` | `ed223107006654795b574c7980b330f32a874ba85f8dac9f8e2578b69d2dbad9` |
+| `probe.py`（05 为 `prepare-import-B-probe.py`） | `6234ad98e92d06d2c434f77169d03ecbf4a9b3f02ccb515ec321970e0750a58b` |
+| `run.sh`（05 为 `prepare-import-B-run.sh`） | `3ef83dc537c7c87c9212468dc30724d83cd4e3920b5fdfba893345508c42a8f6` |
+| `rows-1000.log` | `d6fee9c59f39cfc77e4422869cb4f8a63dcdde53b8349e328aaecf5ffd1b8c29` |
+| `rows-10000.log` | `d7e7d7e4d0124336e792261495d5cf3bfa53d5b0b27c88a0d933888e5d64bc08` |
+| `postflight.log` | `ee3c6ed854497244a736f201183f7399fcbd509f706738140e00c91f515e548e` |
+
+本次追加只更新审核报告，不改产品、设计或既有证据，不构建镜像，不推送、不打 tag。

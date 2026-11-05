@@ -337,7 +337,7 @@ cat > "$RUN_ROOT/session.json" <<EOF
 EOF
 printf '%s\n' "$RS_BEARER" > "$RUN_ROOT/repository-bearer-token"
 printf '%s\n' "$INTERNAL_BEARER" > "$RUN_ROOT/internal-bearer-token"
-chmod 0600 "$RUN_ROOT/session.json" "$RUN_ROOT/repository-bearer-token" "$RUN_ROOT/internal-bearer-token"
+chmod 0644 "$RUN_ROOT/session.json" "$RUN_ROOT/repository-bearer-token" "$RUN_ROOT/internal-bearer-token"
 export GATEWAY_P2R2_BEARER_TOKEN_FILE="$RUN_ROOT/repository-bearer-token"
 export GATEWAY_BACKEND_SESSION_FILE="$RUN_ROOT/session.json"
 export GATEWAY_BACKEND_PROVISIONED_MAPPING_FILE="$RUN_ROOT/provisioned-mapping.json"

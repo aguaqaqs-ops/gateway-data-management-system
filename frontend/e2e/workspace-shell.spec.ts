@@ -44,11 +44,13 @@ async function installFixtureRoutes(page: Page, options: {
   historyCompareErrors?: number;
   historyCompareStatus?: (operationId: string, index: number) => Schemas["HistoryCompareResultResponse"];
   operationStatus?: (operationId: string, index: number) => Schemas["OperationResponse"];
+  operationHold?: { operationId: string; onHold?: () => void; release: Promise<void> };
   operationStatusForbidden?: boolean;
   uploadHoldPolls?: number;
   submitIdentity?: "confirm";
   submitForbidden?: boolean;
   submitConflict?: "WORKSPACE_VERSION_CONFLICT";
+  submitAttemptReadFails?: boolean;
   submitAborted?: boolean;
   submitTimeoutFirst?: boolean;
   uploadConflict?: "WORKSPACE_VERSION_CONFLICT" | "IDEMPOTENCY_CONFLICT";
@@ -238,6 +240,10 @@ async function installFixtureRoutes(page: Page, options: {
       apiResponses.push({ method: "GET", path: new URL(request.url()).pathname, status: error.status, body: JSON.stringify(error.body) });
       return route.fulfill({ status: error.status, contentType: "application/json", body: JSON.stringify(error.body) });
     }
+    if (options.operationHold && operationId === options.operationHold.operationId) {
+      options.operationHold.onHold?.();
+      await options.operationHold.release;
+    }
     const result = options.operationStatus?.(operationId, count)
       ?? (options.uploadHoldPolls && operationId.startsWith("preview-op") && count <= options.uploadHoldPolls
         ? { ...TEST_OPERATION_SUCCEEDED, operation_id: operationId, status: "RUNNING" as const, completed_at: null }
@@ -351,6 +357,11 @@ async function installFixtureRoutes(page: Page, options: {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     apiRequests.push({ method: "GET", path, token: request.headers()["authorization"] ?? null, idempotencyKey: null, body: "" });
+    if (options.submitAttemptReadFails) {
+      const error = { code: "SERVICE_NOT_READY", message: "提交服务暂时不可用" };
+      apiResponses.push({ method: "GET", path, status: 503, body: JSON.stringify(error) });
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify(error) });
+    }
     const response = options.submitAborted
       ? { ...TEST_SUBMIT_ATTEMPT_FINALIZED, state: "ABORTED" as const, submission_id: null, abort_code: "IMPORT_REJECTED" as const }
       : { ...TEST_SUBMIT_ATTEMPT_FINALIZED, workspace_id: "workspace-fe2b", preview_result_id: "preview-full", generation: 3 };
@@ -814,7 +825,7 @@ test("正式工作台呈现 History、四列表格、操作说明与 1280/1920 �
   await page.mouse.up();
   await expect.poll(() => page.locator(".workspace-table col").nth(0).evaluate((element) => Number.parseFloat(getComputedStyle(element).width))).toBeGreaterThan(widthBefore);
 
-  await page.getByRole("button", { name: "归档基线", exact: true }).click();
+  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await expect(page.locator(".workspace-context-bar")).toContainText("待审核");
@@ -889,7 +900,7 @@ test("History 比较超时重试复用同一幂等键，刷新后按 URL 中 ope
   await page.addInitScript(() => { Object.assign(window, { __gatewayTestConfig: { historyCompareTimeoutMs: 700 } }); });
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
-  await page.getByRole("button", { name: "归档基线", exact: true }).click();
+  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
@@ -1007,7 +1018,7 @@ test("无权限身份发起历史比较时托盘显示统一权限提示和错�
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("/");
   await page.getByRole("combobox", { name: "模拟身份" }).selectOption("no-permission");
-  await page.getByRole("button", { name: "归档基线", exact: true }).click();
+  await page.getByRole("button", { name: "归档基线 1", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
   await page.getByRole("button", { name: "提交 2", exact: true }).click();
   await page.locator(".workspace-context-bar").getByRole("button", { name: "加入比较" }).click();
@@ -1151,6 +1162,10 @@ test("FE2c 提交前要求确认项目身份差异并进入审核", async ({ pag
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("业务项目不同，需要确认数据集替换")).toBeVisible();
   await expect(dialog.getByText("项目身份无法验证")).toBeVisible();
+  // M7 Q11: the workspace row shows the tree display name, not the raw ID.
+  await expect(dialog.getByText("工作区").locator("xpath=following-sibling::dd")).toHaveText("gateway-17");
+  await screenshot(page, "submit-summary-workspace", 1920);
+  await screenshot(page, "submit-summary-workspace", 1280);
   const confirm = dialog.getByRole("button", { name: "确认提交" });
   await expect(confirm).toBeDisabled();
 
@@ -1553,6 +1568,57 @@ test("FE2c 执行中刷新后恢复页面锁定并继续到差异浏览", async 
   await expect(page).toHaveURL(/mode=PREVIEW/, { timeout: 60000 });
   await waitForBrowse(page);
   expect(new URL(page.url()).searchParams.get("operationId")).toBeNull();
+});
+
+test("FE3a 提交续做时 ABORTED 后提交恢复可用", async ({ page }) => {
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  await installFixtureRoutes(page, {
+    submitAborted: true,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+  });
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.evaluate(() => {
+    sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
+  });
+  await page.reload();
+  await waitForBrowse(page);
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  await held;
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
+  await expect(submit).toBeDisabled();
+  await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
+  releaseOperation();
+  await expect(page.getByText("提交未完成，请检查上传与 Preview 后重试")).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText("IMPORT_REJECTED")).toBeVisible();
+  await expect(submit).toBeEnabled();
+});
+
+test("FE3a 提交续做时读取失败后提交恢复可用", async ({ page }) => {
+  let releaseOperation!: () => void;
+  const released = new Promise<void>((resolve) => { releaseOperation = () => resolve(); });
+  let holdOperation!: () => void;
+  const held = new Promise<void>((resolve) => { holdOperation = () => resolve(); });
+  await installFixtureRoutes(page, {
+    submitAttemptReadFails: true,
+    operationHold: { operationId: "submit-op-1", onHold: holdOperation, release: released },
+  });
+  await page.goto(browseUrl("PREVIEW", "preview-full", { operationId: "submit-op-1", operationKind: "operation" }));
+  await page.evaluate(() => {
+    sessionStorage.setItem("gateway-submit-operation", JSON.stringify({ operationId: "submit-op-1", workspaceId: "workspace-fe2b", submitAttemptId: "attempt-1" }));
+  });
+  await page.reload();
+  await waitForBrowse(page);
+  const submit = page.getByRole("button", { name: "提交", exact: true });
+  await held;
+  await expect(page.getByRole("region", { name: "操作状态" })).toBeVisible();
+  await expect(submit).toBeDisabled();
+  await expect(page.getByText("提交结果确认中，请稍候")).toBeVisible();
+  releaseOperation();
+  await expect(page.getByText("无法读取提交结果，请刷新后重试")).toBeVisible({ timeout: 15000 });
+  await expect(submit).toBeEnabled();
 });
 
 test("FE2c 提交对话框显示需要管理员处理并可跟随到成功", async ({ page }) => {

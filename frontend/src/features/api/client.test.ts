@@ -86,7 +86,7 @@ describe("authenticated OpenAPI client", () => {
     const form = init?.body as FormData;
     const manifest = JSON.parse(String(form.get("manifest")));
     expect(manifest).toMatchObject({ expected_workspace_version: 10, input_completeness: "FULL", artifacts: { INITIAL: { part_name: "initial", media_type: "application/zip", size_bytes: 15 }, MODIFIED: { part_name: "modified", media_type: "application/zip", size_bytes: 16 } } });
-    expect(typeof manifest.artifacts.MODIFIED.raw_sha256).toBe("string");
+    expect(manifest.artifacts.MODIFIED.raw_sha256).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(form.get("initial")).toBeInstanceOf(File);
     expect(form.get("modified")).toBeInstanceOf(File);
   });

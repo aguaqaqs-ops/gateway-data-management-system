@@ -79,4 +79,20 @@ describe("formal workbench tree and contextual actions", () => {
     expect(oldIndex).toBeGreaterThan(-1);
     expect(sorted.find((row) => row.key === "workspace:workspace-fe2b")?.parentKey).toBe("baseline_node:fe2a-history-ref-1");
   });
+  it("numbers archived baselines by creation time and breaks ties by ref_id (Q11)", () => {
+    const initial = HISTORY_PAGE_TWO.nodes.find((node) => node.baseline_kind === "INITIAL")!;
+    const archived = HISTORY_PAGE_ONE.nodes.find((node) => node.node_kind === "BASELINE_NODE")!;
+    const tied = { ...archived, ref_id: "fe2a-history-ref-a", created_at: "2026-11-02T10:00:00Z" };
+    const later = { ...archived, ref_id: "fe2a-history-ref-b", created_at: "2026-11-02T10:00:00Z" };
+    const customHistory = {
+      ...history,
+      head: { ...history.head, node_id: "fe2a-history-ref-a" },
+      nodes: [initial, later, tied],
+    } satisfies components["schemas"]["HistoryListResponse"];
+    const rows = buildWorkspaceTree(WORKSPACE_RESPONSE, customHistory);
+    expect(rows.find((row) => row.refId === "fe2a-history-ref-0")?.label).toBe("初始基线");
+    expect(rows.find((row) => row.refId === "fe2a-history-ref-a")?.label).toBe("归档基线 1");
+    expect(rows.find((row) => row.refId === "fe2a-history-ref-b")?.label).toBe("归档基线 2");
+  });
+
 });

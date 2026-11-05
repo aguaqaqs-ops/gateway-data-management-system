@@ -57,6 +57,9 @@ function errorMessage(cause: unknown, phase: UploadPhase): { message: string; co
   if (cause instanceof DOMException && cause.name === "TimeoutError") {
     return { message: "请求超时，请重试", code: "REQUEST_TIMEOUT", retryable: true, refresh: false };
   }
+  if (phase === "downloading" || phase === "writing") {
+    return { message: "预览已生成，但下载比较结果失败，请重试", code: null, retryable: true, refresh: false };
+  }
   return { message: "上传或预览未完成，请重试", code: null, retryable: true, refresh: false };
 }
 
@@ -288,7 +291,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     { name: "写入本地", status: phase === "writing" ? "active" : phase === "done" ? "complete" : "pending" },
     { name: "完成，进入差异浏览", status: phase === "done" ? "complete" : "pending" },
   ];
-  return <section className="upload-card" aria-label="上传与预览">
+  return <section className="upload-card" aria-label="上传与预览" data-phase={phase}>
     <div className="upload-card__heading">
       <div><p className="eyebrow">上传</p><h3>{busy ? "上传中" : "上传组态目录"}</h3></div>
       {busy && <span className="status-tag status-tag--info">已用时 {formatWaitDuration(totalStartRef.current ? Math.floor((now - totalStartRef.current) / 1_000) : 0)}（页面计时）</span>}
@@ -337,7 +340,7 @@ export const UploadStepCard = forwardRef<UploadStepCardHandle, {
     </details>}
     {busy && <div className="upload-progress">
       <OperationStatus title="上传中" phases={phases} />
-      {operation?.status === "MANUAL_RECOVERY_REQUIRED" && <p role="alert" className="upload-progress__manual">操作需要管理员处理。操作 ID <code>{operation.operation_id}</code><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operation.operation_id)}>复制 ID</button>系统仍在查询状态，刷新页面后会继续跟随。</p>}
+      {operation?.status === "MANUAL_RECOVERY_REQUIRED" && <div role="alert" className="form-warning form-warning--stacked" title={`操作 ID：${operation.operation_id}`}><span>操作需要管理员处理。</span><span>操作 ID：<code>{operation.operation_id}</code></span><span className="form-error__actions"><button className="link-button" onClick={() => void navigator.clipboard?.writeText(operation.operation_id)}>复制 ID</button></span><span>系统仍在查询状态，刷新页面后会继续跟随。</span></div>}
       {operation && operation.status !== "MANUAL_RECOVERY_REQUIRED" && <p className="upload-progress__wait">已等待 {formatWaitDuration(elapsed ?? 0)}</p>}
       <p className="upload-progress__lock">处理中不可关闭，页面其余操作已锁定。完成后自动进入差异浏览；失败时在此显示失败步骤，可直接重试。</p>
     </div>}

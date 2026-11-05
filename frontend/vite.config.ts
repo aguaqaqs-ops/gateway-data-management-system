@@ -23,16 +23,21 @@ const productionModuleManifest: Plugin = {
   },
 };
 
+const backendProxy = {
+  "/v1": { target: backendOrigin, changeOrigin: true },
+  "/healthz": { target: backendOrigin, changeOrigin: true },
+  "/readyz": { target: backendOrigin, changeOrigin: true },
+  "/openapi.json": { target: backendOrigin, changeOrigin: true },
+};
+
 export default defineConfig({
   plugins: [react(), productionModuleManifest],
   server: {
     host: "127.0.0.1",
-    proxy: {
-      "/v1": { target: backendOrigin, changeOrigin: true },
-      "/healthz": { target: backendOrigin, changeOrigin: true },
-      "/readyz": { target: backendOrigin, changeOrigin: true },
-      "/openapi.json": { target: backendOrigin, changeOrigin: true }
-    }
+    proxy: backendProxy,
+  },
+  preview: {
+    proxy: backendProxy,
   },
   test: {
     clearMocks: true,

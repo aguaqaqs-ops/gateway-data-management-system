@@ -163,7 +163,15 @@ for input in \
   frontend/scripts/docker-save-image-identity.py \
   frontend/src/test/fixtures/source/business-navigation.json \
   frontend/src/test/fixtures/source/navigation-diagnostics.json \
-  frontend/src/test/fixtures/source/business-navigation-workbench.json; do
+  frontend/src/test/fixtures/source/business-navigation-workbench.json \
+  frontend/src/test/fixtures/source/upload-inputs/sql-baseline.sql \
+  frontend/src/test/fixtures/source/upload-inputs/sql-initial.sql \
+  frontend/src/test/fixtures/source/upload-inputs/sql-modified.sql \
+  frontend/src/test/fixtures/source/upload-inputs/sql-replacement-before.sql \
+  frontend/src/test/fixtures/source/upload-inputs/sql-replacement-current.sql \
+  frontend/src/test/fixtures/source/upload-inputs/logics-1.xml \
+  frontend/src/test/fixtures/source/upload-inputs/logics-2.xml \
+  frontend/src/test/fixtures/source/upload-inputs/logics-3.xml; do
   [[ -f "$REPO_DIR/$input" ]] || { log "error=required input is missing: $input"; exit 2; }
   log "input_sha256 $input $(sha256sum "$REPO_DIR/$input" | awk '{print $1}')"
 done

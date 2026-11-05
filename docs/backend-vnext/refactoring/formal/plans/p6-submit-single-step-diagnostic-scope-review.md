@@ -217,3 +217,22 @@ run 记录三个目标数据卷保留，无 retained-volume listing error；审�
 **同节点镜像轻量核对可接受。** 冷 catalog 复用已在同一 CT05 验证的现存镜像，无需调用会重新 docker save 的 helper。worker 用第 14 节 CT05 诊断 run 的本机 image ID `sha256:26cc11f61544ae07b7006ccd6bf9270b52bc69338b245fc52972646dc08ac64c` 绑定当前源 tag，再核完整 RootFS DiffID；不能取 CT108 来源 run 的本机 ID。RS 用第 8 节 CT05 四向记录的本机 ID `sha256:642b9ff31c6b862266087cfc1b6033ff85439242fc3727860da0c06725191b56`，并核既定 build-input/source-tree 标签。此前 config digest 与全部 DiffID 的验证继续作为来源证据；本轮 ID 只用于同节点现存对象核对，不作为新跨节点等价证明。若本机对象已变或字段无既有记录，停止并说明，不能反填旧记录。具体 harness 须固定这些小记录/摘要并落实检查。
 
 **client 修正已关闭。** 最终 client SHA256 `74bfa2b56eb7f4465caf7b5e69b7661e3494c74f99e87c0d275df963267ed864` 加入嵌套函数的 global 声明，并在返回 commit 不匹配或记录不完整时 exit 2。反向替换这两处后精确恢复首版 `82bce3a5…` 完整摘要，确认无额外改动。静态通过，无需新测试；controller 仍待固定版本及镜像身份小记录复核，尚未放行执行。
+
+## 17. 最终冷 catalog 候选复核与单次 GO
+
+**明确 GO：允许原实施者按最终 README 在 CT05 执行一次冷 catalog 诊断，包括单个既有源 RS 卷的本机复制、新 RS 进程及一次逻辑 GET。** 已直接通知原实施者及设计，无需再次等待 owner 确认。不包含 Submit、后续业务步骤或正式测量恢复。本审核未执行候选、测试、复制或启动服务。
+
+最终文件位于 `/home/dev/gdds-p6-logs/submit-diag-preflight-20261105/cold-catalog-candidate/`：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `client.py` | `74bfa2b56eb7f4465caf7b5e69b7661e3494c74f99e87c0d275df963267ed864` |
+| `execute.py` | `f0ce6eaf972d8cca3083471e9053c3969b87b320703916c14b475a7bed957502` |
+| `node-identity.json` | `7395cfaaccf99e6345bdc2291330ceb71bb7c7f7013ad02b20f5936e7162d21d` |
+| `README.md` | `0dee1af755417bf2bc88d18cd43678206cfbd5dbb55e1336789270aaf93597ed` |
+
+审核读取 `ct05-local-image-inspect-20261105a.log` 并核 SHA256 `a631ab29b22d7c4af840eb9ac9d4c7f5849d47b14a386130c46a76e08ba8f2c6`。worker 本机 ID 与已审 CT05 run 相同，全部 15 条 DiffID 与既有 loaded-image-identity 逐项相同；RS 本机 ID 与既有四向记录相同，28 条 DiffID 完整。`node-identity.json` 两对象的 ID/数组逐项精确来源于该日志，并固定其来源摘要、节点与产品 HEAD，没有编造缺失字段。原实施者 handoff 提交 `a96c1004fa83ccbe190390a99ed9a2dbc31be785` 已记录上述来源与 helper 绑定；本审核读取该文档增量，不将其作为正式测量恢复结论。
+
+controller 已完整静态审核：先原子自取节点锁、检查 clean e798/节点空闲、已审文件摘要/实时资源/镜像身份/精确名称碰撞，再仅复制已验证源 RS 卷。原 Compose 只启动 RS，同 worker 镜像客户端没有产品卷，保持固定父引用、30 秒 timeout 和原内部最多三次尝试。成功必须同时满足 exit 0、唯一 SUCCESS、commit_matches=true、instrumentation_incomplete=false、尝试数 1–3。阶段预算与资源停止按第 15 节，退出先停止/杀掉 client 与 RS，再有界采集日志和移除本项目容器/网络，不删除数据卷；复制完成状态不确定或收束失败保留占用。最终 `execute.py` 反向去除身份 pin、两处 `--pull never` 与日志截断声明后，精确恢复已审核初稿 `456a0b1104718e93d4b591ff21b9d22ad8356a1a0780be50560705a70cbf269f`，没有其他逻辑变化。helper 仍固定 `762b640b…` 且只调用轻量同文件系统检查，不做镜像导出或重哈希卷。
+
+执行前按 README 确认 BatchMode SSH，并经获准 LAN 同步这组固定小文件、核对摘要；controller 自取锁，不另建冲突的外层锁。使用 README 所列 e798 绝对解释器及隔离环境命令，仅执行一次。任何失败即停止、保留源卷/新卷/日志，不自动重跑；确认自身活动停止后才释放自身 token，未知状态保锁。交回完整 client/events、实际 exit、摘要与锁/收束状态；Docker 日志每容器仅末尾 2000 行，不能称全量。CATALOG_RETURNED 仅证明该次直接客户端请求返回，不证明原 Submit 成功或排除先前失败；OS 页缓存未重置，结果不作冷磁盘基准。

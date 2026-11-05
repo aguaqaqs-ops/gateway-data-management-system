@@ -340,7 +340,7 @@ log "npm_cache_archive=$NPM_CACHE_ARCHIVE"
 log "npm_cache_archive_sha256=$NPM_CACHE_ARCHIVE_SHA"
 TOOLCHAIN_IDENTITY_ARCHIVE="$(mktemp "${TMPDIR:-/tmp}/gateway-fe3a-toolchain.XXXXXX.tar")"
 docker image save --output "$TOOLCHAIN_IDENTITY_ARCHIVE" "$TOOLCHAIN_IMAGE"
-TOOLCHAIN_IDENTITY="$(python3 "$FRONTEND_DIR/scripts/docker-save-image-identity.py" "$TOOLCHAIN_IDENTITY_ARCHIVE")"
+TOOLCHAIN_IDENTITY="$(python3 -I "$FRONTEND_DIR/scripts/docker-save-image-identity.py" "$TOOLCHAIN_IDENTITY_ARCHIVE")"
 rm -f -- "$TOOLCHAIN_IDENTITY_ARCHIVE"
 log "toolchain_image=$TOOLCHAIN_IMAGE"
 log "toolchain_identity=$TOOLCHAIN_IDENTITY"
@@ -350,8 +350,8 @@ log "compose_version=$(docker compose version --short 2>/dev/null || echo unknow
 # Dependency input tag (kickoff §4.3): never build the dep image here.
 RUN_STAGE="dependency-input"
 DEP_INPUT_JSON="$("$REPO_DIR/vnext/scripts/build-backend-dependency-base.sh" --print-input 2>/dev/null)"
-DEPENDENCY_TAG="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["image"])' "$DEP_INPUT_JSON")"
-DEPENDENCY_INPUT_SHA="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["input_sha256"])' "$DEP_INPUT_JSON")"
+DEPENDENCY_TAG="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["image"])' "$DEP_INPUT_JSON")"
+DEPENDENCY_INPUT_SHA="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["input_sha256"])' "$DEP_INPUT_JSON")"
 log "dependency_base_image=$DEPENDENCY_TAG"
 log "dependency_input_sha256=$DEPENDENCY_INPUT_SHA"
 if ! docker image inspect "$DEPENDENCY_TAG" >/dev/null 2>&1; then
@@ -534,8 +534,8 @@ print(urllib.request.urlopen(req, timeout=120.0).read().decode())" > "$RUN_ROOT/
     exit 2
   fi
   seed_json="$(cat "$RUN_ROOT/seed-${scope}.json")"
-  repo_id="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["repository_id"])' "$seed_json")"
-  init_commit="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["initial_commit_id"])' "$seed_json")"
+  repo_id="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["repository_id"])' "$seed_json")"
+  init_commit="$(python3 -I -c 'import json,sys; print(json.loads(sys.argv[1])["initial_commit_id"])' "$seed_json")"
   SCOPE_ROWS+=("${scope}|${device_key}|${business_project}|${baseline_node}|${repo_id}|${init_commit}")
   log "scope=$scope_name scope_slug=$scope repository_id=$repo_id initial_commit_id=$init_commit business_baseline_node_id=$baseline_node"
 done
@@ -562,7 +562,7 @@ with open(out_path, "w", encoding="utf-8") as handle:
     handle.write("\n")
 PY
 chmod 0644 "$RUN_ROOT/provisioned-mapping.json"
-log "provisioned_mappings=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["mappings"]))' "$RUN_ROOT/provisioned-mapping.json")"
+log "provisioned_mappings=$(python3 -I -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["mappings"]))' "$RUN_ROOT/provisioned-mapping.json")"
 
 # 3. up backend+worker, wait /readyz and the worker readiness log line.
 if ! docker compose -f "$REPO_DIR/vnext/deploy/compose.yaml" -p "$PROJECT_NAME" up -d --no-build backend worker 2>&1 | tee -a "$LOG_FILE"; then
@@ -601,9 +601,7 @@ for svc in backend worker; do
 done
 log "compose_network_id=$(docker network inspect "${PROJECT_NAME}_default" --format '{{.Id}}' 2>/dev/null || echo unknown)"
 
-# 4. Smoke input directory. These committed fixtures are the FE3a smoke
-# upload; the four FE3b upload sequences and their real inputs are still
-# pending the design-session record (review B10).
+# 4. Smoke input directory: one directory per input scope.
 # Q10 upload inputs: five independent directories, one per input scope.
 # SQL files are the committed derived inputs; logics come from the shared
 # source fixtures without copying them into the worktree.
@@ -788,21 +786,30 @@ if [[ -n "$EVIDENCE_DIR" ]]; then
   docker cp "$TOOLCHAIN_CONTAINER:/tmp/frontend/test-results/." "$EVIDENCE_DIR/test-results/" 2>/dev/null || true
 fi
 
-SUITE_EXIT="$(python3 -I - "$RESULTS_FILE" "$LOG_DIR/suite-summary.txt" <<'PY'
+SUITE_EXIT="$(python3 -I - "$RESULTS_FILE" "$LOG_DIR/suite-summary.txt" "$PLAYWRIGHT_EXIT" <<'PY'
 import datetime
 import json
+import os
 import sys
 
-results_path, summary_path = sys.argv[1], sys.argv[2]
+results_path, summary_path, playwright_exit_raw = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    playwright_exit = int(playwright_exit_raw)
+except ValueError:
+    playwright_exit = -1
 lines = []
-if not results_path or not __import__("os").path.exists(results_path):
+failures = []
+code = 1
+if not results_path or not os.path.exists(results_path):
     lines.append("suite_results=missing")
+    failures.append("results_missing")
     code = 2
 else:
     try:
         data = json.load(open(results_path, encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001 - the result file is external input
         lines.append(f"suite_results_error={exc}")
+        failures.append(f"results_error={exc}")
         code = 2
     else:
         def walk(suites):
@@ -826,12 +833,31 @@ else:
         walk(data.get("suites"))
         stats = data.get("stats") or {}
         expected = stats.get("expected") or 0
-        unexpected = stats.get("unexpected")
+        unexpected = stats.get("unexpected") or 0
+        skipped = stats.get("skipped") or 0
+        flaky = stats.get("flaky") or 0
+        errors = data.get("errors") or []
         lines.append(
             f"suite_stats_expected={expected} suite_stats_unexpected={unexpected} "
-            f"suite_stats_skipped={stats.get('skipped')} suite_stats_flaky={stats.get('flaky')}"
+            f"suite_stats_skipped={skipped} suite_stats_flaky={flaky} "
+            f"suite_stats_errors={len(errors)}"
         )
-        code = 0 if expected > 0 and unexpected == 0 else 1
+        if unexpected:
+            failures.append(f"unexpected={unexpected}")
+        if flaky:
+            failures.append(f"flaky={flaky}")
+        if skipped:
+            failures.append(f"skipped={skipped}")
+        if errors:
+            failures.append(f"playwright_errors={len(errors)}")
+        if expected <= 0:
+            failures.append("expected=0")
+if playwright_exit != 0:
+    failures.append(f"playwright_exit={playwright_exit}")
+for failure in failures:
+    lines.append(f"suite_fail_reason={failure}")
+if not failures:
+    code = 0
 open(summary_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 print(code)
 PY
@@ -856,6 +882,7 @@ for record in json.load(open(sys.argv[1], encoding="utf-8")):
         f"input_scope={record['scope']} identity={record['identity']} "
         f"upload_status={record['upload_status']} operation_id={record['operation_id']} "
         f"preview_result_id={record['preview_result_id']} bundle_id={record.get('bundle_id', '')} "
+        f"bundle_digest={record.get('bundle_digest', '')} "
         f"failed_pairs={record['failed_pairs']} pairs={pairs} identity_pairs={identities}"
     )
 PY

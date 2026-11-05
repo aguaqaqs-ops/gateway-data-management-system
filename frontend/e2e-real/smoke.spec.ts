@@ -20,6 +20,7 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 
 interface Identity {
   name: string;
+  scope: string;
   token: string;
   actorId: string;
   businessProjectId: string;
@@ -67,8 +68,10 @@ interface ScopeRecord {
   operation_id: string;
   preview_result_id: string;
   bundle_id: string;
+  bundle_digest: string;
   failed_pairs: number;
   pairs: Array<{
+    pair_id: string;
     before_input_index: number;
     current_input_index: number;
     status: string;
@@ -146,6 +149,12 @@ async function selectAndUpload(page: Page, modifiedDir: string, initialDir?: str
     await page.locator('[data-testid="upload-initial-input"]').setInputFiles(initialDir);
   }
   await page.locator('[data-testid="upload-modified-input"]').setInputFiles(modifiedDir);
+  if (initialDir) {
+    // FULL must show both the ① original backup and ② this archive before upload
+    // (same wait as packaging-memory.spec.ts); otherwise the UI would fall back
+    // to MODIFIED_ONLY and the comparison would silently have one pair.
+    await expect(page.getByText("原始备份 + 本次归档", { exact: false })).toBeVisible({ timeout: 30000 });
+  }
   await page.getByRole("button", { name: "上传并生成预览" }).click();
 }
 
@@ -204,6 +213,7 @@ async function previewAndBundle(page: Page, identity: Identity): Promise<{ previ
 async function runInputScope(
   browser: Browser,
   identityName: string,
+  mode: "modified" | "full",
   modifiedDir: string,
   initialDir?: string,
 ): Promise<ScopeRecord> {
@@ -237,9 +247,16 @@ async function runInputScope(
 
   const { preview, bundle } = await previewAndBundle(page, identity);
   expect(bundle.failed_pairs).toEqual([]);
-  expect(bundle.pairs.length).toBeGreaterThan(0);
+  const expectedPairs: Array<[number, number]> = mode === "full" ? [[0, 1], [1, 2]] : [[0, 1]];
+  expect(bundle.pairs, `${mode} comparison pair count`).toHaveLength(expectedPairs.length);
+  const sortedPairs = [...bundle.pairs].sort((a, b) => a.before_input_index - b.before_input_index);
+  expectedPairs.forEach(([before, current], index) => {
+    expect(sortedPairs[index]?.before_input_index, `pair ${index} before_input_index`).toBe(before);
+    expect(sortedPairs[index]?.current_input_index, `pair ${index} current_input_index`).toBe(current);
+  });
   const lastInputIndex = Math.max(...bundle.inputs.map((input) => input.input_index));
-  const pairs = bundle.pairs.map((pair) => ({
+  const pairs = sortedPairs.map((pair) => ({
+    pair_id: pair.pair_id,
     before_input_index: pair.before_input_index,
     current_input_index: pair.current_input_index,
     status: pair.status,
@@ -260,6 +277,7 @@ async function runInputScope(
     operation_id: acceptedBody.operation_id,
     preview_result_id: preview.preview_result_id,
     bundle_id: bundle.bundle_id ?? bundle.manifest_ref?.artifact_id ?? "",
+    bundle_digest: preview.bundle_digest,
     failed_pairs: bundle.failed_pairs.length,
     pairs,
     identity_pairs: preview.identity_pairs,
@@ -418,23 +436,23 @@ test("smoke: upload-only identity gets 403 on preview start", async ({ browser }
 });
 
 test("smoke inputs A: baseline MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({ browser }) => {
-  await runInputScope(browser, "input-a", join(inputRoot(), "a"));
+  await runInputScope(browser, "input-a", "modified", join(inputRoot(), "a"));
 });
 
 test("smoke inputs B②: initial MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({ browser }) => {
-  await runInputScope(browser, "input-b-mod", join(inputRoot(), "b"));
+  await runInputScope(browser, "input-b-mod", "modified", join(inputRoot(), "b"));
 });
 
 test("smoke inputs C: modified MODIFIED_ONLY reaches SUCCEEDED with a canonical change", async ({ browser }) => {
-  await runInputScope(browser, "input-c", join(inputRoot(), "c"));
+  await runInputScope(browser, "input-c", "modified", join(inputRoot(), "c"));
 });
 
 test("smoke inputs D: replacement-current MODIFIED_ONLY reaches SUCCEEDED and records identity pairs", async ({ browser }) => {
-  await runInputScope(browser, "input-d", join(inputRoot(), "d"));
+  await runInputScope(browser, "input-d", "modified", join(inputRoot(), "d"));
 });
 
 test("smoke inputs B FULL: ① = A and ② = B reaches SUCCEEDED with a canonical change", async ({ browser }) => {
-  await runInputScope(browser, "input-b-full", join(inputRoot(), "b"), join(inputRoot(), "a"));
+  await runInputScope(browser, "input-b-full", "full", join(inputRoot(), "b"), join(inputRoot(), "a"));
 });
 
 test.afterAll(() => {

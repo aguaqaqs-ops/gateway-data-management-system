@@ -1,10 +1,10 @@
 # FE3 kickoff：对接真实 backend
 
-- **状态：** 草案修订 1（设计会话，2026-11-05）。
-  - 初稿 `5c360bfb1b` 经 [kickoff 审核](reviews/fe3-kickoff-review.md)（`920f068da4`），结论为定向修订。
-  - 本修订处理 B1–B4，以及非阻塞意见 N1–N25 中采纳的各条（逐条处理见 §15）。
-  - owner 于 2026-11-05 原则同意 §11 Q1–Q7 的建议，并决定 Q8（审核报告的 O1）。Q9（审核报告的 D2）待 owner 确认。
-  - 待定向复审通过后，交 owner 正式确认；确认前不发出实施提示词。
+- **状态：** 已确认（owner，2026-11-05，§11 Q1–Q9）；FE3a 可以开始，FE3b 的前置条件见 §3.2。
+  - 初稿 `5c360bfb1b` 经 [kickoff 审核](reviews/fe3-kickoff-review.md)（`920f068da4`），结论为定向修订；
+    修订 1 `de9cd5cb6f` 处理 B1–B4 与采纳的非阻塞意见（逐条见 §15）；
+    [定向复审第 1 轮](reviews/fe3-kickoff-rereview-1.md)（`e91d9db6eb`）通过。
+  - 本次修订（确认记录）改正复审 §3 的 R1–R4，并按复审 §4 登记基线已前移的已通过提交永久占用工作区的后端缺口（§2.1、§6.1、§12）。
 - **日期：** 2026-11-05。
 - **起点：** `fe-fe2c-exit`（tag 对象 `86901e038d` → `749f219d5f`，测试提交 `220325da37`，`frontend/` 树 `960ab1f6a1`），
   main 合入提交 `0430e0e738`；`fe-vnext` 在 `749f219d5f`。本文以 main `2c79d0947f` 为准核对。
@@ -49,13 +49,18 @@ BE-d 还需先完成 kickoff 审核。按此估计，两者合入 main 约在 S2
 - 对 FE3 而言，BE-d 解锁的旅程比 BE-a 多（差异浏览、提交、审核、历史比较都要下载 bundle），BE-a 只解锁 §6 与快照中的状态码和字段。
   若后端认为两项可以并行或调换顺序，FE3 会更早进入真实旅程调试；不并行也不影响本文的安排。
 - **请在 BE-d kickoff 审核中确认 tar 成员与 closure 的对应关系（审核报告 D1，见 §2.3 最后一行）。**
+- **请在 BE-a 实施前决定：基线已前移后才通过的提交会永久占用工作区（定向复审 §4，见 §12）。**
+  - 归档候选只包括基于当前 head 的已通过提交（`application/archive/snapshot.py`），开始归档时只释放和关闭这些候选（`start.py`）。
+  - BE-a 删除 `RETURN_FOR_REVISION` 后，`APPROVED` 没有任何转移；审核时也不检查基线是否已前移。
+  - 于是：A、B 基于同一基线都在待审核 → A 通过并归档，基线前移 → 审核人再通过 B。B 的工作区不能撤回、不会被任何归档释放，再次提交返回 `SUBMIT_OCCUPANCY_CONFLICT`，被永久占用。
+  - 处理方式由后端定，例如：归档时一并关闭基于旧基线的待审核或已通过提交；通过时拒绝基线已前移的提交；允许对这类提交做关闭。前端不需要新字段，但 §6.1 的最终文案取决于处理方式。
 
 ### 2.2 节点、镜像与数据
 
 | 项 | 05 | 04 | 说明 |
 | --- | --- | --- | --- |
 | 前端工具链 `mcr.microsoft.com/playwright:v1.64.1-noble` | 有 | 有 | 身份见 `frontend/scripts/run-tests.sh` |
-| npm 缓存 | `/home/dev/gdds-fe-cache/fe0/npm-cache`，归档 `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz` | `/home/dev/gdds-fe-cache/frontend/npm-cache`，归档 `npm-cacache.tar.gz` | 两节点归档的 SHA256 相同（`0d861824…0089f4`），来源提交 `a2fb4a027a`。`run-tests.sh` 的默认路径是 04 的路径；在 05 上运行要设置 `GATEWAY_FRONTEND_NPM_CACHE` 与 `GATEWAY_FRONTEND_NPM_CACHE_ARCHIVE`，新脚本使用同样的变量 |
+| npm 缓存 | `/home/dev/gdds-fe-cache/fe0/npm-cache`，归档 `/home/dev/gdds-fe-logs/fe0/npm-cacache-fe0.tar.gz` | `/home/dev/gdds-fe-cache/frontend/npm-cache`，归档 `npm-cacache.tar.gz` | 两节点归档的 SHA256 相同（`0d861824…0089f4`），来源提交 `a2fb4a027a`。`run-tests.sh` 的默认路径是 04 的路径；在 05 上运行要设置 `GATEWAY_FRONTEND_NPM_CACHE` 与 `GATEWAY_FRONTEND_NPM_CACHE_ARCHIVE`；两节点都设置 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT=a2fb4a027a`，否则日志中的来源提交记为 `unknown`。新脚本使用同样的变量 |
 | backend 依赖镜像（当前 main vnext 树 `2791d3ff3d` 需要 `gateway-backend-deps:lock-c668cef8e47e`，由 `build-backend-dependency-base.sh --print-input` 得出） | **缺** | 有 | 05 上只有 `lock-d054366c02fa`（fixture 生成用）。05 调试真实 e2e 前要按 §4.3 传入 |
 | RS 依赖镜像 `gateway-p2r1-repository:lock-6dc9659f0aee` | 有 | 有 | RS 镜像本身按当前 HEAD 构建（§4.3） |
 | `gateway-repository-service:local` | 有（revision `80ce756619`） | 有（S2a 候选 `3b3d9c97bc`） | 由后端会话使用，前端不重新 tag（§4.3） |
@@ -117,7 +122,7 @@ BE-d 还需先完成 kickoff 审核。按此估计，两者合入 main 约在 S2
 | 子阶段 | 内容 | 前置条件 | 退出 tag | 审核范围 | 退出条件 |
 | --- | --- | --- | --- | --- | --- |
 | FE3a 运行框架与带入项 | §7 的 M7、n3、n8；§4 运行框架与当前 backend 上的冒烟（§4.7）；§4.6 上传输入；§5.4 生成类型一致性；M1 的打包测量（§8.4，需要 §8.1 的目录） | 本文经 owner 确认 | `fe-fe3a-exit` | `fe-fe2c-exit..<FE3a 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图）、上传包后端校验、真实 backend 冒烟各一次通过；**M1 测量完成**，结果写入 handoff，并经审核会话与 owner 判断（§8.4，§11 Q8） |
-| FE3b 真实旅程 | `fe-vnext` 合入含 BE-a、BE-d 的 main；§5 快照刷新与类型、模拟数据同步；§6 撤回；§4.7 全部真实旅程；§8 t1 旅程；M1 在旅程中复测；M1 需要时改流式 | S2a、BE-a、BE-d 都已合入 main，owner 确认发出 FE3b 提示词 | `fe-fe3b-exit` | `fe-fe3a-exit..<FE3b 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图）、上传包校验、真实 backend 全部旅程各一次通过；05 上 t1 旅程的证据运行通过（§9）；§6 截图经 owner 确认 |
+| FE3b 真实旅程 | `fe-vnext` 合入含 BE-a、BE-d 的 main；§5 快照刷新与类型、模拟数据同步；§6 撤回；§4.7 全部真实旅程；§8 t1 旅程；M1 在旅程中复测；M1 需要时改流式 | S2a、BE-a、BE-d 都已合入 main；§12 的“基线已前移的已通过提交”已由后端定下处理方式，§6.1 的文案已据此定稿；owner 确认发出 FE3b 提示词 | `fe-fe3b-exit` | `fe-fe3a-exit..<FE3b 候选>` | 审核通过；04 上：模拟接口全量 runner（含截图）、上传包校验、真实 backend 全部旅程各一次通过；05 上 t1 旅程的证据运行通过（§9）；§6 截图经 owner 确认 |
 
 - FE3b 结束即 FE3 结束，FE4 以 `fe-fe3b-exit` 为起点。
 - **M1 与 FE3a 退出（owner 2026-11-05，§11 Q8）：** M1 测完才能退出 FE3a。若目录传输迟迟不能完成，由 owner 另行决定是否把 M1 移到 FE3b。
@@ -396,14 +401,15 @@ FE3b 的候选与审核仍在两项都合入后进行，不为单项另设 tag�
 
 | 条件（按顺序判断） | 按钮 | 禁用原因 / 提示 |
 | --- | --- | --- |
-| `active_submit_attempt_id` 非空，提交操作未到终态 | 禁用 | 提交正在执行，完成后才能撤回 |
-| `active_submit_attempt_id` 非空，提交操作已到终态但 attempt 未结束（§6.2） | 禁用 | 提交结果待确认，需要管理员处理 |
+| `active_submit_attempt_id` 非空，提交操作为 `QUEUED` 或 `RUNNING` | 禁用 | 提交正在执行，完成后才能撤回 |
+| `active_submit_attempt_id` 非空，提交操作为 `MANUAL_RECOVERY_REQUIRED`，或已到终态但 attempt 未结束（§6.2） | 禁用 | 提交结果待确认，需要管理员处理 |
 | 两个指针都为空 | 禁用 | 当前没有待审核的提交 |
 | 正在查询审核状态 | 禁用 | 正在读取审核状态 |
 | 查询返回 403 | 禁用 | 当前身份没有撤回权限 |
 | 查询返回 404 | 禁用 | 未找到该提交，请刷新后重试（另附“刷新”） |
 | 查询失败（临时错误超过重试上限、5xx） | 禁用 | 无法读取审核状态（另附“重试”） |
 | `status = PENDING` | 可用 | — |
+| `status = APPROVED`，History 中该提交节点带 `NOT_CANDIDATE_BASE_ADVANCED` | 禁用 | 暂定：该提交所基于的基线已更新，不能归档，需要管理员处理。最终文案按后端的处理方式定稿（§12） |
 | `status = APPROVED` | 禁用 | 该提交已通过审核，不能撤回 |
 | `status = REJECTED` 或 `WITHDRAWN` | — | 撤回或退回后指针会清空（BE-a §2），只有工作区读取过时才会出现。先重新读取一次工作区，再按新状态显示；重新读取后仍是该状态时，显示“该提交已退回”或“该提交已撤回” |
 
@@ -421,15 +427,17 @@ FE3b 的候选与审核仍在两项都合入后进行，不为单项另设 tag�
 
 - **Preview 顶栏的“提交”：** 任一指针非空时禁用，原因与下表相同。目前只在没有 bundle 或续做期间禁用；指针非空时后端会返回 409 `SUBMIT_OCCUPANCY_CONFLICT`。
 - **工作台的“上传”（工具栏与上传步骤卡，§11 Q9）：** 任一指针非空时同样禁用。后端不拦截这时的上传，但上传后：
-  - 待审核时撤回会因为占用绑定不符返回 409 `WORKSPACE_OCCUPANCY_CONFLICT`（`review_transaction.py` 核对占用绑定）；
+  - 待审核时，撤回、通过、退回都会因为占用绑定不符返回 409 `WORKSPACE_OCCUPANCY_CONFLICT`：`review_transaction.py` 经 `assert_review_workspace_bindings`（`application/submission/review.py`）核对 generation、当前上传、当前 Preview 与占用。提交人不能撤回，审核人也不能审核；
   - 已通过时，开始归档会清空该工作区的当前上传与 Preview（`application/archive/start.py` 的 `_release_workspaces_for_archive`），刚上传的内容会丢失。
 
   这是界面决定，不需要后端新增字段。
 
 | 工作区状态 | “提交”与“上传”的禁用原因 |
 | --- | --- |
-| `active_submit_attempt_id` 非空 | 提交正在执行，完成后才能继续 |
+| `active_submit_attempt_id` 非空，提交操作为 `QUEUED` 或 `RUNNING` | 提交正在执行，完成后才能继续 |
+| `active_submit_attempt_id` 非空，提交操作为 `MANUAL_RECOVERY_REQUIRED`，或已到终态但 attempt 未结束 | 提交结果待确认，需要管理员处理 |
 | `active_submission_id` 非空，`PENDING` | 已有待审核的提交，撤回后才能重新上传 |
+| `active_submission_id` 非空，`APPROVED`，History 节点带 `NOT_CANDIDATE_BASE_ADVANCED` | 暂定：该提交所基于的基线已更新，不能归档，需要管理员处理（最终文案见 §12） |
 | `active_submission_id` 非空，`APPROVED` | 该提交已通过审核，开始归档后才能重新上传 |
 | `active_submission_id` 非空，审核状态读不到（403、查询失败） | 已有提交在处理中，完成后才能重新上传 |
 
@@ -441,7 +449,7 @@ FE3b 的候选与审核仍在两项都合入后进行，不为单项另设 tag�
 - **页面加载或刷新时：** 读取工作区。
   - `active_submit_attempt_id` 非空，URL 中没有该 attempt 的提交操作时，经 `GET .../submit-attempts/{id}` 取 `operation_id`，写入 URL，显示操作卡片并继续轮询；
   - URL 中的操作是提交（按 `job_kind`），但与指针所指 attempt 的 `operation_id` 不同时，以服务器（指针）为准，替换 URL 中的值；
-  - 续做卡片显示在刷新时所在的页面：与 FE2c 的续做位置相同，Preview 页在顶栏下方（`ComparisonPage` 的 `comparison-resume`），工作台在组态树标题下方（`WorkbenchPage` 的 `OperationStatusPanel`）。
+  - 续做卡片显示在刷新时所在的页面：与 FE2c 的续做位置相同，Preview 页在顶栏之上（`ComparisonPage` 的 `comparison-resume` 排在 `compare-header` 之前），工作台在组态树标题下方（`WorkbenchPage` 的 `OperationStatusPanel`）。
 - **提交操作到达终态后：** 重新读取工作区与 attempt（`GET .../submit-attempts/{id}`）：
   - attempt 为 `FINALIZED`：指针转为 `active_submission_id`，按 FE2c 已有的提交结果处理；
   - attempt 为 `ABORTED`：两个指针都为空，显示“提交未完成”与原始码（FE2 kickoff §7.5）；
@@ -468,6 +476,7 @@ FE3b 的候选与审核仍在两项都合入后进行，不为单项另设 tag�
 
 模拟数据按 BE-a 设计补充 §2 的生命周期表构造指针，按 FE2 kickoff §7.5 的“后端可达状态”规则核对跨响应关系，场景注明依据。
 REJECTED、WITHDRAWN 两行按“读取工作区之后被退回或撤回”的竞争构造。
+“已通过、基线已前移”（§6.1 暂定的一行）的场景与断言，在后端定下处理方式后补入本表（§12），按后端实际行为构造，并在真实 e2e 中能走到时一并覆盖。
 
 ## 7. FE2 带入项（FE2 kickoff §6.5）
 
@@ -519,8 +528,9 @@ REJECTED、WITHDRAWN 两行按“读取工作区之后被退回或撤回”的�
 - **v2 Preview：**
   - `table_count` 等于 `S2B_DATASET_BASELINE["rd-t1-a-v2"]["preview_table_count"] + 1`；`degraded_table_count = failed_table_count = 0`；
   - `changed_table_count = S1B_V2_PREVIEW_CHANGED_COUNTS["rd-t1-a-v2"] + composite_changed`。前一项按 `main` 当前值为 4；
-    `composite_changed` 为 1 或 0，按同一 bundle 中 `composite_signal_point` 的状态是否属于 `UNCHANGED`、`BUSINESS_EQUIVALENT` 判定（同后端 t1）；
-  - 同一 vnext 树上有后端 t1 运行（BE-d 的 05 t1）结果时，再核对两者的 `composite_changed` 相同；取不到时 handoff 记录实际值，并注明没有对照。
+    `composite_changed` 为 1 或 0，前端按同一 bundle 中 `composite_signal_point` 的状态是否属于 `UNCHANGED`、`BUSINESS_EQUIVALENT` 取值。
+    这样只能独立核对派生表以外变化的表数（4）；后端 t1 的 `composite_changed` 来自离线投影，与 Preview 无关；
+  - 派生表本身是否变化，只在有对照时独立核对：同一 vnext 树上有后端 t1 运行（BE-d 的 05 t1）结果时，核对两者的 `composite_changed` 相同；取不到时 handoff 记录实际值，并注明没有对照。
 - 每一步在浏览器中完成，没有未捕获错误；每次下载都通过 tar 成员与摘要校验。
 - 有诊断时，界面显示对应文案而不是通用文案（FE2 kickoff §5.5），handoff 列出出现过的编码。
 - 各步骤耗时、bundle 体积与下载耗时只报告，不设门槛。05 不是计时参考节点，这些数字不作为性能证据（DC36）。
@@ -566,7 +576,7 @@ REJECTED、WITHDRAWN 两行按“读取工作区之后被退回或撤回”的�
   - 05 调试只跑 focused 与出问题的那一段；
   - 04 证据只在审核通过后运行一次；
   - FE3b 的 t1：实施会话 handoff 前在 05 上的运行属于调试。证据在审核通过后，于最终候选的 clean、已提交 worktree 上运行一次，与 04 取证同一时点；
-  - FE3a 的 M1 是测量，不是门禁，在审核通过的候选上运行，handoff 记录测量所用的提交。
+  - FE3a 的 M1 是测量，不是门禁：在送审候选上测量，handoff 记录所用提交，供审核复核；审核要求的修复如果改动打包代码（`upload-package.ts`、`UploadStepCard.tsx`），在新候选上重测。
 - 04、05 的运行日志、截图与 trace 都在 worktree 外的证据目录，记录 SHA256；handoff 记录工具链与依赖镜像身份、npm 缓存来源、运行节点。
 - **需要重拍并交 owner 看图确认的截图：**
   - FE3a：M7 的提交对话框各张；n8 的 `submit-manual-recovery-1280/1920`；
@@ -588,11 +598,11 @@ REJECTED、WITHDRAWN 两行按“读取工作区之后被退回或撤回”的�
 
 脚本自身的错误按 DC68 重做一次；被测对象运行后的失败不按 DC68 重做。
 
-## 11. owner 决定
+## 11. owner 决定（2026-11-05）
 
-Q1–Q7：owner 于 2026-11-05 原则同意建议；kickoff 审核（`920f068da4`）逐条判断都成立。定向复审通过后正式确认。Q8：owner 2026-11-05 决定。Q9：待 owner 确认。
+Q1–Q9 均由 owner 于 2026-11-05 确认，按下表的建议执行。Q1–Q7 经 kickoff 审核（`920f068da4`）逐条判断成立；Q9 经定向复审（`e91d9db6eb`）核对成立。
 
-| # | 事项 | 建议 / 决定 |
+| # | 事项 | 决定 |
 | --- | --- | --- |
 | Q1 | 阶段安排（§3） | 乙：FE3a 现在开始，FE3b 在 S2a、BE-a、BE-d 合入后开始；tag、范围与退出条件按 §3.2 |
 | Q2 | t1 输入（§8.1）：节点上没有组态目录原件 | 把 `small_cut-1`、`small_cut-2`（各 19 个文件、约 6.9 MB）与 `large-1`（528 个文件、约 317 MB，只用于 M1）经局域网传到 05 的 `source-dirs/`，只读挂载，并记录 SHA256 清单。不用源包加占位 `.pmc` 代替 |
@@ -602,12 +612,13 @@ Q1–Q7：owner 于 2026-11-05 原则同意建议；kickoff 审核（`920f068da4
 | Q6 | FE2c 的 `sessionStorage` 提交标记（§6.2） | 由 `active_submit_attempt_id` 与 `job_kind` 取代并删除；URL 中的 `operation_id` 保留 |
 | Q7 | 上传模式顶栏撤回的显示（§6.1） | 始终显示，不可用时禁用并给原因（与 F4 一致）；文案按 §6.1 |
 | Q8 | 目录传输晚于 FE3a 其余工作时，FE3a 能否先退出（审核报告 O1） | **已决定（owner 2026-11-05）：** M1 测完才能退出 FE3a；传输迟迟不能完成时，由 owner 另行决定是否把 M1 移到 FE3b（§3.2） |
-| Q9 | 工作区被占用时是否禁用上传（审核报告 D2，§6.1） | 建议任一指针非空时禁用“上传”与“提交”，原因按 §6.1 的表。否则待审核时上传会使撤回返回 409，已通过时上传的内容会在开始归档时被清空 |
+| Q9 | 工作区被占用时是否禁用上传（审核报告 D2，§6.1） | 任一指针非空时禁用“上传”与“提交”，原因按 §6.1 的表。否则待审核时上传会使撤回与审核都返回 409，已通过时上传的内容会在开始归档时被清空 |
 
 ## 12. 开放项
 
 | 项 | 说明 | 何时 |
 | --- | --- | --- |
+| 基线已前移后才通过的提交永久占用工作区（定向复审 §4） | 见 §2.1 协调建议。经 owner 转后端设计会话，在 BE-a 实施前决定处理方式；前端据此定稿 §6.1 中暂定的一行，并按后端行为补模拟场景与真实 e2e。前端不在界面上绕过（例如不提供前端自造的“关闭”） | BE-a 实施前；FE3b 前置条件 |
 | tar 成员与 closure 的对应（审核报告 D1） | 见 §2.3 最后一行，经 owner 转后端设计会话，在 BE-d kickoff 审核中确认 | BE-d kickoff 审核 |
 | FE4 真实数据重拍的节点 | 前端 kickoff §6 写“FE4 在 04 上用真实 backend 与 t1 数据重拍”，但 DC36 规定 t1–t3 在 05。建议 FE4 kickoff 时改为：t1 数据的重拍在 05，04 只跑合成输入的真实 backend e2e；如需在 04 使用 t1 数据，由 owner 作例外决定 | FE4 kickoff |
 | 首批空基线（FE2 kickoff Q18） | 仍为缺口，不在 FE3。FE3 的输入都从空的 `INITIAL` 开始，界面不禁用第 ① 步 | 后端提供该事实后 |
@@ -677,7 +688,7 @@ Q1–Q7：owner 于 2026-11-05 原则同意建议；kickoff 审核（`920f068da4
 >
 > 报告写入 `docs/frontend-vnext/reviews/fe3a-review.md`，结论为通过、定向修复或停止；需要设计决定的事项标注“交设计会话”。通过后指明 04 取证项（本文 §9 FE3a 行），取证后做证据核对。
 
-### 13.3 FE3b 实施（前置：S2a、BE-a、BE-d 都已合入 main，FE3a 已退出，owner 确认发出）
+### 13.3 FE3b 实施（前置：S2a、BE-a、BE-d 都已合入 main，§12 基线前移问题已由后端定下处理方式，FE3a 已退出，owner 确认发出）
 
 > 你是 FE3b 前端实施会话。先读 AGENTS、前端 kickoff（§4.3、§4.4、§7.1）、FE2 kickoff §7.5、本文（main `[确认提交]`）全文、FE3a 的 handoff 与审核报告，以及后端 BE-a 设计补充（`f20f08bea9`）、BE-a 合入提交 `[BE-a 合入提交]` 与 BE-d 合入提交 `[BE-d 合入提交]` 的 handoff。
 >
@@ -731,7 +742,7 @@ Q1–Q7：owner 于 2026-11-05 原则同意建议；kickoff 审核（`920f068da4
 - Preview 顶栏的上传快捷入口、历史比较结果抽屉布局、1280 下提交对话框滚动：已接受为 FE2 的偏差（FE2 kickoff Q19），FE3 不再处理。
 - 正式 SSO、部署形态、外部驱动通道、深色主题。
 
-## 15. kickoff 审核意见的处理（`920f068da4`）
+## 15. kickoff 审核与定向复审意见的处理（`920f068da4`、`e91d9db6eb`）
 
 | 意见 | 处理 | 位置 |
 | --- | --- | --- |
@@ -764,4 +775,11 @@ Q1–Q7：owner 于 2026-11-05 原则同意建议；kickoff 审核（`920f068da4
 | N23 占用用词与会话名 | 改正，规定会话名 | §4.2 |
 | N24 AGENTS 条文 | FE3a handoff 写出建议条文 | §4.1、§12 |
 | N25 `flock -n` | 写明 | §4.2 |
-| D2 占用时禁用上传 | 设计会话建议禁用，交 owner 确认 | §6.1、§11 Q9 |
+| D2 占用时禁用上传 | 设计会话建议禁用，owner 2026-11-05 确认 | §6.1、§11 Q9 |
+| 复审 R1 M1 的测量时点 | 在送审候选上测量；打包代码改动后重测 | §9 |
+| 复审 R2 Preview 页续做卡片的位置 | 改为“顶栏之上” | §6.2 |
+| 复审 R3 `composite_changed` 的来源 | 写明前端与后端 t1 的来源不同，派生表只在有对照时核对 | §8.3 |
+| 复审 R4 `MANUAL_RECOVERY_REQUIRED` 的归类 | 并入“提交结果待确认”，两张表都分开写 | §6.1 |
+| 复审 §2.2 占用绑定适用于通过与退回 | 补入 | §6.1 |
+| 复审 §4 基线已前移的已通过提交 | 交后端设计会话；§6.1 增加暂定的一行；列为 FE3b 前置条件 | §2.1、§3.2、§6.1、§12 |
+| 复审 N1 补充 | 写明 `GATEWAY_FRONTEND_NPM_CACHE_SOURCE_COMMIT` | §2.2 |

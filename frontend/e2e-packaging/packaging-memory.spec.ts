@@ -95,7 +95,7 @@ test("M1 packaging peak memory", async ({ page }) => {
     });
   });
   await page.goto("/");
-
+  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 30000 });
   // Zero peaks after page load, record baselines.
   const targets = await chromePids();
   const baselines = new Map<number, number | null>();

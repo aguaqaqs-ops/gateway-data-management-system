@@ -1,7 +1,8 @@
+import { expect, test, type Browser } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { expect, test } from "@playwright/test";
+import { chromium } from "@playwright/test";
 import type { GatewaySession } from "../src/features/api/session";
 
 const execFileAsync = promisify(execFile);
@@ -13,12 +14,15 @@ const execFileAsync = promisify(execFile);
  *   GATEWAY_M1_INPUT_ROOT  selected root directory (read-only mount)
  *   GATEWAY_M1_MODE        modified|full
  *   GATEWAY_M1_REPORT      absolute JSON report path
+ *   GATEWAY_M1_RUNS        repeat count (default 3)
  *
- * Each scenario runs in the same browser context sequence with a fresh page;
- * the report records per-process VmHWM peak increments (renderer + browser +
- * GPU + utility/network), directory stats, and wall time. The upload request
- * is route-intercepted (503) so no backend is needed; packaging finishes
- * before the request is issued.
+ * Each run launches a FRESH browser (kickoff §8.4). After page load the
+ * per-process VmHWM peaks are zeroed via /proc/<pid>/clear_refs (=5) and
+ * baselines recorded; the upload request fires only after packaging
+ * (read + tar + gzip + sha256) finishes, so wall time and the VmHWM
+ * increment cover packaging. The upload request is route-intercepted
+ * (503): no backend is needed. Process types come from the browser-level
+ * CDP SystemInfo.getProcessInfo; the renderer increment is the main metric.
  */
 
 async function dirStats(root: string): Promise<{ files: number; bytes: number }> {
@@ -50,17 +54,30 @@ async function readVmHWM(pid: number): Promise<number | null> {
   }
 }
 
-async function chromePids(): Promise<number[]> {
-  for (const pattern of ["chrome", "headless", "playwright"]) {
-    const { stdout } = await execFileAsync("pgrep", ["-f", pattern]).catch(() => ({ stdout: "" }));
-    const pids = stdout.split("\n").map((s) => Number(s.trim())).filter(Boolean);
-    if (pids.length > 0) return pids;
-  }
-  return [];
+interface ProcInfo {
+  pid: number;
+  kind: string;
 }
 
-test("M1 packaging peak memory", async ({ browser }) => {
-  const context = await browser.newContext();
+async function browserProcs(browser: Browser): Promise<ProcInfo[]> {
+  try {
+    const session = await browser.newBrowserCDPSession();
+    const info = (await session.send("SystemInfo.getProcessInfo")) as {
+      processInfo: Array<{ id: number; type: string }>;
+    };
+    return info.processInfo.map((p) => ({ pid: p.id, kind: p.type }));
+  } catch {
+    const found: ProcInfo[] = [];
+    for (const pattern of ["chrome", "headless", "playwright"]) {
+      const { stdout } = await execFileAsync("pgrep", ["-f", pattern]).catch(() => ({ stdout: "" }));
+      const pids = stdout.split("\n").map((s) => Number(s.trim())).filter(Boolean);
+      if (pids.length > 0) return pids.map((pid) => ({ pid, kind: "unknown" }));
+    }
+    return found;
+  }
+}
+
+test("M1 packaging peak memory", async () => {
   const inputRoot = process.env.GATEWAY_M1_INPUT_ROOT;
   const mode = process.env.GATEWAY_M1_MODE ?? "modified";
   const reportPath = process.env.GATEWAY_M1_REPORT;
@@ -70,119 +87,132 @@ test("M1 packaging peak memory", async ({ browser }) => {
   const runs = Number(process.env.GATEWAY_M1_RUNS ?? "3");
   const { files: fileCount, bytes: dirBytes } = await dirStats(inputRoot);
 
-  await context.route("**/v1/workspaces", async (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    return route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        workspace_id: "m1-probe", gateway_device_external_key: "m1-device",
-        business_project_id: "m1-project", state: "OPEN", generation: 1,
-        optimistic_version: 1, created_at: "2026-11-05T00:00:00Z",
-        updated_at: "2026-11-05T00:00:00Z",
-        current_upload_revision_id: null, current_preview_result_id: null,
-      }),
-    });
-  });
-  await context.route("**/v1/history*", async (route) => {
-    if (route.request().method() !== "GET") return route.fallback();
-    return route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        head: { node_id: "m1-baseline", commit_id: "m1-commit", version: 1 },
-        nodes: [{
-          ref_kind: "baseline_node", ref_id: "m1-baseline", node_kind: "BASELINE_NODE",
-          baseline_kind: "INITIAL", commit_id: "m1-commit", created_at: "2026-11-05T00:00:00Z",
-          parent: null, identity_exception: false,
-        }],
-        next_cursor: null,
-      }),
-    });
-  });
-  await context.addInitScript(() => {
-    (window as unknown as { __gatewaySession: GatewaySession }).__gatewaySession = { accessToken: "Bearer m1-probe", businessProjectId: "m1-project", gatewayDeviceExternalKey: "m1-device" };
-  });
-  const page = await context.newPage();
-  await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 30000 });
-  await expect(page.getByLabel("上传与预览")).toBeVisible({ timeout: 30000 });
-  // Zero peaks after page load, record baselines.
-  const targets = await chromePids();
-  const baselines = new Map<number, number | null>();
-  const { writeFile: writeProc } = await import("node:fs/promises");
-  for (const pid of targets) {
-    await writeProc(`/proc/${pid}/clear_refs`, "5").catch(() => null);
-    baselines.set(pid, await readVmHWM(pid));
-  }
-  expect(baselines.size).toBeGreaterThan(0);
-
-  // Select directory: FULL uses the same dir as both ① and ②.
-  // The file inputs are sr-only (visually hidden); unhide them for setInputFiles.
-  async function revealAndSelect(testId: string): Promise<void> {
-    const locator = page.locator(`[data-testid="${testId}"]`);
-    await locator.evaluate((el) => el.classList.remove("sr-only"));
-    await locator.setInputFiles(inputRoot);
-  }
-  if (mode === "full") {
-    await revealAndSelect("upload-initial-input");
-  }
-  await revealAndSelect("upload-modified-input");
-
-  // Intercept the upload: packaging is done when the request fires.
-  let manifestMultipartBytes: number | null = null;
-  await page.route("**/v1/workspaces/*/upload-revisions", async (route) => {
-    const buf = route.request().postDataBuffer();
-    manifestMultipartBytes = buf ? buf.byteLength : null;
-    return route.fulfill({
-      status: 503,
-      contentType: "application/json",
-      body: JSON.stringify({ code: "SERVICE_NOT_READY", message: "M1 probe" }),
-    });
-  });
+  const stubWorkspace = {
+    workspace_id: "m1-probe",
+    gateway_device_external_key: "m1-device",
+    business_project_id: "m1-project",
+    state: "OPEN",
+    generation: 1,
+    optimistic_version: 1,
+    created_at: "2026-11-05T00:00:00Z",
+    updated_at: "2026-11-05T00:00:00Z",
+    current_upload_revision_id: null,
+    current_preview_result_id: null,
+  };
+  const stubHistory = {
+    head: { node_id: "m1-baseline", commit_id: "m1-commit", version: 1 },
+    nodes: [
+      {
+        ref_kind: "baseline_node",
+        ref_id: "m1-baseline",
+        node_kind: "BASELINE_NODE",
+        baseline_kind: "INITIAL",
+        commit_id: "m1-commit",
+        created_at: "2026-11-05T00:00:00Z",
+        parent: null,
+        identity_exception: false,
+      },
+    ],
+    next_cursor: null,
+  };
 
   const scenarios: Array<{
     run: number;
     wallMs: number;
     manifestMultipartBytes: number | null;
-    processes: Array<{ pid: number; peakBytes: number | null; baseBytes: number | null; incrementBytes: number | null }>;
+    processes: Array<{
+      pid: number;
+      kind: string;
+      peakBytes: number | null;
+      baseBytes: number | null;
+      incrementBytes: number | null;
+    }>;
   }> = [];
+
   for (let run = 0; run < runs; run += 1) {
-    const start = Date.now();
-    await page.getByRole("button", { name: "上传并生成预览" }).click();
-    await page.waitForResponse("**/v1/workspaces/*/upload-revisions", { timeout: 300000 });
-    const wallMs = Date.now() - start;
-    const processes = [];
-    for (const [pid, base] of baselines) {
-      const peak = await readVmHWM(pid);
-      processes.push({
-        pid,
-        peakBytes: peak,
-        baseBytes: base,
-        incrementBytes: peak != null && base != null ? peak - base : null,
+    const browser = await chromium.launch({ args: ["--enable-precise-memory-info"] });
+    try {
+      const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+      await context.route("**/v1/workspaces", async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(stubWorkspace) });
       });
-    }
-    scenarios.push({ run: run + 1, wallMs, manifestMultipartBytes, processes });
-    // Reload for the next run so each packaging starts from a clean page.
-    if (run + 1 < runs) {
-      await page.reload();
-      await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible();
+      await context.route("**/v1/history*", async (route) => {
+        if (route.request().method() !== "GET") return route.fallback();
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(stubHistory) });
+      });
+      await context.addInitScript(() => {
+        (window as unknown as { __gatewaySession: GatewaySession }).__gatewaySession = {
+          accessToken: "Bearer m1-probe",
+          businessProjectId: "m1-project",
+          gatewayDeviceExternalKey: "m1-device",
+        };
+      });
+      const page = await context.newPage();
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 30000 });
+      await expect(page.getByLabel("上传与预览")).toBeVisible({ timeout: 30000 });
+
+      // Zero peaks after page load, record baselines with process kinds.
+      const targets = await browserProcs(browser);
+      expect(targets.length).toBeGreaterThan(0);
+      const baselines = new Map<number, { base: number | null; kind: string }>();
+      for (const { pid, kind } of targets) {
+        await writeFile(`/proc/${pid}/clear_refs`, "5").catch(() => null);
+        baselines.set(pid, { base: await readVmHWM(pid), kind });
+      }
+
+      // Select directory: FULL uses the same dir as both ① and ②.
       if (mode === "full") {
-        await revealAndSelect("upload-initial-input");
+        const initial = page.locator('[data-testid="upload-initial-input"]');
+        await initial.evaluate((el) => el.classList.remove("sr-only"));
+        await initial.setInputFiles(inputRoot);
       }
-      await revealAndSelect("upload-modified-input");
-      for (const pid of baselines.keys()) {
-        await writeProc(`/proc/${pid}/clear_refs`, "5").catch(() => null);
-        baselines.set(pid, await readVmHWM(pid));
+      const modified = page.locator('[data-testid="upload-modified-input"]');
+      await modified.evaluate((el) => el.classList.remove("sr-only"));
+      await modified.setInputFiles(inputRoot);
+
+      // Intercept the upload: packaging is done when the request fires.
+      let manifestMultipartBytes: number | null = null;
+      await page.route("**/v1/workspaces/*/upload-revisions", async (route) => {
+        const buf = route.request().postDataBuffer();
+        manifestMultipartBytes = buf ? buf.byteLength : null;
+        return route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "SERVICE_NOT_READY", message: "M1 probe" }),
+        });
+      });
+
+      const start = Date.now();
+      await page.getByRole("button", { name: "上传并生成预览" }).click();
+      await page.waitForResponse("**/v1/workspaces/*/upload-revisions", { timeout: 300000 });
+      const wallMs = Date.now() - start;
+
+      const processes = [];
+      for (const [pid, { base, kind }] of baselines) {
+        const peak = await readVmHWM(pid);
+        processes.push({
+          pid,
+          kind,
+          peakBytes: peak,
+          baseBytes: base,
+          incrementBytes: peak != null && base != null ? peak - base : null,
+        });
       }
+      scenarios.push({ run: run + 1, wallMs, manifestMultipartBytes, processes });
+      await context.close();
+    } finally {
+      await browser.close();
     }
   }
 
-  const increments = scenarios.map((s) =>
-    s.processes.reduce((max, p) => Math.max(max, p.incrementBytes ?? 0), 0),
-  );
-  const sorted = [...increments].sort((a, b) => a - b);
+  const rendererMax = (s: (typeof scenarios)[number]): number =>
+    s.processes
+      .filter((p) => /renderer/i.test(p.kind))
+      .reduce((max, p) => Math.max(max, p.incrementBytes ?? 0), 0);
+  const rendererIncrements = scenarios.map(rendererMax);
+  const sorted = [...rendererIncrements].sort((a, b) => a - b);
   await writeFile(
     reportPath,
     JSON.stringify(
@@ -194,8 +224,8 @@ test("M1 packaging peak memory", async ({ browser }) => {
         dirBytes,
         measuredAt: new Date().toISOString(),
         scenarios,
-        maxIncrementBytes: Math.max(...increments),
-        medianIncrementBytes: sorted[Math.floor(sorted.length / 2)],
+        rendererMaxIncrementBytes: Math.max(...rendererIncrements),
+        rendererMedianIncrementBytes: sorted[Math.floor(sorted.length / 2)],
         maxWallMs: Math.max(...scenarios.map((s) => s.wallMs)),
       },
       null,

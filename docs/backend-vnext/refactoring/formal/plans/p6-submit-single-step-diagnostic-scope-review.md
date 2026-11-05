@@ -195,3 +195,5 @@ helper 的 `02985d… → 762b640b…` 差异已另外核对：source run 的 ma
 | `compose/real-dump-t4-20261105T232210648526Z.compose.log` | `7be25ecd289e423b8b1359adc0de833efa155c3e6c18ce84bc4ebdd8fc40d16d` |
 
 run 记录三个目标数据卷保留，无 retained-volume listing error；审核另外查询本项目全部状态容器与网络，均无残留。observer/guardian/runner 收束及自身 token 释放由原实施者完成并交回；不需为等待报告继续占用已确认空闲的节点。完整诊断消息与最终收束材料待接续补记，不启动服务取证、不重复运输或重开全套前置。
+
+**精确消息的归因边界。** 设计随后转交消息 `frozen Repository parent catalog is unavailable`，由原实施者补原始提取记录。审核静态核对 e798：该消息来自 `parent_catalog.py` 对 `ValueError`、`RepositoryClientError`、`RepositoryProtocolError`、`httpx.HTTPError` 的统一捕获，能够覆盖入参校验、连接/传输、HTTP 和响应解析问题，单凭消息无法区分。返回 commit 与期望不符、重复表、catalog 与 canonical manifest 表集合不符分别使用其他消息；不应混成此次已证明的原因。worker 使用 settings 的 Repository URL/token/timeout 接线，catalog GET 使用客户端既有幂等重试；一次 Submit POST 不等于仅一次底层 GET。日志中已完成的 initial commit catalog 200 是另一项启动校验，不证明被冻结父提交 catalog 可读；卷摘要 MATCH 也只证明副本身份。此次证据支持失败位置，尚不支持超时、RS 内部故障或原 lease_lost 根因定论。按 DC80 当前仅由既有工具任务列最少诊断字段，原实施者核已保存日志的请求/status/code与父绑定摘要；没有额外 POST、起栈、扫卷或修改 timeout 的授权。

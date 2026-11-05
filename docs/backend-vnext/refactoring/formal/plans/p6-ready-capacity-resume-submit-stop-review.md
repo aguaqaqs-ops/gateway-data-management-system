@@ -147,3 +147,32 @@ shape 统计和预算上界支持继续选择有代表性的最小诊断，不�
 直接读取 CT108 已保存诊断文件的白名单字段，未读取现场 `/proc` 或重新运行 Docker inspect。`worker-pid-985828/thread-1183413/status.txt` SHA `84f93361fd8b7fb332f47757f285c8956006f36bc46119496d48f6c4c7523500`：VmRSS 23,996,624 kB、VmSwap 0 kB、Threads 53、CPU allowed list 与 handoff 一致。`docker-inspect-worker.json` SHA `afe3daa22567288a77720c7462bc2cb4e1fc330ca275ff06117b522ac91970e1`：Running=true、OOMKilled=false，Memory/MemorySwap/NanoCpus/CpuQuota/CpuPeriod 均为 0。实施者的路径修正日志 SHA `703c134da882f29f721764e0e3ebb5e7c88e217dbe793fd313c83ada749f5df4` 与所选原文件相符；首次顶层未命中的日志 `ca529637e622388d6936762b5938beab9208c6e316a0707aab89d671ddf81be8` 保留为路径误报。
 
 这些值只描述停滞捕获时的该进程状态及未设置的 Docker 配额，不能证明宿主无压力、全程无 swap 或定位 GIL/调度根因。没有新增现场采集、测试或大规模诊断；当前不 GO 不变。
+
+## 10. B2：非 INITIAL 单合成表预算截断
+
+B2 的执行事实及限定解释核对通过：**诊断按总时间预算截断，不是产品断言失败，也不是完整 publication 成功。** 本轮读取 05 原始脚本、日志和栈文件的摘要，与 CT201 `/home/dev/gdds-p6-logs/prepare-import-B2-20261105/` 副本逐项相等，未执行或重跑 probe。
+
+05 使用原 clean e798 worktree及第 5 节已说明的复用解释器环境，日志确认实际 fixture/product 源文件来自 e798，native tree 匹配。五锁前后相等，起止 HEAD 相同；postflight 于 21:08:18Z 记录自有占用释放。外置脚本仅合成一张 84,285 行×33 列表，修改 `rows//10=8,428` 行，使用 non-INITIAL fake parent provider、InMemoryArtifactStore；不读取真实业务行，不使用 Dolt、网络或业务 DB，不把 VARCHAR 为主的合成 schema 表述为真实 schema 等价。
+
+监督器同时约束 fixture 构造与 publication，以 50ms 轮询子进程 RSS 和 240s 总预算。21:03:48Z–21:07:49Z 的 run 记录 `total_deadline`、子进程 exit −15（SIGTERM）、监督器 exit 2，总耗时 240.224904s（含停止收束），无自动扩容或重试。采样子进程 RSS 峰值 2,864,259,072 bytes，未触及 4GiB 停止值；该采样不代表连续硬上限或生产服务内存证明。
+
+| 已完成阶段 | wall / process CPU |
+| --- | --- |
+| fixture_prepare（含父/当前 fixture） | 110.415077s / 110.928362s |
+| publication `_open_projection_inputs` | 18.910771s / 19.041945s |
+| `_build_frozen_projection` | 10.924246s / 10.948089s |
+| `build_import_mutation_snapshots` | 33.596468s / 33.672453s |
+| `materialize_repository_ref` | 59.523253s / 59.686722s |
+
+最后日志为 `_mutation_snapshots_from_repository` 的 begin，没有对应 end；此段被截断，不能报告完成耗时。没有 `plan_import_mutation`、封包、publication end 或 result 事件。已完成阶段末尾记录的累计 tick 最大间隙为 1.780999s，不能外推为全程最大值或排除截断尾段长间隙。栈文件含 14 处 `<invalid frame>`，可见部分 scalar/Unicode/类型处理函数名，但不足以还原完整业务调用链或证明真实故障根因；不能把缺帧本身定性为产品错误。
+
+| 文件（CT201 副本名） | 05 原文件与副本均核对的 SHA256 |
+| --- | --- |
+| `run.log` | `fc780f3e1a274fedfaa44a469ea213123674d9c05ea09d33d916ad2e89a3f8fe` |
+| `probe.py` | `6c1f166fe4267ca759970463e62ac6485cc8aee49c1b44f776fdc62ff4a59664` |
+| `run.sh` | `54ae8134e31bbe8041b600a5ea1180fc9bcf82472463e0e0fc7dc3e28792e0cc` |
+| `rows-84285.log` | `b1533bbbd398df36afbff42266f093fff3972675f5bbf9cf4e1fe9385047144c` |
+| `rows-84285.stacks` | `19a2c3e4a143801af6bbeb18061403c992048945c4aae7aab520179a801db5d3` |
+| `postflight.log` | `b3f0190901f582380ee475978360f9b8d9290b7747bd0d7fb91733f350343612` |
+
+不追加同类小 probe，不因截断自动提高预算。设计提出的“05 真实失败 Submit 单步隔离诊断”仍待具体方案和有效业务栈观测方式审核；本次没有授权传输、启动、重跑 Preview 或正式恢复。当前不 GO 不变。本轮只追加本文，未改产品或既有证据，未推送。

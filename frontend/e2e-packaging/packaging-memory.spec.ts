@@ -65,6 +65,7 @@ test("M1 packaging peak memory", async ({ browser }) => {
   const mode = process.env.GATEWAY_M1_MODE ?? "modified";
   const reportPath = process.env.GATEWAY_M1_REPORT;
   if (!inputRoot || !reportPath || (mode !== "modified" && mode !== "full")) {
+    throw new Error("GATEWAY_M1_INPUT_ROOT / GATEWAY_M1_MODE=modified|full / GATEWAY_M1_REPORT are required");
   }
   const runs = Number(process.env.GATEWAY_M1_RUNS ?? "3");
   const { files: fileCount, bytes: dirBytes } = await dirStats(inputRoot);
@@ -102,7 +103,7 @@ test("M1 packaging peak memory", async ({ browser }) => {
   await context.addInitScript(() => {
     (window as unknown as { __gatewaySession: GatewaySession }).__gatewaySession = { accessToken: "Bearer m1-probe", businessProjectId: "m1-project", gatewayDeviceExternalKey: "m1-device" };
   });
-  const page = await context.newPage();
+  const page = await context.newPage({ viewport: { width: 1920, height: 1080 } });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组态树", level: 1 })).toBeVisible({ timeout: 30000 });
   await expect(page.getByLabel("上传与预览")).toBeVisible({ timeout: 30000 });

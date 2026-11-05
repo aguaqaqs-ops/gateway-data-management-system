@@ -446,14 +446,15 @@ then
 fi
 cat "$RUN_ROOT/openapi-compare.txt" | tee -a "$LOG_FILE"
 
-# 5. Smoke input directory from the shared upload files (kickoff §4.6):
-# one placeholder .pmc + sql/dbcfg.sql + comps/logic/logics.xml, written
-# outside the worktree and mounted read-only into the toolchain at /input.
+# 5. Smoke input directory for the real backend (design decision 2026-11-05):
+# the simulated-fixture SQL is deliberately keyless and the real Preview rejects
+# it with KEY_MISSING, so real e2e uses its own valid SQL/logics pair.  The
+# shared upload-inputs stay byte-identical for the simulated tests.
 SMOKE_INPUT="$RUN_ROOT/smoke-input"
 mkdir -p -- "$SMOKE_INPUT/sql" "$SMOKE_INPUT/comps/logic"
 printf 'fe3a-smoke-v1\n' > "$SMOKE_INPUT/smoke.pmc"
-cp -- "$FRONTEND_DIR/src/test/fixtures/source/upload-inputs/sql-modified.sql" "$SMOKE_INPUT/sql/dbcfg.sql"
-cp -- "$FRONTEND_DIR/src/test/fixtures/source/upload-inputs/logics-3.xml" "$SMOKE_INPUT/comps/logic/logics.xml"
+cp -- "$FRONTEND_DIR/e2e-real/fixtures/real-sql.sql" "$SMOKE_INPUT/sql/dbcfg.sql"
+cp -- "$FRONTEND_DIR/e2e-real/fixtures/real-logics.xml" "$SMOKE_INPUT/comps/logic/logics.xml"
 chmod -R a+rX -- "$SMOKE_INPUT"
 log "smoke_input=$SMOKE_INPUT"
 

@@ -47,7 +47,7 @@ async function contextWithIdentity(browser: Browser, identity: Identity) {
   const context = await browser.newContext();
   await context.addInitScript(
     ({ token, businessProjectId, gatewayDeviceExternalKey }) => {
-      window.__gatewaySession = { accessToken: `Bearer ${token}`, businessProjectId, gatewayDeviceExternalKey };
+      window.__gatewaySession = { accessToken: token, businessProjectId, gatewayDeviceExternalKey };
     },
     {
       token: identity.token,

@@ -513,5 +513,9 @@ docker exec --env "GATEWAY_FE_SUITE=$SUITE" --env "GATEWAY_FE_SMOKE_INPUT_ROOT=/
 ' 2>&1 | tee -a "$LOG_FILE"
 SUITE_EXIT="${PIPESTATUS[0]}"
 set -e
+if [[ -n "$EVIDENCE_DIR" ]]; then
+  mkdir -p -- "$EVIDENCE_DIR/test-results"
+  docker cp "$TOOLCHAIN_CONTAINER:/tmp/frontend/test-results/." "$EVIDENCE_DIR/test-results/" 2>/dev/null || true
+fi
 log "suite_exit=$SUITE_EXIT"
 exit "$SUITE_EXIT"

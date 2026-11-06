@@ -127,6 +127,9 @@ pub struct CanonicalProjectionColumn {
 pub struct CanonicalProjectionPlan {
     pub materialization_stage: MaterializationStage,
     pub canonical_table: String,
+    /// Row count from the bound SnapshotTableDescriptor; the core compares it
+    /// with the actual Arrow input row count before returning a projection.
+    pub expected_source_row_count: usize,
     /// Retained columns in the canonical output schema order.
     pub columns: Vec<CanonicalProjectionColumn>,
     /// Canonical key columns in the StorageRuleView's strict order.

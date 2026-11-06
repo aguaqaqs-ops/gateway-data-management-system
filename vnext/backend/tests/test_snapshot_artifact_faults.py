@@ -208,6 +208,7 @@ def test_local_store_tmp_cleanup_and_no_path_in_refs(tmp_path: Path) -> None:
 def test_local_oversize_object_is_rejected_before_body_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import hashlib
     import io
+    from typing import Any
 
     from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 
@@ -224,10 +225,10 @@ def test_local_oversize_object_is_rejected_before_body_read(tmp_path: Path, monk
             body_reads.append(-1 if size is None else size)
             return super().read(size)
 
-    def open_path(path: Path, *args: object, **kwargs: object) -> object:
+    def open_path(path: Path, *args: Any, **kwargs: Any) -> object:
         if path == target:
             return TracedFile(io.FileIO(path, "r"))
-        return original(path, *args, **kwargs)  # type: ignore[arg-type]
+        return original(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", open_path)
     with pytest.raises(ManifestVerificationError):

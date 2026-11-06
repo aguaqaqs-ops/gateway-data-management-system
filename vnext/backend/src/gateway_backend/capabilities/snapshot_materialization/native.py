@@ -81,9 +81,13 @@ def call_arrow_kernel(
     check_metadata_budget((tables, plan), budgets)
     try:
         result = cast(KernelResult, native(tables, plan, cancel_probe, budgets, deadline_monotonic, pool_threads))
-    except MemoryError as exc:
+    except BaseException as exc:
         if context is not None:
-            raise KernelMemoryLimit("business kernel operation memory reservation exceeded") from exc
+            # C Stream implementations normalize Python generator failures.
+            # Recover the actual caller control before classifying that wrapper.
+            context.checkpoint()
+            if isinstance(exc, MemoryError):
+                raise KernelMemoryLimit("business kernel operation memory reservation exceeded") from exc
         raise
     if context is not None:
         context.checkpoint()

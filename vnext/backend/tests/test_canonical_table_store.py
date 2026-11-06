@@ -256,7 +256,7 @@ def test_operation_stop_at_eof_prevents_canonical_publication(tmp_path: Path) ->
     with kernel_execution_scope(context, new_operation=True):
         store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
         with pa.RecordBatchReader.from_batches(arrays.schema, batches()) as source:
-            with pytest.raises((InterruptedError, ValueError)):
+            with pytest.raises(InterruptedError):
                 store.put(source, descriptor, before_write=lambda key, ref: called.append(ref))
     assert called == []
     assert not any(path.is_file() for path in backend.artifact_root.rglob("*"))

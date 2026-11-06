@@ -150,13 +150,12 @@ class ArtifactReadHandle:
                 [self._reader.schema.field(index) for index in self._indices],
                 metadata=self._reader.schema.metadata,
             )
-        except MemoryError as exc:
+        except BaseException as exc:
             self.close()
             if self._context is not None:
-                raise KernelMemoryLimit("canonical reader operation memory reservation exceeded") from exc
-            raise
-        except BaseException:
-            self.close()
+                self._context.checkpoint()
+                if isinstance(exc, MemoryError):
+                    raise KernelMemoryLimit("canonical reader operation memory reservation exceeded") from exc
             raise
 
     @property
@@ -262,9 +261,11 @@ class CanonicalTableStore:
                 NeverCancel() if context is None else context.cancel_probe, budgets,
                 None if context is None else context.deadline_monotonic,
             )
-        except MemoryError as exc:
+        except BaseException as exc:
             if context is not None:
-                raise KernelMemoryLimit("canonical codec operation memory reservation exceeded") from exc
+                context.checkpoint()
+                if isinstance(exc, MemoryError):
+                    raise KernelMemoryLimit("canonical codec operation memory reservation exceeded") from exc
             raise
         finally:
             bound_stream.close()

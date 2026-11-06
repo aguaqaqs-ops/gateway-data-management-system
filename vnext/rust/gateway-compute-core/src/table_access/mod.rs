@@ -60,7 +60,10 @@ pub(crate) fn valid_column_type(column: &ColumnDescriptor) -> bool {
     mapped.logical_type == column.logical_type
         && mapped.declared_type == column.declared_type
         && mapped.labels == column.labels
-        && column.declared_type.as_ref().is_none_or(|declared| declared.validate().is_ok())
+        && column
+            .declared_type
+            .as_ref()
+            .is_none_or(|declared| declared.validate().is_ok())
 }
 
 /// Resource budgets (`RESOURCE_BUDGETS` of the Python contract).

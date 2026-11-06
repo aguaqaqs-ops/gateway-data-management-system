@@ -3,9 +3,12 @@
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
-use arrow_array::{Array, ArrayRef, RecordBatch, RecordBatchOptions};
-use arrow_array::builder::{Int64Builder, UInt64Builder, Float32Builder, Float64Builder, BooleanBuilder, GenericStringBuilder, GenericBinaryBuilder};
 use arrow_array::OffsetSizeTrait;
+use arrow_array::builder::{
+    BooleanBuilder, Float32Builder, Float64Builder, GenericBinaryBuilder, GenericStringBuilder,
+    Int64Builder, UInt64Builder,
+};
+use arrow_array::{Array, ArrayRef, RecordBatch, RecordBatchOptions};
 use arrow_schema::{Field, Schema};
 use gateway_shared_kernel::{
     DeclaredType, canonicalize_identifier, unordered_row_hashes_content_digest,
@@ -57,12 +60,31 @@ fn schema_error(message: impl Into<String>) -> BusinessKernelError {
 }
 
 fn descriptor_bytes(descriptor: &TableDescriptor) -> Result<usize, BusinessKernelError> {
-    let mut bytes = add(256, add(descriptor.display_name.len(), descriptor.canonical_name.len())?)?;
+    let mut bytes = add(
+        256,
+        add(
+            descriptor.display_name.len(),
+            descriptor.canonical_name.len(),
+        )?,
+    )?;
     for column in &descriptor.columns {
-        bytes = add(bytes, add(256, add(add(column.display_name.len(), column.canonical_name.len())?, column.sql_type.len())?)?)?;
-        for label in column.labels.iter().flatten() { bytes = add(bytes, add(32, label.len())?)?; }
+        bytes = add(
+            bytes,
+            add(
+                256,
+                add(
+                    add(column.display_name.len(), column.canonical_name.len())?,
+                    column.sql_type.len(),
+                )?,
+            )?,
+        )?;
+        for label in column.labels.iter().flatten() {
+            bytes = add(bytes, add(32, label.len())?)?;
+        }
     }
-    for key in &descriptor.primary_key { bytes = add(bytes, add(32, key.len())?)?; }
+    for key in &descriptor.primary_key {
+        bytes = add(bytes, add(32, key.len())?)?;
+    }
     Ok(bytes)
 }
 
@@ -71,8 +93,7 @@ fn validate_table(
     options: BusinessKernelOptions<'_>,
 ) -> Result<KernelTableInputFacts, BusinessKernelError> {
     let facts = preflight_table_input(input, options)?;
-    if mul(descriptor_bytes(input.descriptor)?, 8)? > options.budgets.max_live_bytes
-    {
+    if mul(descriptor_bytes(input.descriptor)?, 8)? > options.budgets.max_live_bytes {
         return Err(resource_error("descriptor allocation budget exceeded"));
     }
     if !input.descriptor.reader_ready {
@@ -88,7 +109,11 @@ fn validate_table(
         {
             return Err(schema_error("invalid canonical column name or ordinal"));
         }
-        if !crate::table_access::valid_column_type(column) { return Err(schema_error("logical/declared/label metadata disagrees with SQL type")); }
+        if !crate::table_access::valid_column_type(column) {
+            return Err(schema_error(
+                "logical/declared/label metadata disagrees with SQL type",
+            ));
+        }
         if columns[..index]
             .iter()
             .any(|other| other.canonical_name == column.canonical_name)
@@ -126,7 +151,10 @@ fn workspace<'a>(
     };
     // Reserve the fixed diagnostic envelope before any business diagnostic can
     // be built. It overlaps metadata, key/hash indices and returned output.
-    working.reserve(add(mul(options.budgets.max_diagnostic_bytes, 4)?, mul(BUSINESS_KERNEL_MAX_DIAGNOSTICS, 256)?)?)?;
+    working.reserve(add(
+        mul(options.budgets.max_diagnostic_bytes, 4)?,
+        mul(BUSINESS_KERNEL_MAX_DIAGNOSTICS, 256)?,
+    )?)?;
     // Owned descriptors, batch/array references, reusable row cells and names.
     working.reserve(add(
         mul(facts.metadata_bytes, 4)?,
@@ -196,8 +224,13 @@ fn diagnostic(
     column: Option<&str>,
     options: BusinessKernelOptions<'_>,
 ) -> Result<KernelDiagnostic, BusinessKernelError> {
-    let bytes = add(add(code.len(), message.len())?, add(table.len(), column.map_or(0, str::len))?)?;
-    if bytes > options.budgets.max_diagnostic_bytes { return Err(resource_error("diagnostic byte budget exceeded")); }
+    let bytes = add(
+        add(code.len(), message.len())?,
+        add(table.len(), column.map_or(0, str::len))?,
+    )?;
+    if bytes > options.budgets.max_diagnostic_bytes {
+        return Err(resource_error("diagnostic byte budget exceeded"));
+    }
     options.checkpoint()?;
     Ok(KernelDiagnostic {
         code: code.to_owned(),
@@ -333,7 +366,10 @@ pub fn materialize_sql_table(
         } else {
             None
         };
-        let output_bytes = add(add(facts.input_bytes, descriptor_bytes(input.descriptor)?)?, add(128, if duplicate { 512 } else { 0 })?)?;
+        let output_bytes = add(
+            add(facts.input_bytes, descriptor_bytes(input.descriptor)?)?,
+            add(128, if duplicate { 512 } else { 0 })?,
+        )?;
         if output_bytes > options.budgets.max_output_bytes {
             return Err(resource_error("returned Arrow exceeds output byte budget"));
         }
@@ -389,7 +425,12 @@ fn selected_cell<'a>(
     )
 }
 
-fn build_text<O: OffsetSizeTrait>(values: &[Cell<'_>], payload: usize, column: &ColumnDescriptor, working: &Working<'_>) -> Result<ArrayRef, BusinessKernelError> {
+fn build_text<O: OffsetSizeTrait>(
+    values: &[Cell<'_>],
+    payload: usize,
+    column: &ColumnDescriptor,
+    working: &Working<'_>,
+) -> Result<ArrayRef, BusinessKernelError> {
     working.options.checkpoint()?;
     let mut builder = GenericStringBuilder::<O>::with_capacity(values.len(), payload);
     for cell in values {
@@ -399,7 +440,7 @@ fn build_text<O: OffsetSizeTrait>(values: &[Cell<'_>], payload: usize, column: &
             Cell::Text(text) if column.logical_type == SqlLogicalType::Set => {
                 let members = cells::set_members(text, column)?;
                 builder.append_value(members.join(","));
-            },
+            }
             Cell::Text(text) => builder.append_value(text),
             _ => return Err(value_error("output text cell has wrong type")),
         }
@@ -408,12 +449,20 @@ fn build_text<O: OffsetSizeTrait>(values: &[Cell<'_>], payload: usize, column: &
     Ok(Arc::new(builder.finish()))
 }
 
-fn build_binary<O: OffsetSizeTrait>(values: &[Cell<'_>], payload: usize, working: &Working<'_>) -> Result<ArrayRef, BusinessKernelError> {
+fn build_binary<O: OffsetSizeTrait>(
+    values: &[Cell<'_>],
+    payload: usize,
+    working: &Working<'_>,
+) -> Result<ArrayRef, BusinessKernelError> {
     working.options.checkpoint()?;
     let mut builder = GenericBinaryBuilder::<O>::with_capacity(values.len(), payload);
     for cell in values {
         working.options.checkpoint()?;
-        match cell { Cell::Null => builder.append_null(), Cell::Binary(bytes) => builder.append_value(bytes), _ => return Err(value_error("output binary cell has wrong type")) }
+        match cell {
+            Cell::Null => builder.append_null(),
+            Cell::Binary(bytes) => builder.append_value(bytes),
+            _ => return Err(value_error("output binary cell has wrong type")),
+        }
     }
     working.options.checkpoint()?;
     Ok(Arc::new(builder.finish()))
@@ -427,9 +476,28 @@ fn arrow_table(
     primary_key: &[String],
     working: &mut Working<'_>,
 ) -> Result<KernelArrowTable, BusinessKernelError> {
-    let mut estimated = add(add(256, mul(name.len(), 2)?)?, mul(columns.len(), add(1024, mul(rows.len(), 24)?)?)?)?;
-    for column in columns { estimated = add(estimated, add(add(column.descriptor.sql_type.len(), column.descriptor.canonical_name.len())?, column.descriptor.display_name.len())?)?; for label in column.descriptor.labels.iter().flatten() { estimated = add(estimated, add(32, label.len())?)?; } }
-    for key in primary_key { estimated = add(estimated, add(32, key.len())?)?; }
+    let mut estimated = add(
+        add(256, mul(name.len(), 2)?)?,
+        mul(columns.len(), add(1024, mul(rows.len(), 24)?)?)?,
+    )?;
+    for column in columns {
+        estimated = add(
+            estimated,
+            add(
+                add(
+                    column.descriptor.sql_type.len(),
+                    column.descriptor.canonical_name.len(),
+                )?,
+                column.descriptor.display_name.len(),
+            )?,
+        )?;
+        for label in column.descriptor.labels.iter().flatten() {
+            estimated = add(estimated, add(32, label.len())?)?;
+        }
+    }
+    for key in primary_key {
+        estimated = add(estimated, add(32, key.len())?)?;
+    }
     for column in columns {
         let source_index = column
             .source_index
@@ -459,40 +527,90 @@ fn arrow_table(
         for &row in rows {
             working.options.checkpoint()?;
             let cell = selected_cell(input, row, index)?;
-            payload = add(payload, match cell { Cell::Text(text) => text.len(), Cell::Binary(bytes) => bytes.len(), _ => 0 })?;
+            payload = add(
+                payload,
+                match cell {
+                    Cell::Text(text) => text.len(),
+                    Cell::Binary(bytes) => bytes.len(),
+                    _ => 0,
+                },
+            )?;
             values.push(cell);
         }
         macro_rules! array {
-            ($ty:ty, $variant:ident) => {
-                { let mut builder = <$ty>::with_capacity(values.len());
-                for cell in &values { working.options.checkpoint()?; if let Cell::$variant(value) = cell { builder.append_value(*value); } else { builder.append_null(); } }
-                Arc::new(builder.finish()) as ArrayRef }
-            };
+            ($ty:ty, $variant:ident) => {{
+                let mut builder = <$ty>::with_capacity(values.len());
+                for cell in &values {
+                    working.options.checkpoint()?;
+                    if let Cell::$variant(value) = cell {
+                        builder.append_value(*value);
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Arc::new(builder.finish()) as ArrayRef
+            }};
         }
         use DeclaredType as D;
         let array: ArrayRef = match column.descriptor.declared_type.as_ref() {
             Some(D::SignedInteger { .. }) => array!(Int64Builder, Int),
             Some(D::UnsignedInteger { .. }) => {
                 let mut builder = UInt64Builder::with_capacity(values.len());
-                for cell in &values { working.options.checkpoint()?; match cell { Cell::UInt(value) => builder.append_value(*value), Cell::Int(value) => builder.append_value(u64::try_from(*value).map_err(encoding_error)?), Cell::Null => builder.append_null(), _ => return Err(value_error("unsigned output has wrong cell type")) } }
+                for cell in &values {
+                    working.options.checkpoint()?;
+                    match cell {
+                        Cell::UInt(value) => builder.append_value(*value),
+                        Cell::Int(value) => {
+                            builder.append_value(u64::try_from(*value).map_err(encoding_error)?)
+                        }
+                        Cell::Null => builder.append_null(),
+                        _ => return Err(value_error("unsigned output has wrong cell type")),
+                    }
+                }
                 Arc::new(builder.finish())
-            },
+            }
             Some(D::Boolean) => array!(BooleanBuilder, Bool),
             Some(D::Float32) => {
                 let mut builder = Float32Builder::with_capacity(values.len());
-                for cell in &values { working.options.checkpoint()?; match cell { Cell::F32(value) => builder.append_value(if *value == 0.0 { 0.0 } else { *value }), Cell::Null => builder.append_null(), _ => return Err(value_error("float32 output has wrong cell type")) } }
+                for cell in &values {
+                    working.options.checkpoint()?;
+                    match cell {
+                        Cell::F32(value) => {
+                            builder.append_value(if *value == 0.0 { 0.0 } else { *value })
+                        }
+                        Cell::Null => builder.append_null(),
+                        _ => return Err(value_error("float32 output has wrong cell type")),
+                    }
+                }
                 Arc::new(builder.finish())
-            },
+            }
             Some(D::Float64) => {
                 let mut builder = Float64Builder::with_capacity(values.len());
-                for cell in &values { working.options.checkpoint()?; match cell { Cell::F64(value) => builder.append_value(if *value == 0.0 { 0.0 } else { *value }), Cell::Null => builder.append_null(), _ => return Err(value_error("float64 output has wrong cell type")) } }
+                for cell in &values {
+                    working.options.checkpoint()?;
+                    match cell {
+                        Cell::F64(value) => {
+                            builder.append_value(if *value == 0.0 { 0.0 } else { *value })
+                        }
+                        Cell::Null => builder.append_null(),
+                        _ => return Err(value_error("float64 output has wrong cell type")),
+                    }
+                }
                 Arc::new(builder.finish())
-            },
+            }
             Some(D::Binary | D::Bit { .. }) => {
-                if payload > i32::MAX as usize { build_binary::<i64>(&values, payload, working)? } else { build_binary::<i32>(&values, payload, working)? }
+                if payload > i32::MAX as usize {
+                    build_binary::<i64>(&values, payload, working)?
+                } else {
+                    build_binary::<i32>(&values, payload, working)?
+                }
             }
             _ => {
-                if payload > i32::MAX as usize { build_text::<i64>(&values, payload, &column.descriptor, working)? } else { build_text::<i32>(&values, payload, &column.descriptor, working)? }
+                if payload > i32::MAX as usize {
+                    build_text::<i64>(&values, payload, &column.descriptor, working)?
+                } else {
+                    build_text::<i32>(&values, payload, &column.descriptor, working)?
+                }
             }
         };
         working.options.checkpoint()?;
@@ -651,9 +769,20 @@ impl Diagnostics<'_> {
         table: &str,
         column: Option<&str>,
     ) -> Result<(), BusinessKernelError> {
-        if self.entries.len() >= BUSINESS_KERNEL_MAX_DIAGNOSTICS { self.omitted = add(self.omitted, 1)?; return Ok(()); }
-        let next = add(self.bytes, add(add(code.len(), message.len())?, add(table.len(), column.map_or(0, str::len))?)?)?;
-        if next > self.options.budgets.max_diagnostic_bytes { return Err(resource_error("diagnostic byte budget exceeded")); }
+        if self.entries.len() >= BUSINESS_KERNEL_MAX_DIAGNOSTICS {
+            self.omitted = add(self.omitted, 1)?;
+            return Ok(());
+        }
+        let next = add(
+            self.bytes,
+            add(
+                add(code.len(), message.len())?,
+                add(table.len(), column.map_or(0, str::len))?,
+            )?,
+        )?;
+        if next > self.options.budgets.max_diagnostic_bytes {
+            return Err(resource_error("diagnostic byte budget exceeded"));
+        }
         self.push(&diagnostic(code, message, table, column, self.options)?)
     }
 }

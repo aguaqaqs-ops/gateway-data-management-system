@@ -1421,3 +1421,5 @@ down 前 18:46:53 保存最后可读 DB selected rows 和三服务 raw logs，�
 已直接交实施者两项非阻塞文书澄清：顶部“最后一次 LeaseSession.heartbeat 调用之前”改为“最后 helper 进入时已过 deadline、未进入第 191 次 session”，避免将未发生的调用写成已发生；旧 c “review-only verifier 仍 MATCH/post_go=false”明确为 §66 前历史记录，不能在共享 POST-GO 已存在时称当前 review-only 仍返回 false。只改 handoff，不改冻结候选/manifest/log，不需要重测或暂停设计已派的只读分析。
 
 本轮不触发产品/镜像重建，冻结产品仍 `1f9731`、最后验证 image revision/source-tree 沿 §57。设计已决定由唯一实施者只读收窄 mutation_plan 内部与 EventWriter 时间戳/锁/flush 扰动；本核查不另行授权 probe、大中间 checkpoint、加测、重跑或 TTL 修改，具体新诊断待设计。**§67 的失败结论和 GO 已消耗状态不变，没有新的运行或正式测量 GO。**
+
+后续已只读核实施者 handoff 提交 `fceeb6dd4a1dc312a0ceee2e08a8f18252eaf228`：仅该文档两行更正，分别准确说明第 191 次 session 未进入和旧 review-only 检查属于 GO 前历史；该 worktree clean，现有停止边界未变。两处文书澄清关闭，handoff 常规事实复核完成；没有新增测试、节点操作或运行许可。

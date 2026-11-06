@@ -54,7 +54,7 @@ class ArrowSourceTableReader:
     def row_count(self) -> int:
         self._require_open()
         assert self._table is not None
-        return self._table.num_rows
+        return int(self._table.num_rows)
 
     def arrow_stream(self) -> pa.RecordBatchReader:
         self._require_open()

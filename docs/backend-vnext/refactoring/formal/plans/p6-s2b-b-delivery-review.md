@@ -8,7 +8,7 @@
 
 产品起点 `5621bd48531b7af465e878f1bc7f87f707a772a3` 的实际差异已重新检查：`633e599cbc` 的 catalog 必填源行数及 binder 接线、`9225f78883` 的 projection 绑定源行数字段、`75f2ddac93` 的格式修正、`5621bd4853` 的既有 example 首行 policy 修正。未发现这些已完成小步的新增阻塞。业务版本/摘要没有因 catalog 字段变化而改变，binder 身份检查仍在原时点。
 
-当前 Rust 仍只有公共 API 与初始 preflight，不能据此宣称完整 Arrow schema/name/type/binding、实际行数比对、三个业务 kernel 或 C Stream adapter 已实现。该结论不重做 A 或 S2a；A 的 workspace tests 不等同完整 architecture CLI，旧 B 两次 cargo 又缺少原子占用，均不能成为本次通过或 carried 来源。
+上述起点的 Rust 只有公共 API 与初始 preflight，不能据此宣称完整 Arrow schema/name/type/binding、实际行数比对、三个业务 kernel 或 C Stream adapter 已实现；后续实现见 §4–5。该结论不重做 A 或 S2a；A 的 workspace tests 不等同完整 architecture CLI，旧 B 两次 cargo 又缺少原子占用，均不能成为本次通过或 carried 来源。
 
 ## 2. 恢复执行前置
 
@@ -53,8 +53,27 @@ Core 必须核实际 Arrow/schema/binding，Python 预计算诊断不能代替�
 | `s2b-b-core-uleb-format.log` | df77938b8b；12:03:41–12:03:50 UTC；唯一格式修正已核；fmt、原 core 46、Shared Kernel 82+3+3、完整 CLI exit 0 | `ec39b2ae631dd636e0e67894bc73bbf100d66516646e732e90a27d2879bbd983` |
 | `s2b-b-core-boundaries.log` | 573421b151；12:12:39–12:12:47 UTC；fmt、core 53、Shared Kernel 82+3+3、完整 CLI exit 0；unused import warning 尚待最终 clippy 收口 | `a1dbd7d3c66c105f852ab39fc058d63f3ac95bba44703116c2513c50ba500690` |
 
-## 5. 当前验证与镜像决定
+## 5. Native adapter 与当前修正
 
-当前审核产品 HEAD：`573421b151119745b72749e37c65d7dabb3f7c99`。成功定向证据与实际覆盖见 §2、§4；B 最终门禁未运行，carried 无。中间算法修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、强制重装扩展及 Rust tree checker、相关 native focused 与当前镜像 health/clean-stop/native smoke。
+已依次在 detached worktree 读取固定 `7791718138`、`da760448b306d76a4208b0b50d85e4ddb42bbc18`、`25fe793d961e7471d981b5b7afceca5811c197d1`。三个窄 adapter 复用 A 的 C Stream consumer、caller pool、cancel watch、detach 与 panic boundary；core 没有 Python/IO，adapter 没有直接依赖 Shared Kernel。Python 新 producer 保留规则、SQL spelling normalizer 和小 metadata，只有既定 composite exception 将过滤后的事实转回 Python。旧生产 caller 尚未切换，未为 B 提前删除或复制其 snapshot/manifest 调度。
+
+实际复审闭合：非 NULL SET key 与 NULL 优先级；retained source SQL spelling 绑定（空 TEXT 不能伪装成 VARCHAR）；投影 display_name；真实零 batch reader 的 schema 保留；零列 synthetic batch 的固定 header 前置额度；多 stream 累计 rows/batches/input 与 adapter metadata；probe 异常优先于取消错误映射；Python 输出 metadata/facts 的复制前额度和控制检查。SQL 返回共享 Arrow buffers，计入 output、不会再作为新 owned live 重复相加；其他局部预约仍保守，不宣称是精确 allocator 计量，C/M 校准必须按真实生命周期。
+
+新增 native 测试的独立 expected 已读取：真实 parser→B→A IPC，SET/UINT/负零、key 诊断、SQL warning/projection blocker、PROVISIONAL、Python int oracle、零 batch schema、零列非零行穿过 C Stream/B/A、ordered/canonicalized input、catalog 全 payload 与过滤前验证、消费中 row cap、运行中取消/deadline/probe 异常。25fe 补齐既定的 1050 列完整诊断顺序及 1024+26、被丢弃 JSON 值不影响摘要、metadata/live/input/diagnostic 拒绝、真实 parser 与现有 Python owner 的 PARTIAL/FAILED 分类。**本段只记录代码和 expected 审核；截至本次报告，da760/25fe 的 native pytest 尚未执行，不能记 PASS。**
+
+### 一次同步前置错误与最小恢复
+
+实施者在 da760 格式提交后用共享 main 的 `HEAD~1` 推断 previous，误取并发文档提交 `5aa63e384dfea114375d3c875d8e713e6cdd7021`；06 实际仍为 clean `0a9d8bf27329729b3e2b7c44f8dea12d3b8eeb51`。审核者实际读日志并独立 SSH 核目标 HEAD/clean/原 busy。同步在 previous 断言处拒绝，未 fetch/checkout；失败 bundle 保留。外层调用没有检查该非零结果，又调用了旧 HEAD 的 fmt；fmt 失败后没有编译或业务测试。
+
+| 失败证据 | SHA256 |
+| --- | --- |
+| 本机 `/tmp/s2b-b-resume-sync-transfer-format.log`，12:29:53 UTC；previous 断言失败 | `a359eff7a51a5fe06c90fadb92886722853fdf2007fb68896f7bb432be2d4e4c` |
+| 06 `/home/dev/gdds-test-tmp/logs/s2b-b-consumers-compile.log`，同一时刻；旧 0a9 fmt 失败 | `fe2e7bd50bd113945fc756e959ef62a24d8fa8326eb599050f9858b4f0243ec0` |
+
+root 判定为新组合首次该因果的前置错误，授权一次最小修正；再失败即停 Owner。审核者实际读取并复算 source `/tmp/s2b-b-publish-source.sh` SHA256 `4b71db8839171db6879b285fe1f2e4837faa6a33ba1f06426a861be763b34864`、target `/tmp/s2b-b-sync-resume.sh` SHA256 `189338eab32e31b748c758aea43a5fd0068667105c53fa0c3a62a91c3961fa03`。candidate 先绑定任务自有 `refs/codex/s2b-b-transfer/<fullsha>`，bundle/advertised ref/fetch 使用该固定引用，不依赖其他会话暂停 main 提交；previous 取实际 0a9 full SHA，新文件名保留失败 bundle。已给这一次恢复执行 GO，要求同步的实际 rc 0 单独确认后才另 call 验证，未把此 GO 当成产品通过。
+
+## 6. 当前验证与镜像决定
+
+当前审核产品 HEAD：`25fe793d961e7471d981b5b7afceca5811c197d1`。成功定向证据与实际覆盖见 §2、§4；§5 的新增 native 尚待实际运行，B 最终门禁未运行，carried 无。中间算法修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、强制重装扩展及 Rust tree checker、相关 native focused 与当前镜像 health/clean-stop/native smoke。
 
 最后已验证镜像仍是 A 产品 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`：06 backend 本机 image ID `sha256:88665d846710bd26891acbba7fbcb516e57cfaf95edd3314af457e4a48d5b6a0`，Rust tree `5b222191f4689b0eb0a7c2a1123bb299efb13e9d`，来源见 [A 审核 §7](p6-s2b-a-review.md#7-最终-db776-验证结论)。该结果不冒充 B 当前候选，dependency-base 以最终完整输入与 config/全部 DiffID 判定。S2b 最终 04 runner/container 与 t1–t4 正确性仍保留；W1/W2、真实 FULL 峰值和生产 M 未知保持未知。

@@ -20,6 +20,8 @@ decode 在标准 Arrow reader 前对借用输入做 footer/block 长度及 raw m
 
 允许最小 PyO3 Arrow C Stream encode 入口用于真实 backend 互操作测试和后续 B 消费者，沿用现有 FFI/GIL/shared-pool 安全规则；N/chunk 确定性主要由 Rust core 验证。A 不新增 worker initializer、第二 Python 算法或通用绑定框架。仅提升实际用到的 `arrow-ipc` 生产依赖，`arrow-select` 如不需要则不调整；锁/features 与缓存未变可复用现有 dependency-base，生产镜像闭包仍按 §3 判断。
 
+该最小 Python 入口要求调用者显式传入局部 budgets，不提供 `None` 所隐含的默认容量。描述转换前核数量与大小，C Stream 逐 batch 消费时核累计行数、批次数、输入 bytes 与 adapter 自有分配，输出转 Python bytes 前核同时驻留；不能先无限收集再交 core 检查。仍不制定生产 M。
+
 ## 2. 局部边界与验收
 
 | 内容 | 验证与独立来源 |

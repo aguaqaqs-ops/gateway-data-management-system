@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A 已交付，B 恢复推进）
 
-状态：APPROVED / A COMPLETE / B IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)已完成纯内存 mapping/IPC codec，固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO、无未关闭 Finding。Owner 随后以 DC86 授权按本稿逐节推进 B–E、每节新建既定实施/审核二角色；B 暂停后已获 Owner 授权重建两角色恢复，本节及后续 C–E 实施者按 Owner 最新确认使用 Sol/high，B 审核者仍 Astra/high，C–E 新审核者改 Sol/xhigh 或 max；旧日志仅作诊断，详见 [B 任务单](p6-s2b-b-kickoff.md)与[独立审核](p6-s2b-b-review.md)。C–E 尚未启动，仍待前节通过。S2b 整体尚未退出。
+状态：APPROVED / A–B COMPLETE / C STARTING；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)固定产品 `db7767ffbb`、handoff `b625d775e0`、独立审核 `83b927207a`，A GO。[B 任务单](p6-s2b-b-kickoff.md)固定产品 `b820321c1e`、[handoff](p6-s2b-b-handoff.md) `ac59ffeb79`、[独立审核](p6-s2b-b-delivery-review.md) `0dc93c09a9`，B GO、无未关闭 blocking，06 占用释放、两角色结束；旧不合格日志仍只作诊断。按 DC86 启动 [C](p6-s2b-c-kickoff.md)，新实施者 Sol/high、新审核者 Sol/max；D/E 仍按前置顺序推进。S2b 整体尚未退出。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 
@@ -208,7 +208,7 @@ reachable = no_unknown_segments
 - kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。审核结论与授权分开；Owner 随后以 DC85 批准 kickoff 及 A。
 - owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 及 A 实施已按 DC85 确认。
 - M 数值/默认/部署 envelope：按 DC84 在 IPC + FULL 生命周期测量后、worker 接线前定；不是阻止首个 mapping/kernel slice 的新样本前置。
-- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者；B 审核者为 Astra/high，C–E 新独立审核者为 Sol/xhigh 或 max（DC86 最新补充）；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A 两角色已结束；B 新组合已恢复，正在实施业务 kernel 并按范围验证，C–E 按前置顺序推进。
+- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者；B 已由 Astra/high 审核完成，C–E 新独立审核者为 Sol/xhigh 或 max（DC86 最新补充），C 因事务/CAS 与冻结恢复选择 max；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A、B 两节角色均已结束，C 按固定前置交接启动，D/E 依次推进。
 
 ## 8. 文档与准备工具检查记录（不是阶段取证）
 

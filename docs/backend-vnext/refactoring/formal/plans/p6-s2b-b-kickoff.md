@@ -1,6 +1,6 @@
 # S2b B：业务 kernel 与规范投影/摘要
 
-状态：**Owner 已授权重建 B 两角色恢复推进；B 未 GO**（2026-11-06）。Owner 已按 DC86 授权 B–E 逐节推进；本任务只实施 B。前置 A 产品 `db7767ffbb`、handoff `b625d775e0`、独立审核 `83b927207a` 已交付。B 前置独立审查 `8f3cf2421f` 的具体细节由下文冻结，不把前置审查当作产品通过。
+状态：**B COMPLETE / GO**（2026-11-06）。固定产品 `b820321c1e`、[handoff](p6-s2b-b-handoff.md) `ac59ffeb79`、[恢复交付独立审核](p6-s2b-b-delivery-review.md) `0dc93c09a9` 已收齐；无未关闭 blocking finding，06 占用释放、两角色结束。最终候选的 Rust/五包静态、41 项受影响 native 与当前镜像 health/clean-stop/native 通过；此前 8c889 的 180 项业务回归按影响面引用，不冒称最终候选重跑。Owner 已按 DC86 授权继续 C；S2b 整体尚未退出。下文暂停与恢复记录保留历史事实。前置 A 产品 `db7767ffbb`、handoff `b625d775e0`、独立审核 `83b927207a` 已交付。
 
 暂停交接：最新产品 `5621bd4853`，仅有公共 API/preflight 骨架、catalog 源行数接线、源行数绑定字段及格式/既有示例 policy 修正；SQL/hash、Arrow catalog、projection、C Stream adapter 和业务验证尚未交付。06 最后观测的本节调试 worktree `/home/dev/gdds-test-tmp/wt/p6-s2b-b-impl-9225` 为 clean `75f2ddac93`；fmt 后 architecture CLI 因既有示例缺首行 forbid 声明失败，5621 已修正但未同步/验证。源码同步准备再次发生本地脚本生成错误，按事先约定停止，不再重复尝试；[独立审核记录](p6-s2b-b-review.md)保存提交与日志边界。
 

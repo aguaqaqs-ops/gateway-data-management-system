@@ -1255,3 +1255,37 @@ controller 完整/前缀 SHA、191 次成功心跳→失租→stall 的时间线
 原始候选 a、两份 manifest 和通过日志保持不改写；新实施者已确认先保留原包，待本合并报告后准备独立修订候选。以上六项都针对实际边界，少量新增 controller focused 应覆盖新文件/isolated helper、标准 inspect、prepare→successor/正常退出、监督不被慢命令阻塞、失败留证与 POST 未知结果；复用当前 fixtures 和已审 helper，避免只继续测试 Fake Runtime 的正常顺序。现有 worker 正常委托后 drain、异常原样传播、真实 deadline 与 derived due 区分及事件上限方向可保留。
 
 仅外置工具变化，不要求重建 §52 镜像、重跑已通过的小 Compose/全量 runner 或发一次 acceptance 验证修订；产品 HEAD `1f9731`、最后验证三镜像 revision/source-tree 沿 §57。修订代码、测试及精确清单重新绑定后定向复审；本报告也不预先授权另一个候选运行。**没有新 GO，h GO 仍已消耗，正式测量停止，lease 根因 OPEN。** 发现直接投递新唯一实施者并抄设计。
+
+## 63. prepare 候选 b 复审：主要接线已修，守护与最终收束尚有三组问题
+
+**manifest `b7b57790caaaffb5200131ce44e8103adb304b04afc425b590462eda1bbf7e9c` 本轮不获 GO。** 只读最终 b 包、a→b 差异、17 项测试及现有证据；没有运行候选/测试、访问节点或新增取证。独立核最终清单、14 文件 SHA/权限/AST、测试时清单 `6076f314d7a4e2c8b07b2a63d477f46bd70ee63179f0e7de8e7988e0f17aa4f5` 和 retained 文件字节全部匹配。测试后仅 README/preparation-record/review-request 变化，代码与测试未变，未要求为文书传输修正重跑测试。
+
+完整 `focused-tests.log` SHA256 `6139dbec602b89e54591e7b604d7d3731f4cc3329bff29b0271f8d309fc0c8bc`，CT05 16:31:54–55、起止 `1f9731`、17 passed/exit 0；最终绑定记录 SHA256 `570b7a785b5f60582530680b5b8bfd7b8d83acde9f643ee2cda6f1a49a6d1608`、MATCH/no GO。误传文档副本与失败记录 SHA256 `9f8380d483e4ebf57189aaadf52344283f907d539aee54d2cff475a21e338272` 已留档；按 DC80 最小恢复处理，未把已经写入的根目录副本说成无副作用重试。
+
+§62 前四项的主要修订可以关闭：新文件 O_EXCL 后设私有权限；isolated controller 用固定文件 loader 取得 resource helper，实际 -I 导入测试通过；统一从 HostConfig 读 restart policy，并以保存的 container ID 覆盖已退出 worker；同一个 SQLite read transaction 取得目标及 active rows，允许成功 prepare 的未 claim successor，terminal 先于 live PID 检查。POST 调用前记录一次尝试、未知响应只读按既有 idempotency 记录定位，且失败路径在 down 前保存末态/原始日志的方向也正确。外层 timeout 与独立 guardian 已加入；下面是其新具体路径未闭合之处，修复不需要扩大产品/诊断范围。
+
+### B1：监护空窗及最终 guardian 停止结果未纳入成功判定（§62 P5 未完全关闭）
+
+`resource_watch.py:156–216` 只有 worker-binding.json 存在时才读 host/disk/worker 资源；没有 binding 的循环只检查时钟/parent/gap 后等待。controller 虽在初始化前启动 guardian，但 `_write_worker_binding` 在 `up worker` 和 `_verify_worker_ready` **完成之后**才调用；此时真实 worker 已可 claim/执行 prepare。ready 包含 Docker 查询和 DB 读取，最长等待 180 秒，因此这段时间不能宣称有独立 5 秒资源守护，已有慢 Docker 不应拖住 guard 的测试只覆盖 binding 预先存在的情况。
+
+在初始化时明确绑定 host/data filesystem 并持续监测；worker 实际进入无约束 prepare 前，应保证同 PID/starttime 的必要 worker 监护已就绪，而不是等 ready 查询全部结束才开始。具体采用最小既有入口/监护交接即可，不要求建立通用启动状态机；若需要在外置入口暂候监护绑定，不能改变 production heartbeat/claim_anchor 的含义。
+
+同时，`_stop_guardian` 的 guardian_result 只被并入 cleanup/postflight，最终返回成功的条件不检查其 status/stop_reason 或必要结果缺失。若 guardian 在 monitor/exit 最后一次 `_check_stop` 后、post-state/finalization 前报告资源/观测错误，或者提前退出而结果不完整，当前代码仍可能只凭 process reaped 报成功。应在最终结果分类中保留这一停止/缺口并返回诊断非零；**回收已确认时仍可安全解锁**，不把“业务/观测失败”重新混为“进程未回收”。补 binding 尚无、ready 慢和最后时刻 guardian 停止/结果缺失的 focused 边界，不重跑业务。
+
+### B2：日志采集的 EOF/退出等待仍可越过自身界限，未回收 helper 可被遗漏（§62 P5/P6 残留）
+
+`prepare_step_controller.py:1150–1177` 的采集循环以“selector 还有 fd 或 process 尚存活”为条件，deadline/TERM/KILL 却仅在 **process.poll() is None** 时执行。Docker CLI 退出但继承 stdout 的子进程仍持有管道时，没有 EOF，循环会持续；deadline 之后 selector timeout 变成 0，还可能忙转。对 Docker CLI 超时只杀 parent 而 plugin/descendant 保留输出管道，是正常故障收束需处理的情形，不依赖恶意同 euid。外层 3600 秒 kill 只是最后保护，不能把当前阶段耗尽整个清理 reserve 当成已按 20 秒界限收束。
+
+异常路径 1197–1202 行对 kill 后 `wait(timeout=1)` 再超时直接 pass，返回 record 没有 child PID/reaped=false；`_finalize_run_resources` 只把 guardian 的回收状态合入 postflight，owned_processes_quiet 由容器/网络/guardian 推导。因此日志采集 helper 尚未确认回收时，也可能允许节点锁释放，违背已审自有进程静止条件。
+
+让读取/EOF 等待本身受绝对截止约束，必要时关闭读端并明确 truncated/timeout；使用标准进程控制对自己的采集子进程/进程组有界退出与回收，留 child PID/exit/reaped/elapsed。把不确定回收传入现有 postflight 的 owned_processes_quiet/锁判定，未确认则保留锁；不创建 broker、持久状态机或广泛扫描其他进程。增加一个保留管道的受控 CLI fixture 和未回收结果传播用例即可，原 byte-cap 测试仍可保留。
+
+### B3：正常 finalization 分支引用未赋值变量，摘要缺失被吞后仍可返回成功
+
+`prepare_step_controller.py:1701–1756`：正常已有 journey/env 时只接收 `_finalize_run_resources` 返回的 pre_down_record/cleanup_record；guardian_record 仅在 **else** 分支 1733 行赋值，1753 行却在两条路径都使用它。正常路径必然 UnboundLocalError，被宽泛 except 吞掉，只记 pre_down_finalization_record_write_failed=true，`pre-down-finalization.json` 不会写出。最终成功 predicate 并不看这个标记，仍可返回 0。这是具体作用域错误，不是要求补充新的证据机制。
+
+从实际 finalizer 返回/cleanup 中取得统一的 guardian 记录，保证正常和异常路径写相同的已有摘要；真正写失败按诊断证据缺口记录、不能宣称全部观测完成。当前测试覆盖 `_finalize_run_resources` 辅助函数的调用顺序，却未覆盖它在 `run_once` finally 中的实际接线；针对该正常 finalization 路径补最小回归，而不再造一套 fake worker loop。
+
+三组问题已直接交新实施者，沿 DC80/§61 的常规修订、必要 focused 和清单复审闭环，不等协调者中继。保留 b 原包、测试时和最终清单、现有日志；独立修订包只针对这些路径，已经关闭的问题和未变代码不用重复证明。若代码实际变化，再按受影响范围绑定新测试，不能只换清单沿用未匹配的实现证据。
+
+本轮仍只涉及外置工具，不触发产品或 §52 镜像重建，不要求重复 Compose、小合成 probe 或全量测试；产品 HEAD 和最后验证 image revision/source-tree 继续 §57/61。**没有新 GO，h 原 GO 已消耗，H3 不变，正式测量停止，lease 根因 OPEN。**

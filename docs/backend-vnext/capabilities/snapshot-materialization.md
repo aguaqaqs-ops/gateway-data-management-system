@@ -391,7 +391,9 @@ SnapshotMaterializationResult:
   diagnostics
 ```
 
-S2b D 的 `committed_tables` 是本 capability contract 拥有的小型注入 port：输入绑定的精确 commit、descriptor/storage view、实际控制及读取 timeout 约束，返回具有正确 reader 生命周期的 `SnapshotTable`。application 用 C 的唯一 canonical store/cache/精确 commit 恢复实现，composition 注入 Preview、History 以及 Repository publication 的 `READERS_REQUIRED` 等真实消费者。capability 继续负责 metadata policy、选表、identity 和 manifest，不反向导入 application 或 Storage Projection 的 native 实现。
+S2b D 的 `committed_tables` 是本 capability contract 拥有的小型注入 port：输入绑定的精确 commit、已有 `CanonicalTableIdentity`、descriptor/storage view、实际控制及读取 timeout 约束，返回具有正确 reader 生命周期的 `SnapshotTable`。application 用 C 的唯一 canonical store/cache/精确 commit 恢复实现，composition 注入 Preview、History 以及 Repository publication 的 `READERS_REQUIRED` 等真实消费者。capability 继续负责 metadata policy、选表、identity 和 manifest，不反向导入 application 或 Storage Projection 的 native 实现。
+
+application port 在 cache lookup/source 恢复前，沿 Storage Projection 既有 schema digest owner 核对 descriptor 的规范列声明、原列序与主键和 identity 的 `canonical_schema_digest`，同时保持表名、行数与 raw content identity 绑定。不能只以当前 catalog 自证 schema、或用相同值的 row digest 代替 manifest schema 绑定；例如 INT 改为 BIGINT 后值不变仍须拒绝不匹配。DDL-primary-key 策略从同一已绑定 exact catalog 解析 effective key，不改变 keyless/ordered 或比较策略；不新增 digest 版本、兼容路径或重复业务算法。
 
 INITIAL 和纯 identity-only 请求不为此读取行；只有实际选中/导出表才经 port。需要行或规范产物而未注入 port 时明确拒绝，不回退旧 Python rows/digest 路径。returned reader 必须拥有其 handle/borrower 或按绑定来源惰性重开，不能逃出已关闭的 context；恢复仍核 exact commit/expected repository/业务摘要，并保留 caller cancellation、finite deadline 及 repository timeout。raw/client Parquet 的真实用途不改变，不据此放宽冻结来源。
 

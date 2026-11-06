@@ -386,3 +386,27 @@ controller 保持既有边界：固定 CT05 hostname、e798 clean worktree/字�
 client 只加观测与返回后完整 DTO 指纹，未改原 transport、parser 或重试，也不二次读取 HTTP body。固定 repository/commit，完整 `VersionedCatalog` 包含 commit、所有表/列/schema/primary_key/row_count；与 repository id 一起作 sort_keys/compact/ASCII JSON 的 SHA256，只输出摘要、大小和汇总数量。该指纹不独立证明与旧大样本逐字段等价，已有小 Dolt 历史 commit 差分是本轮局部正确性证据。只有 client exit 0、唯一 SUCCESS、commit 匹配、观测完整、摘要生成且 attempts=successful_attempt=1 才为 `CATALOG_RETURNED_FIRST_ATTEMPT`；重试后成功另列且整体非零，不替代首读结论。单次成功仍不证明原 lease 问题解决或正式门禁通过。
 
 执行前按 README 再确认 BatchMode SSH/空闲，LAN 同步后核上述固定文件摘要，controller 自取锁，不叠加外层锁。任一失败即停并交回 client/events、双流有界日志、launcher 实际 exit、SHA 与收束/锁状态，不自动重跑。后续按实测决定最小预算/设计讨论，H3 原证据保留，其余正式测量仍停止。
+
+## 25. 修复后冷 catalog 结果：逻辑调用成功，首尝条件未达
+
+**证据复核通过：产品逻辑 GET 最终成功，首尝返回的诊断条件未达。** 不将工具 exit 1 等同产品最终 ReadTimeout 或此次业务调用失败。审核直接读取 LAN 回传 `p6catalogdiag20261106c/run-evidence/` 的 client/events、launcher 与双流有界 Docker 日志；`SHA256SUMS` 四项全过，launcher 自身摘要另核一致。本轮没有节点操作、追加 GET 或测试。
+
+CT05 `gw-dms-test-05` 于 2026-11-06 01:24:17–01:25:40Z 执行一次；起止控制 worktree 为 e798，events 的 controller/client 摘要与第 24 节最终 GO 相同，新 RS config digest/28 DiffID 实时核对 MATCH。准备 8.828 秒、RS 启动 6.205 秒、client 容器阶段 64.048 秒、收束 4.008 秒；没有阶段预算或资源停止。启动前传输曾把新 execute/README 放错目录，保存的复核显示 candidate 仍为旧 SHA；随后修正目标，实际 run 的脚本摘要正确，错误候选未执行，不计作第二次诊断。
+
+一次逻辑调用用时 **62.919 秒**，记录三次 attempt_started。仅第三次有响应头与 parser 记录：HTTP 200、约 2.457 秒收到 headers、约 2.487 秒 parser 返回，wire bytes 578,800；client exit 0、唯一 SUCCESS、commit 匹配、instrumentation_incomplete=false。前两次没有逐次 cause、headers 或 parser 记录，不能称已分别证明 ReadTimeout。第三次耗时也不能当成首次冷 catalog 构建耗时或独立冷读性能；此前同一进程内的加载可能仍在推进。
+
+完整返回 DTO 汇总为 **631 表、7,538 列、683,508 行**，canonical JSON 为 599,414 bytes，指纹 `f08a8a83932553dab91cec22dafbb12fead5baa348ece6436882f3d0174b467d`。固定 repository/commit 与目标一致。该 SHA 是本次完整响应的身份，不是与旧大样本逐字段等价的独立证明，也不证明 singleflight 在现场具体合并了几个请求。RS 日志包含该 catalog route 的 200 和正常 application shutdown；不以未保存前两请求完成日志推断其服务端状态。
+
+controller/launcher 均 exit 1，结果为 `CATALOG_RETURNED_AFTER_RETRY`，原因是 successful_attempt=attempts=3，不符合首尝诊断条件。events 记录 own_activity_confirmed_stopped=true、copy_uncertain=false、lock_released，数据卷按脚本保留；实施者另报告 marker absent。审核只核保存日志，不把该报告冒称本审核实时节点检查。Docker 日志仍为双流末尾 2000 行；cleanup 引发的 shell 终止不是产品自然失败。
+
+| 主要证据 | SHA256 |
+| --- | --- |
+| `client.jsonl` | `dcc4acd90cd63d659be2a4ffceb8a8db50be45b4091262c3c66cde01d6bf701e` |
+| `events.jsonl` | `33282c78c91b8198c86d84a63d5a291f771c31e7c34a6ffb7145d0d28e34dba7` |
+| `launch-20261106c.log` | `1cebefe89674cee2457c21fb749ab9a6cac678f7ddb1e68919e6b82294b20a74` |
+| RS Docker 双流日志 | `ee971da0349ca833b53c0195a02a0cc0026af6a7a23405608128bdb77659bae5` |
+| `SHA256SUMS` | `adca606ecb7cde99a7aae8fc4c9a0aba9a6d34f9d00a7d61905e6a0901b57efd` |
+
+**边界建议：按 owner 性能补充保留首尝未达这一余项，可转入新 RS 下单步 Submit 的具体方案准备。** 当前逻辑读取已能在原内部重试机制内返回，不要求先把所有冷读压入 30 秒才允许继续诊断；不追加相同 GET、不预热、不擅改 timeout，也不继续无限优化。新方案应使用已核 pre-submit checkpoint 的独立副本，不能续用失败 Submit 或本次冷读产生的运行卷；固定 e798 backend/worker 与 4497 RS 的混合身份、原输入/规则/parent 绑定和租约/心跳/请求预算，仅一次 POST 加必要有界观测，具体脚本、预算和收束再审后才执行。第 13 节旧 GO 和 READY cap 例外都不能外推。
+
+该建议不是新的 Submit 执行授权，不把局部成功认定为原 lease_lost 已修复。H3 原证据继续保留；W4/S4/H1 与剩余正式测量仍须另定 V→H 影响和恢复口径。

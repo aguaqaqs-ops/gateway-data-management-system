@@ -202,8 +202,9 @@ def catalog_from_arrow_result(
                 metadata["arrow_stream"].close()
             converted.clear()
             backings.clear()
-    # The returned facts outlive this converter and may accompany XML/composite
-    # structures. Keep their own SQL-derived envelope until the operation ends.
+    # Facts, _bind JSON/CompositeSignalPointRow and _derived_table encoded_rows/
+    # hashes can overlap even without XML. This SQL-derived envelope covers that
+    # lifetime conservatively through the operation, independently of XML/AST.
     context.memory.retain_metadata(catalog, upper)
     return catalog
 
@@ -243,9 +244,16 @@ def _convert_catalog_from_arrow_result(
         try:
             for batch in reader:
                 checkpoint()
-                # Arrow buffers plus copied scalar/payload/fact objects remain
-                # alive together. This upper bound is checked before conversion.
-                extra = batch.nbytes * 16 + batch.num_rows * (len(columns) * 512 + 1024)
+                # SQL-derived lifetime, including the no-XML path: facts/scalars
+                # and SET/binary expansion <=8x UTF8 payload; _bind's escaped
+                # payload JSON bytes + Python Unicode <=30x; _derived_table's
+                # encoded cell-frame/hash scratch <=16x. 64x covers their
+                # overlap. Field names repeat in each JSON object (up to 4-byte
+                # Unicode and escaping); row/cell terms cover tuples, dataclass
+                # fields, encoded_rows and digest/list headers. Arrow backing
+                # and the later columnar conversion have separate reservations.
+                names = sum(len(column["canonical_name"]) for column in columns)
+                extra = batch.nbytes * 64 + batch.num_rows * (names * 256 + len(columns) * 1024 + 4096)
                 live += extra
                 if live > budgets["max_live_bytes"] or live > budgets["max_output_bytes"]:
                     raise MemoryError("filtered composite facts exceed business budget")

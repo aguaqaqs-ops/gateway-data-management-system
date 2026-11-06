@@ -1423,3 +1423,29 @@ down 前 18:46:53 保存最后可读 DB selected rows 和三服务 raw logs，�
 本轮不触发产品/镜像重建，冻结产品仍 `1f9731`、最后验证 image revision/source-tree 沿 §57。设计已决定由唯一实施者只读收窄 mutation_plan 内部与 EventWriter 时间戳/锁/flush 扰动；本核查不另行授权 probe、大中间 checkpoint、加测、重跑或 TTL 修改，具体新诊断待设计。**§67 的失败结论和 GO 已消耗状态不变，没有新的运行或正式测量 GO。**
 
 后续已只读核实施者 handoff 提交 `fceeb6dd4a1dc312a0ceee2e08a8f18252eaf228`：仅该文档两行更正，分别准确说明第 191 次 session 未进入和旧 review-only 检查属于 GO 前历史；该 worktree clean，现有停止边界未变。两处文书澄清关闭，handoff 常规事实复核完成；没有新增测试、节点操作或运行许可。
+
+## 69. mutation_plan GC/observer 观测范围审核：PASS，仅准候选准备与必要 focused
+
+**设计 `95e2016228e3b5a9b7d8ab381bb7790e13a6450a` 的 `p6-mutation-plan-gc-window-diagnostic-plan.md` 范围通过。** 唯一实施者可直接准备新外置候选和计划列出的少量 CT05 focused，不等待协调者回执。当前不是新诊断 GO；最终精确 manifest、代码/测试/日志和固定命令仍须独立审核后另给一次专属 GO。已消耗的 h/c 许可不可复用，正式测量仍 STOP、H3 PASS、根因 OPEN。本轮只读计划、冻结源码、原始证据及标准 API 文档，没有测试、节点访问、候选实现或业务运行。
+
+有限 GC 例外有已发生的真实漏续租及明确未知区间作为依据，符合比例化政策；它明确替代前计划的 no-GC 观测约定，但不改变产品、GC 策略、线程/续租/事务、信任模型或 owning Contract。新增观测只涉及派生临时诊断状态，用一个自有标准 callback 和小型聚合即可，不引入持久 evidence 状态机、profile 平台或 planner 内部新阶段。固定 `1f9731` 与 §52/57 三镜像不变；外置候选无需产品重建，新增 wrapper/override 的实际接线仍随候选审核。
+
+### 先用现有证据关闭能关闭的分支
+
+c 的 EventWriter 在 JSON 编码和 RLock 之前就生成 monotonic marker。最后 helper entry 的 marker 已越 deadline 2.272004s，helper exception-return 事件的 `elapsed_ns=10383664` 从 wrapper 开头量至返回事件 emit 之前，包含入口 emit 及原 helper 调用。因此最后这次 entry emit 本身不能解释 22.272004s 的 marker lateness，原 helper 实际调用只会更晚，不会因此推翻 §67 的真实失租。已有数据不能拆开**前一次 helper 返回事件的 emit 完成时间**与随后原 loop/调度等时间，也没有 c 的 GC start/stop 区间；不能据此排除 observer 的其他阶段或确认 GC 原因。
+
+旧 100k 探针 checkpoint 13 的独立 SHA256 为 `a6850cee7be0a737d79307ed12c8198ed9f65824102a3eab678f3ca11baf7dce`，路径 `/home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6changeclosureprobe20261106a/runs/checkpoint-13-builder-stage-payload-construction.json`；已保存 generation 2 max_duration_ns=`2248569206`（约 2.249s），同时记录 events_overwritten=16405。它是另一形状/堆状态的局部 checkpoint，不能按行数、RSS 或堆量线性外推 c 的停顿，也不能把缺失的最终窗口当作没有长 GC。现有证据只关闭上述小分支，**不足以免去全部新问题的现场观测**。
+
+冻结 `import_replay.plan_import_mutation` 构造 request 后直接 `plan_storage_mutation(request)`，没有传可选 artifact_store；c 也未进入随后 canonical_publish。现有材料没有完整可直接重放的 MutationTableSnapshot/request。理论上重建输入不是已验证的磁盘重放方案，而且 GC 问题还受此前分配/存活历史影响，不能承诺用单独重建 planner 输入等价替代真实路径。计划不新增大 checkpoint/pickle、承认 parent_materialization 907.302s 的重复参考成本、只安排一轮且不保证完成时长，范围合理。
+
+### 候选应落实的观测语义和边界
+
+标准 `gc.callbacks` 提供 collection 前/后和 generation 信息，可用于这类统计；它不覆盖所有引用计数释放、allocator/native 工作或线程调度。[Python GC 文档](https://docs.python.org/3.14/library/gc.html#gc.callbacks)支持该用途。冻结 selector 为 Python 3.14.6；[对应 CPython callback 实现](https://github.com/python/cpython/blob/v3.14.6/Python/gc.c#L1117)将逃逸 callback 异常报告为 unraisable，不能依赖异常自动传播到 worker。因此候选自己的 callback 错误必须留最小内存标记，在既有普通观测路径报告 incomplete/必要观测失败；不在 callback 中写 gap/log、取得 EventWriter 锁或扩张为全局 unraisable hook。
+
+固定三代当前区间/统计、每代自上次 snapshot 后的最长一个区间及全程最多 16 个完整区间足够有界，但这是选择性保留。候选要让窗口覆盖起止、计数和任何省略/开放/异常可解释；不能把没有保留到的区间当作不存在 GC，也不能将嵌套/累计时间相加为因果分解。callback 只更新固定规模内存，不扫描对象、不主动 collect 或改 threshold/disable/freeze、不覆盖其他 callbacks；只移除自己注册的 callback，snapshot/记录路径也不能与 callback 形成锁等待循环。CPU 只解释为区间中的 CPU 消耗；[thread_time 只可在同一线程的读数间作差，process_time 是全进程 CPU](https://docs.python.org/3.14/library/time.html#time.thread_time)，均不独立证明 GIL 归属或整段 wall 被 GC 独占。
+
+wrapper marker、entry emit、original call 起止及 wrapper 总耗时应分开。原调用前时间只在 entry emit 完成后取得，原参数、返回/异常及 anchor 不变；返回或异常事件可携带该起点及耗时。若原调用未返回、日志不完整或 worker 在 join/cleanup 中被停止，缺少持久化起点/最终小摘要就是缺口，不增加一次入场写入或延长预算来追求闭合。EventWriter 锁等待/write/flush 统计供下一条事件/最终摘要，不能为测量自身再递归发事件；当前返回事件自身尚未完成的 emit 耗时也不能声称已包含在它里面。
+
+每事件最多三个窗口加固定计数，必须在真实最大形状下仍满足原 2 KiB/4096 条/8 MiB，最终小 JSON ≤32 KiB；达到上限、callback 错误或未取得最终摘要沿既有诊断缺口/必要观测停止分类，不伪装产品失租原因或“没有 GC”。没有最终摘要不能抹掉已经有效的 bounded 片段，但要限制结论的覆盖范围。无需为负面结论新增完整 collection 队列、后台线程或持久证明机制。
+
+原 45 分钟观察、3600 秒全流程硬上限、初始化/清理 reserve、资源/身份/lease_lost/cancel/stall 停止和保卷/未静止留锁不变；新项目/key/三卷副本/证据目录，不能从已失败 c 继续。05 的空闲需在实际执行时取得，不把历史释放当预约，不给 CT108 加负载。仅补真实 callback/有界聚合及 incomplete、最大事件形状、emit 与原调用计时/返回异常透传的 focused；生产 callback 不 collect 与测试为触发真实 collection 的受控调用应区分。保留真实 WorkerRuntime.run/LeaseSession API，不重测已关闭 controller/回收矩阵、旧大 probe、小 Compose 或全量 runner，不排第二轮全输入。**范围通过及候选准备许可已直接投递实施者并同步设计；没有新的 POST、worker/Compose 诊断或正式测量 GO。**

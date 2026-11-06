@@ -93,6 +93,18 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
 }
 COMPOSITION_ZONES = frozenset({"composition", "bootstrap"})
 
+# Rust policy v4 §4: exact coarse entrypoints, not a capability-wide compute
+# exemption. Other owners, whole-module imports and wildcard imports still fail.
+NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
+    "gateway_backend.capabilities.snapshot_materialization.native": frozenset(
+        {"_sql_materialize_native", "_catalog_filter_native"}
+    ),
+    "gateway_backend.capabilities.storage_projection.native": frozenset({"_canonical_project_native"}),
+    "gateway_backend.capabilities.snapshot_materialization.canonical_store": frozenset(
+        {"_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"}
+    ),
+}
+
 
 @dataclass(frozen=True, slots=True)
 class ImportEdge:
@@ -334,7 +346,12 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
             "capability" if source_zone.startswith("capability:") else source_zone
         )
         allowed = ALLOWED_ZONE_EDGES.get(allowed_key, frozenset())
-        if not _target_category_allowed(allowed, target_zone, edge.target):
+        approved_native_call = (
+            edge.target == "gateway_compute._native"
+            and bool(edge.names)
+            and set(edge.names) <= NATIVE_COMPUTE_ENTRYPOINTS.get(edge.source, frozenset())
+        )
+        if not _target_category_allowed(allowed, target_zone, edge.target) and not approved_native_call:
             return (RULE_LAYER, edge.target)
 
     if edge.target.startswith(f"{BACKEND_PACKAGE}."):

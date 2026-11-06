@@ -868,6 +868,16 @@ def test_facade_lazy_import_reachability_depends_on_imported_symbol(
 
 # Each row: source module, imported module, imported names, expected rule (None = allowed).
 IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
+    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_sql_materialize_native", "_catalog_filter_native"), None),
+    ("gateway_backend.capabilities.storage_projection.native", "gateway_compute._native", ("_canonical_project_native",), None),
+    ("gateway_backend.capabilities.snapshot_materialization.canonical_store", "gateway_compute._native", ("_encode_canonical_ipc_native", "_inspect_canonical_ipc_native"), None),
+    ("gateway_backend.capabilities.comparison.standard", "gateway_compute._native", ("_sql_materialize_native",), RULE_LAYER),
+    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_parse_sql_native",), RULE_LAYER),
+    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute.other", ("_sql_materialize_native",), RULE_LAYER),
+    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", (), RULE_LAYER),
+    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("*",), RULE_LAYER),
+    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute", ("_native",), RULE_LAYER),
+    ("gateway_backend.capabilities.snapshot_materialization.native", "gateway_compute._native", ("_sql_materialize_native", "_parse_sql_native"), RULE_LAYER),
     ("gateway_backend.domain.workspace.models", "gateway_backend.application.workspace.contracts", (), RULE_LAYER),
     ("gateway_backend.domain.workspace.models", "gateway_backend.artifacts.types", (), RULE_LAYER),
     ("gateway_backend.artifacts.types", "gateway_backend.domain.submission.models", (), RULE_LAYER),

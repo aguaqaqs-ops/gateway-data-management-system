@@ -2,6 +2,8 @@
 
 状态：**推进暂停 / B 未 GO**。2026-11-06。主协调已按先前明确的重复操作错误停止点，暂停 B 并交 Owner 决定后续角色安排。当前产品候选 `5621bd48531b7af465e878f1bc7f87f707a772a3` 仅含 API/preflight 骨架、catalog count 接线及已有 example 的 policy 修正；业务算法和最终验证未完成。本报告不将 A 的结果作为 B 验证。停止时的确切范围与待办见 §9。
 
+收口补充：实施者在停止交接中明确承认，本轮从未创建或持有 06 的原子 busy marker，却已执行 cargo fmt/cargo run。该执行缺少 DC70/AGENTS 的节点占用前置；下文两次 early focused 日志只作失败诊断，**不是合格门禁证据，不得作为后续沿用来源**。本轮没有任何业务测试 PASS 可沿用。主协调也确认此前未及时核对占用前置。本补充只依据已有脚本/日志与已确认执行事实，不新增节点查询或运行。
+
 审核基线为 `10bf4b26e907bcd6ebe2e6b872b5d2bfd504199f`，只读 detached worktree 为 `/home/dev/gdds-test-tmp/s2b-b-review`，已建立 `legacy` 符号链接。开发主机只读源码与文档，未运行测试、编译或 lint；本报告在主工作区单独编辑。未操作 CT108 冻结资源，未创建额外 agent。
 
 依据：[已批准 kickoff](p6-s2b-kickoff.md)、[Arrow mapping](p6-s2b-arrow-mapping-design.md)、[A handoff](p6-s2b-a-handoff.md)、[A 独立审核](p6-s2b-a-review.md)、[Canonical Storage Contract](../contracts/canonical-storage-and-repository-boundary.md)、[Shared Canonical Encoding](../contracts/shared-canonical-encoding.md)、[Snapshot Materialization](../../../capabilities/snapshot-materialization.md) 与 [Composite Signal](../../../capabilities/composite-signal-device.md)。B–E 推进授权由本会话 Owner 与主协调记录；旧 kickoff 中历史的“仅 A”文字不被本审核解读为撤销后续授权。
@@ -94,6 +96,8 @@ CT201 transfer 实时日志 `/tmp/p6-s2b-b-transfer-main-ff2b19f427.log` SHA 为
 
 ## 8. 早期 focused 记录
 
+本节记录实际命令与失败原因，不授予门禁资格。停止交接确认两次运行均未取得原子 busy marker；clean HEAD、工具链与日志 SHA 正确不能补足该前置缺失。后续即使修复对应源码问题，也不能将这些日志升级为合格证据或 carried。
+
 06 `/home/dev/gdds-test-tmp/logs/s2b-b-early-focused-9225.log` 已独立读取并复算 SHA256 `6a6b43c4f454b57cba4e1ff4f56cd806f579ec522adb2bf7230bc87b99de4a61`。11:29:23 UTC 起止，HEAD 均为 9225/clean，Rust tree `46592e9cc1de7e181a7c6ff58fdf6b7b856e4db3`，Rust/cargo/rustfmt/clippy 均为仓库 1.97 工具链；offline、jobs 4、TMPDIR 与外置 target 明确。
 
 实际 `cargo fmt --all --check` exit 1，只有 `business_kernel.rs` 两处格式换行与 `lib.rs` module 顺序差异。脚本在这里停止，compile、architecture 与 Python tests 尚未执行；script exit 1，不记通过。实施者按实际 diff 修正，候选与复验随后记录；本审核未改产品，也未在开发主机运行格式检查。
@@ -125,10 +129,12 @@ CT201 transfer 实时日志 `/tmp/p6-s2b-b-transfer-main-ff2b19f427.log` SHA 为
 | 当前产品 | `5621bd48531b7af465e878f1bc7f87f707a772a3`；前序 API/catalog `633e599cbc`、行数绑定字段 `9225f78883`、格式 `75f2ddac93`、example 首行 policy 修正 `5621bd4853` 均已静态复审。 |
 | 已实现 | `business_kernel.rs` 公共 budgets/control/input/plan/output/outcome 类型与初始 `preflight_table_input`；必填 `source_device_row_count`、旧 Python extractor/factories/binder 接线与一个 filtered-nonempty 测试；没有三项业务操作实现。 |
 | 06 最后实际状态 | 最后独立核实工作区 `/home/dev/gdds-test-tmp/wt/p6-s2b-b-impl-9225` 为 clean 75f2，专用 source ref 也为 75f2。最后实际执行的 early focused 在完整 architecture CLI 失败，未进入 core tests/uv/pytest。5621 尚无节点运行证据；暂停后未再查询节点。 |
-| 已有运行结果 | 9225 fmt exit 1；75f2 fmt exit 0、完整 architecture CLI exit 1。两次日志已独立读取、核 SHA，不能称 B 通过。 |
+| 已有运行结果 | 9225 fmt exit 1；75f2 fmt exit 0、完整 architecture CLI exit 1。两次日志已独立读取、核 SHA，但均未取得原子 busy marker，只作诊断，不是合格门禁或沿用来源；没有任何业务测试 PASS。 |
 | 尚无证据 | B core 算法/adapter 行为、完整 schema diagnostics、运行中控制/预算、workspace/clippy/release、五 Python 静态、重装扩展及 build-input、B 当前镜像 native/health 均未完成或未运行。 |
 | 保留资源 | 现有 06 B worktree、专用 ref、外置 bundle/脚本/日志留给后续接手；A 工作区/镜像与 CT108 冻结资源未在本次审核中修改。 |
 
 后续必须完成：SQL cell/row framing、duplicate 与 raw-content facts；device/point Arrow 完整验证过滤及 composite 例外；canonical keyed/keyless/ordered projection、actual source-row-count 比对、规范化/排序/hash 与 A IPC；真实 C Stream adapter 的复制前 metadata preflight、资源/控制与错误映射；既定独立向量/差分及最终 06 验证和 handoff。现有完整清单见 §3，不因停止而增加矩阵，也不漏掉 C–E 的 repository-ref/import-replay/export/恢复消费者。
+
+后续恢复必须由获授权的实施角色先满足节点原子占用、clean committed worktree、离线缓存与其他既有执行前置，再获取新的实际验证结果；本轮诊断日志不能抵扣这项要求。审核者本轮此前核了日志身份与停止原因，但未及时核实占用取得，也在此明确记录该审核遗漏。
 
 本轮审核在提交此记录后结束，独立审核身份保留；是否继续由当前审核者复审后续 B，等待 Owner/主协调明确安排。B 未 GO，C 的实施启动不得引用本报告为 B 完成证据。

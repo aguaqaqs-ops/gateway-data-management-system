@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订；`3.5.0` 于 2026-11-06 按 DC85 增补 S2b A 内存 codec 边界；`3.6.0` 同日按 DC86 补齐 B kernel 与内部 IPC 行序边界
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订；`3.5.0` 于 2026-11-06 按 DC85 增补 S2b A 内存 codec 边界；`3.6.0` 同日按 DC86 补齐 B kernel 与内部 IPC 行序边界；`3.7.0` 同日按 DC42、DC84–86 收口 C 的引用与恢复设计（实现与验证仍待 C 交付）
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.6.0`（2026-11-06，DC86；增补 B 业务 kernel 与内部 IPC 行序边界；前版 `3.5.0`、`3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
+Semantic version：`3.7.0`（2026-11-06，DC42、DC84–86；规范表 store、强引用/TTL 与冻结恢复；前版 `3.6.0`、`3.5.0`、`3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
 
 Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
@@ -141,11 +141,26 @@ level 都不重算这些业务 digest。
 
 ## 5. Artifact lifecycle
 
-`SnapshotTableArtifact` 是 Preview 产生的 immutable full-row table facts。仅在尚未被接受的 current Preview 或 active SubmitAttempt 需要时持久 pin。AcceptSubmit T1 将 pin responsibility 从 Preview 原子转给 Attempt；历史 Preview 引用本身不继续 pin。Attempt 进入 `FINALIZED/ABORTED` 后释放 pin，artifact 转为可重算 cache material。第一版不长期保存重复 full-row archive。
+内部 canonical table 是 storage projection 后的 immutable full-row facts，S2b 以唯一规范 IPC 表示；原始 SQL parser rows、中间业务物化值不因该设计新增落盘。通用 raw `SnapshotTableArtifact`、客户端 Parquet/export cache 与内部规范 IPC 的格式和缓存身份分别由实际消费者决定，不能把 raw Parquet cache 的键或恢复方式套到 canonical store。
 
-长期审计/恢复权威为durable SourcePackageArtifact、accepted canonical Dolt
-commit和CanonicalizationManifest。需要重算未pin full-row facts时，从source
-artifact按固定parser/ruleset contract重建。
+规范内容身份为 scope 内的 `storage_projection_version + business_schema_digest + row_count + table_digest + canonical_mapping_version`。business schema 已含 table name；raw SHA 只证明实际文件完整性，不能替代业务摘要。外层绑定保留 DDL/导出列序，IPC 使用唯一规范列序与行序；不假定跨 scope 或不同 table name 去重。
+
+当前有效 Preview、T1 冻结 Attempt 和当前业务 BaselineHead 持有强引用。AcceptSubmit T1 在同一 control DB 事务内将需要的规范表保护责任从 Preview 转给 Attempt；历史 Preview 本身不长期 pin。Attempt 进入 `FINALIZED/ABORTED` 后释放自身强引用，不影响其他 owner 对同一内容的保护。只有业务 BaselineHead 持有正式长期引用；初始化当前 head、精确 commit 回填与归档推进均须绑定正确的 head owner，低频仓库的 head 不因时间流逝而过期。
+
+业务 Head 推进发生在 `StartArchive` 的 `save_archived_node_and_cas_head` 事务，正式引用移交与 Head CAS、归档结果原子提交；失败回滚，不留前缀，合法重放不重复增减引用。Submit finalize 只结束自己的冻结引用，不推进业务 Head。归档事务内不新增物化、Repository import 或长文件读取；派生文件缺失不能要求归档重新计算，后续真实读者按精确 commit 回填。
+
+释放最后一个强引用时，在同一事务登记/触达 TTL 保护；共享文件只有在全部强引用释放且无未过期 TTL 保护时才可清理。复用先登记保护，再检查文件；lookup 拒绝过期缓存项。复用既有 artifact protection 与有界 expiry/lookup/put/touch，不新增 durable evidence 状态机或容量淘汰策略。control DB 直接修改唯一基线 schema，不增加迁移或双读。
+
+长期审计/恢复权威仍为 durable SourcePackageArtifact、accepted canonical Dolt commit 和 CanonicalizationManifest；恢复必须按冻结状态选择来源：
+
+| 状态 | 缺失或损坏处理 |
+| --- | --- |
+| T1 前上传侧 | 重新 Preview，从 SourcePackage 按适用规则重算 |
+| T1 后、PREPARED 前 | 冻结规范文件缺失或损坏时稳定失败；不从 parent、新 ruleset 或 SourcePackage 重建，不前移 main |
+| PREPARED 后 | 复用已冻结导入包及 raw SHA，沿既有 Submit 恢复；缺失时不得重建包或换 key |
+| 已提交派生副本 | 读取绑定的精确 Dolt commit，按绑定业务摘要核验后回填；不以当前 main 或原始 SourcePackage 替代 |
+
+`CanonicalTableStore.open(ref, bound_descriptor)` 返回受 context manager 管理的 `ArtifactReadHandle`。local handle 持有只读 fd/mapping，在同一 mapping 上分块核 size/raw SHA，再按固定 IPC profile 与绑定 schema/metadata 打开 batch reader；内存实现以 BufferReader 提供同一协议。handle 不暴露 path，同 ref reopen 独立，close 幂等，关闭后 read 稳定失败；arrays/readers 与 Rust 借用须先于 mapping 释放。写入复用 temp/fsync/atomic rename，删除仅为确认成功而整份读回的步骤；实际消费者的读取核验保留。Rust 不接路径/文件 IO，不增加第二个 Python writer。root/symlink、普通 I/O、协作并发与 crash 边界按 ADR 0012；本节不增加同 euid 恶意换名威胁模型。
 
 Submit从exact Preview-bound SnapshotTableArtifact开始，不重新解析SQL。
 `RepositoryImportArtifact`包含canonical schema/rows和临时structural manifest；
@@ -287,6 +302,8 @@ Module public：是。Persisted：SourcePackageArtifact、manifests、Repository
 
 改变列 policy/key/ordered identity/canonical bytes 必须升级相应 storage projection、ruleset 或 canonical encoding version，并建立新 digest/cache identity。纯 Repository implementation 优化不得改变 canonical content。
 
+`3.7.0` 将已批准的 S2b C 引用/TTL、IPC handle 与冻结恢复约定归入本 owning Contract；不改变 storage projection version `3`、canonical mapping version `1` 或业务摘要算法。C 的持久载荷和唯一基线 schema 随实际实现同步更新，不据本文版本号增加历史载荷兼容路径。实现与独立验证状态见 [C 任务单](../plans/p6-s2b-c-kickoff.md)。
+
 `3.1.0`（2026-09-27）：§2 改为规范域比较与 `ComparisonRuleView`，增加 `compare_excluded_columns` 约束；§4
 说明 manifest 每表 schema digest 与 business schema digest 的区分。manifest 载荷结构与
 `canonicalization_manifest_digest` 算法不变；CanonicalizationManifest 的 `contract_version` 自
@@ -312,7 +329,8 @@ S2a-F1 的负零规范化 `26560b2595` 从 `1` 提升）：此前能投影成功
 - 业务digest继续由Storage Projection/业务owner验证，不由Repository任一
   verification level替代。
 - Attempt retry复用相同RepositoryImportArtifact ID和raw SHA；活跃期结束后
-  full-row pin被释放。
+  释放该 Attempt 的 full-row 强引用，其他 owner 与 TTL 保护按 §5 保留。
+- Archive Head CAS 与正式引用移交同事务；冻结缺失、PREPARED 复用及精确 commit 回填遵守 §5，缓存丢失不触发归档内重算。
 - Projection version change 使用 alignment/fallback，不错误使用 native diff。
 - Accepted Submission的SourcePackageArtifact保持durable；
   `NO_CANONICAL_CHANGE`输入不提升为submission durable。

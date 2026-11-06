@@ -33,7 +33,7 @@ root/symlink 边界、普通 I/O 错误、协作并发和 crash 保留；按 ADR
 | PREPARED 后 | 复用已冻结导入包及 raw SHA，沿既有 Submit 恢复 |
 | 已提交派生副本 | 读对应精确 Dolt commit，按绑定业务摘要核验后回填；不能读当前 main 代替 |
 
-owning 文档须同步：Canonical Storage §5 旧“仅 Preview/Attempt pin”和泛化 source 重建文字由上述目标替换；Snapshot Table Access、Snapshot Materialization 的 raw Parquet/internal canonical IPC/客户端 Parquet 角色明确分开。直接修改唯一 control DB 基线 schema，不建迁移/双读。不要将缓存索引缺失提升成新的 durable evidence 状态机。
+owning 文档已在 C 设计准备中同步：Canonical Storage `3.7.0` §5 以本节目标替换旧“仅 Preview/Attempt pin”和泛化 source 重建文字；Snapshot Table Access、Snapshot Materialization 明确分开 raw Parquet/internal canonical IPC/客户端 Parquet。C 新角色仍须独立核对实际接线与证据，文档不表示产品已完成。直接修改唯一 control DB 基线 schema，不建迁移/双读。不要将缓存索引缺失提升成新的 durable evidence 状态机。
 
 ## 4. 容量校准与 D 前置
 

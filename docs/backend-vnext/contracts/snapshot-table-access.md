@@ -102,7 +102,7 @@ SnapshotTableArtifactManifest:
   diagnostics optional
 ```
 
-第一版推荐：
+通用 raw table artifact 的物理格式：
 
 ```text
 manifest + Parquet rows
@@ -114,6 +114,10 @@ manifest + Parquet rows
 - `artifact_content_digest` 校验物理文件，不替代 `raw_content_digest`。
 - artifact 可作为 cache artifact；调用方对外声明 READY 前需要的 artifact 必须进入调用方自己的 artifact closure。
 - `SnapshotTableArtifact` 是 raw table materialization，不包含 ignored columns、effective key 修正后的 projection 语义。
+
+### S2b 内部规范表边界
+
+Storage projection 后的内部规范表使用唯一 canonical IPC v1，owner 为 [Canonical Storage §5](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#5-artifact-lifecycle)；不同于这里的 raw Parquet artifact、面向客户端的 Parquet/export cache，也不同于下文 comparison-derived projection table。SQL parser 原始行不新增落盘。内部 reader 通过有界 `CanonicalTableStore` handle 读取，按外层 descriptor 对齐规范列名并保留导出 row layout；不以 raw Parquet `row_layout_digest` 替代规范内容身份，不保留内部格式生产回退。引用/TTL、T1/PREPARED 冻结和精确 commit 回填以该 owning Contract 为准，S2b C–E 分节实现与迁移。
 
 ## 与 Repository Import 的边界
 
@@ -201,7 +205,7 @@ ProjectionTableArtifact
 - `SnapshotTableReader` 能 streaming 大表，不要求一次性读入内存。
 - Reader digest 校验失败时，该表 resolution 或 validation 明确失败。
 - `SnapshotTableSet` 与 `SnapshotSummary` 的 descriptor/digest 一致。
-- 删除 L3 cache 后，仍能从 L1 source package 或 L2 repository ref 重建 table access。
+- 可重建 L3 cache 缺失时，按绑定来源重建 table access；T1 后冻结文件不适用通用重建规则，已提交规范副本只按精确 commit 回填，见 Canonical Storage §5。
 - Cache hit 后仍校验 descriptor、digest 和 artifact manifest。
 - `SnapshotTableReader` contract 测试不依赖 Dolt 写入。
 - Repository import benchmark 应调用正式 table access / artifact builder，不长期维护独立 row/digest 实现。

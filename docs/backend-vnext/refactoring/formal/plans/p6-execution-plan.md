@@ -168,7 +168,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **kickoff 已批准，A 节已交付（2026-11-06）：** [kickoff](p6-s2b-kickoff.md) 固定候选 `1a4adaae05` 已通过技术审核，Owner 已按 DC85 批准 kickoff 及首节纯内存 mapping/IPC codec。[A 任务单](p6-s2b-a-kickoff.md)产品候选 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a` 已收齐，结论 A GO，无未关闭 Finding；06 的 Rust workspace、五包静态、当前扩展/接口行为及必要容器 health/native 均通过。容量/M 仍按 DC84 分步校准，DC63 基准子段继续独立待补；A 局部向量 bytes 不替代 FULL/worker 校准或 W1/W2。B–E 未启动，不自动授权；S2b 整体尚未退出。
+- **kickoff 已批准，A 节已交付（2026-11-06）：** [kickoff](p6-s2b-kickoff.md) 固定候选 `1a4adaae05` 已通过技术审核，Owner 已按 DC85 批准 kickoff 及首节纯内存 mapping/IPC codec。[A 任务单](p6-s2b-a-kickoff.md)产品候选 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a` 已收齐，结论 A GO，无未关闭 Finding；06 的 Rust workspace、五包静态、当前扩展/接口行为及必要容器 health/native 均通过。容量/M 仍按 DC84 分步校准，DC63 基准子段继续独立待补；A 局部向量 bytes 不替代 FULL/worker 校准或 W1/W2。Owner 随后按 DC86 授权逐节推进 B–E，每节新建既定实施/审核二角色；当前按 [B 任务单](p6-s2b-b-kickoff.md)推进业务 kernel，后续按前置顺序推进，额外角色需另获 Owner 确认。S2b 整体尚未退出。
 - **推进原则更新（DC81，2026-11-05）：** owner 将新开会话推进 S2a 收尾及 S2b 讨论；全量基准由原线继续，不再统一阻塞后续开发。先收口功能、映射、恢复语义与必要资源预算；未交付性能分段明确待补，允许后续小范围定向返工。迭代只做受影响范围验证，完整门禁集中到必要候选，不重复已通过的测量。S2b kickoff 仍须核对，不把本次流程调整表述为所有准备项/性能退出条件已通过。
 - **性能指标解释（DC81 补充，2026-11-06）：** 当前性能指标不是不可调整的硬性门槛。W2 或其他纯性能目标未达时，以实测、物理限制和调整影响交 owner 讨论；现有目标、未知项及测量来源如实保留，不自行判为通过或取消取证。具体验收时点仍在 kickoff 中收口；正确性、资源上限、租约及超时造成的业务失败不适用这一性能解释。
 - **W2 时点已定（DC83，2026-11-06）：** 功能退出与性能复核分开；30 秒目标及统计口径保留，CT108 可用时补测、最迟 S6 收口，未知不记通过。功能候选仍完成正确性、恢复、资源边界和必要权威/容器门禁；handoff 跟踪待测版本、负责人及返工影响。

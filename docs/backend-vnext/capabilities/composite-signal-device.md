@@ -12,6 +12,16 @@
 
 ## Source 与 AST
 
+### Catalog 的过滤边界（S2b B）
+
+catalog 可由 Rust 在 Arrow 表上验证、筛选后提供给 Python composite binder，但必须携带必填 `source_device_row_count`：它是过滤前实际读取并验证的 device 行数，表缺失/确实为空时为 0；不能用筛选结果长度推断原表为空。`devices` 可以只含命中的特殊设备，`points` 只含对应特殊地址测点；不制造 sentinel device 或兼容回退。既有 Python extractor 同样按实际读取结果填写该字段，所有内部构造方同步更新。
+
+筛选前验证全部 device 行的 gid/dev_addr/description 类型与非 NULL（合法空 description 仍合法）；point 表先验证必需 gid/name/dev_addr 列与全部 dev_addr 类型，NULL addr 沿既有语义跳过，只有命中行再验证 gid/name 值。错误仍属于既有 catalog/materialization 诊断。
+
+Python `_require_special_device` 只在 `source_device_row_count == 0` 时走原空表分支；原表非空时仍要求实际精确命中恰一个设备。零/多个命中的身份错误仍在原 binder 时点判定，不能为 Rust 筛选而提前到 XML/AST 校验之前。Python 继续负责 XML、AST、公式绑定及 derived rows；既有业务不变量、诊断优先级和 digest/version 不变。
+
+### XML
+
 XML parser 独立于 SQL parser。`SourceDocumentRef.document_kind` 支持 `XML`，文件缺失使用稳定 EMPTY source digest。
 
 AST 节点只有三类：

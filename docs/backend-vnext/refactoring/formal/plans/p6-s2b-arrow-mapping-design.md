@@ -54,7 +54,9 @@ Utf8/Binary 的 small/large 选择按规范化后整列 payload 字节数确定�
 - 本映射支持的每个字段都写 validity，包括 non-nullable 字段。all-valid 数组统一不带显式 null buffer，由标准 writer 生成 `ceil(rows/8)` 个全为 `0xff` 的 bytes（末 byte 未使用位也为 1）；含 NULL 的数组以标准 buffer 构造规范 validity，末 byte 未使用位为 0。NULL 的固定宽度/数值 slot 清零；NULL 字符串/二进制的相邻 offsets 相同、payload 长度为 0。
 - writer padding 固定按所选 Arrow profile 输出。实现测试要覆盖批次边界、空表、全有效/含 NULL 和末批未满场景，不能依赖 sliced array 的偶然 offsets 或未初始化 padding。
 
-keyed 按既有规范键排序，ordered 的物理 gid 布局与业务 no 顺序分别遵守 owning Contract；keyless 按既有行哈希排序并保留重复行。不得以 SQL 插入顺序、worker 完成顺序或 Arrow 默认比较代替 owning Contract。相同规范值/schema 在 N=1/N、输入 DDL 列序变化和 parser chunk 变化时生成相同 IPC bytes；固定向量校验 schema、值、业务摘要及字节布局。影响持久表示的 profile 变化同步升级 mapping version，不把 Arrow 依赖版本写入业务摘要。
+行序由 B 的业务投影 owner 提供，A codec 不自行选键或排序。普通 keyed 先按 owning Contract 验证有效键存在、retained、非空及整表唯一，再按 `StorageRuleView.canonical_key_columns` 的既定顺序组成规范 cell-frame 元组，逐项以无符号 bytes 词典序升序排列；元组边界不能退化为未分帧文本拼接。这是内部 IPC 物理排序，不承诺数值大小或展示排序，不复用 Repository replay 的另一用途 comparator。ordered 的物理 gid 按数值升序，业务读取仍显式按 `no`；keyless 按既有 row hash 的 bytes 升序并保留全部重复行，相同 hash 沿既有摘要信任边界处理，不另建碰撞证明机制。对外 export/import replay 继续使用其 owning 布局和顺序。
+
+不得以 SQL 插入顺序、worker 完成顺序或 Arrow 默认比较代替上述规则。相同规范值/schema 在 N=1/N、输入 DDL 列序变化和 parser chunk 变化时生成相同 IPC bytes；固定向量校验 schema、值、业务摘要及字节布局。该定义在 B 首次交付前补齐原“按既有规范键排序”的未明确项；A 仍只消费调用者已排好的行，mapping version 保持 1。后续影响持久表示的 profile 变化同步升级 mapping version，不把 Arrow 依赖版本写入业务摘要。
 
 reader API 由后端持有生命周期。最小候选为 `CanonicalTableStore.open(ref, bound_descriptor) -> ContextManager[ArtifactReadHandle]`；handle 只暴露 schema/batch reader，不暴露 path，local 实现持有只读 fd/mmap，并在同一映射上分块校验 raw SHA。相同 ref 的第二次 `open` 取得独立 handle；`close()` 幂等，关闭后 read 稳定失败。PyArrow IPC reader/C Stream 与 Rust 借用数组不得超过 handle 生命周期，关闭顺序为 arrays/reader 后 mapping。内存实现以 BufferReader 遵守同一协议。现有 `ArtifactStorePort.locate(ref) -> bytes` 保留给其真实消费者，直到每个消费者切换完成；Rust kernel 不接触路径或文件系统。复用 local store 现有 temp + fsync + rename。写后回读删除；计入 Rust `Vec` 到 `PyBytes` 复制及 caller 持有期。
 

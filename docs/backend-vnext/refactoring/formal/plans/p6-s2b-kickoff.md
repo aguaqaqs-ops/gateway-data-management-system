@@ -1,6 +1,6 @@
-# S2b kickoff（已批准，A 节已交付）
+# S2b kickoff（已批准，A 已交付，B 推进中）
 
-状态：APPROVED / A COMPLETE；2026-11-06。Owner 已明确批准本 kickoff 并启动 A 节（DC85）。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)已完成纯内存 mapping/IPC codec，固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO、无未关闭 Finding。B–E 未启动，不自动开工；S2b 整体尚未退出。
+状态：APPROVED / A COMPLETE / B IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)已完成纯内存 mapping/IPC codec，固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO、无未关闭 Finding。Owner 随后以 DC86 授权按本稿逐节推进 B–E、每节新建既定实施/审核二角色；当前按 [B 任务单](p6-s2b-b-kickoff.md)推进业务 kernel，C–E 待前节通过后顺序启动。S2b 整体尚未退出。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 
@@ -118,7 +118,7 @@ O1 与 `BLOCK_STARTUP_FATAL` 留在 worker runtime 维护，不并入本阶段�
 
 ## 5. Rust 接入、N/M 与执行控制
 
-整体 kickoff 已获 Owner 确认，当前仅 A 获实施授权；本节定义全部切片的边界和验证顺序。DC78 要求一个 Rust 生产路径：`parse → business validation/materialization → canonical projection/hash → IPC`；不留生产 Python fallback、旧格式双读/双写或用户可选引擎 flag。迁移期间可在测试/开发验证中对照 Python frozen semantics；独立向量和 Contract 落地、所有 real consumers 切换后，删除被替代算法、差分入口及只服务旧实现的 mock/test。保留 Python orchestration、PyO3/Arrow adapter、composite/XML 业务、错误传播与实际恢复消费者。
+整体 kickoff 已获 Owner 确认，A 按 DC85 完成交付，B–E 已按 DC86 获逐节实施授权；本节定义全部切片的边界和验证顺序。DC78 要求一个 Rust 生产路径：`parse → business validation/materialization → canonical projection/hash → IPC`；不留生产 Python fallback、旧格式双读/双写或用户可选引擎 flag。迁移期间可在测试/开发验证中对照 Python frozen semantics；独立向量和 Contract 落地、所有 real consumers 切换后，删除被替代算法、差分入口及只服务旧实现的 mock/test。保留 Python orchestration、PyO3/Arrow adapter、composite/XML 业务、错误传播与实际恢复消费者。
 
 ### 5.1 N 配置与共享池
 
@@ -206,7 +206,7 @@ reachable = no_unknown_segments
 - kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。审核结论与授权分开；Owner 随后以 DC85 批准 kickoff 及 A。
 - owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 及 A 实施已按 DC85 确认。
 - M 数值/默认/部署 envelope：按 DC84 在 IPC + FULL 生命周期测量后、worker 接线前定；不是阻止首个 mapping/kernel slice 的新样本前置。
-- 实施提示词：A 已由本节新建实施者与审核者完成并交付，见 A 任务单及交接/审核报告；本节角色已结束，后续小节重新创建角色。B–E 尚未开工。
+- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Luna/max 实施者和 Astra/high 独立审核者；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A 两角色已结束；B 两角色正在核对消费者、最小 API 和验证 owner，C–E 按前置顺序推进。
 
 ## 8. 文档与准备工具检查记录（不是阶段取证）
 

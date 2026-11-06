@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订；`3.5.0` 于 2026-11-06 按 DC85 增补 S2b A 内存 codec 边界
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订；`3.5.0` 于 2026-11-06 按 DC85 增补 S2b A 内存 codec 边界；`3.6.0` 同日按 DC86 补齐 B kernel 与内部 IPC 行序边界
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.5.0`（2026-11-06，DC85；前版 `3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
+Semantic version：`3.6.0`（2026-11-06，DC86；增补 B 业务 kernel 与内部 IPC 行序边界；前版 `3.5.0`、`3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
 
 Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
@@ -181,6 +181,18 @@ CanonicalizationManifest与canonical Dolt history共同提供。
 `max_output_bytes` 仅限制 encoder 生成的 IPC 文件长度；decoder 以 `max_input_bytes` 限制借用的文件 bytes，以 codec peak 预算限制其解码结果及其他同时存活分配，不以输出 quota 代替输入限制。零列批次仍须保留显式行数，使用标准 Arrow row-count 选项，不静默归零，也不新增匿名行计数格式。
 
 core 接受 caller-owned pool，不创建每表/每调用新池，不做文件 I/O；Python adapter 仅粗粒度 Arrow C Stream 和小型 metadata，主计算区间释放 GIL，不构造整表 Python row/list/dict。固定向量依据 Shared Kernel/现有 owner 与独立 IPC 布局核对，不能仅从新实现生成期待值后自证；实际局部 bytes 在 A handoff 记录，不宣称生产容量、FULL 或 W2 通过。
+
+### 5.2 业务 kernel 与 IPC 输入行序（S2b B）
+
+B 以 Arrow batches 和有界描述/已解析规则视图处理 SQL 物化、完整诊断、catalog 过滤、规范投影以及 row/content hash；不以整表 Python row/scalar object graph 作为正式 FFI 输入。小型 metadata、ruleset 选择/解析、XML/composite AST/formula binding 与快照组装继续由 Python owning 层处理。业务支持类型、错误码/优先级、诊断保留上限及 omitted count 沿既有 Contract；A 能表示某类型，不代表 B 可以放宽当前 projection 的业务白名单。
+
+单元格/行 preimage 与 §4 相同，复用 Shared Kernel scalar、collection、ULEB128 和 digest 原语；SET 直接使用 sequence frame，不调用通用 `encode_row` 替代现有 row framing。row/content digest、带表名且列序无关的 business schema digest、保留 DDL/PK 顺序的 manifest schema digest 仍属各自语义域；不能以 IPC raw SHA 替代。小型 schema/ruleset/manifest/snapshot metadata 的既有 Python 组装无需为语言统一移植。
+
+给 A writer 的普通 keyed 行序按 `StorageRuleView.canonical_key_columns` 原顺序构造 canonical cell-frame 元组，逐项按无符号 bytes 词典序升序；先验证键完整与唯一，不用未分帧文本拼接或 dedup。它仅定义内部 IPC 物理顺序，不是数值/展示排序。ordered 验证/伪 gid 分配遵守 §3，内部物理行按 numeric gid，业务读取仍按 `no`；keyless 按 row-hash bytes 排序、保留重复，零列仍保留显式行数。外部 replay/export 的顺序与 row layout 由原 owner 决定，不受该物理排序替代。
+
+SQL 与 projection 的失败/部分成功、完整诊断以及取消/有限 deadline 均由真实调用层分类；不将资源/控制失败返回成可发布部分结果。输入、临时 row/key/hash/sort/filter 索引、输出 Arrow 与诊断的同时驻留须在增长前受局部预算约束；这些预算不是 D 的完整 operation M/RSS。API 复用 caller-owned pool，adapter 不直接依赖 Shared Kernel，不改变既有架构守卫。
+
+B 在生产消费者切换前以实际 Rust parser C Stream 和 frozen Python 业务语义/独立向量验证；C 才接 store/mmap/ref/recovery，D 接真实 control 与 N/M，E 完成全部生产 caller 迁移后删除被替代 Python 算法及差分入口。不增加生产 fallback 或双路径 flag。
 
 ## 6. Repository import、journal 与 readback
 

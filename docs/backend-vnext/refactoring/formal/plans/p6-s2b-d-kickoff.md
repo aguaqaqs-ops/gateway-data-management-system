@@ -28,6 +28,8 @@ D 首个生产 parser 切换后，原 parser 的六个模块已失去生产入�
 
 代码核对发现 S2a parser 的原配额不包含整体 live bytes，且先保留全部 chunk builders 再 merge。D 因真实 operation M 接线补局部 `max_live_bytes`：采用分配前、源序确定性的整次预预约，覆盖 phase A 元数据/jobs、builder capacity/merge/Arrow 转移；SQL 借用由外层计一次。新增整体额度不足使用文档级 `RESOURCE_LIMIT_EXCEEDED` / `max_live_bytes` / offset 0，原配额定位与成功语义不改。规则归 [Snapshot Table Access](../../../contracts/snapshot-table-access.md#s2b-生产-parser-的-operation-预算)。具体估计与小规模边界测试由实施/独立审核核实，不以设计批准预判容量通过，不引入 allocator 框架或重跑旧全量差分。
 
+D 的 staging 预约同时覆盖普通 entry/文档数据及独立 tar 扩展头工作量。已确认标准库在返回成员前读取 PAX/GNU，不能以成员 expanded quota 冒称整个读入有界；按 [SourcePackage Contract](../../../contracts/source-package.md#扩展头与增长前资源准入) 增长前准入并委托固定 stdlib parser，保正常格式/路径语义。普通 ArtifactStore source 读取也先按 opened fd 核真实 size，再 bounded read，与 ref 预约一致；oversize 损坏仍走原错误/root 边界。各沿已有 owner 做一个有界拒绝回归，不引入同 euid 对抗协议或全量解压压力测试。
+
 ## 3. 取消、deadline、租约和冻结恢复
 
 kernel probe 可在 cancel/drain/lease_lost 任一状态到达时停止长调用；返回后由 caller 读取原始 control 决定分类，不把三者合并为用户取消。没有 operation 固定截止时传 `deadline_monotonic=None`；真实 finite deadline 原样使用单调时钟。不能用可续租 lease deadline、drain timeout 或 benchmark ceiling 构造 operation timeout。

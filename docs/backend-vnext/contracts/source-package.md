@@ -52,6 +52,13 @@ SourcePackage:
 - `TAR_GZ` 表示多文件 tarball 经 gzip 压缩；普通 `.gz` 不是多文件容器。
 - `TAR_GZ` 流式 staging 只物化当前可解析文档路径：required SQL 与可选 composite XML；两者都生成 entry digest 和 content artifact，其他成员保持 metadata-only。
 
+
+### 扩展头与增长前资源准入
+
+成员 expanded/entry 配额不覆盖标准 tar parser 在返回成员前读取的 PAX/GNU 扩展头。staging 必须在扩展头读取、解码和字典构造前校验独立的内部 `max_archive_metadata_bytes`；它不是部署开关，也不改变正常 PAX/GNU、文档路径或 digest 语义。预算覆盖 header bytes、解码文本及记录对象的保守工作量；global PAX 等仍存活元数据不得提前释放。普通 entry/path/manifest 与扩展头分别计入总预约，不能重复使用同一额度。
+
+实现复用固定 Python 标准库的 TarInfo 解析扩展点，在 PAX/GNU 处理调用前做有界准入后委托原 parser；不得自写 tar 解析框架或用禁止所有扩展头替代资源边界。首次 header（包括 archive 初始化期间）也必须受控，超限沿现有 `RESOURCE_LIMIT_EXCEEDED`，没有可发布的部分 SourcePackage。按现有 staging owner 用小型正常/低额度拒绝样例验证，不生成大体积解压炸弹。
+
 ## Retention Policy
 
 `retention_policy` 是保留意图标签，不是 digest input、cache key 或 materialization 开关。

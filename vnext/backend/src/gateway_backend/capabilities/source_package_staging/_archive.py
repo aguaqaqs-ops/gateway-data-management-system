@@ -7,7 +7,7 @@ import io
 import sys
 import tarfile
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import BinaryIO, Any, cast
@@ -229,7 +229,7 @@ class _ArchiveMetadataBudget:
                                budget_name="max_archive_metadata_bytes")
         self.used += size
 
-    def copied_dict(self, value: dict[str, str]) -> None:
+    def copied_dict(self, value: Mapping[str, str]) -> None:
         if value:
             # copy() shares strings. Reserve the copied dict's capacity and
             # transient table allocation, rather than duplicating string payload.

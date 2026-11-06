@@ -158,9 +158,9 @@ def _archive_with_metadata(kind: str) -> bytes:
     import tarfile
 
     buffer = io.BytesIO()
-    options = {"pax_headers": {"vendor.note": "v" * 2048}} if kind == "global-pax" else {}
+    global_headers = {"vendor.note": "v" * 2048} if kind == "global-pax" else None
     with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.GNU_FORMAT if kind == "gnu-long-name" else tarfile.PAX_FORMAT,
-                      **options) as archive:
+                      pax_headers=global_headers) as archive:
         for index, (name, payload) in enumerate({"sql/dbcfg.sql": _SQL, "extras/" + "a" * 140: b"x"}.items()):
             member = tarfile.TarInfo(name)
             member.size = len(payload)

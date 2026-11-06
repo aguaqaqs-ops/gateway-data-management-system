@@ -28,8 +28,21 @@
 
 Core 必须核实际 Arrow/schema/binding，Python 预计算诊断不能代替它；adapter 不直接依赖 Shared Kernel，不改 guard。仍有生产消费者的原 Python 路径保留到 D/E；C 的存储/恢复、D 的 M/control 与 E 的最终切换不提前纳入 B。
 
-## 4. 当前验证与镜像决定
+## 4. 首批业务实现审核（待修复）
 
-当前产品 HEAD：`5621bd48531b7af465e878f1bc7f87f707a772a3`。恢复后骨架/catalog 的成功定向证据见 §2；B 最终门禁未运行，carried 无。中间骨架修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、强制重装扩展及 Rust tree checker、相关 native focused 与当前镜像 health/clean-stop/native smoke。
+已将 detached 审核工作区固定到 `4b546c46de`，读取 `business_kernel/cells.rs` 与 `operations.rs` 全部实现。现有 `encode_uleb128` 仅由 crate-private 升为 public 并在 lib re-export，算法与 module/decode 边界未变，符合本次真实 core consumer 的授权。三个操作已出现主体，但尚无该批业务测试或 adapter 交付。
+
+以下问题已直接交实施者，修复后按固定差异和实际定向结果复审：
+
+- **资源边界**：诊断先创建 String 再检查字节，且 diagnostics 与 workspace 的 live 额度分别比较，漏同时驻留；catalog 多表 metadata/表数等尚未整体限额；output 只计 arrays，遗漏返回 descriptor/facts。修正应沿现有局部预约，不建立全局 allocation 框架。
+- **实际绑定与业务 schema**：descriptor 的 logical/declared/labels 一致性未完整验证，projection 只核 source/output 同名，空表可用错误计划把不支持的源声明伪成支持类型。ordered 输出 gid/no、规范 gid 类型/非空与 canonical key 约束，以及普通 key 输出非空属性尚未完整守住。catalog 的 `NamedKernelTableInput.table_name` 未消费，需绑定实际 descriptor。
+- **已冻结语义**：空 SET key 被先当成空文本判 `KEY_EMPTY`，原 owner 应为 `UNSUPPORTED_TABLE`；SQL reserved gid 的文本检查使用 Rust `parse`，遗漏原 Python `int` 可接受的形式（例如 `4_000_000_000`）。ordered 数字字符串继续保持拒绝，不与 SQL 共用宽松转换。
+- **输出构建**：始终使用 small String/Binary arrays，不能承接合法 Large 输入的整列 payload；自有 values/text 构建循环缺少运行中 checkpoint。应按既有 offset 口径选择布局，在自有循环及标准库大调用前后检查 control。
+
+这些是原一次性验收清单内的具体缺口，不增加新业务范围。独立向量、差分、最终 native/容器等仍待实际交付，不把当前主体实现当成 PASS。
+
+## 5. 当前验证与镜像决定
+
+当前审核产品 HEAD：`4b546c46de`。恢复后 5621 骨架/catalog 的成功定向证据见 §2，不能冒充本批新业务实现已测；B 最终门禁未运行，carried 无。中间算法修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、强制重装扩展及 Rust tree checker、相关 native focused 与当前镜像 health/clean-stop/native smoke。
 
 最后已验证镜像仍是 A 产品 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`：06 backend 本机 image ID `sha256:88665d846710bd26891acbba7fbcb516e57cfaf95edd3314af457e4a48d5b6a0`，Rust tree `5b222191f4689b0eb0a7c2a1123bb299efb13e9d`，来源见 [A 审核 §7](p6-s2b-a-review.md#7-最终-db776-验证结论)。该结果不冒充 B 当前候选，dependency-base 以最终完整输入与 config/全部 DiffID 判定。S2b 最终 04 runner/container 与 t1–t4 正确性仍保留；W1/W2、真实 FULL 峰值和生产 M 未知保持未知。

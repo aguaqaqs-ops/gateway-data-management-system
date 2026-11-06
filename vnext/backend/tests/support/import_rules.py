@@ -96,6 +96,7 @@ COMPOSITION_ZONES = frozenset({"composition", "bootstrap"})
 # Rust policy v4 §4: exact coarse entrypoints, not a capability-wide compute
 # exemption. Other owners, whole-module imports and wildcard imports still fail.
 NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
+    "gateway_backend.bootstrap.operation_worker": frozenset({"_init_kernel_native"}),
     "gateway_backend.capabilities.table_access.native": frozenset({"_parse_sql_native"}),
     "gateway_backend.capabilities.snapshot_materialization.native": frozenset(
         {"_sql_materialize_native", "_catalog_filter_native"}
@@ -334,6 +335,13 @@ def classify_edge(edge: ImportEdge, packages: frozenset[str]) -> tuple[str, str]
     if source_zone is None or source_zone == "root":
         # Unowned root modules are reported once by RULE_UNOWNED_ROOT.
         return None
+
+    if target_zone == "ext:compute" and not (
+        edge.target == "gateway_compute._native"
+        and bool(edge.names)
+        and set(edge.names) <= NATIVE_COMPUTE_ENTRYPOINTS.get(edge.source, frozenset())
+    ):
+        return (RULE_LAYER, edge.target)
 
     if target_zone in _FORBIDDEN_EVERYWHERE:
         return (RULE_LAYER, edge.target)

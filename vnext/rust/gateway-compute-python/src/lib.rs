@@ -180,7 +180,9 @@ fn shared_parser_pool(threads: usize) -> PyResult<&'static ThreadPool> {
         .get()
         .ok_or_else(|| PyRuntimeError::new_err("kernel pool has not been initialized"))?
         .as_ref()
-        .map_err(|error| PyRuntimeError::new_err(format!("kernel thread pool unavailable: {error}")))?;
+        .map_err(|error| {
+            PyRuntimeError::new_err(format!("kernel thread pool unavailable: {error}"))
+        })?;
     if pool.current_num_threads() != threads {
         return Err(PyValueError::new_err(format!(
             "kernel pool was initialized with {} threads; requested {threads}",

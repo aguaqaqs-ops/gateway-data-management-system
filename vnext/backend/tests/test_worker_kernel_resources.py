@@ -33,6 +33,7 @@ def test_worker_rejects_invalid_kernel_threads(tmp_path: Path, threads: object) 
         make_operation_worker_settings(tmp_path, kernel_threads=threads)
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("threads", (1, 2))
 def test_kernel_requires_initialization_and_reuses_the_fixed_process_pool(threads: int) -> None:
     # Each N has its own process; the production OnceLock is never reset.
@@ -56,5 +57,5 @@ except ValueError as exc:
 else:
     raise AssertionError("pool accepted conflicting N")
 '''.replace("__THREADS__", str(threads))
-    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
+    completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False, timeout=15)
     assert completed.returncode == 0, completed.stdout + completed.stderr

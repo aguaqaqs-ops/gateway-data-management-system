@@ -1195,7 +1195,20 @@ pub fn project_canonical_table(
                 .collect::<Result<_, _>>()?;
             let mut key = Vec::new();
             if plan.row_policy == ProjectionRowPolicy::Keyed {
-                working.reserve(mul(scratch, 2)?)?;
+                // Only key frames survive into `prepared`. Full-row scalar/hash
+                // scratch above is transient and must not accumulate per row.
+                let retained_key_upper = key_indexes.iter().try_fold(
+                    mul(key_indexes.len(), 256)?,
+                    |total, &index| {
+                        add(
+                            total,
+                            values[index]
+                                .scratch_bytes(&descriptors[index])
+                                .ok_or_else(|| resource_error("key scratch overflow"))?,
+                        )
+                    },
+                )?;
+                working.reserve(retained_key_upper)?;
                 for &index in &key_indexes {
                     if descriptors[index].logical_type == SqlLogicalType::Set && !matches!(values[index], Cell::Null) { return projection_failure("UNSUPPORTED_TABLE", "key cell is not a typed scalar", plan, options); }
                     match values[index] {

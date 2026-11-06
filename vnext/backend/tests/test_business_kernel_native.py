@@ -111,6 +111,29 @@ def test_real_parser_sql_projection_ipc_chain_matches_frozen_python_digest() -> 
     assert decoded.column("f").to_pylist() == [1.25, 0.0]
 
 
+def test_wide_non_key_columns_do_not_accumulate_transient_row_scratch() -> None:
+    # 200x100 is a bounded resource regression. The old all-column retained
+    # estimate alone exceeded 60 MiB; only a one-column key actually survives.
+    columns = ",".join(["id INT NOT NULL PRIMARY KEY", *(f"p{i} VARCHAR(8)" for i in range(99))])
+    values = ",".join("(" + ",".join([str(i), *("''" for _ in range(99))]) + ")" for i in range(200))
+    sql = f"CREATE TABLE t ({columns}); INSERT INTO t VALUES {values};"
+    old = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
+    assert old.table_set is not None
+    descriptor = old.table_set.tables[0].descriptor
+    oracle = project_canonical_table_set(old.table_set, migrated_table_ruleset_snapshot())
+    result = project_arrow_table(
+        _tables(sql)[0], descriptor, _view(descriptor), canonicalized_input=False,
+        cancel_probe=NeverCancel(), budgets={**_BUDGETS, "max_live_bytes": 16 * 1024 * 1024},
+        deadline_monotonic=None, pool_threads=1,
+    )
+    assert result["output"] is not None
+    expected = oracle.tables[0].descriptor.raw_content_digest
+    assert expected is not None
+    assert result["output"]["raw_content_digest"] == expected.value
+    with result["output"]["tables"][0]["arrow_stream"] as stream:
+        assert stream.read_all().num_rows == 200
+
+
 _KEY_CASES = (
     ("INT", "NULL", "KEY_NULL"),
     ("VARCHAR(8)", "''", "KEY_EMPTY"),

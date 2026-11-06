@@ -8,6 +8,8 @@
 
 `operations/worker_runtime.py` 持有一个 active executor 和 `LeaseSession`，已有 heartbeat、drain 监督与 fencing。`ExecutionControl` 保留 cancel、drain、lease_lost 三个原始状态；`LeaseSession` 是 durable mutation/publication 的唯一串行入口。D 将这些真实 owner 接入 A/B/C，不能另建并行租约或发布状态机。
 
+生产 parser 的直接 native owner 固定为 `capabilities.table_access.native`，只导入 `gateway_compute._native._parse_sql_native`；bootstrap `operation_worker` 只用 `_init_kernel_native` 初始化共享池。Rust policy v5 拥有这两个已批准 consumer 的边界；snapshot materialization 不越过 Table Access 直接调用 parser，既有 capability DAG 与精确导入规则保持，不加 IMPORT/cycle baseline。
+
 完整 caller 列表以整体 kickoff §2 为准：上传 FULL 两侧、Preview baseline、History exact commit、repository-ref 的 READERS_REQUIRED/ARTIFACTS_REQUIRED、Submit/T1/PREPARED 与恢复，以及 export/import-replay 的真实调用面。C 提供真实 store/ref/recovery 能力与事务 hooks，D 接生产 IPC 路由及 operation control；E 清理最后剩余 caller 和被替代算法。每个迁移点记录旧消费者、新入口、证据 owner 与剩余引用，避免只切上传路径。
 
 C 经明确理由与独立审核暂记的五个生产不可达项见 [C 任务单 §5](p6-s2b-c-kickoff.md#5-验证与完成条件)；本节接入真实 Preview/History/Submit 等 consumer 后逐项从 `UNREACHABLE_MODULE_BASELINE` 删除。保留 Python import-boundary/cycle/reachability gate，native 调用边按 Rust policy §4 的精确 owner/entrypoint 规则，不靠假 import或延续临时例外完成接线。

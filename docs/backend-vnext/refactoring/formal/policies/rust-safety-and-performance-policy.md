@@ -8,7 +8,7 @@ Policy ID：`gateway-vnext.rust-safety-and-performance-policy`
 
 Owner：Backend vNext Architecture
 
-Policy version：`4`（2026-11-06：将 DC85/DC86 已批准的 S2b B/C Python 粗粒度调用 owner 纳入架构规则；前版 `3` 按 DC78 修订 reference 生命周期；Safe Rust 与失败边界不变）
+Policy version：`5`（2026-11-06：D 接生产 parser 时补 Table Access 精确 native owner 及 worker 初始化边；前版 `4` 纳入 S2b B/C consumer，`3` 修订 reference 生命周期；Safe Rust 与失败边界不变）
 
 适用阶段：Phase 1–9
 
@@ -85,15 +85,16 @@ PyO3 adapter：
 - 不把Python row/list/dict object graph作为正式bulk path；
 - 不自动引入`combine_chunks()`或逐scalar FFI。
 
-S2b B/C 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
+S2b B–D 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
 
 | Python owner（`gateway_backend.capabilities.` 下） | 可直接从 `gateway_compute._native` 导入的粗入口 |
 | --- | --- |
+| `table_access.native` | `_parse_sql_native` |
 | `snapshot_materialization.native` | `_sql_materialize_native`、`_catalog_filter_native` |
 | `storage_projection.native` | `_canonical_project_native` |
 | `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native` |
 
-这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。既有 composition/bootstrap 依赖规则保持，D 的 worker runtime 初始化由其 owning 设计约束。`artifacts` 仍只拥有 port/value，不直接调用 compute。后续新增实际调用 owner 必须按 owning 设计明确，不由普通 Finding 自动扩展。规则验证包含允许边与其他 owner/entrypoint 的拒绝例；`IMPORT_RULE_BASELINE` 和 cycle baseline 不为本次增加条目。
+这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。既有 composition/bootstrap 依赖规则保持；D 的 `gateway_backend.bootstrap.operation_worker` 显式从 `gateway_compute._native` 导入 `_init_kernel_native`，仅在 worker 注册/派发 kernel operation 前初始化一次共享池，遵守 [D 任务](../plans/p6-s2b-d-kickoff.md) 的 N/冲突/无初始化拒绝规则。此初始化边不授予 capability 访问 runtime initializer。Table Access 的 parser bridge 保持原诊断/descriptor 语义并以 Arrow 传递 bulk，不重建整表 Python rows。`artifacts` 仍只拥有 port/value，不直接调用 compute。后续新增实际调用 owner 必须按 owning 设计明确，不由普通 Finding 自动扩展。规则验证包含允许边与其他 owner/entrypoint 的拒绝例；`IMPORT_RULE_BASELINE` 和 cycle baseline 不为本次增加条目。
 
 ## 5. Dependency and toolchain
 

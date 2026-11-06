@@ -1,6 +1,6 @@
 # S2b 容量输入小样本普查
 
-状态：已完成的设计输入，仅描述现有 parser 的 Arrow C Stream buffers；不代表规范 IPC、生产峰值 RAM、M 或容量 PASS。S2b 产品实现尚未获 kickoff 授权。
+状态：已完成的设计输入，仅描述现有 parser 的 Arrow C Stream buffers；不代表规范 IPC、生产峰值 RAM、M 或容量 PASS。普查时尚未授权 S2b 产品实现；Owner 随后以 DC85 批准 kickoff 及 A 节，A 新 codec 的实测另记，不回填成本次普查结果。
 
 普查依据 [DC84](p6-s0-owner-decisions.md)、[S2b kickoff](p6-s2b-kickoff.md) 与 [映射候选](p6-s2b-arrow-mapping-design.md)。源码候选为 `d368413861dbcce10691fb65e8dbaba2a208af68`，S2a 退出源码仍为 `p6-s2a-exit^{commit}=53b676a6298d408ccda3a85ee73c7ea223a2311a`。有界普查原始工具提交 `583b69c838533a28cdc30d9aeb6c36ab30270cf2`，脚本 SHA256 `b5c08a8a4f9ab98a980f08571f0995f08a2b243fa8fe6a8335c055026bca740b`；后续 `f5dafdfce86b48b412b87b02671f798d73c2c0f3` 只增加计数类型缩窄，不改变输入或统计语义，最终文件 SHA256 `ae8b0bce9d24950cda513e9c7c3e9758fa026e3138672e5ad05c446adfbf5287`。
 

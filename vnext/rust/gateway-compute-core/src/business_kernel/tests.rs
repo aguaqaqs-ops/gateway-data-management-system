@@ -88,6 +88,7 @@ fn sql_materialization_matches_existing_snapshot_goldens() -> Result<(), String>
     macro_rules! fixture {
         ($case:literal) => {
             (
+                $case,
                 include_bytes!(concat!(
                     env!("CARGO_MANIFEST_DIR"),
                     "/../../fixtures/golden/snapshot-materialization/",
@@ -105,7 +106,7 @@ fn sql_materialization_matches_existing_snapshot_goldens() -> Result<(), String>
             )
         };
     }
-    for (sql, expected) in [
+    for (case, sql, expected) in [
         fixture!("sql/valid/s2-minimal-create-insert"),
         fixture!("sql/valid/s2-duplicate-rows"),
         fixture!("sql/valid/s2-keyless"),

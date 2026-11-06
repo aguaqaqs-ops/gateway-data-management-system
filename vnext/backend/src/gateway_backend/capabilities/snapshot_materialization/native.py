@@ -44,7 +44,7 @@ def check_metadata_budget(value: object, budgets: KernelBudgets) -> None:
             used += len(item) * 4
         if used > budgets["max_metadata_bytes"] or used * 8 > budgets["max_live_bytes"]:
             raise MemoryError("business metadata budget exceeded")
-        if type(item) in (tuple, list):
+        if type(item) is tuple or type(item) is list:
             for child in item:
                 visit(child, depth + 1)
         elif type(item) is dict:

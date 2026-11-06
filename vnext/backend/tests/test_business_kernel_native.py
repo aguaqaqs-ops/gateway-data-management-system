@@ -89,6 +89,7 @@ def test_real_parser_sql_projection_ipc_chain_matches_frozen_python_digest() -> 
     old = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
     assert old.table_set is not None
     descriptor = old.table_set.tables[0].descriptor
+    assert descriptor.raw_content_digest is not None
     raw = materialize_arrow_table(
         _tables(sql)[0], effective_compare_key_columns=("id",), stage=MaterializationStage.FINAL,
         cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1,

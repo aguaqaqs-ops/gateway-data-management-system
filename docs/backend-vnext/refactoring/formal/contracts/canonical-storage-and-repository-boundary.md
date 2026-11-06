@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订；`3.5.0` 于 2026-11-06 按 DC85 增补 S2b A 内存 codec 边界
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.4.0`（2026-10-27，DC58；前版 `3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
+Semantic version：`3.5.0`（2026-11-06，DC85；前版 `3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
 
 Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
@@ -159,6 +159,26 @@ Submit从exact Preview-bound SnapshotTableArtifact开始，不重新解析SQL。
 retention、不调用Repository。Attempt终态后RepositoryImportArtifact也解除durable
 pin；accepted commit的长期authority由SourcePackageArtifact、
 CanonicalizationManifest与canonical Dolt history共同提供。
+
+### 5.1 Canonical IPC v1 内存 codec（S2b A）
+
+本节拥有 backend 内部规范表的物理映射与纯内存编解码边界。A 不接管本节前述 artifact 生命周期、文件/mmap、引用、冻结恢复或 worker；这些接线按 S2b 后续小节实施。新增物理表示不改变 storage projection version、业务 schema/content digest、Repository wire 或客户端 Parquet。
+
+调用者提供已完成业务物化、规范投影、按 owning 语义排好行的 Arrow batches 与规范列声明。`sql_type` 必须是本 Contract 规范投影所用 `normalize_sql_type_spelling` 的既有输出；codec 不再提供另一个 SQL normalizer。输入按 canonical 列名绑定，重复/缺失/不匹配的列拒绝；内存输出物理列按 canonical 名 UTF-8 排序，解码可按绑定的外层列名顺序重排，不依赖原始 ordinal/display name。
+
+具体类型、唯一 metadata 与 file profile 固定为已获 DC85 批准的[规范表 Arrow 映射 v1 §2–§4](../plans/p6-s2b-arrow-mapping-design.md)：
+
+- 整数 Int64/UInt64、Boolean、Float32/64、Binary、定宽 BIT；其余规定的逻辑类型用规范 UTF-8 文本；SET 文本与业务 sequence framing 保持各自职责。可空性来自规范声明，small/large 按整列 payload 决定。
+- schema metadata 仅 `gdds.canonical_mapping_version=1`，field metadata 仅 `gdds.canonical_type`；四键 JCS 声明由规范 schema 决定，不能保存使相同规范身份产生不同 bytes 的原始拼写或实例字段。业务 schema digest 已含表名，不据此承诺跨不同表名去重。
+- 单一 Arrow IPC file writer/reader，V5、64-byte alignment、非 legacy、无压缩/字典/自定义 footer metadata；65,536 行固定切批，空表零 batch。offset、validity、Boolean 尾位和 NULL slots 按映射 profile 规范化，N/chunk/DDL 列序不改变同一规范输入的 IPC bytes。
+
+合法规范业务值是物化/projection owner 的前置。codec 验证实际映射所需的类型、声明、可空性、整数范围、有限浮点及 SET/BIT 约束，保持值不变；不复制完整 DECIMAL、时间或 JSON 业务语法算法。其内存 decoder 证明格式/profile/类型与绑定描述一致以及资源边界，不独立证明所有业务值合法，也不作为外来 IPC 的业务导入验收器。后续存储由已验证生产者、raw SHA 和绑定身份共同保护；外来输入仍走其 owning 校验。
+
+标准 reader 前必须在借用输入上检查 footer/block 的长度与范围、必要 raw metadata 的唯一键及版本/绑定一致，避免重复键被 HashMap 覆盖或伪长度触发超预算分配。复用第三方公开 safe API，不新建 IPC 格式实现或 unsafe FFI。
+
+局部 options 明示行、列、输入/输出 bytes 与 codec 峰值预算，增长前用 checked 运算拒绝超限。`max_input_bytes` 独立限制借用输入的保守字节求和；`max_codec_peak_bytes` 限制 codec/adapter 拥有的同时存活分配，包括 schema/metadata、布局索引、规范数组、当前 batch、writer 内部 encoded data、累计输出及 adapter 输出复制。整体保守占用须合看两个上限，不把借用输入漏掉，也不重复算成 codec 拥有。A 不建立共享 allocation registry；估计口径与完整 worker M/RSS 分开。取消和可选有限单调 deadline 在有界循环及标准编解码调用前后检查；不返回可被当作成功的部分结果。错误区分 schema、value、resource、cancelled、deadline、IPC 格式类别，adapter 保留类别并按既有 policy 处理 panic，不把 native abort 伪装成正常失败。
+
+core 接受 caller-owned pool，不创建每表/每调用新池，不做文件 I/O；Python adapter 仅粗粒度 Arrow C Stream 和小型 metadata，主计算区间释放 GIL，不构造整表 Python row/list/dict。固定向量依据 Shared Kernel/现有 owner 与独立 IPC 布局核对，不能仅从新实现生成期待值后自证；实际局部 bytes 在 A handoff 记录，不宣称生产容量、FULL 或 W2 通过。
 
 ## 6. Repository import、journal 与 readback
 

@@ -10,11 +10,11 @@
 
 输入 `sql_type` 是规范投影 owner 的 `normalize_sql_type_spelling` 既有输出，不把 parser 的类型 mapper 当作同一规范化函数；例如 `DATETIME(0)`/`REAL` 的归一由该 owner 负责。原始拼写等价用例在进入 A 前按该 owner 归一，或仅改变 display/provenance；A 不新增完整 SQL normalizer。
 
-规范细节以 [映射 v1](p6-s2b-arrow-mapping-design.md) 为准：UTF-8 canonical 列序、唯一 metadata/JCS 声明、SET 文本存储与 sequence 业务编码分离、64-byte/V5/non-legacy 无压缩无 dictionary file、65,536 行固定切批、空表零 batch、确定的 offsets/null slots/bitmaps。业务摘要不改为 IPC raw SHA；既有业务 schema digest 包含表名的事实不变。
+Owning Contract 为 [Canonical Storage §5.1](../contracts/canonical-storage-and-repository-boundary.md#51-canonical-ipc-v1-内存-codecs2b-a)。规范细节以 [映射 v1](p6-s2b-arrow-mapping-design.md) 为准：UTF-8 canonical 列序、唯一 metadata/JCS 声明、SET 文本存储与 sequence 业务编码分离、64-byte/V5/non-legacy 无压缩无 dictionary file、65,536 行固定切批、空表零 batch、确定的 offsets/null slots/bitmaps。业务摘要不改为 IPC raw SHA；既有业务 schema digest 包含表名的事实不变。
 
 ### 1.1 实施前已对齐的最小 API
 
-`gateway_compute_core::canonical_ipc` 复用现有 `ColumnDescriptor`、`SqlLogicalType` 与 `DeclaredType`。`encode_v1(columns, batches, caller_pool, options)` 返回 IPC bytes；`decode_v1(bytes, bound_columns, caller_pool, options)` 返回按外层列名布局重排的 batches。输入字段按实际 canonical 列名绑定，拒绝重复/缺失/矛盾声明；不依赖原始 ordinal。局部 options 明示 rows、columns、input/output bytes、codec peak 的上限及 cancel/可选单调 deadline，不填生产 M。
+`gateway_compute_core::canonical_ipc` 复用现有 `ColumnDescriptor`、`SqlLogicalType` 与 `DeclaredType`。`encode_v1(columns, batches, caller_pool, options)` 返回 IPC bytes；`decode_v1(bytes, bound_columns, caller_pool, options)` 返回按外层列名布局重排的 batches。输入字段按实际 canonical 列名绑定，拒绝重复/缺失/矛盾声明；不依赖原始 ordinal。局部 options 明示 rows、columns、input/output bytes、codec peak 的上限及 cancel/可选单调 deadline，不填生产 M。 `max_input_bytes` 管借用输入保守总量，`max_codec_peak_bytes` 管 codec/adapter 自身同时存活的分配（含输出复制），总体占用合看二者；这不是完整 worker M/RSS。
 
 decode 在标准 Arrow reader 前对借用输入做 footer/block 长度及 raw metadata 唯一键预检；避免依赖标准 reader 的 HashMap 覆盖重复键或按未经边界检查的长度先分配。encode 的 checked 预约包含标准 writer 在实际 Write 前生成的 encoded data，不仅限制最终 Vec。采用标准 writer/reader，不自行实现另一套 IPC。
 

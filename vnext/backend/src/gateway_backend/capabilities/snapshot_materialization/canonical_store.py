@@ -77,7 +77,7 @@ def canonical_columns(descriptor: SnapshotTableDescriptor) -> list[dict[str, Any
     return result
 
 
-def check_canonical_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> None:
+def check_canonical_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> int:
     if max(len(descriptor.columns), len(descriptor.primary_key_columns)) > budgets["max_columns"]:
         raise MemoryError("canonical descriptor column limit exceeded")
     size = 4096 + len(descriptor.columns) * 4096
@@ -90,6 +90,7 @@ def check_canonical_descriptor_budget(descriptor: SnapshotTableDescriptor, budge
             raise MemoryError("canonical descriptor byte limit exceeded")
     if size > budgets["max_descriptor_bytes"] or size * 8 > budgets["max_codec_peak_bytes"]:
         raise MemoryError("canonical descriptor byte limit exceeded")
+    return size
 
 
 class ArtifactReadHandle:
@@ -102,6 +103,8 @@ class ArtifactReadHandle:
         self._stack = ExitStack()
         self._reader: pa.ipc.RecordBatchFileReader | None = None
         self._source: pa.BufferReader | None = None
+        self._schema: pa.Schema | None = None
+        self._indices: tuple[int, ...] = ()
         self._descriptor = descriptor
         self._closed = False
         self._borrowers: list[pa.RecordBatchReader] = []
@@ -161,6 +164,7 @@ class ArtifactReadHandle:
     @property
     def schema(self) -> pa.Schema:
         self._require_open()
+        assert self._schema is not None
         return self._schema
 
     def iter_batches(self) -> Iterator[pa.RecordBatch]:
@@ -202,6 +206,8 @@ class ArtifactReadHandle:
         self._borrowers.clear()
         self._reader = None
         self._source = None
+        self._schema = None
+        self._indices = ()
         resources.close()
 
     def _require_open(self) -> None:
@@ -233,6 +239,9 @@ class CanonicalTableStore:
         before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
     ) -> ArtifactRef:
         context = current_kernel_context()
+        metadata_size = check_canonical_descriptor_budget(bound_descriptor, self._budgets)
+        if context is not None:
+            context.memory.retain_metadata(bound_descriptor, metadata_size)
         budgets = self._budgets if context is None else {**self._budgets,
             "max_codec_peak_bytes": min(self._budgets["max_codec_peak_bytes"], context.memory.available_bytes)}
         if context is not None:
@@ -285,7 +294,10 @@ class CanonicalTableStore:
             return published
 
     def open(self, ref: ArtifactRef, bound_descriptor: SnapshotTableDescriptor) -> ArtifactReadHandle:
-        check_canonical_descriptor_budget(bound_descriptor, self._budgets)
+        metadata_size = check_canonical_descriptor_budget(bound_descriptor, self._budgets)
+        context = current_kernel_context()
+        if context is not None:
+            context.memory.retain_metadata(bound_descriptor, metadata_size)
         key = canonical_table_key(self._repository_id, bound_descriptor)
         if ref.media_type != CANONICAL_IPC_MEDIA_TYPE or ref.artifact_id != key.artifact_id:
             raise ManifestVerificationError("canonical content identity binding mismatch")

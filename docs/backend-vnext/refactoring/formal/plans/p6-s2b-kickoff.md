@@ -2,7 +2,7 @@
 
 E 当前进度：固定 `d0f5602d6f` 的源码与 04 Rust 权威证据已独立核实；额外工具 mypy 的一次明确修正按 DC68 待 Owner 续做答复，五 Python 权威包及 t1–t4 尚待执行。节点与具体准备见 [E 任务](p6-s2b-e-kickoff.md)，不是 S2b exit。
 
-状态：APPROVED / A–D COMPLETE / E STARTING；2026-11-06。A 固定产品 `db7767ffbb`、审核 `83b927207a`；B 固定产品 `b820321c1e`、审核 `0dc93c09a9`；C 固定产品 `0048040af5`、handoff/容量 `7cd2b548c8`、审核 `e9bef6efe8`。D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞，06 于 18:52:58Z 释放，D 二角色结束。按 DC86 启动 [E](p6-s2b-e-kickoff.md)，新 Sol/high 实施者、新 Sol/max 审核者。DC87 的 12 GiB envelope/4 GiB reserve/显式 M8 GiB、N1/单 active 与 DC88 保持；D 局部 worker 校准和 focused 容器证据不替代 E 的最终门禁或完整 t1–t4。S2b 尚未退出，性能未知项不记 PASS。
+E 启动时状态记录：APPROVED / A–D COMPLETE / E STARTING；2026-11-06。A 固定产品 `db7767ffbb`、审核 `83b927207a`；B 固定产品 `b820321c1e`、审核 `0dc93c09a9`；C 固定产品 `0048040af5`、handoff/容量 `7cd2b548c8`、审核 `e9bef6efe8`。D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞，06 于 18:52:58Z 释放，D 二角色结束。按 DC86 启动 [E](p6-s2b-e-kickoff.md)，新 Sol/high 实施者、新 Sol/max 审核者。DC87 的 12 GiB envelope/4 GiB reserve/显式 M8 GiB、N1/单 active 与 DC88 保持；D 局部 worker 校准和 focused 容器证据不替代 E 的最终门禁或完整 t1–t4。S2b 尚未退出，性能未知项不记 PASS。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 

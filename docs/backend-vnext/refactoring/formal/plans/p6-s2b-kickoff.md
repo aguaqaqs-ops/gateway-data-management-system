@@ -35,7 +35,9 @@ S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核�
 
 以下路径相对 `vnext/backend/src/gateway_backend/`。`保留` 表示仍有真实消费者；`替换` 只改变实现边界；只有所有 caller 切换并且 Contract 向量在位后才删除被替代算法。
 
-| 路径/消费者 | 当前职责 | S2b 边界、owner 与覆盖 |
+表内旧接口记录 kickoff 的交接基线。E 已提交的源码删除将旧 `storage_projection/project.py::project_canonical_table_set` 替换为 `storage_projection/arrow.py::project_canonical_arrow_table_set`，并由 `native.project_arrow_table` 调用唯一 Rust kernel；SQL/catalog 调用转入现 Arrow materialize/catalog，`_catalog.py` 只保留共用错误元数据。旧 import replay 再投影和 RepositoryRef row fallback 随真实 caller 迁移删除；publication/metadata 的测试 fixture 使用真实 Rust/C 构造合法输入，独立预期仍归原 Contract/golden。`snapshot_materialization/_digest.py::{row_content_hash,raw_content_digest_of}` 的批量 SQL/projection caller 已替换，但 composite 派生表和 raw Parquet 校验仍使用它们，须保留；MutationPlanning row-image 摘要也是独立消费者。具体删除及覆盖移交见 [E handoff](p6-s2b-e-handoff.md) 和 [独立审核](p6-s2b-e-review.md)，当前仍待 E 最终验证，不代表 S2b exit。
+
+| 路径/消费者（kickoff 基线） | 基线职责 | S2b 边界、owner 与覆盖 |
 | --- | --- | --- |
 | `application/preview_jobs.py::_materialize_uploaded_side` → `_sql_materialization_request` → `capabilities/snapshot_materialization/compose.py::materialize_business_snapshot` | parser output、XML 与 composite 业务组装；`snapshot_materialization/_catalog.py::extract_special_device_catalog` 负责目录提取 | Rust 承接 SQL 标量物化、过滤及适用诊断；Python composite/XML orchestration 保留。过滤前校验全部 device 行的 gid/dev_addr/description 类型及非-NULL 约束（合法空 description 保留），并保留“原设备表是否非空/特殊命中数”，避免非空但零命中被误诊为空表。point 表过滤前校验 gid/name/dev_addr 三列存在、所有 dev_addr 类型；命中行再校验 gid/name 值。沿用原 Contract 诊断码。owner：`test_snapshot_materialization_business.py`、`test_composite_signal_contracts.py`、`test_composite_signal_bind.py`；覆盖过滤前坏普通行和 0 命中语义。 |
 | `capabilities/storage_projection/project.py::project_canonical_table_set` | keyed、keyless、ordered、浏览角色、伪 gid 和 canonical row-layout 投影 | Rust/kernel 替换逐行 projection，保留 `project_canonical_table_set` 对业务 caller 的接口或一次性改 caller。owner：`test_storage_projection_contracts.py`、`test_storage_projection_integrity.py`；空表、重复行、ordered 顺序和摘要各由适用 Contract 覆盖。 |

@@ -56,6 +56,8 @@ D 接线前交付有依据的 M/default/max 候选与 worker envelope/reserve �
 
 ## 6. 新角色执行交接
 
+本节已创建 `/root/s2b_c_impl`（GPT-6.1-Sol/high）与 `/root/s2b_c_review`（GPT-6.1-Sol/max），均为全新上下文。实施者拥有产品/测试及 C handoff、容量校准报告；审核者拥有 C 独立审核报告，原则上不改产品/测试；root 拥有本任务、DC、总体计划与 owning 文档。明确小问题可由两角色直接闭环，额外角色或实质设计阻塞仍交 Owner。
+
 实施者先读取 B 最终 handoff 与交付审核，取得 06 自身节点占用，再使用本节 clean、已提交 worktree；审核者在新的只读 detached worktree 审码，两者不复用 B 的角色上下文。不修改 B 保留的证据或 A 的工作区。
 
 源码同步沿用 B 已审并成功执行的外置脚本结构（CT201 `/tmp/s2b-b-publish-source.sh`、`/tmp/s2b-b-sync-resume.sh`，具体成功日志由 B handoff 引用）。为 C 显式调整任务路径、ref 和占用 owner，由审核者核对一次，不重新拼装复杂内联 SSH。previous 读取目标 worktree 实际 HEAD，不能用共享 main 的 `HEAD~1` 推断；candidate 先固定为完整 SHA，以任务自有 `refs/codex/<任务>-transfer/<fullsha>` 打包，bundle 的 advertised ref、校验和与 fetch 使用同一组参数。不能要求其他会话暂停 main 提交来保障同步。先独立检查同步实际 exit 0 与目标 clean HEAD，再发起测试；工具返回非零不会自动阻止下一工具调用，调用者必须显式停止。失败日志保留，按 DC68/DC80 最小诊断和独立复核，不循环试错。

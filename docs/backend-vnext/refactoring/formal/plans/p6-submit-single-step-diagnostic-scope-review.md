@@ -1475,3 +1475,31 @@ wrapper marker、entry emit、original call 起止及 wrapper 总耗时应分开
 两组阻塞已直接送达唯一实施者并抄设计；当前角色和 §69 准备/必要 focused 授权持续有效，无需再确认接管、设计回执或 owner 许可。保留本最终 a 包/manifest、精确测试时清单及原日志；用独立修订目录绑定新代码、受影响 focused 和最终清单再定向复审。handoff 的额外本地 checksum 错误留档/文书提交不改变候选字节或上述结论。未变 controller/回收矩阵不重测，不发试验 POST、不重跑大 probe/Compose 或全量 runner。
 
 产品继续冻结 `1f9731`、最后验证 image revision/source-tree 沿 §57，无产品/镜像重建。**本轮无候选专属 GO，无 POST/worker/Compose 诊断或正式测量许可；H3 PASS、lease 根因 OPEN、正式测量 STOP。**
+
+## 71. GC-window 候选 d 最终复审：候选审核 PASS，G1/G2 关闭；本轮未发运行 GO
+
+**`p6mutationgcwindow20261106d` 候选审核 PASS。** 最终 manifest 路径 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6mutationgcwindow20261106d/candidate-manifest.json`，完整 SHA256 **`b4db000f83194000f6d7a89180f63490327545c130a403cb3b636d5a81031571`**，15 文件集合/摘要/模式及全部 Python AST 均独立核验匹配。相对精确测试时清单 `f30afe04d8a3c633e95a265fbb8424b3f8df05ec0c9cec3f9288bfc719bb498a`，最终只改 README/preparation-record/review-request，12 个非文档文件及全部模式未变。按本轮 review-request 的审核请求给出此结论，**它不等于候选专属诊断 GO，本轮没有签发 GO**；不得据 PASS 创建 POST-GO 或运行 launcher。
+
+原始 CT05 focused 日志 SHA256 **`e6a560e90b9c3344a020ec5d9d9ac98bacaf4d42cf36cc60f16f9cb5796523a3`**，21:04:46–47、起止 clean 冻结 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`、**4 passed / 31 deselected / 0.67s、pytest/script exit 0、node_lock_released=true**。最终 binding 日志 `6e213a63db520762e0ffdd871ddb662ee78da8bbdb73d07e6d87122116a76375` 记录 21:08:09、同一最终 manifest/15 文件 MATCH、POST-GO absent；postflight 日志 `68241436d948861e2a833f5cefbb9188ac5dbe30680e542f8bc01fc7a336af83` 记录 clean/head 不变、节点锁 absent、无 Dolt/8000 占用。BatchMode echo OK 后另只读 SSH 独立核最终 15 文件/模式、clean HEAD、focused 日志 SHA 与 POST-GO absent 均一致。本审核未执行测试、候选或新业务，也未访问 CT108。
+
+### G1 关闭：真实完整形状、top-16 及失败 fixture 已覆盖
+
+d 的 runner 明确选中 top-16 retention、实际 helper/session 字段、完整事件形状与计时透传四个受影响用例。常量从其 owner `gc_observer` 取得，不为测试增加 worker 兼容别名。完整形状用例调用已安装的 helper/session wrappers，覆盖两者 entry 及 return/exception；给三代完整窗口、19 位纳秒、最长 255 字符 ASCII opaque IDs、所有退出计时及 writer metrics，保持 2048-byte cap。只读读取 CT05 已保留的 `pytest-242/test_real_event_writer_bounds_0/{success,failure}/events.jsonl`，共 13 条、helper/session 四类各两条，**最大实际记录 1439 bytes**。这是既有测试产物的复核，不是新增测试或再次运行。
+
+最终 worker SHA256 `e30771db2b536debd23a4dbcc487509ffe2218ae58ccf4fa6d9de075a5e69377`。generation/window/writer metrics 用固定顺序数组保留计数、wall/process/thread CPU、missing/error/open、线程与窗口起止；重复 generation 由外层行承载，短键减少重复 JSON 名称，原始完整 summary 仍用描述性字段。计时单位与位置由 helper 文档及 focused 字段断言绑定，incomplete 继续是显式 bool，controller/guardian 的消费字段未失配；未抬上限或无标记截断必要字段。
+
+b 的两项失败原样保留：整体 9 passed/2 failed，日志 SHA256 `2f813240f1c9596e6de634805fe5cf8540fb7b71dde8ae77987d397d65280868`；它实际发现测试常量引用错误及完整事件 event_too_large。c 的整体 3 passed/1 failed 与日志 `e70cdcf323818587c25319c9af4eeebc51bf3a4743f2aece962adcab197ee9dd` 也保留；c 上限断言已通过，随后缺初始三代窗口的 fixture 断言失败。d 相对 c 的语义测试变化仅在 failure helper 调用前补齐三代窗口，原完整字段、cap 和异常断言保留，另有候选 d 的 ID 字面替换。没有为通过测试改生产结果或放宽断言。
+
+### G2 关闭：轻量交错留缺口，单项工具证据关联准确
+
+observer 最终 SHA256 **`47fde594b69e5bd93970552496055634e49fe8c6b34519ca29d5ada91d1bbef7`**，b/c/d 字节相同。新增 snapshot-active/interleaved、正在更新 generation 与当前 snapshot 标记；callback 的入口/收尾遇 snapshot，以及 snapshot 遇到正在更新状态，会使该 snapshot 和后续 observer 明确 incomplete，避免本轮指出的读后清零重入仍假称完整。没有 callback 阻塞锁、GC 设置修改、完整 collection 队列或新后台机制；这是诊断性有限检测，不把它表述成任意线程调度的形式化原子性证明。开放/选择性保留的区间仍只按其实际覆盖解释，不能因 complete 字段或 top-16 未见某窗口就宣称没有 GC；正常最终摘要有开放区间则不完整。
+
+独立计算 b/d 的 `test_gc_snapshot_interleave_is_incomplete` 原始函数字节摘要，均为 `9ff1ca2438cb7bde8d634db1acc0927761394f5b893d30fe25b99fab3f8d134b`。该用例由 b 的固定选择式实际选中且在九个通过项中，验证 collection 与 snapshot 读取交错后 snapshot/final summary 不完整。`g2-carry-association.json` SHA256 `88ef42f45db13acb01220e0c7e5246d421cd7b65d75858b7966f31140a165fc5` 与本审核独立摘要一致。这里是未变工具及单项 focused 的证据关联，**不是权威 runner carried，也没有把 b 整轮 exit 1 写为通过**；未要求重复该未变路径。
+
+### 运行接线、结论边界
+
+controller、verifier、两个脚本与 Compose 挂载均指向 d 的项目/清单/目录；launcher 和 controller 的 lock token 一致，token 的历史 c 字面标签不代替实际 d 的 manifest/POST-GO/project 身份。summary 环境键重复已去除。真实 WorkerRuntime.run、原 heartbeat/session 参数/返回/异常与 renewal anchor 委托、entry emit 后才取 original-call 时间、logger 下一条/最终报告自身耗时的接线保持；callback 仅内存、保留其他 callback、正常收尾只移除自己的 callback，最终摘要独占/有界写入，缺失/不完整阻止成功但不妨碍安全回收后解锁。新候选仍用原 source checkpoint 的新副本，不恢复失败 c 的卷。
+
+候选 d 的摘要复制命令错误已留失败与本地更正日志，没有据此重跑 focused。产品继续 clean 冻结 `1f9731`，最后验证 image revision/source-tree 沿 §57；外置 wrapper 变化不触发产品或镜像重建，实际运行身份仍须由未来获准的固定入口重核。原 45 分钟/3600 秒预算、资源/身份/失租/cancel/stall 停止、保卷留证/未静止留锁和 05 实际占用条件不变。本次不新增测试、修复轮次或 Owner 身份/准备确认门槛。
+
+**候选审核结论已直接交唯一实施者并同步设计；实际诊断仍须另行明确签发绑定本完整最终 manifest 的一次 GO。当前没有新的 POST/worker/Compose 诊断或正式测量许可，H3 PASS、lease 根因 OPEN、正式测量 STOP。**

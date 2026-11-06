@@ -16,7 +16,7 @@ CANONICAL_TABLE_TTL_SECONDS = 86_400
 @dataclass(frozen=True, slots=True)
 class CanonicalTableKey:
     repository_id: str
-    storage_projection_version: int
+    storage_projection_version: str
     business_schema_digest: DigestRef
     row_count: int
     table_digest: DigestRef
@@ -25,9 +25,10 @@ class CanonicalTableKey:
     def __post_init__(self) -> None:
         if type(self.repository_id) is not str or not self.repository_id or len(self.repository_id) > 255:
             raise ValueError("repository_id must be a bounded scope identity")
-        for value in (self.storage_projection_version, self.canonical_mapping_version):
-            if type(value) is not int or value < 1:
-                raise ValueError("canonical versions must be positive integers")
+        if type(self.storage_projection_version) is not str or not self.storage_projection_version:
+            raise ValueError("storage projection version must be its owning string")
+        if type(self.canonical_mapping_version) is not int or self.canonical_mapping_version < 1:
+            raise ValueError("canonical mapping version must be a positive integer")
         if type(self.row_count) is not int or not 0 <= self.row_count <= 2**53 - 1:
             raise ValueError("row_count must be a non-negative I-JSON integer")
         if type(self.business_schema_digest) is not DigestRef or type(self.table_digest) is not DigestRef:

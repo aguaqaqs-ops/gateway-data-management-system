@@ -85,6 +85,8 @@ def _check_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[
         size += (len(column.name) + len(column.display_name) + len(column.scalar_type or "")) * 32
         if size > budgets["max_descriptor_bytes"] or size * 8 > budgets["max_codec_peak_bytes"]:
             raise MemoryError("canonical descriptor byte limit exceeded")
+    if size > budgets["max_descriptor_bytes"] or size * 8 > budgets["max_codec_peak_bytes"]:
+        raise MemoryError("canonical descriptor byte limit exceeded")
 
 
 class ArtifactReadHandle:

@@ -66,6 +66,7 @@ def canonical_input(sql: str = SQL) -> tuple[pa.RecordBatchReader, SnapshotTable
     oracle = project_canonical_table_set(old.table_set, rules)
     assert projected["output"] is not None
     bound = oracle.tables[0].descriptor
+    assert bound.raw_content_digest is not None
     assert projected["output"]["raw_content_digest"] == bound.raw_content_digest.value
     return projected["output"]["tables"][0]["arrow_stream"], bound
 

@@ -83,7 +83,7 @@ PredicatePushdownReader
 
 ## SnapshotTableArtifact
 
-`SnapshotTableArtifact` 是 `SnapshotTableDescriptor + rows` 的物理承载。
+`SnapshotTableArtifact` 是 `SnapshotTableDescriptor + rows` 的公共物理承载 wrapper；format 表达实际用途，不表达可切换的生产引擎。
 
 建议 manifest：
 
@@ -96,6 +96,7 @@ SnapshotTableArtifactManifest:
   row_file_refs
   row_format
   compression
+  repository_id  # canonical 必填；raw 明确为 null
   row_materialization_profile
   artifact_content_digest
   created_at
@@ -113,11 +114,15 @@ manifest + Parquet rows
 - artifact manifest 必须能还原 `SnapshotTableDescriptor + SnapshotTableReader`。
 - `artifact_content_digest` 校验物理文件，不替代 `raw_content_digest`。
 - artifact 可作为 cache artifact；调用方对外声明 READY 前需要的 artifact 必须进入调用方自己的 artifact closure。
-- `SnapshotTableArtifact` 是 raw table materialization，不包含 ignored columns、effective key 修正后的 projection 语义。
+- raw `parquet/zstd` 载荷是原始 table materialization，不因共用 wrapper 获得 ignored columns、effective key 修正后的 projection 语义。内部 canonical `arrow-ipc/none` 则必须来自 Storage Projection 后的结果，并由 Canonical Storage 拥有内容身份及恢复边界。
 
 ### S2b 内部规范表边界
 
 Storage projection 后的内部规范表使用唯一 canonical IPC v1，owner 为 [Canonical Storage §5](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#5-artifact-lifecycle)；不同于这里的 raw Parquet artifact、面向客户端的 Parquet/export cache，也不同于下文 comparison-derived projection table。SQL parser 原始行不新增落盘。内部 reader 通过有界 `CanonicalTableStore` handle 读取，按外层 descriptor 对齐规范列名并保留导出 row layout；不以 raw Parquet `row_layout_digest` 替代规范内容身份，不保留内部格式生产回退。引用/TTL、T1/PREPARED 冻结和精确 commit 回填以该 owning Contract 为准，S2b C–E 分节实现与迁移。
+
+D 复用现有 artifact wrapper/manifest，避免给每个 SnapshotTable consumer 增设平行 union。目标 manifest 严格区分 `row_format=parquet, compression=zstd` 与 `row_format=arrow-ipc, compression=none`；`repository_id` 字段必须显式存在，raw 为 null，canonical 为有效 repository scope，并与 caller 已绑定的 repository 比较，再验证 C 的内容身份。`row_materialization_profile` 仍描述既有逻辑标量语义，不能因改物理格式改变业务 schema/content digest。reader 按声明格式打开对应真实用途，canonical 只用 C handle；缺损/错误不尝试另一格式或重新选择来源。同步更改 DTO、checkpoint/closure/冻结 reader 与 golden，不接受缺字段的旧 manifest、别名或格式猜测。
+
+客户端 table/bundle/export 仍提供真实 Parquet。内部 canonical IPC 必须经已有导出/cache owner 按外层 DDL/列序有界地转为 Parquet，纳入当前 operation 预算和发布保护，再进入客户端 closure；禁止将 IPC ref 直接标成 `.parquet`。raw Parquet 与内部 IPC 的共存来自不同实际用途，不是生产 fallback。
 
 ## 与 Repository Import 的边界
 

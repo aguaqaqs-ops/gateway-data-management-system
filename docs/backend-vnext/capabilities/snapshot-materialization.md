@@ -8,7 +8,7 @@
 > 当前 commit 规范元数据权威是 Backend 持有的 `CanonicalizationManifest`，Repository-ref 采用单遍读取，
 > 不写入、不读取或校验 hidden summary。其他 Snapshot materialization 语义仍按本文与 owning Contract 执行。
 
-S2b 内部规范表采用 [Canonical Storage §5](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#5-artifact-lifecycle) 的唯一 canonical IPC、引用与恢复边界（C–E 分节交付）。本页 raw SnapshotTableArtifact/Parquet cache 和客户端 Parquet 的独立消费者仍保留；上传 SQL parser rows 不新增落盘。通用 cache recompute 策略不能覆盖 T1/PREPARED 冻结：T1 前可重新 Preview，T1 后缺失不得改选 SourcePackage/parent/新规则，已提交规范副本只能按绑定精确 commit 核验回填。
+S2b 内部规范表采用 [Canonical Storage §5](../refactoring/formal/contracts/canonical-storage-and-repository-boundary.md#5-artifact-lifecycle) 的唯一 canonical IPC、引用与恢复边界（C–E 分节交付）。D 复用 SnapshotTableArtifact wrapper，以 manifest 明示 raw parquet/zstd 或 internal canonical arrow-ipc/none 并绑定 repository scope；严格目标载荷见 [Table Access](../contracts/snapshot-table-access.md#s2b-内部规范表边界)，不保留旧规范格式 fallback。本页 raw Parquet cache 和客户端 Parquet 的独立消费者仍保留；上传 SQL parser rows 不新增落盘。通用 cache recompute 策略不能覆盖 T1/PREPARED 冻结：T1 前可重新 Preview，T1 后缺失不得改选 SourcePackage/parent/新规则，已提交规范副本只能按绑定精确 commit 核验回填。
 
 ## 能力列表
 

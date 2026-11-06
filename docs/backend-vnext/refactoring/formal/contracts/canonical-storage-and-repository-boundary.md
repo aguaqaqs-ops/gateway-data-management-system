@@ -1,6 +1,6 @@
 # Canonical Storage and Repository Boundary Contract
 
-状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订；`3.5.0` 于 2026-11-06 按 DC85 增补 S2b A 内存 codec 边界；`3.6.0` 同日按 DC86 补齐 B kernel 与内部 IPC 行序边界；`3.7.0` 同日按 DC42、DC84–86 收口 C 的引用与恢复设计（实现与验证仍待 C 交付）
+状态：正式设计（Accepted）；`3.1.0` 于 2026-09-27 接受（[ADR 0018](../adr/0018-canonical-domain-comparison-and-comparison-rule-view.md)）；`3.2.0` 于 2026-10-12 按 owner 决议 DC29 修订；`3.3.0` 于 2026-10-26 按 Phase 6 S1a 修订；`3.4.0` 于 2026-10-27 按 DC58 修订；`3.5.0` 于 2026-11-06 按 DC85 增补 S2b A 内存 codec 边界；`3.6.0` 同日按 DC86 补齐 B kernel 与内部 IPC 行序边界；`3.7.0` 同日按 DC42、DC84–86 收口 C 的引用与恢复设计；`3.8.0` 同日收口 D 的公共 artifact wrapper 与客户端格式分界
 
 阶段：Phase 0 结论；Phase 2、Phase 3、Slice 5A/5B 实现
 
@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.canonical-storage-and-repository-boundary`
 
 Owner：Table Rules/Storage Projection（canonical content）；Repository Service（generic repository effect）
 
-Semantic version：`3.7.0`（2026-11-06，DC42、DC84–86；规范表 store、强引用/TTL 与冻结恢复；前版 `3.6.0`、`3.5.0`、`3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
+Semantic version：`3.8.0`（2026-11-06，DC86/DC87；D 的规范 IPC manifest/客户端导出接线；前版 `3.7.0`、`3.6.0`、`3.5.0`、`3.4.0`、`3.3.0`、`3.2.0`、`3.1.0`、`3.0.0`）
 
 Storage projection version：`3`（Phase 6 S1a 统一 manifest 表摘要为 `raw_content_digest`，并删除 `ordering_digest`；前版 `2` 于 P5 收口 S2a-F1 的负零规范化时提升）
 
@@ -142,6 +142,8 @@ level 都不重算这些业务 digest。
 ## 5. Artifact lifecycle
 
 内部 canonical table 是 storage projection 后的 immutable full-row facts，S2b 以唯一规范 IPC 表示；原始 SQL parser rows、中间业务物化值不因该设计新增落盘。通用 raw `SnapshotTableArtifact`、客户端 Parquet/export cache 与内部规范 IPC 的格式和缓存身份分别由实际消费者决定，不能把 raw Parquet cache 的键或恢复方式套到 canonical store。
+
+D 的实际 caller 复用 `SnapshotTableArtifact` 外层 wrapper：规范 manifest 明示 `row_format=arrow-ipc`、`compression=none` 与已绑定的 `repository_id`，保留 descriptor/DDL layout 及原逻辑 scalar profile。reader 同时核 caller repository 与内容 key；完整目标载荷和 raw `parquet/zstd` 的不同用途见 [Snapshot Table Access](../../../contracts/snapshot-table-access.md#s2b-内部规范表边界)。不提供旧规范 Parquet fallback 或缺字段兼容解析。客户端 export/bundle 仍是真实 Parquet，按预算从 IPC 有界导出，不改后缀冒充格式；导出缓存不成为冻结 canonical 的恢复来源。
 
 规范内容身份为 scope 内的 `storage_projection_version + business_schema_digest + row_count + table_digest + canonical_mapping_version`。business schema 已含 table name；raw SHA 只证明实际文件完整性，不能替代业务摘要。外层绑定保留 DDL/导出列序，IPC 使用唯一规范列序与行序；不假定跨 scope 或不同 table name 去重。
 

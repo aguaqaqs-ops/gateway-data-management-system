@@ -14,6 +14,8 @@
 
 C 经明确理由与独立审核暂记的五个生产不可达项见 [C 任务单 §5](p6-s2b-c-kickoff.md#5-验证与完成条件)；本节接入真实 Preview/History/Submit 等 consumer 后逐项从 `UNREACHABLE_MODULE_BASELINE` 删除。保留 Python import-boundary/cycle/reachability gate，native 调用边按 Rust policy §4 的精确 owner/entrypoint 规则，不靠假 import或延续临时例外完成接线。
 
+实际 payload 接线沿 [Snapshot Table Access 的目标 manifest](../../../contracts/snapshot-table-access.md#s2b-内部规范表边界)：复用公共 artifact wrapper，canonical 明示 arrow-ipc/none/绑定 repository_id，raw parquet/zstd/repository_id=null；严格新形态不双读旧规范格式。Preview/History checkpoint、canonical closure、Submit frozen reader 同步，客户端 surface/export 经有界列式转换获得真正 Parquet。格式分界不改业务 scalar profile/digest，也不以 generic reader 越过 T1/PREPARED 来源冻结。
+
 ## 2. N/M 前置和生命周期
 
 沿已批准 kickoff §5：`GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS` 为整数 1..256，正确性默认 1，4 仅是后续调优比较点。每进程初始化一次固定 N 的 Rayon pool，PyArrow CPU/I/O pool 同步为 N。adapter 不再每次自由设置 `pool_threads=1`；未初始化或 N 冲突稳定拒绝。不同 N 的验证分进程，不重置 OnceLock。

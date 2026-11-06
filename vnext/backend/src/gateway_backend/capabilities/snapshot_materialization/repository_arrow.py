@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import pyarrow as pa
-import pyarrow.compute as pc
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_columns
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableDescriptor

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import io
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -121,8 +122,7 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
 def test_bounded_http_arrow_spool_cleans_failure_and_rejects_wrong_commit(db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     stream, bound = canonical_input(SQL)
     stream.close()
-    import gateway_backend.infrastructure.repository_read.http_arrow as adapter
-    monkeypatch.setattr(adapter.tempfile, "tempdir", str(tmp_path))
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     wrong_commit = False
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/catalog"):

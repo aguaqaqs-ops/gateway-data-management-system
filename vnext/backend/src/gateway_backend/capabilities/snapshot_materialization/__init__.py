@@ -1,5 +1,14 @@
 """Public surface of the Snapshot Materialization capability."""
 
+from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
+    ArtifactReadHandle,
+    CanonicalTableStore,
+    canonical_columns,
+    canonical_table_key,
+    check_canonical_descriptor_budget,
+)
+from gateway_backend.capabilities.snapshot_materialization.repository_arrow import canonical_repository_stream
+
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
     declared_type_for_sql_spelling,
     try_declared_type_for_sql_spelling,
@@ -115,6 +124,12 @@ from gateway_backend.capabilities.table_access.contracts import (
 )
 
 __all__ = [
+    "ArtifactReadHandle",
+    "CanonicalTableStore",
+    "canonical_columns",
+    "canonical_table_key",
+    "check_canonical_descriptor_budget",
+    "canonical_repository_stream",
     "SqlDeclaredTypeMappingError",
     "SourceCell",
     "SourceColumnDescriptor",

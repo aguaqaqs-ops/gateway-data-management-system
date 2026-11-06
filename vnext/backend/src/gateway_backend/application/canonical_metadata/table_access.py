@@ -17,12 +17,13 @@ from gateway_shared_kernel import canonicalize_identifier
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableIndexPort, CanonicalTableKey
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.artifacts.store import ManifestVerificationError
-from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
+from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactReadHandle,
     CanonicalTableStore,
-    _check_descriptor_budget,
+    check_canonical_descriptor_budget,
     canonical_columns,
     canonical_table_key,
+    canonical_repository_stream,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRef,
@@ -32,8 +33,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
     normalize_sql_type_spelling,
 )
-from gateway_backend.capabilities.snapshot_materialization.repository_arrow import canonical_repository_stream
-from gateway_backend.capabilities.storage_projection.native import project_arrow_table
+from gateway_backend.capabilities.storage_projection import project_arrow_table
 from gateway_backend.capabilities.table_access.contracts import NeverCancel
 from gateway_backend.capabilities.table_rules.contracts import StorageRuleView
 
@@ -77,7 +77,7 @@ class CanonicalCommittedTableAccess:
     ) -> Iterator[ArtifactReadHandle]:
         if not commit_id or commit_id in ("main", "HEAD") or commit_id.startswith("refs/"):
             raise ValueError("canonical recovery requires an exact immutable commit")
-        _check_descriptor_budget(bound_descriptor, {
+        check_canonical_descriptor_budget(bound_descriptor, {
             "max_columns": self._budgets["max_columns"],
             "max_descriptor_bytes": self._budgets["max_metadata_bytes"],
             "max_codec_peak_bytes": self._budgets["max_live_bytes"],

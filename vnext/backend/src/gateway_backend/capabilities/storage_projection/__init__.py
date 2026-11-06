@@ -1,5 +1,7 @@
 """Public surface of the Storage Projection capability."""
 
+from gateway_backend.capabilities.storage_projection.native import project_arrow_table
+
 from gateway_backend.capabilities.storage_projection.contracts import (
     CANONICALIZATION_MANIFEST_CONTRACT,
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
@@ -60,6 +62,7 @@ from gateway_backend.capabilities.storage_projection.publish import (
 )
 
 __all__ = [
+    "project_arrow_table",
     "CANONICALIZATION_MANIFEST_CONTRACT",
     "CANONICALIZATION_MANIFEST_MEDIA_TYPE",
     "MANIFEST_ENTRY_NAME",

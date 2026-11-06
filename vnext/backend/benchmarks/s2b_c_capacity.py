@@ -154,6 +154,12 @@ def main() -> int:
             retained_parser.append(arrays)
             metadata["arrow_stream"] = pa.RecordBatchReader.from_batches(arrays.schema, arrays.to_batches())
             metadata_by_name[metadata["canonical_name"]] = metadata
+        current_parser_tables = retained_parser[-len(parsed["tables"]):]
+        report["parser_tables"] = [{
+            "index": index, "rows": table.num_rows, "columns": table.num_columns,
+            "buffers": table.get_total_buffer_size(),
+            "largest_column_buffers": max((column.get_total_buffer_size() for column in table.columns), default=0),
+        } for index, table in enumerate(current_parser_tables)]
         filtered = filter_arrow_catalog(metadata_by_name, cancel_probe=NeverCancel(), budgets=BUSINESS, deadline_monotonic=None, pool_threads=1)
         if filtered["output"] is None:
             raise RuntimeError("existing catalog filtering failed")
@@ -185,7 +191,20 @@ def main() -> int:
             if view is None:
                 materialized["output"]["tables"][0]["arrow_stream"].close()
                 continue
-            projected = project_arrow_table(materialized["output"]["tables"][0], descriptor, view, canonicalized_input=False, cancel_probe=NeverCancel(), budgets=BUSINESS, deadline_monotonic=None, pool_threads=1)
+            try:
+                projected = project_arrow_table(materialized["output"]["tables"][0], descriptor, view, canonicalized_input=False, cancel_probe=NeverCancel(), budgets=BUSINESS, deadline_monotonic=None, pool_threads=1)
+            except BaseException:
+                failure = {
+                    "phase": "canonical-projection", "side": side, "table_index": index,
+                    "rows": arrays.num_rows, "source_columns": arrays.num_columns,
+                    "retained_columns": len(view.retained_columns), "canonical_key_columns": len(view.canonical_key_columns),
+                    "parser_buffers": arrays.get_total_buffer_size(),
+                    "column_buffer_bytes": [column.get_total_buffer_size() for column in arrays.columns],
+                    "logical_types": [column["logical_type"] for column in metadata["columns"]],
+                    "local_budgets": BUSINESS, "memory": sample_memory("projection-failure"),
+                }
+                args.output.with_suffix(".failure.json").write_text(json.dumps(failure, indent=2) + "\n")
+                raise
             if projected["output"] is None:
                 raise RuntimeError(f"existing canonical projection failed at table index {index}")
             output = projected["output"]["tables"][0]

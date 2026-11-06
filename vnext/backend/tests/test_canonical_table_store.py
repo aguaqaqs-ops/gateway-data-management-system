@@ -153,3 +153,55 @@ def test_binding_cannot_open_a_different_business_digest(tmp_path: Path) -> None
     ref: ArtifactRef = store.put(stream, bound)
     with pytest.raises(ManifestVerificationError, match="identity"):
         store.open(ref, replace(bound, raw_content_digest=raw_blob_digest(b"other")))
+
+
+def test_handle_stream_is_borrowed_by_the_real_projection_kernel(tmp_path: Path) -> None:
+    store = CanonicalTableStore(LocalArtifactStore(tmp_path / "objects"), repository_id="repo", budgets=IPC_BUDGETS)
+    stream, bound = canonical_input()
+    assert bound.raw_content_digest is not None
+    ref = store.put(stream, bound)
+    rules = migrated_table_ruleset_snapshot()
+    record = resolve_table_rule(rules, bound.table_name, primary_key_columns=bound.primary_key_columns).record
+    view = derive_storage_rule_view(record, bound)
+    assert view is not None
+    from gateway_backend.capabilities.snapshot_materialization import canonical_columns
+    with store.open(ref, bound) as handle:
+        with handle.borrow_stream() as borrowed:
+            result = project_arrow_table({
+                "canonical_name": bound.table_name, "display_name": bound.display_table_name,
+                "columns": canonical_columns(bound), "primary_key": list(bound.primary_key_columns),
+                "reader_ready": True, "arrow_stream": borrowed,
+            }, bound, view, canonicalized_input=True, cancel_probe=NeverCancel(), budgets=BUSINESS_BUDGETS,
+                deadline_monotonic=None, pool_threads=1)
+            assert result["output"]["raw_content_digest"] == bound.raw_content_digest.value
+            result["output"]["tables"][0]["arrow_stream"].close()
+    with pytest.raises(ValueError, match="closed"):
+        _ = handle.schema
+
+
+def test_empty_schema_and_primary_key_metadata_are_bounded_before_key_hash(tmp_path: Path) -> None:
+    stream, bound = canonical_input()
+    stream.close()
+    store = CanonicalTableStore(InMemoryArtifactStore(), repository_id="repo", budgets={**IPC_BUDGETS, "max_descriptor_bytes": 1})
+    empty = replace(bound, columns=(), primary_key_columns=())
+    ref = ArtifactRef(canonical_table_key("repo", empty).artifact_id, "application/vnd.apache.arrow.file", 0, raw_blob_digest(b""))
+    with pytest.raises(MemoryError, match="descriptor"):
+        store.open(ref, empty)
+    keys = replace(bound, primary_key_columns=("x" * (4 * 1024 * 1024),))
+    with pytest.raises(MemoryError, match="descriptor"):
+        store.put(pa.RecordBatchReader.from_batches(pa.schema([]), []), keys)
+
+
+@pytest.mark.parametrize("outside", [False, True])
+def test_canonical_mapping_refuses_symlinks(tmp_path: Path, outside: bool) -> None:
+    local = LocalArtifactStore(tmp_path / "objects")
+    store = CanonicalTableStore(local, repository_id="repo", budgets=IPC_BUDGETS)
+    stream, bound = canonical_input()
+    ref = store.put(stream, bound)
+    digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
+    path = local.artifact_root / digest[:2] / digest[2:4] / digest
+    target = (tmp_path if outside else local.artifact_root) / "other-file"
+    path.rename(target)
+    path.symlink_to(target)
+    with pytest.raises(ManifestVerificationError):
+        store.open(ref, bound)

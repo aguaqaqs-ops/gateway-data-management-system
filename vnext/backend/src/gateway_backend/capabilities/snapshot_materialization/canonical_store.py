@@ -33,7 +33,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
     try_declared_type_for_sql_spelling,
 )
-from gateway_backend.capabilities.storage_projection.contracts import STORAGE_PROJECTION_VERSION
+from gateway_backend.capabilities.table_rules.contracts import STORAGE_PROJECTION_VERSION
 from gateway_backend.capabilities.table_access.contracts import NeverCancel
 
 
@@ -76,7 +76,7 @@ def canonical_columns(descriptor: SnapshotTableDescriptor) -> list[dict[str, Any
     return result
 
 
-def _check_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> None:
+def check_canonical_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> None:
     if max(len(descriptor.columns), len(descriptor.primary_key_columns)) > budgets["max_columns"]:
         raise MemoryError("canonical descriptor column limit exceeded")
     size = 4096 + len(descriptor.columns) * 4096
@@ -206,7 +206,7 @@ class CanonicalTableStore:
         self, stream: pa.RecordBatchReader, bound_descriptor: SnapshotTableDescriptor, *,
         before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
     ) -> ArtifactRef:
-        _check_descriptor_budget(bound_descriptor, self._budgets)
+        check_canonical_descriptor_budget(bound_descriptor, self._budgets)
         key = canonical_table_key(self._repository_id, bound_descriptor)
         def bound_batches() -> Iterator[pa.RecordBatch]:
             rows = 0
@@ -231,7 +231,7 @@ class CanonicalTableStore:
         return self._store.put(raw, ref)
 
     def open(self, ref: ArtifactRef, bound_descriptor: SnapshotTableDescriptor) -> ArtifactReadHandle:
-        _check_descriptor_budget(bound_descriptor, self._budgets)
+        check_canonical_descriptor_budget(bound_descriptor, self._budgets)
         key = canonical_table_key(self._repository_id, bound_descriptor)
         if ref.media_type != CANONICAL_IPC_MEDIA_TYPE or ref.artifact_id != key.artifact_id:
             raise ManifestVerificationError("canonical content identity binding mismatch")

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_canonical_fixture
+
 from collections.abc import Callable
 
 import pytest
 from gateway_shared_kernel import DigestRef, Float32Scalar, Float64Scalar, raw_blob_digest
 
-from gateway_backend.capabilities.storage_projection import project_canonical_table_set
 from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VERSION
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 
@@ -246,7 +247,7 @@ def test_canonical_state_digest_treats_signed_and_positive_float_zero_as_equal(
             table_ruleset_version=TABLE_RULESET_VERSION,
             tables=(SnapshotTable(descriptor=binding.descriptor, reader=reader),),
         )
-        projected = project_canonical_table_set(
+        projected = project_canonical_fixture(
             raw_table_set,
             migrated_table_ruleset_snapshot(),
         )

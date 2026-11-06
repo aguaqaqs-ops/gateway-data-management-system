@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage, project_canonical_fixture
+
 import json
 import time
 from collections.abc import Callable
@@ -28,8 +30,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionResult,
     ProjectionStatus,
     ProjectionTableInput,
-    project_canonical_table_set,
-    project_storage,
 )
 from gateway_backend.capabilities.table_access.contracts import SourceRow
 from gateway_backend.capabilities.table_access.contracts import ParserDiagnosticCode, TableAccessError
@@ -238,7 +238,7 @@ def test_canonical_table_projection_emits_canonical_descriptor_and_reader() -> N
         tables=(SnapshotTable(descriptor=binding.descriptor, reader=reader),),
     )
 
-    projected = project_canonical_table_set(raw, migrated_table_ruleset_snapshot())
+    projected = project_canonical_fixture(raw, migrated_table_ruleset_snapshot())
 
     assert projected.status is ProjectionStatus.COMPLETE
     assert projected.manifest is not None
@@ -346,7 +346,7 @@ def test_canonical_projection_uses_storage_key_for_compare_keyless_table() -> No
         tables=(SnapshotTable(descriptor=binding.descriptor, reader=reader),),
     )
 
-    projected = project_canonical_table_set(raw, migrated_table_ruleset_snapshot())
+    projected = project_canonical_fixture(raw, migrated_table_ruleset_snapshot())
 
     assert projected.status is ProjectionStatus.COMPLETE
     assert len(projected.tables) == 1

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage
+
 from collections.abc import Callable
 from typing import cast
 
@@ -26,7 +28,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionResult,
     ProjectionStatus,
     ProjectionTableInput,
-    project_storage,
 )
 from gateway_backend.capabilities.storage_projection._digest import (
     CanonicalColumnCodec,
@@ -37,7 +38,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ArtifactSourceBinding,
     SnapshotColumnDescriptor,
 )
-from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_MIN
+from gateway_backend.capabilities.snapshot_materialization.contracts import GID_PSEUDO_MIN
 from gateway_backend.capabilities.table_access.contracts import SourceRow
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
@@ -735,49 +736,8 @@ def test_raw_provenance_digest_is_not_r4_content() -> None:
     assert dummy_digest() != digest_ref("aa")
 
 
-def test_projection_computes_each_table_digest_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    import importlib
-
-    projection_module = importlib.import_module(
-        "gateway_backend.capabilities.storage_projection.project"
-    )
-    calls = {"raw": 0}
-    raw_digest = cast(
-        Callable[[tuple[bytes, ...]], DigestRef],
-        projection_module.raw_content_digest_of,
-    )
-    def counted_raw(rows: tuple[bytes, ...]) -> DigestRef:
-        calls["raw"] += 1
-        return raw_digest(rows)
-
-    monkeypatch.setattr(projection_module, "raw_content_digest_of", counted_raw)
-    result = project_storage(
-        _request(
-            _keyless_input((as_row(varchar_cell("a")),)),
-            ruleset=snapshot_from_records(keyless_record()),
-        )
-    )
-    assert result.status is ProjectionStatus.COMPLETE
-    assert calls == {"raw": 1}
 
 
-def test_output_write_failure_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def boom(*_args: object, **_kwargs: object) -> bytes:
-        raise OSError("hash sink failed")
-
-    monkeypatch.setattr(
-        "gateway_backend.capabilities.storage_projection.project.encode_canonical_cell",
-        boom,
-    )
-    result = project_storage(
-        _request(
-            _keyless_input((as_row(varchar_cell("a")),)),
-            ruleset=snapshot_from_records(keyless_record()),
-        )
-    )
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.BINDING_INVALID in _codes(result)
 
 
 MALFORMED_SCALAR: tuple[tuple[str, Callable[[], TableInput]], ...] = (

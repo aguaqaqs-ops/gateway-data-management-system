@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage, project_canonical_fixture
+
 import struct
 from collections import Counter
 from pathlib import Path
@@ -44,8 +46,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
     STORAGE_PROJECTION_VERSION,
     build_repository_import_package,
-    project_canonical_table_set,
-    project_storage,
     render_repository_import_schema_replay_sql,
 )
 from gateway_backend.capabilities.table_access.contracts import (
@@ -247,7 +247,7 @@ def test_canonical_snapshot_identity(
             SnapshotTable(descriptor=composite_binding.descriptor, reader=composite_reader),
         ),
     )
-    canonical = project_canonical_table_set(raw_table_set, _RULESET)
+    canonical = project_canonical_fixture(raw_table_set, _RULESET)
     assert canonical.manifest is not None
     assert len(canonical.tables) == 4
     projection_inputs = (

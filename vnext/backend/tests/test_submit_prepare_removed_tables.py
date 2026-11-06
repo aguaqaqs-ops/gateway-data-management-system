@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_canonical_fixture
+
 from pathlib import Path
 
 import pytest
@@ -22,7 +24,6 @@ from gateway_backend.capabilities.storage_projection import (
     CANONICALIZATION_MANIFEST_MEDIA_TYPE,
     durable_manifest_bytes,
     open_canonicalization_manifest,
-    project_canonical_table_set,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from gateway_backend.domain.submission.models import BuilderMutationPolicy
@@ -49,7 +50,7 @@ def _canonical_records_state(
     table = materialized.table_set.tables[0]
     assert table.artifact is not None
     ruleset = migrated_table_ruleset_snapshot()
-    projection = project_canonical_table_set(materialized.table_set, ruleset)
+    projection = project_canonical_fixture(materialized.table_set, ruleset)
     assert projection.manifest is not None
     assert projection.manifest.manifest_digest is not None
     manifest_bytes = durable_manifest_bytes(projection.manifest)
@@ -189,7 +190,7 @@ def test_prepare_removes_parent_tables_omitted_from_frozen_canonical_state(
         assert empty_materialized.table_set is not None
         assert empty_materialized.table_set.tables == ()
         ruleset = migrated_table_ruleset_snapshot()
-        empty_projection = project_canonical_table_set(empty_materialized.table_set, ruleset)
+        empty_projection = project_canonical_fixture(empty_materialized.table_set, ruleset)
         assert empty_projection.manifest is not None
         assert empty_projection.manifest.manifest_digest is not None
         empty_manifest_bytes = durable_manifest_bytes(empty_projection.manifest)

@@ -6,9 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from gateway_backend.capabilities.table_access._sql_types import map_sql_type
 from gateway_backend.capabilities.table_access.contracts import (
-    RESOURCE_BUDGETS,
     ParserDiagnosticCode,
     SqlLogicalType,
 )
@@ -53,25 +51,6 @@ SQL_KNOWN_TYPE_CASES = (
     ("ENUM()", "ENUM()", SqlLogicalType.UNKNOWN, None, ParserDiagnosticCode.SQL_TYPE_MALFORMED),
     ("TIME(7)", "TIME(7)", SqlLogicalType.UNKNOWN, None, ParserDiagnosticCode.SQL_TYPE_MALFORMED),
 )
-
-
-@pytest.mark.parametrize(
-    ("raw", "sql_type", "logical", "declared", "error"),
-    SQL_KNOWN_TYPE_CASES,
-    ids=[item[0] for item in SQL_KNOWN_TYPE_CASES],
-)
-def test_known_sql_type_mapping(
-    raw: str,
-    sql_type: str,
-    logical: SqlLogicalType,
-    declared: DeclaredType | None,
-    error: ParserDiagnosticCode | None,
-) -> None:
-    mapped = map_sql_type(raw, max_enum_set_bytes=RESOURCE_BUDGETS.max_enum_set_sql_type_bytes)
-    assert mapped.sql_type == sql_type
-    assert mapped.logical_type is logical
-    assert mapped.declared_type == declared
-    assert mapped.error is error
 
 
 def test_known_type_vector_file_matches_parameter_table() -> None:

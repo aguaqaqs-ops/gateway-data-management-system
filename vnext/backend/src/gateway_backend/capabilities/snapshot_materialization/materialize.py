@@ -139,18 +139,6 @@ def materialize_sql_snapshot(
         )
 
 
-def materialize_projected_snapshot(
-    source_snapshot: Snapshot, tables: tuple[SnapshotTable, ...], *, artifact_store: object,
-    context: ParserInvocationContext, export_cache: SnapshotTableExportCachePort | None = None,
-    repository_id: str | None = None,
-) -> SnapshotMaterializationResult:
-    """Temporary reference publication, removed with old projection callers in E."""
-    return _materialize_projected_snapshot(source_snapshot, tables, artifact_store=artifact_store,
-        context=context,
-        publish_tables=lambda items, digest, store: publish_ready_tables(items, snapshot_digest=digest,
-            store=store, context=context, export_cache=export_cache, repository_id=repository_id))
-
-
 def materialize_canonical_snapshot(
     source_snapshot: Snapshot, tables: tuple[SnapshotTable, ...], *, artifact_store: object,
     context: ParserInvocationContext, repository_id: str,
@@ -158,13 +146,13 @@ def materialize_canonical_snapshot(
     before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> SnapshotMaterializationResult:
     """Production canonical tables use only the Rust IPC store."""
-    return _materialize_projected_snapshot(source_snapshot, tables, artifact_store=artifact_store,
+    return _publish_canonical_snapshot(source_snapshot, tables, artifact_store=artifact_store,
         context=context,
         publish_tables=lambda items, digest, store: publish_canonical_tables(items, snapshot_digest=digest,
             store=store, repository_id=repository_id, lookup=lookup, before_write=before_write))
 
 
-def _materialize_projected_snapshot(
+def _publish_canonical_snapshot(
     source_snapshot: Snapshot,
     tables: tuple[SnapshotTable, ...],
     *,
@@ -458,175 +446,17 @@ def _materialize_table(
             schema_digest=schema_digest,
         )
         return descriptor, None, (diagnostic,)
-    if isinstance(parsed.reader, ArrowSourceTableReader):
-        try:
-            return materialize_source_arrow(parsed.reader, compare_keys=compare_keys, stage=stage,
-                                            table_ruleset_version=request.table_ruleset_version, invocation=request.context)
-        finally:
-            parsed.reader.close()
+    if not isinstance(parsed.reader, ArrowSourceTableReader):
+        diagnostic = _error(MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
+                            "SQL materialization requires the Arrow parser reader", table=source.canonical_name)
+        parsed.reader.close()
+        return _failed_descriptor(source, stage, request.table_ruleset_version, compare_keys,
+                                  schema_digest=schema_digest), None, (diagnostic,)
     try:
-        row_hashes, duplicate = _consume_rows(
-            parsed.reader, request.context, compare_keys, source.canonical_name
-        )
-    except _Halt as halt:
+        return materialize_source_arrow(parsed.reader, compare_keys=compare_keys, stage=stage,
+            table_ruleset_version=request.table_ruleset_version, invocation=request.context)
+    finally:
         parsed.reader.close()
-        raise halt
-    except (TableAccessError, CanonicalEncodingError, ValueError) as exc:
-        parsed.reader.close()
-        code = _map_stream_error(exc)
-        diagnostic = _error(code, str(exc) or "table stream failed", table=source.canonical_name)
-        descriptor = _failed_descriptor(
-            source,
-            stage,
-            request.table_ruleset_version,
-            compare_keys,
-            schema_digest=schema_digest,
-        )
-        return descriptor, None, (diagnostic,)
-    parsed.reader.close()
-    degraded: DegradedReason | None = None
-    if not compare_keys:
-        degraded = DegradedReason.KEYLESS
-    elif duplicate:
-        degraded = DegradedReason.DUPLICATE_EFFECTIVE_KEY
-        diagnostics.append(
-            MaterializationDiagnostic(
-                code=MaterializationDiagnosticCode.DUPLICATE_EFFECTIVE_KEY,
-                severity=DiagnosticSeverity.WARNING,
-                message="duplicate effective key rows were preserved",
-                table=source.canonical_name,
-            )
-        )
-    raw_digest = (
-        raw_content_digest_of(row_hashes) if stage is MaterializationStage.FINAL else None
-    )
-    descriptor = SnapshotTableDescriptor(
-        table_name=source.canonical_name,
-        display_table_name=source.display_name,
-        columns=tuple(
-            SnapshotColumnDescriptor(
-                name=column.canonical_name,
-                display_name=column.display_name,
-                nullable=column.nullable,
-                scalar_type=column.sql_type,
-            )
-            for column in source.columns
-        ),
-        primary_key_columns=source.primary_key_canonical_names,
-        compare_key_columns=compare_keys,
-        row_count=len(row_hashes),
-        materialization_stage=stage,
-        compare_schema_digest=schema_digest,
-        table_ruleset_version=request.table_ruleset_version,
-        row_materialization_profile=ROW_MATERIALIZATION_PROFILE,
-        scalar_encoding_version=SCALAR_ENCODING_VERSION,
-        raw_content_digest=raw_digest,
-        degraded_reason=degraded,
-        diagnostics=tuple(diagnostics),
-    )
-    published: SnapshotTable | None = None
-    if request.policy is MaterializationPolicy.READERS_REQUIRED:
-        reopenable = as_reopenable(parsed.reader)
-        if reopenable is None:
-            diagnostic = _error(
-                MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
-                "READY reader cannot reopen",
-                table=source.canonical_name,
-            )
-            failed = _failed_descriptor(
-                source,
-                stage,
-                request.table_ruleset_version,
-                compare_keys,
-                schema_digest=schema_digest,
-            )
-            return failed, None, (*diagnostics, diagnostic)
-        published_source = as_reopenable(reopenable.reopen())
-        if published_source is None:
-            diagnostic = _error(
-                MaterializationDiagnosticCode.TABLE_READER_UNAVAILABLE,
-                "READY reader cannot reopen",
-                table=source.canonical_name,
-            )
-            failed = _failed_descriptor(
-                source,
-                stage,
-                request.table_ruleset_version,
-                compare_keys,
-                schema_digest=schema_digest,
-            )
-            return failed, None, (*diagnostics, diagnostic)
-        published = SnapshotTable(
-            descriptor=descriptor,
-            reader=BoundSnapshotTableReader(descriptor, published_source),
-            diagnostics=tuple(diagnostics),
-            ordered_metadata=SnapshotTableOrderedMetadata(
-                blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
-            ),
-        )
-    return descriptor, published, tuple(diagnostics)
-
-
-def _consume_rows(
-    reader: TableReader,
-    context: ParserInvocationContext,
-    compare_keys: tuple[str, ...],
-    table_name: str,
-) -> tuple[tuple[bytes, ...], bool]:
-    descriptor = reader.descriptor()
-    columns = descriptor.columns
-    key_indexes = _key_indexes(descriptor, compare_keys)
-    gid_index = next(
-        (column.ordinal for column in columns if column.canonical_name == "gid"),
-        None,
-    )
-    row_hashes: list[bytes] = []
-    seen: set[tuple[bytes, ...]] = set()
-    duplicate = False
-    for row in reader.iter_rows():
-        _checkpoint(context)
-        if gid_index is not None and _is_reserved_pseudo_gid(row[gid_index]):
-            raise _Halt(
-                MaterializationDiagnosticCode.RESERVED_PSEUDO_GID,
-                f"SQL source table {table_name!r} gid is in the reserved pseudo range",
-            )
-        row_hashes.append(row_content_hash(columns, row))
-        if key_indexes:
-            key = tuple(encode_cell_frame(columns[index], row[index]) for index in key_indexes)
-            if key in seen:
-                duplicate = True
-            else:
-                seen.add(key)
-    _checkpoint(context)
-    return tuple(row_hashes), duplicate
-
-
-def _is_reserved_pseudo_gid(cell: object) -> bool:
-    if isinstance(cell, NullScalar):
-        return False
-    value: int | None = None
-    if isinstance(cell, (SignedIntegerScalar, UnsignedIntegerScalar)):
-        try:
-            value = int(cell.decimal, 10)
-        except ValueError:
-            return False
-    elif isinstance(cell, StringScalar):
-        if cell.text == "":
-            return False
-        try:
-            value = int(cell.text, 10)
-        except ValueError:
-            return False
-    return value is not None and GID_PSEUDO_MIN <= value <= GID_PSEUDO_MAX
-
-
-def _key_indexes(
-    descriptor: SourceTableDescriptor, compare_keys: tuple[str, ...]
-) -> tuple[int, ...]:
-    if not compare_keys:
-        return ()
-    names = {column.canonical_name: column.ordinal for column in descriptor.columns}
-    return tuple(names[name] for name in compare_keys)
 
 
 def _select_tables(request: SqlSnapshotMaterializationRequest) -> tuple[ParsedTable, ...]:
@@ -733,15 +563,6 @@ def _checkpoint(context: ParserInvocationContext) -> None:
             MaterializationDiagnosticCode.MATERIALIZATION_TIMEOUT,
             "materialization deadline exceeded",
         )
-
-
-def _map_stream_error(exc: BaseException) -> MaterializationDiagnosticCode:
-    if isinstance(exc, TableAccessError):
-        if exc.code is ParserDiagnosticCode.PARSER_CANCELLED:
-            return MaterializationDiagnosticCode.MATERIALIZATION_CANCELLED
-        if exc.code is ParserDiagnosticCode.PARSER_TIMEOUT:
-            return MaterializationDiagnosticCode.MATERIALIZATION_TIMEOUT
-    return MaterializationDiagnosticCode.STREAM_INCOMPLETE
 
 
 def _trust_for(stage: MaterializationStage) -> CacheTrustLevel:

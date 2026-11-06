@@ -1449,6 +1449,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
             "--keep-stack",
             "--project-name",
             "s2b-debug",
+            "--kernel-threads", "1", "--kernel-memory-budget-bytes", "8589934592",
         ]
     )
 
@@ -1478,7 +1479,7 @@ def test_cli_accepts_the_t4_preview_and_submit_debug_scope(
 
     monkeypatch.setattr(real_dump_journey, "run_journey", fake_run_journey)
 
-    result = real_dump_journey.main(["--tier", "t4", "--scope", "t4-v1-submit"])
+    result = real_dump_journey.main(["--tier", "t4", "--scope", "t4-v1-submit", "--kernel-threads", "1", "--kernel-memory-budget-bytes", "8589934592"])
 
     assert result == 0
     assert calls["tier_filter"] == "t4"

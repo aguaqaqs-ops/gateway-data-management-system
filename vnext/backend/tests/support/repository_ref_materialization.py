@@ -494,7 +494,7 @@ def make_request(
         export_cache=export_cache,
     )
 
-    return _bind_reference_tables(request, provider)
+    return _bind_fixture_tables(request, provider)
 
 
 def materialize_ref(
@@ -558,102 +558,78 @@ def _complete_ruleset(ruleset: TableRulesetSnapshot) -> TableRulesetSnapshot:
     )
 
 
-class _ReferenceCommittedTables:
-    """D/E temporary adapter over the already-existing reference implementation.
+class _FixtureCanonicalIndex:
+    """Ephemeral index for the real C port used by metadata/selection fixtures."""
+    def __init__(self) -> None:
+        self.refs: dict[Any, Any] = {}
 
-    E replaces the reference-generated fixture facts with independent vectors.
-    Production never selects this adapter or calls the reference row algorithm.
-    """
-    def __init__(self, request: RepositoryRefMaterializationRequest, provider: FakeRepositoryTableAccessProvider) -> None:
-        self.request = request
-        self.provider = provider
-
-    def lookup(self, key: Any) -> None:
-        return None
+    def lookup(self, key: Any) -> Any:
+        return self.refs.get(key)
 
     def register(self, key: Any, ref: Any) -> None:
+        self.refs[key] = ref
+
+    def bind_commit(self, *, repository_id: str, commit_id: str, refs: Any) -> None:
         pass
 
-    def load_table(self, *, commit_id: str, descriptor: Any, identity: Any, storage_view: Any, context: Any, timeout_policy: Any) -> Any:
-        from gateway_backend.capabilities.snapshot_materialization.repository_ref import _read_and_materialize_table
-        from gateway_backend.capabilities.snapshot_materialization.arrow import snapshot_table_from_arrow
-        from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
-        from gateway_backend.capabilities.snapshot_materialization._parquet import _cell_to_arrow
-        import struct
-        session = self.provider.open_ref(self.request.repository_ref, timeout_policy)
-        try:
-            catalog_table = next(t for t in session.get_catalog().tables if canonicalize_identifier(t.table_name) == descriptor.table_name)
-            _, table, _ = _read_and_materialize_table(self.request, session, catalog_table, storage_view,
-                self.request.materialization_stage, keep_rows=True)
-            if table is None or not isinstance(table.reader, BoundSnapshotTableReader):
-                raise ValueError("reference fixture table is unavailable")
-            source = table.reader.source_descriptor()
-            rows = list(table.reader.iter_rows())
-            fields = []
-            arrays = []
-            for index, column in enumerate(source.columns):
-                kind = None if column.declared_type is None else column.declared_type.kind.value
-                physical = pa.int64() if kind == "signed-integer" else pa.uint64() if kind == "unsigned-integer" else pa.float32() if kind == "float32" else pa.float64() if kind == "float64" else pa.string()
-                fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
-                values: list[Any] = [_cell_to_arrow(row[index], column) for row in rows]
-                if column.logical_type.value == "set":
-                    values = [None if value is None else ",".join(value) for value in values]
-                elif kind in ("signed-integer", "unsigned-integer"):
-                    values = [None if value is None else int(value) for value in values]
-                elif kind in ("float32", "float64"):
-                    values = [None if value is None else struct.unpack(">f" if kind == "float32" else ">d", bytes.fromhex(value))[0] for value in values]
-                arrays.append(pa.array(values, type=physical))
-            backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
-            from gateway_backend.capabilities.storage_projection.native import project_arrow_table
-            from gateway_backend.capabilities.snapshot_materialization import operation_business_budgets, current_kernel_context
-            from gateway_backend.capabilities.table_access import source_arrow_metadata
-            active = current_kernel_context()
-            assert active is not None
-            view = storage_view
-            if view.canonical_key_policy.value in ("DDL_PRIMARY_KEY", "DDL_PRIMARY_KEY_OR_KEYLESS"):
-                view = replace(view, canonical_key_columns=descriptor.primary_key_columns)
-            with backing.to_reader() as stream:
-                projected = project_arrow_table(source_arrow_metadata(source, stream), table.descriptor, view,
-                    canonicalized_input=True, cancel_probe=active.cancel_probe, budgets=operation_business_budgets(),
-                    deadline_monotonic=active.deadline_monotonic, pool_threads=active.threads)
-            assert projected["output"] is not None, projected["diagnostics"]
-            with projected["output"]["tables"][0]["arrow_stream"] as stream:
-                backing = stream.read_all()
-            return snapshot_table_from_arrow(table.descriptor, backing, source, ordered=table.ordered_metadata)
-        finally:
-            try:
-                session.close()
-            except RepositoryProviderError as exc:
-                # The outer materializer owns the existing close warning. This
-                # test-only reference session must not turn it into content failure.
-                if exc.code is not MaterializationDiagnosticCode.REPOSITORY_SESSION_CLOSE_FAILED:
-                    raise
 
-
-def _bind_reference_tables(request: RepositoryRefMaterializationRequest, provider: FakeRepositoryTableAccessProvider) -> RepositoryRefMaterializationRequest:
-    from gateway_backend.capabilities.snapshot_materialization.repository_ref import _read_and_materialize_table
-    from gateway_backend.capabilities.snapshot_materialization.contracts import CanonicalTableIdentity
+def _bind_fixture_tables(request: RepositoryRefMaterializationRequest, provider: FakeRepositoryTableAccessProvider) -> RepositoryRefMaterializationRequest:
+    from types import SimpleNamespace
+    from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
+    from gateway_backend.artifacts import InMemoryArtifactStore
+    from gateway_backend.capabilities.snapshot_materialization import (
+        canonical_columns, canonical_repository_stream, compare_schema_digest,
+        operation_business_budgets, current_kernel_context,
+    )
+    from gateway_backend.capabilities.snapshot_materialization.contracts import (
+        CanonicalTableIdentity, SnapshotColumnDescriptor, SnapshotTableDescriptor,
+        ROW_MATERIALIZATION_PROFILE, SCALAR_ENCODING_VERSION,
+    )
     from gateway_backend.capabilities.storage_projection import compute_schema_digest
+    from gateway_backend.capabilities.storage_projection.native import project_arrow_table
+    from gateway_shared_kernel import DigestRef
     if not request.canonical_binding.tables:
         return request
-    identities = []
+    index = _FixtureCanonicalIndex()
+    @contextmanager
+    def uow() -> Iterator[Any]:
+        yield SimpleNamespace(canonical_tables=index)
+    port = build_committed_table_access(store=InMemoryArtifactStore(), unit_of_work_factory=uow,
+        repository_provider_factory=lambda repository_id, commit_id: provider,
+        repository_id=request.repository_ref.repository_id)
+    if request.canonical_binding.table_identities:
+        return replace(request, committed_tables=port)
+    # Construct legitimate fixed-scope metadata using the same Rust/C producer
+    # as production. These fixture values are not correctness expectations.
     session = FakeRepositoryRefSession(catalog=provider.catalog, rows=provider.declared_rows,
         pinned_commit=provider.current_commit, pad_nulls=True, fail_stream=False,
         close_error=False, catalog_error=False, catalog_error_message=None, missing_table_on_open=None)
+    active = current_kernel_context()
+    assert active is not None
+    identities = []
     for view in request.canonical_binding.tables:
         catalog_table = next(t for t in provider.catalog.tables if canonicalize_identifier(t.table_name) == view.canonical_table)
-        descriptor, _, _ = _read_and_materialize_table(replace(request, context=ParserInvocationContext(NeverCancel())), session, replace(catalog_table, row_count=None), view,
-            request.materialization_stage, keep_rows=False)
-        if descriptor.raw_content_digest is None:
-            raise ValueError("reference fixture must supply a valid canonical identity")
-        identities.append(CanonicalTableIdentity(view.canonical_table, descriptor.row_count,
-            descriptor.compare_schema_digest, compute_schema_digest(columns=[{"name": column.name,
-                "sql_type": column.scalar_type, "nullable": column.nullable} for column in descriptor.columns],
-                primary_key=descriptor.primary_key_columns), descriptor.raw_content_digest))
-    binding = request.canonical_binding
-    if not binding.table_identities:
-        binding = replace(binding, table_identities=tuple(identities))
-    reference = _ReferenceCommittedTables(request, provider)
-    request = replace(request, canonical_binding=binding, committed_tables=reference)
-    reference.request = request
-    return request
+        columns = tuple(SnapshotColumnDescriptor(canonicalize_identifier(c.name), c.display_name or c.name,
+            True if c.nullable is None else c.nullable, c.scalar_type or c.raw_type or "UNKNOWN") for c in catalog_table.columns)
+        keys = tuple(canonicalize_identifier(k) for k in catalog_table.primary_key_columns)
+        count = len(provider.declared_rows.get(view.canonical_table, ()))
+        schema = compare_schema_digest(view.canonical_table, tuple(c.name for c in columns), keys)
+        descriptor = SnapshotTableDescriptor(view.canonical_table, catalog_table.display_table_name or catalog_table.table_name,
+            columns, keys, keys, count, request.materialization_stage, schema, request.table_ruleset_version,
+            ROW_MATERIALIZATION_PROFILE, SCALAR_ENCODING_VERSION, raw_content_digest=DigestRef("sha256:" + "00" * 32))
+        budgets = operation_business_budgets()
+        with session.open_arrow_table_reader(catalog_table.table_name, max_rows=budgets["max_rows"],
+                max_columns=budgets["max_columns"], max_input_bytes=budgets["max_input_bytes"], max_batches=budgets["max_batches"]) as wire:
+            with canonical_repository_stream(wire, descriptor, budgets=budgets) as converted:
+                resolved = replace(view, canonical_key_columns=keys) if view.canonical_key_policy.value in ("DDL_PRIMARY_KEY", "DDL_PRIMARY_KEY_OR_KEYLESS") else view
+                result = project_arrow_table({"canonical_name": view.canonical_table,
+                    "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
+                    "primary_key": list(keys), "reader_ready": True, "arrow_stream": converted}, descriptor,
+                    resolved, canonicalized_input=True, cancel_probe=active.cancel_probe, budgets=budgets,
+                    deadline_monotonic=active.deadline_monotonic, pool_threads=active.threads)
+        assert result["output"] is not None, result["diagnostics"]
+        result["output"]["tables"][0]["arrow_stream"].close()
+        identities.append(CanonicalTableIdentity(view.canonical_table, count, schema,
+            compute_schema_digest(columns=[{"name": c.name, "nullable": c.nullable, "sql_type": c.scalar_type} for c in columns],
+                primary_key=keys), DigestRef(result["output"]["raw_content_digest"])))
+    return replace(request, canonical_binding=replace(request.canonical_binding, table_identities=tuple(identities)), committed_tables=port)

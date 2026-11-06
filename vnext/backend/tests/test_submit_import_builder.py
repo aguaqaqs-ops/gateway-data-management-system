@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage, build_import_projection_snapshots, project_canonical_fixture
+
 from dataclasses import replace
 
 import pytest
@@ -42,11 +44,9 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
     ProjectionStatus,
     STORAGE_PROJECTION_VERSION,
-    build_import_projection_snapshots,
     durable_manifest_bytes,
     open_canonicalization_manifest,
-    project_canonical_table_set, project_canonical_arrow_table_set,
-    project_storage,
+    project_canonical_arrow_table_set,
     publish_canonicalization,
     render_repository_import_schema_replay_sql,
 )
@@ -56,7 +56,7 @@ from gateway_backend.capabilities.mutation_planning import (
 )
 from gateway_backend.capabilities.snapshot_materialization import materialize_canonical_snapshot
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
-from gateway_backend.capabilities.storage_projection._ordered import GID_PSEUDO_MIN
+from gateway_backend.capabilities.snapshot_materialization.contracts import GID_PSEUDO_MIN
 from gateway_backend.capabilities.storage_projection.package import (
     unpack_repository_import_entries,
     validate_repository_import_package,
@@ -324,7 +324,7 @@ def test_empty_canonical_closure_resolves_without_table_artifacts() -> None:
     assert materialized.status is SnapshotMaterializationStatus.COMPLETE
     assert materialized.table_set is not None
     assert materialized.table_set.tables == ()
-    projection = project_canonical_table_set(
+    projection = project_canonical_fixture(
         materialized.table_set,
         migrated_table_ruleset_snapshot(),
     )
@@ -378,7 +378,7 @@ def test_empty_canonical_state_publishes_parent_table_removal() -> None:
     )
     assert materialized.status is SnapshotMaterializationStatus.COMPLETE
     assert materialized.table_set is not None
-    canonical = project_canonical_table_set(
+    canonical = project_canonical_fixture(
         materialized.table_set,
         migrated_table_ruleset_snapshot(),
     )

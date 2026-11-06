@@ -20,7 +20,6 @@ from gateway_backend.capabilities.storage_projection import (
     CanonicalizationManifestTable,
 )
 from gateway_backend.capabilities.storage_projection._digest import compute_schema_digest
-from gateway_backend.capabilities.storage_projection.project import _retained_schema
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     RepositoryTableCatalog,
@@ -115,7 +114,9 @@ def metadata_for_catalog(
             descriptor = descriptors[view.canonical_table]
             if descriptor.raw_content_digest is None:
                 raise AssertionError("test Repository descriptor is missing the raw digest")
-            schema_columns, _, _ = _retained_schema(view, descriptor)
+            by_name = {column.name: column for column in descriptor.columns}
+            schema_columns = [{"name": name, "sql_type": by_name[name].scalar_type,
+                "nullable": by_name[name].nullable} for name in view.retained_columns]
             manifest_tables.append(
                 CanonicalizationManifestTable(
                     name=view.canonical_table,

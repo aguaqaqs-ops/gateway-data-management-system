@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_canonical_fixture
+
 import hashlib
 from dataclasses import replace
 from collections.abc import Iterator
@@ -23,7 +25,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
 )
 from gateway_backend.capabilities.storage_projection.native import project_arrow_table
-from gateway_backend.capabilities.storage_projection.project import project_canonical_table_set
 from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
 from gateway_backend.capabilities.table_access.contracts import NeverCancel
 from gateway_backend.capabilities.table_rules import resolve_table_rule
@@ -64,7 +65,7 @@ def canonical_input(sql: str = SQL) -> tuple[pa.RecordBatchReader, SnapshotTable
         cancel_probe=NeverCancel(), budgets=BUSINESS_BUDGETS,
         deadline_monotonic=None, pool_threads=1,
     )
-    oracle = project_canonical_table_set(old.table_set, rules)
+    oracle = project_canonical_fixture(old.table_set, rules)
     assert projected["output"] is not None
     bound = oracle.tables[0].descriptor
     assert bound.raw_content_digest is not None

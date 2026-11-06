@@ -8,6 +8,12 @@ values or row identifiers are emitted.
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+)
+from gateway_backend.capabilities.table_access import NeverCancel
+
 import argparse
 import contextlib
 import hashlib
@@ -3983,6 +3989,24 @@ def validate_inputs() -> dict[str, Any]:
     return {"datasets": validated, "conclusion": "INPUTS_VALID"}
 
 
+def _run_kernel_journey(arguments: argparse.Namespace) -> dict[str, Any]:
+    if arguments.kernel_threads is None or arguments.kernel_memory_budget_bytes is None:
+        raise JourneyFailure("journey requires explicit --kernel-threads and --kernel-memory-budget-bytes")
+    initialize_compute_kernel(arguments.kernel_threads)
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(arguments.kernel_memory_budget_bytes),
+            NeverCancel(), arguments.kernel_threads), new_operation=True):
+        return run_journey(
+                tier_filter=arguments.tier,
+                scope=arguments.scope,
+                cross_project=arguments.cross_project,
+                from_step=arguments.from_step,
+                keep_stack=arguments.keep_stack,
+                requested_project_name=arguments.project_name,
+                dc32_output=arguments.dc32_output,
+                debug_t1_submit_probe=arguments.debug_submit_probe_t1,
+            )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -4014,6 +4038,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="also capture v1/v2 Submit reconciliation facts during a fresh t1 debug journey",
     )
+    parser.add_argument("--kernel-threads", type=int)
+    parser.add_argument("--kernel-memory-budget-bytes", type=int)
     arguments = parser.parse_args(argv)
     try:
         if arguments.validate_inputs and any(
@@ -4032,16 +4058,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = (
             validate_inputs()
             if arguments.validate_inputs
-            else run_journey(
-                tier_filter=arguments.tier,
-                scope=arguments.scope,
-                cross_project=arguments.cross_project,
-                from_step=arguments.from_step,
-                keep_stack=arguments.keep_stack,
-                requested_project_name=arguments.project_name,
-                dc32_output=arguments.dc32_output,
-                debug_t1_submit_probe=arguments.debug_submit_probe_t1,
-            )
+            else _run_kernel_journey(arguments)
         )
         print(json.dumps(result, sort_keys=True))
     except WorkerStalledFailure as exc:

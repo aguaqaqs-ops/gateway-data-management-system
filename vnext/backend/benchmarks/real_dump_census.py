@@ -5,6 +5,11 @@ Not imported by production code. Host-side only.
 
 from __future__ import annotations
 
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+)
+
 import argparse
 import gzip
 import hashlib
@@ -19,7 +24,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from gateway_shared_kernel import DigestRef, raw_blob_digest
+from gateway_shared_kernel import DigestRef, raw_blob_digest, NullScalar, StringScalar, SignedIntegerScalar, UnsignedIntegerScalar
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.composite_signal.contracts import (
@@ -48,7 +53,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableSet,
 )
 from gateway_backend.capabilities.snapshot_materialization.materialize import (
-    materialize_projected_snapshot,
+    materialize_canonical_snapshot,
     materialize_sql_snapshot,
 )
 from gateway_backend.capabilities.source_package_staging.contracts import (
@@ -72,7 +77,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     XmlParseResult,
     XmlSourceInput,
 )
-from gateway_backend.capabilities.table_access.sql import parse_sql
+from gateway_backend.capabilities.table_access import parse_arrow_sql
 from gateway_backend.capabilities.table_access.xml import parse_xml
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
@@ -82,12 +87,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
 from gateway_backend.capabilities.table_rules import comparison_rule_set
-from gateway_backend.capabilities.storage_projection import project_canonical_table_set
-from gateway_backend.capabilities.storage_projection._ordered import (
-    OrderedProjectionError,
-    _parse_gid_source,
-    project_ordered_rows,
-)
+from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
 from gateway_backend.capabilities.storage_projection.contracts import ProjectionDiagnosticCode
 from gateway_backend.capabilities.storage_projection.view import StorageViewError, derive_storage_rule_view
 from gateway_backend.capabilities.table_rules.contracts import (
@@ -233,7 +233,7 @@ def _load_pairing_map(root: Path) -> dict[str, str]:
 
 def _production_sql_parse_report(sql_bytes: bytes) -> dict[str, Any]:
     context = ParserInvocationContext(NeverCancel())
-    parse_result = parse_sql(
+    parse_result = parse_arrow_sql(
         SqlParseRequest(
             source=SqlSourceInput(
                 document_content_digest=_ZERO_DIGEST,
@@ -256,7 +256,7 @@ def _production_sql_parse_report(sql_bytes: bytes) -> dict[str, Any]:
 
 def _analyze_parse(sql_bytes: bytes) -> dict[str, Any]:
     context = ParserInvocationContext(NeverCancel())
-    parse_result = parse_sql(
+    parse_result = parse_arrow_sql(
         SqlParseRequest(
             source=SqlSourceInput(
                 document_content_digest=_ZERO_DIGEST,
@@ -466,17 +466,18 @@ def _canonical_composite_snapshot_from_package(package_bytes: bytes) -> _Composi
             raise CompositeProjectionError("business materialization omitted composite_signal_point")
 
         selected_table_set = replace(business.table_set, tables=(composite_table,))
-        projected = project_canonical_table_set(selected_table_set, ruleset)
+        projected = project_canonical_arrow_table_set(selected_table_set, ruleset)
         projected_tables = projected.tables
         if projected.status.value != "COMPLETE" or projected.manifest is None:
             codes = tuple(item.code.value for item in projected.diagnostics)
             raise CompositeProjectionError(f"canonical projection failed: {codes!r}")
 
-        canonical = materialize_projected_snapshot(
+        canonical = materialize_canonical_snapshot(
             business.snapshot,
             projected_tables,
             artifact_store=store,
             context=analysis["context"],
+            repository_id="real-dump-census",
         )
         if (
             canonical.status is not SnapshotMaterializationStatus.COMPLETE
@@ -787,9 +788,12 @@ def _duplicate_and_effective_key_stats(
             if ordered:
                 if gid_index is None:
                     continue
-                try:
-                    gid_value = _parse_gid_source(row[gid_index])
-                except OrderedProjectionError:
+                cell = row[gid_index]
+                if isinstance(cell, NullScalar) or isinstance(cell, StringScalar) and cell.text == "":
+                    gid_value = None
+                elif isinstance(cell, (SignedIntegerScalar, UnsignedIntegerScalar)):
+                    gid_value = int(cell.decimal) or None
+                else:
                     unparseable_gid_rows += 1
                     continue
                 if gid_value is None:
@@ -813,31 +817,23 @@ def _duplicate_and_effective_key_stats(
         if ordered:
             if ordered_rows is None:
                 raise AssertionError("ordered rows must be materialized for projection")
-            if gid_index is None or no_index is None:
-                projection_error = OrderedProjectionError(
-                    ProjectionDiagnosticCode.ROW_INTEGRITY,
-                    "ordered table requires gid and no columns",
-                )
-                projection_code = projection_error.code.value
-                projection_message = projection_error.message
-                projection_status = "FAILED"
+            projected = project_canonical_arrow_table_set(replace(table_set, tables=(table,)), ruleset)
+            projection_status = projected.status.value
+            if projected.manifest is None:
+                first = projected.diagnostics[0]
+                projection_code = first.code.value
+                projection_message = first.message
             else:
-                try:
-                    projected = project_ordered_rows(
-                        ordered_rows,
-                        gid_index=gid_index,
-                        no_index=no_index,
-                    )
-                except OrderedProjectionError as exc:
-                    projection_code = exc.code.value
-                    projection_message = exc.message
-                    projection_status = "FAILED"
-                else:
-                    projection_code = None
-                    projection_message = None
-                    projection_status = "COMPLETE"
-                    real_gid_count = projected.real_count
-                    pseudo_gid_count = projected.pseudo_count
+                projection_code = None
+                projection_message = None
+                facts = projected.manifest.tables[0]
+                real_gid_count = facts.gid_real_count or 0
+                pseudo_gid_count = facts.gid_pseudo_count or 0
+            for projected_table in projected.tables:
+                if projected_table.reader is not None:
+                    projected_table.reader.close()
+                if projected_table.batch_reader is not None:
+                    projected_table.batch_reader.close()
             ordered_projection_by_table[descriptor.table_name] = {
                 "status": projection_status,
                 "diagnostic_code": projection_code,
@@ -1104,7 +1100,16 @@ def main() -> None:
         action="store_true",
         help="Use READERS_REQUIRED materialization to compute read-only key statistics.",
     )
+    parser.add_argument("--kernel-threads", type=int, required=True)
+    parser.add_argument("--kernel-memory-budget-bytes", type=int, required=True)
     args = parser.parse_args()
+    initialize_compute_kernel(args.kernel_threads)
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(args.kernel_memory_budget_bytes),
+            NeverCancel(), args.kernel_threads), new_operation=True):
+        _run_census(args)
+
+
+def _run_census(args: argparse.Namespace) -> None:
     diagnostic_mode = bool(args.diagnostic)
 
     root = _dump_root()

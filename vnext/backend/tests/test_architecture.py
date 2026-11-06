@@ -868,7 +868,8 @@ def test_facade_lazy_import_reachability_depends_on_imported_symbol(
 
 # Each row: source module, imported module, imported names, expected rule (None = allowed).
 IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
-    ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("_init_kernel_native",), None),
+    ("gateway_backend.bootstrap.compute_kernel", "gateway_compute._native", ("_init_kernel_native",), None),
+    ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("_init_kernel_native",), RULE_LAYER),
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("_parse_sql_native",), RULE_LAYER),
     ("gateway_backend.bootstrap.composition", "gateway_compute._native", ("_init_kernel_native",), RULE_LAYER),
     ("gateway_backend.bootstrap.operation_worker", "gateway_compute._native", ("*",), RULE_LAYER),

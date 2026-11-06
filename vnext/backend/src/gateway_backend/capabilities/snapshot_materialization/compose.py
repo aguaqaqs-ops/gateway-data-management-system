@@ -26,10 +26,7 @@ from gateway_backend.capabilities.composite_signal.contracts import (
     CompositeSignalStatus,
 )
 from gateway_backend.capabilities.snapshot_materialization.arrow import ArrowSnapshotTableReader, extract_arrow_special_device_catalog
-from gateway_backend.capabilities.snapshot_materialization._catalog import (
-    CatalogError,
-    extract_special_device_catalog,
-)
+from gateway_backend.capabilities.snapshot_materialization._catalog import CatalogError
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
     raw_content_digest_of,
@@ -139,12 +136,7 @@ def materialize_business_snapshot(
             ),
         )
     try:
-        if sql_result.table_set is not None and any(isinstance(table.reader, ArrowSnapshotTableReader)
-                for table in sql_result.table_set.tables):
-            catalog = extract_arrow_special_device_catalog(sql_result)
-        else:
-            # E removes the pre-existing row reference alongside its parser vectors.
-            catalog = extract_special_device_catalog(sql_result)
+        catalog = extract_arrow_special_device_catalog(sql_result)
     except CatalogError as exc:
         return _failed(
             stage,

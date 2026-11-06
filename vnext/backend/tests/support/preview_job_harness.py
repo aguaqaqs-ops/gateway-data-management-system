@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_canonical_fixture
+
 from collections.abc import Callable
 from functools import cache
 import json
@@ -57,7 +59,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.storage_projection import (
     CanonicalizationManifest,
     ProjectionStatus,
-    project_canonical_table_set,
 )
 from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
 from tests.support.runtime_settings import make_operation_worker_settings
@@ -156,7 +157,7 @@ def _canonical_baseline_data(
     )
     if materialized.table_set is None:
         raise AssertionError("baseline business materialization did not publish a table set")
-    projected = project_canonical_table_set(materialized.table_set, ruleset)
+    projected = project_canonical_fixture(materialized.table_set, ruleset)
     if projected.status is not ProjectionStatus.COMPLETE:
         diagnostics = tuple(
             (item.code.value, item.table_name, item.message)

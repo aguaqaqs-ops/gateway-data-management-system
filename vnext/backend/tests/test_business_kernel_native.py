@@ -16,10 +16,6 @@ from gateway_compute._native import (
     _sql_materialize_native,
 )
 
-from gateway_backend.capabilities.snapshot_materialization._catalog import (
-    CatalogError,
-    extract_special_device_catalog,
-)
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
@@ -31,12 +27,6 @@ from gateway_backend.capabilities.snapshot_materialization.native import (
     materialize_arrow_table,
 )
 from gateway_backend.capabilities.storage_projection.native import build_projection_plan, project_arrow_table
-from gateway_backend.capabilities.storage_projection.contracts import (
-    STORAGE_PROJECTION_VERSION,
-    ProjectionInvocationContext,
-    ProjectionRequest,
-    ProjectionTableInput,
-)
 from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
 from gateway_backend.capabilities.table_access.contracts import RESOURCE_BUDGETS, NeverCancel
 from gateway_backend.capabilities.table_rules import resolve_table_rule
@@ -243,19 +233,23 @@ def test_canonicalized_ordered_pseudo_gid_requires_the_original_no_allocation() 
     assert second["output"]["raw_content_digest"] == first["raw_content_digest"]
 
 
-def test_catalog_filtered_payload_and_source_count_match_the_python_exception() -> None:
+def test_catalog_filtered_payload_and_source_count_keep_fixed_values() -> None:
     sql = """
         CREATE TABLE device (gid BIGINT, dev_addr INT, description TEXT);
         INSERT INTO device VALUES (1, 1, ''), (2, 65532, '复合信号虚装置');
         CREATE TABLE device_st (gid BIGINT, dev_addr INT, name TEXT, i BIGINT UNSIGNED, f FLOAT, b VARBINARY(8), s SET('b','a'), dt DATETIME);
         INSERT INTO device_st VALUES (3,65532,'point',18446744073709551615,1.25,X'00ff','a,b','2024-01-02 03:04:05'),(NULL,NULL,NULL,1,2.0,X'',NULL,NULL);
     """
-    oracle = extract_special_device_catalog(materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED))
     result = filter_arrow_catalog({table["canonical_name"]: table for table in _tables(sql)}, cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1)
     catalog = catalog_from_arrow_result(result, budgets=_BUDGETS, cancel_probe=NeverCancel(), deadline_monotonic=None)
     assert catalog.source_device_row_count == 2
-    assert catalog.points == oracle.points
-    assert catalog.devices == tuple(device for device in oracle.devices if device.dev_addr == 65532)
+    assert [(device.gid, device.dev_addr, device.description) for device in catalog.devices] == [(2, 65532, "复合信号虚装置")]
+    assert len(catalog.points) == 1
+    point = catalog.points[0]
+    assert (point.source_table, point.point_gid, point.dev_addr, point.point_name) == ("device_st", 3, 65532, "point")
+    assert dict(point.payload) == {"gid": 3, "dev_addr": 65532, "name": "point",
+        "i": "18446744073709551615", "f": "3fa00000", "b": "00ff",
+        "s": ["b", "a"], "dt": "2024-01-02T03:04:05"}
 
 
 @pytest.mark.parametrize("sql", (
@@ -263,8 +257,6 @@ def test_catalog_filtered_payload_and_source_count_match_the_python_exception() 
     "CREATE TABLE device_st (gid INT, dev_addr TEXT, name TEXT); INSERT INTO device_st VALUES (NULL,'ordinary',NULL);",
 ))
 def test_catalog_cannot_hide_bad_ordinary_identity_rows_by_filtering(sql: str) -> None:
-    with pytest.raises(CatalogError):
-        extract_special_device_catalog(materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED))
     result = filter_arrow_catalog({table["canonical_name"]: table for table in _tables(sql)}, cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1)
     assert result["output"] is None and result["diagnostics"][0]["code"] == "CATALOG_UNAVAILABLE"
 

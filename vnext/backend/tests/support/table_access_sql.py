@@ -150,7 +150,7 @@ def _table_from_native(value: dict[str, Any]) -> ParsedTable:
     table = stream.read_all()
     return ParsedTable(
         descriptor,
-        _ArrowSqlTableReader(descriptor, table),
+        _NativeFixtureReader(descriptor, table),
     )
 
 
@@ -166,7 +166,7 @@ def _declared_type(value: dict[str, Any] | None) -> DeclaredType | None:
     )
 
 
-class _ArrowSqlTableReader:
+class _NativeFixtureReader:
     def __init__(
         self,
         descriptor: SourceTableDescriptor,

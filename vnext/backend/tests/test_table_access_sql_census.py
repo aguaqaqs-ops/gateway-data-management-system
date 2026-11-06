@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from gateway_shared_kernel import SignedIntegerScalar
-from gateway_backend.capabilities.table_access.contracts import ParseResult, ParseStatus
+from gateway_backend.capabilities.table_access.contracts import ParseStatus
 from tests.support.table_access_sql import parse_text
 
 

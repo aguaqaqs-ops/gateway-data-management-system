@@ -48,7 +48,6 @@ from gateway_backend.capabilities.table_access.native import (
     ArrowSourceTableReader, parse_arrow_sql, source_arrow_metadata,
     source_cell_from_arrow, source_descriptor_from_arrow,
 )
-from gateway_backend.capabilities.table_access.sql import SqlTableReader, parse_sql
 from gateway_backend.capabilities.table_access.xml import parse_xml
 
 __all__ = [
@@ -79,7 +78,6 @@ __all__ = [
     "SqlParseRequest",
     "SqlSetValue",
     "SqlSourceInput",
-    "SqlTableReader",
     "TableAccessError",
     "TableReader",
     "XmlEvent",
@@ -88,6 +86,5 @@ __all__ = [
     "XmlParseResult",
     "XmlSourceInput",
     "diagnostic_sort_key",
-    "parse_sql",
     "parse_xml",
 ]

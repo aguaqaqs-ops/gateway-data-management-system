@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.native_projection import project_storage
+
 import io
 import json
 import tarfile
@@ -21,7 +23,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionInvocationContext,
     RepositoryImportArtifactInput,
     build_repository_import_package,
-    project_storage,
     repository_import_input_from_bytes,
     repository_import_manifest_bytes,
     validate_repository_import_package,

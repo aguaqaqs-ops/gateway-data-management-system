@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import time
 
 from typing import Protocol, cast
 
 import pytest
 
 from gateway_backend.capabilities.table_access.contracts import (
-    NeverCancel,
     ParseStatus,
+    ParseResult,
     ParserDiagnosticCode,
-    ParserInvocationContext,
     TableAccessError,
     TableReader,
 )
@@ -22,7 +20,7 @@ from gateway_shared_kernel import SignedIntegerScalar, StringScalar
 from tests.support.table_access_sql import sql_request
 from gateway_backend.capabilities.table_access import parse_arrow_sql
 
-def parse_text(sql: str):
+def parse_text(sql: str) -> ParseResult:
     return parse_arrow_sql(sql_request(sql))
 
 class ReopenableTableReader(Protocol):

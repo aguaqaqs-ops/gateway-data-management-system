@@ -201,3 +201,22 @@ owner 授权按需修改设计文档及提交/推送后，定向同步 ADR 0001�
 检查起点 main `7ce8e02acd5328801b5c2e3715c4389939827ab7`；仅修改 DC77、Phase 7 计划正文与本稿，不触发镜像重建，不新增规模测试。05 同 §8.4 的 clean checkout/`vnext` tree，2026-11-04T15:15:01Z–15:15:03Z，持有本会话节点占用，以受控 uv wrapper、offline/no-sync、本地预填充环境完成五包 ruff/mypy，exit 0；起止 HEAD 相同，无代理/下载，检查后释放占用。不声明当前产品支持多 worker 或跨日积压处理。
 
 日志：05 `/home/dev/gdds-test-tmp/p6-dc77-scheduling-static-20261104T151501Z.log`；SHA256 `ad3161b7cd914cf416c6097cf97eb265a610ca074fb3330492f8fb5b5eadf347`。
+
+## 9. 本轮收口任务单（2026-11-06，待下一节独立审核）
+
+Owner 已授权本会话推进 S2a 收尾及 S2b kickoff 收口。采用主设计持续协调、每小节新建实施者（GPT-6-Luna/max）与独立审核者（GPT-6-Astra/high）的分工；审核者只读，明确小问题可以直接交实施者修复并复审。每节保留固定提交、交接及审核结论后停止复用该组 agent。系统限制明确报告，不反复重试；不因此扩大产品实施授权。
+
+当前源码核对为 S2a 整合候选 `38ccf8234fa559c47146ed93d054354201a4953a`，并非已退出 main；S2a exit 后由新一组实施/审核者核最终差异。本节新增事实及待交付内容如下：
+
+| 收口项 | 已核事实 / 下一步交付 | 验证边界 |
+| --- | --- | --- |
+| 消费者与删除清单 | Preview `_materialize_baseline_commit` 与 History `_materialize_commit` 仍以 `ARTIFACTS_REQUIRED` 调用 `materialize_repository_ref`；不能因上传侧不持久原始表就删其共享能力。特殊设备提取定义在 `snapshot_materialization/_catalog.py`，由 `compose.py` 调用 | 逐项列出保留、替换、删除及恢复消费者；保留 FULL 两侧与精确 commit 读取 |
+| Arrow 映射 | 现有映射候选继续审核；明确 metadata 单一键名、声明/物理 schema 一致、写入 profile、small/large 阈值及独立预期来源 | 不新建第二套生产 Python IPC 算法；不强制分配数 GiB 证明阈值分支 |
+| 覆盖移交 | S2a handoff §9 的三项 Python-only reader 生命周期测试不等于 Rust 已覆盖；旧 adapter 的缺省 budget 字段行为在生产接入前须明确 | 新实际消费者拥有生命周期、预算和失败语义测试；旧算法删除前落实独立向量/Contract |
+| 容量输入 | 先交付基于现有样本的有界尺寸普查方案，按实际映射核 buffer/IPC、scope 内去重、FULL/冻结/TTL/导出和临时高水位；分别标明实测、推导和未知 | 可在 06 做设计输入定向检查，未授权重生成整套输入、规模压测或完整真实旅程；不操作 CT108 冻结资源 |
+| N/M 与 worker 接线 | adapter 已有进程共享池，尚不能把这一点当作 worker startup 接线已完成；现有部分调用使用 `NeverCancel()`，需明确实际 operation 的取消/截止传递链 | N 测试为 1、测量起点 4；M 依据普查与驻留/临时预约制定，不凭 SQL 文件大小猜值，不把 M 说成 RSS 硬上限 |
+| 性能待办 | DC83 已确认 W2 与功能退出分开；其他场景须在最终矩阵中明确区分正确性、结构计数和正式计时 | 不因 W2 决议默默取消 W1/W3 或必要真实数据正确性验证；未知值与实际产品版本保留 |
+
+建议的产品实施切片为：映射/固定向量 → Rust 物化/投影/摘要 → IPC 存储与引用/恢复 → worker 与全部消费者接线 → 唯一生产路径切换、旧实现删除和最终受影响门禁。切片顺序及每步范围在消费者/容量核对和独立 kickoff 审核后定稿；本清单目前只授权准备，不是上述产品切片的开工指令。存储和 Rust 模块已有明确消费者，不为未来 MCP 预建无消费者框架。
+
+本轮设计更新不改产品、测试或容器边界，不声明当前 HEAD 已通过容器门禁。主线 `vnext/` 仍与 06 节点启用时已检查的 `667c6852d` 相同，五包 Ruff/mypy 复用 [节点核对记录](p6-node-06-07-readiness.md) §4/§6 的同代码结果；不为纯文档重复全量 runner 或数据旅程。

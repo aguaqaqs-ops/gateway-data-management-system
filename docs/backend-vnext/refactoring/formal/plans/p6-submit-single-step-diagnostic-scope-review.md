@@ -426,3 +426,5 @@ controller/launcher 均 exit 1，结果为 `CATALOG_RETURNED_AFTER_RETRY`，原�
 **明确缺口是 source-run RS 完整镜像身份未记录/未闭合，不是 checkpoint 内容来源失效。** 三卷 pre-submit checkpoint 的内容与属性摘要、运输物化、源 run/state、parent/input/cache 已按既有流程核验；此次只改查询/进程内缓存的目标 RS 也没有引入持久格式变化。对限定单步诊断，建议保留并使用这些已核源材料，同时把旧 RS provenance 分为“构建标签/config 已知”和“运行时完整身份 unavailable”，不制造源 RS MATCH，不新增通用 skip，不修改历史 manifest。新目标 RS 仍须按固定 config digest 和全部 DiffID 核验。
 
 已交设计决定对第 26 节“按旧 RS 身份核验”的措辞作这一窄化；无需无限搜寻不存在字段、扫描卷或重做 warmup。该建议不支持冻结运行原样复现、正式镜像等价/carried 或性能归因，也不授权 POST。设计明确后，外置候选只表达该固定来源及缺口、新目标完整身份和其余不变检查，接续具体脚本审核。
+
+**设计窄化已通过。** 已核 `13dbd76af194001c74fdd674830fd76eedaaae45` 的实际文本：明确 `run-bound RS full identity unavailable`，构建记录不升级为运行证明，已核 checkpoint 仅作为新目标诊断输入；内容/parent/input 不符仍停止，目标全 config/DiffID 身份保持。正式恢复或 carried 若需要缺失证明，须另带具体处置方案交 owner。本节缺口已明确处理，可直接继续外置固定候选审核，不再索取未保存字段，也不新增 POST 授权。

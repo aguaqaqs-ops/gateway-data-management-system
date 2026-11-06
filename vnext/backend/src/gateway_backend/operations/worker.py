@@ -53,6 +53,10 @@ class ExecutorAcknowledgment(StrEnum):
     SAFE_HANDOFF = "SAFE_HANDOFF"
 
 
+class CooperativeExecutionStopped(Exception):
+    """A registered pure computation stopped before formal publication."""
+
+
 class WorkerEventCode(StrEnum):
     """Stable, intentionally small worker event vocabulary."""
 
@@ -173,6 +177,12 @@ class ClaimedWork:
 @runtime_checkable
 class LeaseSession(Protocol):
     """Per-claim capability that serializes fresh lease mutations."""
+
+    def enable_pure_recompute_stop(self) -> None:
+        """Enable the registry-authorized pure computation publication barrier."""
+
+    def release_for_drain(self) -> ExecutorAcknowledgment | None:
+        """Requeue a pure computation; return None when fresh cancellation wins."""
 
     def refresh_control(self) -> None:
         """Reload cancellation and lease state before executor work."""

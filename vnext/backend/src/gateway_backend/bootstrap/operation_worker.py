@@ -20,7 +20,9 @@ from gateway_compute._native import _init_kernel_native
 from pydantic import ValidationError
 
 from gateway_backend.artifacts import ArtifactRefLookupPort
-from gateway_backend.application.kernel_execution import bind_kernel_execution
+from gateway_backend.application.history.compare_jobs import publish_stopped_compute_cancelled as publish_history_stop_cancelled
+from gateway_backend.application.history.contracts import HISTORY_COMPARE_JOB_KIND
+from gateway_backend.application.kernel_execution import bind_kernel_execution, build_cooperative_kernel_stop, publish_generic_stopped_compute_cancelled
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
@@ -42,6 +44,7 @@ from gateway_backend.application.preview_jobs import (
     bind_control_transaction_factory,
     build_preview_recovery_port,
     preview_composition_bundle,
+    publish_stopped_compute_cancelled as publish_preview_stop_cancelled,
 )
 from gateway_backend.application.canonical_metadata.manifest_reader import (
     ArtifactBackedCanonicalizationManifestReader,
@@ -51,6 +54,7 @@ from gateway_backend.application.submit_jobs import (
     bind_submit_control_transaction_factory,
     build_submit_recovery_port,
     submit_composition_bundle,
+    publish_stopped_compute_cancelled as publish_submit_stop_cancelled,
 )
 from gateway_backend.application.submit_jobs import SubmitControlTransactionFactory
 from gateway_backend.application.submission.job_payload import SUBMIT_JOB_KIND
@@ -580,12 +584,18 @@ class _RecoveryAwareWorkerRegistry:
         definition = self._definition_registry.get(key)
         capability = RecoveryCapabilityValue(definition.recovery_capability.value)
         recovery = self._recovery_by_key.get(key)
+        cooperative_stop = None
+        if capability is RecoveryCapabilityValue.PURE_RECOMPUTE:
+            publishers = {PREVIEW_JOB_KIND: publish_preview_stop_cancelled,
+                SUBMIT_JOB_KIND: publish_submit_stop_cancelled, HISTORY_COMPARE_JOB_KIND: publish_history_stop_cancelled}
+            publish_cancelled = publishers.get(key.job_kind, publish_generic_stopped_compute_cancelled)
+            cooperative_stop = build_cooperative_kernel_stop(publish_cancelled)
         return build_recovery_routed_executor(
             executor,
             recovery,
             capability,
             jitter=self._jitter,
-            now_factory=self._now_factory,
+            now_factory=self._now_factory, cooperative_stop=cooperative_stop,
         )
 
 

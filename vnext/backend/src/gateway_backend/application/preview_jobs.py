@@ -3441,6 +3441,11 @@ def _terminal_step(
     )
 
 
+def publish_stopped_compute_cancelled(lease_session: LeaseSession) -> ExecutorAcknowledgment:
+    lease_session.publish_operation(_make_cancelled_terminal_builder())
+    return ExecutorAcknowledgment.PUBLISHED
+
+
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
 ]:

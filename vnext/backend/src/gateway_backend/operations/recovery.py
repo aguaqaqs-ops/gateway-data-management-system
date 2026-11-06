@@ -715,6 +715,7 @@ def build_recovery_routed_executor(
     *,
     jitter: Jitter,
     now_factory: NowFactory,
+    cooperative_stop: Callable[[Exception, OperationRecord, StepRecord, ExecutionControl, LeaseSession], ExecutorAcknowledgment | None] | None = None,
 ) -> ClaimedExecutor:
     if not callable(handler):
         raise ValueError("handler must be callable")
@@ -733,26 +734,32 @@ def build_recovery_routed_executor(
         control: ExecutionControl,
         lease_session: LeaseSession,
     ) -> ExecutorAcknowledgment:
-        if recovery is not None and should_route_claim_to_recovery(capability, step):
-            result = recovery(operation, step, control, lease_session)
-            if type(result) is not HandlerRecoveryResult:
-                raise ValueError("recovery must return HandlerRecoveryResult")
-            return finalize_handler_recovery(
-                operation,
-                step,
-                lease_session,
-                result,
-                capability=capability,
-                jitter=jitter,
-                now_factory=now_factory,
-            )
+        if cooperative_stop is not None and capability is RecoveryCapabilityValue.PURE_RECOMPUTE:
+            lease_session.enable_pure_recompute_stop()
+        recovering = recovery is not None and should_route_claim_to_recovery(capability, step)
         try:
+            if recovering:
+                assert recovery is not None
+                result = recovery(operation, step, control, lease_session)
+                if type(result) is not HandlerRecoveryResult:
+                    raise ValueError("recovery must return HandlerRecoveryResult")
+                return finalize_handler_recovery(
+                    operation,
+                    step,
+                    lease_session,
+                    result,
+                    capability=capability,
+                    jitter=jitter,
+                    now_factory=now_factory,
+                )
             acknowledgment = handler(operation, step, control, lease_session)
             if type(acknowledgment) is not ExecutorAcknowledgment:
                 raise ValueError("handler must return ExecutorAcknowledgment")
         except (LeaseExpired, StaleWrite, StoreBusy):
             raise
         except HandlerExecutionFailure as exc:
+            if recovering:
+                raise
             if capability is not RecoveryCapabilityValue.PURE_RECOMPUTE:
                 raise
             result = HandlerRecoveryResult(
@@ -776,13 +783,21 @@ def build_recovery_routed_executor(
         except Exception as exc:
             if capability is not RecoveryCapabilityValue.PURE_RECOMPUTE:
                 raise
+            if cooperative_stop is not None:
+                stopped = cooperative_stop(exc, operation, step, control, lease_session)
+                if stopped is not None:
+                    if type(stopped) is not ExecutorAcknowledgment:
+                        raise ValueError("cooperative stop must return an executor acknowledgment")
+                    return stopped
+            if recovering:
+                raise
             _LOGGER.exception("unexpected exception from PURE_RECOMPUTE handler")
             # Pure recompute has no external effect to reconcile. Fail this operation
             # with a bounded diagnostic and keep the worker available for later work.
             reason = f"pure-recompute handler raised {type(exc).__name__}"
             result = HandlerRecoveryResult(
                 disposition=RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
-                diagnostic_code="operation.pure_recompute_failed",
+                diagnostic_code="RESOURCE_LIMIT_EXCEEDED" if isinstance(exc, MemoryError) else "operation.pure_recompute_failed",
                 reason=reason,
             )
             return finalize_handler_recovery(

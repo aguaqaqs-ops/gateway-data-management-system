@@ -585,3 +585,80 @@ def test_observer_failure_does_not_rollback_a_committed_heartbeat() -> None:
         session.heartbeat()
     assert factory.uows[-1].committed
     assert store.step.optimistic_version == step.optimistic_version + 1
+
+
+@pytest.mark.parametrize("operator", (False, True))
+@pytest.mark.parametrize("checkpoint", (False, True))
+def test_pure_drain_preserves_frozen_work_and_claim_budget(operator: bool, checkpoint: bool) -> None:
+    from gateway_backend.artifacts import InMemoryArtifactStore, put_with_built_ref
+    from gateway_backend.operations.contracts import OperationDiagnostic
+    from gateway_backend.operations.state import (
+        DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, claim_attempt_count, claim_diagnostic,
+    )
+    operation, step = _active_records()
+    store_bytes = InMemoryArtifactStore()
+    ref = put_with_built_ref(store_bytes, b"checkpoint", artifact_id="checkpoint", media_type="application/json")
+    step = dataclasses.replace(step, attempt_count=3, checkpoint_ref=ref if checkpoint else None,
+        prior_output_refs=(ref,), diagnostic=OperationDiagnostic(DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, "authorized") if operator else None)
+    store = FakeStore(operation, step)
+    session, _factory, control, _events = _make_session(store)
+    session.enable_pure_recompute_stop()
+    control.request_drain()
+    assert session.release_for_drain() is ExecutorAcknowledgment.SAFE_HANDOFF
+    assert store.step.status is StepStatus.RETRY_WAIT
+    assert store.step.checkpoint_ref == step.checkpoint_ref
+    assert store.step.prior_output_refs == (ref,)
+    assert store.step.attempt_count == claim_attempt_count(store.step) == 3
+    assert store.step.worker_id is store.step.lease_token is store.step.lease_expires_at is None
+    assert claim_diagnostic(store.step) == step.diagnostic
+    assert store.operation == operation
+    assert session.completion_acknowledgment() is ExecutorAcknowledgment.SAFE_HANDOFF
+
+
+@pytest.mark.parametrize("gate", ("unregistered", "not-draining"))
+def test_drain_release_requires_registered_pure_computation_and_actual_drain(gate: str) -> None:
+    operation, step = _active_records()
+    store = FakeStore(operation, step)
+    session, _factory, control, _events = _make_session(store)
+    if gate == "unregistered":
+        control.request_drain()
+    else:
+        session.enable_pure_recompute_stop()
+    with pytest.raises(ValueError, match="registered PURE_RECOMPUTE and real drain"):
+        session.release_for_drain()
+    assert store.step_writes == store.operation_writes == 0
+
+
+@pytest.mark.parametrize("stop", ("cancel", "expired", "lost", "stale-token"))
+def test_pure_drain_fresh_cancel_or_lease_loss_never_requeues(stop: str) -> None:
+    operation, step = _active_records()
+    store = FakeStore(operation, step)
+    session, _factory, control, _events = _make_session(store,
+        clocks=[BASE_TIME + timedelta(seconds=31 if stop == "expired" else 1)])
+    session.enable_pure_recompute_stop()
+    control.request_drain()
+    if stop == "cancel":
+        store.operation = dataclasses.replace(operation, cancel_requested=True)
+        assert session.release_for_drain() is None
+        assert control.cancel_requested
+    else:
+        if stop == "lost":
+            control.mark_lease_lost()
+        if stop == "stale-token":
+            store.step = dataclasses.replace(step, lease_token="replacement")
+        with pytest.raises((LeaseExpired, StaleWrite)):
+            session.release_for_drain()
+    assert store.step_writes == store.operation_writes == 0
+    assert store.step.status is StepStatus.RUNNING
+
+
+def test_pure_success_publication_rechecks_drain_before_any_durable_write() -> None:
+    from gateway_backend.operations.worker import CooperativeExecutionStopped
+    operation, step = _active_records()
+    store = FakeStore(operation, step)
+    session, _factory, control, _events = _make_session(store)
+    session.enable_pure_recompute_stop()
+    control.request_drain()
+    with pytest.raises(CooperativeExecutionStopped):
+        session.publish_successor(lambda op, current, now: (_terminal_step(current, now), _successor(op.operation_id, now)))
+    assert store.step_writes == store.successor_writes == 0

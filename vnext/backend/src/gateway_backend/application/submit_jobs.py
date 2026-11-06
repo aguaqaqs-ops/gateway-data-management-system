@@ -2708,6 +2708,11 @@ def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
     _publish_prepare_terminal_abort(lease_session, _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC)
 
 
+def publish_stopped_compute_cancelled(lease_session: LeaseSession) -> ExecutorAcknowledgment:
+    lease_session.publish_operation(_make_cancelled_terminal_builder())
+    return ExecutorAcknowledgment.PUBLISHED
+
+
 def _make_cancelled_terminal_builder() -> Callable[
     [OperationRecord, StepRecord, datetime], tuple[StepRecord, OperationRecord]
 ]:

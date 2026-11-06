@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -15,12 +15,13 @@ from gateway_backend.capabilities.source_package_staging import (
 
 from gateway_backend.capabilities.table_access import (
     KernelExecutionContext,
-    OperationMemoryBudget,
+    OperationMemoryBudget, KernelStopped,
     kernel_execution_scope, current_kernel_context, KernelMemoryLimit,
 )
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
+from gateway_backend.operations.store import LeaseExpired
 from gateway_backend.operations.worker import (
-    ClaimedExecutor,
+    ClaimedExecutor, CooperativeExecutionStopped,
     ExecutionControl,
     ExecutorAcknowledgment,
     LeaseSession,
@@ -112,3 +113,41 @@ def stage_operation_source(source: SourcePackageInput, store: ArtifactStorePort)
     ) and local != STAGING_BUDGETS:
         raise KernelMemoryLimit("source staging operation memory reservation exceeded")
     return result
+
+
+def build_cooperative_kernel_stop(
+    publish_cancelled: Callable[[LeaseSession], ExecutorAcknowledgment],
+) -> Callable[[Exception, OperationRecord, StepRecord, ExecutionControl, LeaseSession], ExecutorAcknowledgment | None]:
+    """Classify real control before R5's generic pure-compute failure mapping."""
+    def stopped(
+        error: Exception, operation: OperationRecord, step: StepRecord,
+        control: ExecutionControl, session: LeaseSession,
+    ) -> ExecutorAcknowledgment | None:
+        if not isinstance(error, (KernelStopped, CooperativeExecutionStopped)):
+            return None
+        if control.lease_lost:
+            raise LeaseExpired("compute observed lease loss")
+        session.refresh_control()
+        if control.cancel_requested:
+            return publish_cancelled(session)
+        if control.drain_requested:
+            acknowledgment = session.release_for_drain()
+            if acknowledgment is None:  # Fresh cancel wins the release transaction.
+                return publish_cancelled(session)
+            return acknowledgment
+        return None  # A distinct caller stop is not fabricated into worker drain.
+    return stopped
+
+
+def publish_generic_stopped_compute_cancelled(session: LeaseSession) -> ExecutorAcknowledgment:
+    """Base R3 cancellation for registered jobs with no application projection."""
+    from datetime import datetime
+    from gateway_backend.operations.contracts import OperationStatus, StepStatus
+    def builder(operation: OperationRecord, step: StepRecord, now: datetime) -> tuple[StepRecord, OperationRecord]:
+        terminal_step = replace(step, status=StepStatus.CANCELLED, worker_id=None, lease_token=None,
+            lease_expires_at=None, completed_at=now, updated_at=now, optimistic_version=step.optimistic_version + 1)
+        terminal_operation = replace(operation, status=OperationStatus.CANCELLED, completed_at=now,
+            updated_at=now, optimistic_version=operation.optimistic_version + 1)
+        return terminal_step, terminal_operation
+    session.publish_operation(builder)
+    return ExecutorAcknowledgment.PUBLISHED

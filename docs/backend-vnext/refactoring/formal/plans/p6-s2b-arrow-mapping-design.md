@@ -1,8 +1,8 @@
-# S2b 规范表 Arrow 映射 v1（设计候选）
+# S2b 规范表 Arrow 映射 v1（技术候选）
 
-状态：2026-11-04，设计候选，待独立审核并纳入正式 S2b kickoff；不是实施授权或证据结论。
+状态：2026-11-06。技术候选已按 S2a 退出源码重核，待独立审核纳入整体 kickoff；不构成产品实施授权。
 
-来源：DC46/DC47、[P6 设计 §8](p6-design.md#8-s2b上传侧数据路径与规范表存储)、[DC76](p6-s0-owner-decisions.md#dc76-s2b-输入约定与映射准备)。源码核对基线 main `580f57fd01d122189d7c4a6b037e668a9531d803`；parser 输出核对 S2a 候选 `3b3d9c97bcb6d79d6c087099fbe6353f170bf68f`。S2a 合入后核对差异，不重新判定其证据。
+来源：DC46/DC47、[P6 设计 §8](p6-design.md#8-s2b上传侧数据路径与规范表存储)、[DC76](p6-s0-owner-decisions.md#dc76-s2b-输入约定与映射准备)、[DC84](p6-s0-owner-decisions.md)。S2a 源码基线为 `p6-s2a-exit^{commit}=53b676a6298d408ccda3a85ee73c7ea223a2311a`；本轮设计候选 main 为 `d368413861dbcce10691fb65e8dbaba2a208af68`。`business_schema_digest_of` 已核实列序无关但包含 `table_name`；不改变既有业务摘要，不承诺跨表名去重。
 
 ## 1. 已确认的业务前提与范围
 
@@ -37,33 +37,48 @@ Utf8/Binary 的 small/large 选择按规范化后整列 payload 字节数确定�
 
 1. **parser → 规范投影**：S2a parser 的 BIT 为 Binary，列声明通过 descriptor 单独传递。S2b 在规范 schema 构造处校验 descriptor 并转换为上述存储类型；在 Rust Arrow 路径内完成，不为转换逐行往返 Python。业务 composite 过滤后交 Python 的现有例外不变。
 2. **SET → 内容编码 / RS**：IPC 文本只是一种内部表示。计算业务摘要时按声明恢复成员序列，使用 Shared Canonical Encoding §3.2 的 sequence framing，不摘要逗号文本。向 Repository 交付时按其 Contract 转为 list<utf8>；NULL、空 SET 与 ENUM 空标签分别处理。
-3. **版本与 metadata**：规范 IPC 使用独立映射版本 `1`，不得复用已删除旧 row-hash capability 的接口或误认 RS mapping。schema metadata 记录映射版本；field metadata 记录足以解释值的规范逻辑声明（kind、适用的 bits/precision/scale/bit_width、ENUM/SET 标签及规范 SQL type）；字段名、顺序、可空性在 Arrow schema 中表达。具体键名在实现 Contract 中固定为单一写法，不提供别名。
-4. **声明核对**：metadata、物理 schema 与绑定的规范描述必须一致；冲突按损坏/不支持处理，不凭 metadata 覆盖权威业务语义。metadata 不写 operation、项目、时间戳或表名等实例信息；现有内容地址不含表名，实际表名/项目绑定保留在外层引用。
-5. **两种摘要**：业务表摘要继续使用 owning Contract 的规范标量及行 framing；Arrow 物理字节不作为业务摘要输入。内容地址沿用设计 §8.2 的组成并含映射版本；raw SHA 只验证实际文件完整性，不与业务摘要互换。
+3. **物理列序**：schema field 按 canonical column name 的 UTF-8 字节升序写入；不沿用输入 DDL ordinal。现有 `business_schema_digest_of` 忽略列序，所以同一规范身份不得因 DDL 列序不同而生成不同 IPC bytes。外层 bound description 仍保留 DDL/export row-layout；reader 按外层列名从 IPC 选择并重排给 DDL、Repository export/replay 消费者，不能按原 ordinal 取物理列。
+4. **唯一 metadata 写法**：schema 只允许 `gdds.canonical_mapping_version`，ASCII 值为 `1`。每个 field 只允许 `gdds.canonical_type`，值为 JCS UTF-8 JSON object，恰含 `logical_type`、`sql_type`、`declared_type`、`labels` 四个键。`logical_type` 仅为 `standard`/`json`/`enum`/`set`；`sql_type` 是规范投影声明经 `normalize_sql_type_spelling` 得到的唯一输出。`declared_type` 为 null 或恰含 `kind`、`bits`、`precision`、`scale`、`bit_width` 的 object；不适用的数值键保留为 null，适用键取声明整数。`kind` 沿用 Shared Kernel 的 `boolean`、`signed-integer`、`unsigned-integer`、`decimal`、`float32`、`float64`、`string`、`binary`、`bit`、`date`、`datetime`、`timestamp`、`time-duration`。SET 的 declared_type 为 null、labels 为声明序列；ENUM 的 kind 为 string、labels 为声明序列；JSON 的 kind 为 string、labels 为 null；其余 standard 的 labels 为 null。Unknown/不支持的声明不写入规范 IPC。字段名、序号和 nullability 只由 Arrow schema 表达。禁止同义键、别名、原始 SQL spelling、display name、charset 或其他不影响规范身份的 parser 细节。JCS 固定 object key order、UTF-8 编码、转义与无空白表示；全部 metadata 必须可由绑定的规范投影 schema 决定，不能复制原始 parser descriptor 的非规范细节。
+5. **声明核对**：metadata、物理 Arrow type、field name/nullability 与绑定规范描述必须一致；未知 mapping version、未知 key、重复/矛盾声明或物理类型冲突拒绝读取，不能让 metadata 覆盖外层业务语义。metadata 不写 operation、项目、时间戳或额外实例 table name；现有业务 schema digest 自身含 table name，这一既有身份组成不改写。
+6. **两种摘要**：业务表摘要继续使用 owning Contract 的规范标量及行 framing；Arrow 物理字节不作为业务摘要输入。内容地址沿用设计 §8.2 的组成并含 mapping version；raw SHA 只验证实际文件完整性，不与业务摘要互换。复用 `gateway-shared-kernel` 已有 framing 原语，不在 Python 或 Rust 新建第二套 hash 算法。
 
-## 4. 写入、读取和确定性
+## 4. IPC file profile、读取与确定性
 
-- 不压缩 IPC，Rust 编码、Python ArtifactStore 落盘；mmap 读取、raw SHA 校验及临时文件原子 rename 沿用设计。读取校验保留，写后回读删除。
-- keyed 按既有规范键排序，ordered 物理存放按 gid、业务顺序仍按 no；keyless 按既有行哈希排序并保留全部重复行。排序实现不能用 SQL 插入顺序、worker 完成顺序或 Arrow 默认比较规则替代 owning Contract。
-- 同一实现版本固定列/metadata 顺序、batch 划分、writer 选项及 null buffer 的规范输出；排除时间戳等不稳定字段。相同规范输入在 Rust 路径的 N=1/N 及不同 parser chunk 下生成相同规范 IPC；固定向量校验声明、值及字节布局。替换期可借 Python 冻结结果验证语义，不为新 IPC 格式建设第二套 Python 算法（DC78）。reader/writer 使用同一个版本化 profile；影响持久物理表示的规则变化同步修订映射版本及测试，不把依赖版本加入业务摘要。
-- 未经确认不增加第二种持久格式。唯一 Rust 生产路径使用规范 IPC 与既有引用/恢复语义，不建设 Python 回退或双格式兼容（DC78）；T1、BaselineHead、TTL 和缺失后的四种恢复状态不在映射层重定义。
+映射 v1 固定为一个 Rust Arrow IPC **file** profile，以便随机读取及只读 mmap；不另建 Python writer。使用 workspace 已钉的 Arrow 59.1.0；`FileWriter` 显式设置 `IpcWriteOptions::try_new(64, false, MetadataVersion::V5)`，64-byte alignment、V5 metadata、无压缩、无 dictionary。不添加 file footer 自定义 metadata。按规范行序每 65,536 行切一批，仅末批可不足；空表写 schema、0 个 record batch。metadata 序列化沿用 pinned Arrow 的 key 排序，不自造 FlatBuffer writer。
 
-## 5. 验收与容量输入
+数组 buffer 规范如下：
 
-复用现有标量、parser 和投影 owner 的向量，不再复制其完整语法矩阵。新增测试只证明实际映射边界：
+- 每批 offset 从 0 开始；small UTF8/Binary 用 32-bit offsets，large 用 64-bit offsets，类型仍按 §2 的整列 payload 决定；每批只写自身 payload。Boolean values buffer 使用 `ceil(rows/8)` bytes，NULL 值位及末 byte 未使用位为 0。
+- 本映射支持的每个字段都写 validity，包括 non-nullable 字段。all-valid 数组统一不带显式 null buffer，由标准 writer 生成 `ceil(rows/8)` 个全为 `0xff` 的 bytes（末 byte 未使用位也为 1）；含 NULL 的数组以标准 buffer 构造规范 validity，末 byte 未使用位为 0。NULL 的固定宽度/数值 slot 清零；NULL 字符串/二进制的相邻 offsets 相同、payload 长度为 0。
+- writer padding 固定按所选 Arrow profile 输出。实现测试要覆盖批次边界、空表、全有效/含 NULL 和末批未满场景，不能依赖 sliced array 的偶然 offsets 或未初始化 padding。
+
+keyed 按既有规范键排序，ordered 的物理 gid 布局与业务 no 顺序分别遵守 owning Contract；keyless 按既有行哈希排序并保留重复行。不得以 SQL 插入顺序、worker 完成顺序或 Arrow 默认比较代替 owning Contract。相同规范值/schema 在 N=1/N、输入 DDL 列序变化和 parser chunk 变化时生成相同 IPC bytes；固定向量校验 schema、值、业务摘要及字节布局。影响持久表示的 profile 变化同步升级 mapping version，不把 Arrow 依赖版本写入业务摘要。
+
+reader API 由后端持有生命周期。最小候选为 `CanonicalTableStore.open(ref, bound_descriptor) -> ContextManager[ArtifactReadHandle]`；handle 只暴露 schema/batch reader，不暴露 path，local 实现持有只读 fd/mmap，并在同一映射上分块校验 raw SHA。相同 ref 的第二次 `open` 取得独立 handle；`close()` 幂等，关闭后 read 稳定失败。PyArrow IPC reader/C Stream 与 Rust 借用数组不得超过 handle 生命周期，关闭顺序为 arrays/reader 后 mapping。内存实现以 BufferReader 遵守同一协议。现有 `ArtifactStorePort.locate(ref) -> bytes` 保留给其真实消费者，直到每个消费者切换完成；Rust kernel 不接触路径或文件系统。复用 local store 现有 temp + fsync + rename。写后回读删除；计入 Rust `Vec` 到 `PyBytes` 复制及 caller 持有期。
+
+T1/BaselineHead/TTL、四种 miss/corruption 恢复和精确 commit 回填由存储/恢复 Contract 定义，不在 mapping 重定义；健康 artifact 走 IPC handle，miss/corruption 才按精确 Dolt commit 校验后回填。
+
+## 5. 独立向量、验收与容量输入
+
+独立预期复用既有标量、parser、projection 与 Shared Kernel 向量，不复制完整语法矩阵，也不从当前 Rust 输出直接生成期待值。SET sequence framing 的独立期望来自 `vnext/fixtures/vectors/repository/sql-enum-set/v1/values.jsonl`。IPC 小向量的 schema/值、offset/validity、batch 与 footer 布局须按固定 profile 独立核对，标准 IPC reader 可用于核验，不为此建设第二个 writer。关键 vectors 至少覆盖：
 
 - 整数/DECIMAL 边界、FLOAT 舍入、NULL/空值、BIT 非整字节位宽、ENUM/SET、UTC 时间与负/长 TIME、JSON 文本保值、空表与全 NULL 列。
-- parser descriptor → 规范 IPC → 读取/既有导出路径的声明和值一致，业务摘要、行数和重复行保值；错误 metadata/物理类型组合拒绝。RS 映射验收仍由原 owner 负责。
-- small/large 阈值用纯边界测试，实际转换用适当大小的数据覆盖；不为阈值分支强制分配数 GiB 的普通单元测试。
-- 不同线程、chunk 和固定向量的确定性归映射 owner；真实数据端到端结果仍由现有 comparator 判定。容量与 W2 不由映射测试冒充。
+- 同一 canonical schema 的两种 DDL 列序写出完全相同 IPC bytes；读取后按外层 row-layout 重新排序，验证 export/import replay 仍保持既有布局。
+- 规范 SQL 声明相同、仅原始拼写/display name 不同时，metadata 与 IPC bytes 相同。
+- descriptor → IPC → reader/consumer 的声明和值一致；错误 metadata/version/物理类型拒绝；N=1/N 与不同 chunk 确定性。
+- small/large 阈值用 payload 计数纯边界测试，真实小值转换；不为阈值分支分配数 GiB。
 
-容量普查应分别记录总输入、最大表、最大列 payload、最长字段/语句、行数分布、规范 IPC、导出副本、临时高水位和峰值内存。已有 V6 158.7 MB 合成输入增加的是表，不能据此断言少数大表的完整路径已验证。优先复用现有样本，在获安排的 05 设计输入普查中补充保持类型与业务约束的大表分布；实际 100 MB 样本只在分布代表性不足时再协调。任何生成规则与取证范围先写入普查方案；不修改当前基准输入、golden 或正式测量口径。
+06 只做了有界既有 parser 输入测量；范围、数字与证据见[容量输入报告](p6-s2b-capacity-input-census.md)。其 raw parser buffers 不能冒充 canonical 上界、IPC 或 RSS。切片 A 实现唯一纯内存 mapping/IPC codec，随固定向量记录真实 IPC bytes；B 接入业务 kernel，C 复用该 codec 集成 store/reader/refs 并校准实际业务 IPC 与 FULL 生命周期。worker 接线前定 M，接线后复核 worker 峰值。较大既有样本及集中大表分布在 B/C 校准时核对，不为当前准备生成整套输入或跑规模压力。正确性所需 t1–t4 端到端另按 kickoff §6 的节点职责完成，不因容量分阶段延期。
 
 ## 6. 状态与下一步
 
-owner 已确认 UTC、来源/类型不变及少数约 100 MB 输入，并允许落成方案。本文技术细则待审核；S2a exit、原始表使用方核对、磁盘预算、N/M、唯一 Rust 路径与旧算法清理细则及正式 kickoff 仍是各自待办。下一步先形成容量普查和 N/M 方案，不把文件大小上限当作内存可承受承诺，不因极端输入少见而跳过预算拒绝与无部分写入的既有边界。
+UTC、来源/类型不变及少数约 100 MB 输入范围来自 DC76；技术映射候选和 06 小样本单位输入已收口。整体 kickoff 仍待独立审核及 Owner 确认；本文不授权开始产品改动。生产 M 数值及默认值需等 mapping、Rust kernel、IPC writer 与 FULL 生命周期测量完成，并在 worker 接线前结合部署内存 envelope 确定，不从 SQL 大小猜值。容量分阶段关闭点见 DC84 与报告。
 
-## 7. 本次文档提交检查
+## 7. 检查记录
+
+2026-11-06 本轮包含设计文档及独立普查工具，没有修改产品或容器边界，不声明新容器门禁或 carried。06 的两样本、五包 Ruff/mypy、工具自身静态修复复核及精确版本/SHA 见[容量输入报告](p6-s2b-capacity-input-census.md#可复核记录)；本次文档修订不重跑测试。下面保留 2026-11-04 的原记录，仅证明当时的检查，不作当前工具或 S2b 产品证据。
+
+### 7.1 2026-11-04 历史文档检查
 
 本轮只修改设计/DC/计划正文与 kickoff，无产品或容器边界改动，不触发镜像重建，不声明新容器验证或 carried。开发主线检查起点为 `580f57fd01d1`；05 clean 已提交 checkout 为 `55e6c0083c6e3a05dc97dad86974afd645d89a8e`，两者 `vnext` tree 均为 `2791d3ff3dd62ff454d7e9cac43885d39da8bf96`。在 05 获取节点占用后，用受控 uv wrapper、`UV_OFFLINE=1`、`--no-sync` 完成五包 ruff/mypy，2026-11-04T13:07:36Z–13:07:38Z，exit 0；使用该节点本地预填充环境，无下载、无代理，起止 HEAD 相同。未运行 pytest/Compose/真实数据，完成后释放占用。
 

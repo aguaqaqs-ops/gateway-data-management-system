@@ -1,6 +1,6 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**同节恢复 / 最终验证进行中**；2026-11-06。固定产品候选 `d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 已获源码审核 clear；04 已实际通过 Rust-only 权威 runner。尚无 E GO、五 Python 包权威 runner、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
+状态：**同节恢复 / 最终验证进行中**；2026-11-06。产品实现 d0 已获源码审核 clear；当前修复候选为 `ff970567f875bbc2ae357db950084dc450f8d88d`，仅修剩余测试 fixture。04 已实际通过 Rust-only 权威 runner；首轮五 Python runner 的 backend 失败已定位，不作为任何包的合格来源。尚无 E GO、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
 
 ## 实际消费者与删除
 
@@ -118,3 +118,43 @@ Owner已明确批准额外工具mypy的具体一次修正续做；未新建角�
 日志06 `/home/dev/gdds-test-tmp/logs/s2b-e-tool-mypy-approved-d0f5602d6f.log` SHA `aea3a32e91ee5e2391bc9d7983b9e9fd31a64a6fbee714d892fa4fa61d3cfe9a`。22:46:58Z释放短占用，释放日志SHA `eb8a8d4213ea5b9d70ca7df674cb4a5bad1321d89bcbbb4bde2b92942aff273b`。上节待决项至此关闭；历史失败与暂停记录保留其当时事实。
 
 恢复时主线a532a3bbf7相对固定产品d0的`vnext/`无差异，后续门禁绑定新冻结完整SHA。继续已授权五Python权威runner与t1–t4；不重跑合格Rust，而在04同E gate WT按实际source manifest compare。所有节点现场重新取占用，脚本/缓存前提经既有审核后执行；原冻结资源保持。当前仍未宣称五Python、最终容器或真实旅程通过。
+
+### 23:09Z：剩余测试消费者修复
+
+04 同 E gate WT 在 d0 离线准备五包环境，实际模块与 editable/direct_url 全绑定 E，native tree `137d499975f3c104ae9c3268b9e12befb2817ba1` 匹配；Rust current manifest 与原来源文件字节摘要同为 `4f091a7f…`，总摘要同 `5dbb8a81…`。`python-prepare-01/prepare.log` SHA `7db3bd86e9c0a37a535dd2f33cef87b131d14c8bf207d3702099d54d2e90556d`，另 call 验证日志 SHA `dfac41a1578ee7756fa66fef1ef576118e11fcfbd2890b8ab86ec1dce01dbd6a`。随后独立 call 开始五 Python 权威 runner。
+
+首轮 backend 主体实际 **20 failed / 3111 passed / 8 collection errors**，serial 因相同两模块收集失败；原 runner 自身继续其余包并自然收束，不另开真实旅程。三小包虽分别243/152/161 passed，失败整次不能作为合格 source V。四类漏迁均在测试侧：
+
+- module-level `PREVIEW_RESULT` 在 autouse kernel context 前构造真实 parser fixture；移到显式依赖现 context 的测试 fixture。idempotency 改 runtime module 访问，避免 `from … import` 留下旧对象。
+- UUID Submit 测试仍用默认 `repo-1` 的 canonical artifact；将真实 repository_id 贯穿 seed、canonical bindings、refs/payloads 与 Prepare helper，生产 scope 校验保持。
+- removed-tables 仍将 raw Parquet manifest 交 canonical caller；改在真实 seeded UUID 下用现 projection/canonical IPC 构造。
+- canonical identity 的直接 RepoRef 调用未供 C port；接真实 committed-table factory 与本测试 control DB，保原身份/行预期。
+
+失败 DB 的只读诊断确认 Prepare 被 `STORAGE_PROJECTION_FAILED / frozen canonical table net_cfg is unavailable or corrupt` 拒绝；04 `python-authority-01/failed-prepare-readonly-diagnostic.log` SHA `87477bd564946ab46315115603aeb91fb0e47e966fc1ee7570d39ebd4b51da3f`。生产拒绝边界、核心 expected 与业务断言均未放宽。
+
+固定修复 `ff970567f875bbc2ae357db950084dc450f8d88d` 仅9个测试/helper，独立源码复审 clear。06 23:06:41Z重新取锁；固定 fullSHA task ref/bundle同步实际0（source log SHA `32be2deaa791ac14a605174a798c4204f9048327c052f04e9726f68cb4132d92`），另 call HEAD/clean/实际4 path deps/native验证0（SHA `a6dbed49a709b173d1babb178ccf1326ed54731bf02aaefc5c07ac21ea357527`）。23:08:11–23:09:01Z：backend Ruff/mypy500、全 backend collect-only **3230 collected**、受影响主体 **184 passed**、serial **16 passed**，整步0。
+
+06目录 `/home/dev/gdds-test-tmp/artifacts/s2b-e-fix-ff970567/`：`fixture-focused.log` SHA `d46faffb6dc231f81c50e3fb30683188751d974ec1b18c9fc30468262fa2a1a5`，`backend-collect-only.log` SHA `80da56e799db9fc7146eae64ba3a7df54a8ea78df72e8677f9eb30386eff8161`。实际命令为受控 wrapper `run --no-sync pytest` 加以下12文件，先 `-m '(not serial) or parallel_safe' -n 4 -q`，再相同文件 `-m 'serial and not parallel_safe' -n 0 -q`：
+
+```text
+tests/test_submit_application.py tests/test_submit_idempotency.py
+tests/test_submit_transactions.py tests/test_submit_job_prepare.py
+tests/test_submit_job_effect.py tests/test_submit_worker.py
+tests/test_submit_recovery.py tests/test_submit_prepare_removed_tables.py
+tests/test_canonical_snapshot_identity.py tests/test_production_wiring.py
+tests/test_submit_http.py tests/test_submit_read_http.py
+```
+
+全收集命令为 `vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync pytest --collect-only -q -n 0`。23:09:57Z确认clean/全机无残留后释放06；`release.log` SHA `33613281211d0d1b668eb72d1c5b6904162ce593caad2d405caa1c7c6359da4d`。后续04改为同WT先 backend-only 权威整次0，再其余四包独立整次0；Rust只做同WT来源比较，不重复运行。
+
+### CT108 源码与环境准备（未运行旅程）
+
+原 gate bundle 依赖53b，CT108实际旧 root HEAD `2c79d0947fe0d5e1d2f62a3f106a8e72f37706a3` 缺该 prerequisite；source01在 fetch验证前置失败，未建WT、未测试，日志 SHA `7e8971bb24986ae8482f69f616d21dc65ce828fb9f71b26feca050f28a3c1699` 保留且释放其占用。按 DC68 一次明确修正：CT201核实际base为d0祖先，新建本任务 `refs/codex/s2b-e/t4-source/<fulld0>`，bundle仅排除该实际base；新bundle SHA `0f732d7da982902b6a6d56008551d2843640bbda918122e739f43f42c4a2b721`，CT108先只读verify0，source02脚本 SHA `eaf95e9198bdec69484514ef4d7baa4f0aa30fd84560d64444ec9f2df0ec38a9` 经审后执行。
+
+23:02:46Z实际取锁并source02成功，独立 E WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-t4` d0/clean、legacy正确。source log SHA `505400d4ae19260d8cded92ff3bf448237f2fa6c5a4e4ea464c5e7fbc13680d2`；另call HEAD/clean/selector与四Rust工具核0，日志 SHA `d9cba5ce77a071c884f8072436bc2791d2135a6f9ba0534f05b90163d065890a`。未改原root main/冻结refs/卷。
+
+environment01在调用 identity helper 前失败（23:03:25Z，exit2）：脚本错用根临时目录，实际已审 helper/identity 在 `artifacts/s2b-e-dependencies/`。此前自身 `test -f` 被末尾 `df` 的exit0掩盖，明确记为命令检查遗漏；不称缓存缺失或产品失败。原日志 SHA `84bae81a974c77e3d233127e0c9f2e1ed52a9d4f79d3e0070ae78185e8d63688` 保留。按此env步骤 DC68一次修正，先单独核所有外置输入/工具/缓存存在及 helper138e…/identity0577…，新前检日志 SHA `af3c70db55c7f12a04a8f073e01d50f55bb5b7620c2619b0e8fca35aaba870d4`；env02脚本 SHA `73fff0ec107cea721cd3da2413a58a813f6bdeae7f8ed98294ebf0e3051f1210` 仅改两实际路径和新out，经审后重做一次。
+
+environment02 actual0，于23:10:00Z结束：全config/19DiffIDs匹配、offline新 backend venv与四path deps、native treechecker、本机owned RS build、现CLI help及八包 `INPUTS_VALID`。日志 SHA `b1819ca1c5d0fb42390cf89384c7150f87d6f466faa68fa872a88f0ea6814539`。另 call 独立验证actual0，日志 SHA `845f043e45f366cbf9f05bd15a89127ecd7443f5c16fd54a1e5b3f213cec2ce9`；23:12:28Z核owner/HEADclean/整机空闲后释放准备占用，日志 SHA `aeaefcea0afc6c180a3dbf574c1d699c2c0ebf4e55a510b546996dc0f6023354`。这些日志均在 CT108 `artifacts/s2b-e-t4-prepare-d0f5602d/`。
+
+准备仍为d0，不作ff最终门禁。真实t4尚未执行；后续需更新到最终候选并核绑定，保持已审 fresh driver286与失败保卷规则。05原线GC有效占用优先，当前未取得E预约或运行t1–t3。

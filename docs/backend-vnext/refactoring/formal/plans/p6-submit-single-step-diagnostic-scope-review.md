@@ -859,3 +859,13 @@ GC 聚合截至最后快照：gen0/1/2 分别 15,137/1,376/20 次，gen2 最大 
 原真实诊断的 45 分钟独立 guardian、40 GiB worker RSS、8 GiB host available、10 GiB disk 停止线与 48 GiB 启动内存、逐文件系统剩余空间核算保持；它与合成 probe 的 300 秒预算目的不同，不是临场加时。5 秒身份/资源守护和 15 秒/最多 1 秒纯 Python 栈复用既有工具；新镜像必须重新绑定真实解释器/PID并在 POST 前获得有效业务栈。只有原已审精确双 interpreter-discovery 错误可在即时复核成功后停采，其余必要守护/身份/资源/未知错误继续停止；不增加 profiling 或产品 GC hook。结果/回收/保卷/只释放自有占用分别留证，栈缺口不作失败瞬间证明。
 
 容器结果先由独立 reviewer 核验，通过后再审完整真实输入候选并给 manifest 专属一次 GO。§47 不要求为取得 completed 重跑合成 probe，本设计也没有这样安排。后续诊断可回答新候选在真实输入与 DB 下能否续租并完成、失败是否仍落在重复 payload/digest/释放附近；单次离散栈仍不能唯一证明 GC/GIL 因果。未授权合 main/baseline、推送、正式恢复或复用任何旧 GO；H3、正式 V→H 和最终门禁继续独立办理。
+
+## 49. 镜像缓存缺失：保留失败，优先同输入预填充
+
+工具任务报告 CT201 首次冻结 Dockerfile 离线构建失败。只读核 `jcs-image-gate-1f9731-20261106/backend-build-offline-initial.log`，实际 SHA256 `085fca8b147108fbc1c8d9d021e3ed8c7e39751342d974e6247ebcbc68be9349`，与报告一致。日志记录 heavy-dev-01、2026-11-06 09:07:28 UTC、起止 `1f9731`，`docker build --network=none --pull=false`；两个 FROM 已缓存，但 uv 安装 RUN 未命中，curl DNS 失败后管道尾端 sh 仍退出成功，后续 `uv python install` 因 uv 不存在而 exit 127，整次 docker build exit 1。这是构建缓存缺失，不是测试失败或产品行为证据；没有 CT05 测试/锁操作。不按 DC68 把缺缓存描述为自身参数错误重做。
+
+**提出的 named-context→任务私有 cache 基础镜像尚不在 §48 授权内。** 它实际替换 FROM 输入；尤其 runtime 基础镜像新增的工具、缓存、配置/ENV 会进入最终 rootfs，不能以产品 Dockerfile 文件未改就宣称只是透明缓存。预装 uv 还可能让上述 curl 管道失败被掩盖后继续；这不是要求修冻结 Dockerfile，而是说明需区分真实基础输入与缓存命中。当前仅有建议，没有可审核的具体制品/差异，未批准该替换，也不要求建立新 dependency-base 体系。
+
+已向设计提出更小补充：在允许联网的 CT201，以精确冻结源码、同一 Dockerfile/context、固定 base identity 和同一 build args 预填充原 BuildKit 构建层；只构建、不运行测试，再以相同输入 `network=none` 做最终构建。记录联网预填充的来源、起止、实际输入/制品摘要与原锁 identity，缓存预填充结果不得冒充最终离线构建或容器验证。这样不引入新 FROM 映射，也不借 main 开发线的依赖基础镜像。该补充须由设计明确后定向核，不需要 owner 重确认整个范围；当前没有该联网预填充或替换基础镜像的执行决定。RS 原有预置接口及其准备仍在 §48 已通过范围内。
+
+审核意见已发设计；直发工具子任务被 app-server 以 multi-agent v2 sub-agent 不允许直接输入拒绝，已请设计转交，未声称子任务直接收到。

@@ -257,3 +257,17 @@ events 确认 own_activity_confirmed_stopped=true、copy_uncertain=false、lock_
 现有源码给出的服务端候选路径为同步 catalog route → repository visibility/provider → commit_exists → catalog cache loader → 表清单与逐表 schema/COUNT → DTO 构造后返回；响应头前超时不能在这些阶段间定位，readyz 200 也不能替代该定位。未再搜索同类日志、扫描卷或运行请求。若继续诊断，最小候选是同一固定 GET 期间少量有界 RS Python 栈（无 locals/native），配合双流日志修正，先判断请求是否进入 catalog 以及所在阶段；仍须另审具体方案，不改 timeout、不预热、不恢复 Submit、不扩大矩阵。本节未授权下一次运行。
 
 **handoff 记录完整性通过。** 定向读取原实施者仅文档提交 `6920325d55b46531a31f3d3f2d26b2a1a48476f2`，结果、起止 HEAD/节点时间、execute 与外层 exit 区别、候选/镜像/helper 摘要、客户端证据、stderr/tail 限制、收束和卷保留均与本节已核材料一致；未把最终异常扩称为每次 attempt 已证明的 cause，也未宣布原租约根因或正式恢复。另对照本地既有 transfer/check/postflight 日志及文档摘要一致，后验记录明确 marker ABSENT、四项 SHA 检查通过。无新增 finding，无新节点取证或请求；新 RS 栈候选另行审核。
+
+## 19. 独立 RS 栈候选复核与单次 GO
+
+**明确 GO：允许原实施者按固定新 README 在 CT05 执行一次 `p6catalogdiag20261106b` 冷 catalog + RS Python 栈诊断。** 已直接通知设计与原实施者，无需另等 owner 确认。范围仍是从原已核且无 writer 的 source RS 卷复制一个新卷、新 RS 进程、固定父提交的一次逻辑 GET；不包含 Submit、预热、改变产品 timeout、正式测量或其他场景。审核仅静态读取，未执行候选或测试。
+
+新目录 `/home/dev/gdds-p6-logs/submit-diag-preflight-20261105/cold-catalog-stack-candidate/`：`execute.py` SHA256 `8ef5ee804e193ce32c3548eb2a2d448fcc7094f45b3cf310357eea3571b72b4d`，README SHA256 `7d3dd26f77db6b47ef3e607a3b59fb2b16c6215ab675b5850e4aad26fcb79616`；client `74bfa2b5…`、identity `7395cfaa…` 保持第 17 节完整摘要。已逐段核对相对 `f0ce6eaf…` 的完整差异，原候选与旧证据未改。输出固定为 `cold-catalog-stack-run-20261106b/`，新锁 token 为 `p6baseline-cold-catalog-stack-20261106b`。
+
+RS Compose 有 `init: true`，新脚本只把 `.State.Pid` 作为 init 锚点，通过本容器 `docker top` 的 pid/ppid/comm 找唯一 Python，验证祖先链（允许 runuser 中间层）、PID namespace 和 init/Python starttime，并核容器 image identity。不是把 init 当解释器采样。每次采样前重核进程绑定；不读取 argv、业务数据或 secret 环境。RS 版本从已核镜像的 `PYTHON_VERSION` 白名单字段取出，并要求与 e798 RS Dockerfile 默认 3.14.6 及实际首份 dump 一致；缺失/不同为观测兼容性停止，不冒称 worker canary 已证明 RS 支持。
+
+py-spy 沿用固定 `9b4d1f39b2a47ae44f4c6a46f615dcc0287d7755beba5065f32391951e07d594`，只用普通 `dump --pid`，不加 native/locals。从 client 启动起 10/40/70 秒至多三次异步 Popen；每份预算 1 秒，到期 kill，由现有循环回收，180 秒调用截止先检查。该预算受约 50ms 轮询及系统调度影响，不是硬实时精度承诺。首份没有所需 RS 业务帧/版本/PID/线程或有 invalid frame 即停止诊断并收束；之后失败明确记为缺口。客户端提前返回取消后续采样，活动采样先 kill/reap，再停止双方容器；采样回收未确认则保锁。无有效业务栈不能推导“未执行 catalog”或产品失败。
+
+Docker log 采集已把 stdout/stderr 同写有界文件，修复第 18 节丢失 stderr 的问题，仍仅 tail 2000 且不称完整日志。原 60/120/180/90 秒阶段预算、资源门槛、一次 GET/原内部重试、`--pull never`、不删除卷和不确定时保锁均保持。README 完整说明停止分类及观测干扰；直接 GET 成功但未取得栈时仍标 stack_observation_incomplete，不作阶段耗时或原 lease 根因结论。
+
+执行前按 README 做 BatchMode SSH 确认、获准 LAN 同步固定文件并核 SHA，使用既有 e798 绝对解释器及隔离环境；controller 自取锁，不叠加外层锁。任一失败即停，不自动重试；保留源卷、新卷、events/client、两份双流有界日志、最多三份栈与 SHA256SUMS。确认自身进程/容器/网络停止后才释放自身 token，未知状态保锁。交回实际 exit、原始结果及收束，不把单次诊断授权扩展成正式恢复。

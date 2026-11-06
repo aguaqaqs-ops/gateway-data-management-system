@@ -694,3 +694,25 @@ backend 改动仅限 `compute_change_set_digest` 与 `compute_change_set_closure
 验证范围适当：shared_kernel 单一 owner 负责现有公开 bytes/golden 对应的摘要、Unicode/数值/序列化错误优先级及 buffer 边界；backend 负责真实 change-set/closure 的绑定、错误摘要拒绝和代表性跨 mutation 语义，不重复共享层矩阵，不引入 Dolt。只计划专用节点 clean 提交上的一次限域 focused 和五包静态检查；镜像和恢复门禁留到必要候选另行绑定，不据此宣称镜像通过。
 
 既有 probe GO 已用完，文件与计时不作新旧性能对照；现场 lease 根因继续 OPEN。范围结论不授权新 probe、Submit、正式测量、放宽租约或省略校验，也不要求重新跑已完成的调查。后续审核以该精确范围内的实际实现和必要等价证据为对象。
+
+## 42. JCS hash sink 候选：代码与局部语义证据通过
+
+**代码候选 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 通过本次独立代码与局部证据审核，无阻塞 finding。** handoff `172d53cfebeb1a6dc6ae1ea4068483b129285e70` 仅增交接文档；审核区间 `eaf247c67af4c23de9aa333f07acc5e8f2ab0590..1f9731dfc3`，基点为 e798 加既有 RS 修正。本地创建 detached 审核 worktree `/home/dev/gdds-p6-jcs-sink-review-1f9731` 并链接 legacy，在其中只读审五文件增量及相关原实现，没有运行测试或改产品。本轮报告之外未修改 main 的其他工作。
+
+shared_kernel 的 bytes 与 digest API 共用 `_write_canonical_json`，仍依次全树 Unicode、全树数值、原 serializer；异常映射的三条分支没有改变。新入口只在全部 writer 输出成功后返回 `DigestRef.from_raw_digest`，无 domain prefix、fallback 或部分摘要返回。backend 仅切换 change-set 与 closure 两处消费，完整前像、payload 构造、排序及 artifact/closure 重复校验均保留。公开 bytes consumer 仍取得原 bytes 语义。
+
+`_HashSink` 只分配固定 65,536-byte bytearray；小块在容量不足时先 flush，大于等于容量的块直接 hash，尾块最终 flush。有效长度始终受容量约束，slice 写入长度与替换范围相等，不增大 bytearray；flush 使用短期 memoryview，没有再聚合整份输出。调用标准 SHA-256 并按原 DigestRef 格式返回。该结论仅限新增 sink buffer，不包括 payload/字符串/原库内部拷贝，不是实测整体内存峰值。
+
+固定依赖已独立核实：读取本机已有 `rfc8785` 0.1.4 的 `_impl.py`，实际 SHA256 `c25bc3a046528482d53bee3487b837f31dd9c05f33e8f13288c7aab320932cec` 与 CT05 closeout 一致。`dumps` 正是 BytesIO→dump→getvalue；dump 及其字符串/浮点 helper 只调用 write(bytes)，不使用其他 IO 方法。因此私有窄 Protocol 到第三方 IO 类型的一处 cast 有实际来源支持，没有替换编码规则。候选未改依赖或 golden。
+
+测试对照具有独立依据：成功样本以原 `rfc8785.dumps` 输出 bytes 为参照，覆盖 Unicode/转义/UTF-16 键序/数字与缓冲边界；故障表核对全树 Unicode 优先于前部数字、数字优先于 serialization 失败，及 tuple 进入原库错误映射的 code/message/cause。后部 unsupported value 亦验证部分写出后不返回摘要。一个混合小块/大块/尾块测试核缓冲上限和总摘要。backend 的真实 DELETE/UPDATE/INSERT 前像与 closure 绑定、错误摘要拒绝及跨 mutation 错误优先级由相应测试覆盖，没有扩为重复矩阵或 Dolt fixture。
+
+读取 CT05 回传的原始日志而不重跑：2026-11-06 06:55:02–06:55:05 UTC，shared_kernel 三文件 **172 passed**，backend mutation contracts **19 passed**，exit 0；06:55:31–06:55:36 五包 Ruff/mypy 全通过、exit 0，起止 HEAD 均为候选，五锁前后摘要一致。日志记录本机预置缓存/offline/no proxy；handoff 记录 clean 提交、局域网 bundle、专用 TMPDIR。closeout 06:56:14 记录自有节点锁释放、无任务进程/容器，并核 native 扩展 tree `58436908aee9dd449f4d3e0542a6a8c1920b6d5e` 与源码一致。三份日志实际 SHA 与 handoff 全匹配：
+
+| `/home/dev/gdds-p6-logs/change-set-jcs-writer-20261106/` 文件 | SHA256 |
+| --- | --- |
+| `focused-1f9731dfc3.log` | `70aeda0bbcab35dbdcef1fa02711873fa2669a8b27a2e3ca947ec846c054f629` |
+| `static-1f9731dfc3.log` | `c65d7b3248432c7e3cca5636fe22f013aaf00176430907c33caf1b5258fa75a0` |
+| `closeout.log` | `d6bf9b5013758a2c07dc8343b9bbc508dadb4f1a32114f22a56f38c6c8c5fae6` |
+
+**通过的只是该候选代码与局部语义证据。** 没有新旧分配/速度对照，不以旧 probe 14 秒作改进基线；现场大堆 lease 根因仍 OPEN。当前未触容器专属接线，本轮按设计先做内部逻辑验证，镜像构建/容器及正式恢复门禁延期至下一份明确候选流程；没有此候选新的 image revision/source-tree 验证，旧 e798/RS 镜像不得称为本候选已通过或 carried。未授权合 main/baseline、推送、重跑 probe、Submit 或正式测量。已将结论直发设计供其转既有实施任务；新增审核 worktree 保留供后续清理。

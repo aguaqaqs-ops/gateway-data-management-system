@@ -41,3 +41,10 @@ def pytest_collection_modifyitems(
             and item.get_closest_marker("unit") is None
         ):
             item.add_marker(pytest.mark.unit)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def initialize_kernel_pool() -> None:
+    from gateway_compute._native import _init_kernel_native
+
+    _init_kernel_native(1)

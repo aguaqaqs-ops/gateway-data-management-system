@@ -96,6 +96,7 @@ COMPOSITION_ZONES = frozenset({"composition", "bootstrap"})
 # Rust policy v4 §4: exact coarse entrypoints, not a capability-wide compute
 # exemption. Other owners, whole-module imports and wildcard imports still fail.
 NATIVE_COMPUTE_ENTRYPOINTS: dict[str, frozenset[str]] = {
+    "gateway_backend.capabilities.table_access.native": frozenset({"_parse_sql_native"}),
     "gateway_backend.capabilities.snapshot_materialization.native": frozenset(
         {"_sql_materialize_native", "_catalog_filter_native"}
     ),

@@ -15,6 +15,8 @@ from types import FrameType
 from typing import Any, cast
 from uuid import uuid4
 
+import pyarrow as pa
+from gateway_compute._native import _init_kernel_native
 from pydantic import ValidationError
 
 from gateway_backend.artifacts import ArtifactRefLookupPort
@@ -390,6 +392,9 @@ def run(settings: OperationWorkerSettings | None = None) -> int:
         try:
             # Required paths and repository settings are normally supplied by the env prefix.
             configured = settings if settings is not None else OperationWorkerSettings()  # type: ignore[call-arg]
+            _init_kernel_native(configured.kernel_threads)
+            pa.set_cpu_count(configured.kernel_threads)
+            pa.set_io_thread_count(configured.kernel_threads)
             previous_handlers = _install_signal_handlers(stop_requested, stop_wakeup_callbacks)
             from gateway_backend.bootstrap.composition import (
                 assert_workspace_registry_ready,

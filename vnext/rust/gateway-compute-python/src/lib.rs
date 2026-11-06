@@ -143,7 +143,7 @@ fn register_cancel_probe(py: Python<'_>, probe: &Py<PyAny>) -> PyResult<CancelWa
     })
 }
 
-fn shared_parser_pool(threads: usize) -> PyResult<&'static ThreadPool> {
+fn initialize_kernel_pool(threads: usize) -> PyResult<&'static ThreadPool> {
     if !(1..=gateway_compute_core::table_access::MAX_PARSER_THREADS).contains(&threads) {
         return Err(PyValueError::new_err(format!(
             "parser threads must be in 1..={}, got {threads}",
@@ -158,6 +158,32 @@ fn shared_parser_pool(threads: usize) -> PyResult<&'static ThreadPool> {
     if pool.current_num_threads() != threads {
         return Err(PyValueError::new_err(format!(
             "parser pool was initialized with {} threads; requested {threads}",
+            pool.current_num_threads()
+        )));
+    }
+    Ok(pool)
+}
+
+/// Process composition initializes the fixed pool before any operation runs.
+#[pyfunction]
+fn _init_kernel_native(pool_threads: usize) -> PyResult<usize> {
+    match adapter_boundary(|| {
+        initialize_kernel_pool(pool_threads).map(ThreadPool::current_num_threads)
+    }) {
+        Ok(result) => result,
+        Err(()) => Err(PyRuntimeError::new_err("kernel initialization panicked")),
+    }
+}
+
+fn shared_parser_pool(threads: usize) -> PyResult<&'static ThreadPool> {
+    let pool = PARSER_POOL
+        .get()
+        .ok_or_else(|| PyRuntimeError::new_err("kernel pool has not been initialized"))?
+        .as_ref()
+        .map_err(|error| PyRuntimeError::new_err(format!("kernel thread pool unavailable: {error}")))?;
+    if pool.current_num_threads() != threads {
+        return Err(PyValueError::new_err(format!(
+            "kernel pool was initialized with {} threads; requested {threads}",
             pool.current_num_threads()
         )));
     }
@@ -1322,6 +1348,7 @@ const BUILD_INPUT: &str = match option_env!("GATEWAY_RUST_BUILD_INPUT") {
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     business::register(module)?;
+    module.add_function(wrap_pyfunction!(_init_kernel_native, module)?)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;
     module.add_function(wrap_pyfunction!(_inspect_canonical_ipc_native, module)?)?;

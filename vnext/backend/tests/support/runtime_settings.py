@@ -80,6 +80,7 @@ def make_operation_worker_settings(
         db_path.parent / "provisioned-mapping.json",
     )
     return OperationWorkerSettings(
+        kernel_memory_budget_bytes=overrides.pop("kernel_memory_budget_bytes", 8 * 1024**3),  # type: ignore[arg-type]
         control_db_path=db_path,
         artifact_root=artifact_root,  # type: ignore[arg-type]
         repository_base_url=repository_base_url,  # type: ignore[arg-type]

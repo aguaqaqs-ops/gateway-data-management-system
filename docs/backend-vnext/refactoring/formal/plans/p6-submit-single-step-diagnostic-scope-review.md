@@ -410,3 +410,9 @@ controller/launcher 均 exit 1，结果为 `CATALOG_RETURNED_AFTER_RETRY`，原�
 **边界建议：按 owner 性能补充保留首尝未达这一余项，可转入新 RS 下单步 Submit 的具体方案准备。** 当前逻辑读取已能在原内部重试机制内返回，不要求先把所有冷读压入 30 秒才允许继续诊断；不追加相同 GET、不预热、不擅改 timeout，也不继续无限优化。新方案应使用已核 pre-submit checkpoint 的独立副本，不能续用失败 Submit 或本次冷读产生的运行卷；固定 e798 backend/worker 与 4497 RS 的混合身份、原输入/规则/parent 绑定和租约/心跳/请求预算，仅一次 POST 加必要有界观测，具体脚本、预算和收束再审后才执行。第 13 节旧 GO 和 READY cap 例外都不能外推。
 
 该建议不是新的 Submit 执行授权，不把局部成功认定为原 lease_lost 已修复。H3 原证据继续保留；W4/S4/H1 与剩余正式测量仍须另定 V→H 影响和恢复口径。
+
+## 26. 新 RS 单步 Submit 接续范围
+
+**范围 GO，无阻塞 finding。** 已核设计提交 `34bd19e5e4` 在 `p6-submit-single-step-diagnostic-plan.md` 新增的 2026-11-06 接续节，与第 25 节建议一致。原 pre-submit 三卷 checkpoint、输入/cache 按 e798/旧 RS 的源身份核验，目标明确记录 e798 backend/worker 加 4497 RS 的固定组合；只允许独立外置工具表达这一精确关系，不改源 manifest、不写假 MATCH 或增加通用 skip。新 project、证据目录、幂等键和目标三卷保持隔离，原 parent/规则/输入/cache/TTL、租约/心跳/timeout 与 45 分钟观察及资源/栈停止边界完整。
+
+可直接进入实施者固定脚本/身份/命令的定向审核，无需重复范围确认。本节不授权 POST 或节点执行；具体候选通过后才给本次单步 GO。已核观测能力可按相同 worker 镜像/解释器绑定引用，不要求重复 canary、冷 GET、预热或重 Preview。该混合版本诊断既不是原冻结失败的原样复现，也不代替新 RS 正式门禁、合入或 V→H 恢复判定；H3 证据保留。

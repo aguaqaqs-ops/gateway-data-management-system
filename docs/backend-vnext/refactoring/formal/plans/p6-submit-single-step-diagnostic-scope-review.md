@@ -1534,3 +1534,62 @@ cd /home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend
 实际诊断失败或停止后不自动重试，保留最后可读 target DB selected rows、raw service/event/resource 日志、GC summary 状态及捕获错误、原始失败与完整摘要。使用原有有界 cleanup，仅自有进程/容器/网络均确认静止后解锁；未确认则留占用报告，保留三卷及所有旧证据/候选。logger/guardian 正常关闭不等于 worker 正常业务退出，missing summary 不能说全部观测完成。控制器日志完整关闭后由外层记录完整 SHA，结果直接交本审核会话独立复核。
 
 **本节只授权此精确候选的一次限定诊断；不是产品/旅程验收通过，不是正式测量恢复或失败重试许可。** 不改产品/镜像或 retag，不推送/打 tag/合入产品，不清理原卷或证据。H3 仍 PASS，lease 根因仍 OPEN，正式测量仍 STOP；其余候选和已消耗 GO 均不因本节恢复。
+
+## 73. GC-window d 运行结果复核：观测不完整停止，未到 mutation_plan；一次 GO 已消耗
+
+**§72 GO 已唯一执行并消耗，本轮诊断未完成，不能重试或恢复正式测量。** CT05 控制器 2026-11-06 21:22:21–21:32:23、602.095s，controller/script exit 1，STOPPED / diagnostic_stop / gc_observer_incomplete，GC summary=MISSING。本轮执行边界、既定停止与回收证据核验可接受；**没有观测到 lease_lost，不把这次观测停止写成又一次产品失租或 prepare 成功**。H3 仍 PASS，原 lease 根因 OPEN，正式测量 STOP。
+
+### 精确身份与一次执行
+
+BatchMode echo OK 后，只读 SSH 独立核 CT05 clean 冻结 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`、manifest 仍为 `b4db000f83194000f6d7a89180f63490327545c130a403cb3b636d5a81031571`，POST-GO 三行精确绑定 d，未改包/重建镜像。preflight 及实际 wrapper SHA/PID/starttime/guardian 首样本与 §71/72 输入、身份和启动顺序一致：worker wrapper `e30771db2b536debd23a4dbcc487509ffe2218ae58ccf4fa6d9de075a5e69377`，host PID `2922373`、starttime `200993265`，container PID 1，首样本 marker 先于 ready/claim。本审核没有测试、启动新业务、重试或访问 CT108。
+
+本地证据在 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6mutationgcwindow20261106d/diagnostic-evidence/`，远端原始 scenario 根在 `/home/dev/gdds-p6-logs/baseline/scenarios/p6mutationgcwindow20261106d/`；launcher 在候选根。关键摘要本地/CT05 一致：
+
+| 证据 | SHA256 |
+| --- | --- |
+| controller-launcher.log | `022aff5c6dd93ce8e3e2df6e3cd5860a85fc18906966365452eed7372c3259e3` |
+| evidence/prepare-step-result.json | `9f3e6f0491e101908389b3de06f2b8e69b3321b458866f7fefd0c60e3ce0165f` |
+| postflight.json | `b1bcd047d95ba890a6e31e5c0c8758049a06b9a48c181f794508b3be1a27eb8d` |
+| evidence/worker-events.jsonl | `f358cd36e3c34d3a63d8d9affaa14004a62a2854d7c3286c5ff95fdc031a2950` |
+| evidence/resource-samples.jsonl | `a2852d38d5d12e5257563aaa8137c9141a1d2b4f910ad58ba4f4015480866f91` |
+
+一次 acceptance attempt/count=1/1、HTTP 202、RESPONSE_VALIDATED，一次 target-bound claim/attempt_count=1。operation=`op-39d77db02a24401421ce1691`、attempt=`sa-8e7583c89a0cbbcc00341bee`，step 为其 `-step-1`/prepare_import。21:29:19 最后可读 selected rows 是 TARGET_FOUND：operation/step RUNNING、attempt PREPARED、cancel=false、repository_operation_id 均 null，只有目标 prepare active，未产生 submit_import 后继。身份、返回 ID、事件与末态一致；没有把 durable RUNNING 改写为终态成功。
+
+### 停止来自保守的 snapshot 交错判定
+
+286 条事件中 54 次 helper/session 入口与退出、54 次 heartbeat_succeeded，session 全部 return，没有 lease_lost/heartbeat_busy。首次 `gc_since_previous.incomplete=true` 在**第 201 行、21:29:18.516 的第 38 次 session exit**；原 session 本身正常返回（call_elapsed 0.164990s），callback/observer/invalid 计数均为 0，伴 executor 线程 `127152133236416` 的一个开放 gen0 窗口。这与候选代码 snapshot/callback 交错时主动标记 incomplete 的保护一致，不是 callback 抛错或产品 heartbeat 失败证据，也不证明发生了实际漏计。
+
+共 66 条事件携带 true，是 sticky incomplete 状态的后续输出数，**不是 66 次独立观测错误或 66 次长 GC**。控制器据此进入既定停止，21:29:19 保存 pre-down 证据。说明保守交错保护会在目标问题阶段之前先触发；不能通过忽略该标记、改 GC 设置或自动重跑来继续消耗已用 GO。
+
+源码上，callback/observer/invalid 错误路径会分别增加已记录计数；worker 尚未返回，也未执行正常收尾的 callback 移除/final_summary。首条不完整载荷仍有完整类型的三代 rows/open list，不是 compact 编码遇非法形状的 fallback。因此可以把这次状态归入 **`GCWindowObserver._mark_snapshot_interleaved` 的交错保护类别**，而不是已证实的 callback/记录异常。该函数可由 callback 入口/收尾、snapshot 内的正在更新检查或重入检查调用；现有事件没有记录 reason/callsite，不能继续唯一确定哪一调用点先置位。开放 gen0 是当时观察到的状态，不独自证明具体丢计；错误计数为零也不能成为未来通用放行规则。本次没有足够的 producer 累计/最终摘要证明实际漏计，能确认的是一致性保护判定本身触发了停止。
+
+| 时刻 UTC | 实际边界 |
+| --- | --- |
+| 21:22:51.640–21:23:58.971 | prepare_build_input return，67.331s |
+| 21:25:54.117–21:27:43.470 | frozen_projection return，109.353s |
+| 21:27:43.470 | mutation_snapshots 进入 |
+| 21:29:18.516 | 观测 incomplete，mutation_snapshots 此时尚未返回 |
+| 21:29:19.284 | 停止处理期间 drain_started |
+| 21:31:23.897 | 清理期间 mutation_snapshots 才 return（220.427s），随后 parent_materialization 进入 |
+| 21:32:19.284 | drain_timed_out，距 drain_started 180s |
+| 21:32:23 | 控制器结束并完成回收 |
+
+没有 mutation_plan/canonical_publish 入口，也没有 parent_materialization 结束、claim_exit、clean_drain_requested 或 worker_run_exit。后续业务线程在停止处理中继续运行，不代表 controller 忽略停止或 prepare 正常完成；原 fence/join/drain 语义保留，不能假定线程在停因出现时即终止。后续 drain/timed-out 不当作初始停止原因，本次没有覆盖 §67 的 mutation_plan 漏续租窗口。
+
+### 早期片段的有效 GC/计时信息与限制
+
+首次 incomplete 前仍有可解释的正向窗口：executor 线程 gen2 的 callback 区间 monotonic_ns `[2010282474930725, 2010291286937959]`，**wall 8.812007234s、process CPU 8.819902953s、同线程 CPU 8.811169980s**。第 183 行 helper marker= `2010291286870428`（21:28:48.310），derived due=`2010284.863481389`，传入 deadline=`2010304.863481389`；marker 比 due 晚 **6.423389039s**，但尚余 deadline **13.576610961s**。该时点报告开放 gen2，下一条 session entry 保存相同 start/thread 的完整 stop 窗口，stop 比 helper marker 晚 67531ns；因此该 callback 区间覆盖了这次 derived due→marker 的迟到区间，之后 session 正常返回、heartbeat 成功。
+
+这是真实进程中 GC 边界与续租迟到共现且 collection 线程有明显 CPU 消耗的证据，比旧 100k checkpoint 更接近现场；**仍不是 GC/GIL 唯一因果证明，更不能外推为 §67 的 22.272s planner 延迟原因**。它发生在 mutation_snapshots 阶段，没有漏 deadline；callback 起止包含相关 callback/collection 区间，不当作 GC 内部独占 CPU 或逐步归因。停止后的不完整片段另有约 11.082s gen2 窗口，只按该片段说明，不当完整覆盖或独立性能测量。
+
+首次 incomplete 之前 38 次 helper marker 的最大 due lateness 为上述 6.423389s；全程 54 次最大约 11.018532s，均未越传入 deadline。54 次 session 原调用最大 0.295496s。首次 incomplete 事件携带的前 200 次已完成 writer 操作最大 encode/lock-wait/write/flush 分别为 1.156515ms/0.003580ms/5.353299ms/0.001860ms，未显示这些已报告操作的秒级阻塞；不覆盖未报告尾部，也不把 line-buffered write/flush 当独立 syscall 或无扰动证明。
+
+事件 286 条、165420 bytes、最大 855 bytes，未触发大小/数量上限；没有最终 GC summary，不能宣称完整 collection 统计或“没有 GC”。尤其不能用本次早期/不完整采样排除其他阶段，或替代对旧真实失租的解释。后续可利用这些保留片段作只读分析，继续运行须由新的具体方案与精确 GO 决定，本审核不自动排下一轮。
+
+### 回收与证据留存
+
+guardian 82 样本，21:22:31–21:29:16、最大间隔 5.010667s；worker RSS 最大 8284733440 bytes、host available 最小 58928576512 bytes、disk free 最小 211148898304 bytes，未触既有资源线。guardian CLOSED、exit 0/reaped、worker_exited_cleanly=false；它在清理前关闭，不作为随后完整资源覆盖或 worker 正常业务退出证据。
+
+pre-down 于 21:29:19 保存 MISSING summary 状态、最后 selected rows 和三服务 raw logs；文件字节/摘要与索引逐项匹配，三个 capture helper 均 exit 0、reaped/group quiet、无 truncation/timeout。worker.log 为 0 bytes，最终 summary 文件在节点也不存在，没有最终 worker exit signal/code 记录；不补造正常退出或结束计时。Compose down=0、postflight_complete/lock_release_allowed=true、自有进程和 project 容器/网络 quiet/reaped，三目标卷完整保留、volumes_removed=false，launcher node_lock_released=true。只读 SSH 另核该 project 容器/网络空、三卷全在、busy lock absent，与原记录一致。
+
+**结果与限制已直接交实施者并同步设计。执行边界、停止与回收核验通过，原诊断问题未闭合；本 GO 已消耗，无自动重试、产品/GC/TTL 改动或正式测量许可。** 保留全部旧候选、卷、原始证据和本次有效片段，不为补 summary 重跑。

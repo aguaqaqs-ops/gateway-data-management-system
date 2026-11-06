@@ -127,10 +127,15 @@ def comparison_python_memory_upper(plan: ComparisonPlan) -> int:
         policy = task.policy
         if policy is None or policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
             continue
+        tables = (task.before_table, task.current_table)
         if task.before_descriptor is not None and task.current_descriptor is not None and _can_table_early_exit(
             task.before_descriptor, task.current_descriptor, policy):
-            continue
-        for table in (task.before_table, task.current_table):
+            if policy.ordered_policy is None:
+                continue
+            # Ordered identity hits still read current rows for ordered/occupancy
+            # digests; only the ordinary comparison skips both row readers.
+            tables = (None, task.current_table)
+        for table in tables:
             if table is None:
                 continue
             reader = table.reader

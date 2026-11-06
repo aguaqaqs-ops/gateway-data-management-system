@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -717,27 +717,44 @@ def test_empty_baseline_submit_accepts_table_addition(
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1
 
 
-def test_pair_memory_admission_rejects_before_python_row_comparison(monkeypatch: pytest.MonkeyPatch) -> None:
-    from gateway_backend.capabilities.comparison import BoundSnapshotInput
+@pytest.mark.parametrize("ordered_identity", (False, True))
+def test_pair_memory_admission_rejects_before_python_row_comparison(
+    monkeypatch: pytest.MonkeyPatch, ordered_identity: bool,
+) -> None:
+    from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
+    from gateway_backend.capabilities.table_rules import CanonicalKeyPolicy, OrderedPolicy, StorageRuleView
+    from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
     from gateway_backend.capabilities.table_access import (
         KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope, KernelMemoryLimit,
     )
     from gateway_backend.capabilities.snapshot_materialization import MaterializationPolicy
     from tests.support.snapshot_materialization import materialize_arrow_sql
-    from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
+    from tests.support.table_rules import comparison_ruleset_for, standard_rule_record, ordered_record
     sides = []
-    for value in ("a", "b"):
-        result = materialize_arrow_sql(f"CREATE TABLE t(id INT PRIMARY KEY,v TEXT); INSERT INTO t VALUES (1,'{value}');",
+    for value in (("a", "a") if ordered_identity else ("a", "b")):
+        sql = ("CREATE TABLE t(gid BIGINT NOT NULL PRIMARY KEY,no INT NOT NULL,v TEXT); INSERT INTO t VALUES (10,1,'a'),(11,2,'b');"
+            if ordered_identity else f"CREATE TABLE t(id INT PRIMARY KEY,v TEXT); INSERT INTO t VALUES (1,'{value}');")
+        result = materialize_arrow_sql(sql,
             policy=MaterializationPolicy.READERS_REQUIRED)
         assert result.snapshot is not None and result.summary is not None and result.table_set is not None
-        sides.append(BoundSnapshotInput(result.snapshot, result.summary, result.table_set))
+        bound = BoundSnapshotInput(result.snapshot, result.summary, result.table_set)
+        if ordered_identity:
+            descriptor = bound.summary.tables[0]
+            assert descriptor.raw_content_digest is not None
+            view = StorageRuleView(canonical_table="t", canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
+                ordered_policy=OrderedPolicy.GID_NO_V1, structural_columns=("no",),
+                retained_columns=tuple(column.name for column in descriptor.columns), canonical_key_columns=("gid",))
+            bound = replace(bound, storage_facts=(ComparisonStorageFacts(storage_rule_view=view,
+                source_schema_digest=descriptor.business_schema_digest, canonical_schema_digest=descriptor.business_schema_digest,
+                raw_content_digest=descriptor.raw_content_digest, storage_projection_version=STORAGE_PROJECTION_VERSION),))
+        sides.append(bound)
     def forbidden_compare(_plan: object) -> None:
         raise AssertionError("comparison must not allocate rows before M admission")
     monkeypatch.setattr(pair_pipeline, "compare_plan", forbidden_compare)
-    memory = OperationMemoryBudget(64 * 1024)
+    memory = OperationMemoryBudget(80 * 1024)
     with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
         with pytest.raises(KernelMemoryLimit):
             pair_pipeline.run_preview_pair_pipeline(pair_id="pair-budget", before=sides[0], current=sides[1],
                 store=InMemoryArtifactStore(), control=ExecutionControl(), on_cancel=lambda: None,
-                rule_set=comparison_ruleset_for(standard_rule_record("t")), assess_identity=False)
+                rule_set=comparison_ruleset_for(ordered_record(r"^t$") if ordered_identity else standard_rule_record("t")), assess_identity=False)
     assert memory.stage_admissions[-1]["stage"] == "comparison-python-records"

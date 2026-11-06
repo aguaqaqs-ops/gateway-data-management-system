@@ -324,7 +324,9 @@ fn required_python_bool(object: &Bound<'_, PyDict>, key: &str) -> PyResult<bool>
 fn required_usize(object: &Bound<'_, PyDict>, key: &str) -> PyResult<usize> {
     let value = required_item(object, key)?;
     if value.is_instance_of::<PyBool>() || value.cast::<PyInt>().is_err() {
-        return Err(PyValueError::new_err(format!("{key} must be a non-negative integer")));
+        return Err(PyValueError::new_err(format!(
+            "{key} must be a non-negative integer"
+        )));
     }
     value.extract::<usize>().map_err(|_| {
         PyValueError::new_err(format!("{key} must be a non-negative integer in range"))
@@ -441,7 +443,9 @@ fn descriptor_preflight(
                 .cast::<PyString>()
                 .map_err(|_| PyValueError::new_err("declared_type.kind must be a string"))?;
             if kind.len() > 32 {
-                return Err(PyValueError::new_err("declared_type.kind spelling is too long"));
+                return Err(PyValueError::new_err(
+                    "declared_type.kind spelling is too long",
+                ));
             }
             cache_characters = cache_characters
                 .checked_add(kind.len())
@@ -483,9 +487,9 @@ fn descriptor_preflight(
                 descriptor_characters = descriptor_characters
                     .checked_add(characters)
                     .ok_or_else(|| PyMemoryError::new_err("canonical descriptor size overflow"))?;
-                cache_characters = cache_characters
-                    .checked_add(characters)
-                    .ok_or_else(|| PyMemoryError::new_err("canonical string cache size overflow"))?;
+                cache_characters = cache_characters.checked_add(characters).ok_or_else(|| {
+                    PyMemoryError::new_err("canonical string cache size overflow")
+                })?;
                 cached_string_count = cached_string_count
                     .checked_add(1)
                     .ok_or_else(|| PyMemoryError::new_err("canonical string count overflow"))?;
@@ -593,9 +597,9 @@ fn actual_descriptor_storage_bytes(
                 )
                 .ok_or_else(|| PyMemoryError::new_err("canonical descriptor storage overflow"))?;
             for label in labels {
-                total = total.checked_add(label.capacity()).ok_or_else(|| {
-                    PyMemoryError::new_err("canonical label storage overflow")
-                })?;
+                total = total
+                    .checked_add(label.capacity())
+                    .ok_or_else(|| PyMemoryError::new_err("canonical label storage overflow"))?;
             }
         }
     }
@@ -617,18 +621,19 @@ fn parse_declared_type(value: &Bound<'_, PyAny>) -> PyResult<Option<DeclaredType
     let declared = match kind.as_str() {
         "null" => DeclaredType::null(),
         "boolean" => DeclaredType::boolean(),
-        "signed-integer" => DeclaredType::signed_integer(bits.ok_or_else(|| {
-            PyValueError::new_err("signed integer declared_type requires bits")
-        })?)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        "signed-integer" => {
+            DeclaredType::signed_integer(bits.ok_or_else(|| {
+                PyValueError::new_err("signed integer declared_type requires bits")
+            })?)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?
+        }
         "unsigned-integer" => DeclaredType::unsigned_integer(bits.ok_or_else(|| {
             PyValueError::new_err("unsigned integer declared_type requires bits")
         })?)
         .map_err(|error| PyValueError::new_err(error.to_string()))?,
         "decimal" => DeclaredType::decimal(
-            precision.ok_or_else(|| {
-                PyValueError::new_err("decimal declared_type requires precision")
-            })?,
+            precision
+                .ok_or_else(|| PyValueError::new_err("decimal declared_type requires precision"))?,
             scale.ok_or_else(|| PyValueError::new_err("decimal declared_type requires scale"))?,
         )
         .map_err(|error| PyValueError::new_err(error.to_string()))?,
@@ -636,9 +641,10 @@ fn parse_declared_type(value: &Bound<'_, PyAny>) -> PyResult<Option<DeclaredType
         "float64" => DeclaredType::float64(),
         "string" => DeclaredType::string(),
         "binary" => DeclaredType::binary(),
-        "bit" => DeclaredType::bit(bit_width.ok_or_else(|| {
-            PyValueError::new_err("BIT declared_type requires bit_width")
-        })?)
+        "bit" => DeclaredType::bit(
+            bit_width
+                .ok_or_else(|| PyValueError::new_err("BIT declared_type requires bit_width"))?,
+        )
         .map_err(|error| PyValueError::new_err(error.to_string()))?,
         "date" => DeclaredType::date(),
         "datetime" => DeclaredType::datetime(),
@@ -702,9 +708,9 @@ fn parse_column_descriptor(
             .cast::<PyList>()
             .map_err(|_| PyValueError::new_err("labels must be a list or None"))?;
         let mut labels = Vec::new();
-        labels.try_reserve_exact(input_labels.len()).map_err(|_| {
-            PyMemoryError::new_err("canonical IPC label allocation failed")
-        })?;
+        labels
+            .try_reserve_exact(input_labels.len())
+            .map_err(|_| PyMemoryError::new_err("canonical IPC label allocation failed"))?;
         for index in 0..input_labels.len() {
             python_adapter_control(watch, deadline)?;
             let label = input_labels.get_item(index)?;
@@ -832,9 +838,11 @@ fn consume_arrow_stream(
             ));
         }
         let batch_bytes = batch.columns().iter().try_fold(0_usize, |total, array| {
-            total.checked_add(array.get_array_memory_size()).ok_or_else(|| {
-                CanonicalAdapterError::Resource("input array byte count overflow".into())
-            })
+            total
+                .checked_add(array.get_array_memory_size())
+                .ok_or_else(|| {
+                    CanonicalAdapterError::Resource("input array byte count overflow".into())
+                })
         })?;
         adapter_control(cancel, deadline)?;
         input_bytes = input_bytes
@@ -1026,9 +1034,7 @@ fn encode_canonical_ipc_inner(
             | CanonicalIpcErrorKind::Value
             | CanonicalIpcErrorKind::Ipc => PyValueError::new_err(error.to_string()),
             CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
-            CanonicalIpcErrorKind::Cancelled => {
-                PyInterruptedError::new_err(error.to_string())
-            }
+            CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
             CanonicalIpcErrorKind::Deadline => PyTimeoutError::new_err(error.to_string()),
         },
         CanonicalAdapterError::Resource(message) => PyMemoryError::new_err(message),

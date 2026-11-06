@@ -14,7 +14,7 @@
 
 在独立 clean、已提交 worktree 检出精确产品提交，保留 legacy 链接；不合入 main 的新产品、Dockerfile、依赖或其他开发线变更。JCS/shared_kernel 改动会进入相关镜像输入，**backend、worker、Repository Service 均按该候选构建并绑定**，不将旧 e798 backend/worker 或 4497 RS 镜像称为当前候选通过或 carried。
 
-沿该冻结提交适用的 DC67 开发节点整镜像预构建流程：CT201 只取得缓存、离线构建/归档，不运行测试；使用已有获准缓存及预置基础镜像，build network=none，不升级依赖。实际构建输入、必要非 Git context、源 tree/build-input 标签、tag、config digest、全部 RootFS DiffID、归档 SHA 与起止时间记录在 handoff。测试节点不访问公网。
+沿该冻结提交适用的 DC67 开发节点整镜像预构建流程：CT201 只取得缓存、构建/归档，不运行测试；优先使用已有获准缓存及预置基础镜像，不升级依赖。原先要求 build network=none；已证实缓存缺失后的精确补充见 §7，不将该要求扩展为 CT201 不能取得构建制品。实际构建输入、必要非 Git context、源 tree/build-input 标签、tag、config digest、全部 RootFS DiffID、归档 SHA 与起止时间记录在 handoff。测试节点不访问公网。
 
 经获准 LAN 传到 CT05，复核 config digest 与全部 DiffID；不能跨节点比较 inspect ID，也不能仅凭 tag 或 Git HEAD 证明镜像实际输入。候选须给出可审阅的固定构建/传输/验证命令，避免混入旧 tag。缓存缺失先补齐明确制品，不修改锁或借旧服务镜像绕过。
 
@@ -55,3 +55,15 @@ py-spy 使用既有固定工具和每 15 秒/最多 1 秒的纯 Python 栈方式
 本文不授予真实输入 POST，也不授权合 main/baseline、推送或正式测量。镜像和小容器验证按范围审核后的明确责任分配接续，不需 Owner 重确认；最终 POST 必须获得绑定完整 manifest 的一次 GO。若产品提交、镜像、输入、规则或预算改变，重新定向核差异，不复用旧 GO。
 
 候选固定后将实际共享路径/提交同步新开发设计；合 main 前另核其冻结点。完整基准的 V→H、旧结果沿用、源身份缺口与最终门禁仍独立办理，不能用本次诊断许可替代。
+
+## 7. CT201 构建缓存缺失后的精确补充
+
+首次 backend 构建在 CT201 的精确 clean `1f9731` worktree 以 `--network=none --pull=false` 失败，日志 `backend-build-offline-initial.log` SHA256 `085fca8b147108fbc1c8d9d021e3ed8c7e39751342d974e6247ebcbc68be9349` 已保留：冻结 Dockerfile 的 uv 安装下载缺网络，原 `curl | sh` 未立即返回失败，之后 `uv python install` 因 uv 不存在失败。没有运行测试或影响 05，不把该失败认作产品行为失败，也不把首层退出 0 认作 uv 安装成功。
+
+本补充只解决已发生的开发节点制品获取问题：允许在**可联网 CT201** 按相同冻结 Dockerfile、context、实际固定基础镜像与构建参数取得必需制品并构建最终镜像，具体 build network 模式在命令和 handoff 明确记录。不得称此次联网构建为离线；不要求再为了获得 `network=none` 标签而重复构建。其依据是 Owner 已允许 CT201 网络/缓存/构建用途，测试 CT 公网隔离保持；原 none 是本方案的额外限制，非产品 Contract 或正式计时口径。
+
+使用本机已核基础镜像、`--pull=false` 并记录构建前后实际 config/全部 DiffID；不升级 tag 所指版本，不用 named-context 映射替换实际 FROM，不引入预装 uv 的替代 runtime base，不借新开发线 dependency-base，不修改 Dockerfile/锁/source 或用 ambient index 改 canonical lock。按原固定 UV/Python/Rust 版本和锁定依赖获取制品；日志必须证明实际安装/编译步骤成功，不能仅依赖被 pipeline 掩盖的退出码。保存网络模式、来源、起止、可核的制品/最终归档摘要、完整镜像身份及原始失败日志；来源中有无法独立确认的信息就标缺口，不补造旧镜像等价。
+
+独立 reviewer 核本补充及具体构建材料，原工具任务随后接续一次受控构建/归档。构建再次失败时先据日志定位，不盲目重复或更换基础镜像。RS 已有明确缓存接口可继续沿已审流程使用，不因本补充额外改其 Dockerfile 或引入另一套构建机制。
+
+CT05 仍只接收获准 LAN 镜像/源码制品，使用离线预填充环境及 `up --no-build`，不下载公网依赖；镜像身份检查、小容器用例、节点占用/停止及最终 POST 专属 GO 均不放宽。本补充不改变实际部署产品输入范围、测试位置或其他会话资源边界。

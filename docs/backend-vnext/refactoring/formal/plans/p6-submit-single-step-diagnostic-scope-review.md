@@ -614,3 +614,13 @@ stall 保存的 worker inspect 为 running、PID 相同、OOMKilled=false、Rest
 | `s4-stall-20261106T044459050676Z/stall.json` | `d4f360e0c70dc1663396fe19a903d8c493fae27c4f93cfa5ad10d28d09d20039` |
 | `s4-stall-20261106T044459050676Z/control-db-selected-rows.json` | `28519cb557bba6a0fec2ff16900219a21250f75154c5035da512da475c7ccc48` |
 | `s4-stall-20261106T044459050676Z/docker-inspect-worker.json` | `b461c3c7495bb8d684fb604959a15584fb900adb1a4ae783e6c65b09f50ff05c` |
+
+## 37. change-set/heartbeat 局部 probe 设计范围通过
+
+**范围 GO，无阻塞 finding；可直接准备固定外置工具，尚无 probe 执行 GO。** 已核设计 `55fa70a489` 的 `p6-change-set-heartbeat-probe-plan.md`，与第 36 节因果定位建议一致。本轮只读设计和 e798 既有 scheduler fixture，未运行测试或新取证；已直接将范围结论发设计，由其交原实施者准备。
+
+固定为 CT05 clean e798、真实 Thread/Event/monotonic/UTC、原 10 秒 heartbeat/30 秒 lease，复用现有内存 Store/UOW 与 LeaseSession。单 case 的具体 mutations 数量/构成/生成规则须在候选固定，最多 20,000×33 列、字符串最多 64 UTF-8 bytes；一次真实 compute，构造至线程退出共 120 秒、RSS 2 GiB，独立外层每 200ms 核 PID/starttime/RSS，截断后终止回收且不加规模重试。不启动 DB、Dolt、HTTP 或完整旅程。GC/阶段记录有界聚合且无回调 I/O，不能替换真实计算；输入构造、返回/释放和正常/异常 join 都计入观察与总预算。
+
+具体接线审核应注意已有 fixture 不是现成真实时钟模型：`RuntimeUowFactory` 默认用 BASE_TIME 加调用次数，`_active_records` 初始 lease 为 BASE_TIME+300 秒，`ThreadFactory` 返回 ControlledThread。候选须按设计替换这些时钟/初始 lease/线程接线，使用真实 UTC 事务时间和 30 秒初始 lease，并保留原 fence/安全 handoff；不能仅把外层 sleep 换成真时间就宣称真实续租关系。内存 UOW 的结果明确不覆盖 SQLite，短于一次心跳则只报告未覆盖，不额外等待或重复计算。这些是既定设计要求的实现核点，不增加新测试矩阵。
+
+现有 20,000 行/2 GiB 上限与现场约 24 GB 不同；结果不能外推唯一根因或产品性能，也不自动授权产品修正或 Submit。逐 mutation canonicalize/hash 的错误顺序不等价风险已明确，后续若采用 writer/hash sink 须另核原 JCS 字节、digest、全局校验顺序和完整 payload 的边界。本次只准备定向诊断，不捆绑流式化、Rust 迁移、租约调整或重复 closure 校验删除。固定 harness/监督命令/manifest 齐备后再给候选执行决定。

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence, Callable
 from dataclasses import replace
 from contextlib import contextmanager
 from typing import Any
@@ -43,6 +43,18 @@ REPOSITORY_SERVER_CONTRACT_VERSION = 1
 DEFAULT_REPOSITORY_ID = "repo-s4"
 DEFAULT_REF = "abc123def456abc123def456abc123de"
 RepositoryRows = Mapping[str, Sequence[Sequence[object | None]]]
+
+
+def _identity_fixture_value(value: Any) -> Any:
+    return value
+
+
+def _datetime_fixture_value(value: Any) -> Any:
+    return datetime.datetime.fromisoformat(str(value))
+
+
+def _set_fixture_value(value: Any) -> Any:
+    return list(value) if isinstance(value, (list, tuple)) else str(value).split(",") if value else []
 
 
 class FakeRepositoryTableReader:
@@ -167,8 +179,7 @@ class FakeRepositoryRefSession:
             for column in table.columns:
                 mapped = map_repository_column(column).source
                 kind = None if mapped.declared_type is None else mapped.declared_type.kind.value
-                def convert(value: Any) -> Any:
-                    return value
+                convert: Callable[[Any], Any] = _identity_fixture_value
                 physical: pa.DataType = pa.string()
                 if kind in ("signed-integer", "unsigned-integer"):
                     bits = mapped.declared_type.bits  # type: ignore[union-attr]
@@ -179,12 +190,10 @@ class FakeRepositoryRefSession:
                     convert = float
                 elif kind == "datetime":
                     physical = pa.timestamp("us")
-                    def convert(value: Any) -> Any:
-                        return datetime.datetime.fromisoformat(str(value))
+                    convert = _datetime_fixture_value
                 elif mapped.logical_type.value == "set":
                     physical = pa.list_(pa.field("item", pa.string(), nullable=False))
-                    def convert(value: Any) -> Any:
-                        return list(value) if isinstance(value, (list, tuple)) else str(value).split(",") if value else []
+                    convert = _set_fixture_value
                 fields.append(pa.field(column.name, physical, nullable=mapped.nullable))
                 columns.append([])
                 conversions.append(convert)
@@ -564,6 +573,7 @@ class _ReferenceCommittedTables:
     def load_table(self, *, commit_id: str, descriptor: Any, storage_view: Any, context: Any, timeout_policy: Any) -> Any:
         from gateway_backend.capabilities.snapshot_materialization.repository_ref import _read_and_materialize_table
         from gateway_backend.capabilities.snapshot_materialization.arrow import snapshot_table_from_arrow
+        from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
         from gateway_backend.capabilities.snapshot_materialization._parquet import _cell_to_arrow
         import struct
         session = self.provider.open_ref(self.request.repository_ref, timeout_policy)
@@ -571,7 +581,7 @@ class _ReferenceCommittedTables:
             catalog_table = next(t for t in session.get_catalog().tables if t.table_name == descriptor.table_name)
             _, table, _ = _read_and_materialize_table(self.request, session, catalog_table, storage_view,
                 self.request.materialization_stage, keep_rows=True)
-            if table is None or table.reader is None:
+            if table is None or not isinstance(table.reader, BoundSnapshotTableReader):
                 raise ValueError("reference fixture table is unavailable")
             source = table.reader.source_descriptor()
             rows = list(table.reader.iter_rows())
@@ -581,7 +591,7 @@ class _ReferenceCommittedTables:
                 kind = None if column.declared_type is None else column.declared_type.kind.value
                 physical = pa.int64() if kind == "signed-integer" else pa.uint64() if kind == "unsigned-integer" else pa.float32() if kind == "float32" else pa.float64() if kind == "float64" else pa.string()
                 fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
-                values = [_cell_to_arrow(row[index], column) for row in rows]
+                values: list[Any] = [_cell_to_arrow(row[index], column) for row in rows]
                 if column.logical_type.value == "set":
                     values = [None if value is None else ",".join(value) for value in values]
                 elif kind in ("signed-integer", "unsigned-integer"):

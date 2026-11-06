@@ -225,7 +225,7 @@ def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     assert materialize_step.checkpoint_ref is not None
     assert assemble_step.status is StepStatus.PENDING
     envelope = load_checkpoint_envelope(harness.artifact_store, materialize_step.checkpoint_ref)
-    sides = _sides_from_materialize_checkpoint(envelope.job_state, harness.artifact_store)
+    sides = _sides_from_materialize_checkpoint(envelope.job_state, harness.artifact_store, repository_id=REPOSITORY_ID)
     assert set(sides) == {BASELINE_HEAD.business_baseline_commit_id}
     assert set(envelope.job_state) == {"materialized_sides_ref"}
 
@@ -450,7 +450,7 @@ def test_materialize_checkpoint_preserves_keyless_storage_facts_for_history_comp
     )
     sides = _sides_from_materialize_checkpoint(
         materialize_envelope.job_state,
-        harness.artifact_store,
+        harness.artifact_store, repository_id=REPOSITORY_ID,
     )
     current_side = sides[current_commit]
     assert (

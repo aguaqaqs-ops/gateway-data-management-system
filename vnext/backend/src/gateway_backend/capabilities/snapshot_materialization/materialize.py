@@ -397,7 +397,6 @@ def _materialize_table(
     tuple[MaterializationDiagnostic, ...],
 ]:
     source = parsed.descriptor
-    diagnostics: list[MaterializationDiagnostic] = []
     try:
         compare_keys = effective_key_columns(source, ruleset_index)
     except CompareKeyError as exc:

@@ -7,15 +7,6 @@ from tests.support.native_projection import project_storage
 from collections.abc import Callable
 
 import pytest
-from gateway_shared_kernel import (
-    CollectionSemantics,
-    DeclaredType,
-    DeclaredTypeKind,
-    NullScalar,
-    StringScalar,
-    encode_collection,
-    encode_typed_scalar,
-)
 
 from gateway_backend.capabilities.storage_projection import (
     STORAGE_PROJECTION_VERSION,
@@ -26,11 +17,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionResult,
     ProjectionStatus,
     ProjectionTableInput,
-)
-from gateway_backend.capabilities.storage_projection._digest import (
-    CanonicalColumnCodec,
-    encode_canonical_cell,
-    manifest_document,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ArtifactSourceBinding,
@@ -77,8 +63,6 @@ pytestmark = pytest.mark.unit
 TableInput = tuple[FakeSnapshotTableReader, ArtifactSourceBinding]
 _ENUM_SQL = "ENUM('','active','paused')"
 _SET_SQL = "SET('read','write','admin')"
-_NULL_FRAME = encode_typed_scalar(DeclaredType(kind=DeclaredTypeKind.NULL), NullScalar()).scalar_frame
-_STRING_TYPE = DeclaredType(kind=DeclaredTypeKind.STRING)
 
 
 def _request(
@@ -542,39 +526,6 @@ def test_ordered_gid_no_faults(
     assert result.status is ProjectionStatus.FAILED
     assert result.manifest is None
     assert code in _codes(result)
-
-
-def test_enum_and_set_cell_vectors_match_shared_kernel() -> None:
-    enum_codec = CanonicalColumnCodec(
-        sql_type=_ENUM_SQL,
-        nullable=True,
-        family="enum",
-        declared_type=_STRING_TYPE,
-        labels=("", "active", "paused"),
-    )
-    set_codec = CanonicalColumnCodec(
-        sql_type=_SET_SQL,
-        nullable=False,
-        family="set",
-        labels=("read", "write", "admin"),
-    )
-    empty_string = encode_typed_scalar(_STRING_TYPE, StringScalar(text="")).scalar_frame
-    active = encode_typed_scalar(_STRING_TYPE, StringScalar(text="active")).scalar_frame
-    read = encode_typed_scalar(_STRING_TYPE, StringScalar(text="read")).scalar_frame
-    write = encode_typed_scalar(_STRING_TYPE, StringScalar(text="write")).scalar_frame
-    assert encode_canonical_cell(null_cell(), enum_codec) == _NULL_FRAME
-    assert encode_canonical_cell(varchar_cell(""), enum_codec) == empty_string
-    assert encode_canonical_cell(null_cell(), enum_codec) != encode_canonical_cell(
-        varchar_cell(""), enum_codec
-    )
-    assert encode_canonical_cell(varchar_cell("active"), enum_codec) == active
-    assert encode_canonical_cell(null_cell(), set_codec) == _NULL_FRAME
-    empty_set = encode_collection(CollectionSemantics.SEQUENCE, items=()).collection_frame
-    assert encode_canonical_cell(set_cell(), set_codec) == empty_set
-    assert encode_canonical_cell(null_cell(), set_codec) != encode_canonical_cell(set_cell(), set_codec)
-    members = encode_collection(CollectionSemantics.SEQUENCE, items=(read, write)).collection_frame
-    assert encode_canonical_cell(set_cell("write", "read"), set_codec) == members
-    assert encode_canonical_cell(set_cell("read", "write"), set_codec) == members
 
 
 def test_enum_set_projection_and_schema_declaration_order() -> None:

@@ -764,16 +764,13 @@ def _duplicate_and_effective_key_stats(
         first_rows: dict[tuple[str, ...], SourceRow] = {}
         differing_column_indexes: set[int] = set()
         gid_index: int | None = None
-        no_index: int | None = None
         ordered_rows: list[SourceRow] | None = None
         if ordered:
             ordered_by_name = _column_index_by_name(descriptor)
             try:
                 gid_index = ordered_by_name[ORDERED_IDENTITY_COLUMN]
-                no_index = ordered_by_name[ORDERED_POSITION_COLUMN]
             except KeyError:
                 gid_index = None
-                no_index = None
             ordered_rows = list(table.reader.iter_rows())
             rows_to_scan: Iterable[SourceRow] = ordered_rows
         else:

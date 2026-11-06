@@ -45,7 +45,7 @@ def _wire() -> bytes:
     ])
     batch = pa.RecordBatch.from_arrays([
         pa.array([1, 2, 3, 4], type=pa.int16()),
-        pa.array([None, [], ["b", "a"], ["a"]], type=schema.field("s").type),
+        pa.array([None, [], ["a", "b"], ["a"]], type=schema.field("s").type),
         pa.array([
             dt.datetime(2024, 1, 2, 3, 4, 5), dt.datetime(2024, 1, 2, 3, 4, 5, 123000),
             dt.datetime(2024, 1, 2, 3, 4, 5, 1), None,

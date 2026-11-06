@@ -756,3 +756,15 @@ manifest 与六文件摘要匹配，checksum list 为 `d95f383af94d79ef853d87e0d
 其余主要方向与已审范围一致：固定 1f9731 与新独立目录/attempt marker；真实 builder 一次，通过原 row_digest/Request/Plan/Snapshot 构造输入而非手调三次摘要；100k 的 PATCH_DML 是显式 synthetic builder decision，未宣称 adaptive planner 会选择它。原 Thread/Event/时钟/10/30 租约、300/290 秒、8 GiB、host 16/4 GiB、disk 1 GiB/512 MiB 和新 GC 环形/最长窗口均有接线。这里不重开设计范围，只定向修复上述可执行性、截断留证与停止分类。
 
 三项已直接发送原实施者并抄设计。当前没有 GO，旧探针授权不能复用；修订后更新 manifest/文件摘要和准备记录，再审实际差异。未修改候选或产品，正式测量继续停止。
+
+## 45. P6-CLOSURE-RB：C1/C3 关闭，C2 的逐 key 排队仍阻塞
+
+**新 manifest `acfd8ae328d3d0a1d40df0ec8a8073554159efe9d9ec90c49aeb71ca116da181` 暂不 GO，仅剩 C2。** 按 §44 定向读取修订脚本及 review-request/preparation-record；六文件实际摘要与 manifest 均匹配，checksum list `d2c82ad72d5cae3de5a7ca5cc7afc298f454612f2cce55d41af5b551bd8da606`。probe `21a019ea52ee3a09f9d8c278412a17a41f06b71232a021e32e30c3c389a8c3b2`，supervisor `185dd07ea40c8c9687c966636a0c0276a73e544c52c0e0f6acc23d3af7750c8b`，launcher 未变。仅做源码、哈希和 AST 实参检查，没有导入/执行候选或产品，没有新增测试矩阵。已向设计回显 P6LINK-0820-R，消息工具返回送达确认。
+
+C1 关闭：真实导入 dataclasses.replace，顶层 status/ended_utc 改用有明确字段约束的 `set_root_value`，所有相关实参符合各自方法签名。C3 关闭：stop_reason 在回收判断前写入结果，停止原因非空时即使 child 已 exit 0 也保留停止分类并返回非零；是否释放锁继续取决于确认回收。
+
+**C2 修订尚未满足“逐 key 只聚合”。** `probe.py:644` 在通用 `install_delegate` 的 finally 无条件 `request_checkpoint`；此 wrapper 除 ordering/payload 外，还安装到 `_validate_unicode_tree`、`_validate_ijson_numbers`、`_serialize_jcs`。临时恢复 original 仅避免树内递归重复进入 wrapper，不能避免每个 canonical key 的独立 JCS 调用。产品 `_patch_mutations` 的 key_bytes_for_ordering 以及多次 validate_change_set_ordering 都会产生大量独立 key JCS；它们会先填满 pending queue，并在下一轮 heartbeat 后保存时快速耗尽 63 个普通 checkpoint。后续真正 payload/digest/GC 阶段及 `heartbeat-handler-failed` 仍被 `BoundaryCheckpoint.save` 的限额拒绝，只有最终第 64 个槽保留；如果异常 join 被硬截断，该最终槽也不能救回目标证据。修订前缺少阶段保存，修订后却由 key 调用占完名额，仍不能关闭同一个留证问题。
+
+最小修订只需明确 checkpoint 资格：ordering/payload、两次 change-set digest 和 closure digest 等粗边界排队，key JCS 保留统计而不排队；若确需全量 JCS 边界保存，应明确识别其上下文，不能将通用 JCS 回调全部视为粗边界。保持原次数上限、final 预留、handler 失败后快照及真实 heartbeat 前/事务内无 fsync，不以增加预算/队列容量掩盖问题。静态验证应检查 key 路径不排队，不能仅检查 wrapper 中存在 request_checkpoint。
+
+已将该唯一剩余阻塞直接发原实施者并抄设计；不重开已通过范围，不新增运行或产品授权。修订后更新摘要，下一次只核 C2 的排队与保存边界及其绑定。

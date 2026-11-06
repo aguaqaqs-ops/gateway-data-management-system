@@ -492,3 +492,32 @@ cleanup 保存的每条操作均为固定 project 的容器/network 列举，初
 逐行 diff 仅含 d→e 固定项目/路径/token、launcher mode 参数及明确 cwd 校验/切换、入口与 journey cwd 日志、shell launcher pin。submit 必须从确切 REPO 进入，原检查成功后才切到 BACKEND；其他三个模式仍要求 BACKEND。保留 sampler `--worktree REPO` 与其解释器定位关系，没有允许任意 cwd 或删除检查。source provenance、目标 RS 全身份、普通 resume、单 POST wrapper、输入/cache、45 分钟 guardian、观测和外层清理/超时均不变。
 
 执行前 LAN 传输并核以上固定摘要、确认 SSH/节点空闲，由原 shell 自取锁；仅新目标三卷与新 key。执行范围和失败收尾沿第 29 节，源 RS 仍为 run-bound full identity UNAVAILABLE，目标 RS 必须全身份 MATCH。不得追加 Preview、冷 GET、预热或后续旅程，也不授权正式测量恢复。一次结果与实际 exit、输入比较、资源/observer、cleanup/锁状态及 SHA 交回；本 GO 不预判业务成功或原 lease_lost 根因。
+
+## 32. r2 实际停止原因、收尾与最小下一步
+
+**本次直接停止原因是观察器连续两次无法发现 Python 解释器，按既定规则发送 SIGINT；不是已证明的产品终态失败或 lease_lost 复发。** 设计要求立即分类后，审核于 2026-11-06 03:10 UTC 起经 BatchMode SSH 只读 CT05 已有 evidence/observer、Compose 保存日志、launch/controller/postflight，以及冻结 e798 源码；未追加 GET、测试、采样、Compose 操作或业务卷扫描。实施者 `b6fb6255e8` 的运行中快照保留，但“收尾尚未完成”已被后续完整文件更新。
+
+唯一 Submit POST 于 02:40:13.107935505Z 返回 202，operation 为 `op-24f7e8882f5178345fcd55c9`。观察器 02:40:10Z 已绑定 worker PID `1864826`、starttime `194257036`。95 次运行期 dump 中 89 次有效，6 次 exit 1；此前第 6/35/45/69 次无效后均恢复，最后第 94/95 次于 03:03:26/41Z 连续失败，均约 0.101 秒、非超时，保存文本均为 `Error: Failed to find a python interpreter in the .data section`。stop 文件为 `two_invalid_dumps`，observer 源码明确向父 launcher 发 SIGINT；traceback 为 `_poll_operation` 的 `time.sleep(2.0)` 收到 KeyboardInterrupt。故 03:03:41.985Z 的 `step_failed` / wall 1411.262 秒是这次诊断截断的记录，不能据此生成业务失败码或宣称自然运行已达终态。
+
+最后有效栈第 93 次（03:03:11Z）仍显示 active+gil 的 `row_digest_from_image/encode_row`，调用来自 `_mutation_snapshots_from_repository`。最后资源读取 03:03:38Z 成功，worker RSS 17,161,650,176 bytes、host available 49,893,886,976 bytes、数据空间 219,002,765,312 bytes，均未触阈值。`read_resources` 每次先比较该 PID 的 starttime，故已有证据支持原进程绑定至少持续至 03:03:38Z；第 95 次 dump 的准确时刻没有新的身份读取，**不能把前一次成功升级为该时刻身份已独立证明，也不能凭 py-spy 错误断言进程已退出/替换**。现有记录没有 PID identity changed/resource_unreadable 停止，解释器发现为何间歇失败仍未知；不再为该未知点重复同类现场取证。
+
+已保存 Compose 日志有 136 次 `heartbeat_succeeded`，最后为 03:03:35.784918210Z，相邻最大间隔约 22.022 秒；未发现 `lease_lost`、`heartbeat_busy_deadline`、`STORAGE_PROJECTION_FAILED` 或 `code=operation_failed`。这些只覆盖保存日志截至截断前的窗口，不证明原 lease 问题已修复，也不证明之后业务自然完成。有效栈按完整调用链分组：frozen projection 7 次（02:43:26–02:44:56Z）、frozen mutation 构造 14 次（02:45:11–02:48:26Z）、parent materialization 37 次（02:48:56–02:58:26Z）、parent mutation 构造 19 次（02:58:41–03:03:11Z），另有前期 12 次；这是采样点分布及阶段推进证据，不换算成精确阶段耗时或成本占比。
+
+收尾已完成：03:03:42.252Z 保存 Compose 日志，03:06:47.164Z 记录三目标卷保留，03:06:49Z controller 结束并释放锁。约 185 秒的日志保存后收尾没有超过原 journey down 600 秒上限，原 Compose backend/worker `stop_grace_period=180s`，不能只凭数分钟无最终文件就定性卡死；没有足够子段证据把这 185 秒全部归因到某一服务。run exit 1/failure_type KeyboardInterrupt；sampler child exit -2，在 shell 为 runner/launcher exit 254；独立结果 STOPPED、post_count=1、submit_completed=false。cleanup/postflight 均 0、VERIFIED_QUIESCENT，目标容器/network 空，state 与 sampler 输入比较双 MATCH；审核随后只读确认锁 ABSENT。输入匹配和清理成功不等于 Submit 成功。
+
+| 已读证据（项目 e 根目录下） | SHA256 |
+| --- | --- |
+| `launch.log` | `2baf057e53d541afa9c782dc8f9585de1fc84639bc035e6fc810f1404ee1cbf7` |
+| `controller.log` | `f8b19e1684e681c352ba0acb2c844ef64f7bf8704731b76d48a855f559d5dc2a` |
+| `evidence/observer/observer-events.jsonl` | `dd49991aab90fafb3c2f96e2e6503e506d9ce4a05941fcd6ac45113cca7305c2` |
+| `evidence/observer/observer-stop.txt` | `8f9ddb6ab9d70fdad4dcbb09f19107514cbcb3e334acf384a76118172c1e9b1b` |
+| `worker-stack-0094.txt` / `0095.txt`（observer 内） | `7623002d191aeeef3df3341a856705ebabf0ba1152a2812665441fd6d68e04ea` |
+| `compose/real-dump-t4-20261106T030342163105Z.compose.log` | `8f40f2855788027205b2f8afcbf14bde0c7d46ce3123d7531ed0a80839361761` |
+| `evidence/run.json` | `8d03e8da82037495f05ed8233f88832251a48c137f47846458fee9844520da88` |
+| `evidence/state.json` | `32a2b987b77be4e38f95f7840e7b4f176c833649deafa2b1ee09177ef98306b9` |
+
+**DC80 下一步范围建议：接受设计提出的最小外置观测降级方案准备，无需等待 owner 催办，但本节没有再次 POST GO。** 已有有效 Python 栈之后，遇到本次确切的解释器发现错误，可先即时重新验证固定 worker PID/starttime 与资源读取；成功才记录明确观测缺口并停止后续 dump，保持独立 guardian 存活、5 秒资源检查、原 45 分钟 POST 截止和原客户端产品终态判定。身份变化/未知、资源读取失败、guardian 失效、阈值或截止触发仍立即停止；其他未分类工具失败不通过通用 ignore 放行。首次有效栈仍为 POST 前提，不增加新 profiler、完整 canary 或全程重复取证。旧 e 结果始终 STOPPED，不能套用新规则改判。
+
+该变更需要设计把“两个无效 dump 必停”的既定规则明确改为上述窄范围降级，再核固定外置脚本、状态日志及新 project/输入/镜像绑定；已触及被测对象的 r2 不能再套 DC68 一次重做。后续若需新单步执行，走 DC80 的新候选定向审核，不使用失败运行末态或重开旧项目。原 lease 根因保持 OPEN，正式测量仍停止。
+
+已有栈与源码也提供有限的后续优化入口：`repository_ref.py` 每表已算 `mapped_columns`，逐行 `encode_repository_row` 又重新映射所有列；`import_publication.py` 逐 cell 重复解析不变 SQL 类型、逐 row 重复排序不变列集合。可据此准备循环不变量外提及小样本等价验证方案，保留原错误、schema/row 校验和 digest 语义，不建设全局缓存或提前跳过验证。但这不是本次停止原因，不应为下一单步诊断先捆绑产品优化、无限追求性能，亦不以采样数量推算其收益。

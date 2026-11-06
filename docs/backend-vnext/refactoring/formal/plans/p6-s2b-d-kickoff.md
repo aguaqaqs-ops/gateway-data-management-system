@@ -10,6 +10,8 @@
 
 完整 caller 列表以整体 kickoff §2 为准：上传 FULL 两侧、Preview baseline、History exact commit、repository-ref 的 READERS_REQUIRED/ARTIFACTS_REQUIRED、Submit/T1/PREPARED 与恢复，以及 export/import-replay 的真实调用面。C 提供真实 store/ref/recovery 能力与事务 hooks，D 接生产 IPC 路由及 operation control；E 清理最后剩余 caller 和被替代算法。每个迁移点记录旧消费者、新入口、证据 owner 与剩余引用，避免只切上传路径。
 
+C 经明确理由与独立审核暂记的生产不可达项 `gateway_backend.application.canonical_metadata.table_access` 必须在本节接入真实 Preview/History 等 consumer 后从 `UNREACHABLE_MODULE_BASELINE` 删除。保留 Python import-boundary/cycle/reachability gate，不靠假 import、放宽 guard 或延续临时例外完成接线。
+
 ## 2. N/M 前置和生命周期
 
 沿已批准 kickoff §5：`GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS` 为整数 1..256，正确性默认 1，4 仅是后续调优比较点。每进程初始化一次固定 N 的 Rayon pool，PyArrow CPU/I/O pool 同步为 N。adapter 不再每次自由设置 `pool_threads=1`；未初始化或 N 冲突稳定拒绝。不同 N 的验证分进程，不重置 OnceLock。

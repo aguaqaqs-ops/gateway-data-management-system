@@ -56,6 +56,8 @@ D 接线前交付有依据的 M/default/max 候选与 worker envelope/reserve �
 
 C 的 FULL 校准使用真实 B → A → store 的双侧数据、打开句柄与临时重叠，报告注明尚未接 worker 的范围；D 接线后复核真实 worker 峰值与预约偏差。恢复记录区分 C 的实际 store/精确 commit 回填能力、既有 Submit 冻结 owner，以及 D 尚待完成的生产 IPC 路由，不将 seeded 组件测试升级为 application 端到端证据。
 
+阶段内生产可达性：按 `tests/architecture_baseline.py` 既有“explicit, reviewed justification in the same diff”规则，仅允许暂记 `gateway_backend.application.canonical_metadata.table_access`。它是本节交付并由真实 HTTP→B/A/store 定向验证的 committed-table 恢复入口，完整 Preview/History 等 operation consumer 已明确在 D 接线（§1）；没有独立的未确认业务需求。实施者须在同一 baseline diff 写明本理由和 D 关闭点，由 C 独立审核核对实际 06 gate 输出及唯一条目。D 接入真实 consumer 后删除该条目，不能留到 S2b exit。此决定不允许 import-rule/cycle 例外、通配 unreachable 项或伪造生产 import；实际其他新增未达项须逐项另报设计核对。
+
 日常在 06 clean、已提交 worktree 做受影响 focused/Contract/SQLite/filesystem integration，遵守离线缓存、节点占用和日志规则；本节最终候选按实际 Python/Rust/镜像边界完成必要静态与容器检查。04 完整阶段门禁及 t1–t4 正确性仍留给最终 S2b 候选；跨节点结果不作 carried。C handoff 必须含固定代码、API/消费者、实际证据、容量报告与 D 尚待决定项，经本节新审核者独立 GO 后才转 D。
 
 ## 6. 新角色执行交接

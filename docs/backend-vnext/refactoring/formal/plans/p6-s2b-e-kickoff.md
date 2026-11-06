@@ -18,7 +18,9 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 
 已核到工具消费者 `benchmarks/real_dump_journey.py → real_dump_census.py::compare_composite_packages`：后者目前仍导入旧 parser/materialize/projection，E 删除时须同步迁移实际需要的工具调用，不能只检查 application imports。该 helper 原本就使用 production projection/comparison 计算 composite counts，属于跨层一致性检查，不是独立算法 oracle；可接唯一新生产路径，不能将这种同源结果冒称独立 golden。真正固定向量仍按上面的独立预期规则移交；已有 census/已验证结果优先复用，不为此重新生成全套输入或增加双实现完整旅程。
 
-这些实际 CLI 的初始化按 [Rust policy v6](../policies/rust-safety-and-performance-policy.md#4-ffi-and-python-boundary) 复用薄 `bootstrap.compute_kernel.initialize_compute_kernel(threads)`，将 D 的 private initializer 精确允许边迁到该唯一 owner；worker/CLI 显式启动调用，M/control/operation scope 仍归原调用方。不引入通用配置或未来工具框架，不让工具直接访问 private FFI。仅已完成历史阶段的工具须先核真实消费者再退役或迁移；DC79 输入生成器深依赖旧 scanner/statement/literal 的部分单独核原线当前需求，不能复制旧 parser 为永久工具库，也不擅自重做 S1 输入生成或改变原冻结线。
+这些实际 CLI 的初始化按 [Rust policy v6](../policies/rust-safety-and-performance-policy.md#4-core-and-adapter-boundary) 复用薄 `bootstrap.compute_kernel.initialize_compute_kernel(threads)`，将 D 的 private initializer 精确允许边迁到该唯一 owner；worker/CLI 显式启动调用，M/control/operation scope 仍归原调用方。不引入通用配置或未来工具框架，不让工具直接访问 private FFI。
+
+2026-11-06 原基准设计会话核对 DC79、剩余 handoff 和实际入口后确认：旧 scanner 依赖的 `p6_s1b_synthetic_load`、`s5_dc32_capability_measurement`、`s5_v5b_segment_measurement`、`p6_s1a_mutation_replay_measurement` 没有必须在当前 main 执行的消费者。后续必要输入生成仍使用已审 `p6-baseline`/固定 Git 历史（含四路接线 `4007619abd`），优先复用既有输入；旧 V5b/DC63/S1a 测量如需重开也在其冻结源码执行，当前局部诊断固定 `1f9731dfc3`。因此 E 可按真实依赖闭包退役当前 main 上这些旧工具、孤立 helper 和 tool-only tests，以及已核无消费者的 `p3_capability_diagnostics`/`p6_v6_parser_diff`。不得删掉 `real_dump_journey` 及仍有效依赖、独立业务 Contract/golden；不复制旧 parser 为永久工具库，不重做 S1 或新建 S6 框架。原线确认只提供消费者事实，不代替 E 对具体删除和覆盖移交的独立审核；冻结 refs/worktree、输入、镜像、卷、产物和证据全部保留。此范围同步记于 DC79 的后续使用边界。
 
 ## 2. 收敛与最终验证
 

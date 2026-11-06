@@ -161,6 +161,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 前置：S1b exit（语义已定稿）；backend 镜像依赖层调整已合入（DC67 补充第 5 项）。开发在 S1c exit 合入后开始，与重建对照基准的正式测量并行，分支 `p6-s2a`，基于 merge commit `49d0846d86`（DC71 第 2 项）；ct108 在基准测量期间不使用，04 由基准的最终 runner 优先。**DC81（owner，2026-11-05）解除 exit 对基准整体 exit 的依赖**：核对现有证据及合入影响后办理，不默认重跑全部，不由设计替代独立证据审核。
 - 内容：补齐诊断与语料；PyO3 adapter；adapter 内进程共享线程池（worker 启动接线在 S2b）；test-only 双实现差分入口，生产仍走 Python（DC72 第 3、6 项）；删除旧扩展并调整 Dockerfile 与 `rust` 包的排除（DC52）。
 - **kickoff 确认（repository owner，2026-10-31）：** [kickoff](p6-s2a-kickoff.md) 与[审核](p6-s2a-kickoff-review.md)，DC72。
+- **收尾证据通过，待最终绑定/tag（2026-11-06）：** 整合并修正测试环境隔离后的产品候选 `3b037adf4caf33f65e124a34f56f12f42e529641` 已通过 04 五个 Python 包权威 runner（含所需容器旅程）及 06 focused/五包静态检查；Rust 按实际闭包比较直接沿用原 `3b3d9c97bc`，原第④层逐值差分证据保持有效。独立[收尾审核](p6-s2a-closeout-review.md)已确认代码和实际证据。最终合并提交须在原 04 来源工作区完成六包闭包比较及 RS 镜像身份核对，审核放行后才以附注 `p6-s2a-exit` 标记退出；当前不提前声明 tag 已建立。首次 `38ccf8234f` runner 的测试环境失败保留，不作为任何包的沿用来源。原基准 W4 租约故障仍由原线跟踪，未由本次退出判为修复。
 - 验收：五层语料通过；t1–t4 逐值差异 0；1 与 N 线程逐字节相同；旧扩展相关代码、golden、Contract 已删除；新扩展的构建输入检查、`rust` 包排除的去除与 `import_rules` 基线同步核对；权威 runner 与容器门禁（Dockerfile 变化）。
 - 真实数据：只做第 ④ 层逐值差分（05；t4 也可在 05，DC50 补充）。
 

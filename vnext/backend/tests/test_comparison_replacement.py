@@ -189,6 +189,7 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
+        repository_id="replacement-fixture",
     )
     surface = pair.surface_result.surface
     assert surface is not None
@@ -202,6 +203,7 @@ def test_replacement_surface_and_bundle_keep_both_snapshot_sides() -> None:
         pair.records_closure,
         before=before,
         current=current,
+        store=store, repository_id="replacement-fixture",
     )
     bundle = assemble_bundle(
         BundleAssemblyInput(
@@ -262,6 +264,7 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
+        repository_id="replacement-fixture",
     )
     surface = pair.surface_result.surface
     assert surface is not None
@@ -272,6 +275,7 @@ def test_history_bundle_contains_every_table_and_preserves_shared_bindings() -> 
         pair.records_closure,
         before=before,
         current=current,
+        store=store, repository_id="replacement-fixture",
         include_all_tables=True,
     )
     result = assemble_bundle(
@@ -332,6 +336,7 @@ def test_preview_bundle_contains_all_uploaded_tables_and_deleted_baseline_table(
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
+        repository_id="replacement-fixture",
     )
     surface = pair.surface_result.surface
     assert surface is not None

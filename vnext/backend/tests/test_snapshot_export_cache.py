@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -19,8 +18,6 @@ from gateway_backend.artifacts.snapshot_table_export_cache import (
     SnapshotTableArtifactCacheKey,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    MaterializationPolicy,
-    SnapshotMaterializationStatus,
     SnapshotTable,
 )
 from gateway_backend.capabilities.snapshot_materialization.artifact import (

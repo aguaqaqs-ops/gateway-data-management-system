@@ -381,7 +381,7 @@ def test_filtered_catalog_facts_reserve_shared_operation_memory_before_conversio
     from gateway_backend.capabilities.table_access import (
         KernelExecutionContext, OperationMemoryBudget, KernelMemoryLimit, kernel_execution_scope,
     )
-    sql = "CREATE TABLE device (gid BIGINT, dev_addr INT, description TEXT); INSERT INTO device VALUES (1,65532,'special');"
+    sql = "CREATE TABLE device (gid BIGINT, dev_addr INT, description TEXT); INSERT INTO device VALUES (1,65532,'复合信号虚装置');"
     result = filter_arrow_catalog({table["canonical_name"]: table for table in _tables(sql)},
         cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1)
     context = KernelExecutionContext(OperationMemoryBudget(5000), NeverCancel(), 1)

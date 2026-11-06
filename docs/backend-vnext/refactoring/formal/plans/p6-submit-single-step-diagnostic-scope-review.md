@@ -321,3 +321,17 @@ RS 双流日志现在包含 startup、19 次 readyz 200 和 cleanup 引发的 sh
 **预算核查后的方案收敛（仍仅设计）。** 现有 `DoltRunner._collect`/`ProcessStream` 都是进程整体绝对预算，`call_timeout` 只在启动前换算；没有逐完整结果通知/重置或 per-call capture 接口。A 若引入完整结果推进 deadline，测得的是主进程观察到的结果间隔，受 Dolt 输出缓冲/调度影响，仍不等价旧逐命令 30 秒，不应扩成握手 IPC。B 若直接给 16 条语句 480 秒，则放宽单条命令存活和后台/关闭等待，不等价原两 lane 墙钟或失败时点；不建议本轮采用。整批固定 30 秒则是预算收紧，三者都不能包装成“设置值不变所以行为相同”。
 
 工具随后推荐更窄的 COUNT-only 批查询加同 key 合并，审核认为更适合作为最小候选：每批至多 16 表，使用同一 exact AS OF 的 ordinal+COUNT UNION ALL，仍单 JSON 结果、原 256 KiB capture 和原进程控制，不新增多结果 parser/流式进度接口；校验 ordinal 完整唯一、精确非负 count，DDL 路径/解析/排序保持，最多两 lane 且不嵌套线程池。规划调用数从 `2+2N` 降为 `2+N+ceil(N/16)`，不代表已测性能，N 次 DDL 仍可能主导首读。多个 COUNT 共享 30 秒依然需要设计显式接受成功范围/失败时点收紧；若不接受，则本轮仅评估 singleflight 抑制重复，首读问题保持 OPEN，不称完整修复或恢复。当前没有产品修改、测试或新请求授权，等待设计最终冻结范围。
+
+## 22. COUNT-only 修复 kickoff 独立范围审核
+
+**范围 GO，无阻塞 finding。** 审核对象为设计文档提交 `7bb5642d33` 的 [冷 catalog 最小修复候选](p6-cold-catalog-repair-kickoff.md)，代码参照冻结产品 `e798ec87a37330250b0c051162e7962dba1daa60`。这是设计范围结论，供设计下达后续实施任务；本节不授权节点执行、冷 catalog 再取证或正式测量恢复。本轮仅本地只读核查 Contract、实现与文档，未运行测试或节点操作。
+
+冻结版 Repository Service Contract §13 要求绑定 caller 的 immutable commit、normalized SQL type 及既定 read-route 错误映射；§14 要求有限并发和简单资源上限。未发现 owning Contract/ADR 承诺每张表独立获得 30 秒或保证该预算内成功。现有 `metadata_timeout_seconds=30` 是单命令实现配置。kickoff 已明确接受最多 16 表 COUNT 共用该预算所收紧的成功范围，且保持超时/损坏输出经原 provider 边界返回 `503 SERVICE_NOT_READY`，不静默改成估计值、部分结果或逐表回退；无需为此修改公开 Contract。原每表 DDL、同一 AS OF、完整表集合、精确 count 和最终排序仍是代码验收条件。
+
+COUNT-only 只产生一个至多 16 行的 ordinal/count JSON，复用既有 `query_json`、严格 JSON/列校验和非负 count 解析，原 256 KiB capture 足够表达该受限结果，不需要第 21 节讨论的 DDL 多结果 framing 或总 capture 扩容。ordinal 应严格按程序生成的整数身份校验（包含拒绝布尔值），验证完整、唯一、在范围内，再按固定表列表绑定；不能依赖 UNION 返回顺序。schema 与 COUNT 调度合计不得超过原配置并发上限，不能各建一套同时运行的池。冻结配置为两路，配置允许范围保持原样；具体调度由实施说明并接受代码审核。
+
+singleflight 属于现有进程内派生缓存的最小控制，符合比例化政策的 C/D 类保障。缓存命中、leader 选取必须原子协调，loader 与 follower 等待均在锁外。代码审核须确认失败处理覆盖 loader 以及结果计量/缓存发布阶段的异常，leader 的 BaseException 退出也不能遗留 pending Future；清除 in-flight 与完成等待结果要有一致顺序，异常原样经现有边界处理，不吞掉异常或形成负缓存。超缓存预算只共享当前等待者、不同 key 可并行的规则完整。现有同步 leader 无客户端断连取消承诺，不因本次合并新增关闭状态机；具体实现若暴露新增等待者无法释放的缺口，再按 kickoff 回设计处理。
+
+验证范围适当：复用解析不变量，最小真实 Dolt 场景覆盖跨批、转义和历史 commit 的精确 schema/count/排序；用事件同步证明同 key 合并、不同 key 并行、失败释放与重试、超预算共享。无需穷举线程窗口或全类型矩阵。新 RS 进程 attempt 1 成功才支持首次冷读改善，N 次 DDL 仍在，计划调用数不能当性能证据。后续单次副本调用仍须固定产品提交、镜像、对照方式和执行脚本再审；调试 focused 不替代最终按包/容器门禁。
+
+冻结基准边界明确：候选从 e798 独立建立，不能混入 main 的其他产品变更，也不适用 READY 32768 cap 的恢复例外。新产品验证后另列 V→H 影响表，决定可沿用与需重测内容。H3 原通过证据保留，W4/S4/H1 及剩余正式测量继续 STOP；原 lease_lost 根因仍 OPEN。DC81 已解除的 S2a/S2b 依赖不被本修复重新引入。未修改三份 DC81 工作中文档。

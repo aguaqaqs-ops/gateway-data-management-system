@@ -18,7 +18,7 @@
 
 节点补充（DC82，2026-11-06）：owner 新增 06 作为后端日常开发测试节点，07 作为前端 mock 开发测试节点。06 的 Rust、Contract/focused 与小规模 Compose 可按本地占用自主进行；04/06/07 同宿主且 Owner 确认日常资源宽裕。节点就绪见[核对报告](p6-node-06-07-readiness.md)。06 不承接权威全量 runner、正式性能测量或默认全旅程；不操作 CT108 冻结 worktree、tag、inputs、volume 或 evidence。
 
-S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核。C 已完成组件容量校准，DC87 已确定显式 M 与 worker memory envelope，D 继续真实 worker 验收。独立审核和 Owner kickoff 确认已完成，A 节按 DC85 交付并通过独立审核。DC81 下基准未交付的 DC63 子段不是所有功能开工前置；未测条目保持 unknown。W1/W2/W3 时点按 DC84/DC83 和本节 §6 明列，t1–t4 正确性端到端仍是 S2b 退出内容。
+S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核。C 已完成组件容量校准，DC87 已确定显式 M 与 worker memory envelope，D 已完成实际 materialize 局部校准、控制/预算及必要容器边界并独立 GO；E 完成最终候选验证，不能将 D 局部结果扩大为全旅程或全 worker 峰值证明。独立审核和 Owner kickoff 确认已完成，A–D 交付见本文状态行。DC81 下基准未交付的 DC63 子段不是所有功能开工前置；未测条目保持 unknown。W1/W2/W3 时点按 DC84/DC83 和本节 §6 明列，t1–t4 正确性端到端仍是 S2b 退出内容。
 
 | 输入 | 本次结果 | 剩余闭合点 |
 | --- | --- | --- |

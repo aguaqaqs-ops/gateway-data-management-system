@@ -285,6 +285,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 7. S2a：SQL 解析器
 
+本节记录 S2a 已完成阶段的接入边界；其中生产 Python 与双实现测试是 S2a 当时状态，不是 S2b 的保留要求。S2b D 已切换实际消费者，E 正在按 DC78 移交独立预期并删除旧 parser/批量算法；当前状态与最终验证见 [S2b kickoff](p6-s2b-kickoff.md) 和 [E 任务](p6-s2b-e-kickoff.md)。
+
 - **范围：** 在 V6 原型（`gateway-compute-core/src/table_access/`）基础上补齐：完整诊断（消息文本、同一张表多处错误、行预算按元组计数的偏移）、第 ③ 层负例与预算语料、第 ② 层 Hypothesis 差分、现有解析器测试改为双实现参数化（讨论稿 §6.3）；`Utf8`/`Binary` 超过 2 GiB 时改用 large 变体或分批输出；按 §5.5 的定稿调整（例如深层 JSON 有界拒绝）。
 - **PyO3 adapter（新）：** 长调用 `py.detach`；取消标志与截止时间传入 Rust core 并在解析检查点读取；输出经 Arrow C Stream 交给 Python；core panic 转为 parser 诊断，adapter FFI panic 转为稳定 error envelope；native abort 或被内存不足终止不伪装成诊断，由 Operation Runtime 的既有租约接管处理（Rust policy §3）。按 DC72，S2a adapter 实现进程内一次创建、固定 N 并复用的有界线程池；测试默认 N=1，Rust parser 一致性测试比较 N=1 与 N。worker 启动接线以及部署配置 N、M 留给 S2b。
 - **接入：** 只在测试支持层以 `implementation="python" | "rust"` 做显式差分；backend 公共 `parse_sql()` 与 worker 生产路由固定 Python。不加生产 feature flag、部署环境变量或 shadow 执行。S2b 完成整条上传路径接入与验证后删除被替代 Python parser 和临时差分入口，不引入生产回退（DC78）。
@@ -293,7 +295,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 8. S2b：上传侧数据路径与规范表存储
 
-准备材料（2026-11-06）：[S2b kickoff 设计输入](p6-s2b-kickoff.md) 在已退出的 `p6-s2a-exit`（`53b676a6298d`）基线上重核消费者、映射、覆盖移交及唯一 Rust 路径。DC81/DC83 已将开发与全量基准解耦；W2 性能复核不作为 S2b 功能退出前置，最迟 S6 收口。容量/M 与 W1 时点按 DC84 分步关闭；技术审核与 owner 对具体产品实施范围的确认分别记录，不把准备工作视为全部产品开工授权。
+执行状态（2026-11-06）：[S2b kickoff](p6-s2b-kickoff.md) 已按 DC85 获批，DC86 授权逐节推进 B–E；A–D 已独立 GO，E 正在完成唯一路径清理与最终验证，尚未 S2b exit。消费者、映射与覆盖移交的起点为已退出的 `p6-s2a-exit`（`53b676a6298d`）。DC81/DC83 已将开发与全量基准解耦，W2 性能复核最迟 S6，W1 按 DC84 时点；DC87 已选择 N1/单 active、12 GiB worker envelope/4 GiB reserve/显式 M8 GiB，DC88 规定 effect 前纯重算的正常 drain 重排队。D 局部 materialize 校准和 focused 容器验证不代替 E 的 04 最终门禁及 t1–t4。
 
 ### 8.1 数据路径合并（DC46）
 

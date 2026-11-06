@@ -1100,3 +1100,64 @@ ssh -o BatchMode=yes ct108-gw-dms-05 'cd /home/dev/gdds-p6-cold-catalog-repair-0
 失败按现有停止规则保存证据，不自动再试。结束后保留三卷；原项目资源回收、observer preflight/guard/sampler 的确认结果须传入 postflight/controller，未核实则保留节点锁报告人工处置。回交完整 controller/launch/run/state、observer 事件/栈、身份/输入比较、资源和收尾原始证据及摘要，独立审核再分类；不得仅据外层退出码或输入 MATCH 宣称产品成功。
 
 **本 GO 仅属于该清单的一次诊断；不授权正式计时/基准恢复、产品合入、推送、tag 或范围扩展。** H3 既有结论不变，正式测量停止，lease 根因 OPEN。当前产品 HEAD 及最后验证镜像 revision/source-tree 仍为 §57 所记，外置工具范围不触发重建。
+
+## 59. P6-H-RESULT：真实失租后触发 stall，诊断工具正常降级与收尾
+
+**h 的一次 POST 已消耗，Submit 未完成；原始证据确认先发生 `lease_lost / heartbeat_busy_deadline`，随后触发 WorkerStalledFailure。** 这次具有实际失租证据，不能沿用 g 的“采样工具主动中止”分类，也不能以输入 MATCH 或工具回收成功宣布产品通过。观察目标没有达到，按既定失败停止规则保留现场交设计处理；具体导致续租越过期限的原因仍 OPEN，不据错误类别名称直接认定 SQLite 锁竞争。
+
+已读 handoff `p6-baseline@60b2c6184860ce03b97a37d8d33f989ac8346146`、冻结 `1f9731` 源码及 CT05 原始场景文件。现有结果未复制到本地；先按仓库要求 SSH `echo OK`，再只读既存 JSON、日志和已保存 inspect/thread 文件，未读活动 `/proc` 或保留卷、未执行候选/测试/profiling、未生成新快照或负载，也未唤醒旧实施者。后续实施任务仅交设计协调已确认接管者。
+
+### 授权绑定、输入和镜像
+
+CT05 现存 manifest SHA `8d8e674e6582deecaa13ab75b727e9189df84ed9ef4b58525e2974d148a84aa8` 及 15 文件 SHA/权限仍与 §57–58 一致；POST-GO 三行精确绑定，实际 SHA256 `2d561c523c013037cf52b964273de0d583ae4f9aaa13d1c5afcf8175f529b87c`。controller 起止 HEAD 均 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`，记录节点 `gw-dms-test-05`。preflight 输入、cache 和来源核对 MATCH；run.parent_source 记录三份复制后 digest 等于授权 e798 pre-submit checkpoint。没有续跑 g 卷。
+
+run 中 backend/worker 的 config digest、全部 DiffID 及同节点 ID 与 §52 已审身份逐项相等；stall 当场保存的 backend、worker、RS 三份 inspect 中 `.Image` 以及 project/service labels 亦与 h 的固定身份匹配。三容器当时均 running，worker PID **2475208**、OOMKilled=false；这只是已有 inspect 的历史事实，不是本次重新查询运行态。postflight 的 state SHA `df3c8db86d8410f0dd8abf9a7b10fda8b570cddd123a74c5d0cbd875b37434c5` 和 expected manifest `4c5638df…` 比较 MATCH、issues=[]；sampler provenance 与其一致。失败 state 没有持久化 v2-submit 成功条目，输入身份一致不证明业务成功或没有 durable 副作用。
+
+### 失租与 stall 的实际顺序
+
+| UTC | 原始事实 |
+| --- | --- |
+| 12:34:10–11 | preflight 有效 Python 栈；独立 observer armed，绝对预算 2700 秒 |
+| 12:34:13.394943161 | 唯一 submit-attempts POST 返回 202，operation `op-cb5dda7aa259720264260083` |
+| 12:34:13.639223341 | worker `worker-d39ab359-7291-453b-ad9a-f9e069b99270` claim 成功，attempt 1 |
+| 12:34:23.640328416 起 | 同一 operation/step 连续记录 heartbeat_succeeded，共 **191 次** |
+| 13:07:00.058541982 | 倒数第二次成功心跳 |
+| 13:07:22.253269 | 已保存 DB selected rows 中该 step 的最后 updated_at_us |
+| 13:07:22.366958444 | 最后一次成功心跳日志；距上次约 22.308 秒 |
+| 13:07:52.253269 | selected rows 中 lease_expires_at_us；与最后更新相差 30 秒 |
+| 13:07:54.505173957 | worker 明确记录 lease_lost，error_category=heartbeat_busy_deadline |
+| 13:09:24.032 | stall.json 保存 observed_stalled_seconds=121.665、threshold=120 |
+| 13:09:24.676–25 | journey 记录 worker_stalled、step_failed，关闭 observer，保存 Compose 日志 |
+| 13:12:30–34 | 保留三卷、退出并完成 cleanup/postflight 与解锁 |
+
+HTTP 和 wrapper 均支持仅一次 POST；`submit_completed=false`、run FAILED/exit 1、failure_step=v2-submit、failure_type=WorkerStalledFailure 相互一致。stall 的 121.665 秒基于最后成功心跳，不是 worker 一直没有 CPU，也不是可直接当作持续持有 GIL 或 SQLite 锁的时长。
+
+**“control DB snapshot: JourneyFailure”不表示 DB 字段全部不可用。** 同目录实际有 `control-db-selected-rows.json`（SHA256 `631971a71370d15604139b784cff64b2e1805c1e21006f92841f433b85b701fb`），包含该 operation 和 `prepare_import` step 均 RUNNING、attempt 1、owner、最后更新时间和到期时间，completed_at/diagnostic_code 均 null；submit_attempt `sa-eba75792efb85bd340ecdf97` 的 repository_operation_id=null。冻结源码的 `_capture_submit_attempt_control_rows` 先成功写 selected rows，随后才要求非空 Repository operation ID；本次 null 触发其 JourneyFailure，由外层统一标成 “control DB snapshot”。所以诊断错误来自同一 collector 的后续必要字段检查，不是这次 SQLite snapshot/query 全失败，也不是证明 SQLite 忙。Repository import status 因该 ID 缺失未继续采集。
+
+冻结 worker runtime 的 `heartbeat_busy_deadline` fence 可在调用下一次 `session.heartbeat()` **之前**发现本机续租 deadline 已到而触发，也可从 StoreBusy 重试预算耗尽触发。两份已保存容器日志均有 191 次成功和一次 lease_lost，**没有 heartbeat_busy 事件**。现有证据确认失租和过期仍 RUNNING 的快照，不能仅凭这个通用 error_category 唯一认定数据库忙，也不能排除线程调度/长计算/其他延迟。runtime 在 heartbeat 异常后可等待 executor thread.join；保存的 main 线程 futex wait 与此兼容，但没有当时 Python 帧，不能把该推测当作已定位的调用栈。
+
+### 新 observer 分支、资源与栈缺口
+
+preflight py-spy child **2476612** exit 0/reaped=true，耗时 0.007638 秒；dump 1 child **2476894** 正常且有效，0.020591 秒。dump 2 / 3 child **2484190 / 2494799** 均在仍运行时达到 1 秒预算，随后 kill/reap，exit -9、reaped=true；总 dump 耗时约 **1.005708 / 1.005512 秒**，reap 单独约 **0.001148 / 0.001125 秒**。第二次后实际即时重读同 worker PID/starttime **197821067**、filesystem device **64526** 及资源，合格才写 two_reaped_py_spy_timeouts。该次 RSS **134,361,088 bytes**、host available **66,907,409,408 bytes**、data free **213,311,533,056 bytes**，与授权分支一致；此后没有第四次 dump，也没有 observer stop/resource_unreadable/deadline 事件。
+
+observer 共 437 条事件，其中 **422 次**周期资源读取；降级后一直持续至 13:09:23，再由业务失败的关闭路径退出。相邻周期记录最大间隔约 **6.048 秒**，不是声称每个间隔精确 5 秒。整个保存窗口 worker RSS 最大 **23,869,075,456 bytes**，host available 最低 **43,138,623,488 bytes**，data free 最低 **213,291,245,568 bytes**，均未触原停止线。worker RSS 从约 0.12 GB 增长到 13:04 左右约 23.87 GB，失租前后仍维持这一大堆；单次 JCS sink 语义修订没有据此证明消除了真实大堆或续租故障。该相关性仍不足以定位 GC/GIL/JCS 根因。全程 resources.json 的 **24,303,439,872 bytes** 是三容器 memory peak 汇总保守上界，与单 worker RSS 分开。
+
+最后有效 Python 栈只有 claim 前 worker idle；两个 timeout 文件只有进程/版本头。因此后续约 35 分钟没有 Python 业务帧，不可把失租定位在 payload、digest、JCS 或释放阶段。旧 stall collector 另留 `py-spy-unavailable.txt`，意思是它按 PATH 未找到系统 py-spy；不否定外置候选按固定绝对路径已执行采样。已有 49 个线程的 kernel/status 文件仅显示当时主线程 sleeping/futex、一个 executor 命名线程 running、其他多为 sleeping；这不等于 Python 栈或 CPU/profile 因果证明。
+
+observer shutdown/close、wrapper 和 postflight 均记录 preflight/sampler/guard REAPED，guard PID **2476613** 已由父进程确认退出；controller `OBSERVER_REAP_RESULT=CONFIRMED`。因此这次不是未回收 sampler、资源越线或采样器 SIGINT 导致的中止。绝对 deadline 仍未到达，外层退出也不是 timeout。延长当前计算/attach/45 分钟预算无法解释或修复发生在预算内的失租，不建议以扩大预算直接重跑。
+
+### 收尾、计时与摘要更正
+
+cleanup QUIESCENT、postflight VERIFIED_QUIESCENT，固定项目容器/网络为空，未删三卷，controller postflight/observer check 均 exit 0、node_lock_released=true，最终 launcher_exit=1 保留业务失败。实际保留卷名单与 §58 一致。handoff 报告节点锁 ABSENT；本次未新增当前锁查询，独立依据取已有 controller 解锁和 cleanup/postflight，不把报告文字当作另一次现场核验。
+
+controller **12:32:44–13:12:34**；sampler **12:33:08.185–13:12:32.486，2364.222s**（取其 monotonic elapsed）；journey **12:33:31.521–13:12:30.183，2338.662s**；v2-submit step **2113.962s**。step_failed 到保卷约 185.245 秒属于原收尾窗口，不能全记成有效业务执行。不是性能基准或完成耗时。
+
+handoff 列出的 12 项关键 SHA 中，**11 项完整文件匹配；controller 的引用是自身尚未结束时的前缀摘要**。已核 `63f48169ff596ffbb1517720b9beee35e144d9536024ed94bce44aa4773a18fc` 正好等于 controller 写自身 SHA 行前的 **26,072 字节**；写完自身及后续几行后全长 **26,668 字节**，完整实际 SHA256 为 **`9a36b49d6e8f9e10d7d6b61502e42d6f1dc84b062ac6abddf2c8f28bebb6e978`**。这解释了差异，不据此指称来源损坏；handoff 应将它更正为完整摘要，并注明前者来源，保留原日志。
+
+其他可复核原始 SHA256：Compose 日志 `7fad8bc8fe6cec7c0ac8c738d95267d8eee7b82efa5d942e0d8caec572e53c8e`；stall all-container-logs `64e814f42403e7acd7daf6b59bad9fd1ce03b11f51b6b62457d31c35013506b4`；observer events `92a4f3d2b26e6fd8f55d59e85ce8152bcedc8bf4b41bf85cb3b69b0774c13a4f`；stall.json `60c82e72cb52d16031db9ef9605b9f4a796790451a9edf94bd5d5493f0582deb`；worker inspect `6be9e62506a43ae027ef8925aa0833931362e5640003a399ad3429b6a407dc88`；postflight `2056ca4807358638f692937db1f6f02ec189787ef3c013a0c3e60945afa002cf`；run `adaa16d958a2537dc67dcdbe367f774fc3150a951d69cf7062c8fac1ea0a4812`。
+
+### 交设计的后续边界
+
+当前足以关闭“新 observer 是否仍因双 timeout 打断业务”的疑问：本次合格降级、守护和回收路径已有真实证据。需要继续处理的是**真实续租失效**，不能以工具通过替代产品关闭。建议先由已确认接管者修正 handoff 的完整 controller SHA、DB selected rows 可用性及失租时间线，复用原日志/冻结源码，梳理 prepare_import 中大堆与续租/取消检查的位置；尚无依据直接移除 Contract 校验、改 TTL/heartbeat、升资源阈值或归罪 SQLite。既存栈缺口决定了任何后续局部诊断仍须先提出具体问题、最小取证方式和一次性预算范围，不默认要求再跑完整 Submit 或新增 profiler。
+
+本次仅有外置工具/证据审核，产品 HEAD 与最后验证镜像 revision/source-tree 继续取 §57 / §52；没有触发新镜像构建或重复门禁。**h 原 GO 已消耗，无重试、新运行或正式恢复 GO；H3 不变，正式测量停止，lease 根因 OPEN。** 后续任务交设计安排确认接管者，旧实施会话不再由本审核唤醒执行。

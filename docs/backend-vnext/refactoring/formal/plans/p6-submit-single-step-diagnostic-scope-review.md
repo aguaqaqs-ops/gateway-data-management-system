@@ -921,3 +921,31 @@ postflight 09:29:02–09:29:03 UTC、exit 0，确认自有 project 容器/networ
 可接续准备并送审完整真实输入 manifest/launcher，精确引用本次已核三镜像；不再为此加测或重建。来源 checkpoint/缺失 RS 运行身份、旧 backend/worker→新目标绑定、新项目/三卷/key、资源/采样/回收条件仍须在实际候选内核对。**本节没有 v2-submit POST GO**，lease 根因仍 OPEN，正式测量、合入与最终门禁边界不变。
 
 最终交接补绑定：已读 `5dfe46b67fcb378e967dcde9c114eedb0ce7071d` 的 `p6-jcs-candidate-image-gate-handoff.md`，该提交仅增加该文档；相对产品 `1f9731` 也只有两份 handoff 文档差异，`vnext` tree 仍为 `dad054c32501c3bce462491af06c506c1c2acdf1`，交付 worktree clean。`evidence-sha256.txt` 实际摘要为 `dc3015dd3577d30f1f1595822967e6d0aac758f63a82773ac6b3a1588fdbf8ea`，其中 24 项日志/脚本/身份文件独立校验全 OK，与上述原始证据一致。handoff 明确联网构建、未单独归档中间下载物、RS 有效输入标签及仅局部门禁的限制；没有新增产品、测试或扩大结论。§52 通过结论现与该最终 handoff 绑定，执行授权边界不变。
+
+## 53. 真实输入候选 g 初审：三项定向修订，暂不 POST GO
+
+**manifest `5d4bcac787651e6ec264f94bfca66c1e5a89870136efff1210c3535d2e2c22f2` 暂不获得执行 GO。** 已读 `p6catalogsubmit20261106g` 的 review-request、manifest、准备记录、全部运行入口和关键身份/输入 helper，比较 f→g 增量及冻结 `1f9731` journey 的实际接线。独立核 15 文件 SHA/字节数/权限全部 MATCH，Python AST 可解析；三角色 archive identity 与 §52 实际文件一致，POST-GO 不存在。没有执行候选、导入产品、访问 CT05 或发 POST。静态语法和摘要匹配不能替代以下运行路径正确性。
+
+### G1（阻塞）：流式 docker-save 读取错误地要求 manifest 先于 config
+
+`candidate/check-image-identity.py:47–67` 在 `r|*` 单向流中，只有读到 manifest 后才设置 config_path，之后才接收该 config。合法 Docker-save 归档允许 config 在前，当前逻辑会错过它并在 75–76 行报 omitted config。已有且已审的真实三镜像归档就符合该反例：manifest 位于第 79 个成员（从 0 计），backend/worker config 位于第 61 个、RS config 位于第 56 个。该观察来自本地既有 tar 目录，不是重新 docker save 或运行候选；它足以说明不能假定节点导出遵从相反顺序。
+
+最小修订可复用 §52 已核的 CT05 同节点 image ID→config/全部 DiffID/labels 绑定并实时核本机对象，避免新增重复导出；若保留 save，则正确处理任意合法成员顺序且保持有界资源与子进程回收，不能用忽略缺失 config 放行。保持跨节点 config/全部 DiffID 规则，不把 inspect ID 当跨节点 config。不得为修这个 parser 重跑容器用例或真实 POST。
+
+### G2（阻塞）：启动后的活动目标卷被要求等于启动前 checkpoint
+
+`submit_diagnostic_launcher.py:503–518` 新增对目标卷 `_volume_tree_digest` 与原 checkpoint 完全相等的检查；它经 `checked_factory`（669–671 行）在 wrapper 进入 v2-submit 时执行。冻结 journey 已先在 `real_dump_journey.py:9738–9758` 完成 clone 和 copied digest 对照，再由 `_run_journey_impl` 的 8736 行 `compose up -d` 启动/恢复服务，之后才进入 guarded v2-submit。此时 control DB/worker 运行记录、SQLite WAL 和服务文件允许正常变化；对运行中卷做完整文件摘要也不是稳定快照。因此该检查会把正常 startup 写入误报为输入不符，且在真正 POST 前中止。
+
+恢复已审 f 的边界即可：checkpoint/source 内容及复制后的静止目标摘要交给原 journey 已有的复制前后校验，必要记录复用该位置的既有 copied digest；`checked_factory` 只核固定目标卷集合、名称/labels、mountpoint/文件系统与资源，不把活动内容当静止 checkpoint。禁止删除原复制校验或绕过来源校验。该问题已经在本报告 §13 明确过，不应在新目标接线中重新加入。
+
+### G3（阻塞）：固定 composite cache 的完整 SHA 未被执行路径校验
+
+manifest/scenario 与准备记录固定唯一 cache SHA `7263db55ad726a16c505db86aca87401eb4dd57775b1974d90964f04703d72ff`，但 `source_input_preflight.py:259–280` 只查存在、key、输入和 comparator identity，并调用原缓存复用；返回值只是记录当前文件 SHA，未与候选固定 SHA 比较。原 journey 只校验 cache schema/这些身份和 counts 的形状/内部和式，不能证明是此次授权的同一份 cache 内容。因此完整 manifest 绑定与实际启动条件不一致。
+
+在现有 helper 读取/复用 cache 前增加与固定摘要的比较即可，并让 preflight 与 submit 前复查共用；保留原 key/package/comparator/schema 校验。若预期摘要实际需要更新，先说明既有证据来源并换 manifest 送审，不能以运行时观察值替代授权固定值。无需重新生成输入/cache 或设计新的证据机制。
+
+其余关键方向可保留：原 observer SHA `0c8799a3…` 和单 POST wrapper SHA `8f4cb3fb…` 与已审版本逐字相同；45 分钟 guardian、资源/采样降级及目标步骤结束先关闭 observer 未改。固定 e798→1f 的 product/image guard 分别核两个确切端点和完整身份，未通用跳过；来源 RS 缺口显式保留，sampler/journey 共用原输入 manifest。新 project/key/三卷、唯一 log 目录拒复用和清理保卷范围未扩展。§52 镜像和小 Compose PASS 不受这些外置接线问题影响。
+
+另有一项非阻塞说明修正：README 声称 state comparison 未核实会保留锁，但 shell 在 postflight exit 0 后先释放锁，再判 state/sampler MATCH；postflight 对 NO_STATE/比较错误仍可因已确认静止而返回 0。该事实应写准确：资源回收确认与业务/输入判定是不同结果，不能声称已实现并不存在的锁条件；无需为文字承诺新增持久状态或无故保留已静止节点的锁。比较不符仍保持失败分类。
+
+合并修订 G1–G3，并更新全部受影响 pin、manifest、准备记录后定向复审即可；不重开设计范围、不重建镜像或重跑已通过门禁，不创建 POST-GO、不试发 POST 来验证修订。必要的局部校验仍遵守专用节点规则。本轮发现已直接交原实施者并抄设计，正式测量保持停止。

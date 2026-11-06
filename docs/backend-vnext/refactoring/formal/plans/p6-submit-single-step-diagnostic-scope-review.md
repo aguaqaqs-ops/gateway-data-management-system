@@ -1045,3 +1045,30 @@ cleanup/postflight 各 exit 0，固定项目 containers/networks 为空、status
 具体实现审核时核清一处接线即可：**未确认 sampler 回收的事实必须传递到现有 cleanup/postflight/controller 的节点解锁判定**，不能仅记录在 observer 日志却由 Docker 容器/网络为空放行；核实回收前保留占用并报告人工处置。该要求已经写入本设计，不是新增 finding 或新治理机制；复用现有结果/退出路径即可，不要求建立持久状态机、sidecar 或重设计 guardian。普通 state 输入比较失败与资源回收失败仍分别判定，不能借此重新无故保留已静止且回收确认的节点锁。
 
 少量既有 fixtures 覆盖双 timeout 合格降级且守护继续、即时复核失败、未回收、未知/混合停止及关闭回收，范围与实际改动相称。测试仍在 CT05 clean 已提交环境内按仓库规则运行；不要求全量 runner、重建镜像或重复小 Compose。本轮没有产品/容器输入变化，目标产品 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`，最后验证镜像 revision/source-tree 与 §52/54 相同，不触发重建。g 的旧脚本、证据和 GO 消耗状态保留；下一次业务候选须新项目/key/目标副本及专属清单 GO，不续跑 g 目标卷。H3 不变，lease 根因 OPEN，正式测量停止。
+
+## 57. 候选 h 工具与最终绑定复审：通过，当前不授业务 GO
+
+**`p6catalogsubmit20261106h` 的工具修订、17 项 focused 证据和最终候选绑定通过，无阻塞 finding。** 唯一审定 manifest SHA256 是 `8d8e674e6582deecaa13ab75b727e9189df84ed9ef4b58525e2974d148a84aa8`；handoff `0527c6e5b5de1b1c37cd0b4f3500d3aed94fc516` 与实际材料一致。本次 review-request 明确只请求修订和测试审核、不请求执行授权，故**本节没有 POST GO**；POST-GO 实际不存在。技术上没有发现阻碍该精确候选后续一次限定诊断 GO 的问题，后续决定可沿既有协调范围办理，不需要为相同文件重复测试或重建准备包。
+
+复审只读本地候选、全部关键接线及已有 CT05 日志，并与 §54/56 和 g 的已审实现比较；没有导入候选/产品、执行测试、访问节点或新取证。独立核 manifest 完整 SHA、15 个文件的实际集合/SHA/字节数/权限、组件 manifest 和 launcher 内部 pin 全部 MATCH；Python 仅作 AST 解析。运行入口、来源/输入 helper、镜像 identity 和 checker 的 g→h 差异限候选名称/token/purpose 以及本次回收接线，原 G1–G3 修订保留。最后已审产品的 detached worktree 仍 clean `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`。
+
+两项草稿观察已关闭：
+
+- **普通退出不会被时间观察误归类。** observer 155–163 行先 poll，只有结果仍为 None 且明确 1 秒预算到期才设置 timed_out，并进入有界 kill/reap。已退出的结果走原退出码/输出分类，即使观察较晚也不成为 timeout_pair；普通成功可保持有效，未知退出仍保持未知。新增测试直接证明迟到观察的正常退出不触发 timeout/reap/降级。
+- **preflight wait 异常不会误报已回收。** Popen 后先登记该 child 的 reaped=false，成功 wait 才改 true；TimeoutExpired 和其他 BaseException（包括 KeyboardInterrupt）均进入有界回收，异常仍向上传递。回收未确认或回收自身异常时保持 false，`close()` 不会用原默认成功状态放行。测试分别覆盖 wait 中断后成功回收，以及 wait 异常且回收超时，结果为 REAPED / UNCONFIRMED；两条 wait 均带 1 秒界限。
+
+双 timeout 降级只接纳两个明确 timed_out 且 reaped=true 的连续记录；混合/未知配对仍停止。第二次回收后先检查原绝对 deadline，再即时调用现有同 PID/starttime、filesystem device 和原资源阈值校验，合格才记录降级并永久停采本轮 dump。既有精确双 interpreter-discovery 分支保留。降级不重置 deadline；原 5 秒资源检查和业务 poll 继续。timeout 和 finally 都使用 `_kill_and_reap` 的 1 秒 wait，留 child PID/exit/reaped/elapsed；回收未确认立即停止，finally 仍仅作有界收束，不能降级。
+
+§56 要求的**节点解锁接线已落实**：guard 在 finally 回传 sampler 状态，父进程对 guard 作有界 join，只有 guard 已退出、preflight 已回收及 shutdown 确认 sampler 回收，才由 `WorkerObserver.close()` 报 REAPED；缺失 acknowledgement 或父进程强制终止 guard 但无 sampler 确认均为 UNCONFIRMED。wrapper 在成功/异常退出都把 close 结果写入 `submit-diagnostic-result.json`，close 异常显式记未确认。postflight 在已尝试运行时读取该结果并用共同 predicate 判定，缺失/损坏/false 均非零；controller 还要求 postflight exit 0 且记录中 sampler_reaping_confirmed=true，才进入核 owner token 的解锁分支。未尝试 Compose 的准备失败路径可按 NOT_STARTED 处理；普通输入比较不符继续独立返回失败，不制造已确认静止和回收后的锁残留。
+
+最终工具 SHA256：observer `f197042fa0f5ef0abd065ac4d6dc014e7a460c3181a94abd3bd5b3545c4be023`；wrapper `ae8e64ccb15d6acb5703372e4be08d06e2dc46a1498c0d557d7feb90cda13cbe`；launcher `a63c0253776f80aced8644c97581d961955cf697a3aa9dc327a5bfab92d723ec`；shell `54f41023b3e13e6935b2aa49ec7991360ffe5bc26851e072dcd39977548c23f3`；component manifest `9c730140bed5dd725531c4fedd8575b1a3e072fdba732acaeddd4eddee0c6e34`。
+
+CT05 最终日志 `ct05-focused-tests-final2.log` 的实际 SHA256 `74fcf037175f5aad3e67dc25fda37fdd5b5f47bc0c97f87dc7ef20a0cad0bdb4`，记录 hostname `gw-dms-test-05`、12:14:08–09 UTC、起止相同 `1f9731`、literal backend Python，以及精确 manifest、observer、两份测试源码 SHA。13 个 resource 测试和 4 个 lifecycle 测试均通过、两批 exit 0。内容覆盖原资源阈值/PID/文件系统、两种合格降级、降级后守护/截止、即时复核拒绝、有效样本清空连续失败、未知/混合拒绝、未回收、关闭回收和前述两项修订。无需重跑这批已通过的相同测试。测试使用受控 fixtures，不把其通过表述为真实 Submit、实际 py-spy attach 在负载下已成功或产品 lease 已修复。
+
+最终 CT05 binding 日志 SHA256 `5d7c25745cf457a96761b6e0e80bac28c9dc93d694b1e7e24c04afeac9fa5927`，15 文件 MATCH、post_go_present=false；释放日志 SHA256 `cded8f9fbd7d49025d32c6f83c1cefefbe9e16eb2b8f99a3e36fc8372b18e8ec`，记录同一 HEAD/manifest、12:15:30 无 Compose/test 进程、owner 核验移除及 node_lock=FREE。本地当前文件全部匹配最终日志的绑定，未把 11:58 的旧 15 项通过结果当最终证据。
+
+前期传输参数/目录层级错误、isolated unittest module lookup 失败和 focused fixture 失败均有留档。已核最终前两次日志实际 SHA 分别 `59e26dee75af6bdd303d9b5f14fe342b1b5509e80769e5f3bc3ee8e927e248dc`、`fef16cfecd354e701c43d85a9a7c18d3939b9356d2d2456c1184fed249585a22`。后一轮 observer SHA 已与最终相同，失败来自 fixture 按资源读取次数注入故障和固定次数断言；最终改为在第二个 dump_end 之后注入即时复核故障，并保留实际拒绝/不降级/发停止信号的断言，没有删去业务边界来求通过。它是调试 focused 结果，不是权威 runner 失败或业务重跑；原记录不改写。
+
+h 保持新 project/三份目标副本/幂等键、原 e798→1f9731 精确关系、同一 accepted input/cache、单 v2-submit POST 和无后续步骤；保留卷及 g 既有证据不复用运行。45 分钟 watchdog、1 秒 dump、15 秒采样、原资源停止线及预算原则不变。产品和镜像未变，**不触发重建或重复 Compose**；最后验证镜像 revision `1f9731`，RS build-input `4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`、source-tree `sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`，身份与小用例引用 §52。未来若给该清单一次 GO，仍须运行前实时核对节点、clean worktree、输入、镜像及节点占用；本次审核不预先声称这些未来现场条件已满足。
+
+**工具与候选绑定技术审核完成；业务执行决定另记，当前不运行。H3 不变，正式测量停止，lease 根因仍 OPEN。**

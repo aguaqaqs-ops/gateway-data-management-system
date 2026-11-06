@@ -919,3 +919,5 @@ postflight 09:29:02–09:29:03 UTC、exit 0，确认自有 project 容器/networ
 | node-postflight.log | `60aa21c1b5868c4c042f6c380e8c06449c0174a10381c68f1a7ac9b7af9efe39` |
 
 可接续准备并送审完整真实输入 manifest/launcher，精确引用本次已核三镜像；不再为此加测或重建。来源 checkpoint/缺失 RS 运行身份、旧 backend/worker→新目标绑定、新项目/三卷/key、资源/采样/回收条件仍须在实际候选内核对。**本节没有 v2-submit POST GO**，lease 根因仍 OPEN，正式测量、合入与最终门禁边界不变。
+
+最终交接补绑定：已读 `5dfe46b67fcb378e967dcde9c114eedb0ce7071d` 的 `p6-jcs-candidate-image-gate-handoff.md`，该提交仅增加该文档；相对产品 `1f9731` 也只有两份 handoff 文档差异，`vnext` tree 仍为 `dad054c32501c3bce462491af06c506c1c2acdf1`，交付 worktree clean。`evidence-sha256.txt` 实际摘要为 `dc3015dd3577d30f1f1595822967e6d0aac758f63a82773ac6b3a1588fdbf8ea`，其中 24 项日志/脚本/身份文件独立校验全 OK，与上述原始证据一致。handoff 明确联网构建、未单独归档中间下载物、RS 有效输入标签及仅局部门禁的限制；没有新增产品、测试或扩大结论。§52 通过结论现与该最终 handoff 绑定，执行授权边界不变。

@@ -321,6 +321,14 @@ fn operation_memory_limit_rejects_before_value_growth_with_a_stable_location() {
         options.budgets.max_live_bytes = 1 << 20;
         let output = parse_sql_dump(cases[0].as_bytes(), &options, &pool);
         assert_eq!(output.status, ParseStatus::Complete);
+        // Metadata fits; the malformed literal Vec is much wider than the
+        // schema and must be refused before its value allocation grows.
+        options.budgets.max_live_bytes = 128 << 10;
+        let output = parse_sql_dump(cases[2].as_bytes(), &options, &pool);
+        assert_eq!(output.status, ParseStatus::Failed);
+        assert!(output.tables.is_empty());
+        assert_eq!(output.diagnostics[0].message, "max_live_bytes exceeded");
+        assert_eq!(output.diagnostics[0].byte_offset, 0);
         let output = parse_sql_dump(cases[2].as_bytes(), &SqlParseOptions::default(), &pool);
         assert!(
             output

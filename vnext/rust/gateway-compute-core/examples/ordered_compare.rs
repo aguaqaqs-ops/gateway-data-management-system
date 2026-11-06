@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! IPC measurement/differential harness for comparison::ordered.
 //!
 //! This example owns all filesystem access. The core crate only receives

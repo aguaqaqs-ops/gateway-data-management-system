@@ -210,6 +210,8 @@ backend 与 RS 的实际环境记录 `GATEWAY_DOCKER_BUILD_NETWORK=none`、PREBU
 
 从完成日志重新提取的五份起始 manifest 与 §7.5 预核版本逐项完全一致，摘要重算仍匹配。CT201 审核副本位于 `/home/dev/gdds-p6-logs/s2a/closeout-review-3b037ad/authoritative-runner-final.log`，SHA 与原节点相等；本次 `operation.log` SHA 为 `bb74ff2788453fcb932aa752ab472aef1e1113c8fe6e5f97112ed69cbdb2ccca`。
 
+运行结束后的 backend Compose provenance 已保存为该 run 目录下的 `backend-compose-gate-provenance.json`。审核者在 04 对副本重新计算 SHA256，仍为 `951b06c6468243aea45d3fa85663dbe294079ff3d34fc80c598ee05e4af2a0af`，与原 TMPDIR 文件及 §7.5 预核相等；无需追加 Compose 运行。
+
 运行后现场原 worktree HEAD 为本候选且 clean。05:27:54Z 独立只读残留检查确认：Dolt `pgrep` 返回 1 且无输出，`docker ps` 和端口 8000 查询均 exit 0 且无输出；五个 Hypothesis 路径和 Cargo target 均不存在。本会话原 marker 仍保留，用于最终 H 的同节点绑定；没有删除其他会话的标记或更改冻结镜像/卷。
 
 代码、定向复审、当前五包实际结果与容器门禁已充分，可以合入 handoff/本文及已核主线文档以固定最终 H。当前五个 Python 包的直接来源为此次 `3b037adf4c`，Rust 仍直接来源为合格 `3b3d9c97bc` 原 runner；不能引用失败 `38cc` 或将中间 carried 结果当新来源。第④层 parser 与其输入/Contract 未改变，原 05 真值差分继续适用。阶段退出仍以 §8 最终绑定和独立 GO 为条件。

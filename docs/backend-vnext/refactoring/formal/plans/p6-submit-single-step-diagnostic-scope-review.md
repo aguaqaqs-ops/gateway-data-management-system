@@ -879,3 +879,11 @@ GC 聚合截至最后快照：gen0/1/2 分别 15,137/1,376/20 次，gen2 最大 
 唯一需落入具体构建命令的缓存细节：首次失败中 `curl | sh` 那层表面成功却未安装 uv，不能假定切换网络模式一定使该层失效。联网构建须对受影响构建阶段显式避开该失败产物，例如使用任务内明确的 no-cache/stage cache 控制；不清理整机共享缓存、不为此改产品 Dockerfile。固定原 base digest/本机身份，不能通过重新拉取可变 tag 顺带升级基础输入。该要求用于消除已发生的缓存缺失残留，不要求额外产品测试或第二次离线构建。
 
 原失败日志保留，最终镜像/小 Compose 实际证据仍交独立审核。此范围只接续 §48 的镜像任务，不授予真实 v2-submit POST、产品合入或正式测量恢复。
+
+## 51. 构建导出修正与小用例运行身份留证
+
+只读核 CT201 构建日志：`backend-build-final-network-host.log` SHA256 `4be54071960ad08961949e1d964efe5834a80be94a4fe1636d9abd0e5ac3cdcc`，记录 `1f9731` 原输入、任务内 no-cache、network=host，安装/编译成功、build exit 0；docker-container driver 未指定输出，明确警告结果仅存 cache，随后 wrapper tag 步骤失败。实施者保留该错误，使用同一显式 builder、源码/context/base/args/network 加 `--load` 消费成功缓存导出，没有再次 no-cache 编译或测试。`backend-final-export.log` 实际 SHA256 `3a7ef4d60c61c9cd28b85e0e3134b9bd242d74cd12b952353bca3eee40763861`，09:21:55–09:22:07 UTC、exit 0。两次实际 FROM 解析 digest 与事先记录的 rust/python RepoDigest 一致，未见基础输入替换；最终 build metadata config digest 为 `sha256:c4baaf17da52a29dd95a92f7801ce5dec3890db41ebb4b162c7e8596239f1898`。RS 原预置接口日志另记录离线构建 exit 0。这里只确认构建/导出进度，三镜像归档身份、LAN 传输及 CT05 测试结果尚待成套核验，不提前宣称镜像门禁通过。
+
+所选小 fixture 用例及其 `start_three_container_stack` 确实不调用 `persist_compose_gate_provenance`。工具提出的外置只读 collector 属于 §48 要求的“实际运行镜像身份”留证，可随唯一已授权用例接入，不要求修改测试/harness 或再开范围审批。限定固定 project 和 backend/worker/repository-service 三个服务，在容器存活期间记录容器 ID、Name、`.Image`、必要 Compose project/service 标签、时间和运行状态，并逐一核对 CT05 已加载镜像的本机 image ID；跨节点仍以 config digest/全部 DiffID 为依据。collector 的等待有界且随测试退出，不影响业务、延长容器生命周期或触发自动重跑；未取到有效身份则明确证据缺口，不把测试 exit 0 代替身份绑定。
+
+意见已发设计转工具任务；后续继续既有单项门禁，不授予真实数据 POST。

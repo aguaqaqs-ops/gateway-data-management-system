@@ -28,6 +28,8 @@ RepositoryRef 实际接线采用 Snapshot Materialization owning contract 中的
 
 预约覆盖同一 operation 同时存活的输入、parser buffers、规范结果、排序/filter 索引、IPC 及 Vec→PyBytes 复制、打开的 mmap/Arrow views、FULL 双侧和发布 staging。共享 backing/mapping 只计一次，未打开的全局历史文件只计磁盘。增长前拒绝；两个局部 kernel 各自满足 M 不能证明其同时存活总量满足 M。复用 A/B 的有界控制并按 C 实测生命周期串接，不引入全局 allocator 追踪框架。D 接线后记录实际 worker 峰值与预约偏差，不将 RSS、page cache 或 cgroup limit 混同预约。
 
+实际 worker 校准可先以既有 t4 FULL 两上传侧、INITIAL 空 catalog fixture，经真实注册的 `materialize_inputs` handler、Runtime/LeaseSession 执行到 checkpoint/后继 PENDING；这是该阶段的容量证据，不等于整个 worker 容量通过。后续仍使用 Python 的 comparison 双侧 rows/cell frames、keyed/keyless/ordered 索引与 records，以及 records 的 Arrow/Parquet spool 和 Submit replay/打包重叠，按真实 changed/selected 表在现 pair/Submit 边界纳入可解释的保守预约与持有期。已有 rows/file/spool/package quota 可用于上界，但须与当前 operation 剩余额度合并，不能计入 4 GiB runtime reserve 后略过。沿既有 owner 做增长拒绝与必要阶段校准，不提前迁移 S3 算法或建设 allocator 框架。reader 传播的 stop/deadline/resource 拒绝必须保留控制类别，不能被普通表错误降级吞掉；返回句柄的关闭仅释放资源，不能在已提交交接后再次制造停止异常。
+
 代码核对发现 S2a parser 的原配额不包含整体 live bytes，且先保留全部 chunk builders 再 merge。D 因真实 operation M 接线补局部 `max_live_bytes`：采用分配前、源序确定性的整次预预约，覆盖 phase A 元数据/jobs、builder capacity/merge/Arrow 转移；SQL 借用由外层计一次。新增整体额度不足使用文档级 `RESOURCE_LIMIT_EXCEEDED` / `max_live_bytes` / offset 0，原配额定位与成功语义不改。规则归 [Snapshot Table Access](../../../contracts/snapshot-table-access.md#s2b-生产-parser-的-operation-预算)。具体估计与小规模边界测试由实施/独立审核核实，不以设计批准预判容量通过，不引入 allocator 框架或重跑旧全量差分。
 
 D 的 staging 预约同时覆盖普通 entry/文档数据及独立 tar 扩展头工作量。已确认标准库在返回成员前读取 PAX/GNU，不能以成员 expanded quota 冒称整个读入有界；按 [SourcePackage Contract](../../../contracts/source-package.md#扩展头与增长前资源准入) 增长前准入并委托固定 stdlib parser，保正常格式/路径语义。普通 ArtifactStore source 读取也先按 opened fd 核真实 size，再 bounded read，与 ref 预约一致；oversize 损坏仍走原错误/root 边界。各沿已有 owner 做一个有界拒绝回归，不引入同 euid 对抗协议或全量解压压力测试。

@@ -648,3 +648,17 @@ P6-PROBE-0600 接续纠偏后，实际读取 `p6heartbeatprobe20261106a/candidat
 最小关闭要求：在外层监督的信号/异常路径统一进入有界 terminate/kill/reap，保存停止原因与回收结果；launcher 的退出处理配合监督进程，只有确认 probe 已退出才释放节点占用。若预算内仍无法确认退出，明确标记未回收并保留占用供人工处理，不宣称成功回收、不自动重试。保持 120 秒总预算与现有单次范围，不引入新服务或产品机制。
 
 两项已直接发原实施者并抄设计。**该 manifest 暂无执行 GO**；修正后更新固定候选及摘要，复核这两项即可。正式测量与新的 Submit 仍未获授权。
+
+## 39. P6-PROBE-R2：修订候选单次执行 GO
+
+**执行 GO，仅绑定 `p6heartbeatprobe20261106a` 的 manifest SHA256 `c5163458bf7c289fb6ea7f16c45ef83dff07aa4d4e48528028de3f3a92ceb548`**，handoff `33415389a19659fc95228ebe2dfb209cb0e219e4`。旧 `a856913c…`、`db28ecde…` 不获授权。本次实际重读三份脚本、README、manifest 与 handoff 修订，未执行 probe 或测试，未扩大原范围。
+
+实际摘要均匹配：probe `7323f8d107c0addade28c406372d0107d0910584d87539470ffa86f9dcccb00d`，supervisor `2667611a048988282a9e80c59556d065f7b20f57bed386808882c794ea11e042`，launcher `ab2af167e529b5a0ce13f34848b290ebf766d77b502a43e8bf8d603535d6b8c5`，README `6933c797ae824a3f584521971978dc80b5a553f6bfdea0bce29141a1bfbae981`，checksum list `78056a96fb2e57007f38e33e8bcd91812d39f0e82eeea285abb24bafaf28ef96`。
+
+P1 的阻塞部分已关闭：worker events、digest metrics 先挂入共享结果，heartbeat handler 在调用前记入口/deadline，异常和正常结束均由 finally 补齐并保存。构造、digest、释放、handoff、runtime 有 monotonic 窗口与 process/thread CPU；子段有聚合与最多 32 个不短于 5 ms 的窗口，截断/丢弃计数显式保留。最多 48 份粗粒度边界 checkpoint 和 latest 文件保留已完成观察，GC callback 仍无 I/O，写失败进入结果且最终非零退出。没有修改原 digest 或 worker 的判断逻辑。
+
+P2 已关闭：监督的 SIGINT/SIGTERM 记录停止意图，监视循环退出后与异常共用 finally；TERM 0.5 秒、KILL/reap 最多 2 秒，共用从启动起 119.5 秒的绝对 child 截止，原 117 秒 stop guard 与 120 秒预算不变。明确输出 child_started/child_reaped/return_code；未回收或结果缺失时 launcher 保留节点占用，仅确认 reaped 才释放。无法确认退出的情况保留人工处置，不自动再起 probe。
+
+接受为本次诊断限制而不扩修订矩阵：没有独立 join 起止探针，只有真实 runtime 退出（包含 join）及 executor 的 handoff 边界，不能推算精确 join 耗时；key JCS 与全量 JCS 共用子段聚合，解释保留窗口时须按 ordering/payload 的时间边界区分，不能把累计时长当纯全量 JCS。GC 只保留前 64 个窗口，truncated 后不能以无匹配窗口排除 GC。checkpoint 序列化/fsync 在两个线程中执行，heartbeat handler 入口还先保存再委托产品逻辑，因此观测本身会影响调度；即使出现迟滞也须保留这一替代解释，不能直接认定原产品根因。README 对 per-row raw digest 的表述不应扩读为产品调用语义；本 probe 的 Contract digest 仍是一次完整 mutations 包装对象计算。
+
+已直接向原实施者发送绑定上述 SHA 的一次 GO 并抄设计：按既有 SSH、单飞和 clean e798 前提传输、校验后运行，固定 venv，20,000 项/33 列/64 bytes、一次 compute、10/30 秒与 2 GiB/200 ms 均保持。无心跳仅报未覆盖；失败、截断或完成都不自动重试/扩规模。未授权 Submit、产品修复或正式测量；本次不是 DC68 重做。后续只审本次实际结果及收尾，不等待实施者不存在的外发工具。

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import secrets
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -28,7 +28,8 @@ from gateway_backend.artifacts.snapshot_table_export_cache import (
     SnapshotTableExportCachePort,
 )
 from gateway_backend.artifacts.store import ArtifactBufferStorePort
-from gateway_backend.capabilities.snapshot_materialization.canonical_store import CanonicalTableStore, canonical_columns
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
+from gateway_backend.capabilities.snapshot_materialization.canonical_store import CanonicalTableStore, canonical_columns, canonical_table_key
 from gateway_backend.capabilities.snapshot_materialization.arrow import (
     ArrowSnapshotTableReader, operation_codec_budgets, snapshot_table_from_arrow,
 )
@@ -436,7 +437,7 @@ def open_snapshot_table_artifact(
 
 def _open_canonical_artifact(
     store: ArtifactStorePort, manifest_ref: ArtifactRef, manifest: SnapshotTableArtifactManifest,
-    *, repository_id: str,
+    *, repository_id: str, opened_handle: Any | None = None,
 ) -> SnapshotTable:
     if len(manifest.row_file_refs) != 1:
         raise ArtifactPublishError(MaterializationDiagnosticCode.ARTIFACT_MANIFEST_CORRUPT,
@@ -454,7 +455,7 @@ def _open_canonical_artifact(
         raise ValueError("canonical artifact reads require an operation kernel context")
     canonical = CanonicalTableStore(cast(ArtifactBufferStorePort, store), repository_id=repository_id,
                                     budgets=operation_codec_budgets())
-    handle = canonical.open(manifest.row_file_refs[0], manifest.descriptor)
+    handle = opened_handle if opened_handle is not None else canonical.open(manifest.row_file_refs[0], manifest.descriptor)
     try:
         with handle.borrow_stream() as stream:
             arrays = stream.read_all()
@@ -476,6 +477,8 @@ def _open_canonical_artifact(
 def publish_canonical_tables(
     tables: tuple[SnapshotTable, ...], *, snapshot_digest: DigestRef,
     store: ArtifactStorePort, repository_id: str,
+    lookup: Callable[[CanonicalTableKey], ArtifactRef | None] | None = None,
+    before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> tuple[SnapshotTable, ...]:
     """Publish only Rust-produced canonical IPC; raw/client Parquet has its owner."""
     if not callable(getattr(store, "open_buffer", None)):
@@ -492,12 +495,22 @@ def publish_canonical_tables(
             context.checkpoint()
             if not isinstance(table.reader, ArrowSnapshotTableReader):
                 raise ValueError("canonical IPC publication requires the Arrow projection reader")
-            isolated = table.reader.reopen()
-            try:
-                with isolated.arrow_stream() as stream:
-                    ref = canonical.put(stream, table.descriptor)
-            finally:
-                isolated.close()
+            key = canonical_table_key(repository_id, table.descriptor)
+            ref = None if lookup is None else lookup(key)
+            opened_handle = None
+            if ref is not None:
+                try:
+                    opened_handle = canonical.open(ref, table.descriptor)
+                except (ManifestVerificationError, ValueError, OSError):
+                    context.checkpoint()
+                    ref = None
+            if ref is None:
+                isolated = table.reader.reopen()
+                try:
+                    with isolated.arrow_stream() as stream:
+                        ref = canonical.put(stream, table.descriptor, before_write=before_write)
+                finally:
+                    isolated.close()
             manifest = SnapshotTableArtifactManifest(
                 artifact_contract_version=SNAPSHOT_TABLE_ARTIFACT_CONTRACT_VERSION,
                 snapshot_digest=snapshot_digest, table_name=table.descriptor.table_name,
@@ -511,8 +524,30 @@ def publish_canonical_tables(
             )
             raw = canonicalize_json_value(manifest_to_payload(manifest))
             context.checkpoint()
-            manifest_ref = put_with_built_ref(store, raw, artifact_id=_opaque_id("sta-manifest"), media_type=MANIFEST_MEDIA_TYPE)
-            published.append(_open_canonical_artifact(store, manifest_ref, manifest, repository_id=repository_id))
+            try:
+                manifest_ref = put_with_built_ref(store, raw, artifact_id=_opaque_id("sta-manifest"), media_type=MANIFEST_MEDIA_TYPE)
+            except BaseException:
+                if opened_handle is not None:
+                    opened_handle.close()
+                raise
+            if opened_handle is not None:
+                # A healthy cache hit is an actual read of an existing artifact.
+                published.append(_open_canonical_artifact(store, manifest_ref, manifest,
+                    repository_id=repository_id, opened_handle=opened_handle))
+            else:
+                # The writer already validated this Arrow input and the IPC output.
+                # Give this operation independent readers over its retained backing;
+                # the next real artifact consumer opens/validates the persisted IPC.
+                layout = row_layout_digest_of(table.descriptor, table.reader.source_descriptor().columns,
+                                             table.ordered_metadata)
+                reader = table.reader.reopen()
+                try:
+                    batch = None if table.batch_reader is None else table.batch_reader.reopen()
+                except BaseException:
+                    reader.close()
+                    raise
+                published.append(replace(table, reader=reader, batch_reader=batch,
+                    artifact=SnapshotTableArtifact(manifest_ref, manifest, layout)))
         context.checkpoint()
         return tuple(published)
     except BaseException:

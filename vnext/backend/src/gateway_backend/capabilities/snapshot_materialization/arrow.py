@@ -226,7 +226,12 @@ def snapshot_arrow_input(table: SnapshotTable) -> Iterator[tuple[dict[str, Any],
                 fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
                 arrays.append(pa.array(columns[index], type=physical))
             backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+            # Conversion is eager before the caller snapshots native remaining M.
+            # Drop the Python lists/array wrappers before moving the Arrow backing
+            # from this temporary envelope into its shared retained reservation.
+            del columns, arrays, fields
         retained = ArrowSourceTableReader(source, backing, context)
+        del backing
         with retained.arrow_stream() as stream:
             yield source_arrow_metadata(source, stream), context
     finally:

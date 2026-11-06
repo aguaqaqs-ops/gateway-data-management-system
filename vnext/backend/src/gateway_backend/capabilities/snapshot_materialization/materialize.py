@@ -8,6 +8,8 @@ import time
 from collections.abc import Callable
 
 from gateway_backend.artifacts.store import ArtifactStorePort
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
+from gateway_backend.artifacts.types import ArtifactRef
 from datetime import UTC, datetime
 
 from gateway_shared_kernel import (
@@ -152,12 +154,14 @@ def materialize_projected_snapshot(
 def materialize_canonical_snapshot(
     source_snapshot: Snapshot, tables: tuple[SnapshotTable, ...], *, artifact_store: object,
     context: ParserInvocationContext, repository_id: str,
+    lookup: Callable[[CanonicalTableKey], ArtifactRef | None] | None = None,
+    before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> SnapshotMaterializationResult:
     """Production canonical tables use only the Rust IPC store."""
     return _materialize_projected_snapshot(source_snapshot, tables, artifact_store=artifact_store,
         context=context,
         publish_tables=lambda items, digest, store: publish_canonical_tables(items, snapshot_digest=digest,
-            store=store, repository_id=repository_id))
+            store=store, repository_id=repository_id, lookup=lookup, before_write=before_write))
 
 
 def _materialize_projected_snapshot(

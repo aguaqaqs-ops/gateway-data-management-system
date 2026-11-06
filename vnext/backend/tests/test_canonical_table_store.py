@@ -277,9 +277,21 @@ def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_for
         "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
         "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
     table = snapshot_table_from_arrow(descriptor, arrays, source)
-    store = InMemoryArtifactStore()
+    class WriterStore(InMemoryArtifactStore):
+        reads = 0
+
+        def open_buffer(self, ref: ArtifactRef, *, checkpoint: Any = None) -> Any:
+            self.reads += 1
+            return super().open_buffer(ref, checkpoint=checkpoint)
+
+    store = WriterStore()
     published = publish_canonical_tables((table,), snapshot_digest=DigestRef("sha256:" + "0" * 64),
                                         store=store, repository_id="repo")[0]
+    assert store.reads == 0
+    assert published.reader is not None
+    table.reader.close()  # type: ignore[union-attr]
+    assert tuple(published.reader.iter_rows())
+    assert store.reads == 0
     assert published.artifact is not None
     manifest = published.artifact.manifest
     assert manifest.row_format == "arrow-ipc"

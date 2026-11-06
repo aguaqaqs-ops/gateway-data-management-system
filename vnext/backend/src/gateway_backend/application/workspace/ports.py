@@ -8,6 +8,7 @@ from typing import Protocol
 from gateway_backend.application.control_transactions import ControlTransaction
 from gateway_backend.application.canonical_metadata.ports import CommitCanonicalMetadataPort
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableIndexPort
 from gateway_backend.domain.workspace.ports import (
     BaselineHeadReadPort,
     ScopeResolutionPort,
@@ -17,6 +18,9 @@ from gateway_backend.operations import OperationStore
 
 
 class WorkspaceControlTransaction(ControlTransaction, Protocol):
+    @property
+    def canonical_tables(self) -> CanonicalTableIndexPort: ...
+
     @property
     def commit_canonical_metadata(self) -> CommitCanonicalMetadataPort: ...
 

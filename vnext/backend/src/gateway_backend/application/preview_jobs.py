@@ -16,6 +16,7 @@ from typing import ContextManager, cast
 from gateway_shared_kernel import DigestRef, canonicalize_jcs, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.application.kernel_execution import reserved_artifact_bytes, stage_operation_source
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.canonical_metadata.ports import (
@@ -98,7 +99,7 @@ from gateway_backend.capabilities.comparison import (
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     materialize_business_snapshot,
-    materialize_projected_snapshot,
+    materialize_canonical_snapshot,
     open_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -157,7 +158,7 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionStatus,
     PublicationError,
     open_canonicalization_manifest,
-    project_canonical_table_set,
+    project_canonical_arrow_table_set,
     publish_canonicalization_manifest,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
@@ -1100,6 +1101,14 @@ def _materialize_all_sides(
         tuple[BoundSnapshotInput, ArtifactRef, DigestRef],
     ] = {}
     upload_errors: list[PreviewJobError] = []
+    def lookup_canonical(key: CanonicalTableKey) -> ArtifactRef | None:
+        with deps.control_transaction_factory() as unit_of_work:
+            return unit_of_work.canonical_tables.lookup(key)
+    def register_canonical(key: CanonicalTableKey, ref: ArtifactRef) -> None:
+        # This is derived content/TTL registration. Checkpoint/READY/Attempt
+        # references are still published only by the existing LeaseSession.
+        with deps.control_transaction_factory() as unit_of_work:
+            unit_of_work.canonical_tables.register(key, ref)
     for side, binding in uploaded_side_specs:
         try:
             uploaded_sides[side] = _materialize_uploaded_side(
@@ -1108,7 +1117,7 @@ def _materialize_all_sides(
                 runtime_ruleset,
                 repository_id=payload.repository_id,
                 export_cache=deps.snapshot_export_cache,
-                side=side,
+                side=side, canonical_lookup=lookup_canonical, canonical_before_write=register_canonical,
             )
         except PreviewJobError as exc:
             upload_errors.append(exc)
@@ -1383,6 +1392,8 @@ def _materialize_uploaded_side(
     repository_id: str,
     export_cache: SnapshotTableExportCachePort | None,
     side: OperationDiagnosticSide,
+    canonical_lookup: Callable[[CanonicalTableKey], ArtifactRef | None] | None = None,
+    canonical_before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
 ) -> tuple[BoundSnapshotInput, ArtifactRef, DigestRef]:
     context = current_kernel_context()
     if context is None:
@@ -1462,7 +1473,7 @@ def _materialize_uploaded_side(
             )
         if business_result.snapshot is None or business_result.table_set is None:
             raise PreviewJobError("uploaded business materialization is incomplete")
-        projected: CanonicalProjectionResult = project_canonical_table_set(
+        projected: CanonicalProjectionResult = project_canonical_arrow_table_set(
             business_result.table_set,
             ruleset,
         )
@@ -1512,13 +1523,12 @@ def _materialize_uploaded_side(
                 diagnostic_omitted_count=projected.omitted_diagnostic_count,
             )
         try:
-            canonical_result = materialize_projected_snapshot(
+            canonical_result = materialize_canonical_snapshot(
                 business_result.snapshot,
                 projected.tables,
                 artifact_store=store,
                 context=invocation,
-                export_cache=export_cache,
-                repository_id=repository_id,
+                repository_id=repository_id, lookup=canonical_lookup, before_write=canonical_before_write,
             )
         finally:
             for table in (*projected.tables, *business_result.table_set.tables):

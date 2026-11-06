@@ -624,3 +624,27 @@ stall 保存的 worker inspect 为 running、PID 相同、OOMKilled=false、Rest
 具体接线审核应注意已有 fixture 不是现成真实时钟模型：`RuntimeUowFactory` 默认用 BASE_TIME 加调用次数，`_active_records` 初始 lease 为 BASE_TIME+300 秒，`ThreadFactory` 返回 ControlledThread。候选须按设计替换这些时钟/初始 lease/线程接线，使用真实 UTC 事务时间和 30 秒初始 lease，并保留原 fence/安全 handoff；不能仅把外层 sleep 换成真时间就宣称真实续租关系。内存 UOW 的结果明确不覆盖 SQLite，短于一次心跳则只报告未覆盖，不额外等待或重复计算。这些是既定设计要求的实现核点，不增加新测试矩阵。
 
 现有 20,000 行/2 GiB 上限与现场约 24 GB 不同；结果不能外推唯一根因或产品性能，也不自动授权产品修正或 Submit。逐 mutation canonicalize/hash 的错误顺序不等价风险已明确，后续若采用 writer/hash sink 须另核原 JCS 字节、digest、全局校验顺序和完整 payload 的边界。本次只准备定向诊断，不捆绑流式化、Rust 迁移、租约调整或重复 closure 校验删除。固定 harness/监督命令/manifest 齐备后再给候选执行决定。
+
+## 38. 局部 probe a 执行候选审核：两项定向修订，暂不 GO
+
+P6-PROBE-0600 接续纠偏后，实际读取 `p6heartbeatprobe20261106a/candidate/` 的 `probe.py`、`supervisor.py`、`run-once.sh`、README、manifest 和准备记录，并对照冻结 e798 的 WorkerRuntime、scheduler fixture 与 digest 实现。此前误接续 S1b 的答复不构成本 probe 的审核或授权。本次没有执行 probe、测试、服务或远程取证。
+
+审核对象为 handoff `7dd555db330346c0fff1cc0f2c8779fdfd77e0e9`，manifest SHA256 **`a856913c022cef966e04618f2355771ae1a4393e7f3fe5d4ef969a80a607de48`**。实际文件摘要与 manifest 全部一致：probe `8d22265ac2474c78dd1e870afec1d137e5c7c2d29723ea2ebe0b4b8befe9cfc8`，supervisor `3697e085c8897981fe7aca704d76128a716627ce749f13839ca925b6e99449a9`，launcher `14ed0c778518062d8f2775cb9a91925343af6e49e968085ead609922e0a91d1d`。
+
+已满足的接线：固定 CT05 clean e798 与绝对 venv 解释器，真实 Thread/Event/monotonic/UTC，初始 30 秒 lease 与 10 秒 heartbeat，原 LeaseSession 和 checkpoint/safe-handoff；UPDATE 后 INSERT 的 20,000 项顺序符合原 Contract，每行 33 列、字符串不超过 64 bytes。只调用一次真实 digest，各 wrapper 委托原函数，无算法替换。GC 聚合加最多 64 个窗口且 callback 不做 I/O。外层独立进程正常路径按 200 ms 采样 PID/starttime/RSS，117 秒停止留出 120 秒总预算，2 GiB 阈值；GO 文件绑定 manifest，持久 attempt marker 阻止自动重跑。这些不需要重新设计或重复范围确认。
+
+### P1：异常与截断路径丢失本次定位需要的观测
+
+`probe.py:240–256` 仅在 `_heartbeat_until_due` 正常返回后保存 handler 入口、deadline 和结果。实际目标分支是父实现先发现 `now >= lease_deadline`、发 lease_lost 并抛 StoreBusy；此时这个 handler 完全不入结果。`probe.py:351–367` 同样只在 runtime 正常返回后挂入局部 worker events，故异常时连已产生的 lease_lost/error_category 都丢失。digest 子段 metrics 也只在成功后挂入 observed。
+
+此外，子段只记 calls/total/max，没有 monotonic 起止窗口；JCS 同时覆盖 20,000 次 key canonicalization 和最后全量文档，不能据这些累计数与 GC/heartbeat 窗口对齐。脚本没有 process CPU 观测，也没有正常/异常 join 的时间边界。最终 JSON 只在所有工作结束后写出；若 supervisor 按设计截断，已完成的构造、heartbeat、phase 记录仍全在子进程内存中，无法留存。
+
+最小关闭要求：先将共享有界记录挂入结果，handler/runtime/digest 的异常结束用 finally 保留入口、deadline、异常类别与结束；对粗粒度构造、ordering、payload、完整 JCS、hash、释放、线程退出/join 记录有界 monotonic 窗口和 process CPU。key JCS 保持聚合并与完整 payload 阶段区分，不逐 key/cell 输出。关键粗粒度边界低频保存已完成记录，使截断至少保留最后已保存边界；GC callback 仍只更新有界内存聚合，不做 I/O，不为保存 GC 内部数据新增常驻监控。明确最后未保存窗口及原生调用内部仍不可见，不把差额冒充精确类型检查耗时。
+
+### P2：监督进程中断可留下脱离监督的子进程并提前释放占用
+
+`supervisor.py:132–194` 创建 `start_new_session=True` 的 child 后没有覆盖监督生命周期的 try/finally，也没有 SIGTERM/INT 的回收处理。监督进程收到终止信号或 KeyboardInterrupt 时，子进程不随原进程组退出；外层 launcher 随后执行 EXIT cleanup 释放节点锁，剩余 probe 却没有 117 秒监督。另 `_stop_process` 在 SIGKILL 后 wait 超时返回 `None`，调用方仍退出并释放锁，没有明确“未回收”处置。这里是当前标准子进程管理缺口，不涉及新产品生命周期或同 euid 恶意行为模型。
+
+最小关闭要求：在外层监督的信号/异常路径统一进入有界 terminate/kill/reap，保存停止原因与回收结果；launcher 的退出处理配合监督进程，只有确认 probe 已退出才释放节点占用。若预算内仍无法确认退出，明确标记未回收并保留占用供人工处理，不宣称成功回收、不自动重试。保持 120 秒总预算与现有单次范围，不引入新服务或产品机制。
+
+两项已直接发原实施者并抄设计。**该 manifest 暂无执行 GO**；修正后更新固定候选及摘要，复核这两项即可。正式测量与新的 Submit 仍未获授权。

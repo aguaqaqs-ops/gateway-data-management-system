@@ -37,6 +37,8 @@ decode 在标准 Arrow reader 前对借用输入做 footer/block 长度及 raw m
 
 实施者统一使用 `ct107-gw-dms-06`，执行前 SSH、有效占用、clean 已提交 worktree/legacy、离线依赖与工具链前提按 AGENTS 核对。日常 Rust focused、对应 Contract/互操作及必要静态检查按变化范围运行；Rust fmt/clippy 和五 Python 包 Ruff/mypy 均在专用节点。Rust 改动后跑 backend 时强制重装扩展并核 build-input，不使用 stale extension。
 
+最终 A 候选按 Rust policy §7 在 06 完成一次 workspace fmt、all-targets clippy、workspace test 与 release build（locked/offline），核各 member 继承 workspace lints。PyO3/Arrow 接线另验 installed release extension import/build-input、相关 native golden、GIL progress、Arrow round-trip，以及当前镜像实际调用新 codec 的 native smoke；健康检查不能单独代替新 codec 验证。这些是 A 的适用检查，不要求每次修改执行，也不扩展为六包全量 runner 或完整真实数据旅程。
+
 `arrow-ipc`/`arrow-select` 当前是 core dev-dependencies，转为生产使用即检查真实 production/feature/lock 闭包。版本不变不豁免容器边界；收敛到本节最终产品候选后，在 06 按实际影响完成必要 backend/worker 容器/native smoke。锁/依赖基础层输入变化时按 DC67 在 CT201 clean worktree 准备制品并 LAN 预填，测试仍在 06。保留 backend/worker 本机构建，不启用 prebuilt gate 绕过。
 
 不为每次修改跑完整 runner、全旅程或合成输入生成；未受影响证据注明直接来源及适用范围。A 不是 S2b 阶段 exit，不产生替代最终 04 runner/container 或 t1–t4 正确性的新豁免；正式计时和原基准冻结资源不在本任务内。

@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod business;
+
 use std::collections::HashMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1245,6 +1247,7 @@ const BUILD_INPUT: &str = match option_env!("GATEWAY_RUST_BUILD_INPUT") {
 
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    business::register(module)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;

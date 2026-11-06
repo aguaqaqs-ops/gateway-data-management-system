@@ -1197,7 +1197,7 @@ pub fn project_canonical_table(
             if plan.row_policy == ProjectionRowPolicy::Keyed {
                 working.reserve(mul(scratch, 2)?)?;
                 for &index in &key_indexes {
-                    if descriptors[index].logical_type == SqlLogicalType::Set { return projection_failure("UNSUPPORTED_TABLE", "key cell is not a typed scalar", plan, options); }
+                    if descriptors[index].logical_type == SqlLogicalType::Set && !matches!(values[index], Cell::Null) { return projection_failure("UNSUPPORTED_TABLE", "key cell is not a typed scalar", plan, options); }
                     match values[index] {
                         Cell::Null => {
                             return projection_failure(
@@ -1211,14 +1211,6 @@ pub fn project_canonical_table(
                             return projection_failure(
                                 "KEY_EMPTY",
                                 "canonical key contains an empty string",
-                                plan,
-                                options,
-                            );
-                        }
-                        _ if descriptors[index].logical_type == SqlLogicalType::Set => {
-                            return projection_failure(
-                                "UNSUPPORTED_TABLE",
-                                "key cell is not a typed scalar",
                                 plan,
                                 options,
                             );

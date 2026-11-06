@@ -298,10 +298,10 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 ### 8.1 数据路径合并（DC46）
 
 - 解析 → 业务列与检查（伪 gid 范围、重复有效键、keyless 降级）→ 规范投影（保留列、规范键、ordered 的 gid/no 校验与伪 gid）→ 表摘要在 Rust 中依次完成，数据始终是 Arrow；三个 capability 各自拥有语义与诊断，模块依赖不变。上传路径不预计算 ordered 逻辑摘要与 occupancy 摘要：它们依赖本次 pair 策略，只在 assemble 中按 pair 计算一次（§4.2，S3 起由 Rust 计算）。
-- composite signal 留在 Python：在 Arrow 上先按特殊设备过滤 `device` 与 5 张特殊点表，只把命中行转成 Python。
+- composite signal 留在 Python：Arrow 侧先完成现行规则要求的全表/列校验，保留原表非空与匹配数等诊断所需事实，再按特殊设备过滤 `device` 与 5 张特殊点表，只把命中行转成 Python；不能因过滤而丢失原来的错误诊断。
 - Rust 输出规范表的 IPC 字节，由 Python ArtifactStore 写入（Rust safety policy §4）。
 - **上传侧原始表不再写 Parquet（设计核对项，S2b kickoff 前完成）：** 逐一核对 materialize 与 assemble 的 checkpoint、FULL 双侧、composite、bundle、T1 与恢复路径中的读取者；未完成前不进入 S2b 切换。
-- **Arrow 列映射 v1（P，backend 内部映射，不改 RS wire 映射）：** 整数 `Int64`/`UInt64`、布尔 `Boolean`、浮点 `Float32`/`Float64`（-0 归一）、二进制 `Binary`、BIT `FixedSizeBinary(⌈n/8⌉)`；DECIMAL、日期时间、ENUM、JSON、字符串用 `Utf8` 规范文本；SET 用按声明顺序以 `,` 连接的文本，与成员序列的互转规则写入映射；所有列可空性按规范 schema，NULL 用 Arrow validity；字段 metadata 记录声明类型与映射版本；超过 2 GiB offsets 时使用 large 变体。映射单独加版本号并进入规范表存储的内容地址；表摘要按规范标量编码计算，与 Arrow 物理类型无关。
+- **Arrow 列映射 v1（P，backend 内部映射，不改 RS wire 映射）：** 整数 `Int64`/`UInt64`、布尔 `Boolean`、浮点 `Float32`/`Float64`（-0 归一）、二进制 `Binary`、BIT `FixedSizeBinary(⌈n/8⌉)`；DECIMAL、日期时间、ENUM、JSON、字符串用 `Utf8` 规范文本；SET 用按声明顺序以 `,` 连接的文本，与成员序列的互转规则写入映射；所有列可空性按规范 schema，NULL 用 Arrow validity；schema metadata 记录映射版本，field metadata 记录规范声明类型；超过 2 GiB offsets 时使用 large 变体。映射单独加版本号并进入规范表存储的内容地址；表摘要按规范标量编码计算，与 Arrow 物理类型无关。
 - **映射细化候选（DC76，待审核）：** [规范表 Arrow 映射 v1](p6-s2b-arrow-mapping-design.md)明确 parser→存储→RS 的边界、SET sequence 摘要、JSON 文本保值、schema/metadata、确定性及 small/large 规则。owner 已确认输入按 UTC 导出，来源/类型不变，容量需覆盖少数约 100 MB SQL；不新增时区转换、类型支持或硬门槛。该输入确认不等于 S2b kickoff 或实施通过，磁盘/N/M 仍待补齐。
 
 ### 8.2 规范表存储（DC42、DC55 第 3 项）

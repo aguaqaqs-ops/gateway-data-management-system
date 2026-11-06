@@ -1203,3 +1203,55 @@ controller 完整/前缀 SHA、191 次成功心跳→失租→stall 的时间线
 少量 CT05 工具 focused 覆盖真实 run 委托及成功后 drain/no second claim、目标/异常拒绝、真实参数与 derived 标识、记录上限和未回收不解锁即可。不要求重跑已通过的合成 probe、小 Compose 旅程或全量 runner，不为该外置诊断准备重建相同产品镜像。产品 HEAD 继续 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`、最后验证三镜像 revision/source-tree 取 §52/57；新的 override/入口边界必须在具体候选中审清，并在获准实际诊断时核运行身份和退出事实，不能称这些新接线已经 carried。
 
 结论已直接交新实施者并抄设计，可接续准备，无需 owner 重复授权。最终清单、源码/工具/override 摘要、测试证据、输入、预算及固定命令仍待独立审核后给予专属一次运行 GO。**当前无新运行 GO；h GO 已消耗，H3 不变，正式测量停止，lease 根因 OPEN。**
+
+## 62. P6PREP-REVIEW-20261106-01：候选 a 初审需修订，六项阻塞
+
+**manifest `0ef213ab81f19cf4424c8afb18e90d9fa5d6c94f574b6e15881774d2665a3d67` 尚不能取得运行 GO。** 已只读审核 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6preparelease20261106a/candidate/` 的最终 14 文件、清单、准备记录、全部 controller/worker/Compose/测试接线，并对照冻结 `1f9731` 源码。完整 manifest、实际文件集合/SHA/权限及 Python AST 均匹配。测试时清单 `f3a0a66100bbc6f1eb1f0a153b2af82f8ef168b5f9e93b99020f953de48bdd97` 实际字节已保留，最终仅 preparation-record/review-request 内容变化；运行和测试代码未变。
+
+按 SSH echo OK 前提，只读取得 CT05 既存 `focused-tests.log`，完整实际 SHA256 `b2e3c4a499fd35a4b16e527544f9b249ad89fce1e25f227dc2a082f1dc75503b`，记录 15:05:43–44、起止 `1f9731`、5 passed/exit 0 与解锁。这些通过记录真实，但测试用自建 Fake Runtime/Lifecycle 和 predicate，没有覆盖以下实际 controller 路径。审核未运行测试、导入候选/产品、查询运行容器或发 POST。§61 的设计方向仍成立；以下是具体候选接线问题，不是要求扩张产品范围。
+
+### P1：新证据文件在创建前 chmod，正常启动必失败
+
+`prepare_step_controller.py:78–83` 的 `_write_json` 创建父目录后，对尚不存在的目标 `path.chmod(0o700)`，随后才 `path.open("x")`。新证据目录按要求为空，首次调用写 `EVIDENCE/preflight.json`（1037 行）就会 FileNotFoundError；finally 对 result/postflight 的相同调用也会失败，连停止/收尾记录都不能保存。这不是需实际 POST 才能确认的问题。
+
+使用现有 umask 或在独占创建文件后设置所需文件权限，保留拒绝覆盖语义。补一个使用真实临时目录的“新运行证据可创建、重复写拒绝”工具用例即可，不需要 Compose。
+
+### P2：isolated controller 无法解析同目录 resource_watch
+
+`run-once.sh:74` 用 literal Python **`-I -B`** 执行 controller；controller 只在 993 行加入 BACKEND，没有将候选目录加入 import 路径，也未通过 `_load_module` 注册 resource_watch。611、685、934 行却普通 `from resource_watch import ...`。isolated script 不把脚本目录加入 sys.path，因此真实 worker ready 后首先在 611 行 ModuleNotFoundError，尚未进入资源监控；cleanup 的同样导入也受影响。focused 测试的加载方式未到达这些导入，不能证明此路径。
+
+沿现有显式文件 loader 加载已经清单绑定的 helper，或使用等效受控模块接线，保留 -I。用实际 isolated 入口的最小导入检查绑定此修订，不要求启动 worker。
+
+### P3：restart policy 读错 Docker inspect 层级，合法 worker 被拒绝
+
+`prepare_step_controller.py:591–605` 从 **Config.RestartPolicy** 读取重启策略；标准 container inspect 的该字段在 **HostConfig.RestartPolicy.Name**。本仓库已有 h 的真实 inspect 亦如此。合法 restart=no 会被读成 None，ready 必报 identity binding differs。771 行的运行中复核同样错误；835 行记录也用错层级。这个故障发生在 acceptance 已实际写入之后，会白白中止一次机会。
+
+统一修正真实字段来源，保留 restart=no、RestartCount=0 和实际 image/PID 绑定。使用已有真实 inspect 形状的受控 fixture 覆盖 ready/监控/退出读取，不能用测试造出 Config.RestartPolicy 来配合错误实现。
+
+### P4：成功发布的 PENDING successor 被当成未知工作，且正常快速退出存在误判
+
+`prepare_step_controller.py:746–763` 先读取 active steps，并在 749 行拒绝任何不是 prepare step ID 的 active row，之后才检查 prepare terminal。冻结 handler 的成功事务必须创建 **submit_import=PENDING/attempt 0**；原 runtime 又按包装立即 drain。监控看到合法 successor 时因此先报 unknown_claimable_work，无法走设计要求的成功后置核验。两次独立 DB 查询还可能跨这个正常转换，不能只按一次读取的先后假设其不出现。
+
+监控和 `_post_snapshot` 使用一致的允许状态：唯一目标 prepare 运行，或该 prepare 已成功且仅其预期未 claim successor PENDING；其余工作/已 claim 后继仍拒绝。另一起修复 730 行先读 PID 资源、后查 terminal 的完成竞态：worker 正常完成并退出时 PID 已不存在，不应在确认 terminal/正常退出前一律误报 resource_unreadable；`compose ps -q worker` 也不能作为获取已退出 worker 的唯一方法。用成功转换/正常退出的 focused 场景证明，不要靠真实 acceptance 试错。
+
+### P5：3600 秒硬边界与 5 秒必要守护没有独立执行保证
+
+`run-once.sh:74` 直接同步执行 controller，没有外层 watchdog；`run_once` 的 deadline 仅由部分 `_remaining` 调用协作检查。source/input 验证、复制及多处 Docker 调用不受剩余总预算约束，ready 另开 180 秒窗口，cleanup 240 秒后还可追加独立 30 秒查询；signal handler 只设 STOPPING，且仅 monitor 循环处理。因此文档“整体包含初始化/清理的 3600 秒硬上限”未实际成立。
+
+同一 `_monitor_prepare` 在 728 行先同步 `_worker_logs`，该函数先 compose ps（20 秒）、inspect（20 秒），再 logs（10 秒），之后才执行 5 秒资源检查；此外还有 DB/inspect 调用。只要这些调用变慢，必要资源守护会随之停顿，不能把同循环内 `RESOURCE_SECONDS=5` 当作独立 5 秒 guardian。它还每秒重复读取 60 分钟全量 worker logs，与最小扰动目标不符。
+
+复用既有已审的独立有界监督方式落实总截止及必要资源检查，明确业务停止、清理保留时间和回收失败留锁；控制命令按真实剩余预算收敛，不以多段 timeout 的和冒充总量，也不为此新建通用框架。避免每秒重复全日志扫描，日志缺口检测与最终原始日志保存各有界即可。focused 可用受控慢命令/时钟 seam 验证 guardian 和总截止仍推进，不需要新业务负载或修改产品 TTL。
+
+### P6：down 前未保存原始服务日志/失败末态，POST 异常会错误记 0 次
+
+`_worker_logs`（791–804 行）读取 product stdout/stderr 仅搜索 gap 后即丢弃；`_cleanup`（903–910 行）直接 down/remove 容器，没有把 backend/worker/RS 原始日志保存至证据。原 bootstrap 异常 traceback、最后原生 heartbeat/lease 记录会随容器删除失去本次可复核入口；自定义 worker-events 不能代替完整原日志。`_post_snapshot` 只在正常 monitor 返回且 worker exit 后调用（1130 行），失败/失租路径也没有保存最后可读的目标 DB selected rows。这样新的 35 分钟失败可能又只剩观测事件和概括错误，违背本次保留原始证据的范围。
+
+此外 acceptance_post_count 默认 0，仅 `_accept_once` 成功返回后在 1081 行改为 1。POST 已发出但 HTTP/解析/ID 核验失败时，报告仍写 0，不能据此判断是否允许重做。应在调用前记录“唯一尝试已开始”，将已发送尝试、响应/业务接受是否确认分别表示；无论响应如何都不重试。不是要求把未知状态强行判为接受成功。
+
+在有界清理前保存已有 Compose/container 原始日志、已知 identity/exit 事实及失败时最后可读 selected rows，记录各自采集错误，不因缺少 repository operation ID 再丢弃已经获得的字段；然后 down 保卷。结果保留最后已知目标/claim/观察状态，不能只有成功返回才记事实。日志关闭后在外层计算完整摘要。只补已有诊断范围内的留证与计数，不增加 profiler、逐行跟踪、持久状态机或新业务验证轮次。
+
+### 修订与复审范围
+
+原始候选 a、两份 manifest 和通过日志保持不改写；新实施者已确认先保留原包，待本合并报告后准备独立修订候选。以上六项都针对实际边界，少量新增 controller focused 应覆盖新文件/isolated helper、标准 inspect、prepare→successor/正常退出、监督不被慢命令阻塞、失败留证与 POST 未知结果；复用当前 fixtures 和已审 helper，避免只继续测试 Fake Runtime 的正常顺序。现有 worker 正常委托后 drain、异常原样传播、真实 deadline 与 derived due 区分及事件上限方向可保留。
+
+仅外置工具变化，不要求重建 §52 镜像、重跑已通过的小 Compose/全量 runner 或发一次 acceptance 验证修订；产品 HEAD `1f9731`、最后验证三镜像 revision/source-tree 沿 §57。修订代码、测试及精确清单重新绑定后定向复审；本报告也不预先授权另一个候选运行。**没有新 GO，h GO 仍已消耗，正式测量停止，lease 根因 OPEN。** 发现直接投递新唯一实施者并抄设计。

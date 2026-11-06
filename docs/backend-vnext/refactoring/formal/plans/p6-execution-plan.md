@@ -168,7 +168,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **当前执行状态（2026-11-06）：B 重建角色恢复推进、未 GO。** 重复源码同步准备错误后按约定停止；收尾另确认 cargo 执行缺少原子节点占用，日志仅供诊断，不是合格门禁或沿用证据。最新产品 `5621bd4853` 仅为 API/catalog 接线等首批改动，三个业务 kernel/adapter 与验证未完成。Owner 已批准额外重建 B 两角色，B 实施者改用 Sol/high、审核者 Astra/high；Owner 随后进一步同意 S2b C–E 实施者也改用 Sol/high，反复出错继续暂停汇报。总体范围不变；见 [B 任务单](p6-s2b-b-kickoff.md)。C–E 不提前启动。
+- **当前执行状态（2026-11-06）：B 重建角色恢复推进、未 GO。** 重复源码同步准备错误后按约定停止；收尾另确认 cargo 执行缺少原子节点占用，日志仅供诊断，不是合格门禁或沿用证据。最新产品 `5621bd4853` 仅为 API/catalog 接线等首批改动，三个业务 kernel/adapter 与验证未完成。Owner 已批准额外重建 B 两角色，B 实施者改用 Sol/high、审核者 Astra/high；Owner 随后进一步同意 S2b C–E 实施者也改用 Sol/high；C–E 审核者在 kickoff 创建时改为 Sol/xhigh 或 max，B 仍由当前 Astra/high 完成审核。反复出错继续暂停汇报。总体范围不变；见 [B 任务单](p6-s2b-b-kickoff.md)。C–E 不提前启动。
 
 - **kickoff 已批准，A 节已交付（2026-11-06）：** [kickoff](p6-s2b-kickoff.md) 固定候选 `1a4adaae05` 已通过技术审核，Owner 已按 DC85 批准 kickoff 及首节纯内存 mapping/IPC codec。[A 任务单](p6-s2b-a-kickoff.md)产品候选 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a` 已收齐，结论 A GO，无未关闭 Finding；06 的 Rust workspace、五包静态、当前扩展/接口行为及必要容器 health/native 均通过。容量/M 仍按 DC84 分步校准，DC63 基准子段继续独立待补；A 局部向量 bytes 不替代 FULL/worker 校准或 W1/W2。Owner 随后按 DC86 授权逐节推进 B–E，每节新建既定实施/审核二角色；当前按 [B 任务单](p6-s2b-b-kickoff.md)推进业务 kernel，后续按前置顺序推进，额外角色需另获 Owner 确认。S2b 整体尚未退出。
 - **推进原则更新（DC81，2026-11-05）：** owner 将新开会话推进 S2a 收尾及 S2b 讨论；全量基准由原线继续，不再统一阻塞后续开发。先收口功能、映射、恢复语义与必要资源预算；未交付性能分段明确待补，允许后续小范围定向返工。迭代只做受影响范围验证，完整门禁集中到必要候选，不重复已通过的测量。S2b kickoff 仍须核对，不把本次流程调整表述为所有准备项/性能退出条件已通过。

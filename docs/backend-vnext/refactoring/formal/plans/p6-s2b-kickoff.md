@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A 已交付，B 恢复推进）
 
-状态：APPROVED / A COMPLETE / B IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)已完成纯内存 mapping/IPC codec，固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO、无未关闭 Finding。Owner 随后以 DC86 授权按本稿逐节推进 B–E、每节新建既定实施/审核二角色；B 暂停后已获 Owner 授权重建两角色恢复，本节及后续 C–E 实施者按 Owner 最新确认使用 Sol/high，审核者仍 Astra/high；旧日志仅作诊断，详见 [B 任务单](p6-s2b-b-kickoff.md)与[独立审核](p6-s2b-b-review.md)。C–E 尚未启动，仍待前节通过。S2b 整体尚未退出。
+状态：APPROVED / A COMPLETE / B IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)已完成纯内存 mapping/IPC codec，固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO、无未关闭 Finding。Owner 随后以 DC86 授权按本稿逐节推进 B–E、每节新建既定实施/审核二角色；B 暂停后已获 Owner 授权重建两角色恢复，本节及后续 C–E 实施者按 Owner 最新确认使用 Sol/high，B 审核者仍 Astra/high，C–E 新审核者改 Sol/xhigh 或 max；旧日志仅作诊断，详见 [B 任务单](p6-s2b-b-kickoff.md)与[独立审核](p6-s2b-b-review.md)。C–E 尚未启动，仍待前节通过。S2b 整体尚未退出。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 
@@ -208,7 +208,7 @@ reachable = no_unknown_segments
 - kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。审核结论与授权分开；Owner 随后以 DC85 批准 kickoff 及 A。
 - owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 及 A 实施已按 DC85 确认。
 - M 数值/默认/部署 envelope：按 DC84 在 IPC + FULL 生命周期测量后、worker 接线前定；不是阻止首个 mapping/kernel slice 的新样本前置。
-- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者和 Astra/high 独立审核者（DC86 最新补充）；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A 两角色已结束；B 新组合已恢复，正在实施业务 kernel 并按范围验证，C–E 按前置顺序推进。
+- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者；B 审核者为 Astra/high，C–E 新独立审核者为 Sol/xhigh 或 max（DC86 最新补充）；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A 两角色已结束；B 新组合已恢复，正在实施业务 kernel 并按范围验证，C–E 按前置顺序推进。
 
 ## 8. 文档与准备工具检查记录（不是阶段取证）
 
@@ -270,7 +270,7 @@ kickoff 技术候选分为 A mapping + 纯内存 codec、B 业务 kernel、C sto
 
 ### 9.1 设计、实施与审核分工
 
-Owner 于本轮确认主设计持续协调，每小节新建实施者与独立审核者（GPT-6-Astra/high）；实施者原定 GPT-6-Luna/max，S2b 已按 DC86 最新补充调整为 GPT-6.1-Sol/high；小节结束停止这两个角色，下节重新创建，不复用前节上下文代替交接。若系统不能删除会话或需要手工新开/交接，明确报告，不反复尝试。
+Owner 于本轮确认主设计持续协调，每小节新建实施者与独立审核者；B 审核者保持 GPT-6-Astra/high，C–E 按最新安排改 GPT-6.1-Sol/xhigh 或 max；实施者原定 GPT-6-Luna/max，S2b 已按 DC86 最新补充调整为 GPT-6.1-Sol/high；小节结束停止这两个角色，下节重新创建，不复用前节上下文代替交接。若系统不能删除会话或需要手工新开/交接，明确报告，不反复尝试。
 
 设计者可以直接维护设计、计划、决议和任务说明；审核者可以直接修正文档事实、链接、措辞及已确认决议的一致性，记录修改并由设计者复核。实质性的设计或验收变更先与设计者对齐。产品代码和测试代码原则上由实施者修改、审核者独立复审；明确的小问题允许双方直接沟通闭环，不能通过改写日志、证据或放宽验收来消除 Finding。文档按文件或章节交接编辑权，避免并发覆盖。
 

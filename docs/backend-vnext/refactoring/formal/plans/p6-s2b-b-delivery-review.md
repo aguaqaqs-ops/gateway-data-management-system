@@ -41,8 +41,20 @@ Core 必须核实际 Arrow/schema/binding，Python 预计算诊断不能代替�
 
 这些是原一次性验收清单内的具体缺口，不增加新业务范围。独立向量、差分、最终 native/容器等仍待实际交付，不把当前主体实现当成 PASS。
 
+`573421b151119745b72749e37c65d7dabb3f7c99` 已在 detached worktree 复审：诊断单条构造前检查与局部固定 envelope 预约、catalog 聚合预算及名称绑定、输出 descriptor/facts 估计、large offsets 与逐行 builder checkpoint 均已补；类型核验复用既有 parser vocabulary，retained source/output 映射与 ordered/key schema 约束已补。被丢弃的合法源列不受 projection 白名单拒绝。reserved 文本 gid 的 Nd/下划线处理仍待 native Python oracle。SET 修正另发现 NULL 优先级问题：应先保留 `NullScalar → KEY_NULL`，只把非 NULL SET 判为 `UNSUPPORTED_TABLE`，已交实施者修正。
+
+该批七项新 core 测试的独立预期已核：现有五 SQL Snapshot golden 的 READY 表摘要及 PROVISIONAL、固定 SET cell sequence、手工 keyed 物理顺序 `[2,10,-1]` 与 IPC 置换、keyless 零列三行、ordered 固定 gid/no 分配、非空零命中 catalog、初始取消与 output cap。尚未覆盖的完整诊断、部分/整体失败、运行中控制及 adapter 等仍按原矩阵待交付；不把测试数量当作完整覆盖。
+
+以下 06 日志已独立读取并核 SHA；实际脚本 SHA 均为 `4062c80616f088590ae6163c0244c3559963301cfed1f5f74521576eef7785c3`，均有本任务 busy、offline/jobs/外置 target、起止 HEAD/clean 与 exit：
+
+| 日志 | 固定 HEAD 与结果 | SHA256 |
+| --- | --- | --- |
+| `s2b-b-core-4b546.log` | 4b546；12:03:27–12:03:28 UTC；ULEB re-export 顺序导致 fmt exit 1，测试未开始 | `24869748e4207dcf1c8469134c25caafce1739ecd262b94745da5b8a0fa5bb2c` |
+| `s2b-b-core-uleb-format.log` | df77938b8b；12:03:41–12:03:50 UTC；唯一格式修正已核；fmt、原 core 46、Shared Kernel 82+3+3、完整 CLI exit 0 | `ec39b2ae631dd636e0e67894bc73bbf100d66516646e732e90a27d2879bbd983` |
+| `s2b-b-core-boundaries.log` | 573421b151；12:12:39–12:12:47 UTC；fmt、core 53、Shared Kernel 82+3+3、完整 CLI exit 0；unused import warning 尚待最终 clippy 收口 | `a1dbd7d3c66c105f852ab39fc058d63f3ac95bba44703116c2513c50ba500690` |
+
 ## 5. 当前验证与镜像决定
 
-当前审核产品 HEAD：`4b546c46de`。恢复后 5621 骨架/catalog 的成功定向证据见 §2，不能冒充本批新业务实现已测；B 最终门禁未运行，carried 无。中间算法修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、强制重装扩展及 Rust tree checker、相关 native focused 与当前镜像 health/clean-stop/native smoke。
+当前审核产品 HEAD：`573421b151119745b72749e37c65d7dabb3f7c99`。成功定向证据与实际覆盖见 §2、§4；B 最终门禁未运行，carried 无。中间算法修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、强制重装扩展及 Rust tree checker、相关 native focused 与当前镜像 health/clean-stop/native smoke。
 
 最后已验证镜像仍是 A 产品 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`：06 backend 本机 image ID `sha256:88665d846710bd26891acbba7fbcb516e57cfaf95edd3314af457e4a48d5b6a0`，Rust tree `5b222191f4689b0eb0a7c2a1123bb299efb13e9d`，来源见 [A 审核 §7](p6-s2b-a-review.md#7-最终-db776-验证结论)。该结果不冒充 B 当前候选，dependency-base 以最终完整输入与 config/全部 DiffID 判定。S2b 最终 04 runner/container 与 t1–t4 正确性仍保留；W1/W2、真实 FULL 峰值和生产 M 未知保持未知。

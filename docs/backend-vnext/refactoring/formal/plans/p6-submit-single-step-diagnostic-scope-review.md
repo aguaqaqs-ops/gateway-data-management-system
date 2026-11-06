@@ -302,3 +302,18 @@ RS 双流日志现在包含 startup、19 次 readyz 200 和 cleanup 引发的 sh
 **最小后续建议是转入冷 catalog 实现的修复设计。** 同时考察首次冷读的逐表 Dolt 调用成本与同 key 未完成加载的重复工作，保留 catalog 的表集合/schema/row_count/错误语义；单纯合并并发请求只能抑制放大，不能声称首次冷读已在原请求预算内完成。backend parent port 只消费表名是减少工作量的设计线索，但不能未经 owning Contract 决定直接用本地 manifest 代替权威 RS 校验或删除 catalog 的 COUNT 语义。冻结 e798 不原地改写，后续另候选定向验证；不提高 timeout、不预热掩盖，不追加相同诊断或完整 Submit，也不要求先证明 Dolt 内部所有慢因再处理已定位的重复工作。此次审核没有修改产品或授权后续运行。
 
 **栈诊断 handoff 定向复核通过。** 原实施者仅文档提交 `127e85e8491723731bb61c95b7d9fef2c4cac993` 的追加与本节已核结果和摘要一致，保留逐 attempt cause 未知、线程无 request_id 硬绑定、schema/COUNT 等待、双流 tail 限制、保留卷/收束及正式 STOP；未把本次线索认定为原 lease 根因。对照本地既有 transfer-check/postflight/corrections 摘要一致；corrections 文件明确是错误转录摘要而非原始 stdout/stderr，handoff 也按错误摘要引用。无新增 finding、无新节点取证或请求，后续产品修复与冻结基准关系仍须另行明确。
+
+**H3 状态勘误。** 原追加末句误将 H3 也列为 STOP，前次完整性复核未指出此处；已核对仅一句文案修正提交 `48a0970397986dcb59f948967f2da422ddc2050d`。准确状态为 H3 已通过、原合格证据保留，当前 STOP 仅指 W4/S4/H1 与其余剩余正式测量。本报告中“正式测量保持 STOP”按此范围理解，不撤销 H3 结论。
+
+## 21. 冷 catalog 最小修复方向的只读预审
+
+既有工具任务提出有界多语句 CLI 与同 key Future 合并，审核接受作为设计方向，**不构成产品修改、测试执行或测量恢复授权**。已直接核对 [Dolt 2.1.11 官方 sql.go](https://raw.githubusercontent.com/dolthub/dolt/v2.1.11/go/cmd/dolt/commands/sql.go)：多语句经同一输入逐条执行并输出各结果，默认错误返回，`-b` 是 no-op。它支持减少独立 CLI 启动的方向，但不证明现场 JSON framing、首次性能或唯一成本来源；不直接搬入测量用常驻 SQL server/socket/connector 设施。
+
+设计须明确以下最小边界：
+
+- 批大小 B 按 SQL 语句/结果数定义，DDL+COUNT 占两条。每条保持相同 exact AS OF、现有标识符转义、DDL/count 严格解析及最终排序/DTO；多结果必须明确数量、顺序与表绑定，不能直接把拼接输出交给单对象 json.loads。任何语句失败、非零退出、截断或缺结果均整批失败，不发布部分 cache。
+- 现有单命令 capture 为 256 KiB；不能让一批仍共用 256 KiB 而误拒绝原可接受结果。可评估窄的每结果原限额与有界批总限额，字节数按实际 UTF-8 输出计算，其他调用默认不变。不使用估计 count，不删 row_count 或权威父校验。
+- **30 秒预算语义必须显式决策。** 原 metadata timeout 作用于每条独立命令，整批共用 30 秒会收紧可完成工作量；仅保持设置值不能宣称行为等价，小 fixture 也不能证明所有旧输入不受影响。批次预算、成功输入范围和失败映射需在设计中说明，不能静默扩大/收紧或提高外部请求 timeout。
+- 同 `(repository, commit)` 可用标准 Future 在原 leader 请求线程执行 loader，followers 锁外等待，不新建 executor；不同 key 不全局串行，成功/失败均移除 in-flight，失败不负缓存，超现有 cache 容量的结果只共享本次。关闭处理仅补足新 waiters 不挂死及既有 Dolt 终止所必需的接线，不自动建设新生命周期框架；Future.cancel 不是终止子进程，若新增关闭错误路径须明确现有错误映射。
+
+后续授权后的验证应复用现有不变量，集中证明多结果 framing/精确语义/整批失败、同 key 一次 loader/不同 key 并发/失败后可再加载等业务屏障，不重复铺开所有类型矩阵。首次冷读与重试放大分别验：新 RS 进程中 attempt 1 成功才支持首次冷读改善，attempt 2/3 或预热成功不能代替；仅合并 in-flight 不能证明首次成本已解决。新 RS 产品/并发/镜像变更须独立候选和范围审核，明确与冻结基准的版本绑定；32768 cap 专用恢复例外不能外推，原 lease 问题仍 OPEN。

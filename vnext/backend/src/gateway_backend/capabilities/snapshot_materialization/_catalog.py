@@ -81,13 +81,18 @@ def extract_special_device_catalog(result: SnapshotMaterializationResult) -> Spe
         for table in (result.table_set.tables if result.table_set is not None else ())
     }
     devices = _read_devices(published.get(DEVICE_TABLE))
+    source_device_row_count = len(devices)
     points: list[SpecialPointFact] = []
     for name in SPECIAL_POINT_TABLES:
         table = published.get(name)
         if table is None:
             continue
         points.extend(_read_points(name, table))
-    return SpecialDeviceCatalog(devices=devices, points=tuple(points))
+    return SpecialDeviceCatalog(
+        devices=devices,
+        points=tuple(points),
+        source_device_row_count=source_device_row_count,
+    )
 
 
 def _read_devices(table: SnapshotTable | None) -> tuple[SpecialDevice, ...]:

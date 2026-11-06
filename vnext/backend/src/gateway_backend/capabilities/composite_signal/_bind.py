@@ -64,7 +64,7 @@ def bind_formulas(
 
 
 def _require_special_device(catalog: SpecialDeviceCatalog) -> SpecialDevice | None:
-    if not catalog.devices:
+    if catalog.source_device_row_count == 0:
         return None
     matching = [
         device

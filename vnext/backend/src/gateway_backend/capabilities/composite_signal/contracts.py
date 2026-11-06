@@ -219,10 +219,15 @@ class SpecialPointFact:
 class SpecialDeviceCatalog:
     devices: tuple[SpecialDevice, ...]
     points: tuple[SpecialPointFact, ...]
+    source_device_row_count: int
 
     def __post_init__(self) -> None:
+        if type(self.source_device_row_count) is not int or self.source_device_row_count < 0:
+            raise ValueError("source_device_row_count must be a non-negative int")
         if type(self.devices) is not tuple:
             raise ValueError("devices must be a tuple")
+        if len(self.devices) > self.source_device_row_count:
+            raise ValueError("devices cannot exceed source_device_row_count")
         for device in self.devices:
             if type(device) is not SpecialDevice:
                 raise ValueError("devices must contain SpecialDevice")
@@ -234,7 +239,7 @@ class SpecialDeviceCatalog:
 
 
 def empty_special_device_catalog() -> SpecialDeviceCatalog:
-    return SpecialDeviceCatalog(devices=(), points=())
+    return SpecialDeviceCatalog(devices=(), points=(), source_device_row_count=0)
 
 
 @dataclass(frozen=True, slots=True)

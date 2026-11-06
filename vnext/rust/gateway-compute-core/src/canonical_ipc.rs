@@ -627,6 +627,10 @@ fn add_payload_bytes(
     Ok(())
 }
 
+fn uses_large_offsets(total_payload_bytes: usize) -> bool {
+    total_payload_bytes > i32::MAX as usize
+}
+
 fn inspect_input_array(
     plan: &ColumnPlan<'_>,
     array: &ArrayRef,
@@ -914,7 +918,7 @@ fn inspect_input(
         });
     }
     for plan in plans {
-        plan.large_offsets = plan.total_payload_bytes > i32::MAX as usize;
+        plan.large_offsets = uses_large_offsets(plan.total_payload_bytes);
     }
     let layout_bytes = checked_add(layout_indexes, layout_headers, "canonical input layout")?;
     Ok((layouts, total_rows, input_bytes, layout_bytes))
@@ -2625,7 +2629,7 @@ pub fn decode_v1(
         ));
     }
     for (plan, is_large) in plans.iter().zip(large_offsets) {
-        let should_be_large = plan.total_payload_bytes > i32::MAX as usize;
+        let should_be_large = uses_large_offsets(plan.total_payload_bytes);
         if is_large != should_be_large {
             return Err(schema_error(format!(
                 "canonical IPC offset width does not match field {} payload size",
@@ -2957,8 +2961,22 @@ mod tests {
         )?;
         assert_eq!(encoded, reordered_encoded);
         let one_thread = pool_with_threads(1)?;
-        let one_thread_encoded = encode_v1(&columns, &[batch], &one_thread, options())?;
+        let one_thread_encoded =
+            encode_v1(&columns, std::slice::from_ref(&batch), &one_thread, options())?;
         assert_eq!(encoded, one_thread_encoded);
+
+        let mut descriptive_change = columns.clone();
+        for (index, descriptor) in descriptive_change.iter_mut().enumerate() {
+            descriptor.display_name = format!("display-{index}");
+            descriptor.ordinal = 100 + index;
+        }
+        let descriptive_encoded = encode_v1(
+            &descriptive_change,
+            std::slice::from_ref(&batch),
+            &pool,
+            options(),
+        )?;
+        assert_eq!(encoded, descriptive_encoded);
         Ok(())
     }
 
@@ -3054,11 +3072,11 @@ mod tests {
             column(
                 "e_decimal",
                 4,
-                "DECIMAL(10,2)",
+                "DECIMAL(10,4)",
                 SqlLogicalType::Standard,
                 Some(DeclaredType::Decimal {
                     precision: 10,
-                    scale: 2,
+                    scale: 4,
                 }),
                 true,
                 None,
@@ -3146,14 +3164,14 @@ mod tests {
             Arc::new(UInt64Array::from(vec![Some(65_535), None])),
             Arc::new(Float32Array::from(vec![Some(1.25), None])),
             Arc::new(Float64Array::from(vec![Some(-2.5), None])),
-            Arc::new(StringArray::from(vec![Some("1234.56"), None])),
+            Arc::new(StringArray::from(vec![Some("10.12"), None])),
             Arc::new(StringArray::from(vec![Some("green"), None])),
             Arc::new(StringArray::from(vec![Some("a,b"), None])),
-            Arc::new(StringArray::from(vec![Some("{\"a\":1}"), None])),
-            Arc::new(StringArray::from(vec![Some("2026-11-06"), None])),
-            Arc::new(StringArray::from(vec![Some("2026-11-06 01:02:03"), None])),
-            Arc::new(StringArray::from(vec![Some("2026-11-06 01:02:03"), None])),
-            Arc::new(StringArray::from(vec![Some("12:34:56"), None])),
+            Arc::new(StringArray::from(vec![Some("{\"b\": 2, \"a\":1 }"), None])),
+            Arc::new(StringArray::from(vec![Some("2024-02-29"), None])),
+            Arc::new(StringArray::from(vec![Some("2024-01-02T03:04:05.123456"), None])),
+            Arc::new(StringArray::from(vec![Some("2024-01-02T03:04:05.1Z"), None])),
+            Arc::new(StringArray::from(vec![Some("838:59:59"), None])),
         ];
         let batch = RecordBatch::try_new(schema, arrays)?;
         let pool = pool()?;
@@ -3212,14 +3230,14 @@ mod tests {
             Some(-2.5)
         );
         let expected_text = [
-            "1234.56",
+            "10.12",
             "green",
             "a,b",
-            "{\"a\":1}",
-            "2026-11-06",
-            "2026-11-06 01:02:03",
-            "2026-11-06 01:02:03",
-            "12:34:56",
+            "{\"b\": 2, \"a\":1 }",
+            "2024-02-29",
+            "2024-01-02T03:04:05.123456",
+            "2024-01-02T03:04:05.1Z",
+            "838:59:59",
         ];
         for (index, expected) in expected_text.into_iter().enumerate() {
             let values = decoded
@@ -3229,6 +3247,32 @@ mod tests {
             assert_eq!(values.map(|array| array.value(0)), Some(expected));
             assert!(values.is_some_and(|array| array.is_null(1)));
         }
+
+        let set_vector = include_str!("../../../fixtures/vectors/repository/sql-enum-set/v1/values.jsonl")
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .find(|case| {
+                case["case_id"].as_str() == Some("values.set.declaration-order-members")
+            })
+            .ok_or_else(|| io::Error::other("fixed SET declaration-order vector is missing"))?;
+        let set_members = set_vector["input"]["value"]["members"]
+            .as_array()
+            .ok_or_else(|| io::Error::other("fixed SET vector members are missing"))?
+            .iter()
+            .map(|member| {
+                member
+                    .as_str()
+                    .ok_or_else(|| io::Error::other("fixed SET vector member is not text"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let decoded_set = decoded
+            .column(6)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| io::Error::other("decoded SET column has an unexpected type"))?;
+        assert_eq!(decoded_set.value(0).split(',').collect::<Vec<_>>(), set_members);
         Ok(())
     }
 
@@ -3335,6 +3379,13 @@ mod tests {
             .ok_or_else(|| io::Error::other("encoder exceeded its codec peak limit"))?;
         assert_eq!(peak_error.kind(), CanonicalIpcErrorKind::Resource);
         Ok(())
+    }
+
+    #[test]
+    fn canonical_ipc_switches_offsets_at_the_full_column_payload_boundary() {
+        let small_limit = i32::MAX as usize;
+        assert!(!uses_large_offsets(small_limit));
+        assert!(uses_large_offsets(small_limit + 1));
     }
 
     #[test]

@@ -203,7 +203,8 @@ def test_repository_ref_artifacts_required_round_trip() -> None:
     assert result.table_set is not None
     table = result.table_set.tables[0]
     assert table.artifact is not None
-    opened = open_snapshot_table_artifact(store, table.artifact.manifest_ref)
+    opened = open_snapshot_table_artifact(store, table.artifact.manifest_ref,
+        repository_id=provider.catalog.repository_id, canonical_required=True)
     assert opened.descriptor.raw_content_digest == table.descriptor.raw_content_digest
     assert opened.reader is not None
     assert tuple(opened.reader.iter_rows())

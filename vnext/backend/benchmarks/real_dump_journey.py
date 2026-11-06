@@ -2584,8 +2584,12 @@ def _run_tier(
     debug_submit_probe_metrics: list[dict[str, Any]] | None = None,
     collect_timing: bool = False,
 ) -> dict[str, Any]:
+    operation_timings: dict[str, dict[str, Any]] = {}
+
     def record_operation_timing(operation: str, value: Mapping[str, Any]) -> None:
         timing = value.get("operation_timing")
+        if isinstance(timing, Mapping):
+            operation_timings[operation] = dict(timing)
         if dc32_metrics is not None and isinstance(timing, Mapping):
             dc32_metrics.append(
                 {
@@ -2815,6 +2819,7 @@ def _run_tier(
                     },
                 },
                 "step_metrics": runner.metrics,
+                "operation_timings": operation_timings,
                 "elapsed_seconds": round(time.monotonic() - started, 3),
                 "conclusion": "PASS",
                 "empty_initial_commit_id": initial_commit_id,
@@ -2964,6 +2969,7 @@ def _run_tier(
                 "compose_image_ids": images,
                 "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
                 "step_metrics": runner.metrics,
+                "operation_timings": operation_timings,
                 "elapsed_seconds": round(time.monotonic() - started, 3),
                 "conclusion": "PASS",
                 "empty_initial_commit_id": initial_commit_id,
@@ -3289,6 +3295,7 @@ def _run_tier(
         "initial_repository": initial_repository,
         "offline_composite_elapsed_seconds": offline_composite["elapsed_seconds"],
         "step_metrics": runner.metrics,
+        "operation_timings": operation_timings,
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "conclusion": "PASS",
         "empty_initial_commit_id": initial_commit_id,

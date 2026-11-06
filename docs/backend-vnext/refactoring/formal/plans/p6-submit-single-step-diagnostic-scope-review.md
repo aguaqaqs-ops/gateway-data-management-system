@@ -843,3 +843,19 @@ GC 聚合截至最后快照：gen0/1/2 分别 15,137/1,376/20 次，gen2 最大 
 - 判别目标应是具体的，例如真实 payload 在重复 digest 或释放阶段是否仍导致续租失败；若目标是验证 SQLite 场景，则内存 UOW 不足，方案须直接注明。若仅为获得 completed 而缩放合成输入，没有新增必要性。
 
 这些建议已直接交设计和原实施者；没有授予新构建/运行 GO，不放宽 TTL 或删 Contract 校验。正式测量继续停止，lease 根因 OPEN，镜像/合入边界维持 §42。
+
+## 48. JCS 候选镜像与真实输入诊断：设计范围通过
+
+**设计 `949bef422a3182e1c39910c31636333f1ed94d8e` 范围通过，无阻塞 finding。** 实际读取 `p6-jcs-candidate-image-diagnostic-plan.md`、既有单步诊断设计及 §42/47 证据；在既有 clean detached `1f9731` 审核 worktree 只读核所选测试、Compose harness、Compose 与 Dockerfile，没有构建、访问节点、运行测试或新取证。设计可直接向既有产品工具任务分配三镜像准备、LAN 传输和这一项限定 CT05 容器验证，原测量实施者负责后续真实输入候选准备；无需再向 owner 重问已明确的范围。实际 v2-submit 仍无 GO。
+
+冻结候选是 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`，保持 e798 + RS 4497 + JCS sink 的既定组合，不掺入 main 正在开发的 Rust/产品或新版依赖基础镜像接线。按该冻结产品适用的 DC67 整镜像流程在 CT201 准备/构建，测试留在 CT05；backend、worker、RS 均绑定实际输入及新镜像身份，不套用旧服务镜像结果。跨节点 config digest/全部 DiffID、归档 SHA 和源 context/标签完整记录是本次具体交付内容，不能由本范围结论替代。`network=none` 下的依赖可用性亦须实际落实：冻结 Dockerfile 有 curl、Python 安装和 uv sync 步骤，不能从宿主有缓存直接推断所有失效构建层均可离线完成；缺失时按设计补齐明确制品/构建缓存，不能临场换 Dockerfile、锁或旧产品镜像。若原流程确实无法表达，再报告最小工具差异，不扩大产品范围。
+
+所选 `test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey` 是现有小 fixture 三服务路径；调用 `start_three_container_stack` 后执行 accept/upload/import/preview/Submit/read，并只对自己的项目做 down -v。这是一项有实际组合覆盖的容器验证，不是正式真实数据 t3，也不冒充权威 runner/阶段退出。单项 `-n 0`、固定 clean 提交/离线 uv、独立项目与节点单飞、原日志和失败停止要求均保留，不增加重复 smoke 或全量测试。
+
+具体接线须按设计 §3 在运行前静态落实：`build_compose_stack_images` 会先执行 RS identity 核验，再判断 prebuilt；因此 `GATEWAY_COMPOSE_GATE_PREBUILT=1` 并不跳过 RS 检查，标签不匹配仍可能触发构建。backend/worker 的冻结 Compose 未显式写 image，须以 harness 支持的固定项目名正确绑定其项目镜像名；`start_three_container_stack` 使用 `up --no-build`，不能仅提供两个任意 tag 即假设会选中。该接口可以表达固定候选，当前没有理由修改产品/harness；实施交付中给出准确环境、tag 接线和实际运行容器身份。测试临时项目的清理不得指向任何保留 source/target。
+
+真实输入设计充分区分来源和目标：复用已核 `p6bw4s4h120261105b` 的 v2-preview checkpoint、原 parent/input/rules/cache，仅作为可恢复诊断输入；`run-bound RS full identity unavailable` 缺口不补造、不写 source/target MATCH。目标是新项目/三卷/幂等键和完整 `1f9731` 三镜像身份，显式包含真实 control DB、Dolt/RS 与一次 v2-submit POST，不是离线摘要，也不包含 Preview/预热/后续旅程。普通 resume 的旧 backend/worker 身份检查同样必须由外置候选准确表达这一个来源→新目标关系，不能仅替换 RS tag 或采用通用 skip；具体代码和完整 manifest 仍待审核。
+
+原真实诊断的 45 分钟独立 guardian、40 GiB worker RSS、8 GiB host available、10 GiB disk 停止线与 48 GiB 启动内存、逐文件系统剩余空间核算保持；它与合成 probe 的 300 秒预算目的不同，不是临场加时。5 秒身份/资源守护和 15 秒/最多 1 秒纯 Python 栈复用既有工具；新镜像必须重新绑定真实解释器/PID并在 POST 前获得有效业务栈。只有原已审精确双 interpreter-discovery 错误可在即时复核成功后停采，其余必要守护/身份/资源/未知错误继续停止；不增加 profiling 或产品 GC hook。结果/回收/保卷/只释放自有占用分别留证，栈缺口不作失败瞬间证明。
+
+容器结果先由独立 reviewer 核验，通过后再审完整真实输入候选并给 manifest 专属一次 GO。§47 不要求为取得 completed 重跑合成 probe，本设计也没有这样安排。后续诊断可回答新候选在真实输入与 DB 下能否续租并完成、失败是否仍落在重复 payload/digest/释放附近；单次离散栈仍不能唯一证明 GC/GIL 因果。未授权合 main/baseline、推送、正式恢复或复用任何旧 GO；H3、正式 V→H 和最终门禁继续独立办理。

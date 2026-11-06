@@ -473,7 +473,7 @@ fn native_inner(
     tables: Bound<'_, PyList>,
     plan: Bound<'_, PyDict>,
     budgets: Bound<'_, PyDict>,
-    (cancel_probe, deadline_monotonic, pool_threads): (Py<PyAny>, Option<f64>, usize),
+    (cancel_probe, deadline_monotonic, pool_threads): (Py<PyAny>, Option<f64>, Option<usize>),
 ) -> PyResult<Py<PyAny>> {
     let pool = shared_parser_pool(pool_threads)?;
     let deadline = deadline_instant(py, deadline_monotonic)?;
@@ -868,8 +868,8 @@ fn native_inner(
 macro_rules! entry {
     ($name:ident, $operation:ident) => {
         #[pyfunction]
-        #[pyo3(signature = (tables, plan, cancel_probe, budgets, deadline_monotonic=None, pool_threads=1))]
-        fn $name(py: Python<'_>, tables: Bound<'_, PyList>, plan: Bound<'_, PyDict>, cancel_probe: Py<PyAny>, budgets: Bound<'_, PyDict>, deadline_monotonic: Option<f64>, pool_threads: usize) -> PyResult<Py<PyAny>> {
+        #[pyo3(signature = (tables, plan, cancel_probe, budgets, deadline_monotonic=None, pool_threads=None))]
+        fn $name(py: Python<'_>, tables: Bound<'_, PyList>, plan: Bound<'_, PyDict>, cancel_probe: Py<PyAny>, budgets: Bound<'_, PyDict>, deadline_monotonic: Option<f64>, pool_threads: Option<usize>) -> PyResult<Py<PyAny>> {
             match adapter_boundary(|| native_inner(py, Operation::$operation, tables, plan, budgets, (cancel_probe, deadline_monotonic, pool_threads))) { Ok(result) => result, Err(()) => Err(PyRuntimeError::new_err("business kernel adapter panicked")) }
         }
     };

@@ -28,7 +28,6 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         # DC85/86/f690e22aef staged B/C consumers: actual Preview/History/
         # Submit operation cutover in D removes all four entries; no fake import.
         "gateway_backend.capabilities.snapshot_materialization.canonical_store",
-        "gateway_backend.capabilities.snapshot_materialization.native",
         "gateway_backend.capabilities.snapshot_materialization.repository_arrow",
         "gateway_backend.capabilities.storage_projection.native",
         # A9 external-target defer; owner, rationale, and reopen condition: design §9 deferral register.

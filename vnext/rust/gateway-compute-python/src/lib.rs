@@ -175,7 +175,7 @@ fn _init_kernel_native(pool_threads: usize) -> PyResult<usize> {
     }
 }
 
-fn shared_parser_pool(threads: usize) -> PyResult<&'static ThreadPool> {
+fn shared_parser_pool(threads: Option<usize>) -> PyResult<&'static ThreadPool> {
     let pool = PARSER_POOL
         .get()
         .ok_or_else(|| PyRuntimeError::new_err("kernel pool has not been initialized"))?
@@ -183,7 +183,9 @@ fn shared_parser_pool(threads: usize) -> PyResult<&'static ThreadPool> {
         .map_err(|error| {
             PyRuntimeError::new_err(format!("kernel thread pool unavailable: {error}"))
         })?;
-    if pool.current_num_threads() != threads {
+    if let Some(threads) = threads
+        && pool.current_num_threads() != threads
+    {
         return Err(PyValueError::new_err(format!(
             "kernel pool was initialized with {} threads; requested {threads}",
             pool.current_num_threads()
@@ -895,7 +897,7 @@ fn encode_canonical_ipc_inner(
     arrow_stream: PyRecordBatchReader,
     cancel_probe: Py<PyAny>,
     deadline_monotonic: Option<f64>,
-    pool_threads: usize,
+    pool_threads: Option<usize>,
     budgets_object: Bound<'_, PyDict>,
 ) -> PyResult<Py<PyBytes>> {
     let pool = shared_parser_pool(pool_threads)?;
@@ -1024,7 +1026,7 @@ fn encode_canonical_ipc_inner(
 }
 
 #[pyfunction]
-#[pyo3(signature = (columns, arrow_stream, cancel_probe, budgets, deadline_monotonic=None, pool_threads=1))]
+#[pyo3(signature = (columns, arrow_stream, cancel_probe, budgets, deadline_monotonic=None, pool_threads=None))]
 fn _encode_canonical_ipc_native(
     py: Python<'_>,
     columns: Bound<'_, PyList>,
@@ -1032,7 +1034,7 @@ fn _encode_canonical_ipc_native(
     cancel_probe: Py<PyAny>,
     budgets: Bound<'_, PyDict>,
     deadline_monotonic: Option<f64>,
-    pool_threads: usize,
+    pool_threads: Option<usize>,
 ) -> PyResult<Py<PyBytes>> {
     match adapter_boundary(|| {
         encode_canonical_ipc_inner(
@@ -1067,6 +1069,7 @@ fn _inspect_canonical_ipc_native(
     budgets: Bound<'_, PyDict>,
 ) -> PyResult<usize> {
     let result = adapter_boundary(|| {
+        shared_parser_pool(None)?;
         let budgets = canonical_budgets(&budgets)?;
         let watch = register_cancel_probe(py, &cancel_probe)?;
         python_adapter_control(&watch, None)?;
@@ -1297,7 +1300,7 @@ fn parse_sql_inner(
     sql_utf8: &[u8],
     cancel_probe: Py<PyAny>,
     deadline_monotonic: Option<f64>,
-    pool_threads: usize,
+    pool_threads: Option<usize>,
     budgets: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let pool = shared_parser_pool(pool_threads)?;
@@ -1319,13 +1322,13 @@ fn parse_sql_inner(
 }
 
 #[pyfunction]
-#[pyo3(signature = (sql_utf8, cancel_probe, deadline_monotonic=None, pool_threads=1, budgets=None))]
+#[pyo3(signature = (sql_utf8, cancel_probe, deadline_monotonic=None, pool_threads=None, budgets=None))]
 fn _parse_sql_native(
     py: Python<'_>,
     sql_utf8: &[u8],
     cancel_probe: Py<PyAny>,
     deadline_monotonic: Option<f64>,
-    pool_threads: usize,
+    pool_threads: Option<usize>,
     budgets: Option<Py<PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     match adapter_boundary(|| {

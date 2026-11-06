@@ -20,6 +20,7 @@ from gateway_compute._native import _init_kernel_native
 from pydantic import ValidationError
 
 from gateway_backend.artifacts import ArtifactRefLookupPort
+from gateway_backend.application.kernel_execution import bind_kernel_execution
 from gateway_backend.application.job_definitions import (
     JobDefinition,
     JobDefinitionRegistry,
@@ -348,10 +349,11 @@ def build_worker_runtime(
         preview_recovery=preview_recovery,
         submit_recovery=submit_recovery,
     )
+    kernel_registry = _KernelWorkerRegistry(recovery_registry, settings.kernel_threads, settings.kernel_memory_budget_bytes)
     startup = _R4WorkerStartup(
         read_uow_factory=resolved_read_uow_factory,
         write_uow_factory=resolved_write_uow_factory,
-        registry=recovery_registry,
+        registry=kernel_registry,
         definition_registry=composition.definition_registry,
         recovery_hook=_fail_closed_recovery,
         startup_recovery=startup_recovery,
@@ -545,6 +547,19 @@ def _build_recovery_callbacks(
         else:
             callbacks[definition.key] = None
     return callbacks
+
+
+@dataclass(frozen=True, slots=True)
+class _KernelWorkerRegistry:
+    _registry: WorkerRegistry
+    _threads: int
+    _memory_budget_bytes: int
+
+    def resolve(self, key: JobStepKey) -> ClaimedExecutor | None:
+        executor = self._registry.resolve(key)
+        if executor is None:
+            return None
+        return bind_kernel_execution(executor, threads=self._threads, memory_budget_bytes=self._memory_budget_bytes)
 
 
 @dataclass(frozen=True, slots=True)

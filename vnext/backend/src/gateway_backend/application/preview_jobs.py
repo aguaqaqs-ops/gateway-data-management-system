@@ -1399,7 +1399,9 @@ def _materialize_uploaded_side(
         raise PreviewJobError("uploaded source package staging failed")
     dump = resolve_sql_dump_source(staged.required_sql_document_ref)
     sql_bytes = store.locate(staged.required_sql_document_ref.artifact_ref)
-    parsed = parse_sql(_sql_request_from_bytes(sql_bytes))
+    from gateway_backend.capabilities.table_access import parse_arrow_sql
+
+    parsed = parse_arrow_sql(_sql_request_from_bytes(sql_bytes))
     sql_request = _sql_materialization_request(parsed, dump.sql_source_digest, ruleset)
     xml_ref = staged.optional_xml_document_ref
     if xml_ref is None:

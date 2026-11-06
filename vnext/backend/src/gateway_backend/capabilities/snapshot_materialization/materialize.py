@@ -27,6 +27,8 @@ from gateway_backend.capabilities.snapshot_materialization._digest import (
     row_content_hash,
     snapshot_digest_of,
 )
+from gateway_backend.capabilities.snapshot_materialization.arrow import materialize_source_arrow
+from gateway_backend.capabilities.table_access import ArrowSourceTableReader
 from gateway_backend.capabilities.snapshot_materialization._reader import (
     BoundSnapshotTableReader,
     as_reopenable,
@@ -331,6 +333,7 @@ def _materialize_selected(
                 SnapshotTable(
                     descriptor=item.descriptor,
                     reader=item.reader,
+                    batch_reader=item.batch_reader,
                     diagnostics=item.diagnostics,
                     ordered_metadata=SnapshotTableOrderedMetadata(
                         blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY
@@ -432,6 +435,12 @@ def _materialize_table(
             schema_digest=schema_digest,
         )
         return descriptor, None, (diagnostic,)
+    if isinstance(parsed.reader, ArrowSourceTableReader):
+        try:
+            return materialize_source_arrow(parsed.reader, compare_keys=compare_keys, stage=stage,
+                                            table_ruleset_version=request.table_ruleset_version)
+        finally:
+            parsed.reader.close()
     try:
         row_hashes, duplicate = _consume_rows(
             parsed.reader, request.context, compare_keys, source.canonical_name

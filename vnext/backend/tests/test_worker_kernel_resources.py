@@ -38,7 +38,8 @@ def test_worker_rejects_invalid_kernel_threads(tmp_path: Path, threads: object) 
 def test_kernel_requires_initialization_and_reuses_the_fixed_process_pool(threads: int) -> None:
     # Each N has its own process; the production OnceLock is never reset.
     script = '''
-from gateway_compute._native import _init_kernel_native, _parse_sql_native
+import pyarrow as pa
+from gateway_compute._native import _init_kernel_native, _inspect_canonical_ipc_native, _parse_sql_native
 from gateway_backend.capabilities.table_access.contracts import NeverCancel
 try:
     _parse_sql_native(b"CREATE TABLE t (id INT);", NeverCancel())
@@ -46,7 +47,14 @@ except RuntimeError as exc:
     assert "has not been initialized" in str(exc)
 else:
     raise AssertionError("uninitialized kernel accepted work")
+try:
+    _inspect_canonical_ipc_native([], pa.RecordBatchReader.from_batches(pa.schema([]), []), NeverCancel(), {})
+except RuntimeError as exc:
+    assert "has not been initialized" in str(exc)
+else:
+    raise AssertionError("uninitialized inspect accepted work")
 assert _init_kernel_native(__THREADS__) == __THREADS__
+assert _parse_sql_native(b"CREATE TABLE t (id INT);", NeverCancel())["status"] == "COMPLETE"
 assert _init_kernel_native(__THREADS__) == __THREADS__
 for _ in range(2):
     assert _parse_sql_native(b"CREATE TABLE t (id INT);", NeverCancel(), None, __THREADS__)["status"] == "COMPLETE"

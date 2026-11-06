@@ -25,6 +25,7 @@ from gateway_backend.capabilities.composite_signal.contracts import (
 from gateway_backend.capabilities.snapshot_materialization._catalog import CatalogError
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationStage
 from gateway_backend.capabilities.table_access.contracts import CancelProbe
+from gateway_backend.capabilities.table_access import current_kernel_context, KernelMemoryLimit
 
 ArrowMetadata = dict[str, Any]
 KernelBudgets = dict[str, int]
@@ -68,18 +69,23 @@ def call_arrow_kernel(
     deadline_monotonic: float | None,
     pool_threads: int,
 ) -> KernelResult:
+    context = current_kernel_context()
+    if context is not None:
+        context.checkpoint()
+        budgets = {**budgets, "max_live_bytes": min(budgets["max_live_bytes"], context.memory.available_bytes)}
+        cancel_probe = context.cancel_probe
+        deadline_monotonic = context.deadline_monotonic
+        pool_threads = context.threads
     check_metadata_budget((tables, plan), budgets)
-    return cast(
-        KernelResult,
-        native(
-            tables,
-            plan,
-            cancel_probe,
-            budgets,
-            deadline_monotonic,
-            pool_threads,
-        ),
-    )
+    try:
+        result = cast(KernelResult, native(tables, plan, cancel_probe, budgets, deadline_monotonic, pool_threads))
+    except MemoryError as exc:
+        if context is not None:
+            raise KernelMemoryLimit("business kernel operation memory reservation exceeded") from exc
+        raise
+    if context is not None:
+        context.checkpoint()
+    return result
 
 
 def materialize_arrow_table(

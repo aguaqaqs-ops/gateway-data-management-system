@@ -271,3 +271,32 @@ py-spy 沿用固定 `9b4d1f39b2a47ae44f4c6a46f615dcc0287d7755beba5065f32391951e0
 Docker log 采集已把 stdout/stderr 同写有界文件，修复第 18 节丢失 stderr 的问题，仍仅 tail 2000 且不称完整日志。原 60/120/180/90 秒阶段预算、资源门槛、一次 GET/原内部重试、`--pull never`、不删除卷和不确定时保锁均保持。README 完整说明停止分类及观测干扰；直接 GET 成功但未取得栈时仍标 stack_observation_incomplete，不作阶段耗时或原 lease 根因结论。
 
 执行前按 README 做 BatchMode SSH 确认、获准 LAN 同步固定文件并核 SHA，使用既有 e798 绝对解释器及隔离环境；controller 自取锁，不叠加外层锁。任一失败即停，不自动重试；保留源卷、新卷、events/client、两份双流有界日志、最多三份栈与 SHA256SUMS。确认自身进程/容器/网络停止后才释放自身 token，未知状态保锁。交回实际 exit、原始结果及收束，不把单次诊断授权扩展成正式恢复。
+
+## 20. RS 栈结果：冷 catalog 构建与重试重叠已定位
+
+**此次诊断有效地缩小了问题范围：请求已进入 RS，冷 catalog 正等待逐表 schema/COUNT 的 Dolt 子进程，后续重试期间先前 catalog 处理仍未完成。** 不再重复相同诊断；正式测量保持 STOP。该结论不解释 CT108 原 Submit 的 lease_lost，也不证明单个 Dolt 调用为何慢。
+
+审核只读取得 CT05 `cold-catalog-stack-run-20261106b/` 的完整 client/events、三份 Python 栈及双流有界 RS 日志。SHA256SUMS `d9e2df84f2e84783f04c82cc19a0c47f85198d1690d29ef7ee0d169134683f7b` 的七项均校验通过。CT05 controller 日志 `cold-catalog-controller-20261106b.log` SHA256 `dfc59bb7825ac34284c9bec3bed141a94bf20703b13b20cbb45dbd06bea904e8` 记录 00:12:20–00:14:06Z、exit 1、起止 e798。prepare 4.032 秒、RS 启动与 PID 绑定 6.610 秒、client 阶段 91.441 秒、cleanup 4.008 秒。三份栈均 exit 0/valid、约 0.050 秒被循环确认，无采样/资源/180 秒预算停止；这不是无观察输出的盲重试。
+
+client 仍为一次逻辑 GET、三个 attempt_started、逻辑耗时 90.453 秒，只有最终 cause chain 明确为两层 ReadTimeout，未收到 headers/parser 事件。前两次没有逐次 cause，不称三次均已分别证明 timeout。绑定的实际 RS Python host PID 1694760、init PID 1694732，版本 3.14.6；每份业务栈都通过 `get_versioned_catalog → get_catalog → get_or_load → provider.catalog_at → dolt_cli.catalog_at`，已越过 visibility/commit_exists，处于并行逐表构建而非 DTO 序列化阶段。
+
+| client 启动后采样点 | 同时处于 catalog route/futures 等待的线程 | 等待 Dolt 输出的 pool 线程 | 对应语句阶段 |
+| --- | --- | --- | --- |
+| 10.020 秒 | 1 | 2 | 1 个 SHOW CREATE schema，1 个 COUNT |
+| 40.031 秒 | 2 | 4 | 4 个 COUNT |
+| 70.043 秒 | 3 | 6 | 2 个 SHOW CREATE schema，4 个 COUNT |
+
+这些是离散时刻的线程位置，不是累计 SQL 次数、完整阶段耗时或子进程 CPU/I/O 状态。栈中的 `_load_table_schema:414` 对应 SHOW CREATE，`_load_table_catalog:441` 对应 SELECT COUNT，均经 `query_json/run_cli → Dolt._collect:1380` 等待 stdout/stderr。同一 pool 线程可以在采样间处理不同表，不能说某个 COUNT 连续卡了 70 秒。隔离场景只有该固定父引用的一次逻辑 GET，且出现新 handler 的时间与内部重试相符，结合锁外 cache loader 实现，支持同 key 重试重复加载的解释；栈未包含 request_id，不作具体线程到某 attempt 的硬绑定。
+
+RS 双流日志现在包含 startup、19 次 readyz 200 和 cleanup 引发的 shutdown/等待后台任务/终止记录，未保存 catalog 完成状态。栈已证实到达服务端，所以不再把“服务端是否收到请求”作为本次未决项；仍不能从无完成 access line 推断 HTTP 错误码或最终自然结果。日志保持 tail 2000 限制，cleanup 的 kill 不是产品自然退出。events 确认三个有效采样、无不确定复制/回收、own_activity_confirmed_stopped 和 lock_released；审核另查 marker ABSENT、本项目容器及网络无残留，原后验记录列源/目标卷保留。
+
+| 主要证据 | SHA256 |
+| --- | --- |
+| `client.jsonl` | `279a71dbf17875e9746143845b5662ded478731e12aec942a6003c163f417d0e` |
+| `events.jsonl` | `09b99021d9a6bc89815fad8b86b553e618940d70bea914b872f6c04a15197a05` |
+| RS 双流 Docker 日志 | `b78a8cbfcf0b7b0400f26fea79341574694de1a1a9c5c8a4951c24c7e1317547` |
+| `rs-stack-1.txt` | `115d2a9405e93058bb0a6dec64fcbcec6104dda7f652d7b7459f8ed4ae8c7cbd` |
+| `rs-stack-2.txt` | `ea6b8e81c0aaaa311fd4dcfdc252a2c5642d91f62bc57177921311b900e7e38f` |
+| `rs-stack-3.txt` | `05ee1a03291aabdfbf67c4d0ce152e6348dd1446c5edac112437dddd83747d20` |
+
+**最小后续建议是转入冷 catalog 实现的修复设计。** 同时考察首次冷读的逐表 Dolt 调用成本与同 key 未完成加载的重复工作，保留 catalog 的表集合/schema/row_count/错误语义；单纯合并并发请求只能抑制放大，不能声称首次冷读已在原请求预算内完成。backend parent port 只消费表名是减少工作量的设计线索，但不能未经 owning Contract 决定直接用本地 manifest 代替权威 RS 校验或删除 catalog 的 COUNT 语义。冻结 e798 不原地改写，后续另候选定向验证；不提高 timeout、不预热掩盖，不追加相同诊断或完整 Submit，也不要求先证明 Dolt 内部所有慢因再处理已定位的重复工作。此次审核没有修改产品或授权后续运行。

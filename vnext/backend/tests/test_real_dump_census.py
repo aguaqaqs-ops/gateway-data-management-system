@@ -13,13 +13,12 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnosticCode,
     SnapshotMaterializationStatus,
 )
-from gateway_backend.capabilities.storage_projection.contracts import ProjectionDiagnosticCode
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     OrderedPolicy,
     TableStaticRole,
 )
-from gateway_shared_kernel import NullScalar, SignedIntegerScalar, StringScalar
+from gateway_shared_kernel import NullScalar
 from gateway_backend.capabilities.source_package_staging.contracts import (
     OPTIONAL_XML_PATH,
     REQUIRED_SQL_PATH,

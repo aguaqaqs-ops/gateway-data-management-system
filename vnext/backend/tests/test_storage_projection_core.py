@@ -5,7 +5,6 @@ from __future__ import annotations
 from tests.support.native_projection import project_storage, project_canonical_fixture
 
 import json
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,7 +31,6 @@ from gateway_backend.capabilities.storage_projection import (
     ProjectionTableInput,
 )
 from gateway_backend.capabilities.table_access.contracts import SourceRow
-from gateway_backend.capabilities.table_access.contracts import ParserDiagnosticCode, TableAccessError
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     DroppedColumn,
@@ -654,41 +652,15 @@ def test_ignored_column_on_ddl_primary_key_fails_closed() -> None:
             artifact_scope=TableArtifactScope.ALL_CHANGES,
         )
     )
-    result = project_storage(
-        _request(
-            table_input(
-                "custom_ddl",
-                columns=(int_column("id"), varchar_column("name")),
-                primary_key_columns=("id",),
-                rows=(as_row(int_cell(1), varchar_cell("a")),),
-            ),
-            ruleset=ruleset,
-        )
-    )
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.RULESET_INVALID in _codes(result)
+    from gateway_backend.capabilities.table_rules import resolve_table_rule
+    with pytest.raises(ValueError, match="ignored columns must not be effective key columns"):
+        resolve_table_rule(ruleset, "custom_ddl", primary_key_columns=("id",))
 
 
 def test_snapshot_without_fallback_rejects_unclassified_table() -> None:
-    result = project_storage(
-        _request(
-            table_input(
-                "unknown_widget",
-                columns=(int_column("id"),),
-                primary_key_columns=("id",),
-                rows=(as_row(int_cell(1)),),
-            ),
-            ruleset=snapshot_from_records(net_cfg_record()),
-        )
-    )
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.RULESET_INVALID in _codes(result)
-
-
-
-
+    from gateway_backend.capabilities.table_rules import resolve_table_rule
+    with pytest.raises(ValueError, match="unclassified table"):
+        resolve_table_rule(snapshot_from_records(net_cfg_record()), "unknown_widget", primary_key_columns=("id",))
 
 
 def test_requested_tables_projects_the_named_subset() -> None:

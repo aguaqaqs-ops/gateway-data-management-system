@@ -1,4 +1,4 @@
-"""Schema, content, view and manifest digests owned by Storage Projection."""
+"""Small schema, view and manifest digests owned by Storage Projection."""
 
 from __future__ import annotations
 

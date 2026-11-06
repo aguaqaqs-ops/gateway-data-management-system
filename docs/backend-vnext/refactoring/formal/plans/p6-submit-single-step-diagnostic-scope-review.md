@@ -438,3 +438,25 @@ controller/launcher 均 exit 1，结果为 `CATALOG_RETURNED_AFTER_RETRY`，原�
 已要求最小修正：保持原 journey 正常收尾；外层先查固定 project 的残留，无残留只核 quiescence，有残留则用固定 project 的有界停止/移除容器与 network，或提供明确可解析且有界的 cleanup 环境。未知状态保留锁，不删除卷，不增加通用生命周期框架或业务测试。修订后交固定文件与 manifest 新摘要，暂不 POST。
 
 其余定向审核未见阻塞：源 RS 明确 UNAVAILABLE/build-time provenance，源 run/state/checkpoint/input/cache 按原 helper 严格核验，新目标 4497 逐 config/全部 28 DiffID 与标签核验，backend/worker 仍原 e798；没有旧 RS 身份造假或修改源 manifest。普通 resume 只比较原 backend/worker 身份，新 RS 由外置候选单独绑定；复用 F1 单 POST wrapper、45 分钟独立 guardian、15 秒 Python dump/5 秒资源停止，以及目标步骤 finally 先关闭 observer 的接线。固定新 project/key/目标卷及同 manifest sampler/postflight 保持，采样与观测职责未扩展。
+
+## 29. 单 Submit r1 复核与明确 POST GO
+
+**明确 GO：允许原实施者按 r1 README 固定命令，在 CT05 执行一次 `p6catalogsubmit20261106d` 单步诊断。** 已直接通知实施者与设计，无需再等 owner 回执。仅原 pre-submit checkpoint 的独立目标三卷、新 project/key、e798 backend/worker 与已核 4497 RS、一次 `v2-submit` POST；不包括 Preview、后续步骤、失败重跑或正式测量恢复。源 RS run-bound full identity 仍明确 UNAVAILABLE，诊断许可不补造缺失身份。
+
+handoff 提交 `716ef8ae5df7a891566bc051627ea075f8b23bca`。候选根路径沿第 28 节，最终固定身份如下：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `candidate-manifest.json` | `2a4c6cefd0febef40e0a09e918f6c396872619fa2e1b32d81e593ef16a2da1e8` |
+| `candidate/submit_diagnostic_launcher.py` | `6686e81085eb8c6e833140c0994a03d3a993b063b089f44f406c409dbdabb977` |
+| `candidate/run-once.sh` | `7f5089eaf7b1b242271a85961f634428e934a8fa093fb2538f0d0a90a9340a49` |
+| `candidate/README.md` | `68fdd8241216286d0296f606e42b2afd5e7e74a35e4009d094f228ddd9d88eee` |
+| `candidate/SHA256SUMS` | `67b39365a40b9a15275b6dc8e7f425100becc436fb9d116a56174c8058aa2a41` |
+
+source readout 与 target RS identity 均保持第 28 节摘要。审核程序核对最终 manifest 的六个候选文件和五个准备日志，大小/摘要全部匹配，shell 内 launcher pin 相等。`preparation-validation-final.log` SHA `be6a2e6ddf7b8921de85399859abb44aa66dd8e05ae77e0e7bf5b379c5fb888d`，记录候选 SUMS、bash syntax、AST、pin/28 DiffID 检查通过，未运行候选。初次 pin 检查的正则误报及两次 manifest 生成路径/字段错误保留日志，不将其冒称产品或节点验收失败；不要求新增业务测试。
+
+**第 28 节收尾问题关闭。** 删除裸 Compose down，原 journey 继续以自身 secret 环境完成正常收尾。外层 cleanup 先按固定 project label 列容器/network，无残留仅重复确认；有残留才使用 30 秒单命令预算、`stop --time 10`、不带 `-v` 的 `rm --force` 和对应 network rm。记录每条命令及最终空集合；任何超时/非零/无法确认均失败并保留锁，不接触源项目或数据卷。反向去除新增 cleanup 函数和 main 入口后，精确恢复首版 launcher SHA `bbbe6311…04b6`，确认未夹带源验证、单 POST 或观测逻辑变化。
+
+shell 对 preflight、cleanup、postflight 各加 300 秒 outer timeout（TERM 后 15 秒 kill），journey/sampler 整体为 3600 秒（INT 后 30 秒 kill），原 POST guardian 的 2700 秒预算不变。固定 sampler 子进程没有另建 session，继续使用原 child 终止/等待路径；正常 wrapper 仍先关闭 observer 再进行 journey finalization。这些外层上限是诊断截断保护，不延长产品请求/租约或把单步预算改成 60 分钟。缺失/不符 state 与 sampler manifest 比较会使验收非零；锁释放依据自身资源静止，不能以释放锁表示业务成功。
+
+执行前确认 BatchMode SSH/节点空闲，LAN 同步后核固定摘要，使用 README 的唯一 `run-once.sh` 命令，由 shell 自取锁，不叠加外层占用。身份/输入/缓存/源副本不符或任一停止条件触发即停留证，不自动重跑；未知收束状态保锁。交回 controller/launch、preflight/目标镜像检查、独立 Submit 结果、原 run/state、observer/resource、cleanup/postflight、实际 exit 与 SHA/锁状态。独立结果成功也不等于原 journey 完整 PASS、lease 根因闭合或正式恢复；H3 证据保留。

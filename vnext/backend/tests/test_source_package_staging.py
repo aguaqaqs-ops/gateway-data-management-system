@@ -148,3 +148,48 @@ def test_retention_policy_does_not_change_digest() -> None:
     second, _ = _stage(PackageKind.TAR_GZ, payload, retention_policy="SHORT")
     assert first.source_package_digest == second.source_package_digest
     assert first.source_package_id != second.source_package_id
+
+
+ARCHIVE_METADATA_CASES = ("pax", "global-pax", "gnu-long-name")
+
+
+def _archive_with_metadata(kind: str) -> bytes:
+    import io
+    import tarfile
+
+    buffer = io.BytesIO()
+    options = {"pax_headers": {"vendor.note": "v" * 2048}} if kind == "global-pax" else {}
+    with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.GNU_FORMAT if kind == "gnu-long-name" else tarfile.PAX_FORMAT,
+                      **options) as archive:
+        for index, (name, payload) in enumerate({"sql/dbcfg.sql": _SQL, "extras/" + "a" * 140: b"x"}.items()):
+            member = tarfile.TarInfo(name)
+            member.size = len(payload)
+            if kind == "pax" and index == 0:
+                member.pax_headers = {"vendor.note": "v" * 2048}
+            archive.addfile(member, io.BytesIO(payload))
+    return buffer.getvalue()
+
+
+def test_archive_metadata_is_admitted_before_first_header_allocation() -> None:
+    from dataclasses import replace
+
+    from gateway_backend.capabilities.source_package_staging.contracts import (
+        RESOURCE_BUDGETS, StagingDiagnosticCode,
+    )
+
+    for kind in ARCHIVE_METADATA_CASES:
+        payload = _archive_with_metadata(kind)
+        source = SourcePackageInput(package_kind=PackageKind.TAR_GZ, transport=StagingTransport.IDENTITY,
+                                    context=_CONTEXT, payload=payload)
+        normal = stage_source_package(source, InMemoryArtifactStore(),
+                                      budgets=replace(RESOURCE_BUDGETS, max_archive_metadata_bytes=4 * 1024**2))
+        assert normal.status is StagingStatus.COMPLETE
+        assert normal.required_sql_document_ref is not None
+        refused_store = InMemoryArtifactStore()
+        refused = stage_source_package(source, refused_store,
+                                       budgets=replace(RESOURCE_BUDGETS, max_archive_metadata_bytes=1024))
+        assert refused.status is StagingStatus.FAILED
+        assert refused.artifact_ref is None
+        assert refused.diagnostics[0].code is StagingDiagnosticCode.RESOURCE_LIMIT_EXCEEDED
+        assert refused.diagnostics[0].budget_name == "max_archive_metadata_bytes"
+        assert refused_store._artifacts == {}

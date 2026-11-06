@@ -88,21 +88,25 @@ def stage_operation_source(source: SourcePackageInput, store: ArtifactStorePort)
     # gzip/tar read-ahead and hashing retain at most bounded chunk scratch.
     scratch = 512 * 1024 + len(source.payload or b"")
     entry_bytes = STAGING_BUDGETS.max_normalized_path_bytes * 32 + 4096
-    entries = min(STAGING_BUDGETS.max_source_package_entries, max(0, available - scratch) // (8 * entry_bytes))
+    header_metadata = min(STAGING_BUDGETS.max_archive_metadata_bytes, max(0, available - scratch) // 8)
+    entries = min(STAGING_BUDGETS.max_source_package_entries, max(0, available - scratch - header_metadata) // (8 * entry_bytes))
     metadata = entries * entry_bytes
-    expanded = min(STAGING_BUDGETS.max_source_package_expanded_bytes, max(0, available - scratch - metadata) // 3)
+    expanded = min(STAGING_BUDGETS.max_source_package_expanded_bytes, max(0, available - scratch - metadata - header_metadata) // 3)
     if entries == 0 or expanded == 0:
         raise KernelMemoryLimit("source staging operation memory reservation exceeded")
     local = replace(STAGING_BUDGETS, max_source_package_entries=entries,
-                    max_source_package_expanded_bytes=expanded,
+                    max_archive_metadata_bytes=header_metadata, max_source_package_expanded_bytes=expanded,
                     max_sql_document_bytes=min(STAGING_BUDGETS.max_sql_document_bytes, expanded),
                     max_xml_document_bytes=min(STAGING_BUDGETS.max_xml_document_bytes, expanded))
-    peak = scratch + metadata + expanded * 3
+    peak = scratch + metadata + header_metadata + expanded * 3
     context.memory.record_stage_admission("source-staging", peak)
     with context.memory.reserve(peak):
         result = stage_source_package(replace(source, context=StagingInvocationContext(
             context.cancel_probe, context.deadline_monotonic)), store, budgets=local)
     context.checkpoint()
+    retained_metadata = 8192 + sum(1024 + (len(entry.original_path or "") + len(entry.normalized_path)) * 32
+                                   for entry in result.entries)
+    context.memory.retain_metadata(result, retained_metadata)
     if result.status is StagingStatus.FAILED and any(
         d.code is StagingDiagnosticCode.RESOURCE_LIMIT_EXCEEDED for d in result.diagnostics
     ) and local != STAGING_BUDGETS:

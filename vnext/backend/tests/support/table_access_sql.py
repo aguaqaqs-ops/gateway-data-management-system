@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import contextvars
 import struct
 from collections.abc import Iterator
 from typing import Any
 
 import pyarrow as pa
-import pytest
 from gateway_compute._native import _parse_sql_native
 from gateway_backend.capabilities.table_access.contracts import (
     RESOURCE_BUDGETS,
@@ -49,28 +47,9 @@ from gateway_shared_kernel import (
     TimestampScalar,
     UnsignedIntegerScalar,
 )
-from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_shared_kernel import DigestRef
 
 _ZERO_DIGEST = DigestRef("sha256:" + "00" * 32)
-_ACTIVE_IMPLEMENTATION: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "active_sql_parser_implementation", default="python"
-)
-
-
-@pytest.fixture(params=("python", "rust"), ids=("python", "rust"))
-def dual_sql_implementation(request: pytest.FixtureRequest) -> Iterator[None]:
-    token = _ACTIVE_IMPLEMENTATION.set(str(request.param))
-    try:
-        yield
-    finally:
-        _ACTIVE_IMPLEMENTATION.reset(token)
-
-
-def current_sql_implementation() -> str:
-    return _ACTIVE_IMPLEMENTATION.get()
-
-
 def sql_request(
     sql: str | bytes,
     context: ParserInvocationContext | None = None,
@@ -99,23 +78,16 @@ def parse_text(
     *,
     context: ParserInvocationContext | None = None,
     budgets: ResourceBudgets | None = None,
-    implementation: str | None = None,
 ) -> ParseResult:
     request = sql_request(sql, context)
-    return parse_request_result(request, budgets=budgets, implementation=implementation)
+    return parse_request_result(request, budgets=budgets)
 
 
 def parse_request_result(
     request: SqlParseRequest,
     *,
     budgets: ResourceBudgets | None = None,
-    implementation: str | None = None,
 ) -> ParseResult:
-    selected = implementation or current_sql_implementation()
-    if selected == "python":
-        return parse_sql(request) if budgets is None else parse_sql(request, budgets=budgets)
-    if selected != "rust":
-        raise ValueError("implementation must be 'python' or 'rust'")
     envelope = _parse_sql_native(
         request.sql_utf8,
         request.context.cancel_requested,

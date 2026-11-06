@@ -1,4 +1,4 @@
-"""Real C Stream business integration and frozen Python-owner differentials."""
+"""Real C Stream business integration against fixed Contract values."""
 
 from __future__ import annotations
 
@@ -31,8 +31,6 @@ from gateway_backend.capabilities.snapshot_materialization.native import (
     materialize_arrow_table,
 )
 from gateway_backend.capabilities.storage_projection.native import build_projection_plan, project_arrow_table
-from gateway_backend.capabilities.storage_projection.project import project_canonical_table_set
-from gateway_backend.capabilities.storage_projection.project import project_storage
 from gateway_backend.capabilities.storage_projection.contracts import (
     STORAGE_PROJECTION_VERSION,
     ProjectionInvocationContext,
@@ -45,6 +43,12 @@ from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from tests.support.snapshot_materialization import load_sql, materialize_sql
 from tests.support.storage_projection import table_input, typed_column
+
+# Frozen from the verified pre-removal Python owner at 16e1089a8659.
+# 06 log SHA256: 4fe7de2ddf4cea018d86107bb46043436171d70f8889832993f58f0031e699af.
+_TYPED_DIGEST = "sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d7dd32fcba87ee4f7f71"
+_WIDE_DIGEST = "sha256:c947ad6fccb65c36c067d38a761ca1049e0122c5f926413ba9f7c09e5dcc603a"
+_DROPPED_DIGEST = "sha256:232a96c506247080963b4d39390ac5bf686238c8fb2edf0febcbdbeb0ae91905"
 
 _BUDGETS = {
     "max_columns": 2048, "max_batches": 64, "max_rows": 100000,
@@ -72,17 +76,16 @@ def _view(descriptor: SnapshotTableDescriptor) -> Any:
     return view
 
 
-def _projection(sql: str) -> tuple[dict[str, Any], Any]:
+def _projection(sql: str) -> dict[str, Any]:
     old = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
     assert old.table_set is not None
     descriptor = old.table_set.tables[0].descriptor
     assert descriptor.raw_content_digest is not None
-    oracle = project_canonical_table_set(old.table_set, migrated_table_ruleset_snapshot())
     result = project_arrow_table(
         _tables(sql)[0], descriptor, _view(descriptor), canonicalized_input=False,
         cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1,
     )
-    return result, oracle
+    return result
 
 
 def test_real_parser_sql_projection_ipc_chain_matches_frozen_python_digest() -> None:
@@ -95,14 +98,12 @@ def test_real_parser_sql_projection_ipc_chain_matches_frozen_python_digest() -> 
         _tables(sql)[0], effective_compare_key_columns=("id",), stage=MaterializationStage.FINAL,
         cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1,
     )
-    assert raw["output"]["raw_content_digest"] == descriptor.raw_content_digest.value
+    assert raw["output"]["raw_content_digest"] == _TYPED_DIGEST
     projected = project_arrow_table(
         raw["output"]["tables"][0], descriptor, _view(descriptor), canonicalized_input=False,
         cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1,
     )
-    oracle = project_canonical_table_set(old.table_set, migrated_table_ruleset_snapshot())
-    assert oracle.tables[0].descriptor.raw_content_digest is not None
-    assert projected["output"]["raw_content_digest"] == oracle.tables[0].descriptor.raw_content_digest.value
+    assert projected["output"]["raw_content_digest"] == _TYPED_DIGEST
     table = projected["output"]["tables"][0]
     ipc = _encode_canonical_ipc_native(table["columns"], table["arrow_stream"], NeverCancel(), _IPC)
     decoded = pa.ipc.open_file(pa.BufferReader(ipc)).read_all()
@@ -120,16 +121,13 @@ def test_wide_non_key_columns_do_not_accumulate_transient_row_scratch() -> None:
     old = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
     assert old.table_set is not None
     descriptor = old.table_set.tables[0].descriptor
-    oracle = project_canonical_table_set(old.table_set, migrated_table_ruleset_snapshot())
     result = project_arrow_table(
         _tables(sql)[0], descriptor, _view(descriptor), canonicalized_input=False,
         cancel_probe=NeverCancel(), budgets={**_BUDGETS, "max_live_bytes": 16 * 1024 * 1024},
         deadline_monotonic=None, pool_threads=1,
     )
     assert result["output"] is not None
-    expected = oracle.tables[0].descriptor.raw_content_digest
-    assert expected is not None
-    assert result["output"]["raw_content_digest"] == expected.value
+    assert result["output"]["raw_content_digest"] == _WIDE_DIGEST
     with result["output"]["tables"][0]["arrow_stream"] as stream:
         assert stream.read_all().num_rows == 200
 
@@ -145,10 +143,9 @@ _KEY_CASES = (
 
 @pytest.mark.parametrize(("sql_type", "value", "code"), _KEY_CASES)
 def test_native_key_blockers_match_the_existing_projection_owner(sql_type: str, value: str, code: str) -> None:
-    result, oracle = _projection(f"CREATE TABLE comm_user_data (data_key {sql_type} NULL); INSERT INTO comm_user_data VALUES ({value});")
+    result = _projection(f"CREATE TABLE comm_user_data (data_key {sql_type} NULL); INSERT INTO comm_user_data VALUES ({value});")
     assert result["output"] is None
     assert result["diagnostics"][0]["code"] == code
-    assert oracle.diagnostics[0].code.value == code
 
 
 def test_sql_duplicate_warning_stays_distinct_from_projection_blocker() -> None:
@@ -157,9 +154,8 @@ def test_sql_duplicate_warning_stays_distinct_from_projection_blocker() -> None:
     assert raw["output"]["raw_content_digest"] is None
     assert raw["output"]["tables"][0]["row_count"] == 2
     assert raw["diagnostics"][0]["code"] == "DUPLICATE_EFFECTIVE_KEY"
-    result, oracle = _projection(sql)
+    result = _projection(sql)
     assert result["output"] is None and result["diagnostics"][0]["code"] == "KEY_DUPLICATE"
-    assert oracle.diagnostics[0].code.value == "KEY_DUPLICATE"
 
 
 @pytest.mark.parametrize("gid", ("4_000_000_000", "+４０００００００００", " ٤٠٠٠٠٠٠٠٠٠ "))
@@ -227,9 +223,9 @@ def test_ordered_native_errors_keep_the_python_owner_classification(gid: str, no
         raw = materialize_arrow_table(_tables(sql)[0], effective_compare_key_columns=(), stage=MaterializationStage.FINAL, cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1)
         assert raw["output"] is None and raw["diagnostics"][0]["code"] == "RESERVED_PSEUDO_GID"
         return
-    result, oracle = _projection(sql)
+    result = _projection(sql)
     assert result["output"] is None
-    assert result["diagnostics"][0]["code"] == oracle.diagnostics[0].code.value == "ROW_INTEGRITY"
+    assert result["diagnostics"][0]["code"] == "ROW_INTEGRITY"
 
 
 def test_canonicalized_ordered_pseudo_gid_requires_the_original_no_allocation() -> None:
@@ -306,14 +302,13 @@ def test_complete_schema_diagnostics_keep_the_existing_cap_order_and_omitted_cou
     assert raw["status"] == "COMPLETE", raw["diagnostics"]
     table = raw["tables"][0]
     reader, binding = table_input("t", columns=tuple(typed_column(name, "JSON", nullable=True) for name in names), primary_key_columns=(), row_count=0)
-    oracle = project_storage(ProjectionRequest(ruleset=migrated_table_ruleset_snapshot(), storage_projection_version=STORAGE_PROJECTION_VERSION, tables=(ProjectionTableInput(canonical_table="t", reader=reader, source_binding=binding),), context=ProjectionInvocationContext(NeverCancel())))
     budgets = {**_BUDGETS, "max_metadata_bytes": 32 * 1024 * 1024, "max_live_bytes": 512 * 1024 * 1024}
     plan = build_projection_plan(binding.descriptor, _view(binding.descriptor), canonicalized_input=False, budgets=budgets)
     result = _canonical_project_native([table], plan, NeverCancel(), budgets)
     assert result["output"] is None
-    assert [(item["code"], item["column"]) for item in result["diagnostics"]] == [(item.code.value, item.column_name) for item in oracle.diagnostics]
+    assert [(item["code"], item["column"]) for item in result["diagnostics"]] == [("UNSUPPORTED_TABLE", name) for name in names[:1024]]
     assert len(result["diagnostics"]) == 1024
-    assert result["omitted_diagnostic_count"] == oracle.omitted_diagnostic_count == 26
+    assert result["omitted_diagnostic_count"] == 26
 
 
 def test_dropped_unsupported_columns_stay_out_of_canonical_digest() -> None:
@@ -321,10 +316,9 @@ def test_dropped_unsupported_columns_stay_out_of_canonical_digest() -> None:
     for value in ("'{\"a\":1}'", "'{\"a\":2}'"):
         # net_cfg's no column is dropped by its real rule, independent of type.
         sql = f"CREATE TABLE net_cfg (board VARCHAR(8) NOT NULL, link_no INT NOT NULL, no JSON); INSERT INTO net_cfg VALUES ('eth0',1,{value});"
-        result, oracle = _projection(sql)
+        result = _projection(sql)
         assert result["output"] is not None
-        assert oracle.tables[0].descriptor.raw_content_digest is not None
-        assert result["output"]["raw_content_digest"] == oracle.tables[0].descriptor.raw_content_digest.value
+        assert result["output"]["raw_content_digest"] == _DROPPED_DIGEST
         digests.append(result["output"]["raw_content_digest"])
     assert digests[0] == digests[1]
 

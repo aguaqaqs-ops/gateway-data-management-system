@@ -1,4 +1,4 @@
-"""Coverage map from the G2 dump census to dual-implementation SQL tests."""
+"""Coverage map from the G2 dump census to native SQL tests."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from gateway_shared_kernel import SignedIntegerScalar
 from gateway_backend.capabilities.table_access.contracts import ParseResult, ParseStatus
 from tests.support.table_access_sql import parse_text
 
@@ -22,7 +23,7 @@ _CENSUS_PATH = (
 
 # The type spellings come from datasets[*].storage_column_type_counts and
 # datasets[*].version_manager_saved_time_type in the G2-updated census JSON.
-# Each owner is a parameter in the existing dual-implementation type test.
+# Each owner is a parameter in the existing native type test.
 G2_CENSUS_FORMAT_COVERAGE = (
     ("SQL type DATETIME", "test_sql_parser_type_descriptors_match_the_type_mapper[DATETIME]"),
     ("SQL type ENUM", "test_sql_parser_type_descriptors_match_the_type_mapper[ENUM('a','b')]"),
@@ -77,21 +78,7 @@ SYNTHETIC_FORMAT_CASES = (
 )
 
 
-def _signature(result: ParseResult) -> tuple[object, ...]:
-    tables = tuple(
-        (
-            table.descriptor,
-            None if table.reader is None else tuple(table.reader.iter_rows()),
-        )
-        for table in result.tables
-    )
-    diagnostics = tuple(
-        (item.code, item.table, item.byte_offset) for item in result.diagnostics
-    )
-    return result.status, tables, diagnostics
-
-
-def test_g2_census_format_categories_have_dual_implementation_owners() -> None:
+def test_g2_census_format_categories_have_native_owners() -> None:
     census = json.loads(_CENSUS_PATH.read_text(encoding="utf-8"))
     observed_types = {
         sql_type
@@ -123,9 +110,11 @@ def test_g2_census_format_categories_have_dual_implementation_owners() -> None:
     SYNTHETIC_FORMAT_CASES,
     ids=[case[0] for case in SYNTHETIC_FORMAT_CASES],
 )
-def test_synthetic_census_format_sample_matches_reference(category: str, sql: str) -> None:
+def test_synthetic_census_format_sample_keeps_known_row(category: str, sql: str) -> None:
     assert category
-    python_result = parse_text(sql, implementation="python")
-    rust_result = parse_text(sql, implementation="rust")
-    assert python_result.status is ParseStatus.COMPLETE
-    assert _signature(rust_result) == _signature(python_result)
+    result = parse_text(sql)
+    assert result.status is ParseStatus.COMPLETE
+    assert result.diagnostics == ()
+    assert result.tables[0].descriptor.canonical_name == "commented"
+    assert result.tables[0].reader is not None
+    assert tuple(result.tables[0].reader.iter_rows()) == ((SignedIntegerScalar("7"),),)

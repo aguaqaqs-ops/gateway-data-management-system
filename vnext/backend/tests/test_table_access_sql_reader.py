@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import time
+
 from typing import Protocol, cast
 
 import pytest
+
 from gateway_backend.capabilities.table_access.contracts import (
     NeverCancel,
     ParseStatus,
@@ -14,48 +16,23 @@ from gateway_backend.capabilities.table_access.contracts import (
     TableAccessError,
     TableReader,
 )
-from gateway_shared_kernel import SignedIntegerScalar, StringScalar
-from tests.support.table_access_sql import (
-    parse_request_result,
-    parse_text,
-    sql_request,
-)
 
+from gateway_shared_kernel import SignedIntegerScalar, StringScalar
+
+from tests.support.table_access_sql import sql_request
+from gateway_backend.capabilities.table_access import parse_arrow_sql
+
+def parse_text(sql: str):
+    return parse_arrow_sql(sql_request(sql))
 
 class ReopenableTableReader(Protocol):
     def reopen(self) -> TableReader: ...
-
-
-@pytest.fixture(autouse=True)
-def _run_both_sql_implementations(dual_sql_implementation: None) -> None:
-    pass
-
 
 _SQL = (
     "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL);"
     "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c');"
 )
 
-
-class CountCancel:
-    def __init__(self, trip_after: int) -> None:
-        self.trip_after = trip_after
-        self.calls = 0
-
-    def is_set(self) -> bool:
-        self.calls += 1
-        return self.calls >= self.trip_after
-
-
-class ArmableCancel:
-    def __init__(self) -> None:
-        self.armed = False
-
-    def is_set(self) -> bool:
-        return self.armed
-
-
-@pytest.mark.parametrize("dual_sql_implementation", ("python",), indirect=True)
 def test_reader_single_consumer_reopen_and_close() -> None:
     result = parse_text(_SQL)
     assert result.status is ParseStatus.COMPLETE
@@ -86,7 +63,6 @@ def test_reader_single_consumer_reopen_and_close() -> None:
     reopened.close()
     reopened.close()
 
-
 def test_insert_column_list_permutes_to_descriptor_order() -> None:
     sql = (
         "CREATE TABLE t (id INT NOT NULL PRIMARY KEY, name VARCHAR(8) NULL);"
@@ -100,57 +76,3 @@ def test_insert_column_list_permutes_to_descriptor_order() -> None:
     assert isinstance(row[1], StringScalar)
     assert row[0].decimal == "9"
     assert row[1].text == "z"
-
-
-def test_expired_deadline_fails_without_reader() -> None:
-    request = sql_request(_SQL, ParserInvocationContext(NeverCancel(), time.monotonic() - 1.0))
-    result = parse_request_result(request)
-    assert result.status is ParseStatus.FAILED
-    assert result.tables == ()
-    assert result.diagnostics[0].code is ParserDiagnosticCode.PARSER_TIMEOUT
-
-
-def test_cancel_probe_fails_without_reader() -> None:
-    request = sql_request(_SQL, ParserInvocationContext(CountCancel(1)))
-    result = parse_request_result(request)
-    assert result.status is ParseStatus.FAILED
-    assert result.diagnostics[0].code is ParserDiagnosticCode.PARSER_CANCELLED
-
-
-@pytest.mark.parametrize("dual_sql_implementation", ("python",), indirect=True)
-def test_reader_stream_error_invalidates_reader_instance() -> None:
-    cancel = ArmableCancel()
-    result = parse_text(_SQL, context=ParserInvocationContext(cancel))
-    reader = result.tables[0].reader
-    assert reader is not None
-    cancel.armed = True
-    with pytest.raises(TableAccessError) as stream_error:
-        tuple(reader.iter_rows())
-    assert stream_error.value.code is ParserDiagnosticCode.PARSER_CANCELLED
-    with pytest.raises(TableAccessError) as invalidated:
-        reader.descriptor()
-    assert invalidated.value.code is ParserDiagnosticCode.PARSER_CANCELLED
-    reader.close()
-    with pytest.raises(TableAccessError) as closed:
-        reader.descriptor()
-    assert closed.value.code is ParserDiagnosticCode.READER_CLOSED
-
-
-@pytest.mark.parametrize("dual_sql_implementation", ("python",), indirect=True)
-def test_reader_checks_cancellation_at_successful_eof_commit_point() -> None:
-    cancel = ArmableCancel()
-    result = parse_text(
-        "CREATE TABLE t (id INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES (1);",
-        context=ParserInvocationContext(cancel),
-    )
-    reader = result.tables[0].reader
-    assert reader is not None
-    iterator = reader.iter_rows()
-    next(iterator)
-    cancel.armed = True
-    with pytest.raises(TableAccessError) as stream_error:
-        next(iterator)
-    assert stream_error.value.code is ParserDiagnosticCode.PARSER_CANCELLED
-    with pytest.raises(TableAccessError) as invalidated:
-        reader.descriptor()
-    assert invalidated.value.code is ParserDiagnosticCode.PARSER_CANCELLED

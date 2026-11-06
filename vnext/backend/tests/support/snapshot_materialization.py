@@ -30,7 +30,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
     XmlParseResult,
 )
-from gateway_backend.capabilities.table_access.sql import parse_sql
+from gateway_backend.capabilities.table_access import parse_arrow_sql
 from gateway_backend.capabilities.table_rules.contracts import (
     TABLE_RULESET_VERSION,
     TableRulesetSnapshot,
@@ -57,7 +57,7 @@ def load_expected(relative_path: str) -> dict[str, Any]:
 
 
 def parse_fixture(relative_path: str, context: ParserInvocationContext | None = None) -> ParseResult:
-    return parse_sql(sql_request(load_sql(relative_path), context))
+    return parse_arrow_sql(sql_request(load_sql(relative_path), context))
 
 
 def default_ruleset() -> TableRulesetSnapshot:
@@ -80,7 +80,7 @@ def materialize_sql(
         digest = sql_source_digest or _ZERO
     else:
         request = sql_request(sql, context)
-        parse_result = parse_sql(request)
+        parse_result = parse_arrow_sql(request)
         digest = sql_source_digest or raw_blob_digest(request.sql_utf8)
     return materialize_sql_snapshot(
         SqlSnapshotMaterializationRequest(
@@ -200,7 +200,7 @@ def _build_sql_materialization_request(
         digest = sql_source_digest or _ZERO
     else:
         request = sql_request(sql)
-        parse_result = parse_sql(request)
+        parse_result = parse_arrow_sql(request)
         digest = sql_source_digest or raw_blob_digest(request.sql_utf8)
     return SqlSnapshotMaterializationRequest(
         parse_result=parse_result,

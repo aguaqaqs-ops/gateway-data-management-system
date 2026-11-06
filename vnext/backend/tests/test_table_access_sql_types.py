@@ -91,7 +91,6 @@ def test_sql_parser_type_descriptors_match_the_type_mapper(
     logical: SqlLogicalType,
     declared: DeclaredType | None,
     error: ParserDiagnosticCode | None,
-    dual_sql_implementation: None,
 ) -> None:
     result = parse_text(f"CREATE TABLE t (c {raw} NULL);")
     column = result.tables[0].descriptor.columns[0]

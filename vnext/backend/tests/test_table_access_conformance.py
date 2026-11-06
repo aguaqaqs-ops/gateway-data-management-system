@@ -23,7 +23,6 @@ from tests.support.table_access_fixtures import (
     xml_parse_result_from_expected,
 )
 from tests.support.table_access_sql import (
-    current_sql_implementation,
     parse_request_result,
     parse_text,
     sql_request,
@@ -94,7 +93,7 @@ def test_diagnostic_sort_key_is_offset_then_code_for_sql_and_xml() -> None:
     assert ordered[0].code.value < ordered[1].code.value
 
 
-def test_cancel_and_timeout_copy_are_shared(dual_sql_implementation: None) -> None:
+def test_cancel_and_timeout_copy_are_shared() -> None:
     sql_cancel = parse_request_result(
         sql_request("CREATE TABLE t (id INT NULL);", ParserInvocationContext(CountCancel(1)))
     )
@@ -113,7 +112,7 @@ def test_cancel_and_timeout_copy_are_shared(dual_sql_implementation: None) -> No
     assert sql_timeout.diagnostics[0].message == xml_timeout.diagnostics[0].message == "parser deadline exceeded"
 
 
-def test_diagnostic_truncation_marker_copy_is_shared(dual_sql_implementation: None) -> None:
+def test_diagnostic_truncation_marker_copy_is_shared() -> None:
     sql = parse_text(
         "CREATE TABLE t (`Id` INT NULL, `id` INT NULL, `ID` INT NULL);",
         budgets=tiny_budgets(max_diagnostics=1, max_diagnostics_total_bytes=256),
@@ -130,21 +129,16 @@ def test_diagnostic_truncation_marker_copy_is_shared(dual_sql_implementation: No
 
 @pytest.mark.parametrize("case_dir", SQL_GOLDEN_CASES)
 def test_sql_golden_oracle_exact_comparison(
-    case_dir: str, dual_sql_implementation: None
+    case_dir: str
 ) -> None:
     sql = load_text(f"{case_dir}/input.sql")
     payload = load_expected(f"{case_dir}/expected.json")
     expected = parse_result_from_expected(payload)
     actual = parse_text(sql)
     assert actual.status is expected.status
-    if current_sql_implementation() == "python":
-        assert [(item.code, item.message, item.byte_offset) for item in actual.diagnostics] == [
-            (item.code, item.message, item.byte_offset) for item in expected.diagnostics
-        ]
-    else:
-        assert [
-            (item.code, item.table, item.byte_offset) for item in actual.diagnostics
-        ] == [(item.code, item.table, item.byte_offset) for item in expected.diagnostics]
+    assert [
+        (item.code, item.table, item.byte_offset) for item in actual.diagnostics
+    ] == [(item.code, item.table, item.byte_offset) for item in expected.diagnostics]
     assert len(actual.tables) == len(expected.tables)
     for got, want in zip(actual.tables, expected.tables, strict=True):
         assert got.descriptor == want.descriptor

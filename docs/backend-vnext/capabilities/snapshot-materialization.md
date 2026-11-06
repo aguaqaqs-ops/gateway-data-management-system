@@ -364,6 +364,7 @@ repository_server / dolt_repository module
 RepositoryRefMaterializationInput:
   repository_ref
   repository_table_access_provider
+  committed_tables  # 实际选中/导出表所需的规范表 port；INITIAL/identity-only 可无
   digest_contract_version
   parser_version optional
   table_ruleset_version
@@ -389,6 +390,10 @@ SnapshotMaterializationResult:
   cache_diagnostics
   diagnostics
 ```
+
+S2b D 的 `committed_tables` 是本 capability contract 拥有的小型注入 port：输入绑定的精确 commit、descriptor/storage view、实际控制及读取 timeout 约束，返回具有正确 reader 生命周期的 `SnapshotTable`。application 用 C 的唯一 canonical store/cache/精确 commit 恢复实现，composition 注入 Preview、History 以及 Repository publication 的 `READERS_REQUIRED` 等真实消费者。capability 继续负责 metadata policy、选表、identity 和 manifest，不反向导入 application 或 Storage Projection 的 native 实现。
+
+INITIAL 和纯 identity-only 请求不为此读取行；只有实际选中/导出表才经 port。需要行或规范产物而未注入 port 时明确拒绝，不回退旧 Python rows/digest 路径。returned reader 必须拥有其 handle/borrower 或按绑定来源惰性重开，不能逃出已关闭的 context；恢复仍核 exact commit/expected repository/业务摘要，并保留 caller cancellation、finite deadline 及 repository timeout。raw/client Parquet 的真实用途不改变，不据此放宽冻结来源。
 
 Repository table access provider：
 

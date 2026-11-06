@@ -18,6 +18,8 @@ C 经明确理由与独立审核暂记的五个生产不可达项见 [C 任务�
 
 D 首个生产 parser 切换后，原 parser 的六个模块已失去生产入口，仍暂作本阶段差分参考。按既定 E 删除范围，允许 `UNREACHABLE_MODULE_BASELINE` 临时精确记录 `gateway_backend.capabilities.table_access.` 下的 `sql`、`_sql_reader`、`_sql_scan`、`_sql_statements`、`_sql_types`、`_sql_values` 六项。独立审核核实际只剩 test/diff 消费者；E 将预期移交到独立 fixed vectors/Contract 后删除六模块及 entries，不得保留到 S2b exit。不得新增生产引用、假 import、IMPORT/cycle baseline 或永久 oracle。此项与 C 的五个新能力临时项不同：后者仍须在 D 真实接线后移除。
 
+RepositoryRef 实际接线采用 Snapshot Materialization owning contract 中的小型 `committed_tables` port：capability 仅 metadata/选表/identity，application 用 C 实现，composition 注入所有真实选表/导出消费者（包含 publication 的 READERS_REQUIRED）。INITIAL/identity-only 不需 port、不读行；需要真实表而缺 port 时拒绝，无旧 rows fallback。不反向导入 application/storage_projection，不扩 native 白名单。返回 SnapshotTable 的句柄存活、exact commit/repository、caller control/deadline/timeout 与健康 cache hit 沿同一 owner 验证。
+
 ## 2. N/M 前置和生命周期
 
 沿已批准 kickoff §5：`GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS` 为整数 1..256，正确性默认 1，4 仅是后续调优比较点。每进程初始化一次固定 N 的 Rayon pool，PyArrow CPU/I/O pool 同步为 N。adapter 不再每次自由设置 `pool_threads=1`；未初始化或 N 冲突稳定拒绝。不同 N 的验证分进程，不重置 OnceLock。

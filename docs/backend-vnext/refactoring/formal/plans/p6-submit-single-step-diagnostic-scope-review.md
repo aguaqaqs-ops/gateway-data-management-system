@@ -335,3 +335,29 @@ singleflight 属于现有进程内派生缓存的最小控制，符合比例化�
 验证范围适当：复用解析不变量，最小真实 Dolt 场景覆盖跨批、转义和历史 commit 的精确 schema/count/排序；用事件同步证明同 key 合并、不同 key 并行、失败释放与重试、超预算共享。无需穷举线程窗口或全类型矩阵。新 RS 进程 attempt 1 成功才支持首次冷读改善，N 次 DDL 仍在，计划调用数不能当性能证据。后续单次副本调用仍须固定产品提交、镜像、对照方式和执行脚本再审；调试 focused 不替代最终按包/容器门禁。
 
 冻结基准边界明确：候选从 e798 独立建立，不能混入 main 的其他产品变更，也不适用 READY 32768 cap 的恢复例外。新产品验证后另列 V→H 影响表，决定可沿用与需重测内容。H3 原通过证据保留，W4/S4/H1 及剩余正式测量继续 STOP；原 lease_lost 根因仍 OPEN。DC81 已解除的 S2a/S2b 依赖不被本修复重新引入。未修改三份 DC81 工作中文档。
+
+## 23. 冷 catalog 候选代码与局部证据审核
+
+**代码与局部验证通过，无阻塞 finding。** 代码候选 `4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`，实现提交 `dae01d557e150a078e813794d44d12d95c7ac34e`，handoff 文档提交 `eaf247c67af4c23de9aa333f07acc5e8f2ab0590`。审核读取独立 worktree `/home/dev/gdds-p6-cold-catalog-repair` 相对 e798 的完整四文件代码/测试增量及 handoff；工作区 clean，`git diff --check` 通过。未运行测试或节点命令。本结论可供设计准备下一固定镜像/单次诊断候选，不放行镜像执行、冷调用、Submit、合并或正式测量恢复。
+
+产品仅改 `candidate_a/dolt_cli.py` 与 `versioned_read/application.py`，符合已审范围。COUNT 每批至多 16 表、同一 escaped AS OF literal，复用严格单 JSON/列校验；ordinal 拒绝 bool、非整数、越界、重复或缺失，按输入列表绑定，计数沿用原解析。schema/COUNT 分两阶段共用原受限池，单路配置顺序执行，空 catalog 不发 COUNT；完整成功后才缓存并排序。单命令预算/capture、provider 映射、import `catalog` 和 `type_catalog` 未变。原 `_load_table_catalog` 仍有 import 调用者，保留不是兼容死路径。
+
+缓存与 leader 选取在同一锁下，loader/follower 等待在锁外，无新增 executor。loader、计量和缓存发布均处于失败处理范围；BaseException 也完成等待 Future、移除 in-flight 并重抛。发布失败移除该 key，并按最多 8 项重算占用；超 16 MiB 结果只共享当前等待者，不留存。Future 为内部对象，没有公开取消/回调接线；本次不需要另建生命周期机制。不同 key 独立，成功/失败后续请求的行为及原缓存上限保持。
+
+测试覆盖 0/1/16/17 表批次、乱序/错 ordinal、失败不缓存或回退，以及同 key 合并、不同 key 并行、超限共享、loader/计量/发布异常释放和重试。并发用例使用事件/Barrier 且标 serial；真实 Dolt 用例已标 integration，一次批量构造 17 表、视图和转义名，再推进 main 的行数/schema 后读取历史 commit，与原逐表精确查询比较完整结果。没有为纯解析使用真实 Dolt。`4497` 相对 `dae01` 仅把测试参数的两个字典字面量改为显式 `dict[str, Any](...)`，键值/顺序相同；不要求因此重复 focused。
+
+直接读取 LAN 回传至 CT201 的五份原始日志，路径均在 `/home/dev/gdds-p6-logs/cold-catalog-repair-20261106/`，逐项 SHA256 与 handoff 相符：
+
+| 日志 | SHA256 |
+| --- | --- |
+| `focused-dae01d557e.log` | `29234ec411a2287fe7834ad89a7d2c7a6c97e01b51de9dfc331df54b0d0cb9a2` |
+| `focused-dae01d557e-corrected.log` | `d5b859a220e9856d58f5a2ed403a8fc2f219c9d633241e5290fcd41081f98895` |
+| `static-dae01d557e.log` | `6eb19213484d0da408803a40900493775abfbf98f216e3dbf7d71f9f92f0a34f` |
+| `static-4497ded8ff.log` | `e2107d634e435f3a8c1f815e4a807f03bdd40c6ef7e8688025faa47cd331f4c5` |
+| `closeout.log` | `7d19185a6d45a4e4ae55188934529c5fd0b744430c7fee4dc1774b81cbce6bc9` |
+
+CT05 hostname `gw-dms-test-05`：首次 00:40:00–00:40:02Z 为 wrapper 切目录后的参数路径错误，collected 0 / exit 4，尚未执行测试对象；保留失败后按 DC68 修正一次，00:40:23–00:40:41Z 在 dae01 **83 passed / 17.72s / exit 0**。00:41:18–00:42:11Z 五包 Ruff 与前四包 mypy 通过，RS mypy 仅新测试异构参数推断报错、整体 exit 1；4497 的 00:43:04–00:43:05Z RS Ruff/mypy（201 文件）通过、exit 0，native build input 的 expected/installed 同为 `58436908aee9dd449f4d3e0542a6a8c1920b6d5e`。各日志起止 HEAD 和五锁摘要一致，声明使用本机预置缓存、offline/no proxy；closeout 记录 00:43:44Z 已确认无自有运行容器/任务并释放自有锁。本审核核验保存日志，没有重新访问节点或把收尾记录冒称实时状态。
+
+83 项实际来源为 dae01；其结果可作为本候选的局部回归证据，不称 4497 实际跑过、权威 runner 或 carried。五包静态通过按上述两次记录共同支持。当前 HEAD 未验证新镜像；本轮内部 Python 改动未触碰容器专属边界，镜像与相应门禁延期至设计安排的下一固定候选，旧 e798 镜像不沿用为本候选通过。独立单次冷调用仍须提交产品/镜像身份、对照方式和脚本供审核。
+
+同时已核设计补充 `7c4da1b79c` §6：30 秒不是不可商议业务 SLO，attempt 1 条件仅判断原配置首次读是否解决。若最小修复仍发生 ReadTimeout，保留失败事实，带实测、规模/硬件及请求预算、重试和后台资源影响交 owner 讨论，不要求无限优化或重复全量，也不改写旧配置结果。正确性与身份边界不放宽；H3 保留，W4/S4/H1 及剩余正式测量停止，原 lease_lost 根因仍 OPEN。

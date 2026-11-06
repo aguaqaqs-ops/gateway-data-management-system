@@ -471,12 +471,9 @@ fn native_inner(
     py: Python<'_>,
     operation: Operation,
     tables: Bound<'_, PyList>,
-    streams: Bound<'_, PyList>,
     plan: Bound<'_, PyDict>,
-    cancel_probe: Py<PyAny>,
     budgets: Bound<'_, PyDict>,
-    deadline_monotonic: Option<f64>,
-    pool_threads: usize,
+    (cancel_probe, deadline_monotonic, pool_threads): (Py<PyAny>, Option<f64>, usize),
 ) -> PyResult<Py<PyAny>> {
     let pool = shared_parser_pool(pool_threads)?;
     let deadline = deadline_instant(py, deadline_monotonic)?;
@@ -489,7 +486,6 @@ fn native_inner(
         1
     };
     if tables.len() > max_tables
-        || tables.len() != streams.len()
         || (!matches!(operation, Operation::Catalog) && tables.len() != 1)
     {
         return Err(PyValueError::new_err(
@@ -518,7 +514,7 @@ fn native_inner(
         .ok_or_else(|| PyMemoryError::new_err("metadata size overflow"))?;
     let mut descriptors = Vec::with_capacity(tables.len());
     let mut readers = Vec::with_capacity(tables.len());
-    for (table, stream) in tables.iter().zip(streams.iter()) {
+    for table in tables.iter() {
         python_adapter_control(&watch, deadline)?;
         descriptors.push(table_descriptor(
             table
@@ -537,6 +533,7 @@ fn native_inner(
         {
             return Err(PyValueError::new_err("business input repeats a table name"));
         }
+        let stream = required_item(table.cast::<PyDict>().map_err(|_| PyValueError::new_err("table metadata must be a dict"))?, "arrow_stream")?;
         readers.push(stream.extract::<PyRecordBatchReader>()?.into_reader()?);
     }
     let sql_plan = if matches!(operation, Operation::Sql) {
@@ -867,9 +864,9 @@ fn native_inner(
 macro_rules! entry {
     ($name:ident, $operation:ident) => {
         #[pyfunction]
-        #[pyo3(signature = (tables, streams, plan, cancel_probe, budgets, deadline_monotonic=None, pool_threads=1))]
-        fn $name(py: Python<'_>, tables: Bound<'_, PyList>, streams: Bound<'_, PyList>, plan: Bound<'_, PyDict>, cancel_probe: Py<PyAny>, budgets: Bound<'_, PyDict>, deadline_monotonic: Option<f64>, pool_threads: usize) -> PyResult<Py<PyAny>> {
-            match adapter_boundary(|| native_inner(py, Operation::$operation, tables, streams, plan, cancel_probe, budgets, deadline_monotonic, pool_threads)) { Ok(result) => result, Err(()) => Err(PyRuntimeError::new_err("business kernel adapter panicked")) }
+        #[pyo3(signature = (tables, plan, cancel_probe, budgets, deadline_monotonic=None, pool_threads=1))]
+        fn $name(py: Python<'_>, tables: Bound<'_, PyList>, plan: Bound<'_, PyDict>, cancel_probe: Py<PyAny>, budgets: Bound<'_, PyDict>, deadline_monotonic: Option<f64>, pool_threads: usize) -> PyResult<Py<PyAny>> {
+            match adapter_boundary(|| native_inner(py, Operation::$operation, tables, plan, budgets, (cancel_probe, deadline_monotonic, pool_threads))) { Ok(result) => result, Err(()) => Err(PyRuntimeError::new_err("business kernel adapter panicked")) }
         }
     };
 }

@@ -130,6 +130,7 @@ fn validate_table(
             if canonicalize_identifier(field.name()).map_err(encoding_error)?
                 != column.canonical_name
                 || !cells::accepts(column, array.data_type())
+                || field.is_nullable() != column.nullable
             {
                 return Err(schema_error(
                     "Arrow name/type binding does not match descriptor",

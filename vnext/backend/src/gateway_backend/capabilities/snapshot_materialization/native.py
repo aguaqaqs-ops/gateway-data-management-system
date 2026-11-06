@@ -73,7 +73,6 @@ def call_arrow_kernel(
         KernelResult,
         native(
             tables,
-            [table["arrow_stream"] for table in tables],
             plan,
             cancel_probe,
             budgets,

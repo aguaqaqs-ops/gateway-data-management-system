@@ -149,16 +149,17 @@ def test_reserved_source_gid_strings_follow_the_python_int_owner(gid: str) -> No
     assert materialize_sql(sql).snapshot is None
 
 
-def test_empty_stream_checks_actual_schema_and_returns_a_standard_empty_reader() -> None:
+@pytest.mark.parametrize("mismatch", ("type", "nullable"))
+def test_empty_stream_checks_actual_schema_and_returns_a_standard_empty_reader(mismatch: str) -> None:
     table = _tables("CREATE TABLE t (id INT NOT NULL PRIMARY KEY);")[0]
     schema = pa.schema([pa.field("id", pa.int64(), nullable=False)])
-    result = _sql_materialize_native([table], [pa.RecordBatchReader.from_batches(schema, [])], {"stage": "FINAL", "effective_compare_key_columns": ["id"]}, NeverCancel(), _BUDGETS)
+    result = _sql_materialize_native([{**table, "arrow_stream": pa.RecordBatchReader.from_batches(schema, [])}], {"stage": "FINAL", "effective_compare_key_columns": ["id"]}, NeverCancel(), _BUDGETS)
     output = result["output"]["tables"][0]
     assert output["row_count"] == 0
     assert output["arrow_stream"].read_all().schema == schema
-    wrong = pa.schema([pa.field("id", pa.string(), nullable=False)])
+    wrong = pa.schema([pa.field("id", pa.string() if mismatch == "type" else pa.int64(), nullable=mismatch == "nullable")])
     with pytest.raises(ValueError, match="binding"):
-        _sql_materialize_native([table], [pa.RecordBatchReader.from_batches(wrong, [])], {"stage": "FINAL", "effective_compare_key_columns": ["id"]}, NeverCancel(), _BUDGETS)
+        _sql_materialize_native([{**table, "arrow_stream": pa.RecordBatchReader.from_batches(wrong, [])}], {"stage": "FINAL", "effective_compare_key_columns": ["id"]}, NeverCancel(), _BUDGETS)
 
 
 def test_projection_cannot_disguise_an_empty_source_text_key_as_varchar() -> None:
@@ -169,7 +170,7 @@ def test_projection_cannot_disguise_an_empty_source_text_key_as_varchar() -> Non
     plan = build_projection_plan(descriptor, _view(descriptor), canonicalized_input=False, budgets=_BUDGETS)
     plan["columns"][0]["sql_type"] = "VARCHAR(8)"
     table = _tables(sql)[0]
-    result = _canonical_project_native([table], [table["arrow_stream"]], plan, NeverCancel(), _BUDGETS)
+    result = _canonical_project_native([table], plan, NeverCancel(), _BUDGETS)
     assert result["output"] is None
     assert any(item["code"] == "UNSUPPORTED_TABLE" for item in result["diagnostics"])
 
@@ -185,7 +186,7 @@ def test_zero_column_nonempty_projection_survives_c_stream_and_canonical_ipc() -
     plan["structural_columns"] = []
     plan["row_policy"] = "KEYLESS"
     table = _tables(sql)[0]
-    result = _canonical_project_native([table], [table["arrow_stream"]], plan, NeverCancel(), _BUDGETS)
+    result = _canonical_project_native([table], plan, NeverCancel(), _BUDGETS)
     projected = result["output"]["tables"][0]
     assert projected["row_count"] == 3
     encoded = _encode_canonical_ipc_native([], projected["arrow_stream"], NeverCancel(), _IPC)
@@ -215,11 +216,11 @@ def test_canonicalized_ordered_pseudo_gid_requires_the_original_no_allocation() 
     descriptor = old.summary.tables[0]
     plan = build_projection_plan(descriptor, _view(descriptor), canonicalized_input=False, budgets=_BUDGETS)
     source = _tables(sql)[0]
-    first = _canonical_project_native([source], [source["arrow_stream"]], plan, NeverCancel(), _BUDGETS)["output"]
+    first = _canonical_project_native([source], plan, NeverCancel(), _BUDGETS)["output"]
     table = first["tables"][0]
     plan["canonicalized_input"] = True
     plan["columns"][0]["source_index"] = 0
-    second = _canonical_project_native([table], [table["arrow_stream"]], plan, NeverCancel(), _BUDGETS)
+    second = _canonical_project_native([table], plan, NeverCancel(), _BUDGETS)
     assert second["output"]["raw_content_digest"] == first["raw_content_digest"]
 
 
@@ -261,7 +262,7 @@ def test_native_stream_budget_stops_before_consuming_later_batches() -> None:
 
     reader = pa.RecordBatchReader.from_batches(schema, batches())
     with pytest.raises(MemoryError, match="row"):
-        _sql_materialize_native([table], [reader], {"stage": "FINAL", "effective_compare_key_columns": []}, NeverCancel(), {**_BUDGETS, "max_rows": 1})
+        _sql_materialize_native([{**table, "arrow_stream": reader}], {"stage": "FINAL", "effective_compare_key_columns": []}, NeverCancel(), {**_BUDGETS, "max_rows": 1})
     assert consumed == [0, 1]
 
 
@@ -270,7 +271,7 @@ def test_native_business_resource_failures_return_no_partial_result(budget: str)
     sql = "CREATE TABLE t (gid VARCHAR(32)); INSERT INTO t VALUES ('4000000000');"
     table = _tables(sql)[0]
     with pytest.raises(MemoryError):
-        _sql_materialize_native([table], [table["arrow_stream"]], {"stage": "FINAL", "effective_compare_key_columns": []}, NeverCancel(), {**_BUDGETS, budget: 1})
+        _sql_materialize_native([table], {"stage": "FINAL", "effective_compare_key_columns": []}, NeverCancel(), {**_BUDGETS, budget: 1})
 
 
 def test_complete_schema_diagnostics_keep_the_existing_cap_order_and_omitted_count() -> None:
@@ -285,7 +286,7 @@ def test_complete_schema_diagnostics_keep_the_existing_cap_order_and_omitted_cou
     oracle = project_storage(ProjectionRequest(ruleset=migrated_table_ruleset_snapshot(), storage_projection_version=STORAGE_PROJECTION_VERSION, tables=(ProjectionTableInput(canonical_table="t", reader=reader, source_binding=binding),), context=ProjectionInvocationContext(NeverCancel())))
     budgets = {**_BUDGETS, "max_metadata_bytes": 32 * 1024 * 1024, "max_live_bytes": 512 * 1024 * 1024}
     plan = build_projection_plan(binding.descriptor, _view(binding.descriptor), canonicalized_input=False, budgets=budgets)
-    result = _canonical_project_native([table], [table["arrow_stream"]], plan, NeverCancel(), budgets)
+    result = _canonical_project_native([table], plan, NeverCancel(), budgets)
     assert result["output"] is None
     assert [(item["code"], item["column"]) for item in result["diagnostics"]] == [(item.code.value, item.column_name) for item in oracle.diagnostics]
     assert len(result["diagnostics"]) == 1024
@@ -348,6 +349,6 @@ def test_native_business_control_is_observed_while_the_gil_is_released(mode: str
     expected = {"cancel": InterruptedError, "deadline": TimeoutError, "probe_error": RuntimeError}[mode]
     deadline = time.monotonic() + 0.02 if mode == "deadline" else None
     with pytest.raises(expected):
-        _sql_materialize_native([table], [reader], {"stage": "FINAL", "effective_compare_key_columns": []}, probe, _BUDGETS, deadline)
+        _sql_materialize_native([{**table, "arrow_stream": reader}], {"stage": "FINAL", "effective_compare_key_columns": []}, probe, _BUDGETS, deadline)
     if mode != "deadline":
         assert probe.count > 1

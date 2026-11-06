@@ -1,6 +1,6 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前进度（2026-11-06）：`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 已获独立 SOURCE_REVIEW_CLEAR；04 新 E worktree 的 Rust-only 权威 runner 于 19:53:12–19:54:00Z 实际通过，日志 SHA `6253a0e3000ef60456a5359d062ee3a6ef793be21292ecdd47f722ca3286abf9`、manifest `5dbb8a817e37bad59f5318d63592e405f2bb3dc3886b483bc329a05f77b540ea` 已独立核实，可作该包真实来源；04/06 占用均已释放，工作区/证据保留。额外四工具 mypy 连续两次命令准备错误后按 DC68 停止，已审的一次 `MYPYPATH=src`/限定模块名修正待 Owner 答复；为避免随工具修订重复取证，五 Python 权威包与 t1–t4 尚未启动。当前只有该单项续做待决，不重新请求已授权 B–E 开工；不把源码/Rust 通过写成 E GO 或 S2b exit。
+当前进度（2026-11-06）：`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 已获独立 SOURCE_REVIEW_CLEAR；04 新 E worktree 的 Rust-only 权威 runner 于 19:53:12–19:54:00Z 实际通过，日志 SHA `6253a0e3000ef60456a5359d062ee3a6ef793be21292ecdd47f722ca3286abf9`、manifest `5dbb8a817e37bad59f5318d63592e405f2bb3dc3886b483bc329a05f77b540ea` 已独立核实，可作该包真实来源；04/06 占用均已释放，工作区/证据保留。额外四工具 mypy 连续两次命令准备错误后按 DC68 停止；Owner 于 2026-11-06 明确同意修正续做，现由同 E 实施者与审核者恢复已审的 `MYPYPATH=src`/限定模块名命令。保持 strict 与既有 overrides，不增忽略、不改锁或配置。先收口该项及必要定向修订，再固定候选执行五 Python 权威包和 t1–t4；已合格 Rust 来源按同节点同 E worktree 的实际闭包比较复用。不是重新请求 B–E 开工，不把授权或源码/Rust 通过记为 E GO/S2b exit，原失败证据继续保留。
 
 启动时前置记录：**D 前置通过，按 DC86 启动 E**（2026-11-06）。D 固定产品 `93678f8439ec1393d496182f16ae5049b220242f`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，06 已释放、D 二角色结束。本节重新创建 **GPT-6.1-Sol/high 实施者、GPT-6.1-Sol/max 独立审核者**；因涉及旧算法与独立预期移交、累计恢复证据、跨节点最终门禁及闭包判定，审核选择 max。按下述范围先收敛删除与工具消费者，再固定最终候选验证，不把 D focused 结果充作最终权威来源。
 

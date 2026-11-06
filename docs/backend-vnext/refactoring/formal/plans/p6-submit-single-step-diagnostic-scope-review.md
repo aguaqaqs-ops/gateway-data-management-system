@@ -455,7 +455,7 @@ handoff 提交 `716ef8ae5df7a891566bc051627ea075f8b23bca`。候选根路径沿�
 
 source readout 与 target RS identity 均保持第 28 节摘要。审核程序核对最终 manifest 的六个候选文件和五个准备日志，大小/摘要全部匹配，shell 内 launcher pin 相等。`preparation-validation-final.log` SHA `be6a2e6ddf7b8921de85399859abb44aa66dd8e05ae77e0e7bf5b379c5fb888d`，记录候选 SUMS、bash syntax、AST、pin/28 DiffID 检查通过，未运行候选。初次 pin 检查的正则误报及两次 manifest 生成路径/字段错误保留日志，不将其冒称产品或节点验收失败；不要求新增业务测试。
 
-**第 28 节收尾问题关闭。** 删除裸 Compose down，原 journey 继续以自身 secret 环境完成正常收尾。外层 cleanup 先按固定 project label 列容器/network，无残留仅重复确认；有残留才使用 30 秒单命令预算、`stop --time 10`、不带 `-v` 的 `rm --force` 和对应 network rm。记录每条命令及最终空集合；任何超时/非零/无法确认均失败并保留锁，不接触源项目或数据卷。反向去除新增 cleanup 函数和 main 入口后，精确恢复首版 launcher SHA `bbbe6311…04b6`，确认未夹带源验证、单 POST 或观测逻辑变化。
+**第 28 节收尾问题关闭。** 删除裸 Compose down，原 journey 继续以自身 secret 环境完成正常收尾。外层 cleanup 先按固定 project label 列容器/network，无残留仅重复确认；有残留才使用 30 秒单命令预算、`stop --time 10`、不带 `-v` 的 `rm --force` 和对应 network rm。记录每条命令及最终空集合；任何超时/非零/无法确认均失败并保留锁，不接触源项目或数据卷。审核者仅在内存字符串中反向去除新增 cleanup 函数和 main 入口，所得摘要精确等于首版 `bbbe6311…04b6`，用于确认其余逻辑未变；没有改动执行文件，也不要求实施者移除 cleanup。实际 GO 始终绑定上表含 cleanup 的 r1 launcher `6686e810…b977`，首版不获执行授权。
 
 shell 对 preflight、cleanup、postflight 各加 300 秒 outer timeout（TERM 后 15 秒 kill），journey/sampler 整体为 3600 秒（INT 后 30 秒 kill），原 POST guardian 的 2700 秒预算不变。固定 sampler 子进程没有另建 session，继续使用原 child 终止/等待路径；正常 wrapper 仍先关闭 observer 再进行 journey finalization。这些外层上限是诊断截断保护，不延长产品请求/租约或把单步预算改成 60 分钟。缺失/不符 state 与 sampler manifest 比较会使验收非零；锁释放依据自身资源静止，不能以释放锁表示业务成功。
 

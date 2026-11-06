@@ -53,6 +53,16 @@ pub const MAX_PARSER_THREADS: usize = 256;
 /// Default target size of one INSERT parse task.
 pub const DEFAULT_CHUNK_BYTES: usize = 1 << 20;
 
+/// Verify metadata at an Arrow business boundary using the parser's existing
+/// type vocabulary. Spelling normalization remains with the caller's owner.
+pub(crate) fn valid_column_type(column: &ColumnDescriptor) -> bool {
+    let mapped = types::map_sql_type(&column.sql_type, column.sql_type.len());
+    mapped.logical_type == column.logical_type
+        && mapped.declared_type == column.declared_type
+        && mapped.labels == column.labels
+        && column.declared_type.as_ref().is_none_or(|declared| declared.validate().is_ok())
+}
+
 /// Resource budgets (`RESOURCE_BUDGETS` of the Python contract).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserBudgets {

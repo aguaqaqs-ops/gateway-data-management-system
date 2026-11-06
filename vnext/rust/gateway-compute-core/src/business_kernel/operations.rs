@@ -3,10 +3,9 @@
 use std::collections::{BTreeSet, HashSet};
 use std::sync::Arc;
 
-use arrow_array::{
-    Array, ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int64Array,
-    RecordBatch, RecordBatchOptions, StringArray, UInt64Array,
-};
+use arrow_array::{Array, ArrayRef, RecordBatch, RecordBatchOptions};
+use arrow_array::builder::{Int64Builder, UInt64Builder, Float32Builder, Float64Builder, BooleanBuilder, GenericStringBuilder, GenericBinaryBuilder};
+use arrow_array::OffsetSizeTrait;
 use arrow_schema::{Field, Schema};
 use gateway_shared_kernel::{
     DeclaredType, canonicalize_identifier, unordered_row_hashes_content_digest,
@@ -57,15 +56,22 @@ fn schema_error(message: impl Into<String>) -> BusinessKernelError {
     BusinessKernelError::new(BusinessKernelErrorKind::Schema, message)
 }
 
+fn descriptor_bytes(descriptor: &TableDescriptor) -> Result<usize, BusinessKernelError> {
+    let mut bytes = add(256, add(descriptor.display_name.len(), descriptor.canonical_name.len())?)?;
+    for column in &descriptor.columns {
+        bytes = add(bytes, add(256, add(add(column.display_name.len(), column.canonical_name.len())?, column.sql_type.len())?)?)?;
+        for label in column.labels.iter().flatten() { bytes = add(bytes, add(32, label.len())?)?; }
+    }
+    for key in &descriptor.primary_key { bytes = add(bytes, add(32, key.len())?)?; }
+    Ok(bytes)
+}
+
 fn validate_table(
     input: KernelTableInput<'_>,
     options: BusinessKernelOptions<'_>,
 ) -> Result<KernelTableInputFacts, BusinessKernelError> {
     let facts = preflight_table_input(input, options)?;
-    if add(
-        mul(facts.metadata_bytes, 4)?,
-        mul(input.descriptor.columns.len(), 1024)?,
-    )? > options.budgets.max_live_bytes
+    if mul(descriptor_bytes(input.descriptor)?, 8)? > options.budgets.max_live_bytes
     {
         return Err(resource_error("descriptor allocation budget exceeded"));
     }
@@ -82,6 +88,7 @@ fn validate_table(
         {
             return Err(schema_error("invalid canonical column name or ordinal"));
         }
+        if !crate::table_access::valid_column_type(column) { return Err(schema_error("logical/declared/label metadata disagrees with SQL type")); }
         if columns[..index]
             .iter()
             .any(|other| other.canonical_name == column.canonical_name)
@@ -117,6 +124,9 @@ fn workspace<'a>(
         options,
         retained: 0,
     };
+    // Reserve the fixed diagnostic envelope before any business diagnostic can
+    // be built. It overlaps metadata, key/hash indices and returned output.
+    working.reserve(add(mul(options.budgets.max_diagnostic_bytes, 4)?, mul(BUSINESS_KERNEL_MAX_DIAGNOSTICS, 256)?)?)?;
     // Owned descriptors, batch/array references, reusable row cells and names.
     working.reserve(add(
         mul(facts.metadata_bytes, 4)?,
@@ -181,17 +191,21 @@ fn table_digest(
 
 fn diagnostic(
     code: &str,
-    message: impl Into<String>,
+    message: &str,
     table: &str,
     column: Option<&str>,
-) -> KernelDiagnostic {
-    KernelDiagnostic {
+    options: BusinessKernelOptions<'_>,
+) -> Result<KernelDiagnostic, BusinessKernelError> {
+    let bytes = add(add(code.len(), message.len())?, add(table.len(), column.map_or(0, str::len))?)?;
+    if bytes > options.budgets.max_diagnostic_bytes { return Err(resource_error("diagnostic byte budget exceeded")); }
+    options.checkpoint()?;
+    Ok(KernelDiagnostic {
         code: code.to_owned(),
-        message: message.into(),
+        message: message.to_owned(),
         table: Some(table.to_owned()),
         column: column.map(str::to_owned),
         severity: KernelDiagnosticSeverity::Error,
-    }
+    })
 }
 
 fn outcome<T>(
@@ -262,7 +276,7 @@ pub fn materialize_sql_table(
                 if let Some(index) = gid {
                     let parsed = cells::integer(values[index]).or_else(|| {
                         if let Cell::Text(text) = values[index] {
-                            text.trim().parse::<i128>().ok()
+                            cells::source_gid_integer(text)
                         } else {
                             None
                         }
@@ -276,7 +290,8 @@ pub fn materialize_sql_table(
                                 "SQL source gid is in the reserved pseudo range",
                                 &input.descriptor.canonical_name,
                                 None,
-                            )],
+                                options,
+                            )?],
                             0,
                             options,
                         );
@@ -318,7 +333,8 @@ pub fn materialize_sql_table(
         } else {
             None
         };
-        if facts.input_bytes > options.budgets.max_output_bytes {
+        let output_bytes = add(add(facts.input_bytes, descriptor_bytes(input.descriptor)?)?, add(128, if duplicate { 512 } else { 0 })?)?;
+        if output_bytes > options.budgets.max_output_bytes {
             return Err(resource_error("returned Arrow exceeds output byte budget"));
         }
         let mut diagnostics = Vec::new();
@@ -328,7 +344,8 @@ pub fn materialize_sql_table(
                 "duplicate effective key rows were preserved",
                 &input.descriptor.canonical_name,
                 None,
-            );
+                options,
+            )?;
             warning.severity = KernelDiagnosticSeverity::Warning;
             diagnostics.push(warning);
         }
@@ -372,6 +389,36 @@ fn selected_cell<'a>(
     )
 }
 
+fn build_text<O: OffsetSizeTrait>(values: &[Cell<'_>], payload: usize, column: &ColumnDescriptor, working: &Working<'_>) -> Result<ArrayRef, BusinessKernelError> {
+    working.options.checkpoint()?;
+    let mut builder = GenericStringBuilder::<O>::with_capacity(values.len(), payload);
+    for cell in values {
+        working.options.checkpoint()?;
+        match cell {
+            Cell::Null => builder.append_null(),
+            Cell::Text(text) if column.logical_type == SqlLogicalType::Set => {
+                let members = cells::set_members(text, column)?;
+                builder.append_value(members.join(","));
+            },
+            Cell::Text(text) => builder.append_value(text),
+            _ => return Err(value_error("output text cell has wrong type")),
+        }
+    }
+    working.options.checkpoint()?;
+    Ok(Arc::new(builder.finish()))
+}
+
+fn build_binary<O: OffsetSizeTrait>(values: &[Cell<'_>], payload: usize, working: &Working<'_>) -> Result<ArrayRef, BusinessKernelError> {
+    working.options.checkpoint()?;
+    let mut builder = GenericBinaryBuilder::<O>::with_capacity(values.len(), payload);
+    for cell in values {
+        working.options.checkpoint()?;
+        match cell { Cell::Null => builder.append_null(), Cell::Binary(bytes) => builder.append_value(bytes), _ => return Err(value_error("output binary cell has wrong type")) }
+    }
+    working.options.checkpoint()?;
+    Ok(Arc::new(builder.finish()))
+}
+
 fn arrow_table(
     input: KernelTableInput<'_>,
     columns: &[CanonicalProjectionColumn],
@@ -380,7 +427,9 @@ fn arrow_table(
     primary_key: &[String],
     working: &mut Working<'_>,
 ) -> Result<KernelArrowTable, BusinessKernelError> {
-    let mut estimated = mul(columns.len(), add(1024, mul(rows.len(), 24)?)?)?;
+    let mut estimated = add(add(256, mul(name.len(), 2)?)?, mul(columns.len(), add(1024, mul(rows.len(), 24)?)?)?)?;
+    for column in columns { estimated = add(estimated, add(add(column.descriptor.sql_type.len(), column.descriptor.canonical_name.len())?, column.descriptor.display_name.len())?)?; for label in column.descriptor.labels.iter().flatten() { estimated = add(estimated, add(32, label.len())?)?; } }
+    for key in primary_key { estimated = add(estimated, add(32, key.len())?)?; }
     for column in columns {
         let source_index = column
             .source_index
@@ -405,73 +454,48 @@ fn arrow_table(
         let index = column
             .source_index
             .ok_or_else(|| schema_error("missing source column"))?;
-        let values = rows
-            .iter()
-            .map(|&row| selected_cell(input, row, index))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut values = Vec::with_capacity(rows.len());
+        let mut payload = 0usize;
+        for &row in rows {
+            working.options.checkpoint()?;
+            let cell = selected_cell(input, row, index)?;
+            payload = add(payload, match cell { Cell::Text(text) => text.len(), Cell::Binary(bytes) => bytes.len(), _ => 0 })?;
+            values.push(cell);
+        }
         macro_rules! array {
             ($ty:ty, $variant:ident) => {
-                Arc::new(<$ty>::from_iter(values.iter().map(|cell| {
-                    if let Cell::$variant(value) = cell {
-                        Some(*value)
-                    } else {
-                        None
-                    }
-                }))) as ArrayRef
+                { let mut builder = <$ty>::with_capacity(values.len());
+                for cell in &values { working.options.checkpoint()?; if let Cell::$variant(value) = cell { builder.append_value(*value); } else { builder.append_null(); } }
+                Arc::new(builder.finish()) as ArrayRef }
             };
         }
         use DeclaredType as D;
         let array: ArrayRef = match column.descriptor.declared_type.as_ref() {
-            Some(D::SignedInteger { .. }) => array!(Int64Array, Int),
-            Some(D::UnsignedInteger { .. }) => Arc::new(UInt64Array::from_iter(values.iter().map(
-                |cell| match cell {
-                    Cell::UInt(value) => Some(*value),
-                    Cell::Int(value) => u64::try_from(*value).ok(),
-                    _ => None,
-                },
-            ))),
-            Some(D::Boolean) => array!(BooleanArray, Bool),
-            Some(D::Float32) => Arc::new(Float32Array::from_iter(values.iter().map(|cell| {
-                if let Cell::F32(value) = cell {
-                    Some(if *value == 0.0 { 0.0 } else { *value })
-                } else {
-                    None
-                }
-            }))),
-            Some(D::Float64) => Arc::new(Float64Array::from_iter(values.iter().map(|cell| {
-                if let Cell::F64(value) = cell {
-                    Some(if *value == 0.0 { 0.0 } else { *value })
-                } else {
-                    None
-                }
-            }))),
+            Some(D::SignedInteger { .. }) => array!(Int64Builder, Int),
+            Some(D::UnsignedInteger { .. }) => {
+                let mut builder = UInt64Builder::with_capacity(values.len());
+                for cell in &values { working.options.checkpoint()?; match cell { Cell::UInt(value) => builder.append_value(*value), Cell::Int(value) => builder.append_value(u64::try_from(*value).map_err(encoding_error)?), Cell::Null => builder.append_null(), _ => return Err(value_error("unsigned output has wrong cell type")) } }
+                Arc::new(builder.finish())
+            },
+            Some(D::Boolean) => array!(BooleanBuilder, Bool),
+            Some(D::Float32) => {
+                let mut builder = Float32Builder::with_capacity(values.len());
+                for cell in &values { working.options.checkpoint()?; match cell { Cell::F32(value) => builder.append_value(if *value == 0.0 { 0.0 } else { *value }), Cell::Null => builder.append_null(), _ => return Err(value_error("float32 output has wrong cell type")) } }
+                Arc::new(builder.finish())
+            },
+            Some(D::Float64) => {
+                let mut builder = Float64Builder::with_capacity(values.len());
+                for cell in &values { working.options.checkpoint()?; match cell { Cell::F64(value) => builder.append_value(if *value == 0.0 { 0.0 } else { *value }), Cell::Null => builder.append_null(), _ => return Err(value_error("float64 output has wrong cell type")) } }
+                Arc::new(builder.finish())
+            },
             Some(D::Binary | D::Bit { .. }) => {
-                Arc::new(BinaryArray::from_iter(values.iter().map(|cell| {
-                    if let Cell::Binary(value) = cell {
-                        Some(*value)
-                    } else {
-                        None
-                    }
-                })))
+                if payload > i32::MAX as usize { build_binary::<i64>(&values, payload, working)? } else { build_binary::<i32>(&values, payload, working)? }
             }
             _ => {
-                let text = values
-                    .iter()
-                    .map(|cell| match cell {
-                        Cell::Null => Ok(None),
-                        Cell::Text(text)
-                            if column.descriptor.logical_type == SqlLogicalType::Set =>
-                        {
-                            cells::set_members(text, &column.descriptor)
-                                .map(|members| Some(members.join(",")))
-                        }
-                        Cell::Text(text) => Ok(Some((*text).to_owned())),
-                        _ => Err(value_error("output text cell has wrong type")),
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Arc::new(StringArray::from_iter(text))
+                if payload > i32::MAX as usize { build_text::<i64>(&values, payload, &column.descriptor, working)? } else { build_text::<i32>(&values, payload, &column.descriptor, working)? }
             }
         };
+        working.options.checkpoint()?;
         arrays.push(array);
         let mut descriptor = column.descriptor.clone();
         descriptor.ordinal = ordinal;
@@ -525,14 +549,38 @@ pub fn filter_catalog(
 ) -> Result<KernelOutcome<CatalogFilterOutput>, BusinessKernelError> {
     pool.install(|| {
         options.checkpoint()?;
+        const POINT_TABLES: &[&str] = &["device_st", "device_mx", "device_co", "device_sg", "device_sp", "device_cnt", "device_sn", "device_tap", "device_other", "device_disturb"];
+        if input.point_tables.len() > POINT_TABLES.len() { return Err(schema_error("too many special point tables")); }
+        if input.device_table.is_some_and(|table| table.descriptor.canonical_name != "device") { return Err(schema_error("device catalog table binding is invalid")); }
+        let mut metadata = 0;
+        let mut batches = 0;
+        let mut input_bytes = 0;
+        let mut rows = 0;
+        let mut columns = 0;
+        for (index, named) in input.point_tables.iter().enumerate() {
+            options.checkpoint()?;
+            if named.table_name != named.table.descriptor.canonical_name || !POINT_TABLES.contains(&named.table_name) || input.point_tables[..index].iter().any(|other| other.table_name == named.table_name) { return Err(schema_error("point catalog table name binding is invalid")); }
+            metadata = add(metadata, named.table_name.len())?;
+        }
+        for table in input.device_table.into_iter().chain(input.point_tables.iter().map(|named| named.table)) {
+            let facts = preflight_table_input(table, options)?;
+            metadata = add(metadata, facts.metadata_bytes)?;
+            batches = add(batches, table.batches.len())?;
+            input_bytes = add(input_bytes, facts.input_bytes)?;
+            rows = add(rows, facts.row_count)?;
+            columns = add(columns, table.descriptor.columns.len())?;
+        }
+        if metadata > options.budgets.max_metadata_bytes || batches > options.budgets.max_batches || input_bytes > options.budgets.max_input_bytes || rows > options.budgets.max_rows || columns > options.budgets.max_columns { return Err(resource_error("aggregate catalog input budget exceeded")); }
         let mut result = CatalogFilterOutput { source_device_row_count: 0, matching_devices: None, special_points: Vec::new() };
         let mut remaining = options;
+        remaining.budgets.max_output_bytes = remaining.budgets.max_output_bytes.checked_sub(128).ok_or_else(|| resource_error("catalog facts exceed output budget"))?;
+        remaining.budgets.max_live_bytes = remaining.budgets.max_live_bytes.checked_sub(add(256, mul(input.point_tables.len(), 512)?)?).ok_or_else(|| resource_error("catalog result metadata exceeds live budget"))?;
         let tables = input.device_table.into_iter().map(|table| (true, table)).chain(input.point_tables.iter().map(|named| (false, named.table)));
         for (device, table) in tables {
             let (facts, mut working) = workspace(table, remaining)?;
             let names = if device { ["gid", "dev_addr", "description"] } else { ["gid", "dev_addr", "name"] };
             let indexes = names.iter().map(|name| table.descriptor.columns.iter().position(|column| column.canonical_name == *name)).collect::<Option<Vec<_>>>();
-            let Some(indexes) = indexes else { return outcome(None, vec![diagnostic("CATALOG_UNAVAILABLE", "catalog table is missing required columns", &table.descriptor.canonical_name, None)], 0, options); };
+            let Some(indexes) = indexes else { return outcome(None, vec![diagnostic("CATALOG_UNAVAILABLE", "catalog table is missing required columns", &table.descriptor.canonical_name, None, options)?], 0, options); };
             working.reserve(mul(facts.row_count, 64)?)?;
             let mut selected = Vec::with_capacity(facts.row_count);
             for (batch_index, batch) in table.batches.iter().enumerate() {
@@ -540,13 +588,13 @@ pub fn filter_catalog(
                     remaining.checkpoint()?;
                     let addr = cells::read(batch.column(indexes[1]).as_ref(), row)?;
                     let addr_value = cells::integer(addr);
-                    if !matches!(addr, Cell::Null) && addr_value.is_none() { return outcome(None, vec![diagnostic("CATALOG_UNAVAILABLE", "column 'dev_addr' must be an integer", &table.descriptor.canonical_name, None)], 0, options); }
+                    if !matches!(addr, Cell::Null) && addr_value.is_none() { return outcome(None, vec![diagnostic("CATALOG_UNAVAILABLE", "column 'dev_addr' must be an integer", &table.descriptor.canonical_name, None, options)?], 0, options); }
                     let matching = addr_value == Some(65532);
                     if device || matching {
                         let gid = cells::read(batch.column(indexes[0]).as_ref(), row)?;
                         let text = cells::read(batch.column(indexes[2]).as_ref(), row)?;
                         if cells::integer(gid).is_none() || (device && addr_value.is_none()) || !matches!(text, Cell::Text(_)) {
-                            return outcome(None, vec![diagnostic("CATALOG_UNAVAILABLE", "catalog identity columns must have non-null integer/text values", &table.descriptor.canonical_name, None)], 0, options);
+                            return outcome(None, vec![diagnostic("CATALOG_UNAVAILABLE", "catalog identity columns must have non-null integer/text values", &table.descriptor.canonical_name, None, options)?], 0, options);
                         }
                         if matching && (!device || matches!(text, Cell::Text("复合信号虚装置"))) { selected.push(Row { batch: batch_index, row, gid: None }); }
                     }
@@ -554,7 +602,7 @@ pub fn filter_catalog(
             }
             let columns: Vec<_> = table.descriptor.columns.iter().enumerate().map(|(index, descriptor)| CanonicalProjectionColumn { source_index: Some(index), descriptor: descriptor.clone() }).collect();
             let filtered = arrow_table(table, &columns, &selected, &table.descriptor.canonical_name, &table.descriptor.primary_key, &mut working)?;
-            let used = filtered.batches.iter().flat_map(RecordBatch::columns).try_fold(0usize, |total, array| add(total, array.get_array_memory_size()))?;
+            let used = add(add(descriptor_bytes(&filtered.descriptor)?, 128)?, filtered.batches.iter().flat_map(RecordBatch::columns).try_fold(0usize, |total, array| add(total, array.get_array_memory_size()))?)?;
             remaining.budgets.max_output_bytes = remaining.budgets.max_output_bytes.checked_sub(used).ok_or_else(|| resource_error("catalog output budget exceeded"))?;
             remaining.budgets.max_live_bytes = remaining.budgets.max_live_bytes.checked_sub(working.retained).ok_or_else(|| resource_error("catalog live budget exceeded"))?;
             remaining.budgets.max_input_bytes = remaining.budgets.max_input_bytes.checked_sub(facts.input_bytes).ok_or_else(|| resource_error("catalog input budget exceeded"))?;
@@ -603,7 +651,10 @@ impl Diagnostics<'_> {
         table: &str,
         column: Option<&str>,
     ) -> Result<(), BusinessKernelError> {
-        self.push(&diagnostic(code, message, table, column))
+        if self.entries.len() >= BUSINESS_KERNEL_MAX_DIAGNOSTICS { self.omitted = add(self.omitted, 1)?; return Ok(()); }
+        let next = add(self.bytes, add(add(code.len(), message.len())?, add(table.len(), column.map_or(0, str::len))?)?)?;
+        if next > self.options.budgets.max_diagnostic_bytes { return Err(resource_error("diagnostic byte budget exceeded")); }
+        self.push(&diagnostic(code, message, table, column, self.options)?)
     }
 }
 
@@ -647,7 +698,7 @@ fn ordered_integer(cell: Cell<'_>, blank: bool) -> Result<Option<u64>, BusinessK
 
 fn projection_failure<T>(
     code: &str,
-    error: impl std::fmt::Display,
+    error: &str,
     plan: &CanonicalProjectionPlan,
     options: BusinessKernelOptions<'_>,
 ) -> Result<KernelOutcome<T>, BusinessKernelError> {
@@ -655,10 +706,11 @@ fn projection_failure<T>(
         None,
         vec![diagnostic(
             code,
-            error.to_string(),
+            error,
             &plan.canonical_table,
             None,
-        )],
+            options,
+        )?],
         0,
         options,
     )
@@ -742,11 +794,18 @@ pub fn project_canonical_table(
                     Some(name),
                 )?;
             }
+            if !crate::table_access::valid_column_type(&column.descriptor) { diagnostics.error("UNSUPPORTED_TABLE", "retained type metadata disagrees with SQL declaration", &plan.canonical_table, Some(name))?; }
             match column
                 .source_index
                 .and_then(|index| input.descriptor.columns.get(index))
             {
-                Some(source) if source.canonical_name == name => {}
+                Some(source) if source.canonical_name == name => {
+                    let ordered_gid = plan.row_policy == ProjectionRowPolicy::OrderedGidNo && name == "gid";
+                    let unsigned_coercion = matches!((&source.declared_type, &column.descriptor.declared_type), (Some(DeclaredType::SignedInteger { bits: a }), Some(DeclaredType::UnsignedInteger { bits: b })) if a == b);
+                    if !ordered_gid && (source.logical_type != column.descriptor.logical_type || source.labels != column.descriptor.labels || (source.declared_type != column.descriptor.declared_type && !unsigned_coercion)) {
+                        diagnostics.error("UNSUPPORTED_TABLE", "retained type is not bound to the source declaration", &plan.canonical_table, Some(name))?;
+                    }
+                }
                 _ => diagnostics.error(
                     "UNSUPPORTED_TABLE",
                     "retained column is missing from source descriptor",
@@ -795,6 +854,7 @@ pub fn project_canonical_table(
                 .iter()
                 .find(|column| column.descriptor.canonical_name == *name)
             {
+                if column.descriptor.nullable { diagnostics.error("UNSUPPORTED_TABLE", "canonical key must be non-nullable", &plan.canonical_table, Some(name))?; }
                 let token = column.descriptor.sql_type.trim().to_ascii_uppercase();
                 let base = token.split(['(', ' ']).next().unwrap_or("");
                 if matches!(
@@ -816,6 +876,13 @@ pub fn project_canonical_table(
                         Some(name),
                     )?;
                 }
+            }
+        }
+        if plan.row_policy == ProjectionRowPolicy::OrderedGidNo {
+            let gid = plan.columns.iter().find(|column| column.descriptor.canonical_name == "gid");
+            let no = plan.columns.iter().find(|column| column.descriptor.canonical_name == "no");
+            if plan.canonical_key_columns != ["gid"] || gid.is_none_or(|column| column.descriptor.declared_type != Some(DeclaredType::UnsignedInteger { bits: 32 }) || column.descriptor.sql_type != "INT UNSIGNED" || column.descriptor.nullable) || no.is_none_or(|column| column.descriptor.nullable) || !plan.structural_columns.iter().any(|name| name == "no") {
+                diagnostics.error("ROW_INTEGRITY", "ordered projection requires retained non-null gid INT UNSIGNED key and structural no", &plan.canonical_table, None)?;
             }
         }
         if !diagnostics.entries.is_empty() || diagnostics.omitted != 0 {
@@ -878,7 +945,7 @@ pub fn project_canonical_table(
                             options,
                         );
                     }
-                    Err(error) => return projection_failure("ROW_INTEGRITY", error, plan, options),
+                    Err(error) => return projection_failure("ROW_INTEGRITY", error.message(), plan, options),
                 };
                 if !nos.insert(no) {
                     return projection_failure(
@@ -890,7 +957,7 @@ pub fn project_canonical_table(
                 }
                 let gid = match ordered_integer(selected_cell(input, row, gid_index)?, true) {
                     Ok(value) => value,
-                    Err(error) => return projection_failure("ROW_INTEGRITY", error, plan, options),
+                    Err(error) => return projection_failure("ROW_INTEGRITY", error.message(), plan, options),
                 };
                 if let Some(gid) = gid {
                     if gid > 4_294_967_295 || (gid >= 4_000_000_000 && !plan.canonicalized_input) {
@@ -1001,6 +1068,7 @@ pub fn project_canonical_table(
             if plan.row_policy == ProjectionRowPolicy::Keyed {
                 working.reserve(mul(scratch, 2)?)?;
                 for &index in &key_indexes {
+                    if descriptors[index].logical_type == SqlLogicalType::Set { return projection_failure("UNSUPPORTED_TABLE", "key cell is not a typed scalar", plan, options); }
                     match values[index] {
                         Cell::Null => {
                             return projection_failure(
@@ -1031,7 +1099,7 @@ pub fn project_canonical_table(
                     match cells::frame(&descriptors[index], values[index]) {
                         Ok(frame) => key.push(frame),
                         Err(error) => {
-                            return projection_failure("UNSUPPORTED_TABLE", error, plan, options);
+                            return projection_failure("UNSUPPORTED_TABLE", error.message(), plan, options);
                         }
                     }
                 }
@@ -1048,7 +1116,7 @@ pub fn project_canonical_table(
             }
             let hash = match cells::row_hash(&descriptors, &values) {
                 Ok(hash) => hash,
-                Err(error) => return projection_failure("UNSUPPORTED_TABLE", error, plan, options),
+                Err(error) => return projection_failure("UNSUPPORTED_TABLE", error.message(), plan, options),
             };
             hashes.push(hash);
             prepared.push((key, hash, row));

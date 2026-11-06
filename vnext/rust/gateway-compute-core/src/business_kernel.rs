@@ -13,6 +13,8 @@ use crate::table_access::{ColumnDescriptor, TableDescriptor};
 
 mod cells;
 mod operations;
+#[cfg(test)]
+mod tests;
 
 pub use operations::{filter_catalog, materialize_sql_table, project_canonical_table};
 
@@ -28,11 +30,11 @@ pub const BUSINESS_KERNEL_MAX_DIAGNOSTICS: usize = 1024;
 /// its own `CanonicalIpcBudgets::max_output_bytes` limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BusinessKernelBudgets {
-    /// Maximum columns in each input or output table.
+    /// Maximum columns in an input/output table, or across all catalog inputs.
     pub max_columns: usize,
-    /// Maximum caller-provided Arrow record batches.
+    /// Maximum caller-provided Arrow record batches across the call.
     pub max_batches: usize,
-    /// Maximum rows in one table.
+    /// Maximum rows in one table, or across all catalog inputs.
     pub max_rows: usize,
     /// Maximum UTF-8 bytes in bounded table, column, rule, label, and diagnostic metadata.
     pub max_metadata_bytes: usize,

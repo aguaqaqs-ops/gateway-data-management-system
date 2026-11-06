@@ -344,3 +344,12 @@ def test_detail_policy_is_manifested_without_changing_semantic_digest(
     assert source.facts is not None
     assert result.facts is not None and result.records_closure is not None
     assert result.facts.comparison_digest == source.facts.comparison_digest
+
+
+@pytest.mark.parametrize("error_type", (InterruptedError, TimeoutError, MemoryError))
+def test_records_publication_propagates_operation_stop_and_resource_rejection(error_type: type[Exception]) -> None:
+    def stopped() -> None:
+        raise error_type("operation stopped")
+    with pytest.raises(error_type, match="operation stopped"):
+        publish_records_closure(_standard_result(), InMemoryArtifactStore(),
+            context=RecordsPublicationContext(checkpoint=stopped))

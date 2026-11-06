@@ -148,6 +148,8 @@ def compare_plan(
 def _compare_task_safely(task: Any) -> ComparisonTableFact:
     try:
         return _compare_task(task)
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except Exception as exc:
         before = task.before_descriptor
         current = task.current_descriptor

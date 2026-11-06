@@ -92,7 +92,6 @@ from gateway_backend.capabilities.storage_projection import (
     RepositoryImportTable,
     REPLAY_SQL_ENTRY_NAME,
     WrittenImportPackage,
-    NeverCancel,
     open_canonicalization_manifest,
     publish_canonicalization,
     render_repository_import_schema_replay_sql,
@@ -270,12 +269,17 @@ class SubmitImportPublicationAdapter:
             replay_sql = schema_sql + mutation_dml
         except (ProjectionImportReplayError, MutationImportReplayError) as exc:
             raise SubmitImportPublicationError(str(exc)) from exc
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("Submit publication requires an operation kernel context")
+        context.checkpoint()
         published = publish_canonicalization(
             projection,
             store=store,
             replay_sql=replay_sql,
-            context=ProjectionInvocationContext(cancel_requested=NeverCancel()),
+            context=ProjectionInvocationContext(cancel_requested=context.cancel_probe, deadline_monotonic=context.deadline_monotonic),
         )
+        context.checkpoint()
         if published.status is not ProjectionStatus.COMPLETE or published.publication is None:
             raise SubmitImportPublicationError(
                 _format_projection_diagnostics(
@@ -648,7 +652,7 @@ def _mutation_snapshots_from_repository(
                         ),
                     )
                 )
-        except SubmitImportPublicationError:
+        except (SubmitImportPublicationError, InterruptedError, TimeoutError, MemoryError):
             raise
         except Exception as exc:
             raise SubmitImportPublicationError(f"parent table {name} rows are invalid") from exc

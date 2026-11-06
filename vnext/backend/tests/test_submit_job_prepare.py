@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import Never, cast
 
 import pytest
 from gateway_backend.application.submission.contracts import RepositoryImportOperation
@@ -428,16 +428,18 @@ def test_prepare_handler_publication_failure_marks_operation_failed(
     store = InMemoryArtifactStore()
     operation_id = _accept_prepared_operation(db_path, store)
 
-    def fail_publish(**_kwargs: object) -> object:
-        raise SubmitImportPublicationError(
-            "storage projection failed: UNSUPPORTED_TABLE: "
-            "column scalar_type is not supported (table=t5)"
-        )
+    # T1 is already accepted. Removing its actual IPC row file must abort from
+    # the frozen closure, without asking any live repository/source to rebuild it.
+    row_id = next(artifact_id for artifact_id, (ref, _raw) in store._artifacts.items()
+        if ref.media_type == "application/vnd.apache.arrow.file")
+    del store._artifacts[row_id]
 
-    monkeypatch.setattr(
-        "gateway_backend.application.submit_jobs.publish_prepare_import_package",
-        fail_publish,
-    )
+    def forbidden_source(*_args: object, **_kwargs: object) -> Never:
+        raise AssertionError("frozen T1 must never reselect source tables")
+
+    dependencies = replace(_submit_runtime_dependencies(db_path, store), publication=SubmitImportPublicationAdapter(
+        repository_provider_factory=forbidden_source, committed_table_factory=forbidden_source))
+    monkeypatch.setattr("tests.test_submit_job_prepare._submit_runtime_dependencies", lambda *_args, **_kwargs: dependencies)
 
     acknowledgment = _run_prepare_handler(db_path, store, operation_id)
 
@@ -448,8 +450,8 @@ def test_prepare_handler_publication_failure_marks_operation_failed(
     assert operation.status is OperationStatus.FAILED
     assert prepare_step.status is StepStatus.FAILED
     assert operation.diagnostic is not None
-    assert operation.diagnostic.code == "UNSUPPORTED_TABLE"
-    assert "column scalar_type is not supported" in operation.diagnostic.message
+    assert operation.diagnostic.code == "STORAGE_PROJECTION_FAILED"
+    assert "unavailable or corrupt" in operation.diagnostic.message
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
         submit_attempt_id = _submit_attempt_id_from_operation(operation)
         attempt = unit_of_work.submission.get_submit_attempt(submit_attempt_id)
@@ -459,7 +461,7 @@ def test_prepare_handler_publication_failure_marks_operation_failed(
             attempt.repository_id
         )
     assert attempt.state is SubmitAttemptState.ABORTED
-    assert attempt.abort_code == "UNSUPPORTED_TABLE"
+    assert attempt.abort_code == "STORAGE_PROJECTION_FAILED"
     assert workspace_occupancy is None
     assert repository_occupancy is None
 

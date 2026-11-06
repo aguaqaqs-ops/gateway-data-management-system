@@ -57,6 +57,8 @@ from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     ComparisonRuleSet,
 )
+from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.comparison.artifacts import RecordsPublicationContext
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"
@@ -254,12 +256,17 @@ def _run_comparison_risk_surface(
     include_all_before_tables: bool = False,
     repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> _ComparisonRiskSurfaceResult:
+    context = current_kernel_context()
+    checkpoint = context.checkpoint if context is not None else lambda: None
+    checkpoint()
     plan = plan_comparison(request)
+    checkpoint()
     if isinstance(plan, FailedResult):
         raise PairPipelineError(f"pair planning failed: {plan.diagnostics}")
     if not isinstance(plan, ComparisonPlan):
         raise PairPipelineError("pair planning did not produce a comparison plan")
     compared = compare_plan(plan)
+    checkpoint()
     if isinstance(compared, FailedResult):
         raise PairPipelineError(f"pair comparison failed: {compared.diagnostics}")
     published: DetailedFactsResult | DatasetReplacementResult
@@ -269,7 +276,8 @@ def _run_comparison_risk_surface(
         published = compared
         comparison_facts = compared.facts
     elif isinstance(compared, DetailedFactsResult) and compared.facts is not None:
-        closure_result = publish_records_closure(compared, store)
+        closure_result = publish_records_closure(compared, store, context=RecordsPublicationContext(checkpoint=checkpoint))
+        checkpoint()
         if isinstance(closure_result, FailedResult):
             raise PairPipelineError(f"records closure failed: {closure_result.diagnostics}")
         if not isinstance(closure_result, DetailedFactsResult):
@@ -292,6 +300,7 @@ def _run_comparison_risk_surface(
         ),
         artifact_store=store,
     )
+    checkpoint()
     if risk.status is not RiskEvaluationStatus.READY or risk.risk_report is None:
         raise PairPipelineError("risk evaluation failed")
     surface = assemble_surface(
@@ -323,6 +332,7 @@ def _run_comparison_risk_surface(
         ),
         context=SurfaceAssemblyContext(cancel_requested=lambda: control.cancel_requested),
     )
+    checkpoint()
     if surface.status is not SurfaceAssemblyStatus.READY or surface.surface is None:
         raise PairPipelineError("surface assembly failed")
     risk_digest = (

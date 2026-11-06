@@ -831,3 +831,16 @@ def _bound_with_fallback_facts(sql: str, source_schema: bytes) -> BoundSnapshotI
         source_schema_digest=raw_blob_digest(source_schema),
     )
     return replace(bound, storage_facts=(facts,))
+
+
+@pytest.mark.parametrize("error_type", (InterruptedError, TimeoutError, MemoryError))
+def test_comparison_propagates_operation_stop_and_resource_rejection(
+    monkeypatch: pytest.MonkeyPatch, error_type: type[Exception],
+) -> None:
+    plan = _plan("CREATE TABLE t (id INT PRIMARY KEY, v TEXT); INSERT INTO t VALUES (1,'a');",
+        "CREATE TABLE t (id INT PRIMARY KEY, v TEXT); INSERT INTO t VALUES (1,'b');")
+    def stopped(_task: object) -> None:
+        raise error_type("operation stopped")
+    monkeypatch.setattr("gateway_backend.capabilities.comparison.standard._compare_task", stopped)
+    with pytest.raises(error_type, match="operation stopped"):
+        compare_plan(plan)

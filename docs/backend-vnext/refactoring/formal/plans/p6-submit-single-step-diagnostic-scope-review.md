@@ -361,3 +361,28 @@ CT05 hostname `gw-dms-test-05`：首次 00:40:00–00:40:02Z 为 wrapper 切目�
 83 项实际来源为 dae01；其结果可作为本候选的局部回归证据，不称 4497 实际跑过、权威 runner 或 carried。五包静态通过按上述两次记录共同支持。当前 HEAD 未验证新镜像；本轮内部 Python 改动未触碰容器专属边界，镜像与相应门禁延期至设计安排的下一固定候选，旧 e798 镜像不沿用为本候选通过。独立单次冷调用仍须提交产品/镜像身份、对照方式和脚本供审核。
 
 同时已核设计补充 `7c4da1b79c` §6：30 秒不是不可商议业务 SLO，attempt 1 条件仅判断原配置首次读是否解决。若最小修复仍发生 ReadTimeout，保留失败事实，带实测、规模/硬件及请求预算、重试和后台资源影响交 owner 讨论，不要求无限优化或重复全量，也不改写旧配置结果。正确性与身份边界不放宽；H3 保留，W4/S4/H1 及剩余正式测量停止，原 lease_lost 根因仍 OPEN。
+
+## 24. 修复后单次冷 catalog 候选审核与 GO
+
+**明确 GO：允许原实施者按最终 README 在 CT05 执行一次 `p6catalogdiag20261106c` 诊断。** 已直接通知实施者与设计，无需再等 owner 确认。范围为一个已核源 RS 卷的本机独立复制、启动新 4497 RS 与原 e798 客户端的一次逻辑 GET，保留原 30 秒/最多三次内部尝试；不含 Submit、py-spy、手工重试或正式测量恢复。本审核仅本地读取/比对脚本与保存日志，未执行候选、镜像命令或节点操作。
+
+最终文件根目录为 `/home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogdiag20261106c/`：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `candidate-manifest.json` | `a2e9f7d1c73fb25b479ec655f6605f271dcfbdc2eed34174bf7ce6c411b50e22` |
+| `candidate/execute.py` | `3f9a390632139eb7d3104732e205a4b7ce9ff801a8c75d3fe29cda11a17fbe68` |
+| `candidate/client.py` | `aba44b6cdcac1b14ae78a3d01ed579b37bcbc51cf07cdd67adb0089f59bf679e` |
+| `candidate/README.md` | `9f4c2ea4e276d340ab8ed971be8b57e0909de65c0f024f7a61b1a559f349af62` |
+| `candidate/node-identity.json` | `72d74b789850cc6cba3831e9e2e71bfbdb93b1fe9f71e7c9895e4f548e942d53` |
+| `archive-image-identity.json` | `a3bfcf294a4af9ccf471f19e8979f19adb396ffbc4ce178f2bc2edb5089b3b36` |
+
+manifest 全部 14 个文件的实际摘要逐项匹配。首版 execute `850912f1…e054` 的 `RS_EXPECTED_SHA` 手抄漏一个 `c`，会在 `fixed_tool_identity` 确定停止；发现后未执行候选。修正只补该字符，反向替换精确恢复首版 SHA，未夹带逻辑变化。README 另明确完整 canonical SHA 仅标识本响应，并纠正 checker 结束 `01:04:21Z` 与释放锁 `01:04:51Z` 的区别；这两处文案与原日志一致。
+
+已读取 CT201 `ct201-rs-build-4497.log`、save 日志及 CT05 load/严格传输复核/identity checker/锁释放记录：构建起止为 4497，预置 dependency-base、build network none，build/save exit 0。归档 SHA `0f75b1b3db03761298e58cafe5c801ca3d79064348e1f3e28f2e9a9716606772`；新 RS config digest `sha256:39e0668b05a814c835ae8214dd486c5641d0ff61b9a2c6044a53b71c6e05a1f2`、全部 28 DiffID 在 CT05 checker 三项相等，`RESULT=MATCH` / exit 0，核验日志 SHA `e0f4cc507ba52cea0ead5b6d7bd65e90344e049bb7cdb07e91f890f8749fae34`。vnext tree `b59b592b83a5adf31fbe5610ee9b797bff072092` 与 Git 一致，source-tree label 值与构建日志一致。跨节点不比较 inspect ID；worker 继续绑定既有 CT05 本机 ID 和完整 15 DiffID。首次 checksum 行格式警告、引用 CT201 路径的只读失败及旧 helper 路径缺失均已保留/说明，后续严格三文件核验及 checker 通过；无须重载或重复准备。
+
+controller 保持既有边界：固定 CT05 hostname、e798 clean worktree/字面解释器/backend cwd，离线无代理；先自取占用锁，核资源、工具/镜像/来源摘要与目标名称碰撞。源为已核且停用的 `p6bw4s4h120261105b_repository-service-data`，只 `cp -a` 到新空卷，不重扫大输入。新 RS 使用原 Compose `--no-build --pull never --no-deps --wait`，readyz 不预热 catalog。阶段仍为准备 60 秒、启动 120 秒、client 180 秒、收束 90 秒；资源检查与失败停止保持。双流 Docker 日志仅末尾 2000 行，不称完整；先停双方、确认自有容器/network 收束再释放自有 token，不确定则保锁，保留新卷和来源。最终事件与 launcher 记录实际 exit、起止 HEAD/时间，未把外层取证成功冒称诊断成功。
+
+client 只加观测与返回后完整 DTO 指纹，未改原 transport、parser 或重试，也不二次读取 HTTP body。固定 repository/commit，完整 `VersionedCatalog` 包含 commit、所有表/列/schema/primary_key/row_count；与 repository id 一起作 sort_keys/compact/ASCII JSON 的 SHA256，只输出摘要、大小和汇总数量。该指纹不独立证明与旧大样本逐字段等价，已有小 Dolt 历史 commit 差分是本轮局部正确性证据。只有 client exit 0、唯一 SUCCESS、commit 匹配、观测完整、摘要生成且 attempts=successful_attempt=1 才为 `CATALOG_RETURNED_FIRST_ATTEMPT`；重试后成功另列且整体非零，不替代首读结论。单次成功仍不证明原 lease 问题解决或正式门禁通过。
+
+执行前按 README 再确认 BatchMode SSH/空闲，LAN 同步后核上述固定文件摘要，controller 自取锁，不叠加外层锁。任一失败即停并交回 client/events、双流有界日志、launcher 实际 exit、SHA 与收束/锁状态，不自动重跑。后续按实测决定最小预算/设计讨论，H3 原证据保留，其余正式测量仍停止。

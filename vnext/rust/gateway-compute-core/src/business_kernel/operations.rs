@@ -911,6 +911,7 @@ pub fn project_canonical_table(
         }
         for (index, column) in plan.columns.iter().enumerate() {
             options.checkpoint()?;
+            working.ensure(mul(add(plan_metadata, facts.metadata_bytes)?, 16)?)?;
             let name = column.descriptor.canonical_name.as_str();
             if plan.columns[..index]
                 .iter()
@@ -931,16 +932,14 @@ pub fn project_canonical_table(
                 Some(source) if source.canonical_name == name => {
                     let ordered_gid = plan.row_policy == ProjectionRowPolicy::OrderedGidNo && name == "gid";
                     let unsigned_coercion = matches!((&source.declared_type, &column.descriptor.declared_type), (Some(DeclaredType::SignedInteger { bits: a }), Some(DeclaredType::UnsignedInteger { bits: b })) if a == b);
-                    if !ordered_gid && (source.logical_type != column.descriptor.logical_type || source.labels != column.descriptor.labels || (source.declared_type != column.descriptor.declared_type && !unsigned_coercion)) {
+                    if !ordered_gid && (source.logical_type != column.descriptor.logical_type || source.labels != column.descriptor.labels || (source.declared_type != column.descriptor.declared_type && !unsigned_coercion) || (!unsigned_coercion && !crate::table_access::same_column_sql_type(source, &column.descriptor))) {
                         diagnostics.error("UNSUPPORTED_TABLE", "retained type is not bound to the source declaration", &plan.canonical_table, Some(name))?;
                     }
                 }
-                _ => diagnostics.error(
-                    "UNSUPPORTED_TABLE",
-                    "retained column is missing from source descriptor",
-                    &plan.canonical_table,
-                    Some(name),
-                )?,
+                _ => {
+                    diagnostics.error("UNSUPPORTED_TABLE", "retained column is missing from the descriptor", &plan.canonical_table, Some(name))?;
+                    continue;
+                },
             }
             if !supported_projection_column(&column.descriptor) {
                 diagnostics.error(

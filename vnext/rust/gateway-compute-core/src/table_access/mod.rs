@@ -66,6 +66,11 @@ pub(crate) fn valid_column_type(column: &ColumnDescriptor) -> bool {
             .is_none_or(|declared| declared.validate().is_ok())
 }
 
+pub(crate) fn same_column_sql_type(left: &ColumnDescriptor, right: &ColumnDescriptor) -> bool {
+    types::map_sql_type(&left.sql_type, left.sql_type.len()).sql_type
+        == types::map_sql_type(&right.sql_type, right.sql_type.len()).sql_type
+}
+
 /// Resource budgets (`RESOURCE_BUDGETS` of the Python contract).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserBudgets {

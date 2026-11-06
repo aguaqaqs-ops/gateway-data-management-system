@@ -280,10 +280,36 @@ struct NativeOutput {
     pseudo: Option<usize>,
 }
 
-fn output_object(py: Python<'_>, outcome: KernelOutcome<NativeOutput>) -> PyResult<Py<PyAny>> {
+fn output_transfer_preflight(outcome: &KernelOutcome<NativeOutput>, budgets: BusinessKernelBudgets, owned_metadata: usize, watch: &CancelWatch, deadline: Option<Instant>) -> PyResult<()> {
+    let mut retained = 2048usize;
+    let mut add = |bytes| -> PyResult<()> { retained = checked_add_with_limit(retained, bytes, budgets.max_output_bytes, "business output facts")?; Ok(()) };
+    for diagnostic in &outcome.diagnostics {
+        python_adapter_control(watch, deadline)?;
+        let strings = diagnostic.code.len().checked_add(diagnostic.message.len()).and_then(|bytes| bytes.checked_add(diagnostic.table.as_ref().map_or(0, String::len))).and_then(|bytes| bytes.checked_add(diagnostic.column.as_ref().map_or(0, String::len))).ok_or_else(|| PyMemoryError::new_err("diagnostic transfer overflow"))?;
+        add(strings.checked_mul(8).and_then(|bytes| bytes.checked_add(1024)).ok_or_else(|| PyMemoryError::new_err("diagnostic transfer overflow"))?)?;
+    }
+    if let Some(output) = &outcome.output {
+        for table in &output.tables {
+            python_adapter_control(watch, deadline)?;
+            add(2048)?;
+            for column in &table.descriptor.columns {
+                let strings = column.canonical_name.len().checked_add(column.display_name.len()).and_then(|bytes| bytes.checked_add(column.sql_type.len())).ok_or_else(|| PyMemoryError::new_err("column transfer overflow"))?;
+                add(strings.checked_mul(8).and_then(|bytes| bytes.checked_add(2048)).ok_or_else(|| PyMemoryError::new_err("column transfer overflow"))?)?;
+                for label in column.labels.iter().flatten() { add(label.len().checked_mul(8).and_then(|bytes| bytes.checked_add(128)).ok_or_else(|| PyMemoryError::new_err("label transfer overflow"))?)?; }
+            }
+            for name in std::iter::once(&table.descriptor.display_name).chain(std::iter::once(&table.descriptor.canonical_name)).chain(&table.descriptor.primary_key) { add(name.len().checked_mul(8).and_then(|bytes| bytes.checked_add(128)).ok_or_else(|| PyMemoryError::new_err("table transfer overflow"))?)?; }
+            for batch in &table.batches { for array in batch.columns() { add(array.get_array_memory_size())?; } }
+        }
+    }
+    if retained > budgets.max_output_bytes || retained.checked_mul(2).and_then(|bytes| bytes.checked_add(owned_metadata)).is_none_or(|bytes| bytes > budgets.max_live_bytes) { return Err(PyMemoryError::new_err("Python business output conversion exceeds live/output budget")); }
+    python_adapter_control(watch, deadline)
+}
+
+fn output_object(py: Python<'_>, outcome: KernelOutcome<NativeOutput>, watch: &CancelWatch, deadline: Option<Instant>) -> PyResult<Py<PyAny>> {
     let result = PyDict::new(py);
     let diagnostics = PyList::empty(py);
     for diagnostic in outcome.diagnostics {
+        python_adapter_control(watch, deadline)?;
         let value = PyDict::new(py);
         value.set_item("code", diagnostic.code)?;
         value.set_item("message", diagnostic.message)?;
@@ -303,6 +329,7 @@ fn output_object(py: Python<'_>, outcome: KernelOutcome<NativeOutput>) -> PyResu
     result.set_item("omitted_diagnostic_count", outcome.omitted_diagnostic_count)?;
     let Some(output) = outcome.output else {
         result.set_item("output", py.None())?;
+        python_adapter_control(watch, deadline)?;
         return Ok(result.into_any().unbind());
     };
     let value = PyDict::new(py);
@@ -324,6 +351,7 @@ fn output_object(py: Python<'_>, outcome: KernelOutcome<NativeOutput>) -> PyResu
     value.set_item("gid_pseudo_count", output.pseudo)?;
     let tables = PyList::empty(py);
     for table in output.tables {
+        python_adapter_control(watch, deadline)?;
         let metadata = PyDict::new(py);
         metadata.set_item("display_name", &table.descriptor.display_name)?;
         metadata.set_item("canonical_name", &table.descriptor.canonical_name)?;
@@ -332,6 +360,7 @@ fn output_object(py: Python<'_>, outcome: KernelOutcome<NativeOutput>) -> PyResu
         metadata.set_item("row_count", table.row_count)?;
         let columns = PyList::empty(py);
         for column in &table.descriptor.columns {
+            python_adapter_control(watch, deadline)?;
             add_column(py, &columns, column)?;
         }
         metadata.set_item("columns", columns)?;
@@ -346,9 +375,11 @@ fn output_object(py: Python<'_>, outcome: KernelOutcome<NativeOutput>) -> PyResu
             PyRecordBatchReader::new(Box::new(reader)).into_pyarrow(py)?,
         )?;
         tables.append(metadata)?;
+        python_adapter_control(watch, deadline)?;
     }
     value.set_item("tables", tables)?;
     result.set_item("output", value)?;
+    python_adapter_control(watch, deadline)?;
     Ok(result.into_any().unbind())
 }
 
@@ -413,6 +444,8 @@ fn native_inner(
             &watch,
             deadline,
         )?);
+        let last = descriptors.last().ok_or_else(|| PyRuntimeError::new_err("table descriptor absent"))?;
+        if descriptors[..descriptors.len() - 1].iter().any(|previous| previous.canonical_name == last.canonical_name) { return Err(PyValueError::new_err("business input repeats a table name")); }
         readers.push(stream.extract::<PyRecordBatchReader>()?.into_reader()?);
     }
     let sql_plan = if matches!(operation, Operation::Sql) {
@@ -443,8 +476,19 @@ fn native_inner(
             })?;
             let mut batches = Vec::with_capacity(readers.len());
             let mut remaining = codec_budgets(core_budgets);
+            let mut synthesized = 0usize;
+            let mut adapter_batches_owned = 0usize;
             for reader in readers {
-                let batch = consume_arrow_stream(
+                let schema = reader.schema();
+                let header_upper = schema.fields().len().checked_mul(1024).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "empty Arrow header estimate overflow"))?;
+                if schema.fields().len() > remaining.max_columns || header_upper > remaining.max_codec_peak_bytes { return Err(BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema exceeds adapter limits")); }
+                let mut schema_bytes = 0usize;
+                for field in schema.fields() {
+                    schema_bytes = schema_bytes.checked_add(field.name().len()).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema metadata overflow"))?;
+                    for (key, value) in field.metadata() { schema_bytes = schema_bytes.checked_add(key.len()).and_then(|bytes| bytes.checked_add(value.len())).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema metadata overflow"))?; }
+                }
+                if schema_bytes > remaining.max_descriptor_bytes { return Err(BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema metadata exceeds limit")); }
+                let mut batch = consume_arrow_stream(
                     reader,
                     owned_metadata,
                     remaining,
@@ -452,6 +496,19 @@ fn native_inner(
                     deadline,
                 )
                 .map_err(stream_error)?;
+                let rows = batch.iter().try_fold(0usize, |total, batch| total.checked_add(batch.num_rows())).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate row count overflow"))?;
+                remaining.max_rows = remaining.max_rows.checked_sub(rows).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate row budget exceeded"))?;
+                let actual_batches = batch.len();
+                if batch.is_empty() {
+                    // Preserve a zero-batch reader's actual schema for core
+                    // binding checks. Only the equivalent core cap counts this
+                    // generated empty batch; real consumption retains its cap.
+                    batch.push(RecordBatch::new_empty(schema));
+                    synthesized += 1;
+                }
+                let current_owned = batch.iter().try_fold(header_upper, |total, batch| total.checked_add(std::mem::size_of::<RecordBatch>()).and_then(|bytes| batch.num_columns().checked_mul(std::mem::size_of::<ArrayRef>()).and_then(|columns| bytes.checked_add(columns)))).and_then(|bytes| batch.capacity().checked_mul(std::mem::size_of::<RecordBatch>()).and_then(|vectors| bytes.checked_add(vectors))).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "adapter batch storage overflow"))?;
+                adapter_batches_owned = adapter_batches_owned.checked_add(current_owned).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate adapter storage overflow"))?;
+                remaining.max_codec_peak_bytes = remaining.max_codec_peak_bytes.checked_sub(current_owned).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate adapter storage exceeds live budget"))?;
                 let bytes = batch
                     .iter()
                     .flat_map(RecordBatch::columns)
@@ -475,7 +532,7 @@ fn native_inner(
                     })?;
                 remaining.max_input_batches = remaining
                     .max_input_batches
-                    .checked_sub(batch.len())
+                    .checked_sub(actual_batches)
                     .ok_or_else(|| {
                         BusinessKernelError::new(
                             BusinessKernelErrorKind::Resource,
@@ -484,6 +541,8 @@ fn native_inner(
                     })?;
                 batches.push(batch);
             }
+            core_budgets.max_batches = core_budgets.max_batches.checked_add(synthesized).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "equivalent empty batch count overflow"))?;
+            core_budgets.max_live_bytes = core_budgets.max_live_bytes.checked_sub(adapter_batches_owned).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "adapter batches exceed live budget"))?;
             let inputs: Vec<_> = descriptors
                 .iter()
                 .zip(&batches)
@@ -594,10 +653,12 @@ fn native_inner(
             };
             options.checkpoint()?;
             Ok::<_, BusinessKernelError>(result)
-        })
-        .map_err(business_error)?;
+        });
+    if watch.probe_failed.load(Ordering::Relaxed) { return Err(PyRuntimeError::new_err("business cancellation probe failed")); }
+    let outcome = outcome.map_err(business_error)?;
     python_adapter_control(&watch, deadline)?;
-    output_object(py, outcome)
+    output_transfer_preflight(&outcome, budgets, owned_metadata, &watch, deadline)?;
+    output_object(py, outcome, &watch, deadline)
 }
 
 macro_rules! entry {

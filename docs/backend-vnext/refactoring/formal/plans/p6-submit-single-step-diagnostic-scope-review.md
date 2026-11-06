@@ -317,3 +317,7 @@ RS 双流日志现在包含 startup、19 次 readyz 200 和 cleanup 引发的 sh
 - 同 `(repository, commit)` 可用标准 Future 在原 leader 请求线程执行 loader，followers 锁外等待，不新建 executor；不同 key 不全局串行，成功/失败均移除 in-flight，失败不负缓存，超现有 cache 容量的结果只共享本次。关闭处理仅补足新 waiters 不挂死及既有 Dolt 终止所必需的接线，不自动建设新生命周期框架；Future.cancel 不是终止子进程，若新增关闭错误路径须明确现有错误映射。
 
 后续授权后的验证应复用现有不变量，集中证明多结果 framing/精确语义/整批失败、同 key 一次 loader/不同 key 并发/失败后可再加载等业务屏障，不重复铺开所有类型矩阵。首次冷读与重试放大分别验：新 RS 进程中 attempt 1 成功才支持首次冷读改善，attempt 2/3 或预热成功不能代替；仅合并 in-flight 不能证明首次成本已解决。新 RS 产品/并发/镜像变更须独立候选和范围审核，明确与冻结基准的版本绑定；32768 cap 专用恢复例外不能外推，原 lease 问题仍 OPEN。
+
+**预算核查后的方案收敛（仍仅设计）。** 现有 `DoltRunner._collect`/`ProcessStream` 都是进程整体绝对预算，`call_timeout` 只在启动前换算；没有逐完整结果通知/重置或 per-call capture 接口。A 若引入完整结果推进 deadline，测得的是主进程观察到的结果间隔，受 Dolt 输出缓冲/调度影响，仍不等价旧逐命令 30 秒，不应扩成握手 IPC。B 若直接给 16 条语句 480 秒，则放宽单条命令存活和后台/关闭等待，不等价原两 lane 墙钟或失败时点；不建议本轮采用。整批固定 30 秒则是预算收紧，三者都不能包装成“设置值不变所以行为相同”。
+
+工具随后推荐更窄的 COUNT-only 批查询加同 key 合并，审核认为更适合作为最小候选：每批至多 16 表，使用同一 exact AS OF 的 ordinal+COUNT UNION ALL，仍单 JSON 结果、原 256 KiB capture 和原进程控制，不新增多结果 parser/流式进度接口；校验 ordinal 完整唯一、精确非负 count，DDL 路径/解析/排序保持，最多两 lane 且不嵌套线程池。规划调用数从 `2+2N` 降为 `2+N+ceil(N/16)`，不代表已测性能，N 次 DDL 仍可能主导首读。多个 COUNT 共享 30 秒依然需要设计显式接受成功范围/失败时点收紧；若不接受，则本轮仅评估 singleflight 抑制重复，首读问题保持 OPEN，不称完整修复或恢复。当前没有产品修改、测试或新请求授权，等待设计最终冻结范围。

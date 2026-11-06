@@ -70,7 +70,11 @@ impl BusinessKernelOptions<'_> {
                 "business kernel cancelled",
             ));
         }
-        if self.control.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        if self
+            .control
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
             return Err(BusinessKernelError::new(
                 BusinessKernelErrorKind::Deadline,
                 "business kernel deadline elapsed",
@@ -321,9 +325,9 @@ pub fn preflight_table_input(
                 "Arrow batch column count does not match table descriptor",
             ));
         }
-        row_count = row_count.checked_add(batch.num_rows()).ok_or_else(|| {
-            resource_error("business kernel row count overflow")
-        })?;
+        row_count = row_count
+            .checked_add(batch.num_rows())
+            .ok_or_else(|| resource_error("business kernel row count overflow"))?;
         for array in batch.columns() {
             input_bytes = input_bytes
                 .checked_add(array.get_array_memory_size())

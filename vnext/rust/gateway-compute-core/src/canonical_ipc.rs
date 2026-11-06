@@ -2692,8 +2692,12 @@ mod tests {
     }
 
     fn pool() -> Result<ThreadPool, Box<dyn Error>> {
+        pool_with_threads(2)
+    }
+
+    fn pool_with_threads(threads: usize) -> Result<ThreadPool, Box<dyn Error>> {
         ThreadPoolBuilder::new()
-            .num_threads(2)
+            .num_threads(threads)
             .build()
             .map_err(Into::into)
     }
@@ -2775,6 +2779,19 @@ mod tests {
             .ok_or_else(|| io::Error::other("IPC test footer range is invalid").into())
     }
 
+    fn footer_schema(bytes: &[u8]) -> Result<arrow_ipc::Schema<'_>, Box<dyn Error>> {
+        let footer_offset = footer_start(bytes)?;
+        let trailer_start = bytes
+            .len()
+            .checked_sub(10)
+            .ok_or_else(|| io::Error::other("IPC test trailer is missing"))?;
+        let footer = root_as_footer(&bytes[footer_offset..trailer_start])
+            .map_err(|error| io::Error::other(format!("invalid test footer: {error:?}")))?;
+        footer
+            .schema()
+            .ok_or_else(|| io::Error::other("test footer schema is missing").into())
+    }
+
     fn first_record_batch_buffers(bytes: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
         let footer_offset = footer_start(bytes)?;
         let trailer_start = bytes
@@ -2786,8 +2803,7 @@ mod tests {
         let blocks = footer
             .recordBatches()
             .ok_or_else(|| io::Error::other("test file has no record-batch index"))?;
-        let block = blocks
-            .get(0);
+        let block = blocks.get(0);
         let offset = usize::try_from(block.offset())?;
         let metadata_len = usize::try_from(block.metaDataLength())?;
         let body_len = usize::try_from(block.bodyLength())?;
@@ -2798,7 +2814,10 @@ mod tests {
             .get(offset..metadata_end)
             .ok_or_else(|| io::Error::other("test block metadata is out of range"))?;
         let message_len = usize::try_from(i32::from_le_bytes([
-            metadata[4], metadata[5], metadata[6], metadata[7],
+            metadata[4],
+            metadata[5],
+            metadata[6],
+            metadata[7],
         ]))?;
         let message_end = 8_usize
             .checked_add(message_len)
@@ -2852,7 +2871,10 @@ mod tests {
                 .get(offset..end)
                 .ok_or_else(|| io::Error::other("test block metadata is out of range"))?;
             let message_len = usize::try_from(i32::from_le_bytes([
-                metadata[4], metadata[5], metadata[6], metadata[7],
+                metadata[4],
+                metadata[5],
+                metadata[6],
+                metadata[7],
             ]))?;
             let message_end = 8_usize
                 .checked_add(message_len)
@@ -2868,16 +2890,25 @@ mod tests {
     }
 
     #[test]
-    fn canonical_mapping_preserves_independent_arrow_buffer_vectors_and_outer_layout(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_mapping_preserves_independent_arrow_buffer_vectors_and_outer_layout()
+    -> Result<(), Box<dyn Error>> {
         let (columns, batch) = mapping_fixture()?;
         let pool = pool()?;
         let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
         let buffers = first_record_batch_buffers(&encoded)?;
-        let signed_slots = [7_i64.to_le_bytes(), 0_i64.to_le_bytes(), (-1_i64).to_le_bytes()]
-            .concat();
-        let utf8_offsets = [0_i32.to_le_bytes(), 2_i32.to_le_bytes(), 2_i32.to_le_bytes(), 2_i32.to_le_bytes()]
-            .concat();
+        let signed_slots = [
+            7_i64.to_le_bytes(),
+            0_i64.to_le_bytes(),
+            (-1_i64).to_le_bytes(),
+        ]
+        .concat();
+        let utf8_offsets = [
+            0_i32.to_le_bytes(),
+            2_i32.to_le_bytes(),
+            2_i32.to_le_bytes(),
+            2_i32.to_le_bytes(),
+        ]
+        .concat();
         assert_eq!(buffers[0], [0x05]);
         assert_eq!(buffers[1], [0x01]);
         assert_eq!(buffers[2], [0x05]);
@@ -2915,12 +2946,372 @@ mod tests {
         let split_batches = vec![batch.slice(0, 1), batch.slice(1, 1), batch.slice(2, 1)];
         let split_encoded = encode_v1(&columns, &split_batches, &pool, options())?;
         assert_eq!(encoded, split_encoded);
+
+        let mut reversed_columns = columns.clone();
+        reversed_columns.reverse();
+        let reordered_encoded = encode_v1(
+            &reversed_columns,
+            std::slice::from_ref(&batch),
+            &pool,
+            options(),
+        )?;
+        assert_eq!(encoded, reordered_encoded);
+        let one_thread = pool_with_threads(1)?;
+        let one_thread_encoded = encode_v1(&columns, &[batch], &one_thread, options())?;
+        assert_eq!(encoded, one_thread_encoded);
         Ok(())
     }
 
     #[test]
-    fn canonical_ipc_sets_unused_validity_and_boolean_value_tail_bits(
+    fn canonical_ipc_metadata_matches_fixed_jcs_and_schema_version_vector(
     ) -> Result<(), Box<dyn Error>> {
+        let column = column(
+            "text",
+            7,
+            "VARCHAR(16)",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::String),
+            true,
+            None,
+        );
+        let columns = vec![column];
+        let schema = Arc::new(Schema::new(vec![Field::new("text", DataType::Utf8, true)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringArray::from(vec![Some("x")])) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let schema = footer_schema(&encoded)?;
+        let schema_metadata = schema
+            .custom_metadata()
+            .ok_or_else(|| io::Error::other("IPC schema metadata is missing"))?;
+        assert_eq!(schema_metadata.len(), 1);
+        assert_eq!(schema_metadata.get(0).key(), Some("gdds.canonical_mapping_version"));
+        assert_eq!(schema_metadata.get(0).value(), Some("1"));
+
+        let fields = schema
+            .fields()
+            .ok_or_else(|| io::Error::other("IPC schema fields are missing"))?;
+        let field_metadata = fields
+            .get(0)
+            .custom_metadata()
+            .ok_or_else(|| io::Error::other("IPC field metadata is missing"))?;
+        assert_eq!(field_metadata.len(), 1);
+        assert_eq!(field_metadata.get(0).key(), Some("gdds.canonical_type"));
+        assert_eq!(
+            field_metadata.get(0).value(),
+            Some(
+                "{\"declared_type\":{\"bits\":null,\"bit_width\":null,\"kind\":\"string\",\"precision\":null,\"scale\":null},\"labels\":null,\"logical_type\":\"standard\",\"sql_type\":\"VARCHAR(16)\"}"
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_mapping_covers_declared_arrow_types_and_business_text_layout(
+    ) -> Result<(), Box<dyn Error>> {
+        let columns = vec![
+            column(
+                "a_signed",
+                0,
+                "TINYINT",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::SignedInteger { bits: 8 }),
+                true,
+                None,
+            ),
+            column(
+                "b_unsigned",
+                1,
+                "SMALLINT UNSIGNED",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::UnsignedInteger { bits: 16 }),
+                true,
+                None,
+            ),
+            column(
+                "c_float",
+                2,
+                "FLOAT",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Float32),
+                true,
+                None,
+            ),
+            column(
+                "d_double",
+                3,
+                "DOUBLE",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Float64),
+                true,
+                None,
+            ),
+            column(
+                "e_decimal",
+                4,
+                "DECIMAL(10,2)",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Decimal {
+                    precision: 10,
+                    scale: 2,
+                }),
+                true,
+                None,
+            ),
+            column(
+                "f_enum",
+                5,
+                "ENUM('red','green')",
+                SqlLogicalType::Enum,
+                Some(DeclaredType::String),
+                true,
+                Some(vec!["red", "green"]),
+            ),
+            column(
+                "g_set",
+                6,
+                "SET('a','b')",
+                SqlLogicalType::Set,
+                None,
+                true,
+                Some(vec!["a", "b"]),
+            ),
+            column(
+                "h_json",
+                7,
+                "JSON",
+                SqlLogicalType::Json,
+                Some(DeclaredType::String),
+                true,
+                None,
+            ),
+            column(
+                "i_date",
+                8,
+                "DATE",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Date),
+                true,
+                None,
+            ),
+            column(
+                "j_datetime",
+                9,
+                "DATETIME",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::DateTime),
+                true,
+                None,
+            ),
+            column(
+                "k_timestamp",
+                10,
+                "TIMESTAMP",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Timestamp),
+                true,
+                None,
+            ),
+            column(
+                "l_time",
+                11,
+                "TIME",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::TimeDuration),
+                true,
+                None,
+            ),
+        ];
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a_signed", DataType::Int64, true),
+            Field::new("b_unsigned", DataType::UInt64, true),
+            Field::new("c_float", DataType::Float32, true),
+            Field::new("d_double", DataType::Float64, true),
+            Field::new("e_decimal", DataType::Utf8, true),
+            Field::new("f_enum", DataType::Utf8, true),
+            Field::new("g_set", DataType::Utf8, true),
+            Field::new("h_json", DataType::Utf8, true),
+            Field::new("i_date", DataType::Utf8, true),
+            Field::new("j_datetime", DataType::Utf8, true),
+            Field::new("k_timestamp", DataType::Utf8, true),
+            Field::new("l_time", DataType::Utf8, true),
+        ]));
+        let arrays: Vec<ArrayRef> = vec![
+            Arc::new(Int64Array::from(vec![Some(127), None])),
+            Arc::new(UInt64Array::from(vec![Some(65_535), None])),
+            Arc::new(Float32Array::from(vec![Some(1.25), None])),
+            Arc::new(Float64Array::from(vec![Some(-2.5), None])),
+            Arc::new(StringArray::from(vec![Some("1234.56"), None])),
+            Arc::new(StringArray::from(vec![Some("green"), None])),
+            Arc::new(StringArray::from(vec![Some("a,b"), None])),
+            Arc::new(StringArray::from(vec![Some("{\"a\":1}"), None])),
+            Arc::new(StringArray::from(vec![Some("2026-11-06"), None])),
+            Arc::new(StringArray::from(vec![Some("2026-11-06 01:02:03"), None])),
+            Arc::new(StringArray::from(vec![Some("2026-11-06 01:02:03"), None])),
+            Arc::new(StringArray::from(vec![Some("12:34:56"), None])),
+        ];
+        let batch = RecordBatch::try_new(schema, arrays)?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let decoded = decode_v1(&encoded, &columns, &pool, options())?;
+        assert_eq!(decoded.len(), 1);
+        let decoded = &decoded[0];
+        assert_eq!(decoded.num_rows(), 2);
+        let expected_types = [
+            DataType::Int64,
+            DataType::UInt64,
+            DataType::Float32,
+            DataType::Float64,
+            DataType::Utf8,
+            DataType::Utf8,
+            DataType::Utf8,
+            DataType::Utf8,
+            DataType::Utf8,
+            DataType::Utf8,
+            DataType::Utf8,
+            DataType::Utf8,
+        ];
+        for (field, expected) in decoded.schema().fields().iter().zip(expected_types) {
+            assert_eq!(field.data_type(), &expected, "field {}", field.name());
+        }
+        assert_eq!(decoded.column(0).as_any().downcast_ref::<Int64Array>().map(|values| values.value(0)), Some(127));
+        assert_eq!(decoded.column(1).as_any().downcast_ref::<UInt64Array>().map(|values| values.value(0)), Some(65_535));
+        assert_eq!(decoded.column(2).as_any().downcast_ref::<Float32Array>().map(|values| values.value(0)), Some(1.25));
+        assert_eq!(decoded.column(3).as_any().downcast_ref::<Float64Array>().map(|values| values.value(0)), Some(-2.5));
+        let expected_text = [
+            "1234.56",
+            "green",
+            "a,b",
+            "{\"a\":1}",
+            "2026-11-06",
+            "2026-11-06 01:02:03",
+            "2026-11-06 01:02:03",
+            "12:34:56",
+        ];
+        for (index, expected) in expected_text.into_iter().enumerate() {
+            let values = decoded.column(index + 4).as_any().downcast_ref::<StringArray>();
+            assert_eq!(values.map(|array| array.value(0)), Some(expected));
+            assert!(values.is_some_and(|array| array.is_null(1)));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_mapping_rejects_narrow_integer_overflow_and_non_finite_float(
+    ) -> Result<(), Box<dyn Error>> {
+        let pool = pool()?;
+        let integer_column = column(
+            "i",
+            0,
+            "TINYINT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::SignedInteger { bits: 8 }),
+            false,
+            None,
+        );
+        let integer_schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int64, false)]));
+        let integer_batch = RecordBatch::try_new(
+            integer_schema,
+            vec![Arc::new(Int64Array::from(vec![128_i64])) as ArrayRef],
+        )?;
+        let integer_error = encode_v1(
+            &[integer_column],
+            std::slice::from_ref(&integer_batch),
+            &pool,
+            options(),
+        )
+        .err()
+        .ok_or_else(|| io::Error::other("encoder accepted an out-of-range narrow integer"))?;
+        assert_eq!(integer_error.kind(), CanonicalIpcErrorKind::Value);
+
+        let float_column = column(
+            "f",
+            0,
+            "FLOAT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::Float32),
+            false,
+            None,
+        );
+        let float_schema = Arc::new(Schema::new(vec![Field::new("f", DataType::Float32, false)]));
+        let float_batch = RecordBatch::try_new(
+            float_schema,
+            vec![Arc::new(Float32Array::from(vec![f32::INFINITY])) as ArrayRef],
+        )?;
+        let float_error = encode_v1(
+            &[float_column],
+            std::slice::from_ref(&float_batch),
+            &pool,
+            options(),
+        )
+        .err()
+        .ok_or_else(|| io::Error::other("encoder accepted a non-finite float"))?;
+        assert_eq!(float_error.kind(), CanonicalIpcErrorKind::Value);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_ipc_preserves_empty_tables() -> Result<(), Box<dyn Error>> {
+        let column = column(
+            "text",
+            0,
+            "VARCHAR(16)",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::String),
+            true,
+            None,
+        );
+        let columns = vec![column];
+        let schema = Arc::new(Schema::new(vec![Field::new("text", DataType::Utf8, true)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringArray::from(Vec::<Option<&str>>::new())) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        assert!(!encoded.is_empty());
+        assert!(decode_v1(&encoded, &columns, &pool, options())?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_ipc_enforces_actual_output_and_codec_peak_budgets(
+    ) -> Result<(), Box<dyn Error>> {
+        let (columns, batch) = mapping_fixture()?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+
+        let mut output_limited = options();
+        output_limited.budgets.max_output_bytes = encoded.len() - 1;
+        let output_error = encode_v1(
+            &columns,
+            std::slice::from_ref(&batch),
+            &pool,
+            output_limited,
+        )
+        .err()
+        .ok_or_else(|| io::Error::other("encoder exceeded its actual output limit"))?;
+        assert_eq!(output_error.kind(), CanonicalIpcErrorKind::Resource);
+
+        let mut peak_limited = options();
+        peak_limited.budgets.max_codec_peak_bytes = 1;
+        let peak_error = encode_v1(
+            &columns,
+            std::slice::from_ref(&batch),
+            &pool,
+            peak_limited,
+        )
+        .err()
+        .ok_or_else(|| io::Error::other("encoder exceeded its codec peak limit"))?;
+        assert_eq!(peak_error.kind(), CanonicalIpcErrorKind::Resource);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_ipc_sets_unused_validity_and_boolean_value_tail_bits() -> Result<(), Box<dyn Error>>
+    {
         let column = column(
             "b",
             0,
@@ -2945,8 +3336,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_ipc_uses_fixed_65536_row_chunks_independent_of_input_batches(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_ipc_uses_fixed_65536_row_chunks_independent_of_input_batches()
+    -> Result<(), Box<dyn Error>> {
         let column = column(
             "b",
             0,
@@ -2966,18 +3357,23 @@ mod tests {
         let whole_encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
         let split_encoded = encode_v1(&columns, &split_batches, &pool, options())?;
         assert_eq!(whole_encoded, split_encoded);
-        assert_eq!(record_batch_rows(&whole_encoded)?, [CANONICAL_IPC_BATCH_ROWS, 1]);
+        assert_eq!(
+            record_batch_rows(&whole_encoded)?,
+            [CANONICAL_IPC_BATCH_ROWS, 1]
+        );
         let decoded = decode_v1(&whole_encoded, &columns, &pool, options())?;
-        assert_eq!(decoded.iter().map(RecordBatch::num_rows).collect::<Vec<_>>(), [
-            CANONICAL_IPC_BATCH_ROWS,
-            1,
-        ]);
+        assert_eq!(
+            decoded
+                .iter()
+                .map(RecordBatch::num_rows)
+                .collect::<Vec<_>>(),
+            [CANONICAL_IPC_BATCH_ROWS, 1,]
+        );
         Ok(())
     }
 
     #[test]
-    fn canonical_ipc_preserves_nonzero_row_count_for_zero_columns(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_ipc_preserves_nonzero_row_count_for_zero_columns() -> Result<(), Box<dyn Error>> {
         let schema = Arc::new(Schema::empty());
         let batch_options = RecordBatchOptions::new().with_row_count(Some(3));
         let batch = RecordBatch::try_new_with_options(schema, Vec::new(), &batch_options)?;
@@ -2993,8 +3389,7 @@ mod tests {
     }
 
     #[test]
-    fn decoder_rejects_invalid_raw_integer_width_without_panicking(
-    ) -> Result<(), Box<dyn Error>> {
+    fn decoder_rejects_invalid_raw_integer_width_without_panicking() -> Result<(), Box<dyn Error>> {
         let descriptor = column(
             "i",
             0,
@@ -3049,7 +3444,8 @@ mod tests {
         let caught = std::panic::catch_unwind(AssertUnwindSafe(|| {
             decode_v1(&bytes, &columns, &pool, options())
         }));
-        let result = caught.map_err(|_| io::Error::other("decoder panicked on a raw type fault"))?;
+        let result =
+            caught.map_err(|_| io::Error::other("decoder panicked on a raw type fault"))?;
         let error = result
             .err()
             .ok_or_else(|| io::Error::other("decoder accepted an unsupported 96-bit integer"))?;
@@ -3072,8 +3468,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_encoder_checks_live_deadlines_during_large_array_work(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_encoder_checks_live_deadlines_during_large_array_work()
+    -> Result<(), Box<dyn Error>> {
         let rows = 8_000_000_usize;
         let column = column(
             "i",
@@ -3108,8 +3504,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_encoder_checks_cancellation_while_scanning_arrays(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_encoder_checks_cancellation_while_scanning_arrays() -> Result<(), Box<dyn Error>> {
         let rows = 8_000_000_usize;
         let column = column(
             "i",

@@ -20,7 +20,7 @@
 | 冻结、恢复与资源控制 | E 差异不能破坏 exact commit、scope、内容身份、T1/PREPARED、StartArchive Head CAS、强引用/TTL；控制误分类或漏预算可污染 durable 状态或导致真实业务失败 | 复用 A–D 已验证 owning tests，只复核 E 差异；DC87 保 12 GiB/4 GiB reserve/显式 M8 GiB、N1/单 active；DC88 仅真实 PURE、effect 前、fresh lease/drain，保 checkpoint/保护/attempt/operator，cancel 优先、失租禁写 |
 | 最终证据 | 不合格来源、旧 image 或局部旅程不能绑定最终候选 | 06 focused/Contract/五包静态及适用 Rust；04 最终权威 Rust 必覆盖，其他按同节点同 WT 的合格实际 V/逐包闭包判 run/carried；最终 image 当前重建或严格同 04 同 WT 等价。05 t1–t3、CT108 t4 既定 `real_dump_journey --scope full`，不以 capacity 或性能延期替代 |
 
-必要节点窗口由设计协调者负责。当前 CT108 未确认不阻碍源码/06 工作；最终必需证据仍未完成前不签 GO。所有测试节点沿离线缓存、clean committed WT、有效原子占用与日志规则；本审核默认只读实施者日志、manifest、source，不争抢其占用。
+必要节点窗口由设计协调者负责。CT108/05 已有可用条件但不作预约，执行前按现场有效占用取锁；最终必需证据仍未完成前不签 GO。所有测试节点沿离线缓存、clean committed WT、有效原子占用与日志规则；本审核默认只读实施者日志、manifest、source，不争抢其占用。
 
 ## 删除前预期固定核对
 
@@ -80,10 +80,18 @@ close-failure 测试的 fake provider 将原 outer-session 关闭 fault 再注�
 
 ## 待续的最终证据
 
-最终尚待：额外工具 mypy 处置、04 五 Python 权威 runner/最终镜像绑定、05 t1–t3 与 CT108 t4 fresh full，以及全 worker 资源事实。CT108/05 条件窗口已协调，不再笼统以无窗口豁免 W1 型诊断。协调者已选现有 `--tier t4 --scope full --keep-stack --project-name <E新名>` 的外置取证，禁止 from-step/resume，不碰原线冻结资源。
+最终尚待：04 五 Python 权威 runner/最终镜像绑定、05 t1–t3 与 CT108 t4 fresh full，以及全 worker 资源事实；额外工具 mypy 已按下文获准续做并通过。CT108/05 条件窗口已协调，不再笼统以无窗口豁免 W1 型诊断。协调者已选现有 `--tier t4 --scope full --keep-stack --project-name <E新名>` 的外置取证，禁止 from-step/resume，不碰原线冻结资源。
 
 CT201 `/tmp/s2b-e-t4-driver.py` 当前实物 SHA `286ef89e7ce83377165df4c4f1c62e6c408d07bf75da3e0075f0b8abbbb40299` 已独立执行前审，**仅准备、未运行 t4**。脚本持本 E node busy，先存全部 owned logs/filtered inspect，标准 PID/cgroup 一次读取 memory.max/peak/events；必需 oom/oom_kill 缺 key 不当 0，停止前核 12 GiB/N1/M8/reserve4、StartedAt/RestartCount、同 worker 与现 HEAD/clean，正常 SIGTERM 停止后再次留 logs/inspect。只有真实 journey0、资源/日志/正常 stop/身份前置齐才删本项目容器/卷/网络并释放。真实业务/租约或资源/evidence 失败则先正常 stop、保本 E 容器/卷/busy 交 DC80 主动诊断，不自动重跑、不覆盖原日志；异常停机不强杀。无监控服务、采样器或新持久状态机。
 
 memory.peak 将如实为该 fresh cgroup 全生命周期（含 startup/pagecache/helper）事实，不外推 D 的 materialize `675241984 B` 到全 worker，不以 cgroup peak 冒充进程 RSS 或 M 硬上限。当前无未关闭源码 Finding，**E 最终证据 GO 尚未给出**。
 
 Owner 随后明确批准工具 mypy 具体修正续做，已恢复同 E 两角色，未新建角色。主线 `a532a3bbf755198645b758f34b29f08cd89aab32` clean，d0 至该提交的 `vnext` 实差异为空；t4 driver 实物 SHA 仍为上述 286ef89e，未改变或运行。06 在重新取得本任务占用后，对 clean d0 运行已审 `MYPYPATH=src` 加四个 `-m benchmarks.*` 的原受控命令；`22:46:12–22:46:13Z` 实际 E 解释器/backend module 路径正确、4 个工具 mypy通过、exit0。日志 `/home/dev/gdds-test-tmp/logs/s2b-e-tool-mypy-approved-d0f5602d6f.log` SHA `aea3a32e91ee5e2391bc9d7983b9e9fd31a64a6fbee714d892fa4fa61d3cfe9a` 已独立读取并重算；另只读核 E `.pth`/mypy shebang、d0/clean 与占用已释放。该暂停项关闭，无产品/依赖/config/ignore 修改，允许继续当前具体最终 driver 的审核与既定取证，不重做旧 focused/oracle/Rust。旧节点空闲仅为历史现场，执行前仍查有效占用、输入和缓存。
+
+## 续做后的实际准备及首轮门禁问题
+
+04 在原 E gate WT、clean d0 上实际计算 Rust 闭包并与原合格来源比较，`changed_components=[]`、total 仍为 `5dbb8a817e37bad59f5318d63592e405f2bb3dc3886b483bc329a05f77b540ea`，不是凭路径或未改 Rust 文件推定沿用。五包环境新建/离线同步、native 强制重装及 tree137d499、逐包实际模块/direct URL 均为 E WT。dependency-base 的 config/全部 19 DiffID 与锁标签吻合；04 本机构建本任务 RS，revision 为 d0、source-tree 仍为 `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。`python-prepare-01/prepare.log`（22:55:01–22:57:00Z，exit0）SHA `7db3bd86e9c0a37a535dd2f33cef87b131d14c8bf207d3702099d54d2e90556d`；另 call 独立环境验证至 22:57:24Z、exit0，日志 SHA `dfac41a1578ee7756fa66fef1ef576118e11fcfbd2890b8ab86ec1dce01dbd6a`，均已独立读取并重算。之后才另 call 五 Python 权威入口，运行时未改 WT/镜像。
+
+该次权威运行的 backend 主体实际为 20 FAIL / 3111 PASS / 8 collection ERROR，serial 另 2 collection ERROR；不是前置命令错误。已独立核原 trace 与只读失败 DB：模块级 `PREVIEW_RESULT` 在 autouse kernel scope 前调用真实 Rust；Submit UUID scope 使用默认 `repo-1` canonical fixture，Prepare 正确报 `STORAGE_PROJECTION_FAILED`；removed-tables helper 仍把 raw Parquet manifest 当 canonical IPC；live canonical identity 未传新必需 `committed_tables`。最小修正交现测试 owner：运行期构造合法 fixture、传真实 repository scope、真实 canonical IPC 与 C factory，保 fingerprint/idempotency、removal、await/effect/recovery、live roundtrip 业务断言，不放宽产品校验或加 fallback。运行仍由原入口自然收束，不提前重跑；整次非零时任何包内通过均不能作合格来源，真实旅程暂不启动。
+
+CT108 `source-01` 在 fetch/建 WT/测试前因旧 bundle prerequisite `53b676a6…` 不存在失败。原日志 SHA `7e8971bb24986ae8482f69f616d21dc65ce828fb9f71b26feca050f28a3c1699` 保留；未修改原根 main，busy 已释放。协调者按 DC68 批准一次明确修正：以 actual remote previous `2c79d0947fe0d5e1d2f62a3f106a8e72f37706a3` 核祖先，新建任务 ref `refs/codex/s2b-e/t4-source/<d0完整SHA>` 与 bundle（SHA `0f732d7da982902b6a6d56008551d2843640bbda918122e739f43f42c4a2b721`）。source02 driver SHA `eaf95e9198bdec69484514ef4d7baa4f0aa30fd84560d64444ec9f2df0ec38a9` 已审；独立 remote list-heads/三 prerequisite/bundle verify 实际 exit0 后执行，23:02:46Z source02 实际 exit0。`source-02/source-prepare.log` SHA `505400d4ae19260d8cded92ff3bf448237f2fa6c5a4e4ea464c5e7fbc13680d2` 已读并核；后续仍按另 call 验证与 env 准备，不将 source 成功称为 t4 通过，也不启动真实旅程。

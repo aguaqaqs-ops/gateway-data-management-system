@@ -83,7 +83,7 @@ def test_native_canonical_ipc_encoder_consumes_arrow_c_stream() -> None:
         b"gdds.canonical_type": (
             b'{"declared_type":{"bit_width":null,"bits":64,"kind":"signed-integer",'
             b'"precision":null,"scale":null},"labels":null,"logical_type":"standard",'
-            b'"nullable":false,"sql_type":"BIGINT"}'
+            b'"sql_type":"BIGINT"}'
         )
     }
 

@@ -1627,3 +1627,49 @@ worker 未正常返回时没有最终 summary，则保留有效事件片段与�
 已直接交唯一实施者：保留 e 精确包/manifest 与失败原日志，在独立修订中从 owner 显式导入/引用常量，做受影响的计划内 CT05 focused；可顺带现有 Ruff F821 未定义名称检查，不扩为完整门禁。§74 的候选准备/必要 focused 授权已经包含这类调试修复，不因一次 focused 失败新增 Owner/设计/审核逐次许可，也不重新要求接管或身份确认。若修复后暴露其他同范围工具/fixture 问题，继续定位、最小修改、受影响验证，不原样盲重跑或每次停等许可；最终代码/测试/清单/原始日志绑定后再独立复审。
 
 这是计划内工具调试失败，沿既有 DC80 修订闭环处理，不把 DC68 当成新增逐次 Owner 授权门槛；权威 runner、真实业务诊断、缓存/身份异常、真实副作用及新范围/预算仍遵原停止边界。没有实际 GC 诊断 GO，不启动 POST/worker/Compose 或测量，产品与镜像冻结不变。
+
+## 76. GC-window 候选 g 最终复审 PASS，并签精确一次诊断 GO
+
+**`p6mutationgcwindow20261106g` 候选审核 PASS；现签发 `P6-GC-G-GO-20261106-01`，仅准本节精确清单的一次限定诊断。** 最终清单 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6mutationgcwindow20261106g/candidate-manifest.json`，完整 SHA256 **`64e0376bd8939176bdc7fd7e3f91473de46d01266edc613cfebcf3d05e1ce3e4`**。本节落实 §74 已通过的新范围，不追改 d 的停止、结果或已消耗 GO；H3 仍 PASS，原 lease 根因 OPEN，正式测量 STOP。
+
+### 文件、测试与现场绑定
+
+独立只读核本地候选的 15 文件集合、逐文件摘要、全部模式及 Python AST，均 MATCH。精确测试时清单 SHA256 **`e57ee3e6735ff727543b373630f35ca4f8e3463c771372c5b36781d20b7b03be`**；测试后只有 README/preparation-record/review-request 三份文档变化，12 个非文档文件及全部模式未变。BatchMode echo OK 后，于 CT05 22:47:46Z 独立只读 SSH 再核最终清单、全部文件/模式、focused 日志摘要、clean 冻结 HEAD `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 与 POST-GO absent，全部一致；当时 node busy lock absent 只代表当时状态，不是后续预约。本审核未执行测试、候选或业务，不访问 CT108。
+
+原始 `focused-tests.log` SHA256 **`1c4d85b114866c7a6f6f1f933c4bfa580d68cb46d5bb61118d2b79c1ca53445b`**：CT05 `gw-dms-test-05`，22:31:44–45Z，clean 起止冻结 HEAD，Ruff F821 全通过，**11 passed / 28 deselected / 0.82s，pytest/script exit 0，node_lock_released=true**。一条 multiprocessing fork deprecation warning 已保留；本轮 guardian 用例的子进程已收束，不把 warning 隐去或将它写成业务现场故障。选择式实际包含受影响的 producer partial/error、交错/开放、top-16、完整事件、原 helper/session 透传计时、summary、heartbeat/cancel/lease 主因与 guardian 继续采样；没有重复旧回收矩阵或完整门禁。
+
+只读检查 CT05 已有 `pytest-244/test_real_event_writer_bounds_0/{success,failure}/events.jsonl`，文件时间属于本轮 focused，共 13 条，最大 **1500 bytes**，未超过原 2048-byte cap。这里是既有测试产物复核，不是新增测试。最终 worker SHA256 `813f228d97154a5493c7e7508cde4b4bec0af8183700a83fd8e97a80431af750`，observer SHA256 `3dcf230ad422048429a554e00438c0f7fa8f758ad39d76c6c5d417e5cb3c78e7`。
+
+e/f 的失败包与日志保留：g 从 owner `gc_observer` 显式导入已有 `GENERATION_COUNT` 和 `MAX_RETAINED_WINDOWS`，没有增加兼容别名。e 的 NameError 与 f 的 F821 缺失导入已由最终代码和这次实际 focused 关闭，未把旧失败轮次写成通过。
+
+最终文档传输曾把三份更新文档写到远端候选根，而非 `candidate/`；这是有实际文件写入的操作错误，不归为无副作用 DC68 重试。按既有 DC80 最小恢复授权，只补入正确目录，原根目录副本、失败日志与测试证据均保留，未重跑测试。`final-binding-review-attempt1.log` SHA256 `08a31e0539268b296ff47485b7624639ce5e732821a988bb171ce50aa6a7b2bf`；恢复后的 `final-binding-review-recovery.log` SHA256 **`13671f62909d5fb683629b5cc1d4ace1941be69314ee0eade0decde9224c7944`**，记录两份清单 sidecar 和 15 文件 MATCH/POST-GO absent。`run-result.md` SHA256 `03d0f2a27a6a4c61cb64faa003dac4682109ed9f23e97a05270ab6ccdbc5a649` 与上述事实一致。
+
+### §74 的 partial 语义已落实
+
+producer 只从实际分支累计 `snapshot_callback_overlap` / `collection_open` 两类有界覆盖原因，历史 incomplete 与错误事实保持。重入改记 observer error；callback/observer/invalid/cleanup 错误及未知、损坏、无法解释的分类均 fatal，不以零错误计数泛化放行。compact event 保留完整核心事件、显式 classification/reasons 和四类错误计数；known partial 不污染 EventWriter 核心失败状态，也不声称恢复完整覆盖。未改 GC 设置、callback 内 I/O/锁、产品线程或续租参数，未新增队列或无损观测框架。
+
+controller 先处理核心 event：正常 session return 更新 last_success，lease_lost 等原主因优先，再判断 GC 覆盖；known partial 没有跳过整条 event。guardian 也只接受结构有效、原因已知、错误为零的 partial，随后继续原身份/资源/截止守护；真实及未知错误仍停止。summary v2 将 COMPLETE、可解释 PARTIAL 与错误/缺失分开；只有正常 worker 成功、核心日志有效、已知原因且完整结构成立的 PARTIAL 才能满足 prepare 成功的摘要条件，整体 observation_complete 仍为 false。最终摘要拒绝仅在原 prepare-success 分支降级，已有产品失败/失租主因不被缺失或 partial 摘要覆盖。focused 与源码检查对这些受影响语义提供了足够证据，不要求派生诊断统计获得与 durable 业务状态相同的证明。
+
+### 精确一次 GO 的执行边界
+
+按既有 Owner/DC80、`f7d53c1c41` 和 §72 的直接闭环授权，审核合格后直接交唯一实施者 `01a1b107-11ba-7681-a7cf-afb1591a67d2` 并同步设计，不等新的 Owner/协调者回执，也不因 review-request 的“仅审包”措辞增设启动申请门槛。本节是明确的新 GO；此前 g 无 GO、不运行的状态正确。
+
+仅 CT05 `gw-dms-test-05`/root，在正常取得整机占用后执行以下固定命令，无附加参数；产品须保持上述 clean 冻结 HEAD，§52/57 原三镜像由固定入口重核，不重建、pull 或 retag：
+
+```bash
+ssh -o BatchMode=yes ct108-gw-dms-05 'cd /home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend && /bin/bash /home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6mutationgcwindow20261106g/candidate/run-once.sh'
+```
+
+实施者可据本明确 GO 在候选根新建 `POST-GO.txt`，内容必须恰为：
+
+```text
+decision=GO
+candidate=p6mutationgcwindow20261106g
+manifest_sha256=64e0376bd8939176bdc7fd7e3f91473de46d01266edc613cfebcf3d05e1ce3e4
+```
+
+只用原 `p6bw4s4h120261105b:v2-preview` checkpoint 的新项目/key/三个隔离卷副本，最多一次 acceptance POST、唯一返回 ID 绑定的一次 prepare_import claim；原 claim 正常完整返回后才 drain，不 claim 后继、restart=no。旧 d/c 失败卷及 GO 不复用。保持 **45 分钟绝对观察、3600 秒全流程硬上限、3120 秒 work/480 秒 cleanup reserve**，启动 available memory 48 GiB、guardian 5 秒、worker RSS 40 GiB/host available 8 GiB/disk free 10 GiB、身份/lease_lost/cancel/120 秒 stall 和核心观测停止线全部不变。仅上述有明确分类的 GC 覆盖缺口可继续；真实/未知错误仍停止，partial 结果不能称“全部观测通过”。不延长预算、TTL、heartbeat 或 drain 来取得 summary。
+
+实际诊断失败或停止后不自动重试；保留最后可读 selected rows、完整 raw service/event/resource 日志、summary 状态/缺失事实与原始失败。日志关闭后记录完整 SHA256。只按既有有界 cleanup 回收自有进程/容器/网络，确认 quiet/reaped 才解锁；未确认则留占用并报告。保留三卷、所有旧候选及证据；collector 关闭不等于业务完成。结果直接交本审核会话复核。
+
+**GO 仅限这个精确候选的一次局部诊断，不是正式测量恢复、产品/旅程验收通过、失败重试、产品修改、推送/tag 或旧卷/证据清理许可。** 产品 HEAD 与最后验证 image revision/source-tree 沿 §57，无产品/镜像重建触发；CT108 不加负载。

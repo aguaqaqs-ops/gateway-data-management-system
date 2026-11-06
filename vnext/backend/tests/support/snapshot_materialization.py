@@ -258,7 +258,7 @@ def snapshot_table_as_arrow(table: SnapshotTable) -> SnapshotTable:
             values = [None if value is None else int(value) for value in values]
         elif kind in ("float32", "float64"):
             values = [None if value is None else struct.unpack(">f" if kind == "float32" else ">d", bytes.fromhex(value))[0] for value in values]
-        fields.append(pa.field(column.canonical_name, physical, nullable=True))
+        fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
         arrays.append(pa.array(values, type=physical))
     return snapshot_table_from_arrow(descriptor, pa.Table.from_arrays(arrays, schema=pa.schema(fields)), source,
                                      ordered=table.ordered_metadata)

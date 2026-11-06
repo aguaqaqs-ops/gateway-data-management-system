@@ -6,6 +6,8 @@
 
 只复用 A 唯一 canonical IPC codec 和 B 已验证的业务 kernel，不另写 Python IPC writer。C 接 `CanonicalTableStore.open(ref, bound_descriptor) -> ContextManager[ArtifactReadHandle]`、atomic put、raw SHA、mmap、内容引用与恢复；D 才接 worker N/M 和全部 operation control，E 才完成最后的生产 caller 迁移与旧算法删除。不建立兼容双读、生产 fallback 或引擎开关。
 
+创建本节角色后，实施与独立审核共同核到当前 Preview 仍为 `project_canonical_table_set → materialize_projected_snapshot → publish_ready_tables(Parquet)`，B native 尚未接生产入口。按总体 kickoff §5.5，**完整 worker/operation caller 切换属于 D**。因此 C 完成真实 B/A/store 闭环、受约束的 exact-commit reader/回填能力和实际 UoW/Archive/终态释放 owner；不为提前切 Preview 增加临时 Python writer 或重复算法。必要的 Repository→Arrow 接入应服务真实精确 commit consumer。C 的组件与事务测试不能表述为生产 Preview→IPC/Submit 全链路已通过，D 必须补实际生产 IPC 路由、控制和冻结恢复接线验收。这是既定切片边界的源码澄清，不取消 C 的 storage/ref/recovery 验收，也不提前删除 raw/client Parquet 的真实消费者。
+
 现有实现落点：`artifacts/store.py` 的 minimal ref/内存实现，`infrastructure/artifact_store/local_store.py` 的 root-bound path、temp/fsync/rename，`control_db/sqlite_protection.py` 的事务保护记录，以及 `sqlite_snapshot_export_cache.py` 的 lookup/put/touch/expiry 模式。保留 `ArtifactStorePort.locate(ref) -> bytes` 的真实非规范表消费者，不为新 API 删除仍有用途的通用读口。
 
 内容身份按 DC42 五项与现有 scope：projection version、business schema digest、row count、table digest、mapping version；business schema 已含 table name。外层保留 DDL/导出 row layout。不能以 raw SHA 替代业务摘要，也不能把当前表名不同的对象当成可跨表去重。具体类型与序列化字段应依 B 最终输出收口，不先造平行通用 DTO。
@@ -51,6 +53,8 @@ D 接线前交付有依据的 M/default/max 候选与 worker envelope/reserve �
 - control DB：共享 refs/强引用/TTL expiry、最后释放触达、当前 head 引用及 Archive CAS 原子性/失败/重放；复用现有 protection/cleanup 行为，不穷举内部 syscall。
 - 恢复：上述四种状态和 exact commit，沿现有 Snapshot artifact faults 与 Submit T1/PREPARED owner；generic lease/CAS/recovery 不另造框架。
 - 容量：实际 IPC/FULL 口径及拒绝边界；EOF/cancel-before-publish 的真实 worker 验证移交 D，不能只凭 store mock 宣称已证明。
+
+C 的 FULL 校准使用真实 B → A → store 的双侧数据、打开句柄与临时重叠，报告注明尚未接 worker 的范围；D 接线后复核真实 worker 峰值与预约偏差。恢复记录区分 C 的实际 store/精确 commit 回填能力、既有 Submit 冻结 owner，以及 D 尚待完成的生产 IPC 路由，不将 seeded 组件测试升级为 application 端到端证据。
 
 日常在 06 clean、已提交 worktree 做受影响 focused/Contract/SQLite/filesystem integration，遵守离线缓存、节点占用和日志规则；本节最终候选按实际 Python/Rust/镜像边界完成必要静态与容器检查。04 完整阶段门禁及 t1–t4 正确性仍留给最终 S2b 候选；跨节点结果不作 carried。C handoff 必须含固定代码、API/消费者、实际证据、容量报告与 D 尚待决定项，经本节新审核者独立 GO 后才转 D。
 

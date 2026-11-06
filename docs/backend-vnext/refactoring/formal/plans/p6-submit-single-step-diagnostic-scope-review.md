@@ -460,3 +460,15 @@ source readout 与 target RS identity 均保持第 28 节摘要。审核程序�
 shell 对 preflight、cleanup、postflight 各加 300 秒 outer timeout（TERM 后 15 秒 kill），journey/sampler 整体为 3600 秒（INT 后 30 秒 kill），原 POST guardian 的 2700 秒预算不变。固定 sampler 子进程没有另建 session，继续使用原 child 终止/等待路径；正常 wrapper 仍先关闭 observer 再进行 journey finalization。这些外层上限是诊断截断保护，不延长产品请求/租约或把单步预算改成 60 分钟。缺失/不符 state 与 sampler manifest 比较会使验收非零；锁释放依据自身资源静止，不能以释放锁表示业务成功。
 
 执行前确认 BatchMode SSH/节点空闲，LAN 同步后核固定摘要，使用 README 的唯一 `run-once.sh` 命令，由 shell 自取锁，不叠加外层占用。身份/输入/缓存/源副本不符或任一停止条件触发即停留证，不自动重跑；未知收束状态保锁。交回 controller/launch、preflight/目标镜像检查、独立 Submit 结果、原 run/state、observer/resource、cleanup/postflight、实际 exit 与 SHA/锁状态。独立结果成功也不等于原 journey 完整 PASS、lease 根因闭合或正式恢复；H3 证据保留。
+
+## 30. r1 启动接线失败与 DC68 判定
+
+**r1 属于尚未触及被测对象的外置 launcher 工作目录错误，符合 DC68 一次修正重做范围；不作为产品回归失败。** 审核前次漏看 sampler 以仓库根目录启动 child，导致第 29 节 GO 未发现 launcher 要求 backend cwd 的矛盾。原 sampler 的 `--worktree` 同时用于定位 `vnext/backend/.venv/bin/python`，因此保持其仓库根目录含义，仅修外置 launcher 的固定目录接线。
+
+CT05 保存日志显示 2026-11-06 02:26:45–02:27:12Z 起止 HEAD 均为 e798。preflight 的 source/input/cache、backend/worker 与目标 RS 身份核验通过；sampler 于 02:27:09.080Z 启动 child，child 在 `require_fixed_context` 的 cwd 断言处退出，尚未 import journey、创建目标卷、运行 Compose 或 POST。sampler/launcher exit 125，state 为 NO_STATE、run SHA 为空，resource 无容器样本。不能把 sampler child 已启动表述成“没有启动 child”。
+
+cleanup 保存的每条操作均为固定 project 的容器/network 列举，初始与最终集合为空，没有 stop/rm 或卷删除；postflight 为 VERIFIED_QUIESCENT。controller 记录释放锁，02:28:39Z 只读后查亦记录 node_lock=ABSENT。preflight 已进行授权内目标镜像 retag 和证据写入，这些保留，不声称整次执行完全没有任何写入；失败未影响源 checkpoint、业务状态或被测服务，故不妨碍本次 DC68 判定。
+
+已核回传 `failed-run-readonly/SHA256SUMS` 九项全部匹配。launch SHA `8b71c98f4ebdad3741c680b39ce8174e195edd0dc5ba49b448898bab5465f7ba`；SUMS SHA `704507a035603b5e69cb097a40603c54036b25689d48f75a979ba0f6f1a36808`；只读后查日志 SHA `a3aee64520e4221b10c6d989eb0df14ea3b00b8260ca640a684c182314048b71`。旧项目、失败目录与镜像保留，不能覆盖后重试。
+
+最小修订限于：submit 模式只接受 sampler 传入的确切仓库根目录，经原 hostname/owner/解释器/HEAD/clean/工具 pin/环境检查后切换到固定 backend 目录，再 import journey；其他模式仍只接受 backend 目录。保留 sampler 原参数、业务 wrapper、原预算与收尾，记录入口及实际 journey cwd。新 project/key/证据目录隔离失败尝试。修订候选固定摘要复核后可直接给予一次从 preflight 开始的重做 GO；再次失败即停止交回，不再自动重试，不重开已确认范围或旧场景。

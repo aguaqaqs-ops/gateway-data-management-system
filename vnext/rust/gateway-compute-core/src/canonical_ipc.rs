@@ -2404,7 +2404,7 @@ fn validate_reader_schema(
         .map_err(|_| resource_error("canonical IPC schema validation allocation failed"))?;
     for (index, plan) in plans.iter().enumerate() {
         let field = schema.field(index);
-        if field.name() != plan.descriptor.canonical_name
+        if field.name().as_str() != plan.descriptor.canonical_name.as_str()
             || field.is_nullable() != plan.descriptor.nullable
         {
             return Err(schema_error(

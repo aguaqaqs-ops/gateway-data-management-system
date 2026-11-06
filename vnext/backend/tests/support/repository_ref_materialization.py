@@ -604,7 +604,13 @@ class _ReferenceCommittedTables:
             backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
             return snapshot_table_from_arrow(table.descriptor, backing, source, ordered=table.ordered_metadata)
         finally:
-            session.close()
+            try:
+                session.close()
+            except RepositoryProviderError as exc:
+                # The outer materializer owns the existing close warning. This
+                # test-only reference session must not turn it into content failure.
+                if exc.code is not MaterializationDiagnosticCode.REPOSITORY_SESSION_CLOSE_FAILED:
+                    raise
 
 
 def _bind_reference_tables(request: RepositoryRefMaterializationRequest, provider: FakeRepositoryTableAccessProvider) -> RepositoryRefMaterializationRequest:

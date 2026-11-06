@@ -50,31 +50,10 @@ def canonical_repository_stream(
                 raise ValueError("integer wire type differs from declaration")
             conversion = "cast"
             target = pa.uint64() if kind == "unsigned-integer" else pa.int64()
-        elif kind in ("datetime", "timestamp"):
-            expected = pa.timestamp("us", tz="UTC") if kind == "timestamp" else pa.timestamp("us")
-            if field.type != expected:
-                raise ValueError("temporal wire type differs from declaration")
-            conversion, target = kind, pa.string()
-        elif kind == "date":
-            if field.type != pa.date32():
-                raise ValueError("DATE wire type must be date32")
-            conversion, target = "date", pa.string()
-        elif kind == "time-duration":
-            if field.type != pa.duration("us"):
-                raise ValueError("TIME wire type must be duration(us)")
-            conversion, target = "time-duration", pa.string()
-        elif kind == "decimal":
-            precision, scale = column["declared_type"]["precision"], column["declared_type"]["scale"]
-            expected = pa.decimal128(precision, scale) if precision <= 38 else pa.decimal256(precision, scale)
-            if field.type != expected:
-                raise ValueError("DECIMAL wire precision/scale differs from declaration")
-            conversion, target = "cast", pa.string()
-        elif kind == "boolean":
-            if field.type != pa.bool_():
-                raise ValueError("BOOLEAN wire type must be bool")
-        elif kind in ("binary", "bit"):
-            if field.type != pa.binary():
-                raise ValueError("binary wire type must be binary")
+        elif kind == "datetime":
+            if field.type != pa.timestamp("us"):
+                raise ValueError("DATETIME wire type must be civil timestamp(us)")
+            conversion, target = "datetime", pa.string()
         elif kind == "float32" and field.type != pa.float32():
             raise ValueError("FLOAT wire type differs from declaration")
         elif kind == "float64" and field.type != pa.float64():
@@ -112,16 +91,10 @@ def canonical_repository_stream(
                             raise ValueError("SET wire member must not be null")
                         array = pc.cast(array, pa.list_(pa.string()), safe=True)
                         array = pc.binary_join(array, ",")
-                    elif conversion in ("datetime", "timestamp"):
+                    elif conversion == "datetime":
                         array = pc.strftime(array, format="%Y-%m-%dT%H:%M:%S", locale="C")
                         array = pc.replace_substring_regex(array, pattern=r"(\.[0-9]*[1-9])0+$", replacement=r"\1")
                         array = pc.replace_substring_regex(array, pattern=r"\.0+$", replacement="")
-                        if conversion == "timestamp":
-                            array = pc.binary_join_element_wise(array, "Z", "")
-                    elif conversion == "date":
-                        array = pc.strftime(array, format="%Y-%m-%d", locale="C")
-                    elif conversion == "time-duration":
-                        array = _duration_text(array)
                     arrays.append(array)
                 output = pa.RecordBatch.from_arrays(arrays, schema=schema) if arrays else batch.select([])
                 del arrays
@@ -134,23 +107,3 @@ def canonical_repository_stream(
         with pa.RecordBatchReader.from_batches(schema, batches) as reader:
             yield reader
         context.checkpoint()
-
-
-def _duration_text(array: pa.Array) -> pa.Array:
-    """Render the established TIME duration spelling using columnar kernels."""
-    micros = pc.cast(array, pa.int64())
-    absolute = pc.abs_checked(micros)
-    hours = pc.divide_checked(absolute, 3_600_000_000)
-    remainder = pc.subtract_checked(absolute, pc.multiply_checked(hours, 3_600_000_000))
-    minutes = pc.divide_checked(remainder, 60_000_000)
-    remainder = pc.subtract_checked(remainder, pc.multiply_checked(minutes, 60_000_000))
-    seconds = pc.divide_checked(remainder, 1_000_000)
-    fraction = pc.subtract_checked(remainder, pc.multiply_checked(seconds, 1_000_000))
-    hour_text = pc.utf8_lpad(pc.cast(hours, pa.string()), width=2, padding="0")
-    minute_text = pc.utf8_lpad(pc.cast(minutes, pa.string()), width=2, padding="0")
-    second_text = pc.utf8_lpad(pc.cast(seconds, pa.string()), width=2, padding="0")
-    fraction_text = pc.utf8_lpad(pc.cast(fraction, pa.string()), width=6, padding="0")
-    fraction_text = pc.replace_substring_regex(fraction_text, pattern="0+$", replacement="")
-    fraction_text = pc.if_else(pc.equal(fraction, 0), "", pc.binary_join_element_wise(".", fraction_text, ""))
-    sign = pc.if_else(pc.less(micros, 0), "-", "")
-    return pc.binary_join_element_wise(sign, hour_text, ":", minute_text, ":", second_text, fraction_text, "")

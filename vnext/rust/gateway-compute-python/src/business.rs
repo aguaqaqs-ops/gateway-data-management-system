@@ -176,12 +176,13 @@ fn projection_plan(
     let preflight = descriptor_preflight(columns, codec_budgets(budgets), watch, deadline)?;
     let descriptors = parse_column_descriptors(columns, preflight, watch, deadline)?;
     let mut projected = Vec::with_capacity(descriptors.len());
-    for (index, descriptor) in descriptors.into_iter().enumerate() {
+    for (index, mut descriptor) in descriptors.into_iter().enumerate() {
         let column = columns.get_item(index)?;
         let column = column
             .cast::<PyDict>()
             .map_err(|_| PyValueError::new_err("projection column must be a dict"))?;
         let source_index = required_item(column, "source_index")?;
+        descriptor.display_name = match column.get_item("display_name")? { Some(value) => value.extract::<String>()?, None => descriptor.canonical_name.clone() };
         let source_index = if source_index.is_none() {
             None
         } else {
@@ -282,12 +283,14 @@ struct NativeOutput {
 
 fn output_transfer_preflight(
     outcome: &KernelOutcome<NativeOutput>,
+    operation: Operation,
     budgets: BusinessKernelBudgets,
     owned_metadata: usize,
     watch: &CancelWatch,
     deadline: Option<Instant>,
 ) -> PyResult<()> {
     let mut retained = 2048usize;
+    let mut arrow_bytes = 0usize;
     let mut add = |bytes| -> PyResult<()> {
         retained = checked_add_with_limit(
             retained,
@@ -346,15 +349,19 @@ fn output_transfer_preflight(
             }
             for batch in &table.batches {
                 for array in batch.columns() {
-                    add(array.get_array_memory_size())?;
+                    arrow_bytes = arrow_bytes.checked_add(array.get_array_memory_size()).ok_or_else(|| PyMemoryError::new_err("Arrow output byte count overflow"))?;
                 }
             }
         }
     }
-    if retained > budgets.max_output_bytes
+    // SQL returns shared input buffers. Projection/catalog own rebuilt arrays.
+    // Both count for returned-output bytes; only the latter add owned live data.
+    let owned_arrow = if matches!(operation, Operation::Sql) { 0 } else { arrow_bytes };
+    if retained.checked_add(arrow_bytes).is_none_or(|bytes| bytes > budgets.max_output_bytes)
         || retained
             .checked_mul(2)
             .and_then(|bytes| bytes.checked_add(owned_metadata))
+            .and_then(|bytes| bytes.checked_add(owned_arrow))
             .is_none_or(|bytes| bytes > budgets.max_live_bytes)
     {
         return Err(PyMemoryError::new_err(
@@ -550,7 +557,7 @@ fn native_inner(
         let mut adapter_batches_owned = 0usize;
         for reader in readers {
             let schema = reader.schema();
-            let header_upper = schema.fields().len().checked_mul(1024).ok_or_else(|| {
+            let header_upper = schema.fields().len().checked_mul(1024).and_then(|bytes| bytes.checked_add(512)).ok_or_else(|| {
                 BusinessKernelError::new(
                     BusinessKernelErrorKind::Resource,
                     "empty Arrow header estimate overflow",
@@ -828,7 +835,7 @@ fn native_inner(
     }
     let outcome = outcome.map_err(business_error)?;
     python_adapter_control(&watch, deadline)?;
-    output_transfer_preflight(&outcome, budgets, owned_metadata, &watch, deadline)?;
+    output_transfer_preflight(&outcome, operation, budgets, owned_metadata, &watch, deadline)?;
     output_object(py, outcome, &watch, deadline)
 }
 

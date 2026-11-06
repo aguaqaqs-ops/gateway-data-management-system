@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use arrow_array::{Array, Int64Array, RecordBatch, RecordBatchOptions, StringArray, UInt64Array};
+use arrow_array::{Int64Array, RecordBatch, RecordBatchOptions, UInt64Array};
 use arrow_schema::{Field, Schema};
 use gateway_shared_kernel::DeclaredType;
 

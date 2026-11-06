@@ -31,11 +31,19 @@ from gateway_backend.capabilities.snapshot_materialization.native import (
 )
 from gateway_backend.capabilities.storage_projection.native import build_projection_plan, project_arrow_table
 from gateway_backend.capabilities.storage_projection.project import project_canonical_table_set
+from gateway_backend.capabilities.storage_projection.project import project_storage
+from gateway_backend.capabilities.storage_projection.contracts import (
+    STORAGE_PROJECTION_VERSION,
+    ProjectionInvocationContext,
+    ProjectionRequest,
+    ProjectionTableInput,
+)
 from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
 from gateway_backend.capabilities.table_access.contracts import NeverCancel
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
-from tests.support.snapshot_materialization import materialize_sql
+from tests.support.snapshot_materialization import load_sql, materialize_sql
+from tests.support.storage_projection import table_input, typed_column
 
 _BUDGETS = {
     "max_columns": 2048, "max_batches": 64, "max_rows": 100000,
@@ -253,6 +261,69 @@ def test_native_stream_budget_stops_before_consuming_later_batches() -> None:
     with pytest.raises(MemoryError, match="row"):
         _sql_materialize_native([table], [reader], {"stage": "FINAL", "effective_compare_key_columns": []}, NeverCancel(), {**_BUDGETS, "max_rows": 1})
     assert consumed == [0, 1]
+
+
+@pytest.mark.parametrize("budget", ("max_metadata_bytes", "max_live_bytes", "max_input_bytes", "max_diagnostic_bytes"))
+def test_native_business_resource_failures_return_no_partial_result(budget: str) -> None:
+    sql = "CREATE TABLE t (gid VARCHAR(32)); INSERT INTO t VALUES ('4000000000');"
+    table = _tables(sql)[0]
+    with pytest.raises(MemoryError):
+        _sql_materialize_native([table], [table["arrow_stream"]], {"stage": "FINAL", "effective_compare_key_columns": []}, NeverCancel(), {**_BUDGETS, budget: 1})
+
+
+def test_complete_schema_diagnostics_keep_the_existing_cap_order_and_omitted_count() -> None:
+    # The existing projection owner permits a bound metadata descriptor wider
+    # than the SQL parser default. Raise only this test's explicit parser bound.
+    names = tuple(f"c{index:04d}" for index in range(1050))
+    sql = "CREATE TABLE t (" + ",".join(f"{name} JSON" for name in names) + ");"
+    raw = cast(dict[str, Any], _parse_sql_native(sql.encode(), NeverCancel(), None, 1, {"max_columns_per_table": 2000}))
+    table = raw["tables"][0]
+    reader, binding = table_input("t", columns=tuple(typed_column(name, "JSON", nullable=True) for name in names), primary_key_columns=(), row_count=0)
+    oracle = project_storage(ProjectionRequest(ruleset=migrated_table_ruleset_snapshot(), storage_projection_version=STORAGE_PROJECTION_VERSION, tables=(ProjectionTableInput(canonical_table="t", reader=reader, source_binding=binding),), context=ProjectionInvocationContext(NeverCancel())))
+    budgets = {**_BUDGETS, "max_metadata_bytes": 32 * 1024 * 1024, "max_live_bytes": 512 * 1024 * 1024}
+    plan = build_projection_plan(binding.descriptor, _view(binding.descriptor), canonicalized_input=False, budgets=budgets)
+    result = _canonical_project_native([table], [table["arrow_stream"]], plan, NeverCancel(), budgets)
+    assert result["output"] is None
+    assert [(item["code"], item["column"]) for item in result["diagnostics"]] == [(item.code.value, item.column_name) for item in oracle.diagnostics]
+    assert len(result["diagnostics"]) == 1024
+    assert result["omitted_diagnostic_count"] == oracle.omitted_diagnostic_count == 26
+
+
+def test_dropped_unsupported_columns_stay_out_of_canonical_digest() -> None:
+    digests = []
+    for value in ("'{\"a\":1}'", "'{\"a\":2}'"):
+        # net_cfg's no column is dropped by its real rule, independent of type.
+        sql = f"CREATE TABLE net_cfg (board VARCHAR(8) NOT NULL, link_no INT NOT NULL, no JSON); INSERT INTO net_cfg VALUES ('eth0',1,{value});"
+        result, oracle = _projection(sql)
+        assert result["output"] is not None
+        assert oracle.tables[0].descriptor.raw_content_digest is not None
+        assert result["output"]["raw_content_digest"] == oracle.tables[0].descriptor.raw_content_digest.value
+        digests.append(result["output"]["raw_content_digest"])
+    assert digests[0] == digests[1]
+
+
+@pytest.mark.parametrize(("fixture", "status"), (
+    ("sql/partial/s2-unknown-type-mixed", "PARTIAL"),
+    ("sql/malformed/s2-document-failed", "FAILED"),
+))
+def test_real_parser_and_per_table_facts_keep_existing_snapshot_status_ownership(fixture: str, status: str) -> None:
+    sql = load_sql(f"{fixture}/input.sql")
+    parsed = cast(dict[str, Any], _parse_sql_native(sql.encode(), NeverCancel(), None, 1))
+    oracle = materialize_sql(sql)
+    assert parsed["status"] == oracle.status.value == status
+    if status == "FAILED":
+        assert oracle.snapshot is None and oracle.table_set is None
+        assert all(not table["reader_ready"] for table in parsed["tables"])
+        return
+    assert oracle.summary is not None
+    for table in parsed["tables"]:
+        descriptor = next(item for item in oracle.summary.tables if item.table_name == table["canonical_name"])
+        if not table["reader_ready"]:
+            assert table["arrow_stream"] is None and descriptor.raw_content_digest is None
+            continue
+        result = materialize_arrow_table(table, effective_compare_key_columns=descriptor.compare_key_columns, stage=MaterializationStage.FINAL, cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1)
+        assert descriptor.raw_content_digest is not None
+        assert result["output"]["raw_content_digest"] == descriptor.raw_content_digest.value
 
 
 @pytest.mark.serial

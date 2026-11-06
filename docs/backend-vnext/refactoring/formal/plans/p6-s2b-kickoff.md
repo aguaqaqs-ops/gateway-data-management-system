@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A–C 已交付，D 推进中）
 
-状态：APPROVED / A–C COMPLETE / D IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；A 固定产品 `db7767ffbb`、审核 `83b927207a`，B 固定产品 `b820321c1e`、审核 `0dc93c09a9`。C 固定产品 `0048040af5`、[handoff](p6-s2b-c-handoff.md)及[容量报告](p6-s2b-c-capacity-calibration.md) `7cd2b548c8`、[独立审核](p6-s2b-c-review.md) `e9bef6efe8`，C GO，无未关闭 blocking；06 在 C 交接时释放，C 二角色结束，现由 D 使用。Owner 按 DC87 选择 12 GiB envelope/4 GiB reserve/显式 M=8 GiB、N=1/单 active。[D](p6-s2b-d-kickoff.md) 的 Sol/high 实施者、Sol/max 审核者正在完成生产接线；DC88 已批准纯重算正常 drain 的不耗次数重排队，实际实现及验证仍待收口。E 待 D GO。局部接线证据不代表 D 实际 worker capacity 或容器通过，S2b 整体尚未退出。
+状态：APPROVED / A–C COMPLETE / D IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；A 固定产品 `db7767ffbb`、审核 `83b927207a`，B 固定产品 `b820321c1e`、审核 `0dc93c09a9`。C 固定产品 `0048040af5`、[handoff](p6-s2b-c-handoff.md)及[容量报告](p6-s2b-c-capacity-calibration.md) `7cd2b548c8`、[独立审核](p6-s2b-c-review.md) `e9bef6efe8`，C GO，无未关闭 blocking；06 在 C 交接时释放，C 二角色结束，现由 D 使用。Owner 按 DC87 选择 12 GiB envelope/4 GiB reserve/显式 M=8 GiB、N=1/单 active。[D](p6-s2b-d-kickoff.md) 的 Sol/high 实施者、Sol/max 审核者正在完成生产接线；DC88 纯重算正常 drain 的不耗次数重排队已在 `7f61ceedf4` 通过独立复审，整体 D 验证仍待收口。E 待 D GO。局部接线证据不代表 D 实际 worker capacity 或容器通过，S2b 整体尚未退出。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 

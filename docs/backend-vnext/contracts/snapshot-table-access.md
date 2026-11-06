@@ -184,7 +184,7 @@ cache miss、损坏引用或 Parquet 校验失败时回退到规范表读取与�
 
 D 将 Rust parser 接入生产时，除了既有 source/statement/row/field/diagnostic 配额，还须传入当前 operation 剩余的局部 `max_live_bytes`。该局部预算约束 parser 拥有的元数据、jobs/plans/chunks、列 builder、合并与 Arrow/adapter 转移的同时存活分配；借用 SQL 输入由 operation 持有并计一次，不重复算 parser 自有内存。局部调用完成后，实际 retained Arrow backing 继续计入 operation 预约，不能只在返回后检查已完成的大分配。
 
-采用分配前 checked 的确定性源序预预约，复用已有 scanner 的有界元组统计；估计需覆盖元数据/ordinals、capacity 增长、merge 旧新重叠和转移临时量。不要用并行任务抢占共享计数器决定错误位置，也不建设全局 allocator 框架。新 `max_live_bytes` 不足按既有 `PARSER_RESOURCE_LIMIT_EXCEEDED` 返回文档级诊断（budget=`max_live_bytes`、byte offset=`0`），不返回可成功发布的部分结果；这是本次新增整体额度的定位规则，不改既有配额的定位与成功输入语义。
+采用分配前 checked 的确定性源序预预约，复用已有 scanner 的有界元组统计；估计需覆盖元数据/ordinals、capacity 增长、merge 旧新重叠和转移临时量。不要用并行任务抢占共享计数器决定错误位置，也不建设全局 allocator 框架。新 `max_live_bytes` 不足按既有 `RESOURCE_LIMIT_EXCEEDED` 返回文档级诊断（budget=`max_live_bytes`、byte offset=`0`），不返回可成功发布的部分结果；这是本次新增整体额度的定位规则，不改既有配额的定位与成功输入语义。
 
 具体保守项由实现及独立审核说明，并以有界资源拒绝、宽表/短坏 tuple、N 确定性和真实 worker 校准验证；配置与容量结论按 [D 任务](../refactoring/formal/plans/p6-s2b-d-kickoff.md) 及 DC87。不因补该资源边界重做已通过且不受影响的 S2a 全量逐值差分。
 

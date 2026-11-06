@@ -22,7 +22,7 @@ C 经明确理由与独立审核暂记的五个生产不可达项见 [C 任务�
 
 预约覆盖同一 operation 同时存活的输入、parser buffers、规范结果、排序/filter 索引、IPC 及 Vec→PyBytes 复制、打开的 mmap/Arrow views、FULL 双侧和发布 staging。共享 backing/mapping 只计一次，未打开的全局历史文件只计磁盘。增长前拒绝；两个局部 kernel 各自满足 M 不能证明其同时存活总量满足 M。复用 A/B 的有界控制并按 C 实测生命周期串接，不引入全局 allocator 追踪框架。D 接线后记录实际 worker 峰值与预约偏差，不将 RSS、page cache 或 cgroup limit 混同预约。
 
-代码核对发现 S2a parser 的原配额不包含整体 live bytes，且先保留全部 chunk builders 再 merge。D 因真实 operation M 接线补局部 `max_live_bytes`：采用分配前、源序确定性的整次预预约，覆盖 phase A 元数据/jobs、builder capacity/merge/Arrow 转移；SQL 借用由外层计一次。新增整体额度不足使用文档级 `PARSER_RESOURCE_LIMIT_EXCEEDED` / `max_live_bytes` / offset 0，原配额定位与成功语义不改。规则归 [Snapshot Table Access](../../../contracts/snapshot-table-access.md#s2b-生产-parser-的-operation-预算)。具体估计与小规模边界测试由实施/独立审核核实，不以设计批准预判容量通过，不引入 allocator 框架或重跑旧全量差分。
+代码核对发现 S2a parser 的原配额不包含整体 live bytes，且先保留全部 chunk builders 再 merge。D 因真实 operation M 接线补局部 `max_live_bytes`：采用分配前、源序确定性的整次预预约，覆盖 phase A 元数据/jobs、builder capacity/merge/Arrow 转移；SQL 借用由外层计一次。新增整体额度不足使用文档级 `RESOURCE_LIMIT_EXCEEDED` / `max_live_bytes` / offset 0，原配额定位与成功语义不改。规则归 [Snapshot Table Access](../../../contracts/snapshot-table-access.md#s2b-生产-parser-的-operation-预算)。具体估计与小规模边界测试由实施/独立审核核实，不以设计批准预判容量通过，不引入 allocator 框架或重跑旧全量差分。
 
 ## 3. 取消、deadline、租约和冻结恢复
 

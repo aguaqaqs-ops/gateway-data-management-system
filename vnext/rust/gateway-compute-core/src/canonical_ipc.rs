@@ -3005,7 +3005,7 @@ mod tests {
         assert_eq!(
             field_metadata.get(0).value(),
             Some(
-                "{\"declared_type\":{\"bits\":null,\"bit_width\":null,\"kind\":\"string\",\"precision\":null,\"scale\":null},\"labels\":null,\"logical_type\":\"standard\",\"sql_type\":\"VARCHAR(16)\"}"
+                "{\"declared_type\":{\"bit_width\":null,\"bits\":null,\"kind\":\"string\",\"precision\":null,\"scale\":null},\"labels\":null,\"logical_type\":\"standard\",\"sql_type\":\"VARCHAR(16)\"}"
             )
         );
         Ok(())

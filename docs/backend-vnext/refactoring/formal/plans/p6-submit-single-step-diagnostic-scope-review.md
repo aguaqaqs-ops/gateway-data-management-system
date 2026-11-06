@@ -1413,3 +1413,11 @@ down 前 18:46:53 保存最后可读 DB selected rows 和三服务 raw logs，�
 最终 controller 以 1 结束，Compose down exit 0，postflight 内嵌/独立 JSON 完全相同，owned/log-capture/guardian/worker 回收及 project containers/networks quiet、postflight_complete、lock_release_allowed 均 true，最终摘要写入无失败。launcher 明确 node_lock_released=true。只读 SSH 复核该 project 的容器/网络均为空、busy lock 不存在、三 target volumes 全部保留，与 postflight 一致；没有把“回收成功”改写成“prepare 成功”。该失败不满足正常 prepare terminal/后继 PENDING 成功条件，也不能作为性能基准。
 
 结论及入口前延迟的具体数值已直接交实施者，正式结果同步设计；不要求为解释现有记录重跑诊断，不新增产品修复、观测或预算。**本次 c GO 已消耗，无后续运行/正式测量 GO；保留三卷、候选、完整原证据。**
+
+## 68. c 结果 handoff 常规事实复核
+
+只读核对 `/home/dev/gdds-p6-baseline/docs/backend-vnext/refactoring/formal/plans/p6-baseline-handoff.md`、该 worktree 的 clean 提交 `117f1a94333e912d7eae3c46172a13e843aff647` 及新增 c revision 2 段落。运行/结束时间、2215.653s、单 POST/claim、各主要摘要、190 次 session return、最后 helper 的 due/deadline 差值、mutation_plan 开放、资源/回收/三卷、h/b/c GO 状态和 H3/根因/正式测量边界均与 §66/67 一致；额外核 SSH 调用日志 SHA256 `9332ecd115058d22cf926baf2652a0357e35951ebbe05bb713159e6202ee41ce` 匹配。本轮没有测试、节点探测、业务运行或新取证。
+
+已直接交实施者两项非阻塞文书澄清：顶部“最后一次 LeaseSession.heartbeat 调用之前”改为“最后 helper 进入时已过 deadline、未进入第 191 次 session”，避免将未发生的调用写成已发生；旧 c “review-only verifier 仍 MATCH/post_go=false”明确为 §66 前历史记录，不能在共享 POST-GO 已存在时称当前 review-only 仍返回 false。只改 handoff，不改冻结候选/manifest/log，不需要重测或暂停设计已派的只读分析。
+
+本轮不触发产品/镜像重建，冻结产品仍 `1f9731`、最后验证 image revision/source-tree 沿 §57。设计已决定由唯一实施者只读收窄 mutation_plan 内部与 EventWriter 时间戳/锁/flush 扰动；本核查不另行授权 probe、大中间 checkpoint、加测、重跑或 TTL 修改，具体新诊断待设计。**§67 的失败结论和 GO 已消耗状态不变，没有新的运行或正式测量 GO。**

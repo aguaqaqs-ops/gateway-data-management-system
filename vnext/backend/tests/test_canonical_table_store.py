@@ -310,3 +310,46 @@ def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_for
     del payload["repository_id"]
     with pytest.raises(KeyError):
         manifest_from_bytes(json.dumps(payload).encode())
+
+
+def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.capabilities.snapshot_materialization import (
+        publish_canonical_tables, snapshot_table_from_arrow, source_descriptor_from_arrow, canonical_columns,
+        export_snapshot_table_parquet,
+    )
+    from gateway_backend.capabilities.snapshot_materialization._parquet import read_parquet_table, encoding_columns_from_table, iter_decoded_rows
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from gateway_backend.infrastructure.control_db.snapshot_export_cache import ControlDbSnapshotTableExportCache
+    from gateway_shared_kernel import DigestRef, Float32Scalar
+    from gateway_backend.capabilities.table_access.contracts import SqlSetValue
+
+    sql = """CREATE TABLE t (id SMALLINT NOT NULL PRIMARY KEY, s SET('b','a'), f FLOAT, d DATETIME(6));
+        INSERT INTO t VALUES (1,'a,b',1.25,'2024-01-02 03:04:05.123000'),(2,'',NULL,NULL),(3,NULL,-0.0,NULL);"""
+    stream, descriptor = canonical_input(sql)
+    with stream:
+        backing = stream.read_all()
+    source = source_descriptor_from_arrow({"canonical_name": descriptor.table_name,
+        "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
+        "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
+    table = snapshot_table_from_arrow(descriptor, backing, source)
+    store = InMemoryArtifactStore()
+    table = publish_canonical_tables((table,), snapshot_digest=DigestRef("sha256:" + "0" * 64), store=store, repository_id="repo")[0]
+    cache = ControlDbSnapshotTableExportCache(lambda: ControlDbUnitOfWork(db_path))
+    ref = export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
+    raw = store.locate(ref)
+    assert raw[:4] == raw[-4:] == b"PAR1"
+    exported = read_parquet_table(raw)
+    assert exported.column_names == ["id", "s", "f", "d"]
+    assert exported.schema.field("id").type == pa.string()
+    assert exported.schema.field("s").type == pa.list_(pa.string())
+    assert exported.schema.field("f").type == pa.string()
+    rows = iter_decoded_rows(exported, encoding_columns_from_table(exported))
+    assert rows[0][1] == SqlSetValue(("b", "a"))
+    assert rows[1][1] == SqlSetValue(())
+    assert rows[0][2] == Float32Scalar("3fa00000")
+    def forbid_write(*args: object, **kwargs: object) -> None:
+        pytest.fail("healthy client cache hit must not rewrite the artifact")
+    monkeypatch.setattr(store, "put", forbid_write)
+    assert export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache) == ref
+    with pytest.raises(ValueError, match="scoped canonical"):
+        export_snapshot_table_parquet(table, store=store, repository_id="other", export_cache=cache)

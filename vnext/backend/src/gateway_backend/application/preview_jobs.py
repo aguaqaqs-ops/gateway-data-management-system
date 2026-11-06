@@ -101,7 +101,7 @@ from gateway_backend.capabilities.comparison import (
 from gateway_backend.capabilities.snapshot_materialization import (
     ArtifactPublishError,
     materialize_business_snapshot,
-    materialize_canonical_snapshot,
+    materialize_canonical_snapshot, export_snapshot_table_parquet,
     open_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -803,7 +803,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
                     lease_session,
                     control,
                     active_rules,
-                    on_cancel=publish_cancelled,
+                    on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
@@ -1571,6 +1571,8 @@ def surface_artifact_closure(
     before: BoundSnapshotInput | None = None,
     current: BoundSnapshotInput | None = None,
     include_all_tables: bool = False,
+    store: ArtifactStorePort | None = None, repository_id: str | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> BundleArtifactClosure:
     if surface is None:
         raise PreviewJobError("surface assembly did not produce a surface for bundle closure")
@@ -1757,7 +1759,8 @@ def surface_artifact_closure(
                         f"replacement table {snapshot_table.descriptor.table_name} is missing its artifact"
                     )
                 table_name = snapshot_table.descriptor.table_name
-                for index, ref in enumerate(artifact.manifest.row_file_refs):
+                for index, ref in enumerate((export_snapshot_table_parquet(snapshot_table, store=store,
+                        repository_id=repository_id, export_cache=export_cache),)):
                     add(
                         ref,
                         f"{prefix}/tables/{role}/{table_name}/rows/{index:06d}.parquet",
@@ -1780,7 +1783,8 @@ def surface_artifact_closure(
                         f"{role} table {snapshot_table.descriptor.table_name} is missing its artifact"
                     )
                 table_name = snapshot_table.descriptor.table_name
-                for index, ref in enumerate(artifact.manifest.row_file_refs):
+                for index, ref in enumerate((export_snapshot_table_parquet(snapshot_table, store=store,
+                        repository_id=repository_id, export_cache=export_cache),)):
                     add(
                         ref,
                         f"{prefix}/tables/{side}/{table_name}/rows/{index:06d}.parquet",
@@ -1803,6 +1807,7 @@ def _assemble_preview(
     control: ExecutionControl,
     rule_set: ComparisonRuleSet,
     on_cancel: Callable[[], None],
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_results: list[_PairPipelineResult] = []
     bundle_pairs: list[BundlePairInput] = []
@@ -1860,6 +1865,7 @@ def _assemble_preview(
             rule_set=rule_set,
             on_cancel=on_cancel,
             assess_identity=assess_identity,
+            repository_id=payload.repository_id, export_cache=export_cache,
             identity_before_table_set=(
                 _unchanged_baseline_identity_table_set(before, current)
                 if assess_identity and reuse_unchanged_baseline_identity
@@ -1879,7 +1885,7 @@ def _assemble_preview(
                     pair_id,
                     pair_state.records_closure,
                     before=before,
-                    current=current,
+                    current=current, store=store, repository_id=payload.repository_id, export_cache=export_cache,
                 ),
             )
         )
@@ -1940,6 +1946,7 @@ def _run_pair_pipeline(
     on_cancel: Callable[[], None],
     assess_identity: bool,
     identity_before_table_set: SnapshotTableSet | None = None,
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_preview_pair_pipeline(
@@ -1952,7 +1959,7 @@ def _run_pair_pipeline(
             view_id=_PAIR_INITIAL_TO_MODIFIED,
             rule_set=rule_set,
             assess_identity=assess_identity,
-            identity_before_table_set=identity_before_table_set,
+            identity_before_table_set=identity_before_table_set, repository_id=repository_id, export_cache=export_cache,
         )
     except PairPipelineCancelled:
         raise

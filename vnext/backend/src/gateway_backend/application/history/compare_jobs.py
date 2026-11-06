@@ -547,7 +547,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                     store=deps.artifact_store,
                     lease_session=lease_session,
                     control=control,
-                    on_cancel=publish_cancelled,
+                    on_cancel=publish_cancelled, export_cache=deps.snapshot_export_cache,
                 )
             except PairPipelineCancelled:
                 return ExecutorAcknowledgment.PUBLISHED
@@ -881,6 +881,7 @@ def _assemble_comparison(
     lease_session: LeaseSession,
     control: ExecutionControl,
     on_cancel: Callable[[], None],
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> tuple[dict[str, object], ArtifactRef, str]:
     pair_specs: list[tuple[str, HistoryCompareNodeBinding, HistoryCompareNodeBinding]] = []
     for index in range(payload.pair_count):
@@ -922,7 +923,7 @@ def _assemble_comparison(
             rule_set=rule_set,
             store=store,
             control=control,
-            on_cancel=on_cancel,
+            on_cancel=on_cancel, repository_id=payload.repository_id, export_cache=export_cache,
         )
         pair_results.append(pair_state)
         before_index, current_index = bundle_indexes[pair_id]
@@ -938,7 +939,7 @@ def _assemble_comparison(
                     pair_state.records_closure,
                     before=before,
                     current=current,
-                    include_all_tables=True,
+                    include_all_tables=True, store=store, repository_id=payload.repository_id, export_cache=export_cache,
                 ),
             )
         )
@@ -1000,6 +1001,7 @@ def _run_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
     on_cancel: Callable[[], None],
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> _PairPipelineResult:
     try:
         return run_history_pair_pipeline(
@@ -1009,7 +1011,7 @@ def _run_pair_pipeline(
             rule_set=rule_set,
             store=store,
             control=control,
-            on_cancel=on_cancel,
+            on_cancel=on_cancel, repository_id=repository_id, export_cache=export_cache,
         )
     except PairPipelineCancelled:
         raise

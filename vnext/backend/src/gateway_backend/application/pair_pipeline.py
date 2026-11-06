@@ -16,6 +16,8 @@ from gateway_backend.capabilities.project_identity import (
     assess_project_identity,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import SnapshotTableSet
+from gateway_backend.capabilities.snapshot_materialization import export_snapshot_table_parquet
+from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.comparison import (
     BoundSnapshotInput,
     ComparisonRequest,
@@ -121,6 +123,7 @@ def run_preview_pair_pipeline(
     rule_set: ComparisonRuleSet | None = None,
     assess_identity: bool = True,
     identity_before_table_set: SnapshotTableSet | None = None,
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> PreviewPairPipelineResult:
     assessment: ProjectIdentityAssessment | None = None
     assessment_ref = None
@@ -161,7 +164,7 @@ def run_preview_pair_pipeline(
             assessment_ref=assessment_ref,
         ),
         show_keyless_fallback_hint=True,
-        include_all_before_tables=False,
+        include_all_before_tables=False, repository_id=repository_id, export_cache=export_cache,
     )
     records_closure = surface.published.records_closure
     if (
@@ -190,6 +193,7 @@ def run_history_pair_pipeline(
     store: ArtifactStorePort,
     control: ExecutionControl,
     on_cancel: Callable[[], None],
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> HistoryPairPipelineResult:
     request = ComparisonRequest(
         pair_id=pair_id,
@@ -204,7 +208,7 @@ def run_history_pair_pipeline(
         store=store,
         control=control,
         on_cancel=on_cancel,
-        include_all_before_tables=True,
+        include_all_before_tables=True, repository_id=repository_id, export_cache=export_cache,
     )
     if not isinstance(surface.published, DetailedFactsResult):
         raise PairPipelineError("history comparison did not produce detailed facts")
@@ -248,6 +252,7 @@ def _run_comparison_risk_surface(
     identity_annotation: SurfaceIdentityAnnotation | None = None,
     show_keyless_fallback_hint: bool = False,
     include_all_before_tables: bool = False,
+    repository_id: str | None = None, export_cache: SnapshotTableExportCachePort | None = None,
 ) -> _ComparisonRiskSurfaceResult:
     plan = plan_comparison(request)
     if isinstance(plan, FailedResult):
@@ -301,7 +306,7 @@ def _run_comparison_risk_surface(
             risk_annotation_closure=risk.risk_closure,
             table_artifacts=(
                 _surface_table_artifacts(
-                    request,
+                    request, store=store, repository_id=repository_id, export_cache=export_cache,
                     include_all_before=(
                         include_all_before_tables
                         or request.mode is ComparisonMode.DATASET_REPLACEMENT
@@ -338,6 +343,8 @@ def _surface_table_artifacts(
     request: ComparisonRequest,
     *,
     include_all_before: bool,
+    store: ArtifactStorePort | None = None, repository_id: str | None = None,
+    export_cache: SnapshotTableExportCachePort | None = None,
 ) -> tuple[SurfaceArtifactIndexEntry, ...]:
     def table_map(bound: BoundSnapshotInput) -> dict[str, ArtifactRef]:
         if bound.table_set is None:
@@ -353,7 +360,8 @@ def _surface_table_artifacts(
                 raise PairPipelineError(
                     f"surface table {table.descriptor.table_name} must have one Parquet row file"
                 )
-            artifacts[table.descriptor.table_name] = row_refs[0]
+            artifacts[table.descriptor.table_name] = export_snapshot_table_parquet(table, store=store,
+                repository_id=repository_id, export_cache=export_cache)
         return artifacts
 
     before = table_map(request.before)

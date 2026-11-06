@@ -137,7 +137,10 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlSetValue,
 )
 
+from gateway_backend.capabilities.snapshot_materialization.client_parquet import export_snapshot_table_parquet
+
 __all__ = [
+    "export_snapshot_table_parquet",
     "ArrowSnapshotTableReader", "operation_business_budgets", "operation_codec_budgets",
     "snapshot_arrow_input", "snapshot_table_from_arrow", "publish_canonical_tables",
     "current_kernel_context", "source_descriptor_from_arrow",

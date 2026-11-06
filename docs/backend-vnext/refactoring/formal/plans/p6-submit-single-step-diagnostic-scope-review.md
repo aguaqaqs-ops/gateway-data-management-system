@@ -1449,3 +1449,29 @@ wrapper marker、entry emit、original call 起止及 wrapper 总耗时应分开
 每事件最多三个窗口加固定计数，必须在真实最大形状下仍满足原 2 KiB/4096 条/8 MiB，最终小 JSON ≤32 KiB；达到上限、callback 错误或未取得最终摘要沿既有诊断缺口/必要观测停止分类，不伪装产品失租原因或“没有 GC”。没有最终摘要不能抹掉已经有效的 bounded 片段，但要限制结论的覆盖范围。无需为负面结论新增完整 collection 队列、后台线程或持久证明机制。
 
 原 45 分钟观察、3600 秒全流程硬上限、初始化/清理 reserve、资源/身份/lease_lost/cancel/stall 停止和保卷/未静止留锁不变；新项目/key/三卷副本/证据目录，不能从已失败 c 继续。05 的空闲需在实际执行时取得，不把历史释放当预约，不给 CT108 加负载。仅补真实 callback/有界聚合及 incomplete、最大事件形状、emit 与原调用计时/返回异常透传的 focused；生产 callback 不 collect 与测试为触发真实 collection 的受控调用应区分。保留真实 WorkerRuntime.run/LeaseSession API，不重测已关闭 controller/回收矩阵、旧大 probe、小 Compose 或全量 runner，不排第二轮全输入。**范围通过及候选准备许可已直接投递实施者并同步设计；没有新的 POST、worker/Compose 诊断或正式测量 GO。**
+
+## 70. GC-window 候选 a 初审：两组阻塞，无运行 GO
+
+**`p6mutationgcwindow20261106a` 最终 manifest `1ddb96be4d5081c42f6ae2ac2969056e119a47beae4f2852d2fa9fb114210d45` 尚不通过候选审核。** 独立只读候选目录 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6mutationgcwindow20261106a/candidate/`，15 文件集合、SHA256、全部模式和 Python AST 均匹配。测试时清单 `d3500bb664ad65b19de53b36319e181e58d079046a0bbd0163ecc870da59f257` 与最终清单仅 README/preparation-record/review-request 三文档不同，12 个非文档文件与所有模式未变。原始 `focused-tests.log` SHA256 `9abc35fb60764df48855087799b428cc4137b8f6363c97ad7e503c6ee183afc8`，记录 CT05 20:10:37–38、clean 起止 `1f9731`、8 passed / 25 deselected / 0.67s、pytest/script exit 0、锁已释放；最终 binding 日志 `1dfb44ccfb9085e316894b887cd60dfbf10c1563b61d4da19d112e8f3347befa` 记录 15 文件 MATCH/POST-GO absent。通过日志真实，但以下范围未获这些测试证明。本轮没有访问节点、执行候选/测试或发 POST。
+
+### G1：最大事件/retention 用例漏选，现有样本不代表真实最大形状
+
+`run-focused-tests.sh:19` 的选择式包含 `test_gc_window_observer`、`test_gc_callback` 等，**不匹配** `test_gc_window_retention_is_bounded_and_event_shape_stays_within_limit`（测试文件 402 行）。当前 8 项实际选中的是五个新 observer/timing/summary 用例与三个既有用例，该 retention/shape 用例在 25 deselected 中；README/preparation-record 关于本轮已经覆盖 top-16/maximum event shape 的表述不准确。
+
+即便补选当前用例，其 event fixture 也只给每代 generation/count/longest，省略 `snapshot_since_previous` 的 elapsed/process/thread totals、missing/error/open 字段；使用短 ID/小时间数值，没有验证真实 helper/session return/exception 携带 original-call/wrapper 计时和完整 EventWriter metrics 的形状。运行代码 `prepare_step_worker.py:203–208,228–238,260–270` 实际将这些字段同时放进 2 KiB 记录。三代均有保留窗口是设计允许的情况，不能以简化 fixture 证明真实组合不超限；触发 event_too_large 会使必要观测失败，可能恰好丢掉本次要看的长 GC 周期。
+
+把实际完整 entry/return/exception 字段、允许的三代窗口/开放形状及实际长度的 ID/时钟值用于必要 focused，并确认真正被 runner 选中；若超限则精简固定字段/采用紧凑表示，保留可解释的计数、窗口与真实调用边界，不抬高原上限或无标记丢数据。本审核没有执行候选，不将该未验证组合写成已有业务现场超限事实；在证明真实最大形状前不能签运行 GO。32 KiB summary 的边界可在同一小型工具覆盖中核实，不扩成全量门禁。
+
+### G2：snapshot 读后逐项清零会丢 collection，仍可能声称 complete
+
+`gc_observer.py` SHA256 `04faada3133f162d35e6ca6f1ed842cfd193b8f377a090b66e6bdb6c73bb6c27`。`snapshot_since_previous`（187–215 行）先从可变 stats 读值构造/append dict，再于 203–208 行逐项清零 since counters/max。**snapshot 自身的容器分配也可能触发正在观测的真实 GC callback**；callback 同时更新这些字段。若 collection 发生在旧值已取得、尚未清零之间，新 count/total/max 会被清掉或形成来自不同时间的混合字段，而返回仍 `incomplete=false`。callback 在另一线程的协作交错同样不被版本/交接机制识别。这不需要引入恶意同 euid 或穷举调度窗口，是本 callback 与其 snapshot 的正常重入边界。
+
+全程累计或 top-16 可能保留部分信息，但不能因此保证本次 heartbeat 的 since-window 没有丢失；而 §67 已证明失败可能没有最终 summary，不能指望正常收尾再补回缺口。需要一个最小固定规模交接/累计差分，或轻量交错检测并明确 incomplete，避免静默丢失后输出“该窗口没有 GC”。不要求完整事件队列、GC 暂停/阈值修改、阻塞 callback 锁或新状态机。补一项 collection 与 snapshot 交错后累计/分段一致或明确 incomplete 的语义 focused 即可，不穷举每个内部步骤。
+
+### 其余接线与后续范围
+
+候选正确保留真实 `WorkerRuntime.run` 及原 heartbeat/session 参数、返回/异常、renewal anchor；原调用前时间在同步 entry emit 返回后捕获，logger 不递归发事件。callback 按固定三代与 top-16 保留、同线程 CPU 差分、只内存记录错误并保留其他 callbacks；summary 路径接入 Compose/controller，正常收尾只移除自己的 callback，重复 worker_run_exit 已消除。缺失/不完整 summary 阻止成功，失败仍可凭回收事实安全解锁；这些方向与 §69 一致，不能替代 G1/G2 的修正。controller 环境 dict 中 `P6_DIAG_GC_SUMMARY_PATH` 重复同值两次是非阻塞清理项，可同轮去重，不单独加测试。
+
+两组阻塞已直接送达唯一实施者并抄设计；当前角色和 §69 准备/必要 focused 授权持续有效，无需再确认接管、设计回执或 owner 许可。保留本最终 a 包/manifest、精确测试时清单及原日志；用独立修订目录绑定新代码、受影响 focused 和最终清单再定向复审。handoff 的额外本地 checksum 错误留档/文书提交不改变候选字节或上述结论。未变 controller/回收矩阵不重测，不发试验 POST、不重跑大 probe/Compose 或全量 runner。
+
+产品继续冻结 `1f9731`、最后验证 image revision/source-tree 沿 §57，无产品/镜像重建。**本轮无候选专属 GO，无 POST/worker/Compose 诊断或正式测量许可；H3 PASS、lease 根因 OPEN、正式测量 STOP。**

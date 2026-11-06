@@ -903,8 +903,7 @@ fn inspect_input(
             if input_bytes > options.budgets.max_input_bytes {
                 return Err(resource_error("canonical IPC input byte limit exceeded"));
             }
-            let payload_bytes =
-                inspect_input_array(&plans[plan_index], array, options.control)?;
+            let payload_bytes = inspect_input_array(&plans[plan_index], array, options.control)?;
             add_payload_bytes(&mut plans[plan_index], payload_bytes)?;
         }
         layouts.push(BatchLayout {
@@ -1898,12 +1897,18 @@ fn raw_record_batch_message<'a>(
         let encoded = metadata
             .get(4..8)
             .ok_or_else(|| ipc_error("IPC continuation prefix is truncated"))?;
-        (8, i32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]))
+        (
+            8,
+            i32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]),
+        )
     } else {
         let encoded = metadata
             .get(0..4)
             .ok_or_else(|| ipc_error("IPC metadata prefix is truncated"))?;
-        (4, i32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]))
+        (
+            4,
+            i32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]),
+        )
     };
     let encoded_len = usize::try_from(encoded_len)
         .map_err(|_| ipc_error("IPC metadata prefix has a negative length"))?;
@@ -1943,7 +1948,9 @@ fn preflight_record_block(
         || body_len % IPC_ALIGNMENT != 0
         || offset < previous_end
     {
-        return Err(ipc_error("IPC record-batch block is outside the v1 layout profile"));
+        return Err(ipc_error(
+            "IPC record-batch block is outside the v1 layout profile",
+        ));
     }
     let metadata_end = checked_add(offset, metadata_len, "IPC record-batch block")?;
     let block_end = checked_add(metadata_end, body_len, "IPC record-batch block")?;
@@ -1958,13 +1965,17 @@ fn preflight_record_block(
         || message.header_type() != MessageHeader::RecordBatch
         || message.bodyLength() != block.bodyLength()
     {
-        return Err(ipc_error("IPC record-batch message does not match its footer block"));
+        return Err(ipc_error(
+            "IPC record-batch message does not match its footer block",
+        ));
     }
     if message
         .custom_metadata()
         .is_some_and(|metadata| metadata.len() != 0)
     {
-        return Err(ipc_error("IPC record-batch message has unsupported custom metadata"));
+        return Err(ipc_error(
+            "IPC record-batch message has unsupported custom metadata",
+        ));
     }
     let record_batch = message
         .header_as_record_batch()
@@ -1974,7 +1985,9 @@ fn preflight_record_block(
             .variadicBufferCounts()
             .is_some_and(|counts| counts.len() != 0)
     {
-        return Err(ipc_error("IPC record-batch compression or variadic buffers are unsupported"));
+        return Err(ipc_error(
+            "IPC record-batch compression or variadic buffers are unsupported",
+        ));
     }
     let rows = usize::try_from(record_batch.length())
         .map_err(|_| ipc_error("IPC record-batch has a negative row count"))?;
@@ -1987,13 +2000,17 @@ fn preflight_record_block(
         rows
     };
     if rows != expected_rows {
-        return Err(ipc_error("IPC record-batch chunking does not match the v1 profile"));
+        return Err(ipc_error(
+            "IPC record-batch chunking does not match the v1 profile",
+        ));
     }
 
     let nodes = record_batch.nodes();
     let node_count = nodes.as_ref().map_or(0, |values| values.len());
     if node_count != plans.len() {
-        return Err(ipc_error("IPC record-batch field-node count does not match schema"));
+        return Err(ipc_error(
+            "IPC record-batch field-node count does not match schema",
+        ));
     }
     if let Some(nodes) = nodes {
         for node in nodes {
@@ -2007,12 +2024,18 @@ fn preflight_record_block(
         }
     }
     let expected_buffers = plans.iter().try_fold(0_usize, |total, plan| {
-        checked_add(total, buffer_count(plan.mapping), "IPC record-batch buffers")
+        checked_add(
+            total,
+            buffer_count(plan.mapping),
+            "IPC record-batch buffers",
+        )
     })?;
     let buffers = record_batch.buffers();
     let buffer_count_actual = buffers.as_ref().map_or(0, |values| values.len());
     if buffer_count_actual != expected_buffers {
-        return Err(ipc_error("IPC record-batch buffer count does not match schema"));
+        return Err(ipc_error(
+            "IPC record-batch buffer count does not match schema",
+        ));
     }
     if let Some(buffers) = buffers {
         let mut previous_buffer_end = 0_usize;
@@ -2081,7 +2104,9 @@ fn preflight_arrow_file(
             .custom_metadata()
             .is_some_and(|metadata| metadata.len() != 0)
     {
-        return Err(ipc_error("canonical IPC footer contains unsupported metadata"));
+        return Err(ipc_error(
+            "canonical IPC footer contains unsupported metadata",
+        ));
     }
     let schema = footer
         .schema()
@@ -2095,7 +2120,9 @@ fn preflight_arrow_file(
     let raw_fields = schema.fields();
     let field_count = raw_fields.as_ref().map_or(0, |fields| fields.len());
     if field_count != plans.len() {
-        return Err(schema_error("canonical IPC field count does not match descriptors"));
+        return Err(schema_error(
+            "canonical IPC field count does not match descriptors",
+        ));
     }
     if let Some(raw_fields) = raw_fields {
         for (field, plan) in raw_fields.iter().zip(plans) {
@@ -2108,11 +2135,11 @@ fn preflight_arrow_file(
                 ));
             }
             if field.dictionary().is_some()
-                || field
-                    .children()
-                    .is_some_and(|children| children.len() != 0)
+                || field.children().is_some_and(|children| children.len() != 0)
             {
-                return Err(schema_error("canonical IPC nested or dictionary fields are unsupported"));
+                return Err(schema_error(
+                    "canonical IPC nested or dictionary fields are unsupported",
+                ));
             }
             require_raw_metadata(
                 field.custom_metadata(),
@@ -2148,7 +2175,11 @@ fn preflight_arrow_file(
         if total_rows > options.budgets.max_rows {
             return Err(resource_error("canonical IPC row limit exceeded"));
         }
-        block_bytes = checked_add(block_bytes, current_block_bytes, "canonical IPC block bytes")?;
+        block_bytes = checked_add(
+            block_bytes,
+            current_block_bytes,
+            "canonical IPC block bytes",
+        )?;
     }
     check_control(options.control)?;
     Ok(DecodePreflight {
@@ -2190,13 +2221,20 @@ fn validate_reader_schema(
     plans: &[ColumnPlan<'_>],
 ) -> Result<Vec<bool>, CanonicalIpcError> {
     if schema.metadata().len() != 1
-        || schema.metadata().get(SCHEMA_VERSION_KEY).map(String::as_str)
+        || schema
+            .metadata()
+            .get(SCHEMA_VERSION_KEY)
+            .map(String::as_str)
             != Some(CANONICAL_MAPPING_VERSION)
     {
-        return Err(schema_error("canonical IPC schema mapping version is missing or unexpected"));
+        return Err(schema_error(
+            "canonical IPC schema mapping version is missing or unexpected",
+        ));
     }
     if schema.fields().len() != plans.len() {
-        return Err(schema_error("canonical IPC schema field count does not match descriptors"));
+        return Err(schema_error(
+            "canonical IPC schema field count does not match descriptors",
+        ));
     }
     let mut large_offsets = Vec::new();
     large_offsets
@@ -2207,13 +2245,17 @@ fn validate_reader_schema(
         if field.name() != plan.descriptor.canonical_name
             || field.is_nullable() != plan.descriptor.nullable
         {
-            return Err(schema_error("canonical IPC field layout does not match descriptors"));
+            return Err(schema_error(
+                "canonical IPC field layout does not match descriptors",
+            ));
         }
         if field.metadata().len() != 1
             || field.metadata().get(FIELD_TYPE_KEY).map(String::as_str)
                 != Some(plan.metadata.as_str())
         {
-            return Err(schema_error("canonical IPC field metadata does not match descriptor"));
+            return Err(schema_error(
+                "canonical IPC field metadata does not match descriptor",
+            ));
         }
         large_offsets.push(decoded_field_large_offsets(plan, field.data_type())?);
     }
@@ -2235,12 +2277,7 @@ pub fn decode_v1(
 ) -> Result<Vec<RecordBatch>, CanonicalIpcError> {
     check_control(options.control)?;
     let descriptor_bytes = descriptor_size(columns, options.budgets)?;
-    let mut plans = canonical_plans(
-        columns,
-        descriptor_bytes,
-        options.budgets,
-        options.control,
-    )?;
+    let mut plans = canonical_plans(columns, descriptor_bytes, options.budgets, options.control)?;
     let plan_metadata_bytes = plans.iter().try_fold(0_usize, |total, plan| {
         checked_add(total, plan.metadata.len(), "canonical IPC plan metadata")
     })?;
@@ -2270,12 +2307,20 @@ pub fn decode_v1(
         "canonical IPC output batches",
     )?;
     let output_array_refs = checked_mul(
-        checked_mul(preflight.block_count, plans.len(), "canonical IPC output arrays")?,
+        checked_mul(
+            preflight.block_count,
+            plans.len(),
+            "canonical IPC output arrays",
+        )?,
         std::mem::size_of::<ArrayRef>(),
         "canonical IPC output arrays",
     )?;
     let output_array_headers = checked_mul(
-        checked_mul(preflight.block_count, plans.len(), "canonical IPC output arrays")?,
+        checked_mul(
+            preflight.block_count,
+            plans.len(),
+            "canonical IPC output arrays",
+        )?,
         1024,
         "canonical IPC output array headers",
     )?;
@@ -2312,7 +2357,9 @@ pub fn decode_v1(
         .map_err(|error| ipc_error(format!("canonical Arrow file reader failed: {error}")))?;
     check_control(options.control)?;
     if reader.num_batches() != preflight.block_count || !reader.custom_metadata().is_empty() {
-        return Err(ipc_error("canonical Arrow reader footer differs from preflight"));
+        return Err(ipc_error(
+            "canonical Arrow reader footer differs from preflight",
+        ));
     }
     let reader_schema = reader.schema();
     let large_offsets = validate_reader_schema(reader_schema.as_ref(), &plans)?;
@@ -2358,7 +2405,9 @@ pub fn decode_v1(
             .map_err(|error| ipc_error(format!("canonical Arrow record batch failed: {error}")))?;
         check_control(options.control)?;
         if batch_index >= preflight.block_count || batch.num_columns() != plans.len() {
-            return Err(ipc_error("canonical Arrow reader returned an unexpected batch"));
+            return Err(ipc_error(
+                "canonical Arrow reader returned an unexpected batch",
+            ));
         }
         let expected_rows = if batch_index + 1 < preflight.block_count {
             CANONICAL_IPC_BATCH_ROWS
@@ -2366,7 +2415,9 @@ pub fn decode_v1(
             batch.num_rows()
         };
         if batch.num_rows() == 0 || batch.num_rows() != expected_rows {
-            return Err(ipc_error("canonical Arrow reader returned invalid v1 chunking"));
+            return Err(ipc_error(
+                "canonical Arrow reader returned invalid v1 chunking",
+            ));
         }
         rows_read = checked_add(rows_read, batch.num_rows(), "canonical IPC decoded rows")?;
         if rows_read > options.budgets.max_rows {
@@ -2401,15 +2452,15 @@ pub fn decode_v1(
                 output_arrays,
                 &batch_options,
             )
-            .map_err(|error| {
-                ipc_error(format!("canonical IPC output layout failed: {error}"))
-            })?,
+            .map_err(|error| ipc_error(format!("canonical IPC output layout failed: {error}")))?,
         );
         batch_index = checked_add(batch_index, 1, "canonical IPC batch count")?;
     }
     check_control(options.control)?;
     if batch_index != preflight.block_count || rows_read != preflight.total_rows {
-        return Err(ipc_error("canonical Arrow reader returned incomplete record batches"));
+        return Err(ipc_error(
+            "canonical Arrow reader returned incomplete record batches",
+        ));
     }
     for (plan, is_large) in plans.iter().zip(large_offsets) {
         let should_be_large = plan.total_payload_bytes > i32::MAX as usize;

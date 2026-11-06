@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
+from typing import ContextManager, cast
+from gateway_backend.application.canonical_metadata.table_access import CanonicalTableTransaction, CanonicalCommittedTableAccess, build_committed_table_access
+from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferStorePort
 
 import httpx
 from gateway_repository_client import RepositoryClient
@@ -85,9 +88,6 @@ from gateway_backend.infrastructure.repository_write import (
 )
 from gateway_backend.infrastructure.repository_write.terminal_evidence_codec import (
     WireRepositoryTerminalEvidenceDecodePort,
-)
-from gateway_backend.infrastructure.repository_write.import_publication import (
-    SubmitImportPublicationAdapter,
 )
 from gateway_backend.settings import BackendSettings
 
@@ -323,7 +323,8 @@ def prepare_backend_runtime(
 
     submit_deps = SubmitRuntimeDependencies(
         artifact_store=artifact_store,
-        publication=SubmitImportPublicationAdapter(
+        publication=build_submit_import_publication_port(
+            control_transaction_factory=control_transaction_factory,
             repository_provider_factory=build_http_repository_provider_factory(
                 base_url=settings.repository_base_url,
                 bearer_token=repository_token,
@@ -408,6 +409,7 @@ def prepare_backend_runtime(
 def build_submit_import_publication_port(
     *,
     repository_provider_factory: Callable[[str, str], RepositoryTableAccessProvider],
+    control_transaction_factory: Callable[[], ContextManager[CanonicalTableTransaction]],
 ) -> SubmitImportPublicationPort:
     """Production Submit import publication adapter wired at the composition root."""
 
@@ -415,8 +417,12 @@ def build_submit_import_publication_port(
         SubmitImportPublicationAdapter,
     )
 
+    def committed_tables(store: ArtifactStorePort, repository_id: str) -> CanonicalCommittedTableAccess:
+        return build_committed_table_access(store=cast(ArtifactBufferStorePort, store),
+            unit_of_work_factory=control_transaction_factory, repository_provider_factory=repository_provider_factory,
+            repository_id=repository_id)
     return SubmitImportPublicationAdapter(
-        repository_provider_factory=repository_provider_factory,
+        repository_provider_factory=repository_provider_factory, committed_table_factory=committed_tables,
     )
 
 

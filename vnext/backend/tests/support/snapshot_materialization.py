@@ -19,7 +19,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
     SnapshotMaterializationResult,
-    SqlSnapshotMaterializationRequest,
+    SqlSnapshotMaterializationRequest, SnapshotTable,
 )
 from gateway_backend.capabilities.snapshot_materialization.materialize import (
     materialize_sql_snapshot,
@@ -213,3 +213,52 @@ def _build_sql_materialization_request(
         requested_tables=requested_tables,
         artifact_store=artifact_store,
     )
+
+
+def materialize_arrow_sql(sql: str | bytes, **kwargs: Any) -> SnapshotMaterializationResult:
+    """Target production parser/materializer fixture, independent of the old oracle."""
+    from gateway_backend.capabilities.table_access import parse_arrow_sql
+    request = sql_request(sql, kwargs.get("context"))
+    kwargs.setdefault("sql_source_digest", raw_blob_digest(request.sql_utf8))
+    return materialize_sql(parse_arrow_sql(request), **kwargs)
+
+
+def snapshot_table_as_arrow(table: SnapshotTable) -> SnapshotTable:
+    """D/E small reference fixtures cross once into the real Arrow producer path."""
+    import struct
+    import pyarrow as pa
+    from dataclasses import replace
+    from gateway_backend.capabilities.snapshot_materialization import (
+        ArrowSnapshotTableReader, canonical_columns, snapshot_table_from_arrow, source_descriptor_from_arrow,
+    )
+    from gateway_backend.capabilities.snapshot_materialization._parquet import _cell_to_arrow
+    if table.reader is None:
+        raise ValueError("fixture table requires a reader")
+    if isinstance(table.reader, ArrowSnapshotTableReader):
+        return replace(table, reader=table.reader.reopen(),
+            batch_reader=None if table.batch_reader is None else table.batch_reader.reopen())
+    descriptor = table.descriptor
+    source = source_descriptor_from_arrow({"canonical_name": descriptor.table_name,
+        "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
+        "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
+    reader = table.reader.reopen()
+    try:
+        rows = tuple(reader.iter_rows())
+    finally:
+        reader.close()
+    fields = []
+    arrays = []
+    for index, column in enumerate(source.columns):
+        kind = None if column.declared_type is None else column.declared_type.kind.value
+        physical = pa.int64() if kind == "signed-integer" else pa.uint64() if kind == "unsigned-integer" else pa.float32() if kind == "float32" else pa.float64() if kind == "float64" else pa.bool_() if kind == "boolean" else pa.binary() if kind in ("binary", "bit") else pa.string()
+        values: list[Any] = [_cell_to_arrow(row[index], column) for row in rows]
+        if column.logical_type.value == "set":
+            values = [None if value is None else ",".join(value) for value in values]
+        elif kind in ("signed-integer", "unsigned-integer"):
+            values = [None if value is None else int(value) for value in values]
+        elif kind in ("float32", "float64"):
+            values = [None if value is None else struct.unpack(">f" if kind == "float32" else ">d", bytes.fromhex(value))[0] for value in values]
+        fields.append(pa.field(column.canonical_name, physical, nullable=True))
+        arrays.append(pa.array(values, type=physical))
+    return snapshot_table_from_arrow(descriptor, pa.Table.from_arrays(arrays, schema=pa.schema(fields)), source,
+                                     ordered=table.ordered_metadata)

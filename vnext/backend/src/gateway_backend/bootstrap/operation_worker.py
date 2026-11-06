@@ -249,6 +249,7 @@ def build_production_submit_dependencies(
         artifact_store=preview_deps.artifact_store,
         publication=build_submit_import_publication_port(
             repository_provider_factory=preview_deps.repository_provider_factory,
+            control_transaction_factory=control_transaction_factory,
         ),
         parent_catalog=HttpRepositoryParentCatalogPort(
             base_url=settings.repository_base_url,

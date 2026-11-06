@@ -6,8 +6,8 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Cursor, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use arrow_array::builder::{
@@ -15,19 +15,16 @@ use arrow_array::builder::{
     Int64Builder, LargeBinaryBuilder, LargeStringBuilder, StringBuilder, UInt64Builder,
 };
 use arrow_array::{
-    Array, ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryArray, Float32Array,
-    Float64Array, Int64Array, LargeBinaryArray, LargeStringArray, RecordBatch, StringArray,
-    UInt64Array,
+    Array, ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryArray, Float32Array, Float64Array,
+    Int64Array, LargeBinaryArray, LargeStringArray, RecordBatch, StringArray, UInt64Array,
 };
 use arrow_ipc::reader::FileReaderBuilder;
 use arrow_ipc::writer::{FileWriter, IpcWriteOptions};
-use arrow_ipc::{
-    MetadataVersion, MessageHeader, root_as_footer, root_as_message,
-};
+use arrow_ipc::{MessageHeader, MetadataVersion, root_as_footer, root_as_message};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use gateway_shared_kernel::{canonicalize_jcs, DeclaredType};
-use rayon::prelude::*;
+use gateway_shared_kernel::{DeclaredType, canonicalize_jcs};
 use rayon::ThreadPool;
+use rayon::prelude::*;
 use serde_json::json;
 
 use crate::table_access::{ColumnDescriptor, SqlLogicalType};
@@ -198,7 +195,10 @@ fn check_control(control: CanonicalIpcControl<'_>) -> Result<(), CanonicalIpcErr
             "canonical IPC operation was cancelled",
         ));
     }
-    if control.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+    if control
+        .deadline
+        .is_some_and(|deadline| Instant::now() >= deadline)
+    {
         return Err(CanonicalIpcError::new(
             CanonicalIpcErrorKind::Deadline,
             "canonical IPC operation deadline elapsed",
@@ -344,9 +344,17 @@ fn descriptor_metadata(
         "declared_type": declared_json,
         "labels": labels_json,
     }))
-    .map_err(|error| schema_error(format!("canonical type metadata serialization failed: {error}")))?;
-    let canonical = canonicalize_jcs(&payload)
-        .map_err(|error| schema_error(format!("canonical type metadata is invalid: {}", error.message())))?;
+    .map_err(|error| {
+        schema_error(format!(
+            "canonical type metadata serialization failed: {error}"
+        ))
+    })?;
+    let canonical = canonicalize_jcs(&payload).map_err(|error| {
+        schema_error(format!(
+            "canonical type metadata is invalid: {}",
+            error.message()
+        ))
+    })?;
     let metadata = String::from_utf8(canonical)
         .map_err(|_| schema_error("canonical type metadata is not UTF-8"))?;
     Ok((mapping, metadata))
@@ -369,16 +377,25 @@ fn descriptor_size(
             column.canonical_name.len(),
             "canonical descriptor",
         )?;
-        descriptor_bytes = checked_add(descriptor_bytes, column.sql_type.len(), "canonical descriptor")?;
+        descriptor_bytes = checked_add(
+            descriptor_bytes,
+            column.sql_type.len(),
+            "canonical descriptor",
+        )?;
         descriptor_bytes = checked_add(descriptor_bytes, 128, "canonical descriptor")?;
         if let Some(labels) = &column.labels {
             descriptor_bytes = checked_add(
                 descriptor_bytes,
-                checked_mul(labels.len(), std::mem::size_of::<String>(), "canonical labels")?,
+                checked_mul(
+                    labels.len(),
+                    std::mem::size_of::<String>(),
+                    "canonical labels",
+                )?,
                 "canonical descriptor",
             )?;
             for label in labels {
-                descriptor_bytes = checked_add(descriptor_bytes, label.len(), "canonical descriptor")?;
+                descriptor_bytes =
+                    checked_add(descriptor_bytes, label.len(), "canonical descriptor")?;
             }
         }
     }
@@ -501,7 +518,9 @@ fn map_input_fields(
     plans: &[ColumnPlan<'_>],
 ) -> Result<Vec<usize>, CanonicalIpcError> {
     if batch.num_columns() != plans.len() {
-        return Err(schema_error("input batch field count does not match descriptor"));
+        return Err(schema_error(
+            "input batch field count does not match descriptor",
+        ));
     }
     let mut input_indices = vec![usize::MAX; plans.len()];
     for (input_index, field) in batch.schema().fields().iter().enumerate() {
@@ -514,7 +533,9 @@ fn map_input_fields(
             })
             .map_err(|_| schema_error("input batch contains an unbound field name"))?;
         if input_indices[plan_index] != usize::MAX {
-            return Err(schema_error("input batch contains duplicate canonical fields"));
+            return Err(schema_error(
+                "input batch contains duplicate canonical fields",
+            ));
         }
         let plan = &plans[plan_index];
         if field.is_nullable() != plan.descriptor.nullable {
@@ -767,7 +788,8 @@ fn inspect_input_array(
                     if index % MAX_POLL_INTERVAL == 0 {
                         check_control(control)?;
                     }
-                    if values.is_valid(index) && !bit_payload_valid(values.value(index), bit_width) {
+                    if values.is_valid(index) && !bit_payload_valid(values.value(index), bit_width)
+                    {
                         return Err(value_error(format!(
                             "BIT payload does not match declared width for {}",
                             plan.descriptor.canonical_name
@@ -779,7 +801,8 @@ fn inspect_input_array(
                     if index % MAX_POLL_INTERVAL == 0 {
                         check_control(control)?;
                     }
-                    if values.is_valid(index) && !bit_payload_valid(values.value(index), bit_width) {
+                    if values.is_valid(index) && !bit_payload_valid(values.value(index), bit_width)
+                    {
                         return Err(value_error(format!(
                             "BIT payload does not match declared width for {}",
                             plan.descriptor.canonical_name
@@ -797,7 +820,8 @@ fn inspect_input_array(
                     if index % MAX_POLL_INTERVAL == 0 {
                         check_control(control)?;
                     }
-                    if values.is_valid(index) && !bit_payload_valid(values.value(index), bit_width) {
+                    if values.is_valid(index) && !bit_payload_valid(values.value(index), bit_width)
+                    {
                         return Err(value_error(format!(
                             "BIT payload does not match declared width for {}",
                             plan.descriptor.canonical_name
@@ -955,9 +979,9 @@ fn array_buffer_estimate(
 ) -> Result<usize, CanonicalIpcError> {
     let validity = rows.div_ceil(8);
     let value_bytes = match mapping {
-        ValueMapping::Signed { .. }
-        | ValueMapping::Unsigned { .. }
-        | ValueMapping::Float64 => checked_mul(rows, 8, "canonical array")?,
+        ValueMapping::Signed { .. } | ValueMapping::Unsigned { .. } | ValueMapping::Float64 => {
+            checked_mul(rows, 8, "canonical array")?
+        }
         ValueMapping::Float32 => checked_mul(rows, 4, "canonical array")?,
         ValueMapping::Boolean => rows.div_ceil(8),
         ValueMapping::Utf8 | ValueMapping::Binary => {
@@ -997,7 +1021,11 @@ fn schema_metadata_estimate(plans: &[ColumnPlan<'_>]) -> Result<usize, Canonical
         estimate = checked_add(estimate, plan.metadata.len(), "IPC schema metadata")?;
         estimate = checked_add(estimate, 512, "IPC schema metadata")?;
     }
-    checked_add(estimate, SCHEMA_VERSION_KEY.len() + CANONICAL_MAPPING_VERSION.len(), "IPC schema metadata")
+    checked_add(
+        estimate,
+        SCHEMA_VERSION_KEY.len() + CANONICAL_MAPPING_VERSION.len(),
+        "IPC schema metadata",
+    )
 }
 
 fn reserve_peak(
@@ -1459,7 +1487,9 @@ fn append_bit(
             _ => return Err(schema_error("non-BIT descriptor reached BIT writer")),
         };
         if values.value_length() != expected_width {
-            return Err(value_error("BIT fixed-width input has an inconsistent width"));
+            return Err(value_error(
+                "BIT fixed-width input has an inconsistent width",
+            ));
         }
         for index in start..end {
             if index % MAX_POLL_INTERVAL == 0 {
@@ -1493,13 +1523,7 @@ fn spans_for_column_payload(
         let array = input_array(&batches[span.batch_index], input_index);
         payload = checked_add(
             payload,
-            string_or_binary_payload(
-                plan,
-                array,
-                span.start,
-                span.start + span.len,
-                control,
-            )?,
+            string_or_binary_payload(plan, array, span.start, span.start + span.len, control)?,
             "canonical batch payload",
         )?;
     }
@@ -1555,7 +1579,11 @@ fn build_output_batch(
         )?;
         writer_padding = checked_add(
             writer_padding,
-            checked_mul(buffer_count(plan.mapping), IPC_ALIGNMENT, "IPC buffer alignment")?,
+            checked_mul(
+                buffer_count(plan.mapping),
+                IPC_ALIGNMENT,
+                "IPC buffer alignment",
+            )?,
             "IPC buffer alignment",
         )?;
     }
@@ -1586,8 +1614,16 @@ fn build_output_batch(
         "IPC output growth capacity",
     )?;
     let peak_request = checked_add(
-        checked_add(batch_array_peak, encoded_capacity, "canonical IPC batch peak")?,
-        checked_add(old_output_capacity, new_output_capacity, "canonical IPC output peak")?,
+        checked_add(
+            batch_array_peak,
+            encoded_capacity,
+            "canonical IPC batch peak",
+        )?,
+        checked_add(
+            old_output_capacity,
+            new_output_capacity,
+            "canonical IPC output peak",
+        )?,
         "canonical IPC batch peak",
     )?;
     reserve_peak(
@@ -1618,8 +1654,11 @@ fn build_output_batch(
             .collect::<Vec<_>>()
     });
     let columns = columns.into_iter().collect::<Result<Vec<_>, _>>()?;
-    RecordBatch::try_new(Arc::clone(schema), columns)
-        .map_err(|error| ipc_error(format!("canonical RecordBatch construction failed: {error}")))
+    RecordBatch::try_new(Arc::clone(schema), columns).map_err(|error| {
+        ipc_error(format!(
+            "canonical RecordBatch construction failed: {error}"
+        ))
+    })
 }
 
 /// Encode already projected, row-ordered Arrow batches as canonical IPC file bytes.
@@ -1635,19 +1674,18 @@ pub fn encode_v1(
 ) -> Result<Vec<u8>, CanonicalIpcError> {
     check_control(options.control)?;
     let descriptor_bytes = descriptor_size(columns, options.budgets)?;
-    let mut plans = canonical_plans(
-        columns,
-        descriptor_bytes,
-        options.budgets,
-        options.control,
-    )?;
+    let mut plans = canonical_plans(columns, descriptor_bytes, options.budgets, options.control)?;
     let plan_metadata_bytes = plans.iter().try_fold(0_usize, |total, plan| {
         checked_add(total, plan.metadata.len(), "canonical IPC plan metadata")
     })?;
     let plans_live = checked_add(
         checked_add(
             descriptor_bytes,
-            checked_mul(plans.len(), std::mem::size_of::<ColumnPlan<'_>>(), "canonical IPC plans")?,
+            checked_mul(
+                plans.len(),
+                std::mem::size_of::<ColumnPlan<'_>>(),
+                "canonical IPC plans",
+            )?,
             "canonical IPC plans",
         )?,
         plan_metadata_bytes,
@@ -1655,10 +1693,18 @@ pub fn encode_v1(
     )?;
     let schema_estimate = schema_metadata_estimate(&plans)?;
     reserve_peak(options.budgets, plans_live, schema_estimate)?;
-    let (layouts, total_rows, _input_bytes, layout_bytes) =
-        inspect_input(&mut plans, batches, options, checked_add(plans_live, schema_estimate, "canonical IPC schema")?)?;
+    let (layouts, total_rows, _input_bytes, layout_bytes) = inspect_input(
+        &mut plans,
+        batches,
+        options,
+        checked_add(plans_live, schema_estimate, "canonical IPC schema")?,
+    )?;
     let resident_base = checked_add(
-        checked_add(plans_live, checked_mul(schema_estimate, 2, "canonical IPC schemas")?, "canonical IPC base")?,
+        checked_add(
+            plans_live,
+            checked_mul(schema_estimate, 2, "canonical IPC schemas")?,
+            "canonical IPC base",
+        )?,
         layout_bytes,
         "canonical IPC base",
     )?;
@@ -1673,7 +1719,11 @@ pub fn encode_v1(
         .map_err(|error| ipc_error(error.to_string()))?;
     reserve_peak(
         options.budgets,
-        checked_add(plans_live, checked_add(schema_estimate, layout_bytes, "canonical IPC base")?, "canonical IPC base")?,
+        checked_add(
+            plans_live,
+            checked_add(schema_estimate, layout_bytes, "canonical IPC base")?,
+            "canonical IPC base",
+        )?,
         checked_mul(schema_estimate, 3, "canonical IPC schema writer")?,
     )?;
     let sink = BudgetedVecWriter::new(options.budgets.max_output_bytes);
@@ -1761,6 +1811,3 @@ fn writer_creation_error(error: arrow_schema::ArrowError) -> CanonicalIpcError {
         _ => ipc_error(error.to_string()),
     }
 }
-
-
-

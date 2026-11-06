@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-pub mod comparison;
 pub mod canonical_ipc;
+pub mod comparison;
 mod records;
 pub mod table_access;
 

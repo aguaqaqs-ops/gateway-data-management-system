@@ -167,7 +167,8 @@ class FakeRepositoryRefSession:
             for column in table.columns:
                 mapped = map_repository_column(column).source
                 kind = None if mapped.declared_type is None else mapped.declared_type.kind.value
-                convert = lambda value: value
+                def convert(value: Any) -> Any:
+                    return value
                 physical: pa.DataType = pa.string()
                 if kind in ("signed-integer", "unsigned-integer"):
                     bits = mapped.declared_type.bits  # type: ignore[union-attr]
@@ -178,10 +179,12 @@ class FakeRepositoryRefSession:
                     convert = float
                 elif kind == "datetime":
                     physical = pa.timestamp("us")
-                    convert = lambda value: datetime.datetime.fromisoformat(str(value))
+                    def convert(value: Any) -> Any:
+                        return datetime.datetime.fromisoformat(str(value))
                 elif mapped.logical_type.value == "set":
                     physical = pa.list_(pa.field("item", pa.string(), nullable=False))
-                    convert = lambda value: list(value) if isinstance(value, (list, tuple)) else str(value).split(",") if value else []
+                    def convert(value: Any) -> Any:
+                        return list(value) if isinstance(value, (list, tuple)) else str(value).split(",") if value else []
                 fields.append(pa.field(column.name, physical, nullable=mapped.nullable))
                 columns.append([])
                 conversions.append(convert)

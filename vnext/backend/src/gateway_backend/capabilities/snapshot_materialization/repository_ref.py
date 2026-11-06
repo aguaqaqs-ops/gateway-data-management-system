@@ -64,7 +64,6 @@ from gateway_backend.capabilities.table_access.contracts import (
     MaterializedTableReader,
     PARSER_VERSION,
     ParserInvocationContext,
-    SourceColumnDescriptor,
     SourceRow,
     SourceTableDescriptor,
 )

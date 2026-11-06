@@ -102,7 +102,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization import (
     materialize_repository_ref,
 )
-from gateway_backend.capabilities.table_access.contracts import NeverCancel, ParserInvocationContext
+from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext
 from gateway_backend.capabilities.table_rules.contracts import (
     OrderedPolicy,
     TABLE_RULESET_VERSION,

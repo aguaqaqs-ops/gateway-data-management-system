@@ -211,8 +211,9 @@ class CanonicalCommittedTableAccess:
                 source = source_descriptor_from_arrow({"canonical_name": descriptor.table_name,
                     "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
                     "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
-                return snapshot_table_from_arrow(descriptor, arrays, source, execution_context=active,
-                    close=lambda: manager.__exit__(None, None, None))
+                def close_handle() -> None:
+                    manager.__exit__(None, None, None)
+                return snapshot_table_from_arrow(descriptor, arrays, source, execution_context=active, close=close_handle)
             except BaseException:
                 manager.__exit__(None, None, None)
                 raise

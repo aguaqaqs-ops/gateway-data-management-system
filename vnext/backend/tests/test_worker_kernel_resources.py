@@ -45,16 +45,16 @@ except RuntimeError as exc:
     assert "has not been initialized" in str(exc)
 else:
     raise AssertionError("uninitialized kernel accepted work")
-assert _init_kernel_native(N) == N
-assert _init_kernel_native(N) == N
+assert _init_kernel_native(__THREADS__) == __THREADS__
+assert _init_kernel_native(__THREADS__) == __THREADS__
 for _ in range(2):
-    assert _parse_sql_native(b"CREATE TABLE t (id INT);", NeverCancel(), None, N)["status"] == "COMPLETE"
+    assert _parse_sql_native(b"CREATE TABLE t (id INT);", NeverCancel(), None, __THREADS__)["status"] == "COMPLETE"
 try:
-    _init_kernel_native(N + 1)
+    _init_kernel_native(__THREADS__ + 1)
 except ValueError as exc:
     assert "initialized with" in str(exc)
 else:
     raise AssertionError("pool accepted conflicting N")
-'''.replace("N", str(threads))
+'''.replace("__THREADS__", str(threads))
     completed = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, check=False)
     assert completed.returncode == 0, completed.stdout + completed.stderr

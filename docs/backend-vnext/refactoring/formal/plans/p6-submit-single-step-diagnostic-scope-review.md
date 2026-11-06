@@ -255,3 +255,5 @@ controller 已完整静态审核：先原子自取节点锁、检查 clean e798/
 events 确认 own_activity_confirmed_stopped=true、copy_uncertain=false、lock_released；审核另查节点标记不存在、本项目容器及网络均无残留。源卷、新卷和日志按既定边界保留。此次一次执行授权已消耗，保持 STOP。
 
 现有源码给出的服务端候选路径为同步 catalog route → repository visibility/provider → commit_exists → catalog cache loader → 表清单与逐表 schema/COUNT → DTO 构造后返回；响应头前超时不能在这些阶段间定位，readyz 200 也不能替代该定位。未再搜索同类日志、扫描卷或运行请求。若继续诊断，最小候选是同一固定 GET 期间少量有界 RS Python 栈（无 locals/native），配合双流日志修正，先判断请求是否进入 catalog 以及所在阶段；仍须另审具体方案，不改 timeout、不预热、不恢复 Submit、不扩大矩阵。本节未授权下一次运行。
+
+**handoff 记录完整性通过。** 定向读取原实施者仅文档提交 `6920325d55b46531a31f3d3f2d26b2a1a48476f2`，结果、起止 HEAD/节点时间、execute 与外层 exit 区别、候选/镜像/helper 摘要、客户端证据、stderr/tail 限制、收束和卷保留均与本节已核材料一致；未把最终异常扩称为每次 attempt 已证明的 cause，也未宣布原租约根因或正式恢复。另对照本地既有 transfer/check/postflight 日志及文档摘要一致，后验记录明确 marker ABSENT、四项 SHA 检查通过。无新增 finding，无新节点取证或请求；新 RS 栈候选另行审核。

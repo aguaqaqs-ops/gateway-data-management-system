@@ -887,3 +887,35 @@ GC 聚合截至最后快照：gen0/1/2 分别 15,137/1,376/20 次，gen2 最大 
 所选小 fixture 用例及其 `start_three_container_stack` 确实不调用 `persist_compose_gate_provenance`。工具提出的外置只读 collector 属于 §48 要求的“实际运行镜像身份”留证，可随唯一已授权用例接入，不要求修改测试/harness 或再开范围审批。限定固定 project 和 backend/worker/repository-service 三个服务，在容器存活期间记录容器 ID、Name、`.Image`、必要 Compose project/service 标签、时间和运行状态，并逐一核对 CT05 已加载镜像的本机 image ID；跨节点仍以 config digest/全部 DiffID 为依据。collector 的等待有界且随测试退出，不影响业务、延长容器生命周期或触发自动重跑；未取到有效身份则明确证据缺口，不把测试 exit 0 代替身份绑定。
 
 意见已发设计转工具任务；后续继续既有单项门禁，不授予真实数据 POST。
+
+## 52. 固定三镜像与唯一小 Compose：证据审核通过
+
+**`1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 的三镜像身份及 §48 指定单项容器验证通过独立证据审核，无阻塞 finding。** 本轮只读 `/home/dev/gdds-p6-logs/jcs-image-gate-1f9731-20261106/` 原始日志、机读身份、collector/launcher 源码与镜像归档；没有访问测试节点、执行容器或重跑测试。结论直接绑定下列原始证据，不等待 handoff 排版，也不将其扩称为权威 runner、真实数据 t3、阶段退出或发布门禁。
+
+独立重新计算 CT201 实际归档的 SHA256，并直接解析 tar 中 manifest/config：932,099,584 bytes，SHA256 **`18d3050fc4ebf7a6ad751d7540024e2d346cc8c6aada6ca3067aeb0cff1e95f7`**。实际三个 config 摘要、全部有序 DiffID 及 labels 与 source-image-identity 完全一致，再逐项对 node-image-identity 比较亦完全一致；不是只接受工具的 MATCH 字符串。CT05 load/save 后归档 SHA 可以变化，本轮跨节点判定没有使用归档相等或 inspect ID 相等替代 config/全部 DiffID。
+
+| CT05 固定 tag | config digest | DiffID 数 |
+| --- | --- | --- |
+| `p6jcsgate20261106a-backend:latest` | `sha256:c4baaf17da52a29dd95a92f7801ce5dec3890db41ebb4b162c7e8596239f1898` | 15 |
+| `p6jcsgate20261106a-worker:latest` | 同 backend | 15 |
+| `p6jcsgate20261106a-repository-service:latest` | `sha256:b81faa1f970999676087a55f0fc63e17d4285fba73b04c5eca6a69612e1419aa` | 28 |
+
+backend/worker 同一构建镜像分别用于两个服务，均来自 §50–51 已记的 CT201 原冻结输入/network=host 构建及导出；不声称离线构建。RS 使用既有预置接口离线构建。RS revision 为 `1f9731`，build-input-revision 为 `4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`，source-tree 为 `sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`，与 CT05 exact-candidate identity calculator 输出一致；build-input 没变不代表偷偷使用旧服务镜像，其本次完整 config/标签和构建结果已绑定。LAN 传输日志为 09:25:23–09:25:31 UTC、exit 0。
+
+CT05 09:27:31–09:27:57 UTC，仅运行 `test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`，`uv-consume.sh run --no-sync`、`-n 0`，**1 passed in 25.37s，pytest_wrapper_exit=0**。实际脚本固定 clean `1f9731`、prebuilt、项目 `p6jcsgate20261106a`、RS tag，设置 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、专用 TMPDIR，清除代理。日志起止 HEAD 相同，五锁 SHA 一致；preflight 的既有 native 扩展输入 `58436908aee9dd449f4d3e0542a6a8c1920b6d5e` MATCH，没有同步/重编译宿主环境。冻结测试/harness 未改，没有额外真实数据旅程或全量 runner。
+
+collector 在 **09:27:45.156072 UTC** 取得同一项目三服务均 running 的记录，exit 0。逐项核实际容器 `.Image` 与 node-local-images：backend/worker 均为本机 `sha256:51307bca08c1fbb7a08a629c13b81bacce2da1f7c8b5732580ff4a26205f725d`，RS 为本机 `sha256:a75aa535046937dab51156c8a8acad0deec913a4daaee9a930c4b62d23cc7e39`；service 集合、project、名称与三镜像映射一致。这些 ID 仅用于 CT05 同节点运行身份，未跨节点比较。collector 只读 Docker inspect，最多 900 秒、单次 5 秒，随脚本 EXIT stop 标记结束；此次在 13.6 秒取得记录即退出，没有延长测试或引发第二次测试。
+
+09:26:14 的首次 load preflight 因节点无 rg 在 owner 只读检查处 exit 127，尚未 load 或测试；保留日志 SHA `75530207765ab1f5b30c14e926d7b231b6f7a97f34b1c5b2a7941dc5c9ecd878`。改用 grep 后同一步一次通过，日志 SHA `95f0400e091bb2d719c8bbf33029de356bf137676306c0d59bea16179870e692`，不是门禁失败重跑。此前构建缓存缺失与 --load 导出遗漏按 §49–51 分别保留，不混称同一种错误。
+
+postflight 09:29:02–09:29:03 UTC、exit 0，确认自有 project 容器/network/临时卷为空、加载镜像 ID 未变、collector 已退出、clean `1f9731`，核自有 owner/token 后释放占用。该测试只清理自己的临时项目，原诊断三卷等保留材料不在清理范围。
+
+| 原始证据文件 | SHA256 |
+| --- | --- |
+| compose-gate.log | `0cce193acc5020d8e9642efdd2ce9e3e8bf27af4dbe649eaf6d827effc3d7850` |
+| source-image-identity.json | `c71abf3d566a62faff89463db852d448a409fb8d78b28323be2f611cefa10e2d` |
+| node-image-identity.json | `c07e2f02f32d3bd88366b71da9bbb60323e9c3db4da780de32e26c6a984656d2` |
+| running-images.json | `ccf2e9961f0ccf39b34c2907f8caa1bef4402640756db7621e82c598be331d72` |
+| node-postflight.log | `60aa21c1b5868c4c042f6c380e8c06449c0174a10381c68f1a7ac9b7af9efe39` |
+
+可接续准备并送审完整真实输入 manifest/launcher，精确引用本次已核三镜像；不再为此加测或重建。来源 checkpoint/缺失 RS 运行身份、旧 backend/worker→新目标绑定、新项目/三卷/key、资源/采样/回收条件仍须在实际候选内核对。**本节没有 v2-submit POST GO**，lease 根因仍 OPEN，正式测量、合入与最终门禁边界不变。

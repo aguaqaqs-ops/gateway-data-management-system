@@ -949,3 +949,35 @@ manifest/scenario 与准备记录固定唯一 cache SHA `7263db55ad726a16c505db8
 另有一项非阻塞说明修正：README 声称 state comparison 未核实会保留锁，但 shell 在 postflight exit 0 后先释放锁，再判 state/sampler MATCH；postflight 对 NO_STATE/比较错误仍可因已确认静止而返回 0。该事实应写准确：资源回收确认与业务/输入判定是不同结果，不能声称已实现并不存在的锁条件；无需为文字承诺新增持久状态或无故保留已静止节点的锁。比较不符仍保持失败分类。
 
 合并修订 G1–G3，并更新全部受影响 pin、manifest、准备记录后定向复审即可；不重开设计范围、不重建镜像或重跑已通过门禁，不创建 POST-GO、不试发 POST 来验证修订。必要的局部校验仍遵守专用节点规则。本轮发现已直接交原实施者并抄设计，正式测量保持停止。
+
+## 54. 真实输入候选 g 定向复审：G1–G3 关闭，精确清单一次 GO
+
+**候选 `p6catalogsubmit20261106g` 复审通过；仅 manifest SHA256 `ba296d36c8a23f61d312eb5124d49a35e9aaceefc0e2a4f440afb822f69f90f0` 获得一次限定 v2-submit 诊断 GO。** 这不是 H3 复审或正式测量恢复。旧清单 `5d4bcac7…` 的 §53 NO GO 不可用于执行，新结论不适用于其他摘要或候选。复审时 POST-GO 不存在；本审核没有创建 GO 文件、传输候选、访问 CT05、导入产品、运行候选/测试或发 POST。
+
+实际读取新的复审请求、准备记录、完整 manifest 和修订 helper，并沿冻结 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 的只读 detached worktree 核接线；该 worktree clean。独立核验 manifest 的完整 SHA，以及清单内全部 **15 文件**的 SHA256、字节数、权限均 MATCH；Python 文件仅作 AST 解析，未导入执行。launcher 内部 pin 与实际候选一致。observer 和单 POST wrapper 分别仍为 `0c8799a3aa29d13544009e5201ea1a8833c2ec629ca8dce8dfdfaef300857097`、`8f4cb3fb99312261071263fc778712a2db56dbc37c475ccc89f374095625247f`，未改变已审守护和单步边界。
+
+- **G1 关闭。** `check-image-identity.py` 改为实时 inspect 每个已审 tag/目标项目 tag，比较 §52 已审 CT05 同节点 image ID、完整有序 DiffID 与 labels；固定 identity 文件还核 archive→node 的 config/DiffID/labels 映射及准确 handoff/report。删除了有成员顺序缺陷的 docker-save 流式读取，不再重复导出。config digest 通过已审归档到本机对象的映射绑定，没有把本机 inspect ID 当跨节点 config digest。checker SHA256 `0754135df876c9232635dda96bbcf5f4b5c40a3a7472e20c5ae02b9ddb0e45b7`。
+- **G2 关闭。** `require_target_filesystem(preflight)` 及调用点一致，启动后仅核三卷集合、名称、Compose labels、解析后的 mountpoint 和文件系统；不再对活动内容求 checkpoint 摘要。来源 snapshot 的严格摘要检查保留，冻结 journey 的 clone 后摘要对照仍发生在服务启动之前。记录明确区分该静止复制校验与运行中卷的 metadata 核验。launcher SHA256 `46516373bea3795f8bcc2d1fa56eca759e7a01a192b1b0f760c5b169d30147a8`。
+- **G3 关闭。** source helper 在读取/复用 composite cache 前，实际调用 `require_sha` 比较固定 `7263db55ad726a16c505db86aca87401eb4dd57775b1974d90964f04703d72ff`；preflight 和进入 journey 前复查共用该路径，原 key/package/comparator/schema 检查保留。helper SHA256 `c37d1e2a7562f72cba7eb721fefad99aadc049b361029e53286966c90ec4fd97`。
+
+README 已准确区分“确认 Compose 静止后释放节点锁”和“state comparison 失败仍返回非零”；不要求为文书承诺保留已静止节点的锁。另有一个**非阻塞文书遗漏**：清单外 `preparation-record.md` 仍写旧中间摘要 `bd1dfab5791f0d70347482d1c62c10705092f17657a912130f72cdcc3bfc11d4`。实际清单、用户交付和 review-request 均为上述 `ba296d36…`。实施者归档前更正这一行即可；不改清单内文件，不需要为此再开审核轮次。该旧摘要没有 GO。
+
+本次仍只接受来源 `p6bw4s4h120261105b`、`e798ec87a37330250b0c051162e7962dba1daa60` 的 v2-preview checkpoint，到新项目 `p6catalogsubmit20261106g`、clean `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 的固定关系；新三卷/幂等键，一次 v2-submit POST，包含已明确的真实 DB/Dolt/RS。来源 run/state/launch、checkpoint、上传包和原输入 manifest 继续严格核验；sampler/journey/postflight 使用同一输入 manifest。来源 RS run-bound full identity 缺口仍明确为 UNAVAILABLE，不宣称 carried。不得增加 Preview、预热、后续步骤、自动重试或人工 recovery。
+
+本轮只改外置诊断接线，没有产品/Dockerfile/依赖/容器 harness 改动，**不触发镜像重建或重复小用例**。最后验证的产品镜像 revision 是 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`；RS build-input `4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`、source-tree `sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`。三镜像身份及小 Compose 证据引用 §52 / `main@cfc429b20c` 与 handoff `5dfe46b67fcb378e967dcde9c114eedb0ce7071d`，运行前仍须实时核对已审本机对象；没有据本次静态审核宣称新实际运行已通过。
+
+实施者可为精确清单写入以下候选专属 `POST-GO.txt`，再使用清单内固定命令执行唯一尝试：
+
+```text
+decision=GO
+candidate=p6catalogsubmit20261106g
+manifest_sha256=ba296d36c8a23f61d312eb5124d49a35e9aaceefc0e2a4f440afb822f69f90f0
+```
+
+```bash
+ssh -o BatchMode=yes ct108-gw-dms-05 'cd /home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend && /bin/bash /home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogsubmit20261106g/candidate/run-once.sh'
+```
+
+固定 backend cwd、literal `.venv/bin/python`、clean HEAD、15 文件/GO/image/input 检查、节点独占、离线且无代理和仅本机 prebuilt 三镜像均保留。45 分钟独立 guardian、40 GiB worker RSS、8 GiB host available、10 GiB disk 停止阈值及 48 GiB 启动可用内存不变；POST 前有效 Python 业务栈和既有精确采样降级条件不放宽。失败按现有停止规则保留原始证据，不以本 GO 自动重跑；只清理自己的运行资源、保留目标卷，回收未核实则保留锁。执行后交完整原始日志、状态/输入比较、身份、资源/栈及收尾证据独立核验。
+
+**本 GO 不授权产品合入、推送、打 tag、正式基准恢复或扩大诊断范围。H3 既有结论不变，正式测量继续停止，lease 根因继续 OPEN；一次运行结果也不能自动关闭根因或替代最终门禁。**

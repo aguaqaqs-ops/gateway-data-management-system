@@ -218,8 +218,10 @@ def kernel_execution_scope(context: KernelExecutionContext, *, new_operation: bo
         yield context
     finally:
         _active_context.reset(token)
-        context.resources.close()
-        context.memory.close()
+        try:
+            context.resources.close()
+        finally:
+            context.memory.close()
 
 
 @dataclass(frozen=True, slots=True)

@@ -580,7 +580,7 @@ class _ReferenceCommittedTables:
         import struct
         session = self.provider.open_ref(self.request.repository_ref, timeout_policy)
         try:
-            catalog_table = next(t for t in session.get_catalog().tables if t.table_name == descriptor.table_name)
+            catalog_table = next(t for t in session.get_catalog().tables if canonicalize_identifier(t.table_name) == descriptor.table_name)
             _, table, _ = _read_and_materialize_table(self.request, session, catalog_table, storage_view,
                 self.request.materialization_stage, keep_rows=True)
             if table is None or not isinstance(table.reader, BoundSnapshotTableReader):
@@ -614,11 +614,11 @@ def _bind_reference_tables(request: RepositoryRefMaterializationRequest, provide
         return request
     identities = []
     session = FakeRepositoryRefSession(catalog=provider.catalog, rows=provider.declared_rows,
-        pinned_commit=provider.current_commit, pad_nulls=provider.pad_nulls, fail_stream=False,
+        pinned_commit=provider.current_commit, pad_nulls=True, fail_stream=False,
         close_error=False, catalog_error=False, catalog_error_message=None, missing_table_on_open=None)
     for view in request.canonical_binding.tables:
-        catalog_table = next(t for t in provider.catalog.tables if t.table_name == view.canonical_table)
-        descriptor, _, _ = _read_and_materialize_table(replace(request, context=ParserInvocationContext(NeverCancel())), session, catalog_table, view,
+        catalog_table = next(t for t in provider.catalog.tables if canonicalize_identifier(t.table_name) == view.canonical_table)
+        descriptor, _, _ = _read_and_materialize_table(replace(request, context=ParserInvocationContext(NeverCancel())), session, replace(catalog_table, row_count=None), view,
             request.materialization_stage, keep_rows=False)
         if descriptor.raw_content_digest is None:
             raise ValueError("reference fixture must supply a valid canonical identity")

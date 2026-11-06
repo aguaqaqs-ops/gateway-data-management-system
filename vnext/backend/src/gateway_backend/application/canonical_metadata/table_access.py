@@ -175,6 +175,7 @@ class CanonicalCommittedTableAccess:
                         ref = self._store.put(projected, bound_descriptor, before_write=protect_before_write)
                     finally:
                         projected.close()
+                    del arrays, result, output, projected
                 handle = self._store.open(ref, bound_descriptor)
             finally:
                 session.close()
@@ -182,8 +183,6 @@ class CanonicalCommittedTableAccess:
         with handle:
             context.checkpoint()
             yield handle
-            context.checkpoint()
-
 
     def lookup(self, key: CanonicalTableKey) -> ArtifactRef | None:
         if key.repository_id != self._store.repository_id:

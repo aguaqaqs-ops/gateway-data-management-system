@@ -60,6 +60,7 @@ from gateway_backend.capabilities.snapshot_materialization.scalar_encoding impor
     encode_repository_row,
     map_repository_column,
 )
+from gateway_backend.capabilities.table_access import kernel_control_scope
 from gateway_backend.capabilities.table_access.contracts import (
     MaterializedTableReader,
     PARSER_VERSION,
@@ -104,7 +105,8 @@ def materialize_repository_ref(
     stage = request.materialization_stage
     trust = CacheTrustLevel.CONTENT_VERIFIED
     try:
-        return _materialize(request, stage, trust)
+        with kernel_control_scope(request.context.cancel_requested, request.context.deadline_monotonic):
+            return _materialize(request, stage, trust)
     except ArtifactPublishError as exc:
         return _failed(stage, trust, (_error(exc.code, exc.message, table=exc.table),))
     except _Halt as halt:

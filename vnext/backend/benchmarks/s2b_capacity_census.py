@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from gateway_compute._native import _parse_sql_native
+from gateway_compute._native import _init_kernel_native, _parse_sql_native
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 MAX_SQL_BYTES = 2 * 1024 * 1024
@@ -208,6 +208,7 @@ def _census(sql_utf8: bytes, input_report: dict[str, object]) -> dict[str, objec
 
 
 def main() -> int:
+    _init_kernel_native(1)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sample", choices=("t1-v1", "types-fixture"))
     sample = parser.parse_args().sample

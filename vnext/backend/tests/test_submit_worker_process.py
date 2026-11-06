@@ -125,6 +125,7 @@ def _subprocess_environment(db_path: Path) -> dict[str, str]:
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BASE_URL"] = "http://127.0.0.1:9"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_REPOSITORY_BEARER_TOKEN_FILE"] = str(token_file)
     mapping_file = write_mapping_file(db_path.parent / "provisioned-mapping.json")
+    environment["GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES"] = "8589934592"
     environment["GATEWAY_BACKEND_OPERATION_WORKER_PROVISIONED_MAPPING_FILE"] = str(mapping_file)
     return environment
 

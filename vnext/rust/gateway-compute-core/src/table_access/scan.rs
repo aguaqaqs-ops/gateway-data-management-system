@@ -21,6 +21,10 @@ pub(crate) struct StatementSpan {
     pub end: usize,
     /// Offsets of top-level commas usable as chunk boundaries (ascending).
     pub splits: Vec<usize>,
+    /// Conservative allocation statistics from the existing quote/depth scan.
+    pub outer_groups: usize,
+    pub max_group_fields: usize,
+    pub max_group_bytes: usize,
 }
 
 /// Bytes that need attention outside quotes in a plain statement.
@@ -133,6 +137,11 @@ impl<'a> Scanner<'a> {
             start: inner_start,
             end: close,
             splits: Vec::new(),
+            // Versioned allowlisted INSERT uses the same value parser, but
+            // has no chunk scan. Even a one-byte literal needs separators.
+            outer_groups: inner.len() / 2 + 1,
+            max_group_fields: inner.len() / 2 + 1,
+            max_group_bytes: inner.len(),
         })
     }
 
@@ -145,6 +154,11 @@ impl<'a> Scanner<'a> {
         let mut splits = Vec::new();
         let mut last_split = start;
         let mut depth: i64 = 0;
+        let mut outer_groups = 0;
+        let mut group_start = start;
+        let mut group_fields = 0;
+        let mut max_group_fields = 0;
+        let mut max_group_bytes = 0;
         let mut pos = cursor.pos;
         while pos < end {
             let byte = data[pos];
@@ -194,17 +208,33 @@ impl<'a> Scanner<'a> {
                         start,
                         end: pos,
                         splits,
+                        outer_groups,
+                        max_group_fields,
+                        max_group_bytes,
                     });
                 }
                 b'(' => {
+                    if depth == 0 {
+                        outer_groups += 1;
+                        group_start = pos;
+                        group_fields = 1;
+                        max_group_fields = max_group_fields.max(group_fields);
+                    }
                     depth += 1;
                     pos += 1;
                 }
                 b')' => {
+                    if depth == 1 {
+                        max_group_bytes = max_group_bytes.max(pos + 1 - group_start);
+                    }
                     depth -= 1;
                     pos += 1;
                 }
                 b',' => {
+                    if depth == 1 {
+                        group_fields += 1;
+                        max_group_fields = max_group_fields.max(group_fields);
+                    }
                     if depth == 0 && pos - last_split >= chunk_bytes {
                         splits.push(pos);
                         last_split = pos;
@@ -215,7 +245,17 @@ impl<'a> Scanner<'a> {
             }
         }
         cursor.pos = end;
-        Ok(StatementSpan { start, end, splits })
+        if depth > 0 {
+            max_group_bytes = max_group_bytes.max(end - group_start);
+        }
+        Ok(StatementSpan {
+            start,
+            end,
+            splits,
+            outer_groups,
+            max_group_fields,
+            max_group_bytes,
+        })
     }
 }
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from gateway_compute._native import _parse_sql_native
+from gateway_compute._native import _init_kernel_native, _parse_sql_native
 from gateway_shared_kernel import DeclaredType, DeclaredTypeKind, DigestRef
 
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
@@ -113,6 +113,7 @@ def source_descriptor(table: dict[str, Any]) -> SourceTableDescriptor:
 
 
 def main() -> int:
+    _init_kernel_native(1)
     parser = argparse.ArgumentParser()
     parser.add_argument("--pair", required=True, choices=("rd-t1-a", "rd-t3-c", "rd-t4-d"))
     parser.add_argument("--output", required=True, type=Path)

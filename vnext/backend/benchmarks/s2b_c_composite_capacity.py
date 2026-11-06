@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-from gateway_compute._native import _parse_sql_native
+from gateway_compute._native import _init_kernel_native, _parse_sql_native
 
 from s2b_c_capacity import BUSINESS, read_input, sample_memory
 
@@ -29,6 +29,7 @@ from gateway_backend.capabilities.table_rules.contracts import TABLE_RULESET_VER
 
 
 def main() -> int:
+    _init_kernel_native(1)
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

@@ -704,6 +704,9 @@ def _emit(value: object, path: str | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from gateway_compute._native import _init_kernel_native
+
+    _init_kernel_native(1)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("python-canonical")

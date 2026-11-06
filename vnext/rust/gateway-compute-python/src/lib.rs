@@ -229,6 +229,7 @@ fn parser_budgets(py: Python<'_>, object: Option<&Py<PyAny>>) -> PyResult<Parser
     };
     let object = object.bind(py);
     Ok(ParserBudgets {
+        max_live_bytes: budget_value(object, "max_live_bytes", defaults.max_live_bytes)?,
         max_sql_source_bytes: budget_value(
             object,
             "max_sql_source_bytes",

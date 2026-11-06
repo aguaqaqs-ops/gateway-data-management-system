@@ -74,6 +74,8 @@ pub(crate) fn same_column_sql_type(left: &ColumnDescriptor, right: &ColumnDescri
 /// Resource budgets (`RESOURCE_BUDGETS` of the Python contract).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserBudgets {
+    /// Parser-owned peak reservation; borrowed SQL bytes belong to the caller.
+    pub max_live_bytes: usize,
     pub max_sql_source_bytes: usize,
     pub max_statement_bytes: usize,
     pub max_tables_per_source: usize,
@@ -93,6 +95,7 @@ impl Default for ParserBudgets {
     fn default() -> Self {
         const MIB: usize = 1024 * 1024;
         Self {
+            max_live_bytes: usize::MAX,
             max_sql_source_bytes: 512 * MIB,
             max_statement_bytes: 16 * MIB,
             max_tables_per_source: 2048,
@@ -356,16 +359,33 @@ struct PhaseA {
     catalog: Catalog,
     jobs: Vec<InsertJob>,
     halt: Option<Fault>,
+    memory_upper_bytes: usize,
 }
 
-fn run_phase_a(sql: &[u8], options: &SqlParseOptions<'_>) -> PhaseA {
+fn run_phase_a(sql: &[u8], options: &SqlParseOptions<'_>, pool_threads: usize) -> PhaseA {
     let budgets = &options.budgets;
     let mut catalog = Catalog::new();
     let mut jobs = Vec::new();
+    let mut phase_a_bytes = 4096_usize;
+    let mut values_bytes = 0_usize;
+    let mut max_chunk_scratch = 0_usize;
+    let mut total_chunks = 0_usize;
     let mut scanner = Scanner::new(sql, options.chunk_bytes, budgets.max_statement_bytes);
     let halt = loop {
         if let Some(fault) = interrupted(options, scanner.position()) {
             break Some(fault);
+        }
+        // Scanner allocates at most one split offset per chunk. This is
+        // checked before its first Vec growth, including a final partial chunk.
+        let scan_upper = (sql.len() - scanner.position())
+            .checked_div(options.chunk_bytes.max(1))
+            .and_then(|n| n.checked_add(1))
+            .and_then(|n| n.checked_mul(2 * std::mem::size_of::<usize>()));
+        if scan_upper
+            .and_then(|n| n.checked_add(phase_a_bytes))
+            .is_none_or(|n| n > budgets.max_live_bytes)
+        {
+            break Some(Fault::resource("max_live_bytes", 0));
         }
         let span = match scanner.next_statement() {
             Ok(Some(span)) => span,
@@ -373,16 +393,121 @@ fn run_phase_a(sql: &[u8], options: &SqlParseOptions<'_>) -> PhaseA {
             Err(fault) => break Some(fault),
         };
         let mut cursor = Cursor::new(sql, span.start, span.end);
-        let result = statements::classify_statement(&mut cursor).and_then(|kind| match kind {
-            StatementKind::Empty => Ok(()),
-            StatementKind::Create => {
-                statements::parse_create_table(&mut cursor, &mut catalog, budgets)
+        let result = statements::classify_statement(&mut cursor).and_then(|kind| {
+            // CREATE declarations are cloned into plans, hash sets and Python
+            // Unicode/metadata. INSERT jobs can omit a wide table's column list.
+            // Reserve actual catalog width as well as split/header storage.
+            let columns = catalog
+                .tables
+                .iter()
+                .map(|t| t.columns.len())
+                .max()
+                .unwrap_or(0);
+            let statement_bytes = span.end - span.start;
+            let extra = match kind {
+                StatementKind::Create => statement_bytes
+                    .checked_mul(128)
+                    .and_then(|n| n.checked_add(4096)),
+                StatementKind::Insert => statement_bytes
+                    .checked_mul(2)
+                    .and_then(|n| columns.checked_mul(16).and_then(|c| n.checked_add(c)))
+                    .and_then(|n| {
+                        span.splits
+                            .len()
+                            .checked_mul(16)
+                            .and_then(|c| n.checked_add(c))
+                    })
+                    .and_then(|n| n.checked_add(4 * std::mem::size_of::<InsertJob>() + 4096)),
+                _ => Some(0),
+            };
+            phase_a_bytes = extra
+                .and_then(|n| phase_a_bytes.checked_add(n))
+                .filter(|n| *n <= budgets.max_live_bytes)
+                .ok_or_else(|| Fault::resource("max_live_bytes", 0))?;
+            match kind {
+                StatementKind::Empty => Ok(()),
+                StatementKind::Create => {
+                    statements::parse_create_table(&mut cursor, &mut catalog, budgets)
+                }
+                StatementKind::Insert => {
+                    statements::parse_insert_header(
+                        &mut cursor,
+                        &mut catalog,
+                        budgets,
+                        &span.splits,
+                    )
+                    .and_then(|job| {
+                        let table = &catalog.tables[job.table];
+                        let rows = span.outer_groups.max(1);
+                        // Four simultaneous capacity-sized value/validity slots
+                        // include append reallocation and ends -> Arrow offsets.
+                        let slots = table
+                            .columns
+                            .len()
+                            .checked_mul(36)
+                            .and_then(|n| n.checked_add(32));
+                        // Existing malformed tuples retain Faults, cloned event
+                        // vectors and diagnostics until the final truncation.
+                        // Current value/literal error templates are bounded by
+                        // 256 bytes; no template includes raw literal contents.
+                        let diagnostics = std::mem::size_of::<Fault>()
+                            .checked_add(std::mem::size_of::<ParserDiagnostic>())
+                            .and_then(|n| n.checked_add(256 + table.display_name.len()))
+                            .and_then(|n| n.checked_mul(4));
+                        let headers = (span.splits.len() + 1)
+                            .checked_mul(table.columns.len())
+                            .and_then(|n| {
+                                n.checked_mul(4 * std::mem::size_of::<columns::ColumnBuilder>())
+                            });
+                        let owned = slots
+                            .and_then(|n| diagnostics.and_then(|d| n.checked_add(d)))
+                            .and_then(|n| n.checked_mul(rows))
+                            .and_then(|n| {
+                                statement_bytes
+                                    .checked_mul(8)
+                                    .and_then(|b| n.checked_add(b))
+                            })
+                            .and_then(|n| headers.and_then(|h| n.checked_add(h)));
+                        values_bytes = owned
+                            .and_then(|n| values_bytes.checked_add(n))
+                            .ok_or_else(|| Fault::resource("max_live_bytes", 0))?;
+                        // Literal Vec capacity uses actual scanned tuple width,
+                        // including malformed tuples wider than the schema.
+                        // Payload scratch covers unescape/hex, normalization and
+                        // JSON string work. SET holds at most 64 seen/ordered refs.
+                        let scratch = span
+                            .max_group_fields
+                            .max(job.ordinals.len())
+                            .checked_mul(2 * std::mem::size_of::<literal::Lit<'_>>())
+                            .and_then(|n| {
+                                span.max_group_bytes
+                                    .checked_mul(8)
+                                    .and_then(|b| n.checked_add(b))
+                            })
+                            .and_then(|n| {
+                                n.checked_add(
+                                    64 * 2 * std::mem::size_of::<&str>() + 100 * 64 + 4096,
+                                )
+                            })
+                            .ok_or_else(|| Fault::resource("max_live_bytes", 0))?;
+                        max_chunk_scratch = max_chunk_scratch.max(scratch);
+                        total_chunks = total_chunks
+                            .checked_add(span.splits.len() + 1)
+                            .ok_or_else(|| Fault::resource("max_live_bytes", 0))?;
+                        let active = total_chunks.min(pool_threads);
+                        let peak = max_chunk_scratch
+                            .checked_mul(active)
+                            .and_then(|n| n.checked_add(values_bytes))
+                            .and_then(|n| n.checked_add(phase_a_bytes));
+                        if peak.is_none_or(|n| n > budgets.max_live_bytes) {
+                            return Err(Fault::resource("max_live_bytes", 0));
+                        }
+                        jobs.push(job);
+                        Ok(())
+                    })
+                }
+                other => statements::parse_boilerplate(other, &mut cursor, budgets),
             }
-            StatementKind::Insert => {
-                statements::parse_insert_header(&mut cursor, &mut catalog, budgets, &span.splits)
-                    .map(|job| jobs.push(job))
-            }
-            other => statements::parse_boilerplate(other, &mut cursor, budgets),
         });
         if let Err(fault) = result {
             break Some(fault);
@@ -390,6 +515,9 @@ fn run_phase_a(sql: &[u8], options: &SqlParseOptions<'_>) -> PhaseA {
     };
     PhaseA {
         catalog,
+        memory_upper_bytes: phase_a_bytes
+            .saturating_add(values_bytes)
+            .saturating_add(max_chunk_scratch.saturating_mul(total_chunks.min(pool_threads))),
         jobs,
         halt,
     }
@@ -449,7 +577,15 @@ fn parse_document(
         mut catalog,
         jobs,
         halt,
-    } = run_phase_a(sql, options);
+        memory_upper_bytes,
+    } = run_phase_a(sql, options, pool.current_num_threads());
+    if halt
+        .as_ref()
+        .is_some_and(|fault| fault.offset == 0 && fault.message == "max_live_bytes exceeded")
+        || memory_upper_bytes > budgets.max_live_bytes
+    {
+        return failed_document(Vec::new(), Fault::resource("max_live_bytes", 0), budgets);
+    }
 
     let plans: Vec<Arc<[ColumnPlan]>> = catalog
         .tables

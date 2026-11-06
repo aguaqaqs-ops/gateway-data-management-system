@@ -280,3 +280,53 @@ proptest! {
         prop_assert!(canonical(&chunked) == reference);
     }
 }
+
+#[test]
+fn operation_memory_limit_rejects_before_value_growth_with_a_stable_location() {
+    let cases = [
+        "CREATE TABLE t (id INT); INSERT INTO t VALUES (1),(2);".to_owned(),
+        format!(
+            "CREATE TABLE t ({}); INSERT INTO t VALUES ();",
+            (0..128)
+                .map(|i| format!("c{i} INT"))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        format!(
+            "CREATE TABLE t (id INT); INSERT INTO t VALUES ({});",
+            vec!["0"; 4096].join(",")
+        ),
+        format!(
+            "CREATE TABLE t (id INT); /*!50000 INSERT INTO t VALUES ({}),(1) */;",
+            vec!["0"; 4096].join(",")
+        ),
+    ];
+    for threads in [1, 2] {
+        let pool = build_parser_pool(threads).expect("test pool");
+        for sql in &cases {
+            let mut options = SqlParseOptions::default();
+            options.budgets.max_live_bytes = 4096;
+            let output = parse_sql_dump(sql.as_bytes(), &options, &pool);
+            assert_eq!(output.status, ParseStatus::Failed);
+            assert!(output.tables.is_empty());
+            assert_eq!(output.diagnostics.len(), 1);
+            assert_eq!(
+                output.diagnostics[0].code,
+                ParserDiagnosticCode::ResourceLimitExceeded
+            );
+            assert_eq!(output.diagnostics[0].byte_offset, 0);
+            assert_eq!(output.diagnostics[0].message, "max_live_bytes exceeded");
+        }
+        let mut options = SqlParseOptions::default();
+        options.budgets.max_live_bytes = 1 << 20;
+        let output = parse_sql_dump(cases[0].as_bytes(), &options, &pool);
+        assert_eq!(output.status, ParseStatus::Complete);
+        let output = parse_sql_dump(cases[2].as_bytes(), &SqlParseOptions::default(), &pool);
+        assert!(
+            output
+                .diagnostics
+                .iter()
+                .any(|d| d.code == ParserDiagnosticCode::RowShapeMismatch)
+        );
+    }
+}

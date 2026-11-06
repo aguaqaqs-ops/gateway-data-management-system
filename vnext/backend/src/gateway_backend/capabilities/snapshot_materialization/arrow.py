@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Callable
+from contextlib import contextmanager
 from typing import Any
 
 import pyarrow as pa
@@ -53,6 +54,10 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
         super().__init__(descriptor, source)
         self._arrow_source = source
 
+    @property
+    def execution_context(self) -> KernelExecutionContext:
+        return self._arrow_source.execution_context
+
     def arrow_stream(self) -> pa.RecordBatchReader:
         self._require_open()
         return self._arrow_source.arrow_stream()
@@ -102,15 +107,18 @@ class ArrowSnapshotTableBatchReader:
 def snapshot_table_from_arrow(
     descriptor: SnapshotTableDescriptor, table: pa.Table, source: SourceTableDescriptor,
     *, ordered: SnapshotTableOrderedMetadata | None = None, execution_context: KernelExecutionContext | None = None,
+    close: Callable[[], None] | None = None,
 ) -> SnapshotTable:
     context = execution_context or current_kernel_context()
     if context is None:
         raise ValueError("snapshot Arrow backing requires an operation kernel context")
-    reader = ArrowSnapshotTableReader(descriptor, ArrowSourceTableReader(source, table, context))
+    reader = ArrowSnapshotTableReader(descriptor, ArrowSourceTableReader(source, table, context, close=close))
+    batch_source = reader.reopen()
     try:
-        batch = ArrowSnapshotTableBatchReader(reader.reopen(), SnapshotTableBatchMetadata(
+        batch = ArrowSnapshotTableBatchReader(batch_source, SnapshotTableBatchMetadata(
             blank_provenance=BlankRowProvenance.NONE if ordered is None else ordered.blank_provenance))
     except BaseException:
+        batch_source.close()
         reader.close()
         raise
     return SnapshotTable(descriptor, reader, descriptor.diagnostics, batch_reader=batch, ordered_metadata=ordered)
@@ -162,3 +170,66 @@ def materialize_source_arrow(
         ordered=SnapshotTableOrderedMetadata(blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY), execution_context=context)
     context.checkpoint()
     return descriptor, bound, diagnostics
+
+
+def _derived_arrow_value(cell: object) -> object:
+    from gateway_shared_kernel import NullScalar, StringScalar, SignedIntegerScalar, UnsignedIntegerScalar
+
+    if isinstance(cell, NullScalar):
+        return None
+    if isinstance(cell, StringScalar):
+        return cell.text
+    if isinstance(cell, (SignedIntegerScalar, UnsignedIntegerScalar)):
+        return int(cell.decimal)
+    raise ValueError("derived composite column has an unsupported cell")
+
+
+@contextmanager
+def snapshot_arrow_input(table: SnapshotTable) -> Iterator[tuple[dict[str, Any], KernelExecutionContext]]:
+    """Borrow SQL/canonical Arrow directly; composite rows are the bounded exception."""
+    context = current_kernel_context()
+    if context is None or table.reader is None:
+        raise ValueError("Arrow input requires an operation context and ready reader")
+    isolated = table.reader.reopen()
+    retained = None
+    try:
+        if isinstance(isolated, ArrowSnapshotTableReader):
+            with isolated.arrow_stream() as stream:
+                yield source_arrow_metadata(isolated.source_descriptor(), stream), isolated.execution_context
+            return
+        if table.descriptor.table_name != "composite_signal_point":
+            raise ValueError("ordinary canonical tables must use the Arrow production reader")
+        source = isolated.source_descriptor()
+        # Only the established Python composite result crosses this boundary.
+        # Check payload/object/Arrow conversion before building any column lists.
+        upper = 8192 + len(source.columns) * 4096
+        for row in isolated.iter_rows():
+            context.checkpoint()
+            upper += 1024 + len(row) * 256
+            for cell in row:
+                text = getattr(cell, "text", None)
+                if text is not None:
+                    upper += len(text) * 8
+        isolated.close()
+        isolated = table.reader.reopen()
+        with context.memory.reserve(upper):
+            columns: list[list[object]] = [[] for _ in source.columns]
+            for row in isolated.iter_rows():
+                context.checkpoint()
+                for index, cell in enumerate(row):
+                    columns[index].append(_derived_arrow_value(cell))
+            fields = []
+            arrays = []
+            for index, column in enumerate(source.columns):
+                kind = None if column.declared_type is None else column.declared_type.kind.value
+                physical = pa.int64() if kind == "signed-integer" else pa.uint64() if kind == "unsigned-integer" else pa.string()
+                fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
+                arrays.append(pa.array(columns[index], type=physical))
+            backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+        retained = ArrowSourceTableReader(source, backing, context)
+        with retained.arrow_stream() as stream:
+            yield source_arrow_metadata(source, stream), context
+    finally:
+        if retained is not None:
+            retained.close()
+        isolated.close()

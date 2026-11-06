@@ -260,3 +260,41 @@ def test_operation_stop_at_eof_prevents_canonical_publication(tmp_path: Path) ->
                 store.put(source, descriptor, before_write=lambda key, ref: called.append(ref))
     assert called == []
     assert not any(path.is_file() for path in backend.artifact_root.rglob("*"))
+
+
+def test_canonical_snapshot_manifest_requires_the_callers_repository_and_ipc_format() -> None:
+    from gateway_backend.capabilities.snapshot_materialization import (
+        publish_canonical_tables, open_snapshot_table_artifact, snapshot_table_from_arrow,
+        source_descriptor_from_arrow, canonical_columns,
+    )
+    from gateway_backend.capabilities.snapshot_materialization.artifact import ArtifactPublishError, manifest_from_bytes
+    from gateway_shared_kernel import DigestRef
+
+    stream, descriptor = canonical_input()
+    with stream:
+        arrays = stream.read_all()
+    source = source_descriptor_from_arrow({"canonical_name": descriptor.table_name,
+        "display_name": descriptor.display_table_name, "columns": canonical_columns(descriptor),
+        "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
+    table = snapshot_table_from_arrow(descriptor, arrays, source)
+    store = InMemoryArtifactStore()
+    published = publish_canonical_tables((table,), snapshot_digest=DigestRef("sha256:" + "0" * 64),
+                                        store=store, repository_id="repo")[0]
+    assert published.artifact is not None
+    manifest = published.artifact.manifest
+    assert manifest.row_format == "arrow-ipc"
+    assert manifest.compression == "none"
+    assert manifest.repository_id == "repo"
+    for repository_id in (None, "other"):
+        with pytest.raises(ArtifactPublishError):
+            open_snapshot_table_artifact(store, published.artifact.manifest_ref,
+                                         repository_id=repository_id, canonical_required=True)
+    opened = open_snapshot_table_artifact(store, published.artifact.manifest_ref,
+                                         repository_id="repo", canonical_required=True)
+    assert opened.reader is not None
+    assert tuple(opened.reader.iter_rows())
+    import json
+    payload = json.loads(store.locate(published.artifact.manifest_ref))
+    del payload["repository_id"]
+    with pytest.raises(KeyError):
+        manifest_from_bytes(json.dumps(payload).encode())

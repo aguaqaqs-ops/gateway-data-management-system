@@ -1,5 +1,10 @@
 """Public surface of the Snapshot Materialization capability."""
 
+from gateway_backend.capabilities.snapshot_materialization.arrow import (
+    ArrowSnapshotTableReader, operation_business_budgets, operation_codec_budgets,
+    snapshot_arrow_input, snapshot_table_from_arrow,
+)
+from gateway_backend.capabilities.table_access import current_kernel_context, source_descriptor_from_arrow
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
     ArtifactReadHandle,
     CanonicalTableStore,
@@ -31,6 +36,7 @@ from gateway_backend.capabilities.snapshot_materialization.artifact import (
     manifest_from_bytes,
     open_snapshot_table_artifact,
     publish_snapshot_table_artifact,
+    publish_canonical_tables,
     validate_snapshot_table_artifact,
 )
 from gateway_backend.capabilities.snapshot_materialization.batch import (
@@ -118,6 +124,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization.materialize import (
     materialize_sql_snapshot,
     materialize_projected_snapshot,
+    materialize_canonical_snapshot,
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_ref import (
     materialize_repository_ref,
@@ -131,6 +138,9 @@ from gateway_backend.capabilities.table_access.contracts import (
 )
 
 __all__ = [
+    "ArrowSnapshotTableReader", "operation_business_budgets", "operation_codec_budgets",
+    "snapshot_arrow_input", "snapshot_table_from_arrow", "publish_canonical_tables",
+    "current_kernel_context", "source_descriptor_from_arrow",
     "ArrowMetadata",
     "KernelBudgets",
     "KernelResult",
@@ -225,6 +235,7 @@ __all__ = [
     "snapshot_to_document",
     "materialize_sql_snapshot",
     "materialize_projected_snapshot",
+    "materialize_canonical_snapshot",
     "materialize_business_snapshot",
     "materialize_repository_ref",
     "manifest_from_bytes",

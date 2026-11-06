@@ -47,6 +47,8 @@ ORDERED_COMPARISON_CONTRACT_VERSION = "backend-vnext/ordered-diff/v2"
 BLANK_COMPARISON_CONTRACT_VERSION = "backend-vnext/comparison-blank/v1"
 ROW_MATERIALIZATION_PROFILE = "sql-canonical-v1"
 ROW_FORMAT_PARQUET = "parquet"
+ROW_FORMAT_CANONICAL_IPC = "arrow-ipc"
+ARTIFACT_COMPRESSION_NONE = "none"
 EXPORT_FORMAT_PARQUET = "PARQUET"
 ARTIFACT_COMPRESSION_ZSTD = "zstd"
 ROW_ORDER_CONTRACT_INSERT = "INSERT_ORDER"
@@ -900,6 +902,7 @@ class SnapshotTableArtifactManifest:
     row_materialization_profile: str
     artifact_content_digest: DigestRef
     created_at: str
+    repository_id: str | None = None
     diagnostics: tuple[MaterializationDiagnostic, ...] = ()
     ordered_metadata: SnapshotTableOrderedMetadata | None = None
 
@@ -918,10 +921,17 @@ class SnapshotTableArtifactManifest:
         for ref in self.row_file_refs:
             if type(ref) is not ArtifactRef:
                 raise ValueError("row_file_refs must contain ArtifactRef")
-        if self.row_format != ROW_FORMAT_PARQUET:
-            raise ValueError("row_format must be parquet")
-        if self.compression != ARTIFACT_COMPRESSION_ZSTD:
-            raise ValueError("compression must be zstd")
+        if self.row_format == ROW_FORMAT_PARQUET:
+            if self.compression != ARTIFACT_COMPRESSION_ZSTD or self.repository_id is not None:
+                raise ValueError("raw Parquet requires zstd and repository_id null")
+        elif self.row_format == ROW_FORMAT_CANONICAL_IPC:
+            if self.compression != ARTIFACT_COMPRESSION_NONE:
+                raise ValueError("canonical IPC requires compression none")
+            _require_opaque_id(self.repository_id, "repository_id")
+            if self.descriptor.raw_content_digest is None:
+                raise ValueError("canonical IPC requires a bound table digest")
+        else:
+            raise ValueError("unsupported artifact row_format")
         if self.row_materialization_profile != ROW_MATERIALIZATION_PROFILE:
             raise ValueError("row_materialization_profile must be sql-canonical-v1")
         if type(self.artifact_content_digest) is not DigestRef:

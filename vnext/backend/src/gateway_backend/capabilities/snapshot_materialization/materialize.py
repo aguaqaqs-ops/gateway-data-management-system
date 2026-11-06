@@ -5,6 +5,9 @@ from __future__ import annotations
 import dataclasses
 import secrets
 import time
+from collections.abc import Callable
+
+from gateway_backend.artifacts.store import ArtifactStorePort
 from datetime import UTC, datetime
 
 from gateway_shared_kernel import (
@@ -42,6 +45,7 @@ from gateway_backend.capabilities.snapshot_materialization.artifact import (
     ArtifactPublishError,
     artifact_error_diagnostic,
     publish_ready_tables,
+    publish_canonical_tables,
     require_artifact_store,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -134,13 +138,35 @@ def materialize_sql_snapshot(
 
 
 def materialize_projected_snapshot(
+    source_snapshot: Snapshot, tables: tuple[SnapshotTable, ...], *, artifact_store: object,
+    context: ParserInvocationContext, export_cache: SnapshotTableExportCachePort | None = None,
+    repository_id: str | None = None,
+) -> SnapshotMaterializationResult:
+    """Temporary reference publication, removed with old projection callers in E."""
+    return _materialize_projected_snapshot(source_snapshot, tables, artifact_store=artifact_store,
+        context=context,
+        publish_tables=lambda items, digest, store: publish_ready_tables(items, snapshot_digest=digest,
+            store=store, context=context, export_cache=export_cache, repository_id=repository_id))
+
+
+def materialize_canonical_snapshot(
+    source_snapshot: Snapshot, tables: tuple[SnapshotTable, ...], *, artifact_store: object,
+    context: ParserInvocationContext, repository_id: str,
+) -> SnapshotMaterializationResult:
+    """Production canonical tables use only the Rust IPC store."""
+    return _materialize_projected_snapshot(source_snapshot, tables, artifact_store=artifact_store,
+        context=context,
+        publish_tables=lambda items, digest, store: publish_canonical_tables(items, snapshot_digest=digest,
+            store=store, repository_id=repository_id))
+
+
+def _materialize_projected_snapshot(
     source_snapshot: Snapshot,
     tables: tuple[SnapshotTable, ...],
     *,
     artifact_store: object,
     context: ParserInvocationContext,
-    export_cache: SnapshotTableExportCachePort | None = None,
-    repository_id: str | None = None,
+    publish_tables: Callable[[tuple[SnapshotTable, ...], DigestRef, ArtifactStorePort], tuple[SnapshotTable, ...]],
 ) -> SnapshotMaterializationResult:
     """Build and publish a Snapshot from tables produced by a canonical projection."""
     if type(source_snapshot) is not Snapshot:
@@ -222,14 +248,7 @@ def materialize_projected_snapshot(
             diagnostics=(),
             row_count_total=sum(table.row_count for table in descriptors),
         )
-        published = publish_ready_tables(
-            tables,
-            snapshot_digest=snapshot_digest,
-            store=store,
-            context=context,
-            export_cache=export_cache,
-            repository_id=repository_id,
-        )
+        published = publish_tables(tables, snapshot_digest, store)
         table_set = SnapshotTableSet(
             snapshot_id=snapshot_id,
             snapshot_digest=snapshot_digest,

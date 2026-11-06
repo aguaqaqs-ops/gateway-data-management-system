@@ -16,7 +16,8 @@ use arrow_array::builder::{
 };
 use arrow_array::{
     Array, ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryArray, Float32Array, Float64Array,
-    Int64Array, LargeBinaryArray, LargeStringArray, RecordBatch, StringArray, UInt64Array,
+    Int64Array, LargeBinaryArray, LargeStringArray, RecordBatch, RecordBatchOptions, StringArray,
+    UInt64Array,
 };
 use arrow_ipc::reader::FileReaderBuilder;
 use arrow_ipc::writer::{FileWriter, IpcWriteOptions};
@@ -364,9 +365,6 @@ fn descriptor_size(
     columns: &[ColumnDescriptor],
     budgets: CanonicalIpcBudgets,
 ) -> Result<usize, CanonicalIpcError> {
-    if columns.is_empty() {
-        return Err(schema_error("canonical IPC requires at least one column"));
-    }
     if columns.len() > budgets.max_columns {
         return Err(resource_error("canonical IPC column limit exceeded"));
     }
@@ -1654,7 +1652,8 @@ fn build_output_batch(
             .collect::<Vec<_>>()
     });
     let columns = columns.into_iter().collect::<Result<Vec<_>, _>>()?;
-    RecordBatch::try_new(Arc::clone(schema), columns).map_err(|error| {
+    let batch_options = RecordBatchOptions::new().with_row_count(Some(rows));
+    RecordBatch::try_new_with_options(Arc::clone(schema), columns, &batch_options).map_err(|error| {
         ipc_error(format!(
             "canonical RecordBatch construction failed: {error}"
         ))

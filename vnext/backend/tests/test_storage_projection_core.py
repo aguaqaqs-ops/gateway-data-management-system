@@ -6,7 +6,6 @@ from tests.support.native_projection import project_storage, project_canonical_f
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -34,16 +33,7 @@ from gateway_backend.capabilities.table_access.contracts import SourceRow
 from gateway_backend.capabilities.table_rules.contracts import (
     CanonicalKeyPolicy,
     DroppedColumn,
-    OrderedPolicy,
-    SelectorPrecedenceClass,
-    TableArtifactScope,
-    TableCompareKeyMode,
-    TableRuleRecord,
-    TableRuleSelector,
-    TableRuleSelectorKind,
     TableRulesetSnapshot,
-    TableStaticRole,
-    TableStorageDisposition,
     legacy_ignored_column_reason,
 )
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
@@ -61,7 +51,7 @@ from tests.support.storage_projection import (
     varchar_cell,
     varchar_column,
 )
-from tests.support.table_rules import net_cfg_record, snapshot_from_records
+from tests.support.table_rules import net_cfg_record
 
 pytestmark = pytest.mark.unit
 
@@ -88,14 +78,6 @@ DC56_EXPLICIT_KEY_TABLES = (
     ("out_time_cfg", ("board", "link_no")),
 )
 TableInput = tuple[FakeSnapshotTableReader, ArtifactSourceBinding]
-
-
-@dataclass
-class FlagCancel:
-    flag: bool = False
-
-    def is_set(self) -> bool:
-        return self.flag
 
 
 def _request(

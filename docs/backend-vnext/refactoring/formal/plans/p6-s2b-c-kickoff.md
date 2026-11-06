@@ -53,3 +53,9 @@ D 接线前交付有依据的 M/default/max 候选与 worker envelope/reserve �
 - 容量：实际 IPC/FULL 口径及拒绝边界；EOF/cancel-before-publish 的真实 worker 验证移交 D，不能只凭 store mock 宣称已证明。
 
 日常在 06 clean、已提交 worktree 做受影响 focused/Contract/SQLite/filesystem integration，遵守离线缓存、节点占用和日志规则；本节最终候选按实际 Python/Rust/镜像边界完成必要静态与容器检查。04 完整阶段门禁及 t1–t4 正确性仍留给最终 S2b 候选；跨节点结果不作 carried。C handoff 必须含固定代码、API/消费者、实际证据、容量报告与 D 尚待决定项，经本节新审核者独立 GO 后才转 D。
+
+## 6. 新角色执行交接
+
+实施者先读取 B 最终 handoff 与交付审核，取得 06 自身节点占用，再使用本节 clean、已提交 worktree；审核者在新的只读 detached worktree 审码，两者不复用 B 的角色上下文。不修改 B 保留的证据或 A 的工作区。
+
+源码同步沿用 B 已审并成功执行的外置脚本结构（CT201 `/tmp/s2b-b-publish-source.sh`、`/tmp/s2b-b-sync-resume.sh`，具体成功日志由 B handoff 引用）。为 C 显式调整任务路径、ref 和占用 owner，由审核者核对一次，不重新拼装复杂内联 SSH。previous 读取目标 worktree 实际 HEAD，不能用共享 main 的 `HEAD~1` 推断；candidate 先固定为完整 SHA，以任务自有 `refs/codex/<任务>-transfer/<fullsha>` 打包，bundle 的 advertised ref、校验和与 fetch 使用同一组参数。不能要求其他会话暂停 main 提交来保障同步。先独立检查同步实际 exit 0 与目标 clean HEAD，再发起测试；工具返回非零不会自动阻止下一工具调用，调用者必须显式停止。失败日志保留，按 DC68/DC80 最小诊断和独立复核，不循环试错。

@@ -11,6 +11,11 @@ use arrow_array::{Array, RecordBatch};
 
 use crate::table_access::{ColumnDescriptor, TableDescriptor};
 
+mod cells;
+mod operations;
+
+pub use operations::{filter_catalog, materialize_sql_table, project_canonical_table};
+
 /// Existing business diagnostics retain at most this many entries.
 pub const BUSINESS_KERNEL_MAX_DIAGNOSTICS: usize = 1024;
 

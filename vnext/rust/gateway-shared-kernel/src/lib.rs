@@ -19,6 +19,7 @@ pub use framing::{encode_collection, encode_row, unordered_row_hashes_content_di
 pub use identifier::canonicalize_identifier;
 pub use jcs::canonicalize_jcs;
 pub use scalar::{encode_typed_scalar, normalize_logical_literal};
+pub use uleb128::encode_uleb128;
 pub use types::{
     AnomalyScalar, BinaryScalar, BitScalar, BooleanScalar, CollectionSemantics, DateScalar,
     DateTimeScalar, DecimalScalar, DeclaredType, DigestKind, DigestRef, EncodedCollection,

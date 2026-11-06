@@ -76,6 +76,7 @@ implementation_authorized: no
 | DC85 | S2b kickoff 批准，启动 A 节纯内存映射/IPC codec | — | — |
 | DC86 | 授权按既定 kickoff 逐节推进 B–E，每节新建既定实施/审核二角色；额外角色先交 Owner 确认 | — | — |
 | DC87 | S2b 单 worker 选择 A：12 GiB envelope、4 GiB reserve、显式 M=8 GiB，N=1/单 active；D 验真实资源边界 | — | — |
+| DC88 | 正常 drain 的 effect 前 PURE_RECOMPUTE 阶段可安全重排队，不消耗失败恢复次数；保留原 checkpoint/保护 | — | — |
 
 ## 2. 决议详情
 
@@ -788,7 +789,7 @@ implementation_authorized: no
 
 ### DC74（草案）BE-c 的落点与整包传输计时
 
-- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影，DC76/DC77 用于 S2b 输入与容量约定；DC78 用于 Rust 单实现与清理约定，DC79 用于基准输入工具并行完善，DC80 用于停止后的主动处置及 READY 闭包容量修正，DC81 用于开发与全量基准解耦，DC82 用于新增开发测试节点，DC83 用于 S2b 功能退出与 W2 性能复核分开，DC84 用于 S2b 容量分步收口与 W1 诊断时点，DC85 用于 S2b kickoff 确认及 A 节实施授权，DC86 用于 B–E 逐节推进及既定二角色授权，DC87 用于单 worker 资源配置，下一个可分配编号为 DC88。
+- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影，DC76/DC77 用于 S2b 输入与容量约定；DC78 用于 Rust 单实现与清理约定，DC79 用于基准输入工具并行完善，DC80 用于停止后的主动处置及 READY 闭包容量修正，DC81 用于开发与全量基准解耦，DC82 用于新增开发测试节点，DC83 用于 S2b 功能退出与 W2 性能复核分开，DC84 用于 S2b 容量分步收口与 W1 诊断时点，DC85 用于 S2b kickoff 确认及 A 节实施授权，DC86 用于 B–E 逐节推进及既定二角色授权，DC87 用于单 worker 资源配置，DC88 用于纯重算正常 drain 交接，下一个可分配编号为 DC89。
 - **来源**：`ebb0047383300a3754a4be6a6a78f72286600c83` 的[后端交接 §2.3](p6-backend-session-handoff.md)、[前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、本记录 DC38/DC41/DC53/DC64/DC66；设计 §16.1 的 i 段已计入 READY 前 bundle 组装与导出成本。
 - **需 owner 定的两项及建议**：
   1. **BE-c 放在基准还是 S6？建议 S6。** 基准产品固定为 `p6-s1c-exit`，当前 GET `/bundle` 只返回 manifest JSON；基准体积不能冒称 BE-d 后完整 tar 的线传字节。完整报告随 S6 已有 t4、2× t4 旅程采集，不为体积另跑一轮完整旅程。BE-d 实施后即可随已授权运行先记实际字节供 FE3 参考；如 owner 要提前从保留闭包估算，也须标“闭包逻辑大小/理论 tar 大小”，不作网络实测，不扩充当前基准必跑场景。
@@ -939,6 +940,14 @@ DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核
 - **证据边界**：[C 容量报告](p6-s2b-c-capacity-calibration.md) 的固定输入实测与分进程峰值估算支持配置选择，不是实际 production worker 峰值、严格上界或 capacity PASS；reserve 也是工程预留，不是已测得的固定非 operation 上限。既有各项输入 quota 不保证全部最大值同时可接受，仍按 M 在增长前拒绝。
 - **D 必验**：真实 worker 的 FULL 两侧同时存活资源、借用/共享 backing、mmap、转换/排序、IPC/adapter copy 与 staging 的合并预约和峰值；M 缺失/非法/超限启动拒绝、增长前资源拒绝，以及真实 cancel/drain/lease_lost/可选 deadline 与 EOF/publish 屏障。不得把局部 kernel 各自低于 M 等同总量合格，不将 OOM 作为正常资源拒绝路径。
 - **推进边界**：关闭 D 接线前尚缺的生产 envelope/reserve/M 选择；C 独立 GO 后按 DC86 既有授权创建 D 实施与审核角色继续，不再请求重复配置确认。若实际 worker 校准不支持此档，保留证据、诊断最小修正，必要时列方案交 Owner，不静默增加 M、容器限额或降低输入/正确性验收。W1/W2、最终门禁及原基准独立跟踪不变，不授权推送。
+
+### DC88 纯重算阶段的正常 drain 交接
+
+- **来源与确认（owner，2026-11-06）**：D 实际接线发现，在尚未写出本次新 checkpoint 时以普通 retryable failure 表达 drain 会消耗 R5 的三个失败恢复会话，连续正常停机可能导致业务永久失败。现有 safe-handoff 又要求本 session 最新已提交 checkpoint，不能伪造。Owner 明确选择 A：窄幅扩展现有 Runtime/LeaseSession，正常停机安全重排队，不耗失败次数。
+- **范围与前置**：仅适用于已注册为 `PURE_RECOMPUTE`、当前未产生外部副作用的执行阶段；应用/registry owner 判定阶段能力，不从某次 kernel 调用猜整个 step 的 effect 边界。必须有真实 `ExecutionControl.drain_requested` 与 fresh 有效租约。取消优先处理为原业务取消；失租/过期/陈旧 CAS 禁止继续写。Submit prepare 的实际注册为 PURE_RECOMPUTE，可在本地冻结读取/转换阶段按这些前置使用；外部 import/等待/Finalize 不因本条变成可重算。
+- **最小转换**：沿现有 LeaseSession mutation lock、fresh control DB transaction 与 CAS，使用已有 `RUNNING → RETRY_WAIT`，设置立即可重领、清 worker/token/lease，保留既有 checkpoint（可以为空）、prior outputs 与 Preview/Attempt 等业务保护。不要求为未完成计算制造新 checkpoint，不发布部分结果；未挂接临时产物仍用原 cleanup 规则。
+- **计数与分类**：以独立的正常 drain 诊断区分于故障和 Repository healthy wait，下一次 claim 保持当前 attempt_count，不增加也不重置；operator recovery session 授权语义须保留，不能靠清诊断取得额外自动恢复。重领后的真实失败、crash、失租仍按原 R5 额度和规则处理。不复用 `healthy_external_operation_wait` 冒称远端健康，不改变 `MAX_RECOVERY_SESSIONS` 或外部 effect 后的原 reconcile/冻结规则。
+- **验收与边界**：D 更新 owning lifecycle/recovery 文档，实施者实现、独立审核复核。定向验证 fresh lease/cancel/CAS 与失败回滚、原 checkpoint/保护不变、重领计数及 operator 分支，再做一条真实 worker drain→重领继续的集成验证。无新 schema/status、持久预约或并行租约状态机，不追加内部时序全排列；现有 180 秒 drain timeout、无自动强杀、节点/离线/最终容器门禁不变。此条不证明实现已经通过，不接管原基准，也不授权推送。
 
 ## 3. 设计阶段待定项
 

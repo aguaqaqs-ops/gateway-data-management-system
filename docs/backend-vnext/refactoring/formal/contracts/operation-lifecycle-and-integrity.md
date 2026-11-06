@@ -25,6 +25,15 @@ restart 是 graceful shutdown 后的正常 startup recovery、health check 和 r
 和已有 operation 状态查询。已有 operation 继续执行或 checkpoint 后由 durable runtime
 接管。
 
+
+### 正常 drain 的纯重算让出（DC88）
+
+S2b D 对已注册 `PURE_RECOMPUTE` 且未跨外部 effect 的阶段，允许在尚未写出本次新 checkpoint 时协作让出。应用/registry owner 判能力；LeaseSession 在原 mutation lock 下重读 fresh records，以有效 lease/CAS 及真实 drain 为前置，按既有 `RUNNING → RETRY_WAIT` 清 worker/token/lease并立即可重领。保留旧 checkpoint（可为空）、prior outputs 与业务保护，不制造 checkpoint、发布未完成结果或更换冻结来源。
+
+cancel 优先走原业务取消，lease_lost/expired/stale CAS 不得写入。独立 drain 诊断使下次 claim 保持既有 attempt_count，operator recovery session 身份也保留；正常停机不耗失败恢复次数，也不重置已经消耗的次数。真实失败/crash/失租仍沿原 R5。外部 effect 后不适用本让出，不复用 Repository healthy-wait 诊断或更改其截止预算。
+
+这是现有 LeaseSession/R5 的有限协作扩展，不是新的 durable 状态或租约协议。定向验证租约/取消/事务屏障、checkpoint/保护、claim 计数与实际 worker drain/reclaim；180 秒排空上限和无自动强杀不变。决议与范围见 [DC88](../plans/p6-s0-owner-decisions.md#dc88-纯重算阶段的正常-drain-交接)。
+
 ## 2. Quiescence and recovery
 
 `QUIESCED` 必须同时确认 active Preview、Submit/finalize、Repository effect、external

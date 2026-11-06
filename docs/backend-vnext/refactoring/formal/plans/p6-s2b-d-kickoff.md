@@ -34,6 +34,8 @@ EOF、kernel 完成和发布前仍核真实 control。lease_lost 必须沿现有
 
 生产接线须重新覆盖 C 已定义的四种恢复状态：T1 前重新 Preview；T1 后/PREPARED 前冻结缺损稳定失败，不重新选来源；PREPARED 复用冻结包；已提交派生副本按 exact commit 核验回填。Archive Head CAS/引用事务继续由 C 的真实 owner 承担，不在 D 将 Head 推进挪到 Submit finalize。
 
+Owner 已确认 DC88：尚未产出新 checkpoint 的、已注册 PURE_RECOMPUTE 且 effect 前阶段，真实 drain 下可经有效 LeaseSession/CAS 转已有 RETRY_WAIT，保留旧 checkpoint/prior outputs/业务保护并立即可重领；独立 drain 诊断使下 claim 不增也不重置失败次数，保留 operator recovery session 语义。cancel 优先，失租禁写，外部 effect 后仍走原 reconcile，不能把 drain 塞进普通 retryable failure 或冒用 healthy external wait。具体 owner 及验证见 [lifecycle Contract](../contracts/operation-lifecycle-and-integrity.md#正常-drain-的纯重算让出dc88)。不新增 schema/status，最小 LeaseSession/R5 接线仍须独立审核和真实 worker drain→重领验收。
+
 ## 4. 比例化实施与验收
 
 1. 在 C 的接口和容量输入固定后收口 settings、startup 一次初始化及预算传递。focused 验证非法/缺失 N/M、重复初始化冲突、同池复用；不改既有 lease 参数含义。

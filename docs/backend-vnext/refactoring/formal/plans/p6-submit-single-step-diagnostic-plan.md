@@ -61,3 +61,19 @@ mtime_ns、uid、gid、mode 等属性，并按原校验核对副本。
 不得称完整旅程 PASS。另核 finalization_errors、容器/network 清理与卷保留。
 只清理本次项目的运行资源并释放自有占用，不使用 down -v；保留原始来源、目标卷和诊断证据。
 根因与正式恢复资格仍由后续独立审核判断，不由设计会话判定实施证据。
+
+## 2026-11-06：新 RS 下的单步接续候选
+
+本节替换下一次诊断的目标 RS 身份，其他观察、资源和单步边界沿用上文；具体 launcher 与身份材料仍须独立审核后才能执行。不复用此前的 Submit GO，也不使用 READY cap 的限定恢复 approval。
+
+冷 catalog 修复代码 `4497ded8ff3a9156bbe4c7a75ba44ae9e4675792` 与局部证据已通过审核 `78f43ebe31`。随后固定新 RS 的一次冷调用由审核者复核为逻辑调用成功：62.919 秒、第三次尝试返回完整 HTTP 200 catalog；工具 exit 1 仅因首尝成功条件未达。前两次没有独立异常记录，不补造其 cause。依据 owner 关于性能目标可讨论的补充，将本次首尝目标未达记为性能余项，不再重复相同 GET、预热或为该目标扩展优化。本次没有调整原 HTTP 预算或重试，不需要以新配置冒充旧口径成功；原 lease 问题仍 OPEN。
+
+下一候选用于观察原先在 `prepare_import` catalog 读取处提前失败后的剩余 Submit 行为，只允许一次 POST，不把它称为冻结产品失败的原样复现或正式基准恢复：
+
+- 来源仍为 `p6bw4s4h120261105b` 的 `completed_through=v2-preview`、v2-submit 前 checkpoint。复用已运输并核验的 05 原始三卷材料、输入与 cache；不能使用前次失败 Submit 的目标卷或本次冷读目标卷。CT108 原源不新增扫描、复制或负载。
+- backend/worker 保持原 e798 产品及已核镜像；只将目标 Repository Service 替换为 4497 的新镜像 `p6catalogdiag20261106c-repository-service:latest`。其已核 config digest 为 `sha256:39e0668b05a814c835ae8214dd486c5641d0ff61b9a2c6044a53b71c6e05a1f2`，全部 28 项 DiffID 以已审机读身份文件为准。运行前核实际本机身份，不能仅凭 tag。4497 的变更范围严格引用已审四文件 diff，不并入其他 main 产品或镜像变化。
+- 源 checkpoint 按其原 e798/旧 RS 身份核验；目标按 e798 backend/worker 与 4497 RS 的组合记录。源与目标的 RS 身份明确不同，不能改旧 manifest、写假 MATCH 或启用通用 skip identity。若现有工具不能表达该精确组合，只在独立外置候选中增加这一个固定来源与目标的核验关系，交审核，不放宽其他身份检查。
+- 使用全新项目、证据目录、幂等键和目标三卷副本；名称由具体 launcher 固定并检查未占用。保留父 repo/commit、规则、输入、缓存及 TTL 原核验，不改 lease、heartbeat、stall、Docker 配额或产品 timeout。RS 为新进程，不预热 catalog；不重跑 Preview，不执行 Submit 后任何业务步骤。
+- 原 45 分钟 POST 观察上限、5 秒轻量资源采样、worker Python 栈观测与停止收束继续适用。原工具已经验证的观测能力按真实镜像/解释器绑定引用，不为本次重新跑同样 canary。实际开始前核 05 有效占用和资源；旧材料实际已占用的空间不重复计入待复制量。无新通用监控、无额外 RS profiling。
+
+审核者核具体差异、来源与目标绑定、单 POST 截止、原始材料沿用和清理范围后给本次明确 GO，原实施者即可沿 DC80 执行，不另等待 owner 回执。失败时保留证据并按实际分类处理，不自动重试；单步成功也只表示该诊断候选的步骤成功。新 RS 的正式产品门禁、合入与基准 V→H 恢复资格仍须另行完成，不能用本次诊断替代或撤销 H3 已通过的证据。

@@ -981,3 +981,55 @@ ssh -o BatchMode=yes ct108-gw-dms-05 'cd /home/dev/gdds-p6-cold-catalog-repair-0
 固定 backend cwd、literal `.venv/bin/python`、clean HEAD、15 文件/GO/image/input 检查、节点独占、离线且无代理和仅本机 prebuilt 三镜像均保留。45 分钟独立 guardian、40 GiB worker RSS、8 GiB host available、10 GiB disk 停止阈值及 48 GiB 启动可用内存不变；POST 前有效 Python 业务栈和既有精确采样降级条件不放宽。失败按现有停止规则保留原始证据，不以本 GO 自动重跑；只清理自己的运行资源、保留目标卷，回收未核实则保留锁。执行后交完整原始日志、状态/输入比较、身份、资源/栈及收尾证据独立核验。
 
 **本 GO 不授权产品合入、推送、打 tag、正式基准恢复或扩大诊断范围。H3 既有结论不变，正式测量继续停止，lease 根因继续 OPEN；一次运行结果也不能自动关闭根因或替代最终门禁。**
+
+## 55. P6-G-RESULT：采样器双超时触发诊断中止，产品结果未定
+
+**g 的唯一 POST 已实际发生，§54 GO 已消耗。结果分类为外置采样器触发的诊断中止；没有 Submit 完成证据，不能定为产品失败、lease 复现或修复成功。** 本轮只读本地 `p6catalogsubmit20261106g/ct05-evidence/`、准备记录和已审候选源码，没有访问节点、读取保留卷、运行测试或新增取证。index 实际 SHA256 `199d7ea8cdb31eac3eb6c3df8581ff4f150bbe3f6b8f649cfd15cb5b7fae47c6`；其中 **23 项**原始材料逐项长度和 SHA256 全部 MATCH。原 manifest `ba296d36…f69f90f0` 和 15 文件摘要仍相符。
+
+首次固定 SSH 命令因远端尚无脚本而 exit 127，保存记录 SHA256 `816bf08967d0d1787ef3d1ba7eec7dcf4a5b57ae7bc308161601e95b5c4993bd`。它是实施者留存的命令/输出记录，说明 shell 未加载脚本；不把它当一次产品执行。补传同一候选后执行的 controller 才记录 CT05 `gw-dms-test-05`、起止 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`、11:02:52–11:07:57 UTC。准备记录的旧 manifest 摘要已更正，POST-GO 精确绑定已审候选。
+
+### 实际停止链与取证边界
+
+| UTC | 实际记录 |
+| --- | --- |
+| 11:04:19 | POST 前有效 Python 栈；guardian armed，45 分钟 deadline；dump 1 有效，耗时 0.020601s |
+| 11:04:21.940861779 | 唯一 `/submit-attempts` POST 返回 202；operation `op-b83bd85a87781980e3f49985` |
+| 11:04:22.172687268 | worker claim 成功，attempt 1 |
+| 11:04:32.175356164 | 同一 operation/worker heartbeat_succeeded |
+| 11:04:34–35 | dump 2 超时，1.024930s，exit -9，failure_kind=timeout |
+| 11:04:42.166043155 | 同一 operation/worker 再次 heartbeat_succeeded |
+| 11:04:49–50 | dump 3 超时，1.024748s，exit -9，failure_kind=timeout |
+| 11:04:50 | observer 写 two_invalid_dumps / diagnostic_stop，按已审代码向父进程发 SIGINT |
+| 11:04:51.141 | v2-submit step_failed；父调用栈在 `_poll_operation` 的 `time.sleep(2.0)` 收到 KeyboardInterrupt |
+| 11:04:51.402 | Compose 日志保存完成，随后原 journey 收尾 |
+| 11:07:54.836–57 | 保留三卷、原调用退出、cleanup/postflight 确认静止、controller 释放节点锁 |
+
+`submit-diagnostic-result.json` 的 post_count=1 与 HTTP 日志吻合；submit_completed=false，state 没有持久化 v2-submit 成功条目。observer stop、父线程 KeyboardInterrupt 和失败顺序一致。run.json 的 FAILED / exit 1 是旅程的异常归档；sampler 的子进程 exit -2 与 shell/controller 的 254 是 SIGINT 的不同表示，不是三次独立失败。不得据这个 FAILED 字段改写为产品返回失败。
+
+两个超时的 **py-spy 子进程已被回收**：绑定源码 `_guard` 在超时分支先 `active.kill(); active.wait()`，返回后才关闭文件并输出 dump_end；两条实际 dump_end 都为 -9。因此本次不是仅发送 kill 而未等到退出。事件未单列 sampler PID/reaped 字段，该结论来自固定源码执行顺序与实际返回记录，不冒充另有 `/proc` 后检。preflight 与 dump 1 指向 host worker PID **2406642**、Python **3.14.6**、`gateway_backend.bootstrap.operation_worker`；binding 的 starttime **197281922**、data filesystem `/var/lib/docker/volumes`、st_dev **64526**。
+
+每次 resource 读取先重新核 `/proc/<pid>/stat` starttime 和文件系统设备，再读 RSS/host/disk；本次共 7 条成功记录。最后一次是 **11:04:49**，距 stop **1.025062s**。已保存资源窗口中 worker RSS 最大 **134,086,656 bytes**、host available 最低 **66,910,173,184 bytes**、data free 最低 **214,393,626,624 bytes**，未触原停止线。但 dump_end 的 worker_starttime 是原 binding 的记录值；旧代码对双 timeout 直接停止，**没有在第二次 reap 后即时重读身份/资源**，不能声称本次已执行拟议的新降级检查。独立 guardian 在实际窗口内约每 5 秒检查且确实触发了中止；它没有在本次中止后继续守护业务。
+
+最后有效栈（dump 1）只有主线程在 `worker_runtime._wait_interruptibly` 等待，位于 claim 之前。后两个文件只有进程和 Python 版本头，没有线程/业务帧，不能定位为 JCS、payload、GC、GIL 或 SQLite 阻塞；超时自身也不能证明上述因果。Compose 保存窗口中有两次成功续租，未见 lease_lost、heartbeat_busy 或 worker stall。最后成功续租到诊断停止约 8 秒；这仅支持保存窗口内的正常续租，**23 项材料不含该时刻/停机后的 control DB lease 快照，也不含完整收尾期间的 worker 日志**，不能从 HTTP 200 或 absence of error 推出停机后的最终 lease/Submit 状态。原 lease 问题继续 OPEN。
+
+### 输入、身份、回收与计时口径
+
+source/target 三镜像 checker 全部 MATCH；run.json 中 backend/worker 的 config、全部 DiffID 和同节点 ID 与 §52 固定身份逐项一致。preflight 原输入/cache/source checkpoint MATCH；run.parent_source 保存三份 copied-volume digest，与授权 checkpoint 对应，原 G2 静止复制校验已落实。target-volume-binding 仅核 metadata/filesystem，没有再哈希活动卷。sampler/postflight 的输入比较都为 MATCH、issues=[]，且引用同一 `4c5638df…` expected manifest 和实际 state SHA `069af4889b3055e2e2f13e51c9ffce58883c1d6b53c56c9c8305ce752a5426de`。这是上传输入身份一致，不是业务成功或未发生任何 durable 写入的证明。
+
+cleanup/postflight 各 exit 0，固定项目 containers/networks 为空、status=QUIESCENT，未删三卷；controller 记录 node_lock_released=true。准备记录还报告后续只读锁 absent，但 index 内没有该后检的单独原始输出，因此本轮独立依据是 controller 解锁和 cleanup/postflight，而不是把该描述升格为新增核验。SIGINT 结束客户端轮询后服务仍可能在原 Compose down 期间执行；不能把停止轮询等同于那一刻业务已静止，亦不能推导该期间业务完成。
+
+时间口径需在清单外准备记录纠正：**278.958s 是 sampler 11:03:16.892–11:07:55.926 的 elapsed**；journey 11:03:40.161–11:07:54.836 相差 **254.675s**，目标 step 记录 **31.599s**。step_failed 到保卷记录相差约 183.695s，包含原收尾，不能全归因于 Submit 执行。resources 的 **3,714,203,648 bytes** 是全程容器 memory peak 汇总的保守上界，不是单 worker RSS；约 28 秒的 POST→诊断停止窗口不构成完整性能测量。
+
+关键原始摘要：controller `1c29201c4dc689bd44877b725d7d48f18bcb0fbe92d70e8e0499e526c1a501ba`；observer events `a6a20cc6136d8c459e6f53fc3dd39e1f2e9197113c1d7fe46347fba332a59a75`；Compose `51e2beda0f2d46d0fd4d41085e708dad1173de61c67e1d2c61bdeb6653c8ef63`；run `06fdbd6f595f2bfccd28cc57ed4637a454f709d3a632844d8c5593b54ddf92db`；cleanup `20f97359ca3549187f2a8c077fa69515c318bc23f7b6a5dd999192f959251f9a`；postflight `c8e5e263b1a46ae09657748e22c75484c41dbaaf816ef722e4ccf0eb0b76207b`。controller 尾部自身 SHA 行写入时文件尚未最终结束，以本次 index/完整实际文件摘要为准。
+
+### 最小工具修订建议与范围判断
+
+设计提出“已知有界采样超时停采，独立守护和业务继续”的方向足够，不需要修改产品、延长 dump 或扩大诊断负载。现有 g 按旧已审规则停止是符合规则的；新的规则须在新工具候选中明确，不能追认 g 为已经降级继续。建议仅作以下收敛改动：
+
+1. 保留 POST 前有效真实 worker 栈的硬条件；仅在 POST 后，连续两次都明确为 **1 秒预算到期且该 py-spy 子进程 kill/reap 已确认**时允许进入新的 timeout 降级分支。原精确双 interpreter-discovery 分支保持；未知错误、未知退出、无帧的普通失败及混合错误仍按原规则停止，不概括为“任意两次无效即可继续”。
+2. 第二次 timeout **完成回收后**立即调用现有 `read_resources`，重新核同一 worker PID/starttime、filesystem device 及原 RSS/host/disk 停止线；失败或触线则停止。合格才记录专门的 timeout degradation、两次原始失败及新鲜 metrics，永久停止本轮 dump，保留栈缺口；继续原 5 秒资源/身份检查、45 分钟 deadline 和业务 poll，不重置预算或再试 dump。
+3. 现有 timeout 分支的 `active.wait()` 及 finally 的同类回收均无 timeout。**最小补强是统一短而有界的 kill/reap（例如 kill 后最多再等 1 秒）**，记录 sampler 子 PID、退出码、reaped 和回收 elapsed；未确认回收不得降级，须记录并触发诊断停止。清理异常仍不得写成回收成功，不留另一条 finally 无界 wait 抵消前面的边界。无需另建 guardian/sidecar；现有每 5 秒守护与父进程停止路径可复用。
+
+这三个条件只调整已发生的采样器故障处理及其已有回收路径；不改变产品 Contract、镜像、续租 TTL、输入、单 POST、节点、资源阈值或测试范围。新工具具体代码与 pin/manifest 需定向审核；不要求为工具改动重建 §52 镜像或重跑小 Compose。本轮当前产品 HEAD 和最后验证 image revision/source-tree 仍按 §54，未触发重建。
+
+**本节没有新 GO，没有重试/新取证授权。** g 归档为 diagnostic_stop，保留原始 FAILED/KeyboardInterrupt 事实及全部卷/日志；若推进后续候选，必须使用新的精确绑定，不复用 g 的一次 GO。正式测量继续停止，H3 不变；不以这次中止关闭现场 lease 根因。

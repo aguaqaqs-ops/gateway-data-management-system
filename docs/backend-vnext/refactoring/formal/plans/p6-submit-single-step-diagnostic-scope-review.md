@@ -1619,3 +1619,11 @@ worker 未正常返回时没有最终 summary，则保留有效事件片段与�
 复用当前 callback/observer/worker/guardian 和最终结果 fixtures，证明两类已知 partial 下后续真实调用、heartbeat 成功计时及守护仍继续，实际/未知错误和错误与 gap 同时存在时仍停止；核最终 prepare/核心失败主因与 GC coverage 分开，不被最终摘要重新分类覆盖。不重跑已关闭的 controller/回收矩阵、旧大 probe/Compose 或全量 runner；新增原因/状态字段改变 payload 时顺带原实际最大形状用例，继续满足 2 KiB/4096 条/8 MiB 与 32 KiB summary，保持测试与实现/最终清单绑定。
 
 **范围 PASS 仅准新候选准备与上述必要 focused，不授权实现后直接运行业务；实际运行须新候选审核通过并另记精确一次 GO。** 既有直接闭环流程继续，不设置额外协调者/Owner 门槛。旧 d 包/结果/GO 消耗事实、所有旧证据和卷保持；H3 PASS、原 lease 根因 OPEN、正式测量 STOP。
+
+## 75. e 准备期 focused 失败：直接修正常量引用并继续必要验证
+
+只读核对 e 原始 `focused-tests.log`（SHA256 `6e6d69eec60d1030d996d05683dc96404b3706a6929d8b5d132fc344714e4e08`）：CT05 22:13:15–16、起止冻结 `1f9731`、9 failed / 2 passed / 28 deselected、pytest/script exit 1、node_lock_released=true。`prepare_step_worker.py:225` 裸用 `GENERATION_COUNT`，该文件只导入 GCWindowObserver；常量实际由 gc_observer.py 定义。直接解码调用报 NameError，受保护路径捕获后产生的字段/分类断言也出现级联失败；修复后仍须看有无独立逻辑问题，不能预断九项均已关闭。本轮审核未执行测试、访问节点或运行业务。
+
+已直接交唯一实施者：保留 e 精确包/manifest 与失败原日志，在独立修订中从 owner 显式导入/引用常量，做受影响的计划内 CT05 focused；可顺带现有 Ruff F821 未定义名称检查，不扩为完整门禁。§74 的候选准备/必要 focused 授权已经包含这类调试修复，不因一次 focused 失败新增 Owner/设计/审核逐次许可，也不重新要求接管或身份确认。若修复后暴露其他同范围工具/fixture 问题，继续定位、最小修改、受影响验证，不原样盲重跑或每次停等许可；最终代码/测试/清单/原始日志绑定后再独立复审。
+
+这是计划内工具调试失败，沿既有 DC80 修订闭环处理，不把 DC68 当成新增逐次 Owner 授权门槛；权威 runner、真实业务诊断、缓存/身份异常、真实副作用及新范围/预算仍遵原停止边界。没有实际 GC 诊断 GO，不启动 POST/worker/Compose 或测量，产品与镜像冻结不变。

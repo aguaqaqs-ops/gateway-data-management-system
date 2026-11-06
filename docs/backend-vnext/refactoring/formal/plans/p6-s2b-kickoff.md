@@ -1,6 +1,6 @@
-# S2b kickoff（已批准，A 已交付，B 推进中）
+# S2b kickoff（已批准，A 已交付，B 暂停待协调）
 
-状态：APPROVED / A COMPLETE / B IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)已完成纯内存 mapping/IPC codec，固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO、无未关闭 Finding。Owner 随后以 DC86 授权按本稿逐节推进 B–E、每节新建既定实施/审核二角色；当前按 [B 任务单](p6-s2b-b-kickoff.md)推进业务 kernel，C–E 待前节通过后顺序启动。S2b 整体尚未退出。
+状态：APPROVED / A COMPLETE / B PAUSED；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)已完成纯内存 mapping/IPC codec，固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO、无未关闭 Finding。Owner 随后以 DC86 授权按本稿逐节推进 B–E、每节新建既定实施/审核二角色；B 因重复同步准备错误及节点占用前置遗漏暂停，待 Owner 决定角色调整，详见 [B 任务单](p6-s2b-b-kickoff.md)与[独立审核](p6-s2b-b-review.md)。C–E 尚未启动，仍待前节通过。S2b 整体尚未退出。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 

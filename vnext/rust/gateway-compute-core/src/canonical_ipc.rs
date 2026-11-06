@@ -3033,8 +3033,12 @@ mod tests {
         )?;
         assert_eq!(encoded, reordered_encoded);
         let one_thread = pool_with_threads(1)?;
-        let one_thread_encoded =
-            encode_v1(&columns, std::slice::from_ref(&batch), &one_thread, options())?;
+        let one_thread_encoded = encode_v1(
+            &columns,
+            std::slice::from_ref(&batch),
+            &one_thread,
+            options(),
+        )?;
         assert_eq!(encoded, one_thread_encoded);
 
         let mut descriptive_change = columns.clone();
@@ -3339,8 +3343,14 @@ mod tests {
             // Shared scalar vectors: date.leap-day, datetime.fraction, timestamp.fraction,
             // and time-duration.hours-838.
             Arc::new(StringArray::from(vec![Some("2024-02-29"), None])),
-            Arc::new(StringArray::from(vec![Some("2024-01-02T03:04:05.123456"), None])),
-            Arc::new(StringArray::from(vec![Some("2024-01-02T03:04:05.1Z"), None])),
+            Arc::new(StringArray::from(vec![
+                Some("2024-01-02T03:04:05.123456"),
+                None,
+            ])),
+            Arc::new(StringArray::from(vec![
+                Some("2024-01-02T03:04:05.1Z"),
+                None,
+            ])),
             Arc::new(StringArray::from(vec![Some("838:59:59"), None])),
             Arc::new(BinaryArray::from(vec![Some(&[0x00, 0xff][..]), None])),
             Arc::new(StringArray::from(vec![None::<&str>, None])),
@@ -3422,15 +3432,16 @@ mod tests {
             assert!(values.is_some_and(|array| array.is_null(1)));
         }
 
-        let set_vector = include_str!("../../../fixtures/vectors/repository/sql-enum-set/v1/values.jsonl")
-            .lines()
-            .map(serde_json::from_str::<serde_json::Value>)
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .find(|case| {
-                case["case_id"].as_str() == Some("values.set.declaration-order-members")
-            })
-            .ok_or_else(|| io::Error::other("fixed SET declaration-order vector is missing"))?;
+        let set_vector =
+            include_str!("../../../fixtures/vectors/repository/sql-enum-set/v1/values.jsonl")
+                .lines()
+                .map(serde_json::from_str::<serde_json::Value>)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .find(|case| {
+                    case["case_id"].as_str() == Some("values.set.declaration-order-members")
+                })
+                .ok_or_else(|| io::Error::other("fixed SET declaration-order vector is missing"))?;
         let set_members = set_vector["input"]["value"]["members"]
             .as_array()
             .ok_or_else(|| io::Error::other("fixed SET vector members are missing"))?
@@ -3446,7 +3457,10 @@ mod tests {
             .as_any()
             .downcast_ref::<StringArray>()
             .ok_or_else(|| io::Error::other("decoded SET column has an unexpected type"))?;
-        assert_eq!(decoded_set.value(0).split(',').collect::<Vec<_>>(), set_members);
+        assert_eq!(
+            decoded_set.value(0).split(',').collect::<Vec<_>>(),
+            set_members
+        );
         let decoded_binary = decoded
             .column(12)
             .as_any()
@@ -3464,8 +3478,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_float_layout_preserves_fixed_normalized_bit_vectors(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_float_layout_preserves_fixed_normalized_bit_vectors() -> Result<(), Box<dyn Error>>
+    {
         let columns = vec![
             column(
                 "f32",
@@ -3496,12 +3510,8 @@ mod tests {
         let batch = RecordBatch::try_new(
             schema,
             vec![
-                Arc::new(Float32Array::from(
-                    f32_bits.map(f32::from_bits).to_vec(),
-                )) as ArrayRef,
-                Arc::new(Float64Array::from(
-                    f64_bits.map(f64::from_bits).to_vec(),
-                )) as ArrayRef,
+                Arc::new(Float32Array::from(f32_bits.map(f32::from_bits).to_vec())) as ArrayRef,
+                Arc::new(Float64Array::from(f64_bits.map(f64::from_bits).to_vec())) as ArrayRef,
             ],
         )?;
         let pool = pool()?;

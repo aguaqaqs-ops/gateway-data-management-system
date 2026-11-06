@@ -960,6 +960,7 @@ with kernel_execution_scope(
         store=store,
         control=ExecutionControl(),
         on_cancel=lambda: None,
+        repository_id=repository_id,
     )
     print(result.comparison_digest)
 """
@@ -978,6 +979,7 @@ def ordered_compare_facts_from_materialize_checkpoint(
     *,
     before_commit: str,
     current_commit: str,
+    repository_id: str,
 ) -> dict[str, object]:
     materialize_step_id = f"{operation_id}-step-1"
     script = f"""
@@ -997,10 +999,15 @@ from gateway_backend.capabilities.comparison import (
 from gateway_backend.capabilities.comparison import plan_comparison
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
+)
 
 step_id = "{materialize_step_id}"
 before_commit = "{before_commit}"
 current_commit = "{current_commit}"
+repository_id = {repository_id!r}
 conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
 row = conn.execute(
     "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
@@ -1009,53 +1016,58 @@ row = conn.execute(
 if row is None or row[0] is None:
     raise RuntimeError(f"missing checkpoint for {{step_id}}")
 checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
-store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
-ref = artifact_ref_from_dict(checkpoint)
-envelope = load_checkpoint_envelope(store, ref)
-job_state = envelope.job_state
-sides = _sides_from_materialize_checkpoint(job_state, store)
-request = ComparisonRequest(
-    pair_id="pair-0",
-    before=sides[before_commit],
-    current=sides[current_commit],
-    rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-)
-plan = plan_comparison(request)
-if not isinstance(plan, ComparisonPlan):
-    raise RuntimeError("pair planning failed")
-compared = compare_plan(plan)
-if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
-    raise RuntimeError("pair comparison did not produce facts")
-facts = compared.facts
-
-def _gid_from_record(record):
-    for label, value in record.before_values + record.current_values:
-        if label == "gid":
-            return value
-    return None
-
-tables = []
-for table in facts.tables:
-    ordered_records = []
-    if table.ordered_extension is not None:
-        for record in table.ordered_extension.records:
-            ordered_records.append(
-                {{
-                    "record_kind": record.record_kind.value,
-                    "gid": _gid_from_record(record),
-                    "row_identity": (
-                        record.row_identity.value if record.row_identity is not None else None
-                    ),
-                }}
-            )
-    tables.append(
-        {{
-            "table_name": table.table_name,
-            "status": table.status.value,
-            "ordered_records": ordered_records,
-        }}
+initialize_compute_kernel(1)
+with kernel_execution_scope(
+    KernelExecutionContext(OperationMemoryBudget(8589934592), NeverCancel(), 1),
+    new_operation=True,
+):
+    store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+    ref = artifact_ref_from_dict(checkpoint)
+    envelope = load_checkpoint_envelope(store, ref)
+    job_state = envelope.job_state
+    sides = _sides_from_materialize_checkpoint(job_state, store, repository_id=repository_id)
+    request = ComparisonRequest(
+        pair_id="pair-0",
+        before=sides[before_commit],
+        current=sides[current_commit],
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
     )
-    print(json.dumps({{"tables": tables}}))
+    plan = plan_comparison(request)
+    if not isinstance(plan, ComparisonPlan):
+        raise RuntimeError("pair planning failed")
+    compared = compare_plan(plan)
+    if not isinstance(compared, DetailedFactsResult) or compared.facts is None:
+        raise RuntimeError("pair comparison did not produce facts")
+    facts = compared.facts
+
+    def _gid_from_record(record):
+        for label, value in record.before_values + record.current_values:
+            if label == "gid":
+                return value
+        return None
+
+    tables = []
+    for table in facts.tables:
+        ordered_records = []
+        if table.ordered_extension is not None:
+            for record in table.ordered_extension.records:
+                ordered_records.append(
+                    {{
+                        "record_kind": record.record_kind.value,
+                        "gid": _gid_from_record(record),
+                        "row_identity": (
+                            record.row_identity.value if record.row_identity is not None else None
+                        ),
+                    }}
+                )
+        tables.append(
+            {{
+                "table_name": table.table_name,
+                "status": table.status.value,
+                "ordered_records": ordered_records,
+            }}
+        )
+        print(json.dumps({{"tables": tables}}))
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:

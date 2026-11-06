@@ -25,7 +25,7 @@ from gateway_backend.infrastructure.artifact_store.local_store import LocalArtif
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_read.http_arrow import build_http_repository_provider_factory
 from gateway_shared_kernel import raw_blob_digest
-from gateway_repository_client.paths import decode_commit_id_path_segment
+from gateway_repository_contracts import decode_commit_id_path_segment
 from tests.test_canonical_table_store import BUSINESS_BUDGETS, IPC_BUDGETS, canonical_input
 
 pytestmark = pytest.mark.unit

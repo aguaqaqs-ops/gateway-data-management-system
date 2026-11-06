@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**审核进行中；不是 E GO 或 S2b exit**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**源码审核清楚（固定 d0f5602d6f）；最终证据待齐，不是 E GO 或 S2b exit**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -26,14 +26,46 @@
 
 实施者外置脚本 `/tmp/s2b-e-freeze-reference.py` SHA `d97e8c9e36337bacdf506bf7e21f6e2d3912fea1f04589c0980e984cea3e0b60` 已只读核。typed SET/f32、wide 200×100、dropped JSON 三份 SQL 与起点 `test_business_kernel_native.py` 的既有用例一致。脚本仅调用旧 test helper 的 SQL materialize 与旧 canonical projection，采旧 raw/canonical 摘要，不调用新 Rust actual，不保采集器为长期 oracle。
 
-06 `gw-dms-06` 的 `19:04:58–19:05:00Z` 实际起止 clean HEAD 均为 `16e1089a86`，lock-check 与 treechecker（`137d499975f3c104ae9c3268b9e12befb2817ba1`）通过，exit0。日志 `/home/dev/gdds-test-tmp/logs/s2b-e-freeze-reference-16e1089a86.log` SHA `4fe7de2ddf4cea018d86107bb46043436171d70f8889832993f58f0031e699af` 已独立读取并重算吻合。typed raw/canonical 同为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d7dd32fcba87ee4f7f71`；wide raw/canonical 同为 `sha256:c947ad6fccb65c36c067d38a761ca1049e0122c5f926413ba9f7c09e5dcc603a`；dropped raw `sha256:02fbd36483695eaf632a39a2d83877441b074c7587dd745d579cff4355c8aefd`、canonical `sha256:232a96c506247080963b4d39390ac5bf686238c8fb2edf0febcbdbeb0ae91905`。这只固定既有旧语义；新路径仍须实际对这些固定值验证。
+06 `gw-dms-06` 的 `19:04:58–19:05:00Z` 日志起止 clean HEAD 均为 `16e1089a86`，lock-check 与 treechecker（`137d499975f3c104ae9c3268b9e12befb2817ba1`）通过，exit0。日志 `/home/dev/gdds-test-tmp/logs/s2b-e-freeze-reference-16e1089a86.log` SHA `4fe7de2ddf4cea018d86107bb46043436171d70f8889832993f58f0031e699af` 已独立读取并重算吻合。后续发现复制 venv 的 editable 路径仍指 D，故本采集的真实来源为 **D936 旧产品算法＋E16 的 test helper**，不称为 16 全链合格测试或闭包来源。driver SHA `92aef839cdff1b65aa20770c9ab20ce87764ca8b2aedf4c6c4e01beb18e3c9c1` 明确 `cd E/backend; PYTHONPATH=. .venv/bin/python <script>`，helper 来自 E16，产品 `.pth` 指 D936；D WT 独立核 clean。D936/16 的 `vnext` tree 同为 `17bd1c93cb5c3a6b7f8f6271a4088e62d3e3698a`，旧 projection/materialize/digest/parser blobs 已逐项核合。这些事实仅核实旧预期的数据来源，不把整次运行升级为 E 产品证据。
+
+typed raw/canonical 同为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d7dd32fcba87ee4f7f71`；wide raw/canonical 同为 `sha256:c947ad6fccb65c36c067d38a761ca1049e0122c5f926413ba9f7c09e5dcc603a`；dropped raw `sha256:02fbd36483695eaf632a39a2d83877441b074c7587dd745d579cff4355c8aefd`、canonical `sha256:232a96c506247080963b4d39390ac5bf686238c8fb2edf0febcbdbeb0ae91905`。原日志保留、未反写预期或重做全套 oracle；新路径仍须实际对这些固定值验证。
 
 ## 当前容器记录
 
-Current reviewed HEAD: `16e1089a8659f87b0c6585543174c6722f876d86`（E 代码前基线）。本报告仅文档，不触发本轮重建。最后实际必要容器边界为 D 的产品 `93678f8439`，06 同候选离线 build 的 backend HTTP 1 PASS 加同 image 后续 worker-only ready/12 GiB cgroup/正常 stop0；原容器整组 FAIL 与 CLI 前置失败保留。RS source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`、build-input revision `c52e9fad62e14b016ed814d0799e08e6d97e82b3`，详 D handoff/review。
+Current reviewed code HEAD: `d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f`。本报告仅文档，不触发重建；E 的 startup owner 接线和最终阶段退出要求最终 04 候选本机 build 及 runner 内 Compose，不重复 06/04 全 Compose。未发现既有 04 owner 之外的新 container-only 风险。最后实际必要容器边界为 D 的产品 `93678f8439`，06 同候选离线 build 的 backend HTTP 1 PASS 加同 image 后续 worker-only ready/12 GiB cgroup/正常 stop0；原容器整组 FAIL 与 CLI 前置失败保留。RS source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`、build-input revision `c52e9fad62e14b016ed814d0799e08e6d97e82b3`，详 D handoff/review。
 
 本基线不宣称正式 carried 或 E 当前容器门禁通过。阶段最终候选必在 04 绑定合格权威/container 证据，04 WT 保留至 stage exit 合入；E 产品差异收敛后再精确记录是否触发重建及来源。
 
+## 固定组审核记录
+
+`d5dcc43b73cc7a4102a22a357a051094f762ec0d` 仅改测试/helper：移除 parser 双实现选择与纯 differential property suite；SQL golden 继续按原 Rust owner 的 code/table/byte offset 比较，原固定输入与预期文件未改；production Arrow reader 的 single-consumer/reopen/close 及 INSERT 列重排仍保留。旧 Python 私有 reader invalidation/EOF 探针随替代实现移除，对应 C/D 真实生命周期/control owner 仍为权威。typed/wide/dropped 摘要准确固定到上述旧值，未用新 actual 反写。本组无已确认语义 Finding；后组仍需移交 catalog 旧 extractor 的动态对照，并清其无真实 caller 的旧分支。
+
+06 日志 `/home/dev/gdds-test-tmp/logs/s2b-e-reference-focused-d5dcc43b73.log` SHA `f81f3004ce75b29e62f671a4f44d43ec8ee4b9539d341c8f8f8f3b36b6c0797a` 已独立读取并重算（初稿转记少两位 `f8`，现按实物 64 hex 纠正）。`19:07:20–19:07:22Z` 起止 d5dcc，pytest 输出 203 PASS、exit0；同日志 Ruff 因 8 项 unused imports exit1，明确记 `ruff_exit=1 pytest_exit=0`。后续核旧 `.pth` 和 pytest shebang 仍指 D，**本 203 只保作诊断，不作为 E 候选通过证据**；当前新路径由正确环境的后续 focused 覆盖。busy owner 粗记 `19:05Z` 与实际采集起时差两秒；06 目录 birth time 独立实读为 `19:03:48.689387117Z`，早于 freeze。实施者保留原工具输出并在 handoff 说明/更正粗记，不重写原日志来消除此记录差异。
+
+`2e77436c49` 已独立核 six parser 与精确 baseline、旧 SQL row fallback、`project.py/_ordered.py`、Repository row materialize/hash、旧 catalog extractor 和 replay-only 转换全部移除；保实际 `_digest` composite/raw Parquet 职责。新 fixture adapter 仅小型 metadata 和合法 rows→Arrow 构造，projection/hash 用真实 Rust，typed replay image 用现 Submit consumer；不作独立算法 oracle。bootstrap private init 精确 owner 从 operation_worker 替换至 compute_kernel，M/control 仍归 caller，无自动初始化或默认 M。仍有效 census/journey 改唯一新路径并要求显式 N/M；退役工具依赖闭包按 DC79 后续使用边界核，冻结资源未动。全 vnext caller 搜索仅余 runbook/源码注释历史文字，无旧实际 import/call；fixture golden 自 S2a 起未改。源码删除边界无已确认产品 Finding，fixture/API owner 移交仍需收敛。
+
+## 环境修正及真实路径首轮失败
+
+`efe5f3bc5408bd8e644a9958a344186b247d3ae5` 的 collection 失败为复制 E venv 仍绑定 D：四个 path dependency `.pth`、backend `direct_url.json` 与 pytest shebang 均独立读取确认。日志 `logs/s2b-e-cutover-focused-efe5f3bc54.log` SHA `0fe017348993738a60bde7d032f0c0c02816ae228666349b0aa6a84aa9f492a6`，pytest collection2/ruff1/mypy0，不作产品行为结果。按 DC68 只修一次 E 自有环境；旧 venv 移到 `/home/dev/gdds-test-tmp/s2b-e-venv-copied-invalid` 保留，不改 D WT/venv。
+
+固定 `172807821ad9e1afcd1ae8979036f1b893146d0b` 的受控 offline sync 实际重建 E backend/compute 与三个 path packages、重装扩展并核 tree137d499，`19:18:51–19:19:06Z` exit0。setup driver SHA `b4e7ce5150b25fae9f177cc85f1143a75e1e4dd09199eb1265f08959895bbad9`，日志 `logs/s2b-e-setup-fixed-172807821a.log` SHA `5b5536037282a28748e37681bcdb8a2312f2352dc4fd7c4fce335b8dc619306b` 已核。后续 binding 日志 `logs/s2b-e-environment-binding-172807821a.log` SHA `ff6d81dd383cee649739f57a8b0e5764e501391cf8514a2364b6c19e7016f425` 明示 actual interpreter/sys.path/__file__/direct_urls 全来自 E；本审核又只读重核四 `.pth`/direct_urls 和 pytest shebang 均为 E 路径。
+
+修正后 `19:19:52–19:19:59Z` 新 E 真实路径首次 focused 为 357 PASS / 34 FAIL、Ruff1/mypy1/pytest1。日志 `logs/s2b-e-cutover-focused-fixed-172807821a.log` SHA `ace74286b299711a1fcecbf1726e77852d9846f19d93719c57f84c09f717d181` 已独立读取并重算；这不是重复 setup 错，不称整组 PASS。共因为旧 API request/private probe 仍指向已删除入口、合法 C fixture 的 identity/PK nullable/wire shape 不齐、census 旧 SimpleNamespace fixture，以及少量静态错误，交实施者按真实 owner 定向修正。核心 fixed digest/catalog facts 未出现分歧。
+
+close-failure 测试的 fake provider 将原 outer-session 关闭 fault 再注入了 C 内会话；真实 `HttpArrowRepositoryRefSession.close()` 仅置 closed，没有该内关闭 I/O fault 来源。本审核与实施者约定只将 fault 限 outer session、保原 warning/COMPLETE 断言，不扩 C 产品关闭协议或吞控制异常。rowless 测试旧将 business schema digest 填 canonical schema 字段，应修合法 fixture 并保持真实 C schema 校验；复合 PK nullable 应与合法 canonical catalog 一致。若修后仍有真实 consumer/hash/control 分歧，按产品 Finding 处理，不归入 fixture。
+
 ## 未决与结论
 
-尚无已确认 E 产品 Finding。旧消费者删除与独立预期移交、E focused、最终 04 及 t1–t4 证据均待固定候选交付；不将待完成事项写成通过。W1/W2 按 DC84/DC83 后续复核，W3 自 S3，原 W4 lease 故障仍 OPEN；未知性能不记 PASS，不接管原基准冻结资源。
+`60c5` 首次修正后的真实 focused 为 373 PASS / 2 FAIL，余下两项旧 projection API probe 直接抛 resolver 拒绝；日志 `logs/s2b-e-cutover-focused-60c5f05df1.log` SHA `f3345fb773e750d6d7d7fb8dc69c110adeeaab4e641571b65490688c264860d1` 保留。unclassified 已有 `test_table_rules_resolver::test_empty_rules_snapshot_is_unclassified`；RAW_PRIMARY_KEY 与 ignored column 冲突的唯一语义断言在 `314067ff72` 精简移到真实 resolver owner，直接检查拒绝，不复制旧 validator。
+
+`0d4d4240fe03aab1b66b308ffa457799a623c939` 的 375 PASS、Ruff0/default mypy500通过，与额外工具 mypy 的命令准备失败分开记录；原日志 SHA `9956381afb8f29b09c6eea7d0b4a3966189049f0b8fc78a6dcbe1b5ece7e98c8`，不称整组 PASS。额外工具检查先用源码路径产生重复 module，后 `-m` 缺源码搜索 root 产生 import-untyped/继发 Any；实施者停止该步骤，未自行第三次尝试。本审核只读核建议的 `MYPYPATH=src ... uv-consume.sh -C vnext/backend run --no-sync mypy -m benchmarks.<四入口>`：wrapper cwd 为 backend，源 root 与模块身份明确，保 strict/既有 overrides、不增 ignore；协调者按 DC68 交 Owner 确认一次修正续做。该单项尚未通过。
+
+本审核另发现 `scalar_encoding.encode_repository_row/value/EncodedRepositoryRow` 已仅由两份旧测试调用，协调者独立检索确认后在 f97/127c 窄删其旧转换及 sole probes；保 `map_repository_column/_declared_type_for` 的真实 catalog 元数据职责及 C/RS 往返 owner，未删除通用 RS/client row reader/DTO。`127c501b7c592e9a3dce33625af770be802ef40e` 五 Python 包 Ruff/mypy、实际 editable 路径与扩展 tree137 检查均通过，`19:31:43–19:31:52Z` exit0；日志 `logs/s2b-e-static-five-127c501b7c.log` SHA `ad466445efb413ee560d498b047b98c93926a87a78e0692cf57ef9d13a3da0ee` 已逐项独立读取并重算。
+
+127c 后续 broad focused 为 799 PASS / 4 FAIL，serial 未接；日志 `logs/s2b-e-consumer-focused-127c501b7c.log` SHA `0c20aefeaba20d7830e32e974e8687558e5e008cf6a4bc4035257e41efa1aa10` 保留。失败为旧 raw Parquet fixture 被当 canonical、缺 repository scope、已退役的 RepositoryRef-Parquet cache 跳读 probe。7b 定向为 273 PASS / 3 fixture scope FAIL，日志 SHA `02224d3fbc55fe58978691a39d3ddb04f5d8634fdd2a8e55d235936a465402b5`，serial 未接。d0 仅修合法 fixture/显式 scope 并移除旧 cache probe，未让生产接受旧格式。
+
+独立源码核 `row_layout_digest_of` 不含 table name，client Parquet/cache 的 layout+repository 身份与 canonical IPC 含 table name 的 business-schema 身份是不同用途；因此原 1 client artifact/4 bindings 预期保持，未按 actual 改成两个 artifact。d0 日志 `logs/s2b-e-consumer-scope-fixed-d0f5602d6f.log` SHA `ea84c4f1a16f53440dd28453e8ef90ad6e250879d5e11a5c03356270ca96a025` 已核：Ruff0/mypy500通过、replacement 7 PASS、之前未执行的 serial 3 PASS，exit0。以上按实际 SHA/范围使用，不拼成“d0 全包 runner 已过”。
+
+**源码审核清楚，允许按固定候选开始最终取证。** d0 的 W1 型诊断输出仅将本就收集的 timing 拷入 `operation_timings`，不新增计时、轮询或 HTTP，原 dc32 不变。t4 单次诊断只称受理响应后至首次可读观测/终态代理，明示 2 秒轮询与 observation/fallback 来源，不称精确 READY 或正式 W1 PASS。正式 2×t4/W1 与 W2 按原时点收口，W3 自 S3；原 W4 lease 故障仍 OPEN。
+
+最终尚待：额外工具 mypy 处置、04 权威 runner/最终镜像绑定、05 t1–t3 与 CT108 t4 fresh full，以及全 worker 资源事实。CT108 条件窗口已协调，不再笼统以无窗口豁免 W1 型诊断。协调者已选现有 `--tier t4 --scope full --keep-stack --project-name <E新名>` 的外置取证，禁止 from-step/resume；仅该 fresh worker 的 HostConfig/cgroup peak/events/N/M、正常停机与 owned cleanup，具体 driver 待审。不把 D 的 materialize 675 MB 外推全 worker 峰值，不以 cgroup peak 冒充 RSS 或 M 硬上限。当前无未关闭源码 Finding，**E 最终证据 GO 尚未给出**。

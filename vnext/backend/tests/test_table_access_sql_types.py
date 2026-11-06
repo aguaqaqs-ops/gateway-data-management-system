@@ -13,6 +13,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlLogicalType,
 )
 from gateway_shared_kernel import DeclaredType, DeclaredTypeKind
+from tests.support.table_access_sql import parse_text
 
 VECTOR_ROOT = (
     Path(__file__).resolve().parents[2] / "fixtures" / "vectors" / "table-access" / "sql-known-types" / "v1"
@@ -21,10 +22,14 @@ VECTOR_ROOT = (
 SQL_KNOWN_TYPE_CASES = (
     ("BOOLEAN", "BOOLEAN", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.BOOLEAN), None),
     ("BOOL", "BOOLEAN", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.BOOLEAN), None),
+    ("TINYINT", "TINYINT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=8), None),
     ("TINYINT(1)", "TINYINT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=8), None),
+    ("TINYINT UNSIGNED", "TINYINT UNSIGNED", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.UNSIGNED_INTEGER, bits=8), None),
+    ("INT", "INT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=32), None),
     ("INT(11)", "INT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=32), None),
     ("INTEGER", "INT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=32), None),
     ("INT UNSIGNED", "INT UNSIGNED", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.UNSIGNED_INTEGER, bits=32), None),
+    ("SMALLINT UNSIGNED", "SMALLINT UNSIGNED", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.UNSIGNED_INTEGER, bits=16), None),
     ("MEDIUMINT", "MEDIUMINT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=24), None),
     ("BIGINT ZEROFILL", "BIGINT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.SIGNED_INTEGER, bits=64), None),
     ("DECIMAL(10,2)", "DECIMAL(10,2)", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.DECIMAL, precision=10, scale=2), None),
@@ -33,9 +38,12 @@ SQL_KNOWN_TYPE_CASES = (
     ("BIT(8)", "BIT(8)", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.BIT, bit_width=8), None),
     ("DATE", "DATE", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.DATE), None),
     ("TIME", "TIME", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.TIME_DURATION), None),
+    ("DATETIME", "DATETIME", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.DATETIME), None),
     ("DATETIME(6)", "DATETIME(6)", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.DATETIME), None),
     ("TIMESTAMP", "TIMESTAMP", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.TIMESTAMP), None),
     ("VARCHAR(16)", "VARCHAR(16)", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.STRING), None),
+    ("VARCHAR(128)", "VARCHAR(128)", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.STRING), None),
+    ("TEXT", "TEXT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.STRING), None),
     ("TEXT CHARACTER SET utf8mb4", "TEXT", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.STRING), None),
     ("BLOB", "BLOB", SqlLogicalType.STANDARD, DeclaredType(kind=DeclaredTypeKind.BINARY), None),
     ("JSON", "JSON", SqlLogicalType.JSON, DeclaredType(kind=DeclaredTypeKind.STRING), None),
@@ -70,3 +78,25 @@ def test_known_type_vector_file_matches_parameter_table() -> None:
     payload = json.loads((VECTOR_ROOT / "cases.json").read_text(encoding="utf-8"))
     names = [item[0] for item in SQL_KNOWN_TYPE_CASES]
     assert payload["cases"] == names
+
+
+@pytest.mark.parametrize(
+    ("raw", "sql_type", "logical", "declared", "error"),
+    SQL_KNOWN_TYPE_CASES,
+    ids=[item[0] for item in SQL_KNOWN_TYPE_CASES],
+)
+def test_sql_parser_type_descriptors_match_the_type_mapper(
+    raw: str,
+    sql_type: str,
+    logical: SqlLogicalType,
+    declared: DeclaredType | None,
+    error: ParserDiagnosticCode | None,
+    dual_sql_implementation: None,
+) -> None:
+    result = parse_text(f"CREATE TABLE t (c {raw} NULL);")
+    column = result.tables[0].descriptor.columns[0]
+    assert column.sql_type == sql_type
+    assert column.logical_type is logical
+    assert column.declared_type == declared
+    if error is not None:
+        assert any(item.code is error for item in result.diagnostics)

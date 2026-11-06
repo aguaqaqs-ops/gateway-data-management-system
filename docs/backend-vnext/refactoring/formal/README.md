@@ -136,7 +136,6 @@ P4 Active Context Index 不覆盖 P5 semantic default entry。
 - [Operation Lifecycle and Integrity Contract](contracts/operation-lifecycle-and-integrity.md)
 - [Shared Canonical Encoding Contract](contracts/shared-canonical-encoding.md)
 - [Canonical Encoding Vector Schema — Historical](contracts/canonical-encoding-normative-vector-schema.md)
-- [Canonical Row Hash Compute Boundary Contract](contracts/canonical-row-hash-compute-boundary.md)
 - [Correctness Golden and Fixture Contract](contracts/fixture-oracle-and-conformance.md)
 - [Canonical Storage and Repository Boundary Contract](contracts/canonical-storage-and-repository-boundary.md)
 - [Storage Mutation and Change Set Contract](contracts/storage-mutation-and-change-set.md)

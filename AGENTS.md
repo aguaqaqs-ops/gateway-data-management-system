@@ -77,10 +77,9 @@ worktree 内的 `.hypothesis` 仅供开发者直接运行 focused 测试时使�
 
 `rust` 包在 `vnext/rust` 下依次运行 `cargo fmt --all --check`、
 `cargo clippy --workspace --locked --offline --all-targets -- -D warnings` 与
-`cargo test --workspace --locked --offline`（DC48）；三步都执行，任一失败则该包失败。S2a 删除旧扩展之前，
-`cargo test` 排除 `gateway-compute-python` 与 `gateway-compute-python-impl`：两者的测试在 Rust 中嵌入 Python
-解释器并读取 backend 环境（DC52，owner 2026-10-25 确认同时排除 impl），S2a 删除旧 crate 时一并去掉排除；
-clippy 与 fmt 仍覆盖全部 crate。cargo 的 `CARGO_TARGET_DIR` 固定为 worktree 外的
+`cargo test --workspace --locked --offline`（DC48）；三步都执行，任一失败则该包失败。S2a 已删除旧嵌入 Python 的 crate tests 和
+`gateway-compute-python-impl`，复用 `gateway-compute-python` 提供新 parser adapter；`cargo test` 不再排除 crate。
+新 adapter 的 Python/Arrow 行为由 backend pytest 覆盖，fmt 与 clippy 仍覆盖全部 crate。cargo 的 `CARGO_TARGET_DIR` 固定为 worktree 外的
 `<TMPDIR>/gateway-runner-cargo-target`，只作构建缓存、不进闭包；选中 `rust` 或 backend 时 runner 在使用前删除残留、
 退出时删除。runner 的额外参数只传给 pytest。
 
@@ -167,7 +166,7 @@ Host 依赖准备权威入口：
 ./vnext/scripts/uv-consume.sh -C vnext/<package> <sync|run|lock-check|pip-install> ...
 ```
 
-`run-tests.sh`、`prepare-dev-dependencies.sh`、`native_kernel_component.sh` 与
+`run-tests.sh`、`prepare-dev-dependencies.sh` 与
 `build-repository-service-image.sh` 已接入该 wrapper。普通 `run`/`sync` 默认 `--locked` 并隔离
 ambient index/config；`--no-sync` 路径先执行只读 `uv lock --check --offline`，再
 `uv run --locked --no-sync`。消费入口在执行前后比较五锁 SHA，漂移即非零退出且不自动 restore。

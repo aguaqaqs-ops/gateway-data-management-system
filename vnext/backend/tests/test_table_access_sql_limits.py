@@ -6,6 +6,12 @@ import pytest
 from gateway_backend.capabilities.table_access.contracts import ParseStatus, ParserDiagnosticCode
 from tests.support.table_access_sql import parse_text, tiny_budgets
 
+
+@pytest.fixture(autouse=True)
+def _run_both_sql_implementations(dual_sql_implementation: None) -> None:
+    pass
+
+
 RESOURCE_LIMIT_CASES = (
     (
         "max_tables_per_source",

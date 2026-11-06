@@ -30,6 +30,60 @@ pub struct TableDescriptor {
     pub reader_ready: bool,
 }
 
+/// Adapter-neutral representation of Shared Kernel's declared type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeclaredTypeMetadata {
+    pub kind: &'static str,
+    pub bits: Option<u8>,
+    pub precision: Option<u8>,
+    pub scale: Option<u8>,
+    pub bit_width: Option<u8>,
+}
+
+impl ColumnDescriptor {
+    pub fn declared_type_metadata(&self) -> Option<DeclaredTypeMetadata> {
+        let declared = self.declared_type.as_ref()?;
+        let mut metadata = DeclaredTypeMetadata {
+            kind: "",
+            bits: None,
+            precision: None,
+            scale: None,
+            bit_width: None,
+        };
+        match declared {
+            DeclaredType::Null => metadata.kind = "null",
+            DeclaredType::Boolean => metadata.kind = "boolean",
+            DeclaredType::SignedInteger { bits } => {
+                metadata.kind = "signed-integer";
+                metadata.bits = Some(*bits);
+            }
+            DeclaredType::UnsignedInteger { bits } => {
+                metadata.kind = "unsigned-integer";
+                metadata.bits = Some(*bits);
+            }
+            DeclaredType::Decimal { precision, scale } => {
+                metadata.kind = "decimal";
+                metadata.precision = Some(*precision);
+                metadata.scale = Some(*scale);
+            }
+            DeclaredType::Float32 => metadata.kind = "float32",
+            DeclaredType::Float64 => metadata.kind = "float64",
+            DeclaredType::String => metadata.kind = "string",
+            DeclaredType::Binary => metadata.kind = "binary",
+            DeclaredType::Bit { bit_width } => {
+                metadata.kind = "bit";
+                metadata.bit_width = Some(*bit_width);
+            }
+            DeclaredType::Date => metadata.kind = "date",
+            DeclaredType::DateTime => metadata.kind = "datetime",
+            DeclaredType::Timestamp => metadata.kind = "timestamp",
+            DeclaredType::TimeDuration => metadata.kind = "time-duration",
+            DeclaredType::SourceLiteralAnomaly => metadata.kind = "source-literal-anomaly",
+        }
+        Some(metadata)
+    }
+}
+
 /// How values of one column are converted and stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ValueKind {

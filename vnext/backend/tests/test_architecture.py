@@ -38,7 +38,6 @@ APPLICATION_ROOT = BACKEND_SRC / "gateway_backend" / "application"
 
 CAPABILITY_OWNERS = frozenset(
     {
-        "canonical_row_hash",
         "table_access",
         "table_rules",
         "source_package_staging",
@@ -56,7 +55,6 @@ CAPABILITY_OWNERS = frozenset(
 )
 
 ALLOWED_UPSTREAM_OWNERS: dict[str, frozenset[str]] = {
-    "canonical_row_hash": frozenset(),
     "table_access": frozenset(),
     "table_rules": frozenset(),
     "source_package_staging": frozenset(),
@@ -80,8 +78,6 @@ FORBIDDEN_IMPORT_PREFIXES = (
     "httpx",
     "gateway_backend.app",
     "gateway_backend.settings",
-    "gateway_backend.capabilities.canonical_row_hash.compute",
-    "gateway_backend.capabilities.canonical_row_hash.canonical_row_hash_ipc",
     "gateway_backend.canonicalization_cells",
     "gateway_backend.canonicalization_manifest",
     "gateway_backend.infrastructure",
@@ -125,7 +121,6 @@ def test_artifacts_module_does_not_import_gateway_compute() -> None:
     for source in artifacts_root.rglob("*.py"):
         text = source.read_text()
         assert "gateway_compute" not in text, source
-        assert "canonical_row_hash" not in text, source
         assert "gateway_backend.capabilities" not in text, source
         assert "gateway_shared_kernel.testing" not in text, source
         assert "LocalArtifactStore" not in text, source
@@ -140,21 +135,7 @@ def test_local_artifact_store_lives_in_infrastructure_only() -> None:
     assert "class LocalArtifactStore" in local_store_source
 
 
-def test_compute_facade_does_not_reference_artifact_identity() -> None:
-    compute_source = (
-        Path(__file__).parents[1]
-        / "src"
-        / "gateway_backend"
-        / "capabilities"
-        / "canonical_row_hash"
-        / "compute.py"
-    )
-    text = compute_source.read_text()
-    forbidden = ("ArtifactRef", "artifact_ref", "logical_ref", "ArtifactStore", "artifact_root")
-    assert not any(marker in text for marker in forbidden), compute_source
-
-
-def test_compute_python_extension_has_no_artifact_ref_types() -> None:
+def test_python_extension_has_no_artifact_ref_types() -> None:
     compute_python_root = Path(__file__).resolve().parents[2] / "rust" / "gateway-compute-python"
     forbidden = ("ArtifactRef", "artifact_ref", "logical_ref", "artifact_root")
     for source in list(compute_python_root.rglob("*.py")) + list(compute_python_root.rglob("*.rs")):
@@ -181,29 +162,6 @@ def test_rust_core_has_no_artifact_or_infrastructure_boundary() -> None:
             assert not any(marker in text for marker in forbidden), source
 
 
-def test_r2_ipc_module_avoids_bulk_python_materialization() -> None:
-    ipc_source = (
-        Path(__file__).parents[1]
-        / "src"
-        / "gateway_backend"
-        / "capabilities"
-        / "canonical_row_hash"
-        / "canonical_row_hash_ipc.py"
-    )
-    text = ipc_source.read_text()
-    forbidden = (
-        "to_pylist(",
-        "to_pydict(",
-        ".as_py()",
-        "_row_hashes_from_batch",
-        "combine_chunks(",
-    )
-    assert not any(marker in text for marker in forbidden), ipc_source
-    assert "unordered_row_hashes_content_digest_from_sorted_row_buffer" in text
-    assert "unordered_row_hashes_content_digest_from_row_buffer" not in text
-    assert "_collect_row_hash_buffer_from_ipc" in text
-
-
 def test_r2_production_modules_have_no_deferred_stub() -> None:
     source_root = Path(__file__).parents[1] / "src" / "gateway_backend"
     for source in source_root.rglob("*.py"):
@@ -224,12 +182,6 @@ def test_capability_packages_match_owner_set() -> None:
         assert not (owner_dir / "_internal").exists(), owner
         assert not (owner_dir / "common.py").exists(), owner
         assert not (owner_dir / "utils.py").exists(), owner
-
-
-def test_canonical_row_hash_metadata_lives_in_owner_package() -> None:
-    backend = BACKEND_SRC / "gateway_backend"
-    assert not (backend / "canonical_row_hash_artifact.py").exists()
-    assert (backend / "capabilities" / "canonical_row_hash" / "contracts.py").is_file()
 
 
 def test_capability_modules_respect_import_dag() -> None:
@@ -963,12 +915,6 @@ IMPORT_RULE_SHAPES: tuple[tuple[str, str, tuple[str, ...], str | None], ...] = (
     ),
     ("gateway_backend.capabilities.comparison.ordered", "gateway_backend.capabilities.comparison.standard", ("_row_digest",), None),
     ("gateway_backend.bootstrap.operation_worker", "gateway_backend.infrastructure.control_db", (), None),
-    (
-        "gateway_backend.capabilities.canonical_row_hash.compute",
-        "gateway_compute",
-        (),
-        None,
-    ),
     ("gateway_backend.bootstrap.operation_worker", "gateway_shared_kernel.testing", (), RULE_LAYER),
 )
 

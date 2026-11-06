@@ -4,7 +4,7 @@ set -euo pipefail
 # Check that backend's installed Rust extension was built from the vnext/rust
 # tree of the current commit. The authoritative runner builds the extension with
 # GATEWAY_RUST_BUILD_INPUT set to that tree id; the extension exposes it as
-# gateway_compute.gateway_compute.__build_input__.
+# gateway_compute._native.__build_input__.
 #
 # Exit codes: 0 match, 1 mismatch or unreadable extension, 2 usage/Git error.
 
@@ -19,7 +19,7 @@ fi
 if ! installed="$(
     cd "${VNEXT_ROOT}/backend"
     "${UV_CONSUME}" -C . run --no-sync python -I -c \
-        'import gateway_compute.gateway_compute as native; print(getattr(native, "__build_input__", "<missing>"))'
+        'import gateway_compute._native as native; print(getattr(native, "__build_input__", "<missing>"))'
 )"; then
     echo "==> rust extension build input expected=${expected} installed=<unreadable> status=mismatch"
     echo "error: could not import the installed gateway_compute extension" >&2

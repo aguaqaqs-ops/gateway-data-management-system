@@ -56,14 +56,6 @@ ALL_PACKAGES=(
     "${PYTHON_PACKAGES[@]}"
 )
 
-# Until S2a deletes the old extension (DC52), its crates' tests embed a Python
-# interpreter and read the backend environment, so cargo test skips them.
-# clippy and fmt still cover the whole workspace.
-RUST_TEST_EXCLUDES=(
-    --exclude gateway-compute-python
-    --exclude gateway-compute-python-impl
-)
-
 declare -A SELECTED_PACKAGE_SET=()
 SELECTED_PACKAGES=()
 if [[ "${GATEWAY_TEST_PACKAGES+x}" == "x" ]]; then
@@ -318,7 +310,7 @@ if [[ -n "${SELECTED_PACKAGE_SET[rust]:-}" ]]; then
     rust_status=0
     run_rust_step fmt fmt --all --check || rust_status=1
     run_rust_step clippy clippy --workspace --locked --offline --all-targets -- -D warnings || rust_status=1
-    run_rust_step test test --workspace --locked --offline "${RUST_TEST_EXCLUDES[@]}" || rust_status=1
+    run_rust_step test test --workspace --locked --offline || rust_status=1
     if [[ "${rust_status}" -ne 0 ]]; then
         test_exit=1
         PACKAGE_STATUS[rust]=failed

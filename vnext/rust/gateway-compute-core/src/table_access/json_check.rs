@@ -1,12 +1,9 @@
-//! Acceptance check equal to Python `json.loads(text)` succeeding.
+//! Bounded JSON value validation for the frozen Table Access contract.
 //!
-//! Python's decoder is more permissive than RFC 8259 in a few places that
-//! matter for equivalence: `NaN`, `Infinity` and `-Infinity` are accepted,
-//! lone surrogate escapes are accepted, and any top-level value is allowed.
-//! Raw control characters inside strings are rejected (strict mode), and a
-//! leading U+FEFF is rejected. Nesting is checked iteratively; the reference
-//! raises an uncaught `RecursionError` on very deep nesting, which this check
-//! does not reproduce.
+//! Any JSON top-level value is allowed. Non-finite constants and numeric
+//! overflow, nesting beyond 100, and unpaired surrogate escapes are rejected.
+//! Raw control characters inside strings and a leading U+FEFF are rejected.
+//! Validation is iterative so hostile nesting cannot recurse.
 
 const fn is_json_ws(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | b'\n' | b'\r')
@@ -59,12 +56,24 @@ impl Reader<'_> {
                             self.pos += 1
                         }
                         Some(b'u') => {
-                            self.pos += 1;
-                            for _ in 0..4 {
-                                if !self.peek().is_some_and(|b| b.is_ascii_hexdigit()) {
+                            let Some(code_unit) = self.unicode_escape() else {
+                                return false;
+                            };
+                            if (0xd800..=0xdbff).contains(&code_unit) {
+                                if self.peek() != Some(b'\\')
+                                    || self.bytes.get(self.pos + 1) != Some(&b'u')
+                                {
                                     return false;
                                 }
                                 self.pos += 1;
+                                let Some(low) = self.unicode_escape() else {
+                                    return false;
+                                };
+                                if !(0xdc00..=0xdfff).contains(&low) {
+                                    return false;
+                                }
+                            } else if (0xdc00..=0xdfff).contains(&code_unit) {
+                                return false;
                             }
                         }
                         _ => return false,
@@ -77,6 +86,21 @@ impl Reader<'_> {
         false
     }
 
+    /// Reads a `\\uXXXX` escape with the cursor positioned at `u`.
+    fn unicode_escape(&mut self) -> Option<u16> {
+        if self.peek() != Some(b'u') {
+            return None;
+        }
+        self.pos += 1;
+        let mut value = 0u16;
+        for _ in 0..4 {
+            let digit = (self.peek()? as char).to_digit(16)?;
+            value = value.checked_mul(16)?.checked_add(digit as u16)?;
+            self.pos += 1;
+        }
+        Some(value)
+    }
+
     fn digits(&mut self) -> usize {
         let start = self.pos;
         while self.peek().is_some_and(|b| b.is_ascii_digit()) {
@@ -85,13 +109,11 @@ impl Reader<'_> {
         self.pos - start
     }
 
-    /// `-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?`, plus `-Infinity`.
+    /// `-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?`.
     fn number(&mut self) -> bool {
+        let start = self.pos;
         if self.peek() == Some(b'-') {
             self.pos += 1;
-            if self.eat(b"Infinity") {
-                return true;
-            }
         }
         match self.peek() {
             Some(b'0') => self.pos += 1,
@@ -100,24 +122,36 @@ impl Reader<'_> {
             }
             _ => return false,
         }
+        let mut floating = false;
         if self.peek() == Some(b'.')
             && self
                 .bytes
                 .get(self.pos + 1)
                 .is_some_and(|b| b.is_ascii_digit())
         {
+            floating = true;
             self.pos += 1;
             self.digits();
         }
         if matches!(self.peek(), Some(b'e' | b'E')) {
             let saved = self.pos;
             self.pos += 1;
+            floating = true;
             if matches!(self.peek(), Some(b'+' | b'-')) {
                 self.pos += 1;
             }
             if self.digits() == 0 {
                 // The scanner backtracks; the `e` is then unexpected data.
                 self.pos = saved;
+                floating = false;
+            }
+        }
+        if floating {
+            let Ok(text) = std::str::from_utf8(&self.bytes[start..self.pos]) else {
+                return false;
+            };
+            if !text.parse::<f64>().is_ok_and(f64::is_finite) {
+                return false;
             }
         }
         true
@@ -140,15 +174,13 @@ impl Reader<'_> {
             b'n' => Some(self.eat(b"null")),
             b't' => Some(self.eat(b"true")),
             b'f' => Some(self.eat(b"false")),
-            b'N' => Some(self.eat(b"NaN")),
-            b'I' => Some(self.eat(b"Infinity")),
             b'-' | b'0'..=b'9' => Some(self.number()),
             _ => Some(false),
         }
     }
 }
 
-pub(crate) fn python_json_loads_accepts(text: &str) -> bool {
+pub(crate) fn valid_json_value(text: &str) -> bool {
     if text.starts_with('\u{feff}') {
         return false;
     }
@@ -160,7 +192,7 @@ pub(crate) fn python_json_loads_accepts(text: &str) -> bool {
     reader.skip_ws();
     // Read the first value.
     let depth_before = stack.len();
-    if reader.value_start(&mut stack) != Some(true) {
+    if reader.value_start(&mut stack) != Some(true) || stack.len() > 100 {
         return false;
     }
     let mut just_opened = stack.len() > depth_before;
@@ -221,61 +253,9 @@ fn read_member(
         reader.skip_ws();
     }
     let depth_before = stack.len();
-    if reader.value_start(stack) != Some(true) {
+    if reader.value_start(stack) != Some(true) || stack.len() > 100 {
         return false;
     }
     *just_opened = stack.len() > depth_before;
     true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::python_json_loads_accepts as ok;
-
-    #[test]
-    fn matches_python_json_loads_acceptance() {
-        for text in [
-            "{}",
-            "[]",
-            "1",
-            "-0",
-            "1.5e+3",
-            "\"a\"",
-            " {\"a\": [1, 2, {\"b\": null}]} ",
-            "NaN",
-            "-Infinity",
-            "Infinity",
-            "\"\\ud800\"",
-            "[true,false,null]",
-            "1E5",
-            "0.0",
-        ] {
-            assert!(ok(text), "should accept {text:?}");
-        }
-        for text in [
-            "",
-            " ",
-            "{",
-            "[1,]",
-            "{\"a\":1,}",
-            "01",
-            "1.",
-            ".5",
-            "+1",
-            "1e",
-            "\"\\x\"",
-            "\"a\u{1}\"",
-            "\u{feff}1",
-            "[1 2]",
-            "{1:2}",
-            "nul",
-            "tru",
-            "-",
-            "\"abc",
-            "1 2",
-            "{\"a\" 1}",
-        ] {
-            assert!(!ok(text), "should reject {text:?}");
-        }
-    }
 }

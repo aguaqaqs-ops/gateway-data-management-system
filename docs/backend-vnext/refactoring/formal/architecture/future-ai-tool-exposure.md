@@ -82,7 +82,7 @@ domain、infrastructure、operations 或 http。该方向由 `tests/support/impo
 | `surface_assembly`、`bundle_assembly` | 可以，作为结果摘要与导出 | 摘要优先，明细分页下钻（§5.3） |
 | `project_identity`（S4 新增） | 只开放评估结果 | 身份确认属于业务动作，仍由用户在 Submit 受理时给出 |
 | `mutation_planning` | 不开放 | Repository 写入规划，只在 Submit prepare 内部使用 |
-| `canonical_row_hash`、`external_target_sync` | 不开放 | 前者是内部内核，后者已登记延期 |
+| `external_target_sync` | 不开放 | 已登记延期 |
 | Submit、Review、Archive、身份确认 | 不作为能力工具开放 | 只能经现有 HTTP API 以调用者身份执行；模型最多发起请求，确认与授权规则不变 |
 
 ## 5. 需补齐的条件

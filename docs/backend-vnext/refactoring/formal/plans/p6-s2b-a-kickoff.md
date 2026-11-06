@@ -22,7 +22,7 @@ decode 在标准 Arrow reader 前对借用输入做 footer/block 长度及 raw m
 
 该最小 Python 入口要求调用者显式传入局部 budgets，不提供 `None` 所隐含的默认容量。描述转换前核数量与大小，C Stream 逐 batch 消费时核累计行数、批次数、输入 bytes 与 adapter 自有分配，输出转 Python bytes 前核同时驻留；不能先无限收集再交 core 检查。仍不制定生产 M。
 
-接口实现可直接依赖已有 workspace `gateway-shared-kernel` 以构造其拥有的 `DeclaredType`，不复制声明结构。该直接依赖会改变 `Cargo.lock` 的依赖关系条目，故最终候选必须按 AGENTS 的锁变更流程更新 backend dependency-base；上述“锁未变可复用”的条件在此不成立。锁收敛后准备一次，不因每轮源代码修改重复构建依赖基础层。
+接口遵守既有 architecture-check 的 adapter → Shared Kernel 禁边：adapter 只提取有界的 kind/bits/precision/scale/bit_width 小型 metadata，由 core 的最小 setter/factory 构造既有 `DeclaredType` 并校验槽一致性；不新增 DTO 框架或通过类型 re-export 绕过边界。首次实现曾按设计意见增加直接依赖，最终 workspace 检查揭示其与既有守卫冲突，现撤回该意见；守卫和反向禁边均不放宽。依赖及锁通过新提交修正，不改写已引用提交。最终 dependency-base 按实际完整输入摘要选择；为中间锁构建的 `lock-994c32446656` 不自动成为最终候选基础层，恢复原输入且已有镜像身份合格时可复用对应原 base。
 
 ## 2. 局部边界与验收
 

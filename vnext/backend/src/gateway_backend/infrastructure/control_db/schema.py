@@ -896,6 +896,12 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
     )
     """,
     """
+    CREATE INDEX canonical_table_cache_expiry ON canonical_table_cache(expires_at_us, artifact_id)
+    """,
+    """
+    CREATE INDEX canonical_commit_tables_artifact ON canonical_commit_tables(artifact_id)
+    """,
+    """
     CREATE TABLE artifact_protection_intents (
         artifact_id TEXT NOT NULL
             CHECK (typeof(artifact_id) = 'text' AND length(artifact_id) BETWEEN 1 AND 255),

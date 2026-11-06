@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Protocol
 
 from gateway_shared_kernel import DigestRef
 from gateway_shared_kernel.jcs import canonicalize_json_value
+from gateway_backend.artifacts.types import ArtifactRef
 
 CANONICAL_IPC_MEDIA_TYPE = "application/vnd.apache.arrow.file"
 CANONICAL_MAPPING_VERSION = 1
@@ -42,3 +44,9 @@ class CanonicalTableKey:
             self.table_digest.value, self.canonical_mapping_version,
         ])
         return "canonical-table:" + hashlib.sha256(payload).hexdigest()
+
+
+class CanonicalTableIndexPort(Protocol):
+    def lookup(self, key: CanonicalTableKey) -> ArtifactRef | None: ...
+    def register(self, key: CanonicalTableKey, ref: ArtifactRef) -> None: ...
+    def bind_commit(self, *, repository_id: str, commit_id: str, refs: tuple[ArtifactRef, ...]) -> None: ...

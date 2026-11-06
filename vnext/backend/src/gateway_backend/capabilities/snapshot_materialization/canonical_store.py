@@ -8,12 +8,13 @@ Operation callers own controls and release borrowed batches before handle close.
 from __future__ import annotations
 
 import struct
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from typing import Any
 
 import pyarrow as pa
 from gateway_compute._native import _encode_canonical_ipc_native, _inspect_canonical_ipc_native
+from gateway_shared_kernel import raw_blob_digest
 
 from gateway_backend.artifacts.canonical_table_store import (
     CANONICAL_IPC_MEDIA_TYPE,
@@ -22,7 +23,6 @@ from gateway_backend.artifacts.canonical_table_store import (
 from gateway_backend.artifacts.store import (
     ArtifactBufferStorePort,
     ManifestVerificationError,
-    put_with_built_ref,
 )
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -196,7 +196,14 @@ class CanonicalTableStore:
         self._repository_id = repository_id
         self._budgets = dict(budgets)
 
-    def put(self, stream: pa.RecordBatchReader, bound_descriptor: SnapshotTableDescriptor) -> ArtifactRef:
+    @property
+    def repository_id(self) -> str:
+        return self._repository_id
+
+    def put(
+        self, stream: pa.RecordBatchReader, bound_descriptor: SnapshotTableDescriptor, *,
+        before_write: Callable[[CanonicalTableKey, ArtifactRef], None] | None = None,
+    ) -> ArtifactRef:
         _check_descriptor_budget(bound_descriptor, self._budgets)
         key = canonical_table_key(self._repository_id, bound_descriptor)
         def bound_batches() -> Iterator[pa.RecordBatch]:
@@ -216,9 +223,10 @@ class CanonicalTableStore:
             )
         finally:
             bound_stream.close()
-        return put_with_built_ref(
-            self._store, raw, artifact_id=key.artifact_id, media_type=CANONICAL_IPC_MEDIA_TYPE,
-        )
+        ref = ArtifactRef(key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, len(raw), raw_blob_digest(raw))
+        if before_write is not None:
+            before_write(key, ref)
+        return self._store.put(raw, ref)
 
     def open(self, ref: ArtifactRef, bound_descriptor: SnapshotTableDescriptor) -> ArtifactReadHandle:
         _check_descriptor_budget(bound_descriptor, self._budgets)

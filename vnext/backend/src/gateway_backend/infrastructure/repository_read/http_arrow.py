@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import cast
 from uuid import UUID
@@ -141,6 +142,56 @@ class HttpArrowRepositoryRefSession:
         del table_name, export_format
         return None
 
+    @contextmanager
+    def open_arrow_table_reader(
+        self, table_name: str, *, max_input_bytes: int, max_rows: int,
+        max_columns: int, max_batches: int,
+    ) -> Iterator[pa.RecordBatchReader]:
+        """Borrow bounded wire batches from this session's exact pinned commit."""
+        self._ensure_open()
+        if min(max_input_bytes, max_rows, max_columns, max_batches) < 0:
+            raise ValueError("Arrow reader budgets must be non-negative")
+        catalog = self.get_catalog()
+        selected = next((table for table in catalog.tables if table.table_name == table_name), None)
+        if selected is None:
+            raise RepositoryProviderError(
+                MaterializationDiagnosticCode.REPOSITORY_TABLE_NOT_FOUND,
+                "table is not in the pinned catalog", table=table_name,
+            )
+        if len(selected.columns) > max_columns or (selected.row_count or 0) > max_rows:
+            raise MemoryError("repository Arrow catalog exceeds reader budget")
+        path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+        source: pa.MemoryMappedFile | None = None
+        wire: ipc.RecordBatchStreamReader | None = None
+        reader: pa.RecordBatchReader | None = None
+        try:
+            source = pa.memory_map(path, "r")
+            wire = ipc.open_stream(source)
+            if len(wire.schema) > max_columns:
+                raise MemoryError("repository Arrow column limit exceeded")
+            def batches() -> Iterator[pa.RecordBatch]:
+                rows = total_bytes = count = 0
+                assert wire is not None
+                for batch in wire:
+                    self._ensure_open()
+                    rows += batch.num_rows
+                    total_bytes += batch.get_total_buffer_size()
+                    count += 1
+                    if rows > max_rows or total_bytes > max_input_bytes or count > max_batches:
+                        raise MemoryError("repository Arrow stream exceeds reader budget")
+                    batch.validate(full=True)
+                    yield batch
+            reader = pa.RecordBatchReader.from_batches(wire.schema, batches())
+            yield reader
+        finally:
+            if reader is not None:
+                reader.close()
+            if wire is not None:
+                wire.close()
+            if source is not None:
+                source.close()
+            Path(path).unlink(missing_ok=True)
+
     def close(self) -> None:
         self._closed = True
 
@@ -153,13 +204,19 @@ class HttpArrowRepositoryRefSession:
 
     async def _load_catalog(self) -> GetVersionedCatalogResponse:
         try:
-            return cast(
+            response = cast(
                 GetVersionedCatalogResponse,
                 await self._client.get_versioned_catalog(
                     repository_id=_as_uuid(self._repository_id),
                     commit_id=self._commit_id,
                 ),
             )
+            if str(response.catalog.commit_id) != self._commit_id:
+                raise RepositoryProviderError(
+                    MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                    "catalog commit does not match the pinned exact commit",
+                )
+            return response
         except (RepositoryClientError, RepositoryProtocolError, httpx.HTTPError) as exc:
             raise _repository_read_error("catalog read", exc) from exc
 
@@ -185,13 +242,13 @@ class HttpArrowRepositoryRefSession:
         finally:
             Path(ipc_path).unlink(missing_ok=True)
 
-    async def _spool_table_ipc(self, table_name: str) -> str:
+    async def _spool_table_ipc(self, table_name: str, *, max_bytes: int | None = None) -> str:
         stream = self._client.stream_versioned_table_rows(
             repository_id=_as_uuid(self._repository_id),
             commit_id=self._commit_id,
             table_name=table_name,
         )
-        return await _spool_arrow_ipc(stream)
+        return await _spool_arrow_ipc(stream, max_bytes=max_bytes)
 
 
 class HttpArrowRepositoryTableReader:
@@ -314,13 +371,17 @@ def _repository_read_error(
     )
 
 
-async def _spool_arrow_ipc(stream: ArrowIpcByteStream) -> str:
+async def _spool_arrow_ipc(stream: ArrowIpcByteStream, *, max_bytes: int | None = None) -> str:
     handle = tempfile.NamedTemporaryFile(prefix="gateway-arrow-", suffix=".ipc", delete=False)
     path = handle.name
     try:
         with handle:
+            size = 0
             async with stream:
                 async for chunk in stream.aiter_bytes():
+                    size += len(chunk)
+                    if max_bytes is not None and size > max_bytes:
+                        raise MemoryError("repository Arrow spool exceeds input byte limit")
                     handle.write(chunk)
     except BaseException:
         Path(path).unlink(missing_ok=True)

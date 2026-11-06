@@ -280,32 +280,96 @@ struct NativeOutput {
     pseudo: Option<usize>,
 }
 
-fn output_transfer_preflight(outcome: &KernelOutcome<NativeOutput>, budgets: BusinessKernelBudgets, owned_metadata: usize, watch: &CancelWatch, deadline: Option<Instant>) -> PyResult<()> {
+fn output_transfer_preflight(
+    outcome: &KernelOutcome<NativeOutput>,
+    budgets: BusinessKernelBudgets,
+    owned_metadata: usize,
+    watch: &CancelWatch,
+    deadline: Option<Instant>,
+) -> PyResult<()> {
     let mut retained = 2048usize;
-    let mut add = |bytes| -> PyResult<()> { retained = checked_add_with_limit(retained, bytes, budgets.max_output_bytes, "business output facts")?; Ok(()) };
+    let mut add = |bytes| -> PyResult<()> {
+        retained = checked_add_with_limit(
+            retained,
+            bytes,
+            budgets.max_output_bytes,
+            "business output facts",
+        )?;
+        Ok(())
+    };
     for diagnostic in &outcome.diagnostics {
         python_adapter_control(watch, deadline)?;
-        let strings = diagnostic.code.len().checked_add(diagnostic.message.len()).and_then(|bytes| bytes.checked_add(diagnostic.table.as_ref().map_or(0, String::len))).and_then(|bytes| bytes.checked_add(diagnostic.column.as_ref().map_or(0, String::len))).ok_or_else(|| PyMemoryError::new_err("diagnostic transfer overflow"))?;
-        add(strings.checked_mul(8).and_then(|bytes| bytes.checked_add(1024)).ok_or_else(|| PyMemoryError::new_err("diagnostic transfer overflow"))?)?;
+        let strings = diagnostic
+            .code
+            .len()
+            .checked_add(diagnostic.message.len())
+            .and_then(|bytes| bytes.checked_add(diagnostic.table.as_ref().map_or(0, String::len)))
+            .and_then(|bytes| bytes.checked_add(diagnostic.column.as_ref().map_or(0, String::len)))
+            .ok_or_else(|| PyMemoryError::new_err("diagnostic transfer overflow"))?;
+        add(strings
+            .checked_mul(8)
+            .and_then(|bytes| bytes.checked_add(1024))
+            .ok_or_else(|| PyMemoryError::new_err("diagnostic transfer overflow"))?)?;
     }
     if let Some(output) = &outcome.output {
         for table in &output.tables {
             python_adapter_control(watch, deadline)?;
             add(2048)?;
             for column in &table.descriptor.columns {
-                let strings = column.canonical_name.len().checked_add(column.display_name.len()).and_then(|bytes| bytes.checked_add(column.sql_type.len())).ok_or_else(|| PyMemoryError::new_err("column transfer overflow"))?;
-                add(strings.checked_mul(8).and_then(|bytes| bytes.checked_add(2048)).ok_or_else(|| PyMemoryError::new_err("column transfer overflow"))?)?;
-                for label in column.labels.iter().flatten() { add(label.len().checked_mul(8).and_then(|bytes| bytes.checked_add(128)).ok_or_else(|| PyMemoryError::new_err("label transfer overflow"))?)?; }
+                let strings = column
+                    .canonical_name
+                    .len()
+                    .checked_add(column.display_name.len())
+                    .and_then(|bytes| bytes.checked_add(column.sql_type.len()))
+                    .ok_or_else(|| PyMemoryError::new_err("column transfer overflow"))?;
+                add(strings
+                    .checked_mul(8)
+                    .and_then(|bytes| bytes.checked_add(2048))
+                    .ok_or_else(|| PyMemoryError::new_err("column transfer overflow"))?)?;
+                for label in column.labels.iter().flatten() {
+                    add(label
+                        .len()
+                        .checked_mul(8)
+                        .and_then(|bytes| bytes.checked_add(128))
+                        .ok_or_else(|| PyMemoryError::new_err("label transfer overflow"))?)?;
+                }
             }
-            for name in std::iter::once(&table.descriptor.display_name).chain(std::iter::once(&table.descriptor.canonical_name)).chain(&table.descriptor.primary_key) { add(name.len().checked_mul(8).and_then(|bytes| bytes.checked_add(128)).ok_or_else(|| PyMemoryError::new_err("table transfer overflow"))?)?; }
-            for batch in &table.batches { for array in batch.columns() { add(array.get_array_memory_size())?; } }
+            for name in std::iter::once(&table.descriptor.display_name)
+                .chain(std::iter::once(&table.descriptor.canonical_name))
+                .chain(&table.descriptor.primary_key)
+            {
+                add(name
+                    .len()
+                    .checked_mul(8)
+                    .and_then(|bytes| bytes.checked_add(128))
+                    .ok_or_else(|| PyMemoryError::new_err("table transfer overflow"))?)?;
+            }
+            for batch in &table.batches {
+                for array in batch.columns() {
+                    add(array.get_array_memory_size())?;
+                }
+            }
         }
     }
-    if retained > budgets.max_output_bytes || retained.checked_mul(2).and_then(|bytes| bytes.checked_add(owned_metadata)).is_none_or(|bytes| bytes > budgets.max_live_bytes) { return Err(PyMemoryError::new_err("Python business output conversion exceeds live/output budget")); }
+    if retained > budgets.max_output_bytes
+        || retained
+            .checked_mul(2)
+            .and_then(|bytes| bytes.checked_add(owned_metadata))
+            .is_none_or(|bytes| bytes > budgets.max_live_bytes)
+    {
+        return Err(PyMemoryError::new_err(
+            "Python business output conversion exceeds live/output budget",
+        ));
+    }
     python_adapter_control(watch, deadline)
 }
 
-fn output_object(py: Python<'_>, outcome: KernelOutcome<NativeOutput>, watch: &CancelWatch, deadline: Option<Instant>) -> PyResult<Py<PyAny>> {
+fn output_object(
+    py: Python<'_>,
+    outcome: KernelOutcome<NativeOutput>,
+    watch: &CancelWatch,
+    deadline: Option<Instant>,
+) -> PyResult<Py<PyAny>> {
     let result = PyDict::new(py);
     let diagnostics = PyList::empty(py);
     for diagnostic in outcome.diagnostics {
@@ -444,8 +508,15 @@ fn native_inner(
             &watch,
             deadline,
         )?);
-        let last = descriptors.last().ok_or_else(|| PyRuntimeError::new_err("table descriptor absent"))?;
-        if descriptors[..descriptors.len() - 1].iter().any(|previous| previous.canonical_name == last.canonical_name) { return Err(PyValueError::new_err("business input repeats a table name")); }
+        let last = descriptors
+            .last()
+            .ok_or_else(|| PyRuntimeError::new_err("table descriptor absent"))?;
+        if descriptors[..descriptors.len() - 1]
+            .iter()
+            .any(|previous| previous.canonical_name == last.canonical_name)
+        {
+            return Err(PyValueError::new_err("business input repeats a table name"));
+        }
         readers.push(stream.extract::<PyRecordBatchReader>()?.into_reader()?);
     }
     let sql_plan = if matches!(operation, Operation::Sql) {
@@ -462,66 +533,146 @@ fn native_inner(
         None
     };
     let cancel = Arc::clone(&watch.cancelled);
-    let outcome = py
-        .detach(move || {
-            let mut core_budgets = budgets;
-            core_budgets.max_live_bytes = core_budgets
-                .max_live_bytes
-                .checked_sub(owned_metadata)
-                .ok_or_else(|| {
+    let outcome = py.detach(move || {
+        let mut core_budgets = budgets;
+        core_budgets.max_live_bytes = core_budgets
+            .max_live_bytes
+            .checked_sub(owned_metadata)
+            .ok_or_else(|| {
                 BusinessKernelError::new(
                     BusinessKernelErrorKind::Resource,
                     "adapter metadata exceeds live budget",
                 )
             })?;
-            let mut batches = Vec::with_capacity(readers.len());
-            let mut remaining = codec_budgets(core_budgets);
-            let mut synthesized = 0usize;
-            let mut adapter_batches_owned = 0usize;
-            for reader in readers {
-                let schema = reader.schema();
-                let header_upper = schema.fields().len().checked_mul(1024).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "empty Arrow header estimate overflow"))?;
-                if schema.fields().len() > remaining.max_columns || header_upper > remaining.max_codec_peak_bytes { return Err(BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema exceeds adapter limits")); }
-                let mut schema_bytes = 0usize;
-                for field in schema.fields() {
-                    schema_bytes = schema_bytes.checked_add(field.name().len()).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema metadata overflow"))?;
-                    for (key, value) in field.metadata() { schema_bytes = schema_bytes.checked_add(key.len()).and_then(|bytes| bytes.checked_add(value.len())).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema metadata overflow"))?; }
-                }
-                if schema_bytes > remaining.max_descriptor_bytes { return Err(BusinessKernelError::new(BusinessKernelErrorKind::Resource, "Arrow schema metadata exceeds limit")); }
-                let mut batch = consume_arrow_stream(
-                    reader,
-                    owned_metadata,
-                    remaining,
-                    cancel.as_ref(),
-                    deadline,
+        let mut batches = Vec::with_capacity(readers.len());
+        let mut remaining = codec_budgets(core_budgets);
+        let mut synthesized = 0usize;
+        let mut adapter_batches_owned = 0usize;
+        for reader in readers {
+            let schema = reader.schema();
+            let header_upper = schema.fields().len().checked_mul(1024).ok_or_else(|| {
+                BusinessKernelError::new(
+                    BusinessKernelErrorKind::Resource,
+                    "empty Arrow header estimate overflow",
                 )
-                .map_err(stream_error)?;
-                let rows = batch.iter().try_fold(0usize, |total, batch| total.checked_add(batch.num_rows())).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate row count overflow"))?;
-                remaining.max_rows = remaining.max_rows.checked_sub(rows).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate row budget exceeded"))?;
-                let actual_batches = batch.len();
-                if batch.is_empty() {
-                    // Preserve a zero-batch reader's actual schema for core
-                    // binding checks. Only the equivalent core cap counts this
-                    // generated empty batch; real consumption retains its cap.
-                    batch.push(RecordBatch::new_empty(schema));
-                    synthesized += 1;
-                }
-                let current_owned = batch.iter().try_fold(header_upper, |total, batch| total.checked_add(std::mem::size_of::<RecordBatch>()).and_then(|bytes| batch.num_columns().checked_mul(std::mem::size_of::<ArrayRef>()).and_then(|columns| bytes.checked_add(columns)))).and_then(|bytes| batch.capacity().checked_mul(std::mem::size_of::<RecordBatch>()).and_then(|vectors| bytes.checked_add(vectors))).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "adapter batch storage overflow"))?;
-                adapter_batches_owned = adapter_batches_owned.checked_add(current_owned).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate adapter storage overflow"))?;
-                remaining.max_codec_peak_bytes = remaining.max_codec_peak_bytes.checked_sub(current_owned).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "aggregate adapter storage exceeds live budget"))?;
-                let bytes = batch
-                    .iter()
-                    .flat_map(RecordBatch::columns)
-                    .try_fold(0usize, |total, array| {
-                        total.checked_add(array.get_array_memory_size())
-                    })
+            })?;
+            if schema.fields().len() > remaining.max_columns
+                || header_upper > remaining.max_codec_peak_bytes
+            {
+                return Err(BusinessKernelError::new(
+                    BusinessKernelErrorKind::Resource,
+                    "Arrow schema exceeds adapter limits",
+                ));
+            }
+            let mut schema_bytes = 0usize;
+            for field in schema.fields() {
+                schema_bytes = schema_bytes
+                    .checked_add(field.name().len())
                     .ok_or_else(|| {
                         BusinessKernelError::new(
                             BusinessKernelErrorKind::Resource,
-                            "input byte count overflow",
+                            "Arrow schema metadata overflow",
                         )
                     })?;
-                remaining.max_input_bytes = remaining
+                for (key, value) in field.metadata() {
+                    schema_bytes = schema_bytes
+                        .checked_add(key.len())
+                        .and_then(|bytes| bytes.checked_add(value.len()))
+                        .ok_or_else(|| {
+                            BusinessKernelError::new(
+                                BusinessKernelErrorKind::Resource,
+                                "Arrow schema metadata overflow",
+                            )
+                        })?;
+                }
+            }
+            if schema_bytes > remaining.max_descriptor_bytes {
+                return Err(BusinessKernelError::new(
+                    BusinessKernelErrorKind::Resource,
+                    "Arrow schema metadata exceeds limit",
+                ));
+            }
+            let mut batch =
+                consume_arrow_stream(reader, owned_metadata, remaining, cancel.as_ref(), deadline)
+                    .map_err(stream_error)?;
+            let rows = batch
+                .iter()
+                .try_fold(0usize, |total, batch| total.checked_add(batch.num_rows()))
+                .ok_or_else(|| {
+                    BusinessKernelError::new(
+                        BusinessKernelErrorKind::Resource,
+                        "aggregate row count overflow",
+                    )
+                })?;
+            remaining.max_rows = remaining.max_rows.checked_sub(rows).ok_or_else(|| {
+                BusinessKernelError::new(
+                    BusinessKernelErrorKind::Resource,
+                    "aggregate row budget exceeded",
+                )
+            })?;
+            let actual_batches = batch.len();
+            if batch.is_empty() {
+                // Preserve a zero-batch reader's actual schema for core
+                // binding checks. Only the equivalent core cap counts this
+                // generated empty batch; real consumption retains its cap.
+                batch.push(RecordBatch::new_empty(schema));
+                synthesized += 1;
+            }
+            let current_owned = batch
+                .iter()
+                .try_fold(header_upper, |total, batch| {
+                    total
+                        .checked_add(std::mem::size_of::<RecordBatch>())
+                        .and_then(|bytes| {
+                            batch
+                                .num_columns()
+                                .checked_mul(std::mem::size_of::<ArrayRef>())
+                                .and_then(|columns| bytes.checked_add(columns))
+                        })
+                })
+                .and_then(|bytes| {
+                    batch
+                        .capacity()
+                        .checked_mul(std::mem::size_of::<RecordBatch>())
+                        .and_then(|vectors| bytes.checked_add(vectors))
+                })
+                .ok_or_else(|| {
+                    BusinessKernelError::new(
+                        BusinessKernelErrorKind::Resource,
+                        "adapter batch storage overflow",
+                    )
+                })?;
+            adapter_batches_owned = adapter_batches_owned
+                .checked_add(current_owned)
+                .ok_or_else(|| {
+                    BusinessKernelError::new(
+                        BusinessKernelErrorKind::Resource,
+                        "aggregate adapter storage overflow",
+                    )
+                })?;
+            remaining.max_codec_peak_bytes = remaining
+                .max_codec_peak_bytes
+                .checked_sub(current_owned)
+                .ok_or_else(|| {
+                    BusinessKernelError::new(
+                        BusinessKernelErrorKind::Resource,
+                        "aggregate adapter storage exceeds live budget",
+                    )
+                })?;
+            let bytes = batch
+                .iter()
+                .flat_map(RecordBatch::columns)
+                .try_fold(0usize, |total, array| {
+                    total.checked_add(array.get_array_memory_size())
+                })
+                .ok_or_else(|| {
+                    BusinessKernelError::new(
+                        BusinessKernelErrorKind::Resource,
+                        "input byte count overflow",
+                    )
+                })?;
+            remaining.max_input_bytes =
+                remaining
                     .max_input_bytes
                     .checked_sub(bytes)
                     .ok_or_else(|| {
@@ -530,131 +681,151 @@ fn native_inner(
                             "aggregate input budget exceeded",
                         )
                     })?;
-                remaining.max_input_batches = remaining
-                    .max_input_batches
-                    .checked_sub(actual_batches)
-                    .ok_or_else(|| {
-                        BusinessKernelError::new(
-                            BusinessKernelErrorKind::Resource,
-                            "aggregate batch budget exceeded",
+            remaining.max_input_batches = remaining
+                .max_input_batches
+                .checked_sub(actual_batches)
+                .ok_or_else(|| {
+                BusinessKernelError::new(
+                    BusinessKernelErrorKind::Resource,
+                    "aggregate batch budget exceeded",
+                )
+            })?;
+            batches.push(batch);
+        }
+        core_budgets.max_batches = core_budgets
+            .max_batches
+            .checked_add(synthesized)
+            .ok_or_else(|| {
+                BusinessKernelError::new(
+                    BusinessKernelErrorKind::Resource,
+                    "equivalent empty batch count overflow",
+                )
+            })?;
+        core_budgets.max_live_bytes = core_budgets
+            .max_live_bytes
+            .checked_sub(adapter_batches_owned)
+            .ok_or_else(|| {
+                BusinessKernelError::new(
+                    BusinessKernelErrorKind::Resource,
+                    "adapter batches exceed live budget",
+                )
+            })?;
+        let inputs: Vec<_> = descriptors
+            .iter()
+            .zip(&batches)
+            .map(|(descriptor, batches)| KernelTableInput {
+                descriptor,
+                batches,
+            })
+            .collect();
+        let options = BusinessKernelOptions {
+            budgets: core_budgets,
+            control: BusinessKernelControl {
+                cancel: Some(cancel.as_ref()),
+                deadline,
+            },
+        };
+        let map = |tables, digest, duplicate, count, real, pseudo| NativeOutput {
+            tables,
+            digest,
+            duplicate,
+            source_device_row_count: count,
+            real,
+            pseudo,
+        };
+        let result = match operation {
+            Operation::Sql => {
+                let plan = sql_plan.as_ref().ok_or_else(|| {
+                    BusinessKernelError::new(BusinessKernelErrorKind::Schema, "SQL plan absent")
+                })?;
+                let result = materialize_sql_table(inputs[0], plan, pool, options)?;
+                KernelOutcome {
+                    output: result.output.map(|output| {
+                        map(
+                            vec![output.table],
+                            output.raw_content_digest,
+                            output.duplicate_effective_key,
+                            None,
+                            None,
+                            None,
                         )
-                    })?;
-                batches.push(batch);
+                    }),
+                    diagnostics: result.diagnostics,
+                    omitted_diagnostic_count: result.omitted_diagnostic_count,
+                }
             }
-            core_budgets.max_batches = core_budgets.max_batches.checked_add(synthesized).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "equivalent empty batch count overflow"))?;
-            core_budgets.max_live_bytes = core_budgets.max_live_bytes.checked_sub(adapter_batches_owned).ok_or_else(|| BusinessKernelError::new(BusinessKernelErrorKind::Resource, "adapter batches exceed live budget"))?;
-            let inputs: Vec<_> = descriptors
-                .iter()
-                .zip(&batches)
-                .map(|(descriptor, batches)| KernelTableInput {
-                    descriptor,
-                    batches,
-                })
-                .collect();
-            let options = BusinessKernelOptions {
-                budgets: core_budgets,
-                control: BusinessKernelControl {
-                    cancel: Some(cancel.as_ref()),
-                    deadline,
-                },
-            };
-            let map = |tables, digest, duplicate, count, real, pseudo| NativeOutput {
-                tables,
-                digest,
-                duplicate,
-                source_device_row_count: count,
-                real,
-                pseudo,
-            };
-            let result = match operation {
-                Operation::Sql => {
-                    let plan = sql_plan.as_ref().ok_or_else(|| {
-                        BusinessKernelError::new(BusinessKernelErrorKind::Schema, "SQL plan absent")
-                    })?;
-                    let result = materialize_sql_table(inputs[0], plan, pool, options)?;
-                    KernelOutcome {
-                        output: result.output.map(|output| {
-                            map(
-                                vec![output.table],
-                                output.raw_content_digest,
-                                output.duplicate_effective_key,
-                                None,
-                                None,
-                                None,
-                            )
-                        }),
-                        diagnostics: result.diagnostics,
-                        omitted_diagnostic_count: result.omitted_diagnostic_count,
-                    }
-                }
-                Operation::Projection => {
-                    let plan = projection_plan.as_ref().ok_or_else(|| {
-                        BusinessKernelError::new(
-                            BusinessKernelErrorKind::Schema,
-                            "projection plan absent",
+            Operation::Projection => {
+                let plan = projection_plan.as_ref().ok_or_else(|| {
+                    BusinessKernelError::new(
+                        BusinessKernelErrorKind::Schema,
+                        "projection plan absent",
+                    )
+                })?;
+                let result = project_canonical_table(inputs[0], plan, pool, options)?;
+                KernelOutcome {
+                    output: result.output.map(|output| {
+                        map(
+                            vec![output.table],
+                            Some(output.raw_content_digest),
+                            false,
+                            None,
+                            output.gid_real_count,
+                            output.gid_pseudo_count,
                         )
-                    })?;
-                    let result = project_canonical_table(inputs[0], plan, pool, options)?;
-                    KernelOutcome {
-                        output: result.output.map(|output| {
-                            map(
-                                vec![output.table],
-                                Some(output.raw_content_digest),
-                                false,
-                                None,
-                                output.gid_real_count,
-                                output.gid_pseudo_count,
-                            )
-                        }),
-                        diagnostics: result.diagnostics,
-                        omitted_diagnostic_count: result.omitted_diagnostic_count,
-                    }
+                    }),
+                    diagnostics: result.diagnostics,
+                    omitted_diagnostic_count: result.omitted_diagnostic_count,
                 }
-                Operation::Catalog => {
-                    let device = inputs
-                        .iter()
-                        .find(|input| input.descriptor.canonical_name == "device")
-                        .copied();
-                    let points: Vec<_> = inputs
-                        .iter()
-                        .filter(|input| input.descriptor.canonical_name != "device")
-                        .map(|input| NamedKernelTableInput {
-                            table_name: &input.descriptor.canonical_name,
-                            table: *input,
-                        })
-                        .collect();
-                    let result = filter_catalog(
-                        CatalogFilterInput {
-                            device_table: device,
-                            point_tables: &points,
-                        },
-                        pool,
-                        options,
-                    )?;
-                    KernelOutcome {
-                        output: result.output.map(|output| {
-                            map(
-                                output
-                                    .matching_devices
-                                    .into_iter()
-                                    .chain(output.special_points)
-                                    .collect(),
-                                None,
-                                false,
-                                Some(output.source_device_row_count),
-                                None,
-                                None,
-                            )
-                        }),
-                        diagnostics: result.diagnostics,
-                        omitted_diagnostic_count: result.omitted_diagnostic_count,
-                    }
+            }
+            Operation::Catalog => {
+                let device = inputs
+                    .iter()
+                    .find(|input| input.descriptor.canonical_name == "device")
+                    .copied();
+                let points: Vec<_> = inputs
+                    .iter()
+                    .filter(|input| input.descriptor.canonical_name != "device")
+                    .map(|input| NamedKernelTableInput {
+                        table_name: &input.descriptor.canonical_name,
+                        table: *input,
+                    })
+                    .collect();
+                let result = filter_catalog(
+                    CatalogFilterInput {
+                        device_table: device,
+                        point_tables: &points,
+                    },
+                    pool,
+                    options,
+                )?;
+                KernelOutcome {
+                    output: result.output.map(|output| {
+                        map(
+                            output
+                                .matching_devices
+                                .into_iter()
+                                .chain(output.special_points)
+                                .collect(),
+                            None,
+                            false,
+                            Some(output.source_device_row_count),
+                            None,
+                            None,
+                        )
+                    }),
+                    diagnostics: result.diagnostics,
+                    omitted_diagnostic_count: result.omitted_diagnostic_count,
                 }
-            };
-            options.checkpoint()?;
-            Ok::<_, BusinessKernelError>(result)
-        });
-    if watch.probe_failed.load(Ordering::Relaxed) { return Err(PyRuntimeError::new_err("business cancellation probe failed")); }
+            }
+        };
+        options.checkpoint()?;
+        Ok::<_, BusinessKernelError>(result)
+    });
+    if watch.probe_failed.load(Ordering::Relaxed) {
+        return Err(PyRuntimeError::new_err(
+            "business cancellation probe failed",
+        ));
+    }
     let outcome = outcome.map_err(business_error)?;
     python_adapter_control(&watch, deadline)?;
     output_transfer_preflight(&outcome, budgets, owned_metadata, &watch, deadline)?;

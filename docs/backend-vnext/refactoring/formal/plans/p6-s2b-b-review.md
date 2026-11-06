@@ -1,6 +1,6 @@
 # P6 S2b B 独立审核
 
-状态：**正式任务单已核对，产品与验证待审**。2026-11-06。本报告不预写 B PASS，不把 A 的结果作为 B 验证。
+状态：**推进暂停 / B 未 GO**。2026-11-06。主协调已按先前明确的重复操作错误停止点，暂停 B 并交 Owner 决定后续角色安排。当前产品候选 `5621bd48531b7af465e878f1bc7f87f707a772a3` 仅含 API/preflight 骨架、catalog count 接线及已有 example 的 policy 修正；业务算法和最终验证未完成。本报告不将 A 的结果作为 B 验证。停止时的确切范围与待办见 §9。
 
 审核基线为 `10bf4b26e907bcd6ebe2e6b872b5d2bfd504199f`，只读 detached worktree 为 `/home/dev/gdds-test-tmp/s2b-b-review`，已建立 `legacy` 符号链接。开发主机只读源码与文档，未运行测试、编译或 lint；本报告在主工作区单独编辑。未操作 CT108 冻结资源，未创建额外 agent。
 
@@ -56,11 +56,11 @@ Catalog 必须显式保留过滤前的非空事实：现有 `_require_special_de
 
 ## 4. 验证与容器状态
 
-当前审核 HEAD：`10bf4b26e907bcd6ebe2e6b872b5d2bfd504199f`。本轮只有前置只读审核，无 B 产品变更，当前不触发重建；B 最终候选依任务单在 06 完成适用 Rust fmt/clippy/workspace/release、五 Python 包 Ruff/mypy、强制安装扩展并校验 Rust tree、focused 与必要当前 image native/health。由实施者统一执行，审核者独立读取日志、SHA、起止 HEAD 与镜像身份。
+当前审核产品 HEAD：`5621bd48531b7af465e878f1bc7f87f707a772a3`。B 最终候选的容器重建与 native/health 按正式任务单必须执行，当前因实现未完成而延期，未给 API 小步反复构建镜像。当前 HEAD 没有 B 容器结果、没有 carried。B 最终候选还需在 06 完成适用 Rust fmt/clippy/workspace/release、完整 architecture CLI、五 Python 包 Ruff/mypy、强制安装扩展并校验 Rust tree、focused 与必要当前 image native/health。由实施者统一执行，审核者独立读取日志、SHA、起止 HEAD 与镜像身份。
 
 最后已验证 image revision 是 A 的 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`：06 backend image ID `sha256:88665d846710bd26891acbba7fbcb516e57cfaf95edd3314af457e4a48d5b6a0`，对应 Rust source tree `5b222191f4689b0eb0a7c2a1123bb299efb13e9d`；准确 evidence 来源见 A 审核 §7。它不作为 B 通过、carried 或当前新增产品验证。A 最终依赖 base 为 d054，994c 仅是中间产物；B 是否复用取决于最终完整 input 与目标身份。
 
-B 当前 gate：**未运行**；carried：无。S2b 最终 04 全量 runner/container 与 t1–t4 正确性不被 B focused 取代。W1/W2、真实 FULL 峰值与生产 M 未知保持 unknown，不记录性能通过。
+B 最终 gate：**未运行**；early focused 的两次失败见 §8，carried：无。S2b 最终 04 全量 runner/container 与 t1–t4 正确性不被 B focused 取代。W1/W2、真实 FULL 峰值与生产 M 未知保持 unknown，不记录性能通过。
 
 ## 5. API 草案审核（待固定代码核实）
 
@@ -91,3 +91,44 @@ Rust 新 API 有显式 stage、固定 1024 diagnostics cap、borrowed/live/retur
 实际恢复随后已独立读取并核 SHA：CT201 source 实时日志 `/tmp/p6-s2b-b-source-main-ff2b19f427.log` 为 `a6b9e21e30f310620403a4e1a160c4bac1231b6c0e2a3bbdeae333452db6d7f7`，11:20:52–11:20:53 UTC，create/verify/list-heads/exit 均 0。来源脚本 SHA 为 `ac83213c5fb6a6eedbe376b160176c59ce7bef874c47bcae449db006e43e0c0d`，bundle SHA 为 `f02a6cf267bf9b1828c5e292f57ababd531da8595a4e39223c3c8f9c58b0a06f`。两个相同 end 时间字段仅为格式冗余，不重跑来源步骤。
 
 CT201 transfer 实时日志 `/tmp/p6-s2b-b-transfer-main-ff2b19f427.log` SHA 为 `52c208fc2d45279285cee3617fa1cda22337848208f347d2e3c3e0dd41902dd5`，11:23:55–11:23:56 UTC；scp 与远端 SHA 检查 exit 0。06 `/home/dev/gdds-test-tmp/logs/s2b-b-sync-9225.log` SHA 为 `2759050ad59c93b6959877aebe2424ad2225363f340434df2607063126aa2276`，11:24:40–11:24:41 UTC；bundle 三个 prerequisites 实际 verify 通过，target bundle SHA 相等、专用 ref 新建、固定 9225 detached worktree `/home/dev/gdds-test-tmp/wt/p6-s2b-b-impl-9225` clean 且 legacy 链接正确，全部命令及 script exit 0。A worktree 仍为 db776。传输时本机 main 已前进到文档提交 281b，但 bundle advertised ref 固定 ff2b、测试检出固定 9225，未混用 identity。此传输停止点闭合，仅允许继续原 focused 验证，未宣称产品通过。
+
+## 8. 早期 focused 记录
+
+06 `/home/dev/gdds-test-tmp/logs/s2b-b-early-focused-9225.log` 已独立读取并复算 SHA256 `6a6b43c4f454b57cba4e1ff4f56cd806f579ec522adb2bf7230bc87b99de4a61`。11:29:23 UTC 起止，HEAD 均为 9225/clean，Rust tree `46592e9cc1de7e181a7c6ff58fdf6b7b856e4db3`，Rust/cargo/rustfmt/clippy 均为仓库 1.97 工具链；offline、jobs 4、TMPDIR 与外置 target 明确。
+
+实际 `cargo fmt --all --check` exit 1，只有 `business_kernel.rs` 两处格式换行与 `lib.rs` module 顺序差异。脚本在这里停止，compile、architecture 与 Python tests 尚未执行；script exit 1，不记通过。实施者按实际 diff 修正，候选与复验随后记录；本审核未改产品，也未在开发主机运行格式检查。
+
+`75f2ddac93fc5b1b5cfb9f41dd7fb51dae421cbf` 已在 detached worktree 复审，恰为上述三个格式差异，无语义变化。其增量 source bundle 已生成并验证，来源实时日志 `/tmp/p6-s2b-b-source-main-75f2ddac93.log` SHA256 `5d28c20d47101215b613af4d27cae09e77cc5eedd89183e210b64931559ad3b9` 已独立核对；advertised ref 为 75f2、prerequisite 为 ff2b，11:31:53 UTC create/verify/list-heads/exit 均 0，bundle SHA256 `097f83f4a418f07b792f712c0a39063b20341b909531b4f24937a5718cae8f56`。
+
+该增量传输的实时日志 `/tmp/p6-s2b-b-transfer-main-75f2ddac93.log` SHA256 `e21d4765aa57561f4b1ef03bc9a9d8828bb269a16278eb3b082494ed031aa06b` 已读并核：11:33:34 UTC scp exit 0，随后 SHA 检查路径误写 `...75f2.bundle`，实际文件为 `...75f2ddac93.bundle`，因此检查及 script exit 1。目标脚本的 bundle 变量有同一错误，尚未执行。审核者只读核 06 正确路径的 bundle SHA 与来源相等，脚本 SHA `fbcd057a456f106a4ff643d9f3cb7f8a8810dccf4d10c43284cf894480dd4d3c` 也与来源相等；任务 ref 仍 ff2b、worktree 仍 9225，没有 fetch/checkout 或测试。
+
+主设计明确本次最小恢复 GO：保留原日志/脚本，新脚本使用正确 bundle 路径、新日志名，并在 checkout 前断言 porcelain 为空（原脚本只打印 status 与 unstaged diff，不足以拒绝 staged 改动）；不重建或重传已经正确的 bundle。审核者先核固定脚本再由实施者执行。主设计已明确，若本次再次出现同类人为 ID/路径错误，则停止并交 Owner，不无限循环。后续路径单一变量复用现有脚本，不建设同步框架。
+
+脚本静态复审在执行前发现新增 `merge-base` 检查被放到 fetch 之前，目标尚无新 commit，该检查已删；这是执行前修正，不虚构第三次实际失败。最终脚本 `/tmp/s2b-b-sync-target-75f2-corrected.sh` SHA256 `581e70e1f2376c7d6e5ee25b173f30ed9a6b9d06698450d31bc8b85de4447f74` 已独立核准。06 实际 `/home/dev/gdds-test-tmp/logs/s2b-b-sync-75f2-corrected.log` SHA256 `07cdb2772cc9efe861bffc85bdc411a6a81311d417bba982a3c29158f5126f23` 已独立读取、复算；11:39:29 UTC，固定脚本、bundle SHA、verify、fetch、checkout 与 script exit 均通过，worktree clean 并固定 75f2。该同步停止点已闭合，可继续原 focused。
+
+75f2 的实际 early focused 由 06 SSH 输出捕获到 CT201 `/tmp/s2b-b-early-focused-75f2-remote.log`，审核者已读并复算 SHA256 `1f2da23f501a363e70947f49b0d3792659cb9eccfab1df1cc4dfb3b43b4aafa0`：06 11:41:21–11:41:24 UTC，起止 75f2/clean，fmt exit 0；随后实际执行 `cargo run --locked --offline --package gateway-architecture-check --bin gateway-architecture-check -- --rust-workspace-root . --vnext-root ..`，因 `gateway-compute-core/examples/ordered_compare.rs` 首行缺 `#![forbid(unsafe_code)]` 而 exit 1。core tests、uv、pytest 均未开始；script exit 1。
+
+这是已存在的源码 policy 缺口：独立 diff 确认 A 产品 db776 到 75f2，该 example 与 guard 都未变；workspace 已继承 forbid unsafe。A 的实际证据为 fmt/clippy/workspace tests/release，其中 architecture unit test 的真实 workspace 检查只调用依赖边界，不能等同完整 CLI 的 `run_checks`，本审核不虚构 A 运行过且通过完整 CLI。主设计授权当前 main 仅补该 example 的首行，冻结 CT108 工作区与 guard 不动；此为真实 policy 修正，不是源码传输第三次操作错误。
+
+`5621bd48531b7af465e878f1bc7f87f707a772a3` 已在 detached worktree 复审，唯一 diff 是该首行属性与空行，无算法/运行时语义变化。可继续原 06 fmt/完整 guard/focused，结果待核。
+
+## 9. 停止点与后续交接
+
+5621 的 CT201 bundle 生成已成功，审核者仅在本机读取实际来源日志 `/tmp/p6-s2b-b-source-main-5621bd4853.log` 并复算 SHA256 `28df61e7b28d697764804ab6adcf9126933e34fbb8337f4eb729593b656f068d`：11:43:37 UTC，具名 main 为 5621、prerequisite 为 75f2，create/verify/list-heads/exit 均 0。bundle SHA256 `92adc55e3b0c55082c64571e0be02cce43c6a060f351a6966283dcd97ba5b29a` 同样独立核实。此操作从已提交 Git 对象生成 bundle，不包含当时 dirty 的本审核文档，也不是开发机运行产品测试。
+
+随后实施者报告：本地生成 5621 目标同步脚本时，多处相同 75f2 完整值导致替换断言未命中，脚本没有生成，后续 chmod/bash/hash/diff 报文件不存在；没有 SSH/scp/fetch、工作区或节点测试操作。这一失败的原输出保存在实施工具记录，本审核不把消息摘要冒充独立读取的实时捕获日志。它再次触及主协调已明确的同类操作错误停止边界；主协调已暂停 B 并向 Owner 说明角色调整决定待定。审核者没有批准又一次恢复，没有继续节点操作，没有创建新 agent。
+
+停止时范围：
+
+| 项目 | 准确状态 |
+| --- | --- |
+| 当前产品 | `5621bd48531b7af465e878f1bc7f87f707a772a3`；前序 API/catalog `633e599cbc`、行数绑定字段 `9225f78883`、格式 `75f2ddac93`、example 首行 policy 修正 `5621bd4853` 均已静态复审。 |
+| 已实现 | `business_kernel.rs` 公共 budgets/control/input/plan/output/outcome 类型与初始 `preflight_table_input`；必填 `source_device_row_count`、旧 Python extractor/factories/binder 接线与一个 filtered-nonempty 测试；没有三项业务操作实现。 |
+| 06 最后实际状态 | 最后独立核实工作区 `/home/dev/gdds-test-tmp/wt/p6-s2b-b-impl-9225` 为 clean 75f2，专用 source ref 也为 75f2。最后实际执行的 early focused 在完整 architecture CLI 失败，未进入 core tests/uv/pytest。5621 尚无节点运行证据；暂停后未再查询节点。 |
+| 已有运行结果 | 9225 fmt exit 1；75f2 fmt exit 0、完整 architecture CLI exit 1。两次日志已独立读取、核 SHA，不能称 B 通过。 |
+| 尚无证据 | B core 算法/adapter 行为、完整 schema diagnostics、运行中控制/预算、workspace/clippy/release、五 Python 静态、重装扩展及 build-input、B 当前镜像 native/health 均未完成或未运行。 |
+| 保留资源 | 现有 06 B worktree、专用 ref、外置 bundle/脚本/日志留给后续接手；A 工作区/镜像与 CT108 冻结资源未在本次审核中修改。 |
+
+后续必须完成：SQL cell/row framing、duplicate 与 raw-content facts；device/point Arrow 完整验证过滤及 composite 例外；canonical keyed/keyless/ordered projection、actual source-row-count 比对、规范化/排序/hash 与 A IPC；真实 C Stream adapter 的复制前 metadata preflight、资源/控制与错误映射；既定独立向量/差分及最终 06 验证和 handoff。现有完整清单见 §3，不因停止而增加矩阵，也不漏掉 C–E 的 repository-ref/import-replay/export/恢复消费者。
+
+本轮审核在提交此记录后结束，独立审核身份保留；是否继续由当前审核者复审后续 B，等待 Owner/主协调明确安排。B 未 GO，C 的实施启动不得引用本报告为 B 完成证据。

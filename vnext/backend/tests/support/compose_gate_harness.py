@@ -909,7 +909,9 @@ def oracle_history_compare_digest_from_materialize_checkpoint(
     *,
     before_commit: str,
     current_commit: str,
+    repository_id: str,
 ) -> str:
+    """Check integration consistency through the existing comparison owner, not a golden."""
     materialize_step_id = f"{operation_id}-step-1"
     script = f"""
 import json, sqlite3
@@ -923,10 +925,15 @@ from gateway_backend.artifacts.serialize import artifact_ref_from_dict
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
 from gateway_backend.operations.worker import ExecutionControl
+from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope, NeverCancel,
+)
 
 step_id = "{materialize_step_id}"
 before_commit = "{before_commit}"
 current_commit = "{current_commit}"
+repository_id = {repository_id!r}
 conn = sqlite3.connect("/var/lib/gateway/control/control.sqlite3")
 row = conn.execute(
     "SELECT checkpoint_ref FROM step_records WHERE step_id = ?",
@@ -935,21 +942,26 @@ row = conn.execute(
 if row is None or row[0] is None:
     raise RuntimeError(f"missing checkpoint for {{step_id}}")
 checkpoint = json.loads(row[0].decode("utf-8") if isinstance(row[0], bytes) else row[0])
-store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
-ref = artifact_ref_from_dict(checkpoint)
-envelope = load_checkpoint_envelope(store, ref)
-job_state = envelope.job_state
-sides = _sides_from_materialize_checkpoint(job_state, store)
-result = _run_pair_pipeline(
-    pair_id="pair-0",
-    before=sides[before_commit],
-    current=sides[current_commit],
-    rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
-    store=store,
-    control=ExecutionControl(),
-    on_cancel=lambda: None,
-)
-print(result.comparison_digest)
+initialize_compute_kernel(1)
+with kernel_execution_scope(
+    KernelExecutionContext(OperationMemoryBudget(8589934592), NeverCancel(), 1),
+    new_operation=True,
+):
+    store = LocalArtifactStore(Path("/var/lib/gateway/artifacts"))
+    ref = artifact_ref_from_dict(checkpoint)
+    envelope = load_checkpoint_envelope(store, ref)
+    job_state = envelope.job_state
+    sides = _sides_from_materialize_checkpoint(job_state, store, repository_id=repository_id)
+    result = _run_pair_pipeline(
+        pair_id="pair-0",
+        before=sides[before_commit],
+        current=sides[current_commit],
+        rule_set=comparison_rule_set(migrated_table_ruleset_snapshot()),
+        store=store,
+        control=ExecutionControl(),
+        on_cancel=lambda: None,
+    )
+    print(result.comparison_digest)
 """
     result = run_compose(env, "exec", "-T", "backend", "python", "-c", script)
     if result.returncode != 0:

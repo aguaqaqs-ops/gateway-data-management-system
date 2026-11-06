@@ -30,7 +30,7 @@ from gateway_backend.capabilities.comparison import (
     FailedResult,
     compare_plan,
     plan_comparison,
-    publish_records_closure,
+    publish_records_closure, RecordsPublicationContext,
 )
 from gateway_backend.capabilities.risk_evaluation.contracts import RiskEvaluation
 from gateway_backend.capabilities.risk_evaluation import (
@@ -58,7 +58,6 @@ from gateway_backend.capabilities.table_rules.contracts import (
     ComparisonRuleSet,
 )
 from gateway_backend.capabilities.table_access import current_kernel_context
-from gateway_backend.capabilities.comparison.artifacts import RecordsPublicationContext
 from gateway_backend.operations.worker import ExecutionControl
 
 PREVIEW_DEFAULT_VIEW_ID = "initial_to_modified"

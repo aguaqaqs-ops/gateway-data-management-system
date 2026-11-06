@@ -1620,6 +1620,8 @@ def _build_prepare_import_build_input(
             parent_table_names=parent_table_names,
             snapshot_tables=snapshot_tables,
         )
+    except CheckpointPublicationError as exc:
+        raise SubmitImportPublicationError("frozen canonical input is unavailable or corrupt: " + str(exc)) from exc
     except SubmitImportBuilderError as exc:
         raise SubmitImportPublicationError(str(exc)) from exc
     return PrepareImportBuildInput(

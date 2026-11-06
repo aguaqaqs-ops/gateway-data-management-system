@@ -18,7 +18,7 @@ from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.artifacts.store import ArtifactBufferStorePort
-from gateway_backend.application.kernel_execution import reserved_artifact_bytes, stage_operation_source
+from gateway_backend.application.kernel_execution import reserved_artifact_bytes, stage_operation_source, assemble_operation_bundle as assemble_bundle
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.application.canonical_metadata.ports import (
@@ -84,7 +84,6 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundleRefScope,
     BundleTableBinding,
     BundleTableSide,
-    assemble_bundle,
     collect_surface_refs,
 )
 from gateway_backend.capabilities.composite_signal.contracts import (

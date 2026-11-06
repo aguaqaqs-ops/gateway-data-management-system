@@ -6,6 +6,9 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 
+from gateway_backend.capabilities.bundle_assembly import (
+    BundleAssemblyInput, BundleAssemblyContext, BundleAssemblyResult, assemble_bundle,
+)
 from gateway_backend.artifacts.store import ArtifactStorePort
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.source_package_staging import (
@@ -151,3 +154,33 @@ def publish_generic_stopped_compute_cancelled(session: LeaseSession) -> Executor
         return terminal_step, terminal_operation
     session.publish_operation(builder)
     return ExecutorAcknowledgment.PUBLISHED
+
+
+def assemble_operation_bundle(
+    request: BundleAssemblyInput, *, source_store: ArtifactStorePort, context: BundleAssemblyContext,
+) -> BundleAssemblyResult:
+    kernel = current_kernel_context()
+    if kernel is None:
+        raise ValueError("bundle publication requires an operation kernel context")
+    kernel.checkpoint()
+    # All closure bytes coexist in planned/generated. Binary files are copied,
+    # never decompressed: planned bytes + integrity/closure readback + publication
+    # overlap. JSON additionally keeps old/new decoded objects, escaped Unicode,
+    # canonical bytes and rewritten refs. Per-binding/path metadata also covers
+    # generated surface/manifest/closure documents and the returned bundle refs.
+    upper = 1024**2
+    closures = (request.shared_artifacts, *(pair.surface_artifact_closure for pair in request.pairs))
+    for closure in closures:
+        for binding in closure.entries:
+            ref = binding.source_ref
+            upper += ref.size_bytes * (64 if "json" in ref.media_type.casefold() else 4)
+            upper += 32768 + 64 * (len(binding.logical_path) + len(ref.artifact_id) + len(ref.media_type))
+            upper += sum(8192 + 64 * (len(item.pair_id) + len(item.table_name)) for item in binding.table_bindings)
+    kernel.memory.record_stage_admission("bundle-publication-staging", upper)
+    kernel.resources.enter_context(kernel.memory.reserve(upper))
+    def checkpoint() -> None:
+        context.checkpoint()  # Existing fresh lease/cancel read.
+        kernel.checkpoint()  # Real drain/loss and optional caller deadline.
+    result = assemble_bundle(request, source_store=source_store, context=replace(context, checkpoint=checkpoint))
+    kernel.checkpoint()
+    return result

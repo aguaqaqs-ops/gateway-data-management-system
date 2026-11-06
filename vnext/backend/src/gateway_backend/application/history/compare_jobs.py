@@ -63,6 +63,7 @@ from gateway_backend.application.preview_jobs import (
     _storage_facts_to_documents,
     surface_artifact_closure,
 )
+from gateway_backend.application.kernel_execution import assemble_operation_bundle as assemble_bundle
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
@@ -77,7 +78,6 @@ from gateway_backend.capabilities.bundle_assembly import (
     BundlePairInput,
     BundleProfile,
     BundleRefScope,
-    assemble_bundle,
 )
 from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot

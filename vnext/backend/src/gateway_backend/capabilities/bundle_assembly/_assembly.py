@@ -281,6 +281,8 @@ def assemble_bundle(
             status=BundleAssemblyStatus.CANCELLED,
             diagnostics=("BUNDLE_ASSEMBLY_CANCELLED",),
         )
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except Exception as exc:
         return BundleAssemblyResult(
             status=BundleAssemblyStatus.FAILED,
@@ -570,6 +572,8 @@ def _plan_artifacts(
         checkpoint()
         try:
             raw = store.locate(source_ref)
+        except (InterruptedError, TimeoutError, MemoryError):
+            raise
         except Exception as exc:
             raise BundleAssemblyError("SOURCE_ARTIFACT_NOT_FOUND") from exc
         _verify_store_bytes(store, source_ref, raw)
@@ -690,6 +694,8 @@ def _is_json_ref_bearing(ref: ArtifactRef) -> bool:
 def _json_object(raw: bytes, label: str) -> dict[str, object]:
     try:
         value = json.loads(raw)
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except Exception as exc:
         raise BundleAssemblyError(f"{label}_NOT_JSON") from exc
     if type(value) is not dict or any(type(key) is not str for key in value):
@@ -700,6 +706,8 @@ def _json_object(raw: bytes, label: str) -> dict[str, object]:
 def _json_object_or_value(raw: bytes) -> object:
     try:
         return json.loads(raw)
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except Exception as exc:
         raise BundleAssemblyError("JSON_ARTIFACT_NOT_JSON") from exc
 
@@ -717,6 +725,8 @@ def _embedded_refs(value: object) -> tuple[ArtifactRef, ...]:
         if set(value) == {"artifact_id", "media_type", "size_bytes", "raw_sha256"}:
             try:
                 found.append(artifact_ref_from_dict(value))
+            except (InterruptedError, TimeoutError, MemoryError):
+                raise
             except Exception as exc:
                 raise BundleAssemblyError("EMBEDDED_ARTIFACT_REF_INVALID") from exc
             return tuple(found)
@@ -842,6 +852,8 @@ def _entries_from_document(document: dict[str, object]) -> tuple[BundleClosureEn
                     table_bindings=tuple(table_bindings),
                 )
             )
+        except (InterruptedError, TimeoutError, MemoryError):
+            raise
         except Exception as exc:
             raise BundleAssemblyError("BUNDLE_CLOSURE_ENTRY_INVALID") from exc
     return tuple(result)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import struct
 import time
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from typing import Any, cast
 
 import pyarrow as pa
@@ -169,12 +170,51 @@ def _payload_value(column: ArrowMetadata, value: Any) -> Any:
 
 
 def catalog_from_arrow_result(
+    result: KernelResult, *, budgets: KernelBudgets, cancel_probe: CancelProbe,
+    deadline_monotonic: float | None,
+) -> SpecialDeviceCatalog:
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("filtered catalog facts require an operation kernel context")
+    backings: list[pa.Table] = []
+    converted: list[ArrowMetadata] = []
+    with ExitStack() as temporary:
+        def reserve(size: int) -> None:
+            temporary.enter_context(context.memory.reserve(size))
+        output = result["output"]
+        try:
+            if output is not None:
+                # Retain every filtered output buffer before allocating Python
+                # facts, including batches the converter has not consumed yet.
+                for metadata in output["tables"]:
+                    with metadata["arrow_stream"] as stream:
+                        backing = stream.read_all()
+                    temporary.enter_context(context.memory.retain_arrow(backing))
+                    backings.append(backing)
+                    converted.append({**metadata, "arrow_stream": backing.to_reader()})
+                if backings:
+                    del backing
+                result = {**result, "output": {**output, "tables": converted}}
+            catalog, upper = _convert_catalog_from_arrow_result(result, budgets=budgets,
+                cancel_probe=cancel_probe, deadline_monotonic=deadline_monotonic, reserve=reserve)
+        finally:
+            for metadata in converted:
+                metadata["arrow_stream"].close()
+            converted.clear()
+            backings.clear()
+    # The returned facts outlive this converter and may accompany XML/composite
+    # structures. Keep their own SQL-derived envelope until the operation ends.
+    context.memory.retain_metadata(catalog, upper)
+    return catalog
+
+
+def _convert_catalog_from_arrow_result(
     result: KernelResult,
     *,
     budgets: KernelBudgets,
     cancel_probe: CancelProbe,
-    deadline_monotonic: float | None,
-) -> SpecialDeviceCatalog:
+    deadline_monotonic: float | None, reserve: Callable[[int], None],
+) -> tuple[SpecialDeviceCatalog, int]:
     """The existing composite exception: only filtered catalog rows cross back."""
     output = result["output"]
     if output is None:
@@ -187,6 +227,7 @@ def catalog_from_arrow_result(
     devices: list[SpecialDevice] = []
     points: list[SpecialPointFact] = []
     live = 256
+    reserve(live)
     def checkpoint() -> None:
         if cancel_probe.is_set():
             raise InterruptedError("composite facts conversion cancelled")
@@ -208,6 +249,7 @@ def catalog_from_arrow_result(
                 live += extra
                 if live > budgets["max_live_bytes"] or live > budgets["max_output_bytes"]:
                     raise MemoryError("filtered composite facts exceed business budget")
+                reserve(extra)
                 for row in range(batch.num_rows):
                     checkpoint()
                     if metadata["canonical_name"] == DEVICE_TABLE:
@@ -244,4 +286,4 @@ def catalog_from_arrow_result(
         devices=tuple(devices),
         points=tuple(points),
         source_device_row_count=output["source_device_row_count"],
-    )
+    ), live

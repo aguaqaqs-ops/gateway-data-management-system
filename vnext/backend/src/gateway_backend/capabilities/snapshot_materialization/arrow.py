@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from typing import Any
 
 import pyarrow as pa
@@ -15,10 +15,13 @@ from gateway_backend.capabilities.snapshot_materialization.batch import schema_w
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     ROW_MATERIALIZATION_PROFILE, DegradedReason, DiagnosticSeverity,
     MaterializationDiagnostic, MaterializationDiagnosticCode, MaterializationStage,
-    SnapshotColumnDescriptor, SnapshotTable, SnapshotTableBatchMetadata,
+    SnapshotColumnDescriptor, SnapshotTable, SnapshotTableBatchMetadata, SnapshotMaterializationResult,
     SnapshotTableDescriptor, SnapshotTableOrderedMetadata, BlankRowProvenance,
 )
-from gateway_backend.capabilities.snapshot_materialization.native import materialize_arrow_table
+from gateway_backend.capabilities.composite_signal.contracts import SpecialDeviceCatalog
+from gateway_backend.capabilities.snapshot_materialization.native import (
+    materialize_arrow_table, filter_arrow_catalog, catalog_from_arrow_result,
+)
 from gateway_backend.capabilities.table_access import (
     ArrowSourceTableReader, current_kernel_context, source_arrow_metadata,
     source_descriptor_from_arrow,
@@ -238,3 +241,29 @@ def snapshot_arrow_input(table: SnapshotTable) -> Iterator[tuple[dict[str, Any],
         if retained is not None:
             retained.close()
         isolated.close()
+
+
+def extract_arrow_special_device_catalog(result: SnapshotMaterializationResult) -> SpecialDeviceCatalog:
+    """Filter ordinary Arrow tables in B; materialize only composite facts in Python."""
+    from gateway_backend.capabilities.composite_signal.contracts import DEVICE_TABLE, SPECIAL_POINT_TABLES
+    context = current_kernel_context()
+    if context is None or result.summary is None or result.table_set is None:
+        raise ValueError("catalog filtering requires a complete operation SQL summary")
+    tables = {table.descriptor.table_name: table for table in result.table_set.tables}
+    failed = {table.table_name for table in result.summary.tables if table.degraded_reason is DegradedReason.TABLE_FAILED}
+    with ExitStack() as readers:
+        metadata = {}
+        control = context
+        for name in (DEVICE_TABLE, *SPECIAL_POINT_TABLES):
+            if name in failed:
+                metadata[name] = {"canonical_name": name, "reader_ready": False}
+                continue
+            table = tables.get(name)
+            if table is not None:
+                item, control = readers.enter_context(snapshot_arrow_input(table))
+                metadata[name] = item
+        budgets = operation_business_budgets()
+        filtered = filter_arrow_catalog(metadata, cancel_probe=control.cancel_probe, budgets=budgets,
+            deadline_monotonic=control.deadline_monotonic, pool_threads=control.threads)
+        return catalog_from_arrow_result(filtered, budgets=budgets, cancel_probe=control.cancel_probe,
+            deadline_monotonic=control.deadline_monotonic)

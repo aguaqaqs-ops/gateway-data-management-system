@@ -375,3 +375,17 @@ def test_native_business_control_is_observed_while_the_gil_is_released(mode: str
         _sql_materialize_native([{**table, "arrow_stream": reader}], {"stage": "FINAL", "effective_compare_key_columns": []}, probe, _BUDGETS, deadline)
     if mode != "deadline":
         assert probe.count > 1
+
+
+def test_filtered_catalog_facts_reserve_shared_operation_memory_before_conversion() -> None:
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, KernelMemoryLimit, kernel_execution_scope,
+    )
+    sql = "CREATE TABLE device (gid BIGINT, dev_addr INT, description TEXT); INSERT INTO device VALUES (1,65532,'special');"
+    result = filter_arrow_catalog({table["canonical_name"]: table for table in _tables(sql)},
+        cancel_probe=NeverCancel(), budgets=_BUDGETS, deadline_monotonic=None, pool_threads=1)
+    context = KernelExecutionContext(OperationMemoryBudget(5000), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        with pytest.raises(KernelMemoryLimit):
+            catalog_from_arrow_result(result, budgets=_BUDGETS, cancel_probe=NeverCancel(), deadline_monotonic=None)
+        assert context.memory.used_bytes == 0

@@ -18,14 +18,14 @@
 
 节点补充（DC82，2026-11-06）：owner 新增 06 作为后端日常开发测试节点，07 作为前端 mock 开发测试节点。06 的 Rust、Contract/focused 与小规模 Compose 可按本地占用自主进行；04/06/07 同宿主且 Owner 确认日常资源宽裕。节点就绪见[核对报告](p6-node-06-07-readiness.md)。06 不承接权威全量 runner、正式性能测量或默认全旅程；不操作 CT108 冻结 worktree、tag、inputs、volume 或 evidence。
 
-S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核。容量输入第一小步完成，M 数值与 worker memory envelope 尚留给 DC84 指定的实现后测量门。独立审核和 Owner kickoff 确认已完成，A 节按 DC85 交付并通过独立审核。DC81 下基准未交付的 DC63 子段不是所有功能开工前置；未测条目保持 unknown。W1/W2/W3 时点按 DC84/DC83 和本节 §6 明列，t1–t4 正确性端到端仍是 S2b 退出内容。
+S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核。C 已完成组件容量校准，DC87 已确定显式 M 与 worker memory envelope，D 继续真实 worker 验收。独立审核和 Owner kickoff 确认已完成，A 节按 DC85 交付并通过独立审核。DC81 下基准未交付的 DC63 子段不是所有功能开工前置；未测条目保持 unknown。W1/W2/W3 时点按 DC84/DC83 和本节 §6 明列，t1–t4 正确性端到端仍是 S2b 退出内容。
 
 | 输入 | 本次结果 | 剩余闭合点 |
 | --- | --- | --- |
 | 上传、历史、恢复消费者 | §2 已列保留/替换/删除边界及权威测试 owner；FULL 两侧与精确 commit 读取纳入 | 实施时按每个真实 consumer 切换；不得整文件盲删 |
-| Arrow 映射 | profile、metadata 键、canonical 列序、null/offset 规范及独立向量来源见映射设计 | 技术审核后纳入 Owner kickoff 确认 |
-| 容量输入 | 06 的 t1 + 两行类型 fixture 结果见容量报告；仅 raw parser buffers | Writer/FULL 实测与 M 定值按 DC84 分阶段；当前没有 IPC/RSS/M 结论 |
-| N/M 与 worker | §5 给出 N 配置候选、M 接口和缺口、共享池 startup 与真实取消链 | M 数值在 worker wiring 前定；startup/cancellation 由后续 worker slice 验证 |
+| Arrow 映射 | profile、metadata 键、canonical 列序、null/offset 规范及独立向量来源见映射设计；A 已交付并独立 GO | D 接真实消费者，E 完成覆盖移交 |
+| 容量输入 | [C 容量报告](p6-s2b-c-capacity-calibration.md)已记录真实 t1/t4 B/A/store 双侧与独立 XML/AST/composite 校准；DC87 已选 A | D 复核真实 worker 峰值、同时预约与拒绝；组件结果不冒充 production capacity PASS |
+| N/M 与 worker | DC87：N=1、单 active、12 GiB envelope/4 GiB reserve/显式 M=8 GiB | D 完成 startup、真实 control 及增长前资源拒绝；无隐式 M 默认 |
 | DC63 子段 | §4 保持 pending/unknown，不以 step 总时长替代 | 原基准线交付后更新，不挡首个 mapping/kernel slice |
 | W1/W2/W3 与正确性 | §6 明列各自时点；t1–t4 正确性不可省略 | CT108 计时按独占窗口，正确性按节点职责；预约或等窗口，不暗中豁免 |
 

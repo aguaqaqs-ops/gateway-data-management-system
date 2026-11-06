@@ -16,12 +16,12 @@ from gateway_backend.artifacts import (
     raw_sha256_from_bytes,
 )
 
-EXAMPLE_ARTIFACT_ID = "canonical-row-hash-example-0001"
-EXAMPLE_MEDIA_TYPE = "application/vnd.apache.arrow.stream"
+EXAMPLE_ARTIFACT_ID = "opaque-example-0001"
+EXAMPLE_MEDIA_TYPE = "application/octet-stream"
 EXAMPLE_RAW_SHA256 = "sha256:" + "a" * 64
 EXAMPLE_JCS = (
-    '{"artifact_id":"canonical-row-hash-example-0001",'
-    '"media_type":"application/vnd.apache.arrow.stream",'
+    '{"artifact_id":"opaque-example-0001",'
+    '"media_type":"application/octet-stream",'
     f'"raw_sha256":"{EXAMPLE_RAW_SHA256}",'
     '"size_bytes":3}'
 )

@@ -87,20 +87,18 @@ linked worktree 里先建 `legacy` 符号链接（`ln -s /home/dev/gateway-data-
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --locked --offline --all-targets -- -D warnings
-cargo test --workspace --locked --offline --exclude gateway-compute-python --exclude gateway-compute-python-impl
+cargo test --workspace --locked --offline
 ```
 
-- **S2a 之前的排除**：旧扩展的 `gateway-compute-python`（`tests/adapter_errors.rs`）与
-  `gateway-compute-python-impl`（`kernel_component_tests`）的测试在 Rust 中嵌入 Python 解释器，并从
-  `backend/.venv/lib/python3.14/site-packages` 导入 pyarrow；PyO3 默认选中系统 Python 3.13 时失败。两者随旧扩展在
-  S2a 删除（DC52），届时去掉排除；owner 2026-10-25 确认 impl 一并排除。clippy 与 fmt 仍覆盖全部 crate。新扩展需要
-  Python 解释器的测试用 pytest 测已安装的扩展，不在 Rust 中嵌入解释器（DC48）。
+- **S2a 后的 workspace**：旧嵌入 Python 的 adapter tests 与 `gateway-compute-python-impl` 已删除（DC52）；
+  `gateway-compute-python` 复用为新 parser adapter，`cargo test` 不再排除 crate。新扩展需要 Python/Arrow 的行为
+  由 backend pytest 测已安装扩展，不在 Rust 用例中嵌入解释器；clippy 与 fmt 覆盖全部 crate。
 - **离线**：cargo 以 `--locked --offline` 运行，crate 缓存在 `CARGO_HOME`（固定环境下为 `/root/.cargo`）。
 - **`CARGO_TARGET_DIR`**：固定为 worktree 外的 `<TMPDIR>/gateway-runner-cargo-target`（`TMPDIR` 未设置或为空时为
   `/tmp`）。它是构建缓存，不是测试输入，不进闭包。选中 `rust` 或 backend 时，runner 在使用前删除残留、退出时
   （包括失败与可捕获的中断）删除，因此每次门禁都从空目录完整构建（节点 05 实测：空目录下 `rust` 包三步合计约
   26 s，backend 同步中扩展的 release 构建约 27 s）；runner 不再向 worktree 的 `vnext/rust/target` 写入。
-- **`PYO3_PYTHON`**：排除旧扩展的测试之后，`cargo test` 中没有 crate 嵌入 Python，runner 不设置 `PYO3_PYTHON`。
+- **`PYO3_PYTHON`**：删除旧嵌入解释器的测试之后，`cargo test` 中没有 crate 嵌入 Python，runner 不设置 `PYO3_PYTHON`。
   clippy 仍会运行 PyO3 的构建脚本，它按 `PYO3_PYTHON`、`VIRTUAL_ENV`、`CONDA_PREFIX`、PATH 上的 `python3` 的顺序选择
   解释器；闭包记录 `PYO3_PYTHON` 的值与所选解释器的 `-VV`。今后若有 crate 需要嵌入解释器，通过 `PYO3_PYTHON`
   显式指定，不依赖系统 `python3`。
@@ -112,10 +110,10 @@ uv 默认只在扩展的 `pyproject.toml` 等文件变化时重建路径依赖�
 
 - **强制重装（DC48 3.2 的 B 方案）**：runner 同步 backend 时始终使用
   `uv-consume.sh -C . sync --reinstall-package gateway-compute-python`，`CARGO_TARGET_DIR` 同上。选 B 而不选
-  `tool.uv.cache-keys`（A）的理由：B 不依赖文件 mtime，也不需要维护与 crate 依赖图同步的 glob 列表；与
-  `native_kernel_component.sh` 的写法一致；代价只是每次门禁重建一次扩展。A 经实测同样可用，未采用。
+  `tool.uv.cache-keys`（A）的理由：B 不依赖文件 mtime，也不需要维护与 crate 依赖图同步的 glob 列表；
+  代价只是每次门禁重建一次扩展。A 经实测同样可用，未采用。
 - **构建输入一致性检查**：runner 以 `GATEWAY_RUST_BUILD_INPUT=<HEAD:vnext/rust 的 Git tree id>` 构建扩展，扩展在编译时用
-  `option_env!` 嵌入该值，暴露为 `gateway_compute.gateway_compute.__build_input__`（未设置时为空串，镜像构建即如此）。
+  `option_env!` 嵌入该值，暴露为 `gateway_compute._native.__build_input__`（未设置时为空串，镜像构建即如此）。
   同步后 `vnext/scripts/check-rust-extension-build-input.sh` 读取已安装扩展的值并与当前提交比较，不一致、为空或无法导入时
   backend 失败，runner 在 manifest 之前以 exit 1 停止。该变量只传给 backend 的同步命令，不导出到 manifest 与 pytest 的环境。
   cargo 跟踪 `option_env!` 读取的变量，值变化时重新编译所在 crate。此机制对任何以 maturin 路径依赖装入 backend 的扩展都成立，

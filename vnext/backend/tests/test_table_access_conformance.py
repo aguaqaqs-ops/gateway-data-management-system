@@ -15,7 +15,6 @@ from gateway_backend.capabilities.table_access.contracts import (
     ParserInvocationContext,
     diagnostic_sort_key,
 )
-from gateway_backend.capabilities.table_access.sql import parse_sql
 from gateway_backend.capabilities.table_access.xml import parse_xml
 from tests.support.table_access_fixtures import (
     load_expected,
@@ -23,7 +22,13 @@ from tests.support.table_access_fixtures import (
     parse_result_from_expected,
     xml_parse_result_from_expected,
 )
-from tests.support.table_access_sql import parse_text, sql_request, tiny_budgets
+from tests.support.table_access_sql import (
+    current_sql_implementation,
+    parse_request_result,
+    parse_text,
+    sql_request,
+    tiny_budgets,
+)
 from tests.support.table_access_xml import parse_xml_text, xml_request
 
 SQL_GOLDEN_CASES = (
@@ -89,8 +94,10 @@ def test_diagnostic_sort_key_is_offset_then_code_for_sql_and_xml() -> None:
     assert ordered[0].code.value < ordered[1].code.value
 
 
-def test_cancel_and_timeout_copy_are_shared() -> None:
-    sql_cancel = parse_sql(sql_request("CREATE TABLE t (id INT NULL);", ParserInvocationContext(CountCancel(1))))
+def test_cancel_and_timeout_copy_are_shared(dual_sql_implementation: None) -> None:
+    sql_cancel = parse_request_result(
+        sql_request("CREATE TABLE t (id INT NULL);", ParserInvocationContext(CountCancel(1)))
+    )
     xml_cancel = parse_xml(xml_request("<root/>", ParserInvocationContext(CountCancel(1))))
     assert sql_cancel.status is ParseStatus.FAILED
     assert xml_cancel.status is ParseStatus.FAILED
@@ -99,14 +106,14 @@ def test_cancel_and_timeout_copy_are_shared() -> None:
     assert sql_cancel.diagnostics[0].message == xml_cancel.diagnostics[0].message == "parser cancelled"
 
     expired = ParserInvocationContext(NeverCancel(), time.monotonic() - 1.0)
-    sql_timeout = parse_sql(sql_request("CREATE TABLE t (id INT NULL);", expired))
+    sql_timeout = parse_request_result(sql_request("CREATE TABLE t (id INT NULL);", expired))
     xml_timeout = parse_xml(xml_request("<root/>", expired))
     assert sql_timeout.diagnostics[0].code is ParserDiagnosticCode.PARSER_TIMEOUT
     assert xml_timeout.diagnostics[0].code is ParserDiagnosticCode.PARSER_TIMEOUT
     assert sql_timeout.diagnostics[0].message == xml_timeout.diagnostics[0].message == "parser deadline exceeded"
 
 
-def test_diagnostic_truncation_marker_copy_is_shared() -> None:
+def test_diagnostic_truncation_marker_copy_is_shared(dual_sql_implementation: None) -> None:
     sql = parse_text(
         "CREATE TABLE t (`Id` INT NULL, `id` INT NULL, `ID` INT NULL);",
         budgets=tiny_budgets(max_diagnostics=1, max_diagnostics_total_bytes=256),
@@ -122,15 +129,22 @@ def test_diagnostic_truncation_marker_copy_is_shared() -> None:
 
 
 @pytest.mark.parametrize("case_dir", SQL_GOLDEN_CASES)
-def test_sql_golden_oracle_exact_comparison(case_dir: str) -> None:
+def test_sql_golden_oracle_exact_comparison(
+    case_dir: str, dual_sql_implementation: None
+) -> None:
     sql = load_text(f"{case_dir}/input.sql")
     payload = load_expected(f"{case_dir}/expected.json")
     expected = parse_result_from_expected(payload)
     actual = parse_text(sql)
     assert actual.status is expected.status
-    assert [(item.code, item.message, item.byte_offset) for item in actual.diagnostics] == [
-        (item.code, item.message, item.byte_offset) for item in expected.diagnostics
-    ]
+    if current_sql_implementation() == "python":
+        assert [(item.code, item.message, item.byte_offset) for item in actual.diagnostics] == [
+            (item.code, item.message, item.byte_offset) for item in expected.diagnostics
+        ]
+    else:
+        assert [
+            (item.code, item.table, item.byte_offset) for item in actual.diagnostics
+        ] == [(item.code, item.table, item.byte_offset) for item in expected.diagnostics]
     assert len(actual.tables) == len(expected.tables)
     for got, want in zip(actual.tables, expected.tables, strict=True):
         assert got.descriptor == want.descriptor

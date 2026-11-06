@@ -1,6 +1,6 @@
 //! Table Access kernel: SQL dump scanning and INSERT value parsing.
 //!
-//! Phase 6 V6 prototype. Semantics follow the Python reference
+//! Semantics follow the Python reference
 //! `gateway_backend.capabilities.table_access.sql.parse_sql`:
 //!
 //! 1. Phase A (sequential): find statement boundaries (quotes, escapes,
@@ -13,8 +13,8 @@
 //!    chunk size.
 //!
 //! The core never touches the file system; callers pass the dump bytes and a
-//! caller-owned, fixed-size Rayon pool. Full diagnostics fidelity (messages,
-//! every table diagnostic, budget offsets) is left to the S2a parser.
+//! caller-owned, fixed-size Rayon pool. Diagnostics are bounded and merged in
+//! source order so chunk size and worker count do not change observable output.
 
 mod canonical;
 mod columns;
@@ -39,14 +39,14 @@ use rayon::prelude::*;
 
 pub use canonical::{PARSE_CANONICAL_FORMAT, PARSE_CANONICAL_VERSION, encode_parse_canonical};
 pub use errors::{ParserDiagnostic, ParserDiagnosticCode};
-pub use model::{ColumnDescriptor, SqlLogicalType, TableDescriptor};
+pub use model::{ColumnDescriptor, DeclaredTypeMetadata, SqlLogicalType, TableDescriptor};
 
 use cursor::Cursor;
 use errors::Fault;
 use model::ColumnPlan;
 use scan::Scanner;
 use statements::{Catalog, InsertJob, StatementKind, TableBuild};
-use values::{ChunkContext, ChunkOutcome, ChunkSpec, DocErrorKind};
+use values::{ChunkContext, ChunkOutcome, ChunkSpec, DocErrorKind, TableErrorKind};
 
 /// Upper bound for the parser thread pool (DC47: fixed, bounded fan-out).
 pub const MAX_PARSER_THREADS: usize = 256;
@@ -66,6 +66,9 @@ pub struct ParserBudgets {
     pub max_field_bytes: usize,
     pub max_insert_tuple_bytes: usize,
     pub max_enum_set_sql_type_bytes: usize,
+    pub max_diagnostics: usize,
+    pub max_diagnostic_message_bytes: usize,
+    pub max_diagnostics_total_bytes: usize,
 }
 
 impl Default for ParserBudgets {
@@ -82,6 +85,9 @@ impl Default for ParserBudgets {
             max_field_bytes: 4 * MIB,
             max_insert_tuple_bytes: 16 * MIB,
             max_enum_set_sql_type_bytes: 64 * 1024,
+            max_diagnostics: 1024,
+            max_diagnostic_message_bytes: 4 * 1024,
+            max_diagnostics_total_bytes: 256 * 1024,
         }
     }
 }
@@ -198,23 +204,30 @@ pub fn parse_sql_dump(
     options: &SqlParseOptions<'_>,
     pool: &rayon::ThreadPool,
 ) -> SqlParseOutput {
-    match std::panic::catch_unwind(AssertUnwindSafe(|| parse_document(sql, options, pool))) {
+    match catch_parser_panic(|| parse_document(sql, options, pool)) {
         Ok(output) => output,
-        Err(_) => failed_document(
-            Vec::new(),
-            Fault::new(
-                ParserDiagnosticCode::ParserInternalError,
-                0,
-                "parser panicked",
-            ),
-        ),
+        Err(fault) => failed_document(Vec::new(), fault, &options.budgets),
     }
 }
 
-fn failed_document(mut diagnostics: Vec<ParserDiagnostic>, fault: Fault) -> SqlParseOutput {
+fn catch_parser_panic<T>(operation: impl FnOnce() -> T) -> Result<T, Fault> {
+    std::panic::catch_unwind(AssertUnwindSafe(operation)).map_err(|_| {
+        Fault::new(
+            ParserDiagnosticCode::ParserInternalError,
+            0,
+            "parser panicked",
+        )
+    })
+}
+
+fn failed_document(
+    mut diagnostics: Vec<ParserDiagnostic>,
+    fault: Fault,
+    budgets: &ParserBudgets,
+) -> SqlParseOutput {
     diagnostics.retain(|item| item.byte_offset <= fault.offset);
-    sort_diagnostics(&mut diagnostics);
     diagnostics.push(fault.into_diagnostic(None, None));
+    let diagnostics = finish_diagnostics(diagnostics, budgets);
     SqlParseOutput {
         status: ParseStatus::Failed,
         tables: Vec::new(),
@@ -229,6 +242,72 @@ fn sort_diagnostics(diagnostics: &mut [ParserDiagnostic]) {
             .cmp(&b.byte_offset)
             .then_with(|| a.code.as_str().cmp(b.code.as_str()))
     });
+}
+
+fn finish_diagnostics(
+    mut diagnostics: Vec<ParserDiagnostic>,
+    budgets: &ParserBudgets,
+) -> Vec<ParserDiagnostic> {
+    sort_diagnostics(&mut diagnostics);
+    let mut kept = Vec::new();
+    let mut total_bytes = 0usize;
+    let mut truncated = false;
+    for mut diagnostic in diagnostics {
+        if diagnostic.code == ParserDiagnosticCode::ParserDiagnosticsTruncated {
+            continue;
+        }
+        diagnostic.message =
+            clip_message(&diagnostic.message, budgets.max_diagnostic_message_bytes);
+        let size = diagnostic.message.len();
+        if kept.len() >= budgets.max_diagnostics
+            || total_bytes.saturating_add(size) > budgets.max_diagnostics_total_bytes
+        {
+            truncated = true;
+            break;
+        }
+        total_bytes += size;
+        kept.push(diagnostic);
+    }
+    if truncated {
+        let marker = ParserDiagnostic {
+            code: ParserDiagnosticCode::ParserDiagnosticsTruncated,
+            byte_offset: kept.last().map_or(0, |item| item.byte_offset),
+            table: None,
+            column: None,
+            message: clip_message(
+                "parser diagnostics truncated",
+                budgets.max_diagnostic_message_bytes,
+            ),
+        };
+        let marker_size = marker.message.len();
+        while !kept.is_empty()
+            && (kept.len() + 1 > budgets.max_diagnostics
+                || total_bytes.saturating_add(marker_size) > budgets.max_diagnostics_total_bytes)
+        {
+            if let Some(removed) = kept.pop() {
+                total_bytes -= removed.message.len();
+            }
+        }
+        if kept.len() < budgets.max_diagnostics
+            && total_bytes.saturating_add(marker_size) <= budgets.max_diagnostics_total_bytes
+        {
+            kept.push(marker);
+        }
+    }
+    kept
+}
+
+fn clip_message(message: &str, max_bytes: usize) -> String {
+    if message.len() <= max_bytes {
+        return message.to_owned();
+    }
+    let end = message
+        .char_indices()
+        .take_while(|(offset, character)| *offset + character.len_utf8() <= max_bytes)
+        .map(|(offset, character)| offset + character.len_utf8())
+        .last()
+        .unwrap_or(0);
+    message[..end].to_owned()
 }
 
 fn interrupted(options: &SqlParseOptions<'_>, offset: usize) -> Option<Fault> {
@@ -329,7 +408,11 @@ fn parse_document(
     let budgets = &options.budgets;
     let started = Instant::now();
     if sql.len() > budgets.max_sql_source_bytes {
-        return failed_document(Vec::new(), Fault::resource("max_sql_source_bytes", 0));
+        return failed_document(
+            Vec::new(),
+            Fault::resource("max_sql_source_bytes", 0),
+            budgets,
+        );
     }
     if let Err(error) = std::str::from_utf8(sql) {
         return failed_document(
@@ -339,6 +422,7 @@ fn parse_document(
                 error.valid_up_to(),
                 "SQL source is not strict UTF-8",
             ),
+            budgets,
         );
     }
 
@@ -374,21 +458,40 @@ fn parse_document(
     });
     let parsed = Instant::now();
 
-    // Earliest table-level failure per table: phase A events and chunk errors.
+    // Merge table events in source order. Structural tuple errors are
+    // reported after a table has failed; value conversion stops at the first
+    // earlier table failure, matching the sequential reference parser.
+    let mut table_errors: Vec<Vec<(Fault, TableErrorKind)>> =
+        (0..catalog.tables.len()).map(|_| Vec::new()).collect();
     for outcome in &outcomes {
-        if let Some(fault) = &outcome.table_error
-            && let Some(table) = catalog.tables.get_mut(outcome.table)
-        {
-            let first = table.failed_at.is_none();
-            if table.failed_at.is_none_or(|at| fault.offset < at) {
-                table.failed_at = Some(fault.offset);
+        if let Some(events) = table_errors.get_mut(outcome.table) {
+            events.extend(outcome.table_errors.iter().cloned());
+        }
+    }
+    for (table_index, events) in table_errors.iter_mut().enumerate() {
+        events.sort_by_key(|(fault, _)| fault.offset);
+        let Some(table) = catalog.tables.get_mut(table_index) else {
+            continue;
+        };
+        let phase_a_failed_at = table.failed_at;
+        let mut failed_before = false;
+        for (fault, kind) in events {
+            if phase_a_failed_at.is_some_and(|offset| offset <= fault.offset) {
+                failed_before = true;
             }
-            if first {
-                let name = table.display_name.clone();
+            if *kind == TableErrorKind::Conversion && failed_before {
+                continue;
+            }
+            let name = table.display_name.clone();
+            table
+                .diagnostics
+                .push(fault.clone().into_diagnostic(Some(name), None));
+            table.failed_at = Some(
                 table
-                    .diagnostics
-                    .push(fault.clone().into_diagnostic(Some(name), None));
-            }
+                    .failed_at
+                    .map_or(fault.offset, |at| at.min(fault.offset)),
+            );
+            failed_before = true;
         }
     }
     let mut document_fault = halt;
@@ -431,12 +534,12 @@ fn parse_document(
         diagnostics.append(&mut table.diagnostics);
     }
     if let Some(fault) = document_fault {
-        return failed_document(diagnostics, fault);
+        return failed_document(diagnostics, fault, budgets);
     }
     if let Some(fault) = catalog.soft_failure.clone() {
         diagnostics.push(fault.into_diagnostic(None, None));
     }
-    sort_diagnostics(&mut diagnostics);
+    let diagnostics = finish_diagnostics(diagnostics, budgets);
 
     let document_failed = catalog.soft_failure.is_some();
     let mut grouped: Vec<Vec<ChunkOutcome>> =
@@ -462,7 +565,7 @@ fn parse_document(
     for item in built {
         match item {
             Ok(table) => tables.push(table),
-            Err(fault) => return failed_document(diagnostics, fault),
+            Err(fault) => return failed_document(diagnostics, fault, budgets),
         }
     }
     let ready = tables
@@ -489,24 +592,38 @@ fn parse_document(
     }
 }
 
-/// Row budgets, checked in source order. Offsets are chunk-granular in this
-/// prototype (the reference reports the exact tuple).
+/// Row budgets are checked at each successful tuple in source order.
 fn rows_budget_fault(
     outcomes: &[ChunkOutcome],
     tables: &[TableBuild],
     budgets: &ParserBudgets,
 ) -> Option<Fault> {
+    let mut row_offsets: Vec<(usize, usize)> = outcomes
+        .iter()
+        .flat_map(|outcome| {
+            let failed_at = tables.get(outcome.table).and_then(|table| table.failed_at);
+            outcome
+                .row_offsets
+                .iter()
+                .copied()
+                .filter_map(move |offset| {
+                    failed_at
+                        .is_none_or(|failed_at| offset < failed_at)
+                        .then_some((offset, outcome.table))
+                })
+        })
+        .collect();
+    row_offsets.sort_by_key(|(offset, _)| *offset);
     let mut per_table = vec![0usize; tables.len()];
     let mut total = 0usize;
-    for outcome in outcomes {
-        let offset = outcome.first_row_offset.unwrap_or(0);
-        if let Some(count) = per_table.get_mut(outcome.table) {
-            *count += outcome.rows;
+    for (offset, table) in row_offsets {
+        if let Some(count) = per_table.get_mut(table) {
+            *count = count.saturating_add(1);
             if *count > budgets.max_rows_per_table {
                 return Some(Fault::resource("max_rows_per_table", offset));
             }
         }
-        total += outcome.rows;
+        total = total.saturating_add(1);
         if total > budgets.max_rows_per_source {
             return Some(Fault::resource("max_rows_per_source", offset));
         }

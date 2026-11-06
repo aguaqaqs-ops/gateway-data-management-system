@@ -8,6 +8,8 @@ import pytest
 
 from tests.support.dolt import dolt_available
 
+pytest_plugins = ("tests.support.table_access_sql",)
+
 
 @pytest.fixture
 def db_path(tmp_path: Path) -> Path:

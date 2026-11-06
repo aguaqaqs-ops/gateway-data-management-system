@@ -81,7 +81,6 @@ ALLOWED_ZONE_EDGES: dict[str, frozenset[str]] = {
     "operations": frozenset({"operations", "artifacts"}),
     "capabilities": frozenset(),
     "capability": frozenset({ANY_CAPABILITY, "artifacts"}),
-    "capability:canonical_row_hash": frozenset({ANY_CAPABILITY, "artifacts", "ext:compute"}),
     "cache": frozenset({"cache", "artifacts", ANY_CAPABILITY}),
     "application": frozenset({"application", "domain", "operations", "artifacts", ANY_CAPABILITY}),
     "http": frozenset({"http", "application", "domain", "operations", "artifacts", "ext:web"}),

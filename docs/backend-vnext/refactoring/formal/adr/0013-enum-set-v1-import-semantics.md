@@ -36,8 +36,9 @@
 digest 可比性，不能作为 W1 正式路径。项目尚未发布，没有外部 consumer 或历史
 package 兼容义务；尚未发布的 one-off canonicalization scheme 不构成兼容承诺。
 
-Shared Canonical Encoding v1 的 tag 表已闭合；Canonical Row Hash Arrow mapping v1
-明确拒绝 `list`。需要在不升 package/canonicalization v2、不占用新 tag 的前提下，
+Shared Canonical Encoding v1 的 tag 表已闭合；Repository import 使用 `list<utf8>`
+表示 SET，而 Shared Canonical Encoding 只定义内容 bytes。需要在不升
+package/canonicalization v2、不占用新 tag 的前提下，
 把 ENUM/SET 收进首次发布前的 v1。
 
 ## Decision
@@ -53,19 +54,17 @@ Shared Canonical Encoding v1 的 tag 表已闭合；Canonical Row Hash Arrow map
    ENUM 与 VARCHAR 的类型差在 schema digest。既有 128 个 Shared Kernel case 不变。
 5. charset/collation 列修饰符继续排除出 normalized grammar 与 schema identity。
    非 ASCII label 合法；`ENUM`/`SET` 族不走未知 type 的 ASCII charset 门。
-6. Canonical Row Hash capability 本轮不接收 `list`；import FULL_SCAN 使用
-   Repository Arrow，二者不是同一物理 mapping。
-7. 族判定闭合：剥离 `CHARACTER SET`/`COLLATE` 并折叠 label 外空白后，若类型
+6. 族判定闭合：剥离 `CHARACTER SET`/`COLLATE` 并折叠 label 外空白后，若类型
    keyword 为 `ENUM`/`SET`，要么唯一 normalized spelling，要么
    `SQL_TYPE_MALFORMED`。声明重复、越界、SET 空 label、整段不匹配、残留 token
    不得落入 unknown/STRINGIFY。
-8. SET 非 null 的 content 单元格就是 `sequence_frame` 本身，不再外包 scalar tag；
+7. SET 非 null 的 content 单元格就是 `sequence_frame` 本身，不再外包 scalar tag；
    不使用 `encode_row`，不升 `canonical_encoding_version`。
-9. `SQL_TYPE_MALFORMED` / `SQL_VALUE_ILLEGAL` 只用于 parser/golden。编译/admission
+8. `SQL_TYPE_MALFORMED` / `SQL_VALUE_ILLEGAL` 只用于 parser/golden。编译/admission
    畸形类型 → `IMPORT_REJECTED`；FULL_SCAN 非法值 →
    `VERIFICATION_FAILED_NOT_PUBLISHED`；read 编译期不得使用 `UNKNOWN_SQL_TYPE`。
    不新增第五个 public import code。
-10. SQL grammar 双边界（P3-R2-S0，2026-08-19）：`table_access` 拥有 source dump
+9. SQL grammar 双边界（P3-R2-S0，2026-08-19）：`table_access` 拥有 source dump
     parser grammar；Repository Service 拥有 catalog/manifest validation。二者共享
     known type 闭合集和 ENUM/SET fail-closed codes，**不得**共享 parser
     implementation，也不得创建 `sql_utils`、`capabilities/common` 或
@@ -88,8 +87,6 @@ Shared Canonical Encoding v1 的 tag 表已闭合；Canonical Row Hash Arrow map
   约束；`list<utf8>` 把边界放进 Arrow，comma-text 只作为 Dolt driver 输入形态。
 - 把 charset/collation 纳入 schema identity：拒绝。与 CHAR/VARCHAR 既有规则和
   provider-independent UTF-8 binary 比较不一致；label 已是精确 UTF-8。
-- 同步扩展 Canonical Row Hash 以接受 `list`：拒绝。本轮 consumer 是 import
-  validator，不是该 capability；扩大其 Arrow 闭合集会超出比例化范围。
 - 让 Repository 与 `table_access` 共享 SQL parser implementation 或建立
   `sql_utils`：拒绝。dump grammar 与 catalog/manifest validation 是不同边界；
   共享实现会把 Repository DTO/Arrow 泄漏进 capability leaf。

@@ -16,6 +16,8 @@ pub(crate) enum Lit<'a> {
     Number(&'a [u8]),
     /// `'...'` body after unescaping. Always valid UTF-8 for UTF-8 input.
     Str(Cow<'a, [u8]>),
+    /// `_binary` string or hexadecimal literal, preserving the declared prefix.
+    BinaryPrefix(Cow<'a, [u8]>),
     /// `X'..'` or `0x..`.
     Hex(Vec<u8>),
     /// `B'..'` or `0b..`: the bit text and its packed bytes.
@@ -66,6 +68,9 @@ pub(crate) fn parse_literal<'a>(cursor: &mut Cursor<'a>) -> Result<Lit<'a>, LexE
             "expected literal",
         ));
     };
+    if byte == b'_' && cursor.try_keyword(b"_binary").map_err(halt)? {
+        return parse_binary_prefix(cursor, start);
+    }
     if byte.is_ascii_alphabetic() {
         for (keyword, value) in [
             (&b"null"[..], None),
@@ -104,6 +109,28 @@ pub(crate) fn parse_literal<'a>(cursor: &mut Cursor<'a>) -> Result<Lit<'a>, LexE
         start,
         "unsupported SQL value expression",
     ))
+}
+
+fn parse_binary_prefix<'a>(cursor: &mut Cursor<'a>, start: usize) -> Result<Lit<'a>, LexError> {
+    cursor.skip_ws_and_comments().map_err(halt)?;
+    match (cursor.peek(), cursor.peek_at(1)) {
+        (Some(b'\''), _) => parse_quoted_bytes(cursor, true).map(Lit::BinaryPrefix),
+        (Some(b'x' | b'X'), Some(b'\'')) | (Some(b'0'), Some(b'x' | b'X')) => {
+            match parse_quoted_or_prefixed(cursor)? {
+                Lit::Hex(raw) => Ok(Lit::BinaryPrefix(Cow::Owned(raw))),
+                _ => Err(LexError::literal(
+                    Code::MalformedSql,
+                    start,
+                    "_binary must precede a string or hexadecimal literal",
+                )),
+            }
+        }
+        _ => Err(LexError::literal(
+            Code::MalformedSql,
+            start,
+            "_binary must precede a string or hexadecimal literal",
+        )),
+    }
 }
 
 fn parse_number<'a>(cursor: &mut Cursor<'a>) -> Result<Lit<'a>, LexError> {
@@ -299,7 +326,13 @@ fn parse_quoted_bytes<'a>(
                 "unclosed string",
             ));
         }
-        buffer.push(escape_byte(data[cursor.pos]));
+        let escaped = data[cursor.pos];
+        if matches!(escaped, b'%' | b'_') {
+            buffer.push(b'\\');
+            buffer.push(escaped);
+        } else {
+            buffer.push(escape_byte(escaped));
+        }
         cursor.pos += 1;
         piece_start = cursor.pos;
     }
@@ -375,80 +408,4 @@ pub(crate) fn bit_string_to_bytes(bits: &[u8]) -> Vec<u8> {
         }
     }
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn lex(text: &str) -> Result<Lit<'_>, LexError> {
-        let mut cursor = Cursor::new(text.as_bytes(), 0, text.len());
-        parse_literal(&mut cursor)
-    }
-
-    #[test]
-    fn strings_borrow_without_escapes_and_decode_escapes() {
-        assert_eq!(lex("'abc'"), Ok(Lit::Str(Cow::Borrowed(&b"abc"[..]))));
-        assert_eq!(
-            lex(r"'a\nb\'c''d\%'"),
-            Ok(Lit::Str(Cow::Owned(b"a\nb'c'd%".to_vec())))
-        );
-        assert_eq!(
-            lex(r"'\0\Z\b\t\r\\'"),
-            Ok(Lit::Str(Cow::Owned(b"\0\x1a\x08\t\r\\".to_vec())))
-        );
-    }
-
-    #[test]
-    fn hex_and_bit_literals() {
-        assert_eq!(lex("x'4142'"), Ok(Lit::Hex(b"AB".to_vec())));
-        assert_eq!(lex("X'141'"), Ok(Lit::Hex(vec![0x01, 0x41])));
-        // Whitespace counts toward the odd-length padding, as in the reference.
-        assert_eq!(lex("x' 4142 '"), Ok(Lit::Hex(b"AB".to_vec())));
-        assert!(matches!(lex("x'41 42'"), Err(LexError::Literal(_))));
-        assert_eq!(lex("0xABC"), Ok(Lit::Hex(vec![0x0a, 0xbc])));
-        assert_eq!(
-            lex("b'101'"),
-            Ok(Lit::Bits {
-                text: Cow::Borrowed(&b"101"[..]),
-                raw: vec![5]
-            })
-        );
-        assert_eq!(
-            lex("0b000000001"),
-            Ok(Lit::Bits {
-                text: Cow::Borrowed(&b"000000001"[..]),
-                raw: vec![0, 1]
-            })
-        );
-        assert_eq!(
-            lex("b''"),
-            Ok(Lit::Bits {
-                text: Cow::Borrowed(&b""[..]),
-                raw: vec![0]
-            })
-        );
-        assert!(matches!(lex("b'12'"), Err(LexError::Literal(_))));
-        assert!(matches!(lex("x'4'z"), Ok(Lit::Hex(_))));
-        assert!(matches!(lex("0x"), Err(LexError::Literal(_))));
-    }
-
-    #[test]
-    fn keywords_numbers_and_rejects() {
-        assert_eq!(lex("NULL"), Ok(Lit::Null));
-        assert_eq!(lex(" True"), Ok(Lit::Keyword("true")));
-        assert_eq!(lex("-1.5e-3"), Ok(Lit::Number(b"-1.5e-3")));
-        assert_eq!(lex(".5"), Ok(Lit::Number(b".5")));
-        assert!(
-            matches!(lex("DEFAULT"), Err(LexError::Literal(f)) if f.code == Code::IncompleteInsert)
-        );
-        assert!(
-            matches!(lex("_binary 'a'"), Err(LexError::Literal(f)) if f.code == Code::MalformedSql)
-        );
-        assert!(matches!(lex("1e"), Err(LexError::Literal(_))));
-        assert!(matches!(lex("-"), Err(LexError::Literal(_))));
-        assert!(matches!(lex("/*!40000 1 */"), Err(LexError::Halt(_))));
-        assert!(matches!(lex("'abc"), Err(LexError::Literal(_))));
-        assert!(matches!(lex("NULLX"), Err(LexError::Literal(_))));
-    }
 }

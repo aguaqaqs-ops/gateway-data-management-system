@@ -171,5 +171,4 @@ bundle。普通command失败直接阻塞对应变更。
 
 - [ADR 0001](../adr/0001-python-rust-hybrid-compute-strategy.md)
 - [ADR 0010](../adr/0010-minimal-golden-and-ordinary-ci.md)
-- [Canonical Row Hash Compute Boundary](../contracts/canonical-row-hash-compute-boundary.md)
 - [Performance Measurement Guidance](../contracts/performance-measurement-and-baseline.md)

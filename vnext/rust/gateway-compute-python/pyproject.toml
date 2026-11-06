@@ -9,6 +9,6 @@ requires-python = ">=3.14.6"
 
 [tool.maturin]
 manifest-path = "Cargo.toml"
-module-name = "gateway_compute"
+module-name = "gateway_compute._native"
 python-source = "python"
 features = ["extension-module"]

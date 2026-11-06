@@ -27,8 +27,8 @@
 //! raw); a SET payload is its members in declaration order joined by `,`.
 
 use arrow_array::{
-    Array, BinaryArray, BooleanArray, Float32Array, Float64Array, Int64Array, StringArray,
-    UInt64Array,
+    Array, BinaryArray, BooleanArray, Float32Array, Float64Array, Int64Array, LargeBinaryArray,
+    LargeStringArray, StringArray, UInt64Array,
 };
 use gateway_shared_kernel::DeclaredType;
 
@@ -193,7 +193,11 @@ fn encode_columns(out: &mut Vec<u8>, table: &ParsedTable) -> Result<(), Fault> {
                 put_value(out, mark, &values.value(row).to_bits().to_be_bytes())?;
             } else if let Some(values) = any.downcast_ref::<StringArray>() {
                 put_value(out, mark, values.value(row).as_bytes())?;
+            } else if let Some(values) = any.downcast_ref::<LargeStringArray>() {
+                put_value(out, mark, values.value(row).as_bytes())?;
             } else if let Some(values) = any.downcast_ref::<BinaryArray>() {
+                put_value(out, mark, values.value(row))?;
+            } else if let Some(values) = any.downcast_ref::<LargeBinaryArray>() {
                 put_value(out, mark, values.value(row))?;
             } else {
                 return Err(internal("unsupported arrow array in canonical encoding"));

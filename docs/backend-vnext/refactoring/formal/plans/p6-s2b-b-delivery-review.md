@@ -1,6 +1,8 @@
 # S2b B 恢复交付独立审核
 
-状态：**审核进行中，B 未 GO**。本报告由恢复后的独立审核者 `/root/s2b_b_review_resume`（GPT-6-Astra/high）维护；原 [B 审核记录](p6-s2b-b-review.md)保留历史失败与停止事实，不改判通过。Owner 的恢复授权与边界见 [B 任务单](p6-s2b-b-kickoff.md)及 DC86 补充。
+状态：**B GO，固定产品 `b820321c1eef78be4430c9a3f5b51d22188f4e0b`**。三个业务 kernel、真实 parser C Stream→B→A adapter、适用 Rust policy/五包静态/native 及本候选容器证据均已独立审核通过，当前无未闭合 B 阻塞。最终交接与限制见 §8；不表示 S2b 整体退出或性能通过。
+
+本报告由恢复后的独立审核者 `/root/s2b_b_review_resume`（GPT-6-Astra/high）维护；原 [B 审核记录](p6-s2b-b-review.md)保留历史失败与停止事实，不改判通过。Owner 的恢复授权与边界见 [B 任务单](p6-s2b-b-kickoff.md)及 DC86 补充。以下增量记录保留当时的未通过状态，最终判定以本段和 §8 为准。
 
 ## 1. 固定审核起点
 
@@ -111,10 +113,37 @@ root 判定为新组合首次该因果的前置错误，授权一次最小修正
 
 ## 7. 当前验证与镜像决定
 
-当前审核产品 HEAD：`b820321c1eef78be4430c9a3f5b51d22188f4e0b`。代码与适用 Rust/五包静态/native 证据已收口，B 最终容器证据仍待运行，carried 无。本节交付触发当前候选离线重建，验证 health/clean-stop/native smoke；不因报告或 root 的 C 文档推进重复已通过测试，不把其他文档 HEAD 当成实际产品验证对象。
+当前审核产品 HEAD：`b820321c1eef78be4430c9a3f5b51d22188f4e0b`。代码与适用 Rust/五包静态/native、当前候选容器证据均已收口，carried 无。本节交付触发当前候选实际离线重建，health/clean-stop/native smoke 已通过；不因报告或 root 的 C 文档推进重复已通过测试，不把其他文档 HEAD 当成实际产品验证对象。
 
-CT201 的完整 dependency input 重算日志 `/tmp/s2b-b-dependency-input-b820.log`（12:53:31–12:53:39 UTC，固定 b820，exit 0）SHA256 `92c3c16e8c35fd681502846518d1a8deb8a0444a44654cc4db90702c2d104254` 已读取。审核者另重算 tag_inputs 规范 JSON，得到完整 `d054366c02fa2a284948610e47b1c07bbdba98684b847846ca922d7da3d57aad`；五个 b820 Git blob 的输入 SHA 逐一匹配，且与 A 最终输入无变化。来源 identity JSON SHA256 `c1d692c43760e4b56cda70d9a2c7d692c15c5a0c30ae0005dbe31291a6973245` 与 A 原归档验证一致。06 实际 base config/全部 19 DiffID 仍由本轮容器步骤核对，不能仅凭 tag 猜测。
+CT201 的完整 dependency input 重算日志 `/tmp/s2b-b-dependency-input-b820.log`（12:53:31–12:53:39 UTC，固定 b820，exit 0）SHA256 `92c3c16e8c35fd681502846518d1a8deb8a0444a44654cc4db90702c2d104254` 已读取。审核者另重算 tag_inputs 规范 JSON，得到完整 `d054366c02fa2a284948610e47b1c07bbdba98684b847846ca922d7da3d57aad`；五个 b820 Git blob 的输入 SHA 逐一匹配，且与 A 最终输入无变化。来源 identity JSON SHA256 `c1d692c43760e4b56cda70d9a2c7d692c15c5a0c30ae0005dbe31291a6973245` 与 A 原归档验证一致。06 实际 base config/全部 19 DiffID 已由本轮容器步骤核对，不仅凭 tag 判定。
 
 已静态审核最小外置 wrapper `/tmp/s2b-b-container-check.sh` SHA256 `2a7dac5337866aba963f0244a2728264fd6fd7bb5c6e308a39e9bcb2e851381a` 和三 kernel/parser→B→A smoke SHA256 `fa2c23f3819e38c91f6cd4efad1563fbd581117c1fb7bba53ee51a36c779b682`。wrapper 复用本任务 busy、唯一项目/新 tag、全机残留检查，使用预置基础、network none、非 prebuilt；health container 的实际 image ID 必须等于 smoke 固定 ID。06 已有 identity verifier 实际 SHA256 `138eade578d3f9e06e3b3cc1b7f62a16cc04c64f64095eafa62c6b598738a972` 与 A 固定脚本相同，不引入新验证框架。
 
-最后已验证镜像仍是 A 产品 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`：06 backend 本机 image ID `sha256:88665d846710bd26891acbba7fbcb516e57cfaf95edd3314af457e4a48d5b6a0`，Rust tree `5b222191f4689b0eb0a7c2a1123bb299efb13e9d`，来源见 [A 审核 §7](p6-s2b-a-review.md#7-最终-db776-验证结论)。该结果不冒充 B 当前候选，dependency-base 以最终完整输入与 config/全部 DiffID 判定。S2b 最终 04 runner/container 与 t1–t4 正确性仍保留；W1/W2、真实 FULL 峰值和生产 M 未知保持未知。
+最终容器日志与外置 artifact 已独立读取并核 SHA：
+
+| 06 证据 | 结果/身份 | SHA256 |
+| --- | --- | --- |
+| `/home/dev/gdds-test-tmp/logs/s2b-b-container-b820.log` | `12:59:54–13:01:10 UTC`，起止 clean b820；本机离线构建 backend/worker，既有 readiness/clean-stop 1 PASS，同一 backend image 三 kernel/parser→B→A smoke PASS，整次 exit 0 | `2b0a6c76326080b0950e83719102e0f101755973acf7295d71cd7944fa026d36` |
+| `artifacts/s2b-b-b820321c1e/compose-provenance.json` | health backend 实际 image 与 smoke 相同；含 RS 实际 image/labels | `07de4641ed90c5002399947e450b83bc8ee18a2ed4bb3121c0f271d59c43c19d` |
+| 同目录 `base-identity.txt` | d054 config `sha256:b5b5422411de38e5ba08243343edb32c39cb01dc7cfcb1564bcb4b4d55e4b92a` 与全部 19 项 DiffID 同序匹配已核来源，input label 为完整 d054 摘要 | `3c5764473f68c1fb2d362226816bddfbce133897a0227c0738d1c65d5df22793` |
+
+本次 06 `base-current.tar` 的 SHA256 为 `95f6dc2ccf6ecd9fc352540a8b249bfa978d6bb2f5338fd5b936dfeb68b2076c`；这是目标节点本地 save 取证，不把其 tar SHA 或 inspect ID 用作跨节点 config 身份。实际 backend/health/native 的同节点 image ID 为 `sha256:484402efd68e0daf00529f261ad9cf5a050b7d1101b58aeb74b1f2d514d97d6a`，worker 为 `sha256:f31a7d118eff8a1ab263604162d37cc0bb81e832713c86e800342dff64283654`，RS 为 `sha256:213a8caaa80a8e0c70c506af03cfe1b339ef1deb9e80f70e8cf2dc8899d08285`。RS label 的 image revision 为 b820，build-input `3b037adf4caf33f65e124a34f56f12f42e529641`、source tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`，与运行前重算相符。
+
+smoke 实际返回两行、规范 SET/负零/排序正确，IPC 2698 bytes、SHA256 `65796b540e6c7a0bb7effd43d833bd75c156a0438bafb828088a24887597e3b7`；business raw-content digest 为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d7dd32fcba87ee4f7f71`，两者属于不同摘要域。catalog 源 device 2 行、过滤 device/point 各 1 行。容器扩展 `__build_input__` 仍为空串，这是既有 Dockerfile 的实际限制；以固定 clean b820 的本次实际离线构建、health provenance 和同 image smoke 绑定，不冒称字段匹配，也不为本节另建印章机制。
+
+A 的历史 db776 镜像仍见 [A 审核 §7](p6-s2b-a-review.md#7-最终-db776-验证结论)，未用其结果替代上述 B 当前候选。S2b 最终 04 runner/container 与 t1–t4 正确性仍保留；W1/W2、真实 FULL 峰值和生产 M 未知保持未知。
+
+## 8. 最终判定、占用释放与后续移交
+
+**独立判定：B GO。** 审核对象固定为 b820 产品及本报告列明的实际证据；[实施交接](p6-s2b-b-handoff.md) 固定提交 `ac59ffeb79ed4e78699ccf25e610b1989e432a69` 已完整读取，与最终 API、预算口径、独立预期、节点/HEAD/日志 SHA、基础镜像/运行镜像、历史失败及边界一致。该提交只新增 handoff 文档；已核 b820 至该交接的 `vnext/` 没有差异，不声称文档 HEAD 另跑验证。原 B 停止事实和不合格旧日志仍保留，未作 carried。
+
+释放日志 CT201 `/tmp/s2b-b-release-b820.log` 已读取并复算 SHA256 `b320c87de994ef457aff4515cae96683685301dc3dc35dfeda4ed3f00fc0e315`：06 `13:03:51 UTC`，clean b820，核本角色 session、无运行容器/Dolt后，仅删除本任务 owner 文件并 rmdir busy，`release_exit=0`。审核者另经 BatchMode SSH 只读确认 marker 已不存在。B worktree、日志、artifact、任务 refs 与唯一镜像保留供后续复核；审核者未运行测试、修改产品/测试、推送、改写已引用提交或派生角色。
+
+后续仅移交既定范围，不留下隐含 B blocker：
+
+- C 以本次 Arrow 表/小型 facts 与 A codec 接 store/mmap/read-handle/refs/恢复；测真实业务 IPC/FULL 双侧同时驻留与临时预约。当前局部预约是保守拒绝上界，不是 allocator/RSS 或生产 M；D wiring 前按真实生命周期收口容量。
+- D/E 接生产 caller 切换、worker/config 与原定恢复/冻结/Submit 旅程；仍有消费者的旧 Python materialize/projection 不在 B 盲删。XML、AST/binder、规则/normalizer 与小 metadata 摘要保持现有 owner。
+- 外层 DDL/PK/manifest schema digest、业务/no 顺序、物理 canonical 列序/gid 顺序及 IPC 文件 SHA 保持分层；过滤前 source count、实际 row-count 绑定、完整诊断与失败不发布结果不能在后续接线中丢失。
+- 最终 04 runner/container、t1–t4 正确性、W1/W2 时点和原 W4 故障按既定 owner 决议处理；本节 06 focused/container 不代替正式门禁或性能结论。容器 build-input 空串的限制按 §7 保留，不虚构 stamp 匹配。
+
+本 B 审核角色至此结束。C 由 root 在本次 GO 后创建新的实施/审核角色，不复用本角色继续审核。

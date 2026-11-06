@@ -1915,9 +1915,9 @@ fn raw_field_has_v1_type(field: arrow_ipc::Field<'_>, plan: &ColumnPlan<'_>) -> 
         ),
         ValueMapping::Bit { width, .. } => {
             field.type_type() == arrow_ipc::Type::FixedSizeBinary
-                && field.type_as_fixed_size_binary().is_some_and(|value| {
-                    value.byteWidth() > 0 && value.byteWidth() == width as i32
-                })
+                && field
+                    .type_as_fixed_size_binary()
+                    .is_some_and(|value| value.byteWidth() > 0 && value.byteWidth() == width as i32)
         }
     }
 }
@@ -1927,7 +1927,9 @@ fn validate_raw_schema(
     plans: &[ColumnPlan<'_>],
 ) -> Result<(), CanonicalIpcError> {
     if schema.endianness() != arrow_ipc::Endianness::Little {
-        return Err(schema_error("canonical IPC schema endianness is not little-endian"));
+        return Err(schema_error(
+            "canonical IPC schema endianness is not little-endian",
+        ));
     }
     require_raw_metadata(
         schema.custom_metadata(),
@@ -1985,11 +1987,15 @@ fn raw_schemas_match(
         .fields()
         .ok_or_else(|| ipc_error("canonical IPC footer field vector is missing"))?;
     if left_fields.len() != right_fields.len() {
-        return Err(schema_error("canonical IPC header and footer field counts differ"));
+        return Err(schema_error(
+            "canonical IPC header and footer field counts differ",
+        ));
     }
     for (left_field, right_field) in left_fields.iter().zip(right_fields.iter()) {
         if left_field.type_type() != right_field.type_type() {
-            return Err(schema_error("canonical IPC header and footer physical types differ"));
+            return Err(schema_error(
+                "canonical IPC header and footer physical types differ",
+            ));
         }
     }
     Ok(())
@@ -2051,12 +2057,16 @@ fn preflight_schema_header<'a>(
 ) -> Result<(usize, arrow_ipc::Schema<'a>), CanonicalIpcError> {
     let header_metadata_start = IPC_ALIGNMENT;
     if bytes.len() < header_metadata_start + 8
-        || bytes[6..header_metadata_start].iter().any(|byte| *byte != 0)
+        || bytes[6..header_metadata_start]
+            .iter()
+            .any(|byte| *byte != 0)
     {
         return Err(ipc_error("canonical IPC schema header padding is invalid"));
     }
     if bytes[header_metadata_start..header_metadata_start + 4] != [0xff; 4] {
-        return Err(ipc_error("canonical IPC schema message is not continuation-framed"));
+        return Err(ipc_error(
+            "canonical IPC schema message is not continuation-framed",
+        ));
     }
     let metadata_len_bytes = &bytes[header_metadata_start + 4..header_metadata_start + 8];
     let metadata_len = usize::try_from(i32::from_le_bytes([
@@ -2073,7 +2083,8 @@ fn preflight_schema_header<'a>(
         checked_add(8, metadata_len, "canonical IPC schema metadata")?,
         IPC_ALIGNMENT,
     )?;
-    let message_bytes = raw_framed_message_payload(bytes, header_metadata_start, padded_header_len)?;
+    let message_bytes =
+        raw_framed_message_payload(bytes, header_metadata_start, padded_header_len)?;
     let message = root_as_message(message_bytes)
         .map_err(|error| ipc_error(format!("invalid canonical IPC schema message: {error:?}")))?;
     if message.version() != MetadataVersion::V5
@@ -2083,15 +2094,20 @@ fn preflight_schema_header<'a>(
             .custom_metadata()
             .is_some_and(|metadata| metadata.len() != 0)
     {
-        return Err(ipc_error("canonical IPC schema message does not match v1 framing"));
+        return Err(ipc_error(
+            "canonical IPC schema message does not match v1 framing",
+        ));
     }
     let schema = message
         .header_as_schema()
         .ok_or_else(|| ipc_error("canonical IPC schema header is missing"))?;
     validate_raw_schema(schema, plans)?;
     check_control(options.control)?;
-    let header_end =
-        checked_add(header_metadata_start, padded_header_len, "canonical IPC schema header")?;
+    let header_end = checked_add(
+        header_metadata_start,
+        padded_header_len,
+        "canonical IPC schema header",
+    )?;
     Ok((header_end, schema))
 }
 
@@ -2323,7 +2339,9 @@ fn preflight_arrow_file(
     if eos_end != footer_start
         || bytes.get(previous_end..eos_end) != Some(IPC_EOS_MARKER.as_slice())
     {
-        return Err(ipc_error("canonical IPC EOS marker does not match block layout"));
+        return Err(ipc_error(
+            "canonical IPC EOS marker does not match block layout",
+        ));
     }
     check_control(options.control)?;
     Ok(DecodePreflight {

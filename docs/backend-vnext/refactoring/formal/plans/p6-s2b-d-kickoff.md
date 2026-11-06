@@ -6,7 +6,7 @@
 
 `settings.py::OperationWorkerSettings` 当前以 `GATEWAY_BACKEND_OPERATION_WORKER_` 为环境前缀，固定 `max_in_flight=1`、claim limit 与既有 lease/heartbeat/drain 设置；不要因新增 kernel N/M 顺带放开既有生命周期预算。`bootstrap/operation_worker.py::run` 创建生产 Preview、Submit、History 依赖并组装 registry/runtime；显式 kernel 初始化应在任何 kernel operation 注册/派发前完成，不改为一次假 parse。
 
-`operations/worker_runtime.py` 持有一个 active executor 和 `LeaseSession`，已有 heartbeat、drain 监督与 fencing。`ExecutionControl` 保留 cancel、drain、lease_lost 三个原始状态；`LeaseSession` 是 durable mutation/publication 的唯一串行入口。D 将这些真实 owner 接入 A/B/C，不能另建并行租约或发布状态机。
+`operations/worker_runtime.py` 持有一个 active executor 和 `LeaseSession`，已有 heartbeat、drain 监督与 fencing。`ExecutionControl` 保留 cancel、drain、lease_lost 三个原始状态；`LeaseSession` 是 operation-owned checkpoint、READY/Attempt 正式输出与业务终态 mutation/publication 的串行入口。内容 key/TTL 等 derived cache 维护沿 C 的短 UoW，当前 Head/Archive CAS 沿 C 的既有事务 owner；cache 登记不等于正式 operation 发布，也不能绕过后者的 fencing。D 将这些真实 owner 接入 A/B/C，不能另建并行租约、逐文件租约或发布状态机。
 
 生产 parser 的直接 native owner 固定为 `capabilities.table_access.native`，只导入 `gateway_compute._native._parse_sql_native`；bootstrap `operation_worker` 只用 `_init_kernel_native` 初始化共享池。Rust policy v5 拥有这两个已批准 consumer 的边界；snapshot materialization 不越过 Table Access 直接调用 parser，既有 capability DAG 与精确导入规则保持，不加 IMPORT/cycle baseline。
 

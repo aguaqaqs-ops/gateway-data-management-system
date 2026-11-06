@@ -1355,3 +1355,61 @@ manifest_sha256=e330a9fb79ca8b48885b4cb162b9148211cd925a0f4d3a67e5e1d1ddc72b974f
 只准克隆三卷到该新 project、一次真实 acceptance POST、一个返回 ID 绑定的 prepare_import claim；正常原 `_run_claim` 完整返回后才 drain，后继 submit_import 保持未 claim。沿用 45 分钟绝对观察上限、3600 秒总上限（含初始化/清理）、既有资源线/120 秒 stall/身份及必要观测停止条件。失败或任一停止条件触发后保存原始日志、最后可读目标状态和回收事实，不自动重试；保留卷及历史证据，自有进程/容器/网络未确认静止时留锁。收束后由外层在日志完整关闭后记录完整摘要，结果交本审核会话独立复核。
 
 **这是一次专属诊断 GO，不是结果通过或正式测量恢复。** 不授权更新产品/镜像、推送、打 tag、清理原证据/卷或扩张观测预算；H3 仍 PASS，lease 根因仍 OPEN，正式测量仍 STOP。本节结论直接交唯一实施者并简要同步设计。
+
+## 67. prepare c revision 2 结果复核：真实失租，延迟位于最后 heartbeat helper/session 调用之前
+
+**§66 的一次 GO 已消耗，prepare 未成功，不能重试或恢复正式测量。** 独立复核确认：固定 CT05 launcher 运行 2026-11-06 18:13:02–18:49:58，控制器结果结束于 18:49:57、elapsed 2215.653s；controller/script exit 1，status=STOPPED、stop_category=diagnostic_stop、stop_reason=lease_lost。本次执行边界、停止及回收证据可接受，但不是产品旅程通过。新函数边界证据缩小了失败位置，**lease 根因仍 OPEN，H3 仍 PASS，正式测量仍 STOP**。
+
+### 身份、一次执行和证据绑定
+
+按 BatchMode echo OK 后只读 SSH 核 CT05：冻结产品仍为 clean `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`，运行 manifest 仍为 §66 的 `e330a9fb79ca8b48885b4cb162b9148211cd925a0f4d3a67e5e1d1ddc72b974f`，POST-GO 三行精确绑定一致。launcher 起止 HEAD 相同、记录的 controller SHA 为 `0ce89c8319e674321049b56fc79f9a5cb498c0ed198852aef03d6d2bb5cf54ec`。本审核没有运行候选/测试、发 POST、改卷或启动后续诊断。主日志及关键结果本地/CT05 摘要一致：
+
+| 证据 | SHA256 |
+| --- | --- |
+| 候选根 `controller-launcher.log` | `c19e7303814d6b6f38ec5da64db6f737b9244527dcb234bde376e57adc956b18` |
+| `evidence/prepare-step-result.json` | `ff770c5e1d2fe7d656e21ec4a39f8ca0f1272496a3fb44f4074e1bd5168c13a7` |
+| scenario 根 `postflight.json` | `bb01cd2369ccd18f95298a1c35ab5be413bd69933b8007e87223efaeb60265c0` |
+| `evidence/worker-events.jsonl` | `0fbdf1b9d3dd0a35f28d39f5db91d3be1364b73493083ad46e1abc0e8b0c45ed` |
+| `evidence/resource-samples.jsonl` | `1f7211e916be962cee131d8e8fea531581dd8d36c52dba29d8949e799880f028` |
+
+候选根是 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6preparelease20261106c/`；scenario 根是 `/home/dev/gdds-p6-logs/baseline/scenarios/p6preparelease20261106c/`。preflight 记录原 checkpoint/input cache 及已审三镜像本机身份/labels MATCH、restart=no，无 acceptance 前可领取工作；未改变 §52/57 image revision/source-tree，未触发重建。真实 wrapper ready 的 SHA 是 §66 的 `839e4753f55ff384520d512be85bd56a40f87a5f34a036fc4ee50d6896279b1a`。worker-binding 的 host PID `2784465`、starttime `199857378` 与实际 wrapper/container PID 1/starttime 一致；guardian 首 worker 样本 marker monotonic_ns `1998575323126249` 先于 ready 和 claim。host-root/control volume 同 st_dev `64526`。
+
+acceptance-attempt/response、target ID、事件及 DB selected rows 相互一致：attempt/count=1/1、HTTP 202、RESPONSE_VALIDATED，operation `op-33f22872ee3934e05f64c814`，attempt `sa-887389d969abefdf1dd9ffb4`，目标 step 为该 operation 的 `-step-1`/prepare_import；只见一次 claim_entry、attempt_count=1。末次已保存 DB snapshot 18:46:53 为 TARGET_FOUND：operation/prepare step RUNNING、attempt PREPARED、cancel=false、repository_operation_id 均 null，只有目标 prepare active，没有 submit_import 后继或第二 claim。它是失败时实际 selected rows，不是 prepare 成功/终态，也没有用手写 DB 状态代替结果。
+
+### 失败时尚未返回的业务阶段
+
+同一 executor 线程 `124521208428224` 的边界如下，内层时间不与外层累计：
+
+| 阶段 | 已观察结果 |
+| --- | --- |
+| prepare_build_input | 18:13:32.740–18:14:39.224，return，66.483s |
+| frozen_projection | 18:16:31.871–18:18:15.886，return，104.016s |
+| mutation_snapshots | 18:18:15.886–18:21:52.377，return，216.490s |
+| parent_materialization | 18:21:52.377–18:36:59.679，return，907.302s |
+| mutation_plan | 18:36:59.688 进入，失租及最后证据中没有 phase_end |
+
+失租时 prepare_handler、prepare_package_publish、mutation_plan 三层仍开放；mutation_plan 已开放约 592.435s，但这不是该调用完整耗时或逐内部步骤归因。没有 canonical_publish 的入口记录。对应冻结 `import_publication.py` 的顺序是 parent materialize → plan_import_mutation → render → publish_canonicalization；因此可以定位到 **mutation planning 调用尚未返回**，不能将外层名称中的 publish 当成已完成 canonical 发布或 Dolt commit。
+
+### heartbeat 延迟的实际边界
+
+主监督线程 `124521380375424` 记录 191 次 helper entry/exit、190 次 LeaseSession.heartbeat entry/exit 和 190 次 heartbeat_succeeded；190 次 session 均正常 return，观察到的最大 wrapper elapsed 为 1.005747s，没有 session 异常或 heartbeat_busy 事件。最后几次关键 entry 使用实际 monotonic，与由真实返回 anchor+10s 派生的 due、传入 helper 的真实 deadline 比较：
+
+| helper entry UTC | 比 derived due 晚 | 相对传入 deadline | 随后的 session |
+| --- | --- | --- | --- |
+| 18:45:52.411 | 0.005239s | 尚余 19.994761s | return，heartbeat 成功 |
+| 18:46:19.841 | 17.424816s | 尚余 2.575184s | return，18:46:19.981 heartbeat 成功 |
+| 18:46:52.118 | 22.272004s | 已过 2.272004s | 没有进入 |
+
+最后 helper entry monotonic=`2000575.095527520`，derived due=`2000552.823523427`，实际 lease_deadline 实参=`2000572.823523427`。随后 18:46:52.124 出现 lease_lost/error_category=heartbeat_busy_deadline，18:46:52.129 helper 以 StoreBusy 返回异常；没有第 191 次 LeaseSession.heartbeat entry。冻结 `_heartbeat_until_due` 在调用 session 前检查 `now >= lease_deadline` 并 fence/raise，与此轨迹一致。最后成功 session exit 到 lease_lost 约 32.137s，远小于 120s stall，所以本次由真实 lease_lost 停止，而不是 stall 或观察预算耗尽。deadline 来自记录的实参；selected snapshot 未保存 DB lease expiry，不为它推造另一组 DB 时刻。
+
+**本次支持的结论是：最后一次续租机会的延迟在 session 调用之前，进入 helper 时已经越过 deadline。** 不是此次 session 已执行 SQL 但忙等超时；事件名 heartbeat_busy_deadline 也不能单独证明 SQLite busy。入口前的调度、原 loop/observer、GIL、GC、native/Python 工作及外置观测扰动没有被这些边界继续区分，不能据 mutation_plan 同时开放就唯一归因其中之一；不把 derived due 称为实际 loop-entry 或线程被唤醒时刻。
+
+### 守护、停止与收束
+
+事件日志 969 条、321806 bytes、最大单条 422 bytes，未达既定上限。guardian 有 404 个资源样本、64500 bytes，18:13:12 开始 host 采样，18:13:32 开始有 worker RSS；样本最大间隔 5.010405s，最后样本 18:46:48。worker RSS 最大 23894142976 bytes、host available 最小 43288124416 bytes、data free 最小 212212736000 bytes，均未触发既有停止线；这不排除 CPU/调度等非阈值问题。guardian 最终 CLOSED、stop_reason=null、exit 0/reaped，worker_exited_cleanly=false；该 CLOSED 是 observer 的正常收束，不能等同 worker 业务正常退出。
+
+down 前 18:46:53 保存最后可读 DB selected rows 和三服务 raw logs，三个捕获 helper 均 exit 0、reaped/group quiet、无 timeout/truncation，实际字节/SHA 与 raw-service-logs.json 匹配。worker.log 为 0 bytes；没有 claim_exit、clean_drain_requested 或 worker_run_exit 事件，不能宣称原 `_run_claim` 正常返回或 worker clean exit。raw-service-logs 是 down 前的捕获，不是完整覆盖随后约 185s 清理过程的 worker 原生输出；当前没有保存 worker 最终 exit signal/code，不能仅按耗时推定具体强杀信号。既有 source 在 supervision 异常后 join executor，也不能因 lease_lost 就假定 Python 线程已经终止。
+
+最终 controller 以 1 结束，Compose down exit 0，postflight 内嵌/独立 JSON 完全相同，owned/log-capture/guardian/worker 回收及 project containers/networks quiet、postflight_complete、lock_release_allowed 均 true，最终摘要写入无失败。launcher 明确 node_lock_released=true。只读 SSH 复核该 project 的容器/网络均为空、busy lock 不存在、三 target volumes 全部保留，与 postflight 一致；没有把“回收成功”改写成“prepare 成功”。该失败不满足正常 prepare terminal/后继 PENDING 成功条件，也不能作为性能基准。
+
+结论及入口前延迟的具体数值已直接交实施者，正式结果同步设计；不要求为解释现有记录重跑诊断，不新增产品修复、观测或预算。**本次 c GO 已消耗，无后续运行/正式测量 GO；保留三卷、候选、完整原证据。**

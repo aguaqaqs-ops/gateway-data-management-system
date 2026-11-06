@@ -6,7 +6,7 @@ import struct
 import hashlib
 import tempfile
 from contextlib import ExitStack, closing
-from collections.abc import Iterator
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -177,7 +177,7 @@ def _export_array(array: pa.Array, column: SourceColumnDescriptor) -> pa.Array:
 
 def _export_batches(
     stream: pa.RecordBatchReader, context: KernelExecutionContext, *, ordered: bool,
-) -> Iterator[pa.RecordBatch]:
+) -> Generator[pa.RecordBatch, None, None]:
     if ordered:
         backing = stream.read_all()
         # Business ordered reads use numeric no; IPC physical numeric gid is

@@ -36,6 +36,8 @@ SQL materialization 的重复有效键是 warning 且保留全部行，canonical
 
 调用者显式提供局部预算：metadata/columns/batches/rows/input bytes 以及同时存活的 row/key/hash/sort/filter 索引、输出 Arrow/IPC、adapter 转换与诊断。增长前 checked 预约，拒绝溢出或超限；不得先完整收集 C Stream 再检查。复用已有 caller-owned Rayon pool；cancel 和真实可选 monotonic deadline 在有界循环与大段库调用前后检查。没有 deadline 时传 None，不用 lease/drain/benchmark 时限替代。
 
+具体口径：`max_metadata_bytes` 在 adapter 复制 table/column/rule/label 声明前检查；`max_input_bytes` 保守计 borrowed Arrow，`max_live_bytes` 计 adapter/core 同时存活的自有分配，`max_output_bytes` 计返回 Arrow/facts 保留的全部 buffer（含共享输入），与 A 的 IPC file cap 分开。诊断沿 owning 固定 1024 条及 omitted count，不提供可调截断条数；诊断字节超限返回资源错误。控制/资源失败不携成功输出，业务 blocker 也不返回可发布 Arrow；真实 Arrow/schema/binding 仍由 core 核验，不能以 Python 预计算 schema 诊断代替。
+
 这些预算不是生产 M/RSS。B 不提前填部署默认值，不新增全局 allocation registry；后续 C 对实际 kernel/IPC/FULL 的生命周期校准，D 接线前再定 M/envelope/reserve。性能未知不阻塞无关 B 功能，也不据此跳过资源拒绝。
 
 ## 3. 实施顺序与验证

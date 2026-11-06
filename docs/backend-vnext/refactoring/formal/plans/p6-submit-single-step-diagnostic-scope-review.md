@@ -531,3 +531,23 @@ cleanup 保存的每条操作均为固定 project 的容器/network 列举，初
 当前 e 在约 1411 秒被观测规则截断，最后栈显示仍推进到 parent mutation 构造；它既不证明会在 2700 秒内完成，也不证明至少需要超过 2700 秒。上述历史运行与当前 CT05 的输入变更比例、冷热状态、镜像和节点不同，无法从历史倍数或采样阶段数可靠推算剩余时间。原业务轮询打印的 4055 秒 timeout 也只是另一个上限，不是实测最低完成时间，不能据此自动扩大独立诊断预算。H3 是 History 证据，整旅程 elapsed 包含其他步骤，均不拿来替代 Submit 完成时间。若新诊断真正触及 45 分钟，则保留截断事实，再据届时已有业务/资源证据给出具体处置；本次不预先扩预算或承诺会完成。
 
 循环热点仅允许既有任务只读评估，不默认产品优化，也不作为工具修正或后续业务观察的前置。旧 e 仍为诊断工具中止；原 lease 根因、正式基准恢复资格保持未决。本轮只审文档与现存记录，未执行测试、采样或业务请求。
+
+## 34. observer c 组件审核通过（不含 POST 授权）
+
+**组件审核通过，无阻塞 finding；可直接装配完整的新单 POST 候选。** 设计通过通信探针 `P6LINK-20261106T035600Z-REVIEW` 转交 baseline handoff `7082fb2bd1`，审核已回显并直接告知设计代转实施者。本结论只绑定外置 observer 组件，不能把其 manifest 当成完整 POST 候选，也不复用旧单步 GO。
+
+组件目录 `/home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogobserver20261106c/candidate/`：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `candidate-manifest.json` | `9fc05f8d63518bc897d6fb07bf873024d51bcbfce177d1f4bec817cadfe4eb2d` |
+| `submit_observer.py` | `0c8799a3aa29d13544009e5201ea1a8833c2ec629ca8dce8dfdfaef300857097` |
+| `test_resources.py` | `3bf493361296d32b1827534d1ddeb27a7dd116fa1ca25e6931d23acc5b4f72a9` |
+| `README.md` | `51e1a97d448c32b2e034698304df5e6ae72088f2d2f46c66a3f9422a46d34dc7` |
+| `SHA256SUMS` | `aabcd5275d53263f9a1e276311d55de7a76a5f883d6d289da5b233e2782a304f` |
+
+已直接核本地 SUMS 四项全部匹配，并经 BatchMode SSH 只读复核 CT05 的 observer、tests、manifest 相同。逐行比较原 `4912e954…0a662`：仅新增精确错误 classifier/常量并修改 `_guard`。已有 `WorkerObserver`、factory、有效启动栈、PID/starttime/文件系统读取、资源阈值、py-spy pin、2700 秒截止和 1/15/5 秒预算不变。两次失败都须 exit 1、非 timeout、固定文本加单个换行；有效 dump 清零连续失败，混合/未知/timeout 仍停。允许降级时明确再调用原 `read_resources` 并检查阈值；通过后只关闭后续 dump，记录两份失败及即时绑定/资源事实，guardian 继续资源循环和截止判断，不自动恢复采样。读不到、越限或其他守护异常仍停止。关闭分支仍优先处理并回收活动 dump/pipe。
+
+审核读取 CT05 原始 `focused-tests.log`，2026-11-06 03:42:26Z，hostname `gw-dms-test-05`，起止 HEAD e798，**11 项通过，exit 0**；SHA `015a9fd6b069266c3d8285b15273e735a7455e66504a57f85aa346501dba5310`。测试覆盖精确分类、双错误降级、后续资源读取、降级后截止仍发 SIGINT、即时复核失败/越限、混合/未知/timeout、有效栈打断连续失败，以及关闭回收；另有真实轻量 `/proc` 与文件系统绑定检查。已静态读测试及其 fake clock/process 接线，不把模拟测试称为新产品现场运行。原始 transfer 日志 SHA `3d0824d3b6dd9384a5f2b21f9e775c3632a0f1b99b528f911e1bb48df691c04b` 记录 clean e798、固定解释器和 NODE_LOCK_ABSENT；错误字节核验日志 SHA `b163766de550c9f30af7c7d2d6f5fdf284ddb623382a8fd4ead0bd059d35275e` 对旧 94/95 两文件各 64 bytes 精确 MATCH。三份实际日志摘要与 handoff 相同。
+
+a 的宽松匹配已被替代，b 的夹具失败和只读准备命令错误保留，不要求重跑通过的 c 测试。此轮未改仓库产品/包闭包，不要求无关五包静态或权威 runner；审核未运行任何测试、采样、服务或请求。下一步只需将此 observer 精确 pin 纳入新 project/key/证据目录的完整 launcher/shell/manifest，核其相对已审版本的必要接线和固定来源/目标，再给一次新候选执行决定。45 分钟与正式停止边界沿第 33 节。

@@ -49,7 +49,7 @@ from gateway_backend.http.dependencies import ArtifactRefLookupPort
 from gateway_backend.http.orchestration.submit_acceptance import load_accept_submit_preflight
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.operations import OperationStatus, StepStatus
-from gateway_backend.operations.worker import ExecutorAcknowledgment
+from gateway_backend.operations.worker import ExecutorAcknowledgment, ExecutionControl
 from tests.support.baseline_fixtures import seed_provisioned_mapping_with_head
 from tests.support.preview_job_harness import (
     BASELINE_HEAD,
@@ -738,6 +738,6 @@ def test_pair_memory_admission_rejects_before_python_row_comparison(monkeypatch:
     with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
         with pytest.raises(KernelMemoryLimit):
             pair_pipeline.run_preview_pair_pipeline(pair_id="pair-budget", before=sides[0], current=sides[1],
-                store=InMemoryArtifactStore(), control=pair_pipeline.ExecutionControl(), on_cancel=lambda: None,
+                store=InMemoryArtifactStore(), control=ExecutionControl(), on_cancel=lambda: None,
                 rule_set=comparison_ruleset_for(standard_rule_record("t")), assess_identity=False)
     assert memory.stage_admissions[-1]["stage"] == "comparison-python-records"

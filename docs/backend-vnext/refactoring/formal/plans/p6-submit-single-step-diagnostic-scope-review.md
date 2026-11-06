@@ -573,3 +573,44 @@ manifest 八个候选文件大小和摘要逐项 MATCH，SUMS 七项 MATCH，she
 执行入口为 README 中 `ssh -o BatchMode=yes ct108-gw-dms-05 'cd /home/dev/gdds-prepare-import-e798-05/vnext/backend && /bin/bash /home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogsubmit20261106f/candidate/run-once.sh'`。执行前按原规则确认节点空闲，经 LAN 同步并复核固定摘要，由 shell 自取锁；仅原 pre-submit checkpoint 的独立目标三卷/新 key，一次 v2-submit POST，不做 Preview、预热、后续步骤、自动恢复或失败重跑。保留原 2700 秒 POST guardian、5 秒身份/资源守护、必要停止条件；精确已知双 dump 错误才按第 34 节即时复核后停采，出现降级须如实记录后续栈缺口。
 
 失败即停留证，不自动再次执行；未知收束状态保锁，已确认静止后按脚本释放，卷和旧证据保留。交回真实 exit、独立结果、run/state/input 比较、observer/资源、Compose 及 cleanup/postflight/锁状态与 SHA。后续正常回复可由审核/设计直接读取，不将消息无法外发当成继续等待的理由。单步结果不自动恢复正式测量，也不预判原 lease 根因。审核本轮只读候选与现存证据并提交本报告，未运行候选、测试、容器或业务请求。
+
+## 36. f 结果复核：先失去 lease，后触发 stall；根因继续定向定位
+
+**确认产品 worker 已发出 lease_lost；约 89 秒后 journey 的 120 秒无心跳规则触发 WorkerStalledFailure。** 不能把本次仅写作可选观察器失效或仅工具误报，也不能把这一事件直接等同完整 Submit operation 已返回 FAILED。审核收到设计转交 `f768d68f67d1ad071b90145c8ce66b45f3e768e2` 后，只读 CT05 已存日志、observer、stall 文件及冻结 e798 源码，未重新查询服务/DB、扫描业务卷、取新栈或运行测试。第 35 节一次 GO 已用完。
+
+项目 f 的 launch/controller/preflight/resources/provenance/run/state/独立结果/postflight/cleanup/observer events/stack 0131/Compose 共 13 项实际 SHA256 与 handoff 全部一致。关键时间线（UTC）：
+
+| 时间 | 已存证据 |
+| --- | --- |
+| 04:12:15.083 | v2-submit step 开始；observer 已有效启动并 arm |
+| 04:12:17.486053247 | 唯一 Submit POST 返回 HTTP 202，operation `op-c8a03f307842b1d97d65b7b9` |
+| 04:42:58.287417 | 已存 selected control rows 的最后 step updated_at；lease_expires_at 为 04:43:28.287417 |
+| 04:42:58.403570249 | 最后一次 heartbeat_succeeded，共 176 次 |
+| 04:43:31.053992336 | Compose 明确记录 `code=lease_lost`、`error_category=heartbeat_busy_deadline`，同 operation/step |
+| 04:44:47 | 最后有效 Python 栈：主线程在 worker_runtime:319 异常分支 join，执行线程仍做 change-set digest |
+| 04:44:56 | 最后资源/原 PID-starttime 核验成功，未触阈值 |
+| 04:44:59.050 / .692 | stall capture / worker_stalled 事件，监视器 observed_stalled_seconds=120.647 |
+| 04:44:59.955 | step_failed，wall 1964.872 秒；随后固定收尾，run 于 04:48:05.143 结束 |
+
+监视器的 120.647 秒是其追踪时钟的观测值，不把它改写成两个日志 UTC 的精确差。observer 本次 131 次 dump、129 次有效；仅第 38/60 次无效且不连续，没有 `stack_observation_degraded`、observer stop 或 2700 秒截止事件，不能归因于本轮降级修订。绑定 worker PID `2103940`、starttime `194809474`，既有资源 reader 每次验证身份，记录持续至 04:44:56Z。末次 RSS 23,867,850,752 bytes、host available 43,245,912,064 bytes、data free 217,919,131,648 bytes；全程 RSS 峰值 25,055,125,504 bytes、available 最低 42,059,630,592 bytes、data free 最低 217,900,478,464 bytes，均未触资源停止线。handoff 所列 available 43,246,160,896 实际属于 04:44:51Z，不改变资源结论。
+
+stall 保存的 worker inspect 为 running、PID 相同、OOMKilled=false、RestartCount=0；48 个线程的 wchan 中 47 为 futex_do_wait、1 为 0。futex 等待和单份 active+gil 栈本身不证明 deadlock 或长期独占 GIL。已保存 selected control rows 为 operation/prepare_import step RUNNING、attempt 1、step optimistic_version 177，Repository operation id 尚为空，未到 R5 对账。它同时保存最后 lease 的 30 秒期限，与 lease_lost 发生在期限之后一致。保留取证限制：`diagnostic-errors.txt` 有 `control DB snapshot: JourneyFailure`，因此不能称完整 control snapshot 成功；已有 selected rows 仍独立列证。旧 stall collector 的 `py-spy-unavailable.txt` 只表示其按 PATH 未找到工具，不否定外置 observer 已用固定绝对路径保存的有效栈。
+
+**源码归因边界。** `WorkerRuntime._heartbeat_until_due` 在调用 `session.heartbeat()` 前发现 `now >= lease_deadline`，同样会经 `_fence_lease_for_busy_budget` 发 `heartbeat_busy_deadline`；该标签不专指 SQLite busy 重试。本次已存日志没有 `code=heartbeat_busy`，故没有证据把丢租约归因为 DB 写锁竞争。`LeaseSession.heartbeat` 以事务时间续租，runtime 保守使用调用前 monotonic anchor 计算下一次心跳/期限；不能未经证明就改成调用返回时间或扩大 TTL。丢租约后 `_run_claim` 的异常路径先 join 执行线程，后续不再心跳；第 126–131 栈与这条路径一致，解释了之后持续无心跳，但没有解释最初为何错过续租期限。
+
+第 117–122 栈显示执行线程在 JCS serialization/Unicode 校验，第 123–125 栈在 `change_set_mutations_payload` → `ChangeSetMutation.to_document` → `PersistedRowImage.to_document` 构造整份 change-set 载荷，主线程仍在 Event.wait；第 126 起主线程转入 join，执行线程继续全量 Unicode/digest 计算。调用链是 `_changeset.build_change_set_closure` 先算 digest，随后 `ChangeSetClosure.__post_init__` 再构造 `ChangeSetArtifact`，其校验重新计算 digest；之后还有 closure digest。这里存在重复的全量载荷构造与遍历，且和失租约窗口重叠，是应优先定位的有限代码区域。**这些离散栈不能独立证明 GIL 饥饿、GC 停顿、具体调度延迟或哪次分配是根因**；当前只确认与原 CT108 相同的 lease_lost/error_category 症状再次发生，原根因仍 OPEN。
+
+最小下一步建议按 DC80 直接组织定向定位，无需再跑完整 Submit 来采同类栈：复用 `test_operation_worker_scheduler.py`、`test_operation_lease_session.py` 和现有 mutation planning fixture，在 CT05 准备一个受限的纯内存 change-set 工作负载及必要临时 control DB，用现有 worker/LeaseSession 复现续租调度；记录少量 heartbeat 入口/返回 monotonic anchor、DB lease 时间与载荷构造/校验/序列化子段。若需要区分 GC/调度停顿，仅在该局部诊断内加短期观测，不扩为产品常驻 profiler 或新监控框架。既有 fake-clock 测试已覆盖 busy budget 与 observer 延迟，不需要重复证明旧分支；应针对“无 busy 事件而错过 deadline”的新证据缺口。定向代码和验证方案交设计/审核后执行，本审核没有运行这些测试。
+
+修复边界优先是已定位的重复整份载荷/不可中断计算及其与心跳调度的关系，方案必须保持完整 mutations、JCS 字节、digest、Contract 错误边界和 CAS/lease fencing。不能为了减少遍历直接删掉外部输入/载荷完整性校验；如采用复用或增量计算，须用小样本字节/digest 与异常等价验证。若只加失租约后的协作取消，可减少 join 等待，但不能称已修复最初丢租约。不得先加大 TTL、heartbeat/stall/45 分钟预算、删除 join/fencing，或直接引入独立服务/进程隔离；也不把之前逐列映射优化捆绑为必做。先区分因果，再给最小修复候选。
+
+收尾结论仍成立：独立结果 post_count=1、STOPPED、submit_completed=false；runner 1，cleanup/postflight 0，输入/state 双 MATCH 只证明来源，目标容器/network 空，三卷保留，controller 记录释放锁。没有新运行授权，正式测量继续停止。
+
+| 定向复核新增/关键证据（f 项目根目录下） | SHA256 |
+| --- | --- |
+| `compose/real-dump-t4-20261106T044500146057Z.compose.log` | `730470050a084fef462142ea9521512e769ec16ebf6d515882b21cdbf4c25c21` |
+| `evidence/observer/observer-events.jsonl` | `6282fd49c3c904deff255e7294bf604afe6017454d90a2738fb9618925a17cc0` |
+| `evidence/observer/worker-stack-0131.txt` | `71bfb7ab3818b66b5c7a5d629b291cd9a78275f424b3afaaa9563b58bfe3df61` |
+| `s4-stall-20261106T044459050676Z/stall.json` | `d4f360e0c70dc1663396fe19a903d8c493fae27c4f93cfa5ad10d28d09d20039` |
+| `s4-stall-20261106T044459050676Z/control-db-selected-rows.json` | `28519cb557bba6a0fec2ff16900219a21250f75154c5035da512da475c7ccc48` |
+| `s4-stall-20261106T044459050676Z/docker-inspect-worker.json` | `b461c3c7495bb8d684fb604959a15584fb900adb1a4ae783e6c65b09f50ff05c` |

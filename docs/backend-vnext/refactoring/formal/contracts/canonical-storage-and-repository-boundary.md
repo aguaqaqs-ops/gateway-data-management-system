@@ -178,6 +178,8 @@ CanonicalizationManifest与canonical Dolt history共同提供。
 
 局部 options 明示行、列、输入/输出 bytes 与 codec 峰值预算，增长前用 checked 运算拒绝超限。`max_input_bytes` 独立限制借用输入的保守字节求和；`max_codec_peak_bytes` 限制 codec/adapter 拥有的同时存活分配，包括 schema/metadata、布局索引、规范数组、当前 batch、writer 内部 encoded data、累计输出及 adapter 输出复制。整体保守占用须合看两个上限，不把借用输入漏掉，也不重复算成 codec 拥有。A 不建立共享 allocation registry；估计口径与完整 worker M/RSS 分开。取消和可选有限单调 deadline 在有界循环及标准编解码调用前后检查；不返回可被当作成功的部分结果。错误区分 schema、value、resource、cancelled、deadline、IPC 格式类别，adapter 保留类别并按既有 policy 处理 panic，不把 native abort 伪装成正常失败。
 
+`max_output_bytes` 仅限制 encoder 生成的 IPC 文件长度；decoder 以 `max_input_bytes` 限制借用的文件 bytes，以 codec peak 预算限制其解码结果及其他同时存活分配，不以输出 quota 代替输入限制。零列批次仍须保留显式行数，使用标准 Arrow row-count 选项，不静默归零，也不新增匿名行计数格式。
+
 core 接受 caller-owned pool，不创建每表/每调用新池，不做文件 I/O；Python adapter 仅粗粒度 Arrow C Stream 和小型 metadata，主计算区间释放 GIL，不构造整表 Python row/list/dict。固定向量依据 Shared Kernel/现有 owner 与独立 IPC 布局核对，不能仅从新实现生成期待值后自证；实际局部 bytes 在 A handoff 记录，不宣称生产容量、FULL 或 W2 通过。
 
 ## 6. Repository import、journal 与 readback

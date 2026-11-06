@@ -716,3 +716,15 @@ shared_kernel 的 bytes 与 digest API 共用 `_write_canonical_json`，仍依�
 | `closeout.log` | `d6bf9b5013758a2c07dc8343b9bbc508dadb4f1a32114f22a56f38c6c8c5fae6` |
 
 **通过的只是该候选代码与局部语义证据。** 没有新旧分配/速度对照，不以旧 probe 14 秒作改进基线；现场大堆 lease 根因仍 OPEN。当前未触容器专属接线，本轮按设计先做内部逻辑验证，镜像构建/容器及正式恢复门禁延期至下一份明确候选流程；没有此候选新的 image revision/source-tree 验证，旧 e798/RS 镜像不得称为本候选已通过或 carried。未授权合 main/baseline、推送、重跑 probe、Submit 或正式测量。已将结论直发设计供其转既有实施任务；新增审核 worktree 保留供后续清理。
+
+## 43. 完整 closure 局部诊断：设计范围通过
+
+**设计 `c5373a359a6e78bb640a6cdc3cda8db7bac6c354` 范围通过，无阻塞 finding；可准备新候选，尚无执行 GO。** 实际读取 `p6-change-set-closure-probe-plan.md`，复用第 36–42 节代码/结果，不新取证、调查或测试。结论已直接发送设计，由其交原实施者准备新目录、harness、manifest 和一次性命令，不再等待范围确认。
+
+本次选择在已审 `1f9731dfc3` 上观察完整产品 closure 链，优先于另做旧/新小样本性能对照，理由是当前缺口在重复 payload/释放/GC 与续租的关系，省去完整输出 bytes 的结构事实已核实。实际 builder 只调用一次，由合法 request/plan/decision/snapshot 生成恰 50,000 UPDATE + 50,000 INSERT，每个 after-image 33 列、字符串至多 64 UTF-8 bytes；不靠手工三次 compute 或无关填充堆伪造链路。候选审核须看生成规则、前后数据/row digest/manifest 绑定和实际调用计数，不能只接受 manifest 的期望数。
+
+300 秒全程上限、290 秒停止、RSS 8 GiB、独立 200 ms PID/starttime/资源监督具有明确边界，包含导入、fixture 构造、全部计算、handoff、引用释放和线程退出。184 秒/3.45 GB 仅是以旧样本做的预算估算；新链额外 snapshots/校验和非线性 GC 都可能导致截断，截断允许且不追加预算。启动 host available 至少 16 GiB、运行低于 4 GiB 停；证据盘 1 GiB 启动、512 MiB 停，与节点单飞/有效占用前提并用。实际脚本仍须对必要指标不可读停止，TERM/KILL/reap 共用截止，未确认回收保留锁。
+
+观测修正适合本次问题：heartbeat 前不保存/fsync，heartbeat/GC 只写有界内存；业务粗边界低频保存并计开销。GC 全程聚合加最近 128/最长 32 窗口，不再只留导入期前 64；阶段、事件和 checkpoint 均有数量上限及丢弃/覆盖/写失败记录。按真实顺序区分多次 payload/change-set/closure digest，逐 key JCS 只聚合并与全图阶段区分，适配新共享 writer；委托原实现，不变更校验和异常顺序。无法隔离的释放/join 与未保存的硬截断窗口明确缺口，不做差额推算。
+
+原 10/30 秒租约、真实线程和 UTC/monotonic/内存 UOW 保持。旧 probe/证据不改，独立候选/manifest/attempt marker；不启动 SQL、DB、Dolt、Compose、HTTP、Submit、CT108 或全量 runner。本范围不授权产品改动、合入或正式恢复。数 GiB 合成结果不等于现场 24 GB 或 SQLite 行为；即使成功也不能直接转完整 Submit。固定候选送审后再给一次执行决定。

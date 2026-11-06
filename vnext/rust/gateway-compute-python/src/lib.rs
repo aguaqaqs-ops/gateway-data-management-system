@@ -1061,21 +1061,24 @@ struct SingleBatchReader {
 /// Python retains its mapping for the entire synchronous call; no path or raw
 /// pointer crosses this boundary and no IPC body is copied into a Rust Vec.
 #[pyfunction]
+#[pyo3(signature = (columns, arrow_stream, cancel_probe, budgets, deadline_monotonic=None))]
 fn _inspect_canonical_ipc_native(
     py: Python<'_>,
     columns: Bound<'_, PyList>,
     arrow_stream: PyRecordBatchReader,
     cancel_probe: Py<PyAny>,
     budgets: Bound<'_, PyDict>,
+    deadline_monotonic: Option<f64>,
 ) -> PyResult<usize> {
     let result = adapter_boundary(|| {
         shared_parser_pool(None)?;
+        let deadline = deadline_instant(py, deadline_monotonic)?;
         let budgets = canonical_budgets(&budgets)?;
         let watch = register_cancel_probe(py, &cancel_probe)?;
-        python_adapter_control(&watch, None)?;
+        python_adapter_control(&watch, deadline)?;
         let descriptors = {
-            let preflight = descriptor_preflight(&columns, budgets, &watch, None)?;
-            let descriptors = parse_column_descriptors(&columns, preflight, &watch, None)?;
+            let preflight = descriptor_preflight(&columns, budgets, &watch, deadline)?;
+            let descriptors = parse_column_descriptors(&columns, preflight, &watch, deadline)?;
             let owned = actual_descriptor_storage_bytes(&descriptors, descriptors.capacity())?
                 .checked_add(preflight.string_cache_upper_bytes)
                 .ok_or_else(|| PyMemoryError::new_err("IPC descriptor storage overflow"))?;
@@ -1113,7 +1116,7 @@ fn _inspect_canonical_ipc_native(
                         budgets: core_budgets,
                         control: CanonicalIpcControl {
                             cancel: Some(watch.cancelled.as_ref()),
-                            deadline: None,
+                            deadline,
                         },
                     },
                 )
@@ -1121,9 +1124,10 @@ fn _inspect_canonical_ipc_native(
             .map_err(|error| match error.kind() {
                 CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
                 CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
+                CanonicalIpcErrorKind::Deadline => PyTimeoutError::new_err(error.to_string()),
                 _ => PyValueError::new_err(error.to_string()),
             });
-        python_adapter_control(&watch, None)?;
+        python_adapter_control(&watch, deadline)?;
         result
     });
     match result {

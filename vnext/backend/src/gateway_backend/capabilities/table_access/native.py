@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import struct
-from collections.abc import Iterator
+from collections.abc import Iterator, Callable
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -26,11 +26,24 @@ from gateway_backend.capabilities.table_access.kernel import (
 )
 
 
+class _ArrowLifetime:
+    def __init__(self, close: Callable[[], None] | None) -> None:
+        self.borrowers = 0
+        self._close = close
+
+    def release(self) -> None:
+        self.borrowers -= 1
+        if self.borrowers == 0 and self._close is not None:
+            self._close()
+            self._close = None
+
+
 class ArrowSourceTableReader:
     """Reopenable Arrow backing with single-consumer row/stream views."""
 
     def __init__(self, descriptor: SourceTableDescriptor, table: pa.Table,
-                 context: KernelExecutionContext) -> None:
+                 context: KernelExecutionContext, *, close: Callable[[], None] | None = None,
+                 lifetime: _ArrowLifetime | None = None) -> None:
         self._descriptor = descriptor
         self._table: pa.Table | None = table
         self._context = context
@@ -45,6 +58,14 @@ class ArrowSourceTableReader:
             raise
         self._closed = False
         self._consumed = False
+        self._lifetime = lifetime or _ArrowLifetime(close)
+        self._lifetime.borrowers += 1
+        try:
+            context.memory.retain_metadata(self, 512)
+            context.resources.callback(self.close)
+        except BaseException:
+            self.close()
+            raise
 
     @property
     def execution_context(self) -> KernelExecutionContext:
@@ -88,7 +109,7 @@ class ArrowSourceTableReader:
     def reopen(self) -> ArrowSourceTableReader:
         self._require_open()
         assert self._table is not None
-        return ArrowSourceTableReader(self._descriptor, self._table, self._context)
+        return ArrowSourceTableReader(self._descriptor, self._table, self._context, lifetime=self._lifetime)
 
     def close(self) -> None:
         if self._closed:
@@ -96,6 +117,7 @@ class ArrowSourceTableReader:
         self._closed = True
         self._table = None
         self._reservation.close()
+        self._lifetime.release()
 
     def _require_open(self) -> None:
         if self._closed:

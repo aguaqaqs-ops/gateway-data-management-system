@@ -9,9 +9,9 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Hashable
 
 import pyarrow as pa
@@ -181,6 +181,7 @@ class KernelExecutionContext:
     cancel_probe: CancelProbe
     threads: int
     deadline_monotonic: float | None = None
+    resources: ExitStack = field(default_factory=ExitStack, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if type(self.threads) is not int or not 1 <= self.threads <= 256:
@@ -217,6 +218,7 @@ def kernel_execution_scope(context: KernelExecutionContext, *, new_operation: bo
         yield context
     finally:
         _active_context.reset(token)
+        context.resources.close()
         context.memory.close()
 
 
@@ -234,4 +236,4 @@ def merge_kernel_control(
 ) -> KernelExecutionContext:
     deadlines = tuple(d for d in (context.deadline_monotonic, deadline_monotonic) if d is not None)
     return KernelExecutionContext(context.memory, CombinedCancelProbe(context.cancel_probe, probe),
-                                  context.threads, min(deadlines) if deadlines else None)
+                                  context.threads, min(deadlines) if deadlines else None, context.resources)

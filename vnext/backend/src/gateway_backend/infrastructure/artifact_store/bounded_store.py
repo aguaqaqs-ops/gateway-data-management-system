@@ -7,6 +7,9 @@ import os
 import secrets
 import tempfile
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
+
+import pyarrow as pa
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -53,6 +56,11 @@ class BoundedArtifactStore:
 
     def locate(self, ref: ArtifactRef) -> bytes:
         return self._local_store.locate(ref)
+
+    @contextmanager
+    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> Iterator[pa.Buffer]:
+        with self._local_store.open_buffer(ref, checkpoint=checkpoint) as buffer:
+            yield buffer
 
     def get_ref(self, artifact_id: str) -> ArtifactRef:
         return self._local_store.get_ref(artifact_id)

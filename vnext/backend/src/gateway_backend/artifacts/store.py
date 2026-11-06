@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Callable
 from contextlib import contextmanager
 from typing import ContextManager, Protocol
 
@@ -28,7 +28,7 @@ class ArtifactRefLookupPort(Protocol):
 
 
 class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
-    def open_buffer(self, ref: ArtifactRef) -> ContextManager[pa.Buffer]:
+    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> ContextManager[pa.Buffer]:
         """Borrow verified immutable bytes; the provider owns their lifetime."""
 
 
@@ -67,8 +67,13 @@ class InMemoryArtifactStore:
             raise ManifestVerificationError(f"unknown artifact_id: {artifact_id}") from exc
 
     @contextmanager
-    def open_buffer(self, ref: ArtifactRef) -> Iterator[pa.Buffer]:
-        yield pa.py_buffer(self.locate(ref))
+    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> Iterator[pa.Buffer]:
+        if checkpoint is not None:
+            checkpoint()
+        buffer = pa.py_buffer(self.locate(ref))
+        if checkpoint is not None:
+            checkpoint()
+        yield buffer
 
     def _verify_put(self, raw_bytes: bytes, ref: ArtifactRef) -> None:
         validate_artifact_ref_model(ref)

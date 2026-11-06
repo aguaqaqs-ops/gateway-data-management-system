@@ -143,7 +143,7 @@ class LocalArtifactStore:
             raise ManifestVerificationError("artifact ref lookup failed") from None
 
     @contextmanager
-    def open_buffer(self, ref: ArtifactRef) -> Iterator[pa.Buffer]:
+    def open_buffer(self, ref: ArtifactRef, *, checkpoint: Callable[[], None] | None = None) -> Iterator[pa.Buffer]:
         """Hash the same readonly mapping subsequently borrowed by the reader."""
         source: pa.MemoryMappedFile | None = None
         buffer: pa.Buffer | None = None
@@ -166,11 +166,20 @@ class LocalArtifactStore:
             view = memoryview(buffer)
             try:
                 for offset in range(0, len(view), 64 * 1024):
+                    if checkpoint is not None:
+                        checkpoint()
                     hasher.update(view[offset:offset + 64 * 1024])
+                if checkpoint is not None:
+                    checkpoint()
             finally:
                 view.release()
             if "sha256:" + hasher.hexdigest() != ref.raw_sha256.value:
                 raise ManifestVerificationError("stored raw_sha256 mismatch")
+        except (InterruptedError, TimeoutError):
+            buffer = None
+            if source is not None:
+                source.close()
+            raise
         except (OSError, ValueError, pa.ArrowException):
             buffer = None
             if source is not None:
@@ -192,7 +201,10 @@ class LocalArtifactStore:
         target, _sidecar = self._validated_paths(ref.artifact_id)
         if not target.is_file():
             raise ManifestVerificationError("artifact bytes are missing")
-        raw_bytes = target.read_bytes()
+        with target.open("rb") as source:
+            if os.fstat(source.fileno()).st_size != ref.size_bytes:
+                raise ManifestVerificationError("stored size_bytes mismatch")
+            raw_bytes = source.read(ref.size_bytes + 1)
         self._verify_raw(raw_bytes, ref)
         return raw_bytes
 

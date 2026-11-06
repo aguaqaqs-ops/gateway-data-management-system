@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import replace
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -205,3 +206,57 @@ def test_canonical_mapping_refuses_symlinks(tmp_path: Path, outside: bool) -> No
     path.symlink_to(target)
     with pytest.raises(ManifestVerificationError):
         store.open(ref, bound)
+
+
+def test_operation_mapping_reservations_share_views_and_count_independent_opens(tmp_path: Path) -> None:
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+    )
+
+    context = KernelExecutionContext(OperationMemoryBudget(64 * 1024**2), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        backend = LocalArtifactStore(tmp_path / "objects")
+        store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+        stream, descriptor = canonical_input(
+            "CREATE TABLE t (z INT NOT NULL PRIMARY KEY, a TEXT); INSERT INTO t VALUES (1,'" + "a" * 131072 + "');"
+        )
+        ref = store.put(stream, descriptor)
+        before = context.memory.used_bytes
+        with store.open(ref, descriptor) as first:
+            one_mapping = context.memory.used_bytes
+            with first.borrow_stream() as borrowed:
+                arrays = borrowed.read_all()
+            with context.memory.retain_arrow(arrays):
+                assert context.memory.used_bytes - one_mapping < ref.size_bytes
+                with store.open(ref, descriptor):
+                    assert context.memory.used_bytes - one_mapping >= ref.size_bytes
+            del arrays
+        assert context.memory.used_bytes == before
+
+
+def test_operation_stop_at_eof_prevents_canonical_publication(tmp_path: Path) -> None:
+    import threading
+
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, kernel_execution_scope,
+    )
+
+    stream, descriptor = canonical_input()
+    with stream:
+        arrays = stream.read_all()
+    stopped = threading.Event()
+    context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), stopped, 1)
+    backend = LocalArtifactStore(tmp_path / "objects")
+    called = []
+
+    def batches() -> Iterator[pa.RecordBatch]:
+        yield from arrays.to_batches()
+        stopped.set()
+
+    with kernel_execution_scope(context, new_operation=True):
+        store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+        with pa.RecordBatchReader.from_batches(arrays.schema, batches()) as source:
+            with pytest.raises((InterruptedError, ValueError)):
+                store.put(source, descriptor, before_write=lambda key, ref: called.append(ref))
+    assert called == []
+    assert not any(path.is_file() for path in backend.artifact_root.rglob("*"))

@@ -1,6 +1,6 @@
 # S2b D：Worker 配置、执行控制与生产调用链
 
-状态：**实施与独立审核进行中，尚无 D GO**（2026-11-06）。C 产品 `0048040af5`、handoff/容量 `7cd2b548c8`、独立 GO `e9bef6efe8` 已收齐；06 在 C 交接时释放、C 二角色结束，现由 D 使用。DC87 已关闭容量配置前置：12 GiB/4 GiB/显式 M8 GiB、N1/单 active。当前为本节新建的 **GPT-6.1-Sol/high 实施者、GPT-6.1-Sol/max 独立审核者**；本节涉及实际租约、冻结恢复、跨阶段资源预约，故审核选择 max。DC88 正常 drain 的纯重算让出已在 `7f61ceedf4` 完成独立复审：06 的 422 项定向测试通过，含真实 Runtime 交接及重领保计数；详见[审核报告](p6-s2b-d-review.md)。剩余 pair/Submit 控制与预算、实际容量及当前容器验收仍须完成。
+状态：**D GO，角色已结束**（2026-11-06）。固定产品 `93678f8439ec1393d496182f16ae5049b220242f`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。Sol/high 实施者和 Sol/max 审核者已结束；06 于 18:52:58Z 释放，保留 worktree、缓存、镜像和证据。已核生产调用链、DC88、operation 预算及必要当前容器边界；真实 FULL/t4 校准只覆盖 materialize 阶段，不称全 worker 实测峰值。DC87 的 12 GiB/4 GiB/显式 M8 GiB、N1/单 active 保持；旧路径删除、04 最终门禁和 t1–t4 完整正确性由 E 继续。
 
 ## 1. 实际接入点
 

@@ -1,6 +1,6 @@
-# S2b kickoff（已批准，A–C 已交付，D 推进中）
+# S2b kickoff（已批准，A–D 已交付，E 启动）
 
-状态：APPROVED / A–C COMPLETE / D IN PROGRESS；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；A 固定产品 `db7767ffbb`、审核 `83b927207a`，B 固定产品 `b820321c1e`、审核 `0dc93c09a9`。C 固定产品 `0048040af5`、[handoff](p6-s2b-c-handoff.md)及[容量报告](p6-s2b-c-capacity-calibration.md) `7cd2b548c8`、[独立审核](p6-s2b-c-review.md) `e9bef6efe8`，C GO，无未关闭 blocking；06 在 C 交接时释放，C 二角色结束，现由 D 使用。Owner 按 DC87 选择 12 GiB envelope/4 GiB reserve/显式 M=8 GiB、N=1/单 active。[D](p6-s2b-d-kickoff.md) 的 Sol/high 实施者、Sol/max 审核者正在完成生产接线；DC88 纯重算正常 drain 的不耗次数重排队已在 `7f61ceedf4` 通过独立复审，整体 D 验证仍待收口。E 待 D GO。局部接线证据不代表 D 实际 worker capacity 或容器通过，S2b 整体尚未退出。
+状态：APPROVED / A–D COMPLETE / E STARTING；2026-11-06。A 固定产品 `db7767ffbb`、审核 `83b927207a`；B 固定产品 `b820321c1e`、审核 `0dc93c09a9`；C 固定产品 `0048040af5`、handoff/容量 `7cd2b548c8`、审核 `e9bef6efe8`。D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞，06 于 18:52:58Z 释放，D 二角色结束。按 DC86 启动 [E](p6-s2b-e-kickoff.md)，新 Sol/high 实施者、新 Sol/max 审核者。DC87 的 12 GiB envelope/4 GiB reserve/显式 M8 GiB、N1/单 active 与 DC88 保持；D 局部 worker 校准和 focused 容器证据不替代 E 的最终门禁或完整 t1–t4。S2b 尚未退出，性能未知项不记 PASS。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 
@@ -208,7 +208,7 @@ reachable = no_unknown_segments
 - kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。审核结论与授权分开；Owner 随后以 DC85 批准 kickoff 及 A。
 - owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 及 A 实施已按 DC85 确认。
 - M 数值/默认/部署 envelope：按 DC84 在 IPC + FULL 生命周期测量后、worker 接线前定；不是阻止首个 mapping/kernel slice 的新样本前置。
-- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者；B 已由 Astra/high 审核完成，C–E 新独立审核者为 Sol/xhigh 或 max（DC86 最新补充），C 因事务/CAS 与冻结恢复选择 max；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A–C 角色均已结束，D 按固定交接启动并因租约/冻结恢复/跨阶段预约选择审核 max；E 待 D GO。
+- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者；B 已由 Astra/high 审核完成，C–E 新独立审核者为 Sol/xhigh 或 max（DC86 最新补充）。A–D 已完成并结束各节角色；E 因独立预期移交、累计恢复与跨节点最终证据选择 Sol/max 审核。额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。
 
 ## 8. 文档与准备工具检查记录（不是阶段取证）
 

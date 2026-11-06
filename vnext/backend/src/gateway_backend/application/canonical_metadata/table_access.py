@@ -216,14 +216,20 @@ class CanonicalCommittedTableAccess:
         context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> SnapshotTable:
         with kernel_control_scope(context.cancel_requested, context.deadline_monotonic) as active:
-            schema_digest = compute_schema_digest(columns=[{"name": column.name,
-                "sql_type": normalize_sql_type_spelling(column.scalar_type or "UNKNOWN"), "nullable": column.nullable}
-                for column in descriptor.columns], primary_key=descriptor.primary_key_columns)
-            if (identity.canonical_table != descriptor.table_name or identity.row_count != descriptor.row_count
-                    or identity.raw_content_digest != descriptor.raw_content_digest
-                    or identity.canonical_schema_digest != schema_digest):
-                raise RepositoryProviderError(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
-                    "canonical manifest schema/content binding differs from the exact catalog", table=descriptor.table_name)
+            metadata_size = check_canonical_descriptor_budget(descriptor, {
+                "max_columns": self._budgets["max_columns"],
+                "max_descriptor_bytes": self._budgets["max_metadata_bytes"],
+                "max_codec_peak_bytes": min(self._budgets["max_live_bytes"], active.memory.available_bytes),
+            })
+            with active.memory.reserve(metadata_size * 8):
+                schema_digest = compute_schema_digest(columns=[{"name": column.name,
+                    "sql_type": normalize_sql_type_spelling(column.scalar_type or "UNKNOWN"), "nullable": column.nullable}
+                    for column in descriptor.columns], primary_key=descriptor.primary_key_columns)
+                if (identity.canonical_table != descriptor.table_name or identity.row_count != descriptor.row_count
+                        or identity.raw_content_digest != descriptor.raw_content_digest
+                        or identity.canonical_schema_digest != schema_digest):
+                    raise RepositoryProviderError(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                        "canonical manifest schema/content binding differs from the exact catalog", table=descriptor.table_name)
             manager = self._open_committed(commit_id=commit_id, bound_descriptor=descriptor,
                 storage_view=storage_view, timeout_policy=timeout_policy)
             handle = manager.__enter__()

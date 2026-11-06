@@ -160,7 +160,13 @@ class HttpArrowRepositoryRefSession:
             )
         if len(selected.columns) > max_columns or (selected.row_count or 0) > max_rows:
             raise MemoryError("repository Arrow catalog exceeds reader budget")
-        path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+        try:
+            path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+        except (
+            RepositoryClientError, RepositoryProtocolError, RepositoryStreamError,
+            httpx.HTTPError, OSError,
+        ) as exc:
+            raise _repository_read_error("table row read", exc, table=table_name) from exc
         with ExitStack() as resources:
             resources.callback(Path(path).unlink, missing_ok=True)
             source = pa.memory_map(path, "r")

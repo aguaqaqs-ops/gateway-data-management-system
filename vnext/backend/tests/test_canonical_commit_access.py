@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import io
 import tempfile
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 
@@ -74,12 +75,13 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
     stream, bound = canonical_input(SQL)
     stream.close()
     requests: list[str] = []
+    wrong_commit = False
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(str(request.url))
         commit_segment = request.url.path.split("/commits/", 1)[1].split("/", 1)[0]
         assert decode_commit_id_path_segment(commit_segment) == COMMIT
         if request.url.path.endswith("/catalog"):
-            return httpx.Response(200, json={"catalog": _catalog(bound)}, headers={"X-Request-ID": "catalog"})
+            return httpx.Response(200, json={"catalog": _catalog(bound, "wrong" if wrong_commit else COMMIT)}, headers={"X-Request-ID": "catalog"})
         return httpx.Response(200, content=_wire(), headers={"X-Request-ID": "rows", "Content-Type": "application/vnd.apache.arrow.stream"})
     providers = build_http_repository_provider_factory(
         base_url="http://repository.test", bearer_token="test-only", timeout_seconds=5,
@@ -119,16 +121,37 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
         with access.open_committed(commit_id=COMMIT, bound_descriptor=mismatched, storage_view=_view(mismatched)):
             pytest.fail("mismatched exact-commit content was published")
     assert len(list(local.artifact_root.rglob("*.ref.jcs"))) == count
+    wrong_commit = True
+    with pytest.raises(RepositoryProviderError, match="pinned exact commit"):
+        with access.open_committed(commit_id=COMMIT, bound_descriptor=mismatched, storage_view=_view(mismatched)):
+            pytest.fail("wrong exact commit was accepted")
 
 
-def test_bounded_http_arrow_spool_cleans_failure_and_rejects_wrong_commit(db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+class _BrokenWire(httpx.AsyncByteStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield _wire()[:128]
+        raise httpx.ReadError("injected interrupted response stream")
+
+
+HTTP_WIRE_FAILURES = (
+    pytest.param("budget", MemoryError, "spool", id="byte-limit"),
+    pytest.param("network", RepositoryProviderError, "table row read failed", id="interrupted-stream"),
+)
+
+
+@pytest.mark.parametrize(("wire_failure", "expected", "message"), HTTP_WIRE_FAILURES)
+def test_http_arrow_source_failure_publishes_no_canonical_artifact(
+    db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    wire_failure: str, expected: type[Exception], message: str,
+) -> None:
     stream, bound = canonical_input(SQL)
     stream.close()
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    wrong_commit = False
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/catalog"):
-            return httpx.Response(200, json={"catalog": _catalog(bound, "wrong" if wrong_commit else COMMIT)}, headers={"X-Request-ID": "catalog"})
+            return httpx.Response(200, json={"catalog": _catalog(bound)}, headers={"X-Request-ID": "catalog"})
+        if wire_failure == "network":
+            return httpx.Response(200, stream=_BrokenWire(), headers={"X-Request-ID": "rows", "Content-Type": "application/vnd.apache.arrow.stream"})
         return httpx.Response(200, content=_wire(), headers={"X-Request-ID": "rows", "Content-Type": "application/vnd.apache.arrow.stream"})
     providers = build_http_repository_provider_factory(
         base_url="http://repository.test", bearer_token="test-only", timeout_seconds=5,
@@ -138,14 +161,10 @@ def test_bounded_http_arrow_spool_cleans_failure_and_rejects_wrong_commit(db_pat
     access = CanonicalCommittedTableAccess(
         store=CanonicalTableStore(local, repository_id=REPOSITORY, budgets=IPC_BUDGETS),
         unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path), repository_provider_factory=providers,
-        budgets={**BUSINESS_BUDGETS, "max_input_bytes": 128},
+        budgets={**BUSINESS_BUDGETS, "max_input_bytes": 128 if wire_failure == "budget" else BUSINESS_BUDGETS["max_input_bytes"]},
     )
-    with pytest.raises(MemoryError, match="spool"):
+    with pytest.raises(expected, match=message):
         with access.open_committed(commit_id=COMMIT, bound_descriptor=bound, storage_view=_view(bound)):
-            pytest.fail("over-budget wire bytes were accepted")
+            pytest.fail("failed wire source was accepted")
     assert not list(tmp_path.glob("gateway-arrow-*.ipc"))
     assert not list(local.artifact_root.rglob("*.ref.jcs"))
-    wrong_commit = True
-    with pytest.raises(RepositoryProviderError, match="pinned exact commit"):
-        with access.open_committed(commit_id=COMMIT, bound_descriptor=bound, storage_view=_view(bound)):
-            pytest.fail("wrong exact commit was accepted")

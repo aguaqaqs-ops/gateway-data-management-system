@@ -1181,3 +1181,25 @@ controller 完整/前缀 SHA、191 次成功心跳→失租→stall 的时间线
 粗阶段记录应复用已有入口与结果，不逐 row/key 排队、不重建持续 profiling/GC hook；不取消 Contract/digest 校验，不临场加时。候选准备前说明输入与现场差异、估算依据和未知项，再按 §56 固定一次性预算；旧合成 probe 截断值不足以预测完整 prepare。handoff 的“若 owner 决定继续诊断”不应成为重复授权门槛：按既有 DC80，由设计先形成并审具体最小范围，随后工具/清单/一次 GO 分别办理；没有新业务取舍时不需再等 owner 重确认。当前提案仍只是方向，未授新取证或运行。
 
 结论直接交新唯一实施会话 `01a1b107-11ba-7681-a7cf-afb1591a67d2` 并抄设计，后续不唤醒旧实施者。产品/镜像输入没有变化，不触发重建或重复 Compose；最后验证 image revision/source-tree 仍见 §57 / §52。**h GO 已消耗，正式测量停止，lease 根因 OPEN。**
+
+## 61. prepare-only 续租诊断：具体设计范围通过
+
+**设计 `fd19703bf487db9cdd8c681169013277e015759b`、`p6-prepare-step-lease-diagnostic-plan.md` 定向范围通过，无阻塞 finding。** 已读实际新增设计，并只读冻结 `1f9731` 的 WorkerRuntime/WorkerLifecycleController、bootstrap composition 与前述 acceptance/prepare 调用边界。未访问节点、执行测试或新诊断。新唯一实施者可按本范围准备外置候选和少量 CT05 focused 工具测试；这是准备范围通过，不授 acceptance POST、启动诊断栈或其他业务运行 GO。
+
+本次从完整 Submit 收窄为 prepare-only，有明确证据依据：h 在 prepare_import 失租，且尚无 Repository operation ID。一次真实 acceptance 复用原 route/application/事务，避免为省 HTTP 建手造 DB 或第二套 acceptance；保留真实 parent catalog/materialization，不能称完全离线计算。acceptance 创建 PREPARED attempt/QUEUED operation/PENDING prepare 本身是有状态业务写入，仍须等待最终候选专属一次 GO；完成 prepare 也不等于完成 Submit。
+
+停止下一 claim 的实现方向已有冻结源码支持：原 `_run_claim` 正常返回前已 join executor、验证 acknowledgment 并 mark_executor_completed；没有提前 drain 的正常路径仍为 READY_TO_CLAIM、executor_active=false。之后调用同一 lifecycle 的 request_drain 转 DRAINING，原 run 循环会在下一次 claim 前完成 clean drain。**只在原调用正常返回后请求 drain，不放在 finally，也不在执行中提前 SIGTERM。** 异常原样传播、单 worker/no-restart、唯一目标 operation/prepare/attempt 与原函数只委托一次的要求足以表达局部边界，不需复制 claim/heartbeat loop、改变 drain timeout 或新建状态机。successor 的正常持久化保留，结果再核 prepare terminal、submit_import PENDING 且未 claim；不能为了实现“单步”跳过 successor 事务。
+
+候选必须落实设计已列的 acceptance→worker 身份绑定顺序，不能只写概念保证。可利用仅 backend/RS 就绪后 acceptance 取得目标 ID、再启动唯一受控 worker 等现有接线，或给出同样明确的无竞态顺序；不额外要求新增通用启动 gate。来源其他可领取/恢复工作、实际目标 claim 的核验及未知任务拒绝仍必要。no-restart 要核实际 Compose override/容器配置，不以 worker 正常退出的意图代替防止重启领取后继的事实。具体 override、入口挂载/命令和 production composition 的绑定待候选审核；本节不预先声称容器接线已验证。
+
+观测收窄合理：既有 prepare 函数入口/返回及同线程嵌套深度可回答最后进入/未返回的粗阶段，不能将嵌套耗时重复求和；保留所有原校验、返回值和异常。`_run_claim` 的真实 claim_anchor、`_heartbeat_until_due` 的实际入口/返回参数和 `LeaseSession.heartbeat` 入口/返回，足以区分 helper 入口前的延迟、入口时已过 deadline、session 调用内的滞留。derived due 必须明确派生，不叫实际 loop-entry；session 调用内部同时包括 mutation lock/事务等，当前不插入细分是合理的最小范围，不能据这些事件唯一归因 SQLite/锁/GIL/GC。
+
+**不再使用 py-spy 或有效栈前置条件的变更通过。** h 已有可选采样持续缺失的事实，本次用已绑定入口 ready、实际 worker PID/starttime/镜像、guardian 就绪和明确函数边界直接回答新问题；这不是降低产品校验或忽略必要资源守护，不需要重复旧 canary。候选须证明 ready 属于真正加载这些 wrappers 的目标 worker，不能只有外层 controller 自报已就绪。记录线程 ID/monotonic，并保留“入口前未进入”和“入口后未返回”的证据差异，不把线程活跃当续租成功。
+
+每条 2 KiB、总量 4096 条/8 MiB 的标准有界日志，阶段与约 10 秒一次的 heartbeat 事件规模相称；RSS 复用原 5 秒外采样，无逐 row/key、GC、stack 或热路径 fsync。日志写入会扰动同进程调度/I/O，设计已经说明，不能将新结果当正式性能。候选对写入/上限/必要观测失败须明确诊断缺口与停止分类，并仍保住单步及回收边界；不把 logging 异常改写成产品 lease 结论。未要求自定义持久队列或新的 evidence 状态机。
+
+45 分钟绝对上限、3600 秒外层上限及原资源线不变，h 的 2114 秒失败窗口只支持预算覆盖选择，不证明完成时间。具体起算点须将初始化和清理纳入设计所说的外层约束，不能把几个各自独立 timeout 的和称为整次 3600 秒。lease_lost/cancel/stall 后仍保留实际 fence/join 语义，不能假定 Python 线程可以被安全强杀；外层仅对自有进程/容器有界收束，强制退出与正常 prepare 完成分别记录。未回收不解锁、保卷不重试和关闭 controller 后另记完整 SHA 均落实 §59 已发生的问题。
+
+少量 CT05 工具 focused 覆盖真实 run 委托及成功后 drain/no second claim、目标/异常拒绝、真实参数与 derived 标识、记录上限和未回收不解锁即可。不要求重跑已通过的合成 probe、小 Compose 旅程或全量 runner，不为该外置诊断准备重建相同产品镜像。产品 HEAD 继续 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`、最后验证三镜像 revision/source-tree 取 §52/57；新的 override/入口边界必须在具体候选中审清，并在获准实际诊断时核运行身份和退出事实，不能称这些新接线已经 carried。
+
+结论已直接交新实施者并抄设计，可接续准备，无需 owner 重复授权。最终清单、源码/工具/override 摘要、测试证据、输入、预算及固定命令仍待独立审核后给予专属一次运行 GO。**当前无新运行 GO；h GO 已消耗，H3 不变，正式测量停止，lease 根因 OPEN。**

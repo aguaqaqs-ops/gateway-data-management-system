@@ -1161,3 +1161,23 @@ handoff 列出的 12 项关键 SHA 中，**11 项完整文件匹配；controller
 当前足以关闭“新 observer 是否仍因双 timeout 打断业务”的疑问：本次合格降级、守护和回收路径已有真实证据。需要继续处理的是**真实续租失效**，不能以工具通过替代产品关闭。建议先由已确认接管者修正 handoff 的完整 controller SHA、DB selected rows 可用性及失租时间线，复用原日志/冻结源码，梳理 prepare_import 中大堆与续租/取消检查的位置；尚无依据直接移除 Contract 校验、改 TTL/heartbeat、升资源阈值或归罪 SQLite。既存栈缺口决定了任何后续局部诊断仍须先提出具体问题、最小取证方式和一次性预算范围，不默认要求再跑完整 Submit 或新增 profiler。
 
 本次仅有外置工具/证据审核，产品 HEAD 与最后验证镜像 revision/source-tree 继续取 §57 / §52；没有触发新镜像构建或重复门禁。**h 原 GO 已消耗，无重试、新运行或正式恢复 GO；H3 不变，正式测量停止，lease 根因 OPEN。** 后续任务交设计安排确认接管者，旧实施会话不再由本审核唤醒执行。
+
+## 60. 接任 handoff 与冻结源码映射：只读核对通过
+
+**接任实施者文档提交 `547e5ae388f671568ec4cf83a39b256436eeb560` 的 §59 结果更正与主要源码映射通过，无阻塞 finding。** 已核该提交只改 handoff，并在 clean detached `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 只读检查所引 worker runtime、LeaseSession、prepare handler、import publication，以及它调用的 mutation replay 和 canonical publication/package；没有节点查询、导入产品、测试或新诊断。这里只核事实和建议，不授权实现或运行。
+
+controller 完整/前缀 SHA、191 次成功心跳→失租→stall 的时间线、selected rows 实际可读与 repository_operation_id=null 后置检查、observer 资源/回收、三个耗时口径均与 §59 一致。handoff 顶部将正式测量与后续运行停止写明，避免旧执行计划被读成仍有效授权。末节标题应把 `P6-G-RESULT §59` 更正为 **P6-H-RESULT**，属于非阻塞文书笔误，不影响本次内容结论；保留前文历史记录，由新末节明确更正其口径是可接受的。
+
+源码映射的准确边界如下：
+
+- `worker_runtime._run_claim` 的父循环负责续租，executor 是同进程非 daemon 线程；heartbeat 异常路径会 join 该线程，fence 不等于强制终止 executor。`LeaseSession.heartbeat` 在 mutation lock/事务内核身份、RUNNING、expiry 并传播 cancel，使用 transaction_now 续租。该结构支持分析调度/锁/执行线程响应，但不能从结构本身认定本次哪一处阻塞。
+- `build_prepare_import_handler` 在开始和建包/检查点处理后 refresh_control 并检查 cancel；`_build_prepare_import_build_input` 读 ready closure、canonical bindings、parent metadata/catalog。`import_publication` 的 parent materialization 和 canonical publication 分别使用 NeverCancel context，内部物化/排序路径没有传入 worker 的 cancel/lease control；不能把此静态取消盲区直接等同于失租原因。
+- changed artifact rows 先形成 `ImportReplayKeyedRow` tuples；`mutation_planning/import_replay.build_import_mutation_snapshots` 再包装 key/image、逐 row digest 并排序。可比较的 changed parent rows 另物化为 `MutationKeyedRow` 并排序，之后 mutation planning、schema/DML/replay SQL，再由 `storage_projection/publish.py` 生成 package、写入/读取并 validate round-trip；package 编码/解码在 `storage_projection/package.py`。这些层各有不同的驻留对象，引用共享不能当作所有内容都深拷贝两次，reader.close 也不证明这些 tuple/list/计划/SQL/package 已释放或 RSS 已下降。handoff 的“可能来源、非根因”限定正确。
+
+**既存材料还能收敛的范围：** 已记录的 current step 为 prepare_import、尚无 Repository operation ID，故优先分析该步骤内的输入转换、mutation 与 publication，不需要为定位此故障把后继 submit_import/await_import 或后续旅程再跑一遍。不能据此排除所有 RS/Dolt 影响：prepare 的 parent catalog/materialization 仍有 RS 只读路径。容器未 OOM、资源线未触、observer 正常、预算未到、没有 heartbeat_busy 事件，已排除这些作为本次已记录的直接停止触发；仍没有失租附近的 Python 业务栈、heartbeat 实际入口/返回和 lock/事务等待时段，所以 SQLite、GIL、GC、mutation lock 或某段序列化均未获唯一归因。取消盲区与 join 还关系到失租后的退出响应，应与“为何先失租”区分。
+
+**下一步建议不必默认完整真实 Submit。** 先交设计一个最小具体问题和局部候选：复用冻结 builder 及已绑定输入/parent 事实，按需要覆盖真实 changed-table 形状的 prepare 子链，在少量粗阶段入口/出口记录 duration/RSS；局部构造可以回答哪段消耗/持有大堆，不能凭小样本或不同 shape 推断现场完成时间。若问题转为续租为何越过 deadline，应区分 runtime due/实际 heartbeat 入口/返回与本地 deadline，保留相同线程和 LeaseSession/事务边界；纯内存 heartbeat 或假 DB 不能证明 SQLite 现场原因。只有局部路径确实无法保持必要边界时，再具体说明为何需要真实 DB/容器或完整 prepare；不能直接跳到完整 Submit。这里不是要求依次跑两套诊断，而是让设计按首要证据缺口选择一次必要范围。
+
+粗阶段记录应复用已有入口与结果，不逐 row/key 排队、不重建持续 profiling/GC hook；不取消 Contract/digest 校验，不临场加时。候选准备前说明输入与现场差异、估算依据和未知项，再按 §56 固定一次性预算；旧合成 probe 截断值不足以预测完整 prepare。handoff 的“若 owner 决定继续诊断”不应成为重复授权门槛：按既有 DC80，由设计先形成并审具体最小范围，随后工具/清单/一次 GO 分别办理；没有新业务取舍时不需再等 owner 重确认。当前提案仍只是方向，未授新取证或运行。
+
+结论直接交新唯一实施会话 `01a1b107-11ba-7681-a7cf-afb1591a67d2` 并抄设计，后续不唤醒旧实施者。产品/镜像输入没有变化，不触发重建或重复 Compose；最后验证 image revision/source-tree 仍见 §57 / §52。**h GO 已消耗，正式测量停止，lease 根因 OPEN。**

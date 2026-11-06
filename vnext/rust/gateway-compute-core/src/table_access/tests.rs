@@ -302,7 +302,7 @@ fn operation_memory_limit_rejects_before_value_growth_with_a_stable_location() {
         ),
     ];
     for threads in [1, 2] {
-        let pool = build_parser_pool(threads).expect("test pool");
+        let pool = pool(threads);
         for sql in &cases {
             let mut options = SqlParseOptions::default();
             options.budgets.max_live_bytes = 4096;

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 from dataclasses import replace
 import time
 
@@ -131,7 +133,7 @@ def test_requested_tables_filter_does_not_relist() -> None:
             canonical_table=descriptor.table_name,
             row_count=descriptor.row_count,
             source_schema_digest=descriptor.business_schema_digest,
-            canonical_schema_digest=descriptor.business_schema_digest,
+            canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
             raw_content_digest=descriptor.raw_content_digest,
         )
         for descriptor in full.summary.tables
@@ -163,7 +165,7 @@ def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
     elif case == "composite_key":
         target = catalog_table(
             "composite_items",
-            (int_id_column(), text_column("region", 1)),
+            (int_id_column(), text_column("region", 1, nullable=False)),
             primary_key=("id", "region"),
         )
         target_rows = ((1, "north"),)
@@ -208,7 +210,7 @@ def test_rowless_descriptor_matches_rowful_descriptor(case: str) -> None:
             canonical_table=item.table_name,
             row_count=item.row_count,
             source_schema_digest=item.business_schema_digest,
-            canonical_schema_digest=item.business_schema_digest,
+            canonical_schema_digest=canonical_schema_digest_for_descriptor(item),
             raw_content_digest=item.raw_content_digest,
         )
         for item in full.summary.tables

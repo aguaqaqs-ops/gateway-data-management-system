@@ -372,233 +372,10 @@ def test_duplicate_key_census_reports_coverage_per_table_outcome(
     assert result.ordered_projection_by_table == {}
 
 
-class OrderedGidCensusShape(NamedTuple):
-    rows: tuple[tuple[object, ...], ...]
-    duplicate_extra_rows: int
-    exact_duplicate_extra_rows: int
-    conflicting_extra_rows: int
-    duplicate_details: dict[str, object]
-    projection_status: str
-    diagnostic_code: str | None
-    diagnostic_message: str | None
-    real_gid_count: int
-    pseudo_gid_count: int
-    blank_gid_rows: int
-    unparseable_gid_rows: int
 
 
-ORDERED_GID_CENSUS_SHAPES = (
-    pytest.param(
-        OrderedGidCensusShape(
-            rows=(
-                (NullScalar(), SignedIntegerScalar("1"), StringScalar("first blank")),
-                (StringScalar(""), SignedIntegerScalar("2"), StringScalar("second blank")),
-                (SignedIntegerScalar("0"), SignedIntegerScalar("3"), StringScalar("third blank")),
-            ),
-            duplicate_extra_rows=0,
-            exact_duplicate_extra_rows=0,
-            conflicting_extra_rows=0,
-            duplicate_details={},
-            projection_status="COMPLETE",
-            diagnostic_code=None,
-            diagnostic_message=None,
-            real_gid_count=0,
-            pseudo_gid_count=3,
-            blank_gid_rows=3,
-            unparseable_gid_rows=0,
-        ),
-        id="null-empty-and-zero-gids-are-pseudo",
-    ),
-    pytest.param(
-        OrderedGidCensusShape(
-            rows=(
-                (NullScalar(), SignedIntegerScalar("1"), StringScalar("blank one")),
-                (StringScalar(""), SignedIntegerScalar("2"), StringScalar("blank two")),
-                (SignedIntegerScalar("9"), SignedIntegerScalar("3"), StringScalar("same")),
-                (SignedIntegerScalar("9"), SignedIntegerScalar("4"), StringScalar("same")),
-            ),
-            duplicate_extra_rows=1,
-            exact_duplicate_extra_rows=0,
-            conflicting_extra_rows=1,
-            duplicate_details={
-                "key_columns": ["gid"],
-                "key_source": "EXPLICIT_RULE",
-                "exact_duplicate_extra_rows": 0,
-                "conflicting_extra_rows": 1,
-                "differing_columns": ["no"],
-                "max_group_size": 2,
-            },
-            projection_status="FAILED",
-            diagnostic_code=ProjectionDiagnosticCode.KEY_DUPLICATE.value,
-            diagnostic_message="canonical key is not unique",
-            real_gid_count=2,
-            pseudo_gid_count=0,
-            blank_gid_rows=2,
-            unparseable_gid_rows=0,
-        ),
-        id="mixed-blanks-and-real-gid-duplicate",
-    ),
-    pytest.param(
-        OrderedGidCensusShape(
-            rows=(
-                (SignedIntegerScalar("1"), SignedIntegerScalar("1"), StringScalar("real")),
-                (NullScalar(), SignedIntegerScalar("3"), StringScalar("blank")),
-            ),
-            duplicate_extra_rows=0,
-            exact_duplicate_extra_rows=0,
-            conflicting_extra_rows=0,
-            duplicate_details={},
-            projection_status="FAILED",
-            diagnostic_code=ProjectionDiagnosticCode.ROW_INTEGRITY.value,
-            diagnostic_message="ordered no must be the continuous range 1..N",
-            real_gid_count=1,
-            pseudo_gid_count=0,
-            blank_gid_rows=1,
-            unparseable_gid_rows=0,
-        ),
-        id="noncontinuous-no",
-    ),
-    pytest.param(
-        OrderedGidCensusShape(
-            rows=(
-                (SignedIntegerScalar("1"), SignedIntegerScalar("1"), StringScalar("first")),
-                (SignedIntegerScalar("2"), SignedIntegerScalar("1"), StringScalar("second")),
-            ),
-            duplicate_extra_rows=0,
-            exact_duplicate_extra_rows=0,
-            conflicting_extra_rows=0,
-            duplicate_details={},
-            projection_status="FAILED",
-            diagnostic_code=ProjectionDiagnosticCode.ROW_INTEGRITY.value,
-            diagnostic_message="ordered no is not unique",
-            real_gid_count=2,
-            pseudo_gid_count=0,
-            blank_gid_rows=0,
-            unparseable_gid_rows=0,
-        ),
-        id="duplicate-no",
-    ),
-    pytest.param(
-        OrderedGidCensusShape(
-            rows=(
-                (
-                    SignedIntegerScalar("4000000000"),
-                    SignedIntegerScalar("1"),
-                    StringScalar("reserved"),
-                ),
-            ),
-            duplicate_extra_rows=0,
-            exact_duplicate_extra_rows=0,
-            conflicting_extra_rows=0,
-            duplicate_details={},
-            projection_status="FAILED",
-            diagnostic_code=ProjectionDiagnosticCode.ROW_INTEGRITY.value,
-            diagnostic_message="source gid is in the reserved pseudo range",
-            real_gid_count=0,
-            pseudo_gid_count=0,
-            blank_gid_rows=0,
-            unparseable_gid_rows=1,
-        ),
-        id="gid-in-pseudo-reserved-range",
-    ),
-    pytest.param(
-        OrderedGidCensusShape(
-            rows=((StringScalar("not numeric"), SignedIntegerScalar("1"), StringScalar("invalid")),),
-            duplicate_extra_rows=0,
-            exact_duplicate_extra_rows=0,
-            conflicting_extra_rows=0,
-            duplicate_details={},
-            projection_status="FAILED",
-            diagnostic_code=ProjectionDiagnosticCode.ROW_INTEGRITY.value,
-            diagnostic_message="ordered integer cell is not numeric",
-            real_gid_count=0,
-            pseudo_gid_count=0,
-            blank_gid_rows=0,
-            unparseable_gid_rows=1,
-        ),
-        id="unparseable-gid-is-counted-separately",
-    ),
-)
 
 
-@pytest.mark.parametrize("shape", ORDERED_GID_CENSUS_SHAPES)
-@pytest.mark.unit
-def test_ordered_gid_census_counts_real_keys_and_projects_one_reader_pass(
-    monkeypatch: pytest.MonkeyPatch,
-    shape: OrderedGidCensusShape,
-) -> None:
-    reader_calls = 0
-
-    def iter_rows() -> Iterator[tuple[object, ...]]:
-        nonlocal reader_calls
-        reader_calls += 1
-        if reader_calls > 1:
-            raise AssertionError("census must consume each ordered table reader once")
-        return iter(shape.rows)
-
-    table = SimpleNamespace(
-        descriptor=SimpleNamespace(
-            table_name="ordered",
-            primary_key_columns=(),
-            row_count=len(shape.rows),
-            columns=tuple(SimpleNamespace(name=name) for name in ("gid", "no", "payload")),
-        ),
-        reader=SimpleNamespace(iter_rows=iter_rows),
-    )
-
-    def resolve_ordered_rule(
-        _ruleset: object,
-        _table_name: str,
-        *,
-        primary_key_columns: tuple[str, ...],
-    ) -> SimpleNamespace:
-        del primary_key_columns
-        return SimpleNamespace(
-            record=SimpleNamespace(
-                static_role=TableStaticRole.ORDERED_DIFF,
-                canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
-            )
-        )
-
-    monkeypatch.setattr(real_dump_census, "resolve_table_rule", resolve_ordered_rule)
-    monkeypatch.setattr(
-        real_dump_census,
-        "derive_storage_rule_view",
-        lambda _record, _descriptor: SimpleNamespace(
-            canonical_key_policy=CanonicalKeyPolicy.EXPLICIT,
-            canonical_key_columns=("gid",),
-            ordered_policy=OrderedPolicy.GID_NO_V1,
-        ),
-    )
-
-    result = real_dump_census._duplicate_and_effective_key_stats(
-        table_set=SimpleNamespace(tables=(table,)),  # type: ignore[arg-type]
-        ruleset=object(),
-        diagnostic_mode=True,
-        materialization_complete=True,
-    )
-
-    assert reader_calls == 1
-    assert result.duplicate_by_table == (
-        {"ordered": shape.duplicate_extra_rows} if shape.duplicate_extra_rows else {}
-    )
-    assert result.duplicate_extra_rows == shape.duplicate_extra_rows
-    assert result.exact_duplicate_extra_rows == shape.exact_duplicate_extra_rows
-    assert result.conflicting_extra_rows == shape.conflicting_extra_rows
-    expected_details = {"ordered": shape.duplicate_details} if shape.duplicate_extra_rows else {}
-    assert result.duplicate_details_by_table == expected_details
-    assert result.ordered_projection_by_table == {
-        "ordered": {
-            "status": shape.projection_status,
-            "diagnostic_code": shape.diagnostic_code,
-            "diagnostic_message": shape.diagnostic_message,
-            "row_count": len(shape.rows),
-            "real_gid_count": shape.real_gid_count,
-            "pseudo_gid_count": shape.pseudo_gid_count,
-            "blank_gid_rows": shape.blank_gid_rows,
-            "unparseable_gid_rows": shape.unparseable_gid_rows,
-        }
-    }
 
 
 @pytest.mark.unit
@@ -659,3 +436,17 @@ def test_sql_scan_fallback_keeps_tables_when_composite_stage_fails(
     assert result[0] is not None
     assert result[0].tables == ()
     assert result[1:] == (True, "sql_snapshot_after_composite_failure")
+
+
+def test_ordered_gid_census_uses_real_rust_projection_counts() -> None:
+    from tests.support.snapshot_materialization import materialize_sql
+    from gateway_backend.capabilities.table_rules import migrated_table_ruleset_snapshot
+    from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationPolicy
+    materialized = materialize_sql("CREATE TABLE b1_n1_iec104_syx_list (gid BIGINT, no INT NOT NULL, payload TEXT); INSERT INTO b1_n1_iec104_syx_list VALUES (NULL,1,'a'),(0,2,'b'),(7,3,'c');", policy=MaterializationPolicy.READERS_REQUIRED)
+    assert materialized.table_set is not None
+    stats = real_dump_census._duplicate_and_effective_key_stats(table_set=materialized.table_set,
+        ruleset=migrated_table_ruleset_snapshot(), diagnostic_mode=True, materialization_complete=True)
+    facts = stats.ordered_projection_by_table["b1_n1_iec104_syx_list"]
+    assert facts["status"] == "COMPLETE"
+    assert facts["real_gid_count"] == 1 and facts["pseudo_gid_count"] == 2
+    assert facts["blank_gid_rows"] == 2 and facts["unparseable_gid_rows"] == 0

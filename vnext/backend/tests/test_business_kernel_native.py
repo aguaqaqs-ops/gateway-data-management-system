@@ -34,7 +34,7 @@ from gateway_backend.capabilities.table_rules.registry import migrated_table_rul
 from tests.support.snapshot_materialization import load_sql, materialize_sql
 from tests.support.storage_projection import table_input, typed_column
 
-# Frozen from the verified pre-removal Python owner at 16e1089a8659.
+# Frozen from D93678 product sources with E16e1089 test helpers (old editable binding).
 # 06 log SHA256: 4fe7de2ddf4cea018d86107bb46043436171d70f8889832993f58f0031e699af.
 _TYPED_DIGEST = "sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d7dd32fcba87ee4f7f71"
 _WIDE_DIGEST = "sha256:c947ad6fccb65c36c067d38a761ca1049e0122c5f926413ba9f7c09e5dcc603a"
@@ -375,3 +375,10 @@ def test_filtered_catalog_facts_reserve_shared_operation_memory_before_conversio
         with pytest.raises(KernelMemoryLimit):
             catalog_from_arrow_result(result, budgets=_BUDGETS, cancel_probe=NeverCancel(), deadline_monotonic=None)
         assert context.memory.used_bytes == 0
+
+
+def test_ordered_empty_text_gid_allocates_the_contract_pseudo_identity() -> None:
+    result = _projection("CREATE TABLE b1_n1_iec104_syx_list (gid VARCHAR(8), no INT NOT NULL); INSERT INTO b1_n1_iec104_syx_list VALUES ('',1);")
+    assert result["output"] is not None
+    with result["output"]["tables"][0]["arrow_stream"] as stream:
+        assert stream.read_all().column("gid").to_pylist() == [4000000000]

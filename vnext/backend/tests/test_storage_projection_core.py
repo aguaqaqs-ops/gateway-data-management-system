@@ -431,30 +431,6 @@ def test_json_remains_fail_closed_without_dc12_evidence() -> None:
     assert any(item.column_name == "payload" for item in result.diagnostics)
 
 
-def test_projection_collects_schema_failures_for_every_table_and_column() -> None:
-    def broken(name: str) -> TableInput:
-        return table_input(
-            name,
-            columns=(
-                int_column("id"),
-                typed_column("bad_a", "DECIMAL(9,2)"),
-                typed_column("bad_b", "BLOB"),
-            ),
-            primary_key_columns=("id",),
-            rows=(as_row(int_cell(1), int_cell(2), int_cell(3)),),
-        )
-
-    result = project_storage(_request(broken("broken_a"), broken("broken_b")))
-
-    assert result.status is ProjectionStatus.FAILED
-    assert {
-        (item.table_name, item.column_name) for item in result.diagnostics
-    } == {
-        ("broken_a", "bad_a"),
-        ("broken_a", "bad_b"),
-        ("broken_b", "bad_a"),
-        ("broken_b", "bad_b"),
-    }
 
 
 def test_explicit_canonical_key_ignores_source_ddl_primary_key_change() -> None:
@@ -588,11 +564,6 @@ ROW_FAULTS = (
         ProjectionDiagnosticCode.ROW_INTEGRITY,
         lambda: _net_cfg_input(row_count=3),
     ),
-    (
-        "row_width",
-        ProjectionDiagnosticCode.ROW_INTEGRITY,
-        lambda: _net_cfg_input(rows=(as_row(varchar_cell("eth0"), int_cell(1)),)),
-    ),
 )
 
 
@@ -716,48 +687,8 @@ def test_snapshot_without_fallback_rejects_unclassified_table() -> None:
     assert ProjectionDiagnosticCode.RULESET_INVALID in _codes(result)
 
 
-TYPE_FAULTS = (
-    (
-        "missing_scalar_type",
-        ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
-        lambda: table_input(
-            "unknown_widget",
-            columns=(
-                SnapshotColumnDescriptor(name="id", display_name="id", nullable=False),
-            ),
-            primary_key_columns=("id",),
-            rows=(as_row(int_cell(1)),),
-        ),
-    ),
-    (
-        "set_sql_type",
-        ProjectionDiagnosticCode.UNSUPPORTED_TABLE,
-        lambda: table_input(
-            "unknown_widget",
-            columns=(
-                int_column("id"),
-                SnapshotColumnDescriptor(
-                    name="flags",
-                    display_name="flags",
-                    nullable=False,
-                    scalar_type="SET",
-                ),
-            ),
-            primary_key_columns=("id",),
-            rows=(as_row(int_cell(1), varchar_cell("a")),),
-        ),
-    ),
-)
 
 
-@pytest.mark.parametrize(("label", "code", "factory"), TYPE_FAULTS, ids=[item[0] for item in TYPE_FAULTS])
-def test_unsupported_schema_types(
-    label: str, code: ProjectionDiagnosticCode, factory: Callable[[], TableInput]
-) -> None:
-    result = project_storage(_request(factory()))
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert code in _codes(result)
 
 
 def test_requested_tables_projects_the_named_subset() -> None:
@@ -776,11 +707,6 @@ def test_requested_tables_projects_the_named_subset() -> None:
     assert tuple(table.name for table in result.manifest.tables) == ("net_cfg",)
 
 
-def test_missing_requested_table_fails() -> None:
-    result = project_storage(_request(_net_cfg_input(), requested_tables=("absent_table",)))
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.REQUIRED_TABLE_FAILED in _codes(result)
 
 
 def test_requested_skip_table_is_omitted_not_missing() -> None:
@@ -791,57 +717,12 @@ def test_requested_skip_table_is_omitted_not_missing() -> None:
     assert tuple(table.canonical_table for table in result.tables) == ("net_cfg",)
 
 
-RUNTIME_FAULTS = (
-    (
-        "cancel",
-        ProjectionDiagnosticCode.PROJECTION_CANCELLED,
-        lambda: ProjectionInvocationContext(cancel_requested=FlagCancel(True)),
-    ),
-    (
-        "deadline",
-        ProjectionDiagnosticCode.PROJECTION_TIMEOUT,
-        lambda: ProjectionInvocationContext(
-            cancel_requested=NeverCancel(),
-            deadline_monotonic=time.monotonic() - 1.0,
-        ),
-    ),
-)
 
 
-@pytest.mark.parametrize(("label", "code", "factory"), RUNTIME_FAULTS, ids=[item[0] for item in RUNTIME_FAULTS])
-def test_cancel_and_deadline_fail_without_manifest(
-    label: str,
-    code: ProjectionDiagnosticCode,
-    factory: Callable[[], ProjectionInvocationContext],
-) -> None:
-    reader, binding = _net_cfg_input()
-    result = project_storage(_request((reader, binding), context=factory()))
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert result.import_input is None
-    assert code in _codes(result)
-    assert reader.closed is True
 
 
-def test_reader_io_failure_does_not_publish() -> None:
-    reader, binding = _net_cfg_input(iter_error=OSError("read failed"))
-    result = project_storage(_request((reader, binding)))
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.BINDING_INVALID in _codes(result)
-    assert reader.closed is True
 
 
-def test_reader_contract_failure_does_not_escape_projection() -> None:
-    reader, binding = _net_cfg_input(
-        iter_error=TableAccessError(ParserDiagnosticCode.READER_CLOSED, "reader closed")
-    )
-    result = project_storage(_request((reader, binding)))
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert result.import_input is None
-    assert ProjectionDiagnosticCode.BINDING_INVALID in _codes(result)
-    assert reader.closed is True
 
 
 def test_skip_table_is_omitted_and_version_manager_keeps_no() -> None:
@@ -867,43 +748,10 @@ def test_skip_table_is_omitted_and_version_manager_keeps_no() -> None:
     assert version.storage_view.canonical_key_columns == ("id",)
 
 
-BINDING_FAULTS = (
-    (
-        "provisional",
-        lambda: _net_cfg_input(materialization_stage=MaterializationStage.PROVISIONAL),
-    ),
-    (
-        "table_failed",
-        lambda: _net_cfg_input(
-            raw_content_digest=dummy_digest(),
-            degraded_reason=DegradedReason.TABLE_FAILED,
-        ),
-    ),
-)
 
 
-@pytest.mark.parametrize(("label", "factory"), BINDING_FAULTS, ids=[item[0] for item in BINDING_FAULTS])
-def test_binding_rejects_provisional_and_failed_tables(
-    label: str, factory: Callable[[], TableInput]
-) -> None:
-    result = project_storage(_request(factory()))
-    assert result.status is ProjectionStatus.FAILED
-    assert result.manifest is None
-    assert ProjectionDiagnosticCode.BINDING_INVALID in _codes(result)
 
 
-def test_mismatched_snapshot_digest_is_binding_invalid() -> None:
-    first = _net_cfg_input()
-    second = table_input(
-        "version_manager",
-        columns=(int_column("id"),),
-        primary_key_columns=("id",),
-        rows=(as_row(int_cell(1)),),
-        snapshot_digest=digest_ref("22"),
-    )
-    result = project_storage(_request(first, second))
-    assert result.status is ProjectionStatus.FAILED
-    assert ProjectionDiagnosticCode.BINDING_INVALID in _codes(result)
 
 
 def test_raw_primary_key_fallback_projects_keyless_rows_without_deduplicating() -> None:

@@ -194,13 +194,13 @@ class FakeRepositoryRefSession:
                 elif mapped.logical_type.value == "set":
                     physical = pa.list_(pa.field("item", pa.string(), nullable=False))
                     convert = _set_fixture_value
-                fields.append(pa.field(column.name, physical, nullable=mapped.nullable))
+                fields.append(pa.field(canonicalize_identifier(column.name), physical, nullable=mapped.nullable))
                 columns.append([])
                 conversions.append(convert)
             count = 0
             for row in reader.stream_rows():
                 if len(row) != len(columns):
-                    raise ValueError("repository fixture row width mismatch")
+                    raise RepositoryProviderError(MaterializationDiagnosticCode.REPOSITORY_TABLE_READ_FAILED, "repository fixture row width mismatch", table=table_name)
                 count += 1
                 for index, value in enumerate(row):
                     columns[index].append(None if value is None else conversions[index](value))
@@ -594,8 +594,13 @@ def _bind_fixture_tables(request: RepositoryRefMaterializationRequest, provider:
     @contextmanager
     def uow() -> Iterator[Any]:
         yield SimpleNamespace(canonical_tables=index)
+    class ContentProvider:
+        def open_ref(self, repository_ref: RepositoryRef, timeout_policy: RepositoryRefTimeoutPolicy | None) -> FakeRepositoryRefSession:
+            session = provider.open_ref(repository_ref, timeout_policy)
+            session._close_error = False
+            return session
     port = build_committed_table_access(store=InMemoryArtifactStore(), unit_of_work_factory=uow,
-        repository_provider_factory=lambda repository_id, commit_id: provider,
+        repository_provider_factory=lambda repository_id, commit_id: ContentProvider(),
         repository_id=request.repository_ref.repository_id)
     if request.canonical_binding.table_identities:
         return replace(request, committed_tables=port)
@@ -609,8 +614,9 @@ def _bind_fixture_tables(request: RepositoryRefMaterializationRequest, provider:
     identities = []
     for view in request.canonical_binding.tables:
         catalog_table = next(t for t in provider.catalog.tables if canonicalize_identifier(t.table_name) == view.canonical_table)
-        columns = tuple(SnapshotColumnDescriptor(canonicalize_identifier(c.name), c.display_name or c.name,
-            True if c.nullable is None else c.nullable, c.scalar_type or c.raw_type or "UNKNOWN") for c in catalog_table.columns)
+        from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import map_repository_column
+        mapped_columns = tuple(map_repository_column(c).source for c in catalog_table.columns)
+        columns = tuple(SnapshotColumnDescriptor(c.canonical_name, c.display_name, c.nullable, c.sql_type) for c in mapped_columns)
         keys = tuple(canonicalize_identifier(k) for k in catalog_table.primary_key_columns)
         count = len(provider.declared_rows.get(view.canonical_table, ()))
         schema = compare_schema_digest(view.canonical_table, tuple(c.name for c in columns), keys)
@@ -633,3 +639,9 @@ def _bind_fixture_tables(request: RepositoryRefMaterializationRequest, provider:
             compute_schema_digest(columns=[{"name": c.name, "nullable": c.nullable, "sql_type": c.scalar_type} for c in columns],
                 primary_key=keys), DigestRef(result["output"]["raw_content_digest"])))
     return replace(request, canonical_binding=replace(request.canonical_binding, table_identities=tuple(identities)), committed_tables=port)
+
+
+def canonical_schema_digest_for_descriptor(descriptor: Any) -> Any:
+    from gateway_backend.capabilities.storage_projection import compute_schema_digest
+    return compute_schema_digest(columns=[{"name": c.name, "sql_type": c.scalar_type,
+        "nullable": c.nullable} for c in descriptor.columns], primary_key=descriptor.primary_key_columns)

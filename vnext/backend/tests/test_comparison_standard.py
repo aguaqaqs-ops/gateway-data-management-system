@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -721,7 +723,7 @@ def test_pair_and_table_early_exit_do_not_iterate_or_reopen_readers() -> None:
                 canonical_key_columns=descriptor.primary_key_columns,
             ),
             source_schema_digest=descriptor.business_schema_digest,
-            canonical_schema_digest=descriptor.business_schema_digest,
+            canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
             raw_content_digest=descriptor.raw_content_digest,
             storage_projection_version=STORAGE_PROJECTION_VERSION,
         ),

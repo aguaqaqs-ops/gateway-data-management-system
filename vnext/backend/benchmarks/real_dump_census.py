@@ -91,7 +91,6 @@ from gateway_backend.capabilities.storage_projection import project_canonical_ar
 from gateway_backend.capabilities.storage_projection.view import StorageViewError, derive_storage_rule_view
 from gateway_backend.capabilities.table_rules.contracts import (
     ORDERED_IDENTITY_COLUMN,
-    ORDERED_POSITION_COLUMN,
     OrderedPolicy,
     canonicalize_rule_identifier,
 )

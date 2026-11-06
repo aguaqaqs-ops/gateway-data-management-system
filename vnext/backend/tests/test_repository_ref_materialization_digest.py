@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 from dataclasses import replace
 
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
@@ -230,7 +232,7 @@ def test_requested_tables_only_open_selected_rows_and_keep_full_catalog_summary(
                 canonical_table=name,
                 row_count=descriptor.row_count,
                 source_schema_digest=descriptor.business_schema_digest,
-                canonical_schema_digest=descriptor.business_schema_digest,
+                canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
                 raw_content_digest=descriptor.raw_content_digest,
             )
             for name, descriptor in sorted(descriptors.items())

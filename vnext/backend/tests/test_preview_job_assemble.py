@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.repository_ref_materialization import canonical_schema_digest_for_descriptor
+
 import copy
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
@@ -745,7 +747,7 @@ def test_pair_memory_admission_rejects_before_python_row_comparison(
                 ordered_policy=OrderedPolicy.GID_NO_V1, structural_columns=("no",),
                 retained_columns=tuple(column.name for column in descriptor.columns), canonical_key_columns=("gid",))
             bound = replace(bound, storage_facts=(ComparisonStorageFacts(storage_rule_view=view,
-                source_schema_digest=descriptor.business_schema_digest, canonical_schema_digest=descriptor.business_schema_digest,
+                source_schema_digest=descriptor.business_schema_digest, canonical_schema_digest=canonical_schema_digest_for_descriptor(descriptor),
                 raw_content_digest=descriptor.raw_content_digest, storage_projection_version=STORAGE_PROJECTION_VERSION),))
         sides.append(bound)
     def forbidden_compare(_plan: object) -> None:

@@ -21,7 +21,7 @@ from gateway_backend.capabilities.storage_projection.contracts import (
 )
 from gateway_backend.capabilities.storage_projection._digest import compute_manifest_digest, compute_schema_digest
 from gateway_backend.capabilities.storage_projection.native import project_arrow_table
-from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
+from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view, StorageViewError
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from tests.support.snapshot_materialization import snapshot_table_as_arrow
 from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
@@ -40,7 +40,12 @@ def projected_fixture_tables(request: ProjectionRequest) -> tuple[ProjectionResu
         descriptor = item.source_binding.descriptor
         record = resolve_table_rule(request.ruleset, item.canonical_table,
                                     primary_key_columns=descriptor.primary_key_columns).record
-        view = derive_storage_rule_view(record, descriptor)
+        try:
+            view = derive_storage_rule_view(record, descriptor)
+        except StorageViewError as exc:
+            diagnostics.append(ProjectionDiagnostic(exc.code, ProjectionDiagnosticSeverity.ERROR,
+                                                   exc.message, item.canonical_table))
+            continue
         if view is None:
             continue
         arrow = snapshot_table_as_arrow(SnapshotTable(descriptor, item.reader))

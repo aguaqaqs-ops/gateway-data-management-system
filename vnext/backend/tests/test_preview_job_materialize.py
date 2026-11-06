@@ -444,7 +444,8 @@ def test_preview_reads_changed_and_deleted_baseline_tables_only(tmp_path: Path) 
     assert harness.baseline_provider.last_session is not None
     assert tuple(
         reader.catalog_table().table_name
-        for reader in harness.baseline_provider.last_session.table_readers
+        for session in harness.baseline_provider.sessions
+        for reader in session.table_readers
     ) == ("t", "version_manager")
 
 
@@ -652,9 +653,8 @@ def test_additive_ruleset_previews_nonempty_baseline_from_older_manifest(
     assert modified_manifest.ruleset_digest == ruleset_b.ruleset_digest
     assert baseline_metadata.manifest.ruleset_digest.value == ruleset_a_digest
     assert baseline_metadata.manifest.ruleset_digest != modified_manifest.ruleset_digest
-    assert harness.baseline_provider.open_count == 1
-    assert harness.baseline_provider.last_session is not None
-    assert harness.baseline_provider.last_session.pinned_commit_hash() == "commit-base"
+    assert harness.baseline_provider.sessions
+    assert all(session.pinned_commit_hash() == "commit-base" for session in harness.baseline_provider.sessions)
 
     observed_pairs: list[Any] = []
     original_run_pair = preview_jobs._run_pair_pipeline

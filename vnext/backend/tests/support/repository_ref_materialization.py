@@ -266,6 +266,7 @@ class FakeRepositoryTableAccessProvider:
         self.open_failed = open_failed
         self.open_count = 0
         self.last_session: FakeRepositoryRefSession | None = None
+        self.sessions: list[FakeRepositoryRefSession] = []
 
     def open_ref(
         self,
@@ -317,6 +318,7 @@ class FakeRepositoryTableAccessProvider:
             missing_table_on_open=self.missing_table_on_open,
         )
         self.last_session = session
+        self.sessions.append(session)
         return session
 
 

@@ -196,7 +196,8 @@ def test_cached_canonical_control_is_not_a_recovery_miss(
             pytest.fail("control was swallowed")
 
 
-def test_selected_repository_tables_require_the_scoped_committed_port() -> None:
+@pytest.mark.parametrize("missing", ("port", "identity"))
+def test_selected_repository_tables_require_the_scoped_committed_port(missing: str) -> None:
     from tests.support.repository_ref_materialization import (
         FakeRepositoryTableAccessProvider, catalog_table, int_id_column, make_catalog, make_request,
     )
@@ -205,6 +206,12 @@ def test_selected_repository_tables_require_the_scoped_committed_port() -> None:
     provider = FakeRepositoryTableAccessProvider(
         catalog=make_catalog((catalog_table("t", (int_id_column(),)),)), rows={"t": ((1,),)},
     )
-    request = replace(make_request(provider), committed_tables=None)
-    with pytest.raises(ValueError, match="committed canonical access"):
-        materialize_repository_ref(request)
+    request = make_request(provider)
+    if missing == "port":
+        with pytest.raises(ValueError, match="committed canonical access"):
+            materialize_repository_ref(replace(request, committed_tables=None))
+    else:
+        result = materialize_repository_ref(replace(request,
+            canonical_binding=replace(request.canonical_binding, table_identities=())))
+        assert result.status.value == "FAILED"
+        assert result.diagnostics[0].message == "selected repository table is missing its canonical content identity"

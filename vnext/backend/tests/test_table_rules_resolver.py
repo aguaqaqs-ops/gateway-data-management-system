@@ -11,6 +11,7 @@ from gateway_backend.capabilities.table_rules.contracts import (
     FALLBACK_SELECTOR_VALUE,
     ORDERED_POSITION_COLUMN,
     CanonicalKeyPolicy,
+    DroppedColumn,
     OrderedPolicy,
     SelectorPrecedenceClass,
     TableArtifactScope,
@@ -541,3 +542,25 @@ def test_empty_rules_snapshot_is_unclassified() -> None:
     snapshot = TableRulesetSnapshot(table_ruleset_version=1)
     with pytest.raises(ValueError, match="unclassified table"):
         resolve_table_rule(snapshot, "orders", primary_key_columns=("id",))
+
+
+def test_ignored_column_on_ddl_primary_key_fails_closed() -> None:
+    selector = TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value="custom_ddl")
+    ruleset = snapshot_from_records(
+        TableRuleRecord(
+            selector=selector,
+            precedence_class=SelectorPrecedenceClass.STANDARD_EXACT,
+            static_role=TableStaticRole.STANDARD_DIFF,
+            table_storage=TableStorageDisposition.PROJECT,
+            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY,
+            ordered_policy=OrderedPolicy.NONE,
+            compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
+            ignored_columns=("id",),
+            dropped_columns=(DroppedColumn(name="id", reason=legacy_ignored_column_reason(selector)),),
+            artifact_scope=TableArtifactScope.ALL_CHANGES,
+        )
+    )
+    with pytest.raises(ValueError, match="ignored columns must not be effective key columns"):
+        resolve_table_rule(ruleset, "custom_ddl", primary_key_columns=("id",))
+
+

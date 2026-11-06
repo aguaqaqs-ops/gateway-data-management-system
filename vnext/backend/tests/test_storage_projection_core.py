@@ -636,33 +636,6 @@ def test_dropped_column_source_change_does_not_change_r4_digests() -> None:
     second_input[0].close()
 
 
-def test_ignored_column_on_ddl_primary_key_fails_closed() -> None:
-    selector = TableRuleSelector(kind=TableRuleSelectorKind.EXACT, value="custom_ddl")
-    ruleset = snapshot_from_records(
-        TableRuleRecord(
-            selector=selector,
-            precedence_class=SelectorPrecedenceClass.STANDARD_EXACT,
-            static_role=TableStaticRole.STANDARD_DIFF,
-            table_storage=TableStorageDisposition.PROJECT,
-            canonical_key_policy=CanonicalKeyPolicy.DDL_PRIMARY_KEY,
-            ordered_policy=OrderedPolicy.NONE,
-            compare_key_mode=TableCompareKeyMode.RAW_PRIMARY_KEY,
-            ignored_columns=("id",),
-            dropped_columns=(DroppedColumn(name="id", reason=legacy_ignored_column_reason(selector)),),
-            artifact_scope=TableArtifactScope.ALL_CHANGES,
-        )
-    )
-    from gateway_backend.capabilities.table_rules import resolve_table_rule
-    with pytest.raises(ValueError, match="ignored columns must not be effective key columns"):
-        resolve_table_rule(ruleset, "custom_ddl", primary_key_columns=("id",))
-
-
-def test_snapshot_without_fallback_rejects_unclassified_table() -> None:
-    from gateway_backend.capabilities.table_rules import resolve_table_rule
-    with pytest.raises(ValueError, match="unclassified table"):
-        resolve_table_rule(snapshot_from_records(net_cfg_record()), "unknown_widget", primary_key_columns=("id",))
-
-
 def test_requested_tables_projects_the_named_subset() -> None:
     skip_input = table_input(
         "device_model_table",

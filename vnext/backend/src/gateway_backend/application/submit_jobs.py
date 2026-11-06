@@ -2743,7 +2743,7 @@ def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor
                 _publish_prepare_terminal_abort(lease_session, OperationDiagnostic(
                     code="RESOURCE_LIMIT_EXCEEDED", message=(str(error) or "operation memory budget exceeded")[:255]))
             return ExecutorAcknowledgment.PUBLISHED
-    return cast(ClaimedExecutor, execute)
+    return execute
 
 
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:

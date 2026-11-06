@@ -2963,8 +2963,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_ipc_metadata_matches_fixed_jcs_and_schema_version_vector(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_ipc_metadata_matches_fixed_jcs_and_schema_version_vector()
+    -> Result<(), Box<dyn Error>> {
         let column = column(
             "text",
             7,
@@ -2987,7 +2987,10 @@ mod tests {
             .custom_metadata()
             .ok_or_else(|| io::Error::other("IPC schema metadata is missing"))?;
         assert_eq!(schema_metadata.len(), 1);
-        assert_eq!(schema_metadata.get(0).key(), Some("gdds.canonical_mapping_version"));
+        assert_eq!(
+            schema_metadata.get(0).key(),
+            Some("gdds.canonical_mapping_version")
+        );
         assert_eq!(schema_metadata.get(0).value(), Some("1"));
 
         let fields = schema
@@ -3009,8 +3012,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_mapping_covers_declared_arrow_types_and_business_text_layout(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_mapping_covers_declared_arrow_types_and_business_text_layout()
+    -> Result<(), Box<dyn Error>> {
         let columns = vec![
             column(
                 "a_signed",
@@ -3176,10 +3179,38 @@ mod tests {
         for (field, expected) in decoded.schema().fields().iter().zip(expected_types) {
             assert_eq!(field.data_type(), &expected, "field {}", field.name());
         }
-        assert_eq!(decoded.column(0).as_any().downcast_ref::<Int64Array>().map(|values| values.value(0)), Some(127));
-        assert_eq!(decoded.column(1).as_any().downcast_ref::<UInt64Array>().map(|values| values.value(0)), Some(65_535));
-        assert_eq!(decoded.column(2).as_any().downcast_ref::<Float32Array>().map(|values| values.value(0)), Some(1.25));
-        assert_eq!(decoded.column(3).as_any().downcast_ref::<Float64Array>().map(|values| values.value(0)), Some(-2.5));
+        assert_eq!(
+            decoded
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .map(|values| values.value(0)),
+            Some(127)
+        );
+        assert_eq!(
+            decoded
+                .column(1)
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .map(|values| values.value(0)),
+            Some(65_535)
+        );
+        assert_eq!(
+            decoded
+                .column(2)
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .map(|values| values.value(0)),
+            Some(1.25)
+        );
+        assert_eq!(
+            decoded
+                .column(3)
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .map(|values| values.value(0)),
+            Some(-2.5)
+        );
         let expected_text = [
             "1234.56",
             "green",
@@ -3191,7 +3222,10 @@ mod tests {
             "12:34:56",
         ];
         for (index, expected) in expected_text.into_iter().enumerate() {
-            let values = decoded.column(index + 4).as_any().downcast_ref::<StringArray>();
+            let values = decoded
+                .column(index + 4)
+                .as_any()
+                .downcast_ref::<StringArray>();
             assert_eq!(values.map(|array| array.value(0)), Some(expected));
             assert!(values.is_some_and(|array| array.is_null(1)));
         }
@@ -3199,8 +3233,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_mapping_rejects_narrow_integer_overflow_and_non_finite_float(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_mapping_rejects_narrow_integer_overflow_and_non_finite_float()
+    -> Result<(), Box<dyn Error>> {
         let pool = pool()?;
         let integer_column = column(
             "i",
@@ -3277,8 +3311,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_ipc_enforces_actual_output_and_codec_peak_budgets(
-    ) -> Result<(), Box<dyn Error>> {
+    fn canonical_ipc_enforces_actual_output_and_codec_peak_budgets() -> Result<(), Box<dyn Error>> {
         let (columns, batch) = mapping_fixture()?;
         let pool = pool()?;
         let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
@@ -3297,14 +3330,9 @@ mod tests {
 
         let mut peak_limited = options();
         peak_limited.budgets.max_codec_peak_bytes = 1;
-        let peak_error = encode_v1(
-            &columns,
-            std::slice::from_ref(&batch),
-            &pool,
-            peak_limited,
-        )
-        .err()
-        .ok_or_else(|| io::Error::other("encoder exceeded its codec peak limit"))?;
+        let peak_error = encode_v1(&columns, std::slice::from_ref(&batch), &pool, peak_limited)
+            .err()
+            .ok_or_else(|| io::Error::other("encoder exceeded its codec peak limit"))?;
         assert_eq!(peak_error.kind(), CanonicalIpcErrorKind::Resource);
         Ok(())
     }

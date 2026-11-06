@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A–D 已交付，E 收尾取证中）
 
-E 当前进度：额外四工具 mypy 修正已通过，暂停关闭；04 最终取证先后暴露测试夹具与容器核对 helper 的 scope/显式调用迁移遗漏，均保留原失败。当前仅测试修正候选 `7c02397139` 已通过独立源码核对，先在 06 定向复验，再恢复 04 按包权威和 t1–t4；已合格 Rust 仍按同节点同 worktree 闭包判沿用。节点与具体准备见 [E 任务](p6-s2b-e-kickoff.md)，未知结果不记通过，尚非 S2b exit。
+E 当前进度：额外工具 mypy 与测试迁移遗漏均已修正；固定 `7c02397139` 的 06 定向及 04 backend 权威 runner 已实际通过，后者为 3173+57 项、整次退出 0。继续核对并保存逐包合格来源、运行剩余四包和 t1–t4；Rust 按同节点同 worktree 实际闭包沿用。先前失败记录保留。节点与具体安排见 [E 任务](p6-s2b-e-kickoff.md)，最终证据未齐，尚非 E GO/S2b exit。
 
 E 启动时状态记录：APPROVED / A–D COMPLETE / E STARTING；2026-11-06。A 固定产品 `db7767ffbb`、审核 `83b927207a`；B 固定产品 `b820321c1e`、审核 `0dc93c09a9`；C 固定产品 `0048040af5`、handoff/容量 `7cd2b548c8`、审核 `e9bef6efe8`。D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞，06 于 18:52:58Z 释放，D 二角色结束。按 DC86 启动 [E](p6-s2b-e-kickoff.md)，新 Sol/high 实施者、新 Sol/max 审核者。DC87 的 12 GiB envelope/4 GiB reserve/显式 M8 GiB、N1/单 active 与 DC88 保持；D 局部 worker 校准和 focused 容器证据不替代 E 的最终门禁或完整 t1–t4。S2b 尚未退出，性能未知项不记 PASS。
 

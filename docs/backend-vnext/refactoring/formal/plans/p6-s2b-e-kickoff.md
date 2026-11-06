@@ -10,6 +10,8 @@
 
 删除被替代 Python 批量 materialize/projection/hash 实现及只服务其差分的入口、mock/probe。保留已确认的独立 fixed vectors/Contract：删除旧 oracle 前，将仍需保留的预期明确绑定到既有 Contract/golden/旧 oracle 已验证值，不能从新 Rust actual 反写 expected，也不为了测试长期保留第二套算法。按行为与 owner 保留测试，不按修复轮次复制测试矩阵。
 
+D 的 direct RepositoryRef capability 用例可暂用 test-only committed-tables port 适配已有 reference helper，以隔离 metadata/选表策略。fixture 必须补齐显式合法 identity/scope，生产缺 identity/port 仍拒绝；真实 HTTP/C 恢复另有 owner。E 一并删除这些临时 reference 依赖，将必要预期交给独立固定向量或真实 C port，不保留生产 fallback，也不把旧算法复制成长期 test oracle。D handoff 必须列清临时项。
+
 D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节删除前的临时差分移交，D 明确登记六项 `gateway_backend.capabilities.table_access.{sql,_sql_reader,_sql_scan,_sql_statements,_sql_types,_sql_values}` 的 temporary unreachable。E 必须将尚需的独立语义预期固定并核实后，删除这六模块、只服务它们的测试辅助/差分入口与六项 baseline；不能通过假 import、长期重命名 oracle 或最终豁免保留。每项删除前核当前 consumer，S2b 最终架构门禁不接受这六项临时记录。
 
 内部 canonical IPC 与 raw/client Parquet 是不同用途；只删除被替代的内部规范表路径。面向客户端的 Parquet、通用 Repository row 访问、原始 SourcePackage 与外层 DDL/export layout 按其真实消费者保留。

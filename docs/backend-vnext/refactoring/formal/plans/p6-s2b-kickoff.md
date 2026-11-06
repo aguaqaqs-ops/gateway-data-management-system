@@ -1,8 +1,8 @@
-# S2b kickoff 设计输入（待 Owner 确认）
+# S2b kickoff（已批准，A 节实施中）
 
-状态：READY_FOR_OWNER；2026-11-06。固定设计候选 `1a4adaae05069ef7e2c758bfaf1d363e9b2bebf1` 已通过[独立审核](p6-s2b-kickoff-review.md)，无剩余技术 Finding；报告合入提交 `8b4be7434b`。消费者、mapping profile 与有界容量输入已收口，等待 Owner 确认 kickoff 及首节 A 的产品实施范围；未发产品实施提示词。
+状态：APPROVED / A IN PROGRESS；2026-11-06。Owner 已明确批准本 kickoff 并启动 A 节（DC85）。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；本轮按 [A 任务单](p6-s2b-a-kickoff.md)推进纯内存 mapping/IPC codec，B–E 不自动开工。
 
-2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。本文仍不是产品开工授权。
+2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 
 2026-11-05 更新（DC81）：owner 已解除 S2a exit 对基准整体 exit 的依赖，并安排新会话推进 S2a 收尾与 S2b 讨论。完整基准由原线独立跟踪；先推进已定功能，允许测量后小范围定向返工，开发验证按影响面收敛。本文仍为待审核准备稿，不将未知性能数值冒称通过，也不自动取消 W2 等退出条款。
 
@@ -18,7 +18,7 @@
 
 节点补充（DC82，2026-11-06）：owner 新增 06 作为后端日常开发测试节点，07 作为前端 mock 开发测试节点。06 的 Rust、Contract/focused 与小规模 Compose 可按本地占用自主进行；04/06/07 同宿主且 Owner 确认日常资源宽裕。节点就绪见[核对报告](p6-node-06-07-readiness.md)。06 不承接权威全量 runner、正式性能测量或默认全旅程；不操作 CT108 冻结 worktree、tag、inputs、volume 或 evidence。
 
-S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核。容量输入第一小步完成，M 数值与 worker memory envelope 尚留给 DC84 指定的实现后测量门。独立审核后仍须 Owner 确认整体 kickoff，才可发第一切片实施提示词。DC81 下基准未交付的 DC63 子段不是所有功能开工前置；未测条目保持 unknown。W1/W2/W3 时点按 DC84/DC83 和本节 §6 明列，t1–t4 正确性端到端仍是 S2b 退出内容。
+S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核。容量输入第一小步完成，M 数值与 worker memory envelope 尚留给 DC84 指定的实现后测量门。独立审核和 Owner kickoff 确认已完成，A 节按 DC85 开工。DC81 下基准未交付的 DC63 子段不是所有功能开工前置；未测条目保持 unknown。W1/W2/W3 时点按 DC84/DC83 和本节 §6 明列，t1–t4 正确性端到端仍是 S2b 退出内容。
 
 | 输入 | 本次结果 | 剩余闭合点 |
 | --- | --- | --- |
@@ -118,7 +118,7 @@ O1 与 `BLOCK_STARTUP_FATAL` 留在 worker runtime 维护，不并入本阶段�
 
 ## 5. Rust 接入、N/M 与执行控制
 
-整体 kickoff 获 Owner 确认后，按可审核小步实施；本节只定义边界和验证顺序。DC78 要求一个 Rust 生产路径：`parse → business validation/materialization → canonical projection/hash → IPC`；不留生产 Python fallback、旧格式双读/双写或用户可选引擎 flag。迁移期间可在测试/开发验证中对照 Python frozen semantics；独立向量和 Contract 落地、所有 real consumers 切换后，删除被替代算法、差分入口及只服务旧实现的 mock/test。保留 Python orchestration、PyO3/Arrow adapter、composite/XML 业务、错误传播与实际恢复消费者。
+整体 kickoff 已获 Owner 确认，当前仅 A 获实施授权；本节定义全部切片的边界和验证顺序。DC78 要求一个 Rust 生产路径：`parse → business validation/materialization → canonical projection/hash → IPC`；不留生产 Python fallback、旧格式双读/双写或用户可选引擎 flag。迁移期间可在测试/开发验证中对照 Python frozen semantics；独立向量和 Contract 落地、所有 real consumers 切换后，删除被替代算法、差分入口及只服务旧实现的 mock/test。保留 Python orchestration、PyO3/Arrow adapter、composite/XML 业务、错误传播与实际恢复消费者。
 
 ### 5.1 N 配置与共享池
 
@@ -203,10 +203,10 @@ reachable = no_unknown_segments
 
 ## 7. 确认记录
 
-- kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。该结论不授权产品实施。
-- owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 仍未确认。
+- kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。审核结论与授权分开；Owner 随后以 DC85 批准 kickoff 及 A。
+- owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 及 A 实施已按 DC85 确认。
 - M 数值/默认/部署 envelope：按 DC84 在 IPC + FULL 生命周期测量后、worker 接线前定；不是阻止首个 mapping/kernel slice 的新样本前置。
-- 实施提示词：未发。产品改动待独立审核结束且 Owner 明确确认本 kickoff。
+- 实施提示词：A 已发给本节新建实施者与审核者，见 A 任务单；B–E 尚未开工。
 
 ## 8. 文档与准备工具检查记录（不是阶段取证）
 
@@ -264,7 +264,7 @@ owner 授权按需修改设计文档及提交/推送后，定向同步 ADR 0001�
 
 kickoff 技术候选分为 A mapping + 纯内存 codec、B 业务 kernel、C store/ref/recovery、D worker/consumer wiring、E 唯一生产路径与旧算法清理。每步 owner、验证和阶段门见 §5.4/§6。首节 A 可在没有 worker、ArtifactStore 或生产 M 的情况下实现固定 mapping/profile bytes vectors；后续 M 按 DC84 在实际业务 IPC/FULL 测量之后、D worker 接线之前确定。
 
-本稿及相关 mapping/capacity 文档已通过独立技术审核，由 Owner 决定是否确认整体 kickoff 及首节 A 范围。当前仍无产品实施授权，不发产品改动提示词。DC63 子段、正式 W1/W2/W3 计时和 W4 lease 诊断按 §4/§6 保持各自状态，不用未知值代替，也不扩展本轮普查范围。审核后本次仅同步状态与报告引用，不改变技术方案或新增取证。
+本稿及相关 mapping/capacity 文档已通过独立技术审核，Owner 随后以 DC85 确认 kickoff 及首节 A 范围，已发 A 实施任务。DC63 子段、正式 W1/W2/W3 计时和 W4 lease 诊断按 §4/§6 保持各自状态，不用未知值代替，也不扩展本轮普查范围。本次授权同步不改变已审技术方案；A 产品证据单独交付。
 
 ### 9.1 设计、实施与审核分工
 

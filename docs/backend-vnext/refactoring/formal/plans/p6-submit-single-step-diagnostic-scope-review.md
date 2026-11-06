@@ -472,3 +472,23 @@ cleanup 保存的每条操作均为固定 project 的容器/network 列举，初
 已核回传 `failed-run-readonly/SHA256SUMS` 九项全部匹配。launch SHA `8b71c98f4ebdad3741c680b39ce8174e195edd0dc5ba49b448898bab5465f7ba`；SUMS SHA `704507a035603b5e69cb097a40603c54036b25689d48f75a979ba0f6f1a36808`；只读后查日志 SHA `a3aee64520e4221b10c6d989eb0df14ea3b00b8260ca640a684c182314048b71`。旧项目、失败目录与镜像保留，不能覆盖后重试。
 
 最小修订限于：submit 模式只接受 sampler 传入的确切仓库根目录，经原 hostname/owner/解释器/HEAD/clean/工具 pin/环境检查后切换到固定 backend 目录，再 import journey；其他模式仍只接受 backend 目录。保留 sampler 原参数、业务 wrapper、原预算与收尾，记录入口及实际 journey cwd。新 project/key/证据目录隔离失败尝试。修订候选固定摘要复核后可直接给予一次从 preflight 开始的重做 GO；再次失败即停止交回，不再自动重试，不重开已确认范围或旧场景。
+
+## 31. r2 固定候选审核与一次重做 GO
+
+**明确 GO：允许原实施者按 r2 README 唯一命令，在 CT05 从 preflight 开头重做一次 `p6catalogsubmit20261106e` 单步 Submit 诊断。** 已直接通知实施者和设计，不必等待 owner 或本报告提交回执。本次是第 30 节 DC68 修正后的唯一重做；再次失败即停止交回，不可自动再次重试。旧 d 项目证据和镜像保留。
+
+候选根路径 `/home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogsubmit20261106e/`：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `candidate-manifest.json` | `e34546dac931be3ebb4d07aa328908ba5a452a7df6ba2c053bf3e82fcdd924ab` |
+| `candidate/submit_diagnostic_launcher.py` | `9bb25a936248fae294adb01bf928d43cc8d18767832becf66c72cc0e19e1ed75` |
+| `candidate/run-once.sh` | `ee8573d082aa7990b789ed202c179d4947fbc70e8edd22c93ce89c3b8a698990` |
+| `candidate/README.md` | `f411c635884d37f49be6df8f64b03213600b9826458afd9fa11d3f5b44324e0c` |
+| `candidate/SHA256SUMS` | `eac27308f8c117ffe33862b00ebec9396babe659c3a57e3c37db4928a2fbdb4e` |
+
+已核 manifest 六个文件大小/摘要全部匹配，SUMS 五项匹配；source readout 和 target RS identity 沿用原字节与摘要。准备日志 SHA `34a7055868bebd729479155910e07538e7a305fb35a1c01cf5fdcefb50d50543`，仅语法/AST/固定 pin 核对；CT05 sampler cwd 只读日志 SHA `346b1a7bc754c321c9196adcc3c81557c3c5025c5594079a9d33dad71f3f22a3`，确认原模块 `Popen(..., cwd=worktree)`。审核未执行候选、测试、Compose 或 POST。
+
+逐行 diff 仅含 d→e 固定项目/路径/token、launcher mode 参数及明确 cwd 校验/切换、入口与 journey cwd 日志、shell launcher pin。submit 必须从确切 REPO 进入，原检查成功后才切到 BACKEND；其他三个模式仍要求 BACKEND。保留 sampler `--worktree REPO` 与其解释器定位关系，没有允许任意 cwd 或删除检查。source provenance、目标 RS 全身份、普通 resume、单 POST wrapper、输入/cache、45 分钟 guardian、观测和外层清理/超时均不变。
+
+执行前 LAN 传输并核以上固定摘要、确认 SSH/节点空闲，由原 shell 自取锁；仅新目标三卷与新 key。执行范围和失败收尾沿第 29 节，源 RS 仍为 run-bound full identity UNAVAILABLE，目标 RS 必须全身份 MATCH。不得追加 Preview、冷 GET、预热或后续旅程，也不授权正式测量恢复。一次结果与实际 exit、输入比较、资源/observer、cleanup/锁状态及 SHA 交回；本 GO 不预判业务成功或原 lease_lost 根因。

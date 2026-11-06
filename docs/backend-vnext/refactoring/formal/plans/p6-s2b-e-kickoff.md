@@ -35,7 +35,7 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 
 各节点分别按有效占用、clean committed worktree、离线缓存和日志规则执行；正式测试不在开发机运行。runner 非零先停并处理失败，不接着计算 carried；最终门禁提交固定后不在运行中修改 worktree、提交或手工 retag 镜像。保留 04 门禁 worktree 至阶段退出合入，以便同节点同 worktree 判等。
 
-真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3|t4> --scope full --kernel-threads 1 --kernel-memory-budget-bytes 8589934592`，由受控 uv 入口在相应节点执行；E 工具迁移后两个 kernel 参数显式提供，约束 host-side composite 对照的同一 operation scope，不替代 Compose worker 自己的 DC87 配置及 12 GiB 容器上限。使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。向原线协调 05/CT108 窗口时给出最终候选、实际入口/范围、依据已完成档位估算的占用时长和本任务资源清理范围；原线 STOP 不代表节点已释放。CT108 窗口尚未确认，不能将其计作已预约。
+真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3|t4> --scope full --kernel-threads 1 --kernel-memory-budget-bytes 8589934592`，由受控 uv 入口在相应节点执行；E 工具迁移后两个 kernel 参数显式提供，约束 host-side composite 对照的同一 operation scope，不替代 Compose worker 自己的 DC87 配置及 12 GiB 容器上限。使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。向原线协调 05/CT108 窗口时给出最终候选、实际入口/范围、依据已完成档位估算的占用时长和本任务资源清理范围；原线 STOP 不代表节点已释放。CT108 资源窗口已按 §3 协调，仍不是排他预约。
 
 ## 3. 退出记录与后续性能复核
 
@@ -44,5 +44,7 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 E handoff 将最终产品候选、删除/保留清单、逐包来源与闭包、容器 provenance、t1–t4、容量/N/M 配置、恢复/控制证据、未决问题集中交独立审核。设计会话不能自行判实施证据。S2b 的阶段退出记录与附注 tag 按既有退出流程办理，不推送、不改写被审核引用的提交。
 
 W2 30 秒目标及口径保留，完整路径测量最迟 S6；W1 无 CT108 窗口时同样最迟 S6；W3 从 S3 起按原设计取证。未知数值保持 unknown，功能退出不写性能 PASS。原 W4 租约故障由原线跟踪，若当前功能候选出现租约或正确性故障，仍须处理，不能归入可延期性能项。
+
+CT108 本次资源窗口确认后，优先从同一次最终 t4 fresh 旅程开始 W1 型初步诊断，不再笼统套用“无窗口”。现工具已在 t4 收集 `operation_timing`，E 仅将普通 full 报告原本丢弃的这些字段保留在 JSON；不新增计时点、轮询、HTTP 调用、输入或完整旅程。报告按实际口径区分受理响应后到首次结果可读观测、操作终态、后续读取完成，注明 2 秒轮询和 visibility fallback；这些观测不等于精确 READY 事件时刻，也不与包含请求/读取/断言的整个 step wall time 混用。实际范围为 t4、N1/M8 GiB、单次正确性运行，不能替代 2×t4、预热与正式重复采样或用于宣称 W1/W2 达标；正式 W1 仍归 S6，W2 按 DC83。若实际运行未完成，诊断也保持未完成。
 
 本节使用上述新建二角色，实施者修改产品/测试，审核者只读固定候选及证据、维护审核文档，明确小问题可直接通信修复后复审。设计/审核可修改各自 owning 文档。额外角色、真实设计冲突或多轮修复不收敛交 Owner；不复用 D 角色，不推送或改写被引用提交。当前进入 E 实施，不代表 E GO 或 S2b exit。

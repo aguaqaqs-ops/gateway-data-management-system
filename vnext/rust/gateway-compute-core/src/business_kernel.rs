@@ -123,10 +123,9 @@ pub enum ProjectionRowPolicy {
 
 /// One normalized retained output column and its source Arrow column.
 ///
-/// `descriptor` is produced by the existing Python projection owner after its
-/// SQL type normalization and whitelist checks. `source_index` may be absent
-/// only when a precomputed schema diagnostic already explains the missing
-/// source column; the core still validates every present Arrow binding.
+/// Python owns SQL spelling normalization. The core validates the retained
+/// business vocabulary and every source/Arrow binding, including empty tables.
+/// A missing `source_index` is diagnosed by the core with the other columns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalProjectionColumn {
     pub source_index: Option<usize>,
@@ -150,8 +149,9 @@ pub struct CanonicalProjectionPlan {
     /// True only for an already canonicalized projection input that may contain
     /// a previously allocated pseudo gid.
     pub canonicalized_input: bool,
-    /// Existing Python-owned rule/type/schema diagnostics, in owner order.
-    /// Arrow binding and row-level validity are still checked by the core.
+    /// Additional Python-owned rule metadata diagnostics, in owner order.
+    /// Missing/type/binding diagnostics belong to the core; producers do not
+    /// duplicate them here or use this list as a proof of schema validity.
     pub schema_diagnostics: Vec<KernelDiagnostic>,
     pub omitted_schema_diagnostic_count: usize,
 }

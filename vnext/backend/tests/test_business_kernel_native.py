@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
+from dataclasses import replace
 from typing import Any, cast
 
 import pyarrow as pa
@@ -39,7 +40,7 @@ from gateway_backend.capabilities.storage_projection.contracts import (
     ProjectionTableInput,
 )
 from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
-from gateway_backend.capabilities.table_access.contracts import NeverCancel
+from gateway_backend.capabilities.table_access.contracts import RESOURCE_BUDGETS, NeverCancel
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
 from tests.support.snapshot_materialization import load_sql, materialize_sql
@@ -121,7 +122,7 @@ _KEY_CASES = (
 
 @pytest.mark.parametrize(("sql_type", "value", "code"), _KEY_CASES)
 def test_native_key_blockers_match_the_existing_projection_owner(sql_type: str, value: str, code: str) -> None:
-    result, oracle = _projection(f"CREATE TABLE t (id {sql_type} NULL PRIMARY KEY); INSERT INTO t VALUES ({value});")
+    result, oracle = _projection(f"CREATE TABLE comm_user_data (data_key {sql_type} NULL); INSERT INTO comm_user_data VALUES ({value});")
     assert result["output"] is None
     assert result["diagnostics"][0]["code"] == code
     assert oracle.diagnostics[0].code.value == code
@@ -277,7 +278,8 @@ def test_complete_schema_diagnostics_keep_the_existing_cap_order_and_omitted_cou
     # than the SQL parser default. Raise only this test's explicit parser bound.
     names = tuple(f"c{index:04d}" for index in range(1050))
     sql = "CREATE TABLE t (" + ",".join(f"{name} JSON" for name in names) + ");"
-    raw = cast(dict[str, Any], _parse_sql_native(sql.encode(), NeverCancel(), None, 1, {"max_columns_per_table": 2000}))
+    raw = cast(dict[str, Any], _parse_sql_native(sql.encode(), NeverCancel(), None, 1, replace(RESOURCE_BUDGETS, max_columns_per_table=2000)))
+    assert raw["status"] == "COMPLETE", raw["diagnostics"]
     table = raw["tables"][0]
     reader, binding = table_input("t", columns=tuple(typed_column(name, "JSON", nullable=True) for name in names), primary_key_columns=(), row_count=0)
     oracle = project_storage(ProjectionRequest(ruleset=migrated_table_ruleset_snapshot(), storage_projection_version=STORAGE_PROJECTION_VERSION, tables=(ProjectionTableInput(canonical_table="t", reader=reader, source_binding=binding),), context=ProjectionInvocationContext(NeverCancel())))

@@ -26,7 +26,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryTableCatalog,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
-    CanonicalKeyPolicy,
     TableRulesetSnapshot,
 )
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
@@ -127,11 +126,7 @@ def metadata_for_catalog(
                     retained_columns=retained,
                     structural_columns=view.structural_columns,
                     dropped_columns=view.dropped_columns,
-                    canonical_key_columns=(
-                        view.canonical_key_columns
-                        if view.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
-                        else ()
-                    ),
+                    canonical_key_columns=view.canonical_key_columns,
                     source_schema_digest=descriptor.compare_schema_digest,
                     canonical_schema_digest=compute_schema_digest(
                         columns=schema_columns,

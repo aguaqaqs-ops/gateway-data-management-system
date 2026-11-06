@@ -409,6 +409,8 @@ def canonical_binding_for_catalog(
                 key_columns = (
                     record.compare_key_columns
                     if record.canonical_key_policy is CanonicalKeyPolicy.EXPLICIT
+                    else tuple(canonicalize_identifier(name) for name in table.primary_key_columns)
+                    if record.canonical_key_policy in (CanonicalKeyPolicy.DDL_PRIMARY_KEY, CanonicalKeyPolicy.DDL_PRIMARY_KEY_OR_KEYLESS)
                     else ()
                 )
                 dropped_names = {item.name for item in record.dropped_columns}
@@ -441,7 +443,7 @@ def canonical_binding_for_catalog(
                         retained_columns=tuple(
                             canonicalize_identifier(column.name) for column in table.columns
                         ),
-                        canonical_key_columns=(),
+                        canonical_key_columns=tuple(canonicalize_identifier(name) for name in table.primary_key_columns),
                     )
                 )
     return CanonicalBinding(

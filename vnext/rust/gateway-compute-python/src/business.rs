@@ -485,8 +485,7 @@ fn native_inner(
     } else {
         1
     };
-    if tables.len() > max_tables
-        || (!matches!(operation, Operation::Catalog) && tables.len() != 1)
+    if tables.len() > max_tables || (!matches!(operation, Operation::Catalog) && tables.len() != 1)
     {
         return Err(PyValueError::new_err(
             "business operation table/stream count is invalid",
@@ -533,7 +532,12 @@ fn native_inner(
         {
             return Err(PyValueError::new_err("business input repeats a table name"));
         }
-        let stream = required_item(table.cast::<PyDict>().map_err(|_| PyValueError::new_err("table metadata must be a dict"))?, "arrow_stream")?;
+        let stream = required_item(
+            table
+                .cast::<PyDict>()
+                .map_err(|_| PyValueError::new_err("table metadata must be a dict"))?,
+            "arrow_stream",
+        )?;
         readers.push(stream.extract::<PyRecordBatchReader>()?.into_reader()?);
     }
     let sql_plan = if matches!(operation, Operation::Sql) {

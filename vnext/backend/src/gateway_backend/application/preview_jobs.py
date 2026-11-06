@@ -609,7 +609,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
                 )
             inputs = _materialized_preview_inputs_from_checkpoint(
                 envelope.job_state,
-                deps.artifact_store,
+                deps.artifact_store, repository_id=payload.repository_id,
             )
             materialized_sides_ref = artifact_ref_from_dict(
                 cast(dict[str, object], envelope.job_state[_JOB_STATE_MATERIALIZED_SIDES_REF])
@@ -748,7 +748,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
             )
         inputs = _materialized_preview_inputs_from_checkpoint(
             materialize_envelope.job_state,
-            deps.artifact_store,
+            deps.artifact_store, repository_id=payload.repository_id,
         )
 
         if step.checkpoint_ref is not None:
@@ -2492,6 +2492,7 @@ def _side_binding_document(
 def _materialized_preview_inputs_from_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
+    *, repository_id: str,
 ) -> _MaterializedPreviewInputs:
     if set(job_state) != {_JOB_STATE_MATERIALIZED_SIDES_REF, _JOB_STATE_CANONICAL}:
         raise CheckpointDecodeError(
@@ -2547,7 +2548,7 @@ def _materialized_preview_inputs_from_checkpoint(
                 f"materialize checkpoint side {role} is invalid",
                 code="CHECKPOINT_JOB_STATE_MISMATCH",
             )
-        sides[role] = _bound_from_side_document(entry, store)
+        sides[role] = _bound_from_side_document(entry, store, repository_id=repository_id)
     canonical_raw = job_state.get(_JOB_STATE_CANONICAL)
     if type(canonical_raw) is not dict:
         raise CheckpointDecodeError(
@@ -2678,7 +2679,7 @@ def _assemble_state_from_checkpoint(
     return assemble_state_ref, cast(dict[str, object], assemble_state)
 
 
-def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
+def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort, *, repository_id: str) -> BoundSnapshotInput:
     if entry.get("contract_version") != PREVIEW_MATERIALIZE_SIDE_CONTRACT_VERSION:
         raise CheckpointDecodeError(
             "materialize checkpoint side contract version is invalid",
@@ -2705,7 +2706,7 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             )
         try:
             manifest_ref = artifact_ref_from_dict(manifest_raw)
-            opened.append(open_snapshot_table_artifact(store, manifest_ref))
+            opened.append(open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id))
         except (TypeError, ValueError, KeyError, ManifestVerificationError, ArtifactPublishError) as exc:
             raise PreviewJobError("materialize checkpoint table artifact is unreadable") from exc
     try:

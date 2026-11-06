@@ -85,23 +85,36 @@ fn hex(bytes: &[u8]) -> String {
 #[test]
 fn sql_materialization_matches_existing_snapshot_goldens() -> Result<(), String> {
     let pool = build_parser_pool(2).map_err(|error| error.to_string())?;
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/golden/snapshot-materialization");
-    for case in [
-        "sql/valid/s2-minimal-create-insert",
-        "sql/valid/s2-duplicate-rows",
-        "sql/valid/s2-keyless",
-        "sql/valid/s2-null-and-types",
-        "sql/partial/s2-unknown-type-mixed",
+    macro_rules! fixture {
+        ($case:literal) => {
+            (
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/golden/snapshot-materialization/",
+                    $case,
+                    "/input.sql"
+                ))
+                .as_slice(),
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/golden/snapshot-materialization/",
+                    $case,
+                    "/expected.json"
+                ))
+                .as_slice(),
+            )
+        };
+    }
+    for (sql, expected) in [
+        fixture!("sql/valid/s2-minimal-create-insert"),
+        fixture!("sql/valid/s2-duplicate-rows"),
+        fixture!("sql/valid/s2-keyless"),
+        fixture!("sql/valid/s2-null-and-types"),
+        fixture!("sql/partial/s2-unknown-type-mixed"),
     ] {
-        let sql =
-            std::fs::read(root.join(case).join("input.sql")).map_err(|error| error.to_string())?;
-        let expected: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(root.join(case).join("expected.json"))
-                .map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?;
-        let parsed = parse_sql_dump(&sql, &SqlParseOptions::default(), &pool);
+        let expected: serde_json::Value =
+            serde_json::from_slice(expected).map_err(|error| error.to_string())?;
+        let parsed = parse_sql_dump(sql, &SqlParseOptions::default(), &pool);
         for table in &parsed.tables {
             if !table.descriptor.reader_ready {
                 continue;

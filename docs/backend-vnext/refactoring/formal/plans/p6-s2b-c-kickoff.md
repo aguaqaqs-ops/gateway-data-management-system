@@ -1,6 +1,6 @@
 # S2b C：规范表存储、引用与恢复
 
-状态：**B 前置通过，按 DC86 启动 C**（2026-11-06）。B 固定产品 `b820321c1e`、[handoff](p6-s2b-b-handoff.md) `ac59ffeb79`、[独立审核](p6-s2b-b-delivery-review.md) `0dc93c09a9` 已收齐，两角色结束、06 占用释放。按 Owner 最新 DC86 补充创建本节 **GPT-6.1-Sol/high 实施者与 GPT-6.1-Sol/max 审核者**。C 涉及 BaselineHead 的事务/CAS、强引用与 TTL 同事务释放及冻结恢复边界，因此选择 max；这不预设 D/E 的强度。C 产品尚未交付，不将 B 的局部预算或小 fixture 字节数当作 FULL/生产 M。
+状态：**C GO**（2026-11-06）。固定产品 `0048040af5`、[handoff](p6-s2b-c-handoff.md)及[容量报告](p6-s2b-c-capacity-calibration.md) `7cd2b548c8`、[独立审核](p6-s2b-c-review.md) `e9bef6efe8` 已收齐，无未关闭 blocking。C 使用 GPT-6.1-Sol/high 实施者与 Sol/max 审核者，两角色已结束，06 占用已释放。Owner 以 DC87 选择 A 配置；D 接生产调用链并验证真实 worker，C GO 不代表该容量已通过或 S2b 已退出。
 
 ## 1. 接入边界
 

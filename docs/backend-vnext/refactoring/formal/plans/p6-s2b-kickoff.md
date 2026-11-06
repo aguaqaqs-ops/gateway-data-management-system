@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A 已交付，B 恢复推进）
 
-状态：APPROVED / A–B COMPLETE / C STARTING；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；[A 任务单](p6-s2b-a-kickoff.md)固定产品 `db7767ffbb`、handoff `b625d775e0`、独立审核 `83b927207a`，A GO。[B 任务单](p6-s2b-b-kickoff.md)固定产品 `b820321c1e`、[handoff](p6-s2b-b-handoff.md) `ac59ffeb79`、[独立审核](p6-s2b-b-delivery-review.md) `0dc93c09a9`，B GO、无未关闭 blocking，06 占用释放、两角色结束；旧不合格日志仍只作诊断。按 DC86 启动 [C](p6-s2b-c-kickoff.md)，新实施者 Sol/high、新审核者 Sol/max；D/E 仍按前置顺序推进。S2b 整体尚未退出。
+状态：APPROVED / A–C COMPLETE / D STARTING；2026-11-06。已审技术候选 `1a4adaae05`，独立报告 `8b4be7434b`；A 固定产品 `db7767ffbb`、审核 `83b927207a`，B 固定产品 `b820321c1e`、审核 `0dc93c09a9`。C 固定产品 `0048040af5`、[handoff](p6-s2b-c-handoff.md)及[容量报告](p6-s2b-c-capacity-calibration.md) `7cd2b548c8`、[独立审核](p6-s2b-c-review.md) `e9bef6efe8`，C GO，无未关闭 blocking；06 已释放，C 二角色结束。Owner 按 DC87 选择 12 GiB envelope/4 GiB reserve/显式 M=8 GiB、N=1/单 active。按 DC86 启动 [D](p6-s2b-d-kickoff.md)，新实施者 Sol/high、新审核者 Sol/max；E 待 D GO。C 组件证据不代表 D 实际 worker capacity PASS，S2b 整体尚未退出。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。该历史收尾记录本身不授权产品；当前 A 授权见 DC85。
 
@@ -133,20 +133,20 @@ O1 与 `BLOCK_STARTUP_FATAL` 留在 worker runtime 维护，不并入本阶段�
 
 Worker bootstrap 在注册/派发任何 kernel operation 之前显式调用一次 runtime initializer，固定该 `N`；当前 Rust `OnceLock` 池沿用同一个 N。`parse_sql` 及之后的 kernel adapter 不再带可自由改变的 `pool_threads=1` 默认值，不以假 parse 初始化；无初始化或与已建池 N 冲突时启动失败。pyarrow 的 CPU/I/O pool 同步设为相同 N；每次 operation、每表、FULL 每侧都不建池。N=1 与 N>1 验收分进程运行（或在独立 core unit 内创建各自池），不破坏 `OnceLock` 不变量。
 
-### 5.2 M 接口、预约与仍待测量的数值
+### 5.2 M 接口、预约与已选部署配置
 
 | 项 | 候选值/边界 |
 | --- | --- |
 | 设置名 | `GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES` |
 | 单位 | bytes，M 是单个 operation 的计算准入预约，不是 RSS 严格上限 |
 | 格式/下界 | 正整数且 `M > 0`；worker 接线前作为 required setting，缺失/非法值拒绝启动 |
-| 默认/上界 | 目前不填数值默认与上界。writer/FULL 峰值尚未实现测量，且现有部署未声明 worker memory envelope 和固定 runtime reserve；必须在 DC84 worker 接线前门以实际实现测量与部署 envelope 定出，`M <= envelope - reserve` |
+| 显式初始值/上界 | DC87 已选 A：12 GiB worker envelope、4 GiB 工程 reserve，显式初始 M=8 GiB（8,589,934,592 bytes）、上限 8 GiB；无代码隐式默认，保持 `M <= envelope - reserve`。真实 worker 峰值与拒绝由 D 验证 |
 
 预算按一个 worker process 的实际生命周期预约：SourcePackage/SQL input 中实际持有的 bytes；parser buffers 按共享 backing allocation 去重；Rust canonical output、伪列/composite、排序/索引与 filter 暂存；IPC write buffers、文件内容以及 `Vec → PyBytes` 复制重叠；本 operation 打开的 mmap/ArtifactReadHandle 及其 Arrow views 按 pin/lifetime 对完整被引用 bytes 保守预约，同一 mapping 共享引用只算一次；FULL 两侧同时保留的结果、baseline 与发布前 staging 都纳入峰值。未被当前 operation 打开/读取的全局 artifact 只占磁盘，不作为本次 M 的 RAM。
 
 reservation 必须在分配/增长前申请；共享 backing buffer 只预约一次；若增长后总预约将超过 M，稳定拒绝该次增长并返回既有错误诊断，丢弃未完成产物，不能先分配完整对象再检查。现 `max_in_flight=1` 意味着每进程最多一个 active operation；若未来并发设置变化，worker 总预约为每个 active operation 的 M 之和加共享基础项。M 不等于进程 RSS，实际 RSS/page cache/cgroup limit 与 reservation 分开取证。无法给出有界容量的单表在 publish 前稳定拒绝；不靠关预算通过。
 
-DC84 的测量顺序：A slice 交付唯一 in-memory IPC codec 后，以固定 vectors 实测其 bytes/profile overhead；B 产出真实 canonical rows；C 复用同一 codec 接 store/ref/recovery，并测业务 IPC 与 FULL/临时重叠。随后、worker wiring 前固定 M/default/max 和 growth rejection；最后接 worker并复核实际峰值。当前尚缺的是新 codec/真实业务 buffers 与文件 bytes，以及部署 envelope/reserve 数字，不是再跑更大 SQL 样本。该缺口不阻止首个 codec/kernel slice，但阻止把猜测 M 接进 worker。
+DC84 的测量顺序：A slice 交付唯一 in-memory IPC codec 后，以固定 vectors 实测其 bytes/profile overhead；B 产出真实 canonical rows；C 复用同一 codec 接 store/ref/recovery，并测业务 IPC 与 FULL/临时重叠。随后、worker wiring 前固定 M/default/max 和 growth rejection；最后接 worker并复核实际峰值。C 已完成真实组件校准，DC87 已关闭部署 envelope/reserve/M 选择；D 在该显式配置上复核真实 worker 同时峰值与增长拒绝，不将 C 的分进程工程估算当 production capacity PASS。
 
 ### 5.3 取消、截止时间与发布边界
 
@@ -208,7 +208,7 @@ reachable = no_unknown_segments
 - kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。审核结论与授权分开；Owner 随后以 DC85 批准 kickoff 及 A。
 - owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 及 A 实施已按 DC85 确认。
 - M 数值/默认/部署 envelope：按 DC84 在 IPC + FULL 生命周期测量后、worker 接线前定；不是阻止首个 mapping/kernel slice 的新样本前置。
-- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者；B 已由 Astra/high 审核完成，C–E 新独立审核者为 Sol/xhigh 或 max（DC86 最新补充），C 因事务/CAS 与冻结恢复选择 max；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A、B 两节角色均已结束，C 按固定前置交接启动，D/E 依次推进。
+- 后续授权：Owner 已按 DC86 授权逐节推进 B–E，每节新建 Sol/high 实施者；B 已由 Astra/high 审核完成，C–E 新独立审核者为 Sol/xhigh 或 max（DC86 最新补充），C 因事务/CAS 与冻结恢复选择 max；额外角色必须先交 Owner 说明原因、模型和思考强度并获确认。A–C 角色均已结束，D 按固定交接启动并因租约/冻结恢复/跨阶段预约选择审核 max；E 待 D GO。
 
 ## 8. 文档与准备工具检查记录（不是阶段取证）
 

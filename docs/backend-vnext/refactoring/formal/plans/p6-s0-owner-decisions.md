@@ -75,6 +75,7 @@ implementation_authorized: no
 | DC84 | S2b 容量与 M 分步收口；CT108 无窗口时 W1 诊断最迟 S6 | — | — |
 | DC85 | S2b kickoff 批准，启动 A 节纯内存映射/IPC codec | — | — |
 | DC86 | 授权按既定 kickoff 逐节推进 B–E，每节新建既定实施/审核二角色；额外角色先交 Owner 确认 | — | — |
+| DC87 | S2b 单 worker 选择 A：12 GiB envelope、4 GiB reserve、显式 M=8 GiB，N=1/单 active；D 验真实资源边界 | — | — |
 
 ## 2. 决议详情
 
@@ -787,7 +788,7 @@ implementation_authorized: no
 
 ### DC74（草案）BE-c 的落点与整包传输计时
 
-- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影，DC76/DC77 用于 S2b 输入与容量约定；DC78 用于 Rust 单实现与清理约定，DC79 用于基准输入工具并行完善，DC80 用于停止后的主动处置及 READY 闭包容量修正，DC81 用于开发与全量基准解耦，DC82 用于新增开发测试节点，DC83 用于 S2b 功能退出与 W2 性能复核分开，DC84 用于 S2b 容量分步收口与 W1 诊断时点，DC85 用于 S2b kickoff 确认及 A 节实施授权，DC86 用于 B–E 逐节推进及既定二角色授权，下一个可分配编号为 DC87。
+- **状态**：2026-11-04，p6-backend-design 起草；待 kickoff 审核后交 owner 确认。不是已生效决议。DC75 已用于本人撤回与工作区占用投影，DC76/DC77 用于 S2b 输入与容量约定；DC78 用于 Rust 单实现与清理约定，DC79 用于基准输入工具并行完善，DC80 用于停止后的主动处置及 READY 闭包容量修正，DC81 用于开发与全量基准解耦，DC82 用于新增开发测试节点，DC83 用于 S2b 功能退出与 W2 性能复核分开，DC84 用于 S2b 容量分步收口与 W1 诊断时点，DC85 用于 S2b kickoff 确认及 A 节实施授权，DC86 用于 B–E 逐节推进及既定二角色授权，DC87 用于单 worker 资源配置，下一个可分配编号为 DC88。
 - **来源**：`ebb0047383300a3754a4be6a6a78f72286600c83` 的[后端交接 §2.3](p6-backend-session-handoff.md)、[前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、本记录 DC38/DC41/DC53/DC64/DC66；设计 §16.1 的 i 段已计入 READY 前 bundle 组装与导出成本。
 - **需 owner 定的两项及建议**：
   1. **BE-c 放在基准还是 S6？建议 S6。** 基准产品固定为 `p6-s1c-exit`，当前 GET `/bundle` 只返回 manifest JSON；基准体积不能冒称 BE-d 后完整 tar 的线传字节。完整报告随 S6 已有 t4、2× t4 旅程采集，不为体积另跑一轮完整旅程。BE-d 实施后即可随已授权运行先记实际字节供 FE3 参考；如 owner 要提前从保留闭包估算，也须标“闭包逻辑大小/理论 tar 大小”，不作网络实测，不扩充当前基准必跑场景。
@@ -930,6 +931,14 @@ DC86 执行补充（owner，2026-11-06）：B 因重复源码同步准备错误�
 DC86 后续模型调整（owner，2026-11-06）：主协调核对 A/B 反复错误记录后，Owner 进一步同意“如果确实比较多允许 S2b 的后续步骤实施者改用 6.1sol”。据已确认的执行问题，**S2b C–E 实施者改为 GPT-6.1-Sol/high**，独立审核者仍 GPT-6-Astra/high、每节重建两角色；此项取代上一补充对 C–E 保留 Luna/max 的安排，仅限 S2b，不自动扩展其他阶段。B 当前 Sol/high 组合继续工作，未增加第三角色；反复失败仍暂停汇报。
 
 DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核者改为 GPT-6.1-Sol，按需选择 xhigh/max，并要求协调者在合适节点直接调整。执行节点选为 **C kickoff 创建新角色时**：当前 B 的 Astra/high 审核者完成本节，C–E 审核者使用 **GPT-6.1-Sol，默认 xhigh**；每节创建前依据事务/CAS、租约、冻结恢复和证据冲突复杂度决定是否使用 max，并记录选择。实施者仍 Sol/high。接口可在创建时指定模型/强度，无运行中协作 agent 热切换入口；若需中途额外重建，仍先报告并获确认。每节二角色、独立上下文/只读审核工作区及真实证据要求不变，不以同模型或更高强度替代独立审核。
+
+### DC87 S2b 单 worker 的显式资源配置
+
+- **来源与确认（owner，2026-11-06）**：C 的真实 kernel/IPC/store 双侧校准及 XML/AST/composite 补充测量后，Owner 选择 **A：单 worker 容器内存上限 12 GiB、预留 4 GiB、显式 M=8 GiB**；B 的 24 GiB 方案仅保留为未选备选。N=1、单 active operation，不由本决议放开多 operation 或多 worker 并发。
+- **配置语义**：12 GiB = 12,884,901,888 bytes；reserve 4 GiB = 4,294,967,296 bytes；M 8 GiB = 8,589,934,592 bytes，当前 A 档上限也是 8 GiB。M 是单 operation 活跃资源预约，8 GiB 为部署中显式填写的初始值，不是代码隐式默认；缺失、非法或超出 envelope−reserve 时拒绝启动。部署声明与实际容器限制须一致，不以 06 的 32 GiB 代替生产预算。无需为此新建通用 cgroup 探测或 allocator 追踪框架。
+- **证据边界**：[C 容量报告](p6-s2b-c-capacity-calibration.md) 的固定输入实测与分进程峰值估算支持配置选择，不是实际 production worker 峰值、严格上界或 capacity PASS；reserve 也是工程预留，不是已测得的固定非 operation 上限。既有各项输入 quota 不保证全部最大值同时可接受，仍按 M 在增长前拒绝。
+- **D 必验**：真实 worker 的 FULL 两侧同时存活资源、借用/共享 backing、mmap、转换/排序、IPC/adapter copy 与 staging 的合并预约和峰值；M 缺失/非法/超限启动拒绝、增长前资源拒绝，以及真实 cancel/drain/lease_lost/可选 deadline 与 EOF/publish 屏障。不得把局部 kernel 各自低于 M 等同总量合格，不将 OOM 作为正常资源拒绝路径。
+- **推进边界**：关闭 D 接线前尚缺的生产 envelope/reserve/M 选择；C 独立 GO 后按 DC86 既有授权创建 D 实施与审核角色继续，不再请求重复配置确认。若实际 worker 校准不支持此档，保留证据、诊断最小修正，必要时列方案交 Owner，不静默增加 M、容器限额或降低输入/正确性验收。W1/W2、最终门禁及原基准独立跟踪不变，不授权推送。
 
 ## 3. 设计阶段待定项
 

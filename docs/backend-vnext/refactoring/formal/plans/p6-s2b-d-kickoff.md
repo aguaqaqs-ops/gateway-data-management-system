@@ -1,6 +1,6 @@
 # S2b D：Worker 配置、执行控制与生产调用链
 
-状态：**设计准备；尚未启动实施**（2026-11-06）。DC86 已授权逐节推进，但本节须等待 C 固定候选、handoff、容量报告与独立 GO，并关闭 worker 接线前的 M/envelope/reserve 输入。本稿不填猜测数值，不创建 D 角色，不改变 C 的范围。
+状态：**设计准备；尚未启动实施**（2026-11-06）。DC86 已授权逐节推进，但本节须等待 C 固定候选、handoff、容量报告与独立 GO，；Owner 已按 DC87 关闭 worker 接线前的 M/envelope/reserve 输入。C GO 后创建 D 二角色，不改变 C 的范围。
 
 ## 1. 实际接入点
 
@@ -16,7 +16,7 @@ C 经明确理由与独立审核暂记的五个生产不可达项见 [C 任务�
 
 沿已批准 kickoff §5：`GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_THREADS` 为整数 1..256，正确性默认 1，4 仅是后续调优比较点。每进程初始化一次固定 N 的 Rayon pool，PyArrow CPU/I/O pool 同步为 N。adapter 不再每次自由设置 `pool_threads=1`；未初始化或 N 冲突稳定拒绝。不同 N 的验证分进程，不重置 OnceLock。
 
-`GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES` 的 M 是单 operation 的 bytes 预约，不是 RSS 硬上限；缺失/非法值按已批准 required-setting 约定拒绝启动。部署示例值、上界与 envelope/reserve 在 C 测量后确定，不能从 06 的 32 GiB 推导。启动验证 `M <= envelope - reserve` 所需的部署输入和来源必须明确，尚未确认时不实现猜测默认或隐式 fallback。
+`GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES` 的 M 是单 operation 的 bytes 预约，不是 RSS 硬上限；缺失/非法值按已批准 required-setting 约定拒绝启动。Owner 已按 DC87 选择 A：单 worker 容器 limit/envelope **12 GiB**、reserve **4 GiB**、显式 M **8 GiB（8,589,934,592 bytes）**，本档 M 上限同为 8 GiB，N=1、单 active。部署示例显式填写 M，不能把它变成缺配置时的隐式 fallback，也不能从 06 的 32 GiB 推导。启动验证 `M <= envelope - reserve`，配置声明与实际部署限额一致；不为此建设通用 cgroup 自动发现框架。配置选择不等于 production worker capacity PASS，D 仍须实测。
 
 预约覆盖同一 operation 同时存活的输入、parser buffers、规范结果、排序/filter 索引、IPC 及 Vec→PyBytes 复制、打开的 mmap/Arrow views、FULL 双侧和发布 staging。共享 backing/mapping 只计一次，未打开的全局历史文件只计磁盘。增长前拒绝；两个局部 kernel 各自满足 M 不能证明其同时存活总量满足 M。复用 A/B 的有界控制并按 C 实测生命周期串接，不引入全局 allocator 追踪框架。D 接线后记录实际 worker 峰值与预约偏差，不将 RSS、page cache 或 cgroup limit 混同预约。
 

@@ -356,6 +356,9 @@ fn descriptor_size(
     columns: &[ColumnDescriptor],
     budgets: CanonicalIpcBudgets,
 ) -> Result<usize, CanonicalIpcError> {
+    if columns.is_empty() {
+        return Err(schema_error("canonical IPC requires at least one column"));
+    }
     if columns.len() > budgets.max_columns {
         return Err(resource_error("canonical IPC column limit exceeded"));
     }

@@ -236,3 +236,22 @@ run 记录三个目标数据卷保留，无 retained-volume listing error；审�
 controller 已完整静态审核：先原子自取节点锁、检查 clean e798/节点空闲、已审文件摘要/实时资源/镜像身份/精确名称碰撞，再仅复制已验证源 RS 卷。原 Compose 只启动 RS，同 worker 镜像客户端没有产品卷，保持固定父引用、30 秒 timeout 和原内部最多三次尝试。成功必须同时满足 exit 0、唯一 SUCCESS、commit_matches=true、instrumentation_incomplete=false、尝试数 1–3。阶段预算与资源停止按第 15 节，退出先停止/杀掉 client 与 RS，再有界采集日志和移除本项目容器/网络，不删除数据卷；复制完成状态不确定或收束失败保留占用。最终 `execute.py` 反向去除身份 pin、两处 `--pull never` 与日志截断声明后，精确恢复已审核初稿 `456a0b1104718e93d4b591ff21b9d22ad8356a1a0780be50560705a70cbf269f`，没有其他逻辑变化。helper 仍固定 `762b640b…` 且只调用轻量同文件系统检查，不做镜像导出或重哈希卷。
 
 执行前按 README 确认 BatchMode SSH，并经获准 LAN 同步这组固定小文件、核对摘要；controller 自取锁，不另建冲突的外层锁。使用 README 所列 e798 绝对解释器及隔离环境命令，仅执行一次。任何失败即停止、保留源卷/新卷/日志，不自动重跑；确认自身活动停止后才释放自身 token，未知状态保锁。交回完整 client/events、实际 exit、摘要与锁/收束状态；Docker 日志每容器仅末尾 2000 行，不能称全量。CATALOG_RETURNED 仅证明该次直接客户端请求返回，不证明原 Submit 成功或排除先前失败；OS 页缓存未重置，结果不作冷磁盘基准。
+
+## 18. 冷 catalog 实际结果：响应头前 ReadTimeout，保持 STOP
+
+审核在 2026-11-06 经只读 SSH 读取 CT05 `cold-catalog-run-20261105a/` 全部 events/client 与现存两份 Docker 日志，并逐项核对 SHA256SUMS 全过。节点记录执行于 2026-11-05 23:54:55–23:56:41Z：prepare 4.027 秒、RS healthy 6.206 秒、client 容器阶段 91.470 秒、cleanup 4.009 秒。控制端 `cold-catalog-controller-20261105a.log` SHA256 `7ba4a46248f6fad3f6de2d5ab6e1f322a05164763b49313d5073598a31db8d16` 记录实际 execute exit 1、起止 e798；外层 wrapper exit 0 仅表示取回结果成功。保留各节点原时间，不用控制端与节点约一秒偏差推算阶段耗时。
+
+**已证明的症状：** 同 worker 镜像客户端对固定 repository/父 commit 发起一次逻辑 GET，记录三个 attempt_started，逻辑调用 90.453 秒后以 `ReadTimeout → ReadTimeout` cause chain 结束，instrumentation_incomplete=false。没有 response_headers 或 response_parse_finished，故本次最终错误发生在获得响应头之前，不是已收到正文后的 DTO/大小解析错误。前两次没有单独异常记录，只能确认发生过内部重试，不能称每次均已独立证明 ReadTimeout。未触发 180 秒外部预算、资源阈值或准备失败；结果为 DIAGNOSTIC_NOT_PASSED，不是完整 Submit、原 lease_lost 重现或根因定位完成。
+
+| CT05 `cold-catalog-run-20261105a/` 证据 | SHA256 |
+| --- | --- |
+| `client.jsonl` | `e7a601e37f1e1f5510b079ebc6d7b866264d4fbde0b0bd8715c560f616940e47` |
+| `events.jsonl` | `d15162a67a39e28acc83cac6be8a725edc09073143b2ef360527e320592decc3` |
+| `p6catalogdiag20261105a-client.docker.log` | `31dd480849937209d94ed295ed39dd13c189954c2b69cce3175a8d0e6b61463a` |
+| `p6catalogdiag20261105a-repository-service-1.docker.log` | `a5f5b70dd7e14ac5a00a3d1681ea1b83aecd4eb728972b2af374ca42e9457603` |
+
+**新增工具取证缺口：Docker stderr 未保存。** 复核发现 `command(output=log)` 将 stdout 写目标文件，stderr 仍进入临时 capture；cleanup 忽略其返回 data，临时文件随即关闭。因此现存 Docker 日志除 tail 2000 限制外还缺 stderr，不应称为双流日志。RS 文件只有 19 条 readyz 200 access 记录，无 catalog 完成状态；不能据此认定服务端没有错误、未收到请求或没有执行 catalog。原实施者后处理 `cold-catalog-rs-log-readout-20261106a.log`（SHA256 `76acb0607042cf120ffba9c6e1d522b0331d4d5b776faf81bbcbaf551fa7d218`）同样仅能说明保存文件的内容。已通知设计与实施者补注，并要求后续最小工具修正保留两流；不以补日志为由自动重跑，也不抹掉有效的客户端症状证据。
+
+events 确认 own_activity_confirmed_stopped=true、copy_uncertain=false、lock_released；审核另查节点标记不存在、本项目容器及网络均无残留。源卷、新卷和日志按既定边界保留。此次一次执行授权已消耗，保持 STOP。
+
+现有源码给出的服务端候选路径为同步 catalog route → repository visibility/provider → commit_exists → catalog cache loader → 表清单与逐表 schema/COUNT → DTO 构造后返回；响应头前超时不能在这些阶段间定位，readyz 200 也不能替代该定位。未再搜索同类日志、扫描卷或运行请求。若继续诊断，最小候选是同一固定 GET 期间少量有界 RS Python 栈（无 locals/native），配合双流日志修正，先判断请求是否进入 catalog 以及所在阶段；仍须另审具体方案，不改 timeout、不预热、不恢复 Submit、不扩大矩阵。本节未授权下一次运行。

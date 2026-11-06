@@ -160,6 +160,7 @@ from gateway_backend.operations.state import (
     operator_recovery_session_active,
 )
 from gateway_backend.operations.worker import (
+    LeaseSession as LeaseSessionPort,
     ClaimedExecutor,
     ExecutionControl,
     ExecutorAcknowledgment,
@@ -2708,7 +2709,7 @@ def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
     _publish_prepare_terminal_abort(lease_session, _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC)
 
 
-def publish_stopped_compute_cancelled(lease_session: LeaseSession) -> ExecutorAcknowledgment:
+def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
     lease_session.publish_operation(_make_cancelled_terminal_builder())
     return ExecutorAcknowledgment.PUBLISHED
 

@@ -120,6 +120,7 @@ from gateway_backend.operations.contracts import (
 from gateway_backend.operations.lease_session import LeaseSession
 from gateway_backend.operations.recovery import HandlerExecutionFailure
 from gateway_backend.operations.worker import (
+    LeaseSession as LeaseSessionPort,
     ClaimedExecutor,
     ExecutionControl,
     ExecutorAcknowledgment,
@@ -1562,7 +1563,7 @@ def _terminal_step(
     )
 
 
-def publish_stopped_compute_cancelled(lease_session: LeaseSession) -> ExecutorAcknowledgment:
+def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:
     lease_session.publish_operation(_make_cancelled_terminal_builder())
     return ExecutorAcknowledgment.PUBLISHED
 

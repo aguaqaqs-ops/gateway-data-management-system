@@ -609,7 +609,7 @@ def test_pure_drain_preserves_frozen_work_and_claim_budget(operator: bool, check
     assert store.step.checkpoint_ref == step.checkpoint_ref
     assert store.step.prior_output_refs == (ref,)
     assert store.step.attempt_count == claim_attempt_count(store.step) == 3
-    assert store.step.worker_id is store.step.lease_token is store.step.lease_expires_at is None
+    assert store.step.worker_id is None and store.step.lease_token is None and store.step.lease_expires_at is None
     assert claim_diagnostic(store.step) == step.diagnostic
     assert store.operation == operation
     assert session.completion_acknowledgment() is ExecutorAcknowledgment.SAFE_HANDOFF

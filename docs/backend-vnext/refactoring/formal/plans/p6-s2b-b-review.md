@@ -1,6 +1,6 @@
 # P6 S2b B 独立审核
 
-状态：**前置设计审查完成，产品与验证待审**。2026-11-06。本报告不预写 B PASS，不把 A 的结果作为 B 验证。
+状态：**正式任务单已核对，产品与验证待审**。2026-11-06。本报告不预写 B PASS，不把 A 的结果作为 B 验证。
 
 审核基线为 `10bf4b26e907bcd6ebe2e6b872b5d2bfd504199f`，只读 detached worktree 为 `/home/dev/gdds-test-tmp/s2b-b-review`，已建立 `legacy` 符号链接。开发主机只读源码与文档，未运行测试、编译或 lint；本报告在主工作区单独编辑。未操作 CT108 冻结资源，未创建额外 agent。
 
@@ -25,11 +25,11 @@ Mapping §4 的“keyed 按既有规范键排序”需要明确 comparator 与�
 
 主设计随后明确采用：严格按 `StorageRuleView.canonical_key_columns` 顺序形成 canonical cell-frame tuple，逐项按无符号 bytes 词典序比较，禁止未分帧文本拼接；不承诺业务数值或展示顺序。重复/空键先按原 Contract 拒绝。Ordered 仍用 numeric gid，keyless 仍用 raw row hash 并保留重复。不为假设性 SHA 碰撞新增机制或矩阵。独立排序向量应能区分 `2`/`10`、负数和复合文本边界。
 
-审核者核对认为该明确化没有改变业务摘要或真实 consumer 的权威顺序：raw-content 按无序 rowhash 聚合；business schema 的 primary-key 顺序仍保留；ordered 业务读取仍显式 no；Repository replay 保持自己的输出顺序。此结论是设计审查，不代表代码已实现，主设计将同步 mapping、Contract 与 B 任务单。
+审核者核对认为该明确化没有改变业务摘要或真实 consumer 的权威顺序：raw-content 按无序 rowhash 聚合；business schema 的 primary-key 顺序仍保留；ordered 业务读取仍显式 no；Repository replay 保持自己的输出顺序。主设计已在 `4b75cf159f` 同步 mapping、Contract 与 [B 任务单](p6-s2b-b-kickoff.md)，审核者在同一 detached worktree 核对了固定差异。此结论是设计审查，不代表代码已实现。
 
-Catalog 必须显式保留过滤前的非空事实：现有 `_require_special_device` 用 `catalog.devices` 是否为空判断原 device 表是否为空。如果只把匹配行交给旧 binder，非空但零命中会被误判为空。最小 metadata/接线需让这个不变量仍由明确 owner 判断，不能塞入虚构的普通 device 行来维持旧 API。
+Catalog 必须显式保留过滤前的非空事实：现有 `_require_special_device` 用 `catalog.devices` 是否为空判断原 device 表是否为空。如果只把匹配行交给旧 binder，非空但零命中会被误判为空。正式任务单固定必填 `source_device_row_count`，旧 extractor、empty factory 与测试构造方同步填写；binder 按 count 判断原表为空，身份判定仍位于原 XML/AST 之后，不造 sentinel、不设兼容默认值，业务 version/digest 不变。
 
-实施者独立核对上述边界一致，并确认当前生产 SQL parser 仍是 Python，Rust parser 由测试 support 作差分入口。B 可用真实 Rust parser C Stream 验证新 kernel；无需为证明 B 而提前切换生产 callers，正式连通和旧算法删除留 E。除上述具体边界外，当前未发现需要另建通用设计框架或扩大威胁模型的缺口。最终 API 和任务单尚待主设计冻结，产品结论保持未审。
+实施者独立核对上述边界一致，并确认当前生产 SQL parser 仍是 Python，Rust parser 由测试 support 作差分入口。B 可用真实 Rust parser C Stream 验证新 kernel；无需为证明 B 而提前切换生产 callers，正式连通和旧算法删除留 E。`4b75cf159f` 正式任务单及 owning 改动与前置清单一致，无未解决设计冲突；产品结论保持未审。审核继续跟随同一实施者的固定代码与实际证据，不另建角色。
 
 ## 3. 一次性验收清单
 
@@ -61,3 +61,21 @@ Catalog 必须显式保留过滤前的非空事实：现有 `_require_special_de
 最后已验证 image revision 是 A 的 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`：06 backend image ID `sha256:88665d846710bd26891acbba7fbcb516e57cfaf95edd3314af457e4a48d5b6a0`，对应 Rust source tree `5b222191f4689b0eb0a7c2a1123bb299efb13e9d`；准确 evidence 来源见 A 审核 §7。它不作为 B 通过、carried 或当前新增产品验证。A 最终依赖 base 为 d054，994c 仅是中间产物；B 是否复用取决于最终完整 input 与目标身份。
 
 B 当前 gate：**未运行**；carried：无。S2b 最终 04 全量 runner/container 与 t1–t4 正确性不被 B focused 取代。W1/W2、真实 FULL 峰值与生产 M 未知保持 unknown，不记录性能通过。
+
+## 5. API 草案审核（待固定代码核实）
+
+实施者提出三个 core 操作及薄 C Stream adapter。独立审核与主设计对齐以下具体修正，均已由实施者接受；这里不将草案认可写成产品验证：
+
+- SQL plan 明示 materialization stage，PROVISIONAL 的 `raw_content_digest` 为 None；SQL compare key 不与 canonical key 混名。
+- 业务诊断 outcome 与外层 resource/cancel/deadline failure 分开；fatal diagnostics 不携可成功发布的 Arrow 输出。Core 仍核真实 Arrow descriptor/schema/行数/必要键绑定，Python 提供的 bounded schema diagnostics 不是合法性证明。
+- 诊断数量固定 1024 加 omitted count，不能通过可调小数量预算产生与既有 `ProjectionResult` 相冲突的截断结果；诊断 bytes 超限返回 Resource。
+- `max_input_bytes` 计借用 Arrow，`max_live_bytes` 计 adapter/core 自有同时驻留；`max_output_bytes` 计返回 Arrow/facts 总 buffer 保留量，共享输入数组仍计入输出上限。A IPC budgets 独立，局部 cap 不冒充 M/RSS。
+- Shared Kernel 的 unordered content helper 会复制/排序 hash 数组并建立 count+hash frame，semantic digest 又建立 domain+payload preimage；调用前须保守预约这些与 B 索引/输出的重叠，不要求重写 Shared Kernel 或增加 allocation registry。
+
+## 6. 首批 API 与 Catalog 固定代码
+
+`633e599cbce776c9db27d5bbce241707f45d9dbf` 已在 detached worktree 核对。`SpecialDeviceCatalog.source_device_row_count` 必填且严格为非负 int（bool 不接受），devices 长度不能超过源计数；旧 extractor 对实际读出的全部 devices 计数，empty factory 显式为 0，tests helper 与两个 `type(catalog)` 构造方同步填写。binder 仅将空表条件改为源 count 为 0，其余身份验证仍在原调用时点。过滤后非空零命中的定向测试断言原身份错误。该小步未改业务 version/digest，未发现 catalog 代码问题；运行结果尚待核。
+
+Rust 新 API 有显式 stage、固定 1024 diagnostics cap、borrowed/live/returned-buffer 预算和控制，当前只是公共类型与初始 preflight。未新增 Cargo dependency 或修改 architecture guard。实际 SQL/hash/catalog/projection 操作、完整 Arrow name/type/重复绑定、adapter metadata 复制前预算及最终结果聚合尚未实现，本报告不提前认可这些功能。
+
+首批审核发现 `TableDescriptor` 不含行数，而 projection plan 未携绑定行数，后续会漏旧 `_require_row_count` 的 `ROW_INTEGRITY` 屏障。实施者已在 `9225f78883` 加必填 `expected_source_row_count`；字段修正已复审，实际入口比对待 projection 操作实现后核。首批无其他开测阻塞，06 architecture 与 catalog/composite focused 可按原授权进行；这不是 B 完成或最终测试通过。

@@ -8,7 +8,7 @@ Policy ID：`gateway-vnext.rust-safety-and-performance-policy`
 
 Owner：Backend vNext Architecture
 
-Policy version：`5`（2026-11-06：D 接生产 parser 时补 Table Access 精确 native owner 及 worker 初始化边；前版 `4` 纳入 S2b B/C consumer，`3` 修订 reference 生命周期；Safe Rust 与失败边界不变）
+Policy version：`6`（2026-11-06：E 的实际 CLI 消费者复用薄 bootstrap 初始化入口，替换 D 的直接初始化 owner；前版 `5` 补 Table Access/parser 与 worker 初始化边，`4` 纳入 B/C consumer，`3` 修订 reference 生命周期；Safe Rust 与失败边界不变）
 
 适用阶段：Phase 1–9
 
@@ -85,7 +85,7 @@ PyO3 adapter：
 - 不把Python row/list/dict object graph作为正式bulk path；
 - 不自动引入`combine_chunks()`或逐scalar FFI。
 
-S2b B–D 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
+S2b B–E 已批准的 Python 调用侧由下列精确 capability 模块拥有；backend import guard 应表达这些已确认 consumer，不能将其登记为 layer violation 豁免：
 
 | Python owner（`gateway_backend.capabilities.` 下） | 可直接从 `gateway_compute._native` 导入的粗入口 |
 | --- | --- |
@@ -94,7 +94,11 @@ S2b B–D 已批准的 Python 调用侧由下列精确 capability 模块拥有�
 | `storage_projection.native` | `_canonical_project_native` |
 | `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native` |
 
-这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。既有 composition/bootstrap 依赖规则保持；D 的 `gateway_backend.bootstrap.operation_worker` 显式从 `gateway_compute._native` 导入 `_init_kernel_native`，仅在 worker 注册/派发 kernel operation 前初始化一次共享池，遵守 [D 任务](../plans/p6-s2b-d-kickoff.md) 的 N/冲突/无初始化拒绝规则。此初始化边不授予 capability 访问 runtime initializer。Table Access 的 parser bridge 保持原诊断/descriptor 语义并以 Arrow 传递 bulk，不重建整表 Python rows。`artifacts` 仍只拥有 port/value，不直接调用 compute。后续新增实际调用 owner 必须按 owning 设计明确，不由普通 Finding 自动扩展。规则验证包含允许边与其他 owner/entrypoint 的拒绝例；`IMPORT_RULE_BASELINE` 和 cycle baseline 不为本次增加条目。
+这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。
+
+E 已确认 `real_dump_journey`/仍有实际消费者的 census CLI 也需要显式初始化进程池，因此由 `gateway_backend.bootstrap.compute_kernel` 单独拥有从 `gateway_compute._native` 导入 `_init_kernel_native` 的精确边，替换 D 的 `bootstrap.operation_worker` 直接导入边。公开薄函数 `initialize_compute_kernel(threads)` 仅集中原 native 初始化和 PyArrow CPU/IO N 设置，worker 与实际 CLI 启动入口复用；不在 import、首次 parse 或每表调用时自动初始化。固定 N、冲突和未初始化拒绝语义保持，不同时放开旧 owner 或工具私有 FFI 导入。M、control 和 operation scope 继续由现调用方显式提供；此 helper 不加载整个 worker settings、不提供 M fallback、不新建通用配置/上下文框架，也不授予 capability 访问 runtime initializer。
+
+Table Access 的 parser bridge 保持原诊断/descriptor 语义并以 Arrow 传递 bulk，不重建整表 Python rows。`artifacts` 仍只拥有 port/value，不直接调用 compute。后续新增实际调用 owner 必须按 owning 设计明确，不由普通 Finding 自动扩展。规则验证包含允许边与其他 owner/entrypoint 的拒绝例；`IMPORT_RULE_BASELINE` 和 cycle baseline 不为本次增加条目。
 
 ## 5. Dependency and toolchain
 

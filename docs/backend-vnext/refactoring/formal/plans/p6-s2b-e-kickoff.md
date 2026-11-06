@@ -18,6 +18,8 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 
 已核到工具消费者 `benchmarks/real_dump_journey.py → real_dump_census.py::compare_composite_packages`：后者目前仍导入旧 parser/materialize/projection，E 删除时须同步迁移实际需要的工具调用，不能只检查 application imports。该 helper 原本就使用 production projection/comparison 计算 composite counts，属于跨层一致性检查，不是独立算法 oracle；可接唯一新生产路径，不能将这种同源结果冒称独立 golden。真正固定向量仍按上面的独立预期规则移交；已有 census/已验证结果优先复用，不为此重新生成全套输入或增加双实现完整旅程。
 
+这些实际 CLI 的初始化按 [Rust policy v6](../policies/rust-safety-and-performance-policy.md#4-ffi-and-python-boundary) 复用薄 `bootstrap.compute_kernel.initialize_compute_kernel(threads)`，将 D 的 private initializer 精确允许边迁到该唯一 owner；worker/CLI 显式启动调用，M/control/operation scope 仍归原调用方。不引入通用配置或未来工具框架，不让工具直接访问 private FFI。仅已完成历史阶段的工具须先核真实消费者再退役或迁移；DC79 输入生成器深依赖旧 scanner/statement/literal 的部分单独核原线当前需求，不能复制旧 parser 为永久工具库，也不擅自重做 S1 输入生成或改变原冻结线。
+
 ## 2. 收敛与最终验证
 
 日常在 06 对实际删除/迁移范围做 focused/Contract/差分残余检查、静态与必要容器验证。最终候选前收敛全部代码与测试；按 AGENTS 记录最后已验证 image revision/source tree、是否触发重建及理由。不每轮执行全量 runner、完整真实旅程或重新生成输入。

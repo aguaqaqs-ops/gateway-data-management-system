@@ -297,7 +297,7 @@ fn required_bounded_python_string(
     let value = value
         .cast::<PyString>()
         .map_err(|_| PyValueError::new_err(format!("{key} must be a string")))?;
-    if value.len() > max_characters {
+    if value.len()? > max_characters {
         return Err(PyValueError::new_err(format!(
             "{key} exceeds the supported enum spelling length"
         )));
@@ -406,7 +406,7 @@ fn descriptor_preflight(
             let value = value
                 .cast::<PyString>()
                 .map_err(|_| PyValueError::new_err(format!("{key} must be a string")))?;
-            let characters = value.len();
+            let characters = value.len()?;
             descriptor_characters = descriptor_characters
                 .checked_add(characters)
                 .ok_or_else(|| PyMemoryError::new_err("canonical descriptor size overflow"))?;
@@ -424,11 +424,11 @@ fn descriptor_preflight(
         let logical_type = logical_type
             .cast::<PyString>()
             .map_err(|_| PyValueError::new_err("logical_type must be a string"))?;
-        if logical_type.len() > 8 {
+        if logical_type.len()? > 8 {
             return Err(PyValueError::new_err("logical_type spelling is too long"));
         }
         cache_characters = cache_characters
-            .checked_add(logical_type.len())
+            .checked_add(logical_type.len()?)
             .ok_or_else(|| PyMemoryError::new_err("canonical string cache size overflow"))?;
         cached_string_count = cached_string_count
             .checked_add(1)
@@ -442,13 +442,13 @@ fn descriptor_preflight(
             let kind = kind
                 .cast::<PyString>()
                 .map_err(|_| PyValueError::new_err("declared_type.kind must be a string"))?;
-            if kind.len() > 32 {
+            if kind.len()? > 32 {
                 return Err(PyValueError::new_err(
                     "declared_type.kind spelling is too long",
                 ));
             }
             cache_characters = cache_characters
-                .checked_add(kind.len())
+                .checked_add(kind.len()?)
                 .ok_or_else(|| PyMemoryError::new_err("canonical string cache size overflow"))?;
             cached_string_count = cached_string_count
                 .checked_add(1)
@@ -483,7 +483,7 @@ fn descriptor_preflight(
                 let label = label
                     .cast::<PyString>()
                     .map_err(|_| PyValueError::new_err("each label must be a string"))?;
-                let characters = label.len();
+                let characters = label.len()?;
                 descriptor_characters = descriptor_characters
                     .checked_add(characters)
                     .ok_or_else(|| PyMemoryError::new_err("canonical descriptor size overflow"))?;

@@ -56,7 +56,17 @@ D 接线前交付有依据的 M/default/max 候选与 worker envelope/reserve �
 
 C 的 FULL 校准使用真实 B → A → store 的双侧数据、打开句柄与临时重叠，报告注明尚未接 worker 的范围；D 接线后复核真实 worker 峰值与预约偏差。恢复记录区分 C 的实际 store/精确 commit 回填能力、既有 Submit 冻结 owner，以及 D 尚待完成的生产 IPC 路由，不将 seeded 组件测试升级为 application 端到端证据。
 
-阶段内生产可达性：按 `tests/architecture_baseline.py` 既有“explicit, reviewed justification in the same diff”规则，仅允许暂记 `gateway_backend.application.canonical_metadata.table_access`。它是本节交付并由真实 HTTP→B/A/store 定向验证的 committed-table 恢复入口，完整 Preview/History 等 operation consumer 已明确在 D 接线（§1）；没有独立的未确认业务需求。实施者须在同一 baseline diff 写明本理由和 D 关闭点，由 C 独立审核核对实际 06 gate 输出及唯一条目。D 接入真实 consumer 后删除该条目，不能留到 S2b exit。此决定不允许 import-rule/cycle 例外、通配 unreachable 项或伪造生产 import；实际其他新增未达项须逐项另报设计核对。
+阶段内生产可达性：按 `tests/architecture_baseline.py` 既有“explicit, reviewed justification in the same diff”规则，依据 06 实际 gate 报告明确暂记下列五项。它们服务已批准的 D consumer，没有独立的未确认业务需求；实施者须在同一 baseline diff 写明理由和 D 关闭点，由 C 独立审核核对实际输出与精确列表。
+
+| 暂记模块 | 已确认 consumer / D 关闭点 |
+| --- | --- |
+| `gateway_backend.application.canonical_metadata.table_access` | Preview/History exact-commit 规范表读取和回填入口 |
+| `gateway_backend.capabilities.snapshot_materialization.canonical_store` | 生产规范表 IPC writer/handle，承接 Preview/History/Submit 绑定 |
+| `gateway_backend.capabilities.snapshot_materialization.native` | 上传侧 SQL 物化与 filtered catalog/composite 的 Arrow 入口 |
+| `gateway_backend.capabilities.snapshot_materialization.repository_arrow` | 精确 commit 的真实 Repository Arrow 列式适配 |
+| `gateway_backend.capabilities.storage_projection.native` | 上传和 exact-commit 的规范投影入口 |
+
+D 接入真实 consumer 后删除对应条目，不能留到 S2b exit。此决定不允许 import-rule/cycle 例外、通配 unreachable 项或伪造生产 import。实际架构 gate 还暴露通用 layer 规则未表达已批准的 B/C native caller；按 [Rust policy v4 §4](../policies/rust-safety-and-performance-policy.md#4-core-and-adapter-boundary)将三个精确模块/入口纳入正式规则并验证拒绝其他 owner，不通过 baseline 或忽略 guard 放行。core 测试 fixture 改编译期 include，不放宽 production core 无 IO 的约束。
 
 日常在 06 clean、已提交 worktree 做受影响 focused/Contract/SQLite/filesystem integration，遵守离线缓存、节点占用和日志规则；本节最终候选按实际 Python/Rust/镜像边界完成必要静态与容器检查。04 完整阶段门禁及 t1–t4 正确性仍留给最终 S2b 候选；跨节点结果不作 carried。C handoff 必须含固定代码、API/消费者、实际证据、容量报告与 D 尚待决定项，经本节新审核者独立 GO 后才转 D。
 

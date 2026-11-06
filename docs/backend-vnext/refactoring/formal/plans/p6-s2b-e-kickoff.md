@@ -35,7 +35,7 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 
 各节点分别按有效占用、clean committed worktree、离线缓存和日志规则执行；正式测试不在开发机运行。runner 非零先停并处理失败，不接着计算 carried；最终门禁提交固定后不在运行中修改 worktree、提交或手工 retag 镜像。保留 04 门禁 worktree 至阶段退出合入，以便同节点同 worktree 判等。
 
-真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3|t4> --scope full`，由受控 uv 入口在相应节点执行；使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。向原线协调 05/CT108 窗口时给出最终候选、实际入口/范围、依据已完成档位估算的占用时长和本任务资源清理范围；原线 STOP 不代表节点已释放。CT108 窗口尚未确认，不能将其计作已预约。
+真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3|t4> --scope full --kernel-threads 1 --kernel-memory-budget-bytes 8589934592`，由受控 uv 入口在相应节点执行；E 工具迁移后两个 kernel 参数显式提供，约束 host-side composite 对照的同一 operation scope，不替代 Compose worker 自己的 DC87 配置及 12 GiB 容器上限。使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。向原线协调 05/CT108 窗口时给出最终候选、实际入口/范围、依据已完成档位估算的占用时长和本任务资源清理范围；原线 STOP 不代表节点已释放。CT108 窗口尚未确认，不能将其计作已预约。
 
 ## 3. 退出记录与后续性能复核
 

@@ -28,7 +28,7 @@
 
 Core 必须核实际 Arrow/schema/binding，Python 预计算诊断不能代替它；adapter 不直接依赖 Shared Kernel，不改 guard。仍有生产消费者的原 Python 路径保留到 D/E；C 的存储/恢复、D 的 M/control 与 E 的最终切换不提前纳入 B。
 
-## 4. 首批业务实现审核（待修复）
+## 4. 首批业务实现审核与修正记录
 
 已将 detached 审核工作区固定到 `4b546c46de`，读取 `business_kernel/cells.rs` 与 `operations.rs` 全部实现。现有 `encode_uleb128` 仅由 crate-private 升为 public 并在 lib re-export，算法与 module/decode 边界未变，符合本次真实 core consumer 的授权。三个操作已出现主体，但尚无该批业务测试或 adapter 交付。
 
@@ -72,8 +72,25 @@ Core 必须核实际 Arrow/schema/binding，Python 预计算诊断不能代替�
 
 root 判定为新组合首次该因果的前置错误，授权一次最小修正；再失败即停 Owner。审核者实际读取并复算 source `/tmp/s2b-b-publish-source.sh` SHA256 `4b71db8839171db6879b285fe1f2e4837faa6a33ba1f06426a861be763b34864`、target `/tmp/s2b-b-sync-resume.sh` SHA256 `189338eab32e31b748c758aea43a5fd0068667105c53fa0c3a62a91c3961fa03`。candidate 先绑定任务自有 `refs/codex/s2b-b-transfer/<fullsha>`，bundle/advertised ref/fetch 使用该固定引用，不依赖其他会话暂停 main 提交；previous 取实际 0a9 full SHA，新文件名保留失败 bundle。已给这一次恢复执行 GO，要求同步的实际 rc 0 单独确认后才另 call 验证，未把此 GO 当成产品通过。
 
+恢复已成功，审核者已独立读取 `/tmp/s2b-b-resume-sync-authorized-recovery.log` 并复算 SHA256 `d729ef6e3b6b0d01fa609e76ecd09f74a8c50f57f64a4cba20de3817a480e91f`：06 `12:39:23–12:39:24 UTC`，clean 0a9 → clean 25fe；bundle SHA256 `2edaf39a77916960017479f27711822cfd590569139d8deccd400c73465c787b`、固定 ref、verify/fetch/checkout 全部闭合。同步文件没有单独 rc 字段；实际独立调用成功后才开始后续验证，不冒称其有该日志字段。
+
+### Native 实际结果与代码收口
+
+`5dd7e8efb1965fec3163631890f574ed774f37db` 仅格式化输出预算代码；`d84094c76f21d67330f3c1fb905852d9478444d0` 仅收窄 Python 类型及测试非空断言。首轮 d840 的三例失败已实读：两例 NULL 主键在原 parser/materializer 的 NOT NULL 检查先失败，未到 B；1050 列测试把 parser 预算对象误传 dict，`getattr` 路径沿用默认 512。`8c889dac6d022c43249eff873a0f4789be9b2db6` 改用真实 `comm_user_data/data_key` 规则，使合法 nullable SQL source 进入 canonical key 检查；宽列测试用既有 `RESOURCE_BUDGETS` 对象并断言 parser COMPLETE。没有放宽产品规则或改变 KEY_NULL、1024+omitted 的预期。API 注释同步实际 Python normalizer/core schema owner。
+
+以下日志已独立读取并复算 SHA；前一失败整次仍为失败，不能作合格 PASS/carried 来源。两轮 native 都使用原 busy、offline、jobs 4、外置 target/logs 和 `pytest -n 0`：
+
+| 实际证据 | 结果 | SHA256 |
+| --- | --- | --- |
+| 06 `s2b-b-native-compile-7791.log`，12:19:14–12:19:34 UTC，clean 779171813864b378bb2214d13487bf85941b81a4 | adapter check、fmt、core/Shared Kernel、完整 CLI exit 0；不等于 native pytest | `2410d4e759669361ebe0309b0eb80c3102bb3f77b8babb020973c0a0ef304b29` |
+| 06 执行、本机捕获 `/tmp/s2b-b-core-5dd7-remote.log`，12:40:11–12:40:27 UTC，起止 clean 5dd7 | fmt、adapter check、core 53、Shared Kernel 82+3+3、完整 CLI exit 0 | `47c19997ca705c5324c15589a551f2b4b3001f9dba2aa524fad6608a91c7453b` |
+| 06 `s2b-b-native-focused-d840.log`，12:42:11–12:42:47 UTC，起止 clean d840 | 强制重装/tree checker、backend Ruff/mypy 通过；pytest 177 PASS/3 FAIL，整次 exit 1 | `3a0dc18ce6c78c0b92434da30570c6127bb072d4ea6353d4544d7b6e81489ab8` |
+| 06 `s2b-b-native-focused-8c889.log`，12:45:22–12:45:37 UTC，起止 clean 8c889 | 强制重装/tree checker、backend Ruff/mypy 493 source files、180 项 native/既有 owner focused 全部通过，exit 0 | `39bc6ce3faf14c049b44ddec7ed5cba8a3f50bda635f890fb1f28a4f7a5a72cd` |
+
+8c889 的实际 expected=installed Rust tree 为 `d90bd09352ec068558d1fb0334764037818d649e`，已另以 Git 核对。focused 脚本 SHA256 `5675b53f27e57c9170dc90f26c3f99cb3750894a266067e006776241b3899654`；选择 native business、Rust parser adapter、SQL/business snapshot、composite contracts/bind、projection core/integrity/contracts 现有 owner。§5 所列 native 预期至此取得实际通过证据，包括零列三行 C Stream→B→A IPC。当前代码与原一次性 native 矩阵无未闭合阻塞；B 整体仍待最终 Rust policy、五包静态与当前候选容器证据。
+
 ## 6. 当前验证与镜像决定
 
-当前审核产品 HEAD：`25fe793d961e7471d981b5b7afceca5811c197d1`。成功定向证据与实际覆盖见 §2、§4；§5 的新增 native 尚待实际运行，B 最终门禁未运行，carried 无。中间算法修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、强制重装扩展及 Rust tree checker、相关 native focused 与当前镜像 health/clean-stop/native smoke。
+当前审核产品 HEAD：`8c889dac6d022c43249eff873a0f4789be9b2db6`。成功定向证据与实际覆盖见 §2、§4–5；B 最终门禁未运行，carried 无。中间算法修改不逐次重建镜像，按任务单延期到收敛的 B 最终候选完成适用 Rust policy/完整 CLI、五 Python 静态、当前镜像 health/clean-stop/native smoke；本候选强制重装、Rust tree checker 和 native focused 已通过，不因报告推进重复整批。
 
 最后已验证镜像仍是 A 产品 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`：06 backend 本机 image ID `sha256:88665d846710bd26891acbba7fbcb516e57cfaf95edd3314af457e4a48d5b6a0`，Rust tree `5b222191f4689b0eb0a7c2a1123bb299efb13e9d`，来源见 [A 审核 §7](p6-s2b-a-review.md#7-最终-db776-验证结论)。该结果不冒充 B 当前候选，dependency-base 以最终完整输入与 config/全部 DiffID 判定。S2b 最终 04 runner/container 与 t1–t4 正确性仍保留；W1/W2、真实 FULL 峰值和生产 M 未知保持未知。

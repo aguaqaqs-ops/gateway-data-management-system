@@ -2,6 +2,8 @@
 
 状态：Owner 于 2026-11-06 明确“批准这份 kickoff 并且启动 A 节”；依据 DC85。整体技术方案为已审候选 `1a4adaae05`，审核报告 `8b4be7434b`。本任务仅授权 A，B–E 仍按后续小节安排，不提前切换生产路径。
 
+交付状态：**A COMPLETE**（2026-11-06）。固定产品 `db7767ffbb5e4eee269b3c0e4778351dd98a092a`、[handoff](p6-s2b-a-handoff.md) 提交 `b625d775e0`、[独立审核](p6-s2b-a-review.md) 提交 `83b927207a`，结论 A GO，无未关闭 Finding。06 的 workspace/静态/扩展/定向行为及实际容器 health/native 验证均通过；本节实施和审核角色已结束，证据保留。仅完成本任务，不是 S2b exit，不自动进入 B。
+
 ## 1. 交付边界
 
 交付一个 Rust 纯内存 canonical Arrow mapping/IPC codec，复用锁定的 Arrow 59.1.0 标准 writer/reader；core 不访问文件系统。输入是业务物化、规范投影之后、已按 owning 规则排好行的数据与规范声明；A 固定列序、类型映射、metadata、buffers 和 file profile，输出 Arrow/file bytes 并能在内存中按绑定描述校验读取。B 负责业务列选择、伪 gid、业务过滤与行排序/hash pipeline；C 负责文件/mmap/引用与恢复；D 才接 worker/config。A 不把内部 IPC 替代客户端 Parquet 或 Repository wire。

@@ -2,6 +2,8 @@
 
 状态：2026-11-06。技术候选已按 S2a 退出源码重核；固定候选 `1a4adaae05` 已通过[独立技术审核](p6-s2b-kickoff-review.md)，Owner 已以 DC85 批准 kickoff 及 A 节；实施范围见 A 任务单，后续切片不自动开工。
 
+A 实现已交付：固定产品 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a`，A GO。固定向量、纯内存 codec 与最小 C Stream 入口通过 06 验证；实际业务 FULL、部署 N/M、worker 与恢复仍按后续切片收口。
+
 来源：DC46/DC47、[P6 设计 §8](p6-design.md#8-s2b上传侧数据路径与规范表存储)、[DC76](p6-s0-owner-decisions.md#dc76-s2b-输入约定与映射准备)、[DC84](p6-s0-owner-decisions.md)。S2a 源码基线为 `p6-s2a-exit^{commit}=53b676a6298d408ccda3a85ee73c7ea223a2311a`；本轮设计候选 main 为 `d368413861dbcce10691fb65e8dbaba2a208af68`。`business_schema_digest_of` 已核实列序无关但包含 `table_name`；不改变既有业务摘要，不承诺跨表名去重。
 
 ## 1. 已确认的业务前提与范围

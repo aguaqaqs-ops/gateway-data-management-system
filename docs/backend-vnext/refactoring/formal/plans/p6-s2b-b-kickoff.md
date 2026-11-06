@@ -1,12 +1,12 @@
 # S2b B：业务 kernel 与规范投影/摘要
 
-状态：**推进暂停，等待 Owner 讨论执行角色调整；B 未 GO**（2026-11-06）。Owner 已按 DC86 授权 B–E 逐节推进；本任务只实施 B。前置 A 产品 `db7767ffbb`、handoff `b625d775e0`、独立审核 `83b927207a` 已交付。B 前置独立审查 `8f3cf2421f` 的具体细节由下文冻结，不把前置审查当作产品通过。
+状态：**Owner 已授权重建 B 两角色恢复推进；B 未 GO**（2026-11-06）。Owner 已按 DC86 授权 B–E 逐节推进；本任务只实施 B。前置 A 产品 `db7767ffbb`、handoff `b625d775e0`、独立审核 `83b927207a` 已交付。B 前置独立审查 `8f3cf2421f` 的具体细节由下文冻结，不把前置审查当作产品通过。
 
 暂停交接：最新产品 `5621bd4853`，仅有公共 API/preflight 骨架、catalog 源行数接线、源行数绑定字段及格式/既有示例 policy 修正；SQL/hash、Arrow catalog、projection、C Stream adapter 和业务验证尚未交付。06 最后观测的本节调试 worktree `/home/dev/gdds-test-tmp/wt/p6-s2b-b-impl-9225` 为 clean `75f2ddac93`；fmt 后 architecture CLI 因既有示例缺首行 forbid 声明失败，5621 已修正但未同步/验证。源码同步准备再次发生本地脚本生成错误，按事先约定停止，不再重复尝试；[独立审核记录](p6-s2b-b-review.md)保存提交与日志边界。
 
 实施者停止交接承认没有获取节点 busy marker 即执行 cargo，违反 AGENTS/DC70 前置；此前失败日志仅用于诊断，不能作为合格门禁/沿用证据。没有业务测试通过结果。实施者确认其命令已结束，没有仍运行的本任务进程；当前节点状态未重新核查，恢复时须重新确认并原子获取占用。主设计也记录此前协调未及时核实这一前置。既定两角色已停止，本会话尚未创建额外 agent。
 
-待 Owner 决定的具体建议：将 B–E 每节实施者配置调整为 GPT-6.1-Sol/high，独立审核者仍为 GPT-6-Astra/high；本次额外重建 B 的两个角色，复核交接和恢复前置，仍只保留实施/审核两角色，不增加第三角色。该提议尚未获授权。恢复先使用既有固定提交与已生成 bundle，收口一个可复用的参数化同步入口，按原子占用、clean HEAD、离线缓存和真实日志执行定向检查；不重做 A 或基准。C 的[准备任务单](p6-s2b-c-kickoff.md)仅为设计准备，仍待 B 独立 GO。
+Owner 恢复决定：同意重建 B 两角色尝试，**仅本节实施者使用 GPT-6.1-Sol/high**，独立审核者 GPT-6-Astra/high；未来各节实施者默认仍为 **GPT-6-Luna/max**。若仍反复出错，继续暂停汇报。恢复先使用既有固定提交与已生成 bundle，复用最小同步入口，按原子占用、clean HEAD、离线缓存和真实日志执行定向检查；不重做 A 或基准。C 的[准备任务单](p6-s2b-c-kickoff.md)仅为设计准备，仍待 B 独立 GO。
 
 ## 1. 边界与实际消费者
 
@@ -63,7 +63,7 @@ B 不替代 S2b 最终 04 权威 runner/container 与 t1–t4 正确性。完整
 
 ## 4. 分工、操作与交付
 
-实施者 `/root/s2b_b_impl`：GPT-6-Luna/max，拥有产品/测试与 `p6-s2b-b-handoff.md`。独立审核者 `/root/s2b_b_review`：GPT-6-Astra/high，在 detached worktree 审码，拥有 `p6-s2b-b-review.md`；原则上不改产品/测试代码。主设计拥有本任务、DC、总体计划与 owning 文档。需要任何额外角色/子 agent，先停该依赖工作并向 Owner 说明原因、模型和思考强度，获确认后才创建。
+原 `/root/s2b_b_impl` 与 `/root/s2b_b_review` 已停止，原审核报告保留为历史事实。恢复实施者 `/root/s2b_b_impl_resume`：GPT-6.1-Sol/high，拥有产品/测试与 `p6-s2b-b-handoff.md`。新独立审核者 `/root/s2b_b_review_resume`：GPT-6-Astra/high，在新的 detached worktree 审码，拥有 `p6-s2b-b-delivery-review.md`；原则上不改产品/测试代码。主设计拥有本任务、DC、总体计划与 owning 文档。需要任何额外角色/子 agent，先停该依赖工作并向 Owner 说明原因、模型和思考强度，获确认后才创建。
 
 CT201 当前主机 `heavy-dev-01` 不跑测试/编译/lint。06 使用 `ct107-gw-dms-06`，按 AGENTS 核 SSH、有效占用、clean committed worktree/legacy、离线缓存、Rust selector；jobs 4、TMPDIR/target/log 在 worktree 外。复杂远程命令写外置脚本并记录 SHA，实际命令、hostname、起止 HEAD/时间、exit、外部日志 SHA 清楚记录。失败保留，按 DC68/DC80 诊断并经明确修正/独立审核恢复，不盲试；有实质设计冲突或多轮不收敛交主设计/Owner。
 

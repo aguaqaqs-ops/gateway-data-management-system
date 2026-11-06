@@ -927,6 +927,8 @@ implementation_authorized: no
 
 ## 3. 设计阶段待定项
 
+DC86 执行补充（owner，2026-11-06）：B 因重复源码同步准备错误及节点占用前置遗漏暂停后，Owner 同意重建本节两角色尝试：**仅 B 实施者改为 GPT-6.1-Sol/high，B 独立审核者仍为 GPT-6-Astra/high**。后续各节实施者默认仍为 **GPT-6-Luna/max**，不得把本次例外扩展到 C–E。若仍反复出错，继续暂停汇报；额外角色仍须先说明原因与模型/强度并获确认。此前缺失原子占用的日志只供诊断，不追认为合格证据。恢复须重新满足节点占用、clean 候选和离线环境前置；本次不改变功能范围或门禁。
+
 | 项 | 所属决议 | 何时定 |
 | --- | --- | --- |
 | ordered 表摘要的统一口径；是否保留 `ordering_digest`；是否删除 `fast_row_digest` | DC39、DC58 | 已定：统一为表摘要，删除 `ordering_digest`（设计 §4.1）；删除 `fast_row_digest`（DC58） |

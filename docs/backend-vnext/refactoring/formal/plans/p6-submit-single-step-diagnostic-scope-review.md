@@ -1503,3 +1503,34 @@ controller、verifier、两个脚本与 Compose 挂载均指向 d 的项目/清�
 候选 d 的摘要复制命令错误已留失败与本地更正日志，没有据此重跑 focused。产品继续 clean 冻结 `1f9731`，最后验证 image revision/source-tree 沿 §57；外置 wrapper 变化不触发产品或镜像重建，实际运行身份仍须由未来获准的固定入口重核。原 45 分钟/3600 秒预算、资源/身份/失租/cancel/stall 停止、保卷留证/未静止留锁和 05 实际占用条件不变。本次不新增测试、修复轮次或 Owner 身份/准备确认门槛。
 
 **候选审核结论已直接交唯一实施者并同步设计；实际诊断仍须另行明确签发绑定本完整最终 manifest 的一次 GO。当前没有新的 POST/worker/Compose 诊断或正式测量许可，H3 PASS、lease 根因 OPEN、正式测量 STOP。**
+
+## 72. GC-window 候选 d：精确一次限定诊断 GO
+
+**现签发 `P6-GC-D-GO-20261106-01`，仅对 §71 已 PASS 的 d 最终 manifest 给一次限定 GC/observer 诊断 GO。** 完整清单路径 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6mutationgcwindow20261106d/candidate-manifest.json`，SHA256 **`b4db000f83194000f6d7a89180f63490327545c130a403cb3b636d5a81031571`**，candidate ID `p6mutationgcwindow20261106d`。独立复核 §71 的所有候选条件已经满足，本轮只核清单仍为该摘要和固定命令/预算字面值，没有改包、重测或新增节点操作。
+
+设计已明确请求本次精确 GO，既有 Owner/DC80 及 `f7d53c1c41` 直接闭环授权也已涵盖此步骤。§71 的 review-only 结论与本节显式 GO 分别记录，不建立新的 Owner/协调者申请门槛；以后同范围具体候选通过且既定条件齐备时，直接办理精确一次 GO，不因 review-request 的“本次仅审包”措辞再等待协调者补发启动申请。直接投递唯一实施者 `01a1b107-11ba-7681-a7cf-afb1591a67d2` 并抄设计，不以回执或重复身份确认为接续条件。
+
+仅 **CT05 `gw-dms-test-05`/root**，产品 clean 冻结 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`，§52/57 原三镜像身份、原 `p6bw4s4h120261105b:v2-preview` pre-submit checkpoint、既有输入/缓存不变。只准 d 的新项目/key/三卷副本和新证据根，不能使用 h/c 已失败卷继续。实际执行前按既有节点协调取得 05 的有效占用；E 或其他有效占用未释放时等待，本 GO 不预约/抢占节点、不绕过目录锁，不向 CT108 扩张。源码、清单、镜像身份或必要缓存不符即停止，不能改包/换输入后沿用此 GO。
+
+允许唯一实施者在该候选根写 `POST-GO.txt`，严格三行：
+
+```text
+decision=GO
+candidate=p6mutationgcwindow20261106d
+manifest_sha256=b4db000f83194000f6d7a89180f63490327545c130a403cb3b636d5a81031571
+```
+
+固定命令（在 CT05/root，入口无参数）：
+
+```bash
+cd /home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend
+/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6mutationgcwindow20261106d/candidate/run-once.sh
+```
+
+只准一次真实 acceptance POST、唯一返回 ID 绑定的 prepare_import claim，原 production `_run_claim` 正常完整返回后才 drain、后继不 claim、restart=no；不安排合成大输入或第二轮全输入诊断。parent_materialization 907.302s 仅为旧参考成本，不保证本次完成时间。保留 **45 分钟绝对观察、3600 秒全流程硬上限、3120 秒 work/480 秒 cleanup reserve**，原 48 GiB 启动可用内存、5 秒 guardian、全部 RSS/host/disk/身份/lease_lost/cancel/120 秒 stall/必要观测停止条件不变；不改 lease、heartbeat、drain、GC 设置或产品线程/事务语义。
+
+观测限于 §69/71 的 GC 有界内存 callback、既有函数边界和 observer/实际调用计时；没有 planner 新插桩、大中间 checkpoint、callback I/O 或额外后台 sampler。incomplete、开放/遗漏覆盖或未取得最终摘要按已有缺口与停止分类保留，不伪装“没有 GC”或唯一因果；新 GC overlap/CPU 数据也不自动确定 GC/GIL 根因，不视为正式性能。不得为取得摘要延长任一预算或提前触发业务 drain。
+
+实际诊断失败或停止后不自动重试，保留最后可读 target DB selected rows、raw service/event/resource 日志、GC summary 状态及捕获错误、原始失败与完整摘要。使用原有有界 cleanup，仅自有进程/容器/网络均确认静止后解锁；未确认则留占用报告，保留三卷及所有旧证据/候选。logger/guardian 正常关闭不等于 worker 正常业务退出，missing summary 不能说全部观测完成。控制器日志完整关闭后由外层记录完整 SHA，结果直接交本审核会话独立复核。
+
+**本节只授权此精确候选的一次限定诊断；不是产品/旅程验收通过，不是正式测量恢复或失败重试许可。** 不改产品/镜像或 retag，不推送/打 tag/合入产品，不清理原卷或证据。H3 仍 PASS，lease 根因仍 OPEN，正式测量仍 STOP；其余候选和已消耗 GO 均不因本节恢复。

@@ -1072,3 +1072,31 @@ CT05 最终日志 `ct05-focused-tests-final2.log` 的实际 SHA256 `74fcf037175f
 h 保持新 project/三份目标副本/幂等键、原 e798→1f9731 精确关系、同一 accepted input/cache、单 v2-submit POST 和无后续步骤；保留卷及 g 既有证据不复用运行。45 分钟 watchdog、1 秒 dump、15 秒采样、原资源停止线及预算原则不变。产品和镜像未变，**不触发重建或重复 Compose**；最后验证镜像 revision `1f9731`，RS build-input `4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`、source-tree `sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`，身份与小用例引用 §52。未来若给该清单一次 GO，仍须运行前实时核对节点、clean worktree、输入、镜像及节点占用；本次审核不预先声称这些未来现场条件已满足。
 
 **工具与候选绑定技术审核完成；业务执行决定另记，当前不运行。H3 不变，正式测量停止，lease 根因仍 OPEN。**
+
+## 58. 候选 h 精确清单：一次限定 v2-submit GO
+
+**候选 `p6catalogsubmit20261106h`，manifest SHA256 `8d8e674e6582deecaa13ab75b727e9189df84ed9ef4b58525e2974d148a84aa8`，获得一次限定 v2-submit 诊断 GO。** 设计在 §57 工具/候选审核通过后，沿 DC80、`ba77e33781` 和 §56 的既定单步诊断范围明确请求执行决定；因此本节接续 §57，不再把早先 review-request 的“仅审核修订”当作当前阻塞。没有新增业务取舍，不需要 owner 重确认。
+
+决定前再次只读核验完整 manifest SHA、15 文件的 SHA/字节数/权限，全部保持 §57 的精确绑定；POST-GO 仍不存在。没有重跑测试、访问节点或执行业务。§57 的 CT05 17 项工具测试、固定产品/三镜像和源输入证据继续适用，不要求改包、重测、重建或重复小 Compose。未来现场是否可运行仍由固定入口实时核验，不能用本次静态决定替代。
+
+实施者可创建仅含以下三行的候选专属 `POST-GO.txt`：
+
+```text
+decision=GO
+candidate=p6catalogsubmit20261106h
+manifest_sha256=8d8e674e6582deecaa13ab75b727e9189df84ed9ef4b58525e2974d148a84aa8
+```
+
+仅使用已绑定的固定命令执行一次：
+
+```bash
+ssh -o BatchMode=yes ct108-gw-dms-05 'cd /home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend && /bin/bash /home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogsubmit20261106h/candidate/run-once.sh'
+```
+
+节点须为空闲且可原子取得自己的占用；不能抢占/清除他人锁。保持 clean `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`、固定 backend cwd/literal Python、§52 已审三镜像实时身份核验、本机 prebuilt/离线无代理、原 `p6bw4s4h120261105b` e798 pre-submit checkpoint、原 accepted input/cache 和严格摘要检查。使用新 h project/key/三份目标副本，不续跑 g 卷或修改来源。仅一次 v2-submit POST，无 Preview、预热、后续步骤、重试或人工 recovery；日志目录拒复用和候选/GO 的执行前绑定保留。
+
+维持原 45 分钟绝对 watchdog、外层 3600 秒预算、1 秒 dump/15 秒频率、5 秒资源守护、48 GiB 启动可用内存及 40 GiB worker RSS/8 GiB host available/10 GiB disk 停止线；不在执行中加时。只按 §57 已审精确条件允许两次已知采样失败后停采，继续原守护和业务轮询；未知/混合、即时身份/资源失败或回收未确认仍停止，不能放宽。原始栈缺口如实保留。
+
+失败按现有停止规则保存证据，不自动再试。结束后保留三卷；原项目资源回收、observer preflight/guard/sampler 的确认结果须传入 postflight/controller，未核实则保留节点锁报告人工处置。回交完整 controller/launch/run/state、observer 事件/栈、身份/输入比较、资源和收尾原始证据及摘要，独立审核再分类；不得仅据外层退出码或输入 MATCH 宣称产品成功。
+
+**本 GO 仅属于该清单的一次诊断；不授权正式计时/基准恢复、产品合入、推送、tag 或范围扩展。** H3 既有结论不变，正式测量停止，lease 根因 OPEN。当前产品 HEAD 及最后验证镜像 revision/source-tree 仍为 §57 所记，外置工具范围不触发重建。

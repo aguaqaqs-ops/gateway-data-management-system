@@ -728,3 +728,31 @@ shared_kernel 的 bytes 与 digest API 共用 `_write_canonical_json`，仍依�
 观测修正适合本次问题：heartbeat 前不保存/fsync，heartbeat/GC 只写有界内存；业务粗边界低频保存并计开销。GC 全程聚合加最近 128/最长 32 窗口，不再只留导入期前 64；阶段、事件和 checkpoint 均有数量上限及丢弃/覆盖/写失败记录。按真实顺序区分多次 payload/change-set/closure digest，逐 key JCS 只聚合并与全图阶段区分，适配新共享 writer；委托原实现，不变更校验和异常顺序。无法隔离的释放/join 与未保存的硬截断窗口明确缺口，不做差额推算。
 
 原 10/30 秒租约、真实线程和 UTC/monotonic/内存 UOW 保持。旧 probe/证据不改，独立候选/manifest/attempt marker；不启动 SQL、DB、Dolt、Compose、HTTP、Submit、CT108 或全量 runner。本范围不授权产品改动、合入或正式恢复。数 GiB 合成结果不等于现场 24 GB 或 SQLite 行为；即使成功也不能直接转完整 Submit。固定候选送审后再给一次执行决定。
+
+## 44. 完整 closure 候选 a：暂不 GO，三项具体修订
+
+**manifest `bbab2573b387248e27186d55e614efa988c8db1e39c48a4ffa3cf94a59cab137` 暂不获得执行 GO。** 实际读取 `p6changeclosureprobe20261106a/candidate/` 的 probe、supervisor、launcher、README、manifest、准备记录与静态验证器，并对照已审 1f9731 detached worktree 中 builder/Contract/fixture；没有导入或执行候选、没有运行测试/远程取证。另用只读 AST 检查确认以下名称/参数问题，不把语法检查当运行通过。
+
+manifest 与六文件摘要匹配，checksum list 为 `d95f383af94d79ef853d87e0d842a1a1c5d9f79b25f8d22efcb832f26c1eb2c4`。运行文件绑定：probe `7c57b14f5f6f18765f0ebdeca44031de3bc699a1b66457d1ec39fc4441235bf8`，supervisor `e90c76ecd0e3bb6a3524af37d94f9c8ea633d879c4c0988e41421310d4e04043`，launcher `be14b34fdeaed0c4ee5cb753c7b8251243aeb422f1e28b06a62d0bd7e890818f`。
+
+### C1：名称和参数接线错误会阻止执行并破坏结果收尾
+
+`probe.py:892–893` 的 `_make_worker` 使用 `replace`，但文件没有相应 import、定义或赋值；因此 worker setup 必然 NameError，尚未到输入生成。snapshot 构造同样在 544/549 行使用该未定义名称。其次，`set_value` 在 258 行定义为 `(section, name, value)`，1243/1246/1248 行更新顶层 status 及 1250 行更新 ended_utc 都只传两个参数。即使修复 replace，正常路径仍 TypeError；异常路径和 finally 也会再次 TypeError，掩盖原错误并阻止最终 JSON/GC 回调收尾。
+
+修订仅需正确引用 dataclasses.replace，并为顶层字段提供符合实际数据结构的更新路径，统一检查正常、异常与 finally 的实参。静态准备须核未定义名称和调用签名，不能只依据 ast.parse 或关键词存在即宣称该接线正确。无需因此运行 100k 负载、扩测试矩阵或改变产品。
+
+### C2：builder 内部已完成阶段未排入保存队列，截断时仍丢目标窗口
+
+`_install_builder_timers` 仅 `record_stage`，没有向 pending queue 请求保存。全文件只有 766（inputs-built）、873（整个 builder 和结果验证完成）、879（释放完成）、1079（handoff 完成）四处 request_checkpoint。heartbeat handler 的 finally 只消费已有 pending；inputs-built 保存一次后，长时间 builder 中的多次 ordering/payload/digest 与 GC/续租记录都只在内存。若在第二次 payload 附近失租，runtime 随即 join 而执行线程迟迟不结束，外层截断时磁盘最后有效记录可能仍是输入完成快照；即便 handler 已记录 lease_lost，也没有无条件保存该异常结果。这正是本次要区分的窗口，不能靠最终成功输出覆盖。
+
+修订要求：实际完成的粗粒度 ordering/payload/digest 等边界排入有界保存队列，按现有委托关系消费，避免逐 key/cell 保存；heartbeat handler 失败后即使 pending 为空，也保留最后有效阶段、deadline/失败和 GC 记录。真实 heartbeat 前及事务内仍不得 checkpoint/fsync，保存开销和硬截断未保存窗口仍明确。保持原 64 checkpoint 上限和有界记录，不增常驻观察器。阶段尚未完成时不能伪造完成值。
+
+### C3：停止条件与子进程自行退出竞态可把截断写为成功
+
+`supervisor.py:474–502` 只在 `stop_reason is not None and child.poll() is None` 时把 status 写成停止原因。如果监视已发现 RSS/host memory/disk 越限、信号或截止，但 child 在此间自行 exit 0，便落入 else，被写为 child_completed；exit_code 又优先判断 child_completed/0，最终返回 0。该路径连 stop_reason 都不写入结果，使已触发停止条件消失。必要指标读取失败也有相同竞争窗口。
+
+修订要求：停止分类独立于是否仍需发送信号/回收。任何已经触发的 stop_reason 均写入结果并返回非零，child 已退出时只免去 kill，保留其真实 return code/reaped 状态；只有未触发停止条件的正常 exit 0 可归类成功。锁释放继续由实际回收状态决定，不能为保留失败结果无故扣留已回收子进程的锁。
+
+其余主要方向与已审范围一致：固定 1f9731 与新独立目录/attempt marker；真实 builder 一次，通过原 row_digest/Request/Plan/Snapshot 构造输入而非手调三次摘要；100k 的 PATCH_DML 是显式 synthetic builder decision，未宣称 adaptive planner 会选择它。原 Thread/Event/时钟/10/30 租约、300/290 秒、8 GiB、host 16/4 GiB、disk 1 GiB/512 MiB 和新 GC 环形/最长窗口均有接线。这里不重开设计范围，只定向修复上述可执行性、截断留证与停止分类。
+
+三项已直接发送原实施者并抄设计。当前没有 GO，旧探针授权不能复用；修订后更新 manifest/文件摘要和准备记录，再审实际差异。未修改候选或产品，正式测量继续停止。

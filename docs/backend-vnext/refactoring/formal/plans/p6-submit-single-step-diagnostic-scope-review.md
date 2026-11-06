@@ -1327,3 +1327,31 @@ B1 的部分修订可接受：host/data filesystem 在只读 offline/source pref
 另有文书事实错误：preparation-record 的 identity 部分称候选 b “one candidate run remains spent / result awaits independent review”。b 按 §63 未获 GO、未运行业务；已消耗 GO 且有实际结果的是 h。该处应改正并重新绑定文档清单，无需为文书更正重测。
 
 阻塞和最小修复范围已直接交唯一实施者，抄设计；可沿 DC80 继续修订与受影响 focused，无需 owner 重复许可。保留本轮最终 c、测试包/manifest 和日志，新的代码/测试与最终清单重新绑定后再定向复审。**本轮无新 GO，h GO 已消耗，H3 不变，正式测量停止，lease 根因 OPEN。**
+
+## 66. prepare 候选 c revision 2 复审通过，精确清单一次诊断 GO
+
+**候选审核 PASS，§65 的 B1 剩余阻塞关闭；仅向下述 revision 2 manifest 给一次诊断 GO。** 最终清单路径为 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6preparelease20261106c/candidate-manifest-revision2.json`，完整 SHA256 **`e330a9fb79ca8b48885b4cb162b9148211cd925a0f4d3a67e5e1d1ddc72b974f`**；候选目录是同根下 `candidate-revision2/`，candidate ID 仍为 `p6preparelease20261106c`、candidate_revision=2。旧 `candidate/` 和 manifest `8069dc64c32178ebce0994e9dbbc615eced89d4eaffcbb691cf37f5b9b10c192` 逐字保留，不获本次 GO。
+
+本地独立核验最终 14 文件集合、SHA256、权限及 Python AST，全部匹配；相对精确测试时清单 `focused-targeted-tests-rerun2-candidate-manifest.json`（SHA256 `115f701a69c73155db70c09898b1d0ee1ee8aae19575c38d663ecb96a29662e6`）只变 README/preparation-record/review-request，代码/测试/绑定及全部模式未变。按 BatchMode echo OK 后，只读 SSH 独立核 CT05 最终 14 文件/模式均 MATCH、HEAD `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` clean，实际日志摘要一致，发本次 GO 前 POST-GO 不存在。审核没有执行测试、候选、Compose 或 POST。实施者最终 CT05 binding 日志 `candidate-revision2-final-binding-check.log` SHA256 `88ad97a52c6ceb658ae51a1d6aacd8c894224c62d44fe00997288fc4bc8a8a2c`，18:04:56、同一最终 manifest、14 文件、review-only MATCH。
+
+`prepare_step_worker.py` 最终 SHA256 为 `839e4753f55ff384520d512be85bd56a40f87a5f34a036fc4ee50d6896279b1a`。现在 class 级 hook 读取/覆盖的是冻结产品真实 **`run(self, drain_requested, wait)`**，先等待同 PID/starttime 的 guardian 首样本 marker，再原样传两个 callable 到原 run；不向 slotted 实例加字段，不增加虚构 API，不改原 startup/claim 或 claim_anchor 起算。真实 runtime 子类用例继承生产 run，证明 guardian 等待先于实际 startup，并保持原异常对象；claim hook 用例证明原 anchor 及原调用正常返回后才 request_drain。简化 fake 的单次调用本身不作为真实 loop 无第二 claim 的独立证明；冻结原 loop 在下一次 claim 前处理 DRAINING 的控制流与 §61/65 一致。没有提前 SIGTERM、修改 drain TTL、替换事务/续租或复制生产循环。
+
+CT05 focused 原始 `focused-targeted-tests-rerun2.log` SHA256 **`5d60258a557c8d2e28588c77d6d788b80a3651ad5af15514683fc6abe9284a70`**；17:57:18–19、起止 `1f9731`、**2 passed / 25 deselected / 0.64s、pytest/script exit 0、节点锁已释放**。postflight 日志 SHA256 `1caff0ad0d2746957dfef935c2c4e5161915bbc8516ff3f00994b3bb5a5d0863` 记录 clean、busy lock absent、8000 unused、no Dolt。测试没有发 HTTP/POST 或启动 worker/Compose。准备记录一处称 focused 日志直接记录 wrapper SHA；实际原始日志打印的是 verifier/test SHA，wrapper SHA 由该日志所绑定的精确测试时 manifest 记录。本节澄清其证据来源，不因此修改已冻结候选或要求重测。
+
+controller 最终 SHA256 `0ce89c8319e674321049b56fc79f9a5cb498c0ed198852aef03d6d2bb5cf54ec`，相对 §65 只改候选/manifest 字面路径；verifier、两个脚本及 Compose 环境挂载均一致指向 revision 2，不会读取旧 c。host/data 采样与 PID 绑定、末尾 guardian 成功判定、B2 日志截止/回收、B3 finalization 及一次 POST 计数路径未变，沿 §65 的代码与 focused 结论关闭。b/h 文书状态已修正。两项本地只读路径/校验 cwd 错误有失败日志和修正记录，未触及产品，不引出新的业务许可或测试范围。
+
+### 本次 GO 的精确边界
+
+依已记录的 Owner/DC80 工作流（设计计划 `f7d53c1c41`），审核者直接向唯一实施者投递，不等待协调者回执。本次决定编号 **`P6PREP-C-R2-GO-20261106-01`**，仅用于上述完整最终 SHA256，在 **CT05/root**、clean 冻结产品 `1f9731` 和 §52/57 已审三镜像身份、原 `p6bw4s4h120261105b:v2-preview` checkpoint/既有输入的条件下运行一次。固定 cwd 为 `/home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend`；固定入口为 `/home/dev/gdds-p6-logs/prepare-step-lease-20261106/p6preparelease20261106c/candidate-revision2/run-once.sh`，无参数。执行前由该入口重核源码、清单、节点/缓存与镜像前提；身份或必要缓存不符即停止。
+
+可在该候选根目录写既有格式的 `POST-GO.txt`，内容严格为：
+
+```text
+decision=GO
+candidate=p6preparelease20261106c
+manifest_sha256=e330a9fb79ca8b48885b4cb162b9148211cd925a0f4d3a67e5e1d1ddc72b974f
+```
+
+只准克隆三卷到该新 project、一次真实 acceptance POST、一个返回 ID 绑定的 prepare_import claim；正常原 `_run_claim` 完整返回后才 drain，后继 submit_import 保持未 claim。沿用 45 分钟绝对观察上限、3600 秒总上限（含初始化/清理）、既有资源线/120 秒 stall/身份及必要观测停止条件。失败或任一停止条件触发后保存原始日志、最后可读目标状态和回收事实，不自动重试；保留卷及历史证据，自有进程/容器/网络未确认静止时留锁。收束后由外层在日志完整关闭后记录完整摘要，结果交本审核会话独立复核。
+
+**这是一次专属诊断 GO，不是结果通过或正式测量恢复。** 不授权更新产品/镜像、推送、打 tag、清理原证据/卷或扩张观测预算；H3 仍 PASS，lease 根因仍 OPEN，正式测量仍 STOP。本节结论直接交唯一实施者并简要同步设计。

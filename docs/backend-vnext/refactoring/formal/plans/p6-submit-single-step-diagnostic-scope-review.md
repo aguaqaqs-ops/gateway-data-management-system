@@ -1593,3 +1593,29 @@ guardian 82 样本，21:22:31–21:29:16、最大间隔 5.010667s；worker RSS �
 pre-down 于 21:29:19 保存 MISSING summary 状态、最后 selected rows 和三服务 raw logs；文件字节/摘要与索引逐项匹配，三个 capture helper 均 exit 0、reaped/group quiet、无 truncation/timeout。worker.log 为 0 bytes，最终 summary 文件在节点也不存在，没有最终 worker exit signal/code 记录；不补造正常退出或结束计时。Compose down=0、postflight_complete/lock_release_allowed=true、自有进程和 project 容器/网络 quiet/reaped，三目标卷完整保留、volumes_removed=false，launcher node_lock_released=true。只读 SSH 另核该 project 容器/网络空、三卷全在、busy lock absent，与原记录一致。
 
 **结果与限制已直接交实施者并同步设计。执行边界、停止与回收核验通过，原诊断问题未闭合；本 GO 已消耗，无自动重试、产品/GC/TTL 改动或正式测量许可。** 保留全部旧候选、卷、原始证据和本次有效片段，不为补 summary 重跑。
+
+## 74. 已知 GC 覆盖缺口继续观测：窄设计修订范围 PASS
+
+**`63c2bf219d2963adfc7466d4af6f35273ce9b34d` 对 GC 计划新增末节的定向范围审核 PASS。** 本节独立于 §73 的 d 结果复核：d 仍按当时约定停止、GO 已消耗，不追认改判或自动重跑。唯一实施者可按新范围最小修包和必要 CT05 focused，随后交新精确 manifest；当前没有实际诊断 GO。结论已直接投递实施者并同步设计，不等回执，不重复身份、接管或 Owner 准备许可。
+
+修订有 d 的真实过早停止作为依据，并正确将 GC 统计作为 derived/可选诊断覆盖，未放松产品、身份、续租、资源或核心日志边界。其目标是保留有解释的 partial 并继续原必要守护，不是追求无损的 GC 事件平台；沿现有固定大小统计/标记即可，不要求无丢失队列、后台线程、持久状态机或新的同步框架，也不改 GC/lease/heartbeat/drain/超时。
+
+### 允许继续的状态必须有正向分类
+
+只允许 producer 明确分类的 **snapshot/callback 交错**或**采样时 collection 尚开放**两类窗口覆盖缺口。用最少有界原因字段保留当前/历史 partial，不能以通用 incomplete=true、error_count=0、看起来有开放窗口或缺少字段来泛化放行。缺原因、未知原因、损坏字段或无法解释的组合仍停止；若已知 gap 同时伴实际 callback/observer/非法转换/cleanup 或核心日志错误，真实错误优先，不因 gap 标签转为可继续。来源判定应来自 producer 实际置位分支，不让 consumer 从零计数推造原因，也不反向补给旧 d 一个未记录的具体 callsite。
+
+交错可丢弃当前混合窗口统计，保留完整闭合的正向区间，在下一普通边界自然取新 snapshot；不紧循环抢采或“补完整”。不得为恢复 complete 清 producer 累计计数、真实错误事实或历史覆盖缺口；正常每窗口 accumulator 的 rollover 与已有累计事实应区分。一旦某段 coverage 未闭合，不能再宣称全程完整或没有 GC；部分统计可以有效，但其实际覆盖必须可解释。
+
+### 核心运行与最终结果不能被 optional partial 绕过
+
+controller、guardian 和 worker 都须使用一致的已知 gap/实际错误边界。**known partial 仅改变 GC 覆盖判断，不能 `continue` 跳过整条核心 event。** session heartbeat 正常返回仍刷新既有 last_success，claim/lease_lost/executor_failed/cancel/drain/资源/身份及 deadline/stall 均照原路径处理；独立 guardian 继续采样和执行原资源停止，不把当前 GC gap 写成 EventWriter 核心故障或 observation-gap.flag。实际 callback/记录异常、日志不可写/过界/损坏和未知异常仍沿必要观测失败停止，不能因“GC 可选”吞掉它们。
+
+最终结果分开陈述 prepare 的 durable/运行结果、核心观测是否有效及 GC coverage 是否完整/缺口原因。prepare 失败、失租或核心错误仍按原非零/停止语义，已有产品主因不能被 missing/partial GC summary 覆盖；反之 GC 覆盖 partial 也不伪造 prepare 已失败。正常 prepare 若完成，必须有候选约定的有效、可解释 summary，缺失/损坏/未知状态不能借 partial 接受；即使 prepare 成功且只有已知覆盖缺口，也不能把整体诊断描述为“全部观测通过”。具体小型结果字段/exit 表述随候选审核，不预设新的状态机或产品状态变更。
+
+worker 未正常返回时没有最终 summary，则保留有效事件片段与明确缺失事实，不补造结束、完整计数或无 GC。原 45 分钟观察/3600 秒全流程硬上限、资源/身份/续租/120 秒 stall、一次 POST/claim、no-restart、正常原 claim 完整返回后才 drain、保卷留证/未静止留锁全部不变；不为收齐 summary 延长预算或改变业务退出。产品和 §52/57 镜像继续冻结 `1f9731`，不触发产品/镜像重建，CT108 不加负载，05 遵守实际有效占用。
+
+### 只补受影响的验证
+
+复用当前 callback/observer/worker/guardian 和最终结果 fixtures，证明两类已知 partial 下后续真实调用、heartbeat 成功计时及守护仍继续，实际/未知错误和错误与 gap 同时存在时仍停止；核最终 prepare/核心失败主因与 GC coverage 分开，不被最终摘要重新分类覆盖。不重跑已关闭的 controller/回收矩阵、旧大 probe/Compose 或全量 runner；新增原因/状态字段改变 payload 时顺带原实际最大形状用例，继续满足 2 KiB/4096 条/8 MiB 与 32 KiB summary，保持测试与实现/最终清单绑定。
+
+**范围 PASS 仅准新候选准备与上述必要 focused，不授权实现后直接运行业务；实际运行须新候选审核通过并另记精确一次 GO。** 既有直接闭环流程继续，不设置额外协调者/Owner 门槛。旧 d 包/结果/GO 消耗事实、所有旧证据和卷保持；H3 PASS、原 lease 根因 OPEN、正式测量 STOP。

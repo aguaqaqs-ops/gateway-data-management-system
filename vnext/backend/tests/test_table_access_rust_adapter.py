@@ -77,6 +77,7 @@ def test_native_canonical_ipc_encoder_consumes_arrow_c_stream() -> None:
     reader = pa.ipc.open_file(pa.BufferReader(encoded))
     decoded = reader.read_all()
     assert decoded.column_names == ["id", "name"]
+    assert decoded.schema.field("id").nullable is False
     assert decoded.column("id").to_pylist() == [1, 2]
     assert decoded.column("name").to_pylist() == ["a", "b"]
     assert decoded.schema.field("id").metadata == {

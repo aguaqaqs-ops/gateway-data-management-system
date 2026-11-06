@@ -166,6 +166,8 @@ probe `is_set()` 可在 cancel、drain 或 lease_lost 任一状态到达时停�
 
 C 的 TTL 复用现有 artifact protection 与 expiry/lookup 约定：当前 BaselineHead、冻结 Attempt 等强引用在其 owner 释放前不按 TTL 过期；释放最后一个强引用时在同一事务登记/触达 TTL owner，lookup 按 expires_at_us 拒绝过期条目，遵循 `sqlite_snapshot_export_cache` 的 lookup/put/touch 模式；共享对象只有在全部强引用已释放且不存在未过期 TTL 保护时才可清理。新增 BaselineHead owner 不要求重建保护机制；若需补 lookup/expiry 字段，直接改唯一 baseline schema 和 Contract，不建新发布/证据状态机。
 
+2026-11-06 C 前置源码核对：DC42 的正式引用只绑定业务 BaselineHead，推进点是 Business Lifecycle Contract §5 的 `StartArchive`（`application/archive/start.py`），不是 Submit finalize；P6 design §8.2/§15 的旧措辞已订正。C 在现有 Archive Head CAS 事务内移交引用，Submit finalize 仍只结束其冻结引用并按适用 TTL 保留派生副本，不改业务 Head。不得在归档事务内重新物化、调用 Repository import 或添加长文件读取；缺失的已提交派生副本仍由真实读者按精确 commit 回填。C 的独立审核须核对初始化/回填与 Archive 的正式引用 owner，以及 Submit finalize、abort 等释放点的 TTL 衔接。旧讨论和 S5 diff/risk 设计中的同类“finalize 移动 head”措辞不构成 S2b 授权，S5 按其真实引用 owner 另行收口。
+
 S2a 的三个 Python-only reader 生命周期证明要移交给真实 owner：old single-consumer/reopen/close → C 的 `ArtifactReadHandle` 独立 reopen、close 幂等及关闭后失败；stream error → C 的 IPC reader 失效且没有可发布产物；EOF/cancel → D 的真实 worker 在 EOF/publish 前检查 cancellation/control。对应测试放在实际 storage/worker Contract owner 中，不机械搬旧 adapter runtime mock/test。
 
 共享池 initialization 不另建 runtime 平台；artifact handle 不改变 publication state machine。dependency/lock/Rust base image 变化按 AGENTS 的 CT201 构建与 LAN 预填流程；测试节点离线，不在 CT201 跑产品/测试。即使 Arrow 版本保持 59.1，dev-deps 转 production closure 也要按锁、feature 与实际镜像闭包判定；阶段 exit 仍需最终 HEAD image bind 或正式 carried。

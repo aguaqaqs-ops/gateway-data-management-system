@@ -308,7 +308,7 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 - **内容地址：** storage projection version、business schema digest、行数、表摘要、Arrow 映射版本；不额外添加表名字段。现有 `business_schema_digest_of` 的输入已包含规范表名，因此按实际完整 key 与 scope 去重，不宣称跨不同表名去重，也不为此改写既有业务摘要。IPC 列按规范列名 UTF-8 字节排序，避免列序无关的业务身份对应不同物理字节；DDL/导出 row-layout 由外层描述保留。行按规范顺序存放（keyed 按键、ordered 按 gid、keyless 按行哈希）。
 - **格式：** 不压缩的 Arrow IPC，mmap 读取；读取时校验 raw SHA-256；写入用临时文件加原子 rename，删除写后回读。
-- **引用（现有保护表 `artifact_protection_intents`）：** 临时引用即 Preview owner（T1 转移给 Attempt 的规则不变）；新增 owner 类型“项目当前 BaselineHead”，Submit finalize 在移动 head 的同一 control DB 事务中把引用移到新 head；释放后按 TTL 保留，TTL 从最后一次引用起算；复用时先登记保护再确认文件存在。
+- **引用（现有保护表 `artifact_protection_intents`）：** 临时引用即 Preview owner（T1 转移给 Attempt 的规则不变）；新增 owner 类型“项目当前 BaselineHead”，在 `StartArchive` CAS 推进业务 head 的同一 control DB 事务中把引用移到新 head；释放后按 TTL 保留，TTL 从最后一次引用起算；复用时先登记保护再确认文件存在。2026-11-06 按 DC42、Business Lifecycle Contract §5 及现行 `application/archive/start.py` 订正旧文“Submit finalize 移动 head”：Submit 的技术 import/finalize 不推进业务 BaselineHead，不提前转移其正式引用；不改变现有 Submit/Review/Archive 业务流程。
 - **缺失或损坏时的来源与终态（DC55 第 3 项）：**
 
   | 状态 | 来源 | 终态 |
@@ -431,7 +431,7 @@ owner 2026-11-04 同意在 S2a 合入后、FE3 前将工作区占用指针及本
 | bundle 含全部表、导出缓存不误命中 | bundle 组装测试 | — |
 | 上传空闲超时与总上限、错误码 | 上传 streaming 测试（serial） | — |
 | 规范表存储读取校验与 Dolt 兜底；冻结产物缺失稳定失败 | 存储读取测试；Submit 恢复测试 | — |
-| 保护转移（BaselineHead 正式引用随 finalize 同事务移动） | finalize 事务测试 | — |
+| 保护转移（BaselineHead 正式引用随 StartArchive Head CAS 同事务移动；Submit finalize 不提前移动业务 head 引用） | Archive 事务测试；Submit finalize 保护释放测试 | — |
 | RS 503 退避有界、继承取消与截止时间 | repository read 客户端测试 | — |
 | native crash 由 runtime 接管 | 既有 worker 恢复测试 | — |
 | Table Access parser 的诊断码、table、offset 与类型化值和 Python 参照一致 | backend 现有 parser、reject、limits、reader 与 conformance 的适用用例双实现参数化；三项 reader 生命周期用例仍仅 Python（S2a handoff §9），生产替换时由 S2b 移交覆盖 | 第④层真实数据逐值差分 |

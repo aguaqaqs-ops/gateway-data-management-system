@@ -69,7 +69,6 @@ from gateway_backend.operations.worker import (
     ExecutorAcknowledgment,
     WriteUnitOfWorkFactory,
 )
-from gateway_backend.application.submission.errors import SubmitImportPublicationError
 from gateway_backend.infrastructure.repository_write.import_publication import (
     SubmitImportPublicationAdapter,
 )

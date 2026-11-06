@@ -416,3 +416,13 @@ controller/launcher 均 exit 1，结果为 `CATALOG_RETURNED_AFTER_RETRY`，原�
 **范围 GO，无阻塞 finding。** 已核设计提交 `34bd19e5e4` 在 `p6-submit-single-step-diagnostic-plan.md` 新增的 2026-11-06 接续节，与第 25 节建议一致。原 pre-submit 三卷 checkpoint、输入/cache 按 e798/旧 RS 的源身份核验，目标明确记录 e798 backend/worker 加 4497 RS 的固定组合；只允许独立外置工具表达这一精确关系，不改源 manifest、不写假 MATCH 或增加通用 skip。新 project、证据目录、幂等键和目标三卷保持隔离，原 parent/规则/输入/cache/TTL、租约/心跳/timeout 与 45 分钟观察及资源/栈停止边界完整。
 
 可直接进入实施者固定脚本/身份/命令的定向审核，无需重复范围确认。本节不授权 POST 或节点执行；具体候选通过后才给本次单步 GO。已核观测能力可按相同 worker 镜像/解释器绑定引用，不要求重复 canary、冷 GET、预热或重 Preview。该混合版本诊断既不是原冻结失败的原样复现，也不代替新 RS 正式门禁、合入或 V→H 恢复判定；H3 证据保留。
+
+## 27. 源运行 RS 身份记录的实际边界
+
+设计要求定向核查后，审核先读本地既有报告和精确记录，再经 BatchMode SSH 只读 CT108 三个已知文件：`capacity-resume-h-20261105/ct108-repository-service-image-build-and-identity.log`、`p6bw4s4h120261105b/evidence/run.json` 与该项目 `launch.log`。未运行 docker inspect/save、服务或查询，也未扫描业务卷。三文件 SHA256 分别仍为 `4faf2c492d1e853776b9943ff825769a9f63019d661124745270992c5838d6ca`、`b1c0c939f090b3e95981791f8de44aeafa1ce5ff35d0dac603df3b6ffbd08317`、`6b5a40958b973d5c699b0efe22b4a5b4b4c66eae00db51bd5fba7072f99d486b`，与原审核记录一致。
+
+旧恢复 GO `e89dc0db35` 的报告 §3 对 RS 实际确认的是当时 CT108 构建及标签匹配：revision e798、build-input `4158ea39d48157081c24d03a294c5a7eb3f866a0`、source-tree `sha256:1d23f369fef72e559fa35e09240d09e15e9eeb4d9fe8e5bc0a035b879bae8e00` 和 lock。原构建日志另保存导出 config digest `sha256:2018c3ae5409b04aeb1c393fe278a9aefaed5b3e0292c767ae39764aaddbbe12`，但没有源运行 RS 容器的完整 DiffID 绑定。run 的 `compose_image_metadata` 只含 backend/worker，launch 的 RS CPU/步骤记录不能补出镜像身份。05 后来的本机 RS ID/28 层记录证明的是 05 当时对象，不能倒填为 CT108 源 run 使用的对象；当前 tag、warmup 或构建时 config 也不能冒充运行绑定。
+
+**明确缺口是 source-run RS 完整镜像身份未记录/未闭合，不是 checkpoint 内容来源失效。** 三卷 pre-submit checkpoint 的内容与属性摘要、运输物化、源 run/state、parent/input/cache 已按既有流程核验；此次只改查询/进程内缓存的目标 RS 也没有引入持久格式变化。对限定单步诊断，建议保留并使用这些已核源材料，同时把旧 RS provenance 分为“构建标签/config 已知”和“运行时完整身份 unavailable”，不制造源 RS MATCH，不新增通用 skip，不修改历史 manifest。新目标 RS 仍须按固定 config digest 和全部 DiffID 核验。
+
+已交设计决定对第 26 节“按旧 RS 身份核验”的措辞作这一窄化；无需无限搜寻不存在字段、扫描卷或重做 warmup。该建议不支持冻结运行原样复现、正式镜像等价/carried 或性能归因，也不授权 POST。设计明确后，外置候选只表达该固定来源及缺口、新目标完整身份和其余不变检查，接续具体脚本审核。

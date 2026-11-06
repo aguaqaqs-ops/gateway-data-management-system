@@ -19,7 +19,6 @@ extension-module = ["pyo3/extension-module"]
 arrow-array.workspace = true
 arrow-schema.workspace = true
 gateway-compute-core = { path = "../gateway-compute-core" }
-gateway-shared-kernel = { path = "../gateway-shared-kernel" }
 pyo3.workspace = true
 pyo3-arrow.workspace = true
 rayon.workspace = true

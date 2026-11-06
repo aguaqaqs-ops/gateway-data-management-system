@@ -12,14 +12,13 @@ use arrow_array::{ArrayRef, RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, Field, Schema};
 use gateway_compute_core::canonical_ipc::{
     CanonicalIpcBudgets, CanonicalIpcControl, CanonicalIpcError, CanonicalIpcErrorKind,
-    CanonicalIpcOptions, encode_v1,
+    CanonicalIpcOptions, encode_v1, set_declared_type_from_parts,
 };
 use gateway_compute_core::table_access::{
     ColumnDescriptor, DeclaredTypeMetadata, ParsedTable, ParserBudgets, ParserDiagnosticCode,
     SqlLogicalType, SqlParseOptions, SqlParseOutput, TableDescriptor, build_parser_pool,
     parse_sql_dump,
 };
-use gateway_shared_kernel::DeclaredType;
 use pyo3::exceptions::{
     PyInterruptedError, PyMemoryError, PyRuntimeError, PyTimeoutError, PyValueError,
 };
@@ -606,9 +605,9 @@ fn actual_descriptor_storage_bytes(
     Ok(total)
 }
 
-fn parse_declared_type(value: &Bound<'_, PyAny>) -> PyResult<Option<DeclaredType>> {
+fn parse_declared_type(value: &Bound<'_, PyAny>, column: &mut ColumnDescriptor) -> PyResult<()> {
     if value.is_none() {
-        return Ok(None);
+        return Ok(());
     }
     let object = value
         .cast::<PyDict>()
@@ -618,67 +617,8 @@ fn parse_declared_type(value: &Bound<'_, PyAny>) -> PyResult<Option<DeclaredType
     let precision = optional_u8(object, "precision")?;
     let scale = optional_u8(object, "scale")?;
     let bit_width = optional_u8(object, "bit_width")?;
-    let declared = match kind.as_str() {
-        "null" => DeclaredType::null(),
-        "boolean" => DeclaredType::boolean(),
-        "signed-integer" => {
-            DeclaredType::signed_integer(bits.ok_or_else(|| {
-                PyValueError::new_err("signed integer declared_type requires bits")
-            })?)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?
-        }
-        "unsigned-integer" => DeclaredType::unsigned_integer(bits.ok_or_else(|| {
-            PyValueError::new_err("unsigned integer declared_type requires bits")
-        })?)
-        .map_err(|error| PyValueError::new_err(error.to_string()))?,
-        "decimal" => DeclaredType::decimal(
-            precision
-                .ok_or_else(|| PyValueError::new_err("decimal declared_type requires precision"))?,
-            scale.ok_or_else(|| PyValueError::new_err("decimal declared_type requires scale"))?,
-        )
-        .map_err(|error| PyValueError::new_err(error.to_string()))?,
-        "float32" => DeclaredType::float32(),
-        "float64" => DeclaredType::float64(),
-        "string" => DeclaredType::string(),
-        "binary" => DeclaredType::binary(),
-        "bit" => DeclaredType::bit(
-            bit_width
-                .ok_or_else(|| PyValueError::new_err("BIT declared_type requires bit_width"))?,
-        )
-        .map_err(|error| PyValueError::new_err(error.to_string()))?,
-        "date" => DeclaredType::date(),
-        "datetime" => DeclaredType::datetime(),
-        "timestamp" => DeclaredType::timestamp(),
-        "time-duration" => DeclaredType::time_duration(),
-        "source-literal-anomaly" => DeclaredType::source_literal_anomaly(),
-        _ => return Err(PyValueError::new_err("unknown declared_type kind")),
-    };
-    declared
-        .validate()
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let expected = ColumnDescriptor {
-        display_name: String::new(),
-        canonical_name: String::new(),
-        ordinal: 0,
-        sql_type: String::new(),
-        logical_type: SqlLogicalType::Standard,
-        declared_type: Some(declared.clone()),
-        nullable: false,
-        labels: None,
-    }
-    .declared_type_metadata()
-    .ok_or_else(|| PyValueError::new_err("declared_type metadata is missing"))?;
-    if expected.kind != kind
-        || expected.bits != bits
-        || expected.precision != precision
-        || expected.scale != scale
-        || expected.bit_width != bit_width
-    {
-        return Err(PyValueError::new_err(
-            "declared_type fields do not match the declared kind",
-        ));
-    }
-    Ok(Some(declared))
+    set_declared_type_from_parts(column, &kind, bits, precision, scale, bit_width)
+        .map_err(|error| PyValueError::new_err(error.to_string()))
 }
 
 fn parse_column_descriptor(
@@ -697,11 +637,21 @@ fn parse_column_descriptor(
         "unknown" => SqlLogicalType::Unknown,
         _ => return Err(PyValueError::new_err("unknown SQL logical_type")),
     };
+    let mut descriptor = ColumnDescriptor {
+        display_name: String::new(),
+        canonical_name,
+        ordinal,
+        sql_type,
+        logical_type,
+        declared_type: None,
+        nullable: false,
+        labels: None,
+    };
     let declared = required_item(value, "declared_type")?;
-    let declared_type = parse_declared_type(&declared)?;
-    let nullable = required_python_bool(value, "nullable")?;
+    parse_declared_type(&declared, &mut descriptor)?;
+    descriptor.nullable = required_python_bool(value, "nullable")?;
     let labels_value = required_item(value, "labels")?;
-    let labels = if labels_value.is_none() {
+    descriptor.labels = if labels_value.is_none() {
         None
     } else {
         let input_labels = labels_value
@@ -721,16 +671,7 @@ fn parse_column_descriptor(
         }
         Some(labels)
     };
-    Ok(ColumnDescriptor {
-        display_name: String::new(),
-        canonical_name,
-        ordinal,
-        sql_type,
-        logical_type,
-        declared_type,
-        nullable,
-        labels,
-    })
+    Ok(descriptor)
 }
 
 fn parse_column_descriptors(

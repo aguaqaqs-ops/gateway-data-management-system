@@ -188,6 +188,76 @@ fn ipc_error(message: impl Into<String>) -> CanonicalIpcError {
     CanonicalIpcError::new(CanonicalIpcErrorKind::Ipc, message)
 }
 
+/// Set a descriptor's Shared Kernel declared type from the adapter-neutral
+/// metadata fields supplied by a bounded caller.
+pub fn set_declared_type_from_parts(
+    column: &mut ColumnDescriptor,
+    kind: &str,
+    bits: Option<u8>,
+    precision: Option<u8>,
+    scale: Option<u8>,
+    bit_width: Option<u8>,
+) -> Result<(), CanonicalIpcError> {
+    let declared = match kind {
+        "null" => DeclaredType::null(),
+        "boolean" => DeclaredType::boolean(),
+        "signed-integer" => DeclaredType::signed_integer(
+            bits.ok_or_else(|| schema_error("signed integer declared_type requires bits"))?,
+        )
+        .map_err(|error| schema_error(error.to_string()))?,
+        "unsigned-integer" => DeclaredType::unsigned_integer(
+            bits.ok_or_else(|| schema_error("unsigned integer declared_type requires bits"))?,
+        )
+        .map_err(|error| schema_error(error.to_string()))?,
+        "decimal" => DeclaredType::decimal(
+            precision.ok_or_else(|| schema_error("decimal declared_type requires precision"))?,
+            scale.ok_or_else(|| schema_error("decimal declared_type requires scale"))?,
+        )
+        .map_err(|error| schema_error(error.to_string()))?,
+        "float32" => DeclaredType::float32(),
+        "float64" => DeclaredType::float64(),
+        "string" => DeclaredType::string(),
+        "binary" => DeclaredType::binary(),
+        "bit" => DeclaredType::bit(
+            bit_width.ok_or_else(|| schema_error("BIT declared_type requires bit_width"))?,
+        )
+        .map_err(|error| schema_error(error.to_string()))?,
+        "date" => DeclaredType::date(),
+        "datetime" => DeclaredType::datetime(),
+        "timestamp" => DeclaredType::timestamp(),
+        "time-duration" => DeclaredType::time_duration(),
+        "source-literal-anomaly" => DeclaredType::source_literal_anomaly(),
+        _ => return Err(schema_error("unknown declared_type kind")),
+    };
+    declared
+        .validate()
+        .map_err(|error| schema_error(error.to_string()))?;
+    let expected = ColumnDescriptor {
+        display_name: String::new(),
+        canonical_name: String::new(),
+        ordinal: 0,
+        sql_type: String::new(),
+        logical_type: SqlLogicalType::Standard,
+        declared_type: Some(declared.clone()),
+        nullable: false,
+        labels: None,
+    }
+    .declared_type_metadata()
+    .ok_or_else(|| schema_error("declared_type metadata is missing"))?;
+    if expected.kind != kind
+        || expected.bits != bits
+        || expected.precision != precision
+        || expected.scale != scale
+        || expected.bit_width != bit_width
+    {
+        return Err(schema_error(
+            "declared_type fields do not match the declared kind",
+        ));
+    }
+    column.declared_type = Some(declared);
+    Ok(())
+}
+
 fn check_control(control: CanonicalIpcControl<'_>) -> Result<(), CanonicalIpcError> {
     if control
         .cancel
@@ -512,7 +582,7 @@ fn accepts_input_type(mapping: ValueMapping, actual: &DataType) -> bool {
     }
 }
 
-fn input_array<'a>(batch: &'a RecordBatch, index: usize) -> &'a ArrayRef {
+fn input_array(batch: &RecordBatch, index: usize) -> &ArrayRef {
     batch.column(index)
 }
 
@@ -555,7 +625,7 @@ fn map_input_fields(
         }
         input_indices[plan_index] = input_index;
     }
-    if input_indices.iter().any(|index| *index == usize::MAX) {
+    if input_indices.contains(&usize::MAX) {
         return Err(schema_error("input batch is missing a bound field"));
     }
     Ok(input_indices)
@@ -1555,18 +1625,34 @@ fn spans_for_column_payload(
     Ok(payload)
 }
 
-fn build_output_batch(
-    plans: &[ColumnPlan<'_>],
-    schema: &SchemaRef,
-    spans: &[RowSpan],
+struct BuildOutputBatchContext<'a, 'p> {
+    plans: &'a [ColumnPlan<'p>],
+    schema: &'a SchemaRef,
+    spans: &'a [RowSpan],
     rows: usize,
-    batches: &[RecordBatch],
-    layouts: &[BatchLayout],
-    pool: &ThreadPool,
-    options: CanonicalIpcOptions<'_>,
+    batches: &'a [RecordBatch],
+    layouts: &'a [BatchLayout],
+    pool: &'a ThreadPool,
+    options: CanonicalIpcOptions<'p>,
     live_bytes: usize,
     output_bytes: usize,
+}
+
+fn build_output_batch(
+    context: BuildOutputBatchContext<'_, '_>,
 ) -> Result<RecordBatch, CanonicalIpcError> {
+    let BuildOutputBatchContext {
+        plans,
+        schema,
+        spans,
+        rows,
+        batches,
+        layouts,
+        pool,
+        options,
+        live_bytes,
+        output_bytes,
+    } = context;
     let span_bytes = checked_mul(
         spans.len(),
         std::mem::size_of::<RowSpan>(),
@@ -1785,18 +1871,18 @@ pub fn encode_v1(
         if span_rows != rows {
             return Err(ipc_error("input batch traversal lost canonical rows"));
         }
-        let batch = build_output_batch(
-            &plans,
-            &schema,
-            &spans,
+        let batch = build_output_batch(BuildOutputBatchContext {
+            plans: &plans,
+            schema: &schema,
+            spans: &spans,
             rows,
             batches,
-            &layouts,
+            layouts: &layouts,
             pool,
             options,
-            resident_base,
-            out_len,
-        )?;
+            live_bytes: resident_base,
+            output_bytes: out_len,
+        })?;
         writer
             .write(&batch)
             .map_err(|error| writer_error(error, writer.get_ref()))?;
@@ -1958,7 +2044,9 @@ fn validate_raw_schema(
             ));
         }
         if field.dictionary().is_some()
-            || field.children().is_some_and(|children| children.len() != 0)
+            || field
+                .children()
+                .is_some_and(|children| !children.is_empty())
         {
             return Err(schema_error(
                 "canonical IPC nested or dictionary fields are unsupported",
@@ -2013,11 +2101,11 @@ struct DecodePreflight {
     block_bytes: usize,
 }
 
-fn raw_framed_message_payload<'a>(
-    bytes: &'a [u8],
+fn raw_framed_message_payload(
+    bytes: &[u8],
     offset: usize,
     metadata_len: usize,
-) -> Result<&'a [u8], CanonicalIpcError> {
+) -> Result<&[u8], CanonicalIpcError> {
     let end = checked_add(offset, metadata_len, "IPC block metadata")?;
     let metadata = bytes
         .get(offset..end)
@@ -2096,7 +2184,7 @@ fn preflight_schema_header<'a>(
         || message.bodyLength() != 0
         || message
             .custom_metadata()
-            .is_some_and(|metadata| metadata.len() != 0)
+            .is_some_and(|metadata| !metadata.is_empty())
     {
         return Err(ipc_error(
             "canonical IPC schema message does not match v1 framing",
@@ -2115,16 +2203,29 @@ fn preflight_schema_header<'a>(
     Ok((header_end, schema))
 }
 
-fn preflight_record_block(
-    bytes: &[u8],
-    block: &arrow_ipc::Block,
+struct RecordBlockPreflightContext<'a, 'p> {
+    bytes: &'a [u8],
     block_index: usize,
     block_count: usize,
     footer_start: usize,
     previous_end: usize,
-    plans: &[ColumnPlan<'_>],
-    options: CanonicalIpcOptions<'_>,
+    plans: &'a [ColumnPlan<'p>],
+    options: CanonicalIpcOptions<'p>,
+}
+
+fn preflight_record_block(
+    block: &arrow_ipc::Block,
+    context: RecordBlockPreflightContext<'_, '_>,
 ) -> Result<(usize, usize, usize), CanonicalIpcError> {
+    let RecordBlockPreflightContext {
+        bytes,
+        block_index,
+        block_count,
+        footer_start,
+        previous_end,
+        plans,
+        options,
+    } = context;
     check_control(options.control)?;
     let offset = usize::try_from(block.offset())
         .map_err(|_| ipc_error("IPC record-batch block has a negative offset"))?;
@@ -2161,7 +2262,7 @@ fn preflight_record_block(
     }
     if message
         .custom_metadata()
-        .is_some_and(|metadata| metadata.len() != 0)
+        .is_some_and(|metadata| !metadata.is_empty())
     {
         return Err(ipc_error(
             "IPC record-batch message has unsupported custom metadata",
@@ -2173,7 +2274,7 @@ fn preflight_record_block(
     if record_batch.compression().is_some()
         || record_batch
             .variadicBufferCounts()
-            .is_some_and(|counts| counts.len() != 0)
+            .is_some_and(|counts| !counts.is_empty())
     {
         return Err(ipc_error(
             "IPC record-batch compression or variadic buffers are unsupported",
@@ -2293,10 +2394,10 @@ fn preflight_arrow_file(
     }
     if footer
         .dictionaries()
-        .is_some_and(|dictionaries| dictionaries.len() != 0)
+        .is_some_and(|dictionaries| !dictionaries.is_empty())
         || footer
             .custom_metadata()
-            .is_some_and(|metadata| metadata.len() != 0)
+            .is_some_and(|metadata| !metadata.is_empty())
     {
         return Err(ipc_error(
             "canonical IPC footer contains unsupported metadata",
@@ -2319,14 +2420,16 @@ fn preflight_arrow_file(
     let mut block_bytes = 0_usize;
     for (block_index, block) in blocks.iter().enumerate() {
         let (block_end, rows, current_block_bytes) = preflight_record_block(
-            bytes,
             block,
-            block_index,
-            block_count,
-            footer_start,
-            previous_end,
-            plans,
-            options,
+            RecordBlockPreflightContext {
+                bytes,
+                block_index,
+                block_count,
+                footer_start,
+                previous_end,
+                plans,
+                options,
+            },
         )?;
         previous_end = block_end;
         total_rows = checked_add(total_rows, rows, "canonical IPC row count")?;

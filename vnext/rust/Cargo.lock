@@ -481,7 +481,6 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "gateway-compute-core",
- "gateway-shared-kernel",
  "pyo3",
  "pyo3-arrow",
  "rayon",

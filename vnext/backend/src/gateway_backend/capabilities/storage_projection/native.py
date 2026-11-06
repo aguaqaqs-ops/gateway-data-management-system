@@ -7,19 +7,17 @@ from typing import Any
 from gateway_compute._native import _canonical_project_native
 
 from gateway_backend.capabilities.snapshot_materialization import (
+    ArrowMetadata,
+    KernelBudgets,
+    KernelResult,
+    call_arrow_kernel,
+    check_metadata_budget,
     enum_set_labels_for_sql_spelling,
     try_declared_type_for_sql_spelling,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
     normalize_sql_type_spelling,
-)
-from gateway_backend.capabilities.snapshot_materialization.native import (
-    ArrowMetadata,
-    KernelBudgets,
-    KernelResult,
-    call_arrow_kernel,
-    check_metadata_budget,
 )
 from gateway_backend.capabilities.table_rules.contracts import OrderedPolicy, StorageRuleView
 

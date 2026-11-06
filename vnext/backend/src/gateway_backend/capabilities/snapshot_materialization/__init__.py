@@ -8,6 +8,13 @@ from gateway_backend.capabilities.snapshot_materialization.canonical_store impor
     check_canonical_descriptor_budget,
 )
 from gateway_backend.capabilities.snapshot_materialization.repository_arrow import canonical_repository_stream
+from gateway_backend.capabilities.snapshot_materialization.native import (
+    ArrowMetadata,
+    KernelBudgets,
+    KernelResult,
+    call_arrow_kernel,
+    check_metadata_budget,
+)
 
 from gateway_backend.capabilities.snapshot_materialization.sql_declared_types import (
     declared_type_for_sql_spelling,
@@ -124,6 +131,11 @@ from gateway_backend.capabilities.table_access.contracts import (
 )
 
 __all__ = [
+    "ArrowMetadata",
+    "KernelBudgets",
+    "KernelResult",
+    "call_arrow_kernel",
+    "check_metadata_budget",
     "ArtifactReadHandle",
     "CanonicalTableStore",
     "canonical_columns",

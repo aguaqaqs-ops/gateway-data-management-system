@@ -607,6 +607,10 @@ def _set_preview_canonical_states_equal(seed: SubmitSeed) -> SubmitSeed:
 
 def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
+    from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE, CanonicalTableKey
+    from gateway_shared_kernel import raw_blob_digest
+    canonical_key = CanonicalTableKey(seed.workspace.repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(b"canonical"))
+    canonical_ref = ArtifactRef(canonical_key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, 9, raw_blob_digest(b"canonical"))
     additional_refs = tuple(
         ArtifactRef(
             artifact_id=f"additional-protected-{index:03d}",
@@ -616,8 +620,9 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
         )
         for index in range(70)
     )
-    protected_refs = (*seed.protected_refs, *additional_refs)
+    protected_refs = (*seed.protected_refs, *additional_refs, canonical_ref)
     with ControlDbUnitOfWork(seed.db_path) as unit_of_work:
+        unit_of_work.canonical_tables.register(canonical_key, canonical_ref)
         unit_of_work.clear_artifact_protection(
             owner_kind="current-preview",
             owner_id=seed.workspace.workspace_id,
@@ -660,6 +665,9 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
             owner_kind="preview-operation",
             owner_id=seed.preview_operation_id,
         )
+        canonical_expiry = unit_of_work.connection.execute(
+            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?", (canonical_ref.artifact_id,),
+        ).fetchone()[0]
 
     assert attempt is not None
     assert attempt.state is SubmitAttemptState.PREPARED
@@ -687,6 +695,7 @@ def test_t1_accept_persists_attempt_operation_and_occupancy(db_path: Path) -> No
     assert frozenset(ref.artifact_id for ref in operation.artifact_refs) == expected_operation_ids
     assert len(operation.artifact_refs) <= 64
     assert submit_artifact_ids == expected_protected_ids
+    assert canonical_expiry is None
     assert current_preview_artifact_ids == frozenset()
     assert preview_operation_artifact_ids == frozenset()
     assert workspace_occupancy is not None
@@ -1502,6 +1511,7 @@ def _seed_effect_pending_attempt(
 def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
+    canonical_ref = _register_attempt_canonical_ref(db_path, attempt)
     assert attempt.canonicalization_manifest_ref == (
         seed.preview_result.canonical.canonicalization_manifest_ref.artifact_id
     )
@@ -1547,8 +1557,14 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) ->
         operation = unit_of_work.operations.get_operation(attempt.operation_id)
         projection = unit_of_work.review.get_projection("sub-1")
         events = unit_of_work.review.list_events("sub-1")
+        canonical_expiry = unit_of_work.connection.execute(
+            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?", (canonical_ref.artifact_id,),
+        ).fetchone()[0]
+        from gateway_backend.infrastructure.control_db.sqlite_baseline import get_current_head_from_connection
+        assert get_current_head_from_connection(unit_of_work.connection, seed.workspace.repository_id) == BASELINE_HEAD
     assert submission is not None
     assert submission.submission_id == "sub-1"
+    assert canonical_expiry is not None
     assert occupancy is not None
     assert occupancy.active_submission_id == "sub-1"
     assert repository_occupancy is None
@@ -1689,6 +1705,7 @@ def test_t3_finalize_replay_fails_when_review_seed_missing(db_path: Path) -> Non
 def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
+    canonical_ref = _register_attempt_canonical_ref(db_path, attempt)
     tracker = WriterLockTracker()
     evidence = FakeAbortEvidencePort(tracker=tracker)
     result = abort_submit_transaction(
@@ -1714,12 +1731,27 @@ def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> No
         occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
         repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
         operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        canonical_expiry = unit_of_work.connection.execute(
+            "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?", (canonical_ref.artifact_id,),
+        ).fetchone()[0]
     assert submission is None
+    assert canonical_expiry is not None
     assert occupancy is None
     assert repository_occupancy is None
     assert operation.status is OperationStatus.FAILED
     assert evidence.calls == 1
     assert evidence.writer_open_during_calls == (False,)
+
+
+def _register_attempt_canonical_ref(db_path: Path, attempt: SubmitAttempt) -> ArtifactRef:
+    from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE, CanonicalTableKey
+    from gateway_shared_kernel import raw_blob_digest
+    key = CanonicalTableKey(attempt.repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(b"canonical"))
+    ref = ArtifactRef(key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, 9, raw_blob_digest(b"canonical"))
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        unit_of_work.canonical_tables.register(key, ref)
+        unit_of_work.set_artifact_protection((ref,), owner_kind="submit-attempt", owner_id=attempt.submit_attempt_id, intent="submit-attempt")
+    return ref
 
 
 def _read_finalize_versions(

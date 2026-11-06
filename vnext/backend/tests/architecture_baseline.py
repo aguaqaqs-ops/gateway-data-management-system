@@ -21,6 +21,10 @@ RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = ()
 
 UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
     {
+        # S2b C exact-commit HTTP/Arrow recovery component; DC86/c9f7e6bf83
+        # explicitly defers production operation callers to D. Remove in D at
+        # the actual consumer cutover, before S2b exit; no import/cycle exception.
+        "gateway_backend.application.canonical_metadata.table_access",
         # A9 external-target defer; owner, rationale, and reopen condition: design §9 deferral register.
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",

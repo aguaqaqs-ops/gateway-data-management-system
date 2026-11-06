@@ -1,6 +1,6 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**同节待续 / Owner 额外工具类型检查续做确认待决**；2026-11-06。固定产品候选 `d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 已获源码审核 clear；04 已实际通过 Rust-only 权威 runner。尚无 E GO、五 Python 包权威 runner、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
+状态：**同节恢复 / 最终验证进行中**；2026-11-06。固定产品候选 `d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 已获源码审核 clear；04 已实际通过 Rust-only 权威 runner。尚无 E GO、五 Python 包权威 runner、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
 
 ## 实际消费者与删除
 
@@ -110,3 +110,11 @@ Owner尚未答复**额外四工具mypy的一次明确修正续做**。第一次�
 - 05 t1–t3 fresh full、CT108同一次fresh full t4与资源/观察timing、最终审核及同WT闭包/镜像绑定尚未执行。当前8包原始输入只读hash核验不代替候选工具的`--validate-inputs`/语义前置或真实旅程。
 
 收到Owner答复后用本E实施者/审核者同节续做，不新建角色，不标E GO/S2b exit，不推送。所有未知容量/完整worker峰值/性能值保持unknown。
+
+## 2026-11-06 22:46Z 同节恢复
+
+Owner已明确批准额外工具mypy的具体一次修正续做；未新建角色。06重新BatchMode/整机前检并原子取占用后，在原E WT固定d0、clean、实际E解释器与`gateway_backend.__file__`绑定核合下，于22:46:12–22:46:13Z执行上列`MYPYPATH=src`/四个`-m`命令，**4 source files / exit0**。不改strict/ignore/锁，未出现准备或真实类型错误。
+
+日志06 `/home/dev/gdds-test-tmp/logs/s2b-e-tool-mypy-approved-d0f5602d6f.log` SHA `aea3a32e91ee5e2391bc9d7983b9e9fd31a64a6fbee714d892fa4fa61d3cfe9a`。22:46:58Z释放短占用，释放日志SHA `eb8a8d4213ea5b9d70ca7df674cb4a5bad1321d89bcbbb4bde2b92942aff273b`。上节待决项至此关闭；历史失败与暂停记录保留其当时事实。
+
+恢复时主线a532a3bbf7相对固定产品d0的`vnext/`无差异，后续门禁绑定新冻结完整SHA。继续已授权五Python权威runner与t1–t4；不重跑合格Rust，而在04同E gate WT按实际source manifest compare。所有节点现场重新取占用，脚本/缓存前提经既有审核后执行；原冻结资源保持。当前仍未宣称五Python、最终容器或真实旅程通过。

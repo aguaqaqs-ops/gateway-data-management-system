@@ -179,7 +179,7 @@ def test_http_arrow_source_failure_publishes_no_canonical_artifact(
     assert not list(local.artifact_root.rglob("*.ref.jcs"))
 
 
-@pytest.mark.parametrize("stop_error", (InterruptedError, TimeoutError))
+@pytest.mark.parametrize("stop_error", (InterruptedError, TimeoutError, pa.ArrowMemoryError))
 def test_cached_canonical_control_is_not_a_recovery_miss(
     db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop_error: type[Exception],
 ) -> None:

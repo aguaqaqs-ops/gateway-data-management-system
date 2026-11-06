@@ -114,7 +114,7 @@ class CanonicalCommittedTableAccess:
         if ref is not None:
             try:
                 handle = self._store.open(ref, bound_descriptor)
-            except (InterruptedError, TimeoutError):
+            except (InterruptedError, TimeoutError, MemoryError):
                 raise
             except (ManifestVerificationError, ValueError, OSError, pa.ArrowException):
                 context.checkpoint()

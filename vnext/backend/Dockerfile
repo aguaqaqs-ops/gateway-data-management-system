@@ -40,6 +40,7 @@ RUN if [ "${USE_PRELOADED_DEPENDENCIES}" = "1" ]; then \
     fi
 
 FROM dependency-base AS builder
+ARG CARGO_BUILD_JOBS=4
 WORKDIR /build/backend
 COPY rust /build/rust
 COPY shared_kernel /build/shared_kernel

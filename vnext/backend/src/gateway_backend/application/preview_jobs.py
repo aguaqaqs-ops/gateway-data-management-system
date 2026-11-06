@@ -149,7 +149,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     XmlParseRequest,
     XmlSourceInput,
 )
-from gateway_backend.capabilities.table_access import parse_sql, parse_xml
+from gateway_backend.capabilities.table_access import parse_arrow_sql, parse_xml
 from gateway_backend.capabilities.storage_projection import (
     CanonicalProjectionResult,
     CanonicalizationManifest,
@@ -1399,8 +1399,6 @@ def _materialize_uploaded_side(
         raise PreviewJobError("uploaded source package staging failed")
     dump = resolve_sql_dump_source(staged.required_sql_document_ref)
     sql_bytes = store.locate(staged.required_sql_document_ref.artifact_ref)
-    from gateway_backend.capabilities.table_access import parse_arrow_sql
-
     parsed = parse_arrow_sql(_sql_request_from_bytes(sql_bytes))
     sql_request = _sql_materialization_request(parsed, dump.sql_source_digest, ruleset)
     xml_ref = staged.optional_xml_document_ref

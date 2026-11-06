@@ -12,6 +12,14 @@
 
 规范细节以 [映射 v1](p6-s2b-arrow-mapping-design.md) 为准：UTF-8 canonical 列序、唯一 metadata/JCS 声明、SET 文本存储与 sequence 业务编码分离、64-byte/V5/non-legacy 无压缩无 dictionary file、65,536 行固定切批、空表零 batch、确定的 offsets/null slots/bitmaps。业务摘要不改为 IPC raw SHA；既有业务 schema digest 包含表名的事实不变。
 
+### 1.1 实施前已对齐的最小 API
+
+`gateway_compute_core::canonical_ipc` 复用现有 `ColumnDescriptor`、`SqlLogicalType` 与 `DeclaredType`。`encode_v1(columns, batches, caller_pool, options)` 返回 IPC bytes；`decode_v1(bytes, bound_columns, caller_pool, options)` 返回按外层列名布局重排的 batches。输入字段按实际 canonical 列名绑定，拒绝重复/缺失/矛盾声明；不依赖原始 ordinal。局部 options 明示 rows、columns、input/output bytes、codec peak 的上限及 cancel/可选单调 deadline，不填生产 M。
+
+decode 在标准 Arrow reader 前对借用输入做 footer/block 长度及 raw metadata 唯一键预检；避免依赖标准 reader 的 HashMap 覆盖重复键或按未经边界检查的长度先分配。encode 的 checked 预约包含标准 writer 在实际 Write 前生成的 encoded data，不仅限制最终 Vec。采用标准 writer/reader，不自行实现另一套 IPC。
+
+允许最小 PyO3 Arrow C Stream encode 入口用于真实 backend 互操作测试和后续 B 消费者，沿用现有 FFI/GIL/shared-pool 安全规则；N/chunk 确定性主要由 Rust core 验证。A 不新增 worker initializer、第二 Python 算法或通用绑定框架。仅提升实际用到的 `arrow-ipc` 生产依赖，`arrow-select` 如不需要则不调整；锁/features 与缓存未变可复用现有 dependency-base，生产镜像闭包仍按 §3 判断。
+
 ## 2. 局部边界与验收
 
 | 内容 | 验证与独立来源 |

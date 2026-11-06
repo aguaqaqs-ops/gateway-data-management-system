@@ -12,6 +12,7 @@ from types import TracebackType
 from typing import ContextManager, cast
 
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadataError,
     CommitCanonicalScope,
@@ -65,7 +66,7 @@ from gateway_backend.application.preview_jobs import (
 from gateway_backend.application.recovery import RecoveryCapability
 from gateway_backend.artifacts.serialize import artifact_ref_from_dict, artifact_ref_to_dict
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
-from gateway_backend.artifacts.store import ArtifactStorePort, ManifestVerificationError
+from gateway_backend.artifacts.store import ArtifactStorePort, ArtifactBufferStorePort, ManifestVerificationError
 from gateway_backend.artifacts.types import ArtifactRef
 from gateway_backend.capabilities.bundle_assembly import (
     BUNDLE_CONTRACT_VERSION,
@@ -81,13 +82,13 @@ from gateway_backend.capabilities.bundle_assembly import (
 from gateway_backend.capabilities.comparison import BoundSnapshotInput, ComparisonStorageFacts
 from gateway_backend.capabilities.table_rules import comparison_rule_set, migrated_table_ruleset_snapshot
 from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
-from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact
+from gateway_backend.capabilities.snapshot_materialization import open_snapshot_table_artifact, current_kernel_context
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     CanonicalBinding,
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
-    RepositoryRefMaterializationRequest,
+    RepositoryRefMaterializationRequest, CommittedCanonicalTablesPort,
     RepositoryProviderError,
     RepositoryTableAccessProvider,
     SnapshotMaterializationResult,
@@ -368,7 +369,7 @@ def build_materialize_inputs_handler(deps: HistoryCompareRuntimeDependencies) ->
                 )
             sides = _sides_from_materialize_checkpoint(
                 envelope.job_state,
-                deps.artifact_store,
+                deps.artifact_store, repository_id=payload.repository_id,
             )
             sides_ref = _materialized_sides_ref_from_checkpoint(envelope.job_state)
             _pin_history_compare_refs(
@@ -500,7 +501,7 @@ def build_assemble_comparison_handler(deps: HistoryCompareRuntimeDependencies) -
                 "materialize checkpoint does not match the history compare JobDefinition",
                 code="CHECKPOINT_IDENTITY_MISMATCH",
             )
-        sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store)
+        sides = _sides_from_materialize_checkpoint(materialize_envelope.job_state, deps.artifact_store, repository_id=payload.repository_id)
 
         if step.checkpoint_ref is not None:
             envelope = load_checkpoint_envelope(deps.artifact_store, step.checkpoint_ref)
@@ -762,6 +763,10 @@ def _materialize_distinct_commits(
             requested_tables=requested_by_commit[commit_id],
             export_tables=export_tables,
             export_cache=deps.snapshot_export_cache,
+            committed_tables=build_committed_table_access(
+                store=cast(ArtifactBufferStorePort, deps.artifact_store),
+                unit_of_work_factory=deps.control_transaction_factory,
+                repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id),
         )
         sides[commit_id] = bound
 
@@ -835,7 +840,11 @@ def _materialize_commit(
     requested_tables: tuple[str, ...] | None = None,
     export_tables: tuple[str, ...] | None = None,
     export_cache: SnapshotTableExportCachePort | None = None,
+    committed_tables: CommittedCanonicalTablesPort | None = None,
 ) -> BoundSnapshotInput:
+    operation_context = current_kernel_context()
+    if operation_context is None:
+        raise ValueError("repository materialization requires an operation kernel context")
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
         provider=provider,
@@ -844,8 +853,9 @@ def _materialize_commit(
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-        context=ParserInvocationContext(NeverCancel()),
-        requested_tables=requested_tables,
+        context=ParserInvocationContext(
+            operation_context.cancel_probe, operation_context.deadline_monotonic),
+        requested_tables=requested_tables, committed_tables=committed_tables,
         export_tables=export_tables,
         artifact_store=store,
         export_cache=export_cache,
@@ -1169,6 +1179,7 @@ def _side_binding_document(bound: BoundSnapshotInput, *, commit_id: str) -> dict
 def _sides_from_materialize_checkpoint(
     job_state: Mapping[str, object],
     store: ArtifactStorePort,
+    *, repository_id: str,
 ) -> dict[str, BoundSnapshotInput]:
     sides_ref = _materialized_sides_ref_from_checkpoint(job_state)
     document = load_checkpoint_state_artifact(
@@ -1195,7 +1206,7 @@ def _sides_from_materialize_checkpoint(
                 "materialize checkpoint side entry is invalid",
                 code="CHECKPOINT_JOB_STATE_MISMATCH",
             )
-        sides[commit_id] = _bound_from_side_document(entry, store)
+        sides[commit_id] = _bound_from_side_document(entry, store, repository_id=repository_id)
     return sides
 
 
@@ -1269,7 +1280,7 @@ def _materialized_sides_ref_from_checkpoint(job_state: Mapping[str, object]) -> 
         ) from exc
 
 
-def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort) -> BoundSnapshotInput:
+def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort, *, repository_id: str) -> BoundSnapshotInput:
     if entry.get("contract_version") != HISTORY_COMPARE_MATERIALIZE_SIDE_CONTRACT_VERSION:
         raise CheckpointDecodeError(
             "materialize checkpoint side contract version is invalid",
@@ -1296,7 +1307,7 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             )
         try:
             manifest_ref = artifact_ref_from_dict(manifest_raw)
-            opened.append(open_snapshot_table_artifact(store, manifest_ref))
+            opened.append(open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id, canonical_required=True))
         except (TypeError, ValueError, KeyError, ManifestVerificationError) as exc:
             raise HistoryCompareJobError("materialize checkpoint table artifact is unreadable") from exc
     try:

@@ -17,8 +17,10 @@ from gateway_shared_kernel import DigestRef, canonicalize_jcs, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
+from gateway_backend.artifacts.store import ArtifactBufferStorePort
 from gateway_backend.application.kernel_execution import reserved_artifact_bytes, stage_operation_source
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
+from gateway_backend.application.canonical_metadata.table_access import build_committed_table_access
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadataError,
     CommitCanonicalScope,
@@ -111,7 +113,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationPolicy,
     MaterializationStage,
     RepositoryRef,
-    RepositoryRefMaterializationRequest,
+    RepositoryRefMaterializationRequest, CommittedCanonicalTablesPort,
     RepositoryProviderError,
     RepositoryTableAccessProvider,
     SourceKind,
@@ -1176,6 +1178,10 @@ def _materialize_all_sides(
         ruleset=runtime_ruleset,
         export_cache=deps.snapshot_export_cache,
         requested_tables=requested_baseline_tables,
+        committed_tables=build_committed_table_access(
+            store=cast(ArtifactBufferStorePort, deps.artifact_store),
+            unit_of_work_factory=deps.control_transaction_factory,
+            repository_provider_factory=deps.repository_provider_factory, repository_id=payload.repository_id),
     )
     sides[_SIDE_BASELINE] = baseline
     if payload.input_completeness is InputCompleteness.MODIFIED_ONLY:
@@ -1216,7 +1222,11 @@ def _materialize_baseline_commit(
     ruleset: TableRulesetSnapshot,
     export_cache: SnapshotTableExportCachePort | None = None,
     requested_tables: tuple[str, ...] | None = None,
+    committed_tables: CommittedCanonicalTablesPort | None = None,
 ) -> BoundSnapshotInput:
+    operation_context = current_kernel_context()
+    if operation_context is None:
+        raise ValueError("repository materialization requires an operation kernel context")
     request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=repository_id, ref=commit_id),
         provider=provider,
@@ -1225,8 +1235,9 @@ def _materialize_baseline_commit(
         table_ruleset_version=TABLE_RULESET_VERSION,
         materialization_stage=MaterializationStage.FINAL,
         policy=MaterializationPolicy.ARTIFACTS_REQUIRED,
-        context=ParserInvocationContext(NeverCancel()),
-        requested_tables=requested_tables,
+        context=ParserInvocationContext(
+            operation_context.cancel_probe, operation_context.deadline_monotonic),
+        requested_tables=requested_tables, committed_tables=committed_tables,
         artifact_store=store,
         export_cache=export_cache,
     )
@@ -1247,6 +1258,7 @@ def _materialize_baseline(
     ruleset: TableRulesetSnapshot,
     export_cache: SnapshotTableExportCachePort | None = None,
     requested_tables: tuple[str, ...] | None = None,
+    committed_tables: CommittedCanonicalTablesPort | None = None,
 ) -> BoundSnapshotInput:
     return _materialize_baseline_commit(
         repository_id=payload.repository_id,
@@ -1256,7 +1268,7 @@ def _materialize_baseline(
         canonical_binding=canonical_binding,
         ruleset=ruleset,
         export_cache=export_cache,
-        requested_tables=requested_tables,
+        requested_tables=requested_tables, committed_tables=committed_tables,
     )
 
 
@@ -2706,7 +2718,7 @@ def _bound_from_side_document(entry: dict[str, object], store: ArtifactStorePort
             )
         try:
             manifest_ref = artifact_ref_from_dict(manifest_raw)
-            opened.append(open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id))
+            opened.append(open_snapshot_table_artifact(store, manifest_ref, repository_id=repository_id, canonical_required=True))
         except (TypeError, ValueError, KeyError, ManifestVerificationError, ArtifactPublishError) as exc:
             raise PreviewJobError("materialize checkpoint table artifact is unreadable") from exc
     try:

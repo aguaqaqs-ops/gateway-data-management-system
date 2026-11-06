@@ -168,3 +168,43 @@ def test_http_arrow_source_failure_publishes_no_canonical_artifact(
             pytest.fail("failed wire source was accepted")
     assert not list(tmp_path.glob("gateway-arrow-*.ipc"))
     assert not list(local.artifact_root.rglob("*.ref.jcs"))
+
+
+@pytest.mark.parametrize("stop_error", (InterruptedError, TimeoutError))
+def test_cached_canonical_control_is_not_a_recovery_miss(
+    db_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stop_error: type[Exception],
+) -> None:
+    stream, bound = canonical_input()
+    local = LocalArtifactStore(tmp_path / "objects")
+    store = CanonicalTableStore(local, repository_id=REPOSITORY, budgets=IPC_BUDGETS)
+    with stream:
+        ref = store.put(stream, bound)
+    with ControlDbUnitOfWork(db_path) as uow:
+        uow.canonical_tables.register(canonical_table_key(REPOSITORY, bound), ref)
+
+    def stopped(*args: object) -> None:
+        raise stop_error("caller control")
+
+    monkeypatch.setattr(store, "open", stopped)
+    access = CanonicalCommittedTableAccess(
+        store=store, unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path),
+        repository_provider_factory=lambda *args: pytest.fail("control must not reopen the source"),
+        budgets=BUSINESS_BUDGETS,
+    )
+    with pytest.raises(stop_error, match="caller control"):
+        with access.open_committed(commit_id=COMMIT, bound_descriptor=bound, storage_view=_view(bound)):
+            pytest.fail("control was swallowed")
+
+
+def test_selected_repository_tables_require_the_scoped_committed_port() -> None:
+    from tests.support.repository_ref_materialization import (
+        FakeRepositoryTableAccessProvider, catalog_table, int_id_column, make_catalog, make_request,
+    )
+    from gateway_backend.capabilities.snapshot_materialization.repository_ref import materialize_repository_ref
+
+    provider = FakeRepositoryTableAccessProvider(
+        catalog=make_catalog((catalog_table("t", (int_id_column(),)),)), rows={"t": ((1,),)},
+    )
+    request = replace(make_request(provider), committed_tables=None)
+    with pytest.raises(ValueError, match="committed canonical access"):
+        materialize_repository_ref(request)

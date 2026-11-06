@@ -501,6 +501,8 @@ def publish_canonical_tables(
             if ref is not None:
                 try:
                     opened_handle = canonical.open(ref, table.descriptor)
+                except (InterruptedError, TimeoutError):
+                    raise
                 except (ManifestVerificationError, ValueError, OSError):
                     context.checkpoint()
                     ref = None

@@ -17,12 +17,13 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable, ContextManager
 
 from gateway_shared_kernel import DigestRef, canonicalize_identifier, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
 from gateway_backend.artifacts import ArtifactRef
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableKey
 from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.composite_signal.contracts import CompositeLogicSource
 from gateway_backend.capabilities.table_access.contracts import (
@@ -1367,6 +1368,12 @@ class RepositoryRefSession(Protocol):
     def get_catalog(self) -> RepositoryTableCatalog:
         """Eager-load and memoize the business-table catalog."""
 
+    def open_arrow_table_reader(
+        self, table_name: str, *, max_input_bytes: int, max_rows: int,
+        max_columns: int, max_batches: int,
+    ) -> ContextManager[pa.RecordBatchReader]:
+        """Borrow bounded wire Arrow for this session’s pinned commit."""
+
     def open_table_reader(self, table_name: str) -> RepositoryTableReader:
         """Open a tuple reader for a catalog table."""
 
@@ -1385,6 +1392,18 @@ class RepositoryTableAccessProvider(Protocol):
         timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> RepositoryRefSession:
         """Open a read-only session pinned to a resolved commit."""
+
+
+class CommittedCanonicalTablesPort(Protocol):
+    """Application-owned scoped cache/recovery; returned readers own their handles."""
+
+    def load_table(
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, storage_view: StorageRuleView,
+        context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
+    ) -> SnapshotTable: ...
+
+    def lookup(self, key: CanonicalTableKey) -> ArtifactRef | None: ...
+    def register(self, key: CanonicalTableKey, ref: ArtifactRef) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -1406,6 +1425,7 @@ class RepositoryRefMaterializationRequest:
     parser_version: int | None = None
     artifact_store: object | None = None
     export_cache: SnapshotTableExportCachePort | None = None
+    committed_tables: CommittedCanonicalTablesPort | None = None
 
     def __post_init__(self) -> None:
         if type(self.repository_ref) is not RepositoryRef:

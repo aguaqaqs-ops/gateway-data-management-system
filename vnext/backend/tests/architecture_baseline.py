@@ -32,10 +32,8 @@ UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
         # S2b C exact-commit HTTP/Arrow recovery component; DC86/c9f7e6bf83
         # explicitly defers production operation callers to D. Remove in D at
         # the actual consumer cutover, before S2b exit; no import/cycle exception.
-        "gateway_backend.application.canonical_metadata.table_access",
         # DC85/86/f690e22aef staged B/C consumers: actual Preview/History/
         # Submit operation cutover in D removes all four entries; no fake import.
-        "gateway_backend.capabilities.snapshot_materialization.repository_arrow",
         # A9 external-target defer; owner, rationale, and reopen condition: design §9 deferral register.
         "gateway_backend.capabilities.external_target_sync._ledger_digest",
         "gateway_backend.capabilities.external_target_sync._reference_executor",

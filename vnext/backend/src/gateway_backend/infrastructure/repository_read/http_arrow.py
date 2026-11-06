@@ -24,6 +24,8 @@ from gateway_repository_contracts import GetVersionedCatalogResponse
 from gateway_repository_contracts import RESPONSE_LIMIT_EXCEEDED_CODE, SERVICE_NOT_READY_CODE
 from gateway_shared_kernel import canonicalize_identifier
 
+from gateway_backend.capabilities.snapshot_materialization import current_kernel_context
+
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     MaterializationDiagnosticCode,
     RepositoryCatalogTable,
@@ -160,17 +162,36 @@ class HttpArrowRepositoryRefSession:
             )
         if len(selected.columns) > max_columns or (selected.row_count or 0) > max_rows:
             raise MemoryError("repository Arrow catalog exceeds reader budget")
+        context = current_kernel_context()
+        if context is None:
+            raise ValueError("repository Arrow reads require an operation kernel context")
+        context.checkpoint()
         try:
-            path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+            # Admit response/chunk buffering before the spool operation. The
+            # output file itself is temporary disk storage, not retained RAM.
+            with context.memory.reserve(max_input_bytes + 128 * 1024):
+                path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
+        except (InterruptedError, TimeoutError):
+            raise
         except (
             RepositoryClientError, RepositoryProtocolError, RepositoryStreamError,
             httpx.HTTPError, OSError,
         ) as exc:
+            context.checkpoint()
             raise _repository_read_error("table row read", exc, table=table_name) from exc
         with ExitStack() as resources:
             resources.callback(Path(path).unlink, missing_ok=True)
+            context.checkpoint()
+            size = Path(path).stat().st_size
+            if size > max_input_bytes:
+                raise MemoryError("repository Arrow spool exceeds input byte limit")
+            backing = ("repository-map", object())
+            resources.enter_context(context.memory.reserve(size, backing=backing))
             source = pa.memory_map(path, "r")
             resources.callback(source.close)
+            mapped = source.read_buffer(size)
+            context.memory.register_mapping(backing, mapped)
+            source.seek(0)
             wire = ipc.open_stream(source)
             resources.callback(wire.close)
             if len(wire.schema) > max_columns:
@@ -179,6 +200,7 @@ class HttpArrowRepositoryRefSession:
                 rows = total_bytes = count = 0
                 for batch in wire:
                     self._ensure_open()
+                    context.checkpoint()
                     rows += batch.num_rows
                     total_bytes += batch.get_total_buffer_size()
                     count += 1
@@ -186,9 +208,11 @@ class HttpArrowRepositoryRefSession:
                         raise MemoryError("repository Arrow stream exceeds reader budget")
                     batch.validate(full=True)
                     yield batch
+                context.checkpoint()
             reader = pa.RecordBatchReader.from_batches(wire.schema, batches())
             resources.callback(reader.close)
             yield reader
+            context.checkpoint()
 
     def close(self) -> None:
         self._closed = True
@@ -370,6 +394,9 @@ def _repository_read_error(
 
 
 async def _spool_arrow_ipc(stream: ArrowIpcByteStream, *, max_bytes: int | None = None) -> str:
+    context = current_kernel_context()
+    if context is not None:
+        context.checkpoint()
     handle = tempfile.NamedTemporaryFile(prefix="gateway-arrow-", suffix=".ipc", delete=False)
     path = handle.name
     try:
@@ -377,10 +404,14 @@ async def _spool_arrow_ipc(stream: ArrowIpcByteStream, *, max_bytes: int | None 
             size = 0
             async with stream:
                 async for chunk in stream.aiter_bytes():
+                    if context is not None:
+                        context.checkpoint()
                     size += len(chunk)
                     if max_bytes is not None and size > max_bytes:
                         raise MemoryError("repository Arrow spool exceeds input byte limit")
                     handle.write(chunk)
+                if context is not None:
+                    context.checkpoint()
     except BaseException:
         Path(path).unlink(missing_ok=True)
         raise

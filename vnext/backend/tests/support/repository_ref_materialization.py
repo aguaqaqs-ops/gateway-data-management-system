@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
+from contextlib import contextmanager
+from typing import Any
+import datetime
+import pyarrow as pa
 
 from gateway_shared_kernel import canonicalize_identifier
 
@@ -147,6 +151,55 @@ class FakeRepositoryRefSession:
             f"table {table_name!r} is not in the catalog",
             table=table_name,
         )
+
+    @contextmanager
+    def open_arrow_table_reader(
+        self, table_name: str, *, max_input_bytes: int, max_rows: int, max_columns: int, max_batches: int,
+    ) -> Iterator[pa.RecordBatchReader]:
+        # A fixture wire renderer; production has only the HTTP Arrow adapter.
+        from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import map_repository_column
+        reader = self.open_table_reader(table_name)
+        try:
+            table = reader.catalog_table()
+            fields = []
+            columns: list[list[Any]] = []
+            conversions = []
+            for column in table.columns:
+                mapped = map_repository_column(column).source
+                kind = None if mapped.declared_type is None else mapped.declared_type.kind.value
+                convert = lambda value: value
+                physical: pa.DataType = pa.string()
+                if kind in ("signed-integer", "unsigned-integer"):
+                    bits = mapped.declared_type.bits  # type: ignore[union-attr]
+                    physical = getattr(pa, ("uint" if kind == "unsigned-integer" else "int") + str(32 if bits == 24 else bits))()
+                    convert = int
+                elif kind in ("float32", "float64"):
+                    physical = pa.float32() if kind == "float32" else pa.float64()
+                    convert = float
+                elif kind == "datetime":
+                    physical = pa.timestamp("us")
+                    convert = lambda value: datetime.datetime.fromisoformat(str(value))
+                elif mapped.logical_type.value == "set":
+                    physical = pa.list_(pa.field("item", pa.string(), nullable=False))
+                    convert = lambda value: list(value) if isinstance(value, (list, tuple)) else str(value).split(",") if value else []
+                fields.append(pa.field(column.name, physical, nullable=mapped.nullable))
+                columns.append([])
+                conversions.append(convert)
+            count = 0
+            for row in reader.stream_rows():
+                if len(row) != len(columns):
+                    raise ValueError("repository fixture row width mismatch")
+                count += 1
+                for index, value in enumerate(row):
+                    columns[index].append(None if value is None else conversions[index](value))
+            arrays = [pa.array(values, type=field.type) for values, field in zip(columns, fields, strict=True)]
+            table_arrow = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+            if count > max_rows or len(columns) > max_columns or table_arrow.nbytes > max_input_bytes or max_batches < 1:
+                raise MemoryError("fixture Arrow exceeds requested bounds")
+            with table_arrow.to_reader() as stream:
+                yield stream
+        finally:
+            reader.close()
 
     def export_table_artifact(self, table_name: str, export_format: str) -> None:
         del table_name, export_format
@@ -406,7 +459,7 @@ def make_request(
     export_cache: SnapshotTableExportCachePort | None = None,
 ) -> RepositoryRefMaterializationRequest:
     active_ruleset = _complete_ruleset(ruleset or default_ruleset())
-    return RepositoryRefMaterializationRequest(
+    request = RepositoryRefMaterializationRequest(
         repository_ref=RepositoryRef(repository_id=provider.catalog.repository_id, ref=provider.current_commit),
         provider=provider,
         ruleset=active_ruleset,
@@ -424,6 +477,8 @@ def make_request(
         artifact_store=artifact_store,
         export_cache=export_cache,
     )
+
+    return _bind_reference_tables(request, provider)
 
 
 def materialize_ref(
@@ -485,3 +540,79 @@ def _complete_ruleset(ruleset: TableRulesetSnapshot) -> TableRulesetSnapshot:
         ruleset,
         ruleset_digest=compute_ruleset_digest(table_ruleset_document(ruleset)),
     )
+
+
+class _ReferenceCommittedTables:
+    """D/E temporary adapter over the already-existing reference implementation.
+
+    E replaces the reference-generated fixture facts with independent vectors.
+    Production never selects this adapter or calls the reference row algorithm.
+    """
+    def __init__(self, request: RepositoryRefMaterializationRequest, provider: FakeRepositoryTableAccessProvider) -> None:
+        self.request = request
+        self.provider = provider
+
+    def lookup(self, key: Any) -> None:
+        return None
+
+    def register(self, key: Any, ref: Any) -> None:
+        pass
+
+    def load_table(self, *, commit_id: str, descriptor: Any, storage_view: Any, context: Any, timeout_policy: Any) -> Any:
+        from gateway_backend.capabilities.snapshot_materialization.repository_ref import _read_and_materialize_table
+        from gateway_backend.capabilities.snapshot_materialization.arrow import snapshot_table_from_arrow
+        from gateway_backend.capabilities.snapshot_materialization._parquet import _cell_to_arrow
+        import struct
+        session = self.provider.open_ref(self.request.repository_ref, timeout_policy)
+        try:
+            catalog_table = next(t for t in session.get_catalog().tables if t.table_name == descriptor.table_name)
+            _, table, _ = _read_and_materialize_table(self.request, session, catalog_table, storage_view,
+                self.request.materialization_stage, keep_rows=True)
+            if table is None or table.reader is None:
+                raise ValueError("reference fixture table is unavailable")
+            source = table.reader.source_descriptor()
+            rows = list(table.reader.iter_rows())
+            fields = []
+            arrays = []
+            for index, column in enumerate(source.columns):
+                kind = None if column.declared_type is None else column.declared_type.kind.value
+                physical = pa.int64() if kind == "signed-integer" else pa.uint64() if kind == "unsigned-integer" else pa.float32() if kind == "float32" else pa.float64() if kind == "float64" else pa.string()
+                fields.append(pa.field(column.canonical_name, physical, nullable=column.nullable))
+                values = [_cell_to_arrow(row[index], column) for row in rows]
+                if column.logical_type.value == "set":
+                    values = [None if value is None else ",".join(value) for value in values]
+                elif kind in ("signed-integer", "unsigned-integer"):
+                    values = [None if value is None else int(value) for value in values]
+                elif kind in ("float32", "float64"):
+                    values = [None if value is None else struct.unpack(">f" if kind == "float32" else ">d", bytes.fromhex(value))[0] for value in values]
+                arrays.append(pa.array(values, type=physical))
+            backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+            return snapshot_table_from_arrow(table.descriptor, backing, source, ordered=table.ordered_metadata)
+        finally:
+            session.close()
+
+
+def _bind_reference_tables(request: RepositoryRefMaterializationRequest, provider: FakeRepositoryTableAccessProvider) -> RepositoryRefMaterializationRequest:
+    from gateway_backend.capabilities.snapshot_materialization.repository_ref import _read_and_materialize_table
+    from gateway_backend.capabilities.snapshot_materialization.contracts import CanonicalTableIdentity
+    if not request.canonical_binding.tables:
+        return request
+    identities = []
+    session = FakeRepositoryRefSession(catalog=provider.catalog, rows=provider.declared_rows,
+        pinned_commit=provider.current_commit, pad_nulls=provider.pad_nulls, fail_stream=False,
+        close_error=False, catalog_error=False, catalog_error_message=None, missing_table_on_open=None)
+    for view in request.canonical_binding.tables:
+        catalog_table = next(t for t in provider.catalog.tables if t.table_name == view.canonical_table)
+        descriptor, _, _ = _read_and_materialize_table(replace(request, context=ParserInvocationContext(NeverCancel())), session, catalog_table, view,
+            request.materialization_stage, keep_rows=False)
+        if descriptor.raw_content_digest is None:
+            raise ValueError("reference fixture must supply a valid canonical identity")
+        identities.append(CanonicalTableIdentity(view.canonical_table, descriptor.row_count,
+            descriptor.compare_schema_digest, descriptor.business_schema_digest, descriptor.raw_content_digest))
+    binding = request.canonical_binding
+    if not binding.table_identities:
+        binding = replace(binding, table_identities=tuple(identities))
+    reference = _ReferenceCommittedTables(request, provider)
+    request = replace(request, canonical_binding=binding, committed_tables=reference)
+    reference.request = request
+    return request

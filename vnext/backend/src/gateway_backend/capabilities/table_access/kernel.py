@@ -237,3 +237,19 @@ def merge_kernel_control(
     deadlines = tuple(d for d in (context.deadline_monotonic, deadline_monotonic) if d is not None)
     return KernelExecutionContext(context.memory, CombinedCancelProbe(context.cancel_probe, probe),
                                   context.threads, min(deadlines) if deadlines else None, context.resources)
+
+
+@contextmanager
+def kernel_control_scope(probe: CancelProbe, deadline_monotonic: float | None) -> Iterator[KernelExecutionContext]:
+    """Narrow control for nested callers while retaining the operation lifetime."""
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("kernel control scope requires an operation context")
+    merged = merge_kernel_control(context, probe, deadline_monotonic)
+    token = _active_context.set(merged)
+    try:
+        merged.checkpoint()
+        yield merged
+        merged.checkpoint()
+    finally:
+        _active_context.reset(token)

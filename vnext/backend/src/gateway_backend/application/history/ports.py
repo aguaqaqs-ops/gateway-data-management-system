@@ -13,11 +13,15 @@ from gateway_backend.application.history.contracts import (
     HistoryPageSnapshot,
 )
 from gateway_backend.artifacts.types import ArtifactRef
+from gateway_backend.artifacts.canonical_table_store import CanonicalTableIndexPort
 from gateway_backend.domain.workspace.models import ResolvedScope
 from gateway_backend.operations import OperationStore
 
 
 class HistoryControlTransaction(ControlTransaction, Protocol):
+    @property
+    def canonical_tables(self) -> CanonicalTableIndexPort: ...
+
     @property
     def commit_canonical_metadata(self) -> CommitCanonicalMetadataPort: ...
 

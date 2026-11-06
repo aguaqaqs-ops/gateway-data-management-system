@@ -300,3 +300,5 @@ RS 双流日志现在包含 startup、19 次 readyz 200 和 cleanup 引发的 sh
 | `rs-stack-3.txt` | `05ee1a03291aabdfbf67c4d0ce152e6348dd1446c5edac112437dddd83747d20` |
 
 **最小后续建议是转入冷 catalog 实现的修复设计。** 同时考察首次冷读的逐表 Dolt 调用成本与同 key 未完成加载的重复工作，保留 catalog 的表集合/schema/row_count/错误语义；单纯合并并发请求只能抑制放大，不能声称首次冷读已在原请求预算内完成。backend parent port 只消费表名是减少工作量的设计线索，但不能未经 owning Contract 决定直接用本地 manifest 代替权威 RS 校验或删除 catalog 的 COUNT 语义。冻结 e798 不原地改写，后续另候选定向验证；不提高 timeout、不预热掩盖，不追加相同诊断或完整 Submit，也不要求先证明 Dolt 内部所有慢因再处理已定位的重复工作。此次审核没有修改产品或授权后续运行。
+
+**栈诊断 handoff 定向复核通过。** 原实施者仅文档提交 `127e85e8491723731bb61c95b7d9fef2c4cac993` 的追加与本节已核结果和摘要一致，保留逐 attempt cause 未知、线程无 request_id 硬绑定、schema/COUNT 等待、双流 tail 限制、保留卷/收束及正式 STOP；未把本次线索认定为原 lease 根因。对照本地既有 transfer-check/postflight/corrections 摘要一致；corrections 文件明确是错误转录摘要而非原始 stdout/stderr，handoff 也按错误摘要引用。无新增 finding、无新节点取证或请求，后续产品修复与冻结基准关系仍须另行明确。

@@ -68,4 +68,20 @@ close-failure 测试的 fake provider 将原 outer-session 关闭 fault 再注�
 
 **源码审核清楚，允许按固定候选开始最终取证。** d0 的 W1 型诊断输出仅将本就收集的 timing 拷入 `operation_timings`，不新增计时、轮询或 HTTP，原 dc32 不变。t4 单次诊断只称受理响应后至首次可读观测/终态代理，明示 2 秒轮询与 observation/fallback 来源，不称精确 READY 或正式 W1 PASS。正式 2×t4/W1 与 W2 按原时点收口，W3 自 S3；原 W4 lease 故障仍 OPEN。
 
-最终尚待：额外工具 mypy 处置、04 权威 runner/最终镜像绑定、05 t1–t3 与 CT108 t4 fresh full，以及全 worker 资源事实。CT108 条件窗口已协调，不再笼统以无窗口豁免 W1 型诊断。协调者已选现有 `--tier t4 --scope full --keep-stack --project-name <E新名>` 的外置取证，禁止 from-step/resume；仅该 fresh worker 的 HostConfig/cgroup peak/events/N/M、正常停机与 owned cleanup，具体 driver 待审。不把 D 的 materialize 675 MB 外推全 worker 峰值，不以 cgroup peak 冒充 RSS 或 M 硬上限。当前无未关闭源码 Finding，**E 最终证据 GO 尚未给出**。
+## 04 首个合格权威来源与准备边界
+
+04 新 E gate WT 为 `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`，保留 S2a gate WT。三小包既有 S2a 来源到 d0 的 `COMMON_GIT_COMPONENTS` 已必异：闭包拥有整个 `vnext/scripts` 和 `vnext/deploy`，区间新增 `run-s2b-capacity-census.sh`、Compose 增加资源接线；`vnext/fixtures` 未改。因此后续五 Python 包均须实际运行，不将“方便全跑”作理由，也不为注定变化的共同 Git 组件占旧 WT 算 carry。
+
+04 source prepare driver SHA `87ce24d81a381173327ceaab98bb4c451f14bcf2a482f641b694acb02b1a2981` 与 Rust-only driver SHA `cea9f91316a9ff2462f3004cf76fdc876beb73191f611dd31f6880ed9395c9bf` 已执行前独立读审：full SHA 唯一 bundle ref/摘要、拒覆盖 evidence directory、source 成功后另一次实际验证、再另 call 权威 runner、所有退出 footer、只匹配本 owner 且残留为空才释放。bundle SHA `215d1a49a77bad63b764781178af1d59c6406e75d559a94bd72bcb912027771d`。
+
+实际节点 `gw-dms-test-04`，source `19:52:41–19:52:42Z` exit0，独立 HEAD/clean/legacy/四工具同 1.97.0 工具链与锁核对 `19:53:00Z` exit0。证据目录 `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-d0f5602d/`：`source-01/source-prepare.log` SHA `aa4613deba26e7d221af36f29492908cb5f20b8fa0e7b2e4901793d0010be0ec`；`source-01/independent-source-verification.log` SHA `65b65bacd7892b39f423b2b06db21279057e53676288089f583274ff62870ff5`，均已独立读取并重算。
+
+**合格 Rust 实际来源 V 为 d0**：`GATEWAY_TEST_PACKAGES=rust ./vnext/scripts/run-tests.sh` 在 `19:53:12–19:54:00Z` 实际执行，起止 d0/clean，fmt0、all-target clippy0、workspace test0，整次 runner0、driver0；离线、jobs4、TMPDIR/target 外置，runner 退出清 cargo target。原始 `rust-01/authoritative-runner.log` SHA `6253a0e3000ef60456a5359d062ee3a6ef793be21292ecdd47f722ca3286abf9` 与其中 starting manifest 的 total `5dbb8a817e37bad59f5318d63592e405f2bb3dc3886b483bc329a05f77b540ea` 已独立核。source/final owner 内容 cmp 相等，`19:54:00Z` 释放；另只读核无 busy、运行容器、Dolt/Cargo，E gate WT 仍 d0/clean 并保留。后续最终 HEAD 的 Rust carry 仍须同此 04/WT/环境实际 compare，不在当前预先判 carry。
+
+## 待续的最终证据
+
+最终尚待：额外工具 mypy 处置、04 五 Python 权威 runner/最终镜像绑定、05 t1–t3 与 CT108 t4 fresh full，以及全 worker 资源事实。CT108/05 条件窗口已协调，不再笼统以无窗口豁免 W1 型诊断。协调者已选现有 `--tier t4 --scope full --keep-stack --project-name <E新名>` 的外置取证，禁止 from-step/resume，不碰原线冻结资源。
+
+CT201 `/tmp/s2b-e-t4-driver.py` 当前实物 SHA `286ef89e7ce83377165df4c4f1c62e6c408d07bf75da3e0075f0b8abbbb40299` 已独立执行前审，**仅准备、未运行 t4**。脚本持本 E node busy，先存全部 owned logs/filtered inspect，标准 PID/cgroup 一次读取 memory.max/peak/events；必需 oom/oom_kill 缺 key 不当 0，停止前核 12 GiB/N1/M8/reserve4、StartedAt/RestartCount、同 worker 与现 HEAD/clean，正常 SIGTERM 停止后再次留 logs/inspect。只有真实 journey0、资源/日志/正常 stop/身份前置齐才删本项目容器/卷/网络并释放。真实业务/租约或资源/evidence 失败则先正常 stop、保本 E 容器/卷/busy 交 DC80 主动诊断，不自动重跑、不覆盖原日志；异常停机不强杀。无监控服务、采样器或新持久状态机。
+
+memory.peak 将如实为该 fresh cgroup 全生命周期（含 startup/pagecache/helper）事实，不外推 D 的 materialize `675241984 B` 到全 worker，不以 cgroup peak 冒充进程 RSS 或 M 硬上限。当前无未关闭源码 Finding，**E 最终证据 GO 尚未给出**。按协调者当前安排，Owner 对两次工具 mypy 命令准备失败的具体续做答复前，不启动五 Python 正式门禁或真实旅程；只保现已审准备。此为同一 E 节待续，未关闭 E 角色或宣告退出。

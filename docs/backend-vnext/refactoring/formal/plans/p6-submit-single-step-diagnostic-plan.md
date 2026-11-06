@@ -72,8 +72,12 @@ mtime_ns、uid、gid、mode 等属性，并按原校验核对副本。
 
 - 来源仍为 `p6bw4s4h120261105b` 的 `completed_through=v2-preview`、v2-submit 前 checkpoint。复用已运输并核验的 05 原始三卷材料、输入与 cache；不能使用前次失败 Submit 的目标卷或本次冷读目标卷。CT108 原源不新增扫描、复制或负载。
 - backend/worker 保持原 e798 产品及已核镜像；只将目标 Repository Service 替换为 4497 的新镜像 `p6catalogdiag20261106c-repository-service:latest`。其已核 config digest 为 `sha256:39e0668b05a814c835ae8214dd486c5641d0ff61b9a2c6044a53b71c6e05a1f2`，全部 28 项 DiffID 以已审机读身份文件为准。运行前核实际本机身份，不能仅凭 tag。4497 的变更范围严格引用已审四文件 diff，不并入其他 main 产品或镜像变化。
-- 源 checkpoint 按其原 e798/旧 RS 身份核验；目标按 e798 backend/worker 与 4497 RS 的组合记录。源与目标的 RS 身份明确不同，不能改旧 manifest、写假 MATCH 或启用通用 skip identity。若现有工具不能表达该精确组合，只在独立外置候选中增加这一个固定来源与目标的核验关系，交审核，不放宽其他身份检查。
+- 源 checkpoint 只按实际保存的来源记录核验；目标按 e798 backend/worker 与 4497 RS 的组合记录。源与目标的 RS 身份不能声明相等，不能改旧 manifest、写假 MATCH 或启用通用 skip identity。若现有工具不能表达该精确组合，只在独立外置候选中增加这一个固定来源与目标的核验关系，交审核，不放宽其他身份检查。来源 RS 记录缺口及本次用途限制见下段。
 - 使用全新项目、证据目录、幂等键和目标三卷副本；名称由具体 launcher 固定并检查未占用。保留父 repo/commit、规则、输入、缓存及 TTL 原核验，不改 lease、heartbeat、stall、Docker 配额或产品 timeout。RS 为新进程，不预热 catalog；不重跑 Preview，不执行 Submit 后任何业务步骤。
 - 原 45 分钟 POST 观察上限、5 秒轻量资源采样、worker Python 栈观测与停止收束继续适用。原工具已经验证的观测能力按真实镜像/解释器绑定引用，不为本次重新跑同样 canary。实际开始前核 05 有效占用和资源；旧材料实际已占用的空间不重复计入待复制量。无新通用监控、无额外 RS profiling。
 
 审核者核具体差异、来源与目标绑定、单 POST 截止、原始材料沿用和清理范围后给本次明确 GO，原实施者即可沿 DC80 执行，不另等待 owner 回执。失败时保留证据并按实际分类处理，不自动重试；单步成功也只表示该诊断候选的步骤成功。新 RS 的正式产品门禁、合入与基准 V→H 恢复资格仍须另行完成，不能用本次诊断替代或撤销 H3 已通过的证据。
+
+**来源记录的限定使用。** 独立审核只读核对了 CT108 既存精确文件：原运行记录只保存 backend/worker 身份；原 RS 构建日志保存 config digest `sha256:2018c3ae5409b04aeb1c393fe278a9aefaed5b3e0292c767ae39764aaddbbe12` 与 e798 对应 build-input/source-tree 标签，但没有将全部 DiffID 绑定到该次源运行。因此来源明确标记 `run-bound RS full identity unavailable`；构建记录只证明构建时身份，不能提升为运行时完整身份。停止继续寻找未曾保存的字段，不用 05 旧镜像或当前 CT108 tag 补造。
+
+本次接受该缺口的范围仅为：已独立核验内容、parent 和输入来源的 pre-submit checkpoint 副本，作为新目标环境单步诊断的输入。原源记录、卷摘要与现存构建来源记录全部保留，目标仍完整绑定 config digest/全部 DiffID；来源副本内容或 parent/输入不符仍停止。这不是认定旧运行身份完整，也不是沿用旧运行性能/正确性结论来免除新候选验证。诊断记录必须显式保留上述缺口，不称原环境精确复现。若正式基准恢复、carried 或旧结果沿用需要此处缺失的证明，应带具体证据处置方案交 owner，不能把本次可恢复副本上的诊断许可外推为正式证据许可。

@@ -1289,3 +1289,17 @@ controller 完整/前缀 SHA、191 次成功心跳→失租→stall 的时间线
 三组问题已直接交新实施者，沿 DC80/§61 的常规修订、必要 focused 和清单复审闭环，不等协调者中继。保留 b 原包、测试时和最终清单、现有日志；独立修订包只针对这些路径，已经关闭的问题和未变代码不用重复证明。若代码实际变化，再按受影响范围绑定新测试，不能只换清单沿用未匹配的实现证据。
 
 本轮仍只涉及外置工具，不触发产品或 §52 镜像重建，不要求重复 Compose、小合成 probe 或全量测试；产品 HEAD 和最后验证 image revision/source-tree 继续 §57/61。**没有新 GO，h 原 GO 已消耗，H3 不变，正式测量停止，lease 根因 OPEN。**
+
+## 64. prepare 候选 c 准备期：focused 失败按 DC80 直接修订，B1 接线补充
+
+本节记录准备期检查，不是候选 c 最终清单复审或运行许可。只读本地已有日志、候选文件和冻结 `1f9731` 源码，没有执行候选/测试、访问节点或运行业务。`focused-targeted-tests.log` 独立 SHA256 为 `ffaadcab0d377fdc9cd9773313a9aca524f441ed265d85f8c4d71507a0ddd1ff`；测试时清单 `focused-tests-candidate-manifest.json` 为 `e5cd7b77ecd08f22e34e5da178f89047376266a77d78309272a94c7eaf815a53`。CT05 17:25:12–15、起止 `1f9731`、10 passed / 4 failed / 12 deselected、exit 1，节点锁已释放。
+
+四项失败分别是：旧 slow-command guardian 用例只有 worker-binding，缺少修订后必需的 host-resource-binding，尚未取得样本；正常 finalization 参数用例中的三项在 rc/status/可解锁检查通过后，将正常省略的顶层失败字段 `None` 与 `False` 作身份比较而失败。生产路径只在写失败时加入该 key=true，postflight 则始终输出明确 bool。因此可补齐真实 fixture，并分别断言正常 key 不存在、故障 key=true 及 postflight bool；保留原有 rc/status/锁释放/最终摘要检查，不为测试改生产输出约定。
+
+这是工具调试用 focused 失败，按 DC80 直接定位、最小修订及必要重测，不是已开始的权威 runner 或实际诊断失败，不需 owner 逐次许可。已直接告知唯一实施者保留失败日志、测试时清单和修订差异，新测试日志绑定新测试 SHA/清单。未变且已有通过证据的路径不用重复运行。
+
+准备期只读另发现 B1 新接线仍有确定问题：当时 `prepare_step_worker.py` SHA256 `a3e6d0767bd816783aa662a31c765ed760434b9e186e62d5242119b8c29a937f`，runtime builder 对返回实例赋 `runtime.run_until_drained = ...`。冻结产品 `WorkerRuntime` 使用 `__slots__`、无实例字典，也未声明该 slot，实际 builder 将在此抛 AttributeError；新增测试返回 SimpleNamespace 掩盖了约束。已直接要求使用现有 class 级 hook 或等效最小委托，保留原 run loop/claim 之前等待，并用真实类或相同 slots 约束的 fixture 覆盖；不能发 POST 试错。若 class 级入口影响原委托/drain/no-second-claim 用例，相应 focused 一并覆盖。
+
+当时 controller SHA256 `99d9f6f12920c88064cff75fbfea16009354b708742883d523822fc26270d691` 的 host binding 仍在 `_resume_source` 完成校验与复制之后才写，guardian 的初始化前段仍无 host/disk 样本。已要求在既有初始化接线中提前绑定实际 data filesystem、覆盖校验/复制，再核目标 control 卷设备一致性；注意 host/worker binding 当前还比较路径字符串，不能仅核 st_dev 后写不一致的路径。两点都属 §63 B1 的最小修复，不扩大观测、产品或预算范围。
+
+实施者已直接收到并接续修订；最终候选清单、受影响 focused 和剩余 B1–B3 结论待后续复审。**没有新的诊断 GO，h GO 已消耗，产品与镜像继续冻结，H3 不变，正式测量停止，lease 根因 OPEN。**

@@ -145,10 +145,10 @@ def db_path(tmp_path: Path) -> Path:
     return path
 
 
-def _materialize_snapshot(store: InMemoryArtifactStore) -> tuple[ArtifactRef, str]:
+def _materialize_snapshot(store: InMemoryArtifactStore, repository_id: str) -> tuple[ArtifactRef, str]:
     from tests.support.preview_fixtures import make_canonical_artifact_fixture
 
-    fixture = make_canonical_artifact_fixture()
+    fixture = make_canonical_artifact_fixture(repository_id)
     for ref in fixture.refs:
         store.put(fixture.payloads[ref.artifact_id], ref)
     return fixture.snapshot_table_ref, fixture.snapshot_digest
@@ -160,8 +160,8 @@ def _materialize_ready_preview(
 ) -> tuple[SubmitSeed, ArtifactRef, str]:
     from tests.support.preview_fixtures import make_canonical_artifact_fixture
 
-    snapshot_ref, snapshot_digest = _materialize_snapshot(store)
-    fixture = make_canonical_artifact_fixture()
+    snapshot_ref, snapshot_digest = _materialize_snapshot(store, seed.workspace.repository_id)
+    fixture = make_canonical_artifact_fixture(seed.workspace.repository_id)
     additional_refs: list[ArtifactRef] = []
     for index in range(70):
         payload = f"preview-output-{index}".encode("ascii")

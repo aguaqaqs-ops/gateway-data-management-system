@@ -376,7 +376,13 @@ def make_submit_application_harness() -> SubmitApplicationHarness:
 
 
 WORKSPACE = seed_open_workspace(InMemoryWorkspaceRepository())
-PREVIEW_RESULT = _preview_result(workspace_id=WORKSPACE.workspace_id)
+PREVIEW_RESULT: PreviewResult
+
+
+@pytest.fixture(autouse=True)
+def initialize_preview_binding(operation_kernel_context: None) -> None:
+    global PREVIEW_RESULT
+    PREVIEW_RESULT = _preview_result(workspace_id=WORKSPACE.workspace_id)
 
 
 def test_validate_accept_submit_accepts_current_preview_binding(

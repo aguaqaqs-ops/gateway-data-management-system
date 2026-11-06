@@ -112,5 +112,5 @@ def make_canonical_artifact_fixture(repository_id: str = "repo-1") -> CanonicalA
     )
 
 
-def make_preview_canonical_bindings() -> PreviewCanonicalBindings:
-    return make_canonical_artifact_fixture().bindings
+def make_preview_canonical_bindings(repository_id: str = "repo-1") -> PreviewCanonicalBindings:
+    return make_canonical_artifact_fixture(repository_id).bindings

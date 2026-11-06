@@ -314,7 +314,7 @@ def _submit_job_registry() -> JobDefinitionRegistry:
     return submit_job_registry()
 
 
-def _preview_result(workspace_id: str) -> PreviewResult:
+def _preview_result(workspace_id: str, repository_id: str = "repo-1") -> PreviewResult:
     identity_digest, identity_pairs = make_not_applicable_preview_identity()
     return PreviewResult(
         preview_result_id="pr-1",
@@ -337,7 +337,7 @@ def _preview_result(workspace_id: str) -> PreviewResult:
             surface_digest="d-surface",
             bundle_digest="sha256:preview-canonical",
         ),
-        canonical=make_preview_canonical_bindings(),
+        canonical=make_preview_canonical_bindings(repository_id),
         identity_assessment_set_digest=identity_digest,
         identity_pairs=identity_pairs,
         bundle_artifact_id="bundle-1",
@@ -414,7 +414,7 @@ def _set_preview_identity_statuses(
     return replace(seed, preview_result=preview)
 
 
-def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
+def _protected_preview_refs(repository_id: str = "repo-1") -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
             artifact_id="initial-1",
@@ -434,7 +434,7 @@ def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=1,
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        *make_canonical_artifact_fixture().refs,
+        *make_canonical_artifact_fixture(repository_id).refs,
     )
 
 
@@ -500,7 +500,7 @@ def seed_submit_ready_workspace(
             created_at=TS0,
         )
         preview = replace(
-            _preview_result(workspace.workspace_id),
+            _preview_result(workspace.workspace_id, repository_id),
             preview_result_id=preview_result_id,
             upload_revision_id=upload_revision_id,
             repository_id=repository_id,
@@ -525,7 +525,7 @@ def seed_submit_ready_workspace(
             expected_version=workspace.optimistic_version,
         )
         preview_operation_id = "op-preview-1"
-        protected_refs = _protected_preview_refs()
+        protected_refs = _protected_preview_refs(repository_id)
         unit_of_work.set_artifact_protection(
             protected_refs,
             owner_kind="current-preview",

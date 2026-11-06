@@ -527,7 +527,7 @@ def _production_submit_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        *make_canonical_artifact_fixture().refs,
+        *make_canonical_artifact_fixture(TEST_MAPPING_REPOSITORY_ID).refs,
     )
 
 
@@ -569,7 +569,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
     db_path = tmp_path / "control" / "control.sqlite3"
     baseline_head = _authoritative_baseline_head(db_path)
     protected_refs = _production_submit_preview_refs()
-    canonical_fixture = make_canonical_artifact_fixture()
+    canonical_fixture = make_canonical_artifact_fixture(TEST_MAPPING_REPOSITORY_ID)
     payloads = {
         "initial-1": _PAYLOAD_INITIAL,
         "modified-1": _PAYLOAD_MODIFIED,
@@ -640,7 +640,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
-            canonical=make_preview_canonical_bindings(),
+            canonical=make_preview_canonical_bindings(TEST_MAPPING_REPOSITORY_ID),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
             bundle_artifact_id="bundle-1",

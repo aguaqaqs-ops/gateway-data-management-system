@@ -385,7 +385,7 @@ def _seed_provisioned_mapping(db_path: Path, *, repository_id: str = "repo-1") -
     )
 
 
-def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
+def _protected_preview_refs(repository_id: str) -> tuple[ArtifactRef, ...]:
     return (
         ArtifactRef(
             artifact_id="initial-1",
@@ -405,7 +405,7 @@ def _protected_preview_refs() -> tuple[ArtifactRef, ...]:
             size_bytes=len(_PAYLOAD_CLOSURE),
             raw_sha256=DigestRef(_SHA_CLOSURE),
         ),
-        *make_canonical_artifact_fixture().refs,
+        *make_canonical_artifact_fixture(repository_id).refs,
     )
 
 
@@ -478,7 +478,7 @@ def seed_submit_ready_workspace(
                 surface_digest="d-surface",
                 bundle_digest=_PREVIEW_CANONICAL_DIGEST,
             ),
-            canonical=make_preview_canonical_bindings(),
+            canonical=make_preview_canonical_bindings(repository_id),
             identity_assessment_set_digest=identity_digest,
             identity_pairs=identity_pairs,
             bundle_artifact_id="bundle-1",
@@ -502,7 +502,7 @@ def seed_submit_ready_workspace(
             expected_version=workspace.optimistic_version,
         )
         preview_operation_id = preview.operation_id
-        protected_refs = _protected_preview_refs()
+        protected_refs = _protected_preview_refs(repository_id)
         unit_of_work.set_artifact_protection(
             protected_refs,
             owner_kind="current-preview",
@@ -520,7 +520,7 @@ def seed_submit_ready_workspace(
         "initial-1": _PAYLOAD_INITIAL,
         "modified-1": _PAYLOAD_MODIFIED,
         "closure-1": _PAYLOAD_CLOSURE,
-        **make_canonical_artifact_fixture().payloads,
+        **make_canonical_artifact_fixture(repository_id).payloads,
     }
     for ref in protected_refs:
         artifact_store.register_bytes(ref, payload_by_id[ref.artifact_id])

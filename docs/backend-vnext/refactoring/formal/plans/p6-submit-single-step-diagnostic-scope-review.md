@@ -662,3 +662,23 @@ P2 已关闭：监督的 SIGINT/SIGTERM 记录停止意图，监视循环退出�
 接受为本次诊断限制而不扩修订矩阵：没有独立 join 起止探针，只有真实 runtime 退出（包含 join）及 executor 的 handoff 边界，不能推算精确 join 耗时；key JCS 与全量 JCS 共用子段聚合，解释保留窗口时须按 ordering/payload 的时间边界区分，不能把累计时长当纯全量 JCS。GC 只保留前 64 个窗口，truncated 后不能以无匹配窗口排除 GC。checkpoint 序列化/fsync 在两个线程中执行，heartbeat handler 入口还先保存再委托产品逻辑，因此观测本身会影响调度；即使出现迟滞也须保留这一替代解释，不能直接认定原产品根因。README 对 per-row raw digest 的表述不应扩读为产品调用语义；本 probe 的 Contract digest 仍是一次完整 mutations 包装对象计算。
 
 已直接向原实施者发送绑定上述 SHA 的一次 GO 并抄设计：按既有 SSH、单飞和 clean e798 前提传输、校验后运行，固定 venv，20,000 项/33 列/64 bytes、一次 compute、10/30 秒与 2 GiB/200 ms 均保持。无心跳仅报未覆盖；失败、截断或完成都不自动重试/扩规模。未授权 Submit、产品修复或正式测量；本次不是 DC68 重做。后续只审本次实际结果及收尾，不等待实施者不存在的外发工具。
+
+## 40. P6-PROBE-RESULT：单次局部诊断完成，现场 lease 根因仍 OPEN
+
+**证据复核通过；第 39 节 GO 已消耗，没有新的运行授权。** 只读 handoff `22251147a8`、本机 `p6heartbeatprobe20261106a/ct05-run-evidence-r2/` 和既有 transfer/preflight/GO/postflight/summary 日志，没有重新访问节点、服务或卷，没有执行测试/probe。清单中的 stdout、stderr、supervisor、12 个编号 checkpoint 与 latest 共 16 项本机副本 SHA256 全部匹配；清单自身 `7069645f82929718b66a5b9c8684ca2c739b4e1f3aa9ce1545f4b1f7baec9615`，summary `ad510284301348560fca6d6aad889c5784f8bbcd1d7a696d330c0061f9b6f2c7` 与 handoff 一致。
+
+CT05 于 2026-11-06 06:37:59–06:38:14 UTC 执行唯一候选，transfer/GO 文件绑定 manifest `c5163458…`。launcher 起止 e798、固定 backend cwd 与字面 venv 解释器，候选 checksum 全 OK，probe exit 0；postflight 确认 clean、HEAD 不变、节点锁 ABSENT、attempt marker PRESENT。第一次预检 shell 引号错误日志保留，修正后预检一次通过，发生在 probe 启动之前。该错误不构成第二次 probe。
+
+probe `completed`、error null，child 耗时 **14.094292s**；supervisor `completed`、child exit 0、reaped=true、无 signal/forced termination，总耗时 **14.416423s**。PID `2395233`、starttime `195684268`；72 次初始采样后的检查，峰值 RSS **688,930,816 bytes**，未达 2 GiB。20,000 个 mutations 的真实 digest 调用恰一次，结果 `sha256:5aadf7311ded1b922275c788d9e8cd5016abbd0dc220d464770481c0215b98c4`。输入构造 1.641744s、digest 11.715115s、引用释放 0.069598s、safe handoff 0.000205s；runtime 13.485678s。checkpoint 写入错误为 0，stderr 为空，最终 safe_handoff、drain_started、worker_exited 均记录。没有验证监督的异常/强杀分支，本次正常退出不能写成这些分支的运行覆盖。
+
+**确实跨过一次真实续租。** handler 入口 monotonic 1956853.311818807，旧 deadline 1956873.306596258；按固定 30/10 秒设置反推首次 due 为 1956853.306596258，入口晚约 **5.223ms**。handler 入口至 heartbeat attempt 约 **96.719ms**，该区间包含 checkpoint 保存和调度扰动，不是 DB/lease 调用耗时。renewal anchor 1956853.408533628 至 attempt 约 **4.030µs**；heartbeat attempt 本身 **0.215ms**。内存事务 UTC 06:38:10.431807，更新期限 06:38:40.431807，严格 30 秒；anchor 尚早于旧 deadline **19.898s**。没有 heartbeat_busy、lease_lost 或 executor_failed。上述 UTC/monotonic 数据不能跨时钟直接相减来宣称精确 anchor→事务耗时。
+
+完整 payload 的 Unicode 窗口约 **5.147s**、数值校验 **0.620s**、JCS serialization **4.104s**，唯一 heartbeat 的入口/调用都落在 serialization 窗口内。因此该规模下序列化与 worker 心跳可以交错，不能把“单次 digest 总耗时超过 heartbeat 间隔”本身当作必然失租约证据。ordering 0.558s 包含 key JCS；JCS 各项共 20,001 次调用，累计数与排序有重叠，不能直接相加。raw hash 只有 **1 次**、约 0.043s，也澄清候选 README 中 per-row raw digest 的不准确说明。
+
+GC 聚合为 gen0/1/2 各 1385/126/8 次，累计约 0.073/0.107/1.267s，最大单次约 0.000293/0.002434/**0.308437s**。`gc_truncated=true`；实际保存的前 64 个窗口位于 monotonic 1956842.739381962–1956843.193520476，**全部早于 worker 开始 1956843.306580128**，不能用这些窗口定位 digest 内 GC。全程聚合也不能确定最大停顿属于哪个阶段。join 没有独立计时，checkpoint I/O 和 instrumentation 扰动仍在；这些限制与小内存、合成共享值、仅一次 digest、内存 UOW 的边界一起保留。
+
+本次证明固定小样本完成并正常续租，**不证明现场约 24 GB 堆、完整 closure 重复计算或 SQLite 场景不再失租约**，不关闭第 36 节产品问题，也不改变 H3/正式测量停止状态。保留 candidate、GO、attempt marker、证据与收尾状态，不重跑或扩大输入。
+
+最小下一步建议已直发实施者并抄设计：在现有 e798 源码和本次数据上，先只读列出完整 closure 调用链的 digest 次数、整份 payload/serialized bytes 的创建和存活边界，区分可消除的临时分配与必须保留的 Contract 校验；据此提出一个最小候选。可评估原全树 Unicode/数值校验之后使用 JCS writer→hash sink 消除完整 bytes，但必须保留原包装前像、字节/digest、错误类别和全局优先顺序，且明确它仍保留 payload 图、不能承诺解决 lease 根因。不要直接删重复验证、逐 mutation 改校验顺序、调整 TTL，或以小样本成功触发新一轮完整 Submit。设计明确方案及必要等价验证后再审具体修复；本报告不自动授权该修复或新测量。
+
+关键原始摘要：stdout `9dbbe466394bcfbc4145803a98d7464955471dc7a7d53b9270e7ad837c10e54a`；supervisor `ee8b01d754777d463a56e7e779d6bd4c7c2d3b472e87402d3d95dfcdba62d5c8`；launcher `0aeed61c4ec544b3fc5a32e3ace00e9ac19d7733dcac5e63b9d05814da4b93d2`；postflight `bf763ca1d2dc6ac71338867be9aecc5bbee80f91c503993fe136f86c752e1335`。

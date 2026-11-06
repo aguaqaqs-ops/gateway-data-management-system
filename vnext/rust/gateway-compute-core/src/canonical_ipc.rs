@@ -2635,3 +2635,522 @@ pub fn decode_v1(
     }
     Ok(output)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+    use std::io;
+    use std::panic::AssertUnwindSafe;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    use arrow_array::{
+        ArrayRef, BinaryArray, BooleanArray, FixedSizeBinaryArray, Int64Array, RecordBatchOptions,
+        StringArray,
+    };
+    use arrow_schema::{Field, Schema};
+    use rayon::{ThreadPool, ThreadPoolBuilder};
+
+    use super::*;
+
+    fn column(
+        name: &str,
+        ordinal: usize,
+        sql_type: &str,
+        logical_type: SqlLogicalType,
+        declared_type: Option<DeclaredType>,
+        nullable: bool,
+        labels: Option<Vec<&str>>,
+    ) -> ColumnDescriptor {
+        ColumnDescriptor {
+            display_name: name.to_owned(),
+            canonical_name: name.to_owned(),
+            ordinal,
+            sql_type: sql_type.to_owned(),
+            logical_type,
+            declared_type,
+            nullable,
+            labels: labels.map(|items| items.into_iter().map(str::to_owned).collect()),
+        }
+    }
+
+    fn options() -> CanonicalIpcOptions<'static> {
+        CanonicalIpcOptions {
+            budgets: CanonicalIpcBudgets {
+                max_rows: 25_000_000,
+                max_columns: 64,
+                max_descriptor_bytes: 1 << 20,
+                max_input_batches: 64,
+                max_input_bytes: 1 << 30,
+                max_output_bytes: 1 << 30,
+                max_codec_peak_bytes: 2 << 30,
+            },
+            control: CanonicalIpcControl::default(),
+        }
+    }
+
+    fn pool() -> Result<ThreadPool, Box<dyn Error>> {
+        ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .map_err(Into::into)
+    }
+
+    fn mapping_fixture() -> Result<(Vec<ColumnDescriptor>, RecordBatch), Box<dyn Error>> {
+        let columns = vec![
+            column(
+                "z",
+                0,
+                "BIT(9)",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Bit { bit_width: 9 }),
+                true,
+                None,
+            ),
+            column(
+                "b",
+                1,
+                "BOOLEAN",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Boolean),
+                true,
+                None,
+            ),
+            column(
+                "s",
+                2,
+                "VARCHAR(16)",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::String),
+                true,
+                None,
+            ),
+            column(
+                "i",
+                3,
+                "BIGINT",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::SignedInteger { bits: 64 }),
+                true,
+                None,
+            ),
+        ];
+        let bit_one = [0x00_u8, 0x01_u8];
+        let bit_256 = [0x01_u8, 0x00_u8];
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("i", DataType::Int64, true),
+            Field::new("s", DataType::Utf8, true),
+            Field::new("b", DataType::Boolean, true),
+            Field::new("z", DataType::Binary, true),
+        ]));
+        let arrays: Vec<ArrayRef> = vec![
+            Arc::new(Int64Array::from(vec![Some(7), None, Some(-1)])),
+            Arc::new(StringArray::from(vec![Some("é"), None, Some("")])),
+            Arc::new(BooleanArray::from(vec![Some(true), None, Some(false)])),
+            Arc::new(BinaryArray::from(vec![
+                Some(bit_one.as_slice()),
+                None,
+                Some(bit_256.as_slice()),
+            ])),
+        ];
+        let batch = RecordBatch::try_new(schema, arrays)?;
+        Ok((columns, batch))
+    }
+
+    fn footer_start(bytes: &[u8]) -> Result<usize, Box<dyn Error>> {
+        let trailer_start = bytes
+            .len()
+            .checked_sub(10)
+            .ok_or_else(|| io::Error::other("IPC test footer is missing"))?;
+        let footer_len = usize::try_from(i32::from_le_bytes([
+            bytes[trailer_start],
+            bytes[trailer_start + 1],
+            bytes[trailer_start + 2],
+            bytes[trailer_start + 3],
+        ]))?;
+        trailer_start
+            .checked_sub(footer_len)
+            .ok_or_else(|| io::Error::other("IPC test footer range is invalid").into())
+    }
+
+    fn first_record_batch_buffers(bytes: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+        let footer_offset = footer_start(bytes)?;
+        let trailer_start = bytes
+            .len()
+            .checked_sub(10)
+            .ok_or_else(|| io::Error::other("IPC test trailer is missing"))?;
+        let footer = root_as_footer(&bytes[footer_offset..trailer_start])
+            .map_err(|error| io::Error::other(format!("invalid test footer: {error:?}")))?;
+        let blocks = footer
+            .recordBatches()
+            .ok_or_else(|| io::Error::other("test file has no record-batch index"))?;
+        let block = blocks
+            .get(0);
+        let offset = usize::try_from(block.offset())?;
+        let metadata_len = usize::try_from(block.metaDataLength())?;
+        let body_len = usize::try_from(block.bodyLength())?;
+        let metadata_end = offset
+            .checked_add(metadata_len)
+            .ok_or_else(|| io::Error::other("test block metadata overflow"))?;
+        let metadata = bytes
+            .get(offset..metadata_end)
+            .ok_or_else(|| io::Error::other("test block metadata is out of range"))?;
+        let message_len = usize::try_from(i32::from_le_bytes([
+            metadata[4], metadata[5], metadata[6], metadata[7],
+        ]))?;
+        let message_end = 8_usize
+            .checked_add(message_len)
+            .ok_or_else(|| io::Error::other("test message length overflow"))?;
+        let message = root_as_message(&metadata[8..message_end])
+            .map_err(|error| io::Error::other(format!("invalid test message: {error:?}")))?;
+        let record_batch = message
+            .header_as_record_batch()
+            .ok_or_else(|| io::Error::other("test record-batch message is missing"))?;
+        let buffers = record_batch
+            .buffers()
+            .ok_or_else(|| io::Error::other("test record-batch buffers are missing"))?;
+        let mut result = Vec::new();
+        for buffer in buffers {
+            let start = metadata_end
+                .checked_add(usize::try_from(buffer.offset())?)
+                .ok_or_else(|| io::Error::other("test buffer offset overflow"))?;
+            let end = start
+                .checked_add(usize::try_from(buffer.length())?)
+                .ok_or_else(|| io::Error::other("test buffer end overflow"))?;
+            if end > metadata_end + body_len {
+                return Err(io::Error::other("test buffer exceeds body").into());
+            }
+            let value = bytes
+                .get(start..end)
+                .ok_or_else(|| io::Error::other("test buffer is out of range"))?;
+            result.push(value.to_vec());
+        }
+        Ok(result)
+    }
+
+    fn record_batch_rows(bytes: &[u8]) -> Result<Vec<usize>, Box<dyn Error>> {
+        let footer_offset = footer_start(bytes)?;
+        let trailer_start = bytes
+            .len()
+            .checked_sub(10)
+            .ok_or_else(|| io::Error::other("IPC test trailer is missing"))?;
+        let footer = root_as_footer(&bytes[footer_offset..trailer_start])
+            .map_err(|error| io::Error::other(format!("invalid test footer: {error:?}")))?;
+        let blocks = footer
+            .recordBatches()
+            .ok_or_else(|| io::Error::other("test file has no record-batch index"))?;
+        let mut rows = Vec::new();
+        for block in blocks {
+            let offset = usize::try_from(block.offset())?;
+            let metadata_len = usize::try_from(block.metaDataLength())?;
+            let end = offset
+                .checked_add(metadata_len)
+                .ok_or_else(|| io::Error::other("test block metadata overflow"))?;
+            let metadata = bytes
+                .get(offset..end)
+                .ok_or_else(|| io::Error::other("test block metadata is out of range"))?;
+            let message_len = usize::try_from(i32::from_le_bytes([
+                metadata[4], metadata[5], metadata[6], metadata[7],
+            ]))?;
+            let message_end = 8_usize
+                .checked_add(message_len)
+                .ok_or_else(|| io::Error::other("test message length overflow"))?;
+            let message = root_as_message(&metadata[8..message_end])
+                .map_err(|error| io::Error::other(format!("invalid test message: {error:?}")))?;
+            let record_batch = message
+                .header_as_record_batch()
+                .ok_or_else(|| io::Error::other("test record-batch message is missing"))?;
+            rows.push(usize::try_from(record_batch.length())?);
+        }
+        Ok(rows)
+    }
+
+    #[test]
+    fn canonical_mapping_preserves_independent_arrow_buffer_vectors_and_outer_layout(
+    ) -> Result<(), Box<dyn Error>> {
+        let (columns, batch) = mapping_fixture()?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let buffers = first_record_batch_buffers(&encoded)?;
+        let signed_slots = [7_i64.to_le_bytes(), 0_i64.to_le_bytes(), (-1_i64).to_le_bytes()]
+            .concat();
+        let utf8_offsets = [0_i32.to_le_bytes(), 2_i32.to_le_bytes(), 2_i32.to_le_bytes(), 2_i32.to_le_bytes()]
+            .concat();
+        assert_eq!(buffers[0], [0x05]);
+        assert_eq!(buffers[1], [0x01]);
+        assert_eq!(buffers[2], [0x05]);
+        assert_eq!(buffers[3], signed_slots);
+        assert_eq!(buffers[4], [0x05]);
+        assert_eq!(buffers[5], utf8_offsets);
+        assert_eq!(buffers[6], [0xc3, 0xa9]);
+        assert_eq!(buffers[7], [0x05]);
+        assert_eq!(buffers[8], [0x00, 0x01, 0x00, 0x00, 0x01, 0x00]);
+
+        let decoded = decode_v1(&encoded, &columns, &pool, options())?;
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].num_rows(), 3);
+        assert_eq!(decoded[0].schema().field(0).name(), "z");
+        assert_eq!(decoded[0].schema().field(1).name(), "b");
+        assert_eq!(decoded[0].schema().field(2).name(), "s");
+        assert_eq!(decoded[0].schema().field(3).name(), "i");
+        let bit_values = decoded[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<FixedSizeBinaryArray>()
+            .ok_or_else(|| io::Error::other("decoded BIT column has an unexpected type"))?;
+        assert_eq!(bit_values.value(0), [0x00, 0x01]);
+        assert!(bit_values.is_null(1));
+        assert_eq!(bit_values.value(2), [0x01, 0x00]);
+        let string_values = decoded[0]
+            .column(2)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| io::Error::other("decoded text column has an unexpected type"))?;
+        assert_eq!(string_values.value(0), "é");
+        assert!(string_values.is_null(1));
+        assert_eq!(string_values.value(2), "");
+
+        let split_batches = vec![batch.slice(0, 1), batch.slice(1, 1), batch.slice(2, 1)];
+        let split_encoded = encode_v1(&columns, &split_batches, &pool, options())?;
+        assert_eq!(encoded, split_encoded);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_ipc_sets_unused_validity_and_boolean_value_tail_bits(
+    ) -> Result<(), Box<dyn Error>> {
+        let column = column(
+            "b",
+            0,
+            "BOOLEAN",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::Boolean),
+            false,
+            None,
+        );
+        let columns = vec![column];
+        let schema = Arc::new(Schema::new(vec![Field::new("b", DataType::Boolean, false)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(BooleanArray::from(vec![true, false, true])) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let buffers = first_record_batch_buffers(&encoded)?;
+        assert_eq!(buffers[0], [0xff]);
+        assert_eq!(buffers[1], [0x05]);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_ipc_uses_fixed_65536_row_chunks_independent_of_input_batches(
+    ) -> Result<(), Box<dyn Error>> {
+        let column = column(
+            "b",
+            0,
+            "BOOLEAN",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::Boolean),
+            false,
+            None,
+        );
+        let columns = vec![column];
+        let rows = CANONICAL_IPC_BATCH_ROWS + 1;
+        let schema = Arc::new(Schema::new(vec![Field::new("b", DataType::Boolean, false)]));
+        let array = Arc::new(BooleanArray::from(vec![false; rows])) as ArrayRef;
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![array])?;
+        let split_batches = vec![batch.slice(0, 17_000), batch.slice(17_000, rows - 17_000)];
+        let pool = pool()?;
+        let whole_encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let split_encoded = encode_v1(&columns, &split_batches, &pool, options())?;
+        assert_eq!(whole_encoded, split_encoded);
+        assert_eq!(record_batch_rows(&whole_encoded)?, [CANONICAL_IPC_BATCH_ROWS, 1]);
+        let decoded = decode_v1(&whole_encoded, &columns, &pool, options())?;
+        assert_eq!(decoded.iter().map(RecordBatch::num_rows).collect::<Vec<_>>(), [
+            CANONICAL_IPC_BATCH_ROWS,
+            1,
+        ]);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_ipc_preserves_nonzero_row_count_for_zero_columns(
+    ) -> Result<(), Box<dyn Error>> {
+        let schema = Arc::new(Schema::empty());
+        let batch_options = RecordBatchOptions::new().with_row_count(Some(3));
+        let batch = RecordBatch::try_new_with_options(schema, Vec::new(), &batch_options)?;
+        let pool = pool()?;
+        let mut call_options = options();
+        call_options.budgets.max_columns = 0;
+        let encoded = encode_v1(&[], std::slice::from_ref(&batch), &pool, call_options)?;
+        let decoded = decode_v1(&encoded, &[], &pool, call_options)?;
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].num_columns(), 0);
+        assert_eq!(decoded[0].num_rows(), 3);
+        Ok(())
+    }
+
+    #[test]
+    fn decoder_rejects_invalid_raw_integer_width_without_panicking(
+    ) -> Result<(), Box<dyn Error>> {
+        let descriptor = column(
+            "i",
+            0,
+            "BIGINT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::SignedInteger { bits: 64 }),
+            false,
+            None,
+        );
+        let columns = vec![descriptor];
+        let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Int64Array::from(vec![7_i64])) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let mut bytes = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let footer_offset = footer_start(&bytes)?;
+        let trailer_start = bytes
+            .len()
+            .checked_sub(10)
+            .ok_or_else(|| io::Error::other("IPC test trailer is missing"))?;
+        let footer = root_as_footer(&bytes[footer_offset..trailer_start])
+            .map_err(|error| io::Error::other(format!("invalid test footer: {error:?}")))?;
+        let schema = footer
+            .schema()
+            .ok_or_else(|| io::Error::other("test footer schema is missing"))?;
+        let fields = schema
+            .fields()
+            .ok_or_else(|| io::Error::other("test footer fields are missing"))?;
+        let field = fields.get(0);
+        let integer = field
+            .type_as_int()
+            .ok_or_else(|| io::Error::other("test integer type metadata is missing"))?;
+        let table = integer._tab;
+        let slot_offset = table.vtable().get(arrow_ipc::Int::VT_BITWIDTH);
+        if slot_offset == 0 {
+            return Err(io::Error::other("test integer width slot is missing").into());
+        }
+        let width_start = footer_offset
+            .checked_add(table.loc())
+            .and_then(|offset| offset.checked_add(usize::from(slot_offset)))
+            .ok_or_else(|| io::Error::other("test integer width offset overflow"))?;
+        let width_end = width_start
+            .checked_add(std::mem::size_of::<i32>())
+            .ok_or_else(|| io::Error::other("test integer width end overflow"))?;
+        let width_bytes = bytes
+            .get_mut(width_start..width_end)
+            .ok_or_else(|| io::Error::other("test integer width is out of range"))?;
+        width_bytes.copy_from_slice(&96_i32.to_le_bytes());
+
+        let caught = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            decode_v1(&bytes, &columns, &pool, options())
+        }));
+        let result = caught.map_err(|_| io::Error::other("decoder panicked on a raw type fault"))?;
+        let error = result
+            .err()
+            .ok_or_else(|| io::Error::other("decoder accepted an unsupported 96-bit integer"))?;
+        assert_eq!(error.kind(), CanonicalIpcErrorKind::Schema);
+        Ok(())
+    }
+
+    #[test]
+    fn decoder_enforces_borrowed_input_byte_budget() -> Result<(), Box<dyn Error>> {
+        let (columns, batch) = mapping_fixture()?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let mut call_options = options();
+        call_options.budgets.max_input_bytes = encoded.len() - 1;
+        let error = decode_v1(&encoded, &columns, &pool, call_options)
+            .err()
+            .ok_or_else(|| io::Error::other("decoder accepted an over-budget input file"))?;
+        assert_eq!(error.kind(), CanonicalIpcErrorKind::Resource);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_encoder_checks_live_deadlines_during_large_array_work(
+    ) -> Result<(), Box<dyn Error>> {
+        let rows = 8_000_000_usize;
+        let column = column(
+            "i",
+            0,
+            "BIGINT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::SignedInteger { bits: 64 }),
+            false,
+            None,
+        );
+        let columns = vec![column];
+        let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Int64Array::from(vec![0_i64; rows])) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let start = Instant::now();
+        let deadline = start + Duration::from_millis(100);
+        assert!(Instant::now() < deadline);
+        let mut call_options = options();
+        call_options.budgets.max_rows = rows;
+        call_options.budgets.max_input_bytes = 128 << 20;
+        call_options.budgets.max_output_bytes = 256 << 20;
+        call_options.budgets.max_codec_peak_bytes = 1 << 30;
+        call_options.control.deadline = Some(deadline);
+        let error = encode_v1(&columns, std::slice::from_ref(&batch), &pool, call_options)
+            .err()
+            .ok_or_else(|| io::Error::other("encoder ignored a live finite deadline"))?;
+        assert_eq!(error.kind(), CanonicalIpcErrorKind::Deadline);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_encoder_checks_cancellation_while_scanning_arrays(
+    ) -> Result<(), Box<dyn Error>> {
+        let rows = 8_000_000_usize;
+        let column = column(
+            "i",
+            0,
+            "BIGINT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::SignedInteger { bits: 64 }),
+            false,
+            None,
+        );
+        let columns = vec![column];
+        let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int64, false)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Int64Array::from(vec![0_i64; rows])) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = Arc::clone(&cancel);
+        let start_gate = Arc::new(Barrier::new(2));
+        let worker_gate = Arc::clone(&start_gate);
+        let canceller = thread::spawn(move || {
+            worker_gate.wait();
+            thread::sleep(Duration::from_millis(25));
+            worker_cancel.store(true, Ordering::Relaxed);
+        });
+        let mut call_options = options();
+        call_options.budgets.max_rows = rows;
+        call_options.budgets.max_input_bytes = 128 << 20;
+        call_options.budgets.max_output_bytes = 256 << 20;
+        call_options.budgets.max_codec_peak_bytes = 1 << 30;
+        call_options.control.cancel = Some(&cancel);
+        start_gate.wait();
+        let result = encode_v1(&columns, std::slice::from_ref(&batch), &pool, call_options);
+        canceller
+            .join()
+            .map_err(|_| io::Error::other("cancellation helper thread panicked"))?;
+        let error = result
+            .err()
+            .ok_or_else(|| io::Error::other("encoder ignored cancellation"))?;
+        assert_eq!(error.kind(), CanonicalIpcErrorKind::Cancelled);
+        Ok(())
+    }
+}

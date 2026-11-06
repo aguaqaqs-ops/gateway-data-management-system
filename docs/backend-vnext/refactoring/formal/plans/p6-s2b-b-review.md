@@ -79,3 +79,15 @@ B 当前 gate：**未运行**；carried：无。S2b 最终 04 全量 runner/cont
 Rust 新 API 有显式 stage、固定 1024 diagnostics cap、borrowed/live/returned-buffer 预算和控制，当前只是公共类型与初始 preflight。未新增 Cargo dependency 或修改 architecture guard。实际 SQL/hash/catalog/projection 操作、完整 Arrow name/type/重复绑定、adapter metadata 复制前预算及最终结果聚合尚未实现，本报告不提前认可这些功能。
 
 首批审核发现 `TableDescriptor` 不含行数，而 projection plan 未携绑定行数，后续会漏旧 `_require_row_count` 的 `ROW_INTEGRITY` 屏障。实施者已在 `9225f78883` 加必填 `expected_source_row_count`；字段修正已复审，实际入口比对待 projection 操作实现后核。首批无其他开测阻塞，06 architecture 与 catalog/composite focused 可按原授权进行；这不是 B 完成或最终测试通过。
+
+## 7. 源码传输操作错误与明确恢复
+
+实施者在 CT201 生成 bundle 时两次 exit 128，尚未触及被测对象。第一次把短提交手工错误展开为 `9225f78883d3b5a2b68bb3a3b2b1f88d04846567`，Git 报 bad object；第二次使用正确裸 commit `9225f78883b9743bec3246196b226d711b56d9ae`，因没有 advertised ref 报 refusing to create empty bundle。两者原因不同，不合并成同一失败。
+
+`/tmp/s2b-b-source-bundle-invalid-ref.log` 与 `/tmp/s2b-b-source-bundle-empty.log` 是实施者事后写的事件记录，原始 stderr/exit 仅存在工具调用记录；本审核不称它们为原捕获日志。审核者已读文件并复算 SHA256，依次为 `f6e58fce85382a3c9065ef9209f5c3663ed5aaea40158df2445f8632c7079e3c`、`3828a97b9c348f1606c077c11e416d9ea11b01a3643d1134dba6a5f5447ad9d2`。实施者说明未 scp、fetch 或创建 06 worktree；审核者另只读核 06 main 仍为 `2c79d0947fe0d5e1d2f62a3f106a8e72f37706a3`、任务专用 ref 不存在、没有 B worktree，A worktree 仍为 db776。
+
+主设计按既有 DC80 明确恢复，审核者确认最小方案可执行：从现有具名 `refs/heads/main` 生成以 2c79 为 prerequisite 的新外置 bundle；核祖先关系、list-heads、SHA 和 verify，经 LAN 传至 06，目标复核 SHA/verify 后 fetch 到 `refs/codex/s2b-b-source`，在全新 detached worktree 检出固定 9225 并建立 legacy 链接。已独立核 2c79 和 9225 均为当时本机 main `ff2b19f427` 的祖先。该方案不改产品、不新建 branch/tag、不触碰 A 的工作区或镜像。实际恢复由实施者执行并实时捕获 stdout/stderr/exit，结果待核；本段 GO 只针对已修正的传输步骤，不代表测试通过。
+
+实际恢复随后已独立读取并核 SHA：CT201 source 实时日志 `/tmp/p6-s2b-b-source-main-ff2b19f427.log` 为 `a6b9e21e30f310620403a4e1a160c4bac1231b6c0e2a3bbdeae333452db6d7f7`，11:20:52–11:20:53 UTC，create/verify/list-heads/exit 均 0。来源脚本 SHA 为 `ac83213c5fb6a6eedbe376b160176c59ce7bef874c47bcae449db006e43e0c0d`，bundle SHA 为 `f02a6cf267bf9b1828c5e292f57ababd531da8595a4e39223c3c8f9c58b0a06f`。两个相同 end 时间字段仅为格式冗余，不重跑来源步骤。
+
+CT201 transfer 实时日志 `/tmp/p6-s2b-b-transfer-main-ff2b19f427.log` SHA 为 `52c208fc2d45279285cee3617fa1cda22337848208f347d2e3c3e0dd41902dd5`，11:23:55–11:23:56 UTC；scp 与远端 SHA 检查 exit 0。06 `/home/dev/gdds-test-tmp/logs/s2b-b-sync-9225.log` SHA 为 `2759050ad59c93b6959877aebe2424ad2225363f340434df2607063126aa2276`，11:24:40–11:24:41 UTC；bundle 三个 prerequisites 实际 verify 通过，target bundle SHA 相等、专用 ref 新建、固定 9225 detached worktree `/home/dev/gdds-test-tmp/wt/p6-s2b-b-impl-9225` clean 且 legacy 链接正确，全部命令及 script exit 0。A worktree 仍为 db776。传输时本机 main 已前进到文档提交 281b，但 bundle advertised ref 固定 ff2b、测试检出固定 9225，未混用 identity。此传输停止点闭合，仅允许继续原 focused 验证，未宣称产品通过。

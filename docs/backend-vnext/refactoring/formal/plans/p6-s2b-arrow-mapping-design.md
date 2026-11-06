@@ -1,6 +1,6 @@
 # S2b 规范表 Arrow 映射 v1（技术候选）
 
-状态：2026-11-06。技术候选已按 S2a 退出源码重核，待独立审核纳入整体 kickoff；不构成产品实施授权。
+状态：2026-11-06。技术候选已按 S2a 退出源码重核；固定候选 `1a4adaae05` 已通过[独立技术审核](p6-s2b-kickoff-review.md)，待 Owner 确认整体 kickoff 及首节范围，不构成产品实施授权。
 
 来源：DC46/DC47、[P6 设计 §8](p6-design.md#8-s2b上传侧数据路径与规范表存储)、[DC76](p6-s0-owner-decisions.md#dc76-s2b-输入约定与映射准备)、[DC84](p6-s0-owner-decisions.md)。S2a 源码基线为 `p6-s2a-exit^{commit}=53b676a6298d408ccda3a85ee73c7ea223a2311a`；本轮设计候选 main 为 `d368413861dbcce10691fb65e8dbaba2a208af68`。`business_schema_digest_of` 已核实列序无关但包含 `table_name`；不改变既有业务摘要，不承诺跨表名去重。
 
@@ -72,7 +72,7 @@ T1/BaselineHead/TTL、四种 miss/corruption 恢复和精确 commit 回填由存
 
 ## 6. 状态与下一步
 
-UTC、来源/类型不变及少数约 100 MB 输入范围来自 DC76；技术映射候选和 06 小样本单位输入已收口。整体 kickoff 仍待独立审核及 Owner 确认；本文不授权开始产品改动。生产 M 数值及默认值需等 mapping、Rust kernel、IPC writer 与 FULL 生命周期测量完成，并在 worker 接线前结合部署内存 envelope 确定，不从 SQL 大小猜值。容量分阶段关闭点见 DC84 与报告。
+UTC、来源/类型不变及少数约 100 MB 输入范围来自 DC76；技术映射候选和 06 小样本单位输入已收口。整体 kickoff 已通过独立技术审核，仍待 Owner 确认；本文不授权开始产品改动。生产 M 数值及默认值需等 mapping、Rust kernel、IPC writer 与 FULL 生命周期测量完成，并在 worker 接线前结合部署内存 envelope 确定，不从 SQL 大小猜值。容量分阶段关闭点见 DC84 与报告。
 
 ## 7. 检查记录
 

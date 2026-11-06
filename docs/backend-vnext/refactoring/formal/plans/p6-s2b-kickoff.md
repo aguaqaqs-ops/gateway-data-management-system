@@ -1,6 +1,6 @@
-# S2b kickoff 设计输入（准备稿）
+# S2b kickoff 设计输入（待 Owner 确认）
 
-状态：DRAFT；2026-11-06。消费者、mapping profile 与有界容量输入已按 S2a exit 收口，等待本节独立审核和 Owner 对整体 kickoff 的确认；未发产品实施提示词。
+状态：READY_FOR_OWNER；2026-11-06。固定设计候选 `1a4adaae05069ef7e2c758bfaf1d363e9b2bebf1` 已通过[独立审核](p6-s2b-kickoff-review.md)，无剩余技术 Finding；报告合入提交 `8b4be7434b`。消费者、mapping profile 与有界容量输入已收口，等待 Owner 确认 kickoff 及首节 A 的产品实施范围；未发产品实施提示词。
 
 2026-11-06 收尾进展：S2a 已退出，附注 `p6-s2a-exit` 指向 `53b676a6298d408ccda3a85ee73c7ea223a2311a`；实际门禁、最终闭包/镜像绑定及独立审核见该 tag 注释与[收尾审核](p6-s2a-closeout-review.md)。本稿当前消费者与 mapping 核对以退出源码为准；本轮日期与数据工具信息见 §8.7 和[容量输入报告](p6-s2b-capacity-input-census.md)。本文仍不是产品开工授权。
 
@@ -203,7 +203,7 @@ reachable = no_unknown_segments
 
 ## 7. 确认记录
 
-- kickoff 审核：本轮独立审核待收口，完成后记录审核提交与结论。
+- kickoff 审核：候选 `1a4adaae05` 的独立结论为 READY_FOR_OWNER，无剩余技术 Finding；报告源提交 `4074ffa821`，合入 main 为 `8b4be7434b`。该结论不授权产品实施。
 - owner 已确认：DC76 输入约定；DC77 容量分层/Phase 7 方向；DC83 W2 与功能 exit 分离；DC84 容量分步与 W1 最迟 S6。整体 kickoff 仍未确认。
 - M 数值/默认/部署 envelope：按 DC84 在 IPC + FULL 生命周期测量后、worker 接线前定；不是阻止首个 mapping/kernel slice 的新样本前置。
 - 实施提示词：未发。产品改动待独立审核结束且 Owner 明确确认本 kickoff。
@@ -264,7 +264,7 @@ owner 授权按需修改设计文档及提交/推送后，定向同步 ADR 0001�
 
 kickoff 技术候选分为 A mapping + 纯内存 codec、B 业务 kernel、C store/ref/recovery、D worker/consumer wiring、E 唯一生产路径与旧算法清理。每步 owner、验证和阶段门见 §5.4/§6。首节 A 可在没有 worker、ArtifactStore 或生产 M 的情况下实现固定 mapping/profile bytes vectors；后续 M 按 DC84 在实际业务 IPC/FULL 测量之后、D worker 接线之前确定。
 
-本稿及相关 mapping/capacity 文档已交独立审核；审核结束后由 Owner 决定是否确认整体 kickoff。当前仍无产品实施授权，不发产品改动提示词。DC63 子段、正式 W1/W2/W3 计时和 W4 lease 诊断按 §4/§6 保持各自状态，不用未知值代替，也不扩展本轮普查范围。
+本稿及相关 mapping/capacity 文档已通过独立技术审核，由 Owner 决定是否确认整体 kickoff 及首节 A 范围。当前仍无产品实施授权，不发产品改动提示词。DC63 子段、正式 W1/W2/W3 计时和 W4 lease 诊断按 §4/§6 保持各自状态，不用未知值代替，也不扩展本轮普查范围。审核后本次仅同步状态与报告引用，不改变技术方案或新增取证。
 
 ### 9.1 设计、实施与审核分工
 

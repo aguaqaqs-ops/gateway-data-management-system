@@ -913,8 +913,8 @@ implementation_authorized: no
 | 记录写后回读：Rust 重算摘要或删除 | DC54 | Phase 6 设计 |
 | H2 门槛定稿 | DC38 | S5 冷读验收（V7 已提供参考） |
 | 行级修改的阈值定稿 | DC45、DC57 | S1a 按批渲染后复测并冻结（含 UPDATE、DELETE 批量上限；不达标时按 DC57 第 4 项交 owner）；S4 只做回归，须调整时作为例外交 owner（DC55 第 5 项） |
-| Arrow 列映射 | DC46、DC76 | 设计候选已落成，UTC/输入范围已确认；技术细则待审核并纳入 S2b kickoff |
-| 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46 | Phase 6 设计 |
+| Arrow 列映射 | DC46、DC76 | 固定候选 `1a4adaae05` 技术审核完成；UTC/输入范围已确认，整体 kickoff 与首节产品范围待 owner 确认 |
+| 规范表存储的磁盘需求估算与参考节点磁盘容量；上传侧原始表是否还有其他使用方 | DC42、DC46、DC84 | 使用方及有界容量输入已核清；实际 IPC/FULL、M 与容量边界按 DC84 指定的实现节点关闭 |
 | ordered 比较是否进 Rust | DC44 | 已定（V1）：S3 进入 Rust |
 | `ordered-diff.md` 中伪 gid 起点（20 亿）与 Canonical Storage G8（40 亿–4,294,967,295）的冲突 | DC39、DC44 | S1a 修订 Contract 时明确以 G8 为准（实现已按 G8） |
 | N 的暂定值与定稿 | DC47 | V6 给出解析器单独的暂定值 4；整条路径的 N 在 S2b 后暂定，S6 定稿 |

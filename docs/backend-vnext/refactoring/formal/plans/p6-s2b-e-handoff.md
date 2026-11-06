@@ -2,6 +2,8 @@
 
 状态：**同节恢复 / 最终验证进行中**；2026-11-06。产品实现 d0 已获源码审核 clear；当前修复候选为 `ff970567f875bbc2ae357db950084dc450f8d88d`，仅修剩余测试 fixture。04 已实际通过 Rust-only 权威 runner；首轮五 Python runner 的 backend 失败已定位，不作为任何包的合格来源。尚无 E GO、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
 
+当前 pending：04 ff970 backend-only 权威整次0及其余四包独立整次0/最终容器绑定；CT108更新ff后的fresh t4；05原线GC释放后的t1–t3；最终同WT闭包与独立审核。额外工具mypy待决项已于22:46Z关闭。以下早期计划/暂停段落保留当时事实，当前状态以此处和后续时间记录为准。
+
 ## 实际消费者与删除
 
 - 已删除六旧 SQL parser 模块与六条精确 temporary unreachable，不加 import/cycle 豁免；native parser 是唯一生产 SQL 路径。
@@ -38,7 +40,7 @@
 
 所有相对日志路径均在06 `/home/dev/gdds-test-tmp/` 下。新环境1728实际focused为357 passed/34 failed，原日志SHA `ace74286b299711a1fcecbf1726e77852d9846f19d93719c57f84c09f717d181`；60c5定向修正后373 passed/2 failed，日志SHA `f3345fb773e750d6d7d7fb8dc69c110adeeaab4e641571b65490688c264860d1`。两项剩余是pure rules拒绝被旧ProjectionRequest测试helper包裹，改直接断言真实resolver；原失败不回填。首次显式mypy file清单遇namespace重复模块名，后续以`-m benchmarks.<module>`统一限定名；不修改产品配置。
 
-## 最终候选前仍需完成
+## 早期后续计划（历史，完成情况见后文）
 
 实际consumer残余检查、受影响focused/Contract、五Python包Ruff/mypy和保留工具静态/小入口；最终候选的04权威runner和container、05 t1–t3、CT108 t4仍待完成。本轮新建 E 自有04 gate WT，原 S2a WT不动。三小包不沿用原 `3b037adf4c`：`COMMON_GIT_COMPONENTS` 的 `vnext/scripts` 新增 `run-s2b-capacity-census.sh`，且 `vnext/deploy/compose.yaml` 有 D 资源接线变化，实际共同 Git 输入已不同（不是 fixtures 改动）。因此后续五 Python 包全部实际运行；Rust 已由下节合格本轮来源完成，最终在同 E WT 按真实闭包判沿用。容器需最终候选本机离线build或严格同04同WT等价carried；06证据不作04来源。
 
@@ -98,7 +100,7 @@ CT108短占用19:32:34–19:36:47Z；目标文件实际creation→write-complete
 
 W1型诊断仅将现有 `record_operation_timing` 所收 timing保存在full JSON的 `operation_timings`，保原DC32，无新增计时点/轮询/HTTP或额外旅程。未来t4单次/N1/M8GiB只称受理响应后→首次可读观测/终态代理（2s轮询与可能fallback），不冒称精确READY、2×t4正式W1、30s目标或性能PASS。
 
-### 唯一待决项与明确尚未准备/执行项
+### 19:58Z 暂停时的历史状态（已由22:46Z恢复记录更新）
 
 Owner尚未答复**额外四工具mypy的一次明确修正续做**。第一次显式文件清单在60c5因namespace重复模块名失败；第二次`-m`在0d4d因缺src搜索root报import-untyped/继发Any；两日志/完整命令已交root，严格保失败，未第三次试跑。审核者已只读确认具体待执行命令：`MYPYPATH=src vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync mypy -m benchmarks.real_dump_census -m benchmarks.real_dump_keyless_census -m benchmarks.real_dump_forwardtable_blank -m benchmarks.real_dump_journey`。不扩ignore、不改产品配置/锁、不以default mypy500替代该四工具检查。
 
@@ -123,7 +125,7 @@ Owner已明确批准额外工具mypy的具体一次修正续做；未新建角�
 
 04 同 E gate WT 在 d0 离线准备五包环境，实际模块与 editable/direct_url 全绑定 E，native tree `137d499975f3c104ae9c3268b9e12befb2817ba1` 匹配；Rust current manifest 与原来源文件字节摘要同为 `4f091a7f…`，总摘要同 `5dbb8a81…`。`python-prepare-01/prepare.log` SHA `7db3bd86e9c0a37a535dd2f33cef87b131d14c8bf207d3702099d54d2e90556d`，另 call 验证日志 SHA `dfac41a1578ee7756fa66fef1ef576118e11fcfbd2890b8ab86ec1dce01dbd6a`。随后独立 call 开始五 Python 权威 runner。
 
-首轮 backend 主体实际 **20 failed / 3111 passed / 8 collection errors**，serial 因相同两模块收集失败；原 runner 自身继续其余包并自然收束，不另开真实旅程。三小包虽分别243/152/161 passed，失败整次不能作为合格 source V。四类漏迁均在测试侧：
+首轮 backend 主体实际 **20 failed / 3111 passed / 8 collection errors**，serial 因相同两模块收集失败；原 runner 自身继续其余包，于23:13:05Z自然结束 runner1/driver1，起止d0/clean、无残留并释放。完整日志 `python-authority-01/authoritative-runner.log` SHA `6b52584532f2ff237ca99b9275008c16a74d6403d8144e84318ede6aeeec1ad6`；RS主体1744 passed/1 skipped、serial207 passed，也不作该失败整次的合格来源。不另开真实旅程。三小包虽分别243/152/161 passed，失败整次不能作为合格 source V。四类漏迁均在测试侧：
 
 - module-level `PREVIEW_RESULT` 在 autouse kernel context 前构造真实 parser fixture；移到显式依赖现 context 的测试 fixture。idempotency 改 runtime module 访问，避免 `from … import` 留下旧对象。
 - UUID Submit 测试仍用默认 `repo-1` 的 canonical artifact；将真实 repository_id 贯穿 seed、canonical bindings、refs/payloads 与 Prepare helper，生产 scope 校验保持。

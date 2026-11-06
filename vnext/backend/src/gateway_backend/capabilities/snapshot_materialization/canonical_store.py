@@ -77,10 +77,12 @@ def canonical_columns(descriptor: SnapshotTableDescriptor) -> list[dict[str, Any
 
 
 def _check_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> None:
-    if len(descriptor.columns) > budgets["max_columns"]:
+    if max(len(descriptor.columns), len(descriptor.primary_key_columns)) > budgets["max_columns"]:
         raise MemoryError("canonical descriptor column limit exceeded")
     size = 4096 + len(descriptor.columns) * 4096
     size += (len(descriptor.table_name) + len(descriptor.display_table_name)) * 32
+    for name in descriptor.primary_key_columns:
+        size += len(name) * 32 + 128
     for column in descriptor.columns:
         size += (len(column.name) + len(column.display_name) + len(column.scalar_type or "")) * 32
         if size > budgets["max_descriptor_bytes"] or size * 8 > budgets["max_codec_peak_bytes"]:

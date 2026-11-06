@@ -558,12 +558,22 @@ def test_start_archive_persists_plan_result_head_and_releases_workspace(db_path:
 
 def test_start_archive_replay_returns_existing_result_after_head_advances(db_path: Path) -> None:
     seed = seed_approved_archive_candidate(db_path)
+    old_ref, new_ref = _register_canonical_archive_refs(db_path, seed.submission_id, seed.repository_id)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
     first = start_archive_for_seed(
         seed,
         confirmation_sequence=confirmation_sequence,
         now=TS_ARCHIVE,
     )
+    from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import BASELINE_HEAD_OWNER
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id=seed.repository_id,
+        ) == {new_ref}
+        before = tuple(tuple(row) for row in unit_of_work.connection.execute(
+            "SELECT * FROM artifact_protection_intents WHERE artifact_id IN (?, ?) ORDER BY artifact_id, owner_kind, owner_id",
+            (old_ref, new_ref),
+        ))
     replay = start_archive_for_seed(
         seed,
         confirmation_sequence=confirmation_sequence,
@@ -572,6 +582,12 @@ def test_start_archive_replay_returns_existing_result_after_head_advances(db_pat
     assert replay.replay is True
     assert replay.archive_plan_id == first.archive_plan_id
     assert replay.archive_result_id == first.archive_result_id
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        after = tuple(tuple(row) for row in unit_of_work.connection.execute(
+            "SELECT * FROM artifact_protection_intents WHERE artifact_id IN (?, ?) ORDER BY artifact_id, owner_kind, owner_id",
+            (old_ref, new_ref),
+        ))
+        assert after == before
 
 
 def test_start_archive_rejects_conflicting_idempotency_fingerprint(db_path: Path) -> None:
@@ -608,6 +624,7 @@ def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypat
     from gateway_backend.infrastructure.control_db.sqlite_archive import SQLiteArchiveRepository
 
     seed = seed_approved_archive_candidate(db_path)
+    old_ref, new_ref = _register_canonical_archive_refs(db_path, seed.submission_id, seed.repository_id)
     confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
 
     original_insert = SQLiteArchiveRepository.insert_plan_result_and_dispositions
@@ -632,7 +649,34 @@ def test_start_archive_rolls_back_when_late_write_fails(db_path: Path, monkeypat
         plan_count = unit_of_work.connection.execute(
             "SELECT COUNT(*) FROM archive_plan_records"
         ).fetchone()[0]
+        from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import BASELINE_HEAD_OWNER
+        assert unit_of_work.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id=seed.repository_id,
+        ) == {old_ref}
+        assert new_ref not in unit_of_work.list_artifact_protection_for_owner(
+            owner_kind=BASELINE_HEAD_OWNER, owner_id=seed.repository_id,
+        )
     assert plan_count == 0
+
+
+def _register_canonical_archive_refs(db_path: Path, submission_id: str, repository_id: str) -> tuple[str, str]:
+    from gateway_backend.artifacts.canonical_table_store import CANONICAL_IPC_MEDIA_TYPE, CanonicalTableKey
+    from gateway_backend.artifacts.types import ArtifactRef
+    from gateway_shared_kernel import raw_blob_digest
+
+    refs = []
+    with ControlDbUnitOfWork(db_path, now=lambda: TS_ARCHIVE) as unit_of_work:
+        head = get_current_head_from_connection(unit_of_work.connection, repository_id)
+        submission = unit_of_work.submission.get_submission(submission_id)
+        assert submission is not None
+        for commit in (head.business_baseline_commit_id, submission.repository_commit_id):
+            raw = commit.encode()
+            key = CanonicalTableKey(repository_id, "3", raw_blob_digest(b"schema"), 1, raw_blob_digest(raw))
+            ref = ArtifactRef(key.artifact_id, CANONICAL_IPC_MEDIA_TYPE, len(raw), raw_blob_digest(raw))
+            unit_of_work.canonical_tables.register(key, ref)
+            unit_of_work.canonical_tables.bind_commit(repository_id=repository_id, commit_id=commit, refs=(ref,))
+            refs.append(ref.artifact_id)
+    return refs[0], refs[1]
 
 
 def test_start_archive_dual_sibling_writes_both_dispositions(db_path: Path) -> None:

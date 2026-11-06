@@ -878,6 +878,24 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
 
     # Artifact protection.
     """
+    CREATE TABLE canonical_table_cache (
+        artifact_id TEXT PRIMARY KEY NOT NULL,
+        repository_id TEXT NOT NULL,
+        media_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (typeof(size_bytes) = 'integer' AND size_bytes >= 0),
+        raw_sha256 TEXT NOT NULL,
+        expires_at_us INTEGER CHECK (expires_at_us IS NULL OR typeof(expires_at_us) = 'integer')
+    )
+    """,
+    """
+    CREATE TABLE canonical_commit_tables (
+        repository_id TEXT NOT NULL,
+        commit_id TEXT NOT NULL,
+        artifact_id TEXT NOT NULL REFERENCES canonical_table_cache(artifact_id) ON DELETE CASCADE,
+        PRIMARY KEY (repository_id, commit_id, artifact_id)
+    )
+    """,
+    """
     CREATE TABLE artifact_protection_intents (
         artifact_id TEXT NOT NULL
             CHECK (typeof(artifact_id) = 'text' AND length(artifact_id) BETWEEN 1 AND 255),

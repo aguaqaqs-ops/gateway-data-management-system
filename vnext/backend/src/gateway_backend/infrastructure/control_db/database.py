@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from gateway_backend.infrastructure.control_db.sqlite_snapshot_export_cache import (
         SQLiteSnapshotTableExportCache,
     )
+    from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import SQLiteCanonicalTableCache
 
 from gateway_backend.infrastructure.control_db.control_db_connect import (
     BUSY_TIMEOUT_MS,
@@ -121,6 +122,7 @@ class ControlDbUnitOfWork:
         self._archive: ArchiveRepository | None = None
         self._history_compare: SQLiteHistoryCompareRepository | None = None
         self._snapshot_table_export_cache: SQLiteSnapshotTableExportCache | None = None
+        self._canonical_tables: SQLiteCanonicalTableCache | None = None
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -161,6 +163,12 @@ class ControlDbUnitOfWork:
         if self._protection is None:
             raise RuntimeError("control DB unit of work is not active")
         return self._protection
+
+    @property
+    def canonical_tables(self) -> SQLiteCanonicalTableCache:
+        if self._canonical_tables is None:
+            raise RuntimeError("control DB unit of work is not active")
+        return self._canonical_tables
 
     @property
     def snapshot_table_export_cache(self) -> SQLiteSnapshotTableExportCache:
@@ -340,9 +348,15 @@ class ControlDbUnitOfWork:
                 transaction_now=transaction_now,
                 read_only=self._read_only,
             )
+            from gateway_backend.infrastructure.control_db.sqlite_canonical_tables import SQLiteCanonicalTableCache
+
+            self._canonical_tables = SQLiteCanonicalTableCache(
+                connection, protection=self._protection, now=transaction_now, read_only=self._read_only,
+            )
             self._baseline = SQLiteBaselineRepository(
                 connection,
                 read_only=self._read_only,
+                canonical_tables=self._canonical_tables,
             )
             self._archive = SQLiteArchiveRepository(
                 connection,
@@ -396,6 +410,7 @@ class ControlDbUnitOfWork:
         self._archive = None
         self._history_compare = None
         self._snapshot_table_export_cache = None
+        self._canonical_tables = None
         self._transaction_now = None
         if connection is None:
             return

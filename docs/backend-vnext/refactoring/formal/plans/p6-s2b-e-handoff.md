@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**同节恢复 / 最终验证进行中**；2026-11-06。产品实现 d0 已获源码审核 clear；当前修复候选为 `ff970567f875bbc2ae357db950084dc450f8d88d`，仅修剩余测试 fixture。04 已实际通过 Rust-only 权威 runner；首轮五 Python runner 的 backend 失败已定位，不作为任何包的合格来源。尚无 E GO、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
+状态：**同节恢复 / 最终验证进行中**；2026-11-06。产品实现 d0 已获源码审核 clear；当前修复候选为 `7c023971397a8fba2c9e2aa86e9e7cbb9f088fe1`，仅修剩余测试 fixture/inline adapter。04 已实际通过 Rust-only 权威 runner；首轮五 Python runner 的 backend 失败已定位，不作为任何包的合格来源。尚无 E GO、最终容器或 t1–t4 结果。D 的 06 focused 及局部容量仍仅是 D 已确认来源；性能未知项不记 PASS。
 
-当前 pending：04 ff970 backend-only 权威整次0及其余四包独立整次0/最终容器绑定；CT108更新ff后的fresh t4；05原线GC释放后的t1–t3；最终同WT闭包与独立审核。额外工具mypy待决项已于22:46Z关闭。以下早期计划/暂停段落保留当时事实，当前状态以此处和后续时间记录为准。
+当前 pending：04 7c023 backend-only 权威整次0及其余四包独立整次0/最终容器绑定；CT108 7c023 fresh t4；05已释放并完成E环境准备后的t1–t3；最终同WT闭包与独立审核。额外工具mypy待决项已于22:46Z关闭。以下早期计划/暂停段落保留当时事实，当前状态以此处和后续时间记录为准。
 
 ## 实际消费者与删除
 
@@ -160,3 +160,28 @@ environment01在调用 identity helper 前失败（23:03:25Z，exit2）：脚本
 environment02 actual0，于23:10:00Z结束：全config/19DiffIDs匹配、offline新 backend venv与四path deps、native treechecker、本机owned RS build、现CLI help及八包 `INPUTS_VALID`。日志 SHA `b1819ca1c5d0fb42390cf89384c7150f87d6f466faa68fa872a88f0ea6814539`。另 call 独立验证actual0，日志 SHA `845f043e45f366cbf9f05bd15a89127ecd7443f5c16fd54a1e5b3f213cec2ce9`；23:12:28Z核owner/HEADclean/整机空闲后释放准备占用，日志 SHA `aeaefcea0afc6c180a3dbf574c1d699c2c0ebf4e55a510b546996dc0f6023354`。这些日志均在 CT108 `artifacts/s2b-e-t4-prepare-d0f5602d/`。
 
 准备仍为d0，不作ff最终门禁。真实t4尚未执行；后续需更新到最终候选并核绑定，保持已审 fresh driver286与失败保卷规则。05原线GC有效占用优先，当前未取得E预约或运行t1–t3。
+
+
+### 23:40Z：inline comparison 适配器收口
+
+ff970 的04 backend-only 于23:29:03Z自然结束 runner1/driver1，主体3173 passed、serial55 passed/2 failed。完整原日志 `artifacts/s2b-e-gate-ff970567/backend-authority-01/authoritative-runner.log` SHA `a27604d02e9a5c66a9b70442e4f6e78701361adedafc0700f1741d3ccb6dcb1a`；起止ff/clean、无残留并释放，不作backend合格来源。
+
+两失败均在远端 History/ordered operation 已SUCCEEDED、commit/count断言通过之后的测试适配器：`history_compare_oracle` 硬编码repo-1而Compose provider catalog为真实UUID；另inline `_sides_from_materialize_checkpoint` 漏必需repository_id，且新exec进程未显式初始化N/M scope。静态核所有直接/间接caller后一并修第二个ordered-facts inline helper，避免它在首个digest探针之后继续漏同一入口。
+
+固定候选7c023累计仅3测试/helper路径：history请求scope取provider.catalog实际repo，两inline均以repr注入actualrepoid、调用薄bootstrap N1初始化，并以显式M8589934592的new_operation scope包住现artifact load/compare，pair pipeline也传repoid。无src/核心expected/业务断言改变，保zero-write/restart/ordered事实；这些helper明确为production-derived integration consistency，非独立算法golden。独立源码审核clear。
+
+06使用原E WT固定7c023、clean，source实际0后另call实际E四pathdeps/native137核0。23:36:11–23:38:44Z，已审driver SHA `1c805c41ae8629b4ce171956817cae8ae74ad589532165e9ba7176f1060fb942` 实际执行backend Ruff/mypy500、local `tests/test_history_compare_jobs.py -n 4 -q`（27 passed），再本机离线构建owned RS7c，运行两个原Compose exactcases `test_history_compose_e2e.py::test_compose_history_compare_journey_zero_write_restart` 与 `test_ordered_compare_compose.py::test_ordered_history_compare_compose_journey -n 0 -q`（2 passed / 141.02s），整步0。实际argv在原log，不复跑全57serial或全runner。
+
+06 `artifacts/s2b-e-harness-fix-7c023971/fixture-and-compose-focused.log` SHA `86281ad7703b9f188a37e479868df4bb6a52662407dc339542c2d19652c6c1b7`；source log SHA `4eeda91574be0041f487f37c4fde788134042403e25f0010277b8bafb04089ae`，独立env SHA `3fa7b5bc2f702a06869f22d05de9ead900bd5ee3cf4cf64bc2c061b413a635bc`。23:40:06Z核clean/owner/全机无残留后释放，release SHA `1cefe0108f5336a437f20bb1c07b534fdf022f76dd0e30eef5f1e789598a407a`。独立审核已逐项核实；这些不是04权威来源。
+
+随后04同E gate WT固定7c023，source0→另call源0→实际Rustcompare原d0/5db相等→仅ownedRS7c本机build与现五env binding核0→独立verify0后，另call启动backend-only权威入口。source log SHA `3a8140aa2b8ecc521e06c0f87c295e707455f3afcea6e499db61ebe720746496`、源独立核 `a9d5e512d9e10f55126033935e0d61df42b1cd27199594955b9ee428d8383625`；env SHA `fd642f9bceb5f4337f981e99de859b1b8c8db18c60f4d54a5ce53b3dd6e577e9`，独立env SHA `027e3decbcd1e1ee3e510301fc9d5981437dcae6580a8a4026d796289f252cc2`。当前该次runner仍在运行，未提前记PASS；成功后才四包与真实旅程。原合格Rust不重跑。
+
+### 05 首次 E 环境准备
+
+原线GC于23:29:02Z释放05；23:37:45Z E现场只读核无busy/容器/Dolt/8000，actual root previous仍为2c79完整SHA、new E WT未有、缓存/legacy在、磁盘196GiB余。新前检八包bytes/SHA、五基镜RootFS/锁标签、外置helpers SHA均0，`logs/s2b-e-05-input-cache-preflight-7c023971.log` SHA `a7d90c161cf891cd59c1708c0c3275b8b66961cb64319b25b860f12320b4cebe`。既有只读预检脚本SHA与本地同为aefc62c6…，复用既有文件，未覆盖。
+
+新task ref `refs/codex/s2b-e/t1t3-source/<full7c>` 使用完整17MiB、无prerequisite的bundle SHA `71e699bde202541827b4b55f3a38c25d25542735f0b8ff57d5392d08e05ee416`，远端先verify0，不假定05已有d0/ff。23:42:03Z现场原子取锁，source实际0后另call HEAD/clean/legacy/selector四工具0；E WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-t1t3` 固定7c023。source SHA `e1f610908265cc97b7c759d05852edfdc7993bda976966d50301fdfd19c638e5`，独立源 SHA `3429ee30f7e152bd3d5e5fac641b33c35d99784e9a06851a8d7b5a8a4c962690`。
+
+新建offline backend venv（未复制）、真实native137/四pathdeps、同节点backend base的config+全19DiffIDs、RS/client锁labels、ownedRS7c本机offline build、现CLI help/八包INPUTS_VALID均0，23:44:38Z结束；env SHA `61d8945c4d7ac6a3310c7e973326ccfad213b2150c8c0339e266a601350ba331`。另call独立env核0 SHA `0baa6c7173e5dc969634b0c2ef0899c90561a711cb0999d066d722f73ed74e97`；23:47:42Z核owner/HEADclean/全机idle后释放准备busy，release SHA `d22116cdfd99e5f5fc10e46befb0301d304879df996683717ee8f10e6cca1f97`。除preflight log外，各路径均在05 `artifacts/s2b-e-t1t3-prepare-7c023971/` 对应source-01/environment-01下。原线三个保留GC卷/原冻结资源不动。
+
+真实t1–t3仍待backend整次0后按tier顺序fresh。已审外置 `/tmp/s2b-e-t1t3-driver.py` SHA `d524f828ffd32510b57c608f49e7465bda4e9892a72e667714693a016f200d06` 由原t4 driver286仅参数化tier/WT/project/purpose/metadata；同一次fresh full加现keep-stack，失败先取证/正常stop、保本E资源与busy交DC80，不自动下一tier/retry/resume；成功且必需证据/cleanup/release齐才下一tier。未启动真实旅程。

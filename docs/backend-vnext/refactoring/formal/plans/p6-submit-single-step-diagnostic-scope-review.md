@@ -682,3 +682,15 @@ GC 聚合为 gen0/1/2 各 1385/126/8 次，累计约 0.073/0.107/1.267s，最大
 最小下一步建议已直发实施者并抄设计：在现有 e798 源码和本次数据上，先只读列出完整 closure 调用链的 digest 次数、整份 payload/serialized bytes 的创建和存活边界，区分可消除的临时分配与必须保留的 Contract 校验；据此提出一个最小候选。可评估原全树 Unicode/数值校验之后使用 JCS writer→hash sink 消除完整 bytes，但必须保留原包装前像、字节/digest、错误类别和全局优先顺序，且明确它仍保留 payload 图、不能承诺解决 lease 根因。不要直接删重复验证、逐 mutation 改校验顺序、调整 TTL，或以小样本成功触发新一轮完整 Submit。设计明确方案及必要等价验证后再审具体修复；本报告不自动授权该修复或新测量。
 
 关键原始摘要：stdout `9dbbe466394bcfbc4145803a98d7464955471dc7a7d53b9270e7ad837c10e54a`；supervisor `ee8b01d754777d463a56e7e779d6bd4c7c2d3b472e87402d3d95dfcdba62d5c8`；launcher `0aeed61c4ec544b3fc5a32e3ace00e9ac19d7733dcac5e63b9d05814da4b93d2`；postflight `bf763ca1d2dc6ac71338867be9aecc5bbee80f91c503993fe136f86c752e1335`。
+
+## 41. JCS hash sink 分配削减设计：范围通过
+
+**设计 `f02515b95a5d3ba52d700745f0508d57d7aac7bd` 范围通过，无阻塞 finding。** 定向核对 `p6-change-set-heartbeat-probe-plan.md` 新增结果、完整 closure 分配链、单一候选和验证边界；复用前述只读分析，没有重新调查、测试或取证。结论已直接发送设计，由设计按该文档分配明确实施责任；本节不是产品候选通过或运行 GO。
+
+该方案准确区分可消除的完整 JCS 输出 bytes 与仍保留的 mutations/payload 图、排序及序列化器自身分配；不把顺序发生的三次 payload 峰值相加，不把省去输出聚合等同有界总内存或 lease 修复。shared_kernel 持有共用的原全树 Unicode→数值校验及固定 rfc8785 writer/异常映射；新摘要入口使用私有至多 64 KiB 的合并缓冲，大块直接 hash，成功才返回 DigestRef。原 bytes API 留给需要 bytes 的消费者，两个指定 digest consumer 不做运行时 fallback。这符合职责边界，没有新编码器、兼容层或依赖升级。
+
+backend 改动仅限 `compute_change_set_digest` 与 `compute_change_set_closure_digest`；前像包装、完整 payload 构造、排序及 artifact/closure 再次验证不变。原全局校验优先级和 payload 构造先于 JCS 的边界已明确，因此没有采用会改变跨 mutation 错误顺序的逐条流式方案。实际 writer 签名、write 返回语义及原异常映射仍须在实现时核实，不能由设计文本替代具体代码审核。
+
+验证范围适当：shared_kernel 单一 owner 负责现有公开 bytes/golden 对应的摘要、Unicode/数值/序列化错误优先级及 buffer 边界；backend 负责真实 change-set/closure 的绑定、错误摘要拒绝和代表性跨 mutation 语义，不重复共享层矩阵，不引入 Dolt。只计划专用节点 clean 提交上的一次限域 focused 和五包静态检查；镜像和恢复门禁留到必要候选另行绑定，不据此宣称镜像通过。
+
+既有 probe GO 已用完，文件与计时不作新旧性能对照；现场 lease 根因继续 OPEN。范围结论不授权新 probe、Submit、正式测量、放宽租约或省略校验，也不要求重新跑已完成的调查。后续审核以该精确范围内的实际实现和必要等价证据为对象。

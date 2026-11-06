@@ -5,7 +5,8 @@ from __future__ import annotations
 import struct
 import hashlib
 import tempfile
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +22,9 @@ from gateway_backend.capabilities.snapshot_materialization._parquet import encod
 from gateway_backend.capabilities.snapshot_materialization.arrow import ArrowSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.batch import schema_with_batch_metadata
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    ROW_FORMAT_PARQUET, ROW_FORMAT_CANONICAL_IPC, SnapshotTable, SnapshotTableBatchMetadata,
+    ROW_FORMAT_PARQUET, ROW_FORMAT_CANONICAL_IPC, SnapshotTable, SnapshotTableBatchMetadata, BlankRowProvenance,
 )
-from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.capabilities.table_access import current_kernel_context, KernelExecutionContext
 from gateway_backend.capabilities.table_access.contracts import SourceColumnDescriptor
 
 _MAX_EXPORT_BYTES = 1024**3  # Same bounded output ceiling as the canonical codec.
@@ -70,8 +71,19 @@ def export_snapshot_table_parquet(
                     file = None
                     raw = None
                     schema = None
+                    footer_reservation = None
                     try:
                         raw = store.locate(cached)
+                        if len(raw) < 12 or raw[:4] != b"PAR1" or raw[-4:] != b"PAR1":
+                            raise ValueError("cached client Parquet footer is invalid")
+                        footer_bytes = struct.unpack_from("<I", raw, len(raw) - 8)[0]
+                        if footer_bytes > len(raw) - 12:
+                            raise ValueError("cached client Parquet footer is truncated")
+                        # Thrift row-group/column vectors, paths, schema and KV
+                        # objects expand independently of compressed data pages.
+                        # Reserve against the encoded footer before C++/Python
+                        # metadata decoding, using a conservative object envelope.
+                        footer_reservation = context.memory.reserve(footer_bytes * 64)
                         file = pq.ParquetFile(pa.BufferReader(raw))
                         schema = file.schema_arrow
                         if (file.metadata.num_rows != table.descriptor.row_count
@@ -83,6 +95,8 @@ def export_snapshot_table_parquet(
                         if file is not None:
                             file.close()
                         del file, raw, schema
+                        if footer_reservation is not None:
+                            footer_reservation.close()
                 context.checkpoint()
                 return cached
             except (InterruptedError, TimeoutError, MemoryError):
@@ -104,10 +118,10 @@ def export_snapshot_table_parquet(
         try:
             with isolated.arrow_stream() as stream, pq.ParquetWriter(path, schema, compression="zstd",
                     write_statistics=False, use_dictionary=False, store_schema=True) as writer:
-                for batch in stream:
-                    for start in range(0, batch.num_rows, 1024):
+                ordered = metadata.blank_provenance is BlankRowProvenance.CANONICAL_PSEUDO_GID
+                with closing(_export_batches(stream, context, ordered=ordered)) as parts:
+                    for chunk in parts:
                         context.checkpoint()
-                        chunk = batch.slice(start, min(1024, batch.num_rows - start))
                         upper = chunk.nbytes * 8 + chunk.num_rows * (len(source.columns) * 512 + 1024) + 512 * 1024
                         with context.memory.reserve(upper):
                             arrays = [_export_array(chunk.column(i), column) for i, column in enumerate(source.columns)]
@@ -119,6 +133,7 @@ def export_snapshot_table_parquet(
                             del arrays, converted
                         if path.stat().st_size > _MAX_EXPORT_BYTES:
                             raise MemoryError("client Parquet output exceeds byte budget")
+                        del chunk
                 context.checkpoint()
             size = path.stat().st_size
             if size > _MAX_EXPORT_BYTES:
@@ -158,3 +173,30 @@ def _export_array(array: pa.Array, column: SourceColumnDescriptor) -> pa.Array:
     if kind in ("boolean", "binary", "bit"):
         return array
     return pc.cast(array, pa.string(), safe=True)
+
+
+def _export_batches(
+    stream: pa.RecordBatchReader, context: KernelExecutionContext, *, ordered: bool,
+) -> Iterator[pa.RecordBatch]:
+    if ordered:
+        backing = stream.read_all()
+        # Business ordered reads use numeric no; IPC physical numeric gid is
+        # independent. Only a bounded 1024-row gather is copied at a time.
+        with context.memory.reserve(backing.num_rows * 24 + len(backing.columns) * 4096 + 8192):
+            order = pc.sort_indices(backing, sort_keys=[("no", "ascending")])
+            for start in range(0, backing.num_rows, 1024):
+                context.checkpoint()
+                count = min(1024, backing.num_rows - start)
+                with context.memory.reserve(backing.nbytes * 2 + count * len(backing.columns) * 64 + 8192):
+                    gathered = backing.take(order.slice(start, count))
+                    chunk = gathered.to_batches(max_chunksize=1024)[0]
+                    yield chunk
+                    del chunk, gathered
+            del order
+        del backing
+    else:
+        for batch in stream:
+            for start in range(0, batch.num_rows, 1024):
+                context.checkpoint()
+                yield batch.slice(start, min(1024, batch.num_rows - start))
+    context.checkpoint()

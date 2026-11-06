@@ -237,7 +237,7 @@ def _materialize_open_session(
                 raise _Halt(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
                             "selected repository table is missing its canonical content identity", table=name)
             descriptor = _describe_without_rows(request, catalog_table, identity, stage)
-            table = request.committed_tables.load_table(commit_id=pinned, descriptor=descriptor,
+            table = request.committed_tables.load_table(commit_id=pinned, descriptor=descriptor, identity=identity,
                 storage_view=storage_view, context=request.context, timeout_policy=request.timeout_policy)
             table_diagnostics = table.diagnostics
             identity = identities.get(name)

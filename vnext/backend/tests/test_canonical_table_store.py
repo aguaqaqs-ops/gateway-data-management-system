@@ -351,5 +351,11 @@ def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
         pytest.fail("healthy client cache hit must not rewrite the artifact")
     monkeypatch.setattr(store, "put", forbid_write)
     assert export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache) == ref
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, KernelMemoryLimit, kernel_execution_scope,
+    )
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(4096), NeverCancel(), 1), new_operation=True):
+        with pytest.raises(KernelMemoryLimit):
+            export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
     with pytest.raises(ValueError, match="scoped canonical"):
         export_snapshot_table_parquet(table, store=store, repository_id="other", export_cache=cache)

@@ -30,15 +30,15 @@ from gateway_backend.capabilities.snapshot_materialization import (
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     RepositoryRef,
     RepositoryRefTimeoutPolicy,
-    RepositoryTableCatalog,
+    RepositoryTableCatalog, RepositoryProviderError, MaterializationDiagnosticCode,
     SnapshotColumnDescriptor,
     SnapshotTableDescriptor,
     normalize_sql_type_spelling,
-    SnapshotTable,
+    SnapshotTable, CanonicalTableIdentity, SnapshotTableOrderedMetadata, BlankRowProvenance,
 
 )
-from gateway_backend.capabilities.storage_projection import project_arrow_table
-from gateway_backend.capabilities.table_rules.contracts import StorageRuleView
+from gateway_backend.capabilities.storage_projection import project_arrow_table, compute_schema_digest
+from gateway_backend.capabilities.table_rules.contracts import StorageRuleView, OrderedPolicy
 from gateway_backend.capabilities.table_access import kernel_control_scope
 from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext, NeverCancel
 
@@ -150,15 +150,30 @@ class CanonicalCommittedTableAccess:
                     max_batches=self._budgets["max_batches"],
                 ) as source:
                     with canonical_repository_stream(source, bound_descriptor, budgets=budgets) as converted:
-                        result = project_arrow_table({
-                            "canonical_name": bound_descriptor.table_name,
-                            "display_name": bound_descriptor.display_table_name,
-                            "columns": canonical_columns(bound_descriptor),
-                            "primary_key": list(bound_descriptor.primary_key_columns), "reader_ready": True,
-                            "arrow_stream": converted,
-                        }, bound_descriptor, storage_view, canonicalized_input=True,
-                            cancel_probe=context.cancel_probe, budgets=budgets,
-                            deadline_monotonic=context.deadline_monotonic, pool_threads=context.threads)
+                        input_arrays = converted.read_all()
+                        context.checkpoint()
+                        if input_arrays.num_rows != bound_descriptor.row_count:
+                            raise RepositoryProviderError(MaterializationDiagnosticCode.REPOSITORY_ROW_COUNT_MISMATCH,
+                                "Repository catalog row count differs from streamed row count", table=bound_descriptor.table_name)
+                        # DDL-primary-key bindings resolve their canonical key from
+                        # this exact commit's bound catalog, as the existing owner.
+                        resolved_view = storage_view
+                        if storage_view.canonical_key_policy.value in ("DDL_PRIMARY_KEY", "DDL_PRIMARY_KEY_OR_KEYLESS"):
+                            resolved_view = replace(storage_view, canonical_key_columns=bound_descriptor.primary_key_columns)
+                        input_stream = input_arrays.to_reader()
+                        try:
+                            result = project_arrow_table({
+                                "canonical_name": bound_descriptor.table_name,
+                                "display_name": bound_descriptor.display_table_name,
+                                "columns": canonical_columns(bound_descriptor),
+                                "primary_key": list(bound_descriptor.primary_key_columns), "reader_ready": True,
+                                "arrow_stream": input_stream,
+                            }, bound_descriptor, resolved_view, canonicalized_input=True,
+                                cancel_probe=context.cancel_probe, budgets=budgets,
+                                deadline_monotonic=context.deadline_monotonic, pool_threads=context.threads)
+                        finally:
+                            input_stream.close()
+                        del input_stream, input_arrays
                         output = result["output"]
                         if output is None or output["raw_content_digest"] != key.table_digest.value:
                             raise ValueError("canonical recovery business digest mismatch")
@@ -197,10 +212,18 @@ class CanonicalCommittedTableAccess:
             uow.canonical_tables.register(key, ref)
 
     def load_table(
-        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, storage_view: StorageRuleView,
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
         context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> SnapshotTable:
         with kernel_control_scope(context.cancel_requested, context.deadline_monotonic) as active:
+            schema_digest = compute_schema_digest(columns=[{"name": column.name,
+                "sql_type": normalize_sql_type_spelling(column.scalar_type or "UNKNOWN"), "nullable": column.nullable}
+                for column in descriptor.columns], primary_key=descriptor.primary_key_columns)
+            if (identity.canonical_table != descriptor.table_name or identity.row_count != descriptor.row_count
+                    or identity.raw_content_digest != descriptor.raw_content_digest
+                    or identity.canonical_schema_digest != schema_digest):
+                raise RepositoryProviderError(MaterializationDiagnosticCode.REPOSITORY_CATALOG_LOAD_FAILED,
+                    "canonical manifest schema/content binding differs from the exact catalog", table=descriptor.table_name)
             manager = self._open_committed(commit_id=commit_id, bound_descriptor=descriptor,
                 storage_view=storage_view, timeout_policy=timeout_policy)
             handle = manager.__enter__()
@@ -212,7 +235,9 @@ class CanonicalCommittedTableAccess:
                     "primary_key": list(descriptor.primary_key_columns), "reader_ready": True})
                 def close_handle() -> None:
                     manager.__exit__(None, None, None)
-                return snapshot_table_from_arrow(descriptor, arrays, source, execution_context=active, close=close_handle)
+                return snapshot_table_from_arrow(descriptor, arrays, source, execution_context=active, close=close_handle,
+                    ordered=SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID)
+                    if storage_view.ordered_policy is OrderedPolicy.GID_NO_V1 else None)
             except BaseException:
                 manager.__exit__(None, None, None)
                 raise

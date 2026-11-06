@@ -17,7 +17,7 @@ import pytest
 from gateway_backend.application.canonical_metadata.table_access import CanonicalCommittedTableAccess
 from gateway_backend.artifacts.store import ManifestVerificationError
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import CanonicalTableStore, canonical_table_key
-from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryProviderError, SnapshotTableDescriptor
+from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryProviderError, SnapshotTableDescriptor, CanonicalTableIdentity
 from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
@@ -69,6 +69,15 @@ def _view(bound: SnapshotTableDescriptor) -> StorageRuleView:
     view = derive_storage_rule_view(record, bound)
     assert view is not None
     return view
+
+
+
+def _identity(bound: SnapshotTableDescriptor) -> CanonicalTableIdentity:
+    from gateway_backend.capabilities.storage_projection import compute_schema_digest
+    schema = compute_schema_digest(columns=[{"name": column.name, "sql_type": column.scalar_type,
+        "nullable": column.nullable} for column in bound.columns], primary_key=bound.primary_key_columns)
+    assert bound.raw_content_digest is not None
+    return CanonicalTableIdentity(bound.table_name, bound.row_count, bound.compare_schema_digest, schema, bound.raw_content_digest)
 
 
 def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_path: Path, tmp_path: Path) -> None:
@@ -237,7 +246,7 @@ def test_returned_committed_reader_cleanup_releases_mapping_after_stop(db_path: 
             store=store, unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path),
             repository_provider_factory=lambda *args: pytest.fail("healthy hit must not read source"), budgets=BUSINESS_BUDGETS,
         )
-        table = access.load_table(commit_id=COMMIT, descriptor=bound, storage_view=_view(bound),
+        table = access.load_table(commit_id=COMMIT, descriptor=bound, identity=_identity(bound), storage_view=_view(bound),
             context=ParserInvocationContext(NeverCancel()), timeout_policy=None)
         assert context.memory._mappings
         stop.set()
@@ -246,3 +255,18 @@ def test_returned_committed_reader_cleanup_releases_mapping_after_stop(db_path: 
         table.batch_reader.close()
         assert not context.memory._mappings
 
+
+
+def test_same_value_different_catalog_type_cannot_rebind_committed_schema(db_path: Path, tmp_path: Path) -> None:
+    from gateway_backend.capabilities.table_access.contracts import ParserInvocationContext, NeverCancel
+    stream, bound = canonical_input()
+    stream.close()
+    changed = replace(bound, columns=(replace(bound.columns[0], scalar_type="BIGINT"), *bound.columns[1:]))
+    access = CanonicalCommittedTableAccess(
+        store=CanonicalTableStore(LocalArtifactStore(tmp_path / "objects"), repository_id=REPOSITORY, budgets=IPC_BUDGETS),
+        unit_of_work_factory=lambda: ControlDbUnitOfWork(db_path),
+        repository_provider_factory=lambda *args: pytest.fail("schema mismatch must precede source access"), budgets=BUSINESS_BUDGETS,
+    )
+    with pytest.raises(RepositoryProviderError, match="manifest schema/content"):
+        access.load_table(commit_id=COMMIT, descriptor=changed, identity=_identity(bound), storage_view=_view(changed),
+            context=ParserInvocationContext(NeverCancel()), timeout_policy=None)

@@ -62,7 +62,10 @@ from gateway_backend.capabilities.storage_projection.publish import (
     publish_canonicalization_manifest,
 )
 
+from gateway_backend.capabilities.storage_projection._digest import compute_schema_digest
+
 __all__ = [
+    "compute_schema_digest",
     "project_canonical_arrow_table_set",
     "project_arrow_table",
     "CANONICALIZATION_MANIFEST_CONTRACT",
@@ -114,3 +117,4 @@ __all__ = [
     "repository_import_manifest_bytes",
     "validate_repository_import_package",
 ]
+

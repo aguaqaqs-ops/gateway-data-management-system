@@ -26,7 +26,7 @@ from gateway_backend.application.canonical_metadata.binding import canonical_bin
 from gateway_backend.application.history.compare_jobs import _bound_from_materialization
 from tests.support.history_compare_job_harness import REPOSITORY_ID
 from tests.support.repository_ref_materialization import (
-    FakeRepositoryTableAccessProvider,
+    FakeRepositoryTableAccessProvider, _bind_reference_tables,
 )
 from tests.support.canonical_metadata import metadata_for_catalog
 
@@ -55,7 +55,7 @@ def materialize_bound_snapshot(
         context=ParserInvocationContext(NeverCancel()),
         artifact_store=artifact_store,
     )
-    result = materialize_repository_ref(request)
+    result = materialize_repository_ref(_bind_reference_tables(request, provider))
     assert result.status.value == "COMPLETE"
     return _bound_from_materialization(result, canonical_binding=canonical_binding)
 

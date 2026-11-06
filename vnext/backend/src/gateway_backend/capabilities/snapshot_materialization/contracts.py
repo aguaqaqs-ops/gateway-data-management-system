@@ -1398,7 +1398,7 @@ class CommittedCanonicalTablesPort(Protocol):
     """Application-owned scoped cache/recovery; returned readers own their handles."""
 
     def load_table(
-        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, storage_view: StorageRuleView,
+        self, *, commit_id: str, descriptor: SnapshotTableDescriptor, identity: CanonicalTableIdentity, storage_view: StorageRuleView,
         context: ParserInvocationContext, timeout_policy: RepositoryRefTimeoutPolicy | None,
     ) -> SnapshotTable: ...
 

@@ -97,14 +97,14 @@ F1_POLICY_BINDING_CASES = (
     (
         "pseudo_blank",
         {ORDERED_SYX_TABLE: ((1, 1, "a"),)},
-        {ORDERED_SYX_TABLE: ((1, 1, "a"), (None, 2, "blank"))},
+        {ORDERED_SYX_TABLE: ((1, 1, "a"), (4_000_000_000, 2, "blank"))},
         (),
         0,
     ),
     (
         "keyed_ignored_column",
         {ORDERED_SYX_TABLE: ((1, 1, "a"), (2, 2, "b"))},
-        {ORDERED_SYX_TABLE: ((1, 99, "a"), (2, 2, "b"))},
+        {ORDERED_SYX_TABLE: ((1, 2, "a"), (2, 1, "b"))},
         (OrderedRecordKind.ROW_MOVED,),
         0,
     ),
@@ -125,6 +125,11 @@ RULESET_MISMATCH_STEPS = (
 )
 
 pytestmark = pytest.mark.unit
+
+
+
+def _reader_names(provider: FakeRepositoryTableAccessProvider) -> tuple[str, ...]:
+    return tuple(reader.catalog_table().table_name for session in provider.sessions for reader in session.table_readers)
 
 
 def _history_assemble_state(
@@ -212,7 +217,8 @@ def test_materialize_deduplicates_identical_commits(tmp_path: Path) -> None:
     insert_history_compare_operation(harness)
     before_opens = harness.total_open_count()
     run_through_step(harness, HISTORY_COMPARE_MATERIALIZE_HANDLER)
-    assert harness.total_open_count() - before_opens == 1
+    # One catalog binding plus one cold C recovery for the deduplicated commit.
+    assert harness.total_open_count() - before_opens == 2
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         materialize_step = unit_of_work.operations.get_step(
@@ -489,14 +495,10 @@ def test_two_node_compare_job_succeeds(tmp_path: Path) -> None:
     baseline_session = harness.providers[BASELINE_HEAD.business_baseline_commit_id].last_session
     current_session = harness.providers["commit-b"].last_session
     assert baseline_session is not None and current_session is not None
-    baseline_reader_names = tuple(
-        reader.catalog_table().table_name for reader in baseline_session.table_readers
-    )
+    baseline_reader_names = _reader_names(harness.providers[BASELINE_HEAD.business_baseline_commit_id])
     assert baseline_reader_names == ("t",)
-    current_reader_names = tuple(
-        reader.catalog_table().table_name for reader in current_session.table_readers
-    )
-    assert current_reader_names == ("t",)
+    current_reader_names = _reader_names(harness.providers["commit-b"])
+    assert current_reader_names == ()  # Same scoped canonical content reuses C.
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         operation = unit_of_work.operations.get_operation(harness.operation_id)
@@ -589,9 +591,7 @@ def test_history_full_table_export_uses_cold_and_warm_cache_entries(tmp_path: Pa
     cold_current = cold_providers[current_commit].last_session
     assert cold_before is not None and cold_current is not None
     expected_reader_names = tuple(sorted(("t", ORDERED_SYX_TABLE)))
-    cold_reader_names = tuple(
-        reader.catalog_table().table_name for reader in cold_before.table_readers
-    )
+    cold_reader_names = _reader_names(cold_providers[before_commit])
     assert cold_reader_names == expected_reader_names
     assert cold_current.table_readers == []
     assert len(cache.entries) == 2
@@ -617,11 +617,14 @@ def test_history_full_table_export_uses_cold_and_warm_cache_entries(tmp_path: Pa
     }
     warm = build_history_compare_harness(
         tmp_path / "warm",
+        # A later operation shares the real C index. Client Parquet is not a
+        # canonical recovery source; its derived cache is independently reused.
+        db_path=cold.db_path,
         artifact_store=store,
         snapshot_export_cache=cache,
         node_specs=(
             (BASELINE_HEAD.business_baseline_node_id, before_commit),
-            ("bn-export-cache-current", current_commit),
+            ("bn-export-cache-current-warm", current_commit),
         ),
         custom_providers=warm_providers,
         idempotency_key="history-full-export-cache-warm",
@@ -736,11 +739,11 @@ def test_history_bundle_preserves_changed_added_and_deleted_table_bindings(tmp_p
     before_session = providers[before_commit].last_session
     current_session = providers[current_commit].last_session
     assert before_session is not None and current_session is not None
-    assert tuple(reader.catalog_table().table_name for reader in before_session.table_readers) == (
+    assert _reader_names(providers[before_commit]) == (
         "gone",
         "t",
     )
-    assert tuple(reader.catalog_table().table_name for reader in current_session.table_readers) == (
+    assert _reader_names(providers[current_commit]) == (
         "added",
         "t",
     )
@@ -790,12 +793,10 @@ def test_unchanged_ordered_history_bundles_both_sides_and_preserves_facts(
     before_session = providers[before_commit].last_session
     current_session = providers[current_commit].last_session
     assert before_session is not None and current_session is not None
-    assert tuple(reader.catalog_table().table_name for reader in before_session.table_readers) == (
+    assert _reader_names(providers[before_commit]) == (
         ORDERED_SYX_TABLE,
     )
-    assert tuple(reader.catalog_table().table_name for reader in current_session.table_readers) == (
-        ORDERED_SYX_TABLE,
-    )
+    assert _reader_names(providers[current_commit]) == ()  # Scoped content hit.
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assemble_step = unit_of_work.operations.get_step(

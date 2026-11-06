@@ -572,7 +572,7 @@ class _ReferenceCommittedTables:
     def register(self, key: Any, ref: Any) -> None:
         pass
 
-    def load_table(self, *, commit_id: str, descriptor: Any, storage_view: Any, context: Any, timeout_policy: Any) -> Any:
+    def load_table(self, *, commit_id: str, descriptor: Any, identity: Any, storage_view: Any, context: Any, timeout_policy: Any) -> Any:
         from gateway_backend.capabilities.snapshot_materialization.repository_ref import _read_and_materialize_table
         from gateway_backend.capabilities.snapshot_materialization.arrow import snapshot_table_from_arrow
         from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
@@ -602,6 +602,21 @@ class _ReferenceCommittedTables:
                     values = [None if value is None else struct.unpack(">f" if kind == "float32" else ">d", bytes.fromhex(value))[0] for value in values]
                 arrays.append(pa.array(values, type=physical))
             backing = pa.Table.from_arrays(arrays, schema=pa.schema(fields))
+            from gateway_backend.capabilities.storage_projection.native import project_arrow_table
+            from gateway_backend.capabilities.snapshot_materialization import operation_business_budgets, current_kernel_context
+            from gateway_backend.capabilities.table_access import source_arrow_metadata
+            active = current_kernel_context()
+            assert active is not None
+            view = storage_view
+            if view.canonical_key_policy.value in ("DDL_PRIMARY_KEY", "DDL_PRIMARY_KEY_OR_KEYLESS"):
+                view = replace(view, canonical_key_columns=descriptor.primary_key_columns)
+            with backing.to_reader() as stream:
+                projected = project_arrow_table(source_arrow_metadata(source, stream), table.descriptor, view,
+                    canonicalized_input=True, cancel_probe=active.cancel_probe, budgets=operation_business_budgets(),
+                    deadline_monotonic=active.deadline_monotonic, pool_threads=active.threads)
+            assert projected["output"] is not None, projected["diagnostics"]
+            with projected["output"]["tables"][0]["arrow_stream"] as stream:
+                backing = stream.read_all()
             return snapshot_table_from_arrow(table.descriptor, backing, source, ordered=table.ordered_metadata)
         finally:
             try:
@@ -616,6 +631,7 @@ class _ReferenceCommittedTables:
 def _bind_reference_tables(request: RepositoryRefMaterializationRequest, provider: FakeRepositoryTableAccessProvider) -> RepositoryRefMaterializationRequest:
     from gateway_backend.capabilities.snapshot_materialization.repository_ref import _read_and_materialize_table
     from gateway_backend.capabilities.snapshot_materialization.contracts import CanonicalTableIdentity
+    from gateway_backend.capabilities.storage_projection import compute_schema_digest
     if not request.canonical_binding.tables:
         return request
     identities = []
@@ -629,7 +645,9 @@ def _bind_reference_tables(request: RepositoryRefMaterializationRequest, provide
         if descriptor.raw_content_digest is None:
             raise ValueError("reference fixture must supply a valid canonical identity")
         identities.append(CanonicalTableIdentity(view.canonical_table, descriptor.row_count,
-            descriptor.compare_schema_digest, descriptor.business_schema_digest, descriptor.raw_content_digest))
+            descriptor.compare_schema_digest, compute_schema_digest(columns=[{"name": column.name,
+                "sql_type": column.scalar_type, "nullable": column.nullable} for column in descriptor.columns],
+                primary_key=descriptor.primary_key_columns), descriptor.raw_content_digest))
     binding = request.canonical_binding
     if not binding.table_identities:
         binding = replace(binding, table_identities=tuple(identities))

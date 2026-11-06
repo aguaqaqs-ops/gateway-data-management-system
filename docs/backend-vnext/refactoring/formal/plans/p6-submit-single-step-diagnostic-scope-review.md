@@ -551,3 +551,25 @@ cleanup 保存的每条操作均为固定 project 的容器/network 列举，初
 审核读取 CT05 原始 `focused-tests.log`，2026-11-06 03:42:26Z，hostname `gw-dms-test-05`，起止 HEAD e798，**11 项通过，exit 0**；SHA `015a9fd6b069266c3d8285b15273e735a7455e66504a57f85aa346501dba5310`。测试覆盖精确分类、双错误降级、后续资源读取、降级后截止仍发 SIGINT、即时复核失败/越限、混合/未知/timeout、有效栈打断连续失败，以及关闭回收；另有真实轻量 `/proc` 与文件系统绑定检查。已静态读测试及其 fake clock/process 接线，不把模拟测试称为新产品现场运行。原始 transfer 日志 SHA `3d0824d3b6dd9384a5f2b21f9e775c3632a0f1b99b528f911e1bb48df691c04b` 记录 clean e798、固定解释器和 NODE_LOCK_ABSENT；错误字节核验日志 SHA `b163766de550c9f30af7c7d2d6f5fdf284ddb623382a8fd4ead0bd059d35275e` 对旧 94/95 两文件各 64 bytes 精确 MATCH。三份实际日志摘要与 handoff 相同。
 
 a 的宽松匹配已被替代，b 的夹具失败和只读准备命令错误保留，不要求重跑通过的 c 测试。此轮未改仓库产品/包闭包，不要求无关五包静态或权威 runner；审核未运行任何测试、采样、服务或请求。下一步只需将此 observer 精确 pin 纳入新 project/key/证据目录的完整 launcher/shell/manifest，核其相对已审版本的必要接线和固定来源/目标，再给一次新候选执行决定。45 分钟与正式停止边界沿第 33 节。
+
+## 35. 完整 f 候选审核与一次单步 Submit GO
+
+**明确 GO：允许原实施者按 f README 的固定命令，在 CT05 执行一次 `p6catalogsubmit20261106f` 单步 Submit 诊断。** 审核主动读取原实施会话的正常回复和本地完整候选，已通过可用 TUI 直发实施者并抄送设计；无需等待实施者外发接口恢复、owner 或本报告提交回执。这是 DC80 下新候选的执行决定，不是再次套用 DC68，不续用旧 e 的运行卷或 GO。
+
+完整候选根目录 `/home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogsubmit20261106f/`：
+
+| 文件 | SHA256 |
+| --- | --- |
+| `candidate-manifest.json` | `93eade9a4689d623a103b8fa96f879a0fe18d61c02007e9f6b9c7ef49e21e01c` |
+| `candidate/submit_diagnostic_launcher.py` | `d6f60276bd741e10913b891f491264ec36bacb8fe37911a88c79061dad2056d5` |
+| `candidate/run-once.sh` | `d00f2d1c73636d9aba4932121d5a958b217db72aa7ec46f41872693d7703f4e5` |
+| `candidate/README.md` | `bd8b37bcc2fe1d2a36260701d313b2dc4843a93e99f02d7d277653497fe0a3bc` |
+| `candidate/SHA256SUMS` | `6451e4eb47fadcae9c0a8f40ce9aace1c72976b7b097dc75a692acdbcd99e16c` |
+
+manifest 八个候选文件大小和摘要逐项 MATCH，SUMS 七项 MATCH，shell ENTRY pin 与最终 launcher 相同；observer `0c8799a3…857097` 及复制的组件 manifest `9fc05f8d…eb2d` 与第 34 节通过对象完全相同。来源 readout 与目标 RS identity 文件未变。准备日志 SHA `69b43e633987fea20a4e4f1d2d7ca61d7cdd92bfa94887451a86f32a1549b2c8`，差异核对日志 SHA `9dbe35530a4adb2b44e94ae637dd54bb09f38c52ca08a78c243445b3ed2d04ab`，实际摘要均匹配 manifest；记录仅静态语法/AST/固定绑定检查，候选尚未执行，不重复组件测试。
+
+审核直接比较 e→f 最终文件：launcher 只换新 project/目录/token，把 observer pin 和实际 `load_module` 路径同时改为候选内已审组件，并固定组件 manifest 摘要；shell 只换新项目/路径/token 和 ENTRY pin。准备稿中的额外运行时解析/SUMS 步骤已在封存前移除，最终无此变化。原 repo-root→backend cwd 接线、源 checkpoint/input/cache 校验、e798 backend/worker 与 4497 RS config/全部 DiffID、源 RS UNAVAILABLE 说明、F1 单 POST、sampler、收尾及锁规则不变。没有产品改动或预算扩大。
+
+执行入口为 README 中 `ssh -o BatchMode=yes ct108-gw-dms-05 'cd /home/dev/gdds-prepare-import-e798-05/vnext/backend && /bin/bash /home/dev/gdds-p6-logs/cold-catalog-repair-20261106/p6catalogsubmit20261106f/candidate/run-once.sh'`。执行前按原规则确认节点空闲，经 LAN 同步并复核固定摘要，由 shell 自取锁；仅原 pre-submit checkpoint 的独立目标三卷/新 key，一次 v2-submit POST，不做 Preview、预热、后续步骤、自动恢复或失败重跑。保留原 2700 秒 POST guardian、5 秒身份/资源守护、必要停止条件；精确已知双 dump 错误才按第 34 节即时复核后停采，出现降级须如实记录后续栈缺口。
+
+失败即停留证，不自动再次执行；未知收束状态保锁，已确认静止后按脚本释放，卷和旧证据保留。交回真实 exit、独立结果、run/state/input 比较、observer/资源、Compose 及 cleanup/postflight/锁状态与 SHA。后续正常回复可由审核/设计直接读取，不将消息无法外发当成继续等待的理由。单步结果不自动恢复正式测量，也不预判原 lease 根因。审核本轮只读候选与现存证据并提交本报告，未运行候选、测试、容器或业务请求。

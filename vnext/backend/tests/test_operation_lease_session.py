@@ -598,8 +598,9 @@ def test_pure_drain_preserves_frozen_work_and_claim_budget(operator: bool, check
     operation, step = _active_records()
     store_bytes = InMemoryArtifactStore()
     ref = put_with_built_ref(store_bytes, b"checkpoint", artifact_id="checkpoint", media_type="application/json")
+    prior_ref = put_with_built_ref(store_bytes, b"prior", artifact_id="prior", media_type="application/json")
     step = dataclasses.replace(step, attempt_count=3, checkpoint_ref=ref if checkpoint else None,
-        prior_output_refs=(ref,), diagnostic=OperationDiagnostic(DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, "authorized") if operator else None)
+        prior_output_refs=(prior_ref,), diagnostic=OperationDiagnostic(DIAGNOSTIC_OPERATOR_RECOVERY_SESSION, "authorized") if operator else None)
     store = FakeStore(operation, step)
     session, _factory, control, _events = _make_session(store)
     session.enable_pure_recompute_stop()
@@ -607,7 +608,7 @@ def test_pure_drain_preserves_frozen_work_and_claim_budget(operator: bool, check
     assert session.release_for_drain() is ExecutorAcknowledgment.SAFE_HANDOFF
     assert store.step.status is StepStatus.RETRY_WAIT
     assert store.step.checkpoint_ref == step.checkpoint_ref
-    assert store.step.prior_output_refs == (ref,)
+    assert store.step.prior_output_refs == (prior_ref,)
     assert store.step.attempt_count == claim_attempt_count(store.step) == 3
     assert store.step.worker_id is None and store.step.lease_token is None and store.step.lease_expires_at is None
     assert claim_diagnostic(store.step) == step.diagnostic

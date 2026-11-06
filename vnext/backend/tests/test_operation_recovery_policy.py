@@ -669,8 +669,10 @@ def test_pure_recompute_repository_read_failure_uses_bounded_terminal_diagnostic
         assert calls == 2
 
 
+@pytest.mark.parametrize("error_type, code", ((RuntimeError, "OPERATION.PURE_RECOMPUTE_FAILED"),
+    (MemoryError, "OPERATION.RESOURCE_LIMIT_EXCEEDED")))
 def test_unexpected_pure_recompute_handler_exception_is_logged_without_exiting_worker(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, error_type: type[Exception], code: str,
 ) -> None:
     def handler(
         _operation: OperationRecord,
@@ -678,7 +680,7 @@ def test_unexpected_pure_recompute_handler_exception_is_logged_without_exiting_w
         _control: ExecutionControl,
         _session: LeaseSession,
     ) -> ExecutorAcknowledgment:
-        raise RuntimeError("internal handler detail")
+        raise error_type("internal handler detail")
 
     execute = build_recovery_routed_executor(
         cast(ClaimedExecutor, handler),
@@ -702,8 +704,8 @@ def test_unexpected_pure_recompute_handler_exception_is_logged_without_exiting_w
     assert session.intent.step_target is StepStatus.FAILED
     assert session.intent.operation_target is OperationStatus.FAILED
     assert session.diagnostic is not None
-    assert session.diagnostic.code == "OPERATION.PURE_RECOMPUTE_FAILED"
-    assert session.diagnostic.message == "pure-recompute handler raised RuntimeError"
+    assert session.diagnostic.code == code
+    assert session.diagnostic.message == f"pure-recompute handler raised {error_type.__name__}"
     assert "Traceback (most recent call last)" in caplog.text
     assert "internal handler detail" in caplog.text
     assert "internal handler detail" not in session.diagnostic.message

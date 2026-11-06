@@ -797,7 +797,7 @@ def build_recovery_routed_executor(
             reason = f"pure-recompute handler raised {type(exc).__name__}"
             result = HandlerRecoveryResult(
                 disposition=RecoveryPolicyOutcomeDisposition.PERMANENT_FAILURE,
-                diagnostic_code="RESOURCE_LIMIT_EXCEEDED" if isinstance(exc, MemoryError) else "operation.pure_recompute_failed",
+                diagnostic_code="operation.resource_limit_exceeded" if isinstance(exc, MemoryError) else "operation.pure_recompute_failed",
                 reason=reason,
             )
             return finalize_handler_recovery(

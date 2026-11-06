@@ -975,6 +975,7 @@ def test_registered_pure_runtime_drains_and_reclaims_without_a_failed_attempt(tm
     try:
         assert entered.wait(timeout=5)
         stop.set()
+        runtime.notify_stop_signal()  # The real signal handler wakes the supervisor.
         assert draining.wait(timeout=5)
         release.set()
         runner.join(timeout=5)

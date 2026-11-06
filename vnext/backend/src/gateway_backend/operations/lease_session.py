@@ -112,6 +112,7 @@ class LeaseSession:
             try:
                 with self._write_uow_factory() as unit_of_work:
                     _operation, current = self._load_live_records(unit_of_work)
+                    self._ensure_open()  # Runtime may fence the claim while the fresh read was pending.
                     if self._control.cancel_requested:
                         return None
                     now = unit_of_work.operations.transaction_now

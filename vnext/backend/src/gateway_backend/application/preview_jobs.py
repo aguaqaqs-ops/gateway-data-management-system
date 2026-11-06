@@ -1477,6 +1477,7 @@ def _materialize_uploaded_side(
                 xml=xml_result,
             )
         )
+        context.checkpoint()
         if business_result.status is not SnapshotMaterializationStatus.COMPLETE:
             diagnostic = business_result.diagnostics[0] if business_result.diagnostics else None
             raise PreviewJobError(

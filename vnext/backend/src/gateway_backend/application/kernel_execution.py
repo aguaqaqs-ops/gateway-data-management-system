@@ -15,7 +15,7 @@ from gateway_backend.capabilities.source_package_staging import (
 
 from gateway_backend.capabilities.table_access import (
     KernelExecutionContext,
-    OperationMemoryBudget, KernelStopped,
+    OperationMemoryBudget,
     kernel_execution_scope, current_kernel_context, KernelMemoryLimit,
 )
 from gateway_backend.operations.contracts import OperationRecord, StepRecord
@@ -123,7 +123,7 @@ def build_cooperative_kernel_stop(
         error: Exception, operation: OperationRecord, step: StepRecord,
         control: ExecutionControl, session: LeaseSession,
     ) -> ExecutorAcknowledgment | None:
-        if not isinstance(error, (KernelStopped, CooperativeExecutionStopped)):
+        if not isinstance(error, (InterruptedError, CooperativeExecutionStopped)):
             return None
         if control.lease_lost:
             raise LeaseExpired("compute observed lease loss")

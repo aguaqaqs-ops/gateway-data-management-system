@@ -428,3 +428,13 @@ controller/launcher 均 exit 1，结果为 `CATALOG_RETURNED_AFTER_RETRY`，原�
 已交设计决定对第 26 节“按旧 RS 身份核验”的措辞作这一窄化；无需无限搜寻不存在字段、扫描卷或重做 warmup。该建议不支持冻结运行原样复现、正式镜像等价/carried 或性能归因，也不授权 POST。设计明确后，外置候选只表达该固定来源及缺口、新目标完整身份和其余不变检查，接续具体脚本审核。
 
 **设计窄化已通过。** 已核 `13dbd76af194001c74fdd674830fd76eedaaae45` 的实际文本：明确 `run-bound RS full identity unavailable`，构建记录不升级为运行证明，已核 checkpoint 仅作为新目标诊断输入；内容/parent/input 不符仍停止，目标全 config/DiffID 身份保持。正式恢复或 carried 若需要缺失证明，须另带具体处置方案交 owner。本节缺口已明确处理，可直接继续外置固定候选审核，不再索取未保存字段，也不新增 POST 授权。
+
+## 28. 固定单 Submit 首版候选：收尾需修订
+
+候选项目 `p6catalogsubmit20261106d`，manifest SHA `efaefc6a4c069aa155730e95aa1883f65a0e3ce3ca3e302a9d65bc0235e64562`，launcher SHA `bbbe6311bdb2ed6b91545fe6267f5f2dadefe29888794e306b71bbf5487b04b6`，shell SHA `8bee28350189c3a3c4efa51651f723a8c48b0834ff7ce447148ab1cbd11b3ad1`；handoff 提交 `a158022d8cb5893bb2d48910c5cc0da28980fc4d`。已核 manifest 六项大小/摘要及候选 `SHA256SUMS` 全过。经 BatchMode SSH 只读核 CT05 引用的原 helper、F1 wrapper、resource observer、py-spy、expected-image 与 checker 六个文件，实际摘要均等于 pin；没有执行候选或节点测试。
+
+**需修订收尾接线，当前不 GO。** `run-once.sh` 在 sampler 返回后新增直接 `docker compose ... down --remove-orphans`，但父 shell 未提供 Compose `secrets.file` 使用的 `GATEWAY_P2R2_BEARER_TOKEN_FILE`、`GATEWAY_BACKEND_SESSION_FILE` 和 `GATEWAY_BACKEND_INTERNAL_BEARER_TOKEN_FILE`。原 journey 仅在子进程 `_compose_environment` 的局部 env 中生成这些路径，子进程退出不会回传父 shell；因此这条新增裸命令缺少解析原 Compose 所需的 secret 配置，可能在 journey 已正常收束后仍产生 cleanup 错误并保锁。它同时没有外层执行超时，不满足外置收束有界要求。原 journey 自身的 `run_compose(env, down, timeout=600)` 接线完整，不能据此认定新增 shell 命令也完整。
+
+已要求最小修正：保持原 journey 正常收尾；外层先查固定 project 的残留，无残留只核 quiescence，有残留则用固定 project 的有界停止/移除容器与 network，或提供明确可解析且有界的 cleanup 环境。未知状态保留锁，不删除卷，不增加通用生命周期框架或业务测试。修订后交固定文件与 manifest 新摘要，暂不 POST。
+
+其余定向审核未见阻塞：源 RS 明确 UNAVAILABLE/build-time provenance，源 run/state/checkpoint/input/cache 按原 helper 严格核验，新目标 4497 逐 config/全部 28 DiffID 与标签核验，backend/worker 仍原 e798；没有旧 RS 身份造假或修改源 manifest。普通 resume 只比较原 backend/worker 身份，新 RS 由外置候选单独绑定；复用 F1 单 POST wrapper、45 分钟独立 guardian、15 秒 Python dump/5 秒资源停止，以及目标步骤 finally 先关闭 observer 的接线。固定新 project/key/目标卷及同 manifest sampler/postflight 保持，采样与观测职责未扩展。

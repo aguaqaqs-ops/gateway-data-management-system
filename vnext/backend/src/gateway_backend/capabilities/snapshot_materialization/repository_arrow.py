@@ -77,6 +77,7 @@ def canonical_repository_stream(
                 elif conversion == "set":
                     if pc.list_flatten(array).null_count:
                         raise ValueError("SET wire member must not be null")
+                    array = pc.cast(array, pa.list_(pa.string()), safe=True)
                     array = pc.binary_join(array, ",")
                 elif conversion == "datetime":
                     array = pc.strftime(array, format="%Y-%m-%dT%H:%M:%S", locale="C")

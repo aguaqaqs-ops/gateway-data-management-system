@@ -104,8 +104,10 @@ class CanonicalCommittedTableAccess:
                 if table is None:
                     raise ValueError("canonical recovery table is missing from exact commit")
                 # Bound catalog metadata before copying or normalizing strings.
-                metadata_bytes = sum(len(c.name) + len(c.scalar_type or "") for c in table.columns) * 32
-                if len(table.columns) > self._budgets["max_columns"] or metadata_bytes > self._budgets["max_metadata_bytes"]:
+                metadata_bytes = 4096 + (len(table.table_name) + len(table.display_table_name or "")) * 32
+                metadata_bytes += sum((len(c.name) + len(c.display_name or "") + len(c.scalar_type or "") + len(c.raw_type or "")) * 32 + 4096 for c in table.columns)
+                metadata_bytes += sum(len(name) * 32 + 128 for name in table.primary_key_columns)
+                if max(len(table.columns), len(table.primary_key_columns)) > self._budgets["max_columns"] or metadata_bytes > self._budgets["max_metadata_bytes"] or metadata_bytes * 8 > self._budgets["max_live_bytes"]:
                     raise MemoryError("canonical recovery catalog metadata exceeds budget")
                 actual = replace(bound_descriptor, columns=tuple(SnapshotColumnDescriptor(
                     name=canonicalize_identifier(column.name), display_name=column.display_name or column.name,

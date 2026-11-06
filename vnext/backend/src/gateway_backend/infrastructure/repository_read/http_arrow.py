@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import cast
 from uuid import UUID
@@ -161,17 +161,16 @@ class HttpArrowRepositoryRefSession:
         if len(selected.columns) > max_columns or (selected.row_count or 0) > max_rows:
             raise MemoryError("repository Arrow catalog exceeds reader budget")
         path = cast(str, _run(self._spool_table_ipc(table_name, max_bytes=max_input_bytes)))
-        source: pa.MemoryMappedFile | None = None
-        wire: ipc.RecordBatchStreamReader | None = None
-        reader: pa.RecordBatchReader | None = None
-        try:
+        with ExitStack() as resources:
+            resources.callback(Path(path).unlink, missing_ok=True)
             source = pa.memory_map(path, "r")
+            resources.callback(source.close)
             wire = ipc.open_stream(source)
+            resources.callback(wire.close)
             if len(wire.schema) > max_columns:
                 raise MemoryError("repository Arrow column limit exceeded")
             def batches() -> Iterator[pa.RecordBatch]:
                 rows = total_bytes = count = 0
-                assert wire is not None
                 for batch in wire:
                     self._ensure_open()
                     rows += batch.num_rows
@@ -182,15 +181,8 @@ class HttpArrowRepositoryRefSession:
                     batch.validate(full=True)
                     yield batch
             reader = pa.RecordBatchReader.from_batches(wire.schema, batches())
+            resources.callback(reader.close)
             yield reader
-        finally:
-            if reader is not None:
-                reader.close()
-            if wire is not None:
-                wire.close()
-            if source is not None:
-                source.close()
-            Path(path).unlink(missing_ok=True)
 
     def close(self) -> None:
         self._closed = True

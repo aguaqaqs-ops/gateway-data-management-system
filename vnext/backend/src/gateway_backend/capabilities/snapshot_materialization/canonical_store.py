@@ -167,14 +167,16 @@ class ArtifactReadHandle:
         if self._closed:
             return
         self._closed = True
+        resources = ExitStack()
+        resources.callback(self._stack.close)
+        if self._source is not None:
+            resources.callback(self._source.close)
         for stream in self._borrowers:
-            stream.close()
+            resources.callback(stream.close)
         self._borrowers.clear()
         self._reader = None
-        if self._source is not None:
-            self._source.close()
-            self._source = None
-        self._stack.close()
+        self._source = None
+        resources.close()
 
     def _require_open(self) -> None:
         if self._closed:

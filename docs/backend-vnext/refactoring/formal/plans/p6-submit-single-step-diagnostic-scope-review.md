@@ -1303,3 +1303,27 @@ controller 完整/前缀 SHA、191 次成功心跳→失租→stall 的时间线
 当时 controller SHA256 `99d9f6f12920c88064cff75fbfea16009354b708742883d523822fc26270d691` 的 host binding 仍在 `_resume_source` 完成校验与复制之后才写，guardian 的初始化前段仍无 host/disk 样本。已要求在既有初始化接线中提前绑定实际 data filesystem、覆盖校验/复制，再核目标 control 卷设备一致性；注意 host/worker binding 当前还比较路径字符串，不能仅核 st_dev 后写不一致的路径。两点都属 §63 B1 的最小修复，不扩大观测、产品或预算范围。
 
 实施者已直接收到并接续修订；最终候选清单、受影响 focused 和剩余 B1–B3 结论待后续复审。**没有新的诊断 GO，h GO 已消耗，产品与镜像继续冻结，H3 不变，正式测量停止，lease 根因 OPEN。**
+
+## 65. prepare 候选 c 最终复审：B2/B3 关闭，B1 使用不存在的 runtime 入口仍阻塞
+
+**最终 manifest `8069dc64c32178ebce0994e9dbbc615eced89d4eaffcbb691cf37f5b9b10c192` 不获运行 GO。** 独立核验最终 14 文件集合、SHA256、权限和全部 Python AST，均匹配；只读冻结审核 worktree 的 HEAD 为 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`、状态干净。没有执行候选/测试、访问节点、启动业务或发 POST。本节审核新增工具接线，不要求产品或 §52 镜像重建；最后验证 image revision/source-tree 继续 §57/61。
+
+§64 的初次失败日志和精确清单已保留，`candidate-run1/` 的 14 文件与模式也逐项匹配该清单。重测清单 `focused-targeted-tests-rerun1-candidate-manifest.json` 的独立 SHA256 为 `2cef36aa1bb046f6e1d891d772e411d2faafaa4bb952602af4688c6591c8388b`；原始重测日志 `focused-targeted-tests-rerun1.log` 为 `e883fb4eb98f8a0317f559d3b57428d9c23a35e443cb4c5a821c6bc958211c63`，记录 CT05 17:43:19–20、起止 `1f9731`、8 passed / 19 deselected、pytest/script exit 0、锁已释放。最终相对该测试时清单只变 README/preparation-record/review-request，运行代码和测试未变。通过记录真实，但不证明未覆盖的真实产品 API。
+
+### 可以关闭的修订
+
+B2 的采集循环现在无论 direct child 是否已退出都执行绝对 deadline；使用自己的 session/process group 作 TERM/KILL 和有界 EOF 退出，保留 capture PID/exit/reaped/group quiet/elapsed。不确定回收传入现有 postflight 并保留节点锁。受控 descendant 保持输出 pipe、byte cap 及未回收传播用例已在初次 focused 中通过，相关代码最终未变；不把该轮整次 exit 1 写成权威 runner 通过，也不要求重复这些未变路径。
+
+B3 的正常 `run_once()` finally 现在统一接收 pre_down/guardian/cleanup 三项，写已有摘要；guardian STOPPED/结果缺失和 finalization 写失败会把原拟成功结果降为非零。四个实际 finally 参数用例在重测中通过，保留状态、摘要及安全解锁断言，正常顶层 key 省略与 postflight 明确 bool 的约定也核实。观测失败与进程已回收分开判定，已静止时可释放锁。
+
+B1 的部分修订可接受：host/data filesystem 在只读 offline/source preflight 后、checkpoint clone 及服务启动前绑定，随后校验目标 control 卷设备；不能表述成 controller-start 之前已有 host 样本。guardian 允许同设备的 host-root/volume 不同路径，并在真实 worker PID/starttime 首样本后发布 marker；late guardian stop/缺失结果已进入最终失败分类。这些改进不弥补下面的启动 API 问题。
+
+### B1 剩余阻塞：真实产品没有 run_until_drained
+
+最终 `prepare_step_worker.py` SHA256 为 `a4c82399129c323be40648a9aaf536c82dfca39e54aeea043a0b1d94a9410516`。391 行直接读取 `worker_runtime.WorkerRuntime.run_until_drained`，398 行再覆盖同名方法。冻结产品 `operations/worker_runtime.py:166` 实际定义的是 **`run(self, drain_requested, wait)`**，bootstrap `operation_worker.py:455` 实际调用 **`runtime.run(stop_requested.is_set, stop_requested.wait)`**；该类没有 run_until_drained。故 `_install_hooks` 读取原方法即抛 AttributeError，尚未构建 runtime 或进入 guardian 等待。实际流程此时已发 acceptance，不能靠一次业务运行验证这个可静态确认的错误。
+
+当前测试虽加入 `__slots__`，仍自建了产品不存在的 `run_until_drained`，因此 slots 和 gate 顺序通过不能代表真实入口接线。**§64 上轮审核只指出实例赋值的 slots 问题，未继续纠正这个方法名；本节按冻结源码校正该遗漏。** 应在外置工具中 hook 真实 class `run`，保持原参数、返回/异常、startup/claim 以及真实 claim_anchor 起算不变。用冻结真实类/API 绑定的最小 focused 证明 gate 在原 run 之前且仍委托原入口；不再只靠带相同虚构方法的 fake loop。若修订影响原成功后 drain/no-second-claim 场景，一并定向覆盖即可，不新增产品机制、TTL 修改、Compose 试跑或全量 runner。
+
+另有文书事实错误：preparation-record 的 identity 部分称候选 b “one candidate run remains spent / result awaits independent review”。b 按 §63 未获 GO、未运行业务；已消耗 GO 且有实际结果的是 h。该处应改正并重新绑定文档清单，无需为文书更正重测。
+
+阻塞和最小修复范围已直接交唯一实施者，抄设计；可沿 DC80 继续修订与受影响 focused，无需 owner 重复许可。保留本轮最终 c、测试包/manifest 和日志，新的代码/测试与最终清单重新绑定后再定向复审。**本轮无新 GO，h GO 已消耗，H3 不变，正式测量停止，lease 根因 OPEN。**

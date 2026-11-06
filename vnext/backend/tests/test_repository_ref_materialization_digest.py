@@ -16,7 +16,7 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
     map_repository_column,
 )
-from gateway_shared_kernel import NullScalar, SignedIntegerScalar, StringScalar
+from gateway_shared_kernel import NullScalar, SignedIntegerScalar
 from tests.support.repository_ref_materialization import (
     FakeRepositoryTableAccessProvider,
     canonical_binding_for_catalog,

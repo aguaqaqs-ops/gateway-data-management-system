@@ -77,6 +77,7 @@ from gateway_backend.capabilities.comparison.row_encoding import (
     _with_table_digest,
 )
 from gateway_backend.capabilities.comparison.replacement import compare_dataset_replacement
+from gateway_backend.capabilities.snapshot_materialization import ArrowSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
     COMPARISON_PROJECTION_CONTRACT_VERSION,
     SCALAR_ENCODING_VERSION,
@@ -103,6 +104,43 @@ _TYPED_SCALAR_TYPES = (
     Float32Scalar,
     Float64Scalar,
 )
+
+
+def comparison_python_memory_upper(plan: ComparisonPlan) -> int:
+    """Admit the existing Python comparison/records implementation before row reads.
+
+    The uncompressed Arrow payload is charged 64 times for Unicode values, cell/key
+    frames, JSON escaping plus row-key/digest encoding, Arrow conversion and the
+    simultaneously live Parquet spool/read-back. Per input cell, 2048 covers the
+    SourceScalar/tuple/frame objects and before/current + field-change scalar maps
+    (six-key dictionaries) in records; per row, 4096 covers keyed/Counter/ordered
+    indexes, sorting pointers, records and fixed Parquet row/header overhead. Column
+    names repeated in row JSON/frames have their own escaping/Unicode allowance.
+    Summing all read tables also conservatively keeps returned facts live through
+    risk/surface publication. It does not reserve merely metadata-only/healthy
+    identity hits, and does not infer expansion from compressed artifact bytes.
+    """
+    upper = 64 * 1024 + len(plan.tasks) * 8192
+    if plan.mode is ComparisonMode.DATASET_REPLACEMENT:
+        return upper
+    for task in plan.tasks:
+        policy = task.policy
+        if policy is None or policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
+            continue
+        if task.before_descriptor is not None and task.current_descriptor is not None and _can_table_early_exit(
+            task.before_descriptor, task.current_descriptor, policy):
+            continue
+        for table in (task.before_table, task.current_table):
+            if table is None:
+                continue
+            reader = table.reader
+            if not isinstance(reader, ArrowSnapshotTableReader):
+                raise StandardComparisonError("canonical comparison requires an Arrow reader for memory admission")
+            descriptor = table.descriptor
+            names = sum(len(column.name) for column in descriptor.columns)
+            upper += reader.logical_size_bytes * 64 + descriptor.row_count * (
+                len(descriptor.columns) * 2048 + 4096 + names * 64)
+    return upper
 
 
 def compare_plan(

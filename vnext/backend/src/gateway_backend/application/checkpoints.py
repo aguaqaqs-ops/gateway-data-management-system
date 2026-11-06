@@ -8,12 +8,14 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
+from typing import TypeVar, cast
 
 from gateway_shared_kernel import DigestRef, raw_blob_digest
 from gateway_shared_kernel.errors import CanonicalEncodingError
 from gateway_shared_kernel.jcs import canonicalize_jcs, canonicalize_json_value
 
+from gateway_backend.application.kernel_execution import reserved_artifact_bytes
+from gateway_backend.capabilities.table_access import current_kernel_context
 from gateway_backend.application.job_definitions import JobDefinition
 from gateway_backend.application.payloads import CHECKPOINT_DOCUMENT_TYPE, CheckpointDecodeError
 from gateway_backend.artifacts.bounded_store import BoundedArtifactStorePort
@@ -336,7 +338,11 @@ def verify_artifact_refs(store: ArtifactStorePort, refs: tuple[ArtifactRef, ...]
                 code="CHECKPOINT_REFS_INVALID",
             )
         try:
-            store.locate(ref)
+            if current_kernel_context() is None:
+                store.locate(ref)
+            else:
+                with reserved_artifact_bytes(store, ref):
+                    pass
         except ManifestVerificationError as exc:
             raise CheckpointPublicationError(str(exc), code="CHECKPOINT_REF_UNREADABLE") from exc
 
@@ -424,12 +430,25 @@ def load_checkpoint_state_artifact(
     return document
 
 
+_Document = TypeVar("_Document")
+
+
+def _read_checkpoint_document(store: ArtifactStorePort, ref: ArtifactRef, decode: Callable[[bytes], _Document]) -> _Document:
+    context = current_kernel_context()
+    if context is None:
+        return decode(store.locate(ref))
+    # JSON text/AST and frozen ref/contract objects can survive until this
+    # execution ends; admit their UTF-8/Unicode/container envelope before decode.
+    context.resources.enter_context(context.memory.reserve(ref.size_bytes * 32 + 4096))
+    with reserved_artifact_bytes(store, ref) as raw_bytes:
+        return decode(raw_bytes)
+
+
 def load_checkpoint_envelope(store: ArtifactStorePort, ref: ArtifactRef) -> StepCheckpointEnvelope:
     try:
-        raw_bytes = store.locate(ref)
+        return _read_checkpoint_document(store, ref, StepCheckpointEnvelope.from_canonical_bytes)
     except ManifestVerificationError as exc:
         raise CheckpointDecodeError(str(exc), code="CHECKPOINT_REF_UNREADABLE") from exc
-    return StepCheckpointEnvelope.from_canonical_bytes(raw_bytes)
 
 
 def put_ready_closure(
@@ -450,10 +469,9 @@ def put_ready_closure(
 
 def load_ready_closure(store: ArtifactStorePort, ref: ArtifactRef) -> ReadyClosureDocument:
     try:
-        raw_bytes = store.locate(ref)
+        document = _read_checkpoint_document(store, ref, ReadyClosureDocument.from_canonical_bytes)
     except ManifestVerificationError as exc:
         raise CheckpointDecodeError(str(exc), code="CLOSURE_REF_UNREADABLE") from exc
-    document = ReadyClosureDocument.from_canonical_bytes(raw_bytes)
     verify_artifact_refs(store, document.artifact_refs())
     return document
 

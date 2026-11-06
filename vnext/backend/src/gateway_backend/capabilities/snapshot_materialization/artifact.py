@@ -341,6 +341,12 @@ def open_snapshot_table_artifact(
     manifest_ref: ArtifactRef,
     *, repository_id: str | None = None, canonical_required: bool = False,
 ) -> SnapshotTable:
+    context = current_kernel_context()
+    if context is not None:
+        context.checkpoint()
+        # Raw JSON, Unicode/schema objects and the returned manifest/descriptor
+        # remain live beside the actual C mapping; admit them before locate/decode.
+        context.resources.enter_context(context.memory.reserve(manifest_ref.size_bytes * 32 + 4096))
     try:
         raw_manifest = store.locate(manifest_ref)
     except ManifestVerificationError as exc:

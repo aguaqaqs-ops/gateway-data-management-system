@@ -61,6 +61,11 @@ class ArrowSnapshotTableReader(BoundSnapshotTableReader):
     def execution_context(self) -> KernelExecutionContext:
         return self._arrow_source.execution_context
 
+    @property
+    def logical_size_bytes(self) -> int:
+        self._require_open()
+        return self._arrow_source.logical_size_bytes
+
     def arrow_stream(self) -> pa.RecordBatchReader:
         self._require_open()
         return self._arrow_source.arrow_stream()

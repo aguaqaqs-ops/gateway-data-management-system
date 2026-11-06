@@ -28,7 +28,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonMode,
     ComparisonRecordsClosure,
     FailedResult,
-    compare_plan,
+    compare_plan, comparison_python_memory_upper,
     plan_comparison,
     publish_records_closure, RecordsPublicationContext,
 )
@@ -264,6 +264,13 @@ def _run_comparison_risk_surface(
         raise PairPipelineError(f"pair planning failed: {plan.diagnostics}")
     if not isinstance(plan, ComparisonPlan):
         raise PairPipelineError("pair planning did not produce a comparison plan")
+    if context is None:
+        raise PairPipelineError("pair computation requires an operation kernel context")
+    upper = comparison_python_memory_upper(plan)
+    context.memory.record_stage_admission("comparison-python-records", upper)
+    # The returned facts/risk/surface objects can survive this function (FULL has
+    # multiple pairs). Keep this conservative envelope until the operation ends.
+    context.resources.enter_context(context.memory.reserve(upper))
     compared = compare_plan(plan)
     checkpoint()
     if isinstance(compared, FailedResult):

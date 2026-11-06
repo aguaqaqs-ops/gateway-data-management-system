@@ -140,6 +140,8 @@ def _read_bounded_artifact(read_artifact: Callable[[ArtifactRef], bytes], ref: A
         raise SubmitImportBuilderError("canonical artifact manifest exceeds size limit")
     try:
         payload = read_artifact(ref)
+    except (InterruptedError, TimeoutError, MemoryError):
+        raise
     except (ManifestVerificationError, OSError) as exc:
         raise SubmitImportBuilderError("canonical artifact is unavailable") from exc
     if type(payload) is not bytes or len(payload) != ref.size_bytes:

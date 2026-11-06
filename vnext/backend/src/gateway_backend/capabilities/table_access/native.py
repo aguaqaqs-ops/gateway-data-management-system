@@ -81,6 +81,12 @@ class ArrowSourceTableReader:
         assert self._table is not None
         return int(self._table.num_rows)
 
+    @property
+    def logical_size_bytes(self) -> int:
+        self._require_open()
+        assert self._table is not None
+        return int(self._table.nbytes)
+
     def arrow_stream(self) -> pa.RecordBatchReader:
         self._require_open()
         assert self._table is not None

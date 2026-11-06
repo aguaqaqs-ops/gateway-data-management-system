@@ -85,7 +85,7 @@ from gateway_backend.capabilities.comparison.standard import (
     COMPARISON_DIRECTION,
     STANDARD_COMPARISON_ALGORITHM_VERSION,
     StandardComparisonError,
-    compare_plan,
+    compare_plan, comparison_python_memory_upper,
 )
 
 __all__ = [
@@ -163,7 +163,7 @@ __all__ = [
     "StandardComparisonError",
     "TableComparisonTask",
     "compare_ordered_task",
-    "compare_plan",
+    "compare_plan", "comparison_python_memory_upper",
     "open_records_closure",
     "plan_comparison",
     "publish_records_closure",

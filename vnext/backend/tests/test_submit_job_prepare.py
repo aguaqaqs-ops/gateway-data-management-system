@@ -865,3 +865,25 @@ def test_prepare_checkpoint_payload_binding_mismatch_worker_aborts_and_allows_re
     )
     assert accepted.operation_id != operation_id
     assert accepted.replay is False
+
+
+def test_prepare_memory_rejection_aborts_frozen_attempt_and_releases_occupancy(db_path: Path) -> None:
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope,
+    )
+    store = InMemoryArtifactStore()
+    operation_id = _accept_prepared_operation(db_path, store)
+    memory = OperationMemoryBudget(2 * 1024**3)
+    with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
+        assert _run_prepare_handler(db_path, store, operation_id) is ExecutorAcknowledgment.PUBLISHED
+    assert any(stage["stage"] == "submit-package-replay" for stage in memory.stage_admissions)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        operation = uow.operations.get_operation(operation_id)
+        step = uow.operations.get_step(f"{operation_id}-step-1")
+        attempt = uow.submission.get_submit_attempt(_submit_attempt_id_from_operation(operation))
+        assert attempt is not None
+        assert operation.status is OperationStatus.FAILED and step.status is StepStatus.FAILED
+        assert operation.diagnostic is not None and operation.diagnostic.code == "RESOURCE_LIMIT_EXCEEDED"
+        assert attempt.state is SubmitAttemptState.ABORTED and attempt.abort_code == "RESOURCE_LIMIT_EXCEEDED"
+        assert uow.submission.get_workspace_occupancy(attempt.workspace_id) is None
+        assert uow.submission.get_repository_occupancy(attempt.repository_id) is None

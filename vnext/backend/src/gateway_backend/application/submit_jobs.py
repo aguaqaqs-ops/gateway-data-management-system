@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import ContextManager, Protocol, cast, runtime_checkable
 
+from gateway_backend.capabilities.table_access import current_kernel_context
+from gateway_backend.application.kernel_execution import reserved_artifact_bytes
 from gateway_backend.application.submission.contracts import (
     RepositoryImportOperation,
     RepositoryImportOperationStatus as RepositoryOperationStatus,
@@ -561,6 +563,9 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
                     operation_record=operation,
                 )
         except SubmitImportPublicationError as exc:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()
             _publish_prepare_projection_failure(lease_session, exc)
             return ExecutorAcknowledgment.PUBLISHED
         except PrepareCheckpointPayloadBindingError:
@@ -581,7 +586,7 @@ def build_prepare_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExec
         )
         return ExecutorAcknowledgment.PUBLISHED
 
-    return execute
+    return _with_resource_failure_terminal(execute)
 
 
 def build_submit_import_handler(deps: SubmitRuntimeDependencies) -> ClaimedExecutor:
@@ -1547,6 +1552,17 @@ def _recover_external_effect_step(
     )
 
 
+def _read_prepare_manifest(store: ArtifactStorePort, ref: ArtifactRef) -> bytes:
+    context = current_kernel_context()
+    if context is None:
+        raise SubmitJobError("prepare manifest read requires an operation context")
+    # Frozen closure/schema JSON and returned bytes remain conservatively charged
+    # through the execution; discarded READY row-file verification is short-lived.
+    context.resources.enter_context(context.memory.reserve(ref.size_bytes * 32 + 4096))
+    with reserved_artifact_bytes(store, ref) as payload:
+        return payload
+
+
 def _build_prepare_import_build_input(
     *,
     payload: SubmitJobPayload,
@@ -1576,7 +1592,7 @@ def _build_prepare_import_build_input(
             canonical_table_set_closure_digest=attempt.canonical_table_set_closure_digest,
             canonicalization_manifest_ref=attempt.canonicalization_manifest_ref,
             canonicalization_manifest_digest=attempt.canonicalization_manifest_digest,
-            read_artifact=store.locate,
+            read_artifact=lambda ref: _read_prepare_manifest(store, ref),
         )
         canonical_refs_by_id = {ref.artifact_id: ref for ref in canonical_refs}
         closure_ref = canonical_refs_by_id[attempt.canonical_table_set_closure_ref]
@@ -2709,6 +2725,25 @@ _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC = OperationDiagnostic(
 
 def _publish_prepare_binding_failure(lease_session: LeaseSession) -> None:
     _publish_prepare_terminal_abort(lease_session, _PREPARE_CHECKPOINT_BINDING_DIAGNOSTIC)
+
+
+def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
+    def execute(operation: OperationRecord, step: StepRecord, control: ExecutionControl,
+                lease_session: LeaseSession) -> ExecutorAcknowledgment:
+        try:
+            return handler(operation, step, control, lease_session)
+        except MemoryError as error:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
+            lease_session.refresh_control()
+            if control.cancel_requested:
+                lease_session.publish_operation(_make_cancelled_terminal_builder())
+            else:
+                _publish_prepare_terminal_abort(lease_session, OperationDiagnostic(
+                    code="RESOURCE_LIMIT_EXCEEDED", message=(str(error) or "operation memory budget exceeded")[:255]))
+            return ExecutorAcknowledgment.PUBLISHED
+    return cast(ClaimedExecutor, execute)
 
 
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:

@@ -715,3 +715,29 @@ def test_empty_baseline_submit_accepts_table_addition(
 
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         assert unit_of_work.connection.execute("SELECT COUNT(*) FROM submit_attempt_records").fetchone()[0] == 1
+
+
+def test_pair_memory_admission_rejects_before_python_row_comparison(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gateway_backend.capabilities.comparison import BoundSnapshotInput
+    from gateway_backend.capabilities.table_access import (
+        KernelExecutionContext, OperationMemoryBudget, NeverCancel, kernel_execution_scope, KernelMemoryLimit,
+    )
+    from gateway_backend.capabilities.snapshot_materialization import MaterializationPolicy
+    from tests.support.snapshot_materialization import materialize_arrow_sql
+    from tests.support.table_rules import comparison_ruleset_for, standard_rule_record
+    sides = []
+    for value in ("a", "b"):
+        result = materialize_arrow_sql(f"CREATE TABLE t(id INT PRIMARY KEY,v TEXT); INSERT INTO t VALUES (1,'{value}');",
+            policy=MaterializationPolicy.READERS_REQUIRED)
+        assert result.snapshot is not None and result.summary is not None and result.table_set is not None
+        sides.append(BoundSnapshotInput(result.snapshot, result.summary, result.table_set))
+    def forbidden_compare(_plan: object) -> None:
+        raise AssertionError("comparison must not allocate rows before M admission")
+    monkeypatch.setattr(pair_pipeline, "compare_plan", forbidden_compare)
+    memory = OperationMemoryBudget(64 * 1024)
+    with kernel_execution_scope(KernelExecutionContext(memory, NeverCancel(), 1), new_operation=True):
+        with pytest.raises(KernelMemoryLimit):
+            pair_pipeline.run_preview_pair_pipeline(pair_id="pair-budget", before=sides[0], current=sides[1],
+                store=InMemoryArtifactStore(), control=pair_pipeline.ExecutionControl(), on_cancel=lambda: None,
+                rule_set=comparison_ruleset_for(standard_rule_record("t")), assess_identity=False)
+    assert memory.stage_admissions[-1]["stage"] == "comparison-python-records"

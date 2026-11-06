@@ -704,7 +704,7 @@ def build_materialize_inputs_handler(deps: PreviewRuntimeDependencies) -> Claime
         )
         return ExecutorAcknowledgment.PUBLISHED
 
-    return cast(ClaimedExecutor, execute)
+    return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
 
 def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedExecutor:
@@ -869,7 +869,7 @@ def build_assemble_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedE
         )
         return ExecutorAcknowledgment.PUBLISHED
 
-    return cast(ClaimedExecutor, execute)
+    return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
 
 def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedExecutor:
@@ -956,7 +956,7 @@ def build_publish_preview_handler(deps: PreviewRuntimeDependencies) -> ClaimedEx
         )
         return ExecutorAcknowledgment.PUBLISHED
 
-    return cast(ClaimedExecutor, execute)
+    return _with_resource_failure_terminal(cast(ClaimedExecutor, execute))
 
 
 def _atomic_publish_preview(
@@ -3441,6 +3441,22 @@ def _terminal_step(
         updated_at=transaction_now,
         optimistic_version=step.optimistic_version + 1,
     )
+
+
+def _with_resource_failure_terminal(handler: ClaimedExecutor) -> ClaimedExecutor:
+    def execute(operation: OperationRecord, step: StepRecord, control: ExecutionControl,
+                lease_session: LeaseSession) -> ExecutorAcknowledgment:
+        try:
+            return handler(operation, step, control, lease_session)
+        except MemoryError as error:
+            context = current_kernel_context()
+            if context is not None:
+                context.checkpoint()  # Preserve real cancel/drain/lease/deadline first.
+            _publish_preview_materialization_failure(operation=operation, step=step, lease_session=lease_session,
+                diagnostic_code="RESOURCE_LIMIT_EXCEEDED", message=str(error) or "operation memory budget exceeded",
+                diagnostic_details=None, diagnostic_omitted_count=0, control=control)
+            return ExecutorAcknowledgment.PUBLISHED
+    return cast(ClaimedExecutor, execute)
 
 
 def publish_stopped_compute_cancelled(lease_session: LeaseSessionPort) -> ExecutorAcknowledgment:

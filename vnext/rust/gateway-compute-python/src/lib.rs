@@ -1053,26 +1053,44 @@ fn _inspect_canonical_ipc_native(
             (descriptors, owned)
         };
         let mut reader = arrow_stream.into_reader()?;
-        let batch = reader.next().ok_or_else(|| PyValueError::new_err("missing IPC buffer"))?
+        let batch = reader
+            .next()
+            .ok_or_else(|| PyValueError::new_err("missing IPC buffer"))?
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         if batch.num_columns() != 1 || batch.num_rows() != 1 || reader.next().is_some() {
-            return Err(PyValueError::new_err("IPC bridge requires one binary value"));
+            return Err(PyValueError::new_err(
+                "IPC bridge requires one binary value",
+            ));
         }
-        let array = batch.column(0).as_any().downcast_ref::<LargeBinaryArray>()
+        let array = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<LargeBinaryArray>()
             .ok_or_else(|| PyValueError::new_err("IPC bridge requires LargeBinary"))?;
         if array.is_null(0) {
             return Err(PyValueError::new_err("IPC bridge value must not be null"));
         }
         let mut core_budgets = budgets;
         core_budgets.max_codec_peak_bytes -= descriptors.1;
-        let result = py.detach(|| inspect_v1(array.value(0), &descriptors.0, CanonicalIpcOptions {
-            budgets: core_budgets,
-            control: CanonicalIpcControl { cancel: Some(watch.cancelled.as_ref()), deadline: None },
-        })).map_err(|error| match error.kind() {
-            CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
-            CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
-            _ => PyValueError::new_err(error.to_string()),
-        });
+        let result = py
+            .detach(|| {
+                inspect_v1(
+                    array.value(0),
+                    &descriptors.0,
+                    CanonicalIpcOptions {
+                        budgets: core_budgets,
+                        control: CanonicalIpcControl {
+                            cancel: Some(watch.cancelled.as_ref()),
+                            deadline: None,
+                        },
+                    },
+                )
+            })
+            .map_err(|error| match error.kind() {
+                CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
+                CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
+                _ => PyValueError::new_err(error.to_string()),
+            });
         python_adapter_control(&watch, None)?;
         result
     });

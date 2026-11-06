@@ -76,6 +76,17 @@ def canonical_columns(descriptor: SnapshotTableDescriptor) -> list[dict[str, Any
     return result
 
 
+def _check_descriptor_budget(descriptor: SnapshotTableDescriptor, budgets: dict[str, int]) -> None:
+    if len(descriptor.columns) > budgets["max_columns"]:
+        raise MemoryError("canonical descriptor column limit exceeded")
+    size = 4096 + len(descriptor.columns) * 4096
+    size += (len(descriptor.table_name) + len(descriptor.display_table_name)) * 32
+    for column in descriptor.columns:
+        size += (len(column.name) + len(column.display_name) + len(column.scalar_type or "")) * 32
+        if size > budgets["max_descriptor_bytes"] or size * 8 > budgets["max_codec_peak_bytes"]:
+            raise MemoryError("canonical descriptor byte limit exceeded")
+
+
 class ArtifactReadHandle:
     """Independent reader lifetime; batches/streams are borrowed within it."""
 
@@ -182,6 +193,7 @@ class CanonicalTableStore:
         self._budgets = dict(budgets)
 
     def put(self, stream: pa.RecordBatchReader, bound_descriptor: SnapshotTableDescriptor) -> ArtifactRef:
+        _check_descriptor_budget(bound_descriptor, self._budgets)
         key = canonical_table_key(self._repository_id, bound_descriptor)
         def bound_batches() -> Iterator[pa.RecordBatch]:
             rows = 0
@@ -205,6 +217,7 @@ class CanonicalTableStore:
         )
 
     def open(self, ref: ArtifactRef, bound_descriptor: SnapshotTableDescriptor) -> ArtifactReadHandle:
+        _check_descriptor_budget(bound_descriptor, self._budgets)
         key = canonical_table_key(self._repository_id, bound_descriptor)
         if ref.media_type != CANONICAL_IPC_MEDIA_TYPE or ref.artifact_id != key.artifact_id:
             raise ManifestVerificationError("canonical content identity binding mismatch")

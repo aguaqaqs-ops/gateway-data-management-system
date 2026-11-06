@@ -2548,7 +2548,11 @@ pub fn inspect_v1(
     let plans_live = plans.iter().try_fold(descriptor_bytes, |total, plan| {
         checked_add(
             total,
-            checked_add(std::mem::size_of::<ColumnPlan<'_>>(), plan.metadata.len(), "IPC plan")?,
+            checked_add(
+                std::mem::size_of::<ColumnPlan<'_>>(),
+                plan.metadata.len(),
+                "IPC plan",
+            )?,
             "IPC plans",
         )
     })?;
@@ -2560,7 +2564,9 @@ pub fn inspect_v1(
         checked_mul(preflight.footer_len, 2, "IPC reader footer")?,
         checked_mul(preflight.block_count, 64, "IPC reader block index")?,
         checked_mul(plans.len(), 2048, "IPC reader array wrappers")?,
-    ].into_iter().try_fold(0, |total, size| checked_add(total, size, "IPC reader peak"))?;
+    ]
+    .into_iter()
+    .try_fold(0, |total, size| checked_add(total, size, "IPC reader peak"))?;
     reserve_peak(options.budgets, plans_live, reader_peak)?;
     Ok(preflight.total_rows)
 }

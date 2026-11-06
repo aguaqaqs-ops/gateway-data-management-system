@@ -197,7 +197,7 @@ def snapshot_arrow_input(table: SnapshotTable) -> Iterator[tuple[dict[str, Any],
             with isolated.arrow_stream() as stream:
                 yield source_arrow_metadata(isolated.source_descriptor(), stream), isolated.execution_context
             return
-        if table.descriptor.table_name != "composite_signal_point":
+        if table.descriptor.table_name != "composite_signal_point" or not isinstance(isolated, BoundSnapshotTableReader):
             raise ValueError("ordinary canonical tables must use the Arrow production reader")
         source = isolated.source_descriptor()
         # Only the established Python composite result crosses this boundary.

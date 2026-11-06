@@ -414,10 +414,10 @@ fn selected_cell<'a>(
     row: Row,
     source_index: usize,
 ) -> Result<Cell<'a>, BusinessKernelError> {
-    if input.descriptor.columns[source_index].canonical_name == "gid" {
-        if let Some(gid) = row.gid {
-            return Ok(Cell::UInt(gid));
-        }
+    if input.descriptor.columns[source_index].canonical_name == "gid"
+        && let Some(gid) = row.gid
+    {
+        return Ok(Cell::UInt(gid));
     }
     cells::read(
         input.batches[row.batch].column(source_index).as_ref(),

@@ -25,6 +25,7 @@ from gateway_backend.infrastructure.artifact_store.local_store import LocalArtif
 from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
 from gateway_backend.infrastructure.repository_read.http_arrow import build_http_repository_provider_factory
 from gateway_shared_kernel import raw_blob_digest
+from gateway_repository_client.paths import decode_commit_id_path_segment
 from tests.test_canonical_table_store import BUSINESS_BUDGETS, IPC_BUDGETS, canonical_input
 
 pytestmark = pytest.mark.unit
@@ -75,7 +76,8 @@ def test_exact_commit_recovery_hits_do_not_rewrite_and_corruption_rebuilds(db_pa
     requests: list[str] = []
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(str(request.url))
-        assert COMMIT in request.url.path
+        commit_segment = request.url.path.split("/commits/", 1)[1].split("/", 1)[0]
+        assert decode_commit_id_path_segment(commit_segment) == COMMIT
         if request.url.path.endswith("/catalog"):
             return httpx.Response(200, json={"catalog": _catalog(bound)}, headers={"X-Request-ID": "catalog"})
         return httpx.Response(200, content=_wire(), headers={"X-Request-ID": "rows", "Content-Type": "application/vnd.apache.arrow.stream"})

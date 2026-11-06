@@ -6,7 +6,7 @@ import hashlib
 import os
 import stat
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Callable
 from contextlib import contextmanager
 from pathlib import Path
 

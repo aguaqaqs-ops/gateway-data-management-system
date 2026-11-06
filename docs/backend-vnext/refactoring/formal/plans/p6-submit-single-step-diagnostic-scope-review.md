@@ -800,3 +800,46 @@ manifest_sha256=221f8a1491f120faf9055567341622e931c70aedc9393f1631b17abf6ea41445
 原实施者可按候选 README 的唯一命令完成 LAN 传输、固定身份/clean/单飞/资源预检后执行一次；源提交固定 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`，节点 `ct108-gw-dms-05`，字面 backend venv 解释器及 cwd 不变。100k mutations、真实 builder 一次、原 10/30 秒租约、全程 300 秒/290 秒停止、8 GiB RSS、200 ms 独立监督，以及 host/disk 门槛和回收截止均保持。任何触发停止、截断或失败均留证并停；不自动重试、放大输入或增加预算，未确认回收则保留节点锁。旧 a/b manifest 均不得执行或复用此次 GO。
 
 本次仅授权固定合成内存 closure 诊断，不授权 Submit、正式基准、CT108、SQL/Dolt/Compose 或产品合入；没有新镜像 revision/source-tree 验证，容器门禁仍按 §42 延期。现场 lease 根因继续 OPEN，正式测量保持停止，成功结果也不能自动解除该状态。执行后交原始 stdout/stderr、supervisor、checkpoint、摘要与节点收尾状态复核。
+
+## 47. P6-CLOSURE-RESULT：预算截断，已保存窗口内续租正常
+
+**本次唯一尝试按 290 秒预算停止，完整 closure 未完成；不是产品失败或成功验收结论。§46 GO 已消耗，没有重试/扩容授权。** 只读原实施者回传的 `p6changeclosureprobe20261106a/runs/20261106T084827.859853825-2396923/` 原始证据和本地预检日志，没有访问测试节点、导入产品、运行测试或新取证。清单内 13 个编号 checkpoint、latest、stdout、stderr、supervisor 共 17 项实际 SHA256 全通过，launcher 独立摘要亦匹配。
+
+首次 transfer preflight 的命令误填旧文件清单摘要；日志止于六文件检查，修正后的 r2 明确确认 GO/attempt/runs/node lock 全 ABSENT，再核最终文件清单 `958fb509…` 和 manifest `221f8a14…`。后续 GO preflight 匹配唯一授权，启动前 attempt/runs/node lock 仍为空。该准备操作错误不是第二次产品运行。失败日志 SHA256 `cba95df3702904958091d91eb2de51a3389308c133fbd27cf728cbbcecf47bdc`；r2 `94334c7562c6b69ad245e37000a1a2a3a3a1066fb84b130297c1dd1ab21eda4d`；GO preflight `89e2eabcb637d0504122071528d8ff031c8fb440b6dd496b9d349c885bf664be`。没有据首次缺少结束行的日志单独推导 exit code。
+
+supervisor 记录 CT05、clean `1f9731dfc3`、精确 manifest/六文件/GO MATCH，起止 2026-11-06 08:48:27.936189–08:53:18.269022 UTC，总 **290.332847s**。`stop_reason=status=failure_detail=outer_290_second_stop_guard`，exit **124**；child PID 2396958/starttime 196467093，收到 TERM 后 return code **-15**、reaped=true，未 SIGKILL，supervisor_error=null。launcher 起止 HEAD 相同，并记录 `node_lock_release=child_exit_confirmed`。外层 SSH 记载结束时间比远端日志早约一秒，分别保留，不跨主机墙钟相减判定预算；预算结论取 supervisor 本机 elapsed。
+
+共 1,443 次资源采样、无丢弃；峰值 RSS **3,203,710,976 bytes**（约 2.984 GiB），最低 host available **64,404,956,160 bytes**，最低证据盘空闲 **217,913,937,920 bytes**，均未触相应停止阈值。这些是本次截断运行的采样结果，不代表完整链峰值或现场 24 GB 场景。
+
+最后有效 checkpoint 为 **13 / builder-stage-payload-construction**，保存于 08:52:41.819113 UTC；到 supervisor 结束尚有约 **36.450 秒未保存窗口**。stdout/stderr 都为空，没有 probe-final、closure 返回、最终 Contract 数量/绑定验证、引用释放、safe handoff 或 runtime 正常退出证据。snapshot 的 `status=starting`、mutation_count=0 与 digest=null 是尚未更新的初值，不能读成产品生成零 mutations。调用计数表明 builder 已进入一次、change-set digest 已进入两次、closure digest 已进入一次；完成窗口另证前两次 digest 已完成，不能把 closure digest 的入口计数当完成。
+
+| 已保存完成阶段 | wall time |
+| --- | --- |
+| input construction | 67.409849s |
+| mutation diff/key ordering | 4.941476s |
+| change-set digest 1 / 2 | 81.567445s / 77.689866s |
+| payload construction 1 / 2 / 3 | 7.579521s / 3.606792s / 5.500193s |
+| 完整 JCS Unicode 1 / 2 | 25.472344s / 25.336674s |
+| 完整 JCS number validation 1 / 2 | 3.096770s / 3.102548s |
+| 完整 JCS serialization 1 / 2 | 41.926393s / 42.114106s |
+
+上述窗口有包含关系，不能累加为独立开销；第三份 payload 已完成，但其后 JCS/closure digest 没有完成记录。67 秒输入与两次约 80 秒摘要已说明旧小样本预算估计不能充当本完整链预测；不据此推算剩余耗时或自动增加预算。这里也没有旧实现的同负载对照，不能报告 hash sink 的实测加速/降幅。
+
+最后快照内 **25 次** heartbeat handler/attempt/transaction 全部成功，事务 UTC→expiry 均 30 秒；没有保存到 heartbeat_busy、lease_lost 或 executor_failed。按实际 30/10 秒设置，handler 相对首次 due 的最大延迟约 **0.826s**，renewal anchor 相对旧 deadline 最小余量 **19.174s**。两次完整 Unicode 窗口各包含 2 次 handler 入口，两次数值校验各 1 次，两次 serialization 各 4 次。因此已记录的长 JCS 阶段可以与真实续租交错，阶段 wall time 超过 10/30 秒不等于连续阻塞 GIL 同样时长。尾部未保存窗口未知，不能扩写为全程无失租，也不能用最后保存的 expiry 与终止时间比较来臆断实际失租。
+
+GC 聚合截至最后快照：gen0/1/2 分别 15,137/1,376/20 次，gen2 最大 **2.248569s**，累计 **16.808256s**；最近环覆盖 16,405 条旧记录、最长列表为 32，callback_errors=0。最大窗口位于首份 payload 构造内；时间相关性不证明 GC 是现场失租唯一原因。三个 key JCS metric 各 **550,000 次**、aggregate_only=true、窗口为空；pending drops=0、checkpoint_errors=[]，仅 13 个文件名额已用，C2 的逐 key 耗尽问题没有发生。最后快照含前 12 次保存的 I/O 累计 **1.172456s**、最大 **0.124691s**，第 13 次自己的保存开销尚未进入其快照，不能声称这是全程保存总耗时。
+
+关键摘要：evidence 清单 `a20836c574b532a24e06a1cd9fa1d1c5bcf058e2873bc2b7fcc9c01313031aae`；supervisor `8fc0a0197b375bb8b681ccd7e5a1f1db89816681a96d6c10446034b3e335a1a7`；checkpoint 13/latest `a6850cee7be0a737d79307ed12c8198ed9f65824102a3eab678f3ca11baf7dce`；launcher `688abdba85a072ee4b058b41dc001cba9702d7a0fe134f1e9356a223ab468a7e`。
+
+实施者已补充 preparation-record 的执行收尾：报告只读后检确认节点锁和匹配任务进程不存在；该后检原始输出未单独列为本次本地日志，因此独立可复核的回收/解锁依据仍是上述 supervisor 和 launcher。第一次 LAN 复制把 20 个文件放在 runs 根，第二次保留 timestamp 子目录；两份副本逐项摘要一致，是同一次执行的重复副本，均保留，不计作两次运行。
+
+**下一步建议转候选镜像准备与验证方案，不要求再跑合成负载直到 completed。** 300 秒是诊断资源预算，不是产品性能门槛。§42 的候选代码/局部语义证据与本次已保存的 25 次续租，足以支持设计推进下一验证阶段；并不等于 lease 已修复，也不能替代容器门禁。该证据已否定“摘要总时长直接等同心跳连续受阻”的推论，但没有复现/关闭现场大堆、SQLite 或完整链退出问题。现在没有必须再做一个局部 probe 才能准备镜像的证据缺口。
+
+实际镜像验证与另审一次真实输入诊断仍需以下具体绑定：
+
+- 冻结最终产品提交及 RS/JCS 组合，按该源码的 Dockerfile/缓存流程准备精确镜像身份、传输身份和相应容器门禁；旧镜像结果不能直接称为该候选通过或 carried。
+- 真实输入明确来源、摘要、复用方式和执行边界；优先围绕现场失败的 closure 路径提出问题。是否包含 DB、HTTP 或不可逆 Submit 必须明确，不能由“真实输入诊断”隐含扩大。
+- 根据真实规模另定全程预算、RSS/host/disk 停止条件及回收/残留处置；不得把本次 300 秒当性能门槛，也不以“跑完”为由无限延长。尾部阶段、续租失败、释放/join 的保存方式和已知缺口须明确，避免再次只能以未保存尾部猜测结论。
+- 判别目标应是具体的，例如真实 payload 在重复 digest 或释放阶段是否仍导致续租失败；若目标是验证 SQLite 场景，则内存 UOW 不足，方案须直接注明。若仅为获得 completed 而缩放合成输入，没有新增必要性。
+
+这些建议已直接交设计和原实施者；没有授予新构建/运行 GO，不放宽 TTL 或删 Contract 校验。正式测量继续停止，lease 根因 OPEN，镜像/合入边界维持 §42。

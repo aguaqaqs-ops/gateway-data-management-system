@@ -93,7 +93,7 @@ S2b B/C 已批准的 Python 调用侧由下列精确 capability 模块拥有；b
 | `storage_projection.native` | `_canonical_project_native` |
 | `snapshot_materialization.canonical_store` | `_encode_canonical_ipc_native`、`_inspect_canonical_ipc_native` |
 
-这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 module/entrypoint 继续拒绝。`artifacts` 仍只拥有 port/value，不直接调用 compute。后续新增实际调用 owner 必须按 owning 设计明确，不由普通 Finding 自动扩展。规则验证包含允许边与其他 owner/entrypoint 的拒绝例；`IMPORT_RULE_BASELINE` 和 cycle baseline 不为本次增加条目。
+这些入口保持各 capability 的现有 DAG、公开 facade、局部预算与 control 边界。规则按 source module、精确 target 和显式导入的 entrypoint 名称匹配，不给全部 capability 开放 `ext:compute`，不允许 wildcard 或任意 native 模块导入绕过该表；其他 capability module/entrypoint 继续拒绝。既有 composition/bootstrap 依赖规则保持，D 的 worker runtime 初始化由其 owning 设计约束。`artifacts` 仍只拥有 port/value，不直接调用 compute。后续新增实际调用 owner 必须按 owning 设计明确，不由普通 Finding 自动扩展。规则验证包含允许边与其他 owner/entrypoint 的拒绝例；`IMPORT_RULE_BASELINE` 和 cycle baseline 不为本次增加条目。
 
 ## 5. Dependency and toolchain
 

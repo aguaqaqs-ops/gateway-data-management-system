@@ -2796,6 +2796,78 @@ mod tests {
             .ok_or_else(|| io::Error::other("test footer schema is missing").into())
     }
 
+    fn header_schema(bytes: &[u8]) -> Result<arrow_ipc::Schema<'_>, Box<dyn Error>> {
+        let metadata_start = IPC_ALIGNMENT;
+        let length_start = metadata_start
+            .checked_add(4)
+            .ok_or_else(|| io::Error::other("test schema message offset overflow"))?;
+        let message_start = metadata_start
+            .checked_add(8)
+            .ok_or_else(|| io::Error::other("test schema payload offset overflow"))?;
+        let length_bytes = bytes
+            .get(length_start..length_start + 4)
+            .ok_or_else(|| io::Error::other("test schema message prefix is missing"))?;
+        let message_len = usize::try_from(i32::from_le_bytes([
+            length_bytes[0],
+            length_bytes[1],
+            length_bytes[2],
+            length_bytes[3],
+        ]))?;
+        let message_end = message_start
+            .checked_add(message_len)
+            .ok_or_else(|| io::Error::other("test schema message length overflow"))?;
+        let message_bytes = bytes
+            .get(message_start..message_end)
+            .ok_or_else(|| io::Error::other("test schema message is out of range"))?;
+        let message = root_as_message(message_bytes)
+            .map_err(|error| io::Error::other(format!("invalid test header: {error:?}")))?;
+        message
+            .header_as_schema()
+            .ok_or_else(|| io::Error::other("test header schema is missing").into())
+    }
+
+    fn schema_version_value_range(
+        bytes: &[u8],
+        in_footer: bool,
+    ) -> Result<(usize, usize), Box<dyn Error>> {
+        let schema = if in_footer {
+            footer_schema(bytes)?
+        } else {
+            header_schema(bytes)?
+        };
+        let entries = schema
+            .custom_metadata()
+            .ok_or_else(|| io::Error::other("test schema metadata is missing"))?;
+        let value = entries
+            .get(0)
+            .value()
+            .ok_or_else(|| io::Error::other("test schema metadata value is missing"))?;
+        let start = (value.as_ptr() as usize)
+            .checked_sub(bytes.as_ptr() as usize)
+            .ok_or_else(|| io::Error::other("test schema metadata pointer is invalid"))?;
+        let end = start
+            .checked_add(value.len())
+            .ok_or_else(|| io::Error::other("test schema metadata range overflow"))?;
+        Ok((start, end))
+    }
+
+    fn header_field_type_tag_range(bytes: &[u8]) -> Result<usize, Box<dyn Error>> {
+        let schema = header_schema(bytes)?;
+        let field = schema
+            .fields()
+            .ok_or_else(|| io::Error::other("test header fields are missing"))?
+            .get(0);
+        let slot = field._tab.vtable().get(arrow_ipc::Field::VT_TYPE_TYPE);
+        if slot == 0 {
+            return Err(io::Error::other("test field type tag is missing").into());
+        }
+        IPC_ALIGNMENT
+            .checked_add(8)
+            .and_then(|base| base.checked_add(field._tab.loc()))
+            .and_then(|offset| offset.checked_add(usize::from(slot)))
+            .ok_or_else(|| io::Error::other("test field type tag offset overflow").into())
+    }
+
     fn first_record_batch_buffers(bytes: &[u8]) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
         let footer_offset = footer_start(bytes)?;
         let trailer_start = bytes
@@ -3030,24 +3102,88 @@ mod tests {
     }
 
     #[test]
+    fn decoder_rejects_unknown_canonical_mapping_version() -> Result<(), Box<dyn Error>> {
+        let column = column(
+            "text",
+            0,
+            "VARCHAR(16)",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::String),
+            true,
+            None,
+        );
+        let columns = vec![column];
+        let schema = Arc::new(Schema::new(vec![Field::new("text", DataType::Utf8, true)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringArray::from(vec![Some("x")])) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let mut encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let (start, end) = schema_version_value_range(&encoded, true)?;
+        if end - start != 1 {
+            return Err(io::Error::other("fixed schema version did not have one byte").into());
+        }
+        *encoded
+            .get_mut(start)
+            .ok_or_else(|| io::Error::other("test mapping version offset is out of range"))? = b'2';
+        let error = decode_v1(&encoded, &columns, &pool, options())
+            .err()
+            .ok_or_else(|| io::Error::other("decoder accepted an unknown mapping version"))?;
+        assert_eq!(error.kind(), CanonicalIpcErrorKind::Schema);
+        Ok(())
+    }
+
+    #[test]
+    fn decoder_rejects_header_footer_physical_schema_disagreement() -> Result<(), Box<dyn Error>> {
+        let column = column(
+            "text",
+            0,
+            "VARCHAR(16)",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::String),
+            true,
+            None,
+        );
+        let columns = vec![column];
+        let schema = Arc::new(Schema::new(vec![Field::new("text", DataType::Utf8, true)]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringArray::from(vec![Some("x")])) as ArrayRef],
+        )?;
+        let pool = pool()?;
+        let mut encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let type_tag = header_field_type_tag_range(&encoded)?;
+        *encoded
+            .get_mut(type_tag)
+            .ok_or_else(|| io::Error::other("test type tag offset is out of range"))? =
+            arrow_ipc::Type::LargeUtf8.0;
+        let error = decode_v1(&encoded, &columns, &pool, options())
+            .err()
+            .ok_or_else(|| io::Error::other("decoder accepted different header/footer types"))?;
+        assert_eq!(error.kind(), CanonicalIpcErrorKind::Schema);
+        Ok(())
+    }
+
+    #[test]
     fn canonical_mapping_covers_declared_arrow_types_and_business_text_layout()
     -> Result<(), Box<dyn Error>> {
         let columns = vec![
             column(
                 "a_signed",
                 0,
-                "TINYINT",
+                "BIGINT",
                 SqlLogicalType::Standard,
-                Some(DeclaredType::SignedInteger { bits: 8 }),
+                Some(DeclaredType::SignedInteger { bits: 64 }),
                 true,
                 None,
             ),
             column(
                 "b_unsigned",
                 1,
-                "SMALLINT UNSIGNED",
+                "BIGINT UNSIGNED",
                 SqlLogicalType::Standard,
-                Some(DeclaredType::UnsignedInteger { bits: 16 }),
+                Some(DeclaredType::UnsignedInteger { bits: 64 }),
                 true,
                 None,
             ),
@@ -3072,11 +3208,11 @@ mod tests {
             column(
                 "e_decimal",
                 4,
-                "DECIMAL(10,4)",
+                "DECIMAL(65,30)",
                 SqlLogicalType::Standard,
                 Some(DeclaredType::Decimal {
-                    precision: 10,
-                    scale: 4,
+                    precision: 65,
+                    scale: 30,
                 }),
                 true,
                 None,
@@ -3144,6 +3280,24 @@ mod tests {
                 true,
                 None,
             ),
+            column(
+                "m_binary",
+                12,
+                "BLOB",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Binary),
+                true,
+                None,
+            ),
+            column(
+                "n_all_null",
+                13,
+                "VARCHAR(8)",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::String),
+                true,
+                None,
+            ),
         ];
         let schema = Arc::new(Schema::new(vec![
             Field::new("a_signed", DataType::Int64, true),
@@ -3158,20 +3312,38 @@ mod tests {
             Field::new("j_datetime", DataType::Utf8, true),
             Field::new("k_timestamp", DataType::Utf8, true),
             Field::new("l_time", DataType::Utf8, true),
+            Field::new("m_binary", DataType::Binary, true),
+            Field::new("n_all_null", DataType::Utf8, true),
         ]));
         let arrays: Vec<ArrayRef> = vec![
-            Arc::new(Int64Array::from(vec![Some(127), None])),
-            Arc::new(UInt64Array::from(vec![Some(65_535), None])),
-            Arc::new(Float32Array::from(vec![Some(1.25), None])),
-            Arc::new(Float64Array::from(vec![Some(-2.5), None])),
-            Arc::new(StringArray::from(vec![Some("10.12"), None])),
+            // Shared scalar vectors: signed/unsigned 64-bit max and decimal.boundary-65-30.
+            Arc::new(Int64Array::from(vec![Some(i64::MAX), None])),
+            Arc::new(UInt64Array::from(vec![Some(u64::MAX), None])),
+            Arc::new(Float32Array::from(vec![
+                Some(f32::from_bits(0x4b80_0000)),
+                None,
+            ])),
+            Arc::new(Float64Array::from(vec![
+                Some(f64::from_bits(0x4340_0000_0000_0000)),
+                None,
+            ])),
+            Arc::new(StringArray::from(vec![
+                Some("1.000000000000000000000000000001"),
+                None,
+            ])),
             Arc::new(StringArray::from(vec![Some("green"), None])),
+            // The SET frame vector independently fixes members ["a", "b"] in declaration order.
             Arc::new(StringArray::from(vec![Some("a,b"), None])),
+            // The owning JSON parser preserves valid text exactly; mapping must keep key order/space.
             Arc::new(StringArray::from(vec![Some("{\"b\": 2, \"a\":1 }"), None])),
+            // Shared scalar vectors: date.leap-day, datetime.fraction, timestamp.fraction,
+            // and time-duration.hours-838.
             Arc::new(StringArray::from(vec![Some("2024-02-29"), None])),
             Arc::new(StringArray::from(vec![Some("2024-01-02T03:04:05.123456"), None])),
             Arc::new(StringArray::from(vec![Some("2024-01-02T03:04:05.1Z"), None])),
             Arc::new(StringArray::from(vec![Some("838:59:59"), None])),
+            Arc::new(BinaryArray::from(vec![Some(&[0x00, 0xff][..]), None])),
+            Arc::new(StringArray::from(vec![None::<&str>, None])),
         ];
         let batch = RecordBatch::try_new(schema, arrays)?;
         let pool = pool()?;
@@ -3193,6 +3365,8 @@ mod tests {
             DataType::Utf8,
             DataType::Utf8,
             DataType::Utf8,
+            DataType::Binary,
+            DataType::Utf8,
         ];
         for (field, expected) in decoded.schema().fields().iter().zip(expected_types) {
             assert_eq!(field.data_type(), &expected, "field {}", field.name());
@@ -3203,7 +3377,7 @@ mod tests {
                 .as_any()
                 .downcast_ref::<Int64Array>()
                 .map(|values| values.value(0)),
-            Some(127)
+            Some(i64::MAX)
         );
         assert_eq!(
             decoded
@@ -3211,7 +3385,7 @@ mod tests {
                 .as_any()
                 .downcast_ref::<UInt64Array>()
                 .map(|values| values.value(0)),
-            Some(65_535)
+            Some(u64::MAX)
         );
         assert_eq!(
             decoded
@@ -3219,7 +3393,7 @@ mod tests {
                 .as_any()
                 .downcast_ref::<Float32Array>()
                 .map(|values| values.value(0)),
-            Some(1.25)
+            Some(f32::from_bits(0x4b80_0000))
         );
         assert_eq!(
             decoded
@@ -3227,10 +3401,10 @@ mod tests {
                 .as_any()
                 .downcast_ref::<Float64Array>()
                 .map(|values| values.value(0)),
-            Some(-2.5)
+            Some(f64::from_bits(0x4340_0000_0000_0000))
         );
         let expected_text = [
-            "10.12",
+            "1.000000000000000000000000000001",
             "green",
             "a,b",
             "{\"b\": 2, \"a\":1 }",
@@ -3273,6 +3447,109 @@ mod tests {
             .downcast_ref::<StringArray>()
             .ok_or_else(|| io::Error::other("decoded SET column has an unexpected type"))?;
         assert_eq!(decoded_set.value(0).split(',').collect::<Vec<_>>(), set_members);
+        let decoded_binary = decoded
+            .column(12)
+            .as_any()
+            .downcast_ref::<BinaryArray>()
+            .ok_or_else(|| io::Error::other("decoded binary column has an unexpected type"))?;
+        assert_eq!(decoded_binary.value(0), [0x00, 0xff]);
+        assert!(decoded_binary.is_null(1));
+        let all_null = decoded
+            .column(13)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| io::Error::other("decoded all-null column has an unexpected type"))?;
+        assert_eq!(all_null.null_count(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_float_layout_preserves_fixed_normalized_bit_vectors(
+    ) -> Result<(), Box<dyn Error>> {
+        let columns = vec![
+            column(
+                "f32",
+                0,
+                "FLOAT",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Float32),
+                false,
+                None,
+            ),
+            column(
+                "f64",
+                1,
+                "DOUBLE",
+                SqlLogicalType::Standard,
+                Some(DeclaredType::Float64),
+                false,
+                None,
+            ),
+        ];
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("f32", DataType::Float32, false),
+            Field::new("f64", DataType::Float64, false),
+        ]));
+        // Shared Kernel fixed vectors: direct rounding, smallest subnormal, normalized negative zero.
+        let f32_bits = [0x3f80_0001_u32, 0x0000_0001, 0x0000_0000];
+        let f64_bits = [0x4340_0000_0000_0000_u64, 0x0000_0000_0000_0001, 0];
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Float32Array::from(
+                    f32_bits.map(f32::from_bits).to_vec(),
+                )) as ArrayRef,
+                Arc::new(Float64Array::from(
+                    f64_bits.map(f64::from_bits).to_vec(),
+                )) as ArrayRef,
+            ],
+        )?;
+        let pool = pool()?;
+        let encoded = encode_v1(&columns, std::slice::from_ref(&batch), &pool, options())?;
+        let buffers = first_record_batch_buffers(&encoded)?;
+        assert_eq!(buffers[0], [0xff]);
+        assert_eq!(
+            buffers[1],
+            [
+                f32_bits[0].to_le_bytes(),
+                f32_bits[1].to_le_bytes(),
+                f32_bits[2].to_le_bytes(),
+            ]
+            .concat()
+        );
+        assert_eq!(buffers[2], [0xff]);
+        assert_eq!(
+            buffers[3],
+            [
+                f64_bits[0].to_le_bytes(),
+                f64_bits[1].to_le_bytes(),
+                f64_bits[2].to_le_bytes(),
+            ]
+            .concat()
+        );
+        let decoded = decode_v1(&encoded, &columns, &pool, options())?;
+        let floats = decoded[0]
+            .column(0)
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .ok_or_else(|| io::Error::other("decoded Float32 column has an unexpected type"))?;
+        let doubles = decoded[0]
+            .column(1)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .ok_or_else(|| io::Error::other("decoded Float64 column has an unexpected type"))?;
+        assert_eq!(
+            (0..floats.len())
+                .map(|index| floats.value(index).to_bits())
+                .collect::<Vec<_>>(),
+            f32_bits
+        );
+        assert_eq!(
+            (0..doubles.len())
+                .map(|index| doubles.value(index).to_bits())
+                .collect::<Vec<_>>(),
+            f64_bits
+        );
         Ok(())
     }
 
@@ -3372,11 +3649,34 @@ mod tests {
         .ok_or_else(|| io::Error::other("encoder exceeded its actual output limit"))?;
         assert_eq!(output_error.kind(), CanonicalIpcErrorKind::Resource);
 
+        let rows = CANONICAL_IPC_BATCH_ROWS;
+        let column = column(
+            "i",
+            0,
+            "BIGINT",
+            SqlLogicalType::Standard,
+            Some(DeclaredType::SignedInteger { bits: 64 }),
+            false,
+            None,
+        );
+        let schema = Arc::new(Schema::new(vec![Field::new("i", DataType::Int64, false)]));
+        let large_batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(Int64Array::from(vec![1_i64; rows])) as ArrayRef],
+        )?;
         let mut peak_limited = options();
-        peak_limited.budgets.max_codec_peak_bytes = 1;
-        let peak_error = encode_v1(&columns, std::slice::from_ref(&batch), &pool, peak_limited)
-            .err()
-            .ok_or_else(|| io::Error::other("encoder exceeded its codec peak limit"))?;
+        peak_limited.budgets.max_rows = rows;
+        peak_limited.budgets.max_input_bytes = 1 << 20;
+        peak_limited.budgets.max_output_bytes = 1 << 20;
+        peak_limited.budgets.max_codec_peak_bytes = 64 << 10;
+        let peak_error = encode_v1(
+            &[column],
+            std::slice::from_ref(&large_batch),
+            &pool,
+            peak_limited,
+        )
+        .err()
+        .ok_or_else(|| io::Error::other("encoder exceeded its codec peak limit"))?;
         assert_eq!(peak_error.kind(), CanonicalIpcErrorKind::Resource);
         Ok(())
     }

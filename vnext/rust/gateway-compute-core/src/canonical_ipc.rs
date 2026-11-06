@@ -1653,11 +1653,13 @@ fn build_output_batch(
     });
     let columns = columns.into_iter().collect::<Result<Vec<_>, _>>()?;
     let batch_options = RecordBatchOptions::new().with_row_count(Some(rows));
-    RecordBatch::try_new_with_options(Arc::clone(schema), columns, &batch_options).map_err(|error| {
-        ipc_error(format!(
-            "canonical RecordBatch construction failed: {error}"
-        ))
-    })
+    RecordBatch::try_new_with_options(Arc::clone(schema), columns, &batch_options).map_err(
+        |error| {
+            ipc_error(format!(
+                "canonical RecordBatch construction failed: {error}"
+            ))
+        },
+    )
 }
 
 /// Encode already projected, row-ordered Arrow batches as canonical IPC file bytes.

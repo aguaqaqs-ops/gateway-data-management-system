@@ -8,17 +8,13 @@ import logging
 import time
 from datetime import UTC, datetime
 
-from gateway_shared_kernel import CanonicalEncodingError, canonicalize_identifier
+from gateway_shared_kernel import canonicalize_identifier
 
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
-    encode_cell_frame,
-    raw_content_digest_of,
     raw_state_digest_of,
-    row_content_hash,
     snapshot_digest_of,
 )
-from gateway_backend.capabilities.snapshot_materialization._reader import BoundSnapshotTableReader
 from gateway_backend.capabilities.snapshot_materialization.artifact import (
     ArtifactPublishError,
     artifact_error_diagnostic,
@@ -31,7 +27,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SNAPSHOT_MATERIALIZATION_CONTRACT_VERSION,
     SUMMARY_CONTRACT_VERSION,
     CacheTrustLevel,
-    BlankRowProvenance,
     DegradedReason,
     DiagnosticSeverity,
     MaterializationDiagnostic,
@@ -50,26 +45,21 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotSummary,
     SnapshotColumnDescriptor,
     SnapshotTable,
-    SnapshotTableOrderedMetadata,
     SnapshotTableDescriptor,
     SnapshotTableSet,
     CanonicalTableIdentity,
     SourceKind,
 )
 from gateway_backend.capabilities.snapshot_materialization.scalar_encoding import (
-    encode_repository_row,
     map_repository_column,
 )
 from gateway_backend.capabilities.table_access import kernel_control_scope
 from gateway_backend.capabilities.table_access.contracts import (
-    MaterializedTableReader,
     PARSER_VERSION,
     ParserInvocationContext,
-    SourceRow,
     SourceTableDescriptor,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
-    OrderedPolicy,
     StorageRuleView,
     TABLE_RULESET_VERSION,
 )

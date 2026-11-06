@@ -13,31 +13,18 @@ from gateway_backend.artifacts.types import ArtifactRef
 from datetime import UTC, datetime
 
 from gateway_shared_kernel import (
-    CanonicalEncodingError,
     DigestRef,
-    NullScalar,
-    SignedIntegerScalar,
-    StringScalar,
-    UnsignedIntegerScalar,
     canonicalize_identifier,
 )
 
 from gateway_backend.capabilities.composite_signal.contracts import COMPOSITE_SIGNAL_CONTRACT_VERSION
-from gateway_backend.artifacts.snapshot_table_export_cache import SnapshotTableExportCachePort
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,
-    encode_cell_frame,
-    raw_content_digest_of,
     raw_state_digest_of,
-    row_content_hash,
     snapshot_digest_of,
 )
 from gateway_backend.capabilities.snapshot_materialization.arrow import materialize_source_arrow
 from gateway_backend.capabilities.table_access import ArrowSourceTableReader
-from gateway_backend.capabilities.snapshot_materialization._reader import (
-    BoundSnapshotTableReader,
-    as_reopenable,
-)
 from gateway_backend.capabilities.snapshot_materialization._ruleset import (
     CompareKeyError,
     compare_key_index,
@@ -73,8 +60,6 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableDescriptor,
     SnapshotTableSet,
     SnapshotTableOrderedMetadata,
-    GID_PSEUDO_MAX,
-    GID_PSEUDO_MIN,
     SourceKind,
     SqlSnapshotMaterializationRequest,
 )
@@ -82,11 +67,8 @@ from gateway_backend.capabilities.table_access.contracts import (
     PARSER_VERSION,
     ParsedTable,
     ParseStatus,
-    ParserDiagnosticCode,
     ParserInvocationContext,
     SourceTableDescriptor,
-    TableAccessError,
-    TableReader,
 )
 from gateway_backend.capabilities.table_rules.contracts import (
     TABLE_RULESET_VERSION,

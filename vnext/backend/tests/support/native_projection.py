@@ -10,11 +10,11 @@ from gateway_backend.capabilities.snapshot_materialization import (
     source_descriptor_from_arrow,
 )
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    SnapshotColumnDescriptor, SnapshotTable,
+    SnapshotColumnDescriptor, SnapshotTable, SnapshotTableSet,
 )
 from gateway_backend.capabilities.storage_projection.contracts import (
     CANONICALIZATION_MANIFEST_CONTRACT, PACKAGE_VERSION, STORAGE_PROJECTION_VERSION,
-    CanonicalizationManifest, CanonicalizationManifestTable, ImportReplayTableSnapshot,
+    CanonicalizationManifest, CanonicalizationManifestTable, ImportReplayTableSnapshot, CanonicalProjectionResult,
     ProjectionDiagnostic, ProjectionDiagnosticCode, ProjectionDiagnosticSeverity,
     ProjectionRequest, ProjectionResult, ProjectionStatus, ProjectionTable,
     RepositoryImportArtifactInput, RepositoryImportColumn, RepositoryImportTable,
@@ -24,6 +24,7 @@ from gateway_backend.capabilities.storage_projection.native import project_arrow
 from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
 from gateway_backend.capabilities.table_rules import resolve_table_rule
 from tests.support.snapshot_materialization import snapshot_table_as_arrow
+from gateway_backend.capabilities.table_rules.contracts import TableRulesetSnapshot
 
 
 def projected_fixture_tables(request: ProjectionRequest) -> tuple[ProjectionResult, tuple[SnapshotTable, ...]]:
@@ -75,7 +76,7 @@ def projected_fixture_tables(request: ProjectionRequest) -> tuple[ProjectionResu
             primary_key_columns=view.canonical_key_columns, compare_key_columns=view.canonical_key_columns,
             raw_content_digest=digest, degraded_reason=None, diagnostics=())
         tables.append(snapshot_table_from_arrow(bound, backing, source_descriptor_from_arrow(native)))
-        projected.append(ProjectionTable(item.canonical_table, view, backing.num_rows, schema, digest))
+        projected.append(ProjectionTable(item.canonical_table, view, row_count=backing.num_rows, schema_digest=schema, content_digest=digest))
         manifest_tables.append(CanonicalizationManifestTable(item.canonical_table, descriptor.row_count,
             backing.num_rows, view.canonical_key_policy, view.ordered_policy, view.retained_columns,
             view.structural_columns, view.dropped_columns, view.canonical_key_columns,
@@ -127,6 +128,6 @@ def build_import_projection_snapshots(request: ProjectionRequest, result: Projec
     return tuple(snapshots)
 
 
-def project_canonical_fixture(raw, ruleset):
+def project_canonical_fixture(raw: SnapshotTableSet, ruleset: TableRulesetSnapshot) -> CanonicalProjectionResult:
     from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
     return project_canonical_arrow_table_set(replace(raw, tables=tuple(snapshot_table_as_arrow(t) for t in raw.tables)), ruleset)

@@ -2,25 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 
-from gateway_shared_kernel import (
-    DateTimeScalar,
-    Float32Scalar,
-    Float64Scalar,
-    NullScalar,
-    SignedIntegerScalar,
-    StringScalar,
-    UnsignedIntegerScalar,
-)
 
-from gateway_backend.capabilities.storage_projection._digest import CanonicalColumnCodec
 from gateway_backend.capabilities.storage_projection.contracts import (
-    CanonicalizationManifestTable,
-    ImportReplayKeyedRow,
-    ImportReplayTableSnapshot,
-    ProjectionRequest,
-    ProjectionResult,
     RepositoryImportArtifactInput,
     RepositoryImportTable,
 )

@@ -25,7 +25,7 @@ from gateway_backend.capabilities.composite_signal.contracts import (
     CompositeSignalResult,
     CompositeSignalStatus,
 )
-from gateway_backend.capabilities.snapshot_materialization.arrow import ArrowSnapshotTableReader, extract_arrow_special_device_catalog
+from gateway_backend.capabilities.snapshot_materialization.arrow import extract_arrow_special_device_catalog
 from gateway_backend.capabilities.snapshot_materialization._catalog import CatalogError
 from gateway_backend.capabilities.snapshot_materialization._digest import (
     compare_schema_digest,

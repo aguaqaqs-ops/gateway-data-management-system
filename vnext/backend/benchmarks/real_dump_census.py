@@ -88,7 +88,6 @@ from gateway_backend.capabilities.table_rules.registry import migrated_table_rul
 from gateway_backend.capabilities.table_rules.resolver import resolve_table_rule
 from gateway_backend.capabilities.table_rules import comparison_rule_set
 from gateway_backend.capabilities.storage_projection import project_canonical_arrow_table_set
-from gateway_backend.capabilities.storage_projection.contracts import ProjectionDiagnosticCode
 from gateway_backend.capabilities.storage_projection.view import StorageViewError, derive_storage_rule_view
 from gateway_backend.capabilities.table_rules.contracts import (
     ORDERED_IDENTITY_COLUMN,
@@ -820,9 +819,9 @@ def _duplicate_and_effective_key_stats(
             projected = project_canonical_arrow_table_set(replace(table_set, tables=(table,)), ruleset)
             projection_status = projected.status.value
             if projected.manifest is None:
-                first = projected.diagnostics[0]
-                projection_code = first.code.value
-                projection_message = first.message
+                projection_diagnostic = projected.diagnostics[0]
+                projection_code = projection_diagnostic.code.value
+                projection_message = projection_diagnostic.message
             else:
                 projection_code = None
                 projection_message = None

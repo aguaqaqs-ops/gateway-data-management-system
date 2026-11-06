@@ -5,14 +5,12 @@ from __future__ import annotations
 from tests.support.native_projection import project_storage
 
 from collections.abc import Callable
-from typing import cast
 
 import pytest
 from gateway_shared_kernel import (
     CollectionSemantics,
     DeclaredType,
     DeclaredTypeKind,
-    DigestRef,
     NullScalar,
     StringScalar,
     encode_collection,

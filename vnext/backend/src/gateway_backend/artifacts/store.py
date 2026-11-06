@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import ContextManager, Protocol
+
+import pyarrow as pa
 
 from gateway_shared_kernel import raw_blob_digest
 
@@ -21,6 +25,11 @@ class ArtifactStorePort(Protocol):
 class ArtifactRefLookupPort(Protocol):
     def get_ref(self, artifact_id: str) -> ArtifactRef:
         """Resolve the stored minimal ref for one opaque artifact id."""
+
+
+class ArtifactBufferStorePort(ArtifactStorePort, Protocol):
+    def open_buffer(self, ref: ArtifactRef) -> ContextManager[pa.Buffer]:
+        """Borrow verified immutable bytes; the provider owns their lifetime."""
 
 
 class ManifestVerificationError(ValueError):
@@ -56,6 +65,10 @@ class InMemoryArtifactStore:
             return self._artifacts[artifact_id][0]
         except KeyError as exc:
             raise ManifestVerificationError(f"unknown artifact_id: {artifact_id}") from exc
+
+    @contextmanager
+    def open_buffer(self, ref: ArtifactRef) -> Iterator[pa.Buffer]:
+        yield pa.py_buffer(self.locate(ref))
 
     def _verify_put(self, raw_bytes: bytes, ref: ArtifactRef) -> None:
         validate_artifact_ref_model(ref)

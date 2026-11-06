@@ -1,0 +1,154 @@
+"""The canonical storage owner's real IPC/FS and borrowed-reader boundaries."""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, cast
+
+import pyarrow as pa
+import pytest
+from gateway_compute._native import _parse_sql_native
+
+from gateway_backend.artifacts import ArtifactRef, InMemoryArtifactStore
+from gateway_backend.artifacts.store import ManifestVerificationError
+from gateway_backend.capabilities.snapshot_materialization.canonical_store import (
+    CanonicalTableStore,
+    canonical_table_key,
+)
+from gateway_backend.capabilities.snapshot_materialization.contracts import (
+    MaterializationPolicy,
+    SnapshotTableDescriptor,
+)
+from gateway_backend.capabilities.storage_projection.native import project_arrow_table
+from gateway_backend.capabilities.storage_projection.project import project_canonical_table_set
+from gateway_backend.capabilities.storage_projection.view import derive_storage_rule_view
+from gateway_backend.capabilities.table_access.contracts import NeverCancel
+from gateway_backend.capabilities.table_rules import resolve_table_rule
+from gateway_backend.capabilities.table_rules.registry import migrated_table_ruleset_snapshot
+from gateway_backend.infrastructure.artifact_store.local_store import LocalArtifactStore
+from gateway_shared_kernel import raw_blob_digest
+from tests.support.snapshot_materialization import materialize_sql
+
+pytestmark = pytest.mark.unit
+
+IPC_BUDGETS = {
+    "max_rows": 100000, "max_columns": 2048, "max_descriptor_bytes": 4 * 1024 * 1024,
+    "max_input_batches": 64, "max_input_bytes": 32 * 1024 * 1024,
+    "max_output_bytes": 64 * 1024 * 1024, "max_codec_peak_bytes": 256 * 1024 * 1024,
+}
+BUSINESS_BUDGETS = {
+    "max_rows": 100000, "max_columns": 2048, "max_batches": 64,
+    "max_metadata_bytes": 4 * 1024 * 1024, "max_input_bytes": 32 * 1024 * 1024,
+    "max_live_bytes": 256 * 1024 * 1024, "max_output_bytes": 64 * 1024 * 1024,
+    "max_diagnostic_bytes": 512 * 1024,
+}
+SQL = "CREATE TABLE t (z INT NOT NULL PRIMARY KEY, a VARCHAR(8)); INSERT INTO t VALUES (2,'b'),(1,'a');"
+
+
+def canonical_input(sql: str = SQL) -> tuple[pa.RecordBatchReader, SnapshotTableDescriptor]:
+    old = materialize_sql(sql, policy=MaterializationPolicy.READERS_REQUIRED)
+    assert old.table_set is not None
+    rules = migrated_table_ruleset_snapshot()
+    descriptor = old.table_set.tables[0].descriptor
+    record = resolve_table_rule(
+        rules, descriptor.table_name, primary_key_columns=descriptor.primary_key_columns,
+    ).record
+    view = derive_storage_rule_view(record, descriptor)
+    assert view is not None
+    parsed = cast(dict[str, Any], _parse_sql_native(sql.encode(), NeverCancel()))
+    projected = project_arrow_table(
+        parsed["tables"][0], descriptor, view, canonicalized_input=False,
+        cancel_probe=NeverCancel(), budgets=BUSINESS_BUDGETS,
+        deadline_monotonic=None, pool_threads=1,
+    )
+    oracle = project_canonical_table_set(old.table_set, rules)
+    assert projected["output"] is not None
+    bound = oracle.tables[0].descriptor
+    assert projected["output"]["raw_content_digest"] == bound.raw_content_digest.value
+    return projected["output"]["tables"][0]["arrow_stream"], bound
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_independent_handles_bind_export_order_and_close(tmp_path: Path, local: bool) -> None:
+    backend = LocalArtifactStore(tmp_path / "objects") if local else InMemoryArtifactStore()
+    store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+    stream, descriptor = canonical_input()
+    ref = store.put(stream, descriptor)
+    first = store.open(ref, descriptor)
+    with store.open(ref, descriptor) as second:
+        assert first is not second
+        assert second.schema.names == ["z", "a"]
+        batches = list(second.iter_batches())
+        assert batches[0].column(0).to_pylist() == [1, 2]
+        assert batches[0].column(1).to_pylist() == ["a", "b"]
+        del batches
+        with second.borrow_stream() as borrowed:
+            assert borrowed.read_all().num_rows == 2
+        first.close()
+        first.close()
+        with pytest.raises(ValueError, match="closed"):
+            list(first.iter_batches())
+        assert sum(batch.num_rows for batch in second.iter_batches()) == 2
+    with pytest.raises(ValueError, match="closed"):
+        _ = second.schema
+
+
+def test_content_identity_reuses_ddl_permutation_and_rejects_other_scope(tmp_path: Path) -> None:
+    backend = LocalArtifactStore(tmp_path / "objects")
+    store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+    stream, bound = canonical_input()
+    ref = store.put(stream, bound)
+    stream2, bound2 = canonical_input(
+        "CREATE TABLE t (a VARCHAR(8), z INT NOT NULL PRIMARY KEY); INSERT INTO t VALUES ('a',1),('b',2);"
+    )
+    assert store.put(stream2, bound2) == ref
+    with store.open(ref, bound2) as handle:
+        assert handle.schema.names == ["a", "z"]
+    other = CanonicalTableStore(backend, repository_id="other", budgets=IPC_BUDGETS)
+    with pytest.raises(ManifestVerificationError, match="identity"):
+        other.open(ref, bound)
+
+
+def test_mapping_uses_raw_integrity_and_bounded_profile_before_reader(tmp_path: Path) -> None:
+    backend = LocalArtifactStore(tmp_path / "objects")
+    store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+    stream, bound = canonical_input()
+    ref = store.put(stream, bound)
+    digest = hashlib.sha256(ref.artifact_id.encode()).hexdigest()
+    path = backend.artifact_root / digest[:2] / digest[2:4] / digest
+    raw = path.read_bytes()
+    path.write_bytes(raw[:-1])
+    with pytest.raises(ManifestVerificationError):
+        store.open(ref, bound)
+    corrupt = raw.replace(b'gdds.canonical_mapping_version', b'xdds.canonical_mapping_version')
+    path.write_bytes(corrupt)
+    # Exact integrity is insufficient when the bound internal profile differs.
+    changed = replace(ref, raw_sha256=raw_blob_digest(corrupt))
+    fresh = InMemoryArtifactStore()
+    fresh.put(corrupt, changed)
+    with pytest.raises(ValueError, match="metadata"):
+        CanonicalTableStore(fresh, repository_id="repo", budgets=IPC_BUDGETS).open(changed, bound)
+    bounded = CanonicalTableStore(fresh, repository_id="repo", budgets={**IPC_BUDGETS, "max_input_bytes": 1})
+    with pytest.raises(MemoryError, match="input"):
+        bounded.open(changed, bound)
+
+
+def test_failed_stream_and_wrong_row_binding_publish_no_object(tmp_path: Path) -> None:
+    backend = LocalArtifactStore(tmp_path / "objects")
+    store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+    stream, bound = canonical_input()
+    with pytest.raises(ValueError, match="row count"):
+        store.put(stream, replace(bound, row_count=3))
+    assert not list(backend.artifact_root.rglob("*.ref.jcs"))
+    assert canonical_table_key("repo", bound).artifact_id.startswith("canonical-table:")
+
+
+def test_binding_cannot_open_a_different_business_digest(tmp_path: Path) -> None:
+    backend = LocalArtifactStore(tmp_path / "objects")
+    store = CanonicalTableStore(backend, repository_id="repo", budgets=IPC_BUDGETS)
+    stream, bound = canonical_input()
+    ref: ArtifactRef = store.put(stream, bound)
+    with pytest.raises(ManifestVerificationError, match="identity"):
+        store.open(ref, replace(bound, raw_content_digest=raw_blob_digest(b"other")))

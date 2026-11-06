@@ -10,11 +10,11 @@ use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use arrow_array::{ArrayRef, RecordBatch, RecordBatchReader};
+use arrow_array::{Array, ArrayRef, LargeBinaryArray, RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, Field, Schema};
 use gateway_compute_core::canonical_ipc::{
     CanonicalIpcBudgets, CanonicalIpcControl, CanonicalIpcError, CanonicalIpcErrorKind,
-    CanonicalIpcOptions, encode_v1, set_declared_type_from_parts,
+    CanonicalIpcOptions, encode_v1, inspect_v1, set_declared_type_from_parts,
 };
 use gateway_compute_core::table_access::{
     ColumnDescriptor, DeclaredTypeMetadata, ParsedTable, ParserBudgets, ParserDiagnosticCode,
@@ -1026,6 +1026,62 @@ struct SingleBatchReader {
     batch: Option<RecordBatch>,
 }
 
+/// Borrow a single LargeBinary value through the existing safe Arrow bridge.
+/// Python retains its mapping for the entire synchronous call; no path or raw
+/// pointer crosses this boundary and no IPC body is copied into a Rust Vec.
+#[pyfunction]
+fn _inspect_canonical_ipc_native(
+    py: Python<'_>,
+    columns: Bound<'_, PyList>,
+    arrow_stream: PyRecordBatchReader,
+    cancel_probe: Py<PyAny>,
+    budgets: Bound<'_, PyDict>,
+) -> PyResult<usize> {
+    let result = adapter_boundary(|| {
+        let budgets = canonical_budgets(&budgets)?;
+        let watch = register_cancel_probe(py, &cancel_probe)?;
+        python_adapter_control(&watch, None)?;
+        let descriptors = {
+            let preflight = descriptor_preflight(&columns, budgets, &watch, None)?;
+            let descriptors = parse_column_descriptors(&columns, preflight, &watch, None)?;
+            let owned = actual_descriptor_storage_bytes(&descriptors, descriptors.capacity())?
+                .checked_add(preflight.string_cache_upper_bytes)
+                .ok_or_else(|| PyMemoryError::new_err("IPC descriptor storage overflow"))?;
+            if owned > budgets.max_codec_peak_bytes {
+                return Err(PyMemoryError::new_err("IPC descriptor exceeds peak budget"));
+            }
+            (descriptors, owned)
+        };
+        let mut reader = arrow_stream.into_reader()?;
+        let batch = reader.next().ok_or_else(|| PyValueError::new_err("missing IPC buffer"))?
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        if batch.num_columns() != 1 || batch.num_rows() != 1 || reader.next().is_some() {
+            return Err(PyValueError::new_err("IPC bridge requires one binary value"));
+        }
+        let array = batch.column(0).as_any().downcast_ref::<LargeBinaryArray>()
+            .ok_or_else(|| PyValueError::new_err("IPC bridge requires LargeBinary"))?;
+        if array.is_null(0) {
+            return Err(PyValueError::new_err("IPC bridge value must not be null"));
+        }
+        let mut core_budgets = budgets;
+        core_budgets.max_codec_peak_bytes -= descriptors.1;
+        let result = py.detach(|| inspect_v1(array.value(0), &descriptors.0, CanonicalIpcOptions {
+            budgets: core_budgets,
+            control: CanonicalIpcControl { cancel: Some(watch.cancelled.as_ref()), deadline: None },
+        })).map_err(|error| match error.kind() {
+            CanonicalIpcErrorKind::Resource => PyMemoryError::new_err(error.to_string()),
+            CanonicalIpcErrorKind::Cancelled => PyInterruptedError::new_err(error.to_string()),
+            _ => PyValueError::new_err(error.to_string()),
+        });
+        python_adapter_control(&watch, None)?;
+        result
+    });
+    match result {
+        Ok(result) => result,
+        Err(()) => Err(PyRuntimeError::new_err("canonical IPC inspection panicked")),
+    }
+}
+
 impl Iterator for SingleBatchReader {
     type Item = Result<RecordBatch, ArrowError>;
 
@@ -1250,6 +1306,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     business::register(module)?;
     module.add_function(wrap_pyfunction!(_parse_sql_native, module)?)?;
     module.add_function(wrap_pyfunction!(_encode_canonical_ipc_native, module)?)?;
+    module.add_function(wrap_pyfunction!(_inspect_canonical_ipc_native, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add("__build_input__", BUILD_INPUT)?;
     Ok(())

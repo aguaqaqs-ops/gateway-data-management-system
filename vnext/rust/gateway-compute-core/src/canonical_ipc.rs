@@ -2531,6 +2531,40 @@ fn validate_reader_schema(
     Ok(large_offsets)
 }
 
+/// Inspect a producer-owned v1 file on borrowed storage before opening a reader.
+///
+/// This shares the decoder's raw profile/schema/range validation, without decoding
+/// or copying array buffers. The caller still owns integrity, business identity,
+/// and the lifetime of borrowed arrays. It is not an external import validator.
+pub fn inspect_v1(
+    bytes: &[u8],
+    columns: &[ColumnDescriptor],
+    options: CanonicalIpcOptions<'_>,
+) -> Result<usize, CanonicalIpcError> {
+    check_control(options.control)?;
+    let descriptor_bytes = descriptor_size(columns, options.budgets)?;
+    let plans = canonical_plans(columns, descriptor_bytes, options.budgets, options.control)?;
+    let schema_estimate = schema_metadata_estimate(&plans)?;
+    let plans_live = plans.iter().try_fold(descriptor_bytes, |total, plan| {
+        checked_add(
+            total,
+            checked_add(std::mem::size_of::<ColumnPlan<'_>>(), plan.metadata.len(), "IPC plan")?,
+            "IPC plans",
+        )
+    })?;
+    let preflight = preflight_arrow_file(bytes, &plans, options)?;
+    // Reserve the standard reader's footer/schema and one batch's wrapper/index
+    // allocations. Body buffers remain borrowed from the verified mapping.
+    let reader_peak = [
+        checked_mul(schema_estimate, 3, "IPC reader schema")?,
+        checked_mul(preflight.footer_len, 2, "IPC reader footer")?,
+        checked_mul(preflight.block_count, 64, "IPC reader block index")?,
+        checked_mul(plans.len(), 2048, "IPC reader array wrappers")?,
+    ].into_iter().try_fold(0, |total, size| checked_add(total, size, "IPC reader peak"))?;
+    reserve_peak(options.budgets, plans_live, reader_peak)?;
+    Ok(preflight.total_rows)
+}
+
 /// Decode a v1 canonical Arrow IPC file after validating its raw mapping metadata,
 /// footer ranges, block layout, and bound physical schema.
 ///

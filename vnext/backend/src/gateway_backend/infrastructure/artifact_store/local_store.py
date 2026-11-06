@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+
+import pyarrow as pa
 
 from gateway_shared_kernel import CanonicalEncodingError, raw_blob_digest
 
@@ -136,6 +141,48 @@ class LocalArtifactStore:
             raise
         except (OSError, ValueError, CanonicalEncodingError):
             raise ManifestVerificationError("artifact ref lookup failed") from None
+
+    @contextmanager
+    def open_buffer(self, ref: ArtifactRef) -> Iterator[pa.Buffer]:
+        """Hash the same readonly mapping subsequently borrowed by the reader."""
+        source: pa.MemoryMappedFile | None = None
+        buffer: pa.Buffer | None = None
+        try:
+            validate_artifact_ref_model(ref)
+            if self._load_stored_ref(ref.artifact_id) != ref:
+                raise ManifestVerificationError("stored artifact identity mismatch")
+            target, _ = self._validated_paths(ref.artifact_id)
+            if any(path.is_symlink() for path in (target, target.parent, target.parent.parent)):
+                raise ManifestVerificationError("artifact mapping cannot follow a symlink")
+            if not target.is_file():
+                raise ManifestVerificationError("artifact mapping requires a regular file")
+            source = pa.memory_map(str(target), "r")
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ManifestVerificationError("artifact mapping requires a regular file")
+            if source.size() != ref.size_bytes:
+                raise ManifestVerificationError("stored size_bytes mismatch")
+            buffer = source.read_buffer(ref.size_bytes)
+            hasher = hashlib.sha256()
+            view = memoryview(buffer)
+            try:
+                for offset in range(0, len(view), 64 * 1024):
+                    hasher.update(view[offset:offset + 64 * 1024])
+            finally:
+                view.release()
+            if "sha256:" + hasher.hexdigest() != ref.raw_sha256.value:
+                raise ManifestVerificationError("stored raw_sha256 mismatch")
+        except (OSError, ValueError, pa.ArrowException):
+            buffer = None
+            if source is not None:
+                source.close()
+            raise ManifestVerificationError("artifact mapping failed") from None
+        try:
+            assert buffer is not None
+            yield buffer
+        finally:
+            buffer = None
+            if source is not None:
+                source.close()
 
     def _locate(self, ref: ArtifactRef) -> bytes:
         validate_artifact_ref_model(ref)

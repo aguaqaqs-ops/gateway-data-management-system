@@ -354,8 +354,10 @@ def test_client_export_preserves_parquet_profile_and_reuses_scoped_layout_cache(
     from gateway_backend.capabilities.table_access import (
         KernelExecutionContext, OperationMemoryBudget, KernelMemoryLimit, kernel_execution_scope,
     )
-    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(4096), NeverCancel(), 1), new_operation=True):
-        with pytest.raises(KernelMemoryLimit):
-            export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
+    with kernel_execution_scope(KernelExecutionContext(OperationMemoryBudget(128 * 1024), NeverCancel(), 1), new_operation=True):
+        with monkeypatch.context() as guarded:
+            guarded.setattr("gateway_backend.capabilities.snapshot_materialization.client_parquet.pq.ParquetFile", forbid_write)
+            with pytest.raises(KernelMemoryLimit):
+                export_snapshot_table_parquet(table, store=store, repository_id="repo", export_cache=cache)
     with pytest.raises(ValueError, match="scoped canonical"):
         export_snapshot_table_parquet(table, store=store, repository_id="other", export_cache=cache)

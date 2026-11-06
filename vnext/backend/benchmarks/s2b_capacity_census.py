@@ -119,6 +119,12 @@ def _buffer_reference_span(array: pa.Array) -> int:
     return sum(buffer.size for buffer in array.buffers() if buffer is not None)
 
 
+def _report_int(value: object) -> int:
+    if not isinstance(value, int):
+        raise RuntimeError("parser buffer report contains a non-integer count")
+    return value
+
+
 def _table_report(table: pa.Table, descriptors: list[dict[str, Any]], index: int) -> dict[str, object]:
     if len(descriptors) != table.num_columns:
         raise ValueError("parser descriptor and Arrow schema column counts differ")
@@ -168,8 +174,11 @@ def _census(sql_utf8: bytes, input_report: dict[str, object]) -> dict[str, objec
         table_reports.append(_table_report(table, item["columns"], index))
     measured_counts = {
         "tables": len(table_reports),
-        "rows": sum(int(table["rows"]) for table in table_reports),
-        "cells": sum(int(table["rows"]) * int(table["columns"]) for table in table_reports),
+        "rows": sum(_report_int(table["rows"]) for table in table_reports),
+        "cells": sum(
+            _report_int(table["rows"]) * _report_int(table["columns"])
+            for table in table_reports
+        ),
     }
     expected_counts = input_report.get("expected_s2a_parser_counts") or input_report.get(
         "expected_parser_counts"
@@ -187,9 +196,11 @@ def _census(sql_utf8: bytes, input_report: dict[str, object]) -> dict[str, objec
         "input": input_report,
         "totals": {
             **measured_counts,
-            "logical_nbytes": sum(int(table["logical_nbytes"]) for table in table_reports),
+            "logical_nbytes": sum(
+                _report_int(table["logical_nbytes"]) for table in table_reports
+            ),
             "sum_per_table_unique_backing_buffer_bytes": sum(
-                int(table["unique_backing_buffer_bytes"]) for table in table_reports
+                _report_int(table["unique_backing_buffer_bytes"]) for table in table_reports
             ),
         },
         "tables": table_reports,

@@ -1,6 +1,6 @@
 # S2b C 交付：规范 IPC store、引用与恢复
 
-状态：产品固定 `0048040af59214bf1113c820396ac4b306befe31`，实施与本节验证完成，交本节独立审核者签 GO。生产 M/envelope 选择仍待 Owner，D 不因本交付自动开工。没有推送、tag 或改写引用提交。
+状态：产品固定 `0048040af59214bf1113c820396ac4b306befe31`，实施与本节验证完成，交本节独立审核者签 GO。Owner 已选容量 A（12 GiB envelope、4 GiB reserve、显式 M=8 GiB/上限 8 GiB、N=1/单 active）；D 仍须完成接线与实际资源验收，本交付不声明 worker capacity PASS。没有推送、tag 或改写引用提交。
 
 前置 B 产品 `b820321c1eef78be4430c9a3f5b51d22188f4e0b`、B handoff `ac59ffeb79`、独立审核 `0dc93c09a9`；A 产品 `db7767ffbb`。本节不重做 A/B。边界与容量分别见 [C 任务](p6-s2b-c-kickoff.md)、[容量报告](p6-s2b-c-capacity-calibration.md)、[独立审核](p6-s2b-c-review.md)。
 
@@ -118,6 +118,6 @@ Dockerfile 未为镜像编译注入 host GATEWAY_RUST_BUILD_INPUT，不能宣称
 
 保留 C clean worktree、所有日志/失败产物/容量 JSON、images、task refs/bundles，以及 focused Cargo target `/home/dev/gdds-test-tmp/s2b-c-cargo-target` 构建缓存；未删除已填充依赖。A/B worktree/image/证据及 CT108/04/05/07 资源未被本角色修改。
 
-D 待办：Owner 选择容量报告 A/B 显式配置；实际 startup N/M/control 与所有 operation caller 迁移；complete canonical closure/reader/repository-ref/import-replay/export 接线；删五项临时 unreachable；真实 worker EOF/publish、cancel/drain/lease/deadline、FULL/borrowed/shared reservation 与拒绝边界。M 缺失应 fail startup，8 GiB 是待批准的部署初始值而非隐式默认。C 不等待配置答复而占用节点或冒称容量 PASS。
+D 待办：落实 Owner 已选容量 A 的显式配置；实际 startup N/M/control 与所有 operation caller 迁移；complete canonical closure/reader/repository-ref/import-replay/export 接线；删五项临时 unreachable；真实 worker EOF/publish、cancel/drain/lease/deadline、FULL/borrowed/shared reservation 与拒绝边界。M 缺失应 fail startup，8 GiB 是显式部署初始值而非隐式默认。C 已释放节点，不以配置选择冒称容量 PASS。
 
 最终 S2b 的 E 单路径清理、04 权威 runner/container、t1–t4 正确性、W1/W2 时点与 CT108 基准仍按原计划；本节不进入 D/E、不做推送或最终 phase exit。

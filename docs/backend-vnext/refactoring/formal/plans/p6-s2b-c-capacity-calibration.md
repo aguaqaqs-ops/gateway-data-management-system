@@ -1,6 +1,6 @@
 # S2b C 容量校准与 D 配置前置
 
-状态：C 的既有输入组件校准已完成；生产部署 envelope 与 M 选项待 Owner 决定，未写入产品默认。本文不声明 worker 容量、完整 operation 或 W1/W2 性能通过。
+状态：C 的既有输入组件校准已完成。2026-11-06 Owner 已选择 A：worker envelope 12 GiB、reserve 4 GiB、显式初始 M=8 GiB/上限 8 GiB，N=1、单 active；D 负责配置接线与实际验收。M 缺失仍须拒启，不建立隐式默认。本文不声明 worker 容量、完整 operation 或 W1/W2 性能通过。
 
 依据：[C 任务](p6-s2b-c-kickoff.md)、DC42/DC84/DC86、[映射](p6-s2b-arrow-mapping-design.md)、[原输入普查](p6-s2b-capacity-input-census.md)。所有执行在 06 `gw-dms-06`，N=1，clean/committed worktree `/home/dev/gdds-test-tmp/wt/p6-s2b-c-impl`；与 pytest workers、06 的 16 vCPU/32 GiB 分开。06 不提供正式 CT108 性能结果。
 
@@ -98,12 +98,12 @@ codec 内部 writer Vec、Arrow encoded-data、当前 batch、累计 IPC 及 `Ve
 
 ## 5. 给 Owner 的两档部署选项
 
-下表是待选择的**显式部署初始值**，不是隐式产品默认。D 中 M 未设置仍应拒绝启动；选项未获批准前不写入 worker configuration。
+Owner 已选择下表 A；B 保留为未选备选。这些数值是**显式部署初始值**，不是隐式产品默认。D 中 M 未设置仍应拒绝启动；A 的配置选择不代替真实 worker 峰值、增长前拒绝与资源边界验收。
 
 | 选项 | worker memory envelope | 工程 reserve | 显式初始 M | 可配 M 上限 | 适用范围 |
 | --- | ---: | ---: | ---: | ---: | --- |
-| A（推荐常规档） | 12 GiB | 4 GiB | 8 GiB | 8 GiB | 已测 t1/t4 量级、现有单 active operation，D 在所选 N 下复核实际路径 |
-| B（较大单 operation 档） | 24 GiB | 8 GiB | 8 GiB | 16 GiB | 更大单 operation 输入或所选 N 的额外余量；提高至 16 GiB 前实际验收 |
+| A（Owner 已选） | 12 GiB | 4 GiB | 8 GiB | 8 GiB | 已测 t1/t4 量级、N=1/单 active operation，D 复核实际路径 |
+| B（未选备选） | 24 GiB | 8 GiB | 8 GiB | 16 GiB | 更大单 operation 输入或所选 N 的额外余量；提高至 16 GiB 前须另行批准与实际验收 |
 
 两档均满足 `M <= envelope - reserve`。工程 reserve 用于 Python/runtime/allocator 保留、线程栈、服务控制与 cgroup filecache 余量；数值是保守部署建议，不是已测严格非 operation 上界。B 不授权提高 maxinflight、多 worker 或 operation 并发；未来并发另行设计。
 
@@ -111,7 +111,7 @@ codec 内部 writer Vec、Arrow encoded-data、当前 batch、累计 IPC 及 `Ve
 
 ## 6. D 必须关闭的事项
 
-- Owner 选定真实生产 envelope/reserve/M 初始值和上限；M 缺失、非正或 `M+reserve` 超过约定并实际配置的 worker envelope 时 startup 拒绝。D 绑定部署声明与 Compose limit 并验证，较大的宿主 limit 本身不构成拒绝条件，不为此建立新 cgroup 框架。
+- 按 Owner 已选 A 落实真实生产 envelope/reserve/M 初始值和上限，保持 N=1/单 active；M 缺失、非正或 `M+reserve` 超过约定并实际配置的 worker envelope 时 startup 拒绝。D 绑定部署声明与 Compose limit 并验证，较大的宿主 limit 本身不构成拒绝条件，不为此建立新 cgroup 框架。
 - 在实际单 active worker、所选 N、同池生命周期中，让 Preview FULL 两侧、History exact commit hit/miss、Submit/T1/PREPARED、wire spool/转换与 publication staging 进入同一 operation 预约；增长前检查，测试单表拒绝、FULL 重叠及资源失败不发布。
 - 区分 borrowed mapping、B/A 自有分配及 Python/adapter 复制；共享 view 不重复预约，独立 mapping 不误去重。未打开的全局历史文件只计磁盘。
 - 实际 control/cancel/drain/lease_lost 与有限 deadline 由 D 接线；C 使用 N=1/NeverCancel 的组件结果不能代替这些验证。实际 worker 复核 RSS/cgroup/预约差异，不重做无必要的生成输入/全旅程。

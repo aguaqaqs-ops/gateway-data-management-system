@@ -38,6 +38,7 @@ pub const CANONICAL_IPC_BATCH_ROWS: usize = 65_536;
 const SCHEMA_VERSION_KEY: &str = "gdds.canonical_mapping_version";
 const FIELD_TYPE_KEY: &str = "gdds.canonical_type";
 const ARROW_MAGIC: &[u8; 6] = b"ARROW1";
+const IPC_EOS_MARKER: &[u8; 8] = &[0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0];
 const IPC_ALIGNMENT: usize = 64;
 const MAX_POLL_INTERVAL: usize = 1024;
 
@@ -94,11 +95,12 @@ impl std::error::Error for CanonicalIpcError {}
 
 /// Explicit local bounds for one in-memory encode or decode call.
 ///
-/// `max_input_bytes` is a conservative sum of the memory sizes of each input
-/// Arrow array occurrence; shared backing buffers may therefore count more
-/// than once. `max_codec_peak_bytes` bounds codec-owned live memory using
-/// checked conservative estimates. Neither value is a process RSS or worker
-/// memory guarantee.
+/// `max_input_bytes` bounds borrowed input: encode sums every input Arrow array
+/// occurrence (so shared backing buffers may count more than once), while decode
+/// bounds the borrowed IPC file slice. `max_output_bytes` limits actual encoded
+/// file bytes. `max_codec_peak_bytes` bounds codec-owned live memory using
+/// checked conservative estimates. These local bounds do not claim a process RSS
+/// or worker memory guarantee.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CanonicalIpcBudgets {
     /// Maximum total rows accepted in one table.
@@ -111,7 +113,7 @@ pub struct CanonicalIpcBudgets {
     pub max_input_batches: usize,
     /// Conservative upper bound for input Arrow array memory sizes.
     pub max_input_bytes: usize,
-    /// Maximum final IPC file length.
+    /// Maximum final encoded IPC file length.
     pub max_output_bytes: usize,
     /// Maximum estimated live memory allocated by this codec.
     pub max_codec_peak_bytes: usize,
@@ -1876,6 +1878,123 @@ where
     Ok(())
 }
 
+fn raw_field_has_v1_type(field: arrow_ipc::Field<'_>, plan: &ColumnPlan<'_>) -> bool {
+    match plan.mapping {
+        ValueMapping::Signed { .. } => {
+            field.type_type() == arrow_ipc::Type::Int
+                && field
+                    .type_as_int()
+                    .is_some_and(|integer| integer.bitWidth() == 64 && integer.is_signed())
+        }
+        ValueMapping::Unsigned { .. } => {
+            field.type_type() == arrow_ipc::Type::Int
+                && field
+                    .type_as_int()
+                    .is_some_and(|integer| integer.bitWidth() == 64 && !integer.is_signed())
+        }
+        ValueMapping::Boolean => field.type_type() == arrow_ipc::Type::Bool,
+        ValueMapping::Float32 => {
+            field.type_type() == arrow_ipc::Type::FloatingPoint
+                && field
+                    .type_as_floating_point()
+                    .is_some_and(|value| value.precision() == arrow_ipc::Precision::SINGLE)
+        }
+        ValueMapping::Float64 => {
+            field.type_type() == arrow_ipc::Type::FloatingPoint
+                && field
+                    .type_as_floating_point()
+                    .is_some_and(|value| value.precision() == arrow_ipc::Precision::DOUBLE)
+        }
+        ValueMapping::Utf8 => matches!(
+            field.type_type(),
+            arrow_ipc::Type::Utf8 | arrow_ipc::Type::LargeUtf8
+        ),
+        ValueMapping::Binary => matches!(
+            field.type_type(),
+            arrow_ipc::Type::Binary | arrow_ipc::Type::LargeBinary
+        ),
+        ValueMapping::Bit { width, .. } => {
+            field.type_type() == arrow_ipc::Type::FixedSizeBinary
+                && field.type_as_fixed_size_binary().is_some_and(|value| {
+                    value.byteWidth() > 0 && value.byteWidth() == width as i32
+                })
+        }
+    }
+}
+
+fn validate_raw_schema(
+    schema: arrow_ipc::Schema<'_>,
+    plans: &[ColumnPlan<'_>],
+) -> Result<(), CanonicalIpcError> {
+    if schema.endianness() != arrow_ipc::Endianness::Little {
+        return Err(schema_error("canonical IPC schema endianness is not little-endian"));
+    }
+    require_raw_metadata(
+        schema.custom_metadata(),
+        SCHEMA_VERSION_KEY,
+        CANONICAL_MAPPING_VERSION,
+        "schema",
+    )?;
+    let fields = schema
+        .fields()
+        .ok_or_else(|| ipc_error("canonical IPC schema field vector is missing"))?;
+    if fields.len() != plans.len() {
+        return Err(schema_error(
+            "canonical IPC field count does not match descriptors",
+        ));
+    }
+    for (field, plan) in fields.iter().zip(plans) {
+        if field.name() != Some(plan.descriptor.canonical_name.as_str())
+            || field.nullable() != plan.descriptor.nullable
+        {
+            return Err(schema_error(
+                "canonical IPC field order or nullability does not match descriptors",
+            ));
+        }
+        if field.dictionary().is_some()
+            || field.children().is_some_and(|children| children.len() != 0)
+        {
+            return Err(schema_error(
+                "canonical IPC nested or dictionary fields are unsupported",
+            ));
+        }
+        if !raw_field_has_v1_type(field, plan) {
+            return Err(schema_error(format!(
+                "canonical IPC raw field type does not match descriptor {}",
+                plan.descriptor.canonical_name
+            )));
+        }
+        require_raw_metadata(
+            field.custom_metadata(),
+            FIELD_TYPE_KEY,
+            &plan.metadata,
+            "field",
+        )?;
+    }
+    Ok(())
+}
+
+fn raw_schemas_match(
+    left: &arrow_ipc::Schema<'_>,
+    right: &arrow_ipc::Schema<'_>,
+) -> Result<(), CanonicalIpcError> {
+    let left_fields = left
+        .fields()
+        .ok_or_else(|| ipc_error("canonical IPC header field vector is missing"))?;
+    let right_fields = right
+        .fields()
+        .ok_or_else(|| ipc_error("canonical IPC footer field vector is missing"))?;
+    if left_fields.len() != right_fields.len() {
+        return Err(schema_error("canonical IPC header and footer field counts differ"));
+    }
+    for (left_field, right_field) in left_fields.iter().zip(right_fields.iter()) {
+        if left_field.type_type() != right_field.type_type() {
+            return Err(schema_error("canonical IPC header and footer physical types differ"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy)]
 struct DecodePreflight {
     footer_len: usize,
@@ -1884,7 +2003,7 @@ struct DecodePreflight {
     block_bytes: usize,
 }
 
-fn raw_record_batch_message<'a>(
+fn raw_framed_message_payload<'a>(
     bytes: &'a [u8],
     offset: usize,
     metadata_len: usize,
@@ -1893,23 +2012,14 @@ fn raw_record_batch_message<'a>(
     let metadata = bytes
         .get(offset..end)
         .ok_or_else(|| ipc_error("IPC block metadata exceeds the file"))?;
-    let (prefix_len, encoded_len) = if metadata.starts_with(&[0xff; 4]) {
-        let encoded = metadata
-            .get(4..8)
-            .ok_or_else(|| ipc_error("IPC continuation prefix is truncated"))?;
-        (
-            8,
-            i32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]),
-        )
-    } else {
-        let encoded = metadata
-            .get(0..4)
-            .ok_or_else(|| ipc_error("IPC metadata prefix is truncated"))?;
-        (
-            4,
-            i32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]),
-        )
-    };
+    if !metadata.starts_with(&[0xff; 4]) {
+        return Err(ipc_error("canonical IPC requires continuation framing"));
+    }
+    let encoded = metadata
+        .get(4..8)
+        .ok_or_else(|| ipc_error("IPC continuation prefix is truncated"))?;
+    let prefix_len = 8;
+    let encoded_len = i32::from_le_bytes([encoded[0], encoded[1], encoded[2], encoded[3]]);
     let encoded_len = usize::try_from(encoded_len)
         .map_err(|_| ipc_error("IPC metadata prefix has a negative length"))?;
     if encoded_len == 0 {
@@ -1923,6 +2033,66 @@ fn raw_record_batch_message<'a>(
         return Err(ipc_error("IPC metadata padding is not zero"));
     }
     Ok(&metadata[prefix_len..payload_end])
+}
+
+fn align_to(value: usize, alignment: usize) -> Result<usize, CanonicalIpcError> {
+    let remainder = value % alignment;
+    if remainder == 0 {
+        Ok(value)
+    } else {
+        checked_add(value, alignment - remainder, "canonical IPC alignment")
+    }
+}
+
+fn preflight_schema_header<'a>(
+    bytes: &'a [u8],
+    plans: &[ColumnPlan<'_>],
+    options: CanonicalIpcOptions<'_>,
+) -> Result<(usize, arrow_ipc::Schema<'a>), CanonicalIpcError> {
+    let header_metadata_start = IPC_ALIGNMENT;
+    if bytes.len() < header_metadata_start + 8
+        || bytes[6..header_metadata_start].iter().any(|byte| *byte != 0)
+    {
+        return Err(ipc_error("canonical IPC schema header padding is invalid"));
+    }
+    if bytes[header_metadata_start..header_metadata_start + 4] != [0xff; 4] {
+        return Err(ipc_error("canonical IPC schema message is not continuation-framed"));
+    }
+    let metadata_len_bytes = &bytes[header_metadata_start + 4..header_metadata_start + 8];
+    let metadata_len = usize::try_from(i32::from_le_bytes([
+        metadata_len_bytes[0],
+        metadata_len_bytes[1],
+        metadata_len_bytes[2],
+        metadata_len_bytes[3],
+    ]))
+    .map_err(|_| ipc_error("canonical IPC schema metadata has a negative length"))?;
+    if metadata_len == 0 {
+        return Err(ipc_error("canonical IPC schema metadata is empty"));
+    }
+    let padded_header_len = align_to(
+        checked_add(8, metadata_len, "canonical IPC schema metadata")?,
+        IPC_ALIGNMENT,
+    )?;
+    let message_bytes = raw_framed_message_payload(bytes, header_metadata_start, padded_header_len)?;
+    let message = root_as_message(message_bytes)
+        .map_err(|error| ipc_error(format!("invalid canonical IPC schema message: {error:?}")))?;
+    if message.version() != MetadataVersion::V5
+        || message.header_type() != MessageHeader::Schema
+        || message.bodyLength() != 0
+        || message
+            .custom_metadata()
+            .is_some_and(|metadata| metadata.len() != 0)
+    {
+        return Err(ipc_error("canonical IPC schema message does not match v1 framing"));
+    }
+    let schema = message
+        .header_as_schema()
+        .ok_or_else(|| ipc_error("canonical IPC schema header is missing"))?;
+    validate_raw_schema(schema, plans)?;
+    check_control(options.control)?;
+    let header_end =
+        checked_add(header_metadata_start, padded_header_len, "canonical IPC schema header")?;
+    Ok((header_end, schema))
 }
 
 fn preflight_record_block(
@@ -1946,7 +2116,7 @@ fn preflight_record_block(
         || offset % IPC_ALIGNMENT != 0
         || metadata_len % IPC_ALIGNMENT != 0
         || body_len % IPC_ALIGNMENT != 0
-        || offset < previous_end
+        || offset != previous_end
     {
         return Err(ipc_error(
             "IPC record-batch block is outside the v1 layout profile",
@@ -1958,7 +2128,7 @@ fn preflight_record_block(
         return Err(ipc_error("IPC record-batch block overlaps the footer"));
     }
 
-    let message_bytes = raw_record_batch_message(bytes, offset, metadata_len)?;
+    let message_bytes = raw_framed_message_payload(bytes, offset, metadata_len)?;
     let message = root_as_message(message_bytes)
         .map_err(|error| ipc_error(format!("invalid IPC record-batch message: {error:?}")))?;
     if message.version() != MetadataVersion::V5
@@ -2064,12 +2234,13 @@ fn preflight_arrow_file(
     options: CanonicalIpcOptions<'_>,
 ) -> Result<DecodePreflight, CanonicalIpcError> {
     check_control(options.control)?;
-    if bytes.len() > options.budgets.max_output_bytes {
-        return Err(resource_error("canonical IPC file byte limit exceeded"));
+    if bytes.len() > options.budgets.max_input_bytes {
+        return Err(resource_error("canonical IPC input byte limit exceeded"));
     }
     if bytes.len() < 18 || &bytes[..6] != ARROW_MAGIC {
         return Err(ipc_error("canonical IPC file header is missing"));
     }
+    let (header_end, header_schema) = preflight_schema_header(bytes, plans, options)?;
     let trailer_start = bytes
         .len()
         .checked_sub(10)
@@ -2091,6 +2262,9 @@ fn preflight_arrow_file(
     if footer_start < 8 {
         return Err(ipc_error("canonical IPC footer overlaps the file header"));
     }
+    if header_end > footer_start {
+        return Err(ipc_error("canonical IPC schema header overlaps the footer"));
+    }
     let footer_bytes = &bytes[footer_start..trailer_start];
     let footer = root_as_footer(footer_bytes)
         .map_err(|error| ipc_error(format!("invalid IPC footer: {error:?}")))?;
@@ -2111,44 +2285,8 @@ fn preflight_arrow_file(
     let schema = footer
         .schema()
         .ok_or_else(|| ipc_error("canonical IPC footer schema is missing"))?;
-    require_raw_metadata(
-        schema.custom_metadata(),
-        SCHEMA_VERSION_KEY,
-        CANONICAL_MAPPING_VERSION,
-        "schema",
-    )?;
-    let raw_fields = schema.fields();
-    let field_count = raw_fields.as_ref().map_or(0, |fields| fields.len());
-    if field_count != plans.len() {
-        return Err(schema_error(
-            "canonical IPC field count does not match descriptors",
-        ));
-    }
-    if let Some(raw_fields) = raw_fields {
-        for (field, plan) in raw_fields.iter().zip(plans) {
-            check_control(options.control)?;
-            if field.name() != Some(plan.descriptor.canonical_name.as_str())
-                || field.nullable() != plan.descriptor.nullable
-            {
-                return Err(schema_error(
-                    "canonical IPC field order or nullability does not match descriptors",
-                ));
-            }
-            if field.dictionary().is_some()
-                || field.children().is_some_and(|children| children.len() != 0)
-            {
-                return Err(schema_error(
-                    "canonical IPC nested or dictionary fields are unsupported",
-                ));
-            }
-            require_raw_metadata(
-                field.custom_metadata(),
-                FIELD_TYPE_KEY,
-                &plan.metadata,
-                "field",
-            )?;
-        }
-    }
+    validate_raw_schema(schema, plans)?;
+    raw_schemas_match(&header_schema, &schema)?;
     let blocks = footer
         .recordBatches()
         .ok_or_else(|| ipc_error("canonical IPC record-batch index is missing"))?;
@@ -2156,7 +2294,7 @@ fn preflight_arrow_file(
     if block_count > options.budgets.max_input_batches {
         return Err(resource_error("canonical IPC record-batch limit exceeded"));
     }
-    let mut previous_end = 8_usize;
+    let mut previous_end = header_end;
     let mut total_rows = 0_usize;
     let mut block_bytes = 0_usize;
     for (block_index, block) in blocks.iter().enumerate() {
@@ -2180,6 +2318,12 @@ fn preflight_arrow_file(
             current_block_bytes,
             "canonical IPC block bytes",
         )?;
+    }
+    let eos_end = checked_add(previous_end, 8, "canonical IPC EOS marker")?;
+    if eos_end != footer_start
+        || bytes.get(previous_end..eos_end) != Some(IPC_EOS_MARKER.as_slice())
+    {
+        return Err(ipc_error("canonical IPC EOS marker does not match block layout"));
     }
     check_control(options.control)?;
     Ok(DecodePreflight {

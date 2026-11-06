@@ -2,6 +2,8 @@
 
 2026-11-06，p6-backend-design，依据 Owner DC80。本范围接续[prepare-only 设计](p6-prepare-step-lease-diagnostic-plan.md)和[审核报告 §67–68](p6-submit-single-step-diagnostic-scope-review.md)，须定向范围审核后准备，最终精确候选另取一次 GO。
 
+**执行归属已明确：** 设计指定现有会话 `01a1b107-11ba-7681-a7cf-afb1591a67d2` 为本计划唯一实施者，现有会话 `01a182d8-4dfd-7441-b9db-4deefdc4e0ac` 为接续独立审核者。原实施会话仅供历史交接。双向通信和只读交接门槛早已完成，Owner 已解除接管前只读限制；§69 范围 PASS 后直接准备本计划候选和必要 CT05 focused，不重复接管或等待角色确认。此处只澄清既有角色与准备授权，技术范围及最终运行 GO 要求不变。
+
 ## 证据缺口与这一次要回答的问题
 
 §67 已确认真实失租：mutation_plan 尚未返回，190 次 session heartbeat 均返回；最后 helper 标记比 derived due 晚 22.272004 秒、比真实 deadline 实参晚 2.272004 秒，未进入下一 session。仍不能区分 GC、调度、其他 Python/native 工作和外置观测扰动。

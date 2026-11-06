@@ -768,3 +768,35 @@ C1 关闭：真实导入 dataclasses.replace，顶层 status/ended_utc 改用有
 最小修订只需明确 checkpoint 资格：ordering/payload、两次 change-set digest 和 closure digest 等粗边界排队，key JCS 保留统计而不排队；若确需全量 JCS 边界保存，应明确识别其上下文，不能将通用 JCS 回调全部视为粗边界。保持原次数上限、final 预留、handler 失败后快照及真实 heartbeat 前/事务内无 fsync，不以增加预算/队列容量掩盖问题。静态验证应检查 key 路径不排队，不能仅检查 wrapper 中存在 request_checkpoint。
 
 已将该唯一剩余阻塞直接发原实施者并抄设计；不重开已通过范围，不新增运行或产品授权。修订后更新摘要，下一次只核 C2 的排队与保存边界及其绑定。
+
+## 46. P6-CLOSURE-RC：C2 关闭，精确候选单次 GO
+
+**C2 定向复审通过，C1/C3 维持关闭；仅下列 manifest 获得一次 CT05 局部诊断 GO。** 只读检查 revision c 的实际源码、manifest、文件清单、定向请求、准备记录及 r11 日志；没有导入或执行候选/产品，没有新增测试或访问测试节点。既有 §43 范围和 §44–45 其余结论不重开。
+
+`install_delegate` 默认没有 checkpoint label，只有显式标记的 mutation diff、ordering、payload 粗阶段可以排队；两次 change-set digest 和一次 closure digest 继续各自排队。三个 JCS delegate 均未传 checkpoint label。线程局部 key context 覆盖 `_patch_mutations` 和 `validate_change_set_ordering`，将其中 JCS 调用送入独立 `key_jcs_*_aggregate`；`record_stage` 更新累计值后立即返回，早于窗口候选和窗口保存。完整 digest 的 JCS 窗口保持独立。因此大量独立 key 调用既不占保存队列，也不占逐调用窗口；没有用扩容规避原阻塞。
+
+64 个 checkpoint 上限、第 64 个 `probe-final` 预留和队列上限保持。heartbeat handler 的 finally 仍在实际 handler 返回/抛错后消费粗阶段队列，失败时即使队列为空也请求保存 `heartbeat-handler-failed`；真实 heartbeat 前及事务内没有新增文件 I/O。保存开销、写失败和硬截断可能丢失尚未保存窗口的限制保留。本结论是代码边界审核，不声称异常/强杀分支已运行验证。
+
+静态验证器实际检查 delegate 的默认值、三个固定粗标签、两个 key-context 入口、JCS 循环无 label，以及 aggregate-only 返回早于窗口追加，不再只查 request_checkpoint 是否存在。r11 AST 日志与 shell/摘要检查均 exit 0，实际 SHA256 分别为 `8fbd16ab86eb27a10c2061c495adb49dcfa83544456a532c34bfdf708dd84ad8`、`fc0008b051823798b27a11cde7eec1b574a666cc17025278cb5bcf36a18220b8`，与准备记录一致；r10 验证器自身 kw-only default 错误保留，不作为产品失败或运行证据。
+
+候选清单六项实际文件检查全 OK，绑定如下：
+
+| 对象 | SHA256 |
+| --- | --- |
+| manifest.json | `221f8a1491f120faf9055567341622e931c70aedc9393f1631b17abf6ea41445` |
+| candidate-files.sha256 | `958fb5097d8d39e6125532f48e73197d9386e90b955e4de38f2b82df4b0e2b1a` |
+| probe.py | `2963835f10732edc0b73a73f17b573a2b345af9df0b0979b214d2aa22fdc59af` |
+| supervisor.py | `185dd07ea40c8c9687c966636a0c0276a73e544c52c0e0f6acc23d3af7750c8b` |
+| run-once.sh | `be14b34fdeaed0c4ee5cb753c7b8251243aeb422f1e28b06a62d0bd7e890818f` |
+
+独立执行决定：
+
+```text
+decision=GO
+candidate=p6changeclosureprobe20261106a
+manifest_sha256=221f8a1491f120faf9055567341622e931c70aedc9393f1631b17abf6ea41445
+```
+
+原实施者可按候选 README 的唯一命令完成 LAN 传输、固定身份/clean/单飞/资源预检后执行一次；源提交固定 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a`，节点 `ct108-gw-dms-05`，字面 backend venv 解释器及 cwd 不变。100k mutations、真实 builder 一次、原 10/30 秒租约、全程 300 秒/290 秒停止、8 GiB RSS、200 ms 独立监督，以及 host/disk 门槛和回收截止均保持。任何触发停止、截断或失败均留证并停；不自动重试、放大输入或增加预算，未确认回收则保留节点锁。旧 a/b manifest 均不得执行或复用此次 GO。
+
+本次仅授权固定合成内存 closure 诊断，不授权 Submit、正式基准、CT108、SQL/Dolt/Compose 或产品合入；没有新镜像 revision/source-tree 验证，容器门禁仍按 §42 延期。现场 lease 根因继续 OPEN，正式测量保持停止，成功结果也不能自动解除该状态。执行后交原始 stdout/stderr、supervisor、checkpoint、摘要与节点收尾状态复核。

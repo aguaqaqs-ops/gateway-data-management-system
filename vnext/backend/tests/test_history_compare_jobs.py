@@ -901,7 +901,10 @@ def test_repository_row_count_mismatch_fails_history_compare(tmp_path: Path) -> 
     provider = history_compare_provider(
         commit_id=commit_id,
         row_count=2,
-        declared_rows={"t": ((1,),)},
+        declared_rows={"t": ((1,), (2,))},
+        # The immutable manifest facts are valid; only the runtime wire source
+        # truncates the rows. The first open binds catalog, the next recovers C.
+        per_read_rows=({"t": ((1,),)}, {"t": ((1,),)}),
     )
     harness = build_history_compare_harness(
         tmp_path,

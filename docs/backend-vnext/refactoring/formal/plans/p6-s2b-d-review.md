@@ -4,7 +4,7 @@
 
 ## 审核范围与方法
 
-审核者为本节新建 GPT-6.1-Sol/max，未派生额外角色。产品与测试由实施者修改；本审核只维护本报告、只读源码和 06 证据，不在 CT201 运行测试、编译或 lint，不取得 06 占用。新 detached worktree `/home/dev/gdds-test-tmp/s2b-d-review` 已建 legacy 链接；每轮固定候选后只读审核，当前固定 Submit 接口 `17ceec610e32c21223fc80753d30f7e6b399d042`。DC88、pair/Submit 合并预算、实际 worker 与容器仍待交付。
+审核者为本节新建 GPT-6.1-Sol/max，未派生额外角色。产品与测试由实施者修改；本审核只维护本报告、只读源码和 06 证据，不在 CT201 运行测试、编译或 lint，不取得 06 占用。新 detached worktree `/home/dev/gdds-test-tmp/s2b-d-review` 已建 legacy 链接；每轮固定候选后只读审核，当前固定 Python 预算候选 `b05c390a2a6547a1b2b21600116048508b32a484`。ordered identity-hit 与 bundle 总预约修正、实际 worker 局部校准及最终容器仍待交付。
 
 依据实际 AGENTS、testing conventions、DC76–88、总/D kickoff、mapping、C handoff/容量/审核，以及 Snapshot Table Access、Snapshot Materialization、Canonical Storage §5、Operation Lifecycle、Rust policy、ADR 0012 和 proportional-assurance policy。Owner DC87 的显式配置是 12 GiB envelope、4 GiB reserve、M=8 GiB（8,589,934,592 B）上限、N=1/单 active；M 缺失拒启，不从 06 RAM 推导。W4 仍 OPEN，`1f9731dfc3` 诊断修复未自动合入；未操作原基准冻结资源。
 
@@ -15,7 +15,7 @@
 | settings/startup，资源配置边界 | worker settings/lifecycle、进程池 owner；当前 Compose 实际限额 | 865 的 required M、N 范围、12/4/8 配置、显式共享池初始化及无初始化/冲突拒绝已核；容器证据待交付。 |
 | 生产 caller 与规范内容，业务结果/冻结绑定 | Preview FULL 两侧、baseline、History exact commit、repository-ref 两种 policy、Submit T1/PREPARED、replay/export 原 owner | Preview/History/committed port、client Parquet 与 Submit 接口小步已核；全 worker 接续及最终候选仍待交付，不以 C 组件 GO 或单侧代替。 |
 | operation 当前活跃内存，增长前资源拒绝 | parser/B/A 局部预算与真实 worker owner；FULL/borrow/mmap/wire/staging 合并 | parser/context/SQL-derived facts、mapping/wire/export 预约及低 M 小步已核；pair/Submit Python 重叠与实际 worker 峰值待交，不用局部各 M 或 C 分进程 RSS 相加冒充总量。 |
-| cancel/drain/lease/deadline、EOF/完成/发布与恢复，durable/A 类后果 | 原 ExecutionControl、LeaseSession、Preview/History/Submit recovery owner | C/native/reader/EOF 及 caller control 接续小步已核；DC88、真实 worker 和剩余 parent/publish 分类待交。无 deadline 传 None；operation-owned 正式输出仍只经 LeaseSession。 |
+| cancel/drain/lease/deadline、EOF/完成/发布与恢复，durable/A 类后果 | 原 ExecutionControl、LeaseSession、Preview/History/Submit recovery owner | C/native/reader/EOF、DC88与真实 Runtime drain/reclaim、pair/records及parent/publish control小步已核。无 deadline 传 None；正式输出只经 LeaseSession。资源拒绝的应用 cleanup 与最终 worker/container 仍待后续。 |
 | 固定源码、环境与镜像，证据采信边界 | task-owned named ref/bundle、clean WT/节点占用/离线；影响面静态/必要容器 | 首步同步/环境/实际结果已核；最终候选镜像、容量和清理证据待交付。 |
 
 审核测试语义屏障，不添加内部全排列、durable reservation、逐文件租约证明、allocator 框架或同 euid 对抗机制。跨 checkpoint 已释放的 buffer 不累计，未打开的历史文件只计磁盘。derived 内容 key/TTL cache 维护继续使用 C 的短 UoW，当前 Head/Archive CAS 保持真实事务 owner；不把这些缓存维护升级为新租约协议，也不以 cache 登记替代正式 operation 发布。
@@ -50,6 +50,14 @@
 | `e9585003d96b3d8bbd6e0801f48ab764fdc49dce`，17:28:45–17:28:48Z | backend Ruff/mypy/tree、client/store14 PASS，整体 exit0/clean；128 KiB 中 M 在 footer 展开前拒绝且不构造 ParquetFile | `logs/s2b-d-export-e9585003d9.log` / `a1aec35214e57ab13dcd3a81e1dcd6e97167cfa8544e09f677e2e3ba6f713d0e` |
 | `a6dd87ea4a9bcbbdd68a29af358d998b6bfbe0e7`，17:45:55–17:46:02Z | backend Ruff/mypy/tree、114 PASS/18 builder fixture FAIL，**整体 exit1**；C9、prepare7、architecture90 通过，新参考 Arrow fixture 错把不可空 field 写成 nullable=True，被精确 guard 拒绝 | `logs/s2b-d-submit-a6dd87ea4a.log` / `42d3eb2f530cc09e1ba7b82230d38720078489d5ce54576ac8d560a9def3db80` |
 | `17ceec610e32c21223fc80753d30f7e6b399d042`，17:47:54–17:47:56Z | 仅修 fixture field nullable 与其 source metadata 一致后，backend Ruff/mypy/tree、builder26 PASS，整体 exit0/clean；产品 guard 未放宽 | `logs/s2b-d-submit-17ceec610e.log` / `101e391669707ee08deb10c2d4409de6d83a0c826af60614455f3a955845a19e` |
+| `20cacb157fa7d00a3ab7537fa0a56449268ed707` | mypy 的具体/port 注解与测试 chained-is 类型失败，尚未进入pytest；后续最小修正，不记PASS | `logs/s2b-d-control-20cacb157f.log` / `803a389ef5cf4ba194318b0dfa5c03905a2b1bf1abe530b22eeb16aea7649f9d` |
+| `b5d3ffd28e6c25dfe9102f68d3731d5fca7fb6c4`，外置脚本首次 | 静态通过后脚本路径误写 tests/architecture，collected0、exit4，未触及pytest被测对象；按DC68修脚本从头一次重做 | `logs/s2b-d-control-b5d3ffd28e.log` / `32f62edd276fc56a268a3cbf386ef8ea6bd0a9919a4c7cfe3ab30e345244c7ca` |
+| 同 `b5d3`，修脚本的实际421项 | 418 PASS/3 FAIL、**整体exit1**；两项新fixture把当前checkpoint与prior ref重复，真实Runtime fixture未模拟signal唤醒，均保留原记录 | `logs/s2b-d-control-fixed-b5d3ffd28e.log` / `c2690433a03d7af7d424037bfc9855652a00d42e1c860d500b06775c2e0a5270` |
+| `7f61ceedf4a93842422338b58c876124a8af093c`，18:13:27–18:13:35Z | backend Ruff/mypy/tree、422 PASS、整体exit0/clean，含 lease/state/R5 与真实 fileDB Runtime drain→重领 | `logs/s2b-d-control-fixed-7f61ceedf4.log` / `bfad4f180647e3f11e5da71e1dee50443828381bde797da3b81a470c9a3cc7cb` |
+| `a8f4d1ba02f7c256791d901d9c4ee473ea88aec8`，结束18:16:10Z | 180 PASS/2 FAIL、**整体exit1**；真实T1缺IPC在READY refs先抛未映射异常，另pair新import越public surface；均修真实owner，不放宽基线 | `logs/s2b-d-pair-control-a8f4d1ba02.log` / `4659607f8e37b084e7a63e6e8fbd60874f402ef4cfe45d82f98b7c3cce0d9f87` |
+| `985e5e0ae83358be8118da901ed18bea7ebb75a9`，18:17:21–18:17:27Z | backend Ruff/mypy/tree、182 PASS、整体exit0/clean；pair/records控制穿透、Submit真实T1缺失与冻结重放owner通过 | `logs/s2b-d-pair-control-985e5e0ae8.log` / `b74d5ebb48aee81de9070be4d1d2e8fe48a7db66797b7b19a154a02aac0ad54b` |
+| `7f472aadaf352f55e9216cb7a712475c9289aaca`，18:26:30–18:26:32Z | Ruff/tree通过后mypy redundant-cast与测试public属性导入失败，pytest未执行、整体exit1；预算公式未因此改动 | `logs/s2b-d-python-memory-7f472aadaf.log` / `14088b175910cba165f73238b009afe31a091dece3e80a2717e0c2fc33bbd2aa` |
+| `b05c390a2a6547a1b2b21600116048508b32a484`，18:27:09–18:27:39Z | backend Ruff/mypy/tree、243 PASS、整体exit0/clean；现pair准入、prepare低M清占用与原Preview/History/records/package/checkpoint owners。尚不覆盖随后发现的ordered identity-hit及bundle漏项 | `logs/s2b-d-python-memory-b05c390a2a.log` / `07cd2ed8a1cccaced2ca3643d707e61c57b3631e9eced3433370644aab357ae4` |
 
 865 的 host extension expected/installed Rust tree 均为 `0612992f8b22a7bafcf9747fa65bd1c5f2348874`，ff399 均为 `3553f3a0312076b8a166400e90d3478e14feb376`。使用离线 uv/Cargo、外置 D 专属 target/TMPDIR/log；未修改 C target 或证据。这些小步不是权威 runner 来源、不是正式 carried，也不是容器或实际 worker 容量结论。
 
@@ -69,7 +77,7 @@ fa2efdb0f2→c03 将真实 claimed handler/recovery 绑定同一 operation conte
 
 该 API 以实际 Arrow 根 backing 和 mapping 范围去重。本审核指出 SQL 函数局部 reserve 退出时 upstream bytes 仍存活、reader.close 时 ParsedTable/closed reader 仍持有 descriptor；2d385 已由读取调用层在 locate 前预约并覆盖整个 side，按返回 bytes 对象绑定避免 parser 双计，descriptor metadata 保守持有到 operation 结束，不增 allocator 跟踪。active context 原无条件覆盖 caller probe/finite deadline 的问题也已修：统一 OR 合并真实停止条件、保留最早 finite（两者无值仍 None），合并 context 继续给输出 reader，并在 stream/batches EOF 核对。208 focused 中新增 owner 回归已核；上述具体问题关闭，不等于完整 D 总 M 通过。
 
-现 high_water_bytes 仅计 retained/reserve，不计 native 临时阶段。root 明确可将 retained highwater、stage admission cap 和实际 RSS 分列，不强制新 profiler；报告不得把该值称作完整 operation 预约峰值。M 正确性仍须由同一时刻 retained + 可解释 local cap 的上界及增长前拒绝独立证明。
+现 high_water_bytes 计 retained backing 与显式 reserve/envelope，不计尚未进入该计数器的 native 临时阶段；准确名称为 charged/reserved highwater。它与 stage admission cap、实际 RSS 分列，不称 retained-only 或完整实测峰值，不强制新 profiler。M 正确性仍须由同一时刻已有预约加可解释 local cap 的上界及增长前拒绝独立证明。
 
 c03 的 reachability 失败按 root 正式 `35291ba046` 处理：六项旧 parser `table_access.{sql,_sql_reader,_sql_scan,_sql_statements,_sql_types,_sql_values}` 只在 D 期间临时差分参考。固定 c03 生产搜索仅有 sql.py 定义与 facade 导出，没有业务 caller；tests/support 与旧差分工具仍使用。E 必须移交独立预期后删除实现、差分入口及六 entries，不能保留到 S2b exit，不加 IMPORT/cycle 或假 import。C 的五个新能力临时条目仍须在 D 真正接线后删；已真实接通的 snapshot_materialization.native 一项已移除，其余未假接。
 
@@ -117,18 +125,30 @@ root `56ca09b0d673b2c5ab0a84c1cb959df24f9bd652` 拥有 port 新显式 `Canonical
 
 Submit 后续仍有实际 Python replay/image consumer：独立源码核 `_keyed_rows_from_frozen_artifact` 只构造 typed replay image 并核列/行数，`row_digest_from_image` 是 MutationPlanning ADAPTIVE_PATCH 的 JSON row-image 摘要域，不能当作被替代的 table business hash 删除。保留其现 owner/语义，纳入 Submit 当前 M；不为已冻结 C 内容增加重复 B 全表验证。
 
-a6dd→17ce 的 Submit 接口小步已核：T1 `_open_projection_inputs` 只按 known repository/strict canonical IPC 读取冻结 ref，不重选源；新 reader 转交前关闭原 reader/batch borrower。两个实际 bootstrap composition 注入同一 C parent READERS_REQUIRED port，以 expected exact commit/manifest identity 恢复需要的 parent 表。PREPARED 原 checkpoint/package 重放 owner 与禁止重新发布断言保留，规则切换仍用 T1 冻结 manifest；26项 builder 通过。parent row 转换的普通异常 catch 与 publish context 仍须随下一 control/M 组收口，此处不冒全 control GO。
+a6dd→17ce 的 Submit 接口小步已核：T1 `_open_projection_inputs` 只按 known repository/strict canonical IPC 读取冻结 ref，不重选源；新 reader 转交前关闭原 reader/batch borrower。两个实际 bootstrap composition 注入同一 C parent READERS_REQUIRED port，以 expected exact commit/manifest identity 恢复需要的 parent 表。PREPARED 原 checkpoint/package 重放 owner 与禁止重新发布断言保留，规则切换仍用 T1 冻结 manifest；26项 builder 通过。
+
+985e 已接 pair plan/compare/records/risk/surface 前后实际 context checkpoint，records callback沿本次probe；standard与records普通降级/error包装显式穿透 InterruptedError/TimeoutError/MemoryError。parent row转换同样穿透，Submit publish用真实probe/可选deadline并在返回后复核。真实T1缺IPC替换原mock publication failure后，先在READY refs暴露未映射的 CheckpointPublicationError；现build-input owning边界仅把该冻结完整性错误映射现Submit publication失败，verify_refs自身只包装ManifestVerificationError，不吞lease/CAS/stop/resource且不尝试source恢复。182项实证中原FAIL/ABORT/占用释放与PREPARED重放断言均保留；这些控制/冻结缺口关闭。
+
+固定17ce的实际consumer搜索另核：旧 parse_sql/project_canonical_table_set/materialize_projected_snapshot/_read_and_materialize_table/build_import_projection_snapshots 无应用/基础设施真实调用。compose仅留旧reader型catalog reference给E清理，生产非空Arrow表走B，空集无行算法；不以模块可达替代真实调用链证据。
+
+## Python 调用层总预约
+
+b05 在实际comparison plan后、Python rows读取前按未压缩Arrow logical bytes与row/cell/name对象包络预约，保持FULL多个pair返回结果到operation结束；不以压缩Parquet长度推展开。Submit changed/parent tables在typed image/index/mutation前独立预约，render/package临时2528MiB包络覆盖现16MiB manifest与200MiB replay上限下的Unicode、join/bytes、USTAR/zstd及验证重叠，函数返回不携带包bytes后释放；readback另按实际bytes与128KiB流式上传scratch保留，既有HTTP client以64KiB分块上传。READY refs丢弃验证短预约，checkpoint/manifest JSON对象及返回bytes按32倍包络保守持有至end；不把前一checkpoint或已释放磁盘历史累计为RAM。
+
+资源拒绝先复核本次真实context，再沿现LeaseSession应用失败事务：Preview/History释放保护，prepare转原ABORT并释放workspace/repository占用，现243项含真实2GiB准入拒绝清理。此为可报告MemoryError，不声称native abort/OOM kill可恢复。独立复审发现两处具体剩余：ordered健康identity-hit仍读current rows构造ordered/occupancy digest，不能按普通identity早退跳过预约；bundle把closure全部raw bytes同时留planned/generated并整份验证，健康/BROWSE/REPLACEMENT表不能因comparison无需读行而漏计。已直接交实施者最小修正，bundle还须保留actual control与资源异常类别；未预填预算组GO。
 
 ## 正常 drain 的语义收口
 
 实际接线发现未 checkpoint 的纯计算若以 retryable failure 表达 drain，会消耗原三个恢复会话；现有普通 safe-handoff 则要求本 session 最新 checkpoint。独立核现 LeaseSession/R5 后将该取舍交 root/Owner，未让实施者冒用外部 healthy-wait 或直接修改语义。Owner 已选 A，root 在 `0ff0af96f3` 登记 DC88/lifecycle/recovery/D 稿。
 
-批准目标仅为注册 `PURE_RECOMPUTE`、真实 drain、fresh 有效租约、effect 前阶段，经现有 LeaseSession mutation lock/事务/CAS 转已有 RETRY_WAIT；保留 checkpoint（可空）、prior outputs 与业务保护，独立 drain 诊断令下一 claim 不增也不重置次数。cancel 优先、失租禁写、operator 授权会话身份保留，重领后真实失败/crash 仍走原 R5；Submit prepare 确为 PURE_RECOMPUTE，后续 effect 阶段不扩大。最小实现、必要语义屏障与实际 worker drain/reclaim 尚待审核；无新 schema/status 或状态机。
+7f61 已实现并通过独立复审：真实 registry 仅为 PURE_RECOMPUTE 配置application cooperative callback，R5 generic之前保留控制类别，R3无native/application反向依赖。LeaseSession在原mutation lock/fresh事务中按有效lease/CAS及real drain释放到RETRY_WAIT；保留checkpoint（可空）、prior outputs、attempt与业务保护，独立drain/operator marker令下claim不增不重置并恢复授权session。cancel经原应用builder，失租禁写，EXTERNAL不启guard/callback；无schema/status/空checkpoint或新状态机。
+
+本审核指出并修正了普通 InterruptedError 在SQLfacts路径被漏判、composite返回FAILED前缺实际control复核、新资源诊断大小写违反R5格式，以及fresh reload等待期间Runtime可置lease_lost的二次屏障。7f61 的合法内部资源码、调用边界 checkpoint与reload后_ensure_open已核；fixture分离current/prior refs、真实notify_stop_signal不改产品语义。422项现owner实证含取消/失租/租约/claim与operator及真实fileDB Runtime drain→重领（None deadline），DC88小步GO，不冒整D/最终容器通过。
 
 ## 当前容器判断
 
-Current product candidate: `17ceec610e32c21223fc80753d30f7e6b399d042`。Container rebuild required: **yes**，命中 settings/env/startup/Compose、production composition 与实际 filesystem/read boundary。C 最后验证 image revision 为 `0048040af5`，其镜像仅作为 C 回归来源；当前 D 容器状态 **deferred**，应在 D 接线收敛后的最终候选于 06 离线重建 backend/worker、验证实际配置与相关控制行为，独立复核 image/source identity。最终 04 权威 runner/container、t1–t4 正确性留 E/S2b 最终候选，不在 D 重复全量门禁。
+Current product candidate: `b05c390a2a6547a1b2b21600116048508b32a484`。Container rebuild required: **yes**，命中 settings/env/startup/Compose、production composition、shutdown/control 与实际 filesystem/read boundary。C 最后验证 image revision 为 `0048040af5`，其镜像仅作为 C 回归来源；当前 D 容器状态 **deferred**，应在 D 接线收敛后的最终候选于 06 离线重建 backend/worker、验证实际配置与相关控制行为，独立复核 image/source identity。最终 04 权威 runner/container、t1–t4 正确性留 E/S2b 最终候选，不在 D 重复全量门禁。
 
 ## 未决与释放
 
-D 的 operation 合并预约、DC88/真实 control recovery、实际 worker 峰值及当前容器证据尚未关闭。C 五项新能力临时 unreachable 已随真实 consumer 删除；六项旧 parser 只按正式 D/E 临时范围保留。06 仍由实施者占用，尚无释放结论。本审核未进入 E。
+D 的 ordered/bundle operation 合并预约与实际 worker materialize FULL/t4局部校准、当前容器证据尚未关闭。该局部实际RSS与其他pair/Submit预算及低M清理证据分别记录，不称全worker实测峰值；完整旅程留E，不作为D新增前置。C五项新能力临时unreachable已随真实consumer删除；六项旧parser只按正式D/E临时范围保留。E另须迁移real_dump_journey._offline_composite_comparison→real_dump_census的旧parse_sql/materialize_sql_snapshot/project_canonical_table_set/materialize_projected_snapshot工具consumer。compare_composite_packages原本就是production projection/comparison的六项counts producer，迁移后明确只证明跨层一致性；真正golden/fixed vectors保持独立来源，不用新Rust actual反写expected，优先复用已有验证值，不新造整套census/双实现旅程。D不迁移或重跑该工具。06仍由实施者占用，尚无释放结论。本审核未进入E。

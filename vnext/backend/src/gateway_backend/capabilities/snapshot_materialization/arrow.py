@@ -22,7 +22,8 @@ from gateway_backend.capabilities.table_access import (
     ArrowSourceTableReader, current_kernel_context, source_arrow_metadata,
     source_descriptor_from_arrow,
 )
-from gateway_backend.capabilities.table_access.contracts import SourceTableDescriptor
+from gateway_backend.capabilities.table_access.contracts import SourceTableDescriptor, ParserInvocationContext
+from gateway_backend.capabilities.table_access import KernelExecutionContext, merge_kernel_control
 
 
 def operation_business_budgets() -> dict[str, int]:
@@ -100,9 +101,9 @@ class ArrowSnapshotTableBatchReader:
 
 def snapshot_table_from_arrow(
     descriptor: SnapshotTableDescriptor, table: pa.Table, source: SourceTableDescriptor,
-    *, ordered: SnapshotTableOrderedMetadata | None = None,
+    *, ordered: SnapshotTableOrderedMetadata | None = None, execution_context: KernelExecutionContext | None = None,
 ) -> SnapshotTable:
-    context = current_kernel_context()
+    context = execution_context or current_kernel_context()
     if context is None:
         raise ValueError("snapshot Arrow backing requires an operation kernel context")
     reader = ArrowSnapshotTableReader(descriptor, ArrowSourceTableReader(source, table, context))
@@ -117,12 +118,14 @@ def snapshot_table_from_arrow(
 
 def materialize_source_arrow(
     reader: ArrowSourceTableReader, *, compare_keys: tuple[str, ...],
-    stage: MaterializationStage, table_ruleset_version: int,
+    stage: MaterializationStage, table_ruleset_version: int, invocation: ParserInvocationContext,
 ) -> tuple[SnapshotTableDescriptor, SnapshotTable | None, tuple[MaterializationDiagnostic, ...]]:
     source = reader.descriptor()
     context = current_kernel_context()
     if context is None:
         raise ValueError("SQL Arrow materialization requires an operation kernel context")
+    context = merge_kernel_control(context, reader.execution_context.cancel_probe, reader.execution_context.deadline_monotonic)
+    context = merge_kernel_control(context, invocation.cancel_requested, invocation.deadline_monotonic)
     isolated = reader.reopen()
     try:
         with isolated.arrow_stream() as stream:
@@ -156,6 +159,6 @@ def materialize_source_arrow(
     with metadata["arrow_stream"] as stream:
         arrays = stream.read_all()
     bound = snapshot_table_from_arrow(descriptor, arrays, source_descriptor_from_arrow(metadata),
-        ordered=SnapshotTableOrderedMetadata(blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY))
+        ordered=SnapshotTableOrderedMetadata(blank_provenance=BlankRowProvenance.SOURCE_MISSING_STABLE_KEY), execution_context=context)
     context.checkpoint()
     return descriptor, bound, diagnostics

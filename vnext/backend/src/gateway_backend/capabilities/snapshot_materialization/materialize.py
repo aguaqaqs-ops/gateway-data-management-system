@@ -438,7 +438,7 @@ def _materialize_table(
     if isinstance(parsed.reader, ArrowSourceTableReader):
         try:
             return materialize_source_arrow(parsed.reader, compare_keys=compare_keys, stage=stage,
-                                            table_ruleset_version=request.table_ruleset_version)
+                                            table_ruleset_version=request.table_ruleset_version, invocation=request.context)
         finally:
             parsed.reader.close()
     try:

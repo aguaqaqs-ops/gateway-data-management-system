@@ -22,7 +22,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     SqlLogicalType, SqlParseRequest, SqlSetValue, TableAccessError,
 )
 from gateway_backend.capabilities.table_access.kernel import (
-    KernelExecutionContext, KernelMemoryLimit, current_kernel_context,
+    KernelExecutionContext, KernelMemoryLimit, current_kernel_context, merge_kernel_control,
 )
 
 
@@ -39,12 +39,16 @@ class ArrowSourceTableReader:
                                     + sum(len(label) * 16 + 128 for label in c.enum_or_set_labels or ())
                                     for c in descriptor.columns)
         try:
-            self._metadata_reservation = context.memory.reserve(metadata_bytes, backing=("source-descriptor", id(descriptor)))
+            context.memory.retain_metadata(descriptor, metadata_bytes)
         except BaseException:
             self._reservation.close()
             raise
         self._closed = False
         self._consumed = False
+
+    @property
+    def execution_context(self) -> KernelExecutionContext:
+        return self._context
 
     def descriptor(self) -> SourceTableDescriptor:
         self._require_open()
@@ -62,7 +66,13 @@ class ArrowSourceTableReader:
         if self._consumed:
             raise ValueError("table reader is single-consumer and non-rewind")
         self._consumed = True
-        return pa.RecordBatchReader.from_batches(self._table.schema, self._table.to_batches())
+        table = self._table
+        def batches() -> Iterator[pa.RecordBatch]:
+            for batch in table.to_batches():
+                self._context.checkpoint()
+                yield batch
+            self._context.checkpoint()
+        return pa.RecordBatchReader.from_batches(table.schema, batches())
 
     def iter_rows(self) -> Iterator[SourceRow]:
         with self.arrow_stream() as stream:
@@ -86,7 +96,6 @@ class ArrowSourceTableReader:
         self._closed = True
         self._table = None
         self._reservation.close()
-        self._metadata_reservation.close()
 
     def _require_open(self) -> None:
         if self._closed:
@@ -129,11 +138,13 @@ def parse_arrow_sql(request: SqlParseRequest, *, budgets: ResourceBudgets = RESO
     context = current_kernel_context()
     if context is None:
         raise ValueError("production SQL parsing requires an operation kernel context")
+    context = merge_kernel_control(context, request.context.cancel_requested, request.context.deadline_monotonic)
     context.checkpoint()
     # An upstream source read can hold the identical bytes; shared backing counts once.
     with context.memory.reserve(len(request.sql_utf8), backing=("python-bytes", id(request.sql_utf8))):
         local = SimpleNamespace(**{name: getattr(budgets, name) for name in budgets.__dataclass_fields__},
                                 max_live_bytes=context.memory.available_bytes)
+        context.memory.record_stage_admission("sql-parser", context.memory.available_bytes)
         envelope = cast(dict[str, Any], _parse_sql_native(
             request.sql_utf8, context.cancel_probe, context.deadline_monotonic, context.threads, local))
         context.checkpoint()

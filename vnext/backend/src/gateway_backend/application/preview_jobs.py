@@ -7,6 +7,7 @@ import json
 import uuid
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import TracebackType
@@ -15,6 +16,7 @@ from typing import ContextManager, cast
 from gateway_shared_kernel import DigestRef, canonicalize_jcs, raw_blob_digest
 from gateway_shared_kernel.jcs import canonicalize_json_value
 
+from gateway_backend.application.kernel_execution import reserved_artifact_bytes, stage_operation_source
 from gateway_backend.application.canonical_metadata.binding import canonical_binding_for_commit
 from gateway_backend.application.canonical_metadata.ports import (
     CommitCanonicalMetadataError,
@@ -137,7 +139,6 @@ from gateway_backend.capabilities.source_package_staging import (
     StagingStatus,
     StagingTransport,
     resolve_sql_dump_source,
-    stage_source_package,
 )
 from gateway_backend.capabilities.source_package_staging.contracts import NeverCancel
 from gateway_backend.capabilities.table_access.contracts import (
@@ -149,7 +150,7 @@ from gateway_backend.capabilities.table_access.contracts import (
     XmlParseRequest,
     XmlSourceInput,
 )
-from gateway_backend.capabilities.table_access import parse_arrow_sql, parse_xml
+from gateway_backend.capabilities.table_access import parse_arrow_sql, parse_xml, current_kernel_context, KernelMemoryLimit
 from gateway_backend.capabilities.storage_projection import (
     CanonicalProjectionResult,
     CanonicalizationManifest,
@@ -1383,146 +1384,161 @@ def _materialize_uploaded_side(
     export_cache: SnapshotTableExportCachePort | None,
     side: OperationDiagnosticSide,
 ) -> tuple[BoundSnapshotInput, ArtifactRef, DigestRef]:
-    artifact_ref = _artifact_ref_from_binding(binding)
-    raw_bytes = store.locate(artifact_ref)
-    staged = stage_source_package(
-        SourcePackageInput(
-            package_kind=PackageKind.TAR_GZ,
-            transport=StagingTransport.IDENTITY,
-            context=StagingInvocationContext(NeverCancel()),
-            payload=raw_bytes,
-            expected_required_sql_digest=None,
-        ),
-        store,
-    )
-    if staged.status is not StagingStatus.COMPLETE or staged.required_sql_document_ref is None:
-        raise PreviewJobError("uploaded source package staging failed")
-    dump = resolve_sql_dump_source(staged.required_sql_document_ref)
-    sql_bytes = store.locate(staged.required_sql_document_ref.artifact_ref)
-    parsed = parse_arrow_sql(_sql_request_from_bytes(sql_bytes))
-    sql_request = _sql_materialization_request(parsed, dump.sql_source_digest, ruleset)
-    xml_ref = staged.optional_xml_document_ref
-    if xml_ref is None:
-        logic = empty_composite_logic_source()
-        xml_result = None
-    else:
-        xml_bytes = store.locate(xml_ref.artifact_ref)
-        logic = present_composite_logic_source(xml_bytes)
-        xml_digest = logic.document_content_digest
-        if xml_digest is None:
-            raise PreviewJobError("uploaded logics.xml content digest is missing")
-        try:
-            xml_request = XmlParseRequest(
-                source=XmlSourceInput(
-                    document_content_digest=xml_digest,
-                    xml_source_digest=xml_digest,
-                    parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION,
-                    encoding="utf-8",
-                    source_size_bytes=len(xml_bytes),
-                ),
-                xml_utf8=xml_bytes,
-                context=ParserInvocationContext(NeverCancel()),
-            )
-        except ValueError as exc:
-            raise PreviewJobError(
-                "uploaded /comps/logic/logics.xml failed parser input validation",
-                diagnostic_code=MaterializationDiagnosticCode.XML_DOCUMENT_FAILED.value,
-            ) from exc
-        xml_result = parse_xml(xml_request)
-    business_result = materialize_business_snapshot(
-        BusinessSnapshotMaterializationRequest(
-            sql=sql_request,
-            logic=logic,
-            xml=xml_result,
+    context = current_kernel_context()
+    if context is None:
+        raise ValueError("uploaded materialization requires an operation kernel context")
+    invocation = ParserInvocationContext(context.cancel_probe, context.deadline_monotonic)
+    with ExitStack() as resources:
+        artifact_ref = _artifact_ref_from_binding(binding)
+        raw_bytes = resources.enter_context(reserved_artifact_bytes(store, artifact_ref))
+        staged = stage_operation_source(
+            SourcePackageInput(
+                package_kind=PackageKind.TAR_GZ,
+                transport=StagingTransport.IDENTITY,
+                context=StagingInvocationContext(context.cancel_probe, context.deadline_monotonic),
+                payload=raw_bytes,
+                expected_required_sql_digest=None,
+            ),
+            store,
         )
-    )
-    if business_result.status is not SnapshotMaterializationStatus.COMPLETE:
-        diagnostic = business_result.diagnostics[0] if business_result.diagnostics else None
-        raise PreviewJobError(
-            "uploaded business materialization failed"
-            + ("" if diagnostic is None else f": {diagnostic.message}"),
-            diagnostic_code=None if diagnostic is None else diagnostic.code.value,
-        )
-    if business_result.snapshot is None or business_result.table_set is None:
-        raise PreviewJobError("uploaded business materialization is incomplete")
-    projected: CanonicalProjectionResult = project_canonical_table_set(
-        business_result.table_set,
-        ruleset,
-    )
-    if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
-        ordered_diagnostics = tuple(
-            sorted(
-                projected.diagnostics,
-                key=lambda item: (
-                    "" if item.table_name is None else item.table_name,
-                    "" if item.column_name is None else item.column_name,
-                    item.code.value,
-                ),
-            )
-        )
-        projection_diagnostic = ordered_diagnostics[0] if ordered_diagnostics else None
-        complete_diagnostic_count = len(ordered_diagnostics) + projected.omitted_diagnostic_count
-        diagnostic_details = (
-            tuple(
-                OperationDiagnosticDetail(
-                    code=item.code.value,
-                    side=side,
-                    table_name=item.table_name,
-                    column_name=item.column_name,
+        if staged.status is not StagingStatus.COMPLETE or staged.required_sql_document_ref is None:
+            raise PreviewJobError("uploaded source package staging failed")
+        dump = resolve_sql_dump_source(staged.required_sql_document_ref)
+        sql_bytes = resources.enter_context(reserved_artifact_bytes(store, staged.required_sql_document_ref.artifact_ref))
+        parsed = parse_arrow_sql(_sql_request_from_bytes(sql_bytes))
+        sql_request = dataclasses.replace(_sql_materialization_request(parsed, dump.sql_source_digest, ruleset), context=invocation)
+        xml_ref = staged.optional_xml_document_ref
+        if xml_ref is None:
+            logic = empty_composite_logic_source()
+            xml_result = None
+        else:
+            xml_bytes = resources.enter_context(reserved_artifact_bytes(store, xml_ref.artifact_ref))
+            logic = present_composite_logic_source(xml_bytes)
+            xml_digest = logic.document_content_digest
+            if xml_digest is None:
+                raise PreviewJobError("uploaded logics.xml content digest is missing")
+            try:
+                xml_request = XmlParseRequest(
+                    source=XmlSourceInput(
+                        document_content_digest=xml_digest,
+                        xml_source_digest=xml_digest,
+                        parser_input_contract_version=PARSER_INPUT_CONTRACT_VERSION,
+                        encoding="utf-8",
+                        source_size_bytes=len(xml_bytes),
+                    ),
+                    xml_utf8=xml_bytes,
+                    context=invocation,
                 )
-                for item in ordered_diagnostics
+            except ValueError as exc:
+                raise PreviewJobError(
+                    "uploaded /comps/logic/logics.xml failed parser input validation",
+                    diagnostic_code=MaterializationDiagnosticCode.XML_DOCUMENT_FAILED.value,
+                ) from exc
+            # Expat has no external entities/DTD. Element/event/AST objects are
+            # bounded by both source bytes and the existing node quota. Keep the
+            # conservative parser/composite envelope until those locals die.
+            from gateway_backend.capabilities.table_access.contracts import RESOURCE_BUDGETS
+            nodes = min(RESOURCE_BUDGETS.max_xml_nodes, len(xml_bytes) // 3 + 1)
+            xml_peak = nodes * 1024 + len(xml_bytes) * 16 + 512 * 1024
+            if xml_peak > context.memory.available_bytes:
+                raise KernelMemoryLimit("XML/composite operation memory reservation exceeded")
+            context.memory.record_stage_admission("xml-parser-composite", xml_peak)
+            resources.enter_context(context.memory.reserve(xml_peak))
+            xml_result = parse_xml(xml_request)
+            context.checkpoint()
+        business_result = materialize_business_snapshot(
+            BusinessSnapshotMaterializationRequest(
+                sql=sql_request,
+                logic=logic,
+                xml=xml_result,
             )
-            if ordered_diagnostics
-            else None
         )
-        location = "projection"
-        if projection_diagnostic is not None and projection_diagnostic.table_name is not None:
-            location = projection_diagnostic.table_name
-            if projection_diagnostic.column_name is not None:
-                location += f".{projection_diagnostic.column_name}"
-        raise PreviewJobError(
-            f"uploaded canonical projection failed on {side.value}"
-            + (
-                ""
-                if projection_diagnostic is None
-                else f" ({complete_diagnostic_count} diagnostic(s)); first "
-                f"{projection_diagnostic.code.value} at {location}: {projection_diagnostic.message}"
-            ),
-            diagnostic_code=(
-                None if projection_diagnostic is None else projection_diagnostic.code.value
-            ),
-            diagnostic_details=diagnostic_details,
-            diagnostic_omitted_count=projected.omitted_diagnostic_count,
+        if business_result.status is not SnapshotMaterializationStatus.COMPLETE:
+            diagnostic = business_result.diagnostics[0] if business_result.diagnostics else None
+            raise PreviewJobError(
+                "uploaded business materialization failed"
+                + ("" if diagnostic is None else f": {diagnostic.message}"),
+                diagnostic_code=None if diagnostic is None else diagnostic.code.value,
+            )
+        if business_result.snapshot is None or business_result.table_set is None:
+            raise PreviewJobError("uploaded business materialization is incomplete")
+        projected: CanonicalProjectionResult = project_canonical_table_set(
+            business_result.table_set,
+            ruleset,
         )
-    try:
-        canonical_result = materialize_projected_snapshot(
-            business_result.snapshot,
-            projected.tables,
-            artifact_store=store,
-            context=ParserInvocationContext(NeverCancel()),
-            export_cache=export_cache,
-            repository_id=repository_id,
+        if projected.status is not ProjectionStatus.COMPLETE or projected.manifest is None:
+            ordered_diagnostics = tuple(
+                sorted(
+                    projected.diagnostics,
+                    key=lambda item: (
+                        "" if item.table_name is None else item.table_name,
+                        "" if item.column_name is None else item.column_name,
+                        item.code.value,
+                    ),
+                )
+            )
+            projection_diagnostic = ordered_diagnostics[0] if ordered_diagnostics else None
+            complete_diagnostic_count = len(ordered_diagnostics) + projected.omitted_diagnostic_count
+            diagnostic_details = (
+                tuple(
+                    OperationDiagnosticDetail(
+                        code=item.code.value,
+                        side=side,
+                        table_name=item.table_name,
+                        column_name=item.column_name,
+                    )
+                    for item in ordered_diagnostics
+                )
+                if ordered_diagnostics
+                else None
+            )
+            location = "projection"
+            if projection_diagnostic is not None and projection_diagnostic.table_name is not None:
+                location = projection_diagnostic.table_name
+                if projection_diagnostic.column_name is not None:
+                    location += f".{projection_diagnostic.column_name}"
+            raise PreviewJobError(
+                f"uploaded canonical projection failed on {side.value}"
+                + (
+                    ""
+                    if projection_diagnostic is None
+                    else f" ({complete_diagnostic_count} diagnostic(s)); first "
+                    f"{projection_diagnostic.code.value} at {location}: {projection_diagnostic.message}"
+                ),
+                diagnostic_code=(
+                    None if projection_diagnostic is None else projection_diagnostic.code.value
+                ),
+                diagnostic_details=diagnostic_details,
+                diagnostic_omitted_count=projected.omitted_diagnostic_count,
+            )
+        try:
+            canonical_result = materialize_projected_snapshot(
+                business_result.snapshot,
+                projected.tables,
+                artifact_store=store,
+                context=invocation,
+                export_cache=export_cache,
+                repository_id=repository_id,
+            )
+        finally:
+            for table in (*projected.tables, *business_result.table_set.tables):
+                if table.reader is not None:
+                    table.reader.close()
+                if table.batch_reader is not None:
+                    table.batch_reader.close()
+        bound = _bound_from_materialization(
+            canonical_result,
+            label="uploaded canonical",
+            storage_facts=_comparison_storage_facts(projected.manifest),
         )
-    finally:
-        for table in projected.tables:
-            if table.reader is not None:
-                table.reader.close()
-        for table in business_result.table_set.tables:
-            if table.reader is not None:
-                table.reader.close()
-    bound = _bound_from_materialization(
-        canonical_result,
-        label="uploaded canonical",
-        storage_facts=_comparison_storage_facts(projected.manifest),
-    )
-    try:
-        manifest_ref = publish_canonicalization_manifest(projected.manifest, store)
-    except PublicationError as exc:
-        raise PreviewJobError("canonicalization manifest publication failed") from exc
-    manifest_digest = projected.manifest.manifest_digest
-    if manifest_digest is None:
-        raise PreviewJobError("canonicalization manifest digest is missing")
-    return bound, manifest_ref, manifest_digest
+        try:
+            manifest_ref = publish_canonicalization_manifest(projected.manifest, store)
+        except PublicationError as exc:
+            raise PreviewJobError("canonicalization manifest publication failed") from exc
+        manifest_digest = projected.manifest.manifest_digest
+        if manifest_digest is None:
+            raise PreviewJobError("canonicalization manifest digest is missing")
+        return bound, manifest_ref, manifest_digest
 
 
 def surface_artifact_closure(

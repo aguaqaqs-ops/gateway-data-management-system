@@ -21,6 +21,14 @@ RUNTIME_CYCLE_BASELINE: tuple[frozenset[str], ...] = ()
 
 UNREACHABLE_MODULE_BASELINE: frozenset[str] = frozenset(
     {
+        # DC88/D-E boundary, 35291ba046: the production parser consumer has
+        # switched; E deletes these six temporary differential references.
+        "gateway_backend.capabilities.table_access.sql",
+        "gateway_backend.capabilities.table_access._sql_reader",
+        "gateway_backend.capabilities.table_access._sql_scan",
+        "gateway_backend.capabilities.table_access._sql_statements",
+        "gateway_backend.capabilities.table_access._sql_types",
+        "gateway_backend.capabilities.table_access._sql_values",
         # S2b C exact-commit HTTP/Arrow recovery component; DC86/c9f7e6bf83
         # explicitly defers production operation callers to D. Remove in D at
         # the actual consumer cutover, before S2b exit; no import/cycle exception.

@@ -46,6 +46,11 @@ class Reservation:
         for key in self._keys:
             self._owner.release(key)
 
+    def bind_backing(self, backing: Hashable) -> None:
+        if self._closed or len(self._keys) != 1:
+            raise ValueError("only a live single reservation can bind a backing")
+        self._keys = (self._owner.bind_backing(self._keys[0], backing),)
+
     def __enter__(self) -> Reservation:
         return self
 
@@ -64,6 +69,8 @@ class OperationMemoryBudget:
         self.high_water_bytes = 0
         self._live: dict[Hashable, _LiveEntry] = {}
         self._mappings: dict[Hashable, tuple[int, int]] = {}
+        self._metadata: dict[int, tuple[object, Reservation]] = {}
+        self.stage_admissions: list[dict[str, int | str]] = []
 
     @property
     def available_bytes(self) -> int:
@@ -88,6 +95,40 @@ class OperationMemoryBudget:
             self.used_bytes += size
             self.high_water_bytes = max(self.high_water_bytes, self.used_bytes)
         return Reservation(self, (key,))
+
+    def bind_backing(self, old: Hashable, new: Hashable) -> Hashable:
+        if old == new:
+            return old
+        entry = self._live[old]
+        if entry.borrowers != 1:
+            raise ValueError("backing binding requires sole ownership")
+        existing = self._live.get(new)
+        if existing is not None:
+            if existing.size != entry.size:
+                raise ValueError("shared backing has inconsistent reservation sizes")
+            existing.borrowers += 1
+            self.used_bytes -= entry.size
+        else:
+            self._live[new] = entry
+        del self._live[old]
+        return new
+
+    def retain_metadata(self, value: object, size: int) -> None:
+        # Descriptors escape individual reader.close() through summaries and
+        # ParsedTable. Keep their explicit conservative reservation for this
+        # operation, without tracing the Python allocator.
+        if id(value) not in self._metadata:
+            reservation = self.reserve(size, backing=("metadata", id(value)))
+            self._metadata[id(value)] = (value, reservation)
+
+    def record_stage_admission(self, name: str, temporary_limit_bytes: int) -> None:
+        self.stage_admissions.append({"stage": name, "retained_bytes": self.used_bytes,
+                                      "temporary_limit_bytes": temporary_limit_bytes})
+
+    def close(self) -> None:
+        for _, reservation in self._metadata.values():
+            reservation.close()
+        self._metadata.clear()
 
     def register_mapping(self, backing: Hashable, buffer: pa.Buffer) -> None:
         if backing not in self._live or self._live[backing].size != buffer.size:
@@ -176,3 +217,21 @@ def kernel_execution_scope(context: KernelExecutionContext, *, new_operation: bo
         yield context
     finally:
         _active_context.reset(token)
+        context.memory.close()
+
+
+@dataclass(frozen=True, slots=True)
+class CombinedCancelProbe:
+    first: CancelProbe
+    second: CancelProbe
+
+    def is_set(self) -> bool:
+        return self.first.is_set() or self.second.is_set()
+
+
+def merge_kernel_control(
+    context: KernelExecutionContext, probe: CancelProbe, deadline_monotonic: float | None,
+) -> KernelExecutionContext:
+    deadlines = tuple(d for d in (context.deadline_monotonic, deadline_monotonic) if d is not None)
+    return KernelExecutionContext(context.memory, CombinedCancelProbe(context.cancel_probe, probe),
+                                  context.threads, min(deadlines) if deadlines else None)

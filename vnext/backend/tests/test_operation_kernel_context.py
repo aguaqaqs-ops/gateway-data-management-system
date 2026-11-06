@@ -84,3 +84,33 @@ def test_stop_probe_preserves_the_original_execution_control_flags() -> None:
     assert control.drain_requested
     assert not control.cancel_requested
     assert not control.lease_lost
+
+
+def test_caller_finite_deadline_survives_an_operation_without_a_deadline() -> None:
+    from gateway_backend.capabilities.snapshot_materialization.native import call_arrow_kernel
+
+    context = KernelExecutionContext(OperationMemoryBudget(1024**2), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        with pytest.raises(TimeoutError):
+            parse_arrow_sql(sql_request("CREATE TABLE t (id INT);", ParserInvocationContext(NeverCancel(), 0.0)))
+        with pytest.raises(TimeoutError):
+            call_arrow_kernel(lambda *args: {}, [], {}, cancel_probe=NeverCancel(),
+                              budgets={"max_live_bytes": 1024**2}, deadline_monotonic=0.0, pool_threads=1)
+
+
+def test_reader_keeps_the_callers_stop_probe_after_parser_completion() -> None:
+    import threading
+
+    caller_stop = threading.Event()
+    context = KernelExecutionContext(OperationMemoryBudget(1024**2), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        result = parse_arrow_sql(sql_request("CREATE TABLE t (id INT); INSERT INTO t VALUES (1);",
+                                            ParserInvocationContext(caller_stop)))
+        reader = result.tables[0].reader
+        assert reader is not None
+        caller_stop.set()
+        try:
+            with pytest.raises(KernelStopped):
+                tuple(reader.iter_rows())
+        finally:
+            reader.close()

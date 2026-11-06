@@ -41,6 +41,7 @@ from gateway_backend.capabilities.table_access.kernel import (
     Reservation,
     current_kernel_context,
     kernel_execution_scope,
+    merge_kernel_control,
 )
 from gateway_backend.capabilities.table_access.native import (
     ArrowSourceTableReader, parse_arrow_sql, source_arrow_metadata,
@@ -53,7 +54,7 @@ __all__ = [
     "ArrowSourceTableReader", "parse_arrow_sql", "source_arrow_metadata",
     "source_cell_from_arrow", "source_descriptor_from_arrow",
     "KernelExecutionContext", "KernelMemoryLimit", "KernelStopped", "OperationMemoryBudget",
-    "Reservation", "current_kernel_context", "kernel_execution_scope",
+    "Reservation", "current_kernel_context", "kernel_execution_scope", "merge_kernel_control",
     "PARSER_INPUT_CONTRACT_VERSION",
     "PARSER_VERSION",
     "RESOURCE_BUDGETS",

@@ -25,7 +25,7 @@ from gateway_backend.capabilities.composite_signal.contracts import (
 from gateway_backend.capabilities.snapshot_materialization._catalog import CatalogError
 from gateway_backend.capabilities.snapshot_materialization.contracts import MaterializationStage
 from gateway_backend.capabilities.table_access.contracts import CancelProbe
-from gateway_backend.capabilities.table_access import current_kernel_context, KernelMemoryLimit
+from gateway_backend.capabilities.table_access import current_kernel_context, KernelMemoryLimit, merge_kernel_control
 
 ArrowMetadata = dict[str, Any]
 KernelBudgets = dict[str, int]
@@ -71,11 +71,13 @@ def call_arrow_kernel(
 ) -> KernelResult:
     context = current_kernel_context()
     if context is not None:
+        context = merge_kernel_control(context, cast(CancelProbe, cancel_probe), deadline_monotonic)
         context.checkpoint()
         budgets = {**budgets, "max_live_bytes": min(budgets["max_live_bytes"], context.memory.available_bytes)}
         cancel_probe = context.cancel_probe
         deadline_monotonic = context.deadline_monotonic
         pool_threads = context.threads
+        context.memory.record_stage_admission("business-kernel", budgets["max_live_bytes"])
     check_metadata_budget((tables, plan), budgets)
     try:
         result = cast(KernelResult, native(tables, plan, cancel_probe, budgets, deadline_monotonic, pool_threads))

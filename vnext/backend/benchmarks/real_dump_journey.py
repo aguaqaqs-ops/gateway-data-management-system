@@ -1668,6 +1668,7 @@ def _assert_preview_summaries(
     manifest: Mapping[str, Any],
     *,
     unchanged: bool,
+    input_completeness: str = "MODIFIED_ONLY",
 ) -> dict[str, int]:
     pairs = manifest.get("pairs")
     if not isinstance(pairs, list) or not pairs:
@@ -1675,10 +1676,9 @@ def _assert_preview_summaries(
     pair_ids = [pair.get("pair_id") for pair in pairs if isinstance(pair, dict)]
     if len(pair_ids) != len(pairs) or len(set(pair_ids)) != len(pairs):
         raise JourneyFailure("preview manifest pair identities are invalid")
-    if len(pairs) == 2 and set(pair_ids) != {"baseline_to_initial", "initial_to_modified"}:
-        raise JourneyFailure("FULL preview must contain both expected pairs")
-    if len(pairs) > 2:
-        raise JourneyFailure("preview manifest has unexpected pairs")
+    expected_pair_ids = {"initial_to_modified", "baseline_to_initial"} if input_completeness == "FULL" else {"initial_to_modified"}
+    if set(pair_ids) != expected_pair_ids:
+        raise JourneyFailure("preview manifest pairs disagree with the requested input completeness")
     totals: Counter[str] = Counter()
     for pair in pairs:
         if not isinstance(pair, dict) or not isinstance(pair.get("summary"), dict):
@@ -1715,6 +1715,7 @@ def _assert_identity_pair(
     *,
     expected_status: str,
     expected_mode: str,
+    input_completeness: str = "MODIFIED_ONLY",
 ) -> dict[str, str]:
     result = preview.get("result")
     if not isinstance(result, dict):
@@ -1728,6 +1729,9 @@ def _assert_identity_pair(
     pairs = result.get("identity_pairs")
     if not isinstance(pairs, list) or not pairs or any(not isinstance(pair, dict) for pair in pairs):
         raise JourneyFailure("Preview identity assessment pairs are invalid")
+    expected_pair_ids = {"initial_to_modified", "baseline_to_initial"} if input_completeness == "FULL" else {"initial_to_modified"}
+    if len(pairs) != len(expected_pair_ids) or {pair.get("pair_id") for pair in pairs} != expected_pair_ids:
+        raise JourneyFailure("Preview identity pairs disagree with the requested input completeness")
     selected = [pair for pair in pairs if pair.get("pair_id") == "initial_to_modified"]
     if len(selected) != 1:
         raise JourneyFailure("Preview identity assessment must identify initial_to_modified")
@@ -3120,6 +3124,7 @@ def _run_tier(
             summary = _assert_preview_summaries(
                 manifest,
                 unchanged=False,
+                input_completeness=v2_input_completeness,
             )
             expected_v2_changed = S1B_V2_PREVIEW_CHANGED_COUNTS[v2_id] + int(composite_changed)
             _assert_s1b_preview_summary(
@@ -3153,6 +3158,7 @@ def _run_tier(
             v2_preview,
             expected_status="SAME_PROJECT",
             expected_mode="DETAILED",
+            input_completeness=v2_input_completeness,
         )
 
         v2_submission = runner.run(

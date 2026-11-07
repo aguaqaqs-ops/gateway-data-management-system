@@ -1030,16 +1030,29 @@ def test_full_preview_checks_both_pairs_and_selects_modified_business_summary() 
     modified = {"pair_id": "initial_to_modified", "summary": {
         "table_count": 9, "changed_table_count": 2, "degraded_table_count": 0, "failed_table_count": 0,
     }}
-    summary = _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False)
+    summary = _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL")
     assert summary["pair_count"] == 1 and summary["changed_table_count"] == 2
     preview = {"result": {"identity_assessment_set_digest": "sha256:" + "a" * 64, "identity_pairs": [
         {"pair_id": "baseline_to_initial", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
         {"pair_id": "initial_to_modified", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
     ]}}
-    assert _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED")["status"] == "SAME_PROJECT"
+    assert _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED", input_completeness="FULL")["status"] == "SAME_PROJECT"
     baseline["summary"]["changed_table_count"] = 1  # type: ignore[index]
     with pytest.raises(JourneyFailure, match="archived v1 baseline"):
-        _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False)
+        _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False, input_completeness="FULL")
+
+
+def test_full_request_rejects_old_single_pair_summary_and_identity() -> None:
+    pair = {"pair_id": "initial_to_modified", "summary": {
+        "table_count": 1, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0,
+    }}
+    with pytest.raises(JourneyFailure, match="requested input completeness"):
+        _assert_preview_summaries({"pairs": [pair]}, unchanged=False, input_completeness="FULL")
+    preview = {"result": {"identity_assessment_set_digest": "sha256:" + "a" * 64, "identity_pairs": [
+        {"pair_id": "initial_to_modified", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
+    ]}}
+    with pytest.raises(JourneyFailure, match="requested input completeness"):
+        _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED", input_completeness="FULL")
 
 
 def test_full_upload_uses_actual_initial_v1_and_modified_v2_multipart_bytes() -> None:
@@ -1566,6 +1579,7 @@ def test_cli_passes_tier_resume_and_keep_stack_controls(
         "requested_project_name": "s2b-debug",
         "dc32_output": None,
         "debug_t1_submit_probe": False,
+        "v2_input_completeness": "MODIFIED_ONLY",
     }
     assert json.loads(capsys.readouterr().out) == {"conclusion": "PASS"}
 

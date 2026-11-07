@@ -92,6 +92,14 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 
 以上只成立a999实际来源。最终全部04失败修复后，仍须逐步骤审查diff是否影响05引用；不预先给2ae/后继候选fresh实跑或沿用结论，不以05成功抵消04失败。
 
-## 8. 最终核收待填
+## 8. 修复候选49403与后继验证
+
+原04失败run log完整SHA=`d84088eda0bdb8f9995c27ef5dacb5252524ed1343b3d14542d6f053e949ff23`；六份起始manifest按原log exact byte ranges保存，同run `original-starting-manifests/`，index SHA=`af518bd41c7c56940c60bbd14a8d4be3c94ed0db549e928fda636b3a585fca36`，原独审已逐份核原字节/包名/HEAD/总摘要/offset。原RS实际1744+207pass/1skip，整次仍失败，不作包carried。本人cleanup **12:59:57Z**/0，log SHA=`a1256931a8ea5a51869b3f07592ed259583c0994b460cfad6cc6e52af618260f`，运行容器/8000/Dolt/pytest/编译及runner Hypothesis/CargoTarget均空；保留04本人marker继续门禁修复。
+
+原独审已核六条完整诊断argv与§19一致。协调固定当时clean main **`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`**（tree56720104），仅04于**13:02:42Z** source_ready：`transfer-6zMscy3m` exact expected/advertised/checkout/clean/prepare0；bundle SHA=`a7601befad4ee00dbb4bf9a5f478a9c28a133dc43856ffcd20f98f1dbf9040be`，prepare SHA=`58a4091b59382f04958eaf7a3f1d7cedef88d518467c0c7004a3747501c3d9a7`。guard仍原b86cb3，本人owner连续有效，旧run/manifests未改；主线短窗口已解除。
+
+同49403逐项extension核/三原owner两marker-n4/n0（真空5=N/A）/backend ruff+mypy/唯一Submit removes_deleted Compose，prebuilt及BASETemp unset、base preload/networknone不变；RS复用本任务a999tag，源码a687/13cb未变，backend/worker正常当前build。任失败先停原审处理；全部通过后同49403直接新六包，不因后继纯docs提交再改测试WT或重复05。当前仅已开始诊断，未报新权威通过。
+
+## 9. 最终核收待填
 
 原实际产品tree0301，两test修订后tree220ba5尚待全失败闭环；04 workers48/六包及Compose、05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。当前04有失败，不具最终GO；尚无合格最终六manifest闭包、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。

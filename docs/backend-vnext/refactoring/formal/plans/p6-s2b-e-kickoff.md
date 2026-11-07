@@ -1,6 +1,21 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前状态（2026-11-07）：最终产品 `82c4251b6cf944526c80a5e9bfe707bc57ab5087` 使用 Owner 已选 24 GiB envelope / 8 GiB reserve / 显式 M16 GiB、N1。04 六包权威/Compose、06 五包静态与定向、最终 fresh t1/t2/t4 已通过独审；**t3 在 v2 Preview 的 assemble_preview 被 RESOURCE_LIMIT_EXCEEDED 拒绝，E/S2b NO GO**。materialize 成功，非硬 OOM/失租，正常 stop 后保留本任务现场与证据，正在只读核算真实比较消费者的预约下界；不自动提高 M、改费用公式或重跑旅程。原始宽裕档 cal FAIL、FD 修复与独立 History 局部 PASS 均保持准确范围；新真实数据失败不抹去其他合格来源，也不据其他通过放行。准确证据见 [handoff](p6-s2b-e-handoff.md) 与 [独立审核](p6-s2b-e-review.md)。
+当前状态（2026-11-07）：**隔离 a10 fresh 完整 t3 宽裕校准已独审 PASS；待 Owner 选择最终配置与 DC33 范围，E/S2b 仍 NO GO。** main 产品 `464289138a` 保持已选 24/8/M16，包含新增列非记录角色漏预约的窄修；临时 M48 与计数日志未合 main。原 `82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 为合格来源，t3 M16 资源拒绝保持 FAIL。准确证据见 [handoff](p6-s2b-e-handoff.md) `e990b70d7d` 与 [独立审核](p6-s2b-e-review.md) `cde10c5acd`。
+
+### 测后配置与最终验证提案（待 Owner 选择）
+
+a10 在 CT108 于 03:20:23–03:42:33Z fresh 完整 t3 成功，18 次 claim 与 18 条 scope 计数逐序吻合。最高预约为 History 的 21,375,346,635 B（19.907343 GiB）；同一 worker 全生命周期 cgroup peak 4.438370 GiB、RSS 高水位 4.210926 GiB，无 OOM/失租/重启，正常停止、自有资源清理及节点释放均已核。物理数据只属于临时 64/16/M48，不冒新档实测。
+
+| 配置提案（N1、单 active） | 容器上限 / reserve / 显式 M | 对已测最大预约余量 | native 调用点预算余量投影 |
+| --- | --- | --- | --- |
+| 推荐 | 32 / 8 / 24 GiB | 4.093 GiB | 最紧 inspect 15.623 GiB；parser/business/encode 至少 23.669 GiB |
+| 备选 | 40 / 8 / 32 GiB | 12.093 GiB | 最紧 inspect 23.623 GiB |
+
+推荐依据含真实调用次序：Python 比较高峰与 Rust 调用峰不同时出现；不能仅以 charged 乘系数，也不能把 native cap 记作实耗。两档均仍须最终候选实际门禁与真实 t3 确认，不保证更大输入或正式性能。
+
+DC33 推荐本轮在已扩容的 06 执行最终候选 fresh t1–t3 功能/容量旅程，04 同候选六包权威与其中的 Compose 并行；06 此用途须随本提案确认，不变为正式性能或权威 runner 节点。t3 必重验真实失败形态；t1/t2 因原成功卷已清理，无法像 t4 一样给新增费用精确上界，补跑两档约增加 17 分钟（按旧结果），避免把更高 M 推定为所有变更形态必过。t4 采用独审的具体沿用条件 M≥18,678,133,632 B，两提案均满足；保留 82 完整业务/物理来源与新增费用上界分析，不重复完整 t4，也不称旧物理峰为新档实测。
+
+备选范围只重跑 fresh t3，t1/t2/t4 沿用原功能结果；代价是明确保留 t1/t2 在新配置下未做资源实测、无同等精确费用上界的缺口，须由 Owner 按 DC33 接受，不自动采用。两种范围均保留 06 必要静态/定向、04 六包实际来源、最终 H 同 worktree 闭包与容器绑定；不重复未受影响的 A–D 恢复/取消/事务/CAS 证据，不重生成输入。具体 profile 与范围确认后只执行选定方案，不逐档试跑。
 
 **t3 容量结论与剩余路径校准（沿既有授权接续）：** 只读核实 193 个 task 的实际 materialized 侧：row/base 预约 17,045,901,120 bytes；仅补 current `device_st` 的 logical Arrow 16,646,188 bytes ×64 后，下界即 18,111,257,152 bytes（16.867 GiB），已超 M16，其他 Arrow/存活项尚未计。大表新增列触发真实双侧读行，t4/History 的观测没有覆盖该变更形态。另发现 non-record role 的 COLUMNS_ADDED 实际双侧读行未预约，已按 DC80 以 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 最小补齐；06 静态及 93 项 focused 独审通过，元数据-only 仍不计行费。此修正增加漏计保护，不会让 M16 需求问题变成 PASS。
 

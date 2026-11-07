@@ -168,7 +168,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **E 当前收口（2026-11-07）：** 最终候选 `82c4251b6c`、Owner 已选 24/8/M16 GiB、N1；04 六包权威及 Compose、06 五包静态/定向、fresh t1/t2/t4 均已通过独审。t3 的 materialize_inputs 成功，v2 Preview 的 assemble_preview 因 `RESOURCE_LIMIT_EXCEEDED` 拒绝，正常停止且资源记录无硬 OOM/失租；保留现场，只读核算实际比较预约需求，E/S2b NO GO。不自动增档/调整公式/重跑；已通过来源按准确范围保留。原 `4f808c111b` cal FAIL 与 FD 修复后的独立 History PASS 分列，不拼接成完整校准。细节见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [E 任务](p6-s2b-e-kickoff.md)。
+- **E 当前收口（2026-11-07）：** `82c4251b6c` 的 04 六包/Compose、06 静态/定向、fresh t1/t2/t4 均已通过独审，t3 M16 资源拒绝保持 FAIL。main `464289138a` 已补真实漏预约，保持 24/8/M16；隔离 `a10dec894e` 于 03:42:33Z 完成 fresh 全 t3，18 scope、同 worker 资源与正常停止/清理齐，独审 PASS。最大预约 19.907 GiB，cgroup 峰 4.438 GiB仅属于临时64/16/M48。推荐最终32/8/M24、备选40/8/M32；配置与 DC33 范围交 Owner 一次选择，E/S2b NO GO。最终六包/容器、必要真实旅程与H绑定尚待，不拼接旧失败或局部证据。细节见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [测后提案](p6-s2b-e-kickoff.md)。
 
 - **E 启动记录（2026-11-06）：A–D GO，按 DC86 启动 E。** D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。06 于 18:52:58Z 释放，D 二角色结束。DC87 的显式 12/4/8 GiB、N1/单 active 与 DC88 正常 drain 语义保持；D 实际 materialize 局部校准、控制/预算与当前必要容器边界已验证，不冒称全 worker 实测峰值或 S2b exit。[E 任务](p6-s2b-e-kickoff.md)由新 Sol/high 实施者与 Sol/max 审核者完成旧路径/工具删除移交、04 最终门禁和完整 t1–t4；原基准独立跟踪、W1/W2 时点不变。额外角色先交 Owner，实质阻塞或反复失败暂停讨论。
 

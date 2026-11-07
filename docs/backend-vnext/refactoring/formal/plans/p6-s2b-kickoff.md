@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A–D 已交付，E 收尾取证中）
 
-E 当前进度（2026-11-07）：最终候选 `82c4251b6c` 按 Owner 已选 24/8/M16 GiB、N1 实际验证；04 六包/Compose、五包静态及 fresh t1/t2/t4 已通过独审。t3 v2 Preview 在真实比较预约准入被 M16 拒绝，正在保留现场只读归因，**E/S2b NO GO**；不自动加 M 或重跑。原 cal FAIL、FD 窄修与独立 History PASS 保留，当前问题不混为 FD 或性能时点延期。具体见 [E 任务](p6-s2b-e-kickoff.md)。
+E 当前进度（2026-11-07）：`82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 已通过独审，t3 M16 拒绝保持 FAIL。补齐真实漏预约的 `464289138a` 保持 main 24/8/M16；隔离 `a10dec894e` 的 fresh 完整 t3 宽裕校准现已独审 PASS，最高预约 19.907 GiB、同 worker cgroup 峰 4.438 GiB。**E/S2b NO GO**，测后推荐 32/8/M24，备选 40/8/M32，待 Owner 选最终档与 DC33 范围；原失败与局部证据不改判。具体提案见 [E 任务](p6-s2b-e-kickoff.md)。
 
 E 启动时状态记录：APPROVED / A–D COMPLETE / E STARTING；2026-11-06。A 固定产品 `db7767ffbb`、审核 `83b927207a`；B 固定产品 `b820321c1e`、审核 `0dc93c09a9`；C 固定产品 `0048040af5`、handoff/容量 `7cd2b548c8`、审核 `e9bef6efe8`。D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞，06 于 18:52:58Z 释放，D 二角色结束。按 DC86 启动 [E](p6-s2b-e-kickoff.md)，新 Sol/high 实施者、新 Sol/max 审核者。DC87 的 12 GiB envelope/4 GiB reserve/显式 M8 GiB、N1/单 active 与 DC88 保持；D 局部 worker 校准和 focused 容器证据不替代 E 的最终门禁或完整 t1–t4。S2b 尚未退出，性能未知项不记 PASS。
 

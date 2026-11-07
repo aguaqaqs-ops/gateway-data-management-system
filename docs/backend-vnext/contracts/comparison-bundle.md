@@ -191,6 +191,10 @@ OTHER 业务 JSON 沿 assembler 发布时的引用校验和最终 raw SHA 逐块
 窄完整性错误为503 `BUNDLE_INTEGRITY_FAILURE`，不披露 server path 或业务行。其他鉴权/状态
 错误沿各 owning HTTP Contract，不能统一包装成404或空 tar。
 
+通过预检的 bundle digest 还必须等于已授权 PreviewResult 的 `digests.bundle_digest` 或已授权
+History assemble checkpoint 的 `bundle_digest`。缺失 expected digest 或指向另一个完整有效
+bundle 仍属于完整性矛盾，头前503并关闭准备对象，不能凭 artifact 本身可读发200。
+
 prepare 返回明确的 digest、准确长度、quoted ETag、安全 filename、stream 和幂等 close。
 Local artifact 公开 bounded read session 在已有 root 目录 FD 上持共享 flock；协作 cleanup 在
 同目录排他非阻塞 flock 内重查 eligibility，读流仍活动时返回 retryable。无新 lock 文件或

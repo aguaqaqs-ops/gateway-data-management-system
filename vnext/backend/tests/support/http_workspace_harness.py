@@ -209,18 +209,17 @@ class InMemoryBoundedArtifactStore:
 
 
 class InMemoryBundleReader:
-    def __init__(self, bundles: dict[str, tuple[str, bytes]] | None = None) -> None:
+    def __init__(self, bundles: dict[str, tuple[str, bytes, str]] | None = None) -> None:
         self._bundles = dict(bundles or {})
 
-    def register(self, artifact_id: str, logical_name: str, payload: bytes) -> None:
-        self._bundles[artifact_id] = (logical_name, payload)
+    def register(self, artifact_id: str, logical_name: str, payload: bytes, *, bundle_digest: str) -> None:
+        self._bundles[artifact_id] = (logical_name, payload, bundle_digest)
 
     def prepare_bundle(self, artifact_id: str) -> PreparedBundleDownload:
         try:
-            logical_name, payload = self._bundles[artifact_id]
+            logical_name, payload, digest = self._bundles[artifact_id]
         except KeyError:
             raise ArtifactUnavailableError("bundle is not available") from None
-        digest = raw_blob_digest(payload).value
         return PreparedBundleDownload(
             bundle_digest=digest, content_length=len(payload), filename=logical_name,
             etag=f'"{digest}"', stream=iter([payload]), _resources=ExitStack(),

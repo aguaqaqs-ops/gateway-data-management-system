@@ -29,7 +29,11 @@ def stream_preview_bundle(
         baseline_head_read=baseline_head_read,
     )
     try:
-        return bundle_reader.prepare_bundle(state.result.bundle_artifact_id)
+        prepared = bundle_reader.prepare_bundle(state.result.bundle_artifact_id)
+        if prepared.bundle_digest != state.result.digests.bundle_digest:
+            prepared.close()
+            raise BundleIntegrityError("bundle digest disagrees with its preview result")
+        return prepared
     except ArtifactUnavailableError:
         raise ApiError(
             code="RESOURCE_NOT_FOUND",

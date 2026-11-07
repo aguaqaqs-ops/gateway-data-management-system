@@ -141,7 +141,7 @@ def test_read_preview_bundle_streams_logical_bytes(env: WorkspaceHttpTestEnviron
     env.repository.save_preview_result(result)
     bundle_reader = env.bundle_reader
     assert isinstance(bundle_reader, InMemoryBundleReader)
-    bundle_reader.register(result.bundle_artifact_id, "preview.tar", BUNDLE_BYTES)
+    bundle_reader.register(result.bundle_artifact_id, "preview.tar", BUNDLE_BYTES, bundle_digest=result.digests.bundle_digest)
     response = env.client.get(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result.preview_result_id}/bundle",
         headers=env.auth_headers(),

@@ -155,13 +155,17 @@ def read_compare_bundle(
             message="resource not found",
             status_code=404,
         )
-    bundle_artifact_id = _bundle_artifact_id(
-        operation=operation,
-        unit_of_work_factory=unit_of_work_factory,
-        artifact_store=artifact_store,
-    )
     try:
-        return bundle_reader.prepare_bundle(bundle_artifact_id)
+        bundle_artifact_id, expected_digest = _bundle_binding(
+            operation=operation,
+            unit_of_work_factory=unit_of_work_factory,
+            artifact_store=artifact_store,
+        )
+        prepared = bundle_reader.prepare_bundle(bundle_artifact_id)
+        if prepared.bundle_digest != expected_digest:
+            prepared.close()
+            raise BundleIntegrityError("bundle digest disagrees with its history result")
+        return prepared
     except ArtifactUnavailableError:
         raise ApiError(
             code="ARTIFACT_UNAVAILABLE",
@@ -322,12 +326,12 @@ def _load_success_result(
         ) from exc
 
 
-def _bundle_artifact_id(
+def _bundle_binding(
     *,
     operation: OperationRecord,
     unit_of_work_factory: HistoryControlUnitOfWorkFactory,
     artifact_store: object,
-) -> str:
+) -> tuple[str, str]:
     with unit_of_work_factory(read_only=True) as unit_of_work:
         assemble_step = unit_of_work.operations.get_step(
             history_compare_step_id(operation.operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
@@ -346,7 +350,10 @@ def _bundle_artifact_id(
             message="bundle is not available",
             status_code=404,
         )
-    return bundle_artifact_id
+    expected_digest = envelope.job_state.get("bundle_digest")
+    if type(expected_digest) is not str or not expected_digest:
+        raise BundleIntegrityError("history checkpoint has no expected bundle digest")
+    return bundle_artifact_id, expected_digest
 
 
 def build_history_compare_accept_command(

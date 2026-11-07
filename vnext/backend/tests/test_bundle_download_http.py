@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -190,7 +191,9 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
     env = create_workspace_http_environment(tmp_path / "http", bundle_reader=LocalArtifactBundleReader(store))
     workspace = _seed_workspace(env.client, env.auth_headers())
     upload = _seed_upload(env.client, env.auth_headers(), workspace)
-    preview = replace(_preview_result(workspace, upload), bundle_artifact_id=result.bundle.manifest_ref.artifact_id)
+    preview = _preview_result(workspace, upload)
+    preview = replace(preview, bundle_artifact_id=result.bundle.manifest_ref.artifact_id,
+                      digests=replace(preview.digests, bundle_digest=result.bundle.bundle_digest.value))
     env.repository.save_preview_result(preview)
     response = env.client.get(f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{preview.preview_result_id}/bundle", headers=env.auth_headers())
     assert response.status_code == 200, response.text
@@ -235,8 +238,10 @@ def bundle_route(request: pytest.FixtureRequest, tmp_path: Path) -> tuple[Worksp
     )
     workspace = _seed_workspace(env.client, env.auth_headers())
     upload = _seed_upload(env.client, env.auth_headers(), workspace)
-    from dataclasses import replace
-    result = replace(_preview_result(workspace, upload), bundle_artifact_id=ref.artifact_id)
+    from gateway_backend.capabilities.bundle_assembly import read_bundle_transport_metadata
+    result = _preview_result(workspace, upload)
+    result = replace(result, bundle_artifact_id=ref.artifact_id,
+        digests=replace(result.digests, bundle_digest=read_bundle_transport_metadata(published.locate(ref)).bundle_digest))
     env.repository.save_preview_result(result)
     return env, f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result.preview_result_id}/bundle", published, ref.artifact_id
 
@@ -279,3 +284,51 @@ def test_bundle_preflight_failure_is_a_typed_response_before_success_headers(
     assert response.headers["content-type"] == "application/json"
     assert "etag" not in response.headers
     assert str(store.artifact_root) not in json.dumps(response.json())
+
+
+def test_bundle_rejects_a_complete_valid_artifact_from_a_different_result(
+    bundle_route: tuple[WorkspaceHttpTestEnvironment, str, LocalArtifactStore, str],
+) -> None:
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    from gateway_backend.application.checkpoints import load_checkpoint_envelope, put_checkpoint_envelope
+    from gateway_backend.application.history.compare_jobs import HISTORY_COMPARE_STEP_ASSEMBLE, history_compare_step_id
+    from gateway_backend.artifacts import artifact_ref_to_dict
+    from gateway_backend.application.bundle_download import prepare_bundle_download
+    from gateway_backend.capabilities.bundle_assembly import BundlePairInput, assemble_bundle
+    from tests.test_bundle_assembly import _request, _surface_result
+
+    env, url, store, artifact_id = bundle_route
+    other = assemble_bundle(_request((BundlePairInput("other-pair", 0, 1, _surface_result(table_name="other-table")),)), source_store=store)
+    assert other.bundle is not None
+    # The pointed-to artifact is complete and independently valid; the owning
+    # result/checkpoint still advertises the original result's digest.
+    valid = prepare_bundle_download(store, other.bundle.manifest_ref.artifact_id)
+    assert_complete_tar(b"".join(valid.stream), expected_digest=other.bundle.bundle_digest.value)
+    valid.close()
+    with ControlDbUnitOfWork(env.db_path) as uow:
+        if "/history-compares/" in url:
+            operation_id = url.split("/")[-2]
+            step_id = history_compare_step_id(operation_id, HISTORY_COMPARE_STEP_ASSEMBLE)
+            step = uow.operations.get_step(step_id)
+            assert step.checkpoint_ref is not None
+            envelope = load_checkpoint_envelope(store, step.checkpoint_ref)
+            assert envelope.job_state["bundle_artifact_id"] == artifact_id
+            changed = replace(envelope, job_state={**envelope.job_state, "bundle_artifact_id": other.bundle.manifest_ref.artifact_id})
+            ref = put_checkpoint_envelope(store, changed)
+            uow.connection.execute("UPDATE step_records SET checkpoint_ref=? WHERE step_id=?",
+                (canonicalize_json_value(artifact_ref_to_dict(ref)), step_id))
+        else:
+            preview_id = url.split("/")[-2]
+            row = uow.connection.execute("SELECT binding FROM preview_result_records WHERE preview_result_id=?", (preview_id,)).fetchone()
+            assert row is not None
+            binding = json.loads(row[0])
+            assert binding["bundle_artifact_id"] == artifact_id
+            binding["bundle_artifact_id"] = other.bundle.manifest_ref.artifact_id
+            uow.connection.execute("UPDATE preview_result_records SET binding=? WHERE preview_result_id=?",
+                (canonicalize_json_value(binding), preview_id))
+    response = env.client.get(url, headers=env.auth_headers())
+    assert response.status_code == 503
+    assert response.json()["code"] == "BUNDLE_INTEGRITY_FAILURE"
+    assert "etag" not in response.headers
+    with store.cleanup_session() as acquired:
+        assert acquired

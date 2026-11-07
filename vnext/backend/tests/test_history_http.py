@@ -394,6 +394,7 @@ def _register_history_compare_bundle(
                 bundle_artifact_id,
                 f"history-compare-{operation_id}.tar",
                 payload,
+                bundle_digest=str(envelope.job_state["bundle_digest"]),
             )
             return
     raise AssertionError("bundle artifact is missing from the artifact store")

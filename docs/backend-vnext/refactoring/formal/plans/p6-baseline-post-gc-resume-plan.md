@@ -34,7 +34,7 @@
 | 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
 | DC63 #1、V5b A–D | 实际诊断仍待执行，工具准备已获§109–110通过；按[最小补缺方案](p6-dc63-v5b-measurement-completion-plan.md)处理真正缺项，写明产品/步骤/节点来源。21个selector不扩成新矩阵，普通t4诊断不与正式压力计时重叠。 |
 | JSON/SHA、comparator 与总报告 | 保存按实际版本分列的记录及索引，报告差异与缺口；单版本 schema 不能如实表达时采用多份既有记录加总索引或最小工具修正，不伪填统一 HEAD，不以文案/字段统计问题重跑产品。 |
-| 04 最终权威 runner | **本轮exit1，普通修正进行中：** V_ref候选`fcc827aec2750b2cc6d36c241c40de7415c7a1ea`的全六包运行于2026-11-07 19:19:37–19:41:16Z，起止clean；接续审核者报告RS两项镜像env隔离断言及backend一项中断清理测试失败。保留原run及收尾，双方直接在独立worktree做必要定位/focused/静态与合格恢复，不把失败来源用于carried，不原样重试或重跑已关闭测量。镜像准备§120–122及启动§123记录仍为各自事实；产品路径保持已审9704，不借main/S2b结果，最终门禁及阶段exit尚未完成。 |
+| 04 最终权威 runner | **修正已定向通过，新H门禁待执行：** `fcc827aec2750b2cc6d36c241c40de7415c7a1ea`于2026-11-07 19:19:37–19:41:16Z全六包exit1（RS两项环境断言、backend一项中断测试），原run及收尾保留，不作carried。仅改两测试文件的`78000beb62e927190092e315135e7bc1cbdda615`已获接续审核§129（`a7537cfbcc`）代码/05定向PASS：launcher普通及SIGINT_IGN父入口、RS default/custom分支及受影响两包静态通过，其余三Python包静态补齐后集中准备最终H镜像/04验证。原15s及停止/清理断言未弱化，产品/真实guard保持9704；不原样重试、不重跑已关测量、不借main/S2b结果，最终门禁及阶段exit尚未完成。 |
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
 
@@ -56,7 +56,7 @@ Repository Service原官方预置依赖分支仍可在04离线构建，不被上
 
 **core主文件的有限派生路径（2026-11-07）：** 接续审核者只读文件核验报告，bb348 before-History源现为主DB、32768B SHM和空WAL三文件，完整目录仍与原checkpoint不符；主DB单文件按原摘要字段的投影则精确等于原control树`4baede398e55e77569836c0b51c98d1edd6b7aab6451b7cbb7d9793ff6d1aad4`、2150400B。本次不恢复或修改源目录，也不把当前源全树标MATCH。允许保留原三文件及实际差异记录，只复制该已认证主文件到新私有目录，开库前用原算法核验私有目录的**完整树**精确等于原checkpoint，再在专用节点复制件提取同run worker步骤及H1历史DB字段；逐项保存原state/operation ID、复制与提取节点、文件/目录摘要及派生结果，由接续审核者核实际资格。此路径仅补历史记录，不用于业务恢复、checkpoint续跑或carried，不泛化为忽略WAL/SHM的摘要规则；H1实际缓存对象仍须各自来源核验，不能仅凭DB字段宣称健康。不要求唯一定位旧SHM创建者作为新前置，主文件/空WAL/复制前后完整摘要等实际条件不满足时停该派生并具体诊断，其他任务继续。
 
-**历史补证交付状态（2026-11-07）：** 接续审核者已明确通过合并sidecar `9bdce65c7e519cd56264c1f01b73f3d5ee7829e8fad173b1a5555c09ba7a03de`，范围限FULL/STRESS/core三来源的历史worker步骤及core H1查询起点输入条件：05实际提取、源DB/私有目录身份、7个operation/21个UTC步骤与认证state一致，原H1 compare起点07:36:37.829Z的342条缓存记录及实际引用对象/JCS引用逐项相符，过期、缺失及内容差异均0。artifact整个目录未重新hash的限制明确保留，此次只认证这些引用对象；core当前源全目录MISMATCH及私有原main完整MATCH分别保留。实施者可直接在派生record中消费该旁证，不改raw的none、cache_after或命中计数，不转为业务恢复许可，也不为修改sidecar内原REVIEW_PENDING字节再签一轮。该项从待补证扣除；完整record/comparator、DC63/V5b及04门禁仍须各自完成。
+**历史补证交付状态（2026-11-07）：** 接续审核§127（`bffd60baac`）已通过合并sidecar `9bdce65c7e519cd56264c1f01b73f3d5ee7829e8fad173b1a5555c09ba7a03de`，范围限FULL/STRESS/core三来源的历史worker步骤及core H1查询起点输入条件：05实际提取、源DB/私有目录身份、7个operation/21个UTC步骤与认证state一致，原H1 compare起点07:36:37.829Z的342条缓存记录及实际引用对象/JCS引用逐项相符，过期、缺失及内容差异均0。artifact整个目录未重新hash的限制明确保留，此次只认证这些引用对象；core当前源全目录MISMATCH及私有原main完整MATCH分别保留。实施者可直接在派生record中消费该旁证，不改raw的none、cache_after或命中计数，不转为业务恢复许可，也不为修改sidecar内原REVIEW_PENDING字节再签一轮。该项从待补证扣除；完整record/comparator、DC63/V5b及04门禁仍须各自完成。
 
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
 

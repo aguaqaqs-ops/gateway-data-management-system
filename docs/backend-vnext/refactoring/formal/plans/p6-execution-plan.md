@@ -218,7 +218,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 验收：设计 §16.3 全部场景（门槛项达标、只报告项有记录）与 §16.2 全部计数断言；最终提交上完整运行权威 runner（六个包）与容器门禁各一次；Phase 6 退出审核。
 - 真实数据：2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。
 
-### 前端对接前的 BE-a / BE-d 与归档业务核验（联合后端技术GO，DC33/FE3待）
+### 前端对接前的 BE-a / BE-d 与归档业务核验（技术GO及DC33已确认，FE3/退出待）
 
 - **2026-11-07范围与授权更新（DC89/DC90）**：S2a、S2b均已退出；[联合kickoff](p6-be-a-d-kickoff.md)设计候选`16472197b4`/终审`a5d87540e6`已GO，Owner随后明确授权A1→V1→V2→D及联合最终准备，正常小节自动推进。A1最终`c1ee962755`、V1最终`5dc01deeb5`、V2最终`9ec62e82ad`均本节GO；D从clean9ec启动。持续状态见[协调交接](p6-be-a-d-coordination-handoff.md)，不重复请求已给出的开工授权，不接管原冻结基准。
 - [BE-a](p6-be-a-design.md)：原旧动作/状态删除、两创建接口OpenAPI、Workspace占用指针、本人撤回权限继续；新增当前baseline有PENDING时硬阻塞归档及过期baseline新APPROVE拒绝，保留合法replay。旧审核`fcbfb4c1a0`不覆盖新增范围。
@@ -228,7 +228,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 实际顺序保持A1→V1→V2→D；D新实施/独审均6.1-Sol（xhigh/max），工作单与精确清单见[p6-be-d-work-order](p6-be-d-work-order.md)/[handoff](p6-be-d-handoff.md)，角色同节承接已授权联合最终准备收尾。FE3接口快照、新异常页面与PAX修复由前端owner负责，Owner手动转发[V2实际接口制品](p6-v2-frontend-handoff.md)，不把后端交付当FE3已完成。
 - D本地产品`0ba45e5ef8`/vnext`0301aee3a3`、独审`6ad7e54fa0`及handoff`41386e12e6`核收`cd2d395fbc`已通过，F1–F5关闭，06于12:05:51Z本人释放；同tar及实际OpenAPI已供Owner转前端，FE3仍待。
 - 联合实际证据：05 a999 fresh t1的18步/四完整tar通过，12:46:02Z释放；04 a999首轮七fail已由两test文案同步及eff1精确subject修复，49403六包13:33:56Z原exit0，F6功能关闭。来源/有限步骤引用见[联合记录](p6-be-a-d-joint-validation-preparation.md)。公共fixtures改变，六包均已实际运行，不口头carried。
-- **联合后端技术GO `ccdd1eb39d`**：Owner批准方案A后，同49403四基础包实际compare可沿用（direct DTW），backend/RS在mvzi新原0；新RS130674预后原cfg/全部DiffID一致，三runtime共54DiffID及全部manifest/LAN/资源释放已独核。最终handoff233e，04/05/06已释放，原D两角色技术职责完成并正常停止，历史缺失保留。[最终确认包§12](p6-be-a-d-joint-validation-preparation.md#12-联合技术go与dc33最终范围确认包)待Owner按DC33确认真实数据范围；最终HEAD退出绑定/手续、FE3另待，不tag/push/S3或动冻结基准。
+- **联合后端技术GO `ccdd1eb39d`，Owner已确认DC33最终范围**：同49403四基础包实际compare可沿用（direct DTW），backend/RS在mvzi新原0；新RS130674预后原cfg/全部DiffID一致，三runtime共54DiffID及全部manifest/LAN/资源释放已独核。最终handoff233e，04/05/06已释放，原D两角色完成并正常停止，历史缺失保留。Owner明确确认05 a999一次fresh t1及04异常真实接线范围，见[最终交接§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)；实际最终HEAD退出绑定/手续、FE3另待，不tag/push/S3或动冻结基准。
 
 ## 3. 路径预算（主要改动面）
 

@@ -1,6 +1,6 @@
 # BE-d 完整tar前端交接（Owner手动转发）
 
-2026-11-07。协调者维护；**联合后端技术GO `ccdd1eb39d`**，实际产品49403/tree567、最终handoff233e。下列同字节制品生成源仍为0ba生产encoder；当前实际API原件来自04新权威run mvzi，见§3。前端同制品OPFS互通、DC33及退出手续仍pending。后端不改前端源码，前端由其owner修consumer与类型；实际encoder文件已交付。本页列两类已核consumer接缝，不改变现有POSIX tar格式，不要求生成大输入。
+2026-11-07。协调者维护；**联合后端技术GO `ccdd1eb39d`、Owner已确认DC33范围**，实际产品49403/tree567、handoff233e。下列同字节制品生成源仍为0ba生产encoder；当前实际API原件来自04新权威run mvzi，见§3。前端同制品OPFS互通及实际阶段退出手续仍pending。后端不改前端源码，前端由其owner修consumer与类型；实际encoder文件已交付。本页列两类已核consumer接缝，不改变现有POSIX tar格式，不要求生成大输入。
 
 ## 1. 已审UTF-8 PAX接缝
 
@@ -34,4 +34,4 @@
 
 生成原run为06 `run-interop-generate-LZPb1TzQ`；consumer验证 `run-interop-verify-corrected-6TuXooMk` command/final0，12:04:06Z结束、完整HEAD/clean/owner真。原一次外置脚本被wrapper在consumer执行前拒绝已保留，按DC68只用公开支持python-c/import本提交consumer单次纠正，不exec外置代码。OpenAPI来自同一0ba实际小Compose的`GET /openapi.json`，SHA=`977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`；不是新造fixture schema。
 
-前端使用上述**同一个bundle.tar**核解析、路径/摘要与OPFS安装，并回传修复提交、同文件SHA及专用节点证据；后端独立consumer不替代此结果。联合后端技术GO已出，04/05/06均已释放；最终真实数据范围按DC33交Owner确认，阶段退出另办。FE3解除依赖仍须前端自己的同字节证据，真正需要前端判断的后端阻塞将另给具体问题包并暂停该依赖。
+前端使用上述**同一个bundle.tar**核解析、路径/摘要与OPFS安装，并回传修复提交、同文件SHA及专用节点证据；后端独立consumer不替代此结果。联合后端技术GO和Owner的DC33范围确认均已齐，04/05/06均已释放，实际阶段退出另办。FE3解除依赖仍须前端自己的同字节证据，真正需要前端判断的后端阻塞将另给具体问题包并暂停该依赖。

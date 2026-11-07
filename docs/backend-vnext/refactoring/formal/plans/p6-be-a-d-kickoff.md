@@ -1,6 +1,6 @@
 # BE-a / BE-d 与归档业务核验：联合 kickoff（设计已审）
 
-状态：**本轮A1/V1/V2/D及联合后端技术GO（最终独审ccdd1eb39d，实际产品49403/tree567）**。Owner已批准的最小补验完成：四包按实际闭包沿用、两包新权威0，新镜像原件和释放已核。最终handoff233e；历史RS/aaa缺口保留，不伪补。见[协调交接](p6-be-a-d-coordination-handoff.md)/[DC33确认包§12](p6-be-a-d-joint-validation-preparation.md#12-联合技术go与dc33最终范围确认包)。最终范围待Owner确认，FE3及阶段退出手续仍独立pending，不tag/push/S3。Owner已确认DC89/DC90：BE-a归档门禁与过期APPROVE、BE-d最终closure成员规则、归档生成时间及来源核验的业务方向。设计候选16472197b4/终审a5d87540e6已审，设计GO与本次实际技术验证分别记录。S1–S2b退出状态不变，不接管冻结基准。
+状态：**本轮A1/V1/V2/D及联合后端技术GO，Owner已确认DC33最终范围**（最终独审ccdd1eb39d，实际产品49403/tree567）。最小补验已完成：四包按实际闭包沿用、两包新权威0，新镜像原件和释放已核。最终handoff233e；历史RS/aaa缺口保留，不伪补。见[协调交接](p6-be-a-d-coordination-handoff.md)/[最终交接§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)。FE3及实际最终HEAD退出绑定/手续仍独立pending，不tag/push/S3。Owner已确认DC89/DC90的业务方向；设计候选16472197b4/终审a5d87540e6与本次实际验证分别记录。S1–S2b退出状态不变，不接管冻结基准。
 
 引用基线：`ebb0047383300a3754a4be6a6a78f72286600c83` 的 [前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、[后端交接 §2.3](p6-backend-session-handoff.md)、DC64/DC67/DC70/DC73。任务业务范围来自已确认的前端决议；本页新增安排已通过设计独审，具体实施起点、角色及验收范围仍须在实施kickoff填写确认。BE-b 设计与实现不并入这两项。
 

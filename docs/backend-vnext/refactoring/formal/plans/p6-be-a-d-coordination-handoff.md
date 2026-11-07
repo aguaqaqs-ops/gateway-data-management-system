@@ -20,7 +20,7 @@
 | V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 无局部未决；联合技术GO见末行，DC33/FE3/退出另待 |
 | V2 | **本节最终GO `9ec62e82ad`**，F1–F6全关；产品/容器`f8fb796f02`，handoff`3cd4400f9f` | `/root/be_v2_impl`=6.1-Sol/xhigh、`/root/be_v2_review`=6.1-Sol/max，均正常结束，无后台/占用，保留历史 | 06全部定向/静态、f8当前Compose1/0、OpenAPI/镜像/37+13索引与10:39:24释放已独审 | 联合追加subject修复eff1已在新两包通过；联合GO见末行，DC33/FE3/退出另待 |
 | D | **本地及联合技术GO**；原0ba本地通过，最终handoff`233e6f788b`、[独审§25](p6-be-d-review.md)`ccdd1eb39d`，绑定49403/tree567；[事件与恢复](p6-be-d-validation-incident.md)保留 | 原实施6.1-Sol/xhigh、独审6.1-Sol/max完成既定技术职责，正常停止写入/执行，历史与原审连续性保留；未销毁 | 06局部证据及24576B同tar已核；04新身份/包闭包与14:44:33释放、05原fresh/释放已最终核收 | 无剩余finding；DC33范围、届时退出绑定/手续、FE3另待，不启动新小节 |
-| 联合最终 | **技术GO `ccdd1eb39d`**，源49403/tree567；最终handoff233e；[结果及DC33确认包§12](p6-be-a-d-joint-validation-preparation.md#12-联合技术go与dc33最终范围确认包) | 原D两角色完成技术准备并正常停止，无新角色/后台/占用；具体本节手续保留原审连续性 | 四包direct DTW原0+实际compare；两包mvzi原0；新3runtime原cfg/54DiffID与RS预后一致；04/05已释放，全部原件及LAN索引已核 | 待Owner按DC33确认最终真实数据范围；FE3同tarOPFS及阶段退出仍独立pending；不tag/push/S3 |
+| 联合最终 | **技术GO `ccdd1eb39d`＋Owner已确认DC33最终范围**，源49403/tree567；handoff233e；[最终交接§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接) | 原D两角色完成技术准备并正常停止，无新角色/后台/占用；历史及原审连续性保留 | 四包direct DTW原0+实际compare；两包mvzi原0；新3runtime原cfg/54DiffID与RS预后一致；04/05/06已释放，全部原件及LAN索引已核 | 本轮授权技术准备与范围确认完成；FE3同tarOPFS、实际最终HEAD退出绑定/手续仍独立pending；不tag/push/S3 |
 
 ## 3. 验证与资源
 

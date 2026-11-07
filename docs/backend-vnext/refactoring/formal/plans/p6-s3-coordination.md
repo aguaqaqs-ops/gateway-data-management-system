@@ -57,3 +57,11 @@ A 实测 V=`4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec`，交接 H=`b8c0697df2be66
 06 本人标记于 **17:56:56Z** 释放，release log SHA256=`ab398f9a814e915d288d55c867c9c529885af8985580b1b0f1714f339e39f905`。原审现场另核无标记/测试进程/容器/8000；候选 WT 与证据保留，A 三角色正常结束，无后台或节点占用。A 没有运行真实数据或性能，也没有切生产路由。
 
 协调依本轮连续授权直接新建 B 实施/独审/测试三角色，加协调者仍为四槽。B 仅共用比较内核、单侧 ordered 摘要和对应差分/资源边界；先由实施者明确文件归属与内部 API，再固定候选并由唯一测试者在 06 执行。原审为复杂语义/摘要/资源边界使用 Owner 已允许的 Sol max。C/D/E 与 DC33 最终确认仍按原次序，不因 A GO 自动完成。
+
+## 6. B 接口与后续测量准备
+
+B 文件归属为 Rust `comparison/{kernel,standard,mod,ordered}.rs` 及必要测试/临时差分 adapter 与 B handoff；不修改 C 的 records writer/reader 或 D 风险生产接线。结果持有 cloned RecordBatch 的 Arc backing，records 使用 batch/row locator，C 接 Arrow builders。预算约定：context 的 remaining bytes 已扣 caller 预约的唯一 pinned/backing；B 仅预约自有编码帧、索引、排序和 locator 峰值，不能重复扣 shared backing。caller 在输出最后消费者释放前不得退 pinned charge；实际生命周期由 B 独审核收，D 再核 operation 接线。S2b canonical IPC 的 SET 是 Utf8 加声明 metadata，必须按声明序恢复 sequence framing，不能只在旧原型 List 布局上差分。
+
+B 真实差分执行前核 06 实际八份 t1–t4 package 的 size/SHA，对照 datasets.json 与 P5 S4 handoff §8 已接受身份；已有目录或 S2b 的 INPUTS_VALID 不代替本次核验。B 只跑逐表差分，不是全旅程。
+
+后续 D/E W3/W4 工具接线另需注意：当前 main 有 real_dump_journey 与旧 V1 consumer，但完整合成负载/测量工具留在原基准分支（只读核 `p6-baseline@b6070468f6dbf967bc763e9fe7f2d9a23b8bda50`）。该分支 generator 引用旧 parser grammar/storage-projection Python helpers，不能不经适配就当作当前唯一 Rust 路径已能执行。优先复用已核身份的现有输入或职责内最小工具适配，不合入整套旧算法或 evidence 框架；原冻结 worktree、镜像、输入和卷保持不动。此为测量准备提醒，不是已运行或新增核心方案，也不豁免 W3/W4 起测。

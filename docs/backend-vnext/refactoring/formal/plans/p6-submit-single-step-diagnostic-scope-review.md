@@ -2474,3 +2474,37 @@ BatchMode连接确认后，只读 `/home/dev/gdds-p6-logs/baseline/dc63-static-8
 普通修订已与现有实施者直接闭环，本节作为准备代码里程碑汇总。真实诊断仍在FULL/STRESS正式测量之外的CT108独占窗口执行；局部I/O、操作/工作/清理预算和同一普通t4准备状态需集中核实，不将旧42分钟、ETA或当前W4耗时充当充分性证明。V5b原输出是segments列表，而旧reference的A/B/C默认选 `/measurement/elapsed_seconds`、D选measurement字段；派生后处理须按真实segment角色/原值使用既有明确selector或独立派生文档，不能给所有子段同填总wall，也不改原state/原始输出。此接线提醒已交实施者，不影响保留原测量。
 
 本轮只读代码和CT05已关闭日志，未在开发机运行测试、未启动容器/业务、未访问运行中的CT108或原SQLite。实际诊断与A–D结果尚未交付，正式V_ref、04及整体exit仍按原分工；源产品/冻结镜像不变，所有新计时将标诊断来源，不冒称正式operation elapsed。
+
+## 109. 角色绑定修正与V5b派生代码复核PASS；STRESS仅完成结构预审
+
+**DC63 coverage真实state绑定修正 `fe437f516b218d4203ede3150f094d673196deb9` 及V5b派生工具 `ce97abdf2bb91830741cf75c557090b74421d540` 的代码/必要局部证据PASS；尚无实际DC63或A–D结果。** 本节汇总直接与实施者闭环的普通工具修订，不引入新GO或业务重跑。
+
+f33角色绑定首版将Preview ID读自 `preview.operation_timing.operation_id`，与真实producer不符。实际 `_preview` 将ID保存在 `preview.result.operation_id`，timing不含该字段；此前17项fixture也误造了timing ID，所以通过不能证明该真实接口。fe437只改v1/v2 Preview两条读取路径，并使fixture的result含ID、timing为空；Submit仍读自身operation_timing、History仍读operation_id，不增别名/双读、不改原state或旅程producer。五角色绑定八个handler，History materialize还要求两个distinct commit ordinal各出现一次；异常/缺段/重复/无效秒值仍拒绝。BatchMode确认后直接读CT05 `dc63-coverage-fe43-20261107.log`，SHA256 **`173d89b2a5cf7c9f40eff425daa688dd6fe9bec16b969b51a87ecc64a64ca565`**：14:50:07–08Z、起止完整fe437、17passed/0.64s、Ruff/mypy502files、三项exit0。该Finding关闭，旧f33通过记录按其实际覆盖保留。
+
+V5b派生六份独立参考文档，原raw不改：A取materialization total加其后独立readback，已核producer的total终点在readback之前；B按v1/v2各取pair（已含records closure）、surface closure、bundle、bundle及records两项显式readback，不再叠加records等嵌套子段；C取七项明确stage；D分别取Preview/Submit的serialize-verify-publish、readback-decode及pin transaction三项，ready closure和state artifact位于该D计时外，保留此边界。已核真实B scenario由metrics覆盖为t4_v1/v2_preview_bundle，C末项record没有failed字段，不能误当失败；非法秒值、重复/缺失/失败stage和非PASS或HEAD不符的raw仍拒绝。raw SHA由原字节独立计算，文件在worktree外以新目录写出；312表计数及自报HEAD不替代独立输入/commit/镜像来源证明。
+
+CT05 `v5b-reference-focused-ce97-20261107.log` SHA256 **`d24ae420140799b48c4b77a5f538dce9ac323c6467075b4abcdc8e2ffba7a412`**：14:25:51–52Z、完整ce97起止、5passed/0.09s、Ruff/mypy502、三项exit0。只证明派生及格式/错误边界，不冒称执行A–D、实际312表验证或性能结果。
+
+STRESS分支 `1742a8bcd62287fd9eb9fbd0a839615a470b2664` /tree `801e3925f634f92725c17a3c3a2539cb81b130a8` 已完成结构预核：只对固定100%输入root/project及t4-v2-preview scope启用压力预算，实际v2 Preview调用已接专用值，并在其返回后结束，不运行v2 Submit/History；13 checkpoint、三次MODIFIED上传、full_v2=false/history=none，与FULL四上传/17 checkpoint明确不同。源码/Compose产品边界未改。此前示例把18h Preview并入23h工作上限不足，已更正为work106200/watch107420/hard108000的**规划示例**：prefix31805+Preview64800+辅助9000=105605，配置清理等待107673<108000；不能把这些保护上限当ETA或已经充分校准，也不把S1b生成器726.647s当产品Preview参考。实际100% manifest及最终预算仍待FULL结束后固定，现不具备实际启动的完整前提。
+
+已核CT05 `w4stress-focused-11104-20261107.log` SHA **`117d9b4d84a09e3da1f3381c7748318e0480406e70e30eaad1b5f74956858f85`**，14:20:21–14:21:01Z、完整11104起止、profile2passed及guard/resource/manifest25passed/bash语法0；`w4stress-focused-1742-20261107.log` SHA **`8969f4f2e243dcf1fc585606dbd957c5df7c40b16dd597a182076b3bf597faab`**，14:21:50–14:22:01Z、完整1742起止、manifest6passed/Ruff/mypy500/exit0。小fixture验证角色规则，不是实际100%输入验收。当前压力scope拒绝resume，checkpoint存在不表示恢复入口已实现；若真实失败，按原DC80最小修正保留该压力scope，不切full绕过并额外跑业务。
+
+本轮只读Git对象、已有副本及CT05关闭日志；未运行测试、容器/业务，未访问运行中的CT108或SQLite。冻结产品9704/镜像、FULL18a及历史结果不变；正式V_ref、04与整体exit尚未收口。
+
+## 110. DC63保活chain及有界launcher dc829代码/必要验证PASS，实际前提尚待固定
+
+**独立诊断候选 `dc829345dd8c0056f7223a6a360c349b011b69f8` /tree `0ddc80fa5f4a1c56a7171acc7b5a7cf8aa1350f2` 的本轮chain、sampler接线及有界清理审核PASS。** 实际普通t4 manifest/输入、完整镜像与wrapper/runtime身份、最终实际argv及启动现场条件仍未交齐，尚未运行诊断或V5b；本节不把准备代码通过写成实际测量完成。按原授权继续必要准备，无新Owner/设计/逐摘要GO。
+
+只读0773→47d7→3b62→3722→dc829完整变化；chain相对0773未再改。它先用real profile manifest、仓库real census及t4/full/non-full-v2参数执行真实verify_before_run，再以普通keep-stack旅程正常完成v1/v2及两节点History。真实producer保存flat `root/runs/<新project>/t4.state.json`，_stack项目/tier/HEAD及v1-submit.repository_commit_id与consumer一致；secrets为同目录t4-secrets。只在旅程成功、真实state角色coverage PASS后，定位本项目唯一RS容器及地址、同次v1 commit和token，用现有V5b真实CLI运行A–D，保存raw原字节SHA及派生文档。不启动旧源栈，不改原state；阶段间仍属于同一链，RS保活至V5b结束。
+
+非formal薄入口仅调用已有 `run_sampled(expected_input_manifest=None)`，避免formal sampler的evidence-out要求与keep-stack冲突；输入验证由chain及journey原消费者实际执行，不关闭formal validator或改变采样周期/计数。输出按隔离诊断标识，不能作为正式operation baseline或补造formal input-provenance。actual argv还须固定guard project、chain project、GATEWAY_REAL_DUMP_ROOT及--root一致；真实312表包/规则/commit/cache与诊断镜像/command/ro mount来源照常关联，不能仅凭代码默认值认定准备齐全。
+
+诊断project用非foreground GNU timeout包整个chain，使INT到子进程组；外层仍用原独立session/watchdog。实际发现parent先响应INT退出时，timeout返回不保证忽略INT的孙进程退出；3722在wait之后对残余诊断session调用原stop_watchdog，TERM后最多5秒再KILL，最后执行EXIT down/postflight。手动INT/TERM同样回收整个session。旧两个正式project分支保留原foreground规则；不把诊断Compose挂载/command合到正式V_ref，也不声称可拿诊断worktree替代正式项目执行。
+
+本轮另直接指出并关闭父子环境缺口：journey内部构造Compose env不会反向更新guard，dc829将父guard的五个secret/mapping变量固定为同一新project/t4-secrets，避免结束日志/down用错路径。EXIT在down前有界保存新项目日志；docker ps为30+5秒、logs为180+5秒，随后原down180+5、postflight60+3秒，不删卷。日志获取失败仍执行down，但保留节点锁并exit125；残留或静止无法确认同样不解锁。配置work77400、watch78620/hard79200，按watch结束再计kill5、残余session5、ps35、logs185、down185、post63合计**79098<79200**；1200 grace已含watch内，不重复相加。这是已配置等待关系，不是helper/外部I/O所有最坏时间的保证或实际ETA；计划所列63000/14400是工作规划分配，实际代码以同一全链77400截止，阶段切换不重置截止。
+
+直接核CT05已关闭日志：`dc63-chain-0773-20261107.log` SHA256 **`9f15d39f4b4f017d6d827450e04589dfe269c3a6360e9975c67a8c00a56617b4`**，14:52:43–45Z、完整0773起止、19passed/Ruff/mypy503/exit0；fixture证明coverage不完整不进入V5b，成功传递本次repo/commit。`dc63-guard-dc82-20261107.log` SHA256 **`afdbde772b30210a6a9ced142dc8562472da1e26e9746bff04a55481329acf35`**，15:00:57–15:01:09Z、完整dc829起止、40passed/11.15s、Ruff/mypy503/bash-n全0，含实际GNU timeout的孙进程INT、忽略INT后TERM收束、旧项目路径、down环境、保卷及日志失败保锁。它们使用模拟业务/Docker，不冒称真实诊断Compose或312表链已跑过。
+
+较早47d7的37passed/1failed为孙进程fixture嵌套转义语法错误，失败SHA **`6599215e044b2344a6d516f103665424ddaa98bc94e2d2693da323fd38047698`** 保留，不当成真实诊断失败或已覆盖信号。3b62的38项及3722的39项仅记录新增覆盖历程，最终以上述40项日志为本轮证据；前次chain d582的mypy测试导入失败同样保留。其余四包静态按既有来源，不声称dc829权威runner/carried。
+
+本轮仅独立只读代码与CT05关闭日志，未运行测试、业务/容器或访问在途CT108。新接线是隔离诊断runtime边界，最小mount/install来源仍§108及相同worker脚本，实际完整身份在启动预检绑定；不重建或覆盖冻结tag，不把这些mock/focused升级成正式容器门禁。准备继续，真实结果再按原范围独审；FULL、STRESS、631旁证、最终04及整体exit各自保持原状态。

@@ -9,7 +9,7 @@
 - 设计者 `01a1ac15-9b35-7ea0-9952-c4a31d3d4f6d` 已通过read_thread核验并收到新协调通知；回执确认无后续新业务决议、当前不占文件/节点，协调者可维护联合kickoff/本交接/必要计划状态。决策问题再请设计者，正常进度不托其催办。
 - 原基准设计/协调 `01a1a628-e59a-7981-aad5-6bf31e919d38` 已读取并回执：其main仅写基准/GC设计计划，审核者写 `p6-submit-single-step-diagnostic-scope-review.md`；工具写隔离 `/home/dev/gdds-p6-baseline-vref`，不写本轮产品。04/05/06未实时查询，不作空闲证明。
 - **前端通信（Owner本轮回复）**：前端交互信息由Owner手动转发，协调者直接给Owner交接包，不再追查或猜测前端会话ID。已告知当前四项：A1指针/本人权限/pending/过期approve；V2诊断与接受/关闭新界面；D标准PAX修复及同tar互通；目前尚未产品验收、FE3依赖未解除。后续给出实际提交、OpenAPI/错误矩阵、制品/SHA与测试证据供转发，不自动启动前端任务。
-- **前端判断阻塞时（Owner后续明确）**：需要前端判断且影响当前方案时，可暂停相关依赖，给Owner具体问题包并等待其转发回复；无依赖工作继续。目前A1没有这类阻塞，不凭假设提前暂停。
+- **前端判断阻塞时（Owner后续明确）**：需要前端判断且影响当前方案时，可暂停相关依赖，给Owner具体问题包并等待其转发回复；无依赖工作继续。目前V2没有这类阻塞，不凭假设提前暂停。
 - 协作工具支持创建时显式模型/推理强度、独立上下文与角色通信、interrupt；没有销毁角色入口。每节两角色，禁止额外子agent；停止不能记为销毁。TUI读线程/跨线程发送可用；模型创建结果按实际记录，失败不反复重试。
 
 ## 2. 进度
@@ -18,9 +18,9 @@
 | --- | --- | --- | --- | --- |
 | A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无A1局部deferred；04/05联合最终仍待，不办理全任务exit |
 | V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 04/05联合、V2/D/FE3仍待，不办理exit |
-| V2 | **已启动**；实际clean main起点`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`；协调启动`d0add6bd16`；[工作单](p6-v2-work-order.md) | `/root/be_v2_impl`=6.1-Sol/xhigh；`/root/be_v2_review`=6.1-Sol/max，独立上下文 | 纯规则/audit/事务/统一处置/History；尚无V2证据 | 先精确清单，200候选/confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
+| V2 | **实施中**；实际clean main起点`5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`；协调启动`d0add6bd16`；[工作单](p6-v2-work-order.md)，精确清单`0d7a714bfc`/补充`8cd19a9217` | `/root/be_v2_impl`=6.1-Sol/xhigh；`/root/be_v2_review`=6.1-Sol/max，独立上下文；预检`38d89ef36a`无核心阻塞 | 纯规则/audit/Start、统一处置/CLOSE初稿，正接History/Review/HTTP；尚无固定产品或V2证据 | 固定跨层候选交同角色只读审、06验证；200候选/confirmation1/anomaly1601，关闭出口一并交付 |
 | D | 已授权，默认V2后；[准备工作单](p6-be-d-work-order.md) `06a849c48e` | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |
-| 联合最终 | 准备已授权，产品未收敛 | 在既定角色内安排；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 退出前按DC33确认最终真实数据范围，不口头carried |
+| 联合最终 | 准备已授权，产品未收敛；[准备清单](p6-be-a-d-joint-validation-preparation.md) | 在D既定角色内安排并于启动固定职责；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 公共fixtures变化预计六包实际运行；退出前按DC33确认最终范围，不口头carried |
 
 ## 3. 验证与资源
 

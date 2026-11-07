@@ -18,7 +18,7 @@ use gateway_shared_kernel::{
     DecimalScalar, DeclaredType, DigestKind, Float32Scalar, Float64Scalar, NullScalar,
     SignedIntegerScalar, StringScalar, TimeDurationScalar, TimestampScalar, TypedScalar,
     UnsignedIntegerScalar, canonicalize_identifier, canonicalize_jcs, encode_collection,
-    encode_typed_scalar, raw_blob_digest, semantic_digest,
+    encode_typed_scalar, encode_uleb128, raw_blob_digest, semantic_digest,
 };
 use rayon::ThreadPool;
 use rayon::prelude::*;
@@ -96,6 +96,9 @@ pub struct OrderedCompareOptions {
     pub include_add_delete_records: bool,
     pub schema_changed: bool,
     pub raw_content_changed: bool,
+    /// A's COLUMNS_ADDED evolution: compare the shared full row multiset for
+    /// ignored content instead of interpreting a newly added column as change.
+    pub columns_added: bool,
     pub schema_changes: SchemaChanges,
     pub before_blank_provenance: BlankProvenance,
     pub current_blank_provenance: BlankProvenance,
@@ -114,6 +117,7 @@ impl OrderedCompareOptions {
             include_add_delete_records: true,
             schema_changed: false,
             raw_content_changed: false,
+            columns_added: false,
             schema_changes: SchemaChanges::default(),
             before_blank_provenance: BlankProvenance::SourceMissingStableKey,
             current_blank_provenance: BlankProvenance::SourceMissingStableKey,
@@ -138,7 +142,9 @@ pub struct OrderedBatchPair<'a> {
 }
 
 pub struct OrderedKernelResult {
-    pub facts: OrderedCompareResult,
+    /// Metadata only: row record payloads live in the three locator vectors.
+    /// Consumers must replay locators plus retained Arrow cells for full facts.
+    pub facts_metadata: OrderedCompareResult,
     /// Keeps canonical Arrow input owners valid for later C batch builders.
     pub before_batches: Vec<RecordBatch>,
     pub current_batches: Vec<RecordBatch>,
@@ -238,7 +244,8 @@ pub fn summarize_unchanged_ordered_batches(
         .iter()
         .flat_map(RecordBatch::columns)
         .try_fold(0usize, |total, array| {
-            total.checked_add(array.get_buffer_memory_size())
+            let slice_bytes = array.to_data().get_slice_memory_size().ok()?;
+            total.checked_add(slice_bytes)
         })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let row_count = current
@@ -495,20 +502,33 @@ pub fn compare_ordered_batches(
         if pair.before.is_none() || pair.current.is_none() {
             return Err(OrderedCompareError::new("TABLE_LEVEL_SINGLE_SIDE_REQUIRED"));
         }
-        let metadata_bytes = pair
-            .before_schema
-            .iter()
-            .chain(&pair.current_schema)
-            .flat_map(|schema| schema.fields().iter())
-            .try_fold(4096usize, |total, field| {
-                let field_bytes = field
-                    .name()
-                    .len()
-                    .checked_add(field.metadata().values().map(String::len).sum::<usize>())?;
-                total.checked_add(field_bytes.saturating_mul(8).saturating_add(128))
+        let options = pair.options;
+        let option_strings = std::iter::once(options.table_name.as_str())
+            .chain(std::iter::once(options.policy_version.as_str()))
+            .chain(options.policy_digest.iter().map(String::as_str))
+            .chain(options.value_columns.iter().map(String::as_str))
+            .chain(options.digest_value_columns.iter().map(String::as_str))
+            .chain(options.compare_excluded_columns.iter().map(String::as_str))
+            .chain(options.schema_changes.before_only_columns.iter().map(String::as_str))
+            .chain(options.schema_changes.current_only_columns.iter().map(String::as_str))
+            .chain(options.schema_changes.selected_columns.iter().map(String::as_str))
+            .chain(options.schema_changes.effective_compare_key_before.iter().map(String::as_str))
+            .chain(options.schema_changes.effective_compare_key_current.iter().map(String::as_str))
+            .chain(options.schema_changes.incompatible_columns.iter().map(String::as_str))
+            .chain(options.schema_changes.change_source.iter().map(String::as_str));
+        let metadata_bytes = option_strings
+            .try_fold(4096usize, |total, value| {
+                total.checked_add(value.len().saturating_mul(8).saturating_add(128))
             })
+            .and_then(|base| pair.before_schema.iter().chain(&pair.current_schema)
+                .flat_map(|schema| schema.fields().iter())
+                .try_fold(base, |total, field| {
+                    let field_bytes = field.metadata().values()
+                        .try_fold(field.name().len(), |size, value| size.checked_add(value.len()))?;
+                    total.checked_add(field_bytes.saturating_mul(8).saturating_add(128))
+                }))
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let _metadata_lease = context.reserve(metadata_bytes)?;
+        let metadata_lease = context.reserve(metadata_bytes)?;
         if let Some(before) = pair.before {
             let schema = pair
                 .before_schema
@@ -523,6 +543,7 @@ pub fn compare_ordered_batches(
                 .ok_or_else(|| OrderedCompareError::new("CANONICAL_SCHEMA_REQUIRED"))?;
             validate_canonical_batches(&CanonicalBatchSide::new(Arc::clone(schema), current))?;
         }
+        drop(metadata_lease);
         let mut batches = pair
             .before
             .into_iter()
@@ -531,7 +552,8 @@ pub fn compare_ordered_batches(
         let (input_bytes, rows, columns) = batches
             .try_fold((0usize, 0usize, 0usize), |(bytes, rows, columns), batch| {
                 let bytes = batch.columns().iter().try_fold(bytes, |total, array| {
-                    total.checked_add(array.get_buffer_memory_size())
+                    let slice_bytes = array.to_data().get_slice_memory_size().ok()?;
+                    total.checked_add(slice_bytes)
                 })?;
                 Some((
                     bytes,
@@ -574,7 +596,7 @@ pub fn compare_ordered_batches(
             .and_then(|bytes| bytes.checked_add(digest_scratch))
             .and_then(|bytes| bytes.checked_add(row_structures))
             .and_then(|bytes| bytes.checked_add(batch_refs))
-            .and_then(|bytes| bytes.checked_add(4096))
+            .and_then(|bytes| bytes.checked_add(metadata_bytes))
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let mut lease = context.reserve(reservation)?;
         let work = compare_ordered_table_inner(&pair, Some(context), Some(&mut lease), true)?;
@@ -638,7 +660,7 @@ pub fn compare_ordered_batches(
             })?;
         let OrderedWork { facts, locators } = work;
         let mut result = OrderedKernelResult {
-            facts,
+            facts_metadata: facts,
             before_batches: pair.before.unwrap_or_default().to_vec(),
             current_batches: pair.current.unwrap_or_default().to_vec(),
             before_schema: pair.before_schema,
@@ -664,7 +686,9 @@ pub fn compare_ordered_batches(
 }
 
 fn ordered_retained_bytes(result: &OrderedKernelResult) -> Result<usize, OrderedCompareError> {
-    let facts_bytes = serde_json::to_vec(&result.facts)
+    // The preflight metadata reservation also covers this short temporary
+    // serialization buffer before scratch is released. No row DTO is encoded.
+    let facts_bytes = serde_json::to_vec(&result.facts_metadata)
         .map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))?
         .len();
     let batch_bytes = result
@@ -717,7 +741,7 @@ fn ordered_retained_bytes(result: &OrderedKernelResult) -> Result<usize, Ordered
                 .chain(&record.changed_columns)
                 .chain(&record.diagnostics)
                 .try_fold(
-                    total.checked_add(record.row_identity.capacity())?,
+                    total.checked_add(record.row_identity.as_ref().map_or(0, String::capacity))?,
                     |sum, text| sum.checked_add(text.capacity()),
                 )?
                 .checked_add(
@@ -864,10 +888,10 @@ fn compare_ordered_table_inner(
         return Err(OrderedCompareError::new("TABLE_TASK_HAS_NO_SIDE"));
     }
     if pair.before.is_some() && options.before_blank_provenance == BlankProvenance::Missing {
-        return Ok(degraded_result(pair, "BLANK_PROVENANCE_MISSING"));
+        return Ok(degraded_result(pair, "BLANK_PROVENANCE_MISSING", capture_locators));
     }
     if pair.current.is_some() && options.current_blank_provenance == BlankProvenance::Missing {
-        return Ok(degraded_result(pair, "BLANK_PROVENANCE_MISSING"));
+        return Ok(degraded_result(pair, "BLANK_PROVENANCE_MISSING", capture_locators));
     }
 
     let before_columns = column_names_batches(pair.before_schema.as_ref(), pair.before)?;
@@ -879,10 +903,10 @@ fn compare_ordered_table_inner(
         pair.current.is_some(),
     );
     if !selected.iter().any(|name| name == "gid") || !selected.iter().any(|name| name == "no") {
-        return Ok(degraded_result(pair, "ORDERED_REQUIRED_COLUMN_MISSING"));
+        return Ok(degraded_result(pair, "ORDERED_REQUIRED_COLUMN_MISSING", capture_locators));
     }
     if !options.schema_changes.incompatible_columns.is_empty() {
-        return Ok(degraded_result(pair, "INCOMPATIBLE_SELECTED_COLUMNS"));
+        return Ok(degraded_result(pair, "INCOMPATIBLE_SELECTED_COLUMNS", capture_locators));
     }
     let value_columns = resolved_value_columns(options, &selected);
     let digest_value_columns = resolved_digest_value_columns(options, &selected);
@@ -895,7 +919,7 @@ fn compare_ordered_table_inner(
     ) {
         Ok(rows) => rows,
         Err(error) if is_control_or_resource(&error) => return Err(error),
-        Err(error) => return Ok(degraded_result(pair, error.code())),
+        Err(error) => return Ok(degraded_result(pair, error.code(), capture_locators)),
     };
     let current = match read_side_batches(
         pair.current,
@@ -906,7 +930,7 @@ fn compare_ordered_table_inner(
     ) {
         Ok(rows) => rows,
         Err(error) if is_control_or_resource(&error) => return Err(error),
-        Err(error) => return Ok(degraded_result(pair, error.code())),
+        Err(error) => return Ok(degraded_result(pair, error.code(), capture_locators)),
     };
 
     let before_real = real_index(&before.rows, context)?;
@@ -1021,7 +1045,7 @@ fn compare_ordered_table_inner(
                     .ok_or_else(|| OrderedCompareError::new("ROW_IDENTITY_MISSING"))?;
                 locators.standard.push(StandardRecordRef {
                     kind: StandardKind::RowAdded,
-                    row_identity: identity.clone(),
+                    row_identity: Some(identity.clone()),
                     before: None,
                     current: Some(row.location),
                     value_columns: selected.clone(),
@@ -1076,7 +1100,7 @@ fn compare_ordered_table_inner(
                     .ok_or_else(|| OrderedCompareError::new("ROW_IDENTITY_MISSING"))?;
                 locators.standard.push(StandardRecordRef {
                     kind: StandardKind::RowDeleted,
-                    row_identity: identity.clone(),
+                    row_identity: Some(identity.clone()),
                     before: Some(row.location),
                     current: None,
                     value_columns: selected.clone(),
@@ -1134,7 +1158,7 @@ fn compare_ordered_table_inner(
             reserve_locator(lease.as_deref_mut(), changed_columns, changed_columns)?;
             locators.standard.push(StandardRecordRef {
                 kind: StandardKind::RowModified,
-                row_identity: identity.to_string(),
+                row_identity: Some(identity.to_string()),
                 before: Some(before_row.location),
                 current: Some(current_row.location),
                 value_columns: changed_columns.clone(),
@@ -1327,8 +1351,13 @@ fn compare_ordered_table_inner(
         context,
     )?);
     let content_changed = status == "UNCHANGED"
-        && !options.compare_excluded_columns.is_empty()
-        && options.raw_content_changed;
+        && if options.columns_added {
+            options.compare_excluded_columns.iter().any(|name| selected.contains(name))
+                && ordered_shared_counts(&before.rows, &selected, context)?
+                    != ordered_shared_counts(&current.rows, &selected, context)?
+        } else {
+            !options.compare_excluded_columns.is_empty() && options.raw_content_changed
+        };
 
     Ok(OrderedWork {
         facts: OrderedCompareResult {
@@ -1399,7 +1428,11 @@ fn compare_ordered_table_inner(
     })
 }
 
-fn degraded_result(pair: &OrderedBatchPair<'_>, diagnostic: &'static str) -> OrderedWork {
+fn degraded_result(
+    pair: &OrderedBatchPair<'_>,
+    diagnostic: &'static str,
+    capture_locators: bool,
+) -> OrderedWork {
     let options = pair.options;
     let diagnostics = vec![diagnostic.to_string()];
     OrderedWork {
@@ -1418,7 +1451,7 @@ fn degraded_result(pair: &OrderedBatchPair<'_>, diagnostic: &'static str) -> Ord
             content_changed: false,
             schema_changes: options.schema_changes.clone(),
             diagnostics: diagnostics.clone(),
-            records: vec![StandardRecord {
+            records: if capture_locators { Vec::new() } else { vec![StandardRecord {
                 table_name: options.table_name.clone(),
                 record_kind: "TABLE_DEGRADED".to_string(),
                 row_identity: None,
@@ -1427,7 +1460,7 @@ fn degraded_result(pair: &OrderedBatchPair<'_>, diagnostic: &'static str) -> Ord
                 current_values: Vec::new(),
                 field_changes: Vec::new(),
                 diagnostics: diagnostics.clone(),
-            }],
+            }] },
             ordered_extension: OrderedExtensionResult {
                 contract_version: ORDERED_DIFF_CONTRACT_VERSION.to_string(),
                 status: "ORDERED_DEGRADED".to_string(),
@@ -1463,7 +1496,18 @@ fn degraded_result(pair: &OrderedBatchPair<'_>, diagnostic: &'static str) -> Ord
                 records: Vec::new(),
             },
         },
-        locators: OrderedLocatorRecords::default(),
+        locators: OrderedLocatorRecords {
+            standard: if capture_locators { vec![StandardRecordRef {
+                kind: StandardKind::TableDegraded,
+                row_identity: None,
+                before: None,
+                current: None,
+                value_columns: Vec::new(),
+                changed_columns: Vec::new(),
+                diagnostics: vec![diagnostic.to_string()],
+            }] } else { Vec::new() },
+            ..OrderedLocatorRecords::default()
+        },
     }
 }
 
@@ -1517,6 +1561,35 @@ fn resolved_digest_value_columns(
         .filter(|name| name.as_str() != "gid" && name.as_str() != "no")
         .cloned()
         .collect()
+}
+
+fn ordered_shared_counts(
+    rows: &[OrderedRow],
+    selected: &[String],
+    context: Option<&KernelContext>,
+) -> Result<BTreeMap<String, usize>, OrderedCompareError> {
+    let mut counts = BTreeMap::new();
+    for (index, row) in rows.iter().enumerate() {
+        if index % 1024 == 0 {
+            check_context(context)?;
+        }
+        let mut frame = encode_uleb128(selected.len() as u64)
+            .map_err(|_| OrderedCompareError::new("ROW_ENCODING_FAILED"))?;
+        for name in selected {
+            let cell = row.cells.get(name)
+                .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
+            frame.extend(encode_uleb128(name.len() as u64)
+                .map_err(|_| OrderedCompareError::new("ROW_ENCODING_FAILED"))?);
+            frame.extend_from_slice(name.as_bytes());
+            frame.extend_from_slice(&cell.frame);
+        }
+        let digest = semantic_digest(DigestKind::Row, &frame)
+            .map_err(|_| OrderedCompareError::new("DIGEST_FAILED"))?;
+        let count = counts.entry(digest.digest_ref().as_str().to_string()).or_insert(0usize);
+        *count = count.checked_add(1)
+            .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    }
+    Ok(counts)
 }
 
 fn real_index(
@@ -1983,7 +2056,7 @@ fn scalar_type(field: &Field) -> Result<String, OrderedCompareError> {
         .unwrap_or_else(|| format!("{:?}", field.data_type())))
 }
 
-fn declared_type(
+pub(super) fn declared_type(
     spelling: &str,
     data_type: &DataType,
 ) -> Result<DeclaredType, OrderedCompareError> {
@@ -2394,7 +2467,7 @@ fn ordered_digest(
         hasher.update(b",\"content\":");
         hash_optional_jcs_string(&mut hasher, content.as_deref())?;
         hasher.update(b",\"position\":");
-        hasher.update(row.position.to_string().as_bytes());
+        hash_jcs_integer(&mut hasher, row.position)?;
         hasher.update(b",\"stable\":");
         hash_optional_jcs_string(&mut hasher, row.stable_identity.as_deref())?;
         hasher.update(b"}");
@@ -2424,6 +2497,22 @@ fn hash_optional_jcs_string(
         hasher.update(b"null");
         Ok(())
     }
+}
+
+const IJSON_MAX_SAFE_INTEGER: i64 = (1_i64 << 53) - 1;
+
+fn hash_jcs_integer(hasher: &mut Sha256, value: i64) -> Result<(), OrderedCompareError> {
+    if !(-IJSON_MAX_SAFE_INTEGER..=IJSON_MAX_SAFE_INTEGER).contains(&value) {
+        return Err(OrderedCompareError::new("CANONICAL_ENCODING_FAILED"));
+    }
+    hasher.update(value.to_string().as_bytes());
+    Ok(())
+}
+
+fn hash_jcs_count(hasher: &mut Sha256, value: usize) -> Result<(), OrderedCompareError> {
+    let value = i64::try_from(value)
+        .map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))?;
+    hash_jcs_integer(hasher, value)
 }
 
 fn blank_extension(
@@ -2612,7 +2701,7 @@ fn occupancy_digest(
         hasher.update(b",\"before\":");
         hash_optional_jcs_string(&mut hasher, key.0.as_deref())?;
         hasher.update(b",\"count\":");
-        hasher.update(gap.count.to_string().as_bytes());
+        hash_jcs_count(&mut hasher, gap.count)?;
         hasher.update(b"}");
     }
     hasher.update(b"]");

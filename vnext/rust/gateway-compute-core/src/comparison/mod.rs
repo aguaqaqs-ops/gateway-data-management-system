@@ -12,7 +12,7 @@ mod standard;
 pub use kernel::{CanonicalBatchSide, KernelContext};
 pub use standard::{
     RowLocation, StandardComputation, StandardKind, StandardMode, StandardOptions,
-    StandardRecordRef, compare_standard_table,
+    StandardRecordRef, canonical_cell_frame_at, compare_standard_table,
 };
 
 pub use ordered::{

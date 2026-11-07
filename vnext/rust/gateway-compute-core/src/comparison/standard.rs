@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use arrow_array::RecordBatch;
+use arrow_array::{Array, RecordBatch};
 use arrow_schema::SchemaRef;
 use gateway_shared_kernel::{DigestKind, canonicalize_identifier, encode_uleb128, semantic_digest};
 
@@ -46,11 +46,31 @@ pub struct RowLocation {
     pub row: usize,
 }
 
+/// Resolve a retained row locator against canonical Arrow owners. C's builder
+/// charges any copied output frame; this helper itself retains no backing.
+pub fn canonical_cell_frame_at(
+    batches: &[RecordBatch],
+    location: RowLocation,
+    column: &str,
+) -> Result<Vec<u8>, OrderedCompareError> {
+    let batch = batches.get(location.batch)
+        .ok_or_else(|| OrderedCompareError::new("ROW_LOCATION_INVALID"))?;
+    if location.row >= batch.num_rows() {
+        return Err(OrderedCompareError::new("ROW_LOCATION_INVALID"));
+    }
+    let index = batch.schema().fields().iter().position(|field| field.name() == column)
+        .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
+    let field = batch.schema().field(index).clone();
+    encode_cell(batch.column(index).as_ref(), location.row, &field)
+        .map(|cell| cell.frame)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StandardKind {
     RowAdded,
     RowDeleted,
     RowModified,
+    TableDegraded,
 }
 
 impl StandardKind {
@@ -59,6 +79,7 @@ impl StandardKind {
             Self::RowAdded => "ROW_ADDED",
             Self::RowDeleted => "ROW_DELETED",
             Self::RowModified => "ROW_MODIFIED",
+            Self::TableDegraded => "TABLE_DEGRADED",
         }
     }
 }
@@ -66,7 +87,7 @@ impl StandardKind {
 #[derive(Debug, Clone)]
 pub struct StandardRecordRef {
     pub kind: StandardKind,
-    pub row_identity: String,
+    pub row_identity: Option<String>,
     pub before: Option<RowLocation>,
     pub current: Option<RowLocation>,
     /// FULL facts payload uses these columns and the referenced Arrow cells.
@@ -138,7 +159,7 @@ fn compare_standard_table_inner(
             total.checked_add(name.len().saturating_mul(8).saturating_add(128))
         })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let _options_lease = context.reserve(option_bytes)?;
+    let options_lease = context.reserve(option_bytes)?;
     validate_canonical_batches(&before)?;
     validate_canonical_batches(&current)?;
     let before_schema = before.schema;
@@ -162,6 +183,7 @@ fn compare_standard_table_inner(
     {
         return Err(OrderedCompareError::new("COMPARISON_KEY_INVALID"));
     }
+    drop(options_lease);
     let row_count = before
         .iter()
         .chain(current)
@@ -176,7 +198,8 @@ fn compare_standard_table_inner(
         .chain(current)
         .flat_map(RecordBatch::columns)
         .try_fold(0usize, |total, array| {
-            total.checked_add(array.get_buffer_memory_size())
+            let slice_bytes = array.to_data().get_slice_memory_size().ok()?;
+            total.checked_add(slice_bytes)
         })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let row_overhead = columns
@@ -295,7 +318,7 @@ fn retained_bytes(
                 .iter()
                 .chain(&record.changed_columns)
                 .chain(&record.diagnostics)
-                .try_fold(record.row_identity.capacity(), |size, name| {
+                .try_fold(record.row_identity.as_ref().map_or(0, String::capacity), |size, name| {
                     size.checked_add(name.capacity())
                 })?;
             let headers = record
@@ -470,7 +493,7 @@ fn compare_keyed(
                 reserve_record(lease, selected, &[])?;
                 records.push(StandardRecordRef {
                     kind: StandardKind::RowAdded,
-                    row_identity: row_digest(frame)?,
+                    row_identity: Some(row_digest(frame)?),
                     before: None,
                     current: Some(current_row.location),
                     value_columns: selected.to_vec(),
@@ -502,7 +525,7 @@ fn compare_keyed(
                 .collect::<Vec<_>>();
             records.push(StandardRecordRef {
                 kind: StandardKind::RowModified,
-                row_identity: row_digest(frame)?,
+                row_identity: Some(row_digest(frame)?),
                 before: Some(before_row.location),
                 current: Some(current_row.location),
                 value_columns: changed.clone(),
@@ -519,7 +542,7 @@ fn compare_keyed(
                 reserve_record(lease, selected, &[])?;
                 records.push(StandardRecordRef {
                     kind: StandardKind::RowDeleted,
-                    row_identity: row_digest(frame)?,
+                    row_identity: Some(row_digest(frame)?),
                     before: Some(before_row.location),
                     current: None,
                     value_columns: selected.to_vec(),
@@ -584,7 +607,7 @@ fn compare_keyless(
                 reserve_record(lease, &[], &[])?;
                 records.push(StandardRecordRef {
                     kind: StandardKind::RowAdded,
-                    row_identity: occurrence_digest(identity, occurrence)?,
+                    row_identity: Some(occurrence_digest(identity, occurrence)?),
                     before: None,
                     current: None,
                     value_columns: Vec::new(),
@@ -603,7 +626,7 @@ fn compare_keyless(
                 reserve_record(lease, &[], &[])?;
                 records.push(StandardRecordRef {
                     kind: StandardKind::RowDeleted,
-                    row_identity: occurrence_digest(identity, occurrence)?,
+                    row_identity: Some(occurrence_digest(identity, occurrence)?),
                     before: None,
                     current: None,
                     value_columns: Vec::new(),
@@ -636,10 +659,10 @@ fn row_counts(
     Ok(counts)
 }
 
-fn record_key(record: &StandardRecordRef) -> (&'static str, &str, &[String]) {
+fn record_key(record: &StandardRecordRef) -> (&'static str, Option<&str>, &[String]) {
     (
         record.kind.contract_name(),
-        &record.row_identity,
+        record.row_identity.as_deref(),
         &record.changed_columns,
     )
 }
@@ -1068,9 +1091,9 @@ mod tests {
             },
             &context(),
         )?;
-        assert!(result.facts.records.is_empty());
-        assert!(result.facts.ordered_extension.records.is_empty());
-        assert_eq!(result.facts.ordered_extension.summary.row_moved_count, 1);
+        assert!(result.facts_metadata.records.is_empty());
+        assert!(result.facts_metadata.ordered_extension.records.is_empty());
+        assert_eq!(result.facts_metadata.ordered_extension.summary.row_moved_count, 1);
         let moved = result
             .ordered_records
             .iter()
@@ -1082,6 +1105,139 @@ mod tests {
             (Some(2), Some(1))
         );
         assert_eq!(result.standard_records.len(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn shared_backing_slices_keep_the_same_budget_admission()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let names = (0..32).map(|_| "x".repeat(1024)).collect::<Vec<_>>();
+        let ids = (0..32).map(i64::from).collect::<Vec<_>>();
+        let full = RecordBatch::try_new(
+            schema(),
+            vec![
+                Arc::new(Int64Array::from(ids)) as ArrayRef,
+                Arc::new(StringArray::from(names)) as ArrayRef,
+            ],
+        )?;
+        let slices = (0..full.num_rows()).map(|row| full.slice(row, 1)).collect::<Vec<_>>();
+        let budget = 512 * 1024;
+        let unsplit = Arc::new(KernelContext::new(
+            budget, Arc::new(AtomicBool::new(false)), None,
+        ));
+        let split = Arc::new(KernelContext::new(
+            budget, Arc::new(AtomicBool::new(false)), None,
+        ));
+        let policy = options(StandardMode::Keyed);
+        let one = compare(&[full.clone()], &[full], &policy, &unsplit)?;
+        let many = compare(&slices, &slices, &policy, &split)?;
+        assert_eq!(one.row_modified_count, many.row_modified_count);
+        assert_eq!(one.records.len(), many.records.len());
+        drop(one);
+        drop(many);
+        assert_eq!(unsplit.remaining_bytes(), budget);
+        assert_eq!(split.remaining_bytes(), budget);
+        Ok(())
+    }
+
+    #[test]
+    fn canonical_declared_type_must_match_sql_spelling()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let bad_schema = Arc::new(Schema::new(vec![
+            field("id", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("name", "DECIMAL(10,0)", "standard", Some("string"), DataType::Utf8),
+        ]).with_metadata(HashMap::from([(
+            "gdds.canonical_mapping_version".to_string(), "1".to_string(),
+        )])));
+        let bad_batch = RecordBatch::try_new(
+            bad_schema,
+            vec![
+                Arc::new(Int64Array::from(vec![1])) as ArrayRef,
+                Arc::new(StringArray::from(vec!["1"])) as ArrayRef,
+            ],
+        )?;
+        assert_eq!(
+            compare(&[bad_batch.clone()], &[bad_batch], &options(StandardMode::Keyed), &context())
+                .err().map(|error| error.code()),
+            Some("CANONICAL_TYPE_INVALID"),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ordered_streaming_jcs_rejects_unsafe_absolute_position()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ordered_schema = Arc::new(Schema::new(vec![
+            field("gid", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("no", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("name", "VARCHAR(64)", "standard", Some("string"), DataType::Utf8),
+        ]).with_metadata(HashMap::from([(
+            "gdds.canonical_mapping_version".to_string(), "1".to_string(),
+        )])));
+        let make = |position| RecordBatch::try_new(
+            Arc::clone(&ordered_schema),
+            vec![
+                Arc::new(Int64Array::from(vec![1])) as ArrayRef,
+                Arc::new(Int64Array::from(vec![position])) as ArrayRef,
+                Arc::new(StringArray::from(vec!["a"])) as ArrayRef,
+            ],
+        );
+        let safe = make((1_i64 << 53) - 1)?;
+        let unsafe_position = make(1_i64 << 53)?;
+        let policy = OrderedCompareOptions::new("t");
+        let allowed = compare_ordered_batches(OrderedBatchPair {
+            before: Some(std::slice::from_ref(&safe)),
+            current: Some(std::slice::from_ref(&safe)),
+            before_schema: Some(safe.schema()), current_schema: Some(safe.schema()),
+            options: &policy,
+        }, &context())?;
+        assert_eq!(allowed.facts_metadata.status, "UNCHANGED");
+        assert_eq!(
+            compare_ordered_batches(OrderedBatchPair {
+                before: Some(std::slice::from_ref(&safe)),
+                current: Some(std::slice::from_ref(&unsafe_position)),
+                before_schema: Some(safe.schema()),
+                current_schema: Some(unsafe_position.schema()),
+                options: &policy,
+            }, &context()).err().map(|error| error.code()),
+            Some("CANONICAL_ENCODING_FAILED"),
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ordered_zero_batch_wide_metadata_is_reserved_before_result()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ordered_schema = Arc::new(Schema::new(vec![
+            field("gid", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+            field("no", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+        ]).with_metadata(HashMap::from([(
+            "gdds.canonical_mapping_version".to_string(), "1".to_string(),
+        )])));
+        let mut policy = OrderedCompareOptions::new("t");
+        policy.schema_changes.before_only_columns = vec!["x".repeat(64 * 1024)];
+        let small = Arc::new(KernelContext::new(
+            32 * 1024, Arc::new(AtomicBool::new(false)), None,
+        ));
+        let pair = OrderedBatchPair {
+            before: Some(&[]), current: Some(&[]),
+            before_schema: Some(Arc::clone(&ordered_schema)),
+            current_schema: Some(Arc::clone(&ordered_schema)),
+            options: &policy,
+        };
+        assert_eq!(
+            compare_ordered_batches(pair.clone(), &small)
+                .err().map(|error| error.code()),
+            Some("RESOURCE_LIMIT_EXCEEDED"),
+        );
+        assert_eq!(small.remaining_bytes(), 32 * 1024);
+        let large = Arc::new(KernelContext::new(
+            2 * 1024 * 1024, Arc::new(AtomicBool::new(false)), None,
+        ));
+        let result = compare_ordered_batches(pair, &large)?;
+        assert_eq!(result.facts_metadata.row_count_current, Some(0));
+        drop(result);
+        assert_eq!(large.remaining_bytes(), 2 * 1024 * 1024);
         Ok(())
     }
 }

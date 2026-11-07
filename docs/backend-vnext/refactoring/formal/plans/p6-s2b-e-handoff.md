@@ -2,7 +2,7 @@
 
 状态：**最终验证进行中**；2026-11-07 00:27Z。当前固定产品候选 `1de3fa408433b344faac222d28736a82405e566a`：此前 d0/ff/7c 的消费者迁移已通过源码审核，新增窄修只删除单侧 metadata-only comparison 的虚假行内存收费，N1/M8GiB/worker12GiB/reserve4GiB不变。04 的7c backend及四Python权威整次均通过；7c t1实际成功、t4首Preview资源拒绝，已保留失败现场并定位明确计费错误。旧失败不改记PASS，尚无E GO。
 
-当前 pending：**t4首Submit在真实Python行准备预约处超过M8，等待Owner容量取舍**；只读IPC buffer统计正待独立核。04 1de backend权威仍自然运行，RS暂缓；1de t1已完整PASS/cleanup/release，t2/t3未启动。CT108本次失败项目已正常stop/保资源与busy，无重跑。后续若改Compose容量，COMMON deployment改变所有六包闭包，必须新候选六包实际run，不沿用旧Rust/小包。此前1de同04WT的Rust/三小包compare仍是其当时合格事实。以下按时间保留历史状态；额外工具mypy待决项早已关闭，CT108窗口已确认，不能把早期暂停段当当前待决。
+当前 pending：**先做独立临时64/16/48档的一次完整t4容量校准，再由Owner决定main最终profile**。临时提交 `4f808c111b9b8bf8e1673f1bf9b76b1823b7c31b` 基于1de、独立WT/ref，不进main；06定向静态/30项已通过，CT108专有新WT/离线环境准备中，尚未启动校准旅程。main仍保DC87原12/4/8，1de t4首Submit真实行预约超过M8。04 1de backend权威3177+57已whole0且释放，RS暂缓；1de t1完整PASS/cleanup/release，t2/t3未启动。CT108两代失败现场均stopped保留，旧诊断busy00:44:15Z已释放。新临时校准不跑全六包；最终若改Compose，所有包COMMON deployment变化，最终六包需实际run。此前Rust/三小包的1de sameWTcompare仍是其当时事实。以下历史状态以此处/后续时间记录为准。
 
 ## 实际消费者与删除
 
@@ -246,3 +246,20 @@ root已知且暂停后续真实运行/RS。24GiB envelope/8GiB reserve/M16仅可
 
 
 00:38:01–02Z，经独立源码/call审核后执行一次有界现IPC buffer统计：外置脚本 `/home/dev/gdds-test-tmp/s2b-e-submit-arrow-metadata.py` SHA `4a28a1e8bcd99634f2524fa3369f9ac5284ed146057c4cd76fedeaac0e4132c5`，固定1de/clean/精确owner、受控wrapper lock-check与native137检查后，用本E现锁定解释器/Arrow25读取。仅 mmap→IPC get_batch→按真实descriptor列select→nbytes，等于production选列后的logical_size_bytes；无标量行迭代、runtime、Rust、重建或旅程重跑。312表logicalArrow合计59223003B，×32=1895136096B；row reservations合计10230357472B，加package2650800128B为12881157600B=11.99651286GiB；再计已知mapping62330728B及reader metadata17724160B，已知约12.07106978GiB。相对M16的剩余为4218656696B=3.92893022GiB，**不是4.22GiB**；JSON/其他retained、临时重开及后续阶段峰值仍未知，不能承诺完整旅程通过。结果 `dc80-submit-arrow-buffer-metadata-01.json` SHA `9cf81e8950e31de789d4c329901dd35af828043165dfa86fe648b19f812036c4`；外置日志同名`.log` SHA `b25b617bf4290416953850f011e8b6ed11601845d5a836ffd220bb9f06623f59`，实际exit0。root已预批在证据独立核齐后保两代E stopped全部资源/镜像/输入，仅精确owner与全机idle/Hclean成立时释放本次busy；截至此记录尚未执行该释放。
+
+
+### 00:51Z：独立临时容量校准准备（不是最终profile）
+
+04固定1de backend-only已于00:39:38Z自然whole runner0/driver0，主体3177 passed、serial57 passed，结束Hclean/idle并释放。`artifacts/s2b-e-gate-1de3fa40/backend-authority-01/authoritative-runner.log` SHA `269cfeb0b9ba5639a04ddf272f3ca73fb52c4af4ca5939fc53514efe33dfb797`；原日志起始JSON逐字提取的backend-source-manifest.json SHA `4120a28e79f175f1be684af57fadc9ee516e228dd564dc3bf5b197b9831e16c7`、total `5edbc2561f3424a362c784f33071a2f8b9bf4ccfcf57996b14c1818eaf56e1f6`；Compose provenance SHA `a86dc5ec2d1d4ea9653054c472932b4e0aa5806851004698ffc77f23d4fa42dc`。RS按root在容量决策前暂停，不把此backend结果作为t4容量通过。
+
+CT108本次Submit失败/统计证据已由审核者核齐，00:44:14–15Z按root预批核全机idle、1de clean、精确ownmarker并列出两代各3 stopped containers/各3卷/网络，**仅移除本次busy**。`artifacts/s2b-e-t4-1de3fa4084/dc80-preserved-postflight-release.log` SHA `b6ddd77cabadfee4140ea46887c693374c285d72df62f6dae57b877521dd2de1`，exit0。新保留容器worker `6db383022a82`、backend `6855e0a60851`、RS `e32524a1878a`，网络 `a8cc272cffcb s2b-e-t4-1de3fa4084_default`，三个项目卷仍为backend-artifacts/backend-control/repository-service-data；旧7c同样保留。无down/rm/prune，原冻结资源不动。
+
+Owner改为先一次宽裕完整校准，暂停24/8/16提案。root批准临时Hcal `4f808c111b9b8bf8e1673f1bf9b76b1823b7c31b`，local独立detached WT `/home/dev/gdds-p6-e-calibration-wt`，task ref `refs/codex/s2b-e/calibration/<full4f>`、bundle SHA `727702ce51a11614551f649bf2432a5363541bf8c31268ba49ff6304cdd29cf8`（实际已具备1de为prerequisite）。仅4路径：settings固定64GiB envelope/16GiB reserve/M上限48GiB、Compose worker硬限68719476736及M51539607552/reserve17179869184/N1；必要profile断言；既有bind_kernel_execution在scope关闭前finally记录operation/step/attempt、used/high_water/stage_admissions。诊断自身异常不替换真实ack/exception，无新observer/采样/控制机制，租约/GC/系数保持。此临时日志不进最终main。
+
+high_water是每claimed execution/step的真实charged预约峰值；按operation仅取各step最大值，不把它们相加当共存。stage temporary_limit（例如parser/codec available）是准入上限，不能据max该字段定最终M。cgroup memory.peak与host VmHWM均为fresh worker生命周期累计（前者含pagecache/helpers，后者为主进程RSS KiB），不伪称每operation独立峰值。现已知Submit12.07GiB支持宽裕校准，但v2/后续路径上界未知，不能保证M48完整通过；64GiB硬限在实读96GiB CT108上留32GiB给其他服务/OS，仅是headroom而非他们的硬预约。
+
+06复用本E自有implWT固定cal4f、actualpathdeps/native137/clean核合后，于00:49:29–32Z backend Ruff0/mypy5000与worker_resources/backend_settings/worker_lifecycle三module `-n0 -q` **30 passed**。`artifacts/s2b-e-calibration-4f808c11/calibration-focused.log` SHA `988cfcfb3b06af19d78f42ea785d9e8d6ebd4fd23ddcb198c8ada7d0542781b8`；source SHA `cfa20878d7010027a73f3fed1a17ab4ce86890e588c8daabcfccbed6046e468a`、另callenv SHA `7a76d299981ddb934b6f927c28cb3a71d0a79da7ac56ba67a5c4c2900fa9927c`。00:50:16Z核idle/own/calclean释放0，release SHA `f69ac7801f6b581a75b6657dca4b2c9a7d6e9b8541e0e98458b9d36383cc8796`。这不是04正式runner/carried来源。
+
+CT108于00:50:32Z现场自取cal准备锁，新专有WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-calibration`（旧t4WT保1de），source0 SHA `601949b15aadc9ca6e261a43d66112874d184d3828aced0a204eeaf8f292af16`；另call HEAD/clean/legacy/四Rust工具0 SHA `e2d7a65658ae7745c75cbc04b9be45e6e37f2f2b66d8e1ae292c4c6d8d426bfa`。新offline backend venv/native与currentRS本机build准备中，无复制环境。base同节点immutable ID d363b45…与先前完整config/19DiffIDs证明相等，审核认可复用，不重复save大归档。
+
+临时driver `/tmp/s2b-e-t4-calibration-driver.py` SHA `d44a347a81dd19b0bf02773818275a36bc0dccca1774ceeeb0bb7544bda6fab8`已审，保原286失败保留/正常stop规则，使用新WT、新project `s2b-e-cal-t4-<cal10>`、显式N1/M48/硬64/reserve16。取现保存worker日志静态对应claim→finally scope identities；必需counter/stage或VmHWM/cgroup缺失不清现场。只一次fresh full，无from-step/resume；任何真实正确性/租约/资源故障或缺必需观测均保现场停报，不自动增档/重试。临时不跑全六包，最终profile定后才做最终必要门禁。

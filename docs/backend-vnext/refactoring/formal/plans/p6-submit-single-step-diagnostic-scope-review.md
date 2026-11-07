@@ -2944,3 +2944,11 @@ CT108 `node-lock-acquire-r1.log` SHA **`f83f4f3c1e771e400e41cf22cd986bd32286d312
 后者22:34:08–19Z、起止d2ffe clean、readonly_identity_exit0；实际context官方身份3456/319，冻结RS label4497/319，build_input_revision_match=false、source_tree_match=true、compose build/pull=false。审核者在CT201只读解析已复制JSON，先重hash§124已认证原input-images.json仍精确01cf16ea，再独立逐服务比较config digest、全部有序DiffID、labels及同节点immutable ID/approved source tag，backend/worker各15层、RS28层均相同；不是仅信JSON自报MATCH，也不把跨节点inspect ID当config SHA。wrapper原文件SHA **`4465c9f9bec7abb6b5517350dcbf7269df9c0d079e8b6665f501aa2882f248b4`** 与本审核d2ffe detached副本字节精确相等。
 
 上述启动前两项材料无新增Finding，结论直接交实施者；实际controller/旅程/coverage/V5b及收尾的最终原件仍待运行交回集中独审。测量期间仅必要既有阶段/采样日志低频观察，不追加大取件或全身份重扫；04新H门禁和正式记录在独立节点继续，不因等待本长运行新增许可或整体暂停。
+
+## 136. 剩余独立收尾范围澄清：无Owner后续收窄，沿既有授权并行推进
+
+实施者在DC63低频状态更新中将当前交接摘要理解为“只推进DC63/V5b，未获用户/设计者扩展前不另启04/record”，故尚未启动这两条独立收尾线。本审核指出与§129/133–135既有剩余范围不一致，直接交设计核最近真实指令；**设计明确确认没有本轮Owner后续收窄指令，已直接通知实施者现在并行收尾。** 依据是Owner持续完成授权及接续计划场景表，且交接本身允许设计明确范围；这是消除旧交接摘要/当前分工差异，不是重新请求Owner GO，也不把范围核实变为暂停在途DC63的理由。
+
+设计澄清的具体范围保持既有冻结线：H780 backend/worker在CT201按旧冻结整镜像流程构建、经LAN到04；RS在04用官方既有预置dependency-base离线构建独立tag，重算canonical identity，不能以旧fcc身份或CT108冻结测量镜像代替。04取得现场自有锁，在clean已提交worktree按原规则运行全六包；05独立worktree完成标准record、SHA、comparator及逐版本来源外部索引，不要求重跑已通过业务。必要工具若后续形成新H，最终闭包/镜像及权威证据仍按原规则绑定，未运行780不能提前称gate PASS。
+
+CT108原监控/预算/进程/tag及在途worktree保持，不新增角色、不推送、不改测量对象；节点分工/离线/锁/保留证据规则保持。本审核已将该明确范围直接回实施者，不再等待额外回执。当前只是工作范围澄清，未宣称04已运行、标准record/comparator完成或DC63整链成功；后续按实际原件分别独审。

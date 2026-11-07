@@ -19,8 +19,8 @@
 | A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无A1局部deferred；04/05联合最终仍待，不办理全任务exit |
 | V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 04/05联合、V2/D/FE3仍待，不办理exit |
 | V2 | **本节最终GO `9ec62e82ad`**，F1–F6全关；产品/容器`f8fb796f02`，handoff`3cd4400f9f` | `/root/be_v2_impl`=6.1-Sol/xhigh、`/root/be_v2_review`=6.1-Sol/max，均正常结束，无后台/占用，保留历史 | 06全部定向/静态、f8当前Compose1/0、OpenAPI/镜像/37+13索引与10:39:24释放已独审 | 本节无未决；04/05联合、D/FE3仍待，不办理exit |
-| D | **F1–F4关闭，F5头前owning digest绑定修复中**；原独审`a0c0ca35b3`；当前已验b1a/vnext603fb5…；[事件与恢复](p6-be-d-validation-incident.md) | 原实施6.1-Sol/xhigh、独审6.1-Sol/max，同角色继续，当前审核turn可idle待新固定候选 | 06占用中；139/0、serial382deselected/5=N/A、五包十项静态0/扩展input0均独审；380/2、238/1失败保留 | F5修复后只补HTTP owner，再一次当前Compose/OpenAPI/interop；尚未dispatch backend/worker build/Compose；04/05/FE3待 |
-| 联合最终 | 准备已授权，产品未收敛；[准备清单](p6-be-a-d-joint-validation-preparation.md) | 在D既定角色内安排并于启动固定职责；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 公共fixtures变化预计六包实际运行；退出前按DC33确认最终范围，不口头carried |
+| D | **本地里程碑通过**；F1–F5关闭，产品`0ba45e5ef8`/vnext`0301aee3a3`；handoff`41386e12e6`、独审`6ad7e54fa0`/固定handoff核收`cd2d395fbc`；[事件与恢复](p6-be-d-validation-incident.md) | 原实施6.1-Sol/xhigh、独审6.1-Sol/max，继续约定联合收尾，不结束/换审核者 | 06 focused/静态、当前小Compose1/0、实际OpenAPI及同24576B tar均独审核收；12:05:51Z本人清理释放 | 本地无未决finding；保留历史失败/缺失限制；04/05与FE3待 |
+| 联合最终 | 产品tree已收敛`0301aee3a3`；完整执行稿`ec586cbc2d`的[D handoff §9](p6-be-d-handoff.md#9-联合0405执行清单稿静核协调对齐后启动尚未执行)待原独审最后核可；[准备清单](p6-be-a-d-joint-validation-preparation.md) | 原D两角色继续既定职责，无额外角色 | 04六包权威及其Compose，05一次fresh t1；当前未claim/运行 | 固定clean main同一SHA/两节点独立guard后执行；退出前按DC33确认最终范围，无口头carried |
 
 ## 3. 验证与资源
 

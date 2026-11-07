@@ -218,7 +218,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 验收：设计 §16.3 全部场景（门槛项达标、只报告项有记录）与 §16.2 全部计数断言；最终提交上完整运行权威 runner（六个包）与容器门禁各一次；Phase 6 退出审核。
 - 真实数据：2× t4 全部负载（1 次预热加 3 次测量）与 t1–t4 完整旅程。
 
-### 前端对接前的 BE-a / BE-d 与归档业务核验（A1/V1/V2本节GO，D实施中）
+### 前端对接前的 BE-a / BE-d 与归档业务核验（A1/V1/V2及D本地通过，联合待验）
 
 - **2026-11-07范围与授权更新（DC89/DC90）**：S2a、S2b均已退出；[联合kickoff](p6-be-a-d-kickoff.md)设计候选`16472197b4`/终审`a5d87540e6`已GO，Owner随后明确授权A1→V1→V2→D及联合最终准备，正常小节自动推进。A1最终`c1ee962755`、V1最终`5dc01deeb5`、V2最终`9ec62e82ad`均本节GO；D从clean9ec启动。持续状态见[协调交接](p6-be-a-d-coordination-handoff.md)，不重复请求已给出的开工授权，不接管原冻结基准。
 - [BE-a](p6-be-a-design.md)：原旧动作/状态删除、两创建接口OpenAPI、Workspace占用指针、本人撤回权限继续；新增当前baseline有PENDING时硬阻塞归档及过期baseline新APPROVE拒绝，保留合法replay。旧审核`fcbfb4c1a0`不覆盖新增范围。
@@ -226,7 +226,8 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - [BE-d](p6-be-d-design.md)：Preview/History完整tar，最终closure逐entry一对一发送，共享由assembler表达；下载层不额外去重。main旅程工具改解析并校验完整包，原冻结基准资源不变。BE-b导航不并入。
 - 首轮设计独审`e92afaa53f`的技术修订：时间提取闭合grammar/UTC微秒归一及源序规则见业务设计§4.1；200候选采用1601异常引用/1选择确认，256KiB body静态预算见§7.1。BE-d§2.1登记前端UTF-8 PAX byte-length修复和同tar互通作为FE3交接依赖；本轮修订已复审GO，B1/B2关闭；该结论仅为设计GO，不是产品验收或前端互通证据。
 - 实际顺序保持A1→V1→V2→D；D新实施/独审均6.1-Sol（xhigh/max），工作单与精确清单见[p6-be-d-work-order](p6-be-d-work-order.md)/[handoff](p6-be-d-handoff.md)，角色同节承接已授权联合最终准备收尾。FE3接口快照、新异常页面与PAX修复由前端owner负责，Owner手动转发[V2实际接口制品](p6-v2-frontend-handoff.md)，不把后端交付当FE3已完成。
-- 06日常focused/Contract/必要小Compose，04最终候选权威门禁与容器绑定；05一次fresh t1整合实际FULL/MODIFIED_ONLY、Submit/Review/Archive及Preview/History完整tar，异常用小型wiring补足。见[集中准备清单](p6-be-a-d-joint-validation-preparation.md)。公共fixtures已变化，最终按实际闭包核受影响包，不能只看源码口头carried；不逐轮全量/全旅程/大输入。04/05当前未执行，最终真实范围退出前仍按DC33交Owner确认，不启动S3或自动办理exit。
+- D本地产品`0ba45e5ef8`/vnext`0301aee3a3`、独审`6ad7e54fa0`及handoff`41386e12e6`核收`cd2d395fbc`已通过，F1–F5关闭，06于12:05:51Z本人释放；同tar及实际OpenAPI已供Owner转前端，FE3仍待。
+- 06日常focused/Contract/必要小Compose，04最终候选权威门禁与容器绑定；05一次fresh t1整合实际FULL/MODIFIED_ONLY、Submit/Review/Archive及Preview/History完整tar，异常用小型wiring补足。见[集中准备清单](p6-be-a-d-joint-validation-preparation.md)及[D完整执行稿§9](p6-be-d-handoff.md#9-联合0405执行清单稿静核协调对齐后启动尚未执行)。公共fixtures已变化，本次六包实际运行，不口头carried；不逐轮全量/全旅程/大输入。04/05当前未执行，最终真实范围退出前仍按DC33交Owner确认，不启动S3或自动办理exit。
 
 ## 3. 路径预算（主要改动面）
 

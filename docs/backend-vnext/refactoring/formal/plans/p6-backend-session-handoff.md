@@ -87,7 +87,7 @@
   - 2026-11-07 Owner已授权A1→V1→V2→D及联合最终准备，设计候选16472197b4/终审a5d87540e6已GO；S2a/S2b退出，不等待原基准测量线。
   - A1本节GO c1ee962755、V1最终GO 5dc01deeb5、V2最终GO 9ec62e82ad（产品/容器f8fb796f02、handoff3cd4400f9f）；D已从clean 9ec启动，新实施/独审6.1-Sol xhigh/max，先精确清单cf2091eadd。实际角色/候选/节点/证据见[持续协调交接](p6-be-a-d-coordination-handoff.md)及[联合kickoff](p6-be-a-d-kickoff.md)。
   - 实施协调会话01a1b4f1-df13-7331-b3c4-77bb560203f2负责正常推进/节点/交接，设计者仅处理设计澄清与决策；前端由Owner手动转发[V2接口包](p6-v2-frontend-handoff.md)，不要求设计者日常催进度。
-  - 04/05联合最终、D完整tar及前端PAX同制品互通未完成，后端本节GO不等FE3完成；最终范围退出前按DC33确认，不启动S3、不改冻结测量资源或推送。
+  - D完整tar本地里程碑已通过：产品0ba45e5ef8/tree0301aee3a3，F1–F5关闭，独审6ad7e54fa0、handoff41386e12e6核收cd2d395fbc；06于12:05:51Z本人清理释放。04六包及其Compose、05一次fresh t1完整执行稿见[D handoff §9](p6-be-d-handoff.md#9-联合0405执行清单稿静核协调对齐后启动尚未执行)，当前未执行。前端PAX同制品互通仍待，后端本节GO不等FE3完成；最终范围退出前按DC33确认，不启动S3、不改冻结测量资源或推送。
 - **BE-b**：
   - 设计由前端设计会话负责（草案 `docs/frontend-vnext/be-b-navigation-and-presentation-draft.md`）；
   - 实现在 P6 退出后、Phase 8 前（FD8）。

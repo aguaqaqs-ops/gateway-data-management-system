@@ -4,7 +4,7 @@
 
 ## 1. 收敛条件与角色
 
-A1 最终独审 `c1ee962755`；V1 最终独审 `5dc01deeb5`，产品 `c229582a9e`，旧 V1 `3dd4735dce` 不作最终依据。V2 最终独审 `9ec62e82ad`，产品/Compose `f8fb796f02`、handoff `3cd4400f9f`，06 已10:39:24Z清理释放。D已新建同节实施/独审，须完成固定候选、同角色复审、06定向及既定收尾。最终联合产品提交、vnext tree、各 owning Contract / schema / checkpoint / digest / HTTP 版本、D encoder 制品清单待实际收敛后填写，不能预先用 main dirty 或旧镜像替代。
+A1 最终独审 `c1ee962755`；V1 最终独审 `5dc01deeb5`，产品 `c229582a9e`，旧 V1 `3dd4735dce` 不作最终依据。V2 最终独审 `9ec62e82ad`，产品/Compose `f8fb796f02`、handoff `3cd4400f9f`，06 已10:39:24Z清理释放。D本地里程碑及固定handoff已通过：产品 `0ba45e5ef83f54bfb2585f963f9518d32086f942`、vnext tree **`0301aee3a39e3a5dfc37360e9c2062e660eb01ea`**，独审`6ad7e54fa0`、handoff`41386e12e6`核收`cd2d395fbc`，06于12:05:51Z本人释放。D encoder同tar/OpenAPI及其SHA见[前端制品包§3](p6-be-d-frontend-handoff.md#3-已实际生成的同字节制品)。当前完整04/05执行稿为`ec586cbc2d`的[D handoff §9](p6-be-d-handoff.md#9-联合0405执行清单稿静核协调对齐后启动尚未执行)，独审最后核可后协调固定当时clean main同一完整SHA用于两节点；此处不是04/05通过或image carried声明。
 
 D 启动时将本工作单及最终工具接线、集中验证执行/证据核收纳入该节已授权实施者和独审者职责；不临时复用已结束小节角色，不新增第三角色。D 小节 GO 与联合最终证据结论分别记录，两角色在其约定收尾职责完成后结束。
 
@@ -51,4 +51,4 @@ Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 ownin
 
 ## 5. 最终核收待填
 
-当前尚无联合最终代码候选、04/05 运行、最终 manifests、DC33 最终范围确认或退出报告。D 收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供 Owner 审查的具体结果。不推送、不改写引用提交、不打退出 tag、不启动 S3。
+产品tree已收敛0301；完整执行稿已固定，04 workers48/六包一次runner及Compose，05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。原独审最后核可及协调固定source后按既有授权执行；当前尚无04/05运行、最终manifests、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。

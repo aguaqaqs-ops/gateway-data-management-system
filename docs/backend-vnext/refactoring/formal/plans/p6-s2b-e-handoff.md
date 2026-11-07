@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**t3真实容量不足，等待Owner宽裕剩余路径校准/重新定档决策**；2026-11-07 03:02Z。当前main产品候选 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 保Owner已选24GiB硬限/8GiB reserve/显式M16GiB、N1/单active，并补齐non-record新增列真实行比较的漏预约；Ruff/mypy500及93focused已独立通过。未改系数、未提高M，临时日志不合main。
+状态：**t3真实容量不足，按既有授权补宽裕剩余路径校准，最终profile待测后决定**；2026-11-07 03:14Z。当前main产品候选 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 保Owner已选24GiB硬限/8GiB reserve/显式M16GiB、N1/单active，并补齐non-record新增列真实行比较的漏预约；Ruff/mypy500及93focused已独立通过。未改系数、未提高M，临时日志不合main。
 
-当前 pending：**Owner决定是否在隔离64/16/M48候选上，以独立冷副本补测t3 v2-preview至后续并据实重新定档**。82候选04六包权威整次0、fresh t1/t2/t4完整PASS且资源齐；fresh t3 v2-preview assemble因RESOURCE_LIMIT_EXCEEDED失败，已有严格比较预约下界18,111,257,152B>M16。该失败不是OOM/lease或旧单侧虚假收费，不改记PASS、不原样重跑。05失败资源保留但本E占用已释放。后续最终profile/必要门禁/最终H闭包与容器绑定/E GO和S2b exit均未完成。
+当前 pending：**05实际GC占用释放后冷归档自有源，CT108隔离64/16/M48冷副本补测t3 v2-preview至后续，再据结果重新定档**。82候选04六包权威整次0、fresh t1/t2/t4完整PASS且资源齐；fresh t3 v2-preview assemble因RESOURCE_LIMIT_EXCEEDED失败，已有严格比较预约下界18,111,257,152B>M16。该失败不是OOM/lease或旧单侧虚假收费，不改记PASS、不原样重跑。05失败资源保留但本E占用已释放。后续最终profile/必要门禁/最终H闭包与容器绑定/E GO和S2b exit均未完成。
 
 ## 实际消费者与删除
 
@@ -411,3 +411,12 @@ Owner明确选择24GiB envelope/8GiB reserve/显式M16GiB，N1/单active；main 
 隔离cal准备候选 `a10dec894e39013dc02bc7100a27da69ca01040b`，专有localWT clean，ref `refs/codex/s2b-e/t3-calibration/<fullSHA>`。464两路径原样cherry到1f9，standard blob `5bb7b55bda6f4295b246546657ab772523da3389`、role-test `7037318c8c0882d7b1a16f309fce8befe713fdcd` 与main精确相同；其余vnext严格只4个原cal路径，且逐blob=1f9（kernel_execution临时finally日志/settings/resourceowner断言/Compose），仍64/16/M48/N1，无新observer或系数变化。root指定CT108作为临时容量诊断节点；Owner待决是扩展剩余t3校准与重新定档，而非再次申请节点。
 
 计划只在05现场空闲取本任务占用时，把自有stopped三卷+实际state/secrets标准冷归档并按bytes/mode/uidgid核，经获准LAN传CT108；新project/current cal镜像本机offline build+bare up，禁止teardown/seed。源state SHA `443732447e1f4ae12df80b576e44cf51ab17c7a80d8d24aeb0ab80710ad733b2`，14keys含_stack+13成功业务step，v2workspace/upload已存，v2-preview无成功state。source与clone在启动前各一次immutable核workspace OPEN、optimistic_version匹配saved upload、current_upload_revision_id/generation/BaselineHead与prefix一致；不修源state/版本，newkey/newop不能复用旧FAILED。现CLI `--tier t3 --scope full --from-step v2-preview --keep-stack --project-name s2b-e-cal-t3-rest-a10dec894e --kernel-threads 1 --kernel-memory-budget-bytes 51539607552` 仅补v2Preview→v2Submit/read/approve→History，不重V1Submit。只取各scope charged/stage与新copyworker局部生命周期CG/RSS；原t3仍FAIL，局部不冒完整fresh PASS。**截至此记录未复制05/未启动新cal，未做最终Hcompare或额外完整runner。**
+
+
+### 03:14Z：按既有授权接续t3剩余校准准备
+
+root重核Owner此前“先增大预算再按测量结果定配置”的持续授权，本次仅补原宽裕校准遗漏的t3剩余路径，复用64/16/M48/N1；**不是Owner新批复，也不再次申请临时节点**。按新固定a10继续可审准备/执行，main仍464的24/8/M16，不提前定最终档，不跑新六包或重V1。
+
+CT108于03:06:58Z闲时原子取prepare owner，新WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-t3-calibration` 固定a10，ref `refs/codex/s2b-e/t3-calibration/<fulla10>`、bundle SHA `2441e2dbc859f165146c0f7e17bbd6c9ce98f7e29aab46d23122d77f540b008c`，actual prerequisite1f9在位、verify0。source0 SHA `3318b3dfff8460c516d57f35ae8dbe617a991d1ad038e88c93ca0968e6318a74`；另call HEAD/clean/legacy/四Rust工具0 SHA `ca90a2f825d8c43a3d3e8788df87f91a4913ae4d3ee08d8ea5c1317e631256ba`；03:07:45Z offline新venv/actual四pathdeps/native137/currentRS本机build/INPUTS_VALID环境0 SHA `7bb84a8c90959c7c47ab2cfd3e80cdd691e192ff80c132f8ef246f6c4b86fc0a`；03:08:47Z另call独立env0 SHA `3593af436ed156fc298f6d44eee366219c893de4c7e93d350e005ae957f981e0`。全部在 `artifacts/s2b-e-t3-calibration-prepare-a10dec89/`。
+
+03:09:46Z准备后核ownidle/a10clean释放CT108，release SHA `324a989a46c4ffc3447367121a42b8d5fb0bac71ee4cd47eaafb5c242f42604a`，保WT/venv/镜像/证据，不占节点等05。05在03:04:56Z由原线有效GC marker取得，故截至本记录未归档/复制/开cal副本；已向root报实际冲突，不抢占/预留。05 source saved v2-workspace是旧version7，v2-upload是version8/generation3；复制前按实际DB与upload8/currentID核，不误用旧workspace7。一次性归档与局部driver已从既有已审560模板最小适配并交独立审核，原源/13prefix/新key与权限/镜像/计数/失败保全边界不扩为产品框架。

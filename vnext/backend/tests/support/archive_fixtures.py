@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import configuration_facts_blob
+
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -215,13 +217,15 @@ def _insert_bulk_approved_archive_candidate_rows(
         )
         attempt_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
                 head_version,
-                b"[]",
+                b'["source-fixture"]',
                 "canonical-closure-1",
                 "sha256:canonical-closure",
                 operation_id,
@@ -230,13 +234,15 @@ def _insert_bulk_approved_archive_candidate_rows(
         )
         submission_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 submission_id,
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
-                b"[]",
+                b'["source-fixture"]',
             )
         )
         review_projection_rows.append((submission_id,))
@@ -287,6 +293,7 @@ def _insert_bulk_approved_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submit_attempt_records (
+                configuration_facts,
                 submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -303,8 +310,9 @@ def _insert_bulk_approved_archive_candidate_rows(
                 optimistic_version, created_by, created_at_us, effect_pending_at_us,
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
+                ?,
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
-                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', 'manifest-1', 'sha256:manifest',
                 NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
@@ -316,6 +324,7 @@ def _insert_bulk_approved_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submission_records (
+                configuration_facts,
                 submission_id, submit_attempt_id, workspace_id, workspace_generation,
                 upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
                 business_baseline_commit_id, repository_commit_id, canonical_business_digest,
@@ -325,8 +334,9 @@ def _insert_bulk_approved_archive_candidate_rows(
                 completed_verification_policy, requested_unknown_type_policy, target_ref,
                 created_by, created_at_us
             ) VALUES (
+                ?,
                 ?, ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, 'commit-new',
-                'sha256:canonical', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
                 'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
             )
             """,
@@ -418,13 +428,15 @@ def _insert_bulk_rejected_archive_candidate_rows(
         )
         attempt_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
                 head_version,
-                b"[]",
+                b'["source-fixture"]',
                 "canonical-closure-1",
                 "sha256:canonical-closure",
                 operation_id,
@@ -433,13 +445,15 @@ def _insert_bulk_rejected_archive_candidate_rows(
         )
         submission_rows.append(
             (
+                configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id,
+                    baseline_node_id=node_id, baseline_commit_id=commit_id, baseline_head_version=head_version),
                 submission_id,
                 attempt_id,
                 workspace_id,
                 repository_id,
                 node_id,
                 commit_id,
-                b"[]",
+                b'["source-fixture"]',
             )
         )
         review_projection_rows.append((submission_id,))
@@ -490,6 +504,7 @@ def _insert_bulk_rejected_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submit_attempt_records (
+                configuration_facts,
                 submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -505,8 +520,9 @@ def _insert_bulk_rejected_archive_candidate_rows(
                 optimistic_version, created_by, created_at_us, effect_pending_at_us,
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
+                ?,
                 ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, ?, 'commit-main',
-                'sha256:canonical', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot', ?, ?, ?, 'closure-1', 'd-closure',
                 'manifest-1', 'sha256:manifest', NULL, NULL, NULL, NULL, 'main', 'STRUCTURAL',
                 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fp', 'upload-key', 'import-key',
                 ?, 'FINALIZED', ?, 1, 'actor-1', 0, 0, 0, NULL, NULL
@@ -517,6 +533,7 @@ def _insert_bulk_rejected_archive_candidate_rows(
         connection.executemany(
             """
             INSERT INTO submission_records (
+                configuration_facts,
                 submission_id, submit_attempt_id, workspace_id, workspace_generation,
                 upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
                 business_baseline_commit_id, repository_commit_id, canonical_business_digest,
@@ -526,8 +543,9 @@ def _insert_bulk_rejected_archive_candidate_rows(
                 completed_verification_policy, requested_unknown_type_policy, target_ref,
                 created_by, created_at_us
             ) VALUES (
+                ?,
                 ?, ?, ?, 1, 'ur-1', 'pr-1', ?, ?, ?, 'commit-new',
-                'sha256:canonical', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
+                'sha256:5555555555555555555555555555555555555555555555555555555555555555', ?, 'manifest-1', 'sha256:manifest', 'sha256:package',
                 'repo-artifact-1', 'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0
             )
             """,

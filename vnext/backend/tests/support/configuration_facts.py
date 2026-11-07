@@ -64,3 +64,10 @@ def submission_with_facts(**kwargs: Any) -> Submission:
 def replace_preview_with_facts(preview: PreviewResult, **changes: Any) -> PreviewResult:
     values = {field.name: getattr(preview, field.name) for field in fields(preview)}
     return preview_result_with_facts(**{**values, **changes})
+
+
+def configuration_facts_blob(**bindings: Any) -> bytes:
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    facts = make_configuration_facts(initial_source="source-fixture", modified_source="source-fixture",
+        uploaded_initial=False, **bindings)
+    return canonicalize_json_value(facts.to_document())

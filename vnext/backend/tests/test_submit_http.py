@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import replace_preview_with_facts
+
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -273,7 +275,7 @@ def test_accept_submit_rejects_preview_derived_stale(
     with ControlDbUnitOfWork(env.db_path) as unit_of_work:
         preview = unit_of_work.workspace.get_preview_result(workspace["preview_result_id"])
         assert preview is not None
-        stale_preview = replace(
+        stale_preview = replace_preview_with_facts(
             preview,
             baseline_head_version=preview.baseline_head_version - 1,
             business_baseline_commit_id="commit-stale",

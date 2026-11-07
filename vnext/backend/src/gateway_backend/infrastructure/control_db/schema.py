@@ -381,10 +381,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (aborted_at_us IS NULL OR typeof(aborted_at_us) = 'integer'),
         abort_code TEXT
             CHECK (abort_code IS NULL OR (typeof(abort_code) = 'text' AND length(abort_code) BETWEEN 1 AND 128)),
-        configuration_facts BLOB NOT NULL
-            CHECK (typeof(configuration_facts) = 'blob'),
         identity_confirmations BLOB NOT NULL DEFAULT X'5B5D'
             CHECK (typeof(identity_confirmations) = 'blob'),
+        configuration_facts BLOB NOT NULL
+            CHECK (typeof(configuration_facts) = 'blob'),
         FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
         FOREIGN KEY (operation_id) REFERENCES operation_records(operation_id) ON DELETE RESTRICT
     )
@@ -449,10 +449,10 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(created_by) = 'text' AND length(created_by) BETWEEN 1 AND 255),
         created_at_us INTEGER NOT NULL
             CHECK (typeof(created_at_us) = 'integer'),
-        configuration_facts BLOB NOT NULL
-            CHECK (typeof(configuration_facts) = 'blob'),
         identity_confirmations BLOB NOT NULL DEFAULT X'5B5D'
             CHECK (typeof(identity_confirmations) = 'blob'),
+        configuration_facts BLOB NOT NULL
+            CHECK (typeof(configuration_facts) = 'blob'),
         FOREIGN KEY (workspace_id) REFERENCES workspace_records(workspace_id) ON DELETE RESTRICT,
         FOREIGN KEY (submit_attempt_id) REFERENCES submit_attempt_records(submit_attempt_id) ON
             DELETE RESTRICT

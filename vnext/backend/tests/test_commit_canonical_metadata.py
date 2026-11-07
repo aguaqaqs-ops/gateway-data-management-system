@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import configuration_facts_blob
+
 import sqlite3
 from dataclasses import replace
 
@@ -114,6 +116,7 @@ def _insert_submission(
     connection.execute(
         """
         INSERT INTO submit_attempt_records (
+                configuration_facts,
             submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
             preview_result_id, repository_id, business_baseline_node_id,
             business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -126,14 +129,15 @@ def _insert_submission(
             repository_import_idempotency_key, operation_id, state, submission_id,
             optimistic_version, created_by, created_at_us
         ) VALUES (
+                ?,
             ?, ?, 1, 'upload-1', 'preview-1', ?, 'initial-node', 'initial-commit', 1,
-            'initial-commit', 'sha256:canonical', 'sha256:source', ?, X'5B5D',
+            'initial-commit', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'sha256:source', ?, X'5b22736f757263652d66697874757265225d',
             'canonical-closure', 'sha256:closure', 'ready-closure', 'sha256:ready', ?, ?,
             'main', 'STRUCTURAL', 'REJECT', 'ADAPTIVE_PATCH', 'accept-key', 'sha256:fingerprint',
             'upload-key', 'import-key', ?, 'FINALIZED', ?, 1, 'actor-1', 0
         )
         """,
-        (
+        (configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id, upload_revision_id="upload-1", baseline_node_id="initial-node", baseline_commit_id="initial-commit"), *(
             attempt_id,
             workspace_id,
             repository_id,
@@ -142,11 +146,12 @@ def _insert_submission(
             manifest_digest,
             f"operation-{submission_id}",
             submission_id,
-        ),
+        )),
     )
     connection.execute(
         """
         INSERT INTO submission_records (
+                configuration_facts,
             submission_id, submit_attempt_id, workspace_id, workspace_generation,
             upload_revision_id, preview_result_id, repository_id, based_on_baseline_node_id,
             business_baseline_commit_id, repository_commit_id, canonical_business_digest,
@@ -154,11 +159,12 @@ def _insert_submission(
             repository_import_artifact_raw_sha256, repository_artifact_id,
             requested_verification_policy, completed_verification_policy,
             requested_unknown_type_policy, target_ref, created_by, created_at_us
-        ) VALUES (?, ?, ?, 1, 'upload-1', 'preview-1', ?, 'initial-node', 'initial-commit', ?,
-                  'sha256:canonical', X'5B5D', ?, ?, 'sha256:package', 'repository-artifact-1',
+        ) VALUES (
+                ?,?, ?, ?, 1, 'upload-1', 'preview-1', ?, 'initial-node', 'initial-commit', ?,
+                  'sha256:5555555555555555555555555555555555555555555555555555555555555555', X'5b22736f757263652d66697874757265225d', ?, ?, 'sha256:package', 'repository-artifact-1',
                   'STRUCTURAL', 'STRUCTURAL', 'REJECT', 'main', 'actor-1', 0)
         """,
-        (
+        (configuration_facts_blob(workspace_id=workspace_id, repository_id=repository_id, upload_revision_id="upload-1", baseline_node_id="initial-node", baseline_commit_id="initial-commit"), *(
             submission_id,
             attempt_id,
             workspace_id,
@@ -166,7 +172,7 @@ def _insert_submission(
             commit_id,
             manifest_ref_id,
             manifest_digest,
-        ),
+        )),
     )
 
 

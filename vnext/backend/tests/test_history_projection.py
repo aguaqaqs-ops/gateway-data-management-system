@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import configuration_facts_blob
+
 from tests.support.configuration_facts import submission_with_facts
 
 from dataclasses import replace
@@ -610,25 +612,6 @@ def test_sqlite_history_reader_loads_submission_review_facts(db_path: Path) -> N
 def test_history_reader_source_artifact_refs_match_submission_repository(db_path: Path) -> None:
     review_seed = _seed_pending_review_submission(db_path)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
-        repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
-        assert repository_submission is not None
-        unit_of_work.connection.execute(
-            "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
-            (canonicalize_json_value([]), review_seed.submission_id),
-        )
-    facts = HttpHistoryReader(db_path).load_facts(
-        repository_id="repo-1",
-        gateway_device_external_key="device-1",
-        business_project_id="project-1",
-    )
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        repository_submission = unit_of_work.submission.get_submission(review_seed.submission_id)
-        assert repository_submission is not None
-    history_submission = facts.submissions[0].submission
-    assert history_submission.source_artifact_refs == repository_submission.source_artifact_refs
-    assert history_submission.source_artifact_refs == ()
-
-    with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute(
             "UPDATE submission_records SET source_artifact_refs = ? WHERE submission_id = ?",
             (canonicalize_json_value(["initial-1", "modified-1"]), review_seed.submission_id),
@@ -796,6 +779,7 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
         unit_of_work.connection.execute(
             """
             INSERT INTO submit_attempt_records (
+                configuration_facts,
                 submit_attempt_id, workspace_id, workspace_generation, upload_revision_id,
                 preview_result_id, repository_id, business_baseline_node_id,
                 business_baseline_commit_id, baseline_head_version, repository_expected_commit_id,
@@ -811,21 +795,22 @@ def test_projection_excludes_non_authoritative_facts(db_path: Path) -> None:
                 optimistic_version, created_by, created_at_us, effect_pending_at_us,
                 finalized_at_us, aborted_at_us, abort_code
             ) VALUES (
+                ?,
                 'sa-failed-import', 'ws-failed-import', 1, 'ur-1', 'pr-1', 'repo-1',
-                ?, ?, 1, 'commit-main', 'sha256:canonical', 'd-source', 'd-snapshot',
+                ?, ?, 1, 'commit-main', 'sha256:5555555555555555555555555555555555555555555555555555555555555555', 'd-source', 'd-snapshot',
                 ?, ?, ?, 'closure-1', 'd-closure', 'manifest-1', 'sha256:manifest', NULL, NULL,
                 NULL, NULL, 'main', 'STRUCTURAL', 'REJECT', 'ADAPTIVE_PATCH', 'accept-key',
                 'sha256:fp', 'upload-key', 'import-key', 'op-excluded-marker', 'ABORTED',
                 NULL, 1, 'actor-1', 1, NULL, NULL, 1, 'IMPORT_FAILED'
             )
             """,
-            (
+            (configuration_facts_blob(workspace_id="ws-failed-import", baseline_node_id=BASELINE_HEAD.business_baseline_node_id, baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id), *(
                 BASELINE_HEAD.business_baseline_node_id,
                 BASELINE_HEAD.business_baseline_commit_id,
-                canonicalize_json_value([]),
+                canonicalize_json_value(["source-fixture"]),
                 "canonical-closure-1",
                 "sha256:canonical-closure",
-            ),
+            )),
         )
         unit_of_work.connection.execute(
             """

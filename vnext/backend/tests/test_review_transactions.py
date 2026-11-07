@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_facts import replace_preview_with_facts
+
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -188,7 +190,7 @@ def _seed_additional_pending_review_submission(
             created_by="actor-1",
             created_at=TS0,
         )
-        preview = replace(
+        preview = replace_preview_with_facts(
             _preview_result(workspace.workspace_id),
             preview_result_id=preview_result_id,
             upload_revision_id=upload_revision_id,

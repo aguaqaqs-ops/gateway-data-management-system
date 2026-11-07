@@ -74,14 +74,14 @@ def test_create_or_get_workspace_persists_open_scope_idempotently(db_path: Path)
         created = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         )
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         replay = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         )
 
@@ -98,7 +98,7 @@ def test_accept_upload_persists_revision_with_generation_cas(db_path: Path) -> N
         workspace = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         ).workspace
         result = accept_upload(
@@ -126,7 +126,7 @@ def test_accept_upload_same_key_replays_from_sqlite(db_path: Path) -> None:
         workspace = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         ).workspace
         command = _accept_command(
@@ -156,7 +156,7 @@ def test_accept_upload_same_key_different_fingerprint_conflicts_in_sqlite(db_pat
         workspace = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         ).workspace
         accept_upload(
@@ -197,7 +197,7 @@ def test_accept_upload_stale_workspace_version_does_not_persist_revision(
         workspace = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         ).workspace
         bumped_once = unit_of_work.workspace.save_workspace(
@@ -233,7 +233,7 @@ def test_upload_publication_rolls_back_when_revision_insert_fails(
         workspace = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         ).workspace
 
@@ -267,7 +267,7 @@ def test_open_workspace_unique_conflict_rereads_existing_workspace(db_path: Path
         first = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         ).workspace
         duplicate = replace(first, workspace_id="ws-duplicate")

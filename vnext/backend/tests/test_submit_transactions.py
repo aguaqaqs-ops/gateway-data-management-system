@@ -469,7 +469,7 @@ def seed_submit_ready_workspace(
         created = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         )
         workspace = created.workspace
@@ -1731,6 +1731,12 @@ def test_stable_abort_releases_occupancy_without_submission(db_path: Path) -> No
         occupancy = unit_of_work.submission.get_workspace_occupancy(seed.workspace.workspace_id)
         repository_occupancy = unit_of_work.submission.get_repository_occupancy(seed.workspace.repository_id)
         operation = unit_of_work.operations.get_operation(attempt.operation_id)
+        workspace_result = create_or_get_workspace(
+            context=make_identity(), scope_resolution=FixedScopeResolutionPort(baseline_head=BASELINE_HEAD),
+            transaction=unit_of_work, created_at=TS1,
+        )
+        assert workspace_result.occupancy is None
+        assert workspace_result.workspace.optimistic_version == seed.workspace.optimistic_version + 2
         canonical_expiry = unit_of_work.connection.execute(
             "SELECT expires_at_us FROM canonical_table_cache WHERE artifact_id = ?", (canonical_ref.artifact_id,),
         ).fetchone()[0]

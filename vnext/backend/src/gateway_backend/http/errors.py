@@ -340,6 +340,7 @@ def map_domain_exception(exc: BaseException) -> ApiError | None:
             "ARCHIVE_CONFIRMATION_REQUIRED",
             "ARCHIVE_ANOMALY_UNRESOLVED",
             "ACTIVE_SUBMIT_ATTEMPT",
+            "ARCHIVE_PENDING_REVIEW",
         }:
             return ApiError(
                 code=stable_code,

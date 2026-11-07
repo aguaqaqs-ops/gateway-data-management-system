@@ -31,7 +31,8 @@ router = APIRouter(tags=["reviews"])
         404: {"description": "RESOURCE_NOT_FOUND"},
         409: {
             "description": "IDEMPOTENCY_CONFLICT, REVIEW_VERSION_CONFLICT, "
-            "REVIEW_TRANSITION_CONFLICT, WORKSPACE_OCCUPANCY_CONFLICT"
+            "REVIEW_TRANSITION_CONFLICT, WORKSPACE_OCCUPANCY_CONFLICT, "
+            "BASELINE_VERSION_CONFLICT, ARCHIVE_CLOSED"
         },
         422: {"description": "REQUEST_VALIDATION_FAILED"},
         429: {"description": "ADMISSION_LIMIT_REACHED"},

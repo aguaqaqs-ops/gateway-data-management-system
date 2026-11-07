@@ -46,6 +46,8 @@ def test_pending_review_submission_is_not_a_candidate(db_path: Path) -> None:
         unit_of_work_factory=_uow_factory(db_path),
     )
     assert result.candidates == ()
+    assert result.pending_submission_ids == (review_seed.submission_id,)
+    assert result.blockers == ("ARCHIVE_PENDING_REVIEW",)
 
 
 def test_preview_archive_plan_rejects_unknown_selected_ref(db_path: Path) -> None:
@@ -360,3 +362,44 @@ def test_sqlite_list_archive_candidate_facts_raises_at_fetch_limit(db_path: Path
                 baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
                 baseline_commit_id=BASELINE_HEAD.business_baseline_commit_id,
             )
+
+
+def test_archive_pending_gate_includes_other_actor_and_ignores_drafts_and_old_baselines(db_path: Path) -> None:
+    from dataclasses import replace
+    from tests.test_review_transactions import _seed_additional_pending_review_submission
+    from tests.support.baseline_fixtures import apply_baseline_head_state
+    from tests.test_submit_transactions import BASELINE_HEAD
+    seed = seed_approved_archive_candidate(db_path)
+    other = _seed_additional_pending_review_submission(db_path, submission_id="sub-pending",
+        device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+    result = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+    assert [candidate.submission_id for candidate in result.candidates] == [seed.submission_id]
+    assert result.pending_submission_ids == (other.submission_id,)
+    assert result.blockers == ("ARCHIVE_PENDING_REVIEW",)
+    preview = preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref, unit_of_work_factory=_uow_factory(db_path))
+    assert not preview.can_start
+    assert preview.pending_submission_ids == (other.submission_id,)
+    assert "ARCHIVE_PENDING_REVIEW" in preview.blockers
+    apply_baseline_head_state(db_path, repository_id=seed.repository_id, baseline_head=replace(
+        BASELINE_HEAD, business_baseline_node_id="new-baseline", business_baseline_commit_id="new-commit",
+        baseline_head_version=BASELINE_HEAD.baseline_head_version + 1,
+    ))
+    advanced = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
+    assert advanced.pending_submission_ids == ()
+    assert advanced.blockers == ()
+
+
+@pytest.mark.parametrize("fault", ["missing_projection", "missing_event", "projection_diverged"])
+def test_pending_review_gate_rejects_broken_review_closure(db_path: Path, fault: str) -> None:
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from tests.support.archive_fixtures import _archiver_context
+    review = _seed_pending_review_submission(db_path)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        if fault == "missing_projection":
+            unit_of_work.connection.execute("DELETE FROM review_projection_records WHERE submission_id = ?", (review.submission_id,))
+        elif fault == "missing_event":
+            unit_of_work.connection.execute("DELETE FROM review_event_records WHERE submission_id = ?", (review.submission_id,))
+        else:
+            unit_of_work.connection.execute("UPDATE review_projection_records SET status = 'REJECTED' WHERE submission_id = ?", (review.submission_id,))
+    with pytest.raises(ArchiveIntegrityFailure):
+        get_archive_candidates(context=_archiver_context("device-1", "project-1"), unit_of_work_factory=_uow_factory(db_path))

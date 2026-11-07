@@ -16,6 +16,7 @@ from gateway_backend.application.archive.contracts import (
 )
 from gateway_backend.application.archive.errors import (
     ArchiveIntegrityFailure,
+    ArchivePendingReview,
     CandidateBindingConflict,
     CandidateSetConflict,
 )
@@ -144,6 +145,8 @@ def start_archive(
         assert_repository_submit_gate(unit_of_work, fresh_scope.repository_id)
 
         snapshot = load_archive_candidate_snapshot(unit_of_work, command.context, fresh_scope)
+        if snapshot.pending_submission_ids:
+            raise ArchivePendingReview()
         if snapshot.candidate_set_digest != command.candidate_set_digest:
             raise CandidateSetConflict()
         if not any(

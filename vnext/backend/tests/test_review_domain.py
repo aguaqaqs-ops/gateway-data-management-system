@@ -64,19 +64,7 @@ FINGERPRINT_BASE = {
 REVIEW_ALLOWED_TRANSITIONS = (
     (ReviewStatus.PENDING, ReviewAction.APPROVE, ReviewEventKind.APPROVED, ReviewStatus.APPROVED),
     (ReviewStatus.PENDING, ReviewAction.REJECT, ReviewEventKind.REJECTED, ReviewStatus.REJECTED),
-    (
-        ReviewStatus.PENDING,
-        ReviewAction.RETURN_FOR_REVISION,
-        ReviewEventKind.RETURNED_FOR_REVISION,
-        ReviewStatus.RETURNED_FOR_REVISION,
-    ),
     (ReviewStatus.PENDING, ReviewAction.WITHDRAW, ReviewEventKind.WITHDRAWN, ReviewStatus.WITHDRAWN),
-    (
-        ReviewStatus.APPROVED,
-        ReviewAction.RETURN_FOR_REVISION,
-        ReviewEventKind.RETURNED_FOR_REVISION,
-        ReviewStatus.RETURNED_FOR_REVISION,
-    ),
 )
 
 REVIEW_DENIED_TRANSITIONS = (
@@ -85,15 +73,9 @@ REVIEW_DENIED_TRANSITIONS = (
     (ReviewStatus.APPROVED, ReviewAction.WITHDRAW),
     (ReviewStatus.REJECTED, ReviewAction.APPROVE),
     (ReviewStatus.REJECTED, ReviewAction.REJECT),
-    (ReviewStatus.REJECTED, ReviewAction.RETURN_FOR_REVISION),
     (ReviewStatus.REJECTED, ReviewAction.WITHDRAW),
-    (ReviewStatus.RETURNED_FOR_REVISION, ReviewAction.APPROVE),
-    (ReviewStatus.RETURNED_FOR_REVISION, ReviewAction.REJECT),
-    (ReviewStatus.RETURNED_FOR_REVISION, ReviewAction.RETURN_FOR_REVISION),
-    (ReviewStatus.RETURNED_FOR_REVISION, ReviewAction.WITHDRAW),
     (ReviewStatus.WITHDRAWN, ReviewAction.APPROVE),
     (ReviewStatus.WITHDRAWN, ReviewAction.REJECT),
-    (ReviewStatus.WITHDRAWN, ReviewAction.RETURN_FOR_REVISION),
     (ReviewStatus.WITHDRAWN, ReviewAction.WITHDRAW),
 )
 
@@ -101,10 +83,8 @@ REVIEW_REASON_CASES = (
     ("approve_null", ReviewAction.APPROVE, None, None),
     ("withdraw_null", ReviewAction.WITHDRAW, None, None),
     ("reject_valid", ReviewAction.REJECT, "needs changes", "needs changes"),
-    ("return_valid", ReviewAction.RETURN_FOR_REVISION, "revise section 2", "revise section 2"),
     ("approve_optional", ReviewAction.APPROVE, "looks good", "looks good"),
     ("reject_required_missing", ReviewAction.REJECT, None, InvalidReviewReason),
-    ("return_required_missing", ReviewAction.RETURN_FOR_REVISION, None, InvalidReviewReason),
     ("approve_whitespace_only", ReviewAction.APPROVE, "   ", InvalidReviewReason),
     ("reject_whitespace_only", ReviewAction.REJECT, "\t\n", InvalidReviewReason),
     ("reason_control_char", ReviewAction.REJECT, "bad\x00reason", InvalidReviewReason),
@@ -230,14 +210,10 @@ def test_review_transition_matrix_inventory_matches_policy_module() -> None:
     assert inventory[ReviewStatus.PENDING] == {
         ReviewAction.APPROVE: ReviewStatus.APPROVED,
         ReviewAction.REJECT: ReviewStatus.REJECTED,
-        ReviewAction.RETURN_FOR_REVISION: ReviewStatus.RETURNED_FOR_REVISION,
         ReviewAction.WITHDRAW: ReviewStatus.WITHDRAWN,
     }
-    assert inventory[ReviewStatus.APPROVED] == {
-        ReviewAction.RETURN_FOR_REVISION: ReviewStatus.RETURNED_FOR_REVISION,
-    }
+    assert inventory[ReviewStatus.APPROVED] == {}
     assert inventory[ReviewStatus.REJECTED] == {}
-    assert inventory[ReviewStatus.RETURNED_FOR_REVISION] == {}
     assert inventory[ReviewStatus.WITHDRAWN] == {}
 
 
@@ -436,7 +412,6 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[
         "review event reason violates action contract",
         ReviewProjection(
             submission_id="submission-1",
-            status=ReviewStatus.RETURNED_FOR_REVISION,
             optimistic_version=1,
             latest_sequence=1,
             updated_by="actor-1",
@@ -447,9 +422,7 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[
             ReviewEvent(
                 submission_id="submission-1",
                 sequence=1,
-                event_kind=ReviewEventKind.RETURNED_FOR_REVISION,
                 from_status=ReviewStatus.PENDING,
-                to_status=ReviewStatus.RETURNED_FOR_REVISION,
                 reason="   ",
                 actor_id="actor-1",
                 occurred_at=TS0,

@@ -39,6 +39,7 @@ class ArchiveCandidateSnapshot:
     candidates: tuple[ArchiveCandidateRef, ...]
     candidate_set_digest: str
     active_attempt_ids: tuple[str, ...]
+    pending_submission_ids: tuple[str, ...]
 
 
 def load_archive_candidate_snapshot(
@@ -121,6 +122,28 @@ def load_archive_candidate_snapshot(
         baseline_head_version=head.baseline_head_version,
         candidates=tuple(candidate_refs),
     )
+    try:
+        pending_facts = unit_of_work.submission.list_pending_review_facts(
+            fresh_scope.repository_id,
+            baseline_node_id=head.business_baseline_node_id,
+            baseline_commit_id=head.business_baseline_commit_id,
+        )
+    except ArchiveCandidateReadBoundExceeded:
+        raise ArchiveScopeLimitExceeded() from None
+    pending_ids: list[str] = []
+    for fact in pending_facts:
+        try:
+            projection = unit_of_work.review.get_projection(fact.submission.submission_id)
+        except ReviewClosureViolation as exc:
+            raise ArchiveIntegrityFailure(str(exc)) from exc
+        if projection is None:
+            raise ArchiveIntegrityFailure("review projection is missing")
+        if projection.status is not ReviewStatus.PENDING:
+            continue
+        assert_archive_candidate_integrity(
+            unit_of_work, context=context, resolved_scope=fresh_scope, fact=fact,
+        )
+        pending_ids.append(fact.submission.submission_id)
     active_attempts = unit_of_work.submission.list_active_submit_attempts(fresh_scope.repository_id)
     return ArchiveCandidateSnapshot(
         resolved_scope=fresh_scope,
@@ -133,6 +156,7 @@ def load_archive_candidate_snapshot(
         candidates=tuple(candidate_refs),
         candidate_set_digest=candidate_set_digest,
         active_attempt_ids=tuple(item.submit_attempt_id for item in active_attempts),
+        pending_submission_ids=tuple(pending_ids),
     )
 
 

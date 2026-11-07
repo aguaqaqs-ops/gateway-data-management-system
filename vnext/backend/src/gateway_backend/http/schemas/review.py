@@ -12,19 +12,17 @@ from gateway_backend.domain.submission.models import SubmitIdentityConfirmation
 from gateway_backend.domain.submission.review import ReviewEvent, ReviewProjection
 from gateway_backend.http.schemas.constraints import BoundedDiagnosticReason, NonNegativeIJsonInt
 
-ReviewActionLiteral = Literal["APPROVE", "REJECT", "RETURN_FOR_REVISION", "WITHDRAW"]
+ReviewActionLiteral = Literal["APPROVE", "REJECT", "WITHDRAW"]
 ReviewStatusLiteral = Literal[
     "PENDING",
     "APPROVED",
     "REJECTED",
-    "RETURNED_FOR_REVISION",
     "WITHDRAWN",
 ]
 ReviewEventKindLiteral = Literal[
     "SUBMISSION_FINALIZED",
     "APPROVED",
     "REJECTED",
-    "RETURNED_FOR_REVISION",
     "WITHDRAWN",
 ]
 

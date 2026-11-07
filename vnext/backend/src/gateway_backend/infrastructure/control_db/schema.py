@@ -533,13 +533,13 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(sequence) = 'integer' AND sequence >= 0),
         event_kind TEXT NOT NULL
             CHECK
-                (typeof(event_kind) = 'text' AND event_kind IN ('SUBMISSION_FINALIZED', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN')),
+                (typeof(event_kind) = 'text' AND event_kind IN ('SUBMISSION_FINALIZED', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
         from_status TEXT
             CHECK
-                (from_status IS NULL OR (typeof(from_status) = 'text' AND from_status IN ('PENDING', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN'))),
+                (from_status IS NULL OR (typeof(from_status) = 'text' AND from_status IN ('PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN'))),
         to_status TEXT NOT NULL
             CHECK
-                (typeof(to_status) = 'text' AND to_status IN ('PENDING', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN')),
+                (typeof(to_status) = 'text' AND to_status IN ('PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
         reason TEXT
             CHECK
                 (reason IS NULL OR (typeof(reason) = 'text' AND length(CAST(reason AS BLOB)) BETWEEN 0 AND 4096)),
@@ -558,7 +558,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
             CHECK (typeof(submission_id) = 'text' AND length(submission_id) BETWEEN 1 AND 255),
         status TEXT NOT NULL
             CHECK
-                (typeof(status) = 'text' AND status IN ('PENDING', 'APPROVED', 'REJECTED', 'RETURNED_FOR_REVISION', 'WITHDRAWN')),
+                (typeof(status) = 'text' AND status IN ('PENDING', 'APPROVED', 'REJECTED', 'WITHDRAWN')),
         optimistic_version INTEGER NOT NULL
             CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
         latest_sequence INTEGER NOT NULL

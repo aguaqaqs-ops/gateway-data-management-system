@@ -35,11 +35,29 @@ from gateway_backend.domain.workspace.policies import assert_permission, assert_
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
 
 PERMISSION_REVIEW_SUBMISSION = "review_submission"
+PERMISSION_WITHDRAW_OWN_SUBMISSION = "withdraw_own_submission"
+
+
+def assert_review_permission(context: IdentityContext, action: ReviewAction | None = None) -> None:
+    """Check current claims before reading any target or idempotency facts."""
+    if PERMISSION_REVIEW_SUBMISSION in context.permissions:
+        return
+    if action is None or action is ReviewAction.WITHDRAW:
+        assert_permission(context, PERMISSION_WITHDRAW_OWN_SUBMISSION)
+        return
+    assert_permission(context, PERMISSION_REVIEW_SUBMISSION)
+
+
+def assert_review_target_authorized(context: IdentityContext, submission: Submission) -> None:
+    if (
+        PERMISSION_REVIEW_SUBMISSION not in context.permissions
+        and submission.created_by != context.actor_id
+    ):
+        raise ScopeForbidden
 
 _RELEASE_ACTIONS = frozenset(
     {
         ReviewAction.REJECT,
-        ReviewAction.RETURN_FOR_REVISION,
         ReviewAction.WITHDRAW,
     }
 )
@@ -209,6 +227,7 @@ def load_review_scope_facts(
     if workspace is None:
         raise ScopeForbidden
     assert_review_scope(submission, workspace, fresh_scope, context)
+    assert_review_target_authorized(context, submission)
     try:
         projection = unit_of_work.review.get_projection(submission_id)
         events = unit_of_work.review.list_events(submission_id)
@@ -233,7 +252,7 @@ def get_review_facts(
     scope_resolution: ScopeResolutionPort,
     unit_of_work_factory: ReviewApplyControlUnitOfWorkFactory,
 ) -> ReviewFacts:
-    assert_permission(context, PERMISSION_REVIEW_SUBMISSION)
+    assert_review_permission(context)
     resolved = scope_resolution.resolve(context)
     with unit_of_work_factory(read_only=True) as unit_of_work:
         fresh_scope = resolve_fresh_provisioned_scope(unit_of_work, context)

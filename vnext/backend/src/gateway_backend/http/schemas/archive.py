@@ -176,6 +176,8 @@ class ArchiveCandidatesResponse(BaseModel):
     candidates: list[ArchiveCandidateResponse]
     candidate_set_digest: str
     blockers: list[str]
+    pending_submission_ids: list[BoundedOpaqueId]
+    pending_submission_count: NonNegativeIJsonInt
 
 
 class ArchivePreviewAnomalyResponse(BaseModel):
@@ -216,6 +218,8 @@ class PreviewArchivePlanResponse(BaseModel):
     workspace_releases: list[ArchivePreviewWorkspaceReleaseResponse]
     can_start: bool
     blockers: list[str]
+    pending_submission_ids: list[BoundedOpaqueId]
+    pending_submission_count: NonNegativeIJsonInt
 
 
 class ArchiveAuditEventResponse(BaseModel):
@@ -329,6 +333,8 @@ def archive_candidates_to_response(result: ArchiveCandidatesResult) -> ArchiveCa
         ],
         candidate_set_digest=result.candidate_set_digest,
         blockers=list(result.blockers),
+        pending_submission_ids=list(result.pending_submission_ids),
+        pending_submission_count=len(result.pending_submission_ids),
     )
 
 
@@ -357,6 +363,8 @@ def preview_plan_to_response(result: PreviewArchivePlanResult) -> PreviewArchive
         ],
         can_start=result.can_start,
         blockers=list(result.blockers),
+        pending_submission_ids=list(result.pending_submission_ids),
+        pending_submission_count=len(result.pending_submission_ids),
     )
 
 

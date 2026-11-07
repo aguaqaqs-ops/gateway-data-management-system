@@ -428,7 +428,7 @@ def seed_submit_ready_workspace(
         created = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=TS0,
         )
         workspace = created.workspace

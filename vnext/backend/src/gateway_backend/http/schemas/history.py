@@ -27,7 +27,6 @@ HistoryReviewStatusLiteral = Literal[
     "PENDING",
     "APPROVED",
     "REJECTED",
-    "RETURNED_FOR_REVISION",
     "WITHDRAWN",
 ]
 HistoryArchiveDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]

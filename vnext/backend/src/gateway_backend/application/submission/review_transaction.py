@@ -7,11 +7,12 @@ from datetime import datetime
 
 from gateway_backend.application.submission.errors import (
     ArchiveClosed,
+    BaselineVersionConflict,
     ReviewIntegrityFailure,
     ReviewWorkspaceOccupancyConflict,
 )
 from gateway_backend.application.submission.review import (
-    PERMISSION_REVIEW_SUBMISSION,
+    assert_review_permission,
     assert_fresh_scope_matches,
     assert_review_workspace_bindings,
     is_review_release_action,
@@ -35,6 +36,7 @@ from gateway_backend.domain.submission.errors import (
     SubmitOccupancyConflict,
 )
 from gateway_backend.domain.submission.review import (
+    ReviewAction,
     ReviewEvent,
     ReviewIdempotencyRecord,
     ReviewProjection,
@@ -42,7 +44,6 @@ from gateway_backend.domain.submission.review import (
     validate_review_reason,
 )
 from gateway_backend.domain.workspace.models import ResolvedScope, Workspace
-from gateway_backend.domain.workspace.policies import assert_permission
 from gateway_backend.domain.workspace.ports import ScopeResolutionPort
 
 
@@ -54,7 +55,7 @@ def apply_review_transaction(
     now: datetime,
 ) -> ApplyReviewResult:
     validate_apply_review_command(command)
-    assert_permission(command.context, PERMISSION_REVIEW_SUBMISSION)
+    assert_review_permission(command.context, command.action)
     resolved = scope_resolution.resolve(command.context)
     with unit_of_work_factory(read_only=False) as unit_of_work:
         return _apply_review_in_control_transaction(
@@ -72,6 +73,7 @@ def _apply_review_in_control_transaction(
     resolved: ResolvedScope,
     now: datetime,
 ) -> ApplyReviewResult:
+    assert_review_permission(command.context, command.action)
     fresh_scope = resolve_fresh_provisioned_scope(unit_of_work, command.context)
     assert_fresh_scope_matches(fresh_scope, resolved)
     facts = load_review_scope_facts(
@@ -132,6 +134,13 @@ def _apply_review_in_control_transaction(
         )
     event_kind, to_status = resolve_review_transition(facts.projection.status, command.action)
     validated_reason = validate_review_reason(command.action, command.reason)
+    if command.action is ReviewAction.APPROVE and (
+        facts.submission.based_on_baseline_node_id
+        != fresh_scope.baseline_head.business_baseline_node_id
+        or facts.submission.business_baseline_commit_id
+        != fresh_scope.baseline_head.business_baseline_commit_id
+    ):
+        raise BaselineVersionConflict("submission baseline does not match current head")
     assert_review_workspace_bindings(
         facts.submission,
         facts.workspace,

@@ -156,3 +156,22 @@ def test_openapi_submit_request_rejects_additional_properties(client: TestClient
     assert start_archive_request.get("additionalProperties") is False
     archive_started_response = schema["components"]["schemas"]["ArchiveStartedResponse"]
     assert "archive_result_id" in archive_started_response["properties"]
+
+
+def test_openapi_create_statuses_response_models_and_workspace_occupancy(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    for path, statuses, model in (
+        ("/v1/workspaces", ("201", "200"), "WorkspaceResponse"),
+        ("/v1/history-compares", ("202", "200"), "HistoryCompareAcceptResponse"),
+    ):
+        responses = schema["paths"][path]["post"]["responses"]
+        assert {key for key in responses if key.startswith("2")} == set(statuses)
+        for status in statuses:
+            assert responses[status]["content"]["application/json"]["schema"] == {"$ref": f"#/components/schemas/{model}"}
+    workspace = schema["components"]["schemas"]["WorkspaceResponse"]
+    for field in ("active_submit_attempt_id", "active_submission_id"):
+        assert field in workspace["required"]
+        assert workspace["properties"][field]["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert "RETURN_FOR_REVISION" not in str(schema)
+    assert "RETURNED_FOR_REVISION" not in str(schema)
+    assert "ARCHIVE_PENDING_REVIEW" in schema["paths"]["/v1/archives"]["post"]["responses"]["409"]["description"]

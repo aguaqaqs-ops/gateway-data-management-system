@@ -905,3 +905,21 @@ def test_start_archive_rejects_mismatched_active_attempt_and_occupancy(
             unit_of_work_factory=_uow_factory(db_path),
             now=TS_ARCHIVE,
         )
+
+
+def test_start_archive_rechecks_pending_review_without_partial_writes(db_path: Path) -> None:
+    from gateway_backend.application.archive.errors import ArchivePendingReview
+    from tests.test_review_transactions import _seed_additional_pending_review_submission
+    seed = seed_approved_archive_candidate(db_path)
+    sequence = append_selection_confirmation(seed)
+    pending = _seed_additional_pending_review_submission(db_path, submission_id="sub-pending",
+        device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        versions = {row["workspace_id"]: row["optimistic_version"] for row in
+                    unit_of_work.connection.execute("SELECT workspace_id, optimistic_version FROM workspace_records")}
+    with pytest.raises(ArchivePendingReview):
+        start_archive_for_seed(seed, confirmation_sequence=sequence)
+    assert_archive_durable_state_unchanged(db_path, repository_id=seed.repository_id,
+        baseline_head_version=BASELINE_HEAD.baseline_head_version, expected_workspace_versions=versions)
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.submission.get_workspace_occupancy(pending.workspace_id) is not None

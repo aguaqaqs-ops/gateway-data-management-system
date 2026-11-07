@@ -8,7 +8,7 @@ Contract ID：`gateway-vnext.business-lifecycle-and-state`
 
 Owner：各子领域 owner（见下表；本文不建立共同 aggregate）
 
-Semantic version：`3.1.0`（Accepted 2026-09-27；前版 `3.0.0`）
+Semantic version：`4.0.0`（2026-11-07 BE-a；前版 `3.1.0`）
 
 2026-09-06 amendment：P5 设计收口后，Repository `main` 与业务 `BaselineHead` 明确分离；
 Archive 直接把既有合格 Submission commit 提升为业务 Baseline，不移动 Repository ref、
@@ -19,6 +19,8 @@ Archive 直接把既有合格 Submission commit 提升为业务 Baseline，不�
 绑定规范表集合与规范状态摘要；初始 BaselineNode 恒为空；Submit 写入上传的完整规范状态；项目身份异常以确认与
 Archive 处置记录（§1A.2、§2–§6）。实现由 [P5 架构收口](../plans/p5-arch-closure-design.md) S1–S5 交付；交付前现行
 源码仍按 `3.0.0` 行为运行，不将本补充表述为已实现。
+
+2026-11-07 amendment（`4.0.0`）：BE-a 删除退回修改的动作/状态/事件；新增显式本人撤回权限、同快照 Workspace 占用指针、当前基线 PENDING 归档硬门禁与 fresh APPROVE 基线校验。无兼容或数据迁移路径；详见 [BE-a §2–§4/§9](../plans/p6-be-a-design.md)。
 
 ## 1. 目的与所有权
 
@@ -210,19 +212,23 @@ Workspace/Operation派生投影。
 
 `FINALIZED` 将 Workspace 占用从 Attempt 原子切换到 Submission；`ABORTED` 释放 Attempt 占用。Operation 的 terminal status、effect `UNKNOWN` 或已应用但未 finalize 都不能单独释放占用。
 
+Workspace HTTP 的新建201与已有200均返回必需且可空的 `active_submit_attempt_id`、`active_submission_id`，至多一个非空，投影当前 occupancy；Workspace/version/occupancy 必须来自同一control DB事务，不保存副本、不回退到最近历史。受理+1版本并指向Attempt；执行/未知/人工恢复保持；确认ABORTED释放并+1；finalize原子切Submission/PENDING并+1；APPROVE不变；REJECT/WITHDRAW及StartArchive释放并+1。
+
 ## 4. Review
 
 Review 当前投影仅为：
 
 ```text
-PENDING | APPROVED | REJECTED | RETURNED_FOR_REVISION | WITHDRAWN
+PENDING | APPROVED | REJECTED | WITHDRAWN
 ```
 
-Review 使用不可变审核事件和当前 projection；不建设单独的“开始审核”命令或中间审核状态。Approve、reject、withdraw、return 是直接的短事务。Reject/withdraw/return 重新开放 Workspace 并清除当前输入、预览和占用；approved Submission 保持占用，直到对应 ArchiveResult 推进 BaselineHead。归档开始后不得 return。
+Review 使用不可变审核事件和当前 projection；仅 PENDING 可直接 APPROVE、REJECT、WITHDRAW。REJECT/WITHDRAW 清除当前输入、预览和精确占用并使 OPEN Workspace 可复用；APPROVE 保持占用及 Workspace version。新 APPROVE 在同一写事务要求冻结 baseline node/commit 等于当前 Head，不符返回 `409 BASELINE_VERSION_CONFLICT`；REJECT/WITHDRAW 不要求基线仍当前。
+
+`review_submission` 可读取 scope 内全部 review 并执行三种动作；`withdraw_own_submission` 仅可读取持久 `Submission.created_by` 等于当前 actor 的全部状态及 WITHDRAW 本人 PENDING。两权限均无时在对象读取前403；不存在、跨scope或仅本人权限访问非本人统一404。mutation/replay 均重新验证当前权限与绑定；合法成功 replay 早于 fresh 状态、baseline、occupancy 门禁，并保留首次 actor。APPROVED 不能本人撤回；有理由关闭出口由后续 V2 交付。
 
 Review状态与Archive disposition正交。Review不创建、移动、回退或清理Repository ref。
 Review 只读展示 Submission 的身份确认记录。
-`REJECTED | RETURNED_FOR_REVISION | WITHDRAWN`对应的成功Submission commit永久保留并进入
+`REJECTED | WITHDRAWN`对应的成功Submission commit永久保留并进入
 HistoryTreeProjection；知道CommitId不绕过当前scope与permission检查。
 
 ## 5. Baseline 与 Archive
@@ -238,9 +244,10 @@ tag。稳定引用为`submission_id + expected_candidate_digest`。旧baseline�
 仍保留Review事实和History节点，但不再是普通candidate。
 
 `PreviewArchivePlan`是纯读计算，不冻结输入、不创建业务状态。`StartArchive`要求幂等键与
-expected BaselineHead version，并在短本地事务中重新校验Head、无active SubmitAttempt、
+expected BaselineHead version，并在短本地事务中重新校验Head、无active SubmitAttempt、无同 exact scope/current baseline node/commit 的未关闭 PENDING、
 candidate-set digest、confirmation、anomaly resolution与唯一selection。AcceptSubmit和
 StartArchive在同一Repository/BaselineHead scope内通过control DB事务串行验收。
+`ArchiveCandidatesResponse` 与 `PreviewArchivePlanResponse` 展示有权限读取的 `pending_submission_ids`/`pending_submission_count`，有待审核项则 `ARCHIVE_PENDING_REVIEW` 且不可Start；查询有界、完整性损坏不静默忽略，草稿不阻塞，原active Attempt门禁保持。
 Confirmation和AnomalyResolution是append-only审计事实；有效性由当前subject digest和
 sequence派生。AnomalyResolution 包括身份异常 subject：带身份确认记录的 Submission 被选为归档
 对象时，必须有带理由的肯定处置。
@@ -268,7 +275,7 @@ History 比较使用运行期规则集；节点的 commit 规范元数据提供�
 只依据两侧规则侧的存储事实标记。
 
 History包含所有成功Submission commit及其PENDING/APPROVED/REJECTED/
-RETURNED_FOR_REVISION/WITHDRAWN review事实、ARCHIVED_BASELINE/CLOSED_NOT_ARCHIVED archive
+WITHDRAWN review事实、ARCHIVED_BASELINE/CLOSED_NOT_ARCHIVED archive
 disposition和archive eligibility issue。未来ruleset migration创建commit时必须登记为
 `SYSTEM_MIGRATION`业务历史节点。未发布private candidate、失败import临时commit和operation
 marker不属于业务History。每次结果、bundle和commit内容读取均重新检查当前session、scope和

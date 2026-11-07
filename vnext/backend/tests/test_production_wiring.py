@@ -590,7 +590,7 @@ def test_accept_submit_returns_202_with_production_runtime(tmp_path: Path) -> No
         created = create_or_get_workspace(
             context=context,
             scope_resolution=scope_resolution,
-            repository=unit_of_work.workspace,
+            transaction=unit_of_work,
             created_at=fixed_now,
         )
         workspace = created.workspace

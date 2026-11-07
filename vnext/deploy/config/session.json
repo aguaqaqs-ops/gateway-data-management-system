@@ -4,6 +4,7 @@
     "upload_submit_workspace",
     "preview_workspace",
     "review_submission",
+    "withdraw_own_submission",
     "archive_submission",
     "read_project_history"
   ],
@@ -17,6 +18,16 @@
         "workspace_read",
         "upload_submit_workspace",
         "preview_workspace",
+        "archive_submission",
+        "withdraw_own_submission"
+      ]
+    },
+    {
+      "token": "local-dev-reviewer-token",
+      "actor_id": "local-dev-reviewer",
+      "gateway_device_external_key": "local-dev-device",
+      "business_project_id": "local-dev-project",
+      "permissions": [
         "review_submission",
         "archive_submission"
       ]

@@ -584,3 +584,21 @@ def _seed_submission_row(connection: sqlite3.Connection) -> None:
         """,
         (b"[]",),
     )
+
+
+@pytest.mark.parametrize(("table", "column"), [
+    ("review_projection_records", "status"),
+    ("review_event_records", "event_kind"),
+    ("review_event_records", "from_status"),
+    ("review_event_records", "to_status"),
+])
+def test_review_baseline_rejects_removed_state_and_event(db_path: Path, table: str, column: str) -> None:
+    event, projection = build_seed_projection(submission_id="sub-1", actor_id="actor-1", occurred_at=TS0)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        _seed_submission_row(unit_of_work.connection)
+        unit_of_work.review.insert_seed(event, projection)
+    with pytest.raises(sqlite3.IntegrityError):
+        with ControlDbUnitOfWork(db_path) as unit_of_work:
+            unit_of_work.connection.execute(f"UPDATE {table} SET {column} = ? WHERE submission_id = 'sub-1'", ("RETURNED_FOR_REVISION",))
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.review.get_projection("sub-1") == projection

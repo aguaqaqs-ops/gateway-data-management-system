@@ -106,9 +106,10 @@ scope 的 mapping 或历史 Workspace/Submission，返回完整性失败，不�
 
 Workspace occupancy/bindings 和 finalized Attempt closure 是 Start 的不可豁免完整性 gate。
 缺失或矛盾时不能悄悄从 candidate set 丢掉一项以缩小 sibling 集合；返回 typed integrity blocker，
-Start fail closed。Review=`PENDING/REJECTED/RETURNED_FOR_REVISION/WITHDRAWN` 不在候选内。
-旧 base approved Submission 留在历史事实中，不属于普通 candidate。旧 base 的 PENDING 后来
-APPROVED 也不自动回归资格：可由 Review return，再基于新 base Preview/Submit；不自动迁移内容。
+Start fail closed。Review=`PENDING/REJECTED/WITHDRAWN` 不在候选内。
+旧 base approved Submission 留在历史事实中，不属于普通 candidate。fresh APPROVE 在同写事务拒绝冻结node/commit过期；旧基线PENDING可REJECT/WITHDRAW后基于新base重新Preview/Submit。成功APPROVE replay仍保留，不自动迁移内容。
+
+同exact scope、当前baseline node/commit的未关闭PENDING由有界一致快照查询，涵盖全部actor；读模型返回pending IDs/count及 `ARCHIVE_PENDING_REVIEW` 硬阻塞。草稿不阻塞；missing/diverged Review closure仍完整性失败。超过200 pending返回范围错误，不返回可Start的部分列表。
 
 稳定引用是 `{submission_id, expected_candidate_digest}`，不是可变 candidate ID。digest 相同
 不合并两个 Submission；选择始终按唯一 Submission ID，两个内容相同的 Submission 也分别审计。
@@ -135,7 +136,7 @@ snapshot digest，也不引入 provider/class/运行时间作为身份。
 
 `candidate` 不含当前 Workspace version、active Attempt、confirmation sequence 或整个 candidate set；
 这些各自验收，不制造 digest 递归。Review sequence 改变会改变 candidate digest，即使未来状态回到
-APPROVED 也不能复用旧确认。candidate-set 绑定 Head version 防止 ABA；新增 approve/return 会使
+APPROVED 也不能复用旧确认。candidate-set 绑定 Head version 防止 ABA；新增 approve 会使
 集合变化。审计事件的追加不改变 candidate-set；subject digest 也不包含其自身 sequence。
 
 ### 3.3 Queries and PreviewArchivePlan
@@ -244,7 +245,7 @@ anomaly_resolution_refs)`。`selected_ref` 为单个对象；不接受 list sele
    same key/different fingerprint 返回 `IDEMPOTENCY_CONFLICT`。当前 scope/权限永不被 replay 绕过。
 4. 新动作才校验 expected Head node/version；检查 repository occupancy，并查该 Repository 的
    `PREPARED/EFFECT_PENDING` Attempts。任一 active（含 UNKNOWN、MANUAL_RECOVERY_REQUIRED
-   对应的未终局 Attempt）阻塞；两者不一致返回 integrity failure，不清理或推断释放。
+   对应的未终局 Attempt）阻塞；两者不一致返回 integrity failure，不清理或推断释放。另在同写事务重查当前baseline未关闭PENDING，任一存在以 `ARCHIVE_PENDING_REVIEW` 拒绝；不得仅在route外检查。
 5. 同 snapshot 批量读全集，重算 candidate-set/selected digests、Review closure、所有 involved
    Workspace generation/input/preview/active_submission binding；校验 confirmation/anomaly exact
    subject set、sequence 和 affirmative 状态。缺少、多余、跨 scope、重复或 stale 引用都拒绝。
@@ -286,18 +287,18 @@ SQLite 锁是当前单机数据库 writer serialization；语义 scope 仍是 Re
 | --- | --- | --- |
 | AcceptSubmit T1 / Start | T1 先 | Archive 看到 active Attempt，返回 `ACTIVE_SUBMIT_ATTEMPT`；Operation terminal 不替代 Attempt terminal |
 | AcceptSubmit preflight / Start | Archive 先 | T1 重读新 Head，旧 base/preflight 拒绝；不得创建新 Attempt/Operation；以后新 Preview/Submit 合法 |
-| Finalize/Abort / Start | 终局事务先 | Finalize 的 Submission/Review seed/occupancy 或 Abort release 完整可见；PENDING 不进候选；Archive 不读取中间前缀 |
-| Review return/reject/withdraw / Start | Review 先 | candidate digest/set 改变，旧 Start 冲突；Review release 已完成 |
-| Start / 新 Review mutation | Archive 先 | Review 在授权、成功 replay 后查 closure，返回 `ARCHIVE_CLOSED`；selected 和 closed sibling 均不可再 return/withdraw |
+| Finalize/Abort / Start | 终局事务先 | Finalize 的 Submission/Review seed/occupancy 或 Abort release 完整可见；PENDING 不进候选且硬阻塞Start；Archive 不读取中间前缀 |
+| Review approve/reject/withdraw / Start | Review 先 | candidate digest/set 改变，旧 Start 冲突；Review release 已完成 |
+| Start / 新 Review mutation | Archive 先 | Review 在授权、成功 replay 后查 closure，返回 `ARCHIVE_CLOSED`；selected 和 closed sibling 均不可再修改review |
 | 两个不同 key Archive | 一个先 | 另一个 Head CAS/precondition 冲突，无第二结果、无 sibling 重释放 |
 | 同 key Archive | 一个先 | 相同 fingerprint 返回原结果；不同 fingerprint 冲突 |
 | 审计 revoke / Start | revoke 先 | 引用 sequence 过期，Start 拒绝；Start 先则归档已成立，revoke 不撤销结果 |
-| 新 approve / Start | approve 先 | candidate set 增大导致旧请求冲突；Start 先则旧 base 的新 approve 仍保留历史，非新候选 |
+| 新 approve / Start | approve 先 | candidate set 增大导致旧请求冲突；Start先则当前baseline PENDING本已阻塞；旧baseline fresh approve以基线冲突拒绝 |
 
 Review closure read port 定义在 Submission Application（consumer-owned
 `ArchiveClosureReadPort`，只返回 closed bool），SQLite adapter 查询 ArchiveResult disposition；
 不能让 Review import Archive Application 的 transaction/service，也不能让 Archive Domain import
-Submission Domain。Review 原成功 approve/return replay 允许在后续归档后返回原事件，但不执行
+Submission Domain。Review 原成功 approve/withdraw replay 允许在后续归档后返回原事件，但不执行
 新状态变化；fresh-scope 比較必须区分 Repository 授权与合法 Head advance。
 
 ## 6. Persistence, migration and initial Baseline
@@ -422,8 +423,8 @@ Workspace。内部 Repository bearer 和 admin recovery bearer 都不是此业�
 
 | HTTP | Request | Result |
 | --- | --- | --- |
-| `GET /v1/archive-candidates` | 无业务 body | `ArchiveCandidatesResponse{head,candidates,candidate_set_digest,blockers}` |
-| `POST /v1/archive-plan-preview` | `{selected:{submission_id,expected_candidate_digest}}`；纯读，不要求 key/expected version | `PreviewArchivePlanResponse{head,candidate_set_digest,selected,selection_subject_digest,confirmation_requirements,anomalies,audit_validity,dispositions,workspace_releases,can_start,blockers}`；200 |
+| `GET /v1/archive-candidates` | 无业务 body | `ArchiveCandidatesResponse{head,candidates,candidate_set_digest,pending_submission_ids,pending_submission_count,blockers}` |
+| `POST /v1/archive-plan-preview` | `{selected:{submission_id,expected_candidate_digest}}`；纯读，不要求 key/expected version | `PreviewArchivePlanResponse{head,candidate_set_digest,selected,selection_subject_digest,confirmation_requirements,anomalies,audit_validity,dispositions,workspace_releases,can_start,pending_submission_ids,pending_submission_count,blockers}`；200 |
 | `POST /v1/archive-confirmations` | Idempotency-Key；`{expected_baseline_node_id,expected_baseline_head_version,selected,candidate_set_digest,subject_digest,expected_sequence,action,reason}` | immutable confirmation event；201/200 replay |
 | `POST /v1/archive-anomaly-resolutions` | 同上，另有 `issue_code,sibling_submission_id,sibling_candidate_digest`；action 为 resolution action | immutable resolution event；201/200 replay |
 | `GET /v1/archive-audit-events` | `subject_kind,subject_digest,after_sequence=0,limit=100` | scope 内按 sequence 的 events、next cursor；无任意全项目导出 |
@@ -445,7 +446,7 @@ GET history 和 legacy wire 兼容不在本 slice，Result 读取是当前真实
 | 401 | 沿用 `AUTHENTICATION_REQUIRED`：session 缺失、过期、无效 |
 | 403 | `SCOPE_FORBIDDEN`：权限不足、disabled/missing mapping、跨 scope ref；不得泄漏他项目对象 |
 | 404 | `RESOURCE_NOT_FOUND`：已授权 scope 内无所查 ArchiveResult；未知跨 scope refs 统一不披露 |
-| 409 | `IDEMPOTENCY_CONFLICT`, `BASELINE_VERSION_CONFLICT`, `CANDIDATE_SET_CONFLICT`, `CANDIDATE_BINDING_CONFLICT`, `ACTIVE_SUBMIT_ATTEMPT`, `ARCHIVE_AUDIT_VERSION_CONFLICT`, `ARCHIVE_CONFIRMATION_REQUIRED`, `ARCHIVE_ANOMALY_UNRESOLVED`, `ARCHIVE_CLOSED`, `WORKSPACE_OCCUPANCY_CONFLICT` |
+| 409 | `IDEMPOTENCY_CONFLICT`, `BASELINE_VERSION_CONFLICT`, `CANDIDATE_SET_CONFLICT`, `CANDIDATE_BINDING_CONFLICT`, `ACTIVE_SUBMIT_ATTEMPT`, `ARCHIVE_PENDING_REVIEW`, `ARCHIVE_AUDIT_VERSION_CONFLICT`, `ARCHIVE_CONFIRMATION_REQUIRED`, `ARCHIVE_ANOMALY_UNRESOLVED`, `ARCHIVE_CLOSED`, `WORKSPACE_OCCUPANCY_CONFLICT` |
 | 422 / 413 | `REQUEST_VALIDATION_FAILED`（shape/enum/digest/重复引用等）/ `REQUEST_TOO_LARGE`（body bytes） |
 | 409 | `ARCHIVE_SCOPE_LIMIT_EXCEEDED`：完整集合超预算，提示减少候选或 owner 评估容量，不返回可 Start 的部分集合 |
 | 429 | 既有 `ADMISSION_LIMIT_REACHED` |

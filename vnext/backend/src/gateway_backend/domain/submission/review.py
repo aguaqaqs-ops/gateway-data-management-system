@@ -24,7 +24,6 @@ class ReviewStatus(StrEnum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
-    RETURNED_FOR_REVISION = "RETURNED_FOR_REVISION"
     WITHDRAWN = "WITHDRAWN"
 
 
@@ -32,21 +31,18 @@ class ReviewEventKind(StrEnum):
     SUBMISSION_FINALIZED = "SUBMISSION_FINALIZED"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
-    RETURNED_FOR_REVISION = "RETURNED_FOR_REVISION"
     WITHDRAWN = "WITHDRAWN"
 
 
 class ReviewAction(StrEnum):
     APPROVE = "APPROVE"
     REJECT = "REJECT"
-    RETURN_FOR_REVISION = "RETURN_FOR_REVISION"
     WITHDRAW = "WITHDRAW"
 
 
 _ACTION_TO_EVENT_KIND: dict[ReviewAction, ReviewEventKind] = {
     ReviewAction.APPROVE: ReviewEventKind.APPROVED,
     ReviewAction.REJECT: ReviewEventKind.REJECTED,
-    ReviewAction.RETURN_FOR_REVISION: ReviewEventKind.RETURNED_FOR_REVISION,
     ReviewAction.WITHDRAW: ReviewEventKind.WITHDRAWN,
 }
 
@@ -58,21 +54,17 @@ _ALLOWED_TRANSITIONS: dict[ReviewStatus, dict[ReviewAction, ReviewStatus]] = {
     ReviewStatus.PENDING: {
         ReviewAction.APPROVE: ReviewStatus.APPROVED,
         ReviewAction.REJECT: ReviewStatus.REJECTED,
-        ReviewAction.RETURN_FOR_REVISION: ReviewStatus.RETURNED_FOR_REVISION,
         ReviewAction.WITHDRAW: ReviewStatus.WITHDRAWN,
     },
-    ReviewStatus.APPROVED: {
-        ReviewAction.RETURN_FOR_REVISION: ReviewStatus.RETURNED_FOR_REVISION,
-    },
+    ReviewStatus.APPROVED: {},
     ReviewStatus.REJECTED: {},
-    ReviewStatus.RETURNED_FOR_REVISION: {},
     ReviewStatus.WITHDRAWN: {},
 }
 
 _TERMINAL_STATUSES = frozenset(
     {
+        ReviewStatus.APPROVED,
         ReviewStatus.REJECTED,
-        ReviewStatus.RETURNED_FOR_REVISION,
         ReviewStatus.WITHDRAWN,
     }
 )
@@ -297,8 +289,8 @@ def validate_review_reason(action: ReviewAction, reason: str | None) -> str | No
     if type(action) is not ReviewAction:
         raise ValueError("action must be ReviewAction")
     if reason is None:
-        if action in {ReviewAction.REJECT, ReviewAction.RETURN_FOR_REVISION}:
-            raise InvalidReviewReason("reason is required for reject and return actions")
+        if action is ReviewAction.REJECT:
+            raise InvalidReviewReason("reason is required for reject action")
         return None
     return validate_submission_reason(reason, allow_multiline=False)
 

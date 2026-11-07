@@ -52,6 +52,16 @@ class ArchiveSubmissionPort(Protocol):
         baseline_commit_id: str,
     ) -> tuple[ArchiveCandidateFacts, ...]: ...
 
+    def list_pending_review_facts(
+        self,
+        repository_id: str,
+        *,
+        baseline_node_id: str,
+        baseline_commit_id: str,
+    ) -> tuple[ArchiveCandidateFacts, ...]:
+        """Read bounded unclosed current-baseline pending facts, including broken closure."""
+        ...
+
     def list_active_submit_attempts(self, repository_id: str) -> tuple[ArchiveActiveAttemptFacts, ...]: ...
 
 

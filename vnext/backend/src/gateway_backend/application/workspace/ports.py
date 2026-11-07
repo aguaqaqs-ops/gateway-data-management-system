@@ -15,9 +15,22 @@ from gateway_backend.domain.workspace.ports import (
     WorkspaceRepository,
 )
 from gateway_backend.operations import OperationStore
+from gateway_backend.domain.submission.models import WorkspaceSubmitOccupancy
 
 
-class WorkspaceControlTransaction(ControlTransaction, Protocol):
+class WorkspaceOccupancyReadPort(Protocol):
+    def get_workspace_occupancy(self, workspace_id: str) -> WorkspaceSubmitOccupancy | None: ...
+
+
+class WorkspaceCreateTransaction(Protocol):
+    @property
+    def workspace(self) -> WorkspaceRepository: ...
+
+    @property
+    def submission(self) -> WorkspaceOccupancyReadPort: ...
+
+
+class WorkspaceControlTransaction(ControlTransaction, WorkspaceCreateTransaction, Protocol):
     @property
     def canonical_tables(self) -> CanonicalTableIndexPort: ...
 

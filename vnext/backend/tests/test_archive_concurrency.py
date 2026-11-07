@@ -87,7 +87,7 @@ def test_archive_start_blocks_when_active_submit_attempt_exists(
         )
 
 
-def test_review_return_loses_race_when_archive_commits_first(db_path: Path) -> None:
+def test_review_mutation_loses_race_when_archive_commits_first(db_path: Path) -> None:
     review_seed = _seed_pending_review_submission(db_path)
     _apply_review(
         review_seed,
@@ -104,10 +104,10 @@ def test_review_return_loses_race_when_archive_commits_first(db_path: Path) -> N
         apply_review_transaction(
             command=_apply_command(
                 review_seed,
-                action=ReviewAction.RETURN_FOR_REVISION,
+                action=ReviewAction.WITHDRAW,
                 reason="too late",
                 expected_review_version=1,
-                idempotency_key="return-after-archive",
+                idempotency_key="withdraw-after-archive",
             ),
             scope_resolution=_scope_resolution(review_seed),
             unit_of_work_factory=_uow_factory(db_path),
@@ -139,69 +139,6 @@ def _run_barrier_race(
     return outcomes[0], outcomes[1]
 
 
-def test_concurrent_archive_start_and_review_return_produce_single_winner(db_path: Path) -> None:
-    review_seed = _seed_pending_review_submission(db_path)
-    _apply_review(
-        review_seed,
-        _apply_command(review_seed, action=ReviewAction.APPROVE, idempotency_key="approve-concurrent"),
-    )
-    seed = archive_seed_from_review_seed(review_seed)
-    confirmation_sequence = append_selection_confirmation(seed, now=TS_ARCHIVE)
-
-    def do_start() -> object:
-        return start_archive(
-            command=_start_command(seed, confirmation_sequence),
-            unit_of_work_factory=_uow_factory(db_path),
-            now=TS_ARCHIVE,
-        )
-
-    def do_return() -> object:
-        return apply_review_transaction(
-            command=_apply_command(
-                review_seed,
-                action=ReviewAction.RETURN_FOR_REVISION,
-                reason="race return",
-                expected_review_version=1,
-                idempotency_key="return-race",
-            ),
-            scope_resolution=_scope_resolution(review_seed),
-            unit_of_work_factory=_uow_factory(db_path),
-            now=TS2,
-        )
-
-    first, second = _run_barrier_race(db_path, first=do_start, second=do_return)
-    from gateway_backend.application.archive.errors import CandidateSetConflict
-    from gateway_backend.application.archive.start import StartArchiveResult
-    from gateway_backend.application.submission.review_contracts import ApplyReviewResult
-    from gateway_backend.domain.submission.review import ReviewStatus
-
-    start_successes = [
-        item
-        for item in (first, second)
-        if isinstance(item, StartArchiveResult) and item.replay is False
-    ]
-    review_successes = [item for item in (first, second) if isinstance(item, ApplyReviewResult)]
-    assert len(start_successes) + len(review_successes) == 1
-
-    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        plan_count = unit_of_work.connection.execute(
-            "SELECT COUNT(*) FROM archive_plan_records"
-        ).fetchone()[0]
-        review_status = unit_of_work.connection.execute(
-            "SELECT status FROM review_projection_records WHERE submission_id = ?",
-            (review_seed.submission_id,),
-        ).fetchone()[0]
-
-    if start_successes:
-        assert plan_count == 1
-        assert review_status == ReviewStatus.APPROVED.value
-        assert any(isinstance(item, ArchiveClosed) for item in (first, second))
-    else:
-        assert plan_count == 0
-        assert review_status == ReviewStatus.RETURNED_FOR_REVISION.value
-        assert any(
-            isinstance(item, (ArchiveClosed, CandidateSetConflict)) for item in (first, second)
-        )
 
 
 def test_concurrent_dual_archive_keys_commit_one_plan(db_path: Path) -> None:
@@ -371,3 +308,36 @@ def test_concurrent_revoke_and_start_are_linearized(db_path: Path) -> None:
         assert plan_count == 1
     else:
         assert plan_count == 0
+
+
+@pytest.mark.parametrize("action", [ReviewAction.APPROVE, ReviewAction.REJECT, ReviewAction.WITHDRAW])
+def test_pending_review_and_archive_start_share_writer_barrier(db_path: Path, action: ReviewAction) -> None:
+    from gateway_backend.application.archive.errors import ArchivePendingReview, CandidateSetConflict
+    from gateway_backend.application.archive.start import StartArchiveResult
+    from gateway_backend.application.submission.review_contracts import ApplyReviewResult
+    from tests.test_review_transactions import _seed_additional_pending_review_submission
+    seed = seed_approved_archive_candidate(db_path)
+    sequence = append_selection_confirmation(seed)
+    pending = _seed_additional_pending_review_submission(db_path, submission_id="sub-pending",
+        device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+    def review() -> object:
+        return _apply_review(pending, _apply_command(pending, action=action, reason="resolve pending", idempotency_key="review-concurrent"))
+    def archive() -> object:
+        return start_archive_for_seed(seed, confirmation_sequence=sequence)
+    outcomes = _run_barrier_race(db_path, first=review, second=archive)
+    assert sum(isinstance(outcome, ApplyReviewResult) for outcome in outcomes) == 1
+    started = any(isinstance(outcome, StartArchiveResult) for outcome in outcomes)
+    if action is ReviewAction.APPROVE:
+        assert not started
+        assert any(isinstance(outcome, (ArchivePendingReview, CandidateSetConflict)) for outcome in outcomes)
+    elif not started:
+        assert any(isinstance(outcome, ArchivePendingReview) for outcome in outcomes)
+        assert start_archive_for_seed(seed, confirmation_sequence=sequence).replay is False
+    with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
+        count = unit_of_work.connection.execute("SELECT COUNT(*) FROM archive_plan_records").fetchone()[0]
+        assert count == (0 if action is ReviewAction.APPROVE else 1)
+        projection = unit_of_work.review.get_projection(pending.submission_id)
+        assert projection is not None
+        assert projection.latest_sequence == 1
+        occupancy = unit_of_work.submission.get_workspace_occupancy(pending.workspace_id)
+        assert (occupancy is not None) == (action is ReviewAction.APPROVE)

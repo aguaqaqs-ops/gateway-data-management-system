@@ -150,6 +150,8 @@ Interface registry，不进入domain record或Repository wire：
 Workspace path identity与当前mapping不一致时，按信息披露policy稳定返回`404`；已确认对象存在但
 permission不足时返回`403`。每次read重新授权，不使用创建时权限快照。
 
+创建201与已有200的 WorkspaceResponse 都从同一 control DB 事务取得 Workspace、optimistic_version 与当前占用；两个 active 指针为必需 nullable 键，不新增持久字段、不读最近历史。生命周期见 [Business Lifecycle §3–§4](../contracts/business-lifecycle-and-state.md#4-review) 与 [BE-a §2](p6-be-a-design.md#2-workspaceresponse-查询形态)。review version 独立于 Workspace version，APPROVE 不增加后者。
+
 ### 3.2 Closed DTO shape
 
 所有JSON object拒绝unknown fields。`Idempotency-Key`是AcceptUpload和StartPreview必需header；
@@ -165,6 +167,8 @@ CreateWorkspaceRequest:
 WorkspaceResponse:
   workspace_id, gateway_device_external_key, business_project_id
   state, generation, current_upload_revision_id?, current_preview_result_id?
+  active_submit_attempt_id: string | null  # required, current occupancy
+  active_submission_id: string | null      # required, mutually exclusive
   optimistic_version, created_at, updated_at
 
 UploadManifestPart:

@@ -57,6 +57,7 @@ class ArchiveCandidatesResult:
     candidates: tuple[ArchiveCandidateRef, ...]
     candidate_set_digest: str
     blockers: tuple[str, ...]
+    pending_submission_ids: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +107,7 @@ class PreviewArchivePlanResult:
     workspace_releases: tuple[ArchivePreviewWorkspaceRelease, ...]
     can_start: bool
     blockers: tuple[str, ...]
+    pending_submission_ids: tuple[str, ...]
 
 
 def get_archive_candidates(
@@ -121,11 +123,14 @@ def get_archive_candidates(
         )
         snapshot = load_archive_candidate_snapshot(unit_of_work, context, fresh_scope)
         blockers = list(collect_repository_submit_blockers(unit_of_work, snapshot.repository_id))
+        if snapshot.pending_submission_ids:
+            blockers.append("ARCHIVE_PENDING_REVIEW")
         return ArchiveCandidatesResult(
             head=snapshot.resolved_scope.baseline_head,
             candidates=snapshot.candidates,
             candidate_set_digest=snapshot.candidate_set_digest,
             blockers=tuple(blockers),
+            pending_submission_ids=snapshot.pending_submission_ids,
         )
 
 
@@ -143,6 +148,8 @@ def preview_archive_plan(
         )
         snapshot = load_archive_candidate_snapshot(unit_of_work, context, fresh_scope)
         blockers = list(collect_repository_submit_blockers(unit_of_work, snapshot.repository_id))
+        if snapshot.pending_submission_ids:
+            blockers.append("ARCHIVE_PENDING_REVIEW")
         selected: ArchiveSelectedRef | None = None
         selection_subject_digest: str | None = None
         if selected_ref is not None:
@@ -197,6 +204,7 @@ def preview_archive_plan(
             workspace_releases=workspace_releases,
             can_start=can_start,
             blockers=tuple(blockers),
+            pending_submission_ids=snapshot.pending_submission_ids,
         )
 
 

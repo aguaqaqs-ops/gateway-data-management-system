@@ -37,6 +37,16 @@ class ArchiveCandidateReadPort(Protocol):
     ) -> tuple[ArchiveCandidateFacts, ...]:
         """Return bounded submission/review facts for archive candidate evaluation."""
 
+    def list_pending_review_facts(
+        self,
+        repository_id: str,
+        *,
+        baseline_node_id: str,
+        baseline_commit_id: str,
+    ) -> tuple[ArchiveCandidateFacts, ...]:
+        """Read bounded unclosed current-baseline pending facts, including broken closure."""
+        ...
+
     def list_active_submit_attempts(self, repository_id: str) -> tuple[ArchiveActiveAttemptFacts, ...]:
         """Return non-terminal submit attempts for one repository."""
 

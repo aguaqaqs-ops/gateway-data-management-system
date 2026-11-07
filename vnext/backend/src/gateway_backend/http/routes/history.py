@@ -82,7 +82,9 @@ def list_history_route(
 @router.post(
     "/v1/history-compares",
     response_model=HistoryCompareAcceptResponse,
+    status_code=202,
     responses={
+        200: {"description": "Idempotent replay", "model": HistoryCompareAcceptResponse},
         401: {"description": "AUTHENTICATION_REQUIRED"},
         403: {"description": "SCOPE_FORBIDDEN"},
         404: {"description": "RESOURCE_NOT_FOUND"},

@@ -183,6 +183,35 @@ class SQLiteSubmissionRepository:
         baseline_node_id: str,
         baseline_commit_id: str,
     ) -> tuple[ArchiveCandidateFacts, ...]:
+        return self._list_archive_review_facts(
+            repository_id,
+            baseline_node_id=baseline_node_id,
+            baseline_commit_id=baseline_commit_id,
+            status=ReviewStatus.APPROVED,
+        )
+
+    def list_pending_review_facts(
+        self,
+        repository_id: str,
+        *,
+        baseline_node_id: str,
+        baseline_commit_id: str,
+    ) -> tuple[ArchiveCandidateFacts, ...]:
+        return self._list_archive_review_facts(
+            repository_id,
+            baseline_node_id=baseline_node_id,
+            baseline_commit_id=baseline_commit_id,
+            status=ReviewStatus.PENDING,
+        )
+
+    def _list_archive_review_facts(
+        self,
+        repository_id: str,
+        *,
+        baseline_node_id: str,
+        baseline_commit_id: str,
+        status: ReviewStatus,
+    ) -> tuple[ArchiveCandidateFacts, ...]:
         rows = self._connection.execute(
             """
             SELECT
@@ -199,7 +228,7 @@ class SQLiteSubmissionRepository:
               AND s.business_baseline_commit_id = ?
               AND d.submission_id IS NULL
               AND (
-                p.status = 'APPROVED'
+                p.status = ?
                 OR p.submission_id IS NULL
                 OR NOT EXISTS (
                   SELECT 1
@@ -215,8 +244,8 @@ class SQLiteSubmissionRepository:
                       FROM review_event_records AS e2
                       WHERE e2.submission_id = s.submission_id
                     )
-                    AND e.to_status = 'APPROVED'
-                    AND (p.status IS NULL OR p.status != 'APPROVED')
+                    AND e.to_status = ?
+                    AND (p.status IS NULL OR p.status != ?)
                 )
               )
             ORDER BY s.submission_id
@@ -226,6 +255,9 @@ class SQLiteSubmissionRepository:
                 repository_id,
                 baseline_node_id,
                 baseline_commit_id,
+                status.value,
+                status.value,
+                status.value,
                 _ARCHIVE_CANDIDATE_FETCH_LIMIT,
             ),
         ).fetchall()

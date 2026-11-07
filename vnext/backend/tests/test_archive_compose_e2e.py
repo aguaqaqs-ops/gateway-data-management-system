@@ -232,16 +232,6 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             == journey_a["identity_assessment_set_digest"]
         )
         assert replacement_confirmation["reason"] == "reviewed the incoming dataset replacement"
-        with httpx.Client(
-            base_url=BACKEND_URL,
-            headers=_auth_headers(token=ARCHIVER_TOKEN),
-            timeout=60.0,
-        ) as reviewer:
-            _approve_submission(
-                reviewer,
-                str(journey_a["submission_id"]),
-                idempotency_key="compose-review-a",
-            )
         main_after_a = resolve_main_commit_id(env, repository_id, bearer_token=BEARER_TOKEN)
 
         journey_b = run_accept_to_submission_read_journey(
@@ -265,6 +255,24 @@ def test_compose_dual_actor_archive_journey_restart_and_zero_repository_effect(
             headers=_auth_headers(token=ARCHIVER_TOKEN),
             timeout=60.0,
         ) as reviewer:
+            pending = reviewer.get("/v1/archive-candidates")
+            assert pending.status_code == 200, pending.text
+            pending_body = pending.json()
+            assert set(pending_body["pending_submission_ids"]) == {journey_a["submission_id"], journey_b["submission_id"]}
+            assert pending_body["pending_submission_count"] == 2
+            blocked_preview = reviewer.post("/v1/archive-plan-preview", json={"selected": None})
+            assert blocked_preview.status_code == 200, blocked_preview.text
+            assert "ARCHIVE_PENDING_REVIEW" in blocked_preview.json()["blockers"]
+            blocked_start = reviewer.post("/v1/archives", headers=_auth_headers(idempotency_key="pending-blocked-start"), json={
+                "expected_baseline_node_id": pending_body["head"]["business_baseline_node_id"],
+                "expected_baseline_head_version": pending_body["head"]["baseline_head_version"],
+                "candidate_set_digest": pending_body["candidate_set_digest"],
+                "selected": {"submission_id": journey_a["submission_id"], "expected_candidate_digest": "sha256:" + "0" * 64},
+                "confirmation_refs": [], "anomaly_resolution_refs": [],
+            })
+            assert blocked_start.status_code == 409, blocked_start.text
+            assert blocked_start.json()["code"] == "ARCHIVE_PENDING_REVIEW"
+            _approve_submission(reviewer, str(journey_a["submission_id"]), idempotency_key="compose-review-a")
             _approve_submission(
                 reviewer,
                 str(journey_b["submission_id"]),

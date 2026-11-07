@@ -140,4 +140,18 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 1. **继续最小补验（推荐）**：固定同49403/同04 WT，先核当前RS candidate49403及实际130674/source13cb，保存本次可读原config/全部DiffID；不换默认tag、不回改旧tag。在原入口环境同WT生成并compare四个基础包manifest，只有实际“可沿用”才直接引用本次六包0的原始来源；预期实际重验backend/repository_service两包，其余若比较不合格则依法纳入。用既有权威入口/同预算，两个包已包含必要Compose，不另单跑05。collector改为分阶段绑定记录的immutable image ID，使用新唯一输出及aware UTC，保留原失败/缺失限制；前后核所选RS输入身份，避免再因新docs SHA触发重建。批准后实际比较决定范围，不预先判四包可沿用。
 2. **保持正式收尾pending**：保留行为测试及全部缺失事实，完成仅本人资源核查/证据交接后释放04，等待Owner手动接续；不报联合GO、DC33退出或FE3完成。
 
-方案具体argv/collector静核由原实施/审核补齐，Owner回复前不执行补验或恢复collector。不存在自动超时批准。
+方案A已具具体七步模板及下列最小外置静态文件；均未执行/未bash-n，不改guard/产品/闭包工具/旧原件。Owner回复前不安装或执行，不存在自动超时批准。
+
+| 本地静态文件 | SHA256 |
+| --- | --- |
+| [immutable身份collector](/home/dev/gdds-be-ad-image-identity-collector-v2.py) | `1232b535371a689f8c55d6fbb8b6c36697e30b6cb1b03060b8ea4450487ecbf1` |
+| [RS输入预核](/home/dev/gdds-be-ad-04-rs-input-precheck-v1.sh) | `9b304fe33e9d64b1f6e3422a337e5d210471748001791c0ee7bdf345e2971ce2` |
+| [四包实际compare](/home/dev/gdds-be-ad-04-compare-four-v1.sh) | `d2bb31f6561142e4c335607776b616594e1cbe39175b8591c206646398c7c7ac` |
+| [最小权威补验入口](/home/dev/gdds-be-ad-04-resume-authority-v1.sh) | `07ef6da40042512e232d4e72a5c45529178d3ff8de6e23471fa957c9d8fa8507` |
+| [新run原provenance/schema副本](/home/dev/gdds-be-ad-04-copy-new-provenance-v1.py) | `2001054e459746b4a03cd497bca770c707cdf7ffe2157458037c7a8a0f645b27` |
+
+批准后五文件经LAN放本任务04证据根，先拒绝同名冲突并逐SHA核对；仍用原 `guarded-node-run-v1.sh`，expected始终49403。从原guard `resume-dir`唯一mktemp结果取`AD_RESUME_DIR`；未来`AD_NEW_AUTHORITY_RUN`只取新guard的真实run_directory行，不把整段stdout当路径。
+
+七步依次为RS预核→当前130674原config/全DiffID预采→四包compare→实际差异union至少backend/RS权威runner→同RS后核→新provenance/schema唯一copy→按原snapshot immutable IDs取身份。compare/authority使用完整原字面profile：原六包名（authority内部依法覆盖选择）、48workers、d054 preload1、build networknone、custom RS a999tag、RS base6dc、client依赖base local，prebuilt/BASETemp unset；node guard继续offline/Cargo4/PATH。compare返回exit0不代表可沿用，脚本解析`status`且只接受“可沿用/运行”，后者并入runner实际范围；subset脚本单独记录original_runner_exit并硬核RS前后ID仍130674。
+
+postcopy仅接受**新**guard原log的49403/实际UTC区间/command-final0/owner真/RS input unchanged，取mtime落新区间的原provenance和唯一原schema（resolve去除pytest-current别名），rawcopy相等/SHA、新目录、awareUTC；不复用q57或旧时间。未来实际目录/时间批准后才产生，届时执行前由原审核实真实参数，不预造未来值。当前静核结论及Owner决定随后追加，未知值不是开工许可。

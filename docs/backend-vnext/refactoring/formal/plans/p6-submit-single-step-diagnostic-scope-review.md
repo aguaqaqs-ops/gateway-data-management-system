@@ -1880,3 +1880,33 @@ CT05 scheduler 在最终候选 01:26:26–27Z，**22 passed / 0.76s、起止 HEA
 CT05 正常取得有效占用后，只对最终镜像运行 §52 已用的 **`tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`**，保持冻结原 harness、离线、prebuilt 及清除代理的既定设置，不追加全量 runner、第二个 Compose、合成 probe 或真实 t1–t4。记录 clean 起止 HEAD、日志/exit、实际三服务运行镜像身份和已审镜像对应关系；使用既有只读 collector，不为取证再启动一轮旅程。按原 harness 回收本次临时项目，保留所有旧候选/真实诊断卷和证据；确认自有资源静止后解锁。失败留证停止，不原样自动重试。
 
 **结论与明确接续许可直接交唯一实施者并同步设计，不再等待回执。** 这些是已通过设计的镜像/单项接线验证，未签真实 prepare GO。镜像/小门禁原始结果随后独审，届时新工具候选须准确传递 join_status 并绑定旧 checkpoint→新产品/三镜像、新 project/key/三卷及完整 manifest；只有候选专属一次 GO 才运行业务诊断。无主线合入/push/tag、正式恢复、提高资源或旧 g 重试许可，正式测量 STOP。
+
+## 87. 9704d0b 新镜像与唯一小 Compose：证据审核 PASS，可直接准备新真实 prepare 候选
+
+**候选 `9704d0b286049073529d60036dbd999032f97e0a` 的 CT201 构建、跨节点镜像身份与 CT05 指定单项 Compose 证据审核 PASS，无阻塞项。** 复用 §86 已通过的代码/focused/静态结论，新增证据准确绑定该候选；不是全量 runner、真实数据完整旅程、实际 prepare 成功或 lease 根因关闭。唯一实施者仍为 `01a1b107-11ba-7681-a7cf-afb1591a67d2`，现可按已通过范围直接准备新工具/精确 manifest 和受影响 focused，不因通信编号回传重新确认角色或等待 Owner/设计/协调回执。**本节不触发实际 prepare，也未签其一次 GO；正式测量 STOP。**
+
+### 构建、归档与跨节点身份
+
+CT201 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-20261107-ct201/` 的 build log SHA256 **`a29198e18db691cab4d327e9a441e23f4a453f6aa70ab1af143e8d61cd756d0d`**、build script `798992fb0368d993bda8917afa3861766ba2c19dba7b6bd3972ef53624955671`、metadata `5d4725608ee701b69625d4d2ec9b5a51802d2da37e14fcff7645156a30bf8623` 均独立重算。记录 `heavy-dev-01`、2026-11-07 01:43:11–01:45:00Z、起止最终 HEAD、clean 输入及 build_exit=0；vnext tree=`f5757bcb56e3e8ee8cde5fba6f903717d91412a2`。Dockerfile/.dockerignore/backend uv.lock/Cargo.lock 的日志 SHA 与该提交 Git blob 相等，未迁入 main 的新构建流程。实际 FROM 的 Rust/Python RepoDigest 与已记录基础镜像相同。按冻结 DC67 在 CT201 host network、无代理、`--load --pull=false --no-cache` 构建，**不称离线构建**；原 Dockerfile 内的 maturin 编译属于本次镜像构建，没有另加调试节点 Rust 门禁。
+
+独立流式重算实际 Docker-save 归档：**397096448 bytes**、SHA256 **`ddbff1b364af2a06b86a16491c3b7b17a140b6c677e2be2b54ec95469397b711`**。只在内存解析其 manifest/config 和对应源代码层，未解包写入磁盘；两 tag 均为 `p6gcgate20261107a-{backend,worker}:latest`，config digest **`sha256:66e362d44814d3db4a98ac8c0c6b5e9175812cd50bbc0895a822baf790648e62`**、全部有序 **15 个 RootFS DiffID**、空 labels 与 source identity 逐项完全相等。metadata 中的 config digest 也一致。归档 `/app/backend/src/gateway_backend/operations/worker_runtime.py` 与最终 Git blob 逐字节相同，SHA256 仍为 `e5218425d03e6e2d880f098b04802ff7eaff0ceb3115c5043cfadb35664c3b91`，确认镜像包含已审 GC 调度实现。
+
+`source-identity.json` SHA256 `02d2e2127d697443298f36f07f115393eb714845ec4ed87a4781969cb336f532`。LAN 传输记录 01:46:14–17Z、exit 0，日志 SHA256 `35dc598f0412307b07232b799976c32c55b6435933faf985bbdb94497aa510fd`。CT05 preload identity（`c98e886a04c69f405e545c5ab0c4c5ac094a3b3b556140ba8b303cc4d3e384d3`）和实际 load/save 后 identity（`7a10ef831772827a398310303023cea1aaf36ff9798ceb350f69b4e5e8d44070`）的两镜像 config/全部 DiffID/labels 与上述实际源归档一致。BatchMode echo OK 后，另只读解析 CT05 roundtrip 归档 config 并核当前 tag 的全部 RootFS 与本机 ID；均一致。跨节点没有用 inspect ID 或 save 归档字节相等代替镜像身份。
+
+新 backend/worker 的 CT05 本机 ID 均为 `sha256:e803ccc6a27aecd8cd32d8409833f85de28c7f063a1e350a0951d816bec74b23`，仅用于本节点容器绑定。RS 在最终候选重算 build-input=`4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`、source-tree=`sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`，与 §52 已核镜像标签完全相同；当前本机 ID 仍为 `sha256:a75aa535046937dab51156c8a8acad0deec913a4daaee9a930c4b62d23cc7e39`，按原范围复用成立，不无故重建或改 revision 标签。旧 backend tag 仍为原本机 `sha256:51307bca08c1fbb7a08a629c13b81bacce2da1f7c8b5732580ff4a26205f725d`，未被新 tag 覆盖。
+
+### 唯一小 Compose 的实际运行与收尾
+
+CT05 `gw-dms-test-05`，01:51:30–01:51:55Z，clean 起止最终 HEAD、五锁 SHA 一致，只执行 **`tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`**、`-n 0`、原 harness，**1 passed / 24.73s、pytest_wrapper_exit=0**。已读实际 launcher：使用候选自己的既有 venv、UV_OFFLINE=1/CARGO_NET_OFFLINE=true、prebuilt 三服务、build network=none、清除代理与专用 TMPDIR，未改 Compose fixture/harness。gate log SHA256 **`189461380a373f22f72db5bb09e6dd4eb810543bf0dbab2c0e1d9c5391939805`**；本审核没有运行容器/测试或触发新的业务诊断。
+
+既有只读 collector 于 **01:51:43.849817Z** 取得项目 `p6gcgate20261107a` 的三服务均 running、服务集合/项目标签与实际镜像 ID 精确相等的记录；独立核行值，不只接受 same_node_image_ids_match 字段。`running-images.json` SHA256 **`33ab95e8358328eb3553803f0405fbe088dae1ccb1fdbf2bc01d710b3836171c`**；`node-local-images.json` SHA256 `56812c5c1bc0909ab542eae62f8af68c6d841b12f0219f2d5258bdcc07311698`。collector 日志 SHA256 `980ebf36d7b9335b6183d0f5f4356cbe602628b297cf0c4599a0bf59149276e4`，记录捕获成功及 exit 0，launcher 退出时 wait 确认收束；没有为取证启动第二次旅程。
+
+postflight 01:52:42Z 记录本项目容器/网络/临时卷均 0、8000 无监听/发布、无 Dolt/pytest/Compose 栈、worktree clean；`postflight.log` SHA256 **`4a511b8df82fc40eea6b28b695441e7c10eb555a1ae68b8367f72a2cfe547200`**。01:52:55Z 收尾释放标记，日志 SHA256 **`d8510bb34de3bb6c39d2777a397e9b5e04576d5c87cb3e85980adc9279081b18`**。本轮只读 SSH 再核该项目容器/网络/卷空、最终 HEAD clean、旧 g 三卷仍存在；不把历史释放当作未来预约，也不为按 DC82 常规取用资源增加跨会话回执条件。只回收本次已授权小门禁临时资源，未清理旧真实诊断材料。
+
+### 文书勘误、接续与结论边界
+
+CT201 镜像副本目录 `...-ct201/ct05/remote-evidence-sha256.txt` SHA256 **`9380749a202a0de1350924dff37fa913f92bc1ca7b1e204267ccb112e4779244`**，独立核实际 **27 行、27 个不同文件，全部 MATCH**。handoff 的“26/26”仅为数量文案错误，已直接交实施者修正；不改原 manifest/日志、不重拷或重跑，不影响本节 PASS。
+
+一次审核端只读 Docker Go-template 查询因 backend Config 无 Labels 键失败，随后改从完整 inspect JSON 安全读取缺省空 labels，一次更正成功；没有写节点、改镜像或执行产品。错误转录 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-review-20261107/image-inspect-template-attempt1.log` SHA256 `07fdfdbdb52491f3c349bdd61dad37cd94546b880da19ea3d1534d767087586d` 保留，不当作 Compose 或镜像失败。
+
+**结论直接交唯一实施者并同步设计，可接续新真实 prepare 候选准备/必要定向修订。** 继续原 source checkpoint 的新 project/key/三卷副本，精确绑定新产品、新 backend/worker 和复用 RS 的身份；旧 g 包/GO/失败卷不复用。原 hook 必须显式接收并传递同一 join_status 对象，原/活跃/恢复后的 GC 状态仅按已审最小观测接线，partial/真实错误和产品主因规则不放宽。准备新完整 manifest 后独立审核，再签仅该精确清单的一次真实 prepare GO；本节没有 POST、worker 诊断或正式测量运行许可，不保证完整规模内存安全、修复效果或唯一根因。无主线合入/push/tag/清理旧证据许可，正式测量 STOP。

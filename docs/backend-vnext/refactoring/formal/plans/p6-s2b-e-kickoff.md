@@ -4,6 +4,8 @@
 
 **History 定向诊断接续（Owner，2026-11-07）：** 同镜像 profile 的独立探针测得 soft FD limit 1024，Arrow 小样本证明关闭 source 后可保留 buffer 零拷贝读取；这两项尚不足以确认原 History 根因。真实 C 双侧各 312 表的诊断连续两次在准备阶段失败，按 DC68 暂停后，Owner 明确批准“允许按已审第三稿续做，明确问题修复后定向验证”。第三稿 SHA `4b982cb016eb3ff4903f42e6cdda489cf4e9136751019d26fc7c81523bf8df65` 已独立静态审核，将 factory 放回有效 operation scope 后在 06 运行；保留两次失败，不改写为通过。若证实 FD 生命周期缺陷，最小修复及 focused 独立审核后，使用本任务保留资源的独立冷拷副本、当前修复镜像和现有 `--from-step history` 定向验证，不重跑 Submit/全旅程。原校准 FAIL 与后续局部结果分别记录，最终资源档仍待 Owner 依据补全证据选择；此授权不等于 E GO/S2b exit，不扩大为任意失败循环重试。
 
+**FD 因果与最小修复已核（2026-11-07）：** 第三稿在真实 C/Store/SQLite 双侧各 312 表、soft limit 1024 下复现同 WAL 错误：FD 5→317→629→941→1023，scope 关闭后回 5；是 scope 内映射持有句柄达到上限，并非跨 scope 永久泄漏。修复 `d6c88cafb38255c66dbb5f8fae091af75e289d62` 仅在同一 mapping 校验成功后关闭 source FD，保留原 buffer/预算生命周期与零拷贝；一个 owner 测试验证 96 个同时借用 reader 的 FD 与可读性。06 的四模块 57 项、Ruff/mypy 和同双 312 表正向对照均通过，后者全部 publication 完成、FD 始终 5；源码和原始证据均经独立审核。后续仍需隔离校准候选的真实 History 副本验证及最终资源选择，不将 focused 结果充作 E exit。
+
 前序收敛记录（2026-11-06）：Owner 批准的额外四工具 mypy 修正已在 06 实际通过，并经独立审核；该暂停已关闭。`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 的 04 Rust 权威来源仍合格。首轮五 Python 权威运行暴露测试夹具迁移漏项；修正 `ff970567f8` 后，06 全 backend 收集 3230 项成功、受影响 184+16 项及 Ruff/mypy 通过，04 backend-only 主体 3173 项通过。但该次串行部分 55 通过/2 失败，整次 runner1，不能形成 backend 来源。两个真实远端操作成功，失败位于 History/ordered 测试核对 helper 的默认仓库 scope 与缺少显式调用参数；独立审核确认是此前未运行到的 adapter 漏迁，不据此降低生产校验或修改业务预期。
 
 修正候选 `7c023971397a8fba2c9e2aa86e9e7cbb9f088fe1` 仅改三个测试路径，已获独立源码核对；06 本地 History 27 项、两个原失败 Compose 场景及 Ruff/mypy 已通过并独立核验。随后同 04 E worktree 的 backend-only 权威 runner 于 23:56:36Z 完整退出 0，主体 3173 项、串行 57 项通过。保存完整来源并独立核对后继续其余四个 Python 包；Rust 在同节点同 worktree 比较原合格来源，实际闭包相同。失败整次中通过的包不抽作合格来源；四包镜像构建结束再核 backend 闭包及最终容器绑定。

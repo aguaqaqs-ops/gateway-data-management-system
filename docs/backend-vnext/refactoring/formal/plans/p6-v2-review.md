@@ -6,7 +6,7 @@
 
 V2 产品起点为 `5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`，协调启动提交 `d0add6bd16ff8ebb902d849a5feef2529713f3de` 只改文档。基线只读 detached worktree 为 `/home/dev/gdds-reviews/p6-v2-baseline-d0add6bd16`，clean、legacy 链接已核。V1 当前最终产品为 `c229582a9e72a591cf00a70de526b1b0792c1c18`，handoff `6183ae3ca4`、独审 `5dc01deeb5` 已关闭 F1–F5/N1；不沿用早先 3dd GO 的完成含义。
 
-**当前仅完成审核准备，尚无 V2 产品 GO。** 精确实施清单、固定代码候选及专用节点证据均待本角色独立复核。设计 GO 不能替代产品审核；04 联合权威/必要 Compose、05 fresh t1、D 与 FE3 不在本准备结论内。
+**当前已完成准备及首个子候选静审，尚无 V2 产品 GO。** 完整固定候选和专用节点证据仍待本角色复核。设计 GO 不能替代产品审核；04 联合权威/必要 Compose、05 fresh t1、D 与 FE3 不在当前结论内。
 
 ## 2. 风险与唯一验证 owner
 
@@ -66,5 +66,9 @@ Joint final gates: 04 权威/必要 Compose；05 fresh t1，仍待联合最终�
 ### F3（P2）：候选 Attempt 损坏未映射为 Archive 完整性 503
 
 `closure.py` L48 裸调用 finalized Attempt getter；合法授权候选的 Attempt `configuration_facts` 缺字段/源绑定损坏时，mapper `ValueError` 绕过 `ArchiveIntegrityFailure`，而新 snapshot 仅捕获 candidate Submission mapper 的同类错误。应在 Archive owning seam 窄映射已知 decode/binding 错误，保持硬拒并返回实际 HTTP `503 ARCHIVE_INTEGRITY_FAILURE`；HTTP owner 用非 strict server-exception 模式断言分类及无写入。baseline source Attempt 分支已覆盖同类窄映射，无须全局异常框架。
+
+### F4（P2）：Start 可把合法上界 Head 推进至不可引用的整数
+
+`start.py` 仍以 `head_record.optimistic_version + 1` 推进，BaselineHeadRecord 与基线 DDL 只约束非负，Start response 的版本仍为普通 int。若当前 Head 为合法协议上界 `9007199254740991`，完整确认/Start 可以提交 `9007199254740992`，产生下一轮 HTTP/application 无法引用的 Head。按已定 Head I-JSON 范围在写入前明确拒绝溢出，必要模型/DDL/响应约束同步；原事务 owner 以设定 max Head/facts 的小向量验证无 Plan/Node/Result/Workspace 副作用，不迭代大数据。
 
 此子候选不作 V2 完成结论，容器结果仍 `deferred`。测试/编译/lint 由实施者在 06 执行；审核者本轮只读代码，尚未核其日志或现场。

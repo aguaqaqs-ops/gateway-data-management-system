@@ -113,3 +113,11 @@ Owner 对上述已审恢复稿明确回复 **“允许放行”**；DC68 本次�
 22:35:01–22:35:15Z，原唯一测试者按已审脚本一次运行 b917：fmt0、clippy101（standard keyed `any` 闭包两处 usize 错误解引用）、test 未启动；起止 b917/clean、六锁不变、offline、无 cache miss。日志 SHA256=`5ba79e1bf4c38850f9f35ba1f1ae77b30364e863987eb2a1fefafc167a20cf74`，原审现场核符。22:35:56Z 本人释放，release SHA256=`e9b14dea0d77c0fee5442f9d12b6a06b84df32a69ab700d2558135f77786b41e`。详见[恢复单 §5](p6-s3-b-execution-stop.md#5-owner-放行及实际恢复结果)。这是普通编译反馈，已由实施者修正新候选，旧 b917 不重复跑。
 
 完整候选 `a665a3c06304d2f9ac8d4befb27f7be6d2a4a3df` 包含两处机械编译修正及合成/真实差分的完整 ordered/blank summary、blank interval 六字段与 real degraded 明确失败；原审固定对象确认此前差分缺口代码层关闭。后续 Python 诊断向量 `20e226206d` 与 a665 Rust tree 相同。06 scratch 格式 patch SHA256=`efd2222e1b103154172a4b3cce94b4aa296115188253224a60fad1859cc25aa2` 已回原实施者；22:40:48Z 格式准备结束释放，release SHA256=`27c873168174f79cdd10ed18446f31fae3bf2557b075fe3f3886ca370d50b441`。新固定格式/多任务 N1-N4 最小向量候选随后统一验证；尚无 B GO。
+
+### B 完整验证候选与执行稿
+
+`39bfa7552ed4` 增加同一 context/pool 的 12 个并行表任务 N1/N4 确定性与释放、到期截止向量，06 scratch 机械格式应用后为 `cab0656d68dd`。启动前独审核出真实差分 CLI 缺 operation scope，且旧 benchmark helper 不符合当前 Preview API；实施者只在 B 自有临时工具修正，最终代码候选 **`4efa4b3ec5457e83e48d9fbf2e18245e67afdc51`**，handoff=`4921696b1235`，独审静态增量=`4241168e1c`。Rust tree=`8c7e096e6b9bae5ca12e12c66e79bbec59371146`，vnext tree=`aa640aafe3c5e50d2d72239c18591200668e8963`；本轮没有生产路由变更、golden/锁修改或 B GO。
+
+06 同一测试者取得本人标记于 22:57:49Z，在原自有 detached WT 固定 4efa/clean。LAN bundle SHA256=`14dac6f836b15f69030a5e10dd5a695da692936fef52c9deba2bae333e4ddee3`。cab 准备时一次 `git bundle verify` 在非 Git 目录报错，未触被测对象；在仓库内纠正一次成功，原日志 SHA256=`b20e21701a211cd8bfa8378ee775eb05798e1ddaf14257b9b40a6b12d6562a61` 保留。
+
+唯一执行稿 `/home/dev/gdds-test-tmp/p6-s3-b-4efa4b3/run-final.sh` 经协调与原审原件核对；在启动前将 toolchain 检查移至 `vnext/rust` 下读取仓库 selector，最终脚本 SHA256=`90f436b460b5f3228713d2860d6ca64b6df7732fa093158e54ce090b2d2d4825`，输入核验 helper SHA256=`dac92e185be66cba8178d1e4dbf779fb91fe9158a313b4b9ba27629d3b7555cd`。完整 argv、cwd、起止 HEAD/UTC、raw exit 和六锁均由脚本记录。顺序为一次 workspace fmt/clippy/test → 强制扩展重装与 build-input 核验 → 六项 Python 差分 → 八包 SHA 与 t1–t4 逐表差分 → 五包 Ruff/mypy；首失败停止，不自动重试。已授权同一测试者启动，实际结果待原件，不能把脚本审核记作 PASS。

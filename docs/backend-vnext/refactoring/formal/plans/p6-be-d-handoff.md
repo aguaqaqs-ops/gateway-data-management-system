@@ -372,7 +372,7 @@ RS早段runtime ID `sha256:15e3ffb4944b672a5e2e6d9c858a57d6a1142d2d17e0feb4f2e56
 新postcopy只使用**该新guard**实际HEAD49403/原0/起止awareUTC、源mtime epoch落新区间、resolve去重后的新schema和current provenance；唯一原bytes副本/SHA，禁止旧q57/旧时间替换。collector只按该阶段原snapshot内immutable image ID inspect/save，保存原config/allDiffID，新唯一phase文件/awareUTC，不拿终态tag替代旧runtime。新路径/UTC由批准后实际guard产生再原审核，不预造未来值。全部原失败/缺口保留；方案A批准后仍不宣称旧RS原件已补回，只用新的合法验证结果闭合当前绑定。方案B则保留pending交接并按Owner授权清理释放04，不再补验；两者都不自动办理DC33/FE3/exit/tag/push/S3。
 
 
-## 13. Owner批准方案A后的实际最小补验（进行中）
+## 13. Owner批准方案A后的实际最小补验与收口
 
 Owner新turn明确“同意继续最小补验”，协调授权记录 `e5157db91c` / 联合准备§11已提交；§12的“尚未执行/回复未到/停止”均为当时历史状态，不再作为重复申请的理由。节点继续固定 **49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0 / vnext56720104af34a1eb677336f57bdbc07444a56615**，不切换后续main纯docs；05不重跑，旧RS15e3原config缺口未补回，也不改写旧原件。
 

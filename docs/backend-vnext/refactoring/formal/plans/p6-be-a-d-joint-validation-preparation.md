@@ -18,7 +18,7 @@ D 启动时将本工作单及最终工具接线、集中验证执行/证据核�
 | 异常真实接线 | 来源/时间异常阻塞与逐项理由、关闭不归档→新上传重提、self-only；用必要小型生产 wiring 补足自然 t1 未触发的场景 | 复用合格各节证据前先核最终影响，不重复整套权限/规则矩阵 |
 | FE3 同制品互通 | D 生产 encoder 的同字节 ASCII / 中文 / 非 BMP tar，前端解析、摘要和 OPFS 安装 | 前端 owner 负责；Owner 手动转发，不把后端 GO 当作 FE3 完成 |
 
-`test_input_closure.py::COMMON_GIT_COMPONENTS` 将整个 `vnext/fixtures` 作为各包的 `shared:fixtures`。V1 新 facts golden 已改变该 Git tree；V2 亦计划新增 archive v2 golden。因此不能仅凭某包源码未改而记 carried，也不为争取 carried 删除必要 golden 或改闭包政策。若最终各包均受影响，直接运行六包，无须检出或改动原基准 WT 来制造沿用。若仍有未受影响证据，严格按原合格来源/同节点同 WT/实际 manifest 比较核收，不口头沿用。
+`test_input_closure.py::COMMON_GIT_COMPONENTS` 将整个 `vnext/fixtures` 作为各包的 `shared:fixtures`。静态 Git 对象核实：S2b V 的 fixtures tree 为 `9cff7f677d4fda582747e33c1394d1fe2a07d7e1`，V1 c229 / 当前基础候选35c4为 `606b05d28a214369cf842c52fbc2c228e3bd43d2`（新增 facts golden）；六包相对该旧来源均有明确闭包变化。V2 亦计划新增 archive v2 golden。因此不能仅凭某包源码未改而记 carried，也不为争取 carried 删除必要 golden 或改闭包政策。若最终各包均受影响，直接运行六包，无须检出或改动原基准 WT 来制造沿用。若仍有未受影响证据，严格按原合格来源/同节点同 WT/实际 manifest 比较核收，不口头沿用。这是静态范围准备，不是实际 manifest 比较或门禁结果。
 
 已有来源仅作定位：S2b V `a6876d560050285321fd9f62942d590a03f35d64`，04 原 WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`，原始起始 manifests `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-m24-a6876d56/six-package-authority-01/original-starting-manifests/`。本文没有访问、检出或修改该 WT、镜像、卷或证据。
 

@@ -18,8 +18,8 @@
 | --- | --- | --- | --- | --- |
 | A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无A1局部deferred；04/05联合最终仍待，不办理全任务exit |
 | V1 | **已启动**；实际clean main起点`c1ee9627559dcf752e82bcd6ad68735ea0d8fc59`，协调启动提交`72bb929b1f`，见[工作单](p6-v1-work-order.md) | `/root/be_v1_impl`=GPT-6.1-Sol/xhigh；`/root/be_v1_review`=GPT-6.1-Sol/max，独立上下文；未建额外角色 | Rust/native→checkpoint→Attempt/Submission持久冻结；尚无本节证据 | 先固定精确fields/schema/version/digest/DTO/golden清单再产品写入，UTC grammar已定，不恢复Python路径 |
-| V2 | 已授权，V1通过后启动 | 下一节新建两个角色 | 纯规则/audit/事务/统一处置/History | 200候选、confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
-| D | 已授权，默认V2后；如前端下载阻塞可提前至A1后 | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |
+| V2 | 已授权，V1通过后启动；[准备工作单](p6-v2-work-order.md) `e3c15c69a9` | 下一节新建两个角色 | 纯规则/audit/事务/统一处置/History | 200候选、confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
+| D | 已授权，默认V2后；[准备工作单](p6-be-d-work-order.md) `06a849c48e` | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |
 | 联合最终 | 准备已授权，产品未收敛 | 在既定角色内安排；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 退出前按DC33确认最终真实数据范围，不口头carried |
 
 ## 3. 验证与资源
@@ -48,3 +48,4 @@
 - 联合旅程工具准备已静态核实：main `vnext/backend/benchmarks/real_dump_journey.py` 当前只发送MODIFIED_ONLY，`_archive`只允许既有身份异常。V2/D须在main同步新异常消费/明确原因及FULL必要旅程入口、完整tar校验；不能拿旧工具完成声称覆盖新矩阵，不覆盖原冻结V_ref脚本。确切工具变更owner在后续工作单固定。
 - V1产品前精确清单已提交`2ca25b6514`，见[p6-v1-handoff.md](p6-v1-handoff.md)，包含Rust源序chunk累计、领域facts/严格JCS摘要、Preview/Submit/checkpoint版本、Attempt/Submission必需BLOB、HTTP none、golden及唯一owner。协调/独审均指出missing分类须直接对齐已审TABLE_ABSENT/COLUMN_ABSENT/NO_ROWS/NO_VALUE/NO_VALID_VALUE，实施者正常修正，不重复Owner批准。规范摘要相同不能替代源序facts相同；baseline facts必须保留source Submission原规则身份，NO_CANONICAL_CHANGE既有规则不扩大。
 - **V2窄澄清已由设计者落盘`043705af06`（业务设计§10.3/10.4）**：MANUAL_CLOSE沿Start actor-independent，key为exact repo/device/project+CLOSE+key，fingerprint含命令/scope/目标/请求expected版本/reason，不含caller actor或最新状态。当前权限/scope/目标授权后另一合法actor同key/payload回放首次结果、保留原actor/time/reason、不二次释放；不同payload冲突。审计append仍actor-bound。V2公开owner补跨actor、撤权和冲突向量；这不影响V1、不改变关闭权限或新增业务处置，也不是本轮产品测试通过声明。
+- 最终runner范围不能只看产品包名：V1清单计划新增公共`vnext/fixtures/golden/configuration-facts/v1/`，公共fixtures属于闭包输入，可能连未改源码包也变化。收敛时以实际manifest决定运行/合格沿用，不预先承诺仅三个受影响包，不借此每节提前全量runner。

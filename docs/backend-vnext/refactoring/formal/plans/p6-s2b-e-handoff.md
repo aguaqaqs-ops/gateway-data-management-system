@@ -2,7 +2,7 @@
 
 状态：**最终验证进行中**；2026-11-07 00:27Z。当前固定产品候选 `1de3fa408433b344faac222d28736a82405e566a`：此前 d0/ff/7c 的消费者迁移已通过源码审核，新增窄修只删除单侧 metadata-only comparison 的虚假行内存收费，N1/M8GiB/worker12GiB/reserve4GiB不变。04 的7c backend及四Python权威整次均通过；7c t1实际成功、t4首Preview资源拒绝，已保留失败现场并定位明确计费错误。旧失败不改记PASS，尚无E GO。
 
-当前 pending：**隔离64/16/48校准在最后History失败；FD压力是假设，真实C双312诊断因两次脚本准备错误已按DC68停止，等待root处置**。无产品FD修复、无History副本启动、无完整校准PASS。main最终仍DC87原12/4/8，临时4f独立WT/ref未合main。原cal日志/cgroup/RSS保留，scope原collector解析失败已从原日志离线恢复，不能回填原driver结果。所有节点本E占用均已释放，CT108三代stopped资源保留。04 1de backend权威3177+57已whole0，RS暂缓；1de t1完整PASS、t2/t3未启动。最终profile仍待Owner决定；如改Compose所有包COMMON deployment变化，最终六包需实际run。以下历史状态以此处和后续记录为准。
+当前 pending：**完成原失败现场独立冷拷副本的History局部验证，再交Owner决定最终profile**。Owner已明确批准第三稿，06同profile真实C双312已复现FD耗尽并实施main最小Store修复 `d6c88cafb38255c66dbb5f8fae091af75e289d62`；57项/static及同双312正向对照均通过且独立核清。main仍原12/4/8，无临时日志；隔离cal候选 `1f9df50a5c01173b82febc3a74b01bae549b1bb0` 仅将相同两路径补丁加在原4f上，保64/16/48用于诊断。CT新WT/source/env已核0，具体History driver审核中，尚未coldcopy/up。原4f校准始终History FAIL，未有完整校准PASS；三代原E stopped资源保留。最终六包/最终profile/最终真实旅程与E GO仍未完成。
 
 ## 实际消费者与删除
 
@@ -298,3 +298,20 @@ cal证据前缀 `artifacts/s2b-e-cal-t4-4f808c111b/`：journey.log SHA `8ae6e7e4
 CT108 01:29:15–16Z核cal4f clean、wholeidle、精确ownmarker并列三代各3 stopped/各3卷/网络，**仅释放cal busy**，`dc80-preserved-postflight-release.log` SHA `ae9cec35483ce0813f737fcff2a5092d86b7bfea3e5fdfa720231ff8f546deec`。第三代worker08833c79a594/backend4e67cc926187/RS31eea9da0064，网络0802e1720545，三卷均保留；旧7c/1de同样保留。06 01:32:06Z核4f clean/idle/精确owner释放0，`artifacts/s2b-e-arrow-fd-probe-01/release.log` SHA `4805176fd9e55678484acc2bab12a9abed8825384cb4333e0af3e884a67515a2`。无活动E占用，原冻结资源均不动。
 
 root已给后续有条件方向：仅在③证实/最小store候选修复focused与源码clear后，允许把本E cal冷停三卷/secrets/state复制到新项目，现CLI `--from-step history`对副本做DC64局部补验；不得直接恢复原项目、重Submit或新建恢复框架。该局部结果不称完整cal；当前尚未创建副本或实施产品修复。main最终12/4/8保持，独立4f的64/16/48与临时日志不合main。
+
+
+### 02:01Z：Owner批准第三稿后真实复现与最小FD修复
+
+Owner明确批准已审第三稿继续。06于01:39:08Z现场原子取占用，固定cal4f/clean、实际E解释器/native137/锁核0（`artifacts/s2b-e-canonical-fd-third-01/independent-environment.log` SHA `a813cca8fa8340f6d0211a044e58a6394148ec15747796f3b42dee8960843f73`）。01:39:18–46Z真实C/LocalStore/SQLite两组312小表、子进程soft1024/hard524288的第三稿实际完成诊断0：FD5→第一C组317→第一publication629→第二C组941→第二publication lookup395前1023，然后出现与History相同C.lookup→SQLite WAL `unable to open database file`。退出operation scope后FD回5，支持scope内映射源FD持有超过该profile上限，不是跨scopeSQLite连接泄漏。原worker RLIMIT仍未知；1024/524288依据同image/profile probe，边界不改。
+
+原故障复现JSON `artifacts/s2b-e-canonical-fd-reproduction-03.json` SHA `1ea099cf4b3e1e7e8a047061e6023f270e20363c30eddcb810a6490aa542f984`；外置日志 `artifacts/s2b-e-canonical-fd-third-01/reproduction.log` SHA `6c6aa8618f7f4832993dafdf70fd4596c8b812d0fb4660ca95ebf7e52bc8bf8d`。原前两次准备失败不改、不用诊断0冒充产品PASS。
+
+main产品修复d6仅2路径：LocalArtifactStore.open_buffer在同一readonly mapping的SHA校验成功后 `source.close()`，随后仍yield原强引用buffer，原finally、取消/完整性路径和预算释放owner不变；无copy/reopen/ulimit/reader-handoff修改。单一owner测试在96真实canonical readers仍借用且全部IPC可读时，证明无artifact源FD留开。main resource profile12/4/8不变。
+
+06固定d6，source实际0（SHA `0931933df64b2dd93a5727861d840c15248bb9c78286cad2d8609420b622dcd2`）后另call四actual modules/directurls/native137/main12/4/8核0（SHA `81288f0056bf14afa4b3a505c9c5f18992191cfdcfbe0e9e5ab7a6c8fba7b8c5`）。01:44:52–01:45:30Z Ruff0/mypy5000、`tests/test_canonical_table_store.py tests/test_workspace_artifact_store.py tests/test_repository_ref_materialization_protocol.py tests/test_snapshot_materialization_business.py -n0 -q` **57 passed**；再完全相同fixture/两312/1024限制正向对照，C_loaded/publication两组及全部lookup/退出scope FD均5，两个commit完成、无异常。`artifacts/s2b-e-fd-fix-d6c88caf/fd-focused.log` SHA `210a2b2cf6729a852af73b29412bee5e14f69fdc3e788bdad9d048ede6996cff`；正向JSON `artifacts/s2b-e-canonical-fd-fixed-success-01.json` SHA `f84193ea0420c966bc9b0b3eece9f84ac0c4f6792ec38cbbfc4368d9230a8b19`。独立源码/结果审核clear。01:47:28Z核clean/idle/精确owner后释放06，release SHA `0642cc82fc5bc3221b541af718da4ef148f404c6c4dea78e3e56c422987c27ed`。
+
+将d6两路径原样cherry到独立cal4f得到 `1f9df50a5c01173b82febc3a74b01bae549b1bb0`；两产品blob与main d6相同，剩余cal资源/临时日志补丁与4f相同，独立核清。不因等价再跑57项或临时六包。
+
+CT108新专有WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-history-fd` 固定1f9，原4f WT/资源不动。task ref `refs/codex/s2b-e/calibration-fd/<full1f9>`，bundle SHA `dc337c763ee7e9520e7aaf89c733671c75bce232325f70ade944e34c1816cf34`，实际prerequisite4f在位。01:52:58Z source0 SHA `285b708ab2a694de016e31ca7d1fffc2e2fbf10f642a4788a41c38c5439902ba`，另call源/legacy/四工具0 SHA `f4ab0dfff40a39f3ab71094f527456fb688b110169093886a686803b26b8be7b`；新offline venv/实际四pathdeps/native137/current ownedRS/八包INPUTS_VALID准备0（01:53:34Z，SHA `be7d1d4f1748b55ddf0d7a1a65414c3e48ec5224593eb5f2c050184115a49d17`），01:59:04Z另call独立env0 SHA `20f010131dbf138f611b013da26063221602f8cadce0cff377586dc6d551bea4`。日志位于 `artifacts/s2b-e-history-fd-prepare-1f9df50a/`。当前持此有效prepare owner等待具体driver审，尚未copy/up。
+
+后续仅DC64 History冷拷副本；源state SHA `0b24994ef8334b55a9b94fe9dbb2201c2d2b784d5e34ba30ee0ccb8340753d80`（18keys含_stack=17成功业务step），源repository61b78312-9aef-48ba-8aa1-a024f92c1bfd，v1/v2 commits8bge6neeo2mrg8fmem4uj5257ldrhchg/cdtvk5eutkiu8k8fkonh858q8d6va9l2。源backend/RS WAL实读0B，普通mode=ro会生成derived SHM/空WAL的事实如实保留，不删除或回填旧hash；后续先核stopped/WAL0再immutable只读，整卷包含现sidecar复制并按复制时bytes/mode/uidgid核。现CLI不负责resume build/up；外置仅当前candidate build和bareup，禁止start_three_container_stack的teardown/seed。新project新History key，原source/state不改。时序日志保原timed，另存无timestamps原worker log供counter解析；新worker ready后固定身份，局部峰值与原失败校准各scope最大值分列，不拼成一条完整worker峰值。

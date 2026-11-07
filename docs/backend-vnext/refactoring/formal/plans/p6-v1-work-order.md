@@ -40,6 +40,8 @@ V1交付源序时间提取和initial/modified内容事实，经Rust→Preview ma
 
 先native/Rust相关focused、fmt/clippy与backend冻结/Contract，五包静态按实际改动执行；不逐轮全量runner、真实完整旅程或新大输入。Rust/native及持久接线影响当前镜像，按实际diff在本节收敛候选完成必要最小容器边界验证；04联合权威/必要Compose、05 fresh t1留联合候选。依赖/锁有变按DC67在CT201预填制品，不让06联网；缺缓存停止补齐。
 
+正式pytest focused显式按marker分批：主体`-m '(not serial) or parallel_safe' -n 4`，其余`-m 'serial and not parallel_safe' -n 0`，不凭选中文件名称猜是否有serial。已发生的c464混跑保留实际320pass诊断，318非serial可核；两项adapter serial单独补一次，不重复全套、不改变marker来凑通过。
+
 先交固定代码候选供只读独审，证据随后由同审核者复核；失败留证、最小修复/重审，不换审核者清finding。每轮handoff写当前HEAD、容器触发/理由、最后实际revision/source-tree与精确deferred nodeid/节点。通过后结束本节两角色，新建V2角色自动推进；不宣称归档核验、tar或FE3已交付，不办理联合exit。
 
 ## 5. 启动记录

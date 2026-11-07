@@ -32,6 +32,8 @@ main `vnext/backend/benchmarks/real_dump_journey.py`改为完整读tar、解析�
 
 06日常focused/Contract及收敛候选必要生产wiring/容器重建；五包静态按实际修改。所有编译/测试/lint/取证在专用节点，clean已提交独立WT、LAN bundle/legacy/离线缓存与原子占用/日志host/起止HEAD/UTC/exit/SHA按AGENTS。04联合最终候选受影响包权威及必要Compose，05一次fresh t1合并FULL/MODIFIED_ONLY/Submit/Review/Archive和Preview/History tar；异常用小型真实wiring补齐。未受影响包仅按合格闭包复用；不能用06focused或旧S2b当最终权威来源，不逐轮重复完整runner/旅程/大输入。
 
+正式pytest focused显式按marker分两批：主体`-m '(not serial) or parallel_safe' -n 4`，其余`-m 'serial and not parallel_safe' -n 0`。流中取消/断连/cleanup若有时序依赖则保留serial标记及独立执行，不凭文件名称猜无serial，不改marker绕过；只补实际受影响批次。
+
 ## 5. 启动/收口
 
 尚未启动；实际V2 GO/起点/新角色/精确字段清单随后填写。固定代码候选交只读独审，同一审核者核证据与修复；设计核心冲突带场景/证据/条款/影响/建议交设计者，必要时Owner决定。D完成后按原授权准备联合最终候选，最终真实数据范围仍须退出前按DC33由Owner确认；不得自动办理阶段exit/tag/push、启动S3或把后端交付当FE3完成。额外角色先向Owner说明，联合收尾角色使用范围在D启动时明确，不能临时扩角色。

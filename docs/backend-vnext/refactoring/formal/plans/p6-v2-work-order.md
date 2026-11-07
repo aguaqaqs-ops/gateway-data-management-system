@@ -39,6 +39,8 @@ MANUAL_CLOSE命名空间为exact repo/device/project+CLOSE+key，actor不入name
 
 一条小型真实生产wiring验证异常拒绝→有理由关闭→新上传重提→归档，不能以fake reader或自然t1未触发异常冒称覆盖。代码收敛后06必要Compose重建/绑定，不逐提交重建或全量runner；五包静态、focused/Contract按实际修改收敛。04权威及05最终fresh t1留联合最终候选，退出前仍按DC33由Owner确认范围。
 
+正式pytest focused显式分两批：主体`-m '(not serial) or parallel_safe' -n 4`，其余`-m 'serial and not parallel_safe' -n 0`。不凭文件名猜无serial；混跑serial不得作合格来源，只对受影响serial补独立批次，不重复无关全集或改marker绕过。
+
 main `vnext/backend/benchmarks/real_dump_journey.py::_archive`当前只接受身份异常，本节至少固定并同步新增来源/时间诊断与逐项明确理由的consumer，不引入force/无原因自动放行。FULL入口和完整tar消费者可与D一起收口，但必须在联合运行前实现；handoff逐项写实际已支持/待D，不能称现有工具已覆盖。原冻结V_ref脚本/输入/镜像/卷/证据不改；不为本任务重跑旧性能基准。
 
 ## 5. 启动与收口

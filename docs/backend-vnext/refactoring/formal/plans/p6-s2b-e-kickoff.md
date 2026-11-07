@@ -1,6 +1,6 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前状态（2026-11-07）：Owner 已选最终 **24 GiB 容器 / 8 GiB reserve / 显式 M16 GiB、N1/单 active**，产品固定 `82c4251b6cf944526c80a5e9bfe707bc57ab5087`。独立源码、06 定向 30 项及五包静态通过；05 的最终 fresh t1 已完整通过并获独审。04 六包与 05 t2–t3、CT108 同 worker fresh t4 正在按范围收齐，未完成项不记 PASS。FD 窄修及隔离 `1f9df50a5c` 的 History 局部成功保留为修复/校准依据，原 `4f808c111b` 校准仍为 FAIL、原三代资源保留；临时配置/观测未进入 main。准确来源见 [handoff](p6-s2b-e-handoff.md) 与 [独立审核](p6-s2b-e-review.md)。E/S2b 尚未退出。
+当前状态（2026-11-07）：最终产品 `82c4251b6cf944526c80a5e9bfe707bc57ab5087` 使用 Owner 已选 24 GiB envelope / 8 GiB reserve / 显式 M16 GiB、N1。04 六包权威/Compose、06 五包静态与定向、最终 fresh t1/t2/t4 已通过独审；**t3 在 v2 Preview 的 assemble_preview 被 RESOURCE_LIMIT_EXCEEDED 拒绝，E/S2b NO GO**。materialize 成功，非硬 OOM/失租，正常 stop 后保留本任务现场与证据，正在只读核算真实比较消费者的预约下界；不自动提高 M、改费用公式或重跑旅程。原始宽裕档 cal FAIL、FD 修复与独立 History 局部 PASS 均保持准确范围；新真实数据失败不抹去其他合格来源，也不据其他通过放行。准确证据见 [handoff](p6-s2b-e-handoff.md) 与 [独立审核](p6-s2b-e-review.md)。
 
 **History 定向诊断接续（Owner，2026-11-07）：** 同镜像 profile 的独立探针测得 soft FD limit 1024，Arrow 小样本证明关闭 source 后可保留 buffer 零拷贝读取；这两项尚不足以确认原 History 根因。真实 C 双侧各 312 表的诊断连续两次在准备阶段失败，按 DC68 暂停后，Owner 明确批准“允许按已审第三稿续做，明确问题修复后定向验证”。第三稿 SHA `4b982cb016eb3ff4903f42e6cdda489cf4e9136751019d26fc7c81523bf8df65` 已独立静态审核，将 factory 放回有效 operation scope 后在 06 运行；保留两次失败，不改写为通过。若证实 FD 生命周期缺陷，最小修复及 focused 独立审核后，使用本任务保留资源的独立冷拷副本、当前修复镜像和现有 `--from-step history` 定向验证，不重跑 Submit/全旅程。原校准 FAIL 与后续局部结果分别记录，最终资源档仍待 Owner 依据补全证据选择；此授权不等于 E GO/S2b exit，不扩大为任意失败循环重试。
 

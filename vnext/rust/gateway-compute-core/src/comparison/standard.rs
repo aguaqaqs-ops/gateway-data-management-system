@@ -683,6 +683,7 @@ mod tests {
 
     use arrow_array::{ArrayRef, Int64Array, RecordBatch, StringArray};
     use arrow_schema::{DataType, Field, Schema};
+    use rayon::prelude::*;
 
     use super::*;
     use crate::comparison::ordered::{
@@ -985,6 +986,18 @@ mod tests {
                 .err()
                 .map(|error| error.code()),
             Some("COMPARISON_CANCELLED")
+        );
+        let expired = Arc::new(KernelContext::new(
+            1024 * 1024,
+            Arc::new(AtomicBool::new(false)),
+            Some(std::time::Instant::now()),
+        ));
+        let no_rows = batch(&[], &[])?;
+        assert_eq!(
+            compare(&[no_rows.clone()], &[no_rows], &policy, &expired)
+                .err()
+                .map(|error| error.code()),
+            Some("COMPARISON_DEADLINE_EXCEEDED")
         );
         Ok(())
     }
@@ -1584,6 +1597,94 @@ mod tests {
                 assert_eq!(actual, expected);
             }
         }
+        Ok(())
+    }
+
+    #[test]
+    fn shared_context_parallel_table_tasks_match_one_worker()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let keyed_before = batch(&[1, 2], &["old", "same"])?;
+        let keyed_current = batch(&[2, 3], &["same", "new"])?;
+        let keyless_before = batch(&[1, 1, 2], &["a", "a", "b"])?;
+        let keyless_current = batch(&[1, 2, 2], &["a", "b", "b"])?;
+        let ordered_schema = Arc::new(
+            Schema::new(vec![
+                field("gid", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+                field("no", "BIGINT", "standard", Some("signed-integer"), DataType::Int64),
+                field("name", "VARCHAR(64)", "standard", Some("string"), DataType::Utf8),
+            ])
+            .with_metadata(HashMap::from([(
+                "gdds.canonical_mapping_version".to_string(), "1".to_string(),
+            )])),
+        );
+        let ordered_batch = |gids: Vec<i64>, names: Vec<&str>| {
+            RecordBatch::try_new(
+                Arc::clone(&ordered_schema),
+                vec![
+                    Arc::new(Int64Array::from(gids)) as ArrayRef,
+                    Arc::new(Int64Array::from(vec![1, 2, 3, 4])) as ArrayRef,
+                    Arc::new(StringArray::from(names)) as ArrayRef,
+                ],
+            )
+        };
+        let ordered_before = ordered_batch(vec![1, 2, 3, 4], vec!["a", "b", "c", "d"])?;
+        let ordered_current = ordered_batch(vec![4, 3, 2, 1], vec!["d", "c", "b", "a"])?;
+        let mut ordered_options = OrderedCompareOptions::new("t");
+        ordered_options.value_columns = vec!["name".to_string()];
+        ordered_options.digest_value_columns = ordered_options.value_columns.clone();
+        let jobs = (0..12usize).collect::<Vec<_>>();
+        let run = |threads| -> Result<Vec<String>, Box<dyn std::error::Error>> {
+            let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build()?;
+            let shared = context();
+            let signatures = pool.install(|| {
+                jobs.par_iter().map(|job| -> Result<String, OrderedCompareError> {
+                    if *job % 3 == 2 {
+                        let result = compare_ordered_batches(
+                            OrderedBatchPair {
+                                before: Some(std::slice::from_ref(&ordered_before)),
+                                current: Some(std::slice::from_ref(&ordered_current)),
+                                before_schema: Some(ordered_before.schema()),
+                                current_schema: Some(ordered_current.schema()),
+                                options: &ordered_options,
+                            },
+                            &shared,
+                        )?;
+                        Ok(format!("{:?}", (
+                            &result.facts_metadata.status,
+                            &result.facts_metadata.ordered_extension.summary,
+                            &result.facts_metadata.blank_extension.summary,
+                            &result.facts_metadata.ordered_extension.before_ordered_digest,
+                            &result.facts_metadata.ordered_extension.current_ordered_digest,
+                            &result.ordered_records,
+                            &result.blank_records,
+                        )))
+                    } else {
+                        let (before, current, mode) = if *job % 3 == 0 {
+                            (&keyed_before, &keyed_current, StandardMode::Keyed)
+                        } else {
+                            (&keyless_before, &keyless_current, StandardMode::Keyless)
+                        };
+                        let result = compare(
+                            std::slice::from_ref(before),
+                            std::slice::from_ref(current),
+                            &options(mode),
+                            &shared,
+                        )?;
+                        Ok(format!("{:?}", (
+                            result.row_added_count,
+                            result.row_deleted_count,
+                            result.row_modified_count,
+                            &result.records,
+                            &result.facts_order,
+                            &result.artifact_order,
+                        )))
+                    }
+                }).collect::<Result<Vec<_>, _>>()
+            })?;
+            assert_eq!(shared.remaining_bytes(), 16 * 1024 * 1024);
+            Ok(signatures)
+        };
+        assert_eq!(run(1)?, run(4)?);
         Ok(())
     }
 }

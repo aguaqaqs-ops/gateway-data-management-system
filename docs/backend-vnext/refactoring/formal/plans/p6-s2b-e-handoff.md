@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**最终门禁及fresh真实旅程执行中**；2026-11-07 02:19Z。Owner已选定A最终档，固定产品候选 `82c4251b6cf944526c80a5e9bfe707bc57ab5087`：worker24GiB硬限/8GiB reserve/显式M16GiB，N1/单active。保留d6最小FD修复，临时cal日志不合main。06资源/settings/lifecycle30项及Ruff/mypy500全部通过并释放。
+状态：**t3真实容量不足，等待Owner宽裕剩余路径校准/重新定档决策**；2026-11-07 03:02Z。当前main产品候选 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 保Owner已选24GiB硬限/8GiB reserve/显式M16GiB、N1/单active，并补齐non-record新增列真实行比较的漏预约；Ruff/mypy500及93focused已独立通过。未改系数、未提高M，临时日志不合main。
 
-当前 pending：**04六包权威整次实际通过、05新候选fresh t1–t3、CT108新候选完整同workerfresh t4及独立审核**。02:19Z三节点已实际启动，同V82、离线且clean，结果未出前不记PASS。Owner最终档选择不代表完整旅程已通过。原4f校准History FAIL保持；修复后History冷拷局部PASS仅补该路径，不替代新fresh全旅程。E GO与S2b exit仍未办理。
+当前 pending：**Owner决定是否在隔离64/16/M48候选上，以独立冷副本补测t3 v2-preview至后续并据实重新定档**。82候选04六包权威整次0、fresh t1/t2/t4完整PASS且资源齐；fresh t3 v2-preview assemble因RESOURCE_LIMIT_EXCEEDED失败，已有严格比较预约下界18,111,257,152B>M16。该失败不是OOM/lease或旧单侧虚假收费，不改记PASS、不原样重跑。05失败资源保留但本E占用已释放。后续最终profile/必要门禁/最终H闭包与容器绑定/E GO和S2b exit均未完成。
 
 ## 实际消费者与删除
 
@@ -366,3 +366,48 @@ Owner明确选择24GiB envelope/8GiB reserve/显式M16GiB，N1/单active；main 
 04同E gateWT于02:19:09Z启动六包实际权威runner，显式selection rust/shared_kernel/repository_contracts/repository_client/backend/repository_service，jobs4/pytest4、serial-n0。由于Compose属于所有包COMMON Git输入，旧来源不能沿用；本次六包实际run，backend批次已覆盖Compose不另跑。实际driver `/tmp/s2b-e-six-authority-final-04.sh` SHA `20251be2960e77f3f93cbb5d95171609f091cafdd9c23541c4b467a614c3bc60`，日志 `six-package-authority-01/authoritative-runner.log`，当前运行中，尚未合格来源。
 
 05/CT108于02:19:31Z独立准备释放0，SHA各为 `3a8cf2fa76110e5418af39e8eeab25aaa5679b4c6de2a3f03936ddbb86d07dc5` / `8fbb09c235c8827e278f21f01a8bee50d049996e522c31c6464ba0944ede8392`，随后fresh driver重新现场原子取锁。CT108 `/tmp/s2b-e-final-t4-driver.py` SHA `0ff03b35aca679ac18ba1ecc0f8ba5b94ffb45a6bdc680760b431aa46e1a4d45`；05 `/tmp/s2b-e-final-05-tier-driver.py` SHA `6053196a10fcfc69571d9df56ff2e0ad22c499f4a3b277cf6fcb5b8745992d24`。仅复用既有driver改最终24/8/16、新project与显式M16；去掉临时calcounter解析要求，保必需CG/RSS/同worker/正常stop/HEADclean与失败保现场。新project分别 `s2b-e-final-t4-82c4251b6c` 与 `s2b-e-final-t1-82c4251b6c`；fresh full无resume/from-step。05每档必须实际0+证据齐+cleanup/release才接下一档，真实失败停后续。所有原失败与冻结资源不动。
+
+
+### 03:02Z：82完整门禁/三档PASS、t3真实容量拒绝与漏预约窄修
+
+04最终82六包权威入口02:19:09–02:45:04Z，整次runner0/driver0，起止HEAD82/clean、原Hypothesis路径清理及cargo target清理完成，wholeidle/精确owner释放；E gateWT/环境/镜像保留至S2b退出。Rust fmt/clippy/test三步通过；shared243、contracts152、client161；backend3179主体+57serial；RS1744主体/1skip+207serial。没有以失败整次中的包作来源，也不为同次backend Compose再跑一轮。
+
+来源V均为 `82c4251b6cf944526c80a5e9bfe707bc57ab5087`，同04 E gateWT；原日志 `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-82c4251b/six-package-authority-01/authoritative-runner.log` SHA `d1dffcd84595d3b7424374d2277fd6276c02a8efa7e38b2c70936021b8621a48`。Compose provenance `backend-compose-gate-provenance.json` SHA `112ddcc6ead0122d356b3bcbd281cc50a1783ad1a519b955c5dd0fecaf23e377`。六份 `<package>-source-manifest.json` 均在整次0之后从该原log起始JSON逐字提取（不是post-run重算），独立审核raw_equal=true：
+
+| 包（本次均实际run） | 原起始total_digest | source文件SHA256 |
+| --- | --- | --- |
+| rust | `352a7fbca8b15ba56b764ac2430b62214c8517751736527fba214d1f7c4a5dca` | `97c2c5e90b5f336aa05b02adf02e470c9cd5645bd39b0bac3e31758d5a163b27` |
+| shared_kernel | `9845e1f5d9dc558a5d2aef42e08c7e57c9f54d0f7e5eeb4d9eccde567e835046` | `846e98db90cfe94717d1b6e21e79cbdddbe8ca767152daf8a23b2c03ab5be1b5` |
+| repository_contracts | `152bf331a99081d656f57a939eb16721639cbb1d1b4a31624d6151a8262fa72e` | `c4f8032b7e40cf3a5fb74fe133eea8474b91d4ffc1dc0a9ad0c52412f4f3c057` |
+| repository_client | `54b277acbdfbb68ea34212d32d9fda4a8fcf79149ed262247cc3b4c9bcd4187e` | `4b550b87df511a3abee477fa82cca13d3366085c85eab7694cc084059bbc6ad3` |
+| backend | `23dcc46ad4a910f6d9836c3527b2589dd834b8c9c3c5def8399d300972cb795c` | `10f8bb33cb0d32969730ceaeeb4706b640ea7e8411382c40bde5960324fd5b93` |
+| repository_service | `7212abd7ab2ddf7b8697eb502bba7e579736d4eb359fd74e1fb064c9df127a15` | `2a101b4ab5ad6457d7bffd4a07ab63f30c555c2f58ce79017027ae98d8d87b10` |
+
+按AGENTS提交前五包static要求，06另于02:24:15–18Z固定82/clean/actual E pathdeps，对shared_kernel/contracts/client/RS实际Ruff0+mypy34/15/26/200全部0；backend82/c7ed已实际通过，不重复。`artifacts/s2b-e-final-profile-82c4251b/four-python-static.log` SHA `31ab664f521b74b72e4aac0521119d1917f188b45598adef3e4c83c2c978e8f2`，本次核idle/ownmarker释放0。
+
+82各档真实旅程均fresh full、显式N1/M16、currentHEAD本机offline build、无resume；05逐档资源/cleanup/release全齐后再下一档，原线实际冲突以有效marker为准。证据前缀均为所在节点 `/home/dev/gdds-test-tmp/artifacts/s2b-e-final-<tier>-82c4251b6c/`：
+
+| 档/节点 | 实际终态 | journey.log SHA256 | result.json SHA256 |
+| --- | --- | --- | --- |
+| t1/05 | 02:23:14.623Z driver0/旅程0，资源/同worker/stop/cleanup/release全齐 | `3c37fc491d1bb3d1e0d9c9599e70040fc872531917ce177739cfbd3d8d2d97f2` | `27d573fffae8c6d8b0515523407f9438f6b7ed050465388de8bd3f1a821fd2cf` |
+| t2/05 | 02:37:05.579Z driver0/旅程0，资源/同worker/stop/cleanup/release全齐 | `74113500b4c9165ca3e7181926aff5e89250c8d3ee32ad1f0c22971d205128ce` | `6ed3ffffb6dcd8ead1783bd51d6c067bf4eaa2d4e2f90f62697e6714b1085970` |
+| t3/05 | 02:46:18.233Z driver1/旅程1，v2-preview assemble资源拒绝，保现场 | `948f27a15f7a6ff87fcf6cfb2c5b02298b005ee1c1fc5d25adf459a82a4f0a4c` | `78bde259fb8b02853075ddf5c4c1eee658670e35f40728e6ea99b0d6a124b888` |
+| t4/CT108 | 02:40:39.561Z driver0/旅程0，完整同worker资源/stop/cleanup/release全齐 | `13ac186de8fa7774268a06b4a49f3fb95218b6319787fbfcb598fdf11d642fcc` | `004a026b4f33c2440e5902fb1651326a9471a57df6bd3fd5715f3abb2c4348da` |
+
+完整t4 worker090f4608269b全旅程StartedAt/RestartCount核齐，memory.max25769803776B、cgroup生命周期peak6991069184B、VmHWM6684612KiB、events全0，normalstop0，无missing；它们不是M预约高水位或每operation独占峰值。原after-stop log SHA `9a765d034b804c2fbbb79861a4de30e34eff3def99a94905746e6c70d5e6629b`，lease_lost/RESOURCE_LIMIT_EXCEEDED/Traceback命中均0。单次t4/N1/M16既有JSON诊断：受理响应后首Preview到终态观测58.337s（completion58.359s、2s轮询/operation_terminal_result fallback），repeat62.351s、v2Preview94.545s；v1/v2Submit535.712/183.264s，History118.370s。此不是精确READY、正式W1/2×t4或30s达标证据；W1/W2正式任务仍按Owner计划，不将功能PASS当性能PASS。
+
+**t3真实失败**：op-dffc6a0eee79886afcb6b859，materialize_inputs成功，assemble_preview attempt1正常ack `RESOURCE_LIMIT_EXCEEDED / operation memory reservation exceeded`；无Traceback/失租/容器OOM。保存的v2-modified-only双侧cp由192 baseline/193 modified构成，baseline实际53 materialized+139 summary-only、modified193 materialized；不能给无reader的summary-only侧加费。失败前缀CGpeak4373372928B、VmHWM4201560KiB、events全0。resource_verdict=PASS仅表示资源事实完整/配置/正常停机，业务journey1不能改称PASS。
+
+只读证据：`dc80-step-diagnostic-01.json` SHA `43f37e9c7138fc7ae24952585ddb5f0754658cb9a20aabd58e1149a28820d23f`。初次pure metadata脚本误从unmaterialized descriptor取business_schema_digest，KeyError，失败log SHA `16d4bb2f87ee33f55a2171c5e6eedeab83429ce4713d9e64ba169bb3478b84ac`；已保存证据的纯只读解析/计算按DC68澄清不受一次重做上限，不代表业务失败获豁免。修后用已确认summary身份条件与actual materialized side过滤，193tasks的row+base严格lower17045901120B，距M仅133968064B；普通identity条件不确定者保守跳过，只减少lower。报告 `dc80-comparison-row-lower-02.json` SHA `60ab606f271b9a35c73ef5fa6954eb370bf22aa39063b1275b6d4defaa84756c`，log SHA `437645773a1ca116ac4fbba9c08f3d9eb1688801c427a15a9012bc0615c84a5c`，实际0。
+
+仅补当前真实selected device_st的一个既有IPC，沿旧已审mmap/get_batch/select/nbytes方法，不标量迭代/运行消费者；43110行43列logical16646188B，×64=1065356032B，加row+base后lower18111257152B **已超过M17179869184B，差931387968B**，其他Arrow/live预约仍省略，不能叫完整upper或RSS。`dc80-comparison-one-ipc-lower-01.json` SHA `18be24ff08a342f40539863729945214168778e0390a59f73c7f339d65f21b0d`，log SHA `b850b0acce2b41729c3d1405b3d706b16dafe68e50509e24c7be3713e752f897`，实际0。审核者独立复核该lower与真实双侧/ordered行消费，未自动缩系数或加M。
+
+05在02:55:18Z核全机idle、82clean、精确ownmarker，**仅释放本E标记**以让实际冲突方继续；`dc80-preserved-postflight-release.log` SHA `2647713da378e4e631b6e47f64e1b52cb44f1f022e0808bce25bf6f69f3af80a`。本E项目s2b-e-final-t3-82c4251b6c的workerdfdade767d51/backendf0fcd56da1a8/RS35da190af1d6均stopped，三卷backend-artifacts/backend-control/repository-service-data与网络c37d84d81b02、镜像/输入/state/secrets/全部证据保留，无down/rm/prune。其worker原log SHA `a727732be13c65af648eb20ec9200cfc9400891172c6790e570382a3cd21238f`、resource JSON SHA `0dc5580e8bcfd3a62bab76fee5e9ecfea6161ad8d700db34b7bc9dd478511ff5`。
+
+**同owner漏预约修正464**：审核还确认BROWSE_ONLY/SNAPSHOT_ONLY的COLUMNS_ADDED分支真实读取两侧共享列并构造Counter，但旧upper恒skip这两role。root按DC80批准最小修正，standard.py仅在双descriptor且同existing_schema helper确定COLUMNS_ADDED时落入既有双侧公式；其余metadata-only/单侧照旧skip，普通/ordered identity收费不变，不改系数/业务结果/golden/M。现role内容变化真实owner保留，新增role×schemaadded的4参数资源行为用1/256行真实fixture证明增长前低M拒绝、metadata费用不随行数增长、rows/stream未在拒绝前调用。
+
+06固定464，source0 SHA `1b888897a385d6fe739a57f68d1febcb8dd406407289a2a728186b74c65581c0`、另call actual E四pathdeps/native137/profile24-8-16/tool核0 SHA `b1ff94cbef696dea275cd4999af6f5ee99cb451be73c35dd86197298c9e83525`。03:00:22–24Z Ruff0/mypy5000，rule_roles/standard/ordered三module+原pair_memory_admission节点 **93 passed**，`artifacts/s2b-e-non-record-budget-46428913/non-record-focused.log` SHA `eeec41b911ba77eea540eae763a8504b2e6623f8c661e6d54ad3f040ae64a004`；03:01:13Z ownidle/464clean释放0，release SHA `cd8534919179c7b272004e144334c4f61f8510e4674ea63426d1e00c2261a57d`。源码/结果独立核清；该修正补漏计项，更不能把t3 M16失败改记PASS。
+
+隔离cal准备候选 `a10dec894e39013dc02bc7100a27da69ca01040b`，专有localWT clean，ref `refs/codex/s2b-e/t3-calibration/<fullSHA>`。464两路径原样cherry到1f9，standard blob `5bb7b55bda6f4295b246546657ab772523da3389`、role-test `7037318c8c0882d7b1a16f309fce8befe713fdcd` 与main精确相同；其余vnext严格只4个原cal路径，且逐blob=1f9（kernel_execution临时finally日志/settings/resourceowner断言/Compose），仍64/16/M48/N1，无新observer或系数变化。root指定CT108作为临时容量诊断节点；Owner待决是扩展剩余t3校准与重新定档，而非再次申请节点。
+
+计划只在05现场空闲取本任务占用时，把自有stopped三卷+实际state/secrets标准冷归档并按bytes/mode/uidgid核，经获准LAN传CT108；新project/current cal镜像本机offline build+bare up，禁止teardown/seed。源state SHA `443732447e1f4ae12df80b576e44cf51ab17c7a80d8d24aeb0ab80710ad733b2`，14keys含_stack+13成功业务step，v2workspace/upload已存，v2-preview无成功state。source与clone在启动前各一次immutable核workspace OPEN、optimistic_version匹配saved upload、current_upload_revision_id/generation/BaselineHead与prefix一致；不修源state/版本，newkey/newop不能复用旧FAILED。现CLI `--tier t3 --scope full --from-step v2-preview --keep-stack --project-name s2b-e-cal-t3-rest-a10dec894e --kernel-threads 1 --kernel-memory-budget-bytes 51539607552` 仅补v2Preview→v2Submit/read/approve→History，不重V1Submit。只取各scope charged/stage与新copyworker局部生命周期CG/RSS；原t3仍FAIL，局部不冒完整fresh PASS。**截至此记录未复制05/未启动新cal，未做最终Hcompare或额外完整runner。**

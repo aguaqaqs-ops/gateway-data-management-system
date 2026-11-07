@@ -2,7 +2,7 @@
 
 状态：**最终验证进行中**；2026-11-07 00:27Z。当前固定产品候选 `1de3fa408433b344faac222d28736a82405e566a`：此前 d0/ff/7c 的消费者迁移已通过源码审核，新增窄修只删除单侧 metadata-only comparison 的虚假行内存收费，N1/M8GiB/worker12GiB/reserve4GiB不变。04 的7c backend及四Python权威整次均通过；7c t1实际成功、t4首Preview资源拒绝，已保留失败现场并定位明确计费错误。旧失败不改记PASS，尚无E GO。
 
-当前 pending：**先做独立临时64/16/48档的一次完整t4容量校准，再由Owner决定main最终profile**。临时提交 `4f808c111b9b8bf8e1673f1bf9b76b1823b7c31b` 基于1de、独立WT/ref，不进main；06定向静态/30项已通过，CT108专有新WT/离线环境核齐后已于00:52:41Z启动一次fresh校准；当前首Preview已过、v1 Submit执行中。main仍保DC87原12/4/8，1de t4首Submit真实行预约超过M8。04 1de backend权威3177+57已whole0且释放，RS暂缓；1de t1完整PASS/cleanup/release，t2/t3未启动。CT108两代失败现场均stopped保留，旧诊断busy00:44:15Z已释放。新临时校准不跑全六包；最终若改Compose，所有包COMMON deployment变化，最终六包需实际run。此前Rust/三小包的1de sameWTcompare仍是其当时事实。以下历史状态以此处/后续时间记录为准。
+当前 pending：**隔离64/16/48校准在最后History失败；FD压力是假设，真实C双312诊断因两次脚本准备错误已按DC68停止，等待root处置**。无产品FD修复、无History副本启动、无完整校准PASS。main最终仍DC87原12/4/8，临时4f独立WT/ref未合main。原cal日志/cgroup/RSS保留，scope原collector解析失败已从原日志离线恢复，不能回填原driver结果。所有节点本E占用均已释放，CT108三代stopped资源保留。04 1de backend权威3177+57已whole0，RS暂缓；1de t1完整PASS、t2/t3未启动。最终profile仍待Owner决定；如改Compose所有包COMMON deployment变化，最终六包需实际run。以下历史状态以此处和后续记录为准。
 
 ## 实际消费者与删除
 
@@ -268,3 +268,33 @@ CT108于00:50:32Z现场自取cal准备锁，新专有WT `/home/dev/gdds-test-tmp
 00:52:15Z CT108 cal新环境准备actual0（source `601949b1…`/独立源 `e2d7a656…`不重复）：`artifacts/s2b-e-calibration-prepare-4f808c11/environment-01/prepare.log` SHA `a55689d30dcd2219d9d7169f7114c6ca7a85df6c1d15e68311d994a096f157bc`，新backend venv的四pathdeps全部本calWT、native137匹配、五base在位、当前cal RS本机offline build、八包INPUTS_VALID。另call独立env0 SHA `6c8d7cea94b41c995ef6ba0d38c298c2fd5bc6d65eb171c1f6f238b57d7324f4`，00:52:41Z核own/idle/calclean释放准备占用0，release SHA `d41482275586a53b9b0ed4a379b065a48adf61c8912413e87dfcc3bac29a435d`。
 
 随后原已审d44a driver实际SHA匹配，00:52:41.337Z新project `s2b-e-cal-t4-4f808c111b`现场重新原子取锁并启动一次fresh full t4，硬64/M48/reserve16/N1，证据目录 `artifacts/s2b-e-cal-t4-4f808c111b/`。首Preview已成功、进入v1 Submit；审核者只读现worker日志确认3个Preview scope的finally记录齐：materialize_inputs highwater3803370110B（stage1259）、assemble_preview291755426B（stage314）、publish_preview53136194B（stage0），M均48，长stage行JSON完整。此仅证明观测接线和已完成前缀，不是完整校准PASS/最终M选择；当前保持自然运行，不改timeout/信号/输入。
+
+
+### 01:32Z：校准History失败与FD诊断停止边界
+
+临时4f校准已完成v1/v2路径及验证，但History `op-a872c285b33728563c769bbd` 的materialize_inputs失败。01:11:52.751Z journey1，reason `t4 History compare did not succeed, diagnostic=OPERATION.PURE_RECOMPUTE_FAILED`；01:11:59.524Z driver1，正常stop且保第三代cal containers/volumes/network/busy。原worker trace为真实C materialize→RepoRef._with_artifacts→publish_canonical_tables→C.lookup→ControlDbUnitOfWork连接的 `PRAGMA journal_mode=WAL` 抛 `sqlite3.OperationalError: unable to open database file`。不是已确认的M/lease问题，不改expected、不重跑，不把scope异常当资源不足继续增M。
+
+cal证据前缀 `artifacts/s2b-e-cal-t4-4f808c111b/`：journey.log SHA `8ae6e7e43e26c5fd7f28c5ab92ed22217126e873c02e3a036c667b61bbffbb3f`，result.json SHA `4875de8815ba41969efe8d0b4f1d6c8214f3e1990f07293bcb172fd14bde3ea0`，worker `08833c79a594-after-stop.log` SHA `550850f090cccc3694370fc72d0a4267d312dc3d1cad5e3d70ecdaa3147e9072`。同worker/64硬限/48M/16reserve、normalstop0、cgroup/RSS字段齐：memory.peak6999605248B/max68719476736B，OOM事件0；VmHWM6682916KiB，均为失败前缀worker生命周期累计，不是每operation独立峰值或完整t4峰值。
+
+另有临时collector纯解析缺陷：`docker logs --timestamps`在长JSON分片中插入ISO timestamp，原driver scope_count0/evidencefalse，原journey1/driver1与result **不改写**。经root/reviewer允许，仅对原已保存worker日志的counter JSON窄去32处Docker时间戳，离线恢复17实际counter记录、16唯一scope（await同attempt重复记录保留），覆盖17claim事件/16唯一scope。新 `scope-recovered-from-original-log-01.json` SHA `963cdd821b64c4051d5dc505f43d5a1a9e7f587480f9e922060683a094207b76`；格式诊断 `scope-collector-format-diagnostic-01.json` SHA `a5c3424312c8b0b6dc7344a454366c4f0b3024025dc8b26f0897f2ffa61aa46a`。无运行或观测重采集。
+
+| 实际operation（按执行顺序） | 状态 | 各step charged highwater最大值/B |
+| --- | --- | --- |
+| Preview op-cf16baba… | SUCCEEDED | 3803370110 |
+| Submit op-d3bf7372… | SUCCEEDED | 13070921208 |
+| Preview op-79ce1f07… | SUCCEEDED | 6093784234 |
+| Preview op-cab82510… | SUCCEEDED | 10997340796 |
+| Submit op-7f839dc3… | SUCCEEDED | 8694034114 |
+| History op-a872c285… | FAILED materialize_inputs | 331156230 |
+
+上述最大值取每operation各step之最大，不相加；stage temporary_limit不是实耗。已执行前缀最大charged13070921208B，History后续比较/发布未覆盖，不能由此保证M16完整旅程。History失败scope有1019条canonical-ipc-inspect，接近1024只作FD压力线索。Control DB文件/父目录仍在、root644/755、空间/inode充足；UoW已有显式close，未证明SQLite连接泄漏或跨scope泄漏。
+
+原worker已停，标准残留OCI spec路径不存在、containerd moby container列表为空，HostConfig.Ulimits=null；**原worker RLIMIT未知**，daemon limits不作为原测证据。经root/review准许，同原immutableimage `sha256:790b938e4ccb62433dc84225724b03382e51f01aaf6bd1a5b7e0eab5ac250361`、相同Memory64/Swap128/defaultUlimits/User空的新短命只读无网络/无挂载probe，在01:24:14–15Z输出RLIMIT_NOFILE `[1024,524288]`，仅同profile推断。`nofile-profile-probe-01/probe.log` SHA `f8c7647b3073180aa9a6126f4b2b176440eee75fbd188813244e05685c0ba073`，filteredinspect SHA `1eb0f1fcadab63a33bd7544f3854d8c84971fa0085b1ee14ca6f733597ea6123`；保存logs/inspect后仅移除此probe。
+
+06 Arrow25两行小IPC平台诊断实际0：FD baseline5→map6→`source.close()`且buffer仍借用时回5、原FD已关闭；删除source后相同buffer地址/hash、Arrow读取已知值仍成立，所有借用释放后仍5。未复制payload替代mapping。`artifacts/s2b-e-arrow-fd-probe-01.json` SHA `50db37a3506e01d5fb3425e45c0a471097c9e9073a49df48a6ba15712068e596`，该目录 `probe.log` SHA `e5c88c7ae6acafca95418cad0df0bdf67d32048c6da4502ce0b5dd5ecb10040f`；准备环境日志SHA `6d33cd93df811d1d4cb1837c4f0ccb97459bc2a89b8c41bf6366da689f492e0f`。此支持标准Arrow提前关闭源FD而保映射的候选修法，但尚不是整个C故障复现/修复证明。
+
+③真实LocalStore/C/SQLite两组312小表诊断**尚未完成**，不得称已证实FD根因。首脚本 e8c2c804…误从contracts import compare_schema_digest，在任何fixture/object前ImportError；原log `canonical-reproduction.log` SHA `2987c17279a51bb72521ba0b657b7e076a4ef3e1ba9b5e08298effb3bd288d3a`。按DC68一次明确修正的 be766600…只改public export和新out，01:30:45–50Z实际成功seed312 Store/SQLite fixture后，C factory位于seed scope外，被正确拒绝 `business Arrow work requires an operation kernel context`；尚未设RLIMIT或执行C双312。`canonical-reproduction-fixed.log` SHA `f67e1dbbba93550f01f47cbd4c7aa23df5a641b2e113711a7c6b08b48e268e0f`。实施与审核都漏核此调用上下文，现已按DC68停止，不第三稿/不产品改/不建History副本。临时fixture已自动清理，日志保留，交root处理恢复边界。
+
+CT108 01:29:15–16Z核cal4f clean、wholeidle、精确ownmarker并列三代各3 stopped/各3卷/网络，**仅释放cal busy**，`dc80-preserved-postflight-release.log` SHA `ae9cec35483ce0813f737fcff2a5092d86b7bfea3e5fdfa720231ff8f546deec`。第三代worker08833c79a594/backend4e67cc926187/RS31eea9da0064，网络0802e1720545，三卷均保留；旧7c/1de同样保留。06 01:32:06Z核4f clean/idle/精确owner释放0，`artifacts/s2b-e-arrow-fd-probe-01/release.log` SHA `4805176fd9e55678484acc2bab12a9abed8825384cb4333e0af3e884a67515a2`。无活动E占用，原冻结资源均不动。
+
+root已给后续有条件方向：仅在③证实/最小store候选修复focused与源码clear后，允许把本E cal冷停三卷/secrets/state复制到新项目，现CLI `--from-step history`对副本做DC64局部补验；不得直接恢复原项目、重Submit或新建恢复框架。该局部结果不称完整cal；当前尚未创建副本或实施产品修复。main最终12/4/8保持，独立4f的64/16/48与临时日志不合main。

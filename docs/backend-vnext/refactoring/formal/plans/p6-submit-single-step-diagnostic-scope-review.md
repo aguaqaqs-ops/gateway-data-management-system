@@ -2114,3 +2114,26 @@ CT108 按实际现场空闲/有效占用与独占测量规则取锁，满足该�
 04 最终 runner 归冻结参考线最终 V_ref；按实际包闭包与合格来源决定运行/沿用，不借 main/S2b 结果，不把 focused 当权威 runner，也不把本报告当最终门禁通过。该项与 CT108 可按原节点分工并行推进，阶段 exit 另由适格角色办理。
 
 **本次有限恢复关系已通过，执行方无需等待本会话复核另一份最终摘要。** 正常准备合格即按上述固定首轮运行、随后按 A 补既定缺项，结果独审；实际身份/缓存/守护/数据不符仍停并按 DC80 最小诊断修正，不原样盲重试。需要新业务取舍、资源上限或超出本次来源条件的例外时给具体替代方案，不外推本 PASS。未授权主线产品合入、push/tag、清理旧证据或提前办理基准 exit。
+
+## 93. c898 实际接续工具审核：固定绑定通过，外层超时收束存在一项具体阻塞
+
+按实施者请求，独立读 `/home/dev/gdds-p6-baseline-vref` 的 clean 最终候选 **`c898922ffa5e8541783f4e47567cbaf4efc8eee8`**。产品基准仍为 9704，候选 vnext tree=`be56bf9a3fef7aa5b20f0b761e557c4e915164bf`；相对 9704 的 vnext 差异只有 backend benchmarks/tests，其余为文档。ad06cf9bb9→c898 实际只追加 handoff，focused 对应代码未变。本节不重开 §92 的来源例外、版本口径或历史矩阵，不扩基准 exit；**CT108 只读前提核验及镜像准备可按原授权并行，不应等待新审核回执。**
+
+### 已核绑定与证据
+
+- 固定 identity JSON SHA256 **`eb9fc808eef9221dd2d8169607ad914f3643b557d58588a95fa6f39b796a5e09`** 与代码 pin 相符；其三镜像 config/全部有序 DiffID/labels 与 §87/91 已核身份逐项匹配。源码在复制 checkpoint 前及 Compose 启动路径重核目标身份，源 RS 缺口持续记 UNAVAILABLE/input only，未变为 MATCH/carried。
+- `_require_post_gc_source_evidence` 绑定原 b 项目的 run/state/log SHA、e798 HEAD/exit1/v2-submit 失败、completed_through=v2-preview、相同 input manifest/census；原 checkpoint 实物摘要及克隆后逐卷比较仍在既有路径中。固定 target/new project/key、full/MODIFIED_ONLY、无 three-node/cross-project/full-v2、无 cache 操作、完整 Submit 计时及通用参数拒绝守卫与 §92 相符。未把诊断 b 的 prepare 后态用于续接。
+- Python AST 只读解析通过；代码 pin 的产品 commit/tree 与候选 tree 分别记录，生产路径与 9704 相等，未错误要求包含工具改动的整个 vnext tree 相等。backend/worker 的 labels 已包含在 config digest 内，RS 另逐项比较完整 labels；不要求用跨节点 inspect ID 替代。
+- BatchMode echo OK 后只读 CT05 已关闭日志：clean 起止 `ad06cf9bb9d8edf3ae1c67291247eb9b4edc6332`，07:08:17–20Z，**5 passed / 152 deselected / 1.91s、exit 0**；focused log SHA256 `cc151b1965ff304650b90c28859c2cb3fa17387f58b0beab0cfbbc4e1e70e488`、meta `1b20fd7c05cc0c9909d6fcdcc6590e618b99571a157fb2ffe6861a95cba11667`。候选 locked/offline sync 和 native build-input MATCH 日志存在，07:09:42Z postflight clean/quiet，SHA256 `5f9f887a7d1d8f32b59d2621e750827e8143cc7a5c7a6c9829d378cde02d009b`。这些不是完整 runner、五包静态或 CT108 前提已通过。
+
+本轮未导入/运行候选、复跑测试、复制卷、启动 Docker/业务或访问 CT108。CT05 操作仅为读取上述既有日志，不称新的测试证据。实际 CT108 source/input/cache/TTL、node/target tag/层身份仍由实施者按 §92 在运行前实核，不能把本静态结论当已实测。
+
+### F1（阻塞，P2）：总截止可打断旅程 finally，外层未保证 Compose 业务停止
+
+候选 `vnext/backend/benchmarks/p6_s1b_measurement_runbook.md:1010` 仅以 `timeout --signal=INT --kill-after=1800 25200` 包住共享 p6_baseline_resources；上层 set -e、没有自己的 EXIT/INT/TERM 清理 trap。共享 sampler **`p6_baseline_resources.py:510–519`** 捕获 BaseException（包括超时信号引起的 KeyboardInterrupt）后立即 `child.terminate()`，即 SIGTERM 旅程子进程，再等 30s/kill。这会与 journey 已因 SIGINT 进入的 finally/Compose down 竞争，并可能直接终止该清理。采样器只回收宿主子进程，不负责停止 daemon 管理的 Compose 容器；外层命令非零后 shell 直接退出。因此当前固定入口不能保证 work 截止后停止新业务、清理期间终止自有 worker/栈并安全释放占用，host process 被 kill 不等于 Docker 业务已停止。没有执行失败实验，本 Finding 来自实际控制流，不能说已复现泄漏。
+
+**最小修订已直接交实施者：** 保持共享 sampler/step timer 和产品不变，复用既有 launcher 的有界外层清理、postflight 和安全解锁；只针对固定新 project/自有进程/容器/网络，保留全部源/目标卷，处理成功、非零、INT/TERM/工作截止。清理用原 1800s 预留并受同一 27000s 硬截止约束，不在 handler 重置一套完整新预算；未确认静止则保留占用并如实失败，不回报安全解锁。不要为此修改共享采样器而重跑历史计时、添加 guardian/持久状态机、扩大停止预算或补跑真实 prepare/Compose。用一个小的外层停止路径 focused/既有 fixture，加脚本语法检查，验证超时非零、清理调用与保卷/未知状态保锁的实际接线即可，不铺新矩阵。
+
+另已直接提醒：handoff 尚未给出本轮五包 Ruff/mypy 的合格记录；按 AGENTS 补必要静态检查或明确关联确实未变包的既有合格来源，尤其 backend 新工具/测试须有本轮检查。该项是准备验证待补，不虚构为产品断言失败或要求完整 runner。
+
+**当前结论：固定绑定与代码范围通过，F1 必须在实际业务启动前最小修正；§92 范围许可保持，准备工作继续。** 按上述已审具体修订完成必要检查后直接接续原授权，交修订/日志供短复核，不再请求新的 Owner/范围/最终 manifest GO。没有新产品、依赖、镜像运行边界变化，不据该工具 Finding 无故重建 §87 镜像；04 最终门禁与基准 exit 仍另行收口。

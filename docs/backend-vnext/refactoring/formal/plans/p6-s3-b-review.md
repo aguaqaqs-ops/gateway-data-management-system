@@ -1,6 +1,6 @@
 # Phase 6 S3 B 独立审核
 
-**状态：完整 B 验证候选 `4f1bd419dc7d66da0cb1b8bd0c5de59c6df8587c` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
+**状态：完整 B 验证候选 `04afdbb3d23a04d24df347d7aaafe6efc611b26f` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
 
 ## 1. 固定对象与方法
 
@@ -62,8 +62,16 @@ Owner 后已明确“允许放行”；同一 06 测试者按上述已审脚本�
 
 4efa 之前一次 bundle 传输准备调用在非仓库上下文执行裸 `git bundle verify` 而 exit 1，发生在 fetch/checkout/测试之前。开发侧保存的 `setup-attempt-1.log` SHA256=`b20e21701a211cd8bfa8378ee775eb05798e1ddaf14257b9b40a6b12d6562a61`，文件自述为事后从工具调用与返回誊录，不是原始独立 shell argv 日志；它能支持错误内容和已知作用范围，不能伪称实时原始日志。按 DC68 从 bundle verify 步骤修正仓库上下文一次并继续；该准备错误不计 B 产品失败或预算修订轮。
 
+### 3.2 4f1 lint 与 b634 首次 workspace test
+
+4f1 原日志 `/home/dev/gdds-test-tmp/p6-s3-b-4f1bd419/logs/run-final.log` SHA256=`a42bdce9329c5d69aa532ba5c768d347bfc87a42fbc5a21b1784c04829251a29`，脚本 SHA256=`deb6067775f1935b42c5746677d3254d59fc57996605b58ba95235637d0f636e`：06 主机 23:08:53–23:08:56Z、起止 HEAD=4f1、六锁不变、fmt 0、workspace clippy 101、后续未跑。19 条 lint 为 ordered lib 的四处多余借用、一次末次 lease 借用、一次嵌套 if、一个 gap map 类型、一个多参数函数，standard lib 两个多参数函数，以及 standard tests 九次不必要的 clone。固定 `16828ad1d961ce89afebbce49d642c36066572a2` 逐项改局部语法与测试借用，三个 `too_many_arguments` 仅在对应函数带职责理由局部允许，未新增参数框架；`b63409b3d8c5cef309818ba816f2b6187b3694b0` 相对 168 仅为两份 Rust 文件机械排版。本人已按固定 detached diff 核准，无算法/预算/expected 改动。
+
+b634 唯一 06 原日志 `/home/dev/gdds-test-tmp/p6-s3-b-b63409b3/logs/run-final.log` SHA256=`a8263f71cc1130610bb8dc79caf68ed176f105493be4632bef07f8535c705c78`，脚本 SHA256=`df6729ad786526013175451c66a98945f2225696b2fbda0097b14169f587a0fe`：23:19:58–23:20:33Z、起止 HEAD=b634、六锁不变、fmt 0、workspace clippy 0、workspace test 101。architecture 的 21+13 项通过，core 72 项为 57 pass/15 fail，按首失败未做 backend、Python、真实数据或五包静态。14 项新 standard test 的共同失败是合成 fixture `BIGINT/signed-integer` 将 `declared_type.bits` 写成 null，被正确的 canonical metadata 校验拒绝；实际 S2b `canonical_ipc`/Python `canonical_columns` 对 BIGINT 写 bits=64。另一个旧 prototype 测试的 `max_rows=1` 曾返回 `DEGRADED/RESOURCE_LIMIT_EXCEEDED`，新 `read_side_batches` 无条件把同码上抛，违背仍冻结的旧 prototype 行为。两个原因均不同于 ac21 已关闭的 operation M 预算预留根因，不能据此触发预算第三轮阻塞或放宽生产校验。
+
+固定 `04afdbb3d23a04d24df347d7aaafe6efc611b26f` 仅在标准测试 helper 为所有现有 BIGINT/signed-integer fixture 加 `bits=64` 且断言 SQL 为 BIGINT；ordered 的两处 read-side guard 限 `context.is_some() && is_control_or_resource`。旧 prototype 无 context 的局部 max_rows 继续退化；新 batch 有 context 的资源、取消、截止仍上抛。本人 detached 静态核该精确边界，Rust tree=`4ec29584b643ac6daac4d14dc3367f62cb5377e8`，未冒称其已经运行通过。
+
 ## 4. 容器与后续证据
 
-本轮最新受审固定 HEAD=`4f1bd419dc7d66da0cb1b8bd0c5de59c6df8587c`（前轮 4efa，增量仅编译 iterator 绑定）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/4f1 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/4f1 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
+本轮最新受审固定 HEAD=`04afdbb3d23a04d24df347d7aaafe6efc611b26f`（前轮 b634，增量为合法 S2b 测试夹具和旧 prototype 局部退化）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/04af 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/04af 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
 
 完整 B 候选还须有 06 clean 已提交 worktree 的 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止与 t1–t4 v1/v2 按表差分；八个输入 SHA 须逐包对照 `datasets.json` 与 P5 S4 handoff §8，旧 expected 来自 Contract/A/冻结 Python。B 不跑完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能；这些留后续阶段对应节点。最终独审需核原始日志/脚本/摘要与手册边界后再给 GO 或明确 finding。

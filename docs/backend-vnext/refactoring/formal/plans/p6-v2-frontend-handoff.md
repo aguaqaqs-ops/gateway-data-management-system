@@ -6,6 +6,8 @@
 
 `POST /v1/archive-plan-preview` 保留 selected、candidate_set_digest、selection_subject_digest、blockers/can_start，新增 `business_validation`（rule_id、baseline_facts_digest、source_diagnostics、time_comparisons、issues）。各 anomaly 增加 affected_submission_ids、side、relations、details、detected_status、resolution_status、latest_sequence、accepted_by/accepted_at/reason。应分别展示原始诊断与处理状态；接受后来源仍可能 UNEXPLAINED，时间仍可能 NOT_COMPARABLE，不改为自然通过。
 
+3c 完整候选的 `ArchiveIssueDetailsResponse` 是按 issue 区分的闭合 union：SourceIssueDetails、TimeQualityDetails、BaselineTimeDetails、TimeRegressionDetails、EmptyIssueDetails。按 subject_kind / issue_code 渲染相应内容，最终类型从实际 OpenAPI 刷新；`audit.subject` 保留 exact preimage，不补无关null或自行补齐另一种issue的字段。此为7878提前包之后的具体结构细化，权限/业务流程不变。
+
 新增异常分类与接受 action：
 
 | subject_kind | 接受 action |

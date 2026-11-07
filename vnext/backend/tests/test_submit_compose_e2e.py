@@ -20,6 +20,8 @@ from tests.support.compose_gate_harness import (
     PROJECT_ID,
     SESSION_TOKEN,
     cleanup_compose_project_artifacts,
+    capture_running_container_provenance,
+    persist_compose_gate_provenance,
     compose_auth_headers,
     compose_project_name,
     read_repository_catalog,
@@ -280,6 +282,8 @@ def test_compose_accept_upload_import_poll_t3_read_journey(tmp_path: Path) -> No
         )
         assert journey["submission_id"]
         assert journey["preview_result_id"].startswith("pr-")
+        provenance = capture_running_container_provenance(env)
+        print(f"compose gate provenance written to {persist_compose_gate_provenance(env, provenance)}")
     finally:
         down = run_compose(env, "down", "-v", "--remove-orphans")
         if down.returncode != 0:

@@ -359,3 +359,18 @@ CT108新WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-t3-calibration` 的source0/另ca
 主推荐不是按charged乘比例。最紧native阶段只作canonical IPC验证/借用，现每call input上限1GiB、descriptor metadata16MiB，N1；parser/business/encode在低retained阶段，比较高峰后是已有增长前准入的Python/Arrow/Parquet。既有t4原log550850f0…按已审963c恢复口径再次仅内存解析（仍17records/去32个原Docker片段、逐项与既有恢复报告相同），最大inspect retained5856116946 B；在相同未改收费下映射至已实际通过的82/M16，其窗口约10.546066GiB。新t3 M24的15.622567GiB窗口更宽，且M24满足上述t4 M16+Δ的保守条件。该对照是保留已通过cap的论证，不把旧stage ceiling当实耗，不追加allocator/probe或逐档试。8GiB reserve仍给解释器、未完全计实native与pagecache/平台余量；最终硬限效果以新档实际fresh t3为准，不保证2×t4或正式W1/W2。
 
 06维护另由协调者实核：96GiB/16CPU/cpuset64–79、Docker/Compose与缓存/镜像保留，03:40:47Z释放，核查log SHA `b871048d3922eb58dd53fc5826f85720464712386bf5f59c71695b0324a1cc99`。仅维护，无产品/测试变化；此前06定向仍按原执行时环境引用，后续任务按已恢复节点用途开展。当前main未改最终profile、未启动最终新门禁；表与DC33范围建议一次交Owner选择，E仍NO GO、S2b exit另办。
+
+## 最终证据接收清单（待Owner定案）
+
+协调者测后提案 `1f02f9e76d` 已读，main相对464无新vnext差异。配置主案32/8/M24、备选40/8/M32；DC33主案本轮06 fresh t1–t3，备选仅t3并显式接受t1/t2新档容量未证。06本轮真实旅程用途与范围同在Owner问题内，尚未定案；此清单仅接收最终证据，不是逐版本前置GO链，不启动验证或重审A–D。
+
+| 接收项 | 最终必须明确的事实 | 已有证据如何使用 |
+| --- | --- | --- |
+| Owner定案与固定V/H | 精确配置字节、选定DC33范围及本轮真实旅程节点；最终产品fullSHA/clean、显式M/缺失拒启、N1单active、无临时cal logger/默认M；464之后仅预期profile/owner差异 | 464漏预约窄修/93项、FD修复与A–D累计条款按本报告已有范围引用；不重复旧恢复/取消/事务/CAS证明 |
+| 06必要定向/静态与实际环境 | 新profile现owner的正向接线/上限拒绝、backend Ruff/mypy；五包静态逐项给实际或准确未影响来源，额外工具未改不重查。实际WT/venv模块/directurl、native tree、离线缓存/镜像/输入身份及有效占用随原始日志记录 | 06维护b871048d…仅硬件核查，不能冒测试；与profile无关的93项可按精确diff复用，不再跑同代码owner；旧五包静态不冒权威runner |
+| 04六包实际权威与当前Compose | 同一固定V整次runner0、六包实际passed、Rust fmt/clippy/test齐，起止HEAD/clean/hostname/UTC/退出码；六份starting manifest逐字来自该原log并记录总摘要/SHA；当次当前本机build与Compose provenance/image身份 | 新profile触及共同deploy，不能carry旧82 Rust或三小包。旧82仅作已合格回归来源；同V backend批次内Compose已经满足，不另重复一组 |
+| 最终真实旅程与资源 | 若主案获选：06按现场占用fresh完整t1/t2/t3，各自同节点完成；若备选获选：仅fresh完整t3。现CLI明确tier/full/N1/最终M，无resume/from-step；原输入身份、同worker、HostConfig/cgroup max/peak/events与VmHWM原值、正常stop、日志/清理/释放及实际终态齐；最终main无cal计数日志，不要求临时counter | a10/M48只作测后依据，不能代最终档。t1/t2若省略，记82功能结果复用和新档容量未实测，不补PASS；t3原82失败保留，新结果单列。失败按既定DC80保现场诊断，不自动换备选M或盲重跑 |
+| t4具体功能沿用 | 最终M≥18678133632 B，464后无其他输出/reader/规则/控制或算法变更，继续N1单active；绑定82完整t4与6cb5fba0…费用上界/remaining分析 | 两提案均满足数值门槛，仍须核最终实差异。沿用13ac186d…/004a026b…完整业务结果；旧24/M16物理峰保持原profile，不冒新档t4实测，不重做完整t4 |
+| 最终H与释放/结论 | 最终H与合格Source V在同04/同gate WT实际逐包closure compare，原Hypothesis路径不存在、环境/本机镜像状态匹配；RS helper重算source/build-input身份，backend按同WT闭包绑定；记录最后current image来源、各node实际释放与证据留存 | 不凭docs-only口头carry，不从失败runner摘包，不链式引用carried。WT留至stage exit，原失败/三代数据保持。W1/W2未知及原W4 OPEN不写PASS；E最终GO/范围与DC86 S2b exit分别办理，push/tag归协调者 |
+
+上述清单不新增容器组、allocator探针、输入生成、持久evidence机制或审批步骤；范围由Owner一次选择，后续只审实际差异与最终原证据。当前仍为准备状态，未执行新验证。

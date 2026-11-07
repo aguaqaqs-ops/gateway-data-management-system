@@ -2934,3 +2934,13 @@ BatchMode确认05后，直接读取闭合 `ct05-image-guard-validation-d2ffe1ac.
 本审核直接在CT108重算实际approved record SHA仍 **01cf16ea7882bb8ce89420617be8deafa359e20a334e3db4bf1590388e714d01**、真实输入manifest仍 **11958befddf729cfe769cc1d3576321a3a3e89cc8ee4cb80697134ff8a634061**，不是新生成/重新验输入，继续§130的census与冻结身份结论。22:29:55.567296Z只读元数据独立观察hostname=gw-dms-test、实际HEAD精确d2ffe且status空；CHAIN_OUT存在且空，scratch、project runs、controller.log均不存在，node lock也不存在。此前准备期取得锁的§130历史记录保持，不能冒称当前仍持锁。
 
 已明确告实施者：**按原机制先取得自有node lock并做原现场单飞/资源/镜像核对，再执行该命令。** guard自身在进入业务前要求owner文件的session=p6-baseline-measure；当前缺锁不能裸跑，不要求为此改controller、增加许可或另换未用身份。保护器中三镜像完整校验及临近start的同节点重核继续生效，禁止build/pull；失败保存并遵守原停止/收尾，不原样自动重试。后续实际启动与结果仍待实施者交回，测量中审核不作节点探测或大文件取件。04新H门禁及正式record/comparator收口保持独立推进。
+
+## 135. DC63单次启动已报，closed锁/三镜像预检原件独立核验通过
+
+实施者报告按§134原命令于22:34Z单次启动，当前仅至初始化阶段；本节**核验启动前材料，不认定业务步骤或最终结果通过**，不以存活PID、CPU/RSS或compose_images_ready代替成功。原预算/停止/保留证据条件保持，不重置时钟、不重试。审核者测量中只读取下面两份closed小日志，经LAN存§131审核目录；未探测进程/容器/端口、重算Docker身份或扫描数据目录。
+
+CT108 `node-lock-acquire-r1.log` SHA **`f83f4f3c1e771e400e41cf22cd986bd32286d312c1c18fad5ba5d8934bc360a8`**、`prestart-image-identity-r1.log` SHA **`173f9ffa5d00b86485b35f68fc0cf5c58c4fe430d10cddf28c5fda246257b92f`** 已BatchMode确认后直接读取、两端重算相等。原件位于 `baseline/prep/p6dc6320261107a/`。前者22:33:24Z、gw-dms-test、d2ffe clean，记载running/project containers、项目volumes/networks和8000均空，成功取得准确session=p6-baseline-measure、project/worktree/HEAD及用途对应，preflight0；这是当时预检结果，不是审核者新做的现场扫描。
+
+后者22:34:08–19Z、起止d2ffe clean、readonly_identity_exit0；实际context官方身份3456/319，冻结RS label4497/319，build_input_revision_match=false、source_tree_match=true、compose build/pull=false。审核者在CT201只读解析已复制JSON，先重hash§124已认证原input-images.json仍精确01cf16ea，再独立逐服务比较config digest、全部有序DiffID、labels及同节点immutable ID/approved source tag，backend/worker各15层、RS28层均相同；不是仅信JSON自报MATCH，也不把跨节点inspect ID当config SHA。wrapper原文件SHA **`4465c9f9bec7abb6b5517350dcbf7269df9c0d079e8b6665f501aa2882f248b4`** 与本审核d2ffe detached副本字节精确相等。
+
+上述启动前两项材料无新增Finding，结论直接交实施者；实际controller/旅程/coverage/V5b及收尾的最终原件仍待运行交回集中独审。测量期间仅必要既有阶段/采样日志低频观察，不追加大取件或全身份重扫；04新H门禁和正式记录在独立节点继续，不因等待本长运行新增许可或整体暂停。

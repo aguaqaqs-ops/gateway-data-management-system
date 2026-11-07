@@ -56,6 +56,8 @@ Repository Service原官方预置依赖分支仍可在04离线构建，不被上
 
 **core主文件的有限派生路径（2026-11-07）：** 接续审核者只读文件核验报告，bb348 before-History源现为主DB、32768B SHM和空WAL三文件，完整目录仍与原checkpoint不符；主DB单文件按原摘要字段的投影则精确等于原control树`4baede398e55e77569836c0b51c98d1edd6b7aab6451b7cbb7d9793ff6d1aad4`、2150400B。本次不恢复或修改源目录，也不把当前源全树标MATCH。允许保留原三文件及实际差异记录，只复制该已认证主文件到新私有目录，开库前用原算法核验私有目录的**完整树**精确等于原checkpoint，再在专用节点复制件提取同run worker步骤及H1历史DB字段；逐项保存原state/operation ID、复制与提取节点、文件/目录摘要及派生结果，由接续审核者核实际资格。此路径仅补历史记录，不用于业务恢复、checkpoint续跑或carried，不泛化为忽略WAL/SHM的摘要规则；H1实际缓存对象仍须各自来源核验，不能仅凭DB字段宣称健康。不要求唯一定位旧SHM创建者作为新前置，主文件/空WAL/复制前后完整摘要等实际条件不满足时停该派生并具体诊断，其他任务继续。
 
+**历史补证交付状态（2026-11-07）：** 接续审核者已明确通过合并sidecar `9bdce65c7e519cd56264c1f01b73f3d5ee7829e8fad173b1a5555c09ba7a03de`，范围限FULL/STRESS/core三来源的历史worker步骤及core H1查询起点输入条件：05实际提取、源DB/私有目录身份、7个operation/21个UTC步骤与认证state一致，原H1 compare起点07:36:37.829Z的342条缓存记录及实际引用对象/JCS引用逐项相符，过期、缺失及内容差异均0。artifact整个目录未重新hash的限制明确保留，此次只认证这些引用对象；core当前源全目录MISMATCH及私有原main完整MATCH分别保留。实施者可直接在派生record中消费该旁证，不改raw的none、cache_after或命中计数，不转为业务恢复许可，也不为修改sidecar内原REVIEW_PENDING字节再签一轮。该项从待补证扣除；完整record/comparator、DC63/V5b及04门禁仍须各自完成。
+
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
 
 ## 工具、镜像和时间预算

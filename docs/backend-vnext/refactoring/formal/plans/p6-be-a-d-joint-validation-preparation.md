@@ -106,4 +106,6 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 
 ## 9. 最终核收待填
 
-原实际产品tree0301，两test修订后tree220ba5尚待全失败闭环；04 workers48/六包及Compose、05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。当前04有失败，不具最终GO；尚无合格最终六manifest闭包、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。
+当前候选49403/tree567201，F6及三文案修复的必要诊断均通过；原独审`9c0e098bbe`正式接受05 a999旧成功路径的有限步骤引用，来源/新增分支边界见上文。最终04六包仍在执行，末exit/六manifest/current images/资源收尾及最终handoff待核，尚无联合最终GO。
+
+拟提交Owner的DC33最终真实数据范围为：05实际a999一次fresh t1（18步、v1/repeat MODIFIED_ONLY及v2 FULL双pair、四完整Preview/History tar，按实际49403 diff限界引用）；异常/关闭重提/self-only及新增同码双side由04当前Compose、原owner和本次共用复现覆盖。不新增t2/t3/t4或性能测量，不把未知W1/W2值记为通过。此为具体范围提案，**尚未取得Owner最终范围确认**；门禁/独审齐后交Owner确认，再按仓库规定另办退出。FE3同tar解析/摘要/OPFS证据独立pending，不把后端核收当FE3完成。不推送、不改写引用提交、不自动打退出tag、不启动S3。

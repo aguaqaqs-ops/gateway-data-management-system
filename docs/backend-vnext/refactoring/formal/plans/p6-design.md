@@ -170,7 +170,7 @@ Dolt 始终是已提交数据的权威来源；规范表存储中已提交表的
 - **未变化的完整条件（D）：** 两侧都存在，且表摘要、schema digest、存储视图与投影版本都相同。仅表摘要相同不够（零行表不同 schema、只改可空性等）。
 - 满足完整条件的表：不读基线行、不做行比较；facts 的行数与 `UNCHANGED` 来自 manifest。ordered 表另按 §4.1 用当前侧的规范行计算逻辑摘要与 occupancy 摘要，计算发生在 assemble 中、按每个 pair 一次（S1a 用 Python，S3 起用 Rust），健康缓存命中时直接用 diff/risk 缓存（§11）。成本计入 §16.1 的 e 项。
 - **当前侧的规范行来源：** 是本 pair 的当前侧，不固定为 MODIFIED：MODIFIED_ONLY Preview 为上传的 MODIFIED；FULL Preview 的两个 pair 分别为上传的 INITIAL 与 MODIFIED；History 为各 pair 的 current commit（三节点时分别为第 2、第 3 节点）。读取经 materialize checkpoint 的 artifact reader（S2b 起为规范表存储的 IPC reader），不依赖上一步 Python 对象存活；History 经存储，缺失时从精确 commit 经 Dolt 兜底（§8.2）。
-- **单侧计算的实施约束（第 2 次复审 §7.3）：** 有效 pair 策略仍按现行方式由两侧描述符与存储事实构造（`comparison/pair_planning.py`），不能因只读一侧而把基线侧描述符设为空；行编码与 blank provenance 使用规范行及其规范 metadata（`CANONICAL_PSEUDO_GID`），不按原始 SQL 重新解释；ordered/blank status、replay guarantee、schema facts、policy digest 等 facts 字段按既有结构填充；现有 schema 诊断与行读取异常的 degraded 语义保留，不能仅因 manifest 相等就强制标为 `UNCHANGED`；**不得复用 `_compare_single_side`**——它表达的是整表新增或删除，会产生增删记录与不同的 blank 摘要。
+- **单侧计算的实施约束（第 2 次复审 §7.3）：** 有效 pair 策略仍按现行方式由两侧描述符与存储事实构造（`comparison/pair_planning.py`），不能因只读一侧而把基线侧描述符设为空；行编码与 blank provenance 使用规范行及其规范 metadata（`CANONICAL_PSEUDO_GID`），不按原始 SQL 重新解释；ordered/blank status、replay guarantee、schema facts、policy digest 等 facts 字段按既有结构填充；现有 schema 诊断与行读取异常的 degraded 语义保留，不能仅因 manifest 相等就强制标为 `UNCHANGED`；**不得复用 `_compare_single_side`**——它表达整表新增或删除，其 status、side/schema/count 事实不同于未变化表摘要。2026-11-07 S3 B 按固定 `4d5a4b0d98` 源码核正：当前该分支不产生逐行 records 或 ordered/blank extensions；会生成单侧逐行记录的是旧 Rust 原型，不能迁入生产。此处更正旧说明，不改变 S1b 冻结语义。
 - 变化表与删除表读取基线：S1a 中经 RS 逐表读取（规范表存储在 S2b 才有），并发 ≤ min(N, RS 有效容量)（DC47 第 6 项；S1a 可先顺序读取）；新增表没有基线可读。
 - History 的两个节点使用同一套完整条件；整表数据的读取随 DC41 的打包进行（§5.2）。
 - 计数断言见 §16.2。

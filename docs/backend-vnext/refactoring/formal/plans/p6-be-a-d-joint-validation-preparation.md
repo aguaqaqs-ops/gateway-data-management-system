@@ -154,4 +154,6 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 
 七步依次为RS预核→当前130674原config/全DiffID预采→四包compare→实际差异union至少backend/RS权威runner→同RS后核→新provenance/schema唯一copy→按原snapshot immutable IDs取身份。compare/authority使用完整原字面profile：原六包名（authority内部依法覆盖选择）、48workers、d054 preload1、build networknone、custom RS a999tag、RS base6dc、client依赖base local，prebuilt/BASETemp unset；node guard继续offline/Cargo4/PATH。compare返回exit0不代表可沿用，脚本解析`status`且只接受“可沿用/运行”，后者并入runner实际范围；subset脚本单独记录original_runner_exit并硬核RS前后ID仍130674。
 
-postcopy仅接受**新**guard原log的49403/实际UTC区间/command-final0/owner真/RS input unchanged，取mtime落新区间的原provenance和唯一原schema（resolve去除pytest-current别名），rawcopy相等/SHA、新目录、awareUTC；不复用q57或旧时间。未来实际目录/时间批准后才产生，届时执行前由原审核实真实参数，不预造未来值。当前静核结论及Owner决定随后追加，未知值不是开工许可。
+postcopy仅接受**新**guard原log的49403/实际UTC区间/command-final0/owner真/RS input unchanged，取mtime落新区间的原provenance和唯一原schema（resolve去除pytest-current别名），rawcopy相等/SHA、新目录、awareUTC；不复用q57或旧时间。未来实际目录/时间批准后才产生，届时执行前由原审核实真实参数，不预造未来值。
+
+原独审已全文核五份最终文件/完整七步literal模板并重算五SHA，**方案A整体静核通过**，无剩余静态阻塞；未执行/bash-n/安装/节点操作，不是恢复授权。协调已于13:58Z向Owner正式提交一次A/B选择（推荐最小补验，或保持pending交接释放04），理由明确引用AGENTS DC68身份异常停止条款。**当前尚未收到Owner决定**，后继执行继续暂停；没有自动超时批准，也不把已给的小节开工授权套成本次身份异常恢复许可。方案A使用受影响包完整权威入口及其中Compose，05不重跑；四包是否可沿用仍只按批准后的实际compare。

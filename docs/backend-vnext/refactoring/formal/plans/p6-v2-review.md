@@ -6,7 +6,7 @@
 
 V2 产品起点为 `5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`，协调启动提交 `d0add6bd16ff8ebb902d849a5feef2529713f3de` 只改文档。基线只读 detached worktree 为 `/home/dev/gdds-reviews/p6-v2-baseline-d0add6bd16`，clean、legacy 链接已核。V1 当前最终产品为 `c229582a9e72a591cf00a70de526b1b0792c1c18`，handoff `6183ae3ca4`、独审 `5dc01deeb5` 已关闭 F1–F5/N1；不沿用早先 3dd GO 的完成含义。
 
-**当前已完成准备及首个子候选静审，尚无 V2 产品 GO。** 完整固定候选和专用节点证据仍待本角色复核。设计 GO 不能替代产品审核；04 联合权威/必要 Compose、05 fresh t1、D 与 FE3 不在当前结论内。
+**V2 本节最终 GO，F1–F6 全部关闭。** 最终产品为 `f8fb796f020ab47725359c176fc0e53bfb68aae6`，固定 handoff 为 `3cd4400f9fe794c3126605ffd8abac7f81830b64`；本角色已独立复核代码、原始证据及清理，具体见 §9–§11。04 联合权威/其余必要 Compose、05 fresh t1、D 与 FE3 不在本节结论内，不办理联合 exit 或启动 S3。
 
 ## 2. 风险与唯一验证 owner
 
@@ -88,3 +88,76 @@ Joint final gates: 04 权威/必要 Compose；05 fresh t1，仍待联合最终�
 同 helper 只比较当前 Submission 的 configuration facts digest，不比较 selected `repository_commit_id` 与冻结 Plan/Node。若成功后该字段损坏为另一合法字符串，helper 仍可通过，而 `start.py` replay 再从当前 Submission 取 baseline commit，返回与原 Plan/Node 不同的值。须校原不可变绑定，并从冻结 Plan 返回原 commit；损坏硬拒。既有 `assert_submission_attempt_binding` 并不检查 repository_commit_id，复用它也不能代替这一显式绑定。不得为该修复引入当前 occupancy/Head/新候选门禁。
 
 F5/F6 已直接交原实施者处理。另要求 audit owner 用一个两成员来源组 consumer smoke 核完整 states/edges/affected 冻结及接受后仍 UNEXPLAINED，不复制纯图矩阵。本角色仍未执行产品测试或占用节点；尚无整体 GO。
+
+## 8. 完整候选 3cce25c72a → 996f0935d5 复审
+
+新只读 detached worktree 为 `/home/dev/gdds-reviews/p6-v2-code-3cce25c72a` 与 `/home/dev/gdds-reviews/p6-v2-code-996f0935d5`；均固定、clean、legacy 已核。3cce 补齐原 confirmation 的冻结 sequence/scope/CONFIRM/个人请求 fingerprint 验证；全部冻结候选由原 Submission 字段重算 candidate digest，并核 Attempt 绑定、selected commit 与原 Plan。Start replay 从 Plan 返回原 commit，完整性复核不使用当前 Head/occupancy/新候选/latest 审计门禁。F5/F6 的丢失/损坏原确认和 changed commit 共用小参数表在事务 owner 验证。
+
+F1–F4 原修复维持；来源组的真实 SQLite audit consumer 证明完整两成员、三状态、两边及全部 affected facts 冻结，接受后仍 UNEXPLAINED；audit +1 max、HTTP/application 的 bool/字符串/float/指数/越界小向量已补。诊断响应改为 issue-specific closed details union，公开 subject 不插入无关 null；原 HTTP owner实际重算响应 subject 的 v2 摘要。新增 golden 只冻结 candidate/close-request/business-anomaly 三个最小消费者向量，旧业务 golden 未改。
+
+四份 owning 正文已同步 Business Lifecycle 6.0.0、P5-5C/5D/5E 目标条款、统一处置与 DTO。996f 的两处 P5-5D 清单精度修正已核；本轮没有新 facts/checkpoint/Rust/lock 版本或兼容路径。benchmark 从显式 `GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON` 逐项取 reason，缺理由拒绝；其 MockTransport consumer smoke 只证明请求接线，不冒称真实生产 wiring。FULL 入口及完整 tar 仍交 D。
+
+3cce 新增唯一真实 Compose 旅程 `tests/test_archive_compose_e2e.py::test_compose_business_rejection_manual_close_and_fresh_upload_archive`：真实 Upload/Preview/Submit/APPROVE 后因时间缺失拒 Start，显式关闭、不变 Head/main/commit 集合，保持 APPROVED，再在同 Workspace 新上传/重提并有理由接受后归档。真实 wiring、当前 image provenance 仍待实际结果。既有 Archive/History Compose consumer 仅同步新增异常及处置字段，没有新增权限矩阵。
+
+996f 只改上述 Compose 的 OpenAPI 导出、既有并发 fixture 规范 facts、benchmark Mock 响应和两处正文；未修改产品 src。第三轮两项失败分别是额外 pending fixture 未归一 V1 facts，以及 Mock Archive response 漏已有必需 baseline_node_id；修复未放宽门禁。相同两文件增量 71 项 exit 0 已核，未机械重跑无关 399 向量。当前没有未修产品 Finding，整体结论仍等待剩余证据。
+
+## 9. 最终 f8fb796f02 证据核收
+
+最终产品/容器候选 **`f8fb796f020ab47725359c176fc0e53bfb68aae6`**，新只读 WT `/home/dev/gdds-reviews/p6-v2-code-f8fb796f02` clean/legacy 已核。相对 3cce 的 product src 不变；f8 仅加强同一小 Compose：新上传两侧真实包含 `version_manager.saved_time=2026-11-07T12:00:00Z`，断言不再有 GENERATION_TIME_MISSING 后归档，不以再次接受相同缺失代替纠正重提。
+
+全部执行在 **06 / `gw-dms-06`**、clean committed WT `/home/dev/gdds-test-tmp/wt/p6-v2`。证据根 `/home/dev/gdds-test-tmp/artifacts/p6-v2/`，最终 `evidence-index.json` SHA256 **`cc505fe5a1a1776191a8ab599b7433784460a47f004fab2398e3459b9c611efb`**。本角色只读逐项重算 **37 份 runs 日志与 13 个附件**，全部相符，并核 hostname、起止 HEAD/UTC、exit 和 clean；实际读取执行/身份/释放脚本，没有仅凭索引作结论。
+
+| 实际日志 / HEAD | UTC | 结果与 SHA256 |
+| --- | --- | --- |
+| `focused-second-7878e41ad3.log` | 10:13:33–10:16:49 | 非 serial 419 passed，exit 0；`417b1c34a86c82f288e4ba84a682b613bd617108eaf53b10692d10ab24aa1ed3` |
+| `focused-third-3cce25c72a.log` | 10:23:41–10:26:55 | 497 passed / 2 failed，exit 1；`c53881907f0a3086aff8c46ae62efe2769331b99bd1502e13cc5c4d8d1a53dbe`；两项修正见 §8，不隐去失败 |
+| `focused-final-996f0935d5.log` | 10:28:18–10:28:23 | 仅受影响 concurrency/benchmark 两文件主体，71 passed，exit 0；`9b4aa071bee9b2c64c697e895a84c1c6b27f9976d3bb41fc07083cdcac6a6c72` |
+| `focused-serial-f8fb796f02.log` | 10:30:29–10:30:31 | 相同最终 13 文件选择的独立串行批次，2 passed / 499 deselected，exit 0；`39cfbcac84b30f7e914d00242b84dc7188ea236b1dd79e695e28164a58816e3a` |
+| `ruff-backend-f8fb796f02.log` / `mypy-backend-f8fb796f02.log` | 10:30:29 | 全部通过，mypy 509 files；SHA 分别 `ca47992d64c1fb547b0fa6001d79a6a1992da94438b3bbadfad059fce79c1feb` / `207f0d9b931efe6506cde21e639c8e748f957e7b50653c3794501103a7d562af` |
+| `compose-business-f8fb796f02.log` | 10:34:57–10:35:37 | fresh 当前小 Compose 1 passed，exit 0；`4a6c36dfa2d710e126b849f2284eba60b578034a810d3e3f05537544d7b2bc0b` |
+| `extension-build-input-f8fb796f02.log` | 10:37:58 | expected=installed=`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`，exit 0；`77c07547df3fe624f6a4c5dc3beb21816e3479ea373aa77ffedd76dcb76f2114` |
+| `node-release-f8fb796f02.log` | 10:39:24 | 清理/核 owner 后释放，exit 0；`a93667718f9f49c727fc7dde4186a3d5af65398989786f6fb9f4b812243eccbb` |
+
+非 serial 命令显式 `-m '(not serial) or parallel_safe' -n 4`，serial 显式 `-m 'serial and not parallel_safe' -n 0`，均经 `uv-consume.sh run --no-sync`。第三轮选择为 Archive business/queries/audit/transactions/concurrency/HTTP、History projection/HTTP、Review HTTP、schema/OpenAPI/architecture、real_dump_journey 共 13 文件；其 src 自 3cce 至 f8 未改，只有已补验两个测试文件及实际 Compose 增量。来源按实际运行组合引用，不声称 f8 单次全选 499/0，也不冒称权威包 carried。399 个真实 application 接受引用与 200 dispositions 的正常反例、1601/1602 shape、原 256 KiB 字节门禁、时间/图/关闭/回放/History/HTTP owner 均在上述实际选区。
+
+其余四 Python 包在 7878 各自 locked sync、ruff、mypy 实际 exit 0，完整日志在索引；这些包及锁/工具链随后未改，backend 在 3cce/996f/f8 实际重验通过。35c4 初次强制 `sync --reinstall-package gateway-compute-python`（SHA `7769fce6203d865b54bcc5a4b11920e22ff2b39de8cc7d20996aa95a495e3be9`）使用当前 Rust tree 构建；3cce focused 前和 f8 均明确检查 build input。Rust 源码未改，没有为本节重跑 fmt/clippy/workspace 测试；现场 selector 核四工具同为 1.97.0 工具链。初始 374 passed/8 failed、所有静态失败和一次未触及产品的 FETCH_HEAD 操作错误均保留于索引；后者改显式 hash 后只重做一次，未抹去旧日志。
+
+生产 HTTP 实际导出的 `openapi-f8fb796f02.json` SHA **`e937a38e8073abebb406138e9be2ca2bd61eb25ac8fda9d9adabee56fd2abda1`** 已读：closure 首次 201/replay 200 及 403/404/409/503，Start refs 1/1601，History 新处置字段、closed issue-specific details union 与已审代码一致。该制品供 Owner 手动交前端；不宣称 FE3 已实现或互通完成。
+
+## 10. 当前容器身份、缓存与清理
+
+测试/harness 实际改动触发当前重建。f8 以本机预置 dependency-base、保留 Compose build、`GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_DOCKER_BUILD_NETWORK=none` 运行；prebuilt 未设，UV/Cargo offline、proxy unset、外置 TMPDIR/target、jobs/workers4。backend 完整 dependency input 仍 `d054366c02fa2a284948610e47b1c07bbdba98684b847846ca922d7da3d57aad`（日志 SHA `8030b4c2c0b03753d4266ff3616ffd7482be80a7fb4fa86430268e9a7ad0cdd6`）。没有 lock/base 变化或新制品传输，使用 06 既有本机预填缓存；来源沿 V1 handoff/06 readiness，不伪造新预填时间或代理取证。
+
+`archive-business-provenance-f8fb796f02.json` SHA **`4c7e6a26c3d7edcc990de96341699cd43fb4ca017f3abb3f375c70aeb1d0808c`** 记录实际运行镜像：backend 本机 ID `sha256:b7f6f1134cf74d2634f4a1ce125d77c31fae18ea28bbc5e2a4b17be8771c6066`、worker `sha256:47b43ab447e19ac4582a4c075fe191a6995032c59a9c1806b420d1e7afe2490a`、RS `sha256:60e180bf0a4f6e66b22e6360f5e0de8898b91d3761f8e97eabc726061ed9af82`。
+
+`image-identities-f8fb796f02.json` SHA **`d848e614bad84661db11695cd85cb523ee5847c4e09b66ca12c641d01ff5e7bf`** 的 config digest / 全 DiffID 已与实际本机 inspect 元数据和运行 provenance 对应；身份脚本从 `docker save` 的真实 config bytes 计算 SHA，未用 inspect ID 冒充 config digest：backend config=`sha256:99188ad41cef18addc3e6760b45b7fd144a0e0f7fc6e51f0de137e7ac0bfc2b1`、worker=`sha256:7485e3f252d6cfd6ea4371a7f263913cdce2e392b8535e89369ed14dc312c028`（各 13 DiffID），RS=`sha256:13292c3de726f47e85e8fa649a9ef65a1251a13aa8ba3755f6cb23cd9abadd5c`（28）。RS tag `gateway-repository-service:v2-f8fb796f02`，revision=f8，build-input revision 仍 a687，source-tree 仍 `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。三个预填 dependency-base 的 config 与全部 DiffID 已另与 V1 c229 原 JSON 逐项比较，完全一致。
+
+marker 实际 birth 为 10:00:14.111Z（owner 文件声明开始 10:00:00Z），不是上节 09:36 释放；本任务在 10:39:24Z 核本人 owner 后释放。本角色另只读现场确认测试 WT clean/HEAD f8、legacy 正确、marker 不存在，本 project 容器/卷/网络为空、8000 无监听；释放脚本核无 Dolt/pytest/cargo/rustc/clippy 进程。V1 与 F5 原 WT 保留，未清理他人资源或旧基准。
+
+## 11. 固定交接与最终结论
+
+固定 handoff **`3cd4400f9fe794c3126605ffd8abac7f81830b64`** 已在只读 detached WT `/home/dev/gdds-reviews/p6-v2-handoff-3cd4400f9f` 核收，clean/legacy 齐备。它仅追加实施交接，`vnext` tree 与 f8 同为 **`3860ed86194e4eafea9cfd408e7e7b5096b24bbb`**，backend src tree 同为 **`3ce20974cca67dd5a9d0aa1fe40763b78b752af5`**。字段、规则/版本、DTO、实际运行来源、失败与修正、缓存身份、生产 OpenAPI、释放和延期均与本角色原始核验一致；未以 handoff 或本报告冒充新的产品运行。
+
+| Finding | 最终状态与权威 owner 证据 |
+| --- | --- |
+| F1 INITIAL_EMPTY 时间适用性 | 关闭；纯规则真实 INITIAL_EMPTY 小向量与三关系 N/A，3cce 实际选区通过 |
+| F2 跨目标 CLOSE replay 完整性 | 关闭；same/cross-target 原记录坏绑定在冲突前硬拒；合法跨 actor replay 与当前权限在 HTTP owner 验证 |
+| F3 candidate Attempt typed 503 | 关闭；窄 mapper 失败转换，HTTP owner 实际 `raise_server_exceptions=False` 验 Submission/Attempt 坏 facts 均 503 且无业务写入 |
+| F4 Head 安全整数溢出 | 关闭；写前拒绝、模型/DDL/响应同步；max Head/事实小向量证明无 Node/Plan/Result/Workspace 副作用 |
+| F5 原确认来源 | 关闭；冻结 sequence/scope/CONFIRM/个人请求 fingerprint 验证，丢失/损坏原确认参数向量硬拒；合法原成功不重判当前 latest |
+| F6 原 commit / candidate 绑定 | 关闭；原候选重算及 Attempt 绑定、selected commit 显式对 Plan，响应取 Plan 原 commit；changed commit 参数向量拒绝，原成功 replay 不重放 effect |
+
+```text
+Reviewed product/container HEAD: f8fb796f020ab47725359c176fc0e53bfb68aae6
+Reviewed handoff: 3cd4400f9fe794c3126605ffd8abac7f81830b64
+Container rebuild required: yes，06 当前 f8 fresh 最小 Compose 已完成
+Last verified image revision: f8fb796f020ab47725359c176fc0e53bfb68aae6
+Current container result: passed（仅 §9 的实际 nodeid）
+Carried from: none（未作权威 package/image carried 声明）
+Docs-only follow-up: vnext/src tree 不变，不另跑产品测试或构建
+Deferred: 04 联合权威/其余 Compose；05 fresh t1；D FULL/tar；FE3
+```
+
+**V2 本节最终 GO，无剩余 Finding 或证据阻塞。** 可按 Owner 已授权顺序交接 D。04 权威六包及其余必要 Compose、05 fresh t1 的 FULL/MODIFIED_ONLY 和完整 tar、联合范围退出前 DC33 确认，以及前端 FE3 同制品消费仍由后续 owner 完成；本节不声称这些已通过。既有未影响证据只能按合法闭包规则复用，没有口头 carried 或完整真实旅程声明。
+
+本角色只提交本报告，未运行产品测试/编译/lint、未修改产品/测试/前端或冻结基准、未新增角色、未占用节点、未推送或改 tag；最终报告提交后停止本节写入与执行。

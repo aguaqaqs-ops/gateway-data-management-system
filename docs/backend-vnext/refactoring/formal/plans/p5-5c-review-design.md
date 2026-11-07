@@ -329,8 +329,7 @@ helper。
 
 ### 7.1 Schema component
 
-5C 将现有 `workspace` control schema 从 version 3 升级到 version 4；不创建新的数据库文件或 schema
-ledger。新增表：
+control DB 使用单一基线 schema，不创建 migration ledger。Review 的基线表为：
 
 ```text
 review_event_records
@@ -357,26 +356,9 @@ policy、repository closure validator 与 transaction test 共同强制，不复
 `projection.latest_sequence + 1`，seed 只能是 sequence/version `0`；每次 read/mutation/finalize replay
 都执行 §3.3 closure validator。
 
-### 7.2 Existing-data backfill
+### 7.2 Single baseline schema
 
-v3 -> v4 migration 在同一 migration transaction 内为每个 existing `submission_records` 插入：
-
-```text
-sequence = 0
-event_kind = SUBMISSION_FINALIZED
-from_status = null
-to_status = PENDING
-actor_id = submission.created_by
-occurred_at = submission.created_at
-projection.status = PENDING
-projection.optimistic_version = 0
-projection.latest_sequence = 0
-projection.updated_by = submission.created_by
-projection.updated_at = submission.created_at
-```
-
-Backfill 不生成 user idempotency record，不修改 Submission、Workspace pointer、occupancy 或 artifact。
-Migration 前后执行 integrity/foreign-key checks；schema already v4 时 no-op；newer schema fail closed。
+本项目无历史数据兼容要求。删除的状态/事件直接从基线 CHECK 移除，无迁移、backfill、别名或双读。现有DB与基线schema不符即拒绝启动；开发者删除本地DB及-wal/-shm后重建。首次需要保留数据的部署出现后再引入前向migration。
 
 ### 7.3 Future finalize closure
 
@@ -579,7 +561,7 @@ Stop implementation and reopen owning design/contract if any of the following be
 - reviewer assignment、multi-party quorum、approval chain、comment workflow 或 start-review state；
 - approve/reject/withdraw 需要异步 external effect；
 - Review must modify/delete Repository commit/ref or business History；
-- submitter self-withdraw requires a distinct owner-only authorization model；
+- 本人撤回若扩展到APPROVED或新scope/其他动作，需重新审定授权与状态模型；
 - Review event stream becomes unbounded and needs paging/retention；
 - external audit/event consumer requires delivery guarantee/outbox；
 - Archive introduces a durable in-progress state instead of one local transaction；

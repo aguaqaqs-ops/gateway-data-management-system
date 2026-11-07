@@ -372,6 +372,12 @@ def test_archive_pending_gate_includes_other_actor_and_ignores_drafts_and_old_ba
     seed = seed_approved_archive_candidate(db_path)
     other = _seed_additional_pending_review_submission(db_path, submission_id="sub-pending",
         device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+    from gateway_backend.application.workspace.services import create_or_get_workspace
+    from tests.support.workspace_fixtures import FixedScopeResolutionPort, make_identity
+    with ControlDbUnitOfWork(db_path) as transaction:
+        create_or_get_workspace(context=make_identity(actor_id="draft-only"),
+            scope_resolution=FixedScopeResolutionPort(baseline_head=BASELINE_HEAD),
+            transaction=transaction, created_at=transaction.transaction_now)
     result = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(db_path))
     assert [candidate.submission_id for candidate in result.candidates] == [seed.submission_id]
     assert result.pending_submission_ids == (other.submission_id,)

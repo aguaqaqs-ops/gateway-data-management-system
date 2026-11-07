@@ -288,7 +288,8 @@ SQLite 锁是当前单机数据库 writer serialization；语义 scope 仍是 Re
 | AcceptSubmit T1 / Start | T1 先 | Archive 看到 active Attempt，返回 `ACTIVE_SUBMIT_ATTEMPT`；Operation terminal 不替代 Attempt terminal |
 | AcceptSubmit preflight / Start | Archive 先 | T1 重读新 Head，旧 base/preflight 拒绝；不得创建新 Attempt/Operation；以后新 Preview/Submit 合法 |
 | Finalize/Abort / Start | 终局事务先 | Finalize 的 Submission/Review seed/occupancy 或 Abort release 完整可见；PENDING 不进候选且硬阻塞Start；Archive 不读取中间前缀 |
-| Review approve/reject/withdraw / Start | Review 先 | candidate digest/set 改变，旧 Start 冲突；Review release 已完成 |
+| Review approve / Start | Review 先 | PENDING变APPROVED，candidate set改变，旧Start冲突；occupancy保持 |
+| Review reject/withdraw / Start | Review 先 | 清除该PENDING及精确占用；最后一项处置后可按完整候选与审计重新Start |
 | Start / 新 Review mutation | Archive 先 | Review 在授权、成功 replay 后查 closure，返回 `ARCHIVE_CLOSED`；selected 和 closed sibling 均不可再修改review |
 | 两个不同 key Archive | 一个先 | 另一个 Head CAS/precondition 冲突，无第二结果、无 sibling 重释放 |
 | 同 key Archive | 一个先 | 相同 fingerprint 返回原结果；不同 fingerprint 冲突 |
@@ -327,32 +328,9 @@ closure 校验与测试证明；FK/unique/CHECK 负责可直接表达的约束�
 submission_id)` 与 Review join、active Attempt 的 `(repository_id,state)`、audit subject latest
 sequence、Result children result_id。所有 scope、IDs 使用绑定 SQL 参数。
 
-### 6.2 Upgrade from workspace schema v4
+### 6.2 Single baseline schema
 
-保持 operations v1；下一 workspace v5（名称虽为 workspace，现状已经承载 Submit/Review）用现有
-migration ledger 和一个 migration transaction 建表、验证、转移 Head authority、重建 mapping 表。
-若实施前版本已被其他工作占用，重新确认相邻版本，不覆盖历史 migration。
-
-1. 验证 integrity/FK；按 Repository 聚合所有 mapping（包括 disabled），必须只有一个 distinct
-   device/project scope，**即使多个 scope 的 node/commit/version 完全相同也拒绝**。所有历史
-   Workspace/Submission 的冻结 scope 必须与之相同；disabled、旧历史不得作为共享例外。
-   不能沿用 `LIMIT 1` 任选 Head。historical Workspace/Preview/Attempt/
-   Submission 的 Repository/base 引用必须能解释；缺少 mapping 或出现不可重建的历史 base 停止。
-2. 本 slice 自动迁移仅接入已 provision 的 explicit initial Baseline（version=0），保留 exact node ID
-   和 commit ID，建 INITIAL Node 与 Head=0；已存在 v4 Submit/Review 全部保留。不得要求没有
-   Submission，也不得把最新 Submission/main 猜成 base。
-3. 非零 seed version、一个 Repository 多组冲突 Head、同 node ID 跨 scope/Repository、无法证明
-   initial 的历史数据不能伪造 ArchiveResult 或 SYSTEM_MIGRATION；migration fail closed，由
-   provisioning/cutover owner 给出独立数据迁移方案。本设计不授权 legacy cutover。
-4. 重建 `provisioned_scope_mappings` 只保存 device/project/Repository/enabled，保留原有约束并新增全表 `UNIQUE(repository_id)`（不限 enabled），移除
-   三个可变 Head 字段；旧消费者通过 adapter join 新 Head/Node 返回既有三字段 DTO。
-5. 全部校验通过才提交 version=5。失败恢复为完整 v4；fresh DB 从既有 migration 顺序升级，
-   没有 mapping 时先建空表，再由 seed 初始化。禁止自动 downgrade；旧 binary 遇 newer schema
-   按现有 UnsupportedSchemaVersion fail closed。
-
-initial commit 的真实性由外部 provisioning 拥有，迁移只保留已登记事实，不声称校验 Repository
-内容。真实 container 验收另证明从真实 initial empty commit 到新 Baseline 的 journey。非零/矛盾
-数据是迁移停止条件，不把人工编辑 DB 作为正常恢复 API。
+control DB按单一基线schema创建；表/CHECK改动直接更新基线，不提供升级链、历史backfill、兼容字段或双读。schema不符拒绝启动，开发者删除本地DB及-wal/-shm后重建。固定scope、INITIAL identity与当前Head由现有seed和每次scope resolution验证，不推测历史Head或迁移旧数据。首次需要保留数据的部署再引入前向migration。
 
 ### 6.3 Seed and restart invariant
 
@@ -378,10 +356,7 @@ Repository 仍受其固定归属限制。任一冲突使整批 seed/update rollb
 覆盖 HTTP runtime 与 worker startup。不得只修 HTTP seed；worker 重启同样可能覆写。不增加
 新配置服务/同步 daemon。新 Head 每次读来自 DB，不在进程 startup cache 固定。
 
-部署升级先关 admission、drain/停止共享 DB 的旧 HTTP/worker，按既有维护流程保存一致 SQLite
-backup，再迁移并启新进程。不能混跑 v4/v5 writer。迁移前可恢复一致备份；一旦接受新归档，
-恢复旧备份会丢失权威事实，不能当普通 rollback，须停写由 owner 决策。本文只是实施设计，不
-执行维护、备份、权限变更或部署。
+本设计不授权部署、删除实际业务数据或恢复备份；生产保留数据要求出现后按owning Contract另行设计维护流程。
 
 ## 7. Modules, ports and dependency budget
 

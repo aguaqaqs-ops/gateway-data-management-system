@@ -341,3 +341,39 @@ def test_pending_review_and_archive_start_share_writer_barrier(db_path: Path, ac
         assert projection.latest_sequence == 1
         occupancy = unit_of_work.submission.get_workspace_occupancy(pending.workspace_id)
         assert (occupancy is not None) == (action is ReviewAction.APPROVE)
+
+
+
+def test_finalize_replaces_active_attempt_gate_with_pending_review_gate(db_path: Path) -> None:
+    from gateway_backend.application.archive.contracts import ArchiveSelectedRef
+    from gateway_backend.application.archive.errors import ArchivePendingReview
+    from gateway_backend.application.submission.finalize_transaction import FinalizeSubmitTransactionRequest, finalize_submit_transaction
+    from tests.support.archive_fixtures import _archiver_context
+    from tests.test_submit_transactions import seed_submit_ready_workspace, _seed_effect_pending_attempt, _read_finalize_versions, _finalize_facts, TS1
+    seed = seed_submit_ready_workspace(db_path)
+    attempt = _seed_effect_pending_attempt(db_path, seed)
+    command = StartArchiveCommand(
+        context=_archiver_context("device-1", "project-1"), idempotency_key="finalize-gate",
+        expected_baseline_node_id=BASELINE_HEAD.business_baseline_node_id,
+        expected_baseline_head_version=BASELINE_HEAD.baseline_head_version,
+        candidate_set_digest="sha256:" + "0" * 64,
+        selected_ref=ArchiveSelectedRef(submission_id="sub-finalized", expected_candidate_digest="sha256:" + "0" * 64),
+        confirmation_refs=(), anomaly_resolution_refs=(),
+    )
+    with pytest.raises(ActiveSubmitAttempt):
+        start_archive(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    versions = _read_finalize_versions(db_path, attempt)
+    with ControlDbUnitOfWork(db_path) as transaction:
+        finalize_submit_transaction(request=FinalizeSubmitTransactionRequest(
+            submit_attempt_id=attempt.submit_attempt_id, facts=_finalize_facts(seed),
+            submission_id="sub-finalized", created_at=TS1,
+            expected_attempt_version=versions[0], expected_await_step_version=versions[1],
+            expected_operation_version=versions[2], worker_id="worker-test", lease_token="lease-test",
+        ), unit_of_work=transaction)
+    with pytest.raises(ArchivePendingReview):
+        start_archive(command=command, unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    with ControlDbUnitOfWork(db_path, read_only=True) as transaction:
+        assert transaction.connection.execute("SELECT COUNT(*) FROM archive_plan_records").fetchone()[0] == 0
+        head = transaction.resolve_provisioned_scope(gateway_device_external_key="device-1", business_project_id="project-1").baseline_head
+        assert head == BASELINE_HEAD
+        assert transaction.submission.get_repository_occupancy(seed.workspace.repository_id) is None

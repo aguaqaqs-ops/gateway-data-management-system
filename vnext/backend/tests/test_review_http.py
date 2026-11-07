@@ -640,9 +640,7 @@ def test_apply_review_returns_archive_closed_after_submission_archived(
     assert response.json()["code"] == "ARCHIVE_CLOSED"
 
 
-def test_apply_review_replays_after_archive_closure(
-    review_env: tuple[WorkspaceHttpTestEnvironment, PendingReviewHttpSeed],
-) -> None:
+def test_apply_review_replays_after_archive_closure(tmp_path: Path) -> None:
     from tests.support.archive_fixtures import (
         append_selection_confirmation,
         archive_seed_from_review_seed,
@@ -650,7 +648,9 @@ def test_apply_review_replays_after_archive_closure(
     )
     from tests.test_review_transactions import ReviewSeed
 
-    env, seed = review_env
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "self-after-archive": make_identity(permissions=frozenset({"withdraw_own_submission"})),
+    })
     first = _post_review(env, seed, idempotency_key="approve-replay-after-archive")
     assert first.status_code == 201
     with ControlDbUnitOfWork(env.db_path, read_only=True) as unit_of_work:
@@ -670,6 +670,12 @@ def test_apply_review_replays_after_archive_closure(
     replay = _post_review(env, seed, idempotency_key="approve-replay-after-archive")
     assert replay.status_code == 200
     assert replay.json() == first.json()
+
+    own_facts = _get_review(env, seed, bearer="self-after-archive")
+    assert own_facts.status_code == 200
+    assert own_facts.json()["status"] == "APPROVED"
+    denied = _post_review(env, seed, idempotency_key="approve-replay-after-archive", bearer="self-after-archive")
+    assert denied.status_code == 403
 
 
 SELF_PERMISSION = "withdraw_own_submission"

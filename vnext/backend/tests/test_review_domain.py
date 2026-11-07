@@ -408,10 +408,11 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[
         ),
     ),
     (
-        "return_whitespace_only",
+        "reject_whitespace_only",
         "review event reason violates action contract",
         ReviewProjection(
             submission_id="submission-1",
+            status=ReviewStatus.REJECTED,
             optimistic_version=1,
             latest_sequence=1,
             updated_by="actor-1",
@@ -422,7 +423,9 @@ REVIEW_CLOSURE_VIOLATION_CASES: tuple[
             ReviewEvent(
                 submission_id="submission-1",
                 sequence=1,
+                event_kind=ReviewEventKind.REJECTED,
                 from_status=ReviewStatus.PENDING,
+                to_status=ReviewStatus.REJECTED,
                 reason="   ",
                 actor_id="actor-1",
                 occurred_at=TS0,

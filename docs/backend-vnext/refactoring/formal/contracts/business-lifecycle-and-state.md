@@ -320,7 +320,7 @@ permission；完整项目历史需要device/project audit权限。
 - Archive直接引用所选既有commit；Repository `main`不移动且不产生重复commit。
 - BaselineHead CAS、ArchiveResult、sibling disposition和Workspace占用在失败/重放后保持一致。
 - 旧baseline sibling不能覆盖新baseline；再次采用必须从当前baseline重新Preview/Submit。
-- rejected/withdrawn/returned/closed-not-archived节点可从授权History读取并按exact commit比较。
+- rejected/withdrawn/closed-not-archived节点可从授权History读取并按exact commit比较。
 - 持久schema中不存在baseline batch、Candidate状态、ArchiveExecution或重复archive状态。
 
 ## 9A. 固定归属补充验收（Accepted）

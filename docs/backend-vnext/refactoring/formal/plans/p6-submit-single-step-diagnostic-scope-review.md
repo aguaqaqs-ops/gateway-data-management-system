@@ -2269,3 +2269,51 @@ BatchMode echo OK 后，仅只读已关闭 `/home/dev/gdds-p6-logs/baseline/ct05
 其余四包源码/依赖未变，静态状态关联 §96 最终5de的实际合格来源；不是权威 runner carried，也不声称十项静态都在3fd重新运行。09:30:15Z 的简略 postflight SHA256 **`c7feda0fe95ca72b73995aca825090269a3c339b005be41ed83795e410ad4aa9`** 匹配，仅记录 hostname/锁释放/时间，不扩称它独立证明整机全部资源 quiet。此前两项launcher fixture对自有测试session/保锁的结果有效；CT108 正常现场守卫仍必须执行，未因简略文书新增测试或业务重跑。
 
 本轮没有导入/执行候选、运行测试、Compose、复制源卷或启动业务；只读代码/Git对象与CT05原日志。**结论直接交实施者并同步设计，当前修正已合格，不再为本 identity SHA 另开 GO。** 新身份现场核验与原预算/停止/保卷条件保持；统一版本矩阵、04收口、主线合入/push/tag/基准exit均不由本节代办。
+
+## 101. 107b 实际有限接续结果独立审核 PASS
+
+**CT108 project `p6w4resume970420261107b` 的本次有限接续结果 PASS，无新增阻断 Finding。** 真实 sampler 接受了 §100 修正后的入口，新的 v2-submit、v2-repository-read、v2-approve、history 四步均成功；先前入口拒绝和本路径 prepare 无法完成的阻塞已解除。本结论接受 Owner A 下该次分版本参考结果，不将旧步骤改记为当前产品，不承担完整基准矩阵或阶段 exit 审核。
+
+### 版本、来源及证据
+
+实际运行 HEAD 为 **`3fd64dc2fe9a9c11ceebf8cd458983b9507f5364`**，产品仍为 **`9704d0b286049073529d60036dbd999032f97e0a`** / `vnext` tree **`f5757bcb56e3e8ee8cde5fba6f903717d91412a2`**；工具候选 tree 为 `3eb04338477b7d37d2d5c6ac83ff2727b814d88f`。handoff 提交 **`945d9141c45ceeee5d3bcb561c50278c6e4f97a0`** 相对运行 HEAD 只有 handoff 文档增加11行，未改变被测代码。审核开始时主 checkout HEAD 为 `c1d1beefb1260f21810a6809cc9f8ffb4b6bf78d`，并非本次产品/运行对象。
+
+读取已关闭的原证据，并将六份运行文件经 LAN 复制到审核者目录 `/home/dev/gdds-p6-logs/p6-w4-continuation-review-20261107/p6w4resume970420261107b/`；逐份重算摘要均与原记录一致：
+
+| 文件 | SHA256 |
+| --- | --- |
+| launch.log | `63d2da3b33a8742e681b992227c46c8746c69cfb224de5dbdc240599375b722f` |
+| evidence/run.json | `2f2197d65fd192b5b96a690286af2668901fe72145cca6fe7702cf7c93f37f07` |
+| evidence/state.json | `0281f0e07b124c24ad7f24d66cbefadb511ba9db99cb92e8b66e65ec495fc897` |
+| resources.json | `fed0d959c3d26c1c0a78f0c1320c6224c9767a7ce8d996c60e5a00f0e502a94b` |
+| resources.input-provenance.json | `9ae4639544c9110f1a2c5464b8138b31964959bfb8e9447a06f9c6a3f6990c26` |
+| postflight.log | `acdea2a40311572ee730d76426fbf6d52a5d43099771bbc55145623b41f13e2f` |
+
+run/state 的 step_checks、post_gc_resume 和 compose_image_metadata 逐项相同。18项检查均 PASS，其中13项保留 `20cf0ec87e7e0c068aaa61c33ad49014cae36f52`、v2-preview 保留 `e798ec87a37330250b0c051162e7962dba1daa60`，只有上述四项新步骤绑定3fd及当前日志。日志也实际记录14项 step_reused、四项新的开始/成功，无新 v2-archive/v3；冻结配置 `full_v2=false`、`three_node_history=false`、`cross_project=false` 与 §92/计划一致。
+
+新 identity JSON 原始字节 SHA256 为 **`98bfba51108ace6a5bf011247752ff11c41e6a4fcc9a0a96a487a66e986b938f`**，与 run 绑定一致。源仍为原 b、completed_through=v2-preview、resume=v2-submit，源 run/state/log 摘要保留原值；源 RS 完整身份继续明确 **UNAVAILABLE / source checkpoint input only; never MATCH or carried**。三项上传输入的 role/bytes/SHA 与 expected manifest 全部匹配，provenance 的 state_sha256 精确等于本次 state 文件，issues 为空、result=MATCH；不冒称这些旧上传在新版本重新执行。
+
+将实际 compose metadata 与 committed identity 逐字段比较，三个服务 config digest、全部有序 RootFS DiffID、要求的 labels 均匹配；run 的 target identity 与其 compose 共同字段也一致。backend/worker 为 `66e362d4…648e62`、各15层，RS为 `b81faa1f…419aa`、28层，build-input/source-tree/revision 保留 §87 已核值。宿主入口修订及本次文档不触及产品镜像边界，**不触发重建**；实际业务使用原已核9704产品镜像的新107b别名，不把宿主3fd写成镜像 revision，也不比较跨节点 inspect ID。
+
+### 实际完成与性能口径
+
+两个 operation 的 terminal 均为 SUCCEEDED、diagnostic_code=null。Submit 已生成 submission/Repository commit；History 的一对 before/current commit 分别精确对应 v1/v2 Submit，record_count=70634，bundle/fingerprint 已保存。Repository read 记录631张表、682805行，其中 ordered 144张表/133548行；approve=true。既有旅程的 HTTP/结果核对通过，本审核没有重新下载或重跑业务。
+
+| 新步骤 | step wall 秒 | API 用户可见秒 | 进一步定位 |
+| --- | ---: | ---: | --- |
+| v2-submit | 4030.503 | 4027.732 | prepare_import 3800.712802；submit_import 0.287299；await_import_result 225.216005 |
+| v2-repository-read | 96.689 | 未单列 | 当前版本实际读取 |
+| v2-approve | 0.622 | 未单列 | 当前版本实际审核 |
+| history | 2354.226 | 2352.010 | materialize_inputs 1496.565867；assemble_comparison 848.163671；publish_result 0.031273 |
+
+Submit completion=4027.743s，用户可见以 terminal 观察为准；prepare 占其约94%，是本次主要耗时。Repository import 最终 SUCCEEDED，await仅1个session、3次healthy handoff，未耗尽R5预算；prepare及History各worker阶段 attempt_count均为1。History的物化和装配均有实际 step 起止，不把等待/检查点复制时间拼入API计时，也不从这些粗段推算 checkpoint-read、bundle或JCS等未单列子段。当前完成证明修复在该路径有效，**不把先前 GC/心跳关联追认成已唯一证明所有历史失败原因**。
+
+sampler 起止为 **2026-11-07 09:34:35.316–11:24:15.385Z**、elapsed **6579.985s**；journey 自身 run_result elapsed=6522.846s，二者边界不同，不互换。实际耗时低于 work25200/hard27000预算，没有通过扩大预算填PASS。history_cache_mode=none；保留523/523缓存项已过期、artifact完整的观察，**不把本结果记作healthy-cache、TTL内命中、refill或H3**。
+
+资源摘要为2s配置周期、3003次采样；并发 memory.current 采样和的峰值 **24500322304 bytes（约22.82GiB）**，各容器 memory.peak 之和 **25545502720 bytes（约23.79GiB）**，后者是保守上界，不能作为同时峰值或单worker RSS。peak_parallel_cores=2.931，temporary_disk_high_water=4866588672 bytes。0.622s approve 未落入采样点，samples=0、memory=null，不能补成零内存/CPU。没有原始逐点序列，不从样本数虚构最大采样间隔；CT05诊断RSS/分段也不拼进本次CT108正式记录。
+
+### 收尾与结论边界
+
+BatchMode echo OK 后只读既有 CT108 `preflight/p6w4resume970420261107b-ct108/start-preflight.log` 与 `controller.log`，SHA256分别为 **`42694cb26140e8de709cb0b5209f1369f699ff61ae611dce5e4ec981d7b21e3c`**、**`1ca003e046e28c57af8a7597ebcead97da8ca7f503e832c30d18c5495b52cd61`**。前者记录源/输入/同节点别名/单飞核对匹配；后者记录09:34:35–11:24:15Z、起止完整3fd、launcher_exit_code=0、tee_exit_code=0。run、resources 均 exit0，HEAD stable；postflight记录 project Compose down、node postflight、cleanup均exit0、自有锁释放。按已审postflight实现，这是既有节点检查成功记录，本审核没有额外现场扫描或宣称独立证明未检查的网络项目。
+
+本次三卷名称正确且 retained_volume_listing_error=null；checkpoint键为 v2-repository-read、v2-approve、history。按原规则保留107b、源、107a失败、source事故及恢复证据；没有删除卷/worktree/镜像或修改源DB。**本审核未运行测试、Compose、sampler或新业务，仅只读代码、既有日志和证据副本。** 结果直接同步现有实施者和设计者；无需再为本次结果等GO或重复该业务。A既定剩余未测范围、正式record/comparator与04权威门禁按原分工继续，不由本有限PASS代替，未宣称完整单版本P6或阶段退出，也未推送、合入、打tag。

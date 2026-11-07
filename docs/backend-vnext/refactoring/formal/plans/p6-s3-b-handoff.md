@@ -2,6 +2,8 @@
 
 状态：实施中；本页的检查点不是 B GO。设计固定 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`，A 已按 `p6-s3-a-review.md` 最终 GO 放行。
 
+当前最后静态 B 代码候选为 `2e9758885a8179d0e8e90c9c90a7c244577b9ea2`（集中预算第二轮 `ac21ad4069ab`，临时差分与诊断 `98ede3c9e9`，S2b 上限/Utf8 gid-no `782d07f054`，真实各侧 blank provenance 差分输入 `2e9758885a`）。代码修改均已提交；因下述 DC68 执行停止，后续提交均未在 06 fmt、编译、测试或真实数据验证，不能记 B GO。
+
 ## 边界与实现
 
 B 负责共用比较计算：standard/keyless 与 ordered 的 canonical Arrow 共有列投影、Shared Kernel scalar/SET framing、行身份、facts 顺序、artifact 顺序、调用方共享池/取消/单调截止/预算。C 负责三族 records Arrow builders、流式 JCS 和真实读取校验，D 负责风险规则与去重接线，E 删除替换期旧 Python 行比较、旧 Vec 原型和临时差分入口。B 不切 Python 生产路由、不加部署选择开关或运行时回退，不修改 Submit mutation。
@@ -12,7 +14,7 @@ Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 仅供 06 scratch 格�
 
 本候选已静态写入：S2b canonical metadata/physical/SQL declared type 最小一致性校验与 Utf8 SET 声明序 sequence frame；keyless occurrence 首次直接 row digest、重复用独立 domain preimage；ordered 流式 digest 对位置/计数守 I-JSON 2^53−1 边界；COLUMNS_ADDED 且有共享 compare-excluded 列时以完整共有列逐行 digest multiset 识别隐藏变化。core `sha2` 从已锁定 0.11.0 dev 依赖提升为 regular，用于流式 digest；Cargo.lock 与新 crate 集合不变。该静态候选未运行 fmt、clippy 或测试，不能作为 B GO。
 
-后续语义增量还将旧原型独有的 512 列、200 万 ordered 行准入上限提高至 S2b 生产 canonical Arrow 的 2048 列、1000 万行预算上限；M 的实际可用额度仍先于行分配约束计算。否则合法 canonical 表会在比较入口被无业务依据假降级。
+`782d07f054` 已将旧原型独有的 512 列、200 万 ordered 行准入上限提高至 S2b 生产 canonical Arrow 的 2048 列、1000 万行预算上限；M 的实际可用额度仍先于行分配约束计算。
 
 ### 预算与 owner 约定
 

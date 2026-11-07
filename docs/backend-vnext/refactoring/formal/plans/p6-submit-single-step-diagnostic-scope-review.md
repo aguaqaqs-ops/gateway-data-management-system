@@ -2317,3 +2317,33 @@ sampler 起止为 **2026-11-07 09:34:35.316–11:24:15.385Z**、elapsed **6579.9
 BatchMode echo OK 后只读既有 CT108 `preflight/p6w4resume970420261107b-ct108/start-preflight.log` 与 `controller.log`，SHA256分别为 **`42694cb26140e8de709cb0b5209f1369f699ff61ae611dce5e4ec981d7b21e3c`**、**`1ca003e046e28c57af8a7597ebcead97da8ca7f503e832c30d18c5495b52cd61`**。前者记录源/输入/同节点别名/单飞核对匹配；后者记录09:34:35–11:24:15Z、起止完整3fd、launcher_exit_code=0、tee_exit_code=0。run、resources 均 exit0，HEAD stable；postflight记录 project Compose down、node postflight、cleanup均exit0、自有锁释放。按已审postflight实现，这是既有节点检查成功记录，本审核没有额外现场扫描或宣称独立证明未检查的网络项目。
 
 本次三卷名称正确且 retained_volume_listing_error=null；checkpoint键为 v2-repository-read、v2-approve、history。按原规则保留107b、源、107a失败、source事故及恢复证据；没有删除卷/worktree/镜像或修改源DB。**本审核未运行测试、Compose、sampler或新业务，仅只读代码、既有日志和证据副本。** 结果直接同步现有实施者和设计者；无需再为本次结果等GO或重复该业务。A既定剩余未测范围、正式record/comparator与04权威门禁按原分工继续，不由本有限PASS代替，未宣称完整单版本P6或阶段退出，也未推送、合入、打tag。
+
+## 102. W4-FULL fresh 配置、预算接线及定向验证 PASS，继续实际测量
+
+**W4-FULL 的最小工具修订和准备关键差异审核 PASS，无待确认的新语义或身份例外。** 实施者按原授权完成实际节点/输入/镜像/占用预检后直接执行 `p6w4full20261107a`，不等新 Owner、设计、审核回执或逐摘要GO；实际结果仍须独审。107b 已闭合，不重跑。Owner持续推进A剩余真实缺项的安排保持，不能把本节工具PASS当成全部测量结束；最终基准exit权限不扩。
+
+### 实际差异及范围
+
+代码候选 **`236b5b325e15ee63393e734db94c26577c9696cf`**；实际运行文书候选 **`18a4851d8c52d53afdb95ee4df9fae04e6e36d77`**。本轮在原detached审核worktree读取immutable Git对象和完整diff，未执行候选。236b相对9704的 `vnext` 差异仅位于 backend benchmarks/tests；18a相对236b只明确runbook的两节点checkpoint列表，diff whitespace检查均通过。候选 `vnext` tree分别为 `4a7f1d55bbbf9c519880ab77e040fd2c19a9181f`、`a6a44fd41b02965ba35e04654e41b74327fde97e`；产品仍为9704及其原tree，不混入main/S2b。本轮报告写入前主checkout HEAD为 `b1a43480d426e4e8959fb7cfab5bb2ffeb935227`，不是该参考运行对象。
+
+启动前独立发现并已关闭的具体预算缺口：fresh路径的旧t4 v2-submit预算仍为 `ceil(810.961×5)=4055s`，107b较轻路径实际已4027.732s；专用post-GC恢复的10800s并不会自动用于fresh FULL。现在 `_w4_full_budget_enabled` 只在t4、固定accepted W4 root、scope=full、synthetic、full-v2、cold Preview、healthy History、非post-GC恢复时启用；实际v2 Submit和History两个调用接到既有10800/7200，v1及其他路径保持。原history模式验证统一拒绝resume+full-v2+healthy，所以本次是**fresh两节点完整旅程**，不用107b或旧b的checkpoint/后prepare状态。没有增加product配置、lease/heartbeat/HTTP业务超时或新的guardian。
+
+guard仅增加固定project到预算的第二个映射；原107b映射保持。sampler仅增加精确 `timeout --foreground --signal=INT --kill-after=1200s 70200s` 前缀，原25200及直接Python路径保持，仍严格核worktree解释器/manifest/census/evidence。通过AST只读提取validator tuple，分别与launcher两case及实际command模板比较，**两前缀逐项匹配**；未改采样循环、period、资源/step计时、指纹或结果口径，不因前置命令识别改动重测历史成功场景。
+
+18a runbook末节固定了实际journey参数：t4、collect-timing、full-v2、cold Preview、healthy History、stop-on-manual-recovery、原composite-cache和新evidence/project。checkpoint只请求本次实际经过的17项，从v1-upload至history，明确排除v2-archive和全部v3，避免沿用三节点列表导致成功收尾时缺checkpoint。源来源例外不扩展到这一fresh运行；目标产品和三镜像内容仍沿§87已核9704身份，在实际CT108新project别名下正常复核。宿主bench/tests/docs修订不触及产品runtime/image边界，本次**不触发产品镜像重建**，不将该判断冒称04最终runner或backend闭包carried。
+
+### FULL输入与一次性预算
+
+BatchMode连接确认后，只读CT108新manifest `/home/dev/gdds-p6-logs/baseline/preflight/p6w4full20261107a-ct108/expected-inputs.json`，1924bytes，SHA256 **`ae0b281f224f5adabd801ee331e9022b42291399f983db42ef6dd69b2edc143a`**，与实施记录和runbook一致。scenario为full_v2=true/full/t4/cross_project=false，原accepted root和census SHA `04952cb5…e66a67`不变。四条expected_uploads完整：v1/repeat的MODIFIED使用v1；v2 INITIAL使用v1（10652436B、`74974e5f…ebd4c`），MODIFIED使用v2（10486420B、`4cb82a16…bbd27c`）。旧107b manifest full_v2=false且v2只有MODIFIED，未被复用来冒充FULL。这里只派生新场景清单，不重生成SQL或重做已接受输入。
+
+实际各operation上限：v1-preview12887、v1-submit4047、repeat-v1-preview11271、repeat-v1-submit3600、v2-preview11300、v2-submit10800、history7200秒，合计 **61105s**。v1保留原4047，依据同2×v1输入及既有约1450s实际，不无依据统一扩容。初始化/快照1800、尾部3600、read/approve1800、其他1800合计9000，加总 **70105s**；固定 **work70200 / cleanup1800 / hard72000**，从同一起点计算，不在进入新步骤时重置或运行中滑动延长。
+
+沿原机制，inner work70200、INT grace1200、outer watchdog71420+KILL5、project down180+5、postflight60+3，配置等待之和 **71673 < 72000s**；不把此算术称为所有不可中断系统调用的形式化墙钟证明。完成即清理退出，这20小时hard是等待上限而非ETA或实际耗时。预算已与实施者、设计者直接核对，不新增配置摘要审批层。
+
+### CT05原始证据与下一步
+
+BatchMode echo OK后只读 `/home/dev/gdds-p6-logs/baseline/ct05-w4full-236b5b-validation.log`，SHA256 **`29c984470c2934bb1eaf8d881abadf025f7992988afa6fe304601a6dcfa710ba`**：gw-dms-test-05、2026-11-07 11:46:39–49Z，日志明确checkout到236b并以完整236b结束，validation_exit=0。bash -n通过；sampler/guard **18 passed /7.05s**（含两个project真实GNU短超时），budget定向 **4 passed /0.83s**；backend Ruff、mypy（500files）通过。sampler集成用例经真实metadata校验，覆盖新增前缀；解释器/不支持wrapper负例及原入口保持。GNU fixture缩短测试副本等待并模拟Docker/journey，不能冒称它已执行真实Compose或本次FULL业务。
+
+该日志没有额外打印起始完整HEAD/clean字段，不补造；18a仅文书改变，不声称这两批测试在18a重新运行。其余四包源码/依赖仍不变，静态来源保持§96的5de实际结果，不写成当前权威runner carried或五包都在236b重跑。11:47:00Z简略postflight SHA256 **`0c69ccb81149f14c5738029a81704e81f5bfe3739b4eab2317ec6ca63a9f3d2d`**，仅记录hostname/锁释放/时间，不扩称独立整机quiet证明。CT108实际现场守卫仍正常执行。
+
+**代码与必要验证已合格，结论直接送现有实施者并同步设计，不要求等待本报告提交或另一份回执。** 本审核未测试、启动容器、复制源卷、访问SQLite或启动业务。继续W4-FULL及A真正剩余范围，真实失败保留现场并停止受影响运行，普通已定位工具错误最小修正直接闭环；严重设计冲突、无法解决或多轮修复仍失败再交设计/Owner，不在本节扩展整体exit权限。

@@ -59,7 +59,7 @@
 | **停止、reap、Compose cleanup/postflight 预留** | **1800** |
 | **全流程 hard 截止：work + cleanup，从同一起点计算** | **27000** |
 
-这是一次充分且有界的首轮安排，不是7.5小时完成预测；完成即退出。每阶段截止为 `min(阶段起点 + 本阶段预算, 固定 work 截止)`，不以进入新阶段重置总截止，初始化/普通HTTP/Repository read/Archive helper不能漏出预算。沿既有外层进程/容器有界收束和保卷逻辑，work耗尽即停止新业务并进入清理，全部收束不得越hard截止；不为此建设另一套guardian或持久状态机。实现/固定runbook应一致，恢复关系审核一次核对即可，不重复Owner或最终manifest签字。
+这是一次充分且有界的首轮安排，不是7.5小时完成预测；完成即退出。Submit/History 等长操作的等待截止为 `min(操作起点 + 本操作预算, 固定 work 截止)`；辅助阶段数值用于一次计算总 work 和余量，普通 HTTP/Repository read/Archive helper 沿已有单次 I/O 超时并受总 work 截止约束，不要求为每个 helper 新建强取消层。进入新阶段不重置总截止，初始化和尾部也不能漏出外层预算。沿既有外层进程/容器有界收束和保卷逻辑，work耗尽即停止新业务并进入清理，全部收束不得越hard截止；不为此建设另一套guardian或持久状态机。实现/固定runbook应一致，恢复关系审核一次核对即可，不重复Owner或最终manifest签字。
 
 ## B：保留单一修复版本的完整正式基准（未选）
 

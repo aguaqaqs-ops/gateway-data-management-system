@@ -2621,3 +2621,21 @@ CT05 `/home/dev/gdds-p6-logs/baseline/derived-631-20261107/` 的脚本 **`50ae08
 | v3 | `1juiuh4nnueo3aslmosqc8eqoqqu46h7` /e076 | `jlpa7e30svqudnem8uo40vrbf5j2upt6` /b96 | 631/631 MATCH |
 
 独立读取原summary完整maps后，v1两侧的排序JSON摘要同为30ee5c63…70b9，v2同为fc6398f2…5959，v3同为30ee5c63…70b9；每侧均631。v3回退到v1因此同值是原场景序列，不省掉该组独立匹配，也不将S2直接复用S1当第四组证明。本次不触旧仓库、旧卷或启动旧栈，未重做原journey，结束§105实际对照缺口；其余STRESS/DC63/V5b/record/comparator/04及整体exit仍按原分工推进。
+
+## 116. W4-STRESS真实准备复核PASS，1742已单次启动，结果待交
+
+**§109的结构预审现已补齐本次真实manifest、三服务完整身份、最终argv/预算及节点预检，准备复核PASS；实际压力结果尚未完成。** 实施者按原授权于CT108 **2026-11-07 16:21:02.742Z** 启动唯一project `p6w4stress20261107a`，HEAD **`1742a8bcd62287fd9eb9fbd0a839615a470b2664`**。审核只读已关闭的小preflight文件及一次开放launch头部，实际解释器、manifest、root及子命令前缀与下述一致；未hash开放log、查询Docker/进程或启动探针，不修改/加时在途运行，也不提前判压力性能PASS。
+
+真实manifest1711B、SHA256 **`cf288bdd321cedd846851d55d8f2276ecf1726f93b5758be87b00200ddf62830`**，profile=w4-100pct、root为接受的w4-generator-correction-20261105b/roots/w4-100pct，accepted summary SHA6b63cf2e…3896、census **`29c1e25c3925040fe3b9020354581ccbcb838377776034302a4223869f445fe6`**。三个上传均MODIFIED：v1及repeat-v1各74974e5f…/10652436B，v2为 **`c6f7c5e74f48715d2e33e9efe32a5679e913caccd8f93398f3ad4d1322eb4ec6`** /9173579B；scope=t4-v2-preview、full_v2/cross_project均false。它不是FULL的四角色或10%输入，压缩包大小不用于推断实际变化量/耗时。
+
+preflight原目录 `/home/dev/gdds-p6-logs/baseline/preflight/p6w4stress20261107a-ct108/`，`check-input-images.py` SHA **`df11bd4a71c6c32cc25f82fa0d3dd4a28ce5be5966913f78980d04fe9bd3d98a`** 已逐行读：固定identity SHA98bf、manifest及已接受summary摘要，调用真实verify_before_run，要求真实100%/三角色，检查9704..1742差异只在benchmarks/tests/docs；各tag先解本机ID，再按该immutable ID调用原metadata helper，逐项比较config、全有序DiffID及labels，不只看计数。`input-images.json` 8543B SHA **`01cf16ea7882bb8ce89420617be8deafa359e20a334e3db4bf1590388e714d01`** 与脚本/原始输出相符：backend/worker同66e362d4 config及全部15DiffID、labels为空，RS同b81faa1f及28DiffID、9labels；三服务本机ID分别e803…/e803…/a75aa…。16:17:36–48Z完整1742起止、gw-dms-test、exit0，`input-images.log` SHA **`30001ecc68ae6955ff1755d8fca350ab8d447890508c93534aedbb0bf3751ab2`**。由FULL同节点给两个新tag加别名，未重建/改旧tag，不作跨节点inspect ID比较。
+
+setup.log SHA **`456f30f661fc9e599841615acda0ddb8b57df546cdce7bac93a8627ebbff6400`**，16:14:52–16:15:19Z，源码通过从18a的增量bundle到clean1742、legacy链接及新project无资源检查，uv离线同步并强制重装Rust扩展，expected/installed584369一致；缓存使用本机预置，不把环境同步当测试。源节点缺5b对象的只读cat-file失败已保留incident SHA **`0c4febf4bbca3aca59c6c643223b9c5639ea0de2f0058059d96f56e83b1e54fe`**，改用已存在祖先18a的增量bundle SHA **`b3c7276cccf24cc0489cf2d569b5230fad2215e680b1e27470f2fb9efd6a6d9a`**，无产品/镜像/测试副作用，不增业务重做。
+
+最终 `start-preflight.sh` SHA **`a5b7c553af3dbc2916b1c4b9a68268ec8e311aa6bef0b3b4add8a569697759ed`**、log SHA **`a95282bb9769690fd6e379dab3fe99c2b3bd6cf1b0c14af26174bebeffc3c9ef`** 已读：16:20:32Z，clean1742、同manifest/input-images SHA、三tag重新解析ID逐项与16:17完整metadata相等；自有锁在、docker无运行容器、8000无监听、Dolt/pytest/Cargo无进程，MemAvailable100314733KiB、TMPDIR/Docker各free152424856KiB，均过本次既定门槛，两路径的空间不能相加当双倍容量。这是当时现场事实，不是未来资源保证。
+
+controller草案7f9d21…在启动前补unset NO_PROXY/no_proxy，最终2114B SHA **`71812d3312686bc1677d341e52fe9d8d04d369d2829202ea536eeb2edb50e900`** 已重新bash-n并被上述start-preflight记录；审核指出摘要变化后实施者明确了差异与实际执行版本，旧摘要只作准备历史。最终controller离线/无proxy、固定ROOT/project/RS tag、cold Preview/history none、非FULL，13 before checkpoint正好结束v2-preview，不调用v2 Submit/History，不另套较短timeout。原既有launcher提供独立session/watchdog/保卷down/postflight/条件解锁；实际launch头部为 `timeout --foreground --signal=INT --kill-after=1200s 106200s` 加本worktree字面Python。
+
+本次将§109示例明确固定为工作保护：v2 Preview64800s，prefix12887/4047/11271/3600，aux9000仅规划量，work106200/watch107420/hard108000、清理1800，配置等待闭包107673<108000。FULL实际prefix约4870.923s、10% FULL v2 Preview4007.919s只提供量级；100%成本未知，不按10×机械当承诺、不是30h ETA，也不保证所有局部HTTP/I/O先天足够。实施者当前低置信实际剩余估计10–28h、未超过48h；不把各保护上限相加替代实际估计，若实际重估超过48h仍按原Owner规则处理。当前scope没有恢复入口，若真实失败按原DC80定位后最小修订，不能为绕过校验切full而额外跑Submit/History。
+
+准备与实际启动事实已直接交实施者并同步设计，无新GO。之后本审核不在测量中读取大文件或做新探针；利用已认证CT201副本和独立节点继续记录/04准备，DC63/V5b实际链仍待CT108空闲。正式压力结果、完整record/comparator及04/整体exit均未由本节提前结案。

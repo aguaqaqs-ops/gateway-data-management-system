@@ -2639,3 +2639,36 @@ controller草案7f9d21…在启动前补unset NO_PROXY/no_proxy，最终2114B SH
 本次将§109示例明确固定为工作保护：v2 Preview64800s，prefix12887/4047/11271/3600，aux9000仅规划量，work106200/watch107420/hard108000、清理1800，配置等待闭包107673<108000。FULL实际prefix约4870.923s、10% FULL v2 Preview4007.919s只提供量级；100%成本未知，不按10×机械当承诺、不是30h ETA，也不保证所有局部HTTP/I/O先天足够。实施者当前低置信实际剩余估计10–28h、未超过48h；不把各保护上限相加替代实际估计，若实际重估超过48h仍按原Owner规则处理。当前scope没有恢复入口，若真实失败按原DC80定位后最小修订，不能为绕过校验切full而额外跑Submit/History。
 
 准备与实际启动事实已直接交实施者并同步设计，无新GO。之后本审核不在测量中读取大文件或做新探针；利用已认证CT201副本和独立节点继续记录/04准备，DC63/V5b实际链仍待CT108空闲。正式压力结果、完整record/comparator及04/整体exit均未由本节提前结案。
+
+## 117. 非在途工具集成及五项实际时间派生通过；单run多版本record边界已明确
+
+**独立集成 `a55414c827a488758beba8c788cb15e940734180` 的本轮合并代码/必要验证PASS，尚非最终V_ref或04结果。** 两父为已审0cbf及在途1742；独立读Git对象，timing三个文件精确等于0cbf，9704..集成仅docs/benchmarks/tests，无业务src/锁/部署/诊断Compose；未合当前main或改在途worktree。CT05 `vref-integration-a554-20261107.log` SHA **`bbba3415ef1775742b7443be29a85226a9a8f84d53438b99621b940a414390d6`** 已直接核：16:25:20–16:26:11Z、gw-dms-test-05、完整a554起止、57focused/10.78s、profile2passed/1.54s、backend Ruff/mypy500及bash-n全0。其余包静态仍沿既有未变来源，不称此HEAD全六包runner或新镜像门禁。
+
+0cbf在CT05对已认证bb348原run/state派生四项READY/同步值，本审核直接核原state字段与各实际JSON相等，源SHA与§115九原件重算相同，metric_source均bb348及原core journey：
+
+| 派生（derived-core-operations-0cbf/） | 秒 | JSON SHA256 |
+| --- | ---: | --- |
+| W1.json | 1719.244 | `ced3b3ef91c1d831db29659ed874bb4bd1def69a8bf1800ec6c369ea8f01a844` |
+| W2.json | 1413.672 | `768df02da2d82cf41351dadd0a7c7a97e9bc56a8f95856b673d13bffe06bcdec` |
+| W3.json | 3332.207 | `4e898f8ea20319cb062e1735dc35b6a5912719736222cf79f94df2b9ce09bbe3` |
+| S2.json | 0.008 | `db707e1ef3853c8754d485ee59a1725918b47c965eaec1efa04c52a807ab32fb` |
+
+run.log SHA **`f3c6c9a0f8cdefe18724b03b2cc688221f939a1de0540b178dc389cab5916e85`**，16:22:48–49Z、完整0cbf起止、四次及总exit0。均record_only、reference/deviation null；前三者不满足DC53未来目标，如实保留，不据此机械重跑已关闭参考样本。这里是单一时间派生，不声称已完成标准record或资源/所有计数。
+
+FULL的run/state从审核者已认证CT201副本经LAN到CT05，本审核独立hash实际CT05副本再次精确等于§113（run33898B、state87959612B），没有读取在途CT108大文件。`derived-inputs/p6w4full20261107a/w4full-visible-0cbf.json` 1101B、SHA **`f25c08a52e127e115f495321a3ace181a26edb111919e6b76b017a31f9804d38`**，取4007.919s、record_only，metric_source=18a自身v2-preview，输入run/state及reference文件SHA准确。日志 `w4full-visible-0cbf-20261107.log` SHA **`c194b5643c1f662bad7bcb7af605ff2054fd3903744400f7904cf30965938558`**，16:23:37–38Z、0cbf起止、exit0；数值与§113原数据一致，不重复测量。
+
+记录组织按Owner A使用**每个真实run/版本各一份标准record，再加普通外部索引**：run.head/六个product_tree_ids取其实际测量HEAD对应Git对象，工具HEAD另列，不把bb348/e076/18a等装成统一9704。builder已支持单数journey/resource，DC66单次无需伪造四份warmup/repetition；单样本统计不能宣传三次稳定性。索引列场景、record路径/SHA、真实版本、原始来源/输入/cache条件和限制，继承W4仅保留§112受限历史数值，不拼107b资源；缺原件先留缺项，不以旧失败摘要重造run/state。当前CT201并无其余W3-FULL/H1-FULL、H1-REFILL、H2两节点/H3完整认证副本；另一个旧input-summary SHA c31c18f6与已接受6b63不同，未当替代输入。实施者随后在CT05找到551463B、SHA **`6b63cf2e8c58cadc96b7ac716a523f9b5554fcb496eea16c0c2f5089199a3896`** 原接受summary，本审核直接核字节及结构，可继续合法派生，不必等CT108取该文件。
+
+现comparator即使--scenario也比较**全inputs对象**，随后比较指定scenario的fingerprint/count/state，忽略run.head与product_tree_ids以允许真实版本比较；它明确返回timing_comparison=not_compared。实际replay只作语义/结构一致性，不能作性能达标/加速证明，不弱化输入检查或把不同缓存条件强比；source完整身份/资源等在索引说明，不向严格record schema塞未建模字段。这些是既有consumer的实际边界，方向已直接反馈实施者，无新框架/GO。
+
+## 118. 标准record的Preview worker步骤缺采及H1条件缺口已定位，补证待独占窗口
+
+**W4-FULL标准record尚未生成；阻塞是旧collector漏采Preview worker步骤，不是FULL业务失败或原API计时失效。** CT05 a554用认证FULL launch/resources及6b63输入准备metadata成功，但builder exit2：`W4-FULL has no worker step timings for v2_preview`。原 `record-w4full-20261107/run.log` SHA **`28a2fef69a31f9b81aff36d9c05cf04c3193d281aaf131b83ca01bb84064e380`**、metadata SHA **`4460fd4f9f249ba411f78603ed6d7c6cbcc7c8204eee81e6f39af83fbf23cfac`** 均已直接读取；16:31:45Z、完整a554起止、metadata_exit0/record_exit2，失败保留不改写成功。metadata的输入五字段取原接受summary，包SHA/bytes与FULL四角色对应；六tree从实际18a Git对象取，不是当前工具工作树。
+
+实际根因是 `_run_tier` 的record_operation_timing只从value.operation_timing.operation_id找ID，Preview producer的ID在value.result.operation_id。这个接口错位与§109 coverage曾犯的是同类问题，但此处是真实旅程另一个consumer；bb348及e076原final summary也没有Preview worker步骤。Submit与History的timing原本含ID、S2同步无operation，现有记录不因此抹去。已直接交实施者最小修未来非在途collector并覆盖真实producer→consumer，不改_preview返回形状、建别名、改时钟或触1742在途运行；修订及验证尚待交付。
+
+历史优先从**同次原控制库快照**补真实DB步骤：FULL before-v2-submit已在Preview完成后保存；bb348 core在History前也有checkpoint（completed_through=v2-approve），control快照2150400B/1文件、原volume digest **`4baede398e55e77569836c0b51c98d1edd6b7aab6451b7cbb7d9793ff6d1aad4`**，artifact快照1043552482B/12168文件、digest **`0204887939ccff4e532fb4ba9b8157830c7a47758b68ea6e52cbe8117d84e357`**。源路径由已认证state.checkpoints.history.volume_snapshots固定，正式压力结束后合并一次必要小副本取证，在CT05的**私有复制件**开SQLite，按原SQL/UTC端点和原operation ID取同run步骤、绑定原state/快照摘要；不打开原SQLite造成WAL/SHM，不启动旧栈、取RS大卷、重跑业务或把诊断executor span拼入正式步骤。确实不能恢复时才列明确UNAVAILABLE并与设计限定record资格，不为出JSON先弱化原步骤要求/填0。设计已确认这一路径，无新Owner/GO。
+
+另一个实际派生边界已指出：_sample_scenario缺step_resources时的全run资源fallback不能当单operation指标；FULL S2等0样本下的空CPU/cores0/disk0也不证明实际资源为0。应在既有record的nullable统计及unavailable原因中保留缺观测，coarse全run资源只留原run/索引，不改sampler/raw或构建新资源证明机制。此项最小修订尚待交付，不能把它与有原DB可补的worker步骤混成同一“缺计时”。
+
+H1也需补既有条件证据，暂不将core History自动签为健康H1。DC38明确H1为**普通Preview/Submit之后的相邻首查**，H3是TTL内重复查询，不能互换。独立读bb348原argv未指定history_cache_mode，raw H1 cache_condition/cache_after及tier condition均null；W2在06:16记录274缓存项、TTL有效、无expired/missing，这不直接等于07:36:37.516Z History起点的健康证明。原before-History control/artifact快照可在上述同一空闲窗口按**历史起点UTC**核规则/TTL/相关缓存对象，不能用今天TTL判断旧时失效、改历史none为healthy或重跑首查。H1原API 2426.267s可保留为未补条件的历史观测，角色资格待这项核验；若源确实不足再给设计明确缺项/选择，不暂停STRESS等独立工作。当前以上均为已定位的记录/条件补证任务，标准record/comparator和整体exit仍未完成。

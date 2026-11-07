@@ -59,6 +59,8 @@ RS离线build均0：04 `run-repository-build-AqbozR9J` log SHA=`58e74acc3be3c67b
 
 05证据精度沿已审consumer：逐项验证完整metadata/closure路径、顺序、size/raw SHA及适用records逻辑摘要，最终持有现有JSON聚合counts/digest/bytes/time、原log及8项固定reason文件；不声称每成员原字节或所有原HTTP diagnostic/resolution响应已外置留存。原diagnostic事实/逐项接受审计的不变量由未变V2 owner与04规则、05实际流程合并核收，不为报告临时扩建持久取证字段。
 
+05强制sync已0，log SHA=`0ad22dedda643d6e8e4698838545153a91efce311586470929fb0835b03fa6a9`；`run-extension-build-input-913obiwP`核expected=installed=e6ac，log SHA=`d3d9e128c4342a3d7644c84abcd33d4854018c7c6bf840761279673360c1bdb7`。**12:35:37Z**启动唯一fresh t1 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-05/run-fresh-t1-8skuj66m`，保持已审FULL/MO CLI、N1/M24GiB与单env显式reason JSON，非resume。04原六包run继续，当前均未完成。
+
 ## 6. 最终核收待填
 
-产品tree已收敛0301；完整执行稿已固定，04 workers48/六包一次runner及Compose，05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。原独审最后核可及协调固定source后按既有授权执行；当前尚无04/05运行、最终manifests、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。
+产品tree已收敛0301；完整执行稿已固定，04 workers48/六包一次runner及Compose，05 fresh t1 FULL/MO、N1/M24GiB、8项明确测试库reason、四份节点专用guard/路径与停止边界均见D handoff§9。原独审静核及协调固定source后，两节点已按既有授权开始；当前尚无完整runner/journey结果、最终manifests、DC33最终范围确认或退出报告。D收尾时补齐实际提交/角色、节点占用和命令、证据索引、每包判定、当前镜像绑定、同制品前端交接状态及明确未决项；协调者整理供Owner审查的具体结果。不推送、不改写引用提交、不打退出tag、不启动S3。

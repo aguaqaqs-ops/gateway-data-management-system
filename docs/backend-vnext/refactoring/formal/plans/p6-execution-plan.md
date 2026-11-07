@@ -227,7 +227,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 - 首轮设计独审`e92afaa53f`的技术修订：时间提取闭合grammar/UTC微秒归一及源序规则见业务设计§4.1；200候选采用1601异常引用/1选择确认，256KiB body静态预算见§7.1。BE-d§2.1登记前端UTF-8 PAX byte-length修复和同tar互通作为FE3交接依赖；本轮修订已复审GO，B1/B2关闭；该结论仅为设计GO，不是产品验收或前端互通证据。
 - 实际顺序保持A1→V1→V2→D；D新实施/独审均6.1-Sol（xhigh/max），工作单与精确清单见[p6-be-d-work-order](p6-be-d-work-order.md)/[handoff](p6-be-d-handoff.md)，角色同节承接已授权联合最终准备收尾。FE3接口快照、新异常页面与PAX修复由前端owner负责，Owner手动转发[V2实际接口制品](p6-v2-frontend-handoff.md)，不把后端交付当FE3已完成。
 - D本地产品`0ba45e5ef8`/vnext`0301aee3a3`、独审`6ad7e54fa0`及handoff`41386e12e6`核收`cd2d395fbc`已通过，F1–F5关闭，06于12:05:51Z本人释放；同tar及实际OpenAPI已供Owner转前端，FE3仍待。
-- 06日常focused/Contract/必要小Compose，04最终候选权威门禁与容器绑定；05一次fresh t1整合实际FULL/MODIFIED_ONLY、Submit/Review/Archive及Preview/History完整tar，异常用小型wiring补足。见[集中准备清单](p6-be-a-d-joint-validation-preparation.md)及[D完整执行稿§9](p6-be-d-handoff.md#9-联合0405执行清单稿静核协调对齐后启动尚未执行)。公共fixtures已变化，本次六包实际运行，不口头carried；不逐轮全量/全旅程/大输入。04/05当前未执行，最终真实范围退出前仍按DC33交Owner确认，不启动S3或自动办理exit。
+- 06日常focused/Contract/必要小Compose，04最终候选权威门禁与容器绑定；05一次fresh t1整合实际FULL/MODIFIED_ONLY、Submit/Review/Archive及Preview/History完整tar，异常用小型wiring补足。见[集中准备清单](p6-be-a-d-joint-validation-preparation.md)及[D完整执行稿§9](p6-be-d-handoff.md#9-联合0405执行清单稿静核协调对齐后启动尚未执行)。公共fixtures已变化，本次六包实际运行，不口头carried；不逐轮全量/全旅程/大输入。04/05同一clean候选a999，分别于12:32:24Z启动唯一runner、12:35:37Z启动唯一fresh t1，结果待；最终真实范围退出前仍按DC33交Owner确认，不启动S3或自动办理exit。
 
 ## 3. 路径预算（主要改动面）
 

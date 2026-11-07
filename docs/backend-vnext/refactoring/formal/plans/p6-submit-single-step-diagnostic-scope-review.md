@@ -1791,3 +1791,13 @@ G1 修正将 thread.start 的异常单独处理：标准未启动失败时 ident
 唯一实施者可沿 §78 现有授权，在 CT05 实际占用释放并正常取得节点后，完成受影响 worker/runtime focused 与五包 Ruff/mypy，记录 clean 起止 HEAD、节点、时间、exit 和完整日志摘要；同范围失败最小修订后直接继续必要验证，不新增 Owner/协调回执门槛。证据齐备后直接交本审核会话，不需要重复申请准备身份；尚不能据此跳过验证构建新镜像或运行业务。
 
 验证通过后仍按原计划准备新 backend/worker 镜像与一个原小 Compose，原 §52/57 镜像不能代表该产品差异；真实 prepare 的新工具 hook 必须显式传递 join_status，§79 接线待办继续保留到精确新 manifest 审核。没有重跑旧 g、扩大预算、主线合入/push/tag、真实 prepare 或正式测量 GO。H3 原历史 PASS 保留，lease 修复效果/内存代价未验证，正式测量 STOP。
+
+## 81. 工具准备两次失败：保留先停，固定脚本待独审后按 DC80 接续
+
+实施者报告 CT05 候选 `0c97cb9c` 已在 clean detached worktree `/home/dev/gdds-p6-worker-gc-scheduling-repair-0c97cb9c-20261107T0049Z`，准备占用已释放，未开始测试/build/lint/manifest/真实 prepare，也未改 E 资源。本审核仅核本地两份错误摘要及其 SHA256，**未把它们称作完整原始 shell stdout/完整命令，也未另起第三次节点检查**。
+
+第一份 `/tmp/p6-gc-node-toolchain-check-0c97cb9c.failure.log` SHA256 **`271453f5a7d378cd9924a93a80fdaaf49547543acac99af34d1f3997cbe64f4b`**，记录 2026-11-07 00:51:27Z、rustc 从 `/home/dev` 执行而未应用仓库 selector，rustup 无 default、exit 1；这不证明仓库选定工具链或缓存缺失。第二份 `/tmp/p6-gc-node-toolchain-check-retry-0c97cb9c.failure.log` SHA256 **`4ad85da76eecd8535f4a6bf5582da927a801c1fc234e460aec4978f75e4c4aa5`**，记录修正命令因本地未闭引号 exit 2、在 SSH 前失败。两份摘要均报告没有测试/产品运行或副作用；不据此修改产品或撤销 §80 代码侧结论。
+
+按现行 AGENTS/testing-conventions 的 DC68，重做再次失败先停是正确历史事实；`f7d53c1c41` 也保留实际失败停止规则，不能把普通 focused 修复流程解释成原样预检无限重试。设计随后明确本次 DC80 的最小修正、独审及合格恢复授权：**具体固定小脚本经本审核核命令、本地 bash -n 与完整 SHA 后，实施者可直接接续 §78/80 必要 focused/五包静态，不等新的 Owner/设计/协调回执。** 不抹掉原两次失败或假称第二次未发生。
+
+已交实施者仅在 CT201 准备独立脚本，避免嵌套引号，固定候选目录和实际所需离线环境/扩展身份前提；Rust/依赖未改，不另加 Rust 编译或门禁，任何版本查询不得隐式下载。原失败证据保留，具体脚本尚待交付/审查，**当前没有工具准备恢复合格结论，节点仍停**；其后正常取得有效占用再执行。本节不设置重新审核产品或扩大测试矩阵的门槛，也不消耗/替代未来真实 prepare 精确 manifest 的一次 GO；正式测量 STOP。

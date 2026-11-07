@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码、五包静态/定向与最终t1已独审通过，04整次、t2/t3与最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码、五包静态/定向、04六包实际/当前Compose与最终t1/t2已独审通过，t3与最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -32,9 +32,9 @@ typed raw/canonical 同为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d
 
 ## 当前容器记录
 
-Current reviewed code HEAD: `a6876d560050285321fd9f62942d590a03f35d64`，审核detached WT固定clean a687。相对464仅最终32/8/M24 settings/Compose与resource owner三路径，触发当前候选04本机重建/六包实际Compose；未知结果尚待，不重复06 Compose。此前82的profile触及Compose/环境，已在04本机离线重建并由六包权威入口运行实际Compose，不重复同候选Compose。最后合格04 backend/worker image为 `sha256:a5e0b1df76750aee55cabc9506f0b89427626dab16060794311548617dd8a72f` / `sha256:99ebe2a031d2fb2c81fbf46a266cd8f8f9ac374d55c0f9f8fbce0f649ae25a5c`，RS image为 `sha256:2536840a18c0eb840e88d040988b203d9025270e55337090dca8e848d5b2b08c`、revision82/source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`，provenance SHA `112ddcc6ead0122d356b3bcbd281cc50a1783ad1a519b955c5dd0fecaf23e377`。backend starting closure total为 `23dcc46ad4a910f6d9836c3527b2589dd834b8c9c3c5def8399d300972cb795c`。该结果只绑定实际82，不冒a687或旧D/失败/cal的当前容器结论。
+Current reviewed code HEAD: **`a6876d560050285321fd9f62942d590a03f35d64`**，审核detached WT固定clean a687。464后仅最终32/8/M24 settings/Compose与resource owner三路径，触发当前候选04本机离线重建/六包实际Compose；05:11:23Z取得整次合格来源，原同E gate WT保留。当前backend/worker image为 `sha256:34130ae839ba946d07bee991f2a7e44b01f1f1f33b9416aba6b13c8c14644e3e` / `sha256:692cc893fdbbc4e5c5b336679334b3561c6e0ed1a0b36cf20e42e3d661334298`；RS image为 `sha256:cbc547e4b01d8aba6d5fd00e6df896975df4c1deb4f962f4fcf8105d3bb81e15`，build-input revision a687、source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。当次Compose provenance SHA **`ac28f04e1b2d36aca3b4a5243f477cb577db4ae7ba807042818bbfbfd57b513f`**、backend starting closure total **`8d0b73df9f15d899265a4d57f24cac4dd87d24b5ca9f00c3b01992b1feff8645`** 已独立核。
 
-82当前容器门禁已通过；最终H的carried仍须按同04/同WT实际闭包与镜像身份规则另办，当前不预填。04 WT保留至stage exit合入。主线读取至36709de375时相对82的vnext无实差异；这仅为差异审计，不代替最终H闭包判定。
+本轮同V backend权威批次已包含当前本机build与Compose，不重复06或04另一组。旧82结果保持原范围，不冒最终M24资源事实；失败/cal镜像不作权威来源。最终H尚未冻结，之后只按同04/同原gate WT实际closure/image规则核一次绑定，当前不预填carried；WT留至stage exit合入。主线继续并行更新own文档，不在被测WT写入。
 
 ## 固定组审核记录
 
@@ -396,3 +396,21 @@ Owner已确认主案：**envelope34359738368 B（32GiB）、reserve8589934592 B�
 
 
 06本次backend dependency-base沿用依据另独立核齐：同节点D原 `artifacts/s2b-d-93678f8439/base-identity.txt` SHA `3c5764473f68c1fb2d362226816bddfbce133897a0227c0738d1c65d5df22793` 含config `sha256:b5b5422411de38e5ba08243343edb32c39cb01dc7cfcb1564bcb4b4d55e4b92a`、全19DiffIDs与IDENTITY_MATCH；同组原log SHA `daa9d38d0d0e96f5f06b86bf776992fa1bbfcc22066e4325754e2076ace55227` 明确该本机immutable ID为 `sha256:d363b45a33be8d0034f49f156998753086d09c4c171e75896f1e4beab4ff49ff`。最终06 env复核未变ID承接此前同节点完整证明，不把inspect ID用于跨节点比较、不重复save归档；D原整组后来fixture失败不升级为PASS，也不改变独立镜像身份事实。
+
+
+## 最终a687六包合格来源与t2独审
+
+04原 `six-package-authority-01/authoritative-runner.log` SHA **`9faaf9d80a2b3f249616e58880156155b177fb6d763d4b83acd0b4b375b85985`** 已完整独立读取并重算：`gw-dms-test-04`，04:44:47–05:11:23Z，起始六manifest和结束HEAD均clean a687，runner0/driver0/final_driver0，六包status全部passed。Rust fmt/clippy/test三步各0；shared/contracts/client分别243/152/161PASS；backend3183主体+57serial PASS；RS1744PASS/1skip主体+207serial PASS。没有把跳过项记成通过。原始runner-exit.txt为0、released-at05:11:23Z；独立随后核gate WT仍clean a687、marker不存在、无运行container。当前容器身份详上节，同候选不另重复Compose。
+
+六个 `original-starting-manifests/<package>.json` 都与本次原log对应marker后的首JSON（含原换行）**逐字相等**，package/full a687/clean和total均核合；只在整次0后提取，index SHA `0224dab5682b10a650b381a77461e130b7f3046a4eb8adf36cd9eeaf44f5ae90`。这是最初actual V，不引用carried链：
+
+| package（均actual） | starting total | 原manifest SHA256 |
+| --- | --- | --- |
+| rust | `ec9549bb1980f6894c75a37b6ddcd094f183993078e54ed124e16c8176c59b79` | `429960a9aad2a12e81c9d8936d3eddb5727516949de3b57f463ce09697950d3c` |
+| shared_kernel | `b2aa9cb246423a2dc982a8851d375d187c9c83a4adcd57e47a370eae10955612` | `7ac6a85b629007f47ae360824d64d6ae98e4512c5095854a3b32f4a7be702a7e` |
+| repository_contracts | `72f77cf22ee074184887adab578d7e353c623fa250f112635edac7b264704650` | `0dd24001e0bb7855618b5f6dc94b9310ca0fb3dd18c9aa9b3bf8b5138f924724` |
+| repository_client | `36c310182dbea4686acfff425876a394b888b50cdebef07c414c5942c2bed378` | `2eba3a5248a65cdc07c021121b78e8d74003d4595016329c36e9d1fc99f68879` |
+| backend | `8d0b73df9f15d899265a4d57f24cac4dd87d24b5ca9f00c3b01992b1feff8645` | `fd42a472b44437c49939f926aa8c256fbcdb611a21e038ca457fe79a07c6c568` |
+| repository_service | `80203cb5ac294234e4192bc2c6842cbde5d853cec012d6884f54fa15bb0a5960` | `095405d818abe31a7034c0648aa9589eca45fc2fa83eee247633afcbbf5f25b9` |
+
+最终M24 t2原目录 `artifacts/s2b-e-m24-t2-a6876d5600/` 已独立核：04:50:11.425–05:04:10.365Z、fresh full/N1/M24，journey0、driver0、单worker `234e2ce1f33b` 的running/stopped同Id/StartedAt/Restart0；HostConfig.Memory与memory.max均34359738368、reserve8589934592、显式M25769803776。CG lifetime peak **2566234112 B**、VmHWM **2415676 KiB**、events全0、OOMKilled false、正常stop exit0，日志/资源齐、owned cleanup/release/endclean同a687均真。journey SHA **`88666462a8e53b7c4de13df3d7130e1bd9b8d9e06d3c4d0ac3d3b7349c80ca59`**、result **`51a4b6f85a8a7f75e24330017466283da5657d26c3973a087c36a0921e1c9852`**、resources **`2919153cc7ff0afccdc784dbb4fae8cd8d01f28a1d40fabbfc686c8d74e8d91c`**；sha256.json全项重算一致。t1/t2原worker日志无Traceback、lease_lost、RESOURCE_LIMIT_EXCEEDED或PURE_RECOMPUTE_FAILED记录，不据此关闭原冻结基准W4。t3已fresh启动，完整结果/H绑定仍待，E未GO。

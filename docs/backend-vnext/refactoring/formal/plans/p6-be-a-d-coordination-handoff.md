@@ -16,7 +16,7 @@
 
 | 小节 | 状态/候选 | 角色与模型 | 验证/节点 | 未决与下一步 |
 | --- | --- | --- | --- | --- |
-| A1 | 协调kickoff `6599fb8ac9` 已提交，两角色已启动；代码候选待产出 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，独立上下文 | 06 focused/静态/必要小Compose；尚无新证据 | 实施者按[工作单](p6-be-a1-work-order.md)实际实施，审核者先准备、固定候选后只读独审 |
+| A1 | 首个固定代码候选 `adc2863e7f93c34c5e96b298228d38e227772892`（47文件，提交后clean），[实施handoff](p6-be-a1-handoff.md)已落 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，独立上下文 | 06 focused/五包静态/RS unit及受影响小Compose待运行 | 原审核者已触发固定候选只读代码审；实施者准备06原子占用/clean WT。尚无产品GO |
 | V1 | 已授权，A1通过后启动 | 下一节新建两个角色 | Rust/native→checkpoint→Attempt/Submission持久冻结 | UTC grammar已定，不恢复Python路径 |
 | V2 | 已授权，V1通过后启动 | 下一节新建两个角色 | 纯规则/audit/事务/统一处置/History | 200候选、confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
 | D | 已授权，默认V2后；如前端下载阻塞可提前至A1后 | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |
@@ -24,7 +24,9 @@
 
 ## 3. 验证与资源
 
-本轮尚未运行测试、lint、编译、容器、真实数据；未取得节点占用。协调文档编辑不触发镜像重建，最后实际产品镜像仍属S2b V `a6876d5600`（身份见设计独审§5），不作为新规则验证。A1产品变更是否触发重建及精确nodeid由实际diff按AGENTS判定；联合最终容器必须绑定实际最终候选。
+截至A1首个候选，本轮尚无已完成的测试、lint、编译、容器、真实数据证据；06占用以实施者后续实际取得/释放记录为准。协调文档编辑不触发镜像重建，最后实际产品镜像仍属S2b V `a6876d5600`（身份见设计独审§5），不作为新规则验证。A1修改真实Compose测试与session接线，已触发收敛候选06小型容器门禁：`test_review_compose_e2e.py`、`test_archive_compose_e2e.py`，实际nodeid及provenance由实施handoff记录；联合最终容器仍必须绑定实际最终候选。
+
+联合按包比较的既有合格来源可从S2b E交接§30后及最终记录定位：04保留原WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`，实际V `a6876d560050285321fd9f62942d590a03f35d64`，六包原始起始manifest位于04 `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-m24-a6876d56/six-package-authority-01/original-starting-manifests/`。这是来源定位，没有在本轮访问/检出该WT或计算carried；最终须先核实际状态与来源条件，不因记录存在而宣称沿用。
 
 06后端focused，05默认真实t1，04最终runner/carried；07由前端owner安排，CT108不使用。使用时现场核查并原子取得本节点标志，结束收尾后释放；尊重有效占用和计时独占。04最终取证期间避免06重负载干扰，不设跨CT常规审批。clean已提交测试worktree、LAN源码/缓存、UV_OFFLINE/CARGO_NET_OFFLINE、日志hostname/起止HEAD/UTC/exit/SHA及镜像身份规则均遵守。缓存或节点前提失效时停止受影响验证并修正，不回退开发主机。
 

@@ -71,6 +71,10 @@ RS离线build均0：04 `run-repository-build-AqbozR9J` log SHA=`58e74acc3be3c67b
 
 设计者已静核业务设计§6.2/§7.1回执无冲突：这是已审逐项subject实现缺陷，原字段候选集合内再按command.subject_digest精确选取，缺集合/错digest仍拒绝；不能按code合并接受或只信caller digest绕过其余字段/当前snapshot。auth/scope/CAS/actor-bound append/旧成功replay/冻结payload保持，后续sequence及持久subject_payload取该精确项。原audit owner补双side同code独立接受/序列和伪digest拒绝小向量，修后同审；原runner结束后先必要focused/一个共用resolution真实wiring，再六包。当前原RS批次仍自身收尾，不写被测WT、不重tag、不启动外部后继验收；05影响判断暂停直至实际完整修复diff明确。
 
+精确修复 **`eff1dc531b7f011d870bb100912f079cf500c497`** 已固定，vnext **`56720104af34a1eb677336f57bdbc07444a56615`**；相对a999仅audit选择21行+原audit67行回归向量+2ae三文案，无consumer/harness/Contract/digest/版本/auth/CAS/replay变更。原独审`7f8eb20a3e`§19静核通过（活动说明随后`7338dab5dd`精度更正）：保留四字段候选集合及两原409，再精确digest；双side独立接受/序列、冻结side、伪digest拒绝、独立撤销+Start阻塞的小向量已静审，实际补验待做。设计者明确无设计冲突。
+
+原04整次于**12:59:22Z**结束，command/final1、end exact a999/clean/本人owner真；原失败来源绝不作任何包carried。本人cleanup后复用原04门禁WT/本人占用做该失败必要诊断：三原owner两marker、backend静态及一条共用resolution Submit removes_deleted Compose，固定新actual source后执行，未动已释放05/06或修改budget。通过后才启动新六包。05旧成功路径未影响的代码论证已静核成立：原成功蕴含四字段首项digest相等，新精确搜索仍取同项、后继不变；实际有限步骤引用仍待必要补验收敛，不冒称新HEAD fresh或image/package carried。
+
 ## 7. 05实际fresh证据与释放
 
 实际a999 fresh于**12:40:42Z**结束，command/final0、endclean/owner真；原run log SHA=`66cdeb8c906434bbdfbdf2b63ee438c4537f1a9aab10bedafe5d3a36189e83c1`。[原结果JSON](/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULlJ/p6-be-ad-final-05/run-fresh-t1-8skuj66m/final-result.json)为原log offset53374/length40044原字节行，SHA=`505f9731235430c21c53ff39316bec1f0f4e22b7465275bdea12e4a04823cf1d`，18步序完整；v1 identity N/A、v2 SAME_PROJECT、repeat NO_CANONICAL_CHANGE。FULL helper实际严格核完整双pair；result里默认initial_to_modified单view的summary.pair_count=1不等于完整FULL只有一pair。

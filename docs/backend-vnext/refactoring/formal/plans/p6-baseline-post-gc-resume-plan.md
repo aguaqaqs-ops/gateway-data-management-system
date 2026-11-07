@@ -29,8 +29,10 @@
 | --- | --- |
 | 已完成 t1–t4、2× core（W1/W2/W3、S1–S3、H1）、W3-FULL/H1-FULL、H1-REFILL、H2 两/三节点、H3 | 保留各原 run 的 HEAD/镜像/节点及实际完成结论，逐项引用旧记录；不重测、不改记为9704。较新完成记录优先于旧待办快照，旧清单仍写未完不自动构成重跑依据。若索引确有实际缺口，明确报告而不补造。 |
 | 首轮 W4/S4/H1 缺口 | **已完成本次有限接续：** `p6w4resume970420261107b`、工具HEAD `3fd64dc2fe`、handoff `945d9141c4`，由接续审核§101（`59b96c3cd9`）独立PASS。从上述source的v2-preview完成态接续，9704产品上的Submit/read/approve/History及收尾通过，完整Submit保留prepare。该项从待办扣除，不重跑；history cache mode=none，不代替healthy History/H3，也不代表完整矩阵或阶段exit。 |
-| W4-FULL、W4-STRESS | 只跑未完成范围；10% cold Preview/healthy History与100%压力按原定义分别记录，不把同名已完成的W3-FULL误列未完成。输入根可复用，压力结果如实报告，不写未证性能 PASS。 |
-| 631/631 表哈希、DC63 #1、V5b A–D | 在适用的已完成状态或新测量上补真正缺项；复用原工具，写明每项产品/步骤/节点来源，不为采集同一不变量重跑已闭合旅程。DC63细span的实际缺口按[最小补缺方案](p6-dc63-v5b-measurement-completion-plan.md)处理；21个selector不扩成新矩阵。 |
+| W4-FULL | **已独审PASS：** `p6w4full20261107a`、工具HEAD `18a4851d8c`，2026-11-07 11:49:34–15:56:39Z，18步及输入/清理通过，接续审核§113（`0bf7218401`）闭合。RS完整身份用原首operation前记录的同节点immutableID作16:13事后元数据链接，不冒称11:49新快照；不重跑该业务。 |
+| W4-STRESS | **运行中：** `p6w4stress20261107a`、clean `1742`，2026-11-07 16:21:02Z于CT108单次启动；100%/cold Preview、13checkpoint、三服务完整身份预检MATCH。v2 Preview64800s、work106200s、watchdog107420s、hard108000s均为保护上限而非ETA。结果尚待执行及独审，只报告，不写未证性能PASS。 |
+| 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
+| DC63 #1、V5b A–D | 实际诊断仍待执行，工具准备已获§109–110通过；按[最小补缺方案](p6-dc63-v5b-measurement-completion-plan.md)处理真正缺项，写明产品/步骤/节点来源。21个selector不扩成新矩阵，普通t4诊断不与正式压力计时重叠。 |
 | JSON/SHA、comparator 与总报告 | 保存按实际版本分列的记录及索引，报告差异与缺口；单版本 schema 不能如实表达时采用多份既有记录加总索引或最小工具修正，不伪填统一 HEAD，不以文案/字段统计问题重跑产品。 |
 | 04 最终权威 runner | 归属本冻结参考线的最终工具候选 V_ref，其产品路径须等于已审9704；可含必要 benchmarks/tests/docs 修正。不借当前 main/S2b 的六包结果冒充本线结果。按原入口、最终候选及按包闭包规则核验/执行，不重复已合格且闭包相等的包；原最终门禁作为独立收口待办，与 CT108 补测可在不同节点并行，不新增“每轮先全量”门槛。阶段 exit 仍另行办理。 |
 
@@ -43,6 +45,8 @@
 已发现部分deviation selector误取整旅程、H2三节点的旧参考19361.157s也取整旅程。现有双方从认证的原run/state/summary中修正派生actual与同operation/同端点reference，保留产品/输入/节点及原SHA，不修改原证据或共享计时；record builder与deviation工具分别核实际影响，不将一个工具的修正泛化成另一个已错。原policy及统计规则保持，不能恢复合法参考时明确UNAVAILABLE/不可比及原因，不伪填或静默改policy。本修正不因错误selector、字段抽取或A下跨版本旧差异触发已关闭业务重跑；实际干扰、数据/身份不符仍按原停止和DC80处置。
 
 **基准性能目标与当前推进分开：** DC66明确本重建对照基准不进行性能门槛判定，Owner也已说明性能指标须结合物理限制评估。实施者报告从原state取得H2三节点同operation完成时间：b96历史参考4892.584s、e076目标4886.678s，待接续独审核验后替代错误的整旅程比较；超过600s目标须如实标未达，不能记性能PASS。此处保留旧版本参考事实及未来S5/S6目标，不降低目标、不改变compare policy，也不把预优化基准的目标未达当产品失败或已关闭业务的重跑理由；原结果/身份异常仍正常处置。
+
+上述H2同端点参考及第14项selector已由接续审核§114（`0bf7218401`）实际核验闭合，历史raw保持不变。其余13项record-only selector及逐指标来源标注已有定向验证；各场景完整record/comparator的最终汇总仍待完成，不能据局部修正宣称全量收口。
 
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
 

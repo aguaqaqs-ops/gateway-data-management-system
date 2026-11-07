@@ -292,7 +292,7 @@ delete_eligible(ref, expected_classification) -> deleted | absent | retryable_fa
 
 ```text
 job_kind: backend-vnext/preview
-job_contract_version: backend-vnext/preview/v1
+job_contract_version: backend-vnext/preview/v2
 materialize_inputs -> assemble_preview -> publish_preview
 ```
 
@@ -300,7 +300,7 @@ Payload 只含 stable IDs、generation、frozen baseline node/commit/head versio
 digests、ruleset/contract/provider versions、options、idempotency identity；不含 host path、callable、
 bearer、SQLite connection 或大对象。Decoder 拒绝 unknown version/field、缺失 identity 和超预算。
 
-`backend-vnext/preview/v1` payload是closed object：
+`backend-vnext/preview/v2` payload是closed object：
 
 ```text
 workspace_id, upload_revision_id, generation, repository_id

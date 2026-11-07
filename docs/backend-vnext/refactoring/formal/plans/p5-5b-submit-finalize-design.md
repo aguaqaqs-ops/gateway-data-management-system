@@ -551,7 +551,7 @@ checkpoint。BackendArtifactRef不能出现在SubmitVersionedImport body。
 
 ```text
 job_kind: backend-vnext/submit
-job_contract_version: backend-vnext/submit/v1
+job_contract_version: backend-vnext/submit/v2
 
 prepare_import -> submit_import -> await_import_result
 ```
@@ -573,7 +573,7 @@ Operation Runtime envelope/version/budget沿用P4。5B inline payload是closed o
 
 ```text
 document_type: submit_job_payload
-contract_version: backend-vnext/submit/v1
+contract_version: backend-vnext/submit/v2
 submit_attempt_id
 workspace_id
 generation

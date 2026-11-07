@@ -145,7 +145,7 @@ safety、required-file和role closure admission；不得解析SQL、materialize 
 
 `PreviewResult` 是对 exact Workspace、UploadRevision、source/input digest、业务Baseline、
 ruleset/contract version、Snapshot/Comparison digest、artifact closure，以及 MODIFIED 侧规范表集合
-闭包与 CanonicalizationManifest 引用、上传 MODIFIED 侧与基线侧的规范状态摘要、投影所用规则集
+闭包与 CanonicalizationManifest 引用、FULL INITIAL、MODIFIED 侧与基线侧的完整规范状态摘要、必需 ConfigurationFacts、投影所用规则集
 digest、身份评估集摘要与逐 pair 的身份结论和执行模式的不可变绑定。
 Preview接受时冻结这些身份，并创建固定三步Operation：
 `materialize_inputs -> assemble_preview -> publish_preview`。Preview失败不使已接受revision

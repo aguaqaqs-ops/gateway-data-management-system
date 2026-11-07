@@ -648,7 +648,7 @@ CONTROL_DB_SCHEMA_STATEMENTS: tuple[str, ...] = (
         node_id TEXT NOT NULL
             CHECK (typeof(node_id) = 'text' AND length(node_id) BETWEEN 1 AND 255),
         optimistic_version INTEGER NOT NULL
-            CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version >= 0),
+            CHECK (typeof(optimistic_version) = 'integer' AND optimistic_version BETWEEN 0 AND 9007199254740991),
         FOREIGN KEY (repository_id, node_id) REFERENCES
             baseline_node_records(repository_id, node_id) ON DELETE RESTRICT
     )

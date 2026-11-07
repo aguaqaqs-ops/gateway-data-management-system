@@ -29,6 +29,7 @@ from gateway_backend.application.archive.errors import (
     CandidateBindingConflict,
 )
 from gateway_backend.application.archive.contracts import ArchiveAuditReferenceInput
+from gateway_backend.application.archive.integrity import assert_archive_result_integrity
 from gateway_backend.application.archive.ports import (
     ArchiveControlTransaction,
     ArchiveControlUnitOfWorkFactory,
@@ -292,7 +293,8 @@ def get_archive_result(
             gateway_device_external_key=context.gateway_device_external_key,
             business_project_id=context.business_project_id,
         )
-        result = unit_of_work.archive.get_result_by_id(archive_result_id)
+        result = unit_of_work.archive.get_result_by_id(archive_result_id, repository_id=fresh_scope.repository_id,
+            gateway_device_external_key=context.gateway_device_external_key, business_project_id=context.business_project_id)
         if result is None:
             raise ArchiveResultNotFound(archive_result_id=archive_result_id)
         plan = unit_of_work.archive.get_plan_by_id(result.plan_id)
@@ -304,6 +306,7 @@ def get_archive_result(
             or plan.business_project_id != context.business_project_id
         ):
             raise ArchiveResultNotFound(archive_result_id=archive_result_id)
+        assert_archive_result_integrity(unit_of_work, plan, result)
         return GetArchiveResultResult(
             plan=plan,
             archive_result=result,

@@ -105,7 +105,8 @@ class ArchiveRepository(ArchiveAuditWritePort, Protocol):
     def get_plan_by_id(self, plan_id: str) -> ArchivePlan | None:
         """Load one ArchivePlan by plan id."""
 
-    def get_result_by_id(self, result_id: str) -> ArchiveResult | None:
+    def get_result_by_id(self, result_id: str, *, repository_id: str | None = None,
+        gateway_device_external_key: str | None = None, business_project_id: str | None = None) -> ArchiveResult | None:
         """Load one ArchiveResult by result id."""
 
     def list_dispositions_for_submission(self, submission_id: str) -> tuple[SubmissionDisposition, ...]:

@@ -1168,3 +1168,44 @@ def test_accept_history_compare_is_read_only(db_path: Path, tmp_path: Path) -> N
 @pytest.fixture
 def env(tmp_path: Path) -> WorkspaceHttpTestEnvironment:
     return create_workspace_http_environment(tmp_path)
+
+
+def test_history_pages_and_full_snapshot_expose_both_terminal_sources_without_changing_review(db_path: Path) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.manual_close import close_submission
+    from gateway_backend.infrastructure.control_db.history_reader import HttpHistoryReader
+    from gateway_backend.domain.archive.models import SubmissionDispositionSourceKind
+    from tests.support.archive_fixtures import (
+        seed_approved_dual_sibling_archive, close_command, refresh_archive_seed,
+        append_selection_confirmation, start_archive_for_seed, TS_ARCHIVE,
+    )
+    from tests.test_review_transactions import _uow_factory
+    dual = seed_approved_dual_sibling_archive(db_path)
+    close_submission(command=replace(close_command(dual.primary), submission_id=dual.target_submission_id),
+        unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    primary = refresh_archive_seed(dual.primary)
+    result = start_archive_for_seed(primary, confirmation_sequence=append_selection_confirmation(primary))
+    facts = HttpHistoryReader(db_path).load_facts(repository_id=primary.repository_id,
+        gateway_device_external_key="device-1", business_project_id="project-1")
+    by_id = {item.submission.submission_id: item for item in facts.submissions}
+    manual = by_id[dual.target_submission_id].disposition_record
+    archived = by_id[primary.submission_id].disposition_record
+    assert manual is not None and archived is not None
+    assert manual.source_kind is SubmissionDispositionSourceKind.MANUAL_CLOSE and manual.result_id is None
+    assert archived.source_kind is SubmissionDispositionSourceKind.ARCHIVE and archived.result_id == result.archive_result_id
+    env = _history_env(db_path.parent / "history-terminal", db_path=db_path)
+    nodes = []
+    cursor = None
+    while True:
+        response = env.client.get("/v1/history", headers=env.auth_headers(), params={"limit": 1, **({"cursor": cursor} if cursor else {})})
+        assert response.status_code == 200
+        body = response.json()
+        nodes.extend(body["nodes"])
+        cursor = body["next_cursor"]
+        if cursor is None:
+            break
+    by_ref = {item["ref_id"]: item for item in nodes}
+    assert by_ref[dual.target_submission_id]["review_status"] == "APPROVED"
+    assert by_ref[dual.target_submission_id]["disposition_source_kind"] == "MANUAL_CLOSE"
+    assert by_ref[dual.target_submission_id]["closure"]["reason"] == manual.manual_closure.reason  # type: ignore[union-attr]
+    assert by_ref[primary.submission_id]["disposition_source_kind"] == "ARCHIVE"

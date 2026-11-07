@@ -492,3 +492,58 @@ def test_resolution_replay_rejects_changed_binding_fields(
             unit_of_work_factory=_uow_factory(db_path),
             now=datetime(2024, 7, 1, 1, tzinfo=UTC),
         )
+
+
+def test_time_acceptance_and_revoke_preserve_detected_facts_and_subject_changes_expire_acceptance(db_path: Path) -> None:
+    from gateway_backend.application.archive.queries import preview_archive_plan
+    from gateway_backend.domain.archive.models import affirmative_resolution_action
+    from gateway_backend.domain.configuration_facts import ConfigurationGeneratedTime, CONFIGURATION_TIME_RULE
+    from tests.support.archive_fixtures import replace_archive_configuration, refresh_archive_seed
+    seed = seed_approved_archive_candidate(db_path)
+    missing = ConfigurationGeneratedTime(CONFIGURATION_TIME_RULE, "TABLE_ABSENT", None, None, 0, 0, 0, None, None, False)
+    replace_archive_configuration(db_path, seed.submission_id,
+        lambda facts: replace(facts, modified=replace(facts.modified, generated_time=missing)))
+    seed = refresh_archive_seed(seed)
+    def preview() -> Any:
+        return preview_archive_plan(context=seed.archiver_context, selected_ref=seed.selected_ref, unit_of_work_factory=_uow_factory(db_path))
+    anomaly = preview().anomalies[0]
+    command = AppendArchiveAnomalyResolutionCommand(seed.archiver_context, "accept-time", BASELINE_HEAD.business_baseline_node_id,
+        BASELINE_HEAD.baseline_head_version, seed.selected_ref, seed.candidate_set_digest, anomaly.subject_digest,
+        0, affirmative_resolution_action(anomaly.subject_kind), "source has no generation time; verified independently",
+        anomaly.subject_kind, anomaly.issue_code, anomaly.target_submission_id, anomaly.target_candidate_digest)
+    first = append_archive_anomaly_resolution(command=command, unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    accepted = preview().anomalies[0]
+    assert accepted.detected_status == anomaly.detected_status and accepted.details == anomaly.details
+    assert accepted.resolution_status == "ACCEPTED" and accepted.latest_sequence == first.sequence
+    with pytest.raises(IdempotencyConflict):
+        append_archive_anomaly_resolution(command=replace(command, context=replace(command.context, actor_id="another-archiver")), unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    revoke = replace(command, idempotency_key="revoke-time", expected_sequence=first.sequence,
+        action=ArchiveAnomalyResolutionAction.REVOKE, reason="withdraw the prior acceptance")
+    append_archive_anomaly_resolution(command=revoke, unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC))
+    assert preview().anomalies[0].resolution_status == "REVOKED"
+    replace_archive_configuration(db_path, seed.submission_id,
+        lambda facts: replace(facts, modified=replace(facts.modified, sql_source_digest="sha256:" + "f" * 64)))
+    seed = refresh_archive_seed(seed)
+    fresh = preview().anomalies[0]
+    assert fresh.subject_digest != anomaly.subject_digest and fresh.resolution_status == "UNRESOLVED"
+    # Old successful append is a replay, without rerunning new snapshot gates.
+    assert append_archive_anomaly_resolution(command=command, unit_of_work_factory=_uow_factory(db_path), now=datetime(2024, 7, 1, tzinfo=UTC)).replay
+
+
+@pytest.mark.parametrize("column", ["subject_payload_json", "issue_code", "target_candidate_digest"])
+def test_stored_resolution_corruption_is_rejected_by_replay_and_start(db_path: Path, column: str) -> None:
+    import json
+    from gateway_backend.application.archive.errors import ArchiveIntegrityFailure
+    from gateway_backend.infrastructure.control_db.database import ControlDbUnitOfWork
+    from tests.support.archive_fixtures import append_anomaly_resolution, prepare_dual_sibling_start
+    dual = seed_approved_dual_sibling_archive(db_path)
+    confirmation, resolution = prepare_dual_sibling_start(dual)
+    with ControlDbUnitOfWork(db_path) as uow:
+        value = json.dumps({}) if column == "subject_payload_json" else "altered" if column == "issue_code" else "sha256:" + "0" * 64
+        uow.connection.execute(f"UPDATE archive_anomaly_resolution_events SET {column} = ?", (value,))
+    with pytest.raises(ArchiveIntegrityFailure):
+        append_anomaly_resolution(dual.primary, anomaly_subject_digest=dual.anomaly_subject_digest,
+            target_submission_id=dual.target_submission_id, target_candidate_digest=dual.target_candidate_digest)
+    with pytest.raises(ArchiveIntegrityFailure):
+        start_archive_for_seed(dual.primary, confirmation_sequence=confirmation,
+            anomaly_resolution_sequences=((dual.anomaly_subject_digest, resolution),))

@@ -94,7 +94,7 @@ class BaselineHead:
             raise ValueError("business_baseline_node_id must be a non-empty string")
         if type(self.business_baseline_commit_id) is not str or not self.business_baseline_commit_id:
             raise ValueError("business_baseline_commit_id must be a non-empty string")
-        if type(self.baseline_head_version) is not int or self.baseline_head_version < 0:
+        if type(self.baseline_head_version) is not int or not 0 <= self.baseline_head_version <= 9007199254740991:
             raise ValueError("baseline_head_version must be a non-negative integer")
 
 
@@ -124,7 +124,7 @@ class PreviewAcceptanceRecord:
             raise ValueError("generation must be a non-negative integer")
         if type(self.business_baseline_node_id) is not str or not self.business_baseline_node_id:
             raise ValueError("business_baseline_node_id must be a non-empty string")
-        if type(self.baseline_head_version) is not int or self.baseline_head_version < 0:
+        if type(self.baseline_head_version) is not int or not 0 <= self.baseline_head_version <= 9007199254740991:
             raise ValueError("baseline_head_version must be a non-negative integer")
 
 
@@ -416,7 +416,7 @@ class PreviewResult:
             raise ValueError("business_baseline_node_id must be a non-empty string")
         if type(self.business_baseline_commit_id) is not str or not self.business_baseline_commit_id:
             raise ValueError("business_baseline_commit_id must be a non-empty string")
-        if type(self.baseline_head_version) is not int or self.baseline_head_version < 0:
+        if type(self.baseline_head_version) is not int or not 0 <= self.baseline_head_version <= 9007199254740991:
             raise ValueError("baseline_head_version must be a non-negative integer")
         if type(self.ruleset_version) is not str or not self.ruleset_version:
             raise ValueError("ruleset_version must be a non-empty string")

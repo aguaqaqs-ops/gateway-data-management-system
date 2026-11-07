@@ -60,5 +60,5 @@ class BaselineHeadRecord:
             raise ValueError("repository_id must be a non-empty string")
         if type(self.node_id) is not str or not self.node_id:
             raise ValueError("node_id must be a non-empty string")
-        if type(self.optimistic_version) is not int or self.optimistic_version < 0:
+        if type(self.optimistic_version) is not int or not 0 <= self.optimistic_version <= 9007199254740991:
             raise ValueError("optimistic_version must be a non-negative integer")

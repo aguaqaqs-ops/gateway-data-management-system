@@ -175,3 +175,18 @@ def test_openapi_create_statuses_response_models_and_workspace_occupancy(client:
     assert "RETURN_FOR_REVISION" not in str(schema)
     assert "RETURNED_FOR_REVISION" not in str(schema)
     assert "ARCHIVE_PENDING_REVIEW" in schema["paths"]["/v1/archives"]["post"]["responses"]["409"]["description"]
+
+
+def test_archive_business_diagnostics_closure_and_reference_limits_are_closed_schemas(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    models = schema["components"]["schemas"]
+    assert models["StartArchiveRequest"]["properties"]["confirmation_refs"]["maxItems"] == 1
+    assert models["StartArchiveRequest"]["properties"]["anomaly_resolution_refs"]["maxItems"] == 1601
+    for name in ("ArchiveBusinessValidationResponse", "ArchiveSourceDiagnosticResponse", "ArchiveTimeComparisonResponse",
+        "ArchiveBusinessIssueResponse", "ArchiveBusinessSubjectResponse", "ArchiveIssueDetailsResponse", "CloseSubmissionRequest"):
+        assert models[name]["additionalProperties"] is False
+    assert "submission_disposition" in models["ReviewFactsResponse"]["properties"]
+    assert "submission_disposition" in models["HistoryNodeResponse"]["properties"]
+    assert "archive_disposition" not in models["HistoryNodeResponse"]["properties"]
+    route = schema["paths"]["/v1/submissions/{submission_id}/closure"]["post"]
+    assert {"200", "201", "403", "404", "409", "503"} <= set(route["responses"])

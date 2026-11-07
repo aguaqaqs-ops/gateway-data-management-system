@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from tests.support.configuration_facts import configuration_facts_blob
 
+from collections.abc import Callable
+from gateway_backend.domain.configuration_facts import ConfigurationFacts
+from gateway_backend.application.archive.manual_close import CloseSubmissionCommand
 from dataclasses import dataclass, replace
 import json
 from datetime import UTC, datetime
@@ -865,3 +868,30 @@ def normalize_archive_fixture_configuration(db_path: Path) -> None:
                 (blob, row["submission_id"]))
             uow.connection.execute("UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?",
                 (blob, row["submit_attempt_id"]))
+
+
+def close_command(seed: ArchiveSeed, *, key: str = "close-approved", reason: str = "source cannot be accepted; upload a corrected package") -> CloseSubmissionCommand:
+    return CloseSubmissionCommand(seed.archiver_context, seed.submission_id, key, 1,
+        BASELINE_HEAD.business_baseline_node_id, BASELINE_HEAD.baseline_head_version, reason)
+
+
+def replace_archive_configuration(db_path: Path, submission_id: str,
+        transform: Callable[[ConfigurationFacts], ConfigurationFacts]) -> ConfigurationFacts:
+    from gateway_shared_kernel.jcs import canonicalize_json_value
+    with ControlDbUnitOfWork(db_path) as uow:
+        submission = uow.submission.get_submission(submission_id)
+        assert submission is not None
+        facts = transform(submission.configuration_facts)
+        blob = canonicalize_json_value(facts.to_document())
+        uow.connection.execute("UPDATE submission_records SET configuration_facts = ? WHERE submission_id = ?", (blob, submission_id))
+        uow.connection.execute("UPDATE submit_attempt_records SET configuration_facts = ? WHERE submit_attempt_id = ?", (blob, submission.submit_attempt_id))
+    return facts
+
+
+def refresh_archive_seed(seed: ArchiveSeed) -> ArchiveSeed:
+    candidates = get_archive_candidates(context=seed.archiver_context, unit_of_work_factory=_uow_factory(seed.db_path))
+    selected = next(item for item in candidates.candidates if item.submission_id == seed.submission_id)
+    return replace(seed, candidate_set_digest=candidates.candidate_set_digest,
+        selected_ref=ArchiveSelectedRef(selected.submission_id, selected.expected_candidate_digest),
+        selection_subject_digest=compute_selection_subject_digest(candidate_set_digest=candidates.candidate_set_digest,
+            selected_submission_id=selected.submission_id, expected_candidate_digest=selected.expected_candidate_digest))

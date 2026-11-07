@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime
 
-from gateway_backend.application.archive.contracts import compute_close_request_fingerprint, validate_utf8_id
+from gateway_backend.application.archive.contracts import compute_close_request_fingerprint, validate_utf8_id, validate_non_negative_int
 from gateway_backend.application.archive.errors import ArchiveIntegrityFailure, SubmissionClosureNotFound
 from gateway_backend.application.archive.ports import ArchiveControlUnitOfWorkFactory
 from gateway_backend.application.archive.queries import PERMISSION_ARCHIVE_SUBMISSION
@@ -112,7 +112,7 @@ def close_submission(*, command: CloseSubmissionCommand,
             command.context.gateway_device_external_key, command.context.business_project_id, closure)
         uow.archive.insert_manual_close(disposition)
         uow.workspace.save_workspace(replace(workspace, current_upload_revision_id=None,
-            current_preview_result_id=None, optimistic_version=workspace.optimistic_version + 1, updated_at=now),
+            current_preview_result_id=None, optimistic_version=validate_non_negative_int(workspace.optimistic_version + 1, field_name="next_workspace_version"), updated_at=now),
             expected_version=workspace.optimistic_version)
         uow.submission.delete_workspace_submission_occupancy(workspace.workspace_id,
             expected_submission_id=submission.submission_id)

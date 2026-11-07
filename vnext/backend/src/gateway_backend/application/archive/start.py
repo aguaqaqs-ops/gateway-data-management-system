@@ -14,6 +14,7 @@ from gateway_backend.application.archive.contracts import (
     compute_selection_subject_digest,
     compute_start_request_fingerprint,
     validate_utf8_id,
+    validate_non_negative_int,
 )
 from gateway_backend.application.archive.errors import (
     ArchiveIntegrityFailure,
@@ -21,6 +22,7 @@ from gateway_backend.application.archive.errors import (
     CandidateBindingConflict,
     CandidateSetConflict,
 )
+from gateway_backend.application.archive.integrity import assert_archive_result_integrity
 from gateway_backend.application.archive.ports import (
     ArchiveControlTransaction,
     ArchiveControlUnitOfWorkFactory,
@@ -110,11 +112,12 @@ def start_archive(
             command.idempotency_key,
         )
         if existing_plan is not None:
-            if existing_plan.request_fingerprint != request_fingerprint:
-                raise IdempotencyConflict(idempotency_key=command.idempotency_key)
             existing_result = unit_of_work.archive.get_result_by_plan_id(existing_plan.plan_id)
             if existing_result is None:
-                raise RuntimeError("archive plan exists without matching result")
+                raise ArchiveIntegrityFailure("archive plan exists without matching result")
+            assert_archive_result_integrity(unit_of_work, existing_plan, existing_result)
+            if existing_plan.request_fingerprint != request_fingerprint:
+                raise IdempotencyConflict(idempotency_key=command.idempotency_key)
             selected_submission = unit_of_work.submission.get_submission(
                 existing_plan.selected_submission_id
             )
@@ -211,7 +214,7 @@ def start_archive(
             archived_node,
             expected_head=head_record,
             new_head_node_id=baseline_node_id,
-            new_head_version=head_record.optimistic_version + 1,
+            new_head_version=validate_non_negative_int(head_record.optimistic_version + 1, field_name="next_baseline_head_version"),
         )
         dispositions = _build_dispositions(snapshot, command.selected_ref, result_id=result_id)
         confirmation_audit_refs = tuple(
@@ -442,7 +445,7 @@ def _release_workspaces_for_archive(
             workspace,
             current_upload_revision_id=None,
             current_preview_result_id=None,
-            optimistic_version=workspace.optimistic_version + 1,
+            optimistic_version=validate_non_negative_int(workspace.optimistic_version + 1, field_name="next_workspace_version"),
             updated_at=now,
         )
         unit_of_work.workspace.save_workspace(

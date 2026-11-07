@@ -864,3 +864,21 @@ def test_review_authorizes_target_before_decoding_configuration_facts(
         assert response.json()["code"] == "SERVICE_NOT_READY"
         assert "other-source" not in response.text and "configuration_facts" not in response.text
     assert _review_counts(env) == before
+
+
+def test_self_only_review_reads_its_manual_closure_summary_and_keeps_approved_status(tmp_path: Path) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.manual_close import close_submission
+    from tests.support.archive_fixtures import seed_approved_archive_candidate, close_command, TS_ARCHIVE
+    from tests.test_review_transactions import _uow_factory
+    from tests.support.http_workspace_harness import create_workspace_http_environment
+    from tests.support.workspace_fixtures import make_identity
+    env = create_workspace_http_environment(tmp_path,
+        identity=make_identity(permissions=frozenset({"withdraw_own_submission"})))
+    seed = seed_approved_archive_candidate(env.db_path)
+    close_submission(command=close_command(seed), unit_of_work_factory=_uow_factory(env.db_path), now=TS_ARCHIVE)
+    response = env.client.get(f"/v1/submissions/{seed.submission_id}/review", headers=env.auth_headers())
+    assert response.status_code == 200
+    assert response.json()["status"] == "APPROVED"
+    assert response.json()["submission_disposition"]["source_kind"] == "MANUAL_CLOSE"
+    assert response.json()["submission_disposition"]["result_id"] is None

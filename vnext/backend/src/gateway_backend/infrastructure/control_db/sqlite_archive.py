@@ -320,14 +320,18 @@ class SQLiteArchiveRepository:
             return None
         return _plan_from_row(row)
 
-    def get_result_by_id(self, result_id: str) -> ArchiveResult | None:
+    def get_result_by_id(self, result_id: str, *, repository_id: str | None = None,
+        gateway_device_external_key: str | None = None, business_project_id: str | None = None) -> ArchiveResult | None:
         row = self._connection.execute(
             """
-            SELECT result_id, plan_id, baseline_node_id, archived_at_us
-            FROM archive_result_records
-            WHERE result_id = ?
+            SELECT r.result_id, r.plan_id, r.baseline_node_id, r.archived_at_us
+            FROM archive_result_records r JOIN archive_plan_records p ON p.plan_id = r.plan_id
+            WHERE r.result_id = ? AND (? IS NULL OR p.repository_id = ?)
+                AND (? IS NULL OR p.gateway_device_external_key = ?)
+                AND (? IS NULL OR p.business_project_id = ?)
             """,
-            (result_id,),
+            (result_id, repository_id, repository_id, gateway_device_external_key, gateway_device_external_key,
+                business_project_id, business_project_id),
         ).fetchone()
         if row is None:
             return None

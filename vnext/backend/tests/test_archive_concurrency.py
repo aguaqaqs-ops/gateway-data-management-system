@@ -377,3 +377,49 @@ def test_finalize_replaces_active_attempt_gate_with_pending_review_gate(db_path:
         head = transaction.resolve_provisioned_scope(gateway_device_external_key="device-1", business_project_id="project-1").baseline_head
         assert head == BASELINE_HEAD
         assert transaction.submission.get_repository_occupancy(seed.workspace.repository_id) is None
+
+
+@pytest.mark.parametrize("first", ["start", "close"])
+def test_start_and_manual_close_serialize_at_one_terminal_disposition(db_path: Path, first: str) -> None:
+    from gateway_backend.application.archive.manual_close import close_submission
+    from gateway_backend.application.submission.errors import BaselineVersionConflict
+    from gateway_backend.application.archive.errors import CandidateSetConflict
+    from tests.support.archive_fixtures import close_command
+    seed = seed_approved_archive_candidate(db_path)
+    confirmation = append_selection_confirmation(seed)
+    if first == "start":
+        start_archive_for_seed(seed, confirmation_sequence=confirmation)
+        # Same current Head expectation exposes the terminal closure rather than stale Head.
+        from dataclasses import replace
+        with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+            head = uow.resolve_provisioned_scope(gateway_device_external_key="device-1", business_project_id="project-1").baseline_head
+        with pytest.raises(ArchiveClosed):
+            close_submission(command=replace(close_command(seed), expected_baseline_node_id=head.business_baseline_node_id,
+                expected_baseline_head_version=head.baseline_head_version), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+    else:
+        close_submission(command=close_command(seed), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+        with pytest.raises((CandidateSetConflict, BaselineVersionConflict)):
+            start_archive_for_seed(seed, confirmation_sequence=confirmation)
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.connection.execute("SELECT COUNT(*) FROM submission_disposition_records").fetchone()[0] == 1
+
+
+@pytest.mark.serial
+def test_two_manual_closes_commit_one_disposition_and_release_once(db_path: Path) -> None:
+    from dataclasses import replace
+    from gateway_backend.application.archive.manual_close import close_submission
+    from tests.support.archive_fixtures import close_command
+    seed = seed_approved_archive_candidate(db_path)
+    barrier = Barrier(2)
+    def close(key: str) -> str:
+        barrier.wait(timeout=5)
+        try:
+            close_submission(command=replace(close_command(seed), idempotency_key=key), unit_of_work_factory=_uow_factory(db_path), now=TS_ARCHIVE)
+            return "closed"
+        except ArchiveClosed:
+            return "already-closed"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(close, ("close-a", "close-b")))
+    assert sorted(results) == ["already-closed", "closed"]
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.connection.execute("SELECT COUNT(*) FROM submission_disposition_records").fetchone()[0] == 1

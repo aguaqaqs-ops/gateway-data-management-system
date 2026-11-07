@@ -63,6 +63,9 @@ ArchiveSubjectKindLiteral = Literal[
     "PROJECT_IDENTITY_EXCEPTION",
     "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER",
 ]
+ArchiveAnomalySubjectKindLiteral = Literal["APPROVED_SIBLING_EXCLUDED", "PROJECT_IDENTITY_EXCEPTION", "CONFIGURATION_SOURCE", "CONFIGURATION_TIME_QUALITY", "CONFIGURATION_TIME_ORDER"]
+ArchiveResolutionStatusLiteral = Literal["UNRESOLVED", "ACCEPTED", "REVOKED"]
+
 SubmissionDispositionLiteral = Literal["ARCHIVED_BASELINE", "CLOSED_NOT_ARCHIVED"]
 
 
@@ -323,7 +326,7 @@ class ArchiveStartedResponse(BaseModel):
     archive_result_id: str
     baseline_node_id: str
     baseline_commit_id: str
-    baseline_head_version: int
+    baseline_head_version: NonNegativeIJsonInt
     selected_submission_id: str
     dispositions: list[SubmissionDispositionResponse]
     released_workspace_ids: list[str]
@@ -345,7 +348,7 @@ class ArchiveResultResponse(BaseModel):
     archive_plan_id: str
     baseline_node_id: str
     baseline_commit_id: str
-    baseline_head_version: int
+    baseline_head_version: NonNegativeIJsonInt
     selected_submission_id: str
     selected_repository_commit_id: str
     candidate_set_digest: str

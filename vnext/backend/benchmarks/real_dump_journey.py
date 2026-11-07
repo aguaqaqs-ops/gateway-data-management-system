@@ -1957,8 +1957,21 @@ def _archive(
     other_anomalies = [
         item for item in anomalies if item.get("subject_kind") != "PROJECT_IDENTITY_EXCEPTION"
     ]
-    if other_anomalies:
-        raise JourneyFailure("archive plan contains an unexpected non-identity anomaly")
+    business_actions = {
+        "CONFIGURATION_SOURCE": "ACKNOWLEDGE_SOURCE_EXCEPTION",
+        "CONFIGURATION_TIME_QUALITY": "ACKNOWLEDGE_TIME_QUALITY",
+        "CONFIGURATION_TIME_ORDER": "ACKNOWLEDGE_TIME_ORDER",
+        "APPROVED_SIBLING_EXCLUDED": "ACKNOWLEDGE_EXCLUSION",
+    }
+    if any(item.get("subject_kind") not in business_actions for item in other_anomalies):
+        raise JourneyFailure("archive plan contains an unsupported anomaly")
+    try:
+        business_reasons = json.loads(os.environ.get("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", "{}"))
+    except json.JSONDecodeError as exc:
+        raise JourneyFailure("archive business reasons must be a JSON object") from exc
+    if not isinstance(business_reasons, dict) or any(not isinstance(key, str) or not isinstance(value, str) or not value
+        for key, value in business_reasons.items()):
+        raise JourneyFailure("archive business reasons require nonempty reason strings keyed by subject digest or issue code")
     if identity_exception_reason is None and identity_anomalies:
         raise JourneyFailure("archive plan has an unresolved project identity exception")
     if identity_exception_reason is not None and (
@@ -1992,36 +2005,29 @@ def _archive(
         "archive confirmation",
     )
     anomaly_resolution_refs: list[dict[str, Any]] = []
-    if identity_exception_reason is not None:
-        identity_anomaly = identity_anomalies[0]
-        resolution = _require_one_of(
-            client.post(
-                "/v1/archive-anomaly-resolutions",
-                headers=compose_auth_headers(
-                    token=ARCHIVER_TOKEN,
-                    idempotency_key=f"{key_prefix}-identity-resolution",
-                ),
-                json={
-                    "expected_baseline_node_id": head["business_baseline_node_id"],
-                    "expected_baseline_head_version": head["baseline_head_version"],
-                    "selected": selected,
-                    "candidate_set_digest": preview["candidate_set_digest"],
-                    "subject_digest": identity_anomaly["subject_digest"],
-                    "expected_sequence": 0,
-                    "action": "ACKNOWLEDGE_IDENTITY_EXCEPTION",
-                    "subject_kind": "PROJECT_IDENTITY_EXCEPTION",
-                    "reason": identity_exception_reason,
-                    "issue_code": identity_anomaly["issue_code"],
-                    "target_submission_id": identity_anomaly["target_submission_id"],
-                    "target_candidate_digest": identity_anomaly["target_candidate_digest"],
-                },
-            ),
-            {200, 201},
-            "identity exception resolution",
-        )
-        anomaly_resolution_refs.append(
-            {"subject_digest": identity_anomaly["subject_digest"], "sequence": resolution["sequence"]}
-        )
+    for index, anomaly in enumerate(anomalies):
+        subject_kind = str(anomaly["subject_kind"])
+        latest_sequence = anomaly.get("latest_sequence")
+        if type(latest_sequence) is not int or not 0 <= latest_sequence <= 9007199254740991:
+            raise JourneyFailure("archive anomaly sequence is invalid")
+        if anomaly.get("resolution_status") == "ACCEPTED":
+            anomaly_resolution_refs.append({"subject_digest": anomaly["subject_digest"], "sequence": latest_sequence})
+            continue
+        reason = identity_exception_reason if subject_kind == "PROJECT_IDENTITY_EXCEPTION" else business_reasons.get(
+            anomaly["subject_digest"], business_reasons.get(anomaly["issue_code"]))
+        if not isinstance(reason, str) or not reason:
+            raise JourneyFailure(f"archive issue requires an explicit reason: {anomaly['issue_code']} subject={anomaly['subject_digest']}")
+        resolution = _require_one_of(client.post("/v1/archive-anomaly-resolutions",
+            headers=compose_auth_headers(token=ARCHIVER_TOKEN, idempotency_key=f"{key_prefix}-resolution-{index}"),
+            json={"expected_baseline_node_id": head["business_baseline_node_id"],
+                "expected_baseline_head_version": head["baseline_head_version"], "selected": selected,
+                "candidate_set_digest": preview["candidate_set_digest"], "subject_digest": anomaly["subject_digest"],
+                "expected_sequence": latest_sequence,
+                "action": "ACKNOWLEDGE_IDENTITY_EXCEPTION" if subject_kind == "PROJECT_IDENTITY_EXCEPTION" else business_actions[subject_kind],
+                "subject_kind": subject_kind, "reason": reason, "issue_code": anomaly["issue_code"],
+                "target_submission_id": anomaly["target_submission_id"], "target_candidate_digest": anomaly["target_candidate_digest"]}),
+            {200, 201}, "archive reasoned anomaly resolution")
+        anomaly_resolution_refs.append({"subject_digest": anomaly["subject_digest"], "sequence": resolution["sequence"]})
     ready = _require(
         client.post(
             "/v1/archive-plan-preview",

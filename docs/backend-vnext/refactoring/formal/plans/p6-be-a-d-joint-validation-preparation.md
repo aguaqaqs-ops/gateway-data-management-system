@@ -106,7 +106,7 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 
 ## 9. 最终核收待填
 
-当前合格实际来源 **49403/tree567201**，F6及三文案修复的必要诊断均通过；原独审`9c0e098bbe`正式接受05 a999旧成功路径的有限步骤引用，来源/新增分支边界见上文。最终04六包原run **13:06:41–13:33:56Z** 正常结束，command/final0、endexact49403clean/owner真；run.log SHA=`35f15eb8ebf67cc387389b575f862a85d1eae341e11635b518abe07fe4ca8c4d`。六包均实际运行，无package carried；合格来源仅本次成功run，不引用失败a999 runner。
+当前实际行为测试来源 **49403/tree567201**，F6及三文案修复的必要诊断均通过；原独审`9c0e098bbe`正式接受05 a999旧成功路径的有限步骤引用，来源/新增分支边界见上文。最终04六包原run **13:06:41–13:33:56Z** 正常结束，command/final0、endexact49403clean/owner真；run.log SHA=`35f15eb8ebf67cc387389b575f862a85d1eae341e11635b518abe07fe4ca8c4d`。六包均实际运行，无package carried；不引用失败a999 runner。**后续出现§10的RS身份/闭包收尾缺口，不能仅据本次exit0宣布正式联合GO或最终镜像绑定。**
 
 | 包 | 本次实际结果 |
 | --- | --- |
@@ -120,3 +120,24 @@ LAN完整副本 `/home/dev/gdds-reviews/artifacts/p6-be-ad-final-05-copy-vj0oULl
 唯一skip为 `test_p2_r1_target_cgroup_smoke::test_target_container_has_real_delegated_cgroup`：本次host runner未设置 `GATEWAY_P2R1_TARGET_CONTAINER=1`，按该源码条件跳过，reason为“runs only inside the delegated target container”。定位依据为源码与本次runner/pytest进程该单一env，原-q日志未直接打印case/reason；不计为该case通过、不修改flag或追加重跑。六起始manifest/current images/资源收尾及固定最终handoff仍待原独审核收，当前不预判最终联合GO或退出。
 
 拟提交Owner的DC33最终真实数据范围为：05实际a999一次fresh t1（18步、v1/repeat MODIFIED_ONLY及v2 FULL双pair、四完整Preview/History tar，按实际49403 diff限界引用）；异常/关闭重提/self-only及新增同码双side由04当前Compose、原owner和本次共用复现覆盖。不新增t2/t3/t4或性能测量，不把未知W1/W2值记为通过。此为具体范围提案，**尚未取得Owner最终范围确认**；门禁/独审齐后交Owner确认，再按仓库规定另办退出。FE3同tar解析/摘要/OPFS证据独立pending，不把后端核收当FE3完成。不推送、不改写引用提交、不自动打退出tag、不启动S3。
+
+## 10. 身份收尾停止与Owner选择
+
+13:37:37Z `run-final-image-identities-I8627T4H` 实际command/final1，end49403clean/owner真；原log SHA=`f6fe1b6dca1b46822eda78b073278b1f2114056f3e931d302ccf5889e125b3d1`，完整command.txt SHA=`fd4ad88058808f8b07d2c5135beb448d695a02a84ad2e10ed089f968f7c708d4`。collector假定原container snapshot的image ID仍等结束时tag，第三项RS断言失败；此前未Docker save、未写final-image-bridge、未重建/retag或跑新被测对象，原件/四SHA保留。
+
+根/实施/同独审分别只读确认：backend/worker原runtime ID与当前tag分别精确等`42437a0d…`/`4da6b1e4…`；唯一RS由原`15e3ffb4944b672a5e2e6d9c858a57d6a1142d2d17e0feb4f2e56d469c97655e`变为当前`1306744645e34d7dce8e016564517d8864a26e9624cd915a1a6e8e9b1b0f157c`（13:24:11Z、OCI revision49403、source13cb/lock6dc/build-inputa687）。RS harness除source还比较candidate_sha，后段正常触发重建同tag；backend harness只比source/build-input，故前段用a999 RS、后段用49403 RS。不得把后段tag代称前段runtime镜像。
+
+原RS buildlog仍有旧index15e3、manifest`c5a4f79c5525b7cbaf9db8502545232b1478782eeb54e52ac92660447a165d57`、config`9e4764cccb55d9a74da73e21ef640c69527fe1233a6f99686dd48d399cb5c577`摘要；旧image inspect不可读。仅对Docker实际containerd `/run/containerd/containerd.sock`／`moby`三个known content对象分别只读查询，均notfound；未切namespace、import/tag/gc/prune/save/build或重查猜测对象。`old-rs-content-qshp65vj/read-only-diagnosis.json` SHA=`f4ba734bdd94414feb90707fcd22552dd50ac6bbeacdfa445d1c7ddd9dac3cbe`；诊断run log SHA=`910b4ed114a0892fc5247b9de42a90ac0f13fcdbc1b9c467da51a33aa9497d60`，run0仅表示两独立查询按计划结束，查询各exit1，`complete_index_chain=false`。**旧RS原config及全部28DiffID无法补齐**，不从同source标签或当前image倒推。
+
+原六starting manifests已独立精确核原字节；其中backend/RS的`docker_build_inputs.image_ids`都明确有custom RS tag→15e3，当前变130674，不是可口头忽略的输出。RS标签等价与包闭包分层，source13cb相同不能替代backend同WT原manifest实际compare；不重写起始manifest、换默认tag、恢复旧tag或修改闭包工具凑等价。设计者亦确认AGENTS显式运行中retag例外只列client，与既有RS harness行为是需Owner/原审判断的接缝，没有设计豁免。
+
+另有独立打印精度问题：`preserve-final-compose-UZFqaUIx`用naive fromtimestamp显示本地+08时间却名为source_mtime_utc。原epoch闭区间断言/copybytes/SHA正确；只追加aware UTC原源说明，SHA=`506410865a182fd15bdfc0c0167d30b060922c59c3a2e2711ba15655488a4fbb`，原mtime为13:22:07Z。原日志/副本未覆盖，此项不替代RS缺失身份。
+
+按[AGENTS DC68](../../../../../AGENTS.md)“身份不符均停止交 owner”及已批准恢复方案的再次身份异常停止规则，当前**后继collector/save/build/retag/test/释放保持暂停**，04本人marker及原WT/证据保留；05已释放，未动冻结基准。六包行为测试0、F6实际修复与05成功来源不被改写为产品失败，但正式镜像/联合收尾仍pending。
+
+供Owner选择的具体最小方案（原两角色、原model配置，无新角色/产品或闭包工具改动）：
+
+1. **继续最小补验（推荐）**：固定同49403/同04 WT，先核当前RS candidate49403及实际130674/source13cb，保存本次可读原config/全部DiffID；不换默认tag、不回改旧tag。在原入口环境同WT生成并compare四个基础包manifest，只有实际“可沿用”才直接引用本次六包0的原始来源；预期实际重验backend/repository_service两包，其余若比较不合格则依法纳入。用既有权威入口/同预算，两个包已包含必要Compose，不另单跑05。collector改为分阶段绑定记录的immutable image ID，使用新唯一输出及aware UTC，保留原失败/缺失限制；前后核所选RS输入身份，避免再因新docs SHA触发重建。批准后实际比较决定范围，不预先判四包可沿用。
+2. **保持正式收尾pending**：保留行为测试及全部缺失事实，完成仅本人资源核查/证据交接后释放04，等待Owner手动接续；不报联合GO、DC33退出或FE3完成。
+
+方案具体argv/collector静核由原实施/审核补齐，Owner回复前不执行补验或恢复collector。不存在自动超时批准。

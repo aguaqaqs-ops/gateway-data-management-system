@@ -2514,3 +2514,15 @@ STRESS分支 `1742a8bcd62287fd9eb9fbd0a839615a470b2664` /tree `801e3925f634f9272
 BatchMode确认后只读CT05 `dc63-guard-52ab-20261107.log`，SHA256 **`65af63d59dd15f8d2c789787ed2c3437f1f347d59225f06abe29a13613a0b733`**：15:07:04–16Z、起止完整52ab、42passed/11.14s、Ruff/mypy503/bash-n全0。代码/该必要验证PASS，worker/Compose/预算未改，不重跑挂载install或业务。实际输入身份、规范化绝对ROOT及新project、完整镜像/runtime身份和实际启动现场仍待固定；未运行诊断、未访问在途CT108，不新增Owner/设计/审核GO。
 
 **成功退出但残留子进程的状态修正亦已关闭。** 实施者随后发现52ab虽收束残余诊断session，却会沿用chain的0而误报成功；`bbe577c6d8ab9cf11452b3441b85cd9c8d280ea0` /tree `d974f75967053c7212e6b5a1cb20b11ff5ddfcd6` 仅在这一分支将0改125，再沿原stop_watchdog及EXIT清理，既有非零状态不覆盖。新增focused证明正常主进程遗留的孙进程收到TERM、整体125且已安全清理时可解锁；原保卷/残留不明保锁保持。只读CT05 `dc63-guard-bbe5-20261107.log`，SHA256 **`daa70a8e2ba0a422a5466b7f5c78e8e616c8c2f0f029f0dddca38c10002c07fd`**：15:09:15–28Z、起止完整bbe577、43passed/11.42s、Ruff/mypy503/bash-n全0，代码及必要验证PASS。本次未增加deadline或product/runtime修改，未重跑install/业务；实际诊断准备与FULL等待状态同上。
+
+## 111. W/H及S2偏差工具误取整旅程：已定位，按原单operation定义修派生
+
+**实施者提示并经本审核独立确认：timing reference工具的14项actual选择存在单operation/整旅程口径错误；修订与实际原件派生尚未交齐，本节不关闭该Finding。** 其中13项为record_only（W1/W2/W3/W3-FULL/W4/W4-FULL/W4-STRESS，H1/H1-FULL/H1-REFILL/H2/H3，S2）；另有compare的H2-3NODE actual及其旧reference同时取整旅程。问题在后处理选择器及参考取值，不是新测量定义；当前在途FULL、原run/state/计时及已完成业务均不修改或重跑。
+
+只读18a实际参考表和 `_specs`，这些actual均指run `/run_result/elapsed_seconds`；H2-3NODE还以S1c b96 run同路径19361.157s为reference。`implementation-stages.md` §9、DC53及设计§1/16.3明定W为单Preview、H为单History；W主READY并另报完成，H1/H2/H3主READY，H2三节点按完成，S2为原样重传的同步受理且不产生Repository operation。runbook的full journey仅是同时产出多个场景的执行载体；scope=t4-v2-preview也包含v1/repeat前缀，不能把该scope wall当v2 Preview。
+
+明确映射为state `/steps/` 下：W1取 `v1-preview/preview/operation_timing/user_visible_seconds`，W2取 `repeat-v1-preview/preview/operation_timing/user_visible_seconds`，W3/W4及其FULL/STRESS取 `v2-preview/preview/operation_timing/user_visible_seconds`；H1/H1-FULL/H1-REFILL/H2/H3取 `history/result/operation_timing/user_visible_seconds`，H2-3NODE取同处completion_seconds；S2取 `repeat-v1-submit/operation_timing/user_visible_seconds`。各operation的completion仍单独保留，不用completion替换READY；原t1–t4完整旅程及已经正确的S1/S3/S4选择器保持。record builder `_sample_scenario` 本来就按operation_timings分取ready/completed，**不能据此把现有全部record或原测量判无效**；实际受影响的派生文件须逐项按其metric_pointer核对。
+
+只读审核者§101已认证CT201副本即可核出区别：107b run elapsed6522.846s；继承的v2 Preview user_visible/completion各4743.456s；本次History各2352.010s；repeat-v1-submit同步NO_CHANGE各0.008s。它们来自不同实际操作及日期，W4继承Preview不能因为顶层run为3fd/产品9704就改记在9704重测。此处没有在开发机执行benchmark或测试，仅解析已核原JSON；也未访问在途CT108。
+
+H2旧参考的S1c b96确为2×、三节点、cold History，原handoff/state SHA及immutable producer均支持该same-operation路径；**本审核尚未拿到其实际原state副本，不能填History reference数字**。FULL后从已关闭原件认证取同端点值及SHA，再与实际H2操作对照；原19361.157只保留为整旅程历史，不能继续与单History相比较。设计已明确同意最小后处理修正、原policy/统计保持，A已关闭场景仅修派生，不因错误selector或跨版本差异机械补测；参考确实不能恢复则写UNAVAILABLE/不可比及原因，不填零/伪造或静默切record_only，需要新业务取舍才报设计。已直接交实施者在独立工具worktree修订并做必要定向检查，无新GO、不改正式采样/计时或重跑已完成旅程；最终代码及实际派生结果待复核。

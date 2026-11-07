@@ -61,3 +61,27 @@ Owning 正文只改 `docs/backend-vnext/contracts/comparison-bundle.md`（完整
 4. D 独审与06局部证据完成后，同两角色继续已授权联合准备/集中核收：先与协调者固定最终命令/候选，04实际受影响六包权威及其中必要Compose，05一次fresh t1上述两模式完整旅程；不重复同runner Compose，不触冻结基准/CT108。联合退出前 DC33 最终范围仍交 Owner 确认，不自行exit/tag/push，不称 FE3 完成。
 
 当前 container gate：D 未有产品改动；最后实际产品/镜像 revision `f8fb796f020ab47725359c176fc0e53bfb68aae6`，vnext tree `3860ed86194e4eafea9cfd408e7e7b5096b24bbb`。D 完整候选因 HTTP container harness 与最终传输行为变更须重建/运行；暂记 deferred 到06候选收敛及04联合最终候选，不能沿用旧V2结果宣称当前D通过。
+
+## 6. 实际候选、已有证据与验证暂停事件
+
+产品首候选 `36edb20086`；`1c14572725` 清理旧imports/fixture名；`e3b54b8f71` 修F1（generic业务JSON不得误套16MiB metadata上限）；`7f25a1657a` 修实际HTTP受理fixture；`d0a22ba91d` 完整工具/F2保护接线；`aaa0f4a6f3` 测试typing；`8de2a9a060` F3按请求mode强制确切pair集合；`a7954b6b55` 改为首次GET前核manifest/closure/全部final保护；`445a19dfe3` 同步store缺失错误文案。独审GO尚未形成；当前产品待最终复核。
+
+06新WT `/home/dev/gdds-test-tmp/wt/p6-be-d` 从11:01:37Z取得本人marker开始，使用预填充离线uv/Cargo、独立新venv、Cargo jobs4；source经CT201 LAN bundle传输。36ed新环境强制重装Rust扩展成功，expected=installed `e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`，sync log SHA `cc0eacc8f9615a531877837661a3f6165297f7d867f11295229c7eae10a215b6`，build-input log SHA `1b12990473ed30492e14a01806f4ed8d691b3730e9dd951202f767920945cbb8`。Rust/toolchain同1.97 selector已核，无Rust源码改动。
+
+| 节点/候选 | 实际结果与原log SHA | 适用边界 |
+| --- | --- | --- |
+| 06 /36ed | ruff2个unused import失败 `2274c2d154019de8642ed3693ec9e8434cd3f51f56a0972ea764fce20ecfa0d2` | 保留失败；随后1c修正 |
+| 06 /1c | ruff0；mypy仅新test helper Any return失败 `e11d53006633b920e735fda5b509cab2a6515f765a66d487a76598b42ef62faa` | 随后e3修正 |
+| 06 /e3 | ruff/mypy0；focused142pass/7fail/8error `e75aeb3b607d4caa17b87bee7550288863b6ed27cb6f958b919989f108f8ac85` | HTTP新fixture未mkdir/缺acceptance business_ref，不能记整批通过 |
+| 06 /7f | 实际HTTP owner21pass `e62743e2029562f7062dc7531e4baf42314383e996bce7a9098e967abbff42d3`；ruff/mypy0；serial21deselected/exit5 `c2519e8d723b19562071a01d891e5fe8c9003e1d12e3e2fe193c777ff7e92706` | marker按主体 `(not serial) or parallel_safe` -n4、serial例外 -n0；空批N/A，脚本`http-fix.sh` |
+| 06 /d0 | ruff0；mypy5个新fixture typing失败 `f54653969e3e1aad6b3a6060d6b5fe7f1de9343996871faeedb38d24dadd9e16` | 随后aaa修正 |
+| 06 /aaa 首轮 | 工具输出记ruff/mypy0、focused141pass/1fail（CLI fixture漏新flag），旧focused SHA `2345ec835d433ff55a548697c0faeebc67ff8cbb8779b27d35b98c23b14a3cc2` | **三原完整log被后述误跑覆盖，原字节不可复核，不作为通过证据；只保留工具输出/历史SHA事实，不重造** |
+| 06 /aaa 误跑 | ruff/mypy0（当前log）；focused150pass/2fail（旧CLI fixture+store旧错误文案）`f882a86a8a0e472b80fa2897e61a1ffc4237a1cee9a3a73ffd8526780bedb9c5` | 不代表目标a795或最新445，完整当前文件保留 |
+
+11:16–11:17Z实施者传输编排失误：用纯SHA而非named `HEAD`建bundle被Git拒绝empty；本地编排未`set -e`，继续传旧bundle；目标checkout失败后仍单独启动旧aaa WT上的focused。该轮已触及旧被测对象，**不能按DC68产品前操作错误单次重做**。同HEAD日志名覆盖aaa首轮ruff/mypy/focused三份原文件。独审明确没有aaa原副本；不拼造恢复、不把后次当首次。两次更早的checkout自身错误（linked FETCH_HEAD、错误literal SHA）只剩工具输出与派生记录`checkout-*-operation-error.log`，不将派生说明当原执行原文。
+
+协调者接报后明确暂停全部受影响节点focused/static/Compose/04/05，未经Owner回复不恢复。现仅做证据保全、资源清点/本人释放和可审查guard修正，其他无关产品/工具代码可继续；没有任何D Compose或联合权威/真实旅程通过声明。
+
+保全目录：06 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/incident-preservation-rvpm66sO/`，保存事件时现存log/script/bundle、actual HEAD/status、进程、容器及8000快照，`SHA256SUMS` SHA `78122ba8b893b200c17ad9ae959af5fa7d25cc830f59986043f2b40298ca065b`；LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-d/incident-preservation-rvpm66sO/`。保全时WT为clean `aaa0f4a6f32143448c1b55bb1cc8f509643e1d3c`。11:19:30Z确认无本任务服务/运行容器/8000/Dolt/Cargo/pytest，仅释放本人marker；释放log `node-release-UzrHOQAs.log` SHA `de06e368c6459639f0f04525cdb6a9763edaa30e85eb3e8ff6a21b97422b8ae8`，副本同上。旧WT、卷、镜像及证据未清理。
+
+可审查guard（仅写文件，尚未执行/测试）：本地 `/home/dev/gdds-be-d-guarded-transfer.sh`（副本`/home/dev/gdds-reviews/artifacts/p6-be-d/guarded-transfer.sh`），SHA `b593aca40493f67e2910da8234c89a0d6cd4732cf2474429a32781ca96f99358`；node-run `/home/dev/gdds-be-d-guarded-node-run.sh`（副本同目录`guarded-node-run.sh`），SHA `3889eb3097eb4c6a672f1be01c2e653884e90228d3e682b72a9dfdb5023de949`。两者`set -euo pipefail`，transfer以named HEAD建bundle并verify/核advertised完整SHA及SHA256，任何失败不继续；节点checkout显式完整SHA并核clean/exact HEAD；run每次`mktemp`独立WT外目录，保存精确命令/guard，运行前后核完整HEAD/clean及本人marker，保存原command exit与最终exit。无需新evidence状态机；同一独审静态核后由协调者提交具体恢复方案给Owner，Owner回复前不执行。

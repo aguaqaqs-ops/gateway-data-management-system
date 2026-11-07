@@ -52,15 +52,15 @@ g 的闭合 generation 2 区间 wall 24.015076449 秒、同线程 CPU 24.0117671
 
 ## a 预算到期后的完成性验证（2026-11-07）
 
-**本节为一次关键预算差异方案，须接续审核者集中核实后生效；通过后实施者直接执行，不追加最终 manifest GO。** a 的原 45 分钟预算停止、未完成和原始证据保留，不把本节追认到 a。
+**本节已由接续审核 §90（`083cfa3c87`）集中通过；实施者直接执行，不追加最终 manifest GO 或新回执。** a 的原 45 分钟预算停止、未完成和原始证据保留，不把本节追认到 a。
 
 审核者已核 a 在 `03:49:24.784Z` 从 mutation_plan 正常返回，该阶段耗时 1292.862 秒；预算前 269 次 heartbeat 成功，未见 lease_lost/heartbeat_busy，最大 due 迟到 0.385090 秒，但未进入已观察的 canonical_publish/claim_exit，GC 恢复和 idle collect 未验证。当前只支持已观察窗口内的续租改善，不能宣布完整修复。新运行目标是完成剩余渲染/发布/claim 收尾并检验峰值，已有故障窗口不再单独复现。
 
-冻结源码在 `render_planned_import_mutation_dml` 返回、canonicalization 发布后才构造 prepare checkpoint，由 handler 进一步持久化；mutation_plan 返回本身不是可恢复断点。先用 a 已保存状态核现有完整 checkpoint 是否实际存在并可合法复用；若没有，明确此前内存中间态不可续接，不伪造阶段状态或新增大中间件持久化机制。使用原已核 `v2-preview` 来源的独立新 project/key/三卷，保留 a，复用输入和镜像，不重生成数据。
+冻结源码在 `render_planned_import_mutation_dml` 返回、canonicalization 发布后才构造 prepare checkpoint，由 handler 进一步持久化；mutation_plan 返回本身不是可恢复断点。§89–90 未核得 a 可合法复用的完整 checkpoint，此前内存中间态不可续接，不伪造阶段状态或新增大中间件持久化机制。使用原已核 `v2-preview` 来源的独立新 project/key/三卷，保留 a，复用输入和镜像，不重生成数据。
 
 - 产品仍为 `9704d0b286` 及 §87 三镜像，原 lease/heartbeat/stall、输入/规则/cache、资源阈值和单 claim/单 POST 不变。仅在原工具加 schema replay、planned mutation DML 两个实际函数的入口/返回事件，将 plan→canonical_publish 区间分清；不做逐行探针、profiling 或另一轮合成诊断，只验证改动接线的必要 focused。
 - 一次给足 **3 小时业务观察（10800 秒）/4 小时全流程硬限（14400 秒）**；沿 a 的原有起算点，不在执行中滑动截止，全流程工作截止为 launcher 起点后 13500 秒、至少保留 900 秒清理。观察上限给已耗约 45 分钟前缀之外的未知渲染/发布充分余量，是受控诊断预算，不是完成时间预测或性能门槛；完成即收尾，不等满窗口，不按 45→60→75 分钟逐档试跑。
-- 按最多 4 小时、10 秒 heartbeat、每轮 4 个调用事件估算约 5760 条，加少量阶段事件，既有事件上限相应为 **8192 条/16 MiB**，单条 2 KiB、最终摘要 32 KiB 不变；5 秒资源采样需覆盖最多 2880 次，沿既有文件/循环实现核对其容量，不新建观测机制。启动 available≥48 GiB、worker RSS 40 GiB/host available 8 GiB/disk 10 GiB 等原停止线不变，不用延长观察掩盖资源或产品失败。
+- 按最多 4 小时、10 秒 heartbeat、每轮四个调用边界加一个成功事件共五条估算约 7200 条，加少量阶段事件，既有 worker-event 上限相应为 **8192 条/16 MiB**，controller 与 guardian 的对应旧限同步更新，单条 2 KiB、最终摘要 32 KiB 不变；5 秒资源采样需覆盖最多 2880 次，独立资源日志仍为 4096 条/8 MiB，沿既有文件/循环实现核对其容量，不新建观测机制。启动 available≥48 GiB、worker RSS 40 GiB/host available 8 GiB/disk 10 GiB 等原停止线不变，不用延长观察掩盖资源或产品失败。
 - 审核者一次核 a 的恢复资格结论、上述预算/接线差异和原守护持续后，实施者按 Owner 简化授权直接准备并执行**一次完成性验证**；实际 manifest 留追溯，结果事后独审，不再另签逐摘要 GO。无变更无依据不重复大输入；产品失败仍停止留证并按 DC80 最小修复，不增加关闭矩阵、全量 runner、小 Compose 或正式计时。
 
 本节不改变主线部署资源档、产品行为或正式基准口径，不授权 main 合入/推送。只有实际完成及原 GC 状态恢复/空闲回收等证据齐备，才能评估本候选效果；后续正式基准恢复另按原范围办理。

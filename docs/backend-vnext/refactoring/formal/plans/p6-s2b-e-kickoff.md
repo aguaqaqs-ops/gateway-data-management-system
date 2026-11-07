@@ -1,6 +1,6 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前状态（2026-11-07）：`1de3fa4084` 的 04 backend 权威与 05 fresh t1 均完整通过；t2/t3 未跑，RS 暂缓至最终配置确定。Owner 要求宽裕预算一次测量后定档，隔离候选 `4f808c111b` 以 **64 GiB 容器/16 GiB reserve/M48 GiB、N1** 完成 t4 的 v1/v2 Preview、Submit 与仓库核验，最后 History 因 control DB 打开失败而停止，原校准仍为 FAIL。已核预约高水位约 12.173 GiB、同一 worker 生命周期 cgroup peak 约 6.519 GiB；History 未完成，不能据此前缀宣称最终容量通过。临时配置/观测未进入 main，三代失败资源及证据保留，准确事实见 [handoff](p6-s2b-e-handoff.md) 与 [独立审核](p6-s2b-e-review.md)。
+当前状态（2026-11-07）：`1de3fa4084` 的 04 backend 权威与 05 fresh t1 均完整通过；t2/t3 未跑，最终门禁暂缓至资源配置确定。隔离宽裕档 `4f808c111b` 完成 v1/v2 后在 History 失败，原结果保留为 FAIL；已确认并修复 FD 生命周期缺陷，main 产品为 `d6c88cafb3`，06 定向证据独审通过。同窄修隔离候选 `1f9df50a5c` 的独立副本 History 已成功并获独审，见下方结果。已观测最大预约约 12.173 GiB，设计建议最终 24 GiB 容器/8 GiB reserve/M16 GiB、N1，正在等 Owner 选择；临时配置/观测未进入 main。原三代失败资源及证据保留，成功副本已清理，准确事实见 [handoff](p6-s2b-e-handoff.md) 与 [独立审核](p6-s2b-e-review.md)。E/S2b 尚未退出。
 
 **History 定向诊断接续（Owner，2026-11-07）：** 同镜像 profile 的独立探针测得 soft FD limit 1024，Arrow 小样本证明关闭 source 后可保留 buffer 零拷贝读取；这两项尚不足以确认原 History 根因。真实 C 双侧各 312 表的诊断连续两次在准备阶段失败，按 DC68 暂停后，Owner 明确批准“允许按已审第三稿续做，明确问题修复后定向验证”。第三稿 SHA `4b982cb016eb3ff4903f42e6cdda489cf4e9136751019d26fc7c81523bf8df65` 已独立静态审核，将 factory 放回有效 operation scope 后在 06 运行；保留两次失败，不改写为通过。若证实 FD 生命周期缺陷，最小修复及 focused 独立审核后，使用本任务保留资源的独立冷拷副本、当前修复镜像和现有 `--from-step history` 定向验证，不重跑 Submit/全旅程。原校准 FAIL 与后续局部结果分别记录，最终资源档仍待 Owner 依据补全证据选择；此授权不等于 E GO/S2b exit，不扩大为任意失败循环重试。
 

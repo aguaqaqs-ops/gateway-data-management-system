@@ -1761,3 +1761,17 @@ fence、业务异常或 drain 意图不等于 executor 已结束。恢复/可选
 产品差异、镜像和小门禁通过后，在最终新清单中精确绑定旧 source checkpoint→新产品/镜像及必要 wrapper 差异、新项目/key/三个隔离卷。原 g controller/observer 的已知 partial 语义可复用，但不把新 GC 策略伪装成原产品或沿用旧性能数字。保留 45 分钟/3600 秒、原资源/身份/lease_lost/cancel/120 秒 stall 停止与有界回收/保卷/未静止留锁；05 以执行时正常取得占用为准，CT108 不加负载。
 
 **范围 PASS 和准备/必要验证许可直接投递唯一实施者并同步设计，不等新的 Owner/协调者回执。** 同范围普通代码/工具 Finding、修订和必要 focused 沿既有 DC80 双方直接闭环；只有新增范围/预算/资源或业务取舍才带具体证据与选项交 Owner。当前无精确候选真实 prepare GO、主线合入/推送/tag 或正式恢复许可；H3 原 PASS 仅保留历史身份事实，原 lease 根因 OPEN，正式测量 STOP。
+
+## 79. GC 调度修复未提交 diff 预审：线程未启动路径须恢复 GC
+
+2026-11-07，应实施者请求，只读审 `/home/dev/gdds-p6-worker-gc-scheduling-repair` 相对冻结 HEAD `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 的三个未提交文件。**发现一项 P2，最终候选前须修；这是 WIP 预审，不是已提交产品候选/测试结果的最终审核。** 未改该 worktree、未运行测试或访问节点。
+
+审查时 SHA256：worker_runtime.py=`c9d6550087ae0b5a361fddf47c28e346fd004e2dd0f2aaaf16952ae32314b72a`，test_operation_worker_scheduler.py=`b5835c23b5a1789a3d5710586337de55d6f76adaf9cef87888cbaac15c81dcc0`，test_operation_worker_integration.py=`d36a430beac8540b16e9b0a0f4aa8269f407569b2e8febb5812f735c5312de64`。
+
+**G1 / P2：未成功启动 executor，也被归为 join 未确认，泄漏 GC disabled 状态。** worker_runtime.py:358 在 thread.start 前置 join_status.confirmed=False，start 位于同一个监督 try 中。真实线程创建失败时 start 可直接抛异常；except 又对未启动线程 join，后者也抛错，confirmed 保持 false。外层 `_run_claim_cycle` 的 finally 因而不恢复原 enabled 状态，仅追加“join 未确认”note。此路径根本没有活跃 executor，不能套用“活跃 executor 尚未 join 所以暂缓恢复”的规则；GC 初始 enabled 时，run 异常退出后解释器仍 disabled，违反 §78 的原状态恢复条件。[CPython 3.14.6 Thread.start 的创建失败分支与 join 前置检查](https://github.com/python/cpython/blob/v3.14.6/Lib/threading.py#L918)支持该静态调用链，不是新业务现场故障或实际耗尽线程的实验。
+
+已直接交实施者：最小区分“未成功启动”和“已启动但未确认 join”，保留原启动异常，不对未启动线程追加不必要 join/collect，不把它归为 claim_busy 重试；补一项原 runtime 的标准 start 失败语义 focused，核原 GC 状态、无 collect/重试及原错误。无需真实耗尽 OS 线程、扩大注入矩阵或新增 Owner 许可；其余必要 focused/静态验证沿 §78 继续。
+
+**后续工具接线待办：** 新 `_run_claim` 增加 join_status 参数，而原 g 的外置 `prepare_step_worker.py:759` hook 只接受 claim_anchor，原字节直接复用会因 unexpected keyword argument 失败。到新真实 prepare 工具候选时应显式接收并透传同一 join_status 对象，不能只吞掉关键字而失去收束事实；不改旧 g 包、不增加生产兼容路径。此项不阻止当前产品修订/必要 focused，须在新精确 manifest 的接线审核中关闭。
+
+其余 inspected 主路径保持 claim_one StoreBusy 的独立捕获、anchor 前暂停、正常 join/ack 后恢复与空闲 collect；新增 GC 状态测试标 serial，另有真实组合 runtime/SQLite 的发布收束用例。当前只是静态方向检查，不预判其执行通过。产品变化仍要求新 backend/worker 镜像及计划内小门禁；旧 §52/57 image 身份不代表新候选，本轮不构建/重跑。§78 范围 PASS 持续有效，无真实 prepare/测量 GO，正式测量 STOP。

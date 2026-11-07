@@ -2249,3 +2249,23 @@ BatchMode echo OK 后，只读 CT108 已关闭三日志，SHA256 精确匹配：
 本审核另只读检查了新 project 的目录/容器/卷/网络，结果均不存在，Docker查询均exit0。它只是本轮现场事实，不是预约；实际执行前仍现场核空闲/原子取自有占用及全部既定条件。旧 A 的 postflight、source事故/恢复和其image别名保留，不清理或改写。
 
 **上述具体修正、必要 focused/静态与新身份准备已在原工具修复范围内明确允许。** 合格后按 §92 正常前提核验直接执行新身份的唯一业务接续，交代码/原始结果供短复核，不再追加 Owner、最终 manifest 或身份文件摘要 GO。此前 source恢复和 F1 不因本命令校验错误重开；本次失败及125记录保留。该决定直接送现有实施者与设计者，不新增会话/角色，不扩基准 exit。
+
+## 100. 3fd 真实 sampler 契约修复与证据复核 PASS：新身份 b 可按原授权接续
+
+**候选 `3fd64dc2fe9a9c11ceebf8cd458983b9507f5364` 的 §99 接线修正代码及必要验证 PASS，无剩余工具阻塞。** 新唯一 project 为 **`p6w4resume970420261107b`**；实际 CT108 新身份/镜像别名/环境与原核心前提满足后，按 §92/99 直接执行一次业务 continuation，结果事后独审，不再等待 Owner/设计/审核回执或最终 manifest GO。旧 a 入口失败、日志/目录/别名保留，本节不把它追改为成功，也不是 CT108 新运行已经开始或已通过。
+
+### 实际最小差异
+
+在 detached 审核 worktree 中读 immutable3fd Git 对象及完整差异、只读解析 Python AST，diff whitespace 通过。sampler 仅在 `_launch_metadata` 的解释器识别前增加固定五项 timeout 前缀识别，匹配才剥离；仍按原字面 worktree .venv Python、环境 root、manifest、census、evidence 校验。未改成任意 argv 搜索，未知 wrapper 仍落回原拒绝路径。**采样循环/period、资源计数、Popen/计时起点、step timer 与结果口径均未改变**；前置识别在原计时起点之前，直接 Python 路径保持原行为，无需重测历史成功计时。
+
+独立提取当前 committed launcher 的真实前缀，与 validator 的 AST tuple 逐项精确相等：`timeout --foreground --signal=INT --kill-after=1200s 25200s`。现有 sampler integration 用例已删除对 `_launch_metadata` 的替身，wrapped argv 实际经过真实 `run_sampled→_launch_metadata` 后才进入模拟子进程/资源 I/O；另有直接/固定前缀正例、其他解释器及不支持前缀负例。结合上述 producer 前缀核对，覆盖了本次现场拒绝点，不再只凭 fake sampler 接受数组认定契约通过。原真实 GNU 短超时/手动中断/清理 fixture继续保留。
+
+新 identity JSON SHA256 **`98bfba51108ace6a5bf011247752ff11c41e6a4fcc9a0a96a487a66e986b938f`**，代码pin及runbook一致；相对旧身份，source、inputs、identity_evidence、三镜像内容和预算逐项不变，只改目标 project/evidence/log 绑定，launcher及fixture项目一致。源仍为原 b/v2-submit前checkpoint，产品仍9704，配置/格式/依赖不变；候选 vnext tree=`3eb04338477b7d37d2d5c6ac83ff2727b814d88f`，新增差异仅已核工具/测试/identity文书。不重做源修复/SQL/生成，也不无故重建旧镜像。
+
+### CT05 实际验证与范围
+
+BatchMode echo OK 后，仅只读已关闭 `/home/dev/gdds-p6-logs/baseline/ct05-vref-3fd64dc2-validation-corrected.log`，**09:29:58–09:30:03Z、gw-dms-test-05、end_head=完整3fd、validation_exit=0**，SHA256 **`56e8e31ce862fce791d2c14fd31a701ec2abb3616e4f01bb51afe778fa9eee18`**。bash语法、sampler/guarded launcher focused **14 passed / 3.64s**、backend Ruff及mypy（500 source files）均通过。前一09:29:32的 checkout记录也明确切到3fd，但日志未写执行结束，SHA `0257d65144c43f2ed919aecd9e0c5192d5b51cbf7354eb2e6b3d8b6ef177f8fb`；不把该运输/切换记录本身当成功验证。最终日志没有重复打印起始HEAD/clean，按checkout记录和end_head准确关联，不补造原日志字段。
+
+其余四包源码/依赖未变，静态状态关联 §96 最终5de的实际合格来源；不是权威 runner carried，也不声称十项静态都在3fd重新运行。09:30:15Z 的简略 postflight SHA256 **`c7feda0fe95ca72b73995aca825090269a3c339b005be41ed83795e410ad4aa9`** 匹配，仅记录 hostname/锁释放/时间，不扩称它独立证明整机全部资源 quiet。此前两项launcher fixture对自有测试session/保锁的结果有效；CT108 正常现场守卫仍必须执行，未因简略文书新增测试或业务重跑。
+
+本轮没有导入/执行候选、运行测试、Compose、复制源卷或启动业务；只读代码/Git对象与CT05原日志。**结论直接交实施者并同步设计，当前修正已合格，不再为本 identity SHA 另开 GO。** 新身份现场核验与原预算/停止/保卷条件保持；统一版本矩阵、04收口、主线合入/push/tag/基准exit均不由本节代办。

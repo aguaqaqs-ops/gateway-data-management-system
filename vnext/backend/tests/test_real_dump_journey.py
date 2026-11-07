@@ -1096,7 +1096,7 @@ def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fau
 
 def test_preview_completion_clock_is_frozen_before_complete_bundle_download(monkeypatch: pytest.MonkeyPatch) -> None:
     clock = [0.0]
-    monkeypatch.setattr(real_dump_journey.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
     workspace = {"workspace_id": "ws", "current_preview_result_id": "pr"}
     monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: workspace)
     def poll(*_args: object, **_kwargs: object) -> None:

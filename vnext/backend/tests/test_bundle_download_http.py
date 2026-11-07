@@ -138,7 +138,7 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
     import tarfile
     from dataclasses import replace
     import pyarrow as pa
-    import pyarrow.parquet as pq
+    import pyarrow.parquet as pq  # type: ignore[import-untyped]
     from gateway_backend.artifacts import put_with_built_ref
     from gateway_backend.capabilities.bundle_assembly import (
         BundleArtifactBinding, BundleArtifactClosure, BundleArtifactKind, BundleInput,
@@ -161,21 +161,21 @@ def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_
     pairs = []
     for index, ref in enumerate(refs):
         pair_id = f"pair-{index}"
-        result = _surface_result(table_name="empty")
-        assert result.surface is not None
-        surface = result.surface
+        surface_result = _surface_result(table_name="empty")
+        assert surface_result.surface is not None
+        surface = surface_result.surface
         table = replace(surface.tables[0], table_refs=replace(surface.tables[0].table_refs,
             current_table_ref=ref, before_table_ref=refs[0] if index == 1 else None))
         surface = replace(surface, tables=(table,))
         surface = replace(surface, surface_digest=compute_surface_digest(surface))
-        result = replace(result, surface=surface)
+        surface_result = replace(surface_result, surface=surface)
         bindings = [BundleArtifactBinding(ref, f"pairs/{pair_id}/tables/current/empty/rows.parquet", BundleArtifactKind.SNAPSHOT_TABLE,
                                          pair_id=pair_id, table_name="empty")]
         if index == 1:
             # A second pair/side shares the first schema's same actual rows file.
             bindings.append(BundleArtifactBinding(refs[0], f"pairs/{pair_id}/tables/before/empty/rows.parquet", BundleArtifactKind.SNAPSHOT_TABLE,
                                                   pair_id=pair_id, table_name="empty"))
-        pairs.append(BundlePairInput(pair_id, index, index + 1, result, BundleArtifactClosure(tuple(bindings))))
+        pairs.append(BundlePairInput(pair_id, index, index + 1, surface_result, BundleArtifactClosure(tuple(bindings))))
     result = assemble_bundle(_request(tuple(pairs), profile=BundleProfile.MULTI_PAIR,
         inputs=(BundleInput(0, "a", "A"), BundleInput(1, "b", "B"), BundleInput(2, "c", "C")),
         shared=BundleArtifactClosure(tuple(shared))), source_store=store)

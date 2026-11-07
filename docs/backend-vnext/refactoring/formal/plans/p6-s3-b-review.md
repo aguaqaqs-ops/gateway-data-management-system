@@ -1,6 +1,6 @@
 # Phase 6 S3 B 独立审核
 
-**状态：完整 B 验证候选 `cab0656d68dde02074bfe3ebef0393c19b082e0c` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
+**状态：完整 B 验证候选 `4efa4b3ec5457e83e48d9fbf2e18245e67afdc51` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
 
 ## 1. 固定对象与方法
 
@@ -40,6 +40,10 @@ ac21 静态复核另发现两个与预算轮无关的 ordered 诊断差异，交
 
 **N 与控制的后续补证：**a665 的单任务 pool 证据偏弱；固定 `39bfa7552ed480c625e139c6e7beacbb8e56c154` 增加同一 `KernelContext`、同一 Rayon pool 的 12 项 keyed/keyless/ordered `par_iter`，按输入序收集 N=1/4 的计数、locator、digest 签名，结果释放后核 16 MiB 余额恢复；另加已到期 `Instant` 的 deadline 错误向量。固定 `20e226206d` 增加当前 canonical 伪 GID=-1 与冻结 Python 的诊断差分。`cab0656d68dde02074bfe3ebef0393c19b082e0c` 相对 39b 仅为新测试 Rust 格式调整，vnext tree=`6be70a9dc215d27aa5fcd682e01bd50f43998857`；detached WT clean。静态证据设计缺口已关，仍待唯一 06 当前候选运行，不把 probe 当 C/D 生产接线。
 
+### 2.3 真实数据 CLI 的当前 owner 接线
+
+固定 cab 的 `benchmarks/s3_b_real_table_diff.py` 原复用旧 `p6_v1_ordered_diff._materialize_package`，该 helper 缺当前 `preview_jobs._materialize_uploaded_side` 的必需 `repository_id`、`export_cache` 两参数且只解包 3 项；CLI 也未建立 `current_kernel_context()`，直接运行会在测试内核前失败。此为替换期取证入口缺口，不是 Rust 产品预算第三轮。固定 `4efa4b3ec5457e83e48d9fbf2e18245e67afdc51` 在 B 自有工具内用当前五元返回首项和必需参数物化，进程初始化固定 N=1，每 tier 用新的 `KernelExecutionContext(OperationMemoryBudget(24 GiB), NeverCancel(), 1)` 包住 v1/v2 物化、逐表差分和 reader 关闭。本人对照 `preview_jobs.py` 当前签名/返回及 `real_dump_journey.py` scope 范式核过，静态前置缺口已关；Rust tree=`8c7e096e6b9bae5ca12e12c66e79bbec59371146` 与 cab 相同，vnext tree=`aa640aafe3c5e50d2d72239c18591200668e8963`。旧 p6_v1 工具未改，4efa 的 CLI 仍待 06 实际运行。
+
 ## 3. 06 执行稿的 DC68 停止复核
 
 本人先用 `ssh -o BatchMode=yes ct107-gw-dms-06 'echo OK'` 确认连接，再只读核 `/home/dev/gdds-test-tmp/p6-s3-b-test-b91767f5d794/logs/` 原件。`pre-run-command-errors.log` 现场 SHA256 为 `60e8fc6c95ef2d677cb70babc7a6e64e4545d5c917a358071b99b39dbc21d3b0`，记录第一次可选只读检查因节点无 `rg` 返回 127；第二次改用 `grep` 时 shell 引用错误，把 `WT`/`LOG`/`EXPECTED`/`run_step` 当命令并产生引号 EOF，再返 127。此汇总日志保存了两次错误的 stderr/exit 与作用范围，但没有独立逐字的两次原始 argv，不能据此复原完整命令行。
@@ -52,6 +56,6 @@ Owner 后已明确“允许放行”；同一 06 测试者按上述已审脚本�
 
 ## 4. 容器与后续证据
 
-本轮最新受审固定 HEAD=`cab0656d68dde02074bfe3ebef0393c19b082e0c`（前轮完整静态候选 a665，后续 20e/39b 为诊断与 N 测试、107c/cab 为机械格式）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/cab 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/cab 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
+本轮最新受审固定 HEAD=`4efa4b3ec5457e83e48d9fbf2e18245e67afdc51`（前轮 cab，增量仅 B 临时真实数据 CLI 接线）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/4efa 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/4efa 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
 
 完整 B 候选还须有 06 clean 已提交 worktree 的 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止与 t1–t4 v1/v2 按表差分；八个输入 SHA 须逐包对照 `datasets.json` 与 P5 S4 handoff §8，旧 expected 来自 Contract/A/冻结 Python。B 不跑完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能；这些留后续阶段对应节点。最终独审需核原始日志/脚本/摘要与手册边界后再给 GO 或明确 finding。

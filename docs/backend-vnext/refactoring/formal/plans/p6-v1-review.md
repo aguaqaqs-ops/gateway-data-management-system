@@ -6,7 +6,7 @@
 
 已预检产品前固定清单 **`2ca25b6514a10fbc29d8d66535f22d0a154e8bc5`**；首轮正式代码对象仅为 native 子候选 **`a500dd81525963775b5ee005a3aa8ba9abc041af`** 的五个 Rust 文件，不包含实施中的 backend 接线。native 修复候选 **`2c6f13731bd3b4a4ffd39c97ee2627d18009ae54`** 的同角色复审与证据见 §5。
 
-**当前结论：V1 暂不能最终 GO；F1–F4/N1 已关闭，追加 F5 待原角色修复复审。** 产品/最小容器候选为 **`84bad715a2faf281e94fa9c0c534414dc7246608`**，handoff/owning 文档核至 **`5b7812164a`**，已有证据与范围见 §9。§9 的 GO 文字是发现 F5 之前的结论，现由 §10 取代，不能作为开工或最终完成依据。04 权威及联合必要 Compose、05 fresh t1、V2、D/tar 与 FE3 均不在本节完成声明内；不办理联合 exit。首轮发现及失败记录保留，不用后续成功覆盖原运行。
+**最终结论：V1 本节 GO，F1–F5/N1 全部关闭，无剩余阻塞。** 最终产品/最小容器候选为 **`c229582a9e72a591cf00a70de526b1b0792c1c18`**，当前 handoff 核至 **`6183ae3ca45e31ae6aef4d92098ba4a2a762c090`**；最终复审与证据见 §11。§9 针对 84bad 的旧 GO 已因 §10 追加 F5 暂停，当前以 §11 同角色修复复审为准，不用旧结论跳过 F5。04 权威及联合必要 Compose、05 fresh t1、V2、D/tar 与 FE3 均不在本节完成声明内；不办理联合 exit。首轮发现及失败记录保留，不用后续成功覆盖原运行。
 
 只读 detached worktree：`/home/dev/gdds-reviews/p6-v1-native-a500dd8152`，HEAD 固定为上述候选，已链接主仓库 `legacy/`，审核期间保持 clean。未读取 main 中后续 dirty 实现，未修改产品或测试，未运行测试、编译、lint 或容器，未占测试节点；本角色只写本报告。
 
@@ -233,3 +233,62 @@ Required execution point: V2/D 后联合最终候选，不在本节办理 exit
 既定依据：[BE-a 设计 §6](p6-be-a-design.md) 要求最小持久绑定→scope/本人授权→完整 facts；[P5-5C §4.3/§5](p5-5c-review-design.md#43-request-and-replay-ordering) 明确目标不存在/跨 scope/非本人统一 404，已授权后才暴露完整性错误。已有 `test_self_target_authorization_precedes_review_closure_read` 只破坏 Review closure，未覆盖 V1 新增的 Submission facts 解码，因此先前 HTTP 通过不足以证明这个边界。
 
 已直接交原实施者以最小 binding projection 或 scoped read 修复：先读取必要 workspace/repository/持久 created_by 并校当前 scope，再完整 decode；保留已授权对象损坏拒绝、当前 mapping 和 replay 语义。仅复用原 Review、Operation/Submit、Preview HTTP owner 的共享小型参数向量，覆盖未授权损坏事实/绑定仍 404，以及已授权损坏仍失败；不增加安全框架或重复权限矩阵。固定修复、06 相关 focused/静态及新候选容器绑定决定到达后，同角色追加复审；本角色未改产品/测试，也未重占或运行 06。
+
+## 11. F5 同角色复审、当前容器与 V1 最终结论
+
+本角色新建并只读审核 detached worktree `/home/dev/gdds-reviews/p6-v1-f5-d7c1b8d82e`、`/home/dev/gdds-reviews/p6-v1-f5-c229582a9e` 和文档 worktree `/home/dev/gdds-reviews/p6-v1-f5-docs-0a52e3517f`、`/home/dev/gdds-reviews/p6-v1-f5-docs-6183ae3ca4`；均 fixed/clean、legacy 链接齐备。产品修复先为 `d7c1b8d82e885787e4a39672e752ef4e7ef7f845`，最后为 **`c229582a9e72a591cf00a70de526b1b0792c1c18`**。handoff 当前补证及 Preview 沿原 exact scope 的措辞精确化仅 docs，`vnext` tree 与 c229 相同，均为 **`954caffe70c00c9268cd026477298a73f8e47976`**；Rust tree 仍为 **`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`**。
+
+### 11.1 F5 代码及公开错误闭环
+
+**F5 关闭。** `SubmissionAccessBinding` 仅含持久 `workspace_id/repository_id/created_by` 三标量，SQLite 只 SELECT 这三列，不读取或解码 facts/source refs。Review 先检查当前 permission，在原同一 UoW 内校 fresh provisioned mapping、Submission/Workspace exact scope 及 self-only 的持久 creator，之后才 scoped 完整读取，并再次核完整模型 scope/creator；mutation 保留写事务内再次检查 permission。GET、fresh POST 和成功 replay 共用目标授权；target 授权仍早于 idempotency/closure，合法 replay 仍早于 fresh 状态/基线/占用门禁。
+
+Attempt/Submission 点读及 SUBMIT Operation 先授权 Workspace/current mapping，再按已授权 `workspace_id` 和 `repository_id` 查询；Preview 沿原 URL Workspace exact scope 授权后同样 scoped 查询。SQL WHERE 在 mapper 之前过滤，不以 Python 解码后的字段比较替代；本人 URL 配外目标 ID 也不会先解其损坏 body。production facade、HTTP read store 与 fake 端口均贯通参数。Submit 新受理的 caller preview_id 在 HTTP preflight 和 application 两处也按所属 Workspace/repository 过滤。内部已绑定 recovery/worker 路径没有增加权限或新机制。
+
+d7 的已授权 Review 损坏分支最初仅以 strict TestClient 捕获 `ValueError`；本角色按 P5-5C §4.3/§9.3 要求保留实际 503 分类，未将该内部异常断言当作公开 Contract 通过。c229 的 `load_review_submission` 仅包完整 getter 的已知 `(ValueError, TypeError, KeyError)`，转既有 `ReviewIntegrityFailure`→`503 SERVICE_NOT_READY`；未全局捕获所有异常。`from_document` 的 JSON/shape/digest/源绑定 ValueError，以及如 status 为 list 所致 TypeError，均在该窄边界内；cross-target existing-key 的内部 Submission 读取也复用此 helper。正常跨目标 key 仍 409，损坏先 503，无 raw row 披露或新写入。其余公开点读的 strict 异常向量仅证明原领域损坏硬拒，不另宣称统一 HTTP 503。
+
+原 HTTP owner 共享 missing_facts/source_binding 两个小向量：Review 验非本人/跨 scope GET、fresh/replay POST 404，缺 permission 先 403 且禁止业务对象读取，授权本人实际 503；Attempt/Submission/Operation/Preview 验 foreign 及 own URL+foreign ID 404；Submit 受理验外 Preview 不会解码且不写 Attempt。正常权限/当前 mapping/replay 的既有 owner 继续覆盖，未复制整个矩阵到 application 或 Compose。两份 owning 文档准确同步最小绑定与 Review 503；没有 DDL、DTO/OpenAPI、事实/job/checkpoint 版本、golden 或 Rust 改动。
+
+### 11.2 新证据及执行范围
+
+本轮仅在 **06 / `gw-dms-06`** 验证。实施者 09:26:57Z 现场核空闲后原子重取标志，在新独立 clean WT `/home/dev/gdds-test-tmp/wt/p6-v1-f5` 运行；原 84bad WT/证据不动。以下原文、argv、起止 HEAD/UTC、exit 与 SHA 均已由本角色只读核证，根目录为 `/home/dev/gdds-test-tmp/artifacts/p6-v1-f5/`。对应 d7/c229 日志的起止 HEAD 各自相同，没有运行中改源码。
+
+| 日志 | 实际结果与 UTC | SHA256 |
+| --- | --- | --- |
+| `f5-focused-d7c1b8d82e.log` | 09:29:17–09:29:42，13 个受影响文件主体 `-m '(not serial) or parallel_safe' -n4`，358 passed，exit 0 | `b0ecd2a22eacec1210ebc6e2eb41644b54564d6301ab4aa418971b56d993d236` |
+| `f5-focused-serial-d7c1b8d82e.log` | 09:29:42–09:29:48，相同文件 `-m 'serial and not parallel_safe' -n0`，1 passed，exit 0 | `aed066f128fa476ab64313d2a5f5a438c90a13c1fa91ce574a499c538ab473e4` |
+| `review-focused-c229582a9e.log` | 09:33:59–09:34:12，Review HTTP/transaction/persistence 增量主体，118 passed，exit 0 | `db01e62834f105c48d1c2d96458c65ab6ec24f4249baa19b98973c32f3e9e8d0` |
+| `review-focused-serial-c229582a9e.log` | 09:34:12–09:34:13，118 deselected，**实际 exit 5、空批次 N/A，不计通过** | `b935f709e3f14963e67bd9d5a73674faff568d1bf664e78f58fc88a9024f8101` |
+| `ruff-backend-c229582a9e.log` | 09:33:58，ruff check .，exit 0 | `eeaafa5a96bec6a61478d48c27d9fbd45e3998f66e59906e05a0b363096ae8a9` |
+| `mypy-backend-c229582a9e.log` | 09:33:58–09:33:59，504 source files，exit 0 | `8a22ad064d23d9e587f7dcfe78252742019b09f786de858e163074bcae42ea01` |
+| `extension-build-input-c229582a9e.log` | 09:33:58，expected=installed=e6ac…，exit 0 | `3182583318e9da9203e3c2ad1d1da2880dba09fd0b337f5936f512312e809ddc` |
+| `compose-review-self-c229582a9e.log` | 09:34:47–09:35:21，fresh self-only Review 既有旅程 `-n0`，1 passed，exit 0 | `99f4f63d33f9af5d17db9d495a9f6ad19ba9054a2485f2e67a641946e0b9671b` |
+| `node-release-c229582a9e.log` | 09:36:28，核 clean/项目清理/进程/端口后本人 owner 释放，exit 0 | `0955f25645ed9066cebb00108816871c55a057e1604d28538a4499262ac68d60` |
+
+d7 的五个 Python 包 ruff/mypy 均在该固定 HEAD 实际 exit 0；c229 只改 backend Review，其静态与受影响 Review owner 已重验，其他四包源码未变。不把这种 focused 源码引用称为权威 package carried。c229 增量三个 Review 文件没有 serial；本角色核出 exit 5 后已要求如实保留 N/A，无空批次重跑或补造用例。d7 的 serial 1 仅代表原 13 文件选择实际覆盖，不宣称 c229 Review serial 通过。原全部失败、c464 混批与后续合格 serial 来源继续保留。
+
+d7 新 WT 按 offline 强制 `sync --reinstall-package gateway-compute-python`，日志 `sync-backend-d7c1b8d82e.log` SHA=`6a178bb05397684f4552415fe2c38be147824f90354cd1078487f9c4248b1af3`，09:28:38–09:28:51 exit 0；d7/c229 均核已安装 Rust build input 与未变 e6ac tree 一致。原 native fmt/clippy、180 Rust workspace tests 及 frozen business golden 只作未变源码的既有证据，没有为 F5 重跑 Rust 全集或真实旅程。
+
+`evidence-index.json` SHA=`e8d464785d53393c2403accda8ba4983a064264575d35699cdde6e29e57513a4`。本角色在 06 只读逐项重算 **28 份日志和 9 个 sidecar/脚本**，全部相符；并实际读取执行脚本的 clean/owner 校验、offline/proxy 设置、精确命令与释放流程，未仅依据索引作结论。
+
+### 11.3 当前容器绑定、清理和最终交接
+
+本轮 F5 属 Python 授权/读接线；为最终候选明确绑定当前生产容器，实施者已在 c229 以 fresh project/DB/卷、本机 offline build 运行唯一既有 nodeid：`tests/test_review_compose_e2e.py::test_compose_self_only_submit_withdraw_and_upload_again`。它经过实际 Submit→不可变 Submission→本人 Review 读/撤回→再次上传，核生产 scoped facade/SQLite 接线；没有把权限矩阵重复放进 Compose。
+
+已核 `review-self-provenance-c229582a9e.json` SHA=`6940d7b6cf1ce5155520e970c8f49d86fed916224162904adf6efb38ba9ab236` 与 `image-identities-c229582a9e.json` SHA=`cafb565752514e0328764c0c5d750634005f7f38e7a61c9bb97b0e5d1a8195cd`。运行镜像本机 ID 与身份文件相符：backend `sha256:c0c35f85c775f419c248312189935253cacf14efbcef397bd5b5194e405fe56c`、worker `sha256:8a3a97d633df11291126e394068cd4f82dd9105a50687a4d7f4cc58fbaad501c`、RS `sha256:90bec5df63868bef94129dd5db124bd00c333bcab8f213f08aedb0391084b086`。已读身份脚本，其从 docker save 实际 config bytes 计算 SHA，并逐项比较全部 DiffID 与本机 Layers：backend/worker config 分别为 `sha256:7c006bc1b93f925709fbed8d67a4e0af61e5c2015dd07109a4c799cbc3163443` / `sha256:9c480f9d4792bbb952cf538ccc9c1db2a43f392df7b1e8a05ab6677724566d40`，各 13 个 DiffID；RS 为 `sha256:07193eb2efc33d10af22bf11d496bbcf19eec30d0aef29185dab05896ec25f63`，28 个 DiffID。完整列表在 JSON，没有以 inspect ID 代替 config digest。
+
+RS 新 tag 为 `gateway-repository-service:v1-f5-c229582a9e`，revision=c229；其未变 source-tree 与 build-input revision 仍为 §9 所列值。backend dependency input 仍 d054；三个 dependency-base config 与全 DiffID 与旧已核缓存一致。执行显式 UV/Cargo offline、外置 TMPDIR/target、jobs4、PATH 对齐并清除 proxy/toolchain overrides；保留 Compose build、prebuilt 未设、预置依赖与 build network none。本轮没有 lock/base 变化或新依赖制品传输，使用 06 原预填 uv/Rust/Docker 缓存，历史来源沿 handoff 引用，不制造新传输记录。
+
+释放日志已核本人 marker 匹配后移除，项目容器/卷/网络为空、8000 无监听、无 Dolt/pytest/cargo/rustc；本角色另只读现场确认 WT clean/HEADc229、legacy 正确、标志不存在且该项目无残留。保留新旧 WT、镜像和证据，没有清理他人资源或遗留后台执行。
+
+```text
+Reviewed product HEAD: c229582a9e72a591cf00a70de526b1b0792c1c18
+Reviewed handoff: 6183ae3ca45e31ae6aef4d92098ba4a2a762c090
+Container rebuild for final V1 candidate: completed on c229
+Last verified image revision: c229582a9e72a591cf00a70de526b1b0792c1c18
+Current container result: passed（06 fresh 既有 self-only Review 旅程）
+Carried from: none（84bad 结果保留为历史回归；不冒充当前镜像）
+Docs-only follow-up: product tree unchanged，不另跑测试
+Deferred: 04 联合权威/其余必要 Compose；05 fresh t1；V2/D、FE3
+```
+
+**V1 本节最终 GO，F1–F5/N1 全部关闭。** 本结论由原 V1 审核角色在 F5 修复、实际稳定 HTTP 分类、当前容器和 handoff 复审后作出，取代 §9 被暂停的旧 GO 当前含义，不改写或隐藏发现/失败历史。可按 Owner 已授权顺序交接 V2；逐侧原身份及合法规则差异仍严格按 a24，不改变 NO_CANONICAL_CHANGE 或其他业务门禁。04 权威、05 fresh t1、V2 来源/接受/Start/关闭、D tar 与 FE3 未在本节完成，不办理联合 exit。审核者只提交本报告，未运行产品测试/编译/lint、未修改产品/前端/冻结基准、未推送或改 tag；最终报告提交后停止本节写入与执行。

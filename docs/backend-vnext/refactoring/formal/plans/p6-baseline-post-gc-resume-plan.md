@@ -50,6 +50,8 @@
 
 这里的尾部“归档”仅指 artifact/证据文件打包，**不包含业务 v2-archive**；冻结旅程只有 `three_node_history=true` 才进入该业务步及 v3，本首轮不调用。read/approve 的1800秒也不含它。只请求实际经过的 checkpoint，首轮默认 v2-submit（按需要保存）、v2-repository-read 和 history；不为未执行的 v2-archive/v3 请求 checkpoint，避免成功收尾时产生“缺少断点”的工具错误。额外 before-approve 副本非必要，已完成 Submit 后的断点可保护昂贵 prepare，无需为同一边界多次复制。
 
+**`history_cache_mode=none` 的 TTL 解释（2026-11-07）：** cache/TTL 核查用于记录本轮实际起点，不要求所有 `snapshot_table_export_cache` 条目仍在有效期。冻结产品 `SQLiteSnapshotTableExportCache.lookup_many` 对过期条目按 miss 处理并由正常路径重建，旅程只有非 none 模式才执行缓存条件准备；healthy/refill 的健康 TTL 要求不适用于本首轮。实施者07:58Z报告523条全部过期、缓存artifact缺失0，日志SHA256 `4dac4836be733644015828ea7b723aa57bde5073ff8d9251ef2edb403e361322`；此正常时间流逝不构成来源失效，不需新Owner例外/GO。保留原源、expiry和卷，不手动延长TTL、清缓存或预热；目标产品正常prune/rebuild及其成本如实计入，记录实际cache状态，不冒称warm/healthy或与旧缓存条件相同。权威输入/原artifact完整性仍核；本澄清不推广到H3或明确healthy/refill场景，也不解除F1等实际守护阻塞。
+
 | 首轮阶段 | 工具预算（秒） |
 | --- | ---: |
 | 初始化、预检、恢复和必要目标快照 | 1800 |

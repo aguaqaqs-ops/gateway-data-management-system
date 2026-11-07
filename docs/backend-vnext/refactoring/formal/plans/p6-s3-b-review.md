@@ -1,6 +1,6 @@
 # Phase 6 S3 B 独立审核
 
-**状态：完整 B 验证候选 `04afdbb3d23a04d24df347d7aaafe6efc611b26f` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
+**状态：固定 `2b629e4562166de706da984995fc2ebc14fb1252` Rust 与合成差分已在 06 通过；真实按表差分在 t1 首项因临时 CLI 错送非记录角色而停，B 尚无 GO。** `503cfbd4da72b232dc175c3692c040adf499878c` 仅修临时 CLI 角色分流，Rust tree 与 2b 相同，待 06 实测。固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。八包 SHA 已核，t1–t4 按表及五包静态仍待完成；旧镜像结果不作当前 PASS。
 
 ## 1. 固定对象与方法
 
@@ -70,8 +70,18 @@ b634 唯一 06 原日志 `/home/dev/gdds-test-tmp/p6-s3-b-b63409b3/logs/run-fina
 
 固定 `04afdbb3d23a04d24df347d7aaafe6efc611b26f` 仅在标准测试 helper 为所有现有 BIGINT/signed-integer fixture 加 `bits=64` 且断言 SQL 为 BIGINT；ordered 的两处 read-side guard 限 `context.is_some() && is_control_or_resource`。旧 prototype 无 context 的局部 max_rows 继续退化；新 batch 有 context 的资源、取消、截止仍上抛。本人 detached 静态核该精确边界，Rust tree=`4ec29584b643ac6daac4d14dc3367f62cb5377e8`，未冒称其已经运行通过。
 
+### 3.3 04af/2b 运行结果与 503 临时 CLI 增量
+
+04af 唯一 06 原日志 `/home/dev/gdds-test-tmp/p6-s3-b-04afdbb3/logs/run-final.log` SHA256=`b03f83593d3f5e58402532b185fddfc563578dabf20247be51c926e689944552`：fmt/clippy 均 exit 0，workspace test 71 pass/1 fail，唯一失败为新 standard 测试直接遍历 `records` 物理存储序得到 MODIFIED、ADDED，却用冻结 facts 逻辑序 ADDED、MODIFIED 断言。固定 `2b629e4562166de706da984995fc2ebc14fb1252` 仅将该测试通过 `full.facts_order` 投影，原期望未改；本人按 detached diff 核为测试消费顺序修正，非算法或预算修订。
+
+2b 在 06 的脚本 `/home/dev/gdds-test-tmp/p6-s3-b-2b629e45/run-final.sh` SHA256=`3ff3ccdfcb8e87a27b2c92e822afde6996606abb1a4c9b967843bf851a454976`，输入 SHA helper SHA256=`dac92e185be66cba8178d1e4dbf779fb91fe9158a313b4b9ba27629d3b7555cd`；原日志 `/home/dev/gdds-test-tmp/p6-s3-b-2b629e45/logs/run-final.log` SHA256=`28103b95e234a63dcc24eb1f36fcc641ac2aeb14de119f6def0d413413986f57`。hostname `gw-dms-06`，23:27:50–23:29:23Z，起止 HEAD 均为 2b，Rust tree/build-input 均为 `cef7eaf099937a66ce33c160154936a5c086f0be`，六锁前后相同且 `LOCK_DRIFT=0`。workspace fmt/clippy/test 均 exit 0；test 中 architecture 21+13、core 72、其余 crate 3/1/82/3/3 全 pass，0 ignored/filtered，扩展强制重装与 build-input 核验 exit 0，Python 合成差分 6 pass，八个 t1–t4 v1/v2 输入大小和 SHA 全 match。按表差分在 `t1/forwardtable_yx1` 以 `standard table counts differ` exit 1，随后五包 ruff/mypy 未启动，脚本最终 exit 1；不能把前序 PASS 写作整轮 GO。
+
+本人固定 503 detached 审核该首败：2b 的 CLI 仅跳过缺侧/无 policy/标准 early-exit，误将非记录角色送入 B standard probe。真实 CLI 使用 `comparison_rule_set(migrated_table_ruleset_snapshot())`；规则注册的 `^forwardtable_.*$` 是 `SNAPSHOT_ONLY`、优先级 1，raw-PK fallback 优先级 8，resolver 取最小优先级并映射 `ComparisonRole.SNAPSHOT_ONLY`；冻结 Python `_compare_task` 在任何 row kernel 之前交 `_compare_non_record_role`。S2b census 中该表同时属于存储 keyless fallback，但存储 key 与比较角色是不同决策；2b 日志没有打印实际角色，故本次因果判断来自固定规则源码，不冒称日志直接观测。503 在旧 fact predegraded 检查后、B probe 前对 `BROWSE_ONLY`/`SNAPSHOT_ONLY` 计 `metadata_only` 并跳过，另列 `python_owned_non_record_role` 子计数；该增量只有临时 CLI，Rust tree 仍为 `cef7eaf099937a66ce33c160154936a5c086f0be`。这使已知首败按冻结 owner 分流，仍须 06 对 503 实测；若后续新表计数不符，再取聚合计数定位，不能据此放宽 B 比较或修改 expected。
+
+非记录角色的 `COLUMNS_ADDED` 分支虽无 records，冻结 Python 仍对共有列 `_read_rows` + `Counter(_row_digest)`；503 的 `metadata_only` 名称包括这支计算，不能当成生产性能替换。D/E 可用 B 现有 keyless 比较，传全部共有列、无 excluded、`columns_added=true`、`emit_add_delete=false`，以 `suppressed_added_count + suppressed_deleted_count > 0` 得到相同 multiset `content_changed`，记录为空；旧 `_row_frame` 与 B `frame_for` 均按列名 UTF-8 序、ULEB 名长和共用 canonical cell frame。`test_comparison_rule_roles.py` 已有两角色的无变化/有变化冻结预期，D 接线须核 status、empty records 和 content_changed，E 删旧 Python 热点。本节不把 503 的临时跳过视为该生产路径已接线。
+
 ## 4. 容器与后续证据
 
-本轮最新受审固定 HEAD=`04afdbb3d23a04d24df347d7aaafe6efc611b26f`（前轮 b634，增量为合法 S2b 测试夹具和旧 prototype 局部退化）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/04af 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/04af 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
+本轮最新受审固定 HEAD=`503cfbd4da72b232dc175c3692c040adf499878c`（前轮 2b；只改临时真实表 CLI，Rust tree 不变）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/2b/503 变化；06 的 2b 离线 Rust workspace/扩展构建已实际通过。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 2b/503 已有当前容器 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
 
 完整 B 候选还须有 06 clean 已提交 worktree 的 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止与 t1–t4 v1/v2 按表差分；八个输入 SHA 须逐包对照 `datasets.json` 与 P5 S4 handoff §8，旧 expected 来自 Contract/A/冻结 Python。B 不跑完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能；这些留后续阶段对应节点。最终独审需核原始日志/脚本/摘要与手册边界后再给 GO 或明确 finding。

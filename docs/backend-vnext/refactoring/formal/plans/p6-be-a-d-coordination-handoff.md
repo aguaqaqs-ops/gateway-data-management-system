@@ -17,7 +17,7 @@
 | 小节 | 状态/候选 | 角色与模型 | 验证/节点 | 未决与下一步 |
 | --- | --- | --- | --- | --- |
 | A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无A1局部deferred；04/05联合最终仍待，不办理全任务exit |
-| V1 | **启动**；实际clean main起点`c1ee9627559dcf752e82bcd6ad68735ea0d8fc59`，见[工作单](p6-v1-work-order.md) | 新实施6.1-Sol/xhigh、新独审6.1-Sol/max，创建后补ID | Rust/native→checkpoint→Attempt/Submission持久冻结；尚无本节证据 | 先固定精确fields/schema/version/digest/DTO/golden清单再产品写入，UTC grammar已定，不恢复Python路径 |
+| V1 | **已启动**；实际clean main起点`c1ee9627559dcf752e82bcd6ad68735ea0d8fc59`，协调启动提交`72bb929b1f`，见[工作单](p6-v1-work-order.md) | `/root/be_v1_impl`=GPT-6.1-Sol/xhigh；`/root/be_v1_review`=GPT-6.1-Sol/max，独立上下文；未建额外角色 | Rust/native→checkpoint→Attempt/Submission持久冻结；尚无本节证据 | 先固定精确fields/schema/version/digest/DTO/golden清单再产品写入，UTC grammar已定，不恢复Python路径 |
 | V2 | 已授权，V1通过后启动 | 下一节新建两个角色 | 纯规则/audit/事务/统一处置/History | 200候选、confirmation1/anomaly1601，关闭不归档出口必须一起交付 |
 | D | 已授权，默认V2后；如前端下载阻塞可提前至A1后 | 下一节新建两个角色 | encoder/公开HTTP/真实wiring | closure一entry一普通文件，真实tar交前端；FE3互通另记 |
 | 联合最终 | 准备已授权，产品未收敛 | 在既定角色内安排；额外角色先报Owner | 04受影响包权威及必要Compose，05 fresh t1；未运行 | 退出前按DC33确认最终真实数据范围，不口头carried |

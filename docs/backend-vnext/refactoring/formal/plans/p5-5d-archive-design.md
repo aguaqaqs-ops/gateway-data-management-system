@@ -129,7 +129,7 @@ snapshot digest，也不引入 provider/class/运行时间作为身份。
 
 | kind | 完整语义 preimage（字段名为拟定公共 contract） |
 | --- | --- |
-| `candidate` | `repository_id, gateway_device_external_key, business_project_id, workspace_id, workspace_generation, submission_id, submit_attempt_id, upload_revision_id, preview_result_id, based_on_baseline_node_id, business_baseline_commit_id, repository_commit_id, canonical_business_digest, canonicalization_manifest_ref, canonicalization_manifest_digest, source_artifact_refs`（按 UTF-8 ID 排序）、`requested_verification_policy, completed_verification_policy, review_status, review_sequence` |
+| `candidate` | `repository_id, gateway_device_external_key, business_project_id, workspace_id, workspace_generation, submission_id, submit_attempt_id, upload_revision_id, preview_result_id, based_on_baseline_node_id, business_baseline_commit_id, repository_commit_id, canonical_business_digest, configuration_facts_digest, canonicalization_manifest_ref, canonicalization_manifest_digest, source_artifact_refs`（按 UTF-8 ID 排序）、`requested_verification_policy, completed_verification_policy, review_status, review_sequence` |
 | `candidate-set` | `repository_id, gateway_device_external_key, business_project_id, baseline_node_id, baseline_commit_id, baseline_head_version, baseline_facts_digest, business_rule_id, candidates`；candidates 为按 UTF-8 submission_id 排序的 `{submission_id, candidate_digest}` 全集 |
 | `selection` | `candidate_set_digest, selected_submission_id, expected_candidate_digest`；selection 所指必须在全集中 |
 | `anomaly` | `selection_subject_digest, issue_code, target_submission_id, target_candidate_digest` |
@@ -299,7 +299,7 @@ SQLite 锁是当前单机数据库 writer serialization；语义 scope 仍是 Re
 | 新 approve / Start | approve 先 | candidate set 增大导致旧请求冲突；Start先则当前baseline PENDING本已阻塞；旧baseline fresh approve以基线冲突拒绝 |
 
 Review closure read port 定义在 Submission Application（consumer-owned
-`ArchiveClosureReadPort`，只返回 closed bool），SQLite adapter 查询单一SubmissionDisposition；
+`ArchiveClosureReadPort`，提供closed bool及typed SubmissionDisposition摘要读取），SQLite adapter 查询单一SubmissionDisposition；
 不能让 Review import Archive Application 的 transaction/service，也不能让 Archive Domain import
 Submission Domain。Review 原成功 approve/withdraw replay 允许在后续归档后返回原事件，但不执行
 新状态变化；fresh-scope 比較必须区分 Repository 授权与合法 Head advance。

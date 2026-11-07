@@ -1635,7 +1635,7 @@ def test_archive_consumer_requires_explicit_business_reason_and_references_each_
             return httpx.Response(201, json={"sequence": 5})
         if request.url.path == "/v1/archives":
             assert body["anomaly_resolution_refs"] == [{"subject_digest": anomaly["subject_digest"], "sequence": 5}]
-            return httpx.Response(201, json={"archive_result_id": "result"})
+            return httpx.Response(201, json={"archive_result_id": "result", "baseline_node_id": "archived-node"})
         return httpx.Response(201, json={"sequence": 1})
     monkeypatch.setenv("GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON", json.dumps({"GENERATION_TIME_MISSING": "source intentionally omits this time; accepted for this documented journey"}) if with_reason else "{}")
     with httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond)) as client:

@@ -623,6 +623,11 @@ def test_compose_business_rejection_manual_close_and_fresh_upload_archive(tmp_pa
         original = run_accept_to_submission_read_journey(env, initial_commit_id=initial_commit,
             journey_key_prefix="business-original", token=SESSION_TOKEN)
         with httpx.Client(base_url=BACKEND_URL, headers=_auth_headers(), timeout=60.0) as client:
+            openapi = client.get("/openapi.json")
+            assert openapi.status_code == 200, openapi.text
+            openapi_path = Path(env.get("GATEWAY_COMPOSE_GATE_OPENAPI_PATH", str(tmp_path / "openapi.json")))
+            openapi_path.write_bytes(openapi.content)
+            print(f"production OpenAPI exported to {openapi_path}")
             _approve_submission(client, str(original["submission_id"]), idempotency_key="business-approve-original")
             candidate_body = client.get("/v1/archive-candidates").json()
             selected = _candidate_for_submission(candidate_body, str(original["submission_id"]))

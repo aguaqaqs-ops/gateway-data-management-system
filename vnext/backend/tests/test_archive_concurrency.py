@@ -320,6 +320,8 @@ def test_pending_review_and_archive_start_share_writer_barrier(db_path: Path, ac
     sequence = append_selection_confirmation(seed)
     pending = _seed_additional_pending_review_submission(db_path, submission_id="sub-pending",
         device_key="device-1", repository_id=seed.repository_id, project_id="project-1")
+    from tests.support.archive_fixtures import normalize_archive_fixture_configuration
+    normalize_archive_fixture_configuration(db_path)
     def review() -> object:
         return _apply_review(pending, _apply_command(pending, action=action, reason="resolve pending", idempotency_key="review-concurrent"))
     def archive() -> object:

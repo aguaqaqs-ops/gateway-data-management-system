@@ -2159,3 +2159,27 @@ BatchMode echo OK 后，仅只读 CT108 已关闭 `/home/dev/gdds-p6-logs/baseli
 实施者保持原源卷、时间/TTL/缓存内容不动，不预热、不延长到期时间、不清缓存、不改成 healthy。仅在新的目标副本中由正常产品 lookup/miss/回填运行，记录起始 expired 事实和 Submit 后/History 时实际可观测状态；过期起点不能写成 TTL 内健康命中表现，也不能据此改名为 H3 或人为构造的 H2 cold 场景。普通相邻 History 的实际结果按方案 A 如实报告缓存条件，不预判命中或性能。
 
 **非阻塞解释已直接交实施者并同步设计，无需新 Owner/最终摘要 GO，也不为取得 ttl_valid=true 重跑或生成输入。** 恢复仍沿 §92，其余实际前提及 F1 修订不被本节跳过。
+
+## 96. 5de F1 修订与实际验证通过：无剩余工具阻塞，按 §92 直接接续
+
+**最终工具候选 `5de35b60afd45a1007fc236e79574cc8fde049f3` 的 F1 短复审 PASS，§93–94 的超时/信号收束 Finding 关闭，必要静态证据已补齐，无剩余接续工具阻塞。** CT108 实际 source/input/目标镜像/节点等前提满足后，实施者按 §92 已批准范围直接执行首轮，事后交结果；不等待本报告之外的新 Owner/设计/协调回执或最终 manifest GO。§95 的 mode=none 缓存过期非阻塞解释保持，不改源 TTL/内容或预热。本结论不是实际 CT108 前提已通过、旅程成功、04 权威 runner 或基准 exit。
+
+### 最终实现与预算
+
+已只读 d426→2cda→da6→5de 完整差异。内层真实 GNU timeout 增加 **--foreground**，工作截止只向旅程发送 INT；外层仍由 setsid 隔离。stop_watchdog 的 TERM/KILL 和 postflight 静止判定覆盖该自有 **session**，不再只看可能漏掉内层组的 PG。之后始终进入固定 project 的无 -v Compose down、postflight、条件解锁；未知残留或检查失败保锁并 exit125。使用标准 setsid/timeout/pgrep/pkill，没有新 guardian/IPC/持久状态机；产品与共享 sampler/step timer 均未改。
+
+原 work25200、内层 grace1200、外层 watchdog26420+5、项目 down180+5、postflight60+3 的配置口径保持，等待上限 `26673s < 27000s`，不扩大已批总限、不把它当实际耗时。内层前景模式本身不向全部后代逐个计时，剩余自有 session 仍由外层停止/postflight 覆盖；不能再把宿主子进程返回单独当成 Compose 停止证明。
+
+最终候选 vnext tree=`40e9d75502ee25d8a2797e1f02203336b252c85f`；相对 9704，benchmarks/tests 之外 vnext 差异为空，diff whitespace 检查通过。da6 仅将真实 timeout 的 KILL 结果预期改为137；5de 仅在已有测试 helper 返回处补 cast，未改变生产/恢复工具。现有 product tree、固定 identity JSON、源→目标及 §87 三镜像绑定不变，不因宿主 launcher 修订无故重建产品镜像或另跑 Compose/prepare。
+
+### CT05 原始结果
+
+BatchMode echo OK 后只读 `/home/dev/gdds-p6-logs/baseline/ct05-vref-5de35b60-validation.log`：**gw-dms-test-05，2026-11-07 08:11:36–49Z，起止 clean 最终 HEAD，validation_exit_code=0**。SHA256 **`1fcd8e9b1cbfd6ecb577788489c1840a46da888979938b58c5c53ceedf6c836b`**。bash -n exit0；真实 GNU timeout launcher focused **2 passed / 3.70s**；shared_kernel、repository_contracts、repository_client、backend、repository_service 五包 Ruff/mypy 十项均 exit0，backend mypy 覆盖500 source files，RS覆盖201。
+
+两项 serial fixture 使用真实 GNU timeout，仅在测试副本缩短等待；fake journey/Docker 不启动真实 Compose。实际覆盖软 INT 后继续至 KILL/137、内层信号不先打断 sampler、自有 session 的中断停止及无残留、project-only down 不删卷、未知容器残留时保锁。它们证明本次 launcher 接线，不冒称真实 Docker stop 已在该 focused 中执行。原五项 source/image/参数 focused 仍引用 §93 的 ad06 来源，不写成七项都在最终 HEAD 重新运行。
+
+08:12:13Z 的 `/home/dev/gdds-p6-logs/baseline/ct05-vref-5de35b60-postflight.log` SHA256 **`dcbee0f83a8d93b89b9826f0260771e735cc324b1cb70aeff382861775057274`**，记录最终 HEAD clean、无容器/8000/Dolt/pytest/Cargo、自有占用释放、postflight exit0；这是读取既有 postflight，不是审核者新做的节点检查。本轮没有测试、导入候选、访问源 DB/卷、启动 Compose/业务或测量。
+
+首次 da6 验证 08:08:23–46Z 的原日志继续保留，SHA256 **`2b8bf224129386c663457c46e9ea113ee4977edefdfff94b3faa937d57941855`**：launcher 两项和先行静态通过，backend mypy 报测试 helper no-any-return，整次 exit1；不能写成首次十项全过。5de 的 cast 修正和最终完整重验关闭此项，原失败没有替换为通过，不增加业务失败计数或 Owner 审批。
+
+**修订及验证结论直接交实施者并同步设计，当前无需继续等待工具审核回执。** 保留所有旧失败、源/诊断卷与证据；只按 §92 做 A 分版本接续，不把旧记录改成统一版本、不借本报告办理最终 runner/exit。实际前提或运行失败仍按原停止/保卷/DC80 规则处理。

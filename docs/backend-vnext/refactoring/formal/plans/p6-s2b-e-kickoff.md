@@ -1,8 +1,8 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前状态（2026-11-07）：`1de3fa4084` 的 04 backend 权威与 05 fresh t1 均完整通过；t2/t3 未跑，t4 已通过 Preview、在首次 Submit 因真实行处理预约超过 M8 而停止。已知预约约 12.071 GiB（不等于真实峰值/完整 used），失败期 cgroup peak 约 632 MiB、无 OOM；分配前拒绝不能证明完整档只需该内存。RS 暂缓，避免配置尚未确定就重复门禁。两代失败 E 项目/卷/network/证据保留，CT108 于 00:44:15Z 核闲/owner 后释放。
+当前状态（2026-11-07）：`1de3fa4084` 的 04 backend 权威与 05 fresh t1 均完整通过；t2/t3 未跑，RS 暂缓至最终配置确定。Owner 要求宽裕预算一次测量后定档，隔离候选 `4f808c111b` 以 **64 GiB 容器/16 GiB reserve/M48 GiB、N1** 完成 t4 的 v1/v2 Preview、Submit 与仓库核验，最后 History 因 control DB 打开失败而停止，原校准仍为 FAIL。已核预约高水位约 12.173 GiB、同一 worker 生命周期 cgroup peak 约 6.519 GiB；History 未完成，不能据此前缀宣称最终容量通过。临时配置/观测未进入 main，三代失败资源及证据保留，准确事实见 [handoff](p6-s2b-e-handoff.md) 与 [独立审核](p6-s2b-e-review.md)。
 
-Owner 已要求先给宽裕预算测量后决定，避免逐档试探。按 [DC87 校准补充](p6-s0-owner-decisions.md#dc87-s2b-单-worker-的显式资源配置)，基于 1de 建任务专有隔离候选，临时 **64 GiB 容器/16 GiB reserve/M48 GiB**，N1 不变；只用现有预算高水位/阶段记录作最小临时观测，实际 cgroup 仍为同一 worker 生命周期高水位。先独立审核与必要 06 focused/static，再 CT108 一次 fresh t4；临时档不跑六包，不修改 main 最终配置，不改 GC/租约/预算系数。若仍有真实故障则停报，不再自动增档。测后向 Owner 给最终配置方案，之后集中完成必要最终门禁；目前不是 E GO/S2b exit。
+**History 定向诊断接续（Owner，2026-11-07）：** 同镜像 profile 的独立探针测得 soft FD limit 1024，Arrow 小样本证明关闭 source 后可保留 buffer 零拷贝读取；这两项尚不足以确认原 History 根因。真实 C 双侧各 312 表的诊断连续两次在准备阶段失败，按 DC68 暂停后，Owner 明确批准“允许按已审第三稿续做，明确问题修复后定向验证”。第三稿 SHA `4b982cb016eb3ff4903f42e6cdda489cf4e9136751019d26fc7c81523bf8df65` 已独立静态审核，将 factory 放回有效 operation scope 后在 06 运行；保留两次失败，不改写为通过。若证实 FD 生命周期缺陷，最小修复及 focused 独立审核后，使用本任务保留资源的独立冷拷副本、当前修复镜像和现有 `--from-step history` 定向验证，不重跑 Submit/全旅程。原校准 FAIL 与后续局部结果分别记录，最终资源档仍待 Owner 依据补全证据选择；此授权不等于 E GO/S2b exit，不扩大为任意失败循环重试。
 
 前序收敛记录（2026-11-06）：Owner 批准的额外四工具 mypy 修正已在 06 实际通过，并经独立审核；该暂停已关闭。`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 的 04 Rust 权威来源仍合格。首轮五 Python 权威运行暴露测试夹具迁移漏项；修正 `ff970567f8` 后，06 全 backend 收集 3230 项成功、受影响 184+16 项及 Ruff/mypy 通过，04 backend-only 主体 3173 项通过。但该次串行部分 55 通过/2 失败，整次 runner1，不能形成 backend 来源。两个真实远端操作成功，失败位于 History/ordered 测试核对 helper 的默认仓库 scope 与缺少显式调用参数；独立审核确认是此前未运行到的 adapter 漏迁，不据此降低生产校验或修改业务预期。
 
@@ -45,7 +45,7 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 - Mapping/业务摘要/诊断/特殊 catalog 与 FULL、MODIFIED_ONLY、DATASET_REPLACEMENT 正确性；W2 结构计数及内容命中不重写。
 - IPC handle、强引用/TTL、Archive CAS、精确 commit 回填、T1/PREPARED 冻结，真实 worker cancel/drain/lease_lost/deadline 与资源拒绝。沿 A–D 已验证 owner 按最终差异核对，不机械重做所有中间测试。
 - 04 权威 runner 与最终候选绑定的容器门禁；Rust 必须覆盖，其余包按同节点、同 worktree 的实际来源 V 和闭包规则判运行/沿用。包沿用和镜像身份等价分别判断；普通 06 focused 不能冒充 04 来源。
-- t1–t3 在 05、t4 在 CT108 完成改动面内的 Preview/History/Submit 生产路径正确性。CT108 忙时协调窗口；若要换节点，先向 Owner 给出具体替代方案并取得授权，不能以性能延期豁免 t4。
+- t1–t3 在 05、t4 在 CT108 完成改动面内的 Preview/History/Submit 生产路径正确性。CT108 忙时尊重有效占用，空闲后原子取得标志直接使用，不例行申请窗口；若要换节点，先向 Owner 给出具体替代方案并取得授权，不能以性能延期豁免 t4。
 
 各节点分别按有效占用、clean committed worktree、离线缓存和日志规则执行；正式测试不在开发机运行。runner 非零先停并处理失败，不接着计算 carried；最终门禁提交固定后不在运行中修改 worktree、提交或手工 retag 镜像。保留 04 门禁 worktree 至阶段退出合入，以便同节点同 worktree 判等。
 

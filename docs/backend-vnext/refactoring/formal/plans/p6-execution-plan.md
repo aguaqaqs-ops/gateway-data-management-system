@@ -168,7 +168,7 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **E 当前收口（2026-11-07）：** `1de3fa4084` 的 04 backend 权威及 05 t1 完整通过；修复单侧 metadata-only 误计费后，t4 Preview 通过、Submit 在真实行处理预约准入被 M8 拒绝。Owner 已要求先增大预算测量后决定，避免逐档尝试；按 DC87 补充，隔离临时候选 `4f808c111b` 使用 64 GiB 容器/16 GiB reserve/M48/N1，经源码审核与 06 focused/static 后，于 00:52:41Z 在 CT108 一次 fresh t4 校准。仅临时记录现有预算高水位及 worker 生命周期资源峰值，不改 main 最终资源档、GC 或租约，也不为临时档重复六包。最终配置与剩余真实数据/门禁待测后收口，E 尚未 GO；准确来源、失败与保留资源见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [E 任务](p6-s2b-e-kickoff.md)。
+- **E 当前收口（2026-11-07）：** `1de3fa4084` 的 04 backend 权威及 05 t1 完整通过。Owner 要求宽裕预算一次校准后定档；隔离候选 `4f808c111b`（64 GiB 容器/16 GiB reserve/M48/N1）的 t4 v1/v2 Preview、Submit 与仓库核验通过，最后 History 因 control DB 打开失败而停止，原校准仍 FAIL。已核预约高水位约 12.173 GiB、同 worker 生命周期 cgroup peak 约 6.519 GiB，尚非完整容量结论。FD 诊断准备连续两次失败后按 DC68 暂停；Owner 已批准独立审过的第三稿续做及明确问题修复后的定向验证。先在 06 确认根因，最小修复/复审后仅对独立冷拷副本验证 History，不重跑全旅程、不改原失败证据。main 最终资源档未改，最终配置与必要门禁/剩余真实数据仍待收口，E 尚未 GO；准确来源及保留资源见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [E 任务](p6-s2b-e-kickoff.md)。
 
 - **E 启动记录（2026-11-06）：A–D GO，按 DC86 启动 E。** D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。06 于 18:52:58Z 释放，D 二角色结束。DC87 的显式 12/4/8 GiB、N1/单 active 与 DC88 正常 drain 语义保持；D 实际 materialize 局部校准、控制/预算与当前必要容器边界已验证，不冒称全 worker 实测峰值或 S2b exit。[E 任务](p6-s2b-e-kickoff.md)由新 Sol/high 实施者与 Sol/max 审核者完成旧路径/工具删除移交、04 最终门禁和完整 t1–t4；原基准独立跟踪、W1/W2 时点不变。额外角色先交 Owner，实质阻塞或反复失败暂停讨论。
 

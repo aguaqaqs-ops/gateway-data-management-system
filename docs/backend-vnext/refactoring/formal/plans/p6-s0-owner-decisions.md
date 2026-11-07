@@ -949,6 +949,8 @@ DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核
 - **校准范围**：基于固定 E 产品建立任务专有已提交候选/工作区；仅资源常数、Compose/CLI/driver 对应值及必要定向断言，以及读取现有 `high_water_bytes`/`stage_admissions` 的最小临时日志。记录每 execution scope/step 的预约高水位，按 operation 汇总；stage temporary limit 是可用上限，不作为实耗。实际 cgroup peak 保留同一 fresh worker 整生命周期累计口径，不虚构各 operation 独立峰值。临时观测不进入最终 main，不新增 observer/采样框架，不改 GC、租约、预算系数或输入。
 - **一次测量后定档**：独立审核及必要 focused/static 后，在 CT108 新项目 fresh t4 完成一次校准；不为临时档重复六包权威，不把临时配置/观测当最终验收。仍保有限预算与硬限；真实故障或再次预算拒绝就停并保现场，不继续逐档增加。测后依据实际预约/内存峰值、余量及未覆盖范围向 Owner 提出最终配置；最终档确定后再集中取得其必要权威/容器与真实数据证据。本条 A 档作为此前已确认最终配置的历史事实保留，在新最终决定前不默默改 main 默认，不以此豁免 S2b 功能/资源边界。
 
+- **E History 诊断接续（owner，2026-11-07）**：宽裕档校准的 v1/v2 前缀成功、末尾 History control DB 打开失败。FD 复现脚本连续两次准备错误按 DC68 停止后，Owner 明确批准“允许按已审第三稿续做，明确问题修复后定向验证”。具体第三稿 SHA `4b982cb016eb3ff4903f42e6cdda489cf4e9136751019d26fc7c81523bf8df65` 已静态独立核过 factory/kernel scope 生命周期；先运行该诊断，证实根因后最小修复/复审，再在独立冷拷副本仅续 History。原失败日志与卷保留，不重复整旅程，不把局部成功拼成原校准 PASS，最终配置仍另定。此项为本次具体接续授权，不改变其他失败停止规则。
+
 ### DC88 纯重算阶段的正常 drain 交接
 
 - **来源与确认（owner，2026-11-06）**：D 实际接线发现，在尚未写出本次新 checkpoint 时以普通 retryable failure 表达 drain 会消耗 R5 的三个失败恢复会话，连续正常停机可能导致业务永久失败。现有 safe-handoff 又要求本 session 最新已提交 checkpoint，不能伪造。Owner 明确选择 A：窄幅扩展现有 Runtime/LeaseSession，正常停机安全重排队，不耗失败次数。

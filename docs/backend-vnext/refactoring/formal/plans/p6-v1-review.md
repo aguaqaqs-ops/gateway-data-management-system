@@ -6,7 +6,7 @@
 
 已预检产品前固定清单 **`2ca25b6514a10fbc29d8d66535f22d0a154e8bc5`**；首轮正式代码对象仅为 native 子候选 **`a500dd81525963775b5ee005a3aa8ba9abc041af`** 的五个 Rust 文件，不包含实施中的 backend 接线。native 修复候选 **`2c6f13731bd3b4a4ffd39c97ee2627d18009ae54`** 的同角色复审与证据见 §5。
 
-**当前结论：2c6f13731b 的 native 定向审核通过，F1/N1 关闭；不是完整 V1 GO。** 首轮 a500dd8152 需修订的结论和失败记录保留。backend facts 类型、checkpoint/READY、T1/finalize、DDL/mapper、TTL 后基线读取尚未进入代码审，不能由这份子候选结论替代。
+**当前结论：native 定向审核通过，F1/N1 关闭；完整 V1 仍需修订和补齐证据。** 已追加完整候选 `3fcea5a2d0` 及修复候选 `499e378b0c` 的代码审（§6–§7），F2 的原 provenance 绑定和验证屏障仍待复核。首轮发现及失败记录保留，尚无完整 V1 GO。
 
 只读 detached worktree：`/home/dev/gdds-reviews/p6-v1-native-a500dd8152`，HEAD 固定为上述候选，已链接主仓库 `legacy/`，审核期间保持 clean。未读取 main 中后续 dirty 实现，未修改产品或测试，未运行测试、编译、lint 或容器，未占测试节点；本角色只写本报告。
 
@@ -86,3 +86,45 @@ Required execution point: V1 收敛候选；04 联合权威/必要 Compose、05 
 因此 **native 定向代码及修复证据 GO，无剩余 native Finding**。这不是 Rust 全包门禁、扩展安装/构建输入验证、容器或完整 V1 通过；清单缺失枚举与精确 digest 文案修订仍随完整候选核对，backend 尚未提交的接线不在本结论内。
 
 容器决策更新：`Current reviewed HEAD=2c6f13731bd3b4a4ffd39c97ee2627d18009ae54`；本节收敛候选仍须重建并执行 §4 的 06 最小旅程，当前 gate=`deferred`，V1 image revision/source-tree=`none`，`carried=none`。04 联合权威/必要 Compose、05 fresh t1 继续留联合候选，不能提前宣称 exit。
+
+## 6. 首个完整候选 3fcea5a2d0 代码审
+
+固定对象 **`3fcea5a2d0e61a82cdddd5c91e240f15f14a3a2a`**；只读 detached worktree `/home/dev/gdds-reviews/p6-v1-full-3fcea5a2d0`，legacy/clean 已核。审核覆盖从 V1 起点到该候选的实际产品、Contract、版本和 golden；Rust tree 相对已审 2c6 未改变。该候选的新增冻结断言、静态/功能证据尚在实施者补齐，代码审不代替执行证据。
+
+### F2（P2）：把合法历史 provenance 差异升级为 Preview 硬拒绝
+
+`preview_jobs.py` L1220–1239 使用 runtime ruleset 构造 baseline identity，再要求 source Submission.modified 的原 identity 与之全等；`domain/configuration_facts.py` L178–180 另要求三侧 rules/projection/scalar 完全相同。已存在的 `test_additive_ruleset_previews_nonempty_baseline_from_older_manifest` 明确支持旧基线 A、当前新增无关规则 B 的正常 Preview；该场景会在上传物化后被新校验提前拒绝。
+
+此项已交协调者/设计者澄清，正式依据为 **`a24b7034e98159ced826d387e539884f3e506fbd`** 的业务设计 §3.1/§8：baseline 保留 source Submission 原身份，MODIFIED_ONLY.initial 精确复制，FULL 两上传侧使用本 operation 规则；合法版本差异不使 Preview 整体失败，也不成为 V2 全局不可接受的硬门禁。V2 仅禁止跨身份直接判等/合并，未解释来源仍走既有分量与接受机制；不新增 issue 类别/容量轴。runtime/operation mismatch、T1 derived-stale、STORAGE_BREAKING 和损坏/未知编码拒绝保持。
+
+最小修复须同时保留两条边界：允许各侧合法原身份不同；source facts 的原 rules/projection 必须与其 exact commit 的权威 manifest 一致。不能通过删掉全部身份校验、重标旧事实或把原 ADDITIVE 测试改成拒绝来关闭。
+
+### F3（P2）：Submission 独立读取未验证自己的上传源引用
+
+`domain/submission/models.py` L304–311 只验证 facts 的 Workspace/revision/baseline/canonical 绑定，没有 Attempt L217–223 已有的上传侧 source ID 归属校验。单独把持久 `submission_records.source_artifact_refs` 改为 `other-source` 不改变 facts body/digest，原 reader 仍会接受，后续 baseline source 读取可信任一份源引用互相矛盾的记录。
+
+此项不要求防御同 UID 恶意重签 facts，而是两个既有持久字段的普通完整性边界。最小修复为 Attempt/Submission 共用同一上传源绑定校验，并在现有 SQLite read owner 用一例原 facts 未变、外层源 refs 损坏的记录证明硬拒绝，不读取原 SQL。
+
+### F4（P2）：把真实 parser 失败误判为漏保存 facts
+
+`preview_jobs.py` L1498–1501 在调用既有 materialization 之前，遇到 metadata=None 就抛出无 `diagnostic_code` 的 `PreviewJobError`。native 的真实 document/typed 失败也明确不产生 facts，因此原 `TABLE_READER_UNAVAILABLE` 等 source diagnostic 会被通用“facts missing”抢先覆盖。成功解析漏 metadata 与输入本身解析失败不是同一原因。
+
+最小修复：让原 parser/materialization 的错误与控制边界先成立，再对成功输入缺 metadata 作硬完整性拒绝；不增加任何默认 missing 或解析回退。
+
+### 已核完整链路与当前验证范围
+
+- FULL initial 与 modified 摘要均复用完整 canonical summary 的 `canonical_state_digest_of`，没有排除 version_manager/BROWSE_ONLY/SNAPSHOT_ONLY 或改用 comparison/snapshot/raw SQL digest；SQL 源摘要和提取规则进入独立 facts。
+- materialize/assemble checkpoint 严格包含 facts envelope、必需字段与初始摘要，READY 沿原 LeaseSession 整体发布；未增加业务状态旁路。T1 复制 exact Preview facts，Attempt CAS 拒改，finalize 同事务复制且 replay 比对；读取 Submission 不需要 Preview 或 SQL。
+- 唯一基线增加 Attempt/Submission 必需 BLOB；旧 DB 沿既有 sqlite_master 结构拒绝。job/materialized-sides/assemble-state/Submit 版本为 v2/v2/v3/v2；旧活动版本读取路径未保留。新增唯一 facts golden，既有业务 golden 未重录；HTTP DTO/OpenAPI none 的清单与实际 diff 相符。
+- 初版清单 NO_VALUE 和精确 digest 文案现已同步；native metadata 在 application 转 domain，capability 保持 leaf。测试工厂显式构造新必需事实，不把 production 缺字段默认为业务 missing。另已反馈空 source refs 的旧 fixture 适配遗漏，不能用产品默认填补。
+
+## 7. 修复候选 499e378b0c 的代码复核与剩余项
+
+新只读 detached worktree `/home/dev/gdds-reviews/p6-v1-full-499e378b0c`，固定候选 **`499e378b0c`**，legacy/clean 齐备，原工作树保留；只读其实际修复，不读后续 dirty。
+
+- **F3 代码修复成立，执行证据待核。** 新 `ConfigurationFacts.assert_source_artifacts` 由 Attempt/Submission 共用；SQLite 原 owner 增加外层 source refs 损坏的读取拒绝断言。
+- **F4 代码修复成立，执行证据待核。** 必需 native facts 检查移至 business materialization 成功之后，真实 parser FAILED 先保留原诊断，成功输入漏 metadata 仍硬失败。
+- **F2 部分修复，尚未关闭。** 去除三侧一律相等，保留 FULL 两上传侧同 operation 规则，MO.initial 复制原 baseline，未知 projection/scalar 硬拒绝；原 ADDITIVE 测试继续要求 Preview 成功并增加 A/B 原身份断言。但新增 baseline 校验仅比较 manifest digest 与 source 引用，尚未比较 facts 原 ruleset digest/projection 字段与该 manifest 自身字段。相同 canonical state digest 可以来自规则 A/B，不能因此信任另一合法 SHA 表达的伪造 provenance。已直接要求按原 manifest 补最小绑定和一条负例，不与 runtime 身份比较。
+- **冻结验证仍需补齐。** 新测试证明正常 materialize→assemble→READY 保留 native 时间，但未进入 materialize checkpoint 已存在的恢复分支；TTL 断言只删除 Preview 并直接读 Submission，尚未沿 BaselineNode.source_submission_id 且使旧 SQL 不可用证明独立读取。已请在原 owner 扩展各一个代表屏障。取消/旧 generation 复用原发布测试补无持久 PreviewResult 断言；失租沿既有 lease owner，不新建调度矩阵。T1/finalize 复制和原 replay 的新事实断言已到位，等待实际成功记录。
+
+06 的扩展重装/build input、五包静态、focused 和本节最小容器由实施者在 clean 提交上继续执行；本角色尚未核这些完整候选的成功日志。首轮静态失败日志须保留，不用后续成功替换。当前 `Current reviewed HEAD=499e378b0c`，容器重建仍需于本节收敛候选完成，gate=`deferred`、V1 image revision/source-tree=`none`、`carried=none`；§4 的 06 最小 nodeid、04/05 联合验收落点不变。

@@ -103,6 +103,18 @@ class RepositoryArtifactRef:
 
 
 @dataclass(frozen=True, slots=True)
+class SubmissionAccessBinding:
+    """Durable scalar columns needed before exposing or decoding Submission facts."""
+    workspace_id: str
+    repository_id: str
+    created_by: str
+
+    def __post_init__(self) -> None:
+        for name in ("workspace_id", "repository_id", "created_by"):
+            _validate_non_empty_str(getattr(self, name), name)
+
+
+@dataclass(frozen=True, slots=True)
 class SubmitAttempt:
     configuration_facts: ConfigurationFacts
     submit_attempt_id: str

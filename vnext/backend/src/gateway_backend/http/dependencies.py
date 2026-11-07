@@ -61,10 +61,12 @@ class ReadOnlyControlDbUnitOfWorkFactory(Protocol):
 
 @runtime_checkable
 class SubmissionReaderPort(Protocol):
-    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> SubmitAttempt | None:
         """Load one SubmitAttempt."""
 
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
         """Load one Submission."""
 
 
@@ -198,11 +200,13 @@ class FailClosedOperatorRecoveryPort:
 
 
 class FailClosedSubmissionReader:
-    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> SubmitAttempt | None:
         del submit_attempt_id
         return None
 
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
         del submission_id
         return None
 
@@ -324,13 +328,15 @@ class ReadOnlySubmissionStore:
     def __init__(self, unit_of_work_factory: ReadOnlyControlDbUnitOfWorkFactory) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
-    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> SubmitAttempt | None:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            return unit_of_work.submission.get_submit_attempt(submit_attempt_id)
+            return unit_of_work.submission.get_submit_attempt(submit_attempt_id, workspace_id=workspace_id, repository_id=repository_id)
 
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
         with self._unit_of_work_factory(read_only=True) as unit_of_work:
-            return unit_of_work.submission.get_submission(submission_id)
+            return unit_of_work.submission.get_submission(submission_id, workspace_id=workspace_id, repository_id=repository_id)
 
 
 def reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:

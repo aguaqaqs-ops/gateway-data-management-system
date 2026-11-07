@@ -108,8 +108,13 @@ class InMemoryWorkspaceRepository:
     def get_upload_revision(self, upload_revision_id: str) -> UploadRevision | None:
         return self._upload_revisions.get(upload_revision_id)
 
-    def get_preview_result(self, preview_result_id: str) -> PreviewResult | None:
-        return self._preview_results.get(preview_result_id)
+    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> PreviewResult | None:
+        result = self._preview_results.get(preview_result_id)
+        if result is not None and ((workspace_id is not None and result.workspace_id != workspace_id)
+            or (repository_id is not None and result.repository_id != repository_id)):
+            return None
+        return result
 
     def find_upload_idempotency(
         self,

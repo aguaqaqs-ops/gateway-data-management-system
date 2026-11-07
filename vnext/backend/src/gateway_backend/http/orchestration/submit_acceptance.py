@@ -215,7 +215,8 @@ def accept_submit_operation(
             preflight = build_replay_preflight_from_attempt(prior_attempt)
         else:
             loaded_upload = workspace_repository.get_upload_revision(command.upload_revision_id)
-            loaded_preview = workspace_repository.get_preview_result(command.preview_result_id)
+            loaded_preview = workspace_repository.get_preview_result(command.preview_result_id,
+                workspace_id=command.workspace_id, repository_id=resolved.repository_id)
             if loaded_upload is None or loaded_preview is None:
                 raise ApiError(
                     code="RESOURCE_NOT_FOUND",

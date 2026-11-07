@@ -31,6 +31,7 @@ from gateway_backend.domain.submission.models import (
     SubmitUnknownTypePolicy,
     SubmitVerificationPolicy,
     Submission,
+    SubmissionAccessBinding,
     WorkspaceSubmitOccupancy,
 )
 from gateway_backend.domain.submission.errors import ArchiveCandidateReadBoundExceeded
@@ -113,19 +114,34 @@ class SQLiteSubmissionRepository:
             submit_attempt_id=row[3],
         )
 
-    def get_submit_attempt(self, submit_attempt_id: str) -> SubmitAttempt | None:
+    def get_submit_attempt(self, submit_attempt_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> SubmitAttempt | None:
         row = self._connection.execute(
-            f"SELECT {_SUBMIT_ATTEMPT_COLUMNS} FROM submit_attempt_records WHERE submit_attempt_id = ?",
-            (submit_attempt_id,),
+            f"SELECT {_SUBMIT_ATTEMPT_COLUMNS} FROM submit_attempt_records WHERE submit_attempt_id = ? "
+            "AND (? IS NULL OR workspace_id = ?) AND (? IS NULL OR repository_id = ?)",
+            (submit_attempt_id, workspace_id, workspace_id, repository_id, repository_id),
         ).fetchone()
         if row is None:
             return None
         return submit_attempt_from_row(row_mapping(row))
 
-    def get_submission(self, submission_id: str) -> Submission | None:
+    def get_submission_access_binding(self, submission_id: str) -> SubmissionAccessBinding | None:
         row = self._connection.execute(
-            f"SELECT {SUBMISSION_COLUMNS} FROM submission_records WHERE submission_id = ?",
+            "SELECT workspace_id, repository_id, created_by FROM submission_records WHERE submission_id = ?",
             (submission_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        mapping = row_mapping(row)
+        return SubmissionAccessBinding(workspace_id=_required_text(mapping, "workspace_id"),
+            repository_id=_required_text(mapping, "repository_id"), created_by=_required_text(mapping, "created_by"))
+
+    def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                       repository_id: str | None = None) -> Submission | None:
+        row = self._connection.execute(
+            f"SELECT {SUBMISSION_COLUMNS} FROM submission_records WHERE submission_id = ? "
+            "AND (? IS NULL OR workspace_id = ?) AND (? IS NULL OR repository_id = ?)",
+            (submission_id, workspace_id, workspace_id, repository_id, repository_id),
         ).fetchone()
         if row is None:
             return None

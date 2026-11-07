@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_fact_faults import (
+    CONFIGURATION_BODY_FAULTS, corrupt_configuration_body, forbid_configuration_object_reads,
+)
+
 from tests.support.configuration_facts import submission_with_facts
 
 from dataclasses import replace
@@ -279,3 +283,38 @@ def test_get_submission_hides_stale_mapping(
     assert response.status_code == 404
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
     assert env.scope_resolution.resolve_calls >= 1
+
+
+@pytest.mark.parametrize("fault", CONFIGURATION_BODY_FAULTS)
+@pytest.mark.parametrize("kind", ("attempt", "submission"))
+def test_submit_point_read_filters_scope_before_configuration_decode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str, kind: str,
+) -> None:
+    from fastapi.testclient import TestClient
+    from tests.support.http_workspace_harness import seed_pending_review_submission
+    env = create_workspace_http_environment(tmp_path, extra_sessions={
+        "other-reader": make_identity(actor_id="other-actor"),
+        "denied": make_identity(permissions=frozenset({"preview_workspace"})),
+    })
+    if kind == "attempt":
+        seed = seed_submit_ready_workspace(env.db_path, env.artifact_store)
+        workspace = _seeded_workspace_dict(seed)
+        accepted = _accept_submit(env, workspace, key="scope-first-attempt")
+        target_id, workspace_id, route = accepted["submit_attempt_id"], workspace["workspace_id"], "submit-attempts"
+        message = corrupt_configuration_body(env.db_path, kind="attempt", target_id=target_id, fault=fault)
+    else:
+        submission = seed_pending_review_submission(env.db_path)
+        target_id, workspace_id, route = submission.submission_id, submission.workspace_id, "submissions"
+        message = corrupt_configuration_body(env.db_path, kind="submission", target_id=target_id, fault=fault)
+    other = env.client.post("/v1/workspaces", headers={"Authorization": "Bearer other-reader"},
+        json={"gateway_device_external_key": "device-1", "business_project_id": "project-1"})
+    assert other.status_code == 201
+    own_url = f"/v1/workspaces/{other.json()['workspace_id']}/{route}/{target_id}"
+    target_url = f"/v1/workspaces/{workspace_id}/{route}/{target_id}"
+    assert env.client.get(own_url, headers={"Authorization": "Bearer other-reader"}).status_code == 404
+    assert env.client.get(target_url, headers={"Authorization": "Bearer other-reader"}).status_code == 404
+    with forbid_configuration_object_reads(monkeypatch):
+        assert env.client.get(target_url, headers={"Authorization": "Bearer denied"}).status_code == 403
+    with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
+        with pytest.raises(ValueError, match=message):
+            strict_client.get(target_url, headers=env.auth_headers())

@@ -375,7 +375,7 @@ def read_preview_result(
     if workspace is None:
         raise ScopeForbidden
     assert_exact_scope(workspace, context)
-    result = repository.get_preview_result(preview_result_id)
+    result = repository.get_preview_result(preview_result_id, workspace_id=workspace_id, repository_id=workspace.repository_id)
     if result is None or result.workspace_id != workspace_id:
         raise ScopeForbidden
     return build_preview_read_state(result=result, baseline_head_read=baseline_head_read)

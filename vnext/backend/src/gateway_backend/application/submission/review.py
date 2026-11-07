@@ -21,7 +21,7 @@ from gateway_backend.application.submission.ports import (
     ReviewApplyControlUnitOfWorkFactory,
 )
 from gateway_backend.domain.submission.errors import ReviewClosureViolation
-from gateway_backend.domain.submission.models import Submission, WorkspaceSubmitOccupancy
+from gateway_backend.domain.submission.models import Submission, SubmissionAccessBinding, WorkspaceSubmitOccupancy
 from gateway_backend.domain.submission.review import (
     ReviewAction,
     ReviewEvent,
@@ -48,7 +48,7 @@ def assert_review_permission(context: IdentityContext, action: ReviewAction | No
     assert_permission(context, PERMISSION_REVIEW_SUBMISSION)
 
 
-def assert_review_target_authorized(context: IdentityContext, submission: Submission) -> None:
+def assert_review_target_authorized(context: IdentityContext, submission: Submission | SubmissionAccessBinding) -> None:
     if (
         PERMISSION_REVIEW_SUBMISSION not in context.permissions
         and submission.created_by != context.actor_id
@@ -77,7 +77,7 @@ def is_review_release_action(action: ReviewAction) -> bool:
 
 
 def assert_review_scope(
-    submission: Submission,
+    submission: Submission | SubmissionAccessBinding,
     workspace: Workspace,
     resolved_scope: ResolvedScope,
     context: IdentityContext,
@@ -220,11 +220,17 @@ def load_review_scope_facts(
     resolved_scope: ResolvedScope | None = None,
 ) -> ReviewScopeFacts:
     fresh_scope = resolved_scope or resolve_fresh_provisioned_scope(unit_of_work, context)
-    submission = unit_of_work.submission.get_submission(submission_id)
-    if submission is None:
+    binding = unit_of_work.submission.get_submission_access_binding(submission_id)
+    if binding is None:
         raise ScopeForbidden
-    workspace = unit_of_work.workspace.get_workspace(submission.workspace_id)
+    workspace = unit_of_work.workspace.get_workspace(binding.workspace_id)
     if workspace is None:
+        raise ScopeForbidden
+    assert_review_scope(binding, workspace, fresh_scope, context)
+    assert_review_target_authorized(context, binding)
+    submission = unit_of_work.submission.get_submission(submission_id,
+        workspace_id=workspace.workspace_id, repository_id=fresh_scope.repository_id)
+    if submission is None:
         raise ScopeForbidden
     assert_review_scope(submission, workspace, fresh_scope, context)
     assert_review_target_authorized(context, submission)

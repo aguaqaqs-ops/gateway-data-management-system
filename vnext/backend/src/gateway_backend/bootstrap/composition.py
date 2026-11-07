@@ -115,9 +115,10 @@ class TransactionWorkspaceRepository:
         with self._read_uow() as unit_of_work:
             return unit_of_work.workspace.get_upload_revision(upload_revision_id)
 
-    def get_preview_result(self, preview_result_id: str) -> PreviewResult | None:
+    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> PreviewResult | None:
         with self._read_uow() as unit_of_work:
-            return unit_of_work.workspace.get_preview_result(preview_result_id)
+            return unit_of_work.workspace.get_preview_result(preview_result_id, workspace_id=workspace_id, repository_id=repository_id)
 
     def find_upload_idempotency(self, workspace_id: str, idempotency_key: str) -> UploadRevision | None:
         with self._read_uow() as unit_of_work:

@@ -109,15 +109,17 @@ class SQLiteWorkspaceRepository:
             return None
         return upload_revision_from_row(_row_mapping(row))
 
-    def get_preview_result(self, preview_result_id: str) -> PreviewResult | None:
+    def get_preview_result(self, preview_result_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> PreviewResult | None:
         row = self._connection.execute(
             """
             SELECT preview_result_id, workspace_id, upload_revision_id, generation, repository_id,
                    binding, operation_id, created_at_us
             FROM preview_result_records
             WHERE preview_result_id = ?
+              AND (? IS NULL OR workspace_id = ?) AND (? IS NULL OR repository_id = ?)
             """,
-            (preview_result_id,),
+            (preview_result_id, workspace_id, workspace_id, repository_id, repository_id),
         ).fetchone()
         if row is None:
             return None

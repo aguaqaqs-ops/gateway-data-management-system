@@ -414,10 +414,14 @@ def build_preview_harness(
         BASELINE_HEAD.business_baseline_commit_id, BaselineNodeKind.INITIAL if empty_baseline else BaselineNodeKind.ARCHIVED_SUBMISSION,
         None if empty_baseline else "initial-node", None if empty_baseline else "submission-baseline", BASE_TIME)
     class SourceRepository(SQLiteSubmissionRepository):
-        def get_submission(self, submission_id: str) -> Submission | None:
+        def get_submission(self, submission_id: str, *, workspace_id: str | None = None,
+                           repository_id: str | None = None) -> Submission | None:
             if frozen_source is not None and submission_id == frozen_source.submission_id:
+                if ((workspace_id is not None and frozen_source.workspace_id != workspace_id)
+                    or (repository_id is not None and frozen_source.repository_id != repository_id)):
+                    return None
                 return frozen_source
-            return super().get_submission(submission_id)
+            return super().get_submission(submission_id, workspace_id=workspace_id, repository_id=repository_id)
     class SourceUnitOfWork(MetadataControlDbUnitOfWork):
         @property
         def baseline(self) -> BaselineRepository:

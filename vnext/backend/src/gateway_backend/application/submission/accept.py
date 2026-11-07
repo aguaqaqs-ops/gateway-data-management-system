@@ -468,7 +468,8 @@ def _load_preview_result(
     upload_revision: UploadRevision,
     workspace: Workspace,
 ) -> PreviewResult:
-    preview_result = workspace_repository.get_preview_result(command.preview_result_id)
+    preview_result = workspace_repository.get_preview_result(command.preview_result_id,
+        workspace_id=workspace.workspace_id, repository_id=workspace.repository_id)
     if preview_result is None:
         raise PreviewBindingConflict("preview result is missing")
     if preview_result.workspace_id != command.workspace_id:

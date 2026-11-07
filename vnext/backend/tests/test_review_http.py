@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.configuration_fact_faults import (
+    CONFIGURATION_BODY_FAULTS, corrupt_configuration_body, forbid_configuration_object_reads,
+)
+
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -819,4 +823,38 @@ def test_removed_review_action_is_rejected_without_writes(review_env: tuple[Work
     before = _review_counts(env)
     response = _post_review(env, seed, idempotency_key="removed-action", body=_apply_body(action="RETURN_FOR_REVISION", reason="obsolete"))
     assert response.status_code == 422
+    assert _review_counts(env) == before
+
+
+@pytest.mark.parametrize("fault", CONFIGURATION_BODY_FAULTS)
+def test_review_authorizes_target_before_decoding_configuration_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str,
+) -> None:
+    from fastapi.testclient import TestClient
+    env, seed = _review_env(tmp_path, extra_sessions={
+        "other-self": make_identity(actor_id="other-actor", permissions=frozenset({SELF_PERMISSION})),
+        "foreign-scope": make_identity(device_key="device-2", project_id="project-2", permissions=frozenset({PERMISSION_REVIEW_SUBMISSION})),
+        "denied": make_identity(permissions=frozenset({"workspace_read"})),
+    })
+    body = _apply_body(action="WITHDRAW", reason="finished review")
+    assert _post_review(env, seed, idempotency_key="frozen-review", body=body).status_code == 201
+    before = _review_counts(env)
+    message = corrupt_configuration_body(env.db_path, kind="submission", target_id=seed.submission_id, fault=fault)
+    for key in ("fresh-review", "frozen-review"):
+        assert _post_review(env, seed, idempotency_key=key, body=body, bearer="other-self").status_code == 404
+    assert _get_review(env, seed, bearer="other-self").status_code == 404
+    _upsert_provisioned_mapping_row(env.db_path, device_key="device-2", project_id="project-2", repository_id="repo-2")
+    env.scope_resolution.repository_id = "repo-2"
+    assert _get_review(env, seed, bearer="foreign-scope").status_code == 404
+    assert _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="foreign-scope").status_code == 404
+    env.scope_resolution.repository_id = "repo-1"
+    with forbid_configuration_object_reads(monkeypatch):
+        assert _get_review(env, seed, bearer="denied").status_code == 403
+        assert _post_review(env, seed, idempotency_key="frozen-review", body=body, bearer="denied").status_code == 403
+    with TestClient(env.client.app, raise_server_exceptions=True) as strict_client:
+        with pytest.raises(ValueError, match=message):
+            strict_client.get(f"/v1/submissions/{seed.submission_id}/review", headers=env.auth_headers())
+        with pytest.raises(ValueError, match=message):
+            strict_client.post(f"/v1/submissions/{seed.submission_id}/review-events",
+                headers=env.auth_headers(idempotency_key="frozen-review"), json=body)
     assert _review_counts(env) == before

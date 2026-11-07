@@ -166,3 +166,95 @@ F5绑定修正：两个已授权路由prepare后、创建响应前比较 `prepar
 `run-cleanup-check-5x362qHI` 12:05:24Z/0，SHA `4b95b3654f2396026e4d3ca25b03c99922b7ee6dc644f94832fea3bb3083827e`：本人project容器/卷/网络、端口8000及Dolt/Cargo/pytest/rustc/clippy为空。`release-O4scz5uE/release.log` 12:05:51Z/0，SHA `91da2118722b0ce0801f9ba9eb01b8e715b1efb584dbfeeedae2918adc92047d`，cmp本人marker后释放、HEAD clean0ba；独审12:07:27Z再次只读核空闲。保留WT、依赖缓存及所有历史证据，不碰他人资源。
 
 本地handoff固定后，同两角色继续联合04六包/必要Compose与05一次fresh t1；exact candidate、各节点独立WT/owner/guard路径、完整CLI/env与逐项archive reasons先交协调和原独审静核，未对齐前不启动。05 host N1/M24GiB独立于worker N1/M24GiB和32/8 envelope；不试预算。最终DC33范围确认、阶段exit/tag/push及FE3互通仍分开，不在本地里程碑自行办理。
+
+## 9. 联合04/05执行清单稿（静核/协调对齐后启动，尚未执行）
+
+本节沿已授权联合收尾，非重复开工/恢复申请。当前产品tree仍0301，最终source expected由协调在本文及独审docs提交后固定**当时clean main完整40位SHA**，先核其vnext=0301；不能把0ba或413旧SHA硬套推进后的main。协调短main提交窗口内，两个source transfer依次完成source_ready即回报解除；此后main的docs推进不改节点固定WT。若发生guard前置HEAD漂移，保留拒绝并协调刷新，不拆开步骤或跑旧WT。
+
+### 9.1 节点、占用与固定guard
+
+| 节点 | 唯一WT | 独立证据根/owner副本 | 执行guard安装路径 |
+| --- | --- | --- | --- |
+| `ct108-gw-dms-04` / `gw-dms-test-04` | `/home/dev/gdds-test-tmp/wt/p6-be-ad-final-04` | `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04/node-owner.txt` | 同证据根 `guarded-node-run-v1.sh` |
+| `ct108-gw-dms-05` / `gw-dms-test-05` | `/home/dev/gdds-test-tmp/wt/p6-be-ad-final-05` | `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-05/node-owner.txt` | 同证据根 `guarded-node-run-v1.sh` |
+
+固定本地脚本均mode664，用 `bash FILE`；仅静态生成，未在开发机执行/bash-n。它们沿06已审标准shell guard特化节点/路径/hostname，不增加状态机。transfer在exact fetched SHA上新建detached WT/legacy链接；初次执行先要求WT及证据根均不存在，若已存在先辨明归属，不覆盖/清除。后续同本人占用下修订才可复用clean WT。node-run每次 `mktemp run-<label>-XXXXXXXX`，保存原command exit和final exit、完整argv、guard、expected/前后HEAD/clean/owner与四项SHA，前提改变final2。transfer的bash-s无自复制；node-run必须是已安装文件入口，不能bash-s。
+
+| 本地文件 | SHA256 |
+| --- | --- |
+| `/home/dev/gdds-be-ad-04-transfer-v1.sh` | `b4c371a552c26e7470bb97f06177667266ab58bbbb29fb694c203df86ea764b5` |
+| `/home/dev/gdds-be-ad-04-node-run-v1.sh` | `b86cb3c1174899106c12d1245032a957656ce398d118c2165506b1d5b91e31ae` |
+| `/home/dev/gdds-be-ad-05-transfer-v1.sh` | `3b5bfd131af481f922ac454939baee1beac9349c8ec2eccb30c44c3bdb9bcdea` |
+| `/home/dev/gdds-be-ad-05-node-run-v1.sh` | `7e053a42c7f70c3dca7fad714775836bf9851a4d3501bc0b2dcfd5367d58680b` |
+
+实际启动顺序固定：先各自 `ssh -o BatchMode=yes <alias> 'echo OK'`；现场核hostname、有效marker、整机进程/运行容器/8000与磁盘，不依赖协调11:58快照；无冲突再 `mkdir /home/dev/gdds-node-busy.d` 原子取得，owner写角色/本节用途/UTC，复制到新证据根，后续cmp只认该本人字节。标记与清单相符后才传source/安装对应node-run并比本表SHA。04/05可跨节点并行；本任务不在06/07发起重负载，也不碰CT108/冻结基准WT/卷/输入。测试期间不写WT、不提交、不手工retag/rmi镜像。
+
+source入口分别 `bash /home/dev/gdds-be-ad-04-transfer-v1.sh "$AD_EXPECTED_SHA"`、05对应；node-run经LAN scp至本表固定server路径，核SHA后 `ssh ... "bash <guard路径> '<完整AD_EXPECTED_SHA>' <label> <正确引用的argv>"`。实际每个完整命令写其唯一run的command.txt，不以占位值启动。所有节点执行含shell syntax/static检查也只在该节点；失败原日志及SHA保留。
+
+### 9.2 共同真实前提与构建准备
+
+node-run固定 `PATH=/home/dev/.cargo/bin:...`、`UV_OFFLINE=1 CARGO_NET_OFFLINE=true TMPDIR=/home/dev/gdds-test-tmp CARGO_BUILD_JOBS=4 LC_ALL=C.UTF-8`，unset ambient proxy及RUSTUP_TOOLCHAIN/RUSTUP_HOME/CARGO_HOME/PYO3_PYTHON/VIRTUAL_ENV。实际核legacy、1.97 selector全工具、uv本地缓存、Dolt、Docker/Compose、磁盘；不把06缓存当04/05缓存，不假定172.17缓存端点，不改canonical lock identity。缓存/镜像不符或缺失即停补LAN预填充，不开公网/代理替代。
+
+backend已审依赖输入digest为 `d054366c02fa2a284948610e47b1c07bbdba98684b847846ca922d7da3d57aad`，所选tag `gateway-backend-deps:lock-d054366c02fa`；RS依赖base `gateway-p2r1-repository:lock-6dc9659f0aee`（label须等当前RS uv.lock SHA）。04另核 `gateway-repository-client-e2e-base:local` 的 `gateway.p2r6.client-uv-lock-sha256` 等当前client lock，及当前本地Python/uv基础镜像。逐节点保存所选base的实际config digest/全部DiffID与原LAN缓存来源记录，先比既有来源；无依赖变更不凭空重造预填充时间。backend/RS base与§8同来源时以完整config+全部DiffID核，不以inspect ID跨节点比较。
+
+每节点先在本地所选dependency-base上用仓库公开 `vnext/scripts/build-repository-service-image.sh` 离线build一次RS，env `GATEWAY_DOCKER_BUILD_NETWORK=none GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee GATEWAY_REPOSITORY_SERVICE_IMAGE=gateway-repository-service:be-ad-final-04-<expected前10位>`（05改对应tag）。保留实际build/identity，不碰原基准tag。随后所有runner/journey用此service tag。client final镜像若revision不符，由既有测试harness用已核本机dependency-base正常build；不手工docker rmi，不关闭harness。
+
+### 9.3 04唯一权威运行
+
+运行全部六包，公共fixtures相对原S2b来源已变，无package carried。以下env通过04对应node-run传给**一次**仓库权威入口；`AD_RS_IMAGE_04`为上节固定的实际tag。workers48是64vCPU正式节点测试并行度，不是产品N。未设置GATEWAY_TEST_BASETEMP，runner自有隔离Hypothesis及cargo-target清理规则不变。
+
+```bash
+env -u GATEWAY_COMPOSE_GATE_PREBUILT \
+  GATEWAY_TEST_PACKAGES=rust,shared_kernel,repository_contracts,repository_client,backend,repository_service \
+  GATEWAY_TEST_WORKERS=48 \
+  GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1 \
+  GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa \
+  GATEWAY_DOCKER_BUILD_NETWORK=none \
+  GATEWAY_REPOSITORY_SERVICE_IMAGE="$AD_RS_IMAGE_04" \
+  GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee \
+  GATEWAY_REPOSITORY_CLIENT_DEPENDENCY_BASE_IMAGE=gateway-repository-client-e2e-base:local \
+  vnext/scripts/run-tests.sh
+```
+
+runner locked sync五包并强制重装backend扩展，实际核e6ac Rust build-input；输出全部六包起始manifest/总摘要及状态、五锁检查、Rust fmt/clippy/test、pytest主体非serial并行/serial例外单进程和必要完整Compose。同runner已覆盖的Submit/History/Archive等Compose不再额外运行。权威runner非0先停处理，不继续carried/后续验收，不把部分通过拼成整次通过；保存完整原exit及前后身份。04本次不是新增性能测量。
+
+### 9.4 05唯一fresh t1与显式理由
+
+05新WT先受控locked backend `sync --reinstall-package gateway-compute-python`，构建env `GATEWAY_RUST_BUILD_INPUT=$(git rev-parse HEAD:vnext/rust)`，随后仓库 `check-rust-extension-build-input.sh` 核expected=installed；无缓存即停。正式工具命令使用 `run --no-sync` 仍经wrapper只读lock核查。输入根 `/home/dev/gateway-real-dumps`，仅t1 `rd-t1-a` / `rd-t1-b` 实际包，现有datasets/census和tool核size/SHA；不改输入，不运行全8输入的额外validate旅程。
+
+显式reason数据文件本地 `/home/dev/gdds-be-ad-05-archive-reasons-v1.json`，SHA `2868249c224a94c583b648d2db842cd018f4917add2af77a565fd73d39aca698`；经LAN放到05证据根同名 `archive-reasons-v1.json`、比SHA，读作纯JSON数据传一个env参数。清单理由如下，均只对可重建测试库接受流程，不宣称已人工证明真实数据来源/生成原因；保留原detected status/事实/异常和逐项resolution审计。工具只对实际出现的subject逐项引用其issue code对应理由；未支持code/identity异常仍失败，不能force或把UNKNOWN改PASS。
+
+```json
+{
+  "INITIAL_SOURCE_UNEXPLAINED": "联合fresh t1测试库验证来源异常逐项接受流程：保留初始来源无法解释的原诊断，不推定真实生成原因，不改源事实或判PASS。",
+  "BASELINE_TIME_UNAVAILABLE": "联合fresh t1测试库验证时间异常逐项接受流程：保留业务基线时间不可用的原诊断，不补造时间或判PASS。",
+  "GENERATION_TIME_MISSING": "联合fresh t1测试库验证时间质量逐项接受流程：保留生成时间缺失的原诊断，不补造时间或判PASS。",
+  "GENERATION_TIME_INVALID_VALUES": "联合fresh t1测试库验证时间质量逐项接受流程：保留无效生成时间值的原诊断，不改原值或判PASS。",
+  "GENERATION_TIME_LAST_NOT_MAX": "联合fresh t1测试库验证时间质量逐项接受流程：保留最后记录时间非最大值的原诊断，不重排或改原值。",
+  "TIME_ABNORMAL_INITIAL": "联合fresh t1测试库验证时间顺序逐项接受流程：保留INITIAL时间异常的原诊断，不推定真实发生顺序或判PASS。",
+  "TIME_ABNORMAL_MODIFIED": "联合fresh t1测试库验证时间顺序逐项接受流程：保留MODIFIED时间异常的原诊断，不推定真实发生顺序或判PASS。",
+  "APPROVED_SIBLING_EXCLUDED": "联合fresh t1测试库验证候选选择逐项接受流程：按本次选中的提交归档并保留已审核兄弟候选被排除的原异常和审计，不改变候选事实。"
+}
+```
+
+以下argv通过05对应node-run，`AD_ARCHIVE_REASONS_JSON`是上述已比SHA文件的纯数据内容，`AD_RS_IMAGE_05`是本节点新build tag。host明确N1/M24GiB，独立于Compose原worker N1/M24GiB+32GiB limit/8GiB reserve/单active，不试新预算。
+
+```bash
+env -u GATEWAY_COMPOSE_GATE_PREBUILT \
+  GATEWAY_REAL_DUMP_ROOT=/home/dev/gateway-real-dumps \
+  GATEWAY_REAL_DUMP_ARCHIVE_REASONS_JSON="$AD_ARCHIVE_REASONS_JSON" \
+  GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1 \
+  GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa \
+  GATEWAY_DOCKER_BUILD_NETWORK=none \
+  GATEWAY_REPOSITORY_SERVICE_IMAGE="$AD_RS_IMAGE_05" \
+  GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee \
+  vnext/scripts/uv-consume.sh -C vnext/backend run --no-sync python -m benchmarks.real_dump_journey \
+  --tier t1 --scope full --v2-input-completeness FULL \
+  --kernel-threads 1 --kernel-memory-budget-bytes 25769803776
+```
+
+不传from-step/keep-stack/project-name/cross-project/DC32/debugprobe：fresh UUID project，tool先正常build当前backend/worker一次，再仅在同次进程内复用已构建镜像，退出由原finally清理本project。真实v1 MO、v2 FULL（INITIAL=已归档v1/MODIFIED=v2）、repeat-v1 MO在同次旅程集中覆盖；FULL必须summary/identity确切两pair。Submit/Review/Archive/Preview/History沿原工具完整步序，tar GET完整读取并核所有closure成员原metadata/顺序/size/物理和records逻辑摘要；单列GET开始到读完时间/实际bytes，仅report-only，READY/operation完成锚不变。STDOUT最终JSON和tool产生的外置compose日志均保留SHA，不以时长作W1/W2证据。
+
+### 9.5 停止、清理与最终绑定
+
+任何实际缓存/身份不符或再编排/保全异常立即停报；产品失败按原Owner授权最小修并同一独审，不用操作例外抹掉产品失败。04权威非0停止后续验收；若05已跨节点启动，保留其实际状态和必要本人finally清理，不用成功05抵消04失败。清理只本任务project/派生卷与进程，核8000/Dolt/Compose空，cmp本人marker后释放，保留WT至最终镜像/包绑定完成。source/每run/原exit/SHA及逐包原始manifest均交同一独审核收；协调整理DC33最终范围确认包，未经所需最终范围/手续不办理exit/tag/push/S3。FE3同tar OPFS证据独立pending。

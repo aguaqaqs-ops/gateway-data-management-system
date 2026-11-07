@@ -2309,7 +2309,7 @@ def test_t1_no_canonical_change_precedes_occupancy_conflict(db_path: Path) -> No
         )
         unit_of_work.workspace.save_workspace(workspace, expected_version=0)
         upload_revision = replace(first_seed.upload_revision, upload_revision_id="ur-2", workspace_id="ws-2")
-        preview = replace(
+        preview = replace_preview_with_facts(
             first_seed.preview_result,
             preview_result_id="pr-2",
             workspace_id="ws-2",

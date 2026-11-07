@@ -882,7 +882,7 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     def lose_after_checkpoint(*args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("process stopped after durable materialize checkpoint")
     with monkeypatch.context() as fault:
-        fault.setattr(session, "publish_successor", lose_after_checkpoint)
+        fault.setattr(type(session), "publish_successor", lose_after_checkpoint)
         with pytest.raises(RuntimeError, match="after durable materialize checkpoint"):
             run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:

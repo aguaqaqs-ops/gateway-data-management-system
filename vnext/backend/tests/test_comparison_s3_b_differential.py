@@ -28,7 +28,7 @@ from gateway_backend.capabilities.comparison.contracts import OrderedInterval
 from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit, _encode_cell
 from gateway_backend.capabilities.snapshot_materialization.canonical_store import canonical_columns
 from gateway_backend.capabilities.snapshot_materialization.contracts import (
-    BlankRowProvenance, MaterializationPolicy, SnapshotTable,
+    BlankRowProvenance, MaterializationPolicy, SnapshotTable, SnapshotTableOrderedMetadata,
 )
 from gateway_backend.capabilities.table_access import NeverCancel
 from gateway_backend.capabilities.table_rules.contracts import CanonicalKeyPolicy, OrderedPolicy, StorageRuleView
@@ -422,20 +422,29 @@ def test_ordered_columns_added_uses_full_shared_row_multiset(
     assert actual["ordered_records"] == []
 
 
-def test_ordered_duplicate_position_degrades_like_fixed_python() -> None:
+def test_ordered_canonical_invalid_gid_degrades_like_fixed_python() -> None:
     _fixed_reference()
     before = _bound(
         "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8));"
-        " INSERT INTO t VALUES (1,1,'a'),(2,2,'b');"
+        " INSERT INTO t VALUES (1,1,'a');"
     )
-    current = _bound(
+    current_source = _bound(
         "CREATE TABLE t (gid BIGINT, no BIGINT, name VARCHAR(8));"
-        " INSERT INTO t VALUES (1,1,'a'),(2,1,'b');"
+        " INSERT INTO t VALUES (-1,1,'b');"
+    )
+    assert current_source.table_set is not None
+    marked_table = replace(
+        current_source.table_set.tables[0],
+        ordered_metadata=SnapshotTableOrderedMetadata(BlankRowProvenance.CANONICAL_PSEUDO_GID),
+    )
+    current = replace(
+        current_source,
+        table_set=replace(current_source.table_set, tables=(marked_table,)),
     )
     plan = _plan(before, current, ordered=True)
     fact = _fact(plan)
     assert fact.status.value == "DEGRADED"
-    assert fact.diagnostics == ("ORDER_KEY_DUPLICATE",)
+    assert fact.diagnostics == ("CANONICAL_GID_INVALID",)
     actual = _probe(plan, fact, ordered=True)
     assert actual["status"] == fact.status.value
     assert len(actual["standard_records"]) == 1

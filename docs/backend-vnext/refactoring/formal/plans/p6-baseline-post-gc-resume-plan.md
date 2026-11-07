@@ -48,6 +48,8 @@
 
 其余13项record-only selector及逐指标来源标注已有定向验证；各场景完整record/comparator的最终汇总仍待完成，不能据局部修正宣称全量收口。
 
+**Preview worker步骤漏采的派生补取：** 旧producer从`operation_timing`取operation ID，而真实Preview ID位于`preview.result`，因此FULL及部分core历史summary未存对应DB worker步骤；这不推翻已保存的READY/完成、指纹或资源值。未来非在途producer修正真实消费路径并做必要focused；现有记录优先核已存结构，真缺时在正式压力测量结束后，只取该运行已停control DB/合格checkpoint的私有小副本，沿原SQL和时钟按原operation ID补同次步骤，另记来源SHA及派生，不改raw、复制Repository大卷、起旧栈或重跑产品。DB started/completed时间不冒称DC63 executor细span；仅确实不可恢复时明确UNAVAILABLE及具体资格，不填零或直接弱化record校验。core H1缺后加的显式cache字段也不自动失效，可在同次副本按原History起点UTC核规则/TTL及相关对象，不用今天过期反推历史失效、不追加H3后设字段，也不以重复查询替首查。
+
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
 
 ## 工具、镜像和时间预算

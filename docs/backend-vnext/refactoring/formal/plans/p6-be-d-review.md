@@ -2,7 +2,7 @@
 
 2026-11-07。独审角色 `/root/be_d_review`，Owner 指定 GPT-6.1-Sol / max；实施为 `/root/be_d_impl`，协调为 `/root`。范围按 [D 工作单 §5](p6-be-d-work-order.md#5-启动收口) 包含 D 及既定联合最终验收准备收尾，不新建第三角色。
 
-**当前状态：Owner 已授权恢复；F1 已关闭，F2／F3 正常向量已运行，F4 架构依赖修复待补验；旧事故及失败保留，未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
+**当前状态：F1–F4 已闭环，F5 envelope／下载digest绑定待固定修复；五包静态通过，当前Compose／制品及联合证据仍待。旧事故及失败保留，未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
 
 ## 1. 固定基线与权限
 
@@ -210,3 +210,25 @@ Owner明确回复“按方案恢复验证”，授权记录 **`c1d1beefb1260f218
 实际新传输目标采用main当时完整clean **`4c8c367789c742c0e70ca09af01f0539e00a609f`**，未回退1e；1e..4c8只有独立基准docs，产品tree同为 **`f228ca42309b6370b8181b5d5282283b4a535e32`**。已独立读11:41:35–36Z `transfer-CtpxISe2/prepare.log`，expected／advertised／source_ready与node HEAD均4c8、clean、prepare_exit0，bundle SHA=`a80891031e8a9dda01c430c300822ca464c702c49413d967f87283ac1f1444c8`，log SHA=`50ff3db20681f1d1c89d70a92c76f7b9f838f5934e2ad7340b87691c2adc718d`。后续只补移层触及的architecture／download／HTTP／benchmark及必要静态，不机械重复已通过未影响owner；serial／五包／当前Compose／制品仍待。
 
 当前reviewed产品为1e／f228；当前容器仍deferred、最后镜像为V2 f8，无carried。04／05集中执行清单另与协调对齐，host t1采用原实际已过N1／25769803776B，worker N1／M24GiB及32／8 envelope／reserve独立核，不用测试workers或开发节点容量推导。旧事故、原aaa首轮不可复核与误跑排除限制继续保留。
+
+## 12. F4 公开 surface 修复及 06 增量核收
+
+4c8的 `run-backend-focused-fixed-pQtmiknA` 原文与四项SHA已核：11:42:11–23，238 passed／1 failed，唯一剩余违例是application直接导入capability内部transport；起止4c8、clean／owner true、command/final1，run.log SHA=`a5eb185d9ccf5dcd73ae83e308c8e0092bfb39fe3b389787958c074ba8d77e10`。按正常产品失败停后续，未掩盖或扩baseline。
+
+固定 **`ff704555f58cdd315daf2807492fab83be320a84`** 在新只读WT `/home/dev/gdds-reviews/p6-be-d-code-ff704555f5` 核clean／legacy、实际import规则和两文件diff：owning package root显式export既有四个metadata helper/type/constant，application只从该公开surface导入；无业务／格式／baseline变化。第三方基准docs先将main推进到 **`b1a43480d426e4e8959fb7cfab5bb2ffeb935227`**，guard正常在本地前置拒绝，未建bundle／SSH／运行被测对象；协调只读核同树后刷新实际expected，没有回退或绕过。后一次source_ready原文已核：11:45:32–33，`transfer-Ogy6zITV`完整b1a／clean／prepare_exit0，bundle SHA=`d39de36998f0e0a29d07fea0d31d6a1711399c223ee1e143039c6b057a5641cf`，prepare log SHA=`565a56767f509884c0b813562ab977e0f852285b6bad6286dc22cb773cc47db0`。实际被测vnext与ff704同为 **`603fb5d217db9612d243d8ea062e94ca02d12bd0`**。
+
+| 06唯一run／b1a | 实际结果 | run.log SHA256 |
+| --- | --- | --- |
+| `run-architecture-download-hlGAQyFn` | 11:45:54–57，architecture＋download owner主体139 passed，command/final0 | `d325886ee7bacc8fbd6bb6a10906377fadcd31716bd3a5b16fc71be0cadb01d8` |
+| `run-backend-selected-serial-KNgMhQf7` | 11:46:25–26，原14文件选择serial-n0，382 deselected，**command/final5，空批N/A** | `eaf017844bf3c09a1c9f47578ac644d683775b2d118480296a7cd00cf7465a83` |
+| `run-static-five-423Ms53b` | 11:47:12–29，四包locked offline sync、五包ruff/mypy十项全0、扩展expected=installed=e6ac再核0，command/final0 | `95cbb65963119850d2b54073838a08d9ab5e95d213ace8b67cfc92ef78ef4288` |
+
+已独立读全部原文、实际静态脚本并重算各run的guard／expected-head／command／log SHA，均相符；起止b1a、clean／owner true。静态脚本`static-five-v1.sh` SHA=`5db529da9748d05a5727893bf82bb8e5334fa996efb3798775336847616cfd7e`，fail-fast、受控uv消费，无掩码；mypy分别34／15／26／516／200 source files。Rust未改，继续引用36ed合法强制构建并明确核build-input，不为本轮重跑Rust全集。
+
+**F2／F3／F4关闭。** F2首次GET前全部final refs保护与F3严格FULL向量在c1d／4c8的实际通过owner中，随后仅移层／公开import改变且139补验通过；原380/2、238/1及全部旧失败保留。仅按实际变更组合引用focused来源，不拼称一次全选通过或权威package/image carried。CountingStore的≤2活动句柄／≤64KiB chunk代表性计数字段断言已在download owner通过；不把静态上界冒称额外RSS测量。当前无新容器／制品结果，D整体仍待。
+
+## 13. F5（P2）：envelope 的 digest 未与准备结果绑定
+
+最终接缝静核确认：Preview orchestration只取已授权result的artifact ID后返回prepare，未比 `prepared.bundle_digest` 与 `result.digests.bundle_digest`；History亦未比prepare digest与assemble checkpoint已有`bundle_digest`。若已授权own对象的artifact ID错误指向另一份完整有效bundle，现有tar内部预检会全过并返回200／另一份字节；ArtifactRef本身没有scope，包内部闭合不能替代owning envelope绑定。
+
+已直接交原实施者并认领：保留原授权次序，prepare后／响应头前对owning expected digest，矛盾复用typed503并close prepared，避免泄漏借用；不新增port、状态机、权限矩阵或业务digest。原HTTP owner共用一条有效但不匹配bundle引用向量即可。当前Compose／interop尚未dispatch，先修固定最终候选再一次构建，不浪费旧候选容器运行。F5待固定代码与实际补验；Current reviewed tree=603f，容器deferred，最后镜像仍V2 f8，无D GO。

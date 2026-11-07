@@ -25,7 +25,7 @@ V2 产品起点为 `5dc01deeb543d4bdc07da02b0e0c6ba1f1472533`，协调启动提�
 
 固定清单提交 `0d7a714bfc`（产品写入前），审核以 `git show` 读取固定对象，没有读取实施中的 dirty 产品。已列 V1 四层事实、纯规则输入/诊断、统一处置/关闭字段、唯一 DDL、Archive 全部 digest 升 v2、核验 rule v1、HTTP/History/Review 目标 DTO 与 golden 路径。来源组沿既有代表 target 字段，但接受对象由服务端重算的完整 subject 决定，不接 caller affected 列表；与设计边界一致。
 
-清单预检没有核心设计阻塞。已直接交实施者补充 owning Contract 精确路径、明确实际 DDL owner `test_control_db_schema.py`，并把 digest preimage 写成精确的一次 SHA256 公式；这些常规文档精度项尚待后续固定提交核收。此预检不代替代码或证据结论。
+清单预检没有核心设计阻塞。已直接交实施者补充 owning Contract 精确路径、明确实际 DDL owner `test_control_db_schema.py`，并把 digest preimage 写成精确的一次 SHA256 公式；补充 `8cd19a9217` 已核收，History 文件名笔误在 `35c4a20456` 已修正为 `p5-5e-history-compare-design.md`。此预检不代替代码或证据结论。
 
 ## 4. 已识别的审核接缝
 
@@ -48,3 +48,23 @@ Joint final gates: 04 权威/必要 Compose；05 fresh t1，仍待联合最终�
 ```
 
 审核准备没有运行测试、编译、lint、容器或真实数据，也没有占用节点。06 上节 09:36:28Z 释放仅作历史；实施时须现场重核并取得有效标志。正式候选将另建只读 detached worktree；只读核原始日志、脚本、SHA、host/起止 HEAD/UTC/exit、offline/build-input、当前镜像身份及现场清理。focused 明确非 serial / serial 两批；实际零选择的 exit 5 只能记 N/A。
+
+## 6. 首个子候选 35c4a20456 代码审
+
+固定子候选 `35c4a20456`，只读 detached worktree `/home/dev/gdds-reviews/p6-v2-code-35c4a20456`，clean/legacy 已核。实施者明确它尚未验证且不是出口候选：持久 subject 正文/fingerprint 校验、Start 成功 replay closure、增量事务/HTTP/History 测试、benchmark consumer、正文与 golden 仍在补齐，本轮不把这些已声明待办误记为已交付或产品 GO。
+
+已核纯规则按完整四字段内容身份建立固定点，未知同根/无锚环不互证；只将未解释状态放进弱连通分量，已解释终点不会把独立未知根错误合组；完整成员/边/facts 进入 subject。source/time 原诊断和接受状态分离，全部候选参与时间质量与倒退诊断，baseline 历史质量不重开，规则 A→B 与时间分组大体符合设计。以下普通修复已直接交实施者，同角色复审。
+
+### F1（P2）：INITIAL_EMPTY 的 modified/initial 比较未标不适用
+
+`business_validation.py` L159 仅在 `baseline is None` 且 relation 不是 `MODIFIED_BEFORE_INITIAL` 时返回 `NOT_APPLICABLE`。真实首次 MODIFIED_ONLY 的 V1 facts 为 `initial_origin=INITIAL_EMPTY`、initial 时间为 null；它的 modified/initial 关系也引用不存在的 baseline，却被显示为 `NOT_COMPARABLE`。业务设计 §3.3 要求此类比较 N/A；只有 FULL 两实际上传侧仍比较。由纯规则 owner 修正并补实际 INITIAL_EMPTY 小向量，不复制时间 grammar 矩阵。
+
+### F2（P2）：CLOSE 跨目标幂等冲突遮蔽已存关闭绑定损坏
+
+`manual_close.py` L68 在 existing target 与请求 target 不同后直接返回 409，早于 `_assert_manual_close_binding`。A 成功关闭后，若 A 的持久 `configuration_facts_digest` 损坏为另一合法 digest，当前授权 caller 以相同 key 请求关闭 B，会得到普通冲突而不是既定完整性错误。设计 `043705af06` 要求仍校存储关闭事实/原请求绑定，不能把损坏伪装成冲突；V1 cross-target existing-key 已有同原则。请求 B 授权后，内部 existing A 应经 scoped bound 读取和原事实校验，再决定正常跨目标 409；不披露 A 内容。CLOSE/HTTP 原 owner 验证该边界。
+
+### F3（P2）：候选 Attempt 损坏未映射为 Archive 完整性 503
+
+`closure.py` L48 裸调用 finalized Attempt getter；合法授权候选的 Attempt `configuration_facts` 缺字段/源绑定损坏时，mapper `ValueError` 绕过 `ArchiveIntegrityFailure`，而新 snapshot 仅捕获 candidate Submission mapper 的同类错误。应在 Archive owning seam 窄映射已知 decode/binding 错误，保持硬拒并返回实际 HTTP `503 ARCHIVE_INTEGRITY_FAILURE`；HTTP owner 用非 strict server-exception 模式断言分类及无写入。baseline source Attempt 分支已覆盖同类窄映射，无须全局异常框架。
+
+此子候选不作 V2 完成结论，容器结果仍 `deferred`。测试/编译/lint 由实施者在 06 执行；审核者本轮只读代码，尚未核其日志或现场。

@@ -1,21 +1,21 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前状态（2026-11-07）：**隔离 a10 fresh 完整 t3 宽裕校准已独审 PASS；待 Owner 选择最终配置与 DC33 范围，E/S2b 仍 NO GO。** main 产品 `464289138a` 保持已选 24/8/M16，包含新增列非记录角色漏预约的窄修；临时 M48 与计数日志未合 main。原 `82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 为合格来源，t3 M16 资源拒绝保持 FAIL。准确证据见 [handoff](p6-s2b-e-handoff.md) `e990b70d7d` 与 [独立审核](p6-s2b-e-review.md) `cde10c5acd`。
+当前状态（2026-11-07）：**Owner 已确认最终 32/8/M24、N1 与 06 fresh t1–t3／04 六包和 Compose／t4 依据独审沿用，开始最终验收；E/S2b 仍 NO GO，待实际证据与最终 H 绑定。** 隔离 a10 fresh 完整 t3 宽裕校准已独审 PASS，最终产品 `a6876d560050285321fd9f62942d590a03f35d64` 在 `464289138a` 窄修上落定新配置；临时 M48 与计数日志不合 main。原 `82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 为合格来源，t3 M16 资源拒绝保持 FAIL。准确证据见 [handoff](p6-s2b-e-handoff.md) `e990b70d7d` 与 [独立审核](p6-s2b-e-review.md) `cde10c5acd`。
 
-### 测后配置与最终验证提案（待 Owner 选择）
+### 测后配置与最终验证（Owner 已确认推荐方案）
 
 a10 在 CT108 于 03:20:23–03:42:33Z fresh 完整 t3 成功，18 次 claim 与 18 条 scope 计数逐序吻合。最高预约为 History 的 21,375,346,635 B（19.907343 GiB）；同一 worker 全生命周期 cgroup peak 4.438370 GiB、RSS 高水位 4.210926 GiB，无 OOM/失租/重启，正常停止、自有资源清理及节点释放均已核。物理数据只属于临时 64/16/M48，不冒新档实测。
 
 | 配置提案（N1、单 active） | 容器上限 / reserve / 显式 M | 对已测最大预约余量 | native 调用点预算余量投影 |
 | --- | --- | --- | --- |
-| 推荐 | 32 / 8 / 24 GiB | 4.093 GiB | 最紧 inspect 15.623 GiB；parser/business/encode 至少 23.669 GiB |
-| 备选 | 40 / 8 / 32 GiB | 12.093 GiB | 最紧 inspect 23.623 GiB |
+| 已选 | 32 / 8 / 24 GiB | 4.093 GiB | 最紧 inspect 15.623 GiB；parser/business/encode 至少 23.669 GiB |
+| 未选备选 | 40 / 8 / 32 GiB | 12.093 GiB | 最紧 inspect 23.623 GiB |
 
 推荐依据含真实调用次序：Python 比较高峰与 Rust 调用峰不同时出现；不能仅以 charged 乘系数，也不能把 native cap 记作实耗。两档均仍须最终候选实际门禁与真实 t3 确认，不保证更大输入或正式性能。
 
-DC33 推荐本轮在已扩容的 06 执行最终候选 fresh t1–t3 功能/容量旅程，04 同候选六包权威与其中的 Compose 并行；06 此用途须随本提案确认，不变为正式性能或权威 runner 节点。t3 必重验真实失败形态；t1/t2 因原成功卷已清理，无法像 t4 一样给新增费用精确上界，补跑两档约增加 17 分钟（按旧结果），避免把更高 M 推定为所有变更形态必过。t4 采用独审的具体沿用条件 M≥18,678,133,632 B，两提案均满足；保留 82 完整业务/物理来源与新增费用上界分析，不重复完整 t4，也不称旧物理峰为新档实测。
+DC33 已确认本轮在已扩容的 06 执行最终候选 fresh t1–t3 功能/容量旅程，04 同候选六包权威与其中的 Compose 并行；06 本轮真实旅程用途已获准，不变为正式性能或权威 runner 节点。t3 必重验真实失败形态；t1/t2 因原成功卷已清理，无法像 t4 一样给新增费用精确上界，补跑两档约增加 17 分钟（按旧结果），避免把更高 M 推定为所有变更形态必过。t4 采用独审的具体沿用条件 M≥18,678,133,632 B，两提案均满足；保留 82 完整业务/物理来源与新增费用上界分析，不重复完整 t4，也不称旧物理峰为新档实测。
 
-备选范围只重跑 fresh t3，t1/t2/t4 沿用原功能结果；代价是明确保留 t1/t2 在新配置下未做资源实测、无同等精确费用上界的缺口，须由 Owner 按 DC33 接受，不自动采用。两种范围均保留 06 必要静态/定向、04 六包实际来源、最终 H 同 worktree 闭包与容器绑定；不重复未受影响的 A–D 恢复/取消/事务/CAS 证据，不重生成输入。具体 profile 与范围确认后只执行选定方案，不逐档试跑。
+未选备选范围为只重跑 fresh t3，t1/t2/t4 沿用原功能结果；代价是明确保留 t1/t2 在新配置下未做资源实测、无同等精确费用上界的缺口，须由 Owner 按 DC33 接受，不自动采用。两种范围均保留 06 必要静态/定向、04 六包实际来源、最终 H 同 worktree 闭包与容器绑定；不重复未受影响的 A–D 恢复/取消/事务/CAS 证据，不重生成输入。现按已确认的 32/8/M24 与 fresh t1–t3 执行，不逐档试跑。
 
 **t3 容量结论与剩余路径校准（沿既有授权接续）：** 只读核实 193 个 task 的实际 materialized 侧：row/base 预约 17,045,901,120 bytes；仅补 current `device_st` 的 logical Arrow 16,646,188 bytes ×64 后，下界即 18,111,257,152 bytes（16.867 GiB），已超 M16，其他 Arrow/存活项尚未计。大表新增列触发真实双侧读行，t4/History 的观测没有覆盖该变更形态。另发现 non-record role 的 COLUMNS_ADDED 实际双侧读行未预约，已按 DC80 以 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 最小补齐；06 静态及 93 项 focused 独审通过，元数据-only 仍不计行费。此修正增加漏计保护，不会让 M16 需求问题变成 PASS。
 
@@ -23,17 +23,17 @@ DC33 推荐本轮在已扩容的 06 执行最终候选 fresh t1–t3 功能/容�
 
 原拟复用05停止现场，仅续v2 Preview；因05已被原线03:04:56起的GC诊断有效占用，协调者改为 **CT108一次fresh完整t3宽裕校准**，使用已验证的原输入，不归档或复制05数据。代价是重做约8分钟已通过的t3前缀，同时获得完整同worker峰值，并避免等待源节点或新增跨节点恢复路径。CT108实际96GiB足以承载64GiB worker并留其他服务余量；准备完成后曾释放节点，03:20:23.298329Z现场原子取用后实际启动，project `s2b-e-cal-t3-full-a10dec894e`，driver `5f724b12…` 使用现fresh入口与已核untimed计数日志。该次只跑t3，不重复t1/t2/t4或runner，不生成新输入；原05 t3 FAIL与原三代E失败现场均保留。
 
-此次收集每scope预约高水位、同一fresh worker整旅程cgroup/RSS及控制/正常停止记录，不逐档试M24/M32或因再失败自动增档。完整t3宽裕档成功也不冒充未选最终生产档通过；测后依据所有已覆盖路径和实际余量向Owner提交统一配置及DC33最终验证范围。当前main仍24/8/M16，E仍NO GO。
+此次收集每scope预约高水位、同一fresh worker整旅程cgroup/RSS及控制/正常停止记录，不逐档试M24/M32或因再失败自动增档。完整t3宽裕档成功也不冒充未选最终生产档通过；测后依据所有已覆盖路径和实际余量向Owner提交统一配置及DC33最终验证范围。该校准安排时 main 仍24/8/M16；校准已完成，当前最终配置及范围以上文 Owner 确认为准。
 
 **History 定向诊断接续（Owner，2026-11-07）：** 同镜像 profile 的独立探针测得 soft FD limit 1024，Arrow 小样本证明关闭 source 后可保留 buffer 零拷贝读取；这两项尚不足以确认原 History 根因。真实 C 双侧各 312 表的诊断连续两次在准备阶段失败，按 DC68 暂停后，Owner 明确批准“允许按已审第三稿续做，明确问题修复后定向验证”。第三稿 SHA `4b982cb016eb3ff4903f42e6cdda489cf4e9136751019d26fc7c81523bf8df65` 已独立静态审核，将 factory 放回有效 operation scope 后在 06 运行；保留两次失败，不改写为通过。若证实 FD 生命周期缺陷，最小修复及 focused 独立审核后，使用本任务保留资源的独立冷拷副本、当前修复镜像和现有 `--from-step history` 定向验证，不重跑 Submit/全旅程。原校准 FAIL 与后续局部结果分别记录，最终资源档仍待 Owner 依据补全证据选择；此授权不等于 E GO/S2b exit，不扩大为任意失败循环重试。
 
 **FD 因果与最小修复已核（2026-11-07）：** 第三稿在真实 C/Store/SQLite 双侧各 312 表、soft limit 1024 下复现同 WAL 错误：FD 5→317→629→941→1023，scope 关闭后回 5；是 scope 内映射持有句柄达到上限，并非跨 scope 永久泄漏。修复 `d6c88cafb38255c66dbb5f8fae091af75e289d62` 仅在同一 mapping 校验成功后关闭 source FD，保留原 buffer/预算生命周期与零拷贝；一个 owner 测试验证 96 个同时借用 reader 的 FD 与可读性。06 的四模块 57 项、Ruff/mypy 和同双 312 表正向对照均通过，后者全部 publication 完成、FD 始终 5；源码和原始证据均经独立审核。后续仍需隔离校准候选的真实 History 副本验证及最终资源选择，不将 focused 结果充作 E exit。
 
-**最终配置后的验证边界：** History 局部结果已齐，Owner 已选最终 24/8/M16；临时 64/16/48 不直接成为生产配置。若最终方案修改 `vnext/deploy`，六包 manifest 的共同 deployment 组件均变化，必须在最终产品候选取得六包实际合格来源，不能沿用旧 Rust/三小包的闭包结论；该轮 backend 已覆盖的 Compose 旅程不再另跑。临时校准与 FD 修复只做上述定向验证，不提前重跑六包。既有 A–D 恢复/取消/事务/CAS 等独立证据仍按影响面复用；最终容器绑定、t1–t4 范围和资源边界按本节原验收收齐，不将原失败前缀、局部 History 或性能延期替代最终候选门禁。
+**最终配置后的验证边界：** 完整 t3 校准已齐，Owner 已选最终 32/8/M24；临时 64/16/48 不直接成为生产配置。若最终方案修改 `vnext/deploy`，六包 manifest 的共同 deployment 组件均变化，必须在最终产品候选取得六包实际合格来源，不能沿用旧 Rust/三小包的闭包结论；该轮 backend 已覆盖的 Compose 旅程不再另跑。临时校准与 FD 修复只做上述定向验证，不提前重跑六包。既有 A–D 恢复/取消/事务/CAS 等独立证据仍按影响面复用；最终容器绑定、t1–t4 范围和资源边界按本节原验收收齐，不将原失败前缀、局部 History 或性能延期替代最终候选门禁。
 
 **History 局部结果与已选最终配置（2026-11-07）：** 隔离候选 `1f9df50a5c01173b82febc3a74b01bae549b1bb0` 的独立冷拷副本已完成 History，02:09:25Z driver 结束、journey 0、同一新 worker 正常 stop、仅副本清理完成及节点释放，独立审核通过。三个真实 claim/counter 一致，materialize/assemble/publish 预约高水位分别 398,673,952 / 11,218,037,646 / 3,761,894 bytes；History 最大约 10.448 GiB，局部新 worker cgroup peak 263,307,264 bytes、VmHWM 423,704 KiB，无 OOM/失租/重启。原 cal 前缀最大预约 13,070,921,208 bytes（12.173 GiB），cgroup peak 6.519 GiB；两次 worker 峰值分列，不求和或拼为完整校准 PASS。具体 SHA 与副本身份见 handoff/review。
 
-设计推荐与独审意见一致：**最终候选 24 GiB envelope / 8 GiB reserve / 显式 M16 GiB，N1/单 active**；对已观测最大预约留 3.827 GiB（约 31%）余量。备选为 32 GiB envelope / 8 GiB reserve / M24 GiB，增加容量余量。Owner 随后明确选择推荐的 24/8/M16，按 DC87 当前配置直接实施与集中验证，不继续逐档试跑。charged 未覆盖全部 Rust 局部 temporary，因此上述数据与余量支持的是待验证配置，不是严格实耗上界或更大输入承诺；选定后完成最终候选必要门禁及同 worker 完整 t4。W1/W2 和原基准结论仍按既有安排。
+历史 M16 选择（已被上文 M24 替代）：设计推荐与独审意见一致，**当时最终候选 24 GiB envelope / 8 GiB reserve / 显式 M16 GiB，N1/单 active**；对已观测最大预约留 3.827 GiB（约 31%）余量。备选为 32 GiB envelope / 8 GiB reserve / M24 GiB，增加容量余量。Owner 随后明确选择推荐的 24/8/M16，按 DC87 当前配置直接实施与集中验证，不继续逐档试跑。charged 未覆盖全部 Rust 局部 temporary，因此上述数据与余量支持的是待验证配置，不是严格实耗上界或更大输入承诺；选定后完成最终候选必要门禁及同 worker 完整 t4。W1/W2 和原基准结论仍按既有安排。
 
 前序收敛记录（2026-11-06）：Owner 批准的额外四工具 mypy 修正已在 06 实际通过，并经独立审核；该暂停已关闭。`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 的 04 Rust 权威来源仍合格。首轮五 Python 权威运行暴露测试夹具迁移漏项；修正 `ff970567f8` 后，06 全 backend 收集 3230 项成功、受影响 184+16 项及 Ruff/mypy 通过，04 backend-only 主体 3173 项通过。但该次串行部分 55 通过/2 失败，整次 runner1，不能形成 backend 来源。两个真实远端操作成功，失败位于 History/ordered 测试核对 helper 的默认仓库 scope 与缺少显式调用参数；独立审核确认是此前未运行到的 adapter 漏迁，不据此降低生产校验或修改业务预期。
 
@@ -82,9 +82,9 @@ D 首个生产 parser 接线后，旧 parser 已无生产 consumer；为本节�
 
 本轮来源核对：原合格五 Python 包来源 `3b037adf4c` 至 E `d0f5602d6f`，`test_input_closure.py::COMMON_GIT_COMPONENTS` 中的 `vnext/scripts` 与 `vnext/deploy` 均已变化，分别涉及新增容量脚本和 Compose 资源接线。因此三小 Python 包也必须实际运行；不是仅因成本小或换 worktree 而默认重跑，且 `vnext/fixtures` 本轮并未变化。04 可新建 E 自有 clean worktree，保留 S2a 原 worktree 与证据。额外工具 mypy 续做待 Owner 时，可在具体 driver/缓存前置独立核准后先运行权威 `rust` 包，整次 exit0 才形成实际来源；后续五 Python 包另行实际运行。若其间仅 Python 工具/测试变化，Rust 仍须在同 E 节点/同 worktree 按该实际来源做闭包比较再沿用；任何一轮失败不作来源，也不把两轮结果写成一次六包 runner。
 
-真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3|t4> --scope full --kernel-threads 1 --kernel-memory-budget-bytes 17179869184`，由受控 uv 入口在相应节点执行；E 工具迁移后两个 kernel 参数显式提供，约束 host-side composite 对照的同一 operation scope，不替代 Compose worker 自己的 DC87 配置及 24 GiB 容器上限。使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。05/CT108 按最新 DC82 现场核闲并原子取得占用标志直接使用，不以跨会话窗口申请为前置；原线 STOP 不代表节点已释放。仅实际冲突或涉及他人资源时针对性协调。
+真实数据入口沿当前候选的 `vnext/backend/benchmarks/real_dump_journey.py --tier <t1|t2|t3> --scope full --kernel-threads 1 --kernel-memory-budget-bytes 25769803776`，由受控 uv 入口在相应节点执行；E 工具迁移后两个 kernel 参数显式提供，约束 host-side composite 对照的同一 operation scope，不替代 Compose worker 自己的 DC87 配置及 32 GiB 容器上限。使用既有 `GATEWAY_REAL_DUMP_ROOT` 输入并核绑定，不重生成输入。此处是正确性旅程，不使用原基准冻结 checkpoint/resume、卷或正式计时入口；不以旧整镜像 prebuilt 跳过当前候选的节点本机离线构建。本轮 06 按最新 DC82 现场核闲并原子取得占用标志直接使用，不以跨会话窗口申请为前置；原线 STOP 不代表节点已释放。仅实际冲突或涉及他人资源时针对性协调。
 
-t4 为收齐同一次完整 worker 的资源证据，在上述 fresh full 命令加现有 `--keep-stack --project-name <E 独占新名>`；不传 `--from-step`，不从任何 checkpoint 续跑。外置 driver 全程持本节点占用，在成功或失败的清理前读取本 project worker 的 StartedAt/RestartCount、24/8/M16 GiB 配置、OOM 状态、实际 N/M 和 cgroup `memory.max`/`memory.peak`/`memory.events`，再正常 stop、保留日志及停止后的状态/退出码。只有旅程成功且必需证据完整时才清本任务 project 资源并释放占用；真实 journey 非零、资源异常或必需证据不完整时，保本 E 容器/卷与占用并立即交设计协调，按 DC80 主动诊断、最小修正和独立审核，不丢弃 control DB/artifacts、不自动重跑或 resume。诊断后不再需要节点时，按具体保卷与残留核对方案释放，不无限等候。用 StartedAt/RestartCount 核同一 worker；peak 是该 fresh 容器生命周期的 cgroup 高水位，含 startup/page cache 等，不称单进程 RSS 或 M 硬上限。异常退出后不可读的项、`memory.events` 缺失的必需 `oom`/`oom_kill` 键均记 missing/incomplete，不默认零或补 PASS。只保留证据所需字段，不输出凭据；新 runstate 仅归本 E 证据，不作恢复入口。本安排复用现有 CLI 与平台能力，不新增采样服务、不重复旅程；具体 driver 经独立只读核对后执行。
+本轮 t1–t3 各自收齐同一次完整 worker 的资源证据（t4 沿用上文已审来源），在上述 fresh full 命令加现有 `--keep-stack --project-name <E 独占新名>`；不传 `--from-step`，不从任何 checkpoint 续跑。外置 driver 全程持本节点占用，在成功或失败的清理前读取本 project worker 的 StartedAt/RestartCount、32/8/M24 GiB 配置、OOM 状态、实际 N/M 和 cgroup `memory.max`/`memory.peak`/`memory.events`，再正常 stop、保留日志及停止后的状态/退出码。只有旅程成功且必需证据完整时才清本任务 project 资源并释放占用；真实 journey 非零、资源异常或必需证据不完整时，保本 E 容器/卷与占用并立即交设计协调，按 DC80 主动诊断、最小修正和独立审核，不丢弃 control DB/artifacts、不自动重跑或 resume。诊断后不再需要节点时，按具体保卷与残留核对方案释放，不无限等候。用 StartedAt/RestartCount 核同一 worker；peak 是该 fresh 容器生命周期的 cgroup 高水位，含 startup/page cache 等，不称单进程 RSS 或 M 硬上限。异常退出后不可读的项、`memory.events` 缺失的必需 `oom`/`oom_kill` 键均记 missing/incomplete，不默认零或补 PASS。只保留证据所需字段，不输出凭据；新 runstate 仅归本 E 证据，不作恢复入口。本安排复用现有 CLI 与平台能力，不新增采样服务、不重复旅程；具体 driver 经独立只读核对后执行。
 
 ## 3. 退出记录与后续性能复核
 
@@ -94,6 +94,6 @@ E handoff 将最终产品候选、删除/保留清单、逐包来源与闭包、
 
 W2 30 秒目标及口径保留，完整路径测量最迟 S6；W1 无 CT108 窗口时同样最迟 S6；W3 从 S3 起按原设计取证。未知数值保持 unknown，功能退出不写性能 PASS。原 W4 租约故障由原线跟踪，若当前功能候选出现租约或正确性故障，仍须处理，不能归入可延期性能项。
 
-CT108 本次资源窗口确认后，优先从同一次最终 t4 fresh 旅程开始 W1 型初步诊断，不再笼统套用“无窗口”。现工具已在 t4 收集 `operation_timing`，E 仅将普通 full 报告原本丢弃的这些字段保留在 JSON；不新增计时点、轮询、HTTP 调用、输入或完整旅程。报告按实际口径区分受理响应后到首次结果可读观测、操作终态、后续读取完成，注明 2 秒轮询和 visibility fallback；这些观测不等于精确 READY 事件时刻，也不与包含请求/读取/断言的整个 step wall time 混用。最终候选实际范围为 t4、N1/M16 GiB、单次正确性运行，不能替代 2×t4、预热与正式重复采样或用于宣称 W1/W2 达标；正式 W1 仍归 S6，W2 按 DC83。若实际运行未完成，诊断也保持未完成。
+CT108 本次资源窗口确认后，优先从同一次最终 t4 fresh 旅程开始 W1 型初步诊断，不再笼统套用“无窗口”。现工具已在 t4 收集 `operation_timing`，E 仅将普通 full 报告原本丢弃的这些字段保留在 JSON；不新增计时点、轮询、HTTP 调用、输入或完整旅程。报告按实际口径区分受理响应后到首次结果可读观测、操作终态、后续读取完成，注明 2 秒轮询和 visibility fallback；这些观测不等于精确 READY 事件时刻，也不与包含请求/读取/断言的整个 step wall time 混用。该已完成观测来源为 82 候选 t4、N1/M16 GiB、单次正确性运行，不能替代 2×t4、预热与正式重复采样或用于宣称 W1/W2 达标；正式 W1 仍归 S6，W2 按 DC83。若实际运行未完成，诊断也保持未完成。
 
 本节使用上述新建二角色，实施者修改产品/测试，审核者只读固定候选及证据、维护审核文档，明确小问题可直接通信修复后复审。设计/审核可修改各自 owning 文档。额外角色、真实设计冲突或多轮修复不收敛交 Owner；不复用 D 角色，不推送或改写被引用提交。当前进入 E 实施，不代表 E GO 或 S2b exit。

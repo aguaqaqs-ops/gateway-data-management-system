@@ -1,6 +1,6 @@
 # S2b kickoff（已批准，A–D 已交付，E 收尾取证中）
 
-E 当前进度（2026-11-07）：`82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 已通过独审，t3 M16 拒绝保持 FAIL。补齐真实漏预约的 `464289138a` 保持 main 24/8/M16；隔离 `a10dec894e` 的 fresh 完整 t3 宽裕校准现已独审 PASS，最高预约 19.907 GiB、同 worker cgroup 峰 4.438 GiB。**E/S2b NO GO**，测后推荐 32/8/M24，备选 40/8/M32，待 Owner 选最终档与 DC33 范围；原失败与局部证据不改判。具体提案见 [E 任务](p6-s2b-e-kickoff.md)。
+E 当前进度（2026-11-07）：`82c4251b6c` 的 04 六包/Compose、静态及 fresh t1/t2/t4 已通过独审，t3 M16 拒绝保持 FAIL。最终产品 `a6876d5600` 在 `464289138a` 真实漏预约修正上落定 32/8/M24；隔离 `a10dec894e` 的 fresh 完整 t3 宽裕校准现已独审 PASS，最高预约 19.907 GiB、同 worker cgroup 峰 4.438 GiB。**E/S2b NO GO**，Owner 已选最终 32/8/M24 与 06 fresh t1–t3、04 六包/Compose、t4 按独审上界沿用，已授权最终验收；原失败与局部证据不改判。具体提案见 [E 任务](p6-s2b-e-kickoff.md)。
 
 E 启动时状态记录：APPROVED / A–D COMPLETE / E STARTING；2026-11-06。A 固定产品 `db7767ffbb`、审核 `83b927207a`；B 固定产品 `b820321c1e`、审核 `0dc93c09a9`；C 固定产品 `0048040af5`、handoff/容量 `7cd2b548c8`、审核 `e9bef6efe8`。D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞，06 于 18:52:58Z 释放，D 二角色结束。按 DC86 启动 [E](p6-s2b-e-kickoff.md)，新 Sol/high 实施者、新 Sol/max 审核者。DC87 的 12 GiB envelope/4 GiB reserve/显式 M8 GiB、N1/单 active 与 DC88 保持；D 局部 worker 校准和 focused 容器证据不替代 E 的最终门禁或完整 t1–t4。S2b 尚未退出，性能未知项不记 PASS。
 
@@ -27,7 +27,7 @@ S2a 与 S1c 已退出；源码消费者与 Arrow mapping 已按 S2a exit 重核�
 | 上传、历史、恢复消费者 | §2 已列保留/替换/删除边界及权威测试 owner；FULL 两侧与精确 commit 读取纳入 | 实施时按每个真实 consumer 切换；不得整文件盲删 |
 | Arrow 映射 | profile、metadata 键、canonical 列序、null/offset 规范及独立向量来源见映射设计；A 已交付并独立 GO | D 接真实消费者，E 完成覆盖移交 |
 | 容量输入 | [C 容量报告](p6-s2b-c-capacity-calibration.md)已记录真实 t1/t4 B/A/store 双侧与独立 XML/AST/composite 校准；DC87 已选 A | D 复核真实 worker 峰值、同时预约与拒绝；组件结果不冒充 production capacity PASS |
-| N/M 与 worker | DC87 E 最终选择：N=1、单 active、24 GiB envelope/8 GiB reserve/显式 M=16 GiB | D 的 startup/control/资源拒绝按影响复用；E 验最终配置，无隐式 M 默认 |
+| N/M 与 worker | DC87 E 最终选择：N=1、单 active、32 GiB envelope/8 GiB reserve/显式 M=24 GiB | D 的 startup/control/资源拒绝按影响复用；E 验最终配置，无隐式 M 默认 |
 | DC63 子段 | §4 保持 pending/unknown，不以 step 总时长替代 | 原基准线交付后更新，不挡首个 mapping/kernel slice |
 | W1/W2/W3 与正确性 | §6 明列各自时点；t1–t4 正确性不可省略 | CT108 计时按独占窗口，正确性按节点职责；预约或等窗口，不暗中豁免 |
 
@@ -144,7 +144,7 @@ Worker bootstrap 在注册/派发任何 kernel operation 之前显式调用一�
 | 设置名 | `GATEWAY_BACKEND_OPERATION_WORKER_KERNEL_MEMORY_BUDGET_BYTES` |
 | 单位 | bytes，M 是单个 operation 的计算准入预约，不是 RSS 严格上限 |
 | 格式/下界 | 正整数且 `M > 0`；worker 接线前作为 required setting，缺失/非法值拒绝启动 |
-| 显式初始值/上界 | DC87 E 实测后已选：24 GiB worker envelope、8 GiB 工程 reserve，显式 M=16 GiB（17,179,869,184 bytes）、上限 16 GiB；无代码隐式默认，保持 `M <= envelope - reserve`。最终 worker 峰值与拒绝由 E 收口 |
+| 显式初始值/上界 | DC87 E 完整 t3 实测后已选：32 GiB worker envelope、8 GiB 工程 reserve，显式 M=24 GiB（25,769,803,776 bytes）、上限 24 GiB；无代码隐式默认，保持 `M <= envelope - reserve`。最终 worker 峰值与拒绝由 E 收口 |
 
 预算按一个 worker process 的实际生命周期预约：SourcePackage/SQL input 中实际持有的 bytes；parser buffers 按共享 backing allocation 去重；Rust canonical output、伪列/composite、排序/索引与 filter 暂存；IPC write buffers、文件内容以及 `Vec → PyBytes` 复制重叠；本 operation 打开的 mmap/ArtifactReadHandle 及其 Arrow views 按 pin/lifetime 对完整被引用 bytes 保守预约，同一 mapping 共享引用只算一次；FULL 两侧同时保留的结果、baseline 与发布前 staging 都纳入峰值。未被当前 operation 打开/读取的全局 artifact 只占磁盘，不作为本次 M 的 RAM。
 

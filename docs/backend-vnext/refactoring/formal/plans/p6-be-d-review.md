@@ -164,3 +164,26 @@ d0的summary／identity helper都接受1或2个pair，实际v2调用未按reques
 本角色已只读核现存误跑原文与SHA：06／gw-dms-06、起止HEAD均`aaa0f4a6f32143448c1b55bb1cc8f509643e1d3c`，11:17:02–11:17:18 focused **150 passed／2 failed、exit1**，SHA=`f882a86a8a0e472b80fa2897e61a1ffc4237a1cee9a3a73ffd8526780bedb9c5`；同次ruff／mypy0的现存SHA分别`703b88bf0b64df4e7d1546a25837d75fcbb856a1e648b41ff20339edf0fe503b`／`d1db3f7041a1f443761e8b69d66f57e7e9a1a1ab8f633447ba7670cef46dc900`。两失败为CLI旧expected漏新增mode和unknown ref旧消息匹配；均是原expected更新接缝，不放宽产品边界。误跑结果不算a795或当前候选证据，也不以150通过关闭F2／F3。
 
 因已执行旧被测对象，此事不按“产品前、无副作用”的DC68直接重做。协调按Owner停止规则明确暂停全部受影响测试／static／Compose／04-05；只允许证据保全、本人资源清点释放、标准guard修正与独立静审。恢复前须固定fail-fast、named bundle verify／exactSHA和唯一run目录的可审查调用方案，协调交Owner决定，不新建evidence平台。本角色仅继续固定代码和现存证据／guard静审，不运行被测对象。
+
+## 10. 恢复方案静审：可提交 Owner 决定，尚未恢复执行
+
+固定handoff候选 **`547a38903456aa6e8799c348c66724d1fd068fb5`**（前稿`94b9fe92affdc68a704fa9a7b830022474f9e161`），只读 detached WT `/home/dev/gdds-reviews/p6-be-d-guard-547a389034`／`p6-be-d-guard-94b9fe92af` 均clean／legacy齐备。**恢复调用方案的技术静审可接受，可由协调者据此提交Owner决定。此结论不是恢复授权、脚本运行通过或D产品GO。** 本角色没有执行guard、`bash -n`、被测对象、编译、lint或Compose。
+
+| 固定guard／本地副本 | 完整 SHA256 |
+| --- | --- |
+| `/home/dev/gdds-be-d-guarded-transfer.sh`；`/home/dev/gdds-reviews/artifacts/p6-be-d/guarded-transfer.sh` | `f83066c0b15a012bf5df673577591910e5b0afd4926553d4f3592ef5edff9d4d` |
+| `/home/dev/gdds-be-d-guarded-node-run.sh`；`/home/dev/gdds-reviews/artifacts/p6-be-d/guarded-node-run.sh` | `4eb10c9fc1a8b3b12d4b5ae4cba4d54528d7462d7a5a8f91549facb0e7c979b2` |
+
+已逐行读取并独立重算原文件／副本SHA：transfer使用`set -euo pipefail`、named HEAD bundle、verify、advertised完整SHA及bundle SHA256，目标固定06及本任务WT，任一步失败即停止；不自行启动测试。node-run每次创建唯一WT外run目录并保存自身原文／expected SHA／精确argv／日志，开始核clean、exact HEAD、本人marker；末尾再次核三者，保留原`command_exit`，前提变化使`final_exit=2`，不覆盖历史run。首稿仅start核marker的精度已由原实施者补正。原node-run SHA `3889eb…` 只属前稿，不是本次拟采用身份。
+
+两文件mode664，handoff明确`bash <file>`入口。node-run须先LAN复制到06 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh`，校SHA后经SSH以该文件路径调用，不能`bash -s`破坏`$0`归档。实际`D_EXPECTED_SHA`及命令由协调在Owner回复后固定；恢复前重新现场核空闲并原子取得本人marker，历史释放不是预约。guard不代替owning harness的服务清理／任务末尾资源核收与本人marker释放，也不放宽offline／cache、serial或五包规则。
+
+保全目录LAN副本`/home/dev/gdds-reviews/artifacts/p6-be-d/incident-preservation-rvpm66sO/` 的**40个现存文件已逐项重算全部相符**，`SHA256SUMS` SHA=`78122ba8b893b200c17ad9ae959af5fa7d25cc830f59986043f2b40298ca065b`。静态Git读取确认其中`source-a795.bundle`与`source-typing.bundle`均advertise完整aaa0 HEAD且同hash，支持旧包误传事实；这不恢复被覆盖日志。06原释放log与LAN根目录副本`node-release-UzrHOQAs.log` SHA均=`de06e368c6459639f0f04525cdb6a9763edaa30e85eb3e8ff6a21b97422b8ae8`，释放11:19:30Z；11:24:13Z另只读现场核marker不存在、WT clean／aaa0、无运行容器或8000监听。保全11:19:12Z进程快照无Dolt／Cargo／pytest。旧WT、镜像和证据保留。
+
+更早两次checkout错误须按记录边界阅读：它们发生在不同候选／传输步骤，非同一步连续重做；一为linked FETCH_HEAD，一为不存在的literal SHA。没有失败秒级UTC或当时外置原log，现有`checkout-*-operation-error.log`是事后整理的派生说明；第二时间窗终点aaa首轮原字节也已丢失，只能引用工具输出／历史记录，不能称全部原log独立可复核。第三次旧对象误跑／日志覆盖继续按§9停止规则处理，不借此消除原失败或限制。
+
+### 10.1 暂停期间固定产品补件
+
+同时静读`18b239a95fdd63b33c41bf03d2d18ab71612bd98`：在已排序closure paths上拒绝普通文件祖先／后代冲突及保留metadata路径的子路径，使用原download owner两个小向量；不引入新状态或重复矩阵。`445a19dfe3`仅同步缺失ref的旧expected文案。7c新增interop生成器实际调用生产assembler／encoder，完整小tar含ASCII／中文／非BMP小Parquet，另输出明确`complete_tar=false`的size header-only向量和合法／畸形PAX记录；仅静读，尚无运行制品或前端互通证据。
+
+本轮已静审产品/工具树以547a的 **`vnext=e7dfe478e5abb721a4f968dd692380b3cb05f28f`** 为准，不用94b旧树代表新增18b。恢复时实际clean SHA还会含审核／批准文档，须核vnext与本树一致后再按其完整HEAD运行。F2／F3证据关闭、受影响focused／serial、五包静态、扩展input、当前Compose／OpenAPI／同tar制品与04／05仍待；当前容器deferred、最后验证镜像仍V2 f8，无carried。Owner回复前全部受影响节点执行继续暂停。

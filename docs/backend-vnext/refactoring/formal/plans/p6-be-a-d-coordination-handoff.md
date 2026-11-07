@@ -32,6 +32,8 @@
 
 固定审 `adc2863e7f`，主要产品diff/consumer初读未见方向性冲突，尚无GO。审核者已直接交实施者：reason共享反例漏必填字段导致收集错误（F1）、finalize后active Attempt→PENDING门禁连续性的代表性验收缺口（F2），另有owning文档残余/混称待修。ABORTED投影已由原Submit owner新增CreateOrGet断言覆盖，审核者明确撤回重复补测要求。后续以同一审核角色的正式报告/复审及06实际日志为准；不将审查预判当作测试结果。
 
+更新：首轮报告 `783be7600513abc9a934f15dfeeafc30975f9aec`，见[A1独审](p6-be-a1-review.md)。修复候选 `2d9a39f191` 已由原审核者在新clean只读WT核实际8文件diff，F1/F2/N1代码修正成立，暂无新增代码finding。06首轮mypy/focused实际暴露F1及测试类型注解错误，失败日志保留；2d9五包十项ruff/mypy已独审核SHA/起止HEAD/exit0。574 focused初轮混含1 serial仅作诊断，正补573并行+1 serial。main后续 `d8bee1a591` 补review smoke镜像provenance，须纳入原角色复审与实际受影响门禁。RS unit和三个Compose仍待，不报A1 GO。
+
 06后端focused，05默认真实t1，04最终runner/carried；07由前端owner安排，CT108不使用。使用时现场核查并原子取得本节点标志，结束收尾后释放；尊重有效占用和计时独占。04最终取证期间避免06重负载干扰，不设跨CT常规审批。clean已提交测试worktree、LAN源码/缓存、UV_OFFLINE/CARGO_NET_OFFLINE、日志hostname/起止HEAD/UTC/exit/SHA及镜像身份规则均遵守。缓存或节点前提失效时停止受影响验证并修正，不回退开发主机。
 
 ## 4. 需持续交接
@@ -41,3 +43,4 @@
 - V1/V2：事实冻结/规则版本，来源UNKNOWN与人工接受分离，异常逐项理由，统一终局处置和关闭后桥接移除影响；前端新页面由其owner修订。
 - D：后端真实编码器ASCII/中文/非BMP tar同字节制品、closure、SHA/长度；前端PAX修复提交及同制品互通未完成前不声称FE3解除依赖。
 - 原W1/W2及基准独立，未知不记通过。若需要上下文交接，先更新本页与各节事实，再请Owner新开会话，不猜测推进。
+- 联合旅程工具准备已静态核实：main `vnext/backend/benchmarks/real_dump_journey.py` 当前只发送MODIFIED_ONLY，`_archive`只允许既有身份异常。V2/D须在main同步新异常消费/明确原因及FULL必要旅程入口、完整tar校验；不能拿旧工具完成声称覆盖新矩阵，不覆盖原冻结V_ref脚本。确切工具变更owner在后续工作单固定。

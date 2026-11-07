@@ -1,7 +1,7 @@
 //! Operation-owned resource and lifetime boundary for comparison kernels.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use arrow_array::RecordBatch;
@@ -35,7 +35,10 @@ impl KernelContext {
         if self.cancelled.load(Ordering::Relaxed) {
             return Err(OrderedCompareError::new("COMPARISON_CANCELLED"));
         }
-        if self.deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
             return Err(OrderedCompareError::new("COMPARISON_DEADLINE_EXCEEDED"));
         }
         Ok(())
@@ -46,7 +49,9 @@ impl KernelContext {
     pub fn reserve(self: &Arc<Self>, bytes: usize) -> Result<KernelLease, OrderedCompareError> {
         self.check()?;
         self.remaining_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(bytes))
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| {
+                left.checked_sub(bytes)
+            })
             .map_err(|_| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         Ok(KernelLease {
             context: Arc::clone(self),
@@ -74,7 +79,9 @@ impl KernelLease {
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         self.context
             .remaining_bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(bytes))
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| {
+                left.checked_sub(bytes)
+            })
             .map_err(|_| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         self.charged_bytes = total;
         Ok(())
@@ -97,17 +104,28 @@ pub(super) fn validate_canonical_batches(
 ) -> Result<(), OrderedCompareError> {
     for batch in batches {
         let schema = batch.schema();
-        if schema.metadata().get("gdds.canonical_mapping_version").map(String::as_str) != Some("1") {
+        if schema
+            .metadata()
+            .get("gdds.canonical_mapping_version")
+            .map(String::as_str)
+            != Some("1")
+        {
             return Err(OrderedCompareError::new("CANONICAL_SCHEMA_REQUIRED"));
         }
         for field in schema.fields() {
-            let metadata = field.metadata().get("gdds.canonical_type")
+            let metadata = field
+                .metadata()
+                .get("gdds.canonical_type")
                 .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_REQUIRED"))?;
             let value: Value = serde_json::from_str(metadata)
                 .map_err(|_| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
-            let logical = value.get("logical_type").and_then(Value::as_str)
+            let logical = value
+                .get("logical_type")
+                .and_then(Value::as_str)
                 .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
-            let spelling = value.get("sql_type").and_then(Value::as_str)
+            let spelling = value
+                .get("sql_type")
+                .and_then(Value::as_str)
                 .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
             let normalized = spelling.trim().to_ascii_lowercase();
             let expected_logical = if normalized.starts_with("set(") {
@@ -132,14 +150,24 @@ pub(super) fn validate_canonical_batches(
                 }
                 "enum" | "json" => text,
                 "standard" => {
-                    match value.get("declared_type").and_then(|part| part.get("kind")).and_then(Value::as_str) {
+                    match value
+                        .get("declared_type")
+                        .and_then(|part| part.get("kind"))
+                        .and_then(Value::as_str)
+                    {
                         Some("boolean") => matches!(physical, DataType::Boolean),
                         Some("signed-integer") => matches!(physical, DataType::Int64),
                         Some("unsigned-integer") => matches!(physical, DataType::UInt64),
                         Some("float32") => matches!(physical, DataType::Float32),
                         Some("float64") => matches!(physical, DataType::Float64),
-                        Some("binary") | Some("bit") => matches!(physical, DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_)),
-                        Some("decimal" | "string" | "date" | "datetime" | "timestamp" | "time-duration") => text,
+                        Some("binary") | Some("bit") => matches!(
+                            physical,
+                            DataType::Binary | DataType::LargeBinary | DataType::FixedSizeBinary(_)
+                        ),
+                        Some(
+                            "decimal" | "string" | "date" | "datetime" | "timestamp"
+                            | "time-duration",
+                        ) => text,
                         _ => false,
                     }
                 }

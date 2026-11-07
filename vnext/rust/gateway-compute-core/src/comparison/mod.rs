@@ -17,10 +17,9 @@ pub use standard::{
 
 pub use ordered::{
     BlankExtensionResult, BlankInterval, BlankProvenance, BlankRecord, BlankSummary,
-    CanonicalValue, DEFAULT_MAX_ORDERED_ROWS, FieldChange, MAX_ORDERED_THREADS,
+    CanonicalValue, DEFAULT_MAX_ORDERED_ROWS, FieldChange, MAX_ORDERED_THREADS, OrderedBatchPair,
     OrderedCompareError, OrderedCompareOptions, OrderedCompareResult, OrderedExtensionResult,
-    OrderedBatchPair, OrderedKernelResult, OrderedRecord, OrderedSummary, OrderedTablePair,
-    SchemaChanges, StandardRecord,
-    UnchangedOrderedSummary, build_ordered_pool, compare_ordered_table,
-    compare_ordered_batches, compare_ordered_tables_parallel, summarize_unchanged_ordered_side,
+    OrderedKernelResult, OrderedRecord, OrderedSummary, OrderedTablePair, SchemaChanges,
+    StandardRecord, UnchangedOrderedSummary, build_ordered_pool, compare_ordered_batches,
+    compare_ordered_table, compare_ordered_tables_parallel, summarize_unchanged_ordered_side,
 };

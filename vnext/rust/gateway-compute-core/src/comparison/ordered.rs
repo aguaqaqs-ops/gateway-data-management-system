@@ -167,18 +167,37 @@ pub fn summarize_unchanged_ordered_side(
     if !selected.iter().any(|name| name == "gid") || !selected.iter().any(|name| name == "no") {
         return Err(OrderedCompareError::new("ORDERED_REQUIRED_COLUMN_MISSING"));
     }
-    let input_bytes = current.columns().iter().try_fold(0usize, |total, array| {
-        total.checked_add(array.get_buffer_memory_size())
-    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let row_overhead = current.num_rows().checked_mul(selected.len().saturating_mul(80).saturating_add(512))
+    let input_bytes = current
+        .columns()
+        .iter()
+        .try_fold(0usize, |total, array| {
+            total.checked_add(array.get_buffer_memory_size())
+        })
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-    let reservation = input_bytes.checked_mul(3).and_then(|size| size.checked_add(row_overhead))
+    let row_overhead = current
+        .num_rows()
+        .checked_mul(selected.len().saturating_mul(80).saturating_add(512))
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let reservation = input_bytes
+        .checked_mul(3)
+        .and_then(|size| size.checked_add(row_overhead))
         .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     let _lease = context.reserve(reservation)?;
-    let side = read_side(Some(current), &selected, options.current_blank_provenance, options.max_rows, Some(context))?;
+    let side = read_side(
+        Some(current),
+        &selected,
+        options.current_blank_provenance,
+        options.max_rows,
+        Some(context),
+    )?;
     context.check()?;
     let digest_columns = resolved_digest_value_columns(options, &selected);
-    let ordered = ordered_digest(&side.rows, &options.table_name, &options.policy_version, &digest_columns)?;
+    let ordered = ordered_digest(
+        &side.rows,
+        &options.table_name,
+        &options.policy_version,
+        &digest_columns,
+    )?;
     context.check()?;
     let occupancy = occupancy_digest(&blank_gaps(&side.rows, None))?;
     Ok(UnchangedOrderedSummary {
@@ -382,7 +401,9 @@ pub fn compare_ordered_table(
         current: pair.current.map(std::slice::from_ref),
         options: pair.options,
     };
-    match std::panic::catch_unwind(AssertUnwindSafe(|| compare_ordered_table_inner(batches, None))) {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| {
+        compare_ordered_table_inner(batches, None)
+    })) {
         Ok(result) => result,
         Err(_) => Err(OrderedCompareError::new("ORDERED_INTERNAL_ERROR")),
     }
@@ -397,16 +418,35 @@ pub fn compare_ordered_batches(
 ) -> Result<OrderedKernelResult, OrderedCompareError> {
     match std::panic::catch_unwind(AssertUnwindSafe(|| {
         context.check()?;
-        if let Some(before) = pair.before { validate_canonical_batches(before)?; }
-        if let Some(current) = pair.current { validate_canonical_batches(current)?; }
-        let batches = pair.before.into_iter().flatten().chain(pair.current.into_iter().flatten());
-        let (input_bytes, rows, columns) = batches.try_fold((0usize, 0usize, 0usize), |(bytes, rows, columns), batch| {
-            let bytes = batch.columns().iter().try_fold(bytes, |total, array| total.checked_add(array.get_buffer_memory_size()))?;
-            Some((bytes, rows.checked_add(batch.num_rows())?, columns.max(batch.num_columns())))
-        }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let overhead = rows.checked_mul(columns.saturating_mul(128).saturating_add(1024))
+        if let Some(before) = pair.before {
+            validate_canonical_batches(before)?;
+        }
+        if let Some(current) = pair.current {
+            validate_canonical_batches(current)?;
+        }
+        let batches = pair
+            .before
+            .into_iter()
+            .flatten()
+            .chain(pair.current.into_iter().flatten());
+        let (input_bytes, rows, columns) = batches
+            .try_fold((0usize, 0usize, 0usize), |(bytes, rows, columns), batch| {
+                let bytes = batch.columns().iter().try_fold(bytes, |total, array| {
+                    total.checked_add(array.get_buffer_memory_size())
+                })?;
+                Some((
+                    bytes,
+                    rows.checked_add(batch.num_rows())?,
+                    columns.max(batch.num_columns()),
+                ))
+            })
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
-        let reservation = input_bytes.checked_mul(4).and_then(|bytes| bytes.checked_add(overhead))
+        let overhead = rows
+            .checked_mul(columns.saturating_mul(128).saturating_add(1024))
+            .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+        let reservation = input_bytes
+            .checked_mul(4)
+            .and_then(|bytes| bytes.checked_add(overhead))
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let lease = context.reserve(reservation)?;
         let facts = compare_ordered_table_inner(pair, Some(context))?;
@@ -1106,8 +1146,12 @@ fn column_names(batch: Option<&RecordBatch>) -> Result<Vec<String>, OrderedCompa
     Ok(names)
 }
 
-fn column_names_batches(batches: Option<&[RecordBatch]>) -> Result<Vec<String>, OrderedCompareError> {
-    let Some(batches) = batches else { return Ok(Vec::new()); };
+fn column_names_batches(
+    batches: Option<&[RecordBatch]>,
+) -> Result<Vec<String>, OrderedCompareError> {
+    let Some(batches) = batches else {
+        return Ok(Vec::new());
+    };
     let mut names = None;
     for batch in batches {
         let next = column_names(Some(batch))?;
@@ -1124,7 +1168,10 @@ fn side_row_count(batches: &[RecordBatch]) -> usize {
 }
 
 fn is_control_or_resource(error: &OrderedCompareError) -> bool {
-    matches!(error.code(), "COMPARISON_CANCELLED" | "COMPARISON_DEADLINE_EXCEEDED" | "RESOURCE_LIMIT_EXCEEDED")
+    matches!(
+        error.code(),
+        "COMPARISON_CANCELLED" | "COMPARISON_DEADLINE_EXCEEDED" | "RESOURCE_LIMIT_EXCEEDED"
+    )
 }
 
 fn read_side_batches(
@@ -1134,26 +1181,39 @@ fn read_side_batches(
     max_rows: usize,
     context: Option<&KernelContext>,
 ) -> Result<SideRows, OrderedCompareError> {
-    let Some(batches) = batches else { return Ok(SideRows { rows: Vec::new() }); };
+    let Some(batches) = batches else {
+        return Ok(SideRows { rows: Vec::new() });
+    };
     let mut rows = Vec::new();
     let mut positions = HashSet::new();
     let mut identities = HashSet::new();
     let mut encoded_bytes = 0usize;
     for batch in batches {
-        if let Some(context) = context { context.check()?; }
+        if let Some(context) = context {
+            context.check()?;
+        }
         let side = read_side(Some(batch), selected, blank_provenance, max_rows, context)?;
-        if rows.len().checked_add(side.rows.len()).is_none_or(|count| count > max_rows) {
+        if rows
+            .len()
+            .checked_add(side.rows.len())
+            .is_none_or(|count| count > max_rows)
+        {
             return Err(OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"));
         }
         for row in side.rows {
             if !positions.insert(row.position) {
                 return Err(OrderedCompareError::new("ORDER_KEY_DUPLICATE"));
             }
-            if row.stable_key.as_ref().is_some_and(|key| !identities.insert(key.clone())) {
+            if row
+                .stable_key
+                .as_ref()
+                .is_some_and(|key| !identities.insert(key.clone()))
+            {
                 return Err(OrderedCompareError::new("ROW_IDENTITY_DUPLICATE"));
             }
             for cell in row.cells.values() {
-                encoded_bytes = encoded_bytes.checked_add(cell.frame.len())
+                encoded_bytes = encoded_bytes
+                    .checked_add(cell.frame.len())
                     .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
                 if encoded_bytes > MAX_ORDERED_TOTAL_ENCODED_BYTES {
                     return Err(OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"));
@@ -1207,7 +1267,9 @@ fn read_side(
 
     for row_index in 0..batch.num_rows() {
         if row_index % 1024 == 0 {
-            if let Some(context) = context { context.check()?; }
+            if let Some(context) = context {
+                context.check()?;
+            }
         }
         let no_array = batch.column(no_index);
         let position = read_integer(no_array.as_ref(), row_index)?
@@ -1682,7 +1744,9 @@ fn encode_set(
     if let Some(labels) = labels {
         let mut previous = None;
         for member in &members {
-            let position = labels.iter().position(|label| label.as_str() == Some(*member))
+            let position = labels
+                .iter()
+                .position(|label| label.as_str() == Some(*member))
                 .ok_or_else(|| OrderedCompareError::new("SET_VALUE_INVALID"))?;
             if previous.is_some_and(|prior| position <= prior) {
                 return Err(OrderedCompareError::new("SET_VALUE_INVALID"));
@@ -1694,7 +1758,9 @@ fn encode_set(
     for text in members {
         let item = encode_typed_scalar(
             &DeclaredType::string(),
-            &TypedScalar::String(StringScalar { text: text.to_string() }),
+            &TypedScalar::String(StringScalar {
+                text: text.to_string(),
+            }),
         )
         .map_err(|_| OrderedCompareError::new("SET_VALUE_INVALID"))?;
         encoded_items.push(item.scalar_frame);

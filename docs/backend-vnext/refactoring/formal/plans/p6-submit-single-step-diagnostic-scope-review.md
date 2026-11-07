@@ -2147,3 +2147,15 @@ CT108 按实际现场空闲/有效占用与独占测量规则取锁，满足该�
 已直接交实施者继续同一最小修订：内层采用 **`--foreground` 留在已经隔离的外层组**，或同等的自有组停止方式，保持软截止只向旅程发送 INT、手动信号能停全部自有宿主进程，之后仍走 project-only Compose 收束。复用现有停止 fixture，以真实 GNU timeout 和 fake journey/Docker 触发短 deadline/手动中断；仅在 fixture 缩短等待，不能用主动 exit124 代替真实超时，也不新增真实 Compose/prepare 或测试矩阵。保留原 25200/27000 和清理预留，不新造 guardian/IPC/持久机制。
 
 **这是 F1 的接线修正，不是新的范围、Owner 或最终摘要审批。** 实施者直接完成修订、必要 focused/语法/静态及已授权节点准备，交原始结果短复核；§92 的恢复范围与直接接续流程保持，不因本节重开来源或历史矩阵。当前没有把未产生的测试/静态结果认定通过。
+
+## 95. 源 checkpoint 导出缓存全过期：mode=none 下不阻塞 A 接续，不改 TTL 或预热
+
+**原来源的 523 个 snapshot_table_export_cache 项已过期，不阻塞 §92 固定 `history_cache_mode=none` 的输入恢复。** 这不是缓存健康证明或新的来源例外，只是按已有 Contract/产品读取语义解释前提；不能把“核实 TTL”扩大为 none 模式必须全部未过期。其他 source/checkpoint 摘要、输入/规则、目标镜像和必要守护仍须满足；F1 launcher 修订另行闭环，本节不代表其已经通过。
+
+BatchMode echo OK 后，仅只读 CT108 已关闭 `/home/dev/gdds-p6-logs/baseline/preflight/p6w4resume970420261107a-ct108/checkpoint-cache-ttl.log`，SHA256 **`4dac4836be733644015828ea7b723aa57bde5073ff8d9251ef2edb403e361322`**。记录 hostname=gw-dms-test、07:58:32–33Z、state SHA=`f86e5bf4fda11ee37b17a4b08319955fe9df7c7a14b7c398c5480ded79bdf9e0`、**523/523 expired、missing_artifact_files=0、剩余 TTL -46344.753 至 -45568.762s**。日志中的 worktree_head=20cf 是该只读检查的工作目录记录，不把它冒称 source e798 或 target 9704 的执行身份，也不据此重新比较不同对象的 HEAD。本审核未查询源 DB、修改卷、启动 Compose/业务或追加扫描；完整 source 实物绑定仍由既定 preflight 承担。
+
+冻结 9704 的 `SQLiteSnapshotTableExportCache.lookup_many` 先有界 prune，且对 expires_at_us<=now 的项删除缓存索引/保护并跳过；`snapshot_materialization/repository_ref.py:271–320` 在未获得有效缓存项时从规范表读取/物化。冻结 [Snapshot Table Access](../../../contracts/snapshot-table-access.md) 的 S1b IO cache 规则及 Comparison Bundle 规定该 Parquet 缓存可重建，miss/损坏回规范表读取与导出，缓存不是权威 checkpoint 内容。`real_dump_journey._change_history_cache_condition` 仅对 healthy/refill 等特定场景要求健康 TTL；本轮 mode=none 不调用该准备路径，没有这一零过期门槛。
+
+实施者保持原源卷、时间/TTL/缓存内容不动，不预热、不延长到期时间、不清缓存、不改成 healthy。仅在新的目标副本中由正常产品 lookup/miss/回填运行，记录起始 expired 事实和 Submit 后/History 时实际可观测状态；过期起点不能写成 TTL 内健康命中表现，也不能据此改名为 H3 或人为构造的 H2 cold 场景。普通相邻 History 的实际结果按方案 A 如实报告缓存条件，不预判命中或性能。
+
+**非阻塞解释已直接交实施者并同步设计，无需新 Owner/最终摘要 GO，也不为取得 ttl_valid=true 重跑或生成输入。** 恢复仍沿 §92，其余实际前提及 F1 修订不被本节跳过。

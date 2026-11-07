@@ -6,7 +6,7 @@
 
 2026-11-07 更新：三节点于前日 23:58:30Z 实际启动。05 的 7c fresh t1 全旅程及资源/正常停止/清理均成功，00:03:36Z 释放；t2/t3 未启动。CT108 的 7c fresh t4 于 00:01:07Z 在首次 Preview 的 `assemble_preview` 被 `RESOURCE_LIMIT_EXCEEDED` 拒绝，materialize 已成功。实际输入为 MODIFIED_ONLY（BASELINE/INITIAL 空、MODIFIED 312 表）；旅程 `--scope full` 不等于上传 InputCompleteness.FULL。失败阶段 cgroup peak 为 660467712 B、上限 12884901888 B，N1/M8 正确，OOM/重启为零、正常 stop0；这些事实不能证明完整档容量足够。
 
-保留 checkpoint/元数据的只读核算发现明确预算缺陷：standard 与 ordered 的单侧 ADDED/DELETED 路径仅生成表级事实、不读取 rows，但 `comparison_python_memory_upper` 为其中 278 个任务预扣全量行对象包络。仅行项与基费已至少 13703443328 B（约 12.763 GiB），尚未加非负 Arrow 项，超过 M8。按既有 DC80 小明确修正授权，只去掉单侧未消费 rows 的费用，保留元数据基费、真实双侧及 ordered identity 读行预算；不提高 M/容器上限或更改业务预期。先在 06 focused/静态及独立审核收敛，再形成新最终候选。若后续真实读行路径仍无法承载，另将事实及配置取舍交 Owner，不静默改 DC87。
+保留 checkpoint/元数据的只读核算发现明确预算缺陷：standard 与 ordered 的单侧 ADDED/DELETED 路径仅生成表级事实、不读取 rows，但 `comparison_python_memory_upper` 为其中 278 个任务预扣全量行对象包络。仅行项与基费已至少 13703443328 B（约 12.763 GiB），尚未加非负 Arrow 项，超过 M8。按既有 DC80 小明确修正授权，只去掉单侧未消费 rows 的费用，保留元数据基费、真实双侧及 ordered identity 读行预算；不提高 M/容器上限或更改业务预期。修正候选 `1de3fa408433b344faac222d28736a82405e566a` 已获独立源码核对；06 于 00:18:52–55Z 实际完成 81 项 focused 与 backend Ruff/mypy，退出 0，包含单侧不读行/预算不随行数膨胀的行为，以及既有真正读行预算拒绝 owner。证据复核、最新节点环境绑定完成后，04 backend 权威与 CT108 fresh t4 可在同一候选上跨节点并行，不再人为要求先等 backend 全部完成；05 同候选按有效占用逐档 fresh t1–t3，04 backend 后再 RS。若后续真实读行路径仍无法承载，停止该路径，将事实及配置取舍交 Owner，不静默改 DC87 或调整预算系数。
 
 04 当前四包运行自然收束，合格后 Rust/三小包按同 worktree 实际闭包比较沿用；新 backend 源码/测试要求补 backend，RS 来源 manifest 的 `docker:context:vnext` 也随之变化，须补 RS，不能因业务无关径自沿用。t1 旧成功结果保作回归，其已清理卷无法按 DC64 从受影响首次 Preview 续跑，最终新候选需 fresh t1；t2/t3 尚未跑、t4 尚未完成，均须新候选实际完成。不新建恢复工具或重跑全部六包。t4 本 E 停止容器/卷/network/证据原样保留，只在整机 idle、HEAD clean 和本任务 marker 精确核对后释放占用；后续新项目不得复用失败资源。最终证据未齐，不记 E GO/S2b exit。
 

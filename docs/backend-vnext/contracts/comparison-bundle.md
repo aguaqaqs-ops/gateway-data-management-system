@@ -192,8 +192,10 @@ OTHER 业务 JSON 沿 assembler 发布时的引用校验和最终 raw SHA 逐块
 错误沿各 owning HTTP Contract，不能统一包装成404或空 tar。
 
 通过预检的 bundle digest 还必须等于已授权 PreviewResult 的 `digests.bundle_digest` 或已授权
-History assemble checkpoint 的 `bundle_digest`。缺失 expected digest 或指向另一个完整有效
-bundle 仍属于完整性矛盾，头前503并关闭准备对象，不能凭 artifact 本身可读发200。
+History assemble checkpoint 的 `bundle_digest`。已解析 PreviewResult 的 expected 不等/空值、
+History checkpoint 的 expected 缺失/不等，或指向另一个完整有效 bundle，均在头前503并关闭
+准备对象，不能凭 artifact 本身可读发200。原始 Preview 行缺少 digest 键而在既有 mapper 提前
+失败的分类沿原读取 Contract，不由此处扩称所有原始行结构错误统一503。
 
 prepare 返回明确的 digest、准确长度、quoted ETag、安全 filename、stream 和幂等 close。
 Local artifact 公开 bounded read session 在已有 root 目录 FD 上持共享 flock；协作 cleanup 在

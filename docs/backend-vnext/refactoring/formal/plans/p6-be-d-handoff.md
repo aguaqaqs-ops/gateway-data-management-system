@@ -1,12 +1,15 @@
 # D BE-d 完整 tar 实施交接
 
-2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。本文先固定实现接缝供预检，尚无 D 产品或测试 GO。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
+2026-11-07；实施 `/root/be_d_impl`（GPT-6.1-Sol / xhigh），独审 `/root/be_d_review`（GPT-6.1-Sol / max）。产品基线 `9ec62e82ad9b70776a03954c30edb94a29e1380a`；实际开始 main `dfc8659744`，初始 status/diff 为空。协调者维护工作单、kickoff、联合准备与总交接，本角色只改本文及下列 D 文件。
+
+
+**当前本地里程碑：产品候选 `0ba45e5ef83f54bfb2585f963f9518d32086f942`，`vnext` tree `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`。06 受影响定向、五包静态、当前最小 Submit Compose、production OpenAPI、生产 encoder 同 tar 及独立 consumer 已完成；原独审 `6ad7e54fa0` §14–15 核收本地通过。06 本人资源清理后于12:05:51Z释放，非后续预约。04 六包/必要 Compose 与05 fresh t1 联合证据待协调固定清单后执行，尚无联合最终 GO；FE3 同字节 OPFS 互通也未解除。** §6及§7前半保留历史失败、暂停与恢复事实；当前结果以§8为准。旧 aaa 首轮原日志丢失及误跑永不作为当前通过来源。
 
 ## 1. 公开 port、准备结果与顺序
 
 `BundleReaderPort.prepare_bundle(artifact_id: str) -> PreparedBundleDownload` 取代旧 `read_bundle -> tuple`，不保留旧格式。准备对象包含 `bundle_digest: str`、`content_length: int`、`filename: str`（`bundle-<digest hex>.tar`）、`etag: str`（含 HTTP 双引号）、`stream: Iterator[bytes]` 和幂等 `close() -> None`。`prepare_bundle` 是同步实际执行的函数：授权/exact scope/readiness/TTL 在 orchestration 先完成，随后取得共享读取借用，读取并验证 metadata，再逐项完整读回所有成员，最后才返回对象；route 创建 `StreamingResponse` 时预检已经结束。
 
-目前 manifest 没有 closure 的物理 ref。owning bundle helper 从已发布 manifest 的既有 semantic fields / closure entries 按原 JCS 和既有 content-identity 公式求出 expected closure ref，再读取并核对该**原已发布文件**；不把重建字节当作下载文件，不新增持久字段或改业务摘要。manifest / closure 的 canonical bytes、版本、bundle/semantic closure digest、entry size/raw digest 与 ref、pair surface ref 及所有嵌套 ArtifactRef 的闭合在 owner 内校验。下载严格按最终 closure 顺序发每 entry，重复内容/同源不同路径不再去重。
+prepare 协调实现为 `application/bundle_download.py`，`artifacts/bundle_download.py` 仅有纯 Prepared DTO/typed error，tar framing 在 `artifacts/tar_stream.py`。manifest 没有 closure 的物理 ref。owning capability 公开 `read_bundle_transport_metadata(manifest_raw)` 从已发布 manifest 的既有 semantic fields / closure entries 按原 JCS 和既有 content-identity 公式求出 expected closure ref，再读取并核对该**原已发布文件**；不把重建字节当作下载文件，不新增持久字段或改业务摘要。manifest / closure 的 canonical bytes、版本、bundle/semantic closure digest、entry size/raw digest 与 ref、pair surface ref 及既有有界 reference metadata 的嵌套 ArtifactRef 闭合在 owner 内校验。generic projection / diagnostics / OTHER 业务 JSON 依既有 assembler 发布校验和最终 raw SHA 逐块读回，不新增16MiB产物限制。下载严格按最终 closure 顺序发每 entry，重复内容/同源不同路径不再去重。
 
 Artifact 最小公开扩展为 `ArtifactStreamingStorePort.get_ref/read_exact/read_session`。Local store 的 `read_exact` 安全打开普通文件、逐块校验 size/SHA，`read_session` 借用 root 目录的共享 `flock`；bounded cleanup 对同一目录取排他非阻塞锁后重查 eligibility，冲突返回 retryable。锁只使用现有 root 目录 FD，无新文件、DB 行、下载状态机或 mmap；信任边界仍为 ADR0012 协作进程。
 
@@ -18,24 +21,25 @@ Artifact 最小公开扩展为 `ArtifactStreamingStorePort.get_ref/read_exact/re
 | Preview 未就绪/过期、History 非 SUCCEEDED 或缺有效 assemble checkpoint | 沿 `read_preview_result` 原分类 | 沿原 `RESOURCE_NOT_FOUND` / `ARTIFACT_UNAVAILABLE` 404 |
 | 已授权 metadata 或任一成员不存在、不可读（ENOENT/EACCES/EPERM） | 404 `RESOURCE_NOT_FOUND` | 404 `ARTIFACT_UNAVAILABLE` |
 | metadata malformed/非 canonical/版本或交叉 digest 矛盾、ref 不符、大小/SHA 错、缺失引用、非法/重复/保留 path、symlink/非普通文件 | 窄 typed `BundleIntegrityError` → 503 `BUNDLE_INTEGRITY_FAILURE` | 同左 |
+| 已解析 PreviewResult 的 expected bundle digest 不等/空值；History checkpoint expected 缺失/不等 | 头前typed503并close prepared | 同左 |
 | 其他准备期文件 I/O 故障 | typed integrity/unavailable 边界内脱敏 503 | 同左 |
 | 响应头后 I/O 故障 | 传播并中断流，不补 padding/end blocks | 同左 |
 
-`ArtifactUnavailableError` 是存储层窄缺失/不可读类型；不再把所有 `ManifestVerificationError` 转成 404。响应不暴露私有路径或业务行。OpenAPI 200 只声明 `application/x-tar`，明确 Content-Length / ETag / Content-Disposition，新增 typed 503；无旧 JSON/octet-stream 双格式。
+`ArtifactUnavailableError` 是存储层窄缺失/不可读类型；不再把所有 `ManifestVerificationError` 转成 404。响应不暴露私有路径或业务行。OpenAPI 200 只声明 `application/x-tar`，明确 Content-Length / ETag / Content-Disposition，新增 typed 503；无旧 JSON/octet-stream 双格式。Preview 原始行若连 `digests.bundle_digest` 键都缺，原 `read_preview_result` mapper 可先发生 KeyError，不在新增绑定检查try内；不扩称所有原始Preview行结构错误统一503，不重开V1 facts分类。
 
 ## 3. 生命周期、资源与编码
 
 准备失败立即关闭借用；成功返回由 route 的 response wrapper 在 ASGI 调用 `finally` 关闭，覆盖正常结束、发送异常、客户端断连和取消；iterator 自身也 `finally` 关闭，`close` 幂等，未开始迭代的对象仍可关闭。生成器不持有全包 FD，不依赖普通 BackgroundTask 才能释放。协作 cleanup 在读取期间不删除本 root 产物；完成后可重试。
 
-逐成员 prepare 与 send 均使用 64 KiB chunk；root 目录锁一个 FD、当前 artifact 一个 FD，同时最多两个活动句柄，mmap=0。metadata 原 manifest ≤16 MiB、closure ≤16 MiB，保留其原字节用于发送；其解析结构和 entry 索引为 O(metadata bytes) 有界内存，单文件工作 chunk 64 KiB，不能将整包 materialize。PAX body 只为一条路径构造，路径由受限 metadata 上界约束；发送按 ≤1 MiB 切片，handoff 后补实际代表性 chunk/FD 计数。
+逐成员 prepare 与 send 均使用 64 KiB chunk；root 目录锁一个 FD、当前 artifact 一个 FD，同时最多两个活动句柄，mmap=0。发送期保留 manifest/closure 原字节各≤16MiB；预检另保留 expected closure≤16MiB，并逐个读取既有有界 reference JSON≤16MiB，join期间的分块与结果临时字节也单独计入metadata预算。parsed结构、路径字符串与entry索引为 O(metadata bytes)，不冒称所有内存仅64KiB。PAX路径逐16Ki code points切片编码，单片≤64KiB，不额外构造整条path/PAX bytes，不新增路径上限。原 `CountingStore` 实际计数字段的≤2活动handles/≤64KiB chunk cap断言已通过；日志未输出精确peak，不虚报实测RSS或精确峰值。
 
 自有确定性 POSIX ustar/PAX encoder：512-byte header，uid/gid/mtime=0，mode=0644，uname/gname 为空，普通文件 type=0；UTF-8 非 ASCII 或超出 ustar name 的路径使用局部 `path` PAX 扩展（type=x，固定非业务 header 名）。size 超11位octal使用标准 PAX decimal `size`（普通头size=0），保留ArtifactRef完整I-JSON范围；仅header/length小向量，不建大文件。PAX length 按整条 UTF-8 bytes 固定点，字面向量 `12 path=中\n`。路径逐16Ki code points编码，每块≤64KiB，不构造整条路径/PAX bytes。总长度与发送共用每 member 的 header/PAX plan，包含 padding 与两个 512-byte 零结束块，不增加 10 KiB record padding。固定小向量独立断言实际长度，Python tar reader 作为互通 consumer。
 
 ## 4. 精确文件与唯一测试 owner
 
-产品：`vnext/backend/src/gateway_backend/artifacts/{store.py,bundle_download.py,tar_stream.py}`；`infrastructure/artifact_store/{local_store.py,bounded_store.py}`；`capabilities/bundle_assembly/{transport.py,_assembly.py,__init__.py}`（共享现有 identity helper，不改输出）；`bootstrap/composition.py`；`http/dependencies.py`；`http/orchestration/{bundle_stream.py,history_compare.py}`；`http/routes/{preview_results.py,history.py}`；`http/bundle_response.py`；`benchmarks/real_dump_journey.py`。
+产品：`vnext/backend/src/gateway_backend/artifacts/{store.py,bundle_download.py,tar_stream.py}`；`infrastructure/artifact_store/{local_store.py,bounded_store.py}`；`capabilities/bundle_assembly/{transport.py,__init__.py}`（公开4个metadata符号，共享既有identity helper，不改业务输出）；`application/bundle_download.py`；`bootstrap/composition.py`；`http/dependencies.py`；`http/orchestration/{bundle_stream.py,history_compare.py}`；`http/routes/{preview_results.py,history.py}`；`http/bundle_response.py`；`benchmarks/{real_dump_journey.py,bundle_tar.py,bundle_interop_fixture.py}`。
 
-实际增量：`application/preview_jobs.py`、`application/history/compare_jobs.py` 把既有 `bundle_result.referenced_artifacts` 加入原 `required_refs`，使final rewritten/原closure在首次下载前即随现有publication事务受保护，保留全部原恢复refs、owner释放/TTL，不改业务digest/golden；此producer缺口已单独报告并经协调/设计者按既有Contract确认。`benchmarks/bundle_tar.py` 集中完整tar consumer；`tests/support/compose_gate_harness.py` 的既有JSON下载消费同步改用该consumer。`_assembly.py`/`__init__.py`最终无须修改，transport helper在相同owning package内直接共享既有identity/parser。
+实际增量：`application/preview_jobs.py`、`application/history/compare_jobs.py` 把既有 `bundle_result.referenced_artifacts` 加入原 `required_refs`，使final rewritten/原closure在首次下载前即随现有publication事务受保护，保留全部原恢复refs、owner释放/TTL，不改业务digest/golden；此producer缺口已单独报告并经协调/设计者按既有Contract确认。`benchmarks/bundle_tar.py` 集中完整tar consumer；`tests/support/compose_gate_harness.py` 的既有JSON下载消费同步改用该consumer。`_assembly.py`最终无修改；`__init__.py`正式公开 `BundleTransportMetadata`、`BUNDLE_REFERENCE_METADATA_KINDS`、`read_bundle_transport_metadata`、`validate_bundle_member_metadata`，application只消费capability公开surface，无架构allowlist/兼容转发。
 
 | 不变量 | 唯一测试 owner / 拟改文件 |
 | --- | --- |
@@ -45,7 +49,8 @@ Artifact 最小公开扩展为 `ArtifactStreamingStorePort.get_ref/read_exact/re
 | Preview MODIFIED_ONLY/FULL/replacement 与 History 两/三节点真实 job wiring、共享/异schema/空表/closure摘要 | `tests/test_bundle_download_http.py`；复用 `tests/support/http_workspace_harness.py`、既有 preview/history job harness；既有 job/assembly owner不复制矩阵 |
 | OpenAPI 唯一媒体及 headers/错误声明 | `tests/test_http_openapi.py` |
 | 实际 FULL multipart 输入、双 pair default consumer、tar 全成员/各物理与逻辑摘要、GET完整时间/bytes只报告 | `tests/test_real_dump_journey.py` |
-| 当前容器实际下载 smoke 与 provenance | `tests/test_history_compose_e2e.py`（既有旅程加完整 tar 断言；候选收敛后一次） |
+| 当前06容器下载smoke、production OpenAPI/provenance | `tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`（0ba实际通过一次） |
+| History容器两/三节点完整tar | `tests/test_history_compose_e2e.py`（04最终权威runner待跑；06已有上述真实HTTP/job owner，不重复长旅程） |
 
 Owning 正文只改 `docs/backend-vnext/contracts/comparison-bundle.md`（完整 tar/顺序/头/错误/生命周期/上界），必要真实 port 条款写入该 owning Contract。没有新的业务 golden；原业务 manifest/digest/golden 应原字节保留。共享前端向量由生产 encoder 在06 clean候选生成到 WT 外：同一 tar 包含 ASCII长路径、中文、非BMP，并交原 metadata、各文件/整包 length/SHA、命令/候选/节点；不是新协议 golden。不得改 frontend 或前端文档。
 
@@ -54,17 +59,17 @@ Owning 正文只改 `docs/backend-vnext/contracts/comparison-bundle.md`（完整
 1. 本清单先提交并直交同一独审预检；依次实现公开 bounded artifact 读取、owning metadata decoder、encoder/prepare/response、两路由与 tests/Contract，固定首产品候选早交独审。
 2. 同一后续候选完成 main 真实工具：v1 MODIFIED_ONLY；v2 FULL，INITIAL=v1/MODIFIED=v2；默认业务摘要和 identity 明确取 `initial_to_modified`，另核 `baseline_to_initial`，完整 tar consumer 覆盖两 pair 所有成员；保留 V2 显式归档 reason 环境输入，不 force。
 
-实际功能入口为 `--tier t1 --scope full --v2-input-completeness FULL`，**完整执行命令待最终清单对齐，不执行先前草稿的小fixture N4/M24MiB例子**。host kernel CLI与Compose worker独立：保留已审worker N1、32GiB envelope / 8GiB reserve / 显式M24GiB=25769803776B、单active；host scope亦N1，独立budget参考原旅程51539607552B，在联合清单核实后填写。pytest/Cargo jobs4只是测试并行度。`--scope full`仍仅表示步骤范围，新增flag才决定v2真实FULL multipart。v1/repeat-v1仍MODIFIED_ONLY；v2 INITIAL与已归档v1同字节，MODIFIED=v2。summary与identity均按请求mode强制确切pair集合（FULL两pair、MOD_ONLY一pair），两个pair均查无降级/失败且baseline_to_initial不变；default summary/identity只取initial_to_modified；所有pair/member均由tar consumer核原metadata、精确顺序、size/raw SHA、引用metadata和records owner逻辑content digest。GET完整读时间/bytes独立只报告，原completion/user-visible在GET前冻结。
+实际功能入口为 `--tier t1 --scope full --v2-input-completeness FULL`，**完整执行命令待最终清单对齐，不执行先前草稿的小fixture N4/M24MiB例子**。host kernel CLI与Compose worker独立：保留已审worker N1、32GiB envelope / 8GiB reserve / 显式M24GiB=25769803776B、单active；host scope沿原S2b E fresh t1实际命令N1/M25769803776B，CLI `--kernel-threads 1 --kernel-memory-budget-bytes 25769803776`；不用t3校准48GiB。pytest/Cargo jobs4只是测试并行度。`--scope full`仍仅表示步骤范围，新增flag才决定v2真实FULL multipart。v1/repeat-v1仍MODIFIED_ONLY；v2 INITIAL与已归档v1同字节，MODIFIED=v2。summary与identity均按请求mode强制确切pair集合（FULL两pair、MOD_ONLY一pair），两个pair均查无降级/失败且baseline_to_initial不变；default summary/identity只取initial_to_modified；所有pair/member均由tar consumer核原metadata、精确顺序、size/raw SHA、引用metadata和records owner逻辑content digest。GET完整读时间/bytes独立只报告，原completion/user-visible在GET前冻结。
 
 前端额外已知接缝：现consumer只读取PAX path且有1MiB PAX body限制；标准size记录、octal边界及I-JSON max仅交header/length小向量，不能冒称大文件互通。主共享tar仍是可完整安装的小制品，后端不新增路径/产物大小上限，FE资源上界由其owner核对；FE修复/同字节证据仍待。
 3. 06 BatchMode 连通/现场核空闲后原子本人 marker；LAN bundle 传源码到独立 clean 已提交 WT，legacy 链接、离线缓存/toolchain/dependency-base；`UV_OFFLINE=1 CARGO_NET_OFFLINE=true TMPDIR=/home/dev/gdds-test-tmp`、Cargo/pytest workers4。即使 Rust 无改仍强制重装扩展并核 build input；五 Python 包 ruff/mypy；focused 非serial -n4、serial -n0，空批 exit5 为 N/A。失败原日志/SHA保留，产品失败先停诊断。收敛后一次必要当前小型 Compose 和 OpenAPI/同字节制品。
 4. D 独审与06局部证据完成后，同两角色继续已授权联合准备/集中核收：先与协调者固定最终命令/候选，04实际受影响六包权威及其中必要Compose，05一次fresh t1上述两模式完整旅程；不重复同runner Compose，不触冻结基准/CT108。联合退出前 DC33 最终范围仍交 Owner 确认，不自行exit/tag/push，不称 FE3 完成。
 
-当前 container gate：D产品已固定至本节提交链，尚未执行D镜像/Compose。最后实际产品/镜像 revision `f8fb796f020ab47725359c176fc0e53bfb68aae6`，vnext tree `3860ed86194e4eafea9cfd408e7e7b5096b24bbb`。D 完整候选因 HTTP container harness 与最终传输行为变更须重建/运行；暂记 deferred 到恢复授权后的06候选收敛及04联合最终候选，不能沿用旧V2结果宣称当前D通过。
+当前 container gate：0ba在06离线重建backend/worker并实际通过一次上述最小Submit Compose，production OpenAPI与实际运行镜像身份已保存（§8），非沿用V2。04联合最终权威runner包含必要完整Compose仍待，不重复同runner已覆盖旅程，不由06小旅程代替04门禁。
 
-## 6. 实际候选、已有证据与验证暂停事件
+## 6. 历史候选、已有证据与验证暂停事件（§7已授权恢复）
 
-产品首候选 `36edb20086`；`1c14572725` 清理旧imports/fixture名；`e3b54b8f71` 修F1（generic业务JSON不得误套16MiB metadata上限）；`7f25a1657a` 修实际HTTP受理fixture；`d0a22ba91d` 完整工具/F2保护接线；`aaa0f4a6f3` 测试typing；`8de2a9a060` F3按请求mode强制确切pair集合；`a7954b6b55` 改为首次GET前核manifest/closure/全部final保护；`445a19dfe3` 同步store缺失错误文案。独审GO尚未形成；当前产品待最终复核。
+产品首候选 `36edb20086`；`1c14572725` 清理旧imports/fixture名；`e3b54b8f71` 修F1（generic业务JSON不得误套16MiB metadata上限）；`7f25a1657a` 修实际HTTP受理fixture；`d0a22ba91d` 完整工具/F2保护接线；`aaa0f4a6f3` 测试typing；`8de2a9a060` F3按请求mode强制确切pair集合；`a7954b6b55` 改为首次GET前核manifest/closure/全部final保护；`445a19dfe3` 同步store缺失错误文案。当时独审GO尚未形成；后续本地核收以§8为准。
 
 06新WT `/home/dev/gdds-test-tmp/wt/p6-be-d` 从11:01:37Z取得本人marker开始，使用预填充离线uv/Cargo、独立新venv、Cargo jobs4；source经CT201 LAN bundle传输。36ed新环境强制重装Rust扩展成功，expected=installed `e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`，sync log SHA `cc0eacc8f9615a531877837661a3f6165297f7d867f11295229c7eae10a215b6`，build-input log SHA `1b12990473ed30492e14a01806f4ed8d691b3730e9dd951202f767920945cbb8`。Rust/toolchain同1.97 selector已核，无Rust源码改动。
 
@@ -82,15 +87,15 @@ Owning 正文只改 `docs/backend-vnext/contracts/comparison-bundle.md`（完整
 
 更早checkout的时间只能由相邻原log界定，未记失败秒级UTC，不伪造精确时间：①11:03:35Z 36ed静态失败之后、11:04:31Z 1c复查之前，首次传1c时在linked WT使用primary WT才有的FETCH_HEAD，checkout128；随后改完整1c SHA成功，才启动1c复查。②11:14:43Z d0 mypy失败之后、11:15:21Z aaa复查之前，传aaa typing修订时手填了不存在的literal `8c3f3bd0dc`，checkout128；随后改真实完整aaa SHA成功，才启动aaa首轮复查。两者是不同候选/不同传输步骤，不是同一步连续重做；每次失败当时未启动被测对象，后续成功后的产品执行另记。两次错误输出由工具回包保留，`checkout-operation-error.log` / `checkout-typing-operation-error.log`是事后从工具输出整理的**派生说明**，从未有原命令外置原log，不能称原执行原字节仍在。第三次11:16–11:17误跑与日志覆盖不适用前述产品前例外。
 
-协调者接报后明确暂停全部受影响节点focused/static/Compose/04/05，未经Owner回复不恢复。现仅做证据保全、资源清点/本人释放和可审查guard修正，其他无关产品/工具代码可继续；没有任何D Compose或联合权威/真实旅程通过声明。
+当时协调者接报后明确暂停全部受影响节点focused/static/Compose/04/05，未经Owner回复不恢复。当时仅做证据保全、资源清点/本人释放和可审查guard修正，其他无关产品/工具代码可继续；没有任何D Compose或联合权威/真实旅程通过声明。
 
 保全目录：06 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/incident-preservation-rvpm66sO/`，保存事件时现存log/script/bundle、actual HEAD/status、进程、容器及8000快照，`SHA256SUMS` SHA `78122ba8b893b200c17ad9ae959af5fa7d25cc830f59986043f2b40298ca065b`；LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-d/incident-preservation-rvpm66sO/`。保全时WT为clean `aaa0f4a6f32143448c1b55bb1cc8f509643e1d3c`。11:19:30Z确认无本任务服务/运行容器/8000/Dolt/Cargo/pytest，仅释放本人marker；释放log `node-release-UzrHOQAs.log` SHA `de06e368c6459639f0f04525cdb6a9763edaa30e85eb3e8ff6a21b97422b8ae8`，副本同上。旧WT、卷、镜像及证据未清理。
 
-可审查guard（仅写文件，尚未执行/测试）：本地 `/home/dev/gdds-be-d-guarded-transfer.sh`（副本`/home/dev/gdds-reviews/artifacts/p6-be-d/guarded-transfer.sh`），SHA `f83066c0b15a012bf5df673577591910e5b0afd4926553d4f3592ef5edff9d4d`；node-run `/home/dev/gdds-be-d-guarded-node-run.sh`（副本同目录`guarded-node-run.sh`），SHA `4eb10c9fc1a8b3b12d4b5ae4cba4d54528d7462d7a5a8f91549facb0e7c979b2`。两者`set -euo pipefail`，transfer以named HEAD建bundle并verify/核advertised完整SHA及SHA256，任何失败不继续；节点checkout显式完整SHA并核clean/exact HEAD；run每次`mktemp`独立WT外目录，保存精确命令/guard，运行前后核完整HEAD/clean及本人marker；end marker不同或丢失记录`end_owner_marker_matches=false`，保留`command_exit`原值并使`final_exit=2`。无需新evidence状态机；同一独审静态核后由协调者提交具体恢复方案给Owner，Owner回复前不执行。
+可审查guard（以下是批准前仅写文件、尚未执行/测试的历史状态；§7–8记录批准后的实际执行）：本地 `/home/dev/gdds-be-d-guarded-transfer.sh`（副本`/home/dev/gdds-reviews/artifacts/p6-be-d/guarded-transfer.sh`），SHA `f83066c0b15a012bf5df673577591910e5b0afd4926553d4f3592ef5edff9d4d`；node-run `/home/dev/gdds-be-d-guarded-node-run.sh`（副本同目录`guarded-node-run.sh`），SHA `4eb10c9fc1a8b3b12d4b5ae4cba4d54528d7462d7a5a8f91549facb0e7c979b2`。两者`set -euo pipefail`，transfer以named HEAD建bundle并verify/核advertised完整SHA及SHA256，任何失败不继续；节点checkout显式完整SHA并核clean/exact HEAD；run每次`mktemp`独立WT外目录，保存精确命令/guard，运行前后核完整HEAD/clean及本人marker；end marker不同或丢失记录`end_owner_marker_matches=false`，保留`command_exit`原值并使`final_exit=2`。无需新evidence状态机；同一独审静态核后由协调者提交具体恢复方案给Owner，当时Owner回复前不执行；该停点已由§7明确授权覆盖。
 
 两guard当前mode664，实际入口均为`bash <file>`；transfer只传source bundle，不安装/执行node-run。Owner恢复后，协调固定clean实际完整SHA（届时含审核/批准文档，核其vnext tree与已审产品相同），赋给`D_EXPECTED_SHA`，再用`bash /home/dev/gdds-be-d-guarded-transfer.sh "$D_EXPECTED_SHA"`传源码。node-run单独经LAN `scp /home/dev/gdds-be-d-guarded-node-run.sh ct107-gw-dms-06:/home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh`，核SHA后以`ssh -o BatchMode=yes ct107-gw-dms-06 "bash /home/dev/gdds-test-tmp/artifacts/p6-be-d/guarded-node-run-v1.sh '$D_EXPECTED_SHA' <label> <command-and-properly-quoted-arguments>"`调用，不能`bash -s`令`$0=bash`而使guard自复制错误。具体待恢复命令由协调清单列明，不以这个占位示例启动。释放原log的精确本地副本是 `/home/dev/gdds-reviews/artifacts/p6-be-d/node-release-UzrHOQAs.log`，06原路径是 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/node-release-UzrHOQAs.log`，它在incident-preservation子目录外。
 
-Owner恢复后的固定调用形态（目前禁止执行）：
+当时拟定的恢复调用形态（历史占位，已由§7–8实际exactSHA运行替代）：
 
 ```bash
 # D_EXPECTED_SHA由协调填恢复时clean实际完整SHA；先核审查产品vnext tree不变。
@@ -110,8 +115,54 @@ Owner明确回复“按方案恢复验证”，授权提交 `c1d1beefb1260f21810
 
 最小修正：`artifacts/bundle_download.py`仅保留纯 `PreparedBundleDownload` 和窄 `BundleIntegrityError`，encoder仍在artifacts；prepare/metadata协调移至新 `application/bundle_download.py`，bootstrap从application导入函数。HTTP只导低层typed error，owning capability transport使用同一低层class，不增allowlist、baseline或兼容转发。相关test/benchmark import同步。06收敛Compose固定最小 `tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`，其共享consumer实际验证Preview完整tar，并从运行production GET `/openapi.json`保存全量schema及SHA；History两/三节点用原HTTP/job wiring定向证据，最终04 runner仍实际包括已修改的History Compose旅程，不在06重复长旅程。
 
-联合05 fresh t1 host budget经协调从原S2b E fresh t1 `command.json`核实为N1/M25769803776B，后续沿该已过host值；Compose worker独立保持N1/M25769803776B、32GiB envelope/8GiB reserve、单active。此前§5的host48GiB参考现以此实际t1来源修正，不试预算。
+联合05 fresh t1 host budget经协调从原S2b E fresh t1 `command.json`核实为N1/M25769803776B，后续沿该已过host值；Compose worker独立保持N1/M25769803776B、32GiB envelope/8GiB reserve、单active。§5已按此实际t1来源收敛，不试预算。
 
 后续public surface修正 `ff704555f5` 只正式导出4个既有metadata helper/type/constant并由application公开消费；实际验证提交经无产品差异的他方docs前移到 `b1a43480d426e4e8959fb7cfab5bb2ffeb935227`，vnext=`603fb5d217db9612d243d8ea062e94ca02d12bd0`。原ff传输因main正常前移在本地guard前置拒绝，未建bundle/未触节点/未跑旧WT；协调刷新actual b1a后source_ready，目录`transfer-Ogy6zITV`。b1a架构+download owner139pass、selected serial382deselected/exit5=N/A、五包十项ruff/mypy0与e6ac扩展核0，均为新的唯一run目录，旧丢失/误跑不作当前依据；详细索引在本节最终核收补齐。
 
-F5绑定修正：两个已授权路由prepare后、创建响应前比较 `prepared.bundle_digest` 与当前owning PreviewResult / History checkpoint 的 expected bundle digest，缺失或矛盾为typed503并close。一个完整有效但属于另一个结果的bundle也不能200；不增加port参数/兼容跳过/持久字段。`test_bundle_download_http.py`同一共享参数fixture用真实assembler生成第二个有效bundle，再只改own Preview binding /合法History checkpoint的artifact_id（expected保留），经真实public路由断言503/无ETag/借用释放。已有fake reader测试现在显式提供owning digest；真实正向fixture同步自身manifest digest，不把raw SHA当semantic digest。该F5固定候选尚待定向验证；backend/worker构建、Compose和interop尚未执行，延期到此最终候选，已完成的b1a RS依赖准备不冒称后端容器通过。
+F5绑定修正：两个已授权路由prepare后、创建响应前比较 `prepared.bundle_digest` 与当前owning PreviewResult / History checkpoint 的 expected bundle digest，已解析Preview expected不等/空值或History checkpoint expected缺失/不等为typed503并close。一个完整有效但属于另一个结果的bundle也不能200；不增加port参数/兼容跳过/持久字段。`test_bundle_download_http.py`同一共享参数fixture用真实assembler生成第二个有效bundle，再只改own Preview binding /合法History checkpoint的artifact_id（expected保留），经真实public路由断言503/无ETag/借用释放。已有fake reader测试现在显式提供owning digest；真实正向fixture同步自身manifest digest，不把raw SHA当semantic digest。该段记录F5固定时的历史待验状态；后续0ba定向、backend/worker构建、Compose和interop均已完成，见§8；b1a RS依赖准备本身不冒称后端容器通过。
+
+## 8. 当前06本地交付、原证据索引与释放
+
+产品固定 `0ba45e5ef83f54bfb2585f963f9518d32086f942` / vnext `0301aee3a39e3a5dfc37360e9c2062e660eb01ea`；同一原独审报告 `6ad7e54fa0` §14–15 已独立核实际代码、原日志/四项SHA、生产制品、完整镜像身份及释放，F1–F5关闭，本地里程碑通过。本文后续仅docs，不构成新产品变更。所有实际运行在06 clean提交WT `/home/dev/gdds-test-tmp/wt/p6-be-d`，UV/Cargo offline、TMPDIR外置、jobs4；每run完整expected SHA与前后HEAD/clean/本人marker均保存。不是一次全选成功、权威runner通过或package/image carried。
+
+证据根06 `/home/dev/gdds-test-tmp/artifacts/p6-be-d/`；完整LAN副本 `/home/dev/gdds-reviews/artifacts/p6-be-d/recovery-copy-9cctQXWi/`。18-run快照 `evidence-index-9ln5cjtm/index.json` SHA `d784bad64ed01670a143c5c05cf5789ff09df1999bd5639d94b558f2db03c7d2`，逐run列原log/command/guard/expected与SHA核验；该索引早于自身生成、cleanup和release，不循环声称包含后来文件。下表均相对证据根，具体完整argv在各run的 `command.txt`。
+
+| 实际来源 | 结果与run.log SHA256 |
+| --- | --- |
+| c1d `run-prerequisites-c2NGDGTX` | legacy/1.97全selector/缓存/扩展build-input核0；`4a0e527b5f4f1c4c906314ceca681f68db7613a722783d85bd15f66412a71ecc` |
+| b1a `run-architecture-download-hlGAQyFn` | 架构+download139pass/0；`d325886ee7bacc8fbd6bb6a10906377fadcd31716bd3a5b16fc71be0cadb01d8` |
+| b1a `run-backend-selected-serial-KNgMhQf7` | 14文件所选serial382deselected/exit5=N/A；`eaf017844bf3c09a1c9f47578ac644d683775b2d118480296a7cd00cf7465a83` |
+| b1a `run-static-five-423Ms53b` | 五包十项ruff/mypy0及扩展核0；`95cbb65963119850d2b54073838a08d9ab5e95d213ace8b67cfc92ef78ef4288` |
+| b1a `run-dependency-input-nZPH2hbo` | backend依赖输入0，digest `d054366c02fa2a284948610e47b1c07bbdba98684b847846ca922d7da3d57aad`；`3fb794d15ccbc390a0491d737babcb8fb3b37c0e1c83a724184fe9b6ce722978` |
+| 0ba `run-http-digest-binding-rBoVUD3E` | 三HTTP owner74pass/0；`28daca20f2edd23b85a1fa69e499681efe1321a2098dc01c7c42aa1c73ea0211` |
+| 0ba `run-backend-ruff-final-e5Kvyl1I` / `run-backend-mypy-final-wob5kWWW` | 增量backend静态均0；`b1106172e9d9902117080c61b481694f091e8ffd6298ad255e0fabb4e7368b32` / `dde47ec37c282e118fb632b31d82982af32eb5655cff37441e2174d285df437b` |
+| 0ba `run-compose-tar-openapi-ZHVSgrfR` | 11:56:53–11:57:26Z，Submit最小Compose1pass/0；`89120149839192c49e4d5827fbaf3802078573eccb3c155acbc49719ffe145a2` |
+| 0ba `run-interop-generate-LZPb1TzQ` | 生产assembler/encoder实际生成0；`457ac3a7da59396008394ebdf62171fa7c2aaf818975a4bec5b7adf7dcb7d455` |
+| 0ba `run-interop-verify-OeWqqKQW` | wrapper拒绝外置.py，consumer未执行，command/final2；原失败保留 `f9827d7ed88809bee522a19bbcf40a7d41af32ff3da207a9707c31c52921f955` |
+| 0ba `run-interop-verify-corrected-6TuXooMk` | root确认DC68首次无副作用前置错误，仅该步骤一次纠正；受控wrapper公开python-c只import已提交consumer+标准库，tar为数据参数，command/final0；`77dc8866fdff679b737740cc129ab3e8fda7c211cbd341b21b31f3626d5f4568` |
+
+正常产品失败c1d380pass/2架构fail、4c8238pass/1公开surface fail完整原run分别为 `run-backend-focused-yPq3ZLFd` / `run-backend-focused-fixed-pQtmiknA`，SHA `7ff99fbc8320be840074f44245bf74b403a71344edbd82f030ca96b9511067f8` / `a5eb185d9ccf5dcd73ae83e308c8e0092bfb39fe3b389787958c074ba8d77e10`，保留且由最小移层/public export修正后定向补验，不改称历史整批通过。§6事故、三份aaa首轮原字节丢失及旧对象误跑不被本节恢复抹除。
+
+### 8.1 当前实际Compose与镜像
+
+精确nodeid为§4的Submit小旅程，实际argv unset `GATEWAY_COMPOSE_GATE_PREBUILT`、设置 `GATEWAY_BACKEND_USE_PRELOADED_DEPENDENCIES=1`、`GATEWAY_BACKEND_DEPENDENCY_BASE_IMAGE=gateway-backend-deps:lock-d054366c02fa`、`GATEWAY_DOCKER_BUILD_NETWORK=none`、`GATEWAY_REPOSITORY_SERVICE_IMAGE=gateway-repository-service:be-d-b1a43480d4`、`GATEWAY_P2R1_DEPENDENCY_BASE_IMAGE=gateway-p2r1-repository:lock-6dc9659f0aee`；受控uv pytest `-n0 -m 'serial and not parallel_safe'`。正常Compose build保留，本机离线构建backend/worker后运行，非prebuilt绕过；RS原b1a离线build输入在0ba未变。无需重复该Compose。
+
+`compose-output-eJGTujH4/production-openapi.json` 是实际production GET，SHA `977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`；两route200仅tar、三headers与实际404/typed503声明齐备。`compose-provenance.json` SHA `9e3c0e525bb5677d705d870de38e49da309fa988e2077be8926f2c72ba6cea4b`，实际project `gateway-submit-s8-322478-test_compose_accept_upload_imp0`。
+
+`image-identities-k0fu61o4/image-identities.json` SHA `184b2994f39de63432f3145bd3786c1eb4c8e300010aee455e0e007e85cd9661` 保存五镜像实际docker-save config digest与全部89项RootFS DiffID（13/13/28/19/16），并核inspect全部DiffID。backend/worker config分别 `sha256:2c2e0adb3ef9bac2f8c88a3ef635d91b888b5f6cc6dd5337f0e56d91774ff582` / `sha256:1279f49a9cdd87261f25b8a5dd665331e8c1f08bbd1e41dc2bee5382210a1735`；通过同机running image ID桥接当前build，不虚构其revision标签。RS config `sha256:2ac4ad9fda8863bf3a292870f611e61e68992f0096d9c8c6e6540656806cca72`，revision b1a，build-input `a6876d560050285321fd9f62942d590a03f35d64` / source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。依赖base来源为节点已预填充LAN缓存，不使用代理/公网；完整config/DiffID在同一JSON，不以跨节点inspect ID比较。
+
+### 8.2 Owner可转发的同字节制品
+
+实际生成命令与候选/节点见 `run-interop-generate-LZPb1TzQ/command.txt`。本地目录 `/home/dev/gdds-reviews/artifacts/p6-be-d/recovery-copy-9cctQXWi/recovery-lpNIMtZE/interop-0ba45e5ef8/`，06同名相对目录；`index.json` SHA `199d451123df6a0354e51c92e411aad1770553909d18ff07e6d4fecdd14ea38d` 列每文件和每closure成员length/SHA。
+
+- `bundle.tar` **24576B** / SHA `b08a310c82162ecf559b9f82eca30548cc97a75cc0d8775e20b2bd24611332a2`，semantic bundle digest `sha256:2be243c36d03ef8f11fe9108283ff814631d1dda4aafa32d45380006fd5ef050`。
+- 原 `manifest.json` 6062B / SHA `320f44e71bdf70f802a83c3362515a7399694a400b88551b9da41be9c8fb4f67`；原 `artifact-closure.json` 5232B / SHA `becf0b703c3dad4bf033341c88c3580ecdc66ae695a728bce5d912cf79f8897a`。共6普通成员，4closure entries：surface2275B，ASCII长路径/中文/非BMP Parquet各741B。
+- `pax-records.json` 含 `12 path=中\n`、相邻记录、99/101位数边界及畸形length/newline/UTF8数据向量。三个 `size-*-header-only.bin` 覆盖8589934591/8589934592/I-JSON max；512/1536/1536B，`size-vectors.json` 明确 `complete_tar=false`，不能冒称巨大完整tar已互通。
+
+提交内独立consumer核全部8文件length/SHA及完整tar顺序、原metadata、4closure raw摘要，输出reference metadata1、logical records0；该小制品没有records，不能用其宣称真实records逻辑摘要覆盖。FE须用同一bundle.tar完成解析/hash/OPFS，PAX UTF8字节、标准size及其资源上界由FE owner修正/验证；后端本地通过不等于FE3解除。协调已通过 `57aa092e33` 向Owner交该实际包，无需实施查前端会话。
+
+### 8.3 本人清理与联合待办
+
+`run-cleanup-check-5x362qHI` 12:05:24Z/0，SHA `4b95b3654f2396026e4d3ca25b03c99922b7ee6dc644f94832fea3bb3083827e`：本人project容器/卷/网络、端口8000及Dolt/Cargo/pytest/rustc/clippy为空。`release-O4scz5uE/release.log` 12:05:51Z/0，SHA `91da2118722b0ce0801f9ba9eb01b8e715b1efb584dbfeeedae2918adc92047d`，cmp本人marker后释放、HEAD clean0ba；独审12:07:27Z再次只读核空闲。保留WT、依赖缓存及所有历史证据，不碰他人资源。
+
+本地handoff固定后，同两角色继续联合04六包/必要Compose与05一次fresh t1；exact candidate、各节点独立WT/owner/guard路径、完整CLI/env与逐项archive reasons先交协调和原独审静核，未对齐前不启动。05 host N1/M24GiB独立于worker N1/M24GiB和32/8 envelope；不试预算。最终DC33范围确认、阶段exit/tag/push及FE3互通仍分开，不在本地里程碑自行办理。

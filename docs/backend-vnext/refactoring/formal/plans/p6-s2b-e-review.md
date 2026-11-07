@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：最后完整门禁来源82c4251b6c的五包静态、04六包整次及fresh t1/t2/t4已通过，t3在v2 Preview按现模型M16准入失败；当前源码464289138a补漏预约已过定向/static，24/8/M16仍不变，宽裕t3局部校准方案待Owner，最终H绑定未办**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 未 GO：最后完整门禁来源82c4251b6c的五包静态、04六包整次及fresh t1/t2/t4已通过，t3在v2 Preview按现模型M16准入失败；当前源码464289138a补漏预约已过定向/static，main24/8/M16不变，a10宽裕fresh t3全程校准按Owner既有持续授权运行中，最终生产档与DC33范围测后决定，最终H绑定未办**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
 
 ## 范围与固定基线
 
@@ -314,3 +314,29 @@ W1初诊只使用这次t4本就导出的timing：首次v1 Preview受理响应后
 现CLI机制可用：JourneyStepRunner复用前缀workspace/upload，v2_preview_action按新project生成新key；accept_start_preview按(workspace,key)查重/定operation id，没有FAILED terminal禁止条件，accept本身不增workspace版本；资源失败handler只置operation/step FAILED和释放step保护，不改workspace。因此copy后还须一次核v2workspace OPEN、optimistic_version/current_upload_revision_id/generation与保存upload一致、BaselineHead与成功prefix一致，才可同workspace/upload发新op且newop≠旧FAILED；不人工改state、版本或HEAD来绕前提。此静态方案不替代实际局部结果，也不替代最终profile fresh完整t3/必要门禁。
 
 隔离cal候选已静态固定 **`a10dec894e39013dc02bc7100a27da69ca01040b`**，任务ref `refs/codex/s2b-e/t3-calibration/<fullSHA>`核合。独立逐blob核main464的standard `5bb7b55bda6f4295b246546657ab772523da3389` / role test `7037318c8c0882d7b1a16f309fce8befe713fdcd`与cal相同；464..a10的vnext差异严格四个原cal路径，其kernel_execution/settings/worker资源owner/Compose blob依次为 `043df1d5429c59b63f2aad738c89fef77c011bd7` / `b6e8b2e860054fdc715410e01649c5eae7e1a8cd` / `b4f6a892ba87020dcd0c12c0600e3ee8eada16a2` / `fb2cf4046f8e70ea27c0e8b5d428fa8a50bf1081`，逐一与原1f9相同。1f9..a10仅上述两个漏预约修复路径，无其他产品差异；因此可复用464的93项定向与既有cal profile行为证据，不为同代码再跑相同focused。此为隔离源码等价CLEAR，main仍24/8/M16、审核WT仍clean464；**Owner尚未批准本次校准，未复制或启动**。最终profile与剩余正式验收仍待，E不GO，S2b exit另办。
+
+协调者随后明确：Owner此前“先增大预算，再按测量结果决定，避免多次尝试”的持续授权覆盖原校准遗漏的t3剩余路径，因此撤销前述另等新cal批复的调度等待；**依据既有授权继续，不转记为新的Owner批复**。仅a10同64/16/M48/N1、05冷源→CT108独立copy/from-step v2-preview至History；main最终档不改，原FAIL/state/卷不动，不重复成功V1、不运行临时六包。已核源码/CLI前提不再建立逐版本签GO链；按关键资源/身份/副本边界和事后原始结果独审。真实失败或前提不符停报、不自动提M，最终生产profile仍测后交Owner决定。
+
+## 测后最终范围的最小影响核对
+
+协调者授权只读核已有t4 closed metadata与原counter，评估测后能否沿用82 t1/t2/t4业务结果；不启动最终门禁。审核在CT108现场idle后于03:14:54Z原子取得短readonly owner，固定clean a10/实际锁定venv，未与校准运行重叠；仅读取原4f停止数据与既有82结果。证据目录 `artifacts/s2b-e-review-t4-nonrecord-delta-01/`，原control DB及state最后SHA仍e76b09a2…/0b24994e…，未写源或启动服务。
+
+原4f和82 full t4的V1/V2输入分别同为SHA `95408cc3cfd5bee4f7e53ab1b556e58c3335535b16e8791059029e59d5da1675` / `5a7cd54d9b996be55c34b7bb766eb01ad5c1b7c4fa9bd1e72f5c4741baee3611`，size5597503/5596595 B，已逐项核。4f与82的standard blob均3c2ffd73…、Rust tree均137d499…；差异仅临时profile/logger与FD早close/对应owner，FD修复保mapping预算。82..464仅新增nonrecord准入分支及其owner，不改任何成功业务输出、reader、规则、digest或事务。
+
+一次脚本 `b29088c67cc6ada98d1d227083b2f383810c6cfc46862bd557ac26b052a54c84` 先核metadata raw SHA/size，精确commit索引312×2完整、所有624绑定均被closed manifest覆盖；只对34个nonrecord表的150个closed variant、48个唯一selected IPC做Arrow25 mmap/get_batch/select/nbytes。它与CanonicalStore真实get_batch/select及Arrow table logical_size口径一致，无scalar遍历、Rust业务kernel或新旅程。每表取所有variant最大单侧现费用，再保守计两侧和全部nonrecord表，即使实际非COLUMNS_ADDED也不略过；实际MODIFIED_ONLY Preview/History均仅一pair，因此新增费用**上界1498264448 B**，不是另造业务oracle或把下界冒上界。
+
+03:19:16–03:19:18Z锁核/native137/实际E解释器前置及该只读计算actual0，`fee-upper.json` SHA **`6cb5fba0be807de08130e9c18491ced3b54572b0c03e80a221d8c356ee2331d9`**，命令log SHA `2eb22b2e1ea2625abd25fc304a4ba3e42e1aac3d3529dd2362708436535b452d`。原cal成功前缀scope预约峰13070921208 B，已修FD的1f9成功History scope峰11218037646 B，取max并加新增上界为 **14569185656 B**，较M16尚余2610683528 B。各claimed step独立建budget，故该最大值可作收费影响上界；不将分开的worker物理峰值相加，不拼成完整calPASS。
+
+该收费合计不包含全部Rust temporary，不能据此称最终M16一定沿用。更保守的资源沿用条件是最终M至少覆盖原已通过M16与新增上界之和：**Mfinal≥18678133632 B（约17.395GiB）**，让未改native调用的remaining cap不低于原82。实际调用链为worker显式M→每step OperationMemoryBudget→增长前reserve；parser/business/canonical仅将remaining或局部min传为max_live/max_codec_peak准入上限，Rust该字段用于边界拒绝，不选hash/schema/输出算法或N。source staging有固定归档上限，bundle/XML收费取实际输入而非按M扩大输出；N1、单active、租约/control保持。这避免用charged峰代替native严格实耗，亦不新增allocator跟踪。03:20:03Z核whole idle/a10clean/精确owner后释放，release SHA `718870f829feb77281c7f1e53785423cec5ea7f913b655e7c74e39c8fa794921` actual0，随后才由cal自取新owner。
+
+给协调者的DC33范围建议是：82 t1/t2/t4完整业务结果可作对应原输入的功能正确性回归，当前最终候选仍需06适用focused/static、04六包actual/current Compose及fresh完整t3验证最终配置。t4新增费用与native headroom有上述具体条件，满足时可省其重复旅程，但旧t4 cgroup/RSS明确只属于24/M16，不冒新profile实测。t1/t2成功资源卷已按原流程清理，现无同等精确新增费用上界，不以tier编号或t4文件更大推定；若Owner按比例化DC33选择功能结果沿用，新profile逐tier资源实测仍须记“未做”；若要求逐tier实际承载，则t1/t2是具体剩余缺口，不默认全t1–t4重跑。最终范围随测后配置一并交Owner确认，目前仅建议，未放行最终运行。
+
+## a10 fresh完整t3宽裕校准
+
+05原线自03:04:56Z有有效占用，已接近/超过t3成功前缀耗时；协调者据持续测量授权将待冷副本方案改为CT108一次fresh完整t3，同64/16/M48/N1，直接使用已齐8输入和a10环境，避免继续等源归档并取得单worker完整峰值。**未实际创建冷归档/复制/恢复副本**，不重复t1/t2/t4或临时runner，原05 t3失败卷/state不动；这不是新生产profile批准或额外新校准轮次。
+
+新driver `/tmp/s2b-e-t3-fresh-calibration-driver.py` SHA **`5f724b12e2c604204b971bdabe4c2b874f2525d1791252fb12d927e59c69b91f`** 关键差异已核：原d44仅tier/newWT/project和已验证untimed after-stop原日志采集/解析，timed日志仍保，真实record_count与unique scope_count分开；64/16/M48、N1、same-worker/CGpeak/RSS/正常stop与失败保现场不变，无from-step或seed/copy新框架。scope对claimed集合完整，不将stage temporary_limit当实耗。
+
+CT108新WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-t3-calibration` 的source0/另call独立source0/env0/独立env0日志SHA依次 `3318b3dfff8460c516d57f35ae8dbe617a991d1ad038e88c93ca0968e6318a74` / `ca90a2f825d8c43a3d3e8788df87f91a4913ae4d3ee08d8ea5c1317e631256ba` / `7bb84a8c90959c7c47ab2cfd3e80cdd691e192ff80c132f8ef246f6c4b86fc0a` / `3593af436ed156fc298f6d44eee366219c893de4c7e93d350e005ae957f981e0` 已独立核。实际a10clean/新venv及模块/native137、依赖base保持本节点已核身份、当前RS build image `sha256:070c9cc4860d87ce82e531e3a23516d0c111501e216ece3353ffc2250b1ad4d1`，org revision a10、helper build-input revision4f/source-tree13cb42af…（build-input依相关路径最后提交计算，不要求等于candidate）。prepare于03:09:46Z释放0，SHA `324a989a46c4ffc3447367121a42b8d5fb0bac71ee4cd47eaafb5c242f42604a`。
+
+实际03:20:23Z，project `s2b-e-cal-t3-full-a10dec894e` 新原子owner，现CLI fresh `--tier t3 --scope full --kernel-threads 1 --kernel-memory-budget-bytes 51539607552 --keep-stack`。已只读核argv，当前仅v1 Preview成功/v1 Submit运行中，完整终态/物理峰/预算摘要未知；E仍NO GO，不预填新档或完整校准PASS。

@@ -33,6 +33,12 @@ legacy `backend_vnext/api/formal_state_store.py::_batch_graph_payload` 有生成
 
 不忽略当前规范存储保留的 `version_manager` 或其他 BROWSE_ONLY/SNAPSHOT_ONLY 表；不擅自去掉 saved_time 来促成匹配。只有现有规则明确排除的技术列／表沿原规则排除。规则或投影版本不同视为不可直接匹配，显式诊断，不能碰巧摘要字符串相同就相连。若业务要求“忽略某些额外字段仍视为相同”，须先具体列字段并修订 owning Contract，不能由实施者放宽。
 
+**2026-11-07 V1 实施澄清：逐侧冻结身份，不要求三侧或全部候选的规则身份相同。** [ADR 0019](../adr/0019-commit-canonical-metadata-authority.md)明确要求 ADDITIVE 激活后旧基线仍可 Preview；[Ruleset Activation §1/§3/§5](../contracts/ruleset-activation-and-migration.md)区分历史 commit provenance、当前 operation 冻结规则和 STORAGE_BREAKING 激活限制。已支持的旧基线 provenance 与当前上传规则不同，本身不阻塞 Preview：非空业务基线的内容身份从 `BaselineNode.source_submission_id` 对应 Submission.modified 保留原 rules/projection/scalar 身份，并核对 exact scope、node/commit、canonical metadata/manifest 与持久 facts 绑定；不得用当前 runtime 身份重标旧事实。FULL 的两份上传按本 operation 冻结的投影规则生成各自身份；MODIFIED_ONLY 的 initial 严格复制基线原身份及时间，modified 使用本次上传规则。INITIAL 空基线继续使用 §3.3 的显式例外，不制造不存在的来源 Submission。
+
+这不放宽 operation 冻结规则与 runtime 失配时的恢复拒绝、T1 前 Preview derived-stale 判定、STORAGE_BREAKING 的既有激活限制，亦不增加旧格式兼容或未知版本的接受路径。各侧必须通过自身受支持格式及权威来源绑定校验；缺失、损坏、不支持的格式/编码版本或伪造规则身份仍按完整性/契约错误拒绝。
+
+V2 以完整内容身份判等和合并节点；**版本差异不等于全局不可豁免的归档硬门禁**。合法提交的 initial→modified 边表示一次变更，不要求两端规则相同。例如基线为 X[A]，MODIFIED_ONLY 明确复用 X[A]→Y[B]，initial 已由基线精确解释，不能仅因 A≠B 拒绝此边；FULL 的 X[B] 则不能只凭摘要相同就与 X[A] 合并，须在当前轮次寻找完整身份相同的已解释来源。若不可达，沿 §3.2 归入既有 UNEXPLAINED 分量，诊断展示相关规则身份差异，仍按既定有理由接受/关闭出口处理，不伪造可比或来源已证明。规则差异作为来源诊断的细节绑定于完整身份和 subject，不为每个版本对另增独立接受项，§7.1 的来源分量上界及总容量不变。此项是已审“不可直接匹配”与旧基线可 Preview 的技术边界澄清，不新增 Owner 业务决议；若要求跨规则自动等价或所有差异一律硬拒绝，须另提设计与业务取舍。
+
 ### 3.2 集合与算法
 
 输入是一个 control DB 一致快照：exact scope、当前 Head node/commit/version、当前基线内容身份，以及全部当前轮次 eligible approved Submission 的 initial/modified 内容身份。PENDING 是独立硬阻塞，不作为来源锚；REJECTED、WITHDRAWN、已关闭和跨 scope 提交均不参与。
@@ -218,6 +224,8 @@ Start每引用仅有`subject_digest`（固定71字节ASCII）和`sequence`（I-J
 日常 native/focused/Contract 在06或05（按用途与现有占用）；真实旅程默认05，不把S2b E的06一次性授权延长到本任务。04最终候选才跑权威门禁；已运行的Compose不单独重复。frontend07调试、04其独立门禁由前端owner安排。
 
 真实 t1 不一定包含倒退、未知来源或足够同轮提交；不能以自然数据未触发异常声称覆盖。固定向量至少包括：上述六个图例及输入排列不变；最后非最大；跨侧三关系／相等；空基线；缺失与损坏区别；MODIFIED_ONLY限制；replacement不豁免；无权限与scope隔离；人工接受不伪造PASS；新增peer后旧接受失效；合法历史replay；检查失败无Head/释放副作用；容量超限不截断。
+
+规则身份边界的定向验证：V1 复用 `test_additive_ruleset_previews_nonempty_baseline_from_older_manifest` 的既有 Preview owner，验证旧基线 A、本次上传 B 可继续、MODIFIED_ONLY.initial 保留 A、持久事实不被 runtime 重标；FULL 上传两侧仍绑定本 operation 的规则。V2 来源规则 owner 验证 X[A] 与同摘要 X[B] 不合并、已锚定 X[A]→Y[B] 的提交边可解释，以及未锚定 X[B] 按来源分量诊断/接受仍保持 UNEXPLAINED。完整性 owner 保留伪造身份、绑定错误及不支持版本的拒绝；不另跑大输入测量或重复全旅程来证明这些边界。
 
 不重做S1a/S1b，不恢复参照解析器，不全量生成合成基准，不改原冻结测量worktree/镜像/输入/卷。最终真实数据范围和角色仍需在修订kickoff明确；新实施/独审角色不能沿用S2b已结束角色授权。
 

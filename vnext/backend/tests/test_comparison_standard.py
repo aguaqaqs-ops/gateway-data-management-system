@@ -8,6 +8,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from gateway_shared_kernel import NullScalar, raw_blob_digest
@@ -25,6 +26,7 @@ from gateway_backend.capabilities.comparison import (
     ComparisonStorageFacts,
     SchemaEvolution,
     compare_plan,
+    comparison_python_memory_upper,
     plan_comparison,
 )
 from gateway_backend.artifacts import InMemoryArtifactStore
@@ -50,9 +52,16 @@ from gateway_backend.capabilities.snapshot_materialization.contracts import (
     SnapshotTableReader,
     SnapshotTableSet,
 )
+from gateway_backend.capabilities.snapshot_materialization import ArrowSnapshotTableReader
+from gateway_backend.capabilities.table_access import (
+    KernelExecutionContext, KernelMemoryLimit, NeverCancel, OperationMemoryBudget,
+    kernel_execution_scope,
+)
 from gateway_backend.capabilities.storage_projection import STORAGE_PROJECTION_VERSION
 from tests.support.snapshot_materialization import materialize_sql
-from tests.support.table_rules import comparison_ruleset_for, fallback_record, standard_rule_record
+from tests.support.table_rules import (
+    comparison_ruleset_for, fallback_record, ordered_record, standard_rule_record,
+)
 
 pytestmark = pytest.mark.unit
 _S1B_GOLDEN = (
@@ -622,6 +631,66 @@ def test_whole_table_deletion_is_table_level_without_row_records() -> None:
     assert table.row_deleted_count == 0
     assert table.row_count_before == 2
     assert table.records == ()
+
+
+def _comparison_budget_sql(rows: int, *, changed: bool = False) -> str:
+    values = ",".join(
+        f"({index},{index},'{('changed' if changed and index == rows else 'value')}')"
+        for index in range(1, rows + 1)
+    )
+    return (
+        "CREATE TABLE t (gid INT NOT NULL PRIMARY KEY, no INT NOT NULL, value TEXT);"
+        f" INSERT INTO t VALUES {values};"
+    )
+
+
+@pytest.mark.parametrize("ordered", (False, True), ids=("standard", "ordered"))
+@pytest.mark.parametrize("added", (True, False), ids=("added", "deleted"))
+def test_single_side_facts_use_only_metadata_budget_without_reading_rows(
+    ordered: bool, added: bool,
+) -> None:
+    admissions = []
+    for row_count in (1, 256):
+        context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), NeverCancel(), 1)
+        with kernel_execution_scope(context, new_operation=True):
+            populated = _bound(_comparison_budget_sql(row_count))
+            empty = _bound("")
+            rule = ordered_record(r"^t$") if ordered else standard_rule_record("t")
+            plan = _plan_from_bounds(
+                empty if added else populated, populated if added else empty,
+                rule_set=comparison_ruleset_for(rule),
+            )
+            with (
+                patch.object(ArrowSnapshotTableReader, "iter_rows", side_effect=AssertionError("row read")) as rows,
+                patch.object(ArrowSnapshotTableReader, "arrow_stream", side_effect=AssertionError("stream read")) as stream,
+                context.memory.reserve(context.memory.available_bytes - 128 * 1024),
+            ):
+                upper = comparison_python_memory_upper(plan)
+                admissions.append(upper)
+                retained = context.memory.used_bytes
+                with context.memory.reserve(upper):
+                    assert context.memory.used_bytes > retained  # Metadata still has a charge.
+                    table = _one_table(_facts(plan))
+                assert table.status is (
+                    ComparisonTableStatus.ADDED_TABLE if added else ComparisonTableStatus.DELETED_TABLE
+                )
+                rows.assert_not_called()
+                stream.assert_not_called()
+    assert admissions[0] == admissions[1]
+
+
+@pytest.mark.parametrize("ordered", (False, True), ids=("standard-changed", "ordered-identity"))
+def test_row_comparisons_still_require_their_operation_reservation(ordered: bool) -> None:
+    context = KernelExecutionContext(OperationMemoryBudget(16 * 1024**2), NeverCancel(), 1)
+    with kernel_execution_scope(context, new_operation=True):
+        before = _bound(_comparison_budget_sql(256))
+        current = _bound(_comparison_budget_sql(256, changed=not ordered))
+        rule = ordered_record(r"^t$") if ordered else standard_rule_record("t")
+        plan = _plan_from_bounds(before, current, rule_set=comparison_ruleset_for(rule))
+        with context.memory.reserve(context.memory.available_bytes - 128 * 1024):
+            with pytest.raises(KernelMemoryLimit):
+                with context.memory.reserve(comparison_python_memory_upper(plan)):
+                    _facts(plan)
 
 
 @pytest.mark.parametrize("primary_key_appears", (True, False), ids=("appears", "disappears"))

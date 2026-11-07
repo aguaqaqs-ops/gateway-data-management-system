@@ -127,6 +127,10 @@ def comparison_python_memory_upper(plan: ComparisonPlan) -> int:
         policy = task.policy
         if policy is None or policy.comparison_role in {"BROWSE_ONLY", "SNAPSHOT_ONLY"}:
             continue
+        if task.before_descriptor is None or task.current_descriptor is None:
+            # Standard and ordered single-side tasks emit table metadata facts;
+            # neither branch reads rows. Their metadata is covered by the base.
+            continue
         tables = (task.before_table, task.current_table)
         if task.before_descriptor is not None and task.current_descriptor is not None and _can_table_early_exit(
             task.before_descriptor, task.current_descriptor, policy):

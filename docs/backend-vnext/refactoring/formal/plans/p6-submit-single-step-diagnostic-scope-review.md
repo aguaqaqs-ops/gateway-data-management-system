@@ -2444,3 +2444,33 @@ guard的FULL分支为work70200、watchdog71420；内层1200 grace、外层kill5�
 优先复用已认证素材；需要新worker内部细段时，按既有DC63授权一次必要普通t4诊断链覆盖v1/v2及一条两节点History，并复用其合格准备状态和独立scratch跑现有V5b A–D。先集中固定普通t4包/规则/commit/cache、边界/readback、工具身份及充分的局部/总/清理预算；不把旧42分钟或规划区间作为hard限。实际诊断只在FULL/STRESS等正式测量结束、CT108空闲并取得占用后进行，不修改原state来满足 `/measurement` 指针，不将诊断数值回填为正式operation elapsed。
 
 本轮只读CT201的Git对象、已存副本和索引，未访问在途CT108、运行测试/容器或改产品/镜像。必要工具实现、focused和一次实际诊断结果尚待交付；结论与边界纠正已直送实施者并同步设计，普通修正直接闭环，不逐点等待设计/Owner回执。正式V_ref产品、最终04及整体exit不由本节代判。
+
+## 108. 隔离DC63工具821代码及必要验证PASS，实际诊断准备仍在推进
+
+**独立诊断候选 `82164291f658be9ca94a972f8d2c17179cea7888` 的本轮代码及必要focused/静态复核PASS。** 诊断tree=`7ff0b0ef864e827b030a31d024d0ba2066b28b5a`，不是正式V_ref或9704产品tree。真实普通t4输入/状态、最终计时覆盖期望、各操作及总预算仍待一次固定；本节不把它称为已完成诊断、V5b执行或可以忽略既定启动前提。FULL在18a继续，不修改/重启；沿原授权直接完成剩余准备，不另等Owner/设计/逐摘要GO。
+
+### 最终代码及本轮修订
+
+读取独立诊断worktree及immutable 3456→01000→f911→d5fe→821完整差异；相对5b，变动为边界文档、两个benchmark诊断模块、其测试及诊断分支Compose worker三行接线，业务src未改，diff whitespace通过。worker用只读挂载脚本在正常bootstrap main之前install，再进入原worker main；后者仍设置正常INFO日志并构造原composition。已核composition在运行时调用被替换的factory全局名，Preview/History各消费namespace的assemble_bundle也实际替换，未仅修改capability导出别名。
+
+wrapper按executor用ContextVar隔离operation/step/handler上下文，返回原值、传播原异常并在finally清上下文；计时日志异常不改业务返回。只在粗函数/组边界计时，不逐行profile，不排checkpoint或建立持久evidence状态机。checkpoint组从load-step至inputs恢复，after-snapshots从构造快照入口至parent入口，plan/render从plan入口至publish入口，覆盖调用方多语句工作；后续函数自身时长另列为嵌套观测，不相加。parent rows重复包装已合并。
+
+Preview/History直接增加ready refs、ready closure、state artifact、checkpoint prepare小段；它们**不是旧finish的同口径总量**。ready_refs仅包handler的 `_ready_closure_refs_from_assemble`，不含assemble内部 `_required_ready_refs`、state组装等未直接覆盖的工作；pin/lease/successor等也不据父段差值填数。文档已明确这些限制，实际交付按覆盖范围说明，不强填21 selector。
+
+History按实际调用序号记录binding/requested/export表数和export_cache_configured。源CanonicalBinding确有table_identities，且实际调用使用这些keyword；这些是元数据计数，不读取/输出行值，也不把“已配置cache”当命中率。真实cache条件仍关联诊断输入/准备记录。计时上下文/阶段缺失或metadata不可用不能虚构，结果审核仍核本次具体输入与角色。
+
+独立coverage工具要求非空、无重复的operation/handler/stage期望，并将缺失stage或异常/未完成事件判为INCOMPLETE；修正前仅看stage/outcome的缺口已补，**相关事件必须有非bool、有限、非负elapsed_seconds**。缺值、NaN、Inf、负数不计为0。期望须从真实旅程绑定v1/v2/History等operation角色，coverage仅证明给定期望的事件覆盖，不独立代表DC63/V5b全计划完成；输入身份、阶段定义及业务结果仍由原记录与结果审核约束。
+
+### CT05原始证据
+
+BatchMode连接确认后，只读 `/home/dev/gdds-p6-logs/baseline/dc63-static-8216-20261107.log`，SHA256 **`1f09020b5c1ff56eff32a5a14d79122aa4ddc7124a0800795e5c34bdb98b5b6c`**：gw-dms-test-05、2026-11-07 14:17:31–32Z、起止完整821，**11 passed /0.63s、Ruff通过、mypy 501files通过，三项exit均0**。覆盖真实消费namespace解析、原返回/异常、未闭合组、组在下一调用前关闭、缺失/异常覆盖及无效秒值；没有在本轮focused中执行真实312表或A–D。其余四包无变动，静态来源仍沿前节已验证来源，不写成821上权威runner/carried。
+
+`dc63-container-check-f911-20261107.log` SHA256 **`b3ac68ea73e21852dff19a80d3b1ade1c24486aa991fd899b1a452abf5ab6fbf`**，14:07:36–38Z、起止完整f911、wrapper_install_ok、exit0；worker脚本及Compose从f911至821无差异，所以该最小挂载install检查关联当前相同接线，不重复容器。日志未打印完整镜像config/DiffID或整个业务启动过程，**不能只凭install_ok独立声称镜像身份已全核或完整诊断链通过**；诊断实际启动仍按原预检绑定冻结镜像完整身份、wrapper SHA及command/mount。Compose的command/只读mount是诊断runtime边界变化，此检查仅服务该诊断接线，不代替正式产品门禁；不重建/覆盖冻结镜像，不把诊断分支合为V_ref产品。
+
+失败及较早通过均原样保留：首份focused因Rust PATH准备错误退出1，日志SHA **`93ce5e0bdaad7492ec9e593b421d10ca7902956f0e1690ff1a6b3896154559f7`**，修正后同一步4passed；后续6/11项验证反映新增范围，不把首份改成pytest通过。首次4b2b静态失败日志SHA **`cf08f875e97dcd80eb078a3267f2daa533ef108d4ec634fc8f982eb5b864d284`** 已匹配，类型修正后以821完整日志关闭，不按准备失败次数另等Owner。V5b接口 `--help` 成功仅是CLI解析/导入事实，未跑A–D。
+
+### 下步及报告边界
+
+普通修订已与现有实施者直接闭环，本节作为准备代码里程碑汇总。真实诊断仍在FULL/STRESS正式测量之外的CT108独占窗口执行；局部I/O、操作/工作/清理预算和同一普通t4准备状态需集中核实，不将旧42分钟、ETA或当前W4耗时充当充分性证明。V5b原输出是segments列表，而旧reference的A/B/C默认选 `/measurement/elapsed_seconds`、D选measurement字段；派生后处理须按真实segment角色/原值使用既有明确selector或独立派生文档，不能给所有子段同填总wall，也不改原state/原始输出。此接线提醒已交实施者，不影响保留原测量。
+
+本轮只读代码和CT05已关闭日志，未在开发机运行测试、未启动容器/业务、未访问运行中的CT108或原SQLite。实际诊断与A–D结果尚未交付，正式V_ref、04及整体exit仍按原分工；源产品/冻结镜像不变，所有新计时将标诊断来源，不冒称正式operation elapsed。

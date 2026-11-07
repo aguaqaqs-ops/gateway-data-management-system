@@ -343,6 +343,8 @@ S1b 合入后，用 Python 实现在 `ct108-gw-dms` 独占测量 §16.3 验收�
 
 ## 9. S3：比较与逐行记录
 
+2026-11-07 详细设计候选已形成：[S3 设计](p6-s3-design.md)、[kickoff](p6-s3-kickoff.md)。当前 S2b 已退出，资源以 DC87 最终 N1/单 active、32 GiB envelope、8 GiB reserve、显式 M24 GiB 为准；§8 的早期执行时点文字不是当前配置。S3 尚待独立 kickoff 审核及 Owner 启动授权。
+
 - **共用内核（DC44、V1）：** standard、keyless 与 ordered 在 `gateway-compute-core/src/comparison/` 中共用规范编码、共有列投影（DC40 的语义）、行身份、记录排序、资源上限与 facts 管线；ordered 专属的 LIS 主干、绝对 `no` 位置与空白区间规则留在 ordered 模块。
 - **逐行记录（DC54）：** kernel 按记录族 schema 产出 Arrow 记录列，并用相同 JCS 编码计算 `content_digest`；Python 用 pyarrow 由 Arrow batch 写 Parquet。发布后的整份回读解码删除；实际读取时的 raw、content 与 schema 校验及普通 I/O 失败处理保留。记录产物与 Contract 不变，现有 golden 作为逐字节回归基准；如必须改动格式，按 Contract 变更另行提交 owner。
 - **风险的消费接口：** 风险仍在 Python（DC47 第 1 项）。在 Preview 与 History 的计算路径中，风险直接消费 kernel 在内存中产出的 Arrow 记录，按表、按 batch 有界地读取，只转换风险规则需要的列，不先重建完整的 `ComparisonRecord` 元组；这条路径不从 Parquet 读回，因此没有读取校验成本。约 5 s（W4）的风险段是待 S3 验证的假设；超出 §16.1 预算时，按 DC47 第 1 项的重开条件评估风险热点进入 Rust。

@@ -25,6 +25,9 @@ use rayon::ThreadPool;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::sync::Arc;
+
+use super::kernel::{KernelContext, KernelLease, validate_canonical_batches};
 
 pub const ORDERED_COMPARE_FORMAT: &str = "gateway.comparison.ordered-canonical";
 pub const ORDERED_COMPARE_VERSION: u32 = 1;
@@ -121,13 +124,79 @@ pub struct OrderedTablePair<'a> {
     pub options: &'a OrderedCompareOptions,
 }
 
+#[derive(Clone, Copy)]
+pub struct OrderedBatchPair<'a> {
+    pub before: Option<&'a [RecordBatch]>,
+    pub current: Option<&'a [RecordBatch]>,
+    pub options: &'a OrderedCompareOptions,
+}
+
+pub struct OrderedKernelResult {
+    pub facts: OrderedCompareResult,
+    /// Keeps canonical Arrow input owners valid for later C batch builders.
+    pub before_batches: Vec<RecordBatch>,
+    pub current_batches: Vec<RecordBatch>,
+    _lease: KernelLease,
+}
+
+/// The planner has already proved both sides share the complete content and
+/// schema identity. Only the current side is opened for these two digests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnchangedOrderedSummary {
+    pub before_ordered_digest: String,
+    pub current_ordered_digest: String,
+    pub before_occupancy_digest: String,
+    pub current_occupancy_digest: String,
+    pub row_count: usize,
+}
+
+pub fn summarize_unchanged_ordered_side(
+    current: &RecordBatch,
+    options: &OrderedCompareOptions,
+    context: &Arc<KernelContext>,
+) -> Result<UnchangedOrderedSummary, OrderedCompareError> {
+    context.check()?;
+    validate_canonical_batches(std::slice::from_ref(current))?;
+    if options.table_name.is_empty() || options.policy_version.is_empty() || options.max_rows == 0 {
+        return Err(OrderedCompareError::new("ORDERED_POLICY_INVALID"));
+    }
+    if options.current_blank_provenance == BlankProvenance::Missing {
+        return Err(OrderedCompareError::new("BLANK_PROVENANCE_MISSING"));
+    }
+    let selected = column_names(Some(current))?;
+    if !selected.iter().any(|name| name == "gid") || !selected.iter().any(|name| name == "no") {
+        return Err(OrderedCompareError::new("ORDERED_REQUIRED_COLUMN_MISSING"));
+    }
+    let input_bytes = current.columns().iter().try_fold(0usize, |total, array| {
+        total.checked_add(array.get_buffer_memory_size())
+    }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let row_overhead = current.num_rows().checked_mul(selected.len().saturating_mul(80).saturating_add(512))
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let reservation = input_bytes.checked_mul(3).and_then(|size| size.checked_add(row_overhead))
+        .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+    let _lease = context.reserve(reservation)?;
+    let side = read_side(Some(current), &selected, options.current_blank_provenance, options.max_rows, Some(context))?;
+    context.check()?;
+    let digest_columns = resolved_digest_value_columns(options, &selected);
+    let ordered = ordered_digest(&side.rows, &options.table_name, &options.policy_version, &digest_columns)?;
+    context.check()?;
+    let occupancy = occupancy_digest(&blank_gaps(&side.rows, None))?;
+    Ok(UnchangedOrderedSummary {
+        before_ordered_digest: ordered.clone(),
+        current_ordered_digest: ordered,
+        before_occupancy_digest: occupancy.clone(),
+        current_occupancy_digest: occupancy,
+        row_count: current.num_rows(),
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrderedCompareError {
     code: &'static str,
 }
 
 impl OrderedCompareError {
-    fn new(code: &'static str) -> Self {
+    pub(super) fn new(code: &'static str) -> Self {
         Self { code }
     }
 
@@ -308,7 +377,46 @@ impl OrderedCompareResult {
 pub fn compare_ordered_table(
     pair: OrderedTablePair<'_>,
 ) -> Result<OrderedCompareResult, OrderedCompareError> {
-    match std::panic::catch_unwind(AssertUnwindSafe(|| compare_ordered_table_inner(pair))) {
+    let batches = OrderedBatchPair {
+        before: pair.before.map(std::slice::from_ref),
+        current: pair.current.map(std::slice::from_ref),
+        options: pair.options,
+    };
+    match std::panic::catch_unwind(AssertUnwindSafe(|| compare_ordered_table_inner(batches, None))) {
+        Ok(result) => result,
+        Err(_) => Err(OrderedCompareError::new("ORDERED_INTERNAL_ERROR")),
+    }
+}
+
+/// Production-oriented batch entry. It uses the caller's operation context
+/// and rejects non-canonical Arrow metadata before looking at rows. The old
+/// one-batch prototype above remains only for frozen differential fixtures.
+pub fn compare_ordered_batches(
+    pair: OrderedBatchPair<'_>,
+    context: &Arc<KernelContext>,
+) -> Result<OrderedKernelResult, OrderedCompareError> {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| {
+        context.check()?;
+        if let Some(before) = pair.before { validate_canonical_batches(before)?; }
+        if let Some(current) = pair.current { validate_canonical_batches(current)?; }
+        let batches = pair.before.into_iter().flatten().chain(pair.current.into_iter().flatten());
+        let (input_bytes, rows, columns) = batches.try_fold((0usize, 0usize, 0usize), |(bytes, rows, columns), batch| {
+            let bytes = batch.columns().iter().try_fold(bytes, |total, array| total.checked_add(array.get_buffer_memory_size()))?;
+            Some((bytes, rows.checked_add(batch.num_rows())?, columns.max(batch.num_columns())))
+        }).ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+        let overhead = rows.checked_mul(columns.saturating_mul(128).saturating_add(1024))
+            .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+        let reservation = input_bytes.checked_mul(4).and_then(|bytes| bytes.checked_add(overhead))
+            .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+        let lease = context.reserve(reservation)?;
+        let facts = compare_ordered_table_inner(pair, Some(context))?;
+        Ok(OrderedKernelResult {
+            facts,
+            before_batches: pair.before.unwrap_or_default().to_vec(),
+            current_batches: pair.current.unwrap_or_default().to_vec(),
+            _lease: lease,
+        })
+    })) {
         Ok(result) => result,
         Err(_) => Err(OrderedCompareError::new("ORDERED_INTERNAL_ERROR")),
     }
@@ -363,8 +471,8 @@ pub fn build_ordered_pool(threads: usize) -> Result<ThreadPool, OrderedCompareEr
 }
 
 #[derive(Debug, Clone)]
-struct EncodedCell {
-    frame: Vec<u8>,
+pub(super) struct EncodedCell {
+    pub(super) frame: Vec<u8>,
 }
 
 impl EncodedCell {
@@ -399,7 +507,8 @@ struct SideRows {
 }
 
 fn compare_ordered_table_inner(
-    pair: OrderedTablePair<'_>,
+    pair: OrderedBatchPair<'_>,
+    context: Option<&KernelContext>,
 ) -> Result<OrderedCompareResult, OrderedCompareError> {
     let options = pair.options;
     if options.table_name.is_empty() || options.policy_version.is_empty() || options.max_rows == 0 {
@@ -415,8 +524,8 @@ fn compare_ordered_table_inner(
         return Ok(degraded_result(pair, "BLANK_PROVENANCE_MISSING"));
     }
 
-    let before_columns = column_names(pair.before)?;
-    let current_columns = column_names(pair.current)?;
+    let before_columns = column_names_batches(pair.before)?;
+    let current_columns = column_names_batches(pair.current)?;
     let selected = selected_columns(
         &before_columns,
         &current_columns,
@@ -431,22 +540,26 @@ fn compare_ordered_table_inner(
     }
     let value_columns = resolved_value_columns(options, &selected);
     let digest_value_columns = resolved_digest_value_columns(options, &selected);
-    let before = match read_side(
+    let before = match read_side_batches(
         pair.before,
         &selected,
         options.before_blank_provenance,
         options.max_rows,
+        context,
     ) {
         Ok(rows) => rows,
+        Err(error) if is_control_or_resource(&error) => return Err(error),
         Err(error) => return Ok(degraded_result(pair, error.code())),
     };
-    let current = match read_side(
+    let current = match read_side_batches(
         pair.current,
         &selected,
         options.current_blank_provenance,
         options.max_rows,
+        context,
     ) {
         Ok(rows) => rows,
+        Err(error) if is_control_or_resource(&error) => return Err(error),
         Err(error) => return Ok(degraded_result(pair, error.code())),
     };
 
@@ -722,8 +835,8 @@ fn compare_ordered_table_inner(
         version: ORDERED_COMPARE_VERSION,
         table_name: options.table_name.clone(),
         status: status.to_string(),
-        row_count_before: pair.before.map(RecordBatch::num_rows),
-        row_count_current: pair.current.map(RecordBatch::num_rows),
+        row_count_before: pair.before.map(side_row_count),
+        row_count_current: pair.current.map(side_row_count),
         row_added_count: added_count,
         row_deleted_count: deleted_count,
         row_modified_count: modified_count,
@@ -783,7 +896,7 @@ fn compare_ordered_table_inner(
     })
 }
 
-fn degraded_result(pair: OrderedTablePair<'_>, diagnostic: &'static str) -> OrderedCompareResult {
+fn degraded_result(pair: OrderedBatchPair<'_>, diagnostic: &'static str) -> OrderedCompareResult {
     let options = pair.options;
     let diagnostics = vec![diagnostic.to_string()];
     OrderedCompareResult {
@@ -791,8 +904,8 @@ fn degraded_result(pair: OrderedTablePair<'_>, diagnostic: &'static str) -> Orde
         version: ORDERED_COMPARE_VERSION,
         table_name: options.table_name.clone(),
         status: "DEGRADED".to_string(),
-        row_count_before: pair.before.map(RecordBatch::num_rows),
-        row_count_current: pair.current.map(RecordBatch::num_rows),
+        row_count_before: pair.before.map(side_row_count),
+        row_count_current: pair.current.map(side_row_count),
         row_added_count: 0,
         row_deleted_count: 0,
         row_modified_count: 0,
@@ -993,11 +1106,72 @@ fn column_names(batch: Option<&RecordBatch>) -> Result<Vec<String>, OrderedCompa
     Ok(names)
 }
 
+fn column_names_batches(batches: Option<&[RecordBatch]>) -> Result<Vec<String>, OrderedCompareError> {
+    let Some(batches) = batches else { return Ok(Vec::new()); };
+    let mut names = None;
+    for batch in batches {
+        let next = column_names(Some(batch))?;
+        if names.as_ref().is_some_and(|first| first != &next) {
+            return Err(OrderedCompareError::new("ROW_SHAPE_MISMATCH"));
+        }
+        names = Some(next);
+    }
+    Ok(names.unwrap_or_default())
+}
+
+fn side_row_count(batches: &[RecordBatch]) -> usize {
+    batches.iter().map(RecordBatch::num_rows).sum()
+}
+
+fn is_control_or_resource(error: &OrderedCompareError) -> bool {
+    matches!(error.code(), "COMPARISON_CANCELLED" | "COMPARISON_DEADLINE_EXCEEDED" | "RESOURCE_LIMIT_EXCEEDED")
+}
+
+fn read_side_batches(
+    batches: Option<&[RecordBatch]>,
+    selected: &[String],
+    blank_provenance: BlankProvenance,
+    max_rows: usize,
+    context: Option<&KernelContext>,
+) -> Result<SideRows, OrderedCompareError> {
+    let Some(batches) = batches else { return Ok(SideRows { rows: Vec::new() }); };
+    let mut rows = Vec::new();
+    let mut positions = HashSet::new();
+    let mut identities = HashSet::new();
+    let mut encoded_bytes = 0usize;
+    for batch in batches {
+        if let Some(context) = context { context.check()?; }
+        let side = read_side(Some(batch), selected, blank_provenance, max_rows, context)?;
+        if rows.len().checked_add(side.rows.len()).is_none_or(|count| count > max_rows) {
+            return Err(OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"));
+        }
+        for row in side.rows {
+            if !positions.insert(row.position) {
+                return Err(OrderedCompareError::new("ORDER_KEY_DUPLICATE"));
+            }
+            if row.stable_key.as_ref().is_some_and(|key| !identities.insert(key.clone())) {
+                return Err(OrderedCompareError::new("ROW_IDENTITY_DUPLICATE"));
+            }
+            for cell in row.cells.values() {
+                encoded_bytes = encoded_bytes.checked_add(cell.frame.len())
+                    .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
+                if encoded_bytes > MAX_ORDERED_TOTAL_ENCODED_BYTES {
+                    return Err(OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"));
+                }
+            }
+            rows.push(row);
+        }
+    }
+    rows.sort_by_key(|row| row.position);
+    Ok(SideRows { rows })
+}
+
 fn read_side(
     batch: Option<&RecordBatch>,
     selected: &[String],
     blank_provenance: BlankProvenance,
     max_rows: usize,
+    context: Option<&KernelContext>,
 ) -> Result<SideRows, OrderedCompareError> {
     let Some(batch) = batch else {
         return Ok(SideRows { rows: Vec::new() });
@@ -1032,6 +1206,9 @@ fn read_side(
     value_columns.sort();
 
     for row_index in 0..batch.num_rows() {
+        if row_index % 1024 == 0 {
+            if let Some(context) = context { context.check()?; }
+        }
         let no_array = batch.column(no_index);
         let position = read_integer(no_array.as_ref(), row_index)?
             .ok_or_else(|| OrderedCompareError::new("ORDER_KEY_MISSING"))?;
@@ -1167,7 +1344,7 @@ fn read_integer(array: &dyn Array, row: usize) -> Result<Option<i128>, OrderedCo
     Ok(Some(value))
 }
 
-fn encode_cell(
+pub(super) fn encode_cell(
     array: &dyn Array,
     row: usize,
     field: &Field,
@@ -1175,13 +1352,13 @@ fn encode_cell(
     if array.is_null(row) {
         return scalar_frame(DeclaredType::null(), TypedScalar::Null(NullScalar));
     }
-    let spelling = scalar_type(field);
+    let spelling = scalar_type(field)?;
     if spelling
         .trim_start()
         .to_ascii_lowercase()
         .starts_with("set(")
     {
-        return encode_set(array, row);
+        return encode_set(array, row, field);
     }
     let declared = declared_type(&spelling, field.data_type())?;
     let typed = typed_value(array, row, &declared)?;
@@ -1199,12 +1376,21 @@ fn scalar_frame(
     })
 }
 
-fn scalar_type(field: &Field) -> String {
-    field
+fn scalar_type(field: &Field) -> Result<String, OrderedCompareError> {
+    if let Some(metadata) = field.metadata().get("gdds.canonical_type") {
+        let value: Value = serde_json::from_str(metadata)
+            .map_err(|_| OrderedCompareError::new("COLUMN_TYPE_INVALID"))?;
+        return value
+            .get("sql_type")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| OrderedCompareError::new("COLUMN_TYPE_INVALID"));
+    }
+    Ok(field
         .metadata()
         .get("gdms.scalar_type")
         .cloned()
-        .unwrap_or_else(|| format!("{:?}", field.data_type()))
+        .unwrap_or_else(|| format!("{:?}", field.data_type())))
 }
 
 fn declared_type(
@@ -1464,27 +1650,51 @@ fn binary_value(array: &dyn Array, row: usize) -> Result<Vec<u8>, OrderedCompare
     Err(OrderedCompareError::new("SCALAR_VALUE_INVALID"))
 }
 
-fn encode_set(array: &dyn Array, row: usize) -> Result<EncodedCell, OrderedCompareError> {
-    let list = array
-        .as_any()
-        .downcast_ref::<ListArray>()
-        .ok_or_else(|| OrderedCompareError::new("SET_VALUE_INVALID"))?;
-    let values = list.value(row);
-    let mut encoded_items = Vec::with_capacity(values.len());
-    for index in 0..values.len() {
-        if values.is_null(index) {
-            return Err(OrderedCompareError::new("SET_VALUE_INVALID"));
+fn encode_set(
+    array: &dyn Array,
+    row: usize,
+    field: &Field,
+) -> Result<EncodedCell, OrderedCompareError> {
+    let text = if let Some(strings) = array.as_any().downcast_ref::<StringArray>() {
+        strings.value(row)
+    } else if let Some(strings) = array.as_any().downcast_ref::<LargeStringArray>() {
+        strings.value(row)
+    } else {
+        return Err(OrderedCompareError::new("SET_VALUE_INVALID"));
+    };
+    let canonical = field.metadata().get("gdds.canonical_type");
+    let declaration = canonical
+        .map(|metadata| serde_json::from_str::<Value>(metadata))
+        .transpose()
+        .map_err(|_| OrderedCompareError::new("COLUMN_TYPE_INVALID"))?;
+    let labels = declaration
+        .as_ref()
+        .and_then(|value| value.get("labels"))
+        .and_then(Value::as_array);
+    let members: Vec<&str> = if text.is_empty() {
+        Vec::new()
+    } else {
+        text.split(',').collect()
+    };
+    if members.iter().any(|member| member.is_empty()) {
+        return Err(OrderedCompareError::new("SET_VALUE_INVALID"));
+    }
+    if let Some(labels) = labels {
+        let mut previous = None;
+        for member in &members {
+            let position = labels.iter().position(|label| label.as_str() == Some(*member))
+                .ok_or_else(|| OrderedCompareError::new("SET_VALUE_INVALID"))?;
+            if previous.is_some_and(|prior| position <= prior) {
+                return Err(OrderedCompareError::new("SET_VALUE_INVALID"));
+            }
+            previous = Some(position);
         }
-        let text = if let Some(strings) = values.as_any().downcast_ref::<StringArray>() {
-            strings.value(index).to_string()
-        } else if let Some(strings) = values.as_any().downcast_ref::<LargeStringArray>() {
-            strings.value(index).to_string()
-        } else {
-            return Err(OrderedCompareError::new("SET_VALUE_INVALID"));
-        };
+    }
+    let mut encoded_items = Vec::with_capacity(members.len());
+    for text in members {
         let item = encode_typed_scalar(
             &DeclaredType::string(),
-            &TypedScalar::String(StringScalar { text }),
+            &TypedScalar::String(StringScalar { text: text.to_string() }),
         )
         .map_err(|_| OrderedCompareError::new("SET_VALUE_INVALID"))?;
         encoded_items.push(item.scalar_frame);

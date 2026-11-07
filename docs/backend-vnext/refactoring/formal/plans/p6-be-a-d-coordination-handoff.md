@@ -20,7 +20,7 @@
 | V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 04/05联合、V2/D/FE3仍待，不办理exit |
 | V2 | **本节最终GO `9ec62e82ad`**，F1–F6全关；产品/容器`f8fb796f02`，handoff`3cd4400f9f` | `/root/be_v2_impl`=6.1-Sol/xhigh、`/root/be_v2_review`=6.1-Sol/max，均正常结束，无后台/占用，保留历史 | 06全部定向/静态、f8当前Compose1/0、OpenAPI/镜像/37+13索引与10:39:24释放已独审 | 本节无未决；04/05联合、D/FE3仍待，不办理exit |
 | D | **本地里程碑通过**；F1–F5关闭，产品`0ba45e5ef8`/vnext`0301aee3a3`；handoff`41386e12e6`、独审`6ad7e54fa0`/固定handoff核收`cd2d395fbc`；[事件与恢复](p6-be-d-validation-incident.md) | 原实施6.1-Sol/xhigh、独审6.1-Sol/max，继续约定联合收尾，不结束/换审核者 | 06 focused/静态、当前小Compose1/0、实际OpenAPI及同24576B tar均独审核收；12:05:51Z本人清理释放 | 本地无未决finding；保留历史失败/缺失限制；04/05与FE3待 |
-| 联合最终 | 产品tree已收敛`0301aee3a3`；完整执行稿`ec586cbc2d`已独审`467abe6e10`核可，固定clean **`a999869c7f`**；[准备清单](p6-be-a-d-joint-validation-preparation.md) | 原D两角色继续既定职责，无额外角色 | 04于12:26:16Z、05于12:26:17Z现场原子claim；两source_ready exact a999/clean/prepare0；cache/build/测试待 | 04六包及其Compose/05一次fresh t1沿已审命令继续；退出前按DC33确认最终范围，无口头carried |
+| 联合最终 | 产品tree`0301aee3a3`；完整执行稿独审`467abe6e10`核可，固定clean **`a999869c7f`**；[准备清单](p6-be-a-d-joint-validation-preparation.md) | 原D两角色继续既定职责，无额外角色 | 两节点claim/source/cache及base全身份核通过；RS build各0；04唯一六包runner于12:32:24Z开始，05强制sync于12:32:31Z开始，fresh待 | 等04完整exit/六manifest及05完整旅程，当前非通过；DC33/FE3仍待，不口头carried |
 
 ## 3. 验证与资源
 

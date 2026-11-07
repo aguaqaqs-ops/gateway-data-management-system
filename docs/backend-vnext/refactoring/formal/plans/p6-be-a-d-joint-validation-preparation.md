@@ -53,7 +53,11 @@ Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 ownin
 
 完整执行稿ec586已由原独审`467abe6e10`§17静核通过。协调提交当前态后固定clean main **`a999869c7f4714c95ee9a5b82866e52cd265e377`**，vnext仍0301。04于12:26:16Z、05于12:26:17Z分别现场核空闲后原子取得本人marker；新WT及证据根原先不存在。两节点LAN namedHEAD bundle准备分别为04 `transfer-IUOsNXCG`（12:26:25Z）、05 `transfer-cwKZNNWF`（12:26:38Z），均exact a999/clean/prepare0/source_ready。主线短提交窗口已解除，测试WT仍固定该同一SHA。
 
-当前只完成claim/source准备，实际cache/工具链/base config与全部DiffID、对应guard安装和build/runner/journey尚待；不把source_ready记为测试通过。各日志完整SHA及原文由原D独审核收后补最终证据表。04/05独立资源，本任务06已释放，CT108不使用。
+两节点claim/source/对应guard安装与prereq均0，独审核实际offline/toolchain/BASETemp unset。base身份实际从docker-save config原字节及全部DiffID核对：backend与RS base逐项等06已审来源；04 log SHA=`e6f4738c33e358d600058427415b72801f55eecfc70698fce118aa29a99fe066`、JSON SHA=`dee4c57577d2527aa18a56e43f87a4b8d5ac8bf440df381d6e45705d3c46b86e`，05 log SHA=`fa4fd7e5faf6ec08147bc5d37d197c297a347be2c64032f024e2f35c7fc4fe0e`、JSON SHA=`b5343a80611bc0635e026c0a5ee78041ed01f16c7a3affff9043605a33015ccf`。Python/Rust/client base分别保留本节点全身份，不把无06来源者伪称source match。d054输入实际重算0，无新依赖或缓存补造。
+
+RS离线build均0：04 `run-repository-build-AqbozR9J` log SHA=`58e74acc3be3c67bbb38a5250a4b6fb417ebb704094c36168197da0891032d6f`，05 `run-repository-build-pbMa965Y` SHA=`9634b847c87f62fe535a9aadb071c77869281a55cb70bfcd9bc9d1dfa157dbf2`。04 **12:32:24Z**启动唯一六包runner `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-final-04/run-authority-six-n3pnBrzg`；05 **12:32:31Z**启动强制扩展同步 `run-backend-sync-3U0NQiGH`，核input后再唯一fresh t1。当前尚无完整runner/journey结果，不将中途步骤通过拼为联合通过。04/05独立资源，本任务06已释放，CT108不使用。
+
+05证据精度沿已审consumer：逐项验证完整metadata/closure路径、顺序、size/raw SHA及适用records逻辑摘要，最终持有现有JSON聚合counts/digest/bytes/time、原log及8项固定reason文件；不声称每成员原字节或所有原HTTP diagnostic/resolution响应已外置留存。原diagnostic事实/逐项接受审计的不变量由未变V2 owner与04规则、05实际流程合并核收，不为报告临时扩建持久取证字段。
 
 ## 6. 最终核收待填
 

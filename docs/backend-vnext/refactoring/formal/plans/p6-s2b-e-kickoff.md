@@ -4,9 +4,11 @@
 
 **t3 容量结论与剩余路径校准（沿既有授权接续）：** 只读核实 193 个 task 的实际 materialized 侧：row/base 预约 17,045,901,120 bytes；仅补 current `device_st` 的 logical Arrow 16,646,188 bytes ×64 后，下界即 18,111,257,152 bytes（16.867 GiB），已超 M16，其他 Arrow/存活项尚未计。大表新增列触发真实双侧读行，t4/History 的观测没有覆盖该变更形态。另发现 non-record role 的 COLUMNS_ADDED 实际双侧读行未预约，已按 DC80 以 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 最小补齐；06 静态及 93 项 focused 独审通过，元数据-only 仍不计行费。此修正增加漏计保护，不会让 M16 需求问题变成 PASS。
 
-协调者重新核对 Owner 此前“先增大预算，然后按测量结果决定，而不是多次尝试”的持续授权：补齐原校准未覆盖的 t3 变更形态属于该范围，无需再重复申请同一临时档；这是协调者落实既有授权，不是新的 Owner 批复。下一步只做一次宽裕的剩余 t3 校准：候选已固定 `a10dec894e39013dc02bc7100a27da69ca01040b`，将该窄修原样应用到已有隔离 64 GiB envelope / 16 GiB reserve / M48 GiB、N1 候选，核主业务 blob 等价，仅保原有临时 scope 日志。05 的原 t3 三停止卷、state 与 secrets 保持，现场空闲原子取用后做标准冷归档，经获准 LAN 私有传输至 CT108 的新项目，核 bytes/mode/uid/gid；05 实际 64 GiB 不作为承载 worker64 的校准节点，CT108 实际 96 GiB 留有其他服务余量。节点取用遵守已定自主规则，不另申请常规资源窗口。
+协调者重新核对 Owner 此前“先增大预算，然后按测量结果决定，而不是多次尝试”的持续授权：补齐 t3 变更形态属于该范围，无需重复申请同一临时档；这不是新的 Owner 批复。候选固定 `a10dec894e39013dc02bc7100a27da69ca01040b`，包含上述窄修及原 64 GiB envelope / 16 GiB reserve / M48 GiB、N1 和临时 scope 日志；两修复 blob 与 main464 相同，其余四个临时路径与原1f9相同，独审通过。
 
-在副本核原 repository/v1 commit、workspace OPEN、optimistic_version/current_upload/generation 与已存 upload、BaselineHead 一致后，用当前隔离候选本机离线 build/bare up 和现有 CLI `--tier t3 --scope full --from-step v2-preview --keep-stack`，生成新 project-key 的 Preview；不修改原 state/head、不复用原 FAILED operation、不重跑 V1 Submit。取齐 v2 Preview、后续 Submit/读取/审核及 History 的每 scope 预约高水位与新 worker 生命周期 cgroup/RSS、控制及正常停机记录。局部结果与原 t3 FAIL 分列，不冒完整 fresh PASS；不逐档试 M24/M32，不因再失败自动增档。依据全部已覆盖路径及这次剩余路径的需求和余量，再向 Owner 提交统一最终配置，之后只集中做其必要最终验收。候选/方案已完成独立核对，现按既有授权执行冷副本和剩余路径校准；最终生产档仍在测后交 Owner 决定，当前 main 保持 24/8/M16。
+原拟复用05停止现场，仅续v2 Preview；因05已被原线03:04:56起的GC诊断有效占用，协调者改为 **CT108一次fresh完整t3宽裕校准**，使用已验证的原输入，不归档或复制05数据。代价是重做约8分钟已通过的t3前缀，同时获得完整同worker峰值，并避免等待源节点或新增跨节点恢复路径。CT108实际96GiB足以承载64GiB worker并留其他服务余量；准备完成后曾释放节点，03:20:23.298329Z现场原子取用后实际启动，project `s2b-e-cal-t3-full-a10dec894e`，driver `5f724b12…` 使用现fresh入口与已核untimed计数日志。该次只跑t3，不重复t1/t2/t4或runner，不生成新输入；原05 t3 FAIL与原三代E失败现场均保留。
+
+此次收集每scope预约高水位、同一fresh worker整旅程cgroup/RSS及控制/正常停止记录，不逐档试M24/M32或因再失败自动增档。完整t3宽裕档成功也不冒充未选最终生产档通过；测后依据所有已覆盖路径和实际余量向Owner提交统一配置及DC33最终验证范围。当前main仍24/8/M16，E仍NO GO。
 
 **History 定向诊断接续（Owner，2026-11-07）：** 同镜像 profile 的独立探针测得 soft FD limit 1024，Arrow 小样本证明关闭 source 后可保留 buffer 零拷贝读取；这两项尚不足以确认原 History 根因。真实 C 双侧各 312 表的诊断连续两次在准备阶段失败，按 DC68 暂停后，Owner 明确批准“允许按已审第三稿续做，明确问题修复后定向验证”。第三稿 SHA `4b982cb016eb3ff4903f42e6cdda489cf4e9136751019d26fc7c81523bf8df65` 已独立静态审核，将 factory 放回有效 operation scope 后在 06 运行；保留两次失败，不改写为通过。若证实 FD 生命周期缺陷，最小修复及 focused 独立审核后，使用本任务保留资源的独立冷拷副本、当前修复镜像和现有 `--from-step history` 定向验证，不重跑 Submit/全旅程。原校准 FAIL 与后续局部结果分别记录，最终资源档仍待 Owner 依据补全证据选择；此授权不等于 E GO/S2b exit，不扩大为任意失败循环重试。
 

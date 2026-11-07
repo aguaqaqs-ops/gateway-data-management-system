@@ -1812,3 +1812,17 @@ G1 修正将 thread.start 的异常单独处理：标准未启动失败时 ident
 - **环境来源和失败条件不足。** BASE_BACKEND_PY 指向正在并行开发的 main checkout `.venv`，不适合作为已核冻结 1f 环境；改用已核 `/home/dev/gdds-p6-cold-catalog-repair-05/vnext/backend/.venv/bin/python` 并按候选 Rust tree 实测核身份。当前 extension mismatch/unreadable 分支仅 printf 后继续，须非零停止；不把探测结果默认为满足 focused 前提。同时将已打印的 hostname/root/完整候选 HEAD 加固定等值断言，避免 clean 错提交仍输出预检成功。candidate 自有 venv absent 可以作为待准备信息，不冒称其运行环境已通过。
 
 其余命令沿固定 heredoc、候选 vnext/rust cwd、RUSTUP_AUTO_INSTALL=0 和只读版本查询，不新增 Rust 编译/门禁。执行时已正常取得并持有自己的节点占用是脚本前提，不能抢 E 的有效占用；本轮不提前取锁。保留首版及原失败，修订后重新给脚本/payload 完整 SHA 和本地语法证据，沿 §81 DC80 直接复核；合格即可接续既定必要 focused/五包静态，不等新的 Owner/协调回执。§80 产品代码侧结论持续，无真实 prepare/正式测量 GO。
+
+## 83. 固定预检 r2 复审通过：精确工具准备恢复许可
+
+**r2 命令级复审 PASS，§82 两组修订关闭；按 §81 已明确的 DC80 授权，签发 `P6-GC-PREP-RECOVERY-20261107-01`，允许工具准备接续。** 仅绑定 CT201 入口 `/tmp/p6-gc-ct05-readonly-preflight-0c97cb9c-r2.sh`，完整 SHA256 **`6f931d777fd4459ca21531c0092a459a8540981c2ac28795febb7a8b8cdf85a3`**，独立 remote payload `/tmp/p6-gc-ct05-readonly-preflight-0c97cb9c-r2.remote.sh` SHA256 **`cc3aa4a0235f7032f5c9e13b8557a0b40d10a28d9c7227f65be1b0c4097cd823`**。固定执行入口为 CT201 上 `/bin/bash /tmp/p6-gc-ct05-readonly-preflight-0c97cb9c-r2.sh`，经已审 heredoc 调用 CT05 `/bin/bash -s`；不使用旧脚本或临时嵌套引号重拼命令。
+
+独立分别执行两次 bash -n（wrapper 与 remote 各一条命令），均 exit 0；独立提取 r2 heredoc，与 remote 逐字节相同，SHA 与上值相等。也补核首版 remote 的单独 bash -n，exit 0；此前对两个文件放在同一 bash -n 调用中不能单独证明第二个文件语法，本次明确分开记录。首次本地 payload 比对辅助命令沿用首版标记，发生 IndexError；按 r2 实际标记更正后的本地只读比对成功。原错误转录 `/home/dev/gdds-p6-logs/worker-gc-scheduling-repair-review-20261107/r2-payload-compare-attempt1.log` SHA256 `b59950ce8714c28dd11d0d673e1e0d523fbbf47ee4e866beae22c15ba7968c9d`；不是节点操作或被测对象运行。本审核未执行脚本/SSH/测试，原 DC68 两次失败和先停事实保持。
+
+r2 固定并断言 hostname、仓库根、候选完整 HEAD `0c97cb9c095ef4dde3401ffd874c80ac94d9ac3d`、clean 和 legacy link，源环境固定 clean `1f9731` worktree `/home/dev/gdds-p6-cold-catalog-repair-05` 的 venv；native import 显式 `-I -B`，源与候选 Rust tree/已安装 extension build-input 不符或不可读均非零退出。候选自有 venv absent 明确只是待准备状态。其余为占用/进程/容器查询、离线 uv/Python 信息及候选 vnext/rust selector 下 `RUSTUP_AUTO_INSTALL=0` 的 rustc 版本读取；无 sync/build/test/download、镜像或 Compose 动作，不新增 Rust 门禁。
+
+唯一实施者可在 CT05/root 按既定方式正常取得自身有效占用，再核入口 SHA 并执行该固定脚本。脚本要求 `/home/dev/gdds-node-busy.d/session` 绑定 `p6-worker-gc-scheduling-repair-0c97`；占用不存在不代表已获预约，不能抢 E 占用或伪造他人标记。记录 hostname、起止时间、HEAD、exit 和关闭后的完整日志 SHA；错误/身份/缓存异常留证停止，不原样自动重试，也不在摘要中掩盖旧失败。
+
+预检通过只证明其实际检查项；仍须按原批准流程准备候选自己的 locked/offline 环境并核扩展身份，不能把源 venv 的 MATCH 写成候选环境已验证，或用复制环境继续加载旧产品源码。随后直接完成 §78/80 必要 focused 与五包 Ruff/mypy并交原始证据，无需新 Owner/设计/协调回执。原代码侧结论保持；测试结果、镜像及一个既有小 Compose 仍待产生和独审。
+
+**恢复许可已直接交唯一实施者并同步设计；只准本次具体工具准备及既定必要验证，不是实际 prepare 的精确 manifest GO，也不准正式测量恢复、旧 g 重试、产品合入/push/tag、清理证据或扩大资源/测试范围。** H3 原历史 PASS 保留，lease 修复效果与内存代价未验证，正式测量 STOP。

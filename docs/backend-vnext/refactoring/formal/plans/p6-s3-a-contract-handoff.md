@@ -1,6 +1,6 @@
 # Phase 6 S3 A：语义、接口和独立预期交接
 
-状态：A 实施候选，待 06 focused 验证和独立复审。依据固定设计 `d49bb126`、kickoff §7.1、[Comparison](../../../contracts/comparison.md)、[Ordered Diff](../../../contracts/ordered-diff.md)、[Risk](../../../contracts/risk.md)、[Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) 及当前已冻结 Python 控制流。本文只固定 B/C/D/E 的可验收输入与预期，不作为新的生产路径或 golden。现有 S1b 比较、风险、bundle golden 和三族 Parquet 固定向量均保持原值。
+状态：A focused/静态验证已在 06 通过；待独立复审核收。依据固定设计 `d49bb126`、kickoff §7.1、[Comparison](../../../contracts/comparison.md)、[Ordered Diff](../../../contracts/ordered-diff.md)、[Risk](../../../contracts/risk.md)、[Shared Canonical Encoding](../contracts/shared-canonical-encoding.md) 及当前已冻结 Python 控制流。本文只固定 B/C/D/E 的可验收输入与预期，不作为新的生产路径或 golden。现有 S1b 比较、风险、bundle golden 和三族 Parquet 固定向量均保持原值。
 
 ## 1. 单表接口和三个逻辑视图
 
@@ -88,4 +88,28 @@ cd ../rust
 CARGO_NET_OFFLINE=true CARGO_BUILD_JOBS=4 cargo test -p gateway-compute-core --locked --offline records::tests::python_
 ```
 
-本 A 轮未改 Docker/Compose、依赖或 container-only runtime。`Container rebuild required: no`；当前 HEAD 的容器门禁状态为 `deferred`，最后已验证 image revision/source-tree 及执行点由阶段协调者填写，不能把祖先镜像写成当前 HEAD 已通过。B/C/D 的生产接入、差分、真实数据、容器/权威门禁及最终 golden 对照按 kickoff 的后续节执行。
+本 A 轮未改 Docker/Compose、依赖或 container-only runtime。`Container rebuild required: no`；A 当前 HEAD 的容器门禁为 `deferred`，最近既有已验证产品 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅引用 BE-a/d 退出记录，不能表述为 A 当前 HEAD 已通过。B/C/D 的生产接入、差分、真实数据、容器/权威门禁及最终 golden 对照按 kickoff 的后续节执行。
+
+## 5. A 轮验证与交接记录
+
+A 的产品/数据面改动为零；只改 Comparison/Risk owning Contract、本文和纯向量测试。设计固定提交 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`，任务起点 main=`d702307836`、vnext tree=`56720104af34a1eb677336f57bdbc07444a56615`；并行协调提交后 A 实际首提交的父提交是 `748de5034dcb324b5d0fb3740e7a2680da61faf1`。A 初候选 `34f68dc0c0016aeadbba53cd8e0c11b8b5869bcd`，A-F1/F2 修订 `29e4c442305222e5e5b47b9023e3f6aa66f0d422`，focused 命令修订并实测 `4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec`，其中 `vnext` tree=`3a97be17d966c410c61e92bb3ed70b2dba88246a`、Rust tree=`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`。本交接增量只改文档，`vnext` tree 与 4d5 相同。生产代码、锁、固定 golden 未改；S1b golden 和三族 Parquet fixture 未重写。业务语义是现行 Contract 的解释性澄清，不提升版本、不改 HTTP/tar/checkpoint/digest 形态。原审 [A-F1/F2 报告](p6-s3-a-review.md)初审为 CHANGES_REQUIRED；修订与实测已交原审核收，A 不代签 GO。
+
+06 证据节点 hostname=`gw-dms-06.lan`，worktree=`/home/dev/gdds-test-tmp/wt/p6-s3-a-4d5a4b0d98ee`；开始/结束 HEAD 均为 `4d5a4b0d98ee2942a26eba794ce9f36a6826a9ec`，全程 clean，linked `legacy` 已建。源码由 `heavy-dev-01.lan` 在 17:35:33Z 生成 Git bundle，经获准 LAN SCP 于 17:37:46–47Z 传到 06；归档 SHA256=`4d69735712c1f714438eceafb864f4cc970d51f9c4c8246141e083ed3036171c`，两侧一致。使用节点本机预填充 uv/Cargo 离线缓存，`UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`，未用转发代理、未访问公网，未改依赖/锁/基础镜像；本轮无新增需预填充制品。缓存来源类别为既有节点本机离线缓存，未调用额外 LAN cache endpoint；源码来源/传输另如上。backend `sync --reinstall-package gateway-compute-python` 后，扩展 build input 检查 expected=installed=`e6ac6e3b05cbd923affc5773106e51ab9cc9c2ec`，exit 0（日志 SHA256=`3d7ce22b9b6f0569826cf55f8cb90985b60076f65d07a24344779f64b8c1237f`）。产品 kernel N1 不与 Cargo jobs4/pytest 单进程混淆。
+
+外置原始证据目录为 `/home/dev/gdds-test-tmp/logs/p6-s3-a-4d5a4b0d98ee/`，最终 `evidence-index.tsv` SHA256=`86974f17672252e85377d92f3ef41474e7ac149faa9ef66cbc3c87f447130093`，逐项列出完整路径、hostname、UTC、exit/status和日志 SHA。所有测试与静态命令都在该 clean 4d5 worktree 运行；精确 backend argv 的事后转录补件 `focused-backend-command-supplement.txt` SHA256=`8975df0082cb999a564f23bd75ca26f48f6fb9e973c5fef589b97492f0dcbcfa`，原始测试日志未变。
+
+| 06 原始结果 | UTC（2026-11-07）/ exit | 日志 SHA256 |
+| --- | --- | --- |
+| Shared Kernel C1，132 passed | 17:46:51–52Z / 0 | `33a9a81b613aae1561f1ed140115fc3afa0eecde10db72bd35998a9de1b655d8` |
+| backend C2–C6/R1–R3，40 passed | 17:47:19–22Z / 0 | `b2aa97504d72e243c6362e20f7d4c96dd8a7e602c5e958382c223fd6e90e4a4d` |
+| Rust 三族冻结 Parquet，3 passed/51 filtered | 17:47:38–17:48:01Z / 0 | `856bb8dc22da96a89d80bb14c2f2e05d9870c9879dc81b364bb9f435ef424c2a` |
+| ruff：shared_kernel / repository_contracts / repository_client / backend / repository_service | 17:48:31–17:50:49Z / 五项均 0 | 依序 `5638d6d100690a08fadbabb425b72006852aaed1694991bd5fe4ba7a0e53fbca`、`b4a09e1ef7f36cd90addae06e5884de8145a064d9d0537029aee3ab31d1485ae`、`59c1cd0a97becf1a38c896f1b4188a72309a86154b93ac90f1e15045ee6d1841`、`387549c9720faf3994d18f16cfa5accb9b975b9ad0a13aa6d02bba52506945b5`、`3be3d628615b0b0e45b33f427b359d4b9f008a3e9766aadc012f9b2576882846` |
+| mypy：上述五包，分别 34/15/26/517/200 source files | 17:48:42–17:51:07Z / 五项均 0 | 依序 `2bd5b3eea5a19d4034da0f4a628e7339887baaa0482f7f69f8f6d05ae74eae6a`、`6a8ae38ba61ca2932822d4007c15dbd2b88c0bc5e2a105b18b9452cd56b0f1d6`、`10fbd1b89a0a8dadd24c401bfbf9b4f63c63615ed3ed3f1cf8247908a55d5707`、`983101f34177009b761b8e437f3941827aaf7935e612196f859fbcb19cf2c19a`、`1460dc9ff9c7cdfa001923572f53baee48de7cd9e40ffa8d57a13ab74c4ce551` |
+
+六锁在准备和收尾的 SHA256 一致：backend uv=`d18d89a24a8acae02eb6b3b23c342c1b673ea0e7e87add93d0762edfa18b822d`，shared_kernel uv=`7be9e482910c3ede1c0a7f33d1eb08e9ff8fc183468fca8570cf04bf023fb898`，repository_contracts uv=`b4b9740959fca2517b4c2b8a1237e8110aa854a69139d6742247748faae91ff3`，repository_client uv=`6e9cf6bed196c6ead83df1076545f988b3420e599dbb443df0687a3f127f7954`，repository_service uv=`6dc9659f0aeea1b4b1e9bb0e901796ccb0dda3f99f4a0fc04932ede29ce68b11`，Rust Cargo.lock=`bac3443e4d16c22ed16adaadbaf3d3e7b713d78516e14938cdbca50ebd837d29`；完整路径见 `closeout-before-marker-release.log`（SHA256=`f5ace3964222728763ec334878cbdf816e304f358c21eff63141ec0788757814`）。
+
+保留两次无副作用操作错误。17:41:57Z backend sync 前断言误用旧 S2b E Rust tree `137d499975f3c104ae9c3268b9e12befb2817ba1`，与候选 `e6ac...` 不符；尚未打开 backend sync/test 日志、未运行被测对象，失败日志 SHA256=`7d67b353a114a4f6386980454a7ca5878006b56dc5c6f9b68addcf827d89da99`，当次 marker 已释放。按 DC68 从该同步步骤更正一次，17:43:44–17:45:02Z 离线强制重装扩展 exit 0、日志 SHA256=`dd42fe63bda28b068ac625838904656cb2ed0977cb3fb817ba9c3f91f4965c6f`；随后 build input 核对和全部 focused 通过，旧 E native 不作证据。17:54:01Z 事后补录 backend 完整命令时，嵌套 heredoc 分隔符碰撞使第一次补录命令非零；没有重跑测试/同步、没有覆盖原日志，失败记录 SHA256=`76aa9e8e70318f48fd4dd966d4f16e9c04c895e2df697dc243fdeb3f3c38369f`。已保存实际命令脚本 SHA256=`9375359061c8a6ce0443758538622007a0a4e14ef6fe8112d9ca3e228f8d1b82`，以独立补件和原测试日志对照；补件不伪称事前脚本。
+
+17:56:56Z 节点本人 marker 释放，`marker-release-final.log` SHA256=`ab398f9a814e915d288d55c867c9c529885af8985580b1b0f1714f339e39f905`：worktree 仍 clean/固定 4d5，无本任务测试进程、容器或 8000 listener，marker absent；该 worktree 保留供复核。A 未使用 04 权威 runner、正式性能/真实数据旅程或 Compose，后续由 B–E 按 kickoff 验证。
+
+B 可据本页 §1 的 `TableComputation` 三视图、Arrow schema、facts/artifact 双排序与预算/owner边界实现共用比较内核；C 接 records writer/reader 与实际 PyO3 Arrow validator；D 接 Python Risk 批消费、逐事件 replay 和 operation 内纯 key；E 收敛临时差分/旧 Python 与 Rust Vec 原型及活动 benchmark consumer。A 的 `test_keyless_third_copy_uses_frozen_occurrence_two_identity` 和三族 records fixture 是冻结预期，B/C 改调用新 adapter 时保留常量；`test_records_fixed_vector_rejects_independent_semantic_corruption` 是旧 Python 读侧基线，C 用同输入接实际 PyO3 后删旧私有入口。不得把固定 fixture reader 的 Rust 单测充当生产 open/restore 已覆盖。A 的独审结论另由独审者签署。

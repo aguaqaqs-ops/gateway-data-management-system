@@ -6,7 +6,7 @@
 
 已预检产品前固定清单 **`2ca25b6514a10fbc29d8d66535f22d0a154e8bc5`**；首轮正式代码对象仅为 native 子候选 **`a500dd81525963775b5ee005a3aa8ba9abc041af`** 的五个 Rust 文件，不包含实施中的 backend 接线。native 修复候选 **`2c6f13731bd3b4a4ffd39c97ee2627d18009ae54`** 的同角色复审与证据见 §5。
 
-**最终结论：V1 本节 GO，F1–F4/N1 全部关闭，无剩余阻塞。** 产品/最小容器候选为 **`84bad715a2faf281e94fa9c0c534414dc7246608`**，handoff/owning 文档核至 **`5b7812164a`**，最终证据与范围见 §9。04 权威及联合必要 Compose、05 fresh t1、V2、D/tar 与 FE3 均不在本节完成声明内；不办理联合 exit。首轮发现及失败记录保留，不用后续成功覆盖原运行。
+**当前结论：V1 暂不能最终 GO；F1–F4/N1 已关闭，追加 F5 待原角色修复复审。** 产品/最小容器候选为 **`84bad715a2faf281e94fa9c0c534414dc7246608`**，handoff/owning 文档核至 **`5b7812164a`**，已有证据与范围见 §9。§9 的 GO 文字是发现 F5 之前的结论，现由 §10 取代，不能作为开工或最终完成依据。04 权威及联合必要 Compose、05 fresh t1、V2、D/tar 与 FE3 均不在本节完成声明内；不办理联合 exit。首轮发现及失败记录保留，不用后续成功覆盖原运行。
 
 只读 detached worktree：`/home/dev/gdds-reviews/p6-v1-native-a500dd8152`，HEAD 固定为上述候选，已链接主仓库 `legacy/`，审核期间保持 clean。未读取 main 中后续 dirty 实现，未修改产品或测试，未运行测试、编译、lint 或容器，未占测试节点；本角色只写本报告。
 
@@ -214,3 +214,22 @@ Required execution point: V2/D 后联合最终候选，不在本节办理 exit
 **V1 本节 GO。** 已审范围满足同次 Rust 源序时间提取、完整内容身份、checkpoint/READY→T1→不可变 Attempt/Submission、损坏拒绝及 TTL 后基线来源独立读取的交付要求；无剩余产品 Finding、文档缺口或缓存阻塞。审核与修复始终由原两角色闭环，未通过更换审核者消除 finding。本角色只改本报告、未运行产品测试/编译/lint、未修改产品/前端/冻结基准、未推送或改 tag，至此停止本节写入与执行。
 
 后续唯一范围：V2 使用本领域类型与持久 Submission 端口，把 facts digest 纳入 candidate/selection/anomaly subject，并按 a24 的逐侧身份规则完成来源/时间核验、接受/Start 和关闭出口；D 完成 tar，FE3 由前端 owner 处理。04 六项尚未执行的既有容器 owner 及 05 真实入口已在 [handoff §6](p6-v1-handoff.md#6-明确交接与延期) 明列；`--scope full` 是旅程范围，不等于已覆盖 FULL 输入模式。本节 06 证据不冒充联合最终、真实数据或前端 GO。
+
+## 10. 追加 F5：公开目标授权早于完整 facts 解码
+
+协调者在 §9 提交后指出新增 decoder 的公开读取顺序；本角色在同一固定 84bad 只读 worktree 独立复核确认。**F5（P2）未关闭，§9 的本节 GO 暂停采用**；既有 F1–F4/N1 的代码与证据关闭结论不变。
+
+`application/submission/review.py::load_review_scope_facts` L223 先 `get_submission`，`infrastructure/control_db/sqlite_submission.py::submission_from_row` L687 首先解码 `ConfigurationFacts`，随后构造 Submission 时校 source refs 与 facts 绑定，之后才由 Review application 校 exact scope 和持久 `created_by`。因此 self-only actor 请求非本人或跨 scope 的 Submission 时，若该行 facts BLOB 损坏，或 `source_artifact_refs` 与 facts 不一致，会在目标授权前抛解码/绑定错误，不能走约定的隐藏 404。此为静态可达顺序证据，本角色没有在开发机执行 HTTP 复现或测试。
+
+同一新增 decoder 的公开消费者集中核对结果：
+
+| 入口 | 授权前完整读取 |
+| --- | --- |
+| Review GET / POST / replay | `load_review_scope_facts` 先完整 Submission，再 exact scope/created_by |
+| Attempt / Submission 点读 | `http/orchestration/operation_scope.py::read_submit_attempt/read_submission` 先完整对象，再 URL workspace 绑定和 scope |
+| SUBMIT Operation 点读 | `authorize_operation_read` 的 SUBMIT 分支先完整 Attempt，再 `_authorize_workspace_scope` |
+| Preview 点读 | `application/workspace/preview.py::read_preview_result` 先授权 URL workspace，再完整读取任意 preview ID，之后才检查 result.workspace_id；使用本人 URL 搭配外 scope 的损坏 preview ID 仍可提前解码失败 |
+
+既定依据：[BE-a 设计 §6](p6-be-a-design.md) 要求最小持久绑定→scope/本人授权→完整 facts；[P5-5C §4.3/§5](p5-5c-review-design.md#43-request-and-replay-ordering) 明确目标不存在/跨 scope/非本人统一 404，已授权后才暴露完整性错误。已有 `test_self_target_authorization_precedes_review_closure_read` 只破坏 Review closure，未覆盖 V1 新增的 Submission facts 解码，因此先前 HTTP 通过不足以证明这个边界。
+
+已直接交原实施者以最小 binding projection 或 scoped read 修复：先读取必要 workspace/repository/持久 created_by 并校当前 scope，再完整 decode；保留已授权对象损坏拒绝、当前 mapping 和 replay 语义。仅复用原 Review、Operation/Submit、Preview HTTP owner 的共享小型参数向量，覆盖未授权损坏事实/绑定仍 404，以及已授权损坏仍失败；不增加安全框架或重复权限矩阵。固定修复、06 相关 focused/静态及新候选容器绑定决定到达后，同角色追加复审；本角色未改产品/测试，也未重占或运行 06。

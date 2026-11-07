@@ -2416,3 +2416,31 @@ guard的FULL分支为work70200、watchdog71420；内层1200 grace、外层kill5�
 4. checkpoint仅按原resume边界选择后续步骤，沿用保留的合格失败前checkpoint，不把整个原17项列表重新传入导致“早于resume边界”拒绝。普通bench修正及必要focused后，实际前提满足即可按既有DC80授权恢复，不另等Owner/GO；证据沿用不确定或新业务取舍再交设计处理。
 
 这只是已明确的条件恢复方案，**尚无FULL失败、未实现/执行恢复、未宣称未来恢复代码已经PASS**。它解决“若失败是否只能整档从头重做”的具体工具限制，不新增恢复框架或预跑矩阵。源码/产品/在途worktree和镜像均未修改；最后产品镜像仍为§87绑定9704身份，无重建触发。本轮没有测试、容器/业务或原SQLite访问；结果及未实测的预算边界直接同步设计和实施者，整体测量继续。
+
+## 107. DC63现成计时限制、9704边界映射及最小诊断方向预核
+
+**现有粗段不能直接补成同口径DC63细段；边界草图已核，可按以下纠正继续最小工具实现，无新GO。** 本节不是新诊断代码/结果PASS。设计已用 **`db0e72f61989a54f3e17ed3874aff52909ed05be`** 的 `p6-dc63-v5b-measurement-completion-plan.md` 固定原授权内的最小补缺：普通t4 v1/v2 Preview、同一两节点History的checkpoint/bundle与导出迁移，以及复用其准备状态跑V5b A–D；不新增冷热/refill/H2/H3诊断矩阵。实施者边界草图为独立诊断分支 **`cb724abc6a213d62b2a9fe2bdc4287fbc6d4f5a6`** 的 `p6-dc63-9704-diagnostic-boundary-map.md`，相对5b仅新增该文档，diff whitespace通过。产品来源9704、正式参考线和在途18a FULL保持不变。
+
+### 已有材料能证明什么
+
+只读18a timing reference：共21个DC63 selector，Preview每版checkpoint-read/pair-pipeline/bundle/finish共8；Submit v1七项、v2六项。S1a参考确来自非候选e52ad2对af559的诊断，handoff SHA `15860f93b1e4760ae4c254f76c0720f261332e941dd00840005ddafd6c7e5cb7` 与5b Git原始字节匹配。其九文件诊断未进入产品候选，不能把这组旧值当9704实测，也不能cherry-pick旧实现覆盖新产品。
+
+已核普通9704生产路径无e52的细span；现有API、operation_step、step间隔和await会话可保留其自身口径，**当前材料未给出可直接填入21项目标的同口径记录**，不是将缺值计为0。连prepare-total也不能机械复用DB step：e52的 `worker.step.execution` 用perf_counter包executor调用，当前旅程从DB started_at_us/completed_at_us作差，端点包含claim/确认等差别。Preview assemble总段不等于pair；materialize包含迁移来的导出成本，也不等于checkpoint-read。W4/GC诊断的631表合成输入与普通t4的312表不同，已有细段可作该实际输入的旁证，不能填为普通t4同输入对照。若后续找到真正匹配输入/端点的细span，可认证复用，本节未要求重取其数据。
+
+21个selector是台账，不形成21次旅程或新增21项性能门槛。原DC63核心是实际checkpoint/bundle拆分与成本迁移说明；其中History没有已接受的S1a同口径细段，保留历史API背景并说明不可比，不伪造逐项差。旧finish也不是e52源码中的单个同名span，原日志/已接受汇总算式尚未核到时，不自创bundle_end→executor_exit再与0.999274/0.763653比较；可先记录当前实际覆盖并标不同口径。
+
+### 对草图的具体边界纠正
+
+- Preview materialize的 `_materialize_all_sides` 包含baseline/upload等子调用，父子不相加。assemble checkpoint读取从 `_load_step` 开始，包含envelope读取/匹配及 `_materialized_preview_inputs_from_checkpoint`，不是只量最后一个函数；之前完成的Parquet/export成本另记。
+- 旧pair span包私有 `_run_pair_pipeline`；`_assemble_preview` 是含pair、bundle等的父段。pair后还有 `surface_artifact_closure`，bundle后到handler finish前还有 `_required_ready_refs` 与assemble state组装；这些实际成本不得漏记或硬塞bundle。ready closure、state/checkpoint/pin、lease/successor的归属需明确，readback和嵌套span不重复求和。
+- History在 `application/history/compare_jobs.py`：materialize distinct commits及 `_materialize_commit` / `materialize_repository_ref` 的导出/cache成本另列；assemble由 `_load_step`、load_checkpoint_envelope、`_sides_from_materialize_checkpoint` 恢复绑定，pair/assemble_bundle再分。只补同一两节点普通t4，不用Preview字段代替History测量。
+- Submit旧frozen-input对应 `_open_projection_inputs`，build-input另列；resolve manifests/changed/removed检查、before snapshot组装及reader close需明确余量。after-snapshots包括after_by_name构造和changed_after筛选；只量 `build_import_mutation_snapshots` 函数会漏掉调用方工作。旧plan/render覆盖plan调用、rebuild选择、schema/DML渲染到replay_sql拼接整个组，只加plan及DML两个wrapper不等于该旧组。publish不含后续prepare checkpoint，fresh/reuse/取消/异常分支分别记录。
+- 草图中的publication类名应为 **`infrastructure.repository_write.import_publication.SubmitImportPublicationAdapter`**，已直接告实施者修正文书。Preview与History各自已from-import绑定assemble_bundle；薄wrapper必须覆盖真实消费namespace，仅改capability导出名不能保证拦到它们。必要focused应经过实际消费调用并核异常/返回传播，不只单测wrapper本身。
+
+### 可推进的最小方式与当前边界
+
+设计已认可：优先在冻结9704镜像上的独立诊断project只读挂载非候选入口，在正常worker前安装精确薄wrapper，仅粗阶段perf计时/计数，保留真实worker、GC调度、lease、事务与Compose artifact路径。多语句组只在能直接捕获已核起止时记录，捕获不了则标当前不同口径/未测，不为凑selector重构产品、逐行trace或按父子差额伪填。若确需最小诊断overlay/镜像，另记完整诊断身份、差异和实际runtime接线，不覆盖冻结tag或宣称等于正式产品执行配置。
+
+优先复用已认证素材；需要新worker内部细段时，按既有DC63授权一次必要普通t4诊断链覆盖v1/v2及一条两节点History，并复用其合格准备状态和独立scratch跑现有V5b A–D。先集中固定普通t4包/规则/commit/cache、边界/readback、工具身份及充分的局部/总/清理预算；不把旧42分钟或规划区间作为hard限。实际诊断只在FULL/STRESS等正式测量结束、CT108空闲并取得占用后进行，不修改原state来满足 `/measurement` 指针，不将诊断数值回填为正式operation elapsed。
+
+本轮只读CT201的Git对象、已存副本和索引，未访问在途CT108、运行测试/容器或改产品/镜像。必要工具实现、focused和一次实际诊断结果尚待交付；结论与边界纠正已直送实施者并同步设计，普通修正直接闭环，不逐点等待设计/Owner回执。正式V_ref产品、最终04及整体exit不由本节代判。

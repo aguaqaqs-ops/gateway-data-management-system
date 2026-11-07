@@ -1,8 +1,8 @@
 # S2b E 实施 handoff（进行中）
 
-状态：**等待Owner最终资源档位决策**；2026-11-07 02:09Z。当前main产品修复候选 `d6c88cafb38255c66dbb5f8fae091af75e289d62`，资源档仍12GiB envelope/4GiB reserve/M上限8GiB。此前消费者迁移、单侧metadata计费修正及Store mmap源FD早关闭均已独立源码核清。隔离cal候选 `1f9df50a5c01173b82febc3a74b01bae549b1bb0` 保64/16/48与临时日志，仅用于容量诊断；不合main。
+状态：**最终门禁及fresh真实旅程执行中**；2026-11-07 02:19Z。Owner已选定A最终档，固定产品候选 `82c4251b6cf944526c80a5e9bfe707bc57ab5087`：worker24GiB硬限/8GiB reserve/显式M16GiB，N1/单active。保留d6最小FD修复，临时cal日志不合main。06资源/settings/lifecycle30项及Ruff/mypy500全部通过并释放。
 
-当前 pending：**Owner据原失败校准前缀与修复后History局部结果选择最终profile，再完成该最终候选必要门禁和fresh真实旅程**。History独立冷拷副本已于02:09:17Z成功，driver于02:09:25Z exit0、必需证据完整、仅副本清理并释放节点；详见末节。原4f校准始终History FAIL，其17成功业务step只在副本复用，不冒充完整新校准PASS；三代原E stopped资源保留。最终六包/最终profile/最终完整真实旅程与E GO仍未完成。无需等待或重跑既有诊断；未定档前不启动最终门禁。
+当前 pending：**04六包权威整次实际通过、05新候选fresh t1–t3、CT108新候选完整同workerfresh t4及独立审核**。02:19Z三节点已实际启动，同V82、离线且clean，结果未出前不记PASS。Owner最终档选择不代表完整旅程已通过。原4f校准History FAIL保持；修复后History冷拷局部PASS仅补该路径，不替代新fresh全旅程。E GO与S2b exit仍未办理。
 
 ## 实际消费者与删除
 
@@ -347,3 +347,22 @@ History新operation `op-5ad5b9ab937f699652bd2af1`（与旧失败op不同）02:07
 | `clone-ready-and-exact-commits.log` | `87648a2f70d971358b4e517fe913d8e94bc8d652fb0c243a9b3a88afc2122d4e` |
 
 此结果是DC64 History_only_on_cold_copy，通过最小FD修复后补齐原故障路径的正确性与预约记录；原cal journey1/driver1与scope原collector evidencefalse不改。当前各E节点无占用；04 gate WT和全部原证据保留。等待Owner最终profile决定后再冻结实际最终候选/闭包与相应门禁，不在此次局部PASS后自动接全门禁或完整旅程。
+
+
+### 02:19Z：最终A资源档与实际最终验收启动
+
+Owner明确选择24GiB envelope/8GiB reserve/显式M16GiB，N1/单active；main `82c4251b6cf944526c80a5e9bfe707bc57ab5087` 仅改settings三常数、Compose硬限与三资源Env、worker资源owner的超上限负例/最终profile正向断言。资源值精确为25769803776/8589934592/17179869184B；缺M仍拒启，既有控制/租约/GC/固定参数不变，不合临时logger。仍用较小显式M的小fixture合法，不为改profile重写其他业务expected或A–D向量。
+
+06固定82，source实际0 SHA `95aa7b2faeb12bf2dab5f178db79e6d3fd3c7dbfb0f385a080c13fa03d962a29`，另call实际四module/directurls/native137/profile24-8-16/工具核0 SHA `0f13ca465796fb2ce6a43c47a904034c75fb4aca27cfa3f0c996ba2ee2de82a0`。02:16:47–50Z backend Ruff0/mypy5000、worker_kernel_resources/backend_settings/operation_worker_lifecycle三module `-n0 -q` **30 passed**，log `artifacts/s2b-e-final-profile-82c4251b/profile-focused.log` SHA `c7ed37603c6c2d117ec4350d6bc2ad071042b99909dbf14ad72d4de2b60641c8`；02:17:14Z exactowner/clean/wholeidle释放0 SHA `a6b17a74059414043ec669259ac2c19c22dc7285bc678b04c9d29faaedc2aedf`。
+
+最终task ref `refs/codex/s2b-e/final-profile/<full82>`；完整history/no-prerequisites bundle SHA `39cc3944eb410ec0ca14a6636b99f11fd8416a6808f7562ff69f7915208df04c`。04/05/CT108均记录实际root previous2c79与各E WT previous1de，再bundle verify0/fetch本ref/检出固定82；source实际0后另call核HEAD/clean/legacy/四Rust工具，再env实际0后独立实际pathdeps/native/HEAD/镜像身份核。各节点existing venv均原地自有，无复制；base/19DiffIDs与锁身份不变、RS候选镜像在各节点本机offline build。05/CT108现CLI --validate-inputs逐包核八输入，INPUTS_VALID；无重生成/普查。全部准备日志完整保留。
+
+| 节点/证据前缀（均在 `/home/dev/gdds-test-tmp/artifacts/`） | source / 独立源 / env / 独立env SHA256 |
+| --- | --- |
+| 04 `s2b-e-gate-82c4251b/` | `ec9037e2a99fa83ff990291beaf191ab014aa471e13f51bdb977e11188c6731a` / `6d513231856ebad93ab0cdd431c6c268ed8efa5c72b8e6b30e78b37735c2d9a5` / `e8614e3f22d17bafc81c8a985cf5255a4bf13d21cbbbdc1bd576e8c26f3e4082` / `0d0f471927964621f9836f64b4a172320ac0a28d8cbea1efb248078695526bd8` |
+| 05 `s2b-e-t1t3-prepare-82c4251b/` | `9ce2a15519c79a98f48e60a9b38ad86452fdf601b9b78b4b87474d92529ab4a4` / `f5b40a3cb371c717aff8c693c8e4c70488e4af26e914e76ab007a3481ac07cbc` / `5d415c4de707ff09b6a1cdc757286c3d85c2d469a6a10787bf76310ebfef8930` / `c11eb8b8a304424a5b35e414b44fe9e0ec8176674f854040a0003890062d6f9c` |
+| CT108 `s2b-e-t4-prepare-82c4251b/` | `6a1bcc88c66312faae708f0832f31a136c820581e308f75f56e107588468a031` / `8e3407e13ef6ca43d024d8fca5782e776d7e9726ed48cbf01c246aa1d07388ba` / `462e6662714a722e05b9d72d0bcbbe4a406a87495aa70295eefe1bd2d9473893` / `bf354f01980cf6887c05b537ee6925775167d866524d7b67cfcf419c3f67dedb` |
+
+04同E gateWT于02:19:09Z启动六包实际权威runner，显式selection rust/shared_kernel/repository_contracts/repository_client/backend/repository_service，jobs4/pytest4、serial-n0。由于Compose属于所有包COMMON Git输入，旧来源不能沿用；本次六包实际run，backend批次已覆盖Compose不另跑。实际driver `/tmp/s2b-e-six-authority-final-04.sh` SHA `20251be2960e77f3f93cbb5d95171609f091cafdd9c23541c4b467a614c3bc60`，日志 `six-package-authority-01/authoritative-runner.log`，当前运行中，尚未合格来源。
+
+05/CT108于02:19:31Z独立准备释放0，SHA各为 `3a8cf2fa76110e5418af39e8eeab25aaa5679b4c6de2a3f03936ddbb86d07dc5` / `8fbb09c235c8827e278f21f01a8bee50d049996e522c31c6464ba0944ede8392`，随后fresh driver重新现场原子取锁。CT108 `/tmp/s2b-e-final-t4-driver.py` SHA `0ff03b35aca679ac18ba1ecc0f8ba5b94ffb45a6bdc680760b431aa46e1a4d45`；05 `/tmp/s2b-e-final-05-tier-driver.py` SHA `6053196a10fcfc69571d9df56ff2e0ad22c499f4a3b277cf6fcb5b8745992d24`。仅复用既有driver改最终24/8/16、新project与显式M16；去掉临时calcounter解析要求，保必需CG/RSS/同worker/正常stop/HEADclean与失败保现场。新project分别 `s2b-e-final-t4-82c4251b6c` 与 `s2b-e-final-t1-82c4251b6c`；fresh full无resume/from-step。05每档必须实际0+证据齐+cleanup/release才接下一档，真实失败停后续。所有原失败与冻结资源不动。

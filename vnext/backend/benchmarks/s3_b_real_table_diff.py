@@ -12,14 +12,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import uuid
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from gateway_backend.artifacts.store import InMemoryArtifactStore
+from gateway_backend.artifacts.store import InMemoryArtifactStore, put_with_built_ref
+from gateway_backend.application import preview_jobs
 from gateway_backend.bootstrap.compute_kernel import initialize_compute_kernel
 from gateway_backend.capabilities.comparison import (
-    ComparisonPlan, ComparisonRequest, ComparisonTableFact, plan_comparison,
+    BoundSnapshotInput, ComparisonPlan, ComparisonRequest, ComparisonTableFact, plan_comparison,
 )
 from gateway_backend.capabilities.comparison import standard as frozen_standard
 from gateway_backend.capabilities.comparison.row_encoding import _can_table_early_exit
@@ -29,12 +31,15 @@ from gateway_backend.capabilities.table_access import (
 from gateway_backend.capabilities.table_rules import (
     comparison_rule_set, migrated_table_ruleset_snapshot,
 )
+from gateway_backend.capabilities.table_rules.contracts import ComparisonRuleSet
+from gateway_backend.domain.workspace.models import SourceArtifactBinding
+from gateway_backend.operations.contracts import OperationDiagnosticSide
 from tests.test_comparison_s3_b_differential import (
     _expected_standard, _fixed_reference, _frames, _identity, _interval_view,
     _probe_interval_view, _probe_task, _project_record,
 )
 
-from benchmarks.p6_v1_ordered_diff import _close_bound, _materialize_package
+from benchmarks.p6_v1_ordered_diff import _close_bound
 
 _PACKAGES = {
     "rd-t1-a-v1": (107115, "42794011d74b6c906e35bc5c79610fc0305020ae966f8f0df4449337b95ea8b2"),
@@ -50,6 +55,30 @@ _STEMS = {"t1": "rd-t1-a", "t2": "rd-t2-b", "t3": "rd-t3-c", "t4": "rd-t4-d"}
 _ROW_KINDS = {"ROW_ADDED", "ROW_DELETED", "ROW_MODIFIED", "TABLE_DEGRADED"}
 _KERNEL_THREADS = 1
 _KERNEL_MEMORY_BUDGET_BYTES = 24 * 1024**3
+
+
+def _materialize_package(package_bytes: bytes, store: InMemoryArtifactStore) -> BoundSnapshotInput:
+    ref = put_with_built_ref(
+        store,
+        package_bytes,
+        artifact_id=f"s3-b-{uuid.uuid4().hex}",
+        media_type="application/gzip",
+    )
+    binding = SourceArtifactBinding(
+        artifact_id=ref.artifact_id,
+        media_type=ref.media_type,
+        size_bytes=ref.size_bytes,
+        raw_sha256=ref.raw_sha256.value,
+    )
+    bound, *_ = preview_jobs._materialize_uploaded_side(
+        binding,
+        store,
+        migrated_table_ruleset_snapshot(),
+        repository_id="s3-b-real-table-diff",
+        export_cache=None,
+        side=OperationDiagnosticSide.MODIFIED,
+    )
+    return bound
 
 
 def _validated_packages(root: Path) -> dict[str, bytes]:
@@ -199,68 +228,80 @@ def _check_ordered(
             raise AssertionError(f"{label} differs")
 
 
+def _run_tier(
+    tier: str, stem: str, packages: dict[str, bytes], rules: ComparisonRuleSet,
+) -> dict[str, int]:
+    store = InMemoryArtifactStore()
+    before = _materialize_package(packages[f"{stem}-v1"], store)
+    current = _materialize_package(packages[f"{stem}-v2"], store)
+    try:
+        plan = plan_comparison(ComparisonRequest(
+            pair_id=f"s3-b-{tier}-by-table",
+            before=before, current=current, rule_set=rules,
+        ))
+        if not isinstance(plan, ComparisonPlan):
+            raise AssertionError(f"{tier}: comparison planning failed")
+        checked = 0
+        metadata_only = 0
+        unchanged = 0
+        for task in plan.tasks:
+            fact = frozen_standard._compare_task_safely(task)
+            if fact.status.value == "DEGRADED":
+                old_fact = {
+                    "status": fact.status.value,
+                    "diagnostics": fact.diagnostics,
+                    "row_count_before": fact.row_count_before,
+                    "row_count_current": fact.row_count_current,
+                    "record_kinds": [item.record_kind.value for item in fact.records],
+                }
+                raise AssertionError(
+                    f"{tier}/{task.table_name}: frozen Python predegraded: {old_fact!r}"
+                )
+            if task.before_table is None or task.current_table is None or task.policy is None:
+                metadata_only += 1
+                continue
+            ordered = task.policy.ordered_policy is not None
+            if not ordered and _can_table_early_exit(
+                task.before_descriptor, task.current_descriptor, task.policy,
+            ):
+                unchanged += 1
+                continue
+            actual = _probe_task(task, fact, ordered=ordered)
+            try:
+                if ordered:
+                    _check_ordered(task, fact, actual)
+                else:
+                    _check_standard(task, fact, actual)
+            except AssertionError as exc:
+                raise AssertionError(f"{tier}/{task.table_name}: {exc}") from exc
+            checked += 1
+        return {
+            "planned_tables": len(plan.tasks),
+            "row_kernel_checked": checked,
+            "metadata_only": metadata_only,
+            "predegraded": 0,
+            "standard_early_exit": unchanged,
+        }
+    finally:
+        _close_bound(before)
+        _close_bound(current)
+
+
 def run(root: Path) -> dict[str, Any]:
     _fixed_reference()
     packages = _validated_packages(root)
     rules = comparison_rule_set(migrated_table_ruleset_snapshot())
     report: dict[str, Any] = {"input_verified": sorted(packages), "tiers": {}}
     for tier, stem in _STEMS.items():
-        store = InMemoryArtifactStore()
-        before = _materialize_package(packages[f"{stem}-v1"], store)
-        current = _materialize_package(packages[f"{stem}-v2"], store)
-        try:
-            plan = plan_comparison(ComparisonRequest(
-                pair_id=f"s3-b-{tier}-by-table",
-                before=before, current=current, rule_set=rules,
-            ))
-            if not isinstance(plan, ComparisonPlan):
-                raise AssertionError(f"{tier}: comparison planning failed")
-            checked = 0
-            metadata_only = 0
-            degraded = 0
-            unchanged = 0
-            for task in plan.tasks:
-                fact = frozen_standard._compare_task_safely(task)
-                if fact.status.value == "DEGRADED":
-                    degraded += 1
-                    old_fact = {
-                        "status": fact.status.value,
-                        "diagnostics": fact.diagnostics,
-                        "row_count_before": fact.row_count_before,
-                        "row_count_current": fact.row_count_current,
-                        "record_kinds": [item.record_kind.value for item in fact.records],
-                    }
-                    raise AssertionError(
-                        f"{tier}/{task.table_name}: frozen Python predegraded: {old_fact!r}"
-                    )
-                if task.before_table is None or task.current_table is None or task.policy is None:
-                    metadata_only += 1
-                    continue
-                ordered = task.policy.ordered_policy is not None
-                if not ordered and _can_table_early_exit(
-                    task.before_descriptor, task.current_descriptor, task.policy,
-                ):
-                    unchanged += 1
-                    continue
-                actual = _probe_task(task, fact, ordered=ordered)
-                try:
-                    if ordered:
-                        _check_ordered(task, fact, actual)
-                    else:
-                        _check_standard(task, fact, actual)
-                except AssertionError as exc:
-                    raise AssertionError(f"{tier}/{task.table_name}: {exc}") from exc
-                checked += 1
-            report["tiers"][tier] = {
-                "planned_tables": len(plan.tasks),
-                "row_kernel_checked": checked,
-                "metadata_only": metadata_only,
-                "predegraded": degraded,
-                "standard_early_exit": unchanged,
-            }
-        finally:
-            _close_bound(before)
-            _close_bound(current)
+        with kernel_execution_scope(
+            KernelExecutionContext(
+                OperationMemoryBudget(_KERNEL_MEMORY_BUDGET_BYTES),
+                NeverCancel(),
+                _KERNEL_THREADS,
+            ),
+            new_operation=True,
+        ):
+            report["tiers"][tier] = _run_tier(tier, stem, packages, rules)
     return report
 
 
@@ -269,15 +310,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
     initialize_compute_kernel(_KERNEL_THREADS)
-    with kernel_execution_scope(
-        KernelExecutionContext(
-            OperationMemoryBudget(_KERNEL_MEMORY_BUDGET_BYTES),
-            NeverCancel(),
-            _KERNEL_THREADS,
-        ),
-        new_operation=True,
-    ):
-        print(json.dumps(run(args.root.resolve()), sort_keys=True))
+    print(json.dumps(run(args.root.resolve()), sort_keys=True))
     return 0
 
 

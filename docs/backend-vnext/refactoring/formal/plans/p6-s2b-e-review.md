@@ -1,6 +1,6 @@
 # S2b E 独立审核
 
-状态：**E 未 GO：Owner已确认最终32/8/显式M24、N1单active及本轮06 fresh t1–t3、04六包/Compose，t4按具体bound沿用。固定产品a6876d5600源码、五包静态/定向、04六包实际/当前Compose与最终t1/t2/t3已独审通过，仅最终H绑定待齐；原82 t3/M16及旧cal失败保留，a10宽裕校准仅作测后依据**。本节按 DC86 新建独立审核角色，模型 GPT-6.1-Sol/max。只修改本审核文档，不修改产品或测试；明确小问题直接交实施者修正后复审，真实设计/验收冲突交设计协调者。无新增角色、推送或改写被引用提交。
+状态：**E 独立审核 GO，最终代码候选H=`3580e6649f4b0819156f7f560670b3deee237f42`。** 最终32/8/显式M24、N1单active；a687五包静态/定向、04六包实际/当前Compose及06 fresh完整t1–t3已独审通过，t4按82实际24/8/M16与具体bound沿用。H同04原WT六包closure/image绑定通过；累计S2b功能退出的证据条件具备，正式阶段exit/tag另办，当前无tag/push。W1/W2正式性能未完成、W3后续和原冻结线W4 OPEN保持既定归属；所有原FAIL不改判。本节为DC86新建GPT-6.1-Sol/max独审，只修改本文件；本结论文档在H后单独提交，不改变冻结代码候选H。
 
 ## 范围与固定基线
 
@@ -32,9 +32,9 @@ typed raw/canonical 同为 `sha256:f57c8813f99f9226ae5c0970e6619e801cbb013d6d20d
 
 ## 当前容器记录
 
-Current reviewed code HEAD: **`a6876d560050285321fd9f62942d590a03f35d64`**，审核detached WT固定clean a687。464后仅最终32/8/M24 settings/Compose与resource owner三路径，触发当前候选04本机离线重建/六包实际Compose；05:11:23Z取得整次合格来源，原同E gate WT保留。当前backend/worker image为 `sha256:34130ae839ba946d07bee991f2a7e44b01f1f1f33b9416aba6b13c8c14644e3e` / `sha256:692cc893fdbbc4e5c5b336679334b3561c6e0ed1a0b36cf20e42e3d661334298`；RS image为 `sha256:cbc547e4b01d8aba6d5fd00e6df896975df4c1deb4f962f4fcf8105d3bb81e15`，build-input revision a687、source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。当次Compose provenance SHA **`ac28f04e1b2d36aca3b4a5243f477cb577db4ae7ba807042818bbfbfd57b513f`**、backend starting closure total **`8d0b73df9f15d899265a4d57f24cac4dd87d24b5ca9f00c3b01992b1feff8645`** 已独立核。
+Current reviewed code HEAD: **`3580e6649f4b0819156f7f560670b3deee237f42`（H）**，审核detached WT固定clean H。实际门禁来源V为a687；V..H只有文档、vnext tree相等，H未重建，按本节末同04/原WT实际闭包与镜像身份结果carried。464后仅最终32/8/M24 settings/Compose与resource owner三路径，触发当前候选04本机离线重建/六包实际Compose；05:11:23Z取得整次合格来源，原同E gate WT保留。当前backend/worker image为 `sha256:34130ae839ba946d07bee991f2a7e44b01f1f1f33b9416aba6b13c8c14644e3e` / `sha256:692cc893fdbbc4e5c5b336679334b3561c6e0ed1a0b36cf20e42e3d661334298`；RS image为 `sha256:cbc547e4b01d8aba6d5fd00e6df896975df4c1deb4f962f4fcf8105d3bb81e15`，build-input revision a687、source-tree `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`。当次Compose provenance SHA **`ac28f04e1b2d36aca3b4a5243f477cb577db4ae7ba807042818bbfbfd57b513f`**、backend starting closure total **`8d0b73df9f15d899265a4d57f24cac4dd87d24b5ca9f00c3b01992b1feff8645`** 已独立核。
 
-本轮同V backend权威批次已包含当前本机build与Compose，不重复06或04另一组。旧82结果保持原范围，不冒最终M24资源事实；失败/cal镜像不作权威来源。最终H尚未冻结，之后只按同04/同原gate WT实际closure/image规则核一次绑定，当前不预填carried；WT留至stage exit合入。主线继续并行更新own文档，不在被测WT写入。
+本轮同V backend权威批次已包含当前本机build与Compose，不重复06或04另一组。旧82结果保持原范围，不冒最终M24资源事实；失败/cal镜像不作权威来源。H已冻结并完成同04/同原gate WT实际closure/image绑定，六包及当次Compose从最初actual a687直接carried；WT留至stage exit合入。主线继续并行更新own文档，不在被测WT写入。
 
 ## 固定组审核记录
 
@@ -242,7 +242,7 @@ Owner已明确选择最终A：**24GiB envelope / 8GiB reserve / 显式M16，N1/�
 
 ## 最终累计条款与既有独审证据映射
 
-当前累计源码范围为 `53b676a6298d408ccda3a85ee73c7ea223a2311a..a6876d560050285321fd9f62942d590a03f35d64`，最终H待协调者统一固定；以下按已交付GO/原测试owner复用，E仅补实际消费者迁移、两项真实故障及最终资源档影响，不重新逐段审核A–D或增加门禁。B引用恢复后的delivery独审，原停止记录不改判。
+最终累计源码范围为 `53b676a6298d408ccda3a85ee73c7ea223a2311a..3580e6649f4b0819156f7f560670b3deee237f42`，H由协调者统一冻结并完成末节绑定；以下按已交付GO/原测试owner复用，E仅补实际消费者迁移、两项真实故障及最终资源档影响，不重新逐段审核A–D或增加门禁。B引用恢复后的delivery独审，原停止记录不改判。
 
 | 条款/owner | 已有独审/依据 | 最终影响及本E收口 |
 | --- | --- | --- |
@@ -434,3 +434,33 @@ Owner已确认主案：**envelope34359738368 B（32GiB）、reserve8589934592 B�
 **a687的E源码与约定实际验收无剩余Finding；E最终GO及累计S2b功能退出证据条件仅待统一最终H的绑定。** 协调者在实际证据与文档齐后固定唯一H，之后只在合格来源原04/原gate WT计算一次六包closure，并重算RS helper身份对当前label/原Compose provenance；直接引用最初actual a687，不跑新的runner/旅程，不作提前compare。预备稿 `6f4c91831f28196a5dc97363dda854f2f3fed332a835c43182b3f708602cba62` 仅只读核关键范围，不能当作已执行证据。
 
 原82 t3/M16拒绝、7c/1de失败与4f完整cal History失败的结论、原日志/卷/state继续保留，局部History成功和a10校准不反写原FAIL；本轮未触碰05/CT108原保留资源或基准GC文档。W1既有t4首次可读观测代理仍仅单次初诊；正式W1/W2性能最迟S6归原性能owner、W3自S3、原冻结线W4 OPEN均不由本轮通过关闭。阶段exit/tag由Owner或授权协调者按P5§8.1另办，本审核无push/tag。
+
+
+## 冻结H实际绑定与最终独审结论
+
+最终H为 **`3580e6649f4b0819156f7f560670b3deee237f42`**，actual Source V为 **`a6876d560050285321fd9f62942d590a03f35d64`**。独立核V为H祖先、V..H仅AGENTS/testing/plans九个文档，`vnext/` 两端tree严格同 `92c1d6403d7cf3cbc4cf2746100699ed8d028ba7`；产品、部署/环境接线、镜像构建输入、Docker/Compose harness均无差异。审核detached WT已固定clean H、legacy链接正确。最终H没有再重建或跑测试，使用AGENTS阶段退出镜像身份等价规则，以下是实际绑定证据，不凭docs-only推定。
+
+04仍用原 `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`。完整H source namedref/bundle verify/fetch与checkout实际0，source log SHA **`00ee60fda420c11b03ccf52a43ad0302d61fb66ff5516cc18918f3b9dc2b128b`**；另call clean H/legacy/四工具核实际0，log SHA **`248effcbeeea38a9034322de8015426a515c1e9633a5672540a2452f3dd71fe3`**，均在 `artifacts/s2b-e-final-H-3580e664/source-01/`。remote root main未改，只更新本任务ref与原gate WT。
+
+首个纯比较 `closure-and-image-01` 在backend拒绝相等断言，原log SHA **`19c254c828728158ae47ffa5008241ba6f0a244badec00a2c9453cbf23dd112b`**，exit1/busy保留，前四包可沿用、backend状态“运行”，此失败不改判。独立逐nested leaf核：唯一不同component为environment:runtime-and-docker-build，严格只有原 `GATEWAY_COMPOSE_GATE_PROVENANCE_PATH` 与runner内export的 `GATEWAY_UV_CONSUME_SKIP_LOCK_ASSERT=1` 两个setting缺失，其余Docker/环境/组件完全相同；source指纹分别精确为原qualified路径的 `8aa51b1053ce20edd4c2e9690c1532ab29c5293d01d71eec6626d9a8d29bd566` 和字符串1的 `6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b`。这是外置比较未重现原runner评估环境，未发现产品、cache或镜像内容差异。
+
+修正稿 SHA **`19a4ca5c7b53dd59262adc383f95ff9a220b8377c8f81cb5d3c69943c63dc603`** 只在原strict native/lock检查后，为pure manifest/compare重现这两个原值，之后unset内部flag；该期间无uv消费/测试、无改venv/image/source JSON、无忽略组件或放宽相等规则。H、原WT及source全部保持。`closure-and-image-02` 于 **05:34:08–05:34:17Z actual0/driver0**，原log SHA **`f4a8614bba4f33df8d27745cba35c0a62e9d52b66dd751f5ec0f74f305e498b4`** 已独立重算；原closure01失败实物SHA不变。它是同一个冻结H的环境校正后绑定，没有再跑runner或旅程。
+
+六份H manifest均full H/clean，同原04、原WT、原Hypothesis缺失路径/同uv环境与本机镜像状态。**六包components逐项完全相等、total逐项等于上节最初actual a687、compare全部changed_components=[]/“可沿用”**；直接引用原actual来源，无链式carry：
+
+| H manifest | 原始SHA256（H-manifest.json） | 与上节actual V总摘要 |
+| --- | --- | --- |
+| rust | `6f4fcae9f0af32b4a452eb5ca3e4d35a962d87ef43cd13e387d8dbb237ac7a5d` | 相等 |
+| shared_kernel | `9400dda9e7b7c83793e2dedaf2bad07660af07018e6c00e1da066e7bd648f9d2` | 相等 |
+| repository_contracts | `c43b4459b0ee12e1d1ec9e77a475d62e79d714de7e6bbbf250d67d5b1ddb50d7` | 相等 |
+| repository_client | `3e1e8c26ea2130da2497024d9fd53c83d2860a76863ebfcd1ff0f03c69653f2c` | 相等 |
+| backend | `6ef8db81bbcdbcc3f5c96ab9d38589d873feafcc899cba3e3bafbf79242a34cd` | 相等 |
+| repository_service | `68ecc7bc9951eaa38efab467869cabca862dc6cc8b5e57c4866234207c2d8fc1` | 相等 |
+
+H重算RS身份JSON SHA **`8d0703eea8c5add515d732bc1bae84f81dcfed5e919b4a45f0b5be58a5515d6c`**，candidate H、build-input a687/source-tree13cb42af…；当前image原始身份文本 SHA `540daff292b340bb91e4df70dd26386cac0f827811d5b3af9f7182eeebfc5f28`，org revision/build-input均a687、source-tree严格相等、image ID仍原CBC且与原Compose provenance一致。backend/worker按同WT backend闭包相等绑定，最后实际构建镜像仍为上节34130ae8…/692cc893…，未把它们标成H重新构建。六包和V当次Compose结果因此绑定最终H，runtime image revision/source-tree准确保留来源V。
+
+05:34:17Z精确owner释放，released-at文件 SHA `375b06d17dd56993631e65eb4fd93e549c17f02d744d55c25ba41f293a25a91b`；独立随后读04 Hclean、marker不存在、无运行container、8000未监听，06最终三档亦已释放。原gate WT/uv环境/镜像/全部成功及失败证据保留至stage exit；本轮不碰原05/CT108失败卷/状态或其他GC文档。
+
+**最终结论：E GO，无本节剩余阻塞/Finding。** 32GiB envelope/8GiB reserve/显式M24GiB、N1单active已按Owner约定完成实际功能/容量验证；本报告累计复用A–D独审GO和既有恢复/事务/CAS/W2结构测试owner，E唯一Rust消费者与删除、独立固定预期、FD生命周期/增长前预算及最终验证已闭环。**`p6-s2a-exit..H` 的S2b功能退出证据条件具备**，正式DC86阶段exit与附注tag由Owner或授权协调者按P5§8.1另办，本会话没有tag/push。
+
+结论范围继续明确：t1–t3为a687/32-8-M24/06实际fresh完整PASS；t4为82/24-8-M16/CT108完整PASS与M≥18678133632 B、精确diff/remaining-cap条件沿用，旧物理峰不冒新档实测。W1单次观测代理不等于正式2×t4、预热与多次测量，W1/W2正式性能最迟S6仍归原性能owner，W3自S3，原冻结线W4 lease问题仍OPEN。原失败、完整cal失败和局部补验各保原范围；本次功能GO不关闭原线或宣告发布gate完成。

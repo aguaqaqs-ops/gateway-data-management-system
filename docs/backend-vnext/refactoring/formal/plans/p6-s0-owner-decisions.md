@@ -943,6 +943,11 @@ DC86 审核模型后续调整（owner，2026-11-06）：Owner 提出后续审核
 - **D 必验**：真实 worker 的 FULL 两侧同时存活资源、借用/共享 backing、mmap、转换/排序、IPC/adapter copy 与 staging 的合并预约和峰值；M 缺失/非法/超限启动拒绝、增长前资源拒绝，以及真实 cancel/drain/lease_lost/可选 deadline 与 EOF/publish 屏障。不得把局部 kernel 各自低于 M 等同总量合格，不将 OOM 作为正常资源拒绝路径。
 - **推进边界**：关闭 D 接线前尚缺的生产 envelope/reserve/M 选择；C 独立 GO 后按 DC86 既有授权创建 D 实施与审核角色继续，不再请求重复配置确认。若实际 worker 校准不支持此档，保留证据、诊断最小修正，必要时列方案交 Owner，不静默增加 M、容器限额或降低输入/正确性验收。W1/W2、最终门禁及原基准独立跟踪不变，不授权推送。
 
+
+- **E 校准推进调整（owner，2026-11-07）**：E 修正 metadata-only 单侧比较误计费后，t4 Preview 通过，首次 Submit 在真实行镜像/索引/回放准入被 M8 拒绝。冻结输入只读核算的已知预约约 12.071 GiB，不是完整 used 或实测内存峰值。Owner 要求“先增大预算，然后按测量结果决定”，避免逐档试探。设计协调据 CT108 实读 96 GiB，选择**隔离临时校准档：worker 硬限 64 GiB、reserve 16 GiB、显式 M48 GiB，N1/单 active 不变**；约 32 GiB 留给其他服务/OS 是节点余量，不是这些服务的硬预约。本数值是协调者落实测量安排的临时选择，不代表 Owner 已将最终生产档改成 64/16/48。
+- **校准范围**：基于固定 E 产品建立任务专有已提交候选/工作区；仅资源常数、Compose/CLI/driver 对应值及必要定向断言，以及读取现有 `high_water_bytes`/`stage_admissions` 的最小临时日志。记录每 execution scope/step 的预约高水位，按 operation 汇总；stage temporary limit 是可用上限，不作为实耗。实际 cgroup peak 保留同一 fresh worker 整生命周期累计口径，不虚构各 operation 独立峰值。临时观测不进入最终 main，不新增 observer/采样框架，不改 GC、租约、预算系数或输入。
+- **一次测量后定档**：独立审核及必要 focused/static 后，在 CT108 新项目 fresh t4 完成一次校准；不为临时档重复六包权威，不把临时配置/观测当最终验收。仍保有限预算与硬限；真实故障或再次预算拒绝就停并保现场，不继续逐档增加。测后依据实际预约/内存峰值、余量及未覆盖范围向 Owner 提出最终配置；最终档确定后再集中取得其必要权威/容器与真实数据证据。本条 A 档作为此前已确认最终配置的历史事实保留，在新最终决定前不默默改 main 默认，不以此豁免 S2b 功能/资源边界。
+
 ### DC88 纯重算阶段的正常 drain 交接
 
 - **来源与确认（owner，2026-11-06）**：D 实际接线发现，在尚未写出本次新 checkpoint 时以普通 retryable failure 表达 drain 会消耗 R5 的三个失败恢复会话，连续正常停机可能导致业务永久失败。现有 safe-handoff 又要求本 session 最新已提交 checkpoint，不能伪造。Owner 明确选择 A：窄幅扩展现有 Runtime/LeaseSession，正常停机安全重排队，不耗失败次数。

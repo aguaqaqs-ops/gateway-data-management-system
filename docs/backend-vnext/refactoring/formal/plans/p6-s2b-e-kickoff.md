@@ -1,6 +1,10 @@
 # S2b E：唯一生产路径与阶段最终候选
 
-当前进度（2026-11-06）：Owner 批准的额外四工具 mypy 修正已在 06 实际通过，并经独立审核；该暂停已关闭。`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 的 04 Rust 权威来源仍合格。首轮五 Python 权威运行暴露测试夹具迁移漏项；修正 `ff970567f8` 后，06 全 backend 收集 3230 项成功、受影响 184+16 项及 Ruff/mypy 通过，04 backend-only 主体 3173 项通过。但该次串行部分 55 通过/2 失败，整次 runner1，不能形成 backend 来源。两个真实远端操作成功，失败位于 History/ordered 测试核对 helper 的默认仓库 scope 与缺少显式调用参数；独立审核确认是此前未运行到的 adapter 漏迁，不据此降低生产校验或修改业务预期。
+当前状态（2026-11-07）：`1de3fa4084` 的 04 backend 权威与 05 fresh t1 均完整通过；t2/t3 未跑，t4 已通过 Preview、在首次 Submit 因真实行处理预约超过 M8 而停止。已知预约约 12.071 GiB（不等于真实峰值/完整 used），失败期 cgroup peak 约 632 MiB、无 OOM；分配前拒绝不能证明完整档只需该内存。RS 暂缓，避免配置尚未确定就重复门禁。两代失败 E 项目/卷/network/证据保留，CT108 于 00:44:15Z 核闲/owner 后释放。
+
+Owner 已要求先给宽裕预算测量后决定，避免逐档试探。按 [DC87 校准补充](p6-s0-owner-decisions.md#dc87-s2b-单-worker-的显式资源配置)，基于 1de 建任务专有隔离候选，临时 **64 GiB 容器/16 GiB reserve/M48 GiB**，N1 不变；只用现有预算高水位/阶段记录作最小临时观测，实际 cgroup 仍为同一 worker 生命周期高水位。先独立审核与必要 06 focused/static，再 CT108 一次 fresh t4；临时档不跑六包，不修改 main 最终配置，不改 GC/租约/预算系数。若仍有真实故障则停报，不再自动增档。测后向 Owner 给最终配置方案，之后集中完成必要最终门禁；目前不是 E GO/S2b exit。
+
+前序收敛记录（2026-11-06）：Owner 批准的额外四工具 mypy 修正已在 06 实际通过，并经独立审核；该暂停已关闭。`d0f5602d6f9f352b493bb31fbaf6b0a24dde4c5f` 的 04 Rust 权威来源仍合格。首轮五 Python 权威运行暴露测试夹具迁移漏项；修正 `ff970567f8` 后，06 全 backend 收集 3230 项成功、受影响 184+16 项及 Ruff/mypy 通过，04 backend-only 主体 3173 项通过。但该次串行部分 55 通过/2 失败，整次 runner1，不能形成 backend 来源。两个真实远端操作成功，失败位于 History/ordered 测试核对 helper 的默认仓库 scope 与缺少显式调用参数；独立审核确认是此前未运行到的 adapter 漏迁，不据此降低生产校验或修改业务预期。
 
 修正候选 `7c023971397a8fba2c9e2aa86e9e7cbb9f088fe1` 仅改三个测试路径，已获独立源码核对；06 本地 History 27 项、两个原失败 Compose 场景及 Ruff/mypy 已通过并独立核验。随后同 04 E worktree 的 backend-only 权威 runner 于 23:56:36Z 完整退出 0，主体 3173 项、串行 57 项通过。保存完整来源并独立核对后继续其余四个 Python 包；Rust 在同节点同 worktree 比较原合格来源，实际闭包相同。失败整次中通过的包不抽作合格来源；四包镜像构建结束再核 backend 闭包及最终容器绑定。
 

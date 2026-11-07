@@ -7,6 +7,7 @@
 - S2a已退出，仓库存在`p6-s2a-exit`；当前main也已包含S2b生产Rust接线。S2a早期handoff中“生产仍用Python、worker接线留S2b”是历史状态，不应拿来决定当前FE3b行为。前端继续消费HTTP/Bundle Contract，不增加Rust/Python选择器或浏览器SQL计算回退。
 - 解析诊断按公开code和结构字段消费，不匹配Python/Rust内部异常名或message逐字文案；S2a错误差分核对的是约定diagnostic code/table/offset。解析成功也不代表归档来源/时间核验自然通过。
 - BE-a、归档业务核验及BE-d已实现并获联合后端技术GO：实际产品`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`，`vnext` tree=`56720104af34a1eb677336f57bdbc07444a56615`，独审`ccdd1eb39d`§25，最终实施handoff`233e6f788b`。Owner已确认本轮DC33真实数据范围，见[最终协调交接](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)。
+- **正式退出已补齐**：本地附注`p6-be-a-d-exit`→独立退出报告F`77b9aeea74b08b527ef1c78637e0cbe000b60d2f`，在main可达；原04同WT实际六包／镜像／五锁最终绑定与原审核收完成。产品/API/tar不变，见[退出交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接)。前端可将后端“已退出并在main”这一条件记为满足；FE3b自己的kickoff及验收条件仍分别核对。
 - 旧FE3 kickoff中的三个后端前置已有明确交付：S2a已退出；过期baseline新APPROVE拒绝/同baseline PENDING硬阻塞已实现；tar与最终closure逐entry对应已确定。无需再等原基准性能线或重新选择这些已审业务规则。
 - 后端GO不替代FE3b浏览器验收或FE3退出。当前仍缺前端同字节tar解析/摘要/OPFS证据。
 

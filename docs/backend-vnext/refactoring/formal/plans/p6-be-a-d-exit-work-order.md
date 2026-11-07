@@ -39,3 +39,9 @@ H0固定为 **`479847148e1c50a92993371f004a1a7a032c006b`**。04于15:57:54Z实�
 根协调与原独审确认符合DC68自身命令漏配、未运行被测对象且无副作用的一次纠正条件。v2仅匹配manifest子进程的该源环境值，外层真实执行原五锁snapshot/assert，global flag仍unset，无uv消费/测试/build/retag。`run-h0-binding-corrected-e20WQoMR` **16:03:25–16:03:34Z**，original binding/outer五锁assert/command/final exit全部0、end H0 clean/本人owner真；六包均“可沿用”、changed_components为空。三runtime原config/全部54DiffID、RS公开helper source/build和custom130674前后身份均相等。binding报告SHA **`d728497e708e02ee282a7893d2cd9ca07082dfa4be38167da8017a2c995274e2`**，原log SHA **`9ef769cd5d099f69305d22f74a3909d16f22c495d79055d09995c0f68ce14ed9`**，前后五锁snapshot SHA均`769a4ba5409eef9bc8161fb4642f5ad1f26211501a68a8824c5733ce2190d039`。实际证据root为04 `/home/dev/gdds-test-tmp/artifacts/p6-be-ad-exit-04`，不覆盖旧来源。
 
 当前H0已取得实际绑定；原独审核收、退出报告提交F的同WT最终实际绑定、最终回执、本地tag及资源释放仍待，不提前宣布正式退出。
+
+### 正式退出完成
+
+最终F=`77b9aeea74b08b527ef1c78637e0cbe000b60d2f`已在原04同WT实际六包／镜像／五锁绑定全0并由原独审核收，§3退出条件全部成立。16:16:39Z本地附注`p6-be-a-d-exit`（对象66b9083941d2e1fce43197dc033793e566fdb089）精确指F、main可达、产品树567正确；16:17:03Z本人占用释放且原审只读核收。最终原件／摘要／资源及Owner可转前端的信息见[联合交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接)。本段为post-exit状态，不改变原F报告或tag，不推送，不把FE3b、原基准或S3实施记完成。
+
+最终phase索引及10项释放追加引用均已原独核native==LAN，原两角色均正常停止，无后台／本人占用；本工作单收尾完成。

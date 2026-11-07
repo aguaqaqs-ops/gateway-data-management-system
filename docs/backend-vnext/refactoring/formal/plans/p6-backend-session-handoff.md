@@ -89,6 +89,7 @@
   - 实施协调会话01a1b4f1-df13-7331-b3c4-77bb560203f2负责正常推进/节点/交接，设计者仅处理设计澄清与决策；前端由Owner手动转发[V2接口包](p6-v2-frontend-handoff.md)，不要求设计者日常催进度。
   - D本地0ba/tree0301、F1–F5已核收；联合eff1修复精确subject F6后，49403/tree567201六包13:33:56Z原exit0（RS按设计1skip），05 a99918步/四tar实跑通过并按有限成功路径引用，05/06已释放。实际交接当前态见[D handoff §12](p6-be-d-handoff.md)及[联合记录§10](p6-be-a-d-joint-validation-preparation.md#10-身份收尾停止与owner选择)。
   - **联合后端技术GO `ccdd1eb39d` §25，Owner已确认DC33范围**：固定49403/tree567，handoff233e；四包direct DTW原0+实际compare，两包mvzi新原0，runtime原cfg/54DiffID及RS预后一致、原manifest/LAN/释放均独核。04/05/06已释放，原D两角色完成并正常停止/历史保留，无新角色。Owner明确确认05 a999一次fresh t1/18步/四tar及04异常接线范围，见[最终交接§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接)。旧RS/aaa缺口不伪补、不称新docsHEAD实跑；FE3同tarOPFS、实际最终HEAD退出绑定/手续另待，不tag/push/S3或动冻结资源。
+  - **后续正式退出已完成（Owner明确授权，2026-11-07）**：BE-a／归档核验／BE-d联合本地附注`p6-be-a-d-exit`（对象66b9083941）精确指独立退出报告F`77b9aeea74b08b527ef1c78637e0cbe000b60d2f`，在main可达；F原04同WT实际六包／镜像／五锁绑定通过并获原审最终GO，16:17:03Z本人标记释放。产品仍49403/tree567，无新产品diff；[最终交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接)闭合此前退出pending。此为post-exit记录，未push，FE3b／原基准／S3实施独立。
 - **BE-b**：
   - 设计由前端设计会话负责（草案 `docs/frontend-vnext/be-b-navigation-and-presentation-draft.md`）；
   - 实现在 P6 退出后、Phase 8 前（FD8）。

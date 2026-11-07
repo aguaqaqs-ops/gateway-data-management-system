@@ -228,3 +228,19 @@ Owner在最终范围问题中明确选择 **“确认该最终范围（推荐）
 ## 14. Owner授权正式退出，开始最终绑定
 
 2026-11-07，Owner现明确要求**“请办理正式退出”**。按[退出工作单](p6-be-a-d-exit-work-order.md)恢复原D实施/独审两角色，仅完成本轮A1/V1/V2/D在原04同WT的最终闭包/镜像绑定、原独审退出结论和本地附注tag `p6-be-a-d-exit`；不推送、不启动S3、不改冻结基准。§13的“不执行退出动作”是此前授权边界，已由本次明确要求推进，既定DC33范围不重开确认。当前工作单候选及实际证据以退出handoff/独立报告为准，未完成前不预报退出。
+
+## 15. 联合正式退出完成与前端交接
+
+**A1／V1／V2／D联合后端正式退出已完成。** 原独审的[退出报告](p6-be-a-d-exit-review.md)最终提交 **F=`77b9aeea74b08b527ef1c78637e0cbe000b60d2f`** 已满足其§4全部实际绑定条件并收到同一审核者最终GO。协调依Owner“请办理正式退出”的明确授权，于**16:16:39Z**创建并验证本地附注 **`p6-be-a-d-exit`**，tag对象 **`66b9083941d2e1fce43197dc033793e566fdb089`**，精确指向F且在main可达。实际产品仍为49403，vnext **`56720104af34a1eb677336f57bdbc07444a56615`**；未推送、未改写旧tag。
+
+最终实际绑定在原04同WT执行：`run-f-binding-W4Ge2yb6` **16:13:33–16:13:41Z**，起止F／clean／本人owner真，original_binding／外层五锁assert／command／final exit全部0；六包status均“可沿用”、changed_components为空。四基础包直接引用49403的DTW原0，backend／RS直接引用49403的mvzi原0，不链式引用、不称F新跑六包。RS公开source/build identity、custom130674前后及三runtime原config／全部54DiffID相符，五锁before/after原bytes同769a4ba5…。
+
+- F原log SHA：`3f1d65a164291f3b3845307f1d5fabd85d0eed138ce0a9dc9c92da71af2ea196`。
+- F实际binding SHA：`c5cdcdd2ac44bcaa4dd7e5d42710b2f7bee8d7fc133145780a7ca826e4f7e0b1`。
+- 最终phase index SHA：`8538d66476f6f6e086da8e2be6b03befdaba1d1d5839ed889f9bd630c1874810`；原113文件size/SHA、全部7个完成guard四SHA均由原审核符（索引为6guard快照，其生成run另核）。[完整LAN副本](/home/dev/gdds-reviews/artifacts/p6-be-ad-exit-04-final-copy-AwiJAFM6/p6-be-ad-exit-04)与原04相同。H0首次调用漏内部profile的exit2与DC68唯一纠正见工作单／handoff§14，原失败和全部历史缺失保持原限制。
+
+04本人cleanup检查原0已核；**16:17:03Z**精确cmp本人owner后释放本任务标记，`release-XtYyMq43/release.log` SHA **`88e818ed3dea95d6ad101ff5e8a8a881743541e618ac15c2ba2c1c0513a5a7ba`**，release0／endF clean；原审16:17:34Z只读核marker不存在、WT cleanF、无运行Docker/8000。WT／镜像／全部证据继续保留，释放事实不是给其他任务预留节点。后继协调状态文档属于post-exit记录，不移动tag、不冒称后继main HEAD实跑。
+
+外置release-index SHA **`4071959e3062078e57f1ac447f4583882c55bbba761eb8875760f4be7b43c3d8`**，native与上述LAN副本相同，10项追加引用size/SHA由原审逐项核符；phase index8538原件未改。原实施／原独审均给出本轮正常停止回执，无后台或本人节点占用，历史保留；没有生成替代F的报告提交或移动tag。
+
+**Owner可转前端：BE-a、归档核验、BE-d已在main联合正式退出，入口tag为`p6-be-a-d-exit`，退出报告提交77b9aeea74；产品仍49403，API与同tar制品不变。** 后端“已退出并在main”的前置已具备；FE3b自己的kickoff定稿、同tar解析／摘要／OPFS及前端验收仍按前端范围办理。原基准、W1／W2与S3实施仍独立，未知值不记通过。此前§13的退出pending已由本节闭合。

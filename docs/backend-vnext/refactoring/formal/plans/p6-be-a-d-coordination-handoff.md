@@ -16,13 +16,15 @@
 
 | 小节 | 状态/候选 | 角色与模型 | 验证/节点 | 未决与下一步 |
 | --- | --- | --- | --- | --- |
-| A1 | **本节GO**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无局部deferred；联合技术GO及DC33确认见末行，FE3/退出另待 |
-| V1 | **最终本节GO** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 无局部未决；联合技术GO及DC33确认见末行，FE3/退出另待 |
-| V2 | **本节最终GO `9ec62e82ad`**，F1–F6全关；产品/容器`f8fb796f02`，handoff`3cd4400f9f` | `/root/be_v2_impl`=6.1-Sol/xhigh、`/root/be_v2_review`=6.1-Sol/max，均正常结束，无后台/占用，保留历史 | 06全部定向/静态、f8当前Compose1/0、OpenAPI/镜像/37+13索引与10:39:24释放已独审 | 联合追加subject修复eff1已在新两包通过；联合GO及DC33确认见末行，FE3/退出另待 |
-| D | **本地及联合技术GO**；原0ba本地通过，最终handoff`233e6f788b`、[独审§25](p6-be-d-review.md)`ccdd1eb39d`，绑定49403/tree567；[事件与恢复](p6-be-d-validation-incident.md)保留 | 原实施6.1-Sol/xhigh、独审6.1-Sol/max完成既定技术职责，正常停止写入/执行，历史与原审连续性保留；未销毁 | 06局部证据及24576B同tar已核；04新身份/包闭包与14:44:33释放、05原fresh/释放已最终核收 | 无剩余finding，Owner已确认DC33；届时退出绑定/手续、FE3另待，不启动新小节 |
-| 联合最终 | **技术GO `ccdd1eb39d`＋Owner已确认DC33最终范围**，源49403/tree567；handoff233e；[最终交接§13](p6-be-a-d-joint-validation-preparation.md#13-owner最终dc33范围确认与交接) | 原D两角色完成技术准备并正常停止，无新角色/后台/占用；历史及原审连续性保留 | 四包direct DTW原0+实际compare；两包mvzi原0；新3runtime原cfg/54DiffID与RS预后一致；04/05/06已释放，全部原件及LAN索引已核 | 本轮授权技术准备与范围确认完成；FE3同tarOPFS、实际最终HEAD退出绑定/手续仍独立pending；不tag/push/S3 |
+| A1 | **本节GO并联合正式退出**；产品`d8bee1a591`、[handoff](p6-be-a1-handoff.md)至`fb53d4f60f`、[最终独审](p6-be-a1-review.md) `c1ee962755`，F1/F2/N1关闭 | `/root/be_a1_impl`、`/root/be_a1_review`，均GPT-6.1-Sol/xhigh，本节已结束；仅停止/保留历史 | 06 backend573+1、五包静态、RS1555+1skip、三Compose全部合格；08:09:12Z清理/释放 | 无局部deferred；联合退出tag及最终绑定见末行，FE3独立 |
+| V1 | **最终本节GO并联合正式退出** `5dc01deeb5`，F1–F5/N1全关，产品c229、handoff6183；旧3dd不作最终依据 | 原`/root/be_v1_impl`、`/root/be_v1_review`正常结束，无后台/节点占用，保留历史 | 原84全部证据+F5 d7 358/1、c229118/静态/fresh Review Compose/provenance及09:36:28释放均独审 | 无局部未决；联合退出见末行，FE3独立 |
+| V2 | **本节最终GO并联合正式退出 `9ec62e82ad`**，F1–F6全关；产品/容器`f8fb796f02`，handoff`3cd4400f9f` | `/root/be_v2_impl`=6.1-Sol/xhigh、`/root/be_v2_review`=6.1-Sol/max，均正常结束，无后台/占用，保留历史 | 06全部定向/静态、f8当前Compose1/0、OpenAPI/镜像/37+13索引与10:39:24释放已独审 | 联合subject修复eff1已由原owner/新两包验证，正式退出见末行；FE3独立 |
+| D | **已联合正式退出**；原0ba本地通过，技术handoff`233e6f788b`/GO`ccdd1eb39d`，退出handoff`9ee1f47b32`/[退出独审](p6-be-a-d-exit-review.md)F77b9，产品49403/tree567；历史事件保留 | 原实施6.1-Sol/xhigh、独审6.1-Sol/max恢复本节退出收尾，审核者连续、无新角色；最后本人04标记已释放，历史保留 | 原06及05证据不重跑；04同WT H0/F实际六包/镜像绑定与五锁均0，16:17:03Z本人释放且原审核收 | 无剩余finding；本地附注`p6-be-a-d-exit`；FE3同tarOPFS独立 |
+| 联合最终 | **正式退出完成**，本地附注`p6-be-a-d-exit`→`77b9aeea74b08b527ef1c78637e0cbe000b60d2f`；tag对象66b9083941；[最终交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接) | 原D两角色完成最终绑定/原审GO及资源收尾，无新增角色；历史失败/缺失保留 | F六包实际compare均可沿用，direct DTW四包/mvzi两包；三runtime原cfg/54DiffID与RS前后输入一致；最终索引8538d664/LAN全核，04本人释放 | Owner DC33及正式退出授权已执行；FE3、原基准性能/S3实施独立；未push、不动旧tag |
 
 ## 3. 验证与资源
+
+2026-11-07正式退出最终收尾：本地附注`p6-be-a-d-exit`对象66b9083941精确指F77b9；原04同WT最终绑定/原审回执、phase索引8538及释放追加索引4071959e全部核收。04本人标记16:17:03Z释放，原两角色已正常停止，无后台／本人占用，WT/镜像/历史保留。当前退出状态以表中末行及[联合交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接)为准；下文保留各实施时点历史记录。
 
 截至A1首个候选，本轮尚无已完成的测试、lint、编译、容器、真实数据证据；06占用以实施者后续实际取得/释放记录为准。协调文档编辑不触发镜像重建，最后实际产品镜像仍属S2b V `a6876d5600`（身份见设计独审§5），不作为新规则验证。A1修改真实Compose测试与session接线，已触发收敛候选06小型容器门禁：`test_review_compose_e2e.py`、`test_archive_compose_e2e.py`，实际nodeid及provenance由实施handoff记录；联合最终容器仍必须绑定实际最终候选。
 

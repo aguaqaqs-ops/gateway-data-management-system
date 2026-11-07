@@ -213,51 +213,53 @@ pub(super) fn validate_canonical_batches(
             return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
         }
         let physical = field.data_type();
-            if logical == "standard" {
-                let declared = declared_type(spelling, physical)
-                    .map_err(|_| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
-                let expected_kind = match &declared {
-                    DeclaredType::Boolean => "boolean",
-                    DeclaredType::SignedInteger { .. } => "signed-integer",
-                    DeclaredType::UnsignedInteger { .. } => "unsigned-integer",
-                    DeclaredType::Decimal { .. } => "decimal",
-                    DeclaredType::Float32 => "float32",
-                    DeclaredType::Float64 => "float64",
-                    DeclaredType::String => "string",
-                    DeclaredType::Binary => "binary",
-                    DeclaredType::Bit { .. } => "bit",
-                    DeclaredType::Date => "date",
-                    DeclaredType::DateTime => "datetime",
-                    DeclaredType::Timestamp => "timestamp",
-                    DeclaredType::TimeDuration => "time-duration",
-                    DeclaredType::Null | DeclaredType::SourceLiteralAnomaly => {
-                        return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
-                    }
-                };
-                let metadata = value.get("declared_type")
-                    .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
-                if metadata.get("kind").and_then(Value::as_str) != Some(expected_kind) {
+        if logical == "standard" {
+            let declared = declared_type(spelling, physical)
+                .map_err(|_| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
+            let expected_kind = match &declared {
+                DeclaredType::Boolean => "boolean",
+                DeclaredType::SignedInteger { .. } => "signed-integer",
+                DeclaredType::UnsignedInteger { .. } => "unsigned-integer",
+                DeclaredType::Decimal { .. } => "decimal",
+                DeclaredType::Float32 => "float32",
+                DeclaredType::Float64 => "float64",
+                DeclaredType::String => "string",
+                DeclaredType::Binary => "binary",
+                DeclaredType::Bit { .. } => "bit",
+                DeclaredType::Date => "date",
+                DeclaredType::DateTime => "datetime",
+                DeclaredType::Timestamp => "timestamp",
+                DeclaredType::TimeDuration => "time-duration",
+                DeclaredType::Null | DeclaredType::SourceLiteralAnomaly => {
                     return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
                 }
-                let expected_parameters = match &declared {
-                    DeclaredType::SignedInteger { bits }
-                    | DeclaredType::UnsignedInteger { bits } => ("bits", u64::from(*bits)),
-                    DeclaredType::Decimal { precision, .. } => ("precision", u64::from(*precision)),
-                    DeclaredType::Bit { bit_width } => ("bit_width", u64::from(*bit_width)),
-                    _ => ("", 0),
-                };
-                if !expected_parameters.0.is_empty()
-                    && metadata.get(expected_parameters.0).and_then(Value::as_u64)
-                        != Some(expected_parameters.1)
-                {
-                    return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
-                }
-                if let DeclaredType::Decimal { scale, .. } = &declared
-                    && metadata.get("scale").and_then(Value::as_u64) != Some(u64::from(*scale))
-                {
-                    return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
-                }
+            };
+            let metadata = value
+                .get("declared_type")
+                .ok_or_else(|| OrderedCompareError::new("CANONICAL_TYPE_INVALID"))?;
+            if metadata.get("kind").and_then(Value::as_str) != Some(expected_kind) {
+                return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
             }
+            let expected_parameters = match &declared {
+                DeclaredType::SignedInteger { bits } | DeclaredType::UnsignedInteger { bits } => {
+                    ("bits", u64::from(*bits))
+                }
+                DeclaredType::Decimal { precision, .. } => ("precision", u64::from(*precision)),
+                DeclaredType::Bit { bit_width } => ("bit_width", u64::from(*bit_width)),
+                _ => ("", 0),
+            };
+            if !expected_parameters.0.is_empty()
+                && metadata.get(expected_parameters.0).and_then(Value::as_u64)
+                    != Some(expected_parameters.1)
+            {
+                return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
+            }
+            if let DeclaredType::Decimal { scale, .. } = &declared
+                && metadata.get("scale").and_then(Value::as_u64) != Some(u64::from(*scale))
+            {
+                return Err(OrderedCompareError::new("CANONICAL_TYPE_INVALID"));
+            }
+        }
         let text = matches!(physical, DataType::Utf8 | DataType::LargeUtf8);
         let labels_valid = |set: bool| {
             let Some(labels) = value.get("labels").and_then(Value::as_array) else {
@@ -269,52 +271,59 @@ pub(super) fn validate_canonical_batches(
             let mut seen = HashSet::new();
             labels.iter().all(|item| {
                 item.as_str().is_some_and(|label| {
-                    (!set || (!label.is_empty() && !label.contains(',')))
-                        && seen.insert(label)
+                    (!set || (!label.is_empty() && !label.contains(','))) && seen.insert(label)
                 })
             })
         };
         let valid = match logical {
             "set" => {
-                value.get("declared_type").is_some_and(Value::is_null)
-                    && labels_valid(true)
-                    && text
+                value.get("declared_type").is_some_and(Value::is_null) && labels_valid(true) && text
             }
             "enum" => {
-                value.get("declared_type").and_then(|part| part.get("kind"))
-                    .and_then(Value::as_str) == Some("string")
-                    && labels_valid(false) && text
-            }
-            "json" => {
-                value.get("declared_type").and_then(|part| part.get("kind"))
-                    .and_then(Value::as_str) == Some("string")
-                    && value.get("labels").is_some_and(Value::is_null) && text
-            }
-            "standard" => {
-                value.get("labels").is_some_and(Value::is_null) && match value
+                value
                     .get("declared_type")
                     .and_then(|part| part.get("kind"))
                     .and_then(Value::as_str)
-                {
-                    Some("boolean") => matches!(physical, DataType::Boolean),
-                    Some("signed-integer") => matches!(physical, DataType::Int64),
-                    Some("unsigned-integer") => matches!(physical, DataType::UInt64),
-                    Some("float32") => matches!(physical, DataType::Float32),
-                    Some("float64") => matches!(physical, DataType::Float64),
-                    Some("binary") => matches!(
-                        physical,
-                        DataType::Binary | DataType::LargeBinary
-                    ),
-                    Some("bit") => value.get("declared_type")
-                        .and_then(|part| part.get("bit_width"))
-                        .and_then(Value::as_u64)
-                        .and_then(|bits| i32::try_from(bits.div_ceil(8)).ok())
-                        .is_some_and(|width| physical == &DataType::FixedSizeBinary(width)),
-                    Some(
-                        "decimal" | "string" | "date" | "datetime" | "timestamp" | "time-duration",
-                    ) => text,
-                    _ => false,
-                }
+                    == Some("string")
+                    && labels_valid(false)
+                    && text
+            }
+            "json" => {
+                value
+                    .get("declared_type")
+                    .and_then(|part| part.get("kind"))
+                    .and_then(Value::as_str)
+                    == Some("string")
+                    && value.get("labels").is_some_and(Value::is_null)
+                    && text
+            }
+            "standard" => {
+                value.get("labels").is_some_and(Value::is_null)
+                    && match value
+                        .get("declared_type")
+                        .and_then(|part| part.get("kind"))
+                        .and_then(Value::as_str)
+                    {
+                        Some("boolean") => matches!(physical, DataType::Boolean),
+                        Some("signed-integer") => matches!(physical, DataType::Int64),
+                        Some("unsigned-integer") => matches!(physical, DataType::UInt64),
+                        Some("float32") => matches!(physical, DataType::Float32),
+                        Some("float64") => matches!(physical, DataType::Float64),
+                        Some("binary") => {
+                            matches!(physical, DataType::Binary | DataType::LargeBinary)
+                        }
+                        Some("bit") => value
+                            .get("declared_type")
+                            .and_then(|part| part.get("bit_width"))
+                            .and_then(Value::as_u64)
+                            .and_then(|bits| i32::try_from(bits.div_ceil(8)).ok())
+                            .is_some_and(|width| physical == &DataType::FixedSizeBinary(width)),
+                        Some(
+                            "decimal" | "string" | "date" | "datetime" | "timestamp"
+                            | "time-duration",
+                        ) => text,
+                        _ => false,
+                    }
             }
             _ => false,
         };

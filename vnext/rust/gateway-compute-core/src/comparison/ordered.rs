@@ -509,24 +509,74 @@ pub fn compare_ordered_batches(
             .chain(options.value_columns.iter().map(String::as_str))
             .chain(options.digest_value_columns.iter().map(String::as_str))
             .chain(options.compare_excluded_columns.iter().map(String::as_str))
-            .chain(options.schema_changes.before_only_columns.iter().map(String::as_str))
-            .chain(options.schema_changes.current_only_columns.iter().map(String::as_str))
-            .chain(options.schema_changes.selected_columns.iter().map(String::as_str))
-            .chain(options.schema_changes.effective_compare_key_before.iter().map(String::as_str))
-            .chain(options.schema_changes.effective_compare_key_current.iter().map(String::as_str))
-            .chain(options.schema_changes.incompatible_columns.iter().map(String::as_str))
-            .chain(options.schema_changes.change_source.iter().map(String::as_str));
+            .chain(
+                options
+                    .schema_changes
+                    .before_only_columns
+                    .iter()
+                    .map(String::as_str),
+            )
+            .chain(
+                options
+                    .schema_changes
+                    .current_only_columns
+                    .iter()
+                    .map(String::as_str),
+            )
+            .chain(
+                options
+                    .schema_changes
+                    .selected_columns
+                    .iter()
+                    .map(String::as_str),
+            )
+            .chain(
+                options
+                    .schema_changes
+                    .effective_compare_key_before
+                    .iter()
+                    .map(String::as_str),
+            )
+            .chain(
+                options
+                    .schema_changes
+                    .effective_compare_key_current
+                    .iter()
+                    .map(String::as_str),
+            )
+            .chain(
+                options
+                    .schema_changes
+                    .incompatible_columns
+                    .iter()
+                    .map(String::as_str),
+            )
+            .chain(
+                options
+                    .schema_changes
+                    .change_source
+                    .iter()
+                    .map(String::as_str),
+            );
         let metadata_bytes = option_strings
             .try_fold(4096usize, |total, value| {
                 total.checked_add(value.len().saturating_mul(8).saturating_add(128))
             })
-            .and_then(|base| pair.before_schema.iter().chain(&pair.current_schema)
-                .flat_map(|schema| schema.fields().iter())
-                .try_fold(base, |total, field| {
-                    let field_bytes = field.metadata().values()
-                        .try_fold(field.name().len(), |size, value| size.checked_add(value.len()))?;
-                    total.checked_add(field_bytes.saturating_mul(8).saturating_add(128))
-                }))
+            .and_then(|base| {
+                pair.before_schema
+                    .iter()
+                    .chain(&pair.current_schema)
+                    .flat_map(|schema| schema.fields().iter())
+                    .try_fold(base, |total, field| {
+                        let field_bytes = field
+                            .metadata()
+                            .values()
+                            .try_fold(field.name().len(), |size, value| {
+                                size.checked_add(value.len())
+                            })?;
+                        total.checked_add(field_bytes.saturating_mul(8).saturating_add(128))
+                    })
+            })
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
         let metadata_lease = context.reserve(metadata_bytes)?;
         if let Some(before) = pair.before {
@@ -888,10 +938,18 @@ fn compare_ordered_table_inner(
         return Err(OrderedCompareError::new("TABLE_TASK_HAS_NO_SIDE"));
     }
     if pair.before.is_some() && options.before_blank_provenance == BlankProvenance::Missing {
-        return Ok(degraded_result(pair, "BLANK_PROVENANCE_MISSING", capture_locators));
+        return Ok(degraded_result(
+            pair,
+            "BLANK_PROVENANCE_MISSING",
+            capture_locators,
+        ));
     }
     if pair.current.is_some() && options.current_blank_provenance == BlankProvenance::Missing {
-        return Ok(degraded_result(pair, "BLANK_PROVENANCE_MISSING", capture_locators));
+        return Ok(degraded_result(
+            pair,
+            "BLANK_PROVENANCE_MISSING",
+            capture_locators,
+        ));
     }
 
     let before_columns = column_names_batches(pair.before_schema.as_ref(), pair.before)?;
@@ -903,10 +961,18 @@ fn compare_ordered_table_inner(
         pair.current.is_some(),
     );
     if !selected.iter().any(|name| name == "gid") || !selected.iter().any(|name| name == "no") {
-        return Ok(degraded_result(pair, "ORDERED_REQUIRED_COLUMN_MISSING", capture_locators));
+        return Ok(degraded_result(
+            pair,
+            "ORDERED_REQUIRED_COLUMN_MISSING",
+            capture_locators,
+        ));
     }
     if !options.schema_changes.incompatible_columns.is_empty() {
-        return Ok(degraded_result(pair, "INCOMPATIBLE_SELECTED_COLUMNS", capture_locators));
+        return Ok(degraded_result(
+            pair,
+            "INCOMPATIBLE_SELECTED_COLUMNS",
+            capture_locators,
+        ));
     }
     let value_columns = resolved_value_columns(options, &selected);
     let digest_value_columns = resolved_digest_value_columns(options, &selected);
@@ -1352,7 +1418,10 @@ fn compare_ordered_table_inner(
     )?);
     let content_changed = status == "UNCHANGED"
         && if options.columns_added {
-            options.compare_excluded_columns.iter().any(|name| selected.contains(name))
+            options
+                .compare_excluded_columns
+                .iter()
+                .any(|name| selected.contains(name))
                 && ordered_shared_counts(&before.rows, &selected, context)?
                     != ordered_shared_counts(&current.rows, &selected, context)?
         } else {
@@ -1451,16 +1520,20 @@ fn degraded_result(
             content_changed: false,
             schema_changes: options.schema_changes.clone(),
             diagnostics: diagnostics.clone(),
-            records: if capture_locators { Vec::new() } else { vec![StandardRecord {
-                table_name: options.table_name.clone(),
-                record_kind: "TABLE_DEGRADED".to_string(),
-                row_identity: None,
-                changed_columns: Vec::new(),
-                before_values: Vec::new(),
-                current_values: Vec::new(),
-                field_changes: Vec::new(),
-                diagnostics: diagnostics.clone(),
-            }] },
+            records: if capture_locators {
+                Vec::new()
+            } else {
+                vec![StandardRecord {
+                    table_name: options.table_name.clone(),
+                    record_kind: "TABLE_DEGRADED".to_string(),
+                    row_identity: None,
+                    changed_columns: Vec::new(),
+                    before_values: Vec::new(),
+                    current_values: Vec::new(),
+                    field_changes: Vec::new(),
+                    diagnostics: diagnostics.clone(),
+                }]
+            },
             ordered_extension: OrderedExtensionResult {
                 contract_version: ORDERED_DIFF_CONTRACT_VERSION.to_string(),
                 status: "ORDERED_DEGRADED".to_string(),
@@ -1497,15 +1570,19 @@ fn degraded_result(
             },
         },
         locators: OrderedLocatorRecords {
-            standard: if capture_locators { vec![StandardRecordRef {
-                kind: StandardKind::TableDegraded,
-                row_identity: None,
-                before: None,
-                current: None,
-                value_columns: Vec::new(),
-                changed_columns: Vec::new(),
-                diagnostics: vec![diagnostic.to_string()],
-            }] } else { Vec::new() },
+            standard: if capture_locators {
+                vec![StandardRecordRef {
+                    kind: StandardKind::TableDegraded,
+                    row_identity: None,
+                    before: None,
+                    current: None,
+                    value_columns: Vec::new(),
+                    changed_columns: Vec::new(),
+                    diagnostics: vec![diagnostic.to_string()],
+                }]
+            } else {
+                Vec::new()
+            },
             ..OrderedLocatorRecords::default()
         },
     }
@@ -1576,18 +1653,27 @@ fn ordered_shared_counts(
         let mut frame = encode_uleb128(selected.len() as u64)
             .map_err(|_| OrderedCompareError::new("ROW_ENCODING_FAILED"))?;
         for (column_index, name) in selected.iter().enumerate() {
-            if column_index % 32 == 0 { check_context(context)?; }
-            let cell = row.cells.get(name)
+            if column_index % 32 == 0 {
+                check_context(context)?;
+            }
+            let cell = row
+                .cells
+                .get(name)
                 .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
-            frame.extend(encode_uleb128(name.len() as u64)
-                .map_err(|_| OrderedCompareError::new("ROW_ENCODING_FAILED"))?);
+            frame.extend(
+                encode_uleb128(name.len() as u64)
+                    .map_err(|_| OrderedCompareError::new("ROW_ENCODING_FAILED"))?,
+            );
             frame.extend_from_slice(name.as_bytes());
             frame.extend_from_slice(&cell.frame);
         }
         let digest = semantic_digest(DigestKind::Row, &frame)
             .map_err(|_| OrderedCompareError::new("DIGEST_FAILED"))?;
-        let count = counts.entry(digest.digest_ref().as_str().to_string()).or_insert(0usize);
-        *count = count.checked_add(1)
+        let count = counts
+            .entry(digest.digest_ref().as_str().to_string())
+            .or_insert(0usize);
+        *count = count
+            .checked_add(1)
             .ok_or_else(|| OrderedCompareError::new("RESOURCE_LIMIT_EXCEEDED"))?;
     }
     Ok(counts)
@@ -1921,7 +2007,9 @@ fn read_side(
 
         let mut cells = BTreeMap::new();
         for (column_index, column) in value_columns.iter().enumerate() {
-            if column_index % 32 == 0 { check_context(context)?; }
+            if column_index % 32 == 0 {
+                check_context(context)?;
+            }
             let index = *indices
                 .get(column)
                 .ok_or_else(|| OrderedCompareError::new("ROW_SHAPE_MISMATCH"))?;
@@ -2467,7 +2555,9 @@ fn ordered_digest(
         } else {
             let mut frame = Vec::new();
             for (column_index, column) in value_columns.iter().enumerate() {
-                if column_index % 32 == 0 { check_context(context)?; }
+                if column_index % 32 == 0 {
+                    check_context(context)?;
+                }
                 if let Some(cell) = row.cells.get(column) {
                     frame.extend_from_slice(&cell.frame);
                 }
@@ -2528,8 +2618,8 @@ fn hash_jcs_integer(hasher: &mut Sha256, value: i64) -> Result<(), OrderedCompar
 }
 
 fn hash_jcs_count(hasher: &mut Sha256, value: usize) -> Result<(), OrderedCompareError> {
-    let value = i64::try_from(value)
-        .map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))?;
+    let value =
+        i64::try_from(value).map_err(|_| OrderedCompareError::new("CANONICAL_ENCODING_FAILED"))?;
     hash_jcs_integer(hasher, value)
 }
 

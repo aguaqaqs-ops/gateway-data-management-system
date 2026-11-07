@@ -10,10 +10,9 @@ use arrow_schema::SchemaRef;
 use serde_json::{Value, json};
 
 use super::{
-    BlankProvenance, CanonicalBatchSide, KernelContext, OrderedBatchPair,
-    OrderedCompareError, OrderedCompareOptions, RowLocation, StandardMode, StandardOptions,
-    canonical_cell_frame_at, compare_ordered_batches, compare_standard_table,
-    summarize_unchanged_ordered_batches,
+    BlankProvenance, CanonicalBatchSide, KernelContext, OrderedBatchPair, OrderedCompareError,
+    OrderedCompareOptions, RowLocation, StandardMode, StandardOptions, canonical_cell_frame_at,
+    compare_ordered_batches, compare_standard_table, summarize_unchanged_ordered_batches,
 };
 
 fn bad(_message: impl std::fmt::Display) -> OrderedCompareError {
@@ -21,19 +20,33 @@ fn bad(_message: impl std::fmt::Display) -> OrderedCompareError {
 }
 
 fn required_string<'a>(value: &'a Value, name: &str) -> Result<&'a str, OrderedCompareError> {
-    value.get(name).and_then(Value::as_str)
+    value
+        .get(name)
+        .and_then(Value::as_str)
         .ok_or_else(|| bad(format!("missing {name}")))
 }
 
 fn strings(value: &Value, name: &str) -> Result<Vec<String>, OrderedCompareError> {
-    let array = value.get(name).and_then(Value::as_array)
+    let array = value
+        .get(name)
+        .and_then(Value::as_array)
         .ok_or_else(|| bad(format!("missing {name}")))?;
-    array.iter().map(|item| item.as_str()
-        .map(str::to_owned).ok_or_else(|| bad(format!("invalid {name}")))).collect()
+    array
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| bad(format!("invalid {name}")))
+        })
+        .collect()
 }
 
 fn optional_strings(value: &Value, name: &str) -> Result<Vec<String>, OrderedCompareError> {
-    if value.get(name).is_none() { Ok(Vec::new()) } else { strings(value, name) }
+    if value.get(name).is_none() {
+        Ok(Vec::new())
+    } else {
+        strings(value, name)
+    }
 }
 
 fn flag(value: &Value, name: &str, default: bool) -> Result<bool, OrderedCompareError> {
@@ -62,23 +75,37 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn frames(
-    batches: &[RecordBatch], location: Option<RowLocation>, columns: &[String],
+    batches: &[RecordBatch],
+    location: Option<RowLocation>,
+    columns: &[String],
 ) -> Result<Value, OrderedCompareError> {
-    let Some(location) = location else { return Ok(json!([])); };
-    columns.iter().map(|name| {
-        let frame = canonical_cell_frame_at(batches, location, name)?;
-        Ok(json!({"column": name, "frame_hex": hex(&frame)}))
-    }).collect::<Result<Vec<_>, OrderedCompareError>>().map(|values| json!(values))
+    let Some(location) = location else {
+        return Ok(json!([]));
+    };
+    columns
+        .iter()
+        .map(|name| {
+            let frame = canonical_cell_frame_at(batches, location, name)?;
+            Ok(json!({"column": name, "frame_hex": hex(&frame)}))
+        })
+        .collect::<Result<Vec<_>, OrderedCompareError>>()
+        .map(|values| json!(values))
 }
 
 fn location(value: Option<RowLocation>) -> Value {
-    value.map_or(Value::Null, |place| json!({"batch":place.batch,"row":place.row}))
+    value.map_or(
+        Value::Null,
+        |place| json!({"batch":place.batch,"row":place.row}),
+    )
 }
 
 fn standard_probe(
-    before_schema: SchemaRef, before: &[RecordBatch],
-    current_schema: SchemaRef, current: &[RecordBatch],
-    policy: &Value, context: &Arc<KernelContext>,
+    before_schema: SchemaRef,
+    before: &[RecordBatch],
+    current_schema: SchemaRef,
+    current: &[RecordBatch],
+    policy: &Value,
+    context: &Arc<KernelContext>,
 ) -> Result<Value, OrderedCompareError> {
     let mode = match required_string(policy, "mode")? {
         "keyed" => StandardMode::Keyed,
@@ -98,7 +125,8 @@ fn standard_probe(
     let result = compare_standard_table(
         CanonicalBatchSide::new(before_schema, before),
         CanonicalBatchSide::new(current_schema, current),
-        &options, context,
+        &options,
+        context,
     )?;
     let records = result.records.iter().map(|record| {
         Ok(json!({
@@ -126,13 +154,19 @@ fn standard_probe(
 }
 
 fn ordered_probe(
-    before_schema: SchemaRef, before: &[RecordBatch],
-    current_schema: SchemaRef, current: &[RecordBatch],
-    policy: &Value, context: &Arc<KernelContext>,
+    before_schema: SchemaRef,
+    before: &[RecordBatch],
+    current_schema: SchemaRef,
+    current: &[RecordBatch],
+    policy: &Value,
+    context: &Arc<KernelContext>,
 ) -> Result<Value, OrderedCompareError> {
     let mut options = OrderedCompareOptions::new(required_string(policy, "table_name")?);
     options.policy_version = required_string(policy, "policy_version")?.to_owned();
-    options.policy_digest = policy.get("policy_digest").and_then(Value::as_str).map(str::to_owned);
+    options.policy_digest = policy
+        .get("policy_digest")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     options.value_columns = optional_strings(policy, "value_columns")?;
     options.digest_value_columns = optional_strings(policy, "digest_value_columns")?;
     options.compare_excluded_columns = optional_strings(policy, "compare_excluded_columns")?;
@@ -146,12 +180,16 @@ fn ordered_probe(
     options.before_blank_provenance = provenance(policy, "before_blank_provenance")?;
     options.current_blank_provenance = provenance(policy, "current_blank_provenance")?;
     if let Some(max_rows) = policy.get("max_rows") {
-        options.max_rows = max_rows.as_u64().and_then(|number| usize::try_from(number).ok())
+        options.max_rows = max_rows
+            .as_u64()
+            .and_then(|number| usize::try_from(number).ok())
             .ok_or_else(|| bad("invalid max_rows"))?;
     }
     if flag(policy, "unchanged", false)? {
         let summary = summarize_unchanged_ordered_batches(
-            CanonicalBatchSide::new(current_schema, current), &options, context,
+            CanonicalBatchSide::new(current_schema, current),
+            &options,
+            context,
         )?;
         return Ok(json!({
             "unchanged":true,
@@ -163,11 +201,16 @@ fn ordered_probe(
             "records":[],
         }));
     }
-    let result = compare_ordered_batches(OrderedBatchPair {
-        before: Some(before), current: Some(current),
-        before_schema: Some(before_schema), current_schema: Some(current_schema),
-        options: &options,
-    }, context)?;
+    let result = compare_ordered_batches(
+        OrderedBatchPair {
+            before: Some(before),
+            current: Some(current),
+            before_schema: Some(before_schema),
+            current_schema: Some(current_schema),
+            options: &options,
+        },
+        context,
+    )?;
     let standard = result.standard_records.iter().map(|record| {
         Ok(json!({
             "kind":record.kind.contract_name(),
@@ -190,13 +233,19 @@ fn ordered_probe(
             "current_frames":frames(&result.current_batches, record.current, &record.value_columns)?,
         }))
     }).collect::<Result<Vec<_>, OrderedCompareError>>()?;
-    let blank = result.blank_records.iter().map(|record| json!({
-        "kind":record.kind,"semantic_kind":record.semantic_kind,
-        "entity_key_kind":record.entity_key_kind,
-        "interval":record.interval,
-        "before_occupancy":record.before_occupancy,
-        "current_occupancy":record.current_occupancy,
-    })).collect::<Vec<_>>();
+    let blank = result
+        .blank_records
+        .iter()
+        .map(|record| {
+            json!({
+                "kind":record.kind,"semantic_kind":record.semantic_kind,
+                "entity_key_kind":record.entity_key_kind,
+                "interval":record.interval,
+                "before_occupancy":record.before_occupancy,
+                "current_occupancy":record.current_occupancy,
+            })
+        })
+        .collect::<Vec<_>>();
     Ok(json!({
         "status":result.facts_metadata.status,
         "row_count_before":result.facts_metadata.row_count_before,
@@ -237,10 +286,20 @@ pub fn comparison_probe_json(
     let policy: Value = serde_json::from_str(policy_json).map_err(bad)?;
     let output = match kind {
         "standard" => standard_probe(
-            before_schema, before, current_schema, current, &policy, context,
+            before_schema,
+            before,
+            current_schema,
+            current,
+            &policy,
+            context,
         )?,
         "ordered" => ordered_probe(
-            before_schema, before, current_schema, current, &policy, context,
+            before_schema,
+            before,
+            current_schema,
+            current,
+            &policy,
+            context,
         )?,
         _ => return Err(bad("unknown comparison probe kind")),
     };

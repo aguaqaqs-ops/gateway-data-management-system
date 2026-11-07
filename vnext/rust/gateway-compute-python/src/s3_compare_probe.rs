@@ -6,9 +6,7 @@ use std::sync::atomic::AtomicBool;
 
 use arrow_array::{Array, RecordBatch, RecordBatchReader};
 use arrow_schema::SchemaRef;
-use gateway_compute_core::comparison::{
-    KernelContext, OrderedCompareError, comparison_probe_json,
-};
+use gateway_compute_core::comparison::{KernelContext, OrderedCompareError, comparison_probe_json};
 use pyo3::exceptions::{PyInterruptedError, PyMemoryError, PyTimeoutError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
@@ -26,7 +24,8 @@ fn comparison_error(error: OrderedCompareError) -> PyErr {
 fn read_stream(stream: PyRecordBatchReader) -> PyResult<(SchemaRef, Vec<RecordBatch>)> {
     let schema = stream.schema_ref()?;
     let reader: Box<dyn RecordBatchReader + Send> = stream.into_reader()?;
-    let batches = reader.collect::<Result<Vec<_>, _>>()
+    let batches = reader
+        .collect::<Result<Vec<_>, _>>()
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
     Ok((schema, batches))
 }
@@ -35,7 +34,10 @@ fn read_stream(stream: PyRecordBatchReader) -> PyResult<(SchemaRef, Vec<RecordBa
 /// the unique pinned backing charge; this probe never participates in D's
 /// operation charge or acts as evidence of its lifetime contract.
 fn input_slice_upper(before: &[RecordBatch], current: &[RecordBatch]) -> PyResult<usize> {
-    before.iter().chain(current).flat_map(RecordBatch::columns)
+    before
+        .iter()
+        .chain(current)
+        .flat_map(RecordBatch::columns)
         .try_fold(0usize, |sum, array| {
             sum.checked_add(array.to_data().get_slice_memory_size().ok()?)
         })
@@ -56,11 +58,20 @@ fn _s3_compare_probe(
         .checked_sub(input_bytes)
         .ok_or_else(|| PyMemoryError::new_err("canonical input exceeds probe budget"))?;
     let context = Arc::new(KernelContext::new(
-        remaining, Arc::new(AtomicBool::new(false)), None,
+        remaining,
+        Arc::new(AtomicBool::new(false)),
+        None,
     ));
     comparison_probe_json(
-        kind, before_schema, &before, current_schema, &current, policy_json, &context,
-    ).map_err(comparison_error)
+        kind,
+        before_schema,
+        &before,
+        current_schema,
+        &current,
+        policy_json,
+        &context,
+    )
+    .map_err(comparison_error)
 }
 
 pub(super) fn register(module: &Bound<'_, PyModule>) -> PyResult<()> {

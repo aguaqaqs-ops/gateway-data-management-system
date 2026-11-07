@@ -1588,10 +1588,10 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, mo
         unit_of_work.baseline.save_archived_node_and_cas_head(node, expected_head=head,
             new_head_node_id=node.node_id, new_head_version=head.optimistic_version + 1)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        node = unit_of_work.baseline.get_node("node-archived-facts")
-        assert node is not None and node.source_submission_id is not None
+        archived_node = unit_of_work.baseline.get_node("node-archived-facts")
+        assert archived_node is not None and archived_node.source_submission_id is not None
         assert unit_of_work.workspace.get_preview_result(attempt.preview_result_id) is None
-        archived_source = unit_of_work.submission.get_submission(node.source_submission_id)
+        archived_source = unit_of_work.submission.get_submission(archived_node.source_submission_id)
     assert archived_source is not None
     assert archived_source.configuration_facts.to_document() == attempt.configuration_facts.to_document()
     assert canonical_expiry is not None

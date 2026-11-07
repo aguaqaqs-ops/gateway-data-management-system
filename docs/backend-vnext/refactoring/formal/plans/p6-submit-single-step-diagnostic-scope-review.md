@@ -2892,3 +2892,17 @@ real manifest1551B、SHA **`11958befddf729cfe769cc1d3576321a3a3e89cc8ee4cb806971
 **RS阻塞的直接证据与消费者路径：** 本审核在CT108实际clean bbe worktree只运行官方identity元数据入口，返回build_input_revision **`3456bd7fbbd6a6c7ae807303a54f5548a4136a7f`**，source_tree_sha256仍 **`sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`**。冻结RS label的build-input为4497ded8ff3a9156bbe4c7a75ba44ae9e4675792，源树相同。canonical manifest明确将deploy/compose.yaml列为build definition；调用start_three_container_stack会调用build_compose_stack_images，后者在判断prebuilt之前先ensure_repository_service_image，严格比较build-input/source-tree两字段，不等即调用构建脚本。若按当前显式冻结RS tag启动，会尝试向该tag构建；镜像快照MATCH和新别名无法替代这个真实消费者检查。
 
 已直接告实施者先不启动此旧路径。设计认可仅该非正式诊断子入口记录诊断HEAD/Compose→冻结产品镜像关系，核当前RS source-tree仍等冻结产品及实际三镜像config/全部有序DiffID/目标labels精确匹配，再消费预置镜像并禁止build/pull；3456与4497差异保持真实，不重tag凑label、不改普通门禁/共享harness比较、不加通用skip。chain原来通过subprocess执行journey，修正必须进入实际子入口，父进程patch不算接通。实施者负责最小接线/05必要focused，审核者集中核具体代码及结果后沿原预算接续，不扩大旅程或新建证明矩阵。
+
+## 131. 8783诊断镜像保护已接真实子入口，旧HEAD硬编码仍会拒绝新候选
+
+**`bbe577c6..8783cf69e175d86ec4f0b27ca177fac490144efa` 的冻结镜像保护接线方向成立，当前尚未整体PASS。** 两提交a20e3bca/8783cf69仅改chain、增加专用journey及对应两组测试，4文件691增/2删；普通harness、产品、Compose及guard预算未改。只读detached审核worktree `/home/dev/gdds-p6-review-dc63-8783cf69` 绑定准确候选；审核者只读Git/源码和已有日志，未跑测试、Docker或业务。
+
+chain实际subprocess命令现为p6_dc63_diagnostic_journey.py，向其传project、expected-head、approved-images、output及原journey参数。该子进程先核固定已审W4三镜像记录原始SHA01cf16ea、目标project refs、当前官方RS身份和Compose字节，再用原metadata helper取得实际config digest/全部有序DiffID/labels。与冻结记录逐项核三服务；3456诊断build-input与4497冻结label明确分列false，source-tree319相等，没有把诊断来源冒称冻结label MATCH。临近真实start时再核同节点immutable ID/全部层/labels，关联此前完整config证明；未修改冻结tag。
+
+专用进程替换harness模块中的ensure及run_compose，同时替换real_dump_journey导入的run_compose；真实start_three_container_stack的模块全局查找确会消费这些guard。普通build_compose_stack_images仍按prebuilt返回，up统一规范为单个--no-build与--pull never，显式build/pull或up的重建/拉取覆盖均拒绝；共享实现文件未变。现有focused通过真实start_three_container_stack控制流观察两次guarded up，保留缺/不符镜像在journey前拒绝，没有靠只patch父进程认定接线成功。
+
+**确定阻塞为新入口DIAGNOSTIC_HEAD仍字面bbe577c6。** `_assert_fixed_context`既要求传入expected_head==bbe，又要求实际git HEAD==bbe，所以clean8783无论传当前还是旧HEAD均不可能通过。当前两entry测试整体stub该函数，9项绿色没有覆盖此真实入口错误。已直接交实施者：运行HEAD与外部固定expected_head精确比较，bbe只作已审来源/Compose基点记录；不尝试将提交自身hash硬编码进自身。用实际context函数的最小focused核相等及不等拒绝，可替换外部Git/metadata命令，不能再整体替换此函数来证明该修正；不增业务旅程或矩阵。
+
+BatchMode确认05连接后，独立直接读并LAN保存已关闭 `ct05-image-guard-validation-8783cf69.log`，SHA **`7fbab55170637851b62ea5f5eb28cf11b69f140cec7b65f5fa351be2dc364ad0`** 与两端重算相等，副本位于CT201 `p6-baseline-evidence-review-20261107/dc63-image-guard-8783cf69/`。日志22:19:42–43Z、gw-dms-test-05、完整8783起止clean，Ruff0、两个文件9 passed/0.63s、pytest0。实施者另报第一轮重复--no-build断言失败已留证；该原件本轮未独立读取，不将其摘要冒称已核。当前交件没有mypy，已要求最终窄修完成backend必要静态，不重复未改四包/已过业务。
+
+最终controller还须随实际候选更新HEAD、补新required --approved-images及NO_PROXY/no_proxy unset；原11958输入manifest、冻结镜像、未使用project、77400/78620/79200预算和Owner持续授权保持。无测量、容器或POST启动，无身份消耗；此普通接线修正由唯一实施者直接闭环，不增Owner/设计GO，也不阻独立新H镜像/04权威门禁及正式记录准备。

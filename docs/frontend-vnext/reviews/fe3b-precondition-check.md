@@ -159,3 +159,69 @@ kickoff 修订后若有变化，以修订后的文本为准。
 | 4 | 修订后的 kickoff 经 owner 确认，再由本会话核对一次 §3 与 §6，然后发出提示词 | 本会话 | #1–#3 完成后当天 |
 
 节点、镜像、缓存与 t1 输入（§4）不在等待项中；发出提示词前本会话再现场核对一次占用标记与镜像。
+
+## 8. 对 kickoff 修订的建议（owner 2026-11-07 同意修订后补充）
+
+本节是审核会话的建议，供设计会话修订时参考；设计结论由设计会话给出，需要拍板的由 owner 决定。
+下列后端行为来自源码阅读，未运行产品；标“待实测”的项在 FE3b 05 调试首轮确认。
+
+### 8.1 发现的设计冲突
+
+1. **合成输入没有生成时间，A 之后的每次归档都要先逐项接受异常。**
+   - 事实：`frontend/e2e-real/fixtures/upload-inputs/` 三份 SQL 与 `sql-replacement-current.sql` 的 `version_manager` 只有 `project_id, build, no`，没有 `saved_time`。
+     t1 两个真实目录有 `saved_time`（`2026-04-17 14:58:10` 等）。
+   - 后端（`application/archive/business_validation.py`）：baseline 为空 INITIAL 时不做时间质量检查；baseline 有内容后，候选一侧选不出时间即 `GENERATION_TIME_MISSING`（`CONFIGURATION_TIME_QUALITY`），
+     baseline 选不出时间即 `BASELINE_TIME_UNAVAILABLE`。DC90 规定这些异常须由 `archive_submission` 持有人逐项填理由接受后才能归档。
+   - 推断（待实测）：归档 A 不出时间异常；归档 B（FULL）会出 INITIAL、MODIFIED 两侧各一项 `GENERATION_TIME_MISSING`，外加 `BASELINE_TIME_UNAVAILABLE`；C、D 同理。
+   - 影响：kickoff §4.6 的 A→B→C 序列与 R8 离不开逐项接受界面；kickoff 目前没有这个界面。
+   - 建议：**不改输入。** 缺生成时间正好产生“同码、同目标、不同 `subject_digest`”的两侧独立项（后端要求重点覆盖），可作为该场景的来源。
+     Q10 的派生规则只为“backend 接受上传”补列，补 `saved_time` 会改变这一规则的含义。kickoff 写明每步的预期异常清单，在 05 调试首轮按实际 preview 结果校正；与推断不符时停下交设计会话。
+2. **`NOT_CANDIDATE_BASE_ADVANCED` 不再表示“卡住”。**
+   - 事实：`application/history/projection.py:210-218` 对所有“`APPROVED` 且所基于的 baseline 不是当前 head”的提交返回该标记，不看处置；HTTP 层原样映射（`http/schemas/history.py:109-113`）。
+     所以已归档的 A、归档时被关闭的同级提交、手工关闭的提交都会带这个标记。
+   - DC89 之后，过期的 `APPROVE` 被拒绝，归档会关闭其余已通过的同级提交，还有手工关闭出口，“已通过、基线已前移、仍占用工作区”的路径已不可达。
+   - 建议：删除 §6.1 两张表中的两行暂定内容；组态树、审核顶栏按 `submission_disposition` 优先显示（“已归档”“已关闭（未归档）”＋关闭人、时间、理由）；
+     该标记只在 `submission_disposition` 为空时显示。另经 owner 向后端澄清“有处置时该标记是否应为 null”，不阻塞修订。
+3. **n3（FE3a 审核 B7）与“指针为准”：不构成冲突，规则需写清。**
+   - B7 反对的是“提示说失败、按钮却仍写‘确认中’”；后端要求的是“读取失败、operation 终态都不等于占用已释放”。
+   - 建议规则：续做得到 `ABORTED` 或读取失败后，先重新读取工作区，“提交”按 §6.1 的指针表决定；工作区也读不到时保持禁用，原因写“无法确认提交状态”，并附“重试”。
+     这样提示与禁用原因一致（满足 B7），也不在指针未清时解锁（满足后端）。n3 的模拟用例按此改为基于指针。
+
+### 8.2 阶段拆分（需 owner 决定）
+
+- **建议：拆成两段。**
+  - **FE3b 契约与基础：** §5 快照刷新与旧路径清理（退回、201/202 变通、`archive_disposition`→`submission_disposition`）；Review/History 的终局处置**只读显示**；§6 撤回、占用禁用与 §6.2 指针恢复（含 n3）；
+    tar/PAX consumer 修复与同字节 tar（`b08a310c…`）的 OPFS 互通证据；真实旅程 R1–R7、R10、R11，R9 只做两节点（不需要归档）。tag `fe-fe3b-exit`。
+  - **FE3c 归档核验与完整旅程：** 归档业务核验显示与逐项接受/撤销、关闭出口、`ARCHIVE_PENDING_REVIEW` 与过期 `APPROVE` 409 的界面；R8、R9 三节点、A–D 序列与 §4.6 留给 FE3b 的各项；t1 旅程与 M1 复测；FE3 退出。tag `fe-fe3c-exit`，FE4 从它开始。
+- **理由：**
+  - 归档核验与关闭是新界面，要先出草图或文字规格并经 kickoff 审核，是修订中最费时的部分。FE3b 只需较小的修订即可开始，不等这部分设计；
+  - 同字节 tar 互通是后端写明的“FE3 依赖解除”条件，可以先做完；
+  - 由 §8.1 第 1 项，A 之后的归档都要接受异常，归档相关旅程放进同一段，边界清楚；
+  - 每段审核面更集中。
+- **代价：** 多一次审核与 04 取证。
+- **不拆的做法：** 一段完成，审核与取证各一次，但要等全部设计（含新界面草图）完成才能开始。
+
+### 8.3 其他修订项
+
+| kickoff 位置 | 建议 |
+| --- | --- |
+| §2.1、§2.2、§2.3 | 按本报告 §1–§4 更新事实；§2.3 补关闭、业务核验、`submission_disposition`、`pending_submission_ids`、引用上限 1/1601、review-events 409 新增码、PAX consumer 修复各行 |
+| §4.7 R6 | 改为：审核人 REJECT（必填理由）→ 指针清空 → 重新上传同一输入 → 提交 → 通过；审核顶栏撤回回归不变 |
+| 新增关闭旅程（FE3c） | 归档确认人对已通过提交关闭（必填理由）→ 断言 201、重放 200 显示首次操作者；提交人工作区释放、baseline 不动；Review 显示 `APPROVED` ＋“已关闭（未归档）”；提交人重新上传、预览、提交 → 通过 → 归档 |
+| 关闭入口 | 只对 `archive_submission` 显示。建议放在归档主线对话框中候选与阻塞处，不放在提交人顶栏；位置与样式需草图或文字规格 |
+| R8（FE3c） | 覆盖：待审核阻塞（`ARCHIVE_PENDING_REVIEW`，显示待审核提交，草稿不阻塞）；过期 `APPROVE` 409 的提示与刷新；三类新异常的显示（原始状态与处理状态分开，接受后不显示为通过）；两侧独立项分别接受、撤销其一后归档被拒；引用不分页、不截断 |
+| §5.3 | 补：closed union 与关闭响应的模拟数据按 OpenAPI 类型；`submission_disposition` 两个位置；新错误码的文案与取值核对；删除 `client.ts::safeReviewStatus/safeReviewEvent` 的退回映射 |
+| §6.1 | 删除暂定行（§8.1 第 2 项）；“该提交已退回”一行对照 REJECT 的界面用词确认 |
+| §8 t1（FE3c） | 建议第 4 步改为 FULL（① = t1 v1 目录，② = t1 v2 目录），按 `pair_id` 核对 baseline→① `changed_table_count = 0`、①→② 与 §8.3 的 v2 预期值相同；覆盖后端建议的“FULL 双 pair”。归档 v1 时出现业务核验异常则走接受界面并在 handoff 列出（预计不会：baseline 为空 INITIAL） |
+| tar/PAX | `PAX_LIMIT` 按 Contract 中合法 `logical_path` 的最大字节数确定，不取消上限；该数值需经 owner 向后端取得 |
+| §4.2、§9 | 模拟接口各项优先 07（`GATEWAY_FE_TEST_WORKERS=2`）；真实 backend 调试与 t1 在 05；取证在 04。截图清单补：业务核验面板（含两侧独立项）、接受与撤销对话框、关闭对话框、终局处置显示、待审核阻塞提示 |
+| §13.3 | 带入本报告 §6 的清单；写明起点合入的是**含后端退出结果**的 main |
+
+### 8.4 阻塞项
+
+- **不阻塞修订开始：**
+  - BE-a、BE-d 的退出由后端并行办理。办完后本会话核对退出 tag、合入提交和 `vnext/` 树：树仍为 `56720104af` 时本报告 §3、§4 的结论不变；改变时重新核对接口和依赖镜像输入。
+  - 后端两项澄清：PAX 路径的最大字节数；有处置时 `NOT_CANDIDATE_BASE_ADVANCED` 的语义。前者在 tar 修复定稿前要有答案。
+- **需要 owner：** 是否拆段（§8.2）。
+- **最费时：** 归档核验与关闭界面的设计（草图或文字规格）及其 kickoff 审核。
+- **发出提示词的前提：** 修订后的 kickoff 经 owner 确认；BE-a、BE-d 退出已汇报（或 owner 豁免）；本会话再现场核对一次接口、镜像与占用。

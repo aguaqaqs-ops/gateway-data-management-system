@@ -1731,3 +1731,33 @@ guardian 411 样本，22:51:46–23:25:57，最大相邻间隔 5.010891187s；wo
 pre-down 在停止时保存最后 selected rows、MISSING summary 和三服务 raw logs；索引 bytes/SHA256 与文件匹配，capture 均 exit 0/reaped/group quiet，无 timeout/truncation，worker raw log 仍为 0 bytes。节点也无最终 summary，没有补造正常 worker exit。Compose down=0，postflight_complete/lock_release_allowed=true，自有进程/worker/guardian/capture reaped、project 容器/网络 quiet。独立 SSH 再核 project 容器/网络空、三个目标卷均在、busy lock absent；未删除卷，launcher 已安全解锁。
 
 **本结果和限制直接交实施者并同步设计：GO 已消耗，维持不重试、保卷留证、产品/GC/TTL 不改和正式测量 STOP。** 本节关闭的是这一次运行的边界/停止/回收复核，并提供失租窗口的 GC/CPU 新证据，不宣称产品验收或完整根因修复已经完成。
+
+## 78. Worker GC 调度修复：隔离产品候选范围 PASS，无真实 prepare 运行 GO
+
+**`3759ffbff5` 新增 `p6-worker-gc-scheduling-repair-plan.md` 的定向范围审核 PASS，无阻塞 Finding。** 允许唯一实施者按该范围，从 clean 冻结 `1f9731dfc3a202cc2b7191d6726779ce40d5f91a` 准备隔离产品修复、必要 CT05 focused/五包静态检查及计划内镜像和一个既有小 Compose 接线验证；不合入当前 main。产品代码与最终镜像/工具/精确清单仍须独立审，真实输入的 prepare-only 验证另签候选专属一次 GO。§76 g 的已消耗 GO 不复用，本节不授权新的真实 POST/prepare 诊断或正式测量。
+
+### 已有故障与最小边界相符
+
+§77 已提供实际失租窗口与 24.015s gen2 区间/同线程 CPU 的直接共现证据。将自动循环 GC 调度移至没有活跃 executor/续租责任的间隙，是针对已发生故障的标准平台策略候选；不要求先证明唯一 GIL 根因才准隔离验证，也不据共现追认 GC 是所有旧失败的唯一原因。方案没有新线程、进程、durable 状态、GC 队列、跨线程设置协议或信任域扩张，符合比例化政策；业务事务/CAS、LeaseSession、ack/发布、checkpoint/digest 和资源显式 close 仍是原语义 owner。
+
+只读核冻结 detached worktree 中真实 `WorkerRuntime.run`：startup 后串行读取 claim_anchor、claim_one、调用 `_run_claim`；每次最多一个 executor。`_run_claim` 正常路径在 thread.join 后检查结果/ack 并 mark_executor_completed，监督异常路径也先 join 后重抛。独立 operation_worker 只组合一个 runtime；进程的 SIGINT/SIGTERM handler 设置 stop event/wakeup，原 drain/fence/join 机制保持。control DB UnitOfWork 的 COMMIT/ROLLBACK 和 connection.close 在显式 `__exit__`/finally 中，不靠自动循环 GC 释放该事务资源。第一方 backend/shared_kernel/repository_client/repository_contracts 生产源码扫描未发现 GC enable/disable/collect/freeze/threshold 调用，未识别需先另建协调协议的已存在竞争 GC owner；这不证明所有第三方永远不调用手动 GC。
+
+按冻结 selector 对照 [CPython 3.14.6 GC 文档](https://github.com/python/cpython/blob/v3.14.6/Doc/library/gc.rst)，disable 控制自动循环回收，引用计数仍存在；[该版本 gc 模块的 collect 实现](https://github.com/python/cpython/blob/v3.14.6/Modules/gcmodule.c#L78)仍可直接请求手动回收。GC enabled 状态属于解释器而非某个 executor 线程，[自动 GC 入口读取该共享状态](https://github.com/python/cpython/blob/v3.14.6/Python/gc.c#L1745)。所以该方案影响独立 worker 的全部线程，不能描述成只暂停 executor 的 GC，也不能承诺活跃期间绝无显式 collection。当前单 runtime/单活跃 executor 的生产组合允许使用这一小范围策略；若未来同解释器嵌入多个独立 runtime 或新 GC owner，须重新界定归属，不能照搬本结论。
+
+### 实施和代码复审应落实的既有条件
+
+暂停必须在读取 claim_anchor/claim_one 之前，覆盖原 claim 和 `_run_claim` 完整收束；不能把一次 collection 移到新 lease anchor 之后再声称已避开预算。无 work 和 claim_one 的 StoreBusy 在原 idle/backoff 等待前恢复；只保留原 claim_one 的异常捕获范围，不能顺手把 `_run_claim` 的 StoreBusy/失租也纳入 claim_busy 重试。正常路径、原异常及提前退出通过 finally 保住原 enabled/disabled 状态，初始 disabled 不被强制 enable 或 collect。
+
+fence、业务异常或 drain 意图不等于 executor 已结束。恢复/可选一次标准 full collect 应位于原 executor join、正常 ack/发布完整收束之后，丢弃已无用途的当前 claim 局部持有，且先于下一次 anchor；不能强杀线程、提前取消 join、复制监督循环或放宽 ack 来到达这个边界。存在原业务失败时，恢复/回收错误不得覆盖主因；正常退出也不能因吞掉真实失败而变成成功。这里是原 runtime 的语义屏障，不要求在每条语句间新增故障注入或持久证明机制。
+
+空闲 collect 本身可以较慢，引用计数也不等于没有循环对象；暂停自动回收可能提高 claim 中峰值。原 40 GiB worker RSS/8 GiB host available/10 GiB disk 守护和 48 GiB 启动条件继续作为这次隔离验证的既定边界，不是精确内存上界或无 OOM 的形式化保证。既有未知循环滞留量可以由这一受控候选记录、触线则停止，不能用“尚未知峰值”预建新回收平台，也不能在触线后自行提高限额。主线 DC87 的 12 GiB worker/kernel M=8 GiB 未被此范围覆盖；即使旧 envelope 下 prepare 成功，也不证明满足主线预算、可合入部署或 Rust 路径已经修复本问题。
+
+### 验证、镜像和接续权限
+
+使用既有真实 WorkerRuntime/生命周期与必要 SQLite fixtures，覆盖 enabled/disabled、空队列/claim_busy 等待、正常完成、原异常恢复和下一 anchor 顺序；保留 heartbeat/发布/ack 的原语义断言。新增或受影响的全局 GC 状态、线程/固定时间用例按 serial 运行，在测试 finally 还原原设置并只移除自有 callback。纯 GC 状态不引入 Dolt；同构状态用共享参数，不靠自造 fake runtime/API 替代真实接线，也不重测已关闭的回收矩阵。五 Python 包 Ruff/mypy 继续按约定在测试节点执行，Rust/依赖未变不另加 Rust 门禁或编译轮次。本轮审核只读源码/文书及版本对应官方资料，未访问测试节点或执行任何测试/业务。
+
+按计划，受影响 focused/静态检查收敛后先交最终 clean 产品提交和源码差异独审，再推进新镜像/小门禁。产品 runtime 已变，原 backend/worker 镜像不能代表新候选。按冻结版本 DC67 在 CT201 构建独立 tag，经 LAN 至05，比较 config digest 与全部 DiffID，并保留来源提交/构建/传输摘要；不覆写旧镜像或借此迁入 main 的新 dependency-base/Dockerfile。RS 仅在原代码/构建输入身份确实满足原等价规则时复用，不因标签 revision 统一而无故重建，也不能用通用 skip 放弃新组合身份。一个计划内既有小 Compose 足以作为本局部候选的接线检查，不宣称阶段退出/完整 production gate，也不追加外挂 ablation 或两轮全输入。
+
+产品差异、镜像和小门禁通过后，在最终新清单中精确绑定旧 source checkpoint→新产品/镜像及必要 wrapper 差异、新项目/key/三个隔离卷。原 g controller/observer 的已知 partial 语义可复用，但不把新 GC 策略伪装成原产品或沿用旧性能数字。保留 45 分钟/3600 秒、原资源/身份/lease_lost/cancel/120 秒 stall 停止与有界回收/保卷/未静止留锁；05 以执行时正常取得占用为准，CT108 不加负载。
+
+**范围 PASS 和准备/必要验证许可直接投递唯一实施者并同步设计，不等新的 Owner/协调者回执。** 同范围普通代码/工具 Finding、修订和必要 focused 沿既有 DC80 双方直接闭环；只有新增范围/预算/资源或业务取舍才带具体证据与选项交 Owner。当前无精确候选真实 prepare GO、主线合入/推送/tag 或正式恢复许可；H3 原 PASS 仅保留历史身份事实，原 lease 根因 OPEN，正式测量 STOP。

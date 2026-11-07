@@ -2,6 +2,8 @@
 
 2026-11-06，p6-backend-design；依据 Owner DC80。关联[单步诊断设计](p6-submit-single-step-diagnostic-plan.md)及[独立审核 §59–60](p6-submit-single-step-diagnostic-scope-review.md)。本文件形成待定向审核的具体范围，不是运行 GO。
 
+**2026-11-07 Owner 执行流程补充：** 后续测试按[GC 修复计划的测试环境执行授权](p6-worker-gc-scheduling-repair-plan.md)推进；已通过范围内不再每个最终 manifest 另签 GO。下文旧候选专属 GO 的要求保留为历史过程，不覆盖该新授权；原输入/身份、必要守护和正式基准边界保持。
+
 ## 问题与解释边界
 
 h 已在真实续租失败后 stall；新 observer 的降级、持续守护和回收已获 §59 核验，但失租附近没有 Python 业务帧。下一候选只回答：prepare 的哪一组既有调用仍未返回，以及延迟发生在 heartbeat helper 入口之前、进入 helper 时已越过真实 deadline，还是实际 LeaseSession.heartbeat 调用内部。调用内部滞留不能继续唯一归因为 SQLite、mutation lock、GC 或 GIL。

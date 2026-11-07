@@ -4,7 +4,8 @@ It checks every accepted package SHA before materialization. Each pair is
 materialized once, then old fixed Python table behavior is compared with the
 native locator probe only for dual-side row-kernel tasks. It does not run an
 HTTP, Compose, Preview, Submit, or History journey. Output contains no cells
-or row identities.
+or row identities. The metadata_only count includes Python-owned non-record
+roles; their COLUMNS_ADDED branch can inspect shared rows without row records.
 """
 
 from __future__ import annotations
@@ -243,6 +244,7 @@ def _run_tier(
             raise AssertionError(f"{tier}: comparison planning failed")
         checked = 0
         metadata_only = 0
+        non_record_role = 0
         unchanged = 0
         for task in plan.tasks:
             fact = frozen_standard._compare_task_safely(task)
@@ -257,6 +259,13 @@ def _run_tier(
                 raise AssertionError(
                     f"{tier}/{task.table_name}: frozen Python predegraded: {old_fact!r}"
                 )
+            if task.policy is not None and task.policy.comparison_role in {
+                "BROWSE_ONLY", "SNAPSHOT_ONLY",
+            }:
+                # The frozen Python non-record role owns this table's facts.
+                metadata_only += 1
+                non_record_role += 1
+                continue
             if task.before_table is None or task.current_table is None or task.policy is None:
                 metadata_only += 1
                 continue
@@ -279,6 +288,7 @@ def _run_tier(
             "planned_tables": len(plan.tasks),
             "row_kernel_checked": checked,
             "metadata_only": metadata_only,
+            "python_owned_non_record_role": non_record_role,
             "predegraded": 0,
             "standard_early_exit": unchanged,
         }

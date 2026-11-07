@@ -2744,3 +2744,38 @@ metadata helper不支持--help的自有命令失败亦保留：`archive-identity
 CT201保存的04 `full-run-preflight-corrected.log` 1780B、SHA **`15d4acdb928a969ff2d40e73227e0fc9eae721baacc4fdbd91150c4befa24664`** 已独立读全并hash：19:14:18Z、准确clean fcc，legacy符号链接、TMPDIR与RS host .venv可用，无Dolt/pytest/cargo/Compose冲突进程且8000空闲、三镜像为已核本机ID；PATH前缀正确、Rustup/Cargo home变量unset，selector目录四工具同1.97；all-six、无代理、preflight/SSH exit0。先前路径错误的准备记录保留，修正后沿Owner普通准备授权接续，不新增GO。
 
 **占用标记是启动后补取，未倒填。** 审核读wrapper发现只检查busy目录不存在而未mkdir，遂要求实施者按现有节点协调方式补记，不中断在途测试或改worktree/tag。`node-busy-marker-acquisition.log` 447B、SHA **`bb185c48a3926f3795bc1d46c170bc3172d9794f6b5d87ff4377484ff47b04b0`** 已独立核，且只读04实际session.txt内容一致：session=p6vref-fcc827-ct04-final-gate、runner PID1245677、runner_started_at=19:19:37Z、marker_acquired_at=19:23:20Z，明确后取。本节不将后取记录当作启动前已持锁的证明；已通知结束时按session所有权及postflight仅清自有marker。当前只是启动与协调补记核验，不宣称runner/整体exit，也未干预CT108在途STRESS。
+
+## 124. W4-STRESS真实旅程与取证独审PASS，100%压力Preview已完成
+
+**CT108 `p6w4stress20261107a` 的本次fresh压力旅程及取证独审PASS。** 工具HEAD **`1742a8bcd62287fd9eb9fbd0a839615a470b2664`**、产品9704、§116冻结三镜像及输入保持；14/14 step check均为本run/同1742来源，没有继承或恢复，13个before checkpoint与既定清单相同。实际scope=t4-v2-preview、MODIFIED_ONLY、full_v2/cross_project均false、cold Preview；没有执行v2 Submit或History。此结论关闭压力样本的实际旅程/取证，不宣称性能目标、全部标准record、04门禁或整体exit通过，无需重跑STRESS或新GO。
+
+审核先在已结束节点直接读小原件与closed controller，再将下列六份闭合原件及小preflight资料经LAN只读取到CT201 `/home/dev/gdds-p6-logs/p6-w4-stress-review-20261107/p6w4stress20261107a/`，逐份独立hash；此后从副本审核，不与新计时叠加源节点大件读取：
+
+| 原件 | bytes / SHA256 |
+| --- | --- |
+| launch.log | 1066632 / `d02900afbf675c66448a076e2c1f3b64fd863069c807bbd728b2516fc7659b93` |
+| evidence/run.json | 27320 / `356ead5183c0960bd8e953c42274824be9080ef94cc50f1e293e06aa2784ad96` |
+| evidence/state.json | 42428808 / `c2fbdbce37f009df65a7183788ded191efbd6ba723f0fc32675690a5a19535f5` |
+| resources.json | 5176 / `cca7d76ed7244a2c578eb46231fbf169154207ac194b9abd86450abee6632ab1` |
+| resources.input-provenance.json | 1990 / `e167dbaa2ecc22eae8bf1018ed630da4f7a0ffbdcd0521f640caef5df9e5bb84` |
+| postflight.log | 699 / `9b134ac00e6a4147f01b58ad574453dded417b56adf48645369bfe18273489d0` |
+
+controller.log 4195B、SHA **`91c70e7510de81291800b42a1e3d410850bd99d1b6c8d2a9b03c428fad4b95a9`** 记录16:21:02–19:24:06Z、1742起止、launcher_exit0；实际sampler **16:21:02.742–19:24:06.572Z / 10983.743s**、exit0/head_stable，run metadata为16:21:03.509–19:24:01.692Z，run_result elapsed **9731.384s**。这三个窗口按各自定义保留，不互相代用。原日志另有计时入口外offline composite computation 1222.909s，不能把整段sampler或run wall误写成单Preview。所有数据来自认证原件，无时间戳差推算worker细段。
+
+独立解析launch唯一final summary并与state逐操作同字段比较：
+
+| operation | user_visible / completion 秒 |
+| --- | ---: |
+| v1 Preview | 1725.233 / 1725.233 |
+| v1 Submit | 1766.107 / 1766.118 |
+| repeat v1 Preview | 1421.759 / 1421.759 |
+| repeat v1 Submit | 0.010 / 0.010，同步NO_CANONICAL_CHANGE |
+| v2 Preview | **4661.281 / 4661.281** |
+
+v2为1 pair/631表/628 changed，failed与degraded均0；repeat Preview changed0，S2 no_repository_operation=true。cold准备日志在18:06:10Z显示274缓存行清至0、548文件移除、此前expired/missing均0；W2之前/之后274行且TTL健康是另一个实际窗口，不改记为压力Preview缓存命中数。该压力场景按既定record_only如实记录；这些分钟级值不被宣传为S5/S6目标达成，也不对不同输入/模式的FULL数值作性能回归判定。
+
+输入provenance的三项实际upload bytes/SHA/role均MATCH、无issues，绑定state完整SHA及manifest **cf288bdd…62830**，census **29c1e25c…45fe6** 与§116一致。副本input-images.json完整SHA **`01cf16ea7882bb8ce89420617be8deafa359e20a334e3db4bf1590388e714d01`**、start-preflight SHA a95282bb、controller脚本SHA71812d33仍等已审启动原件。独立将三服务config digest/全部有序DiffID/labels与冻结identity文件（SHA98bfba51）逐项比较相等；run的B/W identity及本机ID也与preflight相同。fresh分支原run metadata只包含B/W，RS完整身份引用§116启动前对实际tag解析immutable ID的全量证据及启动前重核，按既有受控冻结tag模型绑定；没有伪造运行中container.Image观察或要求重复postrun Docker取证。
+
+资源共5051个周期样本：全run并发sampled memory.current峰 **18396356608B / 17.13GiB**；各容器memory.peak和 **19748859904B / 18.39GiB** 是保守上界，不能当同一时刻并发值或worker RSS。全run peak cores2.693、临时磁盘高水位5984108544B/5.57GiB；v2 Preview步骤2127样本、并发memory.current峰10602758144B/9.87GiB、peak cores1.866、worker累计CPU4449.793s。短同步步骤0周期样本仍按§119表达未知峰值，不把raw的0/null扩成实际资源为0。
+
+postflight sampler/Compose down/node check/cleanup均0、锁已释放，三卷保留；down时三项secret路径环境未设的原warning与FULL相同，未据此重跑。旧collector仍仅有v1_submit worker细步骤，Preview原始API计时有效而标准record补证尚待；已指明STRESS最后checkpoint位于v2 Preview之前，补该步骤应从同次停止后的final control卷取私有小副本，按run最终tree **7ace1b8fcbfa6b06cb27d00bd3245d0ac93901902b8fe5dc2a4b9cd73d7dc05b / 3850240B / 1文件** 认证，再只开复制件。FULL/core各自已审快照路线保持，不能开源SQLite或借本压力结果替代H1。实施者可集中完成必要小源取件后启动已审DC63/V5b链，05记录派生与04在途门禁可并行；本节不引入新的等待许可。

@@ -141,14 +141,14 @@ def test_read_preview_bundle_streams_logical_bytes(env: WorkspaceHttpTestEnviron
     env.repository.save_preview_result(result)
     bundle_reader = env.bundle_reader
     assert isinstance(bundle_reader, InMemoryBundleReader)
-    bundle_reader.register(result.bundle_artifact_id, "preview.bundle", BUNDLE_BYTES)
+    bundle_reader.register(result.bundle_artifact_id, "preview.tar", BUNDLE_BYTES)
     response = env.client.get(
         f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{result.preview_result_id}/bundle",
         headers=env.auth_headers(),
     )
     assert response.status_code == 200
     assert response.content == BUNDLE_BYTES
-    assert "preview.bundle" in response.headers["content-disposition"]
+    assert "preview.tar" in response.headers["content-disposition"]
     assert "bundle-artifact-1" not in response.text
     assert str(env.db_path) not in response.text
 

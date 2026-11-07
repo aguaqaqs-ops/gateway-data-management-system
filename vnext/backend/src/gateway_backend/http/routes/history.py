@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from gateway_backend.http.bundle_response import BundleStreamingResponse
 
-from typing import Annotated, cast
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Query, Response
 from fastapi.responses import StreamingResponse

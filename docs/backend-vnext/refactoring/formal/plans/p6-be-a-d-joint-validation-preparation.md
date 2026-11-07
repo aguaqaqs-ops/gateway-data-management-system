@@ -42,6 +42,7 @@ Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 ownin
 
 - 先 SSH BatchMode 核连通，现场尊重有效占用，原子获取本节点标记；无提前预约或反复请示。04 权威运行时本任务不在同宿主 06/07 发起重负载；05 可按节点用途跨节点并行。CT108 正式测量和原基准资源不占用。
 - 新建本轮独立 clean 已提交 WT、legacy 链接、WT 外日志与 TMPDIR；源码经获准 LAN 传输。节点环境/缓存/依赖基础镜像实际可用，`UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`，Rust 扩展强制同步并核 Git tree build input。依赖身份、config digest/全部 DiffID、离线构建和 provenance 沿既有规则，不输出凭据。
+- LAN fetch后对linked WT一律按已验证的明确commit SHA创建/checkout，不依赖另一个WT的`FETCH_HEAD`；前节已实际遇到不可见导致的操作失败，不在04/05重犯。此项只是调用精度，不新增传输/证据框架。
 - 固定被测提交后不在 WT 写入/提交或并行重新 tag 镜像。权威 runner exit 非 0 先停下处理失败，不继续 carried / 后续验收。DC68 仅用于满足原条件、未触及被测对象且无副作用的自身操作错误，失败日志及 SHA 保留；不得据此连续重试产品或前提失败。
 - 日志记 hostname、起止 UTC / HEAD、命令/脚本身份、原始 exit 及 SHA；handoff 记节点、缓存来源、镜像身份、起始 manifests 和每包实际运行/合格沿用。清理确认无本任务服务、进程、端口占用后只释放自己的标记，保留证据与必要 WT 至最终绑定完成。
 - 前端判断确实阻塞时给 Owner 具体场景、实际接口/制品、问题与推荐，暂停该依赖等手动转发回复；其余已授权工作继续。未收到回复不能当作同意，也不猜测前端修复完成。

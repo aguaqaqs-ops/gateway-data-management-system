@@ -25,7 +25,7 @@ V1 `domain/configuration_facts.py` 的 `ConfigurationFacts` / `ConfigurationSide
 
 ## 3. 摘要与命令版本/preimage
 
-Archive `D(kind,payload)` 统一升 `v2`：`sha256(SHA256 input UTF8('gateway-vnext:archive:'+kind+':v2') + NUL + JCS(payload))`（返回 sha256:hex；只计算一次SHA256）。原 candidate preimage加 configuration_facts_digest；candidate-set加核验规则及 baseline facts identity（INITIAL null），再含原 exact scope/完整 Head/全候选；selection经 candidate-set绑定完整输入。旧 sibling/identity subject同步绑定 selection；新增 business subject `D('business-anomaly',{selection_subject_digest,rule_id,issue_code,subject_kind,affected candidates/facts,side,relations,details})`，details冻结完整组节点/边与匹配来源/原时间。非诊断 UI 当前接受状态不进 subject，不形成递归。
+Archive `D(kind,payload)` 统一升 `v2`：`D = 'sha256:' + hex_lower(SHA256(UTF8('gateway-vnext:archive:' + kind + ':v2') + NUL + JCS(payload)))`（只计算一次 SHA256）。原 candidate preimage加 configuration_facts_digest；candidate-set加核验规则及 baseline facts identity（INITIAL null），再含原 exact scope/完整 Head/全候选；selection经 candidate-set绑定完整输入。旧 sibling/identity subject同步绑定 selection；新增 business subject `D('business-anomaly',{selection_subject_digest,rule_id,issue_code,subject_kind,affected candidates/facts,side,relations,details})`，details冻结完整组节点/边与匹配来源/原时间。非诊断 UI 当前接受状态不进 subject，不形成递归。
 
 confirmation/resolution/start-request preimage仍原完整请求字段及 exact scope，refs排序；resolution仍含 actor、kind/code/代表target，服务端重算 subject 完整绑定。CLOSE为 `D('close-request',{command_kind:'CLOSE',repository_id,gateway_device_external_key,business_project_id,submission_id,expected_review_version,expected_baseline_node_id,expected_baseline_head_version,reason})`；key是 exact scope+CLOSE命名空间，actor/time/current mutable状态均不进fingerprint。成功 replay校 durable record与冻结请求身份，保留首actor/time/reason。追加审计与CLOSE命名空间分离。
 
@@ -51,10 +51,12 @@ History `archive_disposition`直接改名 `submission_disposition`（无旧别�
 | Start全部效果/exact最新引用/399正常反例/rollback/原成功replay；CLOSE唯一事实、精确释放、Head不变、坏记录拒、恢复 | 既有 `tests/test_archive_transactions.py` |
 | Start/close、双close语义commit次序 | 既有 `tests/test_archive_concurrency.py`（真实SQLite两连接，不调度平台） |
 | 公开permission/404先授权、CLOSE跨actor replay/撤权/不同payload、DTO、安全整数/1601/1602/256KiB | 既有 `tests/test_archive_http.py`；OpenAPI结构只归 `test_http_openapi.py` |
-| DDL来源二选一/FK/unique与旧schema拒启动 | 既有 `tests/test_control_db_schema.py`/对应现有schema owner，按实际文件核名 |
+| DDL来源二选一/FK/unique与旧schema拒启动 | 既有 `tests/test_control_db_schema.py` |
 | 两来源History分页/完整snapshot及Review独立状态、自读不扩权 | `tests/test_history_projection.py` / `tests/test_history_http.py`（分别projection/HTTP）与 `tests/test_review_http.py`（Review摘要smoke，不复制权限矩阵） |
 | 生产wiring异常拒绝→关闭→新上传重提→归档 | 既有 `tests/test_archive_compose_e2e.py`仅一个小型真实旅程；当前候选offline fresh build绑定 |
 
 所有测试/编译/lint仅06，运行前SSH、现场空闲/原子marker、独立clean已提交WT/LAN bundle/legacy、UV_OFFLINE=1/CARGO_NET_OFFLINE=true/TMPDIR和jobs/workers4。pytest显式主体 `-m '(not serial) or parallel_safe' -n4`＋其余serial `-m 'serial and not parallel_safe' -n0`；空批exit5记N/A。五包ruff/mypy必跑；本节不改Rust/依赖，核已安装build input，首次新环境仍强制扩展sync。日志WT外记host/起止UTC和HEAD/exit/SHA，保留本节失败及前节WT/镜像/证据。代码固定先交同一独审并行静审；04权威、05 fresh t1和D/前端留联合候选。
 
 当前 HEAD d0add6bd16；本提交仅清单文档，container rebuild required=no、本提交container gate=not-applicable；最后产品镜像证据为V1 c229（本节不冒充已验证）。V2收敛候选必须06 fresh最小Compose，04联合门禁延期到D后最终候选；无carried声明。
+
+Own​​ing 正文目标：`contracts/business-lifecycle-and-state.md`（6.0.0）、`plans/p5-5d-archive-design.md`（规则、digest v2、audit、Start/关闭与统一处置）、`plans/p5-5c-review-design.md`（closedness/Review摘要）、`plans/p5-5e-history-design.md`（统一处置与两读取入口/DTO）；Snapshot Materialization、Canonical Storage、Preview、Submit Contract 本节无新格式/算法改动（none），V1既定事实/schema/checkpoint版本保留。路径均相对本页的上级 formal 目录。

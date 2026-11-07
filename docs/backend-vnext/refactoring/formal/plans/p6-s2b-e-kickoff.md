@@ -4,7 +4,7 @@
 
 **t3 容量结论与下一次校准提案（待 Owner 决策）：** 只读核实 193 个 task 的实际 materialized 侧：row/base 预约 17,045,901,120 bytes；仅补 current `device_st` 的 logical Arrow 16,646,188 bytes ×64 后，下界即 18,111,257,152 bytes（16.867 GiB），已超 M16，其他 Arrow/存活项尚未计。大表新增列触发真实双侧读行，t4/History 的观测没有覆盖该变更形态。另发现 non-record role 的 COLUMNS_ADDED 实际双侧读行未预约，已按 DC80 以 `464289138a27f03a4dddc3b825e6bd32907fbf9f` 最小补齐；06 静态及 93 项 focused 独审通过，元数据-only 仍不计行费。此修正增加漏计保护，不会让 M16 需求问题变成 PASS。
 
-建议下一步只做一次宽裕的剩余 t3 校准：将该窄修原样应用到已有隔离 64 GiB envelope / 16 GiB reserve / M48 GiB、N1 候选，核主业务 blob 等价，仅保原有临时 scope 日志。05 的原 t3 三停止卷、state 与 secrets 保持，现场空闲原子取用后做标准冷归档，经获准 LAN 私有传输至 CT108 的新项目，核 bytes/mode/uid/gid；05 实际 64 GiB 不作为承载 worker64 的校准节点，CT108 实际 96 GiB 留有其他服务余量。节点取用遵守已定自主规则，不另申请常规资源窗口。
+建议下一步只做一次宽裕的剩余 t3 校准：候选已固定 `a10dec894e39013dc02bc7100a27da69ca01040b`，将该窄修原样应用到已有隔离 64 GiB envelope / 16 GiB reserve / M48 GiB、N1 候选，核主业务 blob 等价，仅保原有临时 scope 日志。05 的原 t3 三停止卷、state 与 secrets 保持，现场空闲原子取用后做标准冷归档，经获准 LAN 私有传输至 CT108 的新项目，核 bytes/mode/uid/gid；05 实际 64 GiB 不作为承载 worker64 的校准节点，CT108 实际 96 GiB 留有其他服务余量。节点取用遵守已定自主规则，不另申请常规资源窗口。
 
 在副本核原 repository/v1 commit、workspace OPEN、optimistic_version/current_upload/generation 与已存 upload、BaselineHead 一致后，用当前隔离候选本机离线 build/bare up 和现有 CLI `--tier t3 --scope full --from-step v2-preview --keep-stack`，生成新 project-key 的 Preview；不修改原 state/head、不复用原 FAILED operation、不重跑 V1 Submit。取齐 v2 Preview、后续 Submit/读取/审核及 History 的每 scope 预约高水位与新 worker 生命周期 cgroup/RSS、控制及正常停机记录。局部结果与原 t3 FAIL 分列，不冒完整 fresh PASS；不逐档试 M24/M32，不因再失败自动增档。依据全部已覆盖路径及这次剩余路径的需求和余量，再向 Owner 提交统一最终配置，之后只集中做其必要最终验收。当前只完成候选/方案准备，尚未冷拷或执行新校准。
 

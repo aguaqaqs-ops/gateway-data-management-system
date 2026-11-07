@@ -17,7 +17,7 @@
 | 节 | 实施者 | 独立审核者 | 测试执行者 | 状态 |
 | --- | --- | --- | --- | --- |
 | A | `/root/s3_a_impl`，GPT-6-Sol xhigh | `/root/s3_a_review`，GPT-6-Sol xhigh | `/root/s3_a_test`，GPT-6-Luna max | GO，报告 `f28c89eff5ac`；本节三角色已正常结束 |
-| B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | 静态修订继续；b917 执行前触 DC68，待 Owner 恢复决定 |
+| B | `/root/s3_b_impl`，GPT-6-Sol xhigh | `/root/s3_b_review`，GPT-6-Sol max | `/root/s3_b_test`，GPT-6-Luna max | Owner 已放行恢复；同三角色继续验证/修复/独审，尚未 GO |
 | C–E | 各节新建 | 各节新建 | 按需、错峰 | 依赖上一节实际核收 |
 
 A 实施者拥有 `p6-s3-a-contract-handoff.md` 与独立固定向量测试；审核者只维护 `p6-s3-a-review.md`；协调者维护本记录。各角色只显式 stage 本人路径，在 main 追加本地提交，不改写已引用提交。测试运行仅一个执行责任人，被测 detached worktree 全程不写入。
@@ -97,3 +97,11 @@ B 原审已对固定检查点提前指出并交原实施者：ordered 仍全值 
 预算第二轮集中 core 候选 **`ac21ad4069abb08f162d9418a6426a63d7508974`** 已固定（仅四个 comparison 源）。实施者报告已补 slice 实际范围估算、metadata 构建前预约/临时退账、shrink 禁止事后 grow、normal/degraded 统一 record ref、仅小 metadata 的明确命名、流式 I-JSON 数字检查、实际编码 SQL/声明 kind 冲突及 columns-added 共有投影 multiset。standard 单测源码现 12 项；**尚未编译/执行，原审正在固定对象只读核第二轮，不能记修复已核收或 B GO**。
 
 主线另有临时 probe/Python 差分与 B handoff 的实施者 WIP，不混入 ac21。临时 probe 只作替换期测试，旧 Python 参照用 S3 自有固定 4d5 WT/独立进程，E 删除 harness；不向 core/Python 新增未锁版本或永久 oracle。原审对双侧空表与整表缺侧、隐藏共有列/新增列、JCS 和完整 facts 重放的核点继续保留。
+
+### Owner 放行恢复（2026-11-07）
+
+Owner 对上述已审恢复稿明确回复 **“允许放行”**；DC68 本次恢复决定已取得，之前待决定的文字保留为历史。协调在 22:33Z 重新核 main=`1d5cc20884209df765c554631bc6ebdf26ead390`、worktree clean；`ee58afaf76ecf509384fb4e79c5cb1145ef40e1c..main` 的 `vnext` 差异为空，期间原基准/诊断的并行文档不混算 S3 产品变更。
+
+暂停期间 B 已提交完整静态代码候选 `2e9758885a8179d0e8e90c9c90a7c244577b9ea2`、[handoff](p6-s3-b-handoff.md) `ee58afaf76ecf509384fb4e79c5cb1145ef40e1c`；仍未 fmt/编译/测试/真实按表验证，不是 B GO。原审报告最新 `ba818b0d8d` 的两项 ordered 诊断差异由后续语义增量处理，待同一原审核收。
+
+协调已唤醒同一 B 实施/独审/测试三角色（合计仍四槽），先由原唯一测试者按已审 literal bash 稿重新核 06 现场并执行保留的 b917 脚本一次；原失败、摘要出处限制和资源释放记录全保留。然后对完整静态候选固定格式与执行稿，按影响完成 Rust/FFI/差分/逐表及静态检查。此放行恢复既有授权范围，不取消未来首错停止、缓存缺失与资源规则，不增加 tag/push 或 DC33 最终范围授权。后续每节核收后仍直接推进，不重复问日常开工许可。

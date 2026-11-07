@@ -86,3 +86,24 @@ Required execution point: 联合产品最终候选按实际影响验证，不为
 ```
 
 本报告及设计修订只做文档 diff/链接检查，不冒称产品静态检查或功能验证。审核 worktree 与报告保留；等待设计者提交新候选后，按实际 diff 复审 B1/B2/N1 及相应交叉文档，不预先宣布修复通过。
+
+## 6. 修订候选 16472197b4 复审与最终设计结论
+
+2026-11-07，同一独审角色复审 **`16472197b486908b4ed16cd4b4305f49360d7c38`**；范围为 `e92afaa53f..16472197b4` 的五份设计文档。新只读 detached worktree 为 `/home/dev/gdds-reviews/p6-be-a-d-archive-16472197b4`，legacy 链接齐备，原 `6995fe46` 审核 worktree 保留。两处均 clean；未审 dirty 工作区，未改设计/产品/前端。
+
+**最终结论：设计 GO，无剩余阻塞项，可以提交 Owner 确认实施 kickoff。** 这是设计审核结论，不是开工授权或产品验收；尚未实施的新权限、门禁、facts、关闭接口与 tar 不得向 FE3 报已交付。
+
+| 首轮项 | 实际修订与复审结果 |
+| --- | --- |
+| B1 时间语法 | **关闭**。[业务设计 §4.1](p6-archive-business-validation-design.md#41-提取位置与顺序) L71–108 固定 `gateway-vnext/configuration-generated-time/v1`，显式 SQL unquote/unescape、ASCII trim、完整日期/秒、T 或单空格、最多六位 fraction、Z/±HH:MM、±14:00 上限、UTC 年份越界拒绝、成功输出及精确微秒比较。源序从1跨批次计数，max 并列取首行，缺表/列/行、全空、无有效值与漏存 facts 分开；非法 TEXT 时间和原 typed scalar 硬失败分开。固定向量覆盖首轮反例及 source-order/线程/切块不变，不再依赖 `fromisoformat`；Shared Kernel table scalar 未被扩展。 |
+| B2 接受容量 | **关闭**。[业务设计 §7.1](p6-archive-business-validation-design.md#71-异常上界与请求预算b2技术定稿) L183–206 明确每实际上传侧质量与 LAST_NOT_MAX 各自至多一项、modified 两个倒退 relations 聚合、initial 独立关系、来源分量、原 sibling/identity 与单个 baseline 不可比较项。逐类相加为 `2N+2N+2N+N+(N−1)+1+1=8N+1≤1601`；确认引用单独限1。拆分旧共用常量，HTTP/application/fingerprint/replay 同步；exact 集合、超界拒绝和成功 replay 保留。来源组仅传 subject，服务端重算/冻结全组，reason 不重复进入 Start。399份接受反例不再被旧200上限堵住。 |
+| baseline 缺时间交叉影响 | §4.2 L130 将历史 INVALID/LAST_NOT_MAX 展示与本轮 `BASELINE_TIME_UNAVAILABLE` 区分：缺失不是事实损坏；新全局接受只解释本轮无法比较，仍为 NOT_COMPARABLE，不伪造通过；INITIAL 空基线不适用，MODIFIED_ONLY 不重复派生每个 initial 的同一历史质量 issue。该新增项已计入容量上界，没有扩大硬错误豁免范围。 |
+| N1 UTF-8 PAX | **设计交接建议已采纳**。[BE-d §2.1](p6-be-d-design.md#21-utf-8-pax与前端交接独审n1) L27–46 明确 byte length、前缀固定点、严格 UTF-8 及 ASCII/中文/非 BMP/相邻记录/畸形记录向量；后端标准编码与完整性规则保持。前端 owner 修 consumer，并用后端真实编码器的同字节 tar 验证安装，成为 FE3 解除依赖的明确条件。当前前端代码尚未修复，不能把此项设计关闭表述为互通已通过。 |
+
+独立静态预算仅使用 Python 标准库 `json`，未 import/执行产品代码：按现有 Start DTO 的全部字段，两个 ID 各255个 ASCII 控制字符（UTF-8 255 bytes、JSON 转义后1530 bytes），digest 为固定71 ASCII bytes，Head/sequence 为 `9007199254740991`，每个紧凑引用120 bytes；1601 anomaly refs＋1 confirmation 序列化结果为 **197,265 bytes**，上限262,144 bytes，余量 **64,879 bytes**，与设计一致。结构上界是保守预算，不要求所有 issue 同时可达；本次没有构造伪业务样本冒充产品验证。
+
+预算摘要保存在 worktree 外 `/home/dev/gdds-reviews/artifacts/p6-be-a-d-archive-16472197b4/static-start-body-budget.json`，SHA256 **`fbb2fb9fb189612725012456f547d7899181ec3c811769210b24999219cf6930`**；静态构造的 body SHA256 **`7a06b702d6ef765c98888e53a12ce2b2e3b40a4e7d7d1821d0e63391af08c161`**。这只证明该协议形状的字节算术，不证明 HTTP/application 校验或 Start 已实施。
+
+联合 kickoff、执行计划及 DC90 的追加技术说明与上述选择一致，明确设计者技术细化不冒充新增 Owner 业务决议，没有新业务冲突。本轮没有改动 BE-a 的既有审核结论或扩大原阶段退出含义。实施 kickoff 仍需填写实际起点、角色/Owner 授权、各小节精确 fields/schema/checkpoint/digest/OpenAPI/golden 改动和最终真实数据范围；这些是已定设计的实施落点，不再把 B1/B2 的选择留给实现者。按首轮 §4 的语义屏障验证，新字段随既有 lease/CAS/事务发布，不能因本次设计 GO 跳过损坏、取消/失租、旧 generation、replay、精确释放或 History 消费的验证。
+
+容器决策更新：`Current reviewed HEAD=16472197b486908b4ed16cd4b4305f49360d7c38`；`Container rebuild required=no`，范围仅五份设计文档。独立 Git 核对 `vnext` tree 仍为 `92c1d6403d7cf3cbc4cf2746100699ed8d028ba7`；最后已验证镜像 revision/source-tree 继续引用 §5 的实际 S2b 来源，本候选容器门禁 `not-applicable`，无本轮 carried 声明。只做文档 diff/链接/围栏和上述静态算术检查；未运行测试、编译、容器或真实数据，未访问/占用测试节点、未新建角色、未推送或改 tag。新产品的必要门禁及前端同制品互通仍在各自已明确的交付节点执行。

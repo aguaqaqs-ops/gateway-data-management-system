@@ -2,7 +2,7 @@
 
 2026-11-07。独审角色 `/root/be_d_review`，Owner 指定 GPT-6.1-Sol / max；实施为 `/root/be_d_impl`，协调为 `/root`。范围按 [D 工作单 §5](p6-be-d-work-order.md#5-启动收口) 包含 D 及既定联合最终验收准备收尾，不新建第三角色。
 
-**当前状态：e3b54b8f71 的 F1 代码修复已核；06 首轮 HTTP wiring 验收失败待修前置，未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
+**当前状态：F1 与 HTTP fixture 前置已闭环；F2 最终 bundle refs 保护缺口待固定修复，工具／Compose与集中证据仍待；未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
 
 ## 1. 固定基线与权限
 
@@ -122,3 +122,19 @@ F1 及纯 download owner 的新增小向量在142通过部分；整次 focused �
 原实施者应让 fixture 经过真实 HTTP 受理或填同一持久 acceptance 的合法 business ref，并建立 DB 父目录；保持当前权限门禁与404／503期望，不改产品授权、不放宽 producer 校验。仅补受影响 HTTP wiring owner，其他已通过小向量不机械重复。修复的固定候选、成功 HTTP／serial 判定、后续工具／Compose及五包静态仍待，本轮没有整体产品结论。
 
 容器决策：Current reviewed HEAD=e3b54b8f71；D 当前镜像仍 deferred，最后验证来源仍为 §4 的 V2 f8；无本轮新容器或 carried。所需执行点仍为 D 收敛候选06与联合04／05。
+
+### 6.3 固定 7f25a1657a：HTTP 前置修复与增量成功
+
+固定 **`7f25a1657ab620641eeeafd759366e7ab9456444`** 在新只读 WT `/home/dev/gdds-reviews/p6-be-d-code-7f25a1657a` 核 clean／legacy 和唯一测试文件增量。History fixture 改为实际 HTTP POST 受理后执行原三个 job handler，保留 exact acceptance business ref；Preview 建 DB 父目录。没有改产品授权或错误分类。
+
+06 原始增量日志起止均7f25、clean前提脚本沿用同一 wrapper；仅重跑受影响 `test_bundle_download_http.py`，11:09:44–11:09:52 主体 `-m '(not serial) or parallel_safe' -n4` **21 passed、exit0**，SHA=`e62743e2029562f7062dc7531e4baf42314383e996bce7a9098e967abbff42d3`。独立 `-m 'serial and not parallel_safe' -n0` 为21 deselected、**exit5 N/A**，11:09:52–11:09:53，SHA=`c2519e8d723b19562071a01d891e5fe8c9003e1d12e3e2fe193c777ff7e92706`。同HEAD backend ruff／mypy均0，SHA分别`96c19f635041959383f03c829d02052419a4c2e8928b70a08bec4a1e1b366939`／`62ccafce371c1a34a747cb89543aaaeb970b983ecbfa8b5b6bbdecebaf63cd1d`。本角色已读原文并重算SHA，现场WT仍7f25／clean。
+
+**F1 关闭，HTTP 前置错误关闭。** F1 pure owner 在e3通过且7f25未改；7f25新HTTP范围通过，旧142/7/8失败日志保留，不把两轮拼称单次全选157通过或权威 carried。D工具、完整矩阵、五包静态、当前Compose／实际OpenAPI／同制品及联合验收继续待收敛。
+
+## 7. F2（P2）：producer 的 READY protection 未包含最终 bundle 全部 refs
+
+此项由原实施者在完整tar接线时先单独报告协调，本角色在固定7f25独立确认。Preview `preview_jobs.py` L1996／L2271 和 History `compare_jobs.py` L990／L1112 的 `_required_ready_refs` 只集原 surface refs、部分原输入与 manifest；`assemble_bundle` 返回的 `referenced_artifacts` 明确包含全部 rewritten final artifacts 和原 closure，当前调用方却未将其加入既有 READY refs／保护事务。
+
+因此 manifest／operation仍受保护时，下载真正需要的 closure／final bytes 可以落入普通未保护 TTL cleanup；只保护原 surface refs 无法替代 final ref 身份。它是既有 owning 交付／protected retention 缺口，不是新威胁模型或业务digest问题。最小修复为把 `bundle_result.referenced_artifacts` 并入既有 required_refs，保留原 canonical／source 恢复 refs，并沿原事务／lease发布；不新增状态机、版本轴、sidecar或持久下载保护。
+
+原实施者已认领，固定修复及原生产wiring owner 的 final refs／closure保护断言待核；不重录业务golden。当前产品review HEAD为7f25，容器仍deferred，最后镜像来源／集中执行点同§6，未作D GO。

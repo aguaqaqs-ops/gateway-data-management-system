@@ -4,7 +4,11 @@
 
 修正候选 `7c023971397a8fba2c9e2aa86e9e7cbb9f088fe1` 仅改三个测试路径，已获独立源码核对；06 本地 History 27 项、两个原失败 Compose 场景及 Ruff/mypy 已通过并独立核验。随后同 04 E worktree 的 backend-only 权威 runner 于 23:56:36Z 完整退出 0，主体 3173 项、串行 57 项通过。保存完整来源并独立核对后继续其余四个 Python 包；Rust 在同节点同 worktree 比较原合格来源，实际闭包相同。失败整次中通过的包不抽作合格来源；四包镜像构建结束再核 backend 闭包及最终容器绑定。
 
-05、CT108 已准备至 7c 候选并独立核验、释放准备占用，原线保留卷不动。backend 合格后，按现场有效占用分别启动 05 fresh t1–t3（逐档成功后接下一档）和 CT108 fresh t4，可与 04 剩余四包并行。真实旅程失败则保本 E 诊断状态，停止后续并按 DC80 处理；不触原基准冻结资源。最终逐包证据、真实旅程与完整 worker 资源事实仍需收齐，不把 backend/Rust 通过记为 E GO/S2b exit。
+2026-11-07 更新：三节点于前日 23:58:30Z 实际启动。05 的 7c fresh t1 全旅程及资源/正常停止/清理均成功，00:03:36Z 释放；t2/t3 未启动。CT108 的 7c fresh t4 于 00:01:07Z 在首次 Preview 的 `assemble_preview` 被 `RESOURCE_LIMIT_EXCEEDED` 拒绝，materialize 已成功。实际输入为 MODIFIED_ONLY（BASELINE/INITIAL 空、MODIFIED 312 表）；旅程 `--scope full` 不等于上传 InputCompleteness.FULL。失败阶段 cgroup peak 为 660467712 B、上限 12884901888 B，N1/M8 正确，OOM/重启为零、正常 stop0；这些事实不能证明完整档容量足够。
+
+保留 checkpoint/元数据的只读核算发现明确预算缺陷：standard 与 ordered 的单侧 ADDED/DELETED 路径仅生成表级事实、不读取 rows，但 `comparison_python_memory_upper` 为其中 278 个任务预扣全量行对象包络。仅行项与基费已至少 13703443328 B（约 12.763 GiB），尚未加非负 Arrow 项，超过 M8。按既有 DC80 小明确修正授权，只去掉单侧未消费 rows 的费用，保留元数据基费、真实双侧及 ordered identity 读行预算；不提高 M/容器上限或更改业务预期。先在 06 focused/静态及独立审核收敛，再形成新最终候选。若后续真实读行路径仍无法承载，另将事实及配置取舍交 Owner，不静默改 DC87。
+
+04 当前四包运行自然收束，合格后 Rust/三小包按同 worktree 实际闭包比较沿用；新 backend 源码/测试要求补 backend，RS 来源 manifest 的 `docker:context:vnext` 也随之变化，须补 RS，不能因业务无关径自沿用。t1 旧成功结果保作回归，其已清理卷无法按 DC64 从受影响首次 Preview 续跑，最终新候选需 fresh t1；t2/t3 尚未跑、t4 尚未完成，均须新候选实际完成。不新建恢复工具或重跑全部六包。t4 本 E 停止容器/卷/network/证据原样保留，只在整机 idle、HEAD clean 和本任务 marker 精确核对后释放占用；后续新项目不得复用失败资源。最终证据未齐，不记 E GO/S2b exit。
 
 启动时前置记录：**D 前置通过，按 DC86 启动 E**（2026-11-06）。D 固定产品 `93678f8439ec1393d496182f16ae5049b220242f`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立 GO](p6-s2b-d-review.md) `78411aa40b` 已收齐，06 已释放、D 二角色结束。本节重新创建 **GPT-6.1-Sol/high 实施者、GPT-6.1-Sol/max 独立审核者**；因涉及旧算法与独立预期移交、累计恢复证据、跨节点最终门禁及闭包判定，审核选择 max。按下述范围先收敛删除与工具消费者，再固定最终候选验证，不把 D focused 结果充作最终权威来源。
 

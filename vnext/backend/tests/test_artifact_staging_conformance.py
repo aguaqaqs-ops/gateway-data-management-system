@@ -55,7 +55,7 @@ def _corrupt_sidecar(root: Path, artifact_id: str) -> None:
 
 STAGING_OBJECT_FAULTS: tuple[tuple[str, _Mutator, str], ...] = (
     ("missing-bytes", _missing_bytes, "artifact bytes are missing"),
-    ("missing-sidecar", _missing_sidecar, "unknown artifact_id"),
+    ("missing-sidecar", _missing_sidecar, "artifact ref is not available"),
     ("corrupt-bytes-size", _corrupt_bytes_size, "stored size_bytes mismatch"),
     ("corrupt-bytes-digest", _corrupt_bytes_digest, "stored raw_sha256 mismatch"),
     ("corrupt-sidecar", _corrupt_sidecar, "artifact read failed"),
@@ -118,5 +118,5 @@ def test_sidecar_replace_failure_does_not_publish_locatable_artifact(
         store.put(OPAQUE_BYTES, ref)
 
     reopened = reopen_local_store(root)
-    with pytest.raises(ManifestVerificationError, match="unknown artifact_id"):
+    with pytest.raises(ManifestVerificationError, match="artifact ref is not available"):
         reopened.locate(ref)

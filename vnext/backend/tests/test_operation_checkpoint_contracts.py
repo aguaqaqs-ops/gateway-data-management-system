@@ -609,7 +609,7 @@ def test_local_store_missing_closure_fails_closed(tmp_path: object) -> None:
     root = staging_root(cast(Path, tmp_path))
     store = open_local_store(root)
     missing = _artifact_ref("missing-closure")
-    with pytest.raises(CheckpointDecodeError, match="unknown artifact_id"):
+    with pytest.raises(CheckpointDecodeError, match="artifact ref is not available"):
         load_ready_closure(store, missing)
 
 

@@ -168,7 +168,9 @@ S0  决议（DC37–DC55）、前置验证（已完成）、本设计与计划�
 
 ### S2b — 上传侧数据路径与规范表存储
 
-- **当前执行状态（2026-11-06）：A–D GO，按 DC86 启动 E。** D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。06 于 18:52:58Z 释放，D 二角色结束。DC87 的显式 12/4/8 GiB、N1/单 active 与 DC88 正常 drain 语义保持；D 实际 materialize 局部校准、控制/预算与当前必要容器边界已验证，不冒称全 worker 实测峰值或 S2b exit。[E 任务](p6-s2b-e-kickoff.md)由新 Sol/high 实施者与 Sol/max 审核者完成旧路径/工具删除移交、04 最终门禁和完整 t1–t4；原基准独立跟踪、W1/W2 时点不变。额外角色先交 Owner，实质阻塞或反复失败暂停讨论。
+- **E 当前收口（2026-11-07）：** `1de3fa4084` 的 04 backend 权威及 05 t1 完整通过；修复单侧 metadata-only 误计费后，t4 Preview 通过、Submit 在真实行处理预约准入被 M8 拒绝。Owner 已要求先增大预算测量后决定，避免逐档尝试；按 DC87 补充，隔离临时候选 `4f808c111b` 使用 64 GiB 容器/16 GiB reserve/M48/N1，经源码审核与 06 focused/static 后，于 00:52:41Z 在 CT108 一次 fresh t4 校准。仅临时记录现有预算高水位及 worker 生命周期资源峰值，不改 main 最终资源档、GC 或租约，也不为临时档重复六包。最终配置与剩余真实数据/门禁待测后收口，E 尚未 GO；准确来源、失败与保留资源见 [E handoff](p6-s2b-e-handoff.md)、[独立审核](p6-s2b-e-review.md)及 [E 任务](p6-s2b-e-kickoff.md)。
+
+- **E 启动记录（2026-11-06）：A–D GO，按 DC86 启动 E。** D 固定产品 `93678f8439`、[handoff](p6-s2b-d-handoff.md) `abfe7cb66b`、[独立审核](p6-s2b-d-review.md) `78411aa40b` 已收齐，无本节遗留阻塞。06 于 18:52:58Z 释放，D 二角色结束。DC87 的显式 12/4/8 GiB、N1/单 active 与 DC88 正常 drain 语义保持；D 实际 materialize 局部校准、控制/预算与当前必要容器边界已验证，不冒称全 worker 实测峰值或 S2b exit。[E 任务](p6-s2b-e-kickoff.md)由新 Sol/high 实施者与 Sol/max 审核者完成旧路径/工具删除移交、04 最终门禁和完整 t1–t4；原基准独立跟踪、W1/W2 时点不变。额外角色先交 Owner，实质阻塞或反复失败暂停讨论。
 
 - **kickoff 已批准，A 节已交付（2026-11-06）：** [kickoff](p6-s2b-kickoff.md) 固定候选 `1a4adaae05` 已通过技术审核，Owner 已按 DC85 批准 kickoff 及首节纯内存 mapping/IPC codec。[A 任务单](p6-s2b-a-kickoff.md)产品候选 `db7767ffbb`、[handoff](p6-s2b-a-handoff.md) `b625d775e0`、[独立审核](p6-s2b-a-review.md) `83b927207a` 已收齐，结论 A GO，无未关闭 Finding；06 的 Rust workspace、五包静态、当前扩展/接口行为及必要容器 health/native 均通过。容量/M 仍按 DC84 分步校准，DC63 基准子段继续独立待补；A 局部向量 bytes 不替代 FULL/worker 校准或 W1/W2。Owner 随后按 DC86 授权逐节推进 B–E，每节新建既定实施/审核二角色；B 交付后按 [C 任务单](p6-s2b-c-kickoff.md)继续，额外角色需另获 Owner 确认。S2b 整体尚未退出。
 - **推进原则更新（DC81，2026-11-05）：** owner 将新开会话推进 S2a 收尾及 S2b 讨论；全量基准由原线继续，不再统一阻塞后续开发。先收口功能、映射、恢复语义与必要资源预算；未交付性能分段明确待补，允许后续小范围定向返工。迭代只做受影响范围验证，完整门禁集中到必要候选，不重复已通过的测量。S2b kickoff 仍须核对，不把本次流程调整表述为所有准备项/性能退出条件已通过。

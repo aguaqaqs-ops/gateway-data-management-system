@@ -1,6 +1,6 @@
 # DC63 与 V5b 剩余分段测量的最小补缺方案
 
-2026-11-07，p6-backend-design。执行依据为 DC62 §4、DC63 §1、DC66、Owner A 分版本参考及连续完成授权。本项属于原已授权旁证，现有实施者与接续审核者直接闭环；不新增角色、逐摘要 GO 或阶段 exit 权限，不影响正在运行的 W4-FULL。
+2026-11-07，p6-backend-design。执行依据为 DC62 §4、DC63 §1、DC66、Owner A 分版本参考及连续完成授权。本项属于原已授权旁证，现有实施者与接续审核者直接闭环；不新增角色、逐摘要 GO 或阶段 exit 权限，不重跑已关闭的 W4-FULL/STRESS。
 
 ## 实际缺口与目标
 
@@ -24,6 +24,10 @@ reference JSON 中的 21 个 Preview/Submit selector 是既有工具字段，不
 3. 诊断以 9704 为产品来源，插桩/overlay 或专用镜像另记完整身份和差异，不修改冻结 tag、在途 worktree 或正式 V_ref 的产品内容。读写仍走实际生产路径；计时不得改变原异常、返回、lease、GC 调度、artifact 或事务语义。若实现需要改业务/Contract，先报告具体冲突。
 4. 在同一 CT108 独占时段复用该诊断准备出的合格 v1 commit/隔离服务，运行现有 V5b A–D 工具及独立 scratch，避免为 A–D 再起一整轮旅程。旧 retained 栈不因取素材重新启动；服务/输入不满足时用本次独立新项目准备。明确缓存状态，不把正常已有缓存称冷启动。
 5. 本地准备和必要 focused 在 CT201/05 按既有分工进行；实际诊断仅在 CT108 当前正式测量结束、现场可用并取得有效占用后执行，不与 FULL/STRESS 正式计时重叠。token 等凭据不进日志或 Git。
+
+**诊断专用预置镜像绑定（2026-11-07）：** bbe启动预检发现，诊断Compose也参与canonical build definitions，当前RS helper计算build-input revision为`3456bd7fbbd6a6c7ae807303a54f5548a4136a7f`，冻结目标label为`4497ded8ff3a9156bbe4c7a75ba44ae9e4675792`；两者source-tree均为`sha256:31972029672961ad00d2a2da022f4d1430cb60157a2d944246483195a9344027`。普通startup在prebuilt判断前先ensure RS，直接复用会触发冻结tag重建，故先停在业务启动前。该build-input差异如实保存，不能靠alias、重tag或宣称两个revision相同消除。
+
+允许仅在本非正式诊断入口增加明确的“诊断HEAD/Compose与冻结目标镜像”映射：启动前用实际manifest固定诊断身份，并确认当前RS source-tree仍等冻结产品、三镜像实际config digest/全部有序DiffID/目标labels均与已审冻结对象精确匹配。只有本诊断入口在该验证成功后消费预置镜像，不调用build/pull；普通门禁、共享harness及正式V_ref的身份比较保持，不新增通用skip或产品回退。实际缺失或不符即停该运行并按DC80处理，不自动重建、取网或替换冻结tag。实施者完成最小接线和真实调用路径的必要focused，接续审核者集中核映射/实现及原已核关键预算一次后直接沿原范围接续，不再申请Owner、逐摘要GO或协调回执。诊断身份与冻结镜像身份分别交付，该映射不用于普通门禁carried或冒充单一正式版本。
 
 ## 预算、验证和交付
 

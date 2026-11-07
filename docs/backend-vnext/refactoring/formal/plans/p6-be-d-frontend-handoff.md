@@ -1,6 +1,6 @@
 # BE-d 完整tar前端交接（Owner手动转发）
 
-2026-11-07。协调者维护；**联合后端技术GO `ccdd1eb39d`、Owner已确认DC33范围**，实际产品49403/tree567、handoff233e。下列同字节制品生成源仍为0ba生产encoder；当前实际API原件来自04新权威run mvzi，见§3。前端同制品OPFS互通及实际阶段退出手续仍pending。后端不改前端源码，前端由其owner修consumer与类型；实际encoder文件已交付。本页列两类已核consumer接缝，不改变现有POSIX tar格式，不要求生成大输入。
+2026-11-07。协调者维护；**联合后端技术GO `ccdd1eb39d`、Owner已确认DC33范围，后续正式退出tag为`p6-be-a-d-exit`→77b9aeea74**，实际产品49403/tree567、handoff233e。下列同字节制品生成源仍为0ba生产encoder；当前实际API原件来自04新权威run mvzi，见§3。后端退出已完成，前端同制品OPFS互通仍pending。后端不改前端源码，前端由其owner修consumer与类型；实际encoder文件已交付。本页列已核consumer接缝及当前版本的接收预算澄清，不改变POSIX tar格式，不要求生成大输入。
 
 ## 1. 已审UTF-8 PAX接缝
 
@@ -14,7 +14,23 @@
 
 现有前端只解析header `[124:136]` 的八进制size，`parsePaxPath`只消费path而忽略PAX size；因此该合法边界不能互通。请随UTF-8修复核标准PAX size覆盖：按字节读记录、验证十进制整数与安全整数范围，使用其有效成员size，仍与closure/实际完整响应核对。仅需encoder生成的header/length边界小向量，**不生成或传输>8GiB测试文件**；header向量与完整可安装tar分别标明，不能将缺payload的前缀冒充完整制品。
 
-实施者另核前端 `PAX_LIMIT=1MiB` 小于当前后端metadata允许的路径上界。后端按既有metadata边界有界分片，不额外截短/ASCII化路径或自行新增producer限制。前端owner应与owning Contract的合法域核对资源策略，不盲目取消其资源保障；若实际限制无法覆盖合法producer，反馈具体路径/字节数/影响供设计者澄清。当前无需要等待前端判断才能实施的后端阻塞；这些边界未修前不记互通通过。
+实施盘点发现前端 `PAX_LIMIT=1MiB` 不能覆盖当前后端metadata允许的路径域；2026-11-07设计者按实际代码核对后的定稿接收预算见§2.1。后端沿既有metadata边界有界分片，不截短/ASCII化路径，也不因此新增producer限制。修复与同制品验收仍由前端owner负责。
+
+### 2.1 路径字节数与PAX接收预算（设计者只读澄清）
+
+后端`bundle_assembly/contracts.py::validate_logical_path`**没有独立路径长度常量**。现有硬边界是manifest和closure的JSON各不超过`16 * 1024 * 1024 = 16,777,216 bytes`。下表是覆盖**当前bundle版本合法producer**的前端保守接收预算，不是新增后端path硬限制，也不是通用tar/PAX格式上限：
+
+| 对象 | 前端可采用的接收上界 | 计数口径 |
+| --- | --- | --- |
+| 单个logical_path | `MAX_PATH_UTF8_BYTES = 8,388,608`（8 MiB） | path原值的UTF-8字节，不是JS.length；合法bundle实际严格小于该值 |
+| 单局部PAX扩展头payload | `MAX_PAX_PAYLOAD_BYTES = 16,777,216`（16 MiB） | 包含各记录length前缀/空格/key=value/换行，不含512-byte tar header与padding |
+| manifest / closure | 各`16,777,216`（16 MiB） | 维持既有JSON总预算，不能各自改成路径预算 |
+
+推导：同一path在manifest的`closure.entries`与`closure_entries`各出现一次，`transport.py`校验二者一致及JCS；closure也有相同重复结构。每份JSON编码path所需字节至少为原UTF-8长度L，另有非零结构/字段开销，因此`2L + overhead <= 16,777,216`，即`L < 8,388,608`。**8 MiB不是保证可达的精确最大值**，具体合法长度还受其它metadata和JSON转义开销约束。
+
+当前`artifacts/tar_stream.py`只生成path/size两种局部PAX记录。path记录长度满足`R = L + digits(R) + 7`；取前端保守L上界得`8,388,622 bytes`。size值最多`2^53 - 1`，对应记录最多25bytes，合计保守不超过`8,388,647 bytes`，小于16 MiB，故表中PAX预算覆盖当前合法输出。
+
+前端须按header声明payload先检查预算、再分配/读入；严格UTF-8、路径安全、closure匹配、摘要和总长校验均保留。可用编码单元向量覆盖1 MiB以上及拒绝边界，不为证明预算构造伪称合法的满8 MiB bundle或重跑后端旅程。上述上界依赖本版本JSON重复结构、16 MiB cap及PAX只含path/size，未来改变时同步复核。设计者已确认这是既有实现/Contract的推导，无产品、Contract或退出tag变更。
 
 ## 3. 已实际生成的同字节制品
 
@@ -34,4 +50,4 @@
 
 生成原run为06 `run-interop-generate-LZPb1TzQ`；consumer验证 `run-interop-verify-corrected-6TuXooMk` command/final0，12:04:06Z结束、完整HEAD/clean/owner真。原一次外置脚本被wrapper在consumer执行前拒绝已保留，按DC68只用公开支持python-c/import本提交consumer单次纠正，不exec外置代码。OpenAPI来自同一0ba实际小Compose的`GET /openapi.json`，SHA=`977b22588c0e0bffcd58ee8618cdb704bfae4ca23d44ac019771d37f2c98b8a7`；不是新造fixture schema。
 
-前端使用上述**同一个bundle.tar**核解析、路径/摘要与OPFS安装，并回传修复提交、同文件SHA及专用节点证据；后端独立consumer不替代此结果。联合后端技术GO和Owner的DC33范围确认均已齐，04/05/06均已释放，实际阶段退出另办。FE3解除依赖仍须前端自己的同字节证据，真正需要前端判断的后端阻塞将另给具体问题包并暂停该依赖。
+前端使用上述**同一个bundle.tar**核解析、路径/摘要与OPFS安装，并回传修复提交、同文件SHA及专用节点证据；后端独立consumer不替代此结果。联合后端正式退出及本轮节点收尾已完成，见[最终交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接)。FE3解除依赖仍须前端自己的同字节证据，真正需要前端判断的后端阻塞将另给具体问题包并暂停该依赖。

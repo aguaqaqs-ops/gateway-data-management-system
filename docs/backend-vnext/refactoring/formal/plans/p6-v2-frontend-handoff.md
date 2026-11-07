@@ -1,6 +1,6 @@
 # V2 归档界面接口交接（Owner手动转发）
 
-2026-11-07。协调者维护，前端 owner 实施其代码。**联合后端技术GO `ccdd1eb39d`，实际产品49403/tree567；Owner已确认DC33范围**：覆盖V2原f8实现及eff1精确subject修复，当前owner/真实接线与两包权威均通过。修复不改公开DTO/权限/摘要语义，subject保留精确preimage。当前实际OpenAPI见§4；FE3同tarOPFS与实际阶段退出手续仍独立pending，见[联合交接](p6-be-a-d-joint-validation-preparation.md)。当前没有等待前端判断的后端阻塞问题。
+2026-11-07。协调者维护，前端 owner 实施其代码。**联合后端技术GO `ccdd1eb39d`，实际产品49403/tree567；Owner已确认DC33范围，后续正式退出tag为`p6-be-a-d-exit`→77b9aeea74**：覆盖V2原f8实现及eff1精确subject修复，当前owner/真实接线与两包权威均通过。修复不改公开DTO/权限/摘要语义，subject保留精确preimage。当前实际OpenAPI见§4；后端退出已完成，FE3同tarOPFS仍独立pending，见[联合交接§15](p6-be-a-d-joint-validation-preparation.md#15-联合正式退出完成与前端交接)。当前没有等待前端判断的后端阻塞问题。
 
 ## 1. 预览与逐项接受
 
@@ -33,6 +33,8 @@
 Review 的审核 status 继续显示历史状态，新增 required-nullable `submission_disposition` 对象，包含 submission_id、disposition、source_kind、result_id、closure（closed_by/closed_at/reason）。闭合处置与审核状态分别展示；手工关闭不是 WITHDRAW，也不是新的审核状态。
 
 History 节点的 `archive_disposition` **直接替换为 `submission_disposition`**，无旧字段别名；增加 disposition_source_kind、disposition_result_id、closure。source_kind 区分 ARCHIVE / MANUAL_CLOSE；手工关闭的 result_id 为null，但已关闭，不能据null误判仍可归档。分页和完整树均采用新事实。Archive响应的 dispositions 也使用统一对象，只有真实ARCHIVE来源关联ArchiveResult。
+
+**基线提示不代表未处置（设计者2026-11-07核对既有语义）**：`NOT_CANDIDATE_BASE_ADVANCED`仅由APPROVED且based_on baseline非当前Head派生，已归档／已关闭的提交仍可携带。终局显示以`submission_disposition`及source/closure为准，该note至多作历史说明，不能生成“仍占用／需管理员处理”的阻塞；当前占用看Workspace指针。note为空同样不代表具备归档资格，动作以服务端资格及权限为准。本次只澄清P5-5E§3.5与现行projection，不改变字段或实现。
 
 ## 4. 最终转发制品与证据
 

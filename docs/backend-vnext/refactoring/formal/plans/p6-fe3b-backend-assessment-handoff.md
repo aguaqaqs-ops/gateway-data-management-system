@@ -43,6 +43,7 @@
 - e2e需要真实的self-only身份（基础工作台能力＋本人撤回、无`review_submission`），不能只拿reviewer全权限证明“本人撤回”。保留无两项审核能力的403用例。
 - 撤回的`expected_review_version`取Review的`review_version`，不要用Workspace版本。
 - 同当前baseline的PENDING会阻塞归档，草稿不阻塞；消费`pending_submission_ids/count`及`ARCHIVE_PENDING_REVIEW`。新APPROVE遇过期baseline返回409，合法历史成功replay保留。旧“先归档A，再通过同baseline仍PENDING的B”不可继续作为正常路径。
+- **基线提示澄清（设计者核对既有规则，2026-11-07）**：`NOT_CANDIDATE_BASE_ADVANCED`仍按APPROVED且所基于baseline不等于当前Head派生，已终局处置的提交也可携带；它不表示仍占用、待归档或需管理员处理。已处置时以`submission_disposition`及source/closure显示“已归档”或“已关闭未归档”，该note至多为历史说明，不生成待处理阻塞；占用看Workspace指针，note为空也不证明可归档，动作仍以服务端资格/权限为准。依据为P5-5E设计§3.5、History projection及归档核验§10，无代码/Contract语义变化。
 
 权限、状态和错误矩阵详见[BE-a交接](p6-be-a1-handoff.md)。
 
@@ -73,7 +74,7 @@
 - 检查Content-Length、ETag及每成员路径/顺序/size/对应摘要。HTTP200或Operation SUCCEEDED不等于本地bundle安装成功；截断/流错/摘要错必须abort OPFS事务，不能commit半包或显示成“无差异”。不要回退成只解析manifest JSON。
 - PAX长度按UTF-8字节读取和切边界，含前缀自身位数固定点；需覆盖中文/非BMP/相邻记录及99→101等位数边界。
 - 支持标准PAX十进制`size`覆盖ustar八进制size字段；保持安全整数/资源边界。给定size向量仅header，不是完整可安装包；不造>8GiB测试文件。
-- 前端现`PAX_LIMIT=1MiB`与合法producer路径域需评估对齐，不能盲目取消资源保障，也不能偷偷截短/ASCII化路径。实际域冲突给出具体字节数与影响交设计者。
+- **路径/PAX预算已澄清（设计者2026-11-07核对）**：当前bundle合法单路径UTF-8长度严格小于8 MiB；前端可用`MAX_PATH_UTF8_BYTES=8,388,608`作为保守接收上界，单局部PAX payload上界`16,777,216 bytes`（16 MiB，不含tar header/padding），先检查再分配。后端没有独立path长度常量，8 MiB不是保证可达的精确最大值；推导来自JSON双份path和各16 MiB总预算，详见[D前端包§2.1](p6-be-d-frontend-handoff.md#21-路径字节数与pax接收预算设计者只读澄清)。保留UTF-8/路径/closure/摘要/总长校验，未来格式变化复核预算，不截短路径或取消资源保障。
 - 头前错误按实际schema处理：Preview缺失404 RESOURCE_NOT_FOUND，History缺失404 ARTIFACT_UNAVAILABLE，完整性503 BUNDLE_INTEGRITY_FAILURE；权限/scope/readiness规则仍在前。不可据错误响应构造空bundle。
 
 **同制品互通是FE3b自己的交付项。** 使用[D前端包§3](p6-be-d-frontend-handoff.md)的同一个生产encoder `bundle.tar`（24576bytes，SHA256=`b08a310c82162ecf559b9f82eca30548cc97a75cc0d8775e20b2bd24611332a2`），验证解析、所有摘要和OPFS安装，回传前端固定提交、同SHA及专用节点证据。该小包records count=0，不用它冒充真实records覆盖；真实Preview/History旅程另测。

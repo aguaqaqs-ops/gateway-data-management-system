@@ -987,7 +987,7 @@ fn compare_ordered_table_inner(
         context,
     ) {
         Ok(rows) => rows,
-        Err(error) if is_control_or_resource(&error) => return Err(error),
+        Err(error) if context.is_some() && is_control_or_resource(&error) => return Err(error),
         Err(error) => return Ok(degraded_result(pair, error.code(), capture_locators)),
     };
     let current = match read_side_batches(
@@ -998,7 +998,7 @@ fn compare_ordered_table_inner(
         context,
     ) {
         Ok(rows) => rows,
-        Err(error) if is_control_or_resource(&error) => return Err(error),
+        Err(error) if context.is_some() && is_control_or_resource(&error) => return Err(error),
         Err(error) => return Ok(degraded_result(pair, error.code(), capture_locators)),
     };
 

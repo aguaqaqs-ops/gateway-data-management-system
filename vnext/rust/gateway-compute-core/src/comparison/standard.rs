@@ -702,9 +702,16 @@ mod tests {
         kind: Option<&str>,
         data_type: DataType,
     ) -> Field {
+        // S2b canonical IPC carries the SQL integer width in declared_type.
+        let bits = if kind == Some("signed-integer") {
+            assert_eq!(sql, "BIGINT");
+            Some(64u8)
+        } else {
+            None
+        };
         let declared = kind.map_or(serde_json::Value::Null, |kind| {
             serde_json::json!({
-                "kind":kind,"bits":null,"precision":null,"scale":null,"bit_width":null
+                "kind":kind,"bits":bits,"precision":null,"scale":null,"bit_width":null
             })
         });
         let labels = if logical == "set" {

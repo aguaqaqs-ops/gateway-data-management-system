@@ -26,6 +26,8 @@ D 启动时将本工作单及最终工具接线、集中验证执行/证据核�
 
 现有 `real_dump_journey.py --scope full` 表示步骤范围；它本身不证明上传 manifest 的 `input_completeness=FULL`。D 必须交付实际 FULL 功能入口及必要定向验证，并在此页/实施 handoff 写可复核的最终命令、输入配对和各分支覆盖。正常数据应保持已有比较摘要；时间/来源接受只冻结原诊断和明确理由，不伪造 PASS，不用 force 或无理由自动接受。
 
+当前 `_assert_preview_summaries` 明确假定一个 pair；FULL 实际有 `baseline_to_initial` 与 `initial_to_modified` 两个 pair。建议在同一 fresh t1 的 v1 用 MODIFIED_ONLY、v2 用 FULL（INITIAL=v1、MODIFIED=v2）集中覆盖，实施清单固定最终形态。下游业务摘要/identity consumer 必须按真实 pair 身份适配，完整 tar 验证覆盖两 pair 全部成员及共享 binding；只改 mode 字符串不构成 FULL 证据。
+
 Preview 和 History 必须完整读取 `application/x-tar` 响应，并按 owning Contract 校验原 manifest / closure、全部普通成员的路径、顺序、尺寸及相应物理/逻辑摘要；不能只解 `manifest.json`。报告单列 GET 开始到读取完成时间及实际字节数；READY / Operation 完成锚保持原定义。这些是本轮功能/传输证据，不作为 W1/W2 或正式性能测量。
 
 按 kickoff 暂定 05 fresh t1；不借用 S2b E 授予 06 的 t1–t3 例外，不新增 t2/t3/t4、大输入或正式性能矩阵。退出前将实际候选、范围、各分支/异常来源、必要沿用依据及剩余项组成具体 DC33 确认包交 Owner；已有小节开工授权无须重复申请。未取得所需范围确认及退出手续前，不宣布联合验收/阶段退出完成。

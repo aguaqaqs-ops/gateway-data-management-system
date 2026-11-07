@@ -30,6 +30,8 @@ PAX `<length> <key>=<value>\n`的length为整条UTF-8字节数，含前缀自身
 
 main `vnext/backend/benchmarks/real_dump_journey.py`改为完整读tar、解析并验证manifest/closure/全部成员，GET起始到完整读完耗时与实际响应字节数单列只报告，不改变READY/Operation完成锚。与V2同步归档新异常consumer；**现工具只MODIFIED_ONLY/FULL入口待补**，D须按联合已授权矩阵补必要FULL功能入口并明确测试，不能把旧JSON字节数当整包。原冻结V_ref工具/输入/卷/镜像不动，不为D跑t4/2×t4性能矩阵。
 
+工具接缝已静态定位：`_assert_preview_summaries`目前要求manifest恰好一个pair，`_assert_identity_pair`等下游也须核实际消费假设。FULL按owning P5-5A§7/Comparison Bundle包含`baseline_to_initial`和`initial_to_modified`两个pair；不能只改上传manifest枚举或忽略另一pair。一次fresh t1可优先用v1 MODIFIED_ONLY、v2 FULL（上传v1作INITIAL、v2作MODIFIED）集中覆盖，具体入口/配对由实施清单固定；默认业务摘要按`initial_to_modified`准确取值，完整tar校验仍覆盖所有pair/closure/共享binding，不把FULL改成三方diff或改已有比较锚。
+
 06日常focused/Contract及收敛候选必要生产wiring/容器重建；五包静态按实际修改。所有编译/测试/lint/取证在专用节点，clean已提交独立WT、LAN bundle/legacy/离线缓存与原子占用/日志host/起止HEAD/UTC/exit/SHA按AGENTS。04联合最终候选受影响包权威及必要Compose，05一次fresh t1合并FULL/MODIFIED_ONLY/Submit/Review/Archive和Preview/History tar；异常用小型真实wiring补齐。未受影响包仅按合格闭包复用；不能用06focused或旧S2b当最终权威来源，不逐轮重复完整runner/旅程/大输入。
 
 正式pytest focused显式按marker分两批：主体`-m '(not serial) or parallel_safe' -n 4`，其余`-m 'serial and not parallel_safe' -n 0`。流中取消/断连/cleanup若有时序依赖则保留serial标记及独立执行，不凭文件名称猜无serial，不改marker绕过；只补实际受影响批次。

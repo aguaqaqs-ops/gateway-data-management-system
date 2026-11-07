@@ -77,3 +77,9 @@ B 真实差分执行前核 06 实际八份 t1–t4 package 的 size/SHA，对照
 B 原审已对固定检查点提前指出并交原实施者：ordered 仍全值 Vec、0/N batch/空表 schema 不足、记录预约晚于分配与 scratch 退账不足、读完后的索引/LIS/排序/摘要阶段缺控制检查。完整 B 必须本节补齐；C 只接 Arrow builders，不承接这些未完成比较职责。当前不记 B GO。旧 Python 参照拟用 S3 自有固定 A 4d5 的独立只读 WT/venv 进程，E 删除临时 harness，不复制改名永久 oracle。
 
 为流式摘要，B 可将已在 workspace 精确钉版且由 shared-kernel 正式消费的 sha2 从 core dev-dependency 提升为 regular；不改变 preimage、Contract、锁定版本。需实核 Cargo.lock/规定 dependency-base 输入保持及离线命中，E 因 Rust/生产 manifest 改动重建当前候选镜像，不称旧镜像当前 PASS。
+
+### B 第二检查点与停止阈值
+
+新结构检查点 `a4ff75362737ec4a6e15a2cb6f1ace836ea26657`（5 路径，含 sha2 提升，Cargo.lock 未变）经 06 scratch 格式 patch SHA256=`9db25424367720a7370701457c69f99033d0ea4441026396cf3b250505e22241`，成为 `b91767f5d794701cfebb49b83b64cf5a7130c09a`，待 06 fmt/core clippy/standard 8 case 反馈，仍非完整 B。原审在固定 a4ff 确认 locator、显式 schema 0/N batch、部分 scratch 退账及重循环控制已有代码；同时指出 I-JSON 数字 guard、normal/degraded 记录双源、实际编码 metadata 冲突及预算簇仍待修订。实施者正集中修复，不混入 b917 测试 WT。
+
+预算簇按实质轮次而非候选命名计：**3577 原始问题 → a4ff 第一轮修订（b917 只格式）→ 下一固定预算修订为第二轮**。当前待修包括共享 slice 重复按整 backing 估算、retained metadata 已分配后 grow、scratch/retained 阶段计费。若第二轮原审后同一 M 不变量仍实质未解或持续引入相邻回归，按 Owner 两轮停止条件暂停受影响依赖并提交具体阻塞报告；不能因称“检查点”而免计。JCS 数字等不同根因单列。本轮仍授权完成集中修订和适用验证。

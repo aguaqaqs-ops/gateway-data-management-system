@@ -35,6 +35,8 @@ Artifact 最小公开扩展为 `ArtifactStreamingStorePort.get_ref/read_exact/re
 
 产品：`vnext/backend/src/gateway_backend/artifacts/{store.py,bundle_download.py,tar_stream.py}`；`infrastructure/artifact_store/{local_store.py,bounded_store.py}`；`capabilities/bundle_assembly/{transport.py,_assembly.py,__init__.py}`（共享现有 identity helper，不改输出）；`bootstrap/composition.py`；`http/dependencies.py`；`http/orchestration/{bundle_stream.py,history_compare.py}`；`http/routes/{preview_results.py,history.py}`；`http/bundle_response.py`；`benchmarks/real_dump_journey.py`。
 
+实际增量：`application/preview_jobs.py`、`application/history/compare_jobs.py` 把既有 `bundle_result.referenced_artifacts` 加入原 `required_refs`，使final rewritten/原closure在首次下载前即随现有publication事务受保护，保留全部原恢复refs、owner释放/TTL，不改业务digest/golden；此producer缺口已单独报告并经协调/设计者按既有Contract确认。`benchmarks/bundle_tar.py` 集中完整tar consumer；`tests/support/compose_gate_harness.py` 的既有JSON下载消费同步改用该consumer。`_assembly.py`/`__init__.py`最终无须修改，transport helper在相同owning package内直接共享既有identity/parser。
+
 | 不变量 | 唯一测试 owner / 拟改文件 |
 | --- | --- |
 | tar header/length/PAX UTF-8 固定点、ASCII/中文/非BMP、相邻记录/位数边界/畸形 consumer 向量、每 closure entry 一个普通成员 | `tests/test_bundle_download.py`（新） |
@@ -51,6 +53,10 @@ Owning 正文只改 `docs/backend-vnext/contracts/comparison-bundle.md`（完整
 
 1. 本清单先提交并直交同一独审预检；依次实现公开 bounded artifact 读取、owning metadata decoder、encoder/prepare/response、两路由与 tests/Contract，固定首产品候选早交独审。
 2. 同一后续候选完成 main 真实工具：v1 MODIFIED_ONLY；v2 FULL，INITIAL=v1/MODIFIED=v2；默认业务摘要和 identity 明确取 `initial_to_modified`，另核 `baseline_to_initial`，完整 tar consumer 覆盖两 pair 所有成员；保留 V2 显式归档 reason 环境输入，不 force。
+
+实际入口为 `--tier t1 --scope full --v2-input-completeness FULL --kernel-threads 4 --kernel-memory-budget-bytes 25165824`（节点/Compose/dependency环境按最终执行清单补齐）。`--scope full`仍仅表示步骤范围，新增flag才决定v2真实FULL multipart。v1/repeat-v1仍MODIFIED_ONLY；v2 INITIAL与已归档v1同字节，MODIFIED=v2。两个pair均查无降级/失败且baseline_to_initial不变；default summary/identity只取initial_to_modified；所有pair/member均由tar consumer核原metadata、精确顺序、size/raw SHA、引用metadata和records owner逻辑content digest。GET完整读时间/bytes独立只报告，原completion/user-visible在GET前冻结。
+
+前端额外已知接缝：现consumer只读取PAX path且有1MiB PAX body限制；标准size记录、octal边界及I-JSON max仅交header/length小向量，不能冒称大文件互通。主共享tar仍是可完整安装的小制品，后端不新增路径/产物大小上限，FE资源上界由其owner核对；FE修复/同字节证据仍待。
 3. 06 BatchMode 连通/现场核空闲后原子本人 marker；LAN bundle 传源码到独立 clean 已提交 WT，legacy 链接、离线缓存/toolchain/dependency-base；`UV_OFFLINE=1 CARGO_NET_OFFLINE=true TMPDIR=/home/dev/gdds-test-tmp`、Cargo/pytest workers4。即使 Rust 无改仍强制重装扩展并核 build input；五 Python 包 ruff/mypy；focused 非serial -n4、serial -n0，空批 exit5 为 N/A。失败原日志/SHA保留，产品失败先停诊断。收敛后一次必要当前小型 Compose 和 OpenAPI/同字节制品。
 4. D 独审与06局部证据完成后，同两角色继续已授权联合准备/集中核收：先与协调者固定最终命令/候选，04实际受影响六包权威及其中必要Compose，05一次fresh t1上述两模式完整旅程；不重复同runner Compose，不触冻结基准/CT108。联合退出前 DC33 最终范围仍交 Owner 确认，不自行exit/tag/push，不称 FE3 完成。
 

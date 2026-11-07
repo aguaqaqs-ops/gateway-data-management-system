@@ -5,6 +5,9 @@ from __future__ import annotations
 from tests.support.configuration_facts import submit_attempt_with_facts
 
 import json
+import hashlib
+from email import policy
+from email.parser import BytesParser
 import sqlite3
 import subprocess
 import sys
@@ -1000,7 +1003,8 @@ def test_preview_summary_requires_one_complete_pair() -> None:
                     "changed_table_count": 0,
                     "degraded_table_count": 0,
                     "failed_table_count": 0,
-                }
+                },
+                "pair_id": "initial_to_modified",
             }
         ]
     }
@@ -1017,6 +1021,102 @@ def test_preview_summary_requires_one_complete_pair() -> None:
         "degraded_table_count": 0,
         "failed_table_count": 0,
     }
+
+
+def test_full_preview_checks_both_pairs_and_selects_modified_business_summary() -> None:
+    baseline = {"pair_id": "baseline_to_initial", "summary": {
+        "table_count": 9, "changed_table_count": 0, "degraded_table_count": 0, "failed_table_count": 0,
+    }}
+    modified = {"pair_id": "initial_to_modified", "summary": {
+        "table_count": 9, "changed_table_count": 2, "degraded_table_count": 0, "failed_table_count": 0,
+    }}
+    summary = _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False)
+    assert summary["pair_count"] == 1 and summary["changed_table_count"] == 2
+    preview = {"result": {"identity_assessment_set_digest": "sha256:" + "a" * 64, "identity_pairs": [
+        {"pair_id": "baseline_to_initial", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
+        {"pair_id": "initial_to_modified", "applicability": "APPLICABLE", "status": "SAME_PROJECT", "mode": "DETAILED"},
+    ]}}
+    assert _assert_identity_pair(preview, expected_status="SAME_PROJECT", expected_mode="DETAILED")["status"] == "SAME_PROJECT"
+    baseline["summary"]["changed_table_count"] = 1  # type: ignore[index]
+    with pytest.raises(JourneyFailure, match="archived v1 baseline"):
+        _assert_preview_summaries({"pairs": [baseline, modified]}, unchanged=False)
+
+
+def test_full_upload_uses_actual_initial_v1_and_modified_v2_multipart_bytes() -> None:
+    observed: dict[str, bytes] = {}
+    def transport(request: httpx.Request) -> httpx.Response:
+        message = BytesParser(policy=policy.default).parsebytes(
+            b"Content-Type: " + request.headers["content-type"].encode() + b"\r\n\r\n" + request.read(),
+        )
+        for part in message.iter_parts():
+            name = part.get_param("name", header="content-disposition")
+            assert isinstance(name, str)
+            content = part.get_payload(decode=True)
+            assert isinstance(content, bytes)
+            observed[name] = content
+        return httpx.Response(201, json={"upload_revision_id": "ur-full"})
+    with httpx.Client(transport=httpx.MockTransport(transport), base_url="http://bundle.test") as client:
+        real_dump_journey._upload_revision(client, workspace={"workspace_id": "ws", "optimistic_version": 3},
+            package=b"modified-v2", initial_package=b"initial-v1", idempotency_key="full-input")
+    manifest = json.loads(observed["manifest"])
+    assert manifest["input_completeness"] == "FULL"
+    assert observed["initial"] == b"initial-v1" and observed["modified"] == b"modified-v2"
+    assert manifest["artifacts"]["INITIAL"]["raw_sha256"] == "sha256:" + hashlib.sha256(b"initial-v1").hexdigest()
+
+
+@pytest.mark.parametrize("fault", ("none", "length", "digest", "etag"))
+def test_real_bundle_consumer_verifies_the_complete_response(tmp_path: Path, fault: str) -> None:
+    from benchmarks.bundle_tar import download_bundle_tar
+    from gateway_backend.artifacts.bundle_download import prepare_bundle_download
+    from gateway_backend.capabilities.bundle_assembly.transport import BundleIntegrityError
+    from tests.test_bundle_download import published_bundle
+    store, ref = published_bundle(tmp_path)
+    prepared = prepare_bundle_download(store, ref.artifact_id)
+    raw = b"".join(prepared.stream)
+    if fault == "digest":
+        # The last ordinary surface member has data before its block padding.
+        import io
+        import tarfile
+        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+            offset = archive.getmembers()[-1].offset_data
+        raw = raw[:offset] + bytes([raw[offset] ^ 1]) + raw[offset + 1:]
+    headers = {"Content-Type": "application/x-tar", "Content-Length": str(len(raw) + int(fault == "length")),
+               "ETag": '"wrong"' if fault == "etag" else prepared.etag}
+    with httpx.Client(transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=raw, headers=headers)),
+                      base_url="http://bundle.test") as client:
+        if fault != "none":
+            with pytest.raises(BundleIntegrityError):
+                download_bundle_tar(client, "/bundle")
+        else:
+            manifest, metrics = download_bundle_tar(client, "/bundle")
+            assert manifest["bundle_digest"] == prepared.bundle_digest
+            assert metrics["actual_bytes"] == len(raw)
+            assert metrics["ordinary_member_count"] == len(manifest["closure_entries"]) + 2
+
+
+def test_preview_completion_clock_is_frozen_before_complete_bundle_download(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(real_dump_journey.time, "monotonic", lambda: clock[0])
+    workspace = {"workspace_id": "ws", "current_preview_result_id": "pr"}
+    monkeypatch.setattr(real_dump_journey, "_workspace", lambda _client: workspace)
+    def poll(*_args: object, **_kwargs: object) -> None:
+        clock[0] = 5.0
+    monkeypatch.setattr(real_dump_journey, "_poll_operation", poll)
+    def download(*_args: object, **_kwargs: object) -> tuple[dict[str, Any], dict[str, Any]]:
+        clock[0] = 105.0
+        return {"pairs": []}, {"actual_bytes": 2048, "get_to_complete_read_seconds": 100.0}
+    monkeypatch.setattr(real_dump_journey, "download_bundle_tar", download)
+    def transport(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(202, json={"operation_id": "op"}) if request.method == "POST" else httpx.Response(200, json={"operation_id": "op"})
+    with httpx.Client(transport=httpx.MockTransport(transport), base_url="http://bundle.test") as client:
+        preview, _manifest = real_dump_journey._preview(
+            client, workspace=workspace, upload={"optimistic_version": 1, "upload_revision_id": "ur", "generation": 1},
+            baseline_node_id="bn", baseline_head_version=1, idempotency_key="preview", stage="test",
+            operation_timeout_seconds=100, collect_timing=True,
+        )
+    assert preview["operation_timing"]["completion_seconds"] == 5.0
+    assert preview["operation_timing"]["user_visible_seconds"] == 5.0
+    assert preview["bundle_transfer"]["get_to_complete_read_seconds"] == 100.0
 
 
 @pytest.mark.parametrize(
@@ -1036,6 +1136,7 @@ def test_real_data_journey_requires_the_expected_project_identity(
             "identity_assessment_set_digest": "sha256:" + "a" * 64,
             "identity_pairs": [
                 {
+                    "pair_id": "initial_to_modified",
                     "applicability": applicability,
                     "status": status,
                     "mode": mode,
@@ -1081,6 +1182,7 @@ def test_real_data_journey_stops_when_project_identity_differs(
                     "identity_assessment_set_digest": "sha256:" + "a" * 64,
                     "identity_pairs": [
                         {
+                            "pair_id": "initial_to_modified",
                             "applicability": applicability,
                             "status": actual_status,
                             "mode": actual_mode,
@@ -1106,7 +1208,7 @@ def test_preview_summary_rejects_incomplete_degradation_or_change(
     del case
     with pytest.raises(JourneyFailure):
         _assert_preview_summaries(
-            {"pairs": [{"summary": summary}]},
+            {"pairs": [{"pair_id": "initial_to_modified", "summary": summary}]},
             unchanged=unchanged,
         )
 

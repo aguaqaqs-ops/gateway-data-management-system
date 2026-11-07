@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from benchmarks.bundle_tar import download_bundle_tar
 
 from gateway_backend.artifacts import InMemoryArtifactStore
 from gateway_backend.capabilities.snapshot_materialization.contracts import RepositoryColumn
@@ -616,11 +617,11 @@ def test_compose_history_compare_journey_zero_write_restart(
                 str(pair["comparison_digest"]) for pair in compare_three_body["result"]["pairs"]
             ]
 
-            bundle_three = history_reader.get(
-                f"/v1/history-compares/{compare_three_operation_id}/bundle",
+            bundle_three, bundle_transfer = download_bundle_tar(
+                history_reader, f"/v1/history-compares/{compare_three_operation_id}/bundle",
             )
-            assert bundle_three.status_code == 200, bundle_three.text
-            assert bundle_three.headers.get("content-disposition", "").startswith("attachment")
+            assert bundle_three["bundle_digest"] == bundle_digest
+            assert bundle_transfer["ordinary_member_count"] > 2
 
             compare_ac = accept_history_compare(
                 history_reader,
@@ -706,10 +707,11 @@ def test_compose_history_compare_journey_zero_write_restart(
                 str(pair["comparison_digest"]) for pair in restarted_body["result"]["pairs"]
             ]
             assert restarted_pair_digests == three_pair_digests
-            restarted_bundle = history_reader.get(
-                f"/v1/history-compares/{compare_three_operation_id}/bundle",
+            restarted_bundle, restarted_transfer = download_bundle_tar(
+                history_reader, f"/v1/history-compares/{compare_three_operation_id}/bundle",
             )
-            assert restarted_bundle.status_code == 200, restarted_bundle.text
+            assert restarted_bundle == bundle_three
+            assert restarted_transfer["actual_bytes"] == bundle_transfer["actual_bytes"]
             restarted_operation = history_reader.get(f"/v1/operations/{compare_three_operation_id}")
             assert restarted_operation.status_code == 200, restarted_operation.text
 

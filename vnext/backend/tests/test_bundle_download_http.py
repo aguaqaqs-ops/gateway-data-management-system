@@ -102,6 +102,7 @@ def test_preview_job_outputs_download_as_complete_tar(
     manifest = assert_complete_tar(response.content)
     assert len(cast(list[object], manifest["pairs"])) == pair_count
     assert response.headers["etag"] == f'"{manifest["bundle_digest"]}"'
+    _assert_published_download_is_protected(harness.db_path, response.content)
     if project_id == "project-b":
         assert b"DATASET_REPLACEMENT" in response.content
 
@@ -115,6 +116,93 @@ def test_history_job_outputs_download_as_complete_tar(tmp_path: Path, node_count
     assert len(response.content) == int(response.headers["content-length"])
     manifest = assert_complete_tar(response.content)
     assert len(cast(list[object], manifest["pairs"])) == node_count - 1
+    _assert_published_download_is_protected(harness.db_path, response.content)
+
+
+def _assert_published_download_is_protected(db_path: Path, raw: bytes) -> None:
+    import io
+    import tarfile
+    from gateway_backend.capabilities.bundle_assembly.transport import read_bundle_transport_metadata
+    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+        file = archive.extractfile("manifest.json")
+        assert file is not None
+        metadata = read_bundle_transport_metadata(file.read())
+    with ControlDbUnitOfWork(db_path, read_only=True) as uow:
+        assert uow.protection.is_protected(metadata.closure_ref.artifact_id)
+        for entry in metadata.entries:
+            assert uow.protection.is_protected(entry.artifact_ref.artifact_id)
+
+
+def test_production_assembler_and_http_preserve_shared_empty_tables_schemas_and_long_paths(tmp_path: Path) -> None:
+    import io
+    import tarfile
+    from dataclasses import replace
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from gateway_backend.artifacts import put_with_built_ref
+    from gateway_backend.capabilities.bundle_assembly import (
+        BundleArtifactBinding, BundleArtifactClosure, BundleArtifactKind, BundleInput,
+        BundlePairInput, BundleProfile, assemble_bundle,
+    )
+    from gateway_backend.capabilities.surface_assembly import compute_surface_digest
+    from tests.test_bundle_assembly import _request, _surface_result
+    from tests.test_bundle_download import PAX_PATHS
+
+    store = LocalArtifactStore(tmp_path / "artifacts")
+    refs = []
+    for name, scalar_type in (("int", pa.int64()), ("text", pa.string())):
+        sink = pa.BufferOutputStream()
+        pq.write_table(pa.table({"id": pa.array([], type=scalar_type)}), sink)
+        refs.append(put_with_built_ref(store, sink.getvalue().to_pybytes(), artifact_id=f"empty-{name}", media_type="application/vnd.apache.parquet"))
+    shared = []
+    for index, path in enumerate(PAX_PATHS):
+        ref = put_with_built_ref(store, bytes([index]), artifact_id=f"long-path-{index}", media_type="application/octet-stream")
+        shared.append(BundleArtifactBinding(ref, "shared/" + path, BundleArtifactKind.OTHER, shared=True))
+    pairs = []
+    for index, ref in enumerate(refs):
+        pair_id = f"pair-{index}"
+        result = _surface_result(table_name="empty")
+        assert result.surface is not None
+        surface = result.surface
+        table = replace(surface.tables[0], table_refs=replace(surface.tables[0].table_refs,
+            current_table_ref=ref, before_table_ref=refs[0] if index == 1 else None))
+        surface = replace(surface, tables=(table,))
+        surface = replace(surface, surface_digest=compute_surface_digest(surface))
+        result = replace(result, surface=surface)
+        bindings = [BundleArtifactBinding(ref, f"pairs/{pair_id}/tables/current/empty/rows.parquet", BundleArtifactKind.SNAPSHOT_TABLE,
+                                         pair_id=pair_id, table_name="empty")]
+        if index == 1:
+            # A second pair/side shares the first schema's same actual rows file.
+            bindings.append(BundleArtifactBinding(refs[0], f"pairs/{pair_id}/tables/before/empty/rows.parquet", BundleArtifactKind.SNAPSHOT_TABLE,
+                                                  pair_id=pair_id, table_name="empty"))
+        pairs.append(BundlePairInput(pair_id, index, index + 1, result, BundleArtifactClosure(tuple(bindings))))
+    result = assemble_bundle(_request(tuple(pairs), profile=BundleProfile.MULTI_PAIR,
+        inputs=(BundleInput(0, "a", "A"), BundleInput(1, "b", "B"), BundleInput(2, "c", "C")),
+        shared=BundleArtifactClosure(tuple(shared))), source_store=store)
+    assert result.bundle is not None, result.diagnostics
+    (tmp_path / "http").mkdir()
+    env = create_workspace_http_environment(tmp_path / "http", bundle_reader=LocalArtifactBundleReader(store))
+    workspace = _seed_workspace(env.client, env.auth_headers())
+    upload = _seed_upload(env.client, env.auth_headers(), workspace)
+    preview = replace(_preview_result(workspace, upload), bundle_artifact_id=result.bundle.manifest_ref.artifact_id)
+    env.repository.save_preview_result(preview)
+    response = env.client.get(f"/v1/workspaces/{workspace['workspace_id']}/preview-results/{preview.preview_result_id}/bundle", headers=env.auth_headers())
+    assert response.status_code == 200, response.text
+    manifest = assert_complete_tar(response.content)
+    entries = cast(list[dict[str, object]], manifest["closure_entries"])
+    snapshots = [entry for entry in entries if entry["kind"] == "SNAPSHOT_TABLE"]
+    assert len(snapshots) == 2
+    assert sorted(len(cast(list[object], entry["table_bindings"])) for entry in snapshots) == [1, 2]
+    with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:") as archive:
+        assert all("shared/" + path in archive.getnames() for path in PAX_PATHS)
+        schemas = []
+        for entry in snapshots:
+            source = archive.extractfile(str(entry["logical_path"]))
+            assert source is not None
+            table = pq.read_table(pa.BufferReader(source.read()))
+            assert table.num_rows == 0
+            schemas.append(table.schema)
+        assert schemas[0] != schemas[1]
 
 
 @pytest.fixture(params=("preview", "history"))

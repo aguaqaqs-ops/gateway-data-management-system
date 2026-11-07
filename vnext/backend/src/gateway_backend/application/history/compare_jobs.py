@@ -987,7 +987,7 @@ def _assemble_comparison(
         "bundle_digest": bundle_result.bundle.bundle_digest.value,
         "required_refs": [
             artifact_ref_to_dict(item)
-            for item in _required_ready_refs(pair_results, bundle_result.bundle.manifest_ref)
+            for item in _required_ready_refs(pair_results, bundle_result.bundle.manifest_ref, bundle_result.referenced_artifacts)
         ],
     }
     return assemble_state, bundle_result.bundle.manifest_ref, bundle_result.bundle.bundle_digest.value
@@ -1112,6 +1112,7 @@ def _publish_commit_unavailable_failure(
 def _required_ready_refs(
     pair_results: list[_PairPipelineResult],
     bundle_manifest_ref: ArtifactRef,
+    bundle_artifacts: tuple[ArtifactRef, ...],
 ) -> tuple[ArtifactRef, ...]:
     from gateway_backend.capabilities.bundle_assembly import collect_surface_refs
 
@@ -1121,6 +1122,7 @@ def _required_ready_refs(
             raise HistoryCompareJobError("pair surface is missing from ready closure")
         refs.extend(collect_surface_refs(pair_state.surface_result.surface))
     refs.append(bundle_manifest_ref)
+    refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))
 
 

@@ -184,7 +184,9 @@ decimal `size`，不缩小 ArtifactRef 的 I-JSON size 范围。PAX `<length> <k
 
 当前权限、exact scope、readiness/TTL 检查先于 artifact 读取。同步 `prepare_bundle` 在响应头
 前实际读回并验证 manifest、原 closure 和所有成员：canonical metadata/版本、semantic digest、
-ref/size/raw SHA、JSON metadata 引用闭合及安全普通文件。缺失/不可读保持 Preview 404
+ref/size/raw SHA、既有有界 reference metadata 引用闭合及安全普通文件。generic projection / diagnostics /
+OTHER 业务 JSON 沿 assembler 发布时的引用校验和最终 raw SHA 逐块读回，不新增16 MiB产物限制。
+缺失/不可读保持 Preview 404
 `RESOURCE_NOT_FOUND`、History 404 `ARTIFACT_UNAVAILABLE`；矛盾、损坏、非法路径/文件类型等
 窄完整性错误为503 `BUNDLE_INTEGRITY_FAILURE`，不披露 server path 或业务行。其他鉴权/状态
 错误沿各 owning HTTP Contract，不能统一包装成404或空 tar。
@@ -195,6 +197,11 @@ Local artifact 公开 bounded read session 在已有 root 目录 FD 上持共享
 durable 下载状态；ADR0012 的可信协作边界不变。准备失败、未开始迭代的响应、正常结束、异常、
 断连和取消均释放借用及当前文件。头后 I/O 失败中断，不补 padding 或成功结束块；预检不保证
 后续 I/O 永不失效。
+
+原发布 ready closure / required_refs 必须包含 assembler `referenced_artifacts` 的全部 final
+rewritten artifacts、manifest 和原 artifact closure。它们随原 lease/checkpoint/protection
+publication事务发布并沿原owner释放/TTL；不能等第一次下载才补保护，source/canonical恢复refs
+也继续保留。不新增永久pin或独立保留生命周期。
 
 每次只打开当前成员，root借用 FD 与 artifact FD 合计≤2；无 mmap 或全包 bytes。工作 chunk
 ≤64 KiB，PAX 路径按片段编码。manifest / closure 各沿原16 MiB JSON上限；原字节、临时验证

@@ -1999,6 +1999,7 @@ def _assemble_preview(
         canonical=canonical,
         pair_results=pair_results,
         bundle_manifest_ref=bundle_result.bundle.manifest_ref,
+        bundle_artifacts=bundle_result.referenced_artifacts,
     )
     assemble_state: dict[str, object] = {
         "pair_ids": [item.pair_id for item in pair_results],
@@ -2275,6 +2276,7 @@ def _required_ready_refs(
     canonical: _CanonicalPreviewMetadata,
     pair_results: list[_PairPipelineResult],
     bundle_manifest_ref: ArtifactRef,
+    bundle_artifacts: tuple[ArtifactRef, ...],
 ) -> tuple[ArtifactRef, ...]:
     refs: list[ArtifactRef] = []
     refs.extend(
@@ -2296,6 +2298,7 @@ def _required_ready_refs(
             raise PreviewJobError("pair surface is missing from ready closure")
         refs.extend(collect_surface_refs(pair_state.surface_result.surface))
     refs.append(bundle_manifest_ref)
+    refs.extend(bundle_artifacts)
     return _unique_refs(tuple(refs))
 
 

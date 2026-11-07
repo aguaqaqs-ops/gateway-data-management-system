@@ -1699,11 +1699,10 @@ def run_accept_to_submission_read_journey(
         preview_result_body = cast(dict[str, Any], preview_read.json())
         assert preview_result_body["business_baseline_commit_id"] == initial_commit_id
         identity_pairs = cast(list[dict[str, Any]], preview_result_body["identity_pairs"])
-        preview_bundle_response = client.get(
-            f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
+        from benchmarks.bundle_tar import download_bundle_tar
+        preview_bundle, _bundle_transfer = download_bundle_tar(
+            client, f"/v1/workspaces/{workspace_id}/preview-results/{preview_result_id}/bundle",
         )
-        assert preview_bundle_response.status_code == 200, preview_bundle_response.text
-        preview_bundle = cast(dict[str, Any], preview_bundle_response.json())
         preview_summaries = [
             cast(dict[str, Any], pair["summary"])
             for pair in cast(list[dict[str, Any]], preview_bundle["pairs"])

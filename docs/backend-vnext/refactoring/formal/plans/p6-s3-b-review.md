@@ -1,12 +1,12 @@
 # Phase 6 S3 B 独立审核
 
-**状态：审核进行中，B 尚无最终候选。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计修订轮。完整 B 仍待 Python 临时差分、随机 batch/N 和 t1–t4 按表差分。此页记录已核静态边界与 06 取证停止，不给 GO，也不把旧镜像结果写成当前通过。
+**状态：完整 B 静态候选 `a665a3c06304d2f9ac8d4befb27f7be6d2a4a3df` 审核中，尚无运行 GO。** 固定 Rust 检查点 `3577df182d6481a9c6e49554e445c81071924c09` 为原始问题来源，`a4ff75362737ec4a6e15a2cb6f1ace836ea26657` 为第一轮、`ac21ad4069abb08f162d9418a6426a63d7508974` 为第二轮实质预算修订；`9b34be7356a92228ef07ee0c4f01bf215e2bf653` 与 `b91767f5d794701cfebb49b83b64cf5a7130c09a` 为机械格式检查点，不单独计预算修订轮。本轮仍待 06 的当前候选编译、fixed/property/差分与 t1–t4 按表原件，不把旧镜像结果写成当前通过。
 
 ## 1. 固定对象与方法
 
 设计 `d49bb126b664af4b09097aee1a6f0b1bf58c9496`、kickoff 复审 `83ba4979044179256aa8c3d5d1d7b3424e648884` §5 已 READY；A 独审 `f28c89eff5ac1e653facb21229c3b5a7d281f971` 最终 GO，A 无剩余 finding。依据 AGENTS、testing conventions、比例化/Rust 政策、S3 设计/kickoff、A handoff 与 Comparison/Ordered Diff/Risk、Shared Canonical Encoding、Canonical Storage、Snapshot Table Access owning Contract，并对照固定 A/旧 Python 生产实现。未重开已关闭的 kickoff 设计。
 
-本人在 `/home/dev/gdds-s3-b-review-3577df18`、`/home/dev/gdds-s3-b-review-a4ff7536`、`/home/dev/gdds-s3-b-review-ac21ad40` 三个新建 detached worktree 只读审核，均固定 HEAD、tracked clean、链接 `legacy/`。a4ff 的 `vnext` tree 为 `de98b3fcedc713e88a0798a1357503e081560a5e`，ac21 为 `e6c464bd343eca865c1274247bfac7438e9942d9`。开发主机和审核 worktree 未运行编译、lint、测试、容器或性能测量。
+本人在 `/home/dev/gdds-s3-b-review-3577df18`、`/home/dev/gdds-s3-b-review-a4ff7536`、`/home/dev/gdds-s3-b-review-ac21ad40`、`/home/dev/gdds-s3-b-review-2e975888`、`/home/dev/gdds-s3-b-review-a665a3c0` 五个 detached worktree 只读审核，均固定 HEAD、tracked clean、链接 `legacy/`。a4ff 的 `vnext` tree 为 `de98b3fcedc713e88a0798a1357503e081560a5e`，ac21 为 `e6c464bd343eca865c1274247bfac7438e9942d9`，2e975 为 `97e1bb3e9da32eff5d0120e0cffb99c6817d2875`，a665 为 `5488e79d098c42d928a0e4f7ccfb4ae2aa38497f`。开发主机和审核 worktree 未运行编译、lint、测试、容器或性能测量。
 
 ## 2. 当前静态核点
 
@@ -32,6 +32,14 @@ ac21 静态复核另发现两个与预算轮无关的 ordered 诊断差异，交
 - `CanonicalPseudoGid` 下非法非空 gid（如 `-1`）在 Rust `read_side` 落入 `SOURCE_GID_INVALID`，固定 Python `_parse_stable` 对该 provenance 给 `CANONICAL_GID_INVALID`；退化诊断参与 facts 摘要。
 - 合法 S2b string/Utf8 字段若被 ordered policy 用作 `gid`/`no`，固定 Python `_integer` 对非空 `StringScalar("1")` 给 `ORDERED_INTEGER_INVALID`，Rust `read_integer` 却解析为整数继续比较。空串在两边均按 missing。若保留旧原型测试宽容行为，新生产入口仍须保持冻结诊断。
 
+### 2.2 完整静态候选 a665 的增量
+
+在固定 `2e9758885a8179d0e8e90c9c90a7c244577b9ea2` 与 `a665a3c06304d2f9ac8d4befb27f7be6d2a4a3df` 上只读核到：`782d07` 将 standard/ordered 列数上限提至 2048、ordered 行数上限提至 10,000,000，和 S2b canonical IPC owner 当前上限一致；canonical 伪 GID 的非法非空值与非空 Utf8 `gid`/`no` 已在 Rust 新入口分配正确诊断，旧原型专属 numeric text 宽容仍待 E 删除。a665 把 b917 06 clippy 报的 `.any()` 枚举索引误解引用修为 `frames[index]`；这仅是静态修正，待当前候选重新编译。
+
+临时 `comparison/probe.rs` + PyO3 Arrow C Stream 桥只供 B 差分，未被 Python 生产 `compare_plan` 路由调用，E 删除点已列交接；其 test-side 24 GiB 估算不能充当 D 的输入 charge 或 C builder 预算证据。测试先将旧 reader 转真实 S2b canonical IPC，再以固定旧 Python `standard.py`、`ordered.py`、`row_encoding.py` 源 SHA（依次 `3ff92146caac590ac989b3fa08ed1200ac410c2ccb9bd9c8a95f15f73422acf4`、`049ff089f20e8bbc1e72090d54d2ae88ea15ef84e324819241a07e2d68bd160f`、`41fae5ad009edbcc1c947c0266182b99c924cc728db21ad9942770236e7b397e`）锁住旧行为；本人对照固定 4d5 原件核过这三份 SHA。a665 的 synthetic/真实差分已比完整 ordered/blank summary、六个 blank interval 字段、三族行帧/身份及 digests；unchanged ordered 特意给 native 空 before stream，旧事实须为零 summary、无 records；真实 t1–t4 遇到旧 Python predegraded 现在明确失败，不能静默计数跳过。八包 `datasets.json` identity/size/tar SHA 常量与 P5 S4 §8 固定表一致；工具仅逐表调用冻结 Python 及 native probe，非完整旅程。
+
+**尚待核收的证据强度：**a665 随机 batch 测试在 pool 宽度 1/4 各运行单张表的一次 compare，尚未实际覆盖多个比较任务并发调度；旧 prototype 的 proptest 也只把一个 pair 放入 parallel pool。已交实施者最小多任务同池结果对照，不要求新增调度机制或部署旋钮。所有上述静态点仍以 06 当前最终候选的测试原件为准，不把 probe 当 C/D 生产接线。
+
 ## 3. 06 执行稿的 DC68 停止复核
 
 本人先用 `ssh -o BatchMode=yes ct107-gw-dms-06 'echo OK'` 确认连接，再只读核 `/home/dev/gdds-test-tmp/p6-s3-b-test-b91767f5d794/logs/` 原件。`pre-run-command-errors.log` 现场 SHA256 为 `60e8fc6c95ef2d677cb70babc7a6e64e4545d5c917a358071b99b39dbc21d3b0`，记录第一次可选只读检查因节点无 `rg` 返回 127；第二次改用 `grep` 时 shell 引用错误，把 `WT`/`LOG`/`EXPECTED`/`run_step` 当命令并产生引号 EOF，再返 127。此汇总日志保存了两次错误的 stderr/exit 与作用范围，但没有独立逐字的两次原始 argv，不能据此复原完整命令行。
@@ -40,8 +48,10 @@ ac21 静态复核另发现两个与预算轮无关的 ordered 诊断差异，交
 
 **最小恢复执行稿建议：**保留两次失败文件与 SHA；Owner 对 DC68 恢复作决定后，测试者重新原子取得 06 占用，核固定 b917 worktree clean/六锁/离线缓存；删去可选 `rg`/`grep` 源码检查与嵌套 shell 引用，按字面执行 `bash /home/dev/gdds-test-tmp/p6-s3-b-test-b91767f5d794/logs/run-rust-focused.sh` 一次。首个被测步骤失败即停，记录 hostname、起止 HEAD/time、各步 exit、最终 exit 与日志 SHA。若候选源码已另修，则先固定新 SHA、使用对应 clean worktree 和新脚本，不把 b917 结果沿用到新树。此建议不授权在 Owner 决定前重试。
 
+Owner 后已明确“允许放行”；同一 06 测试者按上述已审脚本实际恢复一次。本人只读核 `rust-focused.log` SHA256=`5ba79e1bf4c38850f9f35ba1f1ae77b30364e863987eb2a1fefafc167a20cf74`，脚本 SHA 仍为 `841e85777ed758fe85e2de4ebf4225985ea81efa44e1b19c7db872515b68ca1b`：hostname `gw-dms-06`、22:35:01–22:35:15Z、起止 HEAD=b917 且 clean、六锁未变、offline/jobs4/toolchain1.97；fmt exit 0，core clippy exit 101，`standard.rs:487` 两处 `usize` 错误解引用 E0614，按首失败停，focused test 未运行，整体 exit 101。保留该失败，后续只验证修正后的新固定候选，不重跑 b917；此编译错误与预算第二轮无关。
+
 ## 4. 容器与后续证据
 
-本轮最新受审固定 HEAD=`ac21ad4069abb08f162d9418a6426a63d7508974`（前轮 a4ff）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21 变化；06 离线构建命中待测试者实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
+本轮最新受审固定 HEAD=`a665a3c06304d2f9ac8d4befb27f7be6d2a4a3df`（上轮完整静态候选 2e975）；`gateway-compute-core/Cargo.toml` 已将已锁 `sha2` 从 dev 移至 regular dependency，且 Rust product tree 变化，**触发**当前产品镜像重建判定。workspace 版本仍精确 `=0.11.0`，Cargo.lock 未随 a4ff/ac21/a665 变化；06 当前候选离线构建命中待实际日志核。B 不接生产路由，当前容器验证延期到 E 最终固定 HEAD 在 04 的集中门禁，不能称 a4ff/b917/ac21/a665 已 PASS 或 carried。最近既有已验证 image revision=`49403f21aa1f0c8c3d585d13a707a37fb6b7fcd0`、source tree=`56720104af34a1eb677336f57bdbc07444a56615`，仅为 BE-a/d 历史基准。
 
 完整 B 候选还须有 06 clean 已提交 worktree 的 fixed/property/旧生产临时差分、随机 batch/允许 N 确定性、预算/取消/截止与 t1–t4 v1/v2 按表差分；八个输入 SHA 须逐包对照 `datasets.json` 与 P5 S4 handoff §8，旧 expected 来自 Contract/A/冻结 Python。B 不跑完整真实旅程、04 runner/carried、Compose 或 CT108 正式性能；这些留后续阶段对应节点。最终独审需核原始日志/脚本/摘要与手册边界后再给 GO 或明确 finding。

@@ -91,3 +91,9 @@ B 原审已对固定检查点提前指出并交原实施者：ordered 仍全值 
 可审工作单为 **`71e28c20eb`** [执行停止与恢复稿](p6-s3-b-execution-stop.md)，原审核者 **`063e94a727`** [停止复核](p6-s3-b-review.md)已核现场及工作单一致；后者仅执行停止审，**没有 B 产品 GO**。脚本 SHA256=`841e85777ed758fe85e2de4ebf4225985ea81efa44e1b19c7db872515b68ca1b`；错误综合摘要 SHA256=`60e8fc6c95ef2d677cb70babc7a6e64e4545d5c917a358071b99b39dbc21d3b0`（非完整原始 argv/输出）；release SHA256=`896fdef8270870edcf874ed51171a2c0a4d9906f1123c45c38a37a2d1a6e229d`。b917 没有测试结果，最近实际仍为 9b34 fmt0/clippy101/test未跑。
 
 协调已向 Owner 发出异步具体问题：是否按原审已核最小稿恢复 06（移除可选 regex/嵌套引用检查，literal bash 已保存脚本，一次启动/首错停）。**尚未收到答复，未把预选或经过时间当授权。** 原测试角色结束本执行回合，无后台/本人标记；若获准恢复，唤醒同一 B 测试角色。B 静态修订及必要文档继续，依赖运行的核收与 C–E 不放行。
+
+### B 静态修订继续
+
+预算第二轮集中 core 候选 **`ac21ad4069abb08f162d9418a6426a63d7508974`** 已固定（仅四个 comparison 源）。实施者报告已补 slice 实际范围估算、metadata 构建前预约/临时退账、shrink 禁止事后 grow、normal/degraded 统一 record ref、仅小 metadata 的明确命名、流式 I-JSON 数字检查、实际编码 SQL/声明 kind 冲突及 columns-added 共有投影 multiset。standard 单测源码现 12 项；**尚未编译/执行，原审正在固定对象只读核第二轮，不能记修复已核收或 B GO**。
+
+主线另有临时 probe/Python 差分与 B handoff 的实施者 WIP，不混入 ac21。临时 probe 只作替换期测试，旧 Python 参照用 S3 自有固定 4d5 WT/独立进程，E 删除 harness；不向 core/Python 新增未锁版本或永久 oracle。原审对双侧空表与整表缺侧、隐藏共有列/新增列、JCS 和完整 facts 重放的核点继续保留。

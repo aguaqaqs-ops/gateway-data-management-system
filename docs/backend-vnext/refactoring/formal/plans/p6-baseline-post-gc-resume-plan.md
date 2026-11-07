@@ -44,6 +44,10 @@
 
 先做受影响接线的必要 focused，普通修正直接闭环，不重跑已通过小 Compose 或 b 的 prepare-only。计时只用原旅程边界及轻量既有采样，不把诊断 wrapper/profiling 放入参考计时。
 
+**launcher/sampler 启动契约修正（2026-11-07）：** `p6w4resume970420261107a` 的09:08:13Z启动在旅程及Submit之前以125退出；sampler前置校验将launcher的固定GNU `timeout`前缀误当作Python解释器。按实施报告及接续审核者已核记录保留本次失败、清理和释放日志，不复用该项目。允许仅在sampler启动元数据校验中识别launcher已有的精确前缀 `timeout --foreground --signal=INT --kill-after=1200s 25200s`，随后仍严格核本worktree的backend `.venv/bin/python`及原manifest/census/evidence绑定；直接Python入口保持原行为，不扩展为任意wrapper、shell或跳过身份。采样循环、频率、CPU/墙钟计时、产品及已批预算均不变。必要定向验证覆盖真实sampler消费者对该argv的接受及错误解释器/前缀的拒绝，并复用已有小GNU停止用例；不重跑历史成功计时、小Compose或大输入诊断。
+
+本次新运行身份为 `p6w4resume970420261107b`；同步项目、幂等键、证据路径及固定身份绑定，执行前现场核未使用并按原规则取得有效占用。旧a证据保持，源checkpoint与9704产品保持；此次工具启动失败未发生业务POST，修正不增加业务运行次数。实施者和接续审核者直接完成必要修订/验证、普通预检后沿原A授权接续，结果事后独审，不另开Owner、最终manifest GO或协调回执。会话消息限1000 UTF-8字节，发送短状态及本地handoff/证据路径，完整报告留本地，不因消息超长新开会话。
+
 运行前一次给足工具等待预算：冻结工具 t4:v2-submit 当前为 `ceil(810.961×5)=4055s`，而 b 的 prepare 本身已用约3755s，不能机械沿用仅剩约300s余量的等待窗。W4 新目标的 v2-submit 工具等待采用已批10800s观察上限；产品 lease/heartbeat/stall、HTTP单请求及Repository业务超时不改。每个实际运行按所选完整步骤的一次性上限加初始化/清理余量固定总截止，不能把 prepare-only 的14400s总限机械套到多个长步骤的总和，也不在运行中滑动加时。关键恢复核验一并确认这些数值；完成即收尾，不等待用满，不将预算当ETA或性能门槛。
 
 首轮实际选项固定为 t4、scope=full、MODIFIED_ONLY、resume_step=v2-submit，`full_v2=false`、`three_node_history=false`、`cross_project=false`、`history_cache_mode=none`；不重做旧步骤、不新增 Archive/v3 旅程。实际新步骤为 v2-submit、v2-repository-read、v2-approve、history，以及既有尾部 hash/比较/HTTP artifact 读取和证据收尾。普通 HTTP/归档 helper 若属于这些步骤，其等待计入所属阶段，不另开无界路径。

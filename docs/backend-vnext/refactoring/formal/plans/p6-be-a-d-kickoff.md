@@ -1,6 +1,6 @@
 # BE-a / BE-d 与归档业务核验：联合 kickoff（设计已审）
 
-状态：**设计已独审 GO；Owner 于 2026-11-07 授权 A1→V1→V2→D 及联合最终验收准备，现启动 A1**。Owner已确认DC89/DC90：BE-a待审核归档门禁与过期APPROVE、BE-d最终closure成员规则、归档生成时间及来源核验的业务方向。原BE-a审核`fcbfb4c1a0`只覆盖2026-11-04原稿，本修订候选`16472197b4`及业务链路已由报告`a5d87540e6`独审GO。旧基准exit不再是前置，S2a/S2b已退出。此文不向FE3声明依赖已交付。
+状态：**设计已独审 GO；Owner 于 2026-11-07 授权 A1→V1→V2→D 及联合最终验收准备。A1已本节GO，V1当前同角色修复F5，V2/D按序待启动**。实时候选/角色/证据见[协调交接](p6-be-a-d-coordination-handoff.md)。Owner已确认DC89/DC90：BE-a待审核归档门禁与过期APPROVE、BE-d最终closure成员规则、归档生成时间及来源核验的业务方向。原BE-a审核`fcbfb4c1a0`只覆盖2026-11-04原稿，本修订候选`16472197b4`及业务链路已由报告`a5d87540e6`独审GO。旧基准exit不再是前置，S2a/S2b已退出。此文不向FE3声明依赖已交付。
 
 引用基线：`ebb0047383300a3754a4be6a6a78f72286600c83` 的 [前端 kickoff §4.4/§5/§9](../../../../frontend-vnext/frontend-kickoff.md)、[后端交接 §2.3](p6-backend-session-handoff.md)、DC64/DC67/DC70/DC73。任务业务范围来自已确认的前端决议；本页新增安排已通过设计独审，具体实施起点、角色及验收范围仍须在实施kickoff填写确认。BE-b 设计与实现不并入这两项。
 
@@ -52,7 +52,9 @@
 
 按 §4 共用流程执行。真实数据建议为 05 t1 一次完整旅程（schema/持久状态改变，不沿用旧 DB）；审核动作使用合成 HTTP/Compose 旅程补全 t1 未覆盖的状态；04 权威 runner 与当前 HEAD 容器门禁。真实数据范围先在 kickoff 确认，exit 前再次由 owner 确认。完成交代码候选与 handoff，由 owner 转后端审核会话，不自行宣布 exit。
 
-## 3. BE-d 实施提示词（草案，勿提前发出）
+## 3. BE-d 实施提示词（已授权，按小节顺序启动）
+
+实际准备工作单见[BE-d工作单](p6-be-d-work-order.md)；待前节GO后填写起点并新建本节角色，不重复请求开工授权。
 
 你是 BE-d 后端实施会话。先读 AGENTS、本文、前端 kickoff §4.4/§5、Comparison Bundle/Surface Contract、artifact 保护与读取接口、DC64/DC67/DC73。从已填写的 main 起点工作。
 
@@ -100,7 +102,9 @@
 - 其余实施收口项：facts/DTO/checkpoint/digest具体变更位置、已定时间向量的native seam、初始空基线边界接线、前端新增诊断消费、最终真实数据与角色安排；按业务设计§9执行，不将时间语法/引用容量再留给实施者选。若独审发现超出已确认业务的冲突，先交Owner讨论。
 - N1：现有frontend PAX按JS字符数解析UTF-8字节length；BE-d必须标准编码并交ASCII/中文/非BMP共享向量，前端owner修consumer且使用同一真实tar验证，是FE3解除依赖的额外条件（BE-d§2.1）。本次只明确交接，不编辑前端源码或替前端启动任务。
 
-## 6. 归档业务核验实施小节（草案，勿提前发出）
+## 6. 归档业务核验实施小节（已授权，按小节顺序启动）
+
+具体文件/owner/测试边界见[V1工作单](p6-v1-work-order.md)、[V2工作单](p6-v2-work-order.md)，当前状态见协调交接。
 
 V1先完成Rust源序时间提取、initial/modified内容身份、Preview/checkpoint与T1/Submission事实冻结；时间取version_manager.saved_time最后可解析值并统计max，不能在排序后重算。V2再做当前轮次来源图、时间关系、确认及Start，来源未知和人工接受分开表达；同时完成§10有理由关闭的业务出口、统一终局处置、History/Review读取及前端契约。具体业务、状态形态、案例、事务及测试owner以[业务链路设计](p6-archive-business-validation-design.md)为准。
 

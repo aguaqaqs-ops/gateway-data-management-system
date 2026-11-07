@@ -32,9 +32,9 @@
 | W4-FULL | **已独审PASS：** `p6w4full20261107a`、工具HEAD `18a4851d8c`，2026-11-07 11:49:34–15:56:39Z，18步及输入/清理通过，接续审核§113（`0bf7218401`）闭合。RS完整身份用原首operation前记录的同节点immutableID作16:13事后元数据链接，不冒称11:49新快照；不重跑该业务。 |
 | W4-STRESS | **已独审PASS：** `p6w4stress20261107a`、工具HEAD `1742a8bcd6`，2026-11-07 16:21:02–19:24:06Z于CT108完成，接续审核§124（`40112a8a17`）关闭旅程/取证项。100%/cold Preview、14个本run PASS步骤、13checkpoint及输入/三镜像/清理均已核；v2 Preview READY/完成4661.281s。scope止于v2 Preview，未执行v2 Submit或History，不重跑；按record_only保留，不记性能目标PASS，标准record的worker指标补证另行收尾。 |
 | 631/631 表哈希 | **三组实际对照已独审PASS：** 2× v1/v2及H2三节点v3与各自S1c参考的完整表集合及逐值一致，接续审核§115（`0bf7218401`）关闭§105待办。复用原summary，不再重取卷/重跑已闭合旅程，保留各真实版本。 |
-| DC63 #1、V5b A–D | 实际诊断仍待执行，工具准备已获§109–110通过；按[最小补缺方案](p6-dc63-v5b-measurement-completion-plan.md)处理真正缺项，写明产品/步骤/节点来源。21个selector不扩成新矩阵，普通t4诊断不与正式压力计时重叠。 |
+| DC63 #1、V5b A–D | **命令已启动，栈前准备中：** 实施者于2026-11-07 22:36Z回报CT108已持有自有锁，以`d2ffe1ac3af5e06ab6cf2a6f760124e0512e7dd6`启动一次已审诊断命令；专用镜像入口修正获§133代码/05必要验证及最终controller接线复核通过。三冻结镜像完整身份预检MATCH、原输入manifest不变，诊断build-input3456与目标4497差异保留；sampler/launcher/journey存活，初始日志到compose_images_ready，尚无产品操作结果。沿[最小补缺方案](p6-dc63-v5b-measurement-completion-plan.md)及原预算执行，79200s硬上限不是ETA；21个selector不扩为新矩阵，结果/分段资格待实测与独审。 |
 | JSON/SHA、comparator 与总报告 | 保存按实际版本分列的记录及索引，报告差异与缺口；单版本 schema 不能如实表达时采用多份既有记录加总索引或最小工具修正，不伪填统一 HEAD，不以文案/字段统计问题重跑产品。 |
-| 04 最终权威 runner | **修正已定向通过，新H门禁待执行：** `fcc827aec2750b2cc6d36c241c40de7415c7a1ea`于2026-11-07 19:19:37–19:41:16Z全六包exit1（RS两项环境断言、backend一项中断测试），原run及收尾保留，不作carried。仅改两测试文件的`78000beb62e927190092e315135e7bc1cbdda615`已获接续审核§129（`a7537cfbcc`）代码/05定向PASS：launcher普通及SIGINT_IGN父入口、RS default/custom分支及受影响两包静态通过，其余三Python包静态补齐后集中准备最终H镜像/04验证。原15s及停止/清理断言未弱化，产品/真实guard保持9704；不原样重试、不重跑已关测量、不借main/S2b结果，最终门禁及阶段exit尚未完成。 |
+| 04 最终权威 runner | **修正已定向通过，新H门禁待执行：** `fcc827aec2750b2cc6d36c241c40de7415c7a1ea`于2026-11-07 19:19:37–19:41:16Z全六包exit1（RS两项环境断言、backend一项中断测试），原run及收尾保留，不作carried。仅改两测试文件的`78000beb62e927190092e315135e7bc1cbdda615`已获接续审核§129（`a7537cfbcc`）代码/05定向PASS：launcher普通及SIGINT_IGN父入口、RS default/custom分支及受影响两包静态通过；其余三Python包静态也已于20:57:44–49Z补齐并获§129补充核验，五包静态齐备，最终H镜像/04验证仍待。原15s及停止/清理断言未弱化，产品/真实guard保持9704；不原样重试、不重跑已关测量、不借main/S2b结果，最终门禁及阶段exit尚未完成。 |
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
 

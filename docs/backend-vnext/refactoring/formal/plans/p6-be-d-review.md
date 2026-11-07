@@ -2,7 +2,7 @@
 
 2026-11-07。独审角色 `/root/be_d_review`，Owner 指定 GPT-6.1-Sol / max；实施为 `/root/be_d_impl`，协调为 `/root`。范围按 [D 工作单 §5](p6-be-d-work-order.md#5-启动收口) 包含 D 及既定联合最终验收准备收尾，不新建第三角色。
 
-**当前状态：F1 与 HTTP fixture 前置已闭环；F2 最终 bundle refs 保护缺口待固定修复，工具／Compose与集中证据仍待；未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
+**当前状态：F1 已关闭；F2／F3 代码与向量修复已核，实际补验待恢复。06 执行编排错误已触发停止，现存失败保留；未作 D 或联合产品 GO。** 设计 GO、清单预检、06 定向结果、04/05 联合证据及 FE3 同制品互通分别记录。
 
 ## 1. 固定基线与权限
 
@@ -138,3 +138,29 @@ F1 及纯 download owner 的新增小向量在142通过部分；整次 focused �
 因此 manifest／operation仍受保护时，下载真正需要的 closure／final bytes 可以落入普通未保护 TTL cleanup；只保护原 surface refs 无法替代 final ref 身份。它是既有 owning 交付／protected retention 缺口，不是新威胁模型或业务digest问题。最小修复为把 `bundle_result.referenced_artifacts` 并入既有 required_refs，保留原 canonical／source 恢复 refs，并沿原事务／lease发布；不新增状态机、版本轴、sidecar或持久下载保护。
 
 原实施者已认领，固定修复及原生产wiring owner 的 final refs／closure保护断言待核；不重录业务golden。当前产品review HEAD为7f25，容器仍deferred，最后镜像来源／集中执行点同§6，未作D GO。
+
+## 8. 完整候选 d0a22ba91d 与 a7954b6b55 静审
+
+固定 **`d0a22ba91dc46f55db9a32728d3257fd3044fe61`**、后续 **`a7954b6b55`**，分别在 `/home/dev/gdds-reviews/p6-be-d-code-d0a22ba91d`、`/home/dev/gdds-reviews/p6-be-d-code-a7954b6b55` 只读 detached WT 核 clean／legacy 和实际增量。中间 typing 修正`aaa0f4a6f3`、精确 FULL pair 修正`8de2a9a060` 均按固定 Git diff 阅读，不审后续 main dirty。
+
+F2 产品修复仅将 `bundle_result.referenced_artifacts` 加入 Preview／History 原 required_refs；source／canonical 恢复refs、lease／checkpoint／保护发布与原释放／TTL不变。d0新增断言原在GET后且漏manifest，已直接要求按首次GET前屏障修改；a795现从原store manifest读取，在HTTP下载前核manifest、closure及全部final refs受保护。**F2代码与向量成立，实际成功补验待恢复后核收。**
+
+`benchmarks/bundle_tar.py` 将GET完整字节写临时文件，再按原metadata／closure逐普通成员核路径、顺序、size／raw SHA，无caller pathname解压。有界reference metadata核闭合；records调用owning public `open_records_closure` 校Parquet schema／count／logical content digest；generic业务JSON沿F1边界逐块核发布raw SHA。共享Compose consumer与History restart下载均切完整tar。
+
+实际CLI `--v2-input-completeness FULL` 给v2发送INITIAL=v1原字节、MODIFIED=v2；v1／repeat-v1保留MODIFIED_ONLY。默认业务摘要取initial_to_modified，baseline_to_initial必须无变化且身份SAME_PROJECT／DETAILED；全部tar members仍全验。Preview user-visible／completion与History terminal锚在GET前冻结，GET开始至完整读取／bytes独立只报告。V2显式逐项reason env consumer保持，无force。handoff中的N4／24MiB为未执行示例，不能当联合命令；最终host offline kernel与Compose worker须按协调清单分别核，不把测试jobs/workers当产品kernel。
+
+### F3（P2）：FULL 请求原可被单 pair 响应冒充
+
+d0的summary／identity helper都接受1或2个pair，实际v2调用未按requested `v2_input_completeness`强制精确集合；FULL producer若错回旧单pair，工具仍通过且报告FULL。已直接交原实施者，**固定8de修复已核**：实际v2两处传requested mode，summary／identity均强制FULL双pair或MODIFIED_ONLY唯一initial_to_modified；原owner新增FULL→旧单pair拒绝小向量。F3代码与向量成立，实际补验待恢复后核收，不扩大identity矩阵。
+
+06 d0首静态原文／SHA已读：11:14:42 ruff0（`4350fa48bc3b09833295abd4573375fcfc43fc5a407c6b80adb8775863244b88`）；11:14:42–11:14:43 mypy两个新test文件5处typing/import错误、exit1（`f54653969e3e1aad6b3a6060d6b5fe7f1de9343996871faeedb38d24dadd9e16`），按脚本停止。aaa0只修这些类型／fixture，产品不放宽；后续首轮原日志保全问题见§9。
+
+容器决策：Current reviewed product/test HEAD=a7954b6b55；共享Compose consumer／History e2e变更触发收敛后当前重建。06当前门禁deferred，最后验证镜像仍§4的V2 f8，无carried。五包静态、当前Compose／OpenAPI／同tar制品及04／05集中证据仍待，不作D GO。
+
+## 9. 06 执行编排错误与验证停止
+
+实施者报告：传a795时本地纯SHA `git bundle create` 被拒为empty，调用缺少fail-fast仍传旧包并在旧aaa0启动focused；同HEAD日志名覆盖了aaa0首轮ruff／mypy／focused。本角色未曾读取或保存aaa0首轮原字节，**原完整日志不可独立复核**；工具输出保留的首focused SHA `2345ec835d433ff55a548697c0faeebc67ff8cbb8779b27d35b98c23b14a3cc2` 不能代替原文件，不重造或拼接日志冒充恢复。
+
+本角色已只读核现存误跑原文与SHA：06／gw-dms-06、起止HEAD均`aaa0f4a6f32143448c1b55bb1cc8f509643e1d3c`，11:17:02–11:17:18 focused **150 passed／2 failed、exit1**，SHA=`f882a86a8a0e472b80fa2897e61a1ffc4237a1cee9a3a73ffd8526780bedb9c5`；同次ruff／mypy0的现存SHA分别`703b88bf0b64df4e7d1546a25837d75fcbb856a1e648b41ff20339edf0fe503b`／`d1db3f7041a1f443761e8b69d66f57e7e9a1a1ab8f633447ba7670cef46dc900`。两失败为CLI旧expected漏新增mode和unknown ref旧消息匹配；均是原expected更新接缝，不放宽产品边界。误跑结果不算a795或当前候选证据，也不以150通过关闭F2／F3。
+
+因已执行旧被测对象，此事不按“产品前、无副作用”的DC68直接重做。协调按Owner停止规则明确暂停全部受影响测试／static／Compose／04-05；只允许证据保全、本人资源清点释放、标准guard修正与独立静审。恢复前须固定fail-fast、named bundle verify／exactSHA和唯一run目录的可审查调用方案，协调交Owner决定，不新建evidence平台。本角色仅继续固定代码和现存证据／guard静审，不运行被测对象。

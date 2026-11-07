@@ -91,6 +91,8 @@ def test_publish_supersedes_when_generation_drifts(tmp_path: Path) -> None:
     assert workspace is not None
     assert workspace.current_preview_result_id is None
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
+        assert unit_of_work.connection.execute("SELECT COUNT(*) FROM preview_result_records").fetchone()[0] == 0
+    with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
         if assemble_step.checkpoint_ref is not None:
             assert not unit_of_work.protection.is_protected(
                 assemble_step.checkpoint_ref.artifact_id

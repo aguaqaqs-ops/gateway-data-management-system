@@ -135,6 +135,8 @@ def _assert_persisted_canonical_preview(assemble_state: dict[str, object], *, fu
         "initial_canonicalization_manifest_ref",
         "initial_canonicalization_manifest_digest",
         "baseline_canonical_state_digest",
+        "initial_canonical_state_digest",
+        "configuration_facts",
         "modified_canonical_state_digest",
         "storage_projection_ruleset_digest",
         "baseline_is_initial",

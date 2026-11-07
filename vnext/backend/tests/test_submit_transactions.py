@@ -1513,7 +1513,7 @@ def _seed_effect_pending_attempt(
         return updated
 
 
-def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) -> None:
+def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seed = seed_submit_ready_workspace(db_path)
     attempt = _seed_effect_pending_attempt(db_path, seed)
     canonical_ref = _register_attempt_canonical_ref(db_path, attempt)
@@ -1573,8 +1573,25 @@ def test_t3_finalize_inserts_submission_and_switches_occupancy(db_path: Path) ->
     assert submission.configuration_facts == attempt.configuration_facts
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.connection.execute("DELETE FROM preview_result_records WHERE preview_result_id = ?", (attempt.preview_result_id,))
+    from gateway_backend.domain.baseline.models import BaselineNode, BaselineNodeKind
+    from gateway_backend.artifacts.store import InMemoryArtifactStore
+    def expired_sql(*args: object, **kwargs: object) -> bytes:
+        raise AssertionError("original SQL/source artifacts are no longer readable")
+    monkeypatch.setattr(InMemoryArtifactStore, "locate", expired_sql)
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        head = unit_of_work.baseline.get_head_record(seed.workspace.repository_id)
+        assert head is not None
+        node = BaselineNode("node-archived-facts", seed.workspace.repository_id,
+            seed.workspace.gateway_device_external_key, seed.workspace.business_project_id,
+            submission.repository_commit_id, BaselineNodeKind.ARCHIVED_SUBMISSION,
+            head.node_id, submission.submission_id, TS1)
+        unit_of_work.baseline.save_archived_node_and_cas_head(node, expected_head=head,
+            new_head_node_id=node.node_id, new_head_version=head.optimistic_version + 1)
     with ControlDbUnitOfWork(db_path, read_only=True) as unit_of_work:
-        archived_source = unit_of_work.submission.get_submission(submission.submission_id)
+        node = unit_of_work.baseline.get_node("node-archived-facts")
+        assert node is not None and node.source_submission_id is not None
+        assert unit_of_work.workspace.get_preview_result(attempt.preview_result_id) is None
+        archived_source = unit_of_work.submission.get_submission(node.source_submission_id)
     assert archived_source is not None
     assert archived_source.configuration_facts.to_document() == attempt.configuration_facts.to_document()
     assert canonical_expiry is not None

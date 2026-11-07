@@ -1248,6 +1248,9 @@ def _materialize_all_sides(
                     business_project_id=workspace.business_project_id))
             if metadata.manifest is None or metadata.manifest.manifest_digest is None or metadata.manifest.manifest_digest.value != source.canonicalization_manifest_digest:
                 raise PreviewJobError("configuration baseline source manifest binding mismatch")
+            if (baseline_side.content_identity.storage_projection_ruleset_digest != metadata.manifest.ruleset_digest.value
+                or baseline_side.content_identity.storage_projection_version != metadata.manifest.storage_projection_version):
+                raise PreviewJobError("configuration baseline facts identity does not match source manifest")
             baseline_identity = baseline_side.content_identity
     if payload.input_completeness is InputCompleteness.FULL:
         initial_values = uploaded_sides[OperationDiagnosticSide.INITIAL]

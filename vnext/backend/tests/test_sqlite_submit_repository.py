@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from gateway_backend.application.submission.errors import SubmitAttemptVersionConflict
-from gateway_backend.domain.submission.errors import SubmitOccupancyConflict
+from gateway_backend.domain.submission.errors import SubmitOccupancyConflict, SubmitAttemptInvariantViolation
 from gateway_backend.domain.submission.models import (
     BuilderMutationPolicy,
     RepositorySubmitOccupancy,
@@ -201,6 +201,13 @@ def test_submit_attempt_roundtrip_and_cas_conflict(db_path: Path) -> None:
     assert record is not None
     assert record.submit_attempt_id == "sa-1"
 
+    time = attempt.configuration_facts.modified.generated_time
+    assert time is not None
+    changed = replace(attempt, configuration_facts=replace(attempt.configuration_facts,
+        modified=replace(attempt.configuration_facts.modified, generated_time=replace(time, status="COLUMN_ABSENT"))))
+    with ControlDbUnitOfWork(db_path) as unit_of_work:
+        with pytest.raises(SubmitAttemptInvariantViolation, match="facts are immutable"):
+            unit_of_work.submission.cas_update_attempt(changed, expected_version=0)
     updated = replace(attempt, optimistic_version=1, state=SubmitAttemptState.ABORTED, abort_code="IMPORT_REJECTED", aborted_at=TS0)
     with ControlDbUnitOfWork(db_path) as unit_of_work:
         unit_of_work.submission.cas_update_attempt(updated, expected_version=0)

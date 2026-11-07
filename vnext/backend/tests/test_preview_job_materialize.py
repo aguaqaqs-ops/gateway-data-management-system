@@ -879,9 +879,16 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     operation_id = "op-frozen-time"
     insert_preview_operation(harness, operation_id)
     session, control, operation, step = claim_next_step(harness)
-    run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
+    def lose_after_checkpoint(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("process stopped after durable materialize checkpoint")
+    with monkeypatch.context() as fault:
+        fault.setattr(session, "publish_successor", lose_after_checkpoint)
+        with pytest.raises(RuntimeError, match="after durable materialize checkpoint"):
+            run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, session, control, operation, step)
     with ControlDbUnitOfWork(harness.db_path, read_only=True) as unit_of_work:
-        checkpoint = unit_of_work.operations.get_step(step.step_id).checkpoint_ref
+        operation = unit_of_work.operations.get_operation(operation_id)
+        step = unit_of_work.operations.get_step(step.step_id)
+        checkpoint = step.checkpoint_ref
     assert checkpoint is not None
     envelope = load_checkpoint_envelope(harness.artifact_store, checkpoint)
     canonical = envelope.job_state["canonical_preview"]
@@ -894,6 +901,16 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     def reject_reextract(*args: Any, **kwargs: Any) -> Any:
         raise AssertionError("checkpoint recovery must not reextract SQL facts")
     monkeypatch.setattr(preview_jobs, "parse_arrow_sql", reject_reextract)
+    from gateway_backend.operations.lease_session import LeaseSession
+    from gateway_backend.operations.worker import ExecutionControl, WriteUnitOfWorkFactory
+    from typing import cast
+    assert step.worker_id is not None and step.lease_token is not None
+    control = ExecutionControl()
+    recovered_session = LeaseSession(worker_id=step.worker_id, lease_token=step.lease_token,
+        operation_id=operation.operation_id, step_id=step.step_id,
+        write_uow_factory=cast(WriteUnitOfWorkFactory, harness.control_transaction_factory),
+        control=control, observer=lambda _event: None)
+    run_claimed_handler(harness, PREVIEW_MATERIALIZE_HANDLER, recovered_session, control, operation, step)
     for handler in (preview_jobs.PREVIEW_ASSEMBLE_HANDLER, preview_jobs.PREVIEW_PUBLISH_HANDLER):
         session, control, operation, step = claim_next_step(harness)
         run_claimed_handler(harness, handler, session, control, operation, step)
@@ -906,3 +923,21 @@ def test_source_time_facts_survive_checkpoint_and_ready_without_reextracting_sql
     del damaged["configuration_facts"]
     with pytest.raises(CheckpointDecodeError, match="fields are invalid"):
         preview_jobs._canonical_preview_metadata_from_document(damaged)
+
+
+def test_baseline_time_facts_must_match_original_manifest_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    harness = build_preview_harness(tmp_path, input_completeness=InputCompleteness.MODIFIED_ONLY)
+    harness.seed_workspace()
+    with harness.deps.control_transaction_factory() as unit_of_work:
+        repository_type = type(unit_of_work.submission)
+        source = unit_of_work.submission.get_submission("submission-baseline")
+    assert source is not None
+    old = source.configuration_facts
+    altered = replace(source, configuration_facts=replace(old, modified=replace(old.modified,
+        content_identity=replace(old.modified.content_identity, storage_projection_ruleset_digest="sha256:" + "8" * 64))))
+    def read_altered(*args: Any, **kwargs: Any) -> Any:
+        return altered
+    monkeypatch.setattr(repository_type, "get_submission", read_altered)
+    payload = decode_preview_payload(decode_payload_object(harness))
+    with pytest.raises(PreviewJobError, match="identity does not match source manifest"):
+        preview_jobs._materialize_all_sides(payload, harness.deps, operation_id="op-invalid-baseline-facts")

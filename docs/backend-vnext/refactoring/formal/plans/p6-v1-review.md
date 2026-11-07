@@ -6,7 +6,7 @@
 
 已预检产品前固定清单 **`2ca25b6514a10fbc29d8d66535f22d0a154e8bc5`**；首轮正式代码对象仅为 native 子候选 **`a500dd81525963775b5ee005a3aa8ba9abc041af`** 的五个 Rust 文件，不包含实施中的 backend 接线。native 修复候选 **`2c6f13731bd3b4a4ffd39c97ee2627d18009ae54`** 的同角色复审与证据见 §5。
 
-**当前结论：F1–F4/N1 的产品代码问题已修复，定向证据已核；完整 V1 仍待最终 schema/容器证据。** 最新固定产品/测试候选为 `b73713ea9e`（§8），尚无完整 V1 GO。首轮发现及失败记录保留，不用后续成功覆盖原运行。
+**最终结论：V1 本节 GO，F1–F4/N1 全部关闭，无剩余阻塞。** 产品/最小容器候选为 **`84bad715a2faf281e94fa9c0c534414dc7246608`**，handoff/owning 文档核至 **`5b7812164a`**，最终证据与范围见 §9。04 权威及联合必要 Compose、05 fresh t1、V2、D/tar 与 FE3 均不在本节完成声明内；不办理联合 exit。首轮发现及失败记录保留，不用后续成功覆盖原运行。
 
 只读 detached worktree：`/home/dev/gdds-reviews/p6-v1-native-a500dd8152`，HEAD 固定为上述候选，已链接主仓库 `legacy/`，审核期间保持 clean。未读取 main 中后续 dirty 实现，未修改产品或测试，未运行测试、编译、lint 或容器，未占测试节点；本角色只写本报告。
 
@@ -171,3 +171,46 @@ c464 正常非 serial 318 项未为修正两项 serial 重跑。b737 consumer �
 另只读核 `checkout-command-error-efcb362bec.log`，SHA `4ba72ca9a87fcd60de6396ceabe6fed15ec426192fca174b52ca6555cb803cbc`：FETCH_HEAD 不存在的自身命令错误，未派发测试、未写 worktree；修正工具后在固定 clean 提交运行。上述运行都不是权威 runner 来源，不作任何包闭包/容器沿用。
 
 当前 `Current reviewed HEAD=b73713ea9e2cb2588ebaee80e0c30ea53a4f6ded`；V1 最小 Compose 正在实施者的 06 clean WT 上执行，schema owner/最后 backend 静态及镜像 provenance 尚待核，故 gate=`deferred`、`carried=none`、无完整 V1 GO。04 联合权威/必要 Compose 与 05 fresh t1 仍未执行，不能由本节定向通过提前关闭。
+
+## 9. 最终产品 84bad715a2、交接 5b7812164a 与本节结论
+
+同一独审角色固定最后产品 worktree `/home/dev/gdds-reviews/p6-v1-full-84bad715a2`、文档 worktree `/home/dev/gdds-reviews/p6-v1-docs-5b7812164a`，均 detached/clean、legacy 齐备；此前审核 worktree 保留。`b737..84bad` 唯一产品树内变化是既有 Submit Compose 旅程四行复用既有 capture/persist provenance，没有改变业务或门禁判定。37a401924d/5b7812164a 的实际 handoff/owning diff 仅文档：正文 Preview/Submit v2、必需 facts digest 和当前 closed payload 对齐；清单冻结时点与实际完成状态已分开。独审核对产品、最终文档的 `vnext` tree 同为 **`608f4b7a837db4a76f1448d4d9d065d66b4e4436`**，Rust tree 仍为 §8 所列值。
+
+**最终 schema、backend 静态及 06 最小 Compose 均已核实成功。** 以下日志均位于 06 `/home/dev/gdds-test-tmp/artifacts/p6-v1/`，hostname 为 `gw-dms-06`；起止 HEAD 均为 84bad，原文/argv/起止 UTC/exit 和 SHA256 已独立只读复核：
+
+| 日志/产物 | 实际结果及 UTC | SHA256 |
+| --- | --- | --- |
+| `schema-owner-84bad715a2.log` | 09:02:19–09:02:21，最终唯一基线 schema owner 14 passed，exit 0 | `e204d151dfde3397aa5d5106bed807cb32e2e3fc1e8ae694357d5ec8bd2661ce` |
+| `compose-final-ruff-84bad715a2.log` | 09:02:19，ruff check .，exit 0 | `07959fc20998f4137923eaac2a558e55eb24116f5caf0fdc89f03399110bbe55` |
+| `compose-final-mypy-84bad715a2.log` | 09:02:19，503 source files，exit 0 | `97e33352920935d2ea2666d4df9a11bcd2e060da652ca2b1bd3d95b679ea357e` |
+| `compose-submit-84bad715a2.log` | 09:02:39–09:03:10，既有 Submit 旅程 -n0/serial，1 passed，exit 0 | `a5c44cb1e5ac17967f4a7e3fa71d815db8a5fc0799630de108b7fface96ff88b` |
+| `submit-provenance-84bad715a2.json` | 实际运行 backend/worker/RS 镜像及 RS source labels | `d1ecc47cd556f5e30e7051bdbb05cc77b04f62945fb0fc23bfea93ff0e17e85a` |
+| `image-identities-84bad715a2.json` | 实际 docker save config digest 与全部 RootFS DiffID | `6ca6ac126f51bfefebf94dbdd482e619ceae0d98eec3a80c99e13bf7bbb5b008` |
+| `frozen-business-b73713ea9e.log` | b737 08:58:38–08:58:40，既有 comparison/bundle/risk/surface 101 passed，exit 0 | `c472fa7f5e2b1ec6af9603ac07c645aa0a0860d9c9d14ec0e4d9f29884624f3c` |
+| `node-release-84bad715a2.log` | 09:05:20，清理后核本人 owner 并释放，exit 0 | `6c3b5d83cf03eabffc5cd6b756ad2cd7c2680189765efbd9bcb8aeeb2a6c15fa` |
+
+精确容器 nodeid 为 `tests/test_submit_compose_e2e.py::test_compose_accept_upload_import_poll_t3_read_journey`。已读归档执行脚本：每步先核 clean worktree 和本人占用标志；明确 `UV_OFFLINE=1`、`CARGO_NET_OFFLINE=true`、外置 TMPDIR/target/jobs4，剥离 proxy 与 Rust toolchain overrides；backend/worker 使用预置 dependency-base，保留 Compose build、`GATEWAY_DOCKER_BUILD_NETWORK=none`、prebuilt 未设置。RS 由最终候选本机离线构建新 tag `gateway-repository-service:v1-84bad715a2`；真实 fresh project/DB/卷旅程成功，finally 执行 down -v/remove-orphans。没有在开发机运行测试，没有本轮新依赖/制品下载或跨节点传输。
+
+运行 provenance 的本机 image ID 为 backend `sha256:bccf76316a3814b69b87a9bc5d1e9e50e56dc1a1004aa38d5928ab8686b45d07`、worker `sha256:2ad106246e21d09570c9b4422c5fe715ac52d9f81a3030fa4848836c71ffb28c`、RS `sha256:960267b20db0c11431f162be0037cd4dcbf43fd21308be173da92cda157a2246`；与身份 JSON 各 ref 一致。已读身份脚本，它从 docker save 的实际 config bytes 计算 SHA，并核全部 DiffID 与本机 Layers 完全相同，没有把 containerd inspect ID 当 config digest。backend/worker config digest 分别为 `sha256:e33455ebb9d3df8eb7b193accf8234881264a6825aa17c1864abea4bb95ba3ef` / `sha256:ff6df3be31d6bc01a237a7aece3a53fc5f103478583ff065ea15c0d29e2f08ae`，各 13 个 DiffID；RS config 为 `sha256:a5a530f5afc229bd411b1678df61b5523cfc58cf9ad30ce30a39ddfa8d51c2dc`、28 个 DiffID。完整列表及 dependency-base 身份保存在上述 JSON，不重复另建镜像权威。
+
+RS `org.opencontainers.image.revision=84bad`；其未变源码的 build-input revision 为 `a6876d560050285321fd9f62942d590a03f35d64`，source-tree 为 `sha256:13cb42af44a23c4b847d3888665eaa8983e79f7d41801cdd3a2d34517b9e00e2`，既有 harness 在保存 provenance 时实际重算并核对。backend dependency input 实际仍为 `d054366c02fa2a284948610e47b1c07bbdba98684b847846ca922d7da3d57aad`；本节依赖/lock/base 未改，使用 06 原本地预填 uv/Rust/Docker 缓存，历史 CT201 制品来源与预填时间在 handoff/06 readiness 引用，不伪造本轮新传输。
+
+`evidence-index.json` SHA 为 **`a1ef262e92482d90ecf87d95d259f8d3637cc1e7a4063fc5618e37acfda26249`**；本角色在 06 用标准库只读逐项重算全部 **78 份日志、14 个附件/脚本**，无摘要不符。关键成功、原失败与实际执行条件已逐项核对，不把索引替代原测试结果。另只读现场确认：测试 WT 仍 clean/HEAD84bad，busy 标志不存在，该 project 的容器/卷/网络均无残留，8000 无监听；未占节点或清理他人资源。
+
+最终容器决策：
+
+```text
+Reviewed product HEAD: 84bad715a2faf281e94fa9c0c534414dc7246608
+Reviewed docs through: 5b7812164a
+Container rebuild required for V1 product: yes，已在最终产品候选完成
+Last verified image revision: 84bad715a2faf281e94fa9c0c534414dc7246608
+Container gate for reviewed product: passed（06 既有最小 Submit 旅程）
+Docs-only follow-up: not-applicable（无 vnext 变化；不另作产品/容器通过声明）
+Carried from: none（本节没有权威 runner 包闭包或镜像 carried 判定）
+Deferred: 04 联合权威/必要 Compose；05 fresh t1 及联合范围
+Required execution point: V2/D 后联合最终候选，不在本节办理 exit
+```
+
+**V1 本节 GO。** 已审范围满足同次 Rust 源序时间提取、完整内容身份、checkpoint/READY→T1→不可变 Attempt/Submission、损坏拒绝及 TTL 后基线来源独立读取的交付要求；无剩余产品 Finding、文档缺口或缓存阻塞。审核与修复始终由原两角色闭环，未通过更换审核者消除 finding。本角色只改本报告、未运行产品测试/编译/lint、未修改产品/前端/冻结基准、未推送或改 tag，至此停止本节写入与执行。
+
+后续唯一范围：V2 使用本领域类型与持久 Submission 端口，把 facts digest 纳入 candidate/selection/anomaly subject，并按 a24 的逐侧身份规则完成来源/时间核验、接受/Start 和关闭出口；D 完成 tar，FE3 由前端 owner 处理。04 六项尚未执行的既有容器 owner 及 05 真实入口已在 [handoff §6](p6-v1-handoff.md#6-明确交接与延期) 明列；`--scope full` 是旅程范围，不等于已覆盖 FULL 输入模式。本节 06 证据不冒充联合最终、真实数据或前端 GO。

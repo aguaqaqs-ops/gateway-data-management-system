@@ -2355,3 +2355,17 @@ BatchMode echo OK后只读 `/home/dev/gdds-p6-logs/baseline/ct05-w4full-236b5b-v
 **发现尚存的S4后处理取值缺口：** `18a4851d8c52d53afdb95ee4df9fae04e6e36d77:vnext/backend/benchmarks/p6_baseline_timing_references.json` 的S4 actual仍为 `/steps/v3-submit/operation_timing/completion_seconds`；`p6_baseline_timing.py` 的spec生成映射同样将S4设为v3-submit。其求值顺序先执行actual JSON pointer及秒值校验，再进入record_only返回分支，所以record_only不会跳过缺失actual。W4两节点旅程不执行v3；已审107b state也只有v2-submit，其 completion=4027.743s，不存在该v3路径。若使用默认选择器，S4派生结果会因缺字段失败，不是新的Submit产品失败。
 
 此处仅需最小修正生成spec/JSON到W4实际v2-submit，或在既有CLI中明确选择正确v2 metric并绑定记录索引；由原evidence重建派生S4材料即可，不改原run/state/log、采样、计时边界或产品，不重跑107b、当前FULL或历史旅程。若已使用显式正确override，保留其实际命令/选择器，不把默认配置也写成正确。该具体缺口已直接通知现有实施者并同步设计，普通工具/文书修正沿原授权闭环，不等新Owner、回执或GO；修正后的实际差异与必要结果仍待核，尚未标关闭。本审核只读Git对象和已有证据，未在开发机执行产品/测试或到测量节点运行新检查。
+
+## 104. S4默认选择器修正与107b派生记录独审PASS，关闭§103缺口
+
+**§103的S4默认指针缺口已关闭；代码、必要验证与实际派生结果PASS。** 候选 **`5b407f2e81988238e70f100e8579343e478422ef`**，`vnext` tree=`153eb4f27ce207ca9c6e3ab5f16ba7384e727276`。独立读取immutable完整diff并做whitespace检查：相对18a仅改timing spec/提交JSON的S4选择器为v2-submit及相应测试，policy仍record_only，未改产品、采样、operation计时、阈值或其他reference。新增行为例使用真实evaluate和committed reference、state仅含v2-submit，验证直接得到正确秒值及“只记录”，覆盖原缺字段路径。
+
+BatchMode连接确认后只读CT05 `/home/dev/gdds-p6-logs/baseline/ct05-s4-timing-5b407f-validation.log`，SHA256 **`ddbb72541de65bcd9ac3a6bee72252d8ae5c9ac30929bb8a46c22c78d67f1d14`**：gw-dms-test-05、2026-11-07 11:55:09–10Z，明确checkout到5b并以完整5b结束，validation_exit=0；focused **15 passed /0.12s**、backend Ruff/mypy（500files）通过。未补造起始clean/HEAD字段；其余四包静态来源仍按前节保留，不声称当前六包runner通过。简略postflight于11:55:29Z记锁释放，SHA256 **`a8cc0e1f9bb54c0894a456a72fa66e88494fa7ecdfed16e57b565a1fc193f1bc`**，不扩称它独立证明整机quiet。
+
+实际派生在CT05的 `/home/dev/gdds-p6-logs/baseline/s4-107b-derivation-5b407f/` 完成。实施者从审核者已核CT201副本经LAN取得原107b run/state；本审核再次直接hash **CT05实际副本字节**：run44967B、SHA `2f2197d6…37f07`，state39934136B、SHA `0281f0e0…5fc897`，均精确等于§101原件，不只信派生JSON自报值。没有为这次处理读取运行中的CT108大文件或改其worktree。
+
+独立核对三份已关闭输出：`s4.json`（887B）SHA256 **`b86ca2ac7bbac1ce2b6fde3343fac9f7675a1c66f7cc1f217fd1a31ac1ba8233`**；`derivation.log` SHA256 **`4aec3678866d850a370fd6753a27f4d515028c90a73f918aa76bae33729f557f`**，11:56:09Z、tool HEAD5b、exit0；`postflight.log` SHA256 **`4d06cb8ec0af93d2388432eb603b33fee03bb578a9a80b4ddc91791b51155292`**，11:56:29Z记CT05锁释放。记录的reference_file_sha256=`3b3c4352c3ff0bd55cd6afdf38e1be4b2b6d1ca5ae8676798f83b9b5cade1f05`，与Git中5b reference JSON原始字节独立计算值一致。
+
+S4实际选择 `/steps/v2-submit/operation_timing/completion_seconds`，**4027.743s / record_only / 只记录**；reference与relative_deviation均null，不拿旧S1c v3或生成器时间比较。输出准确保留**测量HEAD3fd、hostname gw-dms-test及原run/state SHA**；CT05/5b只是后处理执行来源，不改记为在5b或CT05重新测量。该值是completion，不与§101 API用户可见4027.732s互换。
+
+本轮未运行测试、产品或业务，只读代码及CT05已完成的证据。产品/镜像边界不变，不触发重建，未宣称最终container gate carried。结论直接送实施者并同步设计；W4-FULL仍按18a在CT108继续，107b不重跑，W4-STRESS及A其他真实缺项继续原分工，无新增GO或整体exit结论。

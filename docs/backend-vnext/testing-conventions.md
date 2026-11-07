@@ -21,7 +21,7 @@ Host 依赖准备与权威测试分为两阶段，不得混用机器级 index：
 所有测试、容器门禁与取证都在专用测试节点上执行（owner 决议 DC34、DC36），不回退到开发主机。分工：
 门禁节点 `ct108-gw-dms-04` 运行权威全量 runner、容器门禁与 carried；调试节点 `ct108-gw-dms-05` 运行
 focused 测试、Rust 编译、解析器差分测试与真实数据 t1–t3；参考节点 `ct108-gw-dms` 用于 Phase 6 性能测量
-（测量期间独占）与真实数据 t4。Owner 于 2026-11-06 新增后端开发节点 `ct107-gw-dms-06`（16 vCPU / 32 GiB / 300 GiB thin，`192.168.233.207`），用于 Rust、focused/Contract/差分和小规模 Compose；新增前端开发节点 `ct109-gw-dms-07`（8 vCPU / 16 GiB / 200 GiB thin，`192.168.233.208`），用于类型检查、lint、单测、构建、截图与 mock e2e。它们不承接正式性能测量、权威 runner/carried 或默认真实数据全旅程；[节点核对与证据](refactoring/formal/plans/p6-node-06-07-readiness.md)另记。
+（测量期间独占）与真实数据 t4。Owner 于 2026-11-06 新增后端开发节点 `ct107-gw-dms-06`（16 vCPU / 96 GiB / 300 GiB thin，`192.168.233.207`；内存于 2026-11-07 从 32 GiB 扩容并实核），用于 Rust、focused/Contract/差分和小规模 Compose；新增前端开发节点 `ct109-gw-dms-07`（8 vCPU / 16 GiB / 200 GiB thin，`192.168.233.208`），用于类型检查、lint、单测、构建、截图与 mock e2e。它们不承接正式性能测量、权威 runner/carried 或默认真实数据全旅程；[节点核对与证据](refactoring/formal/plans/p6-node-06-07-readiness.md)另记。
 
 原 04、05、CT108 互不共享硬件；新增 06/07 与 04 共享物理宿主，不与 CT108 共享宿主。Owner 确认宿主资源宽裕，06/07 日常开发与测试自主并行，不自动与 04 互斥，不为新节点占用 04 或向原基准总协调申请窗口/汇报资源。各节点自身占用、服务/端口及同节点计时独占规则不变；只有实际干扰、跨节点操作或明确冲突才针对性协调，不以存在竞态的跨节点空闲查询建立常规前置。cpuset 分离不证明 SMT、内存和磁盘 I/O 无竞争，新节点不提供正式性能数值。06 初始 pytest workers/Cargo jobs 建议各为 4，与产品 kernel N/M 分开。07 使用 `GATEWAY_FE_TEST_WORKERS=2` 限制 Playwright 并发。宿主 thin pool 的 data/metadata 余量由管理员监测，guest `df` 不能代替；这不作为日常开发的额外审批。克隆的历史 worktree、日志、镜像标签和卷不自动成为新节点证据，初始化不擅自删除。
 

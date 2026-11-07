@@ -34,7 +34,7 @@
 | `ct108-gw-dms-04` | 门禁：权威全量 runner、容器门禁与 carried |
 | `ct108-gw-dms-05` | 调试：focused 测试、Rust 编译、解析器差分测试、真实数据 t1–t3 |
 | `ct108-gw-dms` | 参考与取证：Phase 6 性能测量（测量期间独占）、真实数据 t4 |
-| `ct107-gw-dms-06` | 后端日常开发：Rust 编译、focused/Contract/差分及小规模 Compose；16 vCPU、32 GiB、300 GiB thin；`192.168.233.207` |
+| `ct107-gw-dms-06` | 后端日常开发：Rust 编译、focused/Contract/差分及小规模 Compose；16 vCPU、96 GiB（2026-11-07 扩容实核）、300 GiB thin；`192.168.233.207` |
 | `ct109-gw-dms-07` | 前端日常开发：类型检查、lint、单元测试、构建、截图、mock e2e；8 vCPU、16 GiB、200 GiB thin；`192.168.233.208` |
 
 新增节点不承接权威 runner/carried、正式性能测量或默认真实数据全旅程；前端真实 backend e2e 仍在 05 调试、04 取证。Owner 已确认 04/06/07 宿主资源宽裕，06/07 日常开发和测试可以自主并行，不因共享宿主自动要求与 04 互斥，不为新节点常规运行占用 04，也无需向原基准总协调申请窗口或汇报资源。保留各节点自身的有效占用、服务/端口及同节点计时独占规则；实际出现资源干扰、跨节点操作或明确冲突时才针对性协调。cpuset 不重叠不证明完全无竞争，新节点结果不作正式性能依据。验收记录见 [06/07 核对报告](docs/backend-vnext/refactoring/formal/plans/p6-node-06-07-readiness.md)。

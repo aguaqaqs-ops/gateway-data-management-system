@@ -30,25 +30,22 @@ impl ConfigurationGeneratedTime {
 
     pub(crate) fn observe(&mut self, value: &Lit<'_>, kind: &ValueKind) {
         let row = self.row_count() + 1;
-        let text = match value {
-            Lit::Null => {
-                self.empty_count += 1;
-                return;
-            }
-            Lit::Str(text)
-                if matches!(
-                    kind,
-                    ValueKind::Str | ValueKind::DateTime | ValueKind::Timestamp
-                ) =>
-            {
-                text.as_ref()
-            }
-            _ => {
-                self.invalid_count += 1;
-                return;
-            }
+        if matches!(value, Lit::Null) {
+            self.empty_count += 1;
+            return;
+        }
+        if !matches!(
+            kind,
+            ValueKind::Str | ValueKind::Enum | ValueKind::DateTime | ValueKind::Timestamp
+        ) {
+            self.invalid_count += 1;
+            return;
+        }
+        let Ok(text) = super::convert::require_text(value, 0) else {
+            self.invalid_count += 1;
+            return;
         };
-        let text = trim_allowed(text);
+        let text = trim_allowed(text.as_bytes());
         if text.is_empty() {
             self.empty_count += 1;
             return;

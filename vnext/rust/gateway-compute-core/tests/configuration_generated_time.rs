@@ -1,6 +1,20 @@
 use gateway_compute_core::table_access::{
-    ParseStatus, SqlParseOptions, build_parser_pool, parse_sql_dump,
+    ConfigurationGeneratedTime, ParseStatus, SqlParseOptions, SqlParseOutput, build_parser_pool,
+    parse_sql_dump,
 };
+
+fn pool(threads: usize) -> rayon::ThreadPool {
+    match build_parser_pool(threads) {
+        Ok(pool) => pool,
+        Err(error) => unreachable!("pool: {error}"),
+    }
+}
+fn time(output: SqlParseOutput) -> ConfigurationGeneratedTime {
+    match output.configuration_generated_time {
+        Some(facts) => facts,
+        None => unreachable!("successful fixture must produce source time facts"),
+    }
+}
 
 #[test]
 fn configuration_time_uses_closed_utc_grammar() {
@@ -56,14 +70,14 @@ fn configuration_time_uses_closed_utc_grammar() {
         ("2026-11-07T12:00:00.", None),
         ("1794052800", None),
     ];
-    let pool = build_parser_pool(1).unwrap();
+    let pool = pool(1);
     for (value, expected) in cases {
         let sql = format!(
             "CREATE TABLE version_manager(saved_time TEXT); INSERT INTO version_manager VALUES ('{value}');"
         );
         let parsed = parse_sql_dump(sql.as_bytes(), &SqlParseOptions::default(), &pool);
         assert_eq!(parsed.status, ParseStatus::Complete, "{value}");
-        let facts = parsed.configuration_generated_time.unwrap();
+        let facts = time(parsed);
         assert_eq!(facts.selected_time_utc().as_deref(), expected, "{value}");
         assert_eq!(facts.max_valid_time_utc().as_deref(), expected, "{value}");
         assert_eq!(
@@ -81,7 +95,7 @@ fn configuration_time_preserves_source_order_across_inserts_and_chunks() {
         INSERT INTO version_manager(saved_time,id) VALUES ('2026-11-07T11:00:00Z',1),('2026-11-07T11:00:00.0000000Z',0);";
     let mut previous = None;
     for threads in [1, 4] {
-        let pool = build_parser_pool(threads).unwrap();
+        let pool = pool(threads);
         for chunk_bytes in [1, 64, 1024] {
             let options = SqlParseOptions {
                 chunk_bytes,
@@ -89,7 +103,7 @@ fn configuration_time_preserves_source_order_across_inserts_and_chunks() {
             };
             let parsed = parse_sql_dump(sql, &options, &pool);
             assert_eq!(parsed.status, ParseStatus::Complete);
-            let facts = parsed.configuration_generated_time.unwrap();
+            let facts = time(parsed);
             assert_eq!(
                 facts.selected_time_utc().as_deref(),
                 Some("2026-11-07T11:00:00Z")
@@ -114,13 +128,7 @@ fn configuration_time_preserves_source_order_across_inserts_and_chunks() {
         }
     }
     let equal = b"CREATE TABLE version_manager(saved_time TEXT); INSERT INTO version_manager VALUES ('2026-11-07T12:00:00Z'),('2026-11-07T13:00:00+01:00');";
-    let facts = parse_sql_dump(
-        equal,
-        &SqlParseOptions::default(),
-        &build_parser_pool(2).unwrap(),
-    )
-    .configuration_generated_time
-    .unwrap();
+    let facts = time(parse_sql_dump(equal, &SqlParseOptions::default(), &pool(2)));
     assert_eq!(
         (facts.last_valid_source_row, facts.max_valid_source_row),
         (Some(2), Some(1))
@@ -130,7 +138,7 @@ fn configuration_time_preserves_source_order_across_inserts_and_chunks() {
 
 #[test]
 fn configuration_time_distinguishes_missing_business_values_and_typed_failures() {
-    let pool = build_parser_pool(1).unwrap();
+    let pool = pool(1);
     for (sql, status, counts) in [
         ("CREATE TABLE other(v TEXT);", "TABLE_ABSENT", (0, 0, 0)),
         (
@@ -161,7 +169,7 @@ fn configuration_time_distinguishes_missing_business_values_and_typed_failures()
     ] {
         let parsed = parse_sql_dump(sql.as_bytes(), &SqlParseOptions::default(), &pool);
         assert_eq!(parsed.status, ParseStatus::Complete);
-        let facts = parsed.configuration_generated_time.unwrap();
+        let facts = time(parsed);
         assert_eq!(facts.status, status);
         assert_eq!(
             (facts.valid_count, facts.empty_count, facts.invalid_count),
@@ -170,6 +178,15 @@ fn configuration_time_distinguishes_missing_business_values_and_typed_failures()
         assert_eq!(facts.last_valid_source_row, None);
         assert_eq!(facts.max_valid_source_row, None);
     }
+    let hex = time(parse_sql_dump(b"CREATE TABLE version_manager(saved_time TEXT); INSERT INTO version_manager VALUES (X'323032362d31312d30375431323a30303a30305a'),(X'');", &SqlParseOptions::default(), &pool));
+    assert_eq!(
+        hex.selected_time_utc().as_deref(),
+        Some("2026-11-07T12:00:00Z")
+    );
+    assert_eq!(
+        (hex.valid_count, hex.empty_count, hex.invalid_count),
+        (1, 1, 0)
+    );
     for sql in [
         "CREATE TABLE version_manager(saved_time TIMESTAMP); INSERT INTO version_manager VALUES ('2026-11-07T12:00:00+01:00');",
         "CREATE TABLE version_manager(saved_time DATETIME); INSERT INTO version_manager VALUES ('2026-11-07T12:00:00+01:00');",

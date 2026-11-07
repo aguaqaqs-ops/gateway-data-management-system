@@ -203,7 +203,7 @@ fn check_unicode(text: &str, offset: usize) -> Result<(), ConvError> {
     Ok(())
 }
 
-fn require_text<'b>(lit: &'b Lit<'_>, offset: usize) -> Result<Cow<'b, str>, ConvError> {
+pub(super) fn require_text<'b>(lit: &'b Lit<'_>, offset: usize) -> Result<Cow<'b, str>, ConvError> {
     let bytes: &[u8] = match lit {
         Lit::Keyword(text) => return Ok(Cow::Borrowed(text)),
         Lit::Number(text) => text,

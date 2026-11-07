@@ -36,6 +36,8 @@
 
 实施者维护原运行/步骤到上述各行的具体证据索引；首轮只集中核本次 source→目标与必要执行条件，不把所有历史记录重新审一遍作为启动前提。原 handoff 较新记录已把 full-v2、H1-REFILL、H2/H3 从待办扣除，其旧 §200 待办不再驱动执行。
 
+**04最终镜像准备补充：** 已核本冻结线RS测试harness同时检查candidate SHA、build-input、source-tree和lock，而backend harness只检查RS的source身份；共享闭包又包含所选RS本机image ID。最终V_ref冻结后，在04专用tag上预先核齐RS revision等身份，避免后段测试自动重建同tag。沿现有取证方式保存实际运行前不可变config digest、全部有序DiffID及同节点image ID，并核对结束时RS tag是否漂移；不能以终态tag代旧runtime或仅凭same-source宣称carried。这里不借其他开发线的结果或补验方案，不提前运行未冻结候选，不修改CT108的测量镜像/tag；client e2e的既有正常自动重建规则保持。
+
 本地 Git 已核 `e798ec87a37330250b0c051162e7962dba1daa60` 是 `9704d0b286` 的祖先，且 `application/checkpoints.py` 无差异，READY 容量修复已被目标包含；无需再证明两棵产品树相同。目标相对该 H 的生产路径差异只有 RS metadata/cold catalog、JCS digest sink、worker GC 调度及其必要导出，按已审具体差异映射，不使用任意版本或通用 skip。
 
 ## 工具、镜像和时间预算

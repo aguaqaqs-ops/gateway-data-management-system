@@ -2916,3 +2916,11 @@ BatchMode确认05连接后已直接读闭合 `ct05-image-guard-validation-6ffb3c
 §131尚未核原件的首轮失败现也直接读取：`ct05-image-guard-validation.log` SHA **`67e0ba757db477b89323b1f9d134c96a434c6ff92e7577a74aca71a8b892f783`**，22:17:42–43Z、cleana20e3bca，真实start路径保留原--no-build后又前置一个，导致1 failed/8 passed；8783用规范化去重复而非删断言修复。上述两份closed日志已LAN存§131审核目录，两端重算SHA精确相等，原失败均保留。查询日志目录时05无rg已改用ls，纯只读目录查询未触被测对象，不算测试/测量失败或重试。
 
 无DC63旅程、容器或POST启动、预算/身份未消耗；运行HEAD修正没有增加Owner/设计/审核GO条件。最终controller/实际环境的required approved-images、准确候选HEAD和八项proxy unset继续在同一集中包核查。独立04新H门禁、标准记录/比较器收口仍按原授权推进，本节不宣称整体exit。
+
+## 133. d2ffe诊断镜像保护代码与必要05验证独审PASS，实际controller绑定待核
+
+**`d2ffe1ac3af5e06ab6cf2a6f760124e0512e7dd6` 的本轮诊断镜像保护、HEAD绑定及必要05验证独审PASS，§130–132具体代码/静态阻塞关闭。** 相对6ffb仅改四项类型/模块patch写法：真实journey模块同名属性用setattr安装、测试JSON显式dict[str, Any]、测试直接patch已import的subprocess对象，以及用monkeypatch登记真实journey别名以恢复测试作用域。真实guard、三镜像完整校验、当前/基点HEAD语义、start控制流与所有断言保持，没有type-ignore、共享harness/产品/Compose或预算变化。独立读完整diff/diff-check，建立准确只读detached `/home/dev/gdds-p6-review-dc63-d2ffe1ac`；未在CT201执行测试。
+
+BatchMode确认05后，直接读取闭合 `ct05-image-guard-validation-d2ffe1ac.log`，SHA **`0d9670a0c8bd3abc93427b44801d14f02e971c07cf808ff6f2eceaedaac65817`**，LAN审核副本存§131同目录，两端重算相等。实际22:26:04–05Z、gw-dms-test-05、完整d2ffe起止clean；Ruff0、两文件 **11 passed/0.64s**、pytest0，**backend mypy504 files/no issues/exit0**。6ffb的mypy四项及a20e的重复flag失败原日志保留，不改为PASS；本结论无需重跑已通过业务、输入校验、其他未改包或大输入旅程。
+
+原§130已核11958真实输入、冻结三镜像/source-tree与诊断build-input差异、未消耗project及77400/78620/79200预算继续适用。实施者正在将准确d2ffe提交同步CT108并更新controller，需核其新required --approved-images、实际HEAD及全部大小写proxy unset是否接通；不是要求新Owner/设计GO或逐摘要许可。当前尚未收到修订实际controller，不宣称DC63已启动/通过或整体exit；镜像保护修复代码无剩余Finding，双方直接完成最后具体接线后沿原授权接续。

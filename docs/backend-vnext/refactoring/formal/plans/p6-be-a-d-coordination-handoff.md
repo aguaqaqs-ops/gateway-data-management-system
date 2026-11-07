@@ -26,7 +26,11 @@
 
 截至A1首个候选，本轮尚无已完成的测试、lint、编译、容器、真实数据证据；06占用以实施者后续实际取得/释放记录为准。协调文档编辑不触发镜像重建，最后实际产品镜像仍属S2b V `a6876d5600`（身份见设计独审§5），不作为新规则验证。A1修改真实Compose测试与session接线，已触发收敛候选06小型容器门禁：`test_review_compose_e2e.py`、`test_archive_compose_e2e.py`，实际nodeid及provenance由实施handoff记录；联合最终容器仍必须绑定实际最终候选。
 
-联合按包比较的既有合格来源可从S2b E交接§30后及最终记录定位：04保留原WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`，实际V `a6876d560050285321fd9f62942d590a03f35d64`，六包原始起始manifest位于04 `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-m24-a6876d56/six-package-authority-01/original-starting-manifests/`。这是来源定位，没有在本轮访问/检出该WT或计算carried；最终须先核实际状态与来源条件，不因记录存在而宣称沿用。
+联合按包比较的既有合格来源可从S2b E交接的最终记录定位：04保留原WT `/home/dev/gdds-test-tmp/wt/p6-s2b-e-gate`，实际V `a6876d560050285321fd9f62942d590a03f35d64`，六包原始起始manifest位于04 `/home/dev/gdds-test-tmp/artifacts/s2b-e-gate-m24-a6876d56/six-package-authority-01/original-starting-manifests/`。这是来源定位，没有在本轮访问/检出该WT或计算carried；最终须先核实际状态与来源条件，不因记录存在而宣称沿用。
+
+### 3.1 A1 首轮独审进行中
+
+固定审 `adc2863e7f`，主要产品diff/consumer初读未见方向性冲突，尚无GO。审核者已直接交实施者：reason共享反例漏必填字段导致收集错误（F1）、finalize后active Attempt→PENDING门禁连续性的代表性验收缺口（F2），另有owning文档残余/混称待修。ABORTED投影已由原Submit owner新增CreateOrGet断言覆盖，审核者明确撤回重复补测要求。后续以同一审核角色的正式报告/复审及06实际日志为准；不将审查预判当作测试结果。
 
 06后端focused，05默认真实t1，04最终runner/carried；07由前端owner安排，CT108不使用。使用时现场核查并原子取得本节点标志，结束收尾后释放；尊重有效占用和计时独占。04最终取证期间避免06重负载干扰，不设跨CT常规审批。clean已提交测试worktree、LAN源码/缓存、UV_OFFLINE/CARGO_NET_OFFLINE、日志hostname/起止HEAD/UTC/exit/SHA及镜像身份规则均遵守。缓存或节点前提失效时停止受影响验证并修正，不回退开发主机。
 

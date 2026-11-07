@@ -32,6 +32,7 @@ V1交付源序时间提取和initial/modified内容事实，经Rust→Preview ma
 - Preview owner（`test_preview_job_materialize.py`、相应worker/publish/checkpoint owner）验证重启读取冻结事实、源/规则/内容绑定与缺必需字段损坏，取消/失租/旧generation不能部分发布。复用既有冻结恢复语义屏障，不穷举内部步骤。
 - Submit owner（`test_submit_transactions.py`及实际T1/finalize owner）验证T1与finalize复制一致、原成功回放/重启不改事实、拒绝不写部分Attempt/Submission；一个代表案例证明Preview/SQL过期后仍可从Submission及baseline source独立读取。不要在归档事务重扫文件/调用Repository。
 - 只更新所属新facts/版本/checkpoint身份golden；既有业务digest/比较结果应保值，不以无兼容包袱为由重录所有golden。V2将facts身份纳入candidate/selection/anomaly subject的后续变更须明确交接，不漏consumer。
+- **已发生接线澄清`a24b7034e9`**：保留既有ADDITIVE旧基线Preview；baseline identity取source Submission.modified原rules/projection/scalar，核commit/manifest/facts绑定，MODIFIED_ONLY initial精确复制，FULL两上传侧用本operation冻结规则。不能强制三侧规则全等或以runtime重标历史。operation/runtime mismatch、T1 derived stale、STORAGE_BREAKING及未知/不支持格式/损坏仍按原边界拒绝。原`test_additive_ruleset_previews_nonempty_baseline_from_older_manifest`保留并补相应事实断言；V2仅禁止跨身份直接判等，不把合法差异变整批硬拒绝。
 
 ## 4. 节点、证据与收口
 

@@ -14,6 +14,7 @@
 
 - 仅exact scope当前baseline和同轮未终局处置APPROVED全集，最多200；PENDING/active Attempt按A1硬门禁，草稿不阻塞。旧历史/关闭/他scope不当来源锚，损坏不通过SQL过滤隐藏。
 - 完整内容身份含规范集合/摘要、projection/ruleset/scalar。从当前baseline固定点扩展initial→modified，可匹配已解释initial/modified，支持链/分叉；未知同根/无锚环不能互证。尚不可达子图按弱连通分量稳定分组，subject冻结全部成员/边/影响，人工接受不插入证明边。初始空baseline为明确NOT_APPLICABLE；FULL两侧质量仍查，MODIFIED_ONLY为BASELINE_REUSED，不假称上传initial已验。replacement/身份接受不豁免来源/时间。
+- **身份空间差异澄清（设计提交`a24b7034e9`，§3.1/§8）**：合法旧A/newB不是事实损坏/整批硬门禁，只禁止跨身份直接判等。MODIFIED_ONLY允许baseline锚定的旧A initial→新B modified边，之后其他B initial可匹配已解释B；FULL B不能仅凭digest同匹配A，无其他解释来源时按既定UNEXPLAINED分组及有理由接受，版本差异只作诊断细节，不新增issue突破1601。未知/不支持格式、绑定损坏和operation/runtime失配等原硬边界不变，不重标历史事实。纯规则owner补A→B已锚/无锚向量。
 - 时间严格按设计§4/§7.1固定分组：每实际上传侧质量一项（缺有效值/INVALID互斥）及LAST_NOT_MAX单列；modified对initial/baseline倒退relations合并为一项，initial对baseline独立。baseline原质量只作历史展示；必要时间缺失另产生全局BASELINE_TIME_UNAVAILABLE，仍NOT_COMPARABLE。所有APPROVED候选参与，不能通过改选择隐藏异常。
 - 权限/scope、PENDING/active、Head/集合/事实损坏/规则身份矛盾、资源边界和CAS不可豁免。只有已定来源/时间问题由`archive_submission`逐项非空reason接受/撤销；detected UNKNOWN与resolution ACCEPTED分开，不能改成PASS。复用现有audit，不做自由issue/忽略全部。
 - 新subject/fingerprint绑定Head、完整candidate-set、V1 facts/规则身份、issue与完整relations/group，按对应subject失效；Start exact最新肯定references，缺/多/重/过期拒绝。原成功replay在当前鉴权后按冻结原输入返回，不重判新门禁。Plan/Result冻结输入、规则、问题及接受引用，与Baseline/Head/Workspace同事务。
